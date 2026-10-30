@@ -383,8 +383,10 @@ func (c *checker) methodOf(t Type, name string) (*Signature, *Func) {
 // selfSig is the signature x.f(…) calls for a value of t (196m): f's
 // without its first parameter, which x fills. On an instance of a generic
 // t, the type parameters the first parameter names take t's type
-// arguments; f's other type parameters stay the signature's own.
-func (c *checker) selfSig(t *Named, f *Func) *Signature {
+// arguments; f's other type parameters stay the signature's own. A
+// prelude function on a slice or a Map binds them from the element, key
+// and value types (D-D8).
+func (c *checker) selfSig(t Type, f *Func) *Signature {
 	sig := c.funcSig(f)
 	if len(sig.Params) == 0 {
 		return sig
@@ -422,20 +424,51 @@ func ownTypeParam(t *Named, f *Func) *TypeParam {
 
 // selfBinding maps the type parameters of f that its first parameter's
 // type arguments name to t's type arguments, by position.
-func selfBinding(t *Named, f *Func) map[*TypeParam]Type {
+func selfBinding(t Type, f *Func) map[*TypeParam]Type {
 	m := map[*TypeParam]Type{}
+	targs := selfTArgs(t)
 	for i, a := range f.selfArgs {
 		id, _ := a.(*syntax.Ident)
-		if id == nil || i >= len(t.TArgs) || f.Sig == nil {
+		if id == nil || i >= len(targs) || f.Sig == nil {
 			continue
 		}
 		for _, tp := range f.Sig.TParams {
 			if tp.Name == id.Name {
-				m[tp] = t.TArgs[i]
+				m[tp] = targs[i]
 			}
 		}
 	}
 	return m
+}
+
+// selfTArgs are the type arguments x's type t gives the first parameter of
+// a function x.f(…) reaches: a named type's, a slice's element type, or a
+// Map's key and value types (D-D8).
+func selfTArgs(t Type) []Type {
+	switch t := t.(type) {
+	case *Named:
+		return t.TArgs
+	case *Slice:
+		return []Type{t.Elem}
+	case *Map:
+		return []Type{t.Key, t.Elem}
+	}
+	return nil
+}
+
+// fullTypeArgs are the type arguments of every type parameter of f, in
+// f's order: those x of x.f(…) binds (self) and those the call wrote or
+// inferred (rest), the Info.Calls TypeArgs fact (D-D8).
+func fullTypeArgs(f *Func, self, rest map[*TypeParam]Type) []Type {
+	targs := make([]Type, len(f.Sig.TParams))
+	for i, tp := range f.Sig.TParams {
+		if b, ok := self[tp]; ok {
+			targs[i] = b
+		} else {
+			targs[i] = rest[tp]
+		}
+	}
+	return targs
 }
 
 // sigHasInvalid reports whether a parameter or result type of sig is

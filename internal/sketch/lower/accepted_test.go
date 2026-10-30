@@ -80,7 +80,6 @@ var refusalReasons = []struct {
 	pattern *regexp.Regexp
 }{
 	{"RangeStmt", regexp.MustCompile(`^for … in is lowered after check-v1 stage D`)},
-	{"call:Prelude", regexp.MustCompile(`^the prelude dot call \S+ is lowered after check-v1 stage D`)},
 	{"InterpolatedString", regexp.MustCompile(`^an interpolated string is lowered after check-v1 stage E`)},
 	{"WireLit", regexp.MustCompile(`^an inline wire value is lowered after check-v1 stage E`)},
 	{"TestDecl", regexp.MustCompile(`^test blocks run under ergo test, which lowering adds after check-v1 stage E`)},
@@ -88,7 +87,7 @@ var refusalReasons = []struct {
 	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
 	{"ProvidesClause", regexp.MustCompile(`^a wire header is checked by #196 stage b`)},
 	{"ExternSpec:user", regexp.MustCompile(`^a user extern go binding \(here of \S+\) is lowered after check-v1 stage E`)},
-	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered after check-v1 stage D \(D3: std calls`)},
+	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered after check-v1 stage D3b \(std calls`)},
 	{"TypeDecl:constraint", regexp.MustCompile(`^the constraint .+ of \S+ is lowered after check-v1 stage E`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported wire is lowered after check-v1 stage B`)},
 	{"FuncValue:instantiation", regexp.MustCompile(`^the generic function \S+ used as a value has a type parameter \S+ that no parameter names; its instantiation needs a check-v1 Info fact \(lower-v1 request\)`)},
@@ -98,7 +97,6 @@ var refusalReasons = []struct {
 	{"ReturnStmt:tuple", regexp.MustCompile(`^returning several values is a tuple, lowered after check-v1 stage B`)},
 	{"CaseClause:duplicate", regexp.MustCompile(`check-v1 stage B reports such an arm as unreachable \(D-B4\)$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
-	{"call:Func:genericDot", regexp.MustCompile(`^a dot call to the generic function \S+ is lowered after check-v1 stage D \(D-D8\)$`)},
 	{"conv:Operations:generic", regexp.MustCompile(`^an operations conversion inside a generic function is lowered after check-v1 stage E \(D-E1\)$`)},
 	{"Interface:any", regexp.MustCompile(`^the type .+ is lowered after check-v1 stage E \(no any, constraints\)$`)},
 }

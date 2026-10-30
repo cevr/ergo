@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -1494,6 +1495,46 @@ func (c *checker) collectSelfFuncs() {
 			f.owner.addMethod(f)
 		}
 	}
+	if c.pkg.Path == std.PreludePath {
+		for _, f := range c.funcs {
+			c.cur = f.file
+			if key, args, ok := c.collOwner(f); ok {
+				if c.pkg.collFuncs == nil {
+					c.pkg.collFuncs = map[collKey]*Func{}
+				}
+				f.selfArgs = args
+				c.pkg.collFuncs[key] = f
+			}
+		}
+	}
+}
+
+// collOwner reports a prelude function x.f(…) reaches from a slice or a Map
+// (D-D6, D-D8): its first parameter is written []T or Map[K, V], with T, K
+// and V distinct type parameters of f, which the receiver's element, key
+// and value types bind. The arguments are returned in that order.
+func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
+	d := f.Decl
+	if f.Name == "main" || d.Type == nil || d.Type.Params == nil || len(d.Type.Params.List) == 0 {
+		return collKey{}, nil, false
+	}
+	var args []syntax.Expr
+	key := collKey{name: f.Name}
+	switch t := d.Type.Params.List[0].Type.(type) {
+	case *syntax.ArrayType:
+		if t.Len != nil {
+			return collKey{}, nil, false
+		}
+		args = []syntax.Expr{t.Elt}
+	case *syntax.MapType:
+		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
+	default:
+		return collKey{}, nil, false
+	}
+	if d.TypeParams == nil || !c.selfArgsOK(d, args) {
+		return collKey{}, nil, false
+	}
+	return key, args, true
 }
 
 // selfOwner returns the type x.f(…) reaches f from, or nil: the type of

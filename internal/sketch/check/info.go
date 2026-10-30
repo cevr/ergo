@@ -89,6 +89,16 @@ type Package struct {
 
 	qualify bool // print its types with the package name
 	files   []*fileInfo
+	// collFuncs are the prelude's functions on slices and Maps by kind and
+	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
+	// unnamed slice or Map type; nil in every other package.
+	collFuncs map[collKey]*Func
+}
+
+// collKey names a prelude function on a slice (isMap false) or a Map.
+type collKey struct {
+	name  string
+	isMap bool
 }
 
 // Info records the checker's results for the lowering (#197, #50).
@@ -180,8 +190,10 @@ const (
 	CallLen
 	// CallWith is a with block; Info.Withs holds its site.
 	CallWith
-	// CallPrelude is a prelude dot call, xs.Append(x) or m.Delete(k), named
-	// by Name, on Recv (stage D owns the prelude's dot calls, D-D6).
+	// CallPrelude is not produced since check-v1 stage D3a: a prelude dot
+	// call, xs.Append(x), m.Get(k) or m.Delete(k), is a CallFunc with Recv
+	// and the full TypeArgs (D-D6, D-D8). The constant stays, as the Info
+	// contract is additive.
 	CallPrelude
 )
 
@@ -193,13 +205,14 @@ type Call struct {
 	// Op is the called operation of an operation type or capability
 	// (CallOp, CallProviderOp).
 	Op *Method
-	// Name names a CallPrelude's library function.
+	// Name named a CallPrelude's library function; empty since stage D3a.
 	Name string
-	// Recv is the receiver of a dot call, an operation call or a prelude
-	// call; nil otherwise.
+	// Recv is the receiver of a dot call or an operation call; nil
+	// otherwise.
 	Recv syntax.Expr
-	// TypeArgs are the type arguments of a generic function, written or
-	// inferred, in its parameter order.
+	// TypeArgs are the type arguments of a generic function, written,
+	// inferred or bound by a dot call's receiver (D-D8), one for each of
+	// its type parameters, in its parameter order.
 	TypeArgs []Type
 	// Type is a conversion's target type.
 	Type Type
@@ -403,14 +416,17 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 	switch {
 	case fun.mode == modeType:
 		call.Kind, call.Type = CallConversion, fun.typ
-	case fun.mode == modeBuiltin && fun.recv != nil:
-		call.Kind, call.Name, call.Recv = CallPrelude, fun.obj.name(), recv()
 	case fun.mode == modeBuiltin:
 		call.Kind = CallLen
 	case fun.mode == modeCapFn:
 		call.Kind, call.Op = CallProviderOp, fun.method
 	case fun.fn != nil:
 		call.Kind, call.Func, call.Recv = CallFunc, fun.fn, recv()
+		if fun.mode == modeValue && len(fun.self) > 0 {
+			// x binds every type parameter of f (D-D8); a call that
+			// infers the rest records them all in callGeneric.
+			call.TypeArgs = fullTypeArgs(fun.fn, fun.self, nil)
+		}
 	case fun.method != nil:
 		call.Kind, call.Op, call.Recv = CallOp, fun.method, recv()
 	default:

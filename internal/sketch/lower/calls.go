@@ -43,8 +43,6 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 			ice(x, "len with %d arguments", len(x.Args))
 		}
 		return operand{val: "len(" + fc.value(x.Args[0]) + ")"}
-	case check.CallPrelude:
-		refuse(x, "the prelude dot call %s is lowered after check-v1 stage D (D-D6) and lower-v1 stage 3", c.Name)
 	}
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
@@ -78,9 +76,6 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 // call that cannot fail at this site drops its error, which is nil.
 func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	c := fc.l.info.Calls[x]
-	if c.Kind == check.CallPrelude {
-		refuse(x, "the prelude dot call %s is lowered after check-v1 stage D (D-D6) and lower-v1 stage 3", c.Name)
-	}
 	text, _, fallible := fc.callText(x, c)
 	if fallible && len(rowElems(c.Fails)) > 0 {
 		ice(x, "an untried fallible call in a statement")
@@ -122,11 +117,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		} else {
 			if len(c.TypeArgs) < len(c.Func.Sig.TParams) {
 				// Info names fewer type arguments than the function has
-				// (stage C round 4 review T1): a dot call on a generic
-				// type, whose receiver binds the rest, or an instance in
-				// parentheses, (Fn[int])(1), which is a value.
+				// (stage C round 4 review T1): an instance in parentheses,
+				// (Fn[int])(1), which is a value. A dot call has them all,
+				// its receiver's included (D-D8).
 				if c.Recv != nil {
-					refuse(x, "a dot call to the generic function %s is lowered after check-v1 stage D (D-D8)", c.Func.Name)
+					ice(x, "a dot call to the generic function %s with %d of its %d type arguments", c.Func.Name, len(c.TypeArgs), len(c.Func.Sig.TParams))
 				}
 				if _, ok := unparen(x.Fun).(*syntax.IndexExpr); ok {
 					refuse(x.Fun, "an explicit instantiation used as a value is lowered after check-v1 stage E")
@@ -146,7 +141,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// that takes the caller's task as a hidden argument; binding it is
 		// D3's, as a std function call is (useFunc).
 		if n := fc.l.foreignOwner(fc.typeOf(c.Recv)); n != nil {
-			refuse(x, "a call to the std operation %s.%s is lowered after check-v1 stage D3 (std calls with their hidden task and scope arguments)", n.Obj.Name, c.Op.Name)
+			refuse(x, "a call to the std operation %s.%s is lowered after check-v1 stage D3b (std calls with their hidden task and scope arguments)", n.Obj.Name, c.Op.Name)
 		}
 		vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
 		return "(" + vals[0] + ")." + memberName(c.Op.Name) + "(" + strings.Join(vals[1:], ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0

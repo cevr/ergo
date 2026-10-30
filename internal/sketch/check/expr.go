@@ -41,9 +41,9 @@ type operand struct {
 	mapElem bool
 	fn      *Func // the function an identifier names (main is S113 when called)
 	recvVar *Var
-	// recv is the slice or map that a library call xs.Append(x) or
-	// m.Delete(k) is made on (modeBuiltin); nil for a plain built-in.
-	recv *operand
+	// self binds the type parameters of fn that x of a dot call x.f(…)
+	// gives (196m, D-D8); the call records them in Info's TypeArgs.
+	self map[*TypeParam]Type
 	// method is the operation an operation-type or capability selector
 	// names (Info.Calls).
 	method *Method
@@ -399,6 +399,10 @@ func (c *checker) ident(x *syntax.Ident) operand {
 	if o == nil {
 		if form, ok := removedBuiltins[x.Name]; ok {
 			c.errorf(x, CodeUnknown, "%s is not predeclared in Ergo; %s", x.Name, form)
+			return bad(x)
+		}
+		if f := c.collNamed(x.Name); f != nil {
+			c.errorf(x, CodeUnknown, "unknown name %s; the prelude function %s is reached only by the dot form, %s", x.Name, x.Name, collForm(f))
 			return bad(x)
 		}
 		c.errorf(x, CodeUnknown, "unknown name %s", x.Name)
@@ -958,8 +962,8 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 	if p, ok := t.(*Pointer); ok {
 		t = p.Elem
 	}
-	if b := libraryMethod(t, x.Sel.Name); called && b != nil {
-		return operand{mode: modeBuiltin, obj: b, recv: &base}
+	if fn := c.collFunc(base.typ, x.Sel.Name); fn != nil {
+		return c.selfCall(x, base, c.selfSig(base.typ, fn), fn, called, index)
 	}
 	if s := asStruct(t); s != nil {
 		if f, _ := s.field(x.Sel.Name); f != nil {
@@ -986,6 +990,11 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			m = it.method(x.Sel.Name)
 		}
 		return operand{mode: modeValue, typ: sig, method: m}
+	}
+	if u := under(t); u != t && c.collFunc(u, x.Sel.Name) != nil {
+		// D-D8: the first parameter's type is x's type exactly.
+		c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s; the prelude function %s is on %s exactly: convert first, %s(%s).%s(…)", base.typ, x.Sel.Name, x.Sel.Name, u, u, exprText(x.X), x.Sel.Name)
+		return bad(x)
 	}
 	c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s", base.typ, x.Sel.Name)
 	return bad(x)
@@ -1044,21 +1053,22 @@ func (c *checker) selfCall(x *syntax.SelectorExpr, base operand, sig *Signature,
 	if p, ok := t.(*Pointer); ok {
 		t = p.Elem
 	}
-	if n, ok := t.(*Named); ok && len(fn.selfArgs) > 0 {
-		m := selfBinding(n, fn)
+	var self map[*TypeParam]Type
+	if len(fn.selfArgs) > 0 {
+		self = selfBinding(t, fn)
 		var tps []*TypeParam
 		var targs []Type
 		for _, tp := range fn.Sig.TParams {
-			if b, ok := m[tp]; ok {
+			if b, ok := self[tp]; ok {
 				tps, targs = append(tps, tp), append(targs, b)
 			}
 		}
 		c.recordInstantiation(fn.Name, tps, targs, x)
 	}
 	if len(sig.TParams) > 0 {
-		return operand{mode: modeGeneric, typ: sig, fn: fn}
+		return operand{mode: modeGeneric, typ: sig, fn: fn, self: self}
 	}
-	return operand{mode: modeValue, typ: sig, fn: fn}
+	return operand{mode: modeValue, typ: sig, fn: fn, self: self}
 }
 
 // overloadedText is the S108 of a plain reference to a name several package

@@ -547,18 +547,77 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 // the same target is refused where it is used (lower-v1 stage 3 adds the
 // prelude's and the std modules' other bodies; user externs follow
 // check-v1 stage E).
-func (l *lowerer) intrinsic(f *check.Func) func(params []string) string {
+//
+// The body is Go statements, one per line, each indented by one tab.
+func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) string {
 	if f.Pkg == nil || f.Pkg.Path != "prelude" || f.Decl == nil || f.Decl.Extern == nil {
 		return nil
 	}
 	s := f.Sig
-	if len(s.TParams) > 0 || len(s.Results) > 0 || len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {
+	if len(rowElems(s.Errors)) > 0 || len(rowElems(s.Uses)) > 0 {
 		return nil
 	}
-	if f.Name == "Sleep" && len(s.Params) == 2 && isPreludeType(s.Params[0].Type, "LiveScheduler") && isBasic(s.Params[1].Type, check.Duration) {
-		return func(params []string) string { return l.rt() + ".Sleep(" + params[1] + ")" }
+	if f.Name == "Sleep" && len(s.TParams) == 0 && len(s.Results) == 0 && len(s.Params) == 2 && isPreludeType(s.Params[0].Type, "LiveScheduler") && isBasic(s.Params[1].Type, check.Duration) {
+		return func(_ *funcCtx, params []string) string { return "\t" + l.rt() + ".Sleep(" + params[1] + ")\n" }
+	}
+	// The functions on slices and Maps (D-D6): Append and Delete call
+	// their runtime/v1 bodies; Get builds the program's Option, which the
+	// lowering emits in each program, so its body is written here.
+	if len(s.Params) != 2 || len(s.Results) != 1 {
+		return nil
+	}
+	switch {
+	case f.Name == "Append" && len(s.TParams) == 1 && isSliceOf(s.Params[0].Type, s.TParams[0]) && s.Params[1].Type == s.TParams[0] && isSliceOf(s.Results[0], s.TParams[0]):
+		return func(_ *funcCtx, params []string) string {
+			return "\treturn " + l.rt() + ".Append(" + params[0] + ", " + params[1] + ")\n"
+		}
+	case f.Name == "Delete" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isMapOf(s.Results[0], s.TParams[0], s.TParams[1]):
+		return func(_ *funcCtx, params []string) string {
+			return "\treturn " + l.rt() + ".Delete(" + params[0] + ", " + params[1] + ")\n"
+		}
+	case f.Name == "Get" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isPreludeType(s.Results[0], "Option"):
+		return func(fc *funcCtx, params []string) string {
+			some, none := optionVariants(s.Results[0], fc.site)
+			v := fc.scope.alloc("v")
+			return "\tif " + v + ", ok := " + params[0] + "[" + params[1] + "]; ok {\n" +
+				"\t\treturn " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}\n" +
+				"\t}\n" +
+				"\treturn " + fc.goType(none) + "{}\n"
+		}
 	}
 	return nil
+}
+
+// optionVariants are the Some and None variants of an Option instance.
+func optionVariants(t check.Type, site syntax.Node) (some, none check.Type) {
+	u, ok := t.(*check.Named).Underlying().(*check.Union)
+	if !ok || len(u.Variants) != 2 {
+		ice(site, "the prelude's Option is not a union of two variants")
+	}
+	for _, v := range u.Variants {
+		switch {
+		case isPreludeType(v, "Some"):
+			some = v
+		case isPreludeType(v, "None"):
+			none = v
+		}
+	}
+	if some == nil || none == nil {
+		ice(site, "the prelude's Option is not Some | None")
+	}
+	return some, none
+}
+
+// isSliceOf reports []T for the type parameter T.
+func isSliceOf(t check.Type, elem *check.TypeParam) bool {
+	s, ok := t.(*check.Slice)
+	return ok && s.Elem == elem
+}
+
+// isMapOf reports Map[K, V] for the type parameters K and V.
+func isMapOf(t check.Type, key, val *check.TypeParam) bool {
+	m, ok := t.(*check.Map)
+	return ok && m.Key == key && m.Elem == val
 }
 
 // isPreludeType reports the prelude's declared type name.
@@ -584,7 +643,7 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 		if !fd.library {
 			refuse(f.Decl, "a user extern go binding (here of %s) is lowered after check-v1 stage E (196x); this lowering implements an extern target only for the prelude declaration it binds", fd.extern)
 		}
-		refuse(site, "a call to the std function %s (extern go target %s) is lowered after check-v1 stage D (D3: std calls with their hidden task and scope arguments)", f.Name, fd.extern)
+		refuse(site, "a call to the std function %s (extern go target %s) is lowered after check-v1 stage D3b (std calls with their hidden task and scope arguments)", f.Name, fd.extern)
 	case fd.extern == "" && (f.Decl == nil || f.Decl.Body == nil):
 		refuse(site, "%s has no body, so it cannot be called", f.Name)
 	}
@@ -709,14 +768,8 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	}
 	head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 	if fd.extern != "" {
-		body := l.intrinsic(f)(paramNames)
-		b.WriteString(head.String() + " {\n")
-		if fc.frame.result != nil {
-			b.WriteString("\treturn " + body + "\n")
-		} else {
-			b.WriteString("\t" + body + "\n")
-		}
-		b.WriteString("}\n\n")
+		body := l.intrinsic(f)(fc, paramNames)
+		b.WriteString(head.String() + " {\n" + body + "}\n\n")
 		return
 	}
 	if directives {

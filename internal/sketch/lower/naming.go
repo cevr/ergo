@@ -153,6 +153,13 @@ func (l *lowerer) libraryPackages() []*check.Package {
 				add(n.Obj.Pkg)
 			}
 		}
+		// A dot call reaches a function no name uses: the prelude's
+		// xs.Append(x) on a slice (D-D8).
+		for _, c := range info.Calls {
+			if c.Func != nil {
+				add(c.Func.Pkg)
+			}
+		}
 	}
 	visit(l.info)
 	for i := 0; i < len(out); i++ {

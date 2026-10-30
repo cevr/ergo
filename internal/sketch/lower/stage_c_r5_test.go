@@ -45,7 +45,6 @@ func main() needs Console {
 // stage that owns them, never an internal compiler error.
 func TestCorpusGuardDeferredRefusals(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
-		{"generic-dot-call", "type G[T] { v T }\nfunc pick[T, U](g G[T], u U) U { u }\nfunc f(g G[int]) string { g.pick(\"x\") }\n", "a dot call to the generic function pick is lowered after check-v1 stage D (D-D8)"},
 		{"parenthesised-instance", "func Fn[T](x T) T { x }\nfunc f() int { ((Fn[int]))(1) }\n", "an explicit instantiation used as a value is lowered after check-v1 stage E"},
 		{"any-conversion", "func use(x any) {}\nfunc f() { use(1) }\n", "the type any is lowered after check-v1 stage E (no any, constraints)"},
 	} {

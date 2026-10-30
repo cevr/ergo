@@ -4,6 +4,7 @@ import (
 	"go/constant"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -63,9 +64,6 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		}
 		return c.conversion(x, fun.typ)
 	case modeBuiltin:
-		if fun.recv != nil {
-			return c.libraryCall(x, fun.obj.(*Builtin), *fun.recv)
-		}
 		return c.builtin(x, fun.obj.(*Builtin))
 	case modeCapFn:
 		c.charge(x, fun.cap)
@@ -343,7 +341,7 @@ func (c *checker) explicit(x *syntax.IndexExpr, fun operand) operand {
 		}
 		targs[i] = t
 	}
-	return operand{mode: modeGeneric, typ: sig, fn: fun.fn, val: nil, obj: &explicitArgs{targs: targs}}
+	return operand{mode: modeGeneric, typ: sig, fn: fun.fn, self: fun.self, obj: &explicitArgs{targs: targs}}
 }
 
 // cannotInfer reports a type parameter the inferred subset does not reach
@@ -678,6 +676,9 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 			targs[i] = in.m[tp]
 		}
 		c.recordInstantiation(fun.fn.Name, sig.TParams, targs, x)
+		if len(fun.self) > 0 {
+			targs = fullTypeArgs(fun.fn, fun.self, in.m)
+		}
 		c.callInfo(x).TypeArgs = targs
 	}
 	inst := c.subst(sig, in.m).(*Signature)
@@ -967,59 +968,53 @@ func isCallLike(x syntax.Expr) bool {
 
 // ---------------------------------------------------------------- builtins
 
-// libraryMethod returns the built-in that a decided library call on t
-// replaces: xs.Append(x) is Go's append(xs, x) on a slice, m.Delete(k)
-// Go's delete(m, k) on a map (#196, 196v: the built-ins append and delete
-// are removed). A slice or map has no field or other method, so the name
-// is unambiguous.
-func libraryMethod(t Type, name string) *Builtin {
-	switch under(t).(type) {
+// collFuncs are the prelude's functions on slices and Maps (D-D6). The
+// prelude reads its own; every other package reads the checked prelude's.
+func (c *checker) collFuncs() map[collKey]*Func {
+	if c.pkg.Path == std.PreludePath {
+		return c.pkg.collFuncs
+	}
+	return prelude().pkg.collFuncs
+}
+
+// collFunc is the prelude function x.name(…) reaches from a value of type
+// t, or nil: only from exactly an unnamed slice or Map type (D-D8), as the
+// first parameter is written. A slice or Map has no field or method, so
+// the name is unambiguous; one mechanism with a function on a declared
+// type (196m), not a built-in branch (196a D1).
+func (c *checker) collFunc(t Type, name string) *Func {
+	switch t.(type) {
 	case *Slice:
-		if name == "Append" {
-			return &Builtin{Name: "append"}
-		}
+		return c.collFuncs()[collKey{name: name}]
 	case *Map:
-		if name == "Delete" {
-			return &Builtin{Name: "delete"}
-		}
+		return c.collFuncs()[collKey{name: name, isMap: true}]
 	}
 	return nil
 }
 
-// libraryCall checks xs.Append(a, …) and m.Delete(k) on the checked
-// receiver recv: each element is assignable to the slice's element type
-// and the call yields the slice's type; the key is assignable to the
-// map's key type and the call has no value.
-func (c *checker) libraryCall(x *syntax.CallExpr, b *Builtin, recv operand) operand {
-	name := exprText(x.Fun)
-	if x.Trailing != nil {
-		c.errorf(x.Trailing, CodeType, "%s takes no block", name)
-		c.silentArgs(x)
-		return bad(x)
+// collNamed is the prelude function on slices or Maps named name, for the
+// message of a bare name that is in no scope (orchestrator ruling, stage
+// D3 round 1: Get(m, k) is S104 naming m.Get(k)).
+func (c *checker) collNamed(name string) *Func {
+	if f := c.collFuncs()[collKey{name: name}]; f != nil {
+		return f
 	}
-	switch b.Name {
-	case "append":
-		elem := under(recv.typ).(*Slice).Elem
-		if len(x.Args) == 0 {
-			c.errorf(x, CodeType, "%s takes the elements to append", name)
-			return bad(x)
+	return c.collFuncs()[collKey{name: name, isMap: true}]
+}
+
+// collForm is the dot form of the prelude function f, spelled with its
+// parameter names: m.Get(k).
+func collForm(f *Func) string {
+	var names []string
+	for _, field := range f.Decl.Type.Params.List {
+		for _, id := range field.Names {
+			names = append(names, id.Name)
 		}
-		for _, a := range x.Args {
-			op := c.valueExpr(a, elem)
-			c.assign(&op, elem, "argument")
-		}
-		return operand{mode: modeValue, typ: recv.typ}
-	default: // delete
-		key := under(recv.typ).(*Map).Key
-		if len(x.Args) != 1 {
-			c.errorf(x, CodeType, "%s takes one key", name)
-			c.silentArgs(x)
-			return bad(x)
-		}
-		k := c.valueExpr(x.Args[0], key)
-		c.assign(&k, key, "map key")
-		return operand{mode: modeNoValue, typ: NoValue}
 	}
+	if len(names) == 0 {
+		return f.Name + "(…)"
+	}
+	return names[0] + "." + f.Name + "(" + strings.Join(names[1:], ", ") + ")"
 }
 
 // builtin checks a call of len, the one built-in function (#196, fourth

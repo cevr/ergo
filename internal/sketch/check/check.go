@@ -506,8 +506,15 @@ func prelude() preludeResult {
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
+		coll := map[Object]bool{}
+		for _, f := range pkg.collFuncs {
+			coll[f] = true
+		}
 		for name, o := range pkg.Scope.names {
-			if isExported(name) {
+			// A function on slices or Maps is an operation of that type,
+			// reached by x.f(…), not a name in scope (D-D8; the decided
+			// preview's func Get on a local type keeps its name).
+			if isExported(name) && !coll[o] {
 				scope.insert(name, o)
 			}
 		}
