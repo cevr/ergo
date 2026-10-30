@@ -26,6 +26,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	c.pkg.Name = path.Base(c.pkg.Path)
 	c.pkg.qualify = true
 	c.collect()
+	c.checkImportAliases()
 	c.solveDeclKinds()
 	for _, tn := range c.pkg.Types {
 		c.cur = tn.file
@@ -325,7 +326,11 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	name := pkg.Name
 	if spec.Kind == syntax.ImportNamed {
 		name = spec.Name.Name
-		c.preludeName(spec.Name) // D-D3; the import still binds
+		// D-D3; the import still binds. A refused alias has its
+		// diagnostic and adds no D-D7 one.
+		if !c.preludeName(spec.Name) {
+			c.aliases = append(c.aliases, importAlias{fi, spec, path})
+		}
 	}
 	pn := &PkgName{Name: name, Pos: spec.Pos(), Pkg: pkg, spec: spec}
 	if name == "_" {
@@ -337,6 +342,71 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	fi.scope.insert(name, pn)
 	fi.imports = append(fi.imports, pn)
+}
+
+// importAlias is one resolved `import name path` spec of a file.
+type importAlias struct {
+	file *fileInfo
+	spec *syntax.ImportSpec
+	path string
+}
+
+// checkImportAliases is D-D7: an import alias is allowed only when the
+// path's last element clashes with a package-level name or with the name
+// another import of the same file binds; any other alias is S108, and
+// `_` follows the same rule (an Ergo import has no side effect to keep).
+// It runs once every package-level name is declared. Prior art: Go's style
+// guide renames an import only to avoid a collision; Gleam qualifies by
+// module and aliases with `as`; MoonBit qualifies by package.
+func (c *checker) checkImportAliases() {
+	for _, a := range c.aliases {
+		c.cur = a.file
+		def := lastElement(a.path)
+		clash := false
+		if _, ok := c.pkg.Scope.names[def]; ok {
+			clash = true
+		}
+		for _, d := range a.file.syntax.Decls {
+			d, ok := d.(*syntax.ImportDecl)
+			if !ok || clash {
+				continue
+			}
+			for _, s := range d.Specs {
+				if s != a.spec && importBinds(s) == def {
+					clash = true
+				}
+			}
+		}
+		if !clash {
+			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s (#196, fourth round, item 3)", a.path)
+		}
+	}
+}
+
+// lastElement is an import path's last element: the name a plain import
+// of it binds by default.
+func lastElement(path string) string {
+	return path[strings.LastIndex(path, "/")+1:]
+}
+
+// importBinds is the name an import spec binds in its file: its alias, or
+// its path's last element; "" for a malformed path or a dot import.
+func importBinds(s *syntax.ImportSpec) string {
+	if s.Kind == syntax.ImportNamed && s.Name != nil {
+		return s.Name.Name
+	}
+	if s.Kind == syntax.ImportDot || s.Path == nil {
+		return ""
+	}
+	path := s.Path.Value
+	if s.Path.Kind != syntax.PATH {
+		p, err := strconv.Unquote(path)
+		if err != nil {
+			return ""
+		}
+		path = p
+	}
+	return lastElement(path)
 }
 
 // bindBrokenImport binds the name of a failed import to an empty package,

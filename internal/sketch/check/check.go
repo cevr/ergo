@@ -72,6 +72,9 @@ type checker struct {
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).
 	refusedBinders map[binderKey]bool
+	// aliases are the resolved `import name path` specs, read by
+	// checkImportAliases once every package-level name is declared (D-D7).
+	aliases []importAlias
 	// writeTarget is the assignment target lhs is typing, so a Map entry
 	// there is a write (admitted) and anywhere else a read (S108; D2).
 	writeTarget syntax.Expr

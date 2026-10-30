@@ -675,8 +675,9 @@ func f() int64 { return with W { Ticker.Now() } + int64(n) + int64(fail()) }
 func g() timeout.Expired { return timeout.Expired }
 func main() {}
 `, nil},
-	{"import path", "an import alias", `
+	{"import path", "an import alias for a name clash (D-D7)", `
 import t timeout
+func timeout() int { return 1 }
 func f() t.Expired { return t.Expired }
 func main() {}
 `, nil},

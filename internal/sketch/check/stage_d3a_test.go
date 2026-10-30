@@ -142,3 +142,45 @@ func g(xs []int, m Map[string, bool], p Pair[int, string]) int {
 		}
 	}
 }
+
+// D-D7: an import alias is allowed only when the path's last element
+// clashes with a package-level name or with the name another import of the
+// file binds; any other alias, `_` and an alias equal to the default name
+// included, is S108 at the import. A refused alias (a prelude name, an
+// unknown package) keeps its one diagnostic.
+func TestImportAliasOnlyForClash(t *testing.T) {
+	const use = "func f() t.Expired {\n\tt.Expired\n}\n"
+	cases := []struct {
+		name, src string
+		want      []string
+	}{
+		{"no-clash", "import t timeout\n" + use, []string{"S108:1"}},
+		{"default-name", "import timeout timeout\nfunc f() timeout.Expired {\n\ttimeout.Expired\n}\n", []string{"S108:1"}},
+		{"blank", "import _ timeout\n", []string{"S108:1"}},
+		{"plain", "import timeout\nfunc f() timeout.Expired {\n\ttimeout.Expired\n}\n", nil},
+		{"clash-func", "import t timeout\nfunc timeout() int {\n\t1\n}\n" + use, nil},
+		{"clash-type", "import t timeout\ntype timeout { N int }\n" + use, nil},
+		{"clash-let", "import t timeout\nlet timeout = 1\n" + use, nil},
+		// The alias timeout for queue frees nothing (S108), and makes the
+		// alias t for timeout a clash resolved (admitted).
+		{"clash-import", "import timeout queue\nimport t timeout\n" + use + "func g() timeout.Queue[int] {\n\ttimeout.New[int](1)\n}\n", []string{"S108:1"}},
+		{"blank-clash", "import _ timeout\nfunc timeout() {}\n", nil},
+		{"prelude-name", "import string timeout\nfunc f() string.Expired {\n\tstring.Expired\n}\n", []string{"S108:1"}},
+		{"unknown-package", "import m missing/deep\nfunc f() m.T {\n\tm.T{}\n}\n", []string{"S104:1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, d := check.CheckSource(tc.src)
+			var got []string
+			for _, x := range d {
+				got = append(got, fmt.Sprintf("%s:%d", x.Code, x.Line))
+			}
+			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Fatalf("want %v, got %s", tc.want, describe(d))
+			}
+			if tc.name == "no-clash" && !strings.Contains(d[0].Message, "an import alias is only for a name clash; write import timeout") {
+				t.Errorf("message %q does not name the plain import", d[0].Message)
+			}
+		})
+	}
+}

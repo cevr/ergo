@@ -110,3 +110,27 @@ func main() needs Console {
 }
 `, "picked\nx\nnx\nx\n")
 }
+
+// TestErgoRunImportAliasForClash: an import alias that resolves a clash
+// with a package-level name (D-D7) names the package; the package-level
+// timeout keeps its own name.
+func TestErgoRunImportAliasForClash(t *testing.T) {
+	wantRun(t, `import t timeout
+
+func timeout() string {
+	"local timeout"
+}
+
+func expire() int fails t.Expired {
+	return t.Expired
+}
+
+func main() needs Console {
+	Console.Println(timeout())
+	let n = expire() catch { case t.Expired: 7 }
+	if n == 7 {
+		Console.Println("aliased")
+	}
+}
+`, "local timeout\naliased\n")
+}
