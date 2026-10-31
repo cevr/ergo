@@ -344,9 +344,11 @@ func (w *refWalker) ident(x *syntax.Ident) {
 	w.visit(x)
 	var o any
 	if !w.local(x.Name) {
-		switch obj := w.c.pkg.Scope.names[x.Name].(type) {
+		switch obj := w.c.typeObject(x.Name, w.c.cur).(type) {
 		case *Func:
-			o = obj
+			if obj.Pkg == w.c.pkg {
+				o = obj
+			}
 		case *Var:
 			if pv := w.c.pkgVarOf(obj); pv != nil {
 				o = pv

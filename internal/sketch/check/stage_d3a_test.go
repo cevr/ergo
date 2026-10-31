@@ -217,3 +217,19 @@ func TestImportClashRefusals(t *testing.T) {
 		t.Fatalf("cross-file clash: want one S108 in import file, got %s", describe(d))
 	}
 }
+
+// Broken imports and package declarations must resolve alike in typing
+// and the body dependency graph (FuzzCheck d3e93add8122c13e).
+func TestImportReferenceRecovery(t *testing.T) {
+	for _, src := range []string{
+		"import k\nfunc k(){k}",
+		"import k\nlet k = 1\nfunc f(){ _ = k }\n",
+		"import task\nfunc task(){ task() }\n",
+		"import timeout\nfunc timeout(){}\nfunc f(){ timeout() }\n",
+		"func k(){}\nfunc f(){ k() }\n",
+	} {
+		if p := check.RefWalkProblems(src); len(p) != 0 {
+			t.Errorf("%s: %v", src, p)
+		}
+	}
+}
