@@ -184,3 +184,36 @@ func TestImportAliasOnlyForClash(t *testing.T) {
 		})
 	}
 }
+
+func TestImportClashRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name, src, text string
+		line            int
+	}{
+		{"plain-func", "import timeout\nfunc timeout() {}\n", "timeout clashes with func timeout; alias the import (import t timeout)", 1},
+		{"plain-type", "import timeout\ntype timeout {}\n", "timeout clashes with type timeout", 1},
+		{"plain-let", "import timeout\nlet timeout = 1\n", "timeout clashes with let timeout", 1},
+		{"plain-used", "import timeout\nfunc timeout() {}\nfunc f() timeout.Expired { timeout.Expired }\n", "alias the import", 1},
+		{"duplicate-i3", "import task\nimport task timeout\nfunc f() {\n\tlet t = task.Go() { 1 }\n\tt.Stop()\n\t_ = timeout.Expired\n}\nfunc g() timeout.Expired { timeout.Expired }\n", "task is imported twice", 2},
+		{"duplicate-alias", "import t timeout\nimport t task\nfunc timeout() {}\nfunc f() t.Expired { t.Expired }\nfunc g() { _ = task.Go }\n", "t is imported twice", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, d := check.CheckSource(tc.src)
+			if len(d) != 1 || d[0].Code != check.CodeType || d[0].Line != tc.line || !strings.Contains(d[0].Message, tc.text) {
+				t.Fatalf("want one S108:%d naming %q, got %s", tc.line, tc.text, describe(d))
+			}
+		})
+	}
+	file, err := syntax.Parse("import timeout\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := syntax.Parse("func timeout() {}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d := check.Check("main", []*syntax.File{file, other}, nil)
+	if len(d) != 1 || d[0].Code != check.CodeType || d[0].File != 0 || d[0].Line != 1 {
+		t.Fatalf("cross-file clash: want one S108 in import file, got %s", describe(d))
+	}
+}

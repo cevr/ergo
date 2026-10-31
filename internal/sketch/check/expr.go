@@ -375,10 +375,8 @@ func (c *checker) lookup(name string) Object {
 		sc = c.fn.scope
 	}
 	if o, at := sc.lookup(name); o != nil {
-		if c.abovePackage(at) && c.cur != nil {
-			if imp, ok := c.cur.scope.names[name]; ok {
-				return imp
-			}
+		if imp := c.shadowImport(name, at, c.cur); imp != nil {
+			return imp
 		}
 		return o
 	}
@@ -471,6 +469,9 @@ func (c *checker) ident(x *syntax.Ident) operand {
 		return operand{mode: modeBuiltin, obj: o, typ: invalid}
 	case *PkgName:
 		o.used = true
+		if o.broken {
+			return bad(x)
+		}
 		return operand{mode: modePkg, obj: o, typ: invalid}
 	}
 	c.errorf(x, CodeUnknown, "unknown name %s", x.Name)

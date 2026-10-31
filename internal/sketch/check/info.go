@@ -192,8 +192,8 @@ const (
 	CallWith
 	// CallPrelude is not produced since check-v1 stage D3a: a prelude dot
 	// call, xs.Append(x), m.Get(k) or m.Delete(k), is a CallFunc with Recv
-	// and the full TypeArgs (D-D6, D-D8). The constant stays, as the Info
-	// contract is additive.
+	// and the full TypeArgs (D-D6, D-D8). The constant stays for compatibility;
+	// TypeArgs changed meaning for generic dot calls in stage D3a.
 	CallPrelude
 )
 
@@ -212,7 +212,8 @@ type Call struct {
 	Recv syntax.Expr
 	// TypeArgs are the type arguments of a generic function, written,
 	// inferred or bound by a dot call's receiver (D-D8), one for each of
-	// its type parameters, in its parameter order.
+	// its type parameters, in its parameter order. Changed meaning in D3a:
+	// formerly a generic dot call recorded only the remaining parameters.
 	TypeArgs []Type
 	// Type is a conversion's target type.
 	Type Type

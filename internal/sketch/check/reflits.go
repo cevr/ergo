@@ -95,11 +95,28 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 // typeObject looks a name up as lookupType does without type parameters:
 // the package scope and the universe, then the file's imports.
 func (c *checker) typeObject(name string, file *fileInfo) Object {
-	if o, _ := c.pkg.Scope.lookup(name); o != nil {
+	if o, at := c.pkg.Scope.lookup(name); o != nil {
+		if imp := c.shadowImport(name, at, file); imp != nil {
+			return imp
+		}
 		return o
 	}
 	if file != nil {
 		return file.scope.names[name]
+	}
+	return nil
+}
+
+// shadowImport gives a refused import its binding to prevent cascades:
+// over a prelude name, or over its clashing package declaration. A local
+// still wins. Typing and the lexical reference walk use the same rule.
+func (c *checker) shadowImport(name string, at *Scope, file *fileInfo) Object {
+	if file == nil {
+		return nil
+	}
+	pn, ok := file.scope.names[name].(*PkgName)
+	if ok && (c.abovePackage(at) || at == c.pkg.Scope && pn.broken) {
+		return pn
 	}
 	return nil
 }

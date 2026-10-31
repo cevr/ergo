@@ -326,6 +326,15 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	name := pkg.Name
 	if spec.Kind == syntax.ImportNamed {
 		name = spec.Name.Name
+	}
+	if _, dup := fi.scope.names[name]; name != "_" && dup {
+		c.errorf(spec, CodeType, "%s is imported twice", name)
+		// Keep the first binding. The refused spec's default name is a
+		// broken import, so a use of it cannot cascade with S104.
+		c.bindBrokenImportName(fi, spec, path, lastElement(path))
+		return
+	}
+	if spec.Kind == syntax.ImportNamed {
 		// D-D3; the import still binds. A refused alias has its
 		// diagnostic and adds no D-D7 one.
 		if !c.preludeName(spec.Name) {
@@ -334,10 +343,6 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	pn := &PkgName{Name: name, Pos: spec.Pos(), Pkg: pkg, spec: spec}
 	if name == "_" {
-		return
-	}
-	if _, dup := fi.scope.names[name]; dup {
-		c.errorf(spec, CodeType, "%s is imported twice", name)
 		return
 	}
 	fi.scope.insert(name, pn)
@@ -359,6 +364,27 @@ type importAlias struct {
 // guide renames an import only to avoid a collision; Gleam qualifies by
 // module and aliases with `as`; MoonBit qualifies by package.
 func (c *checker) checkImportAliases() {
+	for _, fi := range c.files {
+		c.cur = fi
+		for _, pn := range fi.imports {
+			if pn.spec.Kind != syntax.ImportPlain {
+				continue
+			}
+			if o := c.pkg.Scope.names[pn.Name]; o != nil {
+				kind := "declaration"
+				switch o.(type) {
+				case *Func:
+					kind = "func"
+				case *TypeName:
+					kind = "type"
+				case *Var, *Const:
+					kind = "let"
+				}
+				c.errorf(pn.spec, CodeType, "%s clashes with %s %s; alias the import (import t %s)", pn.Name, kind, o.name(), pn.Pkg.Path)
+				pn.used, pn.broken = true, true
+			}
+		}
+	}
 	for _, a := range c.aliases {
 		c.cur = a.file
 		def := lastElement(a.path)
@@ -416,6 +442,10 @@ func (c *checker) bindBrokenImport(fi *fileInfo, spec *syntax.ImportSpec, path s
 	if spec.Kind == syntax.ImportNamed && spec.Name != nil {
 		name = spec.Name.Name
 	}
+	c.bindBrokenImportName(fi, spec, path, name)
+}
+
+func (c *checker) bindBrokenImportName(fi *fileInfo, spec *syntax.ImportSpec, path, name string) {
 	if name == "_" || name == "" {
 		return
 	}
@@ -698,10 +728,8 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 	}
 	if o, at := scope.lookup(name); o != nil {
 		// A refused import of a prelude name still binds (D-D3; lookup).
-		if c.abovePackage(at) && c.cur != nil {
-			if imp, ok := c.cur.scope.names[name]; ok {
-				return imp
-			}
+		if imp := c.shadowImport(name, at, c.cur); imp != nil {
+			return imp
 		}
 		return o
 	}
