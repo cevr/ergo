@@ -442,7 +442,9 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 		}
 	}
 	op := c.valueExpr(x.Args[0], hint)
-	if op.invalid() || isInvalid(t) {
+	if op.invalid() || containsInvalid(t) || containsInvalid(op.typ) {
+		// Already reported where the invalid part came from: a refused
+		// definition adds nothing at its conversions (D3).
 		return bad(x)
 	}
 	if !c.convertible(op.typ, t) && !constNumeric(op, t) {

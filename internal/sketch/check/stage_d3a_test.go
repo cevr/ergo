@@ -233,3 +233,46 @@ func TestImportReferenceRecovery(t *testing.T) {
 		}
 	}
 }
+
+// An import alias that clashes with a package-level name is one S108 at
+// the import, naming another alias, with no cascade at its uses (D3a round
+// 2 review m3).
+func TestImportAliasClashHasOneDiagnostic(t *testing.T) {
+	for _, tc := range []struct{ name, source, kind string }{
+		{"used-func", "import k timeout\nfunc timeout() {}\nfunc k() {}\nfunc f() k.Expired { k.Expired }\n", "func"},
+		{"unused-func", "import k timeout\nfunc timeout() {}\nfunc k() {}\n", "func"},
+		{"no-default-clash", "import k timeout\nfunc k() {}\nfunc f() k.Expired { k.Expired }\n", "func"},
+		{"type", "import k timeout\nfunc timeout() {}\ntype k {}\nfunc f() k.Expired { k.Expired }\n", "type"},
+		{"let", "import k timeout\nfunc timeout() {}\nlet k = 0\nfunc f() k.Expired { k.Expired }\n", "let"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, d := check.CheckSource(tc.source)
+			want := "k clashes with " + tc.kind + " k; choose another alias"
+			if len(d) != 1 || d[0].Code != check.CodeType || d[0].Line != 1 || !strings.Contains(d[0].Message, want) {
+				t.Fatalf("want one import S108 naming %q, got %s", want, describe(d))
+			}
+		})
+	}
+	file, err := syntax.Parse("import k timeout\nfunc f() k.Expired { k.Expired }\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := syntax.Parse("func timeout() {}\nfunc k() {}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d := check.Check("main", []*syntax.File{file, other}, nil)
+	if len(d) != 1 || d[0].Code != check.CodeType || d[0].File != 0 || d[0].Line != 1 || !strings.Contains(d[0].Message, "choose another alias") {
+		t.Fatalf("want one S108 for cross-file alias clash, got %s", describe(d))
+	}
+}
+
+// A conversion whose operand's type holds an invalid part adds no
+// diagnostic: the mistake is reported where the part came from (D3a round
+// 2 review m1).
+func TestInvalidConversionsDoNotCascade(t *testing.T) {
+	runD1(t, []d1Case{
+		{"invalid-element", "type Ints []int\nfunc g(ys []Unknown) Ints {\n\tInts(ys)\n}\n", []string{"S104:2"}},
+		{"invalid-map-value", "type Counts Map[string, int]\nfunc g(m Map[string, Unknown]) Counts {\n\tCounts(m)\n}\n", []string{"S104:2"}},
+	})
+}

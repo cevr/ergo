@@ -364,10 +364,11 @@ type importAlias struct {
 // guide renames an import only to avoid a collision; Gleam qualifies by
 // module and aliases with `as`; MoonBit qualifies by package.
 func (c *checker) checkImportAliases() {
+	refused := map[*syntax.ImportSpec]bool{}
 	for _, fi := range c.files {
 		c.cur = fi
 		for _, pn := range fi.imports {
-			if pn.spec.Kind != syntax.ImportPlain {
+			if pn.spec.Kind != syntax.ImportPlain && pn.spec.Kind != syntax.ImportNamed {
 				continue
 			}
 			if o := c.pkg.Scope.names[pn.Name]; o != nil {
@@ -380,12 +381,22 @@ func (c *checker) checkImportAliases() {
 				case *Var, *Const:
 					kind = "let"
 				}
-				c.errorf(pn.spec, CodeType, "%s clashes with %s %s; alias the import (import t %s)", pn.Name, kind, o.name(), pn.Pkg.Path)
+				// An alias that clashes too is refused here, once, so the
+				// alias rule below adds nothing (D3a round 2 review m3).
+				if pn.spec.Kind == syntax.ImportNamed {
+					c.errorf(pn.spec, CodeType, "%s clashes with %s %s; choose another alias", pn.Name, kind, o.name())
+				} else {
+					c.errorf(pn.spec, CodeType, "%s clashes with %s %s; alias the import (import t %s)", pn.Name, kind, o.name(), pn.Pkg.Path)
+				}
 				pn.used, pn.broken = true, true
+				refused[pn.spec] = true
 			}
 		}
 	}
 	for _, a := range c.aliases {
+		if refused[a.spec] {
+			continue
+		}
 		c.cur = a.file
 		def := lastElement(a.path)
 		clash := false
