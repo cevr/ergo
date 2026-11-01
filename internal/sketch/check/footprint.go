@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -243,6 +244,9 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		return
 	}
 	switch c.Kind {
+	case CallConversion, CallLen, CallPrelude:
+		// These calls add no footprint of their own. CallPrelude is
+		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:
 		if sel, ok := unparen(x.Fun).(*syntax.SelectorExpr); ok {
 			if t, ok := fp.info.Types[sel.X].(*Named); ok {
@@ -303,6 +307,8 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			}
 		}
 		n.opaque = true
+	default:
+		panic(fmt.Sprintf("check: unknown call kind %d in footprint", c.Kind))
 	}
 }
 

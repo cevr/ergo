@@ -603,7 +603,7 @@ func (l *lowerer) emitWire(w *check.Wire, name string, site syntax.Node) {
 	}
 	// A builder has no loop and calls no capability (a named wire is
 	// closed); its frame reads the wire's footprint all the same.
-	fc.frame = &frame{polls: framePolls(l.info, w.Decl)}
+	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
 	fc.entryPoll(l.info, w.Decl)

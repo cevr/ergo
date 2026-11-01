@@ -753,7 +753,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	// task (stage D3b, Rule 1).
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
-	fc.frame = &frame{fallible: fd.fallible}
+	fc.frame = newFrame(nil, fd.fallible, false)
 	if fd.extern == "" && f.Decl.Body != nil {
 		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl)
 	}
@@ -913,11 +913,11 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	name, goType := "_", ""
 	if ok {
 		fc.owner = v.Name
-		fc.frame = &frame{result: v.Type}
+		fc.frame = newFrame(v.Type, false, false)
 		name, goType = l.vars[v], fc.goType(v.Type)
 	} else {
 		fc.owner = "_"
-		fc.frame = &frame{result: fc.typeOf(x)}
+		fc.frame = newFrame(fc.typeOf(x), false, false)
 		goType = fc.goType(fc.typeOf(x))
 	}
 	if x != nil {
@@ -968,7 +968,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	} else if vs := patternVars(l.info.Patterns[spec.Pattern], nil); len(vs) > 0 {
 		fc.owner = vs[0].Name
 	}
-	fc.frame = &frame{result: t, polls: framePolls(l.info, spec)}
+	fc.frame = newFrame(t, false, framePolls(l.info, spec))
 	fc.entryPoll(l.info, spec)
 	l.recordDecl(fc.owner, spec)
 	at := spec.Pos()

@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -102,44 +101,20 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 			wantSites[owner] = count
 		}
 	}
-	// Parse every production Go file. A new allocation, including one in
+	// Parse every production Go file. A new constructor call, including one in
 	// an existing helper, fails until the catalog covers it. Do not grep
 	// line numbers or infer the domain from the tests themselves.
-	files, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
 	gotSites := map[string]int{}
-	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), ".go") || strings.HasSuffix(file.Name(), "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(token.NewFileSet(), file.Name(), nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, decl := range f.Decls {
-			fd, ok := decl.(*ast.FuncDecl)
-			if !ok {
-				continue
+	i1LowerSource(t, func(owner string, node ast.Node) {
+		ast.Inspect(node, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "newFrame" {
+					gotSites[owner]++
+				}
 			}
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
-				typ := ast.Expr(nil)
-				if lit, ok := n.(*ast.CompositeLit); ok {
-					typ = lit.Type
-				}
-				if call, ok := n.(*ast.CallExpr); ok && len(call.Args) == 1 {
-					if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "new" {
-						typ = call.Args[0]
-					}
-				}
-				if id, ok := typ.(*ast.Ident); ok && id.Name == "frame" {
-					gotSites[fd.Name.Name]++
-				}
-				return true
-			})
-		}
-	}
+			return true
+		})
+	})
 	for owner, got := range gotSites {
 		if got != wantSites[owner] {
 			t.Errorf("lowering opens %d frames in %s, catalog covers %d", got, owner, wantSites[owner])

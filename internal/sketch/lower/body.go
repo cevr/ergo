@@ -32,6 +32,12 @@ type frame struct {
 	polls bool
 }
 
+// newFrame is the only frame constructor. Every frame-opening path uses it,
+// so the source-derived frame catalog sees new paths at their call sites.
+func newFrame(result check.Type, fallible, polls bool) *frame {
+	return &frame{result: result, fallible: fallible, polls: polls}
+}
+
 // framePolls reads the footprint the checker recorded for a frame's key
 // (Info.Footprints) from info, the package that declares it. The lowering
 // never derives a footprint: a frame with no entry is a checker bug.

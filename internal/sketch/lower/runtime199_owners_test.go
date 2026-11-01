@@ -59,6 +59,43 @@ func i1LastText(x ast.Expr) string {
 	return ""
 }
 
+func TestRuntime199FrameOwner(t *testing.T) {
+	i1LowerSource(t, func(owner string, node ast.Node) {
+		if owner == "newFrame" {
+			return
+		}
+		isFrame := func(x ast.Expr) bool {
+			id, ok := x.(*ast.Ident)
+			return ok && id.Name == "frame"
+		}
+		ast.Inspect(node, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CompositeLit:
+				if isFrame(n.Type) {
+					t.Errorf("%s constructs frame outside newFrame", owner)
+				}
+			case *ast.CallExpr:
+				if id, ok := n.Fun.(*ast.Ident); ok && id.Name == "new" && len(n.Args) == 1 && isFrame(n.Args[0]) {
+					t.Errorf("%s allocates frame outside newFrame", owner)
+				}
+			case *ast.ValueSpec:
+				if isFrame(n.Type) {
+					t.Errorf("%s declares a frame value outside newFrame", owner)
+				}
+			case *ast.AssignStmt:
+				for _, rhs := range n.Rhs {
+					if copy, ok := rhs.(*ast.StarExpr); ok {
+						if field, ok := copy.X.(*ast.SelectorExpr); ok && field.Sel.Name == "frame" {
+							t.Errorf("%s copies a frame outside newFrame", owner)
+						}
+					}
+				}
+			}
+			return true
+		})
+	})
+}
+
 // Scan all production declarations, including package-level initializers.
 // File offsets, line numbers and a list of known sites are not the domain.
 func i1LowerSource(t *testing.T, visit func(owner string, node ast.Node)) {
