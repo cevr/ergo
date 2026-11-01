@@ -1320,9 +1320,15 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 	}
 	a, why := c.assignability(op.typ, t)
 	if !a.ok() {
+		repair := ""
+		if what == "return" || what == "the body's tail value" {
+			repair = c.tupleReturnRepair(op.expr, op.typ, t)
+		}
 		switch msg := literalMismatch(op.expr, t); {
 		case msg != "":
 			c.errorf(op.expr, CodeType, "%s", msg)
+		case repair != "":
+			c.errorf(op.expr, CodeType, "cannot use %s as %s in %s; write %s", op.typ, t, what, repair)
 		case why != "":
 			c.errorf(op.expr, CodeType, "cannot use %s as %s in %s: %s", op.typ, t, what, why)
 		default:
@@ -1343,6 +1349,32 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 	}
 	c.implicit(op.expr, a)
 	return true
+}
+
+// A tuple call cannot convert its parts as a whole. Destructuring and
+// returning a tuple literal gives each part the expected result type.
+// Offer this repair only when both element assignments are valid.
+func (c *checker) tupleReturnRepair(x syntax.Expr, v, t Type) string {
+	if _, ok := unparen(x).(*syntax.CallExpr); !ok || c.cur == nil {
+		return ""
+	}
+	vt, vok := under(v).(*Tuple)
+	tt, tok := under(t).(*Tuple)
+	if !vok || !tok || len(vt.Types) != 2 || len(tt.Types) != 2 {
+		return ""
+	}
+	for i := range vt.Types {
+		if a, _ := c.assignability(vt.Types[i], tt.Types[i]); !a.ok() {
+			return ""
+		}
+	}
+	src := c.cur.syntax.Src
+	if x.Pos() < 0 || x.End() > syntax.Pos(len(src)) {
+		return ""
+	}
+	m, n := c.freshName("m"), c.freshName("n")
+	names := m + ", " + n
+	return "let (" + names + ") = " + src[x.Pos():x.End()] + "; then return (" + names + ")"
 }
 
 // typeOf is the type a declaration without a written type takes from op:

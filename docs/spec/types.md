@@ -22,7 +22,7 @@ let o Option[int] = None   // clause 4
 1. **The clauses, in Go's order.** A value of type `V` is assignable to type `T` by the first clause that holds, and each clause names the implicit conversion the assignment makes, the fact `Info.Implicit` records at the value:
    1. `V` and `T` are identical. No conversion.
    2. `V` and `T` have identical underlying types, at least one of them has no name, and neither is a type parameter. A declared type, a basic type and a type parameter have a name; a slice, Map, function or tuple type written in place has none. No conversion: `let raw []int = named` and `let named Ints = raw` cross, `Ints` to another `type Other []int` does not.
-   3. `T` is an operation type and `V` implements it ([Interface assignability](#interface-assignability)), whatever `V`'s name. `ConvOperations` with the function that provides each operation, or no conversion when `V` is itself an operation type's value. The clause first refuses a `V` that holds a `Task` when `T` holds none ([runtime.md](runtime.md#tasks) rule 3), so `Phantom[Task[int, Fault]]` still admits a `Task`.
+   3. `T` is an operation type and `V` implements it ([Interface assignability](#interface-assignability)), whatever `V`'s name. `ConvOperations` with the function that provides each operation, or no conversion when `V` is itself an operation type's value. Check implementation first, so a missing operation is the diagnostic when both checks fail. Then refuse a `V` that holds a `Task` when `T` holds none ([Task ownership](#task-ownership)), so `Phantom[Task[int, Fault]]` still admits a `Task`.
    4. `V` is a variant of the union `T` ([Unions](#unions) 2), or a row value whose every error type is a variant of `T`. `ConvVariant` or `ConvRow`.
    5. `V` and `T` are function types with the same parameters and results, `V`'s error and `needs` rows are subsets of `T`'s, and at least one of them has no name ([Function values](#function-values) 1). No conversion: a function value has one Go shape.
 
@@ -30,6 +30,24 @@ let o Option[int] = None   // clause 4
 2. **Every site.** One relation decides every place a value is assigned: a `let` (single, and per element of a multi-name `let`, whose element conversions `Info.ImplicitElems` records), an argument, a result, a pattern's written type, a composite literal's field and element, the two operands of `==` and `!=` (one goes into the other's type), and a `wire` value. The lowering reads the fact and never derives a conversion again.
 3. **Comparison through operations.** A value that implements an operation type through its functions is not that type's value until it is assigned, so `s == Count(1)` with `s Store` is S108; assign it first.
 4. *Prior art:* go/types `operand.assignableTo` has clauses 1 to 3 in this order, and cmd/compile's `typecheck.assignOp` returns the lowering operation (`OCONVNOP`, `OCONVIFACE`) with the reason from the same clauses, as `assignability` returns the conversion. Gleam and ReScript have no defined types over collections (an opaque type converts through functions); Rust newtypes cross only by `.0` or `From`.
+
+## Task ownership
+
+Status: **checked** (check-v1 stage D3a). [runtime.md](runtime.md#tasks) rule 3 defines which types hold a Task and the type positions that admit them.
+
+1. A Task-holding value flows only into these uses: a local `let` in its own frame; a return (an explicit return or a body's final value); a call argument; or the direct receiver of a called `Wait` or `Stop`. A dot call to a package function uses its receiver as the first argument and follows the argument rule. Assignment checks the parameter type; clause 3 refuses erasing a Task into an operation type that holds none. Passing it to a type parameter, as in `id(t)` for a generic `id`, remains admitted until stage E's type-parameter rule.
+2. Parentheses, `try`, `catch` and `go` are transparent wrappers: the wrapped value must flow into an allowed use. They do not make a discarded Task legal. A final value can flow through `if`, `match`, `catch`, `try` or `with` into a return or another allowed sink.
+3. Every other use is S108. A reference to a Task-holding local from another frame is also S108, wherever it stands. Function literals, trailing blocks other than `with`, and `go` blocks open frames. A refused type covers values assigned into it, so later uses add no diagnostic.
+
+These two uses are refused even though they mention the Task's local frame:
+
+```go
+// In a function that holds t:
+t = task.Go() { work() }       // reassignment is not an allowed use
+(func() { t.Stop() })()        // even an immediately called literal is another frame
+```
+
+4. *Prior art:* Rust checks ownership across scoped threads and trait objects; Elixir's Task checks its owner at run time. Gleam and ReScript have no Task ownership rule in their types. Ergo checks the frame and allowed uses before lowering.
 
 ## Basic types
 
@@ -141,7 +159,7 @@ let pair (int, string) = (q, "x")
 
 1. A tuple type `(A, B, …)` has two or more elements and is structural: two tuple types are identical when their elements are. A tuple value is `(a, b)`.
 2. A tuple is read only through a pattern ([rows.md](rows.md#totality)): `let (a, b) = t`, `for (k, v) in …`, `case (A, _):`. There is no `.0`.
-3. A function has one result, which may be a tuple; a call is one value, so `f(g())` passes `g`'s tuple as one argument. `let q, r = e` destructures a tuple result.
+3. A function has one result, which may be a tuple; a call is one value, so `f(g())` passes `g`'s tuple as one argument. `let q, r = e` destructures a tuple result. Tuple assignment does not convert its elements. Returning `pair()` from `(Mem, int)` as `(Store, int)` therefore names a repair when `Mem` implements `Store`: `let (m, n) = pair(); then return (m, n)`. Each element of the returned literal takes its expected type. The checker chooses unbound names for the repair.
 4. A tuple is comparable when its elements are, and defaultable when they are. It has no operations, so it implements no operation type.
 5. *Prior art:* Gleam, ReScript and MoonBit tuples with pattern access; Elixir tuples; Go's several results exist mostly for `(T, error)`, which `fails` replaces.
 

@@ -51,3 +51,32 @@ func TestRefusedImportAliasIsNotUnused(t *testing.T) {
 		t.Fatalf("valid unused import: want S110, got %s", describe(d))
 	}
 }
+
+func TestTaskAssignmentNamesMissingOperation(t *testing.T) {
+	const src = "type Fault {}\ntype Store { Get() int }\nfunc f(t Task[int, Fault]) Store {\n\tt\n}\n"
+	_, d := check.CheckSource(src)
+	if len(d) != 1 || d[0].Code != check.CodeType || d[0].Line != 4 || !strings.Contains(d[0].Message, "has no method Get") {
+		t.Fatalf("want one S108:4 naming the missing Get operation, got %s", describe(d))
+	}
+}
+
+func TestTupleReturnRepairChecks(t *testing.T) {
+	const prefix = "type Mem { N int }\ntype Store { Get() int }\nfunc Get(m Mem) int { m.N }\nfunc pair() (Mem, int) { (Mem{N: 1}, 2) }\n"
+	for _, tc := range []struct{ body, params, repair string }{
+		{"return pair()", "", "let (m, n) = pair(); then return (m, n)"},
+		{"pair()", "", "let (m, n) = pair(); then return (m, n)"},
+		{"return pair()", "m int, n int", "let (m2, n2) = pair(); then return (m2, n2)"},
+	} {
+		src := prefix + "func f(" + tc.params + ") (Store, int) { " + tc.body + " }\n"
+		_, d := check.CheckSource(src)
+		if len(d) != 1 || d[0].Code != check.CodeType || !strings.Contains(d[0].Message, tc.repair) {
+			t.Fatalf("%s: want one S108 naming %q, got %s", src, tc.repair, describe(d))
+		}
+		repair := d[0].Message[strings.Index(d[0].Message, "write ")+len("write "):]
+		at := strings.LastIndex(src, tc.body)
+		repaired := src[:at] + strings.ReplaceAll(repair, "; then ", "; ") + src[at+len(tc.body):]
+		if _, rd := check.CheckSource(repaired); len(rd) != 0 {
+			t.Fatalf("suggested repair does not check: %s\n%s", repaired, describe(rd))
+		}
+	}
+}

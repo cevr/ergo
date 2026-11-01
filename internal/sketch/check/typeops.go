@@ -274,12 +274,6 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		return assignment{clause: assignUnderlying}, ""
 	}
 	if it := asInterface(t); it != nil {
-		// The Task guard: an operation value would erase a Task's
-		// ownership, so a Task-holding value enters only an operation
-		// type that itself holds one (taskescape.go).
-		if c.holdsTask(v) && !c.holdsTask(t) {
-			return assignment{}, taskEscapeText
-		}
 		if _, isTuple := under(v).(*Tuple); isTuple {
 			return assignment{}, "a tuple has no operations"
 		}
@@ -288,6 +282,12 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		}
 		if why := c.implements(v, it); why != "" {
 			return assignment{}, why
+		}
+		// Only a value that implements the operation type can reach
+		// the ownership guard. A missing operation is the more specific
+		// failure (cmd/compile assignOp's diagnostic order).
+		if c.holdsTask(v) && !c.holdsTask(t) {
+			return assignment{}, taskEscapeText
 		}
 		if asInterface(v) != nil {
 			// An operation type's value is already an interface value.
