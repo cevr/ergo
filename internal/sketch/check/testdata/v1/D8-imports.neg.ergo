@@ -1,0 +1,9 @@
+// An import alias is only for a name clash (fourth round, item 3): an alias
+// that resolves no clash is S108.
+import t timeout // want S108
+
+func Slow() string fails t.Expired needs Scheduler {
+	t.After(2s) {
+		"done"
+	}
+}

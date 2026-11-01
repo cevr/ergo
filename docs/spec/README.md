@@ -42,7 +42,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 | Parsing every production of grammar.md and Go's productions where it is silent; S001 | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/syntax`); a decided form the 196a checker lacks is S109 until check-v1 | [grammar](grammar.md#parser) |
 | Formatting, `ergo-2026/formatter-2` | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/format`) | [formatting](../specs/formatting.md#2026-edition) |
 | Name resolution, Go's types where the spec is silent, S101 to S113 | Implemented ([#196](https://github.com/cevr/ergo/issues/196), `internal/sketch/check`) for one package; packages and imports of module packages follow in #196's second part | [types](types.md), [rows](rows.md), [diagnostics](diagnostics.md) |
-| One `import` path per line; the directory names the package | Checked; runs (the standard-library package `timeout`) | [grammar](grammar.md#declarations) |
+| One `import` path per line; the directory names the package; an alias only for a name clash | Checked; runs (the standard-library package `timeout`; the alias rule, check-v1 stage D3a, D-D7) | [grammar](grammar.md#declarations) |
 | Identifiers by decoded code point (round-7 rule) | Checked; runs | [grammar](grammar.md#identifiers) |
 | Integer, duration and string literals | Checked; runs. Rune literals: checked; build refused | [grammar](grammar.md#literals) |
 | Every Go numeric type, with Go's typing | Checked; build refused for types other than `int64` ([#81](https://github.com/cevr/ergo/issues/81) keeps the overflow policy and floating-point literals) | [types](types.md#basic-types) |
@@ -74,7 +74,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 | Trailing block as a function-literal argument | Checked; build refused except on `with` and `timeout.After` | [grammar](grammar.md#expressions) |
 | Function literals and function types | Checked, with rows from the expected type or inferred; build refused | [types](types.md#generics) |
 | Resources and automatic release | Designed, not yet implemented ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
-| `task.Go`, `Task`, `Wait`, `Stop` | Designed; the 196a checker checked Go's `go` statement, and the `task` package is check-v1's | [runtime](runtime.md#tasks) |
+| `task.Go`, `Task`, `Wait`, `Stop` | Checked (check-v1: the `task` package, and a `Task` leaves its function only by return, stage D3a); the lowering of `task.Go` is check-v1 stage D3b's | [runtime](runtime.md#tasks) |
 | Task tree, stop propagation, defect propagation | Implemented in prototype (runtime `rt`) | [runtime](runtime.md#tasks) |
 | I1 checks before capability calls | Implemented in prototype | [runtime](runtime.md#i1-interruption-points) |
 | I1 at loops and channel operations; I2 masks | Designed, not yet implemented | [runtime](runtime.md#i2-automatic-masks) |

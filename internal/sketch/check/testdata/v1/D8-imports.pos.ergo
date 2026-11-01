@@ -1,0 +1,9 @@
+// Qualified imports (fourth round, item 3): one import per line, used
+// through its package name.
+import timeout
+
+func Slow() string fails timeout.Expired needs Scheduler {
+	timeout.After(2s) {
+		"done"
+	}
+}

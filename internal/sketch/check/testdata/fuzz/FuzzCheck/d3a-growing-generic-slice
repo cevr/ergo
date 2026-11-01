@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type E[T] []E[[]T]\nfunc f(x E[int]) { _ = x }\n")

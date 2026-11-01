@@ -1,0 +1,12 @@
+// Eighth round, item 3: prelude names are in scope everywhere and keep
+// their meaning; names that merely resemble them are ordinary names.
+type Maybe { Value int }
+
+func lookup(m Map[string, int], key string) Option[int] {
+	m.Get(key)
+}
+
+func size(xs []int) int {
+	let length = len(xs)
+	length
+}

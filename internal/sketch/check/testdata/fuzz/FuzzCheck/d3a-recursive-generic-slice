@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type L[T] []L[T]\nfunc size(x L[int]) int { len(x) }\n")

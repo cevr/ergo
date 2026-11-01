@@ -1,0 +1,12 @@
+// Fourth round, item 2: `len` and the literals stay; prelude functions
+// called through the dot form replace append and the comma-ok lookup.
+func grow(xs []int, m Map[string, int]) int {
+	let ys = xs.Append(1)
+	let n = match m.Get("a") {
+	case Some{v}:
+		v
+	case None:
+		0
+	}
+	len(ys) + n + len(m)
+}

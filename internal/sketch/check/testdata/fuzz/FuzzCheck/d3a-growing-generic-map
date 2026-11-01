@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type F[T] Map[string, F[(T, T)]]\nfunc f(x F[int]) int { let local = x; let g = func() int { len(local) }; g() }\n")
