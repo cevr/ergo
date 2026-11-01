@@ -210,9 +210,8 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		}
 	}
 	fc.bindDeferred(body, vals)
-	head := fc.l.rt() + "." + name + fc.stdTypeArgs(body, f.Sig, c.TypeArgs, x)
 	text := fc.stdResult(body, fc.typeOf(x), fc.envExpr(x), x, func(env string) string {
-		return head + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env, x), vals...), ", ") + ")"
+		return fc.runtimeCall(name, body, fc.stdTypeArgs(body, f.Sig, c.TypeArgs, x), "", vals, env, x, c, x)
 	})
 	return text, len(f.Sig.Results) > 0, goFallible(body)
 }
@@ -325,7 +324,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 			}
 		}
 		text := fc.stdResult(body, result, env, site, func(env string) string {
-			return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env, site), vals[1:]...), ", ") + ")"
+			return fc.runtimeCall(n.Obj.Name+"."+op.Name, body, "", vals[0], vals[1:], env, x, c, site)
 		})
 		// The Go form decides: Wait on a Task[T] whose T is no value returns
 		// struct{}, which the caller discards (goValue).
