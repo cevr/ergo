@@ -313,6 +313,19 @@ func openB(n int) First { openA(n) }`, "openA(2)", true},
 func get(ok bool) First {
 	if ok { First } else { shared }
 }`, "get(true)", false},
+		{"fresh match tails", `func openA(ok bool) First {
+	match ok {
+	case true: First
+	case _: First
+	}
+}`, "openA(true)", true},
+		{"borrowed match tail", `let shared = First
+func get(ok bool) First {
+	match ok {
+	case true: First
+	case _: shared
+	}
+}`, "get(true)", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := tc.decls + "\nlet W = wire { A: " + tc.provider + " }\nfunc f() { with W { A.Use() } }\n"
