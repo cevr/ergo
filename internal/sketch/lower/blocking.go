@@ -11,7 +11,8 @@ import (
 // runtimeBindings is the catalog of std Go bindings. runtimeCall is their
 // single emitter. A new binding fails closed until its waiting policy is
 // stated here; the blocking property derives its primitive axis from this
-// catalog. Frame release is owned separately by openFrame/Scope.End.
+// catalog. Its release routes are the release owner's (release.go); the
+// mask property derives its release axis from them.
 type waitTask uint8
 
 const (
@@ -23,9 +24,18 @@ const (
 
 type runtimeBinding struct {
 	wait waitTask
+	// release is the binding's release route (release.go), notRelease for
+	// every binding that is not an entry into runtime/v1's release boundary.
+	release releaseRoute
 	// A host-provider bridge erases one ordinary, zero-field provider
 	// operand. The Go body's hidden parameters still come from BodyOf.
 	hostTarget, provider string
+}
+
+// takesCaller reports a binding whose Go body receives the invocation's
+// task as its hidden CallerTask argument.
+func (b runtimeBinding) takesCaller() bool {
+	return b.wait == callerWait || b.release == callerRelease
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -37,7 +47,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Queue.Values": {wait: callerWait},
 	"Queue.Close":  {},
 	"Go":           {},
-	"OnExit":       {},
+	"OnExit":       {release: frameRelease},
+	"Release":      {release: callerRelease},
 	"New":          {},
 	"WithCapacity": {},
 }
@@ -51,8 +62,13 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 	if !ok {
 		ice(site, "runtime binding %s has no waiting policy", name)
 	}
-	if hasHidden(body.Hidden, v1.CallerTask) != (binding.wait == callerWait) {
+	if hasHidden(body.Hidden, v1.CallerTask) != binding.takesCaller() {
 		ice(site, "runtime binding %s does not receive its declared waiting task", name)
+	}
+	if x != nil && binding.wait != noWait && fc.l.info.Closes[x] != nil {
+		// A std Close is a release (R9). Today every std Close is atomic
+		// (Queue.Close); a waiting one needs a release route first.
+		ice(site, "the std Close binding %s waits, and no release route masks it", name)
 	}
 	var head string
 	if recv == "" {

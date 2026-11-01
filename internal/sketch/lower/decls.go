@@ -802,12 +802,14 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	}
 	b.WriteString(head.String() + " {\n")
 	fc.depth = 1
-	if needsFrame {
-		fc.site = site
-		fc.openFrame(frameErr)
-	}
-	fc.entryPoll(f.Pkg.Info, f.Decl)
-	fc.body(f.Decl.Body.List)
+	fc.closeBody(f, site, func() {
+		if needsFrame {
+			fc.site = site
+			fc.openFrame(frameErr)
+		}
+		fc.entryPoll(f.Pkg.Info, f.Decl)
+		fc.body(f.Decl.Body.List)
+	})
 	b.WriteString(fc.out.String())
 	b.WriteString("}\n\n")
 }

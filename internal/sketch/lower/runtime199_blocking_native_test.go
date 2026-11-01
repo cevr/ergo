@@ -26,7 +26,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if hasHidden(body.Hidden, v1.CallerTask) != (binding.wait == callerWait) {
+		if hasHidden(body.Hidden, v1.CallerTask) != binding.takesCaller() {
 			t.Errorf("%s: hidden task and waiting policy disagree", name)
 		}
 		if binding.wait != noWait {

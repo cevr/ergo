@@ -179,8 +179,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// The interruption point (runtime.md, I1): after the operands, each
 		// evaluated once and in order, and before the operation runs. A
 		// capability call writes statements (emits), so no operand after it
-		// runs before the poll.
-		if fc.frame.polls {
+		// runs before the poll. A checked Close starts a release instead
+		// (entersRelease).
+		if fc.frame.polls && !fc.entersRelease(x) {
 			fc.poll(x)
 			if fc.lastPos == x.Pos() {
 				// The call's own Go line follows its directive (identify),
