@@ -59,6 +59,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	c.checkUnusedImports()
 	c.checkTaskUses()
 	c.finishInfo()
+	c.footprints()
 	c.pkg.ErrorTypes = make(map[*Named]bool, len(c.errorTypes))
 	for n := range c.errorTypes {
 		c.pkg.ErrorTypes[n] = true

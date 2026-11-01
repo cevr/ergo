@@ -159,6 +159,15 @@ type Info struct {
 	// scope to such a function as a hidden destination. Added in stage
 	// D3a (additive).
 	TaskResults map[*Func]bool
+	// Footprints is every frame's footprint (rows.md, Footprints; #199
+	// stage 1): each function with a body (*syntax.FuncDecl), function
+	// literal (*syntax.FuncLit), trailing block of a call other than with
+	// (*syntax.BlockStmt; a with block runs in its enclosing frame), named
+	// wire (*syntax.WireDecl, the builder a with of it runs) and package
+	// let (*syntax.VarSpec). The lowering places interruption points only
+	// in a frame whose footprint is not Empty (runtime.md, I1) and never
+	// derives a footprint again. Added for #199 stage 1 (additive).
+	Footprints map[syntax.Node]Footprint
 }
 
 // Initializer is one package-level initializer: Vars are the names it
@@ -185,6 +194,7 @@ func newInfo() *Info {
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
 		TaskResults:   map[*Func]bool{},
+		Footprints:    map[syntax.Node]Footprint{},
 	}
 }
 
