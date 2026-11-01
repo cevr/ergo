@@ -246,7 +246,7 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		return fc.branchExpr(x)
 	case *syntax.InterpolatedString:
-		refuse(x, "an interpolated string is lowered after check-v1 stage E (interpolation)")
+		return operand{val: fc.interpolated(x)}
 	case *syntax.WireLit:
 		refuse(x, "an inline wire value is lowered after check-v1 stage E (196x)")
 	case *syntax.TupleExpr:

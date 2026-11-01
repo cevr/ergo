@@ -191,11 +191,12 @@ func TestSketchBuildRunsProgram(t *testing.T) {
 }
 
 // TestSketchBuildRefusesWhatTheLoweringCannotLower: the checker accepts a
-// program with an interpolated string, whose lowering waits for check-v1
-// stage E, so Build refuses it with a located S109 naming that stage and
-// writes nothing. A checker diagnostic refuses the build with its own code.
+// program that interpolates a record value, whose lowering waits for
+// check-v1 stage E, so Build refuses it with a located S109 naming that
+// stage and writes nothing. A checker diagnostic refuses the build with its
+// own code.
 func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
-	source := "func main() needs Console {\n\tlet i = 3\n\tConsole.Println(\"\\(i)\")\n}\n"
+	source := "type P { X int }\nfunc main() needs Console {\n\tlet p = P{X: 3}\n\tConsole.Println(\"\\(p)\")\n}\n"
 	analysis := Check(source)
 	if len(analysis.Diagnostics) != 0 {
 		t.Fatalf("checker diagnostics: %+v", analysis.Diagnostics)
@@ -209,8 +210,8 @@ func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
 		t.Fatalf("build gave %v, want a BuildError", err)
 	}
 	d := refusal.Diagnostics[0]
-	if d.Code != "S109" || !strings.Contains(d.Message, "check-v1 stage E") || d.Span.Line != 3 || d.Span.Column != 18 {
-		t.Fatalf("refusal %+v, want an S109 at 3:18 naming check-v1 stage E", d)
+	if d.Code != "S109" || !strings.Contains(d.Message, "check-v1 stage E") || d.Span.Line != 4 || d.Span.Column != 21 {
+		t.Fatalf("refusal %+v, want an S109 at 4:21 naming check-v1 stage E", d)
 	}
 	if _, statErr := os.Stat(output); statErr == nil {
 		t.Fatal("a refused build wrote its output")

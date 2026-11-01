@@ -259,3 +259,62 @@ func TestTaskInsideAnotherTypeRefused(t *testing.T) {
 		})
 	}
 }
+
+// TestErgoRunInterpolation: a value of a basic type in `"\(v)"` prints as
+// Go's %v prints it (grammar.md, Strings 5; the stage D3b ruling on
+// interpolation): strings, bools, signed and unsigned integers, floats of
+// both sizes and durations; segments keep their escapes, `\\(` is a
+// backslash and a parenthesis, an interpolation may nest, and values are
+// read left to right.
+func TestErgoRunInterpolation(t *testing.T) {
+	wantRun(t, `func next(n int) int {
+	n + 1
+}
+
+func main() needs Console {
+	let s = "go"
+	let b = true
+	let i = -42
+	let i8 int8 = -8
+	let u uint64 = 18446744073709551615
+	let f = 1.5
+	let g float32 = 0.1
+	let big = 1000000.0
+	let d = 1500ms
+	Console.Println("\(s) \(b) \(i) \(i8) \(u)")
+	Console.Println("\(f) \(g) \(big) \(d)")
+	Console.Println("tab\t\"q\" \\(x) \(i)")
+	Console.Println("\(next(1))\(next(2))")
+	Console.Println("a \("b \(next(0)) c") d")
+	Console.Println("\(s)")
+}
+`, "go true -42 -8 18446744073709551615\n1.5 0.1 1e+06 1.5s\ntab\t\"q\" \\(x) -42\n23\na b 1 c d\ngo\n")
+}
+
+// TestInterpolationOfOtherTypesRefused: a value of a type that is not basic
+// (a record, a defined type) is check-v1 stage E's: a located refusal at the
+// value, never Go's %v of a lowered representation.
+func TestInterpolationOfOtherTypesRefused(t *testing.T) {
+	cases := []struct {
+		name, src string
+		line, col int
+	}{
+		{"record", "type P { X int }\nfunc f(p P) string {\n\t\"p \\(p)\"\n}\n", 3, 7},
+		{"defined", "type Celsius int\nfunc f(c Celsius) string {\n\t\"\\(c) C\"\n}\n", 3, 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := lowerSource("r", tc.src, false)
+			if len(o.diags) != 0 {
+				t.Fatalf("want a clean check; got %v", o.diags)
+			}
+			if o.panicked != nil || len(o.refused) == 0 {
+				t.Fatalf("want a refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
+			}
+			r := o.refused[0]
+			if r.Line != tc.line || r.Column != tc.col || !strings.Contains(r.Message, "check-v1 stage E") {
+				t.Fatalf("want a refusal at %d:%d naming check-v1 stage E; got %+v", tc.line, tc.col, r)
+			}
+		})
+	}
+}
