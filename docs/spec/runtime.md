@@ -52,7 +52,7 @@ Status: **implemented in prototype** for capability calls, loop back-edges and r
 
 ## I2. Automatic masks
 
-Status: items 1 and 2 are **implemented** for a written `Close` and for `scope.OnExit` (#199 stage 3a, [Release masks as built](#release-masks-as-built)). Item 3 is **implemented** for providers with a written `Close` (#199 stage 3b, [resources.md, Wire ownership as built](resources.md#wire-ownership-as-built)): each release is the provider's masked `Close`. Item 4, and a generated `Close` (#197), are **designed, not yet implemented**.
+Status: items 1 and 2 are **implemented** for a written `Close` and for `scope.OnExit` (#199 stage 3a, [Release masks as built](#release-masks-as-built)). Item 3 is **implemented** for providers with a written `Close` (#199 stage 3b, [resources.md, Wire ownership as built](resources.md#wire-ownership-as-built)): each release is the provider's masked `Close`. Item 4 is **implemented** for the providers a `with` builds (#199 stage 3c, [resources.md, Wire ownership as built](resources.md#wire-ownership-as-built) 8): the constructor and the registration of its release are one masked step. Item 4 for other acquisitions, and a generated `Close` (#197), are **designed, not yet implemented**.
 
 These run uninterruptibly, to completion:
 
