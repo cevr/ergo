@@ -311,6 +311,13 @@ func get() First {
 	run((risky() catch { case Fault: return shared }) + 1) {}
 	First
 }`, "get()", false},
+		{"extern returning its argument", `type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}
+let shared = Map[string, int]{"a": 1}`, `Registry(shared.Delete("zz"))`, false},
+		{"extern over a fresh argument", `type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) {}`, `Registry(Map[string, int]{}.Delete("zz"))`, false},
 		{"unit constructor", `func openA() First { First }`, "openA()", true},
 		{"fresh conversion", "", "First(First)", true},
 		{"borrowed conversion", `let shared = First`, "First(shared)", false},

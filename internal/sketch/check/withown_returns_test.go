@@ -152,7 +152,7 @@ func TestWireOwnershipReturnPositions(t *testing.T) {
 							if len(ds) != 0 {
 								t.Fatalf("invalid generated source: %v\n%s", ds, src)
 							}
-							fresh := providerFreshFunctions(pkg.Funcs)
+							fresh := pkg.providerFresh
 							want := !borrowed || boundary != "none"
 							found := false
 							for _, f := range pkg.Funcs {

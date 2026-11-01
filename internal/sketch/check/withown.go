@@ -3,7 +3,6 @@ package check
 import (
 	"sort"
 
-	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -97,7 +96,11 @@ func (c *checker) withOwnership() {
 			})
 		}
 	}
-	fresh := providerFreshFunctions(roots)
+	// A failure return yields no value. Decide it by the rule the return
+	// and tail checks use, which reads this package's error types before
+	// they are published and imported ones from their packages.
+	fresh := providerFreshFunctions(roots, func(t Type) bool { return c.errorValueRow(t) != nil })
+	c.pkg.providerFresh = fresh
 	last := make(map[*syntax.CallExpr]int, len(c.withSites))
 	for i, s := range c.withSites {
 		last[s.x] = i
@@ -136,7 +139,7 @@ func (c *checker) withOwnership() {
 				} else {
 					refused[a.Entry] = true
 				}
-				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a proved constructor call, a composite literal or a unit value), and a borrowed or reused resource is #197's (resources.md, Wire ownership)")
+				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a call of a function whose every result is made, a composite literal or a unit value; an extern's result is never proved), and a borrowed or reused resource is #197's (resources.md, Wire ownership)")
 			}
 			c.cur = s.file
 			for _, cap := range c.releaseNeeds(a.Close) {
@@ -342,9 +345,10 @@ type providerFreshness map[*Func]bool
 // including imported declarations. Start with every function fresh, then
 // remove any function with an unproved result and revisit its callers.
 // Recursion that only yields new values therefore stays fresh; a borrowed
-// result poisons every caller in its component. Only std's bodiless
-// extern constructors are trusted by declaration; a user extern is not.
-func providerFreshFunctions(roots []*Func) providerFreshness {
+// result poisons every caller in its component. A bodiless extern, std or
+// user, is never proved: the trusted base is what the checker can prove,
+// and ownership facts for externs are #197's.
+func providerFreshFunctions(roots []*Func, failure func(Type) bool) providerFreshness {
 	fresh := providerFreshness{}
 	results := map[*Func][]syntax.Expr{}
 	users := map[*Func][]*Func{}
@@ -368,7 +372,7 @@ func providerFreshFunctions(roots []*Func) providerFreshness {
 		if f.Decl == nil || f.Decl.Body == nil || f.Pkg == nil || f.Pkg.Info == nil {
 			continue
 		}
-		results[f] = providerResults(f)
+		results[f] = providerResults(f, failure)
 		syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
 			if x, ok := n.(*syntax.CallExpr); ok {
 				if call := f.Pkg.Info.Calls[x]; call != nil && call.Kind == CallFunc && call.Func != nil {
@@ -384,8 +388,9 @@ func providerFreshFunctions(roots []*Func) providerFreshness {
 			return false
 		}
 		if f.Decl.Body == nil {
-			_, isStd := std.Package(f.Pkg.Path)
-			return f.Decl.Extern != nil && (isStd || f.Pkg.Path == std.PreludePath)
+			// No declaration says what a bodiless extern returns: Delete
+			// returns its argument. Its call proves nothing (#197).
+			return false
 		}
 		for _, x := range results[f] {
 			if !fresh.expression(f.Pkg.Info, x) {
@@ -413,16 +418,17 @@ func providerFreshFunctions(roots []*Func) providerFreshness {
 }
 
 // providerResults collects explicit value returns in this frame and its
-// implicit result tails. A failure return has no value. Literals and
-// trailing blocks run in their own frames, so their returns are excluded.
-func providerResults(f *Func) []syntax.Expr {
+// implicit result tails. A failure return or tail (failure reports an
+// error value) has no value. Literals and trailing blocks run in their
+// own frames, so their returns are excluded.
+func providerResults(f *Func, failure func(Type) bool) []syntax.Expr {
 	info := f.Pkg.Info
 	var out []syntax.Expr
 	inspectFrame(info, f.Decl.Body, func(n syntax.Node, _ []*syntax.CallExpr) bool {
 		switch n := n.(type) {
 		case *syntax.ReturnStmt:
 			if len(n.Results) == 1 {
-				if t, ok := info.Types[n.Results[0]].(*Named); ok && f.Pkg.ErrorTypes[t] {
+				if failure(info.Types[n.Results[0]]) {
 					return false
 				}
 				out = append(out, n.Results[0])
@@ -442,7 +448,7 @@ func providerResults(f *Func) []syntax.Expr {
 	stmt = func(s syntax.Stmt) {
 		switch s := s.(type) {
 		case *syntax.ExprStmt:
-			if info.Tails[s] != nil {
+			if t := info.Tails[s]; t != nil && !failure(t) {
 				out = append(out, s.X)
 			}
 		case *syntax.BlockStmt:

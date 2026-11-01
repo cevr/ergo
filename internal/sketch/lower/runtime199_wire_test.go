@@ -602,19 +602,7 @@ func TestRuntime199WireProperty(t *testing.T) {
 // The head refuses this program. If a freshness regression admits it, run
 // it so the witness shows the same package resource closing twice.
 func TestRuntime199WireFreshProvider(t *testing.T) {
-	for _, body := range []string{
-		"shared",
-		"run(risky() catch { case Fault: return shared }) {}; Conn{n: 2}",
-		"run(1) {}; run((risky() catch { case Fault: return shared }) + 1) {}; Conn{n: 2}",
-	} {
-		t.Run(body, func(t *testing.T) {
-			src := `type A { Use() }
-type Conn { n int }
-func Use(_ Conn) {}
-func Close(_ Conn) needs Console { Console.Println("closed") }
-let shared = Conn{n: 1}
-func get() Conn { ` + body + ` }
-let W = wire { A: get() }
+	const tail = `
 func main() needs Console {
 	with W { A.Use() }
 	with W { A.Use() }
@@ -624,6 +612,32 @@ type Fault {}
 func risky() int fails Fault { return Fault }
 func run(n int, f func()) { f() }
 `
+	conn := func(body string) string {
+		return `type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
+let shared = Conn{n: 1}
+func get() Conn { ` + body + ` }
+let W = wire { A: get() }` + tail
+	}
+	// The prelude's bodiless Delete returns its argument, the package map
+	// (stage 3b round 3 review, x1).
+	const externDelete = `type A { Use() }
+type Registry Map[string, int]
+func Use(_ Registry) {}
+func Close(_ Registry) needs Console { Console.Println("closed") }
+let shared = Map[string, int]{"a": 1}
+// The with owns no value of this provider.
+let W = wire { A: Registry(shared.Delete("zz")) }` + tail
+	for _, tc := range []struct{ name, src string }{
+		{"shared", conn("shared")},
+		{"trailing catch return", conn("run(risky() catch { case Fault: return shared }) {}; Conn{n: 2}")},
+		{"trailing binary operand", conn("run(1) {}; run((risky() catch { case Fault: return shared }) + 1) {}; Conn{n: 2}")},
+		{"extern returning its argument", externDelete},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := tc.src
 			o := lowerSource("wire_reused", src, true)
 			if len(o.diags) == 1 && o.diags[0].Code == "S109" && o.diags[0].Line == 7 && strings.Contains(o.diags[0].Message, "#197") {
 				return

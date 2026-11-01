@@ -93,6 +93,9 @@ type Package struct {
 	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
 	// unnamed slice or Map type; nil in every other package.
 	collFuncs map[collKey]*Func
+	// providerFresh is the freshness fact the wire ownership pass computed
+	// during Check, kept so its tests read the fact that decided.
+	providerFresh providerFreshness
 }
 
 // collKey names a prelude function on a slice (isMap false) or a Map.
