@@ -618,7 +618,10 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		yield := fc.temp("yield")
 		env := fc.envExpr(s)
 		// The Seq's row is empty (its type has none), so its error is nil.
-		adapter := "func(" + yield + " func(" + elemType + ") bool) { _ = " + x + "(" + env + ", func(_ *" + fc.l.env() + ", " + v + " " + elemType + ") (bool, error) { return " + yield + "(" + v + "), nil }) }"
+		callback := fc.envClosure(callerEnv, "_", s, func(_ string) ([]string, string, string) {
+			return []string{v + " " + elemType}, " (bool, error)", "return " + yield + "(" + v + "), nil\n"
+		})
+		adapter := "func(" + yield + " func(" + elemType + ") bool) { _ = " + x + "(" + env + ", " + callback + ") }"
 		if elem == "_" {
 			fc.line("for range " + adapter + " {")
 		} else {

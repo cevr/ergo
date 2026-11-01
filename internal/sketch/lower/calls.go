@@ -305,42 +305,42 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) stri
 			refuse(site, "the generic function %s used as a value has a type parameter %s that no parameter names; its instantiation needs a check-v1 Info fact (lower-v1 request)", f.Name, tp.Name)
 		}
 	}
-	env := fc.scope.alloc("env")
-	params := []string{env + " *" + fc.l.env()}
-	lead := []string{env}
-	if sig.ResultIsTask() {
-		// The destination passes through to the function, whose return
-		// moves the Task (stage D3b, Rule 2).
-		if !f.Pkg.Info.TaskResults[f] || !f.Sig.ResultIsTask() {
-			refuse(site, "the function %s used as a value returns a Task through a type argument, which is lowered after check-v1 stage E", f.Name)
+	return fc.envClosure(callerEnv, "env", site, func(env string) (params []string, results, body string) {
+		lead := []string{env}
+		if sig.ResultIsTask() {
+			// The destination passes through to the function, whose return
+			// moves the Task (stage D3b, Rule 2).
+			if !f.Pkg.Info.TaskResults[f] || !f.Sig.ResultIsTask() {
+				refuse(site, "the function %s used as a value returns a Task through a type argument, which is lowered after check-v1 stage E", f.Name)
+			}
+			dest := fc.scope.alloc("dest")
+			params = append(params, dest+" *"+fc.l.rt()+".Scope")
+			lead = append(lead, dest)
+		} else if f.Pkg.Info.TaskResults[f] {
+			refuse(site, "the function %s used as a value returns a Task inside another type, which is lowered after check-v1 stage E", f.Name)
 		}
-		dest := fc.scope.alloc("dest")
-		params = append(params, dest+" *"+fc.l.rt()+".Scope")
-		lead = append(lead, dest)
-	} else if f.Pkg.Info.TaskResults[f] {
-		refuse(site, "the function %s used as a value returns a Task inside another type, which is lowered after check-v1 stage E", f.Name)
-	}
-	var args []string
-	for _, p := range sig.Params {
-		name := fc.scope.alloc("p")
-		params = append(params, name+" "+fc.goType(p.Type))
-		args = append(args, name)
-	}
-	var head string
-	if fd.method != nil {
-		head, args = args[0]+"."+fd.name, args[1:]
-	} else {
-		head = fd.name
-	}
-	args = append(lead, args...)
-	call := head + "(" + strings.Join(args, ", ") + ")"
-	var result check.Type
-	if len(sig.Results) == 1 {
-		result = sig.Results[0]
-	}
-	ind := strings.Repeat("\t", fc.depth+1)
-	body := uniformBody(ind, call, len(f.Sig.Results) > 0, result != nil, fd.fallible)
-	return "func(" + strings.Join(params, ", ") + ")" + fc.resultList(result, true) + " {\n" + body + strings.Repeat("\t", fc.depth) + "}"
+		var args []string
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		var head string
+		if fd.method != nil {
+			head, args = args[0]+"."+fd.name, args[1:]
+		} else {
+			head = fd.name
+		}
+		args = append(lead, args...)
+		call := head + "(" + strings.Join(args, ", ") + ")"
+		var result check.Type
+		if len(sig.Results) == 1 {
+			result = sig.Results[0]
+		}
+		ind := strings.Repeat("\t", fc.depth+1)
+		body = uniformBody(ind, call, len(f.Sig.Results) > 0, result != nil, fd.fallible)
+		return params, fc.resultList(result, true), body
+	})
 }
 
 // paramsMention reports whether a parameter type of sig names tp.
@@ -456,16 +456,15 @@ func (fc *funcCtx) noValueArgs(x *syntax.CallExpr, c *check.Call, list []syntax.
 		}
 		fv := fc.bindFunc(vals[i])
 		ind := strings.Repeat("\t", fc.depth+1)
-		e := fc.scope.alloc("e")
-		params, args := []string{e + " *" + fc.l.env()}, []string{e}
-		for _, q := range as.Params {
-			name := fc.scope.alloc("p")
-			params = append(params, name+" "+fc.goType(q.Type))
-			args = append(args, name)
-		}
-		vals[i] = "func(" + strings.Join(params, ", ") + ") (struct{}, error) {\n" +
-			ind + "return struct{}{}, " + fv + "(" + strings.Join(args, ", ") + ")\n" +
-			strings.Repeat("\t", fc.depth) + "}"
+		vals[i] = fc.envClosure(callerEnv, "e", x, func(e string) (params []string, results, body string) {
+			args := []string{e}
+			for _, q := range as.Params {
+				name := fc.scope.alloc("p")
+				params = append(params, name+" "+fc.goType(q.Type))
+				args = append(args, name)
+			}
+			return params, " (struct{}, error)", ind + "return struct{}{}, " + fv + "(" + strings.Join(args, ", ") + ")\n"
+		})
 	}
 }
 

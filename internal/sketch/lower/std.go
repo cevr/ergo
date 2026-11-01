@@ -266,23 +266,23 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 		refuse(x, "a method value with several results is a tuple, lowered after check-v1 stage B (196t)")
 	}
 	recv := fc.spill(fc.value(x.X))
-	e := fc.scope.alloc("e")
-	params := []string{e + " *" + fc.l.env()}
-	vals := []string{recv}
-	for _, p := range sig.Params {
-		name := fc.scope.alloc("p")
-		params = append(params, name+" "+fc.goType(p.Type))
-		vals = append(vals, name)
-	}
-	var result check.Type
-	if len(sig.Results) == 1 {
-		result = sig.Results[0]
-	}
-	fc.depth++
-	call, hasResult, fallible := fc.opCall(fc.typeOf(x.X), op, result, vals, e, nil, nil, x)
-	ind := strings.Repeat("\t", fc.depth)
-	fc.depth--
-	return "func(" + strings.Join(params, ", ") + ")" + fc.resultList(result, true) + " {\n" + uniformBody(ind, call, hasResult, result != nil, fallible) + strings.Repeat("\t", fc.depth) + "}"
+	return fc.envClosure(callerEnv, "e", x, func(e string) (params []string, results, body string) {
+		vals := []string{recv}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			vals = append(vals, name)
+		}
+		var result check.Type
+		if len(sig.Results) == 1 {
+			result = sig.Results[0]
+		}
+		fc.depth++
+		call, hasResult, fallible := fc.opCall(fc.typeOf(x.X), op, result, vals, e, nil, nil, x)
+		ind := strings.Repeat("\t", fc.depth)
+		fc.depth--
+		return params, fc.resultList(result, true), uniformBody(ind, call, hasResult, result != nil, fallible)
+	})
 }
 
 // uniformBody is the body of a function value of the uniform shape
@@ -378,21 +378,24 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 	if hasHidden(body.Hidden, v1.Frame) {
 		ice(site, "a std body that returns a Seq takes the frame scope")
 	}
-	elem := fc.goType(n.TArgs[0])
-	e, yield, v, ok2, err := fc.scope.alloc("e"), fc.scope.alloc("yield"), fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
-	ind := strings.Repeat("\t", fc.depth)
-	return "func(" + e + " *" + fc.l.env() + ", " + yield + " func(*" + fc.l.env() + ", " + elem + ") (bool, error)) error {\n" +
-		ind + "\tfor " + v + " := range " + call(e) + " {\n" +
-		ind + "\t\t" + ok2 + ", " + err + " := " + yield + "(" + e + ", " + v + ")\n" +
-		ind + "\t\tif " + err + " != nil {\n" +
-		ind + "\t\t\treturn " + err + "\n" +
-		ind + "\t\t}\n" +
-		ind + "\t\tif !" + ok2 + " {\n" +
-		ind + "\t\t\treturn nil\n" +
-		ind + "\t\t}\n" +
-		ind + "\t}\n" +
-		ind + "\treturn nil\n" +
-		ind + "}"
+	return fc.envClosure(callerEnv, "e", site, func(e string) (params []string, results, text string) {
+		yield, v, ok2, err := fc.scope.alloc("yield"), fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
+		ind := strings.Repeat("\t", fc.depth)
+		// The yield parameter has the Seq's checked function type. It is a
+		// type, not another emitted closure or another env-binding owner.
+		yieldType := fc.goType(n.Underlying().(*check.Signature).Params[0].Type)
+		return []string{yield + " " + yieldType}, " error",
+			ind + "\tfor " + v + " := range " + call(e) + " {\n" +
+				ind + "\t\t" + ok2 + ", " + err + " := " + yield + "(" + e + ", " + v + ")\n" +
+				ind + "\t\tif " + err + " != nil {\n" +
+				ind + "\t\t\treturn " + err + "\n" +
+				ind + "\t\t}\n" +
+				ind + "\t\tif !" + ok2 + " {\n" +
+				ind + "\t\t\treturn nil\n" +
+				ind + "\t\t}\n" +
+				ind + "\t}\n" +
+				ind + "\treturn nil\n"
+	})
 }
 
 // goFallible reports whether a std body's Go form returns an error: its
@@ -504,47 +507,42 @@ func (fc *funcCtx) adaptFunc(fv string, shape *v1.Body, sig *check.Signature, si
 		ice(site, "a std function parameter with parameters of its own")
 	}
 	fv = fc.bindFunc(fv)
-	env := fc.envExpr(site)
-	ind := strings.Repeat("\t", fc.depth+1)
-	var params []string
-	var pre string
+	binding := capturedEnv
 	for _, h := range shape.Hidden {
-		if h != v1.CallerTask {
+		if h != v1.CallerTask || binding != capturedEnv {
 			ice(site, "the hidden argument %s of a std function parameter", h)
 		}
-		t := fc.scope.alloc("t")
-		e := fc.scope.alloc("e")
-		params = append(params, t+" *"+fc.l.taskPkg()+".Task")
-		pre = ind + e + " := *" + env + "\n" + ind + e + "." + envTask + " = " + t + "\n"
-		env = "&" + e
+		binding = childEnv
 	}
-	call := fv + "(" + env + ")"
-	var results, body string
-	switch len(shape.Results) {
-	case 0:
-		if len(sig.Results) == 1 {
-			body = ind + "_, _ = " + call + "\n"
-		} else {
-			body = ind + "_ = " + call + "\n"
-		}
-	case 1:
-		if len(sig.Results) != 0 {
-			ice(site, "a std function parameter returns error alone and the block a value")
-		}
-		results, body = " error", ind+"return "+call+"\n"
-	case 2:
-		switch len(sig.Results) {
+	return fc.envClosure(binding, "e", site, func(env string) (params []string, results, body string) {
+		ind := strings.Repeat("\t", fc.depth+1)
+		call := fv + "(" + env + ")"
+		switch len(shape.Results) {
 		case 0:
-			// A block with no value binds the body's T to no value, which
-			// is struct{} (types.md, Inference; stage D3b round 1 review M2).
-			results, body = " (struct{}, error)", ind+"return struct{}{}, "+call+"\n"
+			if len(sig.Results) == 1 {
+				body = ind + "_, _ = " + call + "\n"
+			} else {
+				body = ind + "_ = " + call + "\n"
+			}
 		case 1:
-			results, body = " ("+fc.goType(sig.Results[0])+", error)", ind+"return "+call+"\n"
+			if len(sig.Results) != 0 {
+				ice(site, "a std function parameter returns error alone and the block a value")
+			}
+			results, body = " error", ind+"return "+call+"\n"
+		case 2:
+			switch len(sig.Results) {
+			case 0:
+				// A block with no value binds the body's T to no value, which
+				// is struct{} (types.md, Inference; stage D3b round 1 review M2).
+				results, body = " (struct{}, error)", ind+"return struct{}{}, "+call+"\n"
+			case 1:
+				results, body = " ("+fc.goType(sig.Results[0])+", error)", ind+"return "+call+"\n"
+			default:
+				ice(site, "a std function parameter's block with %d results", len(sig.Results))
+			}
 		default:
-			ice(site, "a std function parameter's block with %d results", len(sig.Results))
+			ice(site, "a std function parameter with %d results", len(shape.Results))
 		}
-	default:
-		ice(site, "a std function parameter with %d results", len(shape.Results))
-	}
-	return "func(" + strings.Join(params, ", ") + ")" + results + " {\n" + pre + body + strings.Repeat("\t", fc.depth) + "}"
+		return nil, results, body
+	})
 }

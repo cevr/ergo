@@ -788,57 +788,58 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 		refuse(n, "a literal with several results is a tuple, lowered after check-v1 stage B (196t)")
 	}
 	inner := &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner}
-	inner.env = fc.scope.alloc("env")
-	parts := []string{inner.env + " *" + fc.l.env()}
-	inner.frame = &frame{fallible: true, polls: framePolls(fc.l.info, n)}
-	if sig.ResultIsTask() {
-		// A literal that returns a Task receives its caller's frame scope
-		// as its destination (stage D3b, Rule 2).
-		inner.frame.dest = fc.scope.alloc("dest")
-		parts = append(parts, inner.frame.dest+" *"+fc.l.rt()+".Scope")
-	}
-	var params []*check.Var
-	if ft != nil && ft.Params != nil {
-		for _, field := range ft.Params.List {
-			for _, id := range field.Names {
-				v, _ := fc.l.info.Defs[id].(*check.Var)
-				params = append(params, v)
+	return fc.envClosure(callerEnv, "env", n, func(env string) (parts []string, results, body string) {
+		inner.env = env
+		inner.frame = &frame{fallible: true, polls: framePolls(fc.l.info, n)}
+		if sig.ResultIsTask() {
+			// A literal that returns a Task receives its caller's frame scope
+			// as its destination (stage D3b, Rule 2).
+			inner.frame.dest = fc.scope.alloc("dest")
+			parts = append(parts, inner.frame.dest+" *"+fc.l.rt()+".Scope")
+		}
+		var params []*check.Var
+		if ft != nil && ft.Params != nil {
+			for _, field := range ft.Params.List {
+				for _, id := range field.Names {
+					v, _ := fc.l.info.Defs[id].(*check.Var)
+					params = append(params, v)
+				}
 			}
 		}
-	}
-	if len(params) != len(sig.Params) {
-		ice(n, "a literal declares %d parameters and its signature has %d", len(params), len(sig.Params))
-	}
-	for i, p := range sig.Params {
-		name := fc.scope.alloc("_p")
-		if params[i] != nil {
-			name = inner.declare(params[i])
+		if len(params) != len(sig.Params) {
+			ice(n, "a literal declares %d parameters and its signature has %d", len(params), len(sig.Params))
 		}
-		parts = append(parts, name+" "+fc.goType(p.Type))
-	}
-	var result check.Type
-	if len(sig.Results) == 1 {
-		result = sig.Results[0]
-	}
-	inner.frame.result = result
-	inner.depth = fc.depth + 1
-	results := fc.resultList(result, true)
-	if fc.l.bodyNeedsFrame(list) {
-		// The literal is a frame of its own (stage D3b, Rule 2).
-		errName := fc.scope.alloc("err")
-		results = fc.namedResults(result, errName)
-		inner.site = n
-		inner.openFrame(errName)
-	}
-	inner.entryPoll(fc.l.info, n)
-	// A trailing block yields its last statement (Info.Tails); a function
-	// literal's body is a function body.
-	if ft == nil {
-		inner.blockBody(list)
-	} else {
-		inner.body(list)
-	}
-	return "func(" + strings.Join(parts, ", ") + ")" + results + " {\n" + inner.out.String() + strings.Repeat("\t", fc.depth) + "}"
+		for i, p := range sig.Params {
+			name := fc.scope.alloc("_p")
+			if params[i] != nil {
+				name = inner.declare(params[i])
+			}
+			parts = append(parts, name+" "+fc.goType(p.Type))
+		}
+		var result check.Type
+		if len(sig.Results) == 1 {
+			result = sig.Results[0]
+		}
+		inner.frame.result = result
+		inner.depth = fc.depth + 1
+		results = fc.resultList(result, true)
+		if fc.l.bodyNeedsFrame(list) {
+			// The literal is a frame of its own (stage D3b, Rule 2).
+			errName := fc.scope.alloc("err")
+			results = fc.namedResults(result, errName)
+			inner.site = n
+			inner.openFrame(errName)
+		}
+		inner.entryPoll(fc.l.info, n)
+		// A trailing block yields its last statement (Info.Tails); a function
+		// literal's body is a function body.
+		if ft == nil {
+			inner.blockBody(list)
+		} else {
+			inner.body(list)
+		}
+		return parts, results, inner.out.String()
+	})
 }
 
 // retTail returns a block's tail value from a literal's frame.
