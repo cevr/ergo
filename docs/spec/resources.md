@@ -15,7 +15,7 @@ func copyFile(src, dst string) fails NotFound | WriteFailed needs FS {
 ## What is a resource
 
 1. **R1.** A type is a resource when it has a method `Close()`, when it is a struct with a resource field, or when it is a slice, array or map with a resource element type (R34). A `Task` and an actor handle are resources ([runtime.md](runtime.md#tasks)).
-2. **R2.** `Close` must not declare an error row (decision #6). A defect in `Close` joins the exit cause ([runtime.md](runtime.md#exit-causes)). A fallible cleanup handles its failure inside `Close`: `p.conn.Close() catch { case CloseFailed: log.Warn("close failed") }`. *Prior art:* Effect's release has error type `never`; Go's `io.Closer` returns an error that callers routinely drop.
+2. **R2.** `Close` must not declare an error row (decision #6). Status: **implemented in the checker**: a `Close` method or an operation type's `Close` with a nonempty failure row is a type error (#199 stage 3a). A defect in `Close` joins the exit cause ([runtime.md](runtime.md#exit-causes)). A fallible cleanup handles its failure inside `Close`: `p.conn.Close() catch { case CloseFailed: log.Warn("close failed") }`. *Prior art:* Effect's release has error type `never`; Go's `io.Closer` returns an error that callers routinely drop.
 3. **R3. Generated `Close`.** A struct whose fields include resources gets a generated `Close` that closes those fields in reverse declaration order. A hand-written `Close` on such a struct adds behaviour that runs first; the generated field releases still run after it.
 
 ## Owner scope
@@ -36,7 +36,7 @@ func copyFile(src, dst string) fails NotFound | WriteFailed needs FS {
    *Prior art:* Go's `defer` runs at function exit, which leaks one file per iteration; C# `using var` and Python `with` scope to the block.
 4. **R7. Failure during acquisition.** When a later acquisition in a scope fails, the resources acquired earlier in that scope are closed before the failure escapes (`copyFile` above).
 5. **R8. Atomic registration.** A successful acquisition and its registration for release are one step: interruption cannot fall between them (I2, [runtime.md](runtime.md#i2-automatic-masks)).
-6. **R9. Release runs masked.** Releases run uninterruptibly, to completion, even when the scope ends by interruption. Each release runs even when an earlier one had a defect, and every defect is kept in the exit cause.
+6. **R9. Release runs masked.** Releases run uninterruptibly, to completion, even when the scope ends by interruption. Each release runs even when an earlier one had a defect, and every defect is kept in the exit cause. Status: **implemented** for a written `Close` on every dispatch path and for `scope.OnExit` (#199 stage 3a; [runtime.md, Release masks as built](runtime.md#release-masks-as-built)). The automatic release of an owned resource at its scope's end is designed, not yet implemented.
 
 ## Moves
 

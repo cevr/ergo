@@ -52,7 +52,7 @@ Status: **implemented in prototype** for capability calls, loop back-edges and r
 
 ## I2. Automatic masks
 
-Status: **designed, not yet implemented**.
+Status: items 1 and 2 are **implemented** for a written `Close` and for `scope.OnExit` (#199 stage 3a, [Release masks as built](#release-masks-as-built)); items 3 and 4, and a generated `Close` (#197), are **designed, not yet implemented**.
 
 These run uninterruptibly, to completion:
 
@@ -62,6 +62,14 @@ These run uninterruptibly, to completion:
 4. the step between a successful acquisition and its registration for release.
 
 If an acquisition succeeds, its release runs. A blocking primitive inside a masked region waits uninterruptibly, unless it is explicitly marked as an interruptible wait in the mask (the `poll` pattern). Masks nest; an inner region restores the outer mask state, never an unmasked one. *Prior art:* Cats Effect `MonadCancel.bracket` and `uncancelable` with `poll`; Effect `acquireRelease` and `uninterruptibleMask`.
+
+### Release masks as built
+
+1. **Which `Close` is a release.** The checker records a Close identity fact (`Info.Closes`) on the declaration of a function named `Close` whose only parameter is its receiver, a named type or a pointer to one, and which has no result and no error row (R1, R2), and on each call, operation and method value that resolves to such a declaration or to an operation type's `Close()`. Lowering reads the fact, never the spelling: `Finish()` with the same body, and `Close(n int)`, are ordinary calls.
+2. **One boundary.** `runtime/v1` has one mask and cause boundary for a release, `release` in `task.go`: it masks the task, runs the body through `rt.Release`, and unmasks with a deferred call, so the caller's mask depth comes back on a normal return, a typed exit, a defect and a panic. A frame's exit actions, the drains of the tasks it still owns, and every checked `Close` body go through it. `v1.Release(t, body)` is the entry for a `Close` body.
+3. **The mask is in the body.** The lowering writes the whole Go body of a checked `Close`, its frame scope, entry poll and first capability checkpoint included, inside `Release(env.task, func() { … })`. So every dispatch path reaches the same masked body: a call, a dot call, an operation of an operation type, a capability's operation (its adapter calls the body), a function value and a method value. The release catalog is the bindings of `runtimeBindings` with a release route (`internal/sketch/lower/release.go`): `Release` for a checked `Close` body on the invocation's task, and `OnExit` for an exit action on its frame's task. A new route fails a test until it is listed.
+4. **Inside the mask.** A stop that arrives before or during the release does not end it. A blocking primitive in the body (`Sleep`, a queue wait) waits uninterruptibly. The stop stays pending, and the caller sees it at its next interruption point after the release. A call of a checked `Close` is not an interruption point of its own, so a capability's `Close` writes no poll before its operation.
+5. **Causes.** A defect in a release is raised whole for the caller's frame to join beside its earlier exit ([Exit causes](#exit-causes) 4). It is never turned into a typed failure, and it never replaces an exit already in flight. An exit action runs on the task of the frame it ends, which is the task its block was registered on.
 
 ## Exit causes
 
