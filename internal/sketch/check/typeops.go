@@ -274,6 +274,12 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		return assignment{clause: assignUnderlying}, ""
 	}
 	if it := asInterface(t); it != nil {
+		// The Task guard: an operation value would erase a Task's
+		// ownership, so a Task-holding value enters only an operation
+		// type that itself holds one (taskescape.go).
+		if c.holdsTask(v) && !c.holdsTask(t) {
+			return assignment{}, taskEscapeText
+		}
 		if _, isTuple := under(v).(*Tuple); isTuple {
 			return assignment{}, "a tuple has no operations"
 		}

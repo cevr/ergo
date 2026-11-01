@@ -161,6 +161,10 @@ func (c *checker) definedType(n *Named, spec syntax.Expr, ctx *typeCtx) Type {
 		c.errorf(spec, CodeType, "a defined type is over a basic, slice, Map, function, tuple or record type, and %s is %s; use %s directly (types.md, Defined types)", c.localTypeText(base), noun, c.localTypeText(base))
 		return invalid
 	}
+	if c.taskRefused(spec, base) {
+		// A record instance over a Task (type B Box[Task[int, F]]).
+		return invalid
+	}
 	n.def = base
 	return under(base)
 }

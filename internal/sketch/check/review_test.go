@@ -103,8 +103,9 @@ func M(_ S) {}
 type Box[T I] { X T }
 func F() { _ = Box{S} }`},
 	{"M6", "implicit-row-in-generic-argument", "", `func Await[T, E](t Task[T, E]) T fails E { return t.Wait() }`},
-	{"M6", "bracket-row-in-generic-field", "", `type Box[T, E] { t Task[T, E] }
-func Open[T, E](b Box[T, E]) T fails E { return b.t.Wait() }`},
+	// D3a: a record field holds no Task, so the field is a function type.
+	{"M6", "bracket-row-in-generic-field", "", `type Box[T, E] { run func() T fails E }
+func Open[T, E](b Box[T, E]) T fails E { return b.run() }`},
 	{"M6", "row-kind-conflict-still-reported", "S108", `func Bad(t Task[T, E], e E) T { return t.Wait() }`},
 	{"M7", "generic-recursive-value", "S108", `type Wrap[T] { Value T }
 type U { Field Wrap[U] }

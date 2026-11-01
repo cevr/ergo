@@ -345,7 +345,8 @@ func (c *checker) multiValue(x syntax.Expr, n int) []Type {
 		}
 	}
 	op := c.valueExpr(x, nil)
-	if op.invalid() {
+	if op.invalid() || isInvalid(op.typ) {
+		// A refused result type is reported at the signature.
 		return out
 	}
 	tup, ok := op.typ.(*Tuple)

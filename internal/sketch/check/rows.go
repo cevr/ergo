@@ -1163,6 +1163,9 @@ func (c *checker) checkPkgVar(pv *pkgVar) {
 	var declared Type
 	if pv.spec.Type != nil {
 		declared = c.typExpr(pv.spec.Type, nil)
+		if c.taskRefused(pv.spec.Type, declared) {
+			declared = invalid
+		}
 	}
 	switch {
 	case len(pv.spec.Values) == 0:

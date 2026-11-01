@@ -218,6 +218,9 @@ func (c *checker) pkgPatternCheck(g *pkgPattern) {
 		var declared Type
 		if spec.Type != nil {
 			declared = c.typExpr(spec.Type, nil)
+			if c.taskRefused(spec.Type, declared) {
+				declared = invalid
+			}
 		}
 		types := c.multiValue(spec.Values[0], len(spec.Names))
 		if declared != nil {

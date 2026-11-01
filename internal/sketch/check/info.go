@@ -153,6 +153,12 @@ type Info struct {
 	// and otherwise in declaration order. The lowering runs them in this
 	// order inside the program's root task (stage C round 2 review m1).
 	InitOrder []*Initializer
+	// TaskResults is every function of the package whose result type
+	// holds a Task (check-v1 stage D3a, Task escape): a Task leaves its
+	// function only by return, so the lowering can pass the caller's
+	// scope to such a function as a hidden destination. Added in stage
+	// D3a (additive).
+	TaskResults map[*Func]bool
 }
 
 // Initializer is one package-level initializer: Vars are the names it
@@ -178,6 +184,7 @@ func newInfo() *Info {
 		Literals:      map[syntax.Node]*Signature{},
 		Loops:         map[*syntax.RangeStmt]*Loop{},
 		Withs:         map[*syntax.CallExpr]*With{},
+		TaskResults:   map[*Func]bool{},
 	}
 }
 
@@ -537,6 +544,11 @@ func (c *checker) finishInfo() {
 	}
 	for p, name := range c.asNames {
 		p.Var, _ = c.pkg.Info.Defs[name].(*Var)
+	}
+	for _, f := range c.funcs {
+		if f.Sig != nil && c.resultsHoldTask(f.Sig) {
+			c.pkg.Info.TaskResults[f] = true
+		}
 	}
 	// A function's type keeps its row variables (inference writes the
 	// solution beside them); Info holds the solved rows (invariant 2).

@@ -16,7 +16,8 @@ import (
 // kind, checked only until stage D3b lowers task.Go. Every kind meets every
 // kind at every site: a let, a multi-name let, an argument, a result and a
 // composite-literal field. A refused pair has exactly one diagnostic, on the
-// line of its site (or of the refused definition). An admitted pair lowers
+// line of its site (or of the refused definition, or of a Task written in a
+// type position: a tuple result or a record field). An admitted pair lowers
 // on its own, and every admitted pair of a site, batched in one program,
 // builds and runs, printing its marker. A small model of the
 // assignability clauses (types.md, Assignability) says which pairs the
@@ -132,6 +133,20 @@ func admits(s, t pairKind) bool {
 
 var pairSites = []string{"let", "multi", "arg", "ret", "field"}
 
+// taskTypeAt is the line text of a site's own Task type position, refused
+// by the type-position rule (types.md, Task): the multi site's helper
+// returns a tuple of the source kind, and the field site's record has a
+// field of the target kind. "" when the site writes no Task in a type.
+func taskTypeAt(site string, s, t pairKind) string {
+	switch {
+	case site == "multi" && s.task:
+		return "Two() ("
+	case site == "field" && t.task:
+		return "Box { f "
+	}
+	return ""
+}
+
 // pairFunc is the generated code of one pair at one site: declarations and
 // a function named id that prints id, and the text of the line a refusal
 // is reported on.
@@ -215,12 +230,16 @@ func TestCheckedImpliesLowered(t *testing.T) {
 					// an unnamed tuple type.
 					continue
 				}
+				taskAt := taskTypeAt(site, s, k)
+				if taskAt != "" && (s.decl != "" || k.decl != "") {
+					continue // a refused definition and a Task type: two mistakes
+				}
 				id, code, at := pairFunc(site, s, k)
 				src := pairProgram([]pairKind{s, k}, s.task, []string{id}, []string{code})
 				o := lowerSource(id, src, true)
 				admitted := o.err == nil && len(o.diags) == 0
-				if admitted != admits(s, k) {
-					t.Errorf("%s: admitted %v, the assignability model says %v; diagnostics %v\n%s", id, admitted, admits(s, k), o.diags, src)
+				if model := admits(s, k) && taskAt == ""; admitted != model {
+					t.Errorf("%s: admitted %v, the assignability model says %v; diagnostics %v\n%s", id, admitted, model, o.diags, src)
 					continue
 				}
 				if !admitted {
@@ -229,7 +248,9 @@ func TestCheckedImpliesLowered(t *testing.T) {
 						continue
 					}
 					where := at
-					if s.decl != "" {
+					if taskAt != "" {
+						where = taskAt
+					} else if s.decl != "" {
 						where = s.decl
 					} else if k.decl != "" {
 						where = k.decl

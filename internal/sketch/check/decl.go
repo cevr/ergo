@@ -57,6 +57,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	c.checkWireCycles()
 	c.checkErrorMethods()
 	c.checkUnusedImports()
+	c.checkTaskUses()
 	c.finishInfo()
 	c.pkg.ErrorTypes = make(map[*Named]bool, len(c.errorTypes))
 	for n := range c.errorTypes {
@@ -572,6 +573,9 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	seen := map[string]bool{}
 	for _, field := range spec.Fields.List {
 		t := c.typExpr(field.Type, ctx)
+		if c.taskRefused(field.Type, t) {
+			t = invalid
+		}
 		for _, name := range field.Names {
 			if seen[name.Name] && name.Name != "_" {
 				c.errorf(name, CodeType, "field %s is declared twice", name.Name)
@@ -799,10 +803,17 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 			c.undecided(x, "an array type with a length")
 			return invalid
 		}
-		return &Slice{Elem: c.typExpr(x.Elt, ctx)}
+		elem := c.typExpr(x.Elt, ctx)
+		if c.taskRefused(x.Elt, elem) {
+			return invalid
+		}
+		return &Slice{Elem: elem}
 	case *syntax.MapType:
 		k := c.typExpr(x.Key, ctx)
 		v := c.typExpr(x.Value, ctx)
+		if c.taskRefused(x.Key, k) || c.taskRefused(x.Value, v) {
+			return invalid
+		}
 		if !isInvalid(k) && !comparable(k) {
 			c.errorf(x.Key, CodeType, "map key type %s is not comparable", k)
 			return invalid
@@ -815,7 +826,11 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		}
 		inner := *ctx
 		inner.param = false
-		return &Pointer{Elem: c.typExpr(x.X, &inner)}
+		elem := c.typExpr(x.X, &inner)
+		if c.taskRefused(x.X, elem) {
+			return invalid
+		}
+		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
 		if x.Escaping.IsValid() {
 			c.outside(x, "an escaping function type (196e, escaping)")
@@ -851,7 +866,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		tup := &Tuple{Types: make([]Type, len(x.Elts))}
 		for i, e := range x.Elts {
 			tup.Types[i] = c.typExpr(e, &inner)
-			if isInvalid(tup.Types[i]) {
+			if isInvalid(tup.Types[i]) || c.taskRefused(e, tup.Types[i]) {
 				return invalid
 			}
 		}

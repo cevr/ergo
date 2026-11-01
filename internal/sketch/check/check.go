@@ -119,6 +119,18 @@ type checker struct {
 	// walkOps counts the reference walk's literal elements, an operation
 	// count for the linear-growth tests (round 17 M2).
 	walkOps int
+	// taskMemo caches holdsTask by interned type id, for finished
+	// components only (taskescape.go); taskSteps counts the walk's visits
+	// for the linear-growth tests.
+	taskMemo  map[int32]bool
+	taskSteps int
+	// typeNodes are the expressions checked as types (a conversion's
+	// callee, a composite literal's type): the Task use rule skips them.
+	typeNodes map[syntax.Expr]bool
+	// intoInvalid are the values assigned to a target of no type (a
+	// refused field, result or let type): the refusal is reported there,
+	// so the Task use rule adds nothing for them.
+	intoInvalid map[syntax.Expr]bool
 	// wires meters the wire summaries' work against the package's budget
 	// (wiresum.go; nil when the package has no wire).
 	wires *wireMeter

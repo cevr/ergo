@@ -58,7 +58,7 @@ func main() {}
 `, []string{"S109:2"}},
 	{"import std", "an import of a std module", `
 import task
-func main() { task.Go() { 1 } }
+func main() { let t = task.Go() { 1 }; t.Stop() }
 `, nil},
 	{"import go", "a refused import adds no cascade", `
 import go task

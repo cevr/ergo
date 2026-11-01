@@ -61,6 +61,12 @@ func bad(x syntax.Expr) operand { return operand{mode: modeInvalid, typ: invalid
 func (c *checker) record(x syntax.Expr, op operand) {
 	if c.silent == 0 && !isInvalid(op.typ) && op.mode != modeInvalid {
 		c.pkg.Info.Types[x] = op.typ
+		if op.mode == modeType {
+			if c.typeNodes == nil {
+				c.typeNodes = map[syntax.Expr]bool{}
+			}
+			c.typeNodes[x] = true
+		}
 		if op.mode == modeConst && op.val != nil {
 			c.pkg.Info.Values[x] = op.val
 		}
@@ -1292,6 +1298,12 @@ func (c *checker) sliceExpr(x *syntax.SliceExpr) operand {
 func (c *checker) assign(op *operand, t Type, what string) bool {
 	if op.invalid() || t == nil || containsInvalid(t) || containsInvalid(op.typ) {
 		// Already reported where the invalid part came from (D3).
+		if op.expr != nil && t != nil && containsInvalid(t) {
+			if c.intoInvalid == nil {
+				c.intoInvalid = map[syntax.Expr]bool{}
+			}
+			c.intoInvalid[op.expr] = true
+		}
 		return true
 	}
 	if op.mode == modeNoValue {
