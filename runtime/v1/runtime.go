@@ -31,6 +31,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // Console is the host's Console provider, which main binds: Println writes
@@ -45,11 +47,13 @@ func (Console) Println(line string) {
 
 // Sleep is the Go body of the prelude's `extern go
 // ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d
-// duration)`: it suspends the calling goroutine for d. Cancellation of a
-// sleeping task is #199's; a signal to the process ends it, as Go's default
-// signal handling does.
-func Sleep(d time.Duration) {
-	time.Sleep(d)
+// duration)`. The hidden task is the task running the call. The primitive
+// observes its stop before and during the wait, and respects its mask.
+// Interruption follows the same exit path as Wait and queue operations.
+func Sleep(t *rt.Task, d time.Duration) {
+	if err := rt.Sleep(t, rt.Live{}, d); err != nil {
+		raise(err)
+	}
 }
 
 // Fail reports main's typed failure on standard error and exits with

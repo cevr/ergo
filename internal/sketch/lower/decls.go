@@ -556,7 +556,9 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return nil
 	}
 	if f.Name == "Sleep" && len(s.TParams) == 0 && len(s.Results) == 0 && len(s.Params) == 2 && isPreludeType(s.Params[0].Type, "LiveScheduler") && isBasic(s.Params[1].Type, check.Duration) {
-		return func(_ *funcCtx, params []string) string { return "\t" + l.rt() + ".Sleep(" + params[1] + ")\n" }
+		return func(fc *funcCtx, params []string) string {
+			return "\t" + l.rt() + ".Sleep(" + fc.envExpr(fc.site) + "." + envTask + ", " + params[1] + ")\n"
+		}
 	}
 	// The functions on slices and Maps (D-D6): Append and Delete call
 	// their runtime/v1 bodies; Get builds the program's Option, which the

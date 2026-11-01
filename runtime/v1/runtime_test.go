@@ -5,9 +5,12 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/runtime/rt"
 )
 
 // TestText: the texts of basic values inside an error type's text, as Go's
@@ -36,9 +39,24 @@ func TestText(t *testing.T) {
 // TestSleep: Sleep suspends the caller for at least d.
 func TestSleep(t *testing.T) {
 	start := time.Now()
-	Sleep(20 * time.Millisecond)
+	Sleep(rt.Root("sleeper"), 20*time.Millisecond)
 	if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
 		t.Errorf("Sleep returned after %v", elapsed)
+	}
+}
+
+// A pre-stopped call must raise interruption without arming a timer or
+// delivering a normal result. Inspect the signature first so this test also
+// runs against the old, task-unaware body without waiting for an hour.
+func TestSleepObservesRunningTask(t *testing.T) {
+	f := reflect.ValueOf(Sleep)
+	if f.Type() != reflect.TypeOf(func(*rt.Task, time.Duration) {}) {
+		t.Fatal("Sleep must receive the running task as its hidden first argument")
+	}
+	task := rt.Root("stopped sleeper")
+	task.Interrupt()
+	if p := recovered(func() { f.Call([]reflect.Value{reflect.ValueOf(task), reflect.ValueOf(time.Hour)}) }); p != rt.Interrupted {
+		t.Fatalf("Sleep raised %v; want rt.Interrupted", p)
 	}
 }
 
