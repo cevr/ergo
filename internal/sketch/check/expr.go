@@ -1005,6 +1005,13 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		if it := asInterface(t); it != nil {
 			m = it.method(x.Sel.Name)
 		}
+		if m != nil && isPointer(base.typ) {
+			// An operation type's value is a reference already (types.md,
+			// Operation types); a pointer to one adds a second (stage D3b,
+			// Rule 5), so its operations are called on the value.
+			c.errorf(x, CodeType, "an operation type is already a reference; call it on the value")
+			return bad(x)
+		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
 	if u := under(t); u != t && c.collFunc(u, x.Sel.Name) != nil {

@@ -504,35 +504,22 @@ func main() fails queue.Closed needs Console {
 `, "values\nbreak keeps the rest\n")
 }
 
-// TestStdOperationThroughDefinedTypeRefusedNamingD3: the operations of a
-// pointer to a std type are the std type's, so their calls are refused
-// naming D3 too, never lowered to a pointer to a local Go interface with no
-// task. A type defined over a std operation type, at any depth, is refused
-// at its definition (the D3a rewrite ruling, item 2), once, and its uses
-// add nothing, so nothing reaches the lowering.
-func TestStdOperationThroughDefinedTypeRefusedNamingD3(t *testing.T) {
-	cases := []struct{ name, src, diag string }{
-		{"defined", "import queue\n\ntype MyQ queue.Queue[int]\n\nfunc f(q MyQ) {\n\tq.Close()\n}\n", "3:10: S108"},
-		{"defined-twice", "import queue\n\ntype MyQ queue.Queue[int]\ntype Q2 MyQ\n\nfunc f(q Q2) {\n\tq.Close()\n}\n", "3:10: S108"},
-		{"pointer", "import queue\n\nfunc f(p *queue.Queue[int]) {\n\tp.Close()\n}\n", ""},
+// TestStdOperationThroughDefinedTypeOrPointerRefused: a type defined over a
+// std operation type, at any depth, is refused at its definition (the D3a
+// rewrite ruling, item 2), once, and its uses add nothing; an operation
+// called through a pointer to an operation type is S108 at the call (stage
+// D3b, Rule 5). Neither reaches the lowering.
+func TestStdOperationThroughDefinedTypeOrPointerRefused(t *testing.T) {
+	cases := []struct{ name, src, diag, text string }{
+		{"defined", "import queue\n\ntype MyQ queue.Queue[int]\n\nfunc f(q MyQ) {\n\tq.Close()\n}\n", "3:10: S108", "use queue.Queue[int] directly"},
+		{"defined-twice", "import queue\n\ntype MyQ queue.Queue[int]\ntype Q2 MyQ\n\nfunc f(q Q2) {\n\tq.Close()\n}\n", "3:10: S108", "use queue.Queue[int] directly"},
+		{"pointer", "import queue\n\nfunc f(p *queue.Queue[int]) {\n\tp.Close()\n}\n", "4:2: S108", "an operation type is already a reference; call it on the value"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			o := lowerSource("r", tc.src, false)
-			if tc.diag != "" {
-				if len(o.diags) != 1 || !strings.HasPrefix(o.diags[0].String(), tc.diag) || !strings.Contains(o.diags[0].Message, "use queue.Queue[int] directly") {
-					t.Fatalf("want one diagnostic %s naming queue.Queue[int]; got %v", tc.diag, o.diags)
-				}
-				return
-			}
-			if len(o.diags) != 0 {
-				t.Fatalf("want a clean check; got %v", o.diags)
-			}
-			if o.panicked != nil || len(o.refused) != 1 {
-				t.Fatalf("want one refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
-			}
-			if r := o.refused[0]; !strings.Contains(r.Message, "std operation Queue.Close") || !strings.Contains(r.Message, "check-v1 stage D3") {
-				t.Fatalf("want a refusal of Queue.Close naming check-v1 stage D3; got %+v", r)
+			if len(o.diags) != 1 || !strings.HasPrefix(o.diags[0].String(), tc.diag) || !strings.Contains(o.diags[0].Message, tc.text) {
+				t.Fatalf("want one diagnostic %s %q; got %v", tc.diag, tc.text, o.diags)
 			}
 		})
 	}
