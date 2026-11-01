@@ -220,12 +220,12 @@ func (c *checker) pkgPatternCheck(g *pkgPattern) {
 			declared = c.typExpr(spec.Type, nil)
 		}
 		types := c.multiValue(spec.Values[0], len(spec.Names))
+		if declared != nil {
+			c.assignElems(spec.Values[0], types, declared)
+		}
 		for i, pv := range g.members {
 			t := types[i]
 			if declared != nil && !isInvalid(t) {
-				if ok, why := c.assignable(t, declared); !ok {
-					c.errorf(spec.Values[0], CodeType, "cannot use %s as %s: %s", t, declared, why)
-				}
 				t = declared
 			}
 			pv.obj.Type = t

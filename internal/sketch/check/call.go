@@ -236,7 +236,9 @@ func (c *checker) callSig(x *syntax.CallExpr, sig *Signature, fun operand) opera
 			if refused { // class G: invalid, nothing cascades
 				return bad(x)
 			}
-			if ok, why := c.assignable(lit, pt); !ok {
+			// pt's underlying type is a function type, so assignability
+			// admits the block by clause 1, 2 or 5, which convert nothing.
+			if a, why := c.assignability(lit, pt); !a.ok() {
 				c.errorf(args.trailing, CodeType, "this block cannot be %s: %s", pt, why)
 			}
 		}
@@ -701,7 +703,8 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 	for i := 0; i < n; i++ {
 		pt := paramType(inst, i)
 		if lits[i] != nil {
-			if ok, why := c.assignable(lits[i], pt); !ok {
+			a, why := c.assignability(lits[i], pt)
+			if !a.ok() {
 				at := syntax.Node(args.trailing)
 				if i < len(args.exprs) {
 					at = args.exprs[i]
@@ -710,6 +713,9 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 				// One diagnostic for the call; its result is invalid, so
 				// nothing cascades (round-7 M3; D3).
 				return bad(x)
+			}
+			if i < len(args.exprs) {
+				c.implicit(args.exprs[i], a)
 			}
 			continue
 		}

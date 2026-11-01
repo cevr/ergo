@@ -301,12 +301,12 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 			}
 		case len(spec.Values) == 1:
 			types := c.multiValue(spec.Values[0], len(spec.Names))
+			if declared != nil {
+				c.assignElems(spec.Values[0], types, declared)
+			}
 			for i, n := range spec.Names {
 				t := types[i]
 				if declared != nil && !isInvalid(t) {
-					if ok, why := c.assignable(t, declared); !ok {
-						c.errorf(spec.Values[0], CodeType, "cannot use %s as %s: %s", t, declared, why)
-					}
 					t = declared
 				}
 				declare(n, t)
@@ -585,11 +585,42 @@ func (c *checker) returnTuple(x syntax.Expr, op operand, results []Type) {
 		c.errorf(x, CodeType, "%d values expected", len(results))
 		return
 	}
+	as := make([]assignment, len(results))
 	for i := range results {
-		if ok, why := c.assignable(tup.Types[i], results[i]); !ok {
+		a, why := c.assignability(tup.Types[i], results[i])
+		if !a.ok() {
 			c.errorf(x, CodeType, "cannot return %s as %s: %s", tup.Types[i], results[i], why)
+			return
 		}
+		as[i] = a
 	}
+	c.implicitElems(x, as)
+}
+
+// assignElems checks the elements of x, a value of several elements that
+// a multi-name let with a written type takes apart, against that type, and
+// records each element's conversion (Info.ImplicitElems). One refused
+// element is one diagnostic.
+func (c *checker) assignElems(x syntax.Expr, types []Type, declared Type) {
+	if containsInvalid(declared) {
+		return
+	}
+	as := make([]assignment, len(types))
+	for i, t := range types {
+		if isInvalid(t) {
+			continue
+		}
+		a, why := c.assignability(t, declared)
+		if !a.ok() {
+			if why != "" {
+				why = ": " + why
+			}
+			c.errorf(x, CodeType, "cannot use %s as %s%s", t, declared, why)
+			return
+		}
+		as[i] = a
+	}
+	c.implicitElems(x, as)
 }
 
 // errorValueRow returns the failures that returning a value of type t

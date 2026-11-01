@@ -133,8 +133,15 @@ func (c *checker) variantType(vs *syntax.VariantSpec, ctx *typeCtx) Type {
 
 // definedType resolves the body of a defined type `type N T` (spec D-B1):
 // N is a new nominal type with T's body, so T's operators and literals
-// apply to it, and N converts to and from T (D-B7). A defined type over a
-// type parameter, or over itself, is S108.
+// apply to it, and N converts to and from T (D-B7). T is a basic, slice,
+// Map, function, tuple or record type (types.md, Defined types 1); a
+// defined type over a type parameter, over itself, or over any other type
+// (an operation type, a union, a machine, a pointer) is S108, and the type
+// is invalid, so its uses add no diagnostic.
+//
+// Prior art: Gleam, ReScript and MoonBit have no newtype over a trait or a
+// variant; Go has defined interface types, which Ergo leaves out so an
+// operation type keeps one name (spec, ruling of the D3a rewrite, item 2).
 func (c *checker) definedType(n *Named, spec syntax.Expr, ctx *typeCtx) Type {
 	base := c.typExpr(spec, ctx)
 	if isInvalid(base) {
@@ -150,8 +157,30 @@ func (c *checker) definedType(n *Named, spec syntax.Expr, ctx *typeCtx) Type {
 			return invalid
 		}
 	}
+	if noun := baseNoun(under(base)); noun != "" {
+		c.errorf(spec, CodeType, "a defined type is over a basic, slice, Map, function, tuple or record type, and %s is %s; use %s directly (types.md, Defined types)", c.localTypeText(base), noun, c.localTypeText(base))
+		return invalid
+	}
 	n.def = base
 	return under(base)
+}
+
+// baseNoun names the kind of u, the underlying type of a defined type's
+// base, when a defined type may not be over it, and is "" when it may.
+func baseNoun(u Type) string {
+	switch u.(type) {
+	case *Basic, *Slice, *Map, *Signature, *Tuple, *Struct:
+		return ""
+	case *Interface:
+		return "an operation type"
+	case *Union:
+		return "a union"
+	case *MachineType:
+		return "a machine"
+	case *Pointer:
+		return "a pointer type"
+	}
+	return "not one of them"
 }
 
 // shapeNoun names a declaration's kind by its members, for a message.

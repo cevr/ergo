@@ -71,6 +71,9 @@ func (l *lowerer) nameAll() {
 		for _, c := range p.Info.Implicit {
 			convs = append(convs, c)
 		}
+		for _, cs := range p.Info.ImplicitElems {
+			convs = append(convs, cs...)
+		}
 		for _, w := range p.Wires {
 			for _, e := range w.Entries {
 				convs = append(convs, e.Conversions...)

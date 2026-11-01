@@ -120,8 +120,18 @@ type Info struct {
 	Uses map[*syntax.Ident]Object
 	// Calls is every call.
 	Calls map[*syntax.CallExpr]*Call
-	// Implicit is every implicit conversion at an assignment site.
+	// Implicit is every implicit conversion at an assignment site, keyed
+	// by the assigned expression. The checker's one assignability relation
+	// produces it with the clause that admitted the value (types.md,
+	// Assignability); the lowering never derives a conversion again.
 	Implicit map[syntax.Expr]Conversion
+	// ImplicitElems is, for a value of several elements that a multi-name
+	// let (`let a, b Store = pair()`) or a return of several results takes
+	// apart, each element's implicit conversion in order, a zero
+	// Conversion where an element makes none. A value is listed only when
+	// one of its elements makes a conversion. Added in check-v1 stage D3a
+	// (additive).
+	ImplicitElems map[syntax.Expr][]Conversion
 	// Patterns is every pattern of a match, catch, let and for.
 	Patterns map[syntax.Expr]*Pattern
 	// Matches is every match (SwitchStmt, TypeSwitchStmt) and catch
@@ -155,18 +165,19 @@ type Initializer struct {
 
 func newInfo() *Info {
 	return &Info{
-		Types:    map[syntax.Expr]Type{},
-		Values:   map[syntax.Expr]constant.Value{},
-		Defs:     map[*syntax.Ident]Object{},
-		Uses:     map[*syntax.Ident]Object{},
-		Calls:    map[*syntax.CallExpr]*Call{},
-		Implicit: map[syntax.Expr]Conversion{},
-		Patterns: map[syntax.Expr]*Pattern{},
-		Matches:  map[syntax.Node]*Match{},
-		Tails:    map[syntax.Stmt]Type{},
-		Literals: map[syntax.Node]*Signature{},
-		Loops:    map[*syntax.RangeStmt]*Loop{},
-		Withs:    map[*syntax.CallExpr]*With{},
+		Types:         map[syntax.Expr]Type{},
+		Values:        map[syntax.Expr]constant.Value{},
+		Defs:          map[*syntax.Ident]Object{},
+		Uses:          map[*syntax.Ident]Object{},
+		Calls:         map[*syntax.CallExpr]*Call{},
+		Implicit:      map[syntax.Expr]Conversion{},
+		ImplicitElems: map[syntax.Expr][]Conversion{},
+		Patterns:      map[syntax.Expr]*Pattern{},
+		Matches:       map[syntax.Node]*Match{},
+		Tails:         map[syntax.Stmt]Type{},
+		Literals:      map[syntax.Node]*Signature{},
+		Loops:         map[*syntax.RangeStmt]*Loop{},
+		Withs:         map[*syntax.CallExpr]*With{},
 	}
 }
 
@@ -647,40 +658,37 @@ func (c *checker) loop(s *syntax.RangeStmt, l *Loop) {
 	}
 }
 
-// implicit records the implicit conversion an assignment of a value of
-// type from to t makes (Info.Implicit): a variant into its union, or a
-// value into an operation type with its operations' functions.
-func (c *checker) implicit(x syntax.Expr, from, t Type) {
+// implicit records at x the implicit conversion that assignability chose
+// for an assignment (Info.Implicit): a variant or a row value into its
+// union, or a value into an operation type with its operations' functions.
+// An assignment that makes none records nothing.
+func (c *checker) implicit(x syntax.Expr, a assignment) {
+	if c.silent > 0 || x == nil || a.conv.Kind == 0 {
+		return
+	}
+	c.pkg.Info.Implicit[x] = a.conv
+}
+
+// implicitElems records at x, a value of several elements that a
+// multi-name let or a return of several results takes apart, the implicit
+// conversion of each element (Info.ImplicitElems), when one of them makes
+// one.
+func (c *checker) implicitElems(x syntax.Expr, as []assignment) {
 	if c.silent > 0 || x == nil {
 		return
 	}
-	if conv, ok := c.conversionOf(from, t); ok {
-		c.pkg.Info.Implicit[x] = conv
+	converts := false
+	for _, a := range as {
+		converts = converts || a.conv.Kind != 0
 	}
-}
-
-// conversionOf is the implicit conversion of a value of type from to t,
-// and false when there is none (the types are identical, or the value
-// already is an interface).
-func (c *checker) conversionOf(from, t Type) (Conversion, bool) {
-	if c.identical(from, t) {
-		return Conversion{}, false
+	if !converts {
+		return
 	}
-	switch {
-	case isRowValue(from) && isUnion(t):
-		return Conversion{Kind: ConvRow, From: from, To: t}, true
-	case isUnion(t) && !isUnion(from):
-		return Conversion{Kind: ConvVariant, From: from, To: t}, true
-	case asInterface(t) != nil && asInterface(from) == nil:
-		table := map[string]*Func{}
-		for _, m := range asInterface(t).Methods {
-			if _, fn := c.methodOf(from, m.Name); fn != nil {
-				table[m.Name] = fn
-			}
-		}
-		return Conversion{Kind: ConvOperations, From: from, To: t, Table: table}, true
+	convs := make([]Conversion, len(as))
+	for i, a := range as {
+		convs[i] = a.conv
 	}
-	return Conversion{}, false
+	c.pkg.Info.ImplicitElems[x] = convs
 }
 
 func isUnion(t Type) bool {

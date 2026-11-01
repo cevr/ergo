@@ -218,16 +218,82 @@ func (c *checker) mayBeEqualRow(a, b *Row) bool {
 
 // ---------------------------------------------------------------- assignability
 
-// assignable reports whether a value of type v may be assigned to type t,
-// with the reason when it may not (types.md: identity, a variant to its
-// union, a type to an interface by method-row compatibility, a function
-// value to a function type whose rows are supersets; #128, Gap 24).
-func (c *checker) assignable(v, t Type) (bool, string) {
-	if isInvalid(v) || isInvalid(t) || c.identical(v, t) {
-		return true, ""
+// assignClause names the clause of assignability that admits a value
+// (types.md, Assignability).
+type assignClause int
+
+const (
+	assignRefused    assignClause = iota
+	assignIdentical               // 1: identical types
+	assignUnderlying              // 2: identical underlying types, one side unnamed
+	assignOperations              // 3: into an operation type the value implements
+	assignUnion                   // 4: a variant or a row value into its union
+	assignSignature               // 5: a function value into a function type with wider rows
+)
+
+// assignment is the result of assignability: the clause that admitted the
+// value and the implicit conversion the assignment makes, the Info.Implicit
+// fact (Kind 0 when it makes none).
+type assignment struct {
+	clause assignClause
+	conv   Conversion
+}
+
+func (a assignment) ok() bool { return a.clause != assignRefused }
+
+// assignability decides whether a value of type v may be assigned to type
+// t, and with which implicit conversion; when it may not, the reason, ""
+// when there is no more to say than the two types. It is the one relation
+// every admitting site reads, and the conversion it returns is the fact
+// that site records for the lowering, so the lowering never derives it
+// again. The clauses follow Go's order (types.md, Assignability):
+//  1. identical types: no conversion;
+//  2. identical underlying types, at least one side unnamed (a Named, a
+//     basic type and a type parameter have a name), neither a type
+//     parameter: no conversion;
+//  3. t's underlying type is an operation type and v implements it:
+//     ConvOperations with its table, none when v is an operation type;
+//  4. a variant or a row value into a union: ConvVariant or ConvRow;
+//  5. a function value into a function type whose rows are supersets, at
+//     least one side unnamed: no conversion (every function value has one
+//     Go shape, spec D5).
+//
+// Prior art: go/types operand.assignableTo has clauses 1 to 3 in this
+// order; cmd/compile typecheck.assignOp returns the lowering op (OCONVNOP,
+// OCONVIFACE) with the reason from the same clauses, as this returns the
+// Conversion.
+func (c *checker) assignability(v, t Type) (assignment, string) {
+	// A type with an invalid part was reported where it came from (D3).
+	if containsInvalid(v) || containsInvalid(t) || c.identical(v, t) {
+		return assignment{clause: assignIdentical}, ""
 	}
 	if v == NoValue {
-		return false, "it has no value"
+		return assignment{}, "it has no value"
+	}
+	if c.sameUnderlying(v, t) {
+		return assignment{clause: assignUnderlying}, ""
+	}
+	if it := asInterface(t); it != nil {
+		if _, isTuple := under(v).(*Tuple); isTuple {
+			return assignment{}, "a tuple has no operations"
+		}
+		if it.Comparable {
+			return assignment{}, "comparable is a constraint only"
+		}
+		if why := c.implements(v, it); why != "" {
+			return assignment{}, why
+		}
+		if asInterface(v) != nil {
+			// An operation type's value is already an interface value.
+			return assignment{clause: assignOperations}, ""
+		}
+		table := map[string]*Func{}
+		for _, m := range it.Methods {
+			if _, fn := c.methodOf(v, m.Name); fn != nil {
+				table[m.Name] = fn
+			}
+		}
+		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table}}, ""
 	}
 	if u := asUnion(t); u != nil {
 		if _, isNamed := t.(*Named); isNamed {
@@ -236,53 +302,68 @@ func (c *checker) assignable(v, t Type) (bool, string) {
 				// its error types (D-C3, ConvRow).
 				for _, e := range rv.Variants {
 					if !c.hasVariant(u, e) {
-						return false, fmt.Sprintf("%s is not a variant of %s", e, t)
+						return assignment{}, fmt.Sprintf("%s is not a variant of %s", e, t)
 					}
 				}
-				return true, ""
+				return assignment{clause: assignUnion, conv: Conversion{Kind: ConvRow, From: v, To: t}}, ""
 			}
 			for _, variant := range u.Variants {
 				if c.identical(variant, v) {
-					return true, ""
+					return assignment{clause: assignUnion, conv: Conversion{Kind: ConvVariant, From: v, To: t}}, ""
 				}
 			}
-			return false, fmt.Sprintf("%s is not a variant of %s", v, t)
+			return assignment{}, fmt.Sprintf("%s is not a variant of %s", v, t)
 		}
 	}
-	if it := asInterface(t); it != nil {
-		if _, isTuple := under(v).(*Tuple); isTuple {
-			return false, "a tuple has no operations"
-		}
-		if it.Comparable {
-			return false, "comparable is a constraint only"
-		}
-		if why := c.implements(v, it); why != "" {
-			return false, why
-		}
-		return true, ""
+	vs, ok := under(v).(*Signature)
+	ts, ok2 := under(t).(*Signature)
+	if !ok || !ok2 {
+		return assignment{}, ""
 	}
-	switch tt := t.(type) {
-	case *Signature:
-		vs, ok := v.(*Signature)
-		if !ok {
-			return false, ""
-		}
-		if !c.sameShape(vs, tt) {
-			return false, "the parameters or results differ"
-		}
-		// An unknown source row is checked by its known part, and an
-		// unknown destination row accepts any row, as an invalid type does
-		// both ways (Row.unknown; stage D1 round 4 review M2). An inferred
-		// receiver keeps the source's known part (widenUnknown).
-		if ve := vs.Errors.known(c.types); !tt.Errors.unknown(c.types) && !ve.subsetOf(c.types, tt.Errors) {
-			return false, fmt.Sprintf("its error row %s is wider than %s", rowText(ve), rowText(tt.Errors))
-		}
-		if vu := vs.Uses.known(c.types); !tt.Uses.unknown(c.types) && !vu.subsetOf(c.types, tt.Uses) {
-			return false, fmt.Sprintf("its capability row %s is wider than %s", rowText(vu), rowText(tt.Uses))
-		}
-		return true, ""
+	if hasName(v) && hasName(t) {
+		// Two named function types cross only by conversion (D-B7).
+		return assignment{}, ""
 	}
-	return false, ""
+	if !c.sameShape(vs, ts) {
+		return assignment{}, "the parameters or results differ"
+	}
+	// An unknown source row is checked by its known part, and an unknown
+	// destination row accepts any row, as an invalid type does both ways
+	// (Row.unknown; stage D1 round 4 review M2). An inferred receiver keeps
+	// the source's known part (widenUnknown).
+	if ve := vs.Errors.known(c.types); !ts.Errors.unknown(c.types) && !ve.subsetOf(c.types, ts.Errors) {
+		return assignment{}, fmt.Sprintf("its error row %s is wider than %s", rowText(ve), rowText(ts.Errors))
+	}
+	if vu := vs.Uses.known(c.types); !ts.Uses.unknown(c.types) && !vu.subsetOf(c.types, ts.Uses) {
+		return assignment{}, fmt.Sprintf("its capability row %s is wider than %s", rowText(vu), rowText(ts.Uses))
+	}
+	return assignment{clause: assignSignature}, ""
+}
+
+// hasName reports a type with a name for assignability (go/types hasName):
+// a declared type, a predeclared basic type, or a type parameter.
+func hasName(t Type) bool {
+	switch t.(type) {
+	case *Named, *Basic, *TypeParam:
+		return true
+	}
+	return false
+}
+
+// sameUnderlying is assignability's clause 2: v and t have identical
+// underlying types, at least one of them is unnamed, and neither is a type
+// parameter. A row value is never the unnamed side: it lowers to a Go error,
+// not to its union's interface, so it goes in by clause 4 (ConvRow).
+func (c *checker) sameUnderlying(v, t Type) bool {
+	if hasName(v) && hasName(t) || isRowValue(v) || isRowValue(t) {
+		return false
+	}
+	_, vp := v.(*TypeParam)
+	_, tp := t.(*TypeParam)
+	if vp || tp {
+		return false
+	}
+	return c.identical(under(v), under(t))
 }
 
 // widenUnknown returns dst, the type an inferred receiver holds (the first

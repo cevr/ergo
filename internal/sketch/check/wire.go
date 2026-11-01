@@ -352,7 +352,14 @@ func (c *checker) wireEntry(e *syntax.WireEntry, made *WireEntry) ([]Type, *Wire
 		if isInvalid(pt) {
 			continue
 		}
-		if why := c.implements(pt, asInterface(cap)); why != "" {
+		// The provider goes into the capability by assignability (types.md,
+		// Assignability), whose conversion holds its operations' functions
+		// (196m); the lowering reads it and never re-derives it.
+		a, why := c.assignability(pt, cap)
+		if !a.ok() {
+			if why == "" {
+				why = pt.String() + " is not assignable to " + cap.String()
+			}
 			c.errorf(e.Value, CodeProvider, "%s cannot provide %s: %s (rows.md, Wire 2)", pt, cap, why)
 			continue
 		}
@@ -360,10 +367,7 @@ func (c *checker) wireEntry(e *syntax.WireEntry, made *WireEntry) ([]Type, *Wire
 			cn := cap.(*Named)
 			c.providers[cn] = append(c.providers[cn], pn)
 		}
-		// The provider becomes the capability: its operations' functions
-		// (196m), which the lowering reads and never re-derives.
-		conv, _ := c.conversionOf(pt, cap)
-		entry.Conversions = append(entry.Conversions, conv)
+		entry.Conversions = append(entry.Conversions, a.conv)
 	}
 	if len(caps) == 1 && len(entry.Conversions) == 1 && entry.Conversions[0].Kind != 0 && c.silent == 0 {
 		c.pkg.Info.Implicit[e.Value] = entry.Conversions[0]

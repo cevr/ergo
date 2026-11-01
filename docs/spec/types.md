@@ -2,7 +2,34 @@
 
 Definitions of every term used here are in the [glossary](../../GLOSSARY.md). Each section carries its status.
 
-Types are nominal. Two named types are identical only when they are the same declaration. A value of type `T` is assignable to type `U` when `T` and `U` are identical, when `U` is a union that lists `T` ([Unions](#unions)), or when `U` is an interface type that `T` implements ([Interface assignability](#interface-assignability)). *Prior art:* Go's named types and implicit interface satisfaction; Gleam and ReScript custom types are nominal too.
+Types are nominal. Two named types are identical only when they are the same declaration. Which value goes where is one relation, [Assignability](#assignability). *Prior art:* Go's named types and implicit interface satisfaction; Gleam and ReScript custom types are nominal too.
+
+## Assignability
+
+Status: **checked** by `internal/sketch/check` as one relation, `assignability`, and **lowered** from the fact it records (check-v1 stage D3a).
+
+```go
+type Ints []int
+type Store { Get() int }
+type Count int
+func Get(c Count) int { int(c) }
+
+let raw []int = named      // clause 2: named is an Ints
+let s Store = Count(3)     // clause 3: Count implements Store
+let o Option[int] = None   // clause 4
+```
+
+1. **The clauses, in Go's order.** A value of type `V` is assignable to type `T` by the first clause that holds, and each clause names the implicit conversion the assignment makes, the fact `Info.Implicit` records at the value:
+   1. `V` and `T` are identical. No conversion.
+   2. `V` and `T` have identical underlying types, at least one of them has no name, and neither is a type parameter. A declared type, a basic type and a type parameter have a name; a slice, Map, function or tuple type written in place has none. No conversion: `let raw []int = named` and `let named Ints = raw` cross, `Ints` to another `type Other []int` does not.
+   3. `T` is an operation type and `V` implements it ([Interface assignability](#interface-assignability)), whatever `V`'s name. `ConvOperations` with the function that provides each operation, or no conversion when `V` is itself an operation type's value.
+   4. `V` is a variant of the union `T` ([Unions](#unions) 2), or a row value whose every error type is a variant of `T`. `ConvVariant` or `ConvRow`.
+   5. `V` and `T` are function types with the same parameters and results, `V`'s error and `needs` rows are subsets of `T`'s, and at least one of them has no name ([Function values](#function-values) 1). No conversion: a function value has one Go shape.
+
+   Nothing else is assignable (S108). Two named types cross by no clause unless clause 3 or 4 relates them: `type A Mem` and `type B Mem` over one record, `Count` and `int`, `type F func(n int) int` and `type G func(n int) int` each need a conversion ([Conversions](#conversions)), and the message names it only where one exists.
+2. **Every site.** One relation decides every place a value is assigned: a `let` (single, and per element of a multi-name `let`, whose element conversions `Info.ImplicitElems` records), an argument, a result, a pattern's written type, a composite literal's field and element, the two operands of `==` and `!=` (one goes into the other's type), and a `wire` value. The lowering reads the fact and never derives a conversion again.
+3. **Comparison through operations.** A value that implements an operation type through its functions is not that type's value until it is assigned, so `s == Count(1)` with `s Store` is S108; assign it first.
+4. *Prior art:* go/types `operand.assignableTo` has clauses 1 to 3 in this order, and cmd/compile's `typecheck.assignOp` returns the lowering operation (`OCONVNOP`, `OCONVIFACE`) with the reason from the same clauses, as `assignability` returns the conversion. Gleam and ReScript have no defined types over collections (an opaque type converts through functions); Rust newtypes cross only by `.0` or `From`.
 
 ## Basic types
 
@@ -81,7 +108,7 @@ type Option[T] = Some[T]{ Value T } | None{}
 ```
 
 1. **Types by member shape** (check-v1 D-B1). Fields make a record, operations and laws an operation type, `=` a union, and `type N T` a defined type ([Defined types](#defined-types)); a type has one kind. A union lists one or more variants, each a record of this package. A bare-name variant names a record declared in the package: a basic, operation, union or defined type there is S108 "a union variant is a record declared in this package; main.Store is an operation type", and a record from another package is S109 naming 196b (packages). An inline variant `Declined{ Reason string }` declares that record in the package scope, usable as a type anywhere in the package; `Name{}` declares one with no fields. An inline variant of a generic union takes exactly the union's type parameters its fields mention, in the union's order (`Some[T]`, `None`). A variant may not be listed twice (S108). There are no type aliases: `type X = Y` is a one-variant union. *Prior art:* Gleam custom types and ReScript variants declare constructors inside the type, but those constructors are not types; Ergo's variants are record types so rows can share them (Koka, Effekt).
-2. A value of a variant type is assignable to every union that lists it. A struct may be a variant of several unions (fixture `multiple-unions`).
+2. A value of a variant type is assignable to every union that lists it ([Assignability](#assignability) clause 4). A struct may be a variant of several unions (fixture `multiple-unions`).
 3. A union has no zero value.
 4. A `match` narrows a union value to its variants, nested through record patterns ([rows.md](rows.md#totality)).
 5. The emitter generates a marker method per union on each variant, so a source method with that marker's name is an error in the prototype (fixture `marker-method`, S109).
@@ -96,7 +123,7 @@ type Celsius float64
 type Span (int, int)
 ```
 
-1. `type N T` defines a new nominal type over `T`, a basic, slice, map, function, tuple or record type; `N` is not identical to `T`, and a value crosses between them only by conversion ([Conversions](#conversions)). A defined type over a type parameter or over itself is S108.
+1. `type N T` defines a new nominal type over `T`, a basic, slice, Map, function, tuple or record type; a record instance (`type P2 Pair[int, int]`) and a variant (`type S2 Some[int]`) are record types. `N` is not identical to `T`. A value crosses between them by conversion ([Conversions](#conversions)), or, when `T` has no name (a slice, Map, function or tuple type written in place), by assignment ([Assignability](#assignability) clause 2): `let raw []int = named`. A defined type over a type parameter or over itself is S108. A defined type over any other type, an operation type (Task and the std operation types included), a union or an instance of a generic one, is S108 at the definition, "a defined type is over a basic, slice, Map, function, tuple or record type, and Store is an operation type; use Store directly", and its uses add no diagnostic (check-v1 stage D3a). An operation type and a union keep one name each. *Prior art:* Gleam, ReScript and MoonBit have no newtype over a trait or a variant; Go has defined interface types.
 2. A defined type over a tuple destructures like its tuple (`let (lo, hi) = span`); a defined type over a record keeps its braces, even with no fields.
 3. Its operations are those of `T`: arithmetic on `Celsius`, comparison where `T` is comparable.
 4. A defined type over a record, named in an error row, is an error type of its own ([Error types](#error-types)): it is thrown and caught as itself, by type test and by record pattern, and its text is its base record's. A constant of a defined type keeps that type: `func f() Flag { true }` is `Flag(true)` in Go.
@@ -165,14 +192,14 @@ func Get(_ Mem) string { return "ok" }
 func NewStore() Store  { return Mem{} } // Mem implements Store
 ```
 
-1. A value of type `T` is assignable to an interface type `I` when `T`'s method set has every method of `I`, and for each such method:
+1. A type `T` implements an interface type `I`, so a value of `T` is assignable to `I` ([Assignability](#assignability) clause 3), when `T`'s method set has every method of `I`, and for each such method:
    - the parameter types and the result type are identical to `I`'s;
    - the method is fallible exactly when `I`'s method is;
    - its error row is a subset of `I`'s method's error row;
    - its `needs` row is a subset of `I`'s method's `needs` row.
 
    This is method-row compatibility: an implementation may fail less and require less, never more. It is the same check `wire` applies to a provider (S106; [rows.md](rows.md#wire)).
-2. A union type is not an interface in this sense; it is assignable only by the variant rule.
+2. A union type is not an interface in this sense; it is assignable only by the variant rule (clause 4).
 3. Resources keep their rules: assigning a resource to an interface without `Close` is an error (R22), and assigning it to one with `Close` moves it (R23) ([resources.md](resources.md#conversions)).
 4. *Prior art:* Go satisfies interfaces implicitly by method set with identical signatures; Effect requires a service implementation's error and requirement types to fit the tag's; Java and Swift let an overriding method throw fewer checked errors, never more.
 
@@ -198,13 +225,13 @@ Status: **checked** (#196); the build refuses operators other than `==` and `+` 
 
 Status: **checked** by `internal/sketch/check` (check-v1 D-B7).
 
-1. `T(x)` converts between numeric types by Go's rules (an integer or float to an integer or float, a complex to a complex, and a numeric constant to any numeric type that represents it), between `duration` and `int64`, and between a defined type and the type it is defined over, in both directions. A value converts to its own type.
-2. Nothing else converts (S108): not two defined types over one type (one hop is visible: `int(c)` of a `Celsius` over `float64` is S108 "convert through the type it is defined over: int(float64(c))"), not two records, not an integer to `string` (S108 "an integer does not convert to string; write \"\\(n)\" for its decimal text"), not a variant to its union or a value to an operation type (assignment does those: `let u Payment = p`).
+1. `T(x)` converts between numeric types by Go's rules (an integer or float to an integer or float, a complex to a complex, and a numeric constant to any numeric type that represents it), between `duration` and `int64`, and between a defined type and the type it is defined over, in both directions. Every assignment that makes no implicit conversion ([Assignability](#assignability) clauses 1, 2 and 5) is a conversion too, so a value converts to its own type, as go/types `convertibleTo` starts from `assignableTo`.
+2. Nothing else converts (S108): not two defined types over one type (one hop is visible: `int(c)` of a `Celsius` over `float64` is S108 "convert through the type it is defined over: int(float64(c))"; a base with no name has none to call, so `Other(x)` of an `Ints` over `[]int` is S108 "go through the type it is defined over: let raw []int = x; then Other(raw)", under a name not bound there; each text checks when written back), not two records, not an integer to `string` (S108 "an integer does not convert to string; write \"\\(n)\" for its decimal text"), not a variant to its union or a value to an operation type (assignment does those: `let u Payment = p`).
 3. *Principle:* nominal types, one visible hop. *Prior art:* Gleam and ReScript convert only through functions (`int.to_float`); Elixir uses functions; MoonBit uses `to_int64()` style methods; Go converts between any types with one underlying type, and `string(65)` is a vet warning.
 
 ## Function values
 
-Status: rule 1 is **checked** (#196): a function value converts to a function type with identical parameters and results and rows that are subsets of the type's (S108 otherwise). Rules 2 to 5 are **designed, not yet implemented** ([#197](https://github.com/cevr/ergo/issues/197)).
+Status: rule 1 is **checked** (#196): a function value is assignable to a function type with identical parameters and results and rows that are subsets of the type's, when one of the two types has no name ([Assignability](#assignability) clause 5; S108 otherwise). Rules 2 to 5 are **designed, not yet implemented** ([#197](https://github.com/cevr/ergo/issues/197)).
 
 1. A function type carries its parameters, result, error row and `needs` row. It carries requirements only, never purity ([rows.md](rows.md#footprints)).
 2. A function-typed parameter is non-escaping unless its type says otherwise: the callee may call it and may hand it to a task that the call consumes, but it may not store, return or send it. A trailing block is such an argument. *Prior art:* Swift non-escaping closures by default; Effekt second-class blocks.

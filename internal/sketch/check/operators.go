@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"math"
+	"strconv"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -303,20 +304,24 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 		// A value that satisfies an operation type through its functions
 		// (196m) is not that type's value until it is converted, so == has
 		// no meaning to lower (AGENTS.md: never an unchecked passthrough).
-		for _, p := range [][2]Type{{l.typ, r.typ}, {r.typ, l.typ}} {
-			if asInterface(p[1]) != nil && asInterface(p[0]) == nil && len(asInterface(p[1]).Methods) > 0 {
-				if ok, _ := c.assignable(p[0], p[1]); ok {
-					c.errorf(x, CodeType, "cannot compare %s with %s: a %s satisfies %s through its functions, so it is not a %s value; compare two values of one type", l.typ, r.typ, p[0], p[1], p[1])
-					return false
-				}
+		// One operand goes into the other's type by assignability, which
+		// records its conversion at that operand (Info.Implicit).
+		for _, p := range [2][2]*operand{{l, r}, {r, l}} {
+			from, to := p[0], p[1]
+			a, _ := c.assignability(from.typ, to.typ)
+			if !a.ok() {
+				continue
 			}
-		}
-		if ok, _ := c.assignable(l.typ, r.typ); ok {
-			l.typ = r.typ
-			return true
-		}
-		if ok, _ := c.assignable(r.typ, l.typ); ok {
-			r.typ = l.typ
+			if a.conv.Kind == ConvOperations && len(asInterface(to.typ).Methods) > 0 {
+				// A value that satisfies an operation type through its
+				// functions (196m) is not that type's value until it is
+				// converted, so == has no meaning to lower (AGENTS.md:
+				// never an unchecked passthrough).
+				c.errorf(x, CodeType, "cannot compare %s with %s: a %s satisfies %s through its functions, so it is not a %s value; compare two values of one type", l.typ, r.typ, from.typ, to.typ, to.typ)
+				return false
+			}
+			c.implicit(from.expr, a)
+			from.typ = to.typ
 			return true
 		}
 	}
@@ -507,22 +512,25 @@ func convertedLiteralOverflow(x syntax.Expr, t Type) string {
 }
 
 // convertible reports whether T(x) converts a value of type v to t (spec
-// D-B7, parse-v1's round-4 ruling): between numeric types (Go's rules: an
-// integer or float to an integer or float, a complex to a complex),
-// between duration and int64, and between a defined type and the type it
-// is defined over, in both directions; and a value to its own type.
-// Nothing else converts: not two defined types over one type (convert
-// through the base), not two records, not an integer to string, not a
-// variant to its union or a value to an operation type (assignment does
-// those). One hop is visible: `int(c)` of a Celsius over float64 is
-// `int(float64(c))`.
+// D-B7, parse-v1's round-4 ruling). It starts from assignability, as
+// go/types convertibleTo starts from assignableTo: every assignment that
+// makes no implicit conversion (clauses 1, 2 and 5: the value keeps its
+// representation) is a conversion too. Beyond those: between numeric types
+// (Go's rules: an integer or float to an integer or float, a complex to a
+// complex), between duration and int64, and between a defined type and the
+// type it is defined over, in both directions. Nothing else converts: not
+// two defined types over one type (convert through the base), not two
+// records, not an integer to string, not a variant to its union or a value
+// to an operation type (assignment does those, clauses 3 and 4). One hop is
+// visible: `int(c)` of a Celsius over float64 is `int(float64(c))`.
 //
 // Prior art: Gleam and ReScript convert only through functions
 // (int.to_float); MoonBit uses to_int64() style methods; Go converts
 // between any types with one underlying type, and string(65) is a vet
 // warning.
 func (c *checker) convertible(v, t Type) bool {
-	if c.identical(v, t) {
+	switch a, _ := c.assignability(v, t); a.clause {
+	case assignIdentical, assignUnderlying, assignSignature:
 		return true
 	}
 	vb, vok := v.(*Basic)
@@ -581,13 +589,36 @@ func (c *checker) conversionRefusal(arg syntax.Expr, v, t Type) string {
 	tn, _ := t.(*Named)
 	if vn != nil && vn.Defined() != nil {
 		if base := vn.Defined(); c.convertible(base, t) {
-			return fmt.Sprintf("cannot convert %s to %s in one step; convert through the type it is defined over: %s(%s(%s)) (types.md, Conversions)", v, t, c.localTypeText(t), c.localTypeText(base), name)
+			return c.throughBase(v, t, base, name)
 		}
 	}
 	if tn != nil && tn.Defined() != nil {
 		if base := tn.Defined(); c.convertible(v, base) {
-			return fmt.Sprintf("cannot convert %s to %s in one step; convert through the type it is defined over: %s(%s(%s)) (types.md, Conversions)", v, t, c.localTypeText(t), c.localTypeText(base), name)
+			return c.throughBase(v, t, base, name)
 		}
 	}
 	return fmt.Sprintf("cannot convert %s to %s: a conversion is between numeric types, between duration and int64, or between a defined type and the type it is defined over (types.md, Conversions)", v, t)
+}
+
+// throughBase is the refusal of a conversion from v to t that goes through
+// base, the type one of them is defined over, in two steps. A named base is
+// called, T(B(x)); an unnamed one ([]int, a tuple, a function type) has no
+// name to call, so x reaches it by assignment (clause 2), under a name not
+// bound here: let raw []int = x; T(raw). Either text checks when fed back.
+func (c *checker) throughBase(v, t, base Type, name string) string {
+	if hasName(base) {
+		return fmt.Sprintf("cannot convert %s to %s in one step; convert through the type it is defined over: %s(%s(%s)) (types.md, Conversions)", v, t, c.localTypeText(t), c.localTypeText(base), name)
+	}
+	raw := c.freshName("raw")
+	return fmt.Sprintf("cannot convert %s to %s in one step; go through the type it is defined over: let %s %s = %s; then %s(%s) (types.md, Conversions)", v, t, raw, c.localTypeText(base), name, c.localTypeText(t), raw)
+}
+
+// freshName is base, or base2, base3, …: the first not bound at this
+// point, for a repair text that declares a name.
+func (c *checker) freshName(base string) string {
+	name := base
+	for suffix := 2; c.lookup(name) != nil; suffix++ {
+		name = base + strconv.Itoa(suffix)
+	}
+	return name
 }

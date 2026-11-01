@@ -173,6 +173,20 @@ func (fc *funcCtx) convertAt(x syntax.Expr, val string) string {
 	return fc.convert(conv, val, x)
 }
 
+// elemAt applies the implicit conversion of element i of x, a value that a
+// multi-name let takes apart, to that element's lowered value
+// (Info.ImplicitElems).
+func (fc *funcCtx) elemAt(x syntax.Expr, i int, val string) string {
+	convs, ok := fc.l.info.ImplicitElems[x]
+	if !ok {
+		return val
+	}
+	if i >= len(convs) {
+		ice(x, "element %d of a value with %d element conversions", i, len(convs))
+	}
+	return fc.convert(convs[i], val, x)
+}
+
 func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) string {
 	switch conv.Kind {
 	case 0, check.ConvVariant:

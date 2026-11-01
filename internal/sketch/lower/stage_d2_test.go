@@ -481,18 +481,26 @@ func TestQueueValuesRefusedNamingD3(t *testing.T) {
 }
 
 // TestStdOperationThroughDefinedTypeRefusedNamingD3: the operations of a
-// type defined over a std type, at any depth, and of a pointer to a std
-// type are the std type's, so their calls are refused naming D3 too, never
-// lowered to a local Go interface (or a pointer to one) with no task.
+// pointer to a std type are the std type's, so their calls are refused
+// naming D3 too, never lowered to a pointer to a local Go interface with no
+// task. A type defined over a std operation type, at any depth, is refused
+// at its definition (the D3a rewrite ruling, item 2), once, and its uses
+// add nothing, so nothing reaches the lowering.
 func TestStdOperationThroughDefinedTypeRefusedNamingD3(t *testing.T) {
-	cases := []struct{ name, src string }{
-		{"defined", "import queue\n\ntype MyQ queue.Queue[int]\n\nfunc f(q MyQ) {\n\tq.Close()\n}\n"},
-		{"defined-twice", "import queue\n\ntype MyQ queue.Queue[int]\ntype Q2 MyQ\n\nfunc f(q Q2) {\n\tq.Close()\n}\n"},
-		{"pointer", "import queue\n\nfunc f(p *queue.Queue[int]) {\n\tp.Close()\n}\n"},
+	cases := []struct{ name, src, diag string }{
+		{"defined", "import queue\n\ntype MyQ queue.Queue[int]\n\nfunc f(q MyQ) {\n\tq.Close()\n}\n", "3:10: S108"},
+		{"defined-twice", "import queue\n\ntype MyQ queue.Queue[int]\ntype Q2 MyQ\n\nfunc f(q Q2) {\n\tq.Close()\n}\n", "3:10: S108"},
+		{"pointer", "import queue\n\nfunc f(p *queue.Queue[int]) {\n\tp.Close()\n}\n", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			o := lowerSource("r", tc.src, false)
+			if tc.diag != "" {
+				if len(o.diags) != 1 || !strings.HasPrefix(o.diags[0].String(), tc.diag) || !strings.Contains(o.diags[0].Message, "use queue.Queue[int] directly") {
+					t.Fatalf("want one diagnostic %s naming queue.Queue[int]; got %v", tc.diag, o.diags)
+				}
+				return
+			}
 			if len(o.diags) != 0 {
 				t.Fatalf("want a clean check; got %v", o.diags)
 			}

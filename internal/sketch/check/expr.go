@@ -963,6 +963,11 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 	if p, ok := t.(*Pointer); ok {
 		t = p.Elem
 	}
+	if isInvalid(under(t)) {
+		// A refused declared type (`type MyQ queue.Queue[int]`) was
+		// reported at its declaration; its uses add nothing (D3).
+		return bad(x)
+	}
 	if fn := c.collFunc(base.typ, x.Sel.Name); fn != nil {
 		return c.selfCall(x, base, c.selfSig(base.typ, fn), fn, called, index)
 	}
@@ -994,7 +999,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 	}
 	if u := under(t); u != t && c.collFunc(u, x.Sel.Name) != nil {
 		// D-D8: the first parameter's type is x's type exactly.
-		c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s; the prelude function %s is on %s exactly: convert first, %s(%s).%s(…)", base.typ, x.Sel.Name, x.Sel.Name, u, u, exprText(x.X), x.Sel.Name)
+		// The base is a slice or a Map, unnamed, so the value reaches it by
+		// assignment (clause 2), under a name not bound here.
+		raw := c.freshName("raw")
+		c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s; the prelude function %s is on %s exactly; a defined type reaches it after assignment: let %s %s = %s; then %s.%s(…)", base.typ, x.Sel.Name, x.Sel.Name, u, raw, c.localTypeText(u), exprText(x.X), raw, x.Sel.Name)
 		return bad(x)
 	}
 	c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s", base.typ, x.Sel.Name)
@@ -1291,16 +1299,21 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
-	if ok, why := c.assignable(op.typ, t); !ok {
+	a, why := c.assignability(op.typ, t)
+	if !a.ok() {
 		switch msg := literalMismatch(op.expr, t); {
 		case msg != "":
 			c.errorf(op.expr, CodeType, "%s", msg)
 		case why != "":
 			c.errorf(op.expr, CodeType, "cannot use %s as %s in %s: %s", op.typ, t, what, why)
 		default:
+			// A conversion assignability does not admit has both sides
+			// named (clause 2 admits the rest), so t has a name to call,
+			// written as this package spells it, so the repair checks.
 			if id, isName := unparen(op.expr).(*syntax.Ident); isName && c.convertible(op.typ, t) {
 				if _, isVar := c.lookup(id.Name).(*Var); isVar {
-					c.errorf(op.expr, CodeType, "%s is %s; write %s(%s) or declare %s %s", id.Name, op.typ, t, id.Name, id.Name, t)
+					local := c.localTypeText(t)
+					c.errorf(op.expr, CodeType, "%s is %s; write %s(%s) or declare %s %s", id.Name, op.typ, local, id.Name, id.Name, local)
 					break
 				}
 			}
@@ -1309,7 +1322,7 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
-	c.implicit(op.expr, op.typ, t)
+	c.implicit(op.expr, a)
 	return true
 }
 

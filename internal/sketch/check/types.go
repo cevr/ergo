@@ -715,35 +715,49 @@ func isDuration(t Type) bool { return isBasic(t, Duration) }
 
 func isInvalid(t Type) bool { return t == nil || t == Type(invalid) }
 
-// containsInvalid reports whether an invalid type occurs in t's structure
-// (not through named types, whose bodies are reported where declared): a
-// mismatch involving it would cascade from a reported mistake (D3).
-func containsInvalid(t Type) bool {
+// containsInvalid reports whether an invalid type occurs in t's structure:
+// a mismatch involving it would cascade from a reported mistake (D3). A
+// declared type counts when its own body is invalid or holds an invalid
+// part (a refused defined type, `type N []Unknown`), which its declaration
+// reported; the walk does not go on through the named types inside that
+// body, so it ends on a recursive type.
+func containsInvalid(t Type) bool { return invalidIn(t, true) }
+
+// invalidIn is containsInvalid; body says whether a defined type's body is
+// walked (true at the top, false inside that body, so a named type there
+// counts only when its own body is invalid).
+func invalidIn(t Type, body bool) bool {
 	switch t := t.(type) {
 	case nil:
 		return true
+	case *Named:
+		o := t.origin()
+		if o.state != 2 {
+			return false
+		}
+		return isInvalid(o.under) || body && o.def != nil && invalidIn(o.under, false)
 	case *Basic:
 		return t == invalid
 	case *Pointer:
-		return containsInvalid(t.Elem)
+		return invalidIn(t.Elem, body)
 	case *Slice:
-		return containsInvalid(t.Elem)
+		return invalidIn(t.Elem, body)
 	case *Map:
-		return containsInvalid(t.Key) || containsInvalid(t.Elem)
+		return invalidIn(t.Key, body) || invalidIn(t.Elem, body)
 	case *Tuple:
 		for _, e := range t.Types {
-			if containsInvalid(e) {
+			if invalidIn(e, body) {
 				return true
 			}
 		}
 	case *Signature:
 		for _, p := range t.Params {
-			if containsInvalid(p.Type) {
+			if invalidIn(p.Type, body) {
 				return true
 			}
 		}
 		for _, r := range t.Results {
-			if containsInvalid(r) {
+			if invalidIn(r, body) {
 				return true
 			}
 		}

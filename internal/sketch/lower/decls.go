@@ -952,7 +952,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 		}
 		for i, id := range spec.Names {
 			if w, ok := l.info.Defs[id].(*check.Var); ok {
-				binds = append(binds, patBind{w, init + "." + tupleField(i)})
+				binds = append(binds, patBind{w, fc.elemAt(x, i, init+"."+tupleField(i))})
 			}
 		}
 	}

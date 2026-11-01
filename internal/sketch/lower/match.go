@@ -311,7 +311,7 @@ func (fc *funcCtx) letPattern(spec *syntax.VarSpec) {
 		var binds []patBind
 		for i, id := range spec.Names {
 			if w, ok := fc.l.info.Defs[id].(*check.Var); ok {
-				binds = append(binds, patBind{w, v + "." + tupleField(i)})
+				binds = append(binds, patBind{w, fc.elemAt(x, i, v+"."+tupleField(i))})
 			}
 		}
 		bindAll(binds)
