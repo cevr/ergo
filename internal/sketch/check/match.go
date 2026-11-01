@@ -887,7 +887,11 @@ func (c *checker) declareArm(items [][]patBinding) []armVar {
 			bound[b.id.Name] = true
 			v, ok := vars[b.id.Name]
 			if !ok {
-				c.errorf(b.id, CodeType, "%s is bound by this pattern and not by the first pattern of its case; every pattern of a case binds the same names (rows.md, Totality 1)", b.id.Name)
+				if !isInvalid(b.t) {
+					// An invalid binding is a reported pattern's
+					// placeholder: no second diagnostic (D3).
+					c.errorf(b.id, CodeType, "%s is bound by this pattern and not by the first pattern of its case; every pattern of a case binds the same names (rows.md, Totality 1)", b.id.Name)
+				}
 				// The name still binds, with the invalid type, so its reads
 				// in the body add nothing (D3).
 				g := &switchGroup{used: true}
@@ -913,7 +917,7 @@ func (c *checker) declareArm(items [][]patBinding) []armVar {
 			if bound[b.id.Name] {
 				continue
 			}
-			if !reported {
+			if !reported && !isInvalid(types[b.id.Name]) {
 				c.errorf(c.caseItemNode(items, k+1, b), CodeType, "%s is bound by the first pattern of its case and not by this one; every pattern of a case binds the same names (rows.md, Totality 1)", b.id.Name)
 				reported = true
 			}

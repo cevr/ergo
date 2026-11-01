@@ -223,7 +223,14 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 				c.declareAs(id, invalid, true) // no type: no S110, no cascade
 			}
 		}
-		c.catchArm(arm, valueType, wantValue && hasValue)
+		// Where a value is wanted, an invalid caught expression's arms
+		// still yield, into the invalid type, so their values add nothing
+		// (D3) and are not discarded statements.
+		if wantValue && op.invalid() {
+			c.catchArm(arm, invalid, true)
+		} else {
+			c.catchArm(arm, valueType, wantValue && hasValue)
+		}
 		c.unusedBindings(vars)
 		for _, b := range restBind {
 			if !b.group.used {
@@ -378,6 +385,10 @@ func (cs *catchSpace) resolve(arm *syntax.CatchArm, te syntax.Expr, row *Row, op
 	} else if t := c.catchType(core, row, open, evidence); t != nil {
 		p = c.pattern(core, &Pattern{Kind: PatTypeTest, Type: t})
 		it.t, it.row, it.whole = t, solverRow{}, true
+	} else {
+		// A refused or unknown type, already reported: the arm proves
+		// nothing, so no totality verdict follows, as for a record pattern.
+		ok = false
 	}
 	if name != nil && name.Name != "_" {
 		bt := it.t
@@ -544,8 +555,9 @@ func (c *checker) catchType(te syntax.Expr, row *Row, open, evidence bool) Type 
 // the tail must be handled, as in any value position.
 func (c *checker) catchArm(arm *syntax.CatchArm, valueType Type, yield bool) {
 	list := arm.Body
+	quiet := isInvalid(valueType) // the caught expression is reported
 	if len(list) == 0 {
-		if yield {
+		if yield && !quiet {
 			c.errorAt(arm.Colon, arm.Colon+1, CodeMissingRet, "this arm yields no value, and the catch yields a value of type %s (rows.md, Catch 3)", valueType)
 		}
 		return
@@ -554,6 +566,9 @@ func (c *checker) catchArm(arm *syntax.CatchArm, valueType Type, yield bool) {
 	if yield {
 		k.want = valueType
 		k.missing = func(at syntax.Pos) {
+			if quiet {
+				return
+			}
 			c.errorAt(at, at+1, CodeMissingRet, "this path of the arm can reach its end without a value, and the catch yields a value of type %s: end it with an expression, return or an else (rows.md, Catch 7)", valueType)
 		}
 	}

@@ -1010,11 +1010,11 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 	for i, a := range args {
 		tp := n.TParams[i]
 		if tp.Kind != KindType {
-			row := c.rowExpr([]syntax.Expr{a}, tp.Kind, ctx)
-			if row == nil {
+			ra := c.rowArg(a, tp.Kind, ctx)
+			if ra == nil {
 				return invalid
 			}
-			targs[i] = &RowArg{Row: row}
+			targs[i] = ra
 			continue
 		}
 		t := c.typExpr(a, ctx)
@@ -1075,22 +1075,32 @@ func (n *Named) instanceUnder(inst *Named) Type {
 
 // ---------------------------------------------------------------- rows in signatures
 
-// rowExpr resolves the elements of an error row or a capability row.
+// rowExpr resolves the elements of a written error row or capability row.
+// A refused element, already reported, stands in the row as invalid and the
+// valid elements stay: the row is then unknown (Row.unknown), so absence
+// checks on it are quiet and presence checks read its known part, as
+// go/types keeps a parameter list with an invalid parameter type.
 func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 	row := newRow()
-	ok := true
 	for _, x := range xs {
 		t := c.rowElem(x, kind, ctx)
 		if t == nil {
-			ok = false
-			continue
+			t = invalid
 		}
 		row = row.with(c.types, t)
 	}
-	if !ok {
+	return row
+}
+
+// rowArg resolves a written row argument of a generic type or function: one
+// element, as a row of one. A refused element gives nil, so the instance is
+// invalid, as an invalid type argument makes it.
+func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
+	t := c.rowElem(x, kind, ctx)
+	if t == nil {
 		return nil
 	}
-	return row
+	return &RowArg{Row: newRow().with(c.types, t)}
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
@@ -1373,9 +1383,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		for _, field := range ft.Results.List {
 			if er, ok := field.Type.(*syntax.ErrorRow); ok {
 				sig.Fallible = true
-				if row := c.rowExpr(er.Types, KindErrors, &rctx); row != nil {
-					sig.Errors = row
-				}
+				sig.Errors = c.rowExpr(er.Types, KindErrors, &rctx)
 				continue
 			}
 			t := c.typExpr(field.Type, &rctx)
@@ -1385,9 +1393,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		}
 	}
 	if ft.Needs != nil {
-		if row := c.rowExpr(ft.Needs.Names, KindUses, &rctx); row != nil {
-			sig.Uses = row
-		}
+		sig.Uses = c.rowExpr(ft.Needs.Names, KindUses, &rctx)
 	}
 	return sig
 }

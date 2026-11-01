@@ -84,7 +84,8 @@ func (c *checker) charge(n syntax.Node, cap Type) {
 		t.uses = t.uses.with(c.types, cap)
 		return
 	}
-	if t.declUses.has(c.types, cap) {
+	if t.declUses.has(c.types, cap) || t.declUses.unknown(c.types) {
+		// An unknown written row (a refused entry, rowExpr) may hold cap.
 		return
 	}
 	switch {
@@ -117,9 +118,14 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 		t.errors = t.errors.union(c.types, row)
 		return
 	}
-	// A declared row is never unknown: a written row holds no invalid, and a
-	// literal or a block whose expected row is unknown infers its row
-	// (funcLit, blockLit; stage D1 round 4 review M2).
+	// A written row with a refused entry is unknown (rowExpr): it may hold
+	// what escapes, so nothing is reported against it, as an unknown
+	// destination row accepts any row (assignability clause 5). A literal or
+	// a block whose expected row is unknown infers its row instead (funcLit,
+	// blockLit; stage D1 round 4 review M2).
+	if t.declErrors.unknown(c.types) {
+		return
+	}
 	extra := row.minus(c.types, t.declErrors).known(c.types)
 	if extra.Empty() {
 		return

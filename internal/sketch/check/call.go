@@ -330,11 +330,11 @@ func (c *checker) explicit(x *syntax.IndexExpr, fun operand) operand {
 	for i, a := range x.Indices {
 		tp := sig.TParams[i]
 		if tp.Kind != KindType {
-			row := c.rowExpr([]syntax.Expr{a}, tp.Kind, ctx)
-			if row == nil {
+			ra := c.rowArg(a, tp.Kind, ctx)
+			if ra == nil {
 				return bad(x)
 			}
-			targs[i] = &RowArg{Row: row}
+			targs[i] = ra
 			continue
 		}
 		t := c.typExpr(a, ctx)

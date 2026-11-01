@@ -625,8 +625,10 @@ func (c *checker) implements(v Type, it *Interface) string {
 			// depend on declaration order (D0; fuzz-check-C-r7rev-dbdbb39c).
 			return fmt.Sprintf("%s.%s has signature %s, want %s", v, m.Name, shapeOf(got), shapeOf(m.Sig))
 		}
-		// An unknown row is checked by its known part (Row.unknown).
-		if ge := got.Errors.known(c.types); !ge.subsetOf(c.types, m.Sig.Errors) {
+		// An unknown row is checked by its known part (Row.unknown); an
+		// unknown method row (a refused entry, rowExpr) accepts any row, as
+		// clause 5's unknown destination does.
+		if ge := got.Errors.known(c.types); !m.Sig.Errors.unknown(c.types) && !ge.subsetOf(c.types, m.Sig.Errors) {
 			return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, m.Name, rowText(ge.minus(c.types, m.Sig.Errors)), rowText(m.Sig.Errors))
 		}
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
