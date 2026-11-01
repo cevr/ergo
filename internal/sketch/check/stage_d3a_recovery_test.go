@@ -61,22 +61,41 @@ func TestTaskAssignmentNamesMissingOperation(t *testing.T) {
 }
 
 func TestTupleReturnRepairChecks(t *testing.T) {
-	const prefix = "type Mem { N int }\ntype Store { Get() int }\nfunc Get(m Mem) int { m.N }\nfunc pair() (Mem, int) { (Mem{N: 1}, 2) }\n"
+	const prefix = "type Mem { N int }\ntype Store { Get() int }\nfunc Get(m Mem) int { m.N }\nfunc pair() (Mem, int) { (Mem{N: 1}, 2) }\n" +
+		"func pairOf(a int, b int) (Mem, int) { (Mem{N: a}, b) }\nfunc pairBy(g func() int, s string) (Mem, int) { (Mem{N: g()}, 1) }\n"
 	for _, tc := range []struct{ body, params, repair string }{
-		{"return pair()", "", "let (m, n) = pair(); then return (m, n)"},
-		{"pair()", "", "let (m, n) = pair(); then return (m, n)"},
-		{"return pair()", "m int, n int", "let (m2, n2) = pair(); then return (m2, n2)"},
+		{"return pair()", "", "let (m, n) = pair(); return (m, n)"},
+		{"pair()", "", "let (m, n) = pair(); return (m, n)"},
+		{"return pair()", "m int, n int", "let (m2, n2) = pair(); return (m2, n2)"},
+		// A call over several lines is repaired on one line (m2): a break
+		// after an opening bracket, before a closing one or after a comma
+		// goes; a break that ends a statement in a block becomes "; ".
+		{"return pairOf(\n\t\t1,\n\t\t2,\n\t)", "", "let (m, n) = pairOf(1, 2); return (m, n)"},
+		{"pairOf(1,\n\t2)", "", "let (m, n) = pairOf(1, 2); return (m, n)"},
+		{"pairBy(func() int {\n\t\tlet k = 1\n\t\tk\n\t}, \"a\\nb\")", "", "let (m, n) = pairBy(func() int {let k = 1; k}, \"a\\nb\"); return (m, n)"},
 	} {
 		src := prefix + "func f(" + tc.params + ") (Store, int) { " + tc.body + " }\n"
 		_, d := check.CheckSource(src)
-		if len(d) != 1 || d[0].Code != check.CodeType || !strings.Contains(d[0].Message, tc.repair) {
-			t.Fatalf("%s: want one S108 naming %q, got %s", src, tc.repair, describe(d))
+		if len(d) != 1 || d[0].Code != check.CodeType || !strings.HasSuffix(d[0].Message, "; write "+tc.repair) {
+			t.Fatalf("%s: want one S108 ending in %q, got %s", src, "; write "+tc.repair, describe(d))
 		}
-		repair := d[0].Message[strings.Index(d[0].Message, "write ")+len("write "):]
+		// The exact suggested text replaces the body and checks.
 		at := strings.LastIndex(src, tc.body)
-		repaired := src[:at] + strings.ReplaceAll(repair, "; then ", "; ") + src[at+len(tc.body):]
+		repaired := src[:at] + tc.repair + src[at+len(tc.body):]
 		if _, rd := check.CheckSource(repaired); len(rd) != 0 {
 			t.Fatalf("suggested repair does not check: %s\n%s", repaired, describe(rd))
+		}
+	}
+	// A call that one line cannot keep (a comment, a raw string over
+	// lines) gets the plain message, with no repair (diagnostics.md).
+	for _, body := range []string{
+		"pairOf(\n\t\t1, // one\n\t\t2,\n\t)",
+		"pairBy(func() int { 1 }, `a\nb`)",
+	} {
+		src := prefix + "func f() (Store, int) { " + body + " }\n"
+		_, d := check.CheckSource(src)
+		if len(d) != 1 || d[0].Code != check.CodeType || strings.Contains(d[0].Message, "write ") {
+			t.Fatalf("%s: want one S108 with no repair, got %s", src, describe(d))
 		}
 	}
 }

@@ -159,7 +159,7 @@ let pair (int, string) = (q, "x")
 
 1. A tuple type `(A, B, …)` has two or more elements and is structural: two tuple types are identical when their elements are. A tuple value is `(a, b)`.
 2. A tuple is read only through a pattern ([rows.md](rows.md#totality)): `let (a, b) = t`, `for (k, v) in …`, `case (A, _):`. There is no `.0`.
-3. A function has one result, which may be a tuple; a call is one value, so `f(g())` passes `g`'s tuple as one argument. `let q, r = e` destructures a tuple result. Tuple assignment does not convert its elements. Returning `pair()` from `(Mem, int)` as `(Store, int)` therefore names a repair when `Mem` implements `Store`: `let (m, n) = pair(); then return (m, n)`. Each element of the returned literal takes its expected type. The checker chooses unbound names for the repair.
+3. A function has one result, which may be a tuple; a call is one value, so `f(g())` passes `g`'s tuple as one argument. `let q, r = e` destructures a tuple result. Tuple assignment does not convert its elements. Returning `pair()` from `(Mem, int)` as `(Store, int)` therefore names a repair when `Mem` implements `Store`: `let (m, n) = pair(); return (m, n)`, source on one line that checks in place of the body. Each element of the returned literal takes its expected type. The checker chooses unbound names for the repair.
 4. A tuple is comparable when its elements are, and defaultable when they are. It has no operations, so it implements no operation type.
 5. *Prior art:* Gleam, ReScript and MoonBit tuples with pattern access; Elixir tuples; Go's several results exist mostly for `(T, error)`, which `fails` replaces.
 

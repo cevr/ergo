@@ -1353,7 +1353,9 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 
 // A tuple call cannot convert its parts as a whole. Destructuring and
 // returning a tuple literal gives each part the expected result type.
-// Offer this repair only when both element assignments are valid.
+// Offer this repair only when both element assignments are valid. The
+// repair is source on one line, the two statements joined by the ";" a
+// newline implies, so it checks when pasted in place of the body.
 func (c *checker) tupleReturnRepair(x syntax.Expr, v, t Type) string {
 	if _, ok := unparen(x).(*syntax.CallExpr); !ok || c.cur == nil {
 		return ""
@@ -1372,9 +1374,83 @@ func (c *checker) tupleReturnRepair(x syntax.Expr, v, t Type) string {
 	if x.Pos() < 0 || x.End() > syntax.Pos(len(src)) {
 		return ""
 	}
+	call, ok := oneLine(src[x.Pos():x.End()])
+	if !ok {
+		return ""
+	}
 	m, n := c.freshName("m"), c.freshName("n")
 	names := m + ", " + n
-	return "let (" + names + ") = " + src[x.Pos():x.End()] + "; then return (" + names + ")"
+	return "let (" + names + ") = " + call + "; return (" + names + ")"
+}
+
+// oneLine writes an expression's source text on one line, for a repair in
+// a one-line message (stage D3a rewrite r2 review m2). A run of white space
+// that holds a line break becomes nothing after an opening bracket or
+// before a closing one, "; " where the scanner reads the break as the end
+// of a statement (after an operand, as Go inserts a semicolon), and one
+// space otherwise; a comma that only ends a line before a closing bracket
+// goes. String and rune literals stay as written. ok is false when the text
+// holds a comment or a raw string over several lines, which one line
+// cannot keep.
+func oneLine(text string) (string, bool) {
+	if !strings.Contains(text, "\n") {
+		return text, true
+	}
+	var b strings.Builder
+	for i := 0; i < len(text); {
+		switch ch := text[i]; {
+		case ch == '/' && i+1 < len(text) && (text[i+1] == '/' || text[i+1] == '*'):
+			return "", false
+		case ch == '"' || ch == '\'' || ch == '`':
+			j := i + 1
+			for j < len(text) && text[j] != ch {
+				if ch == '`' && text[j] == '\n' {
+					return "", false
+				}
+				if ch != '`' && text[j] == '\\' {
+					j++
+				}
+				j++
+			}
+			j = min(j+1, len(text))
+			b.WriteString(text[i:j])
+			i = j
+		case ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n':
+			j := i
+			for j < len(text) && strings.IndexByte(" \t\r\n", text[j]) >= 0 {
+				j++
+			}
+			run := text[i:j]
+			i = j
+			if !strings.Contains(run, "\n") {
+				b.WriteString(run)
+				continue
+			}
+			out := b.String()
+			next := byte(0)
+			if j < len(text) {
+				next = text[j]
+			}
+			if strings.HasSuffix(out, ",") && strings.IndexByte(")]}", next) >= 0 {
+				b.Reset()
+				b.WriteString(out[:len(out)-1])
+				continue
+			}
+			if out == "" || strings.IndexByte("([{", out[len(out)-1]) >= 0 || strings.IndexByte(")]}", next) >= 0 {
+				continue
+			}
+			if last := out[len(out)-1]; last == '_' || last == ')' || last == ']' || last == '}' || last == '"' || last == '\'' || last == '`' ||
+				'a' <= last && last <= 'z' || 'A' <= last && last <= 'Z' || '0' <= last && last <= '9' {
+				b.WriteString("; ")
+				continue
+			}
+			b.WriteByte(' ')
+		default:
+			b.WriteByte(ch)
+			i++
+		}
+	}
+	return b.String(), true
 }
 
 // typeOf is the type a declaration without a written type takes from op:

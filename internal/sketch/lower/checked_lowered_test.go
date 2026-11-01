@@ -10,12 +10,16 @@ import (
 
 // Checked implies lowered (check-v1 stage D3a rewrite, spec ruling item
 // 4). Kinds are generated from the type grammar: a basic, slice, Map,
-// function, tuple, record, operation type and union; an instance of a
+// function (with a fails row, a needs row, both or neither), tuple, record,
+// operation type and union; an instance of a
 // generic slice, record, operation type and union; a defined type over each
 // allowed base; a defined type over each refused base; and a Task-holding
 // kind, checked only until stage D3b lowers task.Go. Every kind meets every
 // kind at assignment sites, including writes, aggregates, contextual joins,
-// closure results, and invariant pointers/slices. A refused pair has exactly one diagnostic, on the
+// closure results, invariant pointers/slices, a pattern's written type and
+// the operands of == and !=; every kind meets the operation type Store as a
+// wire value, whose admitted pairs lowering refuses until stage E (an
+// expected refusal, S109, on the wire's line). A refused pair has exactly one diagnostic, on the
 // line of its site (or of the refused definition, or of a Task written in a
 // type position: a tuple result or a record field). An admitted pair lowers
 // on its own, and every admitted pair of a site, batched in one program,
@@ -41,7 +45,13 @@ type pairKind struct {
 	ops, impl, member, union bool
 	optionMember             bool // Some[int] and None inhabit Option[int].
 	function                 bool // func() int, with the row below
-	row                      uint // a set of failures (bit 0 is Fault)
+	// row is the function's rows as one set: bit 0 is the failure Fault,
+	// bit 1 the capability Console (clause 5 widens both halves alike).
+	row uint
+	// comparable: the kind takes == (types.md, Operators 1: structural; a
+	// slice, Map, function or operation type never compares, and a record,
+	// tuple or union only when every part does).
+	comparable bool
 	// decl declares a refused defined type: every use of the kind meets
 	// that one diagnostic.
 	decl string
@@ -71,6 +81,12 @@ type DGS GS[int]
 type DDS DS
 type PP[T] Pair[T, T]
 type Holder[T] { f T }
+type DFN func() int needs Console
+type DSome Some[int]
+type DNone None
+type TS (Store, int)
+type PS Pair[Store, int]
+type DSM Map[string, Store]
 
 func Get(m Mem) int { m.N }
 func Get(c DInt) int { int(c) }
@@ -79,6 +95,13 @@ func Get(s DS) int { len(s) }
 func one() int { 1 }
 func work() int fails Fault { 1 }
 func callRow(f func() int fails Fault) int {
+	f() catch {
+	case Fault: 0
+	}
+}
+func cons() int needs Console { 1 }
+func consFail() int fails Fault needs Console { 1 }
+func callRowN(f func() int fails Fault needs Console) int needs Console {
 	f() catch {
 	case Fault: 0
 	}
@@ -97,8 +120,8 @@ func pairKinds() []pairKind {
 	get := func(v string) string { return v + ".Get() == 1" }
 	length := func(v string) string { return "len(" + v + ") == 1" }
 	return []pairKind{
-		{name: "Int", ty: "int", pre: let("int", "1"), ok: func(v string) string { return v + " == 1" }, under: "int", named: true},
-		{name: "DInt", ty: "DInt", pre: let("DInt", "DInt(1)"), ok: get, under: "int", named: true, impl: true},
+		{name: "Int", ty: "int", pre: let("int", "1"), ok: func(v string) string { return v + " == 1" }, under: "int", named: true, comparable: true},
+		{name: "DInt", ty: "DInt", pre: let("DInt", "DInt(1)"), ok: get, under: "int", named: true, impl: true, comparable: true},
 		{name: "Slice", ty: "[]int", pre: let("[]int", "[]int{1}"), ok: length, under: "[]int"},
 		{name: "DS", ty: "DS", pre: let("DS", "DS{1}"), ok: get, under: "[]int", named: true, impl: true},
 		{name: "GS", ty: "GS[int]", pre: let("GS[int]", "GS[int]{1}"), ok: length, under: "[]int", named: true},
@@ -108,26 +131,34 @@ func pairKinds() []pairKind {
 		{name: "DF", ty: "DF", pre: let("DF", "one"), ok: func(v string) string { return v + "() == 1" }, under: "func", named: true, function: true},
 		{name: "FE", ty: "func() int fails Fault", pre: let("func() int fails Fault", "work"), ok: func(v string) string { return "callRow(" + v + ") == 1" }, under: "func-fails", function: true, row: 1},
 		{name: "DFE", ty: "DFE", pre: let("DFE", "work"), ok: func(v string) string { return "callRow(" + v + ") == 1" }, under: "func-fails", named: true, function: true, row: 1},
-		{name: "Tuple", ty: "(int, int)", pre: let("(int, int)", "(1, 2)"), under: "tuple"},
-		{name: "DP", ty: "DP", pre: let("DP", "(1, 2)"), under: "tuple", named: true},
-		{name: "Mem", ty: "Mem", pre: let("Mem", "Mem{N: 1}"), ok: func(v string) string { return v + ".N == 1" }, under: "Mem", named: true, impl: true, member: true},
-		{name: "DMem", ty: "DMem", pre: let("DMem", "DMem{N: 1}"), ok: get, under: "Mem", named: true, impl: true},
-		{name: "Pair", ty: "Pair[int, int]", pre: let("Pair[int, int]", "Pair[int, int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".First == 1" }, under: "Pair", named: true},
-		{name: "DPair", ty: "DPair", pre: let("DPair", "DPair{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true},
+		{name: "FN", ty: "func() int needs Console", pre: let("func() int needs Console", "cons"), ok: func(v string) string { return v + "() == 1" }, under: "func-needs", function: true, row: 2},
+		{name: "DFN", ty: "DFN", pre: let("DFN", "cons"), ok: func(v string) string { return v + "() == 1" }, under: "func-needs", named: true, function: true, row: 2},
+		{name: "FEN", ty: "func() int fails Fault needs Console", pre: let("func() int fails Fault needs Console", "consFail"), ok: func(v string) string { return "callRowN(" + v + ") == 1" }, under: "func-fails-needs", function: true, row: 3},
+		{name: "Tuple", ty: "(int, int)", pre: let("(int, int)", "(1, 2)"), under: "tuple", comparable: true},
+		{name: "DP", ty: "DP", pre: let("DP", "(1, 2)"), under: "tuple", named: true, comparable: true},
+		{name: "TS", ty: "TS", pre: let("TS", "(Mem{N: 1}, 2)"), under: "tuple-store", named: true},
+		{name: "Mem", ty: "Mem", pre: let("Mem", "Mem{N: 1}"), ok: func(v string) string { return v + ".N == 1" }, under: "Mem", named: true, impl: true, member: true, comparable: true},
+		{name: "DMem", ty: "DMem", pre: let("DMem", "DMem{N: 1}"), ok: get, under: "Mem", named: true, impl: true, comparable: true},
+		{name: "Pair", ty: "Pair[int, int]", pre: let("Pair[int, int]", "Pair[int, int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".First == 1" }, under: "Pair", named: true, comparable: true},
+		{name: "DPair", ty: "DPair", pre: let("DPair", "DPair{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true, comparable: true},
+		{name: "PS", ty: "PS", pre: let("PS", "PS{First: Mem{N: 1}, Second: 2}"), ok: func(v string) string { return v + ".First.Get() == 1" }, under: "Pair-store", named: true},
 		{name: "Store", ty: "Store", pre: let("Store", "Mem{N: 1}"), ok: get, under: "ops", named: true, ops: true, impl: true},
 		{name: "Gen", ty: "Gen[int]", pre: let("Gen[int]", "Mem{N: 1}"), ok: get, under: "ops", named: true, ops: true, impl: true},
-		{name: "U", ty: "U", pre: let("U", "Mem{N: 1}"), under: "U", named: true, union: true},
-		{name: "Opt", ty: "Option[int]", pre: let("Option[int]", "Some{1}"), ok: func(v string) string { return v + " != None" }, under: "Option", named: true, union: true},
-		{name: "Some", ty: "Some[int]", pre: let("Some[int]", "Some{1}"), under: "Some", named: true, optionMember: true},
-		{name: "None", ty: "None", pre: let("None", "None"), under: "None", named: true, optionMember: true},
-		{name: "NT", ty: "NT", pre: let("NT", "((1, 2), 3)"), under: "nested-tuple", named: true},
-		{name: "NT2", ty: "NT2", pre: let("NT2", "((1, 2), 3)"), under: "nested-tuple", named: true},
+		{name: "U", ty: "U", pre: let("U", "Mem{N: 1}"), under: "U", named: true, union: true, comparable: true},
+		{name: "Opt", ty: "Option[int]", pre: let("Option[int]", "Some{1}"), ok: func(v string) string { return v + " != None" }, under: "Option", named: true, union: true, comparable: true},
+		{name: "Some", ty: "Some[int]", pre: let("Some[int]", "Some{1}"), under: "Some", named: true, optionMember: true, comparable: true},
+		{name: "DSome", ty: "DSome", pre: let("DSome", "DSome{1}"), under: "Some", named: true, comparable: true},
+		{name: "None", ty: "None", pre: let("None", "None"), under: "None", named: true, optionMember: true, comparable: true},
+		{name: "DNone", ty: "DNone", pre: let("DNone", "DNone{}"), under: "None", named: true, comparable: true},
+		{name: "NT", ty: "NT", pre: let("NT", "((1, 2), 3)"), under: "nested-tuple", named: true, comparable: true},
+		{name: "NT2", ty: "NT2", pre: let("NT2", "((1, 2), 3)"), under: "nested-tuple", named: true, comparable: true},
 		{name: "DGS", ty: "DGS", pre: let("DGS", "DGS{1}"), ok: length, under: "[]int", named: true},
 		{name: "DDS", ty: "DDS", pre: let("DDS", "DDS{1}"), ok: length, under: "[]int", named: true},
 		{name: "DInts", ty: "[]DInt", pre: let("[]DInt", "[]DInt{DInt(1)}"), ok: length, under: "[]DInt"},
 		{name: "Stores", ty: "[]Store", pre: let("[]Store", "[]Store{Mem{N: 1}}"), ok: length, under: "[]Store"},
 		{name: "StoreMap", ty: "Map[string, Store]", pre: let("Map[string, Store]", `Map[string, Store]{"a": Mem{N: 1}}`), ok: length, under: "map-store"},
-		{name: "PP", ty: "PP[int]", pre: let("PP[int]", "PP[int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true},
+		{name: "DSM", ty: "DSM", pre: let("DSM", `DSM{"a": Mem{N: 1}}`), ok: length, under: "map-store", named: true},
+		{name: "PP", ty: "PP[int]", pre: let("PP[int]", "PP[int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true, comparable: true},
 		{name: "DStore", ty: "DStore", pre: via("DStore", "Store", "Mem{N: 1}"), decl: "type DStore Store"},
 		{name: "DGen", ty: "DGen", pre: via("DGen", "Gen[int]", "Mem{N: 1}"), decl: "type DGen Gen[int]"},
 		{name: "DU", ty: "DU", pre: via("DU", "U", "Mem{N: 1}"), decl: "type DU U"},
@@ -139,9 +170,10 @@ func pairKinds() []pairKind {
 // admits is the model of the checker's assignability (types.md,
 // Assignability) over the grid: clause 1 identity, clause 2 one underlying
 // type with an unnamed side, clause 3 an operation type from a provider,
-// clause 4 a variant into its union, clause 5 subset rows on otherwise
-// identical function shapes with at least one unnamed side. The row bits
-// are sets from the source declarations, independent of checker types.
+// clause 4 a variant into its union, clause 5 subset rows (the error row
+// and the needs row) on otherwise identical function shapes with at least
+// one unnamed side. The row bits are sets from the source declarations,
+// independent of checker types.
 func admits(s, t pairKind) bool {
 	switch {
 	case s.decl != "" || t.decl != "":
@@ -169,13 +201,20 @@ var pairSites = []string{
 	"reassign", "fieldset", "mapwrite", "maplit", "slicelit", "indexwrite",
 	"tuplelit", "tupleret", "ifjoin", "ifjoinrev", "matchjoin", "matchjoinrev",
 	"closure", "genericfield", "pointer", "nested", "option",
+	"patternlet", "eq", "neq", "wire",
 }
 
 // Containers and pointers are invariant in their element type (clauses 1
-// and 2 compare the complete underlying type). Other sites assign S to T.
+// and 2 compare the complete underlying type). The operands of == and !=
+// compare when both kinds are comparable and one goes into the other's
+// type (types.md, Assignability 2; Operators 1). Other sites, the wire
+// value included, assign S to T.
 func pairAdmits(site string, s, t pairKind) bool {
-	if site == "pointer" || site == "nested" {
+	switch site {
+	case "pointer", "nested":
 		return s.ty == t.ty
+	case "eq", "neq":
+		return s.comparable && t.comparable && (admits(s, t) || admits(t, s))
 	}
 	return admits(s, t)
 }
@@ -301,6 +340,26 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 			body = fmt.Sprintf("let dst Option[%s] = Some{src}", t.ty)
 			body += "\nmatch dst {\ncase Some{v}: " + use("v") + "\ncase None: Console.Println(\"FAIL " + id + "\")\n}"
 			at = "= Some{src}"
+		case "patternlet":
+			body = fmt.Sprintf("let (item, _) (%s, int) = (src, 0)", t.ty)
+			value, at = "item", "= (src, 0)"
+		case "eq", "neq":
+			// Every value of the grid is 1-like, so two comparable values
+			// are equal, except None against Some{1}.
+			setup += "\n" + t.pre("dst")
+			op, holds := "==", (s.name == "None") == (t.name == "None")
+			if site == "neq" {
+				op, holds = "!=", !holds
+			}
+			test := "src " + op + " dst"
+			if holds {
+				test = "!(" + test + ")"
+			}
+			body = "if " + test + " { Console.Println(\"FAIL " + id + "\") }"
+			at = "src " + op + " dst"
+		case "wire":
+			body = "with wire { Store: src } {\nif Store.Get() != 1 { Console.Println(\"FAIL " + id + "\") }\n}"
+			at = "Store: src"
 		default:
 			panic("unknown pair site: " + site)
 		}
@@ -345,6 +404,7 @@ func TestCheckedImpliesLowered(t *testing.T) {
 	want := map[string]string{}
 	for _, site := range pairSites {
 		var ids, funcs []string
+		deferred := 0 // admitted pairs whose lowering waits for stage E
 		for _, s := range kinds {
 			for _, k := range kinds {
 				if site != "let" && site != "multi" && site != "arg" && site != "ret" && site != "field" && (s.decl != "" || k.decl != "" || s.task || k.task) {
@@ -352,6 +412,9 @@ func TestCheckedImpliesLowered(t *testing.T) {
 				}
 				if s.decl != "" && k.decl != "" && s.name != k.name {
 					continue // two refused definitions are two mistakes
+				}
+				if site == "wire" && k.name != "Store" {
+					continue // a wire key is an operation type
 				}
 				if (site == "field" || site == "fieldset") && k.under == "tuple" && !k.named {
 					// `f (int, int)` in a type body is an operation
@@ -393,6 +456,17 @@ func TestCheckedImpliesLowered(t *testing.T) {
 				if s.task || k.task {
 					continue // task.Go lowers in stage D3b
 				}
+				if site == "wire" {
+					// An inline wire value is lowered in stage E: the one
+					// expected refusal, on the wire's line.
+					const wireRefusal = "an inline wire value is lowered after check-v1 stage E (196x)"
+					lines := strings.Split(src, "\n")
+					if o.panicked != nil || len(o.refused) != 1 || o.refused[0].Message != wireRefusal || o.refused[0].Line < 1 || o.refused[0].Line > len(lines) || !strings.Contains(lines[o.refused[0].Line-1], at) {
+						t.Errorf("%s: want the one stage E wire refusal on the line with %q, got panic %v, refusals %+v\n%s", id, at, o.panicked, o.refused, src)
+					}
+					deferred++
+					continue
+				}
 				switch {
 				case o.panicked != nil:
 					t.Errorf("%s: checked, lowering panicked: %v\n%s", id, o.panicked, src)
@@ -405,7 +479,7 @@ func TestCheckedImpliesLowered(t *testing.T) {
 				funcs = append(funcs, code)
 			}
 		}
-		t.Logf("%s: %d admitted pairs run", site, len(ids))
+		t.Logf("%s: %d admitted pairs run, %d admitted pairs refused by lowering until stage E", site, len(ids), deferred)
 		if len(ids) == 0 {
 			continue
 		}
