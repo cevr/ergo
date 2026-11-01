@@ -417,6 +417,9 @@ func (c *checker) checkImportAliases() {
 		}
 		if !clash {
 			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s (#196, fourth round, item 3)", a.path)
+			if pn, ok := a.file.scope.names[importBinds(a.spec)].(*PkgName); ok {
+				pn.used = true // The refused alias must not also be unused.
+			}
 		}
 	}
 }
@@ -909,18 +912,28 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 			c.errorf(x, CodeType, "error is only the head of an error row or a constraint")
 			return invalid
 		}
-		if n, ok := o.Type.(*Named); ok {
-			c.resolveNamed(n)
-		}
-		return o.Type
+		return c.resolvedType(o.Type)
 	case *capBinding:
-		return o.tn.Type
+		return c.resolvedType(o.tn.Type)
 	case *PkgName:
 		c.errorf(x, CodeType, "package %s is not a type", x.Name)
 		return invalid
 	}
 	c.errorf(x, CodeType, "%s is not a type", x.Name)
 	return invalid
+}
+
+// resolvedType is the semantic lookup boundary for declared types. A
+// refused declaration keeps its object identity for references, but every
+// use sees invalid, including rows, patterns and capability selectors.
+func (c *checker) resolvedType(t Type) Type {
+	if n, ok := t.(*Named); ok {
+		c.resolveNamed(n)
+	}
+	if containsInvalid(t) {
+		return invalid
+	}
+	return t
 }
 
 func (c *checker) qualifiedType(x *syntax.SelectorExpr) Type {
@@ -954,7 +967,7 @@ func (c *checker) qualifiedType(x *syntax.SelectorExpr) Type {
 		c.errorf(x, CodeType, "%s.%s is not a type", id.Name, x.Sel.Name)
 		return invalid
 	}
-	return tn.Type
+	return c.resolvedType(tn.Type)
 }
 
 func (c *checker) recordUse(id *syntax.Ident, o Object) {
@@ -1101,21 +1114,18 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 		c.recordUse(x, o)
 		switch o := o.(type) {
 		case *TypeName:
-			if n, ok := o.Type.(*Named); ok {
-				c.resolveNamed(n)
-			}
-			t = o.Type
+			t = c.resolvedType(o.Type)
 		case *capBinding:
-			t = o.tn.Type
+			t = c.resolvedType(o.tn.Type)
 		default:
 			c.errorf(x, CodeUnknown, "%s is not %s", x.Name, kindNoun(kind))
 			return nil
 		}
 	default:
 		t = c.typExpr0(x, ctx)
-		if isInvalid(t) {
-			return nil
-		}
+	}
+	if isInvalid(t) {
+		return nil
 	}
 	if tp, ok := t.(*TypeParam); ok {
 		if tp.conflict {

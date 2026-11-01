@@ -456,8 +456,9 @@ func (c *checker) ident(x *syntax.Ident) operand {
 		}
 		return operand{mode: modeValue, typ: sig, fn: o}
 	case *TypeName:
-		if n, ok := o.Type.(*Named); ok {
-			c.resolveNamed(n)
+		t := c.resolvedType(o.Type)
+		if isInvalid(t) {
+			return bad(x)
 		}
 		if o == universeOnce.errorName {
 			return operand{mode: modeType, typ: invalid, obj: o}
@@ -467,6 +468,9 @@ func (c *checker) ident(x *syntax.Ident) operand {
 		}
 		return operand{mode: modeType, typ: o.Type, obj: o}
 	case *capBinding:
+		if isInvalid(c.resolvedType(o.tn.Type)) {
+			return bad(x)
+		}
 		return operand{mode: modeCap, typ: o.tn.Type, cap: o.tn.Type, obj: o.tn}
 	case *Const:
 		v := constant.MakeBool(o.Val)
@@ -1111,6 +1115,9 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 	}
 	switch o := o.(type) {
 	case *TypeName:
+		if isInvalid(c.resolvedType(o.Type)) {
+			return bad(x)
+		}
 		if isCapability(o.Type) {
 			return operand{mode: modeCap, typ: o.Type, cap: o.Type, obj: o}
 		}

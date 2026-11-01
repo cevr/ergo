@@ -418,12 +418,13 @@ func (r *patResolver) head(e syntax.Expr, t Type, col int) (int, Type, bool) {
 			return 0, nil, false
 		}
 		return idx, ci.u.at(idx), true
-	case asInterface(t) != nil:
-		c.errorf(e, CodeType, "a match on %s, an operation-type value, admits only _ and bindings: Ergo has no type assertions (rows.md, Totality 1)", t)
-		return 0, nil, false
 	}
 	pt := c.typExpr0(e, c.localTypeCtx())
 	if isInvalid(pt) {
+		return 0, nil, false
+	}
+	if asInterface(t) != nil {
+		c.errorf(e, CodeType, "a match on %s, an operation-type value, admits only _ and bindings: Ergo has no type assertions (rows.md, Totality 1)", t)
 		return 0, nil, false
 	}
 	if n, ok := pt.(*Named); ok && n.Orig == nil && len(n.TParams) > 0 {
