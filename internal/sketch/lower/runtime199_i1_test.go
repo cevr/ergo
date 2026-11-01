@@ -239,12 +239,13 @@ func i1Cases() []i1Case {
 }
 
 func TestRuntime199I1Property(t *testing.T) {
-	cases := append(i1Cases(), i1RecursionCases()...)
+	// Ordinary trailing blocks and with bodies use the reviewer's grid.
+	cases := append(append(i1Cases(), i1BlockCases()...), i1RecursionCases()...)
 	classes := map[string]int{}
 	for _, c := range cases {
 		classes[strings.SplitN(c.name, "/", 2)[0]]++
 	}
-	for _, class := range []string{"decl", "literal", "task", "provider", "impure-parent", "pure-parent"} {
+	for _, class := range []string{"decl", "literal", "task", "provider", "impure-parent", "pure-parent", "trailing", "with-body", "recursion"} {
 		if classes[class] == 0 {
 			t.Errorf("no generated case of the frame class %s", class)
 		}
@@ -259,6 +260,58 @@ func TestRuntime199I1Property(t *testing.T) {
 	}
 	t.Run("runtime-primitives", i1CheckPrimitives)
 	t.Run("live", i1Live)
+}
+
+// Adapted from the round 1 reviewer's zz_ext_test.go: block frames, generated
+// over the same clauses, loop forms and exits as i1Cases.
+//   - trailing: the block of a call of a program function (a BlockStmt
+//     frame that is not a task body);
+//   - with-body: the loops run inside a with block, in the enclosing frame.
+func i1BlockCases() []i1Case {
+	var out []i1Case
+	shapes := [][]i1Loop{}
+	for i, l := range i1Loops {
+		shapes = append(shapes, []i1Loop{l}, []i1Loop{l, i1Loops[(i+1)%len(i1Loops)]})
+	}
+	for _, cl := range i1Clauses {
+		for _, shape := range shapes {
+			seq := false
+			var params []string
+			if cl.param != "" {
+				params = append(params, cl.param)
+			}
+			var names []string
+			for _, l := range shape {
+				names = append(names, l.name)
+				if l.seq && !seq {
+					seq = true
+					params = append(params, l.param)
+				}
+			}
+			impure := cl.impure || seq
+			for _, v := range i1Variants {
+				if v.site && cl.site == "" {
+					continue
+				}
+				body := i1Body(cl.prefix, shape, v, cl.site)
+				row, try := "", ""
+				if v.fail {
+					row, try = " fails Fault", "try "
+				}
+				if cl.needs {
+					row += " needs Probe"
+				}
+				ps := strings.Join(params, ", ")
+				name := fmt.Sprintf("%s/%s/%s", cl.name, strings.Join(names, "+"), v.name)
+				add := func(class, src string, want map[string]bool) {
+					out = append(out, i1Case{name: class + "/" + name, src: i1Defs + src + "func main() {}\n", want: want, site: v.site})
+				}
+				add("trailing", "func run(f func() int"+row+") int"+row+" {\n"+try+"f()\n}\nfunc subject("+ps+") int"+row+" {\n"+try+"run() {\n"+body+"sum\n}\n}\n", map[string]bool{"lit": impure})
+				add("with-body", "func subject("+ps+") int"+row+" {\nwith Local {\n"+body+"sum\n}\n}\n", map[string]bool{"decl": impure})
+			}
+		}
+	}
+	return out
 }
 
 // i1RecursionCases varies the call graph independently of the footprint:
@@ -371,17 +424,22 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		return true
 	})
 	goLoops, marks := 0, 0
+	entries := 0
 	for _, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
 		if !ok || fd.Body == nil {
 			continue
 		}
 		if want, ok := c.entries[fd.Name.Name]; ok {
-			got := len(fd.Body.List) > 0 && isCheckOf(fd.Body.List[0], "")
+			entries++
+			got := len(fd.Body.List) > 0 && isOwnCheck(fd.Body.List[0], i1EnvParam(fd.Type))
 			if got != want {
 				t.Errorf("%s entry poll = %v, want %v\nGo:\n%s", fd.Name.Name, got, want, stripDirectives(code))
 			}
 		}
+	}
+	if entries != len(c.entries) {
+		t.Errorf("found %d of %d expected entry frames", entries, len(c.entries))
 	}
 	var stack []ast.Node
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -390,8 +448,26 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 			return true
 		}
 		stack = append(stack, n)
+		var env *ast.Ident
+		for i := len(stack) - 1; i >= 0; i-- {
+			if fd, ok := stack[i].(*ast.FuncDecl); ok {
+				env = i1EnvParam(fd.Type)
+				break
+			}
+			if fl, ok := stack[i].(*ast.FuncLit); ok {
+				env = i1EnvParam(fl.Type)
+				break
+			}
+		}
 		var body *ast.BlockStmt
 		switch n := n.(type) {
+		case *ast.ExprStmt:
+			// Check every point kind, including entries and capability
+			// sites. Resolve with's plain Env copies back to this frame's
+			// parameter; a captured parent parameter has a different object.
+			if isCheckOf(n, "") && !isOwnCheck(n, env) {
+				t.Errorf("poll %s does not check its frame's own env parameter\nGo:\n%s", types.ExprString(stmtCall(n, "Check")), stripDirectives(code))
+			}
 		case *ast.ForStmt:
 			body = n.Body
 		case *ast.RangeStmt:
@@ -402,9 +478,8 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 				// adapter method, which passes an Env, is no call site.
 				if call := stmtCall(s, "Mark"); call != nil && len(call.Args) == 1 && isTaskOf(call.Args[0]) {
 					marks++
-					task := types.ExprString(call.Args[0])
-					if i == 0 || !isCheckOf(n.List[i-1], task) {
-						t.Errorf("the capability call %s does not follow %s.Check()\nGo:\n%s", types.ExprString(call), task, stripDirectives(code))
+					if !isFrameTask(call.Args[0], env) || i == 0 || !isOwnCheck(n.List[i-1], env) {
+						t.Errorf("the capability call %s does not follow its own frame's Check\nGo:\n%s", types.ExprString(call), stripDirectives(code))
 					}
 				}
 			}
@@ -441,7 +516,7 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 			return true
 		})
 		switch {
-		case want && (len(body.List) == 0 || !isCheckOf(body.List[0], "")):
+		case want && (len(body.List) == 0 || !isOwnCheck(body.List[0], env)):
 			t.Errorf("an impure %s frame's loop body does not start with its task's Check\nGo:\n%s", class, stripDirectives(code))
 		case !want && polls > 0:
 			t.Errorf("a pure %s frame's loop body has %d checks\nGo:\n%s", class, polls, stripDirectives(code))
@@ -487,6 +562,65 @@ func isCheckOf(s ast.Stmt, task string) bool {
 func isTaskOf(x ast.Expr) bool {
 	sel, ok := x.(*ast.SelectorExpr)
 	return ok && sel.Sel.Name == envTask
+}
+
+func i1EnvParam(ft *ast.FuncType) *ast.Ident {
+	for _, p := range ft.Params.List {
+		ptr, ok := p.Type.(*ast.StarExpr)
+		if !ok || len(p.Names) != 1 {
+			continue
+		}
+		if name, ok := ptr.X.(*ast.Ident); ok && name.Name == "Env" {
+			return p.Names[0]
+		}
+	}
+	return nil
+}
+
+func isOwnCheck(s ast.Stmt, env *ast.Ident) bool {
+	call := stmtCall(s, "Check")
+	return call != nil && len(call.Args) == 0 && isFrameTask(call.Fun.(*ast.SelectorExpr).X, env)
+}
+
+// isFrameTask compares binding identities, not spelling. A with region
+// copies its frame's Env, without changing the task. Only those local
+// plain copies may resolve back to the innermost Env parameter.
+func isFrameTask(x ast.Expr, env *ast.Ident) bool {
+	if env == nil || env.Obj == nil || !isTaskOf(x) {
+		return false
+	}
+	x = x.(*ast.SelectorExpr).X
+	seen := map[*ast.Object]bool{}
+	for {
+		switch n := x.(type) {
+		case *ast.ParenExpr:
+			x = n.X
+		case *ast.UnaryExpr:
+			if n.Op != token.AND {
+				return false
+			}
+			x = n.X
+		case *ast.Ident:
+			if n.Obj == env.Obj {
+				return true
+			}
+			if n.Obj == nil || seen[n.Obj] {
+				return false
+			}
+			seen[n.Obj] = true
+			decl, ok := n.Obj.Decl.(*ast.AssignStmt)
+			if !ok || decl.Tok != token.DEFINE || len(decl.Lhs) != 1 || len(decl.Rhs) != 1 {
+				return false
+			}
+			copy, ok := decl.Rhs[0].(*ast.StarExpr)
+			if !ok {
+				return false
+			}
+			x = copy.X
+		default:
+			return false
+		}
+	}
 }
 
 // i1CheckPrimitives: the runtime's blocking primitives keep their own
@@ -570,6 +704,24 @@ var i1LiveLoops = map[string]string{
 
 func i1LivePrograms() map[string]string {
 	out := map[string]string{}
+	// Adapted from the reviewer's child-direct witness: stopping the child
+	// must work while the parent remains live (M-d polls the wrong task).
+	out["child-direct"] = i1LiveDefs + `func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let t = task.Go() {
+		try ready.Push(1)
+		let mut c = 0
+		for { c += 1 }
+		with Local { Probe.Tick() }
+		c
+	}
+	try ready.Pop()
+	let mut delay = 0
+	for delay < 20000000 { delay += 1 }
+	t.Stop()
+	Console.Println("stopped")
+}
+`
 	work := func(decls, call string) string {
 		return i1LiveDefs + decls + "func work(ready queue.Queue[int]) int fails queue.Closed {\n\ttry ready.Push(1)\n" + call + "}\n" + i1LiveMain
 	}
