@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -497,6 +498,8 @@ func TestCheckedImpliesLowered(t *testing.T) {
 	for name, w := range stdWant {
 		want[name] = w
 	}
+	orderPrograms, orderWant := orderGrid(t)
+	programs = append(programs, orderPrograms...)
 	exes := buildAll(t, programs, true)
 	for _, p := range programs {
 		exe, ok := exes[p.name]
@@ -504,6 +507,12 @@ func TestCheckedImpliesLowered(t *testing.T) {
 			continue
 		}
 		stdout, stderr, code := runExe(t, exe)
+		if defect, ok := orderWant[p.name]; ok {
+			if code != 2 || stdout != "" || !strings.Contains(stderr, defect) {
+				t.Errorf("%s: exit %d, stdout %q, want the defect %q first; stderr:\n%s\n%s", p.name, code, stdout, defect, firstLines(stderr, 6), p.src)
+			}
+			continue
+		}
 		if code != 0 || stdout != want[p.name] {
 			got, expected := strings.Split(stdout, "\n"), strings.Split(want[p.name], "\n")
 			first := 0
@@ -682,6 +691,129 @@ func stdGrid(t *testing.T) ([]*lowered, map[string]string) {
 		programs = append(programs, mustLower(t, name, stdProgram(ids, funcs)))
 		want[name] = strings.Join(lines, "\n") + "\n"
 	}
+	return programs, want
+}
+
+// The operand-order axis (stage D3b round 2 review M1): each kind of
+// expression whose lowering writes statements stands after an earlier
+// operand that fails, in each kind of operand list. The earlier operand,
+// early[10 / zero], fails with integer divide by zero and writes no
+// statement; the later expression reads xs[0], ss[0] or qs[0] of an empty
+// slice, in a statement of its own, which would fail with index out of
+// range. Operands run left to right, each once (runtime.md, Evaluation
+// order), so every case must fail with the divide. A control per kind, the
+// later expression alone, must fail with index out of range: the later
+// expression reaches its own failure, so a case that passes is not vacuous.
+type orderKind struct {
+	name  string
+	typ   string // the later expression's type
+	late  string
+	local string // the local the later expression reads
+	fails string // main's error row, when the later expression needs one
+}
+
+var orderKinds = []orderKind{
+	{"MethodUser", "func() int", "ss[0].Area", "let ss = []Shape{}", ""},
+	{"MethodStd", "func() int fails queue.Closed", "qs[0].Pop", "let qs = []queue.Queue[int]{}", ""},
+	{"Call", "int", "id(xs[0])", "let xs = []int{}", ""},
+	{"TaskWait", "int", "try spawn(xs[0]).Wait()", "let xs = []int{}", "Fault"},
+	{"Interpolation", "string", `"\(id(xs[0]))"`, "let xs = []int{}", ""},
+	{"Try", "int", "try work(xs[0])", "let xs = []int{}", "Fault"},
+	{"Catch", "int", "work(xs[0]) catch { case Fault: 0 }", "let xs = []int{}", ""},
+	{"If", "int", "if xs[0] > 0 { 1 } else { 2 }", "let xs = []int{}", ""},
+	{"Match", "int", "match xs[0] { case 0: 1; case _: 2 }", "let xs = []int{}", ""},
+}
+
+// orderLists are the operand lists, each with @E for the earlier operand,
+// @L for the later expression and @T for its type, and the types it takes
+// (nil: any).
+var orderLists = []struct {
+	name, expr string
+	types      []string
+}{
+	{"Args", "take(@E, @L)", nil},
+	{"Record", "keep(Rec{A: @E, B: @L})", nil},
+	{"Tuple", "keep((@E, @L))", nil},
+	{"Slice", "keep([]@T{@E, @L})", nil},
+	{"Map", "keep(Map[int, @T]{1: @E, 2: @L})", nil},
+	{"Binary", "keep(@E + (@L))", []string{"int", "string"}}, // try and catch bind looser than +
+	{"Parts", `keep("\(@E) \(@L)")`, []string{"int", "string"}},
+}
+
+// orderProgram is one case's program: the later expression of k in the
+// operand list list, after the earlier operand; or, for an empty list, the
+// later expression alone (the control).
+func orderProgram(k orderKind, list string) string {
+	var b strings.Builder
+	if strings.Contains(k.typ+k.local, "queue.") {
+		b.WriteString("import queue\n")
+	}
+	b.WriteString("import task\n\n")
+	b.WriteString("type Shape { Area() int }\ntype Sq { N int }\nfunc Area(s Sq) int { s.N }\n")
+	b.WriteString("type Fault { Code int }\nfunc id(n int) int { n }\nfunc work(n int) int fails Fault { n }\n")
+	b.WriteString("func spawn(n int) Task[int, Fault] { task.Go() { n } }\nfunc keep[V](v V) {}\n")
+	// A basic type is written as itself, so + and interpolation take it;
+	// a function type gets a name, which composite literal types read.
+	typ := k.typ
+	if typ != "int" && typ != "string" {
+		fmt.Fprintf(&b, "type T %s\n", typ)
+		typ = "T"
+	}
+	fmt.Fprintf(&b, "type Rec { A %s, B %s }\nfunc take(a %s, b %s) {}\n", typ, typ, typ, typ)
+	row := ""
+	if k.fails != "" {
+		row = " fails " + k.fails
+	}
+	fmt.Fprintf(&b, "\nfunc main()%s needs Console {\n\t%s\n", row, k.local)
+	if list == "" {
+		list = "keep(@L)"
+	} else {
+		fmt.Fprintf(&b, "\tlet zero = 0\n\tlet early = []%s{}\n", typ)
+	}
+	expr := strings.NewReplacer("@E", "early[10 / zero]", "@T", typ, "@L", k.late).Replace(list)
+	fmt.Fprintf(&b, "\t%s\n\tConsole.Println(\"reached\")\n}\n", expr)
+	return b.String()
+}
+
+// orderGrid checks and lowers each case of the operand-order axis and each
+// kind's control, and returns the programs with the defect each must end
+// with.
+func orderGrid(t *testing.T) ([]*lowered, map[string]string) {
+	t.Helper()
+	var programs []*lowered
+	want := map[string]string{}
+	add := func(name, src, defect string) {
+		o := lowerSource(name, src, true)
+		switch {
+		case o.err != nil:
+			t.Errorf("%s: %v\n%s", name, o.err, src)
+		case len(o.diags) > 0:
+			t.Errorf("%s: the checker refused %s\n%s", name, diagText(o.diags), src)
+		case o.panicked != nil:
+			t.Errorf("%s: checked, lowering panicked: %v\n%s", name, o.panicked, src)
+		case len(o.refused) > 0:
+			for _, r := range o.refused {
+				if why := undeferred(r.Message); why != "" {
+					t.Errorf("%s: checked, lowering refused at %d:%d with %s: %q\n%s", name, r.Line, r.Column, why, r.Message, src)
+				}
+			}
+			t.Logf("%s: skipped, lowering refuses it naming its owner: %s", name, o.refused[0].Message)
+		default:
+			programs = append(programs, o)
+			want[name] = defect
+		}
+	}
+	for _, k := range orderKinds {
+		add("Order"+k.name+"Alone", orderProgram(k, ""), "index out of range [0] with length 0")
+		for _, l := range orderLists {
+			if l.types != nil && !slices.Contains(l.types, k.typ) {
+				t.Logf("Order%s%s: skipped, %s takes no operand of type %s", k.name, l.name, l.name, k.typ)
+				continue
+			}
+			add("Order"+k.name+l.name, orderProgram(k, l.expr), "integer divide by zero")
+		}
+	}
+	t.Logf("order: %d programs run (cases and one control per kind)", len(programs))
 	return programs, want
 }
 

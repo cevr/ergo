@@ -13,10 +13,15 @@ import (
 // value of a basic type is its text as Go's %v writes it (fmt.Sprint of the
 // one value), through runtime/v1's Text functions. A value of any other
 // type is check-v1 stage E's (the stage D3b ruling on interpolation). The
-// values are lowered left to right, each where the string reads it.
+// values are operands, lowered left to right, each once (operands): a value
+// before one that writes statements is bound to a temporary first.
 func (fc *funcCtx) interpolated(x *syntax.InterpolatedString) string {
 	if len(x.Texts) != len(x.Exprs)+1 {
 		ice(x, "an interpolated string with %d segments for %d values", len(x.Texts), len(x.Exprs))
+	}
+	later := make([]bool, len(x.Exprs)+1)
+	for i := len(x.Exprs) - 1; i >= 0; i-- {
+		later[i] = later[i+1] || fc.emits(x.Exprs[i])
 	}
 	var parts []string
 	for i, seg := range x.Texts {
@@ -24,7 +29,11 @@ func (fc *funcCtx) interpolated(x *syntax.InterpolatedString) string {
 			parts = append(parts, strconv.Quote(s))
 		}
 		if i < len(x.Exprs) {
-			parts = append(parts, fc.text(x.Exprs[i]))
+			v := fc.text(x.Exprs[i])
+			if later[i+1] && !fc.isConst(x.Exprs[i]) {
+				v = fc.spill(v)
+			}
+			parts = append(parts, v)
 		}
 	}
 	if len(parts) == 0 {
