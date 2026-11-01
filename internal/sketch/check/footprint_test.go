@@ -61,6 +61,20 @@ func starts() {
 	t.Stop()
 }
 func host(xs []int) []int { xs.Append(1) }
+func seqLoop(s Seq[int]) int {
+	let mut n = 0
+	for v in s {
+		n += v
+	}
+	n
+}
+func rangeLoop() int {
+	let mut n = 0
+	for i in 0..3 {
+		n += i
+	}
+	n
+}
 let seed = pure(1)
 let started = pureCall()
 `
@@ -147,6 +161,8 @@ let started = pureCall()
 		"func starts":          "opaque tasks",
 		"block in starts":      "pure",
 		"func host":            "opaque",
+		"func seqLoop":         "opaque",
+		"func rangeLoop":       "pure",
 		"let seed":             "pure",
 		"let started":          "pure",
 	}

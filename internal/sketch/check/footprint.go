@@ -25,7 +25,8 @@ import (
 // imported package whose Info holds its footprint. Every other call is
 // opaque: a function value, an operation of an operation-type value (a
 // queue's Push, a Task's Wait, a program's own operation type), and a host
-// function, whose body is Go. Recursive frames join to the least fixpoint,
+// function, whose body is Go. A for-in over a Seq calls the Seq, a function
+// value, so it is opaque too. Recursive frames join to the least fixpoint,
 // one strongly connected component at a time, so the work is linear in the
 // bodies and the call edges.
 
@@ -203,6 +204,12 @@ func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 			// Not admitted (the checker refuses it); a task start if it were.
 			n.tasks, n.opaque = true, true
 			return false
+		case *syntax.RangeStmt:
+			// A for-in over a Seq calls the Seq, a function value, which
+			// calls the body back: unknown code runs here.
+			if l := fp.info.Loops[x]; l == nil || l.Domain == LoopSeq {
+				n.opaque = true
+			}
 		case *syntax.CallExpr:
 			c := fp.info.Calls[x]
 			fp.call(n, x, c)
