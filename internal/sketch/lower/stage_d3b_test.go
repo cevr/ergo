@@ -260,6 +260,96 @@ func TestTaskInsideAnotherTypeRefused(t *testing.T) {
 	}
 }
 
+// queueProgram moves values from a producer task to its consumer through a
+// queue, and catches queue.Closed from Push and from Pop on a closed queue.
+const queueProgram = `import queue
+import task
+
+func produce(q queue.Queue[int], n int) int fails queue.Closed {
+	for i in 1..n {
+		try q.Push(i)
+	}
+	q.Close()
+	n - 1
+}
+
+func consume(q queue.Queue[int]) int {
+	let mut sum = 0
+	for {
+		let v = q.Pop() catch {
+		case queue.Closed:
+			return sum
+		}
+		sum += v
+	}
+	sum
+}
+
+func main() fails queue.Closed needs Console {
+	let q = queue.New[int](0)
+	let p = task.Go() { produce(q, 5) }
+	let sum = consume(q)
+	let made = try p.Wait()
+	if sum == 10 && made == 4 {
+		Console.Println("moved")
+	}
+	q.Push(7) catch {
+	case queue.Closed:
+		Console.Println("closed")
+	}
+}
+`
+
+// TestErgoRunQueueOperations: Push and Pop pass the caller's task (Rule 3),
+// a producer and a consumer meet on an unbuffered queue, and a lowered catch
+// matches the runtime's Closed (queue.Closed lowers to ergo.Closed).
+func TestErgoRunQueueOperations(t *testing.T) {
+	o := mustLower(t, "queues", queueProgram)
+	goSrc := stripDirectives(o.mainGo())
+	for _, want := range []string{"(q).Push(env.task, ", "(q).Pop(env.task)", "(q).Close()", "ergo.New[int](", "ergo.Closed"} {
+		if !strings.Contains(goSrc, want) {
+			t.Errorf("the lowered Go lacks %q:\n%s", want, goSrc)
+		}
+	}
+	wantRun(t, queueProgram, "moved\nclosed\n")
+}
+
+// TestErgoRunStopReachesPop: a stop reaches a task waiting on Pop of an
+// empty open queue, so the waiting task ends and the program exits (Rule 3,
+// the poller.ergo hang).
+func TestErgoRunStopReachesPop(t *testing.T) {
+	wantRun(t, `import queue
+import task
+
+func consume(q queue.Queue[int]) int fails queue.Closed {
+	let v = try q.Pop()
+	v
+}
+
+func main() needs Console {
+	let q = queue.New[int](1)
+	let t = task.Go() { consume(q) }
+	t.Stop()
+	Console.Println("stopped")
+}
+`, "stopped\n")
+}
+
+// TestRuntimeFilesHoldRT: an emitted module holds runtime/v1 and the
+// runtime/rt package it imports, whose *Task the environment carries (Rule
+// 4).
+func TestRuntimeFilesHoldRT(t *testing.T) {
+	have := map[string]bool{}
+	for _, f := range Runtime() {
+		have[f.Path] = true
+	}
+	for _, want := range []string{runtimeDir + "/go.mod", runtimeDir + "/runtime/v1/queue.go", runtimeDir + "/runtime/v1/task.go", runtimeDir + "/runtime/rt/task.go", runtimeDir + "/runtime/rt/scope.go"} {
+		if !have[want] {
+			t.Errorf("the emitted runtime lacks %s; it has %v", want, have)
+		}
+	}
+}
+
 // TestErgoRunInterpolation: a value of a basic type in `"\(v)"` prints as
 // Go's %v prints it (grammar.md, Strings 5; the stage D3b ruling on
 // interpolation): strings, bools, signed and unsigned integers, floats of
