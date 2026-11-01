@@ -346,6 +346,53 @@ func get(ok bool) First {
 	}
 }
 
+type ownImporter struct{ pkg *check.Package }
+
+func (i ownImporter) Import(path string) (*check.Package, error) {
+	if path == "makers" {
+		return i.pkg, nil
+	}
+	return check.Std.Import(path)
+}
+
+func TestWireOwnershipImportedConstructor(t *testing.T) {
+	for _, fresh := range []bool{false, true} {
+		t.Run(fmt.Sprint(fresh), func(t *testing.T) {
+			result := "shared"
+			if fresh {
+				result = "Conn{n: 1}"
+			}
+			lib, err := syntax.Parse(`type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { ` + result + ` }
+let W = wire { A: Get() }
+`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			makers, ds := check.Check("makers", []*syntax.File{lib}, nil)
+			if len(ds) != 0 {
+				t.Fatal(ds)
+			}
+			main, err := syntax.Parse("import makers\nlet W = wire { makers.A: makers.Get() }\nfunc f() { with W { makers.A.Use() } }\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, ds = check.Check("main", []*syntax.File{main}, ownImporter{makers})
+			if fresh {
+				if len(ds) != 0 {
+					t.Fatalf("fresh imported constructor refused: %v", ds)
+				}
+			} else if len(ds) != 1 || ds[0].Code != "S109" || ds[0].Line != 2 || !strings.Contains(ds[0].Message, "#197") {
+				t.Fatalf("diagnostics %v, want located S109 at the provider", ds)
+			}
+		})
+	}
+}
+
 func TestWireOwnershipExitActionDependencies(t *testing.T) {
 	for _, tc := range []struct {
 		name, decls, wire string

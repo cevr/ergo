@@ -52,7 +52,15 @@ type withSite struct {
 }
 
 func (c *checker) withOwnership() {
-	fresh := providerFreshFunctions(c.pkg.Funcs)
+	roots := append([]*Func(nil), c.pkg.Funcs...)
+	// A wire provider can call an imported constructor without any local
+	// function calling it. Those calls also root the freshness graph.
+	for _, call := range c.pkg.Info.Calls {
+		if call != nil && call.Kind == CallFunc {
+			roots = append(roots, call.Func)
+		}
+	}
+	fresh := providerFreshFunctions(roots)
 	last := make(map[*syntax.CallExpr]int, len(c.withSites))
 	for i, s := range c.withSites {
 		last[s.x] = i

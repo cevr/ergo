@@ -615,7 +615,7 @@ func main() needs Console {
 	Console.Println("end")
 }
 `
-	o := lowerSource("wire_reused", src, false)
+	o := lowerSource("wire_reused", src, true)
 	if len(o.diags) == 1 && o.diags[0].Code == "S109" && o.diags[0].Line == 7 && strings.Contains(o.diags[0].Message, "#197") {
 		return
 	}
