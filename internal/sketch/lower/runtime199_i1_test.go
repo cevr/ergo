@@ -177,6 +177,7 @@ type i1Case struct {
 	site        bool            // the program calls Probe.Mark in a polling frame
 	entries     map[string]bool // named Go frames whose entry rule is known from the source
 	markerEntry *bool           // entry rule for the source frame declaring entryMarker
+	markerScope bool            // that frame owns a scope, which it opens first
 }
 
 // i1Cases generates every frame class × clause × loop form × variant the
@@ -403,16 +404,20 @@ func i1BlockCases() []i1Case {
 
 // i1EntryCases separates entry placement from loop/capability polls. The
 // marker is the first source statement, so a later capability checkpoint
-// cannot stand in for an entry poll. These frames need no owned scope.
+// cannot stand in for an entry poll. A frame that starts a task owns a
+// scope: its entry poll follows the scope's opening and precedes the
+// source body.
 func i1EntryCases() []i1Case {
 	var out []i1Case
-	for _, effect := range []string{"pure", "capability", "opaque"} {
+	for _, effect := range []string{"pure", "capability", "opaque", "scope"} {
 		body := "let entryMarker = 0\nlet _ = entryMarker\n"
 		switch effect {
 		case "capability":
 			body += "with Local { Probe.Tick() }\n"
 		case "opaque":
 			body += "let xs = []int{}\nlet _ = xs.Append(1)\n"
+		case "scope":
+			body += "let t0 = task.Go() { 1 }\nt0.Stop()\n"
 		}
 		frames := map[string]string{
 			"decl":     "func subject() {\n" + body + "}\n",
@@ -422,11 +427,97 @@ func i1EntryCases() []i1Case {
 			"trailing": "func run(cb func()) { cb() }\nfunc subject() { run() {\n" + body + "} }\n",
 		}
 		for class, src := range frames {
-			want := effect == "opaque"
-			out = append(out, i1Case{name: "entry-" + class + "/" + effect, src: i1Defs + src + "func main() {}\n", markerEntry: &want})
+			// Starting a task and stopping it calls the Task's operations,
+			// which are opaque.
+			want := effect == "opaque" || effect == "scope"
+			out = append(out, i1Case{name: "entry-" + class + "/" + effect, src: i1Defs + src + "func main() {}\n", markerEntry: &want, markerScope: effect == "scope"})
 		}
 	}
 	return out
+}
+
+// i1Graph is one recursion shape. decls declares its frames with an
+// effect's row and clause; call starts the recursion at %d. Each recursive
+// path doubles the work (fib), so an unstopped live run never ends.
+type i1Graph struct {
+	name  string
+	decls func(row, clause string) string
+	call  string
+	// frames are the Go frames (Recv.name for a method) that poll at entry
+	// when the effect is impure, or always when the shape is opaque.
+	frames []string
+	// opaque: the shape calls a function value, so its frames, and a
+	// subject that calls them, poll at entry whatever the effect.
+	opaque bool
+	// provider: the recursion runs in a provider method, which has no row.
+	// The subject reaches it through a capability, and its entry is not
+	// asserted.
+	provider bool
+}
+
+func i1Fib(name, call1, call2 string) func(row, clause string) string {
+	return func(row, clause string) string {
+		return "func " + name + " int" + row + " {\n" + clause + "if n < 2 { return n }\n" + call1 + " + " + call2 + "\n}\n"
+	}
+}
+
+var i1Graphs = []i1Graph{
+	{name: "self", decls: i1Fib("left(n int)", "left(n - 1)", "left(n - 2)"), call: "left(%d)", frames: []string{"left"}},
+	{name: "mutual", decls: func(row, clause string) string {
+		return i1Fib("left(n int)", "right(n - 1)", "right(n - 2)")(row, clause) + "func right(n int) int" + row + " { left(n) }\n"
+	}, call: "left(%d)", frames: []string{"left", "right"}},
+	// A three-member component where only one member has the clause.
+	{name: "three-cycle", decls: func(row, clause string) string {
+		return i1Fib("left(n int)", "mid(n - 1)", "mid(n - 2)")(row, clause) + "func mid(n int) int" + row + " { right(n) }\nfunc right(n int) int" + row + " { left(n) }\n"
+	}, call: "left(%d)", frames: []string{"left", "mid", "right"}},
+	{name: "value-reentry", decls: func(row, clause string) string {
+		return "func left(n int) int" + row + " {\n" + clause + "if n < 2 { return n }\nlet next = left\nnext(n - 1) + next(n - 2)\n}\n"
+	}, call: "left(%d)", frames: []string{"left"}, opaque: true},
+	// A method recursing by a dot call on its receiver.
+	{name: "method", decls: func(row, clause string) string {
+		return "type Box { n int }\n" + i1Fib("left(b Box, n int)", "b.left(n - 1)", "b.left(n - 2)")(row, clause)
+	}, call: "let b = Box { n: 1 }\nb.left(%d)", frames: []string{"Box.left"}},
+	{name: "generic", decls: i1Fib("left[T](x T, n int)", "left(x, n - 1)", "left(x, n - 2)"), call: "left(1, %d)", frames: []string{"left"}},
+	// The recursive calls run in a with body of the frame.
+	{name: "with-body", decls: func(row, clause string) string {
+		return "func left(n int) int" + row + " {\n" + clause + "if n < 2 { return n }\nwith Local { left(n - 1) + left(n - 2) }\n}\n"
+	}, call: "left(%d)", frames: []string{"left"}},
+	// Through a literal called where it is written: an edge, not a value.
+	{name: "lit-in-place", decls: i1Fib("left(n int)", "func() int { left(n - 1) }()", "left(n - 2)"), call: "left(%d)", frames: []string{"left"}},
+	// Through a user function's trailing block, which run calls as a value.
+	{name: "trailing", decls: func(row, clause string) string {
+		return "func run(cb func() int" + row + ") int" + row + " { cb() }\n" + i1Fib("left(n int)", "run() { left(n - 1) }", "run() { left(n - 2) }")(row, clause)
+	}, call: "left(%d)", frames: []string{"left", "run"}, opaque: true},
+	// A provider method recursing by a dot call on its receiver.
+	{name: "provider-self", decls: func(row, clause string) string {
+		return "type Worker { Run(n int) int, }\ntype Impl {}\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = wire { Worker: Impl }\n"
+	}, call: "with Work { Worker.Run(%d) }", frames: []string{"Impl.Run"}, provider: true},
+}
+
+// i1OpCycle recurses through a provider operation: a capability call is no
+// call-graph edge, so neither frame polls at entry, and the capability
+// call's own point is what stops it (the live witness is red under a
+// mutant that drops that point, not under one that drops entry polls).
+const i1OpCycle = `type Worker { Run(n int) int, }
+type Impl {}
+func Run(_ Impl, n int) int {
+	with Work { left(n) }
+}
+let Work = wire { Worker: Impl }
+func left(n int) int needs Worker {
+	if n < 2 { return n }
+	Worker.Run(n - 1) + Worker.Run(n - 2)
+}
+`
+
+// i1Effects are a recursion's footprint clauses, on a branch that never
+// runs: a capability named in the row, a capability discharged by the
+// frame's own with (an empty row), and an opaque host call.
+var i1Effects = []struct{ name, row, clause string }{
+	{name: "pure"},
+	{name: "capability", row: " needs Probe", clause: "if n < 0 { Probe.Tick() }\n"},
+	{name: "own-with", clause: "if n < 0 { with Local { Probe.Tick() } }\n"},
+	{name: "opaque", clause: "if n < 0 { let xs = []int{}; let _ = xs.Append(1) }\n"},
 }
 
 // i1RecursionCases varies the call graph independently of the footprint:
@@ -435,34 +526,40 @@ func i1EntryCases() []i1Case {
 // EntryPoll is not inherited by a nonrecursive, transparent caller.
 func i1RecursionCases() []i1Case {
 	var out []i1Case
-	for _, graph := range []string{"self", "mutual", "value-reentry"} {
-		for _, effect := range []string{"pure", "capability", "opaque"} {
-			row, clause := "", ""
-			switch effect {
-			case "capability":
-				row, clause = " needs Probe", "if n < 0 { Probe.Tick() }\n"
-			case "opaque":
-				clause = "if n < 0 { let xs = []int{}; let _ = xs.Append(1) }\n"
+	for _, g := range i1Graphs {
+		for _, e := range i1Effects {
+			if g.provider && e.row != "" {
+				continue
 			}
-			call := "left(n - 1)"
-			if graph == "mutual" {
-				call = "right(n - 1)"
+			want := e.name != "pure" || g.opaque
+			entries := map[string]bool{}
+			for _, f := range g.frames {
+				entries[f] = want
 			}
-			if graph == "value-reentry" {
-				call = "let next = left\nnext(n - 1)"
+			if !g.provider {
+				entries["subject"] = e.name == "opaque" || g.opaque
 			}
-			src := "func left(n int) int" + row + " {\n" + clause + "if n < 2 { return n }\n" + call + "\n}\n"
-			want := effect != "pure" || graph == "value-reentry"
-			entries := map[string]bool{"left": want, "subject": effect == "opaque" || graph == "value-reentry"}
-			if graph == "mutual" {
-				src += "func right(n int) int" + row + " { left(n) }\n"
-				entries["right"] = want
-			}
-			src += "func subject() int" + row + " { left(3) }\nfunc main() {}\n"
-			out = append(out, i1Case{name: "recursion/" + graph + "/" + effect, src: i1Defs + src, entries: entries})
+			src := g.decls(e.row, e.clause) + "func subject() int" + e.row + " {\n" + fmt.Sprintf(g.call, 3) + "\n}\nfunc main() {}\n"
+			out = append(out, i1Case{name: "recursion/" + g.name + "/" + e.name, src: i1Defs + src, entries: entries})
 		}
 	}
+	out = append(out, i1Case{name: "recursion/op-cycle/capability", src: i1Defs + i1OpCycle + "func subject() int {\nwith Work { left(3) }\n}\nfunc main() {}\n", entries: map[string]bool{"left": false, "Impl.Run": false}})
 	return out
+}
+
+// i1GoFrame names a Go function: Recv.name for a method.
+func i1GoFrame(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) != 1 {
+		return fd.Name.Name
+	}
+	typ := fd.Recv.List[0].Type
+	if star, ok := typ.(*ast.StarExpr); ok {
+		typ = star.X
+	}
+	if id, ok := typ.(*ast.Ident); ok {
+		return id.Name + "." + fd.Name.Name
+	}
+	return fd.Name.Name
 }
 
 // i1CheckFacts walks the checked tree: every frame key is a known frame
@@ -545,11 +642,11 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		if !ok || fd.Body == nil {
 			continue
 		}
-		if want, ok := c.entries[fd.Name.Name]; ok {
+		if want, ok := c.entries[i1GoFrame(fd)]; ok {
 			entries++
 			got := len(fd.Body.List) > 0 && isOwnCheck(fd.Body.List[0], i1EnvParam(fd.Type))
 			if got != want {
-				t.Errorf("%s entry poll = %v, want %v\nGo:\n%s", fd.Name.Name, got, want, stripDirectives(code))
+				t.Errorf("%s entry poll = %v, want %v\nGo:\n%s", i1GoFrame(fd), got, want, stripDirectives(code))
 			}
 		}
 	}
@@ -580,12 +677,12 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		case *ast.FuncDecl:
 			if c.markerEntry != nil && i1HasEntryMarker(n.Body) {
 				marked++
-				i1CheckEntry(t, n.Body, env, *c.markerEntry)
+				i1CheckEntry(t, n.Body, env, *c.markerEntry, c.markerScope)
 			}
 		case *ast.FuncLit:
 			if c.markerEntry != nil && i1HasEntryMarker(n.Body) {
 				marked++
-				i1CheckEntry(t, n.Body, env, *c.markerEntry)
+				i1CheckEntry(t, n.Body, env, *c.markerEntry, c.markerScope)
 			}
 		case *ast.ExprStmt:
 			// Check every point kind, including entries and capability
@@ -682,12 +779,54 @@ func i1HasEntryMarker(body *ast.BlockStmt) bool {
 	return false
 }
 
-func i1CheckEntry(t *testing.T, body *ast.BlockStmt, env *ast.Ident, want bool) {
+// i1CheckEntry: the marked frame's entry poll checks its own task and is
+// its first statement, or, in a frame that owns a scope, the first after
+// the scope's opening (NewScope of the frame's task and its deferred End),
+// so it precedes every operand of the source body.
+func i1CheckEntry(t *testing.T, body *ast.BlockStmt, env *ast.Ident, want, scope bool) {
 	t.Helper()
-	got := len(body.List) > 0 && isOwnCheck(body.List[0], env)
-	if got != want {
-		t.Errorf("marked frame entry poll = %v, want %v", got, want)
+	list := body.List
+	if scope {
+		if len(list) < 2 || !i1OpensScope(list[0], list[1], env) {
+			t.Errorf("the marked frame owns a scope but does not open it first")
+			return
+		}
+		list = list[2:]
 	}
+	got := len(list) > 0 && isOwnCheck(list[0], env)
+	if got != want {
+		t.Errorf("marked frame entry poll = %v, want %v (scope %v)", got, want, scope)
+	}
+}
+
+// i1OpensScope reports the frame scope's opening: fs := NewScope(ENV.task)
+// of the frame's own task, then defer fs.End(...).
+func i1OpensScope(open, end ast.Stmt, env *ast.Ident) bool {
+	as, ok := open.(*ast.AssignStmt)
+	if !ok || as.Tok != token.DEFINE || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+		return false
+	}
+	call, ok := as.Rhs[0].(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 || !isFrameTask(call.Args[0], env) {
+		return false
+	}
+	if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != "NewScope" {
+		return false
+	}
+	scope, ok := as.Lhs[0].(*ast.Ident)
+	if !ok {
+		return false
+	}
+	d, ok := end.(*ast.DeferStmt)
+	if !ok {
+		return false
+	}
+	sel, ok := d.Call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "End" {
+		return false
+	}
+	recv, ok := sel.X.(*ast.Ident)
+	return ok && recv.Name == scope.Name
 }
 
 // stmtCall is the call of the method name that s makes as a statement.
@@ -918,22 +1057,72 @@ func i1LivePrograms() map[string]string {
 	}
 }
 `
+	// A child's literal recurses through a variable: no loop, no capability
+	// call and no declaration, so the literal's entry poll of its own task
+	// is the only point the stop can reach.
+	out["child-entry"] = i1LiveDefs + `func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let t = task.Go() {
+		try ready.Push(1)
+		let mut f = func(n int) int { n }
+		f = func(n int) int {
+			if n < 2 { return n }
+			f(n - 1) + f(n - 2)
+		}
+		f(90)
+	}
+	try ready.Pop()
+	let mut delay = 0
+	for delay < 20000000 { delay += 1 }
+	t.Stop()
+	Console.Println("stopped")
+}
+`
+	// A child's loop in a with region polls the region's copy of the
+	// child's environment, not the parent's.
+	out["child-with"] = i1LiveDefs + `func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let t = task.Go() {
+		try ready.Push(1)
+		with Local {
+			let mut c = 0
+			for { c += 1 }
+			Probe.Tick()
+			c
+		}
+	}
+	try ready.Pop()
+	let mut delay = 0
+	for delay < 20000000 { delay += 1 }
+	t.Stop()
+	Console.Println("stopped")
+}
+`
+	// Each loop frame's clause is transparent and nonrecursive, so the
+	// frame has no entry poll (i1CheckNoPollBeforeLoop asserts it).
 	for kind, loop := range i1LiveLoops {
-		out["decl-"+kind] = work("func spin() int {\n"+loop+"let xs = []int{}\nlet _ = xs.Append(1)\nc\n}\n", "spin()\n")
+		out["decl-"+kind] = work("func spin() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\n", "spin()\n")
 		out["literal-"+kind] = work("", "let local = func() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlocal()\n")
-		out["task-"+kind] = work("", "let u = task.Go() {\n"+loop+"let t0 = task.Go() { 1 }\nt0.Stop()\nc\n}\nu.Wait()\n")
+		out["task-"+kind] = work("", "let u = task.Go() {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nu.Wait()\n")
 		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = wire { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
 	}
 	out["capability-recursion"] = work("func spinCap() needs Probe {\nProbe.Tick()\nspinCap()\n}\n", "with Local {\nspinCap()\n}\n0\n")
 	out["capability-mutual"] = work("func ping() needs Probe {\npong()\n}\nfunc pong() needs Probe {\nProbe.Tick()\nping()\n}\n", "with Local {\nping()\n}\n0\n")
-	// Adapted from the round 1 reviewer's zz_ext_test.go. Its recursive
-	// path never calls Probe: only an entry poll can stop fib's work.
-	out["impure-recursion"] = work(`func fib(n int) int needs Probe {
-	if n < 0 { Probe.Tick() }
-	if n < 2 { return n }
-	fib(n - 1) + fib(n - 2)
-}
-`, "with Local { fib(90) }\n")
+	// Each recursion shape, impure by a clause on a branch that never runs:
+	// no recursive path calls Probe, so only an entry poll stops the work
+	// (recursion-self is the round 1 reviewer's impure-recursion witness).
+	// A provider method has no row: its clause is its own with.
+	for _, g := range i1Graphs {
+		e := i1Effects[1]
+		if g.provider {
+			e = i1Effects[2]
+		}
+		out["recursion-"+g.name] = work(g.decls(e.row, e.clause), "with Local {\n"+fmt.Sprintf(g.call, 90)+"\n}\n")
+	}
+	// Impure only by its own with: the row is empty.
+	own := i1Effects[2]
+	out["recursion-own-with"] = work(i1Graphs[0].decls(own.row, own.clause), fmt.Sprintf(i1Graphs[0].call, 90)+"\n")
+	out["recursion-op-cycle"] = work(i1OpCycle, "with Work { left(90) }\n")
 	// No capability is reached until after the unbounded loop. Its
 	// footprint must travel leaf -> bridge -> spin across two SCC edges.
 	out["transitive-components"] = work(`func leaf() needs Probe { Probe.Tick() }
@@ -964,6 +1153,48 @@ func main() needs Console {
 	return out
 }
 
+// i1CheckNoPollBeforeLoop: in a loop witness, the Go frame that holds the
+// witness loop checks nothing before the loop, so the loop's own poll is
+// the only point the frame reaches once it runs (main's counting loop is
+// not a witness).
+func i1CheckNoPollBeforeLoop(t *testing.T, o *lowered) {
+	t.Helper()
+	code := o.mainGo()
+	f, err := parser.ParseFile(token.NewFileSet(), "main.go", code, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := 0
+	check := func(body *ast.BlockStmt) {
+		for i, s := range body.List {
+			switch s.(type) {
+			case *ast.ForStmt, *ast.RangeStmt:
+				frames++
+				for _, before := range body.List[:i] {
+					if isCheckOf(before, "") {
+						t.Errorf("the witness loop's frame checks before its loop\nGo:\n%s", stripDirectives(code))
+					}
+				}
+				return
+			}
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncDecl:
+			if n.Body != nil && n.Name.Name != "main_1" {
+				check(n.Body)
+			}
+		case *ast.FuncLit:
+			check(n.Body)
+		}
+		return true
+	})
+	if frames != 1 {
+		t.Errorf("found %d witness loop frames, want 1\nGo:\n%s", frames, stripDirectives(code))
+	}
+}
+
 func i1Live(t *testing.T) {
 	progs := i1LivePrograms()
 	var lowered []*lowered
@@ -973,7 +1204,13 @@ func i1Live(t *testing.T) {
 		pkg := fmt.Sprintf("live%d", i)
 		i++
 		names[name] = pkg
-		lowered = append(lowered, mustLower(t, pkg, src))
+		o := mustLower(t, pkg, src)
+		for _, class := range []string{"decl-", "literal-", "task-", "provider-"} {
+			if strings.HasPrefix(name, class) {
+				t.Run("no-entry/"+name, func(t *testing.T) { i1CheckNoPollBeforeLoop(t, o) })
+			}
+		}
+		lowered = append(lowered, o)
 	}
 	exes := buildAll(t, lowered, true)
 	if exes == nil {
