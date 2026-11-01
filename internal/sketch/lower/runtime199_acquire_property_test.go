@@ -239,6 +239,16 @@ func (s *acqSeq) src() string {
 	}
 	fmt.Fprintf(&b, "func %s() fails Fault needs Probe {\n\twith wire { %s } {\n\t\tlet _ = Probe.Step(\"body \" + %s)\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
 		s.fn(), strings.Join(inline, ", "), strings.Join(names, " + \" \" + "), s.k)
+	// The silent twin, for checkWithFootprints only (stage 3c r1 M1): the
+	// same with, whose block reaches every capability through a need
+	// alone, so its frame's footprint holds only what the with's providers
+	// run, an embedded named provider's included. It is compiled, never run.
+	var all []string
+	for c := 0; c < s.caps; c++ {
+		all = append(all, s.cap(c))
+	}
+	fmt.Fprintf(&b, "func need%d() needs %s {}\nfunc silent%d() fails Fault needs Probe {\n\twith wire { %s } { need%d() }\n}\n",
+		s.k, strings.Join(all, ", "), s.k, strings.Join(inline, ", "), s.k)
 	return b.String()
 }
 
@@ -414,6 +424,10 @@ func TestRuntime199AcquireProperty(t *testing.T) {
 	}
 	src.WriteString("func main() {}\n")
 	o := mustLower(t, "acquire", src.String())
+	// Every provider a with builds counts in its frame's footprint (M1).
+	if checkWithFootprints(t, o) == 0 {
+		t.Error("no acquired provider has a footprint: the footprint check is vacuous")
+	}
 	// The generator reaches every shape the property claims, as acquired
 	// entries of the checker's fact.
 	shapes := map[string]bool{}

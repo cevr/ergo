@@ -519,8 +519,14 @@ func TestRuntime199WireProperty(t *testing.T) {
 		programs = append(programs, rc.p)
 	}
 	var all []*lowered
+	counted := 0
 	for _, p := range programs {
 		all = append(all, p.o)
+		// Every provider a with builds counts in its frame's footprint (M1).
+		counted += checkWithFootprints(t, p.o)
+	}
+	if counted == 0 {
+		t.Error("no acquired provider has a footprint: the footprint check is vacuous")
 	}
 	exes := buildAll(t, all, true)
 	if exes == nil {
