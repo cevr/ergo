@@ -170,10 +170,11 @@ func i1Body(prefix string, loops []i1Loop, v i1Variant, site string) string {
 // i1Case is one generated program and, for the Go frames that hold its
 // loops, whether each must poll: "decl" is a Go function, "lit" a closure.
 type i1Case struct {
-	name string
-	src  string
-	want map[string]bool
-	site bool // the program calls Probe.Mark in a polling frame
+	name    string
+	src     string
+	want    map[string]bool
+	site    bool            // the program calls Probe.Mark in a polling frame
+	entries map[string]bool // named Go frames whose entry rule is known from the source
 }
 
 // i1Cases generates every frame class × clause × loop form × variant the
@@ -238,7 +239,7 @@ func i1Cases() []i1Case {
 }
 
 func TestRuntime199I1Property(t *testing.T) {
-	cases := i1Cases()
+	cases := append(i1Cases(), i1RecursionCases()...)
 	classes := map[string]int{}
 	for _, c := range cases {
 		classes[strings.SplitN(c.name, "/", 2)[0]]++
@@ -260,6 +261,42 @@ func TestRuntime199I1Property(t *testing.T) {
 	t.Run("live", i1Live)
 }
 
+// i1RecursionCases varies the call graph independently of the footprint:
+// a pure recursive SCC stays pure; a capability on an unexecuted branch
+// still makes recursion impure; an opaque value can re-enter its caller.
+// EntryPoll is not inherited by a nonrecursive, transparent caller.
+func i1RecursionCases() []i1Case {
+	var out []i1Case
+	for _, graph := range []string{"self", "mutual", "value-reentry"} {
+		for _, effect := range []string{"pure", "capability", "opaque"} {
+			row, clause := "", ""
+			switch effect {
+			case "capability":
+				row, clause = " needs Probe", "if n < 0 { Probe.Tick() }\n"
+			case "opaque":
+				clause = "if n < 0 { let xs = []int{}; let _ = xs.Append(1) }\n"
+			}
+			call := "left(n - 1)"
+			if graph == "mutual" {
+				call = "right(n - 1)"
+			}
+			if graph == "value-reentry" {
+				call = "let next = left\nnext(n - 1)"
+			}
+			src := "func left(n int) int" + row + " {\n" + clause + "if n < 2 { return n }\n" + call + "\n}\n"
+			want := effect != "pure" || graph == "value-reentry"
+			entries := map[string]bool{"left": want, "subject": effect == "opaque" || graph == "value-reentry"}
+			if graph == "mutual" {
+				src += "func right(n int) int" + row + " { left(n) }\n"
+				entries["right"] = want
+			}
+			src += "func subject() int" + row + " { left(3) }\nfunc main() {}\n"
+			out = append(out, i1Case{name: "recursion/" + graph + "/" + effect, src: i1Defs + src, entries: entries})
+		}
+	}
+	return out
+}
+
 // i1CheckFacts walks the checked tree: every frame key is a known frame
 // class, and every loop's frame has a footprint the lowering reads, so a
 // newly admitted frame form fails here first.
@@ -273,7 +310,6 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 			t.Errorf("a footprint keyed by an unknown frame form %T", key)
 		}
 	}
-	loops := 0
 	var in func(n, frame syntax.Node)
 	in = func(n, frame syntax.Node) {
 		syntax.Inspect(n, func(m syntax.Node) bool {
@@ -293,7 +329,6 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 					return false
 				}
 			case *syntax.ForStmt, *syntax.RangeStmt:
-				loops++
 				if _, ok := info.Footprints[frame]; !ok {
 					t.Errorf("a loop at %d in a frame %T with no footprint", m.Pos(), frame)
 				}
@@ -312,9 +347,6 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 				in(s, s)
 			}
 		}
-	}
-	if loops == 0 {
-		t.Errorf("the program has no loop")
 	}
 }
 
@@ -339,6 +371,18 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		return true
 	})
 	goLoops, marks := 0, 0
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		if want, ok := c.entries[fd.Name.Name]; ok {
+			got := len(fd.Body.List) > 0 && isCheckOf(fd.Body.List[0], "")
+			if got != want {
+				t.Errorf("%s entry poll = %v, want %v\nGo:\n%s", fd.Name.Name, got, want, stripDirectives(code))
+			}
+		}
+	}
 	var stack []ast.Node
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
@@ -537,6 +581,14 @@ func i1LivePrograms() map[string]string {
 	}
 	out["capability-recursion"] = work("func spinCap() needs Probe {\nProbe.Tick()\nspinCap()\n}\n", "with Local {\nspinCap()\n}\n0\n")
 	out["capability-mutual"] = work("func ping() needs Probe {\npong()\n}\nfunc pong() needs Probe {\nProbe.Tick()\nping()\n}\n", "with Local {\nping()\n}\n0\n")
+	// Adapted from the round 1 reviewer's zz_ext_test.go. Its recursive
+	// path never calls Probe: only an entry poll can stop fib's work.
+	out["impure-recursion"] = work(`func fib(n int) int needs Probe {
+	if n < 0 { Probe.Tick() }
+	if n < 2 { return n }
+	fib(n - 1) + fib(n - 2)
+}
+`, "with Local { fib(90) }\n")
 	out["order"] = `type Pair {
 	Join(a string, b string) string,
 }

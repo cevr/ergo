@@ -36,11 +36,24 @@ type frame struct {
 // (Info.Footprints) from info, the package that declares it. The lowering
 // never derives a footprint: a frame with no entry is a checker bug.
 func framePolls(info *check.Info, key syntax.Node) bool {
+	return !frameFootprint(info, key).Empty()
+}
+
+func frameFootprint(info *check.Info, key syntax.Node) check.Footprint {
 	fp, ok := info.Footprints[key]
 	if !ok {
 		ice(key, "a frame with no Footprints entry")
 	}
-	return !fp.Empty()
+	return fp
+}
+
+// entryPoll reads the checker's placement fact. Call after the environment
+// and any owned frame scope are bound, before executing the source body.
+func (fc *funcCtx) entryPoll(info *check.Info, key syntax.Node) {
+	if frameFootprint(info, key).EntryPoll {
+		fc.at(key)
+		fc.poll(key)
+	}
 }
 
 // poll writes the interruption point of an impure frame (runtime.md, I1):

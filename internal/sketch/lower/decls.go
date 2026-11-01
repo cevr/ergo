@@ -807,6 +807,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.site = site
 		fc.openFrame(frameErr)
 	}
+	fc.entryPoll(f.Pkg.Info, f.Decl)
 	fc.body(f.Decl.Body.List)
 	b.WriteString(fc.out.String())
 	b.WriteString("}\n\n")
@@ -932,6 +933,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 		}
 		return
 	}
+	fc.entryPoll(l.info, spec)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
 		l.user.WriteString(l.directive(id.Pos()))
@@ -967,6 +969,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 		fc.owner = vs[0].Name
 	}
 	fc.frame = &frame{result: t, polls: framePolls(l.info, spec)}
+	fc.entryPoll(l.info, spec)
 	l.recordDecl(fc.owner, spec)
 	at := spec.Pos()
 	if len(spec.Names) > 0 {

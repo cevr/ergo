@@ -830,6 +830,7 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 		inner.site = n
 		inner.openFrame(errName)
 	}
+	inner.entryPoll(fc.l.info, n)
 	// A trailing block yields its last statement (Info.Tails); a function
 	// literal's body is a function body.
 	if ft == nil {

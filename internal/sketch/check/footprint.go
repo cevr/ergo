@@ -44,6 +44,10 @@ type Footprint struct {
 	// call of a function value, of an operation of an operation-type value
 	// or of a host function, here or in a known frame it runs.
 	Opaque bool
+	// EntryPoll is frame-local placement metadata, not a callee effect.
+	// An impure frame polls at entry if it is recursive or its footprint
+	// is opaque (unknown code may re-enter it). Pure recursion never polls.
+	EntryPoll bool
 }
 
 // Empty reports a pure frame: no capability, no task start and no opaque
@@ -57,6 +61,7 @@ type fpNode struct {
 	tasks  bool
 	opaque bool
 	edges  []*fpNode
+	walked bool // only bodies actually visited may publish a footprint
 
 	index, low int // Tarjan's numbering; index 0 is unvisited
 	onStack    bool
@@ -142,7 +147,7 @@ func (c *checker) footprints() {
 	}
 	fp.solve()
 	for _, n := range fp.list {
-		if n.key != nil {
+		if n.key != nil && n.walked {
 			info.Footprints[n.key] = n.final
 		}
 	}
@@ -166,9 +171,10 @@ func (fp *footprinter) node(key any) *fpNode {
 // builder runs. A wire whose bindings are unknown is opaque.
 func (fp *footprinter) wire(w *Wire) *fpNode {
 	n := fp.node(w.Decl)
-	if len(n.edges) > 0 || n.opaque {
+	if n.walked {
 		return n
 	}
+	n.walked = true
 	if w.unknown || w.binds == nil {
 		n.opaque = true
 		return n
@@ -195,6 +201,7 @@ func (fp *footprinter) wire(w *Wire) *fpNode {
 // with blocks. A function literal and the trailing block of a call other
 // than with are frames of their own: making one runs nothing.
 func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
+	n.walked = true
 	var visit func(x syntax.Node) bool
 	visit = func(x syntax.Node) bool {
 		switch x := x.(type) {
@@ -355,6 +362,11 @@ func (fp *footprinter) solve() {
 			}
 			return a.Name < b.Name
 		})
+		recursive := len(comp) > 1
+		for _, s := range v.edges {
+			recursive = recursive || s == v
+		}
+		f.EntryPoll = !f.Empty() && (recursive || f.Opaque)
 		for _, w := range comp {
 			w.final = f
 		}

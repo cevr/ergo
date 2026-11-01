@@ -607,6 +607,7 @@ func (l *lowerer) emitWire(w *check.Wire, name string, site syntax.Node) {
 	fc.frame = &frame{polls: framePolls(l.info, w.Decl)}
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
+	fc.entryPoll(l.info, w.Decl)
 	built := map[*check.TypeName]bool{}
 	done := make([]bool, len(builds))
 	for range builds {
