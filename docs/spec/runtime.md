@@ -35,15 +35,16 @@ The runtime contract of `runtime/v1` (task.go), which the signature `task.Go` bi
 
 ## I1. Interruption points
 
-Status: **implemented in prototype** for capability calls and loop back-edges (#199 stage 1); queue operations check in their `runtime/v1` bodies; `Wait` and `Sleep` waiting on the stop are #199 stage 2.
+Status: **implemented in prototype** for capability calls, loop back-edges and recursive or opaque impure frame entries (#199 stage 1); queue operations check in their `runtime/v1` bodies; `Wait` and `Sleep` waiting on the stop are #199 stage 2.
 
 1. Interruption is cooperative. A stopped task stops at its next interruption point.
 2. The compiler inserts an interruption point before each capability call, queue operation, `Wait` and `Sleep`, and at each loop back-edge, in every frame whose footprint is not empty ([rows.md](rows.md#footprints)). The point checks the frame's own task (`env.task.Check()`), so a task body checks itself, never the task that started it.
    - **Capability call.** The point follows the call's operands, which run once and in source order, and comes before the operation. It lands in the frame that calls, so a recursion through a capability call stops at its next call.
    - **Back-edge.** The point heads each loop body, before the loop's bindings and before a condition that writes statements, so every back-edge passes it, a `continue`'s included. The lowering emits a Go loop only for a source loop; no rewrite makes one.
+   - **Frame entry.** An impure frame polls once at entry when it belongs to a nontrivial strongly connected component of the call graph or has a self-edge. It also polls at entry when its footprint is opaque: a function value, a `Seq` or a host call may re-enter it, directly or through a known callee. The checker records this placement in `Footprint.EntryPoll`; the lowering reads it. A nonrecursive impure frame with only known callees has no entry poll unless its footprint is opaque. Pure recursion has none. Each function, literal, task body and provider method checks its own task; named-wire builders and package initializers use the task passed to them.
    - **Queue operation.** `Push`, `Pop` and a `Values` loop take the caller's task and check in their `runtime/v1` bodies, so the call site adds none.
 3. An interruption point is one atomic load. When the task is stopped, the function exits with interruption ([Exit causes](#exit-causes)).
-4. A loop with an empty footprint has no interruption point. Such a loop cannot be stopped until it ends, as with Effect on JavaScript. Go preemption keeps the scheduler fair but does not stop the loop. A pure frame's loop has no check, and neither does a pure function literal written in an impure function.
+4. A frame with an empty footprint has no interruption point, at entry or in its loops. Such a loop or recursion cannot be stopped until it ends, as with Effect on JavaScript. Go preemption keeps the scheduler fair but does not stop it. A pure function literal written in an impure function has no check.
 5. A blocking runtime primitive waits for either its event or the stop, so a stopped task never stays parked.
 
 *Prior art:* the `select` on `ctx.Done()` Go programmers write by hand; Effect checks interruption between steps; BEAM processes are preempted and can be killed outright, which Ergo does not do.

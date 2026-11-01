@@ -29,6 +29,9 @@ import (
 // value, so it is opaque too. Recursive frames join to the least fixpoint,
 // one strongly connected component at a time, so the work is linear in the
 // bodies and the call edges.
+// EntryPoll is local to each recursive or opaque impure frame; joining a
+// callee's effects does not join its entry placement. Only a walked body
+// publishes a Footprints entry, so lowering can reject a missing fact.
 
 // Footprint is one frame's footprint.
 type Footprint struct {

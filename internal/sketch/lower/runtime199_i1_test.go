@@ -18,8 +18,9 @@ import (
 
 // #199 stage 1 (runtime.md, I1): a frame whose footprint is not empty
 // checks for a stop before each capability call and at the head of each
-// loop body, so every executed back-edge, a continue's included, passes a
-// check; a pure frame has none. The oracle is the source's shape, never
+// loop body. Recursive or opaque impure frames also poll at entry, so
+// recursive back-edges pass a check; a pure frame has none. The oracle is
+// the source's shape, never
 // Info.Footprints: each clause below states whether its frame is pure.
 
 // i1Clause is one footprint clause: the statements that head a frame's
@@ -676,6 +677,7 @@ type Probe {
 type Silent {}
 func Tick(_ Silent) {}
 let Local = wire { Probe: Silent }
+func nonnegative(n int) bool { n >= 0 }
 `
 
 const i1LiveMain = `func main() fails queue.Closed needs Console {
@@ -700,6 +702,9 @@ var i1LiveLoops = map[string]string{
 	"range":    "let mut c = 0\nfor i in 0..1000000000000 {\nc += i\n}\n",
 	"continue": "let mut c = 0\nfor i in 0..1000000000000 {\nif i >= 0 {\ncontinue\n}\nc += i\n}\n",
 	"cond":     "let mut c = 0\nfor c >= 0 {\nc += 1\n}\n",
+	// Adapted from the reviewer's cap-in-cond probe in zz_review_test.go.
+	// The condition helper is pure so it cannot hide a missing loop poll.
+	"emitting-cond": "let mut c = 0\nfor nonnegative(c) {\nc += 1\n}\n",
 }
 
 func i1LivePrograms() map[string]string {
@@ -741,6 +746,17 @@ func i1LivePrograms() map[string]string {
 	fib(n - 1) + fib(n - 2)
 }
 `, "with Local { fib(90) }\n")
+	// No capability is reached until after the unbounded loop. Its
+	// footprint must travel leaf -> bridge -> spin across two SCC edges.
+	out["transitive-components"] = work(`func leaf() needs Probe { Probe.Tick() }
+func bridge() needs Probe { leaf() }
+func spin() int needs Probe {
+	let mut c = 0
+	for { c += 1 }
+	bridge()
+	c
+}
+`, "with Local { spin() }\n")
 	out["order"] = `type Pair {
 	Join(a string, b string) string,
 }

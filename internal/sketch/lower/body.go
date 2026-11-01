@@ -27,8 +27,8 @@ type frame struct {
 	scope, dest string
 	// polls reports a frame whose footprint is not empty (Info.Footprints;
 	// runtime.md, I1): it checks for a stop before each capability call and
-	// at the head of each loop body, so every back-edge passes a check. A
-	// pure frame has none.
+	// at the head of each loop body. Entry placement is a separate checker
+	// fact read by entryPoll. A pure frame has no point.
 	polls bool
 }
 
