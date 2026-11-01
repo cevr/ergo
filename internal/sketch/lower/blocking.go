@@ -54,10 +54,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	// The with lifetime owner's scope (with, withClose; resources.md, Wire
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
-	// (callerRelease).
+	// (callerRelease). A provider's release is registered only by
+	// WithAcquire, in the masked step that builds it (resources.md R8), so
+	// the catalog binds no bare registration (Scope.WithClose).
 	"Scope.OpenWith":    {},
 	"Scope.WithAcquire": {},
-	"Scope.WithClose":   {},
 	"Scope.EndWith":     {},
 }
 

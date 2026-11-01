@@ -151,7 +151,7 @@ func (s *Scope) close(e error) error {
 // Wire ownership): a with whose wire builds a provider with a checked
 // Close. s is the scope of the code at the with, its frame or the next
 // owning with out. The with's scope owns the providers the with builds
-// (WithClose) and the tasks its block starts or receives, as a frame owns
+// (WithAcquire) and the tasks its block starts or receives, as a frame owns
 // its own: it releases them, last first, when the block ends (EndWith),
 // or when s ends first, on a defect, a stop or a typed failure that leaves
 // the block. So tasks that borrow a provider drain before it closes, and
@@ -174,21 +174,27 @@ func (s *Scope) OpenWith() *Scope {
 // particular, a completed open stays successful after a stop request.
 // A panic keeps v1's cause transport and reaches the enclosing frame,
 // whose End rolls back the with's earlier acquisitions.
+// An acquisition begins at an interruption point (I1): a stop that arrived
+// while an earlier provider was built masked is observed here, so no later
+// provider is built and the earlier ones close.
 func (w *Scope) WithAcquire(open func() (func(), error)) error {
-	_, err := rt.AcquireInto(w.s.Task(), open, func(close func()) {
+	t := w.s.Task()
+	t.Check()
+	_, err := rt.AcquireInto(t, open, func(close func()) {
 		if close != nil {
-			w.WithClose(close)
+			w.ownRelease(close)
 		}
 	})
 	return err
 }
 
-// WithClose registers close as the release of a provider the with whose
+// ownRelease registers close as the release of a provider the with whose
 // scope is w has just built: the call of the provider's checked Close,
 // whose body masks itself (Release). The with adds no mask: it catches the
 // exit that Release raises and keeps it in w's exits, so the releases
-// after it still run and every cause stays.
-func (w *Scope) WithClose(close func()) {
+// after it still run and every cause stays. It is unexported: emitted code
+// registers a release only through WithAcquire's masked step (R8).
+func (w *Scope) ownRelease(close func()) {
 	t := w.s.Task()
 	w.push(&entry{action: func() {
 		defer func() {
