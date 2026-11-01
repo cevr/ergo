@@ -1,5 +1,7 @@
 # Changelog
 
+- Blocking runtime calls use one lowering owner and a catalog of waiting policies (#199 stage 2). `LiveScheduler.Sleep` now observes the running task's stop before and during its timer wait. `Wait` retains its owning task after a frame transfer; queue waits use the caller's task, and `Values` binds that task when iterated. `Stop` still drains uninterruptibly. Interruption stays outside typed failures, and these bindings add no extra call-site poll.
+
 Entries describe user-visible changes and are true at the commit that carries them. The layout follows Gleam's: one `## Unreleased` section with headed groups, newest work first within a group. Codes such as EF111 are compiler diagnostics.
 
 ## Unreleased
