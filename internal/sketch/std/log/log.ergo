@@ -1,0 +1,41 @@
+// Package log annotates running code with context values (docs/spec/
+// runtime.md, G1). v1 has two declarations: Annotate makes the value that
+// `with log.Annotate(key, text) { … }` binds, and Annotation reads it. The
+// rest of the logging API is #206.
+//
+// An annotation is a context value because its type satisfies the
+// context-binding protocol, the functions contextKey and contextText on
+// it, by the rule every type uses (runtime.md, G1); the checker admits it
+// by that protocol, never by this package's name. The protocol's functions
+// are unexported, so they are not part of this package's surface.
+
+// annotation is the context value of one log annotation.
+type annotation { key string, text string }
+
+// Annotate is the context value that binds text to key inside a with block
+// and in every task started there: `with log.Annotate("region", "eu") { … }`.
+// An inner annotation of the same key shadows an outer one until its block
+// ends.
+func Annotate(key string, text string) annotation {
+	annotation{key: key, text: text}
+}
+
+func contextKey(a annotation) string { "log." + a.key }
+
+func contextText(a annotation) string { a.text }
+
+// Annotation is the text of the innermost annotation of key in force for
+// the running task, or None. It reads the task's context, so it is
+// effectful even with an empty capability row.
+func Annotation(key string) Option[string] {
+	if contextBound("log." + key) {
+		Some[string]{Value: contextValue("log." + key)}
+	} else {
+		None
+	}
+}
+
+// The task's context values (runtime/v1, context.go). Each Go body takes
+// the running task as its hidden argument (stdlib.md, Hidden arguments).
+extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool
+extern go ergo.local/prototype/runtime/v1.ContextValue func contextValue(key string) string

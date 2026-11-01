@@ -30,12 +30,15 @@ type runtimeBinding struct {
 	// A host-provider bridge erases one ordinary, zero-field provider
 	// operand. The Go body's hidden parameters still come from BodyOf.
 	hostTarget, provider string
+	// reads marks a binding that reads the invocation task's context
+	// values (runtime.md, G1): it takes the task and never waits.
+	reads bool
 }
 
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.release == callerRelease
+	return b.wait == callerWait || b.release == callerRelease || b.reads
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -60,6 +63,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Scope.OpenWith":    {},
 	"Scope.WithAcquire": {},
 	"Scope.EndWith":     {},
+	// The context owner (calls.go, contextWith; runtime.md, G1): a region
+	// opens on the scope of the code at the with and ends at its block's
+	// normal end, or when that scope closes. The reads take the running
+	// task, whose immutable values a child shares from its start.
+	"Scope.OpenContext": {},
+	"Context.End":       {},
+	"ContextBound":      {reads: true},
+	"ContextValue":      {reads: true},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

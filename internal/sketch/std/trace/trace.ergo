@@ -1,0 +1,38 @@
+// Package trace names the running code's span with a context value (docs/
+// spec/runtime.md, G1). v1 has two declarations: Span makes the value that
+// `with trace.Span(name) { … }` binds, and Current reads it. The rest of
+// the tracing API is #206.
+//
+// A span is a context value because its type satisfies the context-binding
+// protocol, the functions contextKey and contextText on it, by the rule
+// every type uses (runtime.md, G1); the checker admits it by that
+// protocol, never by this package's name. The protocol's functions are
+// unexported, so they are not part of this package's surface.
+
+// span is the context value of one named span.
+type span { name string }
+
+// Span is the context value that names the span of a with block and of
+// every task started there: `with trace.Span("checkout") { … }`. An inner
+// span shadows an outer one until its block ends.
+func Span(name string) span { span{name: name} }
+
+func contextKey(s span) string { "trace.span" }
+
+func contextText(s span) string { s.name }
+
+// Current is the name of the innermost span in force for the running task,
+// or None. It reads the task's context, so it is effectful even with an
+// empty capability row.
+func Current() Option[string] {
+	if contextBound("trace.span") {
+		Some[string]{Value: contextValue("trace.span")}
+	} else {
+		None
+	}
+}
+
+// The task's context values (runtime/v1, context.go). Each Go body takes
+// the running task as its hidden argument (stdlib.md, Hidden arguments).
+extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool
+extern go ergo.local/prototype/runtime/v1.ContextValue func contextValue(key string) string

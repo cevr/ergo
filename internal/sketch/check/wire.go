@@ -33,6 +33,22 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		// 196x's, several context values a G1 follow-up.
 		c.errorf(x.Args[1], CodeOutside, "a with takes one operand: several operands are a follow-up, of 196x for wires and of G1 for context values (runtime.md, G1); nest one with per operand: with a { with b { … } }")
 		known = false
+		// The values among them are checked silently, as the reference
+		// walk visits them, so their imports and names count as used and
+		// nothing cascades (D3). A wire is not a value.
+		c.silent++
+		for _, a := range x.Args {
+			switch u := unparen(a).(type) {
+			case *syntax.WireLit:
+				continue
+			case *syntax.Ident:
+				if c.pkg.Wires[u.Name] != nil {
+					continue
+				}
+			}
+			c.valueExpr(a, nil)
+		}
+		c.silent--
 	default:
 		binds, known, wire, context = c.withArg(x.Args[0])
 	}

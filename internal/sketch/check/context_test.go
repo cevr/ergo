@@ -89,6 +89,12 @@ func f() { with W { with tag("k", "v") { Log.Say("x") } } }
 `, "f: wire\nf: main.Tag contextKey@main contextText@main"},
 		{"block value", `func f() string { with tag("k", "v") { "x" } }
 `, "f: main.Tag contextKey@main contextText@main"},
+		// std's values bind by the same protocol: the checker reads the
+		// functions on their unexported types, never the package's name.
+		{"std values", `import log
+import trace
+func f() int { with log.Annotate("region", "eu") { with trace.Span("work") { 1 } } }
+`, "f: log.annotation contextKey@log contextText@log\nf: trace.span contextKey@trace contextText@trace"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pkg, f, ds := checkContext(t, tc.src)
@@ -153,6 +159,15 @@ func f(k Keyed) int { with k { 1 } }
 `, "S109", "with over a value"},
 		{"an operand list", `func f() int { with tag("a", "1"), tag("b", "2") { 1 } }
 `, "S109", "nest one with per operand"},
+		{"exported names", `type Bad { K string }
+func ContextKey(b Bad) string { b.K }
+func ContextText(b Bad) string { b.K }
+func bad() Bad { Bad{K: "k"} }
+func f() int { with bad() { 1 } }
+`, "S108", "has no method contextKey"},
+		{"a std operand list", `import log
+func f() int { with log.Annotate("a", "1"), log.Annotate("b", "2") { 1 } }
+`, "S109", "nest one with per operand"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, ds := checkContext(t, tc.src)
@@ -200,4 +215,17 @@ func pure() int { with tag("k", "v") { 1 } }
 func opaque() int { with mk() { 1 } }
 func block() needs Log { with tag("k", "v") { Log.Say("x") } }
 `, map[string]string{"pure": "pure", "opaque": "opaque", "block": "Log"})
+}
+
+// A context read is effectful even with an empty capability row (approval
+// item 4): log.Annotation and trace.Current read the running task's
+// context, so a frame that reads one is never pure. A std binding's own
+// functions are pure, so a with of one keeps a pure frame pure.
+func TestContextReadFootprints(t *testing.T) {
+	checkFootprints(t, `import log
+import trace
+func annotation() bool { match log.Annotation("k") { case Some[string]: true; case None: false } }
+func current() bool { match trace.Current() { case Some[string]: true; case None: false } }
+func bound() int { with log.Annotate("k", "v") { with trace.Span("s") { 1 } } }
+`, map[string]string{"annotation": "opaque", "current": "opaque", "bound": "pure"})
 }

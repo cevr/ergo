@@ -694,6 +694,16 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	directives := !fd.library
 	if fd.library {
 		b = &l.gen
+		// A library body with Ergo source (std log and trace) reads the
+		// facts of its own package's Info: every fact of the lowering is
+		// keyed by syntax node, and its nodes are its package's. A library
+		// body is emitted from the pending queue, never inside another
+		// body, so the swap covers exactly this body.
+		if f.Pkg.Info != nil && f.Pkg.Info != l.info {
+			saved := l.info
+			l.info = f.Pkg.Info
+			defer func() { l.info = saved }()
+		}
 	}
 	scope := newNamer(l.names)
 	site := syntax.Node(f.Decl.Name)

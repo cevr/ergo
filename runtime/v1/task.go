@@ -42,10 +42,11 @@ type Scope struct {
 	// or an exit action that code at this frame starts or registers belongs
 	// to it, through its whole run and its own release.
 	action *Scope
-	// withs are the scopes of the owning withs open on this scope, the
-	// innermost last (OpenWith); parent is the scope an owning with's
-	// scope was opened on, nil for a frame.
-	withs  []*Scope
+	// withs are the regions open on this scope, the innermost last: the
+	// scopes of owning withs (OpenWith) and context regions (OpenContext);
+	// parent is the scope an owning with's scope was opened on, nil for a
+	// frame.
+	withs  []region
 	parent *Scope
 }
 
@@ -128,8 +129,9 @@ func (s *Scope) end(e error) error {
 }
 
 // close ends the scope s, a frame or an owning with, and returns the whole
-// exit: first the owning withs still open on it, the innermost first, as
-// their blocks would have ended on the normal path; then its own entries,
+// exit: first the regions still open on it (owning withs and context
+// regions), the innermost first, as their blocks would have ended on the
+// normal path; then its own entries,
 // last first. Every release runs, and each one's exits join s.exits.
 func (s *Scope) close(e error) error {
 	s.ended = true
@@ -214,7 +216,7 @@ func (w *Scope) ownRelease(close func()) {
 func (w *Scope) EndWith(err *error) {
 	p := w.parent
 	n := len(p.withs)
-	if n == 0 || p.withs[n-1] != w {
+	if n == 0 || p.withs[n-1] != region(w) {
 		panic("with: a with's scope ended out of its nesting")
 	}
 	p.withs = p.withs[:n-1]

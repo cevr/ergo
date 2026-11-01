@@ -12,7 +12,7 @@ import (
 
 // v1Packages are the std packages whose Go bodies are runtime/v1's
 // (docs/spec/stdlib.md, v1 packages).
-var v1Packages = []string{"queue", "scope", "slice", "task"}
+var v1Packages = []string{"log", "queue", "scope", "slice", "task", "trace"}
 
 const v1Path = "ergo.local/prototype/runtime/v1"
 
@@ -117,6 +117,67 @@ func main() fails queue.Closed {
 	}
 }
 
+// TestContextPackagesSurface: trace and log export the four declarations
+// of G1 and nothing else (the rest is #206); their values bind through
+// with by the context-binding protocol and their reads check in a program
+// with no capability.
+func TestContextPackagesSurface(t *testing.T) {
+	want := map[string][]string{"log": {"Annotate", "Annotation"}, "trace": {"Current", "Span"}}
+	for path, names := range want {
+		pkg, err := check.Std.Import(path)
+		if err != nil {
+			t.Fatalf("check.Std.Import(%q): %v", path, err)
+		}
+		var got []string
+		for _, f := range pkg.Funcs {
+			if isExportedName(f.Name) {
+				got = append(got, f.Name)
+			}
+		}
+		for _, tn := range pkg.Types {
+			if isExportedName(tn.Name) {
+				got = append(got, tn.Name)
+			}
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, names) {
+			t.Errorf("std %s exports %v, want %v", path, got, names)
+		}
+	}
+	const program = `import log
+import trace
+
+func region() string {
+	match log.Annotation("region") {
+	case Some[string] as s:
+		s.Value
+	case None:
+		"none"
+	}
+}
+
+func span() string {
+	match trace.Current() {
+	case Some[string] as s:
+		s.Value
+	case None:
+		"none"
+	}
+}
+
+func main() needs Console {
+	with log.Annotate("region", "eu") {
+		with trace.Span("work") {
+			Console.Println(region() + " " + span())
+		}
+	}
+}
+`
+	if _, diags := check.CheckSource(program); len(diags) > 0 {
+		t.Fatalf("diagnostics: %v", diags)
+	}
+}
+
 // TestEachExternHasItsGoBody ties each extern declaration of the v1
 // packages, and each operation of a type such an extern returns, to the Go
 // body that implements it, read from the embedded runtime source as the
@@ -177,7 +238,7 @@ func TestEachExternHasItsGoBody(t *testing.T) {
 			t.Errorf("std package %s declares no extern", path)
 		}
 	}
-	for _, name := range []string{"Go", "OnExit", "New", "WithCapacity", "Queue.Push", "Queue.Pop", "Queue.Close", "Task.Wait", "Task.Stop"} {
+	for _, name := range []string{"Go", "OnExit", "New", "WithCapacity", "Queue.Push", "Queue.Pop", "Queue.Close", "Task.Wait", "Task.Stop", "ContextBound", "ContextValue"} {
 		if !bound[name] {
 			t.Errorf("the Go body %s binds no std declaration", name)
 		}
@@ -220,6 +281,15 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 			}
 			if _, ops := operations(n); ops {
 				continue // bound through the extern that returns it (goType)
+			}
+			if !isExportedName(tn.Name) {
+				// An unexported record (log's annotation, trace's span) is
+				// the program's declaration: no import names it, and the
+				// runtime has no struct for it (lower runtimeType).
+				if _, err := v1.StructFields(tn.Name); err == nil {
+					t.Errorf("%s.%s is unexported, and v1 declares a struct of its name", path, tn.Name)
+				}
+				continue
 			}
 			st, ok := n.Underlying().(*check.Struct)
 			if !ok {
@@ -426,6 +496,11 @@ func operations(t check.Type) (*check.Interface, bool) {
 }
 
 // baseName is the Go type name of a result: Queue for *Queue[T].
+// isExportedName reports a name that starts with an upper-case letter.
+func isExportedName(name string) bool {
+	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
+}
+
 func baseName(goType string) string {
 	s := strings.TrimPrefix(goType, "*")
 	if i := strings.IndexByte(s, '['); i >= 0 {
