@@ -38,6 +38,7 @@ Status: **checked** (check-v1 stage D3a). [runtime.md](runtime.md#tasks) rule 3 
 1. A Task-holding value flows only into these uses: a local `let` in its own frame; a return (an explicit return or a body's final value); a call argument; or the direct receiver of a called `Wait` or `Stop`. A dot call to a package function uses its receiver as the first argument and follows the argument rule. Assignment checks the parameter type; clause 3 refuses erasing a Task into an operation type that holds none. Passing it to a type parameter, as in `id(t)` for a generic `id`, remains admitted until stage E's type-parameter rule.
 2. Parentheses, `try`, `catch` and `go` are transparent wrappers: the wrapped value must flow into an allowed use. They do not make a discarded Task legal. A final value can flow through `if`, `match`, `catch`, `try` or `with` into a return or another allowed sink.
 3. Every other use is S108. A reference to a Task-holding local from another frame is also S108, wherever it stands. Function literals, trailing blocks other than `with`, and `go` blocks open frames. A refused type covers values assigned into it, so later uses add no diagnostic.
+4. **Lowering** (check-v1 stage D3b; [stdlib.md](stdlib.md#v1-packages-task-scope-queue-and-slice), Hidden arguments). A function whose result is a `Task` takes the caller's frame scope as a hidden destination and moves the Task there on return, so the Task outlives its own frame and the caller's scope stops and drains it if nobody waits. A result that holds a Task inside another type, and a Task as a type argument, are refused with S109 naming check-v1 stage E.
 
 These two uses are refused even though they mention the Task's local frame:
 
@@ -260,12 +261,13 @@ Status: rule 1 is **checked** (#196): a function value is assignable to a functi
 
 ## Borrows
 
-Status: placement (rule 1, first sentence) is **checked** (#196): `*T` outside a parameter or receiver type is S108. The rest is **designed, not yet implemented** ([#197](https://github.com/cevr/ergo/issues/197)).
+Status: placement (rule 1, first sentence) is **checked** (#196): `*T` outside a parameter or receiver type is S108; rule 5 is checked (check-v1 stage D3b). The rest is **designed, not yet implemented** ([#197](https://github.com/cevr/ergo/issues/197)).
 
 1. `*T` appears only on parameters and receivers. A borrow is never nil, stored, returned, sent or captured by `go`.
 2. Two mutable borrows into one value must not overlap. With constant indexes the checker decides; with dynamic indexes it needs a dominating guard or it rejects the call. *Prior art:* Swift's law of exclusivity; Rust `get_many_mut`.
 3. There are no pointer fields and no reference fields. Linked structures use recursive values behind unions, index arenas or `sync.Ref`. This is a loss against Go. *Prior art:* Rust keeps both reference fields, at the cost of lifetime parameters on the struct, and owned pointer fields (`Box`, `Rc`); Ergo gives up reference fields so that no signature needs a lifetime, and replaces written owned pointers with compiler-boxed recursion behind unions; Swift value types and Hylo's mutable value semantics make a similar trade.
 4. Resources are lent by passing them as arguments ([resources.md](resources.md#lending)). A borrow and a lend obey the same no-escape rule.
+5. An operation type is already a reference: its Go form is an interface or a runtime pointer. An operation called through a borrow of an operation type, `p.Close()` with `p *queue.Queue[int]`, is S108 "an operation type is already a reference; call it on the value" at the receiver, for a std operation type and the program's own alike; call it on the value, `q.Close()` (checked, check-v1 stage D3b). *Prior art:* Go calls a method of an interface only on the interface value, never through `*I`; Gleam, Elixir and ReScript have no pointer to a module's abstract type.
 
 ## Generics
 

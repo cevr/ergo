@@ -14,7 +14,7 @@ import (
 // operation type and union; an instance of a
 // generic slice, record, operation type and union; a defined type over each
 // allowed base; a defined type over each refused base; and a Task-holding
-// kind, checked only until stage D3b lowers task.Go. Every kind meets every
+// kind, lowered and run since stage D3b. Every kind meets every
 // kind at assignment sites, including writes, aggregates, contextual joins,
 // closure results, invariant pointers/slices, a pattern's written type and
 // the operands of == and !=; every kind meets the operation type Store as a
@@ -55,7 +55,7 @@ type pairKind struct {
 	// decl declares a refused defined type: every use of the kind meets
 	// that one diagnostic.
 	decl string
-	// task: a Task-holding kind, checked but not lowered until stage D3b.
+	// task: a Task-holding kind; a program with one imports task.
 	task bool
 }
 
@@ -404,7 +404,8 @@ func TestCheckedImpliesLowered(t *testing.T) {
 	want := map[string]string{}
 	for _, site := range pairSites {
 		var ids, funcs []string
-		deferred := 0 // admitted pairs whose lowering waits for stage E
+		deferred := 0    // admitted pairs whose lowering waits for stage E
+		started := false // an admitted pair starts a task
 		for _, s := range kinds {
 			for _, k := range kinds {
 				if site != "let" && site != "multi" && site != "arg" && site != "ret" && site != "field" && (s.decl != "" || k.decl != "" || s.task || k.task) {
@@ -453,9 +454,6 @@ func TestCheckedImpliesLowered(t *testing.T) {
 					}
 					continue
 				}
-				if s.task || k.task {
-					continue // task.Go lowers in stage D3b
-				}
 				if site == "wire" {
 					// An inline wire value is lowered in stage E: the one
 					// expected refusal, on the wire's line.
@@ -475,6 +473,7 @@ func TestCheckedImpliesLowered(t *testing.T) {
 					t.Errorf("%s: checked, lowering refused %+v\n%s", id, o.refused, src)
 					continue
 				}
+				started = started || s.task
 				ids = append(ids, id)
 				funcs = append(funcs, code)
 			}
@@ -485,11 +484,11 @@ func TestCheckedImpliesLowered(t *testing.T) {
 		}
 		var used []pairKind
 		for _, k := range kinds {
-			if k.decl == "" && !k.task {
+			if k.decl == "" {
 				used = append(used, k)
 			}
 		}
-		src := pairProgram(used, false, ids, funcs)
+		src := pairProgram(used, started, ids, funcs)
 		programs = append(programs, mustLower(t, "pairs"+site, src))
 		want["pairs"+site] = strings.Join(ids, "\n") + "\n"
 	}

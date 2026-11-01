@@ -381,6 +381,46 @@ func main() needs Console {
 `, "go true -42 -8 18446744073709551615\n1.5 0.1 1e+06 1.5s\ntab\t\"q\" \\(x) -42\n23\na b 1 c d\ngo\n")
 }
 
+// TestErgoRunSliceWithCapacity: slice.WithCapacity calls its runtime/v1
+// body, which has no hidden argument (Rule 6).
+func TestErgoRunSliceWithCapacity(t *testing.T) {
+	wantRun(t, `import slice
+
+func main() needs Console {
+	let mut xs = slice.WithCapacity[int](4)
+	xs = xs.Append(7)
+	xs = xs.Append(8)
+	Console.Println("\(len(xs)) \(xs[1])")
+}
+`, "2 8\n")
+}
+
+// TestTimeoutAfterRefusedNamingStageE: timeout.After is the one std
+// function that does not lower in stage D3b. Its Go body is runtime/rt.After,
+// which takes an rt.Scheduler (NewTimer) where the Ergo Scheduler is
+// Sleep-shaped, and fails with rt.Expired where timeout.Expired is a program
+// type; it needs a runtime/v1 body (a lower-v1 Follow-up). The refusal names
+// check-v1 stage E at the call.
+func TestTimeoutAfterRefusedNamingStageE(t *testing.T) {
+	o := lowerSource("r", `import timeout
+
+func work() int { 1 }
+
+func f() int fails timeout.Expired needs Scheduler {
+	timeout.After(5s) { work() }
+}
+`, false)
+	if len(o.diags) != 0 {
+		t.Fatalf("want a clean check; got %v", o.diags)
+	}
+	if o.panicked != nil || len(o.refused) != 1 {
+		t.Fatalf("want one refusal; got refusals %v, panic %v, err %v", o.refused, o.panicked, o.err)
+	}
+	if r := o.refused[0]; r.Line != 6 || !strings.Contains(r.Message, "After") || !strings.Contains(r.Message, "check-v1 stage E") {
+		t.Fatalf("want a refusal of timeout.After on line 6 naming check-v1 stage E; got %+v", r)
+	}
+}
+
 // TestInterpolationOfOtherTypesRefused: a value of a type that is not basic
 // (a record, a defined type) is check-v1 stage E's: a located refusal at the
 // value, never Go's %v of a lowered representation.

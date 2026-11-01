@@ -91,7 +91,8 @@ func (tc *typeCtx) goType(t check.Type) string {
 // returns an error last, so a row parameter never changes a Go type and a
 // generic function over rows needs no specialised copy (spec D5). A call of
 // a declared function by name uses the declaration's own signature, which
-// has neither when its rows are empty.
+// takes the environment too (stage D3b, Rule 1) and returns an error only
+// when its error row is not empty.
 func (tc *typeCtx) funcType(s *check.Signature) string {
 	parts := []string{"*" + tc.l.env()}
 	if taskDest(s) {

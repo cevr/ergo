@@ -147,8 +147,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if n, ok := fc.typeOf(c.Recv).(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
 			return fc.stdOpCall(x, c, n, args)
 		}
+		// The checker refuses every other way to reach a std operation: a
+		// type defined over a std operation type (S108 at the definition)
+		// and a pointer to one (S108 at the call, stage D3b Rule 5).
 		if n := fc.l.foreignOwner(fc.typeOf(c.Recv)); n != nil {
-			refuse(x, "a call to the std operation %s.%s is lowered after check-v1 stage D3b (std calls with their hidden task and scope arguments)", n.Obj.Name, c.Op.Name)
+			ice(x, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, c.Op.Name, fc.typeOf(c.Recv))
 		}
 		vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
 		rest := append([]string{fc.envExpr(x) + "." + envTask}, vals[1:]...) // the task first (rows.md, Rows 7)

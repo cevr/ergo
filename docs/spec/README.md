@@ -74,13 +74,13 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 | Trailing block as a function-literal argument | Checked; build refused except on `with` and `timeout.After` | [grammar](grammar.md#expressions) |
 | Function literals and function types | Checked, with rows from the expected type or inferred; build refused | [types](types.md#generics) |
 | Resources and automatic release | Designed, not yet implemented ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
-| `task.Go`, `Task`, `Wait`, `Stop` | Checked (check-v1: the `task` package, and a `Task` leaves its function only by return, stage D3a); the lowering of `task.Go` is check-v1 stage D3b's | [runtime](runtime.md#tasks) |
+| `task.Go`, `Task`, `Wait`, `Stop` | Checked (check-v1: the `task` package, and a `Task` leaves its function only by return, stage D3a); runs (stage D3b: a returned `Task` moves to the caller's scope; one held inside another type is refused naming stage E) | [runtime](runtime.md#tasks) |
 | Task tree, stop propagation, defect propagation | Implemented in prototype (runtime `rt`) | [runtime](runtime.md#tasks) |
 | I1 checks before capability calls | Implemented in prototype | [runtime](runtime.md#i1-interruption-points) |
 | I1 at loops and channel operations; I2 masks | Designed, not yet implemented | [runtime](runtime.md#i2-automatic-masks) |
 | G1 to G4 | Designed, not yet implemented | [runtime](runtime.md#observability-and-supervision) |
 | `for … in`, `break`, `continue` | Checked with Go's rules for the range forms they desugar to; build refused | [grammar](grammar.md#statements) |
-| `scope.OnExit`, queues | Designed, not yet implemented; Go's `range`, `select`, `defer`, `chan` and `var` are reserved words whose use names the Ergo form | [grammar](grammar.md#reserved-words) |
+| `scope.OnExit`, queues | Checked; runs (check-v1 stage D3b: `Push`, `Pop` and `Values` take the caller's task, so a stop ends their wait); Go's `range`, `select`, `defer`, `chan` and `var` are reserved words whose use names the Ergo form | [grammar](grammar.md#reserved-words) |
 | Borrows `*T` | Checked: only as a parameter type; escape and exclusivity are #197's; build refused | [types](types.md#borrows) |
 | Generics | Checked in the earlier implicit spelling, with kinds by position, constraints, row parameters and inference by unification; the bracket spelling of [types.md](types.md#generics) is check-v1's; build refused | [types](types.md#generics) |
 | Laws `law Name(…) { … }` | Parsed; S109 until check-v1 (196l) | [types](types.md#laws) |
