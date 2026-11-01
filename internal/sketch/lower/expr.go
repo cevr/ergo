@@ -33,14 +33,23 @@ func unparen(x syntax.Expr) syntax.Expr {
 
 // typeOf is x's checked type.
 func (fc *funcCtx) typeOf(x syntax.Expr) check.Type {
-	t, ok := fc.l.info.Types[x]
+	t, ok := fc.typed(x)
 	if !ok {
-		if p, isParen := x.(*syntax.ParenExpr); isParen {
-			return fc.typeOf(p.X)
-		}
 		ice(x, "an expression with no Types entry")
 	}
 	return t
+}
+
+// typed is x's checked type, and whether x has one: a package name or a
+// type has none.
+func (fc *funcCtx) typed(x syntax.Expr) (check.Type, bool) {
+	if t, ok := fc.l.info.Types[x]; ok {
+		return t, true
+	}
+	if p, isParen := x.(*syntax.ParenExpr); isParen {
+		return fc.typed(p.X)
+	}
+	return nil, false
 }
 
 // noValue reports an expression with no value.
@@ -72,8 +81,8 @@ func (fc *funcCtx) fallibleExpr(x syntax.Expr) bool {
 }
 
 // emits reports whether lowering x writes statements: whether x holds a
-// call, try, catch or with outside a function literal. A constant never
-// does.
+// call, try, catch, with, if, match or method value (which binds its
+// receiver, methodValue) outside a function literal. A constant never does.
 func (fc *funcCtx) emits(x syntax.Expr) bool {
 	if _, ok := fc.l.info.Values[x]; ok {
 		return false
@@ -90,6 +99,13 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 			found = true
 		case *syntax.CallExpr:
 			if c := fc.l.info.Calls[n]; c == nil || (c.Kind != check.CallConversion && c.Kind != check.CallLen) {
+				found = true
+			}
+		case *syntax.SelectorExpr:
+			if _, ok := fc.l.info.Values[n]; ok {
+				return false
+			}
+			if fc.methodOf(n) != nil {
 				found = true
 			}
 		case syntax.Expr:
@@ -337,11 +353,22 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 			refuse(x, "%s.%s is not a value that lowering supports yet", id.Name, x.Sel.Name)
 		}
 	}
-	if op := operation(fc.typeOf(x.X), x.Sel.Name); op != nil {
+	if op := fc.methodOf(x); op != nil {
 		return fc.methodValue(x, op)
 	}
 	recv := fc.value(x.X)
 	return recv + "." + fc.fieldName(x)
+}
+
+// methodOf is the operation x takes as a value (a method value, lowered by
+// methodValue), or nil: a field, or a package's declaration. selector and
+// emits share it, so the operand order sees every method value.
+func (fc *funcCtx) methodOf(x *syntax.SelectorExpr) *check.Method {
+	t, ok := fc.typed(x.X)
+	if !ok {
+		return nil
+	}
+	return operation(t, x.Sel.Name)
 }
 
 // operation is the operation name of the operation type t, or nil when t
