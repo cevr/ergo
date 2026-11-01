@@ -492,6 +492,11 @@ func TestCheckedImpliesLowered(t *testing.T) {
 		programs = append(programs, mustLower(t, "pairs"+site, src))
 		want["pairs"+site] = strings.Join(ids, "\n") + "\n"
 	}
+	stdPrograms, stdWant := stdGrid(t)
+	programs = append(programs, stdPrograms...)
+	for name, w := range stdWant {
+		want[name] = w
+	}
 	exes := buildAll(t, programs, true)
 	for _, p := range programs {
 		exe, ok := exes[p.name]
@@ -508,6 +513,176 @@ func TestCheckedImpliesLowered(t *testing.T) {
 			t.Errorf("%s: exit %d, stderr %q, output first differs at marker %d:\n%s", p.name, code, stderr, first+1, firstLines(strings.Join(got[first:], "\n"), 10))
 		}
 	}
+}
+
+// The std grid (stage D3b round 1 review, required in round 2): every std
+// operation meets every site where a program can reach it. An operation is
+// work on q, a fresh queue.Queue[int] of capacity 4, that yields a known
+// int; a site is where that work stands: a declared function called
+// directly, the same function called as a function value, the work with its
+// operation taken as a value (a method value, or the std function itself),
+// a function literal, a task.Go body, and a provider of the program's
+// operation type called through a value of it. Each pair is checked and
+// lowered on its own; a pair the checker refuses must be one the model
+// (stdChecks) refuses, with a diagnostic on the line that takes the value;
+// a pair lowering refuses must name its owner (undeferred); every other
+// pair of a site runs in one program and prints its result.
+type stdOp struct {
+	name  string
+	body  string // the work, which yields want
+	value string // the work with the operation taken as a value
+	at    string // the line of value that takes the value
+	fails bool   // the work can fail with queue.Closed
+	want  int
+}
+
+var stdOps = []stdOp{
+	{"GoValue", "let t = task.Go() { 7 }\nq.Close()\nt.Wait()", "let g = task.Go\nlet t = g() { 7 }\nq.Close()\nt.Wait()", "let g = task.Go", false, 7},
+	{"GoNoValue", "let t = task.Go() { try q.Push(3) }\ntry t.Wait()\ntry q.Pop()", "let g = task.Go\nlet t = g() { try q.Push(3) }\ntry t.Wait()\ntry q.Pop()", "let g = task.Go", true, 3},
+	{"Wait", "let t = task.Go() { try q.Pop() }\ntry q.Push(4)\ntry t.Wait()", "let t = task.Go() { try q.Pop() }\ntry q.Push(4)\nlet w = t.Wait\ntry w()", "let w = t.Wait", true, 4},
+	{"Stop", "let t = task.Go() { try q.Pop() }\nt.Stop()\n5", "let t = task.Go() { try q.Pop() }\nlet s = t.Stop\ns()\n5", "let s = t.Stop", false, 5},
+	{"Move", "let t = popper(q)\ntry q.Push(6)\ntry t.Wait()", "let p = popper\nlet t = p(q)\ntry q.Push(6)\ntry t.Wait()", "let p = popper", true, 6},
+	{"OnExit", "scope.OnExit() { q.Close() }\n8", "let o = scope.OnExit\no() { q.Close() }\n8", "let o = scope.OnExit", false, 8},
+	{"Push", "try q.Push(9)\ntry q.Pop()", "let push = q.Push\ntry push(9)\ntry q.Pop()", "let push = q.Push", true, 9},
+	{"Pop", "try q.Push(10)\nlet v = try q.Pop()\nv", "try q.Push(10)\nlet pop = q.Pop\ntry pop()", "let pop = q.Pop", true, 10},
+	{"Values", "try q.Push(5)\ntry q.Push(6)\nq.Close()\nlet mut n = 0\nfor v in q.Values() {\nn += v\n}\nn", "try q.Push(5)\ntry q.Push(6)\nq.Close()\nlet vs = q.Values\nlet mut n = 0\nfor v in vs() {\nn += v\n}\nn", "let vs = q.Values", true, 11},
+	{"Close", "q.Close()\n12", "let c = q.Close\nc()\n12", "let c = q.Close", false, 12},
+	{"Closed", "q.Close()\nlet v = q.Pop() catch {\ncase queue.Closed: 13\n}\nv", "q.Close()\nlet pop = q.Pop\nlet v = pop() catch {\ncase queue.Closed: 13\n}\nv", "let pop = q.Pop", false, 13},
+}
+
+var stdSites = []string{"direct", "funcvalue", "value", "literal", "taskbody", "provider"}
+
+// stdChecks is the model of the checker over the std grid: a std function
+// (task.Go, scope.OnExit) is generic, so it is only called or instantiated,
+// and a Task's operation taken as a value would let the Task leave its
+// function other than by return (runtime.md, Tasks). Every other pair
+// checks.
+func stdChecks(op stdOp, site string) bool {
+	if site != "value" {
+		return true
+	}
+	switch op.name {
+	case "GoValue", "GoNoValue", "OnExit", "Wait", "Stop":
+		return false
+	}
+	return true
+}
+
+// stdFunc is the pair's declarations and its run function, which prints
+// the pair's id and the work's result.
+func stdFunc(op stdOp, site string) (id, code string) {
+	id = "Std" + op.name + strings.ToUpper(site[:1]) + site[1:]
+	const sig = "(q queue.Queue[int]) int fails queue.Closed"
+	var b strings.Builder
+	var call string
+	switch site {
+	case "direct", "funcvalue", "value":
+		body := op.body
+		if site == "value" {
+			body = op.value
+		}
+		fmt.Fprintf(&b, "func %sWork%s {\n%s\n}\n", id, sig, body)
+		call = "let r = try " + id + "Work(q)"
+		if site == "funcvalue" {
+			call = "let f = " + id + "Work\nlet r = try f(q)"
+		}
+	case "literal":
+		call = "let f = func() int fails queue.Closed {\n" + op.body + "\n}\nlet r = try f()"
+	case "taskbody":
+		wait := "t.Wait()"
+		if op.fails {
+			wait = "try " + wait
+		}
+		call = "let t = task.Go() {\n" + op.body + "\n}\nlet r = " + wait
+	case "provider":
+		fmt.Fprintf(&b, "type %sImpl {}\n\nfunc Run(i %sImpl, q queue.Queue[int]) int fails queue.Closed {\n%s\n}\n", id, id, op.body)
+		call = "let p Runner = " + id + "Impl\nlet r = try p.Run(q)"
+	default:
+		panic("unknown std site: " + site)
+	}
+	fmt.Fprintf(&b, "\nfunc %s() fails queue.Closed needs Console {\nlet q = queue.New[int](4)\n%s\nConsole.Println(\"%s \\(r)\")\n}\n", id, call, id)
+	return id, b.String()
+}
+
+// stdProgram assembles one program from pair functions: the imports its
+// code uses, the operation type Runner, the Task-returning popper, and a
+// main that runs each pair in order.
+func stdProgram(ids, funcs []string) string {
+	code := strings.Join(funcs, "\n")
+	var b strings.Builder
+	b.WriteString("import queue\nimport task\n")
+	if strings.Contains(code, "scope.") {
+		b.WriteString("import scope\n")
+	}
+	b.WriteString("\ntype Runner { Run(q queue.Queue[int]) int fails queue.Closed }\n\n")
+	b.WriteString("func popper(q queue.Queue[int]) Task[int, queue.Closed] {\n\ttask.Go() { try q.Pop() }\n}\n\n")
+	b.WriteString(code)
+	b.WriteString("\nfunc main() fails queue.Closed needs Console {\n")
+	for _, id := range ids {
+		b.WriteString("\ttry " + id + "()\n")
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// stdGrid checks and lowers each pair of the std grid, and returns one
+// program per site of the pairs that lower, with the output each prints.
+func stdGrid(t *testing.T) ([]*lowered, map[string]string) {
+	t.Helper()
+	var programs []*lowered
+	want := map[string]string{}
+	for _, site := range stdSites {
+		var ids, funcs, lines []string
+		refused, unchecked := 0, 0
+		for _, op := range stdOps {
+			id, code := stdFunc(op, site)
+			src := stdProgram([]string{id}, []string{code})
+			o := lowerSource(id, src, true)
+			if o.err != nil {
+				t.Errorf("%s: %v\n%s", id, o.err, src)
+				continue
+			}
+			checked := len(o.diags) == 0
+			if model := stdChecks(op, site); checked != model {
+				t.Errorf("%s: checked %v, the std model says %v; diagnostics %s\n%s", id, checked, model, diagText(o.diags), src)
+				continue
+			}
+			if !checked {
+				srcLines := strings.Split(src, "\n")
+				d := o.diags[0]
+				if d.Line < 1 || d.Line > len(srcLines) || !strings.Contains(srcLines[d.Line-1], op.at) {
+					t.Errorf("%s: want the first diagnostic on the line with %q, got %s\n%s", id, op.at, diagText(o.diags), src)
+				}
+				unchecked++
+				continue
+			}
+			if o.panicked != nil {
+				t.Errorf("%s: checked, lowering panicked: %v\n%s", id, o.panicked, src)
+				continue
+			}
+			if len(o.refused) > 0 {
+				for _, r := range o.refused {
+					if why := undeferred(r.Message); why != "" {
+						t.Errorf("%s: checked, lowering refused at %d:%d with %s: %q\n%s", id, r.Line, r.Column, why, r.Message, src)
+					}
+				}
+				t.Logf("%s: refused naming its owner: %s", id, o.refused[0].Message)
+				refused++
+				continue
+			}
+			ids = append(ids, id)
+			funcs = append(funcs, code)
+			lines = append(lines, fmt.Sprintf("%s %d", id, op.want))
+		}
+		t.Logf("std %s: %d pairs run, %d refused naming their owner, %d refused by the checker as the model says", site, len(ids), refused, unchecked)
+		if len(ids) == 0 {
+			continue
+		}
+		name := "std" + site
+		programs = append(programs, mustLower(t, name, stdProgram(ids, funcs)))
+		want[name] = strings.Join(lines, "\n") + "\n"
+	}
+	return programs, want
 }
 
 func diagText(ds []check.Diagnostic) string {

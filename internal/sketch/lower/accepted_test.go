@@ -95,14 +95,14 @@ var refusalReasons = []struct {
 	// A Task held inside another type or through a type argument (stage D3b
 	// lowers a Task returned as itself), and the std forms with no
 	// runtime/v1 body.
-	{"Task:nested", regexp.MustCompile(`^(a call whose result holds a Task|the function \S+ used as a value returns a Task|an operation provided by \S+, whose result holds a Task|a function whose result holds a Task inside another type) .*check-v1 stage E`)},
+	{"Task:nested", regexp.MustCompile(`^(a call whose result holds a Task|the function \S+ used as a value returns a Task|an operation provided by \S+, whose result holds a Task|a function whose result holds a Task inside another type|a method value of an operation that returns a Task) .*check-v1 stage E`)},
 	{"std:unlowered", regexp.MustCompile(`^(a value of the program converted to the std type \S+|a call that needs a frame scope .+ outside a function body|the std type \S+ is) lowered after check-v1 stage E`)},
 	{"TypeDecl:constraint", regexp.MustCompile(`^the constraint .+ of \S+ is lowered after check-v1 stage E`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported wire is lowered after check-v1 stage B`)},
 	{"FuncValue:instantiation", regexp.MustCompile(`^the generic function \S+ used as a value has a type parameter \S+ that no parameter names; its instantiation needs a check-v1 Info fact \(lower-v1 request\)`)},
 	{"IndexExpr:instantiation", regexp.MustCompile(`^an explicit instantiation used as a value is lowered after check-v1 stage E`)},
 	{"IndexExpr:Map", regexp.MustCompile(`^(a Map index|assignment to a Map entry) is lowered after check-v1 stage D`)},
-	{"FuncType:tuple", regexp.MustCompile(`^(several results are|a function type with several results is|an operation with several results is|a literal with several results is) a tuple, (which lowering supports|lowered) after check-v1 stage B`)},
+	{"FuncType:tuple", regexp.MustCompile(`^(several results are|a function type with several results is|an operation with several results is|a literal with several results is|a method value with several results is) a tuple, (which lowering supports|lowered) after check-v1 stage B`)},
 	{"ReturnStmt:tuple", regexp.MustCompile(`^returning several values is a tuple, lowered after check-v1 stage B`)},
 	{"CaseClause:duplicate", regexp.MustCompile(`check-v1 stage B reports such an arm as unreachable \(D-B4\)$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
