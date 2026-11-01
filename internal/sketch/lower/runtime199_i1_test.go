@@ -222,11 +222,11 @@ func i1Cases() []i1Case {
 				add := func(class, src string, want map[string]bool) {
 					out = append(out, i1Case{name: class + "/" + name, src: i1Defs + src + "func main() {}\n", want: want, site: v.site})
 				}
-				add("decl", "func subject("+ps+") int"+row+" {\n"+body+"sum\n}\n", map[string]bool{"decl": impure})
-				add("literal", "func subject("+ps+") int"+row+" {\nlet local = func() int"+row+" {\n"+body+"sum\n}\n"+try+"local()\n}\n", map[string]bool{"lit": impure})
-				add("task", "func subject("+ps+") int"+row+" {\nlet t = task.Go() {\n"+body+"sum\n}\n"+try+"t.Wait()\n}\n", map[string]bool{"lit": impure})
-				if cl.provider && !seq && !v.fail {
-					add("provider", "type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n"+body+"sum\n}\nlet Work = wire { Worker: Impl }\nfunc subject() int {\nwith Work {\nWorker.Run(1)\n}\n}\n", map[string]bool{"decl": impure})
+				for _, frame := range i1FrameKinds {
+					if !frame.params && (!cl.provider || seq || v.fail || ps != "" || row != "") {
+						continue
+					}
+					add(frame.name, frame.program(ps, row, try, body+"sum\n"), map[string]bool{frame.goClass: impure})
 				}
 				if cl.name == "pure" && !seq && !v.fail && !v.site {
 					// Nested frames of opposite footprints: an impure
@@ -245,24 +245,7 @@ func i1Cases() []i1Case {
 // statements of the frame inside, which end in an int, and gives the
 // statements of the frame around it, which end in an int. A with region
 // runs in the frame around it; the others are frames of their own.
-var i1Wraps = []struct {
-	name  string
-	frame bool
-	wrap  func(d int, inner string) string
-}{
-	{name: "literal", frame: true, wrap: func(d int, inner string) string {
-		return fmt.Sprintf("let local%d = func() int {\n%s}\nlocal%d()\n", d, inner, d)
-	}},
-	{name: "task", frame: true, wrap: func(d int, inner string) string {
-		return fmt.Sprintf("let t%d = task.Go() {\n%s}\nt%d.Wait()\n", d, inner, d)
-	}},
-	{name: "trailing", frame: true, wrap: func(_ int, inner string) string {
-		return "run() {\n" + inner + "}\n"
-	}},
-	{name: "with", wrap: func(_ int, inner string) string {
-		return "with Local {\n" + inner + "}\n"
-	}},
-}
+var i1Wraps = i1NestingFrames()
 
 // i1NestCases generates the frame-nesting axis (I1.2: a point checks its
 // own frame's task, at every depth): every sequence of two or three frame
@@ -309,16 +292,25 @@ func i1NestCases() []i1Case {
 				if l.seq {
 					params = l.param
 				}
-				src := i1Body(cl.prefix, []i1Loop{l}, v, cl.site) + "sum\n"
+				inner := i1Body(cl.prefix, []i1Loop{l}, v, cl.site) + "sum\n"
 				for d := len(seq) - 1; d >= 0; d-- {
-					src = i1Wraps[seq[d]].wrap(d, src)
-				}
-				src = "func subject(" + params + ") int {\n" + src + "}\n"
-				if trailing {
-					src = "func run(f func() int) int { f() }\n" + src
+					inner = i1Wraps[seq[d]].wrap(d, inner)
 				}
 				name := fmt.Sprintf("nest/%s/%s/%s/%s", strings.Join(names, ">"), cl.name, l.name, v.name)
-				out = append(out, i1Case{name: name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{class: cl.impure || l.seq}, site: v.site})
+				for _, frame := range i1FrameKinds {
+					if !frame.params && (params != "" || !cl.provider) {
+						continue
+					}
+					src := frame.program(params, "", "", inner)
+					if trailing && frame.name != "trailing" {
+						src = "func run(f func() int) int { f() }\n" + src
+					}
+					goClass := class
+					if class == "decl" {
+						goClass = frame.goClass
+					}
+					out = append(out, i1Case{name: "nest-" + frame.name + "/" + name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{goClass: cl.impure || l.seq}, site: v.site})
+				}
 			}
 		}
 	}
@@ -333,7 +325,12 @@ func TestRuntime199I1Property(t *testing.T) {
 	for _, c := range cases {
 		classes[strings.SplitN(c.name, "/", 2)[0]]++
 	}
-	for _, class := range []string{"decl", "literal", "task", "provider", "impure-parent", "pure-parent", "trailing", "with-body", "recursion", "nest"} {
+	for _, frame := range i1FrameKinds {
+		if classes[frame.name] == 0 || classes["nest-"+frame.name] == 0 {
+			t.Errorf("frame class %s missing from ordinary or nesting axis", frame.name)
+		}
+	}
+	for _, class := range []string{"impure-parent", "pure-parent", "with-body", "recursion"} {
 		if classes[class] == 0 {
 			t.Errorf("no generated case of the frame class %s", class)
 		}
@@ -382,20 +379,16 @@ func i1BlockCases() []i1Case {
 					continue
 				}
 				body := i1Body(cl.prefix, shape, v, cl.site)
-				row, try := "", ""
+				row := ""
 				if v.fail {
-					row, try = " fails Fault", "try "
+					row = " fails Fault"
 				}
 				if cl.needs {
 					row += " needs Probe"
 				}
 				ps := strings.Join(params, ", ")
 				name := fmt.Sprintf("%s/%s/%s", cl.name, strings.Join(names, "+"), v.name)
-				add := func(class, src string, want map[string]bool) {
-					out = append(out, i1Case{name: class + "/" + name, src: i1Defs + src + "func main() {}\n", want: want, site: v.site})
-				}
-				add("trailing", "func run(f func() int"+row+") int"+row+" {\n"+try+"f()\n}\nfunc subject("+ps+") int"+row+" {\n"+try+"run() {\n"+body+"sum\n}\n}\n", map[string]bool{"lit": impure})
-				add("with-body", "func subject("+ps+") int"+row+" {\nwith Local {\n"+body+"sum\n}\n}\n", map[string]bool{"decl": impure})
+				out = append(out, i1Case{name: "with-body/" + name, src: i1Defs + "func subject(" + ps + ") int" + row + " {\nwith Local {\n" + body + "sum\n}\n}\nfunc main() {}\n", want: map[string]bool{"decl": impure}, site: v.site})
 			}
 		}
 	}
@@ -518,6 +511,7 @@ var i1Effects = []struct{ name, row, clause string }{
 	{name: "capability", row: " needs Probe", clause: "if n < 0 { Probe.Tick() }\n"},
 	{name: "own-with", clause: "if n < 0 { with Local { Probe.Tick() } }\n"},
 	{name: "opaque", clause: "if n < 0 { let xs = []int{}; let _ = xs.Append(1) }\n"},
+	{name: "scope", clause: "if n < 0 { let t0 = task.Go() { 1 }; t0.Stop() }\n"},
 }
 
 // i1RecursionCases varies the call graph independently of the footprint:
@@ -537,7 +531,7 @@ func i1RecursionCases() []i1Case {
 				entries[f] = want
 			}
 			if !g.provider {
-				entries["subject"] = e.name == "opaque" || g.opaque
+				entries["subject"] = e.name == "opaque" || e.name == "scope" || g.opaque
 			}
 			src := g.decls(e.row, e.clause) + "func subject() int" + e.row + " {\n" + fmt.Sprintf(g.call, 3) + "\n}\nfunc main() {}\n"
 			out = append(out, i1Case{name: "recursion/" + g.name + "/" + e.name, src: i1Defs + src, entries: entries, want: map[string]bool{"decl": want}})
@@ -568,6 +562,7 @@ func i1GoFrame(fd *ast.FuncDecl) string {
 func i1CheckFacts(t *testing.T, o *lowered) {
 	t.Helper()
 	info := o.pkg.Info
+	i1RequireFrameClasses(t, o)
 	for _, call := range info.Calls {
 		if call.Kind < 0 || call.Kind >= check.CallKindCount || call.Kind == check.CallPrelude {
 			t.Errorf("checker produced retired or unknown call kind %d", call.Kind)
@@ -649,7 +644,11 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		}
 		if want, ok := c.entries[i1GoFrame(fd)]; ok {
 			entries++
-			got := len(fd.Body.List) > 0 && isOwnCheck(fd.Body.List[0], i1EnvParam(fd.Type))
+			list := fd.Body.List
+			if len(list) >= 2 && i1OpensScope(list[0], list[1], i1EnvParam(fd.Type)) {
+				list = list[2:]
+			}
+			got := len(list) > 0 && isOwnCheck(list[0], i1EnvParam(fd.Type))
 			if got != want {
 				t.Errorf("%s entry poll = %v, want %v\nGo:\n%s", i1GoFrame(fd), got, want, stripDirectives(code))
 			}
@@ -1126,6 +1125,11 @@ func i1LivePrograms() map[string]string {
 			// The shape alone must force entry checks. A separate
 			// capability effect could hide an opacity regression.
 			e = i1Effects[0]
+		}
+		if g.name == "op-value" {
+			// An operation value is the only re-entry edge. Its own
+			// with gives an empty row and no reachable capability poll.
+			e = i1Effects[2]
 		}
 		out["recursion-"+g.name] = work(g.decls(e.row, e.clause), "with Local {\n"+fmt.Sprintf(g.call, 90)+"\n}\n")
 	}
