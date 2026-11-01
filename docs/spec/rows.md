@@ -89,6 +89,7 @@ Status: **implemented in prototype** (#199 stage 1): the checker records each fr
    - Making a function literal runs nothing: its body counts for the frames that call it, never for the frame that writes it. A literal called where it is written counts there.
    - A call of a function of the package joins the callee's footprint, and recursive functions join to the least fixpoint, so a mutually recursive pair that calls a capability is impure and a pure pair is pure. A call of an imported function joins the footprint its package recorded.
    - A call is opaque, and so impure, when the compiler cannot see its body: a function value, an operation of an operation-type value (a queue's `Push`, a `Task`'s `Wait`), a host function (its body is Go, so `xs.Append(1)` counts too; follow-up: a host purity declaration), and a for-in over a `Seq`, which calls the Seq.
+   - A read of a context value (`trace.Current`, `log.Annotation`; [runtime.md, G1](runtime.md#g1-context-through-with)) has empty rows but reads the running task through a host function, so it is opaque and its frame is impure. A `with` of a context value adds only its operand's footprint and the protocol functions it calls, which are pure: opening and restoring the region is not an effect of the frame.
    - The checker also records frame-local `Footprint.EntryPoll`: an impure frame polls at entry if its call-graph component has several members or a self-edge, or if its footprint is opaque, since unknown code may re-enter it. Opaque effects propagate through known calls; entry placement itself does not. Pure recursive frames get no poll. Only frames whose bodies were walked have a `Footprints` entry; lowering treats an absent entry as a checker bug, never as purity.
 4. **Capability safety.** Only providers in host packages call Go. Ordinary code reaches the operating system only through a capability, so every effect appears in some footprint ([stdlib.md](stdlib.md#host-packages)).
 5. A function value whose row names a capability bound by `with` cannot escape that `with`. *Prior art:* Scala 3 capture checking and scoped capabilities; Effekt second-class blocks. A purity-carrying function type stays a candidate for [#189](https://github.com/cevr/ergo/issues/189).
@@ -119,7 +120,7 @@ let Live = wire {
 
 ## With
 
-Status: **checked** (#196) for one wire argument; runs. Context values are **designed, not yet implemented**: S109 naming G1.
+Status: **checked** (#196) for one wire argument; runs. A context value (rule 7) is **checked and runs** (#199 stage 4a).
 
 ```go
 let value = with Live { checkout(id) }
@@ -147,7 +148,7 @@ let local = with wire { Orders: MemoryOrders{} } { report(id) }
 4. `with wire {}` binds nothing and keeps the enclosing bindings (fixture `empty-wire`).
 5. When the `with` is used as a value, the block's value is its last expression statement; a `with` used as a statement needs none: its block's call tails are discarded, whatever their types, and a pure value tail is S110 (Totality 3, the statement-position rule). `return`, `break` and `continue` cannot leave the block (S108; [grammar.md](grammar.md#statements) rule 5). Locals declared in the block are scoped to it.
 6. A `with` expression is fallible when its last expression is fallible. A failure that a `try` in the block escapes goes to the enclosing function. Designed: the startup errors of the wire's constructors join the `with` expression's row.
-7. **Context values (designed, G1).** `with` also takes context values: `with trace.Span("ingest"), log.Annotate("region", "eu") { … }` ([runtime.md](runtime.md#g1-context-through-with)).
+7. **Context values (G1).** `with v { block }` also takes one context value, whose type satisfies the context-binding protocol (`contextKey(v) string` and `contextText(v) string` on the type, with empty rows): `with trace.Span("ingest") { with log.Annotate("region", "eu") { … } }` ([runtime.md](runtime.md#g1-context-through-with)). The operand is checked as an argument, in the enclosing frame, so its failures and capabilities are the enclosing ones. A context binding discharges no capability: the block's rows are the enclosing ones. An operand that is neither a wire nor a context value is S108, and a second operand is S109 (one operand per with in v1; nest one with per operand). The checker records the binding and its protocol functions for the lowering (`With.Context`).
 8. **Lowering.** `with` copies the environment and sets the wire's fields inline, with no closure. A named wire is its own Go function.
 
 *Prior art:* Effect `Effect.provide` with a layer; Go `context.WithValue`; Java `ScopedValue.where(…).run(…)`; Gleam has no provision construct, and dependencies are passed as arguments.

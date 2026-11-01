@@ -136,9 +136,17 @@ Status: **designed, not yet implemented** ([#69](https://github.com/cevr/ergo/is
 
 ### G1. Context through `with`
 
-1. `with` takes context values as well as wires: `with trace.Span("ingest"), log.Annotate("region", "eu") { … }`.
-2. A context value is immutable. Every task started inside the block inherits it. A restarted task inherits the values its factory captured.
-3. *Prior art:* Java `ScopedValue`; Effect `References`; Go `context.WithValue`, which has to be threaded by hand.
+Status: G1 is implemented for string values ([#199](https://github.com/cevr/ergo/issues/199) stage 4a). Restarted tasks (item 6) wait for supervision.
+
+1. `with` takes a context value as well as a wire: `with trace.Span("ingest") { with log.Annotate("region", "eu") { … } }`. A with takes one operand in v1; several operands are a follow-up, so each value gets its own nested with.
+2. A value is a context value when its type satisfies the context-binding protocol: two functions on the type, `func contextKey(v T) string` and `func contextText(v T) string`, each with no `needs` and no `fails`. The checker admits the operand by its type alone, by the rule every operation type uses ([types.md](types.md)), never by the package or the function that made the value. So a user type binds as `trace.Span` and `log.Annotate` do. The names are unexported: the protocol adds no exported declaration to a package. Any other operand that is not a wire is S109.
+3. The operand is evaluated once, in the enclosing frame, before the region opens. A failure or defect there leaves nothing bound and runs no block. The binding stores the protocol's text under its key, both strings.
+4. Inside the block the binding shadows an outer one of the same key. It is restored on every exit of the block: its normal end, a typed failure, a defect and a stop, the innermost region first. A wire with's `Close` runs with the regions around the with in force, not those inside it.
+5. A context value is immutable. A task started inside the block takes the values in force at its start and keeps them after the region ends. It never sees a binding that its parent or a sibling opens later, and its own bindings stay its own. The region owns no task: a task started in it belongs to the enclosing scope, as it would without the with. The values are kept only by the tasks that hold them.
+6. A restarted task inherits the values its factory captured.
+7. A read of a context value (`trace.Current`, `log.Annotation`) is effectful: its rows are empty, but it reads the running task, so its frame's footprint is not pure ([rows.md](rows.md#footprints)). A with of a context value itself adds nothing to a footprint.
+8. v1 values are strings. Typed payloads, mutable reference payloads and the rest of the trace and log APIs ([#206](https://github.com/cevr/ergo/issues/206)) are follow-ups.
+9. *Prior art:* Java `ScopedValue.where(k, v).run(…)`, whose binding children inherit through `StructuredTaskScope`; Effect `References` and `FiberRef` locally; Kotlin `withContext`; Go `context.WithValue`, which has to be threaded by hand.
 
 ### G2. Fork-tree defects
 
