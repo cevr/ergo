@@ -218,6 +218,56 @@ func namedA() { with W { onlyA() } }
 func embeddedA() { with wire { W } { onlyA() } }
 func nestedA() { with wire { V } { onlyA() } }
 `
+	checkFootprints(t, src, map[string]string{
+		"idle": "pure", "onlyA": "pure", "mk": "A",
+		"named": "A", "embedded": "A", "nested": "A", "namedTwice": "A", "own": "A",
+		"namedA": "A", "embeddedA": "pure", "nestedA": "pure",
+	})
+}
+
+// #199 stage 3c r2 M1: a with also runs, when its block ends, the Close of
+// each provider it acquired (Acquisition.Close), in its own frame. PR's
+// Close uses A, so each spelling of a with that acquires PR has A in its
+// footprint although its block and constructor are pure. A pure Close adds
+// nothing, and a provider the block never reaches is neither built nor
+// released.
+func TestFootprintsWithReleases(t *testing.T) {
+	src := `type A { Use() }
+type R { Use() }
+type Q { Use() }
+type PX {}
+type PR {}
+type PQ {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Use(_ PQ) {}
+func Close(_ PR) needs A { A.Use() }
+func Close(_ PQ) {}
+func idle() needs R {}
+func idleQ() needs Q {}
+func onlyA() needs A {}
+let WR = wire { R: PR }
+let VR = wire { WR }
+let WQ = wire { Q: PQ }
+func inline() needs A { with wire { R: PR } { idle() } }
+func named() needs A { with WR { idle() } }
+func embedded() needs A { with wire { WR } { idle() } }
+func nested() needs A { with wire { VR } { idle() } }
+func pureClose() { with wire { Q: PQ } { idleQ() } }
+func pureNamed() { with WQ { idleQ() } }
+func unreached() needs A { with wire { WR } { onlyA() } }
+`
+	checkFootprints(t, src, map[string]string{
+		"idle": "pure", "idleQ": "pure", "onlyA": "pure",
+		"inline": "A", "named": "A", "embedded": "A", "nested": "A",
+		"pureClose": "pure", "pureNamed": "pure", "unreached": "pure",
+	})
+}
+
+// checkFootprints checks src and compares each named function's footprint
+// with want.
+func checkFootprints(t *testing.T, src string, want map[string]string) {
+	t.Helper()
 	file, err := syntax.Parse(src)
 	if err != nil {
 		t.Fatal(err)
@@ -225,11 +275,6 @@ func nestedA() { with wire { V } { onlyA() } }
 	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
 	if len(diags) > 0 {
 		t.Fatalf("diagnostics: %v", diags)
-	}
-	want := map[string]string{
-		"idle": "pure", "onlyA": "pure", "mk": "A",
-		"named": "A", "embedded": "A", "nested": "A", "namedTwice": "A", "own": "A",
-		"namedA": "A", "embeddedA": "pure", "nestedA": "pure",
 	}
 	for _, f := range pkg.Funcs {
 		w, ok := want[f.Name]

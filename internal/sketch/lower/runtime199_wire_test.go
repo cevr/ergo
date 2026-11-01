@@ -606,12 +606,14 @@ func TestRuntime199WireProperty(t *testing.T) {
 	}
 }
 
-// checkWithFootprints asserts, for every with in o, that each provider of
-// its With.Acquired fact (the providers the lowering builds) contributes
-// its footprint to the frame the with runs in (runtime-199 stage 3c r1 M1):
-// each capability call and each user call of the provider expression is in
-// the enclosing frame's Info.Footprints entry. It returns how many acquired
-// providers had a non-empty footprint, so a caller can see it is not vacuous.
+// checkWithFootprints asserts, for every with in o, that everything the
+// lowering runs for each entry of its With.Acquired fact contributes its
+// footprint to the frame the with runs in (runtime-199 stage 3c r1 M1, r2
+// M1 and m2): the provider expression, with each capability call, each
+// call of a function or method, each nested with's acquisitions and each
+// call of unknown code, and the provider's Close (Acquisition.Close), which
+// the with runs when its block ends. It returns how many acquisitions had a
+// non-empty footprint, so a caller can see it is not vacuous.
 func checkWithFootprints(t *testing.T, o *lowered) int {
 	t.Helper()
 	info := o.pkg.Info
@@ -641,6 +643,56 @@ func checkWithFootprints(t *testing.T, o *lowered) int {
 		}
 		return true
 	}
+	join := func(inner *check.Footprint, key syntax.Node) {
+		g, ok := info.Footprints[key]
+		if !ok {
+			inner.Opaque = true
+			return
+		}
+		inner.Caps = append(inner.Caps, g.Caps...)
+		inner.Opaque = inner.Opaque || g.Opaque
+		inner.Tasks = inner.Tasks || g.Tasks
+	}
+	// acquisition adds what the lowering runs for a: its constructor's
+	// expression and its Close.
+	var acquisition func(inner *check.Footprint, a *check.Acquisition)
+	acquisition = func(inner *check.Footprint, a *check.Acquisition) {
+		if cl := a.Close; cl != nil {
+			if cl.Func == nil || cl.Func.Decl == nil {
+				inner.Opaque = true
+			} else {
+				join(inner, cl.Func.Decl)
+			}
+		}
+		syntax.Inspect(a.Entry.Provider, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.FuncLit:
+				return false
+			case *syntax.CallExpr:
+				c := info.Calls[n]
+				switch {
+				case c == nil:
+					inner.Opaque = true
+				case c.Kind == check.CallConversion || c.Kind == check.CallLen || c.Kind == check.CallPrelude:
+				case c.Kind == check.CallProviderOp:
+					if sel, ok := n.Fun.(*syntax.SelectorExpr); ok {
+						inner.Caps = append(inner.Caps, info.Types[sel.X])
+					} else {
+						inner.Opaque = true
+					}
+				case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil:
+					join(inner, c.Func.Decl)
+				case c.Kind == check.CallWith && info.Withs[n] != nil:
+					for _, b := range info.Withs[n].Acquired {
+						acquisition(inner, b)
+					}
+				default:
+					inner.Opaque = true
+				}
+			}
+			return true
+		})
+	}
 	counted := 0
 	syntax.Inspect(o.file, func(n syntax.Node) bool {
 		x, ok := n.(*syntax.CallExpr)
@@ -654,31 +706,7 @@ func checkWithFootprints(t *testing.T, o *lowered) int {
 		key, outer := frame(x)
 		for _, a := range w.Acquired {
 			var inner check.Footprint
-			syntax.Inspect(a.Entry.Provider, func(n syntax.Node) bool {
-				switch n := n.(type) {
-				case *syntax.FuncLit:
-					return false
-				case *syntax.CallExpr:
-					c := info.Calls[n]
-					switch {
-					case c == nil:
-						inner.Opaque = true
-					case c.Kind == check.CallProviderOp:
-						if sel, ok := n.Fun.(*syntax.SelectorExpr); ok {
-							inner.Caps = append(inner.Caps, info.Types[sel.X])
-						}
-					case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil:
-						if g, ok := info.Footprints[c.Func.Decl]; ok {
-							inner.Caps = append(inner.Caps, g.Caps...)
-							inner.Opaque = inner.Opaque || g.Opaque
-							inner.Tasks = inner.Tasks || g.Tasks
-						} else {
-							inner.Opaque = true
-						}
-					}
-				}
-				return true
-			})
+			acquisition(&inner, a)
 			if !inner.Empty() {
 				counted++
 			}
@@ -742,6 +770,83 @@ func main() { work() }
 		}
 		text = strings.Replace(text, hook, hook+"\tenv.task.Interrupt()\n", 1)
 		text = strings.Replace(text, end, end+"\tpanic(\"BAD: stopped work returned after three back-edges\")\n", 1)
+		for i := range o.files {
+			if o.files[i].Path == "main.go" {
+				o.files[i].Data = []byte(text)
+			}
+		}
+	}
+	if testing.Short() {
+		return
+	}
+	exes := buildAll(t, twins, true)
+	if exes == nil {
+		t.FailNow()
+	}
+	for _, o := range twins {
+		stdout, stderr, code := runExe(t, exes[o.name])
+		if code != 130 || strings.Contains(stderr, "BAD:") {
+			t.Errorf("%s: exit=%d stdout=%q stderr=%q; want exit 130, stopped at a checkpoint before work returns", o.name, code, stdout, stderr)
+		}
+	}
+}
+
+// A with runs the Close of each provider it acquired when its block ends,
+// in its own frame, so the frame's footprint holds the Close's footprint
+// (stage 3c r2 M1), in each spelling. idle and PR's constructor are pure;
+// PR's Close uses A, whose PX.Use asks the running task to stop. The
+// release does not observe the stop, so a stopped work must reach a
+// checkpoint in its loop and never return. Without the Close's footprint
+// work was pure, its loop had no checkpoint, and it returned.
+func TestRuntime199WireCloseFootprint(t *testing.T) {
+	const src = `type A { Use() }
+type R { Use() }
+type PX {}
+type PR {}
+func Use(_ PX) {}
+func Use(_ PR) {}
+func Close(_ PR) needs A { A.Use() }
+func idle() needs R {}
+func after() {}
+let WR = wire { R: PR }
+let VR = wire { WR }
+func work() needs A {
+	with wire { R: PR } { idle() }
+	for n in 0..3 {
+		let _ = n
+	}
+	after()
+}
+func main() { with wire { A: PX } { work() } }
+`
+	const spelling = "with wire { R: PR } {"
+	twins := []*lowered{
+		mustLower(t, "close_inline", src),
+		mustLower(t, "close_named", strings.Replace(src, spelling, "with WR {", 1)),
+		mustLower(t, "close_embedded", strings.Replace(src, spelling, "with wire { WR } {", 1)),
+		mustLower(t, "close_nested", strings.Replace(src, spelling, "with wire { VR } {", 1)),
+	}
+	for _, o := range twins {
+		if checkWithFootprints(t, o) == 0 {
+			t.Errorf("%s: no acquisition has a footprint", o.name)
+		}
+		for _, d := range o.file.Decls {
+			if f, ok := d.(*syntax.FuncDecl); ok && f.Name.Name == "work" {
+				if got := o.pkg.Info.Footprints[f]; len(got.Caps) != 1 || got.Caps[0].String() != "main.A" || got.Opaque || got.Tasks {
+					t.Errorf("%s: work's footprint %+v, want A", o.name, got)
+				}
+			}
+		}
+		// The test seam: PX.Use interrupts the task; reaching the call of
+		// after, past the three back-edges and before work's frame ends,
+		// panics with a sentinel.
+		text := o.mainGo()
+		const hook, end = "func (_p PX) Use(env *Env) {\n", "\tafter(env)\n"
+		if strings.Count(text, hook) != 1 || strings.Count(text, end) != 1 {
+			t.Fatalf("%s: the seam drifted:\n%s", o.name, text)
+		}
+		text = strings.Replace(text, hook, hook+"\tenv.task.Interrupt()\n", 1)
+		text = strings.Replace(text, end, "\tpanic(\"BAD: stopped work passed three back-edges\")\n", 1)
 		for i := range o.files {
 			if o.files[i].Path == "main.go" {
 				o.files[i].Data = []byte(text)

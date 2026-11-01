@@ -212,7 +212,29 @@ func (fp *footprinter) entry(e *WireEntry) *fpNode {
 	return en
 }
 
-// with adds what the lowering runs to build a with's providers, read from
+// with adds what the lowering runs for a with in n's frame: the
+// construction of its providers and, when its block ends, the release of
+// each acquired provider that has a Close (Scope.EndWith runs each
+// With.Acquired[i].Close in this frame, whatever the wire's spelling).
+func (fp *footprinter) with(n *fpNode, w *With) {
+	if len(w.Wires) == 0 {
+		return
+	}
+	fp.build(n, w)
+	for _, a := range w.Acquired {
+		if a.Close == nil {
+			continue
+		}
+		if a.Close.Func == nil {
+			// An operation of the provider's type: unknown code.
+			n.opaque = true
+			continue
+		}
+		fp.runs(n, a.Close.Func, false)
+	}
+}
+
+// build adds what the lowering runs to build a with's providers, read from
 // the facts the lowering reads. `with W` calls W's builder frame, whose
 // node joins every provider W binds (fp.wire), a superset of the with's
 // With.Acquired entries. An inline wire builds its With.Acquired entries
@@ -222,10 +244,7 @@ func (fp *footprinter) entry(e *WireEntry) *fpNode {
 // omit a provider that `with W` counts. An imported entry joins its
 // wire's recorded footprint. A wire whose bindings are unknown, or an
 // entry with no known wire, is opaque.
-func (fp *footprinter) with(n *fpNode, w *With) {
-	if len(w.Wires) == 0 {
-		return
-	}
+func (fp *footprinter) build(n *fpNode, w *With) {
 	root := w.Wires[0]
 	switch {
 	case root.unknown || root.binds == nil:
@@ -325,25 +344,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		}
 		n.opaque = true
 	case CallFunc:
-		f := c.Func
-		switch {
-		case f == nil || f.Decl == nil:
-			n.opaque = true
-		case f.Decl.Extern != nil || f.Decl.Body == nil:
-			// A host function: its body is Go.
-			n.opaque = true
-			n.tasks = n.tasks || c.TaskResult
-		case f.Pkg == fp.pkg:
-			n.edges = append(n.edges, fp.node(f.Decl))
-		default:
-			if f.Pkg != nil && f.Pkg.Info != nil {
-				if g, ok := f.Pkg.Info.Footprints[f.Decl]; ok {
-					n.join(g)
-					return
-				}
-			}
-			n.opaque = true
-		}
+		fp.runs(n, c.Func, c.TaskResult)
 	case CallFuncValue:
 		if lit, ok := unparen(x.Fun).(*syntax.FuncLit); ok {
 			// A literal called where it is written runs its body here.
@@ -364,6 +365,30 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		fp.with(n, w)
 	default:
 		panic(fmt.Sprintf("check: unknown call kind %d in footprint", c.Kind))
+	}
+}
+
+// runs adds a run of the function f to n: an edge to its node when it is
+// a function of the package, the footprint its package recorded when it
+// is imported, and opaque when its body is unknown. A host function's
+// body is Go; taskResult reports that its result holds a Task.
+func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
+	switch {
+	case f == nil || f.Decl == nil:
+		n.opaque = true
+	case f.Decl.Extern != nil || f.Decl.Body == nil:
+		n.opaque = true
+		n.tasks = n.tasks || taskResult
+	case f.Pkg == fp.pkg:
+		n.edges = append(n.edges, fp.node(f.Decl))
+	default:
+		if f.Pkg != nil && f.Pkg.Info != nil {
+			if g, ok := f.Pkg.Info.Footprints[f.Decl]; ok {
+				n.join(g)
+				return
+			}
+		}
+		n.opaque = true
 	}
 }
 
