@@ -22,6 +22,12 @@ type typeCtx struct {
 // type-kinded arguments; a function type is the uniform function value
 // (funcType).
 func (tc *typeCtx) goType(t check.Type) string {
+	if t == check.NoValue {
+		// A type parameter bound by a block with no value stands for no
+		// value, lowered to struct{} (types.md, Inference): task.Go's T in
+		// task.Go() { work() }, whose Wait returns struct{}{}, discarded.
+		return "struct{}"
+	}
 	switch t := t.(type) {
 	case *check.Basic:
 		switch t.Kind {
@@ -35,6 +41,15 @@ func (tc *typeCtx) goType(t check.Type) string {
 		// A std type is the runtime's Go type (stage D3b; std.go).
 		name := tc.l.runtimeType(t, tc.site)
 		if name == "" {
+			for _, a := range t.TArgs {
+				if a == check.NoValue {
+					// Go's instance keeps struct{} where the checked
+					// type's function types drop the result (a field
+					// func() T); a runtime type's operations adapt it
+					// (std.go), a declared type's are stage E's.
+					refuse(tc.site, "the type %s, a declared generic type whose type argument a block with no value binds, is lowered after check-v1 stage E", t)
+				}
+			}
 			name = tc.l.useType(tc.l.typeDecl(t.Obj, tc.site)).name
 		}
 		origin := t
@@ -82,7 +97,11 @@ func (tc *typeCtx) goType(t check.Type) string {
 	case *check.Interface:
 		refuse(tc.site, "the type %s is lowered after check-v1 stage E (no any, constraints)", t)
 	}
-	refuse(tc.site, "the type %s is not lowered yet", t)
+	// A Struct and a MachineType are only a Named type's underlying type,
+	// and a RowArg only a row parameter's argument, which Go erases; no
+	// value has another type (stage D3b round 1 review M2: this names no
+	// owner, so a checked program must never reach it).
+	ice(tc.site, "the type %s (%T) has no Go form", t, t)
 	return ""
 }
 

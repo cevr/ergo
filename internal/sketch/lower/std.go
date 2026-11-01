@@ -282,16 +282,26 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 	call, hasResult, fallible := fc.opCall(fc.typeOf(x.X), op, result, vals, e, nil, nil, x)
 	ind := strings.Repeat("\t", fc.depth)
 	fc.depth--
-	var body string
+	return "func(" + strings.Join(params, ", ") + ")" + fc.resultList(result, true) + " {\n" + uniformBody(ind, call, hasResult, result != nil, fallible) + strings.Repeat("\t", fc.depth) + "}"
+}
+
+// uniformBody is the body of a function value of the uniform shape
+// (typeCtx.funcType) that makes the Go call call: goVal and goErr are the
+// call's Go form (a value, an error), and value whether the function value
+// returns a value. A Go value the function value does not return is
+// struct{}, a no-value type argument's (types.md, Inference), discarded.
+func uniformBody(ind, call string, goVal, value, goErr bool) string {
 	switch {
-	case fallible:
-		body = ind + "return " + call + "\n"
-	case hasResult:
-		body = ind + "return " + call + ", nil\n"
-	default:
-		body = ind + call + "\n" + ind + "return nil\n"
+	case goVal && !value && goErr:
+		return ind + "_, err := " + call + "\n" + ind + "return err\n"
+	case goVal && !value:
+		return ind + "_ = " + call + "\n" + ind + "return nil\n"
+	case goErr:
+		return ind + "return " + call + "\n"
+	case goVal:
+		return ind + "return " + call + ", nil\n"
 	}
-	return "func(" + strings.Join(params, ", ") + ")" + fc.resultList(result, true) + " {\n" + body + strings.Repeat("\t", fc.depth) + "}"
+	return ind + call + "\n" + ind + "return nil\n"
 }
 
 // opCall is the Go call of the operation op on a value of the operation
@@ -305,7 +315,6 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 // x and c are the call, nil for a method value. It returns the text,
 // whether the call has a value, and whether its Go form returns an error.
 func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) (string, bool, bool) {
-	hasResult := len(op.Sig.Results) > 0
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
 		body := opBody(n, op.Name, len(vals)-1, site)
 		if x == nil {
@@ -318,7 +327,9 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 		text := fc.stdResult(body, result, env, site, func(env string) string {
 			return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env, site), vals[1:]...), ", ") + ")"
 		})
-		return text, hasResult, goFallible(body)
+		// The Go form decides: Wait on a Task[T] whose T is no value returns
+		// struct{}, which the caller discards (goValue).
+		return text, goValue(body), goFallible(body)
 	}
 	// The checker refuses every other way to reach a std operation: a type
 	// defined over a std operation type (S108 at the definition) and a
@@ -327,7 +338,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
 	rest := append([]string{env + "." + envTask}, vals[1:]...)
-	return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(rest, ", ") + ")", hasResult, len(rowElems(op.Sig.Errors)) > 0
+	return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(rest, ", ") + ")", len(op.Sig.Results) > 0, len(rowElems(op.Sig.Errors)) > 0
 }
 
 // defersCall reports a std body whose result defers its call: Go's
@@ -391,6 +402,17 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 // (funcCtx.call, from Info's Fails).
 func goFallible(body v1.Body) bool {
 	return len(body.Results) > 0 && body.Results[len(body.Results)-1] == "error"
+}
+
+// goValue reports whether a std body's Go form returns a value before its
+// error. A value whose Ergo type is no value (a Task[T] whose T a block
+// with no value bound) is struct{}, and the call site discards it.
+func goValue(body v1.Body) bool {
+	n := len(body.Results)
+	if goFallible(body) {
+		n--
+	}
+	return n > 0
 }
 
 // hiddenArgs are the hidden arguments of a std body at the call x, in the
@@ -459,16 +481,29 @@ func (fc *funcCtx) argSig(arg syntax.Expr, x *syntax.CallExpr) *check.Signature 
 	return s
 }
 
+// bindFunc binds a function value's Go text to a temporary unless it is a
+// Go function literal, which reads no variable when it is evaluated: an
+// adapter that calls the value later calls the value as it was here.
+func (fc *funcCtx) bindFunc(fv string) string {
+	if strings.HasPrefix(fv, "func(") {
+		return fv
+	}
+	return fc.spill(fv)
+}
+
 // adaptFunc adapts fv, an Ergo function value of the uniform shape
 // (typeCtx.funcType), to shape, a function parameter of a std body: its
 // hidden task runs fv on a copy of the environment that holds that task
 // (Rule 1: a task.Go body runs on the child's task); a Go function with no
 // results drops fv's error, which a checked block with no error row never
-// returns.
+// returns. fv is bound once, here, where the call is made: the adapter runs
+// later (a task.Go body runs on its own task), and a later assignment to
+// the variable fv names must not change the function it runs.
 func (fc *funcCtx) adaptFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
 	if len(shape.Params) != 0 || len(sig.Params) != 0 || len(sig.Results) > 1 {
 		ice(site, "a std function parameter with parameters of its own")
 	}
+	fv = fc.bindFunc(fv)
 	env := fc.envExpr(site)
 	ind := strings.Repeat("\t", fc.depth+1)
 	var params []string
@@ -498,10 +533,16 @@ func (fc *funcCtx) adaptFunc(fv string, shape *v1.Body, sig *check.Signature, si
 		}
 		results, body = " error", ind+"return "+call+"\n"
 	case 2:
-		if len(sig.Results) != 1 {
-			refuse(site, "a block with no value where the std function needs one is lowered after check-v1 stage E")
+		switch len(sig.Results) {
+		case 0:
+			// A block with no value binds the body's T to no value, which
+			// is struct{} (types.md, Inference; stage D3b round 1 review M2).
+			results, body = " (struct{}, error)", ind+"return struct{}{}, "+call+"\n"
+		case 1:
+			results, body = " ("+fc.goType(sig.Results[0])+", error)", ind+"return "+call+"\n"
+		default:
+			ice(site, "a std function parameter's block with %d results", len(sig.Results))
 		}
-		results, body = " ("+fc.goType(sig.Results[0])+", error)", ind+"return "+call+"\n"
 	default:
 		ice(site, "a std function parameter with %d results", len(shape.Results))
 	}

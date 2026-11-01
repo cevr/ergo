@@ -644,7 +644,9 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 		if _, _, ok := l.stdBody(fd); ok {
 			return fd // called at its site, its runtime/v1 body directly (stdCall)
 		}
-		refuse(site, "a call to the std function %s (extern go target %s, not a runtime/v1 body) is lowered after check-v1 stage E", f.Name, fd.extern)
+		// The missing piece is the runtime's, which runtime/** owns
+		// (stage D3b round 1 review m1): timeout.After.
+		refuse(site, "a call to the std function %s (extern go target %s) is lowered in lower-v1 (a runtime/v1 body for %s)", f.Name, fd.extern, f.Pkg.Name+"."+f.Name)
 	case fd.extern == "" && (f.Decl == nil || f.Decl.Body == nil):
 		refuse(site, "%s has no body, so it cannot be called", f.Name)
 	}

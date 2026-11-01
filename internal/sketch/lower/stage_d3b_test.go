@@ -395,13 +395,14 @@ func main() needs Console {
 `, "2 8\n")
 }
 
-// TestTimeoutAfterRefusedNamingStageE: timeout.After is the one std
+// TestTimeoutAfterRefusedNamingLowerV1: timeout.After is the one std
 // function that does not lower in stage D3b. Its Go body is runtime/rt.After,
 // which takes an rt.Scheduler (NewTimer) where the Ergo Scheduler is
 // Sleep-shaped, and fails with rt.Expired where timeout.Expired is a program
-// type; it needs a runtime/v1 body (a lower-v1 Follow-up). The refusal names
-// check-v1 stage E at the call.
-func TestTimeoutAfterRefusedNamingStageE(t *testing.T) {
+// type; it needs a runtime/v1 body, which runtime/** owns (a lower-v1
+// Follow-up). The refusal names that owner at the call (stage D3b round 1
+// review m1).
+func TestTimeoutAfterRefusedNamingLowerV1(t *testing.T) {
 	o := lowerSource("r", `import timeout
 
 func work() int { 1 }
@@ -416,8 +417,8 @@ func f() int fails timeout.Expired needs Scheduler {
 	if o.panicked != nil || len(o.refused) != 1 {
 		t.Fatalf("want one refusal; got refusals %v, panic %v, err %v", o.refused, o.panicked, o.err)
 	}
-	if r := o.refused[0]; r.Line != 6 || !strings.Contains(r.Message, "After") || !strings.Contains(r.Message, "check-v1 stage E") {
-		t.Fatalf("want a refusal of timeout.After on line 6 naming check-v1 stage E; got %+v", r)
+	if r := o.refused[0]; r.Line != 6 || !strings.Contains(r.Message, "lower-v1 (a runtime/v1 body for timeout.After)") {
+		t.Fatalf("want a refusal of timeout.After on line 6 naming lower-v1 (a runtime/v1 body for timeout.After); got %+v", r)
 	}
 }
 

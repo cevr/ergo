@@ -140,6 +140,122 @@ func TestErgoRunMethodValues(t *testing.T) {
 	runWithin(t, "methodvalues", methodValueProgram, "3 4 25\nmake 1\nmake 2\nstopped 1\n", 60*time.Second)
 }
 
+// noValueProgram binds a type parameter to no value with a block that has
+// none: task.Go's T (a Task whose Wait gives no value, with an empty and
+// with a written error row), and a declared generic function's T, through a
+// trailing block, a function literal, a declared function and a Task
+// argument.
+const noValueProgram = `import queue
+import task
+
+func run[T](f func() T) T {
+	f()
+}
+
+func twice[T](f func() T) T {
+	f()
+	f()
+}
+
+func spawn[T, E](f func() T fails E) Task[T, E] {
+	task.Go() { try f() }
+}
+
+func waitIt[T, E](t Task[T, E]) T fails E {
+	try t.Wait()
+}
+
+func bump() {
+}
+
+func main() fails queue.Closed needs Console {
+	let mut x = 0
+	let t = task.Go() { x += 100 }
+	t.Wait()
+	let q = queue.New[int](1)
+	let u = task.Go() { try q.Push(1) }
+	try u.Wait()
+	run() { x += 1 }
+	twice() { x += 10 }
+	run(func() { x += 1000 })
+	run(bump)
+	let s = spawn() { bump() }
+	waitIt(s)
+	let n = run() { 3 }
+	let v = spawn(func() int { 7 })
+	let m = waitIt(v)
+	let got = try q.Pop()
+	Console.Println("\(x) \(n) \(m) \(got)")
+}
+`
+
+// TestErgoRunNoValueTypeArgument: a type argument that a block with no
+// value binds lowers to struct{} (types.md, Inference): task.Go() { work() }
+// runs and Wait's struct{} is discarded, and a declared generic function's
+// func() T parameter takes the block through a wrapper that returns
+// struct{}{} (stage D3b round 1 review M2; before the repair task.Go was
+// refused with a message that named no owner).
+func TestErgoRunNoValueTypeArgument(t *testing.T) {
+	o := mustLower(t, "novalue", noValueProgram)
+	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, "ergo.Go[struct{}]") || !strings.Contains(goSrc, "run[struct{}]") {
+		t.Errorf("the no-value type argument is not struct{}:\n%s", goSrc)
+	}
+	runWithin(t, "novalue", noValueProgram, "1121 3 7 1\n", 60*time.Second)
+}
+
+// TestNoValueTypeArgumentRefusals: where Go's instance and the checked type
+// differ beyond a parameter func(…) T and a result T, the call or the type
+// is refused naming check-v1 stage E, never wrong Go: a declared generic
+// type instantiated with no value, and T inside another function type.
+func TestNoValueTypeArgumentRefusals(t *testing.T) {
+	cases := []struct {
+		name, src string
+		line, col int
+	}{
+		{"declared-type", "type Job[T] { Run func() T }\nfunc f() {\n\tlet j = Job{Run: func() {}}\n\tj.Run()\n}\n", 3, 2},
+		{"slice-of-funcs", "func all[T](fs []func() T) int { len(fs) }\nfunc f() int {\n\tall([]func(){func() {}})\n}\n", 3, 2},
+		{"func-result", "func later[T](f func() T) func() T { f }\nfunc f() {\n\tlet g = later() { }\n\tg()\n}\n", 3, 10},
+		{"func-param", "func outer[T](f func(g func() T) int) int { 0 }\nfunc f() int {\n\touter(func(h func()) int { 1 })\n}\n", 3, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := lowerSource("r", tc.src, false)
+			if len(o.diags) != 0 {
+				t.Fatalf("want a clean check; got %v", o.diags)
+			}
+			if o.panicked != nil || len(o.refused) == 0 {
+				t.Fatalf("want a refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
+			}
+			r := o.refused[0]
+			if r.Line != tc.line || r.Column != tc.col || !strings.Contains(r.Message, "no value") || !strings.Contains(r.Message, "check-v1 stage E") {
+				t.Fatalf("want a refusal at %d:%d of a no-value type argument naming check-v1 stage E; got %+v", tc.line, tc.col, r)
+			}
+		})
+	}
+}
+
+// TestErgoRunTaskBodyBoundAtGo: a function value passed to task.Go is
+// evaluated where task.Go is called; a later assignment to its variable
+// does not change what the task runs (the common rule's second half, found
+// by the round 2 audit: before the repair the task read the variable when
+// it ran and printed "2 2").
+func TestErgoRunTaskBodyBoundAtGo(t *testing.T) {
+	runWithin(t, "gobound", `import task
+
+func one() int { 1 }
+
+func two() int { 2 }
+
+func main() needs Console {
+	let mut f = one
+	let t = task.Go(f)
+	f = two
+	let n = t.Wait()
+	Console.Println("\(n) \(f())")
+}
+`, "1 2\n", 60*time.Second)
+}
+
 // TestErgoRunSeqReceiverEvaluatedOnce: the receiver of Values is evaluated
 // once, where the Seq is made: a call that makes it runs once, and a later
 // assignment to the variable it came from does not change the queue the

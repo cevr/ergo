@@ -46,6 +46,22 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	}
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
+	if result && fc.noValue(x) {
+		// The Go form returns struct{}, a no-value type argument's
+		// (types.md, Inference): Wait on a Task whose T is no value, or a
+		// generic function whose result T a block with no value bound.
+		switch {
+		case fallible && failsHere(c):
+			e := fc.temp("err")
+			fc.line("_, " + e + " := " + text)
+			return operand{err: e}
+		case fallible:
+			fc.line("_, _ = " + text)
+		default:
+			fc.line("_ = " + text)
+		}
+		return operand{}
+	}
 	switch {
 	case result && fallible:
 		v, e := fc.temp("v"), fc.temp("err")
@@ -120,6 +136,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			addr = !isPtr
 		}
 		vals := fc.callArgsAddr(list, x, addr)
+		fc.noValueArgs(x, c, list, vals)
 		var head string
 		var rest []string
 		if fd.method != nil {
@@ -310,57 +327,134 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) stri
 		result = sig.Results[0]
 	}
 	ind := strings.Repeat("\t", fc.depth+1)
-	var body string
-	switch {
-	case fd.fallible:
-		body = ind + "return " + call + "\n"
-	case result != nil:
-		body = ind + "return " + call + ", nil\n"
-	default:
-		body = ind + call + "\n" + ind + "return nil\n"
-	}
+	body := uniformBody(ind, call, len(f.Sig.Results) > 0, result != nil, fd.fallible)
 	return "func(" + strings.Join(params, ", ") + ")" + fc.resultList(result, true) + " {\n" + body + strings.Repeat("\t", fc.depth) + "}"
 }
 
 // paramsMention reports whether a parameter type of sig names tp.
 func paramsMention(sig *check.Signature, tp *check.TypeParam) bool {
-	var mentions func(t check.Type) bool
-	mentions = func(t check.Type) bool {
+	for _, p := range sig.Params {
+		if walkType(p.Type, func(t check.Type, _ bool) bool { return t == tp }) {
+			return true
+		}
+	}
+	return false
+}
+
+// walkType reports whether visit holds for t or a type inside it; visit's
+// second argument says the type is a function type's result.
+func walkType(t check.Type, visit func(t check.Type, result bool) bool) bool {
+	var walk func(t check.Type, result bool) bool
+	walk = func(t check.Type, result bool) bool {
+		if visit(t, result) {
+			return true
+		}
 		switch t := t.(type) {
-		case *check.TypeParam:
-			return t == tp
 		case *check.Named:
 			for _, a := range t.TArgs {
-				if mentions(a) {
+				if walk(a, false) {
 					return true
 				}
 			}
 		case *check.Slice:
-			return mentions(t.Elem)
+			return walk(t.Elem, false)
 		case *check.Map:
-			return mentions(t.Key) || mentions(t.Elem)
+			return walk(t.Key, false) || walk(t.Elem, false)
 		case *check.Pointer:
-			return mentions(t.Elem)
+			return walk(t.Elem, false)
+		case *check.Tuple:
+			for _, e := range t.Types {
+				if walk(e, false) {
+					return true
+				}
+			}
 		case *check.Signature:
 			for _, p := range t.Params {
-				if mentions(p.Type) {
+				if walk(p.Type, false) {
 					return true
 				}
 			}
 			for _, r := range t.Results {
-				if mentions(r) {
+				if walk(r, true) {
 					return true
 				}
 			}
 		}
 		return false
 	}
-	for _, p := range sig.Params {
-		if mentions(p.Type) {
-			return true
+	return walk(t, false)
+}
+
+// noValueArgs adapts the arguments vals of the call x of a declared generic
+// function whose type argument is no value: a type parameter T that a block
+// with no value bound (types.md, Inference). Go instantiates T with
+// struct{}, so a parameter func(…) T is a Go function that returns
+// struct{}, while the argument, of the checked type with no result, returns
+// only its error: the argument is bound once, here, and wrapped in a
+// function that returns struct{}{} with its error. A result T is struct{},
+// which the call site discards (funcCtx.call). T in any other function
+// type's result, a parameter's or the result's, is refused: the checked
+// type and Go's instance differ there, and adapting them is stage E's.
+func (fc *funcCtx) noValueArgs(x *syntax.CallExpr, c *check.Call, list []syntax.Expr, vals []string) {
+	sig := c.Func.Sig
+	bound := map[*check.TypeParam]bool{}
+	for i, tp := range sig.TParams {
+		if i < len(c.TypeArgs) && tp.Kind == check.KindType && c.TypeArgs[i] == check.NoValue {
+			bound[tp] = true
 		}
 	}
-	return false
+	if len(bound) == 0 {
+		return
+	}
+	isBound := func(t check.Type) bool {
+		tp, ok := t.(*check.TypeParam)
+		return ok && bound[tp]
+	}
+	inResult := func(t check.Type, result bool) bool { return result && isBound(t) }
+	stray := func(t check.Type) bool { return walkType(t, inResult) }
+	refuseAt := func() {
+		refuse(x, "a type parameter of %s that a block with no value binds, inside a function type other than a parameter's own (func(…) T), is lowered after check-v1 stage E", c.Func.Name)
+	}
+	for _, r := range sig.Results {
+		if !isBound(r) && stray(r) {
+			refuseAt()
+		}
+	}
+	if len(vals) != len(sig.Params) {
+		ice(x, "a call of %s with %d operands for %d parameters", c.Func.Name, len(vals), len(sig.Params))
+	}
+	for i, p := range sig.Params {
+		ps, ok := p.Type.(*check.Signature)
+		if !ok || len(ps.Results) != 1 || !isBound(ps.Results[0]) {
+			if stray(p.Type) {
+				refuseAt()
+			}
+			continue
+		}
+		for _, q := range ps.Params {
+			if walkType(q.Type, func(t check.Type, _ bool) bool { return isBound(t) }) {
+				refuseAt()
+			}
+		}
+		// The wrapper's parameters are the argument's checked ones, which
+		// are the instance's: T is not in them (stray above).
+		as := fc.argSig(list[i], x)
+		if len(as.Params) != len(ps.Params) || len(as.Results) != 0 {
+			ice(x, "an argument for a parameter func(…) T with T no value has the type %s", as)
+		}
+		fv := fc.bindFunc(vals[i])
+		ind := strings.Repeat("\t", fc.depth+1)
+		e := fc.scope.alloc("e")
+		params, args := []string{e + " *" + fc.l.env()}, []string{e}
+		for _, q := range as.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(q.Type))
+			args = append(args, name)
+		}
+		vals[i] = "func(" + strings.Join(params, ", ") + ") (struct{}, error) {\n" +
+			ind + "return struct{}{}, " + fv + "(" + strings.Join(args, ", ") + ")\n" +
+			strings.Repeat("\t", fc.depth) + "}"
+	}
 }
 
 // with lowers with W { block } (rows.md, With): a Go block that copies the
