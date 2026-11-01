@@ -79,11 +79,15 @@ Status: **checked** (#196), with inference (rule 6); runs.
 
 ## Footprints
 
-Status: **designed, not yet implemented**.
+Status: **implemented in prototype** (#199 stage 1): the checker records each frame's footprint in `Info.Footprints`, and the lowering reads it to place interruption points ([runtime.md, I1](runtime.md#i1-interruption-points)). No tool shows it yet: `ergo inspect` is removed, and showing footprints belongs to tooling #203.
 
-1. A function's footprint is every capability its body exercises, including those its own `with` provides, plus `go`. The compiler infers it and never asks for it. `ergo inspect` shows it.
-2. A function is pure when its footprint is empty, not when its `needs` row is empty. `with wire { Console: Stdout{} } { Console.Println("x") }` has an empty row and a non-empty footprint.
+1. A function's footprint is every capability its body exercises, including those its own `with` provides, plus each task it starts (`task.Go`). The compiler infers it and never asks for it.
+2. A function is pure when its footprint is empty, not when its `needs` row is empty. `with wire { Console: Stdout{} } { Console.Println("x") }` has an empty row and a non-empty footprint, and `func f() needs Probe {}` has a row and an empty footprint.
 3. A function type carries requirements only (README Gap 24). A call through an unknown function value counts as impure. A call is pure only when the compiler specialises it to a known function with an empty footprint.
+   - A frame is a function with a body, a function literal, the block of a call other than `with` (a `task.Go` body), a named wire's builder and a package-level `let`'s initializer. A provider method is a function. A `with` block runs in its enclosing frame.
+   - Making a function literal runs nothing: its body counts for the frames that call it, never for the frame that writes it. A literal called where it is written counts there.
+   - A call of a function of the package joins the callee's footprint, and recursive functions join to the least fixpoint, so a mutually recursive pair that calls a capability is impure and a pure pair is pure. A call of an imported function joins the footprint its package recorded.
+   - A call is opaque, and so impure, when the compiler cannot see its body: a function value, an operation of an operation-type value (a queue's `Push`, a `Task`'s `Wait`), a host function (its body is Go, so `xs.Append(1)` counts too; follow-up: a host purity declaration), and a for-in over a `Seq`, which calls the Seq.
 4. **Capability safety.** Only providers in host packages call Go. Ordinary code reaches the operating system only through a capability, so every effect appears in some footprint ([stdlib.md](stdlib.md#host-packages)).
 5. A function value whose row names a capability bound by `with` cannot escape that `with`. *Prior art:* Scala 3 capture checking and scoped capabilities; Effekt second-class blocks. A purity-carrying function type stays a candidate for [#189](https://github.com/cevr/ergo/issues/189).
 
