@@ -461,7 +461,7 @@ func i1Fib(name, call1, call2 string) func(row, clause string) string {
 	}
 }
 
-var i1Graphs = []i1Graph{
+var i1Graphs = append([]i1Graph{
 	{name: "self", decls: i1Fib("left(n int)", "left(n - 1)", "left(n - 2)"), call: "left(%d)", frames: []string{"left"}},
 	{name: "mutual", decls: func(row, clause string) string {
 		return i1Fib("left(n int)", "right(n - 1)", "right(n - 2)")(row, clause) + "func right(n int) int" + row + " { left(n) }\n"
@@ -492,7 +492,7 @@ var i1Graphs = []i1Graph{
 	{name: "provider-self", decls: func(row, clause string) string {
 		return "type Worker { Run(n int) int, }\ntype Impl {}\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = wire { Worker: Impl }\n"
 	}, call: "with Work { Worker.Run(%d) }", frames: []string{"Impl.Run"}, provider: true},
-}
+}, i1CallGraphs()...)
 
 // i1OpCycle recurses through a provider operation: a capability call is no
 // call-graph edge, so neither frame polls at entry, and the capability
@@ -540,7 +540,7 @@ func i1RecursionCases() []i1Case {
 				entries["subject"] = e.name == "opaque" || g.opaque
 			}
 			src := g.decls(e.row, e.clause) + "func subject() int" + e.row + " {\n" + fmt.Sprintf(g.call, 3) + "\n}\nfunc main() {}\n"
-			out = append(out, i1Case{name: "recursion/" + g.name + "/" + e.name, src: i1Defs + src, entries: entries})
+			out = append(out, i1Case{name: "recursion/" + g.name + "/" + e.name, src: i1Defs + src, entries: entries, want: map[string]bool{"decl": want}})
 		}
 	}
 	out = append(out, i1Case{name: "recursion/op-cycle/capability", src: i1Defs + i1OpCycle + "func subject() int {\nwith Work { left(3) }\n}\nfunc main() {}\n", entries: map[string]bool{"left": false, "Impl.Run": false}})
@@ -568,6 +568,11 @@ func i1GoFrame(fd *ast.FuncDecl) string {
 func i1CheckFacts(t *testing.T, o *lowered) {
 	t.Helper()
 	info := o.pkg.Info
+	for _, call := range info.Calls {
+		if call.Kind < 0 || call.Kind >= check.CallKindCount || call.Kind == check.CallPrelude {
+			t.Errorf("checker produced retired or unknown call kind %d", call.Kind)
+		}
+	}
 	for key := range info.Footprints {
 		switch key.(type) {
 		case *syntax.FuncDecl, *syntax.FuncLit, *syntax.BlockStmt, *syntax.WireDecl, *syntax.VarSpec:
@@ -1116,6 +1121,11 @@ func i1LivePrograms() map[string]string {
 		e := i1Effects[1]
 		if g.provider {
 			e = i1Effects[2]
+		}
+		if g.opaque {
+			// The shape alone must force entry checks. A separate
+			// capability effect could hide an opacity regression.
+			e = i1Effects[0]
 		}
 		out["recursion-"+g.name] = work(g.decls(e.row, e.clause), "with Local {\n"+fmt.Sprintf(g.call, 90)+"\n}\n")
 	}

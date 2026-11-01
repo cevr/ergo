@@ -223,6 +223,9 @@ const (
 	// and the full TypeArgs (D-D6, D-D8). The constant stays for compatibility;
 	// TypeArgs changed meaning for generic dot calls in stage D3a.
 	CallPrelude
+	// CallKindCount bounds the call kinds. Keep it last: exhaustive
+	// consumers must account for a newly admitted kind.
+	CallKindCount
 )
 
 // Call is one call site.
