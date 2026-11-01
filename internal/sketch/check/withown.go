@@ -3,6 +3,7 @@ package check
 import (
 	"sort"
 
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -52,12 +53,48 @@ type withSite struct {
 }
 
 func (c *checker) withOwnership() {
+	// An entry's expression and type facts belong to its defining wire's
+	// package, including through embeddings. Index each wire once.
+	owners := map[*WireEntry]*Wire{}
+	seen := map[*Wire]bool{}
+	var addWire func(*Wire)
+	addWire = func(w *Wire) {
+		if w == nil || seen[w] {
+			return
+		}
+		seen[w] = true
+		for _, e := range w.Entries {
+			if e.Provider != nil {
+				owners[e] = w
+			}
+			addWire(e.Embedded)
+		}
+	}
+	for _, s := range c.withSites {
+		if w := c.pkg.Info.Withs[s.x]; w != nil {
+			for _, wire := range w.Wires {
+				addWire(wire)
+			}
+		}
+	}
 	roots := append([]*Func(nil), c.pkg.Funcs...)
 	// A wire provider can call an imported constructor without any local
 	// function calling it. Those calls also root the freshness graph.
 	for _, call := range c.pkg.Info.Calls {
 		if call != nil && call.Kind == CallFunc {
 			roots = append(roots, call.Func)
+		}
+	}
+	for e, owner := range owners {
+		if info := providerInfo(owner); info != nil && owner.pkg != c.pkg {
+			syntax.Inspect(e.Provider, func(n syntax.Node) bool {
+				if x, ok := n.(*syntax.CallExpr); ok {
+					if call := info.Calls[x]; call != nil && call.Kind == CallFunc {
+						roots = append(roots, call.Func)
+					}
+				}
+				return true
+			})
 		}
 	}
 	fresh := providerFreshFunctions(roots)
@@ -77,19 +114,29 @@ func (c *checker) withOwnership() {
 		if w == nil || len(w.Wires) == 0 || len(w.Entries) == 0 {
 			continue
 		}
-		w.Acquired = c.acquire(w.Wires[0], w.Entries)
+		w.Acquired = c.acquire(w.Wires[0], w.Entries, owners)
 		owning := false
 		for _, a := range w.Acquired {
+			owner := owners[a.Entry]
+			info := providerInfo(owner)
+			if info == nil || info.Types[a.Entry.Provider] == nil {
+				c.cur = s.file
+				c.errorf(s.x, CodeOutside, "this wire's provider ownership cannot be proved without its defining package's facts; further resource ownership is #197's (resources.md, Wire ownership)")
+				continue
+			}
 			if a.Close == nil {
 				continue
 			}
 			owning = true
-			if !refused[a.Entry] && !c.freshProvider(a.Entry.Provider, fresh) {
-				refused[a.Entry] = true
-				if wf := c.entryFile(w.Wires[0], a.Entry); wf != nil {
-					c.cur = wf
-					c.errorf(a.Entry.Provider, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a proved constructor call, a composite literal or a unit value), and a borrowed or reused resource is #197's (resources.md, Wire ownership)")
+			if (owner.pkg != c.pkg || !refused[a.Entry]) && !fresh.expression(info, a.Entry.Provider) {
+				var at syntax.Node = a.Entry.Provider
+				c.cur = owner.file
+				if owner.pkg != c.pkg {
+					at, c.cur = s.x, s.file
+				} else {
+					refused[a.Entry] = true
 				}
+				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a proved constructor call, a composite literal or a unit value), and a borrowed or reused resource is #197's (resources.md, Wire ownership)")
 			}
 			c.cur = s.file
 			for _, cap := range c.releaseNeeds(a.Close) {
@@ -130,7 +177,7 @@ func (c *checker) capabilityCloses() {
 
 // acquire is the acquisition list of a with of w whose block reaches the
 // entries reached (rule 1).
-func (c *checker) acquire(w *Wire, reached []*WireEntry) []*Acquisition {
+func (c *checker) acquire(w *Wire, reached []*WireEntry, owners map[*WireEntry]*Wire) []*Acquisition {
 	want := map[*WireEntry]bool{}
 	var queue []*WireEntry
 	add := func(e *WireEntry) {
@@ -189,7 +236,9 @@ func (c *checker) acquire(w *Wire, reached []*WireEntry) []*Acquisition {
 				a.Caps = append(a.Caps, i)
 			}
 		}
-		a.Close = c.providerClose(c.pkg.Info.Types[e.Provider])
+		if info := providerInfo(owners[e]); info != nil {
+			a.Close = c.providerClose(info.Types[e.Provider])
+		}
 		list = append(list, a)
 	}
 	return list
@@ -250,7 +299,7 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
 	case t.declUses == nil && t.uses.unknown(c.types):
 		return
 	}
-	what := c.pkg.Info.Types[a.Entry.Provider]
+	what := a.Close.Receiver
 	if t.declUses == nil {
 		c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the inferred capability row of %s and no outer with provides it; a release runs outside the with and widens no inferred row, so write the row of %s (resources.md, Wire ownership)", what, cap, t.name, t.name)
 		return
@@ -293,8 +342,8 @@ type providerFreshness map[*Func]bool
 // including imported declarations. Start with every function fresh, then
 // remove any function with an unproved result and revisit its callers.
 // Recursion that only yields new values therefore stays fresh; a borrowed
-// result poisons every caller in its component. Extern constructors are
-// trusted by their declaration (only std can declare them today).
+// result poisons every caller in its component. Only std's bodiless
+// extern constructors are trusted by declaration; a user extern is not.
 func providerFreshFunctions(roots []*Func) providerFreshness {
 	fresh := providerFreshness{}
 	results := map[*Func][]syntax.Expr{}
@@ -335,7 +384,8 @@ func providerFreshFunctions(roots []*Func) providerFreshness {
 			return false
 		}
 		if f.Decl.Body == nil {
-			return f.Decl.Extern != nil
+			_, isStd := std.Package(f.Pkg.Path)
+			return f.Decl.Extern != nil && (isStd || f.Pkg.Path == std.PreludePath)
 		}
 		for _, x := range results[f] {
 			if !fresh.expression(f.Pkg.Info, x) {
@@ -414,9 +464,13 @@ func providerResults(f *Func) []syntax.Expr {
 	return out
 }
 
-// freshProvider admits only expressions proved to make their value.
-func (c *checker) freshProvider(x syntax.Expr, fresh providerFreshness) bool {
-	return fresh.expression(c.pkg.Info, x)
+// providerInfo is the semantic model of an entry's defining wire, never
+// the importing package's model of that wire's use.
+func providerInfo(w *Wire) *Info {
+	if w == nil || w.pkg == nil {
+		return nil
+	}
+	return w.pkg.Info
 }
 
 func (fresh providerFreshness) expression(info *Info, x syntax.Expr) bool {
@@ -445,34 +499,6 @@ func (fresh providerFreshness) expression(info *Info, x syntax.Expr) bool {
 		return ok
 	}
 	return false
-}
-
-// entryFile is the file of the package wire, reached from w through
-// embeddings, that declares e; nil for an imported wire's entry.
-func (c *checker) entryFile(w *Wire, e *WireEntry) *fileInfo {
-	visited := map[*Wire]bool{}
-	var find func(v *Wire) *fileInfo
-	find = func(v *Wire) *fileInfo {
-		if visited[v] {
-			return nil
-		}
-		visited[v] = true
-		for _, x := range v.Entries {
-			if x == e {
-				if v.pkg != c.pkg {
-					return nil
-				}
-				return v.file
-			}
-			if x.Embedded != nil {
-				if f := find(x.Embedded); f != nil {
-					return f
-				}
-			}
-		}
-		return nil
-	}
-	return find(w)
 }
 
 // ownedBlock reports, in the block of x, an owning with, the exit actions

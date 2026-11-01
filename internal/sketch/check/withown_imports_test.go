@@ -1,0 +1,127 @@
+package check_test
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+func TestWireOwnershipImportedWire(t *testing.T) {
+	for _, fresh := range []bool{false, true} {
+		for _, embedded := range []bool{false, true} {
+			for _, missing := range []string{"", "call", "type"} {
+				t.Run(fmt.Sprintf("fresh=%v/embedded=%v/missing=%s", fresh, embedded, missing), func(t *testing.T) {
+					result := "shared"
+					if fresh {
+						result = "Conn{n: 2}"
+					}
+					wires := "let W = wire { A: Get() }\n"
+					if embedded {
+						wires = "let Base = wire { A: Get() }\nlet W = wire { Base }\n"
+					}
+					lib, err := syntax.Parse(`type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+let shared = Conn{n: 1}
+func Get() Conn { ` + result + ` }
+` + wires)
+					if err != nil {
+						t.Fatal(err)
+					}
+					makers, ds := check.Check("makers", []*syntax.File{lib}, nil)
+					if len(ds) != 0 {
+						t.Fatal(ds)
+					}
+					owner := makers.Wires["W"]
+					if embedded {
+						owner = makers.Wires["Base"]
+					}
+					provider := owner.Entries[0].Provider
+					if missing == "call" {
+						delete(makers.Info.Calls, provider.(*syntax.CallExpr))
+					}
+					if missing == "type" {
+						delete(makers.Info.Types, provider)
+					}
+					src := "import makers\n"
+					wire := "makers.W"
+					line := strings.Count(src, "\n") + 1
+					src += "func f() { with " + wire + " { makers.A.Use() } }\n"
+					main, err := syntax.Parse(src)
+					if err != nil {
+						t.Fatal(err)
+					}
+					pkg, ds := check.Check("main", []*syntax.File{main}, ownImporter{makers})
+					if !fresh || missing != "" {
+						if len(ds) != 1 || ds[0].Code != "S109" || ds[0].Line != line || ds[0].Column != 12 || !strings.Contains(ds[0].Message, "#197") {
+							t.Fatalf("diagnostics %v, want one S109 naming #197 at the importing with", ds)
+						}
+						return
+					}
+					if len(ds) != 0 {
+						t.Fatalf("fresh imported wire refused: %v", ds)
+					}
+					if len(pkg.Info.Withs) != 1 {
+						t.Fatal("missing with fact")
+					}
+					for _, w := range pkg.Info.Withs {
+						if len(w.Acquired) != 1 || w.Acquired[0].Close == nil || w.Acquired[0].Close.Func == nil || w.Acquired[0].Close.Func.Pkg != makers {
+							t.Fatalf("missing imported acquisition and Close identity: %+v", w.Acquired)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestWireOwnershipUserExtern(t *testing.T) {
+	const src = `extern go example.com/x.Get func get() First
+let W = wire { A: get() }
+func f() { with W { A.Use() } }
+`
+	_, ds := checkOwn(t, src)
+	if len(ds) != 1 || ds[0].Code != "S109" || ds[0].Line != strings.Count(ownPrelude, "\n")+2 || !strings.Contains(ds[0].Message, "#197") {
+		t.Fatalf("diagnostics %v, want located S109 for an untrusted user extern provider", ds)
+	}
+}
+
+func TestWireOwnershipImportedReleaseNeeds(t *testing.T) {
+	lib, err := syntax.Parse(`type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
+func Get() Conn { Conn{n: 1} }
+let W = wire { A: Get() }
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	makers, ds := check.Check("makers", []*syntax.File{lib}, nil)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	for _, declared := range []bool{false, true} {
+		src := "import makers\nfunc f()"
+		if declared {
+			src += " needs Console"
+		}
+		src += " { with makers.W { makers.A.Use() } }"
+		file, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, ds := check.Check("main", []*syntax.File{file}, ownImporter{makers})
+		if declared {
+			if len(ds) != 0 {
+				t.Fatalf("declared imported release needs refused: %v", ds)
+			}
+		} else if len(ds) != 1 || ds[0].Code != "S102" || ds[0].Line != 2 || !strings.Contains(ds[0].Message, "makers.Conn") {
+			t.Fatalf("want located S102 naming imported provider's type, got %v", ds)
+		}
+	}
+}

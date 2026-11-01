@@ -518,6 +518,14 @@ func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
 	if len(x.Args) == 1 {
 		if id, ok := unparen(x.Args[0]).(*syntax.Ident); ok && c.pkg.Wires[id.Name] != nil {
 			w.Wires = []*Wire{c.pkg.Wires[id.Name]}
+		} else if sel, ok := unparen(x.Args[0]).(*syntax.SelectorExpr); ok {
+			if id, ok := sel.X.(*syntax.Ident); ok {
+				if pn, ok := c.lookup(id.Name).(*PkgName); ok && !pn.broken && isExported(sel.Sel.Name) {
+					if wire := pn.Pkg.Wires[sel.Sel.Name]; wire != nil {
+						w.Wires = []*Wire{wire}
+					}
+				}
+			}
 		}
 	}
 	if !f.unknown && len(f.caps) > 0 {
