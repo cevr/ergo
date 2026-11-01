@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -175,13 +176,31 @@ func TestWireOwnershipReturnPositions(t *testing.T) {
 }
 
 func TestWireOwnershipReturnCatalog(t *testing.T) {
-	f, err := parser.ParseFile(token.NewFileSet(), "../syntax/ast.go", nil, 0)
+	// Every non-test file of syntax, so a node declared outside ast.go
+	// (ast_decided.go) is cataloged too.
+	names, err := filepath.Glob("../syntax/*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var decls []ast.Decl
+	parsed := map[string]bool{}
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decls = append(decls, f.Decls...)
+		parsed[filepath.Base(name)] = true
+	}
+	if !parsed["ast.go"] || !parsed["ast_decided.go"] {
+		t.Fatalf("catalog parsed %v; want every non-test syntax file", parsed)
+	}
 	structs := map[string]*ast.StructType{}
 	exprs := map[string]bool{}
-	for _, d := range f.Decls {
+	for _, d := range decls {
 		switch d := d.(type) {
 		case *ast.GenDecl:
 			for _, s := range d.Specs {
@@ -245,20 +264,26 @@ func TestWireOwnershipReturnCatalog(t *testing.T) {
 	for _, form := range ownReturnForms {
 		forms[form.node] = true
 	}
+	// An operation type's laws have bodies, but parseMembersType builds an
+	// InterfaceType with laws only for a top-level type declaration, never
+	// inside a function body; each law body is its own frame.
+	declOnly := map[string]bool{"InterfaceType": true}
 	for name := range exprs {
 		st := structs[name]
 		if st == nil {
 			continue
 		}
 		for _, field := range st.Fields.List {
-			if statements(field.Type, map[string]bool{}) && !forms[name] && ownReturnBoundaries[name] == "" && name != "GoExpr" {
+			if statements(field.Type, map[string]bool{}) && !forms[name] && ownReturnBoundaries[name] == "" && name != "GoExpr" && !declOnly[name] {
 				t.Errorf("statement-bearing %s needs a return form or frame boundary", name)
 			}
 		}
 	}
 	// These have Expr children but are patterns or type syntax. They do not
 	// evaluate an arbitrary expression; adding an admitted form needs a case.
-	typeOnly := map[string]bool{"ArrayType": true, "MapType": true, "ChanType": true, "FuncType": true, "StructType": true, "InterfaceType": true, "ErrorRow": true, "MachineType": true, "Ellipsis": true}
+	// AsPattern.X is a pattern (parsePatternCore: names, literals, records,
+	// tuples).
+	typeOnly := map[string]bool{"AsPattern": true, "ArrayType": true, "MapType": true, "ChanType": true, "FuncType": true, "StructType": true, "InterfaceType": true, "ErrorRow": true, "MachineType": true, "Ellipsis": true}
 	// Dereference needs a borrow parameter, never an expression-produced
 	// borrow. A composite type position is not an evaluated value slot.
 	slots := map[string]bool{"CompositeLit.Type": true, "StarExpr.X": true}

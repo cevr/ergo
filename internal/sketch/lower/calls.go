@@ -482,7 +482,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	if len(x.Args) != 1 || x.Trailing == nil {
 		ice(x, "a with without one wire and a block")
 	}
-	if len(w.Wires) == 0 {
+	// The checker records an imported wire's entries (wire ownership), but
+	// this lowering builds only wires declared in the file it lowers.
+	if len(w.Wires) == 0 || fc.l.isImported(w.Wires[0]) {
 		if _, inline := unparen(x.Args[0]).(*syntax.WireLit); inline {
 			refuse(x.Args[0], "an inline wire value is lowered after check-v1 stage E (196x)")
 		}
