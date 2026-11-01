@@ -703,7 +703,7 @@ func (c *checker) prepareBody(s *bodySum, body *syntax.WireBody, self *Wire, m *
 func (c *checker) finishBody(s *bodySum, body *syntax.WireBody, m *wireMeter) bool {
 	s.finishes++
 	op(m, "body setup", singlePass, 1)
-	own := map[capKey]bool{}
+	own := map[capKey]*capNode{}
 	type place struct{ entry, key int } // 1-based
 	ownAt := map[capKey]place{}         // where each capability is first bound
 	replaced := map[capKey]bool{}
@@ -722,7 +722,14 @@ func (c *checker) finishBody(s *bodySum, body *syntax.WireBody, m *wireMeter) bo
 			continue
 		}
 		constructor := c.isConstructor(e.Value)
-		by := c.wireEntries[e] // a named wire's entry; nil for an inline wire's
+		by := c.wireEntries[e]
+		named := by != nil
+		if by == nil {
+			// Inline summaries keep the very same entry subsequently filled
+			// by wireBody and read by With.Acquired.
+			by = &WireEntry{Provider: e.Value, Replace: e.Replace.IsValid(), seq: len(c.wireEntries)}
+			c.wireEntries[e] = by
+		}
 		at := 0
 		if !eachKey(e, func(k syntax.Expr) bool {
 			op(m, "key read", singlePass, 1)
@@ -767,7 +774,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.WireBody, m *wireMeter) bo
 				if inEmbedded == nil && inCycle == nil {
 					s.findings = append(s.findings, wireFinding{k, CodeType, fmt.Sprintf("replace %s names no entry of an embedded wire (rows.md, Wire 7)", t)})
 				}
-				if by != nil && inEmbedded != nil && inEmbedded.entry != nil {
+				if named && inEmbedded != nil && inEmbedded.entry != nil {
 					o := &override{cap: t, by: by, cands: []*WireEntry{inEmbedded.entry}}
 					overrides = append(overrides, o)
 					overrideOf[key] = o
@@ -782,7 +789,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.WireBody, m *wireMeter) bo
 				}
 			}
 			op(m, "own insert", singlePass, 1)
-			own[key] = true
+			own[key] = &capNode{key: key, t: t, entry: by}
 			return true
 		}) {
 			return false

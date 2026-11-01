@@ -358,8 +358,7 @@ type Loop struct {
 // wire (round-4 review M1): the wire's resolved bindings are shared, and a
 // with points to them through Wires.
 type With struct {
-	// Wires are the named wires bound, in nesting order; an inline wire
-	// value's entries are stage E's (196x). Wires[0] is the shared,
+	// Wires are the resolved named or inline wires bound. Wires[0] is the shared,
 	// resolved wire: Wire.Provider and Wire.EachProvider read every
 	// capability it binds, Wire.Overrides what its replaces overrode.
 	Wires []*Wire
@@ -368,13 +367,12 @@ type With struct {
 	// discharged (rows.md, With 2 and 3). A capability the wire binds and
 	// the block never needs is not listed.
 	Discharged []Type
-	// Entries holds, for a with of a named wire, one entry per discharged
+	// Entries holds one entry per discharged
 	// capability: Entries[i] is the provider entry that binds
 	// Discharged[i] once replace and embedding are resolved (rows.md,
 	// Wire 7), Wires[0].Provider(Discharged[i]). An entry of several
 	// capabilities appears at each of its capabilities; its conversion for
 	// Discharged[i] is the one at that capability's index in its Caps.
-	// Empty for an inline wire value (stage E, 196x).
 	//
 	// The release needs of an inner with's acquisitions are needs of the
 	// block too: a release runs in the environment outside the inner with,
@@ -385,12 +383,12 @@ type With struct {
 	// the entries of Entries, and each entry whose capability an acquired
 	// provider uses while it is built. Each entry is one acquisition,
 	// however many capabilities it binds. An overridden entry and an entry
-	// that nothing the block needs reaches are not acquired. Empty for an
-	// inline wire value (stage E, 196x).
+	// that nothing the block needs reaches are not acquired. Named and inline
+	// wires use the same fact; general first-class wire values stay stage E's.
 	Acquired []*Acquisition
 }
 
-// Acquisition is one provider entry a with of a named wire builds: the
+// Acquisition is one provider entry a with builds: the
 // entry, the indexes of the capabilities in Entry.Caps it still binds in
 // the with's wire, and its provider's resolved Close (Info.Closes), nil
 // when the provider is not a resource. The with releases each resource
@@ -518,18 +516,8 @@ func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
 		return
 	}
 	w := &With{}
-	if len(x.Args) == 1 {
-		if id, ok := unparen(x.Args[0]).(*syntax.Ident); ok && c.pkg.Wires[id.Name] != nil {
-			w.Wires = []*Wire{c.pkg.Wires[id.Name]}
-		} else if sel, ok := unparen(x.Args[0]).(*syntax.SelectorExpr); ok {
-			if id, ok := sel.X.(*syntax.Ident); ok {
-				if pn, ok := c.lookup(id.Name).(*PkgName); ok && !pn.broken && isExported(sel.Sel.Name) {
-					if wire := pn.Pkg.Wires[sel.Sel.Name]; wire != nil {
-						w.Wires = []*Wire{wire}
-					}
-				}
-			}
-		}
+	if f.wire != nil {
+		w.Wires = []*Wire{f.wire}
 	}
 	if !f.unknown && len(f.caps) > 0 {
 		order := make([]int, len(f.caps))
@@ -575,6 +563,33 @@ func (w *Wire) Provider(cap Type) *WireEntry {
 // that binds it (Provider), until f returns false.
 func (w *Wire) EachProvider(f func(cap Type, e *WireEntry) bool) {
 	if w.binds == nil {
+		return
+	}
+	if len(w.binds.extra) > 0 {
+		// Only inline wires have an overlay. Merge it with embedded
+		// bindings in qualified-name order, suppressing overridden entries.
+		var nodes []*capNode
+		for _, n := range w.binds.extra {
+			nodes = append(nodes, n)
+		}
+		var collect func(*capNode)
+		collect = func(n *capNode) {
+			if n == nil {
+				return
+			}
+			collect(n.left)
+			if w.binds.extra[n.key] == nil {
+				nodes = append(nodes, n)
+			}
+			collect(n.right)
+		}
+		collect(w.binds.root)
+		sort.Slice(nodes, func(i, j int) bool { return nodes[i].key.compare(nodes[j].key) < 0 })
+		for _, n := range nodes {
+			if !f(n.t, n.entry) {
+				return
+			}
+		}
 		return
 	}
 	var walk func(n *capNode) bool

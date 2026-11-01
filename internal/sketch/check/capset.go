@@ -35,8 +35,9 @@ type capSet struct {
 	root *capNode
 	size int
 	// extra holds an inline wire's own entries over the union of its
-	// embeddings in root (finishBody); only has reads it.
-	extra map[capKey]bool
+	// embeddings in root (finishBody), with the same provider identities
+	// that the named-wire treap carries.
+	extra map[capKey]*capNode
 }
 
 type capNode struct {
@@ -160,8 +161,7 @@ func (s *capSet) has(tab *typeTable, t Type) bool {
 	return found
 }
 
-// find is has, and also returns the node that holds t: nil when t is an
-// inline wire's own entry (extra). A with's discharge test reads the
+// find is has, and also returns the node that holds t. A with's discharge test reads the
 // providing entry from it, so a with's Info costs no lookup of its own
 // (recordWith).
 func (s *capSet) find(tab *typeTable, t Type) (found bool, n *capNode) {
@@ -172,9 +172,6 @@ func (s *capSet) find(tab *typeTable, t Type) (found bool, n *capNode) {
 	k, ok := keyOf(t)
 	if !ok {
 		return false, nil
-	}
-	if s.extra[k] {
-		return true, nil
 	}
 	if n := s.node(k); n != nil {
 		return true, n
@@ -188,6 +185,9 @@ func (s *capSet) find(tab *typeTable, t Type) (found bool, n *capNode) {
 func (s *capSet) node(k capKey) *capNode {
 	if s == nil {
 		return nil
+	}
+	if n := s.extra[k]; n != nil {
+		return n
 	}
 	for n := s.root; n != nil; {
 		switch c := k.compare(n.key); {

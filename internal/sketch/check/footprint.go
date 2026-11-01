@@ -285,6 +285,9 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		if len(w.Wires) == 0 {
 			return
 		}
+		if w.Wires[0].Lit != nil {
+			return // inline providers execute in this frame and are walked here
+		}
 		if w.Wires[0].pkg == fp.pkg && w.Wires[0].Decl != nil {
 			n.edges = append(n.edges, fp.wire(w.Wires[0]))
 			return

@@ -21,6 +21,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		return bad(x)
 	}
 	var binds *capSet
+	var wire *Wire
 	known := true
 	switch {
 	case len(x.Args) == 0:
@@ -30,11 +31,11 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		c.outside(x.Args[1], "a with over several wires (196x, extern and wire values)")
 		known = false
 	default:
-		binds, known = c.withArg(x.Args[0])
+		binds, known, wire = c.withArg(x.Args[0])
 	}
 	t := c.fn.t
 	// unknown: discharge everything, so no cascade
-	frame := &withFrame{binds: binds, unknown: !known}
+	frame := &withFrame{binds: binds, unknown: !known, wire: wire}
 	t.withs = append(t.withs, frame)
 	done := c.openScope()
 	c.fn.branches = append(c.fn.branches, branch{kind: brBarrier})
@@ -79,6 +80,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 // that provides it (charge). With.Discharged is that list, so a with's
 // Info is bounded by its body, not by its wire (round-4 review M1).
 type withFrame struct {
+	wire    *Wire            // the resolved named or inline wire
 	site    *syntax.CallExpr // the with call, once recorded
 	binds   *capSet
 	unknown bool
@@ -110,7 +112,7 @@ func (f *withFrame) discharge(cap Type, n *capNode) {
 }
 
 // withArg resolves with's argument to the capabilities it binds.
-func (c *checker) withArg(arg syntax.Expr) (*capSet, bool) {
+func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Wire) {
 	switch a := unparen(arg).(type) {
 	case *syntax.WireLit:
 		return c.wireLit(a)
@@ -125,31 +127,31 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool) {
 					if !isInvalid(v.Type) {
 						c.outside(a, "with over a value (196x, extern and wire values)")
 					}
-					return nil, false
+					return nil, false, nil
 				}
 			}
 			c.errorf(a, CodeUnknown, "unknown wire %s", a.Name)
-			return nil, false
+			return nil, false, nil
 		}
 		if c.fn != nil && c.fn.reach != nil {
 			c.fn.reach.wires = append(c.fn.reach.wires, w)
 		}
 		binds := c.wireBinds(w)
-		return binds, !w.unknown
+		return binds, !w.unknown, w
 	case *syntax.SelectorExpr:
 		if id, ok := a.X.(*syntax.Ident); ok {
 			if pn, ok := c.lookup(id.Name).(*PkgName); ok {
 				pn.used = true
 				if pn.broken {
-					return nil, false
+					return nil, false, nil
 				}
 				if w := pn.Pkg.Wires[a.Sel.Name]; w != nil && isExported(a.Sel.Name) {
 					// Its package's pass summarised it; a set keyed by
 					// capability names needs no conversion.
-					return w.binds, !w.unknown
+					return w.binds, !w.unknown, w
 				}
 				c.errorf(a.Sel, CodeUnknown, "%s.%s is not an exported wire of package %s", id.Name, a.Sel.Name, pn.Pkg.Path)
-				return nil, false
+				return nil, false, nil
 			}
 		}
 	}
@@ -157,13 +159,13 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool) {
 	c.silent++
 	c.valueExpr(arg, nil)
 	c.silent--
-	return nil, false
+	return nil, false, nil
 }
 
 // wireLit checks an inline wire's entries and returns what it binds; known
 // is false when it embeds an unknown wire (reported) or its summary was
 // refused (wiresum.go).
-func (c *checker) wireLit(w *syntax.WireLit) (binds *capSet, known bool) {
+func (c *checker) wireLit(w *syntax.WireLit) (binds *capSet, known bool, wire *Wire) {
 	// The header of an inline wire is refused as a named wire's is
 	// (checkWires): never read partly (rows.md, Wire 8).
 	if w.Provides != nil {
@@ -172,7 +174,10 @@ func (c *checker) wireLit(w *syntax.WireLit) (binds *capSet, known bool) {
 	if w.Needs != nil {
 		c.errorf(w.Needs, CodeOutside, "a wire's needs clause is #196 stage b's (the wire header, rows.md Wire 8); it is not checked yet")
 	}
-	return c.wireBody(w.Body, nil)
+	wire = &Wire{Name: "inline", Pos: w.Pos(), Lit: w, file: c.cur, pkg: c.pkg}
+	binds, known = c.wireBody(w.Body, wire)
+	wire.binds, wire.unknown = binds, !known
+	return binds, known, wire
 }
 
 // wireBody checks the body of a named or an inline wire and returns what

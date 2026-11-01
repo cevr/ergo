@@ -7,6 +7,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // callee and arguments do run here, including when it has a callback. A
 // with body also runs here. withs is the path of with bodies entered since
 // root, outermost first; a with's operands are outside its own body.
+// A WireLit's provider expressions run here too, before its with's body:
+// lexical returns and effects still belong to the enclosing source frame,
+// even when the lowering uses a native callback to mask acquisition.
 // Returning false from visit prunes that node's children.
 func inspectFrame(info *Info, root syntax.Node, visit func(syntax.Node, []*syntax.CallExpr) bool) {
 	var walk func(syntax.Node, []*syntax.CallExpr)
