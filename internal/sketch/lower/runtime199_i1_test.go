@@ -240,15 +240,99 @@ func i1Cases() []i1Case {
 	return out
 }
 
+// i1Wraps are the frame classes a nested frame can sit in: each takes the
+// statements of the frame inside, which end in an int, and gives the
+// statements of the frame around it, which end in an int. A with region
+// runs in the frame around it; the others are frames of their own.
+var i1Wraps = []struct {
+	name  string
+	frame bool
+	wrap  func(d int, inner string) string
+}{
+	{name: "literal", frame: true, wrap: func(d int, inner string) string {
+		return fmt.Sprintf("let local%d = func() int {\n%s}\nlocal%d()\n", d, inner, d)
+	}},
+	{name: "task", frame: true, wrap: func(d int, inner string) string {
+		return fmt.Sprintf("let t%d = task.Go() {\n%s}\nt%d.Wait()\n", d, inner, d)
+	}},
+	{name: "trailing", frame: true, wrap: func(_ int, inner string) string {
+		return "run() {\n" + inner + "}\n"
+	}},
+	{name: "with", wrap: func(_ int, inner string) string {
+		return "with Local {\n" + inner + "}\n"
+	}},
+}
+
+// i1NestCases generates the frame-nesting axis (I1.2: a point checks its
+// own frame's task, at every depth): every sequence of two or three frame
+// classes from i1Wraps inside a declaration, so a literal in a literal, a
+// literal in a task body, a task in a literal, a task in a task and a with
+// region in a nested literal all occur, at depth 3 and 4. The innermost
+// frame holds the loops, over each clause a frame of any class can hold,
+// each variant and, in turn, each loop form.
+func i1NestCases() []i1Case {
+	var seqs [][]int
+	for a := range i1Wraps {
+		for b := range i1Wraps {
+			seqs = append(seqs, []int{a, b})
+			for c := range i1Wraps {
+				seqs = append(seqs, []int{a, b, c})
+			}
+		}
+	}
+	var out []i1Case
+	k := 0
+	for _, seq := range seqs {
+		var names []string
+		class := "decl"
+		trailing := false
+		for _, w := range seq {
+			names = append(names, i1Wraps[w].name)
+			if i1Wraps[w].frame {
+				class = "lit"
+			}
+			trailing = trailing || i1Wraps[w].name == "trailing"
+		}
+		for _, cl := range i1Clauses {
+			if cl.needs || cl.param != "" {
+				// A row on every enclosing frame is the rows grid's business.
+				continue
+			}
+			for _, v := range i1Variants {
+				if v.fail || (v.site && cl.site == "") {
+					continue
+				}
+				l := i1Loops[k%len(i1Loops)]
+				k++
+				params := ""
+				if l.seq {
+					params = l.param
+				}
+				src := i1Body(cl.prefix, []i1Loop{l}, v, cl.site) + "sum\n"
+				for d := len(seq) - 1; d >= 0; d-- {
+					src = i1Wraps[seq[d]].wrap(d, src)
+				}
+				src = "func subject(" + params + ") int {\n" + src + "}\n"
+				if trailing {
+					src = "func run(f func() int) int { f() }\n" + src
+				}
+				name := fmt.Sprintf("nest/%s/%s/%s/%s", strings.Join(names, ">"), cl.name, l.name, v.name)
+				out = append(out, i1Case{name: name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{class: cl.impure || l.seq}, site: v.site})
+			}
+		}
+	}
+	return out
+}
+
 func TestRuntime199I1Property(t *testing.T) {
 	// Ordinary trailing blocks and with bodies use the reviewer's grid.
 	cases := append(append(i1Cases(), i1BlockCases()...), i1RecursionCases()...)
-	cases = append(cases, i1EntryCases()...)
+	cases = append(append(cases, i1EntryCases()...), i1NestCases()...)
 	classes := map[string]int{}
 	for _, c := range cases {
 		classes[strings.SplitN(c.name, "/", 2)[0]]++
 	}
-	for _, class := range []string{"decl", "literal", "task", "provider", "impure-parent", "pure-parent", "trailing", "with-body", "recursion"} {
+	for _, class := range []string{"decl", "literal", "task", "provider", "impure-parent", "pure-parent", "trailing", "with-body", "recursion", "nest"} {
 		if classes[class] == 0 {
 			t.Errorf("no generated case of the frame class %s", class)
 		}
@@ -804,6 +888,36 @@ func i1LivePrograms() map[string]string {
 	work := func(decls, call string) string {
 		return i1LiveDefs + decls + "func work(ready queue.Queue[int]) int fails queue.Closed {\n\ttry ready.Push(1)\n" + call + "}\n" + i1LiveMain
 	}
+	// The grandchild is stopped directly; its parent and grandparent run on
+	// and return 2 and 3 (M1 of round 2: depth 3 polls its own task).
+	out["grandchild-direct"] = i1LiveDefs + `func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let g = task.Go() {
+		let p = task.Go() {
+			let c = task.Go() {
+				try ready.Push(1)
+				let mut n = 0
+				for { n += 1 }
+				with Local { Probe.Tick() }
+				n
+			}
+			try ready.Pop()
+			let mut delay = 0
+			for delay < 20000000 { delay += 1 }
+			c.Stop()
+			2
+		}
+		let r = try p.Wait()
+		r + 1
+	}
+	let v = try g.Wait()
+	if v == 3 {
+		Console.Println("stopped")
+	} else {
+		Console.Println("the parent or grandparent stopped")
+	}
+}
+`
 	for kind, loop := range i1LiveLoops {
 		out["decl-"+kind] = work("func spin() int {\n"+loop+"let xs = []int{}\nlet _ = xs.Append(1)\nc\n}\n", "spin()\n")
 		out["literal-"+kind] = work("", "let local = func() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlocal()\n")
