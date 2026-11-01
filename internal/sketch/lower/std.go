@@ -220,8 +220,11 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 			vals[i] = fc.adaptFunc(vals[i], p.Func, fc.argSig(args[i], x), x)
 		}
 	}
-	all := append(fc.hiddenArgs(body.Hidden, x, c), vals...)
-	return fc.adaptResult(fc.l.rt()+"."+name+fc.stdTypeArgs(body, f.Sig, c.TypeArgs, x)+"("+strings.Join(all, ", ")+")", body, x), len(f.Sig.Results) > 0, goFallible(body)
+	head := fc.l.rt() + "." + name + fc.stdTypeArgs(body, f.Sig, c.TypeArgs, x)
+	text := fc.stdResult(body, fc.typeOf(x), vals, x, func(env string) string {
+		return head + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env), vals...), ", ") + ")"
+	})
+	return text, len(f.Sig.Results) > 0, goFallible(body)
 }
 
 // stdOpCall is a call of an operation of a std type, the method of that
@@ -240,41 +243,52 @@ func (fc *funcCtx) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, 
 			vals[i+1] = fc.adaptFunc(vals[i+1], p.Func, fc.argSig(args[i], x), x)
 		}
 	}
-	all := append(fc.hiddenArgs(body.Hidden, x, c), vals[1:]...)
-	return fc.adaptResult("("+vals[0]+")."+memberName(c.Op.Name)+"("+strings.Join(all, ", ")+")", body, x), len(c.Op.Sig.Results) > 0, goFallible(body)
+	text := fc.stdResult(body, fc.typeOf(x), vals, x, func(env string) string {
+		return "(" + vals[0] + ")." + memberName(c.Op.Name) + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env), vals[1:]...), ", ") + ")"
+	})
+	return text, len(c.Op.Sig.Results) > 0, goFallible(body)
 }
 
-// adaptResult adapts the Go text of a std body's call to the Ergo type of
-// its result: Go's iter.Seq[T] (queue.Queue's Values) becomes the uniform
-// function shape of the prelude's Seq[T] (typeCtx.funcType), whose yield
-// runs on the environment the Seq is called with (Rule 3; D2 review m1).
-// Each other result is the body's Go type itself.
-func (fc *funcCtx) adaptResult(text string, body v1.Body, x *syntax.CallExpr) string {
+// stdResult is the Go text of a std body's call, written by call from the
+// environment whose task the call takes, adapted to the Ergo type result.
+// A call whose result is a value is made here, on the current environment.
+// Go's iter.Seq[T] (queue.Queue's Values) is a deferred call: the result
+// is the uniform function shape of the prelude's Seq[T] (typeCtx.funcType),
+// and the body is called inside it with the environment the Seq is
+// iterated on, so the wait takes the iterating task, never the task that
+// made the Seq (Rule 3; stage D3b round 1 review M1: a hidden task is bound
+// where the blocking happens). The receiver and arguments, vals, are
+// evaluated once, here, in source order: each is bound to a temporary the
+// Seq captures.
+func (fc *funcCtx) stdResult(body v1.Body, result check.Type, vals []string, site syntax.Node, call func(env string) string) string {
 	if len(body.Results) != 1 || !strings.HasPrefix(body.Results[0], "iter.Seq[") {
-		return text
+		return call(fc.envExpr(site))
 	}
-	seq := fc.typeOf(x)
-	n, ok := seq.(*check.Named)
-	if !ok || !isPreludeType(seq, "Seq") || len(n.TArgs) != 1 {
-		ice(x, "a std body returns %s for the Ergo type %s", body.Results[0], seq)
+	n, ok := result.(*check.Named)
+	if !ok || !isPreludeType(result, "Seq") || len(n.TArgs) != 1 {
+		ice(site, "a std body returns %s for the Ergo type %s", body.Results[0], result)
+	}
+	if hasHidden(body.Hidden, v1.Frame) {
+		ice(site, "a std body that returns a Seq takes the frame scope")
+	}
+	for i := range vals {
+		vals[i] = fc.spill(vals[i])
 	}
 	elem := fc.goType(n.TArgs[0])
-	s, e, yield, v, ok2, err := fc.scope.alloc("s"), fc.scope.alloc("e"), fc.scope.alloc("yield"), fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
+	e, yield, v, ok2, err := fc.scope.alloc("e"), fc.scope.alloc("yield"), fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
 	ind := strings.Repeat("\t", fc.depth)
-	return "func(" + s + " func(func(" + elem + ") bool)) " + fc.goType(seq) + " {\n" +
-		ind + "\treturn func(" + e + " *" + fc.l.env() + ", " + yield + " func(*" + fc.l.env() + ", " + elem + ") (bool, error)) error {\n" +
-		ind + "\t\tfor " + v + " := range " + s + " {\n" +
-		ind + "\t\t\t" + ok2 + ", " + err + " := " + yield + "(" + e + ", " + v + ")\n" +
-		ind + "\t\t\tif " + err + " != nil {\n" +
-		ind + "\t\t\t\treturn " + err + "\n" +
-		ind + "\t\t\t}\n" +
-		ind + "\t\t\tif !" + ok2 + " {\n" +
-		ind + "\t\t\t\treturn nil\n" +
-		ind + "\t\t\t}\n" +
+	return "func(" + e + " *" + fc.l.env() + ", " + yield + " func(*" + fc.l.env() + ", " + elem + ") (bool, error)) error {\n" +
+		ind + "\tfor " + v + " := range " + call(e) + " {\n" +
+		ind + "\t\t" + ok2 + ", " + err + " := " + yield + "(" + e + ", " + v + ")\n" +
+		ind + "\t\tif " + err + " != nil {\n" +
+		ind + "\t\t\treturn " + err + "\n" +
 		ind + "\t\t}\n" +
-		ind + "\t\treturn nil\n" +
+		ind + "\t\tif !" + ok2 + " {\n" +
+		ind + "\t\t\treturn nil\n" +
+		ind + "\t\t}\n" +
 		ind + "\t}\n" +
-		ind + "}(" + text + ")"
+		ind + "\treturn nil\n" +
+		ind + "}"
 }
 
 // goFallible reports whether a std body's Go form returns an error: its
@@ -287,8 +301,8 @@ func goFallible(body v1.Body) bool {
 }
 
 // hiddenArgs are the hidden arguments of a std body at the call x, in the
-// body's order.
-func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Call) []string {
+// body's order; the caller's task is env's.
+func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Call, env string) []string {
 	var out []string
 	for _, h := range list {
 		switch h {
@@ -298,7 +312,7 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			line, column := fc.l.file.Position(x.Pos())
 			out = append(out, fc.l.rt()+".Site("+fmt.Sprintf("%q", fmt.Sprintf("%s at %s:%d:%d", fc.callee(x, c), fc.l.src, line, column))+")")
 		case v1.CallerTask:
-			out = append(out, fc.envExpr(x)+"."+envTask)
+			out = append(out, env+"."+envTask)
 		default:
 			ice(x, "the hidden argument %s of a std body", h)
 		}
