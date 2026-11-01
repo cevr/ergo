@@ -504,16 +504,24 @@ const i1LiveMain = `func main() fails queue.Closed needs Console {
 	let ready = queue.New[int](0)
 	let t = task.Go() { work(ready) }
 	try ready.Pop()
+	let mut delay = 0
+	for delay < 20000000 {
+		delay += 1
+	}
 	t.Stop()
 	Console.Println("stopped")
 }
 `
 
+// The frame's clause follows its loop, so the loop's own poll is the only
+// interruption point the frame reaches once it runs; a counting loop in
+// main before the stop lets the task enter its loop first, so a missing
+// poll hangs instead of losing a race to an earlier one.
 var i1LiveLoops = map[string]string{
-	"infinite": "let mut c = 0\nfor {\nc += 1\n}\nc\n",
-	"range":    "let mut c = 0\nfor i in 0..1000000000000 {\nc += i\n}\nc\n",
-	"continue": "let mut c = 0\nfor i in 0..1000000000000 {\nif i >= 0 {\ncontinue\n}\nc += i\n}\nc\n",
-	"cond":     "let mut c = 0\nfor c >= 0 {\nc += 1\n}\nc\n",
+	"infinite": "let mut c = 0\nfor {\nc += 1\n}\n",
+	"range":    "let mut c = 0\nfor i in 0..1000000000000 {\nc += i\n}\n",
+	"continue": "let mut c = 0\nfor i in 0..1000000000000 {\nif i >= 0 {\ncontinue\n}\nc += i\n}\n",
+	"cond":     "let mut c = 0\nfor c >= 0 {\nc += 1\n}\n",
 }
 
 func i1LivePrograms() map[string]string {
@@ -522,10 +530,10 @@ func i1LivePrograms() map[string]string {
 		return i1LiveDefs + decls + "func work(ready queue.Queue[int]) int fails queue.Closed {\n\ttry ready.Push(1)\n" + call + "}\n" + i1LiveMain
 	}
 	for kind, loop := range i1LiveLoops {
-		out["decl-"+kind] = work("func spin() int {\nlet xs = []int{}\nlet _ = xs.Append(1)\n"+loop+"}\n", "spin()\n")
-		out["literal-"+kind] = work("", "let local = func() int {\nwith Local {\nProbe.Tick()\n}\n"+loop+"}\nlocal()\n")
-		out["task-"+kind] = work("", "let u = task.Go() {\nlet t0 = task.Go() { 1 }\nt0.Stop()\n"+loop+"}\nu.Wait()\n")
-		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\nwith Local {\nProbe.Tick()\n}\n"+loop+"}\nlet Work = wire { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
+		out["decl-"+kind] = work("func spin() int {\n"+loop+"let xs = []int{}\nlet _ = xs.Append(1)\nc\n}\n", "spin()\n")
+		out["literal-"+kind] = work("", "let local = func() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlocal()\n")
+		out["task-"+kind] = work("", "let u = task.Go() {\n"+loop+"let t0 = task.Go() { 1 }\nt0.Stop()\nc\n}\nu.Wait()\n")
+		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = wire { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
 	}
 	out["capability-recursion"] = work("func spinCap() needs Probe {\nProbe.Tick()\nspinCap()\n}\n", "with Local {\nspinCap()\n}\n0\n")
 	out["capability-mutual"] = work("func ping() needs Probe {\npong()\n}\nfunc pong() needs Probe {\nProbe.Tick()\nping()\n}\n", "with Local {\nping()\n}\n0\n")
