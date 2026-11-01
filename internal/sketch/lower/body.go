@@ -94,7 +94,8 @@ type funcCtx struct {
 	depth      int
 	locals     map[*check.Var]string
 	frame      *frame
-	env        string // the current environment pointer, which every Go function the lowering writes binds
+	acquiring  *acquireFlow // a native acquisition callback, in this same source frame
+	env        string       // the current environment pointer, which every Go function the lowering writes binds
 	directives bool
 	loops      []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every
@@ -420,9 +421,9 @@ func (fc *funcCtx) ret(s *syntax.ReturnStmt) {
 	}
 	if len(s.Results) == 0 {
 		if f.fallible {
-			fc.line("return nil")
+			fc.sourceReturn("nil")
 		} else {
-			fc.line("return")
+			fc.sourceReturn()
 		}
 		return
 	}
@@ -448,7 +449,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 			if o.val != "" {
 				fc.line("_ = " + o.val)
 			}
-			fc.line("return " + o.err)
+			fc.sourceReturn(o.err)
 		}
 		return
 	}
@@ -456,23 +457,27 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		// A no-value call returned for its effect: return f().
 		fc.exprStmt(x)
 		if f.fallible {
-			fc.line("return nil")
+			fc.sourceReturn("nil")
 		} else {
-			fc.line("return")
+			fc.sourceReturn()
 		}
 		return
 	}
 	val := fc.moved(fc.assigned(x))
 	if f.fallible {
-		fc.line("return " + val + ", nil")
+		fc.sourceReturn(val, "nil")
 	} else {
-		fc.line("return " + val)
+		fc.sourceReturn(val)
 	}
 }
 
 // fail leaves the current frame with err (rows.md, Escapes): the frame's
 // zero value and the error.
 func (fc *funcCtx) fail(err string) {
+	if fc.acquiring != nil {
+		fc.line("return nil, " + err)
+		return
+	}
 	f := fc.frame
 	if !f.fallible {
 		fc.line("panic(" + err + ")")
@@ -730,6 +735,15 @@ func (fc *funcCtx) branch(s *syntax.BranchStmt) {
 	word := "break"
 	if s.Tok == syntax.CONTINUE {
 		word = "continue"
+	}
+	if a := fc.acquiring; a != nil && len(fc.loops) <= a.loops {
+		code := "2"
+		if s.Tok == syntax.CONTINUE {
+			code = "3"
+		}
+		fc.line(a.flow + " = " + code)
+		fc.line("return nil, nil")
+		return
 	}
 	loop := fc.loops[len(fc.loops)-1]
 	if loop.switches == 0 {

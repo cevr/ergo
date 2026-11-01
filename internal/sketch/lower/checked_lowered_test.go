@@ -19,8 +19,8 @@ import (
 // kind at assignment sites, including writes, aggregates, contextual joins,
 // closure results, invariant pointers/slices, a pattern's written type and
 // the operands of == and !=; every kind meets the operation type Store as a
-// wire value, whose admitted pairs lowering refuses until stage E (an
-// expected refusal, S109, on the wire's line). A refused pair has exactly one diagnostic, on the
+// inline provider expression, whose admitted pairs lower and run (#199
+// stage 3c). A refused pair has exactly one diagnostic, on the
 // line of its site (or of the refused definition, or of a Task written in a
 // type position: a tuple result or a record field). An admitted pair lowers
 // on its own, and every admitted pair of a site, batched in one program,
@@ -405,7 +405,6 @@ func TestCheckedImpliesLowered(t *testing.T) {
 	want := map[string]string{}
 	for _, site := range pairSites {
 		var ids, funcs []string
-		deferred := 0    // admitted pairs whose lowering waits for stage E
 		started := false // an admitted pair starts a task
 		for _, s := range kinds {
 			for _, k := range kinds {
@@ -455,17 +454,6 @@ func TestCheckedImpliesLowered(t *testing.T) {
 					}
 					continue
 				}
-				if site == "wire" {
-					// An inline wire value is lowered in stage E: the one
-					// expected refusal, on the wire's line.
-					const wireRefusal = "an inline wire value is lowered after check-v1 stage E (196x)"
-					lines := strings.Split(src, "\n")
-					if o.panicked != nil || len(o.refused) != 1 || o.refused[0].Message != wireRefusal || o.refused[0].Line < 1 || o.refused[0].Line > len(lines) || !strings.Contains(lines[o.refused[0].Line-1], at) {
-						t.Errorf("%s: want the one stage E wire refusal on the line with %q, got panic %v, refusals %+v\n%s", id, at, o.panicked, o.refused, src)
-					}
-					deferred++
-					continue
-				}
 				switch {
 				case o.panicked != nil:
 					t.Errorf("%s: checked, lowering panicked: %v\n%s", id, o.panicked, src)
@@ -479,7 +467,7 @@ func TestCheckedImpliesLowered(t *testing.T) {
 				funcs = append(funcs, code)
 			}
 		}
-		t.Logf("%s: %d admitted pairs run, %d admitted pairs refused by lowering until stage E", site, len(ids), deferred)
+		t.Logf("%s: %d admitted pairs run", site, len(ids))
 		if len(ids) == 0 {
 			continue
 		}

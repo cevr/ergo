@@ -79,6 +79,15 @@ func (l *lowerer) nameAll() {
 				convs = append(convs, e.Conversions...)
 			}
 		}
+		for _, with := range p.Info.Withs {
+			for _, w := range with.Wires {
+				if w.Lit != nil {
+					for _, e := range w.Entries {
+						convs = append(convs, e.Conversions...)
+					}
+				}
+			}
+		}
 		for _, c := range convs {
 			from, _, ok := opsSource(c.From)
 			to, ok2 := c.To.(*check.Named)

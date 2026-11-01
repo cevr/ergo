@@ -166,6 +166,23 @@ func (s *Scope) OpenWith() *Scope {
 	return w
 }
 
+// WithAcquire constructs a provider and registers its checked Close in
+// this with's existing list, as one masked acquisition (R7, R8). open
+// yields that release only after construction completes. A failure yields
+// no release; a lexical transfer before construction yields nil, nil.
+// rt owns the acquisition region and restores it on every exit. In
+// particular, a completed open stays successful after a stop request.
+// A panic keeps v1's cause transport and reaches the enclosing frame,
+// whose End rolls back the with's earlier acquisitions.
+func (w *Scope) WithAcquire(open func() (func(), error)) error {
+	_, err := rt.AcquireInto(w.s.Task(), open, func(close func()) {
+		if close != nil {
+			w.WithClose(close)
+		}
+	})
+	return err
+}
+
 // WithClose registers close as the release of a provider the with whose
 // scope is w has just built: the call of the provider's checked Close,
 // whose body masks itself (Release). The with adds no mask: it catches the

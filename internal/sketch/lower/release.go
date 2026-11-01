@@ -82,19 +82,114 @@ func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site
 	return fd.name + "(" + outer + ", " + recv + ")"
 }
 
-// withClose registers, in ws, the scope of the owning with, the release of
-// the provider val that the with's builder has just built. The callback
-// runs in outer, the environment outside the with (a captured env: the
-// scope ends on the task that opened it, as a frame does), and calls the
-// provider's checked Close (providerRelease).
-func (fc *funcCtx) withClose(a *check.Acquisition, outer, ws, val string, site syntax.Node) {
+// providerCloser returns the checked release callback of this acquisition.
+// The environment is captured from outside the with, where its release
+// needs were charged. A plain provider has no release.
+func (fc *funcCtx) providerCloser(a *check.Acquisition, outer, val string, site syntax.Node) string {
+	if a.Close == nil {
+		return "nil"
+	}
 	saved := fc.env
 	fc.env = outer
 	callback := fc.envClosure(capturedEnv, "", site, func(env string) ([]string, string, string) {
 		return nil, "", strings.Repeat("\t", fc.depth+1) + fc.providerRelease(a, env, val, site) + "\n"
 	})
 	fc.env = saved
-	fc.line(fc.scopeCall("Scope.WithClose", ws, []string{callback}, site))
+	return callback
+}
+
+// acquireFlow transports lexical control through a native callback. It is
+// not a source frame: its return/failure and loop targets still belong to
+// the enclosing source frame (check/frame.go, WireLit). A completed
+// construction alone returns a release to WithAcquire for registration.
+type acquireFlow struct {
+	flow, value, err string // 0 completes, 1 returns, 2 breaks, 3 continues
+	loops            int
+}
+
+// sourceReturn writes the return of the source frame. Acquisition uses a
+// native callback solely to delimit rt's acquiring region, so a lexical
+// return inside an inline provider argument crosses it explicitly.
+func (fc *funcCtx) sourceReturn(vals ...string) {
+	if a := fc.acquiring; a != nil {
+		var dest []string
+		if a.value != "" {
+			dest = append(dest, a.value)
+		}
+		if a.err != "" {
+			dest = append(dest, a.err)
+		}
+		if len(dest) > 0 {
+			fc.line(strings.Join(dest, ", ") + " = " + strings.Join(vals, ", "))
+		}
+		fc.line(a.flow + " = 1")
+		fc.line("return nil, nil")
+		return
+	}
+	fc.line("return " + strings.Join(vals, ", "))
+}
+
+// withClose extends the with lifetime owner to construction and release
+// registration as one acquisition. No other lowering path registers a
+// provider. WithAcquire reuses v1's list and rt's acquiring region, and
+// restores the mask before this code handles an error or lexical transfer.
+func (fc *funcCtx) withClose(a *check.Acquisition, target, outer, ws string, site syntax.Node) {
+	f := fc.frame
+	flow := &acquireFlow{flow: fc.temp("flow"), loops: len(fc.loops)}
+	fc.line("var " + flow.flow + " int")
+	if f.result != nil {
+		flow.value = fc.temp("returned")
+		fc.line("var " + flow.value + " " + fc.goType(f.result))
+	}
+	if f.fallible {
+		flow.err = fc.temp("returnedErr")
+		fc.line("var " + flow.err + " error")
+	}
+	open := fc.envClosure(capturedEnv, "", site, func(env string) ([]string, string, string) {
+		inner := *fc
+		inner.out = &strings.Builder{}
+		inner.depth++
+		inner.acquiring = flow
+		val := inner.publishProvider(a, target)
+		inner.line("return " + inner.providerCloser(a, outer, val, site) + ", nil")
+		return nil, " (func(), error)", inner.out.String()
+	})
+	err := fc.temp("acquireErr")
+	fc.line(err + " := " + fc.scopeCall("Scope.WithAcquire", ws, []string{open}, site))
+	fc.line("if " + err + " != nil {")
+	fc.depth++
+	fc.line(fc.scopeCall("Scope.EndWith", ws, []string{"&" + err}, site))
+	fc.fail(err)
+	fc.depth--
+	fc.line("}")
+	fc.line("if " + flow.flow + " == 1 {")
+	fc.depth++
+	errArg := "nil"
+	var vals []string
+	if flow.value != "" {
+		vals = append(vals, flow.value)
+	}
+	if flow.err != "" {
+		errArg = "&" + flow.err
+		vals = append(vals, flow.err)
+	}
+	fc.line(fc.scopeCall("Scope.EndWith", ws, []string{errArg}, site))
+	fc.sourceReturn(vals...)
+	fc.depth--
+	fc.line("}")
+	if flow.loops > 0 {
+		for _, branch := range []struct {
+			code string
+			tok  syntax.Token
+		}{{"2", syntax.BREAK}, {"3", syntax.CONTINUE}} {
+			fc.line("if " + flow.flow + " == " + branch.code + " {")
+			fc.depth++
+			fc.line(fc.scopeCall("Scope.EndWith", ws, []string{"nil"}, site))
+			fc.branch(&syntax.BranchStmt{Tok: branch.tok})
+			fc.depth--
+			fc.line("}")
+		}
+	}
 }
 
 // entersRelease reports a call whose callee is a checked Close. The call

@@ -197,7 +197,7 @@ func (fc *funcCtx) moved(val string) string {
 func (fc *funcCtx) returnFallible(x syntax.Expr, o operand) {
 	val := fc.convertAt(x, o.val)
 	if fc.frame.dest == "" {
-		fc.line("return " + val + ", " + o.err)
+		fc.sourceReturn(val, o.err)
 		return
 	}
 	fc.line("if " + o.err + " != nil {")
@@ -205,7 +205,7 @@ func (fc *funcCtx) returnFallible(x syntax.Expr, o operand) {
 	fc.fail(o.err)
 	fc.depth--
 	fc.line("}")
-	fc.line("return " + fc.moved(val) + ", nil")
+	fc.sourceReturn(fc.moved(val), "nil")
 }
 
 // stdCall is a call of a std extern function with a runtime/v1 body.

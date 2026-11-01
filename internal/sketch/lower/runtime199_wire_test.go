@@ -735,7 +735,7 @@ func main() needs Console { run(); Console.Println("end") }
 // owner reads the checker's ownership fact.
 func TestRuntime199WireOwner(t *testing.T) {
 	writers := map[string]bool{"with": true, "withClose": true, "blocking.go:package": true}
-	readers := map[string]bool{"ownsResources": true, "acquiredSet": true, "emitWire": true, "withsOf": true}
+	readers := map[string]bool{"ownsResources": true, "acquiredSet": true, "buildProviders": true, "withsOf": true}
 	i1LowerSource(t, func(owner string, node ast.Node) {
 		ast.Inspect(node, func(n ast.Node) bool {
 			switch x := n.(type) {
@@ -747,7 +747,7 @@ func TestRuntime199WireOwner(t *testing.T) {
 				if err != nil {
 					break
 				}
-				for _, name := range []string{"OpenWith", "WithClose", "EndWith"} {
+				for _, name := range []string{"OpenWith", "WithClose", "WithAcquire", "EndWith"} {
 					if strings.Contains(value, name) && !writers[owner] {
 						t.Errorf("%s writes the with scope's %s outside the with lifetime owner", owner, name)
 					}

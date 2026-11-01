@@ -55,9 +55,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
 	// (callerRelease).
-	"Scope.OpenWith":  {},
-	"Scope.WithClose": {},
-	"Scope.EndWith":   {},
+	"Scope.OpenWith":    {},
+	"Scope.WithAcquire": {},
+	"Scope.WithClose":   {},
+	"Scope.EndWith":     {},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

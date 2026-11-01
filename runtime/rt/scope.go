@@ -83,10 +83,21 @@ func (c callFunc) release(any) { c.f() }
 // registration is observed only after the release is registered, at the next
 // poll. A failed open registers nothing.
 func Acquire[R any](s *Scope, open func() (R, error), close func(R)) (R, error) {
-	defer s.task.regions.truncate(s.task.acquire())
+	return AcquireInto(s.task, open, func(r R) {
+		s.push(entry{run: closeWith[R]{close}, v: r})
+	})
+}
+
+// AcquireInto is Acquire's masked construction and registration boundary
+// for an owner with its own release transport. register must publish one
+// completed acquisition to that owner's existing list, without running
+// user code. A failure or a panic in open never calls register. The
+// acquiring region masks t without changing child shielding (I2).
+func AcquireInto[R any](t *Task, open func() (R, error), register func(R)) (R, error) {
+	defer t.regions.truncate(t.acquire())
 	r, err := open()
 	if err == nil {
-		s.push(entry{run: closeWith[R]{close}, v: r})
+		register(r)
 	}
 	return r, err
 }

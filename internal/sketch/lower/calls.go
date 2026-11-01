@@ -484,7 +484,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	}
 	// The checker records an imported wire's entries (wire ownership), but
 	// this lowering builds only wires declared in the file it lowers.
-	if len(w.Wires) == 0 || fc.l.isImported(w.Wires[0]) {
+	if len(w.Wires) == 0 || (w.Wires[0].Lit == nil && fc.l.isImported(w.Wires[0])) {
 		if _, inline := unparen(x.Args[0]).(*syntax.WireLit); inline {
 			refuse(x.Args[0], "an inline wire value is lowered after check-v1 stage E (196x)")
 		}
@@ -510,19 +510,32 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	if owning && (fc.frame == nil || fc.frame.scope == "") {
 		refuse(x, "a with that owns a provider with a Close outside a function body is lowered after check-v1 stage E")
 	}
-	build := fc.l.wireBuilder(w, x)
+	inline := w.Wires[0].Lit != nil
+	build := ""
+	if !inline {
+		build = fc.l.wireBuilder(w, x)
+	}
 	env := fc.temp("env")
 	fc.line("{")
 	fc.depth++
 	outer := fc.envExpr(x)
 	fc.line(env + " := *" + outer)
+	if inline {
+		// An empty inline wire and a pure body may read no capability.
+		fc.line("_ = " + env)
+	}
 	savedWith := ""
 	ws := ""
 	if owning {
 		ws = fc.temp("ws")
 		fc.line(ws + " := " + fc.scopeCall("Scope.OpenWith", fc.frameScope(x), nil, x))
-		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
 		savedWith, fc.frame.with = fc.frame.with, ws
+	}
+	if inline {
+		fc.l.localWire(w.Wires[0], x)
+		fc.buildProviders(w, "(&"+env+")", outer, ws)
+	} else if owning {
+		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
 	} else {
 		fc.line(build + "(&" + env + ")")
 	}
@@ -625,23 +638,7 @@ func (l *lowerer) emitWire(with *check.With, name string, site syntax.Node) {
 	if w.Decl == nil || l.isImported(w) {
 		refuse(site, "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")
 	}
-	visited := map[*check.Wire]bool{}
-	var walk func(v *check.Wire)
-	walk = func(v *check.Wire) {
-		if visited[v] {
-			return
-		}
-		visited[v] = true
-		if v.Decl == nil || l.isImported(v) {
-			refuse(site, "an embedded imported wire is lowered after check-v1 stage B")
-		}
-		for _, e := range v.Entries {
-			if e.Embedded != nil {
-				walk(e.Embedded)
-			}
-		}
-	}
-	walk(w)
+	l.localWire(w, site)
 	fc := newFuncCtx(l, newNamer(l.names), true)
 	fc.owner = w.Name
 	l.recordDecl(w.Name, w.Decl)
@@ -657,30 +654,79 @@ func (l *lowerer) emitWire(with *check.With, name string, site syntax.Node) {
 		params += ", " + outer + " *" + l.env() + ", " + ws + " *" + l.rt() + ".Scope"
 	}
 	fc.entryPoll(l.info, w.Decl)
+	fc.buildProviders(with, fc.env, outer, ws)
+	l.user.WriteString(l.directive(w.Decl.Pos()))
+	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
+}
+
+// localWire keeps imported embeddings on their existing stage B refusal,
+// equally for named and inline wires.
+func (l *lowerer) localWire(w *check.Wire, site syntax.Node) {
+	visited := map[*check.Wire]bool{}
+	var walk func(*check.Wire)
+	walk = func(v *check.Wire) {
+		if visited[v] {
+			return
+		}
+		visited[v] = true
+		if v.Lit == nil && (v.Decl == nil || l.isImported(v)) {
+			refuse(site, "an embedded imported wire is lowered after check-v1 stage B")
+		}
+		for _, e := range v.Entries {
+			if e.Embedded != nil {
+				walk(e.Embedded)
+			}
+		}
+	}
+	walk(w)
+}
+
+// buildProviders is the acquisition owner shared by named builders and
+// lexical inline wires. Both consume exactly the checker's Acquired fact.
+// Inline own entries see the outer environment; embedded named entries
+// see the partially built wire, as their checked Uses require.
+func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
+	local := map[*check.WireEntry]bool{}
+	if with.Wires[0].Lit != nil {
+		for _, e := range with.Wires[0].Entries {
+			local[e] = true
+		}
+	}
 	for _, a := range with.Acquired {
 		e := a.Entry
 		fc.at(e.Provider)
-		val := fc.value(e.Provider)
-		if len(a.Caps) > 1 || a.Close != nil {
-			val = fc.spill(val)
+		saved := fc.env
+		fc.env = target
+		if local[e] {
+			fc.env = outer
 		}
-		if a.Close != nil {
-			fc.withClose(a, outer, ws, val, e.Provider)
+		if ws != "" {
+			fc.withClose(a, target, outer, ws, e.Provider)
+		} else {
+			fc.publishProvider(a, target)
 		}
-		for _, i := range a.Caps {
-			cap, ok := e.Caps[i].(*check.Named)
-			if !ok {
-				ice(e.Provider, "a wire key that is not a named capability")
-			}
-			conv := check.Conversion{}
-			if i < len(e.Conversions) {
-				conv = e.Conversions[i]
-			}
-			fc.line(fc.env + "." + l.envField(cap.Obj) + " = " + fc.convert(conv, val, e.Provider))
-		}
+		fc.env = saved
 	}
-	l.user.WriteString(l.directive(w.Decl.Pos()))
-	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
+}
+
+func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
+	e := a.Entry
+	val := fc.value(e.Provider)
+	if len(a.Caps) > 1 || a.Close != nil {
+		val = fc.spill(val)
+	}
+	for _, i := range a.Caps {
+		cap, ok := e.Caps[i].(*check.Named)
+		if !ok {
+			ice(e.Provider, "a wire key that is not a named capability")
+		}
+		conv := check.Conversion{}
+		if i < len(e.Conversions) {
+			conv = e.Conversions[i]
+		}
+		fc.line(target + "." + fc.l.envField(cap.Obj) + " = " + fc.convert(conv, val, e.Provider))
+	}
+	return val
 }
 
 // isImported reports a wire declared outside the user package.
