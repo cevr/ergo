@@ -294,6 +294,23 @@ func get(n int) First { if n == 0 { return shared }; other(n - 1) }
 func other(n int) First { get(n) }`, "other(2)", false},
 		{"explicit borrowed return", `let shared = First
 func get(n int) First { if n == 0 { return shared }; First }`, "get(1)", false},
+		{"return in trailing argument", `type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(risky() catch { case Fault: return shared }) {}
+	First
+}`, "get()", false},
+		{"return in trailing binary operand", `type Fault {}
+let shared = First
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
+func get() First {
+	run(1) {}
+	run((risky() catch { case Fault: return shared }) + 1) {}
+	First
+}`, "get()", false},
 		{"unit constructor", `func openA() First { First }`, "openA()", true},
 		{"fresh conversion", "", "First(First)", true},
 		{"borrowed conversion", `let shared = First`, "First(shared)", false},

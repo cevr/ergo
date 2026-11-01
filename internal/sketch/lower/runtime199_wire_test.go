@@ -602,35 +602,46 @@ func TestRuntime199WireProperty(t *testing.T) {
 // The head refuses this program. If a freshness regression admits it, run
 // it so the witness shows the same package resource closing twice.
 func TestRuntime199WireFreshProvider(t *testing.T) {
-	const src = `type A { Use() }
+	for _, body := range []string{
+		"shared",
+		"run(risky() catch { case Fault: return shared }) {}; Conn{n: 2}",
+		"run(1) {}; run((risky() catch { case Fault: return shared }) + 1) {}; Conn{n: 2}",
+	} {
+		t.Run(body, func(t *testing.T) {
+			src := `type A { Use() }
 type Conn { n int }
 func Use(_ Conn) {}
 func Close(_ Conn) needs Console { Console.Println("closed") }
 let shared = Conn{n: 1}
-func get() Conn { shared }
+func get() Conn { ` + body + ` }
 let W = wire { A: get() }
 func main() needs Console {
 	with W { A.Use() }
 	with W { A.Use() }
 	Console.Println("end")
 }
+type Fault {}
+func risky() int fails Fault { return Fault }
+func run(n int, f func()) { f() }
 `
-	o := lowerSource("wire_reused", src, true)
-	if len(o.diags) == 1 && o.diags[0].Code == "S109" && o.diags[0].Line == 7 && strings.Contains(o.diags[0].Message, "#197") {
-		return
+			o := lowerSource("wire_reused", src, true)
+			if len(o.diags) == 1 && o.diags[0].Code == "S109" && o.diags[0].Line == 7 && strings.Contains(o.diags[0].Message, "#197") {
+				return
+			}
+			if o.err != nil || o.panicked != nil || len(o.diags) != 0 || len(o.refused) != 0 {
+				t.Fatalf("want located S109 for a borrowed call result; got err=%v panic=%v diagnostics=%v refusals=%v", o.err, o.panicked, o.diags, o.refused)
+			}
+			if testing.Short() {
+				t.Fatal("borrowed call result admitted")
+			}
+			exes := buildAll(t, []*lowered{o}, true)
+			if exes == nil {
+				t.FailNow()
+			}
+			stdout, stderr, code := runExe(t, exes[o.name])
+			t.Fatalf("borrowed call result admitted: exit=%d stdout=%q stderr=%q; want S109 before any acquisition", code, stdout, stderr)
+		})
 	}
-	if o.err != nil || o.panicked != nil || len(o.diags) != 0 || len(o.refused) != 0 {
-		t.Fatalf("want located S109 for a borrowed call result; got err=%v panic=%v diagnostics=%v refusals=%v", o.err, o.panicked, o.diags, o.refused)
-	}
-	if testing.Short() {
-		t.Fatal("borrowed call result admitted")
-	}
-	exes := buildAll(t, []*lowered{o}, true)
-	if exes == nil {
-		t.FailNow()
-	}
-	stdout, stderr, code := runExe(t, exes[o.name])
-	t.Fatalf("borrowed call result admitted: exit=%d stdout=%q stderr=%q; want S109 before any acquisition", code, stdout, stderr)
 }
 
 // Frame actions run after open withs unwind, even when registered before
