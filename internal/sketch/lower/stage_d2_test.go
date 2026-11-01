@@ -460,24 +460,48 @@ func main() needs Console {
 `, "key\nmap fixed first\nkey\nfield and element\n")
 }
 
-// TestQueueValuesRefusedNamingD3: queue.Values() returns a Seq[T] and a for
-// over it checks clean, but a call of a std operation, with the caller's
-// task as its hidden argument, is lowered by stage D3 (the Info requests
-// from lower-v1 3b-runtime): a located refusal at the call names D3, never
-// an internal compiler error.
-func TestQueueValuesRefusedNamingD3(t *testing.T) {
-	src := "import queue\n\nfunc f(q queue.Queue[int]) int {\n\tlet mut s = 0\n\tfor v in q.Values() {\n\t\ts += v\n\t}\n\ts\n}\n"
-	o := lowerSource("r", src, false)
-	if len(o.diags) != 0 {
-		t.Fatalf("want a clean check; got %v", o.diags)
+// TestErgoRunQueueValues: queue.Values() is the runtime's Values with the
+// caller's task, its Go iter.Seq adapted to the Ergo Seq shape at the call
+// (stage D3b, Rule 3; D2 r1 review m1). A for over it ends when the queue
+// is closed and empty, and a break leaves the values not yet popped in the
+// queue.
+func TestErgoRunQueueValues(t *testing.T) {
+	wantRun(t, `import queue
+
+func fill(q queue.Queue[int], n int) fails queue.Closed {
+	for i in 0..n {
+		try q.Push(i)
 	}
-	if o.panicked != nil || len(o.refused) != 1 {
-		t.Fatalf("want one refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
+	q.Close()
+}
+
+func sum(q queue.Queue[int]) int {
+	let mut s = 0
+	for v in q.Values() {
+		s += v
 	}
-	r := o.refused[0]
-	if r.Line != 5 || r.Column != 11 || !strings.Contains(r.Message, "check-v1 stage D3") {
-		t.Fatalf("want a refusal at 5:11 naming check-v1 stage D3; got %+v", r)
+	s
+}
+
+func main() fails queue.Closed needs Console {
+	let q = queue.New[int](8)
+	try fill(q, 5)
+	if sum(q) == 10 {
+		Console.Println("values")
 	}
+	let r = queue.New[int](8)
+	try fill(r, 5)
+	for v in r.Values() {
+		if v == 1 {
+			break
+		}
+	}
+	let left = try r.Pop()
+	if left == 2 {
+		Console.Println("break keeps the rest")
+	}
+}
+`, "values\nbreak keeps the rest\n")
 }
 
 // TestStdOperationThroughDefinedTypeRefusedNamingD3: the operations of a

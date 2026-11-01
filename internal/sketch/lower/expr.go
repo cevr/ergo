@@ -741,6 +741,13 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	inner := &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner}
 	inner.env = fc.scope.alloc("env")
 	parts := []string{inner.env + " *" + fc.l.env()}
+	inner.frame = &frame{fallible: true}
+	if taskDest(sig) {
+		// A literal that returns a Task receives its caller's frame scope
+		// as its destination (stage D3b, Rule 2).
+		inner.frame.dest = fc.scope.alloc("dest")
+		parts = append(parts, inner.frame.dest+" *"+fc.l.rt()+".Scope")
+	}
 	var params []*check.Var
 	if ft != nil && ft.Params != nil {
 		for _, field := range ft.Params.List {
@@ -764,8 +771,16 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	if len(sig.Results) == 1 {
 		result = sig.Results[0]
 	}
-	inner.frame = &frame{result: result, fallible: true}
+	inner.frame.result = result
 	inner.depth = fc.depth + 1
+	results := fc.resultList(result, true)
+	if fc.l.bodyNeedsFrame(list) {
+		// The literal is a frame of its own (stage D3b, Rule 2).
+		errName := fc.scope.alloc("err")
+		results = fc.namedResults(result, errName)
+		inner.site = n
+		inner.openFrame(errName)
+	}
 	// A trailing block yields its last statement (Info.Tails); a function
 	// literal's body is a function body.
 	if ft == nil {
@@ -773,7 +788,7 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	} else {
 		inner.body(list)
 	}
-	return "func(" + strings.Join(parts, ", ") + ")" + fc.resultList(result, true) + " {\n" + inner.out.String() + strings.Repeat("\t", fc.depth) + "}"
+	return "func(" + strings.Join(parts, ", ") + ")" + results + " {\n" + inner.out.String() + strings.Repeat("\t", fc.depth) + "}"
 }
 
 // retTail returns a block's tail value from a literal's frame.
@@ -782,7 +797,7 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 	if fc.fallibleExpr(x) {
 		o := fc.expr(x)
 		if f.result != nil {
-			fc.line("return " + fc.convertAt(x, o.val) + ", " + o.err)
+			fc.returnFallible(x, o)
 		} else {
 			fc.line("return " + o.err)
 		}
@@ -793,7 +808,7 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 		fc.line("return nil")
 		return
 	}
-	fc.line("return " + fc.assigned(x) + ", nil")
+	fc.line("return " + fc.moved(fc.assigned(x)) + ", nil")
 }
 
 // simpleCatch reports a catch a Go type switch on the error lowers: arms of

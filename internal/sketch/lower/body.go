@@ -21,6 +21,10 @@ import (
 type frame struct {
 	result   check.Type // nil when it returns no value
 	fallible bool
+	// scope is the Go name of the frame scope, "" when the frame opens
+	// none (stage D3b, Rule 2); dest is the destination parameter of a
+	// frame that returns a Task, "" otherwise.
+	scope, dest string
 }
 
 // loopCtx is an enclosing for loop: break and continue inside a match,
@@ -386,7 +390,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		o := fc.expr(x)
 		switch {
 		case f.result != nil && o.val != "":
-			fc.line("return " + fc.convertAt(x, o.val) + ", " + o.err)
+			fc.returnFallible(x, o)
 		case f.result != nil:
 			ice(x, "a fallible return with no value in a function with a result")
 		default:
@@ -407,7 +411,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		}
 		return
 	}
-	val := fc.assigned(x)
+	val := fc.moved(fc.assigned(x))
 	if f.fallible {
 		fc.line("return " + val + ", nil")
 	} else {
@@ -879,8 +883,8 @@ func (fc *funcCtx) isInterface(t check.Type) bool {
 		return true // a row value, a Go error
 	}
 	n, ok := t.(*check.Named)
-	if !ok {
-		return false
+	if !ok || fc.l.runtimeType(n, fc.site) != "" {
+		return false // a std type is the runtime's concrete Go type
 	}
 	td := fc.l.typeDecl(n.Obj, fc.site)
 	if td.kind == kindDefined {

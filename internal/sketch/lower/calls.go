@@ -94,6 +94,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	switch c.Kind {
 	case check.CallFunc:
 		fd := fc.l.useFunc(c.Func, x)
+		if body, name, ok := fc.l.stdBody(fd); ok {
+			if c.Recv != nil {
+				ice(x, "a dot call to the std function %s", c.Func.Name)
+			}
+			return fc.stdCall(x, c, args, body, name)
+		}
 		list := args
 		if c.Recv != nil {
 			list = append([]syntax.Expr{c.Recv}, args...)
@@ -129,15 +135,18 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			}
 			head, rest = fd.name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
-		rest = append([]string{fc.envExpr(x)}, rest...)
+		rest = append(fc.taskDestArgs(x, c, c.Func.Sig), rest...)
 		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0, fd.fallible
 	case check.CallOp:
 		if c.Recv == nil || c.Op == nil {
 			ice(x, "an operation call with no receiver or operation")
 		}
-		// An operation of a std type (queue.Queue) has a runtime/v1 Go body
-		// that takes the caller's task as a hidden argument; binding it is
-		// D3's, as a std function call is (useFunc).
+		// An operation of a std type (the prelude's Task, queue.Queue) is the
+		// method of its runtime/v1 Go type, with that body's hidden
+		// arguments (stdOpCall).
+		if n, ok := fc.typeOf(c.Recv).(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
+			return fc.stdOpCall(x, c, n, args)
+		}
 		if n := fc.l.foreignOwner(fc.typeOf(c.Recv)); n != nil {
 			refuse(x, "a call to the std operation %s.%s is lowered after check-v1 stage D3b (std calls with their hidden task and scope arguments)", n.Obj.Name, c.Op.Name)
 		}
@@ -171,10 +180,27 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			ice(x.Fun, "a called value that is not a function")
 		}
 		vals := fc.callArgs(append([]syntax.Expr{x.Fun}, args...), x)
-		return vals[0] + "(" + strings.Join(append([]string{fc.envExpr(x)}, vals[1:]...), ", ") + ")", len(sig.Results) > 0, true
+		return vals[0] + "(" + strings.Join(append(fc.taskDestArgs(x, c, sig), vals[1:]...), ", ") + ")", len(sig.Results) > 0, true
 	}
 	ice(x, "an unknown call kind %d", c.Kind)
 	return "", false, false
+}
+
+// taskDestArgs are the leading arguments of a call of a declared function
+// or a function value of signature sig: the environment, then, when the
+// result holds a Task (Info's TaskResult), the frame scope as the
+// destination the callee's return moves the Task to (stage D3b, Rule 2).
+// A result that holds a Task only through a type argument or inside
+// another type is stage E's.
+func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, c *check.Call, sig *check.Signature) []string {
+	out := []string{fc.envExpr(x)}
+	if !c.TaskResult {
+		return out
+	}
+	if !taskDest(sig) {
+		refuse(x, "a call whose result holds a Task through a type argument or inside another type is lowered after check-v1 stage E")
+	}
+	return append(out, fc.frameScope(x))
 }
 
 // callArgs lowers a call's operands left to right, with each argument's
@@ -256,6 +282,19 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) stri
 	}
 	env := fc.scope.alloc("env")
 	params := []string{env + " *" + fc.l.env()}
+	lead := []string{env}
+	if taskDest(sig) {
+		// The destination passes through to the function, whose return
+		// moves the Task (stage D3b, Rule 2).
+		if !f.Pkg.Info.TaskResults[f] || !taskDest(f.Sig) {
+			refuse(site, "the function %s used as a value returns a Task through a type argument, which is lowered after check-v1 stage E", f.Name)
+		}
+		dest := fc.scope.alloc("dest")
+		params = append(params, dest+" *"+fc.l.rt()+".Scope")
+		lead = append(lead, dest)
+	} else if f.Pkg.Info.TaskResults[f] {
+		refuse(site, "the function %s used as a value returns a Task inside another type, which is lowered after check-v1 stage E", f.Name)
+	}
 	var args []string
 	for _, p := range sig.Params {
 		name := fc.scope.alloc("p")
@@ -268,7 +307,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) stri
 	} else {
 		head = fd.name
 	}
-	args = append([]string{env}, args...)
+	args = append(lead, args...)
 	call := head + "(" + strings.Join(args, ", ") + ")"
 	var result check.Type
 	if len(sig.Results) == 1 {
@@ -571,6 +610,15 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 	}
 	if !ok || !ok2 {
 		refuse(site, "an operations conversion from %s to %s is not lowered yet", conv.From, conv.To)
+	}
+	if l.runtimeType(to, site) != "" {
+		// A std type is the runtime's concrete Go type (stage D3b).
+		refuse(site, "a value of the program converted to the std type %s is lowered after check-v1 stage E", conv.To)
+	}
+	for _, f := range conv.Table {
+		if f != nil && f.Pkg != nil && f.Pkg.Info.TaskResults[f] {
+			refuse(site, "an operation provided by %s, whose result holds a Task, is lowered after check-v1 stage E", f.Name)
+		}
 	}
 	toDecl := l.typeDecl(to.Obj, site)
 	if toDecl.kind != kindOps {

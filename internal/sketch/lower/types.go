@@ -32,7 +32,11 @@ func (tc *typeCtx) goType(t check.Type) string {
 		}
 		return t.Name
 	case *check.Named:
-		td := tc.l.useType(tc.l.typeDecl(t.Obj, tc.site))
+		// A std type is the runtime's Go type (stage D3b; std.go).
+		name := tc.l.runtimeType(t, tc.site)
+		if name == "" {
+			name = tc.l.useType(tc.l.typeDecl(t.Obj, tc.site)).name
+		}
 		origin := t
 		if t.Orig != nil {
 			origin = t.Orig
@@ -44,9 +48,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 			}
 		}
 		if len(args) == 0 {
-			return td.name
+			return name
 		}
-		return td.name + "[" + strings.Join(args, ", ") + "]"
+		return name + "[" + strings.Join(args, ", ") + "]"
 	case *check.Slice:
 		return "[]" + tc.goType(t.Elem)
 	case *check.Map:
@@ -90,6 +94,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 // has neither when its rows are empty.
 func (tc *typeCtx) funcType(s *check.Signature) string {
 	parts := []string{"*" + tc.l.env()}
+	if taskDest(s) {
+		parts = append(parts, "*"+tc.l.rt()+".Scope") // the destination of the returned Task (stage D3b, Rule 2)
+	}
 	for _, p := range s.Params {
 		parts = append(parts, tc.goType(p.Type))
 	}

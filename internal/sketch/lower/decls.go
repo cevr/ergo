@@ -641,7 +641,10 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 		if !fd.library {
 			refuse(f.Decl, "a user extern go binding (here of %s) is lowered after check-v1 stage E (196x); this lowering implements an extern target only for the prelude declaration it binds", fd.extern)
 		}
-		refuse(site, "a call to the std function %s (extern go target %s) is lowered after check-v1 stage D3b (std calls with their hidden task and scope arguments)", f.Name, fd.extern)
+		if _, _, ok := l.stdBody(fd); ok {
+			return fd // called at its site, its runtime/v1 body directly (stdCall)
+		}
+		refuse(site, "a call to the std function %s (extern go target %s, not a runtime/v1 body) is lowered after check-v1 stage E", f.Name, fd.extern)
 	case fd.extern == "" && (f.Decl == nil || f.Decl.Body == nil):
 		refuse(site, "%s has no body, so it cannot be called", f.Name)
 	}
@@ -748,6 +751,17 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	// task (stage D3b, Rule 1).
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
+	fc.frame = &frame{fallible: fd.fallible}
+	if f.Pkg.Info.TaskResults[f] && fd.extern == "" {
+		// A function whose result holds a Task receives its caller's frame
+		// scope as the destination its return moves the Task to (stage D3b,
+		// Rule 2); a result that only holds one is stage E's.
+		if !taskDest(f.Sig) {
+			refuse(site, "a function whose result holds a Task inside another type is lowered after check-v1 stage E; return the Task itself")
+		}
+		fc.frame.dest = scope.alloc("dest")
+		parts = append(parts, fc.frame.dest+" *"+l.rt()+".Scope")
+	}
 	for i, p := range f.Sig.Params {
 		if fd.method != nil && i == 0 {
 			continue
@@ -756,24 +770,38 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
-	fc.frame = &frame{fallible: fd.fallible}
 	if len(f.Sig.Results) > 1 {
 		refuse(site, "several results are a tuple, which lowering supports after check-v1 stage B (196t)")
 	}
 	if len(f.Sig.Results) == 1 {
 		fc.frame.result = f.Sig.Results[0]
 	}
-	head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 	if fd.extern != "" {
+		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 		body := l.intrinsic(f)(fc, paramNames)
 		b.WriteString(head.String() + " {\n" + body + "}\n\n")
 		return
+	}
+	// A function that starts a task, registers an exit action or receives a
+	// Task by return opens its frame scope first (stage D3b, Rule 2).
+	frameErr := ""
+	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List)
+	switch {
+	case needsFrame && fd.fallible:
+		frameErr = scope.alloc("err")
+		head.WriteString(fc.namedResults(fc.frame.result, frameErr))
+	default:
+		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 	}
 	if directives {
 		b.WriteString(l.directive(f.Decl.Pos()))
 	}
 	b.WriteString(head.String() + " {\n")
 	fc.depth = 1
+	if needsFrame {
+		fc.site = site
+		fc.openFrame(frameErr)
+	}
 	fc.body(f.Decl.Body.List)
 	b.WriteString(fc.out.String())
 	b.WriteString("}\n\n")

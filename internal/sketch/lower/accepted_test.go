@@ -53,7 +53,9 @@ var refusedFamilies = map[string]string{
 	"basic:complex128":   "unused by v1",
 	// Narrower families: a form of an implemented node that waits.
 	"ExternSpec:user":         "check-v1 stage E",
-	"call:Func:externTarget":  "check-v1 stage D",
+	"call:Func:externTarget":  "check-v1 stage E",
+	"Task:nested":             "check-v1 stage E",
+	"std:unlowered":           "check-v1 stage E",
 	"TypeDecl:constraint":     "check-v1 stage E",
 	"call:With:imported":      "check-v1 stage B",
 	"FuncValue:instantiation": "lower-v1 request",
@@ -87,7 +89,12 @@ var refusalReasons = []struct {
 	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
 	{"ProvidesClause", regexp.MustCompile(`^a wire header is checked by #196 stage b`)},
 	{"ExternSpec:user", regexp.MustCompile(`^a user extern go binding \(here of \S+\) is lowered after check-v1 stage E`)},
-	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered after check-v1 stage D3b \(std calls`)},
+	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+, not a runtime/v1 body\) is lowered after check-v1 stage E`)},
+	// A Task held inside another type or through a type argument (stage D3b
+	// lowers a Task returned as itself), and the std forms with no
+	// runtime/v1 body.
+	{"Task:nested", regexp.MustCompile(`^(a call whose result holds a Task|the function \S+ used as a value returns a Task|an operation provided by \S+, whose result holds a Task|a function whose result holds a Task inside another type) .*check-v1 stage E`)},
+	{"std:unlowered", regexp.MustCompile(`^(a value of the program converted to the std type \S+|a call that needs a frame scope .+ outside a function body|the std type \S+ is|a block with no value where the std function needs one is) lowered after check-v1 stage E`)},
 	{"TypeDecl:constraint", regexp.MustCompile(`^the constraint .+ of \S+ is lowered after check-v1 stage E`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported wire is lowered after check-v1 stage B`)},
 	{"FuncValue:instantiation", regexp.MustCompile(`^the generic function \S+ used as a value has a type parameter \S+ that no parameter names; its instantiation needs a check-v1 Info fact \(lower-v1 request\)`)},

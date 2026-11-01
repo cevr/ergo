@@ -239,6 +239,12 @@ type Call struct {
 	// site, after substitution. A with's Fails is the row its block's
 	// tails pass through (rows.md, With 6).
 	Fails, Needs *Row
+	// TaskResult reports that the call's result holds a Task (CallFunc and
+	// CallFuncValue, including a call of a function literal's value): the
+	// caller needs a frame scope and passes it as the callee's hidden
+	// destination (stdlib.md, Hidden arguments). Derived from the same
+	// holdsTask as TaskResults. Added in check-v1 stage D3b (additive).
+	TaskResult bool
 }
 
 // ConversionKind is an implicit conversion's kind.
@@ -527,7 +533,12 @@ func (w *Wire) EachProvider(f func(cap Type, e *WireEntry) bool) {
 // check's mark of an unknown row and no failure a client can name
 // (Row.unknown).
 func (c *checker) finishInfo() {
-	for _, call := range c.pkg.Info.Calls {
+	for x, call := range c.pkg.Info.Calls {
+		if call.Kind == CallFunc || call.Kind == CallFuncValue {
+			if t, ok := c.pkg.Info.Types[x]; ok && t != nil {
+				call.TaskResult = c.holdsTask(t)
+			}
+		}
 		if call.Fails != nil {
 			call.Fails = c.types.resolve(call.Fails).known(c.types)
 		}

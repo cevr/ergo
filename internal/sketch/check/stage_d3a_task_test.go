@@ -1,6 +1,7 @@
 package check_test
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -134,6 +135,59 @@ func f() int {
 	slices.Sort(got)
 	if strings.Join(got, " ") != "keep maybe" {
 		t.Fatalf("TaskResults %v, want [keep maybe]", got)
+	}
+}
+
+// Calls[x].TaskResult marks each direct call and each call through a
+// function value whose result holds a Task, and no other call (stage D3b,
+// Rule 2; D3a review m3).
+func TestCallTaskResult(t *testing.T) {
+	src := `import task
+type Fault {}
+func work() int fails Fault {
+	1
+}
+
+func keep(t Task[int, Fault]) Task[int, Fault] {
+	t
+}
+
+func wait(t Task[int, Fault]) int fails Fault {
+	t.Wait()
+}
+
+func f() int fails Fault {
+	let k = keep
+	let a = try wait(keep(task.Go() { work() }))
+	let b = try wait(k(task.Go() { work() }))
+	let g = func() Task[int, Fault] { task.Go() { work() } }
+	let c = try wait(g())
+	a + b + c
+}
+`
+	file, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+	if len(diags) > 0 {
+		t.Fatalf("diagnostics: %v", diags)
+	}
+	got := map[string]int{}
+	for x, call := range pkg.Info.Calls {
+		if call.TaskResult {
+			text := src[x.Pos():x.End()]
+			got[fmt.Sprintf("%v", call.Kind)+" "+text[:min(4, len(text))]]++
+		}
+	}
+	want := map[string]int{
+		fmt.Sprintf("%v", check.CallFunc) + " keep":      1,
+		fmt.Sprintf("%v", check.CallFuncValue) + " k(ta": 1,
+		fmt.Sprintf("%v", check.CallFuncValue) + " g()":  1,
+		fmt.Sprintf("%v", check.CallFunc) + " task":      3,
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("TaskResult calls %v, want %v", got, want)
 	}
 }
 
