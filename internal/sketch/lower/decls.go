@@ -62,7 +62,6 @@ type funcDecl struct {
 	name     string // the Go function name, or the method name
 	method   *typeDecl
 	ptr      bool // a method on *T
-	env      bool // takes the environment
 	fallible bool // returns an error
 	extern   string
 	library  bool
@@ -462,7 +461,6 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	}
 	fd := &funcDecl{fn: f, library: f.Pkg != l.pkg}
 	l.funcs[f] = fd
-	fd.env = len(rowElems(f.Sig.Uses)) > 0
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		fd.extern = strings.Trim(f.Decl.Extern.Target.Value, "\"`")
@@ -746,11 +744,10 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.params = tps
 		head.WriteString("func " + fd.name + list + "(")
 	}
-	var parts []string
-	if fd.env {
-		fc.env = scope.alloc("env")
-		parts = append(parts, fc.env+" *"+l.env())
-	}
+	// Every function takes the environment first, which carries the running
+	// task (stage D3b, Rule 1).
+	fc.env = scope.alloc("env")
+	parts := []string{fc.env + " *" + l.env()}
 	for i, p := range f.Sig.Params {
 		if fd.method != nil && i == 0 {
 			continue
@@ -853,12 +850,19 @@ func (l *lowerer) initFunc() string {
 	}
 	name := l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	var b strings.Builder
-	b.WriteString("// " + name + " runs the package-level lets in Go's initialization order,\n// inside the program's root task.\nfunc " + name + "() {\n")
+	b.WriteString("// " + name + " runs the package-level lets in Go's initialization order,\n// inside the program's root task.\nfunc " + name + "(" + initEnv(l) + " *" + l.env() + ") {\n")
 	for _, in := range l.info.InitOrder {
 		b.WriteString(l.inits[in.Value])
 	}
 	b.WriteString("}\n\n")
 	return b.String()
+}
+
+// initEnv is the Go name of initFunc's environment parameter, which every
+// initializer's code reads. Each initializer allocates its locals in a fresh
+// scope under the package names, so the name is the same in each.
+func initEnv(l *lowerer) string {
+	return newNamer(l.names).alloc("env")
 }
 
 // packageVar lowers one name of a package-level let, with its initializer
@@ -871,6 +875,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	}
 	fc := newFuncCtx(l, newNamer(l.names), true)
 	fc.depth = 2
+	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	name, goType := "_", ""
 	if ok {
 		fc.owner = v.Name
@@ -913,6 +918,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	x := spec.Values[0]
 	fc := newFuncCtx(l, newNamer(l.names), true)
 	fc.depth = 2
+	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	t := fc.typeOf(x)
 	if c, ok := l.info.Implicit[x]; ok && spec.Pattern != nil {
 		t = c.To
@@ -991,15 +997,22 @@ func patternVars(p *check.Pattern, out []*check.Var) []*check.Var {
 	return out
 }
 
-// env is the environment type's name: one field per capability the program
-// binds or needs, each an operation type (spec D3; runtime.md, Host and
-// lowering notes). with copies it.
+// env is the environment type's name: the running task, then one field per
+// capability the program binds or needs, each an operation type (spec D3;
+// runtime.md, Host and lowering notes). with copies it; a task.Go block runs
+// with a copy that holds the child task.
 func (l *lowerer) env() string {
 	if l.envName == "" {
 		l.envName = l.pkgName(pkgKey{"env", nil}, "Env")
+		l.taskPkg()
 	}
 	return l.envName
 }
+
+// envTask is the field of the environment that holds the running task, an
+// *rt.Task. It is lowercase, and a capability field is capitalized
+// (memberName), so the two never clash.
+const envTask = "task"
 
 // envField is the environment's field for a capability.
 func (l *lowerer) envField(cap *check.TypeName) string {
@@ -1027,13 +1040,11 @@ func (l *lowerer) envType(b *strings.Builder) {
 		return
 	}
 	b.WriteString("type " + l.envName + " struct {\n")
+	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
 	for _, cap := range l.envOrder {
 		b.WriteString("\t" + l.envFields[cap] + " " + l.types[cap].name + "\n")
 	}
 	b.WriteString("}\n\n")
-	if name, ok := l.pkgNames[pkgKey{"noenv", nil}]; ok {
-		b.WriteString("var " + name + " = &" + l.envName + "{}\n\n")
-	}
 }
 
 // rowElems are a row's elements with every inferred row replaced by its

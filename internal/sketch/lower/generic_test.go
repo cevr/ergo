@@ -200,13 +200,19 @@ func checkGenericDecls(t *testing.T, built map[string]*lowered) {
 	}
 	if o := built["samename"]; o != nil {
 		goSrc := o.mainGo()
-		for _, m := range []string{"func (c Circle) Area() int", "func (s Square) Area() int"} {
+		for _, m := range []string{"func (c Circle) Area(env *Env) int", "func (s Square) Area(env *Env) int"} {
 			if !strings.Contains(goSrc, m) {
 				t.Errorf("Go lacks the method %q:\n%s", m, goSrc)
 			}
 		}
-		if strings.Contains(goSrc, "opsCircle") || strings.Contains(goSrc, "opsSquare") {
-			t.Errorf("a record whose methods match the operation type needs no adapter:\n%s", goSrc)
+		// An operation takes the caller's task first (rows.md, Rows 7) and a
+		// method takes an environment, so each record reaches Shape through
+		// an adapter that runs its method in an environment of that task
+		// (stage D3b, D2).
+		for _, m := range []string{"func (a *opsCircleAsShape) Area(t *rt.Task) int {\n\treturn (a.v).Area(&Env{task: t})\n}", "func (a *opsSquareAsShape) Area(t *rt.Task) int {\n\treturn (a.v).Area(&Env{task: t})\n}"} {
+			if !strings.Contains(goSrc, m) {
+				t.Errorf("Go lacks the adapter method %q:\n%s", m, goSrc)
+			}
 		}
 	}
 	if o := built["names"]; o != nil {

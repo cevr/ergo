@@ -135,7 +135,7 @@ func TestLateNamesNeverCaptureLocals(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	for _, want := range []string{"time", "ergo", "Env", "noEnv", "buildW", "opsMemAsStore", "Expired", "textBad", "textKind", "textList", "v", "x", "texts", "i", "e"} {
+	for _, want := range []string{"time", "ergo", "Env", "hostConsole", "buildW", "opsMemAsStore", "Expired", "textBad", "textKind", "textList", "v", "x", "texts", "i", "e"} {
 		if sort.SearchStrings(names, want) == len(names) || names[sort.SearchStrings(names, want)] != want {
 			t.Errorf("the template's lowering has no package entity %s; it names %v", want, names)
 		}

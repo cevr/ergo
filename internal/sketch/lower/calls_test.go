@@ -96,16 +96,16 @@ func TestCallIdentity(t *testing.T) {
 		goCall              string // text of the Go line that makes the call
 	}
 	wants := []want{
-		{"Mem.Label", "Mem.Find", "m.Find(s)", 1, ".Find(s)"},
-		{"lookup", "Store.Find", "Store.Find(name)", 1, ".Store.Find(name)"},
+		{"Mem.Label", "Mem.Find", "m.Find(s)", 1, ".Find(env, s)"},
+		{"lookup", "Store.Find", "Store.Find(name)", 1, ".Store.Find(env.task, name)"},
 		{"apply", "f", "f(s)", 1, " f("},
 		{"main", "double", "double(2)", 1, "double("},
 		{"main", "lookup", `lookup("a")`, 1, `lookup(`},
-		{"main", "Console.Println", "Console.Println(v)", 1, ".Println(v"},
+		{"main", "Console.Println", "Console.Println(v)", 1, ".Println((&env_1).task, v"},
 		{"main", "apply", "apply(func", 1, "apply("},
 		{"main", "Mem.Label", "m.Label(s)", 1, ".Label("},
-		{"main", "Console.Println", "Console.Println(w)", 1, ".Println(w)"},
-		{"main", "Console.Println", `Console.Println("four")`, 1, `.Println("four")`},
+		{"main", "Console.Println", "Console.Println(w)", 1, ".Println(env.task, w)"},
+		{"main", "Console.Println", `Console.Println("four")`, 1, `.Println(env.task, "four")`},
 	}
 	var wantTable []string
 	for _, w := range wants {
@@ -135,7 +135,7 @@ func TestCallIdentity(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("entry %d (%s): no Go line holding %q directly after %q", i, w.callee, w.goCall, directive)
+			t.Errorf("entry %d (%s): no Go line holding %q directly after %q\n%s", i, w.callee, w.goCall, directive, code)
 		}
 	}
 

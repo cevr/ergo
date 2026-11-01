@@ -20,7 +20,7 @@ import (
 //     lets and wire builders, so a source name keeps its spelling unless Go
 //     reserves it;
 //  2. the generated package entities: the runtime and time imports, the
-//     environment type, the shared empty environment, the pattern test
+//     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
 //     (calls.go, #230) and the package initializer (decls.go, initFunc);
 //  3. every type and function of every library package the program reaches
@@ -44,7 +44,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"import", "time"}, "time")
 	l.pkgName(pkgKey{"import", taskImport}, "rt")
 	l.pkgName(pkgKey{"env", nil}, "Env")
-	l.pkgName(pkgKey{"noenv", nil}, "noEnv")
+	l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
 	l.pkgName(pkgKey{"is", nil}, "ergoIs")
 	l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	l.pkgName(pkgKey{"calls", nil}, "ergoCalls")

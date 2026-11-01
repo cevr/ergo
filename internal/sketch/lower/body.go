@@ -39,7 +39,7 @@ type funcCtx struct {
 	depth      int
 	locals     map[*check.Var]string
 	frame      *frame
-	env        string // the current environment pointer; "" in a function with none
+	env        string // the current environment pointer, which every Go function the lowering writes binds
 	directives bool
 	loops      []*loopCtx
 	// tries counts the try expressions being lowered: inside one, every
@@ -563,10 +563,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		}
 		elemType := fc.goType(l.Elem)
 		yield := fc.temp("yield")
-		env := fc.env
-		if env == "" {
-			env = fc.l.noEnv()
-		}
+		env := fc.envExpr(s)
 		// The Seq's row is empty (its type has none), so its error is nil.
 		adapter := "func(" + yield + " func(" + elemType + ") bool) { _ = " + x + "(" + env + ", func(_ *" + fc.l.env() + ", " + v + " " + elemType + ") (bool, error) { return " + yield + "(" + v + "), nil }) }"
 		if elem == "_" {

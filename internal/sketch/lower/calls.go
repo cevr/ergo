@@ -129,9 +129,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			}
 			head, rest = fd.name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
-		if fd.env {
-			rest = append([]string{fc.envArg(x, c.Needs)}, rest...)
-		}
+		rest = append([]string{fc.envExpr(x)}, rest...)
 		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0, fd.fallible
 	case check.CallOp:
 		if c.Recv == nil || c.Op == nil {
@@ -144,7 +142,8 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			refuse(x, "a call to the std operation %s.%s is lowered after check-v1 stage D3b (std calls with their hidden task and scope arguments)", n.Obj.Name, c.Op.Name)
 		}
 		vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
-		return "(" + vals[0] + ")." + memberName(c.Op.Name) + "(" + strings.Join(vals[1:], ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
+		rest := append([]string{fc.envExpr(x) + "." + envTask}, vals[1:]...) // the task first (rows.md, Rows 7)
+		return "(" + vals[0] + ")." + memberName(c.Op.Name) + "(" + strings.Join(rest, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallProviderOp:
 		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 		if !ok || c.Op == nil {
@@ -155,8 +154,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			ice(sel.X, "a capability with no named type")
 		}
 		vals := fc.callArgs(args, x)
-		provider := fc.envExpr(x) + "." + fc.l.envField(cap.Obj)
-		return provider + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
+		env := fc.envExpr(x)
+		// A capability's operation takes the running task first (rows.md,
+		// Rows 7).
+		vals = append([]string{env + "." + envTask}, vals...)
+		return env + "." + fc.l.envField(cap.Obj) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
 		// underlying signature.
@@ -169,11 +171,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			ice(x.Fun, "a called value that is not a function")
 		}
 		vals := fc.callArgs(append([]syntax.Expr{x.Fun}, args...), x)
-		env := fc.env
-		if env == "" {
-			env = fc.l.noEnv()
-		}
-		return vals[0] + "(" + strings.Join(append([]string{env}, vals[1:]...), ", ") + ")", len(sig.Results) > 0, true
+		return vals[0] + "(" + strings.Join(append([]string{fc.envExpr(x)}, vals[1:]...), ", ") + ")", len(sig.Results) > 0, true
 	}
 	ice(x, "an unknown call kind %d", c.Kind)
 	return "", false, false
@@ -232,23 +230,13 @@ func (fc *funcCtx) typeArgs(sig *check.Signature, args []check.Type, site syntax
 	return "[" + strings.Join(out, ", ") + "]"
 }
 
-// envExpr is the current environment, which a call that needs capabilities
-// receives.
+// envExpr is the current environment, which every call receives: every Go
+// function the lowering writes binds one (stage D3b, Rule 1).
 func (fc *funcCtx) envExpr(site syntax.Node) string {
 	if fc.env == "" {
-		ice(site, "a call that needs capabilities where none is bound")
+		ice(site, "a call where no environment is bound")
 	}
 	return fc.env
-}
-
-// envArg is the environment a call of a function that takes one receives:
-// the current one, or the shared empty one where none is bound and the call needs nothing at
-// this site (a row parameter instantiated with the empty row).
-func (fc *funcCtx) envArg(site syntax.Node, needs *check.Row) string {
-	if fc.env == "" && len(rowElems(needs)) == 0 {
-		return fc.l.noEnv()
-	}
-	return fc.envExpr(site)
 }
 
 // funcValue lowers a declared function used as a value: a closure of the
@@ -280,9 +268,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) stri
 	} else {
 		head = fd.name
 	}
-	if fd.env {
-		args = append([]string{env}, args...)
-	}
+	args = append([]string{env}, args...)
 	call := head + "(" + strings.Join(args, ", ") + ")"
 	var result check.Type
 	if len(sig.Results) == 1 {
@@ -374,11 +360,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	env := fc.temp("env")
 	fc.line("{")
 	fc.depth++
-	if fc.env != "" {
-		fc.line(env + " := *" + fc.env)
-	} else {
-		fc.line(env + " := " + fc.l.env() + "{}")
-	}
+	fc.line(env + " := *" + fc.envExpr(x))
 	fc.line(build + "(&" + env + ")")
 	saved := fc.env
 	fc.env = "(&" + env + ")"
@@ -572,14 +554,14 @@ func (l *lowerer) providerNeeds(x syntax.Expr) map[*check.TypeName]bool {
 }
 
 // operations converts val to the operation type of an operations
-// conversion (Info.Implicit, Wire entries). When the source is a
-// non-generic record whose table functions are all its Go methods, with the
-// operation's exact Go signatures, the value is already the interface's;
-// otherwise an adapter struct calls the table's functions.
+// conversion (Info.Implicit, Wire entries): an adapter struct whose methods
+// call the table's functions. An operation takes the caller's task first
+// (rows.md, Rows 7) and a function takes an environment, so no Go method of
+// the source has the operation's Go signature, and the adapter is always
+// written (stage D3b).
 func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node) string {
-	// A *T source (types.md, Methods 5) always goes through an adapter that
-	// holds the pointer: a table function on T reads *v, one on *T takes v
-	// (stage C round 4 review T1).
+	// A *T source (types.md, Methods 5) holds the pointer: a table function
+	// on T reads *v, one on *T takes v (stage C round 4 review T1).
 	from, ptrSource, ok := opsSource(conv.From)
 	to, ok2 := conv.To.(*check.Named)
 	if _, isAny := conv.To.(*check.Interface); isAny {
@@ -610,26 +592,19 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 			}
 		}
 	}
-	direct := from.Orig == nil && !ptrSource
 	for _, op := range toDecl.ops {
 		f := conv.Table[op.Name]
 		if f == nil {
 			ice(site, "the operations conversion to %s has no function for %s", conv.To, op.Name)
 		}
-		fd := l.useFunc(f, site)
-		if fd.env {
-			ice(site, "the provider function %s needs capabilities", f.Name)
+		// A provider's requirements are met where a wire builds it (rows.md,
+		// Wire 4 and 6), never by the caller of its operation, so the
+		// adapter's environment holds the task alone. The checker refuses a
+		// table function that needs capabilities (S108, with #37).
+		if len(rowElems(f.Sig.Uses)) > 0 {
+			ice(site, "the operation %s of %s is provided by %s, which needs capabilities", op.Name, conv.To, f.Name)
 		}
-		// Only a direct candidate compares signatures: a generic source's
-		// table function spells its own type parameters, which tc does not
-		// bind, and the adapter needs no comparison (stage C round 5
-		// review M1).
-		if direct && (fd.method == nil || fd.method.tn != from.Obj || fd.ptr || fd.name != memberName(op.Name) || tc.funcMethodSig(f) != tc.methodSig(op.Sig)) {
-			direct = false
-		}
-	}
-	if direct {
-		return val
+		l.useFunc(f, site)
 	}
 	key := adapterKey(conv)
 	name, ok := l.adapters[key]
@@ -644,7 +619,11 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 			fd := l.funcDecl(f)
 			locals := newNamer(l.names) // so no local hides the function it calls
 			self := locals.alloc("a")
-			var params, args []string
+			// The operation takes the caller's task first (rows.md, Rows 7);
+			// the table function runs in an environment of that task alone.
+			task := locals.alloc("t")
+			params := []string{task + " *" + l.taskPkg() + ".Task"}
+			args := []string{"&" + l.env() + "{" + envTask + ": " + task + "}"}
 			for _, p := range op.Sig.Params {
 				n := locals.alloc("p")
 				params = append(params, n+" "+tc.goType(p.Type))
@@ -661,7 +640,7 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 			if fd.method != nil {
 				call = "(" + recv + ")." + fd.name + "(" + strings.Join(args, ", ") + ")"
 			} else {
-				call = fd.name + "(" + strings.Join(append([]string{recv}, args...), ", ") + ")"
+				call = fd.name + "(" + strings.Join(append([]string{args[0], recv}, args[1:]...), ", ") + ")"
 			}
 			var result check.Type
 			if len(op.Sig.Results) == 1 {
@@ -686,14 +665,6 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 		l.gen.WriteString(b.String())
 	}
 	return "&" + name + "{v: " + val + "}"
-}
-
-// funcMethodSig is the Go method signature f has as a method: its
-// parameters after the first.
-func (tc *typeCtx) funcMethodSig(f *check.Func) string {
-	s := *f.Sig
-	s.Params = s.Params[1:]
-	return tc.methodSig(&s)
 }
 
 // mentionsTypeParam reports a type that names a type parameter.

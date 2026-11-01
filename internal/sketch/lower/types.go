@@ -117,11 +117,13 @@ func (tc *typeCtx) resultList(result check.Type, fallible bool) string {
 	return ""
 }
 
-// methodSig is an operation's Go method signature, after its name.
+// methodSig is an operation's Go method signature, after its name: the
+// caller's task first (rows.md, Rows 7: capabilities become Go interfaces
+// whose methods take the task handle first), then its parameters.
 func (tc *typeCtx) methodSig(s *check.Signature) string {
-	params := make([]string, len(s.Params))
-	for i, p := range s.Params {
-		params[i] = tc.goType(p.Type)
+	params := []string{"*" + tc.l.taskPkg() + ".Task"}
+	for _, p := range s.Params {
+		params = append(params, tc.goType(p.Type))
 	}
 	if len(s.Results) > 1 {
 		refuse(tc.site, "an operation with several results is a tuple, lowered after check-v1 stage B (196t)")

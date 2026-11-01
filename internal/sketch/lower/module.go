@@ -139,15 +139,6 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 	return name
 }
 
-// noEnv is the shared empty environment, which a call passes to a function
-// that takes one where the caller has none (a pure caller of a function
-// value, or of a function whose row is empty at this site). It is never
-// nil, so a with inside the callee copies it; nothing writes it.
-func (l *lowerer) noEnv() string {
-	l.env()
-	return l.pkgName(pkgKey{"noenv", nil}, "noEnv")
-}
-
 // lowerer holds the lowering of one package.
 type lowerer struct {
 	unit Unit
@@ -434,38 +425,42 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		refuse(main.Decl.Name, "main takes no parameters and returns no value")
 	}
 	rt := l.rt()
-	var fields []string
-	if fd.env {
-		for _, cap := range rowElems(main.Sig.Uses) {
-			n, ok := cap.(*check.Named)
-			if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" {
-				refuse(main.Decl.Name, "main needs %s, and the host provides only Console; bind it with a with block inside main", cap)
-			}
-			fields = append(fields, l.envField(n.Obj)+": "+rt+".Console{}")
-		}
-	}
-	env := l.env()
 	locals := newNamer(l.names) // main's locals reference only the names above
-	b.WriteString("func main() {\n")
-	args := ""
-	if fd.env {
-		args = locals.alloc("env")
-		b.WriteString("\t" + args + " := &" + env + "{" + strings.Join(fields, ", ") + "}\n")
+	task, env := locals.alloc("t"), locals.alloc("env")
+	fields := []string{envTask + ": " + task}
+	var host string
+	for _, cap := range rowElems(main.Sig.Uses) {
+		n, ok := cap.(*check.Named)
+		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" {
+			refuse(main.Decl.Name, "main needs %s, and the host provides only Console; bind it with a with block inside main", cap)
+		}
+		// The runtime's Console prints a line; the capability's operation
+		// takes the task first (rows.md, Rows 7), so the host's provider is
+		// a one-method adapter.
+		name := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
+		hl := newNamer(l.names)
+		line := hl.alloc("line")
+		host = "// " + name + " is the host's Console.\ntype " + name + " struct{}\n\n" +
+			"func (" + name + ") " + memberName("Println") + "(_ *" + l.taskPkg() + ".Task, " + line + " string) { " + rt + ".Console{}.Println(" + line + ") }\n\n"
+		fields = append(fields, l.envField(n.Obj)+": "+name+"{}")
 	}
+	b.WriteString("func main() {\n")
 	// main runs as the root task under v1.Main, which reports its exit:
 	// a typed failure, a defect with its Ergo call sites (#230), or an
-	// interruption (runtime.md, Exit causes).
-	b.WriteString("\t" + rt + ".Main(func(*" + l.taskPkg() + ".Task) error {\n")
+	// interruption (runtime.md, Exit causes). The environment holds that
+	// task (stage D3b, Rule 1).
+	b.WriteString("\t" + rt + ".Main(func(" + task + " *" + l.taskPkg() + ".Task) error {\n")
+	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + strings.Join(fields, ", ") + "}\n")
 	if l.hasInits() {
 		// The package-level lets run first, in the root task (review m1).
-		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "()\n")
+		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
 	}
 	if fd.fallible {
-		b.WriteString("\t\treturn " + fd.name + "(" + args + ")\n")
+		b.WriteString("\t\treturn " + fd.name + "(" + env + ")\n")
 	} else {
-		b.WriteString("\t\t" + fd.name + "(" + args + ")\n\t\treturn nil\n")
+		b.WriteString("\t\t" + fd.name + "(" + env + ")\n\t\treturn nil\n")
 	}
-	b.WriteString("\t})\n}\n\n")
+	b.WriteString("\t})\n}\n\n" + host)
 }
 
 // readVars is the set of variables some expression of the file reads: every
