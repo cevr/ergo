@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +21,13 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"Main": true, "Println": true, "End": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
+	methods := map[string]bool{}
+	for name, binding := range runtimeBindings {
+		if binding.wait != noWait {
+			parts := strings.Split(name, ".")
+			methods[parts[len(parts)-1]] = true
+		}
+	}
 	i1LowerSource(t, func(owner string, node ast.Node) {
 		if owner == "runtimeCall" {
 			return
@@ -46,12 +54,10 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 			}
 			return true
 		})
-		if usesRuntime {
-			for _, text := range literals {
-				for _, m := range call.FindAllStringSubmatch(text, -1) {
-					if !helpers[m[1]] {
-						t.Errorf("%s emits runtime binding %s outside runtimeCall", owner, m[1])
-					}
+		for _, text := range literals {
+			for _, m := range call.FindAllStringSubmatch(text, -1) {
+				if methods[m[1]] || usesRuntime && !helpers[m[1]] {
+					t.Errorf("%s emits runtime binding %s outside runtimeCall", owner, m[1])
 				}
 			}
 		}
