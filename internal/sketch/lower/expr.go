@@ -790,7 +790,7 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	inner := &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner}
 	inner.env = fc.scope.alloc("env")
 	parts := []string{inner.env + " *" + fc.l.env()}
-	inner.frame = &frame{fallible: true}
+	inner.frame = &frame{fallible: true, polls: framePolls(fc.l.info, n)}
 	if sig.ResultIsTask() {
 		// A literal that returns a Task receives its caller's frame scope
 		// as its destination (stage D3b, Rule 2).

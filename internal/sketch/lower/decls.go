@@ -754,6 +754,9 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	fc.env = scope.alloc("env")
 	parts := []string{fc.env + " *" + l.env()}
 	fc.frame = &frame{fallible: fd.fallible}
+	if fd.extern == "" && f.Decl.Body != nil {
+		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl)
+	}
 	if f.Pkg.Info.TaskResults[f] && fd.extern == "" {
 		// A function whose result holds a Task receives its caller's frame
 		// scope as the destination its return moves the Task to (stage D3b,
@@ -916,6 +919,9 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 		fc.frame = &frame{result: fc.typeOf(x)}
 		goType = fc.goType(fc.typeOf(x))
 	}
+	if x != nil {
+		fc.frame.polls = framePolls(l.info, spec)
+	}
 	l.recordDecl(fc.owner, spec)
 	if x == nil {
 		l.user.WriteString(l.directive(id.Pos()))
@@ -960,7 +966,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	} else if vs := patternVars(l.info.Patterns[spec.Pattern], nil); len(vs) > 0 {
 		fc.owner = vs[0].Name
 	}
-	fc.frame = &frame{result: t}
+	fc.frame = &frame{result: t, polls: framePolls(l.info, spec)}
 	l.recordDecl(fc.owner, spec)
 	at := spec.Pos()
 	if len(spec.Names) > 0 {

@@ -176,6 +176,18 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			ice(sel.X, "a capability with no named type")
 		}
 		vals := fc.callArgs(args, x)
+		// The interruption point (runtime.md, I1): after the operands, each
+		// evaluated once and in order, and before the operation runs. A
+		// capability call writes statements (emits), so no operand after it
+		// runs before the poll.
+		if fc.frame.polls {
+			fc.poll(x)
+			if fc.lastPos == x.Pos() {
+				// The call's own Go line follows its directive (identify),
+				// so the call table and a defect name it, not the poll.
+				fc.lastPos = syntax.NoPos
+			}
+		}
 		env := fc.envExpr(x)
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
@@ -590,7 +602,9 @@ func (l *lowerer) emitWire(w *check.Wire, name string, site syntax.Node) {
 	if w.Decl != nil {
 		l.recordDecl(w.Name, w.Decl)
 	}
-	fc.frame = &frame{}
+	// A builder has no loop and calls no capability (a named wire is
+	// closed); its frame reads the wire's footprint all the same.
+	fc.frame = &frame{polls: framePolls(l.info, w.Decl)}
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
 	built := map[*check.TypeName]bool{}

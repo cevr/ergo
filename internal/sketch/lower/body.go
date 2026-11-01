@@ -25,6 +25,34 @@ type frame struct {
 	// none (stage D3b, Rule 2); dest is the destination parameter of a
 	// frame that returns a Task, "" otherwise.
 	scope, dest string
+	// polls reports a frame whose footprint is not empty (Info.Footprints;
+	// runtime.md, I1): it checks for a stop before each capability call and
+	// at the head of each loop body, so every back-edge passes a check. A
+	// pure frame has none.
+	polls bool
+}
+
+// framePolls reads the footprint the checker recorded for a frame's key
+// (Info.Footprints) from info, the package that declares it. The lowering
+// never derives a footprint: a frame with no entry is a checker bug.
+func framePolls(info *check.Info, key syntax.Node) bool {
+	fp, ok := info.Footprints[key]
+	if !ok {
+		ice(key, "a frame with no Footprints entry")
+	}
+	return !fp.Empty()
+}
+
+// poll writes the interruption point of an impure frame (runtime.md, I1):
+// the running task's Check, which unwinds the task once it is asked to stop
+// outside a mask. A pure frame writes nothing.
+func (fc *funcCtx) poll(site syntax.Node) {
+	if fc.frame == nil {
+		ice(site, "an interruption point outside a frame")
+	}
+	if fc.frame.polls {
+		fc.line(fc.envExpr(site) + "." + envTask + ".Check()")
+	}
 }
 
 // loopCtx is an enclosing for loop: break and continue inside a match,
@@ -485,14 +513,22 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 	saved := fc.out
 	fc.out = &strings.Builder{}
 	breaks := false
-	if s.Cond == nil {
-		fc.line("for {")
-	} else if !fc.emits(s.Cond) {
-		fc.line("for " + fc.value(s.Cond) + " {")
-		breaks = true
+	// The poll heads the body, so every back-edge, a continue's included,
+	// passes it; a condition that writes statements runs after it.
+	if s.Cond == nil || !fc.emits(s.Cond) {
+		if s.Cond == nil {
+			fc.line("for {")
+		} else {
+			fc.line("for " + fc.value(s.Cond) + " {")
+			breaks = true
+		}
+		fc.depth++
+		fc.poll(s)
+		fc.depth--
 	} else {
 		fc.line("for {")
 		fc.depth++
+		fc.poll(s)
 		cond := fc.value(s.Cond)
 		fc.line("if !(" + cond + ") {")
 		fc.line("\tbreak")
@@ -579,6 +615,9 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		ice(s, "a for-in over the unknown domain %d", l.Domain)
 	}
 	fc.depth++
+	// The poll heads the body, before the bindings, so every back-edge, a
+	// continue's included, passes it (runtime.md, I1).
+	fc.poll(s)
 	fc.loopBind(s.Key, pos, l.Pos)
 	fc.loopBind(s.Value, elem, l.Elem)
 	fc.depth--
