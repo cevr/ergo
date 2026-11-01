@@ -171,11 +171,12 @@ func i1Body(prefix string, loops []i1Loop, v i1Variant, site string) string {
 // i1Case is one generated program and, for the Go frames that hold its
 // loops, whether each must poll: "decl" is a Go function, "lit" a closure.
 type i1Case struct {
-	name    string
-	src     string
-	want    map[string]bool
-	site    bool            // the program calls Probe.Mark in a polling frame
-	entries map[string]bool // named Go frames whose entry rule is known from the source
+	name        string
+	src         string
+	want        map[string]bool
+	site        bool            // the program calls Probe.Mark in a polling frame
+	entries     map[string]bool // named Go frames whose entry rule is known from the source
+	markerEntry *bool           // entry rule for the source frame declaring entryMarker
 }
 
 // i1Cases generates every frame class × clause × loop form × variant the
@@ -242,6 +243,7 @@ func i1Cases() []i1Case {
 func TestRuntime199I1Property(t *testing.T) {
 	// Ordinary trailing blocks and with bodies use the reviewer's grid.
 	cases := append(append(i1Cases(), i1BlockCases()...), i1RecursionCases()...)
+	cases = append(cases, i1EntryCases()...)
 	classes := map[string]int{}
 	for _, c := range cases {
 		classes[strings.SplitN(c.name, "/", 2)[0]]++
@@ -310,6 +312,34 @@ func i1BlockCases() []i1Case {
 				add("trailing", "func run(f func() int"+row+") int"+row+" {\n"+try+"f()\n}\nfunc subject("+ps+") int"+row+" {\n"+try+"run() {\n"+body+"sum\n}\n}\n", map[string]bool{"lit": impure})
 				add("with-body", "func subject("+ps+") int"+row+" {\nwith Local {\n"+body+"sum\n}\n}\n", map[string]bool{"decl": impure})
 			}
+		}
+	}
+	return out
+}
+
+// i1EntryCases separates entry placement from loop/capability polls. The
+// marker is the first source statement, so a later capability checkpoint
+// cannot stand in for an entry poll. These frames need no owned scope.
+func i1EntryCases() []i1Case {
+	var out []i1Case
+	for _, effect := range []string{"pure", "capability", "opaque"} {
+		body := "let entryMarker = 0\nlet _ = entryMarker\n"
+		switch effect {
+		case "capability":
+			body += "with Local { Probe.Tick() }\n"
+		case "opaque":
+			body += "let xs = []int{}\nlet _ = xs.Append(1)\n"
+		}
+		frames := map[string]string{
+			"decl":     "func subject() {\n" + body + "}\n",
+			"literal":  "func subject() {\nlet local = func() {\n" + body + "}\nlocal()\n}\n",
+			"task":     "func subject() {\nlet t = task.Go() {\n" + body + "1\n}\nlet _ = t.Wait()\n}\n",
+			"provider": "type Worker { Run(), }\ntype Impl {}\nfunc Run(_ Impl) {\n" + body + "}\nlet Work = wire { Worker: Impl }\nfunc subject() { with Work { Worker.Run() } }\n",
+			"trailing": "func run(cb func()) { cb() }\nfunc subject() { run() {\n" + body + "} }\n",
+		}
+		for class, src := range frames {
+			want := effect == "opaque"
+			out = append(out, i1Case{name: "entry-" + class + "/" + effect, src: i1Defs + src + "func main() {}\n", markerEntry: &want})
 		}
 	}
 	return out
@@ -443,6 +473,7 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		t.Errorf("found %d of %d expected entry frames", entries, len(c.entries))
 	}
 	var stack []ast.Node
+	marked := 0
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
 			stack = stack[:len(stack)-1]
@@ -462,6 +493,16 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		}
 		var body *ast.BlockStmt
 		switch n := n.(type) {
+		case *ast.FuncDecl:
+			if c.markerEntry != nil && i1HasEntryMarker(n.Body) {
+				marked++
+				i1CheckEntry(t, n.Body, env, *c.markerEntry)
+			}
+		case *ast.FuncLit:
+			if c.markerEntry != nil && i1HasEntryMarker(n.Body) {
+				marked++
+				i1CheckEntry(t, n.Body, env, *c.markerEntry)
+			}
 		case *ast.ExprStmt:
 			// Check every point kind, including entries and capability
 			// sites. Resolve with's plain Env copies back to this frame's
@@ -524,11 +565,44 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		}
 		return true
 	})
+	if c.markerEntry != nil && marked != 1 {
+		t.Errorf("found %d marked entry frames, want 1", marked)
+	}
 	if goLoops != source {
 		t.Errorf("the Go has %d loops for %d source loops\nGo:\n%s", goLoops, source, stripDirectives(code))
 	}
 	if c.site && marks == 0 {
 		t.Errorf("no capability call Mark in the Go")
+	}
+}
+
+func i1HasEntryMarker(body *ast.BlockStmt) bool {
+	if body == nil {
+		return false
+	}
+	for _, s := range body.List {
+		if d, ok := s.(*ast.DeclStmt); ok {
+			if g, ok := d.Decl.(*ast.GenDecl); ok {
+				for _, spec := range g.Specs {
+					if v, ok := spec.(*ast.ValueSpec); ok {
+						for _, id := range v.Names {
+							if id.Name == "entryMarker" {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func i1CheckEntry(t *testing.T, body *ast.BlockStmt, env *ast.Ident, want bool) {
+	t.Helper()
+	got := len(body.List) > 0 && isOwnCheck(body.List[0], env)
+	if got != want {
+		t.Errorf("marked frame entry poll = %v, want %v", got, want)
 	}
 }
 
