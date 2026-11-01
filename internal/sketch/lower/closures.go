@@ -15,8 +15,9 @@ const (
 )
 
 // envClosure owns closure environment binding. The body builder receives the
-// environment of this invocation. Uniform functions take it as their first
-// parameter; task callbacks replace the task in a copy. The remaining host
+// environment of this invocation, also bound in fc while it runs. Uniform
+// functions take it as their first parameter; task callbacks replace the task
+// in a copy. The remaining host
 // callbacks run in the captured environment. Callers supply only the other
 // parameters, results and body, never the environment parameter or task copy.
 func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node, build func(env string) (params []string, results, body string)) string {
@@ -40,6 +41,9 @@ func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node,
 	default:
 		ice(site, "an unknown closure environment binding %d", binding)
 	}
+	outer := fc.env
+	fc.env = env
+	defer func() { fc.env = outer }()
 	params, results, body := build(env)
 	if param != "" {
 		params = append([]string{param}, params...)

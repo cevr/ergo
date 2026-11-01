@@ -9,7 +9,76 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
+
+// Builders may call helpers that read fc.envExpr instead of using their env
+// argument. Both must name the invocation environment, including nested
+// closures. A recovered refusal must leave the enclosing builder unchanged.
+func TestRuntime199EnvClosureBinding(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		binding envBinding
+		want    string
+	}{
+		{"caller", callerEnv, "invocation"},
+		{"child", childEnv, "&invocation"},
+		{"captured", capturedEnv, "maker"},
+	} {
+		for _, panics := range []bool{false, true} {
+			name := c.name + "/return"
+			if panics {
+				name = c.name + "/panic"
+			}
+			t.Run(name, func(t *testing.T) {
+				const src = "func main() {}\n"
+				file, err := syntax.Parse(src)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+				if len(diags) > 0 {
+					t.Fatal(diags)
+				}
+				l := newLowerer(Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}})
+				fc := newFuncCtx(l, newNamer(nil), false)
+				fc.env = "maker"
+				sentinel := new(int)
+				func() {
+					defer func() {
+						got := recover()
+						if panics && got != sentinel || !panics && got != nil {
+							t.Errorf("builder panic = %v, expected panic: %t", got, panics)
+						}
+					}()
+					fc.envClosure(c.binding, "invocation", file, func(env string) ([]string, string, string) {
+						if got := fc.envExpr(file); got != c.want || env != c.want {
+							t.Errorf("builder envExpr = %q, argument = %q; want %q", got, env, c.want)
+						}
+						fc.envClosure(callerEnv, "nested", file, func(env string) ([]string, string, string) {
+							if got := fc.envExpr(file); got != "nested" || env != "nested" {
+								t.Errorf("nested envExpr = %q, argument = %q; want nested", got, env)
+							}
+							return nil, "", ""
+						})
+						if got := fc.envExpr(file); got != c.want {
+							t.Errorf("env after nested builder = %q; want %q", got, c.want)
+						}
+						if panics {
+							panic(sentinel)
+						}
+						return nil, "", ""
+					})
+				}()
+				if got := fc.envExpr(file); got != "maker" {
+					t.Errorf("env after builder = %q; want maker", got)
+				}
+			})
+		}
+	}
+}
 
 // The emitted-source seam guards the single owner, including a new closure
 // that no existing source fixture reaches. Live stop/drain tests below guard
@@ -138,8 +207,60 @@ const i1ValueStop = `	try ready.Pop()
 }
 `
 
+const i1OwnOpSpin = `type Shape { Area() int }
+type Sq { N int }
+func Area(s Sq) int {
+	let mut c = 0
+	for { c += 1 }
+	with Local { Probe.Tick() }
+	c
+}
+`
+
 func i1ValuePrograms() map[string]string {
 	return map[string]string{
+		"mv-own-child": i1LiveDefs + i1OwnOpSpin + `func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let sh Shape = Sq{N: 5}
+	let area = sh.Area
+	let t = task.Go() {
+		try ready.Push(1)
+		area()
+	}
+` + i1ValueStop,
+		"mv-own-param": i1LiveDefs + i1OwnOpSpin + `func run(ready queue.Queue[int], g func() int) int fails queue.Closed {
+	try ready.Push(1)
+	g()
+}
+func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let sh Shape = Sq{N: 5}
+	let area = sh.Area
+	let t = task.Go() { run(ready, area) }
+` + i1ValueStop,
+		"fv-op-impl": i1LiveDefs + i1OwnOpSpin + `func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let f = Area
+	let t = task.Go() {
+		try ready.Push(1)
+		f(Sq{N: 5})
+	}
+` + i1ValueStop,
+		"fv-fallible": i1LiveDefs + `func spinf(q queue.Queue[int]) int fails queue.Closed {
+	let mut c = 0
+	for { c += 1 }
+	with Local { Probe.Tick() }
+	try q.Push(c)
+	c
+}
+func main() fails queue.Closed needs Console {
+	let ready = queue.New[int](0)
+	let f = spinf
+	let t = task.Go() {
+		try ready.Push(1)
+		try f(ready)
+	}
+` + i1ValueStop,
 		"fv-child": i1LiveDefs + i1ValueSpin + `func main() fails queue.Closed needs Console {
 	let ready = queue.New[int](0)
 	let f = spin
