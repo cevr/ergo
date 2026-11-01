@@ -633,6 +633,78 @@ func main() needs Console {
 	t.Fatalf("borrowed call result admitted: exit=%d stdout=%q stderr=%q; want S109 before any acquisition", code, stdout, stderr)
 }
 
+// Frame actions run after open withs unwind, even when registered before
+// the with; registering an action inside a with still gives it to the
+// frame. These orders are observable independently of acquisition facts.
+func TestRuntime199WireExitActions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs cleanup ordering witnesses")
+	}
+	const prelude = `import scope
+type A { Name() string }
+type B { Name() string }
+type TA {}
+type TB {}
+func Name(_ TA) string { "A" }
+func Name(_ TB) string { "B" }
+func Close(_ TA) needs Console { Console.Println("A closed") }
+func Close(_ TB) needs Console { Console.Println("B closed") }
+let W = wire { A: TA }
+let V = wire { B: TB }
+`
+	cases := []struct {
+		name, body, want string
+		defect           bool
+	}{
+		{"nested_abnormal_exit", `func run() needs Console {
+	scope.OnExit() { Console.Println("frame exit") }
+	with W {
+		Console.Println("use " + A.Name())
+		with V {
+			Console.Println("inner " + B.Name())
+			let xs = []int{}
+			let _ = xs[0]
+		}
+		Console.Println("unreached")
+	}
+}
+func main() needs Console { run() }
+`, "use A\ninner B\nB closed\nA closed\nframe exit\n", true},
+		{"action_in_with", `func run() needs Console {
+	with W {
+		Console.Println("use " + A.Name())
+		scope.OnExit() { Console.Println("frame exit") }
+	}
+	Console.Println("after with")
+}
+func main() needs Console { run(); Console.Println("end") }
+`, "use A\nA closed\nafter with\nframe exit\nend\n", false},
+	}
+	var programs []*lowered
+	for _, tc := range cases {
+		programs = append(programs, mustLower(t, tc.name, prelude+tc.body))
+	}
+	exes := buildAll(t, programs, true)
+	if exes == nil {
+		t.FailNow()
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, stderr, code := runExe(t, exes[tc.name])
+			if stdout != tc.want {
+				t.Errorf("stdout=%q, want %q; stderr=%s", stdout, tc.want, stderr)
+			}
+			if tc.defect {
+				if code == 0 || strings.Count("\n"+stderr, "\npanic: ") != 1 || !strings.Contains(stderr, "index out of range") {
+					t.Errorf("want the body defect kept: exit=%d stderr=%s", code, stderr)
+				}
+			} else if code != 0 || stderr != "" {
+				t.Errorf("exit=%d stderr=%s", code, stderr)
+			}
+		})
+	}
+}
+
 // TestRuntime199WireOwner fails a with lifetime that bypasses its owner:
 // only the with and its builder emit the with scope's calls, and only the
 // owner reads the checker's ownership fact.
