@@ -36,7 +36,7 @@ func copyFile(src, dst string) fails NotFound | WriteFailed needs FS {
    *Prior art:* Go's `defer` runs at function exit, which leaks one file per iteration; C# `using var` and Python `with` scope to the block.
 4. **R7. Failure during acquisition.** When a later acquisition in a scope fails, the resources acquired earlier in that scope are closed before the failure escapes (`copyFile` above).
 5. **R8. Atomic registration.** A successful acquisition and its registration for release are one step: interruption cannot fall between them (I2, [runtime.md](runtime.md#i2-automatic-masks)).
-6. **R9. Release runs masked.** Releases run uninterruptibly, to completion, even when the scope ends by interruption. Each release runs even when an earlier one had a defect, and every defect is kept in the exit cause. Status: **implemented** for a written `Close` on every dispatch path and for `scope.OnExit` (#199 stage 3a; [runtime.md, Release masks as built](runtime.md#release-masks-as-built)). The automatic release of an owned resource at its scope's end is designed, not yet implemented.
+6. **R9. Release runs masked.** Releases run uninterruptibly, to completion, even when the scope ends by interruption. Each release runs even when an earlier one had a defect, and every defect is kept in the exit cause. Status: **implemented** for a written `Close` on every dispatch path and for `scope.OnExit` (#199 stage 3a; [runtime.md, Release masks as built](runtime.md#release-masks-as-built)). The automatic release of the providers a `with` builds is **implemented** (#199 stage 3b; [Wire ownership as built](#wire-ownership-as-built)). The automatic release of any other owned resource at its scope's end is designed, not yet implemented (#197).
 
 ## Moves
 
@@ -232,9 +232,28 @@ func keys() Map[Key, string] {
 
 ## Wire
 
-1. **R24.** A constructor that returns a resource gives its release to the `with` that built it. The build closes its providers in reverse dependency order, dependents first, when the `with` block ends.
+1. **R24.** A constructor that returns a resource gives its release to the `with` that built it. The build closes its providers in reverse dependency order, dependents first, when the `with` block ends. A capability's `Close` is never called: `Store.Close()` on a capability `Store` whose type has a checked `Close` is an error (S108), because the `with` that built the provider releases it, so a call would be a second release. A capability's method value is refused already ([types.md](types.md), Capabilities 2).
 2. **R25.** Provider release runs to completion under interruption (R9), and a release defect joins the exit cause beside the body's outcome.
 3. **R26.** A `Task` stored in a provider field is a provider resource. The provider's generated `Close` stops and drains it, as Effect's `forkScoped` does. `Wait` gives its result instead.
+
+### Wire ownership as built
+
+Status: **implemented** for providers with a written `Close` (#199 stage 3b). A generated `Close` and a provider that is a field or an element of another value wait for #197.
+
+1. **What a `with` acquires.** The checker records, for each `with`, the providers it builds (`With.Acquired`), in the order it builds them. The set is the entries that bind the capabilities the `with` discharges, closed over each provider's uses of other capabilities of its own wire. The order puts each provider after the providers it uses; ties keep the wire's entry order (wires by name, then source order). An entry that provides several capabilities is one acquisition. An entry that a `replace` overrides, so that it binds no capability the `with` still needs, and an entry that no acquired provider reaches, are not built and not acquired.
+2. **Which acquisition is a resource.** An acquired provider whose type resolves a checked `Close` ([runtime.md, Release masks as built](runtime.md#release-masks-as-built) 1) is a resource. The acquisition records that `Close`; lowering reads it there, never by spelling.
+3. **One owner.** The lowering of `with` is the one owner of a `with`'s providers. A `with` that acquires a resource opens a scope of its own on the scope of the code around it (the function's frame, or the next such `with` out). The builder registers each provider's release on that scope right after it builds the provider. The scope ends when the block ends, on every exit: the normal end, a typed failure that leaves the block, a defect and a stop. On the last three, the enclosing frame's end closes each open `with` scope, innermost first, before its own entries. A provider is never released at the end of its function instead of its `with`, and never twice.
+4. **Order.** Releases run in reverse acquisition order (R5), dependents first. A task that the block starts, or receives by a call, belongs to the `with`'s scope, so it is stopped and drained before the providers it borrows close (Release before the end).
+5. **Masks and causes.** Each release is a call of the provider's checked `Close`, whose body masks itself (R9). The `with` adds no second mask. It keeps the exit a release raises, runs the releases after it, and joins every cause beside the block's outcome (R25). The normal end does not observe a pending stop; the next interruption point does.
+6. **Where a release runs.** A release runs when the block ends, in the environment outside the `with`. Each need of each recorded `Close` is charged at the `with`: an outer `with` of the same target that binds it provides it, else the row of the function that holds the `with` must name it, else S102 at the `with`. The charge widens no row, an inferred one included. A nested `with` restores the outer environment, and its providers close when its own block ends.
+7. **Refusals.** Each is located:
+   - a resource provider that names an existing value (a variable, a field or an element) is borrowed or reused, and the `with` owns only a provider it makes (a call, a composite literal or a unit value): S109, #197;
+   - a capability's `Close` (R24): S108;
+   - an exit action in the block that needs a capability the `with` provides: it runs when the function returns ([runtime.md, Exit actions](runtime.md#exit-actions) 2), after the `with` released its providers, so S108;
+   - a `with` whose value holds a `Task`: the block drains the task before its providers close, so the value would leave a drained task (S108);
+   - in lowering, until check-v1 stage E: a provider whose `Close` is an operation of its type, is generic, is a std or extern function, or takes a pointer to its value; and a `with` that owns a resource outside a function body, such as in a package initializer.
+
+*Prior art:* Effect's `Layer.scoped` releases a layer's resources when the scope that built it closes, in reverse order, uninterruptibly, keeping each finalizer's failure in the `Cause`. Rust drops struct fields in declaration order and locals in reverse; Ergo takes reverse acquisition order for both. Go programmers write the same shape as one `defer` per constructor in the function that builds the graph.
 
 ## `scope.OnExit`
 
