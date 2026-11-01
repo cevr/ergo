@@ -71,6 +71,8 @@ func TestRefusedListElementKeepsSiblings(t *testing.T) {
 		{"record-fields", "type Rec { S DStore, N int }\nfunc f(r Rec) int { r.N }\n"},
 		{"operation-methods", "type Ops { Take(s DStore) int, N() int }\nfunc f(o Ops) int { o.N() }\n"},
 		{"match-arm-two-types", "func f(x U) int { match x {\ncase DU, A: 1\ncase B: 2\n} }\n"},
+		{"match-arm-two-types-rev", "func f(x U) int { match x {\ncase A, DU: 1\ncase B: 2\n} }\n"},
+		{"catch-arm-two-types-rev", "func g() int fails C | Fault { 1 }\nfunc f() int { g() catch {\ncase C, DU: 1\ncase Fault: 2\n} }\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, d := check.CheckSource(listsSource(tc.src))
