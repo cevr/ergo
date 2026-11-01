@@ -1,7 +1,5 @@
 # Changelog
 
-- Blocking runtime calls use one lowering owner and a catalog of waiting policies (#199 stage 2). `LiveScheduler.Sleep` now observes the running task's stop before and during its timer wait. `Wait` retains its owning task after a frame transfer; queue waits use the caller's task, and `Values` binds that task when iterated. `Stop` still drains uninterruptibly. Interruption stays outside typed failures, and these bindings add no extra call-site poll.
-
 Entries describe user-visible changes and are true at the commit that carries them. The layout follows Gleam's: one `## Unreleased` section with headed groups, newest work first within a group. Codes such as EF111 are compiler diagnostics.
 
 ## Unreleased
@@ -130,6 +128,7 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Runtime
 
+- Blocking runtime calls use one lowering owner and a catalog of waiting policies (#199 stage 2). `LiveScheduler.Sleep` now observes the running task's stop before and during its timer wait. `Wait` retains its owning task after a frame transfer; queue waits use the caller's task, and `Values` binds that task when iterated. `Stop` still drains uninterruptibly. Interruption stays outside typed failures, and these bindings add no extra call-site poll.
 - A stop now reaches impure loops and recursion (#199 stage 1, [runtime.md I1](docs/spec/runtime.md#i1-interruption-points)). The checker infers each frame's footprint, what it runs rather than what its row names ([rows.md, Footprints](docs/spec/rows.md#footprints)). An impure frame checks its own task before each capability call and at the head of each loop body, including every `continue` path and before a condition that writes statements. It also checks once at entry if its call-graph component has several members or a self-edge, or its footprint is opaque because unknown code may re-enter it. A host call such as `xs.Append(1)` counts as opaque for now. A nonrecursive impure frame with a transparent footprint has no entry check. Pure frames have no checks, so their loops and recursion cannot be stopped until they end.
 - The HTTP admission test waits for an admitted `/after` response with a bounded retry of empty 503 responses (#232). Reading `/hold`'s response can precede the handler's deferred admission release. The test still requires immediate rejection at the cap and an exact successful response after release; the transport's admission rule is unchanged.
 - On a traced tree, the releases of a `runtime/v1` frame (exit actions and the drains of tasks it still owns) raise release events, and a panic in one closes only the calls it opened, as `runtime/rt` scopes do (lower-v1 stage 3b-runtime, #230). `runtime/rt` adds one hook for this, `rt.Release`. Traced and untraced runs have the same exit.

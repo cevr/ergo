@@ -120,6 +120,12 @@ type Info struct {
 	Uses map[*syntax.Ident]Object
 	// Calls is every call.
 	Calls map[*syntax.CallExpr]*Call
+	// Closes is a resolved R1 Close identity at a declaration, a function
+	// reference, an operation selector or a call. An entry proves a method
+	// with no operands or results and an empty failure row (R2). A field
+	// called Close and an unrelated function or method have no entry.
+	// Added by #199 stage 3a; general resource ownership remains #197's.
+	Closes map[syntax.Node]*Close
 	// Implicit is every implicit conversion at an assignment site, keyed
 	// by the assigned expression. The checker's one assignability relation
 	// produces it with the clause that admitted the value (types.md,
@@ -185,6 +191,7 @@ func newInfo() *Info {
 		Defs:          map[*syntax.Ident]Object{},
 		Uses:          map[*syntax.Ident]Object{},
 		Calls:         map[*syntax.CallExpr]*Call{},
+		Closes:        map[syntax.Node]*Close{},
 		Implicit:      map[syntax.Expr]Conversion{},
 		ImplicitElems: map[syntax.Expr][]Conversion{},
 		Patterns:      map[syntax.Expr]*Pattern{},

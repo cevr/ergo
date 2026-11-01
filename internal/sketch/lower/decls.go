@@ -539,12 +539,11 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 
 // intrinsic is the Go body of an extern declaration this lowering
 // implements, a call into the runtime with the declaration's parameters, or
-// nil. An intrinsic is bound to the identity of the declaration it
-// implements, the prelude's function with that name and exactly that
-// signature, never to the extern's target text: another declaration with
-// the same target is refused where it is used (lower-v1 stage 3 adds the
-// prelude's and the std modules' other bodies; user externs follow
-// check-v1 stage E).
+// nil. Collection intrinsics bind to the prelude declaration and its exact
+// signature. The finite host-provider bridge instead resolves the declared
+// Go target through runtimeBindings; BodyOf supplies its hidden arguments.
+// Both paths require a prelude declaration. General user externs and host
+// signature loading follow check-v1 stage E.
 //
 // The body is Go statements, one per line, each indented by one tab.
 func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) string {
