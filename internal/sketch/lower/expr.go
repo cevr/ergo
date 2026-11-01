@@ -409,10 +409,19 @@ func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 }
 
 // composite lowers a record, slice or Map literal of type t. A record's
-// fields are always keyed, in source order.
+// fields are always keyed, in source order. A literal of a defined type
+// over a slice or Map type (`Ints{1, 2}`) is that slice or Map literal
+// written with the defined type's Go name, as Go writes it.
 func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 	goType := fc.goType(t)
-	switch u := t.(type) {
+	shape := t
+	if n, ok := t.(*check.Named); ok {
+		switch u := n.Underlying().(type) {
+		case *check.Slice, *check.Map:
+			shape = u
+		}
+	}
+	switch u := shape.(type) {
 	case *check.Named:
 		td := fc.l.typeDecl(u.Obj, x)
 		if td.kind != kindRecord && (td.kind != kindDefined || td.fieldName == nil) {
