@@ -368,15 +368,8 @@ func providerFreshFunctions(roots []*Func) providerFreshness {
 func providerResults(f *Func) []syntax.Expr {
 	info := f.Pkg.Info
 	var out []syntax.Expr
-	syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+	inspectFrame(info, f.Decl.Body, func(n syntax.Node, _ []*syntax.CallExpr) bool {
 		switch n := n.(type) {
-		case *syntax.FuncLit:
-			return false
-		case *syntax.CallExpr:
-			if n.Trailing != nil {
-				// A return cannot cross a with's block either (S108).
-				return false
-			}
 		case *syntax.ReturnStmt:
 			if len(n.Results) == 1 {
 				if t, ok := info.Types[n.Results[0]].(*Named); ok && f.Pkg.ErrorTypes[t] {
@@ -501,41 +494,12 @@ func (c *checker) ownedBlock(x *syntax.CallExpr, w *With) {
 			closed[a.Entry] = closed[a.Entry] || closed[w.Wires[0].Provider(cap)]
 		}
 	}
-	var stack []*syntax.CallExpr // the withs between x and the node, innermost last
-	var visit func(n syntax.Node) bool
-	visit = func(n syntax.Node) bool {
-		switch n := n.(type) {
-		case *syntax.FuncLit:
-			return false
-		case *syntax.CallExpr:
-			call := c.pkg.Info.Calls[n]
-			if call != nil && call.Kind == CallWith {
-				for _, a := range n.Args {
-					syntax.Inspect(a, visit)
-				}
-				if n.Trailing != nil {
-					stack = append(stack, n)
-					syntax.Inspect(n.Trailing, visit)
-					stack = stack[:len(stack)-1]
-				}
-				return false
-			}
-			if isOnExit(call) {
-				c.exitAction(n, x, w, stack, closed)
-			}
-			if n.Trailing != nil {
-				syntax.Inspect(n.Fun, visit)
-				for _, a := range n.Args {
-					syntax.Inspect(a, visit)
-				}
-				return false
-			}
+	inspectFrame(c.pkg.Info, x.Trailing, func(n syntax.Node, between []*syntax.CallExpr) bool {
+		if n, ok := n.(*syntax.CallExpr); ok && isOnExit(c.pkg.Info.Calls[n]) {
+			c.exitAction(n, x, w, between, closed)
 		}
 		return true
-	}
-	for _, s := range x.Trailing.List {
-		syntax.Inspect(s, visit)
-	}
+	})
 }
 
 // isOnExit reports a call of std scope.OnExit.

@@ -206,11 +206,8 @@ func (fp *footprinter) wire(w *Wire) *fpNode {
 // than with are frames of their own: making one runs nothing.
 func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 	n.walked = true
-	var visit func(x syntax.Node) bool
-	visit = func(x syntax.Node) bool {
+	inspectFrame(fp.info, root, func(x syntax.Node, _ []*syntax.CallExpr) bool {
 		switch x := x.(type) {
-		case *syntax.FuncLit:
-			return false
 		case *syntax.GoExpr:
 			// Not admitted (the checker refuses it); a task start if it were.
 			n.tasks, n.opaque = true, true
@@ -224,17 +221,9 @@ func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 		case *syntax.CallExpr:
 			c := fp.info.Calls[x]
 			fp.call(n, x, c)
-			if x.Trailing != nil && (c == nil || c.Kind != CallWith) {
-				syntax.Inspect(x.Fun, visit)
-				for _, a := range x.Args {
-					syntax.Inspect(a, visit)
-				}
-				return false
-			}
 		}
 		return true
-	}
-	syntax.Inspect(root, visit)
+	})
 }
 
 // call adds one call's own effect to n.
