@@ -249,6 +249,23 @@ func (s *acqSeq) src() string {
 	}
 	fmt.Fprintf(&b, "func need%d() needs %s {}\nfunc silent%d() fails Fault needs Probe {\n\twith wire { %s } { need%d() }\n}\n",
 		s.k, strings.Join(all, ", "), s.k, strings.Join(inline, ", "), s.k)
+	// The deep twin, for checkWithFootprints only (stage 3c r2 M1 and m2):
+	// a with of a wire that embeds the named wire, so each named entry is
+	// embedded at depth 2. Its block needs every named capability, so every
+	// named entry is built here, and its frame's footprint holds only what
+	// those constructors and their Closes run.
+	if len(named) > 0 {
+		var ncaps []string
+		for _, en := range s.entries {
+			if en.named {
+				for _, c := range en.caps {
+					ncaps = append(ncaps, s.cap(c))
+				}
+			}
+		}
+		fmt.Fprintf(&b, "let M%d = wire { N%d }\nfunc needN%d() needs %s {}\nfunc deep%d() needs Probe {\n\twith wire { M%d } { needN%d() }\n}\n",
+			s.k, s.k, s.k, strings.Join(ncaps, ", "), s.k, s.k, s.k)
+	}
 	return b.String()
 }
 
@@ -466,10 +483,11 @@ func TestRuntime199AcquireProperty(t *testing.T) {
 			for e, en := range s.entries {
 				shapes["unreached constructor"] = shapes["unreached constructor"] || !reached[e] && s.probed(e)
 				shapes["overridden"] = shapes["overridden"] || en.over
+				shapes["named resource"] = shapes["named resource"] || en.named && en.res
 			}
 		}
 	}
-	for _, shape := range []string{"owning", "owning nothing", "shared", "named dependency", "named literal", "inline literal", "replace", "fallible", "later after earlier success", "unreached constructor", "overridden"} {
+	for _, shape := range []string{"owning", "owning nothing", "shared", "named dependency", "named literal", "inline literal", "replace", "fallible", "later after earlier success", "unreached constructor", "overridden", "named resource"} {
 		if !shapes[shape] {
 			t.Fatalf("the generator reaches no %s entry", shape)
 		}
