@@ -186,7 +186,7 @@ The laws of [docs/research/lawful-runtime-contract.md](../research/lawful-runtim
 | R5 | `Stop` and an interrupted `Wait` return after the task's exit actions. | TestStop, TestWaitInterrupted | tested |
 | R6 | Every reason is kept (a failure with an action's defect, two defects); only a lone typed failure reaches a `catch`. | TestExitCauses, TestWait | tested |
 | R7 | A `catch` runs in the failing function. | lowering (a Go type switch in that function) | not a runtime body |
-| R8 | `timeout.After` | `runtime/rt` After; its call is not lowered yet | not these modules |
+| R8 | `timeout.After` | `runtime/rt` After; the build refuses its call with S109 naming lower-v1 (a `runtime/v1` body for `timeout.After`) | not these modules |
 | R9 | A function that has returned admits no task and no returned `Task`; nor does a frame of another task. A join from another task is not checked. | TestGoOnEndedFrame, TestTaskReturn | partial: Tasks rule 11 gap |
 | R10 | A task is linked to its owner before it runs; every started task ends before its owner returns, and a returned task before the caller's frame does. A frame holds only the tasks it still owns. | TestNoTaskOutlivesItsFrame, TestTaskReturn, TestTaskRegistrationsBounded | tested |
 | R11 | Making a value runs nothing. | `queue.New` and `task.Go` are direct calls in direct-style source | not applicable |
