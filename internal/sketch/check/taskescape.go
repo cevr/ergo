@@ -55,6 +55,18 @@ func isTask(t Type) bool {
 	return o != nil && o.Name == "Task" && o.Pkg != nil && o.Pkg.Path == std.PreludePath
 }
 
+// ResultIsTask reports whether a function of signature s returns a Task
+// itself: its one result is the prelude's Task[T, E] or an instance of it
+// (isTask, the base case of holdsTask). The lowering reads it for function
+// types, literals, function values and method values: such a function
+// takes the caller's frame scope as its destination (stdlib.md, Hidden
+// arguments). A result that holds a Task inside another type is
+// TaskResults' and Call.TaskResult's (holdsTask). Added in check-v1 stage
+// D3b round 2 (additive).
+func (s *Signature) ResultIsTask() bool {
+	return len(s.Results) == 1 && isTask(s.Results[0])
+}
+
 // taskNode is one type on the Task walk's stack (Tarjan).
 type taskNode struct {
 	index, low int

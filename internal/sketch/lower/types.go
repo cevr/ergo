@@ -95,7 +95,7 @@ func (tc *typeCtx) goType(t check.Type) string {
 // when its error row is not empty.
 func (tc *typeCtx) funcType(s *check.Signature) string {
 	parts := []string{"*" + tc.l.env()}
-	if taskDest(s) {
+	if s.ResultIsTask() {
 		parts = append(parts, "*"+tc.l.rt()+".Scope") // the destination of the returned Task (stage D3b, Rule 2)
 	}
 	for _, p := range s.Params {

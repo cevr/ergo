@@ -50,7 +50,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case result && fallible:
 		v, e := fc.temp("v"), fc.temp("err")
 		fc.line(v + ", " + e + " := " + text)
-		if len(rowElems(c.Fails)) == 0 {
+		if !failsHere(c) {
 			fc.line("_ = " + e)
 			return operand{val: v}
 		}
@@ -58,7 +58,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	case fallible:
 		e := fc.temp("err")
 		fc.line(e + " := " + text)
-		if len(rowElems(c.Fails)) == 0 {
+		if !failsHere(c) {
 			fc.line("_ = " + e)
 			return operand{}
 		}
@@ -77,12 +77,19 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	c := fc.l.info.Calls[x]
 	text, _, fallible := fc.callText(x, c)
-	if fallible && len(rowElems(c.Fails)) > 0 {
+	if fallible && failsHere(c) {
 		ice(x, "an untried fallible call in a statement")
 	}
 	fc.identify(x, c) // the caller writes text next, the statement's last line
 	return text
 }
+
+// failsHere reports whether the call c can fail at its site: its error row
+// there (Info's Fails, after substitution) is not empty. A call whose Go
+// form returns an error where the row is empty drops it, which is nil: a
+// declared row such as Task's E may be empty at the site (stage D3b round
+// 1 review m4: one owner of the empty-row drop).
+func failsHere(c *check.Call) bool { return len(rowElems(c.Fails)) > 0 }
 
 // callText is a call's Go text, whether it returns a value, and whether its
 // Go form returns an error.
@@ -141,21 +148,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if c.Recv == nil || c.Op == nil {
 			ice(x, "an operation call with no receiver or operation")
 		}
-		// An operation of a std type (the prelude's Task, queue.Queue) is the
-		// method of its runtime/v1 Go type, with that body's hidden
-		// arguments (stdOpCall).
-		if n, ok := fc.typeOf(c.Recv).(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
-			return fc.stdOpCall(x, c, n, args)
-		}
-		// The checker refuses every other way to reach a std operation: a
-		// type defined over a std operation type (S108 at the definition)
-		// and a pointer to one (S108 at the call, stage D3b Rule 5).
-		if n := fc.l.foreignOwner(fc.typeOf(c.Recv)); n != nil {
-			ice(x, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, c.Op.Name, fc.typeOf(c.Recv))
-		}
-		vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
-		rest := append([]string{fc.envExpr(x) + "." + envTask}, vals[1:]...) // the task first (rows.md, Rows 7)
-		return "(" + vals[0] + ")." + memberName(c.Op.Name) + "(" + strings.Join(rest, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
+		return fc.opCallExpr(x, c, args)
 	case check.CallProviderOp:
 		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 		if !ok || c.Op == nil {
@@ -200,7 +193,7 @@ func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, c *check.Call, sig *check.Si
 	if !c.TaskResult {
 		return out
 	}
-	if !taskDest(sig) {
+	if !sig.ResultIsTask() {
 		refuse(x, "a call whose result holds a Task through a type argument or inside another type is lowered after check-v1 stage E")
 	}
 	return append(out, fc.frameScope(x))
@@ -286,10 +279,10 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) stri
 	env := fc.scope.alloc("env")
 	params := []string{env + " *" + fc.l.env()}
 	lead := []string{env}
-	if taskDest(sig) {
+	if sig.ResultIsTask() {
 		// The destination passes through to the function, whose return
 		// moves the Task (stage D3b, Rule 2).
-		if !f.Pkg.Info.TaskResults[f] || !taskDest(f.Sig) {
+		if !f.Pkg.Info.TaskResults[f] || !f.Sig.ResultIsTask() {
 			refuse(site, "the function %s used as a value returns a Task through a type argument, which is lowered after check-v1 stage E", f.Name)
 		}
 		dest := fc.scope.alloc("dest")

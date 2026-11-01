@@ -77,6 +77,69 @@ func TestErgoRunCapturedSeqStops(t *testing.T) {
 	runWithin(t, "seqstop", capturedSeqProgram, "stopped\n", 60*time.Second)
 }
 
+// methodValueProgram uses each queue operation and an operation of the
+// program's own operation type as a value; a method value made in main is
+// called in a task.Go body, which a stop reaches while it waits; and a
+// method value's receiver is evaluated once, where the value is made.
+const methodValueProgram = `import queue
+import task
+
+type Shape { Area() int }
+
+type Sq { N int }
+
+func Area(s Sq) int { s.N * s.N }
+
+func mk(n int) queue.Queue[int] fails queue.Closed needs Console {
+	Console.Println("make \(n)")
+	let q = queue.New[int](4)
+	try q.Push(n)
+	q
+}
+
+func call(f func() int fails queue.Closed) int fails queue.Closed {
+	try f()
+}
+
+func main() fails queue.Closed needs Console {
+	let q = queue.New[int](4)
+	let push = q.Push
+	let pop = q.Pop
+	let close = q.Close
+	let values = q.Values
+	try push(3)
+	try push(4)
+	let a = try pop()
+	close()
+	let mut n = 0
+	for v in values() {
+		n += v
+	}
+	let sh Shape = Sq{N: 5}
+	let area = sh.Area
+	Console.Println("\(a) \(n) \(area())")
+	let empty = queue.New[int](1)
+	let wait = empty.Pop
+	let t = task.Go() { call(wait) }
+	t.Stop()
+	let mut r = try mk(1)
+	let first = r.Pop
+	r = try mk(2)
+	let got = try first()
+	Console.Println("stopped \(got)")
+}
+`
+
+// TestErgoRunMethodValues: a method value of a std operation (Push, Pop,
+// Close, Values) and of the program's own operation type lowers to a
+// function value of the uniform shape; it evaluates its receiver once and
+// takes the task of the environment it is called with, so a stop reaches a
+// task that waits through a method value made by main (review M3; before
+// the repair each was an internal compiler error).
+func TestErgoRunMethodValues(t *testing.T) {
+	runWithin(t, "methodvalues", methodValueProgram, "3 4 25\nmake 1\nmake 2\nstopped 1\n", 60*time.Second)
+}
+
 // TestErgoRunSeqReceiverEvaluatedOnce: the receiver of Values is evaluated
 // once, where the Seq is made: a call that makes it runs once, and a later
 // assignment to the variable it came from does not change the queue the

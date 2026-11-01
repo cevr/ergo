@@ -68,7 +68,7 @@ func (fc *funcCtx) fallibleExpr(x syntax.Expr) bool {
 		return false
 	}
 	// A with's Fails is the row its block's tails pass through.
-	return len(rowElems(c.Fails)) > 0
+	return failsHere(c)
 }
 
 // emits reports whether lowering x writes statements: whether x holds a
@@ -337,8 +337,30 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 			refuse(x, "%s.%s is not a value that lowering supports yet", id.Name, x.Sel.Name)
 		}
 	}
+	if op := operation(fc.typeOf(x.X), x.Sel.Name); op != nil {
+		return fc.methodValue(x, op)
+	}
 	recv := fc.value(x.X)
 	return recv + "." + fc.fieldName(x)
+}
+
+// operation is the operation name of the operation type t, or nil when t
+// is not an operation type or has no operation of that name (a field).
+func operation(t check.Type, name string) *check.Method {
+	n, ok := t.(*check.Named)
+	if !ok {
+		return nil
+	}
+	it, ok := n.Underlying().(*check.Interface)
+	if !ok {
+		return nil
+	}
+	for _, m := range it.Methods {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
 }
 
 // fieldName is the Go name of the field x selects.
@@ -742,7 +764,7 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	inner.env = fc.scope.alloc("env")
 	parts := []string{inner.env + " *" + fc.l.env()}
 	inner.frame = &frame{fallible: true}
-	if taskDest(sig) {
+	if sig.ResultIsTask() {
 		// A literal that returns a Task receives its caller's frame scope
 		// as its destination (stage D3b, Rule 2).
 		inner.frame.dest = fc.scope.alloc("dest")

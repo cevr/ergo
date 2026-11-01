@@ -756,7 +756,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		// A function whose result holds a Task receives its caller's frame
 		// scope as the destination its return moves the Task to (stage D3b,
 		// Rule 2); a result that only holds one is stage E's.
-		if !taskDest(f.Sig) {
+		if !f.Sig.ResultIsTask() {
 			refuse(site, "a function whose result holds a Task inside another type is lowered after check-v1 stage E; return the Task itself")
 		}
 		fc.frame.dest = scope.alloc("dest")

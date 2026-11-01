@@ -171,17 +171,6 @@ func (tc *typeCtx) namedResults(result check.Type, errName string) string {
 	return " (" + errName + " error)"
 }
 
-// isTask reports the prelude's Task type itself, the one result shape that
-// takes a destination (Rule 2); a result that only holds a Task, or a Task
-// as a type argument, is check-v1 stage E's.
-func isTask(t check.Type) bool { return isPreludeType(t, "Task") }
-
-// taskDest reports whether a function of signature s takes the caller's
-// frame scope as its destination, after its environment.
-func taskDest(s *check.Signature) bool {
-	return len(s.Results) == 1 && isTask(s.Results[0])
-}
-
 // moved is the returned value val, moved into the destination when the
 // frame returns a Task (Rule 2: one step, `return v.Move(dest)`).
 func (fc *funcCtx) moved(val string) string {
@@ -220,49 +209,156 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 			vals[i] = fc.adaptFunc(vals[i], p.Func, fc.argSig(args[i], x), x)
 		}
 	}
+	fc.bindDeferred(body, vals)
 	head := fc.l.rt() + "." + name + fc.stdTypeArgs(body, f.Sig, c.TypeArgs, x)
-	text := fc.stdResult(body, fc.typeOf(x), vals, x, func(env string) string {
-		return head + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env), vals...), ", ") + ")"
+	text := fc.stdResult(body, fc.typeOf(x), fc.envExpr(x), x, func(env string) string {
+		return head + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env, x), vals...), ", ") + ")"
 	})
 	return text, len(f.Sig.Results) > 0, goFallible(body)
 }
 
-// stdOpCall is a call of an operation of a std type, the method of that
-// name on the runtime's Go type.
-func (fc *funcCtx) stdOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, args []syntax.Expr) (string, bool, bool) {
-	body, err := v1.BodyOf(n.Obj.Name + "." + c.Op.Name)
+// opBody is the runtime/v1 method of the operation name of the std type n,
+// which takes params Ergo arguments.
+func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
+	body, err := v1.BodyOf(n.Obj.Name + "." + name)
 	if err != nil {
-		ice(x, "the std operation %s.%s has no runtime/v1 method: %v", n.Obj.Name, c.Op.Name, err)
+		ice(site, "the std operation %s.%s has no runtime/v1 method: %v", n.Obj.Name, name, err)
 	}
-	if len(body.Params) != len(args) {
-		ice(x, "the std operation %s.%s has %d Go parameters for %d arguments", n.Obj.Name, c.Op.Name, len(body.Params), len(args))
+	if len(body.Params) != params {
+		ice(site, "the std operation %s.%s has %d Go parameters for %d arguments", n.Obj.Name, name, len(body.Params), params)
 	}
+	return body
+}
+
+// opCallExpr is the call x of an operation of an operation-type value
+// (CallOp): the receiver and the arguments are evaluated here, in order,
+// and the call is made on the current environment (opCall).
+func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) (string, bool, bool) {
+	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
-	for i, p := range body.Params {
-		if p.Func != nil {
-			vals[i+1] = fc.adaptFunc(vals[i+1], p.Func, fc.argSig(args[i], x), x)
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
+		body := opBody(n, c.Op.Name, len(args), x)
+		for i, p := range body.Params {
+			if p.Func != nil {
+				vals[i+1] = fc.adaptFunc(vals[i+1], p.Func, fc.argSig(args[i], x), x)
+			}
+		}
+		fc.bindDeferred(body, vals)
+	}
+	return fc.opCall(t, c.Op, fc.typeOf(x), vals, fc.envExpr(x), x, c, x)
+}
+
+// methodValue lowers recv.M, an operation of an operation type used as a
+// value (stage D3b round 1 review M3): a function value of the uniform
+// shape (typeCtx.funcType) that makes the call opCall writes. The receiver
+// is evaluated once, here; the call takes the task of the environment the
+// value is called with, never the task of the function that made it (the
+// common rule: a hidden task is bound where the blocking happens).
+func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string {
+	sig, ok := fc.typeOf(x).(*check.Signature)
+	if !ok {
+		ice(x, "the method value %s has no function type", x.Sel.Name)
+	}
+	if sig.ResultIsTask() {
+		refuse(x, "a method value of an operation that returns a Task is lowered after check-v1 stage E")
+	}
+	if len(sig.Results) > 1 {
+		refuse(x, "a method value with several results is a tuple, lowered after check-v1 stage B (196t)")
+	}
+	recv := fc.spill(fc.value(x.X))
+	e := fc.scope.alloc("e")
+	params := []string{e + " *" + fc.l.env()}
+	vals := []string{recv}
+	for _, p := range sig.Params {
+		name := fc.scope.alloc("p")
+		params = append(params, name+" "+fc.goType(p.Type))
+		vals = append(vals, name)
+	}
+	var result check.Type
+	if len(sig.Results) == 1 {
+		result = sig.Results[0]
+	}
+	fc.depth++
+	call, hasResult, fallible := fc.opCall(fc.typeOf(x.X), op, result, vals, e, nil, nil, x)
+	ind := strings.Repeat("\t", fc.depth)
+	fc.depth--
+	var body string
+	switch {
+	case fallible:
+		body = ind + "return " + call + "\n"
+	case hasResult:
+		body = ind + "return " + call + ", nil\n"
+	default:
+		body = ind + call + "\n" + ind + "return nil\n"
+	}
+	return "func(" + strings.Join(params, ", ") + ")" + fc.resultList(result, true) + " {\n" + body + strings.Repeat("\t", fc.depth) + "}"
+}
+
+// opCall is the Go call of the operation op on a value of the operation
+// type t, the one place a call (opCallExpr) and a method value
+// (methodValue) write it: vals are the receiver's and the arguments' Go
+// text, evaluated, and env is the environment the call is made on. An
+// operation of a std type is the method of that name on the runtime's Go
+// type, with its body's hidden arguments; an operation of the program's own
+// operation type is the method of the Go interface it emits, which takes
+// the task first (rows.md, Rows 7). result is the call's Ergo result type;
+// x and c are the call, nil for a method value. It returns the text,
+// whether the call has a value, and whether its Go form returns an error.
+func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) (string, bool, bool) {
+	hasResult := len(op.Sig.Results) > 0
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+		body := opBody(n, op.Name, len(vals)-1, site)
+		if x == nil {
+			for _, p := range body.Params {
+				if p.Func != nil {
+					ice(site, "a method value of the std operation %s.%s, which takes a function", n.Obj.Name, op.Name)
+				}
+			}
+		}
+		text := fc.stdResult(body, result, env, site, func(env string) string {
+			return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env, site), vals[1:]...), ", ") + ")"
+		})
+		return text, hasResult, goFallible(body)
+	}
+	// The checker refuses every other way to reach a std operation: a type
+	// defined over a std operation type (S108 at the definition) and a
+	// pointer to one (S108 at the call, stage D3b Rule 5).
+	if n := fc.l.foreignOwner(t); n != nil {
+		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
+	}
+	rest := append([]string{env + "." + envTask}, vals[1:]...)
+	return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(rest, ", ") + ")", hasResult, len(rowElems(op.Sig.Errors)) > 0
+}
+
+// defersCall reports a std body whose result defers its call: Go's
+// iter.Seq[T] (queue.Queue's Values), which stdResult adapts.
+func defersCall(body v1.Body) bool {
+	return len(body.Results) == 1 && strings.HasPrefix(body.Results[0], "iter.Seq[")
+}
+
+// bindDeferred binds each of a call's evaluated operands, vals, to a
+// temporary when body defers its call, so the receiver and the arguments
+// are evaluated once, where the deferred value is made, in source order.
+func (fc *funcCtx) bindDeferred(body v1.Body, vals []string) {
+	if defersCall(body) {
+		for i := range vals {
+			vals[i] = fc.spill(vals[i])
 		}
 	}
-	text := fc.stdResult(body, fc.typeOf(x), vals, x, func(env string) string {
-		return "(" + vals[0] + ")." + memberName(c.Op.Name) + "(" + strings.Join(append(fc.hiddenArgs(body.Hidden, x, c, env), vals[1:]...), ", ") + ")"
-	})
-	return text, len(c.Op.Sig.Results) > 0, goFallible(body)
 }
 
 // stdResult is the Go text of a std body's call, written by call from the
 // environment whose task the call takes, adapted to the Ergo type result.
-// A call whose result is a value is made here, on the current environment.
-// Go's iter.Seq[T] (queue.Queue's Values) is a deferred call: the result
-// is the uniform function shape of the prelude's Seq[T] (typeCtx.funcType),
-// and the body is called inside it with the environment the Seq is
-// iterated on, so the wait takes the iterating task, never the task that
-// made the Seq (Rule 3; stage D3b round 1 review M1: a hidden task is bound
-// where the blocking happens). The receiver and arguments, vals, are
-// evaluated once, here, in source order: each is bound to a temporary the
-// Seq captures.
-func (fc *funcCtx) stdResult(body v1.Body, result check.Type, vals []string, site syntax.Node, call func(env string) string) string {
-	if len(body.Results) != 1 || !strings.HasPrefix(body.Results[0], "iter.Seq[") {
-		return call(fc.envExpr(site))
+// A call whose result is a value is made here, on env. Go's iter.Seq[T]
+// (queue.Queue's Values) is a deferred call: the result is the uniform
+// function shape of the prelude's Seq[T] (typeCtx.funcType), and the body
+// is called inside it with the environment the Seq is iterated on, so the
+// wait takes the iterating task, never the task that made the Seq (Rule 3;
+// stage D3b round 1 review M1: a hidden task is bound where the blocking
+// happens). Its operands are evaluated already (bindDeferred).
+func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site syntax.Node, call func(env string) string) string {
+	if !defersCall(body) {
+		return call(env)
 	}
 	n, ok := result.(*check.Named)
 	if !ok || !isPreludeType(result, "Seq") || len(n.TArgs) != 1 {
@@ -270,9 +366,6 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, vals []string, sit
 	}
 	if hasHidden(body.Hidden, v1.Frame) {
 		ice(site, "a std body that returns a Seq takes the frame scope")
-	}
-	for i := range vals {
-		vals[i] = fc.spill(vals[i])
 	}
 	elem := fc.goType(n.TArgs[0])
 	e, yield, v, ok2, err := fc.scope.alloc("e"), fc.scope.alloc("yield"), fc.scope.alloc("v"), fc.scope.alloc("ok"), fc.scope.alloc("err")
@@ -301,10 +394,14 @@ func goFallible(body v1.Body) bool {
 }
 
 // hiddenArgs are the hidden arguments of a std body at the call x, in the
-// body's order; the caller's task is env's.
-func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Call, env string) []string {
+// body's order; the caller's task is env's. A method value (x nil) takes
+// only the caller's task: the frame and the call's site belong to a call.
+func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Call, env string, site syntax.Node) []string {
 	var out []string
 	for _, h := range list {
+		if x == nil && h != v1.CallerTask {
+			ice(site, "a method value of a std operation that takes the hidden argument %s", h)
+		}
 		switch h {
 		case v1.Frame:
 			out = append(out, fc.frameScope(x))
