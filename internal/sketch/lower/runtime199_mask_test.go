@@ -92,7 +92,10 @@ func closeDispatch(t *testing.T) map[string]bool {
 		case check.CallOp:
 			paths["op"] = true
 		case check.CallProviderOp:
-			paths["cap"] = true
+			// A capability's Close is refused since runtime-199 stage 3b:
+			// the with that built the provider releases it (resources.md
+			// R24; check TestWireOwnershipRefusals), and the with's release
+			// is a plain call of the checked Close (providerRelease).
 		case check.CallFuncValue:
 			// The value is a checked Close reference: a declared function
 			// or an operation method value.
@@ -151,8 +154,6 @@ func closeSites(t *testing.T, o *lowered) map[string]bool {
 				found["plain"] = true
 			case call.Kind == check.CallOp:
 				found["op"] = true
-			case call.Kind == check.CallProviderOp:
-				found["cap"] = true
 			default:
 				t.Errorf("Close call of kind %d is unclassified", call.Kind)
 			}
@@ -302,30 +303,10 @@ func Close(o Other, n int) needs Scheduler {
 	}
 }
 
-let Rel = wire { Releaser: Plain{Fail: false} }
-let RelFail = wire { Releaser: Plain{Fail: true} }
-
 func viaOp(fail bool, signal queue.Queue[int]) {
 	let r Releaser = Plain{Fail: fail}
 	signal.Close()
 	r.Close()
-}
-
-func capClose(signal queue.Queue[int]) needs Releaser {
-	signal.Close()
-	Releaser.Close()
-}
-
-func viaCap(fail bool, signal queue.Queue[int]) {
-	if fail {
-		with RelFail {
-			capClose(signal)
-		}
-	} else {
-		with Rel {
-			capClose(signal)
-		}
-	}
 }
 
 func viaMethodValue(fail bool, signal queue.Queue[int]) {
@@ -346,7 +327,6 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 		paths: []maskPath{
 			{"dot", "viaDot", time.Hour},
 			{"op", "viaOp", 2 * time.Hour},
-			{"cap", "viaCap", 2 * time.Hour},
 			{"methodValue", "viaMethodValue", 2 * time.Hour},
 		},
 		twins:  []string{"twinFinish", "twinOperand"},

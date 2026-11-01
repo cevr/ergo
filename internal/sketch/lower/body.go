@@ -25,6 +25,10 @@ type frame struct {
 	// none (stage D3b, Rule 2); dest is the destination parameter of a
 	// frame that returns a Task, "" otherwise.
 	scope, dest string
+	// with is the Go name of the scope of the innermost owning with around
+	// the code being written, "" outside one (calls.go, with): the scope
+	// that owns the tasks the code starts or receives (frameScope).
+	with string
 	// polls reports a frame whose footprint is not empty (Info.Footprints;
 	// runtime.md, I1): it checks for a stop before each capability call and
 	// at the head of each loop body. Entry placement is a separate checker

@@ -71,6 +71,10 @@ var refusedFamilies = map[string]string{
 	"call:Func:genericDot":    "check-v1 stage D",
 	"conv:Operations:generic": "check-v1 stage E",
 	"Interface:any":           "check-v1 stage E",
+	// Stage 3b of #199: the release forms an owning with cannot call by a
+	// Go name, and an owning with outside a function body.
+	"call:With:release": "check-v1 stage E",
+	"call:With:owned":   "check-v1 stage E",
 }
 
 // refusalReasons classifies a refusal by its message into the refused
@@ -108,6 +112,8 @@ var refusalReasons = []struct {
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
 	{"conv:Operations:generic", regexp.MustCompile(`^an operations conversion inside a generic function is lowered after check-v1 stage E \(D-E1\)$`)},
 	{"Interface:any", regexp.MustCompile(`^the type .+ is lowered after check-v1 stage E \(no any, constraints\)$`)},
+	{"call:With:release", regexp.MustCompile(`^a provider whose Close (is an operation of its type|is generic|is a std or extern function|takes a pointer to its value) is released after check-v1 stage E$`)},
+	{"call:With:owned", regexp.MustCompile(`^a with that owns a provider with a Close outside a function body is lowered after check-v1 stage E$`)},
 }
 
 // refusalFamily is the refused family a refusal message stands at, or "".

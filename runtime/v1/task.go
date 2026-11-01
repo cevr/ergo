@@ -42,6 +42,11 @@ type Scope struct {
 	// or an exit action that code at this frame starts or registers belongs
 	// to it, through its whole run and its own release.
 	action *Scope
+	// withs are the scopes of the owning withs open on this scope, the
+	// innermost last (OpenWith); parent is the scope an owning with's
+	// scope was opened on, nil for a frame.
+	withs  []*Scope
+	parent *Scope
 }
 
 // entry is one entry of a frame's list: an exit action or an owned task.
@@ -117,15 +122,84 @@ func (s *Scope) End(err *error) {
 
 // end ends the scope with the exit e so far and returns the whole exit.
 func (s *Scope) end(e error) error {
+	e = s.close(e)
+	s.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
+	return e
+}
+
+// close ends the scope s, a frame or an owning with, and returns the whole
+// exit: first the owning withs still open on it, the innermost first, as
+// their blocks would have ended on the normal path; then its own entries,
+// last first. Every release runs, and each one's exits join s.exits.
+func (s *Scope) close(e error) error {
 	s.ended = true
+	for n := len(s.withs); n > 0; n = len(s.withs) {
+		w := s.withs[n-1]
+		s.withs = s.withs[:n-1]
+		s.exits.Add(w.close(nil))
+	}
 	if s.last != nil {
 		s.release()
 	}
 	if len(s.exits.Reasons) > 0 {
 		e = join(e, s.exits.Err())
 	}
-	s.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
 	return e
+}
+
+// OpenWith opens the scope of an owning with (docs/spec/resources.md,
+// Wire ownership): a with whose wire builds a provider with a checked
+// Close. s is the scope of the code at the with, its frame or the next
+// owning with out. The with's scope owns the providers the with builds
+// (WithClose) and the tasks its block starts or receives, as a frame owns
+// its own: it releases them, last first, when the block ends (EndWith),
+// or when s ends first, on a defect, a stop or a typed failure that leaves
+// the block. So tasks that borrow a provider drain before it closes, and
+// each provider closes once, at the end of its with, not of its function.
+func (s *Scope) OpenWith() *Scope {
+	s = s.current()
+	if s.ended {
+		panic("with: the frame that would own this with's providers has returned")
+	}
+	w := &Scope{s: rt.NewScope(s.s.Task()), parent: s}
+	s.withs = append(s.withs, w)
+	return w
+}
+
+// WithClose registers close as the release of a provider the with whose
+// scope is w has just built: the call of the provider's checked Close,
+// whose body masks itself (Release). The with adds no mask: it catches the
+// exit that Release raises and keeps it in w's exits, so the releases
+// after it still run and every cause stays.
+func (w *Scope) WithClose(close func()) {
+	t := w.s.Task()
+	w.push(&entry{action: func() {
+		defer func() {
+			if p := recover(); p != nil {
+				w.exits.Add(capture(t, p))
+			}
+		}()
+		close()
+	}})
+}
+
+// EndWith ends the owning with whose scope is w at the normal end of its
+// block. err is the with's failure, nil when the with has no failure row:
+// a lone typed failure stays in *err, and any release defect joins it and
+// is raised, as a frame's End settles its exit. A stop is not observed
+// here; the next checkpoint observes it.
+func (w *Scope) EndWith(err *error) {
+	p := w.parent
+	n := len(p.withs)
+	if n == 0 || p.withs[n-1] != w {
+		panic("with: a with's scope ended out of its nesting")
+	}
+	p.withs = p.withs[:n-1]
+	var e error
+	if err != nil {
+		e = *err
+	}
+	settle(err, w.close(e))
 }
 
 // Release runs a checked Close body, masked from its first checkpoint to
@@ -185,6 +259,11 @@ func (s *Scope) release() {
 // its stack, and the frame's other reasons stay. Registering on a frame
 // that has returned is a defect.
 func OnExit(s *Scope, body func()) {
+	// Inside an owning with, s is the with's scope; the action belongs to
+	// the function's frame all the same (Exit actions 2).
+	for s.parent != nil {
+		s = s.parent
+	}
 	s = s.current()
 	if s.ended {
 		panic("scope.OnExit: the frame that would run this exit action has returned")

@@ -39,7 +39,10 @@ type Hidden string
 const (
 	// Frame, a *Scope, is the frame scope of the innermost source function
 	// at the call (in an exit action's block, the frame the lowering made
-	// for that function; the scope routes to the action's frame itself).
+	// for that function; the scope routes to the action's frame itself), or,
+	// in the block of a with that owns a resource, that with's scope
+	// (Scope.OpenWith): the tasks the block starts belong to the with, and
+	// an exit action still registers on the function's frame (OnExit).
 	Frame Hidden = "frame"
 	// CallSite, a Site, is the call's Ergo identity: the called declaration
 	// and the call's source position.

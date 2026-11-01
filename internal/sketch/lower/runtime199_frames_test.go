@@ -45,8 +45,10 @@ var i1FrameKinds = []i1FrameKind{
 	{name: "provider", goClass: "decl", sites: map[string]int{"emitFuncBody": 1}, program: func(_, _, _ string, body string) string {
 		return "type Worker { Run(n int) int }\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n" + body + "}\nlet Work = wire { Worker: Impl }\nfunc subject() int { with Work { Worker.Run(1) } }\n"
 	}},
+	// The block uses Probe: a with builds only the providers its block
+	// reaches (rows.md, Wire 7; With.Acquired).
 	{name: "wire", goClass: "lit", sites: map[string]int{"emitWire": 1}, program: func(_, _, _ string, body string) string {
-		return "type Carrier { n int }\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = wire { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep { 1 } }\n"
+		return "type Carrier { n int }\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = wire { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep {\nProbe.Tick()\n1\n} }\n"
 	}},
 	{name: "initializer", goClass: "lit", sites: map[string]int{"packageVar": 2, "packagePattern": 1}, program: func(_, _, _ string, body string) string {
 		// A binding, a destructuring initializer and a discarded value

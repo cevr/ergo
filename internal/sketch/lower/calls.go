@@ -8,6 +8,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Calls (Info.Calls). A declared function is called by its Go name, or as a
@@ -497,12 +498,32 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 		res.err = fc.temp("err")
 		fc.line("var " + res.err + " error")
 	}
-	build := fc.l.wireBuilder(w.Wires[0], x)
+	// The with lifetime owner (resources.md, Wire ownership; runtime.md,
+	// With cleanup): a with that acquires a resource opens its own scope on
+	// the scope of the code around it. The builder registers each
+	// provider's release in it as the provider is built; the block's tasks
+	// belong to it (frameScope); the normal end of the block ends it here,
+	// and the frame's End ends it on every other exit (v1.Scope.close).
+	owning := ownsResources(w)
+	if owning && (fc.frame == nil || fc.frame.scope == "") {
+		refuse(x, "a with that owns a provider with a Close outside a function body is lowered after check-v1 stage E")
+	}
+	build := fc.l.wireBuilder(w, x)
 	env := fc.temp("env")
 	fc.line("{")
 	fc.depth++
-	fc.line(env + " := *" + fc.envExpr(x))
-	fc.line(build + "(&" + env + ")")
+	outer := fc.envExpr(x)
+	fc.line(env + " := *" + outer)
+	savedWith := ""
+	ws := ""
+	if owning {
+		ws = fc.temp("ws")
+		fc.line(ws + " := " + fc.scopeCall("Scope.OpenWith", fc.frameScope(x), nil, x))
+		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
+		savedWith, fc.frame.with = fc.frame.with, ws
+	} else {
+		fc.line(build + "(&" + env + ")")
+	}
 	saved := fc.env
 	fc.env = "(&" + env + ")"
 	// The block yields by the one tail rule (D-C1, D-C2): its last
@@ -514,45 +535,96 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 		fc.yieldList(list, dest{kind: destAssign, name: res.val, err: res.err})
 	}
 	fc.env = saved
+	if owning {
+		fc.frame.with = savedWith
+		errArg := "nil"
+		if res.err != "" {
+			errArg = "&" + res.err
+		}
+		fc.line(fc.scopeCall("Scope.EndWith", ws, []string{errArg}, x))
+	}
 	fc.depth--
 	fc.line("}")
 	return res
 }
 
-// wireBuilder is the Go function that builds a named wire's providers into
-// an environment (rows.md, Wire 4: its own function, so its providers do not
-// see the caller's locals). It builds each provider entry that still binds a
-// capability once replace and embedding are resolved (Wire.Provider), once
-// per build, so a shared entry is one value under each of its keys and an
-// overridden provider never runs (Wire 7). An entry whose provider uses a
-// capability of this wire is built after that capability's entry.
-func (l *lowerer) wireBuilder(w *check.Wire, site syntax.Node) string {
-	if name, ok := l.wires[w]; ok {
+// scopeCall writes a call of the with scope's method name on recv through
+// the runtime binding emitter.
+func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node) string {
+	body, err := v1.BodyOf(name)
+	if err != nil {
+		ice(site, "the with scope binding %s has no runtime/v1 body: %v", name, err)
+	}
+	return fc.runtimeCall(name, body, "", recv, vals, "", nil, nil, site)
+}
+
+// ownsResources reports a with that acquires a provider with a checked
+// Close (With.Acquired, the checker's ownership fact).
+func ownsResources(w *check.With) bool {
+	for _, a := range w.Acquired {
+		if a.Close != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// wireSet names the builder of a with: its wire and the providers it
+// acquires, by their source positions in acquisition order. Two withs that
+// acquire the same entries share one builder.
+type wireSet struct {
+	w   *check.Wire
+	set string
+}
+
+func acquiredSet(w *check.With) wireSet {
+	var b strings.Builder
+	for _, a := range w.Acquired {
+		b.WriteString(strconv.Itoa(int(a.Entry.Provider.Pos())))
+		b.WriteByte(' ')
+	}
+	return wireSet{w.Wires[0], b.String()}
+}
+
+// wireBuilder is the Go function that builds the providers a with acquires
+// into an environment (rows.md, Wire 4: its own function, so its providers
+// do not see the caller's locals). It builds the with's acquisitions
+// (With.Acquired), each once, in the checker's acquisition order, so a
+// shared entry is one value under each of its keys, an overridden or
+// unreached provider never runs (Wire 7), and an entry whose provider uses
+// a capability of this wire is built after that capability's entry.
+func (l *lowerer) wireBuilder(w *check.With, site syntax.Node) string {
+	key := acquiredSet(w)
+	if name, ok := l.wires[key]; ok {
 		return name
 	}
-	name := l.pkgName(pkgKey{"wire", w}, "build"+w.Name)
-	l.wires[w] = name
+	name := l.pkgName(pkgKey{"wire", key}, "build"+key.w.Name)
+	l.wires[key] = name
 	l.pending = append(l.pending, func() { l.emitWire(w, name, site) })
 	return name
 }
 
-// wire lowers a named wire declaration: its builder.
+// wire checks a named wire declaration. Its builders are written at the
+// withs that use it.
 func (l *lowerer) wire(w *check.Wire, site syntax.Node) {
-	l.wireBuilder(w, site)
-}
-
-func (l *lowerer) emitWire(w *check.Wire, name string, site syntax.Node) {
-	if w.Decl == nil || l.isImported(w) {
-		refuse(site, "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")
-	}
 	if w.Decl.Provides != nil || w.Decl.Needs != nil {
 		refuse(w.Decl, "a wire header is checked by #196 stage b")
 	}
-	// The entries, in source order through embeddings, each once.
-	var entries []*check.WireEntry
-	seen := map[*check.WireEntry]bool{}
+}
+
+// emitWire writes the builder name for the with w. A with that owns a
+// resource passes its builder the environment outside the with and its
+// scope: right after the builder builds a provider with a checked Close,
+// it registers that provider's release in the scope, so a later
+// provider's defect still closes it. The release runs in the outer
+// environment, where the checker charged its needs (With.Acquired).
+func (l *lowerer) emitWire(with *check.With, name string, site syntax.Node) {
+	w := with.Wires[0]
+	if w.Decl == nil || l.isImported(w) {
+		refuse(site, "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")
+	}
 	visited := map[*check.Wire]bool{}
-	var walk func(w *check.Wire)
+	var walk func(v *check.Wire)
 	walk = func(v *check.Wire) {
 		if visited[v] {
 			return
@@ -564,95 +636,49 @@ func (l *lowerer) emitWire(w *check.Wire, name string, site syntax.Node) {
 		for _, e := range v.Entries {
 			if e.Embedded != nil {
 				walk(e.Embedded)
-				continue
-			}
-			if !seen[e] {
-				seen[e] = true
-				entries = append(entries, e)
 			}
 		}
 	}
 	walk(w)
-	type build struct {
-		entry *check.WireEntry
-		caps  []int // indexes into entry.Caps it still binds
-		needs map[*check.TypeName]bool
-	}
-	bound := map[*check.TypeName]bool{}
-	var builds []*build
-	for _, e := range entries {
-		b := &build{entry: e}
-		for i, cap := range e.Caps {
-			if w.Provider(cap) == e {
-				b.caps = append(b.caps, i)
-				if n, ok := cap.(*check.Named); ok {
-					bound[n.Obj] = true
-				}
-			}
-		}
-		if len(b.caps) > 0 {
-			builds = append(builds, b)
-		}
-	}
-	for _, b := range builds {
-		b.needs = l.providerNeeds(b.entry.Provider)
-	}
 	fc := newFuncCtx(l, newNamer(l.names), true)
 	fc.owner = w.Name
-	if w.Decl != nil {
-		l.recordDecl(w.Name, w.Decl)
-	}
+	l.recordDecl(w.Name, w.Decl)
 	// A builder has no loop and calls no capability (a named wire is
 	// closed); its frame reads the wire's footprint all the same.
 	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
+	params := fc.env + " *" + l.env()
+	outer, ws := "", ""
+	if ownsResources(with) {
+		outer, ws = fc.scope.alloc("outer"), fc.scope.alloc("ws")
+		params += ", " + outer + " *" + l.env() + ", " + ws + " *" + l.rt() + ".Scope"
+	}
 	fc.entryPoll(l.info, w.Decl)
-	built := map[*check.TypeName]bool{}
-	done := make([]bool, len(builds))
-	for range builds {
-		next := -1
-		for i, b := range builds {
-			if done[i] {
-				continue
-			}
-			ready := true
-			for cap := range b.needs {
-				if bound[cap] && !built[cap] {
-					ready = false
-					break
-				}
-			}
-			if ready {
-				next = i
-				break
-			}
-		}
-		if next < 0 {
-			ice(w.Decl, "the wire %s has a provider cycle the checker did not report", w.Name)
-		}
-		done[next] = true
-		b := builds[next]
-		fc.at(b.entry.Provider)
-		val := fc.value(b.entry.Provider)
-		if len(b.caps) > 1 {
+	for _, a := range with.Acquired {
+		e := a.Entry
+		fc.at(e.Provider)
+		val := fc.value(e.Provider)
+		if len(a.Caps) > 1 || a.Close != nil {
 			val = fc.spill(val)
 		}
-		for _, i := range b.caps {
-			cap, ok := b.entry.Caps[i].(*check.Named)
+		if a.Close != nil {
+			fc.withClose(a, outer, ws, val, e.Provider)
+		}
+		for _, i := range a.Caps {
+			cap, ok := e.Caps[i].(*check.Named)
 			if !ok {
-				ice(b.entry.Provider, "a wire key that is not a named capability")
+				ice(e.Provider, "a wire key that is not a named capability")
 			}
 			conv := check.Conversion{}
-			if i < len(b.entry.Conversions) {
-				conv = b.entry.Conversions[i]
+			if i < len(e.Conversions) {
+				conv = e.Conversions[i]
 			}
-			fc.line(fc.env + "." + l.envField(cap.Obj) + " = " + fc.convert(conv, val, b.entry.Provider))
-			built[cap.Obj] = true
+			fc.line(fc.env + "." + l.envField(cap.Obj) + " = " + fc.convert(conv, val, e.Provider))
 		}
 	}
 	l.user.WriteString(l.directive(w.Decl.Pos()))
-	l.user.WriteString("func " + name + "(" + fc.env + " *" + l.env() + ") {\n" + fc.out.String() + "}\n\n")
+	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
 }
 
 // isImported reports a wire declared outside the user package.
@@ -663,38 +689,6 @@ func (l *lowerer) isImported(w *check.Wire) bool {
 		}
 	}
 	return true
-}
-
-// providerNeeds are the capabilities a provider expression charges where it
-// is evaluated: the needs of its calls and its capability operations, not
-// those inside a function literal, which charge their caller.
-func (l *lowerer) providerNeeds(x syntax.Expr) map[*check.TypeName]bool {
-	needs := map[*check.TypeName]bool{}
-	syntax.Inspect(x, func(n syntax.Node) bool {
-		switch n := n.(type) {
-		case *syntax.FuncLit:
-			return false
-		case *syntax.CallExpr:
-			c := l.info.Calls[n]
-			if c == nil {
-				return true
-			}
-			for _, t := range rowElems(c.Needs) {
-				if named, ok := t.(*check.Named); ok {
-					needs[named.Obj] = true
-				}
-			}
-			if c.Kind == check.CallProviderOp {
-				if sel, ok := unparen(n.Fun).(*syntax.SelectorExpr); ok {
-					if named, ok := l.info.Types[sel.X].(*check.Named); ok {
-						needs[named.Obj] = true
-					}
-				}
-			}
-		}
-		return true
-	})
-	return needs
 }
 
 // operations converts val to the operation type of an operations

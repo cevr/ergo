@@ -105,7 +105,7 @@ func hasHidden(list []v1.Hidden, h v1.Hidden) bool {
 }
 
 // bodyNeedsFrame reports whether a function body makes a call that needs
-// its frame scope (Rule 2). A function literal and the trailing block of a
+// its frame scope (Rule 2) or holds an owning with. A function literal and the trailing block of a
 // call other than with are frames of their own, so their calls do not
 // count; a with block runs in the frame (rows.md, With 8).
 func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
@@ -120,6 +120,11 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 			return false
 		case *syntax.CallExpr:
 			if l.needsFrame(n) {
+				found = true
+				return false
+			}
+			// An owning with opens its scope on the frame (calls.go, with).
+			if w := l.info.Withs[n]; w != nil && ownsResources(w) {
 				found = true
 				return false
 			}
@@ -154,10 +159,16 @@ func (fc *funcCtx) openFrame(errName string) {
 }
 
 // frameScope is the address of the current frame scope, the hidden frame
-// or destination argument of a call at site.
+// or destination argument of a call at site. Inside an owning with it is
+// the with's scope (v1.OpenWith), so the tasks the block starts or
+// receives drain before the with's providers close (resources.md, Wire
+// ownership); v1.OnExit routes an exit action to the function's frame.
 func (fc *funcCtx) frameScope(site syntax.Node) string {
 	if fc.frame == nil || fc.frame.scope == "" {
 		refuse(site, "a call that needs a frame scope (task.Go, scope.OnExit or a function whose result holds a Task) outside a function body is lowered after check-v1 stage E")
+	}
+	if fc.frame.with != "" {
+		return fc.frame.with
 	}
 	return "&" + fc.frame.scope
 }

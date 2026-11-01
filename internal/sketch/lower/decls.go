@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -114,10 +115,30 @@ func (l *lowerer) declareName(d syntax.Decl) {
 			}
 		case *syntax.WireDecl:
 			if w, ok := l.info.Defs[d.Name].(*check.Wire); ok {
-				l.pkgName(pkgKey{"wire", w}, "build"+w.Name)
+				// One builder for each distinct set of providers a with of
+				// this wire acquires, in the withs' source order.
+				for _, with := range l.withsOf(w) {
+					l.pkgName(pkgKey{"wire", acquiredSet(with)}, "build"+w.Name)
+				}
 			}
 		}
 	}
+}
+
+// withsOf are the withs of the named wire w, in source order.
+func (l *lowerer) withsOf(w *check.Wire) []*check.With {
+	var xs []*syntax.CallExpr
+	for x, with := range l.info.Withs {
+		if len(with.Wires) > 0 && with.Wires[0] == w {
+			xs = append(xs, x)
+		}
+	}
+	sort.Slice(xs, func(i, j int) bool { return xs[i].Pos() < xs[j].Pos() })
+	out := make([]*check.With, len(xs))
+	for i, x := range xs {
+		out[i] = l.info.Withs[x]
+	}
+	return out
 }
 
 // decl lowers one top-level declaration of the user package.

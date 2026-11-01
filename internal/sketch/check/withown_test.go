@@ -228,6 +228,11 @@ func f() {
 	t.Wait()
 }
 `, "S108", "the value of this with holds a Task"},
+		{"a capability's Close", `type R { Close() }
+let W = wire { R: First }
+func g() needs R { R.Close() }
+func f() { with W { g() } }
+`, "S108", "R.Close releases the capability's provider"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, ds := checkOwn(t, tc.src)

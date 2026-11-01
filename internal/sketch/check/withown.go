@@ -93,6 +93,30 @@ func (c *checker) withOwnership() {
 		}
 	}
 	c.withSites = nil
+	c.capabilityCloses()
+}
+
+// capabilityCloses refuses a call of a capability's checked Close (rule
+// 4). Every provider of a capability whose operation type has a Close is a
+// resource, and the with that built it releases it when its block ends
+// (resources.md R24), so a Close through the capability would release it a
+// second time, and later uses in the block would reach a closed provider
+// (S108). A capability method value is refused already (types.md,
+// Capabilities 2), so the call is the one path.
+func (c *checker) capabilityCloses() {
+	for _, fi := range c.files {
+		syntax.Inspect(fi.syntax, func(n syntax.Node) bool {
+			x, ok := n.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+			if call := c.pkg.Info.Calls[x]; call != nil && call.Kind == CallProviderOp && c.pkg.Info.Closes[x] != nil {
+				c.cur = fi
+				c.errorf(x, CodeType, "%s releases the capability's provider, which the with that built it releases when its block ends (resources.md R24, Wire ownership); a capability's Close is not called", exprText(unparen(x.Fun)))
+			}
+			return true
+		})
+	}
 }
 
 // acquire is the acquisition list of a with of w whose block reaches the
