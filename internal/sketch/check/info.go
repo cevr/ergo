@@ -386,6 +386,25 @@ type With struct {
 	// that nothing the block needs reaches are not acquired. Named and inline
 	// wires use the same fact; general first-class wire values stay stage E's.
 	Acquired []*Acquisition
+	// Context is the context binding a with of a context value opens
+	// (runtime.md, G1), nil for a with of a wire. Such a with has no Wires
+	// and discharges nothing.
+	Context *ContextBinding
+}
+
+// ContextBinding is the operand of `with v { … }` when v's type satisfies
+// the context-binding protocol (runtime.md, G1): two functions on the type,
+// `contextKey(v T) string` and `contextText(v T) string`, each with empty
+// error and capability rows. The names are unexported, so the protocol adds
+// nothing to the surface of the package that declares T. The protocol is structural: the checker never
+// reads the package or the name of the function that made v. The lowering
+// evaluates the operand once, calls Key and Text on it, and binds Text
+// under Key for the block and for every task started inside it.
+type ContextBinding struct {
+	// Type is the operand's type.
+	Type Type
+	// Key and Text are the protocol's functions on Type.
+	Key, Text *Func
 }
 
 // Acquisition is one provider entry a with builds: the
@@ -515,7 +534,7 @@ func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
 	if c.silent > 0 {
 		return
 	}
-	w := &With{}
+	w := &With{Context: f.context}
 	if f.wire != nil {
 		w.Wires = []*Wire{f.wire}
 	}

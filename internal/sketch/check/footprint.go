@@ -217,6 +217,16 @@ func (fp *footprinter) entry(e *WireEntry) *fpNode {
 // each acquired provider that has a Close (Scope.EndWith runs each
 // With.Acquired[i].Close in this frame, whatever the wire's spelling).
 func (fp *footprinter) with(n *fpNode, w *With) {
+	if cb := w.Context; cb != nil {
+		// A with of a context value runs its operand here (walked as an
+		// argument) and the protocol's two functions on it, which the
+		// lowering calls to open the binding (runtime.md, G1). Opening and
+		// restoring the binding waits for nothing; a read of a binding is a
+		// host call, opaque like every one.
+		fp.runs(n, cb.Key, false)
+		fp.runs(n, cb.Text, false)
+		return
+	}
 	if len(w.Wires) == 0 {
 		return
 	}

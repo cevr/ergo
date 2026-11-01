@@ -22,20 +22,24 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	}
 	var binds *capSet
 	var wire *Wire
+	var context *ContextBinding
 	known := true
 	switch {
 	case len(x.Args) == 0:
 		c.errorf(x, CodeType, "with takes one wire (rows.md, With 1)")
 		known = false
 	case len(x.Args) > 1:
-		c.outside(x.Args[1], "a with over several wires (196x, extern and wire values)")
+		// One operand per with in v1 (runtime.md, G1): several wires are
+		// 196x's, several context values a G1 follow-up.
+		c.errorf(x.Args[1], CodeOutside, "a with takes one operand: several operands are a follow-up, of 196x for wires and of G1 for context values (runtime.md, G1); nest one with per operand: with a { with b { … } }")
 		known = false
 	default:
-		binds, known, wire = c.withArg(x.Args[0])
+		binds, known, wire, context = c.withArg(x.Args[0])
 	}
 	t := c.fn.t
-	// unknown: discharge everything, so no cascade
-	frame := &withFrame{binds: binds, unknown: !known, wire: wire}
+	// unknown: discharge everything, so no cascade. A context binding
+	// discharges nothing: its block's row is the enclosing one's.
+	frame := &withFrame{binds: binds, unknown: !known, wire: wire, context: context}
 	t.withs = append(t.withs, frame)
 	done := c.openScope()
 	c.fn.branches = append(c.fn.branches, branch{kind: brBarrier})
@@ -81,6 +85,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 // Info is bounded by its body, not by its wire (round-4 review M1).
 type withFrame struct {
 	wire    *Wire            // the resolved named or inline wire
+	context *ContextBinding  // the context binding, for a with of a context value
 	site    *syntax.CallExpr // the with call, once recorded
 	binds   *capSet
 	unknown bool
@@ -111,55 +116,53 @@ func (f *withFrame) discharge(cap Type, n *capNode) {
 	f.entries = append(f.entries, e)
 }
 
-// withArg resolves with's argument to the capabilities it binds.
-func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Wire) {
+// withArg resolves with's argument to the capabilities it binds, or, for
+// a value whose type satisfies the context-binding protocol, to its
+// context binding (context.go).
+func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Wire, *ContextBinding) {
 	switch a := unparen(arg).(type) {
 	case *syntax.WireLit:
-		return c.wireLit(a)
+		binds, known, wire := c.wireLit(a)
+		return binds, known, wire, nil
 	case *syntax.Ident:
 		w := c.pkg.Wires[a.Name]
 		if w == nil {
 			if o := c.lookup(a.Name); o != nil {
-				if v, isVar := o.(*Var); isVar {
-					// A local holding a wire value (196x): its value is S109
-					// already when it is invalid, and nothing cascades (D3).
-					v.used = true
-					if !isInvalid(v.Type) {
-						c.outside(a, "with over a value (196x, extern and wire values)")
-					}
-					return nil, false, nil
+				if _, isVar := o.(*Var); isVar {
+					// A local holding a context value binds it; one holding
+					// a wire value is 196x's. An invalid value is S109
+					// already, and nothing cascades (D3).
+					cb, known := c.contextArg(arg, "with over a value (196x, extern and wire values)")
+					return nil, known, nil, cb
 				}
 			}
 			c.errorf(a, CodeUnknown, "unknown wire %s", a.Name)
-			return nil, false, nil
+			return nil, false, nil, nil
 		}
 		if c.fn != nil && c.fn.reach != nil {
 			c.fn.reach.wires = append(c.fn.reach.wires, w)
 		}
 		binds := c.wireBinds(w)
-		return binds, !w.unknown, w
+		return binds, !w.unknown, w, nil
 	case *syntax.SelectorExpr:
 		if id, ok := a.X.(*syntax.Ident); ok {
 			if pn, ok := c.lookup(id.Name).(*PkgName); ok {
 				pn.used = true
 				if pn.broken {
-					return nil, false, nil
+					return nil, false, nil, nil
 				}
 				if w := pn.Pkg.Wires[a.Sel.Name]; w != nil && isExported(a.Sel.Name) {
 					// Its package's pass summarised it; a set keyed by
 					// capability names needs no conversion.
-					return w.binds, !w.unknown, w
+					return w.binds, !w.unknown, w, nil
 				}
 				c.errorf(a.Sel, CodeUnknown, "%s.%s is not an exported wire of package %s", id.Name, a.Sel.Name, pn.Pkg.Path)
-				return nil, false, nil
+				return nil, false, nil, nil
 			}
 		}
 	}
-	c.errorf(arg, CodeOutside, "with takes a wire; a value in with is a context value, G1's (runtime.md, G1), not checked yet")
-	c.silent++
-	c.valueExpr(arg, nil)
-	c.silent--
-	return nil, false, nil
+	cb, known := c.contextArg(arg, "")
+	return nil, known, nil, cb
 }
 
 // wireLit checks an inline wire's entries and returns what it binds; known

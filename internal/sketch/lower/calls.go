@@ -482,6 +482,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	if len(x.Args) != 1 || x.Trailing == nil {
 		ice(x, "a with without one wire and a block")
 	}
+	if w.Context != nil {
+		refuse(x.Args[0], "a with of a context value is lowered in runtime-199 stage 4a (runtime.md, G1)")
+	}
 	// The checker records an imported wire's entries (wire ownership), but
 	// this lowering builds only wires declared in the file it lowers.
 	if len(w.Wires) == 0 || (w.Wires[0].Lit == nil && fc.l.isImported(w.Wires[0])) {

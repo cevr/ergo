@@ -98,6 +98,9 @@ var deferredOwners = map[string]bool{
 	"lower-v1 request": true,
 	"lower-v1":         true, // a runtime/v1 body runtime/** owns (timeout.After)
 	"unused by v1":     true,
+	// Temporary: the context with between the checker fact and its
+	// lowering (runtime-199 stage 4a step 1); removed with the refusal.
+	"runtime-199 stage 4a": true,
 }
 
 // undeferred says why a refusal is not a documented deferral, or "".
