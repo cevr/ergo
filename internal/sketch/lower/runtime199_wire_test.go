@@ -599,6 +599,40 @@ func TestRuntime199WireProperty(t *testing.T) {
 	}
 }
 
+// The head refuses this program. If a freshness regression admits it, run
+// it so the witness shows the same package resource closing twice.
+func TestRuntime199WireFreshProvider(t *testing.T) {
+	const src = `type A { Use() }
+type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
+let shared = Conn{n: 1}
+func get() Conn { shared }
+let W = wire { A: get() }
+func main() needs Console {
+	with W { A.Use() }
+	with W { A.Use() }
+	Console.Println("end")
+}
+`
+	o := lowerSource("wire_reused", src, false)
+	if len(o.diags) == 1 && o.diags[0].Code == "S109" && o.diags[0].Line == 7 && strings.Contains(o.diags[0].Message, "#197") {
+		return
+	}
+	if o.err != nil || o.panicked != nil || len(o.diags) != 0 || len(o.refused) != 0 {
+		t.Fatalf("want located S109 for a borrowed call result; got err=%v panic=%v diagnostics=%v refusals=%v", o.err, o.panicked, o.diags, o.refused)
+	}
+	if testing.Short() {
+		t.Fatal("borrowed call result admitted")
+	}
+	exes := buildAll(t, []*lowered{o}, true)
+	if exes == nil {
+		t.FailNow()
+	}
+	stdout, stderr, code := runExe(t, exes[o.name])
+	t.Fatalf("borrowed call result admitted: exit=%d stdout=%q stderr=%q; want S109 before any acquisition", code, stdout, stderr)
+}
+
 // TestRuntime199WireOwner fails a with lifetime that bypasses its owner:
 // only the with and its builder emit the with scope's calls, and only the
 // owner reads the checker's ownership fact.

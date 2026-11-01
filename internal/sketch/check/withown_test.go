@@ -227,6 +227,7 @@ func f() {
 	let t = with W { task.Go() { A.Use() } }
 	t.Wait()
 }
+
 `, "S108", "the value of this with holds a Task"},
 		{"a capability's Close", `type R { Close() }
 let W = wire { R: First }
@@ -263,5 +264,102 @@ func f() { with W { B.Use() } }
 		if len(ds) > 0 {
 			t.Errorf("refused %s\ndiagnostics: %v", src, ds)
 		}
+	}
+}
+
+func TestWireOwnershipFreshConstructors(t *testing.T) {
+	for _, tc := range []struct {
+		name, decls, provider string
+		fresh                 bool
+	}{
+		{"package value", `let shared = First
+func get() First { shared }`, "get()", false},
+		{"parameter", `let shared = First
+func id(c First) First { c }`, "id(shared)", false},
+		{"local", `func get() First { let c = First; c }`, "get()", false},
+		{"field", `type Box { R First }
+let box = Box{R: First}
+func get() First { box.R }`, "get()", false},
+		{"element", `let values = []First{First}
+func get() First { values[0] }`, "get()", false},
+		{"function value", `let make = func() First { First }
+func get() First { make() }`, "get()", false},
+		{"operation", `type Factory { Make() First }
+func get() First needs Factory { Factory.Make() }
+type Maker {}
+func Make(_ Maker) First { First }
+let Makers = wire { Factory: Maker }`, "get()", false},
+		{"recursive borrowed branch", `let shared = First
+func get(n int) First { if n == 0 { return shared }; other(n - 1) }
+func other(n int) First { get(n) }`, "other(2)", false},
+		{"explicit borrowed return", `let shared = First
+func get(n int) First { if n == 0 { return shared }; First }`, "get(1)", false},
+		{"unit constructor", `func openA() First { First }`, "openA()", true},
+		{"fresh conversion", "", "First(First)", true},
+		{"borrowed conversion", `let shared = First`, "First(shared)", false},
+		{"literal constructor", `type Conn { n int }
+func Use(_ Conn) {}
+func Close(_ Conn) {}
+func openA() Conn { Conn{n: 1} }`, "openA()", true},
+		{"recursive constructor", `func openA(n int) First {
+	if n == 0 { return First }
+	openB(n - 1)
+}
+func openB(n int) First { openA(n) }`, "openA(2)", true},
+		{"tail branches", `func openA(ok bool) First {
+	if ok { First } else { First }
+}`, "openA(true)", true},
+		{"borrowed tail branch", `let shared = First
+func get(ok bool) First {
+	if ok { First } else { shared }
+}`, "get(true)", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := tc.decls + "\nlet W = wire { A: " + tc.provider + " }\nfunc f() { with W { A.Use() } }\n"
+			if tc.name == "operation" {
+				src = tc.decls + "\nlet W = wire { A: get(), Factory: Maker }\nfunc f() { with W { A.Use() } }\n"
+			}
+			_, ds := checkOwn(t, src)
+			if tc.fresh {
+				if len(ds) != 0 {
+					t.Fatalf("fresh constructor refused: %v", ds)
+				}
+				return
+			}
+			if len(ds) != 1 || ds[0].Code != "S109" || !strings.Contains(ds[0].Message, "#197") || ds[0].Line != strings.Count(ownPrelude+tc.decls, "\n")+2 {
+				t.Fatalf("diagnostics %v, want one located S109 naming #197 at the provider", ds)
+			}
+		})
+	}
+}
+
+func TestWireOwnershipExitActionDependencies(t *testing.T) {
+	for _, tc := range []struct {
+		name, decls, wire string
+		refused           bool
+	}{
+		{"plain provider", "", "A: First, Log: Quiet", false},
+		{"resource provider", `type Sink {}
+func Say(_ Sink, s string) {}
+func Close(_ Sink) {}`, "A: First, Log: Sink", true},
+		{"transitive resource dependency", `type Mid { Use() }
+type Middle {}
+func Use(_ Middle) {}
+func middle() Middle needs A { A.Use(); Middle }
+func quiet() Quiet needs Mid { Mid.Use(); Quiet }`, "A: First, Mid: middle(), Log: quiet()", true},
+		{"plain dependency", `func quiet() Quiet needs B { B.Use(); Quiet }`, "A: First, B: Second, Log: quiet()", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ds := checkOwn(t, "import scope\n"+tc.decls+"\nlet W = wire { "+tc.wire+` }
+func f() { with W { A.Use(); scope.OnExit() { Log.Say("exit") } } }
+`)
+			if !tc.refused {
+				if len(ds) != 0 {
+					t.Fatalf("plain provider refused: %v", ds)
+				}
+			} else if len(ds) != 1 || ds[0].Code != "S108" || !strings.Contains(ds[0].Message, "this exit action") {
+				t.Fatalf("diagnostics %v, want one S108 for the exit action", ds)
+			}
+		})
 	}
 }

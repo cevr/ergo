@@ -36,8 +36,8 @@ import (
 //     bounded ownership owns only a value the provider makes (S109, #197).
 //     An exit action registered in the block runs when the function
 //     returns (runtime.md, Exit actions 2), after the with closed its
-//     providers, so one that needs a capability this with provides is
-//     S108. A with's value that holds a Task leaves the block that drains
+//     providers, so one that needs a provider that depends on a resource
+//     acquired by this with is S108. A with's value that holds a Task leaves the block that drains
 //     it before its providers close (resources.md, Release before the
 //     end), S108.
 //
@@ -52,6 +52,7 @@ type withSite struct {
 }
 
 func (c *checker) withOwnership() {
+	fresh := providerFreshFunctions(c.pkg.Funcs)
 	last := make(map[*syntax.CallExpr]int, len(c.withSites))
 	for i, s := range c.withSites {
 		last[s.x] = i
@@ -75,11 +76,11 @@ func (c *checker) withOwnership() {
 				continue
 			}
 			owning = true
-			if !refused[a.Entry] && !c.freshProvider(a.Entry.Provider) {
+			if !refused[a.Entry] && !c.freshProvider(a.Entry.Provider, fresh) {
 				refused[a.Entry] = true
 				if wf := c.entryFile(w.Wires[0], a.Entry); wf != nil {
 					c.cur = wf
-					c.errorf(a.Entry.Provider, CodeOutside, "this resource provider names an existing value; a with owns and releases only a provider it makes (a call, a composite literal or a unit value), and a borrowed or reused resource is #197's (resources.md, Wire ownership)")
+					c.errorf(a.Entry.Provider, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a proved constructor call, a composite literal or a unit value), and a borrowed or reused resource is #197's (resources.md, Wire ownership)")
 				}
 			}
 			c.cur = s.file
@@ -275,23 +276,171 @@ func (w *With) discharge(cap Type, e *WireEntry) {
 	}
 }
 
-// freshProvider reports a provider expression that makes its value: a
-// call (a conversion of a fresh value), a composite literal or the unit
-// value of a type name (rule 4). A call's result is the callee's to give.
-func (c *checker) freshProvider(x syntax.Expr) bool {
+// providerFreshness is the per-function proof that every value-return
+// path makes its result. It is private to the ownership pass: no other
+// pass derives ownership from the spelling of a call.
+type providerFreshness map[*Func]bool
+
+// providerFreshFunctions solves the greatest fixpoint over the call graph,
+// including imported declarations. Start with every function fresh, then
+// remove any function with an unproved result and revisit its callers.
+// Recursion that only yields new values therefore stays fresh; a borrowed
+// result poisons every caller in its component. Extern constructors are
+// trusted by their declaration (only std can declare them today).
+func providerFreshFunctions(roots []*Func) providerFreshness {
+	fresh := providerFreshness{}
+	results := map[*Func][]syntax.Expr{}
+	users := map[*Func][]*Func{}
+	var funcs []*Func
+	var add func(*Func)
+	add = func(f *Func) {
+		if f == nil {
+			return
+		}
+		if _, seen := fresh[f]; seen {
+			return
+		}
+		fresh[f] = true
+		funcs = append(funcs, f)
+	}
+	for _, f := range roots {
+		add(f)
+	}
+	for i := 0; i < len(funcs); i++ {
+		f := funcs[i]
+		if f.Decl == nil || f.Decl.Body == nil || f.Pkg == nil || f.Pkg.Info == nil {
+			continue
+		}
+		results[f] = providerResults(f)
+		syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+			if x, ok := n.(*syntax.CallExpr); ok {
+				if call := f.Pkg.Info.Calls[x]; call != nil && call.Kind == CallFunc && call.Func != nil {
+					add(call.Func)
+					users[call.Func] = append(users[call.Func], f)
+				}
+			}
+			return true
+		})
+	}
+	proved := func(f *Func) bool {
+		if f.Decl == nil || f.Sig == nil || len(f.Sig.Results) != 1 || f.Pkg == nil || f.Pkg.Info == nil {
+			return false
+		}
+		if f.Decl.Body == nil {
+			return f.Decl.Extern != nil
+		}
+		for _, x := range results[f] {
+			if !fresh.expression(f.Pkg.Info, x) {
+				return false
+			}
+		}
+		return true
+	}
+	var removed []*Func
+	remove := func(f *Func) {
+		if fresh[f] && !proved(f) {
+			fresh[f] = false
+			removed = append(removed, f)
+		}
+	}
+	for _, f := range funcs {
+		remove(f)
+	}
+	for i := 0; i < len(removed); i++ {
+		for _, f := range users[removed[i]] {
+			remove(f)
+		}
+	}
+	return fresh
+}
+
+// providerResults collects explicit value returns in this frame and its
+// implicit result tails. A failure return has no value. Literals and
+// trailing blocks run in their own frames, so their returns are excluded.
+func providerResults(f *Func) []syntax.Expr {
+	info := f.Pkg.Info
+	var out []syntax.Expr
+	syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.CallExpr:
+			if n.Trailing != nil {
+				// A return cannot cross a with's block either (S108).
+				return false
+			}
+		case *syntax.ReturnStmt:
+			if len(n.Results) == 1 {
+				if t, ok := info.Types[n.Results[0]].(*Named); ok && f.Pkg.ErrorTypes[t] {
+					return false
+				}
+				out = append(out, n.Results[0])
+			} else if len(n.Results) > 1 {
+				out = append(out, nil) // not one newly made result
+			}
+		}
+		return true
+	})
+	var tail func([]syntax.Stmt)
+	var stmt func(syntax.Stmt)
+	tail = func(list []syntax.Stmt) {
+		if len(list) != 0 {
+			stmt(list[len(list)-1])
+		}
+	}
+	stmt = func(s syntax.Stmt) {
+		switch s := s.(type) {
+		case *syntax.ExprStmt:
+			if info.Tails[s] != nil {
+				out = append(out, s.X)
+			}
+		case *syntax.BlockStmt:
+			tail(s.List)
+		case *syntax.IfStmt:
+			tail(s.Body.List)
+			stmt(s.Else)
+		case *syntax.SwitchStmt:
+			for _, arm := range s.Clauses {
+				tail(arm.Body)
+			}
+		case *syntax.TypeSwitchStmt:
+			for _, arm := range s.Clauses {
+				tail(arm.Body)
+			}
+		}
+	}
+	tail(f.Decl.Body.List)
+	return out
+}
+
+// freshProvider admits only expressions proved to make their value.
+func (c *checker) freshProvider(x syntax.Expr, fresh providerFreshness) bool {
+	return fresh.expression(c.pkg.Info, x)
+}
+
+func (fresh providerFreshness) expression(info *Info, x syntax.Expr) bool {
+	if x == nil {
+		return false
+	}
 	switch x := unparen(x).(type) {
 	case *syntax.CompositeLit:
 		return true
 	case *syntax.CallExpr:
-		if call := c.pkg.Info.Calls[x]; call != nil && call.Kind == CallConversion && len(x.Args) == 1 {
-			return c.freshProvider(x.Args[0])
+		if call := info.Calls[x]; call != nil {
+			switch call.Kind {
+			case CallConversion:
+				return len(x.Args) == 1 && fresh.expression(info, x.Args[0])
+			case CallFunc:
+				return fresh[call.Func]
+			}
 		}
-		return true
+	case *syntax.TryExpr:
+		return fresh.expression(info, x.X)
 	case *syntax.Ident:
-		_, ok := c.pkg.Info.Uses[x].(*TypeName)
+		_, ok := info.Uses[x].(*TypeName)
 		return ok
 	case *syntax.SelectorExpr:
-		_, ok := c.pkg.Info.Uses[x.Sel].(*TypeName)
+		_, ok := info.Uses[x.Sel].(*TypeName)
 		return ok
 	}
 	return false
@@ -334,6 +483,16 @@ func (c *checker) ownedBlock(x *syntax.CallExpr, w *With) {
 	if t := c.pkg.Info.Types[x]; t != nil && c.holdsTask(t) {
 		c.errorf(x, CodeType, "the value of this with holds a Task, which leaves the block that stops it before its providers close; wait on the Task inside the block (resources.md, Release before the end)")
 	}
+	// Acquisitions are topological: every dependency is visited before
+	// its user. A plain provider independent of resources stays usable by
+	// an exit action; a provider built from a resource does not.
+	closed := map[*WireEntry]bool{}
+	for _, a := range w.Acquired {
+		closed[a.Entry] = a.Close != nil
+		for _, cap := range a.Entry.Uses {
+			closed[a.Entry] = closed[a.Entry] || closed[w.Wires[0].Provider(cap)]
+		}
+	}
 	var stack []*syntax.CallExpr // the withs between x and the node, innermost last
 	var visit func(n syntax.Node) bool
 	visit = func(n syntax.Node) bool {
@@ -354,7 +513,7 @@ func (c *checker) ownedBlock(x *syntax.CallExpr, w *With) {
 				return false
 			}
 			if isOnExit(call) {
-				c.exitAction(n, x, w, stack)
+				c.exitAction(n, x, w, stack, closed)
 			}
 			if n.Trailing != nil {
 				syntax.Inspect(n.Fun, visit)
@@ -380,7 +539,7 @@ func isOnExit(call *Call) bool {
 // exitAction reports the exit action registered by the call n inside the
 // owning with x when its block needs a capability that x, not a with
 // between them, discharges.
-func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.CallExpr) {
+func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.CallExpr, closed map[*WireEntry]bool) {
 	if n.Trailing == nil {
 		return
 	}
@@ -396,10 +555,10 @@ func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.C
 				break
 			}
 		}
-		if inner || w.Wires[0].Provider(cap) == nil {
+		if inner || !closed[w.Wires[0].Provider(cap)] {
 			continue
 		}
-		c.errorf(n, CodeType, "this exit action runs when the function returns (runtime.md, Exit actions 2), after the with around it closed its providers, but it needs %s, which that with provides; register it outside the with, or release the value in the block (resources.md, Wire ownership)", cap)
+		c.errorf(n, CodeType, "this exit action runs when the function returns (runtime.md, Exit actions 2), after the with around it closed its providers, but it needs %s, whose provider is or uses an acquired resource of that with; register it outside the with, or release the value in the block (resources.md, Wire ownership)", cap)
 		return
 	}
 }
