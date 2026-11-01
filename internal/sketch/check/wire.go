@@ -79,6 +79,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 // that provides it (charge). With.Discharged is that list, so a with's
 // Info is bounded by its body, not by its wire (round-4 review M1).
 type withFrame struct {
+	site    *syntax.CallExpr // the with call, once recorded
 	binds   *capSet
 	unknown bool
 	at      map[capKey]int // index in caps
@@ -219,6 +220,9 @@ func (c *checker) wireBody(body *syntax.WireBody, named *Wire) (*capSet, bool) {
 		}
 		if build != nil {
 			deps.add(caps, build.charged, e.Key)
+			if entry != nil && named != nil && c.silent == 0 {
+				entry.Uses = build.charged.Elems()
+			}
 		}
 	}
 	if build != nil {

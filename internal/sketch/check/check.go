@@ -87,6 +87,9 @@ type checker struct {
 	// which declaration is kept depends on the order, so a decision that
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
 	dupNames map[string]bool
+	// withSites are the with sites the reporting pass recorded, inner
+	// before outer, for the wire ownership pass (withown.go).
+	withSites []withSite
 
 	cur *fileInfo
 	// instance caches the instances of generic named types by their

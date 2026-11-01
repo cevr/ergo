@@ -372,7 +372,30 @@ type With struct {
 	// capabilities appears at each of its capabilities; its conversion for
 	// Discharged[i] is the one at that capability's index in its Caps.
 	// Empty for an inline wire value (stage E, 196x).
+	//
+	// The release needs of an inner with's acquisitions are needs of the
+	// block too: a release runs in the environment outside the inner with,
+	// so this with discharges each one it binds (withOwnership).
 	Entries []*WireEntry
+	// Acquired are the provider entries this with builds and owns, in
+	// their acquisition order (resources.md, Wire ownership; withown.go):
+	// the entries of Entries, and each entry whose capability an acquired
+	// provider uses while it is built. Each entry is one acquisition,
+	// however many capabilities it binds. An overridden entry and an entry
+	// that nothing the block needs reaches are not acquired. Empty for an
+	// inline wire value (stage E, 196x).
+	Acquired []*Acquisition
+}
+
+// Acquisition is one provider entry a with of a named wire builds: the
+// entry, the indexes of the capabilities in Entry.Caps it still binds in
+// the with's wire, and its provider's resolved Close (Info.Closes), nil
+// when the provider is not a resource. The with releases each resource
+// once, in reverse acquisition order, on every exit of its block.
+type Acquisition struct {
+	Entry *WireEntry
+	Caps  []int
+	Close *Close
 }
 
 // Override is a binding a replace overrode (Wire.Overrides): Entry no
@@ -401,6 +424,10 @@ type WireEntry struct {
 	Conversions []Conversion
 	// Embedded is the embedded wire; nil for a provider entry.
 	Embedded *Wire
+	// Uses are the capabilities of its wire that the provider uses while
+	// it is built (rows.md, Wire 4), as a row's elements: a with that
+	// acquires the entry acquires their providers first.
+	Uses []Type
 
 	// seq orders a package's named wire entries: the wire pass meets the
 	// wires by name, then their entries in source order (wirePass.own).
@@ -510,6 +537,10 @@ func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
 	}
 	c.pkg.Info.Withs[x] = w
 	c.callInfo(x).Kind = CallWith
+	f.site = x
+	c.withSites = append(c.withSites, withSite{
+		x: x, file: c.cur, t: c.fn.t, outer: append([]*withFrame(nil), c.fn.t.withs...),
+	})
 }
 
 // Provider returns the entry that binds cap in a with of w, once replace
