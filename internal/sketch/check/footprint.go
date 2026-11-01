@@ -95,12 +95,17 @@ type footprinter struct {
 	info  *Info
 	nodes map[any]*fpNode // by frame key, and by *WireEntry
 	list  []*fpNode       // every node, in creation order
+	// owners is the wire that declares each entry a with acquires
+	// (footprinter.own), filled once per wire.
+	owners map[*WireEntry]*Wire
+	owned  map[*Wire]bool
 }
 
 // footprints records Info.Footprints once every body is final (finishInfo).
 func (c *checker) footprints() {
 	info := c.pkg.Info
-	fp := &footprinter{pkg: c.pkg, info: info, nodes: map[any]*fpNode{}}
+	fp := &footprinter{pkg: c.pkg, info: info, nodes: map[any]*fpNode{},
+		owners: map[*WireEntry]*Wire{}, owned: map[*Wire]bool{}}
 	type body struct {
 		n    *fpNode
 		root syntax.Node
@@ -187,18 +192,93 @@ func (fp *footprinter) wire(w *Wire) *fpNode {
 	w.EachProvider(func(_ Type, e *WireEntry) bool {
 		if e != nil && !seen[e] {
 			seen[e] = true
-			en := fp.nodes[e]
-			if en == nil {
-				en = fp.node(e)
-				if e.Provider != nil {
-					fp.walk(en, e.Provider)
-				}
-			}
-			n.edges = append(n.edges, en)
+			n.edges = append(n.edges, fp.entry(e))
 		}
 		return true
 	})
 	return n
+}
+
+// entry is the node of one provider entry of this package: what its
+// provider expression runs.
+func (fp *footprinter) entry(e *WireEntry) *fpNode {
+	if en := fp.nodes[e]; en != nil {
+		return en
+	}
+	en := fp.node(e)
+	if e.Provider != nil {
+		fp.walk(en, e.Provider)
+	}
+	return en
+}
+
+// with adds what the lowering runs to build a with's providers, read from
+// the facts the lowering reads. `with W` calls W's builder frame, whose
+// node joins every provider W binds (fp.wire), a superset of the with's
+// With.Acquired entries. An inline wire builds its With.Acquired entries
+// in this frame (buildProviders): its own entries are walked here
+// (inspectFrame), and every other acquired entry, an embedded named
+// wire's at any depth, adds its entry node, so `with wire { W }` cannot
+// omit a provider that `with W` counts. An imported entry joins its
+// wire's recorded footprint. A wire whose bindings are unknown, or an
+// entry with no known wire, is opaque.
+func (fp *footprinter) with(n *fpNode, w *With) {
+	if len(w.Wires) == 0 {
+		return
+	}
+	root := w.Wires[0]
+	switch {
+	case root.unknown || root.binds == nil:
+		n.opaque = true
+		return
+	case root.Lit != nil:
+	case root.pkg == fp.pkg && root.Decl != nil:
+		n.edges = append(n.edges, fp.wire(root))
+		return
+	default:
+		if p := root.pkg; p != nil && p.Info != nil && root.Decl != nil {
+			if g, ok := p.Info.Footprints[root.Decl]; ok {
+				n.join(g)
+				return
+			}
+		}
+		n.opaque = true
+		return
+	}
+	fp.own(root)
+	for _, a := range w.Acquired {
+		ow := fp.owners[a.Entry]
+		switch {
+		case ow == nil:
+			n.opaque = true
+		case ow == root:
+			// Walked in this frame.
+		case ow.pkg == fp.pkg:
+			n.edges = append(n.edges, fp.entry(a.Entry))
+		case ow.Decl != nil && providerInfo(ow) != nil:
+			if g, ok := ow.pkg.Info.Footprints[ow.Decl]; ok {
+				n.join(g)
+			} else {
+				n.opaque = true
+			}
+		default:
+			n.opaque = true
+		}
+	}
+}
+
+// own records the wire that declares each entry of w, through
+// embeddings, once per wire: a package's withs share the index, so many
+// withs over one embedding chain stay linear.
+func (fp *footprinter) own(w *Wire) {
+	if w == nil || fp.owned[w] {
+		return
+	}
+	fp.owned[w] = true
+	for _, e := range w.Entries {
+		fp.owners[e] = w
+		fp.own(e.Embedded)
+	}
 }
 
 // walk adds what root runs in n's frame: its calls, and the bodies of its
@@ -275,30 +355,13 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		n.opaque = true
 	case CallWith:
 		// The block's calls are walked in this frame; the with also runs
-		// its wire's builder. An inline wire value's providers are its
-		// argument, walked here too.
+		// the providers it acquires.
 		w := fp.info.Withs[x]
 		if w == nil {
 			n.opaque = true
 			return
 		}
-		if len(w.Wires) == 0 {
-			return
-		}
-		if w.Wires[0].Lit != nil {
-			return // inline providers execute in this frame and are walked here
-		}
-		if w.Wires[0].pkg == fp.pkg && w.Wires[0].Decl != nil {
-			n.edges = append(n.edges, fp.wire(w.Wires[0]))
-			return
-		}
-		if p := w.Wires[0].pkg; p != nil && p.Info != nil && w.Wires[0].Decl != nil {
-			if g, ok := p.Info.Footprints[w.Wires[0].Decl]; ok {
-				n.join(g)
-				return
-			}
-		}
-		n.opaque = true
+		fp.with(n, w)
 	default:
 		panic(fmt.Sprintf("check: unknown call kind %d in footprint", c.Kind))
 	}

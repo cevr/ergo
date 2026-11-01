@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -595,6 +596,163 @@ func TestRuntime199WireProperty(t *testing.T) {
 	for _, pos := range []string{"first", "middle", "last", "two"} {
 		if !positions[pos] {
 			t.Errorf("no generated release defect at the %s position", pos)
+		}
+	}
+}
+
+// checkWithFootprints asserts, for every with in o, that each provider of
+// its With.Acquired fact (the providers the lowering builds) contributes
+// its footprint to the frame the with runs in (runtime-199 stage 3c r1 M1):
+// each capability call and each user call of the provider expression is in
+// the enclosing frame's Info.Footprints entry. It returns how many acquired
+// providers had a non-empty footprint, so a caller can see it is not vacuous.
+func checkWithFootprints(t *testing.T, o *lowered) int {
+	t.Helper()
+	info := o.pkg.Info
+	frame := func(x syntax.Node) (syntax.Node, check.Footprint) {
+		var best syntax.Node
+		for k := range info.Footprints {
+			if k.Pos() <= x.Pos() && x.End() <= k.End() && (best == nil || best.Pos() <= k.Pos() && k.End() <= best.End()) {
+				best = k
+			}
+		}
+		if best == nil {
+			t.Fatalf("%s: the with at %d has no enclosing frame", o.name, x.Pos())
+		}
+		return best, info.Footprints[best]
+	}
+	covers := func(outer, inner check.Footprint) bool {
+		if outer.Opaque {
+			return true
+		}
+		if inner.Opaque && !outer.Opaque || inner.Tasks && !outer.Tasks {
+			return false
+		}
+		for _, c := range inner.Caps {
+			if !slices.ContainsFunc(outer.Caps, func(o check.Type) bool { return o.String() == c.String() }) {
+				return false
+			}
+		}
+		return true
+	}
+	counted := 0
+	syntax.Inspect(o.file, func(n syntax.Node) bool {
+		x, ok := n.(*syntax.CallExpr)
+		if !ok {
+			return true
+		}
+		w := info.Withs[x]
+		if w == nil {
+			return true
+		}
+		key, outer := frame(x)
+		for _, a := range w.Acquired {
+			var inner check.Footprint
+			syntax.Inspect(a.Entry.Provider, func(n syntax.Node) bool {
+				switch n := n.(type) {
+				case *syntax.FuncLit:
+					return false
+				case *syntax.CallExpr:
+					c := info.Calls[n]
+					switch {
+					case c == nil:
+						inner.Opaque = true
+					case c.Kind == check.CallProviderOp:
+						if sel, ok := n.Fun.(*syntax.SelectorExpr); ok {
+							inner.Caps = append(inner.Caps, info.Types[sel.X])
+						}
+					case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil:
+						if g, ok := info.Footprints[c.Func.Decl]; ok {
+							inner.Caps = append(inner.Caps, g.Caps...)
+							inner.Opaque = inner.Opaque || g.Opaque
+							inner.Tasks = inner.Tasks || g.Tasks
+						} else {
+							inner.Opaque = true
+						}
+					}
+				}
+				return true
+			})
+			if !inner.Empty() {
+				counted++
+			}
+			if !covers(outer, inner) {
+				t.Errorf("%s: the frame at %d has footprint %+v, which omits the footprint %+v of the provider at %d its with at %d builds",
+					o.name, key.Pos(), outer, inner, a.Entry.Provider.Pos(), x.Pos())
+			}
+		}
+		return true
+	})
+	return counted
+}
+
+// A with's footprint covers every provider its With.Acquired fact builds,
+// whatever the wire's spelling (stage 3c r1 M1). idle's own footprint is
+// empty; its checked need B reaches mk, which uses A. PX.Use asks the
+// running task to stop; a stopped work must not return from its loop. The
+// inline form used to drop mk's footprint, so its loop had no checkpoint.
+func TestRuntime199WireEmbeddedFootprint(t *testing.T) {
+	const src = `type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = wire { A: PX, B: mk() }
+func idle() needs B {}
+func work() {
+	with W { idle() }
+	for n in 0..3 {
+		let _ = n
+	}
+}
+func main() { work() }
+`
+	twins := []*lowered{
+		mustLower(t, "embedded_named", src),
+		mustLower(t, "embedded_inline", strings.Replace(src, "with W {", "with wire { W } {", 1)),
+	}
+	for _, o := range twins {
+		if checkWithFootprints(t, o) == 0 {
+			t.Errorf("%s: no acquired provider has a footprint", o.name)
+		}
+		for _, d := range o.file.Decls {
+			if f, ok := d.(*syntax.FuncDecl); ok && f.Name.Name == "work" {
+				if got := o.pkg.Info.Footprints[f]; len(got.Caps) != 1 || got.Caps[0].String() != "main.A" || got.Opaque || got.Tasks {
+					t.Errorf("%s: work's footprint %+v, want A", o.name, got)
+				}
+			}
+		}
+		// The test seam: PX.Use interrupts the task; returning from work
+		// after the three back-edges panics with a sentinel.
+		text := o.mainGo()
+		const hook, end = "func (_p PX) Use(env *Env) {\n", "\twork(env)\n"
+		if strings.Count(text, hook) != 1 || strings.Count(text, end) != 1 {
+			t.Fatalf("%s: the seam drifted:\n%s", o.name, text)
+		}
+		text = strings.Replace(text, hook, hook+"\tenv.task.Interrupt()\n", 1)
+		text = strings.Replace(text, end, end+"\tpanic(\"BAD: stopped work returned after three back-edges\")\n", 1)
+		for i := range o.files {
+			if o.files[i].Path == "main.go" {
+				o.files[i].Data = []byte(text)
+			}
+		}
+	}
+	if testing.Short() {
+		return
+	}
+	exes := buildAll(t, twins, true)
+	if exes == nil {
+		t.FailNow()
+	}
+	for _, o := range twins {
+		stdout, stderr, code := runExe(t, exes[o.name])
+		if code != 130 || strings.Contains(stderr, "BAD:") {
+			t.Errorf("%s: exit=%d stdout=%q stderr=%q; want exit 130, stopped at a checkpoint before work returns", o.name, code, stdout, stderr)
 		}
 	}
 }

@@ -186,6 +186,66 @@ let started = pureCall()
 	}
 }
 
+// #199 stage 3c r1 M1: a with's footprint covers the providers its
+// With.Acquired fact builds, whatever the wire's spelling. Each body's own
+// footprint is empty; only its checked needs reach the providers. B's
+// provider mk uses A, so acquiring B acquires A too: the named, embedded
+// and inline forms have the same footprint. A block that needs only A
+// never runs mk: an inline wire builds only its acquired entries in the
+// frame, so its with is pure; `with W` calls W's builder frame, whose
+// footprint is every provider W binds (stage 1), a superset.
+func TestFootprintsWithSpellings(t *testing.T) {
+	src := `type A { Use() }
+type B { Use() }
+type PX {}
+type PY {}
+func Use(_ PX) {}
+func Use(_ PY) {}
+func mk() PY needs A {
+	A.Use()
+	PY
+}
+let W = wire { A: PX, B: mk() }
+let V = wire { W }
+func idle() needs B {}
+func onlyA() needs A {}
+func named() { with W { idle() } }
+func embedded() { with wire { W } { idle() } }
+func nested() { with wire { V } { idle() } }
+func namedTwice() { with V { idle() } }
+func own() { with wire { A: PX, B: mk() } { idle() } }
+func namedA() { with W { onlyA() } }
+func embeddedA() { with wire { W } { onlyA() } }
+func nestedA() { with wire { V } { onlyA() } }
+`
+	file, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+	if len(diags) > 0 {
+		t.Fatalf("diagnostics: %v", diags)
+	}
+	want := map[string]string{
+		"idle": "pure", "onlyA": "pure", "mk": "A",
+		"named": "A", "embedded": "A", "nested": "A", "namedTwice": "A", "own": "A",
+		"namedA": "A", "embeddedA": "pure", "nestedA": "pure",
+	}
+	for _, f := range pkg.Funcs {
+		w, ok := want[f.Name]
+		if !ok {
+			continue
+		}
+		delete(want, f.Name)
+		if got := show(pkg.Info.Footprints[f.Decl]); got != w {
+			t.Errorf("%s: footprint %q, want %q", f.Name, got, w)
+		}
+	}
+	for name := range want {
+		t.Errorf("func %s not checked", name)
+	}
+}
+
 // show prints a footprint: its capabilities by name, then its flags, or
 // "pure" when it is empty.
 func show(fp check.Footprint) string {
