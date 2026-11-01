@@ -1,0 +1,632 @@
+package lower
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	"math/rand/v2"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// Wire ownership (runtime-199 stage 3b; resources.md, Wire ownership;
+// runtime.md, With cleanup). TestRuntime199WireProperty generates wire
+// DAGs, runs every with of each under each exit class in real programs, and
+// compares what they print with the checker's ownership fact
+// (With.Acquired): each acquired resource closes once, at the end of its
+// with, last built first; an overridden or unreached provider never runs;
+// a nested with restores the outer environment; a child task drains before
+// the providers it borrows close; a release defect at any position lets the
+// later releases run and keeps every cause.
+
+// wireEntry is one entry of a generated wire, in model order: it depends
+// only on capabilities bound by earlier entries.
+type wireEntry struct {
+	caps []int // the capabilities it binds; two make a shared entry
+	deps []int // the capabilities its provider uses
+	res  bool  // its type has a checked Close
+}
+
+type wireDAG struct {
+	k       int
+	caps    int
+	entries []wireEntry
+	order   []int // the entries' order in the wire's source
+	base    int   // a capability an embedded wire also binds and W replaces, -1 none
+	uses    []int // the capabilities the with's block uses
+	inner   int   // the capability a nested with rebinds, -1 none
+	child   int   // the capability a child task uses, -1 none
+}
+
+func (d *wireDAG) typ(e int) string { return fmt.Sprintf("T%d_%d", d.k, e) }
+func (d *wireDAG) baseTyp() string  { return fmt.Sprintf("T%d_b", d.k) }
+func (d *wireDAG) innerTyp() string { return fmt.Sprintf("T%d_v", d.k) }
+func (d *wireDAG) cap(c int) string { return fmt.Sprintf("C%d_%d", d.k, c) }
+
+// binder is the entry that binds capability c.
+func (d *wireDAG) binder(c int) int {
+	for e, en := range d.entries {
+		if slices.Contains(en.caps, c) {
+			return e
+		}
+	}
+	panic("unbound capability")
+}
+
+// reached is the model's acquisition set: the entries that bind a used
+// capability and, transitively, the entries their providers use.
+func (d *wireDAG) reached() map[int]bool {
+	out := map[int]bool{}
+	var visit func(c int)
+	visit = func(c int) {
+		e := d.binder(c)
+		if out[e] {
+			return
+		}
+		out[e] = true
+		for _, dep := range d.entries[e].deps {
+			visit(dep)
+		}
+	}
+	for _, c := range d.uses {
+		visit(c)
+	}
+	return out
+}
+
+func genWireDAG(r *rand.Rand, k int) *wireDAG {
+	d := &wireDAG{k: k, caps: 2 + r.IntN(5), base: -1, inner: -1, child: -1}
+	perm := r.Perm(d.caps)
+	for i := 0; i < len(perm); {
+		n := 1
+		if i+1 < len(perm) && r.IntN(3) == 0 {
+			n = 2
+		}
+		en := wireEntry{caps: append([]int(nil), perm[i:i+n]...), res: r.IntN(4) != 0}
+		var earlier []int
+		for _, prev := range d.entries {
+			earlier = append(earlier, prev.caps...)
+		}
+		for _, j := range r.Perm(len(earlier)) {
+			if len(en.deps) < 2 && r.IntN(2) == 0 {
+				en.deps = append(en.deps, earlier[j])
+			}
+		}
+		slices.Sort(en.deps)
+		d.entries = append(d.entries, en)
+		i += n
+	}
+	d.order = r.Perm(len(d.entries))
+	for _, c := range r.Perm(d.caps) {
+		if r.IntN(2) == 0 || len(d.uses) == 0 {
+			d.uses = append(d.uses, c)
+		}
+		if len(d.uses) == 4 {
+			break
+		}
+	}
+	slices.Sort(d.uses)
+	if r.IntN(2) == 0 {
+		for _, c := range r.Perm(d.caps) {
+			if len(d.entries[d.binder(c)].caps) == 1 {
+				d.base = c
+				break
+			}
+		}
+	}
+	if r.IntN(2) == 0 {
+		d.inner = d.uses[r.IntN(len(d.uses))]
+	}
+	if r.IntN(2) == 0 {
+		d.child = d.uses[r.IntN(len(d.uses))]
+	}
+	return d
+}
+
+// decls writes the DAG's types, providers and wires. A type in fail
+// panics in its Close after it prints.
+func (d *wireDAG) decls(fail map[string]bool) string {
+	var b strings.Builder
+	for c := 0; c < d.caps; c++ {
+		fmt.Fprintf(&b, "type %s { Name() string }\n", d.cap(c))
+	}
+	typ := func(name string, res bool) {
+		fmt.Fprintf(&b, "type %s {}\nfunc Name(_ %s) string { %q }\n", name, name, name)
+		if res {
+			fmt.Fprintf(&b, "func Close(_ %s) needs Console {\n\tConsole.Println(\"close %s\")\n", name, name)
+			if fail[name] {
+				b.WriteString("\tlet xs = []int{}\n\tlet _ = xs[0]\n")
+			}
+			b.WriteString("}\n")
+		}
+	}
+	for e, en := range d.entries {
+		typ(d.typ(e), en.res)
+		if len(en.deps) > 0 {
+			var needs, body []string
+			for _, c := range en.deps {
+				needs = append(needs, d.cap(c))
+				body = append(body, "\tlet _ = "+d.cap(c)+".Name()\n")
+			}
+			fmt.Fprintf(&b, "func mk%d_%d() %s needs %s {\n%s\t%s\n}\n", d.k, e, d.typ(e), strings.Join(needs, ", "), strings.Join(body, ""), d.typ(e))
+		}
+	}
+	var entries []string
+	for _, e := range d.order {
+		en := d.entries[e]
+		var keys []string
+		for _, c := range en.caps {
+			keys = append(keys, d.cap(c))
+		}
+		provider := d.typ(e)
+		if len(en.deps) > 0 {
+			provider = fmt.Sprintf("mk%d_%d()", d.k, e)
+		}
+		head := ""
+		if d.base >= 0 && en.caps[0] == d.base {
+			head = "replace "
+		}
+		entries = append(entries, head+strings.Join(keys, ", ")+": "+provider)
+	}
+	if d.base >= 0 {
+		typ(d.baseTyp(), true)
+		fmt.Fprintf(&b, "let Base%d = wire { %s: %s }\n", d.k, d.cap(d.base), d.baseTyp())
+		entries = append(entries, fmt.Sprintf("Base%d", d.k))
+	}
+	fmt.Fprintf(&b, "let W%d = wire { %s }\n", d.k, strings.Join(entries, ", "))
+	if d.inner >= 0 {
+		typ(d.innerTyp(), true)
+		fmt.Fprintf(&b, "let V%d = wire { %s: %s }\n", d.k, d.cap(d.inner), d.innerTyp())
+	}
+	return b.String()
+}
+
+// The exit classes of a with's block.
+const (
+	exitSuccess = "success" // the block ends normally
+	exitTail    = "tail"    // its last statement fails, so the with fails
+	exitMid     = "mid"     // a try leaves the function from mid-block
+	exitDefect  = "defect"  // a defect leaves it
+	exitStop    = "stop"    // its task is stopped while it waits
+)
+
+func (d *wireDAG) hasInner(exit string) bool {
+	return d.inner >= 0 && (exit == exitSuccess || exit == exitTail || exit == exitMid)
+}
+
+func (d *wireDAG) hasChild(exit string) bool {
+	return d.child >= 0 && (exit == exitMid || exit == exitDefect)
+}
+
+func (d *wireDAG) fn(exit string) string { return fmt.Sprintf("run%d_%s", d.k, exit) }
+
+// function writes the function that runs W's with under exit.
+func (d *wireDAG) function(exit string) string {
+	var b strings.Builder
+	needs := []string{"Console"}
+	var fails []string
+	if exit == exitTail || exit == exitMid {
+		fails = append(fails, "Fault")
+	}
+	if d.hasChild(exit) || exit == exitStop {
+		needs = append(needs, "Scheduler")
+		fails = append(fails, "queue.Closed")
+	}
+	params := ""
+	if exit == exitStop {
+		params = "ready queue.Queue[int]"
+	}
+	row := ""
+	if len(fails) > 0 {
+		row = " fails " + strings.Join(fails, " | ")
+	}
+	fmt.Fprintf(&b, "func %s(%s)%s needs %s {\n\twith W%d {\n", d.fn(exit), params, row, strings.Join(needs, ", "), d.k)
+	for _, c := range d.uses {
+		fmt.Fprintf(&b, "\t\tConsole.Println(\"use \" + %s.Name())\n", d.cap(c))
+	}
+	if d.hasInner(exit) {
+		c := d.cap(d.inner)
+		fmt.Fprintf(&b, "\t\twith V%d {\n\t\t\tConsole.Println(\"inner \" + %s.Name())\n\t\t}\n\t\tConsole.Println(\"after \" + %s.Name())\n", d.k, c, c)
+	}
+	if d.hasChild(exit) {
+		fmt.Fprintf(&b, "\t\tlet ready = queue.New[int](0)\n\t\tlet t = task.Go() {\n\t\t\tscope.OnExit() { Console.Println(\"child \" + %s.Name()) }\n\t\t\ttry ready.Push(1)\n\t\t\tScheduler.Sleep(1h)\n\t\t}\n\t\ttry ready.Pop()\n", d.cap(d.child))
+	}
+	switch exit {
+	case exitTail:
+		b.WriteString("\t\ttry boom()\n")
+	case exitMid:
+		b.WriteString("\t\ttry boom()\n\t\tConsole.Println(\"unreached\")\n")
+	case exitDefect:
+		b.WriteString("\t\tlet xs = []int{}\n\t\tlet _ = xs[0]\n")
+	case exitStop:
+		b.WriteString("\t\ttry ready.Push(1)\n\t\tScheduler.Sleep(1h)\n")
+	}
+	if d.hasChild(exit) {
+		b.WriteString("\t\tt.Stop()\n")
+	}
+	fmt.Fprintf(&b, "\t}\n\tConsole.Println(\"end %d %s\")\n}\n", d.k, exit)
+	return b.String()
+}
+
+// call writes main's statements that run exit's function.
+func (d *wireDAG) call(exit string) string {
+	switch exit {
+	case exitSuccess:
+		return "\t\t" + d.fn(exit) + "()\n"
+	case exitStop:
+		return fmt.Sprintf("\t\tlet r%d = queue.New[int](0)\n\t\tlet t%d = task.Go() { %s(r%d) }\n\t\ttry r%d.Pop()\n\t\tt%d.Stop()\n\t\tConsole.Println(\"stopped %d\")\n", d.k, d.k, d.fn(exit), d.k, d.k, d.k, d.k)
+	case exitDefect:
+		if d.hasChild(exit) {
+			return "\t\ttry " + d.fn(exit) + "()\n"
+		}
+		return "\t\t" + d.fn(exit) + "()\n"
+	}
+	catch := fmt.Sprintf("\t\tcase Fault:\n\t\t\tConsole.Println(\"failure %d %s\")\n", d.k, exit)
+	if d.hasChild(exit) {
+		catch += "\t\tcase queue.Closed:\n\t\t\tConsole.Println(\"closed\")\n"
+	}
+	return "\t\t" + d.fn(exit) + "() catch {\n" + catch + "\t\t}\n"
+}
+
+const wirePrelude = `type Fault {}
+func boom() fails Fault { return Fault }
+let Live = wire { Scheduler: LiveScheduler }
+`
+
+// wireProgram is one generated program: its DAGs and the exits main runs,
+// in order, and the types whose Close fails.
+type wireProgram struct {
+	name  string
+	dags  []*wireDAG
+	exits []string
+	fail  map[string]bool
+	o     *lowered
+}
+
+func (p *wireProgram) src() string {
+	var b strings.Builder
+	b.WriteString(wirePrelude)
+	for _, d := range p.dags {
+		b.WriteString(d.decls(p.fail))
+		for _, exit := range p.exits {
+			b.WriteString(d.function(exit))
+		}
+	}
+	b.WriteString("func main() fails queue.Closed needs Console {\n\twith Live {\n")
+	for _, d := range p.dags {
+		for _, exit := range p.exits {
+			b.WriteString(d.call(exit))
+		}
+	}
+	b.WriteString("\t}\n}\n")
+	var imports strings.Builder
+	for _, pkg := range []string{"queue", "scope", "task"} {
+		if strings.Contains(b.String(), pkg+".") {
+			imports.WriteString("import " + pkg + "\n")
+		}
+	}
+	return imports.String() + "\n" + b.String()
+}
+
+// acquired is the checker's fact for the with of wire name in fn: each
+// acquisition's provider type, the capabilities it binds, and its Close.
+type acquired struct {
+	typ  string
+	caps []string
+	res  bool
+}
+
+func wireFact(t *testing.T, o *lowered, fn, wire string) []acquired {
+	t.Helper()
+	var out []acquired
+	found := 0
+	for _, decl := range o.file.Decls {
+		fd, ok := decl.(*syntax.FuncDecl)
+		if !ok || fd.Name.Name != fn || fd.Body == nil {
+			continue
+		}
+		syntax.Inspect(fd.Body, func(n syntax.Node) bool {
+			x, ok := n.(*syntax.CallExpr)
+			if !ok {
+				return true
+			}
+			w := o.pkg.Info.Withs[x]
+			if w == nil || len(w.Wires) != 1 || w.Wires[0].Name != wire {
+				return true
+			}
+			found++
+			for _, a := range w.Acquired {
+				var caps []string
+				for _, i := range a.Caps {
+					caps = append(caps, strings.TrimPrefix(a.Entry.Caps[i].String(), "main."))
+				}
+				out = append(out, acquired{strings.TrimPrefix(fmt.Sprint(o.pkg.Info.Types[a.Entry.Provider]), "main."), caps, a.Close != nil})
+			}
+			return true
+		})
+	}
+	if found != 1 {
+		t.Fatalf("%s has %d withs of %s, want 1", fn, found, wire)
+	}
+	return out
+}
+
+// checkFact compares the checker's acquisitions of W in fn with the model:
+// the reached entries, each once with every capability it binds, a
+// provider after the entries it uses, and no overridden provider.
+func checkFact(t *testing.T, d *wireDAG, fact []acquired) {
+	t.Helper()
+	reached := d.reached()
+	pos := map[string]int{}
+	for i, a := range fact {
+		if _, dup := pos[a.typ]; dup {
+			t.Errorf("W%d: %s acquired twice", d.k, a.typ)
+		}
+		pos[a.typ] = i
+		if a.typ == d.baseTyp() {
+			t.Errorf("W%d: the overridden provider %s is acquired", d.k, a.typ)
+		}
+	}
+	for e, en := range d.entries {
+		i, ok := pos[d.typ(e)]
+		if ok != reached[e] {
+			t.Errorf("W%d: %s acquired %v, model %v (uses %v)", d.k, d.typ(e), ok, reached[e], d.uses)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		var caps []string
+		for _, c := range en.caps {
+			caps = append(caps, d.cap(c))
+		}
+		if a := fact[i]; !sameSet(a.caps, caps) || a.res != en.res {
+			t.Errorf("W%d: %s binds %v closes %v, model %v %v", d.k, a.typ, a.caps, a.res, caps, en.res)
+		}
+		for _, c := range en.deps {
+			if j := pos[d.typ(d.binder(c))]; j >= i {
+				t.Errorf("W%d: %s is built before %s, whose capability it uses", d.k, d.typ(e), d.typ(d.binder(c)))
+			}
+		}
+	}
+}
+
+func sameSet(a, b []string) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
+}
+
+// closes is the release order of a with: its acquired resources, last
+// acquired first.
+func closes(fact []acquired) []string {
+	var out []string
+	for i := len(fact) - 1; i >= 0; i-- {
+		if fact[i].res {
+			out = append(out, "close "+fact[i].typ)
+		}
+	}
+	return out
+}
+
+// expect is what exit's run of d prints, from the checker's fact.
+func expect(t *testing.T, o *lowered, d *wireDAG, exit string) []string {
+	t.Helper()
+	fact := wireFact(t, o, d.fn(exit), fmt.Sprintf("W%d", d.k))
+	checkFact(t, d, fact)
+	bound := func(c int) string {
+		for _, a := range fact {
+			if slices.Contains(a.caps, d.cap(c)) {
+				return a.typ
+			}
+		}
+		t.Fatalf("W%d: no acquisition binds %s", d.k, d.cap(c))
+		return ""
+	}
+	var lines []string
+	for _, c := range d.uses {
+		lines = append(lines, "use "+bound(c))
+	}
+	if d.hasInner(exit) {
+		inner := wireFact(t, o, d.fn(exit), fmt.Sprintf("V%d", d.k))
+		lines = append(lines, "inner "+d.innerTyp())
+		lines = append(lines, closes(inner)...)
+		lines = append(lines, "after "+bound(d.inner))
+	}
+	if d.hasChild(exit) {
+		lines = append(lines, "child "+bound(d.child))
+	}
+	lines = append(lines, closes(fact)...)
+	switch exit {
+	case exitSuccess:
+		lines = append(lines, fmt.Sprintf("end %d %s", d.k, exit))
+	case exitTail, exitMid:
+		lines = append(lines, fmt.Sprintf("failure %d %s", d.k, exit))
+	case exitStop:
+		lines = append(lines, fmt.Sprintf("stopped %d", d.k))
+	}
+	return lines
+}
+
+func TestRuntime199WireProperty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs generated programs")
+	}
+	r := rand.New(rand.NewPCG(199, 3))
+	var dags []*wireDAG
+	for k := 0; k < 24; k++ {
+		dags = append(dags, genWireDAG(r, k))
+	}
+	// The generator reaches every shape the property claims.
+	shapes := map[string]bool{}
+	for _, d := range dags {
+		reached := d.reached()
+		for e, en := range d.entries {
+			shapes["shared"] = shapes["shared"] || reached[e] && len(en.caps) == 2
+			shapes["dependency"] = shapes["dependency"] || reached[e] && len(en.deps) > 0
+			shapes["unreached resource"] = shapes["unreached resource"] || !reached[e] && en.res
+		}
+		shapes["overridden"] = shapes["overridden"] || d.base >= 0
+		shapes["nested"] = shapes["nested"] || d.inner >= 0
+		shapes["child"] = shapes["child"] || d.child >= 0
+	}
+	for _, s := range []string{"shared", "dependency", "unreached resource", "overridden", "nested", "child"} {
+		if !shapes[s] {
+			t.Fatalf("the generator reaches no %s entry", s)
+		}
+	}
+	programs := []*wireProgram{{name: "wire_exits", dags: dags, exits: []string{exitSuccess, exitTail, exitMid, exitStop}}}
+	type releaseCase struct {
+		p        *wireProgram
+		failures int
+	}
+	var released []releaseCase
+	positions := map[string]bool{}
+	for _, d := range dags {
+		programs = append(programs, &wireProgram{name: fmt.Sprintf("wire_defect%d", d.k), dags: []*wireDAG{d}, exits: []string{exitDefect}})
+	}
+	for _, p := range programs {
+		p.o = mustLower(t, p.name, p.src())
+	}
+	for _, p := range programs[1:] {
+		// A release defect at one or two positions of W's release order
+		// (the checker's fact), on a normal end or under a defect.
+		d := p.dags[0]
+		order := closes(wireFact(t, p.o, d.fn(exitDefect), fmt.Sprintf("W%d", d.k)))
+		if len(order) == 0 {
+			continue
+		}
+		at := func(i int) string { return strings.TrimPrefix(order[i%len(order)], "close ") }
+		fail := map[string]bool{at(d.k % 3 * (len(order) - 1) / 2): true}
+		if d.k%2 == 0 {
+			fail[at(d.k/2)] = true
+		}
+		exit := exitSuccess
+		if d.k%4 == 0 {
+			exit = exitDefect
+		}
+		rp := &wireProgram{name: fmt.Sprintf("wire_release%d", d.k), dags: []*wireDAG{d}, exits: []string{exit}, fail: fail}
+		rp.o = mustLower(t, rp.name, rp.src())
+		released = append(released, releaseCase{rp, len(fail)})
+	}
+	for _, rc := range released {
+		programs = append(programs, rc.p)
+	}
+	var all []*lowered
+	for _, p := range programs {
+		all = append(all, p.o)
+	}
+	exes := buildAll(t, all, true)
+	if exes == nil {
+		t.FailNow()
+	}
+	releaseFailures := map[string]int{}
+	for _, rc := range released {
+		releaseFailures[rc.p.name] = rc.failures
+	}
+	for _, p := range programs {
+		t.Run(p.name, func(t *testing.T) {
+			var want []string
+			defect := false
+			for _, d := range p.dags {
+				for _, exit := range p.exits {
+					lines := expect(t, p.o, d, exit)
+					if len(p.fail) > 0 {
+						// A release defect raises at the with's end: the
+						// releases still print, the line after the with does not.
+						if exit == exitSuccess {
+							lines = lines[:len(lines)-1]
+						}
+						fact := wireFact(t, p.o, d.fn(exit), fmt.Sprintf("W%d", d.k))
+						order := closes(fact)
+						for i, c := range order {
+							if p.fail[strings.TrimPrefix(c, "close ")] {
+								switch {
+								case i == 0:
+									positions["first"] = true
+								case i == len(order)-1:
+									positions["last"] = true
+								default:
+									positions["middle"] = true
+								}
+							}
+						}
+						if len(p.fail) > 1 {
+							positions["two"] = true
+						}
+					}
+					want = append(want, lines...)
+					defect = defect || exit == exitDefect
+				}
+			}
+			stdout, stderr, code := runExe(t, exes[p.name])
+			got := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Errorf("stdout:\n%s\nwant:\n%s\nstderr:\n%s\nsource:\n%s", stdout, strings.Join(want, "\n"), stderr, p.o.src)
+			}
+			fails := releaseFailures[p.name]
+			causes := fails
+			if defect {
+				causes++
+			}
+			if causes == 0 {
+				if code != 0 {
+					t.Errorf("exit %d, stderr:\n%s", code, stderr)
+				}
+				return
+			}
+			if code == 0 {
+				t.Errorf("exit 0 after %d defects", causes)
+			}
+			if n := strings.Count("\n"+stderr, "\npanic: "); n != causes {
+				t.Errorf("%d causes on stderr, want %d:\n%s", n, causes, stderr)
+			}
+			if n := strings.Count(stderr, "(in an exit action)"); n != fails {
+				t.Errorf("%d release defects on stderr, want %d:\n%s", n, fails, stderr)
+			}
+		})
+	}
+	t.Logf("release defect positions %v", positions)
+	for _, pos := range []string{"first", "middle", "last", "two"} {
+		if !positions[pos] {
+			t.Errorf("no generated release defect at the %s position", pos)
+		}
+	}
+}
+
+// TestRuntime199WireOwner fails a with lifetime that bypasses its owner:
+// only the with and its builder emit the with scope's calls, and only the
+// owner reads the checker's ownership fact.
+func TestRuntime199WireOwner(t *testing.T) {
+	writers := map[string]bool{"with": true, "withClose": true, "blocking.go:package": true}
+	readers := map[string]bool{"ownsResources": true, "acquiredSet": true, "emitWire": true, "withsOf": true}
+	i1LowerSource(t, func(owner string, node ast.Node) {
+		ast.Inspect(node, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.BasicLit:
+				if x.Kind != token.STRING {
+					break
+				}
+				value, err := strconv.Unquote(x.Value)
+				if err != nil {
+					break
+				}
+				for _, name := range []string{"OpenWith", "WithClose", "EndWith"} {
+					if strings.Contains(value, name) && !writers[owner] {
+						t.Errorf("%s writes the with scope's %s outside the with lifetime owner", owner, name)
+					}
+				}
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "Acquired" && !readers[owner] {
+					t.Errorf("%s reads the checker's ownership fact outside the owner", owner)
+				}
+			}
+			return true
+		})
+	})
+}
