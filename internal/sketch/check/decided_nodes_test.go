@@ -571,10 +571,10 @@ func f() int {
 }
 func main() {}
 `, nil},
-	{"untyped parameter", "an untyped function literal parameter is #214's", `
+	{"untyped parameter", "an untyped function literal parameter with no expected type is S108 (D-E1)", `
 func f() { _ = func(x) {} }
 func main() {}
-`, []string{"S109:2"}},
+`, []string{"S108:2"}},
 	{"interpolation", "interpolation is a string", `
 func label(n int, ok bool) string { return "n = \(n), ok = \(ok), \("s"), \(7)" }
 func main() {}

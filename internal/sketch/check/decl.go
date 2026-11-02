@@ -795,6 +795,57 @@ type typeCtx struct {
 	field  bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
 	param  bool                  // a parameter or receiver: *T allowed
 	scope  *Scope
+	lit    *litParams // a function literal's signature: its untyped parameters (D-E1)
+}
+
+// litParams carries a function literal's expected function type into its
+// signature: a parameter written without a type takes the expected
+// parameter's type (D-E1, #214). With none it is S108, once per literal.
+type litParams struct {
+	expected *Signature // the expected function type, or nil
+	untyped  bool       // a parameter is written without a type
+	failed   bool       // an untyped parameter's type was not inferred (reported)
+}
+
+// untypedParam types the literal parameter name, the i-th, written without
+// a type: the expected function type's i-th parameter type, else S108.
+func (c *checker) untypedParam(name *syntax.Ident, i int, lit *litParams) Type {
+	if lit != nil {
+		lit.untyped = true
+		if lit.expected != nil && i < len(lit.expected.Params) {
+			return lit.expected.Params[i].Type
+		}
+	}
+	if lit == nil || !lit.failed {
+		c.errorf(name, CodeType, "cannot infer the type of %s; write func(%s T)", name.Name, name.Name)
+	}
+	if lit != nil {
+		lit.failed = true
+	}
+	return invalid
+}
+
+// untypedParamNames returns, for a function literal, each parameter
+// written without a type with its index among the parameters.
+func untypedParamNames(ft *syntax.FuncType) (names []*syntax.Ident, at []int) {
+	if ft.Params == nil {
+		return nil, nil
+	}
+	i := 0
+	for _, field := range ft.Params.List {
+		if len(field.Names) == 0 {
+			i++
+			continue
+		}
+		for _, name := range field.Names {
+			if field.Type == nil {
+				names = append(names, name)
+				at = append(at, i)
+			}
+			i++
+		}
+	}
+	return names, at
 }
 
 func (c *checker) lookupType(name string, ctx *typeCtx) Object {
@@ -1349,28 +1400,34 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 	sig := &Signature{Errors: newRow(), Uses: newRow()}
 	pctx := *ctx
 	pctx.param, pctx.field = true, false
+	pctx.lit = nil // a function type inside a parameter is not the literal's
 	if ft.Params != nil {
 		for _, field := range ft.Params.List {
 			var t Type
-			if field.Type == nil {
-				// A function literal's parameter written without a type
-				// (grammar.md; inferring it is #214).
-				c.errorf(field, CodeOutside, "a function literal parameter without a type is #214's (inferred parameter types); it is not checked yet")
-				t = invalid
-			} else {
+			if field.Type != nil {
 				t = c.typExpr(field.Type, &pctx)
 			}
 			if len(field.Names) == 0 {
+				if t == nil {
+					t = c.undecided(field, "a parameter with neither a name nor a type").typ
+				}
 				sig.Params = append(sig.Params, &Var{Name: "_", Type: t, Pos: field.Pos(), param: true})
 			}
 			for _, name := range field.Names {
-				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: t, Pos: name.Pos(), param: true})
+				pt := t
+				if field.Type == nil {
+					// A function literal's parameter written without a
+					// type (D-E1, #214).
+					pt = c.untypedParam(name, len(sig.Params), ctx.lit)
+				}
+				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), param: true})
 				c.paramIdents[name.Pos()] = name
 			}
 		}
 	}
 	rctx := *ctx
 	rctx.param, rctx.field = false, false
+	rctx.lit = nil
 	if ft.Results != nil {
 		for _, field := range ft.Results.List {
 			if er, ok := field.Type.(*syntax.ErrorRow); ok {

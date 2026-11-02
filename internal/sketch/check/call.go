@@ -392,6 +392,16 @@ type inferer struct {
 func (in *inferer) free(tp *TypeParam) bool { return in.set[tp] && in.m[tp] == nil }
 
 // hasFree reports whether t mentions an unbound parameter.
+// anyFree reports whether a type of ts mentions a free parameter.
+func (in *inferer) anyFree(ts []Type) bool {
+	for _, t := range ts {
+		if in.hasFree(t) {
+			return true
+		}
+	}
+	return false
+}
+
 func (in *inferer) hasFree(t Type) bool {
 	switch t := t.(type) {
 	case nil:
@@ -522,34 +532,48 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 			c.errorf(at, CodeType, "the argument has type %s, which does not match %s, inferred for %s (D6; type inference)", t, want, pt)
 		}
 	}
-	var deferred []int
+	// funcArg checks a function-literal argument against its parameter
+	// type pt and unifies the two; false when the call fails.
+	funcArg := func(i int, lit *syntax.FuncLit, pt Type) bool {
+		expected, _ := under0(c.subst(pt, in.m)).(*Signature)
+		op := c.funcLit(lit, expected, in)
+		op.expr = lit
+		c.record(lit, op)
+		lt, isSig := op.typ.(*Signature)
+		if !isSig { // refused (class G), or an untyped parameter: invalid, nothing cascades
+			return false
+		}
+		lits[i] = lt
+		if containsInvalid(lt) {
+			return false // see the invalid-operand rule below
+		}
+		if allExplicit || failed || !in.mentions(pt) {
+			return true
+		}
+		if !in.unify(pt, lt, unifyAssign) {
+			mismatch(lit, lt, pt)
+			return false
+		}
+		return true
+	}
+	var deferred, untyped []int
 	for i := 0; i < len(args.exprs); i++ {
 		pt := paramType(sig, i)
 		if lit, ok := args.exprs[i].(*syntax.FuncLit); ok {
-			// A function literal's parameter and result types are written
-			// (#214 would infer them), so it is a typed argument: it
-			// unifies in source order with the others, before the
-			// literals default (round-7 M3; D6 rule 2). Only its unwritten
-			// rows take the parameter type's, when known.
-			expected, _ := under0(c.subst(pt, in.m)).(*Signature)
-			op := c.funcLit(lit, expected, in)
-			op.expr = lit
-			c.record(lit, op)
-			lt, isSig := op.typ.(*Signature)
-			if !isSig { // refused (class G): invalid, nothing cascades
-				failed = true
-				continue
+			if !allExplicit && in.mentions(pt) {
+				if names, _ := untypedParamNames(lit.Type); len(names) > 0 {
+					// An untyped parameter takes its type from the
+					// expected function type once the other arguments
+					// and the literals' defaults fix it (D-E1, #214).
+					untyped = append(untyped, i)
+					continue
+				}
 			}
-			lits[i] = lt
-			if containsInvalid(lt) {
-				failed = true // see the invalid-operand rule below
-				continue
-			}
-			if allExplicit || failed || !in.mentions(pt) {
-				continue
-			}
-			if !in.unify(pt, lt, unifyAssign) {
-				mismatch(lit, lt, pt)
+			// A function literal with its parameter types written is a
+			// typed argument: it unifies in source order with the others,
+			// before the literals default (round-7 M3; D6 rule 2). Only
+			// its unwritten rows take the parameter type's, when known.
+			if !funcArg(i, lit, pt) {
 				failed = true
 			}
 			continue
@@ -626,6 +650,16 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 	}
 	for _, tp := range order {
 		in.m[tp] = defaults[tp]
+	}
+	for _, i := range untyped {
+		lit := args.exprs[i].(*syntax.FuncLit)
+		pt := paramType(sig, i)
+		if !c.untypedFixed(lit, c.subst(pt, in.m), in) {
+			return bad(x) // reported; the literal's frame is skipped (skipFrames)
+		}
+		if !funcArg(i, lit, pt) {
+			return bad(x)
+		}
 	}
 	if args.trailing != nil {
 		// A trailing block writes no types: its result binds what is still
@@ -731,6 +765,23 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 	return c.result(x, inst)
 }
 
+// untypedFixed reports whether the call's other arguments and the literals'
+// defaults fixed every type a function literal with untyped parameters
+// takes from want, its parameter type with the bindings so far: each
+// untyped parameter's and, when it writes no results, its results'. Else
+// it is S108 at the first unfixed one (D-E1, #214), and the call fails.
+func (c *checker) untypedFixed(lit *syntax.FuncLit, want Type, in *inferer) bool {
+	expected, _ := under0(want).(*Signature)
+	names, at := untypedParamNames(lit.Type)
+	for k, name := range names {
+		if expected == nil || at[k] >= len(expected.Params) || in.hasFree(expected.Params[at[k]].Type) {
+			c.errorf(name, CodeType, "cannot infer the type of %s; write func(%s T)", name.Name, name.Name)
+			return false
+		}
+	}
+	return true
+}
+
 // ---------------------------------------------------------------- literals and blocks
 
 // funcLit checks a function literal. Its rows are declared when written,
@@ -739,7 +790,21 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 // land").
 func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) operand {
 	c.typedFrame(x)
-	sig := c.signature(x.Type, c.localTypeCtx())
+	ctx := c.localTypeCtx()
+	lit := &litParams{expected: expected}
+	ctx.lit = lit
+	sig := c.signature(x.Type, ctx)
+	// A literal with untyped parameters writes no types (D-E1, #214): with
+	// no results written, its results are the expected function type's
+	// when that fixes them, else its tail's type, as a trailing block's
+	// are (blockLit).
+	resultFree := false
+	if lit.untyped && x.Type.Results == nil {
+		resultFree = lit.failed || expected == nil || in != nil && in.anyFree(expected.Results)
+		if !resultFree {
+			sig.Results = append([]Type(nil), expected.Results...)
+		}
+	}
 	writtenErr := false
 	if x.Type.Results != nil {
 		for _, r := range x.Type.Results.List {
@@ -748,7 +813,7 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 			}
 		}
 	}
-	t := &target{name: "this function literal", results: sig.Results, resultKnown: true, isFunc: true}
+	t := &target{name: "this function literal", results: sig.Results, resultKnown: !resultFree, isFunc: true}
 	// An unknown expected row declares nothing: the literal infers that row,
 	// and the unknown row accepts it (stage D1 round 4 review M2).
 	switch {
@@ -771,6 +836,15 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 	// (D3); which literals are value uses is lexical (refWalker).
 	frame := c.pushLit()
 	c.body(t, x.Type, sig.Params, func() {
+		if resultFree {
+			res := c.yieldingBlock(x.Body, x.Body.List, nil, false, false, func(op *operand) {
+				c.escape(op.expr, op.errs)
+			})
+			if res != nil && res != NoValue {
+				sig.Results = []Type{res}
+			}
+			return
+		}
 		c.functionBody(x.Body, "this function literal")
 	})
 	sig.Errors = t.row(t.declErrors, t.errors)
@@ -781,7 +855,9 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 	if c.silent == 0 {
 		c.pkg.Info.Literals[x] = sig
 	}
-	if c.endLit(frame) {
+	if c.endLit(frame) || lit.failed {
+		// An untyped parameter not inferred (reported): the literal is
+		// invalid, so nothing that uses it cascades (D3).
 		return bad(x)
 	}
 	// Creating the literal runs nothing: an unknown row in its body makes
@@ -828,14 +904,7 @@ func (c *checker) blockLit(b *syntax.BlockStmt, expected *Signature, in *inferer
 	c.typedFrame(b)
 	sig = &Signature{Errors: newRow(), Uses: newRow()}
 	t := &target{name: "this block"}
-	resultFree := expected == nil || (in != nil && func() bool {
-		for _, r := range expected.Results {
-			if in.hasFree(r) {
-				return true
-			}
-		}
-		return false
-	}())
+	resultFree := expected == nil || in != nil && in.anyFree(expected.Results)
 	if expected != nil && len(expected.Params) > 0 {
 		c.errorf(b, CodeType, "a trailing block takes no parameters, but the parameter type %s has %d; write a func literal", expected, len(expected.Params))
 	}
