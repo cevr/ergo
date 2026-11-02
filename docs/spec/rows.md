@@ -96,7 +96,7 @@ Status: **implemented in prototype** (#199 stage 1): the checker records each fr
 
 ## Wire
 
-Status: **checked** (#196): provider literals, closed named wires, embedding, `replace` and several keys in one entry; the build refuses embedding, `replace` and several keys until #50. Constructors are **designed, not yet implemented**: S109 naming [#37](https://github.com/cevr/ergo/issues/37).
+Status: **checked** (#196): provider literals, closed named wires, embedding, `replace` and several keys in one entry. The build lowers each of them for a wire of the program's own package (#199 stages 3b and 3c; `TestRuntime199WireProperty`); it refuses a `with` of an imported wire, and an embedded imported wire, until check-v1 stage B supplies the wire. Constructors are **designed, not yet implemented**: S109 naming [#37](https://github.com/cevr/ergo/issues/37).
 
 ```go
 let Live = wire {
@@ -120,7 +120,7 @@ let Live = wire {
 
 ## With
 
-Status: **checked** (#196) for one wire argument; runs. A context value (rule 7) is **checked and runs** (#199 stage 4a).
+Status: **checked** (#196) for one wire argument; runs. An inline wire whose entries are explicit provider expressions runs (#199 stage 3c; `TestRuntime199AcquireProperty`); a first-class wire value waits for check-v1 stage E (196x). A context value (rule 7) is **checked and runs** (#199 stage 4a).
 
 ```go
 let value = with Live { checkout(id) }
