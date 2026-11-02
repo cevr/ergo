@@ -1,6 +1,8 @@
 package check_test
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,5 +57,47 @@ func TestV1Fixtures(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestV1Manifest: each testdata/v1 fixture is listed in
+// testdata/v1/accept-rules.sha256 with its content hash, and each listed
+// fixture exists. The manifest names the acceptance tree the fixtures are
+// copied from, which the repository cannot read: `sha256sum -c` run there
+// detects a rule that changed after its copy (E2 round 2 m1).
+func TestV1Manifest(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "v1", "accept-rules.sha256"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		hash, name, ok := strings.Cut(line, "  ")
+		if !ok || len(hash) != 64 {
+			t.Fatalf("a manifest line is not `sha256  name`: %q", line)
+		}
+		listed[name] = hash
+	}
+	files, _ := filepath.Glob(filepath.Join("testdata", "v1", "*.ergo"))
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := filepath.Base(file)
+		sum := fmt.Sprintf("%x", sha256.Sum256(src))
+		switch hash, ok := listed[name]; {
+		case !ok:
+			t.Errorf("%s is not in the manifest: add its source and hash", name)
+		case hash != sum:
+			t.Errorf("%s differs from its manifest hash: the copy changed without its source (sha256 %s, manifest %s)", name, sum, hash)
+		}
+		delete(listed, name)
+	}
+	for name := range listed {
+		t.Errorf("the manifest lists %s, which testdata/v1 lacks", name)
 	}
 }
