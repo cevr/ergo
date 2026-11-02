@@ -309,7 +309,7 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 				// Reading a node pointer/interface does not copy its node.
 				// Literals, dereferences, new and conversions are checked above
 				// or below; a concrete node value also copies on an ordinary use.
-				if _, ok := types.Unalias(tv.Type).(*types.Named); !ok && !isLit && !isDeref {
+				if _, ok := types.Unalias(tv.Type).(*types.Pointer); ok && !isLit && !isDeref {
 					return true
 				}
 				if _, ok := tv.Type.Underlying().(*types.Interface); ok && !isLit && !isDeref {
@@ -404,6 +404,7 @@ func TestSynthesisInventoryControls(t *testing.T) {
 		{"local-node", `package check; type spanAt struct{ p, e syntax.Pos }; func (s spanAt) Pos() syntax.Pos { return s.p }; func (s spanAt) End() syntax.Pos { return s.e }`, "local node type spanAt"},
 		{"local-pointer-node", `package check; type spanAt struct{ p, e syntax.Pos }; func (s *spanAt) Pos() syntax.Pos { return s.p }; func (s *spanAt) End() syntax.Pos { return s.e }`, "local node type spanAt"},
 		{"pointer-conversion", `package check; func converted(p *syntax.Ident) syntax.Node { return (*syntax.Ident)(p) }`, "conversion"},
+		{"unnamed-value-copy", `package check; func copied(p struct{ *syntax.Ident }) syntax.Node { return p }`, "outside made and clone"},
 		{"reflection", `package check; var _ = reflect.TypeOf`, "reflect import"},
 	} {
 		t.Run(ctl.name, func(t *testing.T) {
