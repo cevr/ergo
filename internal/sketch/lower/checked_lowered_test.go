@@ -237,6 +237,15 @@ func taskTypeAt(site string, s, t pairKind) string {
 // pairFunc is the generated code of one pair at one site: declarations and
 // a function named id that prints id, and the text of the line a refusal
 // is reported on.
+// kept is the type of a parameter the function returns: a function type
+// keeps its value only when written escaping (types.md, Function values 2).
+func kept(ty string) string {
+	if strings.HasPrefix(ty, "func(") {
+		return "escaping " + ty
+	}
+	return ty
+}
+
 func pairFunc(site string, s, t pairKind) (id, code, at string) {
 	id = site + s.name + "To" + t.name
 	use := func(v string) string {
@@ -264,7 +273,7 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 		fmt.Fprintf(&b, "func %s() needs Console {\n\t%s\n\t%sTake(src)\n\tConsole.Println(%q)\n}\n", id, s.pre("src"), id, id)
 		at = "Take(src)"
 	case "ret":
-		fmt.Fprintf(&b, "func %sConv(x %s) %s { x }\n\n", id, s.ty, t.ty)
+		fmt.Fprintf(&b, "func %sConv(x %s) %s { x }\n\n", id, kept(s.ty), t.ty)
 		fmt.Fprintf(&b, "func %s() needs Console {\n\t%s\n\tlet dst = %sConv(src)\n\t%s\n\tConsole.Println(%q)\n}\n", id, s.pre("src"), id, use("dst"), id)
 		at = "{ x }"
 	case "field":
@@ -302,7 +311,7 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 			body = fmt.Sprintf("let dst (%s, int) = (src, 0)\nlet (item, _) = dst", t.ty)
 			value, at = "item", "= (src, 0)"
 		case "tupleret":
-			fmt.Fprintf(&b, "func %sConv(x %s) (%s, int) { (x, 0) }\n", id, s.ty, t.ty)
+			fmt.Fprintf(&b, "func %sConv(x %s) (%s, int) { (x, 0) }\n", id, kept(s.ty), t.ty)
 			body = fmt.Sprintf("let (item, _) = %sConv(src)", id)
 			value, at = "item", "{ (x, 0) }"
 		case "ifjoin", "ifjoinrev", "matchjoin", "matchjoinrev":

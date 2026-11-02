@@ -47,7 +47,7 @@ var i1Clauses = []i1Clause{
 	{name: "transitive", prefix: "helper()\n", needs: true, impure: true, site: "Probe.Mark()\n"},
 	{name: "recursive", prefix: "ping(2)\n", needs: true, impure: true, site: "Probe.Mark()\n"},
 	{name: "own-with", prefix: "with Local {\nProbe.Tick()\n}\n", impure: true, site: "with Local {\nProbe.Mark()\n}\n", provider: true},
-	{name: "unknown-value", prefix: "cb()\n", param: "cb func()", impure: true},
+	{name: "unknown-value", prefix: "cb()\n", param: "cb escaping func()", impure: true},
 	{name: "host", prefix: "let xs = []int{}\nlet _ = xs.Append(1)\n", impure: true, provider: true},
 	{name: "task-start", prefix: "let t0 = task.Go() { 1 }\nt0.Stop()\n", impure: true, provider: true},
 }

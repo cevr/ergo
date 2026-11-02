@@ -62,6 +62,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	c.closeFacts()
 	c.withOwnership()
 	c.checkFrames()
+	c.checkEscapes()
 	c.footprints()
 	c.pkg.ErrorTypes = make(map[*Named]bool, len(c.errorTypes))
 	for n := range c.errorTypes {
@@ -946,10 +947,9 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		}
 		return &Pointer{Elem: elem}
 	case *syntax.FuncType:
-		if x.Escaping.IsValid() {
-			c.outside(x, "an escaping function type (196e, escaping)")
-			return invalid
-		}
+		// `escaping` marks a function type that may outlive the call it
+		// is passed to (196e). Only a parameter's type is non-escaping
+		// without it (signature); elsewhere it repeats the default.
 		inner := typeCtx{}
 		if ctx != nil {
 			inner = *ctx
@@ -1420,6 +1420,16 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 			var t Type
 			if field.Type != nil {
 				t = c.typExpr(field.Type, &pctx)
+				// A parameter written as a function type without
+				// `escaping` is non-escaping (196e; escaping.go). A named
+				// function type is escaping, as a field's is.
+				if ft, ok := unparen(field.Type).(*syntax.FuncType); ok && !ft.Escaping.IsValid() {
+					if s, ok := t.(*Signature); ok {
+						ne := *s
+						ne.NonEscaping = true
+						t = &ne
+					}
+				}
 			}
 			if len(field.Names) == 0 {
 				if t == nil {

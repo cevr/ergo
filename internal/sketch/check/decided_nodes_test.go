@@ -274,10 +274,10 @@ func f() int fails Bang needs Log {
 }
 func main() {}
 `, nil},
-	{"escaping", "an escaping function type is 196e's", `
+	{"escaping", "an escaping function type (196e, check-v1 stage E2)", `
 func f(g escaping func(int) int) int { return g(1) }
 func main() {}
-`, []string{"S109:2"}},
+`, nil},
 	{"tuple type", "a tuple result type", `
 func pair() (int, string) { return pair() }
 func main() {}

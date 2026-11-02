@@ -27,7 +27,7 @@ func TestAssignabilityClauses(t *testing.T) {
 		{"tuple-out", "type Pair (int, string)\nfunc f(xs Pair) (int, string) { let raw (int, string) = xs; raw }\n", nil},
 		{"tuple-in", "type Pair (int, string)\nfunc f(xs (int, string)) Pair { let named Pair = xs; named }\n", nil},
 		{"function-out", "type F func(v int) int\nfunc f(xs F) func(v int) int { let raw func(v int) int = xs; raw }\n", nil},
-		{"function-in", "type F func(v int) int\nfunc f(xs func(v int) int) F { let named F = xs; named }\n", nil},
+		{"function-in", "type F func(v int) int\nfunc f(xs escaping func(v int) int) F { let named F = xs; named }\n", nil},
 		{"argument", "type Ints []int\nfunc g(xs []int) int { len(xs) }\nfunc f(xs Ints) int { g(xs) }\n", nil},
 		{"field", "type Ints []int\ntype Box { xs []int }\nfunc f(xs Ints) Box { Box{xs: xs} }\n", nil},
 		{"element", "type Ints []int\nfunc f(xs Ints) [][]int { [][]int{xs} }\n", nil},

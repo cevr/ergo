@@ -267,8 +267,9 @@ func (tab *typeTable) node(k nodeKey, size int64) int32 {
 // shape returns t's constructor and children, mirroring identity (typeops.go
 // identical): a named type is its origin and its type arguments; a struct
 // its field names and types in order; an interface its method names in
-// order and their signatures; a signature its parameters, results and two
-// rows (not its fallibility or its own type parameters); a type parameter,
+// order and their signatures; a signature its parameters, results, two
+// rows and whether it is non-escaping (not its fallibility or its own type
+// parameters); a type parameter,
 // a basic type, a union and a machine are identical only to themselves.
 // No case sorts: an interface's methods were sorted once, when its type
 // was resolved (byName).
@@ -296,6 +297,9 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		kids = append(kids, t.Results...)
 		kids = append(kids, &RowArg{Row: t.Errors}, &RowArg{Row: t.Uses})
 		s := strconv.Itoa(len(t.Params)) + "," + strconv.Itoa(len(t.Results))
+		if t.NonEscaping {
+			s += "!" // a non-escaping parameter's type (escaping.go)
+		}
 		return vSig, nil, 0, s, kids
 	case *Struct:
 		names := make([]string, len(t.Fields))

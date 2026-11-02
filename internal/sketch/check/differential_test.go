@@ -372,8 +372,14 @@ func (g *diffGen) program() twin {
 		pt := g.typeExpr(ps, 2)
 		switch g.rng.Intn(2) {
 		case 0:
+			// Returning a parameter of function type needs `escaping`
+			// in Ergo (196e; check/escaping.go); Go has no marker.
+			xt := pt.e
+			if strings.HasPrefix(xt, "func(") {
+				xt = "escaping " + xt
+			}
 			g.b.each(fmt.Sprintf("func (r Gt%d[%s]) Ms%d(x %s) %s {\n\treturn x\n}\n\n", i, rp, i, pt.g, pt.g),
-				fmt.Sprintf("func Ms%d[%s](r Gt%d[%s], x %s) %s {\n\treturn x\n}\n\n", i, rp, i, rp, pt.e, pt.e))
+				fmt.Sprintf("func Ms%d[%s](r Gt%d[%s], x %s) %s {\n\treturn x\n}\n\n", i, rp, i, rp, xt, pt.e))
 		default:
 			g.b.each(fmt.Sprintf("func (r Gt%d[%s]) Ms%d(x %s) {\n}\n\n", i, rp, i, pt.g),
 				fmt.Sprintf("func Ms%d[%s](r Gt%d[%s], x %s) {\n}\n\n", i, rp, i, rp, pt.e))

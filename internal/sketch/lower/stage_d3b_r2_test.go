@@ -157,7 +157,7 @@ func twice[T](f func() T) T {
 	f()
 }
 
-func spawn[T, E](f func() T fails E) Task[T, E] {
+func spawn[T, E](f escaping func() T fails E) Task[T, E] {
 	task.Go() { try f() }
 }
 
@@ -214,7 +214,7 @@ func TestNoValueTypeArgumentRefusals(t *testing.T) {
 	}{
 		{"declared-type", "type Job[T] { Run func() T }\nfunc f() {\n\tlet j = Job{Run: func() {}}\n\tj.Run()\n}\n", 3, 2},
 		{"slice-of-funcs", "func all[T](fs []func() T) int { len(fs) }\nfunc f() int {\n\tall([]func(){func() {}})\n}\n", 3, 2},
-		{"func-result", "func later[T](f func() T) func() T { f }\nfunc f() {\n\tlet g = later() { }\n\tg()\n}\n", 3, 10},
+		{"func-result", "func later[T](f escaping func() T) func() T { f }\nfunc f() {\n\tlet g = later() { }\n\tg()\n}\n", 3, 10},
 		{"func-param", "func outer[T](f func(g func() T) int) int { 0 }\nfunc f() int {\n\touter(func(h func()) int { 1 })\n}\n", 3, 2},
 	}
 	for _, tc := range cases {

@@ -163,6 +163,14 @@ type Signature struct {
 	Fallible bool
 	Errors   *Row
 	Uses     *Row
+	// NonEscaping marks the type of a parameter written as a function
+	// type without `escaping` (196e; types.md, Function values 2): a value
+	// of it lives no longer than the call that received it (escaping.go).
+	// It is part of the type's identity, so func(g func()) and
+	// func(g escaping func()) are distinct types; assignability ignores it
+	// at the top level and escaping.go refuses the use instead. Added in
+	// check-v1 stage E2 (additive).
+	NonEscaping bool
 }
 
 // Kind is the kind of a type parameter (rows-and-constraints §3: by
@@ -335,6 +343,9 @@ func (t *Signature) String() string {
 	for i, p := range t.Params {
 		if i > 0 {
 			b.WriteString(", ")
+		}
+		if s, ok := p.Type.(*Signature); ok && !s.NonEscaping {
+			b.WriteString("escaping ")
 		}
 		b.WriteString(p.Type.String())
 	}

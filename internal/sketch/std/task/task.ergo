@@ -8,5 +8,6 @@
 // Task until a Wait, a Stop or a direct return; when it returns without
 // them, it stops the task and waits until it has ended. The block's value
 // and failures are the Task's T and E; the providers it needs are the
-// caller's.
-extern go ergo.local/prototype/runtime/v1.Go func Go[T, E, R](body func() T fails E needs R) Task[T, E] needs R
+// caller's. The block outlives the call, so its parameter is `escaping`
+// (196e): it captures no non-escaping function value.
+extern go ergo.local/prototype/runtime/v1.Go func Go[T, E, R](body escaping func() T fails E needs R) Task[T, E] needs R

@@ -348,7 +348,7 @@ func main() fails queue.Closed needs Console {
 		f()
 	}
 ` + i1ValueStop,
-		"no-value-wrapper": i1LiveDefs + `func spawnIt[T](ready queue.Queue[int], f func() T) Task[T, queue.Closed] {
+		"no-value-wrapper": i1LiveDefs + `func spawnIt[T](ready queue.Queue[int], f escaping func() T) Task[T, queue.Closed] {
 	task.Go() {
 		try ready.Push(1)
 		f()
