@@ -9,6 +9,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,7 +33,10 @@ import (
 //   - TestCheckerSyntaxSynthesisHasOrigins inventories, with go/types, every
 //     value of a syntax node type in the checker's source: each must be a
 //     composite literal passed straight to made, or a copy through clone,
-//     at a site the manifest lists with a program that reaches it;
+//     at a site the manifest lists with a program that reaches it; no type
+//     other than a syntax node type has a node's layout, so no conversion
+//     can make a node (E2c); and the parser is referenced only from the
+//     functions that parse and check a whole file;
 //   - TestSyntheticNodesHaveSourceOwners runs those programs, clean, in
 //     both file slots and with an early use, and resolves every made node
 //     against an index of the trees the test builds itself;
@@ -70,10 +74,22 @@ var checkerImports = map[string]bool{
 
 // syntaxNodeCallees lists the syntax package's functions, methods and
 // function-valued variables whose results hold a node type that the checker
-// may use: the parser entry point. The syntax package itself is outside the
-// inventory, so any other node-returning callee fails the guard; a syntax
-// function that builds a node for the checker must go through made or clone.
-var syntaxNodeCallees = map[string]bool{"Parse": true}
+// may use (the parser entry point), each with the checker functions allowed
+// to reference it. The syntax package itself is outside the inventory, so any
+// other node-returning callee fails the guard; a syntax function that builds
+// a node for the checker must go through made or clone. A listed callee is
+// pinned to its sites, not admitted at any (E2b round 4 review M2): each site
+// parses a whole file and checks it as a package, where a parse elsewhere
+// (a snippet the checker writes) makes nodes of no checked file.
+var syntaxNodeCallees = map[string][]string{
+	"Parse": {"CheckSource", "prelude", "(*stdImporter).Import"},
+}
+
+// sourceEntries are the checker's own functions that parse text a caller
+// passes in, with the checker functions allowed to reference them: none, so
+// a pass cannot reach the parser on a snippet through the package's entry.
+// prelude and the std importer parse only the embedded sources.
+var sourceEntries = map[string][]string{"CheckSource": nil}
 
 // constructionSite is one place the checker makes a syntax node: the
 // function and the node's type.
@@ -133,7 +149,9 @@ func provenanceFixtures() []string {
 // makes a syntax node through made or clone, and each value of a syntax
 // node type that does not.
 type synthesisScan struct {
-	sites      map[constructionSite]int
+	sites map[constructionSite]int
+	// parses counts each listed parser reference by its callee and site.
+	parses     map[constructionSite]int
 	violations []string
 }
 
@@ -168,7 +186,7 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 	return scanSynthesisWith(t, extra, syntaxNodeCallees)
 }
 
-func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[string]bool) synthesisScan {
+func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[string][]string) synthesisScan {
 	t.Helper()
 	provenanceMu.Lock()
 	defer provenanceMu.Unlock()
@@ -220,8 +238,10 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 		t.Fatalf("type-check the checker: %v", err)
 	}
 	var node *types.Interface
+	var syntaxPkg *types.Package
 	for _, imp := range pkg.Imports() {
 		if imp.Path() == provenanceSyntax {
+			syntaxPkg = imp
 			node = imp.Scope().Lookup("Node").Type().Underlying().(*types.Interface)
 		}
 	}
@@ -303,6 +323,8 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 		}
 		return false
 	}
+	scan := synthesisScan{sites: map[constructionSite]int{}, parses: map[constructionSite]int{}}
+	scanLayouts(&scan, pkg, syntaxPkg, info, isNode)
 	madeFn := pkg.Scope().Lookup("made")
 	cloneFn := pkg.Scope().Lookup("clone")
 	callee := func(call *ast.CallExpr) (types.Object, *ast.Ident) {
@@ -319,7 +341,15 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 		}
 		return info.Uses[id], id
 	}
-	scan := synthesisScan{sites: map[constructionSite]int{}}
+	// pinned reports whether a reference to callee from the enclosing function
+	// site is listed, and counts the listed ones.
+	pinned := func(callee, site string, sites []string) bool {
+		if !slices.Contains(sites, site) {
+			return false
+		}
+		scan.parses[constructionSite{site, callee}]++
+		return true
+	}
 	for _, f := range files {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
@@ -332,10 +362,13 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 			}
 		}
 		for _, decl := range f.Decls {
-			fn := "package"
+			// fn names the enclosing function in the construction manifest;
+			// site names it with its receiver, as the parser manifest does.
+			fn, site := "package", "package"
 			trusted := false
 			if fd, ok := decl.(*ast.FuncDecl); ok {
 				fn = fd.Name.Name
+				site = strings.ReplaceAll(info.Defs[fd.Name].(*types.Func).FullName(), pkg.Path()+".", "")
 				trusted = info.Defs[fd.Name] == madeFn || info.Defs[fd.Name] == cloneFn
 			}
 			var stack []ast.Node
@@ -375,8 +408,9 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 					}
 				}
 				// A function, method or function value of the syntax package
-				// that yields a node is the parser's or a listed reader;
-				// a reference, not only a call, can hand its node over.
+				// that yields a node is the parser, referenced only from its
+				// listed sites; a reference, not only a call, can hand its node
+				// over. The checker's own caller-text entry is pinned the same way.
 				if id, ok := n.(*ast.Ident); ok {
 					if obj := info.Uses[id]; obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == provenanceSyntax {
 						_, isFunc := obj.(*types.Func)
@@ -386,9 +420,17 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 							if fn, ok := obj.(*types.Func); ok {
 								name = strings.ReplaceAll(fn.FullName(), provenanceSyntax+".", "")
 							}
-							if !nodeCallees[name] {
+							if sites, ok := nodeCallees[name]; !ok {
 								scan.violations = append(scan.violations, where+": syntax callee "+name+" yields a node and is not in syntaxNodeCallees")
+							} else if !pinned(name, site, sites) {
+								scan.violations = append(scan.violations, where+": syntax callee "+name+" is referenced in "+site+", which syntaxNodeCallees does not list for it")
 							}
+						}
+					}
+					if fn, ok := info.Uses[id].(*types.Func); ok && fn.Pkg() == pkg {
+						name := strings.ReplaceAll(fn.FullName(), pkg.Path()+".", "")
+						if sites, ok := sourceEntries[name]; ok && !pinned(name, site, sites) {
+							scan.violations = append(scan.violations, where+": "+name+" parses caller text and is referenced in "+site+", which sourceEntries does not list for it")
 						}
 					}
 				}
@@ -417,10 +459,18 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 					// A conversion to a node struct copies one; a conversion to a
 					// node pointer may retype memory no made call registered
 					// (type raw syntax.Ident; (*syntax.Ident)(&raw{})). A
-					// conversion to an interface only refers to its operand.
+					// conversion to an interface only refers to its operand. A type
+					// parameter is not an interface here: its underlying type is
+					// its constraint, and a conversion to it converts to every
+					// term of its type set (E2b round 4 review M1).
 					if info.Types[call.Fun].IsType() {
-						if _, ok := info.TypeOf(call).Underlying().(*types.Interface); !ok {
-							if kind, ok := isNode(info.TypeOf(call)); ok {
+						target := types.Unalias(info.TypeOf(call))
+						if tp, ok := target.(*types.TypeParam); ok {
+							if kind, ok := nodeTerm(tp.Constraint(), isNode); ok {
+								scan.violations = append(scan.violations, where+": conversion to type parameter "+tp.Obj().Name()+", whose type set holds the node "+kind+", outside made and clone")
+							}
+						} else if _, ok := target.Underlying().(*types.Interface); !ok {
+							if kind, ok := isNode(target); ok {
 								scan.violations = append(scan.violations, where+": conversion produces a "+kind+" node outside made and clone")
 							}
 						}
@@ -479,6 +529,197 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 	return scan
 }
 
+// nodeTerm reports a term of a constraint's type set that is a node type or
+// a pointer to one, at any depth, walking unions, ~ terms and embedded
+// interfaces. isNode(P) is false for interface{ *syntax.VarSpec | *raw }.
+func nodeTerm(constraint types.Type, isNode func(types.Type) (string, bool)) (string, bool) {
+	iface, ok := constraint.Underlying().(*types.Interface)
+	if !ok {
+		return "", false
+	}
+	for i := range iface.NumEmbeddeds() {
+		var terms []types.Type
+		if u, ok := types.Unalias(iface.EmbeddedType(i)).(*types.Union); ok {
+			for j := range u.Len() {
+				terms = append(terms, u.Term(j).Type())
+			}
+		} else {
+			terms = append(terms, iface.EmbeddedType(i))
+		}
+		for _, term := range terms {
+			if _, ok := term.Underlying().(*types.Interface); ok {
+				if kind, ok := nodeTerm(term, isNode); ok {
+					return kind, true
+				}
+				continue
+			}
+			term = types.Unalias(term)
+			for {
+				p, ok := term.(*types.Pointer)
+				if !ok {
+					break
+				}
+				term = types.Unalias(p.Elem())
+			}
+			if kind, ok := isNode(term); ok {
+				return kind, true
+			}
+		}
+	}
+	return "", false
+}
+
+// scanLayouts holds the type-level condition of every conversion (E2c). Go
+// converts a value to a node type only from a type whose underlying type is
+// identical to the node's, ignoring struct tags, or from a pointer to one
+// (spec: Conversions). So no type the checker's source declares or writes,
+// named or unnamed, at any pointer depth, other than the syntax node types
+// themselves, may have the underlying type of a syntax node: the type alone
+// fails, with or without a conversion, generic or not, however it is spelled.
+func scanLayouts(scan *synthesisScan, pkg, syntaxPkg *types.Package, info *types.Info, isNode func(types.Type) (string, bool)) {
+	type layout struct {
+		name string
+		typ  types.Type
+	}
+	var layouts []layout
+	for _, name := range syntaxPkg.Scope().Names() {
+		tn, ok := syntaxPkg.Scope().Lookup(name).(*types.TypeName)
+		if !ok || tn.IsAlias() {
+			continue
+		}
+		if _, ok := isNode(tn.Type()); !ok {
+			continue
+		}
+		if _, ok := tn.Type().Underlying().(*types.Interface); !ok {
+			layouts = append(layouts, layout{name, tn.Type().Underlying()})
+		}
+	}
+	isSyntaxNode := func(n *types.Named) bool {
+		if n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != provenanceSyntax {
+			return false
+		}
+		_, ok := isNode(n)
+		return ok
+	}
+	qualifier := func(p *types.Package) string {
+		if p == pkg {
+			return ""
+		}
+		return p.Name()
+	}
+	reported := map[string]bool{}
+	check := func(t types.Type, at token.Pos) {
+		for _, l := range layouts {
+			if !types.IdenticalIgnoreTags(t.Underlying(), l.typ) {
+				continue
+			}
+			p := provenanceFset.Position(at)
+			v := fmt.Sprintf("%s:%d: type %s has the layout of syntax.%s; a conversion from it makes a node outside made and clone", filepath.Base(p.Filename), p.Line, types.TypeString(t, qualifier), l.name)
+			if !reported[v] {
+				reported[v] = true
+				scan.violations = append(scan.violations, v)
+			}
+			return
+		}
+	}
+	seen := map[types.Type]bool{}
+	var walk, parts func(t types.Type, at token.Pos)
+	walk = func(t types.Type, at token.Pos) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		switch n := t.(type) {
+		case *types.Alias:
+			walk(types.Unalias(n), at)
+			return
+		case *types.Named:
+			if isSyntaxNode(n) {
+				return
+			}
+			if n.Obj().Pkg() == pkg {
+				at = n.Obj().Pos()
+			}
+			check(n, at)
+			for i := range n.TypeArgs().Len() {
+				walk(n.TypeArgs().At(i), at)
+			}
+			// The underlying type is the named type's own layout, checked
+			// above (and not again at its type literal); its parts are walked.
+			seen[n.Underlying()] = true
+			parts(n.Underlying(), at)
+			return
+		}
+		check(t, at)
+		parts(t, at)
+	}
+	parts = func(t types.Type, at token.Pos) {
+		switch u := t.(type) {
+		case *types.Pointer:
+			walk(u.Elem(), at)
+		case *types.Slice:
+			walk(u.Elem(), at)
+		case *types.Array:
+			walk(u.Elem(), at)
+		case *types.Chan:
+			walk(u.Elem(), at)
+		case *types.Map:
+			walk(u.Key(), at)
+			walk(u.Elem(), at)
+		case *types.Struct:
+			for i := range u.NumFields() {
+				walk(u.Field(i).Type(), at)
+			}
+		case *types.Tuple:
+			for i := range u.Len() {
+				walk(u.At(i).Type(), at)
+			}
+		case *types.Signature:
+			for _, tuple := range []*types.Tuple{u.Params(), u.Results()} {
+				if tuple != nil {
+					parts(tuple, at)
+				}
+			}
+			for i := range u.TypeParams().Len() {
+				walk(u.TypeParams().At(i), at)
+			}
+		case *types.Interface:
+			for i := range u.NumExplicitMethods() {
+				walk(u.ExplicitMethod(i).Type(), at)
+			}
+			for i := range u.NumEmbeddeds() {
+				walk(u.EmbeddedType(i), at)
+			}
+		case *types.Union:
+			for i := range u.Len() {
+				walk(u.Term(i).Type(), at)
+			}
+		case *types.TypeParam:
+			walk(u.Constraint(), at)
+		}
+	}
+	type ref struct {
+		at  token.Pos
+		typ types.Type
+	}
+	var refs []ref
+	for e, tv := range info.Types {
+		refs = append(refs, ref{e.Pos(), tv.Type})
+	}
+	for id, obj := range info.Defs {
+		if obj != nil {
+			refs = append(refs, ref{id.Pos(), obj.Type()})
+		}
+	}
+	for id, inst := range info.Instances {
+		refs = append(refs, ref{id.Pos(), inst.Type})
+	}
+	sort.SliceStable(refs, func(i, j int) bool { return refs[i].at < refs[j].at })
+	for _, r := range refs {
+		walk(r.typ, r.at)
+	}
+}
+
 func TestCheckerSyntaxSynthesisHasOrigins(t *testing.T) {
 	scan := scanSynthesis(t, nil)
 	for _, v := range scan.violations {
@@ -498,6 +739,15 @@ func TestCheckerSyntaxSynthesisHasOrigins(t *testing.T) {
 	}
 	sort.Strings(sites)
 	t.Logf("construction sites: %s", strings.Join(sites, "; "))
+	for _, manifest := range []map[string][]string{syntaxNodeCallees, sourceEntries} {
+		for callee, fns := range manifest {
+			for _, fn := range fns {
+				if scan.parses[constructionSite{fn, callee}] == 0 {
+					t.Errorf("the parser manifest lists %s in %s, which no longer references it", callee, fn)
+				}
+			}
+		}
+	}
 
 	// The controls: an eighth allocation, a shallow copy that escapes, a
 	// new, a literal nested in a made one, and a recorded site the
@@ -559,7 +809,7 @@ func TestSynthesisInventoryControls(t *testing.T) {
 		// fixtures are packages outside check; callees, when set, replaces
 		// syntaxNodeCallees.
 		fixtures map[string]string
-		callees  map[string]bool
+		callees  map[string][]string
 	}{
 		{name: "generic-copy", src: `package check; func dupNode[T any](p *T) *T { v := *p; return &v }`, want: "of a type parameter"},
 		{name: "generic-pointer-copy", src: `package check; func copyPointer[T any](p **T) *T { return *p }`, want: "of a type parameter"},
@@ -579,7 +829,27 @@ func TestSynthesisInventoryControls(t *testing.T) {
 		{name: "module-package", src: `package check; import "ergo.local/prototype/internal/sketch/e2bdup"; func copied(s *syntax.VarSpec) syntax.Node { return e2bdup.Dup(s) }`, want: `import "ergo.local/prototype/internal/sketch/e2bdup" is not in checkerImports`, fixtures: map[string]string{"e2bdup/dup.go": dupPkg}},
 		{name: "foreign-interface-method", src: `package check; import "ergo.local/prototype/internal/sketch/e2bmaker"; func copied(m e2bmaker.Maker, s *syntax.VarSpec) syntax.Node { return m.Make(s) }`, want: `import "ergo.local/prototype/internal/sketch/e2bmaker" is not in checkerImports`, fixtures: map[string]string{"e2bmaker/maker.go": makerPkg}},
 		{name: "reflective-decoder", src: `package check; import "encoding/json"; func decoded() syntax.Node { var v *syntax.VarSpec; _ = json.Unmarshal([]byte("{}"), &v); return v }`, want: `import "encoding/json" is not in checkerImports`},
-		{name: "syntax-callee", src: `package check; func parsed() syntax.Node { parse := syntax.Parse; f, _ := parse(""); return f }`, want: "syntax callee Parse yields a node", callees: map[string]bool{}},
+		{name: "syntax-callee", src: `package check; func parsed() syntax.Node { parse := syntax.Parse; f, _ := parse(""); return f }`, want: "syntax callee Parse yields a node", callees: map[string][]string{}},
+		// E2b round 4 review M1, generic retypes: a conversion to a type
+		// parameter whose type set holds a node, exact, ~, inferred, union,
+		// through an embedded constraint, and by value.
+		{name: "generic-retype", src: `package check; type raw syntax.VarSpec; func retype[P interface{ *syntax.VarSpec }](r *raw) P { return P(r) }; func retyped() syntax.Node { return retype[*syntax.VarSpec](&raw{}) }`, want: "conversion to type parameter P, whose type set holds the node VarSpec"},
+		{name: "generic-retype-tilde", src: `package check; type raw syntax.VarSpec; func retype[P interface{ ~*syntax.VarSpec }](r *raw) P { return P(r) }`, want: "conversion to type parameter P, whose type set holds the node VarSpec"},
+		{name: "generic-retype-inferred", src: `package check; type raw syntax.VarSpec; func retype[P interface{ *syntax.VarSpec }](r *raw) P { return P(r) }; func retyped() syntax.Node { return retype(&raw{}) }`, want: "conversion to type parameter P, whose type set holds the node VarSpec"},
+		{name: "generic-retype-union", src: `package check; type raw syntax.VarSpec; func retype[P interface{ *syntax.VarSpec | *raw }](r *raw) P { return P(r) }`, want: "conversion to type parameter P, whose type set holds the node VarSpec"},
+		{name: "generic-retype-embedded", src: `package check; type raw syntax.VarSpec; type nodePointer interface{ *syntax.VarSpec }; func retype[P interface{ nodePointer }](r *raw) P { return P(r) }`, want: "conversion to type parameter P, whose type set holds the node VarSpec"},
+		{name: "generic-retype-value", src: `package check; type raw syntax.VarSpec; func retype[E interface{ syntax.VarSpec }](r raw) E { return E(r) }`, want: "conversion to type parameter E, whose type set holds the node VarSpec"},
+		// E2c: the layout-identical type alone fails, with no conversion.
+		{name: "layout-type", src: `package check; type raw syntax.Ident`, want: "type raw has the layout of syntax.Ident"},
+		{name: "layout-unnamed", src: `package check; func held(p **struct{ NamePos syntax.Pos; Name string }) {}`, want: "type struct{NamePos syntax.Pos; Name string} has the layout of syntax.Ident"},
+		{name: "layout-tagged", src: `package check; type tagged struct{ NamePos syntax.Pos "pos"; Name string }`, want: "type tagged has the layout of syntax.Ident"},
+		{name: "layout-instance", src: `package check; type rawOf[T any] struct{ NamePos syntax.Pos; Name T }; var _ *rawOf[string]`, want: "type rawOf[string] has the layout of syntax.Ident"},
+		{name: "layout-local", src: `package check; func local() int { type raw syntax.Ident; return len(raw{}.Name) }`, want: "type raw has the layout of syntax.Ident"},
+		// E2b round 4 review M2: the parser and the caller-text entry are
+		// pinned to their sites; a pass or a package variable is none.
+		{name: "parse-in-pass", src: `package check; func (c *checker) passParsed() syntax.Node { f, _ := syntax.Parse("type T int\n"); return f.Decls[0] }`, want: "syntax callee Parse is referenced in (*checker).passParsed, which syntaxNodeCallees does not list"},
+		{name: "parse-package-value", src: `package check; var parseText = syntax.Parse`, want: "syntax callee Parse is referenced in package, which syntaxNodeCallees does not list"},
+		{name: "check-source-in-pass", src: `package check; func (c *checker) reparsed() *Package { p, _ := CheckSource("type T int\n"); return p }`, want: "CheckSource parses caller text and is referenced in (*checker).reparsed, which sourceEntries does not list"},
 	} {
 		t.Run(ctl.name, func(t *testing.T) {
 			extra := map[string]string{"e2b_control.go": strings.Replace(ctl.src, "package check;", "package check; import \""+provenanceSyntax+"\";", 1) + "; var _ syntax.Node"}
@@ -613,6 +883,11 @@ func TestSynthesisInventoryAccepts(t *testing.T) {
 		{"interface-conversion", `package check; func widened(x *syntax.Ident) (syntax.Node, syntax.Expr) { return syntax.Node(x), syntax.Expr(x) }`},
 		{"named-alias", `package check; type ident = syntax.Ident; type identRef = *syntax.Ident`},
 		{"read-only-helpers", `package check; func walked(n syntax.Node) (k int) { syntax.Inspect(n, func(syntax.Node) bool { k++; return !syntax.IsNil(n) }); return k }`},
+		// E2c: a type-parameter conversion with no node term, a layout one
+		// field off a node's, and a named pointer to a node type.
+		{"type-parameter-conversion", `package check; func widen[T ~int | ~int64](x int) T { return T(x) }`},
+		{"near-layout", `package check; type nameAt struct{ NamePos syntax.Pos; name string }; type posName struct{ Name string; NamePos syntax.Pos }`},
+		{"node-pointer-type", `package check; type identRef *syntax.Ident; func ref(x *syntax.Ident) identRef { return identRef(x) }`},
 	} {
 		t.Run(ctl.name, func(t *testing.T) {
 			src := strings.Replace(ctl.src, "package check;", "package check; import \""+provenanceSyntax+"\";", 1) + "; var _ syntax.Node"
