@@ -572,6 +572,32 @@ func TestE1cCycleGenerator(t *testing.T) {
 	type counts struct{ programs, filtered, calls, domain int }
 	const workers = 8
 	var results [workers]counts
+	// Every worker draws from the same alphabets over and over; building
+	// them once (426 tables for up to four declarations) keeps the run
+	// bounded by the checker, not by rebuilding the alphabet per program.
+	type choiceKey struct {
+		arities [4]int
+		n, d    int
+	}
+	tables := map[choiceKey][]e1cDecl{}
+	for n := 1; n <= 4; n++ {
+		arities := make([]int, n)
+		for combo := 0; combo < [5]int{1, 3, 9, 27, 81}[n]; combo++ {
+			for d, rest := 0, combo; d < n; d, rest = d+1, rest/3 {
+				arities[d] = rest % 3
+			}
+			for d := range n {
+				k := choiceKey{n: n, d: d}
+				copy(k.arities[:], arities)
+				tables[k] = e1cChoices(arities, d)
+			}
+		}
+	}
+	choicesOf := func(arities []int, d int) []e1cDecl {
+		k := choiceKey{n: len(arities), d: d}
+		copy(k.arities[:], arities)
+		return tables[k]
+	}
 	t.Run("domain", func(t *testing.T) {
 		for worker := range workers {
 			t.Run(fmt.Sprint(worker), func(t *testing.T) {
@@ -602,7 +628,7 @@ func TestE1cCycleGenerator(t *testing.T) {
 						}
 						choices := make([][]e1cDecl, n)
 						for i := range choices {
-							choices[i] = e1cChoices(arities, i)
+							choices[i] = choicesOf(arities, i)
 						}
 						ds := make([]e1cDecl, n)
 						var eachDecl func(int)
@@ -633,7 +659,7 @@ func TestE1cCycleGenerator(t *testing.T) {
 						}
 						ds := make([]e1cDecl, n)
 						for d := range ds {
-							choices := e1cChoices(arities, d)
+							choices := choicesOf(arities, d)
 							ds[d] = choices[rng.Intn(len(choices))]
 						}
 						run(ds)
