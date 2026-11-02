@@ -297,3 +297,19 @@ func main() needs Console {
 		t.Fatalf("want one refusal at 18:19 %q; got diagnostics %v, refusals %v, error %v, panic %v", text, o.diags, o.refused, o.err, o.panicked)
 	}
 }
+
+// A std generic function used as a value that takes a function is refused
+// at the value, in the family FuncValue:std; one that takes only values
+// lowers (TestErgoRunE1InstanceValues).
+func TestLowerE1StdValueRefused(t *testing.T) {
+	o := lowerSource("r", `import scope
+
+func main() needs Console {
+	let f = scope.OnExit[Console]
+	f(func() { Console.Println("x") })
+}
+`, false)
+	if len(o.diags) != 0 || len(o.refused) != 1 || o.refused[0].Line != 4 || refusalFamily(o.refused[0].Message) != "FuncValue:std" {
+		t.Fatalf("want one FuncValue:std refusal at line 4; got diagnostics %v, refusals %v, error %v, panic %v", o.diags, o.refused, o.err, o.panicked)
+	}
+}
