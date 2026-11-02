@@ -112,7 +112,10 @@ func main() needs Console {
 //
 // The failing task's defect is in its body, in an exit action, in an exit
 // action while a body defect unwinds, or in an exit action after a typed
-// failure; it may run inside a region of its own. A Stop or a drain drops
+// failure; it may run inside a region of its own. Depth 0 is the root
+// task's own defect, which writes main's chain line only under context. A
+// boundary case's failing task calls a function with no exit action, so
+// the task boundary, not a frame, meets the panic. A Stop or a drain drops
 // a child's typed failure and keeps its defects; a Wait keeps every reason,
 // and the catch never handles one that holds a defect.
 //
@@ -164,7 +167,8 @@ func TestRuntime199DefectProperty(t *testing.T) {
 			t.Errorf("%s: %s\nreport:\n%s\nwant blocks:\n%s", c.name(), c.describe(), r.Report, strings.Join(want, ""))
 		}
 	}
-	for _, s := range []string{"depth 1", "depth 2", "depth 3", "chain cut at 32", "moved", "region before",
+	for _, s := range []string{"depth 0", "root with context", "root without context", "task boundary",
+		"depth 1", "depth 2", "depth 3", "chain cut at 32", "moved", "region before",
 		"region after", "shadowed", "own region", "caught sibling", "blocked sibling", "two siblings",
 		"failure reaches main", "body", "release", "body+release", "failure+release"} {
 		if !shapes[s] {
@@ -232,6 +236,10 @@ type dfCase struct {
 	levels   []dfLevel // levels[j]: level j starts level j+1
 	own      *dfCtx    // the failing task's own region around its body
 	place    int
+	// boundary: the failing task's block calls FB, a function with no exit
+	// action, so no frame of the task recovers the fresh defect before the
+	// task boundary does (guarded). Depth 0 is the root task's own defect.
+	boundary bool
 	// Set by write: the failing task's frames.
 	bodyAt, bodyCall, releaseAt, releaseCall, lastAt, block string
 }
@@ -240,7 +248,7 @@ func (c *dfCase) name() string { return fmt.Sprintf("run%d", c.k) }
 
 func (c *dfCase) describe() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "depth %d, %s", c.depth, dfPlaceNames[c.place])
+	fmt.Fprintf(&b, "depth %d, %s, boundary %v", c.depth, dfPlaceNames[c.place], c.boundary)
 	for j, lv := range c.levels {
 		fmt.Fprintf(&b, "; level %d: %s, moved %v, siblings %v", j, dfObsNames[lv.obs], lv.moved, lv.sibs)
 		if lv.before != nil {
@@ -258,13 +266,14 @@ func (c *dfCase) describe() string {
 
 // dfCases enumerates depth 1 to 3 x the failing task's observation x the
 // defect place, draws the other axes from a fixed seed, and adds chains of
-// depth 33.
+// depth 33, the root task's own defect at every place, with and without
+// context, and a defect at the task boundary at depth 1 to 3.
 func dfCases() []*dfCase {
 	r := rand.New(rand.NewPCG(199, 4))
 	keys := []string{"a", "b", "span"}
 	var cases []*dfCase
-	add := func(depth, last, place int) {
-		c := &dfCase{k: len(cases), depth: depth, place: place}
+	add := func(depth, last, place int, boundary bool) *dfCase {
+		c := &dfCase{k: len(cases), depth: depth, place: place, boundary: boundary}
 		for j := range depth {
 			lv := dfLevel{obs: r.IntN(3), moved: r.IntN(3) == 0}
 			if j == depth-1 {
@@ -287,16 +296,31 @@ func dfCases() []*dfCase {
 			c.own = &dfCtx{[]string{"a", "own"}[r.IntN(2)], fmt.Sprintf("own%d", c.k)}
 		}
 		cases = append(cases, c)
+		return c
 	}
 	for depth := 1; depth <= 3; depth++ {
 		for last := range 3 {
 			for place := range 4 {
-				add(depth, last, place)
+				add(depth, last, place, false)
 			}
 		}
 	}
-	add(33, dfWait, dfBody)
-	add(33, dfStop, dfFailRelease)
+	add(33, dfWait, dfBody, false)
+	add(33, dfStop, dfFailRelease, false)
+	for place := range 4 {
+		for _, own := range []bool{false, true} {
+			c := add(0, 0, place, false)
+			c.own = nil
+			if own {
+				c.own = &dfCtx{keys[place%3], fmt.Sprintf("own%d", c.k)}
+			}
+		}
+	}
+	// The boundary task's parent waits: FB closes no queue the parent could
+	// meet first, and a Stop could beat the panic.
+	for depth := 1; depth <= 3; depth++ {
+		add(depth, dfWait, dfBody, true)
+	}
 	return cases
 }
 
@@ -382,6 +406,26 @@ func (c *dfCase) write(f *dfFile) {
 	}
 	c.lastAt = fmt.Sprintf("%s at %s:%d", fn, testSourcePath, n)
 	f.add("}")
+	if c.boundary {
+		// FB opens no frame scope: only the task boundary meets its panic.
+		fb := fmt.Sprintf("FB%d", k)
+		f.add("func %s(done queue.Queue[int]) int64 fails Fault {", fb)
+		n = f.add("\tB%d()", k)
+		c.bodyCall = fmt.Sprintf("%s calls B%d at %s", fb, k, f.at(n, fmt.Sprintf("B%d(", k)))
+		f.add("}")
+	}
+	if c.depth == 0 {
+		// The root task's own defect: no fork, chain main alone.
+		call := fmt.Sprintf("try %s(d)", fn)
+		if c.own != nil {
+			call = fmt.Sprintf("with %s { %s }", c.own.operand(), call)
+		}
+		f.add("func %s() int64 fails Fault {", c.name())
+		f.add("\tlet d = queue.New[int](0)")
+		n = f.add("\t%s", call)
+		c.block = c.name() + " calls " + fn + " at " + f.at(n, fn+"(")
+		f.add("}")
+	}
 	for j := c.depth - 1; j >= 0; j-- {
 		c.writeLevel(f, j)
 	}
@@ -397,6 +441,9 @@ func (c *dfCase) writeLevel(f *dfFile, j int) {
 	callee := fmt.Sprintf("L%d_%d", k, j+1)
 	if j+1 == c.depth {
 		callee = fmt.Sprintf("F%d", k)
+		if c.boundary {
+			callee = fmt.Sprintf("FB%d", k)
+		}
 	}
 	call := fmt.Sprintf("try %s(d)", callee)
 	if j+1 == c.depth && c.own != nil {
@@ -447,7 +494,9 @@ func (c *dfCase) writeLevel(f *dfFile, j int) {
 	if !lv.moved {
 		fork(name, n)
 	}
-	f.catch("_", "d.Pop()", "queue.Closed", "0", nil)
+	if j+1 < c.depth || !c.boundary {
+		f.catch("_", "d.Pop()", "queue.Closed", "0", nil)
+	}
 	result := "0"
 	switch lv.obs {
 	case dfWait:
@@ -509,6 +558,9 @@ func (c *dfCase) expect() []string {
 			shown = append(shown, fmt.Sprintf(" %s.%s=%q", b.pkg(), b.key, b.text))
 		}
 	}
+	if len(sites) == 1 && len(shown) == 0 {
+		sites = nil // main alone, with no context, writes no chain
+	}
 	for i, s := range sites {
 		fmt.Fprintf(&tail, "\ttask #N %s\n", s)
 		if i == 0 && len(shown) > 0 {
@@ -555,6 +607,9 @@ func (c *dfCase) expect() []string {
 
 func (c *dfCase) cover(shapes map[string]bool) {
 	shapes[fmt.Sprintf("depth %d", c.depth)] = true
+	shapes["root with context"] = shapes["root with context"] || c.depth == 0 && c.own != nil
+	shapes["root without context"] = shapes["root without context"] || c.depth == 0 && c.own == nil
+	shapes["task boundary"] = shapes["task boundary"] || c.boundary
 	shapes["chain cut at 32"] = shapes["chain cut at 32"] || c.depth >= 32
 	shapes[dfPlaceNames[c.place]] = true
 	shapes["own region"] = shapes["own region"] || c.own != nil
