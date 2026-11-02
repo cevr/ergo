@@ -36,6 +36,12 @@ import (
 //     registration of its release (a test seam in the copied rt.AcquireInto,
 //     which also polls there); the release is registered and runs once.
 //
+// The named twin of each sequence holds the same entries in a named wire,
+// so its with runs through emitWire's builder function (stage 3c r1 m1). A
+// named wire is closed, so its constructors call no Probe; the seam drives
+// its outcomes: a normal end, and at the registration of each acquisition
+// of a with that owns a release, a stop (gap) and a defect (seamdefect).
+//
 // Each case runs with the caller unmasked and inside two nested masks, which
 // the acquisition must restore. The seam counts the completed acquisitions
 // that reach registration and reports any that is not masked there, and the
@@ -166,6 +172,9 @@ func genAcqSeq(r *rand.Rand, k int) *acqSeq {
 
 func (s *acqSeq) fn() string { return fmt.Sprintf("run%d", s.k) }
 
+// namedFn is the function of the named twin's with.
+func (s *acqSeq) namedFn() string { return fmt.Sprintf("named%d", s.k) }
+
 // src writes the sequence's types, providers, embedded wire and the
 // function whose with acquires them.
 func (s *acqSeq) src() string {
@@ -249,6 +258,36 @@ func (s *acqSeq) src() string {
 	}
 	fmt.Fprintf(&b, "func need%d() needs %s {}\nfunc silent%d() fails Fault needs Probe {\n\twith wire { %s } { need%d() }\n}\n",
 		s.k, strings.Join(all, ", "), s.k, strings.Join(inline, ", "), s.k)
+	// The named twin (stage 3c r1 m1), run natively: the same entries in a
+	// named wire, so its with is lowered through emitWire's builder. A named
+	// wire is closed, so each inline constructor becomes a constructor that
+	// calls no Probe; the seam in rt.AcquireInto drives its boundary
+	// outcomes.
+	var twin []string
+	for _, e := range s.order {
+		en := s.entries[e]
+		if en.ctor {
+			fmt.Fprintf(&b, "func qk%d_%d() %s { %s }\n", s.k, e, s.typ(e), s.typ(e))
+		}
+		var keys []string
+		for _, c := range en.caps {
+			keys = append(keys, s.cap(c))
+		}
+		provider := s.typ(e)
+		if en.ctor {
+			provider = fmt.Sprintf("qk%d_%d()", s.k, e)
+		}
+		head := ""
+		if en.repl {
+			head = "replace "
+		}
+		twin = append(twin, head+strings.Join(keys, ", ")+": "+provider)
+	}
+	if len(named) > 0 {
+		twin = append(twin, fmt.Sprintf("N%d", s.k))
+	}
+	fmt.Fprintf(&b, "let Q%d = wire { %s }\nfunc %s() fails Fault needs Probe {\n\twith Q%d {\n\t\tlet _ = Probe.Step(\"body \" + %s)\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
+		s.k, strings.Join(twin, ", "), s.namedFn(), s.k, strings.Join(names, " + \" \" + "), s.k)
 	// The deep twin, for checkWithFootprints only (stage 3c r2 M1 and m2):
 	// a with of a wire that embeds the named wire, so each named entry is
 	// embedded at depth 2. Its block needs every named capability, so every
@@ -274,12 +313,18 @@ func (s *acqSeq) src() string {
 // entries, each once with every capability it binds and its Close, a named
 // provider after the entries it uses, and no overridden provider.
 func acqFact(t *testing.T, o *lowered, s *acqSeq) []int {
+	return acqFactIn(t, o, s, s.fn(), "")
+}
+
+// acqFactIn is acqFact for the with in fn: of the inline wire when wire is
+// empty, else of the named wire wire.
+func acqFactIn(t *testing.T, o *lowered, s *acqSeq, fn, wire string) []int {
 	t.Helper()
 	var order []int
 	found := 0
 	for _, decl := range o.file.Decls {
 		fd, ok := decl.(*syntax.FuncDecl)
-		if !ok || fd.Name.Name != s.fn() || fd.Body == nil {
+		if !ok || fd.Name.Name != fn || fd.Body == nil {
 			continue
 		}
 		syntax.Inspect(fd.Body, func(n syntax.Node) bool {
@@ -288,7 +333,7 @@ func acqFact(t *testing.T, o *lowered, s *acqSeq) []int {
 				return true
 			}
 			w := o.pkg.Info.Withs[x]
-			if w == nil || w.Wires[0].Lit == nil {
+			if w == nil || (wire == "") != (w.Wires[0].Lit != nil) || wire != "" && w.Wires[0].Name != wire {
 				return true
 			}
 			found++
@@ -296,7 +341,7 @@ func acqFact(t *testing.T, o *lowered, s *acqSeq) []int {
 				typ := strings.TrimPrefix(fmt.Sprint(o.pkg.Info.Types[a.Entry.Provider]), "main.")
 				e, err := strconv.Atoi(strings.TrimPrefix(typ, fmt.Sprintf("R%d_", s.k)))
 				if err != nil || s.typ(e) != typ {
-					t.Fatalf("%s: acquisition of %s is not a generated provider", s.fn(), typ)
+					t.Fatalf("%s: acquisition of %s is not a generated provider", fn, typ)
 				}
 				var caps []string
 				for _, i := range a.Caps {
@@ -307,7 +352,7 @@ func acqFact(t *testing.T, o *lowered, s *acqSeq) []int {
 					want = append(want, s.cap(c))
 				}
 				if !sameSet(caps, want) || (a.Close != nil) != s.entries[e].res {
-					t.Errorf("%s: %s binds %v closes %v, model %v %v", s.fn(), typ, caps, a.Close != nil, want, s.entries[e].res)
+					t.Errorf("%s: %s binds %v closes %v, model %v %v", fn, typ, caps, a.Close != nil, want, s.entries[e].res)
 				}
 				order = append(order, e)
 			}
@@ -315,24 +360,24 @@ func acqFact(t *testing.T, o *lowered, s *acqSeq) []int {
 		})
 	}
 	if found != 1 {
-		t.Fatalf("%s has %d inline withs, want 1", s.fn(), found)
+		t.Fatalf("%s has %d withs of %q (empty: inline), want 1", fn, found, wire)
 	}
 	reached := s.reached()
 	pos := map[int]int{}
 	for i, e := range order {
 		if _, dup := pos[e]; dup {
-			t.Errorf("%s: %s acquired twice", s.fn(), s.typ(e))
+			t.Errorf("%s: %s acquired twice", fn, s.typ(e))
 		}
 		pos[e] = i
 	}
 	for e, en := range s.entries {
 		i, ok := pos[e]
 		if ok != reached[e] {
-			t.Errorf("%s: %s acquired %v, model %v (over %v, uses %v)", s.fn(), s.typ(e), ok, reached[e], en.over, s.uses)
+			t.Errorf("%s: %s acquired %v, model %v (over %v, uses %v)", fn, s.typ(e), ok, reached[e], en.over, s.uses)
 		}
 		for _, c := range en.deps {
 			if j, built := pos[s.binder(c)]; ok && (!built || j >= i) {
-				t.Errorf("%s: %s is built before %s, whose capability it uses", s.fn(), s.typ(e), s.typ(s.binder(c)))
+				t.Errorf("%s: %s is built before %s, whose capability it uses", fn, s.typ(e), s.typ(s.binder(c)))
 			}
 		}
 	}
@@ -346,12 +391,17 @@ const (
 	acqDefect = "defect"
 	acqStop   = "stop"
 	acqGap    = "gap"
+	// acqSeamDefect is a defect at the seam, after the provider is built
+	// and before its release is registered: the named twin's defect
+	// outcome, as its constructors call no Probe.
+	acqSeamDefect = "seamdefect"
 )
 
 // acqCase is one native run: the outcome at the index-th acquisition of
 // the fact, and what the run must record.
 type acqCase struct {
 	name, mode, target string
+	fn                 string // the function whose with runs
 	k, index, depth    int
 	want               []string
 	exit               string // ok, defect or interrupted
@@ -362,7 +412,18 @@ type acqCase struct {
 // expect derives a case from the fact: the probe lines, the exit and the
 // number of registrations.
 func (s *acqSeq) expect(fact []int, mode string, index, depth int) acqCase {
-	c := acqCase{name: fmt.Sprintf("%d/%s%d/depth%d", s.k, mode, index, depth), mode: mode, k: s.k, index: index, depth: depth, exit: "ok"}
+	return s.expectIn(fact, mode, index, depth, false)
+}
+
+// expectIn is expect for the inline with, or for the named twin's with
+// when named is set, whose constructors call no Probe.
+func (s *acqSeq) expectIn(fact []int, mode string, index, depth int, named bool) acqCase {
+	c := acqCase{name: fmt.Sprintf("%d/%s%d/depth%d", s.k, mode, index, depth), mode: mode, fn: s.fn(), k: s.k, index: index, depth: depth, exit: "ok"}
+	probed := s.probed
+	if named {
+		c.name, c.fn = "named"+c.name, s.namedFn()
+		probed = func(int) bool { return false }
+	}
 	if index >= 0 {
 		c.target = s.typ(fact[index])
 	}
@@ -382,7 +443,7 @@ func (s *acqSeq) expect(fact []int, mode string, index, depth int) acqCase {
 	}
 	for j, e := range fact {
 		at := j == index
-		if s.probed(e) {
+		if probed(e) {
 			c.want = append(c.want, "open "+s.typ(e))
 		}
 		if at && mode == acqStop && !c.owned {
@@ -403,8 +464,14 @@ func (s *acqSeq) expect(fact []int, mode string, index, depth int) acqCase {
 			}
 			return c
 		}
-		if s.probed(e) {
+		if probed(e) {
 			c.want = append(c.want, "built "+s.typ(e))
+		}
+		if at && mode == acqSeamDefect {
+			// Built, never registered: only the earlier successes close.
+			rollback()
+			c.exit = "defect"
+			return c
 		}
 		built = append(built, e)
 		if at && c.owned && (mode == acqStop || mode == acqGap) {
@@ -486,8 +553,27 @@ func TestRuntime199AcquireProperty(t *testing.T) {
 				shapes["named resource"] = shapes["named resource"] || en.named && en.res
 			}
 		}
+		// The named twin at each boundary outcome its builder reaches: a
+		// normal end, and for a with that owns a release, a stop and a
+		// defect at the registration of each acquisition.
+		nfact := acqFactIn(t, o, s, s.namedFn(), fmt.Sprintf("Q%d", s.k))
+		for _, depth := range []int{0, 2} {
+			none := s.expectIn(nfact, acqNone, -1, depth, true)
+			cases = append(cases, none)
+			if !none.owned {
+				shapes["named twin owning nothing"] = true
+				continue
+			}
+			shapes["named twin owning"] = true
+			for i := range nfact {
+				shapes["named twin later acquisition"] = shapes["named twin later acquisition"] || i > 0
+				for _, m := range []string{acqGap, acqSeamDefect} {
+					cases = append(cases, s.expectIn(nfact, m, i, depth, true))
+				}
+			}
+		}
 	}
-	for _, shape := range []string{"owning", "owning nothing", "shared", "named dependency", "named literal", "inline literal", "replace", "fallible", "later after earlier success", "unreached constructor", "overridden", "named resource"} {
+	for _, shape := range []string{"owning", "owning nothing", "shared", "named dependency", "named literal", "inline literal", "replace", "fallible", "later after earlier success", "unreached constructor", "overridden", "named resource", "named twin owning", "named twin owning nothing", "named twin later acquisition"} {
 		if !shapes[shape] {
 			t.Fatalf("the generator reaches no %s entry", shape)
 		}
@@ -536,8 +622,8 @@ func acquireNative(t *testing.T, o *lowered, cases []acqCase) {
 	write("ergo/runtime/v1/acquire_probe.go", []byte("package v1\nimport \"ergo.local/prototype/runtime/rt\"\nfunc AcquireRun(body func(*rt.Task) error) error { return runMain(body) }\n"))
 	var table strings.Builder
 	for _, c := range cases {
-		fmt.Fprintf(&table, "\t{name: %q, mode: %q, target: %q, index: %d, depth: %d, exit: %q, gaps: %d, owned: %v, want: %#v, run: func(env *Env, p *probe) error {\n\t\tif err := run%d(env); err != nil {\n\t\t\tif _, ok := err.(Fault); ok { p.add(\"failure %d\"); return nil }\n\t\t\treturn err\n\t\t}\n\t\treturn nil\n\t}},\n",
-			c.name, c.mode, c.target, c.index, c.depth, c.exit, c.gaps, c.owned, c.want, c.k, c.k)
+		fmt.Fprintf(&table, "\t{name: %q, mode: %q, target: %q, index: %d, depth: %d, exit: %q, gaps: %d, owned: %v, want: %#v, run: func(env *Env, p *probe) error {\n\t\tif err := %s(env); err != nil {\n\t\t\tif _, ok := err.(Fault); ok { p.add(\"failure %d\"); return nil }\n\t\t\treturn err\n\t\t}\n\t\treturn nil\n\t}},\n",
+			c.name, c.mode, c.target, c.index, c.depth, c.exit, c.gaps, c.owned, c.want, c.fn, c.k)
 	}
 	write("acquire_test.go", []byte(strings.Replace(acquireNativeTest, "CASES", table.String(), 1)))
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
@@ -719,6 +805,7 @@ func TestAcquire(t *testing.T) {
    rt.AcquireGapHook = func(task *rt.Task) {
     if !task.Masked() { unmaskedGaps++ }
     if c.mode == "gap" && gaps == c.index { task.Interrupt() }
+    if c.mode == "seamdefect" && gaps == c.index { panic("defect " + c.target) }
     gaps++
     // The seam is an interruption point: only the acquisition's mask
     // keeps a stop here from being observed before registration.

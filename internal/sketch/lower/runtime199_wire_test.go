@@ -21,8 +21,13 @@ import (
 // (With.Acquired): each acquired resource closes once, at the end of its
 // with, last built first; an overridden or unreached provider never runs;
 // a nested with restores the outer environment; a child task drains before
-// the providers it borrows close; a release defect at any position lets the
-// later releases run and keeps every cause.
+// the providers it borrows close, on the with's normal end too; a release
+// defect at any position, under every exit class, lets the later releases
+// run and keeps every cause; a stop that arrives while a release runs lets
+// every release finish and is observed after the with. A named wire is
+// closed, so its providers cannot print when they are built: the build
+// order shows as the release order (last built first) and as a dependency
+// read, which fails when its entry is not built yet.
 
 // wireEntry is one entry of a generated wire, in model order: it depends
 // only on capabilities bound by earlier entries.
@@ -129,8 +134,9 @@ func genWireDAG(r *rand.Rand, k int) *wireDAG {
 }
 
 // decls writes the DAG's types, providers and wires. A type in fail
-// panics in its Close after it prints.
-func (d *wireDAG) decls(fail map[string]bool) string {
+// panics in its Close after it prints. A type in slow sleeps in its Close
+// between two lines, so a stop can arrive while the release runs.
+func (d *wireDAG) decls(fail, slow map[string]bool) string {
 	var b strings.Builder
 	for c := 0; c < d.caps; c++ {
 		fmt.Fprintf(&b, "type %s { Name() string }\n", d.cap(c))
@@ -138,7 +144,14 @@ func (d *wireDAG) decls(fail map[string]bool) string {
 	typ := func(name string, res bool) {
 		fmt.Fprintf(&b, "type %s {}\nfunc Name(_ %s) string { %q }\n", name, name, name)
 		if res {
-			fmt.Fprintf(&b, "func Close(_ %s) needs Console {\n\tConsole.Println(\"close %s\")\n", name, name)
+			needs := "Console"
+			if slow[name] {
+				needs += ", Scheduler"
+			}
+			fmt.Fprintf(&b, "func Close(_ %s) needs %s {\n\tConsole.Println(\"close %s\")\n", name, needs, name)
+			if slow[name] {
+				fmt.Fprintf(&b, "\tScheduler.Sleep(20ms)\n\tConsole.Println(\"closed %s\")\n", name)
+			}
 			if fail[name] {
 				b.WriteString("\tlet xs = []int{}\n\tlet _ = xs[0]\n")
 			}
@@ -193,15 +206,25 @@ const (
 	exitMid     = "mid"     // a try leaves the function from mid-block
 	exitDefect  = "defect"  // a defect leaves it
 	exitStop    = "stop"    // its task is stopped while it waits
+	// exitStopRel ends the block normally, and the stop arrives as the
+	// with's releases run (a slow Close sleeps in one): every release still
+	// runs whole, and the stop is observed after the with.
+	exitStopRel = "stoprel"
 )
 
 func (d *wireDAG) hasInner(exit string) bool {
 	return d.inner >= 0 && (exit == exitSuccess || exit == exitTail || exit == exitMid)
 }
 
+// hasChild reports a child task in the block that borrows a capability. On
+// a success the block leaves it running, so the with's normal end
+// (EndWith) drains it; on a mid exit or a defect the exit leaves it.
 func (d *wireDAG) hasChild(exit string) bool {
-	return d.child >= 0 && (exit == exitMid || exit == exitDefect)
+	return d.child >= 0 && (exit == exitSuccess || exit == exitMid || exit == exitDefect)
 }
+
+// waits reports an exit whose function takes main's ready queue.
+func waits(exit string) bool { return exit == exitStop || exit == exitStopRel }
 
 func (d *wireDAG) fn(exit string) string { return fmt.Sprintf("run%d_%s", d.k, exit) }
 
@@ -213,12 +236,12 @@ func (d *wireDAG) function(exit string) string {
 	if exit == exitTail || exit == exitMid {
 		fails = append(fails, "Fault")
 	}
-	if d.hasChild(exit) || exit == exitStop {
+	if d.hasChild(exit) || waits(exit) {
 		needs = append(needs, "Scheduler")
 		fails = append(fails, "queue.Closed")
 	}
 	params := ""
-	if exit == exitStop {
+	if waits(exit) {
 		params = "ready queue.Queue[int]"
 	}
 	row := ""
@@ -245,8 +268,15 @@ func (d *wireDAG) function(exit string) string {
 		b.WriteString("\t\tlet xs = []int{}\n\t\tlet _ = xs[0]\n")
 	case exitStop:
 		b.WriteString("\t\ttry ready.Push(1)\n\t\tScheduler.Sleep(1h)\n")
+	case exitStopRel:
+		b.WriteString("\t\ttry ready.Push(1)\n")
 	}
-	if d.hasChild(exit) {
+	switch {
+	case d.hasChild(exit) && exit == exitSuccess:
+		// The branch that would stop the child is not taken, so the child
+		// is still running when the block ends.
+		b.WriteString("\t\tif len(\"\") > 0 {\n\t\t\tt.Stop()\n\t\t}\n")
+	case d.hasChild(exit):
 		b.WriteString("\t\tt.Stop()\n")
 	}
 	fmt.Fprintf(&b, "\t}\n\tConsole.Println(\"end %d %s\")\n}\n", d.k, exit)
@@ -257,8 +287,11 @@ func (d *wireDAG) function(exit string) string {
 func (d *wireDAG) call(exit string) string {
 	switch exit {
 	case exitSuccess:
+		if d.hasChild(exit) {
+			return "\t\ttry " + d.fn(exit) + "()\n"
+		}
 		return "\t\t" + d.fn(exit) + "()\n"
-	case exitStop:
+	case exitStop, exitStopRel:
 		return fmt.Sprintf("\t\tlet r%d = queue.New[int](0)\n\t\tlet t%d = task.Go() { %s(r%d) }\n\t\ttry r%d.Pop()\n\t\tt%d.Stop()\n\t\tConsole.Println(\"stopped %d\")\n", d.k, d.k, d.fn(exit), d.k, d.k, d.k, d.k)
 	case exitDefect:
 		if d.hasChild(exit) {
@@ -279,12 +312,13 @@ let Live = wire { Scheduler: LiveScheduler }
 `
 
 // wireProgram is one generated program: its DAGs and the exits main runs,
-// in order, and the types whose Close fails.
+// in order, the types whose Close fails and the types whose Close sleeps.
 type wireProgram struct {
 	name  string
 	dags  []*wireDAG
 	exits []string
 	fail  map[string]bool
+	slow  map[string]bool
 	o     *lowered
 }
 
@@ -292,7 +326,7 @@ func (p *wireProgram) src() string {
 	var b strings.Builder
 	b.WriteString(wirePrelude)
 	for _, d := range p.dags {
-		b.WriteString(d.decls(p.fail))
+		b.WriteString(d.decls(p.fail, p.slow))
 		for _, exit := range p.exits {
 			b.WriteString(d.function(exit))
 		}
@@ -406,17 +440,26 @@ func sameSet(a, b []string) bool {
 // closes is the release order of a with: its acquired resources, last
 // acquired first.
 func closes(fact []acquired) []string {
+	return closeLines(fact, nil)
+}
+
+// closeLines is what a with's releases print: closes, and a second line
+// after the sleep of each type in slow.
+func closeLines(fact []acquired, slow map[string]bool) []string {
 	var out []string
 	for i := len(fact) - 1; i >= 0; i-- {
 		if fact[i].res {
 			out = append(out, "close "+fact[i].typ)
+			if slow[fact[i].typ] {
+				out = append(out, "closed "+fact[i].typ)
+			}
 		}
 	}
 	return out
 }
 
 // expect is what exit's run of d prints, from the checker's fact.
-func expect(t *testing.T, o *lowered, d *wireDAG, exit string) []string {
+func expect(t *testing.T, o *lowered, d *wireDAG, exit string, slow map[string]bool) []string {
 	t.Helper()
 	fact := wireFact(t, o, d.fn(exit), fmt.Sprintf("W%d", d.k))
 	checkFact(t, d, fact)
@@ -442,13 +485,13 @@ func expect(t *testing.T, o *lowered, d *wireDAG, exit string) []string {
 	if d.hasChild(exit) {
 		lines = append(lines, "child "+bound(d.child))
 	}
-	lines = append(lines, closes(fact)...)
+	lines = append(lines, closeLines(fact, slow)...)
 	switch exit {
 	case exitSuccess:
 		lines = append(lines, fmt.Sprintf("end %d %s", d.k, exit))
 	case exitTail, exitMid:
 		lines = append(lines, fmt.Sprintf("failure %d %s", d.k, exit))
-	case exitStop:
+	case exitStop, exitStopRel:
 		lines = append(lines, fmt.Sprintf("stopped %d", d.k))
 	}
 	return lines
@@ -494,9 +537,13 @@ func TestRuntime199WireProperty(t *testing.T) {
 	for _, p := range programs {
 		p.o = mustLower(t, p.name, p.src())
 	}
+	// The exits a release defect is generated under: every exit class.
+	releaseExits := []string{exitDefect, exitSuccess, exitTail, exitMid, exitStop}
+	releasedUnder := map[string]bool{}
+	var stopRel []*wireProgram
 	for _, p := range programs[1:] {
 		// A release defect at one or two positions of W's release order
-		// (the checker's fact), on a normal end or under a defect.
+		// (the checker's fact), under each exit class in turn.
 		d := p.dags[0]
 		order := closes(wireFact(t, p.o, d.fn(exitDefect), fmt.Sprintf("W%d", d.k)))
 		if len(order) == 0 {
@@ -507,17 +554,30 @@ func TestRuntime199WireProperty(t *testing.T) {
 		if d.k%2 == 0 {
 			fail[at(d.k/2)] = true
 		}
-		exit := exitSuccess
-		if d.k%4 == 0 {
-			exit = exitDefect
-		}
+		exit := releaseExits[d.k%len(releaseExits)]
+		releasedUnder[exit] = true
 		rp := &wireProgram{name: fmt.Sprintf("wire_release%d", d.k), dags: []*wireDAG{d}, exits: []string{exit}, fail: fail}
 		rp.o = mustLower(t, rp.name, rp.src())
 		released = append(released, releaseCase{rp, len(fail)})
+		if d.k%3 == 1 {
+			// A stop that arrives while the first release sleeps.
+			sp := &wireProgram{name: fmt.Sprintf("wire_stoprel%d", d.k), dags: []*wireDAG{d}, exits: []string{exitStopRel}, slow: map[string]bool{at(0): true}}
+			sp.o = mustLower(t, sp.name, sp.src())
+			stopRel = append(stopRel, sp)
+		}
+	}
+	for _, exit := range releaseExits {
+		if !releasedUnder[exit] {
+			t.Errorf("no release defect is generated under the %s exit", exit)
+		}
+	}
+	if len(stopRel) == 0 {
+		t.Error("no program stops a task while its with releases")
 	}
 	for _, rc := range released {
 		programs = append(programs, rc.p)
 	}
+	programs = append(programs, stopRel...)
 	var all []*lowered
 	counted := 0
 	for _, p := range programs {
@@ -542,11 +602,14 @@ func TestRuntime199WireProperty(t *testing.T) {
 			defect := false
 			for _, d := range p.dags {
 				for _, exit := range p.exits {
-					lines := expect(t, p.o, d, exit)
+					lines := expect(t, p.o, d, exit, p.slow)
 					if len(p.fail) > 0 {
-						// A release defect raises at the with's end: the
-						// releases still print, the line after the with does not.
-						if exit == exitSuccess {
+						// A release defect raises at the with's end, or in
+						// the task that stops the with's task: the releases
+						// still print, the line that would follow does not
+						// (the end of a success, the catch of a typed
+						// failure, the line after a Stop).
+						if exit != exitDefect {
 							lines = lines[:len(lines)-1]
 						}
 						fact := wireFact(t, p.o, d.fn(exit), fmt.Sprintf("W%d", d.k))
