@@ -22,11 +22,13 @@ const (
 // parameters, results and body, never the environment parameter or task copy.
 func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node, build func(env string) (params []string, results, body string)) string {
 	var env, param, pre string
+	bound := ""
 	switch binding {
 	case callerEnv:
 		env = name
 		if name != "_" {
 			env = fc.scope.alloc(name)
+			bound = env
 		}
 		param = env + " *" + fc.l.env()
 	case childEnv:
@@ -36,14 +38,26 @@ func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node,
 		ind := strings.Repeat("\t", fc.depth+1)
 		pre = ind + copy + " := *" + fc.envExpr(site) + "\n" + ind + copy + "." + envTask + " = " + task + "\n"
 		env = "&" + copy
+		bound = env
 	case capturedEnv:
 		env = fc.envExpr(site)
+		bound = env
 	default:
 		ice(site, "an unknown closure environment binding %d", binding)
 	}
-	outer := fc.env
-	fc.env = env
-	defer func() { fc.env = outer }()
+	// While the builder runs, fc names only the closure's own environment:
+	// a discarded parameter binds none (so envExpr is a located ICE). A
+	// uniform function or a task callback is a frame of its own, so no frame
+	// is open until the builder opens one and the maker's frame is not
+	// reachable through fc. A captured callback is not a source frame: its
+	// lexical control targets still belong to the maker's frame (acquireFlow;
+	// check/frame.go, WireLit), so that frame stays open.
+	outerEnv, outerFrame := fc.env, fc.frame
+	fc.env = bound
+	if binding != capturedEnv {
+		fc.frame = nil
+	}
+	defer func() { fc.env, fc.frame = outerEnv, outerFrame }()
 	params, results, body := build(env)
 	if param != "" {
 		params = append([]string{param}, params...)
