@@ -254,6 +254,113 @@ func checkPlaced(files []*syntax.File) (ds []check.Diagnostic, ice string) {
 	return ds, ""
 }
 
+// R2' groups can span files, and one declaration can belong to both an
+// intrinsic and an orphan group. Each report must select its own first
+// declaration's file, including when consecutive reports change files.
+// The messages below are explicit rule examples, independent of the
+// checker's cycle graph and the generated cycle oracle.
+func TestRecursiveGroupsNameTheirFile(t *testing.T) {
+	type report struct {
+		file          int
+		name, message string
+	}
+	for _, tc := range []struct {
+		name  string
+		files [2]string
+		want  []report
+	}{
+		{
+			"intrinsic-record",
+			[2]string{"type B { Next A }\n", "\n// The first name is in this file.\ntype A { Next B }\n"},
+			[]report{{1, "A", "A contains itself by value with B, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"}},
+		},
+		{
+			"intrinsic-defined",
+			[2]string{"type Z A\n", "\ntype A Z\n"},
+			[]report{{1, "A", "A is defined over itself with Z (types.md, Defined types)"}},
+		},
+		{
+			"mixed-tuple-and-definition",
+			[2]string{"type Tuple (Link, int)\n", "\ntype Link Tuple\n"},
+			[]report{{1, "Link", "Link contains itself by value with Tuple, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"}},
+		},
+		{
+			"intrinsic-mutual-generics",
+			[2]string{"type H[T] { Next G[T] }\n", "\ntype G[T] { Next H[T] }\n"},
+			[]report{{1, "G", "G contains itself by value with H, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"}},
+		},
+		{
+			"orphan-through-finite-wrapper",
+			[2]string{"type Wrapper[T] { V T }\ntype Zed { W Wrapper[Alpha] }\n", "\ntype Alpha { W Zed }\n"},
+			[]report{{1, "Alpha", "Alpha contains itself by value with Zed, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"}},
+		},
+		{
+			"orphan-concrete-generics",
+			[2]string{"type G[T] { Next H[int] }\n", "\ntype H[U] { Next G[int] }\n"},
+			[]report{{0, "G", "G contains itself by value with H, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"}},
+		},
+		{
+			"intrinsic-and-orphan-share-a-declaration",
+			[2]string{"type D2[T] { F0 D0[T], F1 D1[int] }\ntype D1[T] { F0 D2[int] }\n", "\ntype D0[T] { F0 D2[T] }\n"},
+			[]report{
+				{1, "D0", "D0 contains itself by value with D2, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"},
+				{0, "D1", "D1 contains itself by value with D2, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"},
+			},
+		},
+		{
+			"independent-groups-change-files",
+			[2]string{"type B A\ntype C { Next D }\n", "\ntype A B\ntype D { Next C }\n"},
+			[]report{
+				{1, "A", "A is defined over itself with B (types.md, Defined types)"},
+				{0, "C", "C contains itself by value with D, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"},
+			},
+		},
+	} {
+		for order := range 2 {
+			t.Run(fmt.Sprintf("%s/order=%d", tc.name, order), func(t *testing.T) {
+				texts := [2]string{tc.files[order], tc.files[1-order]}
+				files := make([]*syntax.File, len(texts))
+				for i, text := range texts {
+					var err error
+					files[i], err = syntax.Parse(text)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				got, ice := checkPlaced(files)
+				if ice != "" {
+					t.Fatal(ice)
+				}
+				var want []check.Diagnostic
+				for _, r := range tc.want {
+					file := r.file ^ order
+					text := texts[file]
+					decl := strings.Index(text, "type "+r.name)
+					if decl < 0 {
+						t.Fatalf("expected declaration %s in file %d", r.name, file)
+					}
+					offset := decl + len("type ")
+					before := text[:offset]
+					want = append(want, check.Diagnostic{
+						Code: "S108", Message: r.message, File: file,
+						Offset: offset, Length: len(r.name),
+						Line: strings.Count(before, "\n") + 1, Column: offset - strings.LastIndexByte(before, '\n'),
+					})
+				}
+				sort.Slice(want, func(i, j int) bool {
+					if want[i].File != want[j].File {
+						return want[i].File < want[j].File
+					}
+					return want[i].Offset < want[j].Offset
+				})
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("cross-file recursive groups:\n got: %+v\nwant: %+v", got, want)
+				}
+			})
+		}
+	}
+}
+
 func TestDiagnosticsStayInTheirFile(t *testing.T) {
 	neutral, err := syntax.Parse(neutralFile)
 	if err != nil {
