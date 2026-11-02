@@ -340,19 +340,71 @@ func (l *lowerer) typeParams(params []*check.TypeParam, scope *namer, site synta
 	parts := make([]string, len(params))
 	for i, tp := range params {
 		names[tp] = scope.alloc(tp.Name)
-		constraint := "any"
-		if tp.Constraint != nil {
-			switch tp.Constraint.String() {
-			case "any":
-			case "comparable":
-				constraint = "comparable"
-			default:
-				refuse(site, "the constraint %s of %s is lowered after check-v1 stage E (method-set constraints)", tp.Constraint, tp.Name)
-			}
-		}
-		parts[i] = names[tp] + " " + constraint
+		parts[i] = names[tp] + " " + l.constraint(tp, site)
 	}
 	return "[" + strings.Join(parts, ", ") + "]", names
+}
+
+// constraintOf is the interface a type parameter's constraint names: a
+// predeclared constraint's, or an operation type's underlying one. It is
+// nil for an unconstrained parameter.
+func constraintOf(tp *check.TypeParam) *check.Interface {
+	switch c := tp.Constraint.(type) {
+	case *check.Interface:
+		return c
+	case *check.Named:
+		it, _ := c.Underlying().(*check.Interface)
+		return it
+	}
+	return nil
+}
+
+// constraint is the Go constraint of the type parameter tp (D-E1, C12):
+// comparable is Go's comparable, ordered and number are generated type-set
+// interfaces (typeSetDecl), and no constraint is any. A method set is any
+// too: Go type arguments lack Ergo's operations, which a witness value
+// carries (stage E1 orchestrator answer 2).
+func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
+	if tp.Constraint == nil {
+		return "any"
+	}
+	it := constraintOf(tp)
+	if it == nil {
+		ice(site, "the constraint %s of %s is not an interface", tp.Constraint, tp.Name)
+	}
+	switch it.Set {
+	case check.SetComparable:
+		return "comparable"
+	case check.SetOrdered, check.SetNumber:
+		return l.typeSetDecl(it.Set)
+	}
+	if len(it.Methods) > 0 {
+		refuse(site, "the constraint %s of %s is lowered after check-v1 stage E (method-set constraints)", tp.Constraint, tp.Name)
+	}
+	return "any"
+}
+
+// typeSetDecl is the Go name of the interface that lowers the predeclared
+// constraint s, ordered or number, emitted once. Its terms are the Go
+// types Ergo's set holds and the types defined over them (types.md,
+// Generics 2): duration is time.Duration, an int64 underneath. A Go type
+// set, never any, so Go admits the operators the checker admitted (<, +,
+// -, * and /) and stencils by GC shape as it does for cmp.Ordered.
+func (l *lowerer) typeSetDecl(s check.TypeSet) string {
+	if name, ok := l.sets[s]; ok {
+		return name
+	}
+	name := l.pkgName(pkgKey{"constraint", s}, "ergo"+strings.ToUpper(s.String()[:1])+s.String()[1:])
+	l.sets[s] = name
+	terms := "~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64"
+	what := "the integer and float types"
+	if s == check.SetOrdered {
+		terms += " | ~string"
+		what = "the integer, float, string and duration types"
+	}
+	l.gen.WriteString("// " + name + " is Ergo's " + s.String() + ": " + what + " and the types defined over them.\n")
+	l.gen.WriteString("type " + name + " interface {\n\t" + terms + "\n}\n\n")
+	return name
 }
 
 // useType returns td after queueing a library declaration's emission: the

@@ -753,11 +753,6 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
 	from, ptrSource, ok := opsSource(conv.From)
 	to, ok2 := conv.To.(*check.Named)
-	if _, isAny := conv.To.(*check.Interface); isAny {
-		// `any` waits for stage E as a type does (types.go): the corpus
-		// guard met it (stage C round 7).
-		refuse(site, "the type %s is lowered after check-v1 stage E (no any, constraints)", conv.To)
-	}
 	if !ok || !ok2 {
 		refuse(site, "an operations conversion from %s to %s is not lowered yet", conv.From, conv.To)
 	}

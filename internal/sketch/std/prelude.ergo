@@ -39,8 +39,8 @@ type Option[T] = Some[T] | None
 
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
-// take an integer T only.
-type Range[T] { Start T, End T }
+// take an integer T only; the type itself takes any ordered T.
+type Range[T ordered] { Start T, End T }
 
 // The functions on slices and Maps (#196, fourth round, item 2; spec
 // D-D6). Each is reached only by the dot form on a value of exactly its

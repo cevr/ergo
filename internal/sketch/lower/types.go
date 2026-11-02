@@ -95,7 +95,10 @@ func (tc *typeCtx) goType(t check.Type) string {
 		}
 		ice(tc.site, "the anonymous union %s is not a row value; the checker builds no other", t)
 	case *check.Interface:
-		refuse(tc.site, "the type %s is lowered after check-v1 stage E (no any, constraints)", t)
+		// An unnamed interface is a predeclared constraint, which only
+		// constrains a type parameter (typeParams): Ergo has no any (D-E2),
+		// so no value has one as its type.
+		ice(tc.site, "the constraint %s used as a type, which the checker refuses", t)
 	}
 	// A Struct and a MachineType are only a Named type's underlying type,
 	// and a RowArg only a row parameter's argument, which Go erases; no

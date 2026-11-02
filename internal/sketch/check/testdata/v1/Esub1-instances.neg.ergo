@@ -1,0 +1,20 @@
+// Stage E1 (spec D-E1, D-E2): an explicit type argument satisfies its
+// parameter's constraint (S108), in a value and in a type; a Map key type
+// is comparable, and a function type is not (S108).
+type Card { Number string }
+
+func Max[T ordered](a, b T) T {
+	if a > b { a } else { b }
+}
+
+func biggest(a, b Card) Card {
+	(Max[Card])(a, b) // want S108
+}
+
+func span(r Range[Card]) int { // want S108
+	0
+}
+
+func index(m Map[func() int, int]) int { // want S108
+	0
+}
