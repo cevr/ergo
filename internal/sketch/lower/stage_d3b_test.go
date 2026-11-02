@@ -262,9 +262,15 @@ func TestTaskInsideAnotherTypeChecked(t *testing.T) {
 // value's operation, a method value, an operations conversion's adapter, a
 // type parameter's witness, a type parameter converted to the operation
 // type, and a capability a wire provides all run. Before stage E2 the first
-// two were refused and the witness call did not compile.
+// two were refused and the witness call did not compile. The program is
+// lowered in process first, so a mutant of the lowering (a go test
+// -overlay) reaches it; wantRun builds the CLI with go run.
 func TestErgoRunTaskReturningOperations(t *testing.T) {
-	wantRun(t, `import task
+	mustLower(t, "taskops", taskOpsProgram)
+	wantRun(t, taskOpsProgram, "3 4 12 101 22\n")
+}
+
+const taskOpsProgram = `import task
 
 type Fault {}
 
@@ -311,8 +317,7 @@ func main() fails Fault needs Console {
 	let v = try viaValue(s)
 	Console.Println("\(direct) \(x) \(y) \(z) \(v)")
 }
-`, "3 4 12 101 22\n")
-}
+`
 
 // queueProgram moves values from a producer task to its consumer through a
 // queue, and catches queue.Closed from Push and from Pop on a closed queue.
