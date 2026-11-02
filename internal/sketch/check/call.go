@@ -271,8 +271,7 @@ func (c *checker) argument(a syntax.Expr, pt Type, call *syntax.CallExpr) bool {
 // without all its type arguments (Apply(Id, 1), Fix(Id), Pick[int]) is
 // outside the inferred subset (D6 as amended in round 7): the call is S108,
 // asking for the type arguments, with no other diagnostic (D3), and ok is
-// false. A function whose type parameters are implicit, which no bracket
-// can name, keeps its own diagnostic.
+// false.
 func (c *checker) argValue(a syntax.Expr, hint Type, call *syntax.CallExpr) (operand, bool) {
 	op := c.expr(a, hint)
 	if op.mode == modeGeneric {
@@ -318,11 +317,11 @@ func (c *checker) result(x *syntax.CallExpr, sig *Signature) operand {
 // ---------------------------------------------------------------- generics
 
 // explicit instantiates a generic function with written type arguments:
-// bracket-listed parameters first; implicit ones are inferred (D6).
+// the leading bracket parameters; a call infers the rest (D6).
 func (c *checker) explicit(x *syntax.IndexExpr, fun operand) operand {
 	sig := fun.typ.(*Signature)
 	if len(x.Indices) > sig.NBracket {
-		c.errorf(x, CodeType, "%s takes %d explicit type arguments, not %d (implicit parameters are always inferred)", exprText(x.X), sig.NBracket, len(x.Indices))
+		c.errorf(x, CodeType, "%s takes %d type arguments, not %d", exprText(x.X), sig.NBracket, len(x.Indices))
 		return bad(x)
 	}
 	targs := make([]Type, len(x.Indices))

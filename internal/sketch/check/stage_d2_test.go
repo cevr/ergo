@@ -222,9 +222,10 @@ func TestLenOnly(t *testing.T) {
 // the refusal.
 func TestStrayGenericRecordValuesAreNotReferences(t *testing.T) {
 	cases := []d1Case{
-		// Two unknown A0, the result type A without arguments, and the
-		// literal A whose argument cannot be inferred.
-		{"fuzz-input", "type A000000[A]{A A0}\ntype A[A]{A A0[A0]}\nfunc e(A0)A{A{{{{e}}}}}", []string{"S104:1", "S104:2", "S108:3", "S108:3"}},
+		// Three unknown A0 (196g: an undeclared parameter name is unknown,
+		// also in a signature), the result type A without arguments, and
+		// the literal A whose argument cannot be inferred.
+		{"fuzz-input", "type A000000[A]{A A0}\ntype A[A]{A A0[A0]}\nfunc e(A0)A{A{{{{e}}}}}", []string{"S104:1", "S104:2", "S104:3", "S108:3", "S108:3"}},
 		{"nothing-to-infer", "type B[T]{a T, b func()}\nfunc t() { _ = B{b: {t}} }\n", []string{"S108:2"}},
 		{"positional", "type B[T]{b func(), a T}\nfunc t() { _ = B{{t}} }\n", []string{"S108:2"}},
 		{"mixed-defaults", "type B[T]{a T, c T, b func()}\nfunc t() { _ = B{a: 1, c: 1.5, b: {t}} }\n", []string{"S108:2"}},

@@ -5,8 +5,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -676,7 +674,7 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 			continue
 		}
 		name := m.Names[0]
-		mctx := &typeCtx{method: true, reported: new(bool)}
+		mctx := &typeCtx{method: true}
 		if ctx != nil {
 			// A package var's type has no context (FuzzCheck found
 			// var A interface{A()} dereferencing it).
@@ -779,29 +777,12 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 // typeCtx is the context of a type expression: the type parameters in scope
 // and the rules for unbound one-letter names (rows-and-constraints §3).
 type typeCtx struct {
-	params   map[string]*TypeParam // bracket, receiver and implicit parameters
-	implicit map[string]*TypeParam // implicit parameters found by the prescan
-	method   bool                  // a method or interface method: no type parameters of its own (D6)
-	decl     bool                  // a type declaration: bracket parameters only
-	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
-	param    bool                  // a parameter or receiver: *T allowed
-	reported *bool                 // shared by the copies of one method context: one diagnostic per method
-	scope    *Scope
-}
-
-// isParamName reports whether name has the shape of an implicit type
-// parameter: one upper-case letter optionally followed by digits.
-func isParamName(name string) bool {
-	r, size := utf8.DecodeRuneInString(name)
-	if !unicode.IsUpper(r) {
-		return false
-	}
-	for _, d := range name[size:] {
-		if d < '0' || d > '9' {
-			return false
-		}
-	}
-	return true
+	params map[string]*TypeParam // bracket and receiver parameters (196g: every parameter is declared)
+	method bool                  // a method or interface method: no type parameters of its own (D6)
+	decl   bool                  // a type declaration: bracket parameters only
+	field  bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
+	param  bool                  // a parameter or receiver: *T allowed
+	scope  *Scope
 }
 
 func (c *checker) lookupType(name string, ctx *typeCtx) Object {
@@ -824,11 +805,6 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 	if c.cur != nil {
 		if o, ok := c.cur.scope.names[name]; ok {
 			return o
-		}
-	}
-	if ctx != nil {
-		if tp, ok := ctx.implicit[name]; ok {
-			return &TypeName{Name: name, Type: tp, Pkg: c.pkg}
 		}
 	}
 	return nil
@@ -963,15 +939,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 	o := c.lookupType(x.Name, ctx)
 	if o == nil {
-		if ctx != nil && ctx.method && isParamName(x.Name) {
-			if ctx.reported == nil || !*ctx.reported {
-				if ctx.reported != nil {
-					*ctx.reported = true
-				}
-				c.errorf(x, CodeType, "%s would be a type parameter of a method; methods take no type parameters of their own (D6; Go proposal 43651)", x.Name)
-			}
-			return invalid
-		}
 		c.errorf(x, CodeUnknown, "unknown type %s", x.Name)
 		return invalid
 	}
@@ -1179,15 +1146,6 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 	case *syntax.Ident:
 		o := c.lookupType(x.Name, ctx)
 		if o == nil {
-			if ctx != nil && ctx.method && isParamName(x.Name) {
-				if ctx.reported == nil || !*ctx.reported {
-					if ctx.reported != nil {
-						*ctx.reported = true
-					}
-					c.errorf(x, CodeType, "%s would be a row parameter of a method; methods take no type parameters of their own (D6)", x.Name)
-				}
-				return nil
-			}
 			c.errorf(x, CodeUnknown, "unknown %s %s", kindNoun(kind), x.Name)
 			return nil
 		}
@@ -1369,58 +1327,6 @@ func (c *checker) slotKinds(head syntax.Expr) []Kind {
 	return kinds
 }
 
-// prescanImplicit creates the implicit type parameters of a function
-// signature: every otherwise unbound one-letter name, kinded by position. A
-// name used in two kinds is S108 (D6).
-func (c *checker) prescanImplicit(ft *syntax.FuncType, ctx *typeCtx) {
-	type seen struct {
-		kind Kind
-		at   *syntax.Ident
-	}
-	found := map[string]*seen{}
-	var order []string
-	conflict := map[string]bool{}
-	typeWalker{slots: c.slotKinds, f: func(id *syntax.Ident, k Kind) {
-		if !isParamName(id.Name) || conflict[id.Name] {
-			return
-		}
-		if _, bound := ctx.params[id.Name]; bound {
-			return
-		}
-		if o, _ := c.pkg.Scope.lookup(id.Name); o != nil {
-			return
-		}
-		if c.cur != nil {
-			if _, ok := c.cur.scope.names[id.Name]; ok {
-				return
-			}
-		}
-		if s, ok := found[id.Name]; ok {
-			if s.kind != k {
-				conflict[id.Name] = true
-				c.errorf(id, CodeType, "%s is used as %s and as %s; a parameter has one kind (types.md, Generics 1)", id.Name, s.kind, k)
-			}
-			return
-		}
-		found[id.Name] = &seen{kind: k, at: id}
-		order = append(order, id.Name)
-	}}.walk(ft, KindType)
-	if ctx.implicit == nil {
-		ctx.implicit = map[string]*TypeParam{}
-	}
-	for _, name := range order {
-		if conflict[name] {
-			continue
-		}
-		s := found[name]
-		ctx.implicit[name] = &TypeParam{Name: name, Kind: s.kind, Pos: s.at.Pos(), Implicit: true, id: newID()}
-	}
-	for name := range conflict {
-		// A conflicting name resolves to nothing further: no cascade.
-		ctx.implicit[name] = &TypeParam{Name: name, Implicit: true, id: newID(), conflict: true}
-	}
-}
-
 // signature resolves a function type. Parameters, results, the error row and
 // the capability row.
 func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
@@ -1469,7 +1375,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 }
 
 // funcSig resolves a function's or method's signature, its type parameters
-// (bracket-listed first, then implicit ones) and its receiver.
+// (every one declared in brackets, 196g) and its receiver.
 func (c *checker) funcSig(f *Func) *Signature {
 	if f.state == 2 || f.state == 1 {
 		if f.Sig == nil {
@@ -1532,18 +1438,10 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.kindBracketParams(d.Type, ctx, unconstrained)
 	c.monoLinkSelf(f, ctx)
 	nbracket := len(tparams)
-	c.prescanImplicit(d.Type, ctx)
-	implicit := implicitOrder(d.Type, ctx)
-	for _, name := range implicit {
-		owner = append(owner, ctx.implicit[name])
-	}
 	c.mono.owner = owner
 	sig := c.signature(d.Type, ctx)
 	restore()
 	sig.NBracket = nbracket
-	for _, name := range implicit {
-		tparams = append(tparams, ctx.implicit[name])
-	}
 	sig.TParams = tparams
 	f.Sig = sig
 	f.state = 2
@@ -1570,8 +1468,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 // function the kind of its positions in the signature: after fails an
 // error row, after needs a capability row, elsewhere a type (grammar.md,
 // Declarations 3; 196g as amended). It is the rule solveDeclKinds applies
-// to type declarations and prescanImplicit to implicit parameters; a
-// parameter used in two kinds is S108, as there.
+// to type declarations; a parameter used in two kinds is S108, as there.
 func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstrained []*TypeParam) {
 	free := map[*TypeParam]bool{}
 	for _, tp := range unconstrained {
@@ -1619,19 +1516,6 @@ func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstra
 		seen[tp] = k
 		tp.Kind = k
 	}}.walk(ft, KindType)
-}
-
-// implicitOrder lists the implicit parameters in order of first occurrence.
-func implicitOrder(ft *syntax.FuncType, ctx *typeCtx) []string {
-	var out []string
-	seen := map[string]bool{}
-	walkTypePositions(ft, KindType, func(id *syntax.Ident, _ Kind) {
-		if tp, ok := ctx.implicit[id.Name]; ok && !seen[id.Name] && !tp.conflict {
-			seen[id.Name] = true
-			out = append(out, id.Name)
-		}
-	})
-	return out
 }
 
 // collectSelfFuncs resolves x.f(…) to package functions (196m; round-6
@@ -1813,8 +1697,7 @@ func selfOwnerName(d *syntax.FuncDecl) (*syntax.Ident, []syntax.Expr, bool) {
 }
 
 // selfArgsOK reports whether every type argument of a first parameter's
-// type is a distinct type parameter of the function: one its bracket list
-// declares, or an implicit one (a parameter name no type declares).
+// type is a distinct type parameter its bracket list declares (196g).
 func (c *checker) selfArgsOK(d *syntax.FuncDecl, args []syntax.Expr) bool {
 	declared := map[string]bool{}
 	if d.TypeParams != nil {
@@ -1830,7 +1713,7 @@ func (c *checker) selfArgsOK(d *syntax.FuncDecl, args []syntax.Expr) bool {
 		if !ok || seen[id.Name] {
 			return false
 		}
-		if !declared[id.Name] && !(isParamName(id.Name) && c.typeObject(id.Name, c.cur) == nil) {
+		if !declared[id.Name] {
 			return false
 		}
 		seen[id.Name] = true

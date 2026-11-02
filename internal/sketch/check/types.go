@@ -120,8 +120,10 @@ type Map struct{ Key, Elem Type }
 type Pointer struct{ Elem Type }
 
 // Signature is a function type: parameters, value results and two rows. A
-// declaration's signature also holds its type parameters (bracket-listed
-// first, then implicit ones).
+// declaration's signature also holds its type parameters, every one
+// declared in brackets (196g). NBracket counts the ones a written type
+// argument list names: all of them, less those a 196m call's first
+// argument binds (selfSig).
 type Signature struct {
 	TParams  []*TypeParam
 	NBracket int
@@ -161,7 +163,6 @@ type TypeParam struct {
 	Kind       Kind
 	Constraint Type // nil for any
 	Pos        syntax.Pos
-	Implicit   bool
 	conflict   bool // a kind conflict, already reported: resolves to nothing
 	// unchecked: its constraint is a decided one this checker does not
 	// check yet (S109 at the constraint): a body that declares it is not

@@ -161,7 +161,7 @@ func (c *checker) needValue(op *operand) {
 				}
 				break
 			}
-			c.errorf(op.expr, CodeType, "%s has implicit type parameters, which only a call infers; call it or write a function literal", exprText(op.expr))
+			c.errorf(op.expr, CodeType, "%s leaves type parameters unwritten, which only a call infers; write every type argument, call it or write a function literal", exprText(op.expr))
 			break
 		}
 		c.errorf(op.expr, CodeType, "the generic function %s is only called or instantiated", exprText(op.expr))
