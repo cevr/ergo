@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/constant"
+	"go/token"
 	"go/types"
 	"math/rand/v2"
 	"os"
@@ -1082,15 +1083,47 @@ func TestRuntime199ContextOwner(t *testing.T) {
 
 // constStrings visits the maximal constant string expressions under n, by
 // their go/types values: a literal, a concatenation of constants, a named
-// constant. A non-constant expression is searched for constant parts.
+// constant. A concatenation that is not constant as a whole is visited as
+// its constant operands joined, the others left out, so a name split
+// around a variable (scope + ".Open" + "Context()") is still read; its
+// other operands are then searched in turn.
 func constStrings(src *typedSource, n ast.Node, visit func(string)) {
+	str := func(e ast.Expr) (string, bool) {
+		if tv, ok := src.info.Types[e]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+			return constant.StringVal(tv.Value), true
+		}
+		return "", false
+	}
 	ast.Inspect(n, func(n ast.Node) bool {
 		e, ok := n.(ast.Expr)
 		if !ok {
 			return true
 		}
-		if tv, ok := src.info.Types[e]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
-			visit(constant.StringVal(tv.Value))
+		if s, ok := str(e); ok {
+			visit(s)
+			return false
+		}
+		if b, ok := e.(*ast.BinaryExpr); ok && b.Op == token.ADD {
+			var parts []string
+			var rest []ast.Expr
+			var flat func(x ast.Expr)
+			flat = func(x ast.Expr) {
+				if s, ok := str(x); ok {
+					parts = append(parts, s)
+				} else if b, ok := ast.Unparen(x).(*ast.BinaryExpr); ok && b.Op == token.ADD {
+					flat(b.X)
+					flat(b.Y)
+				} else {
+					rest = append(rest, x)
+				}
+			}
+			flat(b)
+			if len(parts) > 0 {
+				visit(strings.Join(parts, ""))
+			}
+			for _, x := range rest {
+				constStrings(src, x, visit)
+			}
 			return false
 		}
 		return true
