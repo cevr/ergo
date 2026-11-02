@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -265,37 +264,6 @@ func main() needs Console {
 	Console.Println("\(Pair(c, c)) \(Pair(d, c)) \(AsValidBox(Box[string]{V: "x"}).Check())")
 }
 `, "true card 7 50 -1 4 true true true true\nfalse true true true false\ncard 7 none true\n")
-}
-
-// An operations conversion whose table function is itself constrained by a
-// method set is refused at the conversion: the table names the function,
-// not its instance and witnesses.
-func TestLowerE1WitnessTableRefused(t *testing.T) {
-	o := lowerSource("r", `type Valid {
-	Check() bool,
-}
-
-type Card { Number string }
-
-type Box[T] { V T }
-
-func Check(c Card) bool {
-	c.Number != ""
-}
-
-func Check[T Valid](b Box[T]) bool {
-	b.V.Check()
-}
-
-func main() needs Console {
-	let vs = []Valid{Box[Card]{V: Card{Number: "1"}}}
-	Console.Println("\(vs[0].Check())")
-}
-`, false)
-	const text = "a function whose type parameter a method set constrains, is lowered after check-v1 stage E"
-	if len(o.diags) != 0 || len(o.refused) != 1 || o.refused[0].Line != 18 || o.refused[0].Column != 19 || !strings.Contains(o.refused[0].Message, text) {
-		t.Fatalf("want one refusal at 18:19 %q; got diagnostics %v, refusals %v, error %v, panic %v", text, o.diags, o.refused, o.err, o.panicked)
-	}
 }
 
 // A std generic function used as a value that takes a function is refused

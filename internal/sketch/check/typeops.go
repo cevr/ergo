@@ -294,12 +294,16 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			return assignment{clause: assignOperations}, ""
 		}
 		table := map[string]*Func{}
+		instances := map[string]*Instance{}
 		for _, m := range it.Methods {
 			if _, fn := c.methodOf(v, m.Name); fn != nil {
 				table[m.Name] = fn
+				if len(fn.Sig.TParams) > 0 {
+					instances[m.Name] = c.instanceOf(fn, receiverTypeArgs(v, fn), fn.Decl)
+				}
 			}
 		}
-		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table}}, ""
+		return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t, Table: table, Instances: instances}}, ""
 	}
 	if u := asUnion(t); u != nil {
 		if _, isNamed := t.(*Named); isNamed {

@@ -357,16 +357,7 @@ func (c *checker) instanceWitnesses(inst *Instance, at syntax.Node, build func(*
 			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
 			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
-				self := targs[i]
-				if p, ok := self.(*Pointer); ok {
-					self = p.Elem
-				}
-				bound := selfBinding(self, f)
-				fargs := make([]Type, len(f.Sig.TParams))
-				for j, ftp := range f.Sig.TParams {
-					fargs[j] = bound[ftp]
-				}
-				wo.Inst = build(f, fargs)
+				wo.Inst = build(f, receiverTypeArgs(targs[i], f))
 				if wo.Inst == nil {
 					return false
 				}
@@ -376,6 +367,19 @@ func (c *checker) instanceWitnesses(inst *Instance, at syntax.Node, build func(*
 		inst.Witnesses = append(inst.Witnesses, w)
 	}
 	return true
+}
+
+// receiverTypeArgs is a 196m function's instance bound by its receiver.
+func receiverTypeArgs(self Type, f *Func) []Type {
+	if p, ok := self.(*Pointer); ok {
+		self = p.Elem
+	}
+	bound := selfBinding(self, f)
+	args := make([]Type, len(f.Sig.TParams))
+	for i, tp := range f.Sig.TParams {
+		args[i] = bound[tp]
+	}
+	return args
 }
 
 // CallKind is what a call calls.
@@ -461,6 +465,10 @@ type Conversion struct {
 	Kind     ConversionKind
 	From, To Type
 	Table    map[string]*Func
+	// Instances carries each generic Table function's complete instance,
+	// including the witnesses required by its constraints. The lowering
+	// consumes this fact rather than resolving the receiver again.
+	Instances map[string]*Instance
 }
 
 // PatternKind is a pattern's form.

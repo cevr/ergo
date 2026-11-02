@@ -66,13 +66,7 @@ var refusedFamilies = map[string]string{
 	"ReturnStmt:tuple":            "check-v1 stage B",
 	"CaseClause:duplicate":        "check-v1 stage B",
 	"TypeDecl:errorText":          "lower-v1 stage 3",
-	// Met by TestCheckCorpusBuilds (stage C round 4 review T1), and an
-	// existing refusal given its owner. Stage E1 lowers an operations
-	// conversion inside a generic function through the witness (D-E1, C8);
-	// one whose table function is itself constrained by a method set waits
-	// for a Conversion fact naming that function's instance.
-	"call:Func:genericDot":         "check-v1 stage D",
-	"conv:Operations:witnessTable": "check-v1 stage E",
+	"call:Func:genericDot":        "check-v1 stage D",
 	// Stage 3b of #199: the release forms an owning with cannot call by a
 	// Go name, and an owning with outside a function body.
 	"call:With:release": "check-v1 stage E",
@@ -112,7 +106,6 @@ var refusalReasons = []struct {
 	{"ReturnStmt:tuple", regexp.MustCompile(`^returning several values is a tuple, lowered after check-v1 stage B`)},
 	{"CaseClause:duplicate", regexp.MustCompile(`check-v1 stage B reports such an arm as unreachable \(D-B4\)$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
-	{"conv:Operations:witnessTable", regexp.MustCompile(`^an operations conversion whose operation \S+ is provided by \S+, a function whose type parameter a method set constrains, is lowered after check-v1 stage E \(a Conversion fact for its instance\)$`)},
 	{"call:With:release", regexp.MustCompile(`^a provider whose Close (is an operation of its type|is generic|is a std or extern function|takes a pointer to its value) is released after check-v1 stage E$`)},
 	{"call:With:owned", regexp.MustCompile(`^a with that owns a provider with a Close outside a function body is lowered after check-v1 stage E$`)},
 }

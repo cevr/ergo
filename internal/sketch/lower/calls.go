@@ -836,8 +836,9 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			ice(site, "the operations conversion to %s has no function for %s", conv.To, op.Name)
 		}
 		if len(witnessParams(f.Sig)) > 0 {
-			// The table names the function, not its instance and witnesses.
-			refuse(site, "an operations conversion whose operation %s is provided by %s, a function whose type parameter a method set constrains, is lowered after check-v1 stage E (a Conversion fact for its instance)", op.Name, f.Name)
+			if inst := conv.Instances[op.Name]; inst == nil || inst.Func != f {
+				ice(site, "the operations conversion to %s has no instance for %s", conv.To, op.Name)
+			}
 		}
 		// A provider's requirements are met where a wire builds it (rows.md,
 		// Wire 4 and 6), never by the caller of its operation, so the
@@ -847,6 +848,28 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			ice(site, "the operation %s of %s is provided by %s, which needs capabilities", op.Name, conv.To, f.Name)
 		}
 		l.useFunc(f, site)
+	}
+	// Store the table functions' witnesses in the adapter. Each method
+	// forwards them before its receiver, preserving the function's rows.
+	var fields, values []string
+	witnessFields := map[string][]string{}
+	if param == nil {
+		for _, op := range toDecl.ops {
+			f := conv.Table[op.Name]
+			inst := conv.Instances[op.Name]
+			args := fc.witnessArgs(f, inst, site)
+			for i, arg := range args {
+				w := &inst.Witnesses[i]
+				var ops []string
+				for _, wo := range w.Ops {
+					ops = append(ops, memberName(wo.Name)+" "+tc.goType(wo.Sig))
+				}
+				field := fmt.Sprintf("w%d", len(fields))
+				fields = append(fields, field+" struct{ "+strings.Join(ops, "; ")+" }")
+				values = append(values, field+": "+arg)
+				witnessFields[op.Name] = append(witnessFields[op.Name], field)
+			}
+		}
 	}
 	name, ok := l.adapters[key]
 	if !ok {
@@ -858,7 +881,11 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			b.WriteString("type " + name + declParams + " struct {\n\tv " + fromGo + "\n\tw " + tc.witnessType(param, param) + "\n}\n\n")
 		} else {
 			b.WriteString(fmt.Sprintf("// %s provides %s through the functions of %s (an operations conversion).\n", name, conv.To, conv.From))
-			b.WriteString("type " + name + declParams + " struct{ v " + fromGo + " }\n\n")
+			b.WriteString("type " + name + declParams + " struct{ v " + fromGo)
+			for _, field := range fields {
+				b.WriteString("; " + field)
+			}
+			b.WriteString(" }\n\n")
 		}
 		for _, op := range toDecl.ops {
 			locals := newNamer(l.names) // so no local hides the function it calls
@@ -890,7 +917,12 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			if fd.method != nil {
 				call = "(" + recv + ")." + fd.name + "(" + strings.Join(args, ", ") + ")"
 			} else {
-				call = fd.name + "(" + strings.Join(append([]string{args[0], recv}, args[1:]...), ", ") + ")"
+				lead := []string{args[0]}
+				for _, field := range witnessFields[op.Name] {
+					lead = append(lead, self+"."+field)
+				}
+				lead = append(lead, recv)
+				call = fd.name + "(" + strings.Join(append(lead, args[1:]...), ", ") + ")"
 			}
 			var result check.Type
 			if len(op.Sig.Results) == 1 {
@@ -916,6 +948,9 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	if param != nil {
 		return "&" + name + instArgs + "{v: " + val + ", w: " + fc.witness[param] + "}"
+	}
+	if len(values) > 0 {
+		val += ", " + strings.Join(values, ", ")
 	}
 	return "&" + name + instArgs + "{v: " + val + "}"
 }
