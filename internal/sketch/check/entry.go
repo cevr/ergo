@@ -2,6 +2,9 @@ package check
 
 import (
 	"ergo.local/prototype/internal/sketch/syntax"
+	"slices"
+	"strconv"
+	"strings"
 )
 
 // checkTypeDecls checks what a type declaration states beyond its body: a
@@ -18,180 +21,337 @@ func (c *checker) checkTypeDecls() {
 	}
 }
 
-// checkRecursiveStructs classifies strongly connected components of the
-// direct-definition and by-value containment graph together. Indirection
-// through pointers, slices, Maps, functions, operation types or unions
-// ends a containment path. A component made only of definition edges is
-// a defined-type cycle; any record or tuple edge makes it an infinite-size
-// cycle. The diagnostic names and locates the lexically first declared
-// type in the component, independent of declaration and resolution order.
+// checkRecursiveStructs implements R2' over interned type instances. Identity
+// instances establish intrinsic guilt; mutually dependent origins report as
+// one group. After removing their intrinsic edges (the field paths that close
+// a cycle at the identity instance) at every instantiation, each remaining
+// cycle is attributed to the declarations that wrote its closing
+// instantiations.
 func (c *checker) checkRecursiveStructs() {
-	var fields func(Type, *[]*Named)
-	fields = func(t Type, out *[]*Named) {
-		switch t := t.(type) {
-		case *Named:
-			if t.foreign || t.Obj.Decl == nil || c.monoBad(t.origin().TParams) {
-				return
+	// path names the field or tuple element, within origin(n)'s body, that
+	// generates the edge; it is the same at every instantiation.
+	type edge struct {
+		to              int
+		value, argument bool
+		path            string
+	}
+	var nodes []*Named
+	var graph [][]edge
+	indices := map[*Named]int{}
+	var origins []*Named
+	declIndex := map[*Named]int{}
+	var identities []int
+	// The origin and D[T_D] denote the same identity node. Instantiating
+	// through the existing interner also unifies written self references.
+	canonical := func(n *Named) *Named {
+		if n.Orig == nil && len(n.TParams) != 0 {
+			args := make([]Type, len(n.TParams))
+			for i, p := range n.TParams {
+				args[i] = p
 			}
-			if t.Defined() != nil {
-				*out = append(*out, t)
-				return
-			}
-			switch t.underlying().(type) {
-			case *Struct, *Tuple:
-				*out = append(*out, t)
-			}
-		case *Struct:
-			for _, f := range t.Fields {
-				fields(f.Type, out)
-			}
-		case *Tuple:
-			for _, e := range t.Types {
-				fields(e, out)
-			}
+			return c.instantiate(n, args)
 		}
+		return n
 	}
-	// Iterative Tarjan walk: long finite chains need no recursive walk.
-	type frame struct {
-		n    *Named
-		next []*Named
-		i    int
+	intern := func(n *Named) int {
+		n = canonical(n)
+		if i, ok := indices[n]; ok {
+			return i
+		}
+		i := len(nodes)
+		indices[n] = i
+		nodes = append(nodes, n)
+		graph = append(graph, nil)
+		return i
 	}
-	index, low := map[*Named]int{}, map[*Named]int{}
-	on, self := map[*Named]bool{}, map[*Named]bool{}
-	parents := map[*Named][]*Named{}
-	var stack []*Named
-	var cycles [][]*Named
-	serial := 0
 	for _, tn := range c.pkg.Types {
-		root := tn.Type.(*Named)
-		if index[root] != 0 || c.monoBad(root.TParams) {
+		n := tn.Type.(*Named)
+		if n.foreign || tn.Decl == nil || c.monoBad(n.TParams) {
 			continue
 		}
-		var work []frame
-		push := func(n *Named) {
-			serial++
-			index[n], low[n] = serial, serial
-			on[n] = true
-			stack = append(stack, n)
-			var next []*Named
-			if base := n.Defined(); base != nil {
-				fields(base, &next)
-			} else {
-				switch u := n.underlying().(type) {
-				case *Struct:
-					fields(u, &next)
-				case *Tuple:
-					fields(u, &next)
+		declIndex[n] = len(origins)
+		origins = append(origins, n)
+		identities = append(identities, intern(n))
+	}
+	for i := 0; i < len(nodes); i++ {
+		n := nodes[i]
+		// Walk the substituted body beside its origin body. A bare
+		// parameter (also inside a tuple) transfers authorship to the
+		// argument's writer. A written named instance remains literal.
+		var hold func(Type, Type, bool, bool, string)
+		hold = func(written, actual Type, value, argument bool, path string) {
+			if _, ok := written.(*TypeParam); ok {
+				argument = true
+			}
+			switch actual := actual.(type) {
+			case *Named:
+				if actual.foreign || actual.Obj.Decl == nil || c.monoBad(actual.origin().TParams) {
+					return
+				}
+				if actual.Defined() == nil {
+					switch actual.underlying().(type) {
+					case *Struct, *Tuple:
+					default:
+						return
+					}
+				}
+				to := intern(actual)
+				graph[i] = append(graph[i], edge{to, value, argument, path})
+			case *Tuple:
+				w, _ := written.(*Tuple)
+				for j, elem := range actual.Types {
+					var template Type
+					if w != nil && j < len(w.Types) {
+						template = w.Types[j]
+					}
+					hold(template, elem, true, argument, path+"("+strconv.Itoa(j))
+				}
+			case *Struct:
+				w, _ := written.(*Struct)
+				for j, f := range actual.Fields {
+					var template Type
+					if w != nil && j < len(w.Fields) {
+						template = w.Fields[j].Type
+					}
+					hold(template, f.Type, true, argument, path+"{"+strconv.Itoa(j))
 				}
 			}
-			for _, m := range next {
-				parents[m] = append(parents[m], n)
-			}
-			work = append(work, frame{n: n, next: next})
 		}
-		push(root)
-		for len(work) > 0 {
-			top := &work[len(work)-1]
-			if top.i < len(top.next) {
-				m := top.next[top.i]
-				top.i++
-				self[top.n] = self[top.n] || m == top.n
-				if index[m] == 0 {
-					push(m)
-				} else if on[m] {
-					low[top.n] = min(low[top.n], index[m])
-				}
+		if base := n.Defined(); base != nil {
+			hold(n.origin().Defined(), base, false, false, "")
+		} else {
+			hold(n.origin().underlying(), n.underlying(), true, false, "")
+		}
+	}
+	// Iterative Tarjan: neither a long finite chain nor a large component
+	// consumes the Go call stack. Compute every component before reporting
+	// or invalidating anything. The predicate selects edges for R2's two
+	// derived relations without rebuilding any type instance.
+	components := func(g [][]edge, keep func(int, edge) bool) ([][]int, []int, []bool) {
+		type frame struct{ node, next int }
+		index, low, at := make([]int, len(g)), make([]int, len(g)), make([]int, len(g))
+		on := make([]bool, len(g))
+		var stack []int
+		var all [][]int
+		var infinite []bool
+		serial := 0
+		for root := range g {
+			if index[root] != 0 {
 				continue
 			}
-			n := top.n
-			work = work[:len(work)-1]
-			if len(work) > 0 {
-				p := work[len(work)-1].n
-				low[p] = min(low[p], low[n])
+			var work []frame
+			push := func(n int) {
+				serial++
+				index[n], low[n], on[n] = serial, serial, true
+				stack = append(stack, n)
+				work = append(work, frame{node: n})
 			}
-			if low[n] != index[n] {
-				continue
-			}
-			var component []*Named
-			for {
-				m := stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-				on[m] = false
-				component = append(component, m)
-				if m == n {
-					break
+			push(root)
+			for len(work) > 0 {
+				top := &work[len(work)-1]
+				if top.next < len(g[top.node]) {
+					e := g[top.node][top.next]
+					top.next++
+					if !keep(top.node, e) {
+						continue
+					}
+					if index[e.to] == 0 {
+						push(e.to)
+					} else if on[e.to] {
+						low[top.node] = min(low[top.node], index[e.to])
+					}
+					continue
 				}
+				n := top.node
+				work = work[:len(work)-1]
+				if len(work) > 0 {
+					p := work[len(work)-1].node
+					low[p] = min(low[p], low[n])
+				}
+				if low[n] != index[n] {
+					continue
+				}
+				var group []int
+				for {
+					m := stack[len(stack)-1]
+					stack = stack[:len(stack)-1]
+					on[m], at[m] = false, len(all)
+					group = append(group, m)
+					if m == n {
+						break
+					}
+				}
+				cyclic := len(group) > 1
+				for _, e := range g[n] {
+					cyclic = cyclic || e.to == n && keep(n, e)
+				}
+				all = append(all, group)
+				infinite = append(infinite, cyclic)
 			}
-			if len(component) > 1 || self[n] {
-				cycles = append(cycles, component)
+		}
+		return all, at, infinite
+	}
+	allEdges := func(int, edge) bool { return true }
+	cycles, home, infinite := components(graph, allEdges)
+	intrinsic := make([]bool, len(origins))
+	for d, id := range identities {
+		intrinsic[d] = infinite[home[id]]
+	}
+	relation := make([][]edge, len(origins))
+	for d, id := range identities {
+		if !intrinsic[d] {
+			continue
+		}
+		for _, n := range cycles[home[id]] {
+			if e, ok := declIndex[nodes[n].origin()]; ok && intrinsic[e] {
+				relation[d] = append(relation[d], edge{to: e})
 			}
 		}
 	}
-	// Reverse reachability identifies definitions that are intrinsically
-	// infinite. A finite wrapper's origin has no path to its bad instance;
-	// a recursive generic definition does. Compute this once over the same
-	// graph, so the generic-only case cannot blame an innocent wrapper.
-	infinite := map[*Named]bool{}
-	var work []*Named
-	for _, cyc := range cycles {
+	type group struct {
+		members []int
+		value   bool
+	}
+	var reports []group
+	groups, _, _ := components(relation, allEdges)
+	for _, members := range groups {
+		if !intrinsic[members[0]] {
+			continue
+		}
+		g := group{members: members}
+		for _, d := range members {
+			for _, n := range cycles[home[identities[d]]] {
+				for _, e := range graph[n] {
+					g.value = g.value || e.value && home[n] == home[e.to]
+				}
+			}
+		}
+		reports = append(reports, g)
+	}
+	// R2' step 3. A field path of D in K is intrinsic when its edge at the
+	// identity instance stays inside home(D); that edge is the reported
+	// cycle. Remove the edges such a path generates at every instantiation,
+	// and nothing else: D's other literal edges may still close a concrete
+	// cycle that repairing the intrinsic one would leave in place. Argument
+	// edges never exist at an identity instance, so they are never removed.
+	type fieldPath struct {
+		decl int
+		path string
+	}
+	intrinsicPaths := map[fieldPath]bool{}
+	for d, id := range identities {
+		if !intrinsic[d] {
+			continue
+		}
+		for _, e := range graph[id] {
+			if home[e.to] == home[id] {
+				intrinsicPaths[fieldPath{d, e.path}] = true
+			}
+		}
+	}
+	keepOrphan := func(n int, e edge) bool {
+		d, ok := declIndex[nodes[n].origin()]
+		return e.argument || !ok || !intrinsicPaths[fieldPath{d, e.path}]
+	}
+	orphans, orphanAt, orphanInfinite := components(graph, keepOrphan)
+	parent := make([]int, len(origins))
+	for d := range parent {
+		parent[d] = d
+	}
+	find := func(d int) int {
+		for parent[d] != d {
+			parent[d] = parent[parent[d]]
+			d = parent[d]
+		}
+		return d
+	}
+	// Every infinite component that remains is an orphan. No identity
+	// instance of K can be in one: each of its edges back into home(D) was
+	// intrinsic and is gone.
+	var orphanGroups []group
+	for id, cyc := range orphans {
+		if !orphanInfinite[id] {
+			continue
+		}
+		g := group{}
 		for _, n := range cyc {
-			infinite[n] = true
-			work = append(work, n)
-		}
-	}
-	for len(work) > 0 {
-		n := work[len(work)-1]
-		work = work[:len(work)-1]
-		for _, p := range parents[n] {
-			if !infinite[p] {
-				infinite[p] = true
-				work = append(work, p)
+			for _, e := range graph[n] {
+				if !keepOrphan(n, e) || orphanAt[n] != orphanAt[e.to] {
+					continue
+				}
+				g.value = g.value || e.value
+				if d, ok := declIndex[nodes[n].origin()]; ok && !e.argument {
+					g.members = append(g.members, d)
+				}
 			}
 		}
+		if len(g.members) == 0 {
+			continue
+		}
+		for _, d := range g.members[1:] {
+			parent[find(d)] = find(g.members[0])
+		}
+		orphanGroups = append(orphanGroups, g)
 	}
-	bad := map[*Named]bool{}
+	merged := map[int]*group{}
+	for _, g := range orphanGroups {
+		root := find(g.members[0])
+		if merged[root] == nil {
+			merged[root] = &group{}
+		}
+		merged[root].members = append(merged[root].members, g.members...)
+		merged[root].value = merged[root].value || g.value
+	}
+	for _, g := range merged {
+		reports = append(reports, *g)
+	}
+	// A declaration is in at most one intrinsic group and at most one orphan
+	// group. Mutual generic identity components merge into one group, while
+	// independent intrinsic declarations such as Aa and Zz stay separate.
+	// When an intrinsic group and an orphan group have the same members and
+	// kind, their diagnostics are the same text at the same name and give
+	// the same repair surface, so the pass prints it once, itself, before
+	// errorf sees anything.
+	type report struct {
+		at      *TypeName
+		message string
+	}
+	var out []report
+	for _, g := range reports {
+		slices.SortFunc(g.members, func(a, b int) int { return strings.Compare(origins[a].Obj.Name, origins[b].Obj.Name) })
+		g.members = slices.Compact(g.members)
+		first := origins[g.members[0]].Obj
+		var others []string
+		for _, d := range g.members[1:] {
+			others = append(others, origins[d].Obj.Name)
+		}
+		with := ""
+		if len(others) > 0 {
+			with = " with " + strings.Join(others, ", ")
+		}
+		message := first.Name + " is defined over itself" + with + " (types.md, Defined types)"
+		if g.value {
+			message = first.Name + " contains itself by value" + with + ", through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"
+		}
+		out = append(out, report{first, message})
+		for _, d := range g.members {
+			origins[d].def, origins[d].under = nil, invalid
+		}
+	}
+	slices.SortFunc(out, func(a, b report) int { return strings.Compare(a.message, b.message) })
+	out = slices.CompactFunc(out, func(a, b report) bool { return a.message == b.message })
 	saved := c.cur
 	defer func() { c.cur = saved }()
-	for _, cyc := range cycles {
-		var first, generic *TypeName
-		defined := true
-		for _, m := range cyc {
-			bad[m] = true
-			defined = defined && m.Defined() != nil
-			if m.Obj.Pkg != c.pkg || m.Obj.Decl == nil {
-				continue
-			}
-			// An instance supplies containment edges, not the name of an
-			// innocent generic definition. Choose a declared member.
-			if m.Orig == nil && len(m.TParams) == 0 &&
-				(first == nil || m.Obj.Name < first.Name) {
-				first = m.Obj
-			}
-			if infinite[m.origin()] && (generic == nil || m.Obj.Name < generic.Name) {
-				generic = m.Obj
-			}
-		}
-		if first == nil {
-			// With no non-generic member, the generic definitions are
-			// themselves recursive (for example Loop[T]{Next Loop[T]}).
-			// This is a defect of the definition, not of a finite wrapper.
-			first = generic
-		}
-		if first == nil {
-			continue
-		}
-		c.cur = first.file
-		if defined {
-			c.errorf(first.Decl.Name, CodeType, "%s is defined over itself (types.md, Defined types)", first.Name)
-		} else {
-			c.errorf(first.Decl.Name, CodeType, "%s contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)", first.Name)
-		}
+	for _, r := range out {
+		c.cur = r.at.file
+		c.errorf(r.at.Decl.Name, CodeType, "%s", r.message)
 	}
-	// Invalidate the actual cyclic nodes only. An instance's generic
-	// origin can have finite instances and can belong to other components.
-	for n := range bad {
-		n.def, n.under = nil, invalid
+	// Invalidate every original cyclic instance, including cascades. Do
+	// this after classification so one invalidation cannot hide a cycle.
+	for n, typ := range nodes {
+		if infinite[home[n]] {
+			typ.def, typ.under = nil, invalid
+		}
 	}
 }
 
