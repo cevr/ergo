@@ -43,7 +43,9 @@ import (
 //   - every program written inside the checker's own tests (testPrograms);
 //   - testdata/filesplit, one negative program for each package-level pass
 //     that no other program reaches;
-//   - the frame-need matrix and the multi-file regression of E2 round 1 M1.
+//   - the frame-need matrix and the multi-file regression of E2 round 1 M1;
+//   - the provenance guard's fixtures, inline-variant parameter matrix and
+//     tail programs (owner_e2_test.go, E2b).
 //
 // No placement may panic. Each placement must give exactly the one-file
 // diagnostics, each naming the program's file, at the same line, column,
@@ -90,6 +92,11 @@ func splitSources(t testing.TB) map[string]splitSource {
 		add("frame matrix: "+name, "frames", src)
 	}
 	add("E2 r1 M1", "frames", m1Program)
+	// The provenance guard's programs come through an explicit seam, not
+	// the literal harvest: its matrix is built, not written (owner_e2_test.go).
+	for name, src := range check.OwnerGuardPrograms() {
+		add("owner: "+name, "owner", src)
+	}
 	for i, src := range testPrograms(t) {
 		add(fmt.Sprintf("test literal %04d", i), "test", src)
 	}
@@ -115,8 +122,13 @@ func splitFixtures(t testing.TB) map[string]string {
 
 // testPrograms returns every program written inside the checker's tests:
 // each Go string literal of check/*_test.go, and each string const or var
-// built from literals, that parses as Ergo and has a declaration. This is
-// the extraction of lower's checkCorpus, without its sampling.
+// built from literals, that parses as Ergo and has a declaration of any
+// kind (a function, a type, a let, a wire, a machine, a test...). No
+// spelling filter narrows it: a string is a program when the parser says
+// so. This is the extraction of lower's checkCorpus, without its
+// sampling. Programs built at run time (fmt.Sprintf, loops) are not
+// strings of the source; a guard that needs them supplies them through an
+// explicit seam (check.OwnerGuardPrograms, check.FrameMatrixNegatives).
 func testPrograms(t testing.TB) []string {
 	paths, err := filepath.Glob("*_test.go")
 	if err != nil {
@@ -125,15 +137,22 @@ func testPrograms(t testing.TB) []string {
 	sort.Strings(paths)
 	var out []string
 	seen := map[string]bool{}
+	skipped := map[string]int{}
 	keep := func(s string) {
 		if !strings.HasSuffix(s, "\n") {
 			s += "\n"
 		}
-		if seen[s] || !programLike(s) {
+		if seen[s] {
 			return
 		}
 		seen[s] = true
-		if _, err := syntax.Parse(s); err == nil {
+		f, err := syntax.Parse(s)
+		switch {
+		case err != nil:
+			skipped["not Ergo"]++
+		case len(f.Decls) == 0:
+			skipped["no declaration"]++
+		default:
 			out = append(out, s)
 		}
 	}
@@ -154,18 +173,8 @@ func testPrograms(t testing.TB) []string {
 			keep(s)
 		}
 	}
+	t.Logf("test literals: %d strings, %d programs; skipped %d not Ergo, %d with no declaration", len(seen), len(out), skipped["not Ergo"], skipped["no declaration"])
 	return out
-}
-
-// programLike keeps the strings that may be Ergo programs: those with a
-// top-level declaration keyword.
-func programLike(s string) bool {
-	for _, kw := range []string{"func ", "type ", "let ", "import "} {
-		if strings.HasPrefix(s, kw) || strings.Contains(s, "\n"+kw) {
-			return true
-		}
-	}
-	return false
 }
 
 // builtStrings returns the values of the file's string consts and vars
@@ -300,13 +309,15 @@ func TestDiagnosticsStayInTheirFile(t *testing.T) {
 		}
 	}
 	var parts []string
-	for _, kind := range []string{"corpus", "test", "filesplit", "frames"} {
+	for _, kind := range []string{"corpus", "test", "filesplit", "frames", "owner"} {
 		parts = append(parts, fmt.Sprintf("%s %d (%d negative)", kind, programs[kind], negatives[kind]))
 	}
 	t.Logf("programs: %s; each checked alone, as file 0 and as file 1 of two", strings.Join(parts, ", "))
 	// The floors fail when a source of programs shrinks or stops being read
-	// (measured at E2 round 3: corpus 193, test 1279, frames 29 negatives).
-	if negatives["corpus"] < 150 || negatives["test"] < 1000 || negatives["frames"] < 21 || negatives["filesplit"] < len(splitFixtures(t)) {
+	// (measured at E2 round 3: corpus 193, test 1279, frames 29 negatives;
+	// at E2b, with no spelling filter on test literals and the provenance
+	// guard's programs: test 1301, owner 49 negatives).
+	if negatives["corpus"] < 150 || negatives["test"] < 1200 || negatives["frames"] < 21 || negatives["owner"] < 45 || negatives["filesplit"] < len(splitFixtures(t)) {
 		t.Fatalf("the guard's sources shrank: %v negative of %v", negatives, programs)
 	}
 }
