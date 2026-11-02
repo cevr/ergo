@@ -50,6 +50,28 @@ import (
 //     the source text, with the union's Info.Defs intact.
 // TestErrorInSpan holds errorIn's whole-span bound with direct controls
 // and the tail and catch programs whose spans end at a brace.
+//
+// Known gaps. The inventory reads syntax, not dataflow, so these stay open;
+// unit E2d, a go/analysis pass over SSA that replaces the inventory, closes
+// them (E2c round 1 review):
+//   - m2: a type that exists only by substitution in a generic body is not
+//     seen by the layout ban: func inner[T any](p T) any { return
+//     &wrap[T]{NamePos: p} }, called as inner(id.NamePos), makes a
+//     *wrap[syntax.Pos] with Ident's layout that no Types, Defs or Instances
+//     entry holds. Not exploitable today (inferred): a conversion from it
+//     must type-check in the generic body, where T is not syntax.Pos, and
+//     reaching it outside the body spells the type, which is flagged.
+//   - m3: a syntax method that returns a node, called through a checker-local
+//     interface (type copier interface{ Copy() *syntax.Ident }), resolves to
+//     a method of package check, so syntaxNodeCallees never sees it. Latent:
+//     no exported syntax function or method returns a node except Parse.
+//   - o1: (syntax.Parse)(src) at a listed site is reported as a value, a
+//     harmless false positive; the same holds for (made)(...) and (clone)(...).
+//   - o2: nodeTerm does not see a named pointer term (P interface{ ref }
+//     with type ref *syntax.Ident). Harmless: the operand of the conversion
+//     must already be a node pointer.
+//   - a listed parser site can still parse text other than its input
+//     without any closure; only dataflow tells the two apart.
 
 const (
 	provenanceSyntax = "ergo.local/prototype/internal/sketch/syntax"
@@ -82,8 +104,11 @@ var checkerImports = map[string]bool{
 // parses a whole file and checks it as a package, where a parse elsewhere
 // (a snippet the checker writes) makes nodes of no checked file. A site only
 // calls the callee; a function value of it would carry the parser elsewhere.
+// A site is the innermost enclosing function, closures by their Go-style
+// names (scanSynthesisWith): prelude parses inside its preludeOnce.Do
+// closure, prelude.func1.
 var syntaxNodeCallees = map[string][]string{
-	"Parse": {"CheckSource", "prelude", "(*stdImporter).Import"},
+	"Parse": {"CheckSource", "prelude.func1", "(*stdImporter).Import"},
 }
 
 // sourceEntries are the checker's own functions that parse text a caller
@@ -96,6 +121,10 @@ var sourceEntries = map[string][]string{"CheckSource": nil}
 // function and the node's type.
 type constructionSite struct{ fn, kind string }
 
+// siteName names a site twice: fn, for the construction manifest, and site,
+// with its receiver, for the parser manifests.
+type siteName struct{ fn, site string }
+
 // The variant fixtures: a union whose inline variant uses its parameter,
 // unconstrained and constrained, and one used before the union.
 const (
@@ -106,9 +135,10 @@ const (
 	patternFixture            = "type P { A int }\nfunc f(p P) int {\n\tlet P{A: a} = p\n\ta\n}\n"
 )
 
-// constructionManifest lists every construction site of the checker with a
-// clean program that reaches it. A new site fails the inventory until it is
-// listed here with its program.
+// constructionManifest lists every construction site of the checker, named
+// by its innermost enclosing function as syntaxNodeCallees names its sites,
+// with a clean program that reaches it. A new site fails the inventory until
+// it is listed here with its program.
 var constructionManifest = map[constructionSite]string{
 	{"declareVariant", "TypeDecl"}:   variantFixture,
 	{"declareVariant", "StructType"}: variantFixture,
@@ -351,6 +381,9 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 		scan.parses[constructionSite{site, callee}]++
 		return true
 	}
+	// literals counts the function literals directly inside each enclosing
+	// function, by its site name.
+	literals := map[string]int{}
 	for _, f := range files {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
@@ -363,18 +396,29 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 			}
 		}
 		for _, decl := range f.Decls {
-			// fn names the enclosing function in the construction manifest;
-			// site names it with its receiver, as the parser manifest does.
-			fn, site := "package", "package"
+			// A site is named by its innermost enclosing function, as Go
+			// names closures (E2c round 1 review M1): a declared function by
+			// its name, the Nth function literal directly inside an enclosing
+			// function F by F.funcN, counted in source order, so a literal
+			// nested in CheckSource.func1 is CheckSource.func1.func1 (Go
+			// itself spells that one CheckSource.func1.1). A literal outside
+			// any function is package.funcN, counted over the package. fn
+			// names a site in the construction manifest; site names it with
+			// its receiver, as the parser manifest does. A function literal
+			// at a listed site is therefore a site of its own: it is not
+			// listed, so it cannot carry the parser out of its site.
+			names := []siteName{{"package", "package"}}
 			trusted := false
 			if fd, ok := decl.(*ast.FuncDecl); ok {
-				fn = fd.Name.Name
-				site = strings.ReplaceAll(info.Defs[fd.Name].(*types.Func).FullName(), pkg.Path()+".", "")
+				names[0] = siteName{fd.Name.Name, strings.ReplaceAll(info.Defs[fd.Name].(*types.Func).FullName(), pkg.Path()+".", "")}
 				trusted = info.Defs[fd.Name] == madeFn || info.Defs[fd.Name] == cloneFn
 			}
 			var stack []ast.Node
 			ast.Inspect(decl, func(n ast.Node) bool {
 				if n == nil {
+					if _, ok := stack[len(stack)-1].(*ast.FuncLit); ok {
+						names = names[:len(names)-1]
+					}
 					stack = stack[:len(stack)-1]
 					return true
 				}
@@ -385,6 +429,13 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 					return nil
 				}
 				stack = append(stack, n)
+				if _, ok := n.(*ast.FuncLit); ok {
+					outer := names[len(names)-1]
+					literals[outer.site]++
+					suffix := fmt.Sprintf(".func%d", literals[outer.site])
+					names = append(names, siteName{outer.fn + suffix, outer.site + suffix})
+				}
+				fn, site := names[len(names)-1].fn, names[len(names)-1].site
 				at := provenanceFset.Position(n.Pos())
 				where := fmt.Sprintf("%s:%d %s", filepath.Base(at.Filename), at.Line, fn)
 				if spec, ok := n.(*ast.TypeSpec); ok {
@@ -444,6 +495,29 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 						name := strings.ReplaceAll(fn.FullName(), pkg.Path()+".", "")
 						if sites, ok := sourceEntries[name]; ok && !pinned(name, site, sites) {
 							scan.violations = append(scan.violations, where+": "+name+" parses caller text and is referenced in "+site+", which sourceEntries does not list for it")
+						}
+					}
+					// made and clone are only called (E2c round 1 review m1): the
+					// manifest counts a site at each call, so a function value of
+					// either would construct at a site it never sees. The callee
+					// may carry explicit type arguments.
+					if obj := info.Uses[id]; obj != nil && (obj == madeFn || obj == cloneFn) {
+						var fun ast.Node = id
+						call, _ := parent(2).(*ast.CallExpr)
+						switch ix := parent(2).(type) {
+						case *ast.IndexExpr:
+							if ix.X == ast.Expr(id) {
+								fun = ix
+								call, _ = parent(3).(*ast.CallExpr)
+							}
+						case *ast.IndexListExpr:
+							if ix.X == ast.Expr(id) {
+								fun = ix
+								call, _ = parent(3).(*ast.CallExpr)
+							}
+						}
+						if call == nil || ast.Node(call.Fun) != fun {
+							scan.violations = append(scan.violations, where+": "+obj.Name()+" is used as a value in "+site+"; it may only be called, so the manifest sees each site")
 						}
 					}
 				}
@@ -585,10 +659,12 @@ func nodeTerm(constraint types.Type, isNode func(types.Type) (string, bool)) (st
 // scanLayouts holds the type-level condition of every conversion (E2c). Go
 // converts a value to a node type only from a type whose underlying type is
 // identical to the node's, ignoring struct tags, or from a pointer to one
-// (spec: Conversions). So no type the checker's source declares or writes,
-// named or unnamed, at any pointer depth, other than the syntax node types
-// themselves, may have the underlying type of a syntax node: the type alone
-// fails, with or without a conversion, generic or not, however it is spelled.
+// (spec: Conversions). So no type the checker's source spells, or infers
+// outside a generic body, named or unnamed, at any pointer depth, other than
+// the syntax node types themselves, may have the underlying type of a syntax
+// node: the type alone fails, with or without a conversion, however it is
+// spelled. A type that exists only by substitution inside a generic body is
+// not seen (E2c round 1 review m2; Known gaps in the header).
 func scanLayouts(scan *synthesisScan, pkg, syntaxPkg *types.Package, info *types.Info, isNode func(types.Type) (string, bool)) {
 	type layout struct {
 		name string
@@ -866,6 +942,18 @@ func TestSynthesisInventoryControls(t *testing.T) {
 		{name: "parse-package-value", src: `package check; var parseText = syntax.Parse`, want: "syntax callee Parse is used as a value in package"},
 		{name: "parse-value-at-site", src: `package check; var parseHook func(string) (*syntax.File, error); func leaked() { parseHook = syntax.Parse }`, want: "syntax callee Parse is used as a value in leaked", callees: map[string][]string{"Parse": {"leaked"}}},
 		{name: "check-source-in-pass", src: `package check; func (c *checker) reparsed() *Package { p, _ := CheckSource("type T int\n"); return p }`, want: "CheckSource parses caller text and is referenced in (*checker).reparsed, which sourceEntries does not list"},
+		// E2c round 1 review M1: a function literal is a site of its own,
+		// named as Go names closures, so one at a listed site that calls the
+		// parser is not listed and cannot carry it to a pass.
+		{name: "closure-at-site", src: `package check; var parseHook func(string) (*syntax.File, error); func leaked() { parseHook = func(s string) (*syntax.File, error) { return syntax.Parse(s) } }`, want: "syntax callee Parse is referenced in leaked.func1, which syntaxNodeCallees does not list", callees: map[string][]string{"Parse": {"leaked"}}},
+		{name: "closure-returned-at-site", src: `package check; func leaked() func(string) (*syntax.File, error) { _ = func() {}; return func(s string) (*syntax.File, error) { return syntax.Parse(s) } }`, want: "syntax callee Parse is referenced in leaked.func2, which syntaxNodeCallees does not list", callees: map[string][]string{"Parse": {"leaked"}}},
+		{name: "closure-nested-at-site", src: `package check; func leaked() { func() { _ = func() (*syntax.File, error) { return syntax.Parse("") } }() }`, want: "syntax callee Parse is referenced in leaked.func1.func1, which syntaxNodeCallees does not list", callees: map[string][]string{"Parse": {"leaked.func1"}}},
+		{name: "closure-in-method-at-site", src: `package check; func (c *checker) leaked() func() { return func() { syntax.Parse("") } }`, want: "syntax callee Parse is referenced in (*checker).leaked.func1, which syntaxNodeCallees does not list", callees: map[string][]string{"Parse": {"(*checker).leaked"}}},
+		{name: "closure-check-source-at-site", src: `package check; func leaked() func() { return func() { CheckSource("") } }`, want: "CheckSource parses caller text and is referenced in leaked.func1, which sourceEntries does not list"},
+		// E2c round 1 review m1: made and clone are only called.
+		{name: "clone-value", src: `package check; func cloned(c *checker, p *syntax.Ident) syntax.Node { f := clone[syntax.Ident, *syntax.Ident]; return f(c, p) }`, want: "clone is used as a value in cloned; it may only be called"},
+		{name: "clone-value-inferred", src: `package check; var cloneIdent func(*checker, *syntax.Ident) *syntax.Ident = clone`, want: "clone is used as a value in package; it may only be called"},
+		{name: "made-value", src: `package check; func maker() func(*checker, *syntax.Ident, syntax.Node) *syntax.Ident { return made[*syntax.Ident] }`, want: "made is used as a value in maker; it may only be called"},
 	} {
 		t.Run(ctl.name, func(t *testing.T) {
 			extra := map[string]string{"e2b_control.go": strings.Replace(ctl.src, "package check;", "package check; import \""+provenanceSyntax+"\";", 1) + "; var _ syntax.Node"}
@@ -904,6 +992,10 @@ func TestSynthesisInventoryAccepts(t *testing.T) {
 		{"type-parameter-conversion", `package check; func widen[T ~int | ~int64](x int) T { return T(x) }`},
 		{"near-layout", `package check; type nameAt struct{ NamePos syntax.Pos; name string }; type posName struct{ Name string; NamePos syntax.Pos }`},
 		{"node-pointer-type", `package check; type identRef *syntax.Ident; func ref(x *syntax.Ident) identRef { return identRef(x) }`},
+		// E2c round 2: made and clone called with explicit type arguments,
+		// and a function literal that only calls them.
+		{"explicit-instance-calls", `package check; func cloned(c *checker, p *syntax.Ident) (syntax.Node, syntax.Node) { return clone[syntax.Ident, *syntax.Ident](c, p), made[*syntax.Ident](c, &syntax.Ident{}, p) }`},
+		{"closure-calls", `package check; func cloned(c *checker, p *syntax.Ident) func() syntax.Node { return func() syntax.Node { return clone(c, p) } }`},
 	} {
 		t.Run(ctl.name, func(t *testing.T) {
 			src := strings.Replace(ctl.src, "package check;", "package check; import \""+provenanceSyntax+"\";", 1) + "; var _ syntax.Node"
