@@ -3,7 +3,10 @@ package check_test
 import (
 	"fmt"
 	"math/rand"
+	"runtime"
+	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,12 +29,12 @@ type e1cDecl struct {
 	fields []e1cType
 }
 
-// field is the index of the field (or defined base) of the source node's
-// declaration that generates the edge; each field generates at most one.
+// field is the full path from a declaration's field (or defined base)
+// through its tuple elements to the position that generates the edge.
 type e1cEdge struct {
 	to              int
 	value, argument bool
-	field           int
+	field           string
 }
 
 type e1cGroup struct {
@@ -129,9 +132,11 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 		if n, ok := keys[key]; ok {
 			return n
 		}
-		// A finite universe is required here. Larger terms are an expanding
-		// instantiation, owned by the earlier monomorphisation check.
-		if len(key) > 256 || len(nodes) >= 96 {
+		// In the one-level alphabet, at most nine argument atoms (identity
+		// parameters, int and non-generic declarations) can reach each of
+		// four declarations with at most two arguments: 4*9*9 instances.
+		// Larger terms cover expanding instantiation outside that alphabet.
+		if len(key) > 256 || len(nodes) >= 4*9*9 {
 			expanding = true
 			return 0
 		}
@@ -174,24 +179,27 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 				}
 			}
 		}
-		var hold func(e1cType, bool, bool, int)
-		hold = func(t e1cType, value, argument bool, field int) {
-			switch t.kind {
+		var hold func(e1cType, e1cType, bool, string)
+		hold = func(written, typ e1cType, value bool, field string) {
+			switch typ.kind {
 			case 'n':
-				to := intern(t)
-				edges[n] = append(edges[n], e1cEdge{to, value, argument, field})
+				to := intern(typ)
+				edges[n] = append(edges[n], e1cEdge{to, value, written.kind == 'p', field})
 			case 'q':
-				hold(t.args[0], true, argument, field)
+				child := written
+				if written.kind == 'q' {
+					child = written.args[0]
+				}
+				hold(child, typ.args[0], true, field+".0")
 			}
 		}
 		for i, f := range decl.fields {
 			typ := e1cSub(f, x.args)
 			discover(typ) // breakers still instantiate their element types
-			// An edge is an argument edge when the written position is a
-			// bare parameter, also as a tuple element: its author is
-			// whoever wrote the argument, not this declaration.
-			argument := f.kind == 'p' || f.kind == 'q' && f.args[0].kind == 'p'
-			hold(typ, decl.form != 'd', argument, i)
+			// Carry the written type to the leaf, including through tuples
+			// supplied as arguments. Only a literal written leaf is authored
+			// by this declaration; a substituted parameter is an argument.
+			hold(f, typ, decl.form != 'd', strconv.Itoa(i))
 		}
 	}
 	if expanding {
@@ -234,21 +242,25 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 	// R2' step 3: a field of an intrinsic declaration is intrinsic when its
 	// edge at the identity instance stays in the declaration's home. Its
 	// edges go at every instantiation; every other edge stays.
-	intrinsicField := map[[2]int]bool{}
+	type fieldPath struct {
+		decl int
+		path string
+	}
+	intrinsicField := map[fieldPath]bool{}
 	for d, c := range home {
 		if c < 0 {
 			continue
 		}
 		for _, e := range edges[identity[d]] {
 			if slices.Contains(cycles[c], e.to) {
-				intrinsicField[[2]int{d, e.field}] = true
+				intrinsicField[fieldPath{d, e.field}] = true
 			}
 		}
 	}
 	pruned := make([][]e1cEdge, len(edges))
 	for n, next := range edges {
 		for _, e := range next {
-			if !intrinsicField[[2]int{nodes[n].d, e.field}] {
+			if !intrinsicField[fieldPath{nodes[n].d, e.field}] {
 				pruned[n] = append(pruned[n], e)
 			}
 		}
@@ -363,8 +375,6 @@ func e1cSource(ds []e1cDecl, order []int, repaired int, uses bool) string {
 		switch decl.form {
 		case 'r':
 			body = "{ " + strings.Join(fs, ", ") + " }"
-		case 'q':
-			body = "(" + body + ", int)"
 		}
 		if repaired == d && decl.form != 'r' {
 			body = "[]" + body
@@ -473,6 +483,9 @@ func e1cProperties(t *testing.T, ds []e1cDecl, groups []e1cGroup) (calls int) {
 	var permute func(int)
 	permute = func(i int) {
 		if i == len(order) {
+			if slices.IsSorted(order) {
+				return // source order was checked above
+			}
 			out := e1cObserve(t, e1cSource(ds, order, -1, false))
 			calls++
 			if !slices.Equal(got, out) {
@@ -504,9 +517,9 @@ func e1cProperties(t *testing.T, ds []e1cDecl, groups []e1cGroup) (calls int) {
 	return calls + 1
 }
 
-// Fixed alphabet: int, each available parameter, every declaration with
-// identity-position arguments, repeated T/U, reversed T/U, concrete int,
-// and repeated non-generic D_k arguments. Each atom also has Option and
+// Fixed alphabet: int, each available parameter, and every declaration with
+// independently chosen arguments from int, available parameters and
+// non-generic D_k (one level deep). Each atom also has Option and
 // slice forms. A declaration has one/two alphabet fields (unordered pairs
 // with repetition), a named/basic defined base, or a defined (atom,int)
 // tuple. Thus both containment kinds, both authorships, all arities and
@@ -516,34 +529,101 @@ func e1cAlphabet(arities []int, d int) []e1cType {
 	for p := 0; p < arities[d]; p++ {
 		atoms = append(atoms, e1cType{kind: 'p', p: p})
 	}
-	for j, arity := range arities {
+	arguments := slices.Clone(atoms)
+	for k, arity := range arities {
 		if arity == 0 {
-			atoms = append(atoms, e1cType{kind: 'n', d: j})
-			continue
+			arguments = append(arguments, e1cType{kind: 'n', d: k})
 		}
-		var patterns [][]e1cType
-		for _, a := range []e1cType{{kind: 'i'}, {kind: 'p', p: 0}, {kind: 'p', p: 1}} {
-			if a.kind == 'p' && a.p >= arities[d] {
-				continue
+	}
+	for j, arity := range arities {
+		args := make([]e1cType, arity)
+		var eachArgument func(int)
+		eachArgument = func(i int) {
+			if i == arity {
+				atoms = append(atoms, e1cType{kind: 'n', d: j, args: slices.Clone(args)})
+				return
 			}
-			patterns = append(patterns, slices.Repeat([]e1cType{a}, arity))
-		}
-		if arities[d] == 2 && arity == 2 {
-			patterns = append(patterns, []e1cType{{kind: 'p'}, {kind: 'p', p: 1}}, []e1cType{{kind: 'p', p: 1}, {kind: 'p'}})
-		}
-		for k, kp := range arities {
-			if kp == 0 {
-				patterns = append(patterns, slices.Repeat([]e1cType{{kind: 'n', d: k}}, arity))
+			for _, a := range arguments {
+				args[i] = a
+				eachArgument(i + 1)
 			}
 		}
-		for _, args := range patterns {
-			atoms = append(atoms, e1cType{kind: 'n', d: j, args: args})
-		}
+		eachArgument(0)
 	}
 	return atoms
 }
 
-func e1cChoices(arities []int, d int) []e1cDecl {
+// Check the declared domain independently of the alphabet builder. In
+// particular, each argument position may choose a different valid atom.
+func TestE1cCycleAlphabetComplete(t *testing.T) {
+	for n := 1; n <= 2; n++ {
+		combinations := 3
+		if n == 2 {
+			combinations = 9
+		}
+		for combo := 0; combo < combinations; combo++ {
+			arities := make([]int, n)
+			for d, rest := 0, combo; d < n; d, rest = d+1, rest/3 {
+				arities[d] = rest % 3
+			}
+			for d, params := range arities {
+				t.Run(fmt.Sprintf("%v/D%d", arities, d), func(t *testing.T) {
+					arguments := []string{"int"}
+					arguments = append(arguments, []string{"T", "U"}[:params]...)
+					for k, arity := range arities {
+						if arity == 0 {
+							arguments = append(arguments, fmt.Sprintf("D%d", k))
+						}
+					}
+					want := map[string]bool{"int": true}
+					for _, p := range []string{"T", "U"}[:params] {
+						want[p] = true
+					}
+					for j, arity := range arities {
+						name := fmt.Sprintf("D%d", j)
+						switch arity {
+						case 0:
+							want[name] = true
+						case 1:
+							for _, a := range arguments {
+								want[name+"["+a+"]"] = true
+							}
+						case 2:
+							for _, a := range arguments {
+								for _, b := range arguments {
+									want[name+"["+a+", "+b+"]"] = true
+								}
+							}
+						}
+					}
+					got := map[string]bool{}
+					for _, atom := range e1cAlphabet(arities, d) {
+						name := atom.text()
+						if got[name] || !want[name] {
+							t.Errorf("duplicate or invalid atom %s", name)
+						}
+						got[name] = true
+					}
+					for name := range want {
+						if !got[name] {
+							t.Errorf("section 3.2 requires %s; absent from alphabet", name)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+// Sampled tables retain their alphabet, not every possible pair of fields.
+// The index order is the same as the materialized exhaustive choices.
+type e1cChoiceSet struct {
+	params int
+	fields []e1cType
+	bases  []e1cDecl
+}
+
+func e1cChoiceSetOf(arities []int, d int) e1cChoiceSet {
 	atoms := e1cAlphabet(arities, d)
 	fields := slices.Clone(atoms)
 	for _, a := range atoms {
@@ -551,35 +631,69 @@ func e1cChoices(arities []int, d int) []e1cDecl {
 			fields = append(fields, e1cType{kind: k, args: []e1cType{a}})
 		}
 	}
-	var out []e1cDecl
-	for i, a := range fields {
-		out = append(out, e1cDecl{arities[d], 'r', []e1cType{a}})
-		for _, b := range fields[i:] {
-			out = append(out, e1cDecl{arities[d], 'r', []e1cType{a, b}})
+	set := e1cChoiceSet{params: arities[d], fields: fields}
+	for _, a := range atoms {
+		set.bases = append(set.bases, e1cDecl{arities[d], 'q', []e1cType{{kind: 'q', args: []e1cType{a}}}})
+		if a.kind != 'p' { // a defined type over a parameter is a separate error
+			set.bases = append(set.bases, e1cDecl{arities[d], 'd', []e1cType{a}})
 		}
 	}
-	for _, a := range atoms {
-		out = append(out, e1cDecl{arities[d], 'q', []e1cType{{kind: 'q', args: []e1cType{a}}}})
-		if a.kind != 'p' { // a defined type over a parameter is a separate error
-			out = append(out, e1cDecl{arities[d], 'd', []e1cType{a}})
+	return set
+}
+
+func (set e1cChoiceSet) count() int {
+	n := len(set.fields)
+	return n*(n+3)/2 + len(set.bases)
+}
+
+func (set e1cChoiceSet) at(index int) e1cDecl {
+	n := len(set.fields)
+	records := n * (n + 3) / 2
+	if index >= records {
+		return set.bases[index-records]
+	}
+	for i, a := range set.fields {
+		if index == 0 {
+			return e1cDecl{set.params, 'r', []e1cType{a}}
 		}
+		index--
+		if index < n-i {
+			return e1cDecl{set.params, 'r', []e1cType{a, set.fields[i+index]}}
+		}
+		index -= n - i
+	}
+	panic("invalid cycle declaration choice")
+}
+
+func e1cChoices(arities []int, d int) []e1cDecl {
+	set := e1cChoiceSetOf(arities, d)
+	out := make([]e1cDecl, set.count())
+	for i := range out {
+		out[i] = set.at(i)
 	}
 	return out
 }
 
 func TestE1cCycleGenerator(t *testing.T) {
 	start := time.Now()
+	// Millions of fresh checker runs allocate short-lived graphs. Give this
+	// batch heap headroom instead of repeatedly scanning the shared tables;
+	// restore the caller's GC policy before any other test runs.
+	runtime.GC()
+	previousGC := debug.SetGCPercent(1000)
+	defer debug.SetGCPercent(previousGC)
 	type counts struct{ programs, filtered, calls, domain int }
-	const workers = 8
+	const workers = 16
 	var results [workers]counts
-	// Every worker draws from the same alphabets over and over; building
-	// them once (426 tables for up to four declarations) keeps the run
-	// bounded by the checker, not by rebuilding the alphabet per program.
+	// Share 426 read-only alphabets, but materialize pairs only for the
+	// exhaustive one/two-declaration domain. Sampling needs only indices;
+	// retaining every three/four-declaration pair would burden each GC.
 	type choiceKey struct {
 		arities [4]int
 		n, d    int
 	}
 	tables := map[choiceKey][]e1cDecl{}
+	sampledTables := map[choiceKey]e1cChoiceSet{}
 	for n := 1; n <= 4; n++ {
 		arities := make([]int, n)
 		for combo := 0; combo < [5]int{1, 3, 9, 27, 81}[n]; combo++ {
@@ -589,7 +703,11 @@ func TestE1cCycleGenerator(t *testing.T) {
 			for d := range n {
 				k := choiceKey{n: n, d: d}
 				copy(k.arities[:], arities)
-				tables[k] = e1cChoices(arities, d)
+				if n <= 2 {
+					tables[k] = e1cChoices(arities, d)
+				} else {
+					sampledTables[k] = e1cChoiceSetOf(arities, d)
+				}
 			}
 		}
 	}
@@ -597,6 +715,12 @@ func TestE1cCycleGenerator(t *testing.T) {
 		k := choiceKey{n: len(arities), d: d}
 		copy(k.arities[:], arities)
 		return tables[k]
+	}
+	sampleOf := func(arities []int, d int, rng *rand.Rand) e1cDecl {
+		k := choiceKey{n: len(arities), d: d}
+		copy(k.arities[:], arities)
+		set := sampledTables[k]
+		return set.at(rng.Intn(set.count()))
 	}
 	t.Run("domain", func(t *testing.T) {
 		for worker := range workers {
@@ -659,8 +783,7 @@ func TestE1cCycleGenerator(t *testing.T) {
 						}
 						ds := make([]e1cDecl, n)
 						for d := range ds {
-							choices := choicesOf(arities, d)
-							ds[d] = choices[rng.Intn(len(choices))]
+							ds[d] = sampleOf(arities, d, rng)
 						}
 						run(ds)
 					}
@@ -675,6 +798,16 @@ func TestE1cCycleGenerator(t *testing.T) {
 		total.filtered += r.filtered
 		total.calls += r.calls
 		total.domain = r.domain
+	}
+	wantDomain := 6_100_093 + 40_000
+	if testing.Short() {
+		wantDomain = 6_100_093 + 4_000
+	}
+	if total.domain != wantDomain || total.programs+total.filtered != wantDomain {
+		t.Fatalf("incomplete section 3.2 domain: %+v, want %d", total, wantDomain)
+	}
+	if total.filtered != 0 {
+		t.Fatalf("one-level argument alphabet must be finite: filtered %d programs", total.filtered)
 	}
 	t.Logf("P1-P7: domain=%d programs=%d expanding-filtered=%d CheckSource-calls=%d elapsed=%s", total.domain, total.programs, total.filtered, total.calls, time.Since(start))
 }
@@ -707,6 +840,7 @@ func TestE1cCycleRuleExamples(t *testing.T) {
 	n := func(d int, args ...e1cType) e1cType { return e1cType{kind: 'n', d: d, args: args} }
 	o := func(x e1cType) e1cType { return e1cType{kind: 'o', args: []e1cType{x}} }
 	s := func(x e1cType) e1cType { return e1cType{kind: 's', args: []e1cType{x}} }
+	q := func(x e1cType) e1cType { return e1cType{kind: 'q', args: []e1cType{x}} }
 	r := func(params int, fs ...e1cType) e1cDecl { return e1cDecl{params, 'r', fs} }
 	for _, tc := range []struct {
 		name    string
@@ -719,6 +853,15 @@ func TestE1cCycleRuleExamples(t *testing.T) {
 		{"mutual-generic", []e1cDecl{r(1, n(1, p)), r(1, n(0, p))}, []string{"D0,D1"}},
 		{"concrete-self-instance", []e1cDecl{r(1, p), r(1, n(0, n(1, integer)))}, []string{"D1"}},
 		{"concrete-self-direct", []e1cDecl{r(1, p, n(0, integer))}, []string{"D0"}},
+		{"mixed-param-concrete", []e1cDecl{r(2, n(0, integer, p))}, []string{"D0"}},
+		// The mixed argument sample can visit more than 96 finite instances.
+		{"finite-mixed-sample", []e1cDecl{
+			r(2, n(1, integer, p), n(3, u, p)),
+			r(2, n(3, p, integer), o(n(2, u, p))),
+			r(2, s(n(1, u, p)), s(n(3, p, u))),
+			r(2, o(n(0, p, u)), s(n(1, u, u))),
+		}, nil},
+		{"nested-param-tuple", []e1cDecl{{params: 1, form: 'q', fields: []e1cType{q(q(p))}}, r(1, n(0, n(1, integer)))}, []string{"D1"}},
 		{"tuple-self", []e1cDecl{{form: 'q', fields: []e1cType{{kind: 'q', args: []e1cType{n(0)}}}}}, []string{"D0"}},
 		// The R2/P5 counterexample (E1c round 1): D2[int]'s closing edge is
 		// not intrinsic, so the orphan {D1[int], D2[int]} is reported
