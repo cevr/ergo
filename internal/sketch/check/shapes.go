@@ -32,7 +32,10 @@ func (c *checker) declareVariant(fi *fileInfo, d *syntax.TypeDecl, vs *syntax.Va
 		}
 		c.errorf(vs.TypeArgs, CodeType, "an inline variant takes the union's type parameters its fields mention, in the union's order: write %s (types.md, Unions 1)", want)
 	}
-	decl := &syntax.TypeDecl{Type: vs.Pos(), Name: vs.Name, TypeParams: params, Spec: &syntax.StructType{Struct: syntax.NoPos, Fields: vs.Fields}}
+	// The declaration is made from the variant, its record from the
+	// variant's fields (owner.go); its parameters come from the union's.
+	spec := made(c, &syntax.StructType{Struct: syntax.NoPos, Fields: vs.Fields}, vs.Fields)
+	decl := made(c, &syntax.TypeDecl{Type: vs.Pos(), Name: vs.Name, TypeParams: params, Spec: spec}, vs)
 	tn := &TypeName{Name: vs.Name.Name, Pkg: c.pkg, Pos: vs.Name.Pos(), Decl: decl, file: fi, id: newID()}
 	tn.Type = &Named{Obj: tn}
 	if c.declare(vs.Name, tn) {
@@ -44,7 +47,9 @@ func (c *checker) declareVariant(fi *fileInfo, d *syntax.TypeDecl, vs *syntax.Va
 // variantParams returns the bracket list of an inline variant: the union's
 // type parameters that a field type of the variant mentions, in the
 // union's order, each a new identifier at the union's position (not in the
-// tree, so Info.Defs does not list it), with the union's constraint.
+// tree, so Info.Defs does not list it), with the union's constraint. Each
+// identifier, field and the list are made from the union's (owner.go): a
+// diagnostic at a parameter of the variant lies in the union's file.
 func (c *checker) variantParams(d *syntax.TypeDecl, vs *syntax.VariantSpec) *syntax.FieldList {
 	if d.TypeParams == nil || vs.Fields == nil {
 		return nil
@@ -60,19 +65,19 @@ func (c *checker) variantParams(d *syntax.TypeDecl, vs *syntax.VariantSpec) *syn
 		var names []*syntax.Ident
 		for _, n := range f.Names {
 			if used[n.Name] {
-				id := &syntax.Ident{NamePos: n.NamePos, Name: n.Name}
+				id := made(c, &syntax.Ident{NamePos: n.NamePos, Name: n.Name}, n)
 				c.synthetic[id] = true
 				names = append(names, id)
 			}
 		}
 		if len(names) > 0 {
-			list = append(list, &syntax.Field{Names: names, Type: f.Type})
+			list = append(list, made(c, &syntax.Field{Names: names, Type: f.Type}, f))
 		}
 	}
 	if len(list) == 0 {
 		return nil
 	}
-	return &syntax.FieldList{Opening: d.TypeParams.Opening, List: list, Closing: d.TypeParams.Closing}
+	return made(c, &syntax.FieldList{Opening: d.TypeParams.Opening, List: list, Closing: d.TypeParams.Closing}, d.TypeParams)
 }
 
 func paramNames(l *syntax.FieldList) []string {

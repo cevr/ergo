@@ -96,9 +96,13 @@ type checker struct {
 
 	// cur is the file the running pass selected: a diagnostic is reported
 	// in it, and its node must lie in it (owner.go). owners indexes each
-	// node of the package's trees by its file, built at the first report.
-	cur    *fileInfo
-	owners map[syntax.Node]*fileInfo
+	// node of the package's trees by its file, built at the first report;
+	// origins maps each node the checker made to the node it was made from
+	// (made, clone), so it lies in that node's file. cur is the semantic
+	// context of a pass; owners and origins are where its nodes come from.
+	cur     *fileInfo
+	owners  map[syntax.Node]*fileInfo
+	origins map[syntax.Node]syntax.Node
 	// instance caches the instances of generic named types by their
 	// interned id: (origin, type argument ids), looked up before building.
 	instance map[int32]*Named
@@ -353,6 +357,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 		variants:    map[*syntax.VariantSpec]*TypeName{},
 		synthetic:   map[*syntax.Ident]bool{},
 		pkgPatterns: map[*syntax.VarSpec]*pkgPattern{},
+		origins:     map[syntax.Node]syntax.Node{},
 
 		refusedBinders: map[binderKey]bool{},
 		refusedMembers: map[*Func][2]bool{},
@@ -374,14 +379,16 @@ func (c *checker) errorf(n syntax.Node, code, format string, args ...any) {
 
 // errorIn reports a diagnostic at the span pos..end inside the node at (a
 // keyword, a brace, the end of a block) in the current file, which must
-// hold at (owner.go).
+// hold at (owner.go). The whole span lies inside at:
+// at.Pos() <= pos <= end <= at.End(), both positions valid; an empty span
+// (end == pos) marks the one place pos, which may be at's end.
 func (c *checker) errorIn(at syntax.Node, pos, end syntax.Pos, code, format string, args ...any) {
 	if c.silent > 0 {
 		return
 	}
 	c.assertOwner(at, code, format, args)
-	if pos < at.Pos() || pos > at.End() {
-		panic(fmt.Sprintf("check: internal compiler error: %s reported %s %q at %d, outside its %T at %d..%d", reporter(), code, fmt.Sprintf(format, args...), pos, at, at.Pos(), at.End()))
+	if !pos.IsValid() || !end.IsValid() || pos < at.Pos() || end < pos || end > at.End() {
+		panic(fmt.Sprintf("check: internal compiler error: %s reported %s %q at %d..%d, outside its %T at %d..%d", reporter(), code, fmt.Sprintf(format, args...), pos, end, at, at.Pos(), at.End()))
 	}
 	c.report(pos, end, code, format, args...)
 }

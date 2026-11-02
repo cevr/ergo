@@ -265,9 +265,10 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 			p = spec.Names[0]
 		}
 		if p != nil {
-			patternSpec := *spec
+			// The copy is made from spec (owner.go): it reports in spec's file.
+			patternSpec := clone(c, spec)
 			patternSpec.Pattern = p
-			c.letPattern(&patternSpec)
+			c.letPattern(patternSpec)
 			continue
 		}
 		var declared Type
@@ -393,7 +394,8 @@ func (c *checker) assignStmt(s *syntax.AssignStmt) {
 		return
 	}
 	lop := c.lhs(l)
-	bin := &syntax.BinaryExpr{X: l, OpPos: s.TokPos, Op: assignOp(s.Tok), Y: r}
+	// The operation is made from the assignment (owner.go).
+	bin := made(c, &syntax.BinaryExpr{X: l, OpPos: s.TokPos, Op: assignOp(s.Tok), Y: r}, s)
 	if lop.invalid() {
 		c.valueExpr(r, nil)
 		return
