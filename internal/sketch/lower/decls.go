@@ -812,6 +812,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.frame.result = f.Sig.Results[0]
 	}
 	if fd.extern != "" {
+		if isClose(f) {
+			// A checked Close masks its own body (closeBody, below); an
+			// extern body would run unmasked, and no release route binds
+			// one (runtime.md, I2). No accepted program declares one today.
+			ice(site, "the checked Close %s has an extern body, which no release route masks", f.Name)
+		}
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 		body := l.intrinsic(f)(fc, paramNames)
 		b.WriteString(head.String() + " {\n" + body + "}\n\n")

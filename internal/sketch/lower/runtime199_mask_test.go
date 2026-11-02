@@ -152,6 +152,10 @@ func closeSites(t *testing.T, o *lowered) map[string]bool {
 				found["dot"] = true
 			case call.Kind == check.CallFunc:
 				found["plain"] = true
+			case call.Kind == check.CallOp && !programReceiver(o, info.Closes[site].Receiver):
+				// A std operation's Close (the paths' signal.Close on a
+				// queue.Queue) is no checked Close of the program: counting
+				// it would let the queue alone satisfy the op path.
 			case call.Kind == check.CallOp:
 				found["op"] = true
 			default:
@@ -170,6 +174,15 @@ func closeSites(t *testing.T, o *lowered) map[string]bool {
 		}
 	}
 	return found
+}
+
+// programReceiver reports a Close receiver whose type the program declares.
+func programReceiver(o *lowered, recv check.Type) bool {
+	if p, ok := recv.(*check.Pointer); ok {
+		recv = p.Elem
+	}
+	n, ok := recv.(*check.Named)
+	return ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == o.pkg.Path
 }
 
 type maskPath struct {
@@ -356,6 +369,57 @@ func viaValue(fail bool, signal queue.Queue[int]) {
 			{"plain", "viaPlain", time.Hour},
 			{"value", "viaValue", time.Hour},
 		},
+		twins: []string{"twinFinish"},
+	},
+	{
+		// A generic receiver: the Close is instantiated at the call.
+		name: "generic",
+		extra: `
+type Box[T] { Fail bool, V T }
+
+func Close[T](b Box[T]) needs Scheduler {
+	Scheduler.Sleep(3h)
+	if b.Fail {
+		let xs = []int{}
+		let _ = xs[0]
+	}
+}
+
+func viaGeneric(fail bool, signal queue.Queue[int]) {
+	with Live {
+		let b = Box[string]{Fail: fail, V: "x"}
+		signal.Close()
+		b.Close()
+	}
+}
+`,
+		paths: []maskPath{{"dot", "viaGeneric", 3 * time.Hour}},
+		twins: []string{"twinFinish"},
+	},
+	{
+		// A pointer receiver, called through a pointer value.
+		name: "pointer",
+		extra: `
+type Held { Fail bool }
+
+func Close(h *Held) needs Scheduler {
+	Scheduler.Sleep(4h)
+	if h.Fail {
+		let xs = []int{}
+		let _ = xs[0]
+	}
+}
+
+func viaPointer(fail bool, signal queue.Queue[int]) {
+	with Live {
+		let mut h = Held{Fail: fail}
+		let p = &h
+		signal.Close()
+		p.Close()
+	}
+}
+`,
+		paths: []maskPath{{"dot", "viaPointer", 4 * time.Hour}},
 		twins: []string{"twinFinish"},
 	},
 }
@@ -805,5 +869,48 @@ func TestRuntime199ReleaseOwner(t *testing.T) {
 	sort.Strings(routes)
 	if strings.Join(exported, ",") != strings.Join(routes, ",") {
 		t.Errorf("runtime/v1 entries into release %v differ from the catalog's release routes %v", exported, routes)
+	}
+}
+
+// TestRuntime199ExternClose: a checked Close with an extern body would
+// return before closeBody and run unmasked. No source reaches it today (a
+// user extern is refused at its use; only prelude externs lower), so the
+// test gives a checked Close an extern target directly and expects the ICE.
+func TestRuntime199ExternClose(t *testing.T) {
+	const src = `type Conn { Fail bool }
+
+func Close(c Conn) {
+	if c.Fail {
+		let xs = []int{}
+		let _ = xs[0]
+	}
+}
+
+func main() {
+	Close(Conn{})
+}
+`
+	o := mustLower(t, "externClose", src)
+	var close *check.Func
+	for _, f := range o.pkg.Funcs {
+		if f.Name == "Close" {
+			close = f
+		}
+	}
+	if close == nil || !isClose(close) {
+		t.Fatalf("Close has no checked Close fact")
+	}
+	l := newLowerer(Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: src}}})
+	l.nameAll()
+	fd := l.funcDecl(close)
+	fd.extern = runtimeModule + "/runtime/v1.Release"
+	var got any
+	func() {
+		defer func() { got = recover() }()
+		l.emitFuncBody(fd)
+	}()
+	ref, ok := got.(refusal)
+	if !ok || !strings.Contains(ref.msg, "internal compiler error: the checked Close Close has an extern body, which no release route masks") {
+		t.Fatalf("an extern-bodied checked Close lowered as %v, want the unmasked-Close ICE", got)
 	}
 }
