@@ -132,7 +132,7 @@ The callback type carries `needs R`, so the requirements of the block appear in 
 
 ## Observability and supervision
 
-Status: **designed, not yet implemented** ([#69](https://github.com/cevr/ergo/issues/69), [#200](https://github.com/cevr/ergo/issues/200), [#207](https://github.com/cevr/ergo/issues/207)).
+Status: G1 and G2 are implemented ([#199](https://github.com/cevr/ergo/issues/199)). G3 and G4 are **designed, not yet implemented** ([#69](https://github.com/cevr/ergo/issues/69), [#200](https://github.com/cevr/ergo/issues/200), [#207](https://github.com/cevr/ergo/issues/207)).
 
 ### G1. Context through `with`
 
@@ -150,18 +150,29 @@ Status: G1 is implemented for string values ([#199](https://github.com/cevr/ergo
 
 ### G2. Fork-tree defects
 
-1. Each task records its parent, its span and its start site.
-2. A defect prints the chain of tasks and spans that led to it, from the failing task to the root:
+Status: G2 is implemented for `task.Go` ([#199](https://github.com/cevr/ergo/issues/199) stage 4b). The tasks of a `tasks.Set` and restarted tasks (G4) wait for supervision.
+
+1. Each task records its number, its parent while both run, and its site. The site is the source function that forks the task, the call and its position, written as a call frame is: `middle calls task.Go at main.ergo:12:11` ([stdlib.md](stdlib.md), hidden argument 2). The root task is `main`. A task keeps its site when its `Task` moves to another scope.
+2. A defect is recorded once, on the goroutine of the task where it happens, while the panicking frame is still on the stack. The record holds the panic's value, that task's Go stack, its chain of tasks and a snapshot of the context values in force for it ([G1](#g1-context-through-with)). The record travels whole. `Wait` raises it in the waiter. `Stop` and an owner's drain raise it or join it to their other causes. A release joins it to the frame's other causes. No path rebuilds it, so a report never shows the waiter's frames or the parent's later context.
+3. When main exits with a defect, the status is 2, and stderr holds each reason of the exit. A defect reads:
 
    ```text
-   defect: index out of range [3] with length 3
-     at handle (ingest.ergo:31)
-     task #7 handle, started by tasks.Set #2 at main (ingest.ergo:24)
-       span ingest  region=eu  peer=10.0.0.4
-     task #1 main
+   panic: runtime error: index out of range [3] with length 1
+   	leaf at main.ergo:7
+   	middle calls leaf at main.ergo:13:43
+   	task #3 middle calls task.Go at main.ergo:12:11
+   	  context trace.span="ingest" log.peer="10.0.0.4" log.region="inner"
+   	task #2 main calls task.Go at main.ergo:22:12
+   	task #1 main
    ```
 
-3. Ancestry retention is bounded.
+   - The first line is `panic: VALUE`. A defect in a release (an exit action or a `Close`) adds ` (in an exit action)`.
+   - The Ergo frames of the failing task follow, innermost first. The innermost frame is `F at FILE:LINE`, where F is the declaration that holds the panicking line. Each later frame is the call that it made, from the call table: `F calls G at FILE:LINE:COL`. When several calls share a line, the frame names the callee that is the declaration of the frame inside it, or else all of them (`G or H`). A run of one frame, as in a recursion, is written once with its count, `(N times)`. The Go closure around an exit action's block is part of its call, not a repeat. A defect in an exit action shows the action's frames, then the function that registered it, at the line where its exit actions run. The frames end at the body of the failing task. No Go runtime or wrapper frame is written.
+   - The chain follows, from the failing task to `main`, each task with its site. It is written when it holds more than the root, or when context values were in force.
+   - Under the failing task, a `context` line holds the values in force for it at the defect, outermost first, without shadowed bindings. Each is `PACKAGE.KEY="TEXT"`: the path of the package that declares the value's type, the protocol key, and the text. The trace span is the value `trace.span`.
+4. Every reason survives. `Stop` and an owner's drain drop a child's typed failure but keep its defects; `Wait` keeps every reason. A release defect joins the earlier exit and never replaces it. A `catch` handles typed failures only: an exit that holds a defect or an interruption passes through the `catch` whole. A traced run writes the same report as an untraced run.
+5. Ancestry retention is bounded. A defect copies at most 32 tasks of its chain, the failing task first; a longer chain is cut, and the cut is not marked yet. A task's link to its parent is cleared when the task finishes. A defect holds copied frames, not tasks, so no report keeps a task past its lifetime.
+6. *Prior art:* Go's traceback names one creator, `created by main.main in goroutine 1`, and drops the creator's own ancestors; Elixir crash reports list the process's `$ancestors`; Effect's `Cause` pretty-printer keeps every failure of a fiber tree with its spans; Kotlin's debug mode adds a `Coroutine boundary` to recovered stack traces. Ergo keeps each defect's own frames, the chain of fork sites and the context snapshot, bounded as the BEAM keeps ancestry: by copying, never by holding the parent.
 
 ### G3. `ergo ps <pid>`
 
