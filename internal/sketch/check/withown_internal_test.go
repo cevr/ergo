@@ -131,5 +131,7 @@ func TestWireOwnershipNoExternTrust(t *testing.T) {
 			t.Errorf("bodiless extern %s.%s is trusted as fresh; an extern proves no freshness until #197 gives it an ownership fact", fn.Pkg.Path, fn.Name)
 		}
 	}
-	t.Logf("%d bodiless std and prelude externs, none trusted: %v", len(externs), slices.Sorted(maps.Keys(names)))
+	if !t.Failed() {
+		t.Logf("%d bodiless std and prelude externs, none trusted: %v", len(externs), slices.Sorted(maps.Keys(names)))
+	}
 }

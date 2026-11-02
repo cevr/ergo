@@ -95,17 +95,16 @@ type footprinter struct {
 	info  *Info
 	nodes map[any]*fpNode // by frame key, and by *WireEntry
 	list  []*fpNode       // every node, in creation order
-	// owners is the wire that declares each entry a with acquires
-	// (footprinter.own), filled once per wire.
-	owners map[*WireEntry]*Wire
-	owned  map[*Wire]bool
+	// owners is the checker's one entry-to-declaring-wire index
+	// (wireOwners), shared with the ownership pass.
+	owners *wireOwners
 }
 
 // footprints records Info.Footprints once every body is final (finishInfo).
 func (c *checker) footprints() {
 	info := c.pkg.Info
 	fp := &footprinter{pkg: c.pkg, info: info, nodes: map[any]*fpNode{},
-		owners: map[*WireEntry]*Wire{}, owned: map[*Wire]bool{}}
+		owners: &c.wireOwners}
 	type body struct {
 		n    *fpNode
 		root syntax.Node
@@ -274,9 +273,9 @@ func (fp *footprinter) build(n *fpNode, w *With) {
 		n.opaque = true
 		return
 	}
-	fp.own(root)
+	fp.owners.add(root)
 	for _, a := range w.Acquired {
-		ow := fp.owners[a.Entry]
+		ow := fp.owners.of[a.Entry]
 		switch {
 		case ow == nil:
 			n.opaque = true
@@ -293,20 +292,6 @@ func (fp *footprinter) build(n *fpNode, w *With) {
 		default:
 			n.opaque = true
 		}
-	}
-}
-
-// own records the wire that declares each entry of w, through
-// embeddings, once per wire: a package's withs share the index, so many
-// withs over one embedding chain stay linear.
-func (fp *footprinter) own(w *Wire) {
-	if w == nil || fp.owned[w] {
-		return
-	}
-	fp.owned[w] = true
-	for _, e := range w.Entries {
-		fp.owners[e] = w
-		fp.own(e.Embedded)
 	}
 }
 

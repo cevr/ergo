@@ -204,6 +204,26 @@ func f() { with Out { with W { A.Use() } } }
 	})
 }
 
+// A provider that failed to type reports its own error once; the ownership
+// pass adds no S109 worded for a missing package's facts (runtime-199 stage
+// 3b r4 m1), for a named and an inline wire.
+func TestWireOwnershipUntypedProvider(t *testing.T) {
+	for _, src := range []string{
+		"let W = wire { A: missing() }\nfunc f() { with W { A.Use() } }\n",
+		"func f() { with wire { A: missing() } { A.Use() } }\n",
+	} {
+		_, ds := checkOwn(t, src)
+		if len(ds) == 0 {
+			t.Fatalf("no diagnostic for an undefined provider in\n%s", src)
+		}
+		for _, d := range ds {
+			if d.Code == "S109" || strings.Contains(d.Message, "provider ownership") {
+				t.Errorf("a cascade ownership diagnostic after the provider's own error: %v\n%s", ds, src)
+			}
+		}
+	}
+}
+
 func TestWireOwnershipRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name, src, code, msg string

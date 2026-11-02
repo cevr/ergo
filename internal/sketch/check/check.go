@@ -90,6 +90,9 @@ type checker struct {
 	// withSites are the with sites the reporting pass recorded, inner
 	// before outer, for the wire ownership pass (withown.go).
 	withSites []withSite
+	// wireOwners is the one index from an entry to the wire that declares
+	// it, shared by the ownership and footprint passes (withown.go).
+	wireOwners wireOwners
 
 	cur *fileInfo
 	// instance caches the instances of generic named types by their

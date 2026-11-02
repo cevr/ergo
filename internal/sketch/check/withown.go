@@ -51,31 +51,39 @@ type withSite struct {
 	outer []*withFrame // the frames of t around x, outermost first
 }
 
-func (c *checker) withOwnership() {
-	// An entry's expression and type facts belong to its defining wire's
-	// package, including through embeddings. Index each wire once.
-	owners := map[*WireEntry]*Wire{}
-	seen := map[*Wire]bool{}
-	var addWire func(*Wire)
-	addWire = func(w *Wire) {
-		if w == nil || seen[w] {
-			return
-		}
-		seen[w] = true
-		for _, e := range w.Entries {
-			if e.Provider != nil {
-				owners[e] = w
-			}
-			addWire(e.Embedded)
-		}
+// wireOwners maps each entry to the wire that declares it, through
+// embeddings: an entry's expression and type facts belong to its declaring
+// wire's package. It indexes each wire once, so many withs over one
+// embedding chain stay linear. The ownership pass fills it from the with
+// sites and the footprint pass reads it (runtime-199 stage 3c r3 o1).
+type wireOwners struct {
+	of   map[*WireEntry]*Wire
+	seen map[*Wire]bool
+}
+
+func (o *wireOwners) add(w *Wire) {
+	if w == nil || o.seen[w] {
+		return
 	}
+	if o.seen == nil {
+		o.of, o.seen = map[*WireEntry]*Wire{}, map[*Wire]bool{}
+	}
+	o.seen[w] = true
+	for _, e := range w.Entries {
+		o.of[e] = w
+		o.add(e.Embedded)
+	}
+}
+
+func (c *checker) withOwnership() {
 	for _, s := range c.withSites {
 		if w := c.pkg.Info.Withs[s.x]; w != nil {
 			for _, wire := range w.Wires {
-				addWire(wire)
+				c.wireOwners.add(wire)
 			}
 		}
 	}
+	owners := c.wireOwners.of
 	roots := append([]*Func(nil), c.pkg.Funcs...)
 	// A wire provider can call an imported constructor without any local
 	// function calling it. Those calls also root the freshness graph.
@@ -85,7 +93,7 @@ func (c *checker) withOwnership() {
 		}
 	}
 	for e, owner := range owners {
-		if info := providerInfo(owner); info != nil && owner.pkg != c.pkg {
+		if info := providerInfo(owner); info != nil && owner.pkg != c.pkg && e.Provider != nil {
 			syntax.Inspect(e.Provider, func(n syntax.Node) bool {
 				if x, ok := n.(*syntax.CallExpr); ok {
 					if call := info.Calls[x]; call != nil && call.Kind == CallFunc {
@@ -122,6 +130,13 @@ func (c *checker) withOwnership() {
 		for _, a := range w.Acquired {
 			owner := owners[a.Entry]
 			info := providerInfo(owner)
+			if info != nil && info.Types[a.Entry.Provider] == nil && len(c.diags) > 0 {
+				// The provider failed to type, and its error is reported
+				// already: the program is refused, and an ownership verdict
+				// on an untyped provider would only be a cascade worded for
+				// a missing package (runtime-199 stage 3b r4 m1).
+				continue
+			}
 			if info == nil || info.Types[a.Entry.Provider] == nil {
 				c.cur = s.file
 				c.errorf(s.x, CodeOutside, "this wire's provider ownership cannot be proved without its defining package's facts; further resource ownership is #197's (resources.md, Wire ownership)")
