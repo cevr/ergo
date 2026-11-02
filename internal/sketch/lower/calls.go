@@ -527,7 +527,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	// and the frame's End ends it on every other exit (v1.Scope.close).
 	owning := ownsResources(w)
 	if owning && (fc.frame == nil || fc.frame.scope == "") {
-		refuse(x, "a with that owns a provider with a Close outside a function body is lowered after check-v1 stage E")
+		ice(x, "a with that owns a provider with a Close outside a function body; the checker refuses one (S108, check/frames.go)")
 	}
 	inline := w.Wires[0].Lit != nil
 	build := ""

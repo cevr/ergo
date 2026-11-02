@@ -166,7 +166,7 @@ func (fc *funcCtx) openFrame(errName string) {
 // ownership); v1.OnExit routes an exit action to the function's frame.
 func (fc *funcCtx) frameScope(site syntax.Node) string {
 	if fc.frame == nil || fc.frame.scope == "" {
-		refuse(site, "a call that needs a frame scope (task.Go, scope.OnExit or a function whose result holds a Task) outside a function body is lowered after check-v1 stage E")
+		ice(site, "a call that needs a frame scope (task.Go, scope.OnExit or a call whose result holds a Task) outside a function body; the checker refuses one (S108, check/frames.go)")
 	}
 	if fc.frame.with != "" {
 		return fc.frame.with

@@ -50,16 +50,10 @@ func Get() Conn[int] { Conn[int]{V: 1} }
 let W = wire { A: Get() }
 func main() { with W { A.Use() } }
 `,
-		`type A { Use() }
-type Conn { V int }
-func Use(c Conn) {}
-func Close(c Conn) {}
-func Get() Conn { Conn{V: 1} }
-let W = wire { A: Get() }
-let x = with W { A.Use(); 1 }
-`,
-		`import log
-let x = with log.Annotate("key", "value") { 1 }
+		`type Tag[T] { V T }
+func contextKey[T](t Tag[T]) string { "tag" }
+func contextText[T](t Tag[T]) string { "v" }
+func main() { with (Tag{V: 1}) { } }
 `,
 	)
 	seen, met := map[string]bool{}, map[string]int{}

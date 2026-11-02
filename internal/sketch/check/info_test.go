@@ -491,6 +491,8 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 	}
 	// Stage E2 (C13): no recorded type argument holds a Task.
 	gaps = append(gaps, taskArgGaps(info)...)
+	// Stage E2 (C18): no frame need outside a function body.
+	gaps = append(gaps, frameGaps(file, info)...)
 	sort.Strings(gaps)
 	return gaps
 }

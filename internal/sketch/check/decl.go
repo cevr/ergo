@@ -61,6 +61,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	c.finishInfo()
 	c.closeFacts()
 	c.withOwnership()
+	c.checkFrames()
 	c.footprints()
 	c.pkg.ErrorTypes = make(map[*Named]bool, len(c.errorTypes))
 	for n := range c.errorTypes {

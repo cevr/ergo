@@ -36,7 +36,7 @@ import (
 // contextWith lowers `with v { block }` for a context binding cb.
 func (fc *funcCtx) contextWith(x *syntax.CallExpr, cb *check.ContextBinding) operand {
 	if fc.frame == nil || fc.frame.scope == "" {
-		refuse(x.Args[0], "a with of a context value outside a function body is lowered after check-v1 stage E")
+		ice(x.Args[0], "a with of a context value outside a function body; the checker refuses one (S108, check/frames.go)")
 	}
 	list := x.Trailing.List
 	var res operand
