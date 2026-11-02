@@ -321,8 +321,7 @@ func (w *taskUses) parent() syntax.Node {
 }
 
 // isFrame reports whether n opens a frame: a function, test or law body, a
-// function literal, a trailing block of a call other than with, or a go
-// block.
+// function literal, or a trailing block of a call other than with.
 func (w *taskUses) isFrame(n syntax.Node) bool {
 	switch n := n.(type) {
 	case *syntax.FuncDecl, *syntax.TestDecl, *syntax.LawDecl, *syntax.FuncLit:
@@ -335,8 +334,6 @@ func (w *taskUses) isFrame(n syntax.Node) bool {
 			}
 			call := w.info.Calls[p]
 			return call == nil || call.Kind != CallWith
-		case *syntax.GoExpr:
-			return p.Block == n
 		}
 	}
 	return false
@@ -482,9 +479,9 @@ func (w *taskUses) allowed(x syntax.Expr) bool {
 		return false
 	case *syntax.SelectorExpr:
 		return w.receiver(x, p, i)
-	case *syntax.TryExpr, *syntax.CatchExpr, *syntax.GoExpr:
-		// The value leaves through the try, the catch or the go, which
-		// the rule decides in turn.
+	case *syntax.TryExpr, *syntax.CatchExpr:
+		// The value leaves through the try or the catch, which the rule
+		// decides in turn.
 		return true
 	}
 	// A block-final if, match or catch is the block's value.

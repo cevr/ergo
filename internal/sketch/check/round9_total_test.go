@@ -65,7 +65,7 @@ func variableUnionText(k int, oneCase, collapse bool) string {
 	return b.String()
 }
 
-// signatureUnion writes the reviewer's round-8 wildcard shape: U[E error]
+// signatureUnion writes the reviewer's round-8 wildcard shape: U[E]
 // listing V[func(Ai) fails E], a subject U[Fault], and one case or a case
 // per variant, with case _. Every variant's signature has a row that
 // mentions E.
@@ -75,7 +75,7 @@ func signatureUnion(n int, oneCase bool) string {
 	for i := range n {
 		fmt.Fprintf(&b, "type A%d {}\n", i)
 	}
-	b.WriteString("type U[E error] = ")
+	b.WriteString("type U[E] = ")
 	for i := range n {
 		if i > 0 {
 			b.WriteString(" | ")

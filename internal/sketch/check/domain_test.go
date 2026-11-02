@@ -759,9 +759,8 @@ func TestTotalityBudget(t *testing.T) {
 var kindCases = []struct{ name, want, src string }{
 	{"self-recursive-row", "", `type List[T, E] { Value T, Tail []List[T, E], Run func() fails E }`},
 	{"self-recursive-row-first", "", `type List[E, T] { Tail []List[E, T], Value T, Run func() fails E }`},
-	// The explicit form lists E first: an unconstrained T before E error
-	// would take E's constraint in the decided list.
-	{"self-recursive-explicit", "", `type List[E error, T] { Value T, Tail []List[E, T], Run func() fails E }`},
+	// E first, its field last: each kind is solved by position.
+	{"self-recursive-row-first-value", "", `type List[E, T] { Value T, Tail []List[E, T], Run func() fails E }`},
 	{"mutually-recursive-row", "", `type Box[T, E] { Next []Other[T, E], Run func() fails E }
 type Other[T, E] { Next []Box[T, E] }`},
 	{"mutual-row-declared-later", "", `type Other[T, E] { Next []Box[T, E] }

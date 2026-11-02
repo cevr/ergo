@@ -1,4 +1,4 @@
 type Bang {}
 extern go fixture.fail func fail() fails Bang
-func pass[E error](f func() fails E) {return f()}
+func pass[E](f func() fails E) {return f()}
 func F() fails Bang {return pass(fail)}

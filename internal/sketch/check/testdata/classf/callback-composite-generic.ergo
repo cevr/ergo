@@ -1,7 +1,7 @@
 type Bang {}
 extern go fixture.mark func mark() fails Bang
 type Runner[E] { Run func(func() fails E) fails E }
-func a[E error](run func(func() fails E) fails E) { // want S108
+func a[E](run func(func() fails E) fails E) { // want S108
  let r = Runner[E]{Run: run}
  try r.Run(func(){ try a[E](run) })
  try mark()

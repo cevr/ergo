@@ -499,12 +499,12 @@ func lastElement(path string) string {
 }
 
 // importBinds is the name an import spec binds in its file: its alias, or
-// its path's last element; "" for a malformed path or a dot import.
+// its path's last element; "" for a malformed path.
 func importBinds(s *syntax.ImportSpec) string {
 	if s.Kind == syntax.ImportNamed && s.Name != nil {
 		return s.Name.Name
 	}
-	if s.Kind == syntax.ImportDot || s.Path == nil {
+	if s.Path == nil {
 		return ""
 	}
 	path := s.Path.Value
@@ -567,17 +567,14 @@ func (c *checker) resolveNamed(n *Named) {
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
 		for _, field := range d.TypeParams.List {
+			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
 				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
 				c.def(name, tp)
 				switch {
-				case field.Type != nil && isErrorName(field.Type):
-					tp.Kind = KindErrors
-				case field.Type != nil && c.uncheckedConstraint(field.Type, ctx):
-					tp.unchecked = true
-				case field.Type != nil:
-					tp.Constraint = c.constraint(field.Type, ctx)
+				case cons != nil:
+					tp.Constraint = c.constraint(cons, ctx)
 				case conflicts[name.Name]:
 					c.errorf(name, CodeType, "type parameter %s is used both as a type and as a row (types.md, Generics 1)", name.Name)
 					tp.conflict = true
@@ -637,6 +634,21 @@ func (c *checker) bracketKinds(tn *TypeName) (map[string]Kind, map[string]bool) 
 func isErrorName(x syntax.Expr) bool {
 	id, ok := x.(*syntax.Ident)
 	return ok && id.Name == "error"
+}
+
+// constraintExpr returns a bracket field's written constraint, or nil. Ergo
+// has no `error` constraint (owner answer 4, stage E1): `[E error]` is S104
+// at `error`, and E stays unconstrained, its kind solved by position like
+// `[E]`.
+func (c *checker) constraintExpr(f *syntax.Field) syntax.Expr {
+	if f.Type == nil {
+		return nil
+	}
+	if isErrorName(f.Type) {
+		c.errorf(f.Type, CodeUnknown, "error is not a constraint; write [E]: a parameter in an error row is an error row (types.md, Generics 1)")
+		return nil
+	}
+	return f.Type
 }
 
 func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
@@ -939,6 +951,10 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 	o := c.lookupType(x.Name, ctx)
 	if o == nil {
+		if x.Name == "any" {
+			c.errorf(x, CodeUnknown, "Ergo has no any; use a type parameter or a union (types.md, Basic types)")
+			return invalid
+		}
 		c.errorf(x, CodeUnknown, "unknown type %s", x.Name)
 		return invalid
 	}
@@ -946,7 +962,7 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 	switch o := o.(type) {
 	case *TypeName:
 		if o == universeOnce.errorName {
-			c.errorf(x, CodeType, "error is only the head of an error row or a constraint")
+			c.errorf(x, CodeType, "error is only the head of an error row")
 			return invalid
 		}
 		return c.resolvedType(o.Type)
@@ -1016,8 +1032,8 @@ func (c *checker) recordUse(id *syntax.Ident, o Object) {
 	}
 }
 
-// constraint resolves a bracket constraint: any, comparable, an interface
-// with methods (types.md, Generics 2).
+// constraint resolves a bracket constraint: comparable, ordered, number or
+// an interface with methods (types.md, Generics 2).
 func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
 	t := c.typExpr(x, ctx)
 	if isInvalid(t) {
@@ -1028,7 +1044,7 @@ func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
 		c.errorf(x, CodeType, "a constraint is an interface, not %s", t)
 		return nil
 	}
-	if !it.Comparable && len(it.Methods) == 0 {
+	if it.Set == SetAll && len(it.Methods) == 0 {
 		return nil
 	}
 	return t
@@ -1401,15 +1417,14 @@ func (c *checker) funcSig(f *Func) *Signature {
 	var unconstrained []*TypeParam
 	if d.TypeParams != nil {
 		for _, field := range d.TypeParams.List {
+			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
 				c.preludeName(name) // D-D3; the parameter still binds
 				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), id: newID()}
 				c.def(name, tp)
 				switch {
-				case field.Type != nil && isErrorName(field.Type):
-					tp.Kind = KindErrors
-				case field.Type != nil:
-					constraints = append(constraints, pending{tp, field.Type})
+				case cons != nil:
+					constraints = append(constraints, pending{tp, cons})
 				default:
 					unconstrained = append(unconstrained, tp)
 				}
@@ -1429,10 +1444,6 @@ func (c *checker) funcSig(f *Func) *Signature {
 	owner := append([]*TypeParam(nil), tparams...)
 	restore := c.monoOwner(owner)
 	for _, p := range constraints {
-		if c.uncheckedConstraint(p.x, ctx) {
-			p.tp.unchecked = true
-			continue
-		}
 		p.tp.Constraint = c.constraint(p.x, ctx)
 	}
 	c.kindBracketParams(d.Type, ctx, unconstrained)

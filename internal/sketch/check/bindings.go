@@ -21,17 +21,16 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // local binder) and the mutability rules of lhs.
 
 // predeclaredNames are the names the decided language predeclares that the
-// checker spells as syntax (`Map[K, V]`) or adds with a later stage (the
-// constraints `ordered` and `number`, stage E). Every other predeclared
-// name is found in the scopes above the package: the universe and the
-// prelude's exported names.
-var predeclaredNames = map[string]bool{"Map": true, "ordered": true, "number": true}
+// checker spells as syntax (`Map[K, V]`). Every other predeclared name is
+// found in the scopes above the package: the universe and the prelude's
+// exported names.
+var predeclaredNames = map[string]bool{"Map": true}
 
-// notPreludeNames are universe names outside D-D3's decided list: `any`
-// and `error` are stage E's (D-E2), `uintptr`, `complex64` and
+// notPreludeNames are universe names outside D-D3's decided list: `error`
+// is only the head of an error row (D-E2), `uintptr`, `complex64` and
 // `complex128` are not v1 types, `with` is a keyword and `go` names the
 // extern go package. Each keeps the treatment it had before D-D3.
-var notPreludeNames = map[string]bool{"any": true, "error": true, "uintptr": true, "complex64": true, "complex128": true, "with": true, "go": true}
+var notPreludeNames = map[string]bool{"error": true, "uintptr": true, "complex64": true, "complex128": true, "with": true, "go": true}
 
 // isPreludeName reports whether name is predeclared for this package: a
 // universe name of D-D3's list, an exported prelude name, or one of

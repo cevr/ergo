@@ -80,7 +80,7 @@ const targetDecls = "type Bang {}\nextern go fixture.mark func mark() fails Bang
 	"extern go fixture.mq func mq() fails Q\n" +
 	"func q(n int) int fails Q { try mq(); n }\n" +
 	"func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }\n" +
-	"func pick[T any](x T, y T) T { x }\n"
+	"func pick[T](x T, y T) T { x }\n"
 
 // M2 and T2: an unknown row on the receiving side accepts any row, with no
 // diagnostic, and an inferred receiver (an if join, a type parameter's
@@ -177,8 +177,8 @@ const blockDecls = "type Bang {}\nextern go fixture.mark func mark() fails Bang\
 	"type Q {}\ntype Cap2 { N() }\n" +
 	"func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }\n" +
 	"extern go fixture.mq func mq() fails Q\n" +
-	"func run[T any](x T, f T) T { x }\n" +
-	"func mk[T any](f T) func() T { func() T { f } }\n"
+	"func run[T](x T, f T) T { x }\n" +
+	"func mk[T](f T) func() T { func() T { f } }\n"
 
 // M2 and T2 in two more target positions: a trailing block whose expected
 // row is unknown infers that row, so its known Q or Cap2 reaches the type
@@ -204,10 +204,10 @@ func TestUnknownRowInBlockAndResultTargets(t *testing.T) {
 		// unknown error row, and the call of it is not generic: a block or
 		// a literal passed there infers its row, which the unknown row
 		// accepts, so neither reports a follow-on S101 or S102.
-		{"concrete-block-errors", blockDecls + "func ap[T any](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(z)() { try mq(); 1 }; 1 }\n", []string{"S108:3", "S108:6"}},
-		{"concrete-block-capability", blockDecls + "func ap[T any](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(zw)() { Cap2.N(); try mq(); 1 }; 1 }\n", []string{"S108:3", "S108:6"}},
-		{"concrete-literal-errors", blockDecls + "func ap[T any](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(z)(func() int { try mq(); 1 }); 1 }\n", []string{"S108:3", "S108:6"}},
-		{"concrete-literal-capability", blockDecls + "func ap[T any](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(zw)(func() int fails Q { Cap2.N(); try mq(); 1 }); 1 }\n", []string{"S108:3", "S108:6"}},
+		{"concrete-block-errors", blockDecls + "func ap[T](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(z)() { try mq(); 1 }; 1 }\n", []string{"S108:3", "S108:6"}},
+		{"concrete-block-capability", blockDecls + "func ap[T](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(zw)() { Cap2.N(); try mq(); 1 }; 1 }\n", []string{"S108:3", "S108:6"}},
+		{"concrete-literal-errors", blockDecls + "func ap[T](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(z)(func() int { try mq(); 1 }); 1 }\n", []string{"S108:3", "S108:6"}},
+		{"concrete-literal-capability", blockDecls + "func ap[T](x T) func(f T) T { func(f T) T { f } }\nfunc F() int { _ = ap(zw)(func() int fails Q { Cap2.N(); try mq(); 1 }); 1 }\n", []string{"S108:3", "S108:6"}},
 	}
 	runD1(t, cases)
 	for _, tc := range cases {

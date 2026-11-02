@@ -216,7 +216,7 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 		xi, yi := asInterface(x), asInterface(y)
 		switch {
 		case xi != nil && yi != nil:
-			if xi.Comparable != yi.Comparable {
+			if xi.Set != yi.Set {
 				return false
 			}
 			small, large := xi.Methods, yi.Methods
@@ -297,7 +297,7 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 	case *Interface:
 		// Exact mode: the same methods, signatures unified.
 		yi, ok := y.(*Interface)
-		if !ok || x.Comparable != yi.Comparable || len(x.Methods) != len(yi.Methods) {
+		if !ok || x.Set != yi.Set || len(x.Methods) != len(yi.Methods) {
 			return false
 		}
 		for _, m := range x.Methods {

@@ -302,10 +302,6 @@ func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 	n.walked = true
 	inspectFrame(fp.info, root, func(x syntax.Node, _ []*syntax.CallExpr) bool {
 		switch x := x.(type) {
-		case *syntax.GoExpr:
-			// Not admitted (the checker refuses it); a task start if it were.
-			n.tasks, n.opaque = true, true
-			return false
 		case *syntax.RangeStmt:
 			// A for-in over a Seq calls the Seq, a function value, which
 			// calls the body back: unknown code runs here.

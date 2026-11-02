@@ -82,7 +82,7 @@ func structural(a, b Type) bool {
 		return structuralRow(a.Errors, b.Errors) && structuralRow(a.Uses, b.Uses)
 	case *Interface:
 		b, ok := b.(*Interface)
-		if !ok || a.Comparable != b.Comparable || len(a.Methods) != len(b.Methods) {
+		if !ok || a.Set != b.Set || len(a.Methods) != len(b.Methods) {
 			return false
 		}
 		for _, m := range a.Methods {
@@ -333,7 +333,7 @@ func genericInferred(seed uint64) string {
 		ty := types[rng.IntN(len(types))]
 		switch rng.IntN(3) {
 		case 0:
-			fmt.Fprintf(&b, "func pass%d[E error](f func() fails E) { return f() }\n", i)
+			fmt.Fprintf(&b, "func pass%d[E](f func() fails E) { return f() }\n", i)
 			fmt.Fprintf(&b, "func C%d() fails Bang { return pass%d(fail) }\n", i, i)
 			fmt.Fprintf(&b, "func X%d() fails Bang { return pass%d[Bang](fail) }\n", i, i)
 			fmt.Fprintf(&b, "let saved%d = pass%d[Bang]\nfunc S%d() fails Bang { return saved%d(fail) }\n", i, i, i, i)

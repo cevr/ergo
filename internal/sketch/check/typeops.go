@@ -78,7 +78,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		}
 		return s
 	case *Interface:
-		it := &Interface{Comparable: t.Comparable, Methods: make([]*Method, len(t.Methods))}
+		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods))}
 		newOf := make(map[*Method]*Method, len(t.Methods))
 		for i, mt := range t.Methods {
 			it.Methods[i] = &Method{Name: mt.Name, Sig: c.subst(mt.Sig, m).(*Signature), Pos: mt.Pos}
@@ -277,8 +277,8 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		if _, isTuple := under(v).(*Tuple); isTuple {
 			return assignment{}, "a tuple has no operations"
 		}
-		if it.Comparable {
-			return assignment{}, "comparable is a constraint only"
+		if it.Set != SetAll {
+			return assignment{}, fmt.Sprintf("%s is a constraint only", it.Set)
 		}
 		if why := c.implements(v, it); why != "" {
 			return assignment{}, why
@@ -698,10 +698,42 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 	case *Pointer:
 		return true
 	case *TypeParam:
-		ci := asInterface(u.Constraint)
-		return ci != nil && ci.Comparable
+		return typeSet(u) >= SetComparable
 	}
 	return false
+}
+
+// typeSet is the predeclared type set a type parameter's constraint names
+// (comparable, ordered or number), SetAll for any other type or
+// constraint.
+func typeSet(t Type) TypeSet {
+	tp, ok := t.(*TypeParam)
+	if !ok {
+		return SetAll
+	}
+	if it := asInterface(tp.Constraint); it != nil {
+		return it.Set
+	}
+	return SetAll
+}
+
+// inSet reports whether t lies in the type set s (types.md, Generics 2):
+// a type parameter by its own constraint's set, any other type by its
+// underlying type.
+func inSet(t Type, s TypeSet) bool {
+	switch s {
+	case SetAll:
+		return true
+	case SetComparable:
+		return comparable(t)
+	}
+	if _, ok := t.(*TypeParam); ok {
+		return typeSet(t) >= s
+	}
+	if s == SetOrdered && (isString(t) || isDuration(under(t))) {
+		return true
+	}
+	return isInteger(t) || isFloat(t)
 }
 
 // satisfies checks a type argument against its constraint.
@@ -713,9 +745,9 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 	if it == nil {
 		return ""
 	}
-	if it.Comparable {
-		if !comparable(t) {
-			return fmt.Sprintf("%s is not comparable", t)
+	if it.Set != SetAll {
+		if !inSet(t, it.Set) {
+			return fmt.Sprintf("%s is not %s", t, it.Set)
 		}
 		return ""
 	}

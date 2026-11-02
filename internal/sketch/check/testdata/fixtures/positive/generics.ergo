@@ -18,7 +18,7 @@ func Transform[A, B, E, R](xs []A, f func(A) B fails E needs R) []B fails E need
 	return out
 }
 
-extern go fixture.On func On[F error, A, E, R](f func() A fails E needs R) A fails E needs R
+extern go fixture.On func On[F, A, E, R](f func() A fails E needs R) A fails E needs R
 
 func same[T comparable](a, b T) bool { return a == b }
 

@@ -187,7 +187,8 @@ func Put[T](_ Box[T], x T) {}`},
 func Run[E, F](_ A[E, F]) fails E | F {}`},
 		{"body-type-method-row", "S108", `type Job[E] { v E }
 func Run[E](_ Job[E]) fails E {}`},
-		{"explicit-error", "", `type Job[E error] {}
+		// Ergo has no error constraint (stage E1, owner answer 4).
+		{"error-constraint-refused", "S104", `type Job[E error] {}
 func Run[E](_ Job[E]) fails E {}`},
 	}
 	for _, tc := range cases {

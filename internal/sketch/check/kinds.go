@@ -117,10 +117,9 @@ func (c *checker) solveDeclKinds() {
 			for range f.Names {
 				v := kindVar{tn, i}
 				parent[v] = v
-				switch {
-				case f.Type != nil && isErrorName(f.Type):
-					observe(v, KindErrors)
-				case f.Type != nil:
+				// `[E error]` is refused (constraintExpr): E's kind is
+				// solved by position, as `[E]`'s is.
+				if f.Type != nil && !isErrorName(f.Type) {
 					observe(v, KindType)
 				}
 				i++

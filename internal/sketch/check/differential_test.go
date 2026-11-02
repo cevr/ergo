@@ -543,9 +543,10 @@ func (k ergoKeys) key(t Type) string {
 		}
 		return "struct{" + strings.Join(fs, ";") + "}"
 	case *Interface:
-		if t.Comparable {
-			// go/types names the predeclared constraint comparable.
-			return "comparable"
+		if t.Set != SetAll {
+			// go/types names the predeclared constraint comparable; the
+			// other sets have no go/types name and key by their own.
+			return t.Set.String()
 		}
 		var ms []string
 		for _, m := range t.Methods {

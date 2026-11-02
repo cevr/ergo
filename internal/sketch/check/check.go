@@ -445,14 +445,13 @@ func isExported(name string) bool {
 
 var universeOnce struct {
 	sync.Once
-	scope      *Scope
-	errorName  *TypeName
-	anyType    Type
-	comparable Type
-	goPkg      *Package
+	scope     *Scope
+	errorName *TypeName
+	goPkg     *Package
 }
 
-// universe is the predeclared block: the basic types, comparable, true,
+// universe is the predeclared block: the basic types, the constraints
+// comparable, ordered and number, true,
 // false and len, the one built-in function (#196, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).
@@ -463,15 +462,16 @@ func universe() *Scope {
 		basic := func(name string, k BasicKind) {
 			s.insert(name, &TypeName{Name: name, Pkg: u, Type: Typ[k], id: newID()})
 		}
+		// `any` is not predeclared (D-E2): it is an unknown name.
 		for _, k := range []BasicKind{Bool, String, Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Uintptr, Float32, Float64, Complex64, Complex128, Duration} {
 			basic(Typ[k].Name, k)
 		}
 		basic("byte", Uint8)
 		basic("rune", Int32)
-		universeOnce.anyType = &Interface{}
-		universeOnce.comparable = &Interface{Comparable: true}
-		s.insert("any", &TypeName{Name: "any", Pkg: u, Type: universeOnce.anyType, id: newID()})
-		s.insert("comparable", &TypeName{Name: "comparable", Pkg: u, Type: universeOnce.comparable, id: newID()})
+		// The predeclared constraints (D-E1): each names a type set.
+		for _, set := range []TypeSet{SetComparable, SetOrdered, SetNumber} {
+			s.insert(set.String(), &TypeName{Name: set.String(), Pkg: u, Type: &Interface{Set: set}, id: newID()})
+		}
 		errName := &TypeName{Name: "error", Pkg: u, id: newID()}
 		errName.Type = &Named{Obj: errName, under: &Interface{}, state: 2}
 		universeOnce.errorName = errName

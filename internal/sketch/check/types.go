@@ -78,16 +78,45 @@ type Field struct {
 	Pos  syntax.Pos
 }
 
-// Interface is an interface: method signatures (a capability when it is
-// named), or no methods (any, comparable).
+// Interface is an interface: method signatures (an operation type when it
+// is named), or a predeclared constraint's type set (comparable, ordered,
+// number; 196g).
 type Interface struct {
-	Methods    []*Method
-	index      map[string]*Method
-	Comparable bool // the predeclared constraint comparable
+	Methods []*Method
+	index   map[string]*Method
+	Set     TypeSet // the predeclared constraint's type set; SetAll for a method set
 	// byName holds the methods sorted by name, once, when the type is
 	// resolved (go/types NewInterfaceType): identity reads it and never
 	// sorts (round 11 M3).
 	byName []*Method
+}
+
+// TypeSet is the type set of a predeclared constraint (types.md, Generics
+// 2). Each set lies within the one before it, so a larger value admits
+// fewer types and more operators: comparable admits == and !=; ordered
+// adds <, <=, >, >= and + over the integer, float, string and duration
+// types and the defined types over them; number adds -, *, / and unary -
+// over the integer and float types and the defined types over them.
+type TypeSet uint8
+
+// The type sets.
+const (
+	SetAll        TypeSet = iota // every type: a method set or no constraint
+	SetComparable                // comparable
+	SetOrdered                   // ordered
+	SetNumber                    // number
+)
+
+func (s TypeSet) String() string {
+	switch s {
+	case SetComparable:
+		return "comparable"
+	case SetOrdered:
+		return "ordered"
+	case SetNumber:
+		return "number"
+	}
+	return "any"
 }
 
 // Method is a method of an interface.
@@ -161,14 +190,10 @@ func (k Kind) String() string {
 type TypeParam struct {
 	Name       string
 	Kind       Kind
-	Constraint Type // nil for any
+	Constraint Type // nil for none: every type, no operation but assignment
 	Pos        syntax.Pos
 	conflict   bool // a kind conflict, already reported: resolves to nothing
-	// unchecked: its constraint is a decided one this checker does not
-	// check yet (S109 at the constraint): a body that declares it is not
-	// checked, so nothing cascades from the missing operations (D3).
-	unchecked bool
-	id        int
+	id         int
 }
 
 // RowVar is the inferred row of a function that writes no row (class F):
@@ -282,11 +307,8 @@ func (t *Struct) String() string {
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 func (t *Interface) String() string {
-	if t.Comparable {
-		return "comparable"
-	}
-	if len(t.Methods) == 0 {
-		return "any"
+	if t.Set != SetAll || len(t.Methods) == 0 {
+		return t.Set.String()
 	}
 	parts := make([]string, len(t.Methods))
 	for i, m := range t.Methods {

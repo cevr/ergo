@@ -255,7 +255,7 @@ func main() {}
 func k[E](a E) fails E { return }
 func main() {}
 `, []string{"S108:2"}},
-	{"ordered constraint", "ordered is 196g's; its body does not cascade", `
+	{"ordered constraint", "ordered is checked (stage E1): > is defined on T", `
 func max[T ordered](a T, b T) T {
 	if a > b {
 		return a
@@ -264,7 +264,7 @@ func max[T ordered](a T, b T) T {
 }
 func f() int { return max(1, 2) }
 func main() {}
-`, []string{"S109:2"}},
+`, nil},
 	{"fails and needs", "a written row", `
 type Bang {}
 type Log { Write(s string) }

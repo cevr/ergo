@@ -319,10 +319,7 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 			}
 			names[i], kids[i] = m.Name, m.Sig
 		}
-		cmp := int64(0)
-		if t.Comparable {
-			cmp = 1
-		}
+		cmp := int64(t.Set)
 		return vIface, nil, cmp, strings.Join(names, ","), kids
 	}
 	// A union, a machine, no value.

@@ -220,7 +220,7 @@ func TestWithOperandBinders(t *testing.T) {
 	const prelude = contextShadowPrelude + `type Boom { Tag Tag }
 type Box { W Tag }
 func mk() Tag fails Boom { Tag{Text: "x"} }
-func two[T any](a T, b T) []T { []T{a, b} }
+func two[T](a T, b T) []T { []T{a, b} }
 `
 	const hides = "which hides the package wire"
 	for _, tc := range []struct{ name, body, want, diag string }{
@@ -234,10 +234,10 @@ func two[T any](a T, b T) []T { []T{a, b} }
 		{"catch-record", `func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }`, "context,context", ""},
 		{"after", `func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }`, "context,wire", ""},
 		{"inner-block", `func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }`, "context,wire", ""},
-		{"type-param", `func f[W any](x W) { with W { A.Use() } }`, "none", "W names a type parameter here, " + hides},
-		{"type-param-paren", `func f[W any](x W) { with (W) { A.Use() } }`, "none", "W names a type parameter here, " + hides},
+		{"type-param", `func f[W](x W) { with W { A.Use() } }`, "none", "W names a type parameter here, " + hides},
+		{"type-param-paren", `func f[W](x W) { with (W) { A.Use() } }`, "none", "W names a type parameter here, " + hides},
 		{"needs-row", "let A = wire { A: Quiet }\nfunc f() needs A { with A { A.Use() } }", "none", "A names the capability of this function's needs row here, " + hides},
-		{"type-param-literal", `func f[W any](x W) { let g = func() { with W { A.Use() } }; g() }`, "none", "W names a type parameter here, " + hides},
+		{"type-param-literal", `func f[W](x W) { let g = func() { with W { A.Use() } }; g() }`, "none", "W names a type parameter here, " + hides},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := prelude + tc.body + "\n"

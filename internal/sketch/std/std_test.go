@@ -349,8 +349,8 @@ func matchTypeParams(t *testing.T, where string, ergo []*check.TypeParam, body v
 	}
 }
 
-// goConstraint is the Go constraint of an Ergo one: none and any are any,
-// comparable is comparable.
+// goConstraint is the Go constraint of an Ergo one: none is any,
+// comparable is comparable; ordered and number have no Go name here.
 func goConstraint(c check.Type) (string, bool) {
 	if c == nil {
 		return "any", true
@@ -359,10 +359,12 @@ func goConstraint(c check.Type) (string, bool) {
 	switch {
 	case !ok || len(i.Methods) > 0:
 		return "", false
-	case i.Comparable:
+	case i.Set == check.SetComparable:
 		return "comparable", true
+	case i.Set == check.SetAll:
+		return "any", true
 	}
-	return "any", true
+	return "", false
 }
 
 // ownerParams are the type parameters of the operations type t, an

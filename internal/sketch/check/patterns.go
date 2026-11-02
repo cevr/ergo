@@ -252,29 +252,3 @@ func (c *checker) forPattern(p syntax.Expr, t Type, l *Loop) {
 		l.Bindings = append(l.Bindings, v)
 	}
 }
-
-// ---------------------------------------------------------------- unchecked constraints
-
-// uncheckedConstraint reports the decided named constraint `ordered`
-// (196g; the translator writes it for cmp.Ordered), which the 196a checker
-// has no meaning for: S109 at the constraint, unless a type of that name is
-// declared.
-func (c *checker) uncheckedConstraint(x syntax.Expr, ctx *typeCtx) bool {
-	id, ok := x.(*syntax.Ident)
-	if !ok || id.Name != "ordered" || c.lookupType(id.Name, ctx) != nil {
-		return false
-	}
-	c.outside(x, "the ordered constraint (196g, constraints)")
-	return true
-}
-
-// uncheckedParams reports whether a signature declares a type parameter
-// whose constraint is unchecked (uncheckedConstraint).
-func uncheckedParams(tps []*TypeParam) bool {
-	for _, tp := range tps {
-		if tp.unchecked {
-			return true
-		}
-	}
-	return false
-}

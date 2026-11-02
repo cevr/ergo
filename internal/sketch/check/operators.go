@@ -155,7 +155,7 @@ func (c *checker) unary(x *syntax.UnaryExpr, hint Type) operand {
 			return bad(x)
 		}
 	case syntax.SUB, syntax.ADD:
-		if !isNumeric(t) && !isDuration(t) {
+		if !isNumeric(t) && !isDuration(t) && typeSet(t) != SetNumber {
 			c.errorf(x, CodeType, "operator %s is not defined on %s", x.Op, t)
 			return bad(x)
 		}
@@ -341,20 +341,30 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 	return false
 }
 
+// ordered reports whether <, <=, > and >= are defined on t: an ordered
+// basic type, or a type parameter constrained by ordered or number.
 func ordered(t Type) bool {
+	if _, ok := t.(*TypeParam); ok {
+		return typeSet(t) >= SetOrdered
+	}
 	b, ok := under(t).(*Basic)
 	return ok && b.Kind != Bool && b.Kind != Invalid && !isComplex(b)
 }
 
+// opDefined reports a binary arithmetic or logical operator t lacks
+// (S108). On a type parameter an operator is defined when every type of
+// its constraint's set defines it (types.md, Generics 2): + on ordered
+// and number, -, * and / on number only.
 func (c *checker) opDefined(x syntax.Node, op syntax.Token, t Type) bool {
 	ok := false
+	set := typeSet(t)
 	switch op {
 	case syntax.ADD:
-		ok = isNumeric(t) || isString(t) || isDuration(t)
+		ok = isNumeric(t) || isString(t) || isDuration(t) || set >= SetOrdered
 	case syntax.SUB:
-		ok = isNumeric(t) || isDuration(t)
+		ok = isNumeric(t) || isDuration(t) || set == SetNumber
 	case syntax.MUL, syntax.QUO:
-		ok = isNumeric(t)
+		ok = isNumeric(t) || set == SetNumber
 	case syntax.REM, syntax.AND, syntax.OR, syntax.XOR, syntax.AND_NOT:
 		ok = isInteger(t)
 	case syntax.LAND, syntax.LOR:

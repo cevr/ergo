@@ -68,8 +68,8 @@ func recursiveAdmission(seed uint64, errors bool) admissionGroup {
 		emit("type Box[T] { M(T) }")
 		emit("extern go fixture.BoxOf func BoxOf[T](x T) Box[T]")
 		emit("extern go fixture.Choose func Choose[T](x T, y T) fails Bang")
-		// E first: the decided list [T, E error] would make T an error row.
-		emit("extern go fixture.Run func Run[E error, T](x T, y T, callback func() fails E) fails E")
+		// E is an error row by its position after fails.
+		emit("extern go fixture.Run func Run[E, T](x T, y T, callback func() fails E) fails E")
 	} else {
 		emit("type Cap { M() }")
 		emit("type Box[T] { M(T) }")

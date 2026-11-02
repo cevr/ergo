@@ -46,7 +46,6 @@ func main() needs Console {
 func TestCorpusGuardDeferredRefusals(t *testing.T) {
 	for _, tc := range []struct{ name, src, want string }{
 		{"parenthesised-instance", "func Fn[T](x T) T { x }\nfunc f() int { ((Fn[int]))(1) }\n", "an explicit instantiation used as a value is lowered after check-v1 stage E"},
-		{"any-conversion", "func use(x any) {}\nfunc f() { use(1) }\n", "the type any is lowered after check-v1 stage E (no any, constraints)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			o := lowerSource("r", tc.src, false)

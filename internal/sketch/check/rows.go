@@ -966,11 +966,6 @@ func (pv *pkgVar) bodySize() int {
 func (c *checker) checkFuncBody(f *Func) bool {
 	c.workNodes += f.bodySize()
 	defer c.beginBodyCheck(f)()
-	if uncheckedParams(f.Sig.TParams) {
-		// A constraint this checker does not check yet (S109 at it): the
-		// body's operations on that parameter have no meaning here.
-		return false
-	}
 	defer c.beginDeps(f)()
 	defer c.monoOwner(f.Sig.TParams)()
 	saved := c.cur

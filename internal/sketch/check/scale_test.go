@@ -475,7 +475,7 @@ var scaleShapes = []scaleShape{
 			}
 			g.line("type V[T] {}")
 			g.line("type Fault {}")
-			g.line("type U[E error] = %s", strings.Join(variants, " | "))
+			g.line("type U[E] = %s", strings.Join(variants, " | "))
 			g.line("func f(x U[Fault]) int64 {")
 			g.line("\tmatch x {")
 			for i := range n - 1 { // Leave a variant for the default arm.
