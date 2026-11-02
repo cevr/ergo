@@ -42,6 +42,11 @@ import (
 // its outcomes: a normal end, and at the registration of each acquisition
 // of a with that owns a release, a stop (gap) and a defect (seamdefect).
 //
+// Each inline case also runs in three nested roots (stage 5a M1): the same
+// with inside an owning with of a named wire, in an if block, in a loop and
+// in a function literal. The outer provider registers first and closes
+// after every inner release, on every exit.
+//
 // Each case runs with the caller unmasked and inside two nested masks, which
 // the acquisition must restore. The seam counts the completed acquisitions
 // that reach registration and reports any that is not masked there, and the
@@ -305,7 +310,67 @@ func (s *acqSeq) src() string {
 		fmt.Fprintf(&b, "let M%d = wire { N%d }\nfunc needN%d() needs %s {}\nfunc deep%d() needs Probe {\n\twith wire { M%d } { needN%d() }\n}\n",
 			s.k, s.k, s.k, strings.Join(ncaps, ", "), s.k, s.k, s.k)
 	}
+	// The nested roots (stage 5a M1), run natively: the same inline with,
+	// nested inside an owning with of the named wire W<k>, whose provider
+	// O<k> has a Close, in each form: an if block, a loop and a function
+	// literal the outer block calls. So every boundary outcome of the inner
+	// with also meets an enclosing owner: O<k> closes after the inner with's
+	// providers on every exit, and the outer block goes on only after the
+	// inner with ended normally.
+	fmt.Fprintf(&b, "type PO%d { Name() string }\ntype O%d {}\nfunc Name(_ O%d) string { \"O%d\" }\nfunc Close(_ O%d) needs Probe { let _ = Probe.Step(\"close O%d\") }\nfunc mo%d() O%d { O%d }\nlet W%d = wire { PO%d: mo%d() }\n",
+		s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k)
+	inner := fmt.Sprintf("with wire { %s } {\n\t\t\tlet _ = Probe.Step(\"body \" + %s)\n\t\t}", strings.Join(inline, ", "), strings.Join(names, " + \" \" + "))
+	for _, form := range nestForms {
+		var around string
+		switch form {
+		case "block":
+			around = "\t\tif true {\n\t\t" + inner + "\n\t\t}\n"
+		case "loop":
+			around = "\t\tfor i in 0..1 {\n\t\t\tlet _ = i\n\t\t" + inner + "\n\t\t}\n"
+		case "closure":
+			around = "\t\tlet f = func() fails Fault needs Probe {\n\t\t" + inner + "\n\t\t}\n\t\ttry f()\n"
+		}
+		fmt.Fprintf(&b, "func %s() fails Fault needs Probe {\n\twith W%d {\n%s\t\tlet _ = Probe.Step(\"outer \" + PO%d.Name())\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
+			s.nestFn(form), s.k, around, s.k, s.k)
+	}
 	return b.String()
+}
+
+// nestForms are the places of the nested roots (stage 5a M1).
+var nestForms = []string{"block", "loop", "closure"}
+
+// nestFn is the function of the nested root in form.
+func (s *acqSeq) nestFn(form string) string { return fmt.Sprintf("nest%s%d", form, s.k) }
+
+// nestIn is the inline case c run in the nested root of form: the owning
+// with of W<k> around it acquires O<k> first (the seam's first
+// registration, so a gap or seam defect at the inner index-th acquisition
+// is the seam's index+1-th), its block's own line follows the inner with's
+// normal end, and O<k> closes after every inner release, before a typed
+// failure reaches the caller.
+func (s *acqSeq) nestIn(c acqCase, form string) acqCase {
+	n := c
+	n.name, n.fn = "nest"+form+c.name, s.nestFn(form)
+	if c.mode == acqGap || c.mode == acqSeamDefect {
+		n.index = c.index + 1
+	}
+	n.gaps = c.gaps + 1
+	closeO, end := fmt.Sprintf("close O%d", s.k), fmt.Sprintf("end %d", s.k)
+	want := append([]string(nil), c.want...)
+	last := ""
+	if len(want) > 0 {
+		last = want[len(want)-1]
+	}
+	switch {
+	case last == end:
+		want = append(want[:len(want)-1], fmt.Sprintf("outer O%d", s.k), closeO, end)
+	case c.mode == acqFail:
+		want = append(want[:len(want)-1], closeO, last)
+	default:
+		want = append(want, closeO)
+	}
+	n.want = want
+	return n
 }
 
 // acqFact is the checker's acquisition order of the inline with in s's
@@ -518,9 +583,24 @@ func TestRuntime199AcquireProperty(t *testing.T) {
 	var cases []acqCase
 	for _, s := range seqs {
 		fact := acqFact(t, o, s)
+		// Each nested root acquires what the top-level root acquires, in
+		// the same order (the checker's fact of each inner with).
+		for _, form := range nestForms {
+			if got := acqFactIn(t, o, s, s.nestFn(form), ""); !slices.Equal(got, fact) {
+				t.Errorf("%s acquires %v, the top-level root %v", s.nestFn(form), got, fact)
+			}
+		}
+		// add appends an inline case and its run in each nested root.
+		add := func(c acqCase) {
+			cases = append(cases, c)
+			for _, form := range nestForms {
+				cases = append(cases, s.nestIn(c, form))
+				shapes["nested "+form] = true
+			}
+		}
 		for _, depth := range []int{0, 2} {
 			none := s.expect(fact, acqNone, -1, depth)
-			cases = append(cases, none)
+			add(none)
 			shapes["owning"] = shapes["owning"] || none.owned
 			shapes["owning nothing"] = shapes["owning nothing"] || !none.owned
 			for i, e := range fact {
@@ -536,7 +616,7 @@ func TestRuntime199AcquireProperty(t *testing.T) {
 					modes = append(modes, acqFail)
 				}
 				for _, m := range modes {
-					cases = append(cases, s.expect(fact, m, i, depth))
+					add(s.expect(fact, m, i, depth))
 				}
 				shapes["shared"] = shapes["shared"] || len(en.caps) == 2
 				shapes["named dependency"] = shapes["named dependency"] || len(en.deps) > 0
@@ -573,7 +653,7 @@ func TestRuntime199AcquireProperty(t *testing.T) {
 			}
 		}
 	}
-	for _, shape := range []string{"owning", "owning nothing", "shared", "named dependency", "named literal", "inline literal", "replace", "fallible", "later after earlier success", "unreached constructor", "overridden", "named resource", "named twin owning", "named twin owning nothing", "named twin later acquisition"} {
+	for _, shape := range []string{"owning", "owning nothing", "shared", "named dependency", "named literal", "inline literal", "replace", "fallible", "later after earlier success", "unreached constructor", "overridden", "named resource", "named twin owning", "named twin owning nothing", "named twin later acquisition", "nested block", "nested loop", "nested closure"} {
 		if !shapes[shape] {
 			t.Fatalf("the generator reaches no %s entry", shape)
 		}
@@ -635,7 +715,7 @@ func acquireNative(t *testing.T, o *lowered, cases []acqCase) {
 	if err != nil {
 		t.Fatalf("native acquisition cases: %v\n%s\nErgo:\n%s", err, firstLines(string(output), 120), o.src)
 	}
-	t.Logf("%d native cases: fail, defect, stop and registration-gap outcomes at every acquired entry, unmasked and nested-masked; native PASS", len(cases))
+	t.Logf("%d native cases: fail, defect, stop and registration-gap outcomes at every acquired entry, top-level and in nested roots, unmasked and nested-masked; native PASS", len(cases))
 }
 
 // TestRuntime199AcquireOwner fails an acquisition that bypasses its owner.
