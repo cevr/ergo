@@ -176,12 +176,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		if !ok {
 			ice(sel.X, "a capability with no named type")
 		}
-		vals := fc.callArgs(args, x)
-		// The interruption point (runtime.md, I1): after the operands, each
-		// evaluated once and in order, and before the operation runs. A
-		// capability call writes statements (emits), so no operand after it
-		// runs before the poll. A checked Close starts a release instead
-		// (entersRelease).
+		// The interruption point (runtime.md, I1): before the operands, so
+		// no poll separates an operand's delivered value (a Pop's, a Wait's,
+		// any call's result) from the operation that receives it. The
+		// operands then run once and in order. A checked Close starts a
+		// release instead (entersRelease).
 		if fc.frame.polls && !fc.entersRelease(x) {
 			fc.poll(x)
 			if fc.lastPos == x.Pos() {
@@ -190,6 +189,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 				fc.lastPos = syntax.NoPos
 			}
 		}
+		vals := fc.callArgs(args, x)
 		env := fc.envExpr(x)
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).

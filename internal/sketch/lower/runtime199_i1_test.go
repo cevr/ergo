@@ -17,8 +17,8 @@ import (
 )
 
 // #199 stage 1 (runtime.md, I1): a frame whose footprint is not empty
-// checks for a stop before each capability call and at the head of each
-// loop body. Recursive or opaque impure frames also poll at entry, so
+// checks for a stop before each capability call and at the end of each
+// loop iteration. Recursive or opaque impure frames also poll at entry, so
 // recursive back-edges pass a check; a pure frame has none. The oracle is
 // the source's shape, never
 // Info.Footprints: each clause below states whether its frame is pure.
@@ -616,8 +616,9 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 }
 
 // i1CheckPolls reads the emitted Go: each loop's frame is the innermost Go
-// function or closure around it; an impure frame's loop body starts with
-// the check of the frame's own task, a pure frame's has none, and the Go
+// function or closure around it; an impure frame's loop body ends with
+// the check of the frame's own task, which every continue reaches, a pure
+// frame's has none, and the Go
 // loops are exactly the source's (no loop is lost and none is generated).
 // Each capability call Mark follows the check of the task it is passed.
 func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
@@ -730,23 +731,55 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 			t.Errorf("a Go loop in a %s frame, which holds no source loop\nGo:\n%s", class, stripDirectives(code))
 			return true
 		}
-		polls := 0
+		// The back-edge poll ends the iteration: the body's last statement
+		// is the frame's Check, labelled when a continue jumps to it. Each
+		// path that continues reaches it: no Go continue of this loop
+		// remains, and every goto names its label. It never heads the body,
+		// where it would separate the delivered element from the statement
+		// that receives it (spec, stage 5a O1).
+		polls, continues := 0, 0
+		var gotos []string
 		ast.Inspect(body, func(m ast.Node) bool {
-			switch m.(type) {
+			switch m := m.(type) {
 			case *ast.FuncLit, *ast.ForStmt, *ast.RangeStmt:
 				return false
 			case *ast.ExprStmt:
-				if isCheckOf(m.(ast.Stmt), "") {
+				if isCheckOf(m, "") {
 					polls++
+				}
+			case *ast.BranchStmt:
+				switch m.Tok {
+				case token.CONTINUE:
+					continues++
+				case token.GOTO:
+					gotos = append(gotos, m.Label.Name)
 				}
 			}
 			return true
 		})
+		end, label := ast.Stmt(nil), ""
+		if len(body.List) > 0 {
+			end = body.List[len(body.List)-1]
+			if l, ok := end.(*ast.LabeledStmt); ok {
+				end, label = l.Stmt, l.Label.Name
+			}
+		}
 		switch {
-		case want && (len(body.List) == 0 || !isOwnCheck(body.List[0], env)):
-			t.Errorf("an impure %s frame's loop body does not start with its task's Check\nGo:\n%s", class, stripDirectives(code))
+		case want && (end == nil || !isOwnCheck(end, env)):
+			t.Errorf("an impure %s frame's loop body does not end with its task's Check\nGo:\n%s", class, stripDirectives(code))
+		case want && len(body.List) > 1 && isOwnCheck(body.List[0], env):
+			t.Errorf("an impure %s frame's loop body starts with its task's Check, before the body receives the element\nGo:\n%s", class, stripDirectives(code))
+		case want && continues > 0:
+			t.Errorf("an impure %s frame's loop has %d continues, which skip its end-of-iteration Check\nGo:\n%s", class, continues, stripDirectives(code))
 		case !want && polls > 0:
 			t.Errorf("a pure %s frame's loop body has %d checks\nGo:\n%s", class, polls, stripDirectives(code))
+		case !want && label != "":
+			t.Errorf("a pure %s frame's loop body labels its end %s\nGo:\n%s", class, label, stripDirectives(code))
+		}
+		for _, g := range gotos {
+			if g != label {
+				t.Errorf("a %s frame's loop body jumps to %s, not to its end-of-iteration Check %q\nGo:\n%s", class, g, label, stripDirectives(code))
+			}
 		}
 		return true
 	})

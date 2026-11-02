@@ -30,8 +30,8 @@ type frame struct {
 	// that owns the tasks the code starts or receives (frameScope).
 	with string
 	// polls reports a frame whose footprint is not empty (Info.Footprints;
-	// runtime.md, I1): it checks for a stop before each capability call and
-	// at the head of each loop body. Entry placement is a separate checker
+	// runtime.md, I1): it checks for a stop before each capability call's
+	// operands and at the end of each loop iteration. Entry placement is a separate checker
 	// fact read by entryPoll. A pure frame has no point.
 	polls bool
 }
@@ -84,6 +84,9 @@ func (fc *funcCtx) poll(site syntax.Node) {
 type loopCtx struct {
 	label    string
 	switches int // Go switches between the loop and the current statement
+	// next labels the back-edge poll that ends each iteration of a polling
+	// loop: a continue jumps to it (loopBody). Empty until a continue needs it.
+	next string
 }
 
 // funcCtx writes one Go function body.
@@ -541,8 +544,8 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 	saved := fc.out
 	fc.out = &strings.Builder{}
 	breaks := false
-	// The poll heads the body, so every back-edge, a continue's included,
-	// passes it; a condition that writes statements runs after it.
+	// The poll ends the iteration (loopBody); a condition that writes
+	// statements runs at the top of the next one.
 	if s.Cond == nil || !fc.emits(s.Cond) {
 		if s.Cond == nil {
 			fc.line("for {")
@@ -550,13 +553,9 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 			fc.line("for " + fc.value(s.Cond) + " {")
 			breaks = true
 		}
-		fc.depth++
-		fc.poll(s)
-		fc.depth--
 	} else {
 		fc.line("for {")
 		fc.depth++
-		fc.poll(s)
 		cond := fc.value(s.Cond)
 		fc.line("if !(" + cond + ") {")
 		fc.line("\tbreak")
@@ -565,7 +564,7 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 		breaks = true
 	}
 	breaks = fc.containsBreak(s.Body) || breaks
-	fc.block(s.Body.List)
+	fc.loopBody(s, loop, s.Body.List)
 	fc.line("}")
 	body := fc.out.String()
 	fc.out = saved
@@ -646,13 +645,12 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		ice(s, "a for-in over the unknown domain %d", l.Domain)
 	}
 	fc.depth++
-	// The poll heads the body, before the bindings, so every back-edge, a
-	// continue's included, passes it (runtime.md, I1).
-	fc.poll(s)
+	// The bindings receive the element first; the poll ends the iteration
+	// (loopBody).
 	fc.loopBind(s.Key, pos, l.Pos)
 	fc.loopBind(s.Value, elem, l.Elem)
 	fc.depth--
-	fc.block(s.Body.List)
+	fc.loopBody(s, loop, s.Body.List)
 	fc.line("}")
 	body := fc.out.String()
 	fc.out = saved
@@ -662,6 +660,37 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 	}
 	fc.out.WriteString(body)
 	return false
+}
+
+// loopBody writes a loop's body and then its back-edge poll (runtime.md,
+// I1): the poll ends each iteration, on every path that continues the loop,
+// since a continue jumps to it (branch). It never heads the body, so it
+// never separates a delivered element (a Seq's or a Values loop's yield, a
+// binding, a condition) from the body that receives it. When a continue
+// jumps to the poll, the body is a Go block of its own, so the goto skips
+// none of its declarations (Go spec, Goto statements).
+func (fc *funcCtx) loopBody(s syntax.Stmt, loop *loopCtx, list []syntax.Stmt) {
+	saved := fc.out
+	fc.out = &strings.Builder{}
+	fc.block(list)
+	text := fc.out.String()
+	fc.out = saved
+	if loop.next == "" {
+		fc.out.WriteString(text)
+	} else {
+		fc.depth++
+		fc.line("{")
+		fc.out.WriteString(text)
+		fc.line("}")
+		fc.depth--
+		fc.line(loop.next + ":")
+	}
+	if fc.frame.polls {
+		fc.depth++
+		fc.at(s)
+		fc.poll(s)
+		fc.depth--
+	}
 }
 
 // bound reports a for binding that binds: present and not `_`.
@@ -746,6 +775,15 @@ func (fc *funcCtx) branch(s *syntax.BranchStmt) {
 		return
 	}
 	loop := fc.loops[len(fc.loops)-1]
+	if s.Tok == syntax.CONTINUE && fc.frame.polls {
+		// The back-edge poll ends the iteration (loopBody), so a continue
+		// jumps to it rather than past it.
+		if loop.next == "" {
+			loop.next = fc.temp("next")
+		}
+		fc.line("goto " + loop.next)
+		return
+	}
 	if loop.switches == 0 {
 		fc.line(word)
 		return

@@ -182,6 +182,125 @@ func blockingNative(t *testing.T, name, route string) {
 	t.Logf("%s: stop-phase/mask cases, moved-handle cases where applicable, and returned-task environment; native PASS", name)
 }
 
+// TestRuntime199DeliveredBeforeStop is the deterministic witness of the
+// stage 5a O1 rule (runtime.md, I1 rule 2): a compiler-inserted poll never
+// separates the completion of a value-delivering step from the first user
+// statement that receives the value. A test seam in the copied queue runs
+// right after a take succeeds, on the taking task, and requests that task's
+// stop: the value is delivered, then the stop is requested, before any
+// statement of the body. The body must still see the value, and the stop
+// must stay pending for the next poll. No race is involved.
+//   - values: a Values loop's body receives the element (the back-edge poll
+//     ends the iteration; at the body's top it took the value and raised
+//     interruption, the darwin concurrent-ready failure);
+//   - seq-over-values: a program Seq that wraps Values, so both the Seq's
+//     loop and the consuming loop hand the element on before any poll;
+//   - pop-loop: Pop in a loop, the value bound by the statement;
+//   - pop-capability: Pop as a capability call's operand in a loop (the
+//     call's poll precedes its operands, not the operation).
+func TestRuntime199DeliveredBeforeStop(t *testing.T) {
+	cases := []struct{ name, src string }{
+		{"values", "func subject(q queue.Queue[int]) int fails queue.Closed { for v in q.Values() { return v }; 0 }\n"},
+		{"seq-over-values", `func wrap(q queue.Queue[int]) Seq[int] {
+	Seq[int](func(yield func(int) bool) {
+		for v in q.Values() {
+			if !yield(v) {
+				break
+			}
+		}
+	})
+}
+func subject(q queue.Queue[int]) int fails queue.Closed { for v in wrap(q) { return v }; 0 }
+`},
+		{"pop-loop", "func subject(q queue.Queue[int]) int fails queue.Closed {\n\tfor {\n\t\tlet v = try q.Pop()\n\t\treturn v\n\t}\n}\n"},
+		{"pop-capability", `type Sink {
+	Put(v int) int,
+}
+type Keep {}
+func Put(_ Keep, v int) int { v }
+let Kept = wire { Sink: Keep }
+func take(q queue.Queue[int]) int fails queue.Closed needs Sink {
+	for {
+		return Sink.Put(try q.Pop())
+	}
+}
+func subject(q queue.Queue[int]) int fails queue.Closed { with Kept { try take(q) } }
+`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { deliveredNative(t, "import queue\n"+c.src+"func main() {}\n") })
+	}
+}
+
+// deliveredNative runs one witness program natively against the copied
+// runtime with the delivery seam.
+func deliveredNative(t *testing.T, src string) {
+	t.Helper()
+	o := mustLower(t, "delivered", src)
+	dir := t.TempDir()
+	write := func(path string, data []byte) {
+		t.Helper()
+		path = filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", []byte(goMod))
+	write("main.go", []byte(o.mainGo()))
+	for _, f := range Runtime() {
+		data := f.Data
+		if f.Path == "ergo/runtime/v1/queue.go" {
+			// Pop and Values each take through this line; the seam must
+			// reach both, so a drift fails here.
+			from := "v, ok := q.take(t.Done())"
+			if n := strings.Count(string(data), from); n != 2 {
+				t.Fatalf("delivery seam %q occurs %d times, want 2 (Pop, Values)", from, n)
+			}
+			data = []byte(strings.ReplaceAll(string(data), from, from+"\n\tif ok && DeliveredHook != nil {\n\t\tDeliveredHook(t)\n\t}"))
+		}
+		write(f.Path, data)
+	}
+	write("ergo/runtime/v1/delivered_probe.go", []byte("package v1\nimport \"ergo.local/prototype/runtime/rt\"\nvar DeliveredHook func(*rt.Task)\n"))
+	write("delivered_test.go", []byte(deliveredNativeTest))
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=30s", "-v", ".")
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("native delivered witness: %v\n%s\nErgo:\n%s\nGo:\n%s", err, output, src, stripDirectives(o.mainGo()))
+	}
+}
+
+const deliveredNativeTest = `package main
+import (
+ "testing"
+ rt "ergo.local/prototype/runtime/rt"
+ ergo "ergo.local/prototype/runtime/v1"
+)
+func TestDelivered(t *testing.T) {
+ control, waiter := rt.Root("controller"), rt.Root("waiter")
+ q := ergo.New[int](1)
+ if err := q.Push(control, 7); err != nil { t.Fatal(err) }
+ hooked := 0
+ ergo.DeliveredHook = func(task *rt.Task) { if task == waiter { hooked++; waiter.Interrupt() } }
+ var value int; var err error; var panicked any
+ func() { defer func() { panicked = recover() }(); value, err = subject(&Env{task: waiter}, q) }()
+ ergo.DeliveredHook = nil
+ if hooked != 1 { t.Fatalf("the delivery seam ran %d times on the waiter, want 1", hooked) }
+ q.Close(); var rest []int
+ for v := range q.Values(control) { rest = append(rest, v) }
+ if panicked != nil || err != nil || value != 7 || len(rest) != 0 {
+  t.Fatalf("7 delivered, then the stop requested: value %d, err %v, panic %v, queue %v; the body must receive the value", value, err, panicked, rest)
+ }
+ pending := func() (p any) { defer func() { p = recover() }(); waiter.Check(); return nil }()
+ if pending != rt.Interrupted { t.Fatalf("the stop was lost: the next poll raised %v", pending) }
+}
+`
+
 const blockingProbe = `package v1
 import "ergo.local/prototype/runtime/rt"
 var BlockingHook func(string, *rt.Task) func()
