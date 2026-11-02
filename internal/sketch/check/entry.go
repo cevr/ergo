@@ -59,6 +59,7 @@ func (c *checker) checkRecursiveStructs() {
 	}
 	index, low := map[*Named]int{}, map[*Named]int{}
 	on, self := map[*Named]bool{}, map[*Named]bool{}
+	parents := map[*Named][]*Named{}
 	var stack []*Named
 	var cycles [][]*Named
 	serial := 0
@@ -83,6 +84,9 @@ func (c *checker) checkRecursiveStructs() {
 				case *Tuple:
 					fields(u, &next)
 				}
+			}
+			for _, m := range next {
+				parents[m] = append(parents[m], n)
 			}
 			work = append(work, frame{n: n, next: next})
 		}
@@ -124,37 +128,69 @@ func (c *checker) checkRecursiveStructs() {
 			}
 		}
 	}
-	reported := map[*Named]bool{}
+	// Reverse reachability identifies definitions that are intrinsically
+	// infinite. A finite wrapper's origin has no path to its bad instance;
+	// a recursive generic definition does. Compute this once over the same
+	// graph, so the generic-only case cannot blame an innocent wrapper.
+	infinite := map[*Named]bool{}
+	var work []*Named
+	for _, cyc := range cycles {
+		for _, n := range cyc {
+			infinite[n] = true
+			work = append(work, n)
+		}
+	}
+	for len(work) > 0 {
+		n := work[len(work)-1]
+		work = work[:len(work)-1]
+		for _, p := range parents[n] {
+			if !infinite[p] {
+				infinite[p] = true
+				work = append(work, p)
+			}
+		}
+	}
+	bad := map[*Named]bool{}
 	saved := c.cur
 	defer func() { c.cur = saved }()
 	for _, cyc := range cycles {
-		var first *Named
-		defined, duplicate := true, false
+		var first, generic *TypeName
+		defined := true
 		for _, m := range cyc {
-			o := m.origin()
-			duplicate = duplicate || reported[o]
+			bad[m] = true
 			defined = defined && m.Defined() != nil
-			if o.Obj.Pkg == c.pkg && o.Obj.Decl != nil &&
-				(first == nil || o.Obj.Name < first.Obj.Name) {
-				first = o
+			if m.Obj.Pkg != c.pkg || m.Obj.Decl == nil {
+				continue
+			}
+			// An instance supplies containment edges, not the name of an
+			// innocent generic definition. Choose a declared member.
+			if m.Orig == nil && len(m.TParams) == 0 &&
+				(first == nil || m.Obj.Name < first.Name) {
+				first = m.Obj
+			}
+			if infinite[m.origin()] && (generic == nil || m.Obj.Name < generic.Name) {
+				generic = m.Obj
 			}
 		}
-		for _, m := range cyc {
-			reported[m.origin()] = true
+		if first == nil {
+			// With no non-generic member, the generic definitions are
+			// themselves recursive (for example Loop[T]{Next Loop[T]}).
+			// This is a defect of the definition, not of a finite wrapper.
+			first = generic
 		}
-		if duplicate || first == nil {
+		if first == nil {
 			continue
 		}
-		c.cur = first.Obj.file
+		c.cur = first.file
 		if defined {
-			c.errorf(first.Obj.Decl.Name, CodeType, "%s is defined over itself (types.md, Defined types)", first.Obj.Name)
+			c.errorf(first.Decl.Name, CodeType, "%s is defined over itself (types.md, Defined types)", first.Name)
 		} else {
-			c.errorf(first.Obj.Decl.Name, CodeType, "%s contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)", first.Obj.Name)
+			c.errorf(first.Decl.Name, CodeType, "%s contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)", first.Name)
 		}
 	}
-	// No later body check follows a cyclic definition chain. The package
-	// already has its one source diagnostic for each invalid component.
-	for n := range reported {
+	// Invalidate the actual cyclic nodes only. An instance's generic
+	// origin can have finite instances and can belong to other components.
+	for n := range bad {
 		n.def, n.under = nil, invalid
 	}
 }

@@ -1022,9 +1022,10 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 		// pass needs this edge, rather than an invalid placeholder.
 		if n, ok := o.Type.(*Named); ok && ctx != nil && ctx.decl {
 			c.resolveNamed(n)
-			if n.state == 1 || n.def != nil && isInvalid(n.underlying()) {
+			if !containsInvalid(n) || pendingDefinition(n) {
 				return n
 			}
+			return invalid
 		}
 		return c.resolvedType(o.Type)
 	case *capBinding:

@@ -1,48 +1,98 @@
 package check_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// Each component reports once at its lexically first type's name. The
-// classification follows the whole cycle, independent of resolution order.
+// Each component reports once at its first declared user type in name
+// order. Instances contribute edges, never an innocent generic origin.
 func TestE1CycleDeclarationPermutations(t *testing.T) {
-	decls := []string{"type A{A A}", "type r{A0000 t }", "type t r"}
-	for _, order := range [][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}} {
-		t.Run(fmt.Sprint(order), func(t *testing.T) {
-			var lines []string
-			for _, i := range order {
-				lines = append(lines, decls[i])
+	for _, tc := range []struct {
+		name           string
+		decls          []string
+		value, defined []string
+	}{
+		{"original", []string{"type A{A A}", "type r{A0000 t }", "type t r"}, []string{"A", "r"}, nil},
+		{"three-record", []string{"type Ca { X Cb }", "type Cb { Y Cc }", "type Cc { Z Ca }"}, []string{"Ca"}, nil},
+		{"three-defined", []string{"type Da Db", "type Db Dc", "type Dc Da"}, nil, []string{"Da"}},
+		{"four-record", []string{"type Ra { X Rb }", "type Rb { Y Rc }", "type Rc { Z Rd }", "type Rd { W Ra }"}, []string{"Ra"}, nil},
+		{"four-mixed", []string{"type Pm Qm", "type Qm { F Rm }", "type Rm Sm", "type Sm { G Pm }"}, []string{"Pm"}, nil},
+		{"four-mixed-tuple", []string{"type Pt Qt", "type Qt (Rt, int)", "type Rt St", "type St { G Pt }"}, []string{"Pt"}, nil},
+		{"prefix-two", []string{"type Ab { X Ab }", "type A { Y A }", "type A0 { Z A0 }", "type Abc Abc"}, []string{"A", "A0", "Ab"}, []string{"Abc"}},
+		{"prefix-joined", []string{"type Ab { X A }", "type A { Y Ab }", "type Abc { Z Abc }"}, []string{"A", "Abc"}, nil},
+		{"case", []string{"type apple { X Banana }", "type Banana { Y apple }"}, []string{"Banana"}, nil},
+		{"unicode", []string{"type Äpfel { X Zebra }", "type Zebra { Y Äpfel }", "type Éclair { Z Éclair }"}, []string{"Zebra", "Éclair"}, nil},
+		{"generic-shared", []string{"type Gx[T] { V T }", "type X1 { B Gx[X1] }", "type Y1 { B Gx[Y1] }"}, []string{"X1", "Y1"}, nil},
+		{"generic-zed", []string{"type Zed[T] { V T }", "type X2 { B Zed[X2] }", "type Y2 { B Zed[Y2] }"}, []string{"X2", "Y2"}, nil},
+		{"generic-two-parameters", []string{"type Gx[T, U] { A T, B U }", "type X3 { B Gx[X3, Y3] }", "type Y3 { B Gx[Y3, X3] }"}, []string{"X3"}, nil},
+		{"generic-finite-control", []string{"type Gx[T] { V T }", "type Finite { B Gx[int] }", "type X1 { B Gx[X1] }", "type Y1 { B Gx[Y1] }"}, []string{"X1", "Y1"}, nil},
+		{"mixed-two-comp", []string{"type M1 M2", "type M2 M1", "type N1 { X N2 }", "type N2 N1"}, []string{"N1"}, []string{"M1"}},
+		{"intrinsic-generic", []string{"type Loop[T] { Next Loop[T] }"}, []string{"Loop"}, nil},
+		{"intrinsic-through-finite-wrapper", []string{"type A[T] { V T }", "type Z[T] { V A[Z[T]] }"}, []string{"Z"}, nil},
+		{"intrinsic-through-two-wrappers", []string{"type A[T] { V B[T] }", "type B[T] { V T }", "type Z[T] { V A[Z[T]] }"}, []string{"Z"}, nil},
+		{"intrinsic-mutual-generics", []string{"type G[T] { Next H[T] }", "type H[T] { Next G[T] }"}, []string{"G"}, nil},
+		{"intrinsic-swapped-arguments", []string{"type Pair[T, U] { Next Pair[U, T] }"}, []string{"Pair"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			order := make([]int, len(tc.decls))
+			for i := range order {
+				order[i] = i
 			}
-			_, ds := check.CheckSource(strings.Join(lines, "\n") + "\n")
-			if len(ds) != 2 {
-				t.Fatalf("want two independent cycle diagnostics, got %v", ds)
-			}
-			for _, d := range ds {
-				first := 0
-				name := "A"
-				if strings.HasPrefix(d.Message, "r ") || strings.HasPrefix(d.Message, "t ") {
-					for order[first] != 1 {
-						first++
+			var visit func(int)
+			permutations := 0
+			visit = func(n int) {
+				if n < len(order) {
+					for i := n; i < len(order); i++ {
+						order[n], order[i] = order[i], order[n]
+						visit(n + 1)
+						order[n], order[i] = order[i], order[n]
 					}
-					name = "r"
-				} else {
-					for order[first] != 0 {
-						first++
+					return
+				}
+				var lines []string
+				permutations++
+				for _, i := range order {
+					lines = append(lines, tc.decls[i])
+				}
+				src := strings.Join(lines, "\n") + "\n"
+				_, ds := check.CheckSource(src)
+				want := map[string]string{}
+				for _, name := range tc.value {
+					want[name] = name + " contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"
+				}
+				for _, name := range tc.defined {
+					want[name] = name + " is defined over itself (types.md, Defined types)"
+				}
+				if len(ds) != len(want) {
+					t.Errorf("order %v: want %d independent components, got %v", order, len(want), ds)
+				}
+				for _, d := range ds {
+					name := strings.Split(d.Message, " ")[0]
+					offset := strings.Index(src, "type "+name+" ")
+					if offset < 0 {
+						offset = strings.Index(src, "type "+name+"{")
 					}
+					if offset < 0 {
+						offset = strings.Index(src, "type "+name+"[")
+					}
+					offset += len("type ")
+					if d.Code != "S108" || want[name] != d.Message || d.Offset != offset || d.Column != 6 || d.Length != len(name) || d.Line != strings.Count(src[:max(0, offset)], "\n")+1 {
+						t.Errorf("order %v: unexpected component or name span: %+v; want %v", order, d, want)
+					}
+					delete(want, name)
 				}
-				want := name + " contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)"
-				if d.Code != "S108" || d.Message != want || d.Line != first+1 || d.Column != 6 || d.Length != 1 {
-					t.Errorf("want %s at %d:6-7, got %+v", want, first+1, d)
+				if len(want) != 0 {
+					t.Errorf("order %v: missing components %v", order, want)
+				}
+				if problems := check.OrderProblems(src, 8); len(problems) != 0 {
+					t.Errorf("order %v: %v", order, problems)
 				}
 			}
-			if problems := check.OrderProblems(strings.Join(lines, "\n")+"\n", 8); len(problems) != 0 {
-				t.Fatal(problems)
-			}
+			visit(0)
+			t.Logf("checked %d declaration permutations", permutations)
 		})
 	}
 }

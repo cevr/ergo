@@ -169,6 +169,52 @@ func (c *checker) definedType(n *Named, spec syntax.Expr, ctx *typeCtx) Type {
 	return under(base)
 }
 
+// pendingDefinition distinguishes a definition awaiting an active base
+// from a refused type. A pending edge can sit inside a tuple or another
+// structural container; preserving only a top-level edge loses cycles.
+func pendingDefinition(t Type) bool {
+	seen := map[Type]bool{}
+	var pending func(Type) bool
+	pending = func(t Type) bool {
+		if seen[t] {
+			return false
+		}
+		seen[t] = true
+		switch t := t.(type) {
+		case *Named:
+			if t.origin().state == 1 || t.def != nil && isInvalid(t.underlying()) {
+				return true
+			}
+			return t.def != nil && pending(t.def)
+		case *Tuple:
+			for _, e := range t.Types {
+				if pending(e) {
+					return true
+				}
+			}
+		case *Slice:
+			return pending(t.Elem)
+		case *Map:
+			return pending(t.Key) || pending(t.Elem)
+		case *Pointer:
+			return pending(t.Elem)
+		case *Signature:
+			for _, p := range t.Params {
+				if pending(p.Type) {
+					return true
+				}
+			}
+			for _, r := range t.Results {
+				if pending(r) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return pending(t)
+}
+
 // completeDefinedTypes finishes the underlying bodies of defined types
 // after lazy resolution. A record may refer through a pointer to a type
 // defined over that record, so meeting an active base is not itself an
