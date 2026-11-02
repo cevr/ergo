@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,56 +45,156 @@ func TestContextBindingLexicalOperand(t *testing.T) {
 	}
 }
 
-// valueWireHeader is six lines; the two declarations under test follow on
-// lines 7 and 8, and a with of W on line 9.
+// valueWireHeader is seven lines; the two declarations under test follow
+// on lines 8 and 9, and a with of W on line 10.
 const valueWireHeader = `type A { Use() }
 type Quiet {}
 func Use(_ Quiet) {}
 type Tag { Text string }
 func contextKey(_ Tag) string { "k" }
 func contextText(t Tag) string { t.Text }
+type Outer { In Tag }
 `
+
+// withKinds renders what each with of pkg binds: "wire", "context" or
+// "none", sorted.
+func withKinds(pkg *check.Package) string {
+	var out []string
+	for _, w := range pkg.Info.Withs {
+		switch {
+		case len(w.Wires) > 0:
+			out = append(out, "wire")
+		case w.Context != nil:
+			out = append(out, "context")
+		default:
+			out = append(out, "none")
+		}
+	}
+	slices.Sort(out)
+	return strings.Join(out, ",")
+}
 
 // A package value and a named wire may not share a name: the later of the
 // two is S108, so `with W` never chooses between two package bindings of
-// W. A type and a wire still share a name.
+// W. A record with no fields is a value too (written bare), as a unit
+// struct is in Rust (E0428). A type with fields or operations and a wire
+// still share a name. The with binds the earlier value, or the wire.
 func TestPackageValueNamedLikeWire(t *testing.T) {
 	const wire = `let W = wire { A: Quiet }`
-	values := map[string]string{
-		"let":         `let W = Tag{Text: "pkg"}`,
-		"func":        `func W() int { 1 }`,
-		"pattern let": `let Tag{Text: W} = Tag{Text: "pkg"}`,
-		"tuple let":   `let q, W = (1, Tag{Text: "pkg"})`,
+	values := map[string]struct {
+		decl string
+		// valueFirst is what the with binds when the value is first ("" is
+		// not asserted: W is no context value there).
+		valueFirst string
+	}{
+		"let":            {`let W = Tag{Text: "pkg"}`, "context"},
+		"func":           {`func W() int { 1 }`, ""},
+		"pattern let":    {`let Tag{Text: W} = Tag{Text: "pkg"}`, ""},
+		"nested pattern": {`let Outer{In: W} = Outer{In: Tag{Text: "pkg"}}`, "context"},
+		"tuple let":      {`let q, W = (1, Tag{Text: "pkg"})`, "context"},
+		"unit record":    {`type W {}`, "wire"},
+		"unit variant":   {`type S = W{} | Paid{ n int }`, "wire"},
 	}
 	for name, value := range values {
 		for _, order := range []struct {
 			name  string
 			first string
 			later string
-		}{{"wire first", wire, value}, {"value first", value, wire}} {
+			want  string
+		}{{"wire first", wire, value.decl, "wire"}, {"value first", value.decl, wire, value.valueFirst}} {
 			for _, operand := range []string{"W", "(W)"} {
 				t.Run(name+"/"+order.name+"/"+operand, func(t *testing.T) {
 					src := valueWireHeader + order.first + "\n" + order.later + "\n" + fmt.Sprintf("func g() { with %s { A.Use() } }\n", operand)
-					_, ds := check.CheckSource(src)
+					pkg, ds := check.CheckSource(src)
 					var at []int
 					for _, d := range ds {
 						if d.Code == "S108" && d.Message == "W is already declared in this package" {
 							at = append(at, d.Line)
 						}
 					}
-					if len(at) != 1 || at[0] != 8 {
-						t.Fatalf("want one S108 at the later declaration (line 8), got %v in %v", at, ds)
+					if len(at) != 1 || at[0] != 9 {
+						t.Fatalf("want one S108 at the later declaration (line 9), got %v in %v", at, ds)
+					}
+					if got := withKinds(pkg); order.want != "" && got != order.want {
+						t.Fatalf("with W binds %s, want %s", got, order.want)
 					}
 				})
 			}
 		}
 	}
-	for _, src := range []string{
-		valueWireHeader + "type W {}\n" + wire + "\nfunc g() { with W { A.Use() } }\n",
-		valueWireHeader + wire + "\ntype W {}\nfunc g() { with (W) { A.Use() } }\n",
+	for _, decl := range []string{"type W { n int }", "type W { Use() }"} {
+		for _, src := range []string{
+			valueWireHeader + decl + "\n" + wire + "\nfunc g() { with W { A.Use() } }\n",
+			valueWireHeader + wire + "\n" + decl + "\nfunc g() { with (W) { A.Use() } }\n",
+		} {
+			if _, ds := check.CheckSource(src); len(ds) != 0 {
+				t.Errorf("a type and a wire share a name: %v", ds)
+			}
+		}
+	}
+}
+
+// The duplicate rule across files: the later declaration is the one in the
+// later file, whichever kind it is (runtime-199 stage 4a r3 m4).
+func TestPackageValueNamedLikeWireFiles(t *testing.T) {
+	const wire = "let W = wire { A: Quiet }\n"
+	for _, value := range []string{
+		"let Outer{In: W} = Outer{In: Tag{Text: \"pkg\"}}\n",
+		"let W = Tag{Text: \"pkg\"}\n",
+		"type W {}\n",
 	} {
-		if _, ds := check.CheckSource(src); len(ds) != 0 {
-			t.Errorf("a type and a wire share a name: %v", ds)
+		for _, tc := range []struct {
+			name   string
+			files  [2]string
+			at     int // the file of the later declaration
+			column int
+		}{
+			{"value in file 0", [2]string{valueWireHeader + value, wire}, 1, 5},
+			{"wire in file 0", [2]string{valueWireHeader + wire, value}, 1, strings.Index(value, "W") + 1},
+		} {
+			t.Run(strings.Fields(value)[1]+"/"+tc.name, func(t *testing.T) {
+				var files []*syntax.File
+				for _, src := range tc.files {
+					f, err := syntax.Parse(src + "func g" + fmt.Sprint(len(files)) + "() { with W { A.Use() } }\n")
+					if err != nil {
+						t.Fatal(err)
+					}
+					files = append(files, f)
+				}
+				_, ds := check.Check("main", files, nil)
+				var at []check.Diagnostic
+				for _, d := range ds {
+					if d.Code == "S108" && d.Message == "W is already declared in this package" {
+						at = append(at, d)
+					}
+				}
+				if len(at) != 1 || at[0].File != tc.at || at[0].Line != 1 || at[0].Column != tc.column {
+					t.Fatalf("want one S108 in file %d at 1:%d, got %v in %v", tc.at, tc.column, at, ds)
+				}
+			})
+		}
+	}
+}
+
+// An import name and a named wire may not share a name either: the import
+// is refused as it is for a let of its name, so `with log` never binds a
+// wire beside the package log (runtime-199 stage 4a r3 m1).
+func TestImportNamedLikeWire(t *testing.T) {
+	for _, tc := range []struct{ imp, src, want string }{
+		{"import log\n", "let log = wire { A: Quiet }\nfunc g() { with log { A.Use() } }\n",
+			"log clashes with wire log; alias the import (import t log)"},
+		{"import l log\n", "let l = wire { A: Quiet }\nfunc g() { with l { A.Use() } }\n",
+			"l clashes with wire l; choose another alias"},
+	} {
+		_, ds := check.CheckSource(tc.imp + valueWireHeader + tc.src)
+		var got []string
+		for _, d := range ds {
+			if strings.Contains(d.Message, "clashes with") {
+				got = append(got, d.Message)
+			}
+		}
+		if len(got) != 1 || got[0] != tc.want {
+			t.Errorf("%q: want one %q, got %v in %v", tc.src, tc.want, got, ds)
 		}
 	}
 }
@@ -107,6 +208,57 @@ func TestContextOperandReferenceWalk(t *testing.T) {
 		if p := check.RefWalkProblems(contextShadowPrelude + body); len(p) > 0 {
 			t.Errorf("reference walk: %s", strings.Join(p, "; "))
 		}
+	}
+}
+
+// The binder table (runtime-199 stage 4a r2 o2): every form that binds a
+// local W next to the package wire W. A value binder makes W a context
+// operand; a type parameter or a needs-row name hides the wire and is no
+// operand (r3 m3, r2 m1). Typing and the reference walk read one resolved
+// binding kind, and RefWalkProblems checks the operand both ways.
+func TestWithOperandBinders(t *testing.T) {
+	const prelude = contextShadowPrelude + `type Boom { Tag Tag }
+type Box { W Tag }
+func mk() Tag fails Boom { Tag{Text: "x"} }
+func two[T any](a T, b T) []T { []T{a, b} }
+`
+	const hides = "which hides the package wire"
+	for _, tc := range []struct{ name, body, want, diag string }{
+		{"let", `func f() int { let W = Tag{Text: "l"}; with W { 1 } }`, "context", ""},
+		{"param", `func f(W Tag) int { with W { 1 } }`, "context", ""},
+		{"for-in", `func f() int { let mut n = 0; for W in two(Tag{Text: "a"}, Tag{Text: "b"}) { n = n + with W { 1 } }; n }`, "context", ""},
+		{"closure", `func f() int { let W = Tag{Text: "c"}; let g = func() int { with W { 1 } }; g() }`, "context", ""},
+		{"literal-param", `func f() int { let g = func(W Tag) int { with W { 1 } }; g(Tag{Text: "p"}) }`, "context", ""},
+		{"record-pattern", `func f(b Box) int { match b { case Box{W: W}: with W { 1 } } }`, "context", ""},
+		{"let-pattern", `func f(b Box) int { let Box{W: W} = b; with W { 1 } }`, "context", ""},
+		{"catch-record", `func f() int { let t = mk() catch { case Boom{Tag: W}: with W { Tag{Text: "r"} } }; with t { 1 } }`, "context,context", ""},
+		{"after", `func f() int { let a = with W { A.Use(); 1 }; let W = Tag{Text: "z"}; a + with W { 1 } }`, "context,wire", ""},
+		{"inner-block", `func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }`, "context,wire", ""},
+		{"type-param", `func f[W any](x W) { with W { A.Use() } }`, "none", "W names a type parameter here, " + hides},
+		{"type-param-paren", `func f[W any](x W) { with (W) { A.Use() } }`, "none", "W names a type parameter here, " + hides},
+		{"needs-row", "let A = wire { A: Quiet }\nfunc f() needs A { with A { A.Use() } }", "none", "A names the capability of this function's needs row here, " + hides},
+		{"type-param-literal", `func f[W any](x W) { let g = func() { with W { A.Use() } }; g() }`, "none", "W names a type parameter here, " + hides},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := prelude + tc.body + "\n"
+			pkg, ds := check.CheckSource(src)
+			var got []string
+			for _, d := range ds {
+				got = append(got, d.Message)
+			}
+			switch {
+			case tc.diag == "" && len(ds) != 0:
+				t.Fatalf("diagnostics: %v", ds)
+			case tc.diag != "" && (len(ds) != 1 || !strings.HasPrefix(ds[0].Message, tc.diag)):
+				t.Fatalf("want one %q, got %v", tc.diag, got)
+			}
+			if k := withKinds(pkg); k != tc.want {
+				t.Fatalf("withs bind %s, want %s", k, tc.want)
+			}
+			if p := check.RefWalkProblems(src); len(p) > 0 {
+				t.Errorf("reference walk: %s", strings.Join(p, "; "))
+			}
+		})
 	}
 }
 

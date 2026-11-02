@@ -225,6 +225,9 @@ func (c *checker) newRefWalker() *refWalker {
 type localBinding struct {
 	rt  Type
 	sig *Signature
+	// row marks a bare name of the written needs row: the capability
+	// typing binds as a capBinding (bindRequirements), not a value.
+	row bool
 }
 
 // writtenType resolves a written type at the point it is declared: a type
@@ -330,9 +333,9 @@ func (w *refWalker) params(ft *syntax.FuncType, sig *Signature) {
 			}
 			switch x := x.(type) {
 			case *syntax.Ident:
-				w.bind(x.Name)
+				w.bindAs(x.Name, &localBinding{row: true})
 			case *syntax.SelectorExpr:
-				w.bind(x.Sel.Name)
+				w.bindAs(x.Sel.Name, &localBinding{row: true})
 			}
 		}
 	}
@@ -840,6 +843,21 @@ func closedRows(pt Type) [2]bool {
 
 func (w *refWalker) local(name string) bool { return w.lookupLocal(name) != nil }
 
+// operandScope resolves a with operand's name lexically in the walk's
+// scopes, as checker.operandScope does in typing's (wire.go).
+func (w *refWalker) operandScope(name string) operandScope {
+	if b := w.lookupLocal(name); b != nil {
+		if b.row {
+			return operandRow
+		}
+		return operandValue
+	}
+	if w.tparams[name] {
+		return operandParam
+	}
+	return operandPackage
+}
+
 // lookupLocal returns the innermost local named name, or nil.
 func (w *refWalker) lookupLocal(name string) *localBinding {
 	for i := len(w.scopes) - 1; i >= 0; i-- {
@@ -928,7 +946,7 @@ func (w *refWalker) expr(x syntax.Expr) {
 					w.expr(a)
 					continue
 				}
-				if wid, ok := unparen(a).(*syntax.Ident); ok && w.c.withNamedWire(wid.Name, w.local(wid.Name)) != nil {
+				if wid, ok := unparen(a).(*syntax.Ident); ok && w.c.withNamedWire(wid.Name, w.operandScope(wid.Name)) != nil {
 					for p, ok := a.(*syntax.ParenExpr); ok; p, ok = p.X.(*syntax.ParenExpr) {
 						w.visit(p)
 					}

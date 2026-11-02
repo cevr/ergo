@@ -42,7 +42,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 			case *syntax.WireLit:
 				continue
 			case *syntax.Ident:
-				if c.withNamedWire(u.Name, false) != nil {
+				if c.withNamedWire(u.Name, c.operandScope(u.Name)) != nil {
 					continue
 				}
 			}
@@ -132,13 +132,52 @@ func (f *withFrame) discharge(cap Type, n *capNode) {
 	f.entries = append(f.entries, e)
 }
 
-// withNamedWire resolves a with operand's name lexically before consulting
-// the package's separate wire namespace. The reference walk supplies local
-// when it knows a local binding before typing has made its Var; typing
-// resolves that binding through lookup. Both passes use this one rule.
-func (c *checker) withNamedWire(name string, local bool) *Wire {
-	o := c.lookup(name)
-	if v, ok := o.(*Var); local || ok && !v.pkg {
+// operandScope is what a with operand's bare name resolves to lexically,
+// before the package's separate wire namespace (runtime.md, G1 rule 2).
+// Typing (checker.operandScope) and the reference walk
+// (refWalker.operandScope) each resolve it from their own scopes, and
+// withNamedWire applies one predicate to it, so the two passes cannot
+// bind one operand two ways (runtime-199 stage 4a r2 m1, r3 m3).
+type operandScope uint8
+
+const (
+	// operandPackage: no local binds the name, so a package wire may.
+	operandPackage operandScope = iota
+	// operandValue: a local value (a let, a parameter), a context operand.
+	operandValue
+	// operandParam: a type parameter, which is no with operand.
+	operandParam
+	// operandRow: a bare name of the function's written needs row, the
+	// capability that row binds, which is no with operand.
+	operandRow
+)
+
+// operandScope resolves name lexically in typing's scope: the locals and
+// the needs row, then the enclosing function's type parameters, which no
+// scope holds (localTypeCtx), then the package.
+func (c *checker) operandScope(name string) operandScope {
+	switch o := c.lookup(name).(type) {
+	case *Var:
+		if !o.pkg {
+			return operandValue
+		}
+	case *capBinding:
+		return operandRow
+	}
+	if c.fn != nil && c.fn.fn != nil && c.fn.fn.Sig != nil {
+		for _, tp := range c.fn.fn.Sig.TParams {
+			if tp.Name == name {
+				return operandParam
+			}
+		}
+	}
+	return operandPackage
+}
+
+// withNamedWire is the package wire a with operand's name binds: only a
+// name no local binds may name one.
+func (c *checker) withNamedWire(name string, s operandScope) *Wire {
+	if s != operandPackage {
 		return nil
 	}
 	return c.pkg.Wires[name]
@@ -153,7 +192,20 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Wire, *ContextBindin
 		binds, known, wire := c.wireLit(a)
 		return binds, known, wire, nil
 	case *syntax.Ident:
-		w := c.withNamedWire(a.Name, false)
+		s := c.operandScope(a.Name)
+		w := c.withNamedWire(a.Name, s)
+		if w == nil && (s == operandParam || s == operandRow) && c.pkg.Wires[a.Name] != nil {
+			// A local non-value hides the package wire, as every lexical
+			// binding does (runtime.md, G1 rule 2), and is itself no
+			// operand: binding the wire would make one name mean two
+			// things in one scope.
+			what := "a type parameter"
+			if s == operandRow {
+				what = "the capability of this function's needs row"
+			}
+			c.errorf(a, CodeType, "%s names %s here, which hides the package wire %s and is not a with operand: a with operand resolves lexically first (runtime.md, G1); rename the wire or the local", a.Name, what, a.Name)
+			return nil, false, nil, nil
+		}
 		if w == nil {
 			if o := c.lookup(a.Name); o != nil {
 				if _, isVar := o.(*Var); isVar {

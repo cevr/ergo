@@ -130,6 +130,23 @@ func RefWalkProblems(src string) []string {
 			}
 			out = append(out, fmt.Sprintf("%s at %d: typing resolves the package object %s, the walk skipped it", id.Name, id.Pos(), id.Name))
 		}
+		// A with operand's bare name, in both directions (stage 4a r2 m1):
+		// typing binds the package wire exactly when the walk took the name
+		// as a wire name, and a disagreement is a problem unless typing
+		// refused the operand.
+		for x, with := range c.pkg.Info.Withs {
+			if !wk.w.visited[x] || len(x.Args) != 1 {
+				continue
+			}
+			id, ok := unparen(x.Args[0]).(*syntax.Ident)
+			if !ok || diagnosedAt(c.diags, int(id.Pos())) {
+				continue
+			}
+			typed := len(with.Wires) > 0 && c.pkg.Wires[id.Name] != nil && with.Wires[0] == c.pkg.Wires[id.Name]
+			if walked := wk.w.nameIdents[id]; typed != walked {
+				out = append(out, fmt.Sprintf("%s at %d: typing binds the package wire %v, the walk takes a wire name %v", id.Name, id.Pos(), typed, walked))
+			}
+		}
 	}
 	sort.Strings(out)
 	return out

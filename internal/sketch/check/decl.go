@@ -32,6 +32,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.cur = tn.file
 		c.resolveNamed(tn.Type.(*Named))
 	}
+	c.checkUnitWireNames()
 	// Expanding type instantiations are rejected before any walk expands
 	// instances (round-2 M1, M5).
 	c.checkInstantiationCycles()
@@ -328,8 +329,29 @@ func (c *checker) wireNamed(id *syntax.Ident) bool {
 	return true
 }
 
+// checkUnitWireNames extends that rule to a record with no fields, which
+// is a value as well as a type (written bare, types.md Structs 2): a wire
+// of its name is S108 at the later declaration (runtime-199 stage 4a r3
+// m2; as Rust's E0428, where a unit struct is in the value namespace). It
+// runs once the types are resolved. The wire stays bound: the program is
+// refused, and a with over it adds no cascade (D3).
+func (c *checker) checkUnitWireNames() {
+	for _, tn := range c.pkg.Types {
+		w, ok := c.pkg.Wires[tn.Name]
+		if !ok || tn.Name == "_" || !isZeroRecord(tn.Type) {
+			continue
+		}
+		at, f := w.Decl.Name, w.file
+		if tn.file.index > w.file.index || tn.file == w.file && tn.Pos > w.Pos {
+			at, f = tn.Decl.Name, tn.file
+		}
+		c.cur = f
+		c.errorf(at, CodeType, "%s is already declared in this package", tn.Name)
+	}
+}
+
 // isPkgValue reports whether a package-scope object is a value: a let or
-// a function, not a type.
+// a function, not a type (a record with no fields is checkUnitWireNames').
 func isPkgValue(o Object) bool {
 	switch o.(type) {
 	case *Var, *Func:
@@ -413,8 +435,15 @@ func (c *checker) checkImportAliases() {
 			if pn.spec.Kind != syntax.ImportPlain && pn.spec.Kind != syntax.ImportNamed {
 				continue
 			}
-			if o := c.pkg.Scope.names[pn.Name]; o != nil {
-				kind := "declaration"
+			// A wire is in the package's separate wire namespace, and an
+			// import name clashes with it too, so `with log` never binds a
+			// wire beside the package log (runtime-199 stage 4a r3 m1).
+			var o Object = c.pkg.Scope.names[pn.Name]
+			kind := "declaration"
+			if w := c.pkg.Wires[pn.Name]; o == nil && w != nil {
+				o, kind = w, "wire"
+			}
+			if o != nil {
 				switch o.(type) {
 				case *Func:
 					kind = "func"
