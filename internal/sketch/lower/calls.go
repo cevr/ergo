@@ -146,18 +146,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			}
 			head, rest = "("+vals[0]+")."+fd.name, vals[1:]
 		} else {
-			if len(c.TypeArgs) < len(c.Func.Sig.TParams) {
-				// Info names fewer type arguments than the function has
-				// (stage C round 4 review T1): an instance in parentheses,
-				// (Fn[int])(1), which is a value. A dot call has them all,
-				// its receiver's included (D-D8).
-				if c.Recv != nil {
-					ice(x, "a dot call to the generic function %s with %d of its %d type arguments", c.Func.Name, len(c.TypeArgs), len(c.Func.Sig.TParams))
-				}
-				if _, ok := unparen(x.Fun).(*syntax.IndexExpr); ok {
-					refuse(x.Fun, "an explicit instantiation used as a value is lowered after check-v1 stage E")
-				}
-			}
+			// Info names every type argument of a generic call: written,
+			// inferred, bound by a dot call's receiver (D-D8) or by an
+			// instance in parentheses, (Fn[int])(1) (D-E1, Info.Instances).
 			head, rest = fd.name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
 		rest = append(fc.taskDestArgs(x, c, c.Func.Sig), rest...)
@@ -293,19 +284,31 @@ func (fc *funcCtx) envExpr(site syntax.Node) string {
 }
 
 // funcValue lowers a declared function used as a value: a closure of the
-// uniform shape that calls it. A generic function's type arguments come
-// from Go's inference on the closure's typed parameters, so every
-// type-kinded parameter must appear in a parameter type.
-func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) string {
+// uniform shape that calls it. An explicit instance, Fn[int], is inst
+// (Info.Instances) and passes its type arguments; a bare generic
+// function's come from Go's inference on the closure's typed parameters,
+// so every type-kinded parameter must appear in a parameter type.
+func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst *check.Instance) string {
 	fd := fc.l.useFunc(f, site)
 	sig, ok := t.(*check.Signature)
 	if !ok {
 		ice(site, "the function %s used as a value has no function type", f.Name)
 	}
-	for _, tp := range f.Sig.TParams {
-		if tp.Kind == check.KindType && !paramsMention(f.Sig, tp) {
-			refuse(site, "the generic function %s used as a value has a type parameter %s that no parameter names; its instantiation needs a check-v1 Info fact (lower-v1 request)", f.Name, tp.Name)
+	if inst == nil {
+		for _, tp := range f.Sig.TParams {
+			if tp.Kind == check.KindType && !paramsMention(f.Sig, tp) {
+				refuse(site, "the generic function %s used as a value has a type parameter %s that no parameter names; its instantiation needs a check-v1 Info fact (lower-v1 request)", f.Name, tp.Name)
+			}
 		}
+	}
+	if body, name, ok := fc.l.stdBody(fd); ok {
+		var targs []check.Type
+		if inst != nil {
+			targs = inst.TypeArgs
+		} else if len(f.Sig.TParams) > 0 {
+			ice(site, "the generic std function %s used as a value without an instance; the checker refuses it", f.Name)
+		}
+		return fc.stdFuncValue(f, sig, body, name, targs, site)
 	}
 	return fc.envClosure(callerEnv, "env", site, func(env string) (params []string, results, body string) {
 		lead := []string{env}
@@ -328,9 +331,12 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node) stri
 			args = append(args, name)
 		}
 		var head string
-		if fd.method != nil {
+		switch {
+		case fd.method != nil:
 			head, args = args[0]+"."+fd.name, args[1:]
-		} else {
+		case inst != nil:
+			head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
+		default:
 			head = fd.name
 		}
 		args = append(lead, args...)

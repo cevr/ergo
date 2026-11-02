@@ -328,7 +328,7 @@ func (fc *funcCtx) ident(id *syntax.Ident) string {
 		}
 		ice(id, "the variable %s has no Go name", id.Name)
 	case *check.Func:
-		return fc.funcValue(o, fc.typeOf(id), id)
+		return fc.funcValue(o, fc.typeOf(id), id, nil)
 	case *check.Const:
 		if o.Val {
 			return "true"
@@ -347,7 +347,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 		if pn, isPkg := fc.l.info.Uses[id].(*check.PkgName); isPkg {
 			for _, o := range pn.Pkg.Exported() {
 				if f, ok := o.(*check.Func); ok && f.Name == x.Sel.Name {
-					return fc.funcValue(f, fc.typeOf(x), x)
+					return fc.funcValue(f, fc.typeOf(x), x, nil)
 				}
 			}
 			refuse(x, "%s.%s is not a value that lowering supports yet", id.Name, x.Sel.Name)
@@ -562,11 +562,17 @@ func (fc *funcCtx) elements(list []syntax.Expr, _ check.Type) []string {
 	return out
 }
 
-// index lowers xs[i]. A Map read never reaches it: the checker refuses it
-// (D-D4, write m.Get(k)), and a Map write is an assignment target.
+// index lowers xs[i], and Fn[int], an explicit instance of a generic
+// function used as a value (Info.Instances, D-E1). A Map read never
+// reaches it: the checker refuses it (D-D4, write m.Get(k)), and a Map
+// write is an assignment target.
 func (fc *funcCtx) index(x *syntax.IndexExpr) string {
 	if sig, ok := fc.typeOf(x.X).(*check.Signature); ok && len(sig.TParams) > 0 {
-		refuse(x, "an explicit instantiation used as a value is lowered after check-v1 stage E")
+		inst := fc.l.info.Instances[x]
+		if inst == nil {
+			ice(x, "the instance %s has no Instances entry", fc.typeOf(x.X))
+		}
+		return fc.funcValue(inst.Func, fc.typeOf(x), x, inst)
 	}
 	if _, isMap := fc.typeOf(x.X).(*check.Map); isMap {
 		ice(x, "a Map read reached lowering; the checker refuses it (D-D4)")

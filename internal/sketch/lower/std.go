@@ -296,6 +296,55 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 	})
 }
 
+// stdFuncValue lowers a std function with a runtime/v1 body used as a
+// value, queue.New[int] (D-E1): a function value of the uniform shape
+// whose body makes the call stdCall makes, with targs, on the environment
+// the value is called with. A body that takes its call's frame scope or
+// call site has neither outside a call.
+func (fc *funcCtx) stdFuncValue(f *check.Func, sig *check.Signature, body v1.Body, name string, targs []check.Type, site syntax.Node) string {
+	for _, h := range body.Hidden {
+		if h != v1.CallerTask {
+			refuse(site, "the std function %s used as a value takes its call's hidden %s, which is lowered after check-v1 stage E", f.Name, h)
+		}
+	}
+	if sig.ResultIsTask() || f.Pkg.Info.TaskResults[f] {
+		refuse(site, "the function %s used as a value returns a Task through a type argument, which is lowered after check-v1 stage E", f.Name)
+	}
+	if len(sig.Results) > 1 {
+		refuse(site, "a function type with several results is a tuple, lowered after check-v1 stage B (196t)")
+	}
+	if len(body.Params) != len(sig.Params) {
+		ice(site, "the std function %s has %d Go parameters for %d parameters", f.Name, len(body.Params), len(sig.Params))
+	}
+	// A function operand is adapted, and a deferred result's operands bound,
+	// where a call evaluates them (adaptFunc, bindDeferred); a value has no
+	// such point before it is called.
+	for _, p := range body.Params {
+		if p.Func != nil {
+			refuse(site, "the std function %s used as a value takes a function, which is lowered after check-v1 stage E", f.Name)
+		}
+	}
+	if defersCall(body) {
+		refuse(site, "the std function %s used as a value returns a Seq, which is lowered after check-v1 stage E", f.Name)
+	}
+	typeArgs := fc.stdTypeArgs(body, f.Sig, targs, site)
+	return fc.envClosure(callerEnv, "e", site, func(e string) (params []string, results, text string) {
+		var vals []string
+		for _, p := range sig.Params {
+			n := fc.scope.alloc("p")
+			params = append(params, n+" "+fc.goType(p.Type))
+			vals = append(vals, n)
+		}
+		var result check.Type
+		if len(sig.Results) == 1 {
+			result = sig.Results[0]
+		}
+		call := fc.runtimeCall(name, body, typeArgs, "", vals, e, nil, nil, site)
+		ind := strings.Repeat("\t", fc.depth+1)
+		return params, fc.resultList(result, true), uniformBody(ind, call, goValue(body), result != nil, goFallible(body))
+	})
+}
+
 // uniformBody is the body of a function value of the uniform shape
 // (typeCtx.funcType) that makes the Go call call: goVal and goErr are the
 // call's Go form (a value, an error), and value whether the function value
