@@ -1,0 +1,20 @@
+// 196d: `any` is not a type (S104, "use a type parameter or a union"),
+// there is no reflect package (S104), `[T any]` is written `[T]` (S104),
+// and provider values have no equality (S108).
+import reflect // want S104
+
+type Store {
+	Get() string,
+}
+
+func show(x any) string { // want S104
+	"x"
+}
+
+func keep[T any](x T) T { // want S104
+	x
+}
+
+func same(a, b Store) bool {
+	a == b // want S108
+}

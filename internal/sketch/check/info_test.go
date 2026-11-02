@@ -41,7 +41,8 @@ func infoCorpus(t *testing.T) map[string]string {
 // infoGaps lists what Info misses in a clean package (invariant 1) and
 // the types it holds that are not final (invariant 2): every expression in
 // a body or a package let has a Types entry, every identifier a Defs or
-// Uses entry, every call a Calls entry, every pattern node of a match,
+// Uses entry, every call a Calls entry, every call of a generic function
+// and every instantiation used as a value an Instances entry, every pattern node of a match,
 // let or for a Patterns entry of its form (a binding holding the Var its
 // Defs entry holds), every catch arm a Patterns
 // entry, every match and catch a Matches entry, every for-in a Loops entry
@@ -64,8 +65,9 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 	}
 	notObject := map[*syntax.Ident]bool{}
 	notValue := map[syntax.Expr]bool{}
-	instName := map[syntax.Expr]bool{} // the name in an explicit instantiation
-	var own map[*TypeParam]bool        // the enclosing declaration's type parameters
+	instName := map[syntax.Expr]bool{}          // the name in an explicit instantiation
+	calledIndex := map[*syntax.IndexExpr]bool{} // Fn[int] called: its call holds the instance
+	var own map[*TypeParam]bool                 // the enclosing declaration's type parameters
 	// skip marks a subtree that holds no value expression: a written type,
 	// a pattern (Patterns holds it) or a with's wire (Withs holds it; an
 	// inline wire's entries are stage E's).
@@ -221,6 +223,11 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 					skip(ix, false)
 				}
 				instName[n.X] = true
+				// An instantiation used as a value, Max[int], has its
+				// Instances entry; a called one is its call's (stage E1, C9).
+				if inst := info.Instances[n]; !calledIndex[n] && (inst == nil || len(inst.TypeArgs) != len(n.Indices)) {
+					at(n, "an instantiation used as a value with no Instances entry of its type arguments")
+				}
 			}
 		case *syntax.TypeSwitchStmt:
 			if info.Matches[n] == nil {
@@ -273,6 +280,20 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			} else if _, inst := n.Fun.(*syntax.IndexExpr); inst && k == CallConversion {
 				// Seq[int](f): the callee is a type, which Calls holds.
 				skip(n.Fun, false)
+			}
+			// A call of a generic function has its Instances entry, with the
+			// type arguments its Calls entry holds (stage E1, C9).
+			if call := info.Calls[n]; call != nil && call.Kind == CallFunc && call.Func != nil && call.Func.Sig != nil && len(call.Func.Sig.TParams) > 0 {
+				inst := info.Instances[n]
+				switch {
+				case inst == nil:
+					at(n, "a call of the generic function "+call.Func.Name+" with no Instances entry")
+				case inst.Func != call.Func || fmt.Sprint(inst.TypeArgs) != fmt.Sprint(call.TypeArgs):
+					at(n, fmt.Sprintf("a call whose Instances entry %s%v is not its Calls entry %s%v", inst.Func.Name, inst.TypeArgs, call.Func.Name, call.TypeArgs))
+				}
+				if ix, ok := unparen(n.Fun).(*syntax.IndexExpr); ok {
+					calledIndex[ix] = true
+				}
 			}
 			if id, ok := n.Fun.(*syntax.Ident); ok && id.Name == "with" {
 				notObject[id] = true
@@ -350,14 +371,6 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 							own[tp] = true
 						}
 					}
-				}
-			}
-			// An implicit type parameter (196a D6, until stage E's D-E1)
-			// has no declaring identifier; it is the function's own too
-			// (stage D1 fuzz triage: `func A(a B) B { return a }`).
-			if fn, ok := info.Defs[d.Name].(*Func); ok && fn.Sig != nil {
-				for _, tp := range fn.Sig.TParams {
-					own[tp] = true
 				}
 			}
 			if d.Type != nil {
@@ -588,7 +601,7 @@ func notFinal(t Type, own map[*TypeParam]bool) string {
 
 // TestInfoComplete (spec D-A4): over every clean program of the corpus,
 // Info is complete and final (invariants 1 and 2), and checking twice
-// gives the same Calls, Loops and Matches (invariant 4).
+// gives the same Calls, Instances, Loops and Matches (invariant 4).
 func TestInfoComplete(t *testing.T) {
 	clean := 0
 	for name, src := range infoCorpus(t) {
@@ -614,7 +627,8 @@ func TestInfoComplete(t *testing.T) {
 	}
 }
 
-// infoDigest writes Info's call, loop and match entries in source order.
+// infoDigest writes Info's call, instance, loop and match entries in
+// source order.
 func infoDigest(info *Info) string {
 	var lines []string
 	for x, call := range info.Calls {
@@ -623,6 +637,17 @@ func infoDigest(info *Info) string {
 			fn = call.Func.Name
 		}
 		lines = append(lines, fmt.Sprintf("%d call %d %s %v %s %s", x.Pos(), call.Kind, fn, call.TypeArgs, rowText(call.Fails), rowText(call.Needs)))
+	}
+	for x, inst := range info.Instances {
+		ws := ""
+		for _, w := range inst.Witnesses {
+			ws += fmt.Sprintf(" %s=%s{", w.Param.Name, w.Arg)
+			for _, op := range w.Ops {
+				ws += fmt.Sprintf("%s:%v ", op.Name, op.Func != nil)
+			}
+			ws += "}"
+		}
+		lines = append(lines, fmt.Sprintf("%d instance %s %v%s", x.Pos(), inst.Func.Name, inst.TypeArgs, ws))
 	}
 	for s, l := range info.Loops {
 		lines = append(lines, fmt.Sprintf("%d loop %d %s %s %d", s.Pos(), l.Domain, l.Elem, l.Pos, len(l.Bindings)))

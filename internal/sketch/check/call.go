@@ -715,6 +715,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 			targs = fullTypeArgs(fun.fn, fun.self, in.m)
 		}
 		c.callInfo(x).TypeArgs = targs
+		c.recordInstance(x, fun.fn, targs)
 	}
 	inst := c.subst(sig, in.m).(*Signature)
 	inst.TParams = nil

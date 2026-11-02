@@ -41,28 +41,18 @@ func main() needs Console {
 `, "unnamed parameters\npointer source\ngeneric operation type\n")
 }
 
-// The forms of a later stage the guard met refuse at their site, with the
-// stage that owns them, never an internal compiler error.
-func TestCorpusGuardDeferredRefusals(t *testing.T) {
-	for _, tc := range []struct{ name, src, want string }{
-		{"parenthesised-instance", "func Fn[T](x T) T { x }\nfunc f() int { ((Fn[int]))(1) }\n", "an explicit instantiation used as a value is lowered after check-v1 stage E"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			o := lowerSource("r", tc.src, false)
-			if len(o.diags) != 0 || o.err != nil || o.panicked != nil {
-				t.Fatalf("want a clean check and a refusal; got diags %v, err %v, panic %v", o.diags, o.err, o.panicked)
-			}
-			// One refusal per declaration that holds the form, each this one.
-			if len(o.refused) == 0 {
-				t.Fatalf("want the refusal %q; got none", tc.want)
-			}
-			for _, r := range o.refused {
-				if r.Message != tc.want || undeferred(r.Message) != "" {
-					t.Fatalf("want only the refusal %q, a documented deferral; got %v", tc.want, o.refused)
-				}
-			}
-		})
+// The guard's parenthesised instance, once a deferred refusal, runs since
+// check-v1 stage E1: Info gives its call the instance's type arguments
+// (C7, C9).
+func TestCorpusGuardParenthesisedInstance(t *testing.T) {
+	wantRun(t, `func Fn[T](x T) T { x }
+
+func main() needs Console {
+	if ((Fn[int]))(1) == 1 && (Fn[string])("s") == "s" {
+		Console.Println("parenthesised instance")
 	}
+}
+`, "parenthesised instance\n")
 }
 
 // Round 4 review T2: the corpus reader enumerates every declaration form

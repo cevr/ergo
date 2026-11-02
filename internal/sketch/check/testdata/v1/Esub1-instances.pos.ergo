@@ -1,0 +1,26 @@
+// Stage E1 (spec D-E1, D-E2): a generic function used as a value is
+// instantiated explicitly, also when it is called in parentheses; the
+// prelude's Range takes an ordered T; a record of comparable fields is a
+// Map key, and Get declares K comparable.
+type Point { X int, Y int }
+
+func Max[T ordered](a, b T) T {
+	if a > b { a } else { b }
+}
+
+func pick(f func(int, int) int) int {
+	f(1, 2)
+}
+
+func use(m Map[Point, string]) bool {
+	let big = Max[int]
+	let called = (Max[string])("a", "b")
+	let span = Range[string]{Start: "a", End: "z"}
+	let found = match m.Get(Point{X: 1, Y: 2}) {
+	case Some{v}:
+		v
+	case None:
+		""
+	}
+	pick(big) == 2 && called == "b" && span.Start == "a" && found == ""
+}

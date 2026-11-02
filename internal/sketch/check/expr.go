@@ -197,6 +197,7 @@ func (c *checker) instantiateValue(op *operand, sig *Signature, targs []Type) bo
 	}
 	if op.fn != nil {
 		c.recordInstantiation(op.fn.Name, sig.TParams, targs, op.expr)
+		c.recordInstance(unparen(op.expr), op.fn, targs)
 	}
 	inst := c.subst(sig, m).(*Signature)
 	inst.TParams = nil

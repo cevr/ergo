@@ -1,0 +1,30 @@
+// 196d: no `any` and no reflect. Open sets use generics with a constraint,
+// closed sets use unions; an operation type's value is a provider value.
+type Value = IntV{N int} | StrV{S string}
+
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+func show(v Value) string {
+	match v {
+	case IntV{N: n}:
+		"\(n)"
+	case StrV{S: s}:
+		s
+	}
+}
+
+func keep[T](x T) T {
+	x
+}
+
+func read(s Store) string {
+	keep(s.Get()) + show(IntV{1})
+}

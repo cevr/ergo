@@ -1,0 +1,53 @@
+// 196g (amended, sixth round): type parameters are declared in brackets
+// with an inline constraint: a method set, comparable, ordered or number.
+// Kinds stay implicit: E after `fails` is a failure row, R after `needs` a
+// service row.
+type Valid {
+	Check() bool,
+}
+
+type Card { Number string }
+
+type Pair[A, B] { First A, Second B }
+
+func Check(c Card) bool {
+	c.Number != ""
+}
+
+func Max[T ordered](a, b T) T {
+	if a > b { a } else { b }
+}
+
+func Same[T comparable](a, b T) bool {
+	a == b
+}
+
+func Double[T number](x T) T {
+	x + x
+}
+
+func All[T Valid](xs []T) bool {
+	for x in xs {
+		if !x.Check() {
+			return false
+		}
+	}
+	true
+}
+
+func Transform[A, B, E, R](xs []A, f func(A) B fails E needs R) []B fails E needs R {
+	let mut out = []B{}
+	for x in xs {
+		out = out.Append(try f(x))
+	}
+	out
+}
+
+func First[A, B](p Pair[A, B]) A {
+	p.First
+}
+
+func use(cards []Card) bool {
+	let lens = Transform(cards, func(c Card) int { len(c.Number) })
+	All(cards) && Max(1, 2) > 0 && Same("a", "b") && Double(2.5) > 1.0 && First(Pair[int, string]{First: 1, Second: "x"}) == len(lens)
+}

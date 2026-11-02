@@ -1,0 +1,6 @@
+// Spec D-E1: with no expected function type, an untyped parameter is S108
+// "cannot infer the type of x; write func(x T)".
+func use() int {
+	let double = func(x) { x * 2 } // want S108
+	double(2)
+}

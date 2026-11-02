@@ -1,0 +1,25 @@
+// 196g: a bare upper-case letter is not a parameter by itself (S104); a
+// constraint the argument does not satisfy (S108); an operator the
+// constraint does not provide (S108); one parameter used as a type and as
+// a row (S108).
+type Card { Number string }
+
+func Max[T ordered](a, b T) T {
+	if a > b { a } else { b }
+}
+
+func Id(x T) int { // want S104
+	0
+}
+
+func Biggest(a, b Card) Card {
+	Max(a, b) // want S108
+}
+
+func Gt[T](a, b T) bool {
+	a > b // want S108
+}
+
+func Kind[E](f func() int fails E, x E) int { // want S108
+	0
+}

@@ -258,6 +258,11 @@ func (c *checker) recordInstance(x syntax.Expr, fn *Func, targs []Type) {
 	if c.silent > 0 || fn == nil || fn.Sig == nil || len(fn.Sig.TParams) == 0 || len(targs) != len(fn.Sig.TParams) {
 		return
 	}
+	for _, t := range targs {
+		if t == nil {
+			return
+		}
+	}
 	inst := &Instance{Func: fn, TypeArgs: targs}
 	m := paramMap(fn.Sig.TParams, targs)
 	for i, tp := range fn.Sig.TParams {
@@ -588,6 +593,13 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 			// x binds every type parameter of f (D-D8); a call that
 			// infers the rest records them all in callGeneric.
 			call.TypeArgs = fullTypeArgs(fun.fn, fun.self, nil)
+			c.recordInstance(x, fun.fn, call.TypeArgs)
+		} else if inst := c.pkg.Info.Instances[unparen(x.Fun)]; fun.mode == modeValue && inst != nil {
+			// (Max[int])(1): the parenthesised instance is a value whose
+			// instantiation was recorded on its index expression; the call
+			// calls that instance.
+			call.TypeArgs = inst.TypeArgs
+			c.pkg.Info.Instances[x] = inst
 		}
 	case fun.method != nil:
 		call.Kind, call.Op, call.Recv = CallOp, fun.method, recv()

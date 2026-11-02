@@ -1,0 +1,21 @@
+// #214 (merged into #196), spec D-E1: an untyped function-literal parameter
+// takes its type from the expected function type.
+func Each[T](xs []T, f func(T) int) int {
+	let mut total = 0
+	for x in xs {
+		total += f(x)
+	}
+	total
+}
+
+func Fold[T, A](xs []T, start A, f func(A, T) A) A {
+	let mut acc = start
+	for x in xs {
+		acc = f(acc, x)
+	}
+	acc
+}
+
+func use(xs []int) int {
+	Each(xs, func(x) { x * 2 }) + Fold(xs, 0, func(acc, x) { acc + x })
+}
