@@ -48,6 +48,9 @@ type Reason struct {
 	// Chain is the failing task and its ancestors, failing task first, for
 	// KindDefect.
 	Chain []Frame
+	// ChainCut marks a chain cut at its bound: the last frame's task still
+	// had a parent when the defect copied it (G2, rule 5).
+	ChainCut bool
 	// InRelease marks a defect raised by a release, not by the body.
 	InRelease bool
 }
@@ -148,8 +151,8 @@ func (c *Cause) recovered(t *Task, p any, inRelease bool, floor int) {
 // defect records p as a defect of t. left is the call-exit of the innermost
 // capability call the panic unwound, 0 for none.
 func (c *Cause) defect(t *Task, p any, inRelease bool, left uint64) {
-	chain := t.Chain()
-	c.Reasons = append(c.Reasons, Reason{Kind: KindDefect, Value: p, Chain: chain, InRelease: inRelease})
+	chain, cut := t.Chain()
+	c.Reasons = append(c.Reasons, Reason{Kind: KindDefect, Value: p, Chain: chain, ChainCut: cut, InRelease: inRelease})
 	if t.trace != nil {
 		t.traceDefect(p, inRelease, left, &chain[0])
 	}
@@ -195,6 +198,9 @@ func (c *Cause) Error() string {
 			}
 			for _, f := range r.Chain {
 				fmt.Fprintf(&b, "\n  task #%d %s", f.Task, f.Span)
+			}
+			if r.ChainCut {
+				fmt.Fprintf(&b, "\n  %s", ChainCutLine)
 			}
 		case KindInterruption:
 			b.WriteString("interrupted")

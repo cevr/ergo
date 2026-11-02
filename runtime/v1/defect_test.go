@@ -275,6 +275,15 @@ func TestDefectAncestryBounded(t *testing.T) {
 	if len(chain) != 32 || chain[0].Span != fmt.Sprintf("task.Go at f.ergo:%d:1", depth) {
 		t.Fatalf("chain of %d, first %+v; want 32, the failing task first", len(chain), chain[0])
 	}
+	if !rs[0].ChainCut {
+		t.Fatalf("a chain of %d tasks copied as 32 is not marked cut", depth+1)
+	}
+	var b strings.Builder
+	report(&b, err)
+	out := b.String()
+	if last := chain[len(chain)-1]; !strings.Contains(out, fmt.Sprintf("\ttask #%d %s\n\t%s\n", last.Task, last.Span, rt.ChainCutLine)) {
+		t.Fatalf("report does not mark the cut after the last frame:\n%s", out)
+	}
 	for i := 0; i < 10; i++ {
 		runtime.GC()
 		alive := 0

@@ -1045,8 +1045,8 @@ func TestRuntime199ContextOwner(t *testing.T) {
 								continue
 							}
 							switch {
-							case sel.Sel.Name == "values" && pkg == "rt" && !slices.Contains([]string{"rt.init", "rt.WithValue", "rt.End"}, owner):
-								t.Errorf("%s writes a task's values outside WithValue, End and a child's start", owner)
+							case sel.Sel.Name == "values" && pkg == "rt" && !slices.Contains([]string{"rt.init", "rt.WithValue", "rt.End", "rt.detach"}, owner):
+								t.Errorf("%s writes a task's values outside WithValue, End, a child's start and its finish", owner)
 							case sel.Sel.Name == "withs" && pkg == "v1" && !slices.Contains([]string{"v1.OpenWith", "v1.OpenContext", "v1.EndWith", "v1.End", "v1.close"}, owner):
 								t.Errorf("%s changes a scope's regions outside their openers and ends", owner)
 							}

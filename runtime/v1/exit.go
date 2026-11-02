@@ -459,6 +459,9 @@ func reportDefect(w io.Writer, r rt.Reason) {
 				fmt.Fprintln(w)
 			}
 		}
+		if r.ChainCut {
+			fmt.Fprintf(w, "\t%s\n", rt.ChainCutLine)
+		}
 	}
 	if !registered && len(stack) > 0 {
 		fmt.Fprintf(w, "\n%s\n", stack)

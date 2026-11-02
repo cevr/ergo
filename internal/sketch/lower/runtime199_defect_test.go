@@ -486,7 +486,8 @@ func (c *dfCase) expect() []string {
 		sites = append(sites, c.levels[j].site)
 	}
 	sites = append(sites, "main")
-	if len(sites) > 32 {
+	cut := len(sites) > 32
+	if cut {
 		sites = sites[:32]
 	}
 	var in []*dfCtx
@@ -513,6 +514,9 @@ func (c *dfCase) expect() []string {
 		if i == 0 && len(shown) > 0 {
 			fmt.Fprintf(&tail, "\t  context%s\n", strings.Join(shown, ""))
 		}
+	}
+	if cut {
+		tail.WriteString("\t... (the chain is cut at 32 tasks)\n")
 	}
 	frames := func(fs ...string) string {
 		var b strings.Builder

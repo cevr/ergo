@@ -85,9 +85,12 @@ func (t *Task) init(parent *Task, span string, masked bool) {
 
 // detach unlinks a finished child from its parent (runtime.md Tasks, rule 1)
 // and drops its reference to the parent, so a finished task retains no
-// ancestors (G2, rule 3). Every descendant has finished by now, so no chain
-// walk can still pass through t.
+// ancestors (G2, rule 3), and its context values, so a handle kept after the
+// task finished holds no context text (G1). Every descendant has finished by
+// now, so no chain walk or child start can still read either. It runs on t's
+// own goroutine, the only one that touches values.
 func (t *Task) detach() {
+	t.values = nil
 	p := t.parent.Load()
 	p.mu.Lock()
 	if t.prev != nil {
@@ -114,14 +117,19 @@ func (t *Task) Span() string { return t.span }
 // as copied frames. Safe from any goroutine.
 func (t *Task) Parent() *Task { return t.parent.Load() }
 
+// ChainCutLine follows the last frame of a chain cut at its bound, so a
+// reader can tell a cut chain from a complete one of the same length.
+const ChainCutLine = "... (the chain is cut at 32 tasks)"
+
 // Chain copies t and its live ancestors as frames, from t to the root, at
-// most 32. Call it from t's goroutine while t runs; a defect records it then.
-func (t *Task) Chain() []Frame {
-	var frames []Frame
-	for x := t; x != nil && len(frames) < maxChain; x = x.parent.Load() {
+// most 32. cut reports that ancestors remained past the bound. Call it from
+// t's goroutine while t runs; a defect records it then.
+func (t *Task) Chain() (frames []Frame, cut bool) {
+	x := t
+	for ; x != nil && len(frames) < maxChain; x = x.parent.Load() {
 		frames = append(frames, Frame{Task: x.id, Span: x.span})
 	}
-	return frames
+	return frames, x != nil
 }
 
 // Interrupt requests that t and every task below it stop, except the subtree
