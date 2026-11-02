@@ -113,6 +113,9 @@ func RefWalkProblems(src string) []string {
 			if !wk.w.visited[id] {
 				continue
 			}
+			if v, ok := u.(*Var); ok && !v.pkg && wk.w.nameIdents[id] && !diagnosedAt(c.diags, int(id.Pos())) {
+				out = append(out, fmt.Sprintf("%s at %d: typing resolves a local value, the walk treats it as a type or wire name", id.Name, id.Pos()))
+			}
 			if _, walked := wk.w.idents[id]; walked {
 				continue
 			}

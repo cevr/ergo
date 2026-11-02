@@ -918,8 +918,8 @@ func (w *refWalker) expr(x syntax.Expr) {
 		if id, ok := x.Fun.(*syntax.Ident); ok && id.Name == "with" {
 			// The with construct: its first argument is a wire literal, a
 			// named wire, or a value (a context value; wire.go withArg). A
-			// name is a wire when the package declares a wire of that name,
-			// and a value reference otherwise, as withArg decides.
+			// Lexical bindings precede the package's wire namespace, by
+			// the same resolver as withArg, including parenthesised names.
 			w.visit(id)
 			for i, a := range x.Args {
 				if i > 0 || x.Trailing == nil {
@@ -928,16 +928,12 @@ func (w *refWalker) expr(x syntax.Expr) {
 					w.expr(a)
 					continue
 				}
-				if wid, ok := syntax.Expr(a).(*syntax.Ident); ok && w.c.pkg.Wires[wid.Name] != nil {
+				if wid, ok := unparen(a).(*syntax.Ident); ok && w.c.withNamedWire(wid.Name, w.local(wid.Name)) != nil {
+					for p, ok := a.(*syntax.ParenExpr); ok; p, ok = p.X.(*syntax.ParenExpr) {
+						w.visit(p)
+					}
 					w.name(wid)
 					continue
-				}
-				if p, ok := a.(*syntax.ParenExpr); ok {
-					if wid, ok := p.X.(*syntax.Ident); ok && w.c.pkg.Wires[wid.Name] != nil {
-						w.visit(p)
-						w.name(wid)
-						continue
-					}
 				}
 				w.expr(a)
 			}

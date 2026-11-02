@@ -239,6 +239,8 @@ func FuzzCheck(f *testing.F) {
 	for _, src := range corpus(f) {
 		f.Add(src)
 	}
+	f.Add(contextShadowPrelude + `func f() int { let W = Tag{Text: "local"}; with W { 1 } }`)
+	f.Add(contextShadowPrelude + `func f(W Tag) int { with ((W)) { 1 } }`)
 	f.Fuzz(func(t *testing.T, src string) {
 		_, a := check.CheckSource(src)
 		_, b := check.CheckSource(src)

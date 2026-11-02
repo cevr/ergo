@@ -1,12 +1,60 @@
 package check_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
+
+const contextShadowPrelude = `type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = wire { A: Quiet }
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+`
+
+// A with operand obeys the same lexical scope as a value expression.
+// A local or parameter must be used even when a package wire has its name.
+func TestContextBindingLexicalOperand(t *testing.T) {
+	for _, operand := range []string{"W", "(W)", "((W))"} {
+		for _, tc := range []struct{ name, fn string }{
+			{"local", `func f() int { let W = Tag{Text: "local"}; with %s { 1 } }`},
+			{"parameter", `func f(W Tag) int { with %s { 1 } }`},
+		} {
+			t.Run(tc.name+"/"+operand, func(t *testing.T) {
+				src := contextShadowPrelude + fmt.Sprintf(tc.fn, operand)
+				f, err := syntax.Parse(src)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pkg, ds := check.Check("main", []*syntax.File{f}, nil)
+				if len(ds) != 0 {
+					t.Fatalf("diagnostics: %v", ds)
+				}
+				if got := strings.Join(contextWiths(pkg, f), "\n"); got != "f: main.Tag contextKey@main contextText@main" {
+					t.Fatalf("with resolves %s, want the lexical Tag", got)
+				}
+			})
+		}
+	}
+}
+
+func TestContextOperandReferenceWalk(t *testing.T) {
+	for _, body := range []string{
+		`func f() int { let W = Tag{Text: "local"}; with W { 1 } }`,
+		`func f(W Tag) int { with ((W)) { 1 } }`,
+		`func f() { with W { A.Use() } }`,
+	} {
+		if p := check.RefWalkProblems(contextShadowPrelude + body); len(p) > 0 {
+			t.Errorf("reference walk: %s", strings.Join(p, "; "))
+		}
+	}
+}
 
 // contextPrelude declares a user type that satisfies the context-binding
 // protocol (runtime.md, G1) and a capability for the blocks.

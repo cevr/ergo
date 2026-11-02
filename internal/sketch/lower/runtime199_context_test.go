@@ -505,6 +505,36 @@ func cxSteps(nodes []*cxNode) []int {
 	return out
 }
 
+func TestRuntime199ContextLexicalOperand(t *testing.T) {
+	wantRun(t, `import log
+type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+let W = wire { A: Quiet }
+func label() string {
+	match log.Annotation("k") {
+	case Some[string] as v: v.Value
+	case None: "none"
+	}
+}
+func shadow() string {
+	let W = log.Annotate("k", "local")
+	let first = with W { label() }
+	let V = W
+	let second = with V { label() }
+	first + "/" + second
+}
+type Tag { text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.text }
+func parameter(W Tag) string { with ((W)) { "parameter" } }
+func main() needs Console {
+	Console.Println(shadow())
+	Console.Println(parameter(Tag{text: "parameter"}))
+}
+`, "local/local\nparameter\n")
+}
+
 func TestRuntime199ContextProperty(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a generated native program")

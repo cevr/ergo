@@ -42,7 +42,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 			case *syntax.WireLit:
 				continue
 			case *syntax.Ident:
-				if c.pkg.Wires[u.Name] != nil {
+				if c.withNamedWire(u.Name, false) != nil {
 					continue
 				}
 			}
@@ -132,6 +132,18 @@ func (f *withFrame) discharge(cap Type, n *capNode) {
 	f.entries = append(f.entries, e)
 }
 
+// withNamedWire resolves a with operand's name lexically before consulting
+// the package's separate wire namespace. The reference walk supplies local
+// when it knows a local binding before typing has made its Var; typing
+// resolves that binding through lookup. Both passes use this one rule.
+func (c *checker) withNamedWire(name string, local bool) *Wire {
+	o := c.lookup(name)
+	if v, ok := o.(*Var); local || ok && !v.pkg {
+		return nil
+	}
+	return c.pkg.Wires[name]
+}
+
 // withArg resolves with's argument to the capabilities it binds, or, for
 // a value whose type satisfies the context-binding protocol, to its
 // context binding (context.go).
@@ -141,7 +153,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Wire, *ContextBindin
 		binds, known, wire := c.wireLit(a)
 		return binds, known, wire, nil
 	case *syntax.Ident:
-		w := c.pkg.Wires[a.Name]
+		w := c.withNamedWire(a.Name, false)
 		if w == nil {
 			if o := c.lookup(a.Name); o != nil {
 				if _, isVar := o.(*Var); isVar {
