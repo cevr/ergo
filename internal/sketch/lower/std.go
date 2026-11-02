@@ -151,7 +151,7 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 func (fc *funcCtx) openFrame(errName string) {
 	fs := fc.scope.alloc("fs")
 	fc.frame.scope = fs
-	fc.line(fs + " := " + fc.l.rt() + ".NewScope(" + fc.envExpr(fc.site) + "." + envTask + ")")
+	fc.line(fs + " := " + fc.l.rt() + ".NewScope(" + taskOf(fc.envExpr(fc.site)) + ")")
 	if errName == "" {
 		fc.line("defer " + fs + ".End(nil)")
 	} else {
@@ -342,13 +342,24 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 		// struct{}, which the caller discards (goValue).
 		return text, goValue(body), goFallible(body)
 	}
+	return fc.programOpCall(t, op, vals, env, site)
+}
+
+// programOpCall is a call of an operation of a program-declared operation
+// type: the receiver's Go method, the task first (rows.md, Rows 7). It is
+// never a runtime binding, which only runtimeCall emits: it refuses every
+// runtime type, so the blocking owner scan allows it by name.
+func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
+	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+		ice(site, "the std operation %s.%s bypasses its runtime binding", n.Obj.Name, op.Name)
+	}
 	// The checker refuses every other way to reach a std operation: a type
 	// defined over a std operation type (S108 at the definition) and a
 	// pointer to one (S108 at the call, stage D3b Rule 5).
 	if n := fc.l.foreignOwner(t); n != nil {
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
-	rest := append([]string{env + "." + envTask}, vals[1:]...)
+	rest := append([]string{taskOf(env)}, vals[1:]...)
 	return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(rest, ", ") + ")", len(op.Sig.Results) > 0, len(rowElems(op.Sig.Errors)) > 0
 }
 
@@ -445,7 +456,7 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			line, column := fc.l.file.Position(x.Pos())
 			out = append(out, fc.l.rt()+".Site("+fmt.Sprintf("%q", fmt.Sprintf("%s calls %s at %s:%d:%d", fc.owner, fc.callee(x, c), fc.l.src, line, column))+")")
 		case v1.CallerTask:
-			out = append(out, env+"."+envTask)
+			out = append(out, taskOf(env))
 		case v1.ReadingPackage:
 			if c == nil || c.Func == nil || c.Func.Pkg == nil {
 				ice(site, "a context read without its declaring package")

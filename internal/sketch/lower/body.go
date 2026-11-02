@@ -74,7 +74,7 @@ func (fc *funcCtx) poll(site syntax.Node) {
 		ice(site, "an interruption point outside a frame")
 	}
 	if fc.frame.polls {
-		fc.line(fc.envExpr(site) + "." + envTask + ".Check()")
+		fc.line(taskOf(fc.envExpr(site)) + ".Check()")
 	}
 }
 

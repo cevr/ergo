@@ -38,40 +38,83 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		t.Fatal("the owner has no blocking bindings")
 	}
 	for _, name := range names {
-		t.Run(name, func(t *testing.T) { blockingNative(t, name) })
+		for _, route := range blockingRoutes(name, runtimeBindings[name]) {
+			t.Run(name+"/"+route, func(t *testing.T) { blockingNative(t, name, route) })
+		}
 	}
 }
 
-func blockingNative(t *testing.T, name string) {
+// blockingRoutes is the route axis of a binding (runtime.md, I1): the
+// waiting task of a callerWait binding is the task that invokes the call,
+// not the task that made the function value or the Seq it is called
+// through. The maker runs in another task, so a binding that takes the
+// maker's environment parks the wrong task. A Task result's route (the
+// returned Task runs its own primitive) is TestReturnedTaskEnvironment,
+// which every program runs.
+func blockingRoutes(name string, b runtimeBinding) []string {
+	routes := []string{"direct"}
+	if b.wait == callerWait {
+		routes = append(routes, "value")
+		if body, err := v1.BodyOf(name); err == nil && defersCall(body) {
+			routes = append(routes, "seq")
+		}
+	}
+	return routes
+}
+
+// blockingNative runs one primitive on one route natively. On a value or
+// seq route, maker builds the function value or the Seq in the
+// controller's task, and subject calls it in the waiter's. The value is the
+// operation's method value (Values': one that makes the Seq); Sleep is a
+// function on its type, which has no method value (S104), so its value is a
+// function literal that calls it.
+func blockingNative(t *testing.T, name, route string) {
 	t.Helper()
-	var body, param, arg, child string
-	param, arg = "q queue.Queue[int]", "q"
-	child = "let s LiveScheduler; s.Sleep(1h); 7"
-	switch name {
-	case "Sleep":
-		param = "_ queue.Queue[int]"
-		body = "let s LiveScheduler; s.Sleep(1h); 7"
-	case "Queue.Push":
+	param, arg := "q queue.Queue[int]", "q"
+	var body, maker string
+	child := "let s LiveScheduler; s.Sleep(1h); 7"
+	switch route + " " + name {
+	case "direct Sleep":
+		param, body = "_ queue.Queue[int]", child
+	case "direct Queue.Push":
 		body = "try q.Push(7); 7"
-	case "Queue.Pop":
+	case "direct Queue.Pop":
 		body = "try q.Pop()"
-	case "Queue.Values":
+	case "direct Queue.Values":
 		body = "for v in q.Values() { return v }; 0"
-	case "Task.Wait":
+	case "direct Task.Wait":
 		param, arg = "h Task[int, queue.Closed]", "h"
 		body = "try h.Wait()"
-	case "Task.Stop":
+	case "direct Task.Stop":
 		param, arg = "h Task[int, queue.Closed]", "h"
 		body = "h.Stop(); 0"
+	case "value Sleep":
+		maker = "func maker(_ queue.Queue[int]) func(duration) { func(d duration) { let s LiveScheduler; s.Sleep(d) } }"
+		param, body = "f func(duration)", "f(1h); 7"
+	case "value Queue.Push":
+		maker = "func maker(q queue.Queue[int]) func(int) fails queue.Closed { q.Push }"
+		param, body = "f func(int) fails queue.Closed", "try f(7); 7"
+	case "value Queue.Pop":
+		maker = "func maker(q queue.Queue[int]) func() int fails queue.Closed { q.Pop }"
+		param, body = "f func() int fails queue.Closed", "try f()"
+	case "value Queue.Values":
+		maker = "func maker(q queue.Queue[int]) func() Seq[int] { q.Values }"
+		param, body = "f func() Seq[int]", "for v in f() { return v }; 0"
+	case "seq Queue.Values":
+		maker = "func maker(q queue.Queue[int]) Seq[int] { q.Values() }"
+		param, body = "s Seq[int]", "for v in s { return v }; 0"
 	default:
-		t.Fatalf("new primitive %s needs its native source and readiness law", name)
+		t.Fatalf("new primitive route %s %s needs its native source and readiness law", route, name)
 	}
-	if strings.HasPrefix(name, "Task.") {
+	switch {
+	case strings.HasPrefix(name, "Task."):
 		child = "let h = task.Go() { " + child + " }; try subject(h)"
-	} else {
+	case maker != "":
+		child, arg = "try subject(maker(q))", "maker(&Env{task:control}, q)"
+	default:
 		child = "try subject(q)"
 	}
-	src := "import queue\nimport task\nfunc subject(" + param + ") int fails queue.Closed { " + body + " }\n" +
+	src := "import queue\nimport task\n" + maker + "\nfunc subject(" + param + ") int fails queue.Closed { " + body + " }\n" +
 		"func launch(q queue.Queue[int]) Task[int, queue.Closed] { task.Go() { " + child + " } }\nfunc main() {}\n"
 	o := mustLower(t, "blocking", src)
 	dir := t.TempDir()
@@ -154,6 +197,7 @@ func BlockingParked[T any](q *Queue[T]) int {
  q.mu.Lock(); defer q.mu.Unlock(); return q.parked
 }
 func BlockingEntries(s *Scope) int { return s.n }
+func BlockingRuns[T any](t *Task[T]) *rt.Task { return t.h.Task() }
 `
 
 const blockingNativeTest = `package main
@@ -312,7 +356,7 @@ func TestReturnedTaskEnvironment(t *testing.T) {
  }
  h := launch(&Env{task:parent}, &destination,q)
  child := receive(t,entered)
- if child == nil || child == parent { t.Fatal("returned Task's primitive uses the parent's task") }
+ if child != ergo.BlockingRuns(h) { t.Fatal("returned Task's primitive does not use the task the returned Task runs") }
  released := make(chan struct{})
  go func() { receive(t,child.Done()); close(release); close(released) }()
  h.Stop(); receive(t,released)

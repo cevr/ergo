@@ -1085,6 +1085,12 @@ func (l *lowerer) env() string {
 // (memberName), so the two never clash.
 const envTask = "task"
 
+// taskOf is the running task of the environment env, the only reader of
+// envTask's field. Every emitter that passes the task names it here, so the
+// blocking owner scan classifies each one (runtimeCall's hidden argument,
+// a capability or program operation, a poll, a frame scope).
+func taskOf(env string) string { return env + "." + envTask }
+
 // envField is the environment's field for a capability.
 func (l *lowerer) envField(cap *check.TypeName) string {
 	if f, ok := l.envFields[cap]; ok {

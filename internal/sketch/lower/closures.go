@@ -36,7 +36,7 @@ func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node,
 		copy := fc.scope.alloc(name)
 		param = task + " *" + fc.l.taskPkg() + ".Task"
 		ind := strings.Repeat("\t", fc.depth+1)
-		pre = ind + copy + " := *" + fc.envExpr(site) + "\n" + ind + copy + "." + envTask + " = " + task + "\n"
+		pre = ind + copy + " := *" + fc.envExpr(site) + "\n" + ind + taskOf(copy) + " = " + task + "\n"
 		env = "&" + copy
 		bound = env
 	case capturedEnv:
