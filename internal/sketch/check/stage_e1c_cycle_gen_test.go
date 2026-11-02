@@ -3,6 +3,7 @@ package check_test
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -121,6 +122,13 @@ func e1cComponents(edges [][]e1cEdge) [][]int {
 }
 
 func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
+	groups, finite, _ = e1cOracleCase(ds)
+	return
+}
+
+// kind records which R2' branches contributed distinct diagnostic groups:
+// 0=finite, 1=intrinsic, 2=orphan, 3=mixed.
+func e1cOracleCase(ds []e1cDecl) (groups []e1cGroup, finite bool, kind int) {
 	var nodes []e1cType
 	var edges [][]e1cEdge
 	keys := map[string]int{}
@@ -203,7 +211,7 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 		}
 	}
 	if expanding {
-		return nil, false
+		return nil, false, 0
 	}
 	cycles := e1cComponents(edges)
 	home := make([]int, len(ds))
@@ -305,6 +313,9 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 	}
 	// An orphan group with the same members and kind as an intrinsic group
 	// (D0[T]{F0 D0[T], F1 D0[int]}) is the same diagnostic: one report.
+	if len(groups) > 0 {
+		kind = 1
+	}
 	for _, o := range orphans {
 		duplicate := false
 		for _, g := range groups {
@@ -312,6 +323,7 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 		}
 		if !duplicate {
 			groups = append(groups, o)
+			kind |= 2
 		}
 	}
 	// P3's model-side partition check: every original infinite component
@@ -342,7 +354,7 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 			panic("R2 oracle left an infinite component unclassified")
 		}
 	}
-	return groups, true
+	return groups, true, kind
 }
 
 func e1cSameMembers(a, b []int) bool {
@@ -568,34 +580,7 @@ func TestE1cCycleAlphabetComplete(t *testing.T) {
 			}
 			for d, params := range arities {
 				t.Run(fmt.Sprintf("%v/D%d", arities, d), func(t *testing.T) {
-					arguments := []string{"int"}
-					arguments = append(arguments, []string{"T", "U"}[:params]...)
-					for k, arity := range arities {
-						if arity == 0 {
-							arguments = append(arguments, fmt.Sprintf("D%d", k))
-						}
-					}
-					want := map[string]bool{"int": true}
-					for _, p := range []string{"T", "U"}[:params] {
-						want[p] = true
-					}
-					for j, arity := range arities {
-						name := fmt.Sprintf("D%d", j)
-						switch arity {
-						case 0:
-							want[name] = true
-						case 1:
-							for _, a := range arguments {
-								want[name+"["+a+"]"] = true
-							}
-						case 2:
-							for _, a := range arguments {
-								for _, b := range arguments {
-									want[name+"["+a+", "+b+"]"] = true
-								}
-							}
-						}
-					}
+					want := e1cRequiredAtoms(arities, params)
 					got := map[string]bool{}
 					for _, atom := range e1cAlphabet(arities, d) {
 						name := atom.text()
@@ -632,6 +617,8 @@ func e1cChoiceSetOf(arities []int, d int) e1cChoiceSet {
 		}
 	}
 	set := e1cChoiceSet{params: arities[d], fields: fields}
+	// Plain atoms suffice for defined/tuple bases: Option and slice bases
+	// break containment, and their element instances are reached by fields.
 	for _, a := range atoms {
 		set.bases = append(set.bases, e1cDecl{arities[d], 'q', []e1cType{{kind: 'q', args: []e1cType{a}}}})
 		if a.kind != 'p' { // a defined type over a parameter is a separate error
@@ -676,15 +663,18 @@ func e1cChoices(arities []int, d int) []e1cDecl {
 
 func TestE1cCycleGenerator(t *testing.T) {
 	start := time.Now()
-	// Millions of fresh checker runs allocate short-lived graphs. Give this
-	// batch heap headroom instead of repeatedly scanning the shared tables;
-	// restore the caller's GC policy before any other test runs.
-	runtime.GC()
-	previousGC := debug.SetGCPercent(1000)
-	defer debug.SetGCPercent(previousGC)
+	full := os.Getenv("ERGO_CYCLE_GEN") == "full" && !testing.Short()
+	if full {
+		// Only the acceptance batch changes GC pacing; the gate slice uses
+		// the caller's policy. Restore it before any other test runs.
+		runtime.GC()
+		previousGC := debug.SetGCPercent(1000)
+		defer debug.SetGCPercent(previousGC)
+	}
 	type counts struct{ programs, filtered, calls, domain int }
 	const workers = 16
 	var results [workers]counts
+	var coverage [workers]e1cSliceCoverage
 	// Share 426 read-only alphabets, but materialize pairs only for the
 	// exhaustive one/two-declaration domain. Sampling needs only indices;
 	// retaining every three/four-declaration pair would burden each GC.
@@ -726,20 +716,25 @@ func TestE1cCycleGenerator(t *testing.T) {
 		for worker := range workers {
 			t.Run(fmt.Sprint(worker), func(t *testing.T) {
 				t.Parallel()
+				coverage[worker].positions = map[string]bool{}
 				programs, filtered, calls, ordinal := 0, 0, 0, 0
 				run := func(ds []e1cDecl) {
 					ordinal++
 					if (ordinal-1)%workers != worker {
 						return
 					}
-					groups, finite := e1cOracle(ds)
+					groups, finite, kind := e1cOracleCase(ds)
 					if !finite {
 						filtered++
 						return
 					}
 					programs++
 					calls += e1cProperties(t, ds, groups)
+					if !full && len(ds) == 2 {
+						coverage[worker].observe(ds, kind)
+					}
 				}
+				sliceRNG := rand.New(rand.NewSource(196_3))
 				for n := 1; n <= 2; n++ {
 					arities := make([]int, n)
 					var eachArity func(int)
@@ -755,6 +750,21 @@ func TestE1cCycleGenerator(t *testing.T) {
 							choices[i] = choicesOf(arities, i)
 						}
 						ds := make([]e1cDecl, n)
+						if !full && n == 2 {
+							// Stratify by arities, declaration position and every
+							// declaration choice. Pair each with a seeded partner.
+							// This covers all atoms and argument tuples at both
+							// field positions without enumerating the product.
+							for focal := range n {
+								for _, decl := range choices[focal] {
+									ds[focal] = decl
+									other := 1 - focal
+									ds[other] = choices[other][sliceRNG.Intn(len(choices[other]))]
+									run(ds)
+								}
+							}
+							return
+						}
 						var eachDecl func(int)
 						eachDecl = func(i int) {
 							if i == n {
@@ -771,12 +781,8 @@ func TestE1cCycleGenerator(t *testing.T) {
 					eachArity(0)
 				}
 				rng := rand.New(rand.NewSource(196_2))
-				sample := 20_000
-				if testing.Short() {
-					sample = 2_000
-				}
 				for n := 3; n <= 4; n++ {
-					for i := 0; i < sample; i++ {
+					for i := 0; i < e1cFullSample; i++ {
 						arities := make([]int, n)
 						for d := range arities {
 							arities[d] = rng.Intn(3)
@@ -785,7 +791,11 @@ func TestE1cCycleGenerator(t *testing.T) {
 						for d := range ds {
 							ds[d] = sampleOf(arities, d, rng)
 						}
-						run(ds)
+						// Still draw the remaining programs so the four-
+						// declaration prefix is identical to the full run.
+						if full || i < e1cSliceSample {
+							run(ds)
+						}
 					}
 				}
 				results[worker] = counts{programs, filtered, calls, ordinal}
@@ -799,17 +809,22 @@ func TestE1cCycleGenerator(t *testing.T) {
 		total.calls += r.calls
 		total.domain = r.domain
 	}
-	wantDomain := 6_100_093 + 40_000
-	if testing.Short() {
-		wantDomain = 6_100_093 + 4_000
+	if !full {
+		e1cAssertSliceCoverage(t, coverage[:])
 	}
+	wantDomain := e1cExpectedDomain(full)
 	if total.domain != wantDomain || total.programs+total.filtered != wantDomain {
 		t.Fatalf("incomplete section 3.2 domain: %+v, want %d", total, wantDomain)
 	}
 	if total.filtered != 0 {
 		t.Fatalf("one-level argument alphabet must be finite: filtered %d programs", total.filtered)
 	}
-	t.Logf("P1-P7: domain=%d programs=%d expanding-filtered=%d CheckSource-calls=%d elapsed=%s", total.domain, total.programs, total.filtered, total.calls, time.Since(start))
+	t.Run("alphabet", TestE1cCycleAlphabetComplete)
+	t.Run("oracle-controls", TestE1cCycleOracle)
+	t.Run("rule-controls", TestE1cCycleRuleExamples)
+	t.Run("repair-controls", TestE1cCycleMonotoneRepair)
+	t.Run("permutation-controls", TestE1CycleDeclarationPermutations)
+	t.Logf("P1-P7: full=%v domain=%d programs=%d expanding-filtered=%d CheckSource-calls=%d elapsed=%s (plus hand controls)", full, total.domain, total.programs, total.filtered, total.calls, time.Since(start))
 }
 
 func TestE1cCycleOracle(t *testing.T) {
