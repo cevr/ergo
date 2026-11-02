@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,6 +28,66 @@ func runStageE1(t *testing.T, cases []stageE1Case) {
 				t.Fatalf("got %v, want %v\n%v", got, tc.want, diags)
 			}
 		})
+	}
+}
+
+// TestWitnessFacts: the Instances entry of a call of a function whose type
+// parameter a method set constrains carries, per operation, the operation
+// as a function of the argument (Sig) and, for a generic 196m function, its
+// own instance bound by the argument (Inst); an operation of a type
+// parameter's constraint is a CallOp on it (D-E1; orchestrator answer 2).
+func TestWitnessFacts(t *testing.T) {
+	src := `type Valid {
+	Check(n int) bool,
+}
+
+type Card { Number string }
+
+type Box[T] { V T }
+
+func Check(c Card, n int) bool { n > 0 }
+
+func Check[T](b Box[T], n int) bool { true }
+
+func All[T Valid](x T) bool { x.Check(1) }
+
+func F() bool { All(Card{Number: "1"}) && All(Box[string]{V: "s"}) }
+`
+	pkg, diags := check.CheckSource(src)
+	if len(diags) > 0 {
+		t.Fatal(diags)
+	}
+	var got []string
+	for _, inst := range pkg.Info.Instances {
+		for _, w := range inst.Witnesses {
+			for _, op := range w.Ops {
+				line := fmt.Sprintf("%s %s %s %v", w.Arg, op.Name, op.Sig, op.Func != nil)
+				if op.Inst != nil {
+					line += fmt.Sprintf(" %s%v", op.Inst.Func.Name, op.Inst.TypeArgs)
+				}
+				got = append(got, line)
+			}
+		}
+	}
+	slices.Sort(got)
+	want := []string{
+		"main.Box[string] Check func(main.Box[string], int) bool true Check[string]",
+		"main.Card Check func(main.Card, int) bool true",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	var ops int
+	for _, call := range pkg.Info.Calls {
+		if call.Kind == check.CallOp && call.Op != nil && call.Op.Name == "Check" {
+			if _, ok := pkg.Info.Types[call.Recv].(*check.TypeParam); !ok {
+				t.Fatalf("x.Check(1) has a receiver of type %v, want the type parameter T", pkg.Info.Types[call.Recv])
+			}
+			ops++
+		}
+	}
+	if ops != 1 {
+		t.Fatalf("got %d CallOp entries for x.Check, want 1", ops)
 	}
 }
 

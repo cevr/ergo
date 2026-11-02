@@ -57,7 +57,6 @@ var refusedFamilies = map[string]string{
 	"Task:nested":                 "check-v1 stage E",
 	"InterpolatedString:nonbasic": "check-v1 stage E",
 	"std:unlowered":               "check-v1 stage E",
-	"TypeDecl:constraint":         "check-v1 stage E",
 	"call:With:imported":          "check-v1 stage B",
 	"call:With:context":           "check-v1 stage E",
 	"FuncValue:instantiation":     "lower-v1 request",
@@ -68,9 +67,12 @@ var refusedFamilies = map[string]string{
 	"CaseClause:duplicate":        "check-v1 stage B",
 	"TypeDecl:errorText":          "lower-v1 stage 3",
 	// Met by TestCheckCorpusBuilds (stage C round 4 review T1), and an
-	// existing refusal given its owner (conv:Operations:generic).
-	"call:Func:genericDot":    "check-v1 stage D",
-	"conv:Operations:generic": "check-v1 stage E",
+	// existing refusal given its owner. Stage E1 lowers an operations
+	// conversion inside a generic function through the witness (D-E1, C8);
+	// one whose table function is itself constrained by a method set waits
+	// for a Conversion fact naming that function's instance.
+	"call:Func:genericDot":         "check-v1 stage D",
+	"conv:Operations:witnessTable": "check-v1 stage E",
 	// Stage 3b of #199: the release forms an owning with cannot call by a
 	// Go name, and an owning with outside a function body.
 	"call:With:release": "check-v1 stage E",
@@ -101,7 +103,6 @@ var refusalReasons = []struct {
 	// runtime/v1 body.
 	{"Task:nested", regexp.MustCompile(`^(a call whose result holds a Task|the function \S+ used as a value returns a Task|an operation provided by \S+, whose result holds a Task|a function whose result holds a Task inside another type|a method value of an operation that returns a Task) .*check-v1 stage E`)},
 	{"std:unlowered", regexp.MustCompile(`^(a value of the program converted to the std type \S+|a call that needs a frame scope .+ outside a function body|the std type \S+ is) lowered after check-v1 stage E`)},
-	{"TypeDecl:constraint", regexp.MustCompile(`^the constraint .+ of \S+ is lowered after check-v1 stage E`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported wire is lowered after check-v1 stage B`)},
 	{"call:With:context", regexp.MustCompile(`^(a with of a context value outside a function body|a context value whose \S+ is (generic|an extern function)) is lowered after check-v1 stage E$`)},
 	{"FuncValue:instantiation", regexp.MustCompile(`^the generic function \S+ used as a value has a type parameter \S+ that no parameter names; its instantiation needs a check-v1 Info fact \(lower-v1 request\)`)},
@@ -111,7 +112,7 @@ var refusalReasons = []struct {
 	{"ReturnStmt:tuple", regexp.MustCompile(`^returning several values is a tuple, lowered after check-v1 stage B`)},
 	{"CaseClause:duplicate", regexp.MustCompile(`check-v1 stage B reports such an arm as unreachable \(D-B4\)$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
-	{"conv:Operations:generic", regexp.MustCompile(`^an operations conversion inside a generic function is lowered after check-v1 stage E \(D-E1\)$`)},
+	{"conv:Operations:witnessTable", regexp.MustCompile(`^an operations conversion whose operation \S+ is provided by \S+, a function whose type parameter a method set constrains, is lowered after check-v1 stage E \(a Conversion fact for its instance\)$`)},
 	{"call:With:release", regexp.MustCompile(`^a provider whose Close (is an operation of its type|is generic|is a std or extern function|takes a pointer to its value) is released after check-v1 stage E$`)},
 	{"call:With:owned", regexp.MustCompile(`^a with that owns a provider with a Close outside a function body is lowered after check-v1 stage E$`)},
 }

@@ -111,10 +111,13 @@ type funcCtx struct {
 	owner string
 	// lastPos is the position of the last //line directive written.
 	lastPos syntax.Pos
+	// witness names the Go parameter that holds the operations of each of
+	// the function's type parameters a method set constrains (witness.go).
+	witness map[*check.TypeParam]string
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
-	return &funcCtx{typeCtx: typeCtx{l: l, params: map[*check.TypeParam]string{}}, out: &strings.Builder{}, scope: scope, locals: map[*check.Var]string{}, directives: directives}
+	return &funcCtx{typeCtx: typeCtx{l: l, params: map[*check.TypeParam]string{}}, out: &strings.Builder{}, scope: scope, locals: map[*check.Var]string{}, directives: directives, witness: map[*check.TypeParam]string{}}
 }
 
 // line writes one Go line at the current depth.

@@ -208,7 +208,7 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	case 0, check.ConvVariant:
 		return val
 	case check.ConvOperations:
-		return fc.l.operations(conv, val, site)
+		return fc.operations(conv, val, site)
 	case check.ConvRow:
 		// The row value holds one of the union's error variants, which
 		// implement its sealed interface (D-C3).
@@ -371,15 +371,23 @@ func (fc *funcCtx) methodOf(x *syntax.SelectorExpr) *check.Method {
 	return operation(t, x.Sel.Name)
 }
 
-// operation is the operation name of the operation type t, or nil when t
-// is not an operation type or has no operation of that name (a field).
+// operation is the operation name of the operation type t, or of the
+// method-set constraint of the type parameter t or *t, or nil when t has no
+// operation of that name (a field).
 func operation(t check.Type, name string) *check.Method {
-	n, ok := t.(*check.Named)
-	if !ok {
-		return nil
+	if p, ok := t.(*check.Pointer); ok {
+		if _, isParam := p.Elem.(*check.TypeParam); isParam {
+			t = p.Elem
+		}
 	}
-	it, ok := n.Underlying().(*check.Interface)
-	if !ok {
+	var it *check.Interface
+	switch t := t.(type) {
+	case *check.Named:
+		it, _ = t.Underlying().(*check.Interface)
+	case *check.TypeParam:
+		it = constraintOf(t)
+	}
+	if it == nil {
 		return nil
 	}
 	for _, m := range it.Methods {

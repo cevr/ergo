@@ -375,6 +375,16 @@ func uniformBody(ind, call string, goVal, value, goErr bool) string {
 // x and c are the call, nil for a method value. It returns the text,
 // whether the call has a value, and whether its Go form returns an error.
 func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) (string, bool, bool) {
+	// A type parameter's operation is its witness's (witness.go); a *T
+	// receiver passes the value it points to.
+	if p, ok := t.(*check.Pointer); ok {
+		if tp, ok := p.Elem.(*check.TypeParam); ok {
+			return fc.witnessCall(tp, op, append([]string{"*(" + vals[0] + ")"}, vals[1:]...), env, site)
+		}
+	}
+	if tp, ok := t.(*check.TypeParam); ok {
+		return fc.witnessCall(tp, op, vals, env, site)
+	}
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
 		body := opBody(n, op.Name, len(vals)-1, site)
 		if x == nil {

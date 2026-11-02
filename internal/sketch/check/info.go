@@ -214,11 +214,19 @@ type Witness struct {
 // WitnessOp is one operation of a witness.
 type WitnessOp struct {
 	Name string
+	// Sig is the operation as a function of Arg: Arg first, then the
+	// operation's parameters, with the instance's type arguments
+	// substituted. The witness holds a function value of this type.
+	Sig *Signature
 	// Func is the package function (196m) that implements the operation
 	// for Arg. It is nil when Arg is itself a type parameter of the
 	// enclosing function, whose own witness supplies the operation by
 	// Name, or an operation type, whose value carries it.
 	Func *Func
+	// Inst is Func's instance when Func is generic: its type arguments
+	// bound by Arg (a 196m function on Box[T] for Box[int]) and its own
+	// witnesses.
+	Inst *Instance
 }
 
 // Initializer is one package-level initializer: Vars are the names it
@@ -255,12 +263,26 @@ func newInfo() *Info {
 // x with targs, one for each of fn's type parameters, and the witness of
 // each parameter an operation type constrains.
 func (c *checker) recordInstance(x syntax.Expr, fn *Func, targs []Type) {
-	if c.silent > 0 || fn == nil || fn.Sig == nil || len(fn.Sig.TParams) == 0 || len(targs) != len(fn.Sig.TParams) {
+	if c.silent > 0 {
 		return
+	}
+	if inst := c.instanceOf(fn, targs, 0); inst != nil {
+		c.pkg.Info.Instances[x] = inst
+	}
+}
+
+// instanceOf is the instance of the generic function fn at targs, with its
+// witnesses, or nil when fn is not generic or a type argument is missing.
+// A witness operation implemented by a generic function carries that
+// function's instance in turn; depth bounds the nesting, which a checked
+// program keeps finite (a constraint's operation set is declared).
+func (c *checker) instanceOf(fn *Func, targs []Type, depth int) *Instance {
+	if fn == nil || fn.Sig == nil || len(fn.Sig.TParams) == 0 || len(targs) != len(fn.Sig.TParams) || depth > 8 {
+		return nil
 	}
 	for _, t := range targs {
 		if t == nil {
-			return
+			return nil
 		}
 	}
 	inst := &Instance{Func: fn, TypeArgs: targs}
@@ -276,11 +298,26 @@ func (c *checker) recordInstance(x syntax.Expr, fn *Func, targs []Type) {
 		w := Witness{Param: tp, Arg: targs[i]}
 		for _, op := range it.Methods {
 			_, f := c.methodOf(targs[i], op.Name)
-			w.Ops = append(w.Ops, WitnessOp{Name: op.Name, Func: f})
+			sig := *op.Sig
+			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
+			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
+			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+				self := targs[i]
+				if p, ok := self.(*Pointer); ok {
+					self = p.Elem
+				}
+				bound := selfBinding(self, f)
+				fargs := make([]Type, len(f.Sig.TParams))
+				for j, ftp := range f.Sig.TParams {
+					fargs[j] = bound[ftp]
+				}
+				wo.Inst = c.instanceOf(f, fargs, depth+1)
+			}
+			w.Ops = append(w.Ops, wo)
 		}
 		inst.Witnesses = append(inst.Witnesses, w)
 	}
-	c.pkg.Info.Instances[x] = inst
+	return inst
 }
 
 // CallKind is what a call calls.
@@ -291,6 +328,8 @@ const (
 	// has Recv, lowered as the first argument.
 	CallFunc CallKind = iota
 	// CallOp calls an operation of an operation-type value: Op on Recv.
+	// Recv may be a value of a type parameter (or a pointer to one) whose
+	// method-set constraint declares Op (D-E1; check-v1 stage E1).
 	CallOp
 	// CallProviderOp calls an operation of a capability, Op, on the
 	// provider the nearest with binds (types.md, Capabilities 2).

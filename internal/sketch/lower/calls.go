@@ -151,7 +151,8 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// instance in parentheses, (Fn[int])(1) (D-E1, Info.Instances).
 			head, rest = fd.name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
-		rest = append(fc.taskDestArgs(x, c, c.Func.Sig), rest...)
+		lead := append(fc.taskDestArgs(x, c, c.Func.Sig), fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)...)
+		rest = append(lead, rest...)
 		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0, fd.fallible
 	case check.CallOp:
 		if c.Recv == nil || c.Op == nil {
@@ -330,6 +331,9 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			params = append(params, name+" "+fc.goType(p.Type))
 			args = append(args, name)
 		}
+		// An instance's witnesses, from its operations (witness.go): a
+		// struct value passed on each call of the value.
+		lead = append(lead, fc.witnessArgs(f, inst, site)...)
 		var head string
 		switch {
 		case fd.method != nil:
@@ -754,13 +758,27 @@ func (l *lowerer) isImported(w *check.Wire) bool {
 // (rows.md, Rows 7) and a function takes an environment, so no Go method of
 // the source has the operation's Go signature, and the adapter is always
 // written (stage D3b).
-func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node) string {
+//
+// Inside a generic function (D-E1, C8) the adapter is a generic Go type over
+// the function's type parameters the conversion names; a source that is a
+// type parameter T (or *T) carries T's witness beside the value, and its
+// methods call the witness (witness.go).
+func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Node) string {
+	l := fc.l
 	// A *T source (types.md, Methods 5) holds the pointer: a table function
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
-	from, ptrSource, ok := opsSource(conv.From)
-	to, ok2 := conv.To.(*check.Named)
-	if !ok || !ok2 {
+	key, base, ok := adapterName(conv)
+	if !ok {
 		refuse(site, "an operations conversion from %s to %s is not lowered yet", conv.From, conv.To)
+	}
+	to := conv.To.(*check.Named)
+	_, ptrSource, _ := opsSource(conv.From)
+	param, ptrParam := paramSource(conv.From)
+	if param != nil {
+		ptrSource = ptrParam
+		if _, ok := fc.witness[param]; !ok {
+			ice(site, "an operations conversion from %s, whose witness is not bound here", conv.From)
+		}
 	}
 	if l.runtimeType(to, site) != "" {
 		// A std type is the runtime's concrete Go type (stage D3b).
@@ -776,8 +794,26 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 		ice(site, "an operations conversion to %s, which is not an operation type", conv.To)
 	}
 	tc := &typeCtx{l: l, params: map[*check.TypeParam]string{}, site: site}
-	if mentionsTypeParam(conv.From) || mentionsTypeParam(conv.To) {
-		refuse(site, "an operations conversion inside a generic function is lowered after check-v1 stage E (D-E1)")
+	// The adapter's own type parameters stand for the enclosing function's
+	// that the conversion names; the site instantiates it with them.
+	free := convParams(conv)
+	adapterScope := newNamer(l.names)
+	var tpDecl, tpArgs []string
+	for _, tp := range free {
+		n := adapterScope.alloc(tp.Name)
+		tc.params[tp] = n
+		tpDecl = append(tpDecl, n+" "+l.constraint(tp, site))
+		tpArgs = append(tpArgs, fc.goType(tp))
+	}
+	declParams, instArgs, recvArgs := "", "", ""
+	if len(free) > 0 {
+		declParams = "[" + strings.Join(tpDecl, ", ") + "]"
+		instArgs = "[" + strings.Join(tpArgs, ", ") + "]"
+		var own []string
+		for _, tp := range free {
+			own = append(own, tc.params[tp])
+		}
+		recvArgs = "[" + strings.Join(own, ", ") + "]"
 	}
 	fromGo := tc.goType(conv.From)
 	tc.goType(conv.To) // the adapter implements it: the type is emitted
@@ -793,8 +829,15 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 	}
 	for _, op := range toDecl.ops {
 		f := conv.Table[op.Name]
+		if param != nil {
+			continue // the witness supplies every operation
+		}
 		if f == nil {
 			ice(site, "the operations conversion to %s has no function for %s", conv.To, op.Name)
+		}
+		if len(witnessParams(f.Sig)) > 0 {
+			// The table names the function, not its instance and witnesses.
+			refuse(site, "an operations conversion whose operation %s is provided by %s, a function whose type parameter a method set constrains, is lowered after check-v1 stage E (a Conversion fact for its instance)", op.Name, f.Name)
 		}
 		// A provider's requirements are met where a wire builds it (rows.md,
 		// Wire 4 and 6), never by the caller of its operation, so the
@@ -805,18 +848,26 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 		}
 		l.useFunc(f, site)
 	}
-	key := adapterKey(conv)
 	name, ok := l.adapters[key]
 	if !ok {
-		name = l.pkgName(pkgKey{"adapter", key}, "ops"+from.Obj.Name+"As"+to.Obj.Name)
+		name = l.pkgName(pkgKey{"adapter", key}, base)
 		l.adapters[key] = name
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("// %s provides %s through the functions of %s (an operations conversion).\n", name, conv.To, conv.From))
-		b.WriteString("type " + name + " struct{ v " + fromGo + " }\n\n")
+		if param != nil {
+			b.WriteString(fmt.Sprintf("// %s provides %s through the witness of %s (an operations conversion).\n", name, conv.To, param.Name))
+			b.WriteString("type " + name + declParams + " struct {\n\tv " + fromGo + "\n\tw " + tc.witnessType(param, param) + "\n}\n\n")
+		} else {
+			b.WriteString(fmt.Sprintf("// %s provides %s through the functions of %s (an operations conversion).\n", name, conv.To, conv.From))
+			b.WriteString("type " + name + declParams + " struct{ v " + fromGo + " }\n\n")
+		}
 		for _, op := range toDecl.ops {
+			locals := newNamer(l.names) // so no local hides the function it calls
+			if param != nil {
+				b.WriteString(fc.witnessMethod(tc, locals, name+recvArgs, op, ptrSource))
+				continue
+			}
 			f := conv.Table[op.Name]
 			fd := l.funcDecl(f)
-			locals := newNamer(l.names) // so no local hides the function it calls
 			self := locals.alloc("a")
 			// The operation takes the caller's task first (rows.md, Rows 7);
 			// the table function runs in an environment of that task alone.
@@ -846,7 +897,7 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 				result = op.Sig.Results[0]
 			}
 			opFallible := len(rowElems(op.Sig.Errors)) > 0
-			b.WriteString("func (" + self + " *" + name + ") " + memberName(op.Name) + "(" + strings.Join(params, ", ") + ")" + tc.resultList(result, opFallible) + " {\n")
+			b.WriteString("func (" + self + " *" + name + recvArgs + ") " + memberName(op.Name) + "(" + strings.Join(params, ", ") + ")" + tc.resultList(result, opFallible) + " {\n")
 			switch {
 			case fd.fallible == opFallible && (result != nil || opFallible):
 				b.WriteString("\treturn " + call + "\n")
@@ -863,7 +914,10 @@ func (l *lowerer) operations(conv check.Conversion, val string, site syntax.Node
 		}
 		l.gen.WriteString(b.String())
 	}
-	return "&" + name + "{v: " + val + "}"
+	if param != nil {
+		return "&" + name + instArgs + "{v: " + val + ", w: " + fc.witness[param] + "}"
+	}
+	return "&" + name + instArgs + "{v: " + val + "}"
 }
 
 // mentionsTypeParam reports a type that names a type parameter.

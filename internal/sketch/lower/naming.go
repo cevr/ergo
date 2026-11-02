@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -92,13 +94,11 @@ func (l *lowerer) nameAll() {
 			}
 		}
 		for _, c := range convs {
-			from, _, ok := opsSource(c.From)
-			to, ok2 := c.To.(*check.Named)
-			if c.Kind != check.ConvOperations || !ok || !ok2 || mentionsTypeParam(c.From) || mentionsTypeParam(c.To) {
+			key, base, ok := adapterName(c)
+			if !ok {
 				continue
 			}
-			key := adapterKey(c)
-			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, "ops" + from.Obj.Name + "As" + to.Obj.Name})
+			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
 		}
 		for _, tn := range p.Types {
 			named, ok := tn.Type.(*check.Named)
@@ -124,9 +124,57 @@ func (l *lowerer) nameAll() {
 }
 
 // adapterKey identifies the adapter of an operations conversion by its
-// source and target types.
+// source and target types. A conversion inside a generic function also
+// names the declaration of each type parameter it mentions, whose adapter
+// is generic over them (D-E1, C8), so two functions' T never share one.
 func adapterKey(c check.Conversion) string {
-	return c.From.String() + " => " + c.To.String()
+	key := c.From.String() + " => " + c.To.String()
+	for _, tp := range convParams(c) {
+		key += fmt.Sprintf(" %s@%v", tp.Name, tp.Pos)
+	}
+	return key
+}
+
+// adapterName is the key and the base Go name of the adapter of the
+// operations conversion c, and false when c is not one an adapter lowers:
+// its source is a named type, a type parameter, or a pointer to either,
+// and its target a named operation type.
+func adapterName(c check.Conversion) (key, base string, ok bool) {
+	to, ok := c.To.(*check.Named)
+	if c.Kind != check.ConvOperations || !ok {
+		return "", "", false
+	}
+	var from string
+	if named, _, isNamed := opsSource(c.From); isNamed {
+		from = named.Obj.Name
+	} else if tp, _ := paramSource(c.From); tp != nil {
+		from = tp.Name
+	} else {
+		return "", "", false
+	}
+	return adapterKey(c), "ops" + from + "As" + to.Obj.Name, true
+}
+
+// paramSource is the type parameter an operations conversion converts
+// from: T, or T behind a pointer *T (ptr); nil for any other source.
+func paramSource(from check.Type) (tp *check.TypeParam, ptr bool) {
+	if p, isPtr := from.(*check.Pointer); isPtr {
+		from, ptr = p.Elem, true
+	}
+	tp, _ = from.(*check.TypeParam)
+	return tp, ptr
+}
+
+// convParams are the type-kinded type parameters an operations
+// conversion's source and target name, in order of first mention.
+func convParams(c check.Conversion) []*check.TypeParam {
+	out := freeTypeParams(c.From)
+	for _, tp := range freeTypeParams(c.To) {
+		if !slices.Contains(out, tp) {
+			out = append(out, tp)
+		}
+	}
+	return out
 }
 
 // opsSource is the named type an operations conversion converts from: T,

@@ -1013,6 +1013,13 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			c.errorf(x, CodeType, "an operation type is already a reference; call it on the value")
 			return bad(x)
 		}
+		if tp, ok := t.(*TypeParam); ok && m == nil {
+			// An operation of a type parameter's method-set constraint: the
+			// lowering calls it through the function's witness (D-E1).
+			if it := asInterface(tp.Constraint); it != nil {
+				m = it.method(x.Sel.Name)
+			}
+		}
 		return operand{mode: modeValue, typ: sig, method: m}
 	}
 	if u := under(t); u != t && c.collFunc(u, x.Sel.Name) != nil {

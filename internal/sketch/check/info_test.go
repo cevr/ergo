@@ -643,7 +643,11 @@ func infoDigest(info *Info) string {
 		for _, w := range inst.Witnesses {
 			ws += fmt.Sprintf(" %s=%s{", w.Param.Name, w.Arg)
 			for _, op := range w.Ops {
-				ws += fmt.Sprintf("%s:%v ", op.Name, op.Func != nil)
+				inst := ""
+				if op.Inst != nil {
+					inst = fmt.Sprintf("%v", op.Inst.TypeArgs)
+				}
+				ws += fmt.Sprintf("%s:%v:%v%s ", op.Name, op.Func != nil, op.Sig, inst)
 			}
 			ws += "}"
 		}

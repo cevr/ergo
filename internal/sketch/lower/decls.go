@@ -362,8 +362,10 @@ func constraintOf(tp *check.TypeParam) *check.Interface {
 // constraint is the Go constraint of the type parameter tp (D-E1, C12):
 // comparable is Go's comparable, ordered and number are generated type-set
 // interfaces (typeSetDecl), and no constraint is any. A method set is any
-// too: Go type arguments lack Ergo's operations, which a witness value
-// carries (stage E1 orchestrator answer 2).
+// too: Go type arguments lack Ergo's operations (196m functions are not Go
+// methods of int or of another package's type), so a function passes them
+// as a witness value (witness.go; stage E1 orchestrator answer 2), and a
+// type declaration's fields need none.
 func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
 	if tp.Constraint == nil {
 		return "any"
@@ -378,10 +380,23 @@ func (l *lowerer) constraint(tp *check.TypeParam, site syntax.Node) string {
 	case check.SetOrdered, check.SetNumber:
 		return l.typeSetDecl(it.Set)
 	}
-	if len(it.Methods) > 0 {
-		refuse(site, "the constraint %s of %s is lowered after check-v1 stage E (method-set constraints)", tp.Constraint, tp.Name)
-	}
 	return "any"
+}
+
+// sameGoConstraint reports two type parameters whose Go constraints are
+// the same and need no witness: a Go method takes its receiver type's
+// parameters with the type declaration's constraints.
+func sameGoConstraint(a, b *check.TypeParam) bool {
+	setOf := func(tp *check.TypeParam) (check.TypeSet, bool) {
+		it := constraintOf(tp)
+		if it == nil {
+			return check.SetAll, false
+		}
+		return it.Set, len(it.Methods) > 0
+	}
+	as, am := setOf(a)
+	bs, bm := setOf(b)
+	return as == bs && !am && !bm
 }
 
 // typeSetDecl is the Go name of the interface that lowers the predeclared
@@ -553,7 +568,8 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 // methodReceiver is the record f lowers as a method of, or nil: f's first
 // parameter is a record T or *T declared in f's package, every type
 // parameter of f is one of T's arguments in order (Go methods take no type
-// parameters of their own), and no field of T has the method's Go name.
+// parameters of their own) with T's Go constraint and no witness, and no
+// field of T has the method's Go name.
 func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	if len(f.Sig.Params) == 0 || f.Decl == nil || f.Name == "main" {
 		return nil, false
@@ -589,8 +605,14 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	if len(typeArgs) != len(own) {
 		return nil, false
 	}
+	var declared []*check.TypeParam
+	for _, tp := range origin.TParams {
+		if tp.Kind == check.KindType {
+			declared = append(declared, tp)
+		}
+	}
 	for i, a := range typeArgs {
-		if tp, ok := a.(*check.TypeParam); !ok || tp != own[i] {
+		if tp, ok := a.(*check.TypeParam); !ok || tp != own[i] || i >= len(declared) || !sameGoConstraint(tp, declared[i]) {
 			return nil, false
 		}
 	}
@@ -848,6 +870,15 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		}
 		fc.frame.dest = scope.alloc("dest")
 		parts = append(parts, fc.frame.dest+" *"+l.rt()+".Scope")
+	}
+	// A type parameter a method set constrains takes its operations as a
+	// witness, after the environment and the destination (witness.go).
+	for _, tp := range witnessParams(f.Sig) {
+		if fd.method != nil {
+			ice(site, "the Go method %s has a witness for %s; methodReceiver keeps such a function a Go function", f.Name, tp.Name)
+		}
+		fc.witness[tp] = scope.alloc("w" + tp.Name)
+		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
 	}
 	for i, p := range f.Sig.Params {
 		if fd.method != nil && i == 0 {

@@ -25,10 +25,11 @@ func TestRuntime199TaskReaders(t *testing.T) {
 		classified map[string]string
 	}{
 		{"envTask", map[string]string{
-			"taskOf":             "the only reader",
-			"lowerer.envType":    "declares the field",
-			"lowerer.operations": "an operation table's Env literal for the caller's task",
-			"lowerer.entry":      "the root Env literal in main",
+			"taskOf":                "the only reader",
+			"lowerer.envType":       "declares the field",
+			"funcCtx.operations":    "an operation table's Env literal for the caller's task",
+			"funcCtx.witnessMethod": "a witness adapter's Env literal for the caller's task",
+			"lowerer.entry":         "the root Env literal in main",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":    "runtimeCall's hidden CallerTask argument",
@@ -42,7 +43,12 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.runtimeCall":    "the runtime binding emitter",
 			"funcCtx.programOpCall":  "a program-declared operation's method",
 			"funcCtx.callText":       "a capability operation's method",
-			"lowerer.operations":     "an operation table's method values",
+			"funcCtx.operations":     "an operation table's method values",
+			"funcCtx.witnessCall":    "a call through a witness field",
+			"funcCtx.witnessMethod":  "a witness adapter's method and the field it calls",
+			"funcCtx.witnessOp":      "a witness field that passes on the caller's witness",
+			"funcCtx.witnessValue":   "a witness literal's fields",
+			"typeCtx.witnessType":    "a witness type's fields",
 			"lowerer.emitType":       "a declared type's fields and methods",
 			"lowerer.envField":       "a capability's Env field",
 			"lowerer.funcDecl":       "a declared function's Go name",
