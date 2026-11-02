@@ -28,6 +28,18 @@ func (t *Task) WithValue(key, value any) Context {
 // keep the values they inherited.
 func (c Context) End() { c.t.values = c.prev }
 
+// Values calls f for each value bound for t now, innermost first, shadowed
+// ones included. Call it from t's own goroutine. A task's values come down
+// its ancestry: each task starts with its parent's values in force at the
+// fork. A defect's report prints those in force where it happened (G2), and
+// their keys are not known to the reader in advance, so Value cannot find
+// them.
+func (t *Task) Values(f func(key, value any)) {
+	for v := t.values; v != nil; v = v.next {
+		f(v.key, v.value)
+	}
+}
+
 // Value returns the innermost value bound to key, or nil.
 func (t *Task) Value(key any) any {
 	for v := t.values; v != nil; v = v.next {

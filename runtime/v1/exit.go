@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -32,14 +33,32 @@ import (
 
 // Panic is a defect: a Go panic recovered at a boundary. Value is the
 // panic's value and Stack the panicking goroutine's stack when the boundary
-// recovered it, which still holds the frame that panicked.
+// recovered it, which still holds the frame that panicked. Context is the
+// snapshot of the context values in force for the failing task at the
+// defect, outermost first (G1, G2).
+//
+// A Panic is the one record of a defect (G2). defectOf makes it, on the
+// goroutine of the task the defect happened in; rt adds that task's chain,
+// the task and its bounded ancestry, beside it in the rt.Reason. From
+// there the reason travels whole, never rebuilt: Wait raises it in the
+// waiter, Stop and an owner's drain raise or join it, a release joins it to
+// the frame's other causes, and report alone writes it.
 type Panic struct {
-	Value any
-	Stack []byte
+	Value   any
+	Stack   []byte
+	Context []Binding
 }
 
 // String is the panic value's text, as Go's panic report writes it.
 func (p *Panic) String() string { return fmt.Sprint(p.Value) }
+
+// defectOf records p, a fresh defect recovered on the goroutine of task t,
+// with the Go stack at the panic and t's context values now. Call it inside
+// the recover, while the panicking frame is still on the stack, and before
+// the frame's regions close.
+func defectOf(t *rt.Task, p any) *Panic {
+	return &Panic{Value: p, Stack: debug.Stack(), Context: contextOf(t)}
+}
 
 // exit carries a recorded exit, in rt's canonical form, across lowered
 // frames as a panic value. Its err is never nil and never a lone typed
@@ -52,7 +71,7 @@ type exit struct{ err error }
 // in canonical form: an interruption stays one, a carried exit is unpacked,
 // and anything else is a fresh defect with t's chain (G2) and the stack.
 func capture(t *rt.Task, p any) error {
-	defect, carried := classify(p)
+	defect, carried := classify(t, p)
 	if defect == nil {
 		return carried
 	}
@@ -61,13 +80,12 @@ func capture(t *rt.Task, p any) error {
 	return c.Err()
 }
 
-// classify sorts p, a recovered panic: a carried exit and an interruption
-// are returned as the exit they carry; anything else is a fresh defect,
-// returned as its *Panic with the Go stack at the panic. Call it inside the
-// recover, while the panicking frame is still on the stack. It is the
-// settle of rt.Release for a release that ends no frame of its own (a
-// task's drain).
-func classify(p any) (defect any, carried error) {
+// classify sorts p, a panic recovered on the goroutine of task t: a carried
+// exit and an interruption are returned as the exit they carry; anything
+// else is a fresh defect, returned as its record (defectOf). Call it inside
+// the recover, while the panicking frame is still on the stack. With t
+// bound, it is the classify of rt.Release, which adds t's chain.
+func classify(t *rt.Task, p any) (defect any, carried error) {
 	switch e := p.(type) {
 	case *exit:
 		return nil, e.err
@@ -76,7 +94,7 @@ func classify(p any) (defect any, carried error) {
 			return nil, rt.Interrupted
 		}
 	}
-	return &Panic{Value: p, Stack: debug.Stack()}, nil
+	return defectOf(t, p), nil
 }
 
 // join combines two exits, a's reasons first; nothing is dropped.
@@ -165,6 +183,10 @@ func RegisterCalls(declTable []struct {
 	registered, decls, calls = true, declTable, table
 }
 
+// taskEntry starts the traceback line of guarded, the boundary of every
+// task's body (Go, runMain).
+var taskEntry = reflect.TypeFor[Panic]().PkgPath() + ".guarded["
+
 // ergoStack is the Ergo call chain of a defect's Go stack, innermost
 // first. Only frames at a position of the program's source (a line
 // directive names its file) count; Go frames at no source position, the
@@ -176,7 +198,9 @@ func RegisterCalls(declTable []struct {
 // when several calls share its line, the one whose callee is the
 // declaration of the frame inside it, else all of them ("G or H"). A run of
 // the same frame, as in a recursion, is written once with its
-// count.
+// count. The chain ends at the body of the failing task: the generated
+// entry of a task.Go block is not a call, and the task's line names its
+// fork.
 func ergoStack(stack []byte) []string {
 	type site struct {
 		file string
@@ -203,17 +227,32 @@ func ergoStack(stack []byte) []string {
 			break
 		}
 	}
+	// source is whether the last frame read is at a source position.
+	source := false
 	for _, ln := range lines[start:] {
 		if n, ok := strings.CutPrefix(ln, "..."); ok {
 			if n, ok := strings.CutSuffix(n, " frames elided..."); ok {
 				frames = append(frames, site{elided: n})
 			}
+			source = false
 			continue
 		}
 		loc, ok := strings.CutPrefix(ln, "\t")
 		if !ok {
+			// A function line. The frame that guarded calls is the
+			// lowered body of a task.Go block, generated code at the
+			// fork's site: the task's line of the report names that
+			// site, so the frame is not a call of the source. Nothing
+			// outside it is the task's either.
+			if strings.HasPrefix(ln, taskEntry) {
+				if source {
+					frames = frames[:len(frames)-1]
+				}
+				break
+			}
 			continue
 		}
+		source = false
 		if i := strings.LastIndex(loc, " +0x"); i >= 0 {
 			loc = loc[:i]
 		}
@@ -226,6 +265,7 @@ func ergoStack(stack []byte) []string {
 			continue
 		}
 		frames = append(frames, site{file: loc[:i], line: n})
+		source = true
 	}
 	owner := func(f site) string {
 		for _, d := range decls {
@@ -308,17 +348,31 @@ func Main(body func(*rt.Task) error) {
 }
 
 // runMain runs body as the root task and returns its canonical exit.
-func runMain(body func(*rt.Task) error) error {
-	_, err := rt.Run(rt.Root("main"), func(t *rt.Task) (struct{}, error) {
+func runMain(body func(*rt.Task) error) error { return runOn(rt.Root("main"), body) }
+
+// runOn runs body on root, a task with no parent, and returns its canonical
+// exit. A traced root reports as an untraced one does.
+func runOn(root *rt.Task, body func(*rt.Task) error) error {
+	_, err := rt.Run(root, func(t *rt.Task) (struct{}, error) {
 		return guarded(t, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
 	})
 	return err
 }
 
 // report writes each reason of err to w and returns the exit status. A
-// typed failure is written as Fail writes it; a defect as "panic: VALUE",
-// then the chain of tasks that led to it when it is not the root alone
-// (G2), then the stack at the panic; an interruption as "interrupted".
+// typed failure is written as Fail writes it; an interruption as
+// "interrupted"; a defect as "panic: VALUE", then (G2):
+//
+//   - the Ergo frames of the failing task at the panic, innermost first
+//     (ergoStack);
+//   - the chain of tasks that led to it, failing task first, each with the
+//     site that started it, to the root, when it is not the root alone or
+//     context values were in force;
+//   - under the failing task, the context values in force for it at the
+//     defect, outermost first, each written PACKAGE.KEY="TEXT".
+//
+// With no source map registered (a runtime test), the chain comes first
+// and the raw Go stack follows it.
 func report(w io.Writer, err error) int {
 	if err == nil {
 		return 0
@@ -342,25 +396,7 @@ func report(w io.Writer, err error) int {
 			fmt.Fprintf(w, "error: %v\n", r.Err)
 		case rt.KindDefect:
 			defect, interruptedOnly = true, false
-			where := ""
-			if r.InRelease {
-				where = " (in an exit action)"
-			}
-			fmt.Fprintf(w, "panic: %v%s\n", r.Value, where)
-			if len(r.Chain) > 1 {
-				for _, f := range r.Chain {
-					fmt.Fprintf(w, "\ttask #%d %s\n", f.Task, f.Span)
-				}
-			}
-			if p, ok := r.Value.(*Panic); ok && len(p.Stack) > 0 {
-				if !registered {
-					fmt.Fprintf(w, "\n%s\n", p.Stack)
-				} else {
-					for _, s := range ergoStack(p.Stack) {
-						fmt.Fprintf(w, "\t%s\n", s)
-					}
-				}
-			}
+			reportDefect(w, r)
 		case rt.KindInterruption:
 			fmt.Fprintln(w, "interrupted")
 		}
@@ -372,5 +408,40 @@ func report(w io.Writer, err error) int {
 		return 130
 	default:
 		return 1
+	}
+}
+
+// reportDefect writes the defect r as report describes.
+func reportDefect(w io.Writer, r rt.Reason) {
+	where := ""
+	if r.InRelease {
+		where = " (in an exit action)"
+	}
+	fmt.Fprintf(w, "panic: %v%s\n", r.Value, where)
+	p, _ := r.Value.(*Panic)
+	var stack []byte
+	var context []Binding
+	if p != nil {
+		stack, context = p.Stack, p.Context
+	}
+	if registered && len(stack) > 0 {
+		for _, s := range ergoStack(stack) {
+			fmt.Fprintf(w, "\t%s\n", s)
+		}
+	}
+	if len(r.Chain) > 1 || len(context) > 0 {
+		for i, f := range r.Chain {
+			fmt.Fprintf(w, "\ttask #%d %s\n", f.Task, f.Span)
+			if i == 0 && len(context) > 0 {
+				fmt.Fprint(w, "\t  context")
+				for _, b := range context {
+					fmt.Fprintf(w, " %s.%s=%s", b.Package, b.Key, strconv.Quote(b.Text))
+				}
+				fmt.Fprintln(w)
+			}
+		}
+	}
+	if !registered && len(stack) > 0 {
+		fmt.Fprintf(w, "\n%s\n", stack)
 	}
 }

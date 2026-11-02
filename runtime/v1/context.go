@@ -1,6 +1,10 @@
 package v1
 
-import "ergo.local/prototype/runtime/rt"
+import (
+	"slices"
+
+	"ergo.local/prototype/runtime/rt"
+)
 
 // Context values (docs/spec/runtime.md, G1). `with v { … }`, where v's type
 // satisfies the context-binding protocol, binds v's text under v's key for
@@ -68,6 +72,35 @@ func (c *Context) End() {
 func (c *Context) close(e error) error {
 	c.saved.End()
 	return e
+}
+
+// Binding is one context value in force: the path of the package that
+// declares its type, its protocol key and its text.
+type Binding struct {
+	Package, Key, Text string
+}
+
+// contextOf is the snapshot of the context values in force for t now,
+// outermost first, a shadowed binding left out. A defect carries it, so its
+// report prints the values of the failing task at the defect, not their
+// later state (G2). Call it on t's own goroutine.
+func contextOf(t *rt.Task) []Binding {
+	var in []Binding
+	t.Values(func(key, value any) {
+		k, ok := key.(contextKey)
+		if !ok {
+			return
+		}
+		for _, b := range in {
+			if b.Package == k.pkg && b.Key == k.key {
+				return // shadowed by an inner binding
+			}
+		}
+		text, _ := value.(string)
+		in = append(in, Binding{Package: k.pkg, Key: k.key, Text: text})
+	})
+	slices.Reverse(in)
+	return in
 }
 
 // ContextBound reports whether key is bound in the reading package for t.

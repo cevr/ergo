@@ -249,7 +249,7 @@ func Release(t *rt.Task, body func()) {
 func release(t *rt.Task, c *rt.Cause, body func(), after func(error) error) {
 	m := t.Mask()
 	defer m.Unmask()
-	rt.Release(t, c, body, classify, after)
+	rt.Release(t, c, body, func(p any) (any, error) { return classify(t, p) }, after)
 }
 
 // release releases the entries last first. Each action and drain enters
