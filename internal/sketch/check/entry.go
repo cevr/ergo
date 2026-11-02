@@ -18,41 +18,24 @@ func (c *checker) checkTypeDecls() {
 	}
 }
 
-// checkRecursiveStructs reports each struct type that contains itself by
-// value through its fields (directly, through an array, an anonymous struct
-// or an instance of a generic struct): its size would be infinite. Slices,
-// maps, channels, interfaces and unions break the cycle, as in Go. The walk
-// follows instances with their type arguments substituted, so
-// `type U struct{ F Wrap[U] }` closes through Wrap's `Value T`. It has no
-// depth cutoff (round-2 M5): instantiation cycles are rejected first
-// (checkInstantiationCycles) and the walk skips their types, so the
-// instances it reaches are finitely many and each is visited once. One
-// diagnostic per cycle, at the cycle's first declaration in source order.
-//
-// Prior art: go/types validType walks the same instance graph with the
-// type path as its cycle witness.
+// checkRecursiveStructs classifies strongly connected components of the
+// direct-definition and by-value containment graph together. Indirection
+// through pointers, slices, Maps, functions, operation types or unions
+// ends a containment path. A component made only of definition edges is
+// a defined-type cycle; any record or tuple edge makes it an infinite-size
+// cycle. The diagnostic names and locates the lexically first declared
+// type in the component, independent of declaration and resolution order.
 func (c *checker) checkRecursiveStructs() {
-	const (
-		white = iota
-		grey
-		black
-	)
-	colour := map[*Named]int{}
-	reported := map[*Named]bool{}
-	var stack []*Named
-	var cycles [][]*Named
-	var fields func(t Type, out *[]*Named)
+	var fields func(Type, *[]*Named)
 	fields = func(t Type, out *[]*Named) {
 		switch t := t.(type) {
 		case *Named:
-			if t.foreign {
+			if t.foreign || t.Obj.Decl == nil || c.monoBad(t.origin().TParams) {
 				return
 			}
-			if t.Orig == nil && t.Obj.Decl == nil {
+			if t.Defined() != nil {
+				*out = append(*out, t)
 				return
-			}
-			if c.monoBad(t.origin().TParams) {
-				return // on an instantiation cycle: reported
 			}
 			switch t.underlying().(type) {
 			case *Struct, *Tuple:
@@ -63,90 +46,116 @@ func (c *checker) checkRecursiveStructs() {
 				fields(f.Type, out)
 			}
 		case *Tuple:
-			// A tuple holds its elements by value (196t).
 			for _, e := range t.Types {
 				fields(e, out)
 			}
 		}
 	}
-	// visit walks iteratively, so a chain of thousands of types needs no
-	// deep recursion.
+	// Iterative Tarjan walk: long finite chains need no recursive walk.
 	type frame struct {
 		n    *Named
 		next []*Named
 		i    int
 	}
-	visit := func(root *Named) {
+	index, low := map[*Named]int{}, map[*Named]int{}
+	on, self := map[*Named]bool{}, map[*Named]bool{}
+	var stack []*Named
+	var cycles [][]*Named
+	serial := 0
+	for _, tn := range c.pkg.Types {
+		root := tn.Type.(*Named)
+		if index[root] != 0 || c.monoBad(root.TParams) {
+			continue
+		}
 		var work []frame
 		push := func(n *Named) {
-			colour[n] = grey
+			serial++
+			index[n], low[n] = serial, serial
+			on[n] = true
 			stack = append(stack, n)
 			var next []*Named
-			switch u := n.underlying().(type) {
-			case *Struct:
-				for _, f := range u.Fields {
-					fields(f.Type, &next)
+			if base := n.Defined(); base != nil {
+				fields(base, &next)
+			} else {
+				switch u := n.underlying().(type) {
+				case *Struct:
+					fields(u, &next)
+				case *Tuple:
+					fields(u, &next)
 				}
-			case *Tuple:
-				fields(u, &next)
 			}
 			work = append(work, frame{n: n, next: next})
 		}
 		push(root)
 		for len(work) > 0 {
 			top := &work[len(work)-1]
-			if top.i == len(top.next) {
-				colour[top.n] = black
-				stack = stack[:len(stack)-1]
-				work = work[:len(work)-1]
+			if top.i < len(top.next) {
+				m := top.next[top.i]
+				top.i++
+				self[top.n] = self[top.n] || m == top.n
+				if index[m] == 0 {
+					push(m)
+				} else if on[m] {
+					low[top.n] = min(low[top.n], index[m])
+				}
 				continue
 			}
-			m := top.next[top.i]
-			top.i++
-			switch colour[m] {
-			case grey:
-				for k := len(stack) - 1; k >= 0; k-- {
-					if stack[k] == m {
-						cycles = append(cycles, append([]*Named(nil), stack[k:]...))
-						break
-					}
+			n := top.n
+			work = work[:len(work)-1]
+			if len(work) > 0 {
+				p := work[len(work)-1].n
+				low[p] = min(low[p], low[n])
+			}
+			if low[n] != index[n] {
+				continue
+			}
+			var component []*Named
+			for {
+				m := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				on[m] = false
+				component = append(component, m)
+				if m == n {
+					break
 				}
-			case white:
-				push(m)
+			}
+			if len(component) > 1 || self[n] {
+				cycles = append(cycles, component)
 			}
 		}
 	}
-	for _, tn := range c.pkg.Types {
-		n, ok := tn.Type.(*Named)
-		if !ok || colour[n] != white || c.monoBad(n.TParams) {
-			continue
-		}
-		visit(n)
-	}
+	reported := map[*Named]bool{}
+	saved := c.cur
+	defer func() { c.cur = saved }()
 	for _, cyc := range cycles {
 		var first *Named
-		dup := false
+		defined, duplicate := true, false
 		for _, m := range cyc {
 			o := m.origin()
-			if reported[o] {
-				dup = true
-			}
-			if o.Obj.Pkg != c.pkg || o.Obj.Decl == nil {
-				continue
-			}
-			if first == nil || o.Obj.file.index < first.Obj.file.index ||
-				o.Obj.file.index == first.Obj.file.index && o.Obj.Pos < first.Obj.Pos {
+			duplicate = duplicate || reported[o]
+			defined = defined && m.Defined() != nil
+			if o.Obj.Pkg == c.pkg && o.Obj.Decl != nil &&
+				(first == nil || o.Obj.Name < first.Obj.Name) {
 				first = o
 			}
 		}
 		for _, m := range cyc {
 			reported[m.origin()] = true
 		}
-		if dup || first == nil {
+		if duplicate || first == nil {
 			continue
 		}
 		c.cur = first.Obj.file
-		c.errorf(first.Obj.Decl.Name, CodeType, "%s contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)", first.Obj.Name)
+		if defined {
+			c.errorf(first.Obj.Decl.Name, CodeType, "%s is defined over itself (types.md, Defined types)", first.Obj.Name)
+		} else {
+			c.errorf(first.Obj.Decl.Name, CodeType, "%s contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)", first.Obj.Name)
+		}
+	}
+	// No later body check follows a cyclic definition chain. The package
+	// already has its one source diagnostic for each invalid component.
+	for n := range reported {
+		n.def, n.under = nil, invalid
 	}
 }
 

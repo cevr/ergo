@@ -147,26 +147,82 @@ func (c *checker) definedType(n *Named, spec syntax.Expr, ctx *typeCtx) Type {
 	if isInvalid(base) {
 		return invalid
 	}
-	switch b := base.(type) {
-	case *TypeParam:
+	if b, ok := base.(*TypeParam); ok {
 		c.errorf(spec, CodeType, "a defined type is defined over a type, not the type parameter %s (types.md, Defined types)", b.Name)
 		return invalid
-	case *Named:
-		if o := b.origin(); o.state == 1 {
-			c.errorf(spec, CodeType, "%s is defined over itself (types.md, Defined types)", n.Obj.Name)
-			return invalid
-		}
+	}
+	if b, ok := base.(*Named); ok && (b.origin().state == 1 || b.def != nil && isInvalid(b.underlying())) {
+		n.def = base
+		return invalid
 	}
 	if noun := baseNoun(under(base)); noun != "" {
 		c.errorf(spec, CodeType, "a defined type is over a basic, slice, Map, function, tuple or record type, and %s is %s; use %s directly (types.md, Defined types)", c.localTypeText(base), noun, c.localTypeText(base))
 		return invalid
 	}
 	if c.taskRefused(spec, base) {
-		// A record instance over a Task (type B Box[Task[int, F]]).
 		return invalid
 	}
+	// Keep the direct edge even when the base is still resolving. Cycle
+	// classification belongs to checkRecursiveStructs, after all bodies
+	// have resolved; a back edge alone cannot distinguish the two kinds.
 	n.def = base
 	return under(base)
+}
+
+// completeDefinedTypes finishes the underlying bodies of defined types
+// after lazy resolution. A record may refer through a pointer to a type
+// defined over that record, so meeting an active base is not itself an
+// invalid cycle. The cycle pass follows direct definition edges as well
+// as fields and distinguishes legal indirection from infinite size.
+func (c *checker) completeDefinedTypes() {
+	active, done := map[*Named]bool{}, map[*Named]bool{}
+	pending := map[*Named]bool{}
+	var finish func(*Named) Type
+	finish = func(n *Named) Type {
+		if n.foreign || n.Obj.Pkg != c.pkg {
+			return n.underlying()
+		}
+		if active[n] || c.monoBad(n.origin().TParams) {
+			return invalid
+		}
+		if done[n] {
+			return n.underlying()
+		}
+		if !isInvalid(n.underlying()) {
+			done[n] = true
+			return n.underlying()
+		}
+		pending[n] = true
+		active[n] = true
+		if base := n.Defined(); base != nil {
+			if b, ok := base.(*Named); ok {
+				n.under = finish(b)
+			} else {
+				n.under = under(base)
+			}
+		}
+		active[n], done[n] = false, true
+		return n.underlying()
+	}
+	for _, tn := range c.pkg.Types {
+		if n := tn.Type.(*Named); n.def != nil {
+			finish(n)
+		}
+	}
+	for _, tn := range c.pkg.Types {
+		n := tn.Type.(*Named)
+		if !pending[n] || n.def == nil || isInvalid(n.under) {
+			continue
+		}
+		c.cur = tn.file
+		spec := tn.Decl.Spec
+		if noun := baseNoun(n.under); noun != "" {
+			c.errorf(spec, CodeType, "a defined type is over a basic, slice, Map, function, tuple or record type, and %s is %s; use %s directly (types.md, Defined types)", c.localTypeText(n.def), noun, c.localTypeText(n.def))
+			n.def, n.under = nil, invalid
+		} else if c.taskRefused(spec, n.def) {
+			n.def, n.under = nil, invalid
+		}
+	}
 }
 
 // baseNoun names the kind of u, the underlying type of a defined type's

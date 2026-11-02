@@ -34,6 +34,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	// Expanding type instantiations are rejected before any walk expands
 	// instances (round-2 M1, M5).
 	c.checkInstantiationCycles()
+	c.completeDefinedTypes()
 	c.collectSelfFuncs()
 	for _, f := range c.funcs {
 		c.cur = f.file
@@ -1015,6 +1016,15 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 		if o == universeOnce.errorName {
 			c.errorf(x, CodeType, "error is only the head of an error row")
 			return invalid
+		}
+		// Keep identity while constructing declaration bodies. An active
+		// defined base can temporarily have no body; the unified cycle
+		// pass needs this edge, rather than an invalid placeholder.
+		if n, ok := o.Type.(*Named); ok && ctx != nil && ctx.decl {
+			c.resolveNamed(n)
+			if n.state == 1 || n.def != nil && isInvalid(n.underlying()) {
+				return n
+			}
 		}
 		return c.resolvedType(o.Type)
 	case *capBinding:
