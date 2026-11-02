@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"weak"
@@ -149,6 +150,46 @@ func TestDefectReportFramesEndAtTheTaskBody(t *testing.T) {
 	// boom's line only: the closure at the Go call is the task's entry.
 	if len(frames) != 1 || frames[0] != fmt.Sprintf("src at %s:%d", file, lineOf(t, file, "return xs[i]")) {
 		t.Fatalf("frames %q; want boom's frame alone", frames)
+	}
+}
+
+// recurse calls itself n times on one line, then panics in boom.
+//
+//go:noinline
+func recurse(n int) int {
+	if n == 0 {
+		return boom()
+	}
+	return recurse(n-1) + 1 // the recursive call
+}
+
+// TestDefectReportWrapperNotARepeat: an exit action's block runs inside a
+// Go closure that the generated code calls at the position of the block's
+// own call, so two Go frames sit at one source line. The report writes that
+// call once; a recursion at one line still counts its repeats.
+func TestDefectReportWrapperNotARepeat(t *testing.T) {
+	file := withSource(t)
+	err := runMain(func(root *rt.Task) error {
+		return frame(root, func(s *Scope) error {
+			OnExit(s, func() { _ = func() int { return boom() }() }) // the wrapped block
+			return nil
+		})
+	})
+	rs := reasons(err)
+	if len(rs) != 1 {
+		t.Fatalf("exit %v; want one defect", err)
+	}
+	block := fmt.Sprintf("src at %s:%d", file, lineOf(t, file, "// the wrapped block"))
+	frames := ergoStack(rs[0].Value.(*Panic).Stack)
+	if len(frames) < 2 || frames[1] != block {
+		t.Fatalf("frames %q; want the block's line once after boom's", frames)
+	}
+	err = runMain(func(root *rt.Task) error { recurse(3); return nil })
+	rs = reasons(err)
+	frames = ergoStack(rs[0].Value.(*Panic).Stack)
+	again := fmt.Sprintf("src at %s:%d (3 times)", file, lineOf(t, file, "// the recursive call"))
+	if !slices.Contains(frames, again) {
+		t.Fatalf("frames %q; want %q", frames, again)
 	}
 }
 

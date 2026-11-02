@@ -197,14 +197,18 @@ var taskEntry = reflect.TypeFor[Panic]().PkgPath() + ".guarded["
 // is the call it made, from the call table: "F calls G at file:line:col";
 // when several calls share its line, the one whose callee is the
 // declaration of the frame inside it, else all of them ("G or H"). A run of
-// the same frame, as in a recursion, is written once with its
-// count. The chain ends at the body of the failing task: the generated
+// the same frame, as in a recursion, is written once with its count; a
+// generated Go closure called at the position of the call inside it (the
+// closure around an exit action's block) is part of that call, not a
+// repeat. The chain ends at the body of the failing task: the generated
 // entry of a task.Go block is not a call, and the task's line names its
 // fork.
 func ergoStack(stack []byte) []string {
 	type site struct {
 		file string
 		line int
+		// fn is the frame's Go function, such as main.leaf.func2.1.
+		fn string
 		// elided is Go's count of frames it left out here, past its
 		// traceback limit (no file then).
 		elided string
@@ -227,8 +231,9 @@ func ergoStack(stack []byte) []string {
 			break
 		}
 	}
-	// source is whether the last frame read is at a source position.
-	source := false
+	// source is whether the last frame read is at a source position; fn is
+	// the Go function of the frame whose location comes next.
+	source, fn := false, ""
 	for _, ln := range lines[start:] {
 		if n, ok := strings.CutPrefix(ln, "..."); ok {
 			if n, ok := strings.CutSuffix(n, " frames elided..."); ok {
@@ -250,6 +255,10 @@ func ergoStack(stack []byte) []string {
 				}
 				break
 			}
+			fn = ln
+			if i := strings.LastIndex(ln, "("); i >= 0 {
+				fn = ln[:i]
+			}
 			continue
 		}
 		source = false
@@ -264,7 +273,7 @@ func ergoStack(stack []byte) []string {
 		if err != nil {
 			continue
 		}
-		frames = append(frames, site{file: loc[:i], line: n})
+		frames = append(frames, site{file: loc[:i], line: n, fn: fn})
 		source = true
 	}
 	owner := func(f site) string {
@@ -280,16 +289,26 @@ func ergoStack(stack []byte) []string {
 		times int
 	}
 	var entries []entry
-	add := func(s string) {
-		if n := len(entries); n > 0 && entries[n-1].text == s {
+	// inner is the Go function of the last source frame added, the frame
+	// that the next one called.
+	inner := ""
+	add := func(s string, fn string) {
+		n := len(entries)
+		switch {
+		case n > 0 && entries[n-1].text == s && fn != "" && strings.HasPrefix(inner, fn+"."):
+			// A function literal the generated code calls at the source
+			// position of its own call, such as the Go closure around an
+			// exit action's block: one Ergo call, not a repeat.
+		case n > 0 && entries[n-1].text == s:
 			entries[n-1].times++
-			return
+		default:
+			entries = append(entries, entry{s, 1})
 		}
-		entries = append(entries, entry{s, 1})
+		inner = fn
 	}
 	for i, f := range frames {
 		if f.elided != "" {
-			add("..." + f.elided + " frames elided...")
+			add("..."+f.elided+" frames elided...", "")
 			continue
 		}
 		var here []int
@@ -305,7 +324,7 @@ func ergoStack(stack []byte) []string {
 			if name != "" {
 				name += " "
 			}
-			add(fmt.Sprintf("%sat %s:%d", name, f.file, f.line))
+			add(fmt.Sprintf("%sat %s:%d", name, f.file, f.line), f.fn)
 			continue
 		}
 		if len(here) > 1 && frames[i-1].elided == "" {
@@ -326,7 +345,7 @@ func ergoStack(stack []byte) []string {
 		for _, j := range here[1:] {
 			callees = append(callees, calls[j].Callee)
 		}
-		add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, strings.Join(callees, " or "), c.File, c.Line, c.Column))
+		add(fmt.Sprintf("%s calls %s at %s:%d:%d", c.Func, strings.Join(callees, " or "), c.File, c.Line, c.Column), f.fn)
 	}
 	out := make([]string, len(entries))
 	for i, e := range entries {
