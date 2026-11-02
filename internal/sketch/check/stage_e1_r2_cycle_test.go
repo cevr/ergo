@@ -36,6 +36,40 @@ func TestE1CycleDeclarationPermutations(t *testing.T) {
 		{"intrinsic-through-two-wrappers", []string{"type A[T] { V B[T] }", "type B[T] { V T }", "type Z[T] { V A[Z[T]] }"}, []string{"Z"}, nil},
 		{"intrinsic-mutual-generics", []string{"type G[T] { Next H[T] }", "type H[T] { Next G[T] }"}, []string{"G,H"}, nil},
 		{"intrinsic-swapped-arguments", []string{"type Pair[T, U] { Next Pair[U, T] }"}, []string{"Pair"}, nil},
+		// The rows of the E1c diagnosis case table (§2.2), with its "Rule
+		// result" column, and the R2' controls.
+		{"q21-holder", []string{"type A { X B }", "type B { Y A }", "type C { Y A }"}, []string{"A,B"}, nil},
+		{"zz-reaches-other", []string{"type Bad { B Bad }", "type Zz[T] { V Zz2[T], W Bad }", "type Zz2[T] { V Zz[T] }"}, []string{"Bad", "Zz,Zz2"}, nil},
+		{"q31", []string{"type Aa[T] { V T, N Aa[T] }", "type Zz[T] { V Aa[Zz[T]] }"}, []string{"Aa", "Zz"}, nil},
+		{"q32", []string{"type Aa[T] { V T, N Option[Aa[T]] }", "type Zz[T] { V Aa[Zz[T]] }"}, []string{"Zz"}, nil},
+		{"q30", []string{"type Bad { B Bad }", "type Agen[T] { V T, W Bad }", "type Zrec[T] { V Agen[Zrec[T]] }"}, []string{"Bad", "Zrec"}, nil},
+		{"two-comp-share-generic", []string{"type W[T] { V T }", "type A { X W[B] }", "type B { Y A }", "type C { Z W[C] }"}, []string{"A,B", "C"}, nil},
+		{"zrec-int-cascade", []string{"type Agen[T] { V T, W Zrec[int] }", "type Zrec[T] { V Agen[Zrec[T]] }"}, []string{"Zrec"}, nil},
+		{"hold-cascade", []string{"type Aa[T] { V T, N Aa[T] }", "type Hold { X Aa[int] }"}, []string{"Aa"}, nil},
+		{"mutual-generics-three", []string{"type G[T] { Next H[T] }", "type H[T] { Next K[T] }", "type K[T] { Next G[T] }"}, []string{"G,H,K"}, nil},
+		{"renamed-two-params", []string{"type G[T] { X H[T, T] }", "type H[A, B] { Y G[A] }"}, []string{"G"}, nil},
+		{"concrete-self-instance", []string{"type Box[T] { V T }", "type S[T] { F Box[S[int]] }"}, []string{"S"}, nil},
+		{"concrete-self-direct", []string{"type P[T] { A T, B P[int] }"}, []string{"P"}, nil},
+		{"tuple-defined-self", []string{"type A (A, int)"}, []string{"A"}, nil},
+		{"tuple-defined-pair", []string{"type A (B, int)", "type B A"}, []string{"A,B"}, nil},
+		// The R2/P5 counterexample: R2 hid the orphan {D1, D2} behind the
+		// intrinsic group {D0, D2}; R2' reports both.
+		{"r2-p5-three", []string{"type D0[T] { F0 D2[T] }", "type D1[T] { F0 D2[int] }", "type D2[T] { F0 D0[T], F1 D1[int] }"}, []string{"D0,D2", "D1,D2"}, nil},
+		{"r2-p5-three-repaired", []string{"type D0[T] { F0 Option[D2[T]] }", "type D1[T] { F0 D2[int] }", "type D2[T] { F0 D0[T], F1 D1[int] }"}, []string{"D1,D2"}, nil},
+		{"r2-p5-four", []string{
+			"type D0 { F0 D2[D0], F1 Option[int] }",
+			"type D1[T, U] { F0 D3[T, U], F1 []D3[T, U] }",
+			"type D2[T] { F0 D3[int, int], F1 Option[D1[int, int]] }",
+			"type D3[T, U] { F0 D1[T, U], F1 D2[int] }",
+		}, []string{"D1,D3", "D2,D3"}, nil},
+		{"r2-p5-four-repaired", []string{
+			"type D0 { F0 D2[D0], F1 Option[int] }",
+			"type D1[T, U] { F0 Option[D3[T, U]], F1 Option[[]D3[T, U]] }",
+			"type D2[T] { F0 D3[int, int], F1 Option[D1[int, int]] }",
+			"type D3[T, U] { F0 D1[T, U], F1 D2[int] }",
+		}, []string{"D2,D3"}, nil},
+		{"intrinsic-and-orphan-self", []string{"type D0[T] { F0 D0[T], F1 D0[int] }"}, []string{"D0"}, nil},
+		{"intrinsic-and-orphan-distinct", []string{"type D0[T] { F0 D0[T], F1 D1[int] }", "type D1[T] { F0 D0[int] }"}, []string{"D0", "D0,D1"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			order := make([]int, len(tc.decls))
