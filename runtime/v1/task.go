@@ -337,8 +337,9 @@ type Task[T any] struct {
 	drained bool     // its owner stopped it when the owner ended
 }
 
-// Site is the Ergo identity of a call, the called declaration and the
-// call's source position, such as "task.Go at main.ergo:12:10". The
+// Site is the Ergo identity of a call: the calling function, the called
+// declaration and the call's source position, such as "main calls task.Go
+// at main.ergo:12:10", the form of a call frame in a defect report. The
 // lowering passes it as a hidden argument to a Go body that names a task
 // or a span by it (docs/spec/stdlib.md, Hidden arguments; G2, #230). No
 // Ergo type lowers to Site, so its Go type alone marks the argument.

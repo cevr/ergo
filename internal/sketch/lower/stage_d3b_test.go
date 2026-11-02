@@ -149,7 +149,7 @@ func TestTaskGoAndTaskResults(t *testing.T) {
 		"return v_1.Move(dest)\n",
 		"func startChecked(env *Env, dest *ergo.Scope, n int64) (_ *ergo.Task[int64], err error) {\n\tfs := ergo.NewScope(env.task)\n\tdefer fs.End(&err)\n",
 		"func main_1(env *Env) (err error) {\n\tfs := ergo.NewScope(env.task)\n\tdefer fs.End(&err)\n",
-		"ergo.Go[int64](&fs, ergo.Site(\"task.Go at /ergo-test/main.ergo:14:2\"), func(t *rt.Task) (int64, error) {\n\t\te := *env\n\t\te.task = t\n",
+		"ergo.Go[int64](&fs, ergo.Site(\"start calls task.Go at /ergo-test/main.ergo:14:2\"), func(t *rt.Task) (int64, error) {\n\t\te := *env\n\t\te.task = t\n",
 		"ergo.OnExit(&fs, func() {\n",
 		"dest *ergo.Scope, p int64) (*ergo.Task[int64], error) {\n\t\treturn start(env_4, dest, p), nil\n",
 		"v_3, err_3 := s(env, &fs, int64(4))\n",
