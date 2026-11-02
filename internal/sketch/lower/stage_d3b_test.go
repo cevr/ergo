@@ -3,6 +3,8 @@ package lower
 import (
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/check"
 )
 
 // Stage D3b (check-v1): every lowered function takes the environment, which
@@ -232,32 +234,84 @@ func stripDirectives(s string) string {
 	return b.String()
 }
 
-// TestTaskInsideAnotherTypeRefused: a result that holds a Task inside
-// another type, or a Task as a type argument, is stage E's: a located
-// refusal, never wrong Go (Rule 2; the ruling's stage E carry).
-func TestTaskInsideAnotherTypeRefused(t *testing.T) {
+// TestTaskInsideAnotherTypeChecked: a result that holds a Task inside
+// another type, or a Task as a type argument, was a lowering refusal in
+// stage D3b; since stage E2 (C13, C14) the checker refuses it (S108), so
+// lowering never sees one (Rule 2).
+func TestTaskInsideAnotherTypeChecked(t *testing.T) {
 	cases := []struct {
 		name, src string
-		line, col int
+		line      int
 	}{
-		{"option-result", "type Fault {}\nfunc maybe() Option[Task[int, Fault]] {\n\tNone\n}\n", 2, 6},
-		{"type-argument", "import task\nfunc work() int { 1 }\nfunc id[T](v T) T { v }\nfunc f() int {\n\tlet t = id(task.Go() { work() })\n\tt.Wait()\n}\n", 5, 10},
+		{"option-result", "type Fault {}\nfunc maybe() Option[Task[int, Fault]] {\n\tNone\n}\n", 2},
+		{"type-argument", "import task\nfunc work() int { 1 }\nfunc id[T](v T) T { v }\nfunc f() int {\n\tlet t = id(task.Go() { work() })\n\tt.Wait()\n}\n", 5},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			o := lowerSource("r", tc.src, false)
-			if len(o.diags) != 0 {
-				t.Fatalf("want a clean check; got %v", o.diags)
-			}
-			if o.panicked != nil || len(o.refused) == 0 {
-				t.Fatalf("want a refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
-			}
-			r := o.refused[0]
-			if r.Line != tc.line || r.Column != tc.col || !strings.Contains(r.Message, "check-v1 stage E") {
-				t.Fatalf("want a refusal at %d:%d naming check-v1 stage E; got %+v", tc.line, tc.col, r)
+			if len(o.diags) != 1 || o.diags[0].Code != check.CodeType || o.diags[0].Line != tc.line ||
+				!strings.Contains(o.diags[0].Message, "holds a Task, and a type argument never does") {
+				t.Fatalf("want one S108 on line %d; got %v", tc.line, o.diags)
 			}
 		})
 	}
+}
+
+// An operation that returns a Task takes its caller's frame scope as the
+// destination, as a function does (Rule 2; stage E2, C15): a call of a
+// value's operation, a method value, an operations conversion's adapter, a
+// type parameter's witness, a type parameter converted to the operation
+// type, and a capability a wire provides all run. Before stage E2 the first
+// two were refused and the witness call did not compile.
+func TestErgoRunTaskReturningOperations(t *testing.T) {
+	wantRun(t, `import task
+
+type Fault {}
+
+type Starts {
+	Start(k int) Task[int, Fault],
+}
+
+type Impl { N int }
+
+func Start(i Impl, k int) Task[int, Fault] {
+	let n = i.N + k
+	task.Go() { n }
+}
+
+func boxed[T Starts](x T) Starts {
+	x
+}
+
+func viaParam[T Starts](x T) int fails Fault {
+	let t = x.Start(10)
+	try t.Wait()
+}
+
+func viaValue(s Starts) int fails Fault {
+	let f = s.Start
+	let t = f(20)
+	try t.Wait()
+}
+
+func viaCap() int fails Fault needs Starts {
+	let t = Starts.Start(100)
+	try t.Wait()
+}
+
+let W = wire { Starts: Impl{N: 1} }
+
+func main() fails Fault needs Console {
+	let s Starts = Impl{N: 2}
+	let direct = try s.Start(1).Wait()
+	let t = boxed(Impl{N: 3}).Start(1)
+	let x = try t.Wait()
+	let y = try viaParam(s)
+	let z = try with W { viaCap() }
+	let v = try viaValue(s)
+	Console.Println("\(direct) \(x) \(y) \(z) \(v)")
+}
+`, "3 4 12 101 22\n")
 }
 
 // queueProgram moves values from a producer task to its consumer through a

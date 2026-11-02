@@ -489,6 +489,8 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			}
 		}
 	}
+	// Stage E2 (C13): no recorded type argument holds a Task.
+	gaps = append(gaps, taskArgGaps(info)...)
 	sort.Strings(gaps)
 	return gaps
 }

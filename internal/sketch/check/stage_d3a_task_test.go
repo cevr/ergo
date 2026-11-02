@@ -35,9 +35,16 @@ func TestTaskEscapeAdmitted(t *testing.T) {
 		{"literal-own-task", taskWork + "func f() func() int {\n\tfunc() int {\n\t\tlet t = task.Go() { work() }\n\t\tt.Wait()\n\t}\n}\n", nil},
 		{"literal-param", "func f[T, E]() func(t Task[T, E]) T fails E {\n\tfunc(t Task[T, E]) T fails E { t.Wait() }\n}\n", nil},
 		{"function-type-field", "type Job[T, E] { start func() Task[T, E] }\n", nil},
-		{"local-option", "func f[T, E](t Task[T, E]) Option[Task[T, E]] {\n\tlet o Option[Task[T, E]] = None\n\to\n}\n", nil},
-		// r3 M1: a target that holds a Task through a type argument keeps it.
-		{"phantom-target", "type Fault {}\ntype Phantom[T] { Wait() int fails Fault }\nfunc f(t Task[int, Fault]) Phantom[Task[int, Fault]] {\n\tt\n}\n", nil},
+	})
+}
+
+// Stage E2 (C13): a type argument, written or inferred, holds no Task, so
+// a Task inside an Option, and a phantom argument (D3a r3 M1's target),
+// are S108 where the type argument is written.
+func TestTaskTypeArgumentCarriers(t *testing.T) {
+	runD1(t, []d1Case{
+		{"local-option", "func f[T, E](t Task[T, E]) Option[Task[T, E]] {\n\tlet o Option[Task[T, E]] = None\n\to\n}\n", []string{"S108:1", "S108:2"}},
+		{"phantom-target", "type Fault {}\ntype Phantom[T] { Wait() int fails Fault }\nfunc f(t Task[int, Fault]) Phantom[Task[int, Fault]] {\n\tt\n}\n", []string{"S108:3"}},
 	})
 }
 
@@ -68,15 +75,15 @@ func TestTaskEscapeRefusals(t *testing.T) {
 		{"blank-assign", taskWork + "func f() {\n\tlet t = task.Go() { work() }\n\t_ = t\n}\n", []string{"S108:7"}},
 		{"reassign", taskWork + "func f() int {\n\tlet mut t = task.Go() { work() }\n\tt = task.Go() { work() }\n\tt.Wait()\n}\n", []string{"S108:7"}},
 		{"blank-let", taskWork + "func f() {\n\tlet t = task.Go() { work() }\n\tlet _ = t\n}\n", []string{"S108:7"}},
-		{"match-subject", "type Fault {}\nfunc f(o Option[Task[int, Fault]]) int {\n\tmatch o {\n\t\tcase Some{_}: 1\n\t\tcase None: 0\n\t}\n}\n", []string{"S108:3"}},
+		{"match-subject", "type Fault {}\nfunc f(o Option[Task[int, Fault]]) int {\n\tmatch o {\n\t\tcase Some{_}: 1\n\t\tcase None: 0\n\t}\n}\n", []string{"S108:2"}}, // C13: at the type argument
 		{"method-field-t1", taskWork + "type Holder { f func() int }\nfunc f() Holder {\n\tlet t = task.Go() { work() }\n\tHolder{f: t.Wait}\n}\n", []string{"S108:8"}},
 		{"method-capture-t6", taskWork + "func f() func() int {\n\tlet t = task.Go() { work() }\n\tlet w = t.Wait\n\tfunc() int { w() }\n}\n", []string{"S108:7"}},
 		{"method-tuple-t7", "type Fault {}\nfunc g(t Task[int, Fault]) (func() int fails Fault, int) {\n\t(t.Wait, 1)\n}\n", []string{"S108:3"}},
-		{"outer-write-t3b", taskWork + "type Fault {}\nfunc f() func() int {\n\tlet mut o Option[Task[int, Fault]] = None\n\tlet g = func() int { o = Some{task.Go() { work() }}; 0 }\n\tlet _ = o\n\tg\n}\n", []string{"S108:8", "S108:9"}},
-		{"param-store-t10", "type Fault {}\nfunc f() func(t Task[int, Fault]) {\n\tlet mut o Option[Task[int, Fault]] = None\n\tlet g = func(t Task[int, Fault]) { o = Some{t} }\n\tlet _ = o\n\tg\n}\n", []string{"S108:4", "S108:5"}},
-		{"outer-field-write", taskWork + "type Holder[T] { Value T, N int }\nfunc f() func() int {\n\tlet mut h = Holder{Value: task.Go() { work() }, N: 0}\n\tlet g = func() int { h.Value = task.Go() { work() }; 0 }\n\tlet _ = h\n\tg\n}\n", []string{"S108:7", "S108:8"}},
+		{"outer-write-t3b", taskWork + "type Fault {}\nfunc f() func() int {\n\tlet mut o Option[Task[int, Fault]] = None\n\tlet g = func() int { o = Some{task.Go() { work() }}; 0 }\n\tlet _ = o\n\tg\n}\n", []string{"S108:7", "S108:8"}},                         // C13: Option's and Some's type arguments
+		{"param-store-t10", "type Fault {}\nfunc f() func(t Task[int, Fault]) {\n\tlet mut o Option[Task[int, Fault]] = None\n\tlet g = func(t Task[int, Fault]) { o = Some{t} }\n\tlet _ = o\n\tg\n}\n", []string{"S108:3", "S108:4"}},                              // C13: Option's and Some's type arguments
+		{"outer-field-write", taskWork + "type Holder[T] { Value T, N int }\nfunc f() func() int {\n\tlet mut h = Holder{Value: task.Go() { work() }, N: 0}\n\tlet g = func() int { h.Value = task.Go() { work() }; 0 }\n\tlet _ = h\n\tg\n}\n", []string{"S108:7"}}, // C13: Holder's inferred type argument; h is then invalid
 		{"outer-compound-write", taskWork + "type Holder[T] { Value T, N int }\nfunc f() func() int {\n\tlet mut h = Holder{Value: task.Go() { work() }, N: 0}\n\tlet g = func() int { h.N += 1; 0 }\n\tlet _ = h\n\tg\n}\n", []string{"S108:7"}},
-		{"outer-index-write", taskWork + "func keep[T](x T) []T { []T{x} }\nfunc f() func() int {\n\tlet mut ts = keep(task.Go() { work() })\n\tlet g = func() int { ts[0] = task.Go() { work() }; 0 }\n\tlet _ = len(ts)\n\tg\n}\n", []string{"S108:8", "S108:9"}},
+		{"outer-index-write", taskWork + "func keep[T](x T) []T { []T{x} }\nfunc f() func() int {\n\tlet mut ts = keep(task.Go() { work() })\n\tlet g = func() int { ts[0] = task.Go() { work() }; 0 }\n\tlet _ = len(ts)\n\tg\n}\n", []string{"S108:7"}}, // C13: keep's inferred type argument; ts is then invalid
 		{"pointer-t8", taskWork + "type Fault {}\nfunc put(p *Task[int, Fault]) { *p = task.Go() { work() } }\n", []string{"S108:6"}},
 		{"borrow-task", taskWork + "func f() {\n\tlet mut t = task.Go() { work() }\n\t_ = &t\n}\n", []string{"S108:7"}},
 		{"pointer-local", "type Fault {}\nfunc f() {\n\tlet p *Task[int, Fault]\n\t_ = p\n}\n", []string{"S108:3"}},
@@ -108,7 +115,7 @@ func TestTaskResultsInfo(t *testing.T) {
 	t
 }
 
-func maybe[T, E](t Task[T, E]) Option[Task[T, E]] {
+func maybe[T, E](t Task[T, E]) Option[T] {
 	None
 }
 
@@ -120,6 +127,8 @@ func f() int {
 	wait(keep(task.Go() { work() }))
 }
 `
+	// Since stage E2 (C13) no type argument holds a Task, so a result that
+	// holds one is a Task itself: maybe's Option[T] holds none.
 	file, err := syntax.Parse(src)
 	if err != nil {
 		t.Fatal(err)
@@ -133,19 +142,27 @@ func f() int {
 		got = append(got, f.Name)
 	}
 	slices.Sort(got)
-	if strings.Join(got, " ") != "keep maybe" {
-		t.Fatalf("TaskResults %v, want [keep maybe]", got)
+	if strings.Join(got, " ") != "keep" {
+		t.Fatalf("TaskResults %v, want [keep]", got)
 	}
 }
 
-// Calls[x].TaskResult marks each direct call and each call through a
-// function value whose result holds a Task, and no other call (stage D3b,
-// Rule 2; D3a review m3).
+// Calls[x].TaskResult marks each direct call, each call through a function
+// value and each operation call, of a value or of a capability, whose
+// result holds a Task, and no other call (stage D3b, Rule 2; D3a review m3;
+// stage E2, C15).
 func TestCallTaskResult(t *testing.T) {
 	src := `import task
 type Fault {}
+type Starts { Start() Task[int, Fault] }
 func work() int fails Fault {
 	1
+}
+
+func ops(s Starts) int fails Fault needs Starts {
+	let a = try wait(s.Start())
+	let b = try wait(Starts.Start())
+	a + b
 }
 
 func keep(t Task[int, Fault]) Task[int, Fault] {
@@ -181,10 +198,12 @@ func f() int fails Fault {
 		}
 	}
 	want := map[string]int{
-		fmt.Sprintf("%v", check.CallFunc) + " keep":      1,
-		fmt.Sprintf("%v", check.CallFuncValue) + " k(ta": 1,
-		fmt.Sprintf("%v", check.CallFuncValue) + " g()":  1,
-		fmt.Sprintf("%v", check.CallFunc) + " task":      3,
+		fmt.Sprintf("%v", check.CallFunc) + " keep":       1,
+		fmt.Sprintf("%v", check.CallFuncValue) + " k(ta":  1,
+		fmt.Sprintf("%v", check.CallFuncValue) + " g()":   1,
+		fmt.Sprintf("%v", check.CallFunc) + " task":       3,
+		fmt.Sprintf("%v", check.CallOp) + " s.St":         1,
+		fmt.Sprintf("%v", check.CallProviderOp) + " Star": 1,
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("TaskResult calls %v, want %v", got, want)

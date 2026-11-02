@@ -142,6 +142,13 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 	}
 	return fc.envClosure(callerEnv, "e", site, func(e string) (params []string, results, body string) {
 		var vals []string
+		// The field's uniform shape takes a returned Task's destination
+		// after the environment (typeCtx.funcType; stage E2, C15).
+		dest := ""
+		if op.Sig.ResultIsTask() {
+			dest = fc.scope.alloc("dest")
+			params = append(params, dest+" *"+fc.l.rt()+".Scope")
+		}
 		for _, p := range op.Sig.Params {
 			name := fc.scope.alloc("p")
 			params = append(params, name+" "+fc.goType(p.Type))
@@ -152,7 +159,7 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 			result = op.Sig.Results[0]
 		}
 		fc.depth++
-		call, hasResult, fallible := fc.opCall(w.Arg, m, result, vals, e, nil, nil, site)
+		call, hasResult, fallible := fc.opCall(w.Arg, m, result, vals, e, dest, nil, nil, site)
 		ind := strings.Repeat("\t", fc.depth)
 		fc.depth--
 		return params, fc.resultList(result, true), uniformBody(ind, call, hasResult, result != nil, fallible)
@@ -174,7 +181,15 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 	if ptr {
 		val = "*" + val
 	}
-	args := []string{"&" + l.env() + "{" + envTask + ": " + task + "}", val}
+	args := []string{"&" + l.env() + "{" + envTask + ": " + task + "}"}
+	// An operation that returns a Task passes its destination (methodSig)
+	// on to the witness's uniform shape (funcType; stage E2, C15).
+	if op.Sig.ResultIsTask() {
+		dest := locals.alloc("d")
+		params = append(params, dest+" *"+l.rt()+".Scope")
+		args = append(args, dest)
+	}
+	args = append(args, val)
 	for _, p := range op.Sig.Params {
 		n := locals.alloc("p")
 		params = append(params, n+" "+tc.goType(p.Type))
@@ -206,12 +221,17 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 
 // witnessCall is the call of the operation op on a value of the type
 // parameter tp, through tp's witness: vals are the receiver's and the
-// arguments' Go text, env the environment of the call. The field has the
-// uniform shape, so the call has the operation's value and an error.
-func (fc *funcCtx) witnessCall(tp *check.TypeParam, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
+// arguments' Go text, env the environment of the call and dest the
+// destination of a returned Task, or "". The field has the uniform shape
+// (typeCtx.funcType), so the call has the operation's value and an error.
+func (fc *funcCtx) witnessCall(tp *check.TypeParam, op *check.Method, vals []string, env, dest string, site syntax.Node) (string, bool, bool) {
 	w, ok := fc.witness[tp]
 	if !ok {
 		ice(site, "the operation %s of the type parameter %s, which has no witness here", op.Name, tp.Name)
 	}
-	return w + "." + memberName(op.Name) + "(" + strings.Join(append([]string{env}, vals...), ", ") + ")", len(op.Sig.Results) > 0, true
+	lead := []string{env}
+	if dest != "" {
+		lead = append(lead, dest)
+	}
+	return w + "." + memberName(op.Name) + "(" + strings.Join(append(lead, vals...), ", ") + ")", len(op.Sig.Results) > 0, true
 }

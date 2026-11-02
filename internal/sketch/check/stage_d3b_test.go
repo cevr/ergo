@@ -11,14 +11,14 @@ import (
 // Stage D3b round 2 (review m4): the checker owns the Task shape of a
 // function's result. ResultIsTask holds for a declaration, a function type,
 // a function value and a literal whose one result is a Task itself, and
-// not for a result that holds a Task inside another type (TaskResults'
-// case) or holds none.
+// not for a result that holds none. Since stage E2 (C13) a result holds a
+// Task only by being one, so TaskResults is ResultIsTask's declarations.
 func TestSignatureResultIsTask(t *testing.T) {
 	src := `import task
 type Fault {}
 func work() int fails Fault { 1 }
 func keep(t Task[int, Fault]) Task[int, Fault] { t }
-func maybe() Option[Task[int, Fault]] { None }
+func maybe() Option[int] { None }
 func f(g func() Task[int, Fault]) int fails Fault {
 	let k = keep
 	let lit = func() Task[int, Fault] { task.Go() { work() } }
@@ -55,8 +55,8 @@ func f(g func() Task[int, Fault]) int fails Fault {
 			t.Errorf("%s: ResultIsTask %v (recorded %v), want %v", k, g, ok, w)
 		}
 	}
-	if fs := pkg.Info.TaskResults; len(fs) != 2 {
-		t.Errorf("TaskResults has %d functions, want keep and maybe", len(fs))
+	if fs := pkg.Info.TaskResults; len(fs) != 1 {
+		t.Errorf("TaskResults has %d functions, want keep", len(fs))
 	}
 }
 

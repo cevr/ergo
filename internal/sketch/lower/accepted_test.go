@@ -44,7 +44,6 @@ var refusedFamilies = map[string]string{
 	"ExternSpec:user":             "check-v1 stage E",
 	"call:Func:externTarget":      "lower-v1",
 	"NoValue:generic":             "check-v1 stage E",
-	"Task:nested":                 "check-v1 stage E",
 	"InterpolatedString:nonbasic": "check-v1 stage E",
 	"call:With:imported":          "check-v1 stage B",
 	"call:With:context":           "check-v1 stage E",
@@ -70,10 +69,6 @@ var refusalReasons = []struct {
 	{"ExternSpec:user", regexp.MustCompile(`^a user extern go binding \(here of \S+\) is lowered after check-v1 stage E`)},
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
 	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
-	// A Task held inside another type or through a type argument (stage D3b
-	// lowers a Task returned as itself), and the std forms with no
-	// runtime/v1 body.
-	{"Task:nested", regexp.MustCompile(`^(a call whose result holds a Task|the function \S+ used as a value returns a Task|an operation provided by \S+, whose result holds a Task|a function whose result holds a Task inside another type|a method value of an operation that returns a Task) .*check-v1 stage E`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported wire is lowered after check-v1 stage B`)},
 	{"call:With:context", regexp.MustCompile(`^(a with of a context value outside a function body|a context value whose \S+ is (generic|an extern function)) is lowered after check-v1 stage E$`)},
 	{"FuncValue:std", regexp.MustCompile(`^the std function \S+ used as a value (takes its call's hidden \S+|takes a function|returns a Seq), which is lowered after check-v1 stage E$`)},

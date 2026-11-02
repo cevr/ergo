@@ -24,7 +24,7 @@ import (
 //     results included). As a slice or Map element or key, a tuple element,
 //     a borrowed type, a record or variant field, a defined type's base or
 //     a package let's type it is S108 at the type expression, and the type
-//     is invalid. A type argument is exempt (stage E's generics).
+//     is invalid. A type argument is rule 4's.
 //  3. The use rule, one pass over every body once the bodies are typed
 //     (checkTaskUses): a Task-holding value may be bound by a local let,
 //     returned (a return, or a block's final value that leaves through an
@@ -34,16 +34,53 @@ import (
 //     from another frame (a function literal, a trailing block, a go
 //     block) is S108 wherever it stands. A refused value's parts and the
 //     locals its let binds add no diagnostic.
+//  4. The type-argument rule (check-v1 stage E2, C13): a type argument,
+//     written or inferred, holds no Task, the prelude's Task[T, E] included.
+//     Every binding of a generic declaration's type parameters to arguments
+//     is one instantiation, and every instantiation passes through
+//     typeArgsAdmitted: a type expression G[A] (instantiateExprs), an
+//     explicit function instance F[A], an inferred call, an inferred
+//     composite literal and a dot call's receiver binding. An argument that
+//     holds a Task is S108 at the instantiation, which is invalid. A generic
+//     body is then never instantiated with a Task, so the type-position
+//     rule and the use rule, checked once over the generic declaration,
+//     hold for each of its instances. #197 designs aggregate ownership.
 //
 // Info.TaskResults records every function whose result holds a Task.
 //
 // Prior art: Rust's auto traits (Send) are coinductive over the type graph
 // and a `dyn Trait + 'scope` value cannot outlive its scope; Rust's scoped
 // threads, Kotlin's structured concurrency and Trio's nurseries bind a task
-// to the scope that started it. Go has no such rule: a goroutine outlives
+// to the scope that started it. Swift's generic parameters are implicitly
+// Copyable and Escapable, so a non-copyable or non-escapable type is no
+// type argument unless the parameter says `~Copyable`; rule 4 is that
+// default without the opt-out. Go has no such rule: a goroutine outlives
 // its caller. Gleam, Elixir and ReScript have no task ownership in types.
 
 const taskEscapeText = "a Task leaves its function only by return; wait on it or return it"
+
+// typeArgsAdmitted applies the type-argument rule (rule 4) to one
+// instantiation of the generic declaration name, tparams := targs, at the
+// node at: when an argument of a type parameter holds a Task it reports
+// S108 and returns false, and the caller's instantiation is invalid.
+// Otherwise it records the instantiation's edges for the expansion check
+// (mono.go) and returns true. It is the only caller of
+// recordInstantiation (TestTypeArgSitesPassTheTaskRule).
+func (c *checker) typeArgsAdmitted(name string, tparams []*TypeParam, targs []Type, at syntax.Node) bool {
+	for i, tp := range tparams {
+		if i >= len(targs) || tp.Kind != KindType {
+			continue
+		}
+		a := targs[i]
+		if a == nil || a == NoValue || isInvalid(a) || !c.holdsTask(a) {
+			continue
+		}
+		c.errorf(at, CodeType, "the type argument %s of %s holds a Task, and a type argument never does: %s", a, name, taskEscapeText)
+		return false
+	}
+	c.recordInstantiation(name, tparams, targs, at)
+	return true
+}
 
 // isTask reports whether t is the prelude's Task[T, E] or an instance of it.
 func isTask(t Type) bool {

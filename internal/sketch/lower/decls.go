@@ -864,9 +864,10 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	if f.Pkg.Info.TaskResults[f] && fd.extern == "" {
 		// A function whose result holds a Task receives its caller's frame
 		// scope as the destination its return moves the Task to (stage D3b,
-		// Rule 2); a result that only holds one is stage E's.
+		// Rule 2). Since stage E2 (C13) a result holds a Task only by being
+		// one: the checker refuses a Task held otherwise (S108).
 		if !f.Sig.ResultIsTask() {
-			refuse(site, "a function whose result holds a Task inside another type is lowered after check-v1 stage E; return the Task itself")
+			ice(site, "the function %s, whose result holds a Task, does not return one", f.Name)
 		}
 		fc.frame.dest = scope.alloc("dest")
 		parts = append(parts, fc.frame.dest+" *"+l.rt()+".Scope")

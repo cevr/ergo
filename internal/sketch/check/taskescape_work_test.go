@@ -52,9 +52,13 @@ func TestTaskWalkDoesNotExpandArguments(t *testing.T) {
 
 // A component's members share one answer: a Task anywhere on a cycle is
 // held by every type on it, whichever member the walk starts from.
+//
+// A program never writes A[Task[…]] since stage E2 (rule 4, S108 at the
+// instantiation), so the instances are built here as the checker builds
+// one: the walk itself still meets a Task argument when rule 4 asks it.
 func TestTaskWalkComponents(t *testing.T) {
 	const src = "type Fault {}\ntype A[T] []B[T]\ntype B[T] Map[string, A[T]]\ntype R { kids []R, n int }\n" +
-		"func f(x A[Task[int, Fault]], y B[int], z B[Task[int, Fault]], r R) {}\n"
+		"func f(t Task[int, Fault], y B[int], r R) {}\n"
 	want := []bool{true, false, true, false}
 	for _, order := range [][]int{{0, 1, 2, 3}, {3, 2, 1, 0}, {1, 3, 0, 2}} {
 		c, diags := checkFor(src)
@@ -67,14 +71,28 @@ func TestTaskWalkComponents(t *testing.T) {
 				params = f.Sig.Params
 			}
 		}
-		if len(params) != 4 {
+		if len(params) != 3 {
 			t.Fatalf("parameters of f: %v", params)
+		}
+		generic := func(name string) *Named {
+			tn, ok := c.pkg.Scope.names[name].(*TypeName)
+			if !ok {
+				t.Fatalf("no type %s", name)
+			}
+			return tn.Type.(*Named)
+		}
+		task := params[0].Type
+		types := []Type{
+			c.instantiate(generic("A"), []Type{task}),
+			params[1].Type,
+			c.instantiate(generic("B"), []Type{task}),
+			params[2].Type,
 		}
 		// The use pass cached some answers; start from an empty cache.
 		c.taskMemo = nil
 		for _, i := range order {
-			if got := c.holdsTask(params[i].Type); got != want[i] {
-				t.Errorf("order %v: holdsTask(%s) = %v, want %v", order, params[i].Type, got, want[i])
+			if got := c.holdsTask(types[i]); got != want[i] {
+				t.Errorf("order %v: holdsTask(%s) = %v, want %v", order, types[i], got, want[i])
 			}
 		}
 	}

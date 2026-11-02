@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -184,8 +185,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		vals := fc.callArgs(args, x)
 		env := fc.envExpr(x)
 		// A capability's operation takes the running task first (rows.md,
-		// Rows 7).
-		vals = append([]string{taskOf(env)}, vals...)
+		// Rows 7), then a returned Task's destination (methodSig).
+		lead := []string{taskOf(env)}
+		if dest := fc.opDest(x, c); dest != "" {
+			lead = append(lead, dest)
+		}
+		vals = append(lead, vals...)
 		return env + "." + fc.l.envField(cap.Obj) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
@@ -209,15 +214,15 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 // or a function value of signature sig: the environment, then, when the
 // result holds a Task (Info's TaskResult), the frame scope as the
 // destination the callee's return moves the Task to (stage D3b, Rule 2).
-// A result that holds a Task only through a type argument or inside
-// another type is stage E's.
+// Since stage E2 (C13) a result holds a Task only by being one: no type
+// argument holds a Task, and a type that holds one otherwise is S108.
 func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, c *check.Call, sig *check.Signature) []string {
 	out := []string{fc.envExpr(x)}
+	if c.TaskResult != sig.ResultIsTask() {
+		ice(x, "a call whose result holds a Task %v, of a signature that returns a Task %v; the checker refuses a Task held otherwise (S108)", c.TaskResult, sig.ResultIsTask())
+	}
 	if !c.TaskResult {
 		return out
-	}
-	if !sig.ResultIsTask() {
-		refuse(x, "a call whose result holds a Task through a type argument or inside another type is lowered after check-v1 stage E")
 	}
 	return append(out, fc.frameScope(x))
 }
@@ -313,17 +318,18 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	}
 	return fc.envClosure(callerEnv, "env", site, func(env string) (params []string, results, body string) {
 		lead := []string{env}
+		// Since stage E2 (C13) a result holds a Task only by being one, and
+		// an instance's type argument is never a Task, so the value, the
+		// declaration and Info agree.
+		if sig.ResultIsTask() != f.Sig.ResultIsTask() || sig.ResultIsTask() != f.Pkg.Info.TaskResults[f] {
+			ice(site, "the function %s used as a value returns a Task %v, its declaration %v, Info %v", f.Name, sig.ResultIsTask(), f.Sig.ResultIsTask(), f.Pkg.Info.TaskResults[f])
+		}
 		if sig.ResultIsTask() {
 			// The destination passes through to the function, whose return
 			// moves the Task (stage D3b, Rule 2).
-			if !f.Pkg.Info.TaskResults[f] || !f.Sig.ResultIsTask() {
-				refuse(site, "the function %s used as a value returns a Task through a type argument, which is lowered after check-v1 stage E", f.Name)
-			}
 			dest := fc.scope.alloc("dest")
 			params = append(params, dest+" *"+fc.l.rt()+".Scope")
 			lead = append(lead, dest)
-		} else if f.Pkg.Info.TaskResults[f] {
-			refuse(site, "the function %s used as a value returns a Task inside another type, which is lowered after check-v1 stage E", f.Name)
 		}
 		var args []string
 		for _, p := range sig.Params {
@@ -784,11 +790,6 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		// A std type is the runtime's concrete Go type (stage D3b).
 		refuse(site, "a value of the program converted to the std type %s is lowered after check-v1 stage E", conv.To)
 	}
-	for _, f := range conv.Table {
-		if f != nil && f.Pkg != nil && f.Pkg.Info.TaskResults[f] {
-			refuse(site, "an operation provided by %s, whose result holds a Task, is lowered after check-v1 stage E", f.Name)
-		}
-	}
 	toDecl := l.typeDecl(to.Obj, site)
 	if toDecl.kind != kindOps {
 		ice(site, "an operations conversion to %s, which is not an operation type", conv.To)
@@ -901,6 +902,18 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			task := locals.alloc("t")
 			params := []string{task + " *" + l.taskPkg() + ".Task"}
 			args := []string{"&" + l.env() + "{" + envTask + ": " + task + "}"}
+			// An operation that returns a Task takes the destination after
+			// the task (methodSig) and passes it to the function, whose
+			// return moves the Task there (stage D3b, Rule 2; stage E2, C15).
+			if op.Sig.ResultIsTask() != f.Sig.ResultIsTask() {
+				ice(site, "the operation %s of %s and its function %s disagree on a Task result", op.Name, conv.To, f.Name)
+			}
+			if op.Sig.ResultIsTask() {
+				dest := locals.alloc("d")
+				params = append(params, dest+" *"+l.rt()+".Scope")
+				args = append(args, dest)
+			}
+			hidden := len(args) // the environment and the destination
 			for _, p := range op.Sig.Params {
 				n := locals.alloc("p")
 				params = append(params, n+" "+tc.goType(p.Type))
@@ -917,12 +930,12 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			if fd.method != nil {
 				call = "(" + recv + ")." + fd.name + "(" + strings.Join(args, ", ") + ")"
 			} else {
-				lead := []string{args[0]}
+				lead := slices.Clone(args[:hidden])
 				for _, field := range witnessFields[op.Name] {
 					lead = append(lead, self+"."+field)
 				}
 				lead = append(lead, recv)
-				call = fd.name + "(" + strings.Join(append(lead, args[1:]...), ", ") + ")"
+				call = fd.name + "(" + strings.Join(append(lead, args[hidden:]...), ", ") + ")"
 			}
 			var result check.Type
 			if len(op.Sig.Results) == 1 {

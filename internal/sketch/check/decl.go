@@ -1138,7 +1138,9 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		}
 		targs[i] = t
 	}
-	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
+	if !c.typeArgsAdmitted(n.Obj.Name, n.TParams, targs, at) {
+		return invalid
+	}
 	inst := c.instantiate(n, targs)
 	for i, tp := range n.TParams {
 		if tp.Kind == KindType && tp.Constraint != nil && n.state == 2 {

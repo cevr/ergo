@@ -256,7 +256,17 @@ func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.E
 		}
 		fc.bindDeferred(body, vals)
 	}
-	return fc.opCall(t, c.Op, fc.typeOf(x), vals, fc.envExpr(x), x, c, x)
+	return fc.opCall(t, c.Op, fc.typeOf(x), vals, fc.envExpr(x), fc.opDest(x, c), x, c, x)
+}
+
+// opDest is the destination argument of an operation call x: the frame
+// scope when the call's result holds a Task (Info's TaskResult; stage D3b,
+// Rule 2, as a function's call; stage E2, C15), else "".
+func (fc *funcCtx) opDest(x *syntax.CallExpr, c *check.Call) string {
+	if !c.TaskResult {
+		return ""
+	}
+	return fc.frameScope(x)
 }
 
 // methodValue lowers recv.M, an operation of an operation type used as a
@@ -270,15 +280,20 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 	if !ok {
 		ice(x, "the method value %s has no function type", x.Sel.Name)
 	}
-	if sig.ResultIsTask() {
-		refuse(x, "a method value of an operation that returns a Task is lowered after check-v1 stage E")
-	}
 	if len(sig.Results) > 1 {
 		refuse(x, "a method value with several results is a tuple, lowered after check-v1 stage B (196t)")
 	}
 	recv := fc.spill(fc.value(x.X))
 	return fc.envClosure(callerEnv, "e", x, func(e string) (params []string, results, body string) {
 		vals := []string{recv}
+		// The uniform shape of a function that returns a Task takes the
+		// destination after the environment (typeCtx.funcType), which the
+		// operation's call passes on (stage E2, C15).
+		dest := ""
+		if sig.ResultIsTask() {
+			dest = fc.scope.alloc("dest")
+			params = append(params, dest+" *"+fc.l.rt()+".Scope")
+		}
 		for _, p := range sig.Params {
 			name := fc.scope.alloc("p")
 			params = append(params, name+" "+fc.goType(p.Type))
@@ -289,7 +304,7 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 			result = sig.Results[0]
 		}
 		fc.depth++
-		call, hasResult, fallible := fc.opCall(fc.typeOf(x.X), op, result, vals, e, nil, nil, x)
+		call, hasResult, fallible := fc.opCall(fc.typeOf(x.X), op, result, vals, e, dest, nil, nil, x)
 		ind := strings.Repeat("\t", fc.depth)
 		fc.depth--
 		return params, fc.resultList(result, true), uniformBody(ind, call, hasResult, result != nil, fallible)
@@ -308,7 +323,10 @@ func (fc *funcCtx) stdFuncValue(f *check.Func, sig *check.Signature, body v1.Bod
 		}
 	}
 	if sig.ResultIsTask() || f.Pkg.Info.TaskResults[f] {
-		refuse(site, "the function %s used as a value returns a Task through a type argument, which is lowered after check-v1 stage E", f.Name)
+		// task.Go, std's one function that returns a Task, takes its call's
+		// hidden frame (above), and since stage E2 (C13) no type argument is
+		// a Task.
+		ice(site, "the std function %s used as a value returns a Task", f.Name)
 	}
 	if len(sig.Results) > 1 {
 		refuse(site, "a function type with several results is a tuple, lowered after check-v1 stage B (196t)")
@@ -372,20 +390,27 @@ func uniformBody(ind, call string, goVal, value, goErr bool) string {
 // type, with its body's hidden arguments; an operation of the program's own
 // operation type is the method of the Go interface it emits, which takes
 // the task first (rows.md, Rows 7). result is the call's Ergo result type;
+// dest is the destination of an operation that returns a Task, else "".
 // x and c are the call, nil for a method value. It returns the text,
 // whether the call has a value, and whether its Go form returns an error.
-func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) (string, bool, bool) {
+func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, vals []string, env, dest string, x *syntax.CallExpr, c *check.Call, site syntax.Node) (string, bool, bool) {
+	if (dest != "") != op.Sig.ResultIsTask() {
+		ice(site, "the operation %s returns a Task %v, with a destination %q", op.Name, op.Sig.ResultIsTask(), dest)
+	}
 	// A type parameter's operation is its witness's (witness.go); a *T
 	// receiver passes the value it points to.
 	if p, ok := t.(*check.Pointer); ok {
 		if tp, ok := p.Elem.(*check.TypeParam); ok {
-			return fc.witnessCall(tp, op, append([]string{"*(" + vals[0] + ")"}, vals[1:]...), env, site)
+			return fc.witnessCall(tp, op, append([]string{"*(" + vals[0] + ")"}, vals[1:]...), env, dest, site)
 		}
 	}
 	if tp, ok := t.(*check.TypeParam); ok {
-		return fc.witnessCall(tp, op, vals, env, site)
+		return fc.witnessCall(tp, op, vals, env, dest, site)
 	}
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
+		if dest != "" {
+			ice(site, "the std operation %s.%s returns a Task", n.Obj.Name, op.Name)
+		}
 		body := opBody(n, op.Name, len(vals)-1, site)
 		if x == nil {
 			for _, p := range body.Params {
@@ -401,14 +426,15 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 		// struct{}, which the caller discards (goValue).
 		return text, goValue(body), goFallible(body)
 	}
-	return fc.programOpCall(t, op, vals, env, site)
+	return fc.programOpCall(t, op, vals, env, dest, site)
 }
 
 // programOpCall is a call of an operation of a program-declared operation
-// type: the receiver's Go method, the task first (rows.md, Rows 7). It is
-// never a runtime binding, which only runtimeCall emits: it refuses every
-// runtime type, so the blocking owner scan allows it by name.
-func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, env string, site syntax.Node) (string, bool, bool) {
+// type: the receiver's Go method, the task first (rows.md, Rows 7), then
+// the destination of a returned Task (typeCtx.methodSig). It is never a
+// runtime binding, which only runtimeCall emits: it refuses every runtime
+// type, so the blocking owner scan allows it by name.
+func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, env, dest string, site syntax.Node) (string, bool, bool) {
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
 		ice(site, "the std operation %s.%s bypasses its runtime binding", n.Obj.Name, op.Name)
 	}
@@ -418,7 +444,11 @@ func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, 
 	if n := fc.l.foreignOwner(t); n != nil {
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
-	rest := append([]string{taskOf(env)}, vals[1:]...)
+	rest := []string{taskOf(env)}
+	if dest != "" {
+		rest = append(rest, dest)
+	}
+	rest = append(rest, vals[1:]...)
 	return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(rest, ", ") + ")", len(op.Sig.Results) > 0, len(rowElems(op.Sig.Errors)) > 0
 }
 

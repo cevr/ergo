@@ -705,12 +705,18 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 			}
 		}
 	}
+	targs := make([]Type, len(sig.TParams))
+	for i, tp := range sig.TParams {
+		targs[i] = in.m[tp]
+	}
+	name := exprText(x.Fun)
 	if fun.fn != nil {
-		targs := make([]Type, len(sig.TParams))
-		for i, tp := range sig.TParams {
-			targs[i] = in.m[tp]
-		}
-		c.recordInstantiation(fun.fn.Name, sig.TParams, targs, x)
+		name = fun.fn.Name
+	}
+	if !c.typeArgsAdmitted(name, sig.TParams, targs, x) {
+		return bad(x)
+	}
+	if fun.fn != nil {
 		if len(fun.self) > 0 {
 			targs = fullTypeArgs(fun.fn, fun.self, in.m)
 		}
