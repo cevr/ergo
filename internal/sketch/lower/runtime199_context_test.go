@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
-	"go/parser"
-	"go/token"
+	"go/constant"
+	"go/types"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -70,8 +69,9 @@ type cxNode struct {
 	kids []*cxNode
 	fork *cxNode // a release or join node's child; the child a ctx node's block yields
 
-	delayed, bind bool // a fork: waits for its release; binds b itself
-	released      bool // generation state
+	delayed, bind bool   // a fork: waits for its release; binds b itself
+	released      bool   // generation state
+	slot          string // the slot the checker's fact binds (cxFacts, cxSlot)
 }
 
 type cxSeq struct {
@@ -325,6 +325,7 @@ func cxFacts(t *testing.T, o *lowered, s *cxSeq) map[*cxNode]*check.With {
 	if len(facts) != len(s.withs) {
 		t.Fatalf("%s: %d withs have facts, the generator wrote %d", s.fn(), len(facts), len(s.withs))
 	}
+	ctors := cxCtors(t, o)
 	out := map[*cxNode]*check.With{}
 	for i, x := range s.withs {
 		w := facts[i]
@@ -338,7 +339,33 @@ func cxFacts(t *testing.T, o *lowered, s *cxSeq) map[*cxNode]*check.With {
 		default:
 			if w.Context == nil {
 				t.Errorf("%s: the with of %s (id %d) is not a context binding in the fact", s.fn(), x.key, x.id)
+				continue
 			}
+			generated := x.key
+			if x.kind == cxFork {
+				generated = "b"
+			}
+			x.slot = cxSlot(t, w, generated, ctors)
+		}
+	}
+	return out
+}
+
+// cxCtors are the result types of the constructors the generator writes
+// for each slot, read from the signatures of the functions the program
+// calls: log.Annotate for a and b, trace.Span for s, userctx.Make for u.
+func cxCtors(t *testing.T, o *lowered) map[string]check.Type {
+	t.Helper()
+	byName := map[string]check.Type{}
+	for _, call := range o.pkg.Info.Calls {
+		if call != nil && call.Func != nil && call.Func.Pkg != nil && call.Func.Sig != nil && len(call.Func.Sig.Results) == 1 {
+			byName[call.Func.Pkg.Path+"."+call.Func.Name] = call.Func.Sig.Results[0]
+		}
+	}
+	out := map[string]check.Type{}
+	for slot, name := range map[string]string{"a": "log.Annotate", "b": "log.Annotate", "s": "trace.Span", "u": "example.test/userctx.Make"} {
+		if out[slot] = byName[name]; out[slot] == nil {
+			t.Fatalf("the program calls no %s", name)
 		}
 	}
 	return out
@@ -354,21 +381,19 @@ func cxCloses(w *check.With) bool {
 	return false
 }
 
-// cxSlot is the slot a context binding fills, from the fact's type: an
-// annotation's key is its operand's (a or b), a span's is s, a tag's is u.
-func cxSlot(t *testing.T, w *check.With, generated string) string {
+// cxSlot is the slot a context binding fills, from the checker's fact: the
+// binding's type is the result type of the constructor generated for the
+// slot (an annotation's key is its operand's, a or b), and its key function
+// is declared beside that type, so the key is private to its package. No
+// type name is read (runtime-199 stage 4a r1 m3).
+func cxSlot(t *testing.T, w *check.With, generated string, ctors map[string]check.Type) string {
 	t.Helper()
-	typ := fmt.Sprint(w.Context.Type)
-	switch {
-	case strings.HasSuffix(typ, ".annotation") && (generated == "a" || generated == "b"):
-		return generated
-	case strings.HasSuffix(typ, ".span") && generated == "s":
-		return "s"
-	case strings.HasSuffix(typ, ".tag") && generated == "u":
-		return "u"
+	cb := w.Context
+	n, ok := cb.Type.(*check.Named)
+	if want := ctors[generated]; want == nil || cb.Type != want || !ok || cb.Key == nil || cb.Key.Pkg != n.Obj.Pkg {
+		t.Fatalf("a context binding of type %v (key %v), generated as slot %s of %v", cb.Type, cb.Key, generated, ctors[generated])
 	}
-	t.Fatalf("a context binding of type %s, generated as slot %s", typ, generated)
-	return ""
+	return generated
 }
 
 type cxBind struct{ slot, text string }
@@ -429,7 +454,7 @@ func (m *cxSim) run(nodes []*cxNode) bool {
 				return true // the operand failed: nothing is bound
 			}
 			n := len(m.stack)
-			m.stack = append(m.stack, cxBind{cxSlot(m.t, m.facts[x], x.key), fmt.Sprintf("v%d", x.id)})
+			m.stack = append(m.stack, cxBind{x.slot, fmt.Sprintf("v%d", x.id)})
 			exited := m.run(x.kids)
 			if !exited && x.fork != nil {
 				m.run([]*cxNode{x.fork}) // the task the block yields starts in the region
@@ -450,7 +475,7 @@ func (m *cxSim) run(nodes []*cxNode) bool {
 			snap := slices.Clone(m.stack)
 			lines := []string{fmt.Sprintf("c%d %s", x.id, cxShow(snap))}
 			if x.bind {
-				inner := append(slices.Clone(snap), cxBind{cxSlot(m.t, m.facts[x], "b"), fmt.Sprintf("k%d", x.id)})
+				inner := append(slices.Clone(snap), cxBind{x.slot, fmt.Sprintf("k%d", x.id)})
 				lines = append(lines, fmt.Sprintf("c%di %s", x.id, cxShow(inner)), fmt.Sprintf("c%do %s", x.id, cxShow(snap)))
 			}
 			m.children[x.id] = lines
@@ -970,19 +995,16 @@ func TestContext(t *testing.T) {
 // contextWith, and the protocol functions are called only by contextCall.
 // In the runtime, rt.Task.WithValue is called only by v1's OpenContext, a
 // context region joins a scope's region list only there, and rt keeps a
-// task's values only in its immutable list.
+// task's values only in its immutable list. Owners are qualified by their
+// receiver ("Scope.OpenContext", not a bare "End"), names resolve through
+// go/types, and the lowering's text is read as constant values, so a split
+// or named constant cannot hide an emitted name (runtime-199 stage 4a r1
+// m4).
 func TestRuntime199ContextOwner(t *testing.T) {
 	emits := map[string]int{}
-	i1LowerSource(t, func(owner string, node ast.Node) {
-		ast.Inspect(node, func(n ast.Node) bool {
-			lit, ok := n.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			value, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				return true
-			}
+	lowering := typedPackage(t, ".")
+	lowering.owners(func(owner string, decl ast.Decl) {
+		constStrings(lowering, decl, func(value string) {
 			for _, name := range []string{"OpenContext", "Context.End"} {
 				if !strings.Contains(value, name) {
 					continue
@@ -990,7 +1012,7 @@ func TestRuntime199ContextOwner(t *testing.T) {
 				switch owner {
 				case "blocking.go:package":
 					// the catalog keys
-				case "contextWith":
+				case "funcCtx.contextWith":
 					emits[name]++
 				default:
 					t.Errorf("%s emits %s outside the context owner", owner, name)
@@ -1001,7 +1023,6 @@ func TestRuntime199ContextOwner(t *testing.T) {
 					t.Errorf("%s emits %s, a context binding outside OpenContext", owner, name)
 				}
 			}
-			return true
 		})
 	})
 	for _, name := range []string{"OpenContext", "Context.End"} {
@@ -1009,55 +1030,69 @@ func TestRuntime199ContextOwner(t *testing.T) {
 			t.Errorf("the context owner emits %s %d times, want 1", name, emits[name])
 		}
 	}
-	calls := 0
-	for _, pkg := range []string{"rt", "v1"} {
-		dir := filepath.Join("..", "..", "..", "runtime", pkg)
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			t.Fatal(err)
+	// The runtime: a use of rt's (*Task).WithValue (a call or a method
+	// value) and a write of rt's Task.values or v1's Scope.withs, each
+	// resolved to its declaration.
+	// rt's own check names its package "rt"; v1 imports it by path.
+	withValue := func(f *types.Func) bool {
+		sig, _ := f.Type().(*types.Signature)
+		if f.Name() != "WithValue" || f.Pkg() == nil || sig == nil || sig.Recv() == nil {
+			return false
 		}
-		for _, file := range files {
-			if !strings.HasSuffix(file.Name(), ".go") || strings.HasSuffix(file.Name(), "_test.go") {
-				continue
-			}
-			f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, file.Name()), nil, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, decl := range f.Decls {
-				owner := pkg + "." + file.Name()
-				if fn, ok := decl.(*ast.FuncDecl); ok {
-					owner = pkg + "." + fn.Name.Name
-				}
-				ast.Inspect(decl, func(n ast.Node) bool {
-					switch n := n.(type) {
-					case *ast.CallExpr:
-						if sel, ok := n.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "WithValue" {
-							calls++
-							if owner != "v1.OpenContext" {
-								t.Errorf("%s binds a context value outside v1's OpenContext", owner)
-							}
-						}
-					case *ast.AssignStmt:
-						for _, l := range n.Lhs {
-							sel, ok := l.(*ast.SelectorExpr)
-							if !ok {
-								continue
-							}
-							switch {
-							case sel.Sel.Name == "values" && pkg == "rt" && !slices.Contains([]string{"rt.init", "rt.WithValue", "rt.End", "rt.detach"}, owner):
-								t.Errorf("%s writes a task's values outside WithValue, End, a child's start and its finish", owner)
-							case sel.Sel.Name == "withs" && pkg == "v1" && !slices.Contains([]string{"v1.OpenWith", "v1.OpenContext", "v1.EndWith", "v1.End", "v1.close"}, owner):
-								t.Errorf("%s changes a scope's regions outside their openers and ends", owner)
-							}
+		path := f.Pkg().Path()
+		return (path == "rt" || strings.HasSuffix(path, "/runtime/rt")) && strings.HasSuffix(types.TypeString(sig.Recv().Type(), nil), "rt.Task")
+	}
+	uses := map[string]bool{}
+	for _, pkg := range []string{"rt", "v1"} {
+		src := typedPackage(t, filepath.Join("..", "..", "..", "runtime", pkg))
+		var field types.Object
+		var writers []string
+		switch pkg {
+		case "rt":
+			field = src.method(t, "Task", "values")
+			writers = []string{"rt.Task.init", "rt.Task.WithValue", "rt.Context.End", "rt.Task.detach"}
+		case "v1":
+			field = src.method(t, "Scope", "withs")
+			writers = []string{"v1.Scope.OpenWith", "v1.Scope.OpenContext", "v1.Scope.EndWith", "v1.Context.End", "v1.Scope.close"}
+		}
+		src.owners(func(owner string, decl ast.Decl) {
+			owner = pkg + "." + owner
+			ast.Inspect(decl, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.Ident:
+					if f, ok := src.info.Uses[n].(*types.Func); ok && withValue(f) {
+						uses[owner] = true
+					}
+				case *ast.AssignStmt:
+					for _, l := range n.Lhs {
+						sel, ok := ast.Unparen(l).(*ast.SelectorExpr)
+						if ok && src.info.Uses[sel.Sel] == field && !slices.Contains(writers, owner) {
+							t.Errorf("%s writes %s outside %v", owner, field.Name(), writers)
 						}
 					}
-					return true
-				})
-			}
+				}
+				return true
+			})
+		})
+	}
+	if got := sortedKeys(uses); !slices.Equal(got, []string{"v1.Scope.OpenContext"}) {
+		t.Errorf("the runtime binds context values in %v, want only v1.Scope.OpenContext", got)
+	}
+}
+
+// constStrings visits the maximal constant string expressions under n, by
+// their go/types values: a literal, a concatenation of constants, a named
+// constant. A non-constant expression is searched for constant parts.
+func constStrings(src *typedSource, n ast.Node, visit func(string)) {
+	ast.Inspect(n, func(n ast.Node) bool {
+		e, ok := n.(ast.Expr)
+		if !ok {
+			return true
 		}
-	}
-	if calls != 1 {
-		t.Errorf("the runtime binds context values at %d sites, want 1 (v1.OpenContext)", calls)
-	}
+		if tv, ok := src.info.Types[e]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+			visit(constant.StringVal(tv.Value))
+			return false
+		}
+		return true
+	})
 }
