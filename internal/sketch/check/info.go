@@ -3,6 +3,7 @@ package check
 import (
 	"go/constant"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -266,7 +267,7 @@ func (c *checker) recordInstance(x syntax.Expr, fn *Func, targs []Type) {
 	if c.silent > 0 {
 		return
 	}
-	if inst := c.instanceOf(fn, targs, 0); inst != nil {
+	if inst := c.instanceOf(fn, targs, x); inst != nil {
 		c.pkg.Info.Instances[x] = inst
 	}
 }
@@ -274,18 +275,68 @@ func (c *checker) recordInstance(x syntax.Expr, fn *Func, targs []Type) {
 // instanceOf is the instance of the generic function fn at targs, with its
 // witnesses, or nil when fn is not generic or a type argument is missing.
 // A witness operation implemented by a generic function carries that
-// function's instance in turn; depth bounds the nesting, which a checked
-// program keeps finite (a constraint's operation set is declared).
-func (c *checker) instanceOf(fn *Func, targs []Type, depth int) *Instance {
-	if fn == nil || fn.Sig == nil || len(fn.Sig.TParams) == 0 || len(targs) != len(fn.Sig.TParams) || depth > 8 {
-		return nil
+// function's complete instance in turn. Reuse completed instances and
+// diagnose a dependency on an active instance; never truncate a chain.
+// Growing polymorphic recursion is rejected by checkInstantiationCycles.
+func (c *checker) instanceOf(fn *Func, targs []Type, at syntax.Node) *Instance {
+	type entry struct {
+		inst *Instance
+		done bool
 	}
-	for _, t := range targs {
-		if t == nil {
+	seen := map[*Func][]*entry{}
+	var path []string
+	var build func(*Func, []Type) *Instance
+	build = func(fn *Func, targs []Type) *Instance {
+		if fn == nil || fn.Sig == nil || len(fn.Sig.TParams) == 0 {
 			return nil
 		}
+		if len(targs) != len(fn.Sig.TParams) {
+			c.errorf(at, CodeType, "cannot complete the witness instance of %s: missing type arguments", fn.Name)
+			return nil
+		}
+		for _, t := range targs {
+			if t == nil || isInvalid(t) {
+				c.errorf(at, CodeType, "cannot complete the witness instance of %s: missing type arguments", fn.Name)
+				return nil
+			}
+		}
+		var args []string
+		for _, t := range targs {
+			args = append(args, t.String())
+		}
+		name := fn.Name + "[" + strings.Join(args, ", ") + "]"
+		for _, prev := range seen[fn] {
+			same := true
+			for i, arg := range targs {
+				same = same && c.identical(arg, prev.inst.TypeArgs[i])
+			}
+			if !same {
+				continue
+			}
+			if prev.done {
+				return prev.inst
+			}
+			c.errorf(at, CodeType, "instantiation cycle in witnesses: %s", strings.Join(append(path, name), " -> "))
+			return nil
+		}
+		inst := &Instance{Func: fn, TypeArgs: targs}
+		e := &entry{inst: inst}
+		seen[fn] = append(seen[fn], e)
+		path = append(path, name)
+		defer func() { path = path[:len(path)-1] }()
+		if !c.instanceWitnesses(inst, at, build) {
+			return nil
+		}
+		e.done = true
+		return inst
 	}
-	inst := &Instance{Func: fn, TypeArgs: targs}
+	return build(fn, targs)
+}
+
+// instanceWitnesses fills every operation's signature and implementing
+// instance. A failed dependency invalidates the whole instance.
+func (c *checker) instanceWitnesses(inst *Instance, at syntax.Node, build func(*Func, []Type) *Instance) bool {
+	fn, targs := inst.Func, inst.TypeArgs
 	m := paramMap(fn.Sig.TParams, targs)
 	for i, tp := range fn.Sig.TParams {
 		if tp.Kind != KindType || tp.Constraint == nil {
@@ -297,7 +348,11 @@ func (c *checker) instanceOf(fn *Func, targs []Type, depth int) *Instance {
 		}
 		w := Witness{Param: tp, Arg: targs[i]}
 		for _, op := range it.Methods {
-			_, f := c.methodOf(targs[i], op.Name)
+			method, f := c.methodOf(targs[i], op.Name)
+			if method == nil {
+				c.errorf(at, CodeType, "cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
+				return false
+			}
 			sig := *op.Sig
 			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
@@ -311,13 +366,16 @@ func (c *checker) instanceOf(fn *Func, targs []Type, depth int) *Instance {
 				for j, ftp := range f.Sig.TParams {
 					fargs[j] = bound[ftp]
 				}
-				wo.Inst = c.instanceOf(f, fargs, depth+1)
+				wo.Inst = build(f, fargs)
+				if wo.Inst == nil {
+					return false
+				}
 			}
 			w.Ops = append(w.Ops, wo)
 		}
 		inst.Witnesses = append(inst.Witnesses, w)
 	}
-	return inst
+	return true
 }
 
 // CallKind is what a call calls.

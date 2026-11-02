@@ -107,15 +107,24 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 		}
 		return fc.funcValue(op.Func, op.Sig, site, op.Inst)
 	}
-	if tp, ok := w.Arg.(*check.TypeParam); ok {
+	var m *check.Method
+	if tp, ptr := paramSource(w.Arg); tp != nil {
 		src, ok := fc.witness[tp]
 		if !ok {
 			ice(site, "the type parameter %s supplies %s with no witness of its own", tp.Name, op.Name)
 		}
-		return src + "." + memberName(op.Name)
+		if !ptr {
+			return src + "." + memberName(op.Name)
+		}
+		// The closure below has *T as its receiver. opCall dereferences
+		// that receiver and calls this same T witness, with its rows intact.
+		for _, cand := range constraintOf(tp).Methods {
+			if cand.Name == op.Name {
+				m = cand
+			}
+		}
 	}
 	n, ok := w.Arg.(*check.Named)
-	var m *check.Method
 	if ok {
 		if it, isOps := n.Underlying().(*check.Interface); isOps {
 			for _, cand := range it.Methods {
