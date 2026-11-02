@@ -2,7 +2,6 @@ package check
 
 import (
 	"fmt"
-	"reflect"
 	"runtime"
 	"strings"
 
@@ -56,9 +55,9 @@ import (
 // reported at n's own span, in origin's file.
 func made[N syntax.Node](c *checker, n N, origin syntax.Node) N {
 	switch {
-	case isNil(n):
+	case syntax.IsNil(n):
 		panic("check: internal compiler error: a made syntax node is nil")
-	case isNil(origin):
+	case syntax.IsNil(origin):
 		panic(fmt.Sprintf("check: internal compiler error: the %T the checker made has no origin", n))
 	case syntax.Node(n) == origin:
 		panic(fmt.Sprintf("check: internal compiler error: the %T the checker made is its own origin", n))
@@ -94,7 +93,7 @@ func (c *checker) fileOf(n syntax.Node) *fileInfo {
 
 // ownerOf returns the file n lies in, or nil and why n lies in none.
 func (c *checker) ownerOf(n syntax.Node) (*fileInfo, string) {
-	if isNil(n) {
+	if syntax.IsNil(n) {
 		return nil, "a nil node"
 	}
 	if c.owners == nil {
@@ -182,15 +181,6 @@ func (c *checker) assertOwner(n syntax.Node, code, format string, args []any) {
 	}
 	panic(fmt.Sprintf("check: internal compiler error: %s reported %s %q at a %T of %s while %s was current (a pass that reports must select the file of what it reports)",
 		reporter(), code, fmt.Sprintf(format, args...), n, where, fileName(c.cur, "no file")))
-}
-
-// isNil reports a nil node, typed or not.
-func isNil(n syntax.Node) bool {
-	if n == nil {
-		return true
-	}
-	v := reflect.ValueOf(n)
-	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 func fileName(fi *fileInfo, none string) string {

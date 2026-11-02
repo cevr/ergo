@@ -745,7 +745,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 		if lits[i] != nil {
 			a, why := c.assignability(lits[i], pt)
 			if !a.ok() {
-				at := syntax.Node(args.trailing)
+				var at syntax.Node = args.trailing
 				if i < len(args.exprs) {
 					at = args.exprs[i]
 				}

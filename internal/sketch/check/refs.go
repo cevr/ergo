@@ -159,6 +159,7 @@ func (c *checker) bodyRefs(f *Func) *refWalker {
 	w := c.newRefWalker()
 	w.owner = f
 	saved := c.cur
+	// Defensive: reference collection records edges and does not report.
 	c.cur = f.file
 	defer func() { c.cur = saved }()
 	w.push()
@@ -183,6 +184,7 @@ func (c *checker) varRefs(pv *pkgVar) *refWalker {
 	w := c.newRefWalker()
 	w.owner = pv
 	saved := c.cur
+	// Defensive: initializer reference collection records edges and does not report.
 	c.cur = pv.file
 	defer func() { c.cur = saved }()
 	var root syntax.Node

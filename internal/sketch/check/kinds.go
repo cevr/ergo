@@ -128,6 +128,7 @@ func (c *checker) solveDeclKinds() {
 	}
 	for _, tn := range decls {
 		saved := c.cur
+		// Defensive: this walk only observes and unifies parameter kinds.
 		c.cur = tn.file
 		names := params(tn)
 		index := map[string]int{}
@@ -202,6 +203,7 @@ func (c *checker) solveDeclKinds() {
 			}
 		}
 		saved := c.cur
+		// Defensive: receiver kind collection only observes and unifies kinds.
 		c.cur = f.file
 		self := func(x syntax.Expr) (kindVar, bool) {
 			id, ok := unparen(x).(*syntax.Ident)

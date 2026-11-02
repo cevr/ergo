@@ -1212,7 +1212,7 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 	case *Map:
 		k := c.valueExpr(x.Indices[0], u.Key)
 		c.assign(&k, u.Key, "map key")
-		if c.writeTarget != syntax.Expr(x) {
+		if c.writeTarget != x {
 			// A read has no value for a missing key: not every type has a
 			// zero value (parse-v1 ruling 7), so m.Get(k) returns an
 			// Option (stdlib.md; D2 design ruling).

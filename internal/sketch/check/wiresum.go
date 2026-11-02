@@ -383,6 +383,7 @@ func (p *wirePass) own(wires []*Wire) {
 		op(m, "graph node", singlePass, 1)
 		n := &wireNode{index: -1}
 		p.nodes[w] = n
+		// Defensive: wire summaries collect facts silently; checkWires reports.
 		c.cur = w.file
 		set, known := &capSet{}, true
 		for _, e := range w.Decl.Body.Entries {
@@ -512,6 +513,7 @@ func (p *wirePass) components(wires []*Wire) {
 // its keys resolve as checkWires resolves them.
 func (p *wirePass) namedBody(w *Wire) {
 	c, m := p.c, p.m
+	// Defensive: body summaries run silently; checkWires reports their refusals.
 	c.cur = w.file
 	c.fn = &funcCtx{scope: newScope(c.pkg.Scope)}
 	defer func() { c.fn = nil }()

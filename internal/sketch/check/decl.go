@@ -34,6 +34,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.solveDeclKinds,
 		func() {
 			for _, tn := range c.pkg.Types {
+				// Defensive: resolveNamed selects the declaration again before reporting.
 				c.cur = tn.file
 				c.resolveNamed(tn.Type.(*Named))
 			}
@@ -46,6 +47,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.collectSelfFuncs,
 		func() {
 			for _, f := range c.funcs {
+				// Defensive: funcSig selects the function again before reporting.
 				c.cur = f.file
 				c.funcSig(f)
 			}
@@ -97,6 +99,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 // It reports nothing; the checks of the rows report.
 func (c *checker) collectBodyErrorRows() {
 	for _, fi := range c.files {
+		// Defensive: this pass only collects row heads and reports nothing.
 		c.cur = fi
 		syntax.Inspect(fi.syntax, func(n syntax.Node) bool {
 			if er, ok := n.(*syntax.ErrorRow); ok {
@@ -1640,6 +1643,7 @@ func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstra
 func (c *checker) collectSelfFuncs() {
 	for _, f := range c.funcs {
 		if f.Name != "main" {
+			// Defensive: selfOwner reads the receiver spelling without reporting.
 			c.cur = f.file
 			f.owner, f.selfArgs, f.Ptr = c.selfOwner(f)
 		}
@@ -1665,6 +1669,7 @@ func (c *checker) collectSelfFuncs() {
 				key = g.owner
 			}
 			if id, args, _ := selfOwnerName(g.Decl); id != nil && c.dupNames[id.Name] && g.Name != "main" {
+				// Defensive: selfArgsOK validates receiver arguments without reporting.
 				c.cur = g.file
 				if c.selfArgsOK(g.Decl, args) {
 					key = id.Name
@@ -1697,6 +1702,7 @@ func (c *checker) collectSelfFuncs() {
 	}
 	if c.pkg.Path == std.PreludePath {
 		for _, f := range c.funcs {
+			// Defensive: collOwner classifies a collection receiver without reporting.
 			c.cur = f.file
 			if key, args, ok := c.collOwner(f); ok {
 				if c.pkg.collFuncs == nil {

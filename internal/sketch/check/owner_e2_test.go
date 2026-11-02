@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -116,13 +117,11 @@ var (
 	provenanceMu       sync.Mutex
 )
 
-// scanSynthesis type-checks the checker's non-test files, with extra files
-// added by name, and inventories every value of a syntax node type: a
-// struct type of the syntax package whose pointer is a syntax.Node. Such a
-// value exists only where the checker builds or copies a node. It may be
-// only a composite literal whose address is made's node argument; a copy
-// goes through clone, whose type arguments name the copied type. new of a
-// node type is never allowed.
+// scanSynthesis checks the non-test checker source by method set, not by
+// package or spelling. Only made and clone may construct/copy nodes. A
+// literal passed straight to made is registered there; generic operations
+// cannot hide copies behind a type parameter. Checker-local node types and
+// reflection are forbidden even when no program reaches their declarations.
 func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 	t.Helper()
 	provenanceMu.Lock()
@@ -160,6 +159,7 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 	}
 	info := &types.Info{
 		Types:     map[ast.Expr]types.TypeAndValue{},
+		Defs:      map[*ast.Ident]types.Object{},
 		Uses:      map[*ast.Ident]types.Object{},
 		Instances: map[*ast.Ident]types.Instance{},
 	}
@@ -178,14 +178,26 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 		t.Fatal("the checker does not import the syntax package")
 	}
 	isNode := func(typ types.Type) (string, bool) {
-		named, ok := types.Unalias(typ).(*types.Named)
-		if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != provenanceSyntax {
+		if typ == nil {
 			return "", false
 		}
-		if _, ok := named.Underlying().(*types.Struct); !ok {
-			return "", false
+		typ = types.Unalias(typ)
+		if p, ok := typ.(*types.Pointer); ok {
+			typ = types.Unalias(p.Elem())
 		}
-		return named.Obj().Name(), types.Implements(types.NewPointer(named), node) || types.Implements(named, node)
+		kind := types.TypeString(typ, func(*types.Package) string { return "" })
+		return kind, types.Implements(typ, node) || types.Implements(types.NewPointer(typ), node)
+	}
+	isParameter := func(typ types.Type) bool {
+		if typ == nil {
+			return false
+		}
+		typ = types.Unalias(typ)
+		if p, ok := typ.(*types.Pointer); ok {
+			typ = types.Unalias(p.Elem())
+		}
+		_, ok := typ.(*types.TypeParam)
+		return ok
 	}
 	madeFn := pkg.Scope().Lookup("made")
 	cloneFn := pkg.Scope().Lookup("clone")
@@ -205,10 +217,18 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 	}
 	scan := synthesisScan{sites: map[constructionSite]int{}}
 	for _, f := range files {
+		for _, imp := range f.Imports {
+			if path, _ := strconv.Unquote(imp.Path.Value); path == "reflect" {
+				at := provenanceFset.Position(imp.Pos())
+				scan.violations = append(scan.violations, fmt.Sprintf("%s:%d: reflect import permits unrecorded construction", filepath.Base(at.Filename), at.Line))
+			}
+		}
 		for _, decl := range f.Decls {
 			fn := "package"
+			trusted := false
 			if fd, ok := decl.(*ast.FuncDecl); ok {
 				fn = fd.Name.Name
+				trusted = info.Defs[fd.Name] == madeFn || info.Defs[fd.Name] == cloneFn
 			}
 			var stack []ast.Node
 			ast.Inspect(decl, func(n ast.Node) bool {
@@ -225,11 +245,38 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 				stack = append(stack, n)
 				at := provenanceFset.Position(n.Pos())
 				where := fmt.Sprintf("%s:%d %s", filepath.Base(at.Filename), at.Line, fn)
+				if spec, ok := n.(*ast.TypeSpec); ok {
+					if obj, ok := info.Defs[spec.Name].(*types.TypeName); ok && !obj.IsAlias() {
+						if _, ok := obj.Type().(*types.Named); ok {
+							if _, ok := isNode(obj.Type()); ok {
+								scan.violations = append(scan.violations, where+": local node type "+obj.Name()+" is outside the parser's trees")
+							}
+						}
+					}
+				}
+				if trusted {
+					return true
+				}
+				if id, ok := n.(*ast.Ident); ok {
+					if inst, ok := info.Instances[id]; ok && info.Uses[id] != madeFn && info.Uses[id] != cloneFn {
+						for i := range inst.TypeArgs.Len() {
+							if kind, ok := isNode(inst.TypeArgs.At(i)); ok {
+								scan.violations = append(scan.violations, where+": generic instantiation "+id.Name+" with node argument "+kind)
+								break
+							}
+						}
+					}
+				}
 				if call, ok := n.(*ast.CallExpr); ok {
 					obj, id := callee(call)
 					if b, ok := obj.(*types.Builtin); ok && b.Name() == "new" && len(call.Args) == 1 {
 						if kind, ok := isNode(info.Types[call.Args[0]].Type); ok {
 							scan.violations = append(scan.violations, where+": new("+kind+") makes a node with no origin")
+						}
+					}
+					if info.Types[call.Fun].IsType() {
+						if kind, ok := isNode(info.TypeOf(call)); ok {
+							scan.violations = append(scan.violations, where+": conversion produces a "+kind+" node outside made and clone")
 						}
 					}
 					if obj != nil && obj == cloneFn {
@@ -249,8 +296,23 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 				if !ok || !tv.IsValue() {
 					return true
 				}
+				_, isLit := e.(*ast.CompositeLit)
+				_, isDeref := e.(*ast.StarExpr)
+				if (isLit || isDeref) && isParameter(tv.Type) {
+					scan.violations = append(scan.violations, where+": construction or copy of a type parameter outside made and clone")
+					return true
+				}
 				kind, ok := isNode(tv.Type)
 				if !ok {
+					return true
+				}
+				// Reading a node pointer/interface does not copy its node.
+				// Literals, dereferences, new and conversions are checked above
+				// or below; a concrete node value also copies on an ordinary use.
+				if _, ok := types.Unalias(tv.Type).(*types.Named); !ok && !isLit && !isDeref {
+					return true
+				}
+				if _, ok := tv.Type.Underlying().(*types.Interface); ok && !isLit && !isDeref {
 					return true
 				}
 				lit, isLit := e.(*ast.CompositeLit)
@@ -327,6 +389,37 @@ func e2bControlValue(f syntax.Field) syntax.Node { return f.Type }
 	}
 	if extra := len(controls.violations) - len(scan.violations); extra < 6 {
 		t.Errorf("the controls add %d violations, want at least 6: %v", extra, controls.violations)
+	}
+}
+
+// Every escape has its own source-only control: no corpus program needs to
+// call it, and no other forbidden construction can account for its rejection.
+func TestSynthesisInventoryControls(t *testing.T) {
+	for _, ctl := range []struct{ name, src, want string }{
+		{"generic-copy", `package check; func dupNode[T any](p *T) *T { v := *p; return &v }`, "of a type parameter"},
+		{"generic-pointer-copy", `package check; func copyPointer[T any](p **T) *T { return *p }`, "of a type parameter"},
+		{"generic-literal", `package check; func literal[T ~struct{ X int }]() T { return T{} }`, "of a type parameter"},
+		{"generic-instance", `package check; func identity[T any](p T) T { return p }; var nodeIdentity = identity[*syntax.Ident]`, "generic instantiation"},
+		{"generic-value-instance", `package check; func identity[T any](p T) T { return p }; var nodeIdentity = identity[syntax.Ident]`, "generic instantiation"},
+		{"local-node", `package check; type spanAt struct{ p, e syntax.Pos }; func (s spanAt) Pos() syntax.Pos { return s.p }; func (s spanAt) End() syntax.Pos { return s.e }`, "local node type spanAt"},
+		{"local-pointer-node", `package check; type spanAt struct{ p, e syntax.Pos }; func (s *spanAt) Pos() syntax.Pos { return s.p }; func (s *spanAt) End() syntax.Pos { return s.e }`, "local node type spanAt"},
+		{"pointer-conversion", `package check; func converted(p *syntax.Ident) syntax.Node { return (*syntax.Ident)(p) }`, "conversion"},
+		{"reflection", `package check; var _ = reflect.TypeOf`, "reflect import"},
+	} {
+		t.Run(ctl.name, func(t *testing.T) {
+			imports := "import \"" + provenanceSyntax + "\"\nvar _ syntax.Node\n"
+			if ctl.name == "reflection" {
+				imports = "import \"reflect\"\n"
+			}
+			src := strings.Replace(ctl.src, "package check;", "package check;"+imports, 1)
+			scan := scanSynthesis(t, map[string]string{"e2b_control.go": src})
+			for _, v := range scan.violations {
+				if strings.HasPrefix(v, "e2b_control.go:") && strings.Contains(v, ctl.want) {
+					return
+				}
+			}
+			t.Fatalf("inventory missed %s: want %q in %v", ctl.name, ctl.want, scan.violations)
+		})
 	}
 }
 

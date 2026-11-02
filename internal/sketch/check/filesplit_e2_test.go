@@ -361,6 +361,63 @@ func TestRecursiveGroupsNameTheirFile(t *testing.T) {
 	}
 }
 
+// The package-pattern loop temporarily selects a later duplicate wire,
+// then must restore the pattern's file before declaring its next name.
+// Unit types also share the wire namespace, with the later file blamed.
+func TestPackageNameReportsNameTheirFile(t *testing.T) {
+	const duplicate = "W is already declared in this package"
+	const boundTwice = "W is bound twice in this pattern (rows.md, Totality 1)"
+	type report struct {
+		file, offset int
+		message      string
+	}
+	for _, tc := range []struct {
+		name  string
+		files [2]string
+		want  [2][]report
+	}{
+		{
+			"pattern-restore", [2]string{"let (W, W) = (1, 2)\n", "let W = wire {}\n"},
+			[2][]report{
+				{{0, 8, duplicate}, {0, 8, boundTwice}, {1, 4, duplicate}},
+				{{1, 5, duplicate}, {1, 8, duplicate}, {1, 8, boundTwice}},
+			},
+		},
+		{
+			"unit-wire", [2]string{"type W {}\n", "let W = wire {}\n"},
+			[2][]report{{{1, 4, duplicate}}, {{1, 5, duplicate}}},
+		},
+	} {
+		for order := range 2 {
+			t.Run(fmt.Sprintf("%s/order=%d", tc.name, order), func(t *testing.T) {
+				texts := [2]string{tc.files[order], tc.files[1-order]}
+				var files []*syntax.File
+				for _, src := range texts {
+					f, err := syntax.Parse(src)
+					if err != nil {
+						t.Fatal(err)
+					}
+					files = append(files, f)
+				}
+				got, ice := checkPlaced(files)
+				if ice != "" {
+					t.Fatal(ice)
+				}
+				var want []check.Diagnostic
+				for _, r := range tc.want[order] {
+					want = append(want, check.Diagnostic{
+						Code: "S108", Message: r.message, File: r.file,
+						Offset: r.offset, Length: 1, Line: 1, Column: r.offset + 1,
+					})
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("package names across files:\n got: %+v\nwant: %+v", got, want)
+				}
+			})
+		}
+	}
+}
+
 func TestDiagnosticsStayInTheirFile(t *testing.T) {
 	neutral, err := syntax.Parse(neutralFile)
 	if err != nil {

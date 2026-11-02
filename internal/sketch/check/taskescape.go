@@ -470,7 +470,8 @@ func (w *taskUses) escapes(x syntax.Expr) bool {
 
 // allowed reports whether x stands where a Task-holding value may.
 func (w *taskUses) allowed(x syntax.Expr) bool {
-	child, i := syntax.Node(x), len(w.stack)-1
+	var child syntax.Node = x
+	i := len(w.stack) - 1
 	for i >= 0 {
 		if _, ok := w.stack[i].(*syntax.ParenExpr); !ok {
 			break
