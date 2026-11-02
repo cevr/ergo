@@ -1,0 +1,20 @@
+// withOwnership (withown.go): a resource provider that names an existing
+// value (S109), and a release need that no row holds (S102, chargeRelease).
+type A { Use() }
+type Log { Say(s string) }
+type First {}
+type Res {}
+type Quiet {}
+func Use(_ First) {}
+func Close(_ First) {}
+func Use(_ Res) {}
+func Say(_ Quiet, s string) {}
+func Close(_ Res) needs Log { Log.Say("closed") }
+
+let shared = First
+let Shared = wire { A: shared }
+func borrowed() { with Shared { A.Use() } }
+
+let W = wire { A: Res }
+func declared() needs A { with W { A.Use() } }
+func inferred() { with W { A.Use() } }

@@ -1,0 +1,2 @@
+// checkEntry (entry.go): main with type parameters.
+func main[T]() {}

@@ -1,0 +1,31 @@
+// checkMachine (entry.go, from checkEntry): a machine over a state that is
+// not a union, one whose step is not a function, and one whose step has
+// the wrong type.
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+func wrong(s State) Decision[State, string] { Done{"wrong"} }
+let notStep = 1
+type NotUnion machine[Closed, Signal] {
+	initial: Closed,
+	step:    step,
+}
+type NotFunction machine[State, Signal] {
+	initial: Closed,
+	step:    notStep,
+}
+type WrongStep machine[State, Signal] {
+	initial: Closed,
+	step:    wrong,
+}
+func main() {}

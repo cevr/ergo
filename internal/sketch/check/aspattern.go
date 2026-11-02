@@ -37,10 +37,10 @@ func (c *checker) declareAs(name *syntax.Ident, t Type, placeholder bool) (asBin
 		return asBinding{}, false
 	}
 	if !placeholder {
-		c.localBinder(name.Name, name.Pos())
+		c.localBinder(name)
 	}
 	g := &switchGroup{}
-	v := c.bindLocal(&Var{Name: name.Name, Type: t, Pos: name.Pos(), group: g, used: true})
+	v := c.bindLocal(&Var{Name: name.Name, Type: t, Pos: name.Pos(), id: name, group: g, used: true})
 	if isInvalid(t) {
 		g.used = true // an invalid pattern adds no S110 (D3)
 	}

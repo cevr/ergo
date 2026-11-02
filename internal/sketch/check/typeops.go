@@ -106,7 +106,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 	case *Signature:
 		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping}
 		for _, p := range t.Params {
-			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, param: true})
+			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, id: p.id, param: true})
 		}
 		for _, r := range t.Results {
 			r2 := c.subst(r, m)

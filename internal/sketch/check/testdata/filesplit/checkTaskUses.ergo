@@ -1,0 +1,6 @@
+// checkTaskUses (taskescape.go): a Task converted to an interface, S108.
+type Fault {}
+
+type Waiter { Wait() int fails Fault }
+
+func f(t Task[int, Fault]) []Waiter { []Waiter{t} }

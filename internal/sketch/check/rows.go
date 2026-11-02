@@ -711,6 +711,8 @@ func (c *checker) newSolutions() {
 // refuseRows reports the functions of a component whose inferred rows did
 // not reach a fixpoint within the bound (S108: soundness by refusal).
 func (c *checker) refuseRows(scc []*bodyNode) {
+	saved := c.cur
+	defer func() { c.cur = saved }()
 	for _, n := range scc {
 		f := n.fn
 		if f == nil || !f.inferErrors && !f.inferUses {
@@ -720,6 +722,7 @@ func (c *checker) refuseRows(scc []*bodyNode) {
 		if !f.inferErrors {
 			which = "capability row"
 		}
+		c.cur = f.file // a component may span files (E2 round 3)
 		c.errorf(f.Decl.Name, CodeType, "cannot infer the %s of %s; write it", which, f.Name)
 	}
 }
@@ -997,13 +1000,13 @@ func (c *checker) checkFuncBody(f *Func) bool {
 		}
 		if prev, ok := frame.names[p.Name]; ok {
 			if _, isVar := prev.(*Var); isVar && prev.(*Var).param {
-				c.errorAt(p.Pos, p.Pos+syntax.Pos(len(p.Name)), CodeType, "%s is already a parameter of %s", p.Name, f.Name)
+				c.errorf(p.id, CodeType, "%s is already a parameter of %s", p.Name, f.Name)
 				continue
 			}
 		}
-		c.preludeNameAt(p.Name, p.Pos) // D-D3; the parameter still binds
-		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, param: true, used: true}
-		c.def(c.paramIdents[p.Pos], v)
+		c.preludeName(p.id) // D-D3; the parameter still binds
+		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true}
+		c.def(p.id, v)
 		frame.insert(p.Name, v)
 	}
 	c.bindRequirements(frame, d.Type)
@@ -1106,7 +1109,7 @@ func (c *checker) reportUnused(fc *funcCtx) {
 		if v.group != nil {
 			continue
 		}
-		c.errorAt(v.Pos, v.Pos+syntax.Pos(len(v.Name)), CodeUnused, "%s is declared and not used", v.Name)
+		c.errorf(v.id, CodeUnused, "%s is declared and not used", v.Name)
 	}
 }
 

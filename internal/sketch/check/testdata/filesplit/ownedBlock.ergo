@@ -1,0 +1,17 @@
+// ownedBlock (withown.go, from withOwnership): an exit action that needs a
+// provider of the owning with (exitAction), and a with value that holds a
+// Task.
+import scope
+import task
+
+type A { Use() }
+type First {}
+func Use(_ First) {}
+func Close(_ First) {}
+
+let W = wire { A: First }
+func exits() { with W { scope.OnExit() { A.Use() } } }
+func holds() {
+	let t = with W { task.Go() { A.Use() } }
+	t.Wait()
+}

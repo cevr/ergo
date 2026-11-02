@@ -140,14 +140,14 @@ func (c *checker) functionBody(body *syntax.BlockStmt, name string) {
 			c.missingBodyResult(body, name)
 			return
 		}
-		c.errorAt(end, end+1, CodeMissingRet, "this branch can reach its end without a value, and %s needs one: end it with an expression, return or an else (rows.md, Totality 3)", name)
+		c.errorIn(body, end, end+1, CodeMissingRet, "this branch can reach its end without a value, and %s needs one: end it with an expression, return or an else (rows.md, Totality 3)", name)
 	}
 	c.yieldList(body.List, k, body.Rbrace)
 }
 
 func (c *checker) missingBodyResult(body *syntax.BlockStmt, name string) {
 	if len(c.fn.t.results) > 0 {
-		c.errorAt(body.Rbrace, body.Rbrace+1, CodeMissingRet, "%s can reach the end of its body without returning a value (rows.md, Totality 3)", name)
+		c.errorIn(body, body.Rbrace, body.Rbrace+1, CodeMissingRet, "%s can reach the end of its body without returning a value (rows.md, Totality 3)", name)
 	}
 }
 
@@ -377,7 +377,7 @@ func (c *checker) branches(x syntax.Expr, hint Type) operand {
 		errs = errs.union(c.types, op.errs)
 	}}
 	k.missing = func(end syntax.Pos) {
-		c.errorAt(end, end+1, CodeMissingRet, "this branch can reach its end without a value; a value if or match yields a value from every branch (D-C1)")
+		c.errorIn(x, end, end+1, CodeMissingRet, "this branch can reach its end without a value; a value if or match yields a value from every branch (D-C1)")
 	}
 	k.noElse = func(s *syntax.IfStmt) {
 		c.errorf(s, CodeType, "a value if needs an else: without one it has no value (D-C2)")

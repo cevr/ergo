@@ -241,7 +241,7 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 	}
 	cs.record()
 	if cs.over() {
-		c.errorAt(x.Catch, x.Catch+5, CodeNotTotal, "too many cases to prove which arms of this catch are reachable and what it handles; split it (rows.md, Totality 5)")
+		c.errorIn(x, x.Catch, x.Catch+5, CodeNotTotal, "too many cases to prove which arms of this catch are reachable and what it handles; split it (rows.md, Totality 5)")
 		valid = false
 	}
 	if !valid {
@@ -258,7 +258,7 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 	rest := row.without(c.types, cs.covered(row))
 	// An unknown rest is checked by its known part (Row.unknown).
 	if known := rest.known(c.types); !partial && !known.Empty() {
-		c.errorAt(x.Catch, x.Catch+5, CodeNotTotal, "this catch does not handle %s; a catch without try handles every error of the row (rows.md, Catch 4)", rowText(known))
+		c.errorIn(x, x.Catch, x.Catch+5, CodeNotTotal, "this catch does not handle %s; a catch without try handles every error of the row (rows.md, Catch 4)", rowText(known))
 	}
 	if !partial && rest.unknown(c.types) {
 		// What it may not handle makes the target's row unknown, as an
@@ -558,7 +558,7 @@ func (c *checker) catchArm(arm *syntax.CatchArm, valueType Type, yield bool) {
 	quiet := isInvalid(valueType) // the caught expression is reported
 	if len(list) == 0 {
 		if yield && !quiet {
-			c.errorAt(arm.Colon, arm.Colon+1, CodeMissingRet, "this arm yields no value, and the catch yields a value of type %s (rows.md, Catch 3)", valueType)
+			c.errorIn(arm, arm.Colon, arm.Colon+1, CodeMissingRet, "this arm yields no value, and the catch yields a value of type %s (rows.md, Catch 3)", valueType)
 		}
 		return
 	}
@@ -569,7 +569,7 @@ func (c *checker) catchArm(arm *syntax.CatchArm, valueType Type, yield bool) {
 			if quiet {
 				return
 			}
-			c.errorAt(at, at+1, CodeMissingRet, "this path of the arm can reach its end without a value, and the catch yields a value of type %s: end it with an expression, return or an else (rows.md, Catch 7)", valueType)
+			c.errorIn(arm, at, at+1, CodeMissingRet, "this path of the arm can reach its end without a value, and the catch yields a value of type %s: end it with an expression, return or an else (rows.md, Catch 7)", valueType)
 		}
 	}
 	c.yieldList(list, k, list[len(list)-1].Pos())

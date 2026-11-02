@@ -890,12 +890,12 @@ func (c *checker) body(t *target, ft *syntax.FuncType, params []*Var, check func
 			continue
 		}
 		if _, dup := frame.names[p.Name]; dup {
-			c.errorAt(p.Pos, p.Pos+syntax.Pos(len(p.Name)), CodeType, "%s is already a parameter", p.Name)
+			c.errorf(p.id, CodeType, "%s is already a parameter", p.Name)
 			continue
 		}
-		c.localBinder(p.Name, p.Pos) // D-D3, D-D2; the parameter still binds
-		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, param: true, used: true}
-		c.def(c.paramIdents[p.Pos], v)
+		c.localBinder(p.id) // D-D3, D-D2; the parameter still binds
+		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true}
+		c.def(p.id, v)
 		frame.insert(p.Name, v)
 	}
 	c.bindRequirements(frame, ft)
@@ -980,7 +980,7 @@ func (c *checker) yieldingBlock(b *syntax.BlockStmt, list []syntax.Stmt, results
 		case known && len(results) == 1:
 			k.want = results[0]
 			k.missing = func(end syntax.Pos) {
-				c.errorAt(end, end+1, CodeMissingRet, "this path can reach the end of the block without a value, and the block yields a value of type %s: end it with an expression, return or an else (rows.md, Totality 3)", results[0])
+				c.errorIn(b, end, end+1, CodeMissingRet, "this path can reach the end of the block without a value, and the block yields a value of type %s: end it with an expression, return or an else (rows.md, Totality 3)", results[0])
 			}
 		case known:
 			k.discard = true
@@ -992,7 +992,7 @@ func (c *checker) yieldingBlock(b *syntax.BlockStmt, list []syntax.Stmt, results
 			if need {
 				k.missing = func(end syntax.Pos) {
 					missed = true
-					c.errorAt(end, end+1, CodeMissingRet, "this path can reach the end of the block without a value, and the block's value is used: end it with an expression, return or an else (rows.md, Totality 3)")
+					c.errorIn(b, end, end+1, CodeMissingRet, "this path can reach the end of the block without a value, and the block's value is used: end it with an expression, return or an else (rows.md, Totality 3)")
 				}
 			}
 		}

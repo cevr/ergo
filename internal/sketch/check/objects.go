@@ -64,9 +64,13 @@ type Func struct {
 
 // Var is a variable: a parameter, a local or a package-level let.
 type Var struct {
-	Name    string
-	Type    Type
-	Pos     syntax.Pos
+	Name string
+	Type Type
+	Pos  syntax.Pos
+	// id is the declaring identifier: a diagnostic about the name is
+	// reported at it (owner.go). It is nil for a parameter written
+	// without a name.
+	id      *syntax.Ident
 	used    bool
 	param   bool
 	pkg     bool

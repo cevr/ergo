@@ -94,7 +94,11 @@ type checker struct {
 	// it, shared by the ownership and footprint passes (withown.go).
 	wireOwners wireOwners
 
-	cur *fileInfo
+	// cur is the file the running pass selected: a diagnostic is reported
+	// in it, and its node must lie in it (owner.go). owners indexes each
+	// node of the package's trees by its file, built at the first report.
+	cur    *fileInfo
+	owners map[syntax.Node]*fileInfo
 	// instance caches the instances of generic named types by their
 	// interned id: (origin, type argument ids), looked up before building.
 	instance map[int32]*Named
@@ -159,9 +163,6 @@ type checker struct {
 	nodeCheck      func(*bodyNode) bool
 	convergeChecks int
 	grew           map[*Func][2]bool
-	// paramIdents maps a parameter's position to its declaring name, so a
-	// body's binding of it is its Defs entry.
-	paramIdents map[syntax.Pos]*syntax.Ident
 	// asNames holds each as pattern's binding name until finishInfo.
 	asNames map[*Pattern]*syntax.Ident
 	// literals keeps isLiteral's answer for each operation it has seen.
@@ -335,7 +336,6 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 	pkg := &Package{Path: path, Scope: newScope(universe), Wires: map[string]*Wire{}, Info: newInfo()}
 	c := &checker{
 		pkg:            pkg,
-		paramIdents:    map[syntax.Pos]*syntax.Ident{},
 		imp:            imp,
 		universe:       universe,
 		seen:           map[string]bool{},
@@ -362,19 +362,33 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 	return c
 }
 
-// errorf reports a diagnostic at the node's span in the current file.
+// errorf reports a diagnostic at the node's span in the current file,
+// which must hold the node (owner.go).
 func (c *checker) errorf(n syntax.Node, code, format string, args ...any) {
-	if n == nil {
-		c.errorAt(syntax.NoPos, syntax.NoPos, code, format, args...)
-		return
-	}
-	c.errorAt(n.Pos(), n.End(), code, format, args...)
-}
-
-func (c *checker) errorAt(pos, end syntax.Pos, code, format string, args ...any) {
 	if c.silent > 0 {
 		return
 	}
+	c.assertOwner(n, code, format, args)
+	c.report(n.Pos(), n.End(), code, format, args...)
+}
+
+// errorIn reports a diagnostic at the span pos..end inside the node at (a
+// keyword, a brace, the end of a block) in the current file, which must
+// hold at (owner.go).
+func (c *checker) errorIn(at syntax.Node, pos, end syntax.Pos, code, format string, args ...any) {
+	if c.silent > 0 {
+		return
+	}
+	c.assertOwner(at, code, format, args)
+	if pos < at.Pos() || pos > at.End() {
+		panic(fmt.Sprintf("check: internal compiler error: %s reported %s %q at %d, outside its %T at %d..%d", reporter(), code, fmt.Sprintf(format, args...), pos, at, at.Pos(), at.End()))
+	}
+	c.report(pos, end, code, format, args...)
+}
+
+// report records a diagnostic at pos..end of the current file; errorf and
+// errorIn are its only callers, so every report has passed the owner check.
+func (c *checker) report(pos, end syntax.Pos, code, format string, args ...any) {
 	d := Diagnostic{Code: code, Message: fmt.Sprintf(format, args...)}
 	if c.cur != nil {
 		f := c.cur.syntax

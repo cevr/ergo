@@ -96,21 +96,16 @@ func (c *checker) preludeName(id *syntax.Ident) bool {
 	if id == nil {
 		return false
 	}
-	return c.preludeNameAt(id.Name, id.Pos())
-}
-
-// preludeNameAt is preludeName for a binder known by its name and
-// position. A binder that already has its diagnostic counts as refused
-// and adds none.
-func (c *checker) preludeNameAt(name string, pos syntax.Pos) bool {
-	if c.binderRefused(pos) {
+	// A binder that already has its diagnostic counts as refused and adds
+	// none.
+	if c.binderRefused(id.Pos()) {
 		return true
 	}
-	if !c.isPreludeName(name) {
+	if !c.isPreludeName(id.Name) {
 		return false
 	}
-	c.errorAt(pos, pos+syntax.Pos(len(name)), CodeType, "%s is a prelude name, which cannot be redeclared; choose another name (#196, eighth round, item 3)", name)
-	c.refuseBinder(pos)
+	c.errorf(id, CodeType, "%s is a prelude name, which cannot be redeclared; choose another name (#196, eighth round, item 3)", id.Name)
+	c.refuseBinder(id.Pos())
 	return true
 }
 
@@ -119,7 +114,8 @@ func (c *checker) preludeNameAt(name string, pos syntax.Pos) bool {
 // binder enters; the scopes searched are its parents up to, and not
 // including, the package scope. The outer binding counts as read, so the
 // refusal adds no S110 beside it (D3); the inner binder still binds.
-func (c *checker) shadowed(name string, pos syntax.Pos, sc *Scope) bool {
+func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
+	name := id.Name
 	if name == "_" || sc == nil {
 		return false
 	}
@@ -128,10 +124,9 @@ func (c *checker) shadowed(name string, pos syntax.Pos, sc *Scope) bool {
 		if !ok {
 			continue
 		}
-		end := pos + syntax.Pos(len(name))
 		switch prev := prev.(type) {
 		case *capBinding:
-			c.errorAt(pos, end, CodeType, "%s is in this function's capability row, so an inner binder cannot reuse the name; choose another name (no shadowing, #196 196v rule 2)", name)
+			c.errorf(id, CodeType, "%s is in this function's capability row, so an inner binder cannot reuse the name; choose another name (no shadowing, #196 196v rule 2)", name)
 		case *Var:
 			prev.used = true
 			if prev.group != nil {
@@ -141,26 +136,26 @@ func (c *checker) shadowed(name string, pos syntax.Pos, sc *Scope) bool {
 			if prev.param {
 				what = "a parameter"
 			}
-			c.errorAt(pos, end, CodeType, "%s is already %s of an enclosing scope in this function; choose another name (no shadowing, #196 196v rule 2)", name, what)
+			c.errorf(id, CodeType, "%s is already %s of an enclosing scope in this function; choose another name (no shadowing, #196 196v rule 2)", name, what)
 		default:
-			c.errorAt(pos, end, CodeType, "%s is already bound in an enclosing scope of this function; choose another name (no shadowing, #196 196v rule 2)", name)
+			c.errorf(id, CodeType, "%s is already bound in an enclosing scope of this function; choose another name (no shadowing, #196 196v rule 2)", name)
 		}
 		return true
 	}
 	return false
 }
 
-// localBinder runs the binder rules for a local about to bind name at pos
-// in the current scope: a prelude name (D-D3) first, else shadowing
-// (D-D2). It reports at most one diagnostic.
-func (c *checker) localBinder(name string, pos syntax.Pos) {
-	if c.fn == nil || name == "_" {
+// localBinder runs the binder rules for a local about to bind the name id
+// declares in the current scope: a prelude name (D-D3) first, else
+// shadowing (D-D2). It reports at most one diagnostic.
+func (c *checker) localBinder(id *syntax.Ident) {
+	if c.fn == nil || id.Name == "_" {
 		return
 	}
-	if c.preludeNameAt(name, pos) {
+	if c.preludeName(id) {
 		return
 	}
-	c.shadowed(name, pos, c.fn.scope)
+	c.shadowed(id, c.fn.scope)
 }
 
 // untypedLet reports `let x` with neither a type nor a value (D-D1): x
@@ -172,13 +167,13 @@ func (c *checker) untypedLet(id *syntax.Ident) {
 
 // mutPackageLet reports a package-level `let mut` at its `mut` (D-D1).
 func (c *checker) mutPackageLet(d *syntax.VarDecl) {
-	c.errorAt(d.Mut, d.Mut+3, CodeType, "a package-level let cannot be mut: Ergo has no mutable package state; pass the value as a parameter, or keep it in a let mut local (#196, 196v)")
+	c.errorIn(d, d.Mut, d.Mut+3, CodeType, "a package-level let cannot be mut: Ergo has no mutable package state; pass the value as a parameter, or keep it in a let mut local (#196, 196v)")
 }
 
 // mutPattern reports `let mut` over a pattern at its `mut` (D-D1): a
 // pattern's bindings are immutable.
 func (c *checker) mutPattern(d *syntax.VarDecl) {
-	c.errorAt(d.Mut, d.Mut+3, CodeType, "let mut binds names, and a pattern's bindings are immutable: write let mut v = e, then destructure v with let or match (#196, 196v)")
+	c.errorIn(d, d.Mut, d.Mut+3, CodeType, "let mut binds names, and a pattern's bindings are immutable: write let mut v = e, then destructure v with let or match (#196, 196v)")
 }
 
 // rootKind is what an assignment target or a borrow is rooted at.
@@ -339,6 +334,6 @@ func (c *checker) reportNeverReassigned(fc *funcCtx) {
 		if !v.mut || v.reassigned || !v.used || v.Name == "_" || isInvalid(v.Type) || v.undiagnosed {
 			continue
 		}
-		c.errorAt(v.Pos, v.Pos+syntax.Pos(len(v.Name)), CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", v.Name, v.Name)
+		c.errorf(v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", v.Name, v.Name)
 	}
 }

@@ -23,47 +23,62 @@ func (c *checker) run(files []*syntax.File) *Package {
 	// of the import path.
 	c.pkg.Name = path.Base(c.pkg.Path)
 	c.pkg.qualify = true
-	c.collect()
-	c.checkImportAliases()
-	c.solveDeclKinds()
-	for _, tn := range c.pkg.Types {
-		c.cur = tn.file
-		c.resolveNamed(tn.Type.(*Named))
+	// Each pass starts with no file selected: a pass selects the file of
+	// what it inspects before it reports, and one that does not reports
+	// with no file and stops at the ownership assertion (owner.go) in a
+	// one-file package as well, instead of inheriting the last file an
+	// earlier pass visited (E2 round 2 M1).
+	for _, pass := range []func(){
+		c.collect,
+		c.checkImportAliases,
+		c.solveDeclKinds,
+		func() {
+			for _, tn := range c.pkg.Types {
+				c.cur = tn.file
+				c.resolveNamed(tn.Type.(*Named))
+			}
+		},
+		c.checkUnitWireNames,
+		// Expanding type instantiations are rejected before any walk
+		// expands instances (round-2 M1, M5).
+		c.checkInstantiationCycles,
+		c.completeDefinedTypes,
+		c.collectSelfFuncs,
+		func() {
+			for _, f := range c.funcs {
+				c.cur = f.file
+				c.funcSig(f)
+			}
+		},
+		// Expanding instantiations in signatures, a method's receiver
+		// parameters included, are rejected before any row is inferred
+		// (round-4 M1).
+		c.checkInstantiationCycles,
+		c.collectBodyErrorRows,
+		c.checkEntry,
+		// The wire pass runs once, before any body, so its budget verdict
+		// does not depend on which body meets a wire first (wiresum.go).
+		c.wireSummaries,
+		// Bodies converge first: a machine's initial value and the named
+		// wires are closed contexts that read the converged inferred rows
+		// (M2).
+		c.checkBodies,
+		c.checkTypeDecls,
+		c.checkWires,
+		c.checkWireCycles,
+		c.checkErrorMethods,
+		c.checkUnusedImports,
+		c.checkTaskUses,
+		c.finishInfo,
+		c.closeFacts,
+		c.withOwnership,
+		c.checkFrames,
+		c.checkEscapes,
+		c.footprints,
+	} {
+		c.cur = nil
+		pass()
 	}
-	c.checkUnitWireNames()
-	// Expanding type instantiations are rejected before any walk expands
-	// instances (round-2 M1, M5).
-	c.checkInstantiationCycles()
-	c.completeDefinedTypes()
-	c.collectSelfFuncs()
-	for _, f := range c.funcs {
-		c.cur = f.file
-		c.funcSig(f)
-	}
-	// Expanding instantiations in signatures, a method's receiver
-	// parameters included, are rejected before any row is inferred
-	// (round-4 M1).
-	c.checkInstantiationCycles()
-	c.collectBodyErrorRows()
-	c.checkEntry()
-	// The wire pass runs once, before any body, so its budget verdict does
-	// not depend on which body meets a wire first (wiresum.go).
-	c.wireSummaries()
-	// Bodies converge first: a machine's initial value and the named wires
-	// are closed contexts that read the converged inferred rows (M2).
-	c.checkBodies()
-	c.checkTypeDecls()
-	c.checkWires()
-	c.checkWireCycles()
-	c.checkErrorMethods()
-	c.checkUnusedImports()
-	c.checkTaskUses()
-	c.finishInfo()
-	c.closeFacts()
-	c.withOwnership()
-	c.checkFrames()
-	c.checkEscapes()
-	c.footprints()
 	c.pkg.ErrorTypes = make(map[*Named]bool, len(c.errorTypes))
 	for n := range c.errorTypes {
 		c.pkg.ErrorTypes[n] = true
@@ -218,7 +233,7 @@ func (c *checker) collect() {
 					for i, name := range spec.Names {
 						// A refused package-level let mut (mutPackageLet)
 						// keeps mut, so its assignments add nothing (D3).
-						v := &Var{Name: name.Name, Pos: name.Pos(), pkg: true, used: true, mut: d.Mut.IsValid()}
+						v := &Var{Name: name.Name, Pos: name.Pos(), id: name, pkg: true, used: true, mut: d.Mut.IsValid()}
 						if !c.wireNamed(name) {
 							c.declare(name, v)
 						}
@@ -257,7 +272,7 @@ func (c *checker) collect() {
 		group := &pkgPattern{spec: p.spec}
 		c.pkgPatterns[p.spec] = group
 		for _, id := range patternNames(p.spec.Pattern, c.isPatternType) {
-			v := &Var{Name: id.Name, Pos: id.Pos(), pkg: true, used: true}
+			v := &Var{Name: id.Name, Pos: id.Pos(), id: id, pkg: true, used: true}
 			if w, ok := c.pkg.Wires[id.Name]; ok && id.Name != "_" && (w.file.index > p.file.index || w.file == p.file && w.Pos > id.Pos()) {
 				// The pattern is collected after every wire: when the
 				// wire is the later declaration, it is the duplicate.
@@ -1444,8 +1459,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 					// type (D-E1, #214).
 					pt = c.untypedParam(name, len(sig.Params), ctx.lit)
 				}
-				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), param: true})
-				c.paramIdents[name.Pos()] = name
+				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), id: name, param: true})
 			}
 		}
 	}

@@ -1,0 +1,4 @@
+// closeFacts (close.go): an interface whose Close can fail.
+type R { Close() fails Fault }
+
+type Fault {}

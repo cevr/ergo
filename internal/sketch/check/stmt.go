@@ -46,12 +46,12 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 			c.errorf(id, CodeType, "%s is already declared in this block", id.Name)
 		}
 	} else {
-		c.shadowed(id.Name, id.Pos(), sc)
+		c.shadowed(id, sc)
 	}
 	if t == nil {
 		t = invalid
 	}
-	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos()})
+	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos(), id: id})
 	c.def(id, v)
 	sc.insert(id.Name, v)
 	if isInvalid(t) || refused {

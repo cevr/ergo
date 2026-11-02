@@ -1,0 +1,2 @@
+// checkUnusedImports (decl.go): an import no declaration uses, S110.
+import log

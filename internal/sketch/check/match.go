@@ -759,9 +759,9 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 	switch {
 	case useful.over:
 		// A case whose reachability is unproven is never accepted.
-		c.errorAt(kw, kw+matchLen, CodeNotTotal, "too many cases to prove which cases of this match are reachable; split it (rows.md, Totality 5)")
+		c.errorIn(s, kw, kw+matchLen, CodeNotTotal, "too many cases to prove which cases of this match are reachable; split it (rows.md, Totality 5)")
 	case r.resolve.over, !ok:
-		c.errorAt(kw, kw+matchLen, CodeNotTotal, "too many cases to prove this match total; split it or add case _ (rows.md, Totality 5)")
+		c.errorIn(s, kw, kw+matchLen, CodeNotTotal, "too many cases to prove this match total; split it or add case _ (rows.md, Totality 5)")
 	case !valid || !patternsOK || hasDefault:
 		// Already reported, or total by `case _`: the match counts as
 		// total, so no missing return or totality diagnostic follows (D3).
@@ -775,14 +775,14 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 			}
 		}
 		if n == 1 && allConst {
-			c.errorAt(kw, kw+matchLen, CodeNotTotal, "this match is not total: constant patterns never cover %s; add case _ (rows.md, Totality 2)", subj[0])
+			c.errorIn(s, kw, kw+matchLen, CodeNotTotal, "this match is not total: constant patterns never cover %s; add case _ (rows.md, Totality 2)", subj[0])
 			break
 		}
 		what := parts[0]
 		if n > 1 {
 			what = "(" + strings.Join(parts, ", ") + ")"
 		}
-		c.errorAt(kw, kw+matchLen, CodeNotTotal, "this match is not total: no case handles %s; name every variant or add case _ (rows.md, Totality 2)", what)
+		c.errorIn(s, kw, kw+matchLen, CodeNotTotal, "this match is not total: no case handles %s; name every variant or add case _ (rows.md, Totality 2)", what)
 	}
 }
 
@@ -869,8 +869,8 @@ func (c *checker) declareArm(items [][]patBinding) []armVar {
 	for _, b := range first {
 		g := &switchGroup{}
 		groups[b.id.Name] = g
-		c.localBinder(b.id.Name, b.id.Pos())
-		v := c.bindLocal(&Var{Name: b.id.Name, Type: b.t, Pos: b.id.Pos(), group: g, used: true})
+		c.localBinder(b.id)
+		v := c.bindLocal(&Var{Name: b.id.Name, Type: b.t, Pos: b.id.Pos(), id: b.id, group: g, used: true})
 		if isInvalid(b.t) {
 			g.used = true // an invalid pattern adds no S110 (D3)
 		}
@@ -895,7 +895,7 @@ func (c *checker) declareArm(items [][]patBinding) []armVar {
 				// The name still binds, with the invalid type, so its reads
 				// in the body add nothing (D3).
 				g := &switchGroup{used: true}
-				v := c.bindLocal(&Var{Name: b.id.Name, Type: invalid, Pos: b.id.Pos(), group: g, used: true})
+				v := c.bindLocal(&Var{Name: b.id.Name, Type: invalid, Pos: b.id.Pos(), id: b.id, group: g, used: true})
 				c.def(b.id, v)
 				c.fn.scope.insert(b.id.Name, v)
 				b.info.Var = v

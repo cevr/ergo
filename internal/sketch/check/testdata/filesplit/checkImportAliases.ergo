@@ -1,0 +1,7 @@
+// checkImportAliases (decl.go): an import name that a package function
+// also declares.
+import log
+
+func log() {}
+
+func main() { log.Info("x") }
