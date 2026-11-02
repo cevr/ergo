@@ -801,7 +801,7 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	if len(sig.Results) > 1 {
 		refuse(n, "a literal with several results is a tuple, lowered after check-v1 stage B (196t)")
 	}
-	inner := &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner}
+	inner := fc.innerFuncCtx()
 	return fc.envClosure(callerEnv, "env", n, func(env string) (parts []string, results, body string) {
 		inner.env = env
 		inner.frame = newFrame(nil, true, framePolls(fc.l.info, n))

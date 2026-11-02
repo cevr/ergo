@@ -120,6 +120,13 @@ func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
 	return &funcCtx{typeCtx: typeCtx{l: l, params: map[*check.TypeParam]string{}}, out: &strings.Builder{}, scope: scope, locals: map[*check.Var]string{}, directives: directives, witness: map[*check.TypeParam]string{}}
 }
 
+// innerFuncCtx opens a new frame while retaining the enclosing signature's
+// type bindings and witnesses. These facts and captured local names are
+// shared; execution state (environment, frame, loops and tries) is fresh.
+func (fc *funcCtx) innerFuncCtx() *funcCtx {
+	return &funcCtx{typeCtx: fc.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, directives: fc.directives, owner: fc.owner, witness: fc.witness}
+}
+
 // line writes one Go line at the current depth.
 func (fc *funcCtx) line(s string) {
 	fc.out.WriteString(strings.Repeat("\t", fc.depth) + s + "\n")
