@@ -1,6 +1,10 @@
 package check
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"maps"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Typed edges of x.f(…) calls (196m; round 6 review M1, round 7 review M1).
 //
@@ -72,11 +76,7 @@ func (c *checker) resolveSelfCalls(nodes []*bodyNode, byFunc map[*Func]*bodyNode
 		c.settleWaiting(nodes, byFunc, byVar, pending)
 	}
 	if selfTrace != nil {
-		resolved := make(map[*syntax.SelectorExpr]*Func, len(c.selfRes))
-		for sel, f := range c.selfRes {
-			resolved[sel] = f
-		}
-		selfTrace(c, all, resolved)
+		selfTrace(c, all, maps.Clone(c.selfRes))
 	}
 }
 
