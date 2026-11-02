@@ -1,0 +1,12 @@
+// Open question Q1 (recommended, 196e): a parameter without `escaping` may
+// be called or passed to a non-escaping parameter, never stored, returned
+// or passed where an escaping function is expected (S108).
+type Holder { Run escaping func(int) int }
+
+func keep(f func(int) int) Holder {
+	Holder{Run: f} // want S108
+}
+
+func give(f func(int) int) escaping func(int) int {
+	f // want S108
+}

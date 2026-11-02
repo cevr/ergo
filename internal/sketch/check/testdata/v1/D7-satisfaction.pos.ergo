@@ -1,0 +1,30 @@
+// 196m rule 2 and the round-6 ruling: a named type satisfies an operation
+// type through package functions whose first parameter is that type; two
+// providers in one package share the operation's name.
+type Orders {
+	Get(id string) string,
+}
+
+type Memory {}
+type Disk { Root string }
+
+func Get(_ Memory, id string) string {
+	id
+}
+
+func Get(d Disk, id string) string {
+	d.Root + id
+}
+
+func read(o Orders) string {
+	o.Get("1")
+}
+
+let Live = wire {
+	Orders: Disk{Root: "/"},
+}
+
+func main() needs Console {
+	let name = with Live { Orders.Get("42") }
+	Console.Println(name + read(Memory))
+}

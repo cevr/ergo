@@ -1,0 +1,20 @@
+// Stage E2 (state.md:315, 944-945): a Task is the whole type of a local, a
+// parameter or a result; a generic function over other types is
+// untouched, also when it takes a Task's waited value.
+import task
+
+type Fault {}
+
+func keep[T](x T) []T {
+	[]T{x}
+}
+
+func start() Task[int, Fault] {
+	task.Go() { 1 }
+}
+
+func run() int fails Fault {
+	let t = start()
+	let n = try t.Wait()
+	len(keep(n))
+}

@@ -1,0 +1,20 @@
+// 196m: `x.f(a)` is `f(x, a)` for a function f in the package of x's type
+// whose first parameter takes x; generic first parameters instantiate from
+// x; prelude types reach the prelude's functions.
+type Order { Total int64 }
+
+type Pair[A, B] { First A, Second B }
+
+func Fee(o Order, rate int64) int64 {
+	o.Total * rate / 100
+}
+
+func Swap[A, B](p Pair[A, B]) Pair[B, A] {
+	Pair[B, A]{First: p.Second, Second: p.First}
+}
+
+func total(order Order, p Pair[int64, string]) int64 {
+	let q = p.Swap()
+	let xs = []int64{order.Fee(3)}.Append(Fee(order, 2))
+	xs[0] + xs[1] + q.Second
+}

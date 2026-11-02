@@ -1,0 +1,16 @@
+// Open question Q1 (recommended, 196e): a function-typed parameter does not
+// escape the call unless its type says `escaping`; a record field of
+// function type is escaping by definition.
+type Holder { Run escaping func(int) int }
+
+func apply(f func(int) int, x int) int {
+	f(x)
+}
+
+func twice(f func(int) int, x int) int {
+	apply(f, apply(f, x))
+}
+
+func keep(f escaping func(int) int) Holder {
+	Holder{Run: f}
+}

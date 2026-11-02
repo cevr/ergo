@@ -51,10 +51,14 @@ func frameFree(d syntax.Decl) bool {
 
 // checkFrames reports every call of the invariant above outside a function
 // body. It runs once Info's calls carry TaskResult (finishInfo) and every
-// with its acquisitions (withOwnership).
+// with its acquisitions (withOwnership). Each file is selected before its
+// declarations are inspected, so a diagnostic names the file it stands in.
 func (c *checker) checkFrames() {
 	info := c.pkg.Info
+	saved := c.cur
+	defer func() { c.cur = saved }()
 	for _, f := range c.files {
+		c.cur = f
 		for _, d := range f.syntax.Decls {
 			if !frameFree(d) {
 				continue

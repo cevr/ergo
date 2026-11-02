@@ -1,0 +1,28 @@
+// 196m: x.f resolves only in the package of x's type (int is the
+// prelude's, so a user Double is not found: S104); `x.f` without a call is
+// only a field (S104); a function whose first parameter does not take x is
+// not a candidate (S104).
+type Order { Total int64 }
+type Card { Number string }
+
+func Double(n int) int {
+	n * 2
+}
+
+func Fee(c Card, rate int64) int64 {
+	rate
+}
+
+func twice(n int) int {
+	n.Double() // want S104
+}
+
+func value(o Order) int64 {
+	let fee = o.Total
+	let f = o.Fee // want S104
+	fee
+}
+
+func wrong(o Order) int64 {
+	o.Fee(3) // want S104
+}

@@ -217,26 +217,54 @@ var frameRoots = []struct {
 	{"function body", "func g() int { $E }\n", false},
 }
 
-func TestFrameNeedMatrix(t *testing.T) {
+// frameCase is one program of the matrix: a frame need at a root. line is
+// the need's line when the root is free.
+type frameCase struct {
+	name, src string
+	line      int
+	free      bool
+}
+
+// frameMatrix crosses every frame need with every root.
+func frameMatrix() []frameCase {
 	head := strings.Count(frameHead, "\n")
+	var out []frameCase
 	for _, form := range frameForms {
 		for _, root := range frameRoots {
 			imports := "import task\n" + form.imports
 			src := strings.Replace(root.src, "$E", form.expr, 1)
 			line := strings.Count(imports, "\n") + head + 1 + strings.Count(root.src[:strings.Index(root.src, "$E")], "\n") + form.at
-			full := imports + frameHead + src
-			_, diags := checkFor(full)
-			if root.free {
-				if len(diags) == 1 && diags[0].Code == CodeType && diags[0].Line == line &&
-					strings.Contains(diags[0].Message, "needs the frame scope of a function body") {
-					continue
-				}
-				t.Errorf("%s in a %s: want one S108 at line %d; got %v\n%s", form.name, root.name, line, diags, full)
+			out = append(out, frameCase{form.name + " in a " + root.name, imports + frameHead + src, line, root.free})
+		}
+	}
+	return out
+}
+
+// FrameMatrixNegatives returns the matrix's refused programs by name, for
+// the file-placement guard (TestDiagnosticsStayInTheirFile).
+func FrameMatrixNegatives() map[string]string {
+	out := map[string]string{}
+	for _, fc := range frameMatrix() {
+		if fc.free {
+			out[fc.name] = fc.src
+		}
+	}
+	return out
+}
+
+func TestFrameNeedMatrix(t *testing.T) {
+	for _, fc := range frameMatrix() {
+		_, diags := checkFor(fc.src)
+		if fc.free {
+			if len(diags) == 1 && diags[0].Code == CodeType && diags[0].Line == fc.line &&
+				strings.Contains(diags[0].Message, "needs the frame scope of a function body") {
 				continue
 			}
-			if len(diags) != 0 {
-				t.Errorf("%s in a %s: want a clean check; got %v\n%s", form.name, root.name, diags, full)
-			}
+			t.Errorf("%s: want one S108 at line %d; got %v\n%s", fc.name, fc.line, diags, fc.src)
+			continue
+		}
+		if len(diags) != 0 {
+			t.Errorf("%s: want a clean check; got %v\n%s", fc.name, diags, fc.src)
 		}
 	}
 }

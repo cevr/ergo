@@ -1,0 +1,34 @@
+// 196m rule 2: a type without the operation's function does not satisfy
+// the operation type: S106 in a wire, S108 as a value; a plain call of a
+// shared name with several candidates is S108 ("call it as x.f(…)").
+type Orders {
+	Get(id string) string,
+}
+
+type Memory {}
+type Disk {}
+type Tape {}
+
+func Get(_ Memory, id string) string {
+	id
+}
+
+func Get(_ Disk, id string) string {
+	id
+}
+
+func read(o Orders) string {
+	o.Get("1")
+}
+
+let Live = wire {
+	Orders: Tape, // want S106
+}
+
+func use() string {
+	read(Tape) // want S108
+}
+
+func plain() string {
+	Get(Memory, "1") // want S108
+}
