@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"go/constant"
 	"sort"
 	"strings"
@@ -279,25 +280,35 @@ func (c *checker) recordInstance(x syntax.Expr, fn *Func, targs []Type) {
 // diagnose a dependency on an active instance; never truncate a chain.
 // Growing polymorphic recursion is rejected by checkInstantiationCycles.
 func (c *checker) instanceOf(fn *Func, targs []Type, at syntax.Node) *Instance {
+	inst, why := c.witnessInstance(fn, targs)
+	if why != "" {
+		c.errorf(at, CodeType, "%s", why)
+	}
+	return inst
+}
+
+// witnessInstance constructs the same complete fact without publishing a
+// diagnostic. Assignability returns its reason to the conversion's caller,
+// which owns the source expression and file; a generic declaration is not
+// a conversion site.
+func (c *checker) witnessInstance(fn *Func, targs []Type) (*Instance, string) {
 	type entry struct {
 		inst *Instance
 		done bool
 	}
 	seen := map[*Func][]*entry{}
 	var path []string
-	var build func(*Func, []Type) *Instance
-	build = func(fn *Func, targs []Type) *Instance {
+	var build func(*Func, []Type) (*Instance, string)
+	build = func(fn *Func, targs []Type) (*Instance, string) {
 		if fn == nil || fn.Sig == nil || len(fn.Sig.TParams) == 0 {
-			return nil
+			return nil, ""
 		}
 		if len(targs) != len(fn.Sig.TParams) {
-			c.errorf(at, CodeType, "cannot complete the witness instance of %s: missing type arguments", fn.Name)
-			return nil
+			return nil, fmt.Sprintf("cannot complete the witness instance of %s: missing type arguments", fn.Name)
 		}
 		for _, t := range targs {
 			if t == nil || isInvalid(t) {
-				c.errorf(at, CodeType, "cannot complete the witness instance of %s: missing type arguments", fn.Name)
-				return nil
+				return nil, fmt.Sprintf("cannot complete the witness instance of %s: missing type arguments", fn.Name)
 			}
 		}
 		var args []string
@@ -314,35 +325,38 @@ func (c *checker) instanceOf(fn *Func, targs []Type, at syntax.Node) *Instance {
 				continue
 			}
 			if prev.done {
-				return prev.inst
+				return prev.inst, ""
 			}
-			c.errorf(at, CodeType, "instantiation cycle in witnesses: %s", strings.Join(append(path, name), " -> "))
-			return nil
+			return nil, fmt.Sprintf("instantiation cycle in witnesses: %s", strings.Join(append(path, name), " -> "))
 		}
 		inst := &Instance{Func: fn, TypeArgs: targs}
 		e := &entry{inst: inst}
 		seen[fn] = append(seen[fn], e)
 		path = append(path, name)
 		defer func() { path = path[:len(path)-1] }()
-		if !c.instanceWitnesses(inst, at, build) {
-			return nil
+		if why := c.instanceWitnesses(inst, build); why != "" {
+			return nil, why
 		}
 		e.done = true
-		return inst
+		return inst, ""
 	}
 	return build(fn, targs)
 }
 
 // instanceWitnesses fills every operation's signature and implementing
 // instance. A failed dependency invalidates the whole instance.
-func (c *checker) instanceWitnesses(inst *Instance, at syntax.Node, build func(*Func, []Type) *Instance) bool {
+func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*Instance, string)) string {
 	fn, targs := inst.Func, inst.TypeArgs
 	m := paramMap(fn.Sig.TParams, targs)
 	for i, tp := range fn.Sig.TParams {
 		if tp.Kind != KindType || tp.Constraint == nil {
 			continue
 		}
-		it := asInterface(c.subst(tp.Constraint, m))
+		constraint := c.subst(tp.Constraint, m)
+		if why := c.satisfies(targs[i], constraint); why != "" {
+			return fmt.Sprintf("cannot complete the witness of %s: %s", fn.Name, why)
+		}
+		it := asInterface(constraint)
 		if it == nil || len(it.Methods) == 0 {
 			continue
 		}
@@ -350,23 +364,23 @@ func (c *checker) instanceWitnesses(inst *Instance, at syntax.Node, build func(*
 		for _, op := range it.Methods {
 			method, f := c.methodOf(targs[i], op.Name)
 			if method == nil {
-				c.errorf(at, CodeType, "cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
-				return false
+				return fmt.Sprintf("cannot complete the witness of %s: %s has no operation %s", fn.Name, targs[i], op.Name)
 			}
 			sig := *op.Sig
 			sig.Params = append([]*Var{{Name: "self", Type: targs[i]}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
 			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
-				wo.Inst = build(f, receiverTypeArgs(targs[i], f))
-				if wo.Inst == nil {
-					return false
+				var why string
+				wo.Inst, why = build(f, receiverTypeArgs(targs[i], f))
+				if why != "" {
+					return why
 				}
 			}
 			w.Ops = append(w.Ops, wo)
 		}
 		inst.Witnesses = append(inst.Witnesses, w)
 	}
-	return true
+	return ""
 }
 
 // receiverTypeArgs is a 196m function's instance bound by its receiver.

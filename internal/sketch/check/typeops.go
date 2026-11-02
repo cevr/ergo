@@ -299,7 +299,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			if _, fn := c.methodOf(v, m.Name); fn != nil {
 				table[m.Name] = fn
 				if len(fn.Sig.TParams) > 0 {
-					instances[m.Name] = c.instanceOf(fn, receiverTypeArgs(v, fn), fn.Decl)
+					inst, why := c.witnessInstance(fn, receiverTypeArgs(v, fn))
+					if why != "" {
+						return assignment{}, why
+					}
+					instances[m.Name] = inst
 				}
 			}
 		}
