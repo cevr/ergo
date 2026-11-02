@@ -26,7 +26,7 @@ var implementedFamilies = []string{
 	"Ident", "BasicLit", "CompositeLit", "KeyValueExpr", "FuncLit", "ParenExpr", "SelectorExpr", "IndexExpr", "SliceExpr",
 	"CallExpr", "UnaryExpr", "BinaryExpr", "StarExpr", "TryExpr", "CatchExpr", "CatchArm", "AsPattern", "ArrayType", "MapType",
 	"DeclStmt", "ExprStmt", "AssignStmt", "ReturnStmt", "BlockStmt", "IfStmt", "ForStmt", "BranchStmt",
-	"TypeSwitchStmt", "SwitchStmt", "CaseClause", "TypeGuard", "InterpolatedString",
+	"TypeSwitchStmt", "SwitchStmt", "CaseClause", "TypeGuard", "InterpolatedString", "RangeStmt", "WireLit",
 	"call:Func", "call:Op", "call:ProviderOp", "call:FuncValue", "call:Conversion", "call:Len", "call:With",
 	"pattern:Wildcard", "pattern:TypeTest", "pattern:Const", "pattern:As", "pattern:Bind", "pattern:Record", "pattern:Tuple", "TupleExpr",
 	"conv:Variant", "conv:Operations", "conv:Row",
@@ -38,35 +38,18 @@ var implementedFamilies = []string{
 // with the owner the refusal names. A source that holds one is refused at
 // it, never lowered partly.
 var refusedFamilies = map[string]string{
-	"RangeStmt":        "check-v1 stage D",
-	"call:Prelude":     "check-v1 stage D",
-	"WireLit":          "check-v1 stage E",
-	"TestDecl":         "check-v1 stage E",
-	"AssertStmt":       "check-v1 stage E",
-	"LawDecl":          "check-v1 stage E",
-	"MachineType":      "lower-v1 stage 4",
-	"MachineEntry":     "lower-v1 stage 4",
-	"ProvidesClause":   "#196 stage b",
-	"basic:uintptr":    "unused by v1",
-	"basic:complex64":  "unused by v1",
-	"basic:complex128": "unused by v1",
+	"MachineEntry": "lower-v1 stage 4", // entries are refused with their enclosing MachineType
+	"MachineType":  "lower-v1 stage 4",
 	// Narrower families: a form of an implemented node that waits.
 	"ExternSpec:user":             "check-v1 stage E",
 	"call:Func:externTarget":      "lower-v1",
 	"NoValue:generic":             "check-v1 stage E",
 	"Task:nested":                 "check-v1 stage E",
 	"InterpolatedString:nonbasic": "check-v1 stage E",
-	"std:unlowered":               "check-v1 stage E",
 	"call:With:imported":          "check-v1 stage B",
 	"call:With:context":           "check-v1 stage E",
-	"FuncValue:instantiation":     "lower-v1 request",
 	"FuncValue:std":               "check-v1 stage E",
-	"IndexExpr:Map":               "check-v1 stage D",
-	"FuncType:tuple":              "check-v1 stage B",
-	"ReturnStmt:tuple":            "check-v1 stage B",
-	"CaseClause:duplicate":        "check-v1 stage B",
 	"TypeDecl:errorText":          "lower-v1 stage 3",
-	"call:Func:genericDot":        "check-v1 stage D",
 	// Stage 3b of #199: the release forms an owning with cannot call by a
 	// Go name, and an owning with outside a function body.
 	"call:With:release": "check-v1 stage E",
@@ -82,13 +65,8 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"RangeStmt", regexp.MustCompile(`^for … in is lowered after check-v1 stage D`)},
 	{"InterpolatedString:nonbasic", regexp.MustCompile(`^an interpolated value of type .+ is lowered after check-v1 stage E`)},
-	{"WireLit", regexp.MustCompile(`^an inline wire value is lowered after check-v1 stage E`)},
-	{"TestDecl", regexp.MustCompile(`^test blocks run under ergo test, which lowering adds after check-v1 stage E`)},
-	{"AssertStmt", regexp.MustCompile(`^assert runs under ergo test, which lowering adds after check-v1 stage E`)},
 	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
-	{"ProvidesClause", regexp.MustCompile(`^a wire header is checked by #196 stage b`)},
 	{"ExternSpec:user", regexp.MustCompile(`^a user extern go binding \(here of \S+\) is lowered after check-v1 stage E`)},
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
 	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
@@ -96,15 +74,9 @@ var refusalReasons = []struct {
 	// lowers a Task returned as itself), and the std forms with no
 	// runtime/v1 body.
 	{"Task:nested", regexp.MustCompile(`^(a call whose result holds a Task|the function \S+ used as a value returns a Task|an operation provided by \S+, whose result holds a Task|a function whose result holds a Task inside another type|a method value of an operation that returns a Task) .*check-v1 stage E`)},
-	{"std:unlowered", regexp.MustCompile(`^(a value of the program converted to the std type \S+|a call that needs a frame scope .+ outside a function body|the std type \S+ is) lowered after check-v1 stage E`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported wire is lowered after check-v1 stage B`)},
 	{"call:With:context", regexp.MustCompile(`^(a with of a context value outside a function body|a context value whose \S+ is (generic|an extern function)) is lowered after check-v1 stage E$`)},
-	{"FuncValue:instantiation", regexp.MustCompile(`^the generic function \S+ used as a value has a type parameter \S+ that no parameter names; its instantiation needs a check-v1 Info fact \(lower-v1 request\)`)},
 	{"FuncValue:std", regexp.MustCompile(`^the std function \S+ used as a value (takes its call's hidden \S+|takes a function|returns a Seq), which is lowered after check-v1 stage E$`)},
-	{"IndexExpr:Map", regexp.MustCompile(`^(a Map index|assignment to a Map entry) is lowered after check-v1 stage D`)},
-	{"FuncType:tuple", regexp.MustCompile(`^(several results are|a function type with several results is|an operation with several results is|a literal with several results is|a method value with several results is) a tuple, (which lowering supports|lowered) after check-v1 stage B`)},
-	{"ReturnStmt:tuple", regexp.MustCompile(`^returning several values is a tuple, lowered after check-v1 stage B`)},
-	{"CaseClause:duplicate", regexp.MustCompile(`check-v1 stage B reports such an arm as unreachable \(D-B4\)$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
 	{"call:With:release", regexp.MustCompile(`^a provider whose Close (is an operation of its type|is generic|is a std or extern function|takes a pointer to its value) is released after check-v1 stage E$`)},
 	{"call:With:owned", regexp.MustCompile(`^a with that owns a provider with a Close outside a function body is lowered after check-v1 stage E$`)},
