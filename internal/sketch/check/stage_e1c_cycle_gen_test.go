@@ -3,7 +3,6 @@ package check_test
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -27,9 +26,12 @@ type e1cDecl struct {
 	fields []e1cType
 }
 
+// field is the index of the field (or defined base) of the source node's
+// declaration that generates the edge; each field generates at most one.
 type e1cEdge struct {
 	to              int
 	value, argument bool
+	field           int
 }
 
 type e1cGroup struct {
@@ -172,20 +174,24 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 				}
 			}
 		}
-		var hold func(e1cType, bool, bool)
-		hold = func(t e1cType, value, argument bool) {
+		var hold func(e1cType, bool, bool, int)
+		hold = func(t e1cType, value, argument bool, field int) {
 			switch t.kind {
 			case 'n':
 				to := intern(t)
-				edges[n] = append(edges[n], e1cEdge{to, value, argument})
+				edges[n] = append(edges[n], e1cEdge{to, value, argument, field})
 			case 'q':
-				hold(t.args[0], true, argument)
+				hold(t.args[0], true, argument, field)
 			}
 		}
-		for _, f := range decl.fields {
+		for i, f := range decl.fields {
 			typ := e1cSub(f, x.args)
 			discover(typ) // breakers still instantiate their element types
-			hold(typ, decl.form != 'd', f.kind == 'p')
+			// An edge is an argument edge when the written position is a
+			// bare parameter, also as a tuple element: its author is
+			// whoever wrote the argument, not this declaration.
+			argument := f.kind == 'p' || f.kind == 'q' && f.args[0].kind == 'p'
+			hold(typ, decl.form != 'd', argument, i)
 		}
 	}
 	if expanding {
@@ -225,10 +231,24 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 		}
 		groups = append(groups, g)
 	}
+	// R2' step 3: a field of an intrinsic declaration is intrinsic when its
+	// edge at the identity instance stays in the declaration's home. Its
+	// edges go at every instantiation; every other edge stays.
+	intrinsicField := map[[2]int]bool{}
+	for d, c := range home {
+		if c < 0 {
+			continue
+		}
+		for _, e := range edges[identity[d]] {
+			if slices.Contains(cycles[c], e.to) {
+				intrinsicField[[2]int{d, e.field}] = true
+			}
+		}
+	}
 	pruned := make([][]e1cEdge, len(edges))
 	for n, next := range edges {
 		for _, e := range next {
-			if e.argument || home[nodes[n].d] < 0 {
+			if !intrinsicField[[2]int{nodes[n].d, e.field}] {
 				pruned[n] = append(pruned[n], e)
 			}
 		}
@@ -247,7 +267,7 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 			}
 		}
 		// Merge orphan components by common authors, including transitive
-		// overlaps. Intrinsic authors have already been removed.
+		// overlaps. An intrinsic declaration may author an orphan too.
 		for i := 0; i < len(orphans); {
 			o := orphans[i]
 			shared := false
@@ -271,7 +291,17 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 			orphans = append(orphans, g)
 		}
 	}
-	groups = append(groups, orphans...)
+	// An orphan group with the same members and kind as an intrinsic group
+	// (D0[T]{F0 D0[T], F1 D0[int]}) is the same diagnostic: one report.
+	for _, o := range orphans {
+		duplicate := false
+		for _, g := range groups {
+			duplicate = duplicate || g.value == o.value && e1cSameMembers(g.members, o.members)
+		}
+		if !duplicate {
+			groups = append(groups, o)
+		}
+	}
 	// P3's model-side partition check: every original infinite component
 	// contains a reported origin, or can be reached from its instances.
 	for _, cyc := range cycles {
@@ -301,6 +331,13 @@ func e1cOracle(ds []e1cDecl) (groups []e1cGroup, finite bool) {
 		}
 	}
 	return groups, true
+}
+
+func e1cSameMembers(a, b []int) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 func e1cSource(ds []e1cDecl, order []int, repaired int, uses bool) string {
@@ -341,7 +378,12 @@ func e1cSource(ds []e1cDecl, order []int, repaired int, uses bool) string {
 				x.args = append(x.args, e1cType{kind: 'i'})
 			}
 			name := x.text()
-			lines = append(lines, fmt.Sprintf("func Use%d(x %s) %s { x }", d, name, name))
+			methodParams, receiver := "", name
+			if decl.params > 0 {
+				methodParams = "[" + strings.Join([]string{"T", "U"}[:decl.params], ", ") + "]"
+				receiver = fmt.Sprintf("D%d%s", d, methodParams)
+			}
+			lines = append(lines, fmt.Sprintf("func Use%d%s(x %s) %s { x }", d, methodParams, receiver, receiver))
 			if decl.form == 'r' {
 				var fs []string
 				for i := range decl.fields {
@@ -526,79 +568,89 @@ func e1cChoices(arities []int, d int) []e1cDecl {
 }
 
 func TestE1cCycleGenerator(t *testing.T) {
-	// The generator lands before the checker change. E1C_RED records its
-	// failing baseline; the next commit removes this temporary opt-in.
-	if os.Getenv("E1C_RED") == "" {
-		t.Skip("R2 checker comparison enabled in the next commit")
-	}
 	start := time.Now()
-	programs, filtered, calls := 0, 0, 0
-	run := func(ds []e1cDecl) {
-		groups, finite := e1cOracle(ds)
-		if !finite {
-			filtered++
-			return
+	type counts struct{ programs, filtered, calls, domain int }
+	const workers = 8
+	var results [workers]counts
+	t.Run("domain", func(t *testing.T) {
+		for worker := range workers {
+			t.Run(fmt.Sprint(worker), func(t *testing.T) {
+				t.Parallel()
+				programs, filtered, calls, ordinal := 0, 0, 0, 0
+				run := func(ds []e1cDecl) {
+					ordinal++
+					if (ordinal-1)%workers != worker {
+						return
+					}
+					groups, finite := e1cOracle(ds)
+					if !finite {
+						filtered++
+						return
+					}
+					programs++
+					calls += e1cProperties(t, ds, groups)
+				}
+				for n := 1; n <= 2; n++ {
+					arities := make([]int, n)
+					var eachArity func(int)
+					eachArity = func(d int) {
+						if d < n {
+							for arities[d] = 0; arities[d] <= 2; arities[d]++ {
+								eachArity(d + 1)
+							}
+							return
+						}
+						choices := make([][]e1cDecl, n)
+						for i := range choices {
+							choices[i] = e1cChoices(arities, i)
+						}
+						ds := make([]e1cDecl, n)
+						var eachDecl func(int)
+						eachDecl = func(i int) {
+							if i == n {
+								run(ds)
+								return
+							}
+							for _, decl := range choices[i] {
+								ds[i] = decl
+								eachDecl(i + 1)
+							}
+						}
+						eachDecl(0)
+					}
+					eachArity(0)
+				}
+				rng := rand.New(rand.NewSource(196_2))
+				sample := 20_000
+				if testing.Short() {
+					sample = 2_000
+				}
+				for n := 3; n <= 4; n++ {
+					for i := 0; i < sample; i++ {
+						arities := make([]int, n)
+						for d := range arities {
+							arities[d] = rng.Intn(3)
+						}
+						ds := make([]e1cDecl, n)
+						for d := range ds {
+							choices := e1cChoices(arities, d)
+							ds[d] = choices[rng.Intn(len(choices))]
+						}
+						run(ds)
+					}
+				}
+				results[worker] = counts{programs, filtered, calls, ordinal}
+			})
 		}
-		programs++
-		calls += e1cProperties(t, ds, groups)
+	})
+	var total counts
+	for _, r := range results {
+		total.programs += r.programs
+		total.filtered += r.filtered
+		total.calls += r.calls
+		total.domain = r.domain
 	}
-	for n := 1; n <= 2; n++ {
-		arities := make([]int, n)
-		var eachArity func(int)
-		eachArity = func(d int) {
-			if d < n {
-				for arities[d] = 0; arities[d] <= 2; arities[d]++ {
-					eachArity(d + 1)
-				}
-				return
-			}
-			choices := make([][]e1cDecl, n)
-			for i := range choices {
-				choices[i] = e1cChoices(arities, i)
-			}
-			ds := make([]e1cDecl, n)
-			var eachDecl func(int)
-			eachDecl = func(i int) {
-				if i == n {
-					run(ds)
-					return
-				}
-				for _, decl := range choices[i] {
-					ds[i] = decl
-					eachDecl(i + 1)
-				}
-			}
-			t.Logf("exhaustive n=%d arities=%v choices=%v", n, arities, func() []int {
-				var ns []int
-				for _, c := range choices {
-					ns = append(ns, len(c))
-				}
-				return ns
-			}())
-			eachDecl(0)
-		}
-		eachArity(0)
-	}
-	rng := rand.New(rand.NewSource(196_2))
-	sample := 20_000
-	if testing.Short() {
-		sample = 2_000
-	}
-	for n := 3; n <= 4; n++ {
-		for i := 0; i < sample; i++ {
-			arities := make([]int, n)
-			for d := range arities {
-				arities[d] = rng.Intn(3)
-			}
-			ds := make([]e1cDecl, n)
-			for d := range ds {
-				choices := e1cChoices(arities, d)
-				ds[d] = choices[rng.Intn(len(choices))]
-			}
-			run(ds)
-		}
-	}
-	t.Logf("P1-P7: programs=%d expanding-filtered=%d CheckSource-calls=%d elapsed=%s sample-per-size=%d", programs, filtered, calls, time.Since(start), sample)
+	t.Logf("P1-P7: domain=%d programs=%d expanding-filtered=%d CheckSource-calls=%d elapsed=%s", total.domain, total.programs, total.filtered, total.calls, time.Since(start))
 }
 
 func TestE1cCycleOracle(t *testing.T) {
@@ -617,6 +669,97 @@ func TestE1cCycleOracle(t *testing.T) {
 			groups, finite := e1cOracle(tc.ds)
 			if !finite || (tc.want == "" && len(groups) != 0) || (tc.want != "" && (len(groups) != 1 || e1cMessage([]string{"D0"}, groups[0].value) != tc.want)) {
 				t.Fatalf("independent R2 calibration: %v, finite=%v; want %q", groups, finite, tc.want)
+			}
+		})
+	}
+}
+
+func TestE1cCycleRuleExamples(t *testing.T) {
+	p := e1cType{kind: 'p'}
+	u := e1cType{kind: 'p', p: 1}
+	integer := e1cType{kind: 'i'}
+	n := func(d int, args ...e1cType) e1cType { return e1cType{kind: 'n', d: d, args: args} }
+	o := func(x e1cType) e1cType { return e1cType{kind: 'o', args: []e1cType{x}} }
+	s := func(x e1cType) e1cType { return e1cType{kind: 's', args: []e1cType{x}} }
+	r := func(params int, fs ...e1cType) e1cDecl { return e1cDecl{params, 'r', fs} }
+	for _, tc := range []struct {
+		name    string
+		ds      []e1cDecl
+		members []string
+	}{
+		{"q30", []e1cDecl{r(0, n(0)), r(1, p, n(0)), r(1, n(1, n(2, p)))}, []string{"D0", "D2"}},
+		{"q31", []e1cDecl{r(1, p, n(0, p)), r(1, n(0, n(1, p)))}, []string{"D0", "D1"}},
+		{"zrec-int-cascade", []e1cDecl{r(1, p, n(1, integer)), r(1, n(0, n(1, p)))}, []string{"D1"}},
+		{"mutual-generic", []e1cDecl{r(1, n(1, p)), r(1, n(0, p))}, []string{"D0,D1"}},
+		{"concrete-self-instance", []e1cDecl{r(1, p), r(1, n(0, n(1, integer)))}, []string{"D1"}},
+		{"concrete-self-direct", []e1cDecl{r(1, p, n(0, integer))}, []string{"D0"}},
+		{"tuple-self", []e1cDecl{{form: 'q', fields: []e1cType{{kind: 'q', args: []e1cType{n(0)}}}}}, []string{"D0"}},
+		// The R2/P5 counterexample (E1c round 1): D2[int]'s closing edge is
+		// not intrinsic, so the orphan {D1[int], D2[int]} is reported
+		// beside the intrinsic group, and repairing D0 reveals nothing.
+		{"r2-p5-three", []e1cDecl{r(1, n(2, p)), r(1, n(2, integer)), r(1, n(0, p), n(1, integer))}, []string{"D0,D2", "D1,D2"}},
+		// The generator's original find (seed 196_2, four declarations).
+		{"r2-p5-four", []e1cDecl{
+			r(0, n(2, n(0)), o(integer)),
+			r(2, n(3, p, u), s(n(3, p, u))),
+			r(1, n(3, integer, integer), o(n(1, integer, integer))),
+			r(2, n(1, p, u), n(2, integer)),
+		}, []string{"D1,D3", "D2,D3"}},
+		// One declaration in an intrinsic group and in an orphan group with
+		// the same members and kind: one diagnostic.
+		{"intrinsic-and-orphan-self", []e1cDecl{r(1, n(0, p), n(0, integer))}, []string{"D0"}},
+		// The same declaration in both kinds of group, with different
+		// members: two diagnostics.
+		{"intrinsic-and-orphan-distinct", []e1cDecl{r(1, n(0, p), n(1, integer)), r(1, n(0, integer))}, []string{"D0", "D0,D1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			groups, finite := e1cOracle(tc.ds)
+			var want, got []string
+			for _, members := range tc.members {
+				want = append(want, e1cMessage(strings.Split(members, ","), true))
+			}
+			for _, g := range groups {
+				var names []string
+				for _, d := range g.members {
+					names = append(names, fmt.Sprintf("D%d", d))
+				}
+				got = append(got, e1cMessage(names, g.value))
+			}
+			slices.Sort(want)
+			slices.Sort(got)
+			if !finite || !slices.Equal(want, got) {
+				t.Fatalf("R2 case table: want %v, oracle %v, finite=%v", want, got, finite)
+			}
+			e1cProperties(t, tc.ds, groups)
+		})
+	}
+}
+
+// P5 by hand, with the exact outputs on both sides of each repair: q31 (Zz
+// was hidden behind Aa in E1 round 3) and the R2/P5 counterexample, whose
+// orphan {D1, D2} R2 hid behind the intrinsic group {D0, D2}.
+func TestE1cCycleMonotoneRepair(t *testing.T) {
+	value := func(names ...string) string { return e1cMessage(names, true) }
+	for _, tc := range []struct {
+		name, before, from, to string
+		want, after            []string
+	}{
+		{"q31", "type Aa[T] { V T, N Aa[T] }\ntype Zz[T] { V Aa[Zz[T]] }\n", "N Aa[T]", "N Option[Aa[T]]",
+			[]string{value("Aa"), value("Zz")}, []string{value("Zz")}},
+		{"r2-p5-three", "type D0[T] { F0 D2[T] }\ntype D1[T] { F0 D2[int] }\ntype D2[T] { F0 D0[T], F1 D1[int] }\n", "F0 D2[T]", "F0 Option[D2[T]]",
+			[]string{value("D0", "D2"), value("D1", "D2")}, []string{value("D1", "D2")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e1cObserve(t, tc.before)
+			after := strings.Replace(tc.before, tc.from, tc.to, 1)
+			out := e1cObserve(t, after)
+			if !slices.Equal(got, tc.want) || !slices.Equal(out, tc.after) {
+				t.Fatalf("before %v, want %v; after repair %v, want %v\n%s", got, tc.want, out, tc.after, tc.before)
+			}
+			for _, name := range e1cMembers(out) {
+				if !slices.Contains(e1cMembers(got), name) {
+					t.Fatalf("P5 repair reveals %s; before %v\n%s", name, got, tc.before)
+				}
 			}
 		})
 	}
