@@ -177,6 +177,48 @@ type Info struct {
 	// in a frame whose footprint is not Empty (runtime.md, I1) and never
 	// derives a footprint again. Added for #199 stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
+	// Instances is every instantiation of a generic function (D-E1; stage
+	// B round 2 m6): a call of one, keyed by the *syntax.CallExpr, whether
+	// its type arguments are written, inferred or bound by a dot call's
+	// receiver; and an instantiation used as a value, Max[int], keyed by
+	// the *syntax.IndexExpr. Added in check-v1 stage E1 (additive).
+	Instances map[syntax.Expr]*Instance
+}
+
+// Instance is one instantiation of a generic function.
+type Instance struct {
+	// Func is the generic function.
+	Func *Func
+	// TypeArgs are its type arguments, one for each of Func's type
+	// parameters in their order: a type, or a *RowArg for a row parameter.
+	TypeArgs []Type
+	// Witnesses are, for each type parameter whose constraint is an
+	// operation type (a method set, 196m), in parameter order, the
+	// operations its type argument supplies. The lowering passes each as
+	// one extra leading value (a struct of function fields), not as Go
+	// methods (stage E1 orchestrator answer 2).
+	Witnesses []Witness
+}
+
+// Witness is the operations a type argument supplies for one type
+// parameter whose constraint is an operation type.
+type Witness struct {
+	// Param is the generic function's constrained type parameter; Arg is
+	// its type argument.
+	Param *TypeParam
+	Arg   Type
+	// Ops are the constraint's operations in its declared order.
+	Ops []WitnessOp
+}
+
+// WitnessOp is one operation of a witness.
+type WitnessOp struct {
+	Name string
+	// Func is the package function (196m) that implements the operation
+	// for Arg. It is nil when Arg is itself a type parameter of the
+	// enclosing function, whose own witness supplies the operation by
+	// Name, or an operation type, whose value carries it.
+	Func *Func
 }
 
 // Initializer is one package-level initializer: Vars are the names it
@@ -205,7 +247,35 @@ func newInfo() *Info {
 		Withs:         map[*syntax.CallExpr]*With{},
 		TaskResults:   map[*Func]bool{},
 		Footprints:    map[syntax.Node]Footprint{},
+		Instances:     map[syntax.Expr]*Instance{},
 	}
+}
+
+// recordInstance records the instantiation of the generic function fn at
+// x with targs, one for each of fn's type parameters, and the witness of
+// each parameter an operation type constrains.
+func (c *checker) recordInstance(x syntax.Expr, fn *Func, targs []Type) {
+	if c.silent > 0 || fn == nil || fn.Sig == nil || len(fn.Sig.TParams) == 0 || len(targs) != len(fn.Sig.TParams) {
+		return
+	}
+	inst := &Instance{Func: fn, TypeArgs: targs}
+	m := paramMap(fn.Sig.TParams, targs)
+	for i, tp := range fn.Sig.TParams {
+		if tp.Kind != KindType || tp.Constraint == nil {
+			continue
+		}
+		it := asInterface(c.subst(tp.Constraint, m))
+		if it == nil || len(it.Methods) == 0 {
+			continue
+		}
+		w := Witness{Param: tp, Arg: targs[i]}
+		for _, op := range it.Methods {
+			_, f := c.methodOf(targs[i], op.Name)
+			w.Ops = append(w.Ops, WitnessOp{Name: op.Name, Func: f})
+		}
+		inst.Witnesses = append(inst.Witnesses, w)
+	}
+	c.pkg.Info.Instances[x] = inst
 }
 
 // CallKind is what a call calls.
