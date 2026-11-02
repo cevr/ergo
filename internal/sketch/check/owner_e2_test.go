@@ -47,7 +47,33 @@ import (
 // TestErrorInSpan holds errorIn's whole-span bound with direct controls
 // and the tail and catch programs whose spans end at a brace.
 
-const provenanceSyntax = "ergo.local/prototype/internal/sketch/syntax"
+const (
+	provenanceSyntax = "ergo.local/prototype/internal/sketch/syntax"
+	provenanceSketch = "ergo.local/prototype/internal/sketch/"
+)
+
+// checkerImports is the checker's import allow-list (E2b round 3 review
+// M2). The inventory sees only package check's own source, so a node built
+// in another package, or filled in by a reflective decoder, never meets a
+// scanned construction. The guard closes the package's boundary instead:
+// each listed package was reviewed as unable to build a value of a caller's
+// syntax node type, and any other import fails the guard until it is
+// reviewed and listed here. reflect and unsafe are never listed.
+var checkerImports = map[string]bool{
+	"cmp": true, "container/heap": true, "encoding/binary": true, "fmt": true,
+	"go/constant": true, "go/token": true, "maps": true, "math": true,
+	"math/bits": true, "path": true, "regexp": true, "runtime": true,
+	"slices": true, "sort": true, "strconv": true, "strings": true,
+	"sync": true, "unicode": true, "unicode/utf8": true,
+	provenanceSketch + "std": true, provenanceSyntax: true,
+}
+
+// syntaxNodeCallees lists the syntax package's functions, methods and
+// function-valued variables whose results hold a node type that the checker
+// may use: the parser entry point. The syntax package itself is outside the
+// inventory, so any other node-returning callee fails the guard; a syntax
+// function that builds a node for the checker must go through made or clone.
+var syntaxNodeCallees = map[string]bool{"Parse": true}
 
 // constructionSite is one place the checker makes a syntax node: the
 // function and the node's type.
@@ -117,12 +143,32 @@ var (
 	provenanceMu       sync.Mutex
 )
 
+// fixtureImporter serves the controls' packages outside check from source
+// text, and every other import from the source importer, so a fixture and
+// the checker share one syntax package.
+type fixtureImporter map[string][]*ast.File
+
+func (fx fixtureImporter) Import(path string) (*types.Package, error) {
+	if files, ok := fx[path]; ok {
+		conf := types.Config{Importer: provenanceImporter}
+		return conf.Check(path, provenanceFset, files, nil)
+	}
+	return provenanceImporter.Import(path)
+}
+
 // scanSynthesis checks the non-test checker source by method set, not by
 // package or spelling. Only made and clone may construct/copy nodes. A
 // literal passed straight to made is registered there; generic operations
-// cannot hide copies behind a type parameter. Checker-local node types and
-// reflection are forbidden even when no program reaches their declarations.
+// cannot hide copies behind a type parameter. Checker-local node types,
+// reflect, unsafe and imports off checkerImports are forbidden even when no
+// program reaches them. extra adds files to package check, or replaces the
+// file of the same name; a name with a directory is a file of package
+// provenanceSketch+dir, which the checker's source may import.
 func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
+	return scanSynthesisWith(t, extra, syntaxNodeCallees)
+}
+
+func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[string]bool) synthesisScan {
 	t.Helper()
 	provenanceMu.Lock()
 	defer provenanceMu.Unlock()
@@ -132,7 +178,7 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 	}
 	var files []*ast.File
 	for _, p := range paths {
-		if strings.HasSuffix(p, "_test.go") {
+		if _, replaced := extra[p]; replaced || strings.HasSuffix(p, "_test.go") {
 			continue
 		}
 		src, err := os.ReadFile(p)
@@ -150,10 +196,15 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	fixtures := fixtureImporter{}
 	for _, name := range names {
 		f, err := parser.ParseFile(provenanceFset, name, extra[name], 0)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if dir := filepath.Dir(name); dir != "." {
+			fixtures[provenanceSketch+dir] = append(fixtures[provenanceSketch+dir], f)
+			continue
 		}
 		files = append(files, f)
 	}
@@ -163,7 +214,7 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 		Uses:      map[*ast.Ident]types.Object{},
 		Instances: map[*ast.Ident]types.Instance{},
 	}
-	conf := types.Config{Importer: provenanceImporter}
+	conf := types.Config{Importer: fixtures}
 	pkg, err := conf.Check("check", provenanceFset, files, info)
 	if err != nil {
 		t.Fatalf("type-check the checker: %v", err)
@@ -199,6 +250,59 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 		_, ok := typ.(*types.TypeParam)
 		return ok
 	}
+	// isNodeValue reports a node struct type itself: a value of it is a node
+	// of its own, where a pointer or an interface only refers to one.
+	isNodeValue := func(typ types.Type) (string, bool) {
+		kind, ok := isNode(typ)
+		if !ok {
+			return "", false
+		}
+		switch typ.Underlying().(type) {
+		case *types.Pointer, *types.Interface:
+			return "", false
+		}
+		return kind, true
+	}
+	// containsNode reports whether a value of typ can hold or yield a node.
+	var containsNode func(typ types.Type, seen map[types.Type]bool) bool
+	containsNode = func(typ types.Type, seen map[types.Type]bool) bool {
+		if typ == nil || seen[typ] {
+			return false
+		}
+		seen[typ] = true
+		if tuple, ok := typ.(*types.Tuple); ok {
+			for i := range tuple.Len() {
+				if containsNode(tuple.At(i).Type(), seen) {
+					return true
+				}
+			}
+			return false
+		}
+		if _, ok := isNode(typ); ok {
+			return true
+		}
+		switch u := typ.Underlying().(type) {
+		case *types.Pointer:
+			return containsNode(u.Elem(), seen)
+		case *types.Slice:
+			return containsNode(u.Elem(), seen)
+		case *types.Array:
+			return containsNode(u.Elem(), seen)
+		case *types.Chan:
+			return containsNode(u.Elem(), seen)
+		case *types.Map:
+			return containsNode(u.Key(), seen) || containsNode(u.Elem(), seen)
+		case *types.Struct:
+			for i := range u.NumFields() {
+				if containsNode(u.Field(i).Type(), seen) {
+					return true
+				}
+			}
+		case *types.Signature:
+			return containsNode(u.Results(), seen)
+		}
+		return false
+	}
 	madeFn := pkg.Scope().Lookup("made")
 	cloneFn := pkg.Scope().Lookup("clone")
 	callee := func(call *ast.CallExpr) (types.Object, *ast.Ident) {
@@ -218,9 +322,13 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 	scan := synthesisScan{sites: map[constructionSite]int{}}
 	for _, f := range files {
 		for _, imp := range f.Imports {
-			if path, _ := strconv.Unquote(imp.Path.Value); path == "reflect" {
-				at := provenanceFset.Position(imp.Pos())
-				scan.violations = append(scan.violations, fmt.Sprintf("%s:%d: reflect import permits unrecorded construction", filepath.Base(at.Filename), at.Line))
+			path, _ := strconv.Unquote(imp.Path.Value)
+			at := provenanceFset.Position(imp.Pos())
+			switch {
+			case path == "reflect" || path == "unsafe":
+				scan.violations = append(scan.violations, fmt.Sprintf("%s:%d: %s import permits unrecorded construction", filepath.Base(at.Filename), at.Line, path))
+			case !checkerImports[path]:
+				scan.violations = append(scan.violations, fmt.Sprintf("%s:%d: import %q is not in checkerImports, the reviewed import allow-list", filepath.Base(at.Filename), at.Line, path))
 			}
 		}
 		for _, decl := range f.Decls {
@@ -252,15 +360,47 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 								scan.violations = append(scan.violations, where+": local node type "+obj.Name()+" is outside the parser's trees")
 							}
 						}
+					} else if ok {
+						// An alias of a named node type only renames a syntax
+						// type; an alias of an unnamed one declares a node type.
+						target := types.Unalias(obj.Type())
+						if p, ok := target.(*types.Pointer); ok {
+							target = types.Unalias(p.Elem())
+						}
+						if _, named := target.(*types.Named); !named {
+							if kind, ok := isNode(target); ok {
+								scan.violations = append(scan.violations, where+": alias "+obj.Name()+" declares the unnamed node type "+kind)
+							}
+						}
+					}
+				}
+				// A function, method or function value of the syntax package
+				// that yields a node is the parser's or a listed reader;
+				// a reference, not only a call, can hand its node over.
+				if id, ok := n.(*ast.Ident); ok {
+					if obj := info.Uses[id]; obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == provenanceSyntax {
+						_, isFunc := obj.(*types.Func)
+						_, isVar := obj.(*types.Var)
+						if sig, ok := obj.Type().Underlying().(*types.Signature); ok && (isFunc || isVar) && containsNode(sig.Results(), map[types.Type]bool{}) {
+							name := obj.Name()
+							if fn, ok := obj.(*types.Func); ok {
+								name = strings.ReplaceAll(fn.FullName(), provenanceSyntax+".", "")
+							}
+							if !nodeCallees[name] {
+								scan.violations = append(scan.violations, where+": syntax callee "+name+" yields a node and is not in syntaxNodeCallees")
+							}
+						}
 					}
 				}
 				if trusted {
 					return true
 				}
 				if id, ok := n.(*ast.Ident); ok {
+					// A type argument that is a node struct copies or makes nodes
+					// in the generic body; a pointer or an interface only refers.
 					if inst, ok := info.Instances[id]; ok && info.Uses[id] != madeFn && info.Uses[id] != cloneFn {
 						for i := range inst.TypeArgs.Len() {
-							if kind, ok := isNode(inst.TypeArgs.At(i)); ok {
+							if kind, ok := isNodeValue(inst.TypeArgs.At(i)); ok {
 								scan.violations = append(scan.violations, where+": generic instantiation "+id.Name+" with node argument "+kind)
 								break
 							}
@@ -274,9 +414,15 @@ func scanSynthesis(t *testing.T, extra map[string]string) synthesisScan {
 							scan.violations = append(scan.violations, where+": new("+kind+") makes a node with no origin")
 						}
 					}
+					// A conversion to a node struct copies one; a conversion to a
+					// node pointer may retype memory no made call registered
+					// (type raw syntax.Ident; (*syntax.Ident)(&raw{})). A
+					// conversion to an interface only refers to its operand.
 					if info.Types[call.Fun].IsType() {
-						if kind, ok := isNode(info.TypeOf(call)); ok {
-							scan.violations = append(scan.violations, where+": conversion produces a "+kind+" node outside made and clone")
+						if _, ok := info.TypeOf(call).Underlying().(*types.Interface); !ok {
+							if kind, ok := isNode(info.TypeOf(call)); ok {
+								scan.violations = append(scan.violations, where+": conversion produces a "+kind+" node outside made and clone")
+							}
 						}
 					}
 					if obj != nil && obj == cloneFn {
@@ -374,7 +520,7 @@ func e2bControlNested(c *checker, vs *syntax.VariantSpec) syntax.Node {
 }
 
 func e2bControlValue(f syntax.Field) syntax.Node { return f.Type }
-`})
+`, "e2b_unsafe.go": `package check; import ("unsafe"; "ergo.local/prototype/internal/sketch/syntax"); func e2bControlUnsafe(s *syntax.VarSpec) syntax.Node { return unsafe.SliceData(append([]syntax.VarSpec(nil), unsafe.Slice(s, 1)...)) }`})
 	for _, fn := range []string{"e2bControlAlloc", "e2bControlCopy", "e2bControlNew", "e2bControlNested", "e2bControlValue"} {
 		hit := false
 		for _, v := range controls.violations {
@@ -384,42 +530,98 @@ func e2bControlValue(f syntax.Field) syntax.Node { return f.Type }
 			t.Errorf("control %s: the inventory does not see its construction", fn)
 		}
 	}
+	// The unsafe copy makes no literal, new, dereference or instantiation;
+	// only its import can be seen (E2b round 3 review M1).
+	unsafeHit := false
+	for _, v := range controls.violations {
+		unsafeHit = unsafeHit || strings.HasPrefix(v, "e2b_unsafe.go:1: unsafe import")
+	}
+	if !unsafeHit {
+		t.Errorf("control e2bControlUnsafe: the inventory does not see its unsafe import: %v", controls.violations)
+	}
 	if controls.sites[constructionSite{"e2bControlNested", "TypeDecl"}] != 1 {
 		t.Errorf("control e2bControlNested: its made TypeDecl is not a site: %v", controls.sites)
 	}
-	if extra := len(controls.violations) - len(scan.violations); extra < 6 {
-		t.Errorf("the controls add %d violations, want at least 6: %v", extra, controls.violations)
+	if extra := len(controls.violations) - len(scan.violations); extra < 7 {
+		t.Errorf("the controls add %d violations, want at least 7: %v", extra, controls.violations)
 	}
 }
 
 // Every escape has its own source-only control: no corpus program needs to
 // call it, and no other forbidden construction can account for its rejection.
 func TestSynthesisInventoryControls(t *testing.T) {
-	for _, ctl := range []struct{ name, src, want string }{
-		{"generic-copy", `package check; func dupNode[T any](p *T) *T { v := *p; return &v }`, "of a type parameter"},
-		{"generic-pointer-copy", `package check; func copyPointer[T any](p **T) *T { return *p }`, "of a type parameter"},
-		{"generic-literal", `package check; func literal[T ~struct{ X int }]() T { return T{} }`, "of a type parameter"},
-		{"generic-instance", `package check; func identity[T any](p T) T { return p }; var nodeIdentity = identity[*syntax.Ident]`, "generic instantiation"},
-		{"generic-value-instance", `package check; func identity[T any](p T) T { return p }; var nodeIdentity = identity[syntax.Ident]`, "generic instantiation"},
-		{"local-node", `package check; type spanAt struct{ p, e syntax.Pos }; func (s spanAt) Pos() syntax.Pos { return s.p }; func (s spanAt) End() syntax.Pos { return s.e }`, "local node type spanAt"},
-		{"local-pointer-node", `package check; type spanAt struct{ p, e syntax.Pos }; func (s *spanAt) Pos() syntax.Pos { return s.p }; func (s *spanAt) End() syntax.Pos { return s.e }`, "local node type spanAt"},
-		{"pointer-conversion", `package check; func converted(p *syntax.Ident) syntax.Node { return (*syntax.Ident)(p) }`, "conversion"},
-		{"unnamed-value-copy", `package check; func copied(p struct{ *syntax.Ident }) syntax.Node { return p }`, "outside made and clone"},
-		{"reflection", `package check; var _ = reflect.TypeOf`, "reflect import"},
+	const (
+		dupPkg   = `package e2bdup; import "ergo.local/prototype/internal/sketch/syntax"; func Dup(s *syntax.VarSpec) *syntax.VarSpec { return &syntax.VarSpec{Names: s.Names} }`
+		makerPkg = `package e2bmaker; import "ergo.local/prototype/internal/sketch/syntax"; type Maker interface{ Make(*syntax.VarSpec) *syntax.VarSpec }`
+	)
+	for _, ctl := range []struct {
+		name, src, want string
+		// fixtures are packages outside check; callees, when set, replaces
+		// syntaxNodeCallees.
+		fixtures map[string]string
+		callees  map[string]bool
+	}{
+		{name: "generic-copy", src: `package check; func dupNode[T any](p *T) *T { v := *p; return &v }`, want: "of a type parameter"},
+		{name: "generic-pointer-copy", src: `package check; func copyPointer[T any](p **T) *T { return *p }`, want: "of a type parameter"},
+		{name: "generic-literal", src: `package check; func literal[T ~struct{ X int }]() T { return T{} }`, want: "of a type parameter"},
+		{name: "generic-value-instance", src: `package check; func identity[T any](p T) T { return p }; var nodeIdentity = identity[syntax.Ident]`, want: "generic instantiation"},
+		{name: "local-node", src: `package check; type spanAt struct{ p, e syntax.Pos }; func (s spanAt) Pos() syntax.Pos { return s.p }; func (s spanAt) End() syntax.Pos { return s.e }`, want: "local node type spanAt"},
+		{name: "local-pointer-node", src: `package check; type spanAt struct{ p, e syntax.Pos }; func (s *spanAt) Pos() syntax.Pos { return s.p }; func (s *spanAt) End() syntax.Pos { return s.e }`, want: "local node type spanAt"},
+		{name: "pointer-conversion", src: `package check; func converted(p *syntax.Ident) syntax.Node { return (*syntax.Ident)(p) }`, want: "conversion"},
+		{name: "pointer-retype", src: `package check; type raw syntax.Ident; func retyped() syntax.Node { return (*syntax.Ident)(&raw{Name: "x"}) }`, want: "conversion produces a Ident"},
+		{name: "unnamed-value-copy", src: `package check; func copied(p struct{ *syntax.Ident }) syntax.Node { return p }`, want: "outside made and clone"},
+		{name: "unnamed-alias", src: `package check; type nodeAlias = struct{ *syntax.Ident }`, want: "alias nodeAlias declares the unnamed node type"},
+		{name: "reflection", src: `package check; import "reflect"; var _ = reflect.TypeOf`, want: "reflect import"},
+		// E2b round 3 review M1 and M2: unsafe, a module package's function,
+		// an interface method declared in another package, a reflective
+		// decoder, and a syntax callee off the list (here Parse, delisted).
+		{name: "unsafe", src: `package check; import "unsafe"; func copied(s *syntax.VarSpec) syntax.Node { return unsafe.SliceData(append([]syntax.VarSpec(nil), unsafe.Slice(s, 1)...)) }`, want: "unsafe import"},
+		{name: "module-package", src: `package check; import "ergo.local/prototype/internal/sketch/e2bdup"; func copied(s *syntax.VarSpec) syntax.Node { return e2bdup.Dup(s) }`, want: `import "ergo.local/prototype/internal/sketch/e2bdup" is not in checkerImports`, fixtures: map[string]string{"e2bdup/dup.go": dupPkg}},
+		{name: "foreign-interface-method", src: `package check; import "ergo.local/prototype/internal/sketch/e2bmaker"; func copied(m e2bmaker.Maker, s *syntax.VarSpec) syntax.Node { return m.Make(s) }`, want: `import "ergo.local/prototype/internal/sketch/e2bmaker" is not in checkerImports`, fixtures: map[string]string{"e2bmaker/maker.go": makerPkg}},
+		{name: "reflective-decoder", src: `package check; import "encoding/json"; func decoded() syntax.Node { var v *syntax.VarSpec; _ = json.Unmarshal([]byte("{}"), &v); return v }`, want: `import "encoding/json" is not in checkerImports`},
+		{name: "syntax-callee", src: `package check; func parsed() syntax.Node { parse := syntax.Parse; f, _ := parse(""); return f }`, want: "syntax callee Parse yields a node", callees: map[string]bool{}},
 	} {
 		t.Run(ctl.name, func(t *testing.T) {
-			imports := "import \"" + provenanceSyntax + "\"\nvar _ syntax.Node\n"
-			if ctl.name == "reflection" {
-				imports = "import \"reflect\"\n"
+			extra := map[string]string{"e2b_control.go": strings.Replace(ctl.src, "package check;", "package check; import \""+provenanceSyntax+"\";", 1) + "; var _ syntax.Node"}
+			for name, src := range ctl.fixtures {
+				extra[name] = src
 			}
-			src := strings.Replace(ctl.src, "package check;", "package check;"+imports, 1)
-			scan := scanSynthesis(t, map[string]string{"e2b_control.go": src})
+			callees := syntaxNodeCallees
+			if ctl.callees != nil {
+				callees = ctl.callees
+			}
+			scan := scanSynthesisWith(t, extra, callees)
 			for _, v := range scan.violations {
 				if strings.HasPrefix(v, "e2b_control.go:") && strings.Contains(v, ctl.want) {
 					return
 				}
 			}
 			t.Fatalf("inventory missed %s: want %q in %v", ctl.name, ctl.want, scan.violations)
+		})
+	}
+}
+
+// The inventory flags what makes or copies a node struct, not what only
+// refers to one (E2b round 3 review m1): pointer and interface type
+// arguments, conversions to an interface, an alias of a named node type,
+// and the syntax package's read-only helpers stay accepted.
+func TestSynthesisInventoryAccepts(t *testing.T) {
+	for _, ctl := range []struct{ name, src string }{
+		{"pointer-instance", `package check; func identity[T any](p T) T { return p }; var nodeIdentity = identity[*syntax.Ident]`},
+		{"interface-instance", `package check; import "slices"; func has(xs []syntax.Expr, x syntax.Expr) bool { return slices.Contains(xs, x) }`},
+		{"pointer-key-clone", `package check; import "maps"; func cloned(m map[*syntax.SelectorExpr]int) map[*syntax.SelectorExpr]int { return maps.Clone(m) }`},
+		{"interface-conversion", `package check; func widened(x *syntax.Ident) (syntax.Node, syntax.Expr) { return syntax.Node(x), syntax.Expr(x) }`},
+		{"named-alias", `package check; type ident = syntax.Ident; type identRef = *syntax.Ident`},
+		{"read-only-helpers", `package check; func walked(n syntax.Node) (k int) { syntax.Inspect(n, func(syntax.Node) bool { k++; return !syntax.IsNil(n) }); return k }`},
+	} {
+		t.Run(ctl.name, func(t *testing.T) {
+			src := strings.Replace(ctl.src, "package check;", "package check; import \""+provenanceSyntax+"\";", 1) + "; var _ syntax.Node"
+			scan := scanSynthesis(t, map[string]string{"e2b_control.go": src})
+			for _, v := range scan.violations {
+				if strings.HasPrefix(v, "e2b_control.go:") {
+					t.Errorf("inventory rejects %s, which makes or copies no node: %s", ctl.name, v)
+				}
+			}
 		})
 	}
 }
