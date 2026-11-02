@@ -80,7 +80,8 @@ var checkerImports = map[string]bool{
 // a node for the checker must go through made or clone. A listed callee is
 // pinned to its sites, not admitted at any (E2b round 4 review M2): each site
 // parses a whole file and checks it as a package, where a parse elsewhere
-// (a snippet the checker writes) makes nodes of no checked file.
+// (a snippet the checker writes) makes nodes of no checked file. A site only
+// calls the callee; a function value of it would carry the parser elsewhere.
 var syntaxNodeCallees = map[string][]string{
 	"Parse": {"CheckSource", "prelude", "(*stdImporter).Import"},
 }
@@ -420,8 +421,20 @@ func scanSynthesisWith(t *testing.T, extra map[string]string, nodeCallees map[st
 							if fn, ok := obj.(*types.Func); ok {
 								name = strings.ReplaceAll(fn.FullName(), provenanceSyntax+".", "")
 							}
+							// A listed site only calls the callee: a function value
+							// stored there would reach any other site.
+							var fun ast.Node = id
+							if sel, ok := parent(2).(*ast.SelectorExpr); ok && sel.Sel == id {
+								fun = sel
+							}
+							call, _ := parent(2).(*ast.CallExpr)
+							if fun != ast.Node(id) {
+								call, _ = parent(3).(*ast.CallExpr)
+							}
 							if sites, ok := nodeCallees[name]; !ok {
 								scan.violations = append(scan.violations, where+": syntax callee "+name+" yields a node and is not in syntaxNodeCallees")
+							} else if call == nil || ast.Node(call.Fun) != fun {
+								scan.violations = append(scan.violations, where+": syntax callee "+name+" is used as a value in "+site+"; its listed sites may only call it")
 							} else if !pinned(name, site, sites) {
 								scan.violations = append(scan.violations, where+": syntax callee "+name+" is referenced in "+site+", which syntaxNodeCallees does not list for it")
 							}
@@ -850,7 +863,8 @@ func TestSynthesisInventoryControls(t *testing.T) {
 		// E2b round 4 review M2: the parser and the caller-text entry are
 		// pinned to their sites; a pass or a package variable is none.
 		{name: "parse-in-pass", src: `package check; func (c *checker) passParsed() syntax.Node { f, _ := syntax.Parse("type T int\n"); return f.Decls[0] }`, want: "syntax callee Parse is referenced in (*checker).passParsed, which syntaxNodeCallees does not list"},
-		{name: "parse-package-value", src: `package check; var parseText = syntax.Parse`, want: "syntax callee Parse is referenced in package, which syntaxNodeCallees does not list"},
+		{name: "parse-package-value", src: `package check; var parseText = syntax.Parse`, want: "syntax callee Parse is used as a value in package"},
+		{name: "parse-value-at-site", src: `package check; var parseHook func(string) (*syntax.File, error); func leaked() { parseHook = syntax.Parse }`, want: "syntax callee Parse is used as a value in leaked", callees: map[string][]string{"Parse": {"leaked"}}},
 		{name: "check-source-in-pass", src: `package check; func (c *checker) reparsed() *Package { p, _ := CheckSource("type T int\n"); return p }`, want: "CheckSource parses caller text and is referenced in (*checker).reparsed, which sourceEntries does not list"},
 	} {
 		t.Run(ctl.name, func(t *testing.T) {
