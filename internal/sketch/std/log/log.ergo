@@ -20,7 +20,7 @@ func Annotate(key string, text string) annotation {
 	annotation{key: key, text: text}
 }
 
-func contextKey(a annotation) string { "log." + a.key }
+func contextKey(a annotation) string { a.key }
 
 func contextText(a annotation) string { a.text }
 
@@ -28,14 +28,15 @@ func contextText(a annotation) string { a.text }
 // the running task, or None. It reads the task's context, so it is
 // effectful even with an empty capability row.
 func Annotation(key string) Option[string] {
-	if contextBound("log." + key) {
-		Some[string]{Value: contextValue("log." + key)}
+	if contextBound(key) {
+		Some[string]{Value: contextValue(key)}
 	} else {
 		None
 	}
 }
 
 // The task's context values (runtime/v1, context.go). Each Go body takes
-// the running task as its hidden argument (stdlib.md, Hidden arguments).
+// the running task and this package as hidden arguments (stdlib.md,
+// Hidden arguments). Lowering supplies the package, so keys need no prefix.
 extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool
 extern go ergo.local/prototype/runtime/v1.ContextValue func contextValue(key string) string

@@ -31,7 +31,8 @@ type runtimeBinding struct {
 	// operand. The Go body's hidden parameters still come from BodyOf.
 	hostTarget, provider string
 	// reads marks a binding that reads the invocation task's context
-	// values (runtime.md, G1): it takes the task and never waits.
+	// values (runtime.md, G1): it takes the task and reading package as
+	// hidden arguments and never waits.
 	reads bool
 }
 
@@ -84,6 +85,9 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 	}
 	if hasHidden(body.Hidden, v1.CallerTask) != binding.takesCaller() {
 		ice(site, "runtime binding %s does not receive its declared waiting task", name)
+	}
+	if hasHidden(body.Hidden, v1.ReadingPackage) != binding.reads {
+		ice(site, "runtime binding %s does not receive its declared context package", name)
 	}
 	if x != nil && binding.wait != noWait && fc.l.info.Closes[x] != nil {
 		// A std Close is a release (R9). Today every std Close is atomic

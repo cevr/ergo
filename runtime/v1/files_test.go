@@ -33,9 +33,11 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"Queue.Close":  {TypeParams: anyT},
 		// The prelude's Task operations, and the move a return makes into
 		// the caller's frame, the hidden destination.
-		"Task.Wait": {TypeParams: anyT, Results: []string{"T", "error"}},
-		"Task.Stop": {TypeParams: anyT},
-		"Task.Move": {TypeParams: anyT, Hidden: []Hidden{Frame}, Results: []string{"*Task[T]"}},
+		"Task.Wait":    {TypeParams: anyT, Results: []string{"T", "error"}},
+		"Task.Stop":    {TypeParams: anyT},
+		"Task.Move":    {TypeParams: anyT, Hidden: []Hidden{Frame}, Results: []string{"*Task[T]"}},
+		"ContextBound": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"bool"}},
+		"ContextValue": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"string"}},
 	}
 	for name, w := range want {
 		got, err := BodyOf(name)
@@ -64,10 +66,13 @@ type Scope struct{}
 type Site string
 type Task[T any] struct{}
 
-func Ordered(s *Scope, at Site, t *rtx.Task, n int) {}
+func Ordered(s *Scope, at Site, t *rtx.Task, pkg ContextPackage, n int) {}
 func AfterParam(n int, t *rtx.Task) {}
 func OutOfOrder(t *rtx.Task, s *Scope) {}
 func Twice(s *Scope, p *Scope) {}
+func PackageAfterParam(n int, pkg ContextPackage) {}
+func PackageOutOfOrder(pkg ContextPackage, t *rtx.Task) {}
+func PackageTwice(a, b ContextPackage) {}
 func Grouped(s, p *Scope) {}
 func OwnTask(t *Task[int]) {}
 func OtherRt(t *other.Task) {}
@@ -79,7 +84,7 @@ func unexported(s *Scope) {}
 		t.Fatal(err)
 	}
 	ok := map[string][]Hidden{
-		"Ordered": {Frame, CallSite, CallerTask},
+		"Ordered": {Frame, CallSite, CallerTask, ReadingPackage},
 		"OwnTask": nil, // v1's Task is an Ergo value, not the hidden task
 		"OtherRt": nil, // only runtime/rt's Task is the hidden task
 	}
@@ -94,13 +99,16 @@ func unexported(s *Scope) {}
 		}
 	}
 	bad := map[string]string{
-		"AfterParam": "follows an Ergo parameter",
-		"OutOfOrder": "out of order",
-		"Twice":      "repeated",
-		"Grouped":    "repeated",
-		"BadBlock":   "function parameter 1",
-		"unexported": "no exported Go body",
-		"Skipped":    "no exported Go body",
+		"AfterParam":        "follows an Ergo parameter",
+		"OutOfOrder":        "out of order",
+		"Twice":             "repeated",
+		"Grouped":           "repeated",
+		"PackageAfterParam": "follows an Ergo parameter",
+		"PackageOutOfOrder": "out of order",
+		"PackageTwice":      "repeated",
+		"BadBlock":          "function parameter 1",
+		"unexported":        "no exported Go body",
+		"Skipped":           "no exported Go body",
 	}
 	for name, msg := range bad {
 		_, err := decls.body(name)

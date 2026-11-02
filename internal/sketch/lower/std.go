@@ -446,6 +446,11 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			out = append(out, fc.l.rt()+".Site("+fmt.Sprintf("%q", fmt.Sprintf("%s at %s:%d:%d", fc.callee(x, c), fc.l.src, line, column))+")")
 		case v1.CallerTask:
 			out = append(out, env+"."+envTask)
+		case v1.ReadingPackage:
+			if c == nil || c.Func == nil || c.Func.Pkg == nil {
+				ice(site, "a context read without its declaring package")
+			}
+			out = append(out, fmt.Sprintf("%q", c.Func.Pkg.Path))
 		default:
 			ice(x, "the hidden argument %s of a std body", h)
 		}

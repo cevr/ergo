@@ -33,7 +33,7 @@ const rtPath = runtimefiles.Module + "/runtime/rt"
 // Hidden is a hidden parameter of a std extern's Go body: an argument the
 // Ergo signature does not show and the lowering supplies at the call
 // (docs/spec/stdlib.md, Hidden arguments). Its Go type alone names it: no
-// Ergo type lowers to *Scope, Site or *rt.Task.
+// Ergo type lowers to *Scope, Site, *rt.Task or ContextPackage.
 type Hidden string
 
 const (
@@ -49,10 +49,12 @@ const (
 	CallSite Hidden = "site"
 	// CallerTask, an *rt.Task, is the task that runs the call.
 	CallerTask Hidden = "task"
+	// ReadingPackage is the package that declares the context-read extern.
+	ReadingPackage Hidden = "context-package"
 )
 
 // hiddenOrder is the order hidden parameters take, each at most once.
-var hiddenOrder = []Hidden{Frame, CallSite, CallerTask}
+var hiddenOrder = []Hidden{Frame, CallSite, CallerTask, ReadingPackage}
 
 // Body is the Go shape of one std extern's body: a function of this
 // package, or, for an operation of a type that a std extern returns, the
@@ -326,12 +328,15 @@ func goShape(ft *ast.FuncType, rt string) (Body, error) {
 }
 
 // hiddenOf names the hidden parameter whose Go type e is: *Scope, Site or
-// *rt (the file's name for runtime/rt).Task.
+// *rt (the file's name for runtime/rt).Task, or ContextPackage.
 func hiddenOf(e ast.Expr, rt string) (Hidden, bool) {
 	switch x := e.(type) {
 	case *ast.Ident:
 		if x.Name == "Site" {
 			return CallSite, true
+		}
+		if x.Name == "ContextPackage" {
+			return ReadingPackage, true
 		}
 	case *ast.StarExpr:
 		switch y := x.X.(type) {

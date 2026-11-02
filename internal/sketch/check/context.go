@@ -22,6 +22,8 @@ import (
 // The names are unexported, as a Go method that only its package's
 // protocol calls: the protocol adds no exported declaration to trace or
 // log (approval item 4 lists four), and a user package declares its own.
+// The binding type's declaring package namespaces its keys; lowering reads
+// that identity from ContextBinding.Type, not from the operand's spelling.
 //
 // Prior art: Java's ScopedValue binds a typed key for a dynamic extent;
 // Effect's References are typed keys with defaults; Go's context.WithValue

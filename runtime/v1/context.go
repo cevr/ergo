@@ -23,9 +23,15 @@ type region interface {
 	close(e error) error
 }
 
-// contextKey keys a context value in the task's list, so no other user of
-// rt's values can collide with a binding.
-type contextKey string
+// ContextPackage is the hidden namespace of a context read. Lowering
+// supplies the read extern's declaring package, never an Ergo argument.
+type ContextPackage string
+
+// contextKey is private to the package that declares the binding's type.
+// The pair cannot collide through a user-supplied prefix or separator.
+type contextKey struct {
+	pkg, key string
+}
 
 // Context is an open context region of one scope.
 type Context struct {
@@ -33,14 +39,15 @@ type Context struct {
 	saved rt.Context
 }
 
-// OpenContext binds text under key for the code at s and every task it
-// starts until the region ends. s is the scope of the code at the with.
-func (s *Scope) OpenContext(key, text string) *Context {
+// OpenContext binds text under the declaring package and key for the code
+// at s and every task it starts until the region ends. s is the scope of
+// the code at the with. Lowering supplies pkg from the binding type.
+func (s *Scope) OpenContext(pkg, key, text string) *Context {
 	s = s.current()
 	if s.ended {
 		panic("with: the frame that would hold this context value has returned")
 	}
-	c := &Context{s: s, saved: s.s.Task().WithValue(contextKey(key), text)}
+	c := &Context{s: s, saved: s.s.Task().WithValue(contextKey{pkg, key}, text)}
 	s.withs = append(s.withs, c)
 	return c
 }
@@ -63,15 +70,14 @@ func (c *Context) close(e error) error {
 	return e
 }
 
-// ContextBound reports whether a context value is bound to key for the
-// task t.
-func ContextBound(t *rt.Task, key string) bool {
-	return t.Value(contextKey(key)) != nil
+// ContextBound reports whether key is bound in the reading package for t.
+func ContextBound(t *rt.Task, pkg ContextPackage, key string) bool {
+	return t.Value(contextKey{string(pkg), key}) != nil
 }
 
 // ContextValue is the text bound to key for the task t, the innermost
 // binding, or "" when none is.
-func ContextValue(t *rt.Task, key string) string {
-	v, _ := t.Value(contextKey(key)).(string)
+func ContextValue(t *rt.Task, pkg ContextPackage, key string) string {
+	v, _ := t.Value(contextKey{string(pkg), key}).(string)
 	return v
 }

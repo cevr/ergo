@@ -17,7 +17,7 @@ type span { name string }
 // span shadows an outer one until its block ends.
 func Span(name string) span { span{name: name} }
 
-func contextKey(s span) string { "trace.span" }
+func contextKey(s span) string { "span" }
 
 func contextText(s span) string { s.name }
 
@@ -25,14 +25,15 @@ func contextText(s span) string { s.name }
 // or None. It reads the task's context, so it is effectful even with an
 // empty capability row.
 func Current() Option[string] {
-	if contextBound("trace.span") {
-		Some[string]{Value: contextValue("trace.span")}
+	if contextBound("span") {
+		Some[string]{Value: contextValue("span")}
 	} else {
 		None
 	}
 }
 
 // The task's context values (runtime/v1, context.go). Each Go body takes
-// the running task as its hidden argument (stdlib.md, Hidden arguments).
+// the running task and this package as hidden arguments (stdlib.md,
+// Hidden arguments). Lowering supplies the package, so keys need no prefix.
 extern go ergo.local/prototype/runtime/v1.ContextBound func contextBound(key string) bool
 extern go ergo.local/prototype/runtime/v1.ContextValue func contextValue(key string) string

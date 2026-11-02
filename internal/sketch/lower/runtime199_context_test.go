@@ -189,13 +189,10 @@ const contextPrelude = `import log
 import queue
 import task
 import trace
+import example.test/userctx
 
 type Probe { Step(line string) bool }
 type Fault {}
-type tag { text string }
-func mkTag(text string) tag { tag{text: text} }
-func contextKey(_ tag) string { "log.u" }
-func contextText(t tag) string { t.text }
 func get(o Option[string]) string {
 	match o {
 	case Some[string] as v:
@@ -205,7 +202,7 @@ func get(o Option[string]) string {
 	}
 }
 func show() string {
-	"a=" + get(log.Annotation("a")) + " b=" + get(log.Annotation("b")) + " s=" + get(trace.Current()) + " u=" + get(log.Annotation("u"))
+	"a=" + get(log.Annotation("a")) + " b=" + get(log.Annotation("b")) + " s=" + get(trace.Current()) + " u=" + userctx.Read()
 }
 func step(line string) fails Fault needs Probe {
 	if Probe.Step(line) { return Fault }
@@ -255,7 +252,7 @@ func (s *cxSeq) write(b *strings.Builder, nodes []*cxNode, in string) {
 				"a": `log.Annotate("a", ` + text + `)`,
 				"b": `log.Annotate("b", ` + text + `)`,
 				"s": `trace.Span(` + text + `)`,
-				"u": `mkTag(` + text + `)`,
+				"u": `userctx.Make(` + text + `)`,
 			}[x.key]
 			s.withs = append(s.withs, x)
 			head := ""
@@ -535,6 +532,122 @@ func main() needs Console {
 `, "local/local\nparameter\n")
 }
 
+// Neither a current std key nor its old spelling can forge a std value.
+func TestRuntime199ContextPackageKeys(t *testing.T) {
+	wantRun(t, `import log
+import trace
+type tag { key string, text string }
+func contextKey(t tag) string { t.key }
+func contextText(t tag) string { t.text }
+func span() string {
+	match trace.Current() {
+	case Some[string] as v: v.Value
+	case None: "none"
+	}
+}
+func label() string {
+	match log.Annotation("k") {
+	case Some[string] as v: v.Value
+	case None: "none"
+	}
+}
+func main() needs Console {
+	with trace.Span("real") {
+		with (tag{key: "span", text: "forged"}) { Console.Println(span()) }
+		with (tag{key: "trace.span", text: "forged"}) { Console.Println(span()) }
+	}
+	with log.Annotate("k", "real-log") {
+		with (tag{key: "k", text: "forged"}) { Console.Println(label()) }
+		with (tag{key: "log.k", text: "forged"}) { Console.Println(label()) }
+	}
+}
+`, "real\nreal\nreal-log\nreal-log\n")
+}
+
+type cxImporter map[string]*check.Package
+
+func (p cxImporter) Import(path string) (*check.Package, error) {
+	if pkg := p[path]; pkg != nil {
+		return pkg, nil
+	}
+	return check.Std.Import(path)
+}
+
+func cxPackage(t *testing.T, path, src string) *check.Package {
+	t.Helper()
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.Check(path, []*syntax.File{f}, nil)
+	if len(ds) != 0 {
+		t.Fatalf("%s: %v", path, ds)
+	}
+	return pkg
+}
+
+func cxLower(t *testing.T, name, src string, imports cxImporter) *lowered {
+	t.Helper()
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.Check("main", []*syntax.File{f}, imports)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	u := Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: testSourcePath, Text: src}}}
+	code, err := lowerPackage(u, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &lowered{name: name, src: src, pkg: pkg, file: f, files: []File{{Path: "main.go", Data: code}}}
+}
+
+// The checker Importer is the existing multi-package seam. Identical
+// source in two packages must read its own binding, even when main opens
+// their regions. This also exercises a region inside an imported body.
+func TestRuntime199ContextPackageRead(t *testing.T) {
+	const library = `type Tag { text string }
+func New(text string) Tag { Tag{text: text} }
+func contextKey(_ Tag) string { "shared" }
+func contextText(t Tag) string { t.text }
+func Read() string {
+	if bound("shared") { value("shared") } else { "none" }
+}
+func Own() string { with New("own") { Read() } }
+extern go ergo.local/prototype/runtime/v1.ContextBound func bound(key string) bool
+extern go ergo.local/prototype/runtime/v1.ContextValue func value(key string) string
+`
+	imports := cxImporter{}
+	for _, path := range []string{"example.test/a", "example.test/b"} {
+		imports[path] = cxPackage(t, path, library)
+	}
+	const src = `import example.test/a
+import example.test/b
+func main() needs Console {
+	Console.Println(a.Own())
+	with a.New("a") {
+		Console.Println(a.Read() + "/" + b.Read())
+		with b.New("b") { Console.Println(a.Read() + "/" + b.Read()) }
+		Console.Println(a.Read() + "/" + b.Read())
+	}
+	Console.Println(a.Read() + "/" + b.Read())
+}
+`
+	o := cxLower(t, "package-read", src, imports)
+	exes := buildAll(t, []*lowered{o}, true)
+	if t.Failed() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, exes[o.name]).CombinedOutput()
+	if err != nil || string(out) != "own\na/none\na/b\na/none\nnone/none\n" {
+		t.Fatalf("package reads: %v\n%s", err, out)
+	}
+}
+
 func TestRuntime199ContextProperty(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a generated native program")
@@ -549,7 +662,19 @@ func TestRuntime199ContextProperty(t *testing.T) {
 		src.WriteString(s.src())
 	}
 	src.WriteString("func main() {}\n")
-	o := mustLower(t, "context", src.String())
+	// The user type reads its own private namespace through an ordinary
+	// imported Ergo body, just as the std types do. show retains empty rows,
+	// so its footprint assertion still discriminates a context read marked
+	// pure; the test host does not supply the user's read.
+	const user = `type tag { text string }
+func Make(text string) tag { tag{text: text} }
+func contextKey(_ tag) string { "u" }
+func contextText(t tag) string { t.text }
+func Read() string { if bound("u") { value("u") } else { "-" } }
+extern go ergo.local/prototype/runtime/v1.ContextBound func bound(key string) bool
+extern go ergo.local/prototype/runtime/v1.ContextValue func value(key string) string
+`
+	o := cxLower(t, "context", src.String(), cxImporter{"example.test/userctx": cxPackage(t, "example.test/userctx", user)})
 	// A context read is effectful for footprints, though its rows are empty.
 	for _, decl := range o.file.Decls {
 		if fd, ok := decl.(*syntax.FuncDecl); ok && (fd.Name.Name == "show" || fd.Name.Name == "get") {
@@ -722,7 +847,7 @@ func ContextRun(body func(*rt.Task) error) error { return runMain(body) }
 
 // ContextBind binds a caller's value around a run and returns its end.
 func ContextBind(t *rt.Task, key, text string) func() {
-	c := t.WithValue(contextKey(key), text)
+	c := t.WithValue(contextKey{"log", key}, text)
 	return c.End
 }
 `
@@ -769,10 +894,12 @@ func values(t *rt.Task) string {
  var parts []string
  for _, k := range []string{"a", "b", "u"} {
   v := "-"
-  if ergo.ContextBound(t, "log."+k) { v = ergo.ContextValue(t, "log."+k) }
+  pkg, key := ergo.ContextPackage("log"), k
+  if k == "u" { pkg, key = "example.test/userctx", "u" }
+  if ergo.ContextBound(t, pkg, key) { v = ergo.ContextValue(t, pkg, key) }
   parts = append(parts, k+"="+v)
  }
- if ergo.ContextBound(t, "trace.span") { parts = append(parts, "s="+ergo.ContextValue(t, "trace.span")) }
+ if ergo.ContextBound(t, "trace", "span") { parts = append(parts, "s="+ergo.ContextValue(t, "trace", "span")) }
  return strings.Join(parts, " ")
 }
 type cxCase struct {
@@ -798,7 +925,7 @@ func TestContext(t *testing.T) {
    p := &probe{mode: c.mode, target: c.target}
    var after, restored string
    err := ergo.ContextRun(func(task *rt.Task) error {
-    end := ergo.ContextBind(task, "log.a", "outer")
+    end := ergo.ContextBind(task, "a", "outer")
     defer func() { restored = values(task) }()
     defer func() { after = values(task); end() }()
     return c.run(&Env{task: task, Probe: p}, p)

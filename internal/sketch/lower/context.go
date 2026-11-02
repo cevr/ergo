@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"strconv"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -52,11 +54,14 @@ func (fc *funcCtx) contextWith(x *syntax.CallExpr, cb *check.ContextBinding) ope
 	fc.line(val + " := " + fc.value(x.Args[0]))
 	key := fc.contextCall(cb.Key, val, x.Args[0])
 	text := fc.contextCall(cb.Text, val, x.Args[0])
+	// The namespace comes from the checked binding type, even when its
+	// value was made in or imported through another package.
+	pkg := strconv.Quote(cb.Type.(*check.Named).Obj.Pkg.Path)
 	scope := fc.frameScope(x)
 	cx := fc.temp("cx")
 	fc.line("{")
 	fc.depth++
-	fc.line(cx + " := " + fc.scopeCall("Scope.OpenContext", scope, []string{key, text}, x))
+	fc.line(cx + " := " + fc.scopeCall("Scope.OpenContext", scope, []string{pkg, key, text}, x))
 	// The block yields by the one tail rule (D-C1, D-C2), as a wire with's.
 	if res.val == "" && res.err == "" {
 		fc.yieldList(list, dest{kind: destStmt})
