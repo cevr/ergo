@@ -44,6 +44,60 @@ func TestContextBindingLexicalOperand(t *testing.T) {
 	}
 }
 
+// valueWireHeader is six lines; the two declarations under test follow on
+// lines 7 and 8, and a with of W on line 9.
+const valueWireHeader = `type A { Use() }
+type Quiet {}
+func Use(_ Quiet) {}
+type Tag { Text string }
+func contextKey(_ Tag) string { "k" }
+func contextText(t Tag) string { t.Text }
+`
+
+// A package value and a named wire may not share a name: the later of the
+// two is S108, so `with W` never chooses between two package bindings of
+// W. A type and a wire still share a name.
+func TestPackageValueNamedLikeWire(t *testing.T) {
+	const wire = `let W = wire { A: Quiet }`
+	values := map[string]string{
+		"let":         `let W = Tag{Text: "pkg"}`,
+		"func":        `func W() int { 1 }`,
+		"pattern let": `let Tag{Text: W} = Tag{Text: "pkg"}`,
+		"tuple let":   `let q, W = (1, Tag{Text: "pkg"})`,
+	}
+	for name, value := range values {
+		for _, order := range []struct {
+			name  string
+			first string
+			later string
+		}{{"wire first", wire, value}, {"value first", value, wire}} {
+			for _, operand := range []string{"W", "(W)"} {
+				t.Run(name+"/"+order.name+"/"+operand, func(t *testing.T) {
+					src := valueWireHeader + order.first + "\n" + order.later + "\n" + fmt.Sprintf("func g() { with %s { A.Use() } }\n", operand)
+					_, ds := check.CheckSource(src)
+					var at []int
+					for _, d := range ds {
+						if d.Code == "S108" && d.Message == "W is already declared in this package" {
+							at = append(at, d.Line)
+						}
+					}
+					if len(at) != 1 || at[0] != 8 {
+						t.Fatalf("want one S108 at the later declaration (line 8), got %v in %v", at, ds)
+					}
+				})
+			}
+		}
+	}
+	for _, src := range []string{
+		valueWireHeader + "type W {}\n" + wire + "\nfunc g() { with W { A.Use() } }\n",
+		valueWireHeader + wire + "\ntype W {}\nfunc g() { with (W) { A.Use() } }\n",
+	} {
+		if _, ds := check.CheckSource(src); len(ds) != 0 {
+			t.Errorf("a type and a wire share a name: %v", ds)
+		}
+	}
+}
+
 func TestContextOperandReferenceWalk(t *testing.T) {
 	for _, body := range []string{
 		`func f() int { let W = Tag{Text: "local"}; with W { 1 } }`,

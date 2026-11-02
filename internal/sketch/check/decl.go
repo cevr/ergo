@@ -191,7 +191,7 @@ func (c *checker) collect() {
 					prev.same = append(prev.same, fn)
 					continue
 				}
-				if c.declare(d.Name, fn) {
+				if !c.wireNamed(d.Name) && c.declare(d.Name, fn) {
 					c.pkg.Funcs = append(c.pkg.Funcs, fn)
 				}
 			case *syntax.VarDecl:
@@ -217,7 +217,9 @@ func (c *checker) collect() {
 						// A refused package-level let mut (mutPackageLet)
 						// keeps mut, so its assignments add nothing (D3).
 						v := &Var{Name: name.Name, Pos: name.Pos(), pkg: true, used: true, mut: d.Mut.IsValid()}
-						c.declare(name, v)
+						if !c.wireNamed(name) {
+							c.declare(name, v)
+						}
 						pv := &pkgVar{obj: v, spec: spec, idx: i, file: fi, name: name, group: group}
 						if group != nil {
 							group.members = append(group.members, pv)
@@ -232,6 +234,10 @@ func (c *checker) collect() {
 				w := &Wire{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}
 				if _, dup := c.pkg.Wires[w.Name]; dup {
 					c.errorf(d.Name, CodeType, "wire %s is declared twice", w.Name)
+					continue
+				}
+				if isPkgValue(c.pkg.Scope.names[w.Name]) {
+					c.errorf(d.Name, CodeType, "%s is already declared in this package", w.Name)
 					continue
 				}
 				c.pkg.Wires[w.Name] = w
@@ -250,7 +256,17 @@ func (c *checker) collect() {
 		c.pkgPatterns[p.spec] = group
 		for _, id := range patternNames(p.spec.Pattern, c.isPatternType) {
 			v := &Var{Name: id.Name, Pos: id.Pos(), pkg: true, used: true}
-			c.declare(id, v)
+			if w, ok := c.pkg.Wires[id.Name]; ok && id.Name != "_" && (w.file.index > p.file.index || w.file == p.file && w.Pos > id.Pos()) {
+				// The pattern is collected after every wire: when the
+				// wire is the later declaration, it is the duplicate.
+				c.cur = w.file
+				c.errorf(w.Decl.Name, CodeType, "%s is already declared in this package", w.Name)
+				c.cur = p.file
+				delete(c.pkg.Wires, w.Name)
+			}
+			if !c.wireNamed(id) {
+				c.declare(id, v)
+			}
 			pv := &pkgVar{obj: v, spec: p.spec, file: p.file, name: id, group: group}
 			group.members = append(group.members, pv)
 			c.vars = append(c.vars, pv)
@@ -298,6 +314,28 @@ func (c *checker) declare(id *syntax.Ident, o Object) bool {
 	c.pkg.Scope.insert(id.Name, o)
 	c.def(id, o)
 	return true
+}
+
+// wireNamed reports a package value (a let, a pattern let's name or a
+// function) declared after a named wire of its name as S108: values and
+// wires share one package namespace, so `with W` never meets two package
+// bindings of W. A type and a wire may share a name (`let A = wire`).
+func (c *checker) wireNamed(id *syntax.Ident) bool {
+	if _, ok := c.pkg.Wires[id.Name]; !ok || id.Name == "_" {
+		return false
+	}
+	c.errorf(id, CodeType, "%s is already declared in this package", id.Name)
+	return true
+}
+
+// isPkgValue reports whether a package-scope object is a value: a let or
+// a function, not a type.
+func isPkgValue(o Object) bool {
+	switch o.(type) {
+	case *Var, *Func:
+		return true
+	}
+	return false
 }
 
 func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
