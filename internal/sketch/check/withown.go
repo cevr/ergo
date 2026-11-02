@@ -162,7 +162,6 @@ func (c *checker) withOwnership() {
 			}
 		}
 		if owning {
-			c.cur = s.file
 			c.ownedBlock(s.x, w)
 		}
 	}
