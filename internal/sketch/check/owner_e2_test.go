@@ -839,12 +839,14 @@ func TestSynthesisInventoryControls(t *testing.T) {
 		{name: "generic-retype-union", src: `package check; type raw syntax.VarSpec; func retype[P interface{ *syntax.VarSpec | *raw }](r *raw) P { return P(r) }`, want: "conversion to type parameter P, whose type set holds the node VarSpec"},
 		{name: "generic-retype-embedded", src: `package check; type raw syntax.VarSpec; type nodePointer interface{ *syntax.VarSpec }; func retype[P interface{ nodePointer }](r *raw) P { return P(r) }`, want: "conversion to type parameter P, whose type set holds the node VarSpec"},
 		{name: "generic-retype-value", src: `package check; type raw syntax.VarSpec; func retype[E interface{ syntax.VarSpec }](r raw) E { return E(r) }`, want: "conversion to type parameter E, whose type set holds the node VarSpec"},
-		// E2c: the layout-identical type alone fails, with no conversion.
-		{name: "layout-type", src: `package check; type raw syntax.Ident`, want: "type raw has the layout of syntax.Ident"},
-		{name: "layout-unnamed", src: `package check; func held(p **struct{ NamePos syntax.Pos; Name string }) {}`, want: "type struct{NamePos syntax.Pos; Name string} has the layout of syntax.Ident"},
-		{name: "layout-tagged", src: `package check; type tagged struct{ NamePos syntax.Pos "pos"; Name string }`, want: "type tagged has the layout of syntax.Ident"},
-		{name: "layout-instance", src: `package check; type rawOf[T any] struct{ NamePos syntax.Pos; Name T }; var _ *rawOf[string]`, want: "type rawOf[string] has the layout of syntax.Ident"},
-		{name: "layout-local", src: `package check; func local() int { type raw syntax.Ident; return len(raw{}.Name) }`, want: "type raw has the layout of syntax.Ident"},
+		// E2c: the layout-identical type alone fails, with no conversion. (A
+		// want starts with ": " so the lowerer's corpus harvest, which keeps
+		// strings that start with "type ", skips it.)
+		{name: "layout-type", src: `package check; type raw syntax.Ident`, want: ": type raw has the layout of syntax.Ident"},
+		{name: "layout-unnamed", src: `package check; func held(p **struct{ NamePos syntax.Pos; Name string }) {}`, want: ": type struct{NamePos syntax.Pos; Name string} has the layout of syntax.Ident"},
+		{name: "layout-tagged", src: `package check; type tagged struct{ NamePos syntax.Pos "pos"; Name string }`, want: ": type tagged has the layout of syntax.Ident"},
+		{name: "layout-instance", src: `package check; type rawOf[T any] struct{ NamePos syntax.Pos; Name T }; var _ *rawOf[string]`, want: ": type rawOf[string] has the layout of syntax.Ident"},
+		{name: "layout-local", src: `package check; func local() int { type raw syntax.Ident; return len(raw{}.Name) }`, want: ": type raw has the layout of syntax.Ident"},
 		// E2b round 4 review M2: the parser and the caller-text entry are
 		// pinned to their sites; a pass or a package variable is none.
 		{name: "parse-in-pass", src: `package check; func (c *checker) passParsed() syntax.Node { f, _ := syntax.Parse("type T int\n"); return f.Decls[0] }`, want: "syntax callee Parse is referenced in (*checker).passParsed, which syntaxNodeCallees does not list"},
