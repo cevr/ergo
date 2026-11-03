@@ -80,6 +80,8 @@ docs/specs/semantic-tooling.md	profile](../lsp.md) records the exact wire behavi
 docs/specs/standard-library-capabilities.md	encoder; explicit secret access and wire encoding remain separate. No memory
 docs/specs/state-machines.md	derived codec therefore carries wire keys such as `"done"`, as Rust
 docs/standard-library.md	external codecs, validation and wire compatibility |
+# a pinned upstream copy (sha256 in internal/bindc): OpenTUI's opentui.h says wire bytes and wire modifiers
+internal/bindc/testdata/opentui/opentui.h	*
 internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	// Quantity.Wire become its operations.
 internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	Wire(q Quantity) string,
 internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	RoundTrip(q Quantity) { Parse(Wire(q)) == q },
