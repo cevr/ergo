@@ -16,7 +16,11 @@ import (
 // An extern function is call-only (P3; lower-v1 Q2). Any use of it other
 // than a direct call is S108 with externCallOnlyText, at the reference:
 // ident, qualified and explicit give it modeExtern, which only callOf
-// accepts and needValue refuses. The rule keys on the declaration
+// accepts and needValue refuses. Two positions name a function without an
+// operand, a machine's step (entry.go) and a context constructor entry
+// (context.go); each reports the same S108 for an extern. A4's guard
+// (extern_guard_test.go) places every Expr field of the syntax package. The
+// rule keys on the declaration
 // (isExtern), in every package, std included, so a host binding never
 // escapes its call site and scope.OnExit always runs in its source frame.
 //
