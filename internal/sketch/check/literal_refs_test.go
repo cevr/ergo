@@ -38,7 +38,7 @@ type litWalk int
 
 const (
 	walkRecord      litWalk = iota // a record: keys are field names
-	walkListRecord                 // a slice whose element type is a record
+	walkListRecord                 // a slice or map whose element type is a record
 	walkListUnknown                // a slice whose element type is a type parameter
 	walkUnknown                    // not decided: every element is walked as a value
 	walkRefused                    // an elided literal where none may be elided
@@ -64,6 +64,7 @@ const (
 	typedList                     // a slice of records
 	typedOrphan                   // its type is refused: its values are orphans
 	typedRefused                  // an elided literal refused untyped
+	typedListOfRefused            // a slice or map whose element type is refused
 )
 
 // elem is typing's verdict on an elided literal that is an element of a
@@ -72,6 +73,10 @@ func (t litTyping) elem(w litWalk) litTyping {
 	switch t {
 	case typedList:
 		return typedRecord
+	case typedListOfRefused:
+		// The element's type is refused, so the elided literal's type is
+		// refused: its values are orphans, of the kind the walk reads.
+		return typedOrphan
 	case typedOrphan:
 		if w == walkRefused {
 			return typedRefused // an orphan's elided literal follows the walk
@@ -99,7 +104,14 @@ var litTypeForms = []struct {
 	{"a valid generic slice instance", "Seq[Rec]", "0", walkListUnknown, typedList},
 	{"a slice given type arguments", "Recs[int]", "0", walkListRecord, typedOrphan},
 	{"a generic slice with the wrong arity", "Seq[Rec, Rec]", "0", walkListUnknown, typedOrphan},
+	{"a slice of a record given type arguments", "[]Rec[int]", "0", walkListRecord, typedListOfRefused},
+	{"a valid map", litMapType, "1", walkListRecord, typedList},
 }
+
+// litMapType is the map type of litTypeForms. A map literal's elements are
+// key: value pairs; typing refuses a positional one, an orphan, of the
+// kind the walk reads.
+const litMapType = "Recm"
 
 // litLeaf is what holds the name at the element.
 type litLeaf int
@@ -142,6 +154,7 @@ const litRefDecls = `type Rec { V int }
 type Box[T] { V T }
 type Recs []Rec
 type Seq[T] []T
+type Recm Map[int, Rec]
 type Line { N int }
 func fx() {}
 let pv = 5
@@ -246,6 +259,9 @@ func TestLiteralRefsAgree(t *testing.T) {
 						elem = ty.key + ": " + inner
 					}
 					w, tp := ty.walk, ty.typing
+					if shape == "positional" && ty.src == litMapType {
+						tp = typedOrphan
+					}
 					for range depth {
 						w = w.elem()
 						tp = tp.elem(w)
