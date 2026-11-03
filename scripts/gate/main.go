@@ -17,6 +17,10 @@
 // tests are not cached here: Go's own per-package test cache stays
 // authoritative, and slow packages are split into processes whose union is
 // complete by construction (the last shard skips exactly what the others run).
+// That holds for this package's own tests too: their inputs are declared
+// (declaredInputs in inputs_test.go, guarded by TestMain), the host facts they
+// read without package os key them through ERGO_TOOL_VERSIONS (hostFacts),
+// and an unchanged package replays instead of rerunning its properties.
 //
 // Every step runs under a memory budget: a hard cap for the step with all the
 // processes it starts (ERGO_GATE_STEP_MEMORY, default 8G), one for all the
@@ -566,12 +570,15 @@ const gcPercent = "400"
 // toolDigest identifies, for a step's own cache, the tools it names in
 // ToolEnv and the whole environment a Go test step receives (testenv.Names,
 // whose values the tools and the Go programs a test runs may read whether
-// or not they were set when a result was cached).
+// or not they were set when a result was cached), and the host facts tests
+// read without package os (hostFacts): a cached result replays only on a
+// host where its tests would see the same file systems and scope support.
 func (g *gate) toolDigest(step *Step) string {
 	digest := sha256.New()
 	for _, tool := range step.ToolEnv {
 		fmt.Fprintf(digest, "%s\x00%s\x00", tool, g.toolVersion(tool))
 	}
+	fmt.Fprintf(digest, "host\x00%s\x00", hostFacts(stepTempDir(g.root, step.Name)))
 	for _, name := range testenv.Names {
 		if name == testenv.ToolDigest {
 			continue
@@ -581,6 +588,10 @@ func (g *gate) toolDigest(step *Step) string {
 	}
 	return hex.EncodeToString(digest.Sum(nil))[:16]
 }
+
+// hostFacts describes the host facts of a step whose temporary directory is
+// its argument (readHostFacts). Tests replace it to move the host.
+var hostFacts = readHostFacts
 
 // stepEnvironment is the environment every step runs with: the caller's,
 // with the gate's collector target and the soft memory limit below the step
