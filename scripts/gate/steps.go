@@ -41,7 +41,11 @@ var testTools = []string{"git", "sh"}
 var goRuntimeEnvironment = []string{"GODEBUG", "GOGC", "GOMEMLIMIT", "GOMAXPROCS", "GOTRACEBACK"}
 
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
-var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "examples/go-interop"}
+var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "examples/go-interop", "tools/provenance"}
+
+// provenanceManifest lists the checker functions that may make syntax nodes;
+// the provenance analyzer flags a node made anywhere else in the checker.
+const provenanceManifest = "internal/sketch/check/testdata/provenance-manifest.txt"
 
 // gateSteps declares the gate's steps over the module's Go packages.
 func gateSteps(root string) ([]*Step, error) {
@@ -83,6 +87,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: "go test build", Argv: []string{"go", "test", "-run", "^$", "./..."}})
 	add(&Step{Name: "go vet", Needs: []string{"go test build"}, Argv: []string{"go", "vet", "./..."}})
+	add(&Step{Name: "provenance analyzer", Argv: provenanceAnalyzer(root)})
 
 	durations, err := readDurations(root)
 	if err != nil {
@@ -153,6 +158,27 @@ func stagedBuild(root, out, pkg string) []string {
 	staging := filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), filepath.Base(out))
 	script := `mkdir -p "$(dirname "$1")" "$(dirname "$2")" && go build -buildvcs=false -o "$1" "$3" && { cmp -s "$1" "$2" || mv -f "$1" "$2"; }`
 	return []string{"sh", "-c", script, "sh", staging, out, pkg}
+}
+
+// provenanceAnalyzer returns a command that runs the provenance analyzer's own
+// controls, then the analyzer on the checker. tools/provenance is its own
+// module, so the main module keeps no dependency on golang.org/x/tools and
+// ./... never reaches it. The analyzer binary goes beside the gate's cache, or
+// to a temporary directory without one. The step always runs: Go's caches
+// skip an unchanged build and test, and the analysis takes about a second.
+func provenanceAnalyzer(root string) []string {
+	binary := ""
+	// go build -C resolves -o in tools/provenance, so the path is absolute;
+	// like stagedBuild, each checkout gets its own.
+	if cache, err := filepath.Abs(cacheDirectory()); cacheDirectory() != "" && err == nil {
+		sum := sha256.Sum256([]byte(root))
+		binary = filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), "provenance")
+	}
+	script := `bin=${1:-$(mktemp -d)/provenance} && mkdir -p "$(dirname "$bin")" &&
+go test -C tools/provenance ` + testTimeout + ` ./... &&
+go build -C tools/provenance -buildvcs=false -o "$bin" ./cmd/provenance &&
+"$bin" -test=false -manifest "$2" ./internal/sketch/check`
+	return []string{"sh", "-c", script, "sh", binary, provenanceManifest}
 }
 
 // wayfinderSnapshotInputs keys the check that the committed Wayfinder snapshot
