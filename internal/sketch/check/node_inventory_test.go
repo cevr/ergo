@@ -164,7 +164,7 @@ var nodeTable = map[string]nodeEntry{
 	// record in the package scope (196 fifth round).
 	"TupleExpr":   {"tuple value", ""},
 	"VariantSpec": {"variant in place", ""},
-	"LawDecl":     {"law", "196l"}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""},
+	"LawDecl":     {"law", ""}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""},
 	// The forms that left the language (#196; syntax TestDecidedOnly):
 	// still declared by the syntax package; the checker keeps no branch for
 	// them, and TestUndecidedNodes covers each.

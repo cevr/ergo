@@ -97,8 +97,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 // head type name syntactically (`Fault`, `pkg.Fault`, `Fault[T]`), so an
 // element whose type arguments name a body's type parameter still counts.
 // Each row counts for its own owner (owners.go): a test's row makes an
-// error type of the tests only. It reports nothing; the checks of the rows
-// report.
+// error type of the tests only, and a law's row of the laws only. It
+// reports nothing; the checks of the rows report.
 func (c *checker) collectBodyErrorRows() {
 	for _, fi := range c.files {
 		// Defensive: this pass only collects row heads and reports nothing.
@@ -1447,6 +1447,21 @@ func (c *checker) slotKinds(head syntax.Expr) []Kind {
 	return kinds
 }
 
+// writtenParamType is the type of a parameter whose type is written as x
+// and resolves to t: a parameter written as a function type without
+// `escaping` is non-escaping (196e; escaping.go), a function's and a law's
+// alike. A named function type is escaping, as a field's is.
+func writtenParamType(x syntax.Expr, t Type) Type {
+	if ft, ok := unparen(x).(*syntax.FuncType); ok && !ft.Escaping.IsValid() {
+		if s, ok := t.(*Signature); ok {
+			ne := *s
+			ne.NonEscaping = true
+			return &ne
+		}
+	}
+	return t
+}
+
 // signature resolves a function type. Parameters, results, the error row and
 // the capability row.
 func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
@@ -1458,17 +1473,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		for _, field := range ft.Params.List {
 			var t Type
 			if field.Type != nil {
-				t = c.typExpr(field.Type, &pctx)
-				// A parameter written as a function type without
-				// `escaping` is non-escaping (196e; escaping.go). A named
-				// function type is escaping, as a field's is.
-				if ft, ok := unparen(field.Type).(*syntax.FuncType); ok && !ft.Escaping.IsValid() {
-					if s, ok := t.(*Signature); ok {
-						ne := *s
-						ne.NonEscaping = true
-						t = &ne
-					}
-				}
+				t = writtenParamType(field.Type, c.typExpr(field.Type, &pctx))
 			}
 			if len(field.Names) == 0 {
 				if t == nil {

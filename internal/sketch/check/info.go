@@ -182,10 +182,12 @@ type Info struct {
 	// stage 1): each function with a body (*syntax.FuncDecl), function
 	// literal (*syntax.FuncLit), trailing block of a call other than with
 	// (*syntax.BlockStmt; a with block runs in its enclosing frame), named
-	// context (*syntax.ContextDecl, the builder a with of it runs) and package
-	// let (*syntax.VarSpec). The lowering places interruption points only
-	// in a frame whose footprint is not Empty (runtime.md, I1) and never
-	// derives a footprint again. Added for #199 stage 1 (additive).
+	// context (*syntax.ContextDecl, the builder a with of it runs), package
+	// let (*syntax.VarSpec), test (*syntax.TestDecl) and law
+	// (*syntax.LawDecl, OwnerLaw's, so no build reads it; stage E3b). The
+	// lowering places interruption points only in a frame whose footprint
+	// is not Empty (runtime.md, I1) and never derives a footprint again.
+	// Added for #199 stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
 	// Instances is every instantiation of a generic function (D-E1; stage
 	// B round 2 m6): a call of one, keyed by the *syntax.CallExpr, whether
@@ -468,12 +470,13 @@ type Call struct {
 	// tails pass through (rows.md, With 6).
 	Fails, Needs *Row
 	// TaskResult reports that the call's result holds a Task (CallFunc,
-	// CallFuncValue, including a call of a function literal's value, CallOp
-	// and CallProviderOp): the caller needs a frame scope and passes it as
-	// the callee's hidden destination (stdlib.md, Hidden arguments). Derived
-	// from the same holdsTask as TaskResults; since stage E2 (C13) a result
-	// holds a Task only by being one. Added in check-v1 stage D3b
-	// (additive); the operation kinds in stage E2 (C15).
+	// CallFuncValue, including a call of a function literal's value, CallOp,
+	// CallProviderOp and CallLawOp): the caller needs a frame scope and
+	// passes it as the callee's hidden destination (stdlib.md, Hidden
+	// arguments). Derived from the same holdsTask as TaskResults; since
+	// stage E2 (C13) a result holds a Task only by being one. Added in
+	// check-v1 stage D3b (additive); the operation kinds in stage E2 (C15),
+	// CallLawOp in E3b (a law is checked as if it ran).
 	TaskResult bool
 }
 
@@ -872,7 +875,7 @@ func (w *Context) EachProvider(f func(cap Type, e *ContextEntry) bool) {
 func (c *checker) finishInfo() {
 	for x, call := range c.pkg.Info.Calls {
 		switch call.Kind {
-		case CallFunc, CallFuncValue, CallOp, CallProviderOp:
+		case CallFunc, CallFuncValue, CallOp, CallProviderOp, CallLawOp:
 			if t, ok := c.pkg.Info.Types[x]; ok && t != nil {
 				call.TaskResult = c.holdsTask(t)
 			}

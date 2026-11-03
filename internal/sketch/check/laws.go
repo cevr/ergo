@@ -29,8 +29,10 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     every value position's. An invalid tail adds nothing (D3).
 //  6. A law's parameters are typed in its type's bracket parameters, and a
 //     law of a generic type is generic in them, as a generic function body
-//     is in its own (funcCtx.typeParams). They need not be generatable: that
-//     is a property test's rule, and #162 decides how laws are run.
+//     is in its own (funcCtx.typeParams). One written as a function type
+//     without `escaping` is non-escaping, as a function's is (writtenParamType).
+//     They need not be generatable: that is a property test's rule, and
+//     #162 decides how laws are run.
 //
 // Its facts are owned by OwnerLaw (owners.go), so neither build reads them.
 //
@@ -119,7 +121,7 @@ func (c *checker) checkLaw(law *Law) {
 		// A law's parameters parse as a function's (paramPlain), so each
 		// field has a type: a lone name is one (S104 when no type has it).
 		for _, field := range d.Params.List {
-			typ := c.typExpr(field.Type, &typeCtx{param: true, params: params})
+			typ := writtenParamType(field.Type, c.typExpr(field.Type, &typeCtx{param: true, params: params}))
 			if len(field.Names) == 0 {
 				law.Params = append(law.Params, &Var{Name: "_", Type: typ, Pos: field.Type.Pos(), param: true, used: true})
 				continue

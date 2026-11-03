@@ -56,6 +56,8 @@ func (c *checker) closeFacts() {
 	// A call's resolved callee wins over a same-spelled member in the
 	// receiver's operation type. Inspect visits the call before its callee.
 	selections := map[*syntax.SelectorExpr]*Close{}
+	// Every file declaration, law bodies included: a use in a law records
+	// its fact as a use anywhere does, owned by OwnerLaw.
 	for _, fi := range c.files {
 		syntax.Inspect(fi.syntax, func(n syntax.Node) bool {
 			var fact *Close
@@ -99,6 +101,9 @@ func (c *checker) closeFacts() {
 						}
 					}
 					fact = c.closeOperation(c.pkg.Info.Types[recv], call.Op, call.Op.Name)
+				case CallLawOp:
+					// No fact: the call has no receiver, so it releases no
+					// value, and no build lowers a law (196l).
 				}
 				fun := unparen(x.Fun)
 				if ix, ok := fun.(*syntax.IndexExpr); ok {

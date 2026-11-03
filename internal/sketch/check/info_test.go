@@ -379,10 +379,29 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			if d.Body != nil {
 				syntax.Inspect(d.Body, visit)
 			}
+		case *syntax.TestDecl:
+			// A test's name declares no value (tests.go rule 1), so it has
+			// no Defs entry; its parameters and body are a body's.
+			own = map[*TypeParam]bool{}
+			fields(d.Params, "the test parameter")
+			syntax.Inspect(d.Body, visit)
 		case *syntax.TypeDecl:
 			declared(d.Name, "the type")
 			fields(d.TypeParams, "the type parameter")
-			// Record fields, operations and their parameters (m1).
+			// A law's body sees its type's parameters as its own (laws.go
+			// rule 6).
+			typeParams := map[*TypeParam]bool{}
+			if d.TypeParams != nil {
+				for _, f := range d.TypeParams.List {
+					for _, id := range f.Names {
+						if tp, ok := info.Defs[id].(*TypeParam); ok {
+							typeParams[tp] = true
+						}
+					}
+				}
+			}
+			// Record fields, operations and their parameters (m1), and
+			// each law: its name, its parameters and its body.
 			syntax.Inspect(d.Spec, func(m syntax.Node) bool {
 				switch m := m.(type) {
 				case *syntax.StructType:
@@ -396,6 +415,14 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 							fields(ft.Params, "the operation parameter")
 						}
 					}
+				case *syntax.LawDecl:
+					if _, ok := info.Defs[m.Name].(*Law); !ok {
+						at(m.Name, "the law "+m.Name.Name+" with no Law in Defs")
+					}
+					fields(m.Params, "the law parameter")
+					own = typeParams
+					syntax.Inspect(m.Body, visit)
+					return false
 				}
 				return true
 			})

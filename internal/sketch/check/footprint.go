@@ -119,6 +119,10 @@ func (c *checker) footprints() {
 	for _, t := range c.tests.all {
 		bodies = append(bodies, body{fp.node(t.Decl), t.Decl.Body})
 	}
+	// So is a law body; its footprint is OwnerLaw's, which no build reads.
+	for _, l := range c.pkg.Laws {
+		bodies = append(bodies, body{fp.node(l.Decl), l.Decl.Body})
+	}
 	for key := range info.Literals {
 		switch k := key.(type) {
 		case *syntax.FuncLit:
@@ -347,7 +351,8 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			return
 		}
 		n.opaque = true
-	case CallOp:
+	case CallOp, CallLawOp:
+		// A law's operation has no body until #162 picks an implementation.
 		n.opaque = true
 	case CallWith:
 		// The block's calls are walked in this frame; the with also runs

@@ -370,6 +370,230 @@ type Codec {
 	}
 }
 
+// lawSiteDecls are the declarations the whole-program site programs share:
+// a provider with a Close behind an owning context, a capability with a
+// Close, and a plain capability.
+const lawSiteDecls = `type Fault {}
+
+type A { Use() int }
+
+type Conn { V int }
+
+func Use(c Conn) int { c.V }
+
+func Close(c Conn) {}
+
+func get() Conn { Conn{V: 1} }
+
+let Owned = context { A: get() }
+
+type R { Close() }
+
+type First {}
+
+func Close(_ First) {}
+
+let Releasing = context { R: First }
+
+type Store { Get() string }
+
+type Mem {}
+
+func Get(_ Mem) string { "ok" }
+
+`
+
+// TestLawSites: each whole-program pass that walks file declarations meets
+// a law body as a frame of its own that is checked as if it ran (spec,
+// Whole-program passes that meet law bodies): the frame checks (frame.go
+// inspectFrame), the Task use rule (taskescape.go) and the non-escaping
+// rule (escaping.go) on CallLawOp, the capability Close refusal
+// (withown.go capabilityCloses) and the context summaries (contextsum.go
+// contextSource).
+func TestLawSites(t *testing.T) {
+	for _, tc := range []struct{ name, src string }{
+		// inspectFrame: a law is a frame, so neither a Task nor an owning
+		// with in it is "outside a function body".
+		{"a task and an owning with in a law", `type Runner {
+	Run(n int) int,
+	Start() Task[int, Fault],
+
+	law Spawns(n int) {
+		let t = task.Go() { Run(n) }
+		t.Wait() == Run(n)
+	},
+	law Starts() {
+		let t = Start()
+		let v = t.Wait() catch {
+		case Fault:
+			0
+		}
+		v == v
+	},
+	law Owns() { with Owned { A.Use() == 1 } },
+}
+`},
+		// taskescape.go: an argument of a law's operation call is a pass.
+		{"a Task passed to a law's operation", `type Runner {
+	Hold(t Task[int, Fault]) bool,
+
+	law Passes(n int) { Hold(task.Go() { n }) },
+}
+`},
+		// escaping.go: a law's operation parameter decides, as a function's
+		// does; a law's parameter of a function type is non-escaping.
+		{"a non-escaping law parameter", `type Runner {
+	Apply(f func(int) int) bool,
+	Keep(f escaping func(int) int) bool,
+
+	law Applies(f func(int) int) { Apply(f) },
+	law Keeps(f func(int) int) { Keep(f) }, // want S108
+}
+`},
+		// withown.go capabilityCloses walks law bodies.
+		{"a capability's Close in a law", `type Laws {
+	law Twice() { with Releasing { R.Close(); true } }, // want S108
+}
+`},
+		// contextsum.go: a law's inline context is summarised.
+		{"a duplicate entry in a law's inline context", `type Laws {
+	law Dup() { with context { Store: Mem, Store: Mem } { Store.Get() == "ok" } }, // want S111
+}
+`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := lawSiteDecls + tc.src
+			if strings.Contains(tc.src, "task.") {
+				src = "import task\n\n" + src
+			}
+			_, diags := check.CheckSource(src)
+			want, have := expected(src), got(diags)
+			if strings.Join(want, " ") != strings.Join(have, " ") {
+				t.Errorf("want %v, got %v\n\t%s", want, have, describe(diags))
+			}
+		})
+	}
+}
+
+// TestLawFacts: the facts a law body records are OwnerLaw's, keyed by its
+// nodes (owners.go): a law error row makes an error type of the laws only
+// (decl.go collectBodyErrorRows), its frame has a footprint (footprint.go),
+// a Close a law uses has its identity (close.go), a CallLawOp carries none
+// and is opaque, and its TaskResult is a call's (finishInfo).
+func TestLawFacts(t *testing.T) {
+	src := lawSiteDecls + `type Res {}
+
+func Close(_ Res) {}
+
+type LawFault {}
+
+type Laws {
+	Close(),
+	Start() Task[int, Fault],
+
+	law Rows() {
+		let f = func() int fails LawFault { 1 }
+		let n = f() catch {
+		case LawFault:
+			0
+		}
+		n == 1
+	},
+	law Releases(r Res) {
+		r.Close()
+		true
+	},
+	law Own() {
+		Close()
+		true
+	},
+	law Uses() { with Owned { A.Use() == 1 } },
+	law Starts() {
+		let t = Start()
+		let v = t.Wait() catch {
+		case Fault:
+			0
+		}
+		v == v
+	},
+}
+`
+	pkg, diags := check.CheckSource(src)
+	if len(diags) > 0 {
+		t.Fatalf("want a clean check, got %v", describe(diags))
+	}
+	laws := map[string]*check.Law{}
+	for _, l := range pkg.Laws {
+		laws[l.Name] = l
+	}
+	var fault *check.Named
+	for _, tn := range pkg.Types {
+		if tn.Name == "LawFault" {
+			fault, _ = tn.Type.(*check.Named)
+		}
+	}
+	if fault == nil {
+		t.Fatal("no LawFault")
+	}
+	if !pkg.IsErrorType(fault, check.OwnerLaw) || pkg.IsErrorType(fault, check.OwnerProduction) || pkg.IsErrorType(fault, check.OwnerTest) {
+		t.Errorf("LawFault is an error type of the laws only: law %v, production %v, test %v",
+			pkg.IsErrorType(fault, check.OwnerLaw), pkg.IsErrorType(fault, check.OwnerProduction), pkg.IsErrorType(fault, check.OwnerTest))
+	}
+	for name, l := range laws {
+		if _, ok := pkg.Info.Footprints[l.Decl]; !ok {
+			t.Errorf("law %s has no footprint", name)
+		}
+		if o := pkg.OwnerOf(l.Decl); o != check.OwnerLaw {
+			t.Errorf("law %s is owned by %v", name, o)
+		}
+	}
+	if fp := pkg.Info.Footprints[laws["Uses"].Decl]; len(fp.Caps) != 1 || fp.Opaque {
+		t.Errorf("Uses: footprint %+v, want A and not opaque", fp)
+	}
+	if fp := pkg.Info.Footprints[laws["Own"].Decl]; !fp.Opaque {
+		t.Errorf("Own: footprint %+v, want opaque: a law's operation has no body", fp)
+	}
+	calls := func(name string) []*syntax.CallExpr {
+		var out []*syntax.CallExpr
+		syntax.Inspect(laws[name].Decl.Body, func(n syntax.Node) bool {
+			if x, ok := n.(*syntax.CallExpr); ok {
+				out = append(out, x)
+			}
+			return true
+		})
+		return out
+	}
+	released := false
+	for _, x := range calls("Releases") {
+		if c := pkg.Info.Closes[x]; c != nil && c.Func != nil {
+			released = true
+			if pkg.OwnerOf(x) != check.OwnerLaw {
+				t.Errorf("the Close fact in Releases is owned by %v", pkg.OwnerOf(x))
+			}
+		}
+	}
+	if !released {
+		t.Error("Releases: the call of Close(Res) has no Close fact")
+	}
+	for _, x := range calls("Own") {
+		if call := pkg.Info.Calls[x]; call == nil || call.Kind != check.CallLawOp {
+			t.Fatalf("Own: want a CallLawOp, got %+v", call)
+		}
+		if pkg.Info.Closes[x] != nil {
+			t.Error("Own: a law's operation call has no receiver, so no Close fact")
+		}
+	}
+	started := false
+	for _, x := range calls("Starts") {
+		if call := pkg.Info.Calls[x]; call != nil && call.Kind == check.CallLawOp {
+			started = call.TaskResult
+		}
+	}
+	if !started {
+		t.Error("Starts: a law's operation call that returns a Task has no TaskResult")
+	}
+}
+
 // TestLawInfo: Info records each law with its owner, its typed parameters
 // and its failure row, its name in Defs, and each operation call as a
 // CallLawOp with the operation, no receiver, the operation's failures and

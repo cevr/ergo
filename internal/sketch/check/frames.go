@@ -8,14 +8,14 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // tasks the body starts or receives, runs its exit actions, and ends the
 // scopes an owning with or a context with opens inside it (runtime.md,
 // Tasks; resources.md, Context ownership; runtime.md, G1). A function body,
-// a function literal's body, a trailing block and a test block each have
-// one. A package let's value, a named context's entries and a type
+// a function literal's body, a trailing block, a test block and a law body
+// each have one. A package let's value, a named context's entries and a type
 // declaration (a machine's initial value) run outside every function
 // body, so no frame scope is there to own what such a call makes.
 //
 // The invariant: no node that runs outside a function body (frameFree, by
-// inspectFrame's walk: a function literal's body and a trailing block other
-// than a with's are frames of their own) is
+// inspectFrame's walk: a function literal's body, a trailing block other
+// than a with's and a law in a type declaration are frames of their own) is
 //
 //  1. a call whose result holds a Task (Call.TaskResult: task.Go, a
 //     function, a function value or an operation that returns a Task),
@@ -38,7 +38,8 @@ import "ergo.local/prototype/internal/sketch/syntax"
 
 // frameFree reports whether a file declaration's expressions run outside
 // every function body. A function declaration's and a test block's bodies
-// are frames; a let, a context and a type declaration are not.
+// are frames; a let, a context and a type declaration are not, though a law
+// a type declaration holds is (inspectFrame prunes it).
 func frameFree(d syntax.Decl) bool {
 	switch d.(type) {
 	case *syntax.FuncDecl, *syntax.TestDecl:
