@@ -47,7 +47,7 @@ test      law       assert    extern    with
 - Ten are Go's (`break` to `type`); six are the earlier constructs (`try` to `machine`); eleven come from the decided stages: `let` and `mut` (196v), `in` (one `for`), `match` (196p), `escaping` (196e), `fails` (fifth round), `test`, `law` and `assert` (196l), `extern` (196x) and `with`, which is now a keyword because a `with` block is a construct (fifth round).
 - **`as`** is a keyword too (ninth round, `case Declined as d:`), so the parser reserves 28 words. It binds the value a pattern matched, narrowed to the pattern's type ([Expressions](#expressions) rule 6).
 - **Contextual words.** `replace` (in a context), `initial` and `step` (in a machine), and `go` (after `import` and `extern`) have their meaning only in those positions. `uses` is an ordinary identifier with no compatibility path ([#217](https://github.com/cevr/ergo/issues/217)): `func f() uses A {}` is the plain S001 any stray identifier gets.
-- **`needs` and `provides`** (owner, 2026-10-27). `needs A, B` lists what a function, a function type, an operation or a context requires; `provides A, B` lists what a context exposes ([rows.md](rows.md#context)). *Prior art:* Roc's `provides` and `requires`; Effect's `Layer<ROut, E, RIn>`.
+- **`needs` and `provides`** (owner, 2026-10-27). `needs A | B` lists what a function, a function type, an operation or a context requires; `provides A | B` lists what a context exposes ([rows.md](rows.md#context)). Each is a row, a union, so it is spelled as the error row is: `fails NotFound | Declined needs Orders | Payments` (owner, 2026-11-03, 196n). *Prior art:* Roc's `provides` and `requires`; Effect's `Layer<ROut, E, RIn>`, whose requirement channel is the type union `R1 | R2`.
 - Constructs use keyword syntax; a dot form is always library (owner, 2026-10-12). `timeout.After`, `task.Go` and `scope.OnExit` are therefore library functions ([runtime.md](runtime.md)).
 
 ## Reserved words
@@ -129,9 +129,9 @@ Signature      = Params [ Type ] [ FailsClause ] [ NeedsClause ] .
 Params         = "(" [ Param { "," Param } [ "," ] ] ")" .
 Param          = [ identifier { "," identifier } ] Type .
 FailsClause    = "fails" TypeName [ TypeArgs ] { "|" TypeName [ TypeArgs ] } .
-NeedsClause    = "needs" TypeName { "," TypeName } .
+NeedsClause    = "needs" TypeName { "|" TypeName } .
 LetDecl        = "let" [ "mut" ] Pattern { "," Pattern } [ Type ] [ "=" Expression ] .
-ProvidesClause = "provides" TypeName { "," TypeName } .
+ProvidesClause = "provides" TypeName { "|" TypeName } .
 ContextBody    = "{" [ ContextEntry { "," ContextEntry } [ "," ] ] "}" .
 ContextEntry   = [ "replace" ] TypeName { "," TypeName } ":" Expression | TypeName .
 ```
@@ -151,7 +151,7 @@ ContextEntry   = [ "replace" ] TypeName { "," TypeName } ":" Expression | TypeNa
 6. **Machines.** `type Breaker machine[State, Signal] { initial: Closed{}, step: Step }` ([runtime.md](runtime.md#machines-and-actors)). The entries are `initial` and `step`, each once.
 7. **Results.** A function has at most one result type, which may be a tuple, then `fails`, then `needs`. A result tuple whose last element is `error`, and a bare `error[…]` result, are S001 with the `fails` message: cheap recognition of Go's `(T, error)` and of the old row.
 8. **No receivers.** `func Fee(o Order) int64` takes the receiver as its first parameter (196m). A method value is a call's business, not a selector's.
-9. **`needs` inside a list.** Inside a parameter or result list, `needs` takes one name, or a parenthesised list `needs (A, B)`, because a comma ends the parameter. A declaration's own `needs` clause, and a function literal's, is unparenthesised: `func() needs A, B { … }` (`needs (A, B)` on a literal is S001).
+9. **Capability rows are written with `|`** (196n). A `needs` or `provides` row separates its names with `|` in every position, a list included: `func g(h func() needs A | B)`, because `|` does not end a parameter. A comma between the names is S001 at the comma, "a capability row separates its names with |: write needs A | B" (or `provides`), wherever the comma cannot end something else: in a declaration, a function literal, a context header, a member before a lone name, and a named parameter before a name with no type. In a list of unnamed parameters or type arguments a comma still ends the element, so `func(func() needs A, B)` takes two parameters. A parenthesised row, `needs (A, B)` or `needs (A | B)`, is S001 at the `(`, "a capability row takes no parentheses: write needs A | B". `with E, F`, a context entry's keys `A, B: x`, type arguments and parameters keep their commas: each lists values or keys, not a row.
 10. **`let`.** `let x = e`, `let x T = e`, `let x T`, `let q, r = e` and `let Point{X: px} = p` bind names; `let mut` binds a name that may be reassigned (196v). `let x` needs a type or a value. `let mut` binds names only, never a pattern. A package-level `let` is immutable, so a package-level `let mut` is an error. A binder never reuses a name bound in an enclosing scope of the same function, function literals and trailing blocks included; sibling scopes may reuse a name, and a local may reuse a package-level name other than a prelude name (no shadowing, 196v rule 2; check-v1 D-D2). `let Name = context { … }` at package level is a named context.
 11. **Tests and laws.** `test Name { … }` is an example; `test Name(x T) { … }` a property. `law Name(params) { body }` is a member of an operation type (196l). Tests and `assert` are **implemented** (check-v1 stage E3a); laws are checked, not run (stage E3b; [types](types.md#laws)).
     - A test declares no value: its name is in no value scope. Its body is a failure target, so a failure that escapes it fails the test, and a service it calls comes only from its own `with` (S102).

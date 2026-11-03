@@ -879,14 +879,14 @@ func (p *parser) parseLetPattern() Expr {
 
 // ---------------------------------------------------------------- signatures and parameters
 
-// typeCtx is where a type stands, which decides how far an unparenthesised
-// needs clause of a function type reaches.
+// typeCtx is where a type stands, which decides what a comma after the
+// needs row of a function type means.
 type typeCtx int
 
 const (
-	ctxDecl   typeCtx = iota // a declaration: needs A, B up to the body
-	ctxList                  // a comma-separated list: needs takes one name or (A, B)
-	ctxMember                // a member of a braced type: needs A, B stops before the next member
+	ctxDecl   typeCtx = iota // a declaration: a comma after the row is its comma spelling
+	ctxList                  // a comma-separated list: a comma ends the element
+	ctxMember                // a member of a braced type: a comma ends the member, unless a lone name follows
 )
 
 type paramMode int
@@ -953,56 +953,53 @@ func (p *parser) startsType() bool {
 	return false
 }
 
-// parseProvides parses a context's `provides A, B`.
+// parseProvides parses a context's `provides A | B`. A comma after it is
+// never the header going on, so it is the comma spelling of the row.
 func (p *parser) parseProvides() *ProvidesClause {
 	u := &ProvidesClause{Provides: p.want(PROVIDES)}
-	u.Names = append(u.Names, p.parseCapabilityName("provides"))
-	for p.got(COMMA) {
-		u.Names = append(u.Names, p.parseCapabilityName("provides"))
+	u.Names = p.parseRow("provides")
+	if p.tok.tok == COMMA {
+		p.rowComma(p.tok.pos, "provides")
 	}
 	return u
 }
 
-// parseNeeds parses a needs clause. In a list it takes one name or a
-// parenthesised list; in a member it stops before the next member, an
-// operation `Name(`; elsewhere it takes every comma-separated name.
+// parseNeeds parses `needs A | B`. A comma after the row is its comma
+// spelling where it cannot end anything else: in a declaration, and in a
+// member when a capability name follows that does not start the next
+// member. In a list a comma ends the element (rule 3), and a named
+// parameter list reports the comma spelling itself (parseParameters).
 func (p *parser) parseNeeds(ctx typeCtx) *NeedsClause {
-	u := &NeedsClause{Needs: p.want(NEEDS), Lparen: NoPos, Rparen: NoPos}
-	if p.tok.tok == LPAREN {
-		if ctx != ctxList {
-			p.errorf("a parenthesised needs list belongs to a function type inside a list")
-		}
-		u.Lparen = p.tok.pos
-		p.next()
-		u.Names = append(u.Names, p.parseCapabilityName("needs"))
-		for p.got(COMMA) {
-			if p.tok.tok == RPAREN {
-				break
-			}
-			u.Names = append(u.Names, p.parseCapabilityName("needs"))
-		}
-		u.Rparen = p.want(RPAREN)
-		return u
-	}
-	u.Names = append(u.Names, p.parseCapabilityName("needs"))
-	switch ctx {
-	case ctxDecl:
-		for p.got(COMMA) {
-			u.Names = append(u.Names, p.parseCapabilityName("needs"))
-		}
-	case ctxMember:
-		for p.tok.tok == COMMA && p.continuesNeeds() {
-			p.next()
-			u.Names = append(u.Names, p.parseCapabilityName("needs"))
-		}
+	u := &NeedsClause{Needs: p.want(NEEDS)}
+	u.Names = p.parseRow("needs")
+	if p.tok.tok == COMMA && (ctx == ctxDecl || ctx == ctxMember && p.commaContinuesRow()) {
+		p.rowComma(p.tok.pos, "needs")
 	}
 	return u
 }
 
-// continuesNeeds reports whether the comma at the current token continues
-// a member's needs clause: a type name follows that does not start the next
+// parseRow parses the names of a capability row, `A | B`. A parenthesised
+// row is S001 with the bare form (196n).
+func (p *parser) parseRow(what string) []Expr {
+	if p.tok.tok == LPAREN {
+		p.errorAt(p.tok.pos, 1, "a capability row takes no parentheses: write %s A | B", what)
+	}
+	names := []Expr{p.parseCapabilityName(what)}
+	for p.got(OR) {
+		names = append(names, p.parseCapabilityName(what))
+	}
+	return names
+}
+
+// rowComma reports the comma spelling of a capability row at the comma.
+func (p *parser) rowComma(pos Pos, what string) {
+	p.errorAt(pos, 1, "a capability row separates its names with |: write %s A | B", what)
+}
+
+// commaContinuesRow reports whether the comma at the current token would
+// continue a member's row: a type name follows that does not start the next
 // member (an operation `Name(`, a field `Name Type` or a law).
-func (p *parser) continuesNeeds() bool {
+func (p *parser) commaContinuesRow() bool {
 	i := 1
 	t := p.peek(i)
 	if t.tok != IDENT && !(t.tok == GO && p.peek(i+1).tok == PERIOD) {
@@ -1024,8 +1021,9 @@ func (p *parser) continuesNeeds() bool {
 }
 
 type paramEntry struct {
-	name *Ident
-	typ  Expr
+	name  *Ident
+	typ   Expr
+	comma Pos // the comma before the entry, or NoPos for the first
 }
 
 // parseParameters parses a parameter list with Go's grouping: either every
@@ -1037,11 +1035,16 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 	saved := p.exprLev
 	p.exprLev = 1
 	var entries []paramEntry
+	comma := NoPos
 	for p.tok.tok != RPAREN {
-		entries = append(entries, p.parseParamEntry())
-		if !p.got(COMMA) {
+		e := p.parseParamEntry()
+		e.comma = comma
+		entries = append(entries, e)
+		if p.tok.tok != COMMA {
 			break
 		}
+		comma = p.tok.pos
+		p.next()
 	}
 	p.exprLev = saved
 	if p.tok.tok != RPAREN {
@@ -1060,10 +1063,11 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 		return l
 	}
 	var pending []*Ident
-	for _, e := range entries {
+	for i, e := range entries {
 		if e.name == nil {
 			id, ok := e.typ.(*Ident)
 			if !ok {
+				p.needsComma(entries, i-len(pending))
 				p.errorAt(e.typ.Pos(), int(e.typ.End()-e.typ.Pos()), "mixed named and unnamed parameters")
 			}
 			pending = append(pending, id)
@@ -1073,10 +1077,52 @@ func (p *parser) parseParameters(mode paramMode) *FieldList {
 		pending = nil
 	}
 	if len(pending) > 0 {
+		p.needsComma(entries, len(entries)-len(pending))
 		last := pending[len(pending)-1]
 		p.errorAt(last.Pos(), len(last.Name), "mixed named and unnamed parameters: %s has no type", last.Name)
 	}
 	return l
+}
+
+// needsComma reports the comma spelling of a needs row in a named parameter
+// list, `f func() needs A, B`: the entries from i on have no type, and the
+// one before them is a named parameter whose type ends in a needs row.
+func (p *parser) needsComma(entries []paramEntry, i int) {
+	if i == 0 || entries[i-1].name == nil || !endsInNeeds(entries[i-1].typ) || !isCapabilityName(entries[i].typ) {
+		return
+	}
+	p.rowComma(entries[i].comma, "needs")
+}
+
+// endsInNeeds reports whether the type t ends in a needs row.
+func endsInNeeds(t Expr) bool {
+	switch t := t.(type) {
+	case *FuncType:
+		if t.Needs != nil {
+			return true
+		}
+		if t.Results != nil && len(t.Results.List) > 0 {
+			return endsInNeeds(t.Results.List[len(t.Results.List)-1].Type)
+		}
+	case *StarExpr:
+		return endsInNeeds(t.X)
+	case *ArrayType:
+		return endsInNeeds(t.Elt)
+	}
+	return false
+}
+
+// isCapabilityName reports whether x has the shape of a capability name:
+// `Name`, `pkg.Name` or `go.Name`.
+func isCapabilityName(x Expr) bool {
+	switch x := x.(type) {
+	case *Ident:
+		return true
+	case *SelectorExpr:
+		_, ok := x.X.(*Ident)
+		return ok
+	}
+	return false
 }
 
 func (p *parser) parseParamEntry() paramEntry {

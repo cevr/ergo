@@ -438,11 +438,13 @@ func (c *checker) widenUnknown(dst, src Type) Type {
 	return &out
 }
 
+// rowText prints a row in a message as a set, its names spelled as the
+// source spells a row: `{A | B}` (196n).
 func rowText(r *Row) string {
 	if r.Empty() {
 		return "{}"
 	}
-	return "{" + r.list(", ") + "}"
+	return "{" + r.String() + "}"
 }
 
 // methodSet returns the method of t named name and its signature, for a
