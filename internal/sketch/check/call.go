@@ -73,6 +73,15 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		return c.callSig(x, fun.typ.(*Signature), fun)
 	case modeGeneric:
 		return c.callGeneric(x, fun.typ.(*Signature), nil, fun)
+	case modeExtern:
+		// The direct call of an extern, the one use P3 admits: its callee
+		// is the reference, in any parentheses, with or without type
+		// arguments.
+		sig := fun.typ.(*Signature)
+		if len(sig.TParams) > 0 {
+			return c.callGeneric(x, sig, nil, fun)
+		}
+		return c.callSig(x, sig, fun)
 	case modeValue, modeConst:
 		// A constant is a value too: `1()` and `K()` are S108, never an
 		// unchecked call (FuzzCheck, round 1b).
@@ -345,7 +354,13 @@ func (c *checker) explicit(x *syntax.IndexExpr, fun operand) operand {
 		}
 		targs[i] = t
 	}
-	return operand{mode: modeGeneric, typ: sig, fn: fun.fn, self: fun.self, obj: &explicitArgs{targs: targs}}
+	mode := modeGeneric
+	if fun.mode == modeExtern {
+		// F[int] of an extern stays call-only: it never reaches
+		// instantiateValue (P3).
+		mode = modeExtern
+	}
+	return operand{mode: mode, typ: sig, fn: fun.fn, self: fun.self, obj: &explicitArgs{targs: targs}}
 }
 
 // cannotInfer reports a type parameter the inferred subset does not reach

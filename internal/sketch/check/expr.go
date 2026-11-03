@@ -21,6 +21,9 @@ const (
 	modeCapFn   // a capability's method: only called
 	modePkg     // a package name: only before a selector
 	modeGeneric // a generic function not yet instantiated
+	// modeExtern is a reference to an extern function, with or without
+	// written type arguments: only the callee of a call (P3, extern.go).
+	modeExtern
 )
 
 // operand is the result of checking an expression. errs is its error row
@@ -150,6 +153,8 @@ func (c *checker) needValue(op *operand) {
 		c.errorf(op.expr, CodeType, "a capability method is only called (types.md, Capabilities 2)")
 	case modeBuiltin:
 		c.errorf(op.expr, CodeType, "%s is only called", exprText(op.expr))
+	case modeExtern:
+		c.errorf(op.expr, CodeType, "%s", externCallOnlyText)
 	case modeGeneric:
 		if ea, ok := op.obj.(*explicitArgs); ok {
 			sig := op.typ.(*Signature)
@@ -432,6 +437,9 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			return bad(x)
 		}
 		sig = c.unknownSig(sig, unknown)
+		if isExtern(o) {
+			return externRef(o, sig)
+		}
 		if len(sig.TParams) > 0 {
 			return operand{mode: modeGeneric, typ: sig, fn: o}
 		}
@@ -1132,6 +1140,9 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 			c.errorf(x, CodeType, "%s", overloadedText(o.Name))
 			return bad(x)
 		}
+		if isExtern(o) {
+			return externRef(o, o.Sig)
+		}
 		if len(o.Sig.TParams) > 0 {
 			return operand{mode: modeGeneric, typ: o.Sig, fn: o}
 		}
@@ -1162,6 +1173,13 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return bad(x)
 	case modeGeneric:
 		return c.explicit(x, base)
+	case modeExtern:
+		// F[int] is still the extern's reference; (F)[int] reads (F) as a
+		// value first, as for any generic function (round 5), and a
+		// non-generic extern takes no type arguments.
+		if len(base.typ.(*Signature).TParams) > 0 && unparen(x.X) == x.X {
+			return c.explicit(x, base)
+		}
 	case modeType:
 		t := c.typExpr(x, c.localTypeCtx())
 		if isInvalid(t) {

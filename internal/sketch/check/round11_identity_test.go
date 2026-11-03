@@ -327,7 +327,9 @@ func genericInferred(seed uint64) string {
 	rng := rand.New(rand.NewPCG(seed, seed^0x9e37))
 	var b strings.Builder
 	b.WriteString("type Bang {}\ntype Fault[T] { V T }\ntype Cap { M() }\n")
-	b.WriteString("extern go fixture.fail func fail() fails Bang\nextern go fixture.work func work() needs Cap\nextern go fixture.mark func mark[T]() fails Fault[T]\n")
+	// fail and work are function values below: ordinary functions, since
+	// an extern is call-only (check-v1 stage E4, P3).
+	b.WriteString("func fail() fails Bang { return Bang }\nfunc work() needs Cap { Cap.M() }\nextern go fixture.mark func mark[T]() fails Fault[T]\n")
 	types := []string{"int", "string", "Bang", "[]int"}
 	for i := range 6 {
 		ty := types[rng.IntN(len(types))]

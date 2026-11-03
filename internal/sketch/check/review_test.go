@@ -379,8 +379,8 @@ func F() { return f() }`},
 	{"D2", "numeric-constraint-literal", "S108", `func Zero[T comparable](x T) T { return 0 }`},
 	{"D6", "generic-two-rows", "", `type A {}
 type B {}
-extern go fixture.First func First() fails A
-extern go fixture.Second func Second() fails B
+func First() fails A { return A }
+func Second() fails B { return B }
 func Both[E](f func() fails E, g func() fails E) fails E {
 	try f()
 	return g()
@@ -388,8 +388,8 @@ func Both[E](f func() fails E, g func() fails E) fails E {
 func F() fails A | B { return Both(First, Second) }`},
 	{"D6", "generic-two-rows-too-wide", "S101", `type A {}
 type B {}
-extern go fixture.First func First() fails A
-extern go fixture.Second func Second() fails B
+func First() fails A { return A }
+func Second() fails B { return B }
 func Both[E](f func() fails E, g func() fails E) fails E {
 	try f()
 	return g()
