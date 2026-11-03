@@ -49,6 +49,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -395,8 +396,16 @@ func (g *gate) execute(step *Step) *result {
 		}
 	}
 	tmpDir := stepTempDir(g.root, step.Name)
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(tmpDir), 0o700); err != nil {
 		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: create step temp dir: %v\n", step.Name, err))}
+	}
+	lock, err := lockStepTemp(tmpDir + ".lock")
+	if err != nil {
+		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: lock step temp dir: %v\n", step.Name, err))}
+	}
+	if err := emptyStepTempDir(tmpDir); err != nil {
+		_ = unlockStepTemp(lock)
+		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: prepare step temp dir: %v\n", step.Name, err))}
 	}
 	started := time.Now()
 	command := exec.CommandContext(context.Background(), step.Argv[0], step.Argv[1:]...)
@@ -432,9 +441,15 @@ func (g *gate) execute(step *Step) *result {
 		}
 		r.output = output.Bytes()
 	}
-	if err := os.RemoveAll(tmpDir); err != nil {
+	cleanupErr := emptyStepTempDir(tmpDir)
+	unlockErr := unlockStepTemp(lock)
+	if cleanupErr != nil {
 		r.outcome = failed
-		r.output = append(r.output, []byte(fmt.Sprintf("gate: %s: remove step temp dir: %v\n", step.Name, err))...)
+		r.output = append(r.output, []byte(fmt.Sprintf("gate: %s: empty step temp dir: %v\n", step.Name, cleanupErr))...)
+	}
+	if unlockErr != nil {
+		r.outcome = failed
+		r.output = append(r.output, []byte(fmt.Sprintf("gate: %s: unlock step temp dir: %v\n", step.Name, unlockErr))...)
 		return r
 	}
 	if r.outcome == passed && key != "" {
@@ -502,6 +517,46 @@ func stepTempDir(root, name string) string {
 	return filepath.Join(os.TempDir(), "ergo-gate", "tmp", hex.EncodeToString(key[:]))
 }
 
+// emptyStepTempDir restores directory permissions before removing contents,
+// then leaves the stable root in place for the next run of this step.
+func emptyStepTempDir(name string) error {
+	if info, err := os.Lstat(name); err == nil && !info.IsDir() {
+		if err := os.Remove(name); err != nil {
+			return err
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(name, 0o700); err != nil {
+		return err
+	}
+	if err := filepath.WalkDir(name, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		return os.Chmod(path, info.Mode().Perm()|0o700)
+	}); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(name, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func stepEnvironmentFor(root, name string) []string {
 	return setEnvironmentVariable(stepEnvironment(), "TMPDIR", stepTempDir(root, name))
 }
@@ -533,9 +588,8 @@ func runsGoTest(step *Step) bool {
 
 // goTestEnvironment is the environment of a step that runs go test: the step
 // environment's entries that testenv allows, so a variable the gate does not
-// key cannot reach a cached test. Every step that runs go test gets the same
-// environment, so the test binaries "go test build" compiles are the ones
-// the test steps run.
+// key cannot reach a cached test. Each go test step gets its own stable TMPDIR,
+// and the tool digest keys that path along with the rest of its environment.
 func goTestEnvironment() []string {
 	return testenv.Environment(stepEnvironment())
 }

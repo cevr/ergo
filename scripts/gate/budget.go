@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // The memory budget (see the package comment). Every step runs under a step
@@ -269,9 +270,14 @@ func runBudgeted(limit limiter, name string, command *exec.Cmd) (usage, error) {
 	used := watch.finish()
 	if used.stopFailed {
 		output.abort()
-	}
-	if drainErr := output.wait(); err == nil && drainErr != nil {
-		err = fmt.Errorf("drain step output: %w", drainErr)
+	} else {
+		_, heldOpen, drainErr := output.finish()
+		if heldOpen {
+			addProcessIssue(&used, "step output held open by a process outside the step's process group or cgroup")
+		}
+		if err == nil && drainErr != nil {
+			err = fmt.Errorf("drain step output: %w", drainErr)
+		}
 	}
 	return used, err
 }
@@ -285,9 +291,17 @@ type commandOutput struct {
 	originalStderr io.Writer
 	readers        []*os.File
 	writers        []*os.File
-	drained        []<-chan error
+	drained        []<-chan pipeResult
+	stopReaders    chan struct{}
+	stopOnce       sync.Once
 	mu             sync.Mutex
 	aborted        bool
+}
+
+type pipeResult struct {
+	eof      bool
+	heldOpen bool
+	err      error
 }
 
 type synchronizedWriter struct {
@@ -306,7 +320,9 @@ func captureCommandOutput(command *exec.Cmd) (*commandOutput, error) {
 		command:        command,
 		originalStdout: command.Stdout,
 		originalStderr: command.Stderr,
+		stopReaders:    make(chan struct{}),
 	}
+	shared := command.Stdout != nil && command.Stderr != nil && interfaceEqual(command.Stdout, command.Stderr)
 	if command.Stdout != nil {
 		writer, err := output.pipe(command.Stdout)
 		if err != nil {
@@ -316,7 +332,9 @@ func captureCommandOutput(command *exec.Cmd) (*commandOutput, error) {
 		}
 		command.Stdout = writer
 	}
-	if command.Stderr != nil {
+	if shared {
+		command.Stderr = command.Stdout
+	} else if command.Stderr != nil {
 		writer, err := output.pipe(command.Stderr)
 		if err != nil {
 			output.closeWriters()
@@ -334,19 +352,66 @@ func (o *commandOutput) pipe(destination io.Writer) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := makePipeReaderNonblocking(reader); err != nil {
+		_ = reader.Close()
+		_ = writer.Close()
+		return nil, err
+	}
 	o.readers = append(o.readers, reader)
-	drained := make(chan error, 1)
+	drained := make(chan pipeResult, 1)
 	o.writers = append(o.writers, writer)
 	o.drained = append(o.drained, drained)
-	go func() {
-		_, copyErr := io.Copy(synchronizedWriter{mu: &o.mu, writer: destination}, reader)
-		closeErr := reader.Close()
-		if copyErr == nil {
-			copyErr = closeErr
-		}
-		drained <- copyErr
-	}()
+	go drainPipe(reader, destination, &o.mu, o.stopReaders, drained)
 	return writer, nil
+}
+
+func drainPipe(reader *os.File, destination io.Writer, mu *sync.Mutex, stop <-chan struct{}, drained chan<- pipeResult) {
+	result := pipeResult{}
+	defer func() { drained <- result }()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	buffer := make([]byte, 32<<10)
+	stopping := false
+	for {
+		read, err := readPipeNonblocking(reader, buffer)
+		if read > 0 {
+			mu.Lock()
+			written, writeErr := destination.Write(buffer[:read])
+			mu.Unlock()
+			if writeErr != nil {
+				result.err = writeErr
+				return
+			}
+			if written != read {
+				result.err = io.ErrShortWrite
+				return
+			}
+		}
+		if err == nil {
+			if read == 0 {
+				result.eof = true
+				return
+			}
+			continue
+		}
+		if pipeReadInterrupted(err) {
+			continue
+		}
+		if pipeReadWouldBlock(err) {
+			if stopping {
+				result.heldOpen = true
+				return
+			}
+			select {
+			case <-stop:
+				stopping = true
+			case <-ticker.C:
+			}
+			continue
+		}
+		result.err = err
+		return
+	}
 }
 
 func (o *commandOutput) closeWriters() {
@@ -358,23 +423,52 @@ func (o *commandOutput) closeWriters() {
 func (o *commandOutput) wait() error {
 	var first error
 	for _, drained := range o.drained {
-		if err := <-drained; first == nil && err != nil && !o.aborted {
-			first = err
+		if result := <-drained; first == nil && result.err != nil && !o.aborted {
+			first = result.err
 		}
 	}
+	o.closeReaders()
 	return first
 }
 
-func (o *commandOutput) abort() {
-	o.aborted = true
+func (o *commandOutput) finish() (eof, heldOpen bool, err error) {
+	o.stopOnce.Do(func() { close(o.stopReaders) })
+	eof = true
+	var first error
+	for _, drained := range o.drained {
+		result := <-drained
+		eof = eof && result.eof
+		heldOpen = heldOpen || result.heldOpen
+		if first == nil && result.err != nil && !o.aborted {
+			first = result.err
+		}
+	}
+	o.closeReaders()
+	return eof, heldOpen, first
+}
+
+func (o *commandOutput) closeReaders() {
 	for _, reader := range o.readers {
 		_ = reader.Close()
 	}
 }
 
+func (o *commandOutput) abort() {
+	o.aborted = true
+	o.stopOnce.Do(func() { close(o.stopReaders) })
+	o.closeReaders()
+}
+
 func (o *commandOutput) restore() {
 	o.command.Stdout = o.originalStdout
 	o.command.Stderr = o.originalStderr
+}
+
+// interfaceEqual matches os/exec's comparison: equal comparable writers can
+// share one pipe, while an uncomparable writer simply uses separate pipes.
+func interfaceEqual(a, b any) (equal bool) {
+	defer func() { _ = recover() }()
+	return a == b
 }
 
 // recordDurations measures the slow packages (writeDurations) under the

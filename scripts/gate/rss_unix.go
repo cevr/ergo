@@ -255,6 +255,66 @@ func waitForProcessGroup(pgid int) error {
 	}
 }
 
+// lockStepTemp serializes gates that use the same stable step temp directory.
+// Lock files remain beside the directory so waiters always lock the same inode.
+func lockStepTemp(name string) (*os.File, error) {
+	lock, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return lock, nil
+}
+
+func unlockStepTemp(lock *os.File) error {
+	flockErr := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	closeErr := lock.Close()
+	if flockErr != nil {
+		return flockErr
+	}
+	return closeErr
+}
+
+func makePipeReaderNonblocking(reader *os.File) error {
+	raw, err := reader.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var setErr error
+	if err := raw.Control(func(fd uintptr) {
+		setErr = syscall.SetNonblock(int(fd), true)
+	}); err != nil {
+		return err
+	}
+	return setErr
+}
+
+func readPipeNonblocking(reader *os.File, buffer []byte) (int, error) {
+	raw, err := reader.SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	var read int
+	var readErr error
+	if err := raw.Control(func(fd uintptr) {
+		read, readErr = syscall.Read(int(fd), buffer)
+	}); err != nil {
+		return 0, err
+	}
+	return read, readErr
+}
+
+func pipeReadWouldBlock(err error) bool {
+	return errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK)
+}
+
+func pipeReadInterrupted(err error) bool {
+	return errors.Is(err, syscall.EINTR)
+}
+
 // sampleGroups returns the resident memory, in bytes, of every process
 // group on the host.
 func sampleGroups() (map[int]int64, error) {
