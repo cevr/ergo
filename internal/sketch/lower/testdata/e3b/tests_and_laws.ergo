@@ -1,0 +1,36 @@
+// Stage E3b sweep (196l), program 11: tests and laws in one program. The
+// test build runs the tests and no law; the run build runs main only.
+type Codec {
+	Encode(v int) string,
+
+	law Stable(v int) { Encode(v) == Encode(v) },
+	law Width(v int) { len(Encode(v)) >= 1 },
+}
+
+type Plain {}
+
+func Encode(_ Plain, v int) string {
+	"\(v)"
+}
+
+let Live = context {
+	Codec: Plain,
+}
+
+test Encodes {
+	assert with Live { Codec.Encode(11) } == "11"
+}
+
+test Stable(v int) {
+	assert with Live { Codec.Encode(v) == Codec.Encode(v) }
+}
+
+func main() needs Console {
+	Console.Println(with Live { Codec.Encode(11) })
+}
+
+// run> 11
+// test> ok Encodes
+// test> ok Stable (100 cases)
+// test> PASS (2 tests)
+// test exit 0

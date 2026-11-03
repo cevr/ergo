@@ -1,0 +1,30 @@
+// Stage E3b sweep (196l), program 3: a package only a law uses. The run
+// build neither imports it nor names anything of it; the erasure property
+// blanks the import with the law. main's local WithCapacity keeps its Go
+// name only while no build reaches the library through the law: a library
+// a build reaches reserves its names at package scope (naming.go,
+// libraryPackages), and a local avoids every package name.
+import slice
+
+type Sized {
+	Size() int,
+
+	law Room(n int) {
+		let xs = slice.WithCapacity[int](n)
+		len(xs) + Size() >= Size()
+	},
+}
+
+type Fixed {}
+
+func Size(_ Fixed) int {
+	3
+}
+
+func main() needs Console {
+	let s Sized = Fixed
+	let WithCapacity = s.Size()
+	Console.Println("\(WithCapacity)")
+}
+
+// run> 3
