@@ -21,9 +21,9 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Interface value** (checked): A value of an interface type in a type position, such as a parameter `o Orders`. It holds a provider value. Calling its method runs that provider's method with the method's declared rows and charges no capability. A type is assignable to the interface by method-row compatibility ([types](docs/spec/types.md#interface-assignability)).
 
-**Provider** (checked for provider values): A value whose type implements a capability's methods, bound to that capability by a `wire`. A provider may fail less than its capability, never more.
+**Provider** (checked for provider values): A value whose type implements a capability's methods, bound to that capability by a `context`. A provider may fail less than its capability, never more.
 
-**Constructor** (designed): An ordinary function named as a `wire` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same wire, and its failures become startup failures of the `with` that builds it.
+**Constructor** (designed): An ordinary function named as a `context` entry, such as `Orders = OpenPostgres`. Its requirements are satisfied from the same context, and its failures become startup failures of the `with` that builds it.
 
 **Captured provider** (designed): A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.
 
@@ -63,21 +63,21 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Discharge** (checked): Removing a capability from the row a block charges to its enclosing function, because an enclosing `with` binds it.
 
-**Wire** (checked for provider values; constructors designed): A `wire { Cap: provider, … }` value that binds capabilities to providers or constructors. It is Ergo's form of an Effect layer.
+**Context** (checked for provider values; constructors designed): What `with` installs for a block: service bindings and context values. A `context { Cap: provider, … }` literal, inline or named, binds capabilities to providers or constructors; it is Ergo's form of an Effect layer. The construct was spelled `wire` until 196w ([2026-11-02 preview](docs/previews/2026-11-02-wire-to-context.md)). *Prior art:* Effect's `Context` (the service map a Layer builds), Go's `context.Context`, React Context, Scala 3 and Kotlin context parameters.
 
-**Wire exposure** (parsed; S109 naming [#196](https://github.com/cevr/ergo/issues/196) stage b, which checks it): The `provides A, B` clause of a named wire header: the capabilities a `with` of that wire discharges. Entries the wire builds and does not list stay private to its build. A header may also state the wire's requirements, `wire App provides Account, Invoice needs Config { … }`, which join the `with` site's capability row.
+**Context exposure** (parsed; S109 naming [#196](https://github.com/cevr/ergo/issues/196) stage b, which checks it): The `provides A, B` clause of a named context header: the capabilities a `with` of that context discharges. Entries the context builds and does not list stay private to its build. A header may also state the context's requirements, `let App = context provides Account, Invoice needs Config { … }`, which join the `with` site's capability row.
 
-**Inline wire** (checked): A `wire{ … }` literal given directly to `with`. Its provider expressions are evaluated in, and charged to, the enclosing function.
+**Inline context** (checked): A `context { … }` literal given directly to `with`. Its provider expressions are evaluated in, and charged to, the enclosing function.
 
-**Named wire** (checked): A top-level `let Name = wire { … }`. It is built by its own function at each `with` that names it.
+**Named context** (checked): A top-level `let Name = context { … }`. It is built by its own function at each `with` that names it.
 
-**Closed wire** (checked; open named wires are [#37](https://github.com/cevr/ergo/issues/37)'s): A named wire whose providers need no capability from the caller and let no failure escape. The checker admits only closed named wires.
+**Closed context** (checked; open named contexts are [#37](https://github.com/cevr/ergo/issues/37)'s): A named context whose providers need no capability from the caller and let no failure escape. The checker admits only closed named contexts.
 
-**Build** (designed): One execution of a wire at one `with`: constructors run once per shared node, and the build owns their releases until the `with` block ends. Each `with` is a new build.
+**Build** (designed): One execution of a context at one `with`: constructors run once per shared node, and the build owns their releases until the `with` block ends. Each `with` is a new build.
 
-**With** (checked for one wire): The compiler-known form `with(W) { block }`, spelled as a predeclared identifier. It discharges the capabilities `W` binds for the block and yields the block's last expression. It also takes context values (designed).
+**With** (checked for one context): The compiler-known form `with W { block }`. It installs a context for the block: it discharges the capabilities `W` binds and yields the block's last expression. It also takes context values (designed).
 
-**Context value** (designed): An immutable value, such as a span or a log annotation, that `with` scopes to a block and that every task started inside inherits.
+**Context value** (designed): A value in the context: an immutable value, such as a span or a log annotation, that `with` scopes to a block and that every task started inside inherits.
 
 **Footprint** (designed): Every capability a function's body exercises, including the ones its own `with` provides, plus `go`. The compiler infers it; it is never written.
 
@@ -137,7 +137,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Interruption point** (implemented in prototype before capability calls): A place where a task checks for interruption: a capability call, a channel operation, `Wait`, `Sleep` or a loop back-edge in a function with a footprint (I1).
 
-**Mask** (designed): A region that interruption cannot enter: releases, `Close`, `scope.OnExit` bodies, wire cleanup and the step between acquisition and its registration (I2).
+**Mask** (designed): A region that interruption cannot enter: releases, `Close`, `scope.OnExit` bodies, context cleanup and the step between acquisition and its registration (I2).
 
 **Exit cause**: How a task ended when it did not succeed: one or more typed failures, defects and interruptions, all kept.
 
@@ -171,7 +171,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Notation exception**: A syntax form admitted without an unrepresentability argument because it desugars one-to-one, at parse time, into ordinary calls and adds no checking, typing, evaluation order or runtime behavior.
 
-**Compiler-known construct**: A form whose meaning the compiler must know for checking, inference, plan facts, inspection or special lowering. By owner direction (2026-10-09) it is spelled as syntax or a predeclared language identifier. In the Go-shaped language: `try`, `catch`, `needs`, `provides`, `wire`, `machine`, `go` and `with`. A dot form is never one: `timeout.After` is an ordinary library function over the kernel primitives `go`, `Task.Stop` and `Scheduler`, and the prototype's name-keyed handling of it is a recorded exception ([spec README, Gap 31](docs/spec/README.md#gaps)).
+**Compiler-known construct**: A form whose meaning the compiler must know for checking, inference, plan facts, inspection or special lowering. By owner direction (2026-10-09) it is spelled as syntax or a predeclared language identifier. In the Go-shaped language: `try`, `catch`, `needs`, `provides`, `context`, `machine`, `go` and `with`. A dot form is never one: `timeout.After` is an ordinary library function over the kernel primitives `go`, `Task.Stop` and `Scheduler`, and the prototype's name-keyed handling of it is a recorded exception ([spec README, Gap 31](docs/spec/README.md#gaps)).
 
 **Predeclared language identifier**: A name the language specification defines in every package without an import or library declaration, following Go's predeclared `len` and `error`, such as `with`, `duration` and the prelude types. Capability services are not predeclared language identifiers, even when the compiler declares them.
 
@@ -193,7 +193,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Law** (designed): A named behavioral obligation that types cannot state, written as `law X(…) { … }` in an operation type, with a body that ends in a `bool` expression, and checked like a fuzz target. A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
 
-**Provider law** (designed): A law with a `needs` clause. It is checked against every provider wired for that capability.
+**Provider law** (designed): A law with a `needs` clause. It is checked against every provider bound to that capability.
 
 **Contract** ([#170](https://github.com/cevr/ergo/issues/170)): An interface used as a constraint together with the laws stated over its methods. A type satisfies the contract when it has the methods and its laws hold.
 
@@ -235,7 +235,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Occurrence link** (designed): The occurrence ID that one trace event records for another, set by the runtime and never inferred by a reader: a `handler` links the failure, deadline or child exit it caught; a `call-exit` its call; an `observe` the child's `body-exit`; a `panic` the capability call it left. A `body-exit` has no single link: each reason of its exit carries its own origin, an occurrence link for that reason alone (a typed failure its failed call, deadline or child exit; a defect its `panic`; an interruption its `cancel-request`). An origin names the occurrence the reason came from, never an occurrence that merely carried an equal value; when the runtime cannot tell which of several equal failures a reason came from, it records none. A trace query states a cause only along these links, says "origin not recorded" for a reason without one, and labels anything else a candidate.
 
-**Point event** (designed): A trace event that emitted code raises at its own source site: a capability `call` and its `call-exit` with the outcome (ok, a failure, a defect or interrupted), an `interrupt` at an interruption point, a wire `construct` or a catch `handler`. The runtime raises the other kinds for a task, keyed by the task's definition ID.
+**Point event** (designed): A trace event that emitted code raises at its own source site: a capability `call` and its `call-exit` with the outcome (ok, a failure, a defect or interrupted), an `interrupt` at an interruption point, a context `construct` or a catch `handler`. The runtime raises the other kinds for a task, keyed by the task's definition ID.
 
 **Trace evidence** (designed): The answer of a trace query (`sketchc trace`, later `ergo trace` and MCP `code.trace`): the `trace-evidence-1` envelope with the fields of the review evidence schema (#156), then the tasks, the capability calls with their spans, the resolved events and the cause trace. The query validates the trace before it answers and refuses a malformed one with the reason.
 
@@ -301,7 +301,7 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Materialized provider value**: An already constructed service implementation that can be explicitly reused without reexecuting its recipe.
 
-**Layer** (specified): A lazy checked acquisition plan selecting implementations and composing their construction dependencies. Its contract records exposed services, construction failures and unsatisfied inputs. Counterpart: wire.
+**Layer** (specified): A lazy checked acquisition plan selecting implementations and composing their construction dependencies. Its contract records exposed services, construction failures and unsatisfied inputs. Counterpart: context.
 
 **Layer binding** (specified): A nominal service selection at a declaration site, distinct from its implementation's type and from an acquired provider instance.
 

@@ -148,7 +148,7 @@ var MalformedTable = []Malformed{
 	{Name: "interpolation-multi-line-comment", Src: "let s = \"x \\(a /* c\nd */)\"\n", Lines: []int{1}},
 	{Name: "try-operand", Src: "func f(a int64) int64 fails E {\n\ta + try g()\n}\n", Lines: []int{2}},
 	// A capability name takes no type arguments (TypeName in needs,
-	// provides and context keys).
+	// provides and context entry keys).
 	{Name: "needs-type-args", Src: "func f() needs A, B[T] {}\n", Lines: []int{1}},
 	{Name: "needs-list-type-args", Src: "func f(g func() needs (A, B[T])) {}\n", Lines: []int{1}},
 	{Name: "operation-needs-type-args", Src: "type S {\n\tF() needs A, B[T],\n}\n", Lines: []int{2}},

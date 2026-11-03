@@ -138,7 +138,7 @@ var cannotCarry = map[string]string{
 	"BinaryExpr":         "no binary operator yields a function",
 	"InterpolatedString": "an interpolation is a string",
 	"TypeGuard":          "a type test is a bool",
-	"ContextLit":         "a context value is no function (withArg reads it)",
+	"ContextLit":         "a context literal is no function (withArg reads it)",
 	"ArrayType":          "a type, not a value",
 	"MapType":            "a type, not a value",
 	"ChanType":           "a type, not a value (not built: #196)",

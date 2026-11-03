@@ -361,7 +361,7 @@ func TestRoundTwoForms(t *testing.T) {
 			t.Fatalf("parameter needs %+v", n)
 		}
 	})
-	t.Run("M11 context keys without layout", func(t *testing.T) {
+	t.Run("M11 context entry keys without layout", func(t *testing.T) {
 		// A comma run of names ended by ":" is one entry on any layout;
 		// an embed after the entries stays an embed.
 		for _, src := range []string{

@@ -505,7 +505,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	// this lowering builds only contexts declared in the file it lowers.
 	if len(w.Contexts) == 0 || (w.Contexts[0].Lit == nil && fc.l.isImported(w.Contexts[0])) {
 		if _, inline := unparen(x.Args[0]).(*syntax.ContextLit); inline {
-			refuse(x.Args[0], "an inline context value is lowered after check-v1 stage E (196x)")
+			refuse(x.Args[0], "an inline context literal is lowered after check-v1 stage E (196x)")
 		}
 		refuse(x.Args[0], "a with of an imported context is lowered after check-v1 stage B supplies its context (check-v1 r5b m2)")
 	}
@@ -737,7 +737,7 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 	for _, i := range a.Caps {
 		cap, ok := e.Caps[i].(*check.Named)
 		if !ok {
-			ice(e.Provider, "a context key that is not a named capability")
+			ice(e.Provider, "a context entry key that is not a named capability")
 		}
 		conv := check.Conversion{}
 		if i < len(e.Conversions) {

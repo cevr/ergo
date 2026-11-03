@@ -210,9 +210,9 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 			if o := c.lookup(a.Name); o != nil {
 				if _, isVar := o.(*Var); isVar {
 					// A local holding a context value binds it; one holding
-					// a context value is 196x's. An invalid value is S109
+					// a context literal is 196x's. An invalid value is S109
 					// already, and nothing cascades (D3).
-					cb, known := c.contextArg(arg, "with over a value (196x, extern and context values)")
+					cb, known := c.contextArg(arg, "with over a value (196x, extern and first-class contexts)")
 					return nil, known, nil, cb
 				}
 			}

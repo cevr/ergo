@@ -55,7 +55,7 @@ How to apply: a budget-taking API makes the budget a required argument, so omitt
 
 ## Surface language
 
-> **Superseded by [docs/spec/grammar.md](spec/grammar.md) and [docs/spec/rows.md](spec/rows.md) (2026-10-27).** The Go-shaped language spells a service as a capability interface, `raises` as `error[...]`, `run` as `try`, and provision as `with` and `wire`. The text below describes the earlier `.ef` surface.
+> **Superseded by [docs/spec/grammar.md](spec/grammar.md) and [docs/spec/rows.md](spec/rows.md) (2026-10-27).** The Go-shaped language spells a service as a capability interface, `raises` as `error[...]`, `run` as `try`, and provision as `with` and `context`. The text below describes the earlier `.ef` surface.
 
 ```rust
 error NotFound { id: UserId }
@@ -186,7 +186,7 @@ Runtime inspection initially stays observational. It connects to explicit manage
 
 ## Dependency construction and testing
 
-> **Superseded by [docs/spec/rows.md](spec/rows.md#wire) (2026-10-27)** for the surface: a `wire` binds capabilities to providers and constructors, and `with` discharges them. Test providers are ordinary wire entries ([docs/spec/stdlib.md](spec/stdlib.md#testing)). The construction principles below still hold.
+> **Superseded by [docs/spec/rows.md](spec/rows.md#context) (2026-10-27)** for the surface: a `context` binds capabilities to providers and constructors, and `with` discharges them. Test providers are ordinary context entries ([docs/spec/stdlib.md](spec/stdlib.md#testing)). The construction principles below still hold.
 
 Keep the distinction between a service contract, its implementation, and a Layer that constructs an implementation. Conceptually, `Layer<Provided, BuildErrors, Required>` is a recipe for acquiring services, possibly failing, with a scope that owns cleanup.
 

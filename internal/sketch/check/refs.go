@@ -24,7 +24,7 @@ import (
 // Identifiers that are not value references are skipped: a selector's
 // name, a label, a type (a composite literal's type, a local var's type, a
 // function literal's signature, a case type of a type switch or a catch
-// arm), a context key and a named context, and a struct literal's field names. A
+// arm), a context entry key and a named context, and a struct literal's field names. A
 // composite literal's key is a field label when the literal's type is a
 // struct and an expression otherwise (a map key, an array index), as in
 // go/types: the walk decides which from the literal's written type

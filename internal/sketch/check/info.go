@@ -22,7 +22,7 @@ import (
 //     block needs, with their conversions; the context itself holds the rest
 //     (Context.Provider, Context.Overrides; TestInfoComplete). A package name before a dot and a
 //     built-in callee are no values and have no Types entry. An inline
-//     context value's entries are stage E's (196x).
+//     context literal's entries are stage E's (196x).
 //  2. Final: no type in Info is invalid or holds a row variable; a type
 //     parameter appears only inside its own generic declaration. The one
 //     exception is go/types': the name in an explicit instantiation
@@ -580,7 +580,7 @@ type With struct {
 	// provider uses while it is built. Each entry is one acquisition,
 	// however many capabilities it binds. An overridden entry and an entry
 	// that nothing the block needs reaches are not acquired. Named and inline
-	// contexts use the same fact; general first-class context values stay stage E's.
+	// contexts use the same fact; general first-class contexts stay stage E's.
 	Acquired []*Acquisition
 	// Context is the context binding a with of a context value opens
 	// (runtime.md, G1), nil for a with of a context. Such a with has no Contexts

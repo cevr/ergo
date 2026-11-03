@@ -90,7 +90,7 @@ type contextGroup struct {
 // contextSource reads the package's context source once: its size, which fixes
 // the budget, and its inline contexts by declaration. The size counts every
 // context declaration and literal, its entries and embeddings, the capability
-// names written in context keys and in needs rows, and one. This walk defines
+// names written in context entry keys and in needs rows, and one. This walk defines
 // the budget, so it is not charged to it; it is linear in the source.
 func (c *checker) contextSource() (size int, groups []*contextGroup, hasContexts bool) {
 	size = 1

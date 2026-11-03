@@ -424,7 +424,7 @@ func TestCheckedImpliesLowered(t *testing.T) {
 					continue // two refused definitions are two mistakes
 				}
 				if site == "context" && k.name != "Store" {
-					continue // a context key is an operation type
+					continue // a context entry key is an operation type
 				}
 				if (site == "field" || site == "fieldset") && k.under == "tuple" && !k.named {
 					// `f (int, int)` in a type body is an operation

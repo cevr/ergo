@@ -17,7 +17,7 @@ var decidedFamilies = []string{
 	"import path", "import go", "import std",
 	"let", "let mut", "let without value", "let pattern", "let tuple pattern",
 	"package let pattern", "package let tuple pattern",
-	"context declaration", "context header", "context value", "inline context header", "context entries",
+	"context declaration", "context header", "context literal", "inline context header", "context entries",
 	"with", "with parentheses", "with several contexts",
 	"record type", "operation type", "law", "union", "variant in place", "machine",
 	"defined type", "type parameters", "ordered constraint",
@@ -132,7 +132,7 @@ func Now(f Fixed) int64 { return f.t }
 let W = context provides Ticker needs Log { Ticker: Fixed{t: 1} }
 func main() {}
 `, []string{"S109:6", "S109:6"}},
-	{"context value", "a context value outside with is 196x's, with no cascade at its use", `
+	{"context literal", "a context literal outside with is 196x's, with no cascade at its use", `
 type Ticker { Now() int64 }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }

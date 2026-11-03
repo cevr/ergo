@@ -42,7 +42,7 @@ test SlowGatewayTimesOut {
 }
 ```
 
-**What runs today:** the parser and the formatter accept all of this code. The prototype checker checks error rows, `try`, total `catch`, `needs` rows, closed wires and `timeout.After`. The task runtime `runtime/rt` records traces. Resource and law checks, provider replacement, `testing.VirtualClock` and `ergo test` are designed, not built. See the [status table](#status).
+**What runs today:** the parser and the formatter accept all of this code. The prototype checker checks error rows, `try`, total `catch`, `needs` rows, closed contexts and `timeout.After`. The task runtime `runtime/rt` records traces. Resource and law checks, provider replacement, `testing.VirtualClock` and `ergo test` are designed, not built. See the [status table](#status).
 
 Designed output, because `ergo test` is not built yet ([#196](https://github.com/cevr/ergo/issues/196)):
 
@@ -63,12 +63,12 @@ The "In Ergo" column is the design. The last column says what runs today.
 | Guarantee | What it means | In Go today | In Ergo | Runs today |
 | --- | --- | --- | --- | --- |
 | **Typed errors** | You can see every expected failure of a function, and the compiler knows which failures you handled. | `error` says only "something failed" | `fails NotFound \| Declined`, exhaustive `catch` | prototype checker |
-| **Declared dependencies** | You can see every service the caller must supply. A missing one is a compile error. | `context.Context` values, globals, constructor plumbing | `needs` rows, `wire … provides`, `with` | prototype checker: `needs` rows, closed wires |
+| **Declared dependencies** | You can see every service the caller must supply. A missing one is a compile error. | `context.Context` values, globals, constructor plumbing | `needs` rows, `context … provides`, `with` | prototype checker: `needs` rows, closed contexts |
 | **Resource safety** | Everything acquired is released once, on every exit: success, failure, panic or cancellation. | `defer`, if you remember it | release at scope end; moves and lends | release rules in `runtime/rt`; checks designed ([#197](https://github.com/cevr/ergo/issues/197)) |
 | **Structured concurrency** | No task outlives its scope. A stop reaches every child. A stop cannot cut cleanup short. | goroutines can leak; `context` is cooperative | scoped tasks, interruption points, masked release | task tree, stops and masks in `runtime/rt` |
 | **Every cause kept** | When several things fail, you get all of them, with defects kept apart from expected failures. | needs explicit aggregation (`errors.Join`) and recovery code | one cause with every failure, defect and interruption | designed; `runtime/rt` keeps defects, not yet every child failure |
 | **Built-in observability** | Every task and every service call can be traced, keyed to its source, with no code changes. | spans added by hand | trace events named by the compiler; off adds no allocations | `runtime/rt` and the prototype ([#188](https://github.com/cevr/ergo/issues/188)) |
-| **Testable time and effects** | A test swaps any service, the clock included, with no mock framework. | interfaces and hand-written fakes | `replace` in a test wire; `testing.VirtualClock` | designed; `runtime/rt` has a virtual clock |
+| **Testable time and effects** | A test swaps any service, the clock included, with no mock framework. | interfaces and hand-written fakes | `replace` in a test context; `testing.VirtualClock` | designed; `runtime/rt` has a virtual clock |
 | **Laws** | You state what must always hold, and every implementation is checked against it. | comments and example tests | `law X(…) { … }` in an operation type | designed ([#162](https://github.com/cevr/ergo/issues/162)) |
 
 Ergo keeps Go's spelling, Go's runtime and garbage collector, and single static binaries built by `go build`. The compiler is designed to check the guarantees, erase them and emit ordinary Go, with no wrapper values, so a function is still a function and an error type still implements `error`.
@@ -106,7 +106,7 @@ func Settle(id string, card Card) fails NotFound needs Orders, Payments {
 
 ## Needs and provides
 
-*Status:* the prototype checks `needs` rows, inline wires and closed named wires today. The rest of this section is designed, not built: the `provides` and `needs` wire header, constructors, embedding, `replace` and an error row on `main` parse and format, and their checks are designed ([rows](docs/spec/rows.md#wire)).
+*Status:* the prototype checks `needs` rows, inline contexts and closed named contexts today. The rest of this section is designed, not built: the `provides` and `needs` context header, constructors, embedding, `replace` and an error row on `main` parse and format, and their checks are designed ([rows](docs/spec/rows.md#context)).
 
 ```go
 let Store = context provides Orders needs Config {
@@ -125,11 +125,11 @@ func main() fails NotFound | Declined | DialFailed needs Console {
 }
 ```
 
-- `needs` lists the services the caller must supply. `provides` lists what a named wire exposes. Every other entry stays private to the wire's build.
+- `needs` lists the services the caller must supply. `provides` lists what a named context exposes. Every other entry stays private to the context's build.
 - `with` meets the needs of its block. A capability that nothing provides is a compile error that names it.
 - A service that a `with` inside the body supplies leaves the row: `main` calls `Checkout`, which needs `Orders` and `Payments`, yet `main`'s row lists only `Console`. The row is what remains for the caller, not every service the body touches. The footprint, every capability a body uses, is designed: the compiler will infer it and `ergo inspect` will show it ([rows](docs/spec/rows.md#footprints)).
 - A constructor's failures join the row of the `with` that builds it, so `main` lists `DialFailed`.
-- Prior art: Roc's `provides` and `requires`, and Google Wire.
+- Prior art: Roc's `provides` and `requires`, and Google Context.
 
 ### Tests replace providers, with no mock framework
 
@@ -353,7 +353,7 @@ These are rules of the designed language. The parser enforces the syntax rules t
 | Part | Status |
 | --- | --- |
 | Parser and `ergo fmt` | In the main compiler ([#195](https://github.com/cevr/ergo/issues/195)) |
-| `ergo check`, `diagnostics`, `build` and `run` | Accept the prototype subset: rows, `try`, `catch`, closed wires and `timeout.After` ([example](examples/editions/sketch/main.ergo)) |
+| `ergo check`, `diagnostics`, `build` and `run` | Accept the prototype subset: rows, `try`, `catch`, closed contexts and `timeout.After` ([example](examples/editions/sketch/main.ergo)) |
 | Checker: types, generics, error and needs rows | In progress ([#196](https://github.com/cevr/ergo/issues/196)): v1 stages A (typed literals), B (type shapes, bare records, patterns and totality, tuples, conversions), C (tail results, `if` and `match` expressions, one `catch` with row values) and D1 (`let mut`, no shadowing, prelude names) are checked and lowered |
 | Linearity, borrows and captures | Designed ([#197](https://github.com/cevr/ergo/issues/197)) |
 | Lowering to Go in the main compiler | Open ([#50](https://github.com/cevr/ergo/issues/50)); prototype in [`prototypes/sketch9`](prototypes/sketch9/README.md) |

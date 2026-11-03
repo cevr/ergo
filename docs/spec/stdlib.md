@@ -19,10 +19,10 @@ The standard library is the "Effect for Go" track, [#206](https://github.com/cev
 | Channels, queues and streams | [#64](https://github.com/cevr/ergo/issues/64) | Queue, PubSub, Mailbox, Stream, Sink, Channel | `queue.Queue`, `for … in`, iterators that are resources | kernel + library |
 | Schema and codecs | [#49](https://github.com/cevr/ergo/issues/49) | Schema, Arbitrary | `ParseX`/`Wire` by name, `json.Codec` | library + coherence rule |
 | Sync and STM | [#208](https://github.com/cevr/ergo/issues/208) | Ref, SynchronizedRef, Deferred, Semaphore, Latch, TxRef, TxQueue, TxSemaphore | `sync.Ref`, `sync.Atomically() { }`, `sync.Tx` | kernel + library |
-| Batching, caching and pools | [#68](https://github.com/cevr/ergo/issues/68) | Request, RequestResolver, Cache, ScopedCache, Pool, KeyedPool, RcRef, RcMap, ScopedRef | `batch.Resolve` in `wire` | library |
+| Batching, caching and pools | [#68](https://github.com/cevr/ergo/issues/68) | Request, RequestResolver, Cache, ScopedCache, Pool, KeyedPool, RcRef, RcMap, ScopedRef | `batch.Resolve` in `context` | library |
 | Config | [#67](https://github.com/cevr/ergo/issues/67) | Config, ConfigProvider, Redacted | `config`, `Redacted[T]` | library |
 | Observability | [#69](https://github.com/cevr/ergo/issues/69) | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, `log`, `metric` | library on kernel G1/G2 ([#200](https://github.com/cevr/ergo/issues/200)) |
-| Clock, random and testing | [#209](https://github.com/cevr/ergo/issues/209) | Clock, Random, Console, TestClock, TestServices, TestContext, `it.effect` | prelude capabilities, `testing.VirtualClock` in `wire` | kernel seams + library |
+| Clock, random and testing | [#209](https://github.com/cevr/ergo/issues/209) | Clock, Random, Console, TestClock, TestServices, TestContext, `it.effect` | prelude capabilities, `testing.VirtualClock` in `context` | kernel seams + library |
 | HTTP | [#51](https://github.com/cevr/ergo/issues/51) | HttpClient, HttpServer, HttpRouter, HttpApi | `func(http.Request) http.Response`, total `catch` | library + host |
 | RPC | [#53](https://github.com/cevr/ergo/issues/53) | Rpc, RpcGroup | over `http` and `json` | library |
 | HTML | [#212](https://github.com/cevr/ergo/issues/212) | (none; Lustre and Elm prior art) | `html` functions | library |
@@ -34,7 +34,7 @@ Out of scope for now: durable workflows.
 
 ## Prelude
 
-The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random` and `Console`. Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The four capabilities are ordinary interfaces bound by `wire` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
+The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random` and `Console`. Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The four capabilities are ordinary interfaces bound by `context` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
 
 ## v1 packages: task, scope, queue and slice
 
@@ -60,7 +60,7 @@ The hidden parameters come first, in this order, each at most once; a hidden typ
 
 The lowering supplies these values from the caller's frame and the checked declaration:
 
-1. **Every function takes the environment.** Every lowered function, method, function literal, function value, wire builder and package initializer takes a hidden `env *Env` first; the environment holds one field per capability and the running task (`env.task`, a `*rt.Task`). `main` gets its task from `v1.Main`, and a `task.Go` block runs with a copy of the caller's environment that holds the child task. There is no narrower rule yet: Go threads `context.Context` the same way, and Kotlin passes its hidden continuation only to `suspend` functions, which needs an analysis Ergo does not have.
+1. **Every function takes the environment.** Every lowered function, method, function literal, function value, context builder and package initializer takes a hidden `env *Env` first; the environment holds one field per capability and the running task (`env.task`, a `*rt.Task`). `main` gets its task from `v1.Main`, and a `task.Go` block runs with a copy of the caller's environment that holds the child task. There is no narrower rule yet: Go threads `context.Context` the same way, and Kotlin passes its hidden continuation only to `suspend` functions, which needs an analysis Ergo does not have.
 2. **A frame scope where one is needed.** A function that calls `task.Go`, `scope.OnExit` or a function whose result is a `Task` opens `fs := v1.NewScope(env.task)` and `defer fs.End(&err)` (`fs.End(nil)` when the function cannot fail), and passes `&fs` as the frame. The checker records per call whether the result holds a `Task` (`Info.Calls[x].TaskResult`, from the one owner of Task containment), for direct calls, calls through function values and function literals; the lowering never derives it again. A function whose result is a `Task` takes the caller's scope as a hidden destination after the environment, and its return is `v.Move(dest)`. A result that holds a `Task` inside another type (`Option[Task[T, E]]`) is refused with S109 naming check-v1 stage E, and so is a `Task` as a type argument.
 3. **The site** of `task.Go` is `FUNC calls task.Go at FILE:LINE:COL`: the source function that makes the call, as the call table names it, and the position of the call.
 4. **The task** of `Push`, `Pop` and `Values` is `env.task`.
@@ -119,7 +119,7 @@ Each value's type (`span`, `annotation`) is an unexported record with the protoc
 
 ## Batching
 
-[#68](https://github.com/cevr/ergo/issues/68). A provider implements `FindMany`, and `wire` wraps it: `Users = batch.Resolve(UsersDB, batch.Window(2ms), batch.Max(100))`. Go has no scheduler tick to batch on, so the window is explicit. Duplicate keys share one result. A stopped waiter leaves the batch; the batch is cancelled when no waiter is left. "One query" holds only when every call arrives inside the window. *Prior art:* DataLoader states its scheduling policy; Haxl, ZIO Query and Effect `RequestResolver` batch per round.
+[#68](https://github.com/cevr/ergo/issues/68). A provider implements `FindMany`, and `context` wraps it: `Users = batch.Resolve(UsersDB, batch.Window(2ms), batch.Max(100))`. Go has no scheduler tick to batch on, so the window is explicit. Duplicate keys share one result. A stopped waiter leaves the batch; the batch is cancelled when no waiter is left. "One query" holds only when every call arrives inside the window. *Prior art:* DataLoader states its scheduling policy; Haxl, ZIO Query and Effect `RequestResolver` batch per round.
 
 ## HTTP
 
@@ -154,4 +154,4 @@ func OrderRow(o Order) html.Node {
 
 ## Testing
 
-[#209](https://github.com/cevr/ergo/issues/209). `testing.VirtualClock` provides `Clock` and `Scheduler` and jumps to the next timer when every task in the test is blocked. `T.Idle()` reports the tasks that keep a test from reaching idle. The test harness is an ordinary `wire`, so production code needs no change to run on virtual time. *Prior art:* Go `testing/synctest` bubbles; Trio `MockClock(autojump_threshold=0)`; Effect `TestClock`.
+[#209](https://github.com/cevr/ergo/issues/209). `testing.VirtualClock` provides `Clock` and `Scheduler` and jumps to the next timer when every task in the test is blocked. `T.Idle()` reports the tasks that keep a test from reaching idle. The test harness is an ordinary `context`, so production code needs no change to run on virtual time. *Prior art:* Go `testing/synctest` bubbles; Trio `MockClock(autojump_threshold=0)`; Effect `TestClock`.

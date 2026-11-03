@@ -370,7 +370,7 @@ func (c *converter) contextEntries(b *syntax.ContextBody) []ContextEntry {
 		default:
 			id, ok := e.Key.(*syntax.Ident)
 			if !ok {
-				c.refuse(e.Key, "a qualified context key")
+				c.refuse(e.Key, "a qualified context entry key")
 				continue
 			}
 			if v := c.expr(e.Value); v != nil {

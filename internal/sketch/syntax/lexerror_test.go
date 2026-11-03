@@ -52,7 +52,7 @@ var lexErrorCases = []struct {
 	// expression reading reports "a type is not a value" at the `escaping`.
 	{"index, type reading reaches the error", `func A(){let y = f[escaping func("`, 33, "string literal not terminated"},
 	// keysContinue reads a context body's key list.
-	{"context keys, unterminated string", `func A(){with context{A, "`, 25, "string literal not terminated"},
+	{"context entry keys, unterminated string", `func A(){with context{A, "`, 25, "string literal not terminated"},
 }
 
 // checkStream reports the first break of the token stream's invariant, or

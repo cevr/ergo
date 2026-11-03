@@ -21,7 +21,7 @@ import (
 )
 
 // Context values through with (runtime-199 stage 4a; runtime.md, G1).
-// TestRuntime199ContextProperty generates functions whose bodies nest
+// TestRuntime199ContextValueProperty generates functions whose bodies nest
 // context regions (log.Annotate, trace.Span and a user type that satisfies
 // the protocol), shadow one key with another region of it, mix them with
 // context withs whose providers' Close reads the context, and start tasks
@@ -991,7 +991,7 @@ func TestContext(t *testing.T) {
 }
 `
 
-// TestRuntime199ContextOwner fails a context region that bypasses its
+// TestRuntime199ContextValueOwner fails a context region that bypasses its
 // owner. The lowering emits Scope.OpenContext and Context.End only from
 // contextWith, and the protocol functions are called only by contextCall.
 // In the runtime, rt.Task.WithValue is called only by v1's OpenContext, a

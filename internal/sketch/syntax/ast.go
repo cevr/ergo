@@ -510,7 +510,7 @@ type (
 		Rbrace Pos
 	}
 
-	// ContextLit is a context value `context [provides …] [needs …] { … }`; either
+	// ContextLit is a context literal `context [provides …] [needs …] { … }`; either
 	// clause may be nil.
 	ContextLit struct {
 		Context  Pos

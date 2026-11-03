@@ -704,7 +704,7 @@ func stripParens(x Expr) Expr {
 func headerSafe(x Expr) bool {
 	switch x := x.(type) {
 	case *Ident, *BasicLit, *InterpolatedString, *ParenExpr, *TupleExpr, *ContextLit:
-		// A context value starts with its keyword, so its braces are never
+		// A context literal starts with its keyword, so its braces are never
 		// read as the body (D1.8).
 		return true
 	case *SelectorExpr:

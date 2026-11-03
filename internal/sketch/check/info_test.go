@@ -476,7 +476,7 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 	// capability: the entry its context's Provider returns, which lists it.
 	for x, w := range info.Withs {
 		if len(w.Contexts) == 0 {
-			continue // an inline context value: stage E (196x)
+			continue // an inline context literal: stage E (196x)
 		}
 		if len(w.Entries) != len(w.Discharged) {
 			at(x, fmt.Sprintf("a with of %d capabilities with %d Entries", len(w.Discharged), len(w.Entries)))
