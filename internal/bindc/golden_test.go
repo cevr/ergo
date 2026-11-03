@@ -116,6 +116,11 @@ func TestGolden(t *testing.T) {
 				}
 			}
 			checkGolden(t, filepath.Join(h.dir, "go", name), src)
+			ergo, err := ErgoText(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkGolden(t, filepath.Join(h.dir, strings.TrimSuffix(h.header, ".h")+".ergo"), ergo)
 		})
 	}
 }

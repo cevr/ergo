@@ -1,0 +1,237 @@
+package bindc
+
+import (
+	"fmt"
+	"strings"
+
+	"ergo.local/prototype/internal/sketch/format"
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// ErgoText emits the Ergo signatures of a binding (the <header>.ergo
+// golden). It is provisional: it has to parse with internal/sketch/syntax
+// and be in canonical internal/sketch/format form, and the checker does
+// not read it yet (bind-c-5).
+//
+//   - a provenance header and `import go <import path>` (unquoted, as the
+//     grammar's import paths are);
+//   - the Status union with one variant in place per status code and no
+//     success arm, and the CallError union of the binding's own failures
+//     (a call before Load, a destroyed handle, a slice too long);
+//   - one record per C struct the typed layer takes or returns by value,
+//     with CamelCase fields, no autofill fields, and arrays as []T;
+//   - handles and scalar typedefs named through the import (opaque
+//     nominal, #202 Level 1);
+//   - one `extern go <path>.<GoName> func <GoName>(...) R fails ...` per
+//     typed function, and a `// not bound: <name> (<reason>)` line per
+//     raw-only one;
+//   - no `needs` rows.
+func ErgoText(b *Binding) ([]byte, error) {
+	e := &ergoEmitter{b: b, records: map[string]bool{}}
+	for _, f := range b.Funcs {
+		if f.Sig != nil {
+			e.markSig(f)
+		}
+	}
+	// The union variants and the records share the type names of the file.
+	seen := map[string]string{"Status": "the Status union", "CallError": "the CallError union",
+		"NotLoaded": "CallError", "Destroyed": "CallError", "TooLong": "CallError"}
+	for _, x := range b.Codes {
+		v := strings.TrimPrefix(b.CodeGoName(x), "Status")
+		if prev, ok := seen[v]; ok {
+			return nil, fmt.Errorf("bindc: Ergo type name %s of %s is also %s", v, x.Name, prev)
+		}
+		seen[v] = x.Name
+	}
+	for _, d := range b.k.m.Types {
+		if e.records[d.Name] {
+			if prev, ok := seen[b.GoTypes[d.Name]]; ok {
+				return nil, fmt.Errorf("bindc: Ergo type name %s of %s is also %s", b.GoTypes[d.Name], d.Name, prev)
+			}
+			seen[b.GoTypes[d.Name]] = d.Name
+		}
+	}
+	src := e.file()
+	if _, err := syntax.Parse(src); err != nil {
+		return nil, fmt.Errorf("bindc: the generated Ergo does not parse: %v", err)
+	}
+	out, err := format.Source(src)
+	if err != nil {
+		return nil, fmt.Errorf("bindc: the generated Ergo does not format: %v", err)
+	}
+	return []byte(out), nil
+}
+
+type ergoEmitter struct {
+	b       *Binding
+	w       strings.Builder
+	records map[string]bool // C struct names that get a record
+}
+
+func (e *ergoEmitter) p(format string, args ...any) { fmt.Fprintf(&e.w, format, args...) }
+
+// pkg is the name the import binds: the last element of the import path.
+func (e *ergoEmitter) pkg() string {
+	p := e.b.Contract.Go.ImportPath
+	return p[strings.LastIndexByte(p, '/')+1:]
+}
+
+// markSig records every struct a typed signature reaches by value.
+func (e *ergoEmitter) markSig(f *BoundFunc) {
+	k := e.b.k
+	c := f.C
+	var mark func(t Type)
+	mark = func(t Type) {
+		for t.Kind == TypeArray || t.Kind == TypePointer {
+			t = *t.Elem
+		}
+		if d := k.types[t.Name]; t.Kind == TypeNamed && d != nil && d.Kind == DeclStruct && !e.records[t.Name] {
+			e.records[t.Name] = true
+			for _, fl := range d.Fields {
+				mark(fl.Type)
+			}
+		}
+	}
+	for _, p := range f.Sig.Params {
+		mark(c.Params[p.C].Type)
+	}
+	for _, r := range f.Sig.Results {
+		if r.C < 0 {
+			mark(c.Result)
+		} else {
+			mark(c.Params[r.C].Type)
+		}
+	}
+}
+
+// ergoType is the Ergo type of a C value type: scalars by their Go name,
+// structs as records, other named types through the import, arrays as []T.
+func (e *ergoEmitter) ergoType(t Type) string {
+	k := e.b.k
+	switch t.Kind {
+	case TypeScalar:
+		return goScalar[t.Scalar]
+	case TypeArray:
+		return "[]" + e.ergoType(*t.Elem)
+	case TypePointer:
+		if t.LenExpr == "" && k.isHandleType(*t.Elem) {
+			return "*" + e.pkg() + "." + e.b.GoTypes[t.Elem.Name]
+		}
+	case TypeNamed:
+		d := k.types[t.Name]
+		if d.Kind == DeclStruct {
+			return e.b.GoTypes[t.Name]
+		}
+		return e.pkg() + "." + e.b.GoTypes[t.Name]
+	}
+	return "?"
+}
+
+// ergoReserved holds the names an Ergo parameter or field may not take:
+// keywords, reserved words, and the predeclared and prelude names.
+var ergoReserved = map[string]bool{}
+
+func init() {
+	for _, w := range append(syntax.Keywords(), syntax.Reserved()...) {
+		ergoReserved[w] = true
+	}
+	for n := range goReserved {
+		ergoReserved[n] = true
+	}
+	for _, n := range strings.Fields("duration comparable ordered number Map Option rt time fmt init Error timeout") {
+		ergoReserved[n] = true
+	}
+}
+
+// ergoName is a parameter name for Ergo: its Go name without a final "_",
+// with "Arg" added when that is reserved.
+func ergoName(goName string) string {
+	n := strings.TrimRight(goName, "_")
+	if ergoReserved[n] {
+		n += "Arg"
+	}
+	return n
+}
+
+func (e *ergoEmitter) file() string {
+	b := e.b
+	c := b.Contract
+	e.p("// Code generated by ergo bind c (internal/bindc); DO NOT EDIT.\n")
+	e.p("// header %s sha256 %s\n// contract sha256 %s\n", c.Header, b.HeaderSHA256, b.ContractSHA256)
+	e.p("// Provisional Ergo signatures of the Go package %s: they parse and\n// format; the checker does not read them yet.\n\n", c.Go.ImportPath)
+	e.p("import go %s\n\n", c.Go.ImportPath)
+
+	var variants []string
+	for _, x := range b.Codes {
+		variants = append(variants, strings.TrimPrefix(b.CodeGoName(x), "Status")+"{}")
+	}
+	if len(variants) > 0 {
+		e.p("// Status is a status code of %s other than %s.\ntype Status = %s\n\n", c.Status.Type, c.Status.Success, strings.Join(variants, "\n\t| "))
+	}
+	e.p("// CallError is a failure of the binding itself: a call before Load,\n// a nil or destroyed handle, or a slice too long for its C length.\ntype CallError = NotLoaded{} | Destroyed{} | TooLong{}\n\n")
+
+	for _, d := range b.k.m.Types {
+		if d.Kind != DeclStruct || !e.records[d.Name] {
+			continue
+		}
+		e.p("// %s is %s.\ntype %s {\n", b.GoTypes[d.Name], d.Name, b.GoTypes[d.Name])
+		for _, f := range d.Fields {
+			if b.Autofill[f.Name] != "" {
+				continue
+			}
+			e.p("\t%s %s,\n", goCamel(f.Name), e.ergoType(f.Type))
+		}
+		e.p("}\n\n")
+	}
+
+	for _, f := range b.Funcs {
+		if f.Sig == nil {
+			e.p("// not bound: %s (%s)\n", f.C.Name, f.RawOnly)
+			continue
+		}
+		var params []string
+		for _, p := range f.Sig.Params {
+			t := f.C.Params[p.C].Type
+			var et string
+			switch p.Class {
+			case ClassHandle:
+				et = "*" + e.pkg() + "." + b.GoTypes[t.Elem.Name]
+			case ClassValue:
+				et = e.ergoType(*t.Elem)
+				if t.LenExpr != "" {
+					et = "[]" + et
+				}
+			case ClassInBuffer, ClassOutBuffer:
+				et = "[]" + e.ergoType(*t.Elem)
+				if et == "[]uint8" {
+					et = "[]byte"
+				}
+			default:
+				et = e.ergoType(t)
+			}
+			params = append(params, ergoName(p.Name)+" "+et)
+		}
+		var res []string
+		for _, r := range f.Sig.Results {
+			if r.C < 0 {
+				res = append(res, e.ergoType(f.C.Result))
+				continue
+			}
+			res = append(res, e.ergoType(*f.C.Params[r.C].Type.Elem))
+		}
+		result := ""
+		switch len(res) {
+		case 0:
+		case 1:
+			result = " " + res[0]
+		default:
+			result = " (" + strings.Join(res, ", ") + ")"
+		}
+		fails := "CallError"
+		if f.Sig.Status && len(variants) > 0 {
+			fails = "Status | CallError"
+		}
+		e.p("extern go %s.%s func %s(%s)%s fails %s\n", c.Go.ImportPath, f.GoName, f.GoName, strings.Join(params, ", "), result, fails)
+	}
+	return e.w.String()
+}
