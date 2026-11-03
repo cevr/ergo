@@ -123,6 +123,25 @@ func main() needs Console {
 	Console.Println("\(Compare(1, 2))")
 }
 `, "-1\n"},
+	// The call check repeats the call's text in a block that never runs:
+	// the operands run left to right, once each, in every use, and the
+	// target runs once (round 2 verify probes).
+	{"order_once", `extern go strings.Repeat func Repeat(s string, n int) string
+func first() string needs Console { Console.Println("first"); "x" }
+func second() int needs Console { Console.Println("second"); 2 }
+func sink(s string) needs Console { Console.Println(s) }
+func main() needs Console {
+	sink(Repeat(first(), second()))
+	Repeat(first(), second())
+	let _ = Repeat(first(), second())
+	let f = func() string needs Console { Repeat(first(), second()) }
+	sink(f())
+	Console.Println("\(Repeat(first(), second()))")
+}
+`, "first\nsecond\nxx\nfirst\nsecond\nfirst\nsecond\nfirst\nsecond\nxx\nfirst\nsecond\nxx\n"},
+	{"host_once", `extern go fmt.Print func Print(s string)
+func main() { Print("once") }
+`, "once"},
 }
 
 func TestErgoRunE4Externs(t *testing.T) {
