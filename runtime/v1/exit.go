@@ -134,6 +134,30 @@ func settle(err *error, e error) {
 	raise(e)
 }
 
+// Capture is the exit that p carries, for code that recovers a panic outside
+// the lowered frames and must classify it before deciding to keep it, such
+// as the test build's case runner: p is a panic recovered on the goroutine
+// of task t. It classifies p as a boundary does (capture): an interruption
+// stays one, a carried exit is unpacked whole, and any other value is a
+// fresh defect recorded with t's chain and the stack at the panic. Call it
+// inside the recover, while the panicking frame is still on the stack. A nil
+// p carries no exit.
+func Capture(t *rt.Task, p any) error {
+	if p == nil {
+		return nil
+	}
+	return capture(t, p)
+}
+
+// Raise re-raises err, an exit Capture returned, in the calling frame, so
+// the next boundary receives it whole: every reason, each defect with the
+// stack Capture recorded. A nil err raises nothing.
+func Raise(err error) {
+	if err != nil {
+		raise(err)
+	}
+}
+
 // guarded runs body as the body of task t and returns every exit as an
 // error: a panic is recovered here, before rt's own boundary sees it, so a
 // fresh defect keeps its stack and a carried exit merges flat.
