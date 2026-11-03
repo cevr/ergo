@@ -208,7 +208,7 @@ Prior art, pinned:
 
 ### Zero-cost abstraction obligation
 
-Strong abstractions are a destination obligation alongside fast compilation and
+Strong abstractions are a destination obligation alongside exceptionally fast feedback and
 small executables. An admitted construct must make the illegal states and
 invalid operations covered by its checked contract unrepresentable in checked
 Ergo source, while foreign and trusted behavior remains explicitly qualified,
