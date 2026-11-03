@@ -2,7 +2,11 @@ package lower
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -189,6 +193,13 @@ func main() needs Console {
 	Console.Println("\(Whole(2.0))") // call
 }
 `},
+		// Round 1 M1: a discarded result is bound at its Ergo type too.
+		{"statement", `extern go math.Sqrt func Whole(x float64) int
+func main() needs Console {
+	Whole(2.0) // call
+	Console.Println("accepted-mismatch")
+}
+`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -211,6 +222,117 @@ func main() needs Console {
 			}
 		})
 	}
+}
+
+// TestErgoRunE4ResultUse (round 1 M1) is a property over every basic type
+// the checker admits as a user extern's result (check.Typ, Bool to
+// Duration: externBasic) crossed with every use of the call: a value, a
+// statement, a blank binding, an interpolation, and a function literal's
+// tail and statement. The Go target returns another type. Oracle: go build
+// fails, and every error names the call's line (4). The result is never
+// dropped unchecked. An interpolated complex value is E6a's refusal
+// (interp.go), so that cell may be refused instead.
+func TestErgoRunE4ResultUse(t *testing.T) {
+	uses := []struct{ name, line string }{
+		{"value", "consume(Wrong({arg}))"},
+		{"statement", "Wrong({arg})"},
+		{"blank", "let _ = Wrong({arg})"},
+		{"interpolation", `Console.Println("\(Wrong({arg}))")`},
+		{"closure_value", "let f = func() {type} { Wrong({arg}) }; consume(f())"},
+		{"closure_statement", "let g = func() { Wrong({arg}) }; g()"},
+	}
+	var builds []*lowered
+	for _, k := range check.Typ[check.Bool:] {
+		// A Go result of another type: string, or float64 for string.
+		target, param, arg := "strings.ToUpper", "string", `"x"`
+		if k.Kind == check.String {
+			target, param, arg = "math.Sqrt", "float64", "2.0"
+		}
+		for _, u := range uses {
+			body := strings.NewReplacer("{arg}", arg, "{type}", k.Name).Replace(u.line)
+			src := fmt.Sprintf("extern go %s func Wrong(x %s) %s\nfunc consume(v %s) {}\nfunc main() needs Console {\n\t%s\n\tConsole.Println(\"end\")\n}\n", target, param, k.Name, k.Name, body)
+			o := lowerSource("e4_use_"+k.Name+"_"+u.name, src, true)
+			switch {
+			case o.err != nil || len(o.diags) > 0 || o.panicked != nil:
+				t.Errorf("%s: error %v, diagnostics %v, panic %v\n%s", o.name, o.err, o.diags, o.panicked, src)
+			case len(o.refused) > 0:
+				if u.name != "interpolation" || (k.Kind != check.Complex64 && k.Kind != check.Complex128) || !strings.Contains(o.refused[0].Message, "interpolated value") {
+					t.Errorf("%s: refused %+v\n%s", o.name, o.refused, src)
+				}
+			default:
+				builds = append(builds, o)
+			}
+		}
+	}
+	errs := e4BuildErrors(t, builds)
+	for _, o := range builds {
+		if !e4FailsAt(errs[o.name], 4) {
+			t.Errorf("%s: go build does not fail at the call's line 4 only:\n%s\nsource:\n%s\nGo:\n%s", o.name, errs[o.name], o.src, o.mainGo())
+		}
+	}
+}
+
+// e4BuildErrors writes each program as package p/NAME of one module and
+// runs go build (no vet, no link) on them all. It returns the go build
+// output of each package that fails, by name.
+func e4BuildErrors(t *testing.T, programs []*lowered) map[string]string {
+	t.Helper()
+	root := t.TempDir()
+	write := func(rel string, data []byte) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", []byte(goMod))
+	for _, f := range Runtime() {
+		write(f.Path, f.Data)
+	}
+	for _, p := range programs {
+		write("p/"+p.name+"/main.go", []byte(p.mainGo()))
+	}
+	cmd := exec.Command("go", "build", "./p/...")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
+	out, _ := cmd.CombinedOutput()
+	sections := map[string]string{}
+	cur := ""
+	for _, l := range strings.Split(string(out), "\n") {
+		if name, ok := strings.CutPrefix(l, "# "+programModule+"/p/"); ok {
+			cur = name
+			continue
+		}
+		if l != "" {
+			sections[cur] += l + "\n"
+		}
+	}
+	if s := sections[""]; s != "" {
+		t.Fatalf("go build output outside a program package:\n%s", firstLines(s, 30))
+	}
+	return sections
+}
+
+// e4FailsAt reports whether out, one package's go build output, has an
+// error at main.ergo:line, and no error at another line of main.ergo or at
+// a line of the generated main.go.
+func e4FailsAt(out string, line int) bool {
+	at := regexp.MustCompile(`main\.ergo:(\d+):\d+: `)
+	found := false
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "main.go:") {
+			return false
+		}
+		if m := at.FindStringSubmatch(l); m != nil {
+			if m[1] != strconv.Itoa(line) {
+				return false
+			}
+			found = true
+		}
+	}
+	return found
 }
 
 // C30: the context key namespace keys on package identity. A program

@@ -48,6 +48,14 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	}
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
+	if hostCalled(c) {
+		v := ""
+		if result {
+			v = fc.temp("v")
+		}
+		fc.line(fc.hostStmt(x, c, v, text))
+		return operand{val: v}
+	}
 	if result && fc.noValue(x) {
 		// The Go form returns struct{}, a no-value type argument's
 		// (types.md, Inference): Wait on a Task whose T is no value, or a
@@ -83,10 +91,6 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return operand{err: e}
 	case result:
 		v := fc.temp("v")
-		if t := fc.hostResult(x, c); t != "" {
-			fc.line("var " + v + " " + t + " = " + text)
-			return operand{val: v}
-		}
 		fc.line(v + " := " + text)
 		return operand{val: v}
 	}
@@ -103,6 +107,9 @@ func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 		ice(x, "an untried fallible call in a statement")
 	}
 	fc.identify(x, c) // the caller writes text next, the statement's last line
+	if hostCalled(c) {
+		return fc.hostStmt(x, c, "_", text)
+	}
 	return text
 }
 
@@ -230,10 +237,9 @@ func userExtern(f *check.Func) bool {
 // host call is not an interruption point; runtime.md). The extern is never
 // a value (P3), so this is its only lowering. Go checks the call against
 // the Ergo signature: every argument is already typed (a literal lowers
-// as T(lit), 196u: no untyped constants), and call binds a result to a
-// variable of its Ergo result's Go type (hostResult), so a float64 target
-// result never flows on as an Ergo int. A target whose signature is not
-// assignable is go build's error, at the call's //line (D-E5).
+// as T(lit), 196u: no untyped constants), and hostStmt binds the result
+// at its Ergo result's Go type. A target whose signature is not assignable
+// is go build's error, at the call's //line (D-E5).
 func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) string {
 	f := c.Func
 	if c.Recv != nil || len(f.Sig.TParams) > 0 || len(args) != len(f.Sig.Params) || len(f.Sig.Results) > 1 {
@@ -244,13 +250,24 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 	return fc.l.hostPkg(path, x) + "." + name + "(" + strings.Join(vals, ", ") + ")"
 }
 
-// hostResult is the Go type a call x binds its result to: its Ergo result's
-// for a user extern (hostCall), else "" (the Go result's own type).
-func (fc *funcCtx) hostResult(x *syntax.CallExpr, c *check.Call) string {
-	if c.Kind != check.CallFunc || !userExtern(c.Func) || len(c.Func.Sig.Results) != 1 {
-		return ""
+// hostCalled reports a call of a user extern (hostCall).
+func hostCalled(c *check.Call) bool { return c.Kind == check.CallFunc && userExtern(c.Func) }
+
+// hostStmt is the Go statement of the call x of a user extern, whose Go
+// text is text (hostCall), in every use: call's value, and callStmt's
+// statement or discard. It binds the result to v at its Ergo result's Go
+// type, the blank identifier when the result is discarded, so a target's
+// float64 result is go build's error at the call wherever the Ergo int is
+// used or dropped. The call is made once, on the line after the call's
+// //line directive.
+func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) string {
+	switch {
+	case len(c.Func.Sig.Results) == 0:
+		return text
+	case v == "":
+		ice(x, "a result of the user extern %s with no variable", c.Func.Name)
 	}
-	return fc.goType(c.Func.Sig.Results[0])
+	return "var " + v + " " + fc.goType(c.Func.Sig.Results[0]) + " = " + text
 }
 
 // hostPkg is the name in main.go of the Go package path that a user
