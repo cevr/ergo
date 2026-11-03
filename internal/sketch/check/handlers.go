@@ -320,9 +320,13 @@ type catchItem struct {
 	restRefused bool
 }
 
+// newCatchSpace starts the pattern space of x. Its resolver is a match's:
+// the arms are match arms over the failure (rows.md, Catch 7), so a name
+// in a record pattern that names a package function, an imported package
+// or a package value is Totality 1's S108, never D-D2's let/for reuse
+// (rows.md, Totality 6; fuzz-17d6).
 func (c *checker) newCatchSpace(x *syntax.CatchExpr) *catchSpace {
 	r := c.newPatResolver()
-	r.bindings = true
 	for _, arm := range x.Arms {
 		for _, te := range arm.Types {
 			r.sp.written += 1 + patternSize(te)

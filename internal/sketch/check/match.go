@@ -92,7 +92,7 @@ type patResolver struct {
 	binds    []patBinding    // of the current item
 	bound    map[string]bool // the names binds holds
 	bad      bool            // the current item has a reported error
-	bindings bool            // let/for: D-D2 permits binding over package objects
+	bindings bool            // let/for only: D-D2 permits binding over package objects; never a match's or a catch's
 	// letFor: a let or for pattern, where a bare prelude name is a binder
 	// D-D3 refuses, never a type test or a constant.
 	letFor bool
