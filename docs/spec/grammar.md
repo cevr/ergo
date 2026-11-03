@@ -132,8 +132,8 @@ FailsClause    = "fails" TypeName [ TypeArgs ] { "|" TypeName [ TypeArgs ] } .
 NeedsClause    = "needs" TypeName { "," TypeName } .
 LetDecl        = "let" [ "mut" ] Pattern { "," Pattern } [ Type ] [ "=" Expression ] .
 ProvidesClause = "provides" TypeName { "," TypeName } .
-WireBody       = "{" [ WireEntry { "," WireEntry } [ "," ] ] "}" .
-WireEntry      = [ "replace" ] TypeName { "," TypeName } ":" Expression | TypeName .
+ContextBody    = "{" [ ContextEntry { "," ContextEntry } [ "," ] ] "}" .
+ContextEntry   = [ "replace" ] TypeName { "," TypeName } ":" Expression | TypeName .
 ```
 
 1. **Imports.** One `import` per line: `import [go] [alias] path`, the path unquoted. With two words after `import`, or after `import go`, the first is the alias: `import ourjson example.com/json`, `import go gohttp net/http`. An alias is only for a name clash: the path's last element must be the name another import of the file binds or a package-level name, and any other alias, `_` included, is S108 "an import alias is only for a name clash; write import path" (fourth round, item 3; check-v1 D-D7). There is no grouped import and no dot import. `import go path` imports a Go package; every call through it charges `go.Foreign` ([interop](../interop.md)). *Prior art:* Gleam and Elixir import one module per line.
@@ -190,7 +190,7 @@ Selector       = "." identifier .
 Index          = "[" ExpressionList "]" .
 Slice          = "[" [ Expression ] ":" [ Expression ] [ ":" Expression ] "]" .
 Call           = "(" [ ExpressionList [ "," ] ] ")" [ Block ] .
-Primary        = Literal | identifier | CompositeLit | FuncLit | IfExpr | MatchExpr | WithExpr | WireLit | "(" ExpressionList ")" .
+Primary        = Literal | identifier | CompositeLit | FuncLit | IfExpr | MatchExpr | WithExpr | ContextLit | "(" ExpressionList ")" .
 Literal        = int_lit | float_lit | rune_lit | string_lit | duration_lit .
 CompositeLit   = LiteralType LiteralValue .
 LiteralType    = TypeName [ TypeArgs ] | SliceType .
@@ -202,7 +202,7 @@ IfExpr         = "if" Expression Block [ "else" ( IfExpr | Block ) ] .
 MatchExpr      = "match" Expression "{" { CaseClause } "}" .
 CaseClause     = "case" Pattern { "," Pattern } ":" { Statement ";" } .
 WithExpr       = "with" ExpressionList Block .
-WireLit        = "wire" [ ProvidesClause ] [ NeedsClause ] WireBody .
+ContextLit     = "wire" [ ProvidesClause ] [ NeedsClause ] ContextBody .
 Pattern        = PatternCore [ "as" identifier ] .
 PatternCore    = "_" | identifier | [ "-" ] Literal | TypeName [ TypeArgs ] [ "{" [ FieldPattern { "," FieldPattern } ] "}" ] | "(" Pattern { "," Pattern } ")" .
 FieldPattern   = [ identifier ":" ] Pattern .
@@ -224,7 +224,7 @@ FieldPattern   = [ identifier ":" ] Pattern .
 Status: **implemented** in `internal/sketch/syntax`. `syntax.Parse` returns one file's tree or the first diagnostic, located by byte offset, line and byte column. It never returns a partial tree.
 
 1. **The decided grammar, and nothing else.** The parser accepts exactly the productions of this file plus the lexical grammar it inherits from Go (identifiers, literals, `binary_op`, `unary_op`, `assign_op`). Every Go form outside them is S001 at its own token (`TestOldCorpusRefusedOrSame` proves that an old file either is refused or means what its translation means).
-2. **Desugaring.** A decided form that means the same as an existing node becomes that node: `let` is a `VarDecl`, `fails` an `ErrorRow` after the result, `match` on literal patterns a `SwitchStmt` and any other `match` a `TypeSwitchStmt`, `with E { … }` a call of `with` with a trailing block, a package-level `let Name = wire { … }` a `WireDecl`. Nodes no decided form produces stay declared until their consumers are rewritten; the parser never builds them (`TestDecidedOnly`). *Prior art:* ReScript's parser produces the tree the old front end produced, so OCaml's type checker stays unchanged; Rust lowers `for` and `?` before type checking.
+2. **Desugaring.** A decided form that means the same as an existing node becomes that node: `let` is a `VarDecl`, `fails` an `ErrorRow` after the result, `match` on literal patterns a `SwitchStmt` and any other `match` a `TypeSwitchStmt`, `with E { … }` a call of `with` with a trailing block, a package-level `let Name = wire { … }` a `ContextDecl`. Nodes no decided form produces stay declared until their consumers are rewritten; the parser never builds them (`TestDecidedOnly`). *Prior art:* ReScript's parser produces the tree the old front end produced, so OCaml's type checker stays unchanged; Rust lowers `for` and `?` before type checking.
 3. **Statement-leading forms.** `if`, `match` and `for` at the start of a statement form the statement, and a following binary operator, selector or call is S001 (Rust's rule). `try` is admitted only at the start of an Expression.
 4. **Headers.** A composite literal is not parsed in an `if`, `match`, `for` or `with` header unless parenthesised. One pair of parentheses around a single `with` wire or a `match` subject that reads the same without them is dropped from the tree, so the formatter's spelling has the same tree as the source.
 5. **Nesting limit.** A tree higher than 1000 levels is S001, at the first token past the limit. The limit bounds the height of the returned tree, not only the path the parser has open, so it holds for every composition. Levels count as follows:

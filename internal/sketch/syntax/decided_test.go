@@ -23,6 +23,30 @@ import (
 // the parse-v1 unit.
 const previewPath = "../../../docs/previews/2026-10-28-without-go-syntax.md"
 
+// previewRenames are the later renames of the preview's names: the preview
+// is recorded history and keeps its spelling, so the tests read it through
+// these (196w, docs/previews/2026-11-02-wire-to-context.md).
+var previewRenames = map[string]string{
+	"WireBody": "ContextBody", "WireEntry": "ContextEntry", "WireLit": "ContextLit",
+}
+
+var previewWord = regexp.MustCompile(`[A-Za-z]+`)
+
+// readPreview returns the preview's text with previewRenames applied.
+func readPreview(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(previewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return previewWord.ReplaceAllStringFunc(string(data), func(w string) string {
+		if r, ok := previewRenames[w]; ok {
+			return r
+		}
+		return w
+	})
+}
+
 func readDir(t *testing.T, dir string) []sketchtest.Input {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join("testdata", dir, "*.ergo"))
@@ -423,13 +447,9 @@ func TestOldCorpusRefusedOrSame(t *testing.T) {
 // paragraph of the preview, with the heading it is under.
 func previewDecidedBlocks(t *testing.T) map[string]string {
 	t.Helper()
-	data, err := os.ReadFile(previewPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	blocks := map[string]string{}
 	heading := ""
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(readPreview(t), "\n")
 	for i := 0; i < len(lines); i++ {
 		if strings.HasPrefix(lines[i], "### ") {
 			heading = strings.TrimPrefix(lines[i], "### ")
@@ -514,11 +534,7 @@ func TestGrammarStatesTheSketch(t *testing.T) {
 // sketch, in order.
 func sketchProductions(t *testing.T) []string {
 	t.Helper()
-	data, err := os.ReadFile(previewPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
+	text := readPreview(t)
 	start := strings.Index(text, "<!-- count: grammar/decided -->")
 	if start < 0 {
 		t.Fatal("no decided sketch in the preview")
