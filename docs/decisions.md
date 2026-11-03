@@ -2,6 +2,17 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-04
+
+- **Extensions are Luau first, after v1.** Owner, asked how a program like Gent would get extensions in Ergo: "What I'd like would be something like luau - typed". Then: "the extensions also meant to be dynamic, they're meant to kind of be self-updating, meant to be durable, they're meant to be, you know, hot, reloadable. They're meant to have UI component or TUI components as well as back-end capabilities". And: "we can do gent after v1 mainly just because of its you know Lua requirements". Design, decided by principle ([#241](https://github.com/cevr/ergo/issues/241)):
+  - Each extension gets one in-process Luau VM, loaded through the C binding generator (bind-c) and purego.
+  - The host API is declared once as Ergo operation types. Ergo generates the `.d.luau` declarations from them, and Luau's own checker checks each extension at load. A failed load keeps the last good version.
+  - An extension's `needs` row is exactly the set of host globals in its VM.
+  - Durable state lives in a store that the host keeps, so a hot reload or a self-update keeps it.
+  - UI is view data that the host renders.
+
+  Prior art: Roblox's Luau embedding, Neovim's Lua plugins with generated API types, Erlang and Elixir hot code loading.
+
 ## Owner direction, 2026-11-03
 
 The owner asked whether Ergo has branded types ("a kind of parse, don't validate perspective that certain types must be insured") and whether machines and laws both have a place, as type laws do. The orchestrator answered with two sketches; the owner replied "Yes, I like both."
