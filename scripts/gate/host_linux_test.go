@@ -1,10 +1,53 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestToolDigestKeysHostFacts checks, on real file systems, that a step's
+// tool digest, which keys Go's test cache for the tests the step runs,
+// changes when the file system behind the same TMPDIR or the same GOTMPDIR
+// (where t.TempDir makes the tests' directories) changes from disk to tmpfs,
+// and comes back when it changes back. Each variable names a link that the
+// test points at a directory on disk or on tmpfs, so only the file system
+// behind the path changes, as when a host mounts tmpfs there.
+func TestToolDigestKeysHostFacts(t *testing.T) {
+	roots := newStorageRoots(t)
+	places, root := t.TempDir(), t.TempDir()
+	tmp, goTmp := filepath.Join(places, "tmp"), filepath.Join(places, "gotmp")
+	point := func(link, target string) {
+		t.Helper()
+		if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g := &gate{root: root}
+	step := &Step{Name: "go test probe"}
+	digest := func(tmpTarget, goTmpTarget string) string {
+		t.Helper()
+		point(tmp, tmpTarget)
+		point(goTmp, goTmpTarget)
+		return g.toolDigest(step)
+	}
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("GOTMPDIR", goTmp)
+	disk := digest(roots.disk, roots.disk)
+	if digest(roots.memory, roots.disk) == disk {
+		t.Error("moving the step's temporary directory from disk to tmpfs left the tool digest unchanged")
+	}
+	if digest(roots.disk, roots.memory) == disk {
+		t.Error("moving the step's GOTMPDIR from disk to tmpfs left the tool digest unchanged")
+	}
+	if digest(roots.disk, roots.disk) != disk {
+		t.Error("the same file systems gave a different tool digest")
+	}
+}
 
 // TestHostFactsTellTmpfsFromDisk checks that the host facts of a temporary
 // directory on tmpfs differ from those of one on disk, also for a directory
