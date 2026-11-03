@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
@@ -36,11 +38,16 @@ const (
 	letForPattern
 	// A match pattern name (rows.md Totality 1): a type or constant is that
 	// pattern; a function name is S108 and binds a placeholder; any other
-	// name binds.
+	// name binds. A name inside a catch arm's record pattern follows the
+	// same rule: the arms are match arms over the failure (rows.md Catch 7),
+	// and rule 1's function and package-value S108 applies to catch arms
+	// (Totality 6).
 	matchPattern
 	// A catch arm's lone name (rows.md Catch 7): the arms are match arms
 	// over the failure, so Totality 1 holds, and a name that binds takes
-	// the whole failure (`case err:`).
+	// the whole failure (`case err:`). Capitalisation changes nothing: a
+	// capitalised name that names no type, constant or capability binds,
+	// as in a match.
 	catchRest
 )
 
@@ -53,8 +60,10 @@ type binderForm struct {
 }
 
 // binderNameDecls are the declarations every binder program shares: the
-// package names a binder can reuse (tn, fx, cx), a union to match on and a
-// fallible function to catch.
+// package names a binder can reuse, in a lower-case and a capitalised
+// spelling (tn and Tn, fx and Fx, pv and Pv, cx and Cx), a union to match
+// on, and two fallible functions to catch: risky fails with a record of no
+// field, risky2 with a record of one field.
 const binderNameDecls = `type Bang {}
 
 func risky(n int) int fails Bang {
@@ -64,17 +73,30 @@ func risky(n int) int fails Bang {
 	n
 }
 
+type Boom { N int }
+
+func risky2(n int) int fails Boom {
+	if n < 0 {
+		return Boom{N: n}
+	}
+	n
+}
+
 type Dot {}
 type Line { N int }
 type Shape = Dot | Line
 type tn {}
+type Tn {}
 func fx() {}
+func Fx() {}
 let pv = 5
+let Pv = 5
 let cx = context {}
+let Cx = context {}
 `
 
-// binderBadDecl declares tbad, a package type whose declaration fails.
-const binderBadDecl = "type tbad(fx)\n"
+// binderBadDecl declares name, a package type whose declaration fails.
+func binderBadDecl(name string) string { return "type " + name + "(fx)\n" }
 
 // binderForms are the programs of each binder field. Every value the
 // binder stands for is an int, so the prelude type int is the type at the
@@ -101,9 +123,11 @@ var binderForms = map[string][]binderForm{
 	},
 	"CompositeLit.Elts": {
 		{"a record pattern's positional field", matchPattern, "func host(s Shape) {\n\tmatch s {\n\tcase Line{$B}:\n\t\tlet _ = $B\n\tcase Dot:\n\t\tlet _ = 0\n\t}\n}"},
+		{"a catch record's positional field", matchPattern, "func host(v int) {\n\tlet n = risky2(v) catch {\n\tcase Boom{$B}:\n\t\tlet _ = $B\n\t\t0\n\t}\n\tlet _ = n\n}"},
 	},
 	"KeyValueExpr.Value": {
 		{"a match's record pattern", matchPattern, "func host(s Shape) {\n\tmatch s {\n\tcase Line{N: $B}:\n\t\tlet _ = $B\n\tcase Dot:\n\t\tlet _ = 0\n\t}\n}"},
+		{"a catch record's keyed field", matchPattern, "func host(v int) {\n\tlet n = risky2(v) catch {\n\tcase Boom{N: $B}:\n\t\tlet _ = $B\n\t\t0\n\t}\n\tlet _ = n\n}"},
 	},
 	"RangeStmt.Key": {
 		{"a for's name", letForPattern, "func host(xs []int) {\n\tfor $B in xs {\n\t\tlet _ = $B\n\t}\n}"},
@@ -131,24 +155,36 @@ var binderForms = map[string][]binderForm{
 type nameClass int
 
 const (
-	freshName    nameClass = iota // no declaration
-	packageType                   // tn
-	badType                       // tbad, whose declaration is refused
-	packageFunc                   // fx
-	packageValue                  // pv, a package-level let
-	packageCtx                    // cx: a named context is no package value (diagnostics.md, declared twice)
-	preludeInt                    // the prelude type int
-	preludeFunc                   // the prelude function len
-	preludeConst                  // the prelude constant true
-	preludeType                   // the prelude capability type Console
+	freshName     nameClass = iota // no declaration
+	packageType                    // tn
+	badType                        // tbad, whose declaration is refused
+	packageFunc                    // fx
+	packageValue                   // pv, a package-level let
+	packageCtx                     // cx: a named context is no package value (diagnostics.md, declared twice)
+	preludeInt                     // the prelude type int
+	preludeFunc                    // the prelude function len
+	preludeConst                   // the prelude constant true
+	preludeType                    // the prelude capability type Console
+	preludeRecord                  // the prelude record type None
 )
 
+// binderNames are the names of every class. A package class has a
+// lower-case and a capitalised spelling (rows.md Totality 1 and Catch 7
+// give the case of a name no meaning). The prelude declares int, len and
+// true in lower case and its types, Console and None among them, in
+// capitals, with no capitalised function or constant; Int, Len and True
+// are fresh names.
 var binderNames = []struct {
 	name  string
 	class nameClass
 }{
-	{"got", freshName}, {"tn", packageType}, {"tbad", badType}, {"fx", packageFunc}, {"pv", packageValue}, {"cx", packageCtx},
-	{"int", preludeInt}, {"len", preludeFunc}, {"true", preludeConst}, {"Console", preludeType},
+	{"got", freshName}, {"Got", freshName}, {"Int", freshName}, {"Len", freshName}, {"True", freshName},
+	{"tn", packageType}, {"Tn", packageType},
+	{"tbad", badType}, {"Tbad", badType},
+	{"fx", packageFunc}, {"Fx", packageFunc},
+	{"pv", packageValue}, {"Pv", packageValue},
+	{"cx", packageCtx}, {"Cx", packageCtx},
+	{"int", preludeInt}, {"len", preludeFunc}, {"true", preludeConst}, {"Console", preludeType}, {"None", preludeRecord},
 }
 
 func (c nameClass) prelude() bool { return c >= preludeInt }
@@ -193,7 +229,7 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 		return binds() // Totality 6: binds over a package function or value
 	case matchPattern:
 		switch c {
-		case packageType, preludeType:
+		case packageType, preludeType, preludeRecord:
 			return names("S108") // Totality 1: a type other than the subject's
 		case preludeInt:
 			// Totality 1: the subject's own type, so the test is legal and
@@ -206,7 +242,7 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 		}
 	case catchRest:
 		switch c {
-		case packageType, preludeInt, preludeType:
+		case packageType, preludeInt, preludeType, preludeRecord:
 			// Catch 2: the type is not in risky's row, so Bang is left
 			// unhandled: Catch 4's S103 at the catch.
 			return binderVerdict{meaning: "names", at: []string{"S108"}, other: []string{"S103"}}
@@ -256,6 +292,22 @@ func TestBinderNamesAgree(t *testing.T) {
 			t.Errorf("binderForms names %s, no binder field of the domain", f)
 		}
 	}
+	// Every class outside the prelude has both spellings.
+	spellings := map[nameClass][2]bool{}
+	for _, bn := range binderNames {
+		s := spellings[bn.class]
+		if r, _ := utf8.DecodeRuneInString(bn.name); unicode.IsUpper(r) {
+			s[1] = true
+		} else {
+			s[0] = true
+		}
+		spellings[bn.class] = s
+	}
+	for c := freshName; c < preludeInt; c++ {
+		if s := spellings[c]; !s[0] || !s[1] {
+			t.Errorf("name class %d lacks a lower-case or a capitalised spelling", c)
+		}
+	}
 	keys := make([]string, 0, len(binderForms))
 	for f := range binderForms {
 		keys = append(keys, f)
@@ -270,7 +322,7 @@ func TestBinderNamesAgree(t *testing.T) {
 				row := form.name + "/" + bn.name
 				decls := binderNameDecls
 				if bn.class == badType {
-					decls += binderBadDecl
+					decls += binderBadDecl(bn.name)
 				}
 				decls += "\n"
 				src := decls + strings.ReplaceAll(form.src, "$B", bn.name)
@@ -325,4 +377,31 @@ func TestBinderNamesAgree(t *testing.T) {
 		}
 	}
 	t.Logf("%d binder fields, %d programs (%d names each)", len(fields), programs, len(binderNames))
+}
+
+// TestUnreadCapitalisedBinderHint: a capitalised name that binds gets a
+// hint in its S110 (rows.md Totality 1), in a match arm and in a catch
+// arm's rest alike (rows.md Catch 7: the arms are match arms over the
+// failure). A lower-case name gets none.
+func TestUnreadCapitalisedBinderHint(t *testing.T) {
+	forms := map[string]string{
+		"a match's name":     "func host(v int) {\n\tmatch v {\n\tcase $B:\n\t\tlet _ = 0\n\t}\n}",
+		"a catch arm's rest": "func host(v int) {\n\tlet n = risky(v) catch {\n\tcase $B:\n\t\t0\n\t}\n\tlet _ = n\n}",
+	}
+	for form, body := range forms {
+		for _, name := range []string{"got", "Got"} {
+			decls := binderNameDecls + "\n"
+			src := decls + strings.ReplaceAll(body, "$B", name)
+			at := len(decls) + strings.Index(body, "$B")
+			_, diags := check.CheckSource(src)
+			if len(diags) != 1 || diags[0].Code != "S110" || diags[0].Offset != at {
+				t.Errorf("%s/%s: want one S110 at the binder, got\n\t%s\n%s", form, name, describe(diags), src)
+				continue
+			}
+			hint := "no type is named " + name
+			if got, want := strings.Contains(diags[0].Message, hint), name == "Got"; got != want {
+				t.Errorf("%s/%s: hint %q in the S110 is %v, want %v: %s", form, name, hint, got, want, diags[0].Message)
+			}
+		}
+	}
 }
