@@ -201,11 +201,18 @@ func before(a, b [2]int) bool { return a[0] < b[0] || a[0] == b[0] && a[1] < b[1
 
 // blankTests replaces every test declaration of src with spaces, keeping
 // its line feeds, so every other position stays where it was.
-func blankTests(src string, f *syntax.File) string {
+func blankTests(src string, f *syntax.File) string { return blankDecls(src, f, false) }
+
+// blankDecls replaces every test declaration of src, and every import
+// declaration when imports is set, with spaces, keeping its line feeds, so
+// every other position stays where it was.
+func blankDecls(src string, f *syntax.File, imports bool) string {
 	b := []byte(src)
 	for _, d := range f.Decls {
-		if td, ok := d.(*syntax.TestDecl); ok {
-			for i := int(td.Pos()); i < int(td.End()); i++ {
+		_, test := d.(*syntax.TestDecl)
+		_, imp := d.(*syntax.ImportDecl)
+		if test || imports && imp {
+			for i := int(d.Pos()); i < int(d.End()); i++ {
 				if b[i] != '\n' {
 					b[i] = ' '
 				}
@@ -216,39 +223,78 @@ func blankTests(src string, f *syntax.File) string {
 }
 
 // TestRunBuildOmitsTests proves rule 1 of Test mode on the emitted Go of
-// every sweep program: no Go line of the run build maps into a test
-// declaration, no test-build entity appears, and the run build is the run
-// build of the same source with its tests blanked out.
+// every sweep program (runBuildOmitsTests); the generated programs of
+// TestTestFactsStayInTests prove it too.
 func TestRunBuildOmitsTests(t *testing.T) {
 	for _, p := range e3Programs(t) {
-		run := mustLower(t, p.name, p.src)
-		spans := testSpans(run.file)
-		if len(spans) == 0 {
-			t.Fatalf("%s declares no test", p.name)
-		}
-		code := run.mainGo()
-		for _, m := range directiveRe.FindAllStringSubmatch(code, -1) {
-			line, _ := strconv.Atoi(m[1])
-			col, _ := strconv.Atoi(m[2])
-			for _, s := range spans {
-				if at := [2]int{line, col}; !before(at, s[0]) && before(at, s[1]) {
-					t.Errorf("%s: the run build has Go from the test at %d:%d (%s)", p.name, s[0][0], s[0][1], m[0])
-				}
+		runBuildOmitsTests(t, p.name, p.src, false)
+	}
+}
+
+// runBuildOmitsTests checks rule 1 of Test mode on the run build of src,
+// which must declare a test, and returns it: no Go line of the run build
+// maps into a test declaration, no test-build entity appears, and the run
+// build is the run build of the same source with its tests blanked out
+// (and its imports, when blankImports is set: a library only a test uses
+// is then no part of the run build either).
+func runBuildOmitsTests(t *testing.T, name, src string, blankImports bool) *lowered {
+	t.Helper()
+	run := mustLower(t, name, src)
+	spans := testSpans(run.file)
+	if len(spans) == 0 {
+		t.Fatalf("%s declares no test", name)
+	}
+	code := run.mainGo()
+	for _, m := range directiveRe.FindAllStringSubmatch(code, -1) {
+		line, _ := strconv.Atoi(m[1])
+		col, _ := strconv.Atoi(m[2])
+		for _, s := range spans {
+			if at := [2]int{line, col}; !before(at, s[0]) && before(at, s[1]) {
+				t.Errorf("%s: the run build has Go from the test at %d:%d (%s)", name, s[0][0], s[0][1], m[0])
 			}
-		}
-		for _, h := range testHelpers {
-			if strings.HasPrefix(h.base, "ergo") && strings.Contains(code, h.base) {
-				t.Errorf("%s: the run build names the test build's %s", p.name, h.base)
-			}
-		}
-		if strings.Contains(code, "ergoTest") || strings.Contains(code, "ergoGen") {
-			t.Errorf("%s: the run build names a test function or a generator", p.name)
-		}
-		blank := mustLower(t, p.name+"_blank", blankTests(p.src, run.file))
-		if blank.mainGo() != code {
-			t.Errorf("%s: the run build differs from the run build of the source without its tests", p.name)
 		}
 	}
+	for _, h := range testHelpers {
+		if strings.HasPrefix(h.base, "ergo") && strings.Contains(code, h.base) {
+			t.Errorf("%s: the run build names the test build's %s", name, h.base)
+		}
+	}
+	if strings.Contains(code, "ergoTest") || strings.Contains(code, "ergoGen") {
+		t.Errorf("%s: the run build names a test function or a generator", name)
+	}
+	blank := mustLower(t, name+"_blank", blankDecls(src, run.file, blankImports))
+	if blank.mainGo() != code {
+		t.Errorf("%s: the run build differs from the run build of the source without its tests:\n%s", name, goDiff(blank.mainGo(), code))
+	}
+	return run
+}
+
+// goDiff names the lines only one of two Go files has, at most 20.
+func goDiff(without, with string) string {
+	count := map[string]int{}
+	for _, l := range strings.Split(without, "\n") {
+		count[l]++
+	}
+	var b strings.Builder
+	n := 0
+	for _, l := range strings.Split(with, "\n") {
+		if count[l] > 0 {
+			count[l]--
+			continue
+		}
+		if n++; n <= 20 {
+			b.WriteString("+ " + l + "\n")
+		}
+	}
+	for _, l := range strings.Split(without, "\n") {
+		if count[l] > 0 {
+			count[l]--
+			if n++; n <= 20 {
+				b.WriteString("- " + l + "\n")
+			}
+		}
+	}
+	return b.String()
 }
 
 // TestTestBuildHasEveryTest: the test build declares one Go function per
