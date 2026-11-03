@@ -57,6 +57,9 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// parameters included, are rejected before any row is inferred
 		// (round-4 M1).
 		c.checkInstantiationCycles,
+		// A user extern's written signature is final here: an extern's
+		// rows are never inferred (D-E5).
+		c.checkExterns,
 		c.collectBodyErrorRows,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict

@@ -318,7 +318,7 @@ func main() {}
 extern go example.com/door.Fail func fail() int
 func f() int { return fail() }
 func main() {}
-`, nil},
+`, []string{"S109:2"}},
 	{"test", "test declaration", `
 test Adds {
 	assert 1 + 1 == 2
