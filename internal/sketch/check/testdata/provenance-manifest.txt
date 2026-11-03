@@ -1,0 +1,41 @@
+# The checker's provenance contract (check-v1 E2d), its only copy.
+# tools/provenance reads it through -manifest (gate step "provenance");
+# owner_e2_test.go reads the construction sites and their programs for
+# TestSyntheticNodesHaveSourceOwners. Format: tools/provenance/manifest.go.
+#
+# A diagnostic lies in the file that holds the node it is reported at. A
+# node the checker makes is in no file's tree, so it records its origin
+# through made or clone (owner.go) and lies in its origin's file.
+
+package ergo.local/prototype/internal/sketch/check
+syntax ergo.local/prototype/internal/sketch/syntax
+made made
+clone clone
+
+# The reviewed import allow-list (E2b round 3 review M2): each package was
+# reviewed as unable to build a value of a caller's syntax node type. Any
+# other import fails until it is reviewed and listed here; reflect and
+# unsafe are never listed.
+import cmp container/heap encoding/binary fmt go/constant go/token maps math math/bits path regexp runtime slices sort strconv strings sync unicode unicode/utf8
+import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sketch/syntax
+
+# The syntax callees that yield a node, each with the only sites that may
+# call it (E2b round 4 review M2). Each site parses a whole file and checks
+# it as a package; a parse elsewhere makes nodes of no checked file. prelude
+# parses inside its preludeOnce.Do closure, prelude$1.
+callee Parse CheckSource prelude$1 (*stdImporter).Import
+
+# The checker's own functions that parse caller text, with the sites that
+# may reference them: none, so a pass cannot reach the parser through the
+# package's entry.
+entry CheckSource
+
+# Every construction site: a fresh node passed to made, or a clone, with a
+# clean program that reaches it.
+site (*checker).declareVariant TypeDecl "type U[T] = | V{X T} | W{}\n"
+site (*checker).declareVariant StructType "type U[T] = | V{X T} | W{}\n"
+site (*checker).variantParams Ident "type U[T] = | V{X T} | W{}\n"
+site (*checker).variantParams Field "type U[T number] = | V{X T} | W{}\n"
+site (*checker).variantParams FieldList "type A { S V[int] }\ntype U[T, S] = | V{X T} | Y{Z S, Q T} | W{}\n"
+site (*checker).varDecl VarSpec "type P { A int }\nfunc f(p P) int {\n\tlet P{A: a} = p\n\ta\n}\n"
+site (*checker).assignStmt BinaryExpr "func f() int {\n\tlet mut x = 1\n\tx += 2\n\tx\n}\n"

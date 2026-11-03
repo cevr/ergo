@@ -62,45 +62,42 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// Config names the syntax package and gives each analysed package its
-// manifest. A package without a manifest is not analysed.
-type Config struct {
-	Syntax   string
-	Packages map[string]*Manifest
-}
+// Analyzer is the provenance analyzer. Its -manifest flag names a manifest
+// file (manifest.go); it may be given more than once. A package no manifest
+// names is not analysed.
+var Analyzer = New()
 
-// Site is one construction site: an SSA function and the node kind it
-// makes.
-type Site struct{ Fn, Kind string }
-
-// Manifest is one package's provenance contract.
-type Manifest struct {
-	// Made registers a fresh node, its second argument, with its origin;
-	// Clone copies a node through Made. Both are trusted: their bodies make
-	// and copy nodes.
-	Made, Clone string
-	// Callees lists the syntax functions, methods and function-valued
-	// variables that yield a node (by name relative to the syntax package,
-	// "Parse", "(*Ident).Copy"), each with the sites that may call it.
-	Callees map[string][]string
-	// Entries lists the package's own functions that parse caller text, each
-	// with the sites that may reference it.
-	Entries map[string][]string
-	// Sites lists every construction site, each a made call on a fresh node
-	// or a clone call.
-	Sites []Site
-	// Imports is the reviewed import allow-list.
-	Imports []string
-}
-
-// New returns an analyzer for cfg.
-func New(cfg Config) *analysis.Analyzer {
-	return &analysis.Analyzer{
+// New returns a fresh analyzer with its own -manifest flag.
+func New() *analysis.Analyzer {
+	var paths manifestPaths
+	a := &analysis.Analyzer{
 		Name: "provenance",
 		Doc:  "flag syntax nodes a checker makes outside its registered constructions",
 		URL:  "https://github.com/cevr/effra",
-		Run:  func(pass *analysis.Pass) (any, error) { return run(cfg, pass) },
 	}
+	a.Flags.Var(&paths, "manifest", "a provenance manifest file (repeatable)")
+	a.Run = func(pass *analysis.Pass) (any, error) {
+		for _, path := range paths {
+			m, err := ReadManifest(path)
+			if err != nil {
+				return nil, err
+			}
+			if m.Package == pass.Pkg.Path() {
+				return run(m, pass)
+			}
+		}
+		return nil, nil
+	}
+	return a
+}
+
+type manifestPaths []string
+
+func (p *manifestPaths) String() string { return strings.Join(*p, ",") }
+
+func (p *manifestPaths) Set(v string) error {
+	*p = append(*p, v)
+	return nil
 }
 
 type state struct {
@@ -129,11 +126,7 @@ type layout struct {
 	typ  types.Type
 }
 
-func run(cfg Config, pass *analysis.Pass) (any, error) {
-	m := cfg.Packages[pass.Pkg.Path()]
-	if m == nil {
-		return nil, nil
-	}
+func run(m *Manifest, pass *analysis.Pass) (any, error) {
 	s := &state{
 		pass: pass, m: m,
 		reported: map[string]bool{}, creates: map[*ssa.Function]bool{},
@@ -142,7 +135,7 @@ func run(cfg Config, pass *analysis.Pass) (any, error) {
 	}
 	s.imports()
 	for _, imp := range pass.Pkg.Imports() {
-		if imp.Path() == cfg.Syntax {
+		if imp.Path() == m.Syntax {
 			s.syntax = imp
 		}
 	}
@@ -151,7 +144,7 @@ func run(cfg Config, pass *analysis.Pass) (any, error) {
 	}
 	nodeObj, ok := s.syntax.Scope().Lookup("Node").(*types.TypeName)
 	if !ok {
-		return nil, fmt.Errorf("package %s declares no Node type", cfg.Syntax)
+		return nil, fmt.Errorf("package %s declares no Node type", m.Syntax)
 	}
 	s.node = nodeObj.Type().Underlying().(*types.Interface)
 	s.collectLayouts()
@@ -314,7 +307,10 @@ func (s *state) nodeType(t types.Type) (string, bool) {
 	}
 	t = types.Unalias(t)
 	switch t.(type) {
-	case *types.TypeParam, *types.Tuple, *types.Signature:
+	case *types.TypeParam, *types.Tuple, *types.Signature, *types.Basic:
+		// An unnamed basic type has no methods; the invalid type, which SSA
+		// gives an absent key or value of a range (ssa.Next), implements
+		// every interface to go/types.
 		return "", false
 	}
 	switch t.Underlying().(type) {
@@ -337,7 +333,8 @@ func (s *state) refersToNode(t types.Type) (string, bool) {
 	if p, ok := t.(*types.Pointer); ok {
 		t = types.Unalias(p.Elem())
 	}
-	if _, ok := t.(*types.TypeParam); ok {
+	switch t.(type) {
+	case *types.TypeParam, *types.Basic:
 		return "", false
 	}
 	return s.kind(t), types.Implements(t, s.node) || types.Implements(types.NewPointer(t), s.node)
@@ -835,7 +832,11 @@ func (s *state) instruction(fn *ssa.Function, name string, generic bool, instr s
 			s.interfaceConversion(fn, name, pos, instr.X.Type(), instr.AssertedType, true)
 		}
 	case *ssa.UnOp:
-		if generic && instr.Op == token.MUL {
+		// In a generic body, a dereference the source writes (*p) copies a
+		// value of a type parameter with no instance in sight; an element or
+		// field read (xs[i], s.f) is checked in each instance the package
+		// builds, as every other copy is.
+		if generic && instr.Op == token.MUL && !elementAddress(instr.X) {
 			if tp, ok := parameter(instr.Type()); ok && !variableCell(instr.X) {
 				s.report(fn, pos, "construction or copy of type parameter %s outside made and clone", tp.Obj().Name())
 			}
@@ -864,6 +865,16 @@ func variableCell(v ssa.Value) bool {
 	case *ssa.Alloc:
 		return v.Comment != "complit" && v.Comment != "new"
 	case *ssa.FreeVar:
+		return true
+	}
+	return false
+}
+
+// elementAddress reports the address of a slice or array element or of a
+// struct field.
+func elementAddress(v ssa.Value) bool {
+	switch v.(type) {
+	case *ssa.IndexAddr, *ssa.FieldAddr:
 		return true
 	}
 	return false
@@ -913,9 +924,9 @@ func (s *state) isHelper(f *ssa.Function, name string) bool {
 }
 
 func (s *state) construction(fn *ssa.Function, name string, pos token.Pos, kind string) {
-	site := Site{name, kind}
+	site := Site{Fn: name, Kind: kind}
 	s.sites[site]++
-	if !slices.Contains(s.m.Sites, site) {
+	if !slices.ContainsFunc(s.m.Sites, func(listed Site) bool { return listed.key() == site }) {
 		s.report(fn, pos, "construction site %s makes a %s and is not in the manifest", name, kind)
 	}
 }
@@ -1076,7 +1087,7 @@ func (s *state) isEntry(f *ssa.Function) string {
 
 func (s *state) entry(fn *ssa.Function, name string, pos token.Pos, entry string) {
 	if slices.Contains(s.m.Entries[entry], name) {
-		s.calls[Site{name, entry}]++
+		s.calls[Site{Fn: name, Kind: entry}]++
 		return
 	}
 	s.report(fn, pos, "%s parses caller text and is referenced in %s, which the manifest does not list for it", entry, name)
@@ -1090,7 +1101,7 @@ func (s *state) syntaxCall(fn *ssa.Function, name string, pos token.Pos, callee 
 	case !slices.Contains(sites, name):
 		s.report(fn, pos, "syntax callee %s is called in %s, which the manifest does not list for it", callee, name)
 	default:
-		s.calls[Site{name, callee}]++
+		s.calls[Site{Fn: name, Kind: callee}]++
 	}
 }
 
@@ -1202,7 +1213,7 @@ func (s *state) closures(funcs []*ssa.Function) {
 func (s *state) manifestChecks() {
 	pos := s.pass.Files[0].Name.Pos()
 	for _, site := range s.m.Sites {
-		if s.sites[site] == 0 {
+		if s.sites[site.key()] == 0 {
 			s.report(nil, pos, "the manifest lists construction site %s %s, which the package no longer makes", site.Fn, site.Kind)
 		}
 	}
@@ -1214,7 +1225,7 @@ func (s *state) manifestChecks() {
 		sort.Strings(names)
 		for _, callee := range names {
 			for _, site := range manifest[callee] {
-				if s.calls[Site{site, callee}] == 0 {
+				if s.calls[Site{Fn: site, Kind: callee}] == 0 {
 					s.report(nil, pos, "the manifest lists %s in %s, which no longer calls it", callee, site)
 				}
 			}
