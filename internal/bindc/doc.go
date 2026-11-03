@@ -111,5 +111,28 @@
 // Callbacks are raw uintptr (bind-c-2); thread affinity is not enforced in
 // Go: the library returns its wrong-thread status.
 //
-// The Ergo text (slice 1d) comes in a later slice of bind-c-1.
+// # The Ergo text
+//
+// ErgoText emits the Ergo signatures of the Go package (<header>.ergo). The
+// text is provisional: it parses with internal/sketch/syntax and is in
+// canonical internal/sketch/format form, and the checker does not read it
+// yet. It holds:
+//
+//   - a provenance header and `import go <import path>`, unquoted, because
+//     the grammar parses import paths only in that form;
+//   - the Status union, one variant in place per status code and no
+//     success arm, and the CallError union of the binding's own failures:
+//     NotLoaded (a call before Load), Destroyed (a nil or destroyed handle)
+//     and TooLong (a slice too long for its C length);
+//   - one record per C struct that a typed signature reaches by value, with
+//     CamelCase fields, without autofill fields, and arrays as []T;
+//   - handles and scalar typedefs named through the import (opaque nominal);
+//   - one `extern go <path>.<GoName> func <GoName>(...) R fails ...` per
+//     typed function: it fails Status | CallError when the function returns
+//     a status, else CallError. No extern has a needs row. A parameter name
+//     loses a final "_", and a name that Ergo reserves gets the suffix Arg;
+//   - one `// not bound: <C name> (<reason>)` line per raw-only function.
+//
+// ErgoText refuses a binding where two of these type names are equal, and
+// Bind refuses two fields of one struct with one Go name.
 package bindc
