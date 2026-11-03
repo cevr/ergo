@@ -60,11 +60,11 @@ func (k litWalk) elem() litWalk {
 type litTyping int
 
 const (
-	typedRecord  litTyping = iota // a record literal
-	typedList                     // a slice of records
-	typedOrphan                   // its type is refused: its values are orphans
-	typedRefused                  // an elided literal refused untyped
-	typedListOfRefused            // a slice or map whose element type is refused
+	typedRecord        litTyping = iota // a record literal
+	typedList                           // a slice of records
+	typedOrphan                         // its type is refused: its values are orphans
+	typedRefused                        // an elided literal refused untyped
+	typedListOfRefused                  // a slice or map whose element type is refused
 )
 
 // elem is typing's verdict on an elided literal that is an element of a
