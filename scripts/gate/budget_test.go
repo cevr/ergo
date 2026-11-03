@@ -659,6 +659,54 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 	}
 }
 
+// failingWriter fails every write, as an output spool on a full disk does.
+type failingWriter struct{ writes int }
+
+func (w *failingWriter) Write([]byte) (int, error) {
+	w.writes++
+	return 0, errors.New("no space left on device")
+}
+
+// A destination that fails stops the copy, not the read: the pipe is read to
+// its end, so a step that prints more than the pipe holds still finishes,
+// and the failure is the drain's result.
+func TestDrainPipeDrainsAfterAWriteError(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	printed := make(chan error, 1)
+	go func() {
+		// Sixteen times a 64K pipe buffer: the writer finishes only if the
+		// reader keeps reading.
+		_, err := writer.Write(bytes.Repeat([]byte("output\n"), 16*64<<10/7))
+		if closeErr := writer.Close(); err == nil {
+			err = closeErr
+		}
+		printed <- err
+	}()
+	var destination failingWriter
+	var mu sync.Mutex
+	drained := make(chan pipeResult, 1)
+	go drainPipe(reader, &destination, &mu, drained)
+	select {
+	case err := <-printed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the step's write blocked: the drain stopped reading at the write error")
+	}
+	result := <-drained
+	if !result.eof || result.err == nil || result.err.Error() != "no space left on device" {
+		t.Fatalf("drain result %+v, want EOF and the write error", result)
+	}
+	if destination.writes != 1 {
+		t.Fatalf("destination written %d times, want once: no write after it failed", destination.writes)
+	}
+}
+
 func TestDrainPipeReachesEOFAfterStepStop(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the output pipe requires Unix process groups")

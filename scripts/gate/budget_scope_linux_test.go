@@ -240,6 +240,170 @@ func TestBudgetGateSurvivesStepOOM(t *testing.T) {
 	}
 }
 
+// outputLines is how many lines gateOutputCase's step prints: 1088888898
+// bytes (seqBytes), past the 64M gate budget and the gate's 512M reserve
+// together.
+const outputLines = 120_000_000
+
+// gateOutputCase is a step whose memory stays far under its 64M budget while
+// it prints 1.09 GB. The gate must hold no more for it than for any step:
+// output the gate kept in its memory would fill its scope, and the kernel
+// would stop the gate. The step declares inputs, so its pass is recorded
+// and the helper's second run replays it from the receipt.
+var gateOutputCase = budgetCase{
+	name: "gate-output", step: "64M", gate: "64M", scopeOnly: true,
+	steps: func() []*Step {
+		return []*Step{{Name: "print", Argv: []string{"seq", "1", strconv.Itoa(outputLines)}, Inputs: &Inputs{Paths: []string{"src/"}}}}
+	},
+}
+
+// seqBytes is the size of `seq 1 n`'s output.
+func seqBytes(n int64) int64 {
+	var size int64
+	for digits, low := int64(1), int64(1); low <= n; digits, low = digits+1, low*10 {
+		size += (min(n, low*10-1) - low + 1) * (digits + 1)
+	}
+	return size
+}
+
+// TestBudgetGateSurvivesStepOutput runs gateOutputCase in a real scope, as
+// two gates one after the other on one cache: the first executes the step
+// and records it, the second replays the receipt. Each must finish
+// (gate-exit=0) and print every line in order, and no output spool or step
+// temp file may remain.
+func TestBudgetGateSurvivesStepOutput(t *testing.T) {
+	if _, err := exec.LookPath("seq"); err != nil {
+		t.Skip("seq is unavailable")
+	}
+	slice := testSlice(t)
+	caseTemp := setBudgetCaseTemp(t)
+	t.Setenv(stepMemoryVariable, gateOutputCase.step)
+	t.Setenv(gateMemoryVariable, gateOutputCase.gate)
+	t.Setenv(hostMemoryVariable, "4G")
+	budget, err := currentBudget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	startableScope(t, slice, budget)
+	// Each run is a gate of its own in a scope of its own, on one checkout
+	// and one cache.
+	root, cache := budgetFixture(t), t.TempDir()
+	checked := fmt.Sprintf("lines=%d broken=\"\"\n", outputLines)
+	for run, want := range []string{"== print: ok (", "== print: ok, cached ("} {
+		h := newScopeHelper(t, slice, gateOutputCase.name, budget)
+		for name, value := range map[string]string{"GATE_BUDGET_ROOT": root, "GATE_BUDGET_CACHE": cache, "GATE_OUTPUT_RUN": strconv.Itoa(run + 1)} {
+			h.command.Env = setEnvironmentVariable(h.command.Env, name, value)
+		}
+		if err := h.command.Run(); err != nil {
+			t.Logf("scope helper exited %v", err)
+		}
+		code, text := h.result(t)
+		wantAll(t, text, want, fmt.Sprintf("seq-check run=%d %s", run+1, checked))
+		if code != 0 {
+			t.Errorf("run %d: gate exit %d, want 0", run+1, code)
+		}
+	}
+	receipts := receiptsIn(t, cache)
+	if len(receipts) != 1 {
+		t.Fatalf("receipts %v, want the one pass", receipts)
+	}
+	if info, err := os.Stat(strings.TrimSuffix(receipts[0], ".json") + ".out"); err != nil || info.Size() != seqBytes(outputLines) {
+		t.Errorf("recorded output: %v, %v; want %d bytes", info, err, seqBytes(outputLines))
+	}
+	spools, err := os.ReadDir(filepath.Join(cache, "output"))
+	if err != nil || len(spools) != 0 {
+		t.Errorf("output spools remain: %v, %v", spools, err)
+	}
+	stepTemps, err := os.ReadDir(filepath.Join(caseTemp, "ergo-gate", "tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range stepTemps {
+		if !entry.IsDir() {
+			continue
+		}
+		if left, err := os.ReadDir(filepath.Join(caseTemp, "ergo-gate", "tmp", entry.Name())); err != nil || len(left) != 0 {
+			t.Errorf("step temp dir %s not emptied: %v, %v", entry.Name(), left, err)
+		}
+	}
+}
+
+// seqCheck reads a gate's output as the gate prints it, holding a bounded
+// amount: the lines of digits must be 1, 2, 3, ... with none missing, and
+// the other lines, the gate's own, are kept for the test.
+type seqCheck struct {
+	partial []byte
+	lines   int64
+	broken  string
+	kept    bytes.Buffer
+}
+
+func (c *seqCheck) Write(content []byte) (int, error) {
+	n := len(content)
+	for len(content) > 0 {
+		end := bytes.IndexByte(content, '\n')
+		if end < 0 {
+			c.partial = append(c.partial, content...)
+			if len(c.partial) > 4096 {
+				c.fail("a line longer than 4096 bytes")
+				c.partial = c.partial[:0]
+			}
+			break
+		}
+		line := content[:end]
+		if len(c.partial) > 0 {
+			c.partial = append(c.partial, line...)
+			line = c.partial
+		}
+		c.line(line)
+		c.partial = c.partial[:0]
+		content = content[end+1:]
+	}
+	return n, nil
+}
+
+func (c *seqCheck) line(line []byte) {
+	var value int64
+	for _, b := range line {
+		if b < '0' || b > '9' {
+			value = -1
+			break
+		}
+		value = value*10 + int64(b-'0')
+	}
+	if len(line) == 0 || value < 0 {
+		if c.kept.Len() < 1<<20 {
+			c.kept.Write(line)
+			c.kept.WriteByte('\n')
+		} else {
+			c.fail("more than 1M of other lines")
+		}
+		return
+	}
+	if value != c.lines+1 {
+		c.fail(fmt.Sprintf("line %d after line %d", value, c.lines))
+	}
+	c.lines = value
+}
+
+func (c *seqCheck) fail(reason string) {
+	if c.broken == "" {
+		c.broken = reason
+	}
+}
+
+// runOutputHelper is TestBudgetScopeHelper for gateOutputCase: it runs the
+// gate and checks its output as it streams, holding a bounded amount.
+func runOutputHelper(scope string) {
+	var check seqCheck
+	g := &gate{root: os.Getenv("GATE_BUDGET_ROOT"), cacheDir: os.Getenv("GATE_BUDGET_CACHE"), steps: gateOutputCase.steps(), scope: scope}
+	code := g.run(&check)
+	if len(check.partial) > 0 {
+		check.line(check.partial)
+	}
+	fmt.Printf("%sseq-check run=%s lines=%d broken=%q\ngate-exit=%d\n", check.kept.String(), os.Getenv("GATE_OUTPUT_RUN"), check.lines, check.broken, code)
+}
+
 // TestBudgetHostSlice runs two gates, each under its own budgets, that
 // together pass the bound of their slice: the kernel stops the larger, so
 // the gates never hold more than the bound together, and the gate stopped
@@ -467,6 +631,10 @@ func TestBudgetScopeHelper(t *testing.T) {
 	}
 	scope := os.Getenv(scopeVariable)
 	os.Unsetenv(scopeVariable)
+	if name == gateOutputCase.name {
+		runOutputHelper(scope)
+		return
+	}
 	for _, c := range append(append(budgetCases, hostCase, holdCase), gateOOMCases...) {
 		if c.name == name {
 			var out bytes.Buffer

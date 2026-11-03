@@ -162,6 +162,46 @@ func TestCachedStepReplaysOnlyWhileItsInputsAreUnchanged(t *testing.T) {
 	expect(3, true)
 }
 
+// A receipt replays only the output recorded with it: an output file with
+// another size or other bytes, or none, is a cache miss, and the step runs.
+func TestCachedStepReplaysOnlyItsRecordedOutput(t *testing.T) {
+	root := fixture(t)
+	cache := t.TempDir()
+	steps := func() []*Step {
+		return []*Step{{Name: "checked", Argv: count("checked"), Inputs: &Inputs{Paths: []string{"src/"}}}}
+	}
+	expect := func(executions int, cached bool) {
+		t.Helper()
+		code, out := runGate(t, root, cache, steps())
+		if code != 0 {
+			t.Fatalf("exit %d\n%s", code, out)
+		}
+		if got := runs(t, root, "checked"); got != executions {
+			t.Fatalf("executions = %d, want %d\n%s", got, executions, out)
+		}
+		if strings.Contains(out, "ok, cached") != cached || !strings.Contains(out, "ran checked\n") || strings.Contains(out, "RAN") {
+			t.Fatalf("cached = %t, want %t, with the recorded output\n%s", !cached, cached, out)
+		}
+	}
+	expect(1, false)
+	expect(1, true)
+	recorded, err := filepath.Glob(filepath.Join(cache, "*", "*", "*.out"))
+	if err != nil || len(recorded) != 1 {
+		t.Fatalf("recorded outputs %v, %v; want one", recorded, err)
+	}
+	for executions, tamper := range []func(string) error{
+		func(name string) error { return os.WriteFile(name, []byte("ran checked"), 0o644) },
+		func(name string) error { return os.WriteFile(name, []byte("RAN checked\n"), 0o644) },
+		os.Remove,
+	} {
+		if err := tamper(recorded[0]); err != nil {
+			t.Fatal(err)
+		}
+		expect(executions+2, false)
+		expect(executions+2, true)
+	}
+}
+
 func TestFailuresAreNeverCached(t *testing.T) {
 	root := fixture(t)
 	cache := t.TempDir()

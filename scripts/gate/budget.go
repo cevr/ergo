@@ -376,18 +376,17 @@ func drainPipe(reader *os.File, destination io.Writer, mu *sync.Mutex, drained c
 		} else {
 			read, err = reader.Read(buffer)
 		}
-		if read > 0 {
+		if read > 0 && result.err == nil {
 			mu.Lock()
 			written, writeErr := destination.Write(buffer[:read])
 			mu.Unlock()
-			if writeErr != nil {
-				result.err = writeErr
-				return
+			if writeErr == nil && written != read {
+				writeErr = io.ErrShortWrite
 			}
-			if written != read {
-				result.err = io.ErrShortWrite
-				return
-			}
+			// A destination that fails (a full disk under the output spool)
+			// fails the step, but the pipe is still read to its end, so the
+			// step is never blocked on a pipe nobody reads.
+			result.err = writeErr
 		}
 		if err != nil {
 			if pipeReadInterrupted(err) {

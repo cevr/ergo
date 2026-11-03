@@ -1,11 +1,16 @@
 // Command gate runs the repository merge gate.
 //
 // Every check runs as a step of a small dependency graph: independent steps run
-// concurrently, each step's output is captured whole and printed in declaration
-// order, and the gate exits nonzero naming every failed step. A step whose
-// result is a pure function of declared inputs records its pass under the
-// content hash of those inputs (outside the tree, shared by every worktree);
-// unchanged inputs replay the recorded receipt instead of running again. Go
+// concurrently, each step's output is printed whole in declaration order, and
+// the gate exits nonzero naming every failed step. A step's output goes to an
+// unlinked spool file on disk, which the gate prints through a fixed buffer,
+// so what the gate holds in memory for a step does not grow with what the
+// step prints; the gate refuses a spool directory on tmpfs or ramfs. A step
+// whose result is a pure function of declared inputs records its pass under
+// the content hash of those inputs (outside the tree, shared by every
+// worktree), its output in a file beside the receipt; unchanged inputs replay
+// that output instead of running again, while it has the size and digest the
+// receipt names. Go
 // tests are not cached here: Go's own per-package test cache stays
 // authoritative, and slow packages are split into processes whose union is
 // complete by construction (the last shard skips exactly what the others run).
@@ -35,13 +40,12 @@
 // bound across gates, and a step can pass its budget between two samples.
 // ERGO_GATE_MEMORY_MECHANISM=rss forces it. The gate prints once which
 // mechanism enforces the budget. A step stopped for its budget fails with
-// "memory budget exceeded (<budget>)" and its captured output, and its result
+// "memory budget exceeded (<budget>)" and its output, and its result
 // is never recorded as passed. Each step's summary line reports its peak
 // memory. -record-durations runs its packages under the same budget.
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -67,8 +71,9 @@ import (
 )
 
 // cacheVersion is part of every key; bump it when a step's meaning changes in
-// a way its declared inputs cannot see.
-const cacheVersion = "ergo-gate-v2"
+// a way its declared inputs cannot see, or when the receipt's form changes
+// (v3: the output moved out of the receipt into a file beside it).
+const cacheVersion = "ergo-gate-v3"
 
 // Step is one gate check.
 type Step struct {
@@ -119,7 +124,13 @@ const (
 )
 
 type result struct {
-	outcome  outcome
+	outcome outcome
+	// spool holds the step's own output, in a file on disk the gate reads
+	// back to print it: an unlinked spool file, or a recorded receipt's
+	// output. Nil when the step printed nothing through the gate.
+	spool *os.File
+	// output follows spool: the gate's own lines about the step, a few
+	// lines whatever the step printed.
 	output   []byte
 	duration time.Duration
 	cpu      time.Duration
@@ -131,18 +142,24 @@ type result struct {
 	note  string
 }
 
+// receipt is a recorded pass. The step's output is in a file beside it
+// (receiptOutputPath), which a replay streams; the receipt names its size
+// and digest, so a replay prints only the output recorded with it.
 type receipt struct {
-	Step     string    `json:"step"`
-	Key      string    `json:"key"`
-	Duration float64   `json:"durationSeconds"`
-	Passed   time.Time `json:"passedAt"`
-	Output   string    `json:"output"`
+	Step         string    `json:"step"`
+	Key          string    `json:"key"`
+	Duration     float64   `json:"durationSeconds"`
+	Passed       time.Time `json:"passedAt"`
+	OutputBytes  int64     `json:"outputBytes"`
+	OutputSHA256 string    `json:"outputSHA256"`
 }
 
 type gate struct {
 	started  time.Time
 	root     string
 	cacheDir string
+	// spoolDir holds the steps' output spools (outputSpoolDir).
+	spoolDir string
 	noCache  bool
 	steps    []*Step
 	files    []string
@@ -327,6 +344,10 @@ func (g *gate) run(out io.Writer) int {
 	}
 	defer g.limit.close()
 	fmt.Fprintf(out, "gate: memory budget: %s\n", g.limit.describe())
+	if g.spoolDir, err = outputSpoolDir(g.cacheDir); err != nil {
+		fmt.Fprintln(out, "gate:", err)
+		return 2
+	}
 
 	results := make([]*result, len(g.steps))
 	done := make([]chan struct{}, len(g.steps))
@@ -367,9 +388,11 @@ func (g *gate) run(out io.Writer) int {
 			fmt.Fprintf(out, "== %s: not run (%s)\n", step.Name, r.note)
 			failures = append(failures, step.Name)
 		}
-		out.Write(r.output)
-		if len(r.output) > 0 && r.output[len(r.output)-1] != '\n' {
-			fmt.Fprintln(out)
+		if err := r.print(out); err != nil {
+			fmt.Fprintf(out, "gate: %s: print output: %v\n", step.Name, err)
+			if !slices.Contains(failures, step.Name) {
+				failures = append(failures, step.Name)
+			}
 		}
 	}
 	elapsed := time.Since(started).Seconds()
@@ -390,8 +413,8 @@ func (g *gate) execute(step *Step) *result {
 			return &result{outcome: failed, output: []byte("gate: hash inputs: " + err.Error() + "\n")}
 		}
 		if !g.noCache {
-			if recorded, ok := g.lookup(key); ok {
-				return &result{outcome: cached, output: []byte(recorded.Output),
+			if recorded, output, ok := g.lookup(key); ok {
+				return &result{outcome: cached, spool: output,
 					note: fmt.Sprintf("passed in %.1fs at %s, inputs %s", recorded.Duration, recorded.Passed.UTC().Format(time.RFC3339), key[:12])}
 			}
 		}
@@ -418,11 +441,17 @@ func (g *gate) execute(step *Step) *result {
 	if len(step.ToolEnv) > 0 {
 		command.Env = append(command.Env, testenv.ToolDigest+"="+g.toolDigest(step))
 	}
-	var output bytes.Buffer
-	command.Stdout = &output
-	command.Stderr = &output
+	// The step's output goes to a spool file, never to the gate's memory, so
+	// what the gate holds for a step does not grow with what it prints.
+	spool, err := newOutputSpool(g.spoolDir)
+	if err != nil {
+		_ = unlockStepTemp(lock)
+		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: create output spool: %v\n", step.Name, err))}
+	}
+	command.Stdout = spool
+	command.Stderr = spool
 	used, err := runBudgeted(g.limit, step.Name, command)
-	r := &result{outcome: passed, output: output.Bytes(), duration: time.Since(started), begun: started.Sub(g.started), peak: used.peak}
+	r := &result{outcome: passed, spool: spool, duration: time.Since(started), begun: started.Sub(g.started), peak: used.peak}
 	if command.ProcessState != nil {
 		// A reaped child's usage includes the descendants it reaped.
 		r.cpu = command.ProcessState.UserTime() + command.ProcessState.SystemTime()
@@ -430,17 +459,16 @@ func (g *gate) execute(step *Step) *result {
 	if err != nil || used.verdict != "" || used.processIssue != "" {
 		r.outcome = failed
 		if err != nil {
-			fmt.Fprintf(&output, "gate: %s: %v\n", step.Name, err)
+			r.output = fmt.Appendf(r.output, "gate: %s: %v\n", step.Name, err)
 		}
 		// A step over its budget fails, and is never recorded, whatever its
 		// exit status.
 		if used.verdict != "" {
-			fmt.Fprintf(&output, "gate: %s: %s\n", step.Name, used.verdict)
+			r.output = fmt.Appendf(r.output, "gate: %s: %s\n", step.Name, used.verdict)
 		}
 		if used.processIssue != "" {
-			fmt.Fprintf(&output, "gate: %s: %s\n", step.Name, used.processIssue)
+			r.output = fmt.Appendf(r.output, "gate: %s: %s\n", step.Name, used.processIssue)
 		}
-		r.output = output.Bytes()
 	}
 	cleanupErr := emptyStepTempDir(tmpDir)
 	unlockErr := unlockStepTemp(lock)
@@ -454,9 +482,54 @@ func (g *gate) execute(step *Step) *result {
 		return r
 	}
 	if r.outcome == passed && key != "" {
-		g.record(receipt{Step: step.Name, Key: key, Duration: r.duration.Seconds(), Passed: time.Now(), Output: output.String()})
+		g.record(receipt{Step: step.Name, Key: key, Duration: r.duration.Seconds(), Passed: time.Now()}, spool)
 	}
 	return r
+}
+
+// print writes the step's output, then the gate's lines about it, ending
+// the step's text with a newline, and closes the spool. Output is streamed
+// through a fixed buffer. An error means the output was not printed whole.
+func (r *result) print(out io.Writer) error {
+	tail := &lastByteWriter{writer: out}
+	var err error
+	if r.spool != nil {
+		if _, err = r.spool.Seek(0, io.SeekStart); err == nil {
+			_, err = io.CopyBuffer(tail, onlyReader{r.spool}, make([]byte, 32<<10))
+		}
+		if closeErr := r.spool.Close(); err == nil {
+			err = closeErr
+		}
+		r.spool = nil
+	}
+	if _, writeErr := tail.Write(r.output); err == nil {
+		err = writeErr
+	}
+	if tail.written > 0 && tail.last != '\n' {
+		if _, writeErr := io.WriteString(tail, "\n"); err == nil {
+			err = writeErr
+		}
+	}
+	return err
+}
+
+// onlyReader hides a file's WriterTo, so io.CopyBuffer uses its buffer.
+type onlyReader struct{ io.Reader }
+
+// lastByteWriter remembers the last byte written and how many.
+type lastByteWriter struct {
+	writer  io.Writer
+	written int64
+	last    byte
+}
+
+func (w *lastByteWriter) Write(content []byte) (int, error) {
+	n, err := w.writer.Write(content)
+	if n > 0 {
+		w.written += int64(n)
+		w.last = content[n-1]
+	}
+	return n, err
 }
 
 // measures are a run step's wall time, CPU time, start and peak memory.
@@ -881,31 +954,73 @@ func (g *gate) receiptPath(key string) string {
 	return filepath.Join(g.cacheDir, cacheVersion, key[:2], key+".json")
 }
 
-func (g *gate) lookup(key string) (receipt, bool) {
-	var recorded receipt
-	data, err := os.ReadFile(g.receiptPath(key))
-	if err != nil || json.Unmarshal(data, &recorded) != nil || recorded.Key != key {
-		return receipt{}, false
-	}
-	return recorded, true
+// receiptOutputPath is the file that holds a receipt's output.
+func (g *gate) receiptOutputPath(key string) string {
+	return strings.TrimSuffix(g.receiptPath(key), ".json") + ".out"
 }
 
-// record stores a pass atomically; a lost write only costs a rerun.
-func (g *gate) record(r receipt) {
+// maxReceiptSize bounds what lookup reads of a receipt, which names its
+// output's size and digest but never holds the output.
+const maxReceiptSize = 64 << 10
+
+// lookup returns the pass recorded for key and its output, open for print,
+// when the output file still has the size and digest the receipt names.
+// It reads the output through a fixed buffer.
+func (g *gate) lookup(key string) (receipt, *os.File, bool) {
+	var recorded receipt
+	file, err := os.Open(g.receiptPath(key))
+	if err != nil {
+		return receipt{}, nil, false
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxReceiptSize+1))
+	_ = file.Close()
+	if err != nil || len(data) > maxReceiptSize || json.Unmarshal(data, &recorded) != nil || recorded.Key != key {
+		return receipt{}, nil, false
+	}
+	output, err := os.Open(g.receiptOutputPath(key))
+	if err != nil {
+		return receipt{}, nil, false
+	}
+	digest := sha256.New()
+	size, err := io.CopyBuffer(digest, onlyReader{output}, make([]byte, 32<<10))
+	if err != nil || size != recorded.OutputBytes || hex.EncodeToString(digest.Sum(nil)) != recorded.OutputSHA256 {
+		_ = output.Close()
+		return receipt{}, nil, false
+	}
+	return recorded, output, true
+}
+
+// record stores a pass and the output in spool atomically, the output
+// first; a lost write only costs a rerun. It copies through a fixed buffer.
+func (g *gate) record(r receipt, spool *os.File) {
 	name := g.receiptPath(r.Key)
-	if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+	dir := filepath.Dir(name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return
 	}
+	output, err := os.CreateTemp(dir, ".output-")
+	if err != nil {
+		return
+	}
+	digest := sha256.New()
+	_, seekErr := spool.Seek(0, io.SeekStart)
+	size, copyErr := io.CopyBuffer(io.MultiWriter(output, digest), onlyReader{spool}, make([]byte, 32<<10))
+	closeErr := output.Close()
+	if seekErr != nil || copyErr != nil || closeErr != nil || os.Rename(output.Name(), g.receiptOutputPath(r.Key)) != nil {
+		_ = os.Remove(output.Name())
+		return
+	}
+	r.OutputBytes, r.OutputSHA256 = size, hex.EncodeToString(digest.Sum(nil))
 	data, err := json.Marshal(r)
 	if err != nil {
 		return
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(name), ".receipt-")
+	temporary, err := os.CreateTemp(dir, ".receipt-")
 	if err != nil {
 		return
 	}
 	_, writeErr := temporary.Write(data)
-	closeErr := temporary.Close()
+	closeErr = temporary.Close()
 	if writeErr != nil || closeErr != nil || os.Rename(temporary.Name(), name) != nil {
 		_ = os.Remove(temporary.Name())
 	}
