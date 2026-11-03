@@ -317,10 +317,10 @@ Status: **declared** in the embedded prelude (`internal/sketch/std/prelude.ergo`
 
 ## Laws
 
-Status: **designed, not yet implemented** ([#125](https://github.com/cevr/ergo/issues/125), [#170](https://github.com/cevr/ergo/issues/170)).
+Status: **implemented: checked, not run** ([#162](https://github.com/cevr/ergo/issues/162) runs laws). The checker checks every law (check-v1 stage E3b, 196l; [#125](https://github.com/cevr/ergo/issues/125), [#170](https://github.com/cevr/ergo/issues/170)).
 
 ```go
-type Codec[T] {
+type Codec[T comparable] {
 	Encode(v T) string,
 	Decode(s string) T fails Malformed,
 
@@ -332,13 +332,21 @@ type Store {
 	Put(id string, o Order),
 
 	law FindAfterPut(id string, o Order) { Put(id, o); try Find(id) == o },
+	law Taxed(o Order) { with context { Rates: Flat } { taxed(o) == o.Total+7 } },
 }
 ```
 
-1. A law is `law X(params) { … }`, a member of an operation type beside its operations (196l). Its body ends in a `bool` expression, and a failure that escapes the body refutes the law. `ergo test` checks it like a fuzz target, with generated arguments.
-2. Every law is a provider law: `ergo test` checks it against every provider of its type, which the closed world lists.
-3. A refuted law refuses the build. A law that passes a finite suite is reported as tested, never as proved (NORTH_STAR pillar 4).
-4. Laws are declared in their type, not found by name; the `LawX` naming rule is gone. The same form serves every client: codecs, providers, schedules and machines. Until laws are implemented, the prototype refuses a law with S109 ([#162](https://github.com/cevr/ergo/issues/162)). *Prior art:* Lean type classes carry their laws as members; Haskell states class laws beside the class and checks them with QuickCheck; Elixir `StreamData` properties.
+1. **Members.** A law is `law X(params) { … }`, a member of an operation type beside its operations (196l). A type with laws and no operations is an operation type whose laws see only the package. A law beside fields or in a union variant is S108 from the parser ([grammar](grammar.md#declarations) rule 5).
+2. **No value.** Law names have their own namespace, as test names do. A law is entered into no value scope, so `RoundTrip(1)` in any body is S104 "unknown name RoundTrip", and `Codec.RoundTrip` is S104 as an unknown member. A second law of one name in one type is S108 "law X is declared twice", at the second. A law named like an operation of its type is S108 "law X is named like an operation of T".
+3. **Scope.** A law body sees its parameters, then the operations of its type, then the package. An operation therefore wins over a package function of its name: in `law Stable(v int) { Encode(v) == Encode(v) }`, `Encode` is the operation even beside `func Encode(_ Plain, v int) string`. A law of a generic type is generic in the type's bracket parameters, as a generic function body is in its own: its parameters and its locals, `let w T = v`, may name `T`.
+4. **Parameters** are typed as a function's are. A lone name is a type, so `law L(v)` is S104 "unknown type v", as `func f(v)` and `test T(v)` are. A parameter written as a function type without `escaping` is non-escaping. A parameter named twice is S108 "v is already a parameter of law L". A law parameter need not be generatable: that is a property test's rule, and #162 decides how laws are run.
+5. **Operation names are not rebound.** The operation scope encloses the law's body, so the no-shadowing rule (D-D2) applies to it: a parameter, `let`, pattern, `as`, loop, catch-arm or function-literal binder named like an operation of the type is S108 at the binder. An operation also hides a package context of its name, so `with Encode { … }` in a law of a type with an operation `Encode` is S108 ([runtime](runtime.md#g1-context-through-with), G1 rule 2).
+6. **Operations are call-only.** A call of an operation is checked against the operation's signature. It charges nothing, and its failure row joins the law's. Any other use, as a value, an argument or a selector base, is S108 "an operation of T is called inside a law; it is not a value".
+7. **Rows.** A law's failure row is inferred and unbounded: a failure that escapes the body refutes the law when it runs. A law needs no service. A call that charges a capability, a package function whose row needs one or a capability operation such as `Store.Get()`, is S102 unless a `with` in the law discharges it, as `Taxed` above does.
+8. **The tail.** The body ends in a `bool`. A tail whose type's underlying type is not `bool` is S108 "a law's body ends in a bool, not string", once, at the tail. A body that can end with no value is S108 "a law's body ends in a bool, not nothing", at the end of that path. A fallible tail must be tried (S105), so a law writes `try Find(id) == o`. An invalid tail adds no diagnostic.
+9. **A frame of its own.** A law body is checked as if it ran in a frame, as a test body is: `task.Go`, an owning `with` and a `Task` in a law follow the frame rules of a function body. `assert` stands in a law body ([grammar](grammar.md#declarations) rule 11), but not in a function literal inside one (S108). An unused local is S110.
+10. **Checked, not run.** No build runs a law yet. When [#162](https://github.com/cevr/ergo/issues/162) runs them, `ergo test` checks each law like a fuzz target, with generated arguments, against every provider of its type, which the closed world lists. A refuted law refuses the build. A law that passes a finite suite is reported as tested, never as proved (NORTH_STAR pillar 4).
+11. Laws are declared in their type, not found by name; the `LawX` naming rule is gone. The same form serves every client: codecs, providers, schedules and machines. *Prior art:* Lean type classes carry their laws as members; Haskell states class laws beside the class as documentation and checks them with QuickCheck; Elixir `StreamData` properties (`check all`). MoonBit, Gleam and ReScript have no laws. Ergo checks a law as code, and keeps it out of the binary as Zig keeps `test` blocks out of non-test builds.
 
 ## Codecs
 
