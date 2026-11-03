@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Codec {\n\tEncode(v int) string,\n\n\tlaw Stable(v int) { Encode(v) == Encode(v) },\n}\n\ntype Plain {}\n\nfunc Encode(_ Plain, v int) string {\n\t\"\\(v)\"\n}\n\nlet Live = context {\n\tCodec: Plain,\n}\n\nfunc add(a, b int) int {\n\ta + b\n}\n\ntest Adds {\n\tassert add(1, 2) == 3\n}\n\nfunc main() needs Console {\n\tConsole.Println(with Live { Codec.Encode(add(1, 2)) })\n}\n")
