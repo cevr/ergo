@@ -1,0 +1,6 @@
+// want: S001 3 a composite literal in a header needs parentheses: write (wire{…})
+func f() {
+	with wire { A: x } {
+		run()
+	}
+}

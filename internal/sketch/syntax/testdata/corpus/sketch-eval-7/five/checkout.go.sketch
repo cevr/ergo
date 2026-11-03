@@ -52,7 +52,7 @@ func (g FakeGateway) Authorize(order Order) (Payment, error[GatewayDown]) {
 	return Authorized{AuthID: g.AuthID}
 }
 
-context Live {
+wire Live {
 	Orders = MemoryOrders{}
 	Gateway = FakeGateway{AuthID: "auth-7"}
 	Scheduler = LiveScheduler{}

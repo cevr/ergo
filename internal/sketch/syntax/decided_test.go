@@ -126,7 +126,9 @@ func TestDecidedFixtures(t *testing.T) {
 
 // TestRefusedFixtures: each old spelling is refused with the code and line
 // of its first line (`// want: CODE LINE TEXT`), and a Go habit's message
-// holds TEXT (D2).
+// holds TEXT (D2). A spelling the parser reads as a current form (the old
+// `let W = wire {…}` is a composite literal of a type named wire since
+// 196w) is refused by the checker instead, with that one diagnostic.
 func TestRefusedFixtures(t *testing.T) {
 	for _, in := range readDir(t, "refuse") {
 		head, _, _ := strings.Cut(in.Src, "\n")
@@ -134,14 +136,23 @@ func TestRefusedFixtures(t *testing.T) {
 		if len(fields) != 3 {
 			t.Fatalf("%s: bad header %q", in.Name, head)
 		}
-		_, err := syntax.Parse(in.Src)
-		var e *syntax.Error
-		if !errors.As(err, &e) {
-			t.Errorf("%s: got %v, want %s", in.Name, err, head)
+		var got []check.Diagnostic
+		if _, err := syntax.Parse(in.Src); err == nil {
+			_, got = check.CheckSource(in.Src)
+		} else {
+			var e *syntax.Error
+			if !errors.As(err, &e) {
+				t.Errorf("%s: got %v, want %s", in.Name, err, head)
+				continue
+			}
+			got = []check.Diagnostic{{Code: e.Code, Message: e.Message, Line: e.Line}}
+		}
+		if len(got) != 1 {
+			t.Errorf("%s: got %v, want only %s", in.Name, got, head)
 			continue
 		}
-		if e.Code != fields[0] || strconv.Itoa(e.Line) != fields[1] || fields[2] != "-" && !strings.Contains(e.Message, fields[2]) {
-			t.Errorf("%s: got %v, want %s", in.Name, err, head)
+		if d := got[0]; d.Code != fields[0] || strconv.Itoa(d.Line) != fields[1] || fields[2] != "-" && !strings.Contains(d.Message, fields[2]) {
+			t.Errorf("%s: got %v, want %s", in.Name, d, head)
 		}
 	}
 }
@@ -292,7 +303,7 @@ var handMadeOld = []string{
 	"package p\n\nfunc f(m map[string]int64) {}\n",
 	"package p\n\nfunc f() {\n\tgo work()\n}\n",
 	"package p\n\nfunc f() {\n\tdefer done()\n}\n",
-	"package p\n\ncontext W {\n\tClock = Fixed{}\n}\n",
+	"package p\n\nwire W {\n\tClock = Fixed{}\n}\n",
 	"package p\n\nfunc f() {\n\tg() catch e {\n\tcase E:\n\t\tuse(e)\n\t}\n}\n",
 	"package p\n\nimport \"strings\"\n",
 	"package p\n\nimport (\n\t\"strings\"\n)\n",

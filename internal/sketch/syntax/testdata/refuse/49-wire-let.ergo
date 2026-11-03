@@ -1,0 +1,3 @@
+// want: S104 3 unknown type wire
+let x = 1
+let W = wire { A: x }

@@ -135,7 +135,8 @@ var MalformedTable = []Malformed{
 	// Old Ergo-only spellings: the plain S001 (#217).
 	{Name: "error-row", Src: "func f() (Order, error[NotFound]) {\n\tOrder{}\n}\n", Lines: []int{1}},
 	{Name: "error-row-only", Src: "func f() error[NotFound] {}\n", Lines: []int{1}},
-	{Name: "context-decl", Src: "context Live {\n\tClock = Fixed{}\n}\n", Lines: []int{1}},
+	{Name: "wire-decl", Src: "wire Live {\n\tClock = Fixed{}\n}\n", Lines: []int{1}},
+	{Name: "wire-decl-as-listed", Src: "wire Name { A = x }\n", Lines: []int{1}},
 	{Name: "context-entry-assign", Src: "let Live = context {\n\tClock = Fixed{},\n}\n", Lines: []int{2}},
 	{Name: "catch-bind", Src: "func f() {\n\tg() catch e {\n\tcase E:\n\t}\n}\n", Lines: []int{2}},
 	{Name: "bodiless", Src: "func Upper(s string) string\n", Lines: []int{1}},

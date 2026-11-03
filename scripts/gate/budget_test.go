@@ -19,7 +19,7 @@ import (
 
 // TestBudgetAllocator is a step's process: run with two arguments, it
 // allocates and touches that many MiB, prints "allocated", and holds the
-// memory for the given duration.
+// memory for the given duration. It prints "held" only after the full hold.
 func TestBudgetAllocator(t *testing.T) {
 	if flag.NArg() != 2 {
 		t.Skip("a budget test runs it as a step")
@@ -43,6 +43,7 @@ func TestBudgetAllocator(t *testing.T) {
 	fmt.Printf("allocated %d MiB\n", mib)
 	time.Sleep(hold)
 	runtime.KeepAlive(chunks)
+	fmt.Printf("held %d MiB\n", mib)
 }
 
 // allocatorStep allocates mib MiB and holds it. The shell around the
@@ -85,7 +86,7 @@ func stepStopped(t *testing.T, code int, out string, receipts []string) {
 var budgetCases = []budgetCase{
 	{
 		// The acceptance case: a 2 GB allocation under a 512M step budget is
-		// stopped, the gate goes on, reports it and records no pass.
+		// stopped during its hold, the gate goes on, reports it and records no pass.
 		name: "over", step: "512M", gate: "2G",
 		steps: func() []*Step {
 			return []*Step{allocatorStep("alloc", 2048, 10*time.Second), {Name: "independent", Argv: []string{"sh", "-c", "echo independent ran"}}}
@@ -93,8 +94,8 @@ var budgetCases = []budgetCase{
 		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
 			stepStopped(t, code, out, receipts)
 			wantAll(t, out, "== independent: ok", "independent ran")
-			if strings.Contains(out, "allocated 2048 MiB") {
-				t.Errorf("the allocation completed:\n%s", out)
+			if strings.Contains(out, "held 2048 MiB") {
+				t.Errorf("the allocator held its memory through the full interval:\n%s", out)
 			}
 		},
 	},

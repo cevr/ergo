@@ -110,6 +110,19 @@ CHANGELOG.md	Ergo spellings: `error[…]` rows, `wire Name { A = x }`, `catch e 
 docs/spec/diagnostics.md	Ergo-only spelling (`error[…]` rows, `wire Name { A = x }`, `catch e { …
 docs/spec/grammar.md	spellings** (`error[…]` rows, `wire Name { A = x }`, `catch e { …
 internal/sketch/syntax/habits.go	Ergo-only spellings (error[…] rows, `wire Name { A = x }`,
+# and the inputs that prove the old spellings refused (196w-f1): the refuse fixtures, the malformed rows, the superseded corpus (the hand-made old file's `\nwire` has no word boundary)
+internal/sketch/sketchtest/fixtures.go	{Name: "wire-decl", Src: "wire Live {
+internal/sketch/sketchtest/fixtures.go	{Name: "wire-decl-as-listed", Src: "wire Name { A = x }
+internal/sketch/syntax/decided_test.go	// `let W = wire {…}` is a composite literal of a type named wire since
+internal/sketch/syntax/testdata/refuse/33-wire-decl.ergo	wire Live {
+internal/sketch/syntax/testdata/refuse/49-wire-let.ergo	// want: S104 3 unknown type wire
+internal/sketch/syntax/testdata/refuse/49-wire-let.ergo	let W = wire { A: x }
+internal/sketch/syntax/testdata/refuse/50-wire-with.ergo	write (wire{…})
+internal/sketch/syntax/testdata/refuse/50-wire-with.ergo	with wire { A: x } {
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/five/checkout.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/five/layers.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/five/machine-breaker.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/loops/poller_test.go.sketch	*
 
 # old-syntax translator input: internal/migrate196 reads the old wire spelling (decision 7), and the old-corpus check reads its inline wire{…}
 internal/migrate196/embedded.go	"import", "type", "func", "var", "wire":

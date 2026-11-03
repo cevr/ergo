@@ -1,4 +1,4 @@
 // want: S001 2 -
-context Live {
+wire Live {
 	Orders = MemoryOrders{}
 }
