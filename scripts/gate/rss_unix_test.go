@@ -74,10 +74,7 @@ func TestGroupProcessZombieLeaderOfRealPS(t *testing.T) {
 	if _, err := os.Stat("/proc/self/task"); err != nil {
 		t.Skip("needs Linux threads: darwin makes a process a zombie only once all its threads end")
 	}
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("needs python3 to end a leader thread alone")
-	}
+	python := needTool(t, "python3", "needs python3 to end a leader thread alone")
 	// The leader thread exits by the exit system call while a second
 	// thread sleeps.
 	script := `import ctypes, platform, threading, time

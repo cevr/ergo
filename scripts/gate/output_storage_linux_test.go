@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -127,9 +126,7 @@ func (l storageLayout) expect(run int) expected {
 // TestBudgetOutputStorage checks the output-storage property on every
 // layout of storageLayouts.
 func TestBudgetOutputStorage(t *testing.T) {
-	if _, err := exec.LookPath("seq"); err != nil {
-		t.Skip("seq is unavailable")
-	}
+	needTool(t, "seq", "seq is unavailable")
 	slice := testSlice(t)
 	setBudgetCaseTemp(t)
 	t.Setenv(stepMemoryVariable, gateOutputCase.step)

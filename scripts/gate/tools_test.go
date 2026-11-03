@@ -25,8 +25,11 @@ import (
 // gate-throughput.md for the measured lookup cost. The stand-in runs the real
 // go and answers go env, which only fingerprinting asks, with a one-file
 // GOROOT. git stays real: its exec path holds about 200 files here. Tests of
-// the fingerprint rules install their own tools. The stand-in exists only in
-// the process that runs the tests, under observation (testinputs.MainFunc).
+// the fingerprint rules install their own tools. Beside the stand-in, PATH
+// holds a link to each of testTools and nothing else (setTestsPath), so the
+// tests can run by name only the tools the tool digest keys. The stand-in and
+// the links exist only in the process that runs the tests, under observation
+// (testinputs.MainFunc).
 // The observing process, which never runs the tests itself, then puts the
 // test log in a fixed order and checks that the tests read only declared
 // module paths (finishTestLog).
@@ -40,7 +43,6 @@ func TestMain(m *testing.M) {
 		}
 		defer os.RemoveAll(stub)
 		testScratch = stub
-		startEnvironment = os.Environ()
 		bin, goroot := filepath.Join(stub, "bin"), filepath.Join(stub, "goroot")
 		files := map[string]string{
 			filepath.Join(goroot, "VERSION"): "go1.0.0-stub\n",
@@ -63,7 +65,10 @@ func TestMain(m *testing.M) {
 				panic(err)
 			}
 		}
-		os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if err := setTestsPath(bin); err != nil {
+			panic(err)
+		}
+		startEnvironment = os.Environ()
 		return m.Run()
 	})
 	if !ranTests {
@@ -75,7 +80,8 @@ func TestMain(m *testing.M) {
 // realTools are the tools PATH named before TestMain put its stand-ins first.
 var realTools = map[string]string{}
 
-// startEnvironment is the environment the test binary started with.
+// startEnvironment is the environment the tests start with: the test
+// binary's, with PATH naming only the stand-ins and the test tools.
 var startEnvironment []string
 
 // testScratch is TestMain's directory, removed when the tests end.

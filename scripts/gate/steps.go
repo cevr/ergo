@@ -28,10 +28,30 @@ const shardTargetSeconds = 12.0
 // budget: a shard that needs it is a defect to split or fix.
 const testTimeout = "-timeout=15m"
 
-// testTools are the executables Go tests spawn besides the Go toolchain,
-// whose binary and version Go's test cache already keys on: git, and sh,
-// which runs the shell scripts tests write.
-var testTools = []string{"git", "sh"}
+// testTools are the executables Go tests run, besides the test binaries Go
+// builds from the module. Go's test cache rechecks only files inside the
+// module, so each Go test step keys these through its tool digest instead:
+// their bytes and what they print about themselves (toolVersion). Without
+// that, a cached pass would replay after one of them changed at the same
+// path. The list is every program a full run of scripts/gate's tests
+// executes (strace -f -e trace=execve):
+//   - go, whose fingerprint keys the whole toolchain it reports (compile,
+//     link, vet and the rest), and git, with its exec path (git-submodule,
+//     git-upload-pack);
+//   - sh, which runs the scripts tests write, and /bin/sh, which runs their
+//     #! lines and which git runs by path;
+//   - the programs those scripts and git's own scripts run by name;
+//   - the programs the gate runs: systemd-run, systemctl and true to bound
+//     its steps, ps to watch them, and sysctl on darwin.
+//
+// scripts/gate's tests find only these tools on PATH (TestMain), so a test
+// there that starts to run another program by name fails until it is here.
+var testTools = []string{
+	"go", "git", "sh", "/bin/sh",
+	"basename", "chmod", "dd", "envsubst", "gettext", "head", "ls", "mkdir", "mkfifo",
+	"nohup", "python3", "sed", "seq", "setsid", "sleep", "uname",
+	"systemd-run", "systemctl", "true", "ps", "sysctl",
+}
 
 // goRuntimeEnvironment are variables every Go-built program reads at startup.
 // They change what a program prints without changing its bytes: GODEBUG=

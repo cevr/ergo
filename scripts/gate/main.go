@@ -18,8 +18,10 @@
 // authoritative, and slow packages are split into processes whose union is
 // complete by construction (the last shard skips exactly what the others run).
 // That holds for this package's own tests too: their inputs are declared
-// (declaredInputs in inputs_test.go, guarded by TestMain), the host facts they
-// read without package os key them through ERGO_TOOL_VERSIONS (readHostFacts),
+// (declaredInputs in inputs_test.go, guarded by TestMain), the programs they
+// run outside the module (testTools, the only programs on their PATH) and the
+// host facts they read without package os key them through ERGO_TOOL_VERSIONS
+// (readHostFacts),
 // and an unchanged package replays instead of rerunning its properties.
 //
 // Every step runs under a memory budget: a hard cap for the step with all the
