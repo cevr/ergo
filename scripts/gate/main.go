@@ -5,7 +5,10 @@
 // the gate exits nonzero naming every failed step. A step's output goes to an
 // unlinked spool file on disk, which the gate prints through a fixed buffer,
 // so what the gate holds in memory for a step does not grow with what the
-// step prints; the gate refuses a spool directory on tmpfs or ramfs. A step
+// step prints. The gate writes step output only to a pipe, a device or a
+// file on a disk file system, judged on the opened file: it refuses to run
+// with a spool or standard output file elsewhere (tmpfs, for one), and it
+// does not record a pass whose cache file would be there. A step
 // whose result is a pure function of declared inputs records its pass under
 // the content hash of those inputs (outside the tree, shared by every
 // worktree), its output in a file beside the receipt; unchanged inputs replay
@@ -292,6 +295,15 @@ func cacheDirectory() string {
 func (g *gate) run(out io.Writer) int {
 	started := time.Now()
 	g.started = started
+	// The gate prints every step's output to out. A file in memory there
+	// would charge that output to the gate, so the gate refuses it before
+	// any step runs.
+	if file, ok := out.(*os.File); ok {
+		if err := outputDestination(file); err != nil {
+			fmt.Fprintf(out, "gate: standard output %v; redirect standard output to a disk file or a pipe\n", err)
+			return 2
+		}
+	}
 	index := map[string]int{}
 	for i, step := range g.steps {
 		if _, duplicate := index[step.Name]; duplicate {
@@ -446,7 +458,7 @@ func (g *gate) execute(step *Step) *result {
 	spool, err := newOutputSpool(g.spoolDir)
 	if err != nil {
 		_ = unlockStepTemp(lock)
-		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: create output spool: %v\n", step.Name, err))}
+		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: %v\n", step.Name, err))}
 	}
 	command.Stdout = spool
 	command.Stderr = spool
@@ -482,7 +494,11 @@ func (g *gate) execute(step *Step) *result {
 		return r
 	}
 	if r.outcome == passed && key != "" {
-		g.record(receipt{Step: step.Name, Key: key, Duration: r.duration.Seconds(), Passed: time.Now()}, spool)
+		// A pass not recorded still passes, with its output whole; the
+		// next run executes the step again.
+		if err := g.record(receipt{Step: step.Name, Key: key, Duration: r.duration.Seconds(), Passed: time.Now()}, spool); err != nil {
+			r.output = fmt.Appendf(r.output, "gate: %s: pass not recorded: %v\n", step.Name, err)
+		}
 	}
 	return r
 }
@@ -992,38 +1008,56 @@ func (g *gate) lookup(key string) (receipt, *os.File, bool) {
 
 // record stores a pass and the output in spool atomically, the output
 // first; a lost write only costs a rerun. It copies through a fixed buffer.
-func (g *gate) record(r receipt, spool *os.File) {
+// It declines, before it copies a byte, when outputDestination refuses the
+// output file: the cache would then hold step output in memory charged to
+// the gate. An error says why the pass is not recorded.
+func (g *gate) record(r receipt, spool *os.File) error {
 	name := g.receiptPath(r.Key)
 	dir := filepath.Dir(name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return
+		return err
 	}
 	output, err := os.CreateTemp(dir, ".output-")
 	if err != nil {
-		return
+		return err
+	}
+	if err := outputDestination(output); err != nil {
+		_ = output.Close()
+		_ = os.Remove(output.Name())
+		return fmt.Errorf("cache output file in %s %w; set ERGO_GATE_CACHE to a directory on disk", dir, err)
 	}
 	digest := sha256.New()
 	_, seekErr := spool.Seek(0, io.SeekStart)
 	size, copyErr := io.CopyBuffer(io.MultiWriter(output, digest), onlyReader{spool}, make([]byte, 32<<10))
 	closeErr := output.Close()
-	if seekErr != nil || copyErr != nil || closeErr != nil || os.Rename(output.Name(), g.receiptOutputPath(r.Key)) != nil {
+	if err := errors.Join(seekErr, copyErr, closeErr); err != nil {
 		_ = os.Remove(output.Name())
-		return
+		return fmt.Errorf("write cache output: %w", err)
+	}
+	if err := os.Rename(output.Name(), g.receiptOutputPath(r.Key)); err != nil {
+		_ = os.Remove(output.Name())
+		return err
 	}
 	r.OutputBytes, r.OutputSHA256 = size, hex.EncodeToString(digest.Sum(nil))
 	data, err := json.Marshal(r)
 	if err != nil {
-		return
+		return err
 	}
 	temporary, err := os.CreateTemp(dir, ".receipt-")
 	if err != nil {
-		return
+		return err
 	}
 	_, writeErr := temporary.Write(data)
 	closeErr = temporary.Close()
-	if writeErr != nil || closeErr != nil || os.Rename(temporary.Name(), name) != nil {
+	if err := errors.Join(writeErr, closeErr); err != nil {
 		_ = os.Remove(temporary.Name())
+		return fmt.Errorf("write receipt: %w", err)
 	}
+	if err := os.Rename(temporary.Name(), name); err != nil {
+		_ = os.Remove(temporary.Name())
+		return err
+	}
+	return nil
 }
 
 var testFunction = regexp.MustCompile(`(?m)^func ((?:Test|Fuzz|Example)[A-Za-z0-9_]*)\(`)

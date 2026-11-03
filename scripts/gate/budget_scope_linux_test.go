@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -393,11 +394,38 @@ func (c *seqCheck) fail(reason string) {
 }
 
 // runOutputHelper is TestBudgetScopeHelper for gateOutputCase: it runs the
-// gate and checks its output as it streams, holding a bounded amount.
+// gate and checks its output as it streams, holding a bounded amount. With
+// GATE_OUTPUT_FILE set, the gate prints into that file, as `gate > file`
+// does, and the check reads the file when the gate is done.
 func runOutputHelper(scope string) {
 	var check seqCheck
 	g := &gate{root: os.Getenv("GATE_BUDGET_ROOT"), cacheDir: os.Getenv("GATE_BUDGET_CACHE"), steps: gateOutputCase.steps(), scope: scope}
-	code := g.run(&check)
+	var code int
+	if name := os.Getenv("GATE_OUTPUT_FILE"); name != "" {
+		file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			fmt.Printf("open the gate's output file: %v\n", err)
+			return
+		}
+		code = g.run(file)
+		if err := file.Close(); err != nil {
+			fmt.Printf("close the gate's output file: %v\n", err)
+			return
+		}
+		printed, err := os.Open(name)
+		if err != nil {
+			fmt.Printf("open the gate's output file: %v\n", err)
+			return
+		}
+		_, err = io.CopyBuffer(&check, onlyReader{printed}, make([]byte, 32<<10))
+		_ = printed.Close()
+		if err != nil {
+			fmt.Printf("read the gate's output file: %v\n", err)
+			return
+		}
+	} else {
+		code = g.run(&check)
+	}
 	if len(check.partial) > 0 {
 		check.line(check.partial)
 	}
