@@ -109,6 +109,7 @@ type refWalker struct {
 	// (reflits.go), and every node visited.
 	idents     map[*syntax.Ident]any
 	nameIdents map[*syntax.Ident]bool
+	binders    map[*syntax.Ident]bool // the identifiers that declare a local
 	undecided  map[*syntax.Ident]bool
 	visited    map[syntax.Node]bool
 	// guard is the innermost callback frame the walk is in (nil outside
@@ -211,6 +212,7 @@ func (c *checker) newRefWalker() *refWalker {
 	if refTrace != nil {
 		w.idents = map[*syntax.Ident]any{}
 		w.nameIdents = map[*syntax.Ident]bool{}
+		w.binders = map[*syntax.Ident]bool{}
 		w.undecided = map[*syntax.Ident]bool{}
 		w.visited = map[syntax.Node]bool{}
 	}
@@ -255,35 +257,49 @@ func (w *refWalker) writtenType(t syntax.Expr) Type {
 	return nil
 }
 
-func (w *refWalker) push()            { w.scopes = append(w.scopes, map[string]*localBinding{}) }
-func (w *refWalker) pop()             { w.scopes = w.scopes[:len(w.scopes)-1] }
-func (w *refWalker) bind(name string) { w.bindAs(name, &localBinding{}) }
+func (w *refWalker) push() { w.scopes = append(w.scopes, map[string]*localBinding{}) }
+func (w *refWalker) pop()  { w.scopes = w.scopes[:len(w.scopes)-1] }
 
 func (w *refWalker) bindAs(name string, b *localBinding) {
 	w.scopes[len(w.scopes)-1][name] = b
+}
+
+// binder binds the local that the identifier id declares (a parameter, a
+// let or loop name, a pattern or catch binder).
+func (w *refWalker) binder(id *syntax.Ident, b *localBinding) {
+	if w.binders != nil {
+		w.binders[id] = true
+	}
+	w.bindAs(id.Name, b)
 }
 
 // catchPattern walks one pattern of a catch arm and binds every name typing
 // binds there that could hide a package object, valid or not (stage C
 // round 6 fuzz): a record pattern T{F: p} binds the names of its field
 // patterns, as a match pattern does, and `as x` binds x. Any other part is
-// a type position. A lone `case err:` binds the rest, but only a name that
-// names nothing in scope is the rest (catchAll), so it hides no package
-// object and the walk need not bind it.
+// a type position. A lone name binds the rest exactly when typing's
+// catchAll says so (catchAllObject, over the walk's scopes; fuzz-17d6),
+// even when it hides a package object or a prelude name.
 func (w *refWalker) catchPattern(p syntax.Expr) {
 	core, name := asParts(p)
 	if name != nil {
 		w.visit(p)
 	}
-	if lit, ok := core.(*syntax.CompositeLit); ok {
-		w.pattern(lit)
-	} else {
+	id, lone := core.(*syntax.Ident)
+	lit, isLit := core.(*syntax.CompositeLit)
+	switch {
+	case isLit:
+		w.pattern(lit, false)
+	case lone && id.Name != "_" && w.catchAll(id):
+		w.visit(id)
+		w.binder(id, &localBinding{})
+	default:
 		w.typ(core)
 	}
 	if name != nil {
 		w.visit(name)
 		if name.Name != "_" {
-			w.bind(name.Name)
+			w.binder(name, &localBinding{})
 		}
 	}
 }
@@ -323,7 +339,7 @@ func (w *refWalker) params(ft *syntax.FuncType, sig *Signature) {
 				}
 				i++
 				if j < len(field.Names) && field.Names[j].Name != "_" {
-					w.bindAs(field.Names[j].Name, &localBinding{rt: rt})
+					w.binder(field.Names[j], &localBinding{rt: rt})
 				}
 			}
 		}
@@ -540,19 +556,13 @@ type pendingSelf struct {
 	guard *guardNode
 }
 
-// pattern walks a pattern of a match case, a let or a for (196p, 196t):
-// the names it binds (patternNames) become locals after it, and
-// every other node is a name, not a value reference (a type that tests
-// the variant, a field key, a literal).
-func (w *refWalker) pattern(p syntax.Expr) {
-	isType := func(name string) bool {
-		if w.local(name) {
-			return false
-		}
-		_, ok := w.c.typeObject(name, w.c.cur).(*TypeName)
-		return ok
-	}
-	names := patternNames(p, isType)
+// pattern walks a pattern of a match case, a let or a for (196p, 196t);
+// letFor marks a let's or a for's. The names it binds (patternNames, by
+// patternTests) become locals after it, and every other node is a name,
+// not a value reference (a type or a constant that tests the value, a
+// field key, a literal).
+func (w *refWalker) pattern(p syntax.Expr, letFor bool) {
+	names := patternNames(p, func(name string) bool { return w.patternTests(name, letFor) })
 	binds := make(map[*syntax.Ident]bool, len(names))
 	for _, id := range names {
 		binds[id] = true
@@ -566,8 +576,47 @@ func (w *refWalker) pattern(p syntax.Expr) {
 		return true
 	})
 	for _, id := range names {
-		w.bind(id.Name)
+		w.binder(id, &localBinding{})
 	}
+}
+
+// catchAll is typing's catchAll over the walk's scopes: a type parameter
+// comes first, as in lookupType, then walkObject.
+func (w *refWalker) catchAll(id *syntax.Ident) bool {
+	var o Object
+	if w.tparams[id.Name] {
+		o = &TypeName{Name: id.Name}
+	} else {
+		o = w.walkObject(id.Name)
+	}
+	return catchAllObject(id.Name, o, w.c.isPreludeName(id.Name))
+}
+
+// walkObject is the object a name resolves to in the walk's scopes, as
+// typing's lookup does: a local first, then the package scope, the universe
+// and the file's imports (typeObject). A local row binding is the
+// capability typing binds (capBinding, bindRequirements); any other local
+// is a local value.
+func (w *refWalker) walkObject(name string) Object {
+	if b := w.lookupLocal(name); b != nil {
+		if b.row {
+			return &capBinding{}
+		}
+		return &Var{Name: name}
+	}
+	return w.c.typeObject(name, w.c.cur)
+}
+
+// patternTests is typing's rule for a bare name in a pattern
+// (patternNameTests) over the walk's scopes.
+func (w *refWalker) patternTests(name string, letFor bool) bool {
+	return patternNameTests(w.walkObject(name), w.c.isPreludeName(name), letFor)
+}
+
+// namePattern is typing's single-name rule of a let or a for
+// (checker.namePattern): true when the name tests, so it is a pattern.
+func (w *refWalker) namePattern(id *syntax.Ident) bool {
+	return w.patternTests(id.Name, true)
 }
 
 // frame walks walk inside a value frame.
@@ -1121,7 +1170,12 @@ func (w *refWalker) stmt(s syntax.Stmt) {
 			w.typ(spec.Type)
 			w.exprs(spec.Values)
 			if spec.Pattern != nil {
-				w.pattern(spec.Pattern)
+				w.pattern(spec.Pattern, true)
+			}
+			if spec.Pattern == nil && len(spec.Names) == 1 && w.namePattern(spec.Names[0]) {
+				// The single name tests, as in typing's varDecl: a pattern.
+				w.pattern(spec.Names[0], true)
+				continue
 			}
 			for i, n := range spec.Names {
 				w.visit(n)
@@ -1129,7 +1183,7 @@ func (w *refWalker) stmt(s syntax.Stmt) {
 				if spec.Type == nil && len(spec.Values) == len(spec.Names) {
 					b = w.initBinding(spec.Values[i])
 				}
-				w.bindAs(n.Name, b)
+				w.binder(n, b)
 			}
 		}
 	case *syntax.AssertStmt:
@@ -1164,12 +1218,13 @@ func (w *refWalker) stmt(s syntax.Stmt) {
 			if l == nil {
 				continue
 			}
-			if id, ok := l.(*syntax.Ident); ok {
+			if id, ok := l.(*syntax.Ident); ok && !w.namePattern(id) {
+				// As typing's bindLoop: a single name that does not test.
 				w.visit(id)
-				w.bind(id.Name)
+				w.binder(id, &localBinding{})
 				continue
 			}
-			w.pattern(l)
+			w.pattern(l, true)
 		}
 		w.stmt(s.Body)
 		w.pop()
@@ -1195,7 +1250,7 @@ func (w *refWalker) stmt(s syntax.Stmt) {
 			// read of one there is a local, never a package object.
 			w.push()
 			for _, p := range cl.List {
-				w.pattern(p)
+				w.pattern(p, false)
 			}
 			w.list(cl.Body)
 			w.pop()

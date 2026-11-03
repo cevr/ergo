@@ -62,6 +62,21 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 	return v
 }
 
+// declarePlaceholder hides, for the rest of the current scope, the type or
+// capability that a refused type test names, so its later reads add no
+// diagnostic (D3; fuzz-17d6). The identifier stays a type test: Info.Uses
+// keeps the object it names and Info.Defs has no entry, as the reference
+// walk reads it. The placeholder has the invalid type, counts as read, and
+// meets none of the binder rules (D-D2, D-D3, bound twice), because it
+// declares nothing. A name the scope already binds keeps that binding.
+func (c *checker) declarePlaceholder(id *syntax.Ident) {
+	if _, bound := c.fn.scope.names[id.Name]; bound {
+		return
+	}
+	v := c.bindLocal(&Var{Name: id.Name, Type: invalid, Pos: id.Pos(), id: id, used: true})
+	c.fn.scope.insert(id.Name, v)
+}
+
 func (c *checker) stmt(s syntax.Stmt) {
 	savedMark := c.stmtMark
 	c.stmtMark = c.undiagSeq
@@ -233,16 +248,9 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 // binder (stage B round 2 review, item 4): a single name that names a type
 // or a constant of the package is a pattern (a type test, a constant); a
 // prelude name is a binder that D-D3 refuses, binding with the value's
-// type (declareLocal); any other name binds.
+// type (declareLocal); any other name binds (patternNameTests).
 func (c *checker) namePattern(id *syntax.Ident) bool {
-	if c.isPreludeName(id.Name) {
-		return false
-	}
-	switch c.lookup(id.Name).(type) {
-	case *Const, *TypeName, *capBinding:
-		return true
-	}
-	return false
+	return c.patternTests(id.Name, true)
 }
 
 // varDecl checks a local var declaration. A var of a type with no zero

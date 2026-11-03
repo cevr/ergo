@@ -52,16 +52,22 @@ func (c *checker) declareAs(name *syntax.Ident, t Type, placeholder bool) (asBin
 // catchAll reports whether a catch arm's lone name binds the whole failure
 // (`case err:`, rows.md Catch 7): a lower-case name that names no type.
 func (c *checker) catchAll(id *syntax.Ident) bool {
-	if r, _ := utf8.DecodeRuneInString(id.Name); !unicode.IsLower(r) {
+	return catchAllObject(id.Name, c.lookupType(id.Name, c.localTypeCtx()), c.isPreludeName(id.Name))
+}
+
+// catchAllObject is catchAll's rule, shared with the reference walk
+// (refWalker.catchPattern; fuzz-17d6): name resolves to o where the arm
+// stands, and prelude reports whether it is a prelude name.
+func catchAllObject(name string, o Object, prelude bool) bool {
+	if r, _ := utf8.DecodeRuneInString(name); !unicode.IsLower(r) {
 		return false
 	}
-	switch o := c.lookupType(id.Name, c.localTypeCtx()).(type) {
+	switch o := o.(type) {
 	case nil:
 		return true
 	case *Var:
 		// A local of an enclosing scope: the arm still binds the rest, and
-		// the reuse is D-D2's S108 at the binder, not a type test. A local
-		// hides no package object, so the reference walk agrees.
+		// the reuse is D-D2's S108 at the binder, not a type test.
 		return !o.pkg
 	case *Method:
 		// An operation of the law around the arm (laws.go rule 3): its
@@ -72,9 +78,8 @@ func (c *checker) catchAll(id *syntax.Ident) bool {
 	case *Builtin, *Func:
 		// A prelude function or built-in names no error type: the arm
 		// binds the rest, and D-D3's S108 at the name is its one
-		// diagnostic. A prelude name hides no package object, so the
-		// reference walk agrees.
-		return c.isPreludeName(id.Name)
+		// diagnostic.
+		return prelude
 	}
 	return false
 }
