@@ -36,11 +36,13 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //
 // Its facts are owned by OwnerLaw (owners.go), so neither build reads them.
 //
-// Prior art: Elixir's StreamData `property` and MoonBit's `test` with
-// quickcheck state properties beside the code, run by a test runner; Gleam
-// and ReScript have no law construct. Haskell's QuickCheck laws and Idris's
-// interface laws (proofs carried by the implementation) are the two ends of
-// the "checked, not run" and "proved" tiers.
+// Prior art (doc.go; types.md, Laws 12): Elixir StreamData's `check all`
+// and QuickCheck state properties as code, run by a test runner. MoonBit,
+// Gleam and ReScript have no law construct, and Haskell's class laws are
+// documentation only. Idris's interface laws (proofs carried by the
+// implementation) are the "proved" tier. Ergo checks a law as code and
+// keeps it out of the binary, as Zig keeps its `test` blocks out of
+// non-test builds.
 
 // collectLaws records the laws of tn's operation type spec in source order
 // (rule 1), each owned by OwnerLaw. Their bodies are checked by checkLaws,

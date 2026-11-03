@@ -42,7 +42,7 @@ test SlowGatewayTimesOut {
 }
 ```
 
-**What runs today:** the parser and the formatter accept all of this code. The prototype checker checks error rows, `try`, total `catch`, `needs` rows, closed contexts and `timeout.After`. The task runtime `runtime/rt` records traces. Resource and law checks, provider replacement, `testing.VirtualClock` and `ergo test` are designed, not built. See the [status table](#status).
+**What runs today:** the parser and the formatter accept all of this code. The prototype checker checks error rows, `try`, total `catch`, `needs` rows, closed contexts, `timeout.After` and laws. A law is checked and never run: no build includes it, and running laws is [#162](https://github.com/cevr/ergo/issues/162). The task runtime `runtime/rt` records traces. Resource checks, provider replacement, `testing.VirtualClock` and `ergo test` are designed, not built. See the [status table](#status).
 
 Designed output, because `ergo test` is not built yet ([#196](https://github.com/cevr/ergo/issues/196)):
 
@@ -69,7 +69,7 @@ The "In Ergo" column is the design. The last column says what runs today.
 | **Every cause kept** | When several things fail, you get all of them, with defects kept apart from expected failures. | needs explicit aggregation (`errors.Join`) and recovery code | one cause with every failure, defect and interruption | designed; `runtime/rt` keeps defects, not yet every child failure |
 | **Built-in observability** | Every task and every service call can be traced, keyed to its source, with no code changes. | spans added by hand | trace events named by the compiler; off adds no allocations | `runtime/rt` and the prototype ([#188](https://github.com/cevr/ergo/issues/188)) |
 | **Testable time and effects** | A test swaps any service, the clock included, with no mock framework. | interfaces and hand-written fakes | `replace` in a test context; `testing.VirtualClock` | designed; `runtime/rt` has a virtual clock |
-| **Laws** | You state what must always hold, and every implementation is checked against it. | comments and example tests | `law X(…) { … }` in an operation type | designed ([#162](https://github.com/cevr/ergo/issues/162)) |
+| **Laws** | You state what must always hold, and every implementation is checked against it. | comments and example tests | `law X(…) { … }` in an operation type | prototype checker: checked, never run (running laws is [#162](https://github.com/cevr/ergo/issues/162)) |
 
 Ergo keeps Go's spelling, Go's runtime and garbage collector, and single static binaries built by `go build`. The compiler is designed to check the guarantees, erase them and emit ordinary Go, with no wrapper values, so a function is still a function and an error type still implements `error`.
 
@@ -222,7 +222,7 @@ func join(name string) int64 fails RoomFull | actor.Stopped | actor.NoReply {
 
 ## Laws: say what must always hold
 
-*Status:* designed, not built ([types](docs/spec/types.md#laws), [#162](https://github.com/cevr/ergo/issues/162)). The #125 spike built the law check, generators, shrinker and receipts for the earlier language, on a branch that is not merged.
+*Status:* checked, never run ([types](docs/spec/types.md#laws)). The prototype checker checks every law below, and neither `ergo run` nor the test build includes one. Running laws with generated inputs is [#162](https://github.com/cevr/ergo/issues/162). The #125 spike built the law check, generators, shrinker and receipts for the earlier language, on a branch that is not merged.
 
 ```go
 // A law lives in the operation type it constrains, and runs with generated
@@ -359,7 +359,7 @@ These are rules of the designed language. The parser enforces the syntax rules t
 | Lowering to Go in the main compiler | Open ([#50](https://github.com/cevr/ergo/issues/50)); prototype in [`prototypes/sketch9`](prototypes/sketch9/README.md) |
 | Task runtime `runtime/rt` | In the main tree, with tracing ([#198](https://github.com/cevr/ergo/issues/198), [#188](https://github.com/cevr/ergo/issues/188)) |
 | Standard library | Designed ([outline](docs/spec/stdlib.md), [#206](https://github.com/cevr/ergo/issues/206)) |
-| Laws | Designed ([#162](https://github.com/cevr/ergo/issues/162)); the [#125 spike](docs/research/laws.md) prototyped them for the earlier language on an unmerged branch |
+| Laws | Checked by the prototype checker, never run; running them is [#162](https://github.com/cevr/ergo/issues/162). The [#125 spike](docs/research/laws.md) prototyped them for the earlier language on an unmerged branch |
 | Actors as a library | Landed as a spike in [`prototypes/actorlib`](prototypes/actorlib/doc.go) ([#101](https://github.com/cevr/ergo/issues/101), closed); the std package is [#57](https://github.com/cevr/ergo/issues/57) |
 | Go interop | Designed |
 | Lint rules, `ergo inspect`, MCP and the language server | Unavailable until ported to the new front end ([#203](https://github.com/cevr/ergo/issues/203)) |
