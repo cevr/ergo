@@ -40,9 +40,14 @@ const (
 	ruleCreate    = "create"     // the `H **` out parameter a handle's create function names
 	ruleOut       = "out"        // a lone non-const pointer to a value type, named with the out prefix
 	ruleValue     = "value"      // a lone `const S *` (S a struct without pointers) or `const T name[N]`
-	ruleInBuffer  = "in_buffer"  // `const T *p` and next an unsigned length named by a length template
+	ruleInBuffer  = "in_buffer"  // `const T *p` and next an unsigned length named by a length_names template
 	ruleOutBuffer = "out_buffer" // `T *p`, next an unsigned capacity name, then `U *` with a count name
 	ruleOutCount  = "out_count"  // `U *` with a count name, after a capacity after a `T *`
+	// ruleInBufferBytes is ruleInBuffer for a byte_length_names template.
+	// The two rules give one class with different length units, so a
+	// length that templates of both lists give makes two matches: the
+	// position is raw, whatever the order of the lists.
+	ruleInBufferBytes = "in_buffer_bytes"
 )
 
 // Position is the class of one pointer position of a function.
@@ -62,6 +67,66 @@ type Position struct {
 	Bytes bool
 	// Reason says why a position is raw.
 	Reason string
+}
+
+// FieldPosition is the class of one pointer field: a struct field whose
+// type is a data pointer, a callback, or an array of those. A field that
+// holds a struct by value is not a position itself; the fields of that
+// struct are.
+type FieldPosition struct {
+	// Struct is the struct typedef, Field the field index, Name its name.
+	Struct string
+	Field  int
+	Name   string
+	Class  Class
+	// Reason says why the field is raw.
+	Reason string
+}
+
+// classifyFields gives every pointer field of every struct of the model
+// its class, in model order, used by a function or not. No rule covers a
+// field: the typed layer passes no struct that holds a pointer, so every
+// pointer field is raw.
+func (k *classifier) classifyFields() []FieldPosition {
+	var out []FieldPosition
+	for _, d := range k.m.Types {
+		if d.Kind != DeclStruct {
+			continue
+		}
+		for i, f := range d.Fields {
+			what := k.fieldPointer(f.Type)
+			if what == "" {
+				continue
+			}
+			reason := what + " (a struct that holds a pointer reaches C only through the raw layer: Go memory that holds Go pointers must not reach C)"
+			if strings.Contains(what, "callback") {
+				reason = what + " (callbacks are raw until bind-c-2)"
+			}
+			out = append(out, FieldPosition{Struct: d.Name, Field: i, Name: f.Name, Class: ClassRaw, Reason: reason})
+		}
+	}
+	return out
+}
+
+// fieldPointer names the kind of pointer a field of type t is ("pointer
+// field", "callback field", "array of pointers", "array of callbacks"), or
+// "" when t is not a pointer position.
+func (k *classifier) fieldPointer(t Type) string {
+	array := false
+	for t.Kind == TypeArray {
+		array, t = true, *t.Elem
+	}
+	if !k.isPointerPos(t) {
+		return ""
+	}
+	what := "pointer"
+	if t.Kind == TypeNamed {
+		what = "callback"
+	}
+	if array {
+		return "array of " + what + "s"
+	}
+	return what + " field"
 }
 
 // classifier holds the facts of one model and contract that the rules use.
@@ -184,23 +249,23 @@ func (k *classifier) isHandleType(t Type) bool {
 	return t.Kind == TypeNamed && k.handles[t.Name] != nil
 }
 
-// lengthMatch reports whether q, the parameter after the buffer p, is its
-// length, and whether it counts bytes.
-func (k *classifier) lengthMatch(p, q Param) (match, bytes bool) {
+// lengthUnits reports whether q, the parameter after the buffer p, is its
+// length by a length_names template (elements) and by a byte_length_names
+// template (bytes). Both can be true; the caller decides nothing by the
+// order of the lists.
+func (k *classifier) lengthUnits(p, q Param) (elements, bytes bool) {
 	if !k.unsigned(q.Type) || q.Name == "" {
 		return false, false
 	}
-	for _, templ := range k.c.Buffers.LengthNames {
-		if n, ok := expandTemplate(templ, p.Name); ok && n == q.Name {
-			match = true
+	gives := func(templs []string) bool {
+		for _, templ := range templs {
+			if n, ok := expandTemplate(templ, p.Name); ok && n == q.Name {
+				return true
+			}
 		}
+		return false
 	}
-	for _, templ := range k.c.Buffers.ByteLengthNames {
-		if n, ok := expandTemplate(templ, p.Name); ok && n == q.Name {
-			return true, true
-		}
-	}
-	return match, false
+	return gives(k.c.Buffers.LengthNames), gives(k.c.Buffers.ByteLengthNames)
 }
 
 func (k *classifier) capacity(q Param) bool {
@@ -302,8 +367,12 @@ func (k *classifier) rules(f *Function, i int) []string {
 		out = append(out, ruleValue)
 	}
 	if ptr && elem.Const && k.element(elem) && i+1 < len(f.Params) {
-		if m, _ := k.lengthMatch(p, f.Params[i+1]); m {
+		elements, bytes := k.lengthUnits(p, f.Params[i+1])
+		if elements {
 			out = append(out, ruleInBuffer)
+		}
+		if bytes {
+			out = append(out, ruleInBufferBytes)
 		}
 	}
 	if ptr && !elem.Const && k.element(elem) && i+2 < len(f.Params) && k.capacity(f.Params[i+1]) &&
@@ -322,7 +391,8 @@ func (k *classifier) rules(f *Function, i int) []string {
 // ruleClass maps a rule to its class.
 var ruleClass = map[string]Class{
 	ruleHandle: ClassHandle, ruleCreate: ClassOut, ruleOut: ClassOut, ruleValue: ClassValue,
-	ruleInBuffer: ClassInBuffer, ruleOutBuffer: ClassOutBuffer, ruleOutCount: ClassOutCount,
+	ruleInBuffer: ClassInBuffer, ruleInBufferBytes: ClassInBuffer, ruleOutBuffer: ClassOutBuffer,
+	ruleOutCount: ClassOutCount,
 }
 
 // paramRef resolves a position reference: a parameter name or "#N".
@@ -397,15 +467,25 @@ func (k *classifier) fromRules(f *Function, i int) Position {
 		return q
 	case 1:
 	default:
+		notes := make([]string, len(rs))
+		for j, r := range rs {
+			notes[j] = r
+			switch r {
+			case ruleInBuffer:
+				notes[j] += " (" + f.Params[i+1].Name + " counts elements)"
+			case ruleInBufferBytes:
+				notes[j] += " (" + f.Params[i+1].Name + " counts bytes)"
+			}
+		}
 		q.Class = ClassRaw
-		q.Reason = "rules " + strings.Join(rs, " and ") + " both cover it"
+		q.Reason = "rules " + strings.Join(notes, " and ") + " both cover it"
 		return q
 	}
 	q.Class, q.By = ruleClass[rs[0]], rs[0]
 	switch rs[0] {
-	case ruleInBuffer:
+	case ruleInBuffer, ruleInBufferBytes:
 		q.Length = i + 1
-		_, q.Bytes = k.lengthMatch(p, f.Params[i+1])
+		q.Bytes = rs[0] == ruleInBufferBytes
 	case ruleOutBuffer:
 		q.Length, q.Count = i+1, i+2
 	case ruleOutCount:

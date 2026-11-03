@@ -19,6 +19,10 @@ type Binding struct {
 	HeaderSHA256, ContractSHA256 string
 	// Funcs are the functions that are not skipped, in model order.
 	Funcs []*BoundFunc
+	// Fields are the pointer fields of every struct, used or not, in
+	// model order. With the positions of Funcs they are every pointer
+	// position of the binding.
+	Fields []FieldPosition
 	// Codes are the status codes other than success, in model order.
 	Codes []*Constant
 	// Success is the success code.
@@ -293,6 +297,7 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 		}
 		b.Funcs = append(b.Funcs, bf)
 	}
+	b.Fields = k.classifyFields()
 	if err := b.checkNames(); err != nil {
 		return nil, err
 	}

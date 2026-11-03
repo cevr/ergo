@@ -62,12 +62,19 @@
 // DecodeContract reads it strictly; Bind checks every fact against the
 // model and fails closed.
 //
-// Bind gives every pointer position (a parameter or result that is a data
-// pointer or a callback) exactly one Class. An exception names the class
-// of its position. Otherwise each rule (see the rule constants in
+// Bind gives every pointer position exactly one Class: a parameter or
+// result that is a data pointer or a callback (BoundFunc.Positions), and a
+// struct field that is a data pointer, a callback or an array of those
+// (Binding.Fields, for every struct, used or not). An exception names the
+// class of a parameter. Otherwise each rule (see the rule constants in
 // classify.go) is a predicate on the position and its neighbors, and the
 // rules do not consult each other: one match gives the rule's class, and
-// zero or two matches make the position raw. A position is "lone" when it
+// zero or two matches make the position raw. The in_buffer rule is two
+// rules, one per length unit: a length that a length_names template and a
+// byte_length_names template both give for one buffer is two matches, and
+// the position is raw (the order of the lists decides nothing). No rule
+// covers a field: the typed layer passes no struct that holds a pointer,
+// so every pointer field is raw with its reason. A position is "lone" when it
 // is not next to a parameter whose name could be a length or a capacity;
 // only a lone pointer can be a value or an out-parameter, so `const S *,
 // uint32_t chunk_count` is never one value, named or not. A length that
