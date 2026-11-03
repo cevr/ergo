@@ -27,8 +27,12 @@ import (
 // GOROOT. git stays real: its exec path holds about 200 files here. Tests of
 // the fingerprint rules install their own tools. The stand-in exists only in
 // the process that runs the tests, under observation (testinputs.MainFunc).
+// The observing process, which never runs the tests itself, then puts the
+// test log in a fixed order (finishTestLog).
 func TestMain(m *testing.M) {
-	os.Exit(testinputs.MainFunc(m, func() int {
+	ranTests := false
+	code := testinputs.MainFunc(m, func() int {
+		ranTests = true
 		stub, err := os.MkdirTemp("", "gate-tools-")
 		if err != nil {
 			panic(err)
@@ -60,7 +64,11 @@ func TestMain(m *testing.M) {
 		}
 		os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 		return m.Run()
-	}))
+	})
+	if !ranTests {
+		code = finishTestLog(code)
+	}
+	os.Exit(code)
 }
 
 // realTools are the tools PATH named before TestMain put its stand-ins first.
