@@ -72,21 +72,7 @@ func RefWalkProblems(src string) []string {
 			}
 		}
 	}
-	pkgObject := func(o Object) any {
-		switch o := o.(type) {
-		case *Func:
-			if c.pkg.Scope.names[o.Name] == Object(o) {
-				return o
-			}
-		case *Var:
-			if o.pkg {
-				if pv := c.pkgVarOf(o); pv != nil {
-					return pv
-				}
-			}
-		}
-		return nil
-	}
+	pkgObject := func(o Object) any { return pkgObjectOf(c, o) }
 	for _, wk := range walks {
 		out = append(out, frameProblems(c, wk.w, wk.root)...)
 		for _, x := range wk.w.retired {
