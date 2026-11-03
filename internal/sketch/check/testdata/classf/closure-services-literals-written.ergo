@@ -1,7 +1,7 @@
 type Cap {M()}
 type Box[T] {M(T)}
-extern go fixture.BoxOf func BoxOf[T](x T) Box[T]
-extern go fixture.Choose func Choose[T](x T,y T) needs Cap
+func BoxOf[T](x T) Box[T] { BoxOf(x) }
+func Choose[T](x T,y T) needs Cap { Cap.M() }
 func a(){_ = func() needs Cap{b()};Choose(BoxOf(func() needs Cap{a()}),BoxOf(func() needs Cap{d()}))}
 func b(){Choose(BoxOf(func() needs Cap{c()}),BoxOf(func() needs Cap{a()}))}
 func c(){Choose(BoxOf(func() needs Cap{a()}),BoxOf(func() needs Cap{d()}))}

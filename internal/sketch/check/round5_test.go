@@ -19,7 +19,8 @@ func TestInstantiationCycleSignatures(t *testing.T) {
 	// src is the Go text go/types reads; decided is the same program in the
 	// decided syntax, which the checker reads: a method is a function whose
 	// first parameter is the receiver (196m), and a bodiless declaration is
-	// extern go (#196).
+	// a function whose body only builds its result (a user extern takes
+	// basic types only, C26).
 	cases := []struct {
 		name, src string
 		cycle     bool
@@ -30,7 +31,7 @@ func (R[P]) M(x R[[]P]) {}`, true, `type R[P] {}
 func M[P](_ R[P], x R[[]P]) {}`},
 		{"result-bodiless", `type R[P any] struct{}
 func (R[P]) M() R[[]P]`, true, `type R[P] {}
-extern go fixture.M func M[P](_ R[P]) R[[]P]`},
+func M[P](_ R[P]) R[[]P] { R[[]P] }`},
 		{"interface-parameter", `type R[P any] struct{}
 type I[P any] interface{ F(R[[]P]) }
 func (R[P]) M(x I[P]) {}`, true, `type R[P] {}

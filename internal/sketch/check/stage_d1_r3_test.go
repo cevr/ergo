@@ -14,7 +14,7 @@ import (
 // pinnedDecls declares a, a class G member refused for its pinned rows
 // (line 3), two callees that take a callback and never run it (keep,
 // store), and one whose error row is its callback's (run).
-const pinnedDecls = "type Bang {}\nextern go fixture.mark func mark() fails Bang\n" +
+const pinnedDecls = "type Bang {}\nfunc mark() fails Bang { return Bang }\n" +
 	"func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }\n" +
 	"func keep(cb func() int) int { _ = cb; 1 }\n" +
 	"func store(cb func() int) { _ = cb }\n" +

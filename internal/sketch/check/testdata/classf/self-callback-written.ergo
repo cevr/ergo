@@ -1,6 +1,6 @@
 type Bang {}
 type Node { kids []Node }
-extern go fixture.each func each(xs []Node, f func(Node) fails Bang) fails Bang
-extern go fixture.mark func mark() fails Bang
+func each(xs []Node, f func(Node) fails Bang) fails Bang { return Bang }
+func mark() fails Bang { return Bang }
 func walk(n Node) fails Bang { try mark(); try each(n.kids, func(k Node) { try walk(k) }) }
 func F(n Node) fails Bang { try walk(n) }

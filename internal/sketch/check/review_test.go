@@ -41,7 +41,7 @@ func Identity(v Fault) Fault { return v }
 func F()                     { _ = func() fails Fault { return Fault } }`},
 	{"M4", "error-union-rethrow", "S108", `type A {}
 type B {}
-extern go fixture.Fail func Fail() fails A | B
+func Fail() fails A | B { return A }
 func F() fails A | B {
 	Fail() catch {
 	case A as e, B as e:
@@ -50,7 +50,7 @@ func F() fails A | B {
 }`},
 	{"M4", "catch-union-switch", "S108", `type A {}
 type B {}
-extern go fixture.Fail func Fail() fails A | B
+func Fail() fails A | B { return A }
 func F() {
 	Fail() catch {
 	case A as e, B as e:
@@ -64,7 +64,7 @@ func F() {
 }`},
 	{"M4", "catch-union-switch-not-total", "S108", `type A {}
 type B {}
-extern go fixture.Fail func Fail() fails A | B
+func Fail() fails A | B { return A }
 func F() {
 	Fail() catch {
 	case A as e, B as e:
@@ -77,7 +77,7 @@ func F() {
 	{"M4", "error-union-as-value", "S108 S101", `type A {}
 type B {}
 type V = A | B
-extern go fixture.Fail func Fail() fails A | B
+func Fail() fails A | B { return A }
 func F() V {
 	Fail() catch {
 	case A as e, B as e:
@@ -326,12 +326,12 @@ func F() { with W { Console.Println("x") } }`},
 	{"N1", "pointer-receiver-parameter", "", `type I { M() }
 type S {}
 func M(s *S) {}
-extern go fixture.Take func Take(x I)
+func Take(x I) {}
 func F(s *S) { Take(s) }`},
 	{"N1", "pointer-receiver-value", "S108", `type I { M() }
 type S {}
 func M(s *S) {}
-extern go fixture.Take func Take(x I)
+func Take(x I) {}
 func F(s S) { Take(s) }`},
 	{"N2", "complex-types", "", `func F() complex128 { return complex128(1) }
 func G(a, b complex64) complex64 { return a*b + a/b - b }
