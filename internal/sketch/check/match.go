@@ -971,14 +971,21 @@ func (c *checker) unusedBindings(vars []armVar) {
 			continue
 		}
 		name := v.name.Name
-		hint := ""
-		if r, _ := utf8.DecodeRuneInString(name); unicode.IsUpper(r) {
-			hint = "; no type is named " + name + ", so the pattern binds a new name"
-		}
+		hint := capitalisedBinderHint(name)
 		if v.as {
 			c.errorf(v.name, CodeUnused, "the binding %s is read nowhere in its arm; drop `as %s`%s (rows.md, Totality 1)", name, name, hint)
 			continue
 		}
 		c.errorf(v.name, CodeUnused, "the binding %s is read nowhere in its arm; write _ in its place%s (rows.md, Totality 1)", name, hint)
 	}
+}
+
+// capitalisedBinderHint is the hint a capitalised binding's S110 carries
+// (rows.md, Totality 1), in a match arm and a catch arm alike: the name
+// looks like a type, but none is named so.
+func capitalisedBinderHint(name string) string {
+	if r, _ := utf8.DecodeRuneInString(name); unicode.IsUpper(r) {
+		return "; no type is named " + name + ", so the pattern binds a new name"
+	}
+	return ""
 }

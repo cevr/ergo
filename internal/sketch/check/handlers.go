@@ -234,7 +234,7 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 		c.unusedBindings(vars)
 		for _, b := range restBind {
 			if !b.group.used {
-				c.errorf(b.name, CodeUnused, "the binding %s is read nowhere in its arm; write case _ (rows.md, Totality 1)", b.name.Name)
+				c.errorf(b.name, CodeUnused, "the binding %s is read nowhere in its arm; write case _%s (rows.md, Totality 1)", b.name.Name, capitalisedBinderHint(b.name.Name))
 			}
 		}
 		c.fn.scope = saved

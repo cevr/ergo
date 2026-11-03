@@ -1,11 +1,6 @@
 package check
 
-import (
-	"unicode"
-	"unicode/utf8"
-
-	"ergo.local/prototype/internal/sketch/syntax"
-)
+import "ergo.local/prototype/internal/sketch/syntax"
 
 // The `as` patterns of #196 (ninth round) in a catch arm: `case T as e:`
 // matches T and binds the caught error, with T's type, to e. It replaces
@@ -52,21 +47,19 @@ func (c *checker) declareAs(name *syntax.Ident, t Type, placeholder bool) (asBin
 // catchAll reports whether a catch arm's lone name binds the whole failure
 // (`case err:`, rows.md Catch 7).
 func (c *checker) catchAll(id *syntax.Ident) bool {
-	return catchAllObject(id.Name, c.lookupType(id.Name, c.localTypeCtx()))
+	return catchAllObject(c.lookupType(id.Name, c.localTypeCtx()))
 }
 
 // catchAllObject is catchAll's rule, shared with the reference walk
-// (refWalker.catchPattern; fuzz-17d6): name resolves to o where the arm
-// stands. A capitalised name is a type test. A lower-case name follows
-// Totality 1 (patternNameTests): a type, a type parameter, a constant or a
-// capability tests; any other name binds the rest. The binder rules then
-// judge it: an enclosing local or a law's operation is D-D2's S108, a
-// prelude name D-D3's, and a package function, an imported package or a
-// package value Totality 1's (refusedRest); each still binds.
-func catchAllObject(name string, o Object) bool {
-	if r, _ := utf8.DecodeRuneInString(name); !unicode.IsLower(r) {
-		return false
-	}
+// (refWalker.catchPattern; fuzz-17d6): the lone name resolves to o where
+// the arm stands. The arms are match arms over the failure (rows.md, Catch
+// 7), so Totality 1 decides (patternNameTests), whatever the name's case:
+// a type, a type parameter, a constant or a capability tests; any other
+// name binds the rest. The binder rules then judge it: an enclosing local
+// or a law's operation is D-D2's S108, a prelude name D-D3's, and a
+// package function, an imported package or a package value Totality 1's
+// (refusedRest); each still binds.
+func catchAllObject(o Object) bool {
 	return !patternNameTests(o, false, false)
 }
 
