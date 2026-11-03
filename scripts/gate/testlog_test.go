@@ -20,6 +20,7 @@ const testLogHeader = "# test log\n"
 // same inputs log them in different orders, and the result never replays. A
 // log that is absent or has no final newline is not cached by cmd/go
 // (testinputs leaves it so when it cannot observe), so it stays as it is.
+// Then it checks the ordered log's reads (checkDeclaredInputs).
 func finishTestLog(code int) int {
 	name := testLogFile(os.Args[1:])
 	if name == "" {
@@ -41,7 +42,7 @@ func finishTestLog(code int) int {
 			return 1
 		}
 	}
-	return code
+	return checkDeclaredInputs(code, ordered, dir)
 }
 
 // orderTestLog returns a test log with its lines sorted and without

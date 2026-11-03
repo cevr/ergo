@@ -28,7 +28,8 @@ import (
 // the fingerprint rules install their own tools. The stand-in exists only in
 // the process that runs the tests, under observation (testinputs.MainFunc).
 // The observing process, which never runs the tests itself, then puts the
-// test log in a fixed order (finishTestLog).
+// test log in a fixed order and checks that the tests read only declared
+// module paths (finishTestLog).
 func TestMain(m *testing.M) {
 	ranTests := false
 	code := testinputs.MainFunc(m, func() int {
