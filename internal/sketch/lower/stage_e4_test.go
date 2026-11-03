@@ -134,11 +134,12 @@ func TestErgoRunE4Externs(t *testing.T) {
 			t.Errorf("%s: exit %d, stdout %q, stderr %q; want %q", r.name, code, stdout, firstLines(stderr, 8), r.want)
 		}
 	}
-	// The call is direct: the target is called with the Ergo arguments
+	// The call is direct: Go proves the target a function value (`_ =
+	// strings.ToUpper`), the target is called with the Ergo arguments
 	// only (no environment), its result is bound at the Ergo type, and no
 	// Go function is declared for the extern.
 	esub4 := builds[0].mainGo()
-	for _, want := range []string{`string = strings.ToUpper("ada")`, `string = strings.Repeat("ab", `, "\tstrings \"strings\"\n"} {
+	for _, want := range []string{"\t_ = strings.ToUpper\n", `string = strings.ToUpper("ada")`, "\t_ = strings.Repeat\n", `string = strings.Repeat("ab", `, "\tstrings \"strings\"\n"} {
 		if !strings.Contains(esub4, want) {
 			t.Errorf("esub4: the lowered Go has no %q:\n%s", want, esub4)
 		}
@@ -168,38 +169,54 @@ func main() needs Console { Console.Println(hostlib.Shout("lib") + hostlib.Up(""
 // a result is bound at its Ergo type, so a target's float64 never reaches
 // an interpolation that would print it as the Ergo int (Risk 4).
 func TestErgoRunE4Mismatch(t *testing.T) {
-	cases := []struct{ name, src string }{
+	cases := []struct{ name, src, want string }{
 		{"argument", `extern go strings.ToUpper func Upper(n int) int
 func main() needs Console {
 	let x = 1
 	Console.Println("\(Upper(x))") // call
 }
-`},
+`, ""},
 		{"literal-argument", `extern go math.Sqrt func Root(x int) float64
 func main() needs Console {
 	Console.Println("\(Root(4))") // call
 }
-`},
+`, ""},
 		{"result", `extern go math.Sqrt func Whole(x float64) int
 func main() needs Console {
 	let n int = Whole(4.0) // call
 	Console.Println("\(n)")
 }
-`},
+`, ""},
 		// Interpolation takes any basic type, so only the result binding
 		// stops 1.4142135623730951 printing as an Ergo int.
 		{"result-interpolated", `extern go math.Sqrt func Whole(x float64) int
 func main() needs Console {
 	Console.Println("\(Whole(2.0))") // call
 }
-`},
+`, ""},
 		// Round 1 M1: a discarded result is bound at its Ergo type too.
 		{"statement", `extern go math.Sqrt func Whole(x float64) int
 func main() needs Console {
 	Whole(2.0) // call
 	Console.Println("accepted-mismatch")
 }
-`},
+`, ""},
+		// Round 1 M2: a Go type is not a function. Its T(x) would be a
+		// conversion that truncates a nonconstant 1.9 to 1ns.
+		{"type-target", `extern go time.Duration func Truncate(x float64) duration
+func main() needs Console {
+	let x = 1.9
+	let d = Truncate(x) // call
+	Console.Println("\(d)")
+}
+`, `time\.Duration \(type\) is not an expression`},
+		// A generic Go function is not a value without instantiation; type
+		// parameters at the host edge are #202.
+		{"generic-target", `extern go cmp.Compare func Compare(a int, b int) int
+func main() needs Console {
+	Console.Println("\(Compare(1, 2))") // call
+}
+`, `cannot use generic function cmp\.Compare without instantiation`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -214,8 +231,12 @@ func main() needs Console {
 			if err == nil {
 				t.Fatalf("ergo run succeeded")
 			}
-			if !regexp.MustCompile(fmt.Sprintf(`(?m)main\.ergo:%d:\d+: cannot use `, line)).MatchString(out) {
-				t.Errorf("the go build error does not name main.ergo:%d", line)
+			want := c.want
+			if want == "" {
+				want = "cannot use "
+			}
+			if !regexp.MustCompile(fmt.Sprintf(`(?m)main\.ergo:%d:\d+: %s`, line, want)).MatchString(out) {
+				t.Errorf("the go build error does not name main.ergo:%d with %q", line, want)
 			}
 			if strings.Contains(out, "panic") || strings.Contains(out, "internal compiler error") {
 				t.Errorf("a panic or an internal error")
@@ -317,13 +338,17 @@ func e4BuildErrors(t *testing.T, programs []*lowered) map[string]string {
 
 // e4FailsAt reports whether out, one package's go build output, has an
 // error at main.ergo:line, and no error at another line of main.ergo or at
-// a line of the generated main.go.
+// a line of the generated main.go. Go's "declared and not used" of a
+// variable whose only use is the failed call is that error's consequence.
 func e4FailsAt(out string, line int) bool {
 	at := regexp.MustCompile(`main\.ergo:(\d+):\d+: `)
 	found := false
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "main.go:") {
 			return false
+		}
+		if strings.Contains(l, ": declared and not used: ") {
+			continue
 		}
 		if m := at.FindStringSubmatch(l); m != nil {
 			if m[1] != strconv.Itoa(line) {
@@ -333,6 +358,142 @@ func e4FailsAt(out string, line int) bool {
 		}
 	}
 	return found
+}
+
+// A panic in a host call is a defect (Risk 4), and its report names the
+// Ergo call's line in every use: the function-value check line and the
+// typed binding (hostStmt) keep the call under its //line directive.
+func TestErgoRunE4HostPanic(t *testing.T) {
+	for _, use := range []string{`Console.Println(Repeat("x", -1))`, `Repeat("x", -1)`, `let _ = Repeat("x", -1)`} {
+		src := "extern go strings.Repeat func Repeat(s string, n int) string\nfunc main() needs Console {\n\t" + use + "\n\tConsole.Println(\"returned\")\n}\n"
+		out, err := ergoRun(t, src)
+		if err == nil || !strings.Contains(out, "panic: strings: negative Repeat count") || !regexp.MustCompile(`(?m)^\tmain at \S*main\.ergo:3$`).MatchString(out) || strings.Contains(out, "returned") {
+			t.Errorf("%s: err %v; want a defect at main.ergo:3:\n%s", use, err, out)
+		}
+	}
+}
+
+// e4Value is an Ergo expression of the basic type k, a literal where Ergo
+// has one, and its fmt.Sprint text. Ergo has no imaginary literal
+// (syntax/scanner.go), so a complex value is a call of Make (e4Make).
+func e4Value(t *testing.T, k *check.Basic) (expr, text string) {
+	t.Helper()
+	switch {
+	case k.Kind == check.Bool:
+		return "true", "true"
+	case k.Kind == check.String:
+		return `"x"`, "x"
+	case k.Kind >= check.Int && k.Kind <= check.Uintptr:
+		return "3", "3"
+	case k.Kind == check.Float32 || k.Kind == check.Float64:
+		return "1.5", "1.5"
+	case k.Kind == check.Complex64:
+		return "complex64(Make(1.0, 0.0))", "(1+0i)"
+	case k.Kind == check.Complex128:
+		return "Make(1.0, 0.0)", "(1+0i)"
+	case k.Kind == check.Duration:
+		return "3ns", "3ns"
+	}
+	t.Fatalf("no Ergo value of the basic type %s", k.Name)
+	return "", ""
+}
+
+const e4Make = "extern go math/cmplx.Rect func Make(r float64, theta float64) complex128\n"
+
+// TestErgoRunE4TargetCategories (round 1 M2) is a property over the Go
+// target's category (a function, a variadic function, a named type, a
+// constant) crossed with every basic type the checker admits as a
+// parameter (check.Typ, Bool to Duration) and with a literal and a
+// nonconstant argument. Oracle: a function and a variadic function
+// (fmt.Sprint's ...any) run and print the value; a named type, whose T(x)
+// would be a Go conversion, and a constant fail go build, and every error
+// names the call's line (5). The lowered Go proves the target a function
+// value (`_ = fmt.Sprint`) under the call's //line directive.
+func TestErgoRunE4TargetCategories(t *testing.T) {
+	// A function of exactly the parameter type, where Go's standard
+	// library has one (none takes int8, int16, uintptr or complex64). Its
+	// call is an Ergo string expression; a call with no result is a
+	// statement.
+	fns := map[check.BasicKind]struct{ decl, call, out string }{
+		check.Bool:       {"strconv.FormatBool func Fn(x bool) string", "Fn({arg})", "true"},
+		check.String:     {"strings.ToUpper func Fn(x string) string", "Fn({arg})", "X"},
+		check.Int:        {"strconv.Itoa func Fn(x int) string", "Fn({arg})", "3"},
+		check.Int32:      {"unicode.ToUpper func Fn(x int32) int32", `"\(Fn({arg}))"`, "3"},
+		check.Int64:      {"strconv.FormatInt func Fn(x int64, base int) string", "Fn({arg}, 10)", "3"},
+		check.Uint:       {"math/bits.Len func Fn(x uint) int", `"\(Fn({arg}))"`, "2"},
+		check.Uint8:      {"math/bits.Len8 func Fn(x uint8) int", `"\(Fn({arg}))"`, "2"},
+		check.Uint16:     {"math/bits.Len16 func Fn(x uint16) int", `"\(Fn({arg}))"`, "2"},
+		check.Uint32:     {"math/bits.Len32 func Fn(x uint32) int", `"\(Fn({arg}))"`, "2"},
+		check.Uint64:     {"math/bits.Len64 func Fn(x uint64) int", `"\(Fn({arg}))"`, "2"},
+		check.Float32:    {"math.Float32bits func Fn(x float32) uint32", `"\(Fn({arg}))"`, "1069547520"},
+		check.Float64:    {"math.Abs func Fn(x float64) float64", `"\(Fn({arg}))"`, "1.5"},
+		check.Complex128: {"math/cmplx.Abs func Fn(x complex128) float64", `"\(Fn({arg}))"`, "1"},
+		check.Duration:   {"time.Sleep func Fn(x duration)", "", ""},
+	}
+	// Not functions: a named type and a constant.
+	others := []struct{ name, target, result string }{
+		{"named_type", "time.Duration", "duration"},
+		{"constant", "math.MaxInt8", ""}, // the result is the parameter's type
+	}
+	var runs, fails []*lowered
+	want := map[string]string{}
+	for _, k := range check.Typ[check.Bool:] {
+		lit, text := e4Value(t, k)
+		tail := ""
+		if strings.HasPrefix(k.Name, "complex") {
+			tail = e4Make
+		}
+		// The function and the variadic function, each with the literal
+		// and the nonconstant argument.
+		decls, stmts := "extern go fmt.Sprint func Show(x "+k.Name+") string\n", ""
+		expr, out := `Show(`+lit+`) + " " + Show(a)`, text+" "+text
+		if fn, ok := fns[k.Kind]; ok {
+			decls += "extern go " + fn.decl + "\n"
+			if fn.call == "" {
+				stmts = "\tFn(" + lit + ")\n\tFn(a)\n"
+			} else {
+				expr += ` + " " + ` + strings.ReplaceAll(fn.call, "{arg}", lit) + ` + " " + ` + strings.ReplaceAll(fn.call, "{arg}", "a")
+				out += " " + fn.out + " " + fn.out
+			}
+		}
+		src := decls + "func main() needs Console {\n\tlet a " + k.Name + " = " + lit + "\n" + stmts + "\tConsole.Println(" + expr + ")\n}\n" + tail
+		o := mustLower(t, "e4_target_"+k.Name, src)
+		runs = append(runs, o)
+		want[o.name] = out + "\n"
+		if !regexp.MustCompile(`(?m)^//line [^\n]*\n\t*_ = fmt\.Sprint\n\t*/\*line [^\n]*\*/var \w+ string = fmt\.Sprint\(`).MatchString(o.mainGo()) {
+			t.Errorf("%s: no `_ = fmt.Sprint` check under the call's //line directive before the call:\n%s", o.name, o.mainGo())
+		}
+		// The named type and the constant.
+		for _, c := range others {
+			result := c.result
+			if result == "" {
+				result = k.Name
+			}
+			for _, arg := range []struct{ name, line4, expr string }{
+				{"literal", "// a literal argument", lit},
+				{"nonconstant", "let a " + k.Name + " = " + lit, "a"},
+			} {
+				src := fmt.Sprintf("extern go %s func Conv(x %s) %s\nfunc consume(v %s) {}\nfunc main() {\n\t%s\n\tconsume(Conv(%s))\n}\n%s", c.target, k.Name, result, result, arg.line4, arg.expr, tail)
+				fails = append(fails, mustLower(t, "e4_target_"+k.Name+"_"+c.name+"_"+arg.name, src))
+			}
+		}
+	}
+	errs := e4BuildErrors(t, fails)
+	for _, o := range fails {
+		if !e4FailsAt(errs[o.name], 5) {
+			t.Errorf("%s: go build does not fail at the call's line 5 only:\n%s\nsource:\n%s\nGo:\n%s", o.name, errs[o.name], o.src, o.mainGo())
+		}
+	}
+	exes := buildAll(t, runs, true)
+	if exes == nil {
+		return
+	}
+	for _, o := range runs {
+		stdout, stderr, code := runExe(t, exes[o.name])
+		if code != 0 || stdout != want[o.name] {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want %q\nsource:\n%s", o.name, code, stdout, firstLines(stderr, 8), want[o.name], o.src)
+		}
+	}
 }
 
 // C30: the context key namespace keys on package identity. A program

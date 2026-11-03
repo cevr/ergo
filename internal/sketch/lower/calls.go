@@ -245,9 +245,15 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 	if c.Recv != nil || len(f.Sig.TParams) > 0 || len(args) != len(f.Sig.Params) || len(f.Sig.Results) > 1 {
 		ice(x, "a call of the user extern %s outside its checked domain", f.Name)
 	}
-	path, name := f.Decl.Extern.Split()
 	vals := fc.callArgs(args, x)
-	return fc.l.hostPkg(path, x) + "." + name + "(" + strings.Join(vals, ", ") + ")"
+	return fc.hostTarget(x, f) + "(" + strings.Join(vals, ", ") + ")"
+}
+
+// hostTarget is the Go expression that names the target of the user
+// extern f: the imported package's name and the target's name.
+func (fc *funcCtx) hostTarget(x *syntax.CallExpr, f *check.Func) string {
+	path, name := f.Decl.Extern.Split()
+	return fc.l.hostPkg(path, x) + "." + name
 }
 
 // hostCalled reports a call of a user extern (hostCall).
@@ -255,12 +261,23 @@ func hostCalled(c *check.Call) bool { return c.Kind == check.CallFunc && userExt
 
 // hostStmt is the Go statement of the call x of a user extern, whose Go
 // text is text (hostCall), in every use: call's value, and callStmt's
-// statement or discard. It binds the result to v at its Ergo result's Go
-// type, the blank identifier when the result is discarded, so a target's
-// float64 result is go build's error at the call wherever the Ergo int is
-// used or dropped. The call is made once, on the line after the call's
-// //line directive.
+// statement or discard. Both run after the call's //line directive, so
+// go build reports either check at the Ergo call's line.
+//
+// First it writes the line `_ = pkg.F`, so Go proves the target a function
+// value. A Go type is not an expression there: without the line, the call
+// time.Duration(x) of `extern go time.Duration func F(x float64) duration`
+// would be a conversion that truncates x. A variadic target (fmt.Sprint)
+// passes, and a constant fails at the call. A generic Go function fails
+// too, since it is not a value without instantiation (type parameters at
+// the host edge are #202). The line evaluates nothing.
+//
+// Then it binds the result to v at its Ergo result's Go type, the blank
+// identifier when the result is discarded, so a target's float64 result is
+// go build's error wherever the Ergo int is used or dropped. The call is
+// made once.
 func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) string {
+	fc.line("_ = " + fc.hostTarget(x, c.Func))
 	switch {
 	case len(c.Func.Sig.Results) == 0:
 		return text
