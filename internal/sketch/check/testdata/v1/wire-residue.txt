@@ -1,8 +1,18 @@
 # The tracked lines outside history that still say wire (196w acceptance check 1).
 # TestContextResidue runs git grep -n -w -i -E 'wires?' over every path but the
-# history list and internal/migrate196/oldsyntax, and fails on a match no row covers
-# and on a row that covers no match. A row is `path<TAB>excerpt`: the excerpt is
-# text of one line of the file that contains the match; `*` covers the whole file.
+# skipped prefixes below, and fails on a match no row covers and on a row that
+# covers no match. A row is `path<TAB>excerpt`: the excerpt is text of one line of
+# the file that contains the match; `*` covers the whole file.
+
+# skipped: the history list (decision 6; docs/research/ef-migrate/*.ergo is parsed
+# in the current syntax and stays checked) and the old-syntax parser
+!docs/receipts/
+!docs/previews/2026-
+!plans/
+!prototypes/sketch9/
+!conformance/upstream/
+!docs/research/
+!internal/migrate196/oldsyntax/
 
 # network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
 CHANGELOG.md	done: true }`, `todo.done`), so wire keys such as `"done"` keep working,
@@ -192,7 +202,7 @@ internal/sketch/check/context_keyword_test.go	"func f(wire int) int { wire }\n",
 internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int
 internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int { w.N }\n",
 internal/sketch/check/context_keyword_test.go	stContextIsAKeyword: context is reserved, in wire's place, so the
-internal/sketch/check/context_residue_test.go	outside history that still say wire.
+internal/sketch/check/context_residue_test.go	outside history that still say wire, and
 internal/sketch/check/context_residue_test.go	residueAllowlist = "testdata/v1/wire-residue.txt"
 internal/sketch/check/context_residue_test.go	line outside history that says wire is the network
 internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec),

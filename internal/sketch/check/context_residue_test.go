@@ -9,20 +9,12 @@ import (
 	"testing"
 )
 
-// residueAllowlist lists the lines outside history that still say wire.
+// residueAllowlist lists the lines outside history that still say wire, and
+// the skipped path prefixes: the recorded history the rename leaves as
+// written (196w decision 6) and the old-syntax parser. docs/research is
+// history too, except the inputs code parses in the current syntax
+// (residueParsed).
 const residueAllowlist = "testdata/v1/wire-residue.txt"
-
-// residueHistory are the recorded history the rename leaves as written
-// (196w decision 6). docs/research is history too, except the inputs code
-// parses in the current syntax (residueParsed).
-var residueHistory = []string{
-	"docs/receipts/",
-	"docs/previews/2026-",
-	"plans/",
-	"prototypes/sketch9/",
-	"conformance/upstream/",
-	"docs/research/",
-}
 
 var residueParsed = regexp.MustCompile(`^docs/research/ef-migrate/[^/]+\.ergo$`)
 
@@ -40,10 +32,9 @@ func TestContextResidue(t *testing.T) {
 		t.Fatalf("git rev-parse: %v", err)
 	}
 	repo := strings.TrimSpace(string(root))
-	allow, order := readResidueAllowlist(t)
+	allow, order, skipped := readResidueAllowlist(t)
 
 	cmd := exec.Command("git", "-c", "core.quotePath=false", "grep", "-n", "-I", "-w", "-i", "-E", "wires?", "--", ".",
-		":(exclude)internal/migrate196/oldsyntax",
 		":(exclude)internal/sketch/check/"+residueAllowlist)
 	cmd.Dir = repo
 	out, err := cmd.Output()
@@ -62,7 +53,7 @@ func TestContextResidue(t *testing.T) {
 		if !ok || !ok2 {
 			t.Fatalf("git grep line %q", line)
 		}
-		if residueIsHistory(path) {
+		if residueSkipped(path, skipped) {
 			continue
 		}
 		if allow[path]["*"] {
@@ -89,11 +80,11 @@ func TestContextResidue(t *testing.T) {
 	}
 }
 
-func residueIsHistory(path string) bool {
+func residueSkipped(path string, skipped []string) bool {
 	if residueParsed.MatchString(path) {
 		return false
 	}
-	for _, h := range residueHistory {
+	for _, h := range skipped {
 		if strings.HasPrefix(path, h) {
 			return true
 		}
@@ -118,7 +109,9 @@ func residueCovers(text, excerpt string, span []int) bool {
 	return false
 }
 
-func readResidueAllowlist(t *testing.T) (map[string]map[string]bool, []string) {
+// readResidueAllowlist reads the rows (`path<TAB>excerpt` or `path<TAB>*`)
+// in file order and the skipped prefixes (`!prefix`).
+func readResidueAllowlist(t *testing.T) (map[string]map[string]bool, []string, []string) {
 	t.Helper()
 	f, err := os.Open(residueAllowlist)
 	if err != nil {
@@ -126,12 +119,19 @@ func readResidueAllowlist(t *testing.T) (map[string]map[string]bool, []string) {
 	}
 	defer f.Close()
 	allow := map[string]map[string]bool{}
-	var order []string
+	var order, skipped []string
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	for n := 1; sc.Scan(); n++ {
 		line := sc.Text()
 		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if prefix, ok := strings.CutPrefix(line, "!"); ok {
+			if prefix == "" || strings.ContainsAny(prefix, "\t ") {
+				t.Fatalf("%s:%d: want !prefix: %q", residueAllowlist, n, line)
+			}
+			skipped = append(skipped, prefix)
 			continue
 		}
 		path, excerpt, ok := strings.Cut(line, "\t")
@@ -150,5 +150,8 @@ func readResidueAllowlist(t *testing.T) (map[string]map[string]bool, []string) {
 	if err := sc.Err(); err != nil {
 		t.Fatal(err)
 	}
-	return allow, order
+	if len(skipped) == 0 {
+		t.Fatalf("%s: no !prefix line; the history list is missing", residueAllowlist)
+	}
+	return allow, order, skipped
 }
