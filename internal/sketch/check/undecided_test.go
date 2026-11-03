@@ -18,7 +18,7 @@ type A {}
 
 func G(x int) {}
 
-extern go fixture.Fail func Fail() fails A
+func Fail() fails A { return A }
 
 func F(x int, u A) {
 	G(x)

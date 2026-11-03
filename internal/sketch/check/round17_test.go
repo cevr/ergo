@@ -34,8 +34,8 @@ func keyedLiterals(seed uint64) string {
 	decls := []string{
 		"type Bang {}",
 		"type Key[T] {}",
-		"extern go fixture.KeyOf func KeyOf[T](x T) Key[T]",
-		"extern go fixture.mark func mark() fails Bang",
+		"func KeyOf[T](x T) Key[T] { Key[T] }",
+		"func mark() fails Bang { return Bang }",
 		"type S { h0 int, K KT }",
 	}
 	for i := range n {
@@ -54,17 +54,17 @@ func keyedLiterals(seed uint64) string {
 // 16 m2).
 func TestClassGMessage(t *testing.T) {
 	for _, tc := range []struct{ src, at, want string }{
-		// Decided sources (#196): the bodiless functions are extern go, and
+		// Decided sources (#196): mark and keep are ordinary functions, and
 		// keep is generic, since there is no any type; each line moves
 		// up by the package clause.
 		{
-			src: "type Bang {}\nextern go fixture.mark func mark() fails Bang\nextern go fixture.keep func keep[T](f T)\n" +
+			src: "type Bang {}\nfunc mark() fails Bang { return Bang }\nfunc keep[T](f T) {}\n" +
 				"func walk(n int) { try mark(); keep(func() { try walk(n) }) }\n",
 			at:   "func() { try walk",
 			want: "walk is used as a value through the function literal at 4:%d inside its own recursive group; write its error row: func walk(…) fails …",
 		},
 		{
-			src:  "type Bang {}\nextern go fixture.mark func mark() fails Bang\nfunc walk() { try mark(); let g = walk; _ = g }\n",
+			src:  "type Bang {}\nfunc mark() fails Bang { return Bang }\nfunc walk() { try mark(); let g = walk; _ = g }\n",
 			at:   "walk; _",
 			want: "walk is used as a value at 3:%d inside its own recursive group; write its error row: func walk() fails …",
 		},

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Mine { Sleep(d duration) }\n\nfunc use(s Scheduler) { s.Sleep(1ms) }\n\nfunc pass(m Mine) {\n\tuse(m)\n}\n")

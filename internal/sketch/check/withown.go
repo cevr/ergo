@@ -34,7 +34,9 @@ import (
 //  4. Refusals, each located. A resource provider that names an existing
 //     value (a variable, a field, an element) is borrowed or reused: this
 //     bounded ownership owns only a value the provider makes (S109, #197).
-//     An exit action registered in the block runs when the function
+//     A resource whose Close is an operation of its type, is generic, or
+//     takes a pointer to a provider that is a value is released in
+//     lower-v1, not yet (S109 at the provider, closeStaged; C29). An exit action registered in the block runs when the function
 //     returns (runtime.md, Exit actions 2), after the with closed its
 //     providers, so one that needs a provider that depends on a resource
 //     acquired by this with is S108. A with's value that holds a Task leaves the block that drains
@@ -146,6 +148,19 @@ func (c *checker) withOwnership() {
 				continue
 			}
 			owning = true
+			if msg := closeStaged(a.Close); msg != "" {
+				// The release route lowers no such Close (C29): refused
+				// here, at the provider lowering would release, once.
+				if owner.pkg != c.pkg {
+					c.cur = s.file
+					c.errorf(s.x, CodeOutside, "%s", msg)
+				} else if !refused[a.Entry] {
+					refused[a.Entry] = true
+					c.cur = owner.file
+					c.errorf(a.Entry.Provider, CodeOutside, "%s", msg)
+				}
+				continue
+			}
 			if (owner.pkg != c.pkg || !refused[a.Entry]) && !fresh.expression(info, a.Entry.Provider) {
 				var at syntax.Node = a.Entry.Provider
 				c.cur = owner.file

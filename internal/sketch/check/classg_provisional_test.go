@@ -29,7 +29,7 @@ var provisionalRows = []struct {
 	},
 	{
 		name: "garm-classg-errors (error row, try w() catch)",
-		src: "type Bang {}\ntype G[T] {}\nextern go fixture.mark func mark() fails Bang\n" +
+		src: "type Bang {}\ntype G[T] {}\nfunc mark() fails Bang { return Bang }\n" +
 			"func load() fails G[int] { return G[int] }\nfunc keep[T, F](g G[T], f F) {}\n" +
 			"func walk() {\n\ttry mark()\n\ttry w() catch {\n\tcase G as g:\n\t\tg.keep(func() { try walk() })\n\t}\n}\n" +
 			"func w() { try load(); try walk() }\nfunc main() {}\n",

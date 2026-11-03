@@ -5,8 +5,11 @@ import (
 	"go/format"
 	"go/scanner"
 	"go/token"
+	"maps"
 	"path"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -173,6 +176,9 @@ type lowerer struct {
 	envOrder  []*check.TypeName
 
 	rtName, timeName, taskName string
+	// hostImports are the Go packages a lowered call of a user extern
+	// names (hostPkg), imported under their reserved names.
+	hostImports map[string]bool
 
 	gen  strings.Builder // generated and library declarations, before any //line
 	user strings.Builder // the user package's declarations, with //line
@@ -319,6 +325,9 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	if l.taskName != "" {
 		imports = append(imports, l.taskName+" "+`"`+taskImport+`"`)
+	}
+	for _, path := range slices.Sorted(maps.Keys(l.hostImports)) {
+		imports = append(imports, l.pkgNames[pkgKey{"import", path}]+" "+strconv.Quote(path))
 	}
 	imports = append(imports, l.testImports()...)
 	if len(imports) > 0 {

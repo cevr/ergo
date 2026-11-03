@@ -52,8 +52,9 @@ func main() needs Console {
 // Stage E1 (D-E1, C7): an explicit instance used as a value lowers from
 // Info.Instances, never from a re-derived instantiation. The cases cover a
 // program generic passed as an argument, held in a let, called in
-// parentheses and with a result type the arguments do not fix; and a std
-// generic (queue.New) held as a value and called later.
+// parentheses and with a result type the arguments do not fix; and a
+// literal that wraps the std generic queue.New, held and called later (an
+// extern is call-only, P3: queue.New[int] itself is no value).
 func TestErgoRunE1InstanceValues(t *testing.T) {
 	wantRun(t, `import queue
 
@@ -77,7 +78,7 @@ func main() needs Console {
 	let big = apply(Max[int])
 	let first = First[string]
 	let zero = Zero[int]
-	let mk = queue.New[int]
+	let mk = func(n int) queue.Queue[int] { queue.New[int](n) }
 	let q = mk(1)
 	q.Close()
 	Console.Println("\(big) \(first([]string{"x"})) \(len(zero())) \((Max[string])("a", "b"))")
@@ -264,20 +265,4 @@ func main() needs Console {
 	Console.Println("\(Pair(c, c)) \(Pair(d, c)) \(AsValidBox(Box[string]{V: "x"}).Check())")
 }
 `, "true card 7 50 -1 4 true true true true\nfalse true true true false\ncard 7 none true\n")
-}
-
-// A std generic function used as a value that takes a function is refused
-// at the value, in the family FuncValue:std; one that takes only values
-// lowers (TestErgoRunE1InstanceValues).
-func TestLowerE1StdValueRefused(t *testing.T) {
-	o := lowerSource("r", `import scope
-
-func main() needs Console {
-	let f = scope.OnExit[Console]
-	f(func() { Console.Println("x") })
-}
-`, false)
-	if len(o.diags) != 0 || len(o.refused) != 1 || o.refused[0].Line != 4 || refusalFamily(o.refused[0].Message) != "FuncValue:std" {
-		t.Fatalf("want one FuncValue:std refusal at line 4; got diagnostics %v, refusals %v, error %v, panic %v", o.diags, o.refused, o.err, o.panicked)
-	}
 }

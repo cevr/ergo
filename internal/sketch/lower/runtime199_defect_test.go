@@ -85,7 +85,7 @@ func main() needs Console {
 		"\tleaf at " + path + ":7\n" +
 		"\tmiddle calls leaf at " + path + ":13:43\n" +
 		"\ttask #3 middle calls task.Go at " + path + ":12:11\n" +
-		"\t  context trace.span=\"ingest\" log.peer=\"10.0.0.4\" log.region=\"inner\"\n" +
+		"\t  context std:trace.span=\"ingest\" std:log.peer=\"10.0.0.4\" std:log.region=\"inner\"\n" +
 		"\ttask #2 main calls task.Go at " + path + ":22:12\n" +
 		"\ttask #1 main\n"
 	if got := stderr.String(); got != want {
@@ -215,11 +215,13 @@ func (c *dfCtx) operand() string {
 	return fmt.Sprintf("log.Annotate(%q, %q)", c.key, c.text)
 }
 
+// pkg is the namespace a report prints: a std package's ("std:" and its
+// path; contextNamespace, C30).
 func (c *dfCtx) pkg() string {
 	if c.key == "span" {
-		return "trace"
+		return "std:trace"
 	}
-	return "log"
+	return "std:log"
 }
 
 // dfLevel is how a parent starts and meets the next task of the chain.

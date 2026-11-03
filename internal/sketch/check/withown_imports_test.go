@@ -84,9 +84,13 @@ func TestContextOwnershipUserExtern(t *testing.T) {
 let W = context { A: get() }
 func f() { with W { A.Use() } }
 `
+	// The extern's dotted target is outside the C26 domain: S109 #202 at
+	// the declaration (check-v1 stage E4), besides the provider's S109.
 	_, ds := checkOwn(t, src)
-	if len(ds) != 1 || ds[0].Code != "S109" || ds[0].Line != strings.Count(ownPrelude, "\n")+2 || !strings.Contains(ds[0].Message, "#197") {
-		t.Fatalf("diagnostics %v, want located S109 for an untrusted user extern provider", ds)
+	decl := strings.Count(ownPrelude, "\n") + 1
+	if len(ds) != 2 || ds[0].Code != "S109" || ds[0].Line != decl || !strings.Contains(ds[0].Message, "#202") ||
+		ds[1].Code != "S109" || ds[1].Line != decl+1 || !strings.Contains(ds[1].Message, "#197") {
+		t.Fatalf("diagnostics %v, want S109 #202 at the extern and a located S109 for an untrusted user extern provider", ds)
 	}
 }
 

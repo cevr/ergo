@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Rec { X int }\ntype Length int\ntype E {}\ntype R { N() }\nextern go strings.F func f(n int) int\nfunc Use(n int) int { f(n) }\n")

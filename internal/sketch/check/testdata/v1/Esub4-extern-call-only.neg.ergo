@@ -1,0 +1,16 @@
+// Stage E4 (spec add-on to D-E5): any use of an extern function other than
+// a direct call is S108, "an extern function is called directly; wrap it
+// in a literal: func() { f() }".
+extern go strings.ToUpper func Upper(s string) string
+
+func apply(f func(string) string, s string) string {
+	f(s)
+}
+
+func shout(s string) string {
+	apply(Upper, s) // want S108
+}
+
+func keep() func(string) string {
+	Upper // want S108
+}

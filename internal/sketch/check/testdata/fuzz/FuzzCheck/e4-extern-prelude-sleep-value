@@ -1,0 +1,2 @@
+go test fuzz v1
+string("func main() {\n\tlet h = Sleep // want S108\n\t_ = h\n}\n")

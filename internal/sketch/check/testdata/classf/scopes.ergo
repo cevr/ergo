@@ -2,7 +2,7 @@ type Cap { M() }
 type Bang {}
 type Other {}
 type Shape = Bang | Other
-extern go fixture.mark func mark() fails Bang
+func mark() fails Bang { return Bang }
 func h() { Cap.M() }
 func k() { Cap.M() }
 func r() { Cap.M() }

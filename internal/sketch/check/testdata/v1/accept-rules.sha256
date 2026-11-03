@@ -1,7 +1,7 @@
 # Each testdata/v1/*.ergo is a byte-for-byte copy of the check-v1 acceptance
 # rule of the same name. Source: the orchestrator-owned acceptance tree,
 # /home/exedev/.cache/baton/wf10/check-v1/accept/rules/<name> (copied as each
-# stage lands; last synced at stage E3b round 1). TestV1Manifest requires each
+# stage lands; last synced at stage E4 round 1). TestV1Manifest requires each
 # copy to have its line here, with this hash. Detect drift from the source:
 #   cd /home/exedev/.cache/baton/wf10/check-v1/accept/rules && sha256sum -c <this file>
 # 196w: the D7-satisfaction copies spell the construct keyword context; the
@@ -86,3 +86,5 @@ ad36a14e661cbecb97202ba13bc01524e268a06c795b1348a0130c870cc376ca  Esub1-instance
 a6dcbc09a9d61c412e3a17ef022e8c89452e4ad5613b9e4d3478ddf91db73c93  Esub1-instances.pos.ergo
 6182b87a0720eeb3d5001c5efa4a324fc34034d40a3aac95b0ff15b751431f97  Esub2-task-type-args.neg.ergo
 c1f91f94a70d53a83e9180ebcbffed0fd84eed9eeb048f701aff0faa50068caf  Esub2-task-type-args.pos.ergo
+a45f07fb90a6caa185a6e4a2087dfa3c754d7c013c8cb13ca6adc6d009720b0d  Esub4-extern-call-only.neg.ergo
+139b24048b77d6fb3dbc4bd14fbe95f48e491af9bc1ad0a9841f99c945f36b90  Esub4-extern-call-only.pos.ergo

@@ -1,0 +1,11 @@
+// Stage E4 (spec add-on to D-E5): an extern function is called directly;
+// a function literal that calls it is an ordinary function value.
+extern go strings.ToUpper func Upper(s string) string
+
+func apply(f func(string) string, s string) string {
+	f(s)
+}
+
+func shout(s string) string {
+	apply(func(x string) string { Upper(x) }, Upper(s))
+}

@@ -56,7 +56,7 @@ func (fc *funcCtx) contextWith(x *syntax.CallExpr, cb *check.ContextBinding) ope
 	text := fc.contextCall(cb.Text, val, x.Args[0])
 	// The namespace comes from the checked binding type, even when its
 	// value was made in or imported through another package.
-	pkg := strconv.Quote(cb.Type.(*check.Named).Obj.Pkg.Path)
+	pkg := strconv.Quote(contextNamespace(cb.Type.(*check.Named).Obj.Pkg))
 	scope := fc.frameScope(x)
 	cx := fc.temp("cx")
 	fc.line("{")
@@ -74,6 +74,21 @@ func (fc *funcCtx) contextWith(x *syntax.CallExpr, cb *check.ContextBinding) ope
 	return res
 }
 
+// contextNamespace is the namespace of the context values whose binding
+// type pkg declares, and of the context reads pkg declares (std.go,
+// hiddenArgs): a key is private to it (runtime/v1, contextKey). It keys on
+// the package's identity, not its path (C30, 196x): a std
+// package's is "std:" and its path, which no program package can have,
+// since an import path holds no ":" (grammar.md, Literals 6). So a program
+// package checked under a std path, such as log, never shares std log's
+// keys.
+func contextNamespace(pkg *check.Package) string {
+	if pkg.Std() {
+		return "std:" + pkg.Path
+	}
+	return pkg.Path
+}
+
 // contextCall is the call of the protocol function f (contextKey or
 // contextText; check.ContextBinding) on the operand's value val. The
 // checker admits f only with empty rows and a string result, so the call
@@ -88,7 +103,9 @@ func (fc *funcCtx) contextCall(f *check.Func, val string, site syntax.Node) stri
 	}
 	fd := fc.l.useFunc(f, site)
 	if fd.extern != "" {
-		refuse(site, "a context value whose %s is an extern function is lowered after check-v1 stage E", f.Name)
+		// A context value's type is named, outside a user extern's domain
+		// (C26), and std declares no extern protocol function.
+		ice(site, "a context value whose %s is an extern function, which the checker refuses (C26)", f.Name)
 	}
 	recv := val
 	if _, byPtr := f.Sig.Params[0].Type.(*check.Pointer); byPtr {
