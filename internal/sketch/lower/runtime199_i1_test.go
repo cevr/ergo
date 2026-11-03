@@ -570,7 +570,7 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 	}
 	for key := range info.Footprints {
 		switch key.(type) {
-		case *syntax.FuncDecl, *syntax.FuncLit, *syntax.BlockStmt, *syntax.WireDecl, *syntax.VarSpec:
+		case *syntax.FuncDecl, *syntax.FuncLit, *syntax.BlockStmt, *syntax.ContextDecl, *syntax.VarSpec:
 		default:
 			t.Errorf("a footprint keyed by an unknown frame form %T", key)
 		}
@@ -605,7 +605,7 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 		switch d := d.(type) {
 		case *syntax.FuncDecl:
 			in(d, d)
-		case *syntax.WireDecl:
+		case *syntax.ContextDecl:
 			in(d, d)
 		case *syntax.VarDecl:
 			for _, s := range d.Specs {

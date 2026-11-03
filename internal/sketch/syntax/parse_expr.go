@@ -341,8 +341,8 @@ func (p *parser) parseOperand() Expr {
 		return p.parseMatch().(Expr)
 	case WITH:
 		return p.parseWith()
-	case WIRE:
-		return p.parseWireLit()
+	case CONTEXT:
+		return p.parseContextLit()
 	}
 	p.errorf("expected an expression, found %s", p.found())
 	return nil
@@ -703,8 +703,8 @@ func stripParens(x Expr) Expr {
 // braced expression outside parentheses or brackets.
 func headerSafe(x Expr) bool {
 	switch x := x.(type) {
-	case *Ident, *BasicLit, *InterpolatedString, *ParenExpr, *TupleExpr, *WireLit:
-		// A wire value starts with its keyword, so its braces are never
+	case *Ident, *BasicLit, *InterpolatedString, *ParenExpr, *TupleExpr, *ContextLit:
+		// A context value starts with its keyword, so its braces are never
 		// read as the body (D1.8).
 		return true
 	case *SelectorExpr:

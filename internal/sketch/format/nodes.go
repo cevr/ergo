@@ -73,14 +73,14 @@ func (p *printer) decl(d syntax.Decl) {
 			}
 			p.block(d.Body, true)
 		}
-	case *syntax.WireDecl:
+	case *syntax.ContextDecl:
 		p.tok(d.Let, "let")
 		p.space()
 		p.ident(d.Name)
 		p.space()
 		p.synth("=")
 		p.space()
-		p.wire(d.Wire, d.Provides, d.Needs, d.Body)
+		p.context(d.Context, d.Provides, d.Needs, d.Body)
 	case *syntax.TestDecl:
 		p.token(d.Test, "test")
 		p.space()
@@ -487,8 +487,8 @@ func (p *printer) machineType(t *syntax.MachineType) {
 	p.members(t.Lbrace, t.Rbrace, list, false)
 }
 
-// wire prints `wire [provides …] [needs …] { entries }`.
-func (p *printer) wire(pos syntax.Pos, provides *syntax.ProvidesClause, needs *syntax.NeedsClause, b *syntax.WireBody) {
+// context prints `context [provides …] [needs …] { entries }`.
+func (p *printer) context(pos syntax.Pos, provides *syntax.ProvidesClause, needs *syntax.NeedsClause, b *syntax.ContextBody) {
 	p.token(pos, "wire")
 	if provides != nil {
 		p.space()
@@ -504,7 +504,7 @@ func (p *printer) wire(pos syntax.Pos, provides *syntax.ProvidesClause, needs *s
 	var list []member
 	for _, e := range b.Entries {
 		list = append(list, member{e, func(aligned bool) {
-			if e.Kind == syntax.WireReplace {
+			if e.Kind == syntax.ContextReplace {
 				p.token(e.Replace, "replace")
 				p.space()
 			}
@@ -514,7 +514,7 @@ func (p *printer) wire(pos syntax.Pos, provides *syntax.ProvidesClause, needs *s
 				p.space()
 				p.typ(k)
 			}
-			if e.Kind == syntax.WireEmbed {
+			if e.Kind == syntax.ContextEmbed {
 				return
 			}
 			p.tok(e.Assign, ":")
@@ -910,8 +910,8 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 			a := x.Arms[i]
 			p.caseHead(a.Case, a.Types, a.Colon)
 		}, func(i int) []syntax.Stmt { return x.Arms[i].Body }, x.Rbrace)
-	case *syntax.WireLit:
-		p.wire(x.Wire, x.Provides, x.Needs, x.Body)
+	case *syntax.ContextLit:
+		p.context(x.Context, x.Provides, x.Needs, x.Body)
 	case *syntax.IfStmt:
 		p.ifStmt(x, p.sameLine(x))
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:

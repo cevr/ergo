@@ -124,10 +124,10 @@ func (o *capBinding) pos() syntax.Pos { return o.at }
 type Wire struct {
 	Name string
 	Pos  syntax.Pos
-	Decl *syntax.WireDecl
+	Decl *syntax.ContextDecl
 	// Lit is the syntax of an inline wire, nil for a named wire. Both
 	// share the binding summary and ownership facts.
-	Lit   *syntax.WireLit
+	Lit   *syntax.ContextLit
 	file  *fileInfo
 	binds *capSet // capabilities the wire binds; nil until resolved
 	own   *capSet // the wire's own entries (wireSummaries)

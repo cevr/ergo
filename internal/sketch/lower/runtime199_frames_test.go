@@ -171,7 +171,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 				for key, fp := range o.pkg.Info.Footprints {
 					target := false
 					switch key := key.(type) {
-					case *syntax.WireDecl:
+					case *syntax.ContextDecl:
 						target = frame.name == "wire" && key.Name.Name == "Deep"
 					case *syntax.VarSpec:
 						target = frame.name == "initializer"
@@ -264,7 +264,7 @@ func i1RequireFrameClasses(t *testing.T, o *lowered) {
 			} else {
 				t.Error("footprint block belongs to no frame-opening call")
 			}
-		case *syntax.WireDecl:
+		case *syntax.ContextDecl:
 			require("wire")
 		case *syntax.VarSpec:
 			require("initializer")

@@ -80,13 +80,13 @@ func Inspect(n Node, f func(Node) bool) {
 				Inspect(n.Exprs[i], f)
 			}
 		}
-	case *WireDecl:
+	case *ContextDecl:
 		walk(n.Name, n.Provides, n.Needs, n.Body)
-	case *WireBody:
+	case *ContextBody:
 		for _, e := range n.Entries {
 			Inspect(e, f)
 		}
-	case *WireEntry:
+	case *ContextEntry:
 		walk(n.Key)
 		exprs(n.Keys)
 		walk(n.Value)
@@ -137,7 +137,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *CatchArm:
 		exprs(n.Types)
 		stmts(n.Body)
-	case *WireLit:
+	case *ContextLit:
 		walk(n.Provides, n.Needs, n.Body)
 	case *GoExpr:
 		walk(n.Call, n.Block)
@@ -245,7 +245,7 @@ func isNilNode(n Node) bool {
 		return n == nil
 	case *CallExpr:
 		return n == nil
-	case *WireBody:
+	case *ContextBody:
 		return n == nil
 	case *VarDecl:
 		return n == nil

@@ -84,7 +84,7 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 }`, "S104", "nope"},
 	{"UnaryExpr", `func F() int { return -nope }`, "S104", "nope"},
 	{"VariantSpec", `type V = A | Paid{ID Nope}`, "S104", "Nope"},
-	{"WireLit", `func F() { with wire { Nope: S{} } { G(1) } }`, "S104", "Nope"},
+	{"ContextLit", `func F() { with wire { Nope: S{} } { G(1) } }`, "S104", "Nope"},
 	// Statements.
 	{"AssertStmt", `test T {
 	assert nope
@@ -138,7 +138,7 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 }`, "S109", "test T {"},
 	{"TypeDecl", `type T = Nope`, "S104", "Nope"},
 	{"VarDecl", `let v int = nope`, "S104", "nope"},
-	{"WireDecl", `let W = wire { Nope: S{} }`, "S104", "Nope"},
+	{"ContextDecl", `let W = wire { Nope: S{} }`, "S104", "Nope"},
 }
 
 // notBuilt are the node kinds the decided parser never builds (the

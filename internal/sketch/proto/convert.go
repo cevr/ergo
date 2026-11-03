@@ -110,7 +110,7 @@ func (c *converter) file(f *syntax.File) *File {
 			if fn := c.funcDecl(d); fn != nil {
 				out.Funcs = append(out.Funcs, fn)
 			}
-		case *syntax.WireDecl:
+		case *syntax.ContextDecl:
 			// The checker of #196 owns what a wire header means: provides
 			// hides the unlisted entries, needs joins the with site's row.
 			refused := false
@@ -125,7 +125,7 @@ func (c *converter) file(f *syntax.File) *File {
 			if refused {
 				continue
 			}
-			out.Wires = append(out.Wires, &WireDecl{Pos: c.pos(d.Wire), Name: d.Name.Name, Entries: c.wireEntries(d.Body)})
+			out.Wires = append(out.Wires, &WireDecl{Pos: c.pos(d.Context), Name: d.Name.Name, Entries: c.wireEntries(d.Body)})
 		case *syntax.VarDecl:
 			c.refuse(d, "a top-level let that is not a wire")
 		default:
@@ -357,13 +357,13 @@ func (c *converter) funcDecl(d *syntax.FuncDecl) *FuncDecl {
 	return out
 }
 
-func (c *converter) wireEntries(b *syntax.WireBody) []WireEntry {
+func (c *converter) wireEntries(b *syntax.ContextBody) []WireEntry {
 	var out []WireEntry
 	for _, e := range b.Entries {
 		switch {
-		case e.Kind == syntax.WireEmbed:
+		case e.Kind == syntax.ContextEmbed:
 			c.refuse(e, "an embedded wire")
-		case e.Kind == syntax.WireReplace:
+		case e.Kind == syntax.ContextReplace:
 			c.refuseAt(e.Replace, "a replace entry")
 		case len(e.Keys) > 0:
 			c.refuse(e.Keys[0], "a wire entry with several capabilities")
@@ -619,7 +619,7 @@ func (c *converter) expr(x syntax.Expr) Expr {
 		return nil
 	case *syntax.CatchExpr:
 		return c.catch(x)
-	case *syntax.WireLit:
+	case *syntax.ContextLit:
 		// As for a named wire, the header's meaning is the checker's (#196).
 		if x.Provides != nil || x.Needs != nil {
 			if x.Provides != nil {
@@ -630,7 +630,7 @@ func (c *converter) expr(x syntax.Expr) Expr {
 			}
 			return nil
 		}
-		return &WireLit{Pos: c.pos(x.Wire), Entries: c.wireEntries(x.Body)}
+		return &WireLit{Pos: c.pos(x.Context), Entries: c.wireEntries(x.Body)}
 	case *syntax.FuncLit:
 		c.refuse(x, "a function literal")
 	case *syntax.GoExpr:

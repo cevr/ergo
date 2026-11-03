@@ -5,7 +5,7 @@
 //
 // The layout is gofmt's for every construct Go has: tabs indent, spaces
 // align (struct fields, trailing comments, the keys of multi-line composite
-// literals, wire and machine entries, var groups), lines are never wrapped,
+// literals, context and machine entries, var groups), lines are never wrapped,
 // each gap between tokens keeps "line break or not" from the source, runs of
 // blank lines collapse to one, and an explicit `;` becomes a line break.
 // Tokens are otherwise kept: no import sorting, no parenthesis removal, no

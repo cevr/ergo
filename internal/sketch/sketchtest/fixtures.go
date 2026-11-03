@@ -41,8 +41,8 @@ var GrammarFixtures = []GrammarFixture{
 	{"LetDecl", "let Names = []string{\"ada\"}\n\nfunc f(order Order) int64 {\n\tlet x = 1\n\tlet mut y int64 = 2\n\tlet q, r = DivMod(7, 2)\n\tlet (n, d) = DivMod(9, 4)\n\tlet Order{Total: t} = order\n\ty += x + q + r + n + d + t\n\ty\n}\n"},
 	{"ExpressionList", "func f() {\n\tuse(1, 2, 3)\n\twith A, B { run() }\n}\n"},
 	{"ProvidesClause", "let App = wire provides Accounts, Ledger needs Clock {\n\tAccounts: Memory{},\n\tLedger:   Memory{},\n}\n"},
-	{"WireBody", "let Live = wire {\n\tBase,\n\treplace Clock: Fixed{},\n\tLedger, Audit: Recorder{},\n}\n"},
-	{"WireEntry", "func f() {\n\tlet w = wire { Clock: Fixed{} }\n\tuse(w)\n}\n"},
+	{"ContextBody", "let Live = wire {\n\tBase,\n\treplace Clock: Fixed{},\n\tLedger, Audit: Recorder{},\n}\n"},
+	{"ContextEntry", "func f() {\n\tlet w = wire { Clock: Fixed{} }\n\tuse(w)\n}\n"},
 	{"Block", "func f() {\n\tg()\n\th()\n}\n"},
 	{"Statement", "func f(xs []int64) int64 {\n\tlet mut n = 0\n\tn = n + 1\n\tfor x in xs {\n\t\tif x < 0 {\n\t\t\tbreak\n\t\t}\n\t\tcontinue\n\t}\n\tassert n > 0\n\treturn n\n}\n"},
 	{"Assignment", "func f(p *Point) {\n\tp.X = 1\n\tp.Y *= 2\n\tp.Z <<= 1\n}\n"},
@@ -69,7 +69,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"MatchExpr", "func status(code int64) string {\n\tmatch code {\n\tcase 200, 204:\n\t\t\"ok\"\n\tcase -1:\n\t\t\"unknown\"\n\tcase _:\n\t\t\"error\"\n\t}\n}\n"},
 	{"CaseClause", "func step(s State, e Event) State {\n\tmatch (s, e) {\n\tcase (Closed{Failures: n}, Failure{err}):\n\t\tOpen{err}\n\tcase (_, Retry):\n\t\ts\n\tcase _:\n\t\ts\n\t}\n}\n"},
 	{"WithExpr", "func main() needs Console {\n\twith Live { run() }\n\tlet r = with Live, Test { run() } catch {\n\tcase E:\n\t\t0\n\t}\n\tuse(r)\n}\n"},
-	{"WireLit", "func f() {\n\twith wire provides Clock needs Console { Clock: Fixed{} } { run() }\n}\n"},
+	{"ContextLit", "func f() {\n\twith wire provides Clock needs Console { Clock: Fixed{} } { run() }\n}\n"},
 	{"Pattern", "func f(p Payment) string {\n\tmatch p {\n\tcase Declined{Reason: Fraud{Rule: r} as f}:\n\t\tr\n\tcase Authorized as a:\n\t\ta.ID\n\tcase _:\n\t\t\"\"\n\t}\n}\n"},
 	{"PatternCore", "func f(x Value) string {\n\tmatch x {\n\tcase Pending:\n\t\t\"p\"\n\tcase result.Ok[int64]{v}:\n\t\t\"ok\"\n\tcase (Box{1}):\n\t\t\"one\"\n\tcase other:\n\t\t\"other\"\n\t}\n}\n"},
 	{"FieldPattern", "func f(o Order) int64 {\n\tlet Order{Total: t, Lines: ls} = o\n\tlet Some{v} = lookup()\n\tt + v + len(ls)\n}\n"},
@@ -148,7 +148,7 @@ var MalformedTable = []Malformed{
 	{Name: "interpolation-multi-line-comment", Src: "let s = \"x \\(a /* c\nd */)\"\n", Lines: []int{1}},
 	{Name: "try-operand", Src: "func f(a int64) int64 fails E {\n\ta + try g()\n}\n", Lines: []int{2}},
 	// A capability name takes no type arguments (TypeName in needs,
-	// provides and wire keys).
+	// provides and context keys).
 	{Name: "needs-type-args", Src: "func f() needs A, B[T] {}\n", Lines: []int{1}},
 	{Name: "needs-list-type-args", Src: "func f(g func() needs (A, B[T])) {}\n", Lines: []int{1}},
 	{Name: "operation-needs-type-args", Src: "type S {\n\tF() needs A, B[T],\n}\n", Lines: []int{2}},

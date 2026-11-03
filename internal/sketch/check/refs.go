@@ -1002,7 +1002,7 @@ func (w *refWalker) expr(x syntax.Expr) {
 			w.list(arm.Body)
 			w.pop()
 		}
-	case *syntax.WireLit:
+	case *syntax.ContextLit:
 		// A header names capabilities: no value reference.
 		if x.Provides != nil {
 			w.typ(x.Provides)
@@ -1060,7 +1060,7 @@ func (w *refWalker) expr(x syntax.Expr) {
 
 // wireBody visits a wire literal's entries: a key is a capability name or
 // an embedded wire, a value is an expression.
-func (w *refWalker) wireBody(b *syntax.WireBody) {
+func (w *refWalker) wireBody(b *syntax.ContextBody) {
 	if b == nil {
 		return
 	}

@@ -282,7 +282,7 @@ func (c *checker) expr0(x syntax.Expr, hint Type) operand {
 		return c.try(x, hint)
 	case *syntax.CatchExpr:
 		return c.catch(x, hint, c.useOf(x) != useDiscard, false)
-	case *syntax.WireLit:
+	case *syntax.ContextLit:
 		// A wire value outside with (grammar.md, Expressions 8).
 		return c.outside(x, "a wire value (196x, extern and wire values)")
 	case *syntax.KeyValueExpr:

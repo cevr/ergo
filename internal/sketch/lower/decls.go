@@ -113,7 +113,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 					l.pkgName(pkgKey{"letinit", spec}, "ergoLet")
 				}
 			}
-		case *syntax.WireDecl:
+		case *syntax.ContextDecl:
 			if w, ok := l.info.Defs[d.Name].(*check.Wire); ok {
 				// One builder for each distinct set of providers a with of
 				// this wire acquires, in the withs' source order.
@@ -163,7 +163,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 		l.emitFunc(fd)
 	case *syntax.VarDecl:
 		l.packageLet(d)
-	case *syntax.WireDecl:
+	case *syntax.ContextDecl:
 		w, ok := l.info.Defs[d.Name].(*check.Wire)
 		if !ok {
 			ice(d.Name, "the wire %s has no Defs entry", d.Name.Name)

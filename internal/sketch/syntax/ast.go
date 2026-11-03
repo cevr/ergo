@@ -4,7 +4,7 @@ package syntax
 // and comments live in File.Comments in source order with a Doc group on the
 // nodes that carry documentation. Ergo's constructs have dedicated nodes
 // (ErrorRow, NeedsClause, ProvidesClause, TryExpr, CatchExpr,
-// TypeSwitchStmt, MachineType, WireDecl, WireLit, GoExpr,
+// TypeSwitchStmt, MachineType, ContextDecl, ContextLit, GoExpr,
 // CallExpr.Trailing). The parser resolves no names: with(…) and
 // timeout.After(…) are ordinary calls.
 
@@ -176,21 +176,21 @@ type FuncDecl struct {
 	Body       *BlockStmt
 }
 
-// WireDecl is `wire Name [provides A, B] [needs C, D] { entries }`.
-// Provides lists the capabilities the wire exposes; the entries it builds
+// ContextDecl is `context Name [provides A, B] [needs C, D] { entries }`.
+// Provides lists the capabilities the context exposes; the entries it builds
 // and does not list stay private to its build. Needs lists the capabilities
 // its providers require from the with site. Either clause may be nil.
 //
-// The decided spelling is `let Name = wire [provides …] [needs …] { … }` at
+// The decided spelling is `let Name = context [provides …] [needs …] { … }` at
 // package level (#196); Let is the position of `let`.
-type WireDecl struct {
+type ContextDecl struct {
 	Doc      *CommentGroup
 	Let      Pos
-	Wire     Pos
+	Context  Pos
 	Name     *Ident
 	Provides *ProvidesClause
 	Needs    *NeedsClause
-	Body     *WireBody
+	Body     *ContextBody
 }
 
 func (d *ImportDecl) Pos() Pos { return d.Import }
@@ -246,43 +246,43 @@ func (d *FuncDecl) End() Pos {
 	}
 	return d.Type.End()
 }
-func (d *WireDecl) Pos() Pos {
+func (d *ContextDecl) Pos() Pos {
 	if d.Let.IsValid() {
 		return d.Let
 	}
-	return d.Wire
+	return d.Context
 }
-func (d *WireDecl) End() Pos { return d.Body.End() }
+func (d *ContextDecl) End() Pos { return d.Body.End() }
 
-func (*ImportDecl) declNode() {}
-func (*VarDecl) declNode()    {}
-func (*TypeDecl) declNode()   {}
-func (*FuncDecl) declNode()   {}
-func (*WireDecl) declNode()   {}
+func (*ImportDecl) declNode()  {}
+func (*VarDecl) declNode()     {}
+func (*TypeDecl) declNode()    {}
+func (*FuncDecl) declNode()    {}
+func (*ContextDecl) declNode() {}
 
-// WireEntryKind is the form of a wire entry.
-type WireEntryKind int
+// ContextEntryKind is the form of a context entry.
+type ContextEntryKind int
 
 const (
-	WireBind    WireEntryKind = iota // Key = Value
-	WireEmbed                        // Key: an embedded wire
-	WireReplace                      // replace Key = Value
+	ContextBind    ContextEntryKind = iota // Key = Value
+	ContextEmbed                           // Key: an embedded context
+	ContextReplace                         // replace Key = Value
 )
 
-// WireBody is the braced entry list of a wire declaration or literal.
-type WireBody struct {
+// ContextBody is the braced entry list of a context declaration or literal.
+type ContextBody struct {
 	Lbrace  Pos
-	Entries []*WireEntry
+	Entries []*ContextEntry
 	Rbrace  Pos
 }
 
-// WireEntry binds a capability (Key, a name or a qualified name) to a
-// provider, embeds a wire, or replaces an embedded entry. Keys holds the
+// ContextEntry binds a capability (Key, a name or a qualified name) to a
+// provider, embeds a context, or replaces an embedded entry. Keys holds the
 // further capabilities of `A, B = provider`, one provider serving several
 // capabilities.
-type WireEntry struct {
+type ContextEntry struct {
 	Doc     *CommentGroup
-	Kind    WireEntryKind
+	Kind    ContextEntryKind
 	Replace Pos
 	Key     Expr
 	Keys    []Expr
@@ -290,15 +290,15 @@ type WireEntry struct {
 	Value   Expr
 }
 
-func (b *WireBody) Pos() Pos { return b.Lbrace }
-func (b *WireBody) End() Pos { return b.Rbrace + 1 }
-func (e *WireEntry) Pos() Pos {
-	if e.Kind == WireReplace {
+func (b *ContextBody) Pos() Pos { return b.Lbrace }
+func (b *ContextBody) End() Pos { return b.Rbrace + 1 }
+func (e *ContextEntry) Pos() Pos {
+	if e.Kind == ContextReplace {
 		return e.Replace
 	}
 	return e.Key.Pos()
 }
-func (e *WireEntry) End() Pos {
+func (e *ContextEntry) End() Pos {
 	if e.Value != nil {
 		return e.Value.End()
 	}
@@ -370,8 +370,8 @@ func (u *NeedsClause) End() Pos {
 	return u.Names[len(u.Names)-1].End()
 }
 
-// ProvidesClause is a named wire's exposure: `provides A, B`. It is never
-// parenthesised, because it stands only in a wire header.
+// ProvidesClause is a named context's exposure: `provides A, B`. It is never
+// parenthesised, because it stands only in a context header.
 type ProvidesClause struct {
 	Provides Pos
 	Names    []Expr
@@ -510,13 +510,13 @@ type (
 		Rbrace Pos
 	}
 
-	// WireLit is a wire value `wire [provides …] [needs …] { … }`; either
+	// ContextLit is a context value `context [provides …] [needs …] { … }`; either
 	// clause may be nil.
-	WireLit struct {
-		Wire     Pos
+	ContextLit struct {
+		Context  Pos
 		Provides *ProvidesClause
 		Needs    *NeedsClause
-		Body     *WireBody
+		Body     *ContextBody
 	}
 
 	// GoExpr is `go f(x)` or `go { … }`: it starts a task. Exactly one of
@@ -709,8 +709,8 @@ func (x *TryExpr) Pos() Pos    { return x.Try }
 func (x *TryExpr) End() Pos    { return x.X.End() }
 func (x *CatchExpr) Pos() Pos  { return x.X.Pos() }
 func (x *CatchExpr) End() Pos  { return x.Rbrace + 1 }
-func (x *WireLit) Pos() Pos    { return x.Wire }
-func (x *WireLit) End() Pos    { return x.Body.End() }
+func (x *ContextLit) Pos() Pos { return x.Context }
+func (x *ContextLit) End() Pos { return x.Body.End() }
 func (x *GoExpr) Pos() Pos     { return x.Go }
 func (x *GoExpr) End() Pos {
 	if x.Block != nil {
@@ -814,7 +814,7 @@ func (*UnaryExpr) exprNode()     {}
 func (*BinaryExpr) exprNode()    {}
 func (*TryExpr) exprNode()       {}
 func (*CatchExpr) exprNode()     {}
-func (*WireLit) exprNode()       {}
+func (*ContextLit) exprNode()    {}
 func (*GoExpr) exprNode()        {}
 func (*Ellipsis) exprNode()      {}
 func (*ArrayType) exprNode()     {}

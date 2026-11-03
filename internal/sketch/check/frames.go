@@ -43,7 +43,7 @@ func frameFree(d syntax.Decl) bool {
 	switch d.(type) {
 	case *syntax.FuncDecl, *syntax.TestDecl:
 		return false
-	case *syntax.VarDecl, *syntax.WireDecl, *syntax.TypeDecl, *syntax.ImportDecl:
+	case *syntax.VarDecl, *syntax.ContextDecl, *syntax.TypeDecl, *syntax.ImportDecl:
 		return true
 	}
 	return true // a declaration kind added later is checked, not skipped

@@ -283,7 +283,7 @@ func TestOutputBound(t *testing.T) {
 	}
 	// Review r2 M1: a short cell never inherits a long cell's width, for
 	// every aligned column: record fields with trailing comments, keyed
-	// literals, wire entries, and trailing comments of consecutive lets.
+	// literals, context entries, and trailing comments of consecutive lets.
 	long := strings.Repeat("L", 4096)
 	for _, g := range []struct{ name, src string }{
 		{"trailing comments after a long field", "type T {\n\t" + long + " int, // c\n" + strings.Repeat("\tx int, // c\n", 2000) + "}\n"},

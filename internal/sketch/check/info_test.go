@@ -411,7 +411,7 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 					syntax.Inspect(spec.Pattern, visit)
 				}
 			}
-		case *syntax.WireDecl:
+		case *syntax.ContextDecl:
 			// A named wire (spec D-A4; review M4): each provider is an
 			// expression of the contract, its entry is in the wire's
 			// Entries with a conversion per capability, and a provider of
@@ -436,7 +436,7 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			}
 			wantEmbeds := 0
 			for _, e := range d.Body.Entries {
-				if e.Kind == syntax.WireEmbed {
+				if e.Kind == syntax.ContextEmbed {
 					wantEmbeds++
 					continue
 				}

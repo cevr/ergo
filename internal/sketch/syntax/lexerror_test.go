@@ -51,7 +51,7 @@ var lexErrorCases = []struct {
 	// `escaping func(` reads only as a type: with no repair, the fallback
 	// expression reading reports "a type is not a value" at the `escaping`.
 	{"index, type reading reaches the error", `func A(){let y = f[escaping func("`, 33, "string literal not terminated"},
-	// keysContinue reads a wire body's key list.
+	// keysContinue reads a context body's key list.
 	{"wire keys, unterminated string", `func A(){with wire{A, "`, 22, "string literal not terminated"},
 }
 

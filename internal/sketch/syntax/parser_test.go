@@ -175,20 +175,20 @@ func TestAdmittedForms(t *testing.T) {
 			t.Fatalf("let %d: %+v %+v", i, d, s)
 		}
 	}
-	// A package-level wire is a WireDecl; a wire elsewhere is a WireLit.
+	// A package-level context is a ContextDecl; a context elsewhere is a ContextLit.
 	f = parse("let App = wire provides A needs B {\n\tC, D:      X{},\n\treplace E: Y{},\n\tShared,\n}\n\nfunc main() {\n\twith wire { A: M{} } {\n\t\trun()\n\t}\n}\n")
-	w := f.Decls[0].(*WireDecl)
+	w := f.Decls[0].(*ContextDecl)
 	if !w.Let.IsValid() || w.Pos() != w.Let || w.Provides == nil || w.Needs == nil || len(w.Body.Entries) != 3 {
 		t.Fatalf("wire %+v", w)
 	}
-	if e := w.Body.Entries; e[0].Kind != WireBind || len(e[0].Keys) != 1 || e[1].Kind != WireReplace || e[2].Kind != WireEmbed {
+	if e := w.Body.Entries; e[0].Kind != ContextBind || len(e[0].Keys) != 1 || e[1].Kind != ContextReplace || e[2].Kind != ContextEmbed {
 		t.Fatalf("wire entries %+v %+v %+v", e[0], e[1], e[2])
 	}
 	with := f.Decls[1].(*FuncDecl).Body.List[0].(*ExprStmt).X.(*CallExpr)
 	if id, ok := with.Fun.(*Ident); !ok || id.Name != "with" || len(with.Args) != 1 || with.Trailing == nil {
 		t.Fatalf("with %+v", with)
 	}
-	if _, ok := with.Args[0].(*WireLit); !ok {
+	if _, ok := with.Args[0].(*ContextLit); !ok {
 		t.Fatalf("with argument %T", with.Args[0])
 	}
 	// Records, operation types with laws, unions with inline variants,
@@ -369,15 +369,15 @@ func TestRoundTwoForms(t *testing.T) {
 			"let W = wire {\n\tA,\n\tB: p,\n\tC,\n}\n",
 			"let W = wire { A,\n\tB: p, C }\n",
 		} {
-			var body *WireBody
+			var body *ContextBody
 			switch d := parse(t, src).Decls[0].(type) {
-			case *WireDecl:
+			case *ContextDecl:
 				body = d.Body
 			case *VarDecl:
-				body = d.Specs[0].Values[0].(*WireLit).Body
+				body = d.Specs[0].Values[0].(*ContextLit).Body
 			}
 			es := body.Entries
-			if len(es) != 2 || len(es[0].Keys) != 1 || es[0].Kind == WireEmbed || es[1].Kind != WireEmbed {
+			if len(es) != 2 || len(es[0].Keys) != 1 || es[0].Kind == ContextEmbed || es[1].Kind != ContextEmbed {
 				t.Errorf("%q: entries %+v", src, es)
 			}
 		}

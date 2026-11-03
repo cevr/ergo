@@ -58,11 +58,11 @@ func wireNodes(t *testing.T, src string) int {
 	n := 1
 	syntax.Inspect(file, func(x syntax.Node) bool {
 		switch x := x.(type) {
-		case *syntax.WireDecl, *syntax.WireLit:
+		case *syntax.ContextDecl, *syntax.ContextLit:
 			n++
-		case *syntax.WireEntry:
+		case *syntax.ContextEntry:
 			n++
-			if x.Kind != syntax.WireEmbed {
+			if x.Kind != syntax.ContextEmbed {
 				n += 1 + len(x.Keys)
 			}
 		case *syntax.NeedsClause:

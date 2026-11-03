@@ -368,7 +368,7 @@ func PermuteDecls(src string, seed uint64) (out string, origKey, permKey func(in
 // places among themselves, and every other declaration keeps its place.
 func PermuteWires(src string, seed uint64) (out string, origKey, permKey func(int) (int, int), ok bool) {
 	return permuteDecls(src, seed, func(d syntax.Decl) bool {
-		_, ok := d.(*syntax.WireDecl)
+		_, ok := d.(*syntax.ContextDecl)
 		return ok
 	})
 }

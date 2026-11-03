@@ -84,7 +84,7 @@ const wireBudgetMessage = "this wire's embedding graph is too large to check for
 // them.
 type wireGroup struct {
 	key  string
-	lits []*syntax.WireLit
+	lits []*syntax.ContextLit
 }
 
 // wireSource reads the package's wire source once: its size, which fixes
@@ -111,10 +111,10 @@ func (c *checker) wireSource() (size int, groups []*wireGroup, wired bool) {
 			}
 			syntax.Inspect(d, func(n syntax.Node) bool {
 				switch n := n.(type) {
-				case *syntax.WireDecl:
+				case *syntax.ContextDecl:
 					size++
 					wired = true
-				case *syntax.WireLit:
+				case *syntax.ContextLit:
 					size++
 					wired = true
 					g := byKey[key]
@@ -124,9 +124,9 @@ func (c *checker) wireSource() (size int, groups []*wireGroup, wired bool) {
 						groups = append(groups, g)
 					}
 					g.lits = append(g.lits, n)
-				case *syntax.WireEntry:
+				case *syntax.ContextEntry:
 					size++
-					if n.Kind != syntax.WireEmbed {
+					if n.Kind != syntax.ContextEmbed {
 						size += 1 + len(n.Keys)
 					}
 				case *syntax.NeedsClause:
@@ -152,7 +152,7 @@ func declKey(d syntax.Decl) string {
 			}
 		}
 		return "let " + strings.Join(names, ",")
-	case *syntax.WireDecl:
+	case *syntax.ContextDecl:
 		return "wire " + d.Name.Name
 	case *syntax.TypeDecl:
 		return "type " + d.Name.Name
@@ -237,8 +237,8 @@ func (c *checker) wireSummaries() {
 	}
 	c.wiresDone = true
 	c.wireComp = map[*Wire]*wireComp{}
-	c.wireBodies = map[*syntax.WireBody]*bodySum{}
-	c.wireEntries = map[*syntax.WireEntry]*WireEntry{}
+	c.wireBodies = map[*syntax.ContextBody]*bodySum{}
+	c.wireEntries = map[*syntax.ContextEntry]*WireEntry{}
 	size, groups, wired := c.wireSource()
 	if !wired {
 		return
@@ -361,7 +361,7 @@ func (p *wirePass) order(groups []*wireGroup) ([]*Wire, bool) {
 }
 
 // eachKey calls f on an entry's keys in order, without copying them.
-func eachKey(e *syntax.WireEntry, f func(k syntax.Expr) bool) bool {
+func eachKey(e *syntax.ContextEntry, f func(k syntax.Expr) bool) bool {
 	if !f(e.Key) {
 		return false
 	}
@@ -388,7 +388,7 @@ func (p *wirePass) own(wires []*Wire) {
 		set, known := &capSet{}, true
 		for _, e := range w.Decl.Body.Entries {
 			op(m, "entry read", singlePass, 1)
-			if e.Kind == syntax.WireEmbed {
+			if e.Kind == syntax.ContextEmbed {
 				inner := c.embeddedWire(e)
 				if inner == nil {
 					known = false
@@ -563,7 +563,7 @@ func (c *checker) embeddedBinds(inner, self *Wire) (binds *capSet, known, onCycl
 // the pass decided; an inline body is finished here, at its first check,
 // within its allowance. After a refusal a body binds an unknown set and
 // has no finding of its own (D3).
-func (c *checker) bodySummary(body *syntax.WireBody) *bodySum {
+func (c *checker) bodySummary(body *syntax.ContextBody) *bodySum {
 	c.wireSummaries()
 	s := c.wireBodies[body]
 	if s == nil {
@@ -591,14 +591,14 @@ func (c *checker) bodySummary(body *syntax.WireBody) *bodySum {
 // allowance of finishBody's repeatable work: per key, a lookup in the
 // union and one in the cycle's summary (at most their heights), and one
 // step per collision.
-func (c *checker) prepareBody(s *bodySum, body *syntax.WireBody, self *Wire, m *wireMeter) bool {
+func (c *checker) prepareBody(s *bodySum, body *syntax.ContextBody, self *Wire, m *wireMeter) bool {
 	s.known = true
 	var reaches []*capSet
 	var keys []syntax.Expr
 	names := 0
 	for _, e := range body.Entries {
 		op(m, "entry read", singlePass, 1)
-		if e.Kind != syntax.WireEmbed {
+		if e.Kind != syntax.ContextEmbed {
 			names += 1 + len(e.Keys)
 			continue
 		}
@@ -702,7 +702,7 @@ func (c *checker) prepareBody(s *bodySum, body *syntax.WireBody, self *Wire, m *
 // brings one entry twice). Sorting them is repeatable and charged; an
 // inline wire records none (its entries are stage E's, 196x), so its
 // allowance is unchanged.
-func (c *checker) finishBody(s *bodySum, body *syntax.WireBody, m *wireMeter) bool {
+func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *wireMeter) bool {
 	s.finishes++
 	op(m, "body setup", singlePass, 1)
 	own := map[capKey]*capNode{}
@@ -720,7 +720,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.WireBody, m *wireMeter) bo
 	defer func() { c.silent-- }()
 	for i, e := range body.Entries {
 		op(m, "entry read", singlePass, 1)
-		if e.Kind == syntax.WireEmbed {
+		if e.Kind == syntax.ContextEmbed {
 			continue
 		}
 		constructor := c.isConstructor(e.Value)
@@ -758,7 +758,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.WireBody, m *wireMeter) bo
 			}
 			ownAt[key] = place{i + 1, at}
 			switch {
-			case e.Kind == syntax.WireReplace:
+			case e.Kind == syntax.ContextReplace:
 				replaced[key] = true
 				if constructor {
 					break

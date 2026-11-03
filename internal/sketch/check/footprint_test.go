@@ -101,7 +101,7 @@ let started = pureCall()
 	lits := 0
 	for _, d := range file.Decls {
 		switch d := d.(type) {
-		case *syntax.WireDecl:
+		case *syntax.ContextDecl:
 			fp, ok := fps[d]
 			if !ok {
 				t.Errorf("wire %s has no footprint", d.Name.Name)

@@ -100,12 +100,12 @@ var frameDeclKinds = map[string]struct {
 	decl syntax.Decl
 	free bool
 }{
-	"ImportDecl": {&syntax.ImportDecl{}, true},
-	"VarDecl":    {&syntax.VarDecl{}, true},
-	"TypeDecl":   {&syntax.TypeDecl{}, true},
-	"WireDecl":   {&syntax.WireDecl{}, true},
-	"FuncDecl":   {&syntax.FuncDecl{}, false},
-	"TestDecl":   {&syntax.TestDecl{}, false},
+	"ImportDecl":  {&syntax.ImportDecl{}, true},
+	"VarDecl":     {&syntax.VarDecl{}, true},
+	"TypeDecl":    {&syntax.TypeDecl{}, true},
+	"ContextDecl": {&syntax.ContextDecl{}, true},
+	"FuncDecl":    {&syntax.FuncDecl{}, false},
+	"TestDecl":    {&syntax.TestDecl{}, false},
 }
 
 func TestFrameFreeCoversEveryDeclKind(t *testing.T) {

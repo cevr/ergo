@@ -39,7 +39,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		c.silent++
 		for _, a := range x.Args {
 			switch u := unparen(a).(type) {
-			case *syntax.WireLit:
+			case *syntax.ContextLit:
 				continue
 			case *syntax.Ident:
 				if c.withNamedWire(u.Name, c.operandScope(u.Name)) != nil {
@@ -188,7 +188,7 @@ func (c *checker) withNamedWire(name string, s operandScope) *Wire {
 // context binding (context.go).
 func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Wire, *ContextBinding) {
 	switch a := unparen(arg).(type) {
-	case *syntax.WireLit:
+	case *syntax.ContextLit:
 		binds, known, wire := c.wireLit(a)
 		return binds, known, wire, nil
 	case *syntax.Ident:
@@ -248,7 +248,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Wire, *ContextBindin
 // wireLit checks an inline wire's entries and returns what it binds; known
 // is false when it embeds an unknown wire (reported) or its summary was
 // refused (wiresum.go).
-func (c *checker) wireLit(w *syntax.WireLit) (binds *capSet, known bool, wire *Wire) {
+func (c *checker) wireLit(w *syntax.ContextLit) (binds *capSet, known bool, wire *Wire) {
 	// The header of an inline wire is refused as a named wire's is
 	// (checkWires): never read partly (rows.md, Wire 8).
 	if w.Provides != nil {
@@ -269,7 +269,7 @@ func (c *checker) wireLit(w *syntax.WireLit) (binds *capSet, known bool, wire *W
 // every pass; the embedded names, the keys and the providers are checked
 // here, on every pass. For a named wire (named is not nil) it makes the
 // wire's Entries (an inline wire's entries are stage E's, 196x).
-func (c *checker) wireBody(body *syntax.WireBody, named *Wire) (*capSet, bool) {
+func (c *checker) wireBody(body *syntax.ContextBody, named *Wire) (*capSet, bool) {
 	sum := c.bodySummary(body)
 	if named != nil && c.silent == 0 {
 		named.Entries = nil
@@ -283,7 +283,7 @@ func (c *checker) wireBody(body *syntax.WireBody, named *Wire) (*capSet, bool) {
 	}
 	deps := &wireDeps{tab: c.types, needs: map[int32]*Row{}, at: map[int32]syntax.Expr{}}
 	for _, e := range body.Entries {
-		if e.Kind == syntax.WireEmbed {
+		if e.Kind == syntax.ContextEmbed {
 			inner := c.embeddedWire(e)
 			if inner == nil {
 				c.errorf(e.Key, CodeUnknown, "unknown wire %s", exprText(e.Key))
@@ -320,7 +320,7 @@ func (c *checker) wireBody(body *syntax.WireBody, named *Wire) (*capSet, bool) {
 }
 
 // embeddedWire is the named wire an embedding entry names, or nil.
-func (c *checker) embeddedWire(e *syntax.WireEntry) *Wire {
+func (c *checker) embeddedWire(e *syntax.ContextEntry) *Wire {
 	if id, ok := e.Key.(*syntax.Ident); ok {
 		return c.pkg.Wires[id.Name]
 	}
@@ -415,7 +415,7 @@ func (c *checker) checkEntryCycles(name string, d *wireDeps) {
 // and replace rules are the body summary's (wiresum.go). It returns the
 // capabilities the entry names and its Info record: made, the one the wire
 // pass made for a named wire's entry, filled in here, or a new one.
-func (c *checker) wireEntry(e *syntax.WireEntry, made *WireEntry) ([]Type, *WireEntry) {
+func (c *checker) wireEntry(e *syntax.ContextEntry, made *WireEntry) ([]Type, *WireEntry) {
 	var caps []Type
 	for _, k := range append([]syntax.Expr{e.Key}, e.Keys...) {
 		if t := c.wireKey(k); t != nil {

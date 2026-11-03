@@ -249,7 +249,7 @@ func (c *checker) collect() {
 				}
 			case *syntax.TestDecl:
 				c.notYet(d)
-			case *syntax.WireDecl:
+			case *syntax.ContextDecl:
 				c.preludeName(d.Name) // D-D3; the wire still binds
 				w := &Wire{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}
 				if _, dup := c.pkg.Wires[w.Name]; dup {
@@ -1010,7 +1010,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		return invalid
 	case *syntax.BasicLit, *syntax.CompositeLit, *syntax.KeyValueExpr, *syntax.FuncLit, *syntax.SliceExpr,
 		*syntax.TypeGuard, *syntax.CallExpr, *syntax.UnaryExpr, *syntax.BinaryExpr, *syntax.TryExpr,
-		*syntax.CatchExpr, *syntax.WireLit, *syntax.MachineType, *syntax.InterpolatedString,
+		*syntax.CatchExpr, *syntax.ContextLit, *syntax.MachineType, *syntax.InterpolatedString,
 		*syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		c.errorf(x, CodeType, "expected a type")
 		return invalid

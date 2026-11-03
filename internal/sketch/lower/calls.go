@@ -504,7 +504,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	// The checker records an imported wire's entries (wire ownership), but
 	// this lowering builds only wires declared in the file it lowers.
 	if len(w.Wires) == 0 || (w.Wires[0].Lit == nil && fc.l.isImported(w.Wires[0])) {
-		if _, inline := unparen(x.Args[0]).(*syntax.WireLit); inline {
+		if _, inline := unparen(x.Args[0]).(*syntax.ContextLit); inline {
 			refuse(x.Args[0], "an inline wire value is lowered after check-v1 stage E (196x)")
 		}
 		refuse(x.Args[0], "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")

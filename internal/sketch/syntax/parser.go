@@ -820,7 +820,7 @@ func (p *parser) parseTestDecl(doc *CommentGroup) *TestDecl {
 }
 
 // parseLetDecl parses `let [mut] Pattern {, Pattern} [Type] [= e]`. At
-// package level, `let Name = wire …` is a named wire (WireDecl).
+// package level, `let Name = context …` is a named context (ContextDecl).
 func (p *parser) parseLetDecl(doc *CommentGroup, top bool) Decl {
 	d := &VarDecl{Doc: doc, Var: p.want(LET), Mut: NoPos, Lparen: NoPos, Rparen: NoPos}
 	if p.tok.tok == MUT {
@@ -857,9 +857,9 @@ func (p *parser) parseLetDecl(doc *CommentGroup, top bool) Decl {
 	if p.tok.tok == ASSIGN {
 		s.Assign = p.tok.pos
 		p.next()
-		if top && d.Mut == NoPos && len(s.Names) == 1 && s.Type == nil && p.tok.tok == WIRE {
-			w := p.parseWireLit()
-			return &WireDecl{Doc: doc, Let: d.Var, Wire: w.Wire, Name: s.Names[0], Provides: w.Provides, Needs: w.Needs, Body: w.Body}
+		if top && d.Mut == NoPos && len(s.Names) == 1 && s.Type == nil && p.tok.tok == CONTEXT {
+			w := p.parseContextLit()
+			return &ContextDecl{Doc: doc, Let: d.Var, Context: w.Context, Name: s.Names[0], Provides: w.Provides, Needs: w.Needs, Body: w.Body}
 		}
 		s.Values = []Expr{p.parseExpr()}
 	}
@@ -953,7 +953,7 @@ func (p *parser) startsType() bool {
 	return false
 }
 
-// parseProvides parses a wire's `provides A, B`.
+// parseProvides parses a context's `provides A, B`.
 func (p *parser) parseProvides() *ProvidesClause {
 	u := &ProvidesClause{Provides: p.want(PROVIDES)}
 	u.Names = append(u.Names, p.parseCapabilityName("provides"))
@@ -1231,11 +1231,11 @@ func (p *parser) parseTypeName(what string) Expr {
 	return mapType(x)
 }
 
-// parseCapabilityName parses the TypeName of a needs, provides or wire
+// parseCapabilityName parses the TypeName of a needs, provides or context
 // key position: `name`, `pkg.name` or `go.name`, with no type arguments
 // (the decided `TypeName = identifier [ "." identifier ]`). Brackets after
 // it are S001 at the `[`, so a comma run of names ended by `:` is always
-// one wire entry's key list (Parser rule 9).
+// one context entry's key list (Parser rule 9).
 func (p *parser) parseCapabilityName(what string) Expr {
 	p.enter()
 	defer p.leave()
@@ -1267,11 +1267,11 @@ func (p *parser) parseTypeArgs(x Expr) Expr {
 	return ix
 }
 
-// ---------------------------------------------------------------- wires
+// ---------------------------------------------------------------- contexts
 
-// parseWireLit parses `wire [provides …] [needs …] { entries }`.
-func (p *parser) parseWireLit() *WireLit {
-	w := &WireLit{Wire: p.want(WIRE)}
+// parseContextLit parses `context [provides …] [needs …] { entries }`.
+func (p *parser) parseContextLit() *ContextLit {
+	w := &ContextLit{Context: p.want(CONTEXT)}
 	if p.tok.tok == PROVIDES {
 		w.Provides = p.parseProvides()
 	}
@@ -1281,22 +1281,22 @@ func (p *parser) parseWireLit() *WireLit {
 	if p.tok.tok != LBRACE {
 		p.errorf("expected \"{\" after wire, found %s", p.found())
 	}
-	w.Body = p.parseWireBody()
+	w.Body = p.parseContextBody()
 	return w
 }
 
-// parseWireBody parses `{ entry, … }`. An entry binds capabilities to a
+// parseContextBody parses `{ entry, … }`. An entry binds capabilities to a
 // value (`A: x`, `A, B: x`), replaces an embedded binding (`replace A: x`)
-// or embeds a wire (`W`). A comma run of names ended by `:` is one entry's
+// or embeds a context (`W`). A comma run of names ended by `:` is one entry's
 // key list, whatever the layout (grammar.md, Parser rule 9).
-func (p *parser) parseWireBody() *WireBody {
-	b := &WireBody{Lbrace: p.want(LBRACE)}
+func (p *parser) parseContextBody() *ContextBody {
+	b := &ContextBody{Lbrace: p.want(LBRACE)}
 	saved := p.exprLev
 	p.exprLev = 0
 	for p.tok.tok != RBRACE {
-		e := &WireEntry{Doc: p.leadComment(), Replace: NoPos, Assign: NoPos}
+		e := &ContextEntry{Doc: p.leadComment(), Replace: NoPos, Assign: NoPos}
 		if p.tok.tok == IDENT && p.tok.lit == "replace" && (p.peek(1).tok == IDENT || p.peek(1).tok == GO) {
-			e.Kind, e.Replace = WireReplace, p.tok.pos
+			e.Kind, e.Replace = ContextReplace, p.tok.pos
 			p.next()
 		}
 		e.Key = p.parseCapabilityName("a wire entry")
@@ -1312,10 +1312,10 @@ func (p *parser) parseWireBody() *WireBody {
 			e.Assign = p.tok.pos
 			p.next()
 			e.Value = p.parseExpr()
-		} else if e.Kind == WireReplace {
+		} else if e.Kind == ContextReplace {
 			p.errorf("expected \":\", found %s", p.found())
 		} else {
-			e.Kind = WireEmbed
+			e.Kind = ContextEmbed
 		}
 		b.Entries = append(b.Entries, e)
 		if !p.got(COMMA) {
