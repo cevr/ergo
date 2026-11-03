@@ -1,7 +1,7 @@
 type Bang {}
 type Box[T] { M(T) }
-extern go fixture.BoxOf func BoxOf[T](x T) Box[T]
-extern go fixture.Choose func Choose[T](x T,y T) fails Bang
+func BoxOf[T](x T) Box[T] { BoxOf(x) }
+func Choose[T](x T,y T) fails Bang { return Bang }
 func a() fails Bang {_ = b;return Choose(BoxOf(a),BoxOf(d))}
 func b() fails Bang {return Choose(BoxOf(c),BoxOf(a))}
 func c() fails Bang {return Choose(BoxOf(a),BoxOf(d))}

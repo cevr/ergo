@@ -1,5 +1,5 @@
 type Bang {}
-extern go fixture.mark func mark() fails Bang
+func mark() fails Bang { return Bang }
 type Runner { Run func(func() fails Bang) fails Bang }
 func a(r Runner) {
  try r.Run(func() { try a(r) })

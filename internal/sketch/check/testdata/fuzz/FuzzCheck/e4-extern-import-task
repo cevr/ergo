@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import task\n\nfunc main() needs Console {\n\tlet t = task.Go() { 1 }\n\tConsole.Println(\"\\(t.Wait())\")\n}\n")

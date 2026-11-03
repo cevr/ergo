@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import queue\n\ntype Mine {}\n\nfunc Push(_ Mine, v int) fails queue.Closed {}\n\nfunc Pop(_ Mine) int fails queue.Closed {\n\t0\n}\n\nfunc Close(_ Mine) {}\n\nfunc Values(_ Mine) Seq[int] {\n\tqueue.New[int](0).Values()\n}\n\nfunc use(q queue.Queue[int]) { q.Close() }\n\nfunc main() {\n\tuse(Mine)\n}\n")

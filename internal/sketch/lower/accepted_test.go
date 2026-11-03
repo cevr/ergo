@@ -47,18 +47,18 @@ var refusedFamilies = map[string]string{
 	"MachineEntry": "lower-v1 stage 4", // entries are refused with their enclosing MachineType
 	"MachineType":  "lower-v1 stage 4",
 	// Narrower families: a form of an implemented node that waits.
-	"ExternSpec:user":             "check-v1 stage E",
 	"call:Func:externTarget":      "lower-v1",
 	"NoValue:generic":             "check-v1 stage E",
 	"InterpolatedString:nonbasic": "check-v1 stage E",
 	"call:With:imported":          "check-v1 stage B",
 	"call:With:context":           "check-v1 stage E",
-	"FuncValue:std":               "check-v1 stage E",
 	"TypeDecl:errorText":          "lower-v1 stage 3",
-	// Stage 3b of #199: the release forms an owning with cannot call by a
-	// Go name. An owning with outside a function body is the checker's
-	// S108 since check-v1 stage E2 (C18, check/frames.go).
-	"call:With:release": "check-v1 stage E",
+	// Stage E4 of check-v1 removed three families: a std function used as a
+	// value, an owning with's release that no Go name calls, and a user
+	// extern. An extern is call-only (C25, P3), the checker refuses those
+	// releases (C29), and a user extern in its checked domain lowers as a
+	// direct Go call (C26). The lowering's remaining checks of those forms
+	// are internal errors (stage_e4_test.go).
 }
 
 // refusalReasons classifies a refusal by its message into the refused
@@ -72,14 +72,11 @@ var refusalReasons = []struct {
 }{
 	{"InterpolatedString:nonbasic", regexp.MustCompile(`^an interpolated value of type .+ is lowered after check-v1 stage E`)},
 	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
-	{"ExternSpec:user", regexp.MustCompile(`^a user extern go binding \(here of \S+\) is lowered after check-v1 stage E`)},
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
 	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered after check-v1 stage B`)},
-	{"call:With:context", regexp.MustCompile(`^a context value whose \S+ is (generic|an extern function) is lowered after check-v1 stage E$`)},
-	{"FuncValue:std", regexp.MustCompile(`^the std function \S+ used as a value (takes its call's hidden \S+|takes a function|returns a Seq), which is lowered after check-v1 stage E$`)},
+	{"call:With:context", regexp.MustCompile(`^a context value whose \S+ is generic is lowered after check-v1 stage E$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
-	{"call:With:release", regexp.MustCompile(`^a provider whose Close (is an operation of its type|is generic|is a std or extern function|takes a pointer to its value) is released after check-v1 stage E$`)},
 }
 
 // refusalFamily is the refused family a refusal message stands at, or "".

@@ -283,7 +283,8 @@ func main() needs Console {
 //
 //   - M4: an extern intrinsic is bound to the prelude declaration it
 //     implements; a user extern with the same target, whatever its
-//     signature, is refused at its declaration (p06, p11).
+//     signature, is refused at its declaration (p06, p11); since check-v1
+//     stage E4 (C26) the checker refuses it, S108, before lowering.
 //   - M5: float patterns and repeated value, type or catch arms are the
 //     checker's S108, so Go never sees a duplicate case (p19, p20).
 //   - m1: an error type with a field whose type is a type parameter is
@@ -308,7 +309,7 @@ func main() needs Console {
 	Console.Println("ok")
 }
 `,
-		code: "S109", line: 1, column: 1, message: "a user extern go binding (here of ergo.local/prototype/runtime/rt.Sleep) is lowered after check-v1 stage E (196x); this lowering implements an extern target only for the prelude declaration it binds",
+		code: "S108", line: 1, column: 1, message: "only std binds the Ergo runtime; its functions take hidden arguments that std's bindings supply (here ergo.local/prototype/runtime/rt.Sleep)",
 	}, {
 		name: "extern-swapped",
 		src: `extern go ergo.local/prototype/runtime/rt.Sleep func nap(d duration, s LiveScheduler)
@@ -319,7 +320,7 @@ func main() needs Console {
 	Console.Println("ok")
 }
 `,
-		code: "S109", line: 1, column: 1, message: "a user extern go binding (here of ergo.local/prototype/runtime/rt.Sleep) is lowered after check-v1 stage E (196x); this lowering implements an extern target only for the prelude declaration it binds",
+		code: "S108", line: 1, column: 1, message: "only std binds the Ergo runtime; its functions take hidden arguments that std's bindings supply (here ergo.local/prototype/runtime/rt.Sleep)",
 	}, {
 		name: "extern-same-signature",
 		src: `extern go ergo.local/prototype/runtime/rt.Sleep func nap(s LiveScheduler, d duration)
@@ -330,7 +331,7 @@ func main() needs Console {
 	Console.Println("ok")
 }
 `,
-		code: "S109", line: 1, column: 1, message: "a user extern go binding (here of ergo.local/prototype/runtime/rt.Sleep) is lowered after check-v1 stage E (196x); this lowering implements an extern target only for the prelude declaration it binds",
+		code: "S108", line: 1, column: 1, message: "only std binds the Ergo runtime; its functions take hidden arguments that std's bindings supply (here ergo.local/prototype/runtime/rt.Sleep)",
 	}, {
 		name: "float-cases",
 		src: `func kind(x float32) string {

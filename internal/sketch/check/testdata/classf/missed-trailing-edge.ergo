@@ -1,6 +1,6 @@
 type Cap { M() }
 type Box[T] { M(T) }
-extern go fixture.BoxOf func BoxOf[T](x T) Box[T]
+func BoxOf[T](x T) Box[T] { BoxOf(x) }
 func Choose[T](x T, y T, callback func()) {}
 func c() { d(); Cap.M() }
 func a() { Choose(BoxOf(c), BoxOf(d)) { b() }; Cap.M() } // want S108

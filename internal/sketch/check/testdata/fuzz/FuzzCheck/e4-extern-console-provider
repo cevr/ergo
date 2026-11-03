@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Quiet {}\n\nfunc Println(_ Quiet, line string) {}\n\nlet W = context { Console: Quiet }\n\nfunc main() {\n\twith W { Console.Println(\"x\") }\n}\n")

@@ -57,6 +57,9 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// parameters included, are rejected before any row is inferred
 		// (round-4 M1).
 		c.checkInstantiationCycles,
+		// A user extern's written signature is final here: an extern's
+		// rows are never inferred (D-E5).
+		c.checkExterns,
 		c.collectBodyErrorRows,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict
@@ -422,7 +425,13 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		c.undecided(spec.Path, "this import form")
 		return
 	}
-	pkg, err := c.imp.Import(path)
+	imp := c.imp
+	if _, isStd := std.Package(path); isStd {
+		// A std path always names std, whatever importer Check was given:
+		// a program package cannot shadow log or queue (C30).
+		imp = Std
+	}
+	pkg, err := imp.Import(path)
 	if err != nil || pkg == nil {
 		c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
 		c.bindBrokenImport(fi, spec, path)

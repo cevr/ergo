@@ -1,6 +1,6 @@
 type Bang {}
 type Runner {}
-extern go fixture.mark func mark() fails Bang
+func mark() fails Bang { return Bang }
 func Each(_ Runner, f func() fails Bang) fails Bang { return f() }
 func a() fails Bang { try mark(); return Runner.Each(func() { return a() }) }
 func F() fails Bang { return a() }

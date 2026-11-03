@@ -48,7 +48,7 @@ func oscillate(t *testing.T, srcs ...string) (*checker, []Diagnostic) {
 // round 3; the per-pass clearing in run found it).
 func TestConvergeRefusalNamesItsFile(t *testing.T) {
 	srcs := []string{
-		decided("type Bang {}\nextern go fixture.mark func mark() fails Bang\nfunc f0() { try f1() }\n"),
+		decided("type Bang {}\nfunc mark() fails Bang { return Bang }\nfunc f0() { try f1() }\n"),
 		decided("func f1() { try f0() }\n"),
 	}
 	_, diags := oscillate(t, srcs...)
@@ -70,10 +70,10 @@ func TestConvergeRefusalNamesItsFile(t *testing.T) {
 }
 
 // oscillatingRing is a ring of n functions with inferred rows, each calling
-// the next, and a Bang error type. mark is a Go binding (extern go).
+// the next, and a Bang error type. mark is an ordinary function that fails.
 func oscillatingRing(n int) string {
 	var b strings.Builder
-	b.WriteString("type Bang {}\nextern go fixture.mark func mark() fails Bang\n")
+	b.WriteString("type Bang {}\nfunc mark() fails Bang { return Bang }\n")
 	for i := range n {
 		fmt.Fprintf(&b, "func f%d() { try f%d() }\n", i, (i+1)%n)
 	}
@@ -86,7 +86,7 @@ func oscillatingRing(n int) string {
 func distinctRing(n int) string {
 	var b strings.Builder
 	for i := range n {
-		fmt.Fprintf(&b, "type E%d {}\nextern go fixture.mark%d func mark%d() fails E%d\n", i, i, i, i)
+		fmt.Fprintf(&b, "type E%d {}\nfunc mark%d() fails E%d { return E%d }\n", i, i, i, i)
 	}
 	for i := range n {
 		fmt.Fprintf(&b, "func f%d() { try mark%d(); try f%d() }\n", i, i, (i+1)%n)

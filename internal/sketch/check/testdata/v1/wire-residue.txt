@@ -22,8 +22,8 @@ CHANGELOG.md	`http-transport.ef` and compares the wire transcript.
 GLOSSARY.md	(designed): The pair a type's wire form is found by: `ParseX` decodes
 GLOSSARY.md	found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's
 GLOSSARY.md	is a checked witness relating a wire type and a domain type through
-NORTH_STAR.md	transformations between distinct wire and domain types, including explicit
-NORTH_STAR.md	payload. Native runtime internals and wire protocols may contain null representations
+docs/decisions.md	transformations between distinct wire and domain types, including explicit
+docs/decisions.md	payload. Native runtime internals and wire protocols may contain null representations
 PRIOR_ART.md	with required bounds and explicit wire types instead of a field-attribute
 PRIOR_ART.md	| Explicit wire decoding | Static types do not
 PRIOR_ART.md	multiple representations, versioned wire policies and transformation-specific

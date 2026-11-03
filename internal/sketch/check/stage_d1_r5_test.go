@@ -31,7 +31,7 @@ func wantMessages(t *testing.T, name, src string, msgs ...string) {
 // capDecls declares walk, a class G member refused for its capability row
 // only (line 5): its error row {Bang} is written, so it is evidence, and a
 // caller's catch and try are checked against it.
-const capDecls = "type Cap { M() }\ntype Bang {}\ntype Other {}\nextern go fixture.mark func mark() fails Bang\n" +
+const capDecls = "type Cap { M() }\ntype Bang {}\ntype Other {}\nfunc mark() fails Bang { return Bang }\n" +
 	"func walk() int fails Bang { let m = Map[int, func() int fails Bang]{1: walk}; _ = m; Cap.M(); try mark(); 1 }\n"
 
 // M1: only an unknown row holds invalid. A member refused for its
@@ -56,7 +56,7 @@ func TestOnlyTheRefusedRowIsUnknown(t *testing.T) {
 		{"needs-written-control", written + writtenCallers, []string{"S108:6", "S101:7", "S108:8"}},
 		// An error-row refusal keeps the written capability row: G's
 		// pinned empty row does not hold Cap.
-		{"errors-only-written-capability-row", "type Cap { M() }\ntype Bang {}\nextern go fixture.mark func mark() fails Bang\n" +
+		{"errors-only-written-capability-row", "type Cap { M() }\ntype Bang {}\nfunc mark() fails Bang { return Bang }\n" +
 			"func w() needs Cap { let m = Map[int, func() needs Cap]{1: w}; _ = m; Cap.M(); try mark() }\n" +
 			"func G() { w() }\n", []string{"S108:4", "S102:5"}},
 	}
@@ -73,11 +73,11 @@ func TestOnlyTheRefusedRowIsUnknown(t *testing.T) {
 // capability row (line 6; its error row {Q} is written). q and qc are
 // definite: q fails Q, qc fails Q and needs Cap2. pick is a generic
 // identity of its first argument. Line 11 is the first program line.
-const targetDecls = "type Bang {}\nextern go fixture.mark func mark() fails Bang\n" +
+const targetDecls = "type Bang {}\nfunc mark() fails Bang { return Bang }\n" +
 	"func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }\n" +
 	"type Q {}\ntype Cap2 { N() }\n" +
 	"func w(n int) int fails Q { let m = Map[int, func(int) int fails Q]{1: w}; _ = m; Cap2.N(); n }\n" +
-	"extern go fixture.mq func mq() fails Q\n" +
+	"func mq() fails Q { return Q }\n" +
 	"func q(n int) int fails Q { try mq(); n }\n" +
 	"func qc(n int) int fails Q needs Cap2 { Cap2.N(); try mq(); n }\n" +
 	"func pick[T](x T, y T) T { x }\n"
@@ -172,11 +172,11 @@ func TestUnknownRowOnTheReceivingSide(t *testing.T) {
 // they fit a trailing block. run's block has the type of its first
 // argument; mk returns a function that returns its argument. Line 10 is the
 // first program line.
-const blockDecls = "type Bang {}\nextern go fixture.mark func mark() fails Bang\n" +
+const blockDecls = "type Bang {}\nfunc mark() fails Bang { return Bang }\n" +
 	"func z() int { let m = Map[int, func() int]{1: z}; _ = m; try mark(); 1 }\n" +
 	"type Q {}\ntype Cap2 { N() }\n" +
 	"func zw() int fails Q { let m = Map[int, func() int fails Q]{1: zw}; _ = m; Cap2.N(); 1 }\n" +
-	"extern go fixture.mq func mq() fails Q\n" +
+	"func mq() fails Q { return Q }\n" +
 	"func run[T](x T, f T) T { x }\n" +
 	"func mk[T](f T) func() T { func() T { f } }\n"
 

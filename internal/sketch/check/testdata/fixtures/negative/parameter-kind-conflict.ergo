@@ -1,4 +1,4 @@
 
-extern go fixture.pass func pass[E](e E) fails E // want S108
+func pass[E](e E) fails E { return e } // want S108
 
 func main() {}

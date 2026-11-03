@@ -1,5 +1,5 @@
 type Bang {}
-extern go fixture.fail func fail() fails Bang
+func fail() fails Bang {return Bang}
 func pass[E](f func() fails E) {return f()}
 let saved = pass[Bang]
 func F() fails Bang {return saved(fail)}

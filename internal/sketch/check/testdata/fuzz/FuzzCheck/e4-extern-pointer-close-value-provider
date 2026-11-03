@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type A { Use() }\ntype P {}\nfunc Use(_ P) {}\nfunc Close(_ *P) {}\nlet W = context { A: P } // want S109\nfunc main() { with W { A.Use() } }\n")
