@@ -16,9 +16,11 @@
 //   - `#define NAME expr`, where expr is a decimal or hex integer literal
 //     without a suffix, `INTn_C(lit)` or `UINTn_C(lit)`, unary minus,
 //     parentheses, the name of an earlier constant, or `*`, `+`, `-`, `<<`
-//     and `|` of those. The value and its C type are computed exactly as
-//     C11 does on an LP64 target; undefined behavior (signed overflow, a
-//     bad shift) is a diagnostic;
+//     and `|` of those. The name of an earlier constant stands for the
+//     tokens of its body, as in the C preprocessor (`#define A 1 + 2` and
+//     `#define B A * 3` give B = 7). The value and its C type are computed
+//     exactly as C11 does on an LP64 target; undefined behavior (signed
+//     overflow, a bad shift) is a diagnostic;
 //   - `typedef T name;` for a fixed-width integer, bool, float or double;
 //   - `typedef struct tag name;` (opaque) and `typedef struct [tag] { fields }
 //     name;` with fields of those types, a pointer to any type (`const`

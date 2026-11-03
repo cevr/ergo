@@ -27,6 +27,8 @@ type gen struct {
 	field []int
 	param []int
 
+	// guard, when set, is the name of the include guard every header has.
+	guard     string
 	stdbool   bool
 	constants []genConst
 	// sized are the type names that have a size (scalar typedefs, structs,
@@ -35,8 +37,9 @@ type gen struct {
 }
 
 type genConst struct {
-	name string
-	v    cval
+	name      string
+	v         cval
+	expansion []token
 }
 
 func newGen(seed uint64) *gen {
@@ -99,7 +102,10 @@ func (g *gen) scalar() string {
 
 // Header generates one header with n declarations.
 func (g *gen) header(n int) genHeader {
-	guard := g.r.IntN(3) != 0
+	guard, guardName := g.r.IntN(3) != 0, "GEN_H"
+	if g.guard != "" {
+		guard, guardName = true, g.guard
+	}
 	cpp := g.r.IntN(2) == 0
 	g.stdbool = g.r.IntN(2) == 0
 	incs := []string{"stdint.h"}
@@ -114,7 +120,7 @@ func (g *gen) header(n int) genHeader {
 		g.b.WriteString("/* generated header */\n")
 	}
 	if guard {
-		fmt.Fprintf(&g.b, "#ifndef GEN_H\n#define GEN_H\n\n")
+		fmt.Fprintf(&g.b, "#ifndef %s\n#define %s\n\n", guardName, guardName)
 	}
 	for _, inc := range incs {
 		fmt.Fprintf(&g.b, "#include <%s>\n", inc)
@@ -151,7 +157,7 @@ func (g *gen) header(n int) genHeader {
 		g.b.WriteString("\n#ifdef __cplusplus\n}\n#endif\n")
 	}
 	if guard {
-		g.b.WriteString("\n#endif /* GEN_H */\n")
+		g.b.WriteString("\n#endif /* " + guardName + " */\n")
 	}
 	return genHeader{src: g.b.String(), top: g.top, field: g.field, param: g.param}
 }
@@ -163,6 +169,7 @@ func (g *gen) constant() {
 	name := strings.ToUpper(g.name("G_C"))
 	var text string
 	var v cval
+	var expansion []token
 	for try := 0; ; try++ {
 		body := g.expr(3)
 		if try > 4 {
@@ -174,23 +181,23 @@ func (g *gen) constant() {
 		if len(d.list) > 0 {
 			panic("gen: " + d.sorted().Error())
 		}
-		_, val, err := parseConstExpr(toks[:len(toks)-1], Pos{}, g.lookup, func(Pos) bool { return true })
+		_, x, val, err := parseConstExpr(toks[:len(toks)-1], Pos{}, g.lookup, func(Pos) bool { return true })
 		if err == nil {
-			v = val
+			v, expansion = val, x
 			break
 		}
 	}
 	g.b.WriteString("#" + g.pick([]string{"", " "}) + "define " + name + " " + text + "\n")
-	g.constants = append(g.constants, genConst{name, v})
+	g.constants = append(g.constants, genConst{name, v, expansion})
 }
 
-func (g *gen) lookup(name string) (cval, bool) {
+func (g *gen) lookup(name string) ([]token, bool) {
 	for _, c := range g.constants {
 		if c.name == name {
-			return c.v, true
+			return c.expansion, true
 		}
 	}
-	return cval{}, false
+	return nil, false
 }
 
 var genIntC = []struct {
@@ -240,6 +247,11 @@ func (g *gen) expr(depth int) []string {
 	default:
 		x, y := g.expr(depth-1), g.expr(depth-1)
 		op := g.pick([]string{"*", "+", "-", "<<", "|"})
+		if g.r.IntN(2) == 0 {
+			// no parentheses: C's precedence groups the operands, also
+			// across the expansion of an earlier constant
+			return append(append(x, op), y...)
+		}
 		return append(append(append([]string{"("}, x...), op), append(y, ")")...)
 	}
 }

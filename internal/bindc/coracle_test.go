@@ -61,7 +61,9 @@ func oracleSource(m *Model, header string, mutate func(*Model)) string {
 	fmt.Fprintf(&b, "#include %q\n#include <stddef.h>\n\n", header)
 	b.WriteString("#define CLASS(x) _Generic((x), int: 1, unsigned int: 2, long: 3, long long: 3, unsigned long: 4, unsigned long long: 4, default: 0)\n\n")
 	for _, c := range m.Constants {
-		fmt.Fprintf(&b, "_Static_assert(%s == %s, \"value of %s\");\n", c.Name, cLiteral(c), c.Name)
+		// The parentheses keep a body such as `2 | 1` from binding to the
+		// `==` (the model's value is the value of the whole body).
+		fmt.Fprintf(&b, "_Static_assert((%s) == %s, \"value of %s\");\n", c.Name, cLiteral(c), c.Name)
 		fmt.Fprintf(&b, "_Static_assert(CLASS(%s) == %d, \"type of %s\");\n", c.Name, cTypeClass[c.Type], c.Name)
 	}
 	for _, d := range m.Types {

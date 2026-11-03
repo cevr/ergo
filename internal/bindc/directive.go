@@ -15,7 +15,10 @@ import (
 type macroDef struct {
 	pos   Pos
 	value cval
-	index int // in pre.constants; -1 for the include guard
+	// expansion is the replacement tokens of the body, with the names of
+	// earlier constants already replaced.
+	expansion []token
+	index     int // in pre.constants; -1 for the include guard
 }
 
 type pre struct {
@@ -254,19 +257,19 @@ func (p *pre) define(hash token, dir []token, end Pos) {
 		p.d.add(nameTok.pos, CodeMacroBody, "macro %s has no body", name)
 		return
 	}
-	lookup := func(n string) (cval, bool) {
+	macro := func(n string) ([]token, bool) {
 		m, ok := p.macros[n]
 		if !ok || m.index < 0 {
-			return cval{}, false
+			return nil, false
 		}
-		return m.value, true
+		return m.expansion, true
 	}
 	stdint := func(pos Pos) bool { return p.included("stdint.h", pos) }
-	e, v, err := parseConstExpr(body, end, lookup, stdint)
+	e, expansion, v, err := parseConstExpr(body, end, macro, stdint)
 	if err != nil {
 		p.d.add(err.pos, err.code, "%s", err.msg)
 		return
 	}
-	p.macros[name] = macroDef{pos: nameTok.pos, value: v, index: len(p.constants)}
+	p.macros[name] = macroDef{pos: nameTok.pos, value: v, expansion: expansion, index: len(p.constants)}
 	p.constants = append(p.constants, Constant{Name: name, Type: v.typ, Bits: bitsOf(v), Expr: e.render()})
 }
