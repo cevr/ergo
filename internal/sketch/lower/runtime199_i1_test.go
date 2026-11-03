@@ -178,6 +178,7 @@ type i1Case struct {
 	entries     map[string]bool // named Go frames whose entry rule is known from the source
 	markerEntry *bool           // entry rule for the source frame declaring entryMarker
 	markerScope bool            // that frame owns a scope, which it opens first
+	markers     int             // source frames declaring entryMarker, when markerEntry is set
 	testBuild   bool            // lowered as the test build (LowerTests), whose frame it is
 }
 
@@ -430,35 +431,43 @@ func i1BlockCases() []i1Case {
 	return out
 }
 
-// i1EntryCases separates entry placement from loop/capability polls. The
-// marker is the first source statement, so a later capability checkpoint
-// cannot stand in for an entry poll. A frame that starts a task owns a
-// scope: its entry poll follows the scope's opening and precedes the
-// source body.
+// i1EntryEffects are the entry axis's footprints: what follows the marker
+// in the frame's body, and whether the frame then polls at entry. Starting
+// a task and stopping it calls the Task's operations, which are opaque, and
+// makes the frame own a scope.
+var i1EntryEffects = []struct {
+	name, body   string
+	entry, scope bool
+}{
+	{name: "pure"},
+	{name: "capability", body: "with Local { Probe.Tick() }\n"},
+	{name: "opaque", body: "let xs = []int{}\nlet _ = xs.Append(1)\n", entry: true},
+	{name: "scope", body: "let t0 = task.Go() { 1 }\nt0.Stop()\n", entry: true, scope: true},
+}
+
+// i1EntryCases separates entry placement from loop/capability polls, over
+// every frame class of the shared catalog (i1FrameKinds) × every entry
+// effect, so a new frame class, a test body included, gets an entry
+// obligation with no list to extend. The marker is the first source
+// statement, so a later capability checkpoint cannot stand in for an entry
+// poll. A frame that starts a task owns a scope: its entry poll follows the
+// scope's opening and precedes the source body. A class whose program
+// writes its body more than once (an initializer) marks that many frames.
 func i1EntryCases() []i1Case {
 	var out []i1Case
-	for _, effect := range []string{"pure", "capability", "opaque", "scope"} {
-		body := "let entryMarker = 0\nlet _ = entryMarker\n"
-		switch effect {
-		case "capability":
-			body += "with Local { Probe.Tick() }\n"
-		case "opaque":
-			body += "let xs = []int{}\nlet _ = xs.Append(1)\n"
-		case "scope":
-			body += "let t0 = task.Go() { 1 }\nt0.Stop()\n"
-		}
-		frames := map[string]string{
-			"decl":     "func subject() {\n" + body + "}\n",
-			"literal":  "func subject() {\nlet local = func() {\n" + body + "}\nlocal()\n}\n",
-			"task":     "func subject() {\nlet t = task.Go() {\n" + body + "1\n}\nlet _ = t.Wait()\n}\n",
-			"provider": "type Worker { Run(), }\ntype Impl {}\nfunc Run(_ Impl) {\n" + body + "}\nlet Work = context { Worker: Impl }\nfunc subject() { with Work { Worker.Run() } }\n",
-			"trailing": "func run(cb func()) { cb() }\nfunc subject() { run() {\n" + body + "} }\n",
-		}
-		for class, src := range frames {
-			// Starting a task and stopping it calls the Task's operations,
-			// which are opaque.
-			want := effect == "opaque" || effect == "scope"
-			out = append(out, i1Case{name: "entry-" + class + "/" + effect, src: i1Defs + src + "func main() {}\n", markerEntry: &want, markerScope: effect == "scope"})
+	for _, effect := range i1EntryEffects {
+		body := "let entryMarker = 0\nlet _ = entryMarker\n" + effect.body + "1\n"
+		for _, frame := range i1FrameKinds {
+			src := frame.program("", "", "", body)
+			want := effect.entry
+			out = append(out, i1Case{
+				name:        "entry-" + frame.name + "/" + effect.name,
+				src:         i1Defs + src + "func main() {}\n",
+				markerEntry: &want,
+				markerScope: effect.scope,
+				markers:     strings.Count(src, "entryMarker = 0"),
+				testBuild:   frame.testBuild,
+			})
 		}
 	}
 	return out
@@ -823,8 +832,8 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		}
 		return true
 	})
-	if c.markerEntry != nil && marked != 1 {
-		t.Errorf("found %d marked entry frames, want 1", marked)
+	if c.markerEntry != nil && (c.markers < 1 || marked != c.markers) {
+		t.Errorf("found %d marked entry frames, want %d (at least 1)", marked, c.markers)
 	}
 	if goLoops != source {
 		t.Errorf("the Go has %d loops for %d source loops\nGo:\n%s", goLoops, source, stripDirectives(code))

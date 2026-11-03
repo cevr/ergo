@@ -151,7 +151,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 	for _, axis := range []struct {
 		name  string
 		cases []i1Case
-	}{{"ordinary", append(i1Cases(), i1BlockCases()...)}, {"nesting", i1NestCases()}} {
+	}{{"ordinary", append(i1Cases(), i1BlockCases()...)}, {"nesting", i1NestCases()}, {"entry", i1EntryCases()}} {
 		classes := map[string]int{}
 		for _, c := range axis.cases {
 			classes[strings.Split(c.name, "/")[0]]++
@@ -162,13 +162,38 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 		}
 		for _, f := range i1FrameKinds {
 			key := f.name
-			if axis.name == "nesting" {
+			switch axis.name {
+			case "nesting":
 				key = "nest-" + key
+			case "entry":
+				key = "entry-" + key
 			}
 			if classes[key] == 0 {
 				t.Errorf("%s axis never generates frame class %s", axis.name, f.name)
 			}
 		}
+	}
+	// The entry axis, apart from how it is generated: every frame class ×
+	// every entry effect is one case that asserts the marked frame's entry
+	// rule, its scope opening when it owns one, and the test build for a
+	// frame that exists only there.
+	entry := map[string]i1Case{}
+	for _, c := range i1EntryCases() {
+		entry[c.name] = c
+	}
+	for _, f := range i1FrameKinds {
+		for _, e := range i1EntryEffects {
+			c, ok := entry["entry-"+f.name+"/"+e.name]
+			switch {
+			case !ok:
+				t.Errorf("entry axis has no %s frame with a %s footprint", f.name, e.name)
+			case c.markerEntry == nil || *c.markerEntry != e.entry || c.markerScope != e.scope || c.markers < 1 || c.testBuild != f.testBuild:
+				t.Errorf("entry case %s asserts entry %v scope %v over %d markers (test build %v); want entry %v scope %v (test build %v)", c.name, c.markerEntry != nil && *c.markerEntry, c.markerScope, c.markers, c.testBuild, e.entry, e.scope, f.testBuild)
+			}
+		}
+	}
+	if want := len(i1FrameKinds) * len(i1EntryEffects); len(entry) != want {
+		t.Errorf("entry axis has %d cases, want %d", len(entry), want)
 	}
 	t.Logf("%d frame classes cover allocation sites %v", len(i1FrameKinds), gotSites)
 	for _, frame := range i1FrameKinds {
