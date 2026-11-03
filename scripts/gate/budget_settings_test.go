@@ -112,3 +112,24 @@ func TestBudgetSoftLimit(t *testing.T) {
 		t.Errorf("the caller's GOMEMLIMIT did not win: %v", environment)
 	}
 }
+
+func TestStepTempDirectoryIsStablePerCheckoutAndStep(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	root := t.TempDir()
+	name := "go test package [1/2]"
+	first := stepTempDir(root, name)
+	if first != stepTempDir(root, name) {
+		t.Fatal("the step temp path changed across calls")
+	}
+	if first == stepTempDir(root, "go test package [2/2]") {
+		t.Fatal("two steps share a temp path")
+	}
+	if !strings.HasPrefix(first, tmp+string(os.PathSeparator)) {
+		t.Fatalf("step temp path %q is outside the caller's temp directory %q", first, tmp)
+	}
+	want := "TMPDIR=" + first
+	if !slices.Contains(stepEnvironmentFor(root, name), want) || !slices.Contains(goTestEnvironmentFor(root, name), want) {
+		t.Fatalf("the step environments do not use their stable temp path %q", want)
+	}
+}

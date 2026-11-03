@@ -7,13 +7,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 // The systemd scope. The gate re-executes itself through
@@ -312,11 +315,10 @@ func (s *scopeStep) started(int) {}
 // memory.events also counts its descendants, such as another gate's scope
 // in the slice. With other gates in the slice the choice is an inference,
 // not a record, and a kill no counter explains is put down to the gate
-// budget. The cgroup is removed when it is empty; a process the step left
-// running keeps it until the scope ends.
+// budget. Any process left in the step's cgroup after its leader exits fails
+// the step; the gate kills the cgroup and waits for it to empty before output
+// is drained or the cgroup is removed.
 func (s *scopeStep) finish() usage {
-	defer s.handle.Close()
-	defer os.Remove(s.dir)
 	var u usage
 	if peak, err := readTrimmed(filepath.Join(s.dir, "memory.peak")); err == nil {
 		u.peak, _ = strconv.ParseInt(peak, 10, 64)
@@ -335,7 +337,102 @@ func (s *scopeStep) finish() usage {
 	default:
 		u.verdict = gateExceeded(s.limiter.budget)
 	}
+
+	members, stopErr := stopStepCgroup(s.dir)
+	if len(members) > 0 {
+		addProcessIssue(&u, "leftover processes at leader exit: "+strings.Join(members, ", "))
+	}
+	if stopErr != nil {
+		addProcessIssue(&u, "could not stop step cgroup: "+stopErr.Error())
+		u.stopFailed = true
+	}
+	if err := s.handle.Close(); err != nil {
+		addProcessIssue(&u, "could not close step cgroup handle: "+err.Error())
+	}
+	_ = os.Remove(s.dir)
 	return u
+}
+
+func stopStepCgroup(dir string) ([]string, error) {
+	pids, inspectErr := stepCgroupPIDs(dir)
+	members := make([]string, 0, len(pids))
+	for _, pid := range pids {
+		name := "unknown"
+		if content, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm")); err == nil {
+			if value := strings.TrimSpace(string(content)); value != "" {
+				name = value
+			}
+		}
+		members = append(members, fmt.Sprintf("%s (pid %d)", name, pid))
+	}
+	sort.Strings(members)
+
+	killErr := os.WriteFile(filepath.Join(dir, "cgroup.kill"), []byte("1"), 0)
+	if killErr != nil && len(pids) == 0 && inspectErr == nil {
+		return members, nil
+	}
+	if killErr != nil {
+		return members, errors.Join(inspectErr, killErr)
+	}
+
+	for {
+		current, err := stepCgroupPIDs(dir)
+		if err != nil {
+			return members, errors.Join(inspectErr, err)
+		}
+		if len(current) == 0 {
+			return members, inspectErr
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func stepCgroupPIDs(dir string) ([]int, error) {
+	var pids []int
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		content, err := os.ReadFile(filepath.Join(path, "cgroup.procs"))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		for _, field := range strings.Fields(string(content)) {
+			pid, err := strconv.Atoi(field)
+			if err != nil || pid <= 0 {
+				return fmt.Errorf("%s: invalid process id %q", filepath.Join(path, "cgroup.procs"), field)
+			}
+			if processIsZombie(pid) {
+				continue
+			}
+			pids = append(pids, pid)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Ints(pids)
+	return pids, nil
+}
+
+func processIsZombie(pid int) bool {
+	content, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		if state, ok := strings.CutPrefix(line, "State:"); ok {
+			return strings.HasPrefix(strings.TrimSpace(state), "Z") || strings.HasPrefix(strings.TrimSpace(state), "X")
+		}
+	}
+	return false
 }
 
 // localOOM is the number of times the cgroup dir reached its own

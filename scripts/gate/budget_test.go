@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
+	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -208,6 +213,578 @@ echo "step exited"`, os.Args[0]},
 			}
 		},
 	},
+	{
+		// A child that keeps output open after its leader exits fails the
+		// step, and the scope stops the child before the gate drains output.
+		name: "leftover", step: "512M", gate: "2G", scopeOnly: true,
+		steps: func() []*Step { return []*Step{leftoverStep()} },
+		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
+			wantAll(t, out, "== alloc: FAILED", "leftover processes at leader exit:")
+			pid := leftoverPID(out)
+			if pid == 0 || !namedLeftover(out, pid) {
+				t.Errorf("the leftover diagnostic does not name child pid %d:\n%s", pid, out)
+			}
+			if code != 1 || len(receipts) != 0 {
+				t.Errorf("exit %d, receipts %v: want the leftover process to fail the step without a receipt:\n%s", code, receipts, out)
+			}
+			if pid := leftoverPID(out); pid > 0 && processExists(pid) {
+				t.Errorf("leftover process %d still exists after the scope stopped the step", pid)
+			}
+		},
+	},
+	{
+		// A step killed by its memory budget loses every file it wrote in
+		// its stable, gate-owned temp directory, including TestMain's temp.
+		name: "temp", step: "512M", gate: "2G",
+		steps: func() []*Step { return []*Step{tempAllocatorStep()} },
+		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
+			stepStopped(t, code, out, receipts)
+			if paths := stepTempArtifacts(t); len(paths) != 0 {
+				t.Errorf("step temporary files outlived the step: %v", paths)
+			}
+		},
+	},
+}
+
+func leftoverStep() *Step {
+	return &Step{Name: "alloc", Argv: []string{"sh", "-c", `echo "$$" > src/leftover-pgid
+sleep 60 &
+child=$!
+echo "$child" > src/leftover-pid
+echo "leftover child pid=$child"
+exit 0`}}
+}
+
+func tempAllocatorStep() *Step {
+	return &Step{
+		Name: "alloc",
+		Argv: []string{"sh", "-c", `printf 'created\n' > "$TMPDIR/leftovers-step-marker"
+"$0" -test.run='^TestBudgetAllocator$' -test.count=1 2048 10s 4>&-
+echo "allocator exited $?"`, os.Args[0]},
+		Inputs: &Inputs{Paths: []string{"src/alloc.txt"}},
+	}
+}
+
+func leftoverPID(out string) int {
+	return leftoverPIDFor(out, "leftover child pid=")
+}
+
+func leftoverPIDFor(out, marker string) int {
+	for _, line := range strings.Split(out, "\n") {
+		if _, value, ok := strings.Cut(line, marker); ok {
+			pid, _ := strconv.Atoi(strings.TrimSpace(value))
+			return pid
+		}
+	}
+	return 0
+}
+
+func namedLeftover(out string, pid int) bool {
+	marker := "leftover processes at leader exit: "
+	pidSuffix := fmt.Sprintf("(pid %d)", pid)
+	for _, line := range strings.Split(out, "\n") {
+		_, members, ok := strings.Cut(line, marker)
+		if !ok {
+			continue
+		}
+		for _, member := range strings.Split(members, ", ") {
+			if strings.HasSuffix(member, pidSuffix) && strings.TrimSpace(strings.TrimSuffix(member, pidSuffix)) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func processExists(pid int) bool {
+	output, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "stat=").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false
+		}
+		return true
+	}
+	state := strings.TrimSpace(string(output))
+	return state != "" && !strings.HasPrefix(state, "Z") && !strings.HasPrefix(state, "X")
+}
+
+func stopProcess(pid int) {
+	if pid <= 0 {
+		return
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	if processExists(pid) {
+		_ = process.Kill()
+	}
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if !processExists(pid) {
+			return
+		}
+	}
+}
+
+func stepTempArtifacts(t *testing.T) []string {
+	t.Helper()
+	var artifacts []string
+	err := filepath.WalkDir(os.TempDir(), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() && filepath.Clean(path) == filepath.Clean(testScratch) {
+			return filepath.SkipDir
+		}
+		if entry.Name() == "leftovers-step-marker" || entry.IsDir() && strings.HasPrefix(entry.Name(), "gate-tools-") {
+			artifacts = append(artifacts, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return artifacts
+}
+
+func TestBudgetRSSWatchStopsLeaderExitDescendant(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the RSS watch requires Unix process groups")
+	}
+	t.Setenv(mechanismVariable, "rss")
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "2G")
+	root := budgetFixture(t)
+	cache := t.TempDir()
+	done := make(chan struct {
+		code int
+		out  string
+	}, 1)
+	go func() {
+		code, out := runGate(t, root, cache, []*Step{leftoverStep()})
+		done <- struct {
+			code int
+			out  string
+		}{code, out}
+	}()
+
+	childPath := filepath.Join(root, "src", "leftover-pid")
+	var childPID int
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if content, err := os.ReadFile(childPath); err == nil {
+			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
+			if childPID > 0 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("step did not record the background child's PID")
+	}
+
+	select {
+	case result := <-done:
+		wantAll(t, result.out, "== alloc: FAILED", "leftover processes at leader exit:")
+		if !namedLeftover(result.out, childPID) {
+			t.Errorf("the leftover diagnostic does not name child pid %d:\n%s", childPID, result.out)
+		}
+		if result.code != 1 || processExists(childPID) {
+			t.Fatalf("exit %d, leftover process alive=%t:\n%s", result.code, processExists(childPID), result.out)
+		}
+	case <-time.After(10 * time.Second):
+		child, err := os.FindProcess(childPID)
+		if err == nil {
+			_ = child.Kill()
+		}
+		select {
+		case result := <-done:
+			t.Fatalf("gate did not stop the descendant promptly; after test cleanup it returned %d:\n%s", result.code, result.out)
+		case <-time.After(3 * time.Second):
+			t.Fatal("gate remained blocked after the test stopped its own descendant")
+		}
+	}
+}
+
+func TestBudgetRSSWatchDetectsEscapedOutputHolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the RSS watch requires Unix process groups")
+	}
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid is unavailable")
+	}
+	t.Setenv(mechanismVariable, rssMechanism)
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "2G")
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "tmp"))
+	root := budgetFixture(t)
+	var childPID int
+	t.Cleanup(func() { stopProcess(childPID) })
+	pidPath := filepath.Join(root, "src", "escaped-pid")
+	step := &Step{Name: "escaped", Argv: []string{"sh", "-c", `setsid sleep 60 & child=$!; echo "$child" > src/escaped-pid; echo "escaped output holder pid=$child"; exit 0`}}
+	done := make(chan struct {
+		code int
+		out  string
+	}, 1)
+	cache := t.TempDir()
+	go func() {
+		code, out := runGate(t, root, cache, []*Step{step})
+		done <- struct {
+			code int
+			out  string
+		}{code, out}
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if content, err := os.ReadFile(pidPath); err == nil {
+			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
+			if childPID > 0 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("the step did not record the escaped output holder PID")
+	}
+	var code int
+	var out string
+	select {
+	case result := <-done:
+		code, out = result.code, result.out
+	case <-time.After(3 * time.Second):
+		stopProcess(childPID)
+		select {
+		case result := <-done:
+			t.Fatalf("the RSS gate waited for the escaped writer until test cleanup, then returned %d:\n%s", result.code, result.out)
+		case <-time.After(2 * time.Second):
+			t.Fatal("the RSS gate remained blocked after test cleanup stopped the escaped writer")
+		}
+	}
+	childPID = leftoverPIDFor(out, "escaped output holder pid=")
+	wantAll(t, out, "== escaped: FAILED", "step output held open by a process outside the step's process group", "gate: FAILED in")
+	if childPID == 0 {
+		t.Fatalf("the escaped output holder pid was not reported:\n%s", out)
+	}
+	if code != 1 {
+		t.Fatalf("exit %d, want the escaped output holder to fail the step:\n%s", code, out)
+	}
+	if !processExists(childPID) {
+		t.Fatalf("escaped output holder %d was not alive when the gate returned:\n%s", childPID, out)
+	}
+}
+
+type passThroughLimiter struct{}
+
+func (passThroughLimiter) describe() string { return "pass-through test limiter" }
+
+func (passThroughLimiter) prepare(string, *exec.Cmd) (stepWatch, error) {
+	return passThroughWatch{}, nil
+}
+
+func (passThroughLimiter) close() {}
+
+type passThroughWatch struct{}
+
+func (passThroughWatch) started(int) {}
+
+func (passThroughWatch) finish() usage { return usage{} }
+
+func TestRunBudgetedSharedWritersPreserveRandomInterleavings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the property uses a Unix shell")
+	}
+	random := rand.New(rand.NewSource(20261103))
+	for trial := range 12 {
+		var script, want strings.Builder
+		counts := [2]int{}
+		for range 160 {
+			stream := random.Intn(2)
+			token := fmt.Sprintf("%c-%03d", "oe"[stream], counts[stream])
+			counts[stream]++
+			fmt.Fprintf(&script, "printf '%%s\\n' '%s'", token)
+			if stream == 1 {
+				script.WriteString(" >&2")
+			}
+			script.WriteByte('\n')
+			want.WriteString(token)
+			want.WriteByte('\n')
+		}
+		command := exec.Command("sh", "-c", script.String())
+		var output bytes.Buffer
+		command.Stdout = &output
+		command.Stderr = &output
+		if _, err := runBudgeted(passThroughLimiter{}, "order", command); err != nil {
+			t.Fatalf("trial %d: runBudgeted: %v", trial, err)
+		}
+		if got := output.String(); got != want.String() {
+			t.Fatalf("trial %d: shared output changed write order\n got: %q\nwant: %q", trial, got, want.String())
+		}
+	}
+}
+
+func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	pidPath := filepath.Join(t.TempDir(), "child-pid")
+	var childPID int
+	t.Cleanup(func() { stopProcess(childPID) })
+	command := exec.Command("sh", "-c", `sleep 60 & echo $! > "$1"; echo leader exiting; exit 0`, "sh", pidPath)
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	type runResult struct {
+		used usage
+		err  error
+	}
+	done := make(chan runResult, 1)
+	go func() {
+		used, err := runBudgeted(passThroughLimiter{}, "held-pipe", command)
+		done <- runResult{used: used, err: err}
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if content, err := os.ReadFile(pidPath); err == nil {
+			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
+			if childPID > 0 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("the step did not record its output-holding child")
+	}
+	select {
+	case result := <-done:
+		if result.err != nil || !strings.Contains(result.used.processIssue, "step output held open") {
+			t.Fatalf("result %+v, want an output-holder process issue", result)
+		}
+	case <-time.After(3 * time.Second):
+		stopProcess(childPID)
+		select {
+		case result := <-done:
+			t.Fatalf("runBudgeted waited for the output writer until test cleanup, then returned %+v", result)
+		case <-time.After(2 * time.Second):
+			t.Fatal("runBudgeted remained blocked after test cleanup stopped the output writer")
+		}
+	}
+}
+
+func TestCommandOutputReachesEOFAfterStepStop(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	command := exec.Command("sh", "-c", "printf 'last output\\n'")
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	captured, err := captureCommandOutput(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watch, err := passThroughLimiter{}.prepare("eof", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		captured.closeWriters()
+		_ = captured.wait()
+		t.Fatal(err)
+	}
+	watch.started(command.Process.Pid)
+	captured.closeWriters()
+	commandErr := command.Wait()
+	used := watch.finish()
+	eof, heldOpen, drainErr := captured.finish()
+	captured.restore()
+	if commandErr != nil || used.stopFailed || drainErr != nil || !eof || heldOpen {
+		t.Fatalf("after step stop: command error %v, usage %+v, EOF %t, held open %t, drain error %v", commandErr, used, eof, heldOpen, drainErr)
+	}
+	if got := output.String(); got != "last output\n" {
+		t.Fatalf("output %q, want the complete step output", got)
+	}
+}
+
+func TestGateSerializesSameStepTempAcrossGates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("step temp flocking requires Unix")
+	}
+	t.Setenv(mechanismVariable, rssMechanism)
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "2G")
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "tmp"))
+	root := budgetFixture(t)
+	stepTemp := stepTempDir(root, "shared")
+	firstStep := &Step{Name: "shared", Argv: []string{"sh", "-c", `printf first > "$TMPDIR/marker"; sleep 0.4; test -f "$TMPDIR/marker" || { echo 'marker removed while first gate ran'; exit 1; }; echo first kept marker`}}
+	secondStep := &Step{Name: "shared", Argv: []string{"sh", "-c", `test ! -e "$TMPDIR/marker" || { echo 'second gate saw stale marker'; exit 1; }; echo second gate ran`}}
+	type gateResult struct {
+		code int
+		out  string
+	}
+	firstCache, secondCache := t.TempDir(), t.TempDir()
+	firstDone := make(chan gateResult, 1)
+	go func() {
+		code, out := runGate(t, root, firstCache, []*Step{firstStep})
+		firstDone <- gateResult{code: code, out: out}
+	}()
+	marker := filepath.Join(stepTemp, "marker")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("first gate did not create its temp marker")
+	}
+	secondDone := make(chan gateResult, 1)
+	go func() {
+		code, out := runGate(t, root, secondCache, []*Step{secondStep})
+		secondDone <- gateResult{code: code, out: out}
+	}()
+	var first, second gateResult
+	select {
+	case first = <-firstDone:
+	case <-time.After(8 * time.Second):
+		t.Fatal("first gate did not finish")
+	}
+	select {
+	case second = <-secondDone:
+	case <-time.After(8 * time.Second):
+		t.Fatal("second gate did not finish after acquiring the step temp lock")
+	}
+	if first.code != 0 || !strings.Contains(first.out, "first kept marker") {
+		t.Fatalf("first gate lost its temp file: exit %d\n%s", first.code, first.out)
+	}
+	if second.code != 0 || !strings.Contains(second.out, "second gate ran") {
+		t.Fatalf("second gate did not run after the first released its temp directory: exit %d\n%s", second.code, second.out)
+	}
+}
+
+func TestGateCleansReadOnlyStepTempBeforeAndAfterRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("step temp cleanup requires Unix permissions")
+	}
+	t.Setenv(mechanismVariable, rssMechanism)
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "2G")
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "tmp"))
+	root := budgetFixture(t)
+	tmpDir := stepTempDir(root, "read-only")
+	locked := filepath.Join(tmpDir, "locked")
+	t.Cleanup(func() {
+		_ = os.Chmod(locked, 0o700)
+		_ = os.RemoveAll(tmpDir)
+	})
+	if err := os.MkdirAll(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "stale"), []byte("stale\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	step := &Step{Name: "read-only", Argv: []string{"sh", "-c", `test -z "$(ls -A "$TMPDIR")" || { echo 'stale temp content remained'; exit 1; }; mkdir "$TMPDIR/locked"; printf fresh > "$TMPDIR/locked/file"; chmod 0500 "$TMPDIR/locked"; echo 'step started clean'`}}
+	code, out := runGate(t, root, t.TempDir(), []*Step{step})
+	if code != 0 || !strings.Contains(out, "step started clean") {
+		t.Fatalf("exit %d, gate did not clean the stale read-only temp directory before launch:\n%s", code, out)
+	}
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("step temp contents survived cleanup: %v", entries)
+	}
+}
+
+type failedStopLimiter struct{}
+
+func (failedStopLimiter) describe() string { return "failed stop test limiter" }
+
+func (failedStopLimiter) prepare(string, *exec.Cmd) (stepWatch, error) {
+	return failedStopWatch{}, nil
+}
+
+func (failedStopLimiter) close() {}
+
+type failedStopWatch struct{}
+
+func (failedStopWatch) started(int) {}
+
+func (failedStopWatch) finish() usage {
+	return usage{processIssue: "could not stop test process", stopFailed: true}
+}
+
+func TestRunBudgetedDoesNotWaitForOutputAfterStopFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the probe requires a Unix shell")
+	}
+	pidPath := filepath.Join(t.TempDir(), "child-pid")
+	stopChild := func() {
+		content, err := os.ReadFile(pidPath)
+		if err != nil {
+			return
+		}
+		childPID, _ := strconv.Atoi(strings.TrimSpace(string(content)))
+		if childPID > 0 {
+			child, err := os.FindProcess(childPID)
+			if err == nil {
+				_ = child.Kill()
+			}
+		}
+	}
+	t.Cleanup(stopChild)
+	command := exec.Command("sh", "-c", `sleep 60 & echo $! > "$1"; exit 0`, "sh", pidPath)
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	type result struct {
+		used usage
+		err  error
+	}
+	done := make(chan result, 1)
+	started := time.Now()
+	go func() {
+		used, err := runBudgeted(failedStopLimiter{}, "probe", command)
+		done <- result{used: used, err: err}
+	}()
+
+	var childPID int
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if content, err := os.ReadFile(pidPath); err == nil {
+			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
+			if childPID > 0 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("step did not record the background child's PID")
+	}
+	select {
+	case result := <-done:
+		stopChild()
+		if result.err != nil || !result.used.stopFailed || time.Since(started) > 2*time.Second {
+			t.Fatalf("runBudgeted result %+v after %s; want prompt return after stop failure", result, time.Since(started))
+		}
+	case <-time.After(2 * time.Second):
+		stopChild()
+		select {
+		case result := <-done:
+			t.Fatalf("runBudgeted waited for descendant output after stop failure: %+v", result)
+		case <-time.After(3 * time.Second):
+			t.Fatal("runBudgeted remained blocked after the test stopped its own descendant")
+		}
+	}
 }
 
 func wantAll(t *testing.T, out string, wants ...string) {
