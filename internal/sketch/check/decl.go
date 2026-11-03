@@ -67,6 +67,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// (M2).
 		c.checkBodies,
 		c.checkTests,
+		c.checkLaws,
 		c.checkTypeDecls,
 		c.checkContexts,
 		c.checkContextCycles,
@@ -182,7 +183,8 @@ func (c *checker) collect() {
 			case *syntax.TypeDecl:
 				tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID()}
 				tn.Type = &Named{Obj: tn}
-				if c.declare(d.Name, tn) {
+				declared := c.declare(d.Name, tn)
+				if declared {
 					c.pkg.Types = append(c.pkg.Types, tn)
 				}
 				// An inline variant declares a record in the package scope
@@ -192,6 +194,15 @@ func (c *checker) collect() {
 						if vs, ok := x.(*syntax.VariantSpec); ok {
 							c.declareVariant(fi, d, vs)
 						}
+					}
+					// A law's facts are its own (owners.go), also in a
+					// declaration refused as a duplicate, whose laws no
+					// pass checks: no build reads them.
+					for _, l := range it.Laws {
+						c.ownBody(l, OwnerLaw)
+					}
+					if declared {
+						c.collectLaws(it, tn, fi)
 					}
 				}
 			case *syntax.FuncDecl:
@@ -705,12 +716,12 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	return s
 }
 
+// interfaceType resolves an operation type. Its laws are not part of the
+// type (Law): collect records them with the declaration that holds them,
+// the only place the decided parser builds an operation type (typExpr).
 func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Interface {
 	it := &Interface{}
 	seen := map[string]bool{}
-	for _, l := range spec.Laws {
-		c.notYet(l)
-	}
 	for _, m := range spec.Methods {
 		ft, ok := m.Type.(*syntax.FuncType)
 		if !ok || len(m.Names) == 0 {

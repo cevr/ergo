@@ -40,6 +40,9 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 			return bad(x)
 		}
 	}
+	if op, ok := c.lawOpCall(x); ok {
+		return op
+	}
 	if sel := calledSelector(x.Fun); sel != nil {
 		c.callee = sel
 		c.calleeIndex, _ = unparen(x.Fun).(*syntax.IndexExpr)

@@ -919,7 +919,24 @@ type funcCtx struct {
 	branches []branch
 	locals   []*Var
 	fn       *Func
+	law      *Law // the law whose body this is (laws.go)
 	reach    *reachNode
+}
+
+// typeParams are the type parameters the body is generic in: a function's
+// own, or a law's type's (laws.go, rule 6). The type context of a body
+// (localTypeCtx) and a with operand's name (operandScope) both read them
+// here, so the two cannot disagree on what a body is generic in.
+func (fc *funcCtx) typeParams() []*TypeParam {
+	switch {
+	case fc == nil:
+		return nil
+	case fc.fn != nil && fc.fn.Sig != nil:
+		return fc.fn.Sig.TParams
+	case fc.law != nil:
+		return fc.law.typeParams()
+	}
+	return nil
 }
 
 type branchKind int

@@ -83,6 +83,9 @@ type Package struct {
 	Types []*TypeName
 	// Tests is every test block with its parameters (stage E, 196l).
 	Tests []*Test
+	// Laws is every law of the package's operation types in source order,
+	// a duplicate name included (stage E3b, 196l): checked, never run.
+	Laws []*Law
 	// Info is the checker's result for the lowering.
 	Info *Info
 	// ErrorTypes are, by the owner of the body whose error row names them,
@@ -428,6 +431,13 @@ const (
 	// and the full TypeArgs (D-D6, D-D8). The constant stays for compatibility;
 	// TypeArgs changed meaning for generic dot calls in stage D3a.
 	CallPrelude
+	// CallLawOp calls Op, an operation of the operation type that declares
+	// the law around it, by its bare name (196l, spec D-E4): no receiver, no
+	// charge (Needs is empty), and Fails is the operation's failure row,
+	// which joins the law's. It stands only in a law body, which neither
+	// build lowers: laws are checked, not run (#162). Added in check-v1
+	// stage E3b (additive).
+	CallLawOp
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -663,6 +673,27 @@ type Test struct {
 
 	file *fileInfo // the declaring file, selected while the test is checked
 }
+
+// Law is a law of an operation type (196l, spec D-E4): checked, never run
+// (#162 runs laws). Its name has no value: Info.Defs maps the name to the
+// Law, and no scope holds it. Added in check-v1 stage E3b (additive).
+type Law struct {
+	Name  string
+	Decl  *syntax.LawDecl
+	Owner *TypeName // the operation type that declares it
+	// Params are its parameters, in source order; a field with no name
+	// holds one "_".
+	Params []*Var
+	// Fails is the inferred failure row of its body: a non-empty row
+	// refutes the law when #162 runs it.
+	Fails *Row
+
+	file *fileInfo // the declaring file, selected while the law is checked
+}
+
+// A law is an Object, so Defs records its declaring name.
+func (o *Law) name() string    { return o.Name }
+func (o *Law) pos() syntax.Pos { return o.Decl.Name.Pos() }
 
 // A type parameter is an Object, so Defs records its declaring name.
 func (o *TypeParam) name() string    { return o.Name }
