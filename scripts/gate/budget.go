@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -292,8 +293,6 @@ type commandOutput struct {
 	readers        []*os.File
 	writers        []*os.File
 	drained        []<-chan pipeResult
-	stopReaders    chan struct{}
-	stopOnce       sync.Once
 	mu             sync.Mutex
 	aborted        bool
 }
@@ -320,7 +319,6 @@ func captureCommandOutput(command *exec.Cmd) (*commandOutput, error) {
 		command:        command,
 		originalStdout: command.Stdout,
 		originalStderr: command.Stderr,
-		stopReaders:    make(chan struct{}),
 	}
 	shared := command.Stdout != nil && command.Stderr != nil && interfaceEqual(command.Stdout, command.Stderr)
 	if command.Stdout != nil {
@@ -361,19 +359,23 @@ func (o *commandOutput) pipe(destination io.Writer) (*os.File, error) {
 	drained := make(chan pipeResult, 1)
 	o.writers = append(o.writers, writer)
 	o.drained = append(o.drained, drained)
-	go drainPipe(reader, destination, &o.mu, o.stopReaders, drained)
+	go drainPipe(reader, destination, &o.mu, drained)
 	return writer, nil
 }
 
-func drainPipe(reader *os.File, destination io.Writer, mu *sync.Mutex, stop <-chan struct{}, drained chan<- pipeResult) {
+func drainPipe(reader *os.File, destination io.Writer, mu *sync.Mutex, drained chan<- pipeResult) {
 	result := pipeResult{}
 	defer func() { drained <- result }()
-	ticker := time.NewTicker(5 * time.Millisecond)
-	defer ticker.Stop()
 	buffer := make([]byte, 32<<10)
 	stopping := false
 	for {
-		read, err := readPipeNonblocking(reader, buffer)
+		var read int
+		var err error
+		if stopping {
+			read, err = readPipeNonblocking(reader, buffer)
+		} else {
+			read, err = reader.Read(buffer)
+		}
 		if read > 0 {
 			mu.Lock()
 			written, writeErr := destination.Write(buffer[:read])
@@ -387,30 +389,29 @@ func drainPipe(reader *os.File, destination io.Writer, mu *sync.Mutex, stop <-ch
 				return
 			}
 		}
-		if err == nil {
-			if read == 0 {
-				result.eof = true
-				return
+		if err != nil {
+			if pipeReadInterrupted(err) {
+				continue
 			}
-			continue
-		}
-		if pipeReadInterrupted(err) {
-			continue
-		}
-		if pipeReadWouldBlock(err) {
-			if stopping {
+			if !stopping && errors.Is(err, os.ErrDeadlineExceeded) {
+				stopping = true
+				continue
+			}
+			if stopping && pipeReadWouldBlock(err) {
 				result.heldOpen = true
 				return
 			}
-			select {
-			case <-stop:
-				stopping = true
-			case <-ticker.C:
+			if errors.Is(err, io.EOF) {
+				result.eof = true
+				return
 			}
-			continue
+			result.err = err
+			return
 		}
-		result.err = err
-		return
+		if read == 0 {
+			result.eof = true
+			return
+		}
 	}
 }
 
@@ -432,9 +433,19 @@ func (o *commandOutput) wait() error {
 }
 
 func (o *commandOutput) finish() (eof, heldOpen bool, err error) {
-	o.stopOnce.Do(func() { close(o.stopReaders) })
-	eof = true
 	var first error
+	// Wake readers blocked in the runtime poller. They then drain the stopped
+	// pipe with nonblocking reads, so buffered output is preserved and an
+	// external writer is reported as held open when the pipe reaches EAGAIN.
+	for _, reader := range o.readers {
+		if readErr := reader.SetReadDeadline(time.Now()); readErr != nil {
+			if first == nil {
+				first = readErr
+			}
+			_ = reader.Close()
+		}
+	}
+	eof = true
 	for _, drained := range o.drained {
 		result := <-drained
 		eof = eof && result.eof
@@ -455,7 +466,6 @@ func (o *commandOutput) closeReaders() {
 
 func (o *commandOutput) abort() {
 	o.aborted = true
-	o.stopOnce.Do(func() { close(o.stopReaders) })
 	o.closeReaders()
 }
 
