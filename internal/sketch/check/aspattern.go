@@ -63,6 +63,12 @@ func (c *checker) catchAll(id *syntax.Ident) bool {
 		// the reuse is D-D2's S108 at the binder, not a type test. A local
 		// hides no package object, so the reference walk agrees.
 		return !o.pkg
+	case *Method:
+		// An operation of the law around the arm (laws.go rule 3): its
+		// scope encloses the law's body as an enclosing local's does, so
+		// the arm binds the rest and D-D2's S108 at the binder is its one
+		// diagnostic. The reference walk reads no law body.
+		return true
 	case *Builtin, *Func:
 		// A prelude function or built-in names no error type: the arm
 		// binds the rest, and D-D3's S108 at the name is its one
