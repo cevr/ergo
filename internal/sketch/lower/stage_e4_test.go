@@ -624,6 +624,21 @@ func main() needs Console {
 	}
 }
 
+// A user extern of Go's unsafe that reaches the lowering is an internal
+// error, at the call (check-v1 spec C26 amendment 2026-11-04): the checker
+// refuses it (S108, TestE4CheckerRefusesFirst/unsafe-extern), and a
+// qualified built-in such as unsafe.Sizeof fails hostStmt's defer check.
+func TestE4HostUnsafeIce(t *testing.T) {
+	site := &syntax.Ident{Name: "Size"}
+	defer func() {
+		ref, ok := recover().(refusal)
+		if !ok || !strings.Contains(ref.msg, "internal compiler error: a user extern of Go's unsafe") {
+			t.Fatalf("hostPkg(unsafe): refusal %+v (ok %v); want the internal error", ref, ok)
+		}
+	}()
+	(&lowerer{}).hostPkg("unsafe", site)
+}
+
 // Each lowering check that stage E4 turned into an internal error stands at
 // a form the checker refuses first. A row whose program the checker admits
 // fails, and shows what the lowering does with it.
@@ -634,6 +649,11 @@ func TestE4CheckerRefusesFirst(t *testing.T) {
 	}{
 		{"user-extern-value", "calls.go funcValue", "S108", p3, `extern go strings.ToUpper func Upper(s string) string
 func main() needs Console { let f = Upper; Console.Println(f("x")) }
+`},
+		{"unsafe-extern", "calls.go hostPkg unsafe", "S108", "Ergo has no unsafe; unsafe stays at the FFI edge", `extern go unsafe.Sizeof func Size(x int64) uintptr
+func main() needs Console {
+	Console.Println("\(Size(1))")
+}
 `},
 		{"std-extern-value", "calls.go funcValue (std body)", "S108", p3, `import queue
 func main() needs Console {

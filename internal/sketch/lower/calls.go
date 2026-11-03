@@ -272,7 +272,9 @@ func hostCalled(c *check.Call) bool { return c.Kind == check.CallFunc && userExt
 // fails ("cannot call"). A variadic target (fmt.Sprint) passes, and so does
 // a generic Go function (cmp.Compare): Go infers its type arguments from
 // the typed arguments, as it does at the call itself. The block is never
-// run, and the Go compiler drops it.
+// run, and the Go compiler drops it. Go's qualified built-ins (unsafe.Sizeof)
+// would fail under defer; the checker refuses a target in unsafe (S108), so
+// none reaches here (hostPkg).
 //
 // Then it binds the result to v at its Ergo result's Go type, the blank
 // identifier when the result is discarded, so a target's float64 result is
@@ -300,6 +302,11 @@ func (l *lowerer) hostPkg(path string, site syntax.Node) string {
 	}
 	if first, _, _ := strings.Cut(path, "/"); first == "" || strings.Contains(first, ".") {
 		ice(site, "a user extern whose target package %q is outside Go's standard library, which the checker refuses (#202)", path)
+	}
+	if path == "unsafe" {
+		// Go's unsafe holds the qualified built-ins, whose calls the
+		// hostStmt check (defer) does not admit.
+		ice(site, "a user extern of Go's unsafe, which the checker refuses (S108: Ergo has no unsafe)")
 	}
 	if l.hostImports == nil {
 		l.hostImports = map[string]bool{}
