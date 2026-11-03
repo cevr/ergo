@@ -21,8 +21,10 @@ import (
 //     declared outside the standard library and holding a finite value
 //     (ValueRanks). Anything else is S108 at the parameter's type.
 //  4. assert stands only in a test body (or a law body, stage E3b): every
-//     assert anywhere else in a file declaration is S108. The rule is
-//     syntactic over the whole declaration (strayAsserts), so no statement
+//     assert whose lexical owner, the innermost test, law, function
+//     declaration or function literal around it, is not a test or a law is
+//     S108. A function literal inside a test is not the test's body. The
+//     rule is syntactic over the whole file (strayAsserts), so no statement
 //     position escapes it, whichever checker path types the statement.
 //  5. assert takes a bool (S108); a fallible operand must be tried (S105,
 //     from valueExpr, as for every value position).
@@ -66,28 +68,42 @@ func (c *checker) collectTest(d *syntax.TestDecl, fi *fileInfo) {
 
 // strayAsserts reports every assert that stands outside a test body and
 // outside a law body (rule 4). It runs right after collect, over every file
-// declaration, so it sees every statement the parser produced.
+// declaration, so it sees every statement the parser produced. What decides
+// is an assert's lexical owner, the innermost body around it: a test or a
+// law admits it; a function declaration, and a function literal wherever
+// it stands (in a test or a law too), does not, since a literal's body runs
+// when the literal is called, not as the test's or the law's own statement.
+// A trailing block and a with body are blocks of their owner, not bodies.
 func (c *checker) strayAsserts() {
+	var walk func(root syntax.Node, admits bool)
+	walk = func(root syntax.Node, admits bool) {
+		syntax.Inspect(root, func(n syntax.Node) bool {
+			if n == root {
+				return true
+			}
+			switch n := n.(type) {
+			case *syntax.TestDecl, *syntax.LawDecl:
+				walk(n, true)
+				return false
+			case *syntax.FuncLit:
+				walk(n, false)
+				return false
+			case *syntax.AssertStmt:
+				if admits {
+					return true
+				}
+				if c.tests.stray == nil {
+					c.tests.stray = map[*syntax.AssertStmt]bool{}
+				}
+				c.tests.stray[n] = true
+				c.errorf(n, CodeType, "assert stands only in a test or law body (196l)")
+			}
+			return true
+		})
+	}
 	for _, fi := range c.files {
 		c.cur = fi
-		for _, d := range fi.syntax.Decls {
-			if _, ok := d.(*syntax.TestDecl); ok {
-				continue
-			}
-			syntax.Inspect(d, func(n syntax.Node) bool {
-				switch n := n.(type) {
-				case *syntax.LawDecl:
-					return false // a law body admits assert (stage E3b)
-				case *syntax.AssertStmt:
-					if c.tests.stray == nil {
-						c.tests.stray = map[*syntax.AssertStmt]bool{}
-					}
-					c.tests.stray[n] = true
-					c.errorf(n, CodeType, "assert stands only in a test or law body (196l)")
-				}
-				return true
-			})
-		}
+		walk(fi.syntax, false)
 	}
 	c.cur = nil
 }

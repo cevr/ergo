@@ -115,7 +115,10 @@ func TestTestBodies(t *testing.T) {
 		{"a test name beside a function", "func T() {}\n\ntest T {\n\t$assert true\n}\n", nil},
 		{"two parameters of one name", "$test T(a int, a int) {\n\tassert true\n}\n", []string{"S108"}},
 		{"an unused local", "test T {\n\t$let x = 1\n\tassert true\n}\n", []string{"S110"}},
-		{"assert in a literal in a test", "test T {\n\tlet f = func() {\n\t\t$assert true\n\t}\n\tf()\n}\n", nil},
+		// A literal's body is not the test's: it runs when called (rule 4).
+		{"assert in a literal in a test", "test T {\n\tlet f = func() {\n\t\t$assert true\n\t}\n\tf()\n}\n", []string{"S108"}},
+		{"assert in a literal in a literal in a test", "test T {\n\tlet f = func() {\n\t\tlet g = func() {\n\t\t\t$assert true\n\t\t}\n\t\tg()\n\t}\n\tf()\n}\n", []string{"S108"}},
+		{"assert in a trailing block in a test", "func run(f func() int) int {\n\tf()\n}\n\ntest T {\n\tlet n = run() {\n\t\t$assert true\n\t\t1\n\t}\n\tassert n == 1\n}\n", nil},
 		{"return in a test", "test T {\n\tassert true\n\t$return\n}\n", nil},
 		{"an empty test", "test T {\n$}\n", nil},
 	} {

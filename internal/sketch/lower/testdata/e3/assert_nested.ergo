@@ -1,6 +1,6 @@
 // Stage E3a sweep (196l): an assert fails its test from any statement
-// position of the body: a with body, a function literal, a loop, a match
-// arm, a catch arm and an else block.
+// position of the body (a with body, a loop, a match arm, a catch arm, an
+// else block) and over a function literal's result: its body is S108.
 type Store {
 	Get() string,
 }
@@ -31,10 +31,10 @@ test InWith {
 }
 
 test InLiteral {
-	let check = func(n int) {
-		assert n > 10
+	let check = func(n int) bool {
+		n > 10
 	}
-	check(3)
+	assert check(3)
 }
 
 test InLoop {
@@ -85,7 +85,7 @@ func main() needs Console {
 
 // run> ok
 // test> FAIL InWith: assert failed at main.ergo:29:3: Store.Get() == "no"
-// test> FAIL InLiteral: assert failed at main.ergo:35:3: n > 10
+// test> FAIL InLiteral: assert failed at main.ergo:37:2: check(3)
 // test> FAIL InLoop: assert failed at main.ergo:42:3: x < 3
 // test> FAIL InMatch: assert failed at main.ergo:52:3: n == 3
 // test> FAIL InCatch: assert failed at main.ergo:59:3: false
