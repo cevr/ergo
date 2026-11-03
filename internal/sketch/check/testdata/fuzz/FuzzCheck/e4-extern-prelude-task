@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Fault {}\ntype Mine {}\n\nfunc Wait(_ Mine) int fails Fault { 0 }\nfunc Stop(_ Mine) {}\n\nfunc use(t Task[int, Fault]) { t.Stop() }\n\nfunc main() {\n\tuse(Mine)\n}\n")

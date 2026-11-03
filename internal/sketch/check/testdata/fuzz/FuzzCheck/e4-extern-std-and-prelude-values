@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import scope\n\nfunc main() needs Console {\n\tlet xs = []int{1}\n\tlet f = xs.Append // want S104\n\tlet g = scope.OnExit[Console] // want S108\n\tlet h = Sleep // want S108\n\tConsole.Println(\"\\(len(f(2)))\")\n\tg(func() { Console.Println(\"x\") })\n\tConsole.Println(\"\\(h == h)\")\n}\n")
