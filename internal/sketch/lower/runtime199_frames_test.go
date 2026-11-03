@@ -15,7 +15,7 @@ import (
 // One catalog drives both the ordinary frame axis and the nesting axis.
 // sites names the lowering functions that allocate the frame; shared
 // paths (methods/declarations and the three closure forms) share a site.
-// A wire/initializer has only an expression body, so its nested statements
+// A context/initializer has only an expression body, so its nested statements
 // run in an immediately called literal. The outer frame is tested too.
 type i1FrameKind struct {
 	name, goClass string
@@ -46,8 +46,8 @@ var i1FrameKinds = []i1FrameKind{
 		return "type Worker { Run(n int) int }\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n" + body + "}\nlet Work = wire { Worker: Impl }\nfunc subject() int { with Work { Worker.Run(1) } }\n"
 	}},
 	// The block uses Probe: a with builds only the providers its block
-	// reaches (rows.md, Wire 7; With.Acquired).
-	{name: "wire", goClass: "lit", sites: map[string]int{"emitWire": 1}, program: func(_, _, _ string, body string) string {
+	// reaches (rows.md, Context 7; With.Acquired).
+	{name: "wire", goClass: "lit", sites: map[string]int{"emitContext": 1}, program: func(_, _, _ string, body string) string {
 		return "type Carrier { n int }\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = wire { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep {\nProbe.Tick()\n1\n} }\n"
 	}},
 	{name: "initializer", goClass: "lit", sites: map[string]int{"packageVar": 2, "packagePattern": 1}, program: func(_, _, _ string, body string) string {

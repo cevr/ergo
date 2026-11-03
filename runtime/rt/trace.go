@@ -43,7 +43,7 @@ const (
 	// Event.Link is the occurrence it caught: a failed call-exit, a deadline
 	// or a child's body-exit; 0 when the failure was raised without one.
 	TraceHandler
-	// TraceConstruct: a wire was built (emitted code).
+	// TraceConstruct: a context was built (emitted code).
 	TraceConstruct
 	// TraceCall: a capability call begins (emitted code, Task.TraceCall). An
 	// addition to #124.

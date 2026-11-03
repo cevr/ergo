@@ -49,14 +49,14 @@ func runBehaviors(t *testing.T, cases []behavior) map[string]*lowered {
 // value returned is a failure again (rethrow); a no-value catch runs its arm
 // for effect; a failure tried inside a with block leaves the enclosing
 // function, not the catch around it; main's remaining failure is printed
-// with status 1. Wires: replace and nesting pick the innermost binding, an
+// with status 1. Contexts: replace and nesting pick the innermost binding, an
 // entry of several keys is one provider value under each, and an
 // overridden provider never runs. A Go panic (here an integer division by
 // zero) passes every catch and ends the program with Go's report, which the
 // //line directives point at the .ergo line.
 func TestRowsAndDefects(t *testing.T) {
 	built := runBehaviors(t, rowsCases())
-	checkWireBuilds(t, built)
+	checkContextBuilds(t, built)
 }
 
 // rowsCases are TestRowsAndDefects' programs.
@@ -322,8 +322,8 @@ func main() needs Console {
 	}}
 }
 
-// checkWireBuilds checks the wire program's Go builders.
-func checkWireBuilds(t *testing.T, built map[string]*lowered) {
+// checkContextBuilds checks the context program's Go builders.
+func checkContextBuilds(t *testing.T, built map[string]*lowered) {
 	// The shared entry is evaluated once and bound under both keys; the
 	// overridden entry is not built at all.
 	if o := built["wires"]; o != nil {

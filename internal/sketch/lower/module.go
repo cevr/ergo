@@ -157,7 +157,7 @@ type lowerer struct {
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl
 	vars     map[*check.Var]string // package-level lets
-	wires    map[wireSet]string
+	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types
 	texts    map[pkgKey]bool          // generated text functions emitted
 	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
@@ -224,7 +224,7 @@ func newLowerer(u Unit) *lowerer {
 		types:     map[*check.TypeName]*typeDecl{},
 		funcs:     map[*check.Func]*funcDecl{},
 		vars:      map[*check.Var]string{},
-		wires:     map[wireSet]string{},
+		contexts:  map[contextSet]string{},
 		adapters:  map[string]string{},
 		texts:     map[pkgKey]bool{},
 		defaults:  map[pkgKey]bool{},

@@ -165,7 +165,7 @@ var (
 )
 
 // RegisterCalls registers the program's source map (#230). decls has one
-// entry per source declaration (a function, a package-level let, a wire):
+// entry per source declaration (a function, a package-level let, a context):
 // its Ergo name, its .ergo file and its first and last lines. table has one
 // entry per call of the program's source: its Ergo function, what it calls
 // and its .ergo position. Every lowered program registers both before main

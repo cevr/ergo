@@ -487,7 +487,7 @@ func (fc *funcCtx) noValueArgs(x *syntax.CallExpr, c *check.Call, list []syntax.
 }
 
 // with lowers with W { block } (rows.md, With): a Go block that copies the
-// environment, builds the wire's providers into the copy and runs the block
+// environment, builds the context's providers into the copy and runs the block
 // against it, with no closure (With 8). The block's tail is the with's
 // value, and its untried failure the with's.
 func (fc *funcCtx) with(x *syntax.CallExpr) operand {
@@ -501,8 +501,8 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	if w.Value != nil {
 		return fc.contextWith(x, w.Value) // the context owner (context.go)
 	}
-	// The checker records an imported wire's entries (wire ownership), but
-	// this lowering builds only wires declared in the file it lowers.
+	// The checker records an imported context's entries (context ownership), but
+	// this lowering builds only contexts declared in the file it lowers.
 	if len(w.Contexts) == 0 || (w.Contexts[0].Lit == nil && fc.l.isImported(w.Contexts[0])) {
 		if _, inline := unparen(x.Args[0]).(*syntax.ContextLit); inline {
 			refuse(x.Args[0], "an inline wire value is lowered after check-v1 stage E (196x)")
@@ -519,7 +519,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 		res.err = fc.temp("err")
 		fc.line("var " + res.err + " error")
 	}
-	// The with lifetime owner (resources.md, Wire ownership; runtime.md,
+	// The with lifetime owner (resources.md, Context ownership; runtime.md,
 	// With cleanup): a with that acquires a resource opens its own scope on
 	// the scope of the code around it. The builder registers each
 	// provider's release in it as the provider is built; the block's tasks
@@ -532,7 +532,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	inline := w.Contexts[0].Lit != nil
 	build := ""
 	if !inline {
-		build = fc.l.wireBuilder(w, x)
+		build = fc.l.contextBuilder(w, x)
 	}
 	env := fc.temp("env")
 	fc.line("{")
@@ -540,7 +540,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	outer := fc.envExpr(x)
 	fc.line(env + " := *" + outer)
 	if inline {
-		// An empty inline wire and a pure body may read no capability.
+		// An empty inline context and a pure body may read no capability.
 		fc.line("_ = " + env)
 	}
 	savedWith := ""
@@ -551,7 +551,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 		savedWith, fc.frame.with = fc.frame.with, ws
 	}
 	if inline {
-		fc.l.localWire(w.Contexts[0], x)
+		fc.l.localContext(w.Contexts[0], x)
 		fc.buildProviders(w, "(&"+env+")", outer, ws)
 	} else if owning {
 		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
@@ -603,66 +603,66 @@ func ownsResources(w *check.With) bool {
 	return false
 }
 
-// wireSet names the builder of a with: its wire and the providers it
+// contextSet names the builder of a with: its context and the providers it
 // acquires, by their source positions in acquisition order. Two withs that
 // acquire the same entries share one builder.
-type wireSet struct {
+type contextSet struct {
 	w   *check.Context
 	set string
 }
 
-func acquiredSet(w *check.With) wireSet {
+func acquiredSet(w *check.With) contextSet {
 	var b strings.Builder
 	for _, a := range w.Acquired {
 		b.WriteString(strconv.Itoa(int(a.Entry.Provider.Pos())))
 		b.WriteByte(' ')
 	}
-	return wireSet{w.Contexts[0], b.String()}
+	return contextSet{w.Contexts[0], b.String()}
 }
 
-// wireBuilder is the Go function that builds the providers a with acquires
-// into an environment (rows.md, Wire 4: its own function, so its providers
+// contextBuilder is the Go function that builds the providers a with acquires
+// into an environment (rows.md, Context 4: its own function, so its providers
 // do not see the caller's locals). It builds the with's acquisitions
 // (With.Acquired), each once, in the checker's acquisition order, so a
 // shared entry is one value under each of its keys, an overridden or
-// unreached provider never runs (Wire 7), and an entry whose provider uses
-// a capability of this wire is built after that capability's entry.
-func (l *lowerer) wireBuilder(w *check.With, site syntax.Node) string {
+// unreached provider never runs (Context 7), and an entry whose provider uses
+// a capability of this context is built after that capability's entry.
+func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 	key := acquiredSet(w)
-	if name, ok := l.wires[key]; ok {
+	if name, ok := l.contexts[key]; ok {
 		return name
 	}
 	name := l.pkgName(pkgKey{"wire", key}, "build"+key.w.Name)
-	l.wires[key] = name
-	l.pending = append(l.pending, func() { l.emitWire(w, name, site) })
+	l.contexts[key] = name
+	l.pending = append(l.pending, func() { l.emitContext(w, name, site) })
 	return name
 }
 
-// wire checks a named wire declaration. Its builders are written at the
+// context checks a named context declaration. Its builders are written at the
 // withs that use it.
-func (l *lowerer) wire(w *check.Context, site syntax.Node) {
+func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil || w.Decl.Needs != nil {
 		refuse(w.Decl, "a wire header is checked by #196 stage b")
 	}
 }
 
-// emitWire writes the builder name for the with w. A with that owns a
+// emitContext writes the builder name for the with w. A with that owns a
 // resource passes its builder the environment outside the with and its
 // scope: right after the builder builds a provider with a checked Close,
 // it registers that provider's release in the scope, so a later
 // provider's defect still closes it. The release runs in the outer
 // environment, where the checker charged its needs (With.Acquired).
-func (l *lowerer) emitWire(with *check.With, name string, site syntax.Node) {
+func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	w := with.Contexts[0]
 	if w.Decl == nil || l.isImported(w) {
 		refuse(site, "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")
 	}
-	l.localWire(w, site)
+	l.localContext(w, site)
 	fc := newFuncCtx(l, newNamer(l.names), true)
 	fc.owner = w.Name
 	l.recordDecl(w.Name, w.Decl)
-	// A builder has no loop and calls no capability (a named wire is
-	// closed); its frame reads the wire's footprint all the same.
+	// A builder has no loop and calls no capability (a named context is
+	// closed); its frame reads the context's footprint all the same.
 	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
@@ -678,9 +678,9 @@ func (l *lowerer) emitWire(with *check.With, name string, site syntax.Node) {
 	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
 }
 
-// localWire keeps imported embeddings on their existing stage B refusal,
-// equally for named and inline wires.
-func (l *lowerer) localWire(w *check.Context, site syntax.Node) {
+// localContext keeps imported embeddings on their existing stage B refusal,
+// equally for named and inline contexts.
+func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 	visited := map[*check.Context]bool{}
 	var walk func(*check.Context)
 	walk = func(v *check.Context) {
@@ -701,9 +701,9 @@ func (l *lowerer) localWire(w *check.Context, site syntax.Node) {
 }
 
 // buildProviders is the acquisition owner shared by named builders and
-// lexical inline wires. Both consume exactly the checker's Acquired fact.
+// lexical inline contexts. Both consume exactly the checker's Acquired fact.
 // Inline own entries see the outer environment; embedded named entries
-// see the partially built wire, as their checked Uses require.
+// see the partially built context, as their checked Uses require.
 func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 	local := map[*check.ContextEntry]bool{}
 	if with.Contexts[0].Lit != nil {
@@ -748,7 +748,7 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 	return val
 }
 
-// isImported reports a wire declared outside the user package.
+// isImported reports a context declared outside the user package.
 func (l *lowerer) isImported(w *check.Context) bool {
 	for _, d := range l.file.Decls {
 		if d == syntax.Decl(w.Decl) {
@@ -759,7 +759,7 @@ func (l *lowerer) isImported(w *check.Context) bool {
 }
 
 // operations converts val to the operation type of an operations
-// conversion (Info.Implicit, Wire entries): an adapter struct whose methods
+// conversion (Info.Implicit, Context entries): an adapter struct whose methods
 // call the table's functions. An operation takes the caller's task first
 // (rows.md, Rows 7) and a function takes an environment, so no Go method of
 // the source has the operation's Go signature, and the adapter is always
@@ -841,8 +841,8 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 				ice(site, "the operations conversion to %s has no instance for %s", conv.To, op.Name)
 			}
 		}
-		// A provider's requirements are met where a wire builds it (rows.md,
-		// Wire 4 and 6), never by the caller of its operation, so the
+		// A provider's requirements are met where a context builds it (rows.md,
+		// Context 4 and 6), never by the caller of its operation, so the
 		// adapter's environment holds the task alone. The checker refuses a
 		// table function that needs capabilities (S108, with #37).
 		if len(rowElems(f.Sig.Uses)) > 0 {

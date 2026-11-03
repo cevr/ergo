@@ -8,8 +8,8 @@ import (
 )
 
 // The context owner (docs/spec/runtime.md, G1). A with whose operand the
-// checker records as a context binding (With.Context, the protocol fact;
-// check/context.go) lowers here and nowhere else: lowering never reads the
+// checker records as a context binding (With.Value, the protocol fact;
+// check/contextvalue.go) lowers here and nowhere else: lowering never reads the
 // operand's package or the name of the function that made it.
 //
 // The rule it owns: a context binding is visible in its with block and in
@@ -62,7 +62,7 @@ func (fc *funcCtx) contextWith(x *syntax.CallExpr, cb *check.ContextBinding) ope
 	fc.line("{")
 	fc.depth++
 	fc.line(cx + " := " + fc.scopeCall("Scope.OpenContext", scope, []string{pkg, key, text}, x))
-	// The block yields by the one tail rule (D-C1, D-C2), as a wire with's.
+	// The block yields by the one tail rule (D-C1, D-C2), as a context with's.
 	if res.val == "" && res.err == "" {
 		fc.yieldList(list, dest{kind: destStmt})
 	} else {

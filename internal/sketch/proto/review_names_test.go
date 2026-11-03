@@ -28,7 +28,7 @@ func TestReviewNamePositions(t *testing.T) {
 		names = append(names, kind.String())
 	}
 	names = append(names, syntax.Keywords()...)
-	names = append(names, "rt", "fmt", "time", "init", "Error", "v__1", "e__2", "envc__3", "env__", "t__", "Env__", "e__", "plain__", "is__U", "wire__W", "main__")
+	names = append(names, "rt", "fmt", "time", "init", "Error", "v__1", "e__2", "envc__3", "env__", "t__", "Env__", "e__", "plain__", "is__U", "context__W", "main__")
 	for _, position := range positions {
 		for _, name := range names {
 			t.Run(position.name+"/"+name, func(t *testing.T) {

@@ -25,7 +25,7 @@ func TestRound5IntrinsicDeclarations(t *testing.T) {
 		for _, pos := range positions {
 			t.Run(name+"/"+pos.name, func(t *testing.T) {
 				src := "" + strings.ReplaceAll(pos.body, "NAME", name)
-				// with and wire are keywords: no declaration may use them.
+				// with and context are keywords: no declaration may use them.
 				reject := name == "with" || name == "wire" || name == "timeout" || name == "duration" ||
 					((pos.name == "type" || pos.name == "function") && (name == "Console" || name == "Scheduler" || name == "LiveScheduler"))
 				f, err := Parse("intrinsics.ergo", src)

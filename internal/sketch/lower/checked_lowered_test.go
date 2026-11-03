@@ -208,7 +208,7 @@ var pairSites = []string{
 // Containers and pointers are invariant in their element type (clauses 1
 // and 2 compare the complete underlying type). The operands of == and !=
 // compare when both kinds are comparable and one goes into the other's
-// type (types.md, Assignability 2; Operators 1). Other sites, the wire
+// type (types.md, Assignability 2; Operators 1). Other sites, the context
 // value included, assign S to T.
 func pairAdmits(site string, s, t pairKind) bool {
 	switch site {
@@ -424,7 +424,7 @@ func TestCheckedImpliesLowered(t *testing.T) {
 					continue // two refused definitions are two mistakes
 				}
 				if site == "wire" && k.name != "Store" {
-					continue // a wire key is an operation type
+					continue // a context key is an operation type
 				}
 				if (site == "field" || site == "fieldset") && k.under == "tuple" && !k.named {
 					// `f (int, int)` in a type body is an operation

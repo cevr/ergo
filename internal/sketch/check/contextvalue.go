@@ -18,7 +18,7 @@ import (
 // the name of the function that made the value, so a user type that
 // satisfies the protocol binds as std's trace.Span and log.Annotate do, and
 // a same-shaped type whose functions need a capability, can fail or return
-// another type does not. With.Context records the binding for the lowering.
+// another type does not. With.Value records the binding for the lowering.
 // The names are unexported, as a Go method that only its package's
 // protocol calls: the protocol adds no exported declaration to trace or
 // log (approval item 4 lists four), and a user package declares its own.

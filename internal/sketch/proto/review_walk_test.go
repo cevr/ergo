@@ -16,7 +16,7 @@ func TestRound3ReservedUniverse(t *testing.T) {
 	}
 }
 
-func TestRound3WireWalk(t *testing.T) {
+func TestRound3ContextWalk(t *testing.T) {
 	base := `import timeout
 type Fault {}
 type Store { Get() string }

@@ -10,32 +10,32 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-type wireImporter struct{ pkg *check.Package }
+type contextImporter struct{ pkg *check.Package }
 
-func (i wireImporter) Import(path string) (*check.Package, error) {
+func (i contextImporter) Import(path string) (*check.Package, error) {
 	if path == "makers" {
 		return i.pkg, nil
 	}
 	return check.Std.Import(path)
 }
 
-// The checker records an imported wire's entries and admits a fresh one,
-// but this lowering builds only the wires of the file it lowers. A with of
-// an imported wire, direct or embedded in it, stays a located refusal, not
+// The checker records an imported context's entries and admits a fresh one,
+// but this lowering builds only the contexts of the file it lowers. A with of
+// an imported context, direct or embedded in it, stays a located refusal, not
 // an internal compiler error at naming (stage 3b round 3 review, m1).
-func TestRuntime199WireImportedRefusal(t *testing.T) {
+func TestRuntime199ContextImportedRefusal(t *testing.T) {
 	for _, embedded := range []bool{false, true} {
 		t.Run(fmt.Sprintf("embedded=%v", embedded), func(t *testing.T) {
-			wires := "let W = wire { A: Get() }\n"
+			contexts := "let W = wire { A: Get() }\n"
 			if embedded {
-				wires = "let Base = wire { A: Get() }\nlet W = wire { Base }\n"
+				contexts = "let Base = wire { A: Get() }\nlet W = wire { Base }\n"
 			}
 			lib, err := syntax.Parse(`type A { Use() }
 type Conn { n int }
 func Use(_ Conn) {}
 func Close(_ Conn) {}
 func Get() Conn { Conn{n: 1} }
-` + wires)
+` + contexts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -48,7 +48,7 @@ func Get() Conn { Conn{n: 1} }
 			if err != nil {
 				t.Fatal(err)
 			}
-			pkg, ds := check.Check("main", []*syntax.File{file}, wireImporter{makers})
+			pkg, ds := check.Check("main", []*syntax.File{file}, contextImporter{makers})
 			if len(ds) != 0 {
 				t.Fatalf("fresh imported wire refused by the checker: %v", ds)
 			}

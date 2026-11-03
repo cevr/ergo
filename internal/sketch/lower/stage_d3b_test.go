@@ -60,7 +60,7 @@ func main() needs Console {
 // TestProviderNeedingCapabilitiesRefused:an operation takes the caller's
 // task first and no capability (rows.md, Rows 7), so a table function whose
 // row needs a capability cannot provide an operation until constructors
-// meet its requirements where a wire builds it (#37). The checker refuses
+// meet its requirements where a context builds it (#37). The checker refuses
 // it at the conversion (S108), so the lowering's guard in operations is
 // unreachable (stage D3b ruling, D2).
 func TestProviderNeedingCapabilitiesRefused(t *testing.T) {
@@ -261,7 +261,7 @@ func TestTaskInsideAnotherTypeChecked(t *testing.T) {
 // destination, as a function does (Rule 2; stage E2, C15): a call of a
 // value's operation, a method value, an operations conversion's adapter, a
 // type parameter's witness, a type parameter converted to the operation
-// type, and a capability a wire provides all run. Before stage E2 the first
+// type, and a capability a context provides all run. Before stage E2 the first
 // two were refused and the witness call did not compile. The program is
 // lowered in process first, so a mutant of the lowering (a go test
 // -overlay) reaches it; wantRun builds the CLI with go run.

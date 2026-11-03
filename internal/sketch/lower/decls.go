@@ -116,7 +116,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 		case *syntax.ContextDecl:
 			if w, ok := l.info.Defs[d.Name].(*check.Context); ok {
 				// One builder for each distinct set of providers a with of
-				// this wire acquires, in the withs' source order.
+				// this context acquires, in the withs' source order.
 				for _, with := range l.withsOf(w) {
 					l.pkgName(pkgKey{"wire", acquiredSet(with)}, "build"+w.Name)
 				}
@@ -125,7 +125,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 	}
 }
 
-// withsOf are the withs of the named wire w, in source order.
+// withsOf are the withs of the named context w, in source order.
 func (l *lowerer) withsOf(w *check.Context) []*check.With {
 	var xs []*syntax.CallExpr
 	for x, with := range l.info.Withs {
@@ -168,7 +168,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 		if !ok {
 			ice(d.Name, "the wire %s has no Defs entry", d.Name.Name)
 		}
-		l.wire(w, d.Name)
+		l.context(w, d.Name)
 	case *syntax.TestDecl:
 		refuse(d, "test blocks run under ergo test, which lowering adds after check-v1 stage E (196l)")
 	default:

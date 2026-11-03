@@ -57,8 +57,8 @@ func Emit(c *Checked) (string, error) {
 	for _, fn := range c.File.Funcs {
 		e.function(fn)
 	}
-	for _, w := range c.File.Wires {
-		e.wire(w)
+	for _, w := range c.File.Contexts {
+		e.context(w)
 	}
 	imports := []string{`"sketchgen/rt"`}
 	if e.useFmt {
@@ -260,15 +260,15 @@ func goTerminates(b *Block) bool {
 	return false
 }
 
-func wireFunc(name string) string { return "wire__" + name }
+func contextFunc(name string) string { return "context__" + name }
 
-// wire emits a named wire as a function that sets its providers on an env. Its
+// context emits a named context as a function that sets its providers on an env. Its
 // initializers require no capability and cannot fail (S102, S101), so it runs
-// with an empty env in an infallible frame. A wire that names itself through a
+// with an empty env in an infallible frame. A context that names itself through a
 // with becomes ordinary recursion, not endless emission.
-func (e *emitter) wire(w *WireDecl) {
+func (e *emitter) context(w *ContextDecl) {
 	e.directive(w.Pos)
-	e.line("func %s(envc__ *Env__, t__ *rt.Task) {", wireFunc(w.Name))
+	e.line("func %s(envc__ *Env__, t__ *rt.Task) {", contextFunc(w.Name))
 	e.frames = []frame{{}}
 	e.envVal, e.envPtr = "Env__{}", "&Env__{}"
 	e.depth++
@@ -560,7 +560,7 @@ func (e *emitter) interruptCheck() {
 	e.line("}")
 }
 
-// with copies the env, sets the wire's fields and runs the block in a Go block
+// with copies the env, sets the context's fields and runs the block in a Go block
 // against the copy. No closure: the block is inlined.
 func (e *emitter) with(x *Call, in info) (val, err string) {
 	val, err = e.declareResult(in)
@@ -578,13 +578,13 @@ func (e *emitter) with(x *Call, in info) (val, err string) {
 	}
 	switch w := x.Args[0].(type) {
 	case *Ident:
-		// A named wire is built by its own Go function, so the caller's local
+		// A named context is built by its own Go function, so the caller's local
 		// names cannot capture its initializers.
 		cp := copyEnv()
-		e.line("%s(&%s, t__)", wireFunc(w.Name), cp)
+		e.line("%s(&%s, t__)", contextFunc(w.Name), cp)
 		e.envVal, e.envPtr = cp, "&"+cp
-	case *WireLit:
-		// An empty wire provides nothing; the block keeps the enclosing env.
+	case *ContextLit:
+		// An empty context provides nothing; the block keeps the enclosing env.
 		if len(w.Entries) > 0 {
 			cp := copyEnv()
 			for _, en := range w.Entries {

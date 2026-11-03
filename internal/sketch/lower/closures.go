@@ -51,7 +51,7 @@ func (fc *funcCtx) envClosure(binding envBinding, name string, site syntax.Node,
 	// is open until the builder opens one and the maker's frame is not
 	// reachable through fc. A captured callback is not a source frame: its
 	// lexical control targets still belong to the maker's frame (acquireFlow;
-	// check/frame.go, WireLit), so that frame stays open.
+	// check/frame.go, ContextLit), so that frame stays open.
 	outerEnv, outerFrame := fc.env, fc.frame
 	fc.env = bound
 	if binding != capturedEnv {

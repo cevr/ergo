@@ -13,7 +13,7 @@ import (
 
 // namesTemplate reaches every kind of package-scope Go entity the lowering
 // generates: the time and runtime imports, the environment and the shared
-// empty one, a wire builder, an operations adapter, a library type
+// empty one, a context builder, an operations adapter, a library type
 // (timeout.Expired) and a prelude record (LiveScheduler), and an error
 // type's text function. LOCAL marks where a local is declared.
 const namesTemplate = `import timeout

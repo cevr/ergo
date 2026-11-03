@@ -15,7 +15,7 @@ const (
 	codeCatchNotTotal   = "S103" // a catch without try misses an error
 	codeUnknownName     = "S104"
 	codeUnhandled       = "S105" // a fallible call whose failure is neither tried, caught nor returned
-	codeBadProvider     = "S106" // a wire provider does not implement its capability
+	codeBadProvider     = "S106" // a context provider does not implement its capability
 	codeMissingReturn   = "S107"
 	codeType            = "S108" // type mismatch or misuse
 	codeUnsupported     = "S109" // outside the prototype's subset
@@ -61,7 +61,7 @@ type Checked struct {
 	Types      map[string]*TypeDecl
 	Funcs      map[string]*FuncDecl
 	Methods    map[string]map[string]*FuncDecl
-	Wires      map[string]*WireDecl
+	Contexts   map[string]*ContextDecl
 	ErrorTypes map[string]bool
 	Info       map[Expr]info
 	Afters     map[*Call]bool // the timeout.After calls, as the checker resolved them
@@ -96,7 +96,7 @@ func Check(f *File) (*Checked, []Diagnostic) {
 		Types:      map[string]*TypeDecl{},
 		Funcs:      map[string]*FuncDecl{},
 		Methods:    map[string]map[string]*FuncDecl{},
-		Wires:      map[string]*WireDecl{},
+		Contexts:   map[string]*ContextDecl{},
 		ErrorTypes: map[string]bool{expiredType: true},
 		Info:       map[Expr]info{},
 		Afters:     map[*Call]bool{},
@@ -105,20 +105,20 @@ func Check(f *File) (*Checked, []Diagnostic) {
 	for _, fn := range f.Funcs {
 		c.funcBody(fn)
 	}
-	for _, w := range f.Wires {
-		// A top-level wire is built by its own function at every with that names
+	for _, w := range f.Contexts {
+		// A top-level context is built by its own function at every with that names
 		// it, so its providers must be closed: they require no capability from the
 		// caller and let no failure escape. They may still use capabilities they
 		// provide to themselves and handle their own failures.
 		fc := &fnCtx{escapes: []map[string]Pos{{}}, needs: map[string]Pos{}, scopes: []map[string]*local{{}}}
-		c.wireEntries(w.Entries, fc)
+		c.contextEntries(w.Entries, fc)
 		for _, u := range sortedKeys(fc.needs) {
 			c.errorf(fc.needs[u], codeMissingCap, "wire %s requires %s to build a provider; build it in an inline wire instead", w.Name, u)
 		}
 		for _, e := range sortedKeys(fc.escapes[0]) {
 			c.errorf(fc.escapes[0][e], codeUndeclaredError, "wire %s can fail with %s while building a provider; build it in an inline wire instead", w.Name, e)
 		}
-		if c.wireReaches(w.Name, w.Name, map[string]bool{}) {
+		if c.contextReaches(w.Name, w.Name, map[string]bool{}) {
 			c.errorf(w.Pos, codeUnsupported, "wire %s needs itself to build its providers", w.Name)
 		}
 	}
@@ -145,12 +145,12 @@ func (c *checker) declare() {
 		}
 		c.Types[d.Name] = d
 	}
-	for _, w := range f.Wires {
+	for _, w := range f.Contexts {
 		c.checkLocalName(w.Pos, w.Name)
-		if c.Wires[w.Name] != nil {
+		if c.Contexts[w.Name] != nil {
 			c.errorf(w.Pos, codeType, "wire %s is declared twice", w.Name)
 		}
-		c.Wires[w.Name] = w
+		c.Contexts[w.Name] = w
 	}
 	for _, fn := range f.Funcs {
 		// Go puts types and functions in one package namespace.
@@ -270,10 +270,10 @@ func (c *checker) declare() {
 	}
 }
 
-// wireReaches reports whether building wire from reaches with(target),
+// contextReaches reports whether building context from reaches with(target),
 // directly or through the functions its initializers call.
-func (c *checker) wireReaches(from, target string, seen map[string]bool) bool {
-	w := c.Wires[from]
+func (c *checker) contextReaches(from, target string, seen map[string]bool) bool {
+	w := c.Contexts[from]
 	if w == nil {
 		return false
 	}
@@ -285,7 +285,7 @@ func (c *checker) wireReaches(from, target string, seen map[string]bool) bool {
 }
 
 // reaches walks expressions and statements for a with(target), following
-// called functions and named wires once each.
+// called functions and named contexts once each.
 func (c *checker) reaches(exprs []Expr, stmts []Stmt, target string, seen map[string]bool) bool {
 	for _, s := range stmts {
 		switch s := s.(type) {
@@ -343,7 +343,7 @@ func (c *checker) reaches(exprs []Expr, stmts []Stmt, target string, seen map[st
 			if c.reaches(sub, nil, target, seen) {
 				return true
 			}
-		case *WireLit:
+		case *ContextLit:
 			for _, en := range e.Entries {
 				if c.reaches([]Expr{en.Value}, nil, target, seen) {
 					return true
@@ -358,7 +358,7 @@ func (c *checker) reaches(exprs []Expr, stmts []Stmt, target string, seen map[st
 						}
 						if !seen["wire "+w.Name] {
 							seen["wire "+w.Name] = true
-							if c.wireReaches(w.Name, target, seen) {
+							if c.contextReaches(w.Name, target, seen) {
 								return true
 							}
 						}
@@ -370,9 +370,9 @@ func (c *checker) reaches(exprs []Expr, stmts []Stmt, target string, seen map[st
 					}
 				}
 			}
-			// M4 (round 3): a capability call runs whichever provider is wired, so
+			// M4 (round 3): a capability call runs whichever provider is hasContexts, so
 			// follow every method of that name. This over-approximates: it may
-			// reject a wire that only an unrelated provider would cycle through.
+			// reject a context that only an unrelated provider would cycle through.
 			if sel, ok := e.Fun.(*Selector); ok {
 				if id, ok := sel.X.(*Ident); ok {
 					if d := c.Types[id.Name]; d != nil && d.Kind == kindCapability {
@@ -888,7 +888,7 @@ func (c *checker) expr1(e Expr, fc *fnCtx) info {
 		return info{typ: x.typ}
 	case *CatchExpr:
 		return c.catch(e, fc, false)
-	case *WireLit:
+	case *ContextLit:
 		c.errorf(e.Pos, codeType, "a wire literal is only allowed as the argument of with")
 		return info{typ: "?"}
 	}
@@ -1132,20 +1132,20 @@ func (c *checker) with(e *Call, fc *fnCtx) info {
 		c.errorf(e.Pos, codeType, "with takes one wire and a block")
 		return info{typ: "?"}
 	}
-	var entries []WireEntry
+	var entries []ContextEntry
 	switch w := e.Args[0].(type) {
 	case *Ident:
-		decl := c.Wires[w.Name]
+		decl := c.Contexts[w.Name]
 		if decl == nil {
 			c.errorf(w.Pos, codeUnknownName, "unknown wire %s", w.Name)
 			return info{typ: "?"}
 		}
 		entries = decl.Entries
-	case *WireLit:
+	case *ContextLit:
 		entries = w.Entries
 		// Inline providers are built here, before the block's discharge, so their
 		// requirements and failures belong to the enclosing function.
-		c.wireEntries(entries, fc)
+		c.contextEntries(entries, fc)
 	default:
 		c.errorf(e.Pos, codeType, "with takes a wire")
 		return info{typ: "?"}
@@ -1181,7 +1181,7 @@ func (c *checker) timeoutAfter(e *Call, fc *fnCtx) info {
 	return v
 }
 
-func (c *checker) wireEntries(entries []WireEntry, fc *fnCtx) {
+func (c *checker) contextEntries(entries []ContextEntry, fc *fnCtx) {
 	for _, en := range entries {
 		capDecl := c.Types[en.Cap]
 		if capDecl == nil || capDecl.Kind != kindCapability {

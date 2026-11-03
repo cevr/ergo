@@ -24,7 +24,7 @@ import (
 // TestRuntime199ContextProperty generates functions whose bodies nest
 // context regions (log.Annotate, trace.Span and a user type that satisfies
 // the protocol), shadow one key with another region of it, mix them with
-// wire withs whose providers' Close reads the context, and start tasks
+// context withs whose providers' Close reads the context, and start tasks
 // before, inside and after a binding. Each task is a delayed child (it
 // waits on a queue until the parent releases it, at a generated later
 // point, maybe inside a later binding or after its own region ended) or an
@@ -32,8 +32,8 @@ import (
 // tasks pending at once are siblings with bindings opened between their
 // starts. Some operands are evaluated through a step that can fail.
 //
-// The model takes each with's kind from the checker's fact (With.Context
-// for a context binding, With.Acquired for a wire's Close), never from the
+// The model takes each with's kind from the checker's fact (With.Value
+// for a context binding, With.Acquired for a context's Close), never from the
 // generator alone. It runs every function natively once normally and once
 // for every parent step and every exit at that step: a typed failure, a
 // defect and a stop, at a read in a region or while an operand is
@@ -43,7 +43,7 @@ import (
 //     innermost binding of each key in force, a child the bindings in
 //     force when it started, after the parent's region ended or while a
 //     later one is open, and its own binding inside its own region only;
-//   - each wire's Close reads the regions around the with, not inside it;
+//   - each context's Close reads the regions around the with, not inside it;
 //   - the caller's values are restored after every exit (a v1 test seam
 //     binds an outer value around the call and reads it after);
 //   - every stored value is a string, and no snapshot a read saw stays
@@ -55,7 +55,7 @@ import (
 const (
 	cxRead    = "read"    // the parent reads the context at a step
 	cxCtx     = "ctx"     // with of a context value
-	cxWire    = "wire"    // with of a named wire of one provider
+	cxContext = "wire"    // with of a named context of one provider
 	cxFork    = "fork"    // task.Go of a child that reads the context
 	cxRelease = "release" // the parent releases a delayed child
 	cxJoin    = "join"    // the parent waits for a child's reads
@@ -66,7 +66,7 @@ type cxNode struct {
 	id   int
 	key  string // a ctx node's slot: a or b (log.Annotate), s (trace.Span), u (the user type tag)
 	op   bool   // a ctx node's operand runs the parent step id first
-	res  bool   // a wire node's provider has a Close
+	res  bool   // a context node's provider has a Close
 	kids []*cxNode
 	fork *cxNode // a release or join node's child; the child a ctx node's block yields
 
@@ -76,13 +76,13 @@ type cxNode struct {
 }
 
 type cxSeq struct {
-	k     int
-	body  []*cxNode
-	ids   int
-	forks []*cxNode
-	wires []*cxNode
-	pends []*[]*cxNode // forks not yet joined, by the scope that owns them
-	withs []*cxNode    // the withs in source order; a fork's own binding is the fork
+	k        int
+	body     []*cxNode
+	ids      int
+	forks    []*cxNode
+	contexts []*cxNode
+	pends    []*[]*cxNode // forks not yet joined, by the scope that owns them
+	withs    []*cxNode    // the withs in source order; a fork's own binding is the fork
 }
 
 func (s *cxSeq) next() int { s.ids++; return s.ids }
@@ -129,11 +129,11 @@ func (s *cxSeq) block(r *rand.Rand, depth int) []*cxNode {
 				mine = append(mine, x.fork)
 			}
 		case c < 8:
-			// A wire with may own the tasks its block starts (resources.md,
-			// Wire ownership); they are named only inside it, so they are
+			// A context with may own the tasks its block starts (resources.md,
+			// Context ownership); they are named only inside it, so they are
 			// joined there.
-			x = &cxNode{kind: cxWire, id: s.next(), res: r.IntN(3) != 0}
-			s.wires = append(s.wires, x)
+			x = &cxNode{kind: cxContext, id: s.next(), res: r.IntN(3) != 0}
+			s.contexts = append(s.contexts, x)
 			x.kids = s.block(r, depth+1)
 		default:
 			x = s.newFork(r)
@@ -186,7 +186,7 @@ func (s *cxSeq) flush(p *[]*cxNode) []*cxNode {
 
 func (s *cxSeq) fn() string { return fmt.Sprintf("run%d", s.k) }
 
-const contextPrelude = `import log
+const contextValuePrelude = `import log
 import queue
 import task
 import trace
@@ -216,7 +216,7 @@ func opnd(line string, text string) string fails Fault needs Probe {
 
 func (s *cxSeq) src() string {
 	var b strings.Builder
-	for _, w := range s.wires {
+	for _, w := range s.contexts {
 		c, t := fmt.Sprintf("C%d_%d", s.k, w.id), fmt.Sprintf("T%d_%d", s.k, w.id)
 		fmt.Fprintf(&b, "type %s { Name() string }\ntype %s {}\nfunc Name(_ %s) string { %q }\n", c, t, t, t)
 		if w.res {
@@ -266,7 +266,7 @@ func (s *cxSeq) write(b *strings.Builder, nodes []*cxNode, in string) {
 				s.task(b, x.fork, in+"\t")
 			}
 			fmt.Fprintf(b, "%s}\n", in)
-		case cxWire:
+		case cxContext:
 			s.withs = append(s.withs, x)
 			fmt.Fprintf(b, "%swith W%d_%d {\n%s\tlet _ = C%d_%d.Name()\n", in, s.k, x.id, in, s.k, x.id)
 			s.write(b, x.kids, in+"\t")
@@ -305,7 +305,7 @@ func (s *cxSeq) task(b *strings.Builder, x *cxNode, in string) {
 
 // cxFacts maps each generated with of s to the checker's fact for it, in
 // source order, and checks the fact's kind: a context binding of the
-// generated type, or a wire whose Close the fact records as the model's.
+// generated type, or a context whose Close the fact records as the model's.
 func cxFacts(t *testing.T, o *lowered, s *cxSeq) map[*cxNode]*check.With {
 	t.Helper()
 	var facts []*check.With
@@ -332,7 +332,7 @@ func cxFacts(t *testing.T, o *lowered, s *cxSeq) map[*cxNode]*check.With {
 		w := facts[i]
 		out[x] = w
 		switch x.kind {
-		case cxWire:
+		case cxContext:
 			closes := cxCloses(w)
 			if w.Value != nil || len(w.Contexts) != 1 || closes != x.res {
 				t.Errorf("%s: with W%d_%d: fact context %v wires %d closes %v, model closes %v", s.fn(), s.k, x.id, w.Value != nil, len(w.Contexts), closes, x.res)
@@ -464,7 +464,7 @@ func (m *cxSim) run(nodes []*cxNode) bool {
 			if exited {
 				return true
 			}
-		case cxWire:
+		case cxContext:
 			exited := m.run(x.kids)
 			if cxCloses(m.facts[x]) {
 				m.parent = append(m.parent, fmt.Sprintf("w%d %s", x.id, cxShow(m.stack)))
@@ -674,14 +674,14 @@ func main() needs Console {
 	}
 }
 
-func TestRuntime199ContextProperty(t *testing.T) {
+func TestRuntime199ContextValueProperty(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs a generated native program")
 	}
 	r := rand.New(rand.NewPCG(199, 7))
 	var seqs []*cxSeq
 	var src strings.Builder
-	src.WriteString(contextPrelude)
+	src.WriteString(contextValuePrelude)
 	for k := 0; k < 24; k++ {
 		s := genCxSeq(r, k)
 		seqs = append(seqs, s)
@@ -744,8 +744,8 @@ extern go ergo.local/prototype/runtime/v1.ContextValue func value(key string) st
 // regions open at each point.
 func cxShapes(s *cxSeq, shapes map[string]bool) {
 	starts := map[int][]*cxNode{} // a fork's regions at its start
-	var walk func(nodes []*cxNode, regions []*cxNode, inWire bool)
-	walk = func(nodes []*cxNode, regions []*cxNode, inWire bool) {
+	var walk func(nodes []*cxNode, regions []*cxNode, inContext bool)
+	walk = func(nodes []*cxNode, regions []*cxNode, inContext bool) {
 		for _, x := range nodes {
 			switch x.kind {
 			case cxCtx:
@@ -757,13 +757,13 @@ func cxShapes(s *cxSeq, shapes map[string]bool) {
 				shapes["span"] = shapes["span"] || x.key == "s"
 				shapes["user tag"] = shapes["user tag"] || x.key == "u"
 				shapes["operand step"] = shapes["operand step"] || x.op
-				shapes["context in wire"] = shapes["context in wire"] || inWire
+				shapes["context in wire"] = shapes["context in wire"] || inContext
 				inner := append(slices.Clone(regions), x)
-				walk(x.kids, inner, inWire)
+				walk(x.kids, inner, inContext)
 				if x.fork != nil {
-					walk([]*cxNode{x.fork}, inner, inWire)
+					walk([]*cxNode{x.fork}, inner, inContext)
 				}
-			case cxWire:
+			case cxContext:
 				for _, r := range regions {
 					shapes["wire in context"] = shapes["wire in context"] || r.kind == cxCtx
 				}
@@ -1001,7 +1001,7 @@ func TestContext(t *testing.T) {
 // go/types, and the lowering's text is read as constant values, so a split
 // or named constant cannot hide an emitted name (runtime-199 stage 4a r1
 // m4).
-func TestRuntime199ContextOwner(t *testing.T) {
+func TestRuntime199ContextValueOwner(t *testing.T) {
 	emits := map[string]int{}
 	lowering := typedPackage(t, ".")
 	lowering.owners(func(owner string, decl ast.Decl) {

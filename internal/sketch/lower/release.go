@@ -100,7 +100,7 @@ func (fc *funcCtx) providerCloser(a *check.Acquisition, outer, val string, site 
 
 // acquireFlow transports lexical control through a native callback. It is
 // not a source frame: its return/failure and loop targets still belong to
-// the enclosing source frame (check/frame.go, WireLit). A completed
+// the enclosing source frame (check/frame.go, ContextLit). A completed
 // construction alone returns a release to WithAcquire for registration.
 type acquireFlow struct {
 	flow, value, err string // 0 completes, 1 returns, 2 breaks, 3 continues

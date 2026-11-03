@@ -150,7 +150,7 @@ func (s *Scope) close(e error) error {
 }
 
 // OpenWith opens the scope of an owning with (docs/spec/resources.md,
-// Wire ownership): a with whose wire builds a provider with a checked
+// Context ownership): a with whose context builds a provider with a checked
 // Close. s is the scope of the code at the with, its frame or the next
 // owning with out. The with's scope owns the providers the with builds
 // (WithAcquire) and the tasks its block starts or receives, as a frame owns

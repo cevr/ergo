@@ -111,7 +111,7 @@ func (c *converter) file(f *syntax.File) *File {
 				out.Funcs = append(out.Funcs, fn)
 			}
 		case *syntax.ContextDecl:
-			// The checker of #196 owns what a wire header means: provides
+			// The checker of #196 owns what a context header means: provides
 			// hides the unlisted entries, needs joins the with site's row.
 			refused := false
 			if d.Provides != nil {
@@ -125,7 +125,7 @@ func (c *converter) file(f *syntax.File) *File {
 			if refused {
 				continue
 			}
-			out.Wires = append(out.Wires, &WireDecl{Pos: c.pos(d.Context), Name: d.Name.Name, Entries: c.wireEntries(d.Body)})
+			out.Contexts = append(out.Contexts, &ContextDecl{Pos: c.pos(d.Context), Name: d.Name.Name, Entries: c.contextEntries(d.Body)})
 		case *syntax.VarDecl:
 			c.refuse(d, "a top-level let that is not a wire")
 		default:
@@ -357,8 +357,8 @@ func (c *converter) funcDecl(d *syntax.FuncDecl) *FuncDecl {
 	return out
 }
 
-func (c *converter) wireEntries(b *syntax.ContextBody) []WireEntry {
-	var out []WireEntry
+func (c *converter) contextEntries(b *syntax.ContextBody) []ContextEntry {
+	var out []ContextEntry
 	for _, e := range b.Entries {
 		switch {
 		case e.Kind == syntax.ContextEmbed:
@@ -374,7 +374,7 @@ func (c *converter) wireEntries(b *syntax.ContextBody) []WireEntry {
 				continue
 			}
 			if v := c.expr(e.Value); v != nil {
-				out = append(out, WireEntry{Pos: c.pos(id.Pos()), Cap: id.Name, Value: v})
+				out = append(out, ContextEntry{Pos: c.pos(id.Pos()), Cap: id.Name, Value: v})
 			}
 		}
 	}
@@ -620,7 +620,7 @@ func (c *converter) expr(x syntax.Expr) Expr {
 	case *syntax.CatchExpr:
 		return c.catch(x)
 	case *syntax.ContextLit:
-		// As for a named wire, the header's meaning is the checker's (#196).
+		// As for a named context, the header's meaning is the checker's (#196).
 		if x.Provides != nil || x.Needs != nil {
 			if x.Provides != nil {
 				c.refuse(x.Provides, "a wire's provides clause (checked by #196)")
@@ -630,7 +630,7 @@ func (c *converter) expr(x syntax.Expr) Expr {
 			}
 			return nil
 		}
-		return &WireLit{Pos: c.pos(x.Context), Entries: c.wireEntries(x.Body)}
+		return &ContextLit{Pos: c.pos(x.Context), Entries: c.contextEntries(x.Body)}
 	case *syntax.FuncLit:
 		c.refuse(x, "a function literal")
 	case *syntax.GoExpr:

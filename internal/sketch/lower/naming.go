@@ -19,7 +19,7 @@ import (
 // The pass reserves, in this order:
 //
 //  1. the user package's declarations, in source order: types, functions,
-//     lets and wire builders, so a source name keeps its spelling unless Go
+//     lets and context builders, so a source name keeps its spelling unless Go
 //     reserves it;
 //  2. the generated package entities: the runtime and time imports, the
 //     environment type, the host's Console adapter, the pattern test

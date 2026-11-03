@@ -227,7 +227,7 @@ func main() fails Bad | Gen[int] | Gen2[int] needs Console {
 		exit:   1,
 	}, {
 		name: "sharedonce",
-		// A named wire is closed, so its provider cannot print; the provider
+		// A named context is closed, so its provider cannot print; the provider
 		// holds a slice instead, and Store's write is visible through Reader
 		// only when both keys hold one evaluated value.
 		src: `type Store { Bump() }

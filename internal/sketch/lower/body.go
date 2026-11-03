@@ -106,7 +106,7 @@ type funcCtx struct {
 	// right).
 	tries int
 	// owner is the Ergo name of the source declaration being lowered (a
-	// function, a package let, a wire), the Func of its call identities
+	// function, a package let, a context), the Func of its call identities
 	// (#230); a function literal inherits it.
 	owner string
 	// lastPos is the position of the last //line directive written.

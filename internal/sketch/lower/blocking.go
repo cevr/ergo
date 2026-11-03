@@ -55,7 +55,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Release":      {release: callerRelease},
 	"New":          {},
 	"WithCapacity": {},
-	// The with lifetime owner's scope (with, withClose; resources.md, Wire
+	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
 	// (callerRelease). A provider's release is registered only by

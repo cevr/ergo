@@ -2,12 +2,12 @@ package proto
 
 // File is one parsed source file.
 type File struct {
-	Name    string
-	Package string
-	Imports []string
-	Types   []*TypeDecl
-	Funcs   []*FuncDecl
-	Wires   []*WireDecl
+	Name     string
+	Package  string
+	Imports  []string
+	Types    []*TypeDecl
+	Funcs    []*FuncDecl
+	Contexts []*ContextDecl
 }
 
 type typeKind int
@@ -67,15 +67,15 @@ type FuncDecl struct {
 	Body *Block
 }
 
-// WireDecl is `wire Name { Cap = Provider ... }`.
-type WireDecl struct {
+// ContextDecl is `context Name { Cap = Provider ... }`.
+type ContextDecl struct {
 	Pos     Pos
 	Name    string
-	Entries []WireEntry
+	Entries []ContextEntry
 }
 
-// WireEntry binds one capability to a provider literal.
-type WireEntry struct {
+// ContextEntry binds one capability to a provider literal.
+type ContextEntry struct {
 	Pos   Pos
 	Cap   string
 	Value Expr
@@ -197,10 +197,10 @@ type CatchArm struct {
 	Value Expr
 }
 
-// WireLit is an inline `wire{ A = X{}; B = Y{} }`.
-type WireLit struct {
+// ContextLit is an inline `context{ A = X{}; B = Y{} }`.
+type ContextLit struct {
 	Pos     Pos
-	Entries []WireEntry
+	Entries []ContextEntry
 }
 
 func (e *Ident) exprPos() Pos        { return e.Pos }
@@ -211,4 +211,4 @@ func (e *Call) exprPos() Pos         { return e.Pos }
 func (e *CompositeLit) exprPos() Pos { return e.Pos }
 func (e *TryExpr) exprPos() Pos      { return e.Pos }
 func (e *CatchExpr) exprPos() Pos    { return e.Pos }
-func (e *WireLit) exprPos() Pos      { return e.Pos }
+func (e *ContextLit) exprPos() Pos   { return e.Pos }

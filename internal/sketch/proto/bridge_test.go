@@ -97,7 +97,7 @@ func TestBridgeRefusals(t *testing.T) {
 			if out != nil || len(diags) == 0 || diags[0].Code != codeOutside || diags[0].Pos.Line != line {
 				t.Fatalf("got %v, want S109 on line %d", diags, line)
 			}
-			// A wire header's meaning belongs to the checker of #196.
+			// A context header's meaning belongs to the checker of #196.
 			if strings.Contains(src, "wire provides") || strings.Contains(src, "wire needs") {
 				for _, d := range diags {
 					if !strings.Contains(d.Msg, "#196") {

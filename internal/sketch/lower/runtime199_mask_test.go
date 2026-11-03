@@ -94,7 +94,7 @@ func closeDispatch(t *testing.T) map[string]bool {
 		case check.CallProviderOp:
 			// A capability's Close is refused since runtime-199 stage 3b:
 			// the with that built the provider releases it (resources.md
-			// R24; check TestWireOwnershipRefusals), and the with's release
+			// R24; check TestContextOwnershipRefusals), and the with's release
 			// is a plain call of the checked Close (providerRelease).
 		case check.CallFuncValue:
 			// The value is a checked Close reference: a declared function

@@ -162,7 +162,7 @@ func (fc *funcCtx) openFrame(errName string) {
 // frameScope is the address of the current frame scope, the hidden frame
 // or destination argument of a call at site. Inside an owning with it is
 // the with's scope (v1.OpenWith), so the tasks the block starts or
-// receives drain before the with's providers close (resources.md, Wire
+// receives drain before the with's providers close (resources.md, Context
 // ownership); v1.OnExit routes an exit action to the function's frame.
 func (fc *funcCtx) frameScope(site syntax.Node) string {
 	if fc.frame == nil || fc.frame.scope == "" {

@@ -84,7 +84,7 @@ func main() { with (Tag{V: 1}) { } }
 			}
 		}
 	}
-	for _, r := range importedWireRefusalWitness(t) {
+	for _, r := range importedContextRefusalWitness(t) {
 		met[refusalFamily(r.Message)]++
 	}
 	for family := range refusedFamilies {
@@ -100,10 +100,10 @@ func main() { with (Tag{V: 1}) { } }
 	}
 }
 
-// An imported wire needs two checked packages; a source-string replay
+// An imported context needs two checked packages; a source-string replay
 // cannot supply its importer. This is the same public seam as the
-// runtime199 imported-wire regression, with the observed refusal returned.
-func importedWireRefusalWitness(t *testing.T) []Refusal {
+// runtime199 imported-context regression, with the observed refusal returned.
+func importedContextRefusalWitness(t *testing.T) []Refusal {
 	t.Helper()
 	lib, err := syntax.Parse(`type A { Use() }
 type Conn { n int }
@@ -124,7 +124,7 @@ let W = wire { A: Get() }
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, ds := check.Check("main", []*syntax.File{file}, wireImporter{makers})
+	pkg, ds := check.Check("main", []*syntax.File{file}, contextImporter{makers})
 	if len(ds) != 0 {
 		t.Fatal(ds)
 	}

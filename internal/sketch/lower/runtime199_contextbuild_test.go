@@ -14,8 +14,8 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Wire ownership (runtime-199 stage 3b; resources.md, Wire ownership;
-// runtime.md, With cleanup). TestRuntime199WireProperty generates wire
+// Context ownership (runtime-199 stage 3b; resources.md, Context ownership;
+// runtime.md, With cleanup). TestRuntime199ContextBuildProperty generates context
 // DAGs, runs every with of each under each exit class in real programs, and
 // compares what they print with the checker's ownership fact
 // (With.Acquired): each acquired resource closes once, at the end of its
@@ -24,37 +24,37 @@ import (
 // the providers it borrows close, on the with's normal end too; a release
 // defect at any position, under every exit class, lets the later releases
 // run and keeps every cause; a stop that arrives while a release runs lets
-// every release finish and is observed after the with. A named wire is
+// every release finish and is observed after the with. A named context is
 // closed, so its providers cannot print when they are built: the build
 // order shows as the release order (last built first) and as a dependency
 // read, which fails when its entry is not built yet.
 
-// wireEntry is one entry of a generated wire, in model order: it depends
+// contextEntry is one entry of a generated context, in model order: it depends
 // only on capabilities bound by earlier entries.
-type wireEntry struct {
+type contextEntry struct {
 	caps []int // the capabilities it binds; two make a shared entry
 	deps []int // the capabilities its provider uses
 	res  bool  // its type has a checked Close
 }
 
-type wireDAG struct {
+type contextDAG struct {
 	k       int
 	caps    int
-	entries []wireEntry
-	order   []int // the entries' order in the wire's source
-	base    int   // a capability an embedded wire also binds and W replaces, -1 none
+	entries []contextEntry
+	order   []int // the entries' order in the context's source
+	base    int   // a capability an embedded context also binds and W replaces, -1 none
 	uses    []int // the capabilities the with's block uses
 	inner   int   // the capability a nested with rebinds, -1 none
 	child   int   // the capability a child task uses, -1 none
 }
 
-func (d *wireDAG) typ(e int) string { return fmt.Sprintf("T%d_%d", d.k, e) }
-func (d *wireDAG) baseTyp() string  { return fmt.Sprintf("T%d_b", d.k) }
-func (d *wireDAG) innerTyp() string { return fmt.Sprintf("T%d_v", d.k) }
-func (d *wireDAG) cap(c int) string { return fmt.Sprintf("C%d_%d", d.k, c) }
+func (d *contextDAG) typ(e int) string { return fmt.Sprintf("T%d_%d", d.k, e) }
+func (d *contextDAG) baseTyp() string  { return fmt.Sprintf("T%d_b", d.k) }
+func (d *contextDAG) innerTyp() string { return fmt.Sprintf("T%d_v", d.k) }
+func (d *contextDAG) cap(c int) string { return fmt.Sprintf("C%d_%d", d.k, c) }
 
 // binder is the entry that binds capability c.
-func (d *wireDAG) binder(c int) int {
+func (d *contextDAG) binder(c int) int {
 	for e, en := range d.entries {
 		if slices.Contains(en.caps, c) {
 			return e
@@ -65,7 +65,7 @@ func (d *wireDAG) binder(c int) int {
 
 // reached is the model's acquisition set: the entries that bind a used
 // capability and, transitively, the entries their providers use.
-func (d *wireDAG) reached() map[int]bool {
+func (d *contextDAG) reached() map[int]bool {
 	out := map[int]bool{}
 	var visit func(c int)
 	visit = func(c int) {
@@ -84,15 +84,15 @@ func (d *wireDAG) reached() map[int]bool {
 	return out
 }
 
-func genWireDAG(r *rand.Rand, k int) *wireDAG {
-	d := &wireDAG{k: k, caps: 2 + r.IntN(5), base: -1, inner: -1, child: -1}
+func genContextDAG(r *rand.Rand, k int) *contextDAG {
+	d := &contextDAG{k: k, caps: 2 + r.IntN(5), base: -1, inner: -1, child: -1}
 	perm := r.Perm(d.caps)
 	for i := 0; i < len(perm); {
 		n := 1
 		if i+1 < len(perm) && r.IntN(3) == 0 {
 			n = 2
 		}
-		en := wireEntry{caps: append([]int(nil), perm[i:i+n]...), res: r.IntN(4) != 0}
+		en := contextEntry{caps: append([]int(nil), perm[i:i+n]...), res: r.IntN(4) != 0}
 		var earlier []int
 		for _, prev := range d.entries {
 			earlier = append(earlier, prev.caps...)
@@ -133,10 +133,10 @@ func genWireDAG(r *rand.Rand, k int) *wireDAG {
 	return d
 }
 
-// decls writes the DAG's types, providers and wires. A type in fail
+// decls writes the DAG's types, providers and contexts. A type in fail
 // panics in its Close after it prints. A type in slow sleeps in its Close
 // between two lines, so a stop can arrive while the release runs.
-func (d *wireDAG) decls(fail, slow map[string]bool) string {
+func (d *contextDAG) decls(fail, slow map[string]bool) string {
 	var b strings.Builder
 	for c := 0; c < d.caps; c++ {
 		fmt.Fprintf(&b, "type %s { Name() string }\n", d.cap(c))
@@ -212,24 +212,24 @@ const (
 	exitStopRel = "stoprel"
 )
 
-func (d *wireDAG) hasInner(exit string) bool {
+func (d *contextDAG) hasInner(exit string) bool {
 	return d.inner >= 0 && (exit == exitSuccess || exit == exitTail || exit == exitMid)
 }
 
 // hasChild reports a child task in the block that borrows a capability. On
 // a success the block leaves it running, so the with's normal end
 // (EndWith) drains it; on a mid exit or a defect the exit leaves it.
-func (d *wireDAG) hasChild(exit string) bool {
+func (d *contextDAG) hasChild(exit string) bool {
 	return d.child >= 0 && (exit == exitSuccess || exit == exitMid || exit == exitDefect)
 }
 
 // waits reports an exit whose function takes main's ready queue.
 func waits(exit string) bool { return exit == exitStop || exit == exitStopRel }
 
-func (d *wireDAG) fn(exit string) string { return fmt.Sprintf("run%d_%s", d.k, exit) }
+func (d *contextDAG) fn(exit string) string { return fmt.Sprintf("run%d_%s", d.k, exit) }
 
 // function writes the function that runs W's with under exit.
-func (d *wireDAG) function(exit string) string {
+func (d *contextDAG) function(exit string) string {
 	var b strings.Builder
 	needs := []string{"Console"}
 	var fails []string
@@ -284,7 +284,7 @@ func (d *wireDAG) function(exit string) string {
 }
 
 // call writes main's statements that run exit's function.
-func (d *wireDAG) call(exit string) string {
+func (d *contextDAG) call(exit string) string {
 	switch exit {
 	case exitSuccess:
 		if d.hasChild(exit) {
@@ -306,25 +306,25 @@ func (d *wireDAG) call(exit string) string {
 	return "\t\t" + d.fn(exit) + "() catch {\n" + catch + "\t\t}\n"
 }
 
-const wirePrelude = `type Fault {}
+const contextBuildPrelude = `type Fault {}
 func boom() fails Fault { return Fault }
 let Live = wire { Scheduler: LiveScheduler }
 `
 
-// wireProgram is one generated program: its DAGs and the exits main runs,
+// contextProgram is one generated program: its DAGs and the exits main runs,
 // in order, the types whose Close fails and the types whose Close sleeps.
-type wireProgram struct {
+type contextProgram struct {
 	name  string
-	dags  []*wireDAG
+	dags  []*contextDAG
 	exits []string
 	fail  map[string]bool
 	slow  map[string]bool
 	o     *lowered
 }
 
-func (p *wireProgram) src() string {
+func (p *contextProgram) src() string {
 	var b strings.Builder
-	b.WriteString(wirePrelude)
+	b.WriteString(contextBuildPrelude)
 	for _, d := range p.dags {
 		b.WriteString(d.decls(p.fail, p.slow))
 		for _, exit := range p.exits {
@@ -347,7 +347,7 @@ func (p *wireProgram) src() string {
 	return imports.String() + "\n" + b.String()
 }
 
-// acquired is the checker's fact for the with of wire name in fn: each
+// acquired is the checker's fact for the with of context name in fn: each
 // acquisition's provider type, the capabilities it binds, and its Close.
 type acquired struct {
 	typ  string
@@ -355,7 +355,7 @@ type acquired struct {
 	res  bool
 }
 
-func wireFact(t *testing.T, o *lowered, fn, wire string) []acquired {
+func contextFact(t *testing.T, o *lowered, fn, context string) []acquired {
 	t.Helper()
 	var out []acquired
 	found := 0
@@ -370,7 +370,7 @@ func wireFact(t *testing.T, o *lowered, fn, wire string) []acquired {
 				return true
 			}
 			w := o.pkg.Info.Withs[x]
-			if w == nil || len(w.Contexts) != 1 || w.Contexts[0].Name != wire {
+			if w == nil || len(w.Contexts) != 1 || w.Contexts[0].Name != context {
 				return true
 			}
 			found++
@@ -385,7 +385,7 @@ func wireFact(t *testing.T, o *lowered, fn, wire string) []acquired {
 		})
 	}
 	if found != 1 {
-		t.Fatalf("%s has %d withs of %s, want 1", fn, found, wire)
+		t.Fatalf("%s has %d withs of %s, want 1", fn, found, context)
 	}
 	return out
 }
@@ -393,7 +393,7 @@ func wireFact(t *testing.T, o *lowered, fn, wire string) []acquired {
 // checkFact compares the checker's acquisitions of W in fn with the model:
 // the reached entries, each once with every capability it binds, a
 // provider after the entries it uses, and no overridden provider.
-func checkFact(t *testing.T, d *wireDAG, fact []acquired) {
+func checkFact(t *testing.T, d *contextDAG, fact []acquired) {
 	t.Helper()
 	reached := d.reached()
 	pos := map[string]int{}
@@ -459,9 +459,9 @@ func closeLines(fact []acquired, slow map[string]bool) []string {
 }
 
 // expect is what exit's run of d prints, from the checker's fact.
-func expect(t *testing.T, o *lowered, d *wireDAG, exit string, slow map[string]bool) []string {
+func expect(t *testing.T, o *lowered, d *contextDAG, exit string, slow map[string]bool) []string {
 	t.Helper()
-	fact := wireFact(t, o, d.fn(exit), fmt.Sprintf("W%d", d.k))
+	fact := contextFact(t, o, d.fn(exit), fmt.Sprintf("W%d", d.k))
 	checkFact(t, d, fact)
 	bound := func(c int) string {
 		for _, a := range fact {
@@ -477,7 +477,7 @@ func expect(t *testing.T, o *lowered, d *wireDAG, exit string, slow map[string]b
 		lines = append(lines, "use "+bound(c))
 	}
 	if d.hasInner(exit) {
-		inner := wireFact(t, o, d.fn(exit), fmt.Sprintf("V%d", d.k))
+		inner := contextFact(t, o, d.fn(exit), fmt.Sprintf("V%d", d.k))
 		lines = append(lines, "inner "+d.innerTyp())
 		lines = append(lines, closes(inner)...)
 		lines = append(lines, "after "+bound(d.inner))
@@ -497,14 +497,14 @@ func expect(t *testing.T, o *lowered, d *wireDAG, exit string, slow map[string]b
 	return lines
 }
 
-func TestRuntime199WireProperty(t *testing.T) {
+func TestRuntime199ContextBuildProperty(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs generated programs")
 	}
 	r := rand.New(rand.NewPCG(199, 3))
-	var dags []*wireDAG
+	var dags []*contextDAG
 	for k := 0; k < 24; k++ {
-		dags = append(dags, genWireDAG(r, k))
+		dags = append(dags, genContextDAG(r, k))
 	}
 	// The generator reaches every shape the property claims.
 	shapes := map[string]bool{}
@@ -524,15 +524,15 @@ func TestRuntime199WireProperty(t *testing.T) {
 			t.Fatalf("the generator reaches no %s entry", s)
 		}
 	}
-	programs := []*wireProgram{{name: "wire_exits", dags: dags, exits: []string{exitSuccess, exitTail, exitMid, exitStop}}}
+	programs := []*contextProgram{{name: "context_exits", dags: dags, exits: []string{exitSuccess, exitTail, exitMid, exitStop}}}
 	type releaseCase struct {
-		p        *wireProgram
+		p        *contextProgram
 		failures int
 	}
 	var released []releaseCase
 	positions := map[string]bool{}
 	for _, d := range dags {
-		programs = append(programs, &wireProgram{name: fmt.Sprintf("wire_defect%d", d.k), dags: []*wireDAG{d}, exits: []string{exitDefect}})
+		programs = append(programs, &contextProgram{name: fmt.Sprintf("context_defect%d", d.k), dags: []*contextDAG{d}, exits: []string{exitDefect}})
 	}
 	for _, p := range programs {
 		p.o = mustLower(t, p.name, p.src())
@@ -540,12 +540,12 @@ func TestRuntime199WireProperty(t *testing.T) {
 	// The exits a release defect is generated under: every exit class.
 	releaseExits := []string{exitDefect, exitSuccess, exitTail, exitMid, exitStop}
 	releasedUnder := map[string]bool{}
-	var stopRel []*wireProgram
+	var stopRel []*contextProgram
 	for _, p := range programs[1:] {
 		// A release defect at one or two positions of W's release order
 		// (the checker's fact), under each exit class in turn.
 		d := p.dags[0]
-		order := closes(wireFact(t, p.o, d.fn(exitDefect), fmt.Sprintf("W%d", d.k)))
+		order := closes(contextFact(t, p.o, d.fn(exitDefect), fmt.Sprintf("W%d", d.k)))
 		if len(order) == 0 {
 			continue
 		}
@@ -556,12 +556,12 @@ func TestRuntime199WireProperty(t *testing.T) {
 		}
 		exit := releaseExits[d.k%len(releaseExits)]
 		releasedUnder[exit] = true
-		rp := &wireProgram{name: fmt.Sprintf("wire_release%d", d.k), dags: []*wireDAG{d}, exits: []string{exit}, fail: fail}
+		rp := &contextProgram{name: fmt.Sprintf("context_release%d", d.k), dags: []*contextDAG{d}, exits: []string{exit}, fail: fail}
 		rp.o = mustLower(t, rp.name, rp.src())
 		released = append(released, releaseCase{rp, len(fail)})
 		if d.k%3 == 1 {
 			// A stop that arrives while the first release sleeps.
-			sp := &wireProgram{name: fmt.Sprintf("wire_stoprel%d", d.k), dags: []*wireDAG{d}, exits: []string{exitStopRel}, slow: map[string]bool{at(0): true}}
+			sp := &contextProgram{name: fmt.Sprintf("context_stoprel%d", d.k), dags: []*contextDAG{d}, exits: []string{exitStopRel}, slow: map[string]bool{at(0): true}}
 			sp.o = mustLower(t, sp.name, sp.src())
 			stopRel = append(stopRel, sp)
 		}
@@ -612,7 +612,7 @@ func TestRuntime199WireProperty(t *testing.T) {
 						if exit != exitDefect {
 							lines = lines[:len(lines)-1]
 						}
-						fact := wireFact(t, p.o, d.fn(exit), fmt.Sprintf("W%d", d.k))
+						fact := contextFact(t, p.o, d.fn(exit), fmt.Sprintf("W%d", d.k))
 						order := closes(fact)
 						for i, c := range order {
 							if p.fail[strings.TrimPrefix(c, "close ")] {
@@ -784,11 +784,11 @@ func checkWithFootprints(t *testing.T, o *lowered) int {
 }
 
 // A with's footprint covers every provider its With.Acquired fact builds,
-// whatever the wire's spelling (stage 3c r1 M1). idle's own footprint is
+// whatever the context's spelling (stage 3c r1 M1). idle's own footprint is
 // empty; its checked need B reaches mk, which uses A. PX.Use asks the
 // running task to stop; a stopped work must not return from its loop. The
 // inline form used to drop mk's footprint, so its loop had no checkpoint.
-func TestRuntime199WireEmbeddedFootprint(t *testing.T) {
+func TestRuntime199ContextEmbeddedFootprint(t *testing.T) {
 	const src = `type A { Use() }
 type B { Use() }
 type PX {}
@@ -861,7 +861,7 @@ func main() { work() }
 // release does not observe the stop, so a stopped work must reach a
 // checkpoint in its loop and never return. Without the Close's footprint
 // work was pure, its loop had no checkpoint, and it returned.
-func TestRuntime199WireCloseFootprint(t *testing.T) {
+func TestRuntime199ContextCloseFootprint(t *testing.T) {
 	const src = `type A { Use() }
 type R { Use() }
 type PX {}
@@ -933,7 +933,7 @@ func main() { with wire { A: PX } { work() } }
 
 // The head refuses this program. If a freshness regression admits it, run
 // it so the witness shows the same package resource closing twice.
-func TestRuntime199WireFreshProvider(t *testing.T) {
+func TestRuntime199ContextFreshProvider(t *testing.T) {
 	const tail = `
 func main() needs Console {
 	with W { A.Use() }
@@ -970,7 +970,7 @@ let W = wire { A: Registry(shared.Delete("zz")) }` + tail
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := tc.src
-			o := lowerSource("wire_reused", src, true)
+			o := lowerSource("context_reused", src, true)
 			if len(o.diags) == 1 && o.diags[0].Code == "S109" && o.diags[0].Line == 7 && strings.Contains(o.diags[0].Message, "#197") {
 				return
 			}
@@ -993,7 +993,7 @@ let W = wire { A: Registry(shared.Delete("zz")) }` + tail
 // Frame actions run after open withs unwind, even when registered before
 // the with; registering an action inside a with still gives it to the
 // frame. These orders are observable independently of acquisition facts.
-func TestRuntime199WireExitActions(t *testing.T) {
+func TestRuntime199ContextExitActions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs cleanup ordering witnesses")
 	}
@@ -1062,10 +1062,10 @@ func main() needs Console { run(); Console.Println("end") }
 	}
 }
 
-// TestRuntime199WireOwner fails a with lifetime that bypasses its owner:
+// TestRuntime199ContextBuildOwner fails a with lifetime that bypasses its owner:
 // only the with and its builder emit the with scope's calls, and only the
 // owner reads the checker's ownership fact.
-func TestRuntime199WireOwner(t *testing.T) {
+func TestRuntime199ContextBuildOwner(t *testing.T) {
 	writers := map[string]bool{"with": true, "withClose": true, "blocking.go:package": true}
 	readers := map[string]bool{"ownsResources": true, "acquiredSet": true, "buildProviders": true, "withsOf": true}
 	i1LowerSource(t, func(owner string, node ast.Node) {

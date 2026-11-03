@@ -21,7 +21,7 @@ import (
 
 // Acquisition and registration as one masked step (runtime-199 stage 3c;
 // resources.md R7, R8). TestRuntime199AcquireProperty generates inline
-// wires of explicit providers, some embedding a named wire and some
+// contexts of explicit providers, some embedding a named context and some
 // replacing one of its entries, and takes each with's acquisitions from the
 // checker's fact (With.Acquired). It runs the emitted with in a native copy
 // of the program and its runtime, once for every acquired entry and every
@@ -36,14 +36,14 @@ import (
 //     registration of its release (a test seam in the copied rt.AcquireInto,
 //     which also polls there); the release is registered and runs once.
 //
-// The named twin of each sequence holds the same entries in a named wire,
-// so its with runs through emitWire's builder function (stage 3c r1 m1). A
-// named wire is closed, so its constructors call no Probe; the seam drives
+// The named twin of each sequence holds the same entries in a named context,
+// so its with runs through emitContext's builder function (stage 3c r1 m1). A
+// named context is closed, so its constructors call no Probe; the seam drives
 // its outcomes: a normal end, and at the registration of each acquisition
 // of a with that owns a release, a stop (gap) and a defect (seamdefect).
 //
 // Each inline case also runs in three nested roots (stage 5a M1): the same
-// with inside an owning with of a named wire, in an if block, in a loop and
+// with inside an owning with of a named context, in an if block, in a loop and
 // in a function literal. The outer provider registers first and closes
 // after every inner release, on every exit.
 //
@@ -52,13 +52,13 @@ import (
 // that reach registration and reports any that is not masked there, and the
 // probe reports any constructor step that runs unmasked.
 
-// acqEntry is one provider entry: of the inline wire, or of the named wire
-// the inline wire embeds.
+// acqEntry is one provider entry: of the inline context, or of the named context
+// the inline context embeds.
 type acqEntry struct {
 	caps  []int
 	deps  []int // a named entry: capabilities of earlier named entries its provider uses
 	res   bool  // its type has a checked Close
-	named bool  // in the embedded named wire, which is closed: no Probe and no failure
+	named bool  // in the embedded named context, which is closed: no Probe and no failure
 	ctor  bool  // its provider is a constructor call, not a type literal
 	fail  bool  // an inline constructor that can fail, written with try
 	over  bool  // a named entry an inline replace overrides
@@ -180,7 +180,7 @@ func (s *acqSeq) fn() string { return fmt.Sprintf("run%d", s.k) }
 // namedFn is the function of the named twin's with.
 func (s *acqSeq) namedFn() string { return fmt.Sprintf("named%d", s.k) }
 
-// src writes the sequence's types, providers, embedded wire and the
+// src writes the sequence's types, providers, embedded context and the
 // function whose with acquires them.
 func (s *acqSeq) src() string {
 	var b strings.Builder
@@ -264,8 +264,8 @@ func (s *acqSeq) src() string {
 	fmt.Fprintf(&b, "func need%d() needs %s {}\nfunc silent%d() fails Fault needs Probe {\n\twith wire { %s } { need%d() }\n}\n",
 		s.k, strings.Join(all, ", "), s.k, strings.Join(inline, ", "), s.k)
 	// The named twin (stage 3c r1 m1), run natively: the same entries in a
-	// named wire, so its with is lowered through emitWire's builder. A named
-	// wire is closed, so each inline constructor becomes a constructor that
+	// named context, so its with is lowered through emitContext's builder. A named
+	// context is closed, so each inline constructor becomes a constructor that
 	// calls no Probe; the seam in rt.AcquireInto drives its boundary
 	// outcomes.
 	var twin []string
@@ -294,7 +294,7 @@ func (s *acqSeq) src() string {
 	fmt.Fprintf(&b, "let Q%d = wire { %s }\nfunc %s() fails Fault needs Probe {\n\twith Q%d {\n\t\tlet _ = Probe.Step(\"body \" + %s)\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
 		s.k, strings.Join(twin, ", "), s.namedFn(), s.k, strings.Join(names, " + \" \" + "), s.k)
 	// The deep twin, for checkWithFootprints only (stage 3c r2 M1 and m2):
-	// a with of a wire that embeds the named wire, so each named entry is
+	// a with of a context that embeds the named context, so each named entry is
 	// embedded at depth 2. Its block needs every named capability, so every
 	// named entry is built here, and its frame's footprint holds only what
 	// those constructors and their Closes run.
@@ -311,7 +311,7 @@ func (s *acqSeq) src() string {
 			s.k, s.k, s.k, strings.Join(ncaps, ", "), s.k, s.k, s.k)
 	}
 	// The nested roots (stage 5a M1), run natively: the same inline with,
-	// nested inside an owning with of the named wire W<k>, whose provider
+	// nested inside an owning with of the named context W<k>, whose provider
 	// O<k> has a Close, in each form: an if block, a loop and a function
 	// literal the outer block calls. So every boundary outcome of the inner
 	// with also meets an enclosing owner: O<k> closes after the inner with's
@@ -381,9 +381,9 @@ func acqFact(t *testing.T, o *lowered, s *acqSeq) []int {
 	return acqFactIn(t, o, s, s.fn(), "")
 }
 
-// acqFactIn is acqFact for the with in fn: of the inline wire when wire is
-// empty, else of the named wire wire.
-func acqFactIn(t *testing.T, o *lowered, s *acqSeq, fn, wire string) []int {
+// acqFactIn is acqFact for the with in fn: of the inline context when
+// contextName is empty, else of the named context contextName.
+func acqFactIn(t *testing.T, o *lowered, s *acqSeq, fn, contextName string) []int {
 	t.Helper()
 	var order []int
 	found := 0
@@ -398,7 +398,7 @@ func acqFactIn(t *testing.T, o *lowered, s *acqSeq, fn, wire string) []int {
 				return true
 			}
 			w := o.pkg.Info.Withs[x]
-			if w == nil || (wire == "") != (w.Contexts[0].Lit != nil) || wire != "" && w.Contexts[0].Name != wire {
+			if w == nil || (contextName == "") != (w.Contexts[0].Lit != nil) || contextName != "" && w.Contexts[0].Name != contextName {
 				return true
 			}
 			found++
@@ -425,7 +425,7 @@ func acqFactIn(t *testing.T, o *lowered, s *acqSeq, fn, wire string) []int {
 		})
 	}
 	if found != 1 {
-		t.Fatalf("%s has %d withs of %q (empty: inline), want 1", fn, found, wire)
+		t.Fatalf("%s has %d withs of %q (empty: inline), want 1", fn, found, contextName)
 	}
 	reached := s.reached()
 	pos := map[int]int{}
