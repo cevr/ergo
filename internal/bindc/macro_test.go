@@ -76,7 +76,7 @@ func TestMacroReplacement(t *testing.T) {
 			continue // reported above
 		}
 		check := oracleSource(m, header, nil) + fmt.Sprintf("_Static_assert((%s) == %dLL, \"C value of %s\");\n", c.name, c.want, c.name)
-		if err := runCC(t, cc, dir, "case.c", check, "-pedantic-errors"); err != nil {
+		if err := runCC(t, cc, dir, "case.c", check); err != nil {
 			t.Errorf("%q: cc refuses the model:\n%v", c.src, err)
 		}
 	}
@@ -296,14 +296,14 @@ func TestMacroExpansionProperty(t *testing.T) {
 	if accepted < *propCases/2 || refused == 0 {
 		t.Fatalf("the generator is off balance: %d accepted, %d refused", accepted, refused)
 	}
-	if err := runCC(t, cc, dir, "accepted.c", all.String(), "-pedantic-errors"); err != nil {
+	if err := runCC(t, cc, dir, "accepted.c", all.String()); err != nil {
 		lines := strings.Split(err.Error(), "\n")
 		if len(lines) > 40 {
 			lines = append(lines[:40], "...")
 		}
 		t.Fatalf("cc refuses the model of an accepted chain (the assertion names the macro; the header is m<case>.h):\n%s", strings.Join(lines, "\n"))
 	}
-	if err := runCC(t, cc, dir, "mutant.c", mutant.String(), "-pedantic-errors"); err == nil {
+	if err := runCC(t, cc, dir, "mutant.c", mutant.String()); err == nil {
 		t.Fatalf("cc accepts a constant off by one: the oracle checks nothing")
 	}
 	if !gcc {
@@ -311,7 +311,7 @@ func TestMacroExpansionProperty(t *testing.T) {
 		t.Logf("cc is not GCC: the refused chains are not checked with cc here")
 		return
 	}
-	args := append(append(append([]string{}, ccArgs...), "-pedantic-errors"), refusedFiles...)
+	args := append(append([]string{}, ccArgs...), refusedFiles...)
 	out, _ := exec.Command(cc, args...).CombinedOutput()
 	failed := map[string]bool{}
 	for _, m := range ccFileError.FindAllStringSubmatch(string(out), -1) {

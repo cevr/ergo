@@ -94,12 +94,29 @@ func oracleSource(m *Model, header string, mutate func(*Model)) string {
 	return b.String()
 }
 
-// ccArgs are the flags of every cc check. Warnings are errors, so a constant
-// that overflows or a lossy conversion fails the check. -Wno-parentheses
-// keeps a style warning out: clang warns by default about `a + b << c`
-// (-Wshift-op-parentheses, measured on Apple clang at the macOS gate), and a
-// macro body of the subset may group by C precedence alone.
-var ccArgs = []string{"-std=c11", "-fsyntax-only", "-Werror", "-Wno-parentheses"}
+// ccArgs are the flags of every cc check: the flag policy of the oracle. A
+// source is valid C11 when cc gives no error with them. -pedantic-errors makes
+// every ISO C constraint violation an error on GCC and on clang (a declaration
+// with no type, an array of negative size, a conflicting redeclaration, a
+// _Static_assert that fails or whose expression is not an integer constant
+// expression). The value, type and layout claims are _Static_assert
+// comparisons of exact values, so they need no warning.
+//
+// There is no -Werror. Each compiler has its own default warnings, and none
+// of them makes valid C invalid: Apple clang warns by default about a K&R
+// definition (-Wdeprecated-non-prototype), a braced type in a parameter list
+// (-Wvisibility) and `a + b << c` (-Wshift-op-parentheses), all measured at
+// the macOS gate. TestCCPolicy holds the policy to this on the host's cc and
+// under a shim that adds such warnings to every call.
+//
+// No check needs one named warning as an error: undefined behavior in a
+// constant (signed overflow, a shift out of range) makes the static
+// assertion's expression not an integer constant expression (C11 6.6p4),
+// which GCC reports as an error under -pedantic-errors (measured, GCC 13).
+// clang folds such an expression with a warning (-Winteger-overflow, a name
+// GCC does not know; measured, clang 18), so the checks that need cc to
+// refuse undefined behavior run with GCC only (TestMacroExpansionProperty).
+var ccArgs = []string{"-std=c11", "-fsyntax-only", "-pedantic-errors"}
 
 // runCC checks a C source with cc and returns cc's output on failure.
 func runCC(t *testing.T, cc, dir, name, src string, extra ...string) error {
@@ -155,7 +172,7 @@ func TestCOracle(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, flags := range [][]string{nil, {"-DFIXTURE_ABI=3"}, {"-DFIXTURE_OMIT=fx_node_count"}} {
-			if err := runCC(t, cc, dir, "fixture.c", string(src), append([]string{"-Wall", "-Wextra"}, flags...)...); err != nil {
+			if err := runCC(t, cc, dir, "fixture.c", string(src), flags...); err != nil {
 				t.Errorf("fixture.c %v:\n%v", flags, err)
 			}
 		}

@@ -241,14 +241,14 @@ func TestMacroDefinedProperty(t *testing.T) {
 	if refused > 0 {
 		t.Fatalf("the parser refuses %d chains that C defines", refused)
 	}
-	if err := runCC(t, cc, dir, "defined.c", all.String(), "-pedantic-errors"); err != nil {
+	if err := runCC(t, cc, dir, "defined.c", all.String()); err != nil {
 		lines := strings.Split(err.Error(), "\n")
 		if len(lines) > 40 {
 			lines = append(lines[:40], "...")
 		}
 		t.Fatalf("cc refuses the model of a chain C defines (the assertion names the macro; the header is d<case>.h):\n%s", strings.Join(lines, "\n"))
 	}
-	if err := runCC(t, cc, dir, "mutant.c", mutant.String(), "-pedantic-errors"); err == nil {
+	if err := runCC(t, cc, dir, "mutant.c", mutant.String()); err == nil {
 		t.Fatalf("cc accepts a constant off by one: the oracle checks nothing")
 	}
 }

@@ -285,7 +285,7 @@ func TestKAndRDefinition(t *testing.T) {
 			}
 			src += part
 		}
-		if err := runCC(t, cc, dir, "valid.c", src, "-pedantic-errors"); err != nil {
+		if err := runCC(t, cc, dir, "valid.c", src); err != nil {
 			t.Errorf("the case is not valid C11:\n%s\n%v", src, err)
 		}
 		m, err := Parse("probe.h", []byte(src))
