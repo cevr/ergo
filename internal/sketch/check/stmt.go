@@ -107,7 +107,7 @@ func (c *checker) stmt(s syntax.Stmt) {
 	case *syntax.RangeStmt:
 		c.rangeStmt(s)
 	case *syntax.AssertStmt:
-		c.notYet(s)
+		c.assertStmt(s)
 	default:
 		c.undecided(s, "")
 	}

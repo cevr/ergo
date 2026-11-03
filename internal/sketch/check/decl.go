@@ -30,6 +30,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 	// earlier pass visited (E2 round 2 M1).
 	for _, pass := range []func(){
 		c.collect,
+		c.strayAsserts,
 		c.checkImportAliases,
 		c.solveDeclKinds,
 		func() {
@@ -65,6 +66,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
+		c.checkTests,
 		c.checkTypeDecls,
 		c.checkContexts,
 		c.checkContextCycles,
@@ -248,7 +250,7 @@ func (c *checker) collect() {
 					}
 				}
 			case *syntax.TestDecl:
-				c.notYet(d)
+				c.collectTest(d, fi)
 			case *syntax.ContextDecl:
 				c.preludeName(d.Name) // D-D3; the context still binds
 				w := &Context{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}

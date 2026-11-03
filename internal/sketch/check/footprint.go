@@ -115,6 +115,10 @@ func (c *checker) footprints() {
 			bodies = append(bodies, body{fp.node(f.Decl), f.Decl.Body})
 		}
 	}
+	// A test body is a frame keyed by its declaration, as a function's is.
+	for _, t := range c.tests.all {
+		bodies = append(bodies, body{fp.node(t.Decl), t.Decl.Body})
+	}
 	for key := range info.Literals {
 		switch k := key.(type) {
 		case *syntax.FuncLit:

@@ -68,6 +68,7 @@ type checker struct {
 	diags    []Diagnostic
 	seen     map[string]bool
 	silent   int
+	tests    testState // tests and assert (tests.go)
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).

@@ -1,0 +1,42 @@
+// 196l: `test Name { … }` is an example and `test Name(x T) { … }` a
+// property; `assert e` takes a bool. A failure that escapes a test fails it.
+// A test's services come from its own `with`.
+type Bang {}
+
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+func add(a, b int) int {
+	a + b
+}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+test Adds {
+	assert add(1, 2) == 3
+}
+
+test Commutes(a int, b int) {
+	assert add(a, b) == add(b, a)
+}
+
+test Risky {
+	assert try risky(1) == 1
+}
+
+test Wired {
+	let got = with context { Store: Mem } { Store.Get() }
+	assert got == "ok"
+}

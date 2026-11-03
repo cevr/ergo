@@ -655,6 +655,8 @@ type Test struct {
 	Name   string
 	Decl   *syntax.TestDecl
 	Params []*Var
+
+	file *fileInfo // the declaring file, selected while the test is checked
 }
 
 // A type parameter is an Object, so Defs records its declaring name.
