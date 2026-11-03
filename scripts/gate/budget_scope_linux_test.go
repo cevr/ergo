@@ -101,7 +101,9 @@ type scopeHelper struct {
 // startableScope skips the test where no systemd user scope can start.
 func startableScope(t *testing.T, slice string, budget memoryBudget) {
 	t.Helper()
-	needTool(t, "systemd-run", "no systemd-run: the RSS watch tests cover this host")
+	if _, err := exec.LookPath("systemd-run"); err != nil {
+		t.Skip("no systemd-run: the RSS watch tests cover this host")
+	}
 	probe := exec.Command("systemd-run", scopeArguments(slice, "", budget, []string{"true"})...)
 	probe.Env = scopeEnvironment("")
 	if output, err := probe.CombinedOutput(); err != nil {
@@ -271,7 +273,9 @@ func seqBytes(n int64) int64 {
 // (gate-exit=0) and print every line in order, and no output spool or step
 // temp file may remain.
 func TestBudgetGateSurvivesStepOutput(t *testing.T) {
-	needTool(t, "seq", "seq is unavailable")
+	if _, err := exec.LookPath("seq"); err != nil {
+		t.Skip("seq is unavailable")
+	}
 	slice := testSlice(t)
 	caseTemp := setBudgetCaseTemp(t)
 	t.Setenv(stepMemoryVariable, gateOutputCase.step)
@@ -623,14 +627,11 @@ func TestBudgetVerdict(t *testing.T) {
 // test, the outer gate step whose caps hold, and never says the run was
 // not started in a systemd scope.
 func TestBudgetRecordDurationsScope(t *testing.T) {
-	needTool(t, "systemd-run", "no systemd-run: the RSS watch tests cover this host")
+	if _, err := exec.LookPath("systemd-run"); err != nil {
+		t.Skip("no systemd-run: the RSS watch tests cover this host")
+	}
 	binary := filepath.Join(t.TempDir(), "gate")
-	// -buildvcs=false: VCS stamping of a main package runs git status, which
-	// lists every directory of the work tree. Go's test cache records those
-	// reads, so every directory of the repository would become an input of
-	// this package, and the gate, which rewrites dist/ while it runs, would
-	// never replay it.
-	if output, err := exec.Command("go", "build", "-buildvcs=false", "-o", binary, ".").CombinedOutput(); err != nil {
+	if output, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, output)
 	}
 	root := fixture(t)

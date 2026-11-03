@@ -52,7 +52,9 @@ func TestGateUnderNohupIgnoresHangup(t *testing.T) {
 	if os.Getenv("GATE_HELPER") != "" {
 		t.Skip("the helper runs as a subprocess of this test")
 	}
-	needTool(t, "nohup", "no nohup")
+	if _, err := exec.LookPath("nohup"); err != nil {
+		t.Skip("no nohup")
+	}
 	pids := filepath.Join(t.TempDir(), "pids")
 	killRecorded(t, pids)
 	bin := t.TempDir()

@@ -448,7 +448,9 @@ func TestBudgetRSSWatchDetectsEscapedOutputHolder(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the RSS watch requires Unix process groups")
 	}
-	needTool(t, "setsid", "setsid is unavailable")
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid is unavailable")
+	}
 	t.Setenv(mechanismVariable, rssMechanism)
 	t.Setenv(stepMemoryVariable, "512M")
 	t.Setenv(gateMemoryVariable, "2G")

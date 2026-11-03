@@ -17,12 +17,6 @@
 // tests are not cached here: Go's own per-package test cache stays
 // authoritative, and slow packages are split into processes whose union is
 // complete by construction (the last shard skips exactly what the others run).
-// That holds for this package's own tests too: their inputs are declared
-// (declaredInputs in inputs_test.go, guarded by TestMain), the programs they
-// run outside the module (testTools, the only programs on their PATH) and the
-// host facts they read without package os key them through ERGO_TOOL_VERSIONS
-// (readHostFacts),
-// and an unchanged package replays instead of rerunning its properties.
 //
 // Every step runs under a memory budget: a hard cap for the step with all the
 // processes it starts (ERGO_GATE_STEP_MEMORY, default 8G), one for all the
@@ -572,16 +566,12 @@ const gcPercent = "400"
 // toolDigest identifies, for a step's own cache, the tools it names in
 // ToolEnv and the whole environment a Go test step receives (testenv.Names,
 // whose values the tools and the Go programs a test runs may read whether
-// or not they were set when a result was cached), and the host facts tests
-// read without package os (readHostFacts): a cached result replays only on a
-// host where its tests would see the same file systems and scope support.
+// or not they were set when a result was cached).
 func (g *gate) toolDigest(step *Step) string {
 	digest := sha256.New()
 	for _, tool := range step.ToolEnv {
 		fmt.Fprintf(digest, "%s\x00%s\x00", tool, g.toolVersion(tool))
 	}
-	goTmpDir, _ := stepVariableFor(g.root, step.Name, "GOTMPDIR")
-	fmt.Fprintf(digest, "host\x00%s\x00", readHostFacts(stepTempDir(g.root, step.Name), goTmpDir))
 	for _, name := range testenv.Names {
 		if name == testenv.ToolDigest {
 			continue
