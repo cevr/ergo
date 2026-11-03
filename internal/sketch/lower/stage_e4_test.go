@@ -116,6 +116,13 @@ func main() needs Console {
 	{"variadic", `extern go fmt.Sprint func Show(n int) string
 func main() needs Console { Console.Println(Show(7) + Show(8)) }
 `, "78\n"},
+	// Round 2 M3: a generic Go function behind a concrete Ergo signature
+	// runs; Go infers its type arguments from the typed arguments.
+	{"generic_target", `extern go cmp.Compare func Compare(a int, b int) int
+func main() needs Console {
+	Console.Println("\(Compare(1, 2))")
+}
+`, "-1\n"},
 }
 
 func TestErgoRunE4Externs(t *testing.T) {
@@ -134,12 +141,12 @@ func TestErgoRunE4Externs(t *testing.T) {
 			t.Errorf("%s: exit %d, stdout %q, stderr %q; want %q", r.name, code, stdout, firstLines(stderr, 8), r.want)
 		}
 	}
-	// The call is direct: Go proves the target a function value (`_ =
-	// strings.ToUpper`), the target is called with the Ergo arguments
-	// only (no environment), its result is bound at the Ergo type, and no
-	// Go function is declared for the extern.
+	// The call is direct: Go proves the call a function call (`if false {
+	// defer strings.ToUpper("ada") }`), the target is called with the Ergo
+	// arguments only (no environment), its result is bound at the Ergo
+	// type, and no Go function is declared for the extern.
 	esub4 := builds[0].mainGo()
-	for _, want := range []string{"\t_ = strings.ToUpper\n", `string = strings.ToUpper("ada")`, "\t_ = strings.Repeat\n", `string = strings.Repeat("ab", `, "\tstrings \"strings\"\n"} {
+	for _, want := range []string{"if false {", `*/defer strings.ToUpper("ada")` + "\n", `string = strings.ToUpper("ada")`, `*/defer strings.Repeat("ab", `, `string = strings.Repeat("ab", `, "\tstrings \"strings\"\n"} {
 		if !strings.Contains(esub4, want) {
 			t.Errorf("esub4: the lowered Go has no %q:\n%s", want, esub4)
 		}
@@ -209,14 +216,7 @@ func main() needs Console {
 	let d = Truncate(x) // call
 	Console.Println("\(d)")
 }
-`, `time\.Duration \(type\) is not an expression`},
-		// A generic Go function is not a value without instantiation; type
-		// parameters at the host edge are #202.
-		{"generic-target", `extern go cmp.Compare func Compare(a int, b int) int
-func main() needs Console {
-	Console.Println("\(Compare(1, 2))") // call
-}
-`, `cannot use generic function cmp\.Compare without instantiation`},
+`, `defer requires function call, not conversion time\.Duration\(`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -360,9 +360,38 @@ func e4FailsAt(out string, line int) bool {
 	return found
 }
 
+// e4CallChecks counts the calls of the Go target in goSrc, a lowered
+// program, that follow their call check: a //line directive, then `if
+// false {`, `defer CALL` and `}`, then the call's statement with the same
+// CALL text. It returns each call of the target that does not.
+func e4CallChecks(goSrc, target string) (checked int, bad []string) {
+	anchor := regexp.MustCompile(`^\t*(/\*line [^*]*\*/)?`)
+	lines := strings.Split(goSrc, "\n")
+	bare := make([]string, len(lines))
+	for i, l := range lines {
+		bare[i] = anchor.ReplaceAllString(l, "")
+	}
+	for i, l := range bare {
+		call := l
+		if rest, ok := strings.CutPrefix(l, "var "); ok {
+			_, call, _ = strings.Cut(rest, " = ")
+		}
+		if !strings.HasPrefix(call, target+"(") {
+			continue
+		}
+		if i >= 4 && strings.HasPrefix(lines[i-4], "//line ") && bare[i-3] == "if false {" && bare[i-2] == "defer "+call && bare[i-1] == "}" {
+			checked++
+		} else {
+			bad = append(bad, l)
+		}
+	}
+	return checked, bad
+}
+
 // A panic in a host call is a defect (Risk 4), and its report names the
-// Ergo call's line in every use: the function-value check line and the
-// typed binding (hostStmt) keep the call under its //line directive.
+// Ergo call's line in every use: the call check (`if false { defer ... }`)
+// and the typed binding (hostStmt) keep the call under its //line
+// directive.
 func TestErgoRunE4HostPanic(t *testing.T) {
 	for _, use := range []string{`Console.Println(Repeat("x", -1))`, `Repeat("x", -1)`, `let _ = Repeat("x", -1)`} {
 		src := "extern go strings.Repeat func Repeat(s string, n int) string\nfunc main() needs Console {\n\t" + use + "\n\tConsole.Println(\"returned\")\n}\n"
@@ -400,15 +429,18 @@ func e4Value(t *testing.T, k *check.Basic) (expr, text string) {
 
 const e4Make = "extern go math/cmplx.Rect func Make(r float64, theta float64) complex128\n"
 
-// TestErgoRunE4TargetCategories (round 1 M2) is a property over the Go
-// target's category (a function, a variadic function, a named type, a
-// constant) crossed with every basic type the checker admits as a
-// parameter (check.Typ, Bool to Duration) and with a literal and a
-// nonconstant argument. Oracle: a function and a variadic function
-// (fmt.Sprint's ...any) run and print the value; a named type, whose T(x)
-// would be a Go conversion, and a constant fail go build, and every error
-// names the call's line (5). The lowered Go proves the target a function
-// value (`_ = fmt.Sprint`) under the call's //line directive.
+// TestErgoRunE4TargetCategories (round 1 M2, round 2 M3) is a property
+// over the Go target's category (a function, a variadic function, a
+// generic function, a named type, a constant) crossed with every basic
+// type the checker admits as a parameter (check.Typ, Bool to Duration) and
+// with a literal and a nonconstant argument. Oracle: a function, a
+// variadic function (fmt.Sprint's ...any) and a generic function behind a
+// concrete Ergo signature (cmp.Or for every type, cmp.Compare for every
+// ordered one; Go infers the type argument at the call) run and print the
+// value; a named type, whose T(x) would be a Go conversion, and a constant
+// fail go build, and every error names the call's line (5). Each call of
+// a target in the lowered Go follows its call check, `if false { defer
+// CALL }` with the same CALL text, under the call's //line directive.
 func TestErgoRunE4TargetCategories(t *testing.T) {
 	// A function of exactly the parameter type, where Go's standard
 	// library has one (none takes int8, int16, uintptr or complex64). Its
@@ -443,10 +475,20 @@ func TestErgoRunE4TargetCategories(t *testing.T) {
 		if strings.HasPrefix(k.Name, "complex") {
 			tail = e4Make
 		}
-		// The function and the variadic function, each with the literal
-		// and the nonconstant argument.
+		// The function, the variadic function and the generic functions,
+		// each with the literal and the nonconstant argument.
 		decls, stmts := "extern go fmt.Sprint func Show(x "+k.Name+") string\n", ""
 		expr, out := `Show(`+lit+`) + " " + Show(a)`, text+" "+text
+		decls += "extern go cmp.Or func Pick(x " + k.Name + ", y " + k.Name + ") " + k.Name + "\n"
+		expr += ` + " " + Show(Pick(` + lit + `, a)) + " " + Show(Pick(a, ` + lit + `))`
+		out += " " + text + " " + text
+		targets := []string{"fmt.Sprint", "cmp.Or"}
+		if k.Kind != check.Bool && k.Kind != check.Complex64 && k.Kind != check.Complex128 { // cmp.Ordered
+			decls += "extern go cmp.Compare func Order(x " + k.Name + ", y " + k.Name + ") int\n"
+			expr += ` + " \(Order(` + lit + `, a)) \(Order(a, ` + lit + `))"`
+			out += " 0 0"
+			targets = append(targets, "cmp.Compare")
+		}
 		if fn, ok := fns[k.Kind]; ok {
 			decls += "extern go " + fn.decl + "\n"
 			if fn.call == "" {
@@ -460,8 +502,10 @@ func TestErgoRunE4TargetCategories(t *testing.T) {
 		o := mustLower(t, "e4_target_"+k.Name, src)
 		runs = append(runs, o)
 		want[o.name] = out + "\n"
-		if !regexp.MustCompile(`(?m)^//line [^\n]*\n\t*_ = fmt\.Sprint\n\t*/\*line [^\n]*\*/var \w+ string = fmt\.Sprint\(`).MatchString(o.mainGo()) {
-			t.Errorf("%s: no `_ = fmt.Sprint` check under the call's //line directive before the call:\n%s", o.name, o.mainGo())
+		for _, target := range targets {
+			if checked, bad := e4CallChecks(o.mainGo(), target); checked < 2 || len(bad) > 0 {
+				t.Errorf("%s: %d calls of %s follow their check; calls with no check under their //line directive: %q\n%s", o.name, checked, target, bad, o.mainGo())
+			}
 		}
 		// The named type and the constant.
 		for _, c := range others {

@@ -264,20 +264,22 @@ func hostCalled(c *check.Call) bool { return c.Kind == check.CallFunc && userExt
 // statement or discard. Both run after the call's //line directive, so
 // go build reports either check at the Ergo call's line.
 //
-// First it writes the line `_ = pkg.F`, so Go proves the target a function
-// value. A Go type is not an expression there: without the line, the call
-// time.Duration(x) of `extern go time.Duration func F(x float64) duration`
-// would be a conversion that truncates x. A variadic target (fmt.Sprint)
-// passes, and a constant fails at the call. A generic Go function fails
-// too, since it is not a value without instantiation (type parameters at
-// the host edge are #202). The line evaluates nothing.
+// First it writes `if false { defer pkg.F(args) }`, the same call text in
+// a statement that admits only a function call, so Go proves the call a
+// call. Without it, the call time.Duration(x) of `extern go time.Duration
+// func F(x float64) duration` would be a conversion that truncates x; under
+// defer it is "defer requires function call, not conversion". A constant
+// fails ("cannot call"). A variadic target (fmt.Sprint) passes, and so does
+// a generic Go function (cmp.Compare): Go infers its type arguments from
+// the typed arguments, as it does at the call itself. The block is never
+// run, and the Go compiler drops it.
 //
 // Then it binds the result to v at its Ergo result's Go type, the blank
 // identifier when the result is discarded, so a target's float64 result is
 // go build's error wherever the Ergo int is used or dropped. The call is
 // made once.
 func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) string {
-	fc.line("_ = " + fc.hostTarget(x, c.Func))
+	fc.line("if false { defer " + text + " }")
 	switch {
 	case len(c.Func.Sig.Results) == 0:
 		return text
