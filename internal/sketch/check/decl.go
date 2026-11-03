@@ -422,7 +422,13 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		c.undecided(spec.Path, "this import form")
 		return
 	}
-	pkg, err := c.imp.Import(path)
+	imp := c.imp
+	if _, isStd := std.Package(path); isStd {
+		// A std path always names std, whatever importer Check was given:
+		// a program package cannot shadow log or queue (C30).
+		imp = Std
+	}
+	pkg, err := imp.Import(path)
 	if err != nil || pkg == nil {
 		c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
 		c.bindBrokenImport(fi, spec, path)

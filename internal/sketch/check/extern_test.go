@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // p3Text is the P3 message (check-v1 spec add-on), quoted exactly.
@@ -179,6 +180,60 @@ func main() needs Console {
 				t.Fatal(err)
 			}
 			judgeWant(t, string(data))
+		})
+	}
+}
+
+// shadowImporter serves a program package at every path it holds.
+type shadowImporter map[string]*check.Package
+
+func (s shadowImporter) Import(path string) (*check.Package, error) {
+	if p, ok := s[path]; ok {
+		return p, nil
+	}
+	return check.Std.Import(path)
+}
+
+// TestStdPathReserved is C30's checker half: an import of a std path
+// resolves to std whatever importer Check was given, so a program package
+// served at log cannot shadow std's log. The program package checked under
+// that path has no std identity; std's has it.
+func TestStdPathReserved(t *testing.T) {
+	lib, err := syntax.Parse("func Shadow() int { 1 }\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake, ds := check.Check("log", []*syntax.File{lib}, nil)
+	if len(ds) != 0 {
+		t.Fatal(ds)
+	}
+	if fake.Std() {
+		t.Fatal("a program package checked under the path log has std identity")
+	}
+	for _, path := range []string{"log", "trace", "queue", "scope", "slice", "task", "timeout"} {
+		t.Run(path, func(t *testing.T) {
+			main, err := syntax.Parse("import " + path + "\n\nfunc f() int { " + path + ".Shadow() }\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			pkg, ds := check.Check("main", []*syntax.File{main}, shadowImporter{path: fake})
+			want, err := check.Std.Import(path)
+			if err != nil || !want.Std() {
+				t.Fatalf("std %s: %v, std identity %v", path, err, want != nil && want.Std())
+			}
+			var bound *check.Package
+			for id, obj := range pkg.Info.Uses {
+				if pn, ok := obj.(*check.PkgName); ok && id.Name == path {
+					bound = pn.Pkg
+				}
+			}
+			if bound != want {
+				t.Fatalf("import %s resolved to %p (std identity %v), want std's %p\n\t%s", path, bound, bound.Std(), want, describe(ds))
+			}
+			// std's package declares no Shadow: the one diagnostic says so.
+			if len(ds) != 1 || ds[0].Code != "S104" {
+				t.Fatalf("want one S104 for Shadow, got\n\t%s", describe(ds))
+			}
 		})
 	}
 }
