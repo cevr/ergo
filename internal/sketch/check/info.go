@@ -95,7 +95,7 @@ type Package struct {
 	// owners holds the owner of every node of a body the program does not
 	// own (owners.go); OwnerOf reads it.
 	owners map[syntax.Node]FactOwner
-	files   []*fileInfo
+	files  []*fileInfo
 	// collFuncs are the prelude's functions on slices and Maps by kind and
 	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
 	// unnamed slice or Map type; nil in every other package.

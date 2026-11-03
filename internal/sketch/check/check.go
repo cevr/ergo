@@ -278,7 +278,7 @@ type checker struct {
 	// checked, whose view decides what is an error type.
 	errorTypes map[FactOwner]map[*Named]syntax.Pos
 	owner      FactOwner
-	funcs      []*Func               // every package function and method, in source order
+	funcs      []*Func // every package function and method, in source order
 	vars       []*pkgVar
 	machines   []*TypeName
 	guarded    map[*Func]bool // steps of exported machines: rows written (export guard)
