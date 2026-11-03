@@ -1,0 +1,37 @@
+// Stage E3a sweep (196l): a typed failure that escapes a test fails it; a
+// catch inside the test handles it like anywhere else.
+type Bang { Code int }
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang{Code: n}
+	}
+	n
+}
+
+test Escapes {
+	let v = try risky(-3)
+	assert v == 0
+}
+
+test Caught {
+	let v = risky(-3) catch {
+	case Bang as e:
+		e.Code
+	}
+	assert v == -3
+}
+
+func main() needs Console {
+	let v = risky(4) catch {
+	case Bang as e:
+		e.Code
+	}
+	Console.Println("\(v)")
+}
+
+// run> 4
+// test> FAIL Escapes: a failure escaped the test: Bang{Code:-3}
+// test> ok Caught
+// test> FAIL (1 of 2 tests)
+// test exit 1

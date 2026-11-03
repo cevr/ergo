@@ -1,0 +1,41 @@
+// Stage E3a sweep (196l): a test binds its own services with a with of a
+// named context that main also uses, and with an anonymous context of
+// other providers; the run build lowers only main's with.
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"mem"
+}
+
+type Fixed { Text string }
+
+func Get(f Fixed) string {
+	f.Text
+}
+
+let Live = context {
+	Store: Mem,
+}
+
+test Named {
+	assert with Live { Store.Get() } == "mem"
+}
+
+test Anonymous(text string) {
+	let got = with context { Store: Fixed{Text: text} } { Store.Get() }
+	assert got == text
+}
+
+func main() needs Console {
+	Console.Println(with Live { Store.Get() })
+}
+
+// run> mem
+// test> ok Named
+// test> ok Anonymous (100 cases)
+// test> PASS (2 tests)
+// test exit 0

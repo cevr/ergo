@@ -170,7 +170,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 		}
 		l.context(w, d.Name)
 	case *syntax.TestDecl:
-		refuse(d, "test blocks run under ergo test, which lowering adds after check-v1 stage E (196l)")
+		l.testDecl(d) // the test build only (tests.go, rule 1)
 	default:
 		refuse(d, "this declaration is not lowered yet")
 	}

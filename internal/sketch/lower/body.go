@@ -224,7 +224,7 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 	case *syntax.RangeStmt:
 		return fc.rangeStmt(s)
 	case *syntax.AssertStmt:
-		refuse(s, "assert runs under ergo test, which lowering adds after check-v1 stage E (196l)")
+		fc.assert(s) // the test build only (tests.go)
 	default:
 		refuse(s, "this statement is not produced by the decided parser")
 	}

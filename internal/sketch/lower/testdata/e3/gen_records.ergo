@@ -1,0 +1,74 @@
+// Stage E3a sweep (196l): properties over records, unions (a recursive one
+// included), defined types and a generic record's instance.
+type Point { X, Y int }
+
+type Tree =
+	| Leaf{}
+	| Node{Left Tree, Value int, Right Tree}
+
+type Shape =
+	| Circle{R int}
+	| Rect{Corner Point, W, H int}
+
+type Celsius float64
+
+type Pair[A, B] { First A, Second B }
+
+type Forest { Trees []Tree }
+
+func size(t Tree) int {
+	match t {
+	case Leaf:
+		return 0
+	case Node{Left: l, Value: _, Right: r}:
+		return 1 + size(l) + size(r)
+	}
+}
+
+func area(s Shape) int {
+	match s {
+	case Circle{R: r}:
+		return 3 * r * r
+	case Rect{Corner: _, W: w, H: h}:
+		return w * h
+	}
+}
+
+test PointsEqual(p Point) {
+	assert p.X == p.X && p.Y == p.Y
+}
+
+test TreeSize(t Tree) {
+	assert size(t) >= 0
+}
+
+test Areas(s Shape) {
+	let a = area(s)
+	assert a == a
+}
+
+test Temps(c Celsius) {
+	assert c == c
+}
+
+test Pairs(p Pair[int, string]) {
+	assert len(p.Second) >= 0
+}
+
+test Forests(f Forest) {
+	assert len(f.Trees) >= 0
+}
+
+func main() needs Console {
+	Console.Println("\(size(Node{Left: Leaf, Value: 1, Right: Leaf}))")
+}
+
+// run> 1
+// test> ok PointsEqual (100 cases)
+// test> ok TreeSize (100 cases)
+// test> ok Areas (100 cases)
+// test> ok Temps (100 cases)
+// test> ok Pairs (100 cases)
+// test> ok Forests (100 cases)
+// test> PASS (6 tests)
+// test exit 0

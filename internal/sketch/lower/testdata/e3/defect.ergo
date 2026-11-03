@@ -1,0 +1,26 @@
+// Stage E3a sweep (196l): a defect in a test prints its FAIL line and stops
+// the run with the runtime's report (exit 2); later tests do not run.
+func at(xs []int, i int) int {
+	xs[i]
+}
+
+test First {
+	assert at([]int{1, 2}, 0) == 1
+}
+
+test OutOfRange {
+	assert at([]int{1, 2}, 5) == 0
+}
+
+test Never {
+	assert true
+}
+
+func main() needs Console {
+	Console.Println("\(at([]int{4, 5}, 1))")
+}
+
+// run> 5
+// test> ok First
+// test> FAIL OutOfRange: a defect, which stops the run
+// test exit 2

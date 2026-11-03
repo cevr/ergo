@@ -30,6 +30,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.operations":    "an operation table's Env literal for the caller's task",
 			"funcCtx.witnessMethod": "a witness adapter's Env literal for the caller's task",
 			"lowerer.entry":         "the root Env literal in main",
+			"lowerer.testEntry":     "the root Env literal in the test build's main (196l)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":    "runtimeCall's hidden CallerTask argument",

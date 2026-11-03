@@ -1,0 +1,39 @@
+// Stage E3a sweep (196l): tests call generic functions and generic
+// records, and a property draws a slice of a generic instance.
+type Box[T] { Value T }
+
+func first[T](xs []T, fallback T) T {
+	for x in xs {
+		return x
+	}
+	fallback
+}
+
+func wrap[T](v T) Box[T] {
+	Box{Value: v}
+}
+
+test Firsts {
+	assert first([]int{4, 5}, 0) == 4
+	assert first([]string{}, "none") == "none"
+}
+
+test Wraps(n int) {
+	assert wrap(n).Value == n
+}
+
+test Boxes(xs []Box[int]) {
+	let v = first(xs, Box{Value: 7})
+	assert len(xs) > 0 || v.Value == 7
+}
+
+func main() needs Console {
+	Console.Println(first([]string{"a", "b"}, "z"))
+}
+
+// run> a
+// test> ok Firsts
+// test> ok Wraps (100 cases)
+// test> ok Boxes (100 cases)
+// test> PASS (3 tests)
+// test exit 0

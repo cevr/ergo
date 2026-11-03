@@ -195,6 +195,9 @@ type lowerer struct {
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
 	noEntry bool
+	// tests is the test build's state (tests.go, LowerTests); nil in the
+	// run build, which lowers no test.
+	tests *testLowering
 }
 
 // sortedRefusals orders refusals by position and drops repeats: a
@@ -278,6 +281,8 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	var entry strings.Builder
 	switch {
+	case l.tests != nil:
+		l.guard(func() { l.testEntry(&entry) })
 	case l.noEntry:
 		entry.WriteString("func main() {}\n\n")
 	case main == nil:
@@ -309,6 +314,7 @@ func (l *lowerer) program() ([]byte, error) {
 	if l.taskName != "" {
 		imports = append(imports, l.taskName+" "+`"`+taskImport+`"`)
 	}
+	imports = append(imports, l.testImports()...)
 	if len(imports) > 0 {
 		out.WriteString("import (\n\t" + strings.Join(imports, "\n\t") + "\n)\n\n")
 	}

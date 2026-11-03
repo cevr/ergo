@@ -120,6 +120,7 @@ func (l *lowerer) nameAll() {
 	for _, e := range generated {
 		l.pkgName(e.key, e.base)
 	}
+	l.nameTests() // the test build's names (tests.go); none in the run build
 	l.prenamed = true
 }
 
