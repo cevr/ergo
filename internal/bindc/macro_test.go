@@ -91,7 +91,8 @@ func writeFile(t *testing.T, path, src string) {
 
 // ccIsGCC reports whether cc is GCC. The refusal half of the macro property
 // relies on GCC's -pedantic-errors diagnostics for undefined behavior in a
-// constant expression (measured on GCC 13); clang is not checked here.
+// constant expression (measured on GCC 13), so it runs with GCC only.
+// TestMacroDefinedProperty checks false refusals on every host without them.
 func ccIsGCC(cc string) bool {
 	out, err := exec.Command(cc, "-dM", "-E", "-x", "c", os.DevNull).Output()
 	return err == nil && strings.Contains(string(out), "#define __GNUC__ ") && !strings.Contains(string(out), "__clang__")
@@ -306,7 +307,8 @@ func TestMacroExpansionProperty(t *testing.T) {
 		t.Fatalf("cc accepts a constant off by one: the oracle checks nothing")
 	}
 	if !gcc {
-		t.Logf("cc is not GCC: the refused chains are not checked with cc")
+		// TestMacroDefinedProperty checks false refusals on every host.
+		t.Logf("cc is not GCC: the refused chains are not checked with cc here")
 		return
 	}
 	args := append(append(append([]string{}, ccArgs...), "-pedantic-errors"), refusedFiles...)
