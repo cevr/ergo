@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -492,6 +493,55 @@ func (passThroughWatch) started(int) {}
 
 func (passThroughWatch) finish() usage { return usage{} }
 
+type outputThroughputLimiter struct{}
+
+func (outputThroughputLimiter) describe() string { return "output-throughput test limiter" }
+
+func (outputThroughputLimiter) prepare(string, *exec.Cmd) (stepWatch, error) {
+	return outputThroughputWatch{}, nil
+}
+
+func (outputThroughputLimiter) close() {}
+
+type outputThroughputWatch struct{}
+
+func (outputThroughputWatch) started(int) {}
+
+func (outputThroughputWatch) finish() usage { return usage{} }
+
+type outputCounter struct{ bytes int64 }
+
+func (w *outputCounter) Write(content []byte) (int, error) {
+	w.bytes += int64(len(content))
+	return len(content), nil
+}
+
+func TestRunBudgetedOutputThroughput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+
+	const outputBytes = 50 << 20
+	const generousLimit = 1500 * time.Millisecond
+	var output outputCounter
+	command := exec.Command("head", "-c", strconv.Itoa(outputBytes), "/dev/zero")
+	command.Stdout = &output
+	command.Stderr = &output
+
+	started := time.Now()
+	if _, err := runBudgeted(outputThroughputLimiter{}, "output-throughput", command); err != nil {
+		t.Fatalf("runBudgeted: %v", err)
+	}
+	elapsed := time.Since(started)
+	t.Logf("runBudgeted shared output: %d bytes in %s (generous limit %s)", output.bytes, elapsed, generousLimit)
+	if output.bytes != outputBytes {
+		t.Fatalf("captured %d bytes, want %d", output.bytes, outputBytes)
+	}
+	if elapsed > generousLimit {
+		t.Fatalf("50 MB output took %s, above the generous %s limit", elapsed, generousLimit)
+	}
+}
+
 func TestRunBudgetedSharedWritersPreserveRandomInterleavings(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the property uses a Unix shell")
@@ -571,6 +621,42 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("runBudgeted remained blocked after test cleanup stopped the output writer")
 		}
+	}
+}
+
+func TestDrainPipeReachesEOFAfterStepStop(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if err := makePipeReaderNonblocking(reader); err != nil {
+		t.Skipf("nonblocking pipe reader is unsupported: %v", err)
+	}
+	payload := []byte("last output\n")
+	if _, err := writer.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.SetReadDeadline(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	var mu sync.Mutex
+	drained := make(chan pipeResult, 1)
+	go drainPipe(reader, &output, &mu, drained)
+	result := <-drained
+	if !result.eof || result.heldOpen || result.err != nil {
+		t.Fatalf("post-stop drain result %+v, want EOF without held-open or error", result)
+	}
+	if got := output.String(); got != string(payload) {
+		t.Fatalf("post-stop output %q, want %q", got, payload)
 	}
 }
 
