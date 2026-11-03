@@ -212,6 +212,23 @@ type usage struct {
 	// status: its budget or the gate's was exceeded, or the budget could not
 	// be enforced.
 	verdict string
+	// processIssue fails a step that left processes alive at leader exit,
+	// separately from its memory-budget verdict.
+	processIssue string
+	// stopFailed means the limiter could not prove every step process stopped.
+	// In that case output readers are closed instead of waiting on descendants.
+	stopFailed bool
+}
+
+func addProcessIssue(used *usage, message string) {
+	if message == "" {
+		return
+	}
+	if used.processIssue == "" {
+		used.processIssue = message
+		return
+	}
+	used.processIssue += "; " + message
 }
 
 func stepExceeded(budget memoryBudget) string {
@@ -230,15 +247,134 @@ func hostExceeded(host int64) string {
 // step budget, and returns what it used. Every process the gate starts for
 // a step runs through it.
 func runBudgeted(limit limiter, name string, command *exec.Cmd) (usage, error) {
+	output, err := captureCommandOutput(command)
+	if err != nil {
+		return usage{}, err
+	}
+	defer output.restore()
+
 	watch, err := limit.prepare(name, command)
 	if err != nil {
+		output.closeWriters()
+		_ = output.wait()
 		return usage{}, err
 	}
 	if err = command.Start(); err == nil {
 		watch.started(command.Process.Pid)
+	}
+	output.closeWriters()
+	if err == nil {
 		err = command.Wait()
 	}
-	return watch.finish(), err
+	used := watch.finish()
+	if used.stopFailed {
+		output.abort()
+	}
+	if drainErr := output.wait(); err == nil && drainErr != nil {
+		err = fmt.Errorf("drain step output: %w", drainErr)
+	}
+	return used, err
+}
+
+// commandOutput replaces Go-managed stdout/stderr copy pipes with explicit
+// pipes. Cmd.Wait then waits for the leader alone; runBudgeted stops the rest
+// of the step before waiting for these readers to reach EOF.
+type commandOutput struct {
+	command        *exec.Cmd
+	originalStdout io.Writer
+	originalStderr io.Writer
+	readers        []*os.File
+	writers        []*os.File
+	drained        []<-chan error
+	mu             sync.Mutex
+	aborted        bool
+}
+
+type synchronizedWriter struct {
+	mu     *sync.Mutex
+	writer io.Writer
+}
+
+func (w synchronizedWriter) Write(content []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(content)
+}
+
+func captureCommandOutput(command *exec.Cmd) (*commandOutput, error) {
+	output := &commandOutput{
+		command:        command,
+		originalStdout: command.Stdout,
+		originalStderr: command.Stderr,
+	}
+	if command.Stdout != nil {
+		writer, err := output.pipe(command.Stdout)
+		if err != nil {
+			output.closeWriters()
+			_ = output.wait()
+			return nil, err
+		}
+		command.Stdout = writer
+	}
+	if command.Stderr != nil {
+		writer, err := output.pipe(command.Stderr)
+		if err != nil {
+			output.closeWriters()
+			_ = output.wait()
+			output.restore()
+			return nil, err
+		}
+		command.Stderr = writer
+	}
+	return output, nil
+}
+
+func (o *commandOutput) pipe(destination io.Writer) (*os.File, error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	o.readers = append(o.readers, reader)
+	drained := make(chan error, 1)
+	o.writers = append(o.writers, writer)
+	o.drained = append(o.drained, drained)
+	go func() {
+		_, copyErr := io.Copy(synchronizedWriter{mu: &o.mu, writer: destination}, reader)
+		closeErr := reader.Close()
+		if copyErr == nil {
+			copyErr = closeErr
+		}
+		drained <- copyErr
+	}()
+	return writer, nil
+}
+
+func (o *commandOutput) closeWriters() {
+	for _, writer := range o.writers {
+		_ = writer.Close()
+	}
+}
+
+func (o *commandOutput) wait() error {
+	var first error
+	for _, drained := range o.drained {
+		if err := <-drained; first == nil && err != nil && !o.aborted {
+			first = err
+		}
+	}
+	return first
+}
+
+func (o *commandOutput) abort() {
+	o.aborted = true
+	for _, reader := range o.readers {
+		_ = reader.Close()
+	}
+}
+
+func (o *commandOutput) restore() {
+	o.command.Stdout = o.originalStdout
+	o.command.Stderr = o.originalStderr
 }
 
 // recordDurations measures the slow packages (writeDurations) under the

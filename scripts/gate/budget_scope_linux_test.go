@@ -349,6 +349,8 @@ func TestBudgetVerdict(t *testing.T) {
 			counts(slice, 0, 0)
 			write(t, slice, "memory.max", strconv.Itoa(768<<20)+"\n")
 			write(t, step, "memory.events", "oom 0\noom_kill 0\n")
+			write(t, step, "cgroup.procs", "")
+			write(t, step, "cgroup.kill", "")
 			handle, err := os.Open(step)
 			if err != nil {
 				t.Fatal(err)

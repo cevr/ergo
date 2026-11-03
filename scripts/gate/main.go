@@ -394,12 +394,16 @@ func (g *gate) execute(step *Step) *result {
 			}
 		}
 	}
+	tmpDir := stepTempDir(g.root, step.Name)
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: create step temp dir: %v\n", step.Name, err))}
+	}
 	started := time.Now()
 	command := exec.CommandContext(context.Background(), step.Argv[0], step.Argv[1:]...)
 	command.Dir = g.root
-	command.Env = stepEnvironment()
+	command.Env = stepEnvironmentFor(g.root, step.Name)
 	if runsGoTest(step) {
-		command.Env = goTestEnvironment()
+		command.Env = goTestEnvironmentFor(g.root, step.Name)
 	}
 	if len(step.ToolEnv) > 0 {
 		command.Env = append(command.Env, testenv.ToolDigest+"="+g.toolDigest(step))
@@ -413,7 +417,7 @@ func (g *gate) execute(step *Step) *result {
 		// A reaped child's usage includes the descendants it reaped.
 		r.cpu = command.ProcessState.UserTime() + command.ProcessState.SystemTime()
 	}
-	if err != nil || used.verdict != "" {
+	if err != nil || used.verdict != "" || used.processIssue != "" {
 		r.outcome = failed
 		if err != nil {
 			fmt.Fprintf(&output, "gate: %s: %v\n", step.Name, err)
@@ -423,10 +427,17 @@ func (g *gate) execute(step *Step) *result {
 		if used.verdict != "" {
 			fmt.Fprintf(&output, "gate: %s: %s\n", step.Name, used.verdict)
 		}
+		if used.processIssue != "" {
+			fmt.Fprintf(&output, "gate: %s: %s\n", step.Name, used.processIssue)
+		}
 		r.output = output.Bytes()
+	}
+	if err := os.RemoveAll(tmpDir); err != nil {
+		r.outcome = failed
+		r.output = append(r.output, []byte(fmt.Sprintf("gate: %s: remove step temp dir: %v\n", step.Name, err))...)
 		return r
 	}
-	if key != "" {
+	if r.outcome == passed && key != "" {
 		g.record(receipt{Step: step.Name, Key: key, Duration: r.duration.Seconds(), Passed: time.Now(), Output: output.String()})
 	}
 	return r
@@ -460,7 +471,7 @@ func (g *gate) toolDigest(step *Step) string {
 		if name == testenv.ToolDigest {
 			continue
 		}
-		value, set := stepVariable(name)
+		value, set := stepVariableFor(g.root, step.Name, name)
 		fmt.Fprintf(digest, "env\x00%s\x00%t\x00%s\x00", name, set, value)
 	}
 	return hex.EncodeToString(digest.Sum(nil))[:16]
@@ -480,6 +491,40 @@ func stepEnvironment() []string {
 	return environment
 }
 
+// stepTempDir is stable for the same checkout and step, so Go's test cache
+// can replay tests that read TMPDIR. The gate empties the directory after the
+// step's processes have stopped.
+func stepTempDir(root, name string) string {
+	if absolute, err := filepath.Abs(root); err == nil {
+		root = absolute
+	}
+	key := sha256.Sum256([]byte(filepath.Clean(root) + "\x00" + name))
+	return filepath.Join(os.TempDir(), "ergo-gate", "tmp", hex.EncodeToString(key[:]))
+}
+
+func stepEnvironmentFor(root, name string) []string {
+	return setEnvironmentVariable(stepEnvironment(), "TMPDIR", stepTempDir(root, name))
+}
+
+func setEnvironmentVariable(environment []string, name, value string) []string {
+	updated := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, name+"=") {
+			updated = append(updated, entry)
+		}
+	}
+	return append(updated, name+"="+value)
+}
+
+func environmentVariable(environment []string, name string) (string, bool) {
+	for i := len(environment) - 1; i >= 0; i-- {
+		if value, ok := strings.CutPrefix(environment[i], name+"="); ok {
+			return value, true
+		}
+	}
+	return "", false
+}
+
 // runsGoTest reports whether a step runs go test, which runs test binaries
 // whose results Go's test cache replays.
 func runsGoTest(step *Step) bool {
@@ -495,16 +540,18 @@ func goTestEnvironment() []string {
 	return testenv.Environment(stepEnvironment())
 }
 
+func goTestEnvironmentFor(root, name string) []string {
+	return testenv.Environment(stepEnvironmentFor(root, name))
+}
+
 // stepVariable reads a variable as steps see it, so a key names the value a
 // step runs with rather than the caller's.
 func stepVariable(name string) (string, bool) {
-	environment := stepEnvironment()
-	for i := len(environment) - 1; i >= 0; i-- {
-		if value, ok := strings.CutPrefix(environment[i], name+"="); ok {
-			return value, true
-		}
-	}
-	return "", false
+	return environmentVariable(stepEnvironment(), name)
+}
+
+func stepVariableFor(root, stepName, name string) (string, bool) {
+	return environmentVariable(stepEnvironmentFor(root, stepName), name)
 }
 
 // loadFiles hashes every tracked and untracked (non-ignored) file once.
@@ -623,7 +670,7 @@ func (g *gate) key(step *Step) (string, error) {
 		fmt.Fprintf(hash, "tool\x00%s\x00%s\x00", tool, g.toolVersion(tool))
 	}
 	for _, name := range inputs.Env {
-		value, set := stepVariable(name)
+		value, set := stepVariableFor(g.root, step.Name, name)
 		fmt.Fprintf(hash, "env\x00%s\x00%t\x00%s\x00", name, set, value)
 	}
 	for _, dir := range inputs.Installed {

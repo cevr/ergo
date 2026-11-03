@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -208,6 +212,260 @@ echo "step exited"`, os.Args[0]},
 			}
 		},
 	},
+	{
+		// A child that keeps output open after its leader exits fails the
+		// step, and the scope stops the child before the gate drains output.
+		name: "leftover", step: "512M", gate: "2G", scopeOnly: true,
+		steps: func() []*Step { return []*Step{leftoverStep()} },
+		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
+			wantAll(t, out, "== alloc: FAILED", "leftover processes at leader exit:")
+			pid := leftoverPID(out)
+			if pid == 0 || !namedLeftover(out, pid) {
+				t.Errorf("the leftover diagnostic does not name child pid %d:\n%s", pid, out)
+			}
+			if code != 1 || len(receipts) != 0 {
+				t.Errorf("exit %d, receipts %v: want the leftover process to fail the step without a receipt:\n%s", code, receipts, out)
+			}
+			if pid := leftoverPID(out); pid > 0 && processExists(pid) {
+				t.Errorf("leftover process %d still exists after the scope stopped the step", pid)
+			}
+		},
+	},
+	{
+		// A step killed by its memory budget loses every file it wrote in
+		// its stable, gate-owned temp directory, including TestMain's temp.
+		name: "temp", step: "512M", gate: "2G",
+		steps: func() []*Step { return []*Step{tempAllocatorStep()} },
+		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
+			stepStopped(t, code, out, receipts)
+			if paths := stepTempArtifacts(t); len(paths) != 0 {
+				t.Errorf("step temporary files outlived the step: %v", paths)
+			}
+		},
+	},
+}
+
+func leftoverStep() *Step {
+	return &Step{Name: "alloc", Argv: []string{"sh", "-c", `echo "$$" > src/leftover-pgid
+sleep 60 &
+child=$!
+echo "$child" > src/leftover-pid
+echo "leftover child pid=$child"
+exit 0`}}
+}
+
+func tempAllocatorStep() *Step {
+	return &Step{
+		Name: "alloc",
+		Argv: []string{"sh", "-c", `printf 'created\n' > "$TMPDIR/leftovers-step-marker"
+"$0" -test.run='^TestBudgetAllocator$' -test.count=1 2048 10s 4>&-
+echo "allocator exited $?"`, os.Args[0]},
+		Inputs: &Inputs{Paths: []string{"src/alloc.txt"}},
+	}
+}
+
+func leftoverPID(out string) int {
+	for _, line := range strings.Split(out, "\n") {
+		if _, value, ok := strings.Cut(line, "leftover child pid="); ok {
+			pid, _ := strconv.Atoi(strings.TrimSpace(value))
+			return pid
+		}
+	}
+	return 0
+}
+
+func namedLeftover(out string, pid int) bool {
+	marker := "leftover processes at leader exit: "
+	pidSuffix := fmt.Sprintf("(pid %d)", pid)
+	for _, line := range strings.Split(out, "\n") {
+		_, members, ok := strings.Cut(line, marker)
+		if !ok {
+			continue
+		}
+		for _, member := range strings.Split(members, ", ") {
+			if strings.HasSuffix(member, pidSuffix) && strings.TrimSpace(strings.TrimSuffix(member, pidSuffix)) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func processExists(pid int) bool {
+	output, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "stat=").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false
+		}
+		return true
+	}
+	state := strings.TrimSpace(string(output))
+	return state != "" && !strings.HasPrefix(state, "Z") && !strings.HasPrefix(state, "X")
+}
+
+func stepTempArtifacts(t *testing.T) []string {
+	t.Helper()
+	var artifacts []string
+	err := filepath.WalkDir(os.TempDir(), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() && filepath.Clean(path) == filepath.Clean(testScratch) {
+			return filepath.SkipDir
+		}
+		if entry.Name() == "leftovers-step-marker" || entry.IsDir() && strings.HasPrefix(entry.Name(), "gate-tools-") {
+			artifacts = append(artifacts, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return artifacts
+}
+
+func TestBudgetRSSWatchStopsLeaderExitDescendant(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the RSS watch requires Unix process groups")
+	}
+	t.Setenv(mechanismVariable, "rss")
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "2G")
+	root := budgetFixture(t)
+	cache := t.TempDir()
+	done := make(chan struct {
+		code int
+		out  string
+	}, 1)
+	go func() {
+		code, out := runGate(t, root, cache, []*Step{leftoverStep()})
+		done <- struct {
+			code int
+			out  string
+		}{code, out}
+	}()
+
+	childPath := filepath.Join(root, "src", "leftover-pid")
+	var childPID int
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if content, err := os.ReadFile(childPath); err == nil {
+			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
+			if childPID > 0 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("step did not record the background child's PID")
+	}
+
+	select {
+	case result := <-done:
+		wantAll(t, result.out, "== alloc: FAILED", "leftover processes at leader exit:")
+		if !namedLeftover(result.out, childPID) {
+			t.Errorf("the leftover diagnostic does not name child pid %d:\n%s", childPID, result.out)
+		}
+		if result.code != 1 || processExists(childPID) {
+			t.Fatalf("exit %d, leftover process alive=%t:\n%s", result.code, processExists(childPID), result.out)
+		}
+	case <-time.After(10 * time.Second):
+		child, err := os.FindProcess(childPID)
+		if err == nil {
+			_ = child.Kill()
+		}
+		select {
+		case result := <-done:
+			t.Fatalf("gate did not stop the descendant promptly; after test cleanup it returned %d:\n%s", result.code, result.out)
+		case <-time.After(3 * time.Second):
+			t.Fatal("gate remained blocked after the test stopped its own descendant")
+		}
+	}
+}
+
+type failedStopLimiter struct{}
+
+func (failedStopLimiter) describe() string { return "failed stop test limiter" }
+
+func (failedStopLimiter) prepare(string, *exec.Cmd) (stepWatch, error) {
+	return failedStopWatch{}, nil
+}
+
+func (failedStopLimiter) close() {}
+
+type failedStopWatch struct{}
+
+func (failedStopWatch) started(int) {}
+
+func (failedStopWatch) finish() usage {
+	return usage{processIssue: "could not stop test process", stopFailed: true}
+}
+
+func TestRunBudgetedDoesNotWaitForOutputAfterStopFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the probe requires a Unix shell")
+	}
+	pidPath := filepath.Join(t.TempDir(), "child-pid")
+	stopChild := func() {
+		content, err := os.ReadFile(pidPath)
+		if err != nil {
+			return
+		}
+		childPID, _ := strconv.Atoi(strings.TrimSpace(string(content)))
+		if childPID > 0 {
+			child, err := os.FindProcess(childPID)
+			if err == nil {
+				_ = child.Kill()
+			}
+		}
+	}
+	t.Cleanup(stopChild)
+	command := exec.Command("sh", "-c", `sleep 60 & echo $! > "$1"; exit 0`, "sh", pidPath)
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	type result struct {
+		used usage
+		err  error
+	}
+	done := make(chan result, 1)
+	started := time.Now()
+	go func() {
+		used, err := runBudgeted(failedStopLimiter{}, "probe", command)
+		done <- result{used: used, err: err}
+	}()
+
+	var childPID int
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if content, err := os.ReadFile(pidPath); err == nil {
+			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
+			if childPID > 0 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("step did not record the background child's PID")
+	}
+	select {
+	case result := <-done:
+		stopChild()
+		if result.err != nil || !result.used.stopFailed || time.Since(started) > 2*time.Second {
+			t.Fatalf("runBudgeted result %+v after %s; want prompt return after stop failure", result, time.Since(started))
+		}
+	case <-time.After(2 * time.Second):
+		stopChild()
+		select {
+		case result := <-done:
+			t.Fatalf("runBudgeted waited for descendant output after stop failure: %+v", result)
+		case <-time.After(3 * time.Second):
+			t.Fatal("runBudgeted remained blocked after the test stopped its own descendant")
+		}
+	}
 }
 
 func wantAll(t *testing.T, out string, wants ...string) {

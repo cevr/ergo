@@ -5,10 +5,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -182,10 +184,75 @@ func (s *rssStep) finish() usage {
 		return usage{}
 	}
 	s.watch.mu.Lock()
-	defer s.watch.mu.Unlock()
 	group := s.watch.groups[s.pgid]
 	delete(s.watch.groups, s.pgid)
-	return usage{peak: group.peak, verdict: group.verdict}
+	s.watch.mu.Unlock()
+	if group == nil {
+		return usage{}
+	}
+
+	u := usage{peak: group.peak, verdict: group.verdict}
+	members, inspectErr := processGroupMembers(s.pgid)
+	if inspectErr != nil {
+		addProcessIssue(&u, "could not inspect step process group after leader exit: "+inspectErr.Error())
+	} else if len(members) > 0 {
+		addProcessIssue(&u, "leftover processes at leader exit: "+strings.Join(members, ", "))
+	}
+
+	if err := syscall.Kill(-s.pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		addProcessIssue(&u, "could not stop step process group: "+err.Error())
+		u.stopFailed = true
+	}
+	if err := waitForProcessGroup(s.pgid); err != nil {
+		addProcessIssue(&u, "could not confirm step process group stopped: "+err.Error())
+		u.stopFailed = true
+	}
+	return u
+}
+
+func processGroupMembers(pgid int) ([]string, error) {
+	output, err := exec.Command("ps", "-A", "-o", "pid=,pgid=,stat=,comm=").Output()
+	if err != nil {
+		return nil, fmt.Errorf("ps: %w", err)
+	}
+	var members []string
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		group, groupErr := strconv.Atoi(fields[1])
+		if pidErr != nil || groupErr != nil {
+			return nil, fmt.Errorf("ps printed %q", scanner.Text())
+		}
+		if strings.HasPrefix(fields[2], "Z") || strings.HasPrefix(fields[2], "X") {
+			continue
+		}
+		if group == pgid {
+			name := strings.Join(fields[3:], " ")
+			members = append(members, fmt.Sprintf("%s (pid %d)", name, pid))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	sort.Strings(members)
+	return members, nil
+}
+
+func waitForProcessGroup(pgid int) error {
+	for {
+		members, err := processGroupMembers(pgid)
+		if err != nil {
+			return err
+		}
+		if len(members) == 0 {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // sampleGroups returns the resident memory, in bytes, of every process
