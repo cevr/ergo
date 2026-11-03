@@ -19,10 +19,11 @@
 // GOMEMLIMIT at 3/4 of the step cap unless the caller set it. On Linux with a
 // working `systemd-run --user`, the gate re-executes itself in one transient
 // scope in the user slice ergo-gates.slice; the scope's MemoryMax is the gate
-// budget, with swap denied. The slice's MemoryMax belongs to the host: a gate
-// sets it only when the slice has none, and then only to the default (three
-// quarters of physical memory), and never lowers or raises a set bound. Each
-// step starts in its own child
+// budget plus a reserve for the gate itself, with swap denied. The slice's
+// MemoryMax belongs to the host: a gate sets it only when the slice has none,
+// and then only to the default (three quarters of physical memory), and never
+// lowers or raises a set bound. The steps run in a cgroup bounded at the gate
+// budget, which the gate is not in, and each step starts in its own child
 // cgroup whose memory.max is the step budget and whose memory.oom.group stops
 // the whole step at an out-of-memory kill, so the kernel enforces all three
 // caps, and the gate reads the step's OOM events before it removes the

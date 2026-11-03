@@ -144,6 +144,7 @@ func TestBudgetSystemdScope(t *testing.T) {
 	bound := defaultHostBound()
 	for _, c := range budgetCases {
 		t.Run(c.name, func(t *testing.T) {
+			setBudgetCaseTemp(t)
 			t.Setenv(stepMemoryVariable, c.step)
 			t.Setenv(gateMemoryVariable, c.gate)
 			t.Setenv(hostMemoryVariable, "4G")
@@ -179,6 +180,64 @@ var hostCase = budgetCase{
 var holdCase = budgetCase{
 	name:  "hold",
 	steps: func() []*Step { return []*Step{allocatorStep("alloc", 448, 6*time.Second)} },
+}
+
+// gateOOMCases give the gate and its one step equal memory budgets, so the
+// step's memory alone reaches every bound the gate's steps have. The kernel
+// must stop the step and never the gate, which must report it.
+var gateOOMCases = []budgetCase{
+	{
+		// The allocator's memory can still be charged, after the kernel
+		// killed it, when the gate next needs memory.
+		name: "gate-oom", step: "256M", gate: "256M", scopeOnly: true,
+		steps: func() []*Step { return []*Step{allocatorStep("alloc", 448, 10*time.Second)} },
+	},
+	{
+		// dd fills a tmpfs file until the step's budget stops it. Without
+		// swap the file's pages stay charged where dd wrote them after dd
+		// dies, and dd's resident memory is small, so in an out-of-memory
+		// domain that holds the gate, the gate is the largest process.
+		name: "gate-oom-shm", step: "256M", gate: "256M", scopeOnly: true,
+		steps: func() []*Step {
+			return []*Step{{Name: "alloc", Argv: []string{"dd", "if=/dev/zero", "of=" + os.Getenv("GATE_BUDGET_SHM"), "bs=1M", "count=512"}}}
+		},
+	},
+}
+
+// TestBudgetGateSurvivesStepOOM runs the equal-budget cases, which used to
+// let the out-of-memory killer choose the gate in its scope.
+// scopeHelper.result requires a gate-exit line, so an OOM-killed gate fails
+// the test.
+func TestBudgetGateSurvivesStepOOM(t *testing.T) {
+	slice := testSlice(t)
+	for _, c := range gateOOMCases {
+		t.Run(c.name, func(t *testing.T) {
+			setBudgetCaseTemp(t)
+			t.Setenv(stepMemoryVariable, c.step)
+			t.Setenv(gateMemoryVariable, c.gate)
+			t.Setenv(hostMemoryVariable, "4G")
+			budget, err := currentBudget()
+			if err != nil {
+				t.Fatal(err)
+			}
+			startableScope(t, slice, budget)
+			if info, err := os.Stat("/dev/shm"); err != nil || !info.IsDir() {
+				t.Skipf("no /dev/shm tmpfs (%v)", err)
+			}
+			shm := filepath.Join("/dev/shm", scopeUnit()+".fill")
+			t.Cleanup(func() { _ = os.Remove(shm) })
+			t.Setenv("GATE_BUDGET_SHM", shm)
+			h := newScopeHelper(t, slice, c.name, budget)
+			if err := h.command.Run(); err != nil {
+				t.Logf("scope helper exited %v", err)
+			}
+			code, output := h.result(t)
+			wantAll(t, output, "== alloc: FAILED", "memory budget exceeded (256M)", "gate: FAILED in")
+			if code != 1 {
+				t.Errorf("gate exit %d, want the failed step to keep the gate alive and exit 1:\n%s", code, output)
+			}
+		})
+	}
 }
 
 // TestBudgetHostSlice runs two gates, each under its own budgets, that
@@ -229,8 +288,9 @@ func TestBudgetHostSlice(t *testing.T) {
 // in a slice bound at 1G. ERGO_GATE_HOST_MEMORY lowers only its own gate's
 // budgets: the slice keeps its bound, the first gate, which holds 448 MiB
 // while the second runs, passes, and the second is stopped for its own
-// budget of 256M (its step's or its gate's: the scope also holds the gate,
-// so it can reach its bound first). Each ends with its own result, and the
+// budget of 256M (its step's or its gate's: both bound its one step, and the
+// steps' cgroup also holds what earlier steps left charged, so it can reach
+// its bound first). Each ends with its own result, and the
 // first says that
 // the slice's bound is below its gate budget.
 func TestBudgetHostBudgets(t *testing.T) {
@@ -314,7 +374,7 @@ func TestBudgetUnboundedHost(t *testing.T) {
 
 // The gate names the budget that stopped a step from the cgroup counters:
 // the step's own when the step reached its bound; else the gate's when the
-// scope reached its own bound; else the host's when only the slice reached
+// steps' cgroup reached its own bound; else the host's when only the slice reached
 // its own bound, at the bound the slice has when the step ends; else the
 // gate's. memory.events counts a cgroup's descendants too (another gate's
 // scope in the slice), so only memory.events.local says which bound was
@@ -325,7 +385,8 @@ func TestBudgetVerdict(t *testing.T) {
 	for _, c := range []struct {
 		name, step string
 		// scope and slice are the oom counts of memory.events.local and
-		// memory.events when the step ends; both are 0 when it starts.
+		// memory.events, of "steps" (which the gate budget bounds) and of
+		// the slice, when the step ends; both are 0 when it starts.
 		scope, slice [2]int
 		want         string
 	}{
@@ -340,24 +401,26 @@ func TestBudgetVerdict(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			slice := t.TempDir()
 			scope := filepath.Join(slice, "ergo-gate-1-00000000.scope")
-			step := filepath.Join(scope, "step-1")
+			steps := filepath.Join(scope, stepsCgroup)
+			step := filepath.Join(steps, "step-1")
 			counts := func(dir string, local, all int) {
 				write(t, dir, "memory.events.local", fmt.Sprintf("oom %d\noom_kill 0\n", local))
 				write(t, dir, "memory.events", fmt.Sprintf("oom %d\noom_kill 0\n", all))
 			}
-			counts(scope, 0, 0)
+			counts(steps, 0, 0)
 			counts(slice, 0, 0)
 			write(t, slice, "memory.max", strconv.Itoa(768<<20)+"\n")
 			write(t, step, "memory.events", "oom 0\noom_kill 0\n")
 			write(t, step, "cgroup.procs", "")
 			write(t, step, "cgroup.kill", "")
+			write(t, step, "cgroup.events", "populated 0\nfrozen 0\n")
 			handle, err := os.Open(step)
 			if err != nil {
 				t.Fatal(err)
 			}
-			limiter := &scopeLimiter{budget: budget, dir: scope, slice: slice}
-			watch := &scopeStep{limiter: limiter, dir: step, handle: handle, gateOOM: localOOM(scope), hostOOM: localOOM(slice)}
-			counts(scope, c.scope[0], c.scope[1])
+			limiter := &scopeLimiter{budget: budget, dir: scope, steps: steps, slice: slice}
+			watch := &scopeStep{limiter: limiter, dir: step, handle: handle, gateOOM: localOOM(steps), hostOOM: localOOM(slice)}
+			counts(steps, c.scope[0], c.scope[1])
 			counts(slice, c.slice[0], c.slice[1])
 			write(t, step, "memory.events", c.step)
 			if got := watch.finish().verdict; got != c.want {
@@ -404,7 +467,7 @@ func TestBudgetScopeHelper(t *testing.T) {
 	}
 	scope := os.Getenv(scopeVariable)
 	os.Unsetenv(scopeVariable)
-	for _, c := range append(budgetCases, hostCase, holdCase) {
+	for _, c := range append(append(budgetCases, hostCase, holdCase), gateOOMCases...) {
 		if c.name == name {
 			var out bytes.Buffer
 			g := &gate{root: os.Getenv("GATE_BUDGET_ROOT"), cacheDir: os.Getenv("GATE_BUDGET_CACHE"), steps: c.steps(), scope: scope}
@@ -414,6 +477,132 @@ func TestBudgetScopeHelper(t *testing.T) {
 		}
 	}
 	t.Fatalf("no budget case %q", name)
+}
+
+// A step starts only while the bounds that keep the gate out of its steps'
+// out-of-memory domain read back: "steps" at the gate budget, and the scope
+// at least the gate's reserve above it. Each broken bound refuses the step.
+func TestBudgetStepDomainReadBack(t *testing.T) {
+	budget := memoryBudget{step: 256 << 20, gate: 256 << 20}
+	bound := func(n int64) string { return strconv.FormatInt(n, 10) + "\n" }
+	for _, c := range []struct {
+		name, scope, steps string
+		started            bool
+	}{
+		{"protected", bound(scopeMemory(budget)), bound(budget.gate), true},
+		{"steps unbounded", bound(scopeMemory(budget)), "max\n", false},
+		{"steps above the gate budget", bound(scopeMemory(budget)), bound(scopeMemory(budget)), false},
+		{"scope at the gate budget", bound(budget.gate), bound(budget.gate), false},
+		{"scope unbounded", "max\n", bound(budget.gate), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			scope := t.TempDir()
+			steps := filepath.Join(scope, stepsCgroup)
+			write(t, scope, "memory.max", c.scope)
+			write(t, steps, "memory.max", c.steps)
+			limiter := &scopeLimiter{budget: budget, dir: scope, steps: steps}
+			watch, err := limiter.prepare("alloc", exec.Command("true"))
+			if !c.started {
+				if err == nil {
+					t.Fatal("a step started without the gate outside its steps' out-of-memory domain")
+				}
+				if entries, _ := filepath.Glob(filepath.Join(steps, "step-*")); len(entries) != 0 {
+					t.Errorf("a refused step left cgroups %v", entries)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("prepare with both bounds read back: %v", err)
+			}
+			step := watch.(*scopeStep)
+			if filepath.Dir(step.dir) != steps {
+				t.Errorf("step cgroup %s is not a child of %s", step.dir, steps)
+			}
+			if err := step.handle.Close(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// The scope systemd runs the gate in holds the gate budget for the steps
+// and the gate's reserve above it.
+func TestBudgetScopeArgumentsReserve(t *testing.T) {
+	budget := memoryBudget{step: 256 << 20, gate: 1 << 30}
+	arguments := strings.Join(scopeArguments(gateSlice, "u", budget, []string{"true"}), " ")
+	if want := "MemoryMax=" + strconv.FormatInt(budget.gate+gateReserve, 10) + " "; !strings.Contains(arguments, want) {
+		t.Errorf("systemd-run arguments %q lack %q", arguments, want)
+	}
+}
+
+func TestBudgetScopedGateCannotFallBackToRSS(t *testing.T) {
+	t.Run("forced RSS", func(t *testing.T) {
+		t.Setenv(mechanismVariable, "rss")
+		if _, err := (&gate{scope: "test-unit"}).openLimiter(memoryBudget{step: 1, gate: 1}); err == nil {
+			t.Fatal("a scoped gate ran without verified gate OOM protection")
+		}
+	})
+	t.Run("unusable scope", func(t *testing.T) {
+		t.Setenv(mechanismVariable, "")
+		if _, err := (&gate{scope: "not-the-current-unit"}).openLimiter(memoryBudget{step: 1, gate: 1}); err == nil {
+			t.Fatal("a scoped gate fell back to RSS after scope setup failed")
+		}
+	})
+}
+
+func TestStopStepCgroupWaitsForKernelPopulationZero(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"cgroup.procs":  "",
+		"cgroup.kill":   "",
+		"cgroup.events": "populated 1\nfrozen 0\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type result struct {
+		members []string
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		members, err := stopStepCgroup(dir)
+		done <- result{members: members, err: err}
+	}()
+	select {
+	case got := <-done:
+		t.Fatalf("stop returned while cgroup.events said populated 1: %+v", got)
+	case <-time.After(30 * time.Millisecond):
+	}
+	updated := filepath.Join(dir, "cgroup.events.updated")
+	if err := os.WriteFile(updated, []byte("populated 0\nfrozen 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(updated, filepath.Join(dir, "cgroup.events")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-done:
+		if got.err != nil || len(got.members) != 0 {
+			t.Fatalf("stop after populated 0: %+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stop did not observe cgroup.events populated 0")
+	}
+}
+
+func TestStepCgroupPopulatedRequiresKernelField(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cgroup.events")
+	for _, content := range []string{"frozen 0\n", "populated 2\n"} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := stepCgroupPopulated(dir); err == nil {
+			t.Errorf("accepted cgroup.events %q", content)
+		}
+	}
 }
 
 // TestBudgetNestedHelper starts a gate inside a step of the helper gate, as
@@ -436,15 +625,18 @@ func TestBudgetNestedHelper(t *testing.T) {
 }
 
 // A process is in an outer gate's step when its cgroup is a step-N child of
-// an ergo-gate-*.scope; the gate's own leaf and other cgroups are not steps.
+// the steps cgroup of an ergo-gate-*.scope; the gate's own leaf and other
+// cgroups are not steps.
 func TestBudgetOuterGateStep(t *testing.T) {
 	scope := "/user.slice/user-1000.slice/user@1000.service/ergo.slice/ergo-gates.slice/ergo-gate-12-ab12cd34.scope"
 	for _, c := range []struct {
 		membership string
 		nested     bool
 	}{
-		{"0::" + scope + "/step-7\n", true},
-		{"0::" + scope + "/step-7/inner\n", true},
+		{"0::" + scope + "/steps/step-7\n", true},
+		{"0::" + scope + "/steps/step-7/inner\n", true},
+		{"0::" + scope + "/step-7\n", false},
+		{"0::" + scope + "/steps\n", false},
 		{"0::" + scope + "/gate\n", false},
 		{"0::" + scope + "\n", false},
 		{"0::/user.slice/user-1000.slice/session-3.scope\n", false},

@@ -22,15 +22,25 @@ import (
 // The systemd scope. The gate re-executes itself through
 //
 //	systemd-run --user --scope --slice=ergo-gates.slice -p Delegate=yes \
-//	  -p MemoryMax=<gate budget> -p MemorySwapMax=0 -p OOMPolicy=continue
+//	  -p MemoryMax=<gate budget + gateReserve> -p MemorySwapMax=0 -p OOMPolicy=continue
 //
-// so all its steps share one cgroup v2 subtree capped at the gate budget,
-// which systemd delegates to it. Inside, the gate moves itself to a leaf
-// cgroup and starts every step directly in a cgroup of its own
-// (CLONE_INTO_CGROUP) with memory.max at the step budget and memory.oom.group
-// set, so the cap covers go test, every test binary and every process they
-// start, from their first byte, and an out-of-memory kill stops the whole
-// step, as the RSS watch does. The scope sets MemorySwapMax=0, which holds for
+// and systemd delegates the scope's cgroup v2 subtree to it. Inside, the gate
+// moves itself to the leaf cgroup "gate" and makes a sibling "steps" with
+// memory.max at the gate budget. It starts every step directly in a cgroup
+// of its own below "steps" (CLONE_INTO_CGROUP) with memory.max at the step
+// budget and memory.oom.group set, so the cap covers go test, every test
+// binary and every process they start, from their first byte, and an
+// out-of-memory kill stops the whole step, as the RSS watch does. The step
+// and gate budgets are so the limits of cgroups that hold steps only: when
+// steps reach them, the kernel's out-of-memory killer chooses among the
+// steps' processes, never the gate, which must report and clean up the
+// step. The kernel picks a victim by size and oom_score_adj alone
+// (memory.min and memory.low steer reclaim, not that choice), and an
+// unprivileged gate cannot lower its own oom_score_adj, so this separate
+// domain is the protection. The scope's extra gateReserve is the gate's own
+// memory, which steps cannot take even when a dead step's memory is not yet
+// freed. Setup reads both bounds back, and no step starts without them
+// (checkStepDomain). The scope sets MemorySwapMax=0, which holds for
 // every cgroup below it, so a step cannot page out past its budget. Every
 // gate scope lives in the one user slice ergo-gates.slice, whose MemoryMax
 // bounds the gates together, so they cannot take the host either. That
@@ -42,8 +52,8 @@ import (
 // the largest process under the limit, and two steps can both be stopped
 // when the first one's memory is not yet freed as another grows. After the
 // step the gate reads the step cgroup's memory.events, which it still owns,
-// with the scope's and the slice's memory.events.local, to say which budget
-// stopped it; then it removes the cgroup. OOMPolicy=continue keeps systemd
+// with the memory.events.local of "steps" and of the slice, to say which
+// budget stopped it; then it removes the cgroup. OOMPolicy=continue keeps systemd
 // from stopping the whole gate when the kernel kills one step.
 //
 // A gate started inside a step of another gate (the gate's own tests, a
@@ -52,6 +62,14 @@ import (
 
 // gateSlice is the user slice every gate scope runs in.
 const gateSlice = "ergo-gates.slice"
+
+// gateReserve is the gate process's own memory in its scope, above the gate
+// budget its steps share. The gate holds each step's output until it prints
+// it.
+const gateReserve = 512 << 20
+
+// stepsCgroup is the scope's child cgroup that holds every step.
+const stepsCgroup = "steps"
 
 // enterScope re-executes the gate in its systemd scope, and returns only if
 // it does not: then it says why, and the gate uses the RSS watch.
@@ -93,8 +111,8 @@ func outerGateStep(membership string) (string, bool) {
 			continue
 		}
 		segments := strings.Split(path, "/")
-		for i := 0; i+1 < len(segments); i++ {
-			if strings.HasPrefix(segments[i], "ergo-gate-") && strings.HasSuffix(segments[i], ".scope") && strings.HasPrefix(segments[i+1], "step-") {
+		for i := 0; i+2 < len(segments); i++ {
+			if strings.HasPrefix(segments[i], "ergo-gate-") && strings.HasSuffix(segments[i], ".scope") && segments[i+1] == stepsCgroup && strings.HasPrefix(segments[i+2], "step-") {
 				return path, true
 			}
 		}
@@ -118,11 +136,17 @@ func scopeArguments(slice, unit string, budget memoryBudget, argv []string) []st
 	}
 	arguments = append(arguments,
 		"-p", "Delegate=yes",
-		"-p", "MemoryMax="+strconv.FormatInt(budget.gate, 10),
+		"-p", "MemoryMax="+strconv.FormatInt(scopeMemory(budget), 10),
 		"-p", "MemorySwapMax=0",
 		"-p", "OOMPolicy=continue",
 		"--")
 	return append(arguments, argv...)
+}
+
+// scopeMemory is the scope's MemoryMax: the gate budget its steps share,
+// plus the gate's own reserve.
+func scopeMemory(budget memoryBudget) int64 {
+	return budget.gate + gateReserve
 }
 
 // scopeEnvironment is the environment of systemd-run and systemctl: the
@@ -150,12 +174,12 @@ const cgroupRoot = "/sys/fs/cgroup"
 // scopeLimiter runs steps in cgroups of the gate's scope.
 type scopeLimiter struct {
 	budget memoryBudget
-	// dir is the scope's cgroup, and slice the cgroup of the slice that
-	// holds it.
-	dir, slice string
+	// dir is the scope's cgroup, steps its child that holds every step,
+	// and slice the cgroup of the slice that holds the scope.
+	dir, steps, slice string
 	// hostNote describes the slice's bound for the budget line.
 	hostNote string
-	steps    atomic.Int64
+	started  atomic.Int64
 }
 
 // openScope takes over the scope the gate runs in, checking that it is the
@@ -176,9 +200,10 @@ func openScope(unit string, budget memoryBudget) (limiter, error) {
 		return nil, fmt.Errorf("the gate is in cgroup %q, not in its scope %s.scope", path, unit)
 	}
 	s := &scopeLimiter{budget: budget, dir: filepath.Join(cgroupRoot, path)}
+	s.steps = filepath.Join(s.dir, stepsCgroup)
 	s.slice = filepath.Dir(s.dir)
-	if limit, err := readTrimmed(filepath.Join(s.dir, "memory.max")); err != nil || limit != strconv.FormatInt(budget.gate, 10) {
-		return nil, fmt.Errorf("the scope's memory.max is %q (%v), not the gate budget %d", limit, err, budget.gate)
+	if limit, err := readTrimmed(filepath.Join(s.dir, "memory.max")); err != nil || limit != strconv.FormatInt(scopeMemory(budget), 10) {
+		return nil, fmt.Errorf("the scope's memory.max is %q (%v), not the gate budget plus the gate's reserve %d", limit, err, scopeMemory(budget))
 	}
 	if swap, err := readTrimmed(filepath.Join(s.dir, "memory.swap.max")); err == nil && swap != "0" {
 		return nil, fmt.Errorf("the scope's memory.swap.max is %q, not 0", swap)
@@ -194,6 +219,17 @@ func openScope(unit string, budget memoryBudget) (limiter, error) {
 	}
 	if err := os.WriteFile(filepath.Join(s.dir, "cgroup.subtree_control"), []byte("+memory"), 0); err != nil {
 		return nil, fmt.Errorf("enable the memory controller for the steps: %w", err)
+	}
+	// The steps' own cgroup bounds them at the gate budget, so their
+	// out-of-memory kills choose among steps only.
+	if err := os.Mkdir(s.steps, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(filepath.Join(s.steps, "memory.max"), []byte(strconv.FormatInt(budget.gate, 10)), 0); err != nil {
+		return nil, fmt.Errorf("bound the steps at the gate budget: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(s.steps, "cgroup.subtree_control"), []byte("+memory"), 0); err != nil {
+		return nil, fmt.Errorf("enable the memory controller for each step: %w", err)
 	}
 	probe := exec.Command("true")
 	watch, err := s.prepare("probe", probe)
@@ -268,7 +304,10 @@ func (s *scopeLimiter) describe() string {
 }
 
 func (s *scopeLimiter) prepare(name string, command *exec.Cmd) (stepWatch, error) {
-	dir := filepath.Join(s.dir, fmt.Sprintf("step-%d", s.steps.Add(1)))
+	if err := s.checkStepDomain(); err != nil {
+		return nil, fmt.Errorf("memory budget: the gate is not outside its steps' out-of-memory domain: %w", err)
+	}
+	dir := filepath.Join(s.steps, fmt.Sprintf("step-%d", s.started.Add(1)))
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("memory budget: %w", err)
 	}
@@ -289,7 +328,44 @@ func (s *scopeLimiter) prepare(name string, command *exec.Cmd) (stepWatch, error
 		return nil, fmt.Errorf("memory budget: %w", err)
 	}
 	command.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(handle.Fd())}
-	return &scopeStep{limiter: s, dir: dir, handle: handle, gateOOM: localOOM(s.dir), hostOOM: localOOM(s.slice)}, nil
+	return &scopeStep{limiter: s, dir: dir, handle: handle, gateOOM: localOOM(s.steps), hostOOM: localOOM(s.slice)}, nil
+}
+
+// checkStepDomain reads back the bounds that keep the gate out of its
+// steps' out-of-memory domain: the steps' cgroup at the gate budget, and the
+// scope above it with at least the gate's reserve to spare. A step whose
+// memory reaches either step bound is then killed among steps, and no step,
+// even one whose memory the kernel has not yet freed, can fill the scope.
+func (s *scopeLimiter) checkStepDomain() error {
+	steps, err := cgroupBound(s.steps)
+	if err != nil {
+		return err
+	}
+	if steps != s.budget.gate {
+		return fmt.Errorf("%s/memory.max is %d, not the gate budget %d", s.steps, steps, s.budget.gate)
+	}
+	scope, err := cgroupBound(s.dir)
+	if err != nil {
+		return err
+	}
+	if scope-steps < gateReserve {
+		return fmt.Errorf("%s/memory.max is %d, which leaves the gate %d above its steps, under its reserve %d", s.dir, scope, scope-steps, int64(gateReserve))
+	}
+	return nil
+}
+
+// cgroupBound is the cgroup dir's memory.max in bytes; "max" is an error.
+func cgroupBound(dir string) (int64, error) {
+	path := filepath.Join(dir, "memory.max")
+	limit, err := readTrimmed(path)
+	if err != nil {
+		return 0, err
+	}
+	bound, err := strconv.ParseInt(limit, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s is %q, not a bound in bytes", path, limit)
+	}
+	return bound, nil
 }
 
 func (s *scopeLimiter) close() {}
@@ -309,7 +385,7 @@ func (s *scopeStep) started(int) {}
 // finish reads the step cgroup's counters. Its own "oom" counts the times
 // the step reached its memory.max; "oom_kill" counts its processes the
 // kernel killed, for its own budget or for a larger one. Which larger one is
-// the limit that was reached while the step ran: the scope's (the gate
+// the limit that was reached while the step ran: that of "steps" (the gate
 // budget) or else the slice's (the host bound, as the slice has it now).
 // Only memory.events.local says that a cgroup reached its own limit;
 // memory.events also counts its descendants, such as another gate's scope
@@ -332,7 +408,7 @@ func (s *scopeStep) finish() usage {
 	case events["oom"] > 0:
 		u.verdict = stepExceeded(s.limiter.budget)
 	case events["oom_kill"] == 0:
-	case !rose(s.gateOOM, s.limiter.dir) && host > 0 && rose(s.hostOOM, s.limiter.slice):
+	case !rose(s.gateOOM, s.limiter.steps) && host > 0 && rose(s.hostOOM, s.limiter.slice):
 		u.verdict = hostExceeded(host)
 	default:
 		u.verdict = gateExceeded(s.limiter.budget)
@@ -368,26 +444,52 @@ func stopStepCgroup(dir string) ([]string, error) {
 	sort.Strings(members)
 
 	killErr := os.WriteFile(filepath.Join(dir, "cgroup.kill"), []byte("1"), 0)
-	if killErr != nil && len(pids) == 0 && inspectErr == nil {
-		return members, nil
-	}
 	if killErr != nil {
-		return members, errors.Join(inspectErr, killErr)
+		populated, eventErr := stepCgroupPopulated(dir)
+		if eventErr == nil && !populated {
+			return members, inspectErr
+		}
+		return members, errors.Join(inspectErr, killErr, eventErr)
 	}
 
 	for {
-		current, err := stepCgroupPIDs(dir)
+		populated, err := stepCgroupPopulated(dir)
 		if err != nil {
 			return members, errors.Join(inspectErr, err)
 		}
-		if len(current) == 0 {
+		if !populated {
 			return members, inspectErr
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
+// stepCgroupPopulated uses the kernel's recursive population state. A scan
+// of visible process leaders cannot prove a cgroup empty while a zombie
+// leader's other threads still hold its shared file table.
+func stepCgroupPopulated(dir string) (bool, error) {
+	path := filepath.Join(dir, "cgroup.events")
+	events, err := readEvents(path)
+	if err != nil {
+		return false, err
+	}
+	populated, ok := events["populated"]
+	if !ok {
+		return false, fmt.Errorf("%s has no populated field", path)
+	}
+	switch populated {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s has invalid populated value %d", path, populated)
+	}
+}
+
 func stepCgroupPIDs(dir string) ([]int, error) {
+	// This scan names live leaders for the pre-kill diagnostic only. A cgroup
+	// is empty only when cgroup.events reports populated 0.
 	var pids []int
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

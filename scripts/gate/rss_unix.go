@@ -210,12 +210,34 @@ func (s *rssStep) finish() usage {
 	return u
 }
 
-func processGroupMembers(pgid int) ([]string, error) {
+// groupProcess is one process of a step's process group, as ps prints it.
+type groupProcess struct {
+	pid        int
+	stat, name string
+}
+
+func (p groupProcess) zombie() bool {
+	return strings.HasPrefix(p.stat, "Z") || strings.HasPrefix(p.stat, "X")
+}
+
+// running says the process can still hold the step's output pipe: it is not
+// a zombie, or it is a zombie leader whose other threads still run and share
+// its file table. Linux ps marks such a leader multithreaded ("Zl"); a
+// zombie without other threads has closed its files. Darwin makes a process
+// a zombie only once all its threads end, and its ps has no "l".
+func (p groupProcess) running() bool {
+	return !p.zombie() || strings.HasPrefix(p.stat, "Z") && strings.Contains(p.stat, "l")
+}
+
+func (p groupProcess) String() string { return fmt.Sprintf("%s (pid %d)", p.name, p.pid) }
+
+// processGroup lists the processes ps shows in process group pgid.
+func processGroup(pgid int) ([]groupProcess, error) {
 	output, err := exec.Command("ps", "-A", "-o", "pid=,pgid=,stat=,comm=").Output()
 	if err != nil {
 		return nil, fmt.Errorf("ps: %w", err)
 	}
-	var members []string
+	var group []groupProcess
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
@@ -223,32 +245,52 @@ func processGroupMembers(pgid int) ([]string, error) {
 			continue
 		}
 		pid, pidErr := strconv.Atoi(fields[0])
-		group, groupErr := strconv.Atoi(fields[1])
+		member, groupErr := strconv.Atoi(fields[1])
 		if pidErr != nil || groupErr != nil {
 			return nil, fmt.Errorf("ps printed %q", scanner.Text())
 		}
-		if strings.HasPrefix(fields[2], "Z") || strings.HasPrefix(fields[2], "X") {
-			continue
-		}
-		if group == pgid {
-			name := strings.Join(fields[3:], " ")
-			members = append(members, fmt.Sprintf("%s (pid %d)", name, pid))
+		if member == pgid {
+			group = append(group, groupProcess{pid: pid, stat: fields[2], name: strings.Join(fields[3:], " ")})
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+	return group, nil
+}
+
+// processGroupMembers names the live processes left in process group pgid
+// for the leftover diagnostic. A zombie is no leftover: a step's process
+// that the budget stopped can be one while its threads end.
+func processGroupMembers(pgid int) ([]string, error) {
+	group, err := processGroup(pgid)
+	if err != nil {
+		return nil, err
+	}
+	var members []string
+	for _, process := range group {
+		if !process.zombie() {
+			members = append(members, process.String())
+		}
+	}
 	sort.Strings(members)
 	return members, nil
 }
 
+// waitForProcessGroup waits until no process of group pgid can hold the
+// step's output: a zombie leader whose threads still run keeps the group
+// occupied, as it keeps a cgroup populated.
 func waitForProcessGroup(pgid int) error {
 	for {
-		members, err := processGroupMembers(pgid)
+		group, err := processGroup(pgid)
 		if err != nil {
 			return err
 		}
-		if len(members) == 0 {
+		occupied := false
+		for _, process := range group {
+			occupied = occupied || process.running()
+		}
+		if !occupied {
 			return nil
 		}
 		time.Sleep(10 * time.Millisecond)

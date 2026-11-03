@@ -240,7 +240,10 @@ echo "step exited"`, os.Args[0]},
 		steps: func() []*Step { return []*Step{tempAllocatorStep()} },
 		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
 			stepStopped(t, code, out, receipts)
-			if paths := stepTempArtifacts(t); len(paths) != 0 {
+			if strings.Contains(out, "step output held open") {
+				t.Errorf("the OOM-killed allocator has no outside writer, but output was reported held open:\n%s", out)
+			}
+			if paths := stepTempArtifacts(t, os.TempDir()); len(paths) != 0 {
 				t.Errorf("step temporary files outlived the step: %v", paths)
 			}
 		},
@@ -328,15 +331,12 @@ func stopProcess(pid int) {
 	}
 }
 
-func stepTempArtifacts(t *testing.T) []string {
+func stepTempArtifacts(t *testing.T, caseTemp string) []string {
 	t.Helper()
 	var artifacts []string
-	err := filepath.WalkDir(os.TempDir(), func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(caseTemp, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if entry.IsDir() && filepath.Clean(path) == filepath.Clean(testScratch) {
-			return filepath.SkipDir
 		}
 		if entry.Name() == "leftovers-step-marker" || entry.IsDir() && strings.HasPrefix(entry.Name(), "gate-tools-") {
 			artifacts = append(artifacts, path)
@@ -347,6 +347,41 @@ func stepTempArtifacts(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	return artifacts
+}
+
+func setBudgetCaseTemp(t *testing.T) string {
+	t.Helper()
+	caseTemp := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, caseTemp)
+	}
+	return caseTemp
+}
+
+// Another test's leftover in the shared temp directory, named as the temp
+// case's own artifacts are, does not fail the temp case: it checks only the
+// temp directory of its own gate.
+func TestBudgetTempCaseIgnoresSharedTemp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the RSS watch requires Unix process groups")
+	}
+	strayDir, err := os.MkdirTemp(os.TempDir(), "gate-oom-shared-stray-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(strayDir) })
+	write(t, strayDir, "leftovers-step-marker", "another test's artifact\n")
+	if err := os.Mkdir(filepath.Join(strayDir, "gate-tools-stray"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ERGO_GATE_MEMORY_MECHANISM", "rss")
+	for _, c := range budgetCases {
+		if c.name == "temp" {
+			runRSSCase(t, c)
+			return
+		}
+	}
+	t.Fatal("no temp budget case")
 }
 
 func TestBudgetRSSWatchStopsLeaderExitDescendant(t *testing.T) {
@@ -910,16 +945,22 @@ func TestBudgetRSSWatch(t *testing.T) {
 		if c.scopeOnly {
 			continue
 		}
-		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("ERGO_GATE_STEP_MEMORY", c.step)
-			t.Setenv("ERGO_GATE_MEMORY", c.gate)
-			cache := t.TempDir()
-			code, out := runGate(t, budgetFixture(t), cache, c.steps())
-			t.Logf("gate exit %d:\n%s", code, out)
-			if !strings.Contains(out, "gate: memory budget: RSS watch "+c.step+" per step, "+c.gate+" per gate, no bound across gates (forced by ERGO_GATE_MEMORY_MECHANISM=rss)\n") {
-				t.Errorf("the gate does not name the RSS watch and its budget:\n%s", out)
-			}
-			c.check(t, rssMechanism, code, out, receiptsIn(t, cache))
-		})
+		t.Run(c.name, func(t *testing.T) { runRSSCase(t, c) })
 	}
+}
+
+// runRSSCase runs one budget case under the RSS watch, in a temp directory
+// of its own.
+func runRSSCase(t *testing.T, c budgetCase) {
+	t.Helper()
+	setBudgetCaseTemp(t)
+	t.Setenv("ERGO_GATE_STEP_MEMORY", c.step)
+	t.Setenv("ERGO_GATE_MEMORY", c.gate)
+	cache := t.TempDir()
+	code, out := runGate(t, budgetFixture(t), cache, c.steps())
+	t.Logf("gate exit %d:\n%s", code, out)
+	if !strings.Contains(out, "gate: memory budget: RSS watch "+c.step+" per step, "+c.gate+" per gate, no bound across gates (forced by ERGO_GATE_MEMORY_MECHANISM=rss)\n") {
+		t.Errorf("the gate does not name the RSS watch and its budget:\n%s", out)
+	}
+	c.check(t, rssMechanism, code, out, receiptsIn(t, cache))
 }

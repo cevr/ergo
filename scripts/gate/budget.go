@@ -503,6 +503,9 @@ func (g *gate) openLimiter(budget memoryBudget) (limiter, error) {
 	switch mechanism := os.Getenv(mechanismVariable); mechanism {
 	case "":
 	case "rss":
+		if g.scope != "" {
+			return nil, fmt.Errorf("memory budget: systemd scope %s has no verified gate OOM protection; refusing the RSS fallback", g.scope)
+		}
 		return openRSSWatch(budget, "forced by "+mechanismVariable+"=rss")
 	default:
 		return nil, fmt.Errorf("%s=%q: the only value is rss", mechanismVariable, mechanism)
@@ -510,10 +513,10 @@ func (g *gate) openLimiter(budget memoryBudget) (limiter, error) {
 	reason := g.scopeNote
 	if g.scope != "" {
 		scope, err := openScope(g.scope, budget)
-		if err == nil {
-			return scope, nil
+		if err != nil {
+			return nil, fmt.Errorf("memory budget: systemd scope %s could not establish gate OOM protection: %w", g.scope, err)
 		}
-		reason = "systemd scope unusable: " + err.Error()
+		return scope, nil
 	}
 	if reason == "" {
 		reason = "not started in a systemd scope"
