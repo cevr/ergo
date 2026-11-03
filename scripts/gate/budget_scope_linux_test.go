@@ -631,7 +631,12 @@ func TestBudgetRecordDurationsScope(t *testing.T) {
 		t.Skip("no systemd-run: the RSS watch tests cover this host")
 	}
 	binary := filepath.Join(t.TempDir(), "gate")
-	if output, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+	// -buildvcs=false: VCS stamping of a main package runs git status, which
+	// lists every directory of the work tree. Go's test cache records those
+	// reads, so every directory of the repository would become an input of
+	// this package, and the gate, which rewrites dist/ while it runs, would
+	// never replay it.
+	if output, err := exec.Command("go", "build", "-buildvcs=false", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, output)
 	}
 	root := fixture(t)
