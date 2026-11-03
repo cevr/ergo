@@ -228,11 +228,11 @@ func userExtern(f *check.Func) bool {
 // hostCall is the Go text of the call x of the user extern c.Func: a direct
 // call of its Go target, with no environment, no wrapper and no poll (a
 // host call is not an interruption point; runtime.md). The extern is never
-// a value (P3), so this is its only lowering. Each argument is converted
-// to its Ergo parameter's Go type, and call binds a result to a variable
-// of its Ergo result's Go type (hostResult), so Go checks the call against
-// the Ergo signature: a literal argument is never an untyped constant that
-// a target of another type would accept. A target whose signature is not
+// a value (P3), so this is its only lowering. Go checks the call against
+// the Ergo signature: every argument is already typed (a literal lowers
+// as T(lit), 196u: no untyped constants), and call binds a result to a
+// variable of its Ergo result's Go type (hostResult), so a float64 target
+// result never flows on as an Ergo int. A target whose signature is not
 // assignable is go build's error, at the call's //line (D-E5).
 func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) string {
 	f := c.Func
@@ -241,9 +241,6 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 	}
 	path, name := f.Decl.Extern.Split()
 	vals := fc.callArgs(args, x)
-	for i, v := range vals {
-		vals[i] = fc.goType(f.Sig.Params[i].Type) + "(" + v + ")"
-	}
 	return fc.l.hostPkg(path, x) + "." + name + "(" + strings.Join(vals, ", ") + ")"
 }
 

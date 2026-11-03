@@ -130,11 +130,11 @@ func TestErgoRunE4Externs(t *testing.T) {
 			t.Errorf("%s: exit %d, stdout %q, stderr %q; want %q", r.name, code, stdout, firstLines(stderr, 8), r.want)
 		}
 	}
-	// The call is direct: the target is called with the converted
-	// argument, no Go function is declared for the extern, and the call
-	// takes no environment.
+	// The call is direct: the target is called with the Ergo arguments
+	// only (no environment), its result is bound at the Ergo type, and no
+	// Go function is declared for the extern.
 	esub4 := builds[0].mainGo()
-	for _, want := range []string{`strings.ToUpper(string(`, `strings.Repeat(string(`, "\tstrings \"strings\"\n"} {
+	for _, want := range []string{`string = strings.ToUpper("ada")`, `string = strings.Repeat("ab", `, "\tstrings \"strings\"\n"} {
 		if !strings.Contains(esub4, want) {
 			t.Errorf("esub4: the lowered Go has no %q:\n%s", want, esub4)
 		}
@@ -159,9 +159,10 @@ func main() needs Console { Console.Println(hostlib.Shout("lib") + hostlib.Up(""
 
 // A user extern whose Ergo signature does not match its Go target fails
 // ergo run with go build's error at the line of the Ergo call (the call's
-// //line directive), never a panic. Each argument is converted to its Ergo
-// type and a result is bound at its Ergo type, so an untyped literal never
-// lets a mismatched target compile (Risk 4).
+// //line directive), never a panic. A literal argument lowers typed (196u),
+// so a target of another type never accepts it as an untyped constant, and
+// a result is bound at its Ergo type, so a target's float64 never reaches
+// an interpolation that would print it as the Ergo int (Risk 4).
 func TestErgoRunE4Mismatch(t *testing.T) {
 	cases := []struct{ name, src string }{
 		{"argument", `extern go strings.ToUpper func Upper(n int) int
@@ -179,6 +180,13 @@ func main() needs Console {
 func main() needs Console {
 	let n int = Whole(4.0) // call
 	Console.Println("\(n)")
+}
+`},
+		// Interpolation takes any basic type, so only the result binding
+		// stops 1.4142135623730951 printing as an Ergo int.
+		{"result-interpolated", `extern go math.Sqrt func Whole(x float64) int
+func main() needs Console {
+	Console.Println("\(Whole(2.0))") // call
 }
 `},
 	}
