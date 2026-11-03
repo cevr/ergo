@@ -1116,6 +1116,10 @@ func (t *translator) node(n oldsyntax.Node) {
 		}
 	case *oldsyntax.FuncType:
 		t.results(n)
+	case *oldsyntax.NeedsClause:
+		t.row(n.Lparen, n.Names, n.Rparen)
+	case *oldsyntax.ProvidesClause:
+		t.row(oldsyntax.NoPos, n.Names, oldsyntax.NoPos)
 	case *oldsyntax.MapType:
 		// Go parses `map[K]V{…}` in a control clause header; the decided
 		// `Map[K, V]{…}` is a type name there, so the literal needs
@@ -1288,6 +1292,18 @@ func (t *translator) results(ft *oldsyntax.FuncType) {
 		last := types[len(types)-1]
 		t.replace(last.End(), r.Closing, ")")
 		t.replace(r.Closing, r.Closing+1, " "+rowText)
+	}
+}
+
+// row respells an old capability row, its names separated by commas and
+// maybe parenthesised, as the decided union `needs A | B` (196n).
+func (t *translator) row(lparen oldsyntax.Pos, names []oldsyntax.Expr, rparen oldsyntax.Pos) {
+	if lparen.IsValid() {
+		t.replace(lparen, names[0].Pos(), "")
+		t.replace(names[len(names)-1].End(), rparen+1, "")
+	}
+	for i := 1; i < len(names); i++ {
+		t.replace(names[i-1].End(), names[i].Pos(), " | ")
 	}
 }
 

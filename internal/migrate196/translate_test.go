@@ -256,6 +256,9 @@ func TestRules(t *testing.T) {
 		// key-only range keeps two bindings and the value-only range has one.
 		{"map range forms", "package p\n\nfunc use(s string) {}\n\nfunc useI(i int) {}\n\nfunc f(m map[string]int) {\n\tfor k := range m {\n\t\tuse(k)\n\t}\n\tfor _, v := range m {\n\t\tuseI(v)\n\t}\n\tfor k, v := range m {\n\t\tuse(k)\n\t\tuseI(v)\n\t}\n}\n",
 			"func use(s string) {}\n\nfunc useI(i int) {}\n\nfunc f(m Map[string, int]) {\n\tfor k, _ in m {\n\t\tuse(k)\n\t}\n\tfor v in m {\n\t\tuseI(v)\n\t}\n\tfor k, v in m {\n\t\tuse(k)\n\t\tuseI(v)\n\t}\n}\n"},
+		// 196n: a capability row is written with |, without parentheses.
+		{"capability rows", "package p\n\nwire Live provides Orders, Clock needs Config {\n\tOrders = Memory{}\n\tClock = Fixed{}\n}\n\nfunc f(g func() needs (Orders, Clock)) needs Orders, Clock {\n\tg()\n}\n",
+			"let Live = context provides Orders | Clock needs Config {\n\tOrders: Memory{},\n\tClock:  Fixed{},\n}\n\nfunc f(g func() needs Orders | Clock) needs Orders | Clock {\n\tg()\n}\n"},
 		{"test", "package p\n\nfunc TestAdd() needs testing.T {\n\tT.Equal(1+1, 2)\n\tT.True(ok())\n}\n",
 			"test Add {\n\tassert 1+1 == 2\n\tassert ok()\n}\n"},
 		{"keyword names", "package p\n\nfunc f(in int64) int64 {\n\tmatch := in\n\treturn match\n}\n",
