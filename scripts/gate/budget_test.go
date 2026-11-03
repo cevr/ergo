@@ -106,22 +106,37 @@ var budgetCases = []budgetCase{
 		steps: func() []*Step { return []*Step{allocatorStep("alloc", 768, 5*time.Second)} },
 		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
 			stepStopped(t, code, out, receipts)
+			if strings.Contains(out, "held 768 MiB") {
+				t.Errorf("the allocator held its memory through the full interval:\n%s", out)
+			}
 		},
 	},
 	{
 		// A process of the step that stays under the budget is stopped with
-		// the one that passes it: the budget stops the step whole.
+		// the one that passes it. FIFO handshakes confirm the survivor started
+		// before allocation and let it finish only if allocation completes.
 		name: "whole", step: "512M", gate: "2G",
 		steps: func() []*Step {
 			return []*Step{{
-				Name:   "alloc",
-				Argv:   []string{"sh", "-c", `(sleep 3; echo survivor ran) & "$0" -test.run='^TestBudgetAllocator$' -test.count=1 2048 10s; wait; echo "step exited"`, os.Args[0]},
+				Name: "alloc",
+				Argv: []string{"sh", "-c", `mkfifo src/survivor-ready src/survivor-release
+( echo "survivor started"; echo ready > src/survivor-ready; read -r _ < src/survivor-release; echo "survivor finished" ) &
+read -r _ < src/survivor-ready
+"$0" -test.run='^TestBudgetAllocator$' -test.count=1 2048 10s
+allocatorStatus=$?
+echo "allocator exited $allocatorStatus"
+echo release > src/survivor-release
+wait
+echo "step exited"`, os.Args[0]},
 				Inputs: &Inputs{Paths: []string{"src/alloc.txt"}},
 			}}
 		},
 		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
 			stepStopped(t, code, out, receipts)
-			if strings.Contains(out, "survivor ran") || strings.Contains(out, "step exited") {
+			if !strings.Contains(out, "survivor started") {
+				t.Errorf("the survivor did not signal that it started before allocation:\n%s", out)
+			}
+			if strings.Contains(out, "survivor finished") || strings.Contains(out, "step exited") {
 				t.Errorf("part of the step ran on after the budget stopped it:\n%s", out)
 			}
 		},
