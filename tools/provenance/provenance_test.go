@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/tools/go/analysis/analysistest"
@@ -33,14 +35,16 @@ type listed struct {
 // (testdata/accepts, no wants), and the patches below to the checker's own
 // files. Both copies bind to the repository's one manifest; the mutant's
 // is that manifest with its package line moved and the controls' sites
-// added.
+// added. Every file of the module is written once (write): a fixture that
+// shares a destination with another file fails the test, so no control is
+// replaced unseen.
 func TestControls(t *testing.T) {
 	repo, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	write(t, filepath.Join(dir, "go.mod"), "module "+module+"\n\ngo 1.27\n")
+	write(t, filepath.Join(dir, "go.mod"), "TestControls (the module's go.mod)", "module "+module+"\n\ngo 1.27\n")
 
 	cmd := exec.Command("go", "list", "-deps", "-json", "./internal/sketch/check")
 	cmd.Dir = repo
@@ -89,7 +93,7 @@ func TestControls(t *testing.T) {
 		t.Fatalf("the repository's manifest: %v", err)
 	}
 	pristine := filepath.Join(dir, "pristine-manifest.txt")
-	write(t, pristine, string(manifest))
+	write(t, pristine, filepath.Join(repo, manifestFile), string(manifest))
 	mutant := string(manifest)
 	for _, edit := range mutantManifest {
 		if !strings.Contains(mutant, edit.old) {
@@ -98,7 +102,7 @@ func TestControls(t *testing.T) {
 		mutant = strings.Replace(mutant, edit.old, edit.new, 1)
 	}
 	mutantFile := filepath.Join(dir, "mutant-manifest.txt")
-	write(t, mutantFile, mutant)
+	write(t, mutantFile, filepath.Join(repo, manifestFile)+" (mutantManifest edits)", mutant)
 
 	a := New()
 	for _, path := range []string{pristine, mutantFile} {
@@ -152,11 +156,20 @@ var patches = map[string][]struct{ old, new string }{
 	},
 }
 
+// copyPackage copies p's files into dst, applying edits by file name. Each
+// edit key must name one of p's files: a patch whose file is gone would
+// otherwise drop its controls unseen.
 func copyPackage(t *testing.T, p listed, dst string, edits map[string][]struct{ old, new string }) {
 	t.Helper()
 	files := append(append([]string(nil), p.GoFiles...), p.EmbedFiles...)
+	for name := range edits {
+		if !slices.Contains(files, name) {
+			t.Fatalf("a patch names %s, which %s does not have", name, p.Dir)
+		}
+	}
 	for _, name := range files {
-		data, err := os.ReadFile(filepath.Join(p.Dir, name))
+		origin := filepath.Join(p.Dir, name)
+		data, err := os.ReadFile(origin)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -169,7 +182,10 @@ func copyPackage(t *testing.T, p listed, dst string, edits map[string][]struct{ 
 			}
 			src = strings.Replace(src, edit.old, edit.new, 1)
 		}
-		write(t, filepath.Join(dst, name), src)
+		if len(edits[name]) > 0 {
+			origin += " (patched)"
+		}
+		write(t, filepath.Join(dst, name), origin, src)
 	}
 }
 
@@ -180,20 +196,56 @@ func copyDir(t *testing.T, src, dst string) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		data, err := os.ReadFile(filepath.Join(src, e.Name()))
+		origin := filepath.Join(src, e.Name())
+		data, err := os.ReadFile(origin)
 		if err != nil {
 			t.Fatal(err)
 		}
-		write(t, filepath.Join(dst, e.Name()), string(data))
+		write(t, filepath.Join(dst, e.Name()), origin, string(data))
 	}
 }
 
-func write(t *testing.T, path, data string) {
+// written maps each file written into an assembled module to its origin.
+// Every write goes through write, so the map holds every destination; the
+// test's temporary directories are distinct, so one map serves every test.
+var written = struct {
+	sync.Mutex
+	origin map[string]string
+}{origin: map[string]string{}}
+
+// write creates path with data, exclusively. The assembled module gets each
+// file once: a second write to path, from a fixture set sharing a file name,
+// a fixture named like a copied checker file or a generated file, fails the
+// test naming both origins instead of replacing the first file and the
+// controls in it (E2d round 2 review M1). The registry names the first
+// origin; O_EXCL refuses an existing file the registry did not see.
+func write(t *testing.T, path, origin, data string) {
 	t.Helper()
+	path, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written.Lock()
+	first, taken := written.origin[path]
+	if !taken {
+		written.origin[path] = origin
+	}
+	written.Unlock()
+	if taken {
+		t.Fatalf("the assembled module gets %s twice: from %s and from %s", path, first, origin)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		t.Fatalf("writing %s from %s: %v", path, origin, err)
+	}
+	if _, err := f.WriteString(data); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
