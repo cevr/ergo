@@ -23,8 +23,12 @@ type target struct {
 	results     []Type
 	resultKnown bool
 	isFunc      bool // return is allowed (a function or a func literal)
-	main        bool
-	context     bool // a named context's build: closed (README Gap 6)
+	// law marks a law's own body: lawResult, not assignment to results,
+	// admits the value a return gives (laws.go, rule 8). A function
+	// literal inside the law has a target of its own, without it.
+	law     bool
+	main    bool
+	context bool // a named context's build: closed (README Gap 6)
 	// internal is what a named context binds itself: its providers may use it
 	// (rows.md, Context 4); charged collects the internal capabilities the
 	// entry being checked uses, for the context's entry-cycle check (M14).

@@ -524,8 +524,10 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 		}
 		return
 	case 1:
+		// A law's value has no expected type, as its tail has none
+		// (lawBody).
 		var hint Type
-		if len(results) == 1 {
+		if len(results) == 1 && !t.law {
 			hint = results[0]
 		}
 		op := c.expr(s.Results[0], hint)
@@ -549,7 +551,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			case len(results) == 0 && op.mode != modeNoValue:
 				c.errorf(s.Results[0], CodeType, "%s returns no value, and this expression has one", c.describeTarget())
 			case len(results) == 1:
-				c.assign(&op, results[0], "return")
+				c.returnValue(&op, results[0])
 			case len(results) > 1:
 				c.returnTuple(s.Results[0], op, results)
 			}
@@ -563,7 +565,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 		case len(results) == 0:
 			c.errorf(s.Results[0], CodeType, "%s returns no value", c.describeTarget())
 		case len(results) == 1:
-			c.assign(&op, results[0], "return")
+			c.returnValue(&op, results[0])
 		default:
 			c.returnTuple(s.Results[0], op, results)
 		}
@@ -580,6 +582,21 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			c.assign(&op, results[i], "return")
 		}
 	}
+}
+
+// returnValue checks the success value of a return against the target's
+// one result. A law's own body has no declared result: lawResult admits the
+// value by the rule its tail uses (laws.go, rule 8).
+func (c *checker) returnValue(op *operand, result Type) {
+	if c.fn.t.law {
+		t := op.typ
+		if op.mode == modeNoValue {
+			t = NoValue
+		}
+		c.lawResult(op.expr, t)
+		return
+	}
+	c.assign(op, result, "return")
 }
 
 func (c *checker) returnTuple(x syntax.Expr, op operand, results []Type) {

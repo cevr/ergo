@@ -98,7 +98,8 @@ func (c *checker) checkLaw(law *Law) {
 	tparams := law.typeParams()
 	defer c.monoOwner(tparams)()
 	name := "law " + law.Name
-	tg := &target{name: name, errors: newRow(), declUses: newRow(), results: []Type{Typ[Bool]}, resultKnown: true, isFunc: true}
+	// results gives a bare `return` its message; lawResult admits a value.
+	tg := &target{name: name, errors: newRow(), declUses: newRow(), results: []Type{Typ[Bool]}, resultKnown: true, isFunc: true, law: true}
 	// The operation scope sits between the law's frame and the package
 	// (rule 3).
 	ops := newScope(c.pkg.Scope)
@@ -163,14 +164,30 @@ func (c *checker) lawBody(body *syntax.BlockStmt) {
 		c.errorIn(body, end, end+1, CodeType, "a law's body ends in a bool, not nothing")
 	}
 	c.yieldList(body.List, k, body.Rbrace)
-	if k.bad || missed || !k.valued || isBoolean(k.typ()) {
+	if k.bad || missed || !k.valued {
 		return
 	}
 	var at syntax.Node = body.List[len(body.List)-1]
 	if s, ok := at.(*syntax.ExprStmt); ok {
 		at = s.X
 	}
-	c.errorf(at, CodeType, "a law's body ends in a bool, not %s", k.typ())
+	c.lawResult(at, k.typ())
+}
+
+// lawResult is the one rule for a law's success result (rule 8): its
+// type's underlying type is bool, so a type over bool is one. The tail
+// (lawBody) and every return from the law's own target (returnValue) ask
+// it, so no exit admits a value another refuses: `return e` means the same
+// as a tail e (rows.md, Totality 3). It reports at x when t breaks the rule;
+// an invalid t was reported where it came from.
+func (c *checker) lawResult(x syntax.Node, t Type) {
+	switch {
+	case containsInvalid(t), isBoolean(t):
+	case t == NoValue:
+		c.errorf(x, CodeType, "a law's body ends in a bool, not nothing")
+	default:
+		c.errorf(x, CodeType, "a law's body ends in a bool, not %s", t)
+	}
 }
 
 // lawOpCall checks x when its callee is a bare name that resolves to an

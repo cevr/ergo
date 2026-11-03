@@ -10,15 +10,24 @@ import (
 )
 
 // TestLawDomain is the law rules over their whole domain (spec A3; laws.go
-// rules 2, 4 and 5): every tail type × every prefix, enumerated, not
-// sampled. A law body is `<prefix> <tail>`. The verdict of each program
-// comes from lawOracle, a reference written from D-E4 that reads only the
-// facts the tables state, never the checker:
+// rules 2, 4 and 5; types.md Laws rule 8): every result type × every exit
+// form × every prefix, enumerated, not sampled. A law body is `<prefix>
+// <exit>`, and the exit gives the result value as the tail, as a whole-body
+// return, or as an early return before the same tail (rows.md, Totality 3:
+// `return e` means the same as a tail e). The verdict of each program comes
+// from lawOracle, a reference written from D-E4 that reads only the facts
+// the tables state, never the checker:
 //
-//   - S108 at the tail iff the tail's underlying type is not bool;
-//   - S105 at the tail iff the tail is fallible and untried;
+//   - S108 at each success exit (a tail or a return) iff the result's
+//     underlying type is not bool;
+//   - S105 at the tail iff the result is fallible and untried; a return
+//     passes a fallible value's failures out of the law (rule 7), so a
+//     return is never S105;
 //   - S102 at the call iff a service-charging call stands outside a with
 //     that discharges it;
+//   - S108 at a function literal of the prefix iff it returns a value its
+//     own declared result refuses: the literal keeps its own result, not
+//     the law's rule;
 //   - nothing else.
 //
 // Each program is checked again in every declaration order lawOrders
@@ -35,6 +44,7 @@ var lawDomainDecls = []string{
 	"func Get(_ Mem) string {\n\t\"ok\"\n}",
 	"func read() string {\n\tStore.Get()\n}",
 	"type Flag bool",
+	"type Flag2 Flag",
 	"type Count int",
 	"type Rec { N int }",
 	"type Dot {}",
@@ -70,6 +80,7 @@ func lawTails() []lawTail {
 	}
 	return append(out,
 		lawTail{name: "a type over bool", params: "v Flag", tail: "v", underBool: true},
+		lawTail{name: "a type over a type over bool", params: "v Flag2", tail: "v", underBool: true},
 		lawTail{name: "a type over int", params: "v Count", tail: "v"},
 		lawTail{name: "a record", params: "v Rec", tail: "v"},
 		lawTail{name: "a union", params: "v Shape", tail: "v"},
@@ -91,6 +102,9 @@ type lawPrefix struct {
 	// charges: a call that charges a service; discharged: a with around it
 	// discharges that service.
 	charges, discharged bool
+	// litRefused: a function literal in the prefix returns a value that its
+	// own declared result refuses by assignment (a Flag as a bool).
+	litRefused bool
 }
 
 var lawPrefixes = []lawPrefix{
@@ -99,18 +113,47 @@ var lawPrefixes = []lawPrefix{
 	{name: "a charging package function, bare", stmts: "let _ = read()", charges: true},
 	{name: "a charging package function, discharged", stmts: "with context { Store: Mem } {\n\t\t\tlet _ = read()\n\t\t}", charges: true, discharged: true},
 	{name: "a capability operation, bare", stmts: "let _ = Store.Get()", charges: true},
+	{name: "a literal returning its declared Flag", stmts: "let _ = func(x Flag) Flag { if x { return x }; x }"},
+	{name: "a literal returning a Flag as its declared bool", stmts: "let _ = func(x Flag) bool { return x }", litRefused: true},
+}
+
+// lawExit is how the law gives its result: as the tail, as a whole-body
+// return, or as an early return under a condition before the same tail.
+type lawExit struct {
+	name string
+	// ret: the result is returned; tail: the result is also the tail.
+	ret, tail bool
+}
+
+var lawExits = []lawExit{
+	{name: "the tail", tail: true},
+	{name: "a return", ret: true},
+	{name: "an early return", ret: true, tail: true},
 }
 
 // lawProgram assembles the declarations in order with the law in its owner,
-// and returns the program with the lines of the prefix's first statement and
-// of the tail.
-func lawProgram(decls []string, p lawPrefix, tl lawTail) (src string, prefixLine, tailLine int) {
+// and returns the program with the lines of the prefix's first statement,
+// of the return (0 if none) and of the tail (0 if none).
+func lawProgram(decls []string, p lawPrefix, tl lawTail, ex lawExit) (src string, prefixLine, retLine, tailLine int) {
 	body := ""
 	if p.stmts != "" {
 		body += "\t\t$P" + p.stmts + "\n"
 	}
-	body += "\t\t$T" + tl.tail + "\n"
-	law := "\tlaw L(" + tl.params + ") {\n" + body + "\t},\n"
+	params := tl.params
+	switch {
+	case ex.ret && ex.tail:
+		if params != "" {
+			params += ", "
+		}
+		params += "b bool"
+		body += "\t\t$Rif b { return " + tl.tail + " }\n"
+	case ex.ret:
+		body += "\t\t$Rreturn " + tl.tail + "\n"
+	}
+	if ex.tail {
+		body += "\t\t$T" + tl.tail + "\n"
+	}
+	law := "\tlaw L(" + params + ") {\n" + body + "\t},\n"
 	var b strings.Builder
 	for _, d := range decls {
 		b.WriteString(strings.Replace(d, "$LAW", law, 1))
@@ -120,25 +163,33 @@ func lawProgram(decls []string, p lawPrefix, tl lawTail) (src string, prefixLine
 	for _, m := range []struct {
 		marker string
 		line   *int
-	}{{"$P", &prefixLine}, {"$T", &tailLine}} {
+	}{{"$P", &prefixLine}, {"$R", &retLine}, {"$T", &tailLine}} {
 		if i := strings.Index(src, m.marker); i >= 0 {
 			*m.line = strings.Count(src[:i], "\n") + 1
 			src = src[:i] + src[i+len(m.marker):]
 		}
 	}
-	return src, prefixLine, tailLine
+	return src, prefixLine, retLine, tailLine
 }
 
 // lawOracle is the reference verdict of D-E4 for one program, as CODE@LINE.
-func lawOracle(p lawPrefix, tl lawTail, prefixLine, tailLine int) []string {
+func lawOracle(p lawPrefix, tl lawTail, ex lawExit, prefixLine, retLine, tailLine int) []string {
 	var want []string
 	if p.charges && !p.discharged {
 		want = append(want, fmt.Sprintf("S102@%d", prefixLine))
 	}
-	if !tl.underBool {
-		want = append(want, fmt.Sprintf("S108@%d", tailLine))
+	if p.litRefused {
+		want = append(want, fmt.Sprintf("S108@%d", prefixLine))
 	}
-	if tl.fallible && !tl.tried {
+	for _, exit := range []struct {
+		is   bool
+		line int
+	}{{ex.ret, retLine}, {ex.tail, tailLine}} {
+		if exit.is && !tl.underBool {
+			want = append(want, fmt.Sprintf("S108@%d", exit.line))
+		}
+	}
+	if ex.tail && tl.fallible && !tl.tried {
 		want = append(want, fmt.Sprintf("S105@%d", tailLine))
 	}
 	sort.Strings(want)
@@ -174,41 +225,50 @@ func TestLawDomain(t *testing.T) {
 	verdicts := map[string]int{}
 	for _, p := range lawPrefixes {
 		for _, tl := range tails {
-			programs++
-			name := p.name + " then " + tl.name
-			var first []string
-			for oi, decls := range orders {
-				src, pl, tll := lawProgram(decls, p, tl)
-				want := lawOracle(p, tl, pl, tll)
-				if oi == 0 {
-					first = want
-					verdicts[strings.Join(lawCodes(want), " ")]++
-				}
-				_, diags := check.CheckSource(src)
-				have := got(diags)
-				if strings.Join(have, " ") != strings.Join(want, " ") {
-					t.Errorf("%s (order %d): want %v, got %v\n\t%s\n%s", name, oi, want, have, describe(diags), src)
-					continue
-				}
-				// The order changes the lines, never the verdict.
-				if strings.Join(lawCodes(want), " ") != strings.Join(lawCodes(first), " ") {
-					t.Errorf("%s (order %d): the oracle's codes %v differ from the written order's %v", name, oi, want, first)
-				}
-				for _, d := range diags {
-					if d.Code == "S108" && !strings.Contains(d.Message, "a law's body ends in a bool, not ") {
-						t.Errorf("%s (order %d): the S108 is not the tail's: %s", name, oi, d)
+			for _, ex := range lawExits {
+				programs++
+				name := p.name + " then " + tl.name + " as " + ex.name
+				var first []string
+				for oi, decls := range orders {
+					src, pl, rl, tll := lawProgram(decls, p, tl, ex)
+					want := lawOracle(p, tl, ex, pl, rl, tll)
+					if oi == 0 {
+						first = want
+						verdicts[strings.Join(lawCodes(want), " ")]++
+					}
+					_, diags := check.CheckSource(src)
+					have := got(diags)
+					if strings.Join(have, " ") != strings.Join(want, " ") {
+						t.Errorf("%s (order %d): want %v, got %v\n\t%s\n%s", name, oi, want, have, describe(diags), src)
+						continue
+					}
+					// The order changes the lines, never the verdict.
+					if strings.Join(lawCodes(want), " ") != strings.Join(lawCodes(first), " ") {
+						t.Errorf("%s (order %d): the oracle's codes %v differ from the written order's %v", name, oi, want, first)
+					}
+					// An exit's S108 is the law's rule; the literal's is its
+					// own result's.
+					for _, d := range diags {
+						law := strings.Contains(d.Message, "a law's body ends in a bool, not ")
+						switch {
+						case d.Code != "S108":
+						case d.Line == pl && law:
+							t.Errorf("%s (order %d): the literal's S108 is the law's rule: %s", name, oi, d)
+						case d.Line != pl && !law:
+							t.Errorf("%s (order %d): the exit's S108 is not the law's rule: %s", name, oi, d)
+						}
 					}
 				}
 			}
 		}
 	}
 	// The domain meets every verdict the oracle can give.
-	for _, v := range []string{"", "S102", "S108", "S105", "S102 S108", "S102 S105"} {
+	for _, v := range []string{"", "S102", "S108", "S105", "S102 S108", "S102 S105", "S108 S108", "S108 S108 S108", "S105 S108"} {
 		if verdicts[v] == 0 {
 			t.Errorf("no program has the verdict %q", v)
 		}
 	}
-	t.Logf("%d programs: %d prefixes × %d tails, %d declaration orders each; verdicts %v", programs, len(lawPrefixes), len(tails), len(orders), verdicts)
+	t.Logf("%d programs: %d prefixes × %d result types × %d exits, %d declaration orders each; verdicts %v", programs, len(lawPrefixes), len(tails), len(lawExits), len(orders), verdicts)
 }
 
 // lawCodes drops the lines of CODE@LINE entries.
