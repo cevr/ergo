@@ -53,12 +53,11 @@ var refusedFamilies = map[string]string{
 	"InterpolatedString:nonbasic": "check-v1 stage E",
 	"call:With:imported":          "check-v1 stage B",
 	"call:With:context":           "check-v1 stage E",
-	"FuncValue:std":               "check-v1 stage E",
 	"TypeDecl:errorText":          "lower-v1 stage 3",
-	// Stage 3b of #199: the release forms an owning with cannot call by a
-	// Go name. An owning with outside a function body is the checker's
-	// S108 since check-v1 stage E2 (C18, check/frames.go).
-	"call:With:release": "check-v1 stage E",
+	// FuncValue:std and call:With:release left with check-v1 stage E4-1:
+	// an extern is call-only (C25, P3) and the checker refuses the release
+	// forms an owning with cannot call by a Go name (C29), so no admitted
+	// source reaches either lowering refusal (E4-2 makes them ice).
 }
 
 // refusalReasons classifies a refusal by its message into the refused
@@ -77,9 +76,7 @@ var refusalReasons = []struct {
 	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered after check-v1 stage B`)},
 	{"call:With:context", regexp.MustCompile(`^a context value whose \S+ is (generic|an extern function) is lowered after check-v1 stage E$`)},
-	{"FuncValue:std", regexp.MustCompile(`^the std function \S+ used as a value (takes its call's hidden \S+|takes a function|returns a Seq), which is lowered after check-v1 stage E$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
-	{"call:With:release", regexp.MustCompile(`^a provider whose Close (is an operation of its type|is generic|is a std or extern function|takes a pointer to its value) is released after check-v1 stage E$`)},
 }
 
 // refusalFamily is the refused family a refusal message stands at, or "".
