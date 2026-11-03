@@ -113,19 +113,22 @@ var budgetCases = []budgetCase{
 	},
 	{
 		// A process of the step that stays under the budget is stopped with
-		// the one that passes it. FIFO handshakes confirm the survivor started
-		// before allocation and let it finish only if allocation completes.
+		// the one that passes it. The leader owns the release writer, and the
+		// allocator closes it: allocation completion or a leader-only kill
+		// makes the survivor finish, while a whole-step kill stops both.
 		name: "whole", step: "512M", gate: "2G",
 		steps: func() []*Step {
 			return []*Step{{
 				Name: "alloc",
 				Argv: []string{"sh", "-c", `mkfifo src/survivor-ready src/survivor-release
-( echo "survivor started"; echo ready > src/survivor-ready; read -r _ < src/survivor-release; echo "survivor finished" ) &
+( exec 3<src/survivor-release; echo "survivor started"; echo ready > src/survivor-ready; read -r _ <&3; echo "survivor finished" ) &
+exec 4>src/survivor-release
 read -r _ < src/survivor-ready
-"$0" -test.run='^TestBudgetAllocator$' -test.count=1 2048 10s
+echo "step pgid=$$"
+"$0" -test.run='^TestBudgetAllocator$' -test.count=1 2048 10s 4>&-
 allocatorStatus=$?
 echo "allocator exited $allocatorStatus"
-echo release > src/survivor-release
+echo release >&4
 wait
 echo "step exited"`, os.Args[0]},
 				Inputs: &Inputs{Paths: []string{"src/alloc.txt"}},
