@@ -83,6 +83,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 | `scope.OnExit`, queues | Checked; runs (check-v1 stage D3b: `Push`, `Pop` and `Values` take the caller's task, so a stop ends their wait); Go's `range`, `select`, `defer`, `chan` and `var` are reserved words whose use names the Ergo form | [grammar](grammar.md#reserved-words) |
 | Borrows `*T` | Checked: only as a parameter type; escape and exclusivity are #197's; build refused | [types](types.md#borrows) |
 | Generics | Checked in the earlier implicit spelling, with kinds by position, constraints, row parameters and inference by unification; the bracket spelling of [types.md](types.md#generics) is check-v1's; build refused | [types](types.md#generics) |
+| Tests `test Name { … }`, `test Name(x T) { … }` and `assert` | Implemented (check-v1 stage E3a, 196l): checked, `assert` only in a test or law body (S108); the test build lowers every test and a runner; the run build of `ergo build` and `ergo run` contains none; the `ergo test` command is not wired yet | [grammar](grammar.md#declarations) |
 | Laws `law Name(…) { … }` | Parsed; S109 until check-v1 (196l) | [types](types.md#laws) |
 | `machine` types; the `actor` library package (#101: library, no compiler rule) | Checked: state and signal unions, initial value, step signature, the export guard; build refused; the library lowering is prototyped in `prototypes/actorlib` | [runtime](runtime.md#machines-and-actors) |
 | Actors | Designed, not yet implemented | [runtime](runtime.md#machines-and-actors) |
