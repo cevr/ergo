@@ -6,7 +6,8 @@ package check
 // type, the syntax package's read-only helpers, a type-parameter conversion
 // with no node term, a layout one field off a node's, a named pointer to a
 // node type, made and clone called with explicit type arguments and from a
-// function literal, an identity pointer conversion (SSA folds it), element
+// function literal or through parentheses, the parser through parentheses
+// at a listed site, an identity pointer conversion (SSA folds it), element
 // copies in a generic body, and a range over a map's keys.
 
 import (
@@ -61,6 +62,14 @@ func acceptClosureCalls(c *checker, p *syntax.Ident) func() syntax.Node {
 }
 
 func acceptConverted(p *syntax.Ident) syntax.Node { return (*syntax.Ident)(p) }
+
+// E2c round 1 review o1: a parenthesized callee is still a call, the parser
+// at a listed site as made and clone at a listed construction site.
+func acceptParenParse() { (syntax.Parse)("") }
+
+func acceptParenCalls(c *checker, p *syntax.Ident) (syntax.Node, syntax.Node) {
+	return (clone[syntax.Ident, *syntax.Ident])(c, p), (made[*syntax.Ident])(c, &syntax.Ident{}, p)
+}
 
 func acceptSorted[T any](xs, buf []T) {
 	for i := range xs {

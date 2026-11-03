@@ -114,12 +114,12 @@ func TestControls(t *testing.T) {
 // or the control fails for the wrong reason.
 var mutantManifest = []struct{ old, new string }{
 	{"package " + checkPath + "\n", "package " + mutantPath + "\n"},
-	{"callee Parse CheckSource prelude$1 (*stdImporter).Import\n", "callee Parse CheckSource prelude$1 (*stdImporter).Import parseValueAtSite closureAtSite closureReturnedAtSite closureNestedAtSite$1 (*checker).closureInMethodAtSite\n"},
-	{"site (*checker).assignStmt BinaryExpr compoundFixture\n", "site (*checker).assignStmt BinaryExpr compoundFixture\nsite acceptExplicitCalls Ident none\nsite acceptClosureCalls$1 Ident none\n"},
+	{"callee Parse CheckSource prelude$1 (*stdImporter).Import\n", "callee Parse CheckSource prelude$1 (*stdImporter).Import parseValueAtSite closureAtSite closureReturnedAtSite closureNestedAtSite$1 (*checker).closureInMethodAtSite acceptParenParse\n"},
+	{"site (*checker).assignStmt BinaryExpr compoundFixture\n", "site (*checker).assignStmt BinaryExpr compoundFixture\nsite acceptExplicitCalls Ident none\nsite acceptClosureCalls$1 Ident none\nsite acceptParenCalls Ident none\n"},
 	// Stale entries: a site that makes nothing, and a parser site and an
 	// entry site that never reference their callee (reported at made).
 	{"entry CheckSource\n", "entry CheckSource staleEntrySite\nsite staleSite Ident none\n"},
-	{" (*checker).closureInMethodAtSite\n", " (*checker).closureInMethodAtSite staleCalleeSite\n"},
+	{" acceptParenParse\n", " acceptParenParse staleCalleeSite\n"},
 }
 
 // patches are the controls that edit the checker's own files: each anchor
