@@ -8,11 +8,11 @@ import (
 )
 
 // target is a failure target and a capability boundary: a function body, a
-// function literal, a trailing block, a go block, a named wire's build or a
+// function literal, a trailing block, a go block, a named context's build or a
 // package var's initializer (rows.md, Error rows 4). A with block is not a
 // target: it discharges capabilities inside the target that holds it.
 type target struct {
-	name string // for messages: "function f", "this literal", "wire W"
+	name string // for messages: "function f", "this literal", "context W"
 	// Declared rows; nil means the row is inferred from the body
 	// (rows-and-constraints §7 amendment 1).
 	declErrors, declUses *Row
@@ -24,10 +24,10 @@ type target struct {
 	resultKnown bool
 	isFunc      bool // return is allowed (a function or a func literal)
 	main        bool
-	wire        bool // a named wire's build: closed (README Gap 6)
-	// internal is what a named wire binds itself: its providers may use it
-	// (rows.md, Wire 4); charged collects the internal capabilities the
-	// entry being checked uses, for the wire's entry-cycle check (M14).
+	context     bool // a named context's build: closed (README Gap 6)
+	// internal is what a named context binds itself: its providers may use it
+	// (rows.md, Context 4); charged collects the internal capabilities the
+	// entry being checked uses, for the context's entry-cycle check (M14).
 	internal *capSet
 	charged  *Row
 	// tries counts the try expressions being checked in this body: inside
@@ -59,13 +59,13 @@ func (c *checker) charge(n syntax.Node, cap Type) {
 		// what it holds, an inferred row takes invalid and so is unknown
 		// too, and a written row is not known to miss it (stage D1 round 4
 		// review M1).
-		if t.declUses == nil && !t.wire {
+		if t.declUses == nil && !t.context {
 			t.uses = t.uses.with(c.types, invalid)
 		}
 		return
 	}
 	for i := len(t.withs) - 1; i >= 0; i-- {
-		// An unknown scope is a with whose wire is unknown (reported): it
+		// An unknown scope is a with whose context is unknown (reported): it
 		// discharges everything, so no charge cascades from it (D3; M18).
 		f := t.withs[i]
 		if f.unknown {
@@ -76,7 +76,7 @@ func (c *checker) charge(n syntax.Node, cap Type) {
 			return
 		}
 	}
-	if t.wire && t.internal.has(c.types, cap) {
+	if t.context && t.internal.has(c.types, cap) {
 		t.charged = t.charged.with(c.types, cap)
 		return
 	}
@@ -89,7 +89,7 @@ func (c *checker) charge(n syntax.Node, cap Type) {
 		return
 	}
 	switch {
-	case t.wire:
+	case t.context:
 		c.errorf(n, CodeMissingCap, "%s requires %s while it is built; a named wire is closed: its providers require no capability from the with site (README Gap 6)", t.name, cap)
 	default:
 		c.errorf(n, CodeMissingCap, "%s requires %s, which is not in the capability row of %s and no with provides it", describeCharge(n), cap, t.name)
@@ -131,7 +131,7 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 		return
 	}
 	switch {
-	case t.wire:
+	case t.context:
 		c.errorf(n, CodeUndeclared, "%s can fail with %s while it is built; a named wire is closed: no failure escapes its build (README Gap 6)", t.name, rowText(extra))
 	default:
 		c.errorf(n, CodeUndeclared, "%s escapes %s, whose error row %s does not list it", rowText(extra), t.name, rowText(t.declErrors))

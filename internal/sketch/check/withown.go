@@ -6,22 +6,22 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Wire ownership (resources.md, Wire ownership; runtime-199 stage 3b). A
-// with of a named wire builds the provider entries its block reaches, owns
+// Context ownership (resources.md, Context ownership; runtime-199 stage 3b). A
+// with of a named context builds the provider entries its block reaches, owns
 // each one it builds, and releases each resource among them once, in
 // reverse acquisition order, when the block ends, on every exit. This pass
-// records that fact once, per with site, after the bodies, the wires and
+// records that fact once, per with site, after the bodies, the contexts and
 // the Close identities are known (With.Acquired):
 //
 //  1. Acquisition. The entries of With.Entries are acquired, and each
 //     entry whose capability an acquired provider uses while it is built
-//     (WireEntry.Uses), resolved through the with's wire (Wire.Provider).
+//     (ContextEntry.Uses), resolved through the with's context (Context.Provider).
 //     An entry of several capabilities is one acquisition. An overridden
 //     entry binds nothing Provider returns, and an entry nothing reaches
 //     is not visited, so neither is acquired. The order is the one the
 //     builder follows: each entry after the providers it uses, the first
-//     ready entry first in the wire pass's entry order (wires by name,
-//     then entries in source order; WireEntry.seq).
+//     ready entry first in the context pass's entry order (contexts by name,
+//     then entries in source order; ContextEntry.seq).
 //  2. Release identity. An acquired provider whose type resolves a
 //     checked Close (Info.Closes) is a resource; its Close is recorded.
 //  3. Release needs. A release runs when the block ends, in the
@@ -51,22 +51,22 @@ type withSite struct {
 	outer []*withFrame // the frames of t around x, outermost first
 }
 
-// wireOwners maps each entry to the wire that declares it, through
+// contextOwners maps each entry to the context that declares it, through
 // embeddings: an entry's expression and type facts belong to its declaring
-// wire's package. It indexes each wire once, so many withs over one
+// context's package. It indexes each context once, so many withs over one
 // embedding chain stay linear. The ownership pass fills it from the with
 // sites and the footprint pass reads it (runtime-199 stage 3c r3 o1).
-type wireOwners struct {
-	of   map[*WireEntry]*Wire
-	seen map[*Wire]bool
+type contextOwners struct {
+	of   map[*ContextEntry]*Context
+	seen map[*Context]bool
 }
 
-func (o *wireOwners) add(w *Wire) {
+func (o *contextOwners) add(w *Context) {
 	if w == nil || o.seen[w] {
 		return
 	}
 	if o.seen == nil {
-		o.of, o.seen = map[*WireEntry]*Wire{}, map[*Wire]bool{}
+		o.of, o.seen = map[*ContextEntry]*Context{}, map[*Context]bool{}
 	}
 	o.seen[w] = true
 	for _, e := range w.Entries {
@@ -78,14 +78,14 @@ func (o *wireOwners) add(w *Wire) {
 func (c *checker) withOwnership() {
 	for _, s := range c.withSites {
 		if w := c.pkg.Info.Withs[s.x]; w != nil {
-			for _, wire := range w.Wires {
-				c.wireOwners.add(wire)
+			for _, context := range w.Contexts {
+				c.contextOwners.add(context)
 			}
 		}
 	}
-	owners := c.wireOwners.of
+	owners := c.contextOwners.of
 	roots := append([]*Func(nil), c.pkg.Funcs...)
-	// A wire provider can call an imported constructor without any local
+	// A context provider can call an imported constructor without any local
 	// function calling it. Those calls also root the freshness graph.
 	for _, call := range c.pkg.Info.Calls {
 		if call != nil && call.Kind == CallFunc {
@@ -114,7 +114,7 @@ func (c *checker) withOwnership() {
 		last[s.x] = i
 	}
 	frames := map[*syntax.CallExpr]*withSite{}
-	refused := map[*WireEntry]bool{}
+	refused := map[*ContextEntry]bool{}
 	for i := range c.withSites {
 		s := &c.withSites[i]
 		if last[s.x] != i {
@@ -122,10 +122,10 @@ func (c *checker) withOwnership() {
 		}
 		frames[s.x] = s
 		w := c.pkg.Info.Withs[s.x]
-		if w == nil || len(w.Wires) == 0 || len(w.Entries) == 0 {
+		if w == nil || len(w.Contexts) == 0 || len(w.Entries) == 0 {
 			continue
 		}
-		w.Acquired = c.acquire(w.Wires[0], w.Entries, owners)
+		w.Acquired = c.acquire(w.Contexts[0], w.Entries, owners)
 		owning := false
 		for _, a := range w.Acquired {
 			owner := owners[a.Entry]
@@ -194,10 +194,10 @@ func (c *checker) capabilityCloses() {
 
 // acquire is the acquisition list of a with of w whose block reaches the
 // entries reached (rule 1).
-func (c *checker) acquire(w *Wire, reached []*WireEntry, owners map[*WireEntry]*Wire) []*Acquisition {
-	want := map[*WireEntry]bool{}
-	var queue []*WireEntry
-	add := func(e *WireEntry) {
+func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*ContextEntry]*Context) []*Acquisition {
+	want := map[*ContextEntry]bool{}
+	var queue []*ContextEntry
+	add := func(e *ContextEntry) {
 		if e != nil && !want[e] {
 			want[e] = true
 			queue = append(queue, e)
@@ -213,14 +213,14 @@ func (c *checker) acquire(w *Wire, reached []*WireEntry, owners map[*WireEntry]*
 			add(w.Provider(cap))
 		}
 	}
-	// The wire pass's entry order, not a walk of the embeddings: a with
-	// reads only what it acquires (the wire chain scale case).
-	order := make([]*WireEntry, 0, len(want))
+	// The context pass's entry order, not a walk of the embeddings: a with
+	// reads only what it acquires (the context chain scale case).
+	order := make([]*ContextEntry, 0, len(want))
 	for e := range want {
 		order = append(order, e)
 	}
 	sort.Slice(order, func(i, j int) bool { return order[i].seq < order[j].seq })
-	built := map[*WireEntry]bool{}
+	built := map[*ContextEntry]bool{}
 	done := make([]bool, len(order))
 	var list []*Acquisition
 	for range order {
@@ -298,7 +298,7 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
 		}
 		if found, node := f.binds.find(c.types, cap); found {
 			if f.site != nil {
-				var e *WireEntry
+				var e *ContextEntry
 				if node != nil {
 					e = node.entry
 				}
@@ -326,7 +326,7 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
 
 // discharge adds cap, provided by e, to the with's discharged list, in its
 // sorted place, once.
-func (w *With) discharge(cap Type, e *WireEntry) {
+func (w *With) discharge(cap Type, e *ContextEntry) {
 	k, ok := keyOf(cap)
 	if !ok {
 		return
@@ -343,7 +343,7 @@ func (w *With) discharge(cap Type, e *WireEntry) {
 	w.Discharged = append(w.Discharged, nil)
 	copy(w.Discharged[i+1:], w.Discharged[i:])
 	w.Discharged[i] = cap
-	if w.Wires != nil {
+	if w.Contexts != nil {
 		w.Entries = append(w.Entries, nil)
 		copy(w.Entries[i+1:], w.Entries[i:])
 		w.Entries[i] = e
@@ -484,9 +484,9 @@ func providerResults(f *Func, failure func(Type) bool) []syntax.Expr {
 	return out
 }
 
-// providerInfo is the semantic model of an entry's defining wire, never
-// the importing package's model of that wire's use.
-func providerInfo(w *Wire) *Info {
+// providerInfo is the semantic model of an entry's defining context, never
+// the importing package's model of that context's use.
+func providerInfo(w *Context) *Info {
 	if w == nil || w.pkg == nil {
 		return nil
 	}
@@ -533,11 +533,11 @@ func (c *checker) ownedBlock(x *syntax.CallExpr, w *With) {
 	// Acquisitions are topological: every dependency is visited before
 	// its user. A plain provider independent of resources stays usable by
 	// an exit action; a provider built from a resource does not.
-	closed := map[*WireEntry]bool{}
+	closed := map[*ContextEntry]bool{}
 	for _, a := range w.Acquired {
 		closed[a.Entry] = a.Close != nil
 		for _, cap := range a.Entry.Uses {
-			closed[a.Entry] = closed[a.Entry] || closed[w.Wires[0].Provider(cap)]
+			closed[a.Entry] = closed[a.Entry] || closed[w.Contexts[0].Provider(cap)]
 		}
 	}
 	inspectFrame(c.pkg.Info, x.Trailing, func(n syntax.Node, between []*syntax.CallExpr) bool {
@@ -557,7 +557,7 @@ func isOnExit(call *Call) bool {
 // exitAction reports the exit action registered by the call n inside the
 // owning with x when its block needs a capability that x, not a with
 // between them, discharges.
-func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.CallExpr, closed map[*WireEntry]bool) {
+func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.CallExpr, closed map[*ContextEntry]bool) {
 	if n.Trailing == nil {
 		return
 	}
@@ -568,12 +568,12 @@ func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.C
 	for _, cap := range c.types.resolve(sig.Uses).Elems() {
 		inner := false
 		for _, y := range between {
-			if v := c.pkg.Info.Withs[y]; v != nil && len(v.Wires) > 0 && v.Wires[0].Provider(cap) != nil {
+			if v := c.pkg.Info.Withs[y]; v != nil && len(v.Contexts) > 0 && v.Contexts[0].Provider(cap) != nil {
 				inner = true
 				break
 			}
 		}
-		if inner || !closed[w.Wires[0].Provider(cap)] {
+		if inner || !closed[w.Contexts[0].Provider(cap)] {
 			continue
 		}
 		c.errorf(n, CodeType, "this exit action runs when the function returns (runtime.md, Exit actions 2), after the with around it closed its providers, but it needs %s, whose provider is or uses an acquired resource of that with; register it outside the with, or release the value in the block (resources.md, Wire ownership)", cap)

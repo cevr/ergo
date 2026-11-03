@@ -48,7 +48,7 @@ func Get(m Mem) string { return m.V }
 func cmp(s Store, m Mem) bool {
 	return m != s
 }`, 5, "cannot compare main.Mem with main.Store", ""},
-	// One wire binds a capability once: a second own entry, replace or
+	// One context binds a capability once: a second own entry, replace or
 	// not, is S111 naming the first (round-3 review M2).
 	{"two replaces of one capability", `type Store { Get() string }
 type Mem { V string }

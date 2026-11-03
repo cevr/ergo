@@ -22,12 +22,12 @@ const (
 	CodeNotTotal     = "S103" // a catch or type switch omits a case
 	CodeUnknown      = "S104" // a name does not resolve, or resolves to the wrong role
 	CodeUnhandled    = "S105" // a fallible expression in a value position
-	CodeProvider     = "S106" // a wire provider does not implement its capability
+	CodeProvider     = "S106" // a context provider does not implement its capability
 	CodeMissingRet   = "S107" // a function with a result can reach its end
 	CodeType         = "S108" // a type or declaration misuse
 	CodeOutside      = "S109" // a construct owned by another ticket
 	CodeUnused       = "S110" // an unread local, binding or import, or a value statement
-	CodeDuplicateCap = "S111" // two entries for one capability in a wire
+	CodeDuplicateCap = "S111" // two entries for one capability in a context
 	CodeEntry        = "S113" // the entry function and test functions
 )
 

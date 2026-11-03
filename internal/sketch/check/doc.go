@@ -22,7 +22,7 @@
 // rows of a function used as a value inside its own component; inside a cyclic component a silent pass
 // finds the instantiation cycles, then a worklist joins the rows to a
 // fixpoint from empty rows before any is published); then the
-// rules that read inferred rows (machine declarations, named wires, wire
+// rules that read inferred rows (machine declarations, named contexts, context
 // cycles), Error methods and unused imports. An invalid operand or type suppresses every diagnostic that
 // would follow from it: one mistake, one diagnostic.
 //
@@ -55,7 +55,7 @@
 //     rejected on their dependency graphs, with no depth limit.
 //   - Koka and Effekt: effect rows inferred for unannotated functions and
 //     discharged by handlers; here a with block subtracts the capabilities
-//     its wire binds, and a catch subtracts the caught error types.
+//     its context binds, and a catch subtracts the caught error types.
 //   - Effect: Effect<A, E, R>, where catchTag removes a tag from E and
 //     provide removes a service from R; a function value widens to a type
 //     whose rows are supersets, never the reverse.

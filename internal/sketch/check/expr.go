@@ -283,7 +283,7 @@ func (c *checker) expr0(x syntax.Expr, hint Type) operand {
 	case *syntax.CatchExpr:
 		return c.catch(x, hint, c.useOf(x) != useDiscard, false)
 	case *syntax.ContextLit:
-		// A wire value outside with (grammar.md, Expressions 8).
+		// A context value outside with (grammar.md, Expressions 8).
 		return c.outside(x, "a wire value (196x, extern and wire values)")
 	case *syntax.KeyValueExpr:
 		c.errorf(x, CodeType, "a key: value pair belongs in a composite literal")
@@ -513,7 +513,7 @@ func fitsInt64(v constant.Value) bool {
 
 // orphanElements types the element values of a composite literal whose
 // type is unknown (reported, or invalid for another reason), as orphans
-// (orphanValues; stage D1 fuzz triage, `with 0 { with wire { A: A{read} }
+// (orphanValues; stage D1 fuzz triage, `with 0 { with context { A: A{read} }
 // {} }`). A key is a field name of an unknown type and stays unchecked.
 func (c *checker) orphanElements(x *syntax.CompositeLit, mark int) {
 	for _, e := range x.Elts {

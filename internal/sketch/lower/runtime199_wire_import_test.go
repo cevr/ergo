@@ -53,7 +53,7 @@ func Get() Conn { Conn{n: 1} }
 				t.Fatalf("fresh imported wire refused by the checker: %v", ds)
 			}
 			for _, w := range pkg.Info.Withs {
-				if len(w.Wires) != 1 || len(w.Acquired) != 1 {
+				if len(w.Contexts) != 1 || len(w.Acquired) != 1 {
 					t.Fatalf("the checker no longer records the imported wire's entry: %+v", w)
 				}
 			}

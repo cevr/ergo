@@ -18,11 +18,11 @@ import (
 //     entry, every identifier a Defs or Uses entry, every call a Calls
 //     entry, every pattern a Patterns entry, every match and catch a
 //     Matches entry, every for-in a Loops entry and every with a Withs
-//     entry, whose Entries hold its named wire's providers of what its
-//     block needs, with their conversions; the wire itself holds the rest
-//     (Wire.Provider, Wire.Overrides; TestInfoComplete). A package name before a dot and a
+//     entry, whose Entries hold its named context's providers of what its
+//     block needs, with their conversions; the context itself holds the rest
+//     (Context.Provider, Context.Overrides; TestInfoComplete). A package name before a dot and a
 //     built-in callee are no values and have no Types entry. An inline
-//     wire value's entries are stage E's (196x).
+//     context value's entries are stage E's (196x).
 //  2. Final: no type in Info is invalid or holds a row variable; a type
 //     parameter appears only inside its own generic declaration. The one
 //     exception is go/types': the name in an explicit instantiation
@@ -38,8 +38,8 @@ import (
 // Tree names: the tree keeps parse-v1's desugared nodes (spec D-A8, Q8).
 // A syntax.VarDecl is a `let`; a SwitchStmt is a `match` on literal
 // patterns; a TypeSwitchStmt is any other `match`; a CallExpr whose Fun is
-// the identifier `with` is a `with` block; a WireDecl is a package-level
-// wire `let`; a RangeStmt is a `for … in`; a ForStmt is a `for` on a
+// the identifier `with` is a `with` block; a ContextDecl is a package-level
+// context `let`; a RangeStmt is a `for … in`; a ForStmt is a `for` on a
 // condition.
 //
 // Stage B forms (all additive):
@@ -72,9 +72,9 @@ type Package struct {
 	Path  string
 	Name  string
 	Scope *Scope
-	// Wires is the wire namespace: wires are named only by with and by
-	// wire embedding, so they do not collide with types (fixture with-name).
-	Wires map[string]*Wire
+	// Contexts is the context namespace: contexts are named only by with and by
+	// context embedding, so they do not collide with types (fixture with-name).
+	Contexts map[string]*Context
 	// Funcs is every function, extern included, in source order;
 	// same-named functions (196m rule 3) keep separate *Func.
 	Funcs []*Func
@@ -95,7 +95,7 @@ type Package struct {
 	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
 	// unnamed slice or Map type; nil in every other package.
 	collFuncs map[collKey]*Func
-	// providerFresh is the freshness fact the wire ownership pass computed
+	// providerFresh is the freshness fact the context ownership pass computed
 	// during Check, kept so its tests read the fact that decided.
 	providerFresh providerFreshness
 }
@@ -174,7 +174,7 @@ type Info struct {
 	// stage 1): each function with a body (*syntax.FuncDecl), function
 	// literal (*syntax.FuncLit), trailing block of a call other than with
 	// (*syntax.BlockStmt; a with block runs in its enclosing frame), named
-	// wire (*syntax.WireDecl, the builder a with of it runs) and package
+	// context (*syntax.ContextDecl, the builder a with of it runs) and package
 	// let (*syntax.VarSpec). The lowering places interruption points only
 	// in a frame whose footprint is not Empty (runtime.md, I1) and never
 	// derives a footprint again. Added for #199 stage 1 (additive).
@@ -551,41 +551,41 @@ type Loop struct {
 }
 
 // With is one with site. Its size is bounded by its body, never by its
-// wire (round-4 review M1): the wire's resolved bindings are shared, and a
-// with points to them through Wires.
+// context (round-4 review M1): the context's resolved bindings are shared, and a
+// with points to them through Contexts.
 type With struct {
-	// Wires are the resolved named or inline wires bound. Wires[0] is the shared,
-	// resolved wire: Wire.Provider and Wire.EachProvider read every
-	// capability it binds, Wire.Overrides what its replaces overrode.
-	Wires []*Wire
+	// Contexts are the resolved named or inline contexts bound. Contexts[0] is the shared,
+	// resolved context: Context.Provider and Context.EachProvider read every
+	// capability it binds, Context.Overrides what its replaces overrode.
+	Contexts []*Context
 	// Discharged are the capabilities the block's row needs that this with
 	// discharges, by name: each charge of the block that no inner with
-	// discharged (rows.md, With 2 and 3). A capability the wire binds and
+	// discharged (rows.md, With 2 and 3). A capability the context binds and
 	// the block never needs is not listed.
 	Discharged []Type
 	// Entries holds one entry per discharged
 	// capability: Entries[i] is the provider entry that binds
 	// Discharged[i] once replace and embedding are resolved (rows.md,
-	// Wire 7), Wires[0].Provider(Discharged[i]). An entry of several
+	// Context 7), Contexts[0].Provider(Discharged[i]). An entry of several
 	// capabilities appears at each of its capabilities; its conversion for
 	// Discharged[i] is the one at that capability's index in its Caps.
 	//
 	// The release needs of an inner with's acquisitions are needs of the
 	// block too: a release runs in the environment outside the inner with,
 	// so this with discharges each one it binds (withOwnership).
-	Entries []*WireEntry
+	Entries []*ContextEntry
 	// Acquired are the provider entries this with builds and owns, in
-	// their acquisition order (resources.md, Wire ownership; withown.go):
+	// their acquisition order (resources.md, Context ownership; withown.go):
 	// the entries of Entries, and each entry whose capability an acquired
 	// provider uses while it is built. Each entry is one acquisition,
 	// however many capabilities it binds. An overridden entry and an entry
 	// that nothing the block needs reaches are not acquired. Named and inline
-	// wires use the same fact; general first-class wire values stay stage E's.
+	// contexts use the same fact; general first-class context values stay stage E's.
 	Acquired []*Acquisition
 	// Context is the context binding a with of a context value opens
-	// (runtime.md, G1), nil for a with of a wire. Such a with has no Wires
+	// (runtime.md, G1), nil for a with of a context. Such a with has no Contexts
 	// and discharges nothing.
-	Context *ContextBinding
+	Value *ContextBinding
 }
 
 // ContextBinding is the operand of `with v { … }` when v's type satisfies
@@ -605,27 +605,27 @@ type ContextBinding struct {
 
 // Acquisition is one provider entry a with builds: the
 // entry, the indexes of the capabilities in Entry.Caps it still binds in
-// the with's wire, and its provider's resolved Close (Info.Closes), nil
+// the with's context, and its provider's resolved Close (Info.Closes), nil
 // when the provider is not a resource. The with releases each resource
 // once, in reverse acquisition order, on every exit of its block.
 type Acquisition struct {
-	Entry *WireEntry
+	Entry *ContextEntry
 	Caps  []int
 	Close *Close
 }
 
-// Override is a binding a replace overrode (Wire.Overrides): Entry no
+// Override is a binding a replace overrode (Context.Overrides): Entry no
 // longer binds Cap, By does. The overridden entry is not built for that
 // capability; an entry of several capabilities that still binds another
 // one is built for it.
 type Override struct {
 	Cap       Type
-	Entry, By *WireEntry
+	Entry, By *ContextEntry
 }
 
-// WireEntry is one entry of a named wire, as written: a provider for
-// capabilities, or an embedded wire.
-type WireEntry struct {
+// ContextEntry is one entry of a named context, as written: a provider for
+// capabilities, or an embedded context.
+type ContextEntry struct {
 	// Replace marks a `replace Cap: provider` entry.
 	Replace bool
 	// Caps are the capabilities the entry provides, in key order; none for
@@ -638,15 +638,15 @@ type WireEntry struct {
 	// is the capability itself. Implicit holds the same conversion at
 	// Provider when the entry has one capability.
 	Conversions []Conversion
-	// Embedded is the embedded wire; nil for a provider entry.
-	Embedded *Wire
-	// Uses are the capabilities of its wire that the provider uses while
-	// it is built (rows.md, Wire 4), as a row's elements: a with that
+	// Embedded is the embedded context; nil for a provider entry.
+	Embedded *Context
+	// Uses are the capabilities of its context that the provider uses while
+	// it is built (rows.md, Context 4), as a row's elements: a with that
 	// acquires the entry acquires their providers first.
 	Uses []Type
 
-	// seq orders a package's named wire entries: the wire pass meets the
-	// wires by name, then their entries in source order (wirePass.own).
+	// seq orders a package's named context entries: the context pass meets the
+	// contexts by name, then their entries in source order (contextPass.own).
 	seq int
 }
 
@@ -729,17 +729,17 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 	}
 }
 
-// recordWith records a with site: the named wire, and the capabilities its
+// recordWith records a with site: the named context, and the capabilities its
 // block needed from it with their entries, which the block's charges found
-// (withFrame), sorted by name. It reads nothing of the wire's summary, so
+// (withFrame), sorted by name. It reads nothing of the context's summary, so
 // its work and its size are the block's.
 func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
 	if c.silent > 0 {
 		return
 	}
-	w := &With{Context: f.context}
-	if f.wire != nil {
-		w.Wires = []*Wire{f.wire}
+	w := &With{Value: f.value}
+	if f.context != nil {
+		w.Contexts = []*Context{f.context}
 	}
 	if !f.unknown && len(f.caps) > 0 {
 		order := make([]int, len(f.caps))
@@ -751,7 +751,7 @@ func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
 		sort.Slice(order, func(a, b int) bool { return keys[order[a]].compare(keys[order[b]]) < 0 })
 		for _, i := range order {
 			w.Discharged = append(w.Discharged, f.caps[i])
-			if w.Wires != nil {
+			if w.Contexts != nil {
 				w.Entries = append(w.Entries, f.entries[i])
 			}
 		}
@@ -765,12 +765,12 @@ func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
 }
 
 // Provider returns the entry that binds cap in a with of w, once replace
-// and embedding are resolved (rows.md, Wire 7), or nil when w binds no
-// cap. It reads the wire's summary, shared with every wire that embeds w
-// and every with of it (wiresum.go): a lookup reads at most the summary's
+// and embedding are resolved (rows.md, Context 7), or nil when w binds no
+// cap. It reads the context's summary, shared with every context that embeds w
+// and every with of it (contextsum.go): a lookup reads at most the summary's
 // height, O(log n) of the capabilities w reaches. Its conversion for cap is
 // the one at cap's index in the entry's Caps.
-func (w *Wire) Provider(cap Type) *WireEntry {
+func (w *Context) Provider(cap Type) *ContextEntry {
 	k, ok := keyOf(cap)
 	if !ok {
 		return nil
@@ -783,12 +783,12 @@ func (w *Wire) Provider(cap Type) *WireEntry {
 
 // EachProvider calls f on each capability w binds, by name, with the entry
 // that binds it (Provider), until f returns false.
-func (w *Wire) EachProvider(f func(cap Type, e *WireEntry) bool) {
+func (w *Context) EachProvider(f func(cap Type, e *ContextEntry) bool) {
 	if w.binds == nil {
 		return
 	}
 	if len(w.binds.extra) > 0 {
-		// Only inline wires have an overlay. Merge it with embedded
+		// Only inline contexts have an overlay. Merge it with embedded
 		// bindings in qualified-name order, suppressing overridden entries.
 		var nodes []*capNode
 		for _, n := range w.binds.extra {

@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-func TestWireOwnershipImportedWire(t *testing.T) {
+func TestContextOwnershipImportedContext(t *testing.T) {
 	for _, fresh := range []bool{false, true} {
 		for _, embedded := range []bool{false, true} {
 			for _, missing := range []string{"", "call", "type"} {
@@ -18,9 +18,9 @@ func TestWireOwnershipImportedWire(t *testing.T) {
 					if fresh {
 						result = "Conn{n: 2}"
 					}
-					wires := "let W = wire { A: Get() }\n"
+					contexts := "let W = wire { A: Get() }\n"
 					if embedded {
-						wires = "let Base = wire { A: Get() }\nlet W = wire { Base }\n"
+						contexts = "let Base = wire { A: Get() }\nlet W = wire { Base }\n"
 					}
 					lib, err := syntax.Parse(`type A { Use() }
 type Conn { n int }
@@ -28,7 +28,7 @@ func Use(_ Conn) {}
 func Close(_ Conn) {}
 let shared = Conn{n: 1}
 func Get() Conn { ` + result + ` }
-` + wires)
+` + contexts)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -36,9 +36,9 @@ func Get() Conn { ` + result + ` }
 					if len(ds) != 0 {
 						t.Fatal(ds)
 					}
-					owner := makers.Wires["W"]
+					owner := makers.Contexts["W"]
 					if embedded {
-						owner = makers.Wires["Base"]
+						owner = makers.Contexts["Base"]
 					}
 					provider := owner.Entries[0].Provider
 					if missing == "call" {
@@ -48,9 +48,9 @@ func Get() Conn { ` + result + ` }
 						delete(makers.Info.Types, provider)
 					}
 					src := "import makers\n"
-					wire := "makers.W"
+					context := "makers.W"
 					line := strings.Count(src, "\n") + 1
-					src += "func f() { with " + wire + " { makers.A.Use() } }\n"
+					src += "func f() { with " + context + " { makers.A.Use() } }\n"
 					main, err := syntax.Parse(src)
 					if err != nil {
 						t.Fatal(err)
@@ -79,7 +79,7 @@ func Get() Conn { ` + result + ` }
 	}
 }
 
-func TestWireOwnershipUserExtern(t *testing.T) {
+func TestContextOwnershipUserExtern(t *testing.T) {
 	const src = `extern go example.com/x.Get func get() First
 let W = wire { A: get() }
 func f() { with W { A.Use() } }
@@ -90,7 +90,7 @@ func f() { with W { A.Use() } }
 	}
 }
 
-func TestWireOwnershipImportedReleaseNeeds(t *testing.T) {
+func TestContextOwnershipImportedReleaseNeeds(t *testing.T) {
 	lib, err := syntax.Parse(`type A { Use() }
 type Conn { n int }
 func Use(_ Conn) {}

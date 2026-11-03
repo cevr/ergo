@@ -125,7 +125,7 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 			}
 			// An owning with opens its scope on the frame (calls.go, with),
 			// and a context with its region (context.go).
-			if w := l.info.Withs[n]; w != nil && (ownsResources(w) || w.Context != nil) {
+			if w := l.info.Withs[n]; w != nil && (ownsResources(w) || w.Value != nil) {
 				found = true
 				return false
 			}

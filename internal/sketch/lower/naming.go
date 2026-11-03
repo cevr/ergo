@@ -79,13 +79,13 @@ func (l *lowerer) nameAll() {
 		for _, cs := range p.Info.ImplicitElems {
 			convs = append(convs, cs...)
 		}
-		for _, w := range p.Wires {
+		for _, w := range p.Contexts {
 			for _, e := range w.Entries {
 				convs = append(convs, e.Conversions...)
 			}
 		}
 		for _, with := range p.Info.Withs {
-			for _, w := range with.Wires {
+			for _, w := range with.Contexts {
 				if w.Lit != nil {
 					for _, e := range w.Entries {
 						convs = append(convs, e.Conversions...)

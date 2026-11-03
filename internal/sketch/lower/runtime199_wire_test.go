@@ -370,7 +370,7 @@ func wireFact(t *testing.T, o *lowered, fn, wire string) []acquired {
 				return true
 			}
 			w := o.pkg.Info.Withs[x]
-			if w == nil || len(w.Wires) != 1 || w.Wires[0].Name != wire {
+			if w == nil || len(w.Contexts) != 1 || w.Contexts[0].Name != wire {
 				return true
 			}
 			found++

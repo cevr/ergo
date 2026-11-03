@@ -9,14 +9,14 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Named wires cannot fail during construction yet. Exercise the same
-// checker fact on the fallible constructors stage 3c's inline wires need,
+// Named contexts cannot fail during construction yet. Exercise the same
+// checker fact on the fallible constructors stage 3c's inline contexts need,
 // including the implicit try tail and failure returns that yield no value:
 // a unit value, a literal, a package error value, a generic one, a failure
 // tail and rethrows of a catch binding. The test reads the fact the
 // ownership pass computed during Check, before the package published its
 // error types, so it sees what decided.
-func TestWireOwnershipFreshFallibleConstructors(t *testing.T) {
+func TestContextOwnershipFreshFallibleConstructors(t *testing.T) {
 	f, err := syntax.Parse(`import queue
 type Conn { n int }
 type Fault { code int }
@@ -101,7 +101,7 @@ func newQueue() queue.Queue[int] { queue.New[int](1) }
 // returns its argument), so the freshness fact trusts none of them. List
 // every bodiless extern of the prelude and of each std package, so a new
 // one cannot become trusted by accident.
-func TestWireOwnershipNoExternTrust(t *testing.T) {
+func TestContextOwnershipNoExternTrust(t *testing.T) {
 	pkgs := []*Package{prelude().pkg}
 	for _, path := range std.Packages() {
 		p, err := Std.Import(path)

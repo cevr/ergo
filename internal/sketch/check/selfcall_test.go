@@ -403,8 +403,8 @@ func F() fails Bang { return Bang{code: 1} }
 }
 
 // TestSelfCallOrderFree permutes the declarations of a package with two
-// providers whose functions share a name, each holding an inline wire: the
-// diagnostics (codes and messages) do not depend on the order, and the wire
+// providers whose functions share a name, each holding an inline context: the
+// diagnostics (codes and messages) do not depend on the order, and the context
 // pass keys the two functions named Now as distinct declarations.
 func TestSelfCallOrderFree(t *testing.T) {
 	decls := []string{
@@ -433,7 +433,7 @@ func TestSelfCallOrderFree(t *testing.T) {
 			got = append(got, d.Code+" "+d.Message)
 		}
 		slices.Sort(got)
-		_, groups, _ := c.wireSource()
+		_, groups, _ := c.contextSource()
 		var keys []string
 		for _, g := range groups {
 			keys = append(keys, g.key)

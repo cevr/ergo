@@ -334,11 +334,11 @@ func cxFacts(t *testing.T, o *lowered, s *cxSeq) map[*cxNode]*check.With {
 		switch x.kind {
 		case cxWire:
 			closes := cxCloses(w)
-			if w.Context != nil || len(w.Wires) != 1 || closes != x.res {
-				t.Errorf("%s: with W%d_%d: fact context %v wires %d closes %v, model closes %v", s.fn(), s.k, x.id, w.Context != nil, len(w.Wires), closes, x.res)
+			if w.Value != nil || len(w.Contexts) != 1 || closes != x.res {
+				t.Errorf("%s: with W%d_%d: fact context %v wires %d closes %v, model closes %v", s.fn(), s.k, x.id, w.Value != nil, len(w.Contexts), closes, x.res)
 			}
 		default:
-			if w.Context == nil {
+			if w.Value == nil {
 				t.Errorf("%s: the with of %s (id %d) is not a context binding in the fact", s.fn(), x.key, x.id)
 				continue
 			}
@@ -389,7 +389,7 @@ func cxCloses(w *check.With) bool {
 // type name is read (runtime-199 stage 4a r1 m3).
 func cxSlot(t *testing.T, w *check.With, generated string, ctors map[string]check.Type) string {
 	t.Helper()
-	cb := w.Context
+	cb := w.Value
 	n, ok := cb.Type.(*check.Named)
 	if want := ctors[generated]; want == nil || cb.Type != want || !ok || cb.Key == nil || cb.Key.Pkg != n.Obj.Pkg {
 		t.Fatalf("a context binding of type %v (key %v), generated as slot %s of %v", cb.Type, cb.Key, generated, ctors[generated])

@@ -39,7 +39,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 				c.resolveNamed(tn.Type.(*Named))
 			}
 		},
-		c.checkUnitWireNames,
+		c.checkUnitContextNames,
 		// Expanding type instantiations are rejected before any walk
 		// expands instances (round-2 M1, M5).
 		c.checkInstantiationCycles,
@@ -58,16 +58,16 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkInstantiationCycles,
 		c.collectBodyErrorRows,
 		c.checkEntry,
-		// The wire pass runs once, before any body, so its budget verdict
-		// does not depend on which body meets a wire first (wiresum.go).
-		c.wireSummaries,
+		// The context pass runs once, before any body, so its budget verdict
+		// does not depend on which body meets a context first (contextsum.go).
+		c.contextSummaries,
 		// Bodies converge first: a machine's initial value and the named
-		// wires are closed contexts that read the converged inferred rows
+		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
 		c.checkTypeDecls,
-		c.checkWires,
-		c.checkWireCycles,
+		c.checkContexts,
+		c.checkContextCycles,
 		c.checkErrorMethods,
 		c.checkUnusedImports,
 		c.checkTaskUses,
@@ -91,7 +91,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 
 // collectBodyErrorRows records every struct type that an error row of the
 // package names, anywhere: signatures, bodies, function literals, package
-// var initializers, machine initial values and wire providers, before any
+// var initializers, machine initial values and context providers, before any
 // body is checked, so whether a type is an error type (types.md, Error types
 // 1) does not depend on declaration order (M3). It reads each element's
 // head type name syntactically (`Fault`, `pkg.Fault`, `Fault[T]`), so an
@@ -211,7 +211,7 @@ func (c *checker) collect() {
 					prev.same = append(prev.same, fn)
 					continue
 				}
-				if !c.wireNamed(d.Name) && c.declare(d.Name, fn) {
+				if !c.contextNamed(d.Name) && c.declare(d.Name, fn) {
 					c.pkg.Funcs = append(c.pkg.Funcs, fn)
 				}
 			case *syntax.VarDecl:
@@ -237,7 +237,7 @@ func (c *checker) collect() {
 						// A refused package-level let mut (mutPackageLet)
 						// keeps mut, so its assignments add nothing (D3).
 						v := &Var{Name: name.Name, Pos: name.Pos(), id: name, pkg: true, used: true, mut: d.Mut.IsValid()}
-						if !c.wireNamed(name) {
+						if !c.contextNamed(name) {
 							c.declare(name, v)
 						}
 						pv := &pkgVar{obj: v, spec: spec, idx: i, file: fi, name: name, group: group}
@@ -250,9 +250,9 @@ func (c *checker) collect() {
 			case *syntax.TestDecl:
 				c.notYet(d)
 			case *syntax.ContextDecl:
-				c.preludeName(d.Name) // D-D3; the wire still binds
-				w := &Wire{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}
-				if _, dup := c.pkg.Wires[w.Name]; dup {
+				c.preludeName(d.Name) // D-D3; the context still binds
+				w := &Context{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}
+				if _, dup := c.pkg.Contexts[w.Name]; dup {
 					c.errorf(d.Name, CodeType, "wire %s is declared twice", w.Name)
 					continue
 				}
@@ -260,7 +260,7 @@ func (c *checker) collect() {
 					c.errorf(d.Name, CodeType, "%s is already declared in this package", w.Name)
 					continue
 				}
-				c.pkg.Wires[w.Name] = w
+				c.pkg.Contexts[w.Name] = w
 				c.def(d.Name, w)
 			default:
 				c.undecided(d, "")
@@ -276,15 +276,15 @@ func (c *checker) collect() {
 		c.pkgPatterns[p.spec] = group
 		for _, id := range patternNames(p.spec.Pattern, c.isPatternType) {
 			v := &Var{Name: id.Name, Pos: id.Pos(), id: id, pkg: true, used: true}
-			if w, ok := c.pkg.Wires[id.Name]; ok && id.Name != "_" && (w.file.index > p.file.index || w.file == p.file && w.Pos > id.Pos()) {
-				// The pattern is collected after every wire: when the
-				// wire is the later declaration, it is the duplicate.
+			if w, ok := c.pkg.Contexts[id.Name]; ok && id.Name != "_" && (w.file.index > p.file.index || w.file == p.file && w.Pos > id.Pos()) {
+				// The pattern is collected after every context: when the
+				// context is the later declaration, it is the duplicate.
 				c.cur = w.file
 				c.errorf(w.Decl.Name, CodeType, "%s is already declared in this package", w.Name)
 				c.cur = p.file
-				delete(c.pkg.Wires, w.Name)
+				delete(c.pkg.Contexts, w.Name)
 			}
-			if !c.wireNamed(id) {
+			if !c.contextNamed(id) {
 				c.declare(id, v)
 			}
 			pv := &pkgVar{obj: v, spec: p.spec, file: p.file, name: id, group: group}
@@ -336,27 +336,27 @@ func (c *checker) declare(id *syntax.Ident, o Object) bool {
 	return true
 }
 
-// wireNamed reports a package value (a let, a pattern let's name or a
-// function) declared after a named wire of its name as S108: values and
-// wires share one package namespace, so `with W` never meets two package
-// bindings of W. A type and a wire may share a name (`let A = wire`).
-func (c *checker) wireNamed(id *syntax.Ident) bool {
-	if _, ok := c.pkg.Wires[id.Name]; !ok || id.Name == "_" {
+// contextNamed reports a package value (a let, a pattern let's name or a
+// function) declared after a named context of its name as S108: values and
+// contexts share one package namespace, so `with W` never meets two package
+// bindings of W. A type and a context may share a name (`let A = context`).
+func (c *checker) contextNamed(id *syntax.Ident) bool {
+	if _, ok := c.pkg.Contexts[id.Name]; !ok || id.Name == "_" {
 		return false
 	}
 	c.errorf(id, CodeType, "%s is already declared in this package", id.Name)
 	return true
 }
 
-// checkUnitWireNames extends that rule to a record with no fields, which
-// is a value as well as a type (written bare, types.md Structs 2): a wire
+// checkUnitContextNames extends that rule to a record with no fields, which
+// is a value as well as a type (written bare, types.md Structs 2): a context
 // of its name is S108 at the later declaration (runtime-199 stage 4a r3
 // m2; as Rust's E0428, where a unit struct is in the value namespace). It
-// runs once the types are resolved. The wire stays bound: the program is
+// runs once the types are resolved. The context stays bound: the program is
 // refused, and a with over it adds no cascade (D3).
-func (c *checker) checkUnitWireNames() {
+func (c *checker) checkUnitContextNames() {
 	for _, tn := range c.pkg.Types {
-		w, ok := c.pkg.Wires[tn.Name]
+		w, ok := c.pkg.Contexts[tn.Name]
 		if !ok || tn.Name == "_" || !isZeroRecord(tn.Type) {
 			continue
 		}
@@ -370,7 +370,7 @@ func (c *checker) checkUnitWireNames() {
 }
 
 // isPkgValue reports whether a package-scope object is a value: a let or
-// a function, not a type (a record with no fields is checkUnitWireNames').
+// a function, not a type (a record with no fields is checkUnitContextNames').
 func isPkgValue(o Object) bool {
 	switch o.(type) {
 	case *Var, *Func:
@@ -454,12 +454,12 @@ func (c *checker) checkImportAliases() {
 			if pn.spec.Kind != syntax.ImportPlain && pn.spec.Kind != syntax.ImportNamed {
 				continue
 			}
-			// A wire is in the package's separate wire namespace, and an
+			// A context is in the package's separate context namespace, and an
 			// import name clashes with it too, so `with log` never binds a
-			// wire beside the package log (runtime-199 stage 4a r3 m1).
+			// context beside the package log (runtime-199 stage 4a r3 m1).
 			var o Object = c.pkg.Scope.names[pn.Name]
 			kind := "declaration"
-			if w := c.pkg.Wires[pn.Name]; o == nil && w != nil {
+			if w := c.pkg.Contexts[pn.Name]; o == nil && w != nil {
 				o, kind = w, "wire"
 			}
 			if o != nil {

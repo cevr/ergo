@@ -398,7 +398,7 @@ func acqFactIn(t *testing.T, o *lowered, s *acqSeq, fn, wire string) []int {
 				return true
 			}
 			w := o.pkg.Info.Withs[x]
-			if w == nil || (wire == "") != (w.Wires[0].Lit != nil) || wire != "" && w.Wires[0].Name != wire {
+			if w == nil || (wire == "") != (w.Contexts[0].Lit != nil) || wire != "" && w.Contexts[0].Name != wire {
 				return true
 			}
 			found++

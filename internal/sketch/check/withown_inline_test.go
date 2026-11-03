@@ -6,8 +6,8 @@ import (
 )
 
 // Inline providers use the same ownership fact and freshness boundary as
-// named wires. Each expected identity describes a user-visible release.
-func TestWireOwnershipInlineAcquisitions(t *testing.T) {
+// named contexts. Each expected identity describes a user-visible release.
+func TestContextOwnershipInlineAcquisitions(t *testing.T) {
 	for _, tc := range []struct {
 		name, src, want string
 	}{
@@ -43,7 +43,7 @@ func f() { let n = 1; with wire { A: first(n) } { A.Use() } }
 	}
 }
 
-func TestWireOwnershipInlineRefusals(t *testing.T) {
+func TestContextOwnershipInlineRefusals(t *testing.T) {
 	for _, tc := range []struct{ name, src, code string }{
 		{"borrowed local", `func f() { let a = First; with wire { A: a } { A.Use() } }`, "S109"},
 		{"borrowed constructor", `let old = First

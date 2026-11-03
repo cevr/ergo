@@ -60,7 +60,7 @@ func returning(r Returning) int { r.Close() }
 		t.Fatal(err)
 	}
 	pkg, ds := check.Check("main", []*syntax.File{f}, nil)
-	// The capability's Close keeps its identity fact, which the wire
+	// The capability's Close keeps its identity fact, which the context
 	// ownership refusal reads (resources.md R24): the one diagnostic.
 	if len(ds) != 1 || !strings.Contains(ds[0].Message, "Releaser.Close releases the capability's provider") {
 		t.Fatalf("diagnostics: %v", ds)

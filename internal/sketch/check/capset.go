@@ -9,24 +9,24 @@ import (
 // names (package path, then name): a treap whose priorities hash the
 // names, so its shape depends on the names alone, never on the order in
 // which the checker met the types (#196 round 19 M2). Adding an element
-// copies one path and leaves every earlier version intact, so a wire's
+// copies one path and leaves every earlier version intact, so a context's
 // binding summary shares the largest of its parts instead of copying it
 // (round 18). Each node keeps its height, so the cost of a lookup is known
 // before it runs (finishBody's allowance).
 //
 // Each node also carries the entry that provides its capability, so a
-// named wire's summary is its resolved bindings too (rows.md, Wire 5 and
+// named context's summary is its resolved bindings too (rows.md, Context 5 and
 // 7): the union of a component puts its members' own entries over what
 // its embeddings bring (a replace), and a with points to that shared
-// summary instead of copying it (Wire.Provider; round-4 review M1).
+// summary instead of copying it (Context.Provider; round-4 review M1).
 //
-// Every operation of the wire summaries runs on a wireMeter: each node is
+// Every operation of the context summaries runs on a contextMeter: each node is
 // charged before it is read, each node copied or created before it is
 // made, each element enumerated before it is passed on, and the operation
 // stops when the package's budget would be passed (D16 as amended in
-// round 18; wiresum.go). Only the membership test of a with scope while a
+// round 18; contextsum.go). Only the membership test of a with scope while a
 // body is checked (has, find), which charges the body's own budget like
-// Row.has, and the lowering's lookups (Wire.Provider) are not wire-summary
+// Row.has, and the lowering's lookups (Context.Provider) are not context-summary
 // work and are not metered.
 // Prior art: OCaml's Set and Erlang maps share structure between
 // versions; TypeScript (TS2589) and rustc (recursion_limit) refuse past a
@@ -34,9 +34,9 @@ import (
 type capSet struct {
 	root *capNode
 	size int
-	// extra holds an inline wire's own entries over the union of its
+	// extra holds an inline context's own entries over the union of its
 	// embeddings in root (finishBody), with the same provider identities
-	// that the named-wire treap carries.
+	// that the named-context treap carries.
 	extra map[capKey]*capNode
 }
 
@@ -44,8 +44,8 @@ type capNode struct {
 	key capKey
 	t   Type
 	// entry is the provider entry that binds the capability: a named
-	// wire's own entry (wirePass.own), nil for an inline wire's.
-	entry       *WireEntry
+	// context's own entry (contextPass.own), nil for an inline context's.
+	entry       *ContextEntry
 	pri         uint32
 	h           int32 // nodes on the longest path down from here
 	left, right *capNode
@@ -109,19 +109,19 @@ func (s *capSet) height() int {
 	return int(height(s.root))
 }
 
-// A wireMeter counts the wire pass's repeatable work against the
-// package's budget (D16 as amended in round 20: wiresum.go). step reports
+// A contextMeter counts the context pass's repeatable work against the
+// package's budget (D16 as amended in round 20: contextsum.go). step reports
 // whether n more units fit and counts them; once a step does not fit, out
 // is set and every later step fails, so no repeatable work is done past
 // the budget. An allowance (finishBody) is a meter whose whole limit its
 // parent was charged in advance.
-type wireMeter struct {
+type contextMeter struct {
 	used, limit int
 	out         bool
-	parent      *wireMeter
+	parent      *contextMeter
 }
 
-func (m *wireMeter) step(n int) bool {
+func (m *contextMeter) step(n int) bool {
 	if m.out || n < 0 || m.used+n > m.limit {
 		m.out = true
 		return false
@@ -130,27 +130,27 @@ func (m *wireMeter) step(n int) bool {
 	return true
 }
 
-// The two classes of the wire pass's work (round 20). Repeatable work can
-// run more often than a fixed multiple of the wire source it reads (set
+// The two classes of the context pass's work (round 20). Repeatable work can
+// run more often than a fixed multiple of the context source it reads (set
 // nodes, union elements, probes against a summary, a sort): the meter
-// charges it before it runs. Single-pass work reads each wire node a
+// charges it before it runs. Single-pass work reads each context node a
 // fixed number of times (an entry, a key, an embedding, a graph step, a
-// component member, a root): wireSinglePerUnit bounds it, uncharged.
+// component member, a root): contextSinglePerUnit bounds it, uncharged.
 const (
 	repeatable = true
 	singlePass = false
 )
 
-// wireOp, set only by tests, is called at each data operation of the wire
+// contextOp, set only by tests, is called at each data operation of the context
 // pass as it is done: a set node read, made or copied, a sort comparison
 // or move, an entry, key or embedding read, a graph step, a probe. kind
 // names it and repeat gives its class. The calls sit at the data, not at
 // the meter's charges, so a test counts each class apart from the meter.
-var wireOp func(m *wireMeter, kind string, repeat bool, n int)
+var contextOp func(m *contextMeter, kind string, repeat bool, n int)
 
-func op(m *wireMeter, kind string, repeat bool, n int) {
-	if wireOp != nil {
-		wireOp(m, kind, repeat, n)
+func op(m *contextMeter, kind string, repeat bool, n int) {
+	if contextOp != nil {
+		contextOp(m, kind, repeat, n)
 	}
 }
 
@@ -180,8 +180,8 @@ func (s *capSet) find(tab *typeTable, t Type) (found bool, n *capNode) {
 }
 
 // node is the node of k, or nil, read without a meter: the with test
-// (find) and the lowering's lookups (Wire.Provider), which are not
-// wire-summary work.
+// (find) and the lowering's lookups (Context.Provider), which are not
+// context-summary work.
 func (s *capSet) node(k capKey) *capNode {
 	if s == nil {
 		return nil
@@ -202,10 +202,10 @@ func (s *capSet) node(k capKey) *capNode {
 	return nil
 }
 
-// lookup is has for the wire summaries: one step per node, charged before
+// lookup is has for the context summaries: one step per node, charged before
 // the node is read. It returns the node of k, or nil; ok is false when the
 // budget ran out.
-func (s *capSet) lookup(m *wireMeter, k capKey) (found *capNode, ok bool) {
+func (s *capSet) lookup(m *contextMeter, k capKey) (found *capNode, ok bool) {
 	if s == nil {
 		return nil, true
 	}
@@ -229,18 +229,18 @@ func (s *capSet) lookup(m *wireMeter, k capKey) (found *capNode, ok bool) {
 // with returns s with t added, provided by e; s is unchanged. An element
 // already there keeps its entry. ok is false when the budget ran out; s is
 // then returned.
-func (s *capSet) with(m *wireMeter, t Type, e *WireEntry) (out *capSet, ok bool) {
+func (s *capSet) with(m *contextMeter, t Type, e *ContextEntry) (out *capSet, ok bool) {
 	return s.insert(m, t, e, false)
 }
 
 // put is with, except that an element already there is now provided by e:
-// a wire's own entry over what its embeddings bring (a replace; rows.md,
-// Wire 7). The path to it is copied, as an insertion's is.
-func (s *capSet) put(m *wireMeter, t Type, e *WireEntry) (out *capSet, ok bool) {
+// a context's own entry over what its embeddings bring (a replace; rows.md,
+// Context 7). The path to it is copied, as an insertion's is.
+func (s *capSet) put(m *contextMeter, t Type, e *ContextEntry) (out *capSet, ok bool) {
 	return s.insert(m, t, e, true)
 }
 
-func (s *capSet) insert(m *wireMeter, t Type, e *WireEntry, over bool) (out *capSet, ok bool) {
+func (s *capSet) insert(m *contextMeter, t Type, e *ContextEntry, over bool) (out *capSet, ok bool) {
 	if s == nil {
 		s = &capSet{}
 	}
@@ -266,7 +266,7 @@ func (s *capSet) insert(m *wireMeter, t Type, e *WireEntry, over bool) (out *cap
 // is copied with e (changed). The nodes on the path are copies, so a
 // returned node is never shared and a rotation may change it. A visit and
 // a copy are each one step, charged before the node is read or made.
-func capInsert(m *wireMeter, n *capNode, k capKey, t Type, e *WireEntry, pri uint32, over bool) (out *capNode, added, changed, ok bool) {
+func capInsert(m *contextMeter, n *capNode, k capKey, t Type, e *ContextEntry, pri uint32, over bool) (out *capNode, added, changed, ok bool) {
 	if n == nil {
 		if !m.step(1) {
 			return nil, false, false, false
@@ -329,7 +329,7 @@ func capInsert(m *wireMeter, n *capNode, k capKey, t Type, e *WireEntry, pri uin
 // each calls f on the elements in key order, one step per node, charged
 // before the node or its children are read, until f returns false. It
 // returns false when the budget ran out or f stopped.
-func (s *capSet) each(m *wireMeter, f func(n *capNode) bool) bool {
+func (s *capSet) each(m *contextMeter, f func(n *capNode) bool) bool {
 	if s == nil {
 		return true
 	}
@@ -359,15 +359,15 @@ func (s *capSet) each(m *wireMeter, f func(n *capNode) bool) bool {
 // members and its successors, each read once.
 // The plan depends on the sizes and the order of sets alone, the first of
 // two equal sizes being kept, and every caller passes sets in an order
-// fixed by the wires' names and entries (wiresum.go), so the charged work
+// fixed by the contexts' names and entries (contextsum.go), so the charged work
 // does not depend on the declarations' order. ok is false when the budget
 // ran out.
 //
 // The first owns sets are a component's own entries: their elements are
 // put, so an own entry provides its capability over what an embedding
-// brings (a replace; rows.md, Wire 7), whichever side is the largest. The
+// brings (a replace; rows.md, Context 7), whichever side is the largest. The
 // others are added, so an element already there keeps its entry.
-func capUnion(m *wireMeter, sets []*capSet, owns int) (out *capSet, ok bool) {
+func capUnion(m *contextMeter, sets []*capSet, owns int) (out *capSet, ok bool) {
 	largest := -1
 	for i, s := range sets {
 		op(m, "union set read", singlePass, 1)
@@ -404,9 +404,9 @@ func sortReserve(n int) int {
 	return 3 * n * bits.Len(uint(n-1))
 }
 
-// sortWires sorts xs by less after it charges sortReserve(len(xs)); it
+// sortContexts sorts xs by less after it charges sortReserve(len(xs)); it
 // does not start when that does not fit, and reports false.
-func sortWires[T any](m *wireMeter, xs []T, less func(a, b T) bool) bool {
+func sortContexts[T any](m *contextMeter, xs []T, less func(a, b T) bool) bool {
 	if !m.step(sortReserve(len(xs))) {
 		return false
 	}
@@ -416,7 +416,7 @@ func sortWires[T any](m *wireMeter, xs []T, less func(a, b T) bool) bool {
 	return true
 }
 
-func mergeSort[T any](m *wireMeter, xs, buf []T, less func(a, b T) bool) {
+func mergeSort[T any](m *contextMeter, xs, buf []T, less func(a, b T) bool) {
 	if len(xs) < 2 {
 		return
 	}

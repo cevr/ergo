@@ -20,7 +20,7 @@ import (
 // return (false, a helper's verdict, a stored field, a comparison) or a
 // callback that is not a literal could prune a frame boundary, however it
 // is spelt (runtime-199 stage 3b r3 t2).
-func TestWireOwnershipFrameOwner(t *testing.T) {
+func TestContextOwnershipFrameOwner(t *testing.T) {
 	clients := map[string]bool{"providerResults": false, "ownedBlock": false, "walk": false}
 	const syntaxPath = "ergo.local/prototype/internal/sketch/syntax"
 	walks := 0

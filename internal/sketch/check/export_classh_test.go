@@ -20,7 +20,7 @@ import (
 // walk took as a value because it could not decide the literal's kind
 // (reflits.go: conservative, an extra edge). An identifier typing resolves
 // to a package function or var that the walk skipped is reported too,
-// unless the walk saw it in a type or wire position and the checker
+// unless the walk saw it in a type or context position and the checker
 // reports an error there (a function used as a type).
 func RefWalkProblems(src string) []string {
 	file, err := syntax.Parse(src)
@@ -124,15 +124,15 @@ func RefWalkProblems(src string) []string {
 				continue
 			}
 			if wk.w.nameIdents[id] && diagnosedAt(c.diags, int(id.Pos())) {
-				// A function in a type or wire position (`A{}`, `with(A)`) is
+				// A function in a type or context position (`A{}`, `with(A)`) is
 				// an error there: not a value reference, no edge.
 				continue
 			}
 			out = append(out, fmt.Sprintf("%s at %d: typing resolves the package object %s, the walk skipped it", id.Name, id.Pos(), id.Name))
 		}
 		// A with operand's bare name, in both directions (stage 4a r2 m1):
-		// typing binds the package wire exactly when the walk took the name
-		// as a wire name, and a disagreement is a problem unless typing
+		// typing binds the package context exactly when the walk took the name
+		// as a context name, and a disagreement is a problem unless typing
 		// refused the operand.
 		for x, with := range c.pkg.Info.Withs {
 			if !wk.w.visited[x] || len(x.Args) != 1 {
@@ -142,7 +142,7 @@ func RefWalkProblems(src string) []string {
 			if !ok || diagnosedAt(c.diags, int(id.Pos())) {
 				continue
 			}
-			typed := len(with.Wires) > 0 && c.pkg.Wires[id.Name] != nil && with.Wires[0] == c.pkg.Wires[id.Name]
+			typed := len(with.Contexts) > 0 && c.pkg.Contexts[id.Name] != nil && with.Contexts[0] == c.pkg.Contexts[id.Name]
 			if walked := wk.w.nameIdents[id]; typed != walked {
 				out = append(out, fmt.Sprintf("%s at %d: typing binds the package wire %v, the walk takes a wire name %v", id.Name, id.Pos(), typed, walked))
 			}
@@ -364,9 +364,9 @@ func PermuteDecls(src string, seed uint64) (out string, origKey, permKey func(in
 	return permuteDecls(src, seed, nil)
 }
 
-// PermuteWires is PermuteDecls for the wire declarations alone: they trade
+// PermuteContexts is PermuteDecls for the context declarations alone: they trade
 // places among themselves, and every other declaration keeps its place.
-func PermuteWires(src string, seed uint64) (out string, origKey, permKey func(int) (int, int), ok bool) {
+func PermuteContexts(src string, seed uint64) (out string, origKey, permKey func(int) (int, int), ok bool) {
 	return permuteDecls(src, seed, func(d syntax.Decl) bool {
 		_, ok := d.(*syntax.ContextDecl)
 		return ok

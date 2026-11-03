@@ -42,7 +42,7 @@ func frameGaps(file *syntax.File, info *Info) []string {
 			}
 		}
 		if w := info.Withs[x]; w != nil {
-			if w.Context != nil {
+			if w.Value != nil {
 				return "a context with"
 			}
 			for _, a := range w.Acquired {

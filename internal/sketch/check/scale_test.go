@@ -156,8 +156,8 @@ type scaleShape struct {
 }
 
 // longNames writes a capability whose name grows with n, named twice (its
-// declaration and wire B), and n wires that each embed B: the source grows
-// linearly, and hashing the name once per wire grows with n². The control
+// declaration and context B), and n contexts that each embed B: the source grows
+// linearly, and hashing the name once per context grows with n². The control
 // has the same size and structure, with a one-letter name and the same
 // bytes in two string literals instead.
 func longNames(n int, control bool) string {

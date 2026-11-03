@@ -123,7 +123,7 @@ func splitFixtures(t testing.TB) map[string]string {
 // testPrograms returns every program written inside the checker's tests:
 // each Go string literal of check/*_test.go, and each string const or var
 // built from literals, that parses as Ergo and has a declaration of any
-// kind (a function, a type, a let, a wire, a machine, a test...). No
+// kind (a function, a type, a let, a context, a machine, a test...). No
 // spelling filter narrows it: a string is a program when the parser says
 // so. This is the extraction of lower's checkCorpus, without its
 // sampling. Programs built at run time (fmt.Sprintf, loops) are not
@@ -361,9 +361,9 @@ func TestRecursiveGroupsNameTheirFile(t *testing.T) {
 	}
 }
 
-// The package-pattern loop temporarily selects a later duplicate wire,
+// The package-pattern loop temporarily selects a later duplicate context,
 // then must restore the pattern's file before declaring its next name.
-// Unit types also share the wire namespace, with the later file blamed.
+// Unit types also share the context namespace, with the later file blamed.
 func TestPackageNameReportsNameTheirFile(t *testing.T) {
 	const duplicate = "W is already declared in this package"
 	const boundTwice = "W is bound twice in this pattern (rows.md, Totality 1)"
@@ -490,7 +490,7 @@ func TestDiagnosticsStayInTheirFile(t *testing.T) {
 // two files: its imports in both, its other declarations alternately in
 // file 0 and file 1, once from each side. A check of one declaration then
 // meets the nodes of declarations in the other file (a callee's parameters,
-// a type's fields, a wire's provider), and a pass that reports at such a
+// a type's fields, a context's provider), and a pass that reports at such a
 // node while the other file is selected stops at the checker's ownership
 // assertion. The diagnostics differ from the one-file check (an import
 // unused in one file, a cycle reported at its first member), so this test

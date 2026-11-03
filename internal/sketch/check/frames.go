@@ -7,9 +7,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // A frame scope is the scope of a running function body: it owns the
 // tasks the body starts or receives, runs its exit actions, and ends the
 // scopes an owning with or a context with opens inside it (runtime.md,
-// Tasks; resources.md, Wire ownership; runtime.md, G1). A function body,
+// Tasks; resources.md, Context ownership; runtime.md, G1). A function body,
 // a function literal's body, a trailing block and a test block each have
-// one. A package let's value, a named wire's entries and a type
+// one. A package let's value, a named context's entries and a type
 // declaration (a machine's initial value) run outside every function
 // body, so no frame scope is there to own what such a call makes.
 //
@@ -38,7 +38,7 @@ import "ergo.local/prototype/internal/sketch/syntax"
 
 // frameFree reports whether a file declaration's expressions run outside
 // every function body. A function declaration's and a test block's bodies
-// are frames; a let, a wire and a type declaration are not.
+// are frames; a let, a context and a type declaration are not.
 func frameFree(d syntax.Decl) bool {
 	switch d.(type) {
 	case *syntax.FuncDecl, *syntax.TestDecl:
@@ -102,7 +102,7 @@ func frameNeed(info *Info, x *syntax.CallExpr) string {
 		}
 	}
 	if w := info.Withs[x]; w != nil {
-		if w.Context != nil {
+		if w.Value != nil {
 			return "a with of a context value"
 		}
 		for _, a := range w.Acquired {

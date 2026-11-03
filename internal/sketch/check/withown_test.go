@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The wire ownership fact (runtime-199 stage 3b; resources.md, Wire
+// The context ownership fact (runtime-199 stage 3b; resources.md, Context
 // ownership): per with site, the entries it acquires in acquisition order,
 // each with its resolved Close, the release needs charged at the with
 // site, and the located refusals.
@@ -96,7 +96,7 @@ func checkOwn(t *testing.T, src string) (*check.Package, []check.Diagnostic) {
 	return pkg, ds
 }
 
-func TestWireOwnershipAcquisitions(t *testing.T) {
+func TestContextOwnershipAcquisitions(t *testing.T) {
 	for _, tc := range []struct {
 		name, src string
 		want      []string
@@ -139,7 +139,7 @@ func f() { with W { A.Use(); B.Use() } }
 	}
 }
 
-func TestWireOwnershipReleaseNeeds(t *testing.T) {
+func TestContextOwnershipReleaseNeeds(t *testing.T) {
 	const closes = `type Res {}
 func Use(_ Res) {}
 func Close(_ Res) needs Log { Log.Say("closed") }
@@ -206,8 +206,8 @@ func f() { with Out { with W { A.Use() } } }
 
 // A provider that failed to type reports its own error once; the ownership
 // pass adds no S109 worded for a missing package's facts (runtime-199 stage
-// 3b r4 m1), for a named and an inline wire.
-func TestWireOwnershipUntypedProvider(t *testing.T) {
+// 3b r4 m1), for a named and an inline context.
+func TestContextOwnershipUntypedProvider(t *testing.T) {
 	for _, src := range []string{
 		"let W = wire { A: missing() }\nfunc f() { with W { A.Use() } }\n",
 		"func f() { with wire { A: missing() } { A.Use() } }\n",
@@ -224,7 +224,7 @@ func TestWireOwnershipUntypedProvider(t *testing.T) {
 	}
 }
 
-func TestWireOwnershipRefusals(t *testing.T) {
+func TestContextOwnershipRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name, src, code, msg string
 	}{
@@ -287,7 +287,7 @@ func f() { with W { B.Use() } }
 	}
 }
 
-func TestWireOwnershipFreshConstructors(t *testing.T) {
+func TestContextOwnershipFreshConstructors(t *testing.T) {
 	for _, tc := range []struct {
 		name, decls, provider string
 		fresh                 bool
@@ -399,7 +399,7 @@ func (i ownImporter) Import(path string) (*check.Package, error) {
 	return check.Std.Import(path)
 }
 
-func TestWireOwnershipImportedConstructor(t *testing.T) {
+func TestContextOwnershipImportedConstructor(t *testing.T) {
 	for _, fresh := range []bool{false, true} {
 		t.Run(fmt.Sprint(fresh), func(t *testing.T) {
 			result := "shared"
@@ -437,10 +437,10 @@ let W = wire { A: Get() }
 	}
 }
 
-func TestWireOwnershipExitActionDependencies(t *testing.T) {
+func TestContextOwnershipExitActionDependencies(t *testing.T) {
 	for _, tc := range []struct {
-		name, decls, wire string
-		refused           bool
+		name, decls, context string
+		refused              bool
 	}{
 		{"plain provider", "", "A: First, Log: Quiet", false},
 		{"resource provider", `type Sink {}
@@ -454,7 +454,7 @@ func quiet() Quiet needs Mid { Mid.Use(); Quiet }`, "A: First, Mid: middle(), Lo
 		{"plain dependency", `func quiet() Quiet needs B { B.Use(); Quiet }`, "A: First, B: Second, Log: quiet()", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, ds := checkOwn(t, "import scope\n"+tc.decls+"\nlet W = wire { "+tc.wire+` }
+			_, ds := checkOwn(t, "import scope\n"+tc.decls+"\nlet W = wire { "+tc.context+` }
 func f() { with W { A.Use(); scope.OnExit() { Log.Say("exit") } } }
 `)
 			if !tc.refused {

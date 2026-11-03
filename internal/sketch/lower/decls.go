@@ -114,7 +114,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 				}
 			}
 		case *syntax.ContextDecl:
-			if w, ok := l.info.Defs[d.Name].(*check.Wire); ok {
+			if w, ok := l.info.Defs[d.Name].(*check.Context); ok {
 				// One builder for each distinct set of providers a with of
 				// this wire acquires, in the withs' source order.
 				for _, with := range l.withsOf(w) {
@@ -126,10 +126,10 @@ func (l *lowerer) declareName(d syntax.Decl) {
 }
 
 // withsOf are the withs of the named wire w, in source order.
-func (l *lowerer) withsOf(w *check.Wire) []*check.With {
+func (l *lowerer) withsOf(w *check.Context) []*check.With {
 	var xs []*syntax.CallExpr
 	for x, with := range l.info.Withs {
-		if len(with.Wires) > 0 && with.Wires[0] == w {
+		if len(with.Contexts) > 0 && with.Contexts[0] == w {
 			xs = append(xs, x)
 		}
 	}
@@ -164,7 +164,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 	case *syntax.VarDecl:
 		l.packageLet(d)
 	case *syntax.ContextDecl:
-		w, ok := l.info.Defs[d.Name].(*check.Wire)
+		w, ok := l.info.Defs[d.Name].(*check.Context)
 		if !ok {
 			ice(d.Name, "the wire %s has no Defs entry", d.Name.Name)
 		}

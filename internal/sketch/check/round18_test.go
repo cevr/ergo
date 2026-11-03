@@ -9,9 +9,9 @@ import (
 )
 
 // opsOf checks src as one package and returns its diagnostics and the
-// operation counts of the reference walk's literals and the wire
+// operation counts of the reference walk's literals and the context
 // summaries.
-func opsOf(t *testing.T, src string) (diags []Diagnostic, walk, wire int) {
+func opsOf(t *testing.T, src string) (diags []Diagnostic, walk, context int) {
 	t.Helper()
 	file, err := syntax.Parse(src)
 	if err != nil {
@@ -19,11 +19,11 @@ func opsOf(t *testing.T, src string) (diags []Diagnostic, walk, wire int) {
 	}
 	c := newChecker("main", Std, prelude().scope)
 	c.run([]*syntax.File{file})
-	wire = -1
-	if c.wires != nil {
-		wire = c.wires.used
+	context = -1
+	if c.contexts != nil {
+		context = c.contexts.used
 	}
-	return c.diags, c.walkOps, wire
+	return c.diags, c.walkOps, context
 }
 
 // linear asserts that counts measured at sizes 1000, 4000 and 8000 grow
@@ -42,10 +42,10 @@ func linear(t *testing.T, what string, counts map[int]int, k int) {
 	t.Logf("%s: %v", what, counts)
 }
 
-// TestWireChainLinear: an acyclic embedding chain of n empty wires costs
-// linear work in the wire summaries (round 17 M1: every root and every
+// TestContextChainLinear: an acyclic embedding chain of n empty contexts costs
+// linear work in the context summaries (round 17 M1: every root and every
 // embedding walked the whole chain).
-func TestWireChainLinear(t *testing.T) {
+func TestContextChainLinear(t *testing.T) {
 	counts := map[int]int{}
 	for _, n := range []int{1000, 4000, 8000} {
 		var b strings.Builder
@@ -54,13 +54,13 @@ func TestWireChainLinear(t *testing.T) {
 			fmt.Fprintf(&b, "let W%d = wire { W%d }\n", i, i-1)
 		}
 		fmt.Fprintf(&b, "func F() { with W%d {} }\n", n-1)
-		diags, _, wire := opsOf(t, decided(b.String()))
+		diags, _, context := opsOf(t, decided(b.String()))
 		if len(diags) > 0 {
 			t.Fatalf("n=%d: want acceptance, got %v", n, diags[0])
 		}
-		counts[n] = wire
+		counts[n] = context
 	}
-	// The name sort reserves 3⌈log₂ n⌉ steps per wire (capset.go), so the
+	// The name sort reserves 3⌈log₂ n⌉ steps per context (capset.go), so the
 	// charged count grows by n log n; the rest is linear.
 	for n, ops := range counts {
 		if sorted := sortReserve(n); ops-sorted > 16*n {
@@ -75,7 +75,7 @@ func TestWireChainLinear(t *testing.T) {
 // invariants and its heights, so lookups stay logarithmic and their cost
 // is known in advance.
 func TestCapSetPersistent(t *testing.T) {
-	m := &wireMeter{limit: 1 << 30}
+	m := &contextMeter{limit: 1 << 30}
 	key := func(i int) capKey { return capKey{"p", fmt.Sprintf("C%05d", i)} }
 	var versions []*capNode
 	var sizes []int
@@ -140,7 +140,7 @@ func TestCapSetPersistent(t *testing.T) {
 		t.Error("lookup(C02003) true")
 	}
 	// A meter that runs out stops an insert and leaves the set unchanged.
-	small := &wireMeter{limit: 3}
+	small := &contextMeter{limit: 3}
 	out, _, _, ok := capInsert(small, root, key(99999), nil, nil, key(99999).priority(), false)
 	if ok || out != root || !small.out || small.used > small.limit {
 		t.Errorf("an insert past the budget: ok=%v, out=%v, used %d of %d", ok, small.out, small.used, small.limit)
@@ -174,9 +174,9 @@ func TestCapSetPersistent(t *testing.T) {
 // its entry and every node off the path is shared; with keeps the entry
 // already there; and the shape does not change.
 func TestCapSetPut(t *testing.T) {
-	m := &wireMeter{limit: 1 << 30}
+	m := &contextMeter{limit: 1 << 30}
 	var s *capSet
-	old, other := &WireEntry{}, &WireEntry{}
+	old, other := &ContextEntry{}, &ContextEntry{}
 	types := make([]Type, 500)
 	for i := range types {
 		types[i] = &Named{Obj: &TypeName{Name: fmt.Sprintf("C%03d", i)}}

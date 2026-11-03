@@ -14,7 +14,7 @@ import (
 
 // Cross the statement-bearing expression forms, expression slots and frame
 // boundaries. These are grammar productions, not individual bug programs.
-// TestWireOwnershipReturnCatalog checks the forms/slots against the syntax
+// TestContextOwnershipReturnCatalog checks the forms/slots against the syntax
 // declarations, so adding a production requires an explicit coverage choice.
 type ownReturnForm struct{ name, node, text string }
 
@@ -85,7 +85,7 @@ func runInt(n int, f func()) { f() }
 func runConn(f func() Conn fails Fault) fails Fault { let _ = try f() }
 `
 
-func TestWireOwnershipReturnPositions(t *testing.T) {
+func TestContextOwnershipReturnPositions(t *testing.T) {
 	for _, form := range ownReturnForms {
 		for _, slot := range ownReturnSlots {
 			for boundary, wrap := range ownReturnBoundaries {
@@ -175,7 +175,7 @@ func TestWireOwnershipReturnPositions(t *testing.T) {
 	}
 }
 
-func TestWireOwnershipReturnCatalog(t *testing.T) {
+func TestContextOwnershipReturnCatalog(t *testing.T) {
 	// Every non-test file of syntax, so a node declared outside ast.go
 	// (ast_decided.go) is cataloged too.
 	names, err := filepath.Glob("../syntax/*.go")

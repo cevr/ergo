@@ -88,11 +88,11 @@ type checker struct {
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
 	dupNames map[string]bool
 	// withSites are the with sites the reporting pass recorded, inner
-	// before outer, for the wire ownership pass (withown.go).
+	// before outer, for the context ownership pass (withown.go).
 	withSites []withSite
-	// wireOwners is the one index from an entry to the wire that declares
+	// contextOwners is the one index from an entry to the context that declares
 	// it, shared by the ownership and footprint passes (withown.go).
-	wireOwners wireOwners
+	contextOwners contextOwners
 
 	// cur is the file the running pass selected: a diagnostic is reported
 	// in it, and its node must lie in it (owner.go). owners indexes each
@@ -145,23 +145,23 @@ type checker struct {
 	// refused field, result or let type): the refusal is reported there,
 	// so the Task use rule adds nothing for them.
 	intoInvalid map[syntax.Expr]bool
-	// wires meters the wire summaries' work against the package's budget
-	// (wiresum.go; nil when the package has no wire).
-	wires *wireMeter
-	// wiresDone is set once wireSummaries has run.
-	wiresDone bool
-	// wireLimit, set only by tests, replaces the budget of a package of
-	// the given wire size.
-	wireLimit func(size int) int
-	// wireComp maps each named wire to its embedding component (wireSummaries).
-	wireComp map[*Wire]*wireComp
-	// wireBodies holds each wire body's summary, decided once (wireSummaries,
+	// contexts meters the context summaries' work against the package's budget
+	// (contextsum.go; nil when the package has no context).
+	contexts *contextMeter
+	// contextsDone is set once contextSummaries has run.
+	contextsDone bool
+	// contextLimit, set only by tests, replaces the budget of a package of
+	// the given context size.
+	contextLimit func(size int) int
+	// contextComp maps each named context to its embedding component (contextSummaries).
+	contextComp map[*Context]*contextComp
+	// contextBodies holds each context body's summary, decided once (contextSummaries,
 	// finished by bodySummary).
-	wireBodies map[*syntax.ContextBody]*bodySum
-	// wireEntries holds the Info record of each named wire's provider
-	// entry, made once by the wire pass (wirePass.own) and filled in when
-	// the wire's body is checked (wireBody).
-	wireEntries map[*syntax.ContextEntry]*WireEntry
+	contextBodies map[*syntax.ContextBody]*bodySum
+	// contextEntries holds the Info record of each named context's provider
+	// entry, made once by the context pass (contextPass.own) and filled in when
+	// the context's body is checked (contextBody).
+	contextEntries map[*syntax.ContextEntry]*ContextEntry
 	// nodeCheck replaces checkNode in converge for the synthetic oscillation
 	// test (nil otherwise); convergeChecks counts converge's checks.
 	nodeCheck      func(*bodyNode) bool
@@ -278,7 +278,7 @@ type checker struct {
 	machines   []*TypeName
 	guarded    map[*Func]bool // steps of exported machines: rows written (export guard)
 
-	// The reach graph for wire cycles (rows.md, Wire 5).
+	// The reach graph for context cycles (rows.md, Context 5).
 	reach     map[any]*reachNode
 	providers map[*Named][]*Named // capability → provider types bound to it anywhere
 
@@ -337,7 +337,7 @@ func newID() int {
 }
 
 func newChecker(path string, imp Importer, universe *Scope) *checker {
-	pkg := &Package{Path: path, Scope: newScope(universe), Wires: map[string]*Wire{}, Info: newInfo()}
+	pkg := &Package{Path: path, Scope: newScope(universe), Contexts: map[string]*Context{}, Info: newInfo()}
 	c := &checker{
 		pkg:            pkg,
 		imp:            imp,

@@ -498,12 +498,12 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	if len(x.Args) != 1 || x.Trailing == nil {
 		ice(x, "a with without one wire and a block")
 	}
-	if w.Context != nil {
-		return fc.contextWith(x, w.Context) // the context owner (context.go)
+	if w.Value != nil {
+		return fc.contextWith(x, w.Value) // the context owner (context.go)
 	}
 	// The checker records an imported wire's entries (wire ownership), but
 	// this lowering builds only wires declared in the file it lowers.
-	if len(w.Wires) == 0 || (w.Wires[0].Lit == nil && fc.l.isImported(w.Wires[0])) {
+	if len(w.Contexts) == 0 || (w.Contexts[0].Lit == nil && fc.l.isImported(w.Contexts[0])) {
 		if _, inline := unparen(x.Args[0]).(*syntax.ContextLit); inline {
 			refuse(x.Args[0], "an inline wire value is lowered after check-v1 stage E (196x)")
 		}
@@ -529,7 +529,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	if owning && (fc.frame == nil || fc.frame.scope == "") {
 		ice(x, "a with that owns a provider with a Close outside a function body; the checker refuses one (S108, check/frames.go)")
 	}
-	inline := w.Wires[0].Lit != nil
+	inline := w.Contexts[0].Lit != nil
 	build := ""
 	if !inline {
 		build = fc.l.wireBuilder(w, x)
@@ -551,7 +551,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 		savedWith, fc.frame.with = fc.frame.with, ws
 	}
 	if inline {
-		fc.l.localWire(w.Wires[0], x)
+		fc.l.localWire(w.Contexts[0], x)
 		fc.buildProviders(w, "(&"+env+")", outer, ws)
 	} else if owning {
 		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
@@ -607,7 +607,7 @@ func ownsResources(w *check.With) bool {
 // acquires, by their source positions in acquisition order. Two withs that
 // acquire the same entries share one builder.
 type wireSet struct {
-	w   *check.Wire
+	w   *check.Context
 	set string
 }
 
@@ -617,7 +617,7 @@ func acquiredSet(w *check.With) wireSet {
 		b.WriteString(strconv.Itoa(int(a.Entry.Provider.Pos())))
 		b.WriteByte(' ')
 	}
-	return wireSet{w.Wires[0], b.String()}
+	return wireSet{w.Contexts[0], b.String()}
 }
 
 // wireBuilder is the Go function that builds the providers a with acquires
@@ -640,7 +640,7 @@ func (l *lowerer) wireBuilder(w *check.With, site syntax.Node) string {
 
 // wire checks a named wire declaration. Its builders are written at the
 // withs that use it.
-func (l *lowerer) wire(w *check.Wire, site syntax.Node) {
+func (l *lowerer) wire(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil || w.Decl.Needs != nil {
 		refuse(w.Decl, "a wire header is checked by #196 stage b")
 	}
@@ -653,7 +653,7 @@ func (l *lowerer) wire(w *check.Wire, site syntax.Node) {
 // provider's defect still closes it. The release runs in the outer
 // environment, where the checker charged its needs (With.Acquired).
 func (l *lowerer) emitWire(with *check.With, name string, site syntax.Node) {
-	w := with.Wires[0]
+	w := with.Contexts[0]
 	if w.Decl == nil || l.isImported(w) {
 		refuse(site, "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")
 	}
@@ -680,10 +680,10 @@ func (l *lowerer) emitWire(with *check.With, name string, site syntax.Node) {
 
 // localWire keeps imported embeddings on their existing stage B refusal,
 // equally for named and inline wires.
-func (l *lowerer) localWire(w *check.Wire, site syntax.Node) {
-	visited := map[*check.Wire]bool{}
-	var walk func(*check.Wire)
-	walk = func(v *check.Wire) {
+func (l *lowerer) localWire(w *check.Context, site syntax.Node) {
+	visited := map[*check.Context]bool{}
+	var walk func(*check.Context)
+	walk = func(v *check.Context) {
 		if visited[v] {
 			return
 		}
@@ -705,9 +705,9 @@ func (l *lowerer) localWire(w *check.Wire, site syntax.Node) {
 // Inline own entries see the outer environment; embedded named entries
 // see the partially built wire, as their checked Uses require.
 func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
-	local := map[*check.WireEntry]bool{}
-	if with.Wires[0].Lit != nil {
-		for _, e := range with.Wires[0].Entries {
+	local := map[*check.ContextEntry]bool{}
+	if with.Contexts[0].Lit != nil {
+		for _, e := range with.Contexts[0].Entries {
 			local[e] = true
 		}
 	}
@@ -749,7 +749,7 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 }
 
 // isImported reports a wire declared outside the user package.
-func (l *lowerer) isImported(w *check.Wire) bool {
+func (l *lowerer) isImported(w *check.Context) bool {
 	for _, d := range l.file.Decls {
 		if d == syntax.Decl(w.Decl) {
 			return false

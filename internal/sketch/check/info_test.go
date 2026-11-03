@@ -47,13 +47,13 @@ func infoCorpus(t *testing.T) map[string]string {
 // Defs entry holds), every catch arm a Patterns
 // entry, every match and catch a Matches entry, every for-in a Loops entry
 // and every with a Withs entry. Declarations count too: every declared
-// name (function, type, wire, type parameter, parameter, record field,
+// name (function, type, context, type parameter, parameter, record field,
 // operation and operation parameter) has a Defs entry, and every named
-// wire's providers are expressions with an Entries entry and, for one
+// context's providers are expressions with an Entries entry and, for one
 // capability, an Implicit conversion. Names that denote no object are not
 // identifiers of the contract: a field or operation name after a dot or
 // before a colon in a record literal, a package name before a dot, and the
-// blank `_`. An inline wire's entries are stage E's (196x), so a with's
+// blank `_`. An inline context's entries are stage E's (196x), so a with's
 // argument is exempt. Invariant 2 holds for every Types entry, but the
 // name in an explicit instantiation Fn[int] keeps its generic type, as in
 // go/types.
@@ -69,8 +69,8 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 	calledIndex := map[*syntax.IndexExpr]bool{} // Fn[int] called: its call holds the instance
 	var own map[*TypeParam]bool                 // the enclosing declaration's type parameters
 	// skip marks a subtree that holds no value expression: a written type,
-	// a pattern (Patterns holds it) or a with's wire (Withs holds it; an
-	// inline wire's entries are stage E's).
+	// a pattern (Patterns holds it) or a with's context (Withs holds it; an
+	// inline context's entries are stage E's).
 	skip := func(n syntax.Node, objects bool) {
 		syntax.Inspect(n, func(m syntax.Node) bool {
 			if x, ok := m.(syntax.Expr); ok {
@@ -412,22 +412,22 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 				}
 			}
 		case *syntax.ContextDecl:
-			// A named wire (spec D-A4; review M4): each provider is an
-			// expression of the contract, its entry is in the wire's
+			// A named context (spec D-A4; review M4): each provider is an
+			// expression of the contract, its entry is in the context's
 			// Entries with a conversion per capability, and a provider of
 			// one capability has its Implicit conversion when its type is
-			// not the capability. An inline wire's entries are stage E's
+			// not the capability. An inline context's entries are stage E's
 			// (196x): TestInfoComplete exempts them (the with case above).
 			own = map[*TypeParam]bool{}
 			declared(d.Name, "the wire")
-			wire, _ := info.Defs[d.Name].(*Wire)
-			if wire == nil {
+			context, _ := info.Defs[d.Name].(*Context)
+			if context == nil {
 				at(d, "a named wire with no Wire object")
 				continue
 			}
-			entries := map[syntax.Expr]*WireEntry{}
+			entries := map[syntax.Expr]*ContextEntry{}
 			embeds := 0
-			for _, e := range wire.Entries {
+			for _, e := range context.Entries {
 				if e.Provider != nil {
 					entries[e.Provider] = e
 				} else if e.Embedded != nil {
@@ -456,27 +456,27 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			if embeds != wantEmbeds {
 				at(d, fmt.Sprintf("a named wire with %d embeddings and %d embedded Entries", wantEmbeds, embeds))
 			}
-			// Each capability the wire binds has a provider entry that
-			// lists it (Wire.Provider), and each override names two
+			// Each capability the context binds has a provider entry that
+			// lists it (Context.Provider), and each override names two
 			// provider entries of one capability, the later its own.
-			wire.EachProvider(func(cap Type, e *WireEntry) bool {
+			context.EachProvider(func(cap Type, e *ContextEntry) bool {
 				if e == nil || e.Provider == nil || !listsCap(e, cap) {
 					at(d, "a named wire whose entry for "+typeString(cap)+" does not provide it")
 				}
 				return true
 			})
-			for _, o := range wire.Overrides {
+			for _, o := range context.Overrides {
 				if o.Entry == nil || o.By == nil || o.Entry.Provider == nil || o.By.Provider == nil || !listsCap(o.Entry, o.Cap) || !listsCap(o.By, o.Cap) || entries[o.By.Provider] != o.By {
 					at(d, "a named wire with an override whose entries do not both list its capability")
 				}
 			}
 		}
 	}
-	// Each with of a named wire holds one provider entry per discharged
-	// capability: the entry its wire's Provider returns, which lists it.
+	// Each with of a named context holds one provider entry per discharged
+	// capability: the entry its context's Provider returns, which lists it.
 	for x, w := range info.Withs {
-		if len(w.Wires) == 0 {
-			continue // an inline wire value: stage E (196x)
+		if len(w.Contexts) == 0 {
+			continue // an inline context value: stage E (196x)
 		}
 		if len(w.Entries) != len(w.Discharged) {
 			at(x, fmt.Sprintf("a with of %d capabilities with %d Entries", len(w.Discharged), len(w.Entries)))
@@ -484,7 +484,7 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 		}
 		for i, d := range w.Discharged {
 			e := w.Entries[i]
-			if e == nil || e.Provider == nil || !listsCap(e, d) || w.Wires[0].Provider(d) != e {
+			if e == nil || e.Provider == nil || !listsCap(e, d) || w.Contexts[0].Provider(d) != e {
 				at(x, "a with whose entry for "+typeString(d)+" does not provide it")
 			}
 		}
@@ -498,7 +498,7 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 }
 
 // listsCap reports whether a provider entry lists cap among its keys.
-func listsCap(e *WireEntry, cap Type) bool {
+func listsCap(e *ContextEntry, cap Type) bool {
 	k, ok := keyOf(cap)
 	if !ok {
 		return false

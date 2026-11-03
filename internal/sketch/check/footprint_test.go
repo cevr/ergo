@@ -187,11 +187,11 @@ let started = pureCall()
 }
 
 // #199 stage 3c r1 M1: a with's footprint covers the providers its
-// With.Acquired fact builds, whatever the wire's spelling. Each body's own
+// With.Acquired fact builds, whatever the context's spelling. Each body's own
 // footprint is empty; only its checked needs reach the providers. B's
 // provider mk uses A, so acquiring B acquires A too: the named, embedded
 // and inline forms have the same footprint. A block that needs only A
-// never runs mk: an inline wire builds only its acquired entries in the
+// never runs mk: an inline context builds only its acquired entries in the
 // frame, so its with is pure; `with W` calls W's builder frame, whose
 // footprint is every provider W binds (stage 1), a superset.
 func TestFootprintsWithSpellings(t *testing.T) {

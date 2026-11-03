@@ -17,7 +17,7 @@ import (
 //
 // The frames are the package's functions with a body, its function literals
 // and the trailing blocks of calls other than with (a with block runs in
-// its enclosing frame), its named wires (the builder a with of the wire runs)
+// its enclosing frame), its named contexts (the builder a with of the context runs)
 // and its package-level lets (the initializer the root task runs). Making a
 // function literal runs nothing, so a literal's body counts for the frames
 // that call it, never for the frame that defines it. A call joins the
@@ -58,9 +58,9 @@ type Footprint struct {
 // call. Only an empty footprint is purity (rows.md, Footprints 2 and 3).
 func (f Footprint) Empty() bool { return len(f.Caps) == 0 && !f.Tasks && !f.Opaque }
 
-// fpNode is one frame, or one wire entry's provider, in the footprint graph.
+// fpNode is one frame, or one context entry's provider, in the footprint graph.
 type fpNode struct {
-	key    syntax.Node // the frame's Footprints key; nil for a wire entry
+	key    syntax.Node // the frame's Footprints key; nil for a context entry
 	caps   map[*TypeName]Type
 	tasks  bool
 	opaque bool
@@ -93,18 +93,18 @@ func (n *fpNode) join(f Footprint) {
 type footprinter struct {
 	pkg   *Package
 	info  *Info
-	nodes map[any]*fpNode // by frame key, and by *WireEntry
+	nodes map[any]*fpNode // by frame key, and by *ContextEntry
 	list  []*fpNode       // every node, in creation order
-	// owners is the checker's one entry-to-declaring-wire index
-	// (wireOwners), shared with the ownership pass.
-	owners *wireOwners
+	// owners is the checker's one entry-to-declaring-context index
+	// (contextOwners), shared with the ownership pass.
+	owners *contextOwners
 }
 
 // footprints records Info.Footprints once every body is final (finishInfo).
 func (c *checker) footprints() {
 	info := c.pkg.Info
 	fp := &footprinter{pkg: c.pkg, info: info, nodes: map[any]*fpNode{},
-		owners: &c.wireOwners}
+		owners: &c.contextOwners}
 	type body struct {
 		n    *fpNode
 		root syntax.Node
@@ -138,20 +138,20 @@ func (c *checker) footprints() {
 	for _, b := range bodies {
 		fp.walk(b.n, b.root)
 	}
-	// A named wire's node joins the providers its builder runs: the entry
+	// A named context's node joins the providers its builder runs: the entry
 	// that binds each capability once replace and embedding are resolved,
-	// each entry once (Wire.EachProvider; lower's wireBuilder).
-	names := make([]string, 0, len(c.pkg.Wires))
-	for name := range c.pkg.Wires {
+	// each entry once (Context.EachProvider; lower's contextBuilder).
+	names := make([]string, 0, len(c.pkg.Contexts))
+	for name := range c.pkg.Contexts {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		w := c.pkg.Wires[name]
+		w := c.pkg.Contexts[name]
 		if w.Decl == nil {
 			continue
 		}
-		fp.wire(w)
+		fp.context(w)
 	}
 	fp.solve()
 	for _, n := range fp.list {
@@ -161,7 +161,7 @@ func (c *checker) footprints() {
 	}
 }
 
-// node is the graph node of a frame key or a wire entry, made on first use.
+// node is the graph node of a frame key or a context entry, made on first use.
 func (fp *footprinter) node(key any) *fpNode {
 	if n := fp.nodes[key]; n != nil {
 		return n
@@ -175,9 +175,9 @@ func (fp *footprinter) node(key any) *fpNode {
 	return n
 }
 
-// wire is the node of a with of w: an edge to each provider entry its
-// builder runs. A wire whose bindings are unknown is opaque.
-func (fp *footprinter) wire(w *Wire) *fpNode {
+// context is the node of a with of w: an edge to each provider entry its
+// builder runs. A context whose bindings are unknown is opaque.
+func (fp *footprinter) context(w *Context) *fpNode {
 	n := fp.node(w.Decl)
 	if n.walked {
 		return n
@@ -187,8 +187,8 @@ func (fp *footprinter) wire(w *Wire) *fpNode {
 		n.opaque = true
 		return n
 	}
-	seen := map[*WireEntry]bool{}
-	w.EachProvider(func(_ Type, e *WireEntry) bool {
+	seen := map[*ContextEntry]bool{}
+	w.EachProvider(func(_ Type, e *ContextEntry) bool {
 		if e != nil && !seen[e] {
 			seen[e] = true
 			n.edges = append(n.edges, fp.entry(e))
@@ -200,7 +200,7 @@ func (fp *footprinter) wire(w *Wire) *fpNode {
 
 // entry is the node of one provider entry of this package: what its
 // provider expression runs.
-func (fp *footprinter) entry(e *WireEntry) *fpNode {
+func (fp *footprinter) entry(e *ContextEntry) *fpNode {
 	if en := fp.nodes[e]; en != nil {
 		return en
 	}
@@ -214,9 +214,9 @@ func (fp *footprinter) entry(e *WireEntry) *fpNode {
 // with adds what the lowering runs for a with in n's frame: the
 // construction of its providers and, when its block ends, the release of
 // each acquired provider that has a Close (Scope.EndWith runs each
-// With.Acquired[i].Close in this frame, whatever the wire's spelling).
+// With.Acquired[i].Close in this frame, whatever the context's spelling).
 func (fp *footprinter) with(n *fpNode, w *With) {
-	if cb := w.Context; cb != nil {
+	if cb := w.Value; cb != nil {
 		// A with of a context value runs its operand here (walked as an
 		// argument) and the protocol's two functions on it, which the
 		// lowering calls to open the binding (runtime.md, G1). Opening and
@@ -226,7 +226,7 @@ func (fp *footprinter) with(n *fpNode, w *With) {
 		fp.runs(n, cb.Text, false)
 		return
 	}
-	if len(w.Wires) == 0 {
+	if len(w.Contexts) == 0 {
 		return
 	}
 	fp.build(n, w)
@@ -245,23 +245,23 @@ func (fp *footprinter) with(n *fpNode, w *With) {
 
 // build adds what the lowering runs to build a with's providers, read from
 // the facts the lowering reads. `with W` calls W's builder frame, whose
-// node joins every provider W binds (fp.wire), a superset of the with's
-// With.Acquired entries. An inline wire builds its With.Acquired entries
+// node joins every provider W binds (fp.context), a superset of the with's
+// With.Acquired entries. An inline context builds its With.Acquired entries
 // in this frame (buildProviders): its own entries are walked here
 // (inspectFrame), and every other acquired entry, an embedded named
-// wire's at any depth, adds its entry node, so `with wire { W }` cannot
+// context's at any depth, adds its entry node, so `with context { W }` cannot
 // omit a provider that `with W` counts. An imported entry joins its
-// wire's recorded footprint. A wire whose bindings are unknown, or an
-// entry with no known wire, is opaque.
+// context's recorded footprint. A context whose bindings are unknown, or an
+// entry with no known context, is opaque.
 func (fp *footprinter) build(n *fpNode, w *With) {
-	root := w.Wires[0]
+	root := w.Contexts[0]
 	switch {
 	case root.unknown || root.binds == nil:
 		n.opaque = true
 		return
 	case root.Lit != nil:
 	case root.pkg == fp.pkg && root.Decl != nil:
-		n.edges = append(n.edges, fp.wire(root))
+		n.edges = append(n.edges, fp.context(root))
 		return
 	default:
 		if p := root.pkg; p != nil && p.Info != nil && root.Decl != nil {

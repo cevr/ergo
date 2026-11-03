@@ -597,7 +597,7 @@ func dropSelf(sig *Signature) *Signature {
 // implements checks method-row compatibility: for every method of it, v has
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
-// assignability 1; rows.md, Wire 2). Each lookup is a keyed map access, so
+// assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
 // the check is linear in the method count (#122).
 func (c *checker) implements(v Type, it *Interface) string {
 	// The method set of *T holds the *T-receiver methods too, as in Go

@@ -12,7 +12,7 @@ import (
 const requirementKeyword = "needs"
 
 // Object is a named entity: a type, a function, a variable, a constant, a
-// package, a builtin or a wire.
+// package, a builtin or a context.
 type Object interface {
 	name() string
 	pos() syntax.Pos
@@ -120,36 +120,36 @@ type capBinding struct {
 func (o *capBinding) name() string    { return o.tn.Name }
 func (o *capBinding) pos() syntax.Pos { return o.at }
 
-// Wire is a named wire.
-type Wire struct {
+// Context is a named context.
+type Context struct {
 	Name string
 	Pos  syntax.Pos
 	Decl *syntax.ContextDecl
-	// Lit is the syntax of an inline wire, nil for a named wire. Both
+	// Lit is the syntax of an inline context, nil for a named context. Both
 	// share the binding summary and ownership facts.
 	Lit   *syntax.ContextLit
 	file  *fileInfo
-	binds *capSet // capabilities the wire binds; nil until resolved
-	own   *capSet // the wire's own entries (wireSummaries)
-	// unknown marks a wire that embeds, directly or not, a wire that does
+	binds *capSet // capabilities the context binds; nil until resolved
+	own   *capSet // the context's own entries (contextSummaries)
+	// unknown marks a context that embeds, directly or not, a context that does
 	// not exist (reported at the embedding): what it binds is unknown, so
 	// a with of it discharges everything (D3; M18).
 	unknown bool
-	// budget marks the wire whose summary or body passed the package's
-	// wire budget (wiresum.go): it gets the budget S111.
+	// budget marks the context whose summary or body passed the package's
+	// context budget (contextsum.go): it gets the budget S111.
 	budget bool
 	pkg    *Package
-	// Entries are the wire's own entries as written, in source order, made
+	// Entries are the context's own entries as written, in source order, made
 	// when its body is checked: its provider entries, and an entry per
-	// embedding that points to the embedded wire. Provider reads the
-	// resolved bindings, shared with the wires that embed it.
-	Entries []*WireEntry
-	// Overrides are this wire's own replace overrides, so a replaced
+	// embedding that points to the embedded context. Provider reads the
+	// resolved bindings, shared with the contexts that embed it.
+	Entries []*ContextEntry
+	// Overrides are this context's own replace overrides, so a replaced
 	// provider stays traceable: in its replace entries' source order, and
-	// for one capability each overridden entry once, in the order the wire
-	// pass meets them (wires by name, then entries in source order). An
-	// embedded wire's own overrides are on it (Entries[i].Embedded): a
-	// replace of a replace is one override on each wire (wiresum.go,
+	// for one capability each overridden entry once, in the order the context
+	// pass meets them (contexts by name, then entries in source order). An
+	// embedded context's own overrides are on it (Entries[i].Embedded): a
+	// replace of a replace is one override on each context (contextsum.go,
 	// finishBody).
 	Overrides []Override
 }
@@ -160,7 +160,7 @@ func (o *Var) name() string      { return o.Name }
 func (o *Const) name() string    { return o.Name }
 func (o *PkgName) name() string  { return o.Name }
 func (o *Builtin) name() string  { return o.Name }
-func (o *Wire) name() string     { return o.Name }
+func (o *Context) name() string  { return o.Name }
 
 // A record field and an operation are Objects, so Defs records their
 // declaring names (spec D-A4, invariant 1).
@@ -175,7 +175,7 @@ func (o *Var) pos() syntax.Pos      { return o.Pos }
 func (o *Const) pos() syntax.Pos    { return syntax.NoPos }
 func (o *PkgName) pos() syntax.Pos  { return o.Pos }
 func (o *Builtin) pos() syntax.Pos  { return syntax.NoPos }
-func (o *Wire) pos() syntax.Pos     { return o.Pos }
+func (o *Context) pos() syntax.Pos  { return o.Pos }
 
 // switchGroup ties the per-arm variables of one type-switch or catch
 // binding: the binding is read when any arm reads it (rows.md, Totality 1).

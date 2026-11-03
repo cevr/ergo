@@ -12,8 +12,8 @@ import (
 )
 
 // meterOf checks src as one package and returns its diagnostics and its
-// wire meter (nil when nothing was summarised).
-func meterOf(t *testing.T, src string) ([]Diagnostic, *wireMeter) {
+// context meter (nil when nothing was summarised).
+func meterOf(t *testing.T, src string) ([]Diagnostic, *contextMeter) {
 	t.Helper()
 	file, err := syntax.Parse(src)
 	if err != nil {
@@ -21,12 +21,12 @@ func meterOf(t *testing.T, src string) ([]Diagnostic, *wireMeter) {
 	}
 	c := newChecker("main", Std, prelude().scope)
 	c.run([]*syntax.File{file})
-	return c.sorted(), c.wires
+	return c.sorted(), c.contexts
 }
 
-// wireFamily writes one generated wire program of size n. A wire lists its
-// entries before its embedded wires, as the decided syntax writes them.
-func wireFamily(shape string, n int) string {
+// contextFamily writes one generated context program of size n. A context lists its
+// entries before its embedded contexts, as the decided syntax writes them.
+func contextFamily(shape string, n int) string {
 	var b strings.Builder
 	b.WriteString("type P {}\nfunc M(_ P) {}\n")
 	caps := n
@@ -41,12 +41,12 @@ func wireFamily(shape string, n int) string {
 	}
 	last := fmt.Sprintf("W%d", n-1)
 	switch shape {
-	case "entry chain": // every wire adds an entry
+	case "entry chain": // every context adds an entry
 		b.WriteString("let W0 = wire {\n\tC0: P,\n}\n")
 		for i := 1; i < n; i++ {
 			fmt.Fprintf(&b, "let W%d = wire {\n\tC%d: P,\n\tW%d,\n}\n", i, i, i-1)
 		}
-	case "wide fan-in": // one wire embeds n one-entry wires
+	case "wide fan-in": // one context embeds n one-entry contexts
 		for i := range n {
 			fmt.Fprintf(&b, "let X%d = wire {\n\tC%d: P,\n}\n", i, i)
 		}
@@ -65,7 +65,7 @@ func wireFamily(shape string, n int) string {
 		for i := range n {
 			fmt.Fprintf(&b, "let W%d = wire {\n\tA%d,\n\tB%d,\n}\n", i, i, i)
 		}
-	case "large-base chain": // one large wire, then a chain adding one entry each
+	case "large-base chain": // one large context, then a chain adding one entry each
 		b.WriteString("let W0 = wire {\n")
 		for i := range n {
 			fmt.Fprintf(&b, "\tC%d: P,\n", i)
@@ -79,13 +79,13 @@ func wireFamily(shape string, n int) string {
 		for i := 1; i < n; i++ {
 			fmt.Fprintf(&b, "let L%d = wire { W%d }\nlet R%d = wire { W%d }\nlet W%d = wire {\n\treplace C0: P,\n\tL%d,\n\tR%d,\n}\n", i, i-1, i, i-1, i, i, i)
 		}
-	case "empty independent": // n wires with nothing in them (round 19 M1)
+	case "empty independent": // n contexts with nothing in them (round 19 M1)
 		for i := range n {
 			fmt.Fprintf(&b, "let W%d = wire {}\n", i)
 		}
 		b.WriteString("func F() { with wire { C0: P } { C0.M() } }\n")
 		return decided(b.String())
-	case "inline fan-in": // an inline wire embeds n one-entry wires and replaces one
+	case "inline fan-in": // an inline context embeds n one-entry contexts and replaces one
 		for i := range n {
 			fmt.Fprintf(&b, "let X%d = wire {\n\tC%d: P,\n}\n", i, i)
 		}
@@ -105,7 +105,7 @@ func wireFamily(shape string, n int) string {
 		}
 		b.WriteString(": P,\n}\n")
 		last = "W"
-	case "inline embeddings": // an inline wire of n empty embeddings and no entry (round 20)
+	case "inline embeddings": // an inline context of n empty embeddings and no entry (round 20)
 		b.WriteString("let Empty = wire {}\nfunc F() {\n\twith wire {\n")
 		for range n {
 			b.WriteString("\t\tEmpty,\n")
@@ -119,14 +119,14 @@ func wireFamily(shape string, n int) string {
 	return decided(b.String())
 }
 
-// TestWireBudget: on every embedding shape, the wire pass's repeatable
+// TestContextBudget: on every embedding shape, the context pass's repeatable
 // work stays within the package's budget and was charged before it ran,
-// its single-pass work within wireSinglePerUnit per wire node (bounded),
+// its single-pass work within contextSinglePerUnit per context node (bounded),
 // and the verdict is the exact one (acceptance) or the one budget S111
 // (D16 as amended in rounds 18 and 20). The disjoint ladder's answer is
 // quadratic, so it is refused at every size here; the other shapes are
 // accepted.
-func TestWireBudget(t *testing.T) {
+func TestContextBudget(t *testing.T) {
 	oc := countOps(t)
 	for _, family := range []struct {
 		shape   string
@@ -144,16 +144,16 @@ func TestWireBudget(t *testing.T) {
 		{"disjoint", []int{128, 256, 512, 2048}, true},
 	} {
 		for _, n := range family.sizes {
-			src := wireFamily(family.shape, n)
+			src := contextFamily(family.shape, n)
 			diags, c := checkLimited(t, src, nil)
-			m := c.wires
+			m := c.contexts
 			if m == nil {
 				t.Fatalf("%s n=%d: no wire meter", family.shape, n)
 			}
 			oc.bounded(t, fmt.Sprintf("%s n=%d", family.shape, n), src, c)
 			switch {
 			case len(diags) == 0 && !family.refused:
-			case len(diags) == 1 && diags[0].Code == CodeDuplicateCap && diags[0].Message == wireBudgetMessage && family.refused:
+			case len(diags) == 1 && diags[0].Code == CodeDuplicateCap && diags[0].Message == contextBudgetMessage && family.refused:
 			default:
 				t.Errorf("%s n=%d: want %s, got %v", family.shape, n, map[bool]string{false: "acceptance", true: "the budget S111"}[family.refused], diags)
 			}
@@ -162,15 +162,15 @@ func TestWireBudget(t *testing.T) {
 	}
 }
 
-// TestWireBudgetRefusal: past the budget, the wire being summarised gets
-// the one S111 and nothing else follows from it: a with of a refused wire
-// discharges everything, and a wire body summarised later reports no
-// duplicate (D3). A wire whose own body passes the budget gets the S111 at
+// TestContextBudgetRefusal: past the budget, the context being summarised gets
+// the one S111 and nothing else follows from it: a with of a refused context
+// discharges everything, and a context body summarised later reports no
+// duplicate (D3). A context whose own body passes the budget gets the S111 at
 // its name.
-func TestWireBudgetRefusal(t *testing.T) {
-	src := wireFamily("disjoint", 512) + "let Dup = wire {\n\tA3,\n\tA2,\n}\nfunc G() { with Dup { C0.M() } }\n"
+func TestContextBudgetRefusal(t *testing.T) {
+	src := contextFamily("disjoint", 512) + "let Dup = wire {\n\tA3,\n\tA2,\n}\nfunc G() { with Dup { C0.M() } }\n"
 	diags, m := meterOf(t, src)
-	if len(diags) != 1 || diags[0].Message != wireBudgetMessage || !m.out {
+	if len(diags) != 1 || diags[0].Message != contextBudgetMessage || !m.out {
 		t.Fatalf("want one budget S111, got %v", diags)
 	}
 	line := strings.Split(src, "\n")[diags[0].Line-1]
@@ -178,19 +178,19 @@ func TestWireBudgetRefusal(t *testing.T) {
 		t.Errorf("the budget S111 is at %q, want a wire's name", line)
 	}
 	// Under the budget the same duplicate is found.
-	diags, _ = meterOf(t, wireFamily("disjoint", 4)+"let Dup = wire {\n\tA3,\n\tA2,\n}\n")
-	if len(diags) == 0 || diags[0].Code != CodeDuplicateCap || diags[0].Message == wireBudgetMessage {
+	diags, _ = meterOf(t, contextFamily("disjoint", 4)+"let Dup = wire {\n\tA3,\n\tA2,\n}\n")
+	if len(diags) == 0 || diags[0].Code != CodeDuplicateCap || diags[0].Message == contextBudgetMessage {
 		t.Errorf("want the duplicate S111 under the budget, got %v", diags)
 	}
 }
 
 var usesKeyword = regexp.MustCompile(`\buses\b`)
 
-// TestWireBudgetHeadroom: every fixture, witness, prototype fixture,
-// corpus file and example uses under 10% of its wire budget, so the
+// TestContextBudgetHeadroom: every fixture, witness, prototype fixture,
+// corpus file and example uses under 10% of its context budget, so the
 // budget refuses only sources far from the ones written so far. The
 // prototype fixtures and the corpus are their decided translations (#196).
-func TestWireBudgetHeadroom(t *testing.T) {
+func TestContextBudgetHeadroom(t *testing.T) {
 	var files []string
 	for _, pattern := range []string{
 		"testdata/fixtures/*/*.ergo",
@@ -222,19 +222,19 @@ func TestWireBudgetHeadroom(t *testing.T) {
 			continue
 		}
 		_, c := checkLimited(t, src, nil)
-		if c.wires == nil {
+		if c.contexts == nil {
 			continue
 		}
 		metered++
 		oc.bounded(t, f, src, c)
-		share := float64(c.wires.used) / float64(c.wires.limit)
+		share := float64(c.contexts.used) / float64(c.contexts.limit)
 		if share >= 0.10 {
-			t.Errorf("%s: %d of %d wire steps (%.1f%%), want under 10%%", f, c.wires.used, c.wires.limit, 100*share)
+			t.Errorf("%s: %d of %d wire steps (%.1f%%), want under 10%%", f, c.contexts.used, c.contexts.limit, 100*share)
 		}
 		if share > worst {
 			worst, worstFile = share, f
 		}
-		if ops := float64(oc.repeat[c.wires]+oc.single[c.wires]) / float64(c.wires.limit); ops > worstOps {
+		if ops := float64(oc.repeat[c.contexts]+oc.single[c.contexts]) / float64(c.contexts.limit); ops > worstOps {
 			worstOps, worstOpsFile = ops, f
 		}
 	}

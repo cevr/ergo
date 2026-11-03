@@ -24,7 +24,7 @@ import (
 // Identifiers that are not value references are skipped: a selector's
 // name, a label, a type (a composite literal's type, a local var's type, a
 // function literal's signature, a case type of a type switch or a catch
-// arm), a wire key and a named wire, and a struct literal's field names. A
+// arm), a context key and a named context, and a struct literal's field names. A
 // composite literal's key is a field label when the literal's type is a
 // struct and an expression otherwise (a map key, an array index), as in
 // go/types: the walk decides which from the literal's written type
@@ -104,7 +104,7 @@ type refWalker struct {
 	retired []*syntax.SelectorExpr
 	// Test builds only (refTrace set): the resolution of each walked
 	// identifier (a package object or nil), the identifiers in type
-	// and wire positions (not value references), the composite-literal
+	// and context positions (not value references), the composite-literal
 	// keys walked as values because the literal's kind is not decided
 	// (reflits.go), and every node visited.
 	idents     map[*syntax.Ident]any
@@ -846,7 +846,7 @@ func closedRows(pt Type) [2]bool {
 func (w *refWalker) local(name string) bool { return w.lookupLocal(name) != nil }
 
 // operandScope resolves a with operand's name lexically in the walk's
-// scopes, as checker.operandScope does in typing's (wire.go).
+// scopes, as checker.operandScope does in typing's (context.go).
 func (w *refWalker) operandScope(name string) operandScope {
 	if b := w.lookupLocal(name); b != nil {
 		if b.row {
@@ -885,7 +885,7 @@ func (w *refWalker) typ(n syntax.Node) {
 	})
 }
 
-// name visits an identifier in a type or wire position: not a value
+// name visits an identifier in a type or context position: not a value
 // reference.
 func (w *refWalker) name(id *syntax.Ident) {
 	w.visit(id)
@@ -936,19 +936,19 @@ func (w *refWalker) expr(x syntax.Expr) {
 		})
 	case *syntax.CallExpr:
 		if id, ok := x.Fun.(*syntax.Ident); ok && id.Name == "with" {
-			// The with construct: its first argument is a wire literal, a
-			// named wire, or a value (a context value; wire.go withArg). A
-			// Lexical bindings precede the package's wire namespace, by
+			// The with construct: its first argument is a context literal, a
+			// named context, or a value (a context value; context.go withArg). A
+			// Lexical bindings precede the package's context namespace, by
 			// the same resolver as withArg, including parenthesised names.
 			w.visit(id)
 			for i, a := range x.Args {
 				if i > 0 || x.Trailing == nil {
 					// Without a block it is an error, and the arguments are
-					// checked as values (wire.go with, silentArgs).
+					// checked as values (context.go with, silentArgs).
 					w.expr(a)
 					continue
 				}
-				if wid, ok := unparen(a).(*syntax.Ident); ok && w.c.withNamedWire(wid.Name, w.operandScope(wid.Name)) != nil {
+				if wid, ok := unparen(a).(*syntax.Ident); ok && w.c.withNamedContext(wid.Name, w.operandScope(wid.Name)) != nil {
 					for p, ok := a.(*syntax.ParenExpr); ok; p, ok = p.X.(*syntax.ParenExpr) {
 						w.visit(p)
 					}
@@ -1010,7 +1010,7 @@ func (w *refWalker) expr(x syntax.Expr) {
 		if x.Needs != nil {
 			w.typ(x.Needs)
 		}
-		w.wireBody(x.Body)
+		w.contextBody(x.Body)
 	case *syntax.ParenExpr:
 		w.expr(x.X)
 	case *syntax.IndexExpr:
@@ -1058,9 +1058,9 @@ func (w *refWalker) expr(x syntax.Expr) {
 	}
 }
 
-// wireBody visits a wire literal's entries: a key is a capability name or
-// an embedded wire, a value is an expression.
-func (w *refWalker) wireBody(b *syntax.ContextBody) {
+// contextBody visits a context literal's entries: a key is a capability name or
+// an embedded context, a value is an expression.
+func (w *refWalker) contextBody(b *syntax.ContextBody) {
 	if b == nil {
 		return
 	}
