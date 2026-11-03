@@ -50,38 +50,51 @@ func (c *checker) declareAs(name *syntax.Ident, t Type, placeholder bool) (asBin
 }
 
 // catchAll reports whether a catch arm's lone name binds the whole failure
-// (`case err:`, rows.md Catch 7): a lower-case name that names no type.
+// (`case err:`, rows.md Catch 7).
 func (c *checker) catchAll(id *syntax.Ident) bool {
-	return catchAllObject(id.Name, c.lookupType(id.Name, c.localTypeCtx()), c.isPreludeName(id.Name))
+	return catchAllObject(id.Name, c.lookupType(id.Name, c.localTypeCtx()))
 }
 
 // catchAllObject is catchAll's rule, shared with the reference walk
 // (refWalker.catchPattern; fuzz-17d6): name resolves to o where the arm
-// stands, and prelude reports whether it is a prelude name.
-func catchAllObject(name string, o Object, prelude bool) bool {
+// stands. A capitalised name is a type test. A lower-case name follows
+// Totality 1 (patternNameTests): a type, a type parameter, a constant or a
+// capability tests; any other name binds the rest. The binder rules then
+// judge it: an enclosing local or a law's operation is D-D2's S108, a
+// prelude name D-D3's, and a package function, an imported package or a
+// package value Totality 1's (refusedRest); each still binds.
+func catchAllObject(name string, o Object) bool {
 	if r, _ := utf8.DecodeRuneInString(name); !unicode.IsLower(r) {
 		return false
 	}
-	switch o := o.(type) {
-	case nil:
-		return true
-	case *Var:
-		// A local of an enclosing scope: the arm still binds the rest, and
-		// the reuse is D-D2's S108 at the binder, not a type test.
-		return !o.pkg
-	case *Method:
-		// An operation of the law around the arm (laws.go rule 3): its
-		// scope encloses the law's body as an enclosing local's does, so
-		// the arm binds the rest and D-D2's S108 at the binder is its one
-		// diagnostic. The reference walk reads no law body.
-		return true
-	case *Builtin, *Func:
-		// A prelude function or built-in names no error type: the arm
-		// binds the rest, and D-D3's S108 at the name is its one
-		// diagnostic.
-		return prelude
+	return !patternNameTests(o, false, false)
+}
+
+// refusedRest reports Totality 1's S108 at a catch arm's rest name that
+// names a package function, an imported package or a package value
+// (rows.md Totality 6: the rule holds in catch arms), and reports whether
+// it did. The name still binds, with no type, so its reads add nothing
+// (D3). A prelude name is D-D3's, at declareAs.
+func (c *checker) refusedRest(id *syntax.Ident) bool {
+	if id.Name == "_" || c.isPreludeName(id.Name) {
+		return false
 	}
-	return false
+	o := c.lookup(id.Name)
+	switch o := o.(type) {
+	case *Func, *PkgName:
+		if p, ok := o.(*PkgName); ok {
+			p.used = true // The refused occurrence must not add an unused import.
+		}
+	case *Var:
+		if !o.pkg {
+			return false
+		}
+	default:
+		return false
+	}
+	c.errorf(id, CodeType, "a pattern name binds; %s already names %s: compare with if, or choose another name (rows.md, Totality 1)", id.Name, objectNoun(o))
+	c.refuseBinder(id.Pos())
+	return true
 }
 
 // unusedAs reports each `as` name that its arm never reads (S110), as the

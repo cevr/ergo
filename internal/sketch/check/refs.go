@@ -589,7 +589,7 @@ func (w *refWalker) catchAll(id *syntax.Ident) bool {
 	} else {
 		o = w.walkObject(id.Name)
 	}
-	return catchAllObject(id.Name, o, w.c.isPreludeName(id.Name))
+	return catchAllObject(id.Name, o)
 }
 
 // walkObject is the object a name resolves to in the walk's scopes, as
