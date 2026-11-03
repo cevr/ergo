@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -128,4 +129,70 @@ func (c *checker) externOutsideDomain(f *Func) string {
 func externBasic(t Type) bool {
 	b, ok := t.(*Basic)
 	return ok && b.Kind > Invalid && b.Kind <= Duration
+}
+
+// ---------------------------------------------------------------- sealed std protocols (C28)
+
+// sealedStd is t when t is a sealed std protocol: the prelude's Task, or
+// an operation type a std package other than the prelude declares (the
+// types the lowering represents by a runtime/v1 type, lower/std.go
+// runtimeType). Only the runtime implements them, so no program value is
+// converted into one (#206 lets a program implement a lawful protocol).
+// The prelude's capabilities (Console, Scheduler, Clock, Random) are not
+// sealed: programs provide them.
+func sealedStd(t Type) *Named {
+	n, ok := t.(*Named)
+	if !ok || n.Obj == nil || n.Obj.Pkg == nil || !n.Obj.Pkg.std || n.Obj.Decl == nil {
+		return nil
+	}
+	spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType)
+	if !ok || len(spec.Union) > 0 {
+		return nil
+	}
+	if n.Obj.Pkg.Path == std.PreludePath && n.Obj.Name != "Task" {
+		return nil
+	}
+	return n
+}
+
+// sealedText is the S109 of a conversion into the sealed std protocol t.
+func sealedText(v, t Type) string {
+	return fmt.Sprintf("a value of %s does not convert to %s: it is a sealed std protocol; a program value implements it in #206", v, t)
+}
+
+// sealedRefused reports at x a refused assignment a whose target is a
+// sealed std protocol, and whether it did: every site that admits by
+// assignability reports that refusal with this one diagnostic (S109),
+// instead of its own S108.
+func (c *checker) sealedRefused(x syntax.Node, a assignment) bool {
+	if a.sealed == nil {
+		return false
+	}
+	c.errorf(x, CodeOutside, "%s", sealedText(a.from, a.sealed))
+	return true
+}
+
+// ---------------------------------------------------------------- Close refusals (C29)
+
+// closeStaged is the S109 of a provider release this release route does
+// not lower yet, or "": a Close that is an operation of the provider's
+// type, a generic Close, and a Close that takes a pointer to a provider
+// that is a value. A std or extern Close is not reachable: a Close takes a
+// named type, outside the extern domain, and no std package declares a
+// Close function (TestCloseRefusals).
+func closeStaged(cl *Close) string {
+	switch {
+	case cl.Func == nil:
+		return "a provider whose Close is an operation of its type is released in lower-v1, not yet"
+	case len(cl.Func.Sig.TParams) > 0:
+		return "a provider whose Close is generic is released in lower-v1, not yet"
+	}
+	if len(cl.Func.Sig.Params) == 1 {
+		_, byPtr := cl.Func.Sig.Params[0].Type.(*Pointer)
+		_, ptrValue := cl.Receiver.(*Pointer)
+		if byPtr && !ptrValue {
+			return "a provider whose Close takes a pointer to its value is released in lower-v1, not yet"
+		}
+	}
+	return ""
 }

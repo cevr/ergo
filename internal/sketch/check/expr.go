@@ -1342,6 +1342,10 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		return false
 	}
 	a, why := c.assignability(op.typ, t)
+	if c.sealedRefused(op.expr, a) {
+		op.mode = modeInvalid
+		return false
+	}
 	if !a.ok() {
 		repair := ""
 		if what == "return" || what == "the body's tail value" {
