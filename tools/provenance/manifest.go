@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -23,8 +22,9 @@ import (
 //	import <path>...                   the reviewed import allow-list
 //	callee <syntax name> <site>...     a node-yielding syntax callee and its sites
 //	entry <name> <site>...             a caller-text entry and the sites that may reference it
-//	site <site> <kind> <Go string>     a construction site, its node kind and a
-//	                                   clean program that reaches it
+//	site <site> <kind> <fixture>       a construction site, its node kind and the
+//	                                   name of a clean program in the package's
+//	                                   tests that reaches it
 //
 // Sites are SSA functions named relative to the package, closures as Go's
 // SSA names them: CheckSource$1, prelude$1, (*checker).f$1$2.
@@ -49,11 +49,11 @@ type Manifest struct {
 }
 
 // Site is one construction site: an SSA function, the node kind it makes,
-// and a clean program that reaches it (for the package's own sweep; the
-// analyzer does not read it).
-type Site struct{ Fn, Kind, Program string }
+// and the name of a clean program in the package's tests that reaches it
+// (for the package's own sweep; the analyzer does not read it).
+type Site struct{ Fn, Kind, Fixture string }
 
-// key is a site without its program.
+// key is a site without its fixture.
 func (s Site) key() Site { return Site{Fn: s.Fn, Kind: s.Kind} }
 
 // ReadManifest reads and parses a manifest file.
@@ -115,16 +115,10 @@ func ParseManifest(text string) (*Manifest, error) {
 			}
 			dst[fields[1]] = append([]string(nil), fields[2:]...)
 		case "site":
-			rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "site"))
-			parts := strings.SplitN(rest, " ", 3)
-			if len(parts) != 3 {
-				return nil, fail("site takes a function, a kind and a program")
+			if len(fields) != 4 {
+				return nil, fail("site takes a function, a kind and a fixture")
 			}
-			program, uerr := strconv.Unquote(strings.TrimSpace(parts[2]))
-			if uerr != nil {
-				return nil, fail("site program is not a Go string: %v", uerr)
-			}
-			site := Site{Fn: parts[0], Kind: parts[1], Program: program}
+			site := Site{Fn: fields[1], Kind: fields[2], Fixture: fields[3]}
 			if slices.ContainsFunc(m.Sites, func(s Site) bool { return s.key() == site.key() }) {
 				return nil, fail("site %s %s given twice", site.Fn, site.Kind)
 			}

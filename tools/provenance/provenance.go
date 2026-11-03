@@ -790,6 +790,12 @@ func (s *state) instruction(fn *ssa.Function, name string, generic bool, instr s
 			}
 		case *ssa.Global:
 			s.global(fn, name, instr, v)
+		case *ssa.Const:
+			// A zero value of a node type (syntax.Ident{}, var x syntax.Ident
+			// returned or boxed) is an operand, not an instruction.
+			if kind, ok := s.holds(v.Type(), map[types.Type]bool{}); ok {
+				s.report(fn, pos, "a zero %s value the checker makes outside made and clone (in %s)", kind, name)
+			}
 		}
 	}
 
@@ -1202,7 +1208,11 @@ func (s *state) closures(funcs []*ssa.Function) {
 					if _, ok := instr.(*ssa.MakeClosure); ok {
 						what = "a closure"
 					}
-					s.report(fn, instr.Pos(), "%s makes a node outside the manifest and becomes %s in %s", s.site(f), what, s.site(fn))
+					pos := instr.Pos()
+					if !pos.IsValid() {
+						pos = f.Pos() // a MakeClosure has none: report at the literal
+					}
+					s.report(fn, pos, "%s makes a node outside the manifest and becomes %s in %s", s.site(f), what, s.site(fn))
 				}
 			}
 		}
@@ -1210,8 +1220,19 @@ func (s *state) closures(funcs []*ssa.Function) {
 }
 
 // manifestChecks reports a manifest entry the package no longer reaches.
+//
+// It reports at the made helper, which every construction site calls, or
+// at the package clause when the package has no made helper.
 func (s *state) manifestChecks() {
 	pos := s.pass.Files[0].Name.Pos()
+	if made := s.pkg.Func(s.m.Made); made != nil {
+		pos = made.Pos()
+	} else {
+		s.report(nil, pos, "the manifest names the made helper %s, which the package does not declare", s.m.Made)
+	}
+	if s.pkg.Func(s.m.Clone) == nil {
+		s.report(nil, pos, "the manifest names the clone helper %s, which the package does not declare", s.m.Clone)
+	}
 	for _, site := range s.m.Sites {
 		if s.sites[site.key()] == 0 {
 			s.report(nil, pos, "the manifest lists construction site %s %s, which the package no longer makes", site.Fn, site.Kind)

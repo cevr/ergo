@@ -30,12 +30,12 @@ callee Parse CheckSource prelude$1 (*stdImporter).Import
 # package's entry.
 entry CheckSource
 
-# Every construction site: a fresh node passed to made, or a clone, with a
-# clean program that reaches it.
-site (*checker).declareVariant TypeDecl "type U[T] = | V{X T} | W{}\n"
-site (*checker).declareVariant StructType "type U[T] = | V{X T} | W{}\n"
-site (*checker).variantParams Ident "type U[T] = | V{X T} | W{}\n"
-site (*checker).variantParams Field "type U[T number] = | V{X T} | W{}\n"
-site (*checker).variantParams FieldList "type A { S V[int] }\ntype U[T, S] = | V{X T} | Y{Z S, Q T} | W{}\n"
-site (*checker).varDecl VarSpec "type P { A int }\nfunc f(p P) int {\n\tlet P{A: a} = p\n\ta\n}\n"
-site (*checker).assignStmt BinaryExpr "func f() int {\n\tlet mut x = 1\n\tx += 2\n\tx\n}\n"
+# Every construction site: a fresh node passed to made, or a clone, with
+# the owner_e2_test.go fixture, a clean program that reaches it.
+site (*checker).declareVariant TypeDecl variantFixture
+site (*checker).declareVariant StructType variantFixture
+site (*checker).variantParams Ident variantFixture
+site (*checker).variantParams Field variantConstrainedFixture
+site (*checker).variantParams FieldList variantEarlyFixture
+site (*checker).varDecl VarSpec patternFixture
+site (*checker).assignStmt BinaryExpr compoundFixture
