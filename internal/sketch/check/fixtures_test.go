@@ -60,7 +60,6 @@ func TestFixtures(t *testing.T) {
 		for _, file := range files {
 			name := dir + "/" + strings.TrimSuffix(filepath.Base(file), ".ergo")
 			t.Run(name, func(t *testing.T) {
-				skipPending(t, file)
 				data, err := os.ReadFile(file)
 				if err != nil {
 					t.Fatal(err)

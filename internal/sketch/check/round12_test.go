@@ -23,7 +23,6 @@ func TestRowVariableWitnesses(t *testing.T) {
 	}
 	for _, file := range files {
 		t.Run(filepath.Base(file), func(t *testing.T) {
-			skipPending(t, file)
 			data, err := os.ReadFile(file)
 			if err != nil {
 				t.Fatal(err)

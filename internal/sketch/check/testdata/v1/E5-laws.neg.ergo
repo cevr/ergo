@@ -1,0 +1,8 @@
+// Spec D-E4: a law's body ends in a bool (S108), and names only the
+// type's operations, its parameters and package names (S104).
+type Codec {
+	Encode(v int) string,
+
+	law Text(v int) { Encode(v) },           // want S108
+	law Unknown(v int) { Missing(v) == "" }, // want S104
+}
