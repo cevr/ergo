@@ -12,13 +12,17 @@ import (
 // The domain comes from CallKindCount, not the fixtures. Each obligation
 // states rows.md Footprints' rule, checks a source that isolates it, and
 // supplies a recursion-axis shape. Missing obligations fail before the
-// property can claim completeness. A retired kind has no source shape.
+// property can claim completeness. A retired kind has no source shape. A
+// kind that is never lowered has a source whose every call of it stands in
+// a body no build lowers, and no recursion shape.
 type i1CallRule struct {
 	name, behavior string
 	src            string
 	graph          string
 	generated      *i1Graph
 	retired        bool
+	// neverLowered says why no build lowers the kind.
+	neverLowered string
 }
 
 var i1CallRules = map[check.CallKind][]i1CallRule{
@@ -59,6 +63,9 @@ var i1CallRules = map[check.CallKind][]i1CallRule{
 		{name: "opaque-builder", behavior: "opaque", src: "func makeSilent() Silent { let xs = []int{}; let _ = xs.Append(1); Silent }\nlet Loud = context { Probe: makeSilent() }\nfunc subject(n int) int { with Loud { n } }", graph: "context-reentry", generated: i1OpaqueGraph("context-reentry", "with Loud {}")},
 	},
 	check.CallPrelude: {{name: "retired", behavior: "pure", retired: true}},
+	check.CallLawOp: {{name: "law-operation", behavior: "opaque",
+		src:          "type Codec {\n\tEncode(n int) int,\n\n\tlaw Stable(n int) { Encode(n) == Encode(n) },\n}",
+		neverLowered: "laws are not run (#162)"}},
 }
 
 // A Seq is an implicit call of a function value, not a CallKind. Keep it
@@ -103,6 +110,41 @@ func TestRuntime199CallKindCoverage(t *testing.T) {
 				t.Fatal("only CallPrelude is retired; new kinds require a source and recursion shape")
 			}
 			return // Its classifier is tested in check's compatibility test.
+		}
+		if r.neverLowered != "" {
+			// never lowered: laws are not run (#162). The kind stands only
+			// in a law body, which neither build lowers (stage E3b-2 proves
+			// both builds are free of laws).
+			if kind != check.CallLawOp || r.graph != "" || r.generated != nil {
+				t.Fatal("only CallLawOp is never lowered; a lowered kind requires a recursion shape")
+			}
+			pkg, diags := check.CheckSource(i1Defs + r.src + "\nfunc main() {}\n")
+			if len(diags) > 0 {
+				t.Fatalf("checker diagnostics %v", diags)
+			}
+			inLaw := map[*syntax.CallExpr]bool{}
+			for _, l := range pkg.Laws {
+				syntax.Inspect(l.Decl.Body, func(n syntax.Node) bool {
+					if call, ok := n.(*syntax.CallExpr); ok {
+						inLaw[call] = true
+					}
+					return true
+				})
+			}
+			seen := 0
+			for x, call := range pkg.Info.Calls {
+				if call.Kind != kind {
+					continue
+				}
+				seen++
+				if !inLaw[x] {
+					t.Errorf("a call of kind %d at %d stands outside a law body", kind, x.Pos())
+				}
+			}
+			if seen == 0 {
+				t.Fatalf("source does not exercise call kind %d", kind)
+			}
+			return
 		}
 		o := mustLower(t, "callkind", i1Defs+r.src+"\nfunc main() {}\n")
 		var subject *syntax.FuncDecl

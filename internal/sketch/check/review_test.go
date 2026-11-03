@@ -416,15 +416,6 @@ func TestReviewCases(t *testing.T) {
 			}
 			_, diags := check.CheckSource(src)
 			got := codesOf(diags)
-			if e, ok := pendingCase(t, "TestReviewCases/"+c.finding+"/"+c.name); ok {
-				for _, d := range diags {
-					if d.Code == check.CodeOutside && strings.Contains(d.Message, e.stage) {
-						return
-					}
-				}
-				t.Errorf("pending on %s, but the checker reports no S109 naming it: drop the line from testdata/v1-pending.txt and expect %q; got %q\n\t%s", e.stage, c.want, got, describe(diags))
-				return
-			}
 			if got != c.want {
 				t.Errorf("want %q, got %q\n\t%s", c.want, got, describe(diags))
 			}

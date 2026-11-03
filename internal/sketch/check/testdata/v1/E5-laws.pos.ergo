@@ -1,0 +1,11 @@
+// 196l (spec D-E4): a law is a member of an operation type. Its body is
+// checked: it ends in a bool, its parameters and the type's operations are
+// in scope, and an escaping failure refutes it. Running laws is #162.
+type Malformed {}
+
+type Codec {
+	Encode(v int) string,
+	Decode(s string) int fails Malformed,
+
+	law RoundTrip(v int) { try Decode(Encode(v)) == v },
+}

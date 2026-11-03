@@ -1,0 +1,30 @@
+// Stage E3b sweep (196l), program 4: a tuple type that only a law uses,
+// holding a record whose default holds a Map. No build declares anything
+// for it. main's local ergoDefaultReg keeps its Go name only while no build
+// walks the law's types: a record a build reaches through a tuple reserves
+// its default function's name (types.go, reserveDefaults).
+type Reg { M Map[string, int] }
+
+type Codec {
+	Encode(v int) string,
+
+	law Paired(v int, s string) {
+		let p = (v, s, Reg{}, Encode(v))
+		let (a, b, r, c) = p
+		a == v && b == s && len(r.M) == 0 && c == Encode(v)
+	},
+}
+
+type Plain {}
+
+func Encode(_ Plain, v int) string {
+	"\(v)"
+}
+
+func main() needs Console {
+	let c Codec = Plain
+	let ergoDefaultReg = c.Encode(4)
+	Console.Println(ergoDefaultReg)
+}
+
+// run> 4

@@ -1,0 +1,24 @@
+// Stage E3b sweep (196l), program 2: a law of a generic operation type
+// Codec[T]. Its body sees the type's parameter; the run build lowers the
+// type's operations only.
+type Malformed {}
+
+type Codec[T comparable] {
+	Encode(v T) string,
+	Decode(s string) T fails Malformed,
+
+	law RoundTrip(v T) {
+		let w T = v
+		try Decode(Encode(w)) == v
+	},
+}
+
+func describe[T](label string, v T) string {
+	"\(label)"
+}
+
+func main() needs Console {
+	Console.Println(describe("codec", 2))
+}
+
+// run> codec

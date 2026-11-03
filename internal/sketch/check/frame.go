@@ -3,7 +3,9 @@ package check
 import "ergo.local/prototype/internal/sketch/syntax"
 
 // inspectFrame visits the nodes evaluated in root's frame. Making a
-// function literal or a trailing callback does not run its body. A call's
+// function literal or a trailing callback does not run its body, and a law
+// in a type declaration is a frame of its own, checked as if it ran (196l)
+// and never run by the declaration around it. A call's
 // callee and arguments do run here, including when it has a callback. A
 // with body also runs here. withs is the path of with bodies entered since
 // root, outermost first; a with's operands are outside its own body.
@@ -19,7 +21,7 @@ func inspectFrame(info *Info, root syntax.Node, visit func(syntax.Node, []*synta
 				return false
 			}
 			switch n := n.(type) {
-			case *syntax.FuncLit:
+			case *syntax.FuncLit, *syntax.LawDecl:
 				return false
 			case *syntax.CallExpr:
 				if n.Trailing != nil {

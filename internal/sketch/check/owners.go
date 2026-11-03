@@ -12,6 +12,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     and the test build (lower.LowerTests).
 //   - OwnerTest: a test body, with the function literals in it. Only test
 //     bodies see its facts, and only the test build reads them.
+//   - OwnerLaw: a law body (stage E3b), with the function literals in it.
+//     Only law bodies see its facts, and neither build reads them: laws are
+//     checked, not run (spec D-E4; #162 runs them).
 //
 // So a test changes neither the verdict on the rest of the program nor its
 // run Go: a struct type that only a test's error row names is an error type
@@ -27,15 +30,17 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // owner of that node (Package.OwnerOf), and a build that scans an Info map
 // package-wide skips the nodes of owners it does not read.
 //
-// The owners are a closed set that later stages extend additively: a law
-// body (stage E3b) is one more owner, whose facts only its own bodies see
-// and neither build reads.
+// The owners are a closed set that later stages extend additively. A build
+// reads the facts its view sees (lower/owners.go): the run build's view is
+// OwnerProduction and the test build's OwnerTest, so no build view sees
+// OwnerLaw, and a law adds nothing to either build by construction.
 //
 // Prior art: Go keeps a package's _test.go files out of its build, so no
 // test declaration reaches the program's binary; Rust compiles #[cfg(test)]
 // items only in the test configuration; Elixir compiles test/ only under
 // mix test; Gleam and ReScript keep test modules out of the application's
-// output. None of them lets a test change the program's own typing.
+// output; Zig compiles test blocks only under zig test. None of them lets a
+// test change the program's own typing.
 type FactOwner uint8
 
 const (
@@ -43,6 +48,8 @@ const (
 	OwnerProduction FactOwner = iota
 	// OwnerTest owns the facts of test bodies.
 	OwnerTest
+	// OwnerLaw owns the facts of law bodies (stage E3b).
+	OwnerLaw
 )
 
 // Sees reports whether a body of owner o sees a fact of owner f: every body
@@ -67,7 +74,8 @@ func (p *Package) IsErrorType(n *Named, o FactOwner) bool {
 }
 
 // OwnerOf is the owner of the fact Info records at n: OwnerTest for a node
-// of a test declaration of this package, OwnerProduction for every other.
+// of a test declaration of this package, OwnerLaw for a node of a law,
+// OwnerProduction for every other.
 func (p *Package) OwnerOf(n syntax.Node) FactOwner {
 	if o, ok := p.owners[n]; ok {
 		return o
@@ -87,11 +95,14 @@ func (c *checker) ownBody(root syntax.Node, o FactOwner) {
 	})
 }
 
-// bodyOwner is the owner of a body check's facts: a test's, or the
-// program's for a function or a package let.
+// bodyOwner is the owner of a body check's facts: a test's, a law's, or
+// the program's for a function or a package let.
 func bodyOwner(body any) FactOwner {
-	if _, ok := body.(*Test); ok {
+	switch body.(type) {
+	case *Test:
 		return OwnerTest
+	case *Law:
+		return OwnerLaw
 	}
 	return OwnerProduction
 }

@@ -510,7 +510,7 @@ func (w *taskUses) allowed(x syntax.Expr) bool {
 			return true
 		}
 		switch call.Kind {
-		case CallFunc, CallOp, CallProviderOp, CallFuncValue:
+		case CallFunc, CallOp, CallProviderOp, CallLawOp, CallFuncValue:
 			return true
 		}
 		return false

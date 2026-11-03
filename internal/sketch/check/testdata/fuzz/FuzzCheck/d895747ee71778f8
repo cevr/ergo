@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Store { Get() string }\n\ntype Mem {}\n\nfunc Get(_ Mem) string { \"ok\" }\n\nfunc read() string { Store.Get() }\n\nlet Live = context { Store: Mem }\n\ntype Laws {\n\tlaw Bare() { read() == \"ok\" },\n\tlaw Within() { with Live { read() == \"ok\" } },\n\tlaw Cap() { Store.Get() == \"ok\" },\n\tlaw Inline() { with context { Store: Mem } { Store.Get() == \"ok\" } },\n}\n")

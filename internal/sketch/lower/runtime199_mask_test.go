@@ -103,6 +103,10 @@ func closeDispatch(t *testing.T) map[string]bool {
 		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude:
 			// A conversion, len and a with block call no Close; a prelude
 			// dot call is a CallFunc since check-v1 stage D3a.
+		case check.CallLawOp:
+			// Never lowered: laws are not run (#162). A law's operation
+			// call has no receiver and carries no Close fact (check
+			// close.go).
 		default:
 			t.Fatalf("new call kind %d needs its Close dispatch path", k)
 		}

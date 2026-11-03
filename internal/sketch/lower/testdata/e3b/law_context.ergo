@@ -1,0 +1,44 @@
+// Stage E3b sweep (196l), program 6: a law opens a context literal and a
+// named context that main never opens. No build lowers either with, and no
+// build declares the adapter of Disk to Store, which only the law's
+// literal needs.
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"mem"
+}
+
+type Disk {}
+
+func Get(_ Disk) string {
+	"disk"
+}
+
+let Spare = context {
+	Store: Mem,
+}
+
+type Codec {
+	Encode(v int) string,
+
+	law Bound(v int) {
+		let a = with context { Store: Disk } { Store.Get() }
+		let b = with Spare { Store.Get() }
+		a != b && Encode(v) == Encode(v)
+	},
+}
+
+// main's locals keep their Go names only while no build reads the law's
+// withs: a with a build reads reserves its adapter's name and its named
+// context's builder name (naming.go, nameAll; decls.go, withsOf).
+func main() needs Console {
+	let opsDiskAsStore = Disk.Get()
+	let buildSpare = "!"
+	Console.Println(opsDiskAsStore + buildSpare)
+}
+
+// run> disk!

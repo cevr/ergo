@@ -1,0 +1,24 @@
+// Stage E3b sweep (196l), program 7: function literals inside a law, one
+// of them stored and one called in place. No build lowers either.
+type Codec {
+	Encode(v int) string,
+
+	law Doubles(v int) {
+		let double = func(x int) int { x * 2 }
+		let text = func(x int) string { "\(x)" }(double(v))
+		Encode(double(v)) == Encode(v + v) && text != ""
+	},
+}
+
+type Plain {}
+
+func Encode(_ Plain, v int) string {
+	"\(v)"
+}
+
+func main() needs Console {
+	let c Codec = Plain
+	Console.Println(c.Encode(7))
+}
+
+// run> 7

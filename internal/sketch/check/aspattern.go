@@ -1,11 +1,6 @@
 package check
 
-import (
-	"unicode"
-	"unicode/utf8"
-
-	"ergo.local/prototype/internal/sketch/syntax"
-)
+import "ergo.local/prototype/internal/sketch/syntax"
 
 // The `as` patterns of #196 (ninth round) in a catch arm: `case T as e:`
 // matches T and binds the caught error, with T's type, to e. It replaces
@@ -50,27 +45,49 @@ func (c *checker) declareAs(name *syntax.Ident, t Type, placeholder bool) (asBin
 }
 
 // catchAll reports whether a catch arm's lone name binds the whole failure
-// (`case err:`, rows.md Catch 7): a lower-case name that names no type.
+// (`case err:`, rows.md Catch 7).
 func (c *checker) catchAll(id *syntax.Ident) bool {
-	if r, _ := utf8.DecodeRuneInString(id.Name); !unicode.IsLower(r) {
+	return catchAllObject(c.lookupType(id.Name, c.localTypeCtx()))
+}
+
+// catchAllObject is catchAll's rule, shared with the reference walk
+// (refWalker.catchPattern; fuzz-17d6): the lone name resolves to o where
+// the arm stands. The arms are match arms over the failure (rows.md, Catch
+// 7), so Totality 1 decides (patternNameTests), whatever the name's case:
+// a type, a type parameter, a constant or a capability tests; any other
+// name binds the rest. The binder rules then judge it: an enclosing local
+// or a law's operation is D-D2's S108, a prelude name D-D3's, and a
+// package function, an imported package or a package value Totality 1's
+// (refusedRest); each still binds.
+func catchAllObject(o Object) bool {
+	return !patternNameTests(o, false, false)
+}
+
+// refusedRest reports Totality 1's S108 at a catch arm's rest name that
+// names a package function, an imported package or a package value
+// (rows.md Totality 6: the rule holds in catch arms), and reports whether
+// it did. The name still binds, with no type, so its reads add nothing
+// (D3). A prelude name is D-D3's, at declareAs.
+func (c *checker) refusedRest(id *syntax.Ident) bool {
+	if id.Name == "_" || c.isPreludeName(id.Name) {
 		return false
 	}
-	switch o := c.lookupType(id.Name, c.localTypeCtx()).(type) {
-	case nil:
-		return true
+	o := c.lookup(id.Name)
+	switch o := o.(type) {
+	case *Func, *PkgName:
+		if p, ok := o.(*PkgName); ok {
+			p.used = true // The refused occurrence must not add an unused import.
+		}
 	case *Var:
-		// A local of an enclosing scope: the arm still binds the rest, and
-		// the reuse is D-D2's S108 at the binder, not a type test. A local
-		// hides no package object, so the reference walk agrees.
-		return !o.pkg
-	case *Builtin, *Func:
-		// A prelude function or built-in names no error type: the arm
-		// binds the rest, and D-D3's S108 at the name is its one
-		// diagnostic. A prelude name hides no package object, so the
-		// reference walk agrees.
-		return c.isPreludeName(id.Name)
+		if !o.pkg {
+			return false
+		}
+	default:
+		return false
 	}
-	return false
+	c.errorf(id, CodeType, "a pattern name binds; %s already names %s: compare with if, or choose another name (rows.md, Totality 1)", id.Name, objectNoun(o))
+	c.refuseBinder(id.Pos())
+	return true
 }
 
 // unusedAs reports each `as` name that its arm never reads (S110), as the

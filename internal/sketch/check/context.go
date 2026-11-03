@@ -150,11 +150,15 @@ const (
 	// operandRow: a bare name of the function's written needs row, the
 	// capability that row binds, which is no with operand.
 	operandRow
+	// operandOp: an operation of a law's type, in the law's operation scope
+	// (laws.go, rule 4), which is no with operand. Only typing meets it:
+	// the reference walk reads no law body.
+	operandOp
 )
 
 // operandScope resolves name lexically in typing's scope: the locals and
-// the needs row, then the enclosing function's type parameters, which no
-// scope holds (localTypeCtx), then the package.
+// the needs row, then a law's operations, then the type parameters the body
+// is generic in, which no scope holds (localTypeCtx), then the package.
 func (c *checker) operandScope(name string) operandScope {
 	switch o := c.lookup(name).(type) {
 	case *Var:
@@ -163,12 +167,12 @@ func (c *checker) operandScope(name string) operandScope {
 		}
 	case *capBinding:
 		return operandRow
+	case *Method:
+		return operandOp
 	}
-	if c.fn != nil && c.fn.fn != nil && c.fn.fn.Sig != nil {
-		for _, tp := range c.fn.fn.Sig.TParams {
-			if tp.Name == name {
-				return operandParam
-			}
+	for _, tp := range c.fn.typeParams() {
+		if tp.Name == name {
+			return operandParam
 		}
 	}
 	return operandPackage
@@ -194,14 +198,17 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 	case *syntax.Ident:
 		s := c.operandScope(a.Name)
 		w := c.withNamedContext(a.Name, s)
-		if w == nil && (s == operandParam || s == operandRow) && c.pkg.Contexts[a.Name] != nil {
+		if w == nil && (s == operandParam || s == operandRow || s == operandOp) && c.pkg.Contexts[a.Name] != nil {
 			// A local non-value hides the package context, as every lexical
 			// binding does (runtime.md, G1 rule 2), and is itself no
 			// operand: binding the context would make one name mean two
 			// things in one scope.
 			what := "a type parameter"
-			if s == operandRow {
+			switch s {
+			case operandRow:
 				what = "the capability of this function's needs row"
+			case operandOp:
+				what = "an operation of " + c.fn.law.Owner.Name
 			}
 			c.errorf(a, CodeType, "%s names %s here, which hides the package context %s and is not a with operand: a with operand resolves lexically first (runtime.md, G1); rename the context or the local", a.Name, what, a.Name)
 			return nil, false, nil, nil

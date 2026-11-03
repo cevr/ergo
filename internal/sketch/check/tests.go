@@ -20,7 +20,7 @@ import (
 //     Maps, tuples, records and unions of generatable types, each named type
 //     declared outside the standard library and holding a finite value
 //     (ValueRanks). Anything else is S108 at the parameter's type.
-//  4. assert stands only in a test body (or a law body, stage E3b): every
+//  4. assert stands only in a test body or a law body (laws.go): every
 //     assert whose lexical owner, the innermost test, law, function
 //     declaration or function literal around it, is not a test or a law is
 //     S108. A function literal inside a test is not the test's body. The

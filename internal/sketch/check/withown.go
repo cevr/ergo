@@ -175,7 +175,9 @@ func (c *checker) withOwnership() {
 // (resources.md R24), so a Close through the capability would release it a
 // second time, and later uses in the block would reach a closed provider
 // (S108). A capability method value is refused already (types.md,
-// Capabilities 2), so the call is the one path.
+// Capabilities 2), so the call is the one path. It walks every file
+// declaration, so a law's with is held to it too (a law is checked as if it
+// ran).
 func (c *checker) capabilityCloses() {
 	for _, fi := range c.files {
 		syntax.Inspect(fi.syntax, func(n syntax.Node) bool {

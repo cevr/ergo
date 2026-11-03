@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Malformed {}\n\ntype Store {\n\tFind(id string) int fails Malformed,\n\tPut(id string, v int),\n\n\tlaw FindAfterPut(id string, v int) {\n\t\tPut(id, v)\n\t\tlet got = Find(id) catch {\n\t\tcase Malformed:\n\t\t\tv\n\t\t}\n\t\tlet next = func(n int) int { n + 1 }\n\t\tlet mut sum = 0\n\t\tfor x in []int{1, 2} {\n\t\t\tsum = sum + x\n\t\t}\n\t\tlet seen = match got {\n\t\tcase 0:\n\t\t\tfalse\n\t\tcase _:\n\t\t\ttrue\n\t\t}\n\t\tassert seen || !seen\n\t\tnext(got) == next(v) && sum == 3\n\t},\n\tlaw Refutes(id string) { try Find(id) == 0 },\n}\n")

@@ -1,9 +1,0 @@
-# The 196a checker's quarantine (#196, merge round step 4; round 6 ruling C;
-# round 6 review m2): the one list of inputs whose decided form a later stage
-# checks. Each line is an id, a tab, the stage, a tab, the reason. An id is a
-# fixture's path under testdata, or a test case as Test/case. The loaders
-# skip a listed fixture and name the stage (skipPending); TestPendingStages
-# and TestReviewCases require each input to stay S109 naming its stage, so
-# the line goes when the stage lands. Removed forms are never quarantined:
-# their fixtures are rewritten or deleted. check-v1 empties this file.
-fixtures/spec/types-laws.ergo	196l	laws inside operation types (196l) are S109 until check-v1

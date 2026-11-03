@@ -65,4 +65,9 @@
 //     MoonBit and Go's export data instead, and Elixir is the contrast.
 //   - MoonBit: top-level signatures are annotated and locals inferred, and
 //     its raise rows are part of the function type.
+//   - Laws (laws.go): Elixir StreamData's `check all` and QuickCheck state
+//     properties as code; MoonBit, Gleam and ReScript have no laws, and
+//     Haskell's class laws are documentation only. Ergo checks a law as code
+//     and keeps it out of the binary, as Zig keeps its `test` blocks out of
+//     non-test builds.
 package check

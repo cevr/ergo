@@ -1,0 +1,24 @@
+// Stage E3b sweep (196l), program 5: generic functions and a generic
+// record instantiated only in a law. main instantiates same at int; the
+// law alone instantiates it at string and wrap at bool.
+type Box[T] { Value T }
+
+func same[T comparable](a T, b T) bool {
+	a == b
+}
+
+func wrap[T](v T) Box[T] {
+	Box{Value: v}
+}
+
+type Codec {
+	Encode(v int) string,
+
+	law Same(v int) { same(Encode(v), Encode(v)) && wrap(true).Value },
+}
+
+func main() needs Console {
+	Console.Println("\(same(5, 5))")
+}
+
+// run> true

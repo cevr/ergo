@@ -60,12 +60,16 @@ type colInfo struct {
 	u   *switchUnion
 }
 
-// patBinding is one name a pattern binds.
+// patBinding is one name a pattern binds, or the placeholder of a refused
+// type test (declarePlaceholder).
 type patBinding struct {
 	id   *syntax.Ident
 	t    Type
 	info *Pattern // its PatBind or PatAs node; Var is set when it is declared
 	as   bool
+	// placeholder: id is a refused type test, not a binder. It binds no
+	// name in Info and meets no binder rule.
+	placeholder bool
 }
 
 // resolved is one pattern resolved against its subject type.
@@ -88,7 +92,7 @@ type patResolver struct {
 	binds    []patBinding    // of the current item
 	bound    map[string]bool // the names binds holds
 	bad      bool            // the current item has a reported error
-	bindings bool            // let/for: D-D2 permits binding over package objects
+	bindings bool            // let/for only: D-D2 permits binding over package objects; never a match's or a catch's
 	// letFor: a let or for pattern, where a bare prelude name is a binder
 	// D-D3 refuses, never a type test or a constant.
 	letFor bool
@@ -242,9 +246,15 @@ func (r *patResolver) bindNames(e syntax.Expr) {
 	if e == nil {
 		return
 	}
-	for _, id := range patternNames(e, r.c.isPatternType) {
+	tests := func(name string) bool { return r.c.patternTests(name, r.letFor) }
+	for _, id := range patternNames(e, tests) {
 		r.bind(id, invalid, &Pattern{Kind: PatBind}, false)
 	}
+}
+
+// placeholder records a refused type test's name for declarePlaceholder.
+func (r *patResolver) placeholder(id *syntax.Ident) {
+	r.binds = append(r.binds, patBinding{id: id, t: invalid, placeholder: true})
 }
 
 func (r *patResolver) bind(id *syntax.Ident, t Type, info *Pattern, as bool) {
@@ -284,7 +294,15 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 			r.bind(x, t, info, false)
 			return resolved{t: t, info: info}
 		}
-		if r.letFor && c.isPreludeName(x.Name) {
+		o := c.lookup(x.Name)
+		prelude := c.isPreludeName(x.Name)
+		if patternNameTests(o, prelude, r.letFor) {
+			if _, isConst := o.(*Const); isConst {
+				return r.constant(x, t, col)
+			}
+			return r.typeTest(x, t, col)
+		}
+		if r.letFor && prelude {
 			// A let or for pattern has no type test on a bare name of
 			// the prelude: the name is a binder, D-D3's S108 is its one
 			// diagnostic, and it binds with the value's type.
@@ -293,11 +311,7 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 			r.bind(x, t, info, false)
 			return resolved{t: t, info: info}
 		}
-		switch o := c.lookup(x.Name).(type) {
-		case *Const:
-			return r.constant(x, t, col)
-		case *TypeName, *capBinding:
-			return r.typeTest(x, t, col)
+		switch o := o.(type) {
 		case *Func, *Builtin, *PkgName:
 			if r.bindings && reusableBinderName(o) {
 				break
@@ -381,13 +395,14 @@ func objectNoun(o Object) string {
 func (r *patResolver) typeTest(e syntax.Expr, t Type, col int) resolved {
 	ctor, vt, ok := r.head(e, t, col)
 	if !ok {
-		// This refused bare type name is still local to its pattern's
-		// scope. Later uses read an invalid placeholder, not the type.
+		// A refused type test stays a type test (patternNameTests): the
+		// name names the type, and binds nothing. Later reads in the
+		// pattern's scope find a silent placeholder, not the type (D3).
 		if ix, indexed := e.(*syntax.IndexExpr); indexed {
 			e = ix.X
 		}
 		if id, ok := e.(*syntax.Ident); ok {
-			r.bind(id, invalid, &Pattern{Kind: PatBind}, false)
+			r.placeholder(id)
 		}
 		return r.fail(nil, t)
 	}
@@ -589,14 +604,11 @@ func (r *patResolver) tuple(x *syntax.TupleExpr, t Type, col int) resolved {
 	return resolved{pat: r.sp.node(0, kids), has: true, t: t, info: info}
 }
 
-// isPatternType reports whether a bare name in a pattern is a type test
-// where c checks (D-B3 rule 1).
+// isPatternType reports whether a bare name in a pattern tests the value
+// (a type test or a constant) where c checks, outside a let or a for rule
+// (D-B3 rule 1; patternNameTests).
 func (c *checker) isPatternType(name string) bool {
-	switch c.lookup(name).(type) {
-	case *TypeName, *capBinding:
-		return true
-	}
-	return false
+	return c.patternTests(name, false)
 }
 
 // ---------------------------------------------------------------- match
@@ -857,9 +869,22 @@ type armVar struct {
 // scope. With several patterns, each binds the same names with one type
 // (rule 6, S108 otherwise); every pattern's identifier is a declaring
 // identifier of the one variable.
-func (c *checker) declareArm(items [][]patBinding) []armVar {
-	if len(items) == 0 {
+func (c *checker) declareArm(all [][]patBinding) []armVar {
+	if len(all) == 0 {
 		return nil
+	}
+	// A refused type test's placeholder declares nothing: it is out of the
+	// same-names check, and is declared after the names the case binds.
+	items := make([][]patBinding, len(all))
+	var placeholders []*syntax.Ident
+	for k, item := range all {
+		for _, b := range item {
+			if b.placeholder {
+				placeholders = append(placeholders, b.id)
+				continue
+			}
+			items[k] = append(items[k], b)
+		}
 	}
 	first := items[0]
 	vars := map[string]*Var{}
@@ -924,6 +949,9 @@ func (c *checker) declareArm(items [][]patBinding) []armVar {
 			groups[b.id.Name].used = true // reported: no S110 beside it (D3)
 		}
 	}
+	for _, id := range placeholders {
+		c.declarePlaceholder(id)
+	}
 	return out
 }
 
@@ -943,14 +971,21 @@ func (c *checker) unusedBindings(vars []armVar) {
 			continue
 		}
 		name := v.name.Name
-		hint := ""
-		if r, _ := utf8.DecodeRuneInString(name); unicode.IsUpper(r) {
-			hint = "; no type is named " + name + ", so the pattern binds a new name"
-		}
+		hint := capitalisedBinderHint(name)
 		if v.as {
 			c.errorf(v.name, CodeUnused, "the binding %s is read nowhere in its arm; drop `as %s`%s (rows.md, Totality 1)", name, name, hint)
 			continue
 		}
 		c.errorf(v.name, CodeUnused, "the binding %s is read nowhere in its arm; write _ in its place%s (rows.md, Totality 1)", name, hint)
 	}
+}
+
+// capitalisedBinderHint is the hint a capitalised binding's S110 carries
+// (rows.md, Totality 1), in a match arm and a catch arm alike: the name
+// looks like a type, but none is named so.
+func capitalisedBinderHint(name string) string {
+	if r, _ := utf8.DecodeRuneInString(name); unicode.IsUpper(r) {
+		return "; no type is named " + name + ", so the pattern binds a new name"
+	}
+	return ""
 }

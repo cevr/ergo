@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Malformed {}\n\ntype Codec[T comparable] {\n\tEncode(v T) string,\n\tDecode(s string) T fails Malformed,\n\n\tlaw RoundTrip(v T) { try Decode(Encode(v)) == v },\n\tlaw Typed(v T) {\n\t\tlet w T = v\n\t\tEncode(w) == Encode(v)\n\t},\n}\n\ntype Shapes {\n\tlaw Plain(n int) { n == n },\n}\n")

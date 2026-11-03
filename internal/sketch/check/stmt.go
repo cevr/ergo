@@ -62,6 +62,21 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 	return v
 }
 
+// declarePlaceholder hides, for the rest of the current scope, the type or
+// capability that a refused type test names, so its later reads add no
+// diagnostic (D3; fuzz-17d6). The identifier stays a type test: Info.Uses
+// keeps the object it names and Info.Defs has no entry, as the reference
+// walk reads it. The placeholder has the invalid type, counts as read, and
+// meets none of the binder rules (D-D2, D-D3, bound twice), because it
+// declares nothing. A name the scope already binds keeps that binding.
+func (c *checker) declarePlaceholder(id *syntax.Ident) {
+	if _, bound := c.fn.scope.names[id.Name]; bound {
+		return
+	}
+	v := c.bindLocal(&Var{Name: id.Name, Type: invalid, Pos: id.Pos(), id: id, used: true})
+	c.fn.scope.insert(id.Name, v)
+}
+
 func (c *checker) stmt(s syntax.Stmt) {
 	savedMark := c.stmtMark
 	c.stmtMark = c.undiagSeq
@@ -233,16 +248,9 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 // binder (stage B round 2 review, item 4): a single name that names a type
 // or a constant of the package is a pattern (a type test, a constant); a
 // prelude name is a binder that D-D3 refuses, binding with the value's
-// type (declareLocal); any other name binds.
+// type (declareLocal); any other name binds (patternNameTests).
 func (c *checker) namePattern(id *syntax.Ident) bool {
-	if c.isPreludeName(id.Name) {
-		return false
-	}
-	switch c.lookup(id.Name).(type) {
-	case *Const, *TypeName, *capBinding:
-		return true
-	}
-	return false
+	return c.patternTests(id.Name, true)
 }
 
 // varDecl checks a local var declaration. A var of a type with no zero
@@ -524,8 +532,10 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 		}
 		return
 	case 1:
+		// A law's value has no expected type, as its tail has none
+		// (lawBody).
 		var hint Type
-		if len(results) == 1 {
+		if len(results) == 1 && !t.law {
 			hint = results[0]
 		}
 		op := c.expr(s.Results[0], hint)
@@ -549,7 +559,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			case len(results) == 0 && op.mode != modeNoValue:
 				c.errorf(s.Results[0], CodeType, "%s returns no value, and this expression has one", c.describeTarget())
 			case len(results) == 1:
-				c.assign(&op, results[0], "return")
+				c.returnValue(&op, results[0])
 			case len(results) > 1:
 				c.returnTuple(s.Results[0], op, results)
 			}
@@ -563,7 +573,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 		case len(results) == 0:
 			c.errorf(s.Results[0], CodeType, "%s returns no value", c.describeTarget())
 		case len(results) == 1:
-			c.assign(&op, results[0], "return")
+			c.returnValue(&op, results[0])
 		default:
 			c.returnTuple(s.Results[0], op, results)
 		}
@@ -580,6 +590,21 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			c.assign(&op, results[i], "return")
 		}
 	}
+}
+
+// returnValue checks the success value of a return against the target's
+// one result. A law's own body has no declared result: lawResult admits the
+// value by the rule its tail uses (laws.go, rule 8).
+func (c *checker) returnValue(op *operand, result Type) {
+	if c.fn.t.law {
+		t := op.typ
+		if op.mode == modeNoValue {
+			t = NoValue
+		}
+		c.lawResult(op.expr, t)
+		return
+	}
+	c.assign(op, result, "return")
 }
 
 func (c *checker) returnTuple(x syntax.Expr, op operand, results []Type) {

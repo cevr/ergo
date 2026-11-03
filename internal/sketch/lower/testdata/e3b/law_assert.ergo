@@ -1,0 +1,24 @@
+// Stage E3b sweep (196l), program 8: assert inside a law. The law body
+// admits it (tests.go rule 4); no build lowers it.
+type Codec {
+	Encode(v int) string,
+
+	law Nonempty(v int) {
+		assert Encode(v) != ""
+		assert len(Encode(v)) > 0
+		true
+	},
+}
+
+type Plain {}
+
+func Encode(_ Plain, v int) string {
+	"\(v)"
+}
+
+func main() needs Console {
+	let c Codec = Plain
+	Console.Println(c.Encode(8))
+}
+
+// run> 8

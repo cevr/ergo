@@ -299,6 +299,12 @@ func i1RequireFrameClasses(t *testing.T, o *lowered) {
 		blocks[x.Trailing] = class
 	}
 	for key := range o.pkg.Info.Footprints {
+		if o.pkg.OwnerOf(key) == check.OwnerLaw {
+			// A law body and the frames in it are checked as if they ran,
+			// but no build lowers them (types.md, Laws 11), so they emit
+			// no frame to poll; i1LawCases holds them.
+			continue
+		}
 		switch key := key.(type) {
 		case *syntax.FuncDecl:
 			require("decl")

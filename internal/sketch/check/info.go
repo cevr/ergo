@@ -83,6 +83,9 @@ type Package struct {
 	Types []*TypeName
 	// Tests is every test block with its parameters (stage E, 196l).
 	Tests []*Test
+	// Laws is every law of the package's operation types in source order,
+	// a duplicate name included (stage E3b, 196l): checked, never run.
+	Laws []*Law
 	// Info is the checker's result for the lowering.
 	Info *Info
 	// ErrorTypes are, by the owner of the body whose error row names them,
@@ -179,10 +182,12 @@ type Info struct {
 	// stage 1): each function with a body (*syntax.FuncDecl), function
 	// literal (*syntax.FuncLit), trailing block of a call other than with
 	// (*syntax.BlockStmt; a with block runs in its enclosing frame), named
-	// context (*syntax.ContextDecl, the builder a with of it runs) and package
-	// let (*syntax.VarSpec). The lowering places interruption points only
-	// in a frame whose footprint is not Empty (runtime.md, I1) and never
-	// derives a footprint again. Added for #199 stage 1 (additive).
+	// context (*syntax.ContextDecl, the builder a with of it runs), package
+	// let (*syntax.VarSpec), test (*syntax.TestDecl) and law
+	// (*syntax.LawDecl, OwnerLaw's, so no build reads it; stage E3b). The
+	// lowering places interruption points only in a frame whose footprint
+	// is not Empty (runtime.md, I1) and never derives a footprint again.
+	// Added for #199 stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
 	// Instances is every instantiation of a generic function (D-E1; stage
 	// B round 2 m6): a call of one, keyed by the *syntax.CallExpr, whether
@@ -428,6 +433,13 @@ const (
 	// and the full TypeArgs (D-D6, D-D8). The constant stays for compatibility;
 	// TypeArgs changed meaning for generic dot calls in stage D3a.
 	CallPrelude
+	// CallLawOp calls Op, an operation of the operation type that declares
+	// the law around it, by its bare name (196l, spec D-E4): no receiver, no
+	// charge (Needs is empty), and Fails is the operation's failure row,
+	// which joins the law's. It stands only in a law body, which neither
+	// build lowers: laws are checked, not run (#162). Added in check-v1
+	// stage E3b (additive).
+	CallLawOp
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -458,12 +470,13 @@ type Call struct {
 	// tails pass through (rows.md, With 6).
 	Fails, Needs *Row
 	// TaskResult reports that the call's result holds a Task (CallFunc,
-	// CallFuncValue, including a call of a function literal's value, CallOp
-	// and CallProviderOp): the caller needs a frame scope and passes it as
-	// the callee's hidden destination (stdlib.md, Hidden arguments). Derived
-	// from the same holdsTask as TaskResults; since stage E2 (C13) a result
-	// holds a Task only by being one. Added in check-v1 stage D3b
-	// (additive); the operation kinds in stage E2 (C15).
+	// CallFuncValue, including a call of a function literal's value, CallOp,
+	// CallProviderOp and CallLawOp): the caller needs a frame scope and
+	// passes it as the callee's hidden destination (stdlib.md, Hidden
+	// arguments). Derived from the same holdsTask as TaskResults; since
+	// stage E2 (C13) a result holds a Task only by being one. Added in
+	// check-v1 stage D3b (additive); the operation kinds in stage E2 (C15),
+	// CallLawOp in E3b (a law is checked as if it ran).
 	TaskResult bool
 }
 
@@ -664,6 +677,27 @@ type Test struct {
 	file *fileInfo // the declaring file, selected while the test is checked
 }
 
+// Law is a law of an operation type (196l, spec D-E4): checked, never run
+// (#162 runs laws). Its name has no value: Info.Defs maps the name to the
+// Law, and no scope holds it. Added in check-v1 stage E3b (additive).
+type Law struct {
+	Name  string
+	Decl  *syntax.LawDecl
+	Owner *TypeName // the operation type that declares it
+	// Params are its parameters, in source order; a field with no name
+	// holds one "_".
+	Params []*Var
+	// Fails is the inferred failure row of its body: a non-empty row
+	// refutes the law when #162 runs it.
+	Fails *Row
+
+	file *fileInfo // the declaring file, selected while the law is checked
+}
+
+// A law is an Object, so Defs records its declaring name.
+func (o *Law) name() string    { return o.Name }
+func (o *Law) pos() syntax.Pos { return o.Decl.Name.Pos() }
+
 // A type parameter is an Object, so Defs records its declaring name.
 func (o *TypeParam) name() string    { return o.Name }
 func (o *TypeParam) pos() syntax.Pos { return o.Pos }
@@ -841,7 +875,7 @@ func (w *Context) EachProvider(f func(cap Type, e *ContextEntry) bool) {
 func (c *checker) finishInfo() {
 	for x, call := range c.pkg.Info.Calls {
 		switch call.Kind {
-		case CallFunc, CallFuncValue, CallOp, CallProviderOp:
+		case CallFunc, CallFuncValue, CallOp, CallProviderOp, CallLawOp:
 			if t, ok := c.pkg.Info.Types[x]; ok && t != nil {
 				call.TaskResult = c.holdsTask(t)
 			}

@@ -16,9 +16,9 @@ import (
 func TestRefusedFamiliesHaveWitnesses(t *testing.T) {
 	var sources []string
 	for _, dir := range []string{"../check", "."} {
-		ss, _, _, stride := checkCorpus(t, dir, 8000)
+		ss, _, total, stride := checkCorpus(t, dir, 10000)
 		if stride != 1 {
-			t.Fatalf("refusal domain was sampled in %s; increase its bound", dir)
+			t.Fatalf("refusal domain was sampled in %s (%d candidates); increase its bound", dir, total)
 		}
 		sources = append(sources, ss...)
 	}

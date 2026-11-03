@@ -25,6 +25,10 @@ type TypeName struct {
 	Pos  syntax.Pos
 	Type Type
 	Decl *syntax.TypeDecl
+	// Laws are the laws of an operation type, a duplicate name left out
+	// (stage E3b, 196l). They are not part of the type's shape, so identity,
+	// satisfaction and the lowering never read them.
+	Laws []*Law
 	file *fileInfo
 	id   int
 }

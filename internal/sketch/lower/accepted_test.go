@@ -35,6 +35,9 @@ var implementedFamilies = []string{
 	// A test and its asserts lower in the test build (LowerTests, swept by
 	// stage_e3a_test.go); the run build this test lowers skips them whole.
 	"TestDecl", "AssertStmt",
+	// A law is checked, not run (#162): neither build lowers it, so a
+	// source that holds one lowers whole without it (stage E3b-2).
+	"LawDecl", "call:LawOp",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,
@@ -98,7 +101,7 @@ func families(file *syntax.File, info *check.Info) map[string]bool {
 		}
 		return true
 	})
-	callKinds := []string{"Func", "Op", "ProviderOp", "FuncValue", "Conversion", "Len", "With", "Prelude"}
+	callKinds := []string{"Func", "Op", "ProviderOp", "FuncValue", "Conversion", "Len", "With", "Prelude", "LawOp"}
 	for _, c := range info.Calls {
 		out["call:"+callKinds[c.Kind]] = true
 	}

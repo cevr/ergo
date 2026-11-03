@@ -198,10 +198,13 @@ func main() {}
 	{"law", "a law in an operation type", `
 type Monoid {
 	Combine(a int, b int) int,
-	law Assoc(a int, b int, c int) { assert true },
+	law Assoc(a int, b int, c int) {
+		assert true
+		Combine(Combine(a, b), c) == Combine(a, Combine(b, c))
+	},
 }
 func main() {}
-`, []string{"S109:4"}},
+`, nil},
 	{"union", "a union of declared records", `
 type A {}
 type B {}
@@ -709,10 +712,10 @@ func main() {}
 type Monoid {
 	Combine(a int, b int) int,
 	// Assoc groups either way.
-	law Assoc(a int, b int, c int) { assert true },
+	law Assoc(a int, b int, c int) { Combine(Combine(a, b), c) == Combine(a, Combine(b, c)) },
 }
 func main() {}
-`, []string{"S109:5"}},
+`, nil},
 	{"machine", "a machine type with documented entries", `
 type Closed {}
 type Open {}

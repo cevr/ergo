@@ -193,7 +193,7 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 					continue
 				}
 				restName, restType = it.restID, c.rowValue(rest)
-				if !valid || rest.Empty() || rest.unknown(c.types) {
+				if !valid || it.restRefused || rest.Empty() || rest.unknown(c.types) {
 					restType = invalid
 				}
 				continue
@@ -234,7 +234,7 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 		c.unusedBindings(vars)
 		for _, b := range restBind {
 			if !b.group.used {
-				c.errorf(b.name, CodeUnused, "the binding %s is read nowhere in its arm; write case _ (rows.md, Totality 1)", b.name.Name)
+				c.errorf(b.name, CodeUnused, "the binding %s is read nowhere in its arm; write case _%s (rows.md, Totality 1)", b.name.Name, capitalisedBinderHint(b.name.Name))
 			}
 		}
 		c.fn.scope = saved
@@ -315,11 +315,18 @@ type catchItem struct {
 	// with no type so a read there resolves to them, as the reference
 	// walk does, and adds no diagnostic (D3; stage C round 6 fuzz).
 	placeholders []*syntax.Ident
+	// restRefused: the rest's name is Totality 1's S108 (refusedRest), so
+	// it binds with no type.
+	restRefused bool
 }
 
+// newCatchSpace starts the pattern space of x. Its resolver is a match's:
+// the arms are match arms over the failure (rows.md, Catch 7), so a name
+// in a record pattern that names a package function, an imported package
+// or a package value is Totality 1's S108, never D-D2's let/for reuse
+// (rows.md, Totality 6; fuzz-17d6).
 func (c *checker) newCatchSpace(x *syntax.CatchExpr) *catchSpace {
 	r := c.newPatResolver()
-	r.bindings = true
 	for _, arm := range x.Arms {
 		for _, te := range arm.Types {
 			r.sp.written += 1 + patternSize(te)
@@ -348,6 +355,7 @@ func (cs *catchSpace) resolve(arm *syntax.CatchArm, te syntax.Expr, row *Row, op
 			return it, false
 		}
 		it.rest, it.restID = true, id
+		it.restRefused = c.refusedRest(id)
 		if id.Name == "_" {
 			c.pattern(core, &Pattern{Kind: PatWildcard})
 		} else {

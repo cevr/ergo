@@ -1,0 +1,28 @@
+// Stage E3b sweep (196l), program 9: the Esub3 shape. The law's Encode is
+// the operation, which wins over the package function Encode of the same
+// name; main calls the package function through a context.
+type Codec {
+	Encode(v int) string,
+
+	law Stable(v int) { Encode(v) == Encode(v) },
+}
+
+type Plain {}
+
+func Encode(_ Plain, v int) string {
+	"\(v)"
+}
+
+let Live = context {
+	Codec: Plain,
+}
+
+func add(a, b int) int {
+	a + b
+}
+
+func main() needs Console {
+	Console.Println(with Live { Codec.Encode(add(4, 5)) })
+}
+
+// run> 9

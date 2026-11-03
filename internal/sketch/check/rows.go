@@ -23,8 +23,12 @@ type target struct {
 	results     []Type
 	resultKnown bool
 	isFunc      bool // return is allowed (a function or a func literal)
-	main        bool
-	context     bool // a named context's build: closed (README Gap 6)
+	// law marks a law's own body: lawResult, not assignment to results,
+	// admits the value a return gives (laws.go, rule 8). A function
+	// literal inside the law has a target of its own, without it.
+	law     bool
+	main    bool
+	context bool // a named context's build: closed (README Gap 6)
 	// internal is what a named context binds itself: its providers may use it
 	// (rows.md, Context 4); charged collects the internal capabilities the
 	// entry being checked uses, for the context's entry-cycle check (M14).
@@ -919,7 +923,24 @@ type funcCtx struct {
 	branches []branch
 	locals   []*Var
 	fn       *Func
+	law      *Law // the law whose body this is (laws.go)
 	reach    *reachNode
+}
+
+// typeParams are the type parameters the body is generic in: a function's
+// own, or a law's type's (laws.go, rule 6). The type context of a body
+// (localTypeCtx) and a with operand's name (operandScope) both read them
+// here, so the two cannot disagree on what a body is generic in.
+func (fc *funcCtx) typeParams() []*TypeParam {
+	switch {
+	case fc == nil:
+		return nil
+	case fc.fn != nil && fc.fn.Sig != nil:
+		return fc.fn.Sig.TParams
+	case fc.law != nil:
+		return fc.law.typeParams()
+	}
+	return nil
 }
 
 type branchKind int

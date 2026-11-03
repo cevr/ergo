@@ -100,9 +100,6 @@ var assertPositions = map[string]assertPosition{
 type assertOwner struct {
 	field  string
 	admits bool
-	// law: laws are stage E3b's (S109), so only the placement verdict of
-	// its programs is read.
-	law bool
 	// noParams: the owner cannot take the position's parameters.
 	noParams bool
 	program  func(params, stmts string) string
@@ -138,7 +135,7 @@ var assertOwners = map[string]assertOwner{
 		return "func f[T](_ T" + p + ") {\n" + s + "}\n"
 	}},
 	"test": {field: "TestDecl.Body", admits: true, program: assertTest},
-	"law":  {field: "LawDecl.Body", admits: true, law: true, program: assertLaw},
+	"law":  {field: "LawDecl.Body", admits: true, program: assertLaw},
 	"package literal": {field: "FuncLit.Body", program: func(p, s string) string {
 		return "let g = func(" + p + ") {\n" + s + "}\n"
 	}},
@@ -157,7 +154,7 @@ var assertOwners = map[string]assertOwner{
 	"literal in a with in a test": {field: "FuncLit.Body", program: func(p, s string) string {
 		return assertTest(p, "with context { Store: Mem } {\n"+assertLit("g", s)+"}\n")
 	}},
-	"literal in a law": {field: "FuncLit.Body", law: true, program: func(p, s string) string {
+	"literal in a law": {field: "FuncLit.Body", program: func(p, s string) string {
 		return assertLaw(p, assertLit("g", s))
 	}},
 	"literal in a context provider": {field: "FuncLit.Body", noParams: true, program: func(_, s string) string {
@@ -255,7 +252,7 @@ func TestAssertPlacement(t *testing.T) {
 			switch {
 			case strings.Join(got, " ") != strings.Join(want, " "):
 				t.Errorf("%s: want stray asserts %v, got %v\n%s", name, want, diags, full)
-			case owner.admits && !owner.law && len(diags) > 0:
+			case owner.admits && len(diags) > 0:
 				t.Errorf("%s: want a clean check, got %v\n%s", name, diags, full)
 			}
 		}

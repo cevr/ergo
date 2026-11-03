@@ -331,26 +331,6 @@ func (c *checker) interpolated(x *syntax.InterpolatedString) operand {
 	return operand{mode: modeValue, typ: Typ[String]}
 }
 
-// notYet reports a decided syntax node that this checker does not check
-// yet (S109; check-v1 owns it). It never panics: the parser may build a
-// node before its consumer checks it (grammar.md, Parser 2).
-func (c *checker) notYet(n syntax.Node) operand {
-	return c.outside(n, decidedNoun(n))
-}
-
-// decidedNoun names a node for notYet, with the stage that decided it.
-func decidedNoun(n syntax.Node) string {
-	switch n.(type) {
-	case *syntax.Ident:
-		return "a catch arm that binds the whole failure (196r, one catch)"
-	case *syntax.CompositeLit:
-		return "a record pattern in a catch arm (196r, one catch)"
-	case *syntax.LawDecl:
-		return "a law (196l, laws and tests)"
-	}
-	return "this form"
-}
-
 func under0(t Type) Type {
 	if t == nil {
 		return nil
@@ -359,13 +339,11 @@ func under0(t Type) Type {
 }
 
 // localTypeCtx is the type context of a type written inside a body: the
-// enclosing function's type parameters are in scope.
+// type parameters the body is generic in are in scope (funcCtx.typeParams).
 func (c *checker) localTypeCtx() *typeCtx {
 	ctx := &typeCtx{params: map[string]*TypeParam{}}
-	if c.fn != nil && c.fn.fn != nil && c.fn.fn.Sig != nil {
-		for _, tp := range c.fn.fn.Sig.TParams {
-			ctx.params[tp.Name] = tp
-		}
+	for _, tp := range c.fn.typeParams() {
+		ctx.params[tp.Name] = tp
 	}
 	if c.fn != nil {
 		ctx.scope = c.fn.scope
@@ -486,6 +464,12 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			return bad(x)
 		}
 		return operand{mode: modePkg, obj: o, typ: invalid}
+	case *Method:
+		// Only a law's operation scope holds an operation, and a call of
+		// one is checked before its callee (lawOpCall): every other use is
+		// a value (laws.go, rule 4).
+		c.errorf(x, CodeType, "an operation of %s is called inside a law; it is not a value", c.fn.law.Owner.Name)
+		return bad(x)
 	}
 	c.errorf(x, CodeUnknown, "unknown name %s", x.Name)
 	return bad(x)

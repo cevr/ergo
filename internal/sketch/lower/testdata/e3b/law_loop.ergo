@@ -1,0 +1,64 @@
+// Stage E3b sweep (196l), program 13: loops inside a law, in its body and
+// in a function literal in it, one loop alone and one loop nested in
+// another, and a fallible literal whose loop tries a failure, called with
+// try. Neither build has Go for them: the erasure property compares both
+// builds with the builds of the source without the law, so a Go loop from
+// the law in either build shows as a difference.
+type Counter {
+	Count(n int) int,
+
+	law Sums(n int) {
+		let mut total = 0
+		for x in 0..n {
+			total += x
+		}
+		let mut k = 0
+		for k < n {
+			k += 1
+		}
+		let mut pairs = 0
+		for a in 0..n {
+			for b in []int{1, 2} {
+				pairs += a + b
+			}
+		}
+		let again = func() int {
+			let mut s = 0
+			for y in []int{1, 2, 3} {
+				s += y
+			}
+			s
+		}
+		let checked = func() int fails Short {
+			let mut c = 0
+			for z in 0..n {
+				try guard(z)
+				c += 1
+			}
+			c
+		}
+		let seen = try checked()
+		Count(n) == n && total >= 0 && k == n && pairs >= 0 && again() == 6 && seen == n
+	},
+}
+
+type Short {}
+
+func guard(n int) fails Short {
+	if n < 0 {
+		return Short
+	}
+}
+
+type Plain {}
+
+func Count(_ Plain, n int) int {
+	n
+}
+
+func main() needs Console {
+	let c Counter = Plain
+	Console.Println("\(c.Count(4))")
+}
+
+// run> 4

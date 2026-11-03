@@ -1,0 +1,41 @@
+// Stage E3b sweep (196l), program 1: a law over operations with failures,
+// tried in its tail. ergo run lowers the operations and never the law.
+type Malformed { Text string }
+
+type Codec {
+	Encode(v int) string,
+	Decode(s string) int fails Malformed,
+
+	law RoundTrip(v int) { try Decode(Encode(v)) == v },
+}
+
+type Unary {}
+
+func Encode(_ Unary, v int) string {
+	let mut s = ""
+	for _ in 0..v {
+		s += "|"
+	}
+	s
+}
+
+func Decode(_ Unary, s string) int fails Malformed {
+	if s == "" {
+		return Malformed{Text: s}
+	}
+	len(s)
+}
+
+let Live = context {
+	Codec: Unary,
+}
+
+func main() needs Console {
+	let n = with Live { Codec.Decode(Codec.Encode(3)) } catch {
+	case Malformed:
+		0
+	}
+	Console.Println("\(n)")
+}
+
+// run> 3

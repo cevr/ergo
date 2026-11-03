@@ -36,18 +36,42 @@ func (c *checker) undecided(n syntax.Node, what string) operand {
 	return operand{mode: modeInvalid, typ: invalid}
 }
 
+// patternNameTests is the one rule for a bare name in a pattern (rows.md,
+// Totality 1; D-B3 rule 1; D-D3), shared by typing (pattern0, namePattern,
+// isPatternType) and the reference walk (refWalker.patternTests), so the
+// two give the identifier one meaning (fuzz-17d6). o is the object the name
+// resolves to where the pattern stands, prelude whether the name is a
+// prelude name, and letFor whether the pattern is a let's or a for's. In a
+// let or a for, a prelude name binds (D-D3 refuses the binder and it still
+// binds). Otherwise a constant, a type or a capability of the row tests the
+// value, and the name keeps that meaning even when the test is refused. Any
+// other name binds.
+func patternNameTests(o Object, prelude, letFor bool) bool {
+	if letFor && prelude {
+		return false
+	}
+	switch o.(type) {
+	case *Const, *TypeName, *capBinding:
+		return true
+	}
+	return false
+}
+
+// patternTests is patternNameTests for a name at the point c checks.
+func (c *checker) patternTests(name string, letFor bool) bool {
+	return patternNameTests(c.lookup(name), c.isPreludeName(name), letFor)
+}
+
 // patternNames returns the names a pattern binds, in source order: a name
-// that is not a type (a type name tests the variant), the names inside a
-// record pattern's values, a tuple's elements and an as pattern's name.
-// isType reports whether a name is a type in the pattern's scope; true and
-// false are constants.
-func patternNames(p syntax.Expr, isType func(string) bool) []*syntax.Ident {
+// that does not test (tests; patternNameTests), the names inside a record
+// pattern's values, a tuple's elements and an as pattern's name.
+func patternNames(p syntax.Expr, tests func(string) bool) []*syntax.Ident {
 	var out []*syntax.Ident
 	var walk func(syntax.Expr)
 	walk = func(e syntax.Expr) {
 		switch e := e.(type) {
 		case *syntax.Ident:
-			if e.Name != "_" && e.Name != "true" && e.Name != "false" && !isType(e.Name) {
+			if e.Name != "_" && !tests(e.Name) {
 				out = append(out, e)
 			}
 		case *syntax.ParenExpr:
@@ -149,6 +173,10 @@ func (c *checker) irrefutable(p syntax.Expr, t Type, what string, own map[*synta
 func (c *checker) declareBindings(binds []patBinding) []*Var {
 	var out []*Var
 	for _, b := range binds {
+		if b.placeholder {
+			c.declarePlaceholder(b.id)
+			continue
+		}
 		// A binder of an invalid value, or of a pattern with an error
 		// elsewhere, still meets D-D2, D-D3 and the duplicate check: they
 		// do not depend on its type. A binder the pattern itself refused

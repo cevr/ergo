@@ -1,0 +1,38 @@
+// Stage E3b sweep (196l), program 12: a law calls a package function with
+// a failure and tries it; another law's function literal fails with a type
+// that only the law makes an error type, so no build gives it an Error
+// method or a text helper.
+type Bad { Code int }
+
+type Oops {}
+
+func parse(s string) int fails Bad {
+	if s == "" {
+		return Bad{Code: 1}
+	}
+	len(s)
+}
+
+type Codec {
+	Encode(v int) string,
+
+	law Parses(v int) { try parse(Encode(v)) >= 1 },
+	law Handles(v int) {
+		let f = func() int fails Oops { return Oops }
+		let n = f() catch {
+		case Oops:
+			v
+		}
+		n == v
+	},
+}
+
+func main() needs Console {
+	let n = parse("") catch {
+	case Bad as e:
+		e.Code * 12
+	}
+	Console.Println("\(n)")
+}
+
+// run> 12
