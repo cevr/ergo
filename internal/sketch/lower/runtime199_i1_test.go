@@ -357,6 +357,7 @@ func TestRuntime199I1Property(t *testing.T) {
 	// Ordinary trailing blocks and with bodies use the reviewer's grid.
 	cases := append(append(i1Cases(), i1BlockCases()...), i1RecursionCases()...)
 	cases = append(append(cases, i1EntryCases()...), i1NestCases()...)
+	cases = append(cases, i1LawCases()...)
 	classes := map[string]int{}
 	for _, c := range cases {
 		classes[strings.SplitN(c.name, "/", 2)[0]]++
@@ -366,7 +367,7 @@ func TestRuntime199I1Property(t *testing.T) {
 			t.Errorf("frame class %s missing from ordinary or nesting axis", frame.name)
 		}
 	}
-	for _, class := range []string{"impure-parent", "pure-parent", "with-body", "recursion"} {
+	for _, class := range []string{"impure-parent", "pure-parent", "with-body", "recursion", "law"} {
 		if classes[class] == 0 {
 			t.Errorf("no generated case of the frame class %s", class)
 		}
@@ -425,6 +426,37 @@ func i1BlockCases() []i1Case {
 				ps := strings.Join(params, ", ")
 				name := fmt.Sprintf("%s/%s/%s", cl.name, strings.Join(names, "+"), v.name)
 				out = append(out, i1Case{name: "with-body/" + name, src: i1Defs + "func subject(" + ps + ") int" + row + " {\nwith Local {\n" + body + "sum\n}\n}\nfunc main() {}\n", want: map[string]bool{"decl": impure}, site: v.site})
+			}
+		}
+	}
+	return out
+}
+
+// i1LawCases put each loop form and variant in a law, in its body and in a
+// function literal in it (stage E3b). A law body is checked as if it ran,
+// so the checker gives it and its literal footprints (i1CheckFacts), but
+// neither build lowers a law (types.md, Laws 11): its want is empty, so a
+// Go loop from a law fails i1CheckPolls, as a law loop counted as a source
+// loop does.
+func i1LawCases() []i1Case {
+	var out []i1Case
+	for _, l := range i1Loops {
+		for _, v := range i1Variants {
+			if v.site {
+				continue
+			}
+			ps := ""
+			if l.seq {
+				ps = l.param
+			}
+			body := i1Body("", []i1Loop{l}, v, "")
+			forms := [][2]string{{"body", body + "sum >= 0\n"}}
+			if !v.fail {
+				forms = append(forms, [2]string{"literal", "let f = func() int {\n" + body + "sum\n}\nf() >= 0\n"})
+			}
+			for _, form := range forms {
+				src := "type Lawful {\n\tStep() int,\n\n\tlaw Loops(" + ps + ") {\n" + form[1] + "},\n}\n"
+				out = append(out, i1Case{name: "law/" + form[0] + "/" + l.name + "/" + v.name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{}})
 			}
 		}
 	}
@@ -614,7 +646,7 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 	}
 	for key := range info.Footprints {
 		switch key.(type) {
-		case *syntax.FuncDecl, *syntax.FuncLit, *syntax.BlockStmt, *syntax.ContextDecl, *syntax.VarSpec, *syntax.TestDecl:
+		case *syntax.FuncDecl, *syntax.FuncLit, *syntax.BlockStmt, *syntax.ContextDecl, *syntax.VarSpec, *syntax.TestDecl, *syntax.LawDecl:
 		default:
 			t.Errorf("a footprint keyed by an unknown frame form %T", key)
 		}
@@ -653,6 +685,14 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 			in(d, d)
 		case *syntax.TestDecl:
 			in(d, d)
+		case *syntax.TypeDecl:
+			// A law body is a frame of its own, checked as if it ran
+			// (types.md, Laws 9), so its loops have a footprint too.
+			if it, ok := d.Spec.(*syntax.InterfaceType); ok {
+				for _, law := range it.Laws {
+					in(law, law)
+				}
+			}
 		case *syntax.VarDecl:
 			for _, s := range d.Specs {
 				in(s, s)
@@ -682,6 +722,10 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		switch n.(type) {
 		case *syntax.ForStmt, *syntax.RangeStmt:
 			source++
+		case *syntax.LawDecl:
+			// Neither build lowers a law (types.md, Laws 11), so its loops
+			// have no Go loop.
+			return false
 		}
 		return true
 	})
