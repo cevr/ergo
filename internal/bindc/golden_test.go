@@ -106,6 +106,16 @@ func TestGolden(t *testing.T) {
 			checkGolden(t, filepath.Join(h.dir, "model.json"), JSON(m))
 			b := bindHeader(t, h.dir, h.header, m)
 			checkGolden(t, filepath.Join(h.dir, "report.txt"), Report(b))
+			name, src, err := GoPackage(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *update {
+				if err := os.MkdirAll(filepath.Join(h.dir, "go"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			checkGolden(t, filepath.Join(h.dir, "go", name), src)
 		})
 	}
 }

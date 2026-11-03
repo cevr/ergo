@@ -81,6 +81,35 @@
 // is raw (Go memory that holds Go pointers must not reach C); a callback
 // is raw until bind-c-2.
 //
-// The Go output (slice 1c) and the Ergo text (slice 1d) come in later
-// slices of bind-c-1.
+// # The Go output
+//
+// GoPackage emits one gofmt-clean Go file over purego v0.11.3, built for
+// linux and darwin on amd64 and arm64, with two layers:
+//
+//   - the raw layer: one unexported function variable per function, in the
+//     exact C shape, registered with purego.Dlsym and purego.RegisterFunc
+//     (never RegisterLibFunc, which panics on a missing symbol);
+//   - the typed layer: one exported function per typed function. Handles
+//     are *H; a value is passed by address; out-parameters and output
+//     counts are results; buffers are slices (an empty slice passes NULL
+//     and length 0); a status result becomes an error (nil on success, else
+//     the Status). Every typed function returns an error last, and a call
+//     before Load, on a nil or destroyed handle, or with a slice too long
+//     for its C length, returns an error and does not call C.
+//
+// Load opens the library, looks up every symbol (a missing one is an error
+// that names it), calls the ABI-version function first and returns
+// *ABIMismatchError on a mismatch; it registers the raw functions only
+// after that check, so a failed Load leaves nothing callable. A Go value
+// passed by address stays alive until C returns through runtime.KeepAlive
+// after the call (purego also keeps its arguments alive for the call). Each
+// struct has compile-time asserts of its size, its alignment, and every
+// field's offset and size (TestGeneratedGoTypechecks checks them for amd64
+// and arm64). Autofill fields are unexported, and the typed layer sets
+// them before every call that passes the struct, out-parameters included
+// (OpenTUI: "Initialize struct_size and abi_version" of output structs).
+// Callbacks are raw uintptr (bind-c-2); thread affinity is not enforced in
+// Go: the library returns its wrong-thread status.
+//
+// The Ergo text (slice 1d) comes in a later slice of bind-c-1.
 package bindc
