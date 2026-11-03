@@ -309,7 +309,7 @@ func TestMacroExpansionProperty(t *testing.T) {
 		t.Logf("cc is not GCC: the refused chains are not checked with cc")
 		return
 	}
-	args := append([]string{"-std=c11", "-fsyntax-only", "-Werror", "-pedantic-errors"}, refusedFiles...)
+	args := append(append(append([]string{}, ccArgs...), "-pedantic-errors"), refusedFiles...)
 	out, _ := exec.Command(cc, args...).CombinedOutput()
 	failed := map[string]bool{}
 	for _, m := range ccFileError.FindAllStringSubmatch(string(out), -1) {

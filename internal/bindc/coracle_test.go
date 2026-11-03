@@ -94,6 +94,13 @@ func oracleSource(m *Model, header string, mutate func(*Model)) string {
 	return b.String()
 }
 
+// ccArgs are the flags of every cc check. Warnings are errors, so a constant
+// that overflows or a lossy conversion fails the check. -Wno-parentheses
+// keeps a style warning out: clang warns by default about `a + b << c`
+// (-Wshift-op-parentheses, measured on Apple clang at the macOS gate), and a
+// macro body of the subset may group by C precedence alone.
+var ccArgs = []string{"-std=c11", "-fsyntax-only", "-Werror", "-Wno-parentheses"}
+
 // runCC checks a C source with cc and returns cc's output on failure.
 func runCC(t *testing.T, cc, dir, name, src string, extra ...string) error {
 	t.Helper()
@@ -101,7 +108,7 @@ func runCC(t *testing.T, cc, dir, name, src string, extra ...string) error {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	args := append([]string{"-std=c11", "-fsyntax-only", "-Werror", "-I", dir}, extra...)
+	args := append(append(append([]string{}, ccArgs...), "-I", dir), extra...)
 	cmd := exec.Command(cc, append(args, path)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
