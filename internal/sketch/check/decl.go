@@ -390,6 +390,18 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		}
 		path = p
 	}
+	// A keyword cannot be the name an import binds, so a path whose last
+	// element is one needs an alias (grammar.md, Declarations rule 1; 196w).
+	// The message recognises Go's `import "context"` habit (#220).
+	if def := lastElement(path); spec.Name == nil && syntax.IsKeyword(def) {
+		fix := "import " + def + "pkg " + path
+		if spec.Kind == syntax.ImportGo {
+			fix = "import go go" + def + " " + path
+		}
+		c.errorf(spec.Path, CodeType, "%s is a keyword; import the package under another name: %s", def, fix)
+		c.bindBrokenImport(fi, spec, path)
+		return
+	}
 	switch spec.Kind {
 	case syntax.ImportPlain, syntax.ImportNamed:
 	case syntax.ImportGo:
@@ -489,7 +501,7 @@ func (c *checker) checkImportAliases() {
 		}
 		c.cur = a.file
 		def := lastElement(a.path)
-		clash := false
+		clash := syntax.IsKeyword(def) // a keyword is never a bound name
 		if _, ok := c.pkg.Scope.names[def]; ok {
 			clash = true
 		}

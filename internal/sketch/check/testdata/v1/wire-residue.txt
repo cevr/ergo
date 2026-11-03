@@ -1,0 +1,213 @@
+# The tracked lines outside history that still say wire (196w acceptance check 1).
+# TestContextResidue runs git grep -n -w -i -E 'wires?' over every path but the
+# history list and internal/migrate196/oldsyntax, and fails on a match no row covers
+# and on a row that covers no match. A row is `path<TAB>excerpt`: the excerpt is
+# text of one line of the file that contains the match; `*` covers the whole file.
+
+# network sense: wire formats, wire keys and forms of a codec, codec functions named Wire, bytes on the wire (decision 4)
+CHANGELOG.md	done: true }`, `todo.done`), so wire keys such as `"done"` keep working,
+CHANGELOG.md	a derived codec can carry the wire key `"done"`), and a form where
+CHANGELOG.md	`TestHTTPWireVectors` runs the shared wire vectors in `conformance/http/`
+CHANGELOG.md	`http-transport.ef` and compares the wire transcript.
+GLOSSARY.md	(designed): The pair a type's wire form is found by: `ParseX` decodes
+GLOSSARY.md	found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's
+GLOSSARY.md	is a checked witness relating a wire type and a domain type through
+NORTH_STAR.md	transformations between distinct wire and domain types, including explicit
+NORTH_STAR.md	payload. Native runtime internals and wire protocols may contain null representations
+PRIOR_ART.md	with required bounds and explicit wire types instead of a field-attribute
+PRIOR_ART.md	| Explicit wire decoding | Static types do not
+PRIOR_ART.md	multiple representations, versioned wire policies and transformation-specific
+PRIOR_ART.md	codec design with multiple named wire representations, directional rows,
+PRIOR_ART.md	preserving explicit validation and wire policy? Partly answered 2026-10-09:
+conformance/README.md	| `http/` | Shared HTTP wire vectors: exact status/body/content-type
+conformance/http/endpoint-vectors.json	"schema": "ergo-http-wire-vectors/1",
+conformance/http/transport-vectors.json	"schema": "ergo-http-wire-vectors/1",
+docs/bundled-modules.md	its domain and wire types and each direction's function,
+docs/contender-roadmap.md	codecs, validation, versioned wire formats, nominal identifiers |
+docs/contender-roadmap.md	Efficient host values and portable wire encodings are separate contracts.
+docs/prototype.md	not decode or validate external wire values.
+docs/runtime.md	The shared wire corpus `conformance/http/endpoint-vectors.js
+docs/showcases.md	`Json.decode` | Runtime validation and wire compatibility |
+docs/showcases.md	The wire format also needs a defined discriminator,
+docs/spec/README.md	codec by the names `ParseX` and `Wire`, as Go finds `TestX`. A rule
+docs/spec/stdlib.md	Schema, Arbitrary | `ParseX`/`Wire` by name, `json.Codec` | library
+docs/spec/stdlib.md	`Decode`, `Encode`, `ParseX`/`Wire`;
+docs/spec/stdlib.md	html.Td([]html.Child{html.Int(o.Quantity.Wire())}),
+docs/spec/types.md	1. A type's wire form is found by name: `ParseX`
+docs/spec/types.md	`ParseX` decodes into `X`, and `x.Wire()` encodes. Go's `netip.ParseAddr`
+docs/specs/absence-and-host-boundaries.md	JSON null or explicitly tagged wire data.
+docs/specs/absence-and-host-boundaries.md	## Wire and JavaScript boundaries
+docs/specs/absence-and-host-boundaries.md	JSON null is wire data. A codec may map it to None
+docs/specs/absence-and-host-boundaries.md	use stale presence evidence. JS wire tests preserve required-field
+docs/specs/bundled-interfaces.md	declarations with different domain, wire and function contracts. The witness
+docs/specs/bundled-interfaces.md	A shallow `callable effect fn(Wire) -> Domain` constraint checks
+docs/specs/custom-lint.md	and the digest of the snapshot's wire form (the document URI, byte count
+docs/specs/custom-lint.md	copy decoded from the snapshot's wire form: it reports per-rule `completed`,
+docs/specs/custom-lint.md	options, the snapshot in its fact wire form, and an `id`: an opaque commitment
+docs/specs/custom-lint.md	version 1 is unchanged on the wire. Hashing is an equality mechanism,
+docs/specs/custom-lint.md	serialization into the snapshot wire form, plus rule admission;
+docs/specs/formatting.md	formatter-16) while retaining wire schema 1 (formatter-10 refuses
+docs/specs/formatting.md	independently versioned from the wire schema and must be bumped whenever
+docs/specs/language-abstractions.md	nil/error adaptation and its separate wire-protocol meaning. Ordinary generic
+docs/specs/native-server-contracts.md	decode/encode witness with distinct wire and domain types. Rust-style structural
+docs/specs/native-server-contracts.md	representations. A codec can decode a wire string into a nominal identifier
+docs/specs/native-server-contracts.md	inspection exposes domain type, wire type, decode failures/services
+docs/specs/native-server-contracts.md	preserve the actual witness's wire type and directional rows through
+docs/specs/native-server-contracts.md	defaults and migrations use explicit wire types/functions rather than a
+docs/specs/native-server-contracts.md	cannot silently make a persisted wire-format change safe.
+docs/specs/native-server-contracts.md	rather than inventing a different wire response. Encoding has an honest
+docs/specs/native-server-contracts.md	empirically before admitting matched wire vectors.
+docs/specs/native-server-contracts.md	comparing it with405. The shared wire corpus records exact status/body/content-typ
+docs/specs/native-server-contracts.md	the route table and the shared wire corpus build on it.
+docs/specs/native-server-contracts.md	Implementation status (2026-10-09, wire corpus): the shared wire corpus
+docs/specs/native-server-contracts.md	(2026-10-09, wire corpus): the shared wire corpus lives in `conformance/http/`.
+docs/specs/native-server-contracts.md	rmance/http/endpoint-vectors.json` (17 exact wire exchanges on Go, Bun and Node),
+docs/specs/native-server-contracts.md	directions derive together, the wire representation is an explicit
+docs/specs/production-foundations.md	patterns. Broader host-object, wire-codec, bounded-stream, database
+docs/specs/semantic-tooling.md	[{span, newText}]}`, the same wire shape as lint finding suggestions.
+docs/specs/semantic-tooling.md	ordering and an additive/versioned wire migration.
+docs/specs/semantic-tooling.md	profile](../lsp.md) records the exact wire behavior.
+docs/specs/standard-library-capabilities.md	encoder; explicit secret access and wire encoding remain separate. No memory
+docs/specs/state-machines.md	derived codec therefore carries wire keys such as `"done"`, as Rust
+docs/standard-library.md	external codecs, validation and wire compatibility |
+internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	// Quantity.Wire become its operations.
+internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	Wire(q Quantity) string,
+internal/sketch/check/testdata/fixtures/spec/types-laws.ergo	RoundTrip(q Quantity) { Parse(Wire(q)) == q },
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	// A type's wire form is found by name, as Go finds
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	// ParseX(w) decodes and x.Wire() encodes (Go's netip.ParseAddr
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	// A nominal identifier: the wire carries a plain string.
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	func Wire(id UserId) string       { return
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	StatusWire, so encoding needs no Wire method and always
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	func Wire(q Quantity) int64 fails InvalidQuantity
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	func Wire(m Member) MemberWire fails AuditRefused
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	parent's codec composes its fields' wire forms; no witness list.
+internal/sketch/syntax/testdata/corpus/sketch-eval-8/five/codec-transforms.ergo	assert id.Wire() == "u-42"
+internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	Directory while decoding: the wire carries
+internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	func Wire(m Member) string { return m.ID
+internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	func Wire(t Total) int64 fails Unpublishable
+internal/sketch/syntax/testdata/corpus/sketch-eval-9/http-endpoints.ergo	stored-data caller decodes with the same wire forms outside HTTP.
+runtime/ergo/codec.go	// of its own: the wire form is the representation's.
+runtime/ergo/codec.go	// CodecField names a wire key and the node decoding its
+runtime/ergo/codec.go	// profile the wire key is the source field name.
+runtime/ergo/codec.go	closed alternative, selected by its wire Tag.
+runtime/ergo/codec_transform_test.go	is a nominal domain value whose wire representation is a
+runtime/ergo/http_admission_test.go	it, after the bytes are on the wire.
+runtime/ergo/http_transport_test.go	would put its first bytes on the wire before cleanup.
+runtime/ergo/http_transport_test.go	t.Fatalf("response bytes reached the wire before cleanup completed: %v",
+
+# the old-spelling list: grammar.md's old Ergo-only spellings and its copies
+CHANGELOG.md	Ergo spellings: `error[…]` rows, `wire Name { A = x }`, `catch e { …
+docs/spec/diagnostics.md	Ergo-only spelling (`error[…]` rows, `wire Name { A = x }`, `catch e { …
+docs/spec/grammar.md	spellings** (`error[…]` rows, `wire Name { A = x }`, `catch e { …
+internal/sketch/syntax/habits.go	Ergo-only spellings (error[…] rows, `wire Name { A = x }`,
+
+# old-syntax translator input: internal/migrate196 reads the old wire spelling (decision 7), and the old-corpus check reads its inline wire{…}
+internal/migrate196/embedded.go	"import", "type", "func", "var", "wire":
+internal/migrate196/embedded.go	// import, type, func, var or wire is a file; any other is a function
+internal/migrate196/testdata/old-verdicts.tsv	*
+internal/migrate196/testdata/old/proto/checkout.sketch	*
+internal/migrate196/testdata/old/proto/probes/capability-method-needs.sketch	*
+internal/migrate196/testdata/old/proto/probes/compound-discard.sketch	*
+internal/migrate196/testdata/old/proto/probes/cyclic-wire.sketch	*
+internal/migrate196/testdata/old/proto/probes/duplicate-wire.sketch	*
+internal/migrate196/testdata/old/proto/probes/duration-overflow.sketch	*
+internal/migrate196/testdata/old/proto/probes/duration-try.sketch	*
+internal/migrate196/testdata/old/proto/probes/empty-block.sketch	*
+internal/migrate196/testdata/old/proto/probes/empty-wire.sketch	*
+internal/migrate196/testdata/old/proto/probes/fallible-duration.sketch	*
+internal/migrate196/testdata/old/proto/probes/handled-duration.sketch	*
+internal/migrate196/testdata/old/proto/probes/named-wire-effect.sketch	*
+internal/migrate196/testdata/old/proto/probes/named-wire-failure.sketch	*
+internal/migrate196/testdata/old/proto/probes/named-wire-requirement.sketch	*
+internal/migrate196/testdata/old/proto/probes/named-wire-shadow.sketch	*
+internal/migrate196/testdata/old/proto/probes/nested-unit.sketch	*
+internal/migrate196/testdata/old/proto/probes/no-value-timeout.sketch	*
+internal/migrate196/testdata/old/proto/probes/ordinary-after.sketch	*
+internal/migrate196/testdata/old/proto/probes/ordinary-println.sketch	*
+internal/migrate196/testdata/old/proto/probes/predeclared-error.sketch	*
+internal/migrate196/testdata/old/proto/probes/provider-helper.sketch	*
+internal/migrate196/testdata/old/proto/probes/provider-parameter.sketch	*
+internal/migrate196/testdata/old/proto/probes/provider-scheduler.sketch	*
+internal/migrate196/testdata/old/proto/probes/sleep-timeout.sketch	*
+internal/migrate196/testdata/old/proto/probes/timeout-capability.sketch	*
+internal/migrate196/testdata/old/proto/probes/timeout-statement-last.sketch	*
+internal/migrate196/testdata/old/proto/probes/unused-wire-provider.sketch	*
+internal/migrate196/testdata/old/proto/probes/wire-initializer-error.sketch	*
+internal/migrate196/testdata/old/proto/probes/wire-initializer.sketch	*
+internal/migrate196/testdata/old/proto/probes/wire-method-cycle.sketch	*
+internal/migrate196/testdata/old/proto/probes/wire-order.sketch	*
+internal/migrate196/testdata/old/proto/probes/wire-parameter-shadow.sketch	*
+internal/migrate196/testdata/old/proto/probes/wire-predeclared-name.sketch	*
+internal/migrate196/testdata/old/proto/probes/wire-sibling.sketch	*
+internal/migrate196/testdata/old/proto/probes/with-local-capture.sketch	*
+internal/migrate196/testdata/old/proto/probes/with-name.sketch	*
+internal/migrate196/testdata/old/proto/probes/with-nonlocal-return.sketch	*
+internal/migrate196/testdata/old/proto/probes/with-return.sketch	*
+internal/migrate196/testdata/old/proto/reject/catch-not-total.sketch	*
+internal/migrate196/testdata/old/proto/reject/unprovided.sketch	*
+internal/migrate196/testdata/old/repo/docs_research_ef-migrate_checkout.sketch	*
+internal/migrate196/testdata/old/repo/docs_research_ef-migrate_lifecycle.sketch	*
+internal/migrate196/testdata/old/repo/docs_research_ef-migrate_machine-breaker.sketch	*
+internal/migrate196/testdata/old/repo/docs_research_ef-migrate_main.sketch	*
+internal/migrate196/testdata/old/repo/examples_editions_sketch_main.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-8/five/checkout.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-8/five/codec-transforms.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-8/five/layers.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-8/five/machine-breaker.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-8/loops/poller_test.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-8/loops/wire-effects.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-9/actor.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-9/http-endpoints.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-9/loops/poller_test.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-9/loops/wire-effects.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-9/observe.go.sketch	*
+internal/migrate196/testdata/old/v0/sketch-eval-9/stm-batching.go.sketch	*
+internal/migrate196/translate_test.go	"v0/sketch-eval-8/loops/wire-effects.go.sketch": true,
+internal/migrate196/translate_test.go	"v0/sketch-eval-9/loops/wire-effects.go.sketch": true,
+internal/migrate196/translate_test.go	"package p\n\nfunc main() {\n\twith(wire{ Clock = Fixed{} }) { run() }\n}\n",
+internal/sketch/syntax/decided_test.go	// type is the bare name wire, the old inline context, in source
+internal/sketch/syntax/decided_test.go	lit.Type.(*syntax.Ident); ok && id.Name == "wire" {
+internal/sketch/syntax/decided_test.go	&& (!strings.Contains(la[i], "wire{") || !strings.Contains(lb[i],
+internal/sketch/syntax/decided_test.go	// `wire{…}`: since 196w the old keyword
+internal/sketch/syntax/decided_test.go	composite literal of a type named wire, and the checker refuses it on
+
+# the record of the rename: the changelog entry, the glossary's note, the preview index row, the preview's rename map and the tests of the rename's rules
+CHANGELOG.md	[preview](docs/previews/2026-11-02-wire-to-context.md)): `with context
+CHANGELOG.md	reserved keyword in place of `wire`, which is now an ordinary identifier:
+CHANGELOG.md	an ordinary identifier: an old `wire { … }` gets the plain diagnostic
+CHANGELOG.md	context. The network sense of wire (wire formats, wire keys of a
+CHANGELOG.md	context. The network sense of wire (wire formats, wire keys of a codec)
+CHANGELOG.md	network sense of wire (wire formats, wire keys of a codec) is unchanged.
+GLOSSARY.md	layer. The construct was spelled `wire` until 196w ([2026-11-02 preview](docs/previ
+GLOSSARY.md	preview](docs/previews/2026-11-02-wire-to-context.md)). *Prior art:*
+docs/previews/README.md	| 2026-11-02 | [`wire` is spelled `context`](2026-11-02-wire-to-co
+docs/previews/README.md	spelled `context`](2026-11-02-wire-to-context.md) | Tested candidate
+internal/sketch/check/context_keyword_test.go	// context): wire is an ordinary identifier, context
+internal/sketch/check/context_keyword_test.go	// TestWireIsAnIdentifier: wire is not a keyword and has no compatibility
+internal/sketch/check/context_keyword_test.go	if syntax.IsKeyword("wire") || slices.Contains(syntax.Keywords(),
+internal/sketch/check/context_keyword_test.go	slices.Contains(syntax.Keywords(), "wire") {
+internal/sketch/check/context_keyword_test.go	t.Fatal("wire is a keyword")
+internal/sketch/check/context_keyword_test.go	"let wire = 1\n",
+internal/sketch/check/context_keyword_test.go	"func f(wire int) int { wire }\n",
+internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int
+internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int { w.N }\n",
+internal/sketch/check/context_keyword_test.go	stContextIsAKeyword: context is reserved, in wire's place, so the
+internal/sketch/check/context_residue_test.go	outside history that still say wire.
+internal/sketch/check/context_residue_test.go	residueAllowlist = "testdata/v1/wire-residue.txt"
+internal/sketch/check/context_residue_test.go	line outside history that says wire is the network
+internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec),
+internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec), grammar.md's
+internal/sketch/check/context_residue_test.go	"-n", "-I", "-w", "-i", "-E", "wires?", "--", ".",
+internal/sketch/check/context_residue_test.go	t.Errorf("%s:%s: %q says wire and no row of %s covers it; spell
+internal/sketch/syntax/decided_test.go	(196w, docs/previews/2026-11-02-wire-to-context.md).
+internal/sketch/syntax/decided_test.go	"wire": "context",
+
+# a mirror of GitHub issue titles, regenerated from the tracker
+docs/wayfinder/snapshot.json	"title": "`wire` and `with`: graph, effectful
+docs/wayfinder/snapshot.json	"title": "Effectful wire constructors and typed startup
+docs/wayfinder/snapshot.json	"title": "Parameterized wires, `fresh`, nested `with`",
+docs/wayfinder/snapshot.json	"title": "Concurrent wire build and reverse-order rollback
+docs/wayfinder/snapshot.json	"title": "`ef inspect` for wire graphs",
+docs/wayfinder/snapshot.json	provider laws through `needs` and wire, satisfaction per instantiation,
+docs/wayfinder/snapshot.json	MCP and LSP (rows, footprints, wires, machines)",
+docs/wayfinder/snapshot.json	to `needs`; add `provides` on wires",
