@@ -35,10 +35,14 @@ import (
 //     `FAIL (K of N tests)` and exit status 1.
 //
 // An assert lowers to `if !(cond) { ergoAssertFail(pos, text) }`, which
-// records the case's first failed assert and panics. The case reads the
-// record and not the panic value, so the frames the panic crossed (a with
-// scope, a task boundary) cannot hide the assert; with no record, it does
-// not recover, so a defect keeps its stack for the runtime's report.
+// panics with the failed assert. The frames the panic crosses (a with
+// scope, an exit action, a task boundary) record it as a defect of the
+// exit they carry on, beside whatever else ended them. The case reads that
+// exit through the runtime (v1.Capture), never a record of what happened
+// on the way: it fails when every reason is a failed assert or a typed
+// failure, and otherwise raises the exit again whole (v1.Raise), so a
+// defect, one an exit action raised after an assert included, keeps its
+// stack for the runtime's report and stops the run (E3a M3).
 //
 // Prior art: Go's test binary is a separate build with a generated main
 // that calls each TestX and stops at a panic; Elixir's ExUnit and Gleam's
@@ -81,10 +85,9 @@ func LowerTests(u Unit) ([]File, error) {
 // testHelpers are the harness's package-scope entities: key and preferred
 // name, in the order the naming pass reserves them.
 var testHelpers = []struct{ key, base string }{
-	{"fmt", "fmt"}, {"os", "os"}, {"sync", "sync"},
+	{"fmt", "fmt"}, {"os", "os"},
 	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"},
-	{"FailedMu", "ergoFailedMu"}, {"Failed", "ergoFailed"},
-	{"Case", "ergoCase"}, {"Where", "ergoWhere"},
+	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
@@ -123,7 +126,7 @@ func (l *lowerer) testImports() []string {
 	if l.tests == nil {
 		return nil
 	}
-	return []string{l.helper("fmt") + ` "fmt"`, l.helper("os") + ` "os"`, l.helper("sync") + ` "sync"`}
+	return []string{l.helper("fmt") + ` "fmt"`, l.helper("os") + ` "os"`}
 }
 
 func (l *lowerer) testFunc(t *check.Test) string {
@@ -243,7 +246,7 @@ func (l *lowerer) testRunner() string {
 	for _, t := range l.pkg.Tests {
 		name := strconv.Quote(t.Name)
 		if len(t.Params) == 0 {
-			b.WriteString("\tif " + run + "(" + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
+			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")
 			b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
 			continue
@@ -272,7 +275,7 @@ func (l *lowerer) testRunner() string {
 			format += sep + v.Name + " = %+v"
 			shown = append(shown, a)
 		}
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + name + ", func() string { return " + fmtPkg + ".Sprintf(" + strconv.Quote(format) + ", " + strings.Join(shown, ", ") + ") }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") })\n")
+		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + fmtPkg + ".Sprintf(" + strconv.Quote(format) + ", " + strings.Join(shown, ", ") + ") }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") })\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
@@ -285,19 +288,29 @@ func (l *lowerer) testRunner() string {
 	return b.String()
 }
 
-// harness is the test build's fixed Go: the assert record, the case runner,
-// the generator's source of randomness and the seed flag. Every package
-// name it uses is a reserved helper; its locals name nothing else.
+// harness is the test build's fixed Go: the assert, the case runner, the
+// generator's source of randomness and the seed flag. Every package name
+// it uses is a reserved helper or one of the two runtime imports ($Runtime,
+// $Task); its locals name nothing else.
 func (l *lowerer) harness() string {
-	pairs := []string{}
-	keys := make([]string, 0, len(testHelpers))
+	names := map[string]string{"Runtime": l.rt(), "Task": l.taskPkg()}
 	for _, h := range testHelpers {
-		keys = append(keys, h.key)
+		names[h.key] = l.helper(h.key)
 	}
-	// Replace longer keys first, so $Failed never eats $FailedMu.
-	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
+	keys := make([]string, 0, len(names))
+	for k := range names {
+		keys = append(keys, k)
+	}
+	// Replace longer keys first, so no key eats a longer one it begins.
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) > len(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+	pairs := []string{}
 	for _, k := range keys {
-		pairs = append(pairs, "$"+k, l.helper(k))
+		pairs = append(pairs, "$"+k, names[k])
 	}
 	return strings.NewReplacer(pairs...).Replace(harnessGo)
 }
@@ -307,46 +320,31 @@ type $Assertion struct{ at, text string }
 
 func (a $Assertion) String() string { return "assert failed at " + a.at + ": " + a.text }
 
-// $Failed is the running case's first failed assert. A case reads it, not
-// the panic value, whichever frames and tasks the panic crossed.
-var (
-	$FailedMu $sync.Mutex
-	$Failed   *$Assertion
-)
+func $AssertFail(at, text string) { panic($Assertion{at, text}) }
 
-func $AssertFail(at, text string) {
-	a := $Assertion{at, text}
-	$FailedMu.Lock()
-	if $Failed == nil {
-		$Failed = &a
-	}
-	$FailedMu.Unlock()
-	panic(a)
-}
-
-// $Case runs one case of the test name. A failed assert, or a typed failure
-// that escapes the body, fails it: it prints a FAIL line and returns false.
-// Any other panic is a defect: it prints a FAIL line and is not recovered,
-// so the runtime reports it with its Ergo frames and the run stops.
-func $Case(name string, args func() string, body func() error) (ok bool) {
-	$FailedMu.Lock()
-	$Failed = nil
-	$FailedMu.Unlock()
+// $Case runs one case of the test name on the task t. A typed failure that
+// escapes the body fails it: it prints a FAIL line and returns false. A
+// panic is read as the exit that survived the body's unwinding
+// ($Runtime.Capture): when its reasons are failed asserts, with typed
+// failures beside them, the case fails with the first assert. Any other
+// exit, a defect an exit action raised after an assert began the unwind
+// included, prints a FAIL line and is raised again whole ($Runtime.Raise),
+// so the runtime reports every reason with its Ergo frames and the run
+// stops.
+func $Case(t *$Task.Task, name string, args func() string, body func() error) (ok bool) {
 	done := false
 	defer func() {
 		if done {
 			return
 		}
-		$FailedMu.Lock()
-		a := $Failed
-		$FailedMu.Unlock()
-		if a == nil {
-			$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		exit := $Runtime.Capture(t, recover())
+		if a, failed := $Asserted(exit); failed {
+			$fmt.Println("FAIL " + name + $Where(args) + ": " + a.String())
+			ok = false
 			return
 		}
-		recover()
-		$fmt.Println("FAIL " + name + $Where(args) + ": " + a.String())
-		ok = false
+		$fmt.Println("FAIL " + name + $Where(args) + ": a defect, which stops the run")
+		$Runtime.Raise(exit)
 	}()
 	err := body()
 	done = true
@@ -355,6 +353,37 @@ func $Case(name string, args func() string, body func() error) (ok bool) {
 		return false
 	}
 	return true
+}
+
+// $Asserted is the first failed assert of exit, when every reason of exit is
+// a failed assert or a typed failure and one is an assert. A failed assert
+// is a defect whose value is an $Assertion: the panic itself, or the record
+// a boundary made of it.
+func $Asserted(exit error) (first $Assertion, failed bool) {
+	c, isCause := exit.(*$Task.Cause)
+	if !isCause || c == nil {
+		return first, false
+	}
+	for _, r := range c.Reasons {
+		switch r.Kind {
+		case $Task.KindFailure:
+		case $Task.KindDefect:
+			v := r.Value
+			if p, isPanic := v.(*$Runtime.Panic); isPanic {
+				v = p.Value
+			}
+			a, isAssert := v.($Assertion)
+			if !isAssert {
+				return first, false
+			}
+			if !failed {
+				first, failed = a, true
+			}
+		default:
+			return first, false
+		}
+	}
+	return first, failed
 }
 
 func $Where(args func() string) string {
