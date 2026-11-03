@@ -124,7 +124,9 @@ func (c *checker) orphanValues(xs []syntax.Expr, mark int) {
 // (class H; stage D1 fuzz input 45ef37113544dcb7, `func d() { func() {
 // 0[d] } }`). A function literal needs the missing type, so its frame is
 // recorded skipped (skipFrame); an elided-type literal needs it too, so its
-// elements are orphans in turn (stage D1 round 1 review M6).
+// elements are orphans in turn (stage D1 round 1 review M6), of a literal
+// whose type the walk does not know either (reflits.go: no enclosing
+// literal gives it one).
 func (c *checker) orphan(e syntax.Expr, mark int) {
 	switch x := e.(type) {
 	case *syntax.FuncLit:
@@ -132,7 +134,7 @@ func (c *checker) orphan(e syntax.Expr, mark int) {
 		return
 	case *syntax.CompositeLit:
 		if x.Type == nil {
-			c.orphanElements(x, mark)
+			c.orphanElements(x, mark, litType{})
 			return
 		}
 	}

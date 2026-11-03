@@ -495,16 +495,69 @@ func fitsInt64(v constant.Value) bool {
 // type is unknown (reported, or invalid for another reason), as orphans
 // (orphanValues; stage D1 fuzz triage, `with 0 { with context { A: A{read} }
 // {} }`). A key is a field name of an unknown type and stays unchecked.
-func (c *checker) orphanElements(x *syntax.CompositeLit, mark int) {
+// lt is the literal's type as the reference walk reads it (reflits.go),
+// whatever typing made of it: an elided literal among the values takes its
+// type from lt (orphanValue).
+func (c *checker) orphanElements(x *syntax.CompositeLit, mark int, lt litType) {
 	for _, e := range x.Elts {
 		if kv, ok := e.(*syntax.KeyValueExpr); ok {
 			e = kv.Value
 		}
-		c.orphan(e, mark)
+		c.orphanValue(e, mark, lt, false)
 	}
 }
 
+// orphanValue types v, an element, key (key) or value of a composite
+// literal of type lt as the walk reads it, as an orphan. An elided literal
+// takes its type from lt as the walk does (elemOf): where lt is a record,
+// the value is a field, which never elides its type, so nothing in it is
+// typed and the walk only visits it (rows.md, Inference 6). Typing so
+// records a name inside a refused literal exactly when the walk takes it
+// (FuzzCheck d1665805d2fed622, 353ea9dccd4807ec).
+func (c *checker) orphanValue(v syntax.Expr, mark int, lt litType, key bool) {
+	cl, ok := v.(*syntax.CompositeLit)
+	if !ok || cl.Type != nil {
+		c.orphan(v, mark)
+		return
+	}
+	et := c.elemOf(lt, key)
+	if et.kind == litInvalid {
+		c.markReassignedIn(cl)
+		return
+	}
+	c.orphanElements(cl, mark, et)
+}
+
+// elementValue checks v, an element or key (key) of an array, slice or map
+// literal of type lt as the walk reads it, against its type want. An elided
+// literal there learns the type the walk gives it (elemOf), which its
+// refusal routes follow (compositeLit) where typing's own type is invalid.
+// It is read only there, so a literal typing accepts costs no step more.
+func (c *checker) elementValue(v syntax.Expr, want Type, lt func() litType, key bool) operand {
+	if cl, ok := v.(*syntax.CompositeLit); ok && cl.Type == nil {
+		c.elidedLit = cl
+		c.elidedAs = func() litType { return c.elemOf(lt(), key) }
+	}
+	return c.valueExpr(v, want)
+}
+
 func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
+	// x's type as the reference walk reads it: its written type, or the type
+	// the enclosing literal gives it (elementValue). Each refusal route
+	// follows it, so typing and the walk agree on the names inside.
+	var elided func() litType
+	if x.Type == nil && c.elidedLit == x {
+		elided = c.elidedAs
+	}
+	c.elidedLit, c.elidedAs = nil, nil
+	var walkLt *litType
+	lt := func() litType {
+		if walkLt == nil {
+			l := c.litTypeOfLit(x, elided)
+			walkLt = &l
+		}
+		return *walkLt
+	}
 	var t Type
 	mark := c.undiagSeq
 	switch {
@@ -517,33 +570,23 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 				// earlier in the statement.
 				mark = c.stmtMark
 			}
-			c.orphanElements(x, mark)
+			c.orphanElements(x, mark, lt())
 			return bad(x)
 		}
 		t = hint
 	default:
-		var fields bool
-		t, fields = c.literalType(x, hint)
-		if t == nil && fields {
-			// A generic record whose type arguments failed: its values are
-			// fields, which never elide their type, so an elided literal
-			// among them is not typed (strayValue), as the reference walk
-			// reads it (reflits.go elemOf; FuzzCheck d1665805d2fed622).
-			for _, e := range x.Elts {
-				if kv, ok := e.(*syntax.KeyValueExpr); ok {
-					e = kv.Value
-				}
-				c.strayValue(e, mark, false)
-			}
-			return bad(x)
-		}
+		t = c.literalType(x, hint)
 		if t == nil {
-			c.orphanElements(x, mark)
+			// A refused written type, or a generic record whose type
+			// arguments failed: the values are orphans, and a record's are
+			// fields, so an elided literal among them is not typed
+			// (orphanValue).
+			c.orphanElements(x, mark, lt())
 			return bad(x)
 		}
 	}
 	if isInvalid(t) {
-		c.orphanElements(x, mark)
+		c.orphanElements(x, mark, lt())
 		return bad(x)
 	}
 	if isZeroRecord(t) && len(x.Elts) == 0 {
@@ -565,7 +608,7 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			return operand{mode: modeValue, typ: t}
 		}
 	case *Slice:
-		c.elements(x, u.Elem)
+		c.elements(x, u.Elem, lt)
 	case *Map:
 		// A constant key appears once, compared after conversion to the
 		// key type, as in Go (N3).
@@ -578,10 +621,10 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 			kv, ok := e.(*syntax.KeyValueExpr)
 			if !ok {
 				c.errorf(e, CodeType, "a map literal's elements are key: value pairs")
-				c.orphan(e, mark)
+				c.orphanValue(e, mark, lt(), false)
 				continue
 			}
-			k := c.valueExpr(kv.Key, u.Key)
+			k := c.elementValue(kv.Key, u.Key, lt, true)
 			if c.assign(&k, u.Key, "map key") && k.mode == modeConst && k.val != nil {
 				// Keys of an interface type compare by dynamic type and
 				// value: int(1) and int64(1) are distinct (round-2 M7).
@@ -595,17 +638,17 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 				}
 				seen[key] = true
 			}
-			v := c.valueExpr(kv.Value, u.Elem)
+			v := c.elementValue(kv.Value, u.Elem, lt, false)
 			c.assign(&v, u.Elem, "map value")
 		}
 	case *MachineType:
 		if len(x.Elts) > 0 {
 			c.errorf(x, CodeType, "a machine value has no fields")
-			c.orphanElements(x, mark)
+			c.orphanElements(x, mark, lt())
 		}
 	default:
 		c.errorf(x, CodeType, "cannot write a composite literal of %s", t)
-		c.orphanElements(x, mark)
+		c.orphanElements(x, mark, lt())
 		return bad(x)
 	}
 	return operand{mode: modeValue, typ: t}
@@ -614,29 +657,28 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 // literalType resolves a composite literal's written type. A generic type
 // written without type arguments takes them from the expected type (a union
 // that lists one of its instances, or an instance), else from its field
-// values (D6: Some{n}, Enter{x}). fields reports a nil type of a generic
-// record: the literal's values are its fields.
-func (c *checker) literalType(x *syntax.CompositeLit, hint Type) (t Type, fields bool) {
+// values (D6: Some{n}, Enter{x}). It is nil when the type is refused.
+func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 	raw := c.typExpr0(x.Type, c.localTypeCtx())
 	if isInvalid(raw) {
-		return nil, false
+		return nil
 	}
 	n, ok := raw.(*Named)
 	if !ok || n.Orig != nil || len(n.TParams) == 0 {
 		if tp, ok := raw.(*TypeParam); ok && tp.Kind != KindType {
 			c.errorf(x.Type, CodeType, "%s is %s parameter, not a type", tp.Name, tp.Kind)
-			return nil, false
+			return nil
 		}
-		return raw, false
+		return raw
 	}
 	if inst := instanceFromHint(n, hint); inst != nil {
-		return inst, false
+		return inst
 	}
 	// Infer from the field values.
 	s, ok := n.underlying().(*Struct)
 	if !ok {
 		c.errorf(x.Type, CodeType, "generic type %s needs type arguments", n)
-		return nil, false
+		return nil
 	}
 	m := map[*TypeParam]Type{}
 	set := map[*TypeParam]bool{}
@@ -685,7 +727,7 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) (t Type, fields
 			if tp, isParam := ft.(*TypeParam); lits && isParam && set[tp] {
 				if prev, seen := byLiteral[tp]; seen && !c.identical(prev, op.typ) {
 					c.errorf(x.Type, CodeType, "cannot infer the type argument %s of %s: its literals take %s and %s; write %s[…] (D6)", tp.Name, n.Obj.Name, prev, op.typ, n.Obj.Name)
-					return nil, true
+					return nil
 				}
 				if m[tp] == nil {
 					byLiteral[tp] = op.typ
@@ -702,7 +744,7 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) (t Type, fields
 				b = &RowArg{Row: newRow()}
 			} else {
 				c.errorf(x.Type, CodeType, "cannot infer the type argument %s of %s: write %s[…] (D6)", tp.Name, n.Obj.Name, n.Obj.Name)
-				return nil, true
+				return nil
 			}
 		}
 		targs[i] = b
@@ -715,14 +757,14 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) (t Type, fields
 			cons := c.subst(tp.Constraint, paramMap(n.TParams, targs))
 			if why := c.satisfies(targs[i], cons); why != "" {
 				c.errorf(x.Type, CodeType, "the inferred type argument %s of %s does not satisfy %s: %s (types.md, Generics 2)", targs[i], n.Obj.Name, cons, why)
-				return nil, true
+				return nil
 			}
 		}
 	}
 	if !c.typeArgsAdmitted(n.Obj.Name, n.TParams, targs, x) {
-		return nil, true
+		return nil
 	}
-	return c.instantiate(n, targs), false
+	return c.instantiate(n, targs)
 }
 
 // instanceFromHint finds the instance of a generic origin that an expected
@@ -892,15 +934,17 @@ func (c *checker) localTypeText(t Type) string {
 	return re.ReplaceAllString(t.String(), "$1")
 }
 
-func (c *checker) elements(x *syntax.CompositeLit, elem Type) {
+// elements checks the elements of an array or slice literal x of element
+// type elem; lt is x's type as the walk reads it (elementValue).
+func (c *checker) elements(x *syntax.CompositeLit, elem Type, lt func() litType) {
 	for _, e := range x.Elts {
 		val := e
 		if kv, ok := e.(*syntax.KeyValueExpr); ok {
-			k := c.valueExpr(kv.Key, Typ[Int])
+			k := c.elementValue(kv.Key, Typ[Int], lt, true)
 			c.assign(&k, Typ[Int], "index")
 			val = kv.Value
 		}
-		op := c.valueExpr(val, elem)
+		op := c.elementValue(val, elem, lt, false)
 		c.assign(&op, elem, "element")
 	}
 }
