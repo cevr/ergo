@@ -52,9 +52,35 @@
 // translate-c table (TestOpenTUIMatchesTranslateC) and the host C compiler
 // with `_Static_assert` (TestCOracle).
 //
-// # The binding contract and the two Go layers
+// # The binding contract and the classes
 //
-// The binding contract (slice 1b), the Go emitter with its raw and typed
-// layers (slice 1c) and the Ergo text (slice 1d) come in later slices of
-// bind-c-1.
+// The binding contract (see Contract for its keys) holds what C types
+// cannot prove: the header's sha256, the Go package, the name prefixes,
+// the status type and its codes, the ABI-version pair, the handle types
+// with their create and destroy functions, the autofill fields, the name
+// rules of buffers, per-position exceptions and skips, each with a reason.
+// DecodeContract reads it strictly; Bind checks every fact against the
+// model and fails closed.
+//
+// Bind gives every pointer position (a parameter or result that is a data
+// pointer or a callback) exactly one Class. An exception names the class
+// of its position. Otherwise each rule (see the rule constants in
+// classify.go) is a predicate on the position and its neighbors, and the
+// rules do not consult each other: one match gives the rule's class, and
+// zero or two matches make the position raw. A position is "lone" when it
+// is not next to a parameter whose name could be a length or a capacity;
+// only a lone pointer can be a value or an out-parameter, so `const S *,
+// uint32_t chunk_count` is never one value, named or not. A length that
+// comes before its buffer is not recognized (C APIs put it after).
+//
+// A function is typed when every pointer position has a class other than
+// raw and its buffers fit together (each length serves one buffer, each
+// out_count belongs to its out_buffer, no by-value struct holds a pointer).
+// Otherwise it is raw-only, and the report (Report, report.txt) names each
+// raw position and its reason. A `const S *` whose struct holds a pointer
+// is raw (Go memory that holds Go pointers must not reach C); a callback
+// is raw until bind-c-2.
+//
+// The Go output (slice 1c) and the Ergo text (slice 1d) come in later
+// slices of bind-c-1.
 package bindc

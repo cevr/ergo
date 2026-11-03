@@ -1,0 +1,39 @@
+binding report: fixture.h
+header sha256 57ef22281a09d923747109e92dd3fcc6f2df61ae347a384349cda0e92c838215
+go package fixture (ergo.local/bind/fixture)
+status fx_status: success FX_OK, 5 codes
+abi fx_abi_version() == FX_ABI_VERSION (2)
+handle fx_context (Context): create fx_context_create.out_context, destroy fx_context_destroy, thread owner
+autofill struct_size = size
+autofill abi_version = abi
+
+typed functions (12):
+  fx_abi_version: func AbiVersion() (uint32, error)
+  fx_context_create: func ContextCreate(options ContextOptions) (*Context, error)
+  fx_context_destroy: func ContextDestroy(context *Context) error
+  fx_node_create: func NodeCreate(context *Context, kind uint32) (Node, error)
+  fx_node_destroy: func NodeDestroy(context *Context, node Node) error
+  fx_node_count: func NodeCount(context *Context) (uint32, error)
+  fx_node_set_box: func NodeSetBox(context *Context, node Node, box Box) error
+  fx_node_get_box: func NodeGetBox(context *Context, node Node) (Box, error)
+  fx_node_set_name: func NodeSetName(context *Context, node Node, name []byte) error
+  fx_node_read_name: func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error)
+  fx_point_length: func PointLength(point Point) (float32, error)
+  fx_context_age: func ContextAge(context *Context) (Seconds, error)
+
+raw-only functions (2):
+  fx_node_set_text: param 2 (text): fx_text holds a pointer (Go memory that holds Go pointers must not reach C)
+  fx_context_visit: param 1 (callback): callback parameter (callbacks are raw until bind-c-2); param 2 (user_data): no rule covers it
+
+counts:
+  functions 14: typed 12, raw-only 2, skipped 0
+  pointer positions 29: handle 11, value 8, out 4, in_buffer 1, out_buffer 1, out_count 1, raw 3
+  constants 22, status codes 5
+
+exceptions (0):
+
+skips (4):
+  FX_SMALL (not a status code): a limit of the constant forms (INT8_C gives int), not a status code
+  FX_WIDE (not a status code): a limit of the constant forms (UINT16_C gives int), not a status code
+  FX_HEX (not a status code): a hex constant of the constant forms, not a status code
+  FX_ALIAS (not a status code): an alias of FX_STALE_HANDLE; one code has one name

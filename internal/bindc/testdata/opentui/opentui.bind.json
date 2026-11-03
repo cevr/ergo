@@ -1,0 +1,62 @@
+{
+  "header": "opentui.h",
+  "header_sha256": "477bd524f4c89f58393fda4d253eb6f9de748e548dfbec9a3926065bdf72a8ca",
+  "go": {
+    "package": "opentui",
+    "import_path": "ergo.local/bind/opentui"
+  },
+  "prefixes": {
+    "function": "ot_",
+    "macro": "OT_",
+    "type": "ot_"
+  },
+  "status": {
+    "type": "ot_status",
+    "macro_prefix": "OT_",
+    "success": "OT_OK",
+    "exclude": []
+  },
+  "abi": {
+    "function": "ot_context_abi_version",
+    "macro": "OT_CONTEXT_ABI_VERSION"
+  },
+  "handles": [
+    {
+      "type": "ot_context",
+      "create": "ot_context_create",
+      "out": "out_context",
+      "destroy": "ot_context_destroy",
+      "thread": "owner"
+    }
+  ],
+  "autofill": [
+    {"field": "struct_size", "value": "size"},
+    {"field": "abi_version", "value": "abi"}
+  ],
+  "buffers": {
+    "length_names": ["count", "{name}_count", "{stem}_count", "{name}_length", "{name}_len"],
+    "byte_length_names": ["byte_count", "{name}_bytes", "{stem}_byte_count"],
+    "capacity_names": ["capacity"],
+    "count_names": ["out_count", "out_byte_count"],
+    "out_prefix": "out_"
+  },
+  "exceptions": [
+    {"function": "ot_session_drain_stdout", "position": "session", "class": "value",
+     "why": "max_bytes after session limits the drained output; it is not the length of session"},
+    {"function": "ot_session_post_stdout", "position": "session", "class": "value",
+     "why": "max_bytes after session limits the posted output; it is not the length of session"},
+    {"function": "ot_text_buffer_get_info", "position": "#2", "class": "out",
+     "why": "unnamed out-parameter: the call writes one ot_text_buffer_info"},
+    {"function": "ot_text_buffer_view_get_info", "position": "#2", "class": "out",
+     "why": "unnamed out-parameter: the call writes one ot_editor_view_info"},
+    {"function": "ot_text_buffer_view_measure", "position": "#4", "class": "out",
+     "why": "unnamed out-parameter: the call writes one ot_editor_measure"},
+    {"function": "ot_text_buffer_set_styled_text", "position": "#4", "class": "in_buffer", "length": "chunk_count", "unit": "elements",
+     "why": "unnamed chunk array: chunk_count counts its ot_styled_text_chunk entries (the header: chunk_count can exceed byte_count)"},
+    {"function": "ot_text_buffer_replace_styled_batch", "position": "#5", "class": "in_buffer", "length": "chunk_count", "unit": "elements",
+     "why": "unnamed chunk array: chunk_count counts its ot_styled_text_chunk entries"},
+    {"function": "ot_text_buffer_replace_styled_batch", "position": "out", "class": "out",
+     "why": "named out without the out_ prefix: the call writes one ot_text_buffer_replacement_info"}
+  ],
+  "skips": []
+}
