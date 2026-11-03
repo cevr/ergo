@@ -447,7 +447,10 @@ func (fc *funcCtx) ret(s *syntax.ReturnStmt) {
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
 	f := fc.frame
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x)) {
+	// Whether the value is a failure is decided by the returning body's
+	// own view (owners.go): a type only a test's row names is a value in
+	// a production body, in the test build too.
+	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) {
 		fc.fail(fc.value(x))
 		return
 	}

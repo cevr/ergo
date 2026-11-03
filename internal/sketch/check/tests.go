@@ -53,6 +53,7 @@ func (c *checker) collectTest(d *syntax.TestDecl, fi *fileInfo) {
 		c.tests.names = map[string]bool{}
 	}
 	t := &Test{Name: d.Name.Name, Decl: d, file: fi}
+	c.ownBody(d, OwnerTest)
 	// A second test of a name is checked as well, so which one is reported
 	// does not decide which body's diagnostics appear (declaration order).
 	c.tests.all = append(c.tests.all, t)

@@ -70,8 +70,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if len(u.Files) != 1 {
 		return nil, fmt.Errorf("lower: %d files in one package; packages of several files are 196b's", len(u.Files))
 	}
-	l := newLowerer(u)
-	l.tests = &testLowering{gens: map[pkgKey]bool{}}
+	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}})
 	code, err := l.program()
 	if err != nil {
 		return nil, err

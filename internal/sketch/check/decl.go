@@ -83,10 +83,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.cur = nil
 		pass()
 	}
-	c.pkg.ErrorTypes = make(map[*Named]bool, len(c.errorTypes))
-	for n := range c.errorTypes {
-		c.pkg.ErrorTypes[n] = true
-	}
+	c.publishErrorTypes()
 	c.cur = nil
 	return c.pkg
 }
@@ -98,7 +95,9 @@ func (c *checker) run(files []*syntax.File) *Package {
 // 1) does not depend on declaration order (M3). It reads each element's
 // head type name syntactically (`Fault`, `pkg.Fault`, `Fault[T]`), so an
 // element whose type arguments name a body's type parameter still counts.
-// It reports nothing; the checks of the rows report.
+// Each row counts for its own owner (owners.go): a test's row makes an
+// error type of the tests only. It reports nothing; the checks of the rows
+// report.
 func (c *checker) collectBodyErrorRows() {
 	for _, fi := range c.files {
 		// Defensive: this pass only collects row heads and reports nothing.
@@ -107,9 +106,7 @@ func (c *checker) collectBodyErrorRows() {
 			if er, ok := n.(*syntax.ErrorRow); ok {
 				for _, x := range er.Types {
 					if n := c.errorRowHead(x); n != nil {
-						if _, seen := c.errorTypes[n]; !seen {
-							c.errorTypes[n] = x.Pos()
-						}
+						c.addErrorType(n, c.pkg.OwnerOf(er), x.Pos())
 					}
 				}
 			}
@@ -1301,10 +1298,9 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 			c.errorf(x, CodeUnknown, "%s is not an error type: an error type is a named struct type (types.md, Error types 1)", t)
 			return nil
 		}
-		n := t.(*Named)
-		if _, seen := c.errorTypes[n.origin()]; !seen {
-			c.errorTypes[n.origin()] = x.Pos()
-		}
+		// The row's own owner, not the body being checked: a declaration
+		// may be resolved first from a test.
+		c.addErrorType(t.(*Named), c.pkg.OwnerOf(x), x.Pos())
 	case KindUses:
 		if !isCapability(t) {
 			c.errorf(x, CodeUnknown, "%s is not a capability: a capability is a named interface with methods (rows.md, Capability rows 3)", t)

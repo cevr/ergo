@@ -462,15 +462,17 @@ func (c *checker) checkEntry() {
 	}
 }
 
-// checkErrorMethods reports a function Error on an error type on an error type: the
-// emitter generates it from the fields (types.md, Methods 5).
+// checkErrorMethods reports a function Error on an error type: the emitter
+// generates it from the fields (types.md, Methods 5). A row of any owner
+// counts: the test build lowers the function beside the tests' error
+// types, so a test's row would give the type a second Error method.
 func (c *checker) checkErrorMethods() {
 	for _, f := range c.funcs {
 		owner := f.owner // Error(e E) string, reached as e.Error() (196m)
 		if owner == nil || f.Name != "Error" {
 			continue
 		}
-		if _, ok := c.errorTypes[owner.origin()]; !ok {
+		if !c.errorTypeAnywhere(owner) {
 			continue
 		}
 		c.cur = f.file

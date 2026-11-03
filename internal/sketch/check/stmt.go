@@ -646,19 +646,20 @@ func (c *checker) errorValueRow(t Type) *Row {
 	return nil
 }
 
-// isErrorValue reports whether t is an error type: a type named in an error
-// row of its package (types.md, Error types 1 and 2).
+// isErrorValue reports whether t is an error type in the body being
+// checked: a type named in an error row of its package that the body sees
+// (types.md, Error types 1 and 2; owners.go).
 func (c *checker) isErrorValue(t Type) bool {
 	n, ok := t.(*Named)
 	if !ok {
 		return false
 	}
 	o := n.origin()
-	if _, ok := c.errorTypes[o]; ok {
+	if c.errorTypeIn(o, c.owner) {
 		return true
 	}
 	if p := o.Obj.Pkg; p != nil && p != c.pkg && p.ErrorTypes != nil {
-		return p.ErrorTypes[o]
+		return p.IsErrorType(o, OwnerProduction)
 	}
 	return o.Obj.Pkg == universeOnce.goPkg && o.Obj.Name == "Error"
 }

@@ -125,11 +125,12 @@ func (l *lowerer) declareName(d syntax.Decl) {
 	}
 }
 
-// withsOf are the withs of the named context w, in source order.
+// withsOf are the withs of the named context w that this build lowers, in
+// source order.
 func (l *lowerer) withsOf(w *check.Context) []*check.With {
 	var xs []*syntax.CallExpr
 	for x, with := range l.info.Withs {
-		if len(with.Contexts) > 0 && with.Contexts[0] == w {
+		if len(with.Contexts) > 0 && with.Contexts[0] == w && l.readsFact(l.pkg, x) {
 			xs = append(xs, x)
 		}
 	}
@@ -228,7 +229,7 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 	case *syntax.StructType:
 		td.kind = kindRecord
 		td.fieldName = map[string]string{}
-		td.errorType = named.Obj.Pkg.ErrorTypes[named] || l.pkg.ErrorTypes[named]
+		td.errorType = l.errorType(named, l.buildView())
 		// A defined error type over this record keeps its Go field names,
 		// so they avoid its Error method too.
 		avoidError := td.errorType || l.definedErrorOver(named)
@@ -299,7 +300,7 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 		// A defined type over a record, named in an error row, is an error
 		// type of its own: it gets its own Error method (types.md, Error
 		// types 1).
-		td.errorType = named.Obj.Pkg.ErrorTypes[named] || l.pkg.ErrorTypes[named]
+		td.errorType = l.errorType(named, l.buildView())
 	}
 	return td
 }
@@ -311,7 +312,7 @@ func (l *lowerer) definedErrorOver(named *check.Named) bool {
 		if pkg == nil {
 			continue
 		}
-		for n := range pkg.ErrorTypes {
+		for _, n := range l.errorTypesRead(pkg) {
 			for t := n.Defined(); t != nil; {
 				d, ok := t.(*check.Named)
 				if !ok {

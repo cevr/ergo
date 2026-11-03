@@ -273,7 +273,11 @@ type checker struct {
 	subjects map[any]*switchUnion
 	mono     monoState // the instantiation graph (instantiation cycles)
 
-	errorTypes map[*Named]syntax.Pos // origin error types named in an error row of this package
+	// errorTypes are, by owner, the origin error types an error row of this
+	// package names (owners.go); owner is the owner of the body being
+	// checked, whose view decides what is an error type.
+	errorTypes map[FactOwner]map[*Named]syntax.Pos
+	owner      FactOwner
 	funcs      []*Func               // every package function and method, in source order
 	vars       []*pkgVar
 	machines   []*TypeName
@@ -349,7 +353,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 		inferInstances: map[int32]*Named{},
 		inferSubjects:  map[any]*switchUnion{},
 		settled:        map[*Func]bool{},
-		errorTypes:     map[*Named]syntax.Pos{},
+		errorTypes:     map[FactOwner]map[*Named]syntax.Pos{},
 		guarded:        map[*Func]bool{},
 		reach:          map[any]*reachNode{},
 		providers:      map[*Named][]*Named{},
