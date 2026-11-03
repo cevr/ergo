@@ -100,6 +100,16 @@ type parser struct {
 	tags   map[string]Pos
 	names  map[string]Pos // every typedef and function name
 	macros map[string]macroDef
+	// knr, when set, is the K&R construct the last diagnostic refused;
+	// skipTop skips it as one construct.
+	knr *knrSkip
+}
+
+// knrSkip is a refused K&R construct: open is the index of the `(` of its
+// parameter list, and names holds the names of its identifier list.
+type knrSkip struct {
+	open  int
+	names map[string]bool
 }
 
 // bail unwinds to the nearest recovery point after a diagnostic.
@@ -164,6 +174,97 @@ func (p *parser) try(f func(), skip func(start int)) {
 	}()
 	if failed {
 		skip(start)
+		p.knr = nil
+	}
+}
+
+// failKAndR refuses a K&R construct whose parameter list opens at open.
+func (p *parser) failKAndR(open int, names map[string]bool, at token, format string, args ...any) {
+	p.knr = &knrSkip{open: open, names: names}
+	p.fail(at, CodeKAndR, format, args...)
+}
+
+// matching returns the index of the bracket that closes the one at i, or
+// the index of the end of the file.
+func (p *parser) matching(i int) int {
+	depth := 0
+	for k := i; ; k++ {
+		switch t := p.toks[k]; {
+		case t.kind == tEOF:
+			return k
+		case t.is("(") || t.is("[") || t.is("{"):
+			depth++
+		case t.is(")") || t.is("]") || t.is("}"):
+			if depth--; depth == 0 {
+				return k
+			}
+		}
+	}
+}
+
+// skipKAndR skips a K&R construct as one: its parameter list, then the `;`
+// of a declaration, or the declaration list and the body of a definition.
+// The declaration right after the parameter list belongs to the construct;
+// a later one belongs to it only when it names a parameter of the
+// identifier list, so a K&R declarator without a body ends before the next
+// declaration of the header.
+func (p *parser) skipKAndR(k knrSkip) {
+	i := p.matching(k.open)
+	if p.toks[i].kind == tEOF {
+		p.i = i
+		return
+	}
+	i++
+	if p.toks[i].is(";") {
+		p.i = i + 1
+		return
+	}
+	for first := true; ; first = false {
+		if p.toks[i].is("{") {
+			if i = p.matching(i); p.toks[i].kind != tEOF {
+				i++
+			}
+			p.i = i
+			return
+		}
+		end, named := p.declarationEnd(i, k.names)
+		switch {
+		case p.toks[end].is("{"):
+			i = end
+		case !p.toks[end].is(";"): // the end of the file or a stray closer
+			p.i = end
+			return
+		case first || named:
+			i = end + 1
+		default:
+			p.i = i
+			return
+		}
+	}
+}
+
+// declarationEnd returns the index of the `;` that ends the declaration at
+// i, or of the `{`, stray closer or end of file before it, and whether the
+// declaration names one of names.
+func (p *parser) declarationEnd(i int, names map[string]bool) (int, bool) {
+	depth, named := 0, false
+	for ; ; i++ {
+		t := p.toks[i]
+		switch {
+		case t.kind == tEOF:
+			return i, named
+		case t.is("(") || t.is("["):
+			depth++
+		case t.is(")") || t.is("]"):
+			if depth == 0 {
+				return i, named
+			}
+			depth--
+		case depth == 0 && (t.is(";") || t.is("{") || t.is("}")):
+			return i, named
+		case t.kind == tIdent && names[t.text]:
+			named = true
+		}
 	}
 }
 
@@ -216,8 +317,12 @@ func (p *parser) skipTo(start int, end func(t token, depth int, opener token) (s
 }
 
 // skipTop ends a top-level declaration at `;`, or at the `}` of a
-// function body.
+// function body. A refused K&R construct ends after its body.
 func (p *parser) skipTop(start int) {
+	if k := p.knr; k != nil {
+		p.skipKAndR(*k)
+		return
+	}
 	p.skipTo(start, func(t token, depth int, opener token) (bool, bool) {
 		if depth != 0 {
 			return false, false
@@ -645,6 +750,7 @@ func (p *parser) prototype() {
 		p.unexpected(p.peek(), "`(`")
 	}
 	p.resultType(typ, name)
+	open := p.i
 	params := p.params(name)
 	switch q := p.peek(); {
 	case q.is("{"):
@@ -652,7 +758,7 @@ func (p *parser) prototype() {
 	case q.kind == tIdent && keywordCode[q.text] == CodeAttribute:
 		p.fail(q, CodeAttribute, "%s: %s", quote(q.text), Codes[CodeAttribute])
 	case q.kind == tIdent && !keywords[q.text]:
-		p.fail(name, CodeKAndR, "K&R definition %s", name.text)
+		p.failKAndR(open, nil, name, "K&R definition %s", name.text)
 	}
 	p.endDecl(name)
 	p.funcs = append(p.funcs, Function{Name: name.text, Result: typ, Params: params})
@@ -660,9 +766,10 @@ func (p *parser) prototype() {
 
 // params reads a parameter list. owner is the function or callback name.
 func (p *parser) params(owner token) []Param {
+	open := p.i
 	p.expect("(")
 	if p.peek().is(")") {
-		p.fail(owner, CodeKAndR, "%s has an empty parameter list; write (void)", owner.text)
+		p.failKAndR(open, nil, owner, "%s has an empty parameter list; write (void)", owner.text)
 	}
 	if p.peek().is("void") && p.peekN(1).is(")") {
 		p.next()
@@ -672,7 +779,14 @@ func (p *parser) params(owner token) []Param {
 	// An identifier list `(a, b)`: a name that is no type, then `,` or `)`.
 	if t := p.peek(); t.kind == tIdent && !keywords[t.text] && !scalarNames[t.text] && (p.peekN(1).is(",") || p.peekN(1).is(")")) {
 		if _, isType := p.types[t.text]; !isType {
-			p.fail(owner, CodeKAndR, "%s has an identifier list; write a prototype", owner.text)
+			names := map[string]bool{}
+			for k := p.i; p.toks[k].kind == tIdent; k += 2 {
+				names[p.toks[k].text] = true
+				if !p.toks[k+1].is(",") {
+					break
+				}
+			}
+			p.failKAndR(open, names, owner, "%s has an identifier list; write a prototype", owner.text)
 		}
 	}
 	var params []Param
