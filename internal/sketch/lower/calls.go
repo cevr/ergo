@@ -83,6 +83,10 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return operand{err: e}
 	case result:
 		v := fc.temp("v")
+		if t := fc.hostResult(x, c); t != "" {
+			fc.line("var " + v + " " + t + " = " + text)
+			return operand{val: v}
+		}
 		fc.line(v + " := " + text)
 		return operand{val: v}
 	}
@@ -119,6 +123,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	switch c.Kind {
 	case check.CallFunc:
 		fd := fc.l.useFunc(c.Func, x)
+		if userExtern(c.Func) {
+			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, false
+		}
 		if body, name, ok := fc.l.stdBody(fd); ok {
 			if c.Recv != nil {
 				ice(x, "a dot call to the std function %s", c.Func.Name)
@@ -210,6 +217,98 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	return "", false, false
 }
 
+// userExtern reports an extern declared outside std (C26, 196x): the
+// checker admits one only with a signature of basic types, no
+// rows, no type parameters and at most one result, and with a target in
+// Go's standard library (check/extern.go).
+func userExtern(f *check.Func) bool {
+	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std()
+}
+
+// hostCall is the Go text of the call x of the user extern c.Func: a direct
+// call of its Go target, with no environment, no wrapper and no poll (a
+// host call is not an interruption point; runtime.md). The extern is never
+// a value (P3), so this is its only lowering. Each argument is converted
+// to its Ergo parameter's Go type, and call binds a result to a variable
+// of its Ergo result's Go type (hostResult), so Go checks the call against
+// the Ergo signature: a literal argument is never an untyped constant that
+// a target of another type would accept. A target whose signature is not
+// assignable is go build's error, at the call's //line (D-E5).
+func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) string {
+	f := c.Func
+	if c.Recv != nil || len(f.Sig.TParams) > 0 || len(args) != len(f.Sig.Params) || len(f.Sig.Results) > 1 {
+		ice(x, "a call of the user extern %s outside its checked domain", f.Name)
+	}
+	path, name := f.Decl.Extern.Split()
+	vals := fc.callArgs(args, x)
+	for i, v := range vals {
+		vals[i] = fc.goType(f.Sig.Params[i].Type) + "(" + v + ")"
+	}
+	return fc.l.hostPkg(path, x) + "." + name + "(" + strings.Join(vals, ", ") + ")"
+}
+
+// hostResult is the Go type a call x binds its result to: its Ergo result's
+// for a user extern (hostCall), else "" (the Go result's own type).
+func (fc *funcCtx) hostResult(x *syntax.CallExpr, c *check.Call) string {
+	if c.Kind != check.CallFunc || !userExtern(c.Func) || len(c.Func.Sig.Results) != 1 {
+		return ""
+	}
+	return fc.goType(c.Func.Sig.Results[0])
+}
+
+// hostPkg is the name in main.go of the Go package path that a user
+// extern's target names, imported under that name (module.go). The naming
+// pass gave it (hostImportNames), so it never collides with a generated
+// or a declared name, and two packages with one last element (math/rand/v2
+// and crypto/rand) get two names.
+func (l *lowerer) hostPkg(path string, site syntax.Node) string {
+	if path == "time" {
+		return l.timePkg()
+	}
+	if first, _, _ := strings.Cut(path, "/"); first == "" || strings.Contains(first, ".") {
+		ice(site, "a user extern whose target package %q is outside Go's standard library, which the checker refuses (#202)", path)
+	}
+	if l.hostImports == nil {
+		l.hostImports = map[string]bool{}
+	}
+	l.hostImports[path] = true
+	return l.pkgName(pkgKey{"import", path}, hostBase(path))
+}
+
+// hostImportNames reserves, in the naming pass, the import name of every Go
+// package a user extern of the program names as its target, in path order.
+func (l *lowerer) hostImportNames(pkgs []*check.Package) {
+	seen := map[string]bool{}
+	var paths []string
+	for _, p := range pkgs {
+		for _, f := range p.Funcs {
+			if !userExtern(f) {
+				continue
+			}
+			if path, _ := f.Decl.Extern.Split(); path != "time" && !seen[path] {
+				seen[path] = true
+				paths = append(paths, path)
+			}
+		}
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		l.pkgName(pkgKey{"import", path}, hostBase(path))
+	}
+}
+
+// hostBase is the preferred Go name of an import of path: its last element,
+// or the one before a major version (math/rand/v2 is rand), as an
+// identifier.
+func hostBase(path string) string {
+	elems := strings.Split(path, "/")
+	base := elems[len(elems)-1]
+	if len(elems) > 1 && len(base) > 1 && base[0] == 'v' && strings.Trim(base[1:], "0123456789") == "" {
+		base = elems[len(elems)-2]
+	}
+	return strings.NewReplacer("-", "_", ".", "_").Replace(base)
+}
+
 // taskDestArgs are the leading arguments of a call of a declared function
 // or a function value of signature sig: the environment, then, when the
 // result holds a Task (Info's TaskResult), the frame scope as the
@@ -296,6 +395,13 @@ func (fc *funcCtx) envExpr(site syntax.Node) string {
 // so every type-kinded parameter must appear in a parameter type.
 func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst *check.Instance) string {
 	fd := fc.l.useFunc(f, site)
+	// An extern with no Go function of its own (a user extern's target, a
+	// std body of runtime/v1) is only called (P3). A prelude intrinsic is a
+	// Go function, which an operation table reaches when the extern
+	// satisfies an operation (196m: Sleep makes LiveScheduler a Scheduler).
+	if _, _, std := fc.l.stdBody(fd); std || userExtern(f) {
+		ice(site, "the extern function %s used as a value, which the checker refuses (P3: an extern is called directly)", f.Name)
+	}
 	sig, ok := t.(*check.Signature)
 	if !ok {
 		ice(site, "the function %s used as a value has no function type", f.Name)
@@ -306,15 +412,6 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 				refuse(site, "the generic function %s used as a value has a type parameter %s that no parameter names; its instantiation needs a check-v1 Info fact (lower-v1 request)", f.Name, tp.Name)
 			}
 		}
-	}
-	if body, name, ok := fc.l.stdBody(fd); ok {
-		var targs []check.Type
-		if inst != nil {
-			targs = inst.TypeArgs
-		} else if len(f.Sig.TParams) > 0 {
-			ice(site, "the generic std function %s used as a value without an instance; the checker refuses it", f.Name)
-		}
-		return fc.stdFuncValue(f, sig, body, name, targs, site)
 	}
 	return fc.envClosure(callerEnv, "env", site, func(env string) (params []string, results, body string) {
 		lead := []string{env}
@@ -787,8 +884,9 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		}
 	}
 	if l.runtimeType(to, site) != "" {
-		// A std type is the runtime's concrete Go type (stage D3b).
-		refuse(site, "a value of the program converted to the std type %s is lowered after check-v1 stage E", conv.To)
+		// A std type is the runtime's concrete Go type (stage D3b), a sealed
+		// std protocol the checker refuses a conversion to (C28, #206).
+		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses (#206)", conv.To)
 	}
 	toDecl := l.typeDecl(to.Obj, site)
 	if toDecl.kind != kindOps {

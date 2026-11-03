@@ -904,7 +904,7 @@ func ContextRun(body func(*rt.Task) error) error { return runMain(body) }
 
 // ContextBind binds a caller's value around a run and returns its end.
 func ContextBind(t *rt.Task, key, text string) func() {
-	c := t.WithValue(contextKey{"log", key}, text)
+	c := t.WithValue(contextKey{"std:log", key}, text)
 	return c.End
 }
 `
@@ -959,11 +959,11 @@ func values(t *rt.Task) string {
  var parts []string
  for _, k := range []string{"a", "b"} {
   v := "-"
-  if ergo.ContextBound(t, "log", k) { v = ergo.ContextValue(t, "log", k) }
+  if ergo.ContextBound(t, "std:log", k) { v = ergo.ContextValue(t, "std:log", k) }
   parts = append(parts, k+"="+v)
  }
  parts = append(parts, "u="+user(t))
- if ergo.ContextBound(t, "trace", "span") { parts = append(parts, "s="+ergo.ContextValue(t, "trace", "span")) }
+ if ergo.ContextBound(t, "std:trace", "span") { parts = append(parts, "s="+ergo.ContextValue(t, "std:trace", "span")) }
  return strings.Join(parts, " ")
 }
 type cxCase struct {
