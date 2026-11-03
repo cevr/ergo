@@ -176,6 +176,38 @@ type B {
 	law Same() { true },
 }
 `},
+		// A law's name is not a package name (rule 1), so a package
+		// function or let of that name neither collides with it nor
+		// resolves to it, before or after the operation type.
+		{"a package function shares a law's name", `func RoundTrip(v int) bool {
+	v == v
+}
+
+type Malformed {}
+
+type Codec {
+	Encode(v int) string,
+	Decode(s string) int fails Malformed,
+
+	law RoundTrip(v int) { try Decode(Encode(v)) == v },
+}
+
+func uses() bool {
+	RoundTrip(1)
+}
+`},
+		{"a package let shares a law's name", `type Codec {
+	Encode(v int) string,
+
+	law Limit(v int) { Encode(v) == Encode(Limit) },
+}
+
+let Limit = 10
+
+func uses() int {
+	Limit + 1
+}
+`},
 		{"a law named like an operation", `type Codec {
 	Encode(v int) string,
 
