@@ -33,8 +33,11 @@
 //     (C11 6.7.6.3p7; OpenTUI uses it for colors).
 //
 // A declared name may not be a reserved identifier (`__x`, `_X`), a macro
-// of the three standard headers or of the compiler, or a macro of the
-// header: a C compiler would expand it where the parser sees a name.
+// or typedef name of the three standard headers, a macro of the compiler,
+// or a macro of the header: a C compiler would expand it where the parser
+// sees a name. The include guard and every macro follow the same rule, and
+// may not be a keyword either: C could predefine the guard and skip the
+// header.
 //
 // Refused, each with its own code: int, char, short, long, signed and
 // unsigned (implementation-defined widths), enum, union, bit fields,

@@ -57,6 +57,10 @@ func runDirectives(toks []token, d *diags) *pre {
 	p := &pre{d: d, includes: map[string]Pos{}, macros: map[string]macroDef{}}
 	i := 0
 	// The include guard: the file starts with `#ifndef G` and `#define G`.
+	// A reserved or standard name is refused as for every macro: C may
+	// predefine it and skip the header, or a standard header may use it.
+	// The guard's structure still holds, so the rest of the header gives
+	// no second diagnostic.
 	guardOpen := false
 	if isDirective(toks, 0) {
 		a, j := directive(toks, 0)
@@ -64,7 +68,11 @@ func runDirectives(toks []token, d *diags) *pre {
 			b, k := directive(toks, j)
 			if len(b) == 2 && b[0].is("define") && b[1].is(a[1].text) {
 				p.guard, p.guardPos, guardOpen = a[1].text, toks[0].pos, true
-				p.macros[p.guard] = macroDef{pos: b[1].pos, index: -1}
+				if reservedName(p.guard) {
+					d.add(a[1].pos, CodeMacroIdentifier, "include guard %s is a keyword, a standard name or a reserved name; a C compiler may define it", p.guard)
+				} else {
+					p.macros[p.guard] = macroDef{pos: b[1].pos, index: -1}
+				}
 				i = k
 			}
 		}
@@ -228,10 +236,22 @@ func (p *pre) included(header string, pos Pos) bool {
 
 // reservedMacro matches the names a header of the subset may not define or
 // declare: reserved identifiers (C11 7.1.3: `__x`, `_X`), which include
-// the compilers' predefined macros, the GNU predefined `linux`, `unix` and
-// `i386`, and the macros of <stdint.h>, <stdbool.h> and <stddef.h>. A C
-// compiler would expand such a name where the parser sees an identifier.
-var reservedMacro = regexp.MustCompile(`^(_[A-Z_].*|linux|unix|i386|U?INT[0-9]+_(C|MAX|MIN)|U?INT(_LEAST|_FAST)[0-9]+_(MAX|MIN)|U?INT(PTR|MAX)_(C|MAX|MIN)|(SIZE|PTRDIFF|SIG_ATOMIC|WCHAR|WINT)_(MAX|MIN)|NULL|offsetof|bool|true|false)$`)
+// the compilers' predefined macros; the GNU predefined `linux`, `unix` and
+// `i386`; clang's darwin predefined `OBJC_NEW_PROPERTIES` and `TARGET_OS_*`;
+// the macros of <stdint.h>, <stdbool.h> and <stddef.h> (with Annex K's
+// RSIZE_MAX and C23's unreachable) and their typedef names, which C11 7.1.3
+// reserves as macro names once the header is included; `defined`; and
+// C23's `typeof_unqual`. A C compiler would expand such a name where the
+// parser sees an identifier, or predefine it.
+var reservedMacro = regexp.MustCompile(`^(_[A-Z_].*|linux|unix|i386|OBJC_NEW_PROPERTIES|TARGET_OS_[A-Z0-9_]+|TARGET_IPHONE_SIMULATOR|` +
+	`U?INT[0-9]+_(C|MAX|MIN)|U?INT(_LEAST|_FAST)[0-9]+_(MAX|MIN)|U?INT(PTR|MAX)_(C|MAX|MIN)|(R?SIZE|PTRDIFF|SIG_ATOMIC|WCHAR|WINT)_(MAX|MIN)|` +
+	`u?int(_least|_fast)?[0-9]+_t|u?int(ptr|max)_t|r?size_t|ptrdiff_t|wchar_t|max_align_t|nullptr_t|` +
+	`NULL|offsetof|unreachable|bool|true|false|defined|typeof_unqual)$`)
+
+// reservedName reports whether a macro of the header may not have name.
+func reservedName(name string) bool {
+	return keywords[name] || scalarNames[name] || reservedMacro.MatchString(name)
+}
 
 func (p *pre) define(hash token, dir []token, end Pos) {
 	if len(dir) < 2 || dir[1].kind != tIdent {
@@ -245,7 +265,7 @@ func (p *pre) define(hash token, dir []token, end Pos) {
 		p.d.add(nameTok.pos, CodeFunctionMacro, "function-like macro %s", name)
 		return
 	}
-	if keywords[name] || scalarNames[name] || reservedMacro.MatchString(name) {
+	if reservedName(name) {
 		p.d.add(nameTok.pos, CodeMacroIdentifier, "macro %s redefines a keyword, a standard type or a reserved name", name)
 		return
 	}
