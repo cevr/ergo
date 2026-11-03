@@ -578,7 +578,8 @@ func (g *gate) toolDigest(step *Step) string {
 	for _, tool := range step.ToolEnv {
 		fmt.Fprintf(digest, "%s\x00%s\x00", tool, g.toolVersion(tool))
 	}
-	fmt.Fprintf(digest, "host\x00%s\x00", hostFacts(stepTempDir(g.root, step.Name)))
+	goTmpDir, _ := stepVariableFor(g.root, step.Name, "GOTMPDIR")
+	fmt.Fprintf(digest, "host\x00%s\x00", hostFacts(stepTempDir(g.root, step.Name), goTmpDir))
 	for _, name := range testenv.Names {
 		if name == testenv.ToolDigest {
 			continue
@@ -589,8 +590,9 @@ func (g *gate) toolDigest(step *Step) string {
 	return hex.EncodeToString(digest.Sum(nil))[:16]
 }
 
-// hostFacts describes the host facts of a step whose temporary directory is
-// its argument (readHostFacts). Tests replace it to move the host.
+// hostFacts describes the host facts of a step whose temporary directory and
+// GOTMPDIR are its arguments (readHostFacts). Tests replace it to move the
+// host.
 var hostFacts = readHostFacts
 
 // stepEnvironment is the environment every step runs with: the caller's,

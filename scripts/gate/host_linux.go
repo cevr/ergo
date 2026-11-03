@@ -10,13 +10,15 @@ import (
 
 // readHostFacts describes the host facts that Go tests read without package
 // os, so Go's test cache cannot see them: the file system (statfs(2) magic
-// number) of the step's temporary directory, tmpDir, and of /dev/shm, which
-// the output-storage property admits or refuses; the file system at the
-// cgroup root, which says whether cgroup v2 is there; and whether systemd-run
-// can reach a user service manager, which decides how a gate a test starts
+// number) of the step's temporary directory, tmpDir; of the step's GOTMPDIR,
+// goTmpDir, when it is set, since t.TempDir makes the tests' directories
+// there (and in tmpDir only when it is not set); and of /dev/shm, which the
+// output-storage property admits or refuses; the file system at the cgroup
+// root, which says whether cgroup v2 is there; and whether systemd-run can
+// reach a user service manager, which decides how a gate a test starts
 // bounds its steps. A fact that cannot be read is recorded as such, so that
 // it becoming readable changes the description too.
-func readHostFacts(tmpDir string) string {
+func readHostFacts(tmpDir, goTmpDir string) string {
 	scope := "systemd-run absent"
 	if _, err := exec.LookPath("systemd-run"); err == nil {
 		scope = "systemd-run, no user bus"
@@ -24,8 +26,12 @@ func readHostFacts(tmpDir string) string {
 			scope = "systemd-run, user bus"
 		}
 	}
-	return fmt.Sprintf("tmp %s; shm %s; cgroup %s; %s",
-		fileSystem(existingAncestor(tmpDir)), fileSystem("/dev/shm"), fileSystem(cgroupRoot), scope)
+	goTmp := "unset"
+	if goTmpDir != "" {
+		goTmp = fileSystem(existingAncestor(goTmpDir))
+	}
+	return fmt.Sprintf("tmp %s; gotmp %s; shm %s; cgroup %s; %s",
+		fileSystem(existingAncestor(tmpDir)), goTmp, fileSystem("/dev/shm"), fileSystem(cgroupRoot), scope)
 }
 
 // fileSystem is the statfs(2) magic number of the file system that holds
