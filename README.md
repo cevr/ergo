@@ -109,18 +109,21 @@ type Store {
 
 ## You can see what happened
 
-The compiler knows every task, every service call and every failure, so it names the trace events itself. The source has no span calls. This is a real trace from the prototype, trimmed ([full run](docs/previews/2026-10-27-traceability.md)): a 100 ms timeout stopped a slow gateway call.
+The compiler knows every task, every service call and every failure, so it names the trace events itself. The source has no span calls. These are recorded lines from a prototype run, with whole lines omitted ([full run](docs/previews/2026-10-27-traceability.md)). A 100 ms timeout interrupted a 2 s sleep, so the gateway call after it never ran:
 
 ```text
 tasks
   #1 latency.main (func) at timeout.sketch:81:1, exit: success
     #2 latency.checkout/timeout.After#1 (timeout block) at timeout.sketch:39:17, exit: interrupted
 
-cause trace of the root exit
-  task #1 latency.main exited with success
-    handled timeout.Expired at timeout.sketch:75:2 in latency.report
-      caught the deadline of task #2: timeout.After(100ms) at timeout.sketch:39:17
-        call host.Scheduler.Sleep at timeout.sketch:32:2 was open when the deadline passed; it ended interrupted
+cause trace of the root exit (links recorded by the runtime; candidates are labelled)
+  task #1 latency.main (func, timeout.sketch:81:1) exited with success
+    handled timeout.Expired at timeout.sketch:75:2 in latency.report (task #1, seq 12)
+      caught the deadline of task #2 latency.checkout/timeout.After#1 (seq 6): the timeout block timeout.After(100ms) at timeout.sketch:39:17 in latency.checkout, row error[latency.GatewayDown | timeout.Expired]
+        call host.Scheduler.Sleep at timeout.sketch:32:2 was open when the deadline passed (call seq 5); it ended interrupted (call-exit seq 8)
+        cancel-request of task #2 (seq 7)
+        task #2 observed the stop in latency.roundTrip at timeout.sketch:32:2 (seq 9)
+        task #2 exited with interrupted (seq 10)
 ```
 
 With tracing off, a program makes no extra allocations ([receipt](runtime/rt/RECEIPT.md#tracing-off-and-on-188)).
@@ -154,7 +157,7 @@ Ergo keeps Go's spelling, runtime, garbage collector and single binaries. It rem
 
 ## Status
 
-Ergo is a prototype, and the code above is the designed language. The parser and `ergo fmt` accept all of it except refinements and laws inside machines, which were decided on 2026-11-03. `ergo check` checks, and `ergo build` and `ergo run` lower, a growing part of v1 ([#196](https://github.com/cevr/ergo/issues/196)): types, unions and `match`, error and needs rows, contexts, generics and `timeout.After`. Tests and laws are checked but not yet run; running them is [#162](https://github.com/cevr/ergo/issues/162). The task runtime `runtime/rt` runs scopes, stops and traces. Not built yet: `ergo test`, the `tasks` package, resource tracking ([#197](https://github.com/cevr/ergo/issues/197)), virtual time, `import go` ([#202](https://github.com/cevr/ergo/issues/202)), laws inside machines, refinements, and `ergo inspect` and MCP on the new front end ([#203](https://github.com/cevr/ergo/issues/203)).
+Ergo is a prototype, and the code above is the designed language. The parser and `ergo fmt` accept all of it except refinements and laws inside machines, which were decided on 2026-11-03. `ergo check` checks, and `ergo build` and `ergo run` lower, a growing part of v1 ([#196](https://github.com/cevr/ergo/issues/196)): types, unions and `match`, error and needs rows, contexts, generics and `timeout.After`. Tests and laws are checked but not yet run; running them is [#162](https://github.com/cevr/ergo/issues/162). The task runtime `runtime/rt` runs scopes, stops and traces. It keeps every defect, but not yet every typed failure: a child's failure that nobody waited for is dropped when its scope ends normally ([runtime](docs/spec/runtime.md)). Not built yet: `ergo test`, the `tasks` package, resource tracking ([#197](https://github.com/cevr/ergo/issues/197)), virtual time, `import go` ([#202](https://github.com/cevr/ergo/issues/202)), laws inside machines, refinements, and `ergo inspect` and MCP on the new front end ([#203](https://github.com/cevr/ergo/issues/203)).
 
 ## Learn more
 
