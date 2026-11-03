@@ -16,7 +16,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // So a test changes neither the verdict on the rest of the program nor its
 // run Go: a struct type that only a test's error row names is an error type
 // in the tests and an ordinary value type everywhere else (types.md, Error
-// types 1), and the run build emits no Error method for it.
+// types 1), and the run build emits no Error method for it. One rule reads
+// every owner's rows: a function named Error on such a type is S108
+// (types.md, Methods 6), because the test build generates its Error method.
 //
 // Two kinds of fact carry an owner. Package.ErrorTypes are kept by owner.
 // Every fact Info records is keyed by a syntax node, so its owner is the
