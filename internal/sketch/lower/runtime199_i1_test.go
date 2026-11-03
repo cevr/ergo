@@ -178,6 +178,42 @@ type i1Case struct {
 	entries     map[string]bool // named Go frames whose entry rule is known from the source
 	markerEntry *bool           // entry rule for the source frame declaring entryMarker
 	markerScope bool            // that frame owns a scope, which it opens first
+	markers     int             // source frames declaring entryMarker, when markerEntry is set
+	testBuild   bool            // lowered as the test build (LowerTests), whose frame it is
+}
+
+// i1Lower lowers a generated program: its test build when its frame exists
+// only there (a test body), its run build otherwise.
+func i1Lower(t *testing.T, c i1Case) *lowered {
+	t.Helper()
+	if c.testBuild {
+		return lowerTestBuild(t, "i1", c.src)
+	}
+	return mustLower(t, "i1", c.src)
+}
+
+// i1UserDecls drops the test build's harness from the Go declarations, so
+// the poll checks read the program's frames only: the harness is fixed Go
+// that takes no Env, runs no Ergo code and owns loops no source holds.
+func i1UserDecls(decls []ast.Decl) []ast.Decl {
+	harness := map[string]bool{}
+	for _, h := range testHelpers {
+		harness[h.base] = true
+	}
+	var out []ast.Decl
+	for _, d := range decls {
+		if fd, ok := d.(*ast.FuncDecl); ok {
+			name := fd.Name.Name
+			if fd.Recv != nil && len(fd.Recv.List) == 1 {
+				name = strings.TrimPrefix(types.ExprString(fd.Recv.List[0].Type), "*")
+			}
+			if harness[name] {
+				continue
+			}
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // i1Cases generates every frame class × clause × loop form × variant the
@@ -219,21 +255,21 @@ func i1Cases() []i1Case {
 				}
 				ps := strings.Join(params, ", ")
 				name := fmt.Sprintf("%s/%s/%s", cl.name, strings.Join(names, "+"), v.name)
-				add := func(class, src string, want map[string]bool) {
-					out = append(out, i1Case{name: class + "/" + name, src: i1Defs + src + "func main() {}\n", want: want, site: v.site})
+				add := func(class, src string, want map[string]bool, testBuild bool) {
+					out = append(out, i1Case{name: class + "/" + name, src: i1Defs + src + "func main() {}\n", want: want, site: v.site, testBuild: testBuild})
 				}
 				for _, frame := range i1FrameKinds {
 					if !frame.params && (!cl.provider || seq || v.fail || ps != "" || row != "") {
 						continue
 					}
-					add(frame.name, frame.program(ps, row, try, body+"sum\n"), map[string]bool{frame.goClass: impure})
+					add(frame.name, frame.program(ps, row, try, body+"sum\n"), map[string]bool{frame.goClass: impure}, frame.testBuild)
 				}
 				if cl.name == "pure" && !seq && !v.fail && !v.site {
 					// Nested frames of opposite footprints: an impure
 					// function's pure literal, and a pure function that
 					// makes an impure literal and never runs it.
-					add("impure-parent", "func subject() int needs Probe {\nProbe.Tick()\nlet local = func() int {\n"+body+"sum\n}\n"+body+"sum + local()\n}\n", map[string]bool{"decl": true, "lit": false})
-					add("pure-parent", "func subject() int {\nlet _ = func() int needs Probe {\nProbe.Tick()\n"+body+"sum\n}\n"+body+"sum\n}\n", map[string]bool{"decl": false, "lit": true})
+					add("impure-parent", "func subject() int needs Probe {\nProbe.Tick()\nlet local = func() int {\n"+body+"sum\n}\n"+body+"sum + local()\n}\n", map[string]bool{"decl": true, "lit": false}, false)
+					add("pure-parent", "func subject() int {\nlet _ = func() int needs Probe {\nProbe.Tick()\n"+body+"sum\n}\n"+body+"sum\n}\n", map[string]bool{"decl": false, "lit": true}, false)
 				}
 			}
 		}
@@ -309,7 +345,7 @@ func i1NestCases() []i1Case {
 					if class == "decl" {
 						goClass = frame.goClass
 					}
-					out = append(out, i1Case{name: "nest-" + frame.name + "/" + name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{goClass: cl.impure || l.seq}, site: v.site})
+					out = append(out, i1Case{name: "nest-" + frame.name + "/" + name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{goClass: cl.impure || l.seq}, site: v.site, testBuild: frame.testBuild})
 				}
 			}
 		}
@@ -338,7 +374,7 @@ func TestRuntime199I1Property(t *testing.T) {
 	t.Logf("%d generated programs: %v", len(cases), classes)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			o := mustLower(t, "i1", c.src)
+			o := i1Lower(t, c)
 			i1CheckFacts(t, o)
 			i1CheckPolls(t, o, c)
 		})
@@ -395,35 +431,43 @@ func i1BlockCases() []i1Case {
 	return out
 }
 
-// i1EntryCases separates entry placement from loop/capability polls. The
-// marker is the first source statement, so a later capability checkpoint
-// cannot stand in for an entry poll. A frame that starts a task owns a
-// scope: its entry poll follows the scope's opening and precedes the
-// source body.
+// i1EntryEffects are the entry axis's footprints: what follows the marker
+// in the frame's body, and whether the frame then polls at entry. Starting
+// a task and stopping it calls the Task's operations, which are opaque, and
+// makes the frame own a scope.
+var i1EntryEffects = []struct {
+	name, body   string
+	entry, scope bool
+}{
+	{name: "pure"},
+	{name: "capability", body: "with Local { Probe.Tick() }\n"},
+	{name: "opaque", body: "let xs = []int{}\nlet _ = xs.Append(1)\n", entry: true},
+	{name: "scope", body: "let t0 = task.Go() { 1 }\nt0.Stop()\n", entry: true, scope: true},
+}
+
+// i1EntryCases separates entry placement from loop/capability polls, over
+// every frame class of the shared catalog (i1FrameKinds) × every entry
+// effect, so a new frame class, a test body included, gets an entry
+// obligation with no list to extend. The marker is the first source
+// statement, so a later capability checkpoint cannot stand in for an entry
+// poll. A frame that starts a task owns a scope: its entry poll follows the
+// scope's opening and precedes the source body. A class whose program
+// writes its body more than once (an initializer) marks that many frames.
 func i1EntryCases() []i1Case {
 	var out []i1Case
-	for _, effect := range []string{"pure", "capability", "opaque", "scope"} {
-		body := "let entryMarker = 0\nlet _ = entryMarker\n"
-		switch effect {
-		case "capability":
-			body += "with Local { Probe.Tick() }\n"
-		case "opaque":
-			body += "let xs = []int{}\nlet _ = xs.Append(1)\n"
-		case "scope":
-			body += "let t0 = task.Go() { 1 }\nt0.Stop()\n"
-		}
-		frames := map[string]string{
-			"decl":     "func subject() {\n" + body + "}\n",
-			"literal":  "func subject() {\nlet local = func() {\n" + body + "}\nlocal()\n}\n",
-			"task":     "func subject() {\nlet t = task.Go() {\n" + body + "1\n}\nlet _ = t.Wait()\n}\n",
-			"provider": "type Worker { Run(), }\ntype Impl {}\nfunc Run(_ Impl) {\n" + body + "}\nlet Work = context { Worker: Impl }\nfunc subject() { with Work { Worker.Run() } }\n",
-			"trailing": "func run(cb func()) { cb() }\nfunc subject() { run() {\n" + body + "} }\n",
-		}
-		for class, src := range frames {
-			// Starting a task and stopping it calls the Task's operations,
-			// which are opaque.
-			want := effect == "opaque" || effect == "scope"
-			out = append(out, i1Case{name: "entry-" + class + "/" + effect, src: i1Defs + src + "func main() {}\n", markerEntry: &want, markerScope: effect == "scope"})
+	for _, effect := range i1EntryEffects {
+		body := "let entryMarker = 0\nlet _ = entryMarker\n" + effect.body + "1\n"
+		for _, frame := range i1FrameKinds {
+			src := frame.program("", "", "", body)
+			want := effect.entry
+			out = append(out, i1Case{
+				name:        "entry-" + frame.name + "/" + effect.name,
+				src:         i1Defs + src + "func main() {}\n",
+				markerEntry: &want,
+				markerScope: effect.scope,
+				markers:     strings.Count(src, "entryMarker = 0"),
+				testBuild:   frame.testBuild,
+			})
 		}
 	}
 	return out
@@ -570,7 +614,7 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 	}
 	for key := range info.Footprints {
 		switch key.(type) {
-		case *syntax.FuncDecl, *syntax.FuncLit, *syntax.BlockStmt, *syntax.ContextDecl, *syntax.VarSpec:
+		case *syntax.FuncDecl, *syntax.FuncLit, *syntax.BlockStmt, *syntax.ContextDecl, *syntax.VarSpec, *syntax.TestDecl:
 		default:
 			t.Errorf("a footprint keyed by an unknown frame form %T", key)
 		}
@@ -607,6 +651,8 @@ func i1CheckFacts(t *testing.T, o *lowered) {
 			in(d, d)
 		case *syntax.ContextDecl:
 			in(d, d)
+		case *syntax.TestDecl:
+			in(d, d)
 		case *syntax.VarDecl:
 			for _, s := range d.Specs {
 				in(s, s)
@@ -627,6 +673,9 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 	f, err := parser.ParseFile(token.NewFileSet(), "main.go", code, 0)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if c.testBuild {
+		f.Decls = i1UserDecls(f.Decls)
 	}
 	source := 0
 	syntax.Inspect(o.file, func(n syntax.Node) bool {
@@ -783,8 +832,8 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 		}
 		return true
 	})
-	if c.markerEntry != nil && marked != 1 {
-		t.Errorf("found %d marked entry frames, want 1", marked)
+	if c.markerEntry != nil && (c.markers < 1 || marked != c.markers) {
+		t.Errorf("found %d marked entry frames, want %d (at least 1)", marked, c.markers)
 	}
 	if goLoops != source {
 		t.Errorf("the Go has %d loops for %d source loops\nGo:\n%s", goLoops, source, stripDirectives(code))

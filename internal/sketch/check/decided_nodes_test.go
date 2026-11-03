@@ -321,13 +321,13 @@ test Adds {
 	assert 1 + 1 == 2
 }
 func main() {}
-`, []string{"S109:2"}},
-	{"assert", "assert in a body", `
+`, nil},
+	{"assert", "assert in a function body (196l: S108 outside a test or law)", `
 func f() {
 	assert true
 }
 func main() {}
-`, []string{"S109:3"}},
+`, []string{"S108:3"}},
 	{"if value", "an if in value position yields its branch (D-C2)", `
 func f(c bool) int {
 	let x = if c { 1 } else { 2 }
@@ -687,7 +687,7 @@ test Adds(x int) {
 	assert x + 0 == x
 }
 func main() {}
-`, []string{"S109:3"}},
+`, nil},
 	{"type parameters", "a generic record type", `
 type Box[T] { V T }
 func f(b Box[int]) int { return b.V }

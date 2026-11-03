@@ -88,7 +88,7 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	// Statements.
 	{"AssertStmt", `test T {
 	assert nope
-}`, "S109", "test T {"},
+}`, "S104", "nope"},
 	{"AssignStmt", `func F() int {
 	let mut x = 1
 	x = nope
@@ -135,7 +135,7 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	{"ImportDecl", `import nope`, "S104", "nope"},
 	{"TestDecl", `test T {
 	G(nope)
-}`, "S109", "test T {"},
+}`, "S104", "nope"},
 	{"TypeDecl", `type T = Nope`, "S104", "Nope"},
 	{"VarDecl", `let v int = nope`, "S104", "nope"},
 	{"ContextDecl", `let W = context { Nope: S{} }`, "S104", "Nope"},

@@ -1,0 +1,26 @@
+// 196l: `assert` takes a bool (S108) and stands only in a test or law body
+// (S108); a test's name is not a value (S104); a test needs a service only
+// from its own `with` (S102); two tests share no name (S108).
+type Store {
+	Get() string,
+}
+
+test Typed {
+	assert 1 // want S108
+}
+
+func check(n int) {
+	assert n > 0 // want S108
+}
+
+func run() {
+	Typed() // want S104
+}
+
+test Unwired {
+	assert Store.Get() == "ok" // want S102
+}
+
+test Typed { // want S108
+	assert true
+}

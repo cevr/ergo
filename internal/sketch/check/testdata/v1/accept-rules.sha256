@@ -1,7 +1,7 @@
 # Each testdata/v1/*.ergo is a byte-for-byte copy of the check-v1 acceptance
 # rule of the same name. Source: the orchestrator-owned acceptance tree,
 # /home/exedev/.cache/baton/wf10/check-v1/accept/rules/<name> (copied as each
-# stage lands; last synced at stage E2 round 3). TestV1Manifest requires each
+# stage lands; last synced at stage E3a round 1). TestV1Manifest requires each
 # copy to have its line here, with this hash. Detect drift from the source:
 #   cd /home/exedev/.cache/baton/wf10/check-v1/accept/rules && sha256sum -c <this file>
 # 196w: the D7-satisfaction copies spell the construct keyword context; the
@@ -76,6 +76,8 @@ ec3fc0b51598022021caf71734bf16f04ae5600fdcbbf60043fae5d69714e597  E1-generics.po
 9c917416d0602c3030663dd2194a965f112c0ae04a807ca3a16b115ac2a7eb65  E10-literal-params.pos.ergo
 cd002aae576c81f48029a75a955bc62a19b2a62aa68641373f809e3a7ac65075  E2-closed-world.neg.ergo
 f460e2cbe746ed4a553f651918ffe59f48a79a55475cc019ed8f29baf39076dc  E2-closed-world.pos.ergo
+979e1ee909852d78149bd99df43cf5818eaf85c9898ca0c3e3341de530cf1363  E4-tests.neg.ergo
+88b9caa65df3ce75c8c1bf79a02e6435e924689f2210c016b09156fcd9582b51  E4-tests.pos.ergo
 8375688ab702da17a56e3198127d16223aebdbea9d1188c5b30790e8f10dd00f  E9-escaping.neg.ergo
 714d357a5647ecec4c6f4c4a5205baa5e693bc812dbc183558c9f8675b408485  E9-escaping.pos.ergo
 ad36a14e661cbecb97202ba13bc01524e268a06c795b1348a0130c870cc376ca  Esub1-instances.neg.ergo

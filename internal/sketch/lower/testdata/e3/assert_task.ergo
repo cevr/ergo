@@ -1,0 +1,32 @@
+// Stage E3a sweep (196l): an assert that fails in a task the test starts
+// fails the test, though its panic crosses the task boundary.
+import task
+
+func twice(n int64) int64 {
+	n * 2
+}
+
+test InTask {
+	let t = task.Go() {
+		assert twice(2) == 5
+		twice(2)
+	}
+	let v = t.Wait()
+	assert v == 4
+}
+
+test TaskPasses {
+	let t = task.Go() { twice(21) }
+	assert t.Wait() == 42
+}
+
+func main() needs Console {
+	let t = task.Go() { twice(21) }
+	Console.Println("\(t.Wait())")
+}
+
+// run> 42
+// test> FAIL InTask: assert failed at main.ergo:11:3: twice(2) == 5
+// test> ok TaskPasses
+// test> FAIL (1 of 2 tests)
+// test exit 1

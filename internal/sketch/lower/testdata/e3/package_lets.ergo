@@ -1,0 +1,33 @@
+// Stage E3a sweep (196l): a test reads package lets, the initializer of
+// each runs before the first test, as it runs before main.
+let Limit = 10
+
+let Table = build(3)
+
+func build(n int) []int {
+	let mut xs = []int{}
+	for i in []int{0, 1, 2, 3, 4} {
+		if i < n {
+			xs = xs.Append(i * Limit)
+		}
+	}
+	xs
+}
+
+test Built {
+	assert len(Table) == 3 && Table[2] == 20
+}
+
+test Limits(n int) {
+	assert n < Limit || n >= Limit
+}
+
+func main() needs Console {
+	Console.Println("\(len(Table))")
+}
+
+// run> 3
+// test> ok Built
+// test> ok Limits (100 cases)
+// test> PASS (2 tests)
+// test exit 0

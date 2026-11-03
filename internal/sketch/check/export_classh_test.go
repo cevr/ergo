@@ -514,9 +514,9 @@ func duplicateName(msg string) (string, bool) {
 			return name, true
 		}
 	}
-	for _, prefix := range []string{"context ", "method "} {
+	for _, prefix := range []string{"context ", "method ", "test "} {
 		if rest, ok := strings.CutPrefix(msg, prefix); ok {
-			if name, ok := strings.CutSuffix(rest, " is declared twice"); ok && (prefix == "context " || strings.Contains(name, ".")) {
+			if name, ok := strings.CutSuffix(rest, " is declared twice"); ok && (prefix != "method " || strings.Contains(name, ".")) {
 				return name, true
 			}
 		}

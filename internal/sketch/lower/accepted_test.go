@@ -32,6 +32,9 @@ var implementedFamilies = []string{
 	"conv:Variant", "conv:Operations", "conv:Row",
 	"basic:bool", "basic:string", "basic:int", "basic:int8", "basic:int16", "basic:int32", "basic:int64",
 	"basic:uint", "basic:uint8", "basic:uint16", "basic:uint32", "basic:uint64", "basic:float32", "basic:float64", "basic:duration",
+	// A test and its asserts lower in the test build (LowerTests, swept by
+	// stage_e3a_test.go); the run build this test lowers skips them whole.
+	"TestDecl", "AssertStmt",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,

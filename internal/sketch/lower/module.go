@@ -195,6 +195,9 @@ type lowerer struct {
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
 	noEntry bool
+	// tests is the test build's state (tests.go, LowerTests); nil in the
+	// run build, which lowers no test.
+	tests *testLowering
 }
 
 // sortedRefusals orders refusals by position and drops repeats: a
@@ -212,8 +215,14 @@ func sortedRefusals(list []Refusal) []Refusal {
 	return out
 }
 
-func newLowerer(u Unit) *lowerer {
+// newLowerer is the run build's lowerer of u.
+func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
+
+// newBuildLowerer is the lowerer of u for the run build (tests nil) or the
+// test build, which decides the facts it reads (owners.go).
+func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 	l := &lowerer{
+		tests:     tests,
 		unit:      u,
 		pkg:       u.Package,
 		info:      u.Package.Info,
@@ -234,7 +243,7 @@ func newLowerer(u Unit) *lowerer {
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
 		envFields: map[*check.TypeName]string{},
 	}
-	l.reads = readVars(l.file, l.info)
+	l.reads = l.readVars()
 	return l
 }
 
@@ -278,6 +287,8 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	var entry strings.Builder
 	switch {
+	case l.tests != nil:
+		l.guard(func() { l.testEntry(&entry) })
 	case l.noEntry:
 		entry.WriteString("func main() {}\n\n")
 	case main == nil:
@@ -309,6 +320,7 @@ func (l *lowerer) program() ([]byte, error) {
 	if l.taskName != "" {
 		imports = append(imports, l.taskName+" "+`"`+taskImport+`"`)
 	}
+	imports = append(imports, l.testImports()...)
 	if len(imports) > 0 {
 		out.WriteString("import (\n\t" + strings.Join(imports, "\n\t") + "\n)\n\n")
 	}
@@ -465,11 +477,12 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	b.WriteString("\t})\n}\n\n" + host)
 }
 
-// readVars is the set of variables some expression of the file reads: every
-// Use except an assignment's target, which Go does not count as a use.
-func readVars(file *syntax.File, info *check.Info) map[*check.Var]bool {
+// readVars is the set of variables some expression of the file that this
+// build lowers reads: every Use the build reads (owners.go) except an
+// assignment's target, which Go does not count as a use.
+func (l *lowerer) readVars() map[*check.Var]bool {
 	targets := map[*syntax.Ident]bool{}
-	syntax.Inspect(file, func(n syntax.Node) bool {
+	syntax.Inspect(l.file, func(n syntax.Node) bool {
 		if s, ok := n.(*syntax.AssignStmt); ok {
 			for _, lhs := range s.Lhs {
 				if id, ok := lhs.(*syntax.Ident); ok {
@@ -480,8 +493,8 @@ func readVars(file *syntax.File, info *check.Info) map[*check.Var]bool {
 		return true
 	})
 	reads := map[*check.Var]bool{}
-	for id, o := range info.Uses {
-		if v, ok := o.(*check.Var); ok && !targets[id] {
+	for id, o := range l.info.Uses {
+		if v, ok := o.(*check.Var); ok && !targets[id] && l.readsFact(l.pkg, id) {
 			reads[v] = true
 		}
 	}

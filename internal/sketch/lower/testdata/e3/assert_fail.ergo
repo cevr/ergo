@@ -1,0 +1,23 @@
+// Stage E3a sweep (196l): a failed assert fails its test, names its
+// position and text, and the run goes on to the next test.
+func double(n int) int {
+	n + n
+}
+
+test Wrong {
+	assert double(2) == 5
+}
+
+test Right {
+	assert double(2) == 4
+}
+
+func main() needs Console {
+	Console.Println("\(double(21))")
+}
+
+// run> 42
+// test> FAIL Wrong: assert failed at main.ergo:8:2: double(2) == 5
+// test> ok Right
+// test> FAIL (1 of 2 tests)
+// test exit 1

@@ -68,6 +68,7 @@ type checker struct {
 	diags    []Diagnostic
 	seen     map[string]bool
 	silent   int
+	tests    testState // tests and assert (tests.go)
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a
 	// prelude name), so the binder rules add no second diagnostic (D3).
@@ -272,8 +273,13 @@ type checker struct {
 	subjects map[any]*switchUnion
 	mono     monoState // the instantiation graph (instantiation cycles)
 
-	errorTypes map[*Named]syntax.Pos // origin error types named in an error row of this package
-	funcs      []*Func               // every package function and method, in source order
+	// errorTypes are, by owner, the origin error types an error row of this
+	// package names (owners.go), each with the first row element that names
+	// it in source order; owner is the owner of the body being checked,
+	// whose view decides what is an error type.
+	errorTypes map[FactOwner]map[*Named]syntax.Expr
+	owner      FactOwner
+	funcs      []*Func // every package function and method, in source order
 	vars       []*pkgVar
 	machines   []*TypeName
 	guarded    map[*Func]bool // steps of exported machines: rows written (export guard)
@@ -348,7 +354,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 		inferInstances: map[int32]*Named{},
 		inferSubjects:  map[any]*switchUnion{},
 		settled:        map[*Func]bool{},
-		errorTypes:     map[*Named]syntax.Pos{},
+		errorTypes:     map[FactOwner]map[*Named]syntax.Expr{},
 		guarded:        map[*Func]bool{},
 		reach:          map[any]*reachNode{},
 		providers:      map[*Named][]*Named{},

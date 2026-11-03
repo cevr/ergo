@@ -90,7 +90,7 @@ func (tc *typeCtx) goType(t check.Type) string {
 	case *check.Union:
 		// The row value of `case err:` (D-C3) is a Go error holding one of
 		// its error types.
-		if tc.l.isErrorValue(t) {
+		if tc.l.isErrorValue(t, tc.l.buildView()) {
 			return "error"
 		}
 		ice(tc.site, "the anonymous union %s is not a row value; the checker builds no other", t)
@@ -426,7 +426,8 @@ func freeTypeParams(t check.Type) []*check.TypeParam {
 // every default function the lowering can emit: one for each defined type
 // or instance whose default holds a Map and that a let without a value, a
 // record literal or a field or element of one reaches. It reads the
-// checker's Defs and Types; each type object is walked once. Reserving a
+// checker's Defs and Types that this build reads (owners.go); each type
+// object is walked once. Reserving a
 // function the lowering does not emit only renames a local.
 func (l *lowerer) reserveDefaults(reserve func(key pkgKey, base string)) {
 	walked := map[check.Type]bool{}
@@ -462,13 +463,15 @@ func (l *lowerer) reserveDefaults(reserve func(key pkgKey, base string)) {
 			}
 		}
 	}
-	for _, o := range l.info.Defs {
-		if v, ok := o.(*check.Var); ok {
+	for id, o := range l.info.Defs {
+		if v, ok := o.(*check.Var); ok && l.readsFact(l.pkg, id) {
 			walk(v.Type)
 		}
 	}
-	for _, t := range l.info.Types {
-		walk(t)
+	for x, t := range l.info.Types {
+		if l.readsFact(l.pkg, x) {
+			walk(t)
+		}
 	}
 }
 
@@ -630,29 +633,20 @@ func isInteger(t check.Type) bool {
 	return ok && b.Kind >= check.Int && b.Kind <= check.Uintptr
 }
 
-// isErrorValue reports a value of an error type: returning it is a failure
-// (types.md, Error types 2). The checker's ErrorTypes of the type's
-// package, and of this package, decide it.
-func (l *lowerer) isErrorValue(t check.Type) bool {
+// isErrorValue reports a value of an error type in a body of owner o:
+// returning it is a failure (types.md, Error types 2). The checker's error
+// types of the type's package, and of this package, that o sees decide it
+// (errorType).
+func (l *lowerer) isErrorValue(t check.Type, o check.FactOwner) bool {
 	if u, row := t.(*check.Union); row {
 		// A row value (D-C3): every variant is an error type.
 		for _, v := range u.Variants {
-			if !l.isErrorValue(v) {
+			if !l.isErrorValue(v, o) {
 				return false
 			}
 		}
 		return len(u.Variants) > 0
 	}
 	n, ok := t.(*check.Named)
-	if !ok {
-		return false
-	}
-	origin := n
-	if n.Orig != nil {
-		origin = n.Orig
-	}
-	if l.pkg.ErrorTypes[origin] {
-		return true
-	}
-	return origin.Obj.Pkg != nil && origin.Obj.Pkg.ErrorTypes[origin]
+	return ok && l.errorType(n, o)
 }

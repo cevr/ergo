@@ -157,15 +157,18 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	src := typedPackage(t, ".")
 	readers := src.users(src.method(t, "lowerer", "env"))
 	classified := map[string]string{
-		"funcCtx.envClosure":    "the closure owner",
-		"lowerer.emitFuncBody":  "a declared function's header: func name(env *Env, ...)",
-		"lowerer.initFunc":      "the package initializer's declared header",
-		"lowerer.emitContext":   "a context builder's declared header",
-		"lowerer.envField":      "names the type before its first field",
-		"lowerer.entry":         "the root Env value in main",
-		"funcCtx.operations":    "an Env value of the caller's task for an operation table",
-		"funcCtx.witnessMethod": "an Env value of the caller's task for a witness adapter",
-		"typeCtx.funcType":      "a function type, which has no body",
+		"funcCtx.envClosure":     "the closure owner",
+		"lowerer.emitFuncBody":   "a declared function's header: func name(env *Env, ...)",
+		"lowerer.initFunc":       "the package initializer's declared header",
+		"lowerer.emitContext":    "a context builder's declared header",
+		"lowerer.envField":       "names the type before its first field",
+		"lowerer.entry":          "the root Env value in main",
+		"lowerer.testEntry":      "the root Env value in the test build's main (196l)",
+		"lowerer.testDecl":       "a test's declared header: func ergoTestName(env *Env, ...)",
+		"lowerer.testRunnerHead": "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
+		"funcCtx.operations":     "an Env value of the caller's task for an operation table",
+		"funcCtx.witnessMethod":  "an Env value of the caller's task for a witness adapter",
+		"typeCtx.funcType":       "a function type, which has no body",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {
@@ -179,7 +182,8 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 	}
 	// A reader that writes a Go closure whose parameter is not an Env.
 	otherClosure := map[string]string{
-		"lowerer.entry": "main's root task body takes the task and builds the root Env inside",
+		"lowerer.entry":     "main's root task body takes the task and builds the root Env inside",
+		"lowerer.testEntry": "the test build's root task body, as lowerer.entry's",
 	}
 	src.owners(func(owner string, decl ast.Decl) {
 		if !readers[owner] || owner == "funcCtx.envClosure" || otherClosure[owner] != "" {

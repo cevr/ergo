@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -20,6 +21,7 @@ import (
 type i1FrameKind struct {
 	name, goClass string
 	params        bool
+	testBuild     bool // the frame exists in the test build only
 	sites         map[string]int
 	program       func(params, row, attempt, body string) string
 	wrap          func(depth int, body string) string
@@ -50,6 +52,11 @@ var i1FrameKinds = []i1FrameKind{
 	{name: "context", goClass: "lit", sites: map[string]int{"emitContext": 1}, program: func(_, _, _ string, body string) string {
 		return "type Carrier { n int }\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = context { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep {\nProbe.Tick()\n1\n} }\n"
 	}},
+	// A test body is a frame of the test build only (196l): its cases lower
+	// through LowerTests, since the run build emits no test (i1Lower).
+	{name: "test", goClass: "decl", testBuild: true, sites: map[string]int{"testDecl": 1}, program: func(_, _, _ string, body string) string {
+		return "test Subject {\n" + i1Discard(body) + "}\n"
+	}},
 	{name: "initializer", goClass: "lit", sites: map[string]int{"packageVar": 2, "packagePattern": 1}, program: func(_, _, _ string, body string) string {
 		// A binding, a destructuring initializer and a discarded value
 		// exercise all three allocation paths in this frame class.
@@ -59,6 +66,20 @@ var i1FrameKinds = []i1FrameKind{
 }
 
 func i1Depth(d int) string { return strconv.Itoa(d) }
+
+// i1Discard binds the value of a frame body's last statement to _: a test
+// declares no value, and a bare value is no statement (S110). The body is
+// parsed to find where that statement starts, however many lines it takes.
+func i1Discard(body string) string {
+	const head = "func probe() int {\n"
+	f, err := syntax.Parse(head + body + "}\n")
+	if err != nil {
+		panic(fmt.Sprintf("i1Discard: %v\n%s", err, body))
+	}
+	list := f.Decls[0].(*syntax.FuncDecl).Body.List
+	at := int(list[len(list)-1].Pos()) - len(head)
+	return body[:at] + "let _ = " + body[at:]
+}
 
 // With is a region, never another frame. It joins the nesting grammar
 // separately from the catalog of frame-opening paths.
@@ -130,7 +151,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 	for _, axis := range []struct {
 		name  string
 		cases []i1Case
-	}{{"ordinary", append(i1Cases(), i1BlockCases()...)}, {"nesting", i1NestCases()}} {
+	}{{"ordinary", append(i1Cases(), i1BlockCases()...)}, {"nesting", i1NestCases()}, {"entry", i1EntryCases()}} {
 		classes := map[string]int{}
 		for _, c := range axis.cases {
 			classes[strings.Split(c.name, "/")[0]]++
@@ -141,13 +162,38 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 		}
 		for _, f := range i1FrameKinds {
 			key := f.name
-			if axis.name == "nesting" {
+			switch axis.name {
+			case "nesting":
 				key = "nest-" + key
+			case "entry":
+				key = "entry-" + key
 			}
 			if classes[key] == 0 {
 				t.Errorf("%s axis never generates frame class %s", axis.name, f.name)
 			}
 		}
+	}
+	// The entry axis, apart from how it is generated: every frame class ×
+	// every entry effect is one case that asserts the marked frame's entry
+	// rule, its scope opening when it owns one, and the test build for a
+	// frame that exists only there.
+	entry := map[string]i1Case{}
+	for _, c := range i1EntryCases() {
+		entry[c.name] = c
+	}
+	for _, f := range i1FrameKinds {
+		for _, e := range i1EntryEffects {
+			c, ok := entry["entry-"+f.name+"/"+e.name]
+			switch {
+			case !ok:
+				t.Errorf("entry axis has no %s frame with a %s footprint", f.name, e.name)
+			case c.markerEntry == nil || *c.markerEntry != e.entry || c.markerScope != e.scope || c.markers < 1 || c.testBuild != f.testBuild:
+				t.Errorf("entry case %s asserts entry %v scope %v over %d markers (test build %v); want entry %v scope %v (test build %v)", c.name, c.markerEntry != nil && *c.markerEntry, c.markerScope, c.markers, c.testBuild, e.entry, e.scope, f.testBuild)
+			}
+		}
+	}
+	if want := len(i1FrameKinds) * len(i1EntryEffects); len(entry) != want {
+		t.Errorf("entry axis has %d cases, want %d", len(entry), want)
 	}
 	t.Logf("%d frame classes cover allocation sites %v", len(i1FrameKinds), gotSites)
 	for _, frame := range i1FrameKinds {
@@ -268,6 +314,8 @@ func i1RequireFrameClasses(t *testing.T, o *lowered) {
 			require("context")
 		case *syntax.VarSpec:
 			require("initializer")
+		case *syntax.TestDecl:
+			require("test")
 		default:
 			t.Errorf("unknown checked frame %T", key)
 		}

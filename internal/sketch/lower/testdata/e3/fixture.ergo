@@ -1,0 +1,53 @@
+// Stage E3a sweep (196l): accept/rules/E4-tests.pos with a main. ergo run
+// runs main only; the test build runs the four tests.
+type Bang {}
+
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+func add(a, b int) int {
+	a + b
+}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+test Adds {
+	assert add(1, 2) == 3
+}
+
+test Commutes(a int, b int) {
+	assert add(a, b) == add(b, a)
+}
+
+test Risky {
+	assert try risky(1) == 1
+}
+
+test Wired {
+	let got = with context { Store: Mem } { Store.Get() }
+	assert got == "ok"
+}
+
+func main() needs Console {
+	Console.Println("\(add(1, 2))")
+}
+
+// run> 3
+// test> ok Adds
+// test> ok Commutes (100 cases)
+// test> ok Risky
+// test> ok Wired
+// test> PASS (4 tests)
+// test exit 0

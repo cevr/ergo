@@ -1,0 +1,28 @@
+// Stage E3a sweep (196l): a property over every basic type.
+test Ints(a int, b int8, c int16, d int32, e int64) {
+	assert a == a && b == b && c == c && d == d && e == e
+}
+
+test Uints(a uint, b uint8, c uint16, d uint32, e uint64, f byte) {
+	assert a == a && b == b && c == c && d == d && e == e && f == f
+}
+
+test Floats(a float32, b float64) {
+	assert a == a && b == b
+}
+
+test Others(s string, ok bool, r rune, d duration) {
+	assert len(s) >= 0 && (ok || !ok) && r == r && d == d
+}
+
+func main() needs Console {
+	Console.Println("basics")
+}
+
+// run> basics
+// test> ok Ints (100 cases)
+// test> ok Uints (100 cases)
+// test> ok Floats (100 cases)
+// test> ok Others (100 cases)
+// test> PASS (4 tests)
+// test exit 0

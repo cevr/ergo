@@ -1,3 +1,5 @@
 /bin/
-/dist/
+# ergo build and ergo run write dist/ under the working directory, wherever
+# that is (cmd/ergo outputPath); no dist/ at any depth is source.
+dist/
 __pycache__/

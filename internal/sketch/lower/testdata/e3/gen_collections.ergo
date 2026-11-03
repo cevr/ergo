@@ -1,0 +1,49 @@
+// Stage E3a sweep (196l): properties over slices, Maps, tuples and their
+// nesting, and a defined tuple.
+type Span (int, int)
+
+func total(xs []int) int {
+	let mut sum = 0
+	for x in xs {
+		sum += x
+	}
+	sum
+}
+
+test Totals(xs []int) {
+	assert total(xs) == total(xs)
+}
+
+test Lookups(m Map[string, int]) {
+	let mut n = 0
+	for _ in m {
+		n += 1
+	}
+	assert n == len(m)
+}
+
+test Tuples(t (int, string)) {
+	let (a, _) = t
+	assert a == a
+}
+
+test Spans(s Span) {
+	assert s == s
+}
+
+test Nested(xss [][]string, m Map[int, []bool]) {
+	assert len(xss) >= 0 && len(m) >= 0
+}
+
+func main() needs Console {
+	Console.Println("\(total([]int{1, 2, 3}))")
+}
+
+// run> 6
+// test> ok Totals (100 cases)
+// test> ok Lookups (100 cases)
+// test> ok Tuples (100 cases)
+// test> ok Spans (100 cases)
+// test> ok Nested (100 cases)
+// test> PASS (5 tests)
+// test exit 0

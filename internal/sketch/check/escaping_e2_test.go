@@ -150,9 +150,9 @@ var escPositions = map[string][]escCase{
 		{src: "func u(f func(int) int, n int) int {\n\tmatch n {\n\t$case f as m:\n\t\tm\n\tcase _:\n\t\t2\n\t}\n}\n", want: "S108"},
 	},
 	"AssertStmt.X": {
-		// assert is S109 until 196l's stage checks it; this case then
-		// fails and asks for the position's verdict.
-		{src: "func u(f func(int) int) int {\n\t$assert f\n\t0\n}\n", want: "S109"},
+		// assert stands in a test body (stage E3a); a function value is
+		// not a bool there, whatever its escaping verdict.
+		{src: "func g(n int) int {\n\tn\n}\n\ntest T {\n\t$assert g\n}\n", want: "S108"},
 	},
 	"InterpolatedString.Exprs": {
 		{src: "func u(f func(int) int) string {\n\t$\"\\(f)\"\n}\n"},

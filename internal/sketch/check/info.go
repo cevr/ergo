@@ -85,12 +85,17 @@ type Package struct {
 	Tests []*Test
 	// Info is the checker's result for the lowering.
 	Info *Info
-	// ErrorTypes are the struct types this package names in an error row
-	// (types.md, Error types 1); returning a value of one is a failure.
-	ErrorTypes map[*Named]bool
+	// ErrorTypes are, by the owner of the body whose error row names them,
+	// the struct types this package names in an error row (types.md, Error
+	// types 1; owners.go); returning a value of one is a failure in a body
+	// that sees the owner. IsErrorType reads them.
+	ErrorTypes map[FactOwner]map[*Named]bool
 
 	qualify bool // print its types with the package name
-	files   []*fileInfo
+	// owners holds the owner of every node of a body the program does not
+	// own (owners.go); OwnerOf reads it.
+	owners map[syntax.Node]FactOwner
+	files  []*fileInfo
 	// collFuncs are the prelude's functions on slices and Maps by kind and
 	// name (D-D6, D-D8), which x.f(…) reaches from a value of exactly an
 	// unnamed slice or Map type; nil in every other package.
@@ -655,6 +660,8 @@ type Test struct {
 	Name   string
 	Decl   *syntax.TestDecl
 	Params []*Var
+
+	file *fileInfo // the declaring file, selected while the test is checked
 }
 
 // A type parameter is an Object, so Defs records its declaring name.

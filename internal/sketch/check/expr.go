@@ -345,10 +345,6 @@ func decidedNoun(n syntax.Node) string {
 		return "a catch arm that binds the whole failure (196r, one catch)"
 	case *syntax.CompositeLit:
 		return "a record pattern in a catch arm (196r, one catch)"
-	case *syntax.AssertStmt:
-		return "assert (196l, laws and tests)"
-	case *syntax.TestDecl:
-		return "a test declaration (196l, laws and tests)"
 	case *syntax.LawDecl:
 		return "a law (196l, laws and tests)"
 	}

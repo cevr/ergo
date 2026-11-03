@@ -224,7 +224,7 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 	case *syntax.RangeStmt:
 		return fc.rangeStmt(s)
 	case *syntax.AssertStmt:
-		refuse(s, "assert runs under ergo test, which lowering adds after check-v1 stage E (196l)")
+		fc.assert(s) // the test build only (tests.go)
 	default:
 		refuse(s, "this statement is not produced by the decided parser")
 	}
@@ -447,7 +447,10 @@ func (fc *funcCtx) ret(s *syntax.ReturnStmt) {
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
 	f := fc.frame
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x)) {
+	// Whether the value is a failure is decided by the returning body's
+	// own view (owners.go): a type only a test's row names is a value in
+	// a production body, in the test build too.
+	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) {
 		fc.fail(fc.value(x))
 		return
 	}

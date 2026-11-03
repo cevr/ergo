@@ -30,6 +30,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.operations":    "an operation table's Env literal for the caller's task",
 			"funcCtx.witnessMethod": "a witness adapter's Env literal for the caller's task",
 			"lowerer.entry":         "the root Env literal in main",
+			"lowerer.testEntry":     "the root Env literal in the test build's main (196l)",
 		}},
 		{"taskOf", map[string]string{
 			"funcCtx.hiddenArgs":    "runtimeCall's hidden CallerTask argument",
@@ -38,6 +39,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.openFrame":     "the frame scope's parent task (NewScope)",
 			"funcCtx.poll":          "the interruption point (Check)",
 			"funcCtx.envClosure":    "a task callback's Env copy",
+			"lowerer.testRunner":    "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
 		}},
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":    "the runtime binding emitter",

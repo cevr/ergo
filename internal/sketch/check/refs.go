@@ -434,11 +434,14 @@ func (c *checker) beginBodyCheck(owner any) func() {
 		c.bodyGen, c.frameGen, c.frameInv, c.frameRef = map[any]int{}, map[syntax.Node]int{}, map[syntax.Node]int{}, map[syntax.Node]int{}
 	}
 	c.genSeq++
-	saved, savedMark := c.curGen, c.stmtMark
+	saved, savedMark, savedOwner := c.curGen, c.stmtMark, c.owner
 	c.curGen = c.genSeq
 	c.stmtMark = c.undiagSeq
 	c.bodyGen[owner] = c.genSeq
-	return func() { c.curGen, c.stmtMark = saved, savedMark }
+	// The body's view of the package's facts (owners.go), restored when a
+	// body checked on demand inside another one ends.
+	c.owner = bodyOwner(owner)
+	return func() { c.curGen, c.stmtMark, c.owner = saved, savedMark, savedOwner }
 }
 
 // typedFrame records that typing checks the callback frame n (a function

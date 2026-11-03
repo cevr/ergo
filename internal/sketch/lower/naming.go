@@ -73,18 +73,25 @@ func (l *lowerer) nameAll() {
 	var generated []entry
 	for _, p := range append([]*check.Package{l.pkg}, libs...) {
 		var convs []check.Conversion
-		for _, c := range p.Info.Implicit {
-			convs = append(convs, c)
+		for x, c := range p.Info.Implicit {
+			if l.readsFact(p, x) {
+				convs = append(convs, c)
+			}
 		}
-		for _, cs := range p.Info.ImplicitElems {
-			convs = append(convs, cs...)
+		for x, cs := range p.Info.ImplicitElems {
+			if l.readsFact(p, x) {
+				convs = append(convs, cs...)
+			}
 		}
 		for _, w := range p.Contexts {
 			for _, e := range w.Entries {
 				convs = append(convs, e.Conversions...)
 			}
 		}
-		for _, with := range p.Info.Withs {
+		for x, with := range p.Info.Withs {
+			if !l.readsFact(p, x) {
+				continue
+			}
 			for _, w := range with.Contexts {
 				if w.Lit != nil {
 					for _, e := range w.Entries {
@@ -102,7 +109,7 @@ func (l *lowerer) nameAll() {
 		}
 		for _, tn := range p.Types {
 			named, ok := tn.Type.(*check.Named)
-			if !ok || !(p.ErrorTypes[named] || l.pkg.ErrorTypes[named]) || tn.Decl == nil {
+			if !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {
 				continue
 			}
 			l.quiet(func() {
@@ -120,6 +127,7 @@ func (l *lowerer) nameAll() {
 	for _, e := range generated {
 		l.pkgName(e.key, e.base)
 	}
+	l.nameTests() // the test build's names (tests.go); none in the run build
 	l.prenamed = true
 }
 
@@ -188,7 +196,8 @@ func opsSource(from check.Type) (named *check.Named, ptr, ok bool) {
 }
 
 // libraryPackages are the packages other than the user's that the user
-// package reaches through its Info, transitively, ordered by path.
+// package reaches through the Info facts this build reads (owners.go),
+// transitively, ordered by path.
 func (l *lowerer) libraryPackages() []*check.Package {
 	seen := map[*check.Package]bool{l.pkg: true}
 	var out []*check.Package
@@ -200,8 +209,12 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		seen[p] = true
 		out = append(out, p)
 	}
-	visit := func(info *check.Info) {
-		for _, o := range info.Uses {
+	visit := func(p *check.Package) {
+		info := p.Info
+		for id, o := range info.Uses {
+			if !l.readsFact(p, id) {
+				continue
+			}
 			switch o := o.(type) {
 			case *check.PkgName:
 				add(o.Pkg)
@@ -211,22 +224,22 @@ func (l *lowerer) libraryPackages() []*check.Package {
 				add(o.Pkg)
 			}
 		}
-		for _, t := range info.Types {
-			if n, ok := t.(*check.Named); ok {
+		for x, t := range info.Types {
+			if n, ok := t.(*check.Named); ok && l.readsFact(p, x) {
 				add(n.Obj.Pkg)
 			}
 		}
 		// A dot call reaches a function no name uses: the prelude's
 		// xs.Append(x) on a slice (D-D8).
-		for _, c := range info.Calls {
-			if c.Func != nil {
+		for x, c := range info.Calls {
+			if c.Func != nil && l.readsFact(p, x) {
 				add(c.Func.Pkg)
 			}
 		}
 	}
-	visit(l.info)
+	visit(l.pkg)
 	for i := 0; i < len(out); i++ {
-		visit(out[i].Info)
+		visit(out[i])
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out

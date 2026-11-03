@@ -1,0 +1,95 @@
+// Stage E3a sweep (196l): an assert fails its test from any statement
+// position of the body (a with body, a loop, a match arm, a catch arm, an
+// else block) and over a function literal's result: its body is S108.
+type Store {
+	Get() string,
+}
+
+type Mem {}
+
+func Get(_ Mem) string {
+	"ok"
+}
+
+type Bang {}
+
+func risky(n int) int fails Bang {
+	if n < 0 {
+		return Bang
+	}
+	n
+}
+
+type Shape =
+	| Circle{R int}
+	| Square{S int}
+
+test InWith {
+	with context { Store: Mem } {
+		assert Store.Get() == "no"
+	}
+}
+
+test InLiteral {
+	let check = func(n int) bool {
+		n > 10
+	}
+	assert check(3)
+}
+
+test InLoop {
+	for x in []int{1, 2, 3} {
+		assert x < 3
+	}
+}
+
+test InMatch {
+	let s Shape = Square{S: 2}
+	match s {
+	case Circle{R: r}:
+		assert r > 0
+	case Square{S: n}:
+		assert n == 3
+	}
+}
+
+test InCatch {
+	let v = risky(-1) catch {
+	case _:
+		assert false
+		0
+	}
+	assert v == 0
+}
+
+test InBlock {
+	if false {
+		assert true
+	} else {
+		assert 1 == 2
+	}
+}
+
+test Passes {
+	with context { Store: Mem } {
+		assert Store.Get() == "ok"
+	}
+	for x in []int{1, 2} {
+		assert x > 0
+	}
+}
+
+func main() needs Console {
+	Console.Println(with context { Store: Mem } { Store.Get() })
+}
+
+// run> ok
+// test> FAIL InWith: assert failed at main.ergo:29:3: Store.Get() == "no"
+// test> FAIL InLiteral: assert failed at main.ergo:37:2: check(3)
+// test> FAIL InLoop: assert failed at main.ergo:42:3: x < 3
+// test> FAIL InMatch: assert failed at main.ergo:52:3: n == 3
+// test> FAIL InCatch: assert failed at main.ergo:59:3: false
+// test> FAIL InBlock: assert failed at main.ergo:69:3: 1 == 2
+// test> ok Passes
+// test> FAIL (6 of 7 tests)
+// test exit 1
