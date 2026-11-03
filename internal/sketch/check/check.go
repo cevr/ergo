@@ -131,8 +131,10 @@ type checker struct {
 	group      map[*Func]bool
 	groupValue map[*Func][2]groupSite
 	lits       []*litFrame // the literal frames being checked, innermost last
-	// walkOps counts the reference walk's literal elements, an operation
-	// count for the linear-growth tests (round 17 M2).
+	// walkOps counts the steps that read a literal's kind (litTypeOf,
+	// elemOf), the reference walk's and, on a refusal route, typing's,
+	// which reads a literal's kind as the walk does: an operation count for the
+	// linear-growth tests (round 17 M2).
 	walkOps int
 	// taskMemo caches holdsTask by interned type id, for finished
 	// components only (taskescape.go); taskSteps counts the walk's visits
@@ -179,6 +181,12 @@ type checker struct {
 	// brackets are type arguments only when f has bracket type parameters
 	// x does not bind (selfCall; round 8 review m1).
 	calleeIndex *syntax.IndexExpr
+	// elidedLit is the elided literal an array, slice or map literal is
+	// about to check as an element or key, and elidedAs reads the type it
+	// gives it as the reference walk reads it (elementValue, compositeLit),
+	// only on a refusal route.
+	elidedLit *syntax.CompositeLit
+	elidedAs  func() litType
 	// selfRes, set while resolveSelfCalls types the bodies with pending
 	// calls x.f(…), receives what each such call resolves to: a 196m
 	// function, or nil for another member (selector, selfCall).
