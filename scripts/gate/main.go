@@ -17,6 +17,14 @@
 // tests are not cached here: Go's own per-package test cache stays
 // authoritative, and slow packages are split into processes whose union is
 // complete by construction (the last shard skips exactly what the others run).
+// The gate's own tests are split by what their results depend on. Go's test
+// cache records files, environment variables and the module's source, not
+// the programs a test runs or the libraries they load. So this package, whose
+// tests run git, ps, shells, the go command and gates in systemd scopes, is a
+// host package (hostTestPackages): it runs with -count=1 on every gate and
+// never replays. The packages below it are hermetic: each runs no program
+// but its own test binary and builds with CGO_ENABLED=0 (package
+// scripts/gate/hermetic checks them), so they replay.
 //
 // Every step runs under a memory budget: a hard cap for the step with all the
 // processes it starts (ERGO_GATE_STEP_MEMORY, default 8G), one for all the
@@ -95,6 +103,9 @@ type Step struct {
 	// include goRuntimeEnvironment), reach the step as one digest in
 	// ERGO_TOOL_VERSIONS; a test that reads it keys Go's test cache on it.
 	ToolEnv []string
+	// Env sets variables ("NAME=value") for the step, over the environment
+	// the gate gives it; a hermetic Go test step sets CGO_ENABLED=0.
+	Env []string
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -218,7 +229,7 @@ func main() {
 	}
 	if *list {
 		for _, step := range steps {
-			fmt.Printf("%s: %s\n", step.Name, strings.Join(step.Argv, " "))
+			fmt.Printf("%s: %s\n", step.Name, strings.Join(append(slices.Clone(step.Env), step.Argv...), " "))
 		}
 		return
 	}
@@ -446,10 +457,7 @@ func (g *gate) execute(step *Step) *result {
 	started := time.Now()
 	command := exec.CommandContext(context.Background(), step.Argv[0], step.Argv[1:]...)
 	command.Dir = g.root
-	command.Env = stepEnvironmentFor(g.root, step.Name)
-	if runsGoTest(step) {
-		command.Env = goTestEnvironmentFor(g.root, step.Name)
-	}
+	command.Env = stepCommandEnvironment(g.root, step)
 	if len(step.ToolEnv) > 0 {
 		command.Env = append(command.Env, testenv.ToolDigest+"="+g.toolDigest(step))
 	}
@@ -651,6 +659,21 @@ func stepEnvironmentFor(root, name string) []string {
 	return setEnvironmentVariable(stepEnvironment(), "TMPDIR", stepTempDir(root, name))
 }
 
+// stepCommandEnvironment is the environment a step's command runs with,
+// before the tool digest: a go test step's filtered one, or the step
+// environment, with the step's own variables over it.
+func stepCommandEnvironment(root string, step *Step) []string {
+	environment := stepEnvironmentFor(root, step.Name)
+	if runsGoTest(step) {
+		environment = goTestEnvironmentFor(root, step.Name)
+	}
+	for _, entry := range step.Env {
+		name, value, _ := strings.Cut(entry, "=")
+		environment = setEnvironmentVariable(environment, name, value)
+	}
+	return environment
+}
+
 func setEnvironmentVariable(environment []string, name, value string) []string {
 	updated := make([]string, 0, len(environment)+1)
 	for _, entry := range environment {
@@ -800,6 +823,9 @@ func (g *gate) key(step *Step) (string, error) {
 	inputs := step.Inputs
 	hash := sha256.New()
 	fmt.Fprintf(hash, "%s\x00%s\x00%q\x00", cacheVersion, step.Name, step.Argv)
+	if len(step.Env) > 0 {
+		fmt.Fprintf(hash, "step env\x00%q\x00", step.Env)
+	}
 	files := 0
 	for _, name := range g.files {
 		if selected(name, inputs) {
