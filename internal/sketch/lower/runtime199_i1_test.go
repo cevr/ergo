@@ -144,6 +144,29 @@ func started() {
 }
 `
 
+// i1LoopShapes is the loop-shape axis every loop generator shares: each
+// form alone, and each form holding the next form nested in its body. A new
+// shape added here reaches the ordinary, block and law generators at once.
+func i1LoopShapes() [][]i1Loop {
+	var shapes [][]i1Loop
+	for i, l := range i1Loops {
+		shapes = append(shapes, []i1Loop{l}, []i1Loop{l, i1Loops[(i+1)%len(i1Loops)]})
+	}
+	return shapes
+}
+
+// i1ShapeParams names a shape's loop forms, outside in, and gives the
+// parameter the first Seq form reads ("" when the shape holds none).
+func i1ShapeParams(shape []i1Loop) (names []string, param string) {
+	for _, l := range shape {
+		names = append(names, l.name)
+		if l.seq && param == "" {
+			param = l.param
+		}
+	}
+	return names, param
+}
+
 // i1Loops builds the loops of one frame: the given forms from the outside
 // in, the innermost body doing v. It declares and counts sum.
 func i1Body(prefix string, loops []i1Loop, v i1Variant, site string) string {
@@ -221,24 +244,16 @@ func i1UserDecls(decls []ast.Decl) []ast.Decl {
 // provider method has no row and no free parameter.
 func i1Cases() []i1Case {
 	var out []i1Case
-	shapes := [][]i1Loop{}
-	for i, l := range i1Loops {
-		shapes = append(shapes, []i1Loop{l}, []i1Loop{l, i1Loops[(i+1)%len(i1Loops)]})
-	}
 	for _, cl := range i1Clauses {
-		for _, shape := range shapes {
-			seq := false
+		for _, shape := range i1LoopShapes() {
 			var params []string
 			if cl.param != "" {
 				params = append(params, cl.param)
 			}
-			var names []string
-			for _, l := range shape {
-				names = append(names, l.name)
-				if l.seq && !seq {
-					seq = true
-					params = append(params, l.param)
-				}
+			names, seqParam := i1ShapeParams(shape)
+			seq := seqParam != ""
+			if seq {
+				params = append(params, seqParam)
 			}
 			impure := cl.impure || seq
 			for _, v := range i1Variants {
@@ -383,6 +398,25 @@ func TestRuntime199I1Property(t *testing.T) {
 	if lawBuilds[false] == 0 || lawBuilds[false] != lawBuilds[true] {
 		t.Errorf("law cases: %d in the run build, %d in the test build; want the same nonzero count", lawBuilds[false], lawBuilds[true])
 	}
+	// The law cases span the shared loop-shape axis × each variant a law
+	// admits × each placement, in each build: no shape, nesting, failure
+	// literal or build drops out of the law domain unnoticed.
+	lawNames := map[string]bool{}
+	for _, c := range cases {
+		lawNames[c.name] = true
+	}
+	for _, build := range []string{"run", "test"} {
+		for _, shape := range i1LoopShapes() {
+			names, _ := i1ShapeParams(shape)
+			for _, v := range i1Variants {
+				for _, p := range i1LawPlacements {
+					if name := "law/" + build + "/" + p.name + "/" + strings.Join(names, "+") + "/" + v.name; !v.site && !lawNames[name] {
+						t.Errorf("no law case %s", name)
+					}
+				}
+			}
+		}
+	}
 	t.Logf("%d generated programs: %v", len(cases), classes)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -402,24 +436,16 @@ func TestRuntime199I1Property(t *testing.T) {
 //   - with-body: the loops run inside a with block, in the enclosing frame.
 func i1BlockCases() []i1Case {
 	var out []i1Case
-	shapes := [][]i1Loop{}
-	for i, l := range i1Loops {
-		shapes = append(shapes, []i1Loop{l}, []i1Loop{l, i1Loops[(i+1)%len(i1Loops)]})
-	}
 	for _, cl := range i1Clauses {
-		for _, shape := range shapes {
-			seq := false
+		for _, shape := range i1LoopShapes() {
 			var params []string
 			if cl.param != "" {
 				params = append(params, cl.param)
 			}
-			var names []string
-			for _, l := range shape {
-				names = append(names, l.name)
-				if l.seq && !seq {
-					seq = true
-					params = append(params, l.param)
-				}
+			names, seqParam := i1ShapeParams(shape)
+			seq := seqParam != ""
+			if seq {
+				params = append(params, seqParam)
 			}
 			impure := cl.impure || seq
 			for _, v := range i1Variants {
@@ -443,7 +469,7 @@ func i1BlockCases() []i1Case {
 	return out
 }
 
-// i1LawCases put each loop form and variant in a law, in its body and in a
+// i1LawCases put each loop shape and variant in a law, in its body and in a
 // function literal in it (stage E3b), and lower each program as the run
 // build and as the test build. A law body is checked as if it ran, so the
 // checker gives it and its literal footprints (i1CheckFacts), but neither
@@ -461,27 +487,41 @@ func i1LawCases() []i1Case {
 	return out
 }
 
-// i1LawLoops is one build's law cases: every loop form × admitted variant ×
-// placement (the law body, a function literal in it).
+// i1LawPlacements are the places in a law that can hold loops: the law
+// body, and a function literal the law declares and calls. A literal whose
+// loops try a failure declares the failure in its row, and the law tries
+// the call, as a law tries a fallible tail (types.md, Laws 8).
+var i1LawPlacements = []struct {
+	name  string
+	place func(body string, fail bool) string
+}{
+	{name: "body", place: func(body string, _ bool) string { return body + "sum >= 0\n" }},
+	{name: "literal", place: func(body string, fail bool) string {
+		row, try := "", ""
+		if fail {
+			row, try = " fails Fault", "try "
+		}
+		return "let f = func() int" + row + " {\n" + body + "sum\n}\n" + try + "f() >= 0\n"
+	}},
+}
+
+// i1LawLoops is one build's law cases: the shared loop-shape axis
+// (i1LoopShapes: one loop, and two nested loops) × every variant a law
+// admits × every placement (i1LawPlacements). A law has no capability, so
+// the site variant, which calls one, has no law case.
 func i1LawLoops(build string, testBuild bool) []i1Case {
 	var out []i1Case
-	for _, l := range i1Loops {
+	for _, shape := range i1LoopShapes() {
+		names, ps := i1ShapeParams(shape)
 		for _, v := range i1Variants {
 			if v.site {
 				continue
 			}
-			ps := ""
-			if l.seq {
-				ps = l.param
-			}
-			body := i1Body("", []i1Loop{l}, v, "")
-			forms := [][2]string{{"body", body + "sum >= 0\n"}}
-			if !v.fail {
-				forms = append(forms, [2]string{"literal", "let f = func() int {\n" + body + "sum\n}\nf() >= 0\n"})
-			}
-			for _, form := range forms {
-				src := "type Lawful {\n\tStep() int,\n\n\tlaw Loops(" + ps + ") {\n" + form[1] + "},\n}\n"
-				out = append(out, i1Case{name: "law/" + build + "/" + form[0] + "/" + l.name + "/" + v.name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{}, testBuild: testBuild})
+			body := i1Body("", shape, v, "")
+			for _, p := range i1LawPlacements {
+				src := "type Lawful {\n\tStep() int,\n\n\tlaw Loops(" + ps + ") {\n" + p.place(body, v.fail) + "},\n}\n"
+				name := "law/" + build + "/" + p.name + "/" + strings.Join(names, "+") + "/" + v.name
+				out = append(out, i1Case{name: name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{}, testBuild: testBuild})
 			}
 		}
 	}
