@@ -114,12 +114,12 @@ func TestControls(t *testing.T) {
 // or the control fails for the wrong reason.
 var mutantManifest = []struct{ old, new string }{
 	{"package " + checkPath + "\n", "package " + mutantPath + "\n"},
-	{"callee Parse CheckSource prelude$1 (*stdImporter).Import\n", "callee Parse CheckSource prelude$1 (*stdImporter).Import parseValueAtSite closureAtSite closureReturnedAtSite closureNestedAtSite$1 (*checker).closureInMethodAtSite acceptParenParse\n"},
+	{"callee Parse CheckSource prelude$1 (*stdImporter).Import\n", "callee Parse CheckSource prelude$1 (*stdImporter).Import parseValueAtSite closureAtSite closureReturnedAtSite closureNestedAtSite$1 (*checker).closureInMethodAtSite acceptParenParse acceptGlobalParsed\n"},
 	{"site (*checker).assignStmt BinaryExpr compoundFixture\n", "site (*checker).assignStmt BinaryExpr compoundFixture\nsite acceptExplicitCalls Ident none\nsite acceptClosureCalls$1 Ident none\nsite acceptParenCalls Ident none\n"},
 	// Stale entries: a site that makes nothing, and a parser site and an
 	// entry site that never reference their callee (reported at made).
 	{"entry CheckSource\n", "entry CheckSource staleEntrySite\nsite staleSite Ident none\n"},
-	{" acceptParenParse\n", " acceptParenParse staleCalleeSite\n"},
+	{" acceptGlobalParsed\n", " acceptGlobalParsed staleCalleeSite\n"},
 }
 
 // patches are the controls that edit the checker's own files: each anchor
@@ -132,6 +132,18 @@ var patches = map[string][]struct{ old, new string }{
 			"func CheckSource(src string) (*Package, []Diagnostic) {\n" +
 				"\tsnippetParse = func(s string) (*syntax.File, error) { return syntax.Parse(s) } // want `syntax callee Parse is called in CheckSource\\$1, which the manifest does not list for it` `CheckSource\\$1 makes a node outside the manifest and becomes a function value in CheckSource`\n" +
 				"\tfile, err := syntax.Parse(src)\n"},
+	},
+	// E2d round 1 review B1 (the reach mutant): varDecl reports a
+	// diagnostic at a zero package variable's address, which CheckSource
+	// reaches with `let reviewGlobalTrigger = 1` and which has no file.
+	"stmt.go": {
+		{"func (c *checker) varDecl(d *syntax.VarDecl) {\n\tmut := d.Mut.IsValid()\n",
+			"var reviewGlobal syntax.Ident // want `package variable reviewGlobal holds a Ident by value`\n\n" +
+				"func (c *checker) varDecl(d *syntax.VarDecl) {\n\tmut := d.Mut.IsValid()\n" +
+				"\tif len(d.Specs) == 1 && len(d.Specs[0].Names) == 1 && d.Specs[0].Names[0].Name == \"reviewGlobalTrigger\" {\n" +
+				"\t\tc.errorf(&reviewGlobal, CodeType, \"review global diagnostic\")\n" +
+				"\t\treturn\n" +
+				"\t}\n"},
 	},
 	// The stale manifest entries are reported at made.
 	"owner.go": {

@@ -20,6 +20,8 @@
 //     MakeMap, MakeChan), unless it is a construction: a fresh node whose
 //     only uses are its own field stores and one made call, at a site the
 //     manifest lists with its kind;
+//   - a package variable that holds a node by value, at its declaration,
+//     and a reference to another package's (E2d round 1 review B1);
 //   - any SSA value that holds a node by value: a copy;
 //   - a Convert, ChangeType or MultiConvert into a node, into a pointer to a
 //     node from a pointer to anything else, or into a type parameter whose
@@ -150,6 +152,7 @@ func run(m *Manifest, pass *analysis.Pass) (any, error) {
 	s.collectLayouts()
 	s.declarations()
 	s.build()
+	s.packageStorage()
 	funcs := s.functions()
 	for _, fn := range funcs {
 		s.function(fn)
@@ -738,6 +741,33 @@ func (s *state) layout(fn *ssa.Function, t types.Type, at token.Pos) {
 	walk(t, at)
 }
 
+// packageStorage flags a package variable whose type holds a node by value,
+// directly or in an array or struct at any depth (E2d round 1 review B1).
+// It is storage the package owns: a node in it is in no file's tree, and a
+// zero one has no instruction that makes it (no Alloc, no init store).
+//
+// The rule is at the declaration, not at the uses, because the declaration
+// is the one point every use shares. A use rule would have to name every
+// derivation of an address (&g, &g.f, &g[i], g[:] and its element
+// addresses, a slice-to-array-pointer conversion, a Phi, the address passed
+// to another function or captured) and would miss any it did not name. A
+// variable that holds only node pointers or interfaces refers to nodes made
+// elsewhere, where they are checked, and stays legal.
+func (s *state) packageStorage() {
+	var globals []*ssa.Global
+	for _, m := range s.pkg.Members {
+		if g, ok := m.(*ssa.Global); ok {
+			globals = append(globals, g)
+		}
+	}
+	sort.Slice(globals, func(i, j int) bool { return globals[i].Pos() < globals[j].Pos() })
+	for _, g := range globals {
+		if kind, ok := s.holds(g.Type().(*types.Pointer).Elem(), map[types.Type]bool{}); ok {
+			s.report(nil, g.Pos(), "package variable %s holds a %s by value: storage outside made and clone whose addresses are nodes in no file", g.Name(), kind)
+		}
+	}
+}
+
 // ---- function rules
 
 func (s *state) function(fn *ssa.Function) {
@@ -1129,9 +1159,17 @@ func (s *state) functionValue(fn *ssa.Function, name string, pos token.Pos, f *s
 	s.instantiation(fn, pos, f)
 }
 
-// global checks a reference to a syntax function-valued variable that
-// yields a node: a load whose every use is a call is a call.
+// global checks a reference to another package's variable. One that holds
+// a node by value is storage outside the package's sight, so any reference
+// to it is flagged (the package's own are flagged at their declarations,
+// packageStorage). A syntax function-valued variable that yields a node is
+// a parser callee: a load whose every use is a call is a call.
 func (s *state) global(fn *ssa.Function, name string, instr ssa.Instruction, g *ssa.Global) {
+	if g.Pkg != s.pkg {
+		if kind, ok := s.holds(g.Type().(*types.Pointer).Elem(), map[types.Type]bool{}); ok {
+			s.report(fn, instr.Pos(), "%s holds a %s by value and is referenced in %s: a node in no file", g.RelString(s.pass.Pkg), kind, name)
+		}
+	}
 	obj := g.Object()
 	if obj == nil || obj.Pkg() != s.syntax {
 		return
