@@ -48,6 +48,14 @@ func externRef(f *Func, sig *Signature) operand {
 // it (stdlib.md, Hidden arguments).
 const runtimeModule = "ergo.local/prototype/runtime"
 
+// unsafeText is the S108 of a user extern of Go's unsafe package (check-v1
+// spec, C26 target domain, amendment 2026-11-04). NORTH_STAR, Owner rules:
+// unsafe stays at the FFI edge, and Ergo gets no unsafe. The refusal also
+// keeps Go's qualified built-ins (unsafe.Sizeof, unsafe.Alignof, …) out of
+// the domain, so every admitted target is a function or a function value
+// (lower/calls.go hostStmt).
+const unsafeText = "Ergo has no unsafe; unsafe stays at the FFI edge"
+
 // checkExterns checks the declaration of each user extern (C26): its Go
 // target first, then its signature. One declaration gets at most one
 // diagnostic. Std's externs bind runtime/v1 with hidden arguments and are
@@ -75,10 +83,14 @@ func (c *checker) checkExterns() {
 // code, or "". The target is in the domain when its import path's first
 // element has no dot: Go's standard library, by Go's own rule for module
 // paths. A missing package or function there is go build's error (D-E5).
+// The Ergo runtime and Go's unsafe are S108 whatever the signature.
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
 		return fmt.Sprintf("only std binds the Ergo runtime; its functions take hidden arguments that std's bindings supply (here %s)", f.Decl.Extern.Target.Value), CodeType
+	}
+	if path == "unsafe" {
+		return unsafeText, CodeType
 	}
 	first, _, _ := strings.Cut(path, "/")
 	if strings.Contains(first, ".") {

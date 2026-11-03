@@ -126,6 +126,59 @@ func main() needs Console {
 	}
 }
 
+// TestExternUnsafeTarget is the C26 target-domain property for Go's unsafe
+// (check-v1 spec amendment 2026-11-04, after E4-2 r3 M4): a user extern of
+// unsafe is exactly one S108 at the declaration, "Ergo has no unsafe;
+// unsafe stays at the FFI edge", and no S109, for each exported name of
+// unsafe and every admitted basic signature (a parameter, a result, both).
+// The target is refused before the signature, so a signature outside the
+// domain (a type parameter, a fails row, a slice) is the same S108. A call
+// of the extern adds no diagnostic. The fixed cases are E4-2 r3 M4's
+// inputs: unsafe.Sizeof and unsafe.Alignof as Size(x int64) uintptr, called
+// in an interpolation.
+func TestExternUnsafeTarget(t *testing.T) {
+	const want = "Ergo has no unsafe; unsafe stays at the FFI edge"
+	names := []string{"Sizeof", "Alignof", "Offsetof", "Add", "Slice", "String", "StringData", "SliceData", "Pointer"}
+	basic := []string{"bool", "string", "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+		"float32", "float64", "complex64", "complex128", "duration"}
+	type form struct{ sig, use string }
+	var forms []form
+	for _, ty := range basic {
+		forms = append(forms,
+			form{"(p " + ty + ")", "func Use(p " + ty + ") { f(p) }\n"},
+			form{"() " + ty, "func Use() { _ = f() }\n"},
+			form{"(p " + ty + ") " + ty, "func Use(p " + ty + ") " + ty + " { f(p) }\n"},
+			form{"(p " + ty + ") uintptr", "func Use(p " + ty + ") uintptr { f(p) }\n"},
+		)
+	}
+	forms = append(forms,
+		form{"()", "func Use() { f() }\n"},
+		form{"[T](p T) T", ""},
+		form{"(p int) int fails E", ""},
+		form{"(p []int) int", ""},
+	)
+	check1 := func(t *testing.T, src string) {
+		t.Helper()
+		_, diags := check.CheckSource(src)
+		if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Line != 1 || diags[0].Message != want {
+			t.Fatalf("want exactly one S108 %q at line 1, got\n\t%s", want, describe(diags))
+		}
+	}
+	for _, name := range names {
+		for _, fm := range forms {
+			decl := "extern go unsafe." + name + " func f" + fm.sig
+			t.Run(decl, func(t *testing.T) {
+				check1(t, decl+"\n"+fm.use+"type E {}\n")
+			})
+		}
+	}
+	for _, name := range []string{"Sizeof", "Alignof"} {
+		src := "extern go unsafe." + name + " func Size(x int64) uintptr\nfunc main() needs Console {\n\tConsole.Println(\"\\(Size(1))\")\n}\n"
+		t.Run("M4/"+name, func(t *testing.T) { check1(t, src) })
+	}
+}
+
 // TestExternTargetDomain is A5.2 of check-v1 stage E4 (C26): a user
 // extern binds a function of Go's standard library (a path whose first
 // element has no dot); a dotted path is #202's, and only std binds the
@@ -137,6 +190,7 @@ func TestExternTargetDomain(t *testing.T) {
 		{"example.com/x", "S109", "#202"},
 		{"ergo.local/prototype/runtime/rt", "S108", "only std binds the Ergo runtime"},
 		{"ergo.local/prototype/runtime/v1", "S108", "only std binds the Ergo runtime"},
+		{"unsafe", "S108", "Ergo has no unsafe; unsafe stays at the FFI edge"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			src := "extern go " + tc.path + ".F func f(n int) int\nfunc Use(n int) int { f(n) }\n"
