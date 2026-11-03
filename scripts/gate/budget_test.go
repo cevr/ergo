@@ -113,15 +113,16 @@ var budgetCases = []budgetCase{
 	},
 	{
 		// A process of the step that stays under the budget is stopped with
-		// the one that passes it. The leader owns the release writer, and the
-		// allocator closes it: allocation completion or a leader-only kill
-		// makes the survivor finish, while a whole-step kill stops both.
+		// the one that passes it. The leader owns the release writer and
+		// releases the survivor only after allocation completes. EOF means the
+		// leader died first, which is tolerated only for the systemd scope's
+		// per-task group kill.
 		name: "whole", step: "512M", gate: "2G",
 		steps: func() []*Step {
 			return []*Step{{
 				Name: "alloc",
 				Argv: []string{"sh", "-c", `mkfifo src/survivor-ready src/survivor-release
-( exec 3<src/survivor-release; echo "survivor started"; echo ready > src/survivor-ready; read -r _ <&3; echo "survivor finished" ) &
+( exec 3<src/survivor-release; echo "survivor started"; echo ready > src/survivor-ready; if read -r _ <&3; then echo "survivor finished"; else echo "survivor orphaned"; fi ) &
 exec 4>src/survivor-release
 read -r _ < src/survivor-ready
 echo "step pgid=$$"
@@ -134,13 +135,26 @@ echo "step exited"`, os.Args[0]},
 				Inputs: &Inputs{Paths: []string{"src/alloc.txt"}},
 			}}
 		},
-		check: func(t *testing.T, _ string, code int, out string, receipts []string) {
+		check: func(t *testing.T, mechanism string, code int, out string, receipts []string) {
 			stepStopped(t, code, out, receipts)
 			if !strings.Contains(out, "survivor started") {
 				t.Errorf("the survivor did not signal that it started before allocation:\n%s", out)
 			}
-			if strings.Contains(out, "survivor finished") || strings.Contains(out, "step exited") {
-				t.Errorf("part of the step ran on after the budget stopped it:\n%s", out)
+			if strings.Contains(out, "step exited") {
+				t.Errorf("the leader ran on after the budget stopped the step:\n%s", out)
+			}
+			switch mechanism {
+			case rssMechanism:
+				if strings.Contains(out, "survivor orphaned") {
+					t.Errorf("RSS killed only the leader before the survivor:\n%s", out)
+				}
+				fallthrough
+			case scopeMechanism:
+				if strings.Contains(out, "survivor finished") {
+					t.Errorf("the survivor ran after allocation returned:\n%s", out)
+				}
+			default:
+				t.Fatalf("unknown budget mechanism %q", mechanism)
 			}
 		},
 	},
