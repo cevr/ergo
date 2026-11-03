@@ -106,7 +106,7 @@ func (c *checker) collectBodyErrorRows() {
 			if er, ok := n.(*syntax.ErrorRow); ok {
 				for _, x := range er.Types {
 					if n := c.errorRowHead(x); n != nil {
-						c.addErrorType(n, c.pkg.OwnerOf(er), x.Pos())
+						c.addErrorType(n, c.pkg.OwnerOf(er), x)
 					}
 				}
 			}
@@ -1300,7 +1300,7 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 		}
 		// The row's own owner, not the body being checked: a declaration
 		// may be resolved first from a test.
-		c.addErrorType(t.(*Named), c.pkg.OwnerOf(x), x.Pos())
+		c.addErrorType(t.(*Named), c.pkg.OwnerOf(x), x)
 	case KindUses:
 		if !isCapability(t) {
 			c.errorf(x, CodeUnknown, "%s is not a capability: a capability is a named interface with methods (rows.md, Capability rows 3)", t)

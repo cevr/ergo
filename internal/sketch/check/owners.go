@@ -16,9 +16,11 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // So a test changes neither the verdict on the rest of the program nor its
 // run Go: a struct type that only a test's error row names is an error type
 // in the tests and an ordinary value type everywhere else (types.md, Error
-// types 1), and the run build emits no Error method for it. One rule reads
-// every owner's rows: a function named Error on such a type is S108
-// (types.md, Methods 6), because the test build generates its Error method.
+// types 1), and the run build emits no Error method for it. A function
+// named Error on such a type is valid in the program but conflicts with the
+// method the test build generates, so the conflict is the test's: S108 at
+// the test's first row that names the type, never at the function
+// (types.md, Methods 6; checkErrorMethods).
 //
 // Two kinds of fact carry an owner. Package.ErrorTypes are kept by owner.
 // Every fact Info records is keyed by a syntax node, so its owner is the
@@ -94,13 +96,14 @@ func bodyOwner(body any) FactOwner {
 	return OwnerProduction
 }
 
-// addErrorType records that an error row of a body of owner o names n's
-// origin, at.
-func (c *checker) addErrorType(n *Named, o FactOwner, at syntax.Pos) {
+// addErrorType records that the error row element at, of a body of owner o,
+// names n's origin. The first element recorded stays: collectBodyErrorRows
+// records every row in source order before any body is checked.
+func (c *checker) addErrorType(n *Named, o FactOwner, at syntax.Expr) {
 	n = n.origin()
 	set := c.errorTypes[o]
 	if set == nil {
-		set = map[*Named]syntax.Pos{}
+		set = map[*Named]syntax.Expr{}
 		c.errorTypes[o] = set
 	}
 	if _, seen := set[n]; !seen {
@@ -114,18 +117,6 @@ func (c *checker) errorTypeIn(n *Named, o FactOwner) bool {
 	n = n.origin()
 	for f, set := range c.errorTypes {
 		if _, ok := set[n]; ok && o.Sees(f) {
-			return true
-		}
-	}
-	return false
-}
-
-// errorTypeAnywhere reports whether an error row of any owner names n's
-// origin.
-func (c *checker) errorTypeAnywhere(n *Named) bool {
-	n = n.origin()
-	for _, set := range c.errorTypes {
-		if _, ok := set[n]; ok {
 			return true
 		}
 	}

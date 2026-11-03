@@ -463,19 +463,32 @@ func (c *checker) checkEntry() {
 }
 
 // checkErrorMethods reports a function Error on an error type: the emitter
-// generates it from the fields (types.md, Methods 5). A row of any owner
-// counts: the test build lowers the function beside the tests' error
-// types, so a test's row would give the type a second Error method.
+// generates it from the fields (types.md, Methods 6). Where the conflict is
+// reported depends on whose row makes the type an error type (owners.go):
+//
+//   - a production row: at the function, as the program itself is wrong;
+//   - only a test's row: once, at the first such row in source order, and
+//     the function stays clean, because the run build gives the type no
+//     Error method and a test never changes the program's verdict. The test
+//     build would lower both the function and the generated method.
 func (c *checker) checkErrorMethods() {
+	blamed := map[*Named]bool{}
 	for _, f := range c.funcs {
 		owner := f.owner // Error(e E) string, reached as e.Error() (196m)
 		if owner == nil || f.Name != "Error" {
 			continue
 		}
-		if !c.errorTypeAnywhere(owner) {
+		if c.errorTypeIn(owner, OwnerProduction) {
+			c.cur = f.file
+			c.errorf(f.Decl.Name, CodeType, "%s is an error type, so it declares no Error method: its text comes from its fields (types.md, Methods 6)", owner.Obj.Name)
 			continue
 		}
-		c.cur = f.file
-		c.errorf(f.Decl.Name, CodeType, "%s is an error type, so it declares no Error method: its text comes from its fields (types.md, Methods 5)", owner.Obj.Name)
+		row, ok := c.errorTypes[OwnerTest][owner.origin()]
+		if !ok || blamed[owner.origin()] {
+			continue
+		}
+		blamed[owner.origin()] = true
+		c.cur = c.fileOf(row)
+		c.errorf(row, CodeType, "this row makes %s an error type in the tests, but the program declares a function Error on it, which the test build would lower beside the generated Error method; an error type's text comes from its fields (types.md, Methods 6)", owner.Obj.Name)
 	}
 }

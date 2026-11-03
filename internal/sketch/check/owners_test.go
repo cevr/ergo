@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -66,6 +67,87 @@ func checkDiags(t *testing.T, src string) string {
 	}
 	_, ds := check.Check("main", []*syntax.File{f}, nil)
 	return fmt.Sprint(ds)
+}
+
+// errorMethodProductions declare a function Error on Bang: where only a
+// test's row makes Bang an error type, the function is valid in the
+// program; where a production row does, it is S108 at the function
+// (types.md, Methods 6).
+var errorMethodProductions = []struct {
+	name, src  string
+	productRow bool
+}{
+	{"value", "type Bang {}\n\nfunc Error(b Bang) string { \"bang\" }\n\nfunc main() {\n\tlet _ = Error(Bang)\n}\n", false},
+	{"production-row", "type Bang {}\n\nfunc Error(b Bang) string { \"bang\" }\n\nfunc g() int fails Bang { return Bang }\n\nfunc main() {\n\tlet v = g() catch {\n\tcase Bang:\n\t\t0\n\t}\n\tlet _ = v\n}\n", true},
+}
+
+// TestTestErrorRowBlamesErrorMethod (E3a round 2, the M2 blame site): a
+// function Error on a type that only a test's row makes an error type is
+// reported once, S108 at the test's first row that names the type in source
+// order, and the program keeps its own diagnostics; a production row keeps
+// S108 at the function, and the tests add nothing.
+func TestTestErrorRowBlamesErrorMethod(t *testing.T) {
+	tests := append(append([]struct{ name, src string }{}, ownerTests...),
+		struct{ name, src string }{"two-tests", ownerTests[1].src + "\ntest U {\n\tlet f = func() int fails Bang { return Bang }\n\tlet v = f() catch {\n\tcase Bang:\n\t\t3\n\t}\n\tassert v == 3\n}\n"})
+	for _, p := range errorMethodProductions {
+		for _, tc := range tests {
+			t.Run(p.name+"/"+tc.name, func(t *testing.T) {
+				src := p.src + tc.src
+				full, blank := checkDiagList(t, src), checkDiagList(t, blankTestDecls(t, src))
+				var prod, inTests []check.Diagnostic
+				for _, d := range full {
+					if d.Offset < len(p.src) {
+						prod = append(prod, d)
+					} else {
+						inTests = append(inTests, d)
+					}
+				}
+				if fmt.Sprint(prod) != fmt.Sprint(blank) {
+					t.Errorf("the tests change the program's diagnostics:\nwith tests:    %s\nwithout tests: %s\n%s", prod, blank, src)
+				}
+				method := strings.Index(p.src, "func Error") + len("func ")
+				var wantProd []int
+				if p.productRow {
+					wantProd = []int{method}
+				}
+				if got := s108Offsets(blank); fmt.Sprint(got) != fmt.Sprint(wantProd) {
+					t.Errorf("program diagnostics %s: want S108 at offsets %v\n%s", blank, wantProd, src)
+				}
+				var wantTests []int
+				if !p.productRow && tc.src != "" {
+					wantTests = []int{len(p.src) + strings.Index(tc.src, "fails Bang") + len("fails ")}
+				}
+				if got := s108Offsets(inTests); fmt.Sprint(got) != fmt.Sprint(wantTests) || len(inTests) != len(wantTests) {
+					t.Errorf("test diagnostics %s: want only S108 at offsets %v\n%s", inTests, wantTests, src)
+				}
+				for _, d := range inTests {
+					if !strings.Contains(d.Message, "this row makes Bang an error type in the tests") {
+						t.Errorf("the test's S108 does not name the row: %s", d)
+					}
+				}
+			})
+		}
+	}
+}
+
+func checkDiagList(t *testing.T, src string) []check.Diagnostic {
+	t.Helper()
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v\n%s", err, src)
+	}
+	_, ds := check.Check("main", []*syntax.File{f}, nil)
+	return ds
+}
+
+func s108Offsets(ds []check.Diagnostic) []int {
+	var out []int
+	for _, d := range ds {
+		if d.Code == "S108" {
+			out = append(out, d.Offset)
+		}
+	}
+	return out
 }
 
 func TestTestErrorRowsStayInTests(t *testing.T) {
