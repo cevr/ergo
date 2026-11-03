@@ -372,6 +372,17 @@ func TestRuntime199I1Property(t *testing.T) {
 			t.Errorf("no generated case of the frame class %s", class)
 		}
 	}
+	// Each law case is lowered in both builds (types.md, Laws 11: neither
+	// build includes a law).
+	lawBuilds := map[bool]int{}
+	for _, c := range cases {
+		if strings.HasPrefix(c.name, "law/") {
+			lawBuilds[c.testBuild]++
+		}
+	}
+	if lawBuilds[false] == 0 || lawBuilds[false] != lawBuilds[true] {
+		t.Errorf("law cases: %d in the run build, %d in the test build; want the same nonzero count", lawBuilds[false], lawBuilds[true])
+	}
 	t.Logf("%d generated programs: %v", len(cases), classes)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -433,12 +444,26 @@ func i1BlockCases() []i1Case {
 }
 
 // i1LawCases put each loop form and variant in a law, in its body and in a
-// function literal in it (stage E3b). A law body is checked as if it ran,
-// so the checker gives it and its literal footprints (i1CheckFacts), but
-// neither build lowers a law (types.md, Laws 11): its want is empty, so a
-// Go loop from a law fails i1CheckPolls, as a law loop counted as a source
-// loop does.
+// function literal in it (stage E3b), and lower each program as the run
+// build and as the test build. A law body is checked as if it ran, so the
+// checker gives it and its literal footprints (i1CheckFacts), but neither
+// build lowers a law (types.md, Laws 11): its want is empty, so a Go loop
+// from a law, in either build, fails i1CheckPolls, as a law loop counted as
+// a source loop does.
 func i1LawCases() []i1Case {
+	var out []i1Case
+	for _, build := range []struct {
+		name string
+		test bool
+	}{{"run", false}, {"test", true}} {
+		out = append(out, i1LawLoops(build.name, build.test)...)
+	}
+	return out
+}
+
+// i1LawLoops is one build's law cases: every loop form × admitted variant ×
+// placement (the law body, a function literal in it).
+func i1LawLoops(build string, testBuild bool) []i1Case {
 	var out []i1Case
 	for _, l := range i1Loops {
 		for _, v := range i1Variants {
@@ -456,7 +481,7 @@ func i1LawCases() []i1Case {
 			}
 			for _, form := range forms {
 				src := "type Lawful {\n\tStep() int,\n\n\tlaw Loops(" + ps + ") {\n" + form[1] + "},\n}\n"
-				out = append(out, i1Case{name: "law/" + form[0] + "/" + l.name + "/" + v.name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{}})
+				out = append(out, i1Case{name: "law/" + build + "/" + form[0] + "/" + l.name + "/" + v.name, src: i1Defs + src + "func main() {}\n", want: map[string]bool{}, testBuild: testBuild})
 			}
 		}
 	}
