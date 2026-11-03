@@ -120,4 +120,17 @@ func TestGoNamesUnique(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "x_foo and y_foo have the Go name Foo") {
 		t.Fatalf("Bind error %v, want x_foo and y_foo have the Go name Foo", err)
 	}
+
+	// Two fields of one struct with one Go name (and no other clash).
+	src2 := strings.Replace(src, "{ uint32_t v; }", "{ uint32_t v_; uint32_t v; }", 1)
+	src2 = strings.Replace(src2, "uint32_t y_foo(void);\n", "", 1)
+	m2, err := Parse("n.h", []byte(src2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract2 := strings.Replace(contract, sha256hex([]byte(src)), sha256hex([]byte(src2)), 1)
+	_, err = Bind(m2, []byte(src2), []byte(contract2))
+	if err == nil || !strings.Contains(err.Error(), "x_foo: fields v_ and v have the Go name V") {
+		t.Fatalf("Bind error %v, want x_foo: fields v_ and v have the Go name V", err)
+	}
 }

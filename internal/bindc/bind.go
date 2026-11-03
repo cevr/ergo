@@ -374,6 +374,20 @@ func (b *Binding) checkNames() error {
 	for _, x := range b.Constants {
 		add(x.Name, x.Name)
 	}
+	// The fields of one Go struct: CamelCase, or lowerCamel for autofill.
+	for _, d := range b.Model.Types {
+		fields := map[string]string{}
+		for _, f := range d.Fields {
+			n := goCamel(f.Name)
+			if b.Autofill[f.Name] != "" {
+				n = lowerCamel(f.Name)
+			}
+			if prev, ok := fields[n]; ok {
+				errs = append(errs, fmt.Sprintf("%s: fields %s and %s have the Go name %s", d.Name, prev, f.Name, n))
+			}
+			fields[n] = f.Name
+		}
+	}
 	sort.Strings(errs)
 	if len(errs) > 0 {
 		return contractError(errs)
