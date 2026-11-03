@@ -36,7 +36,7 @@ func listsSource(body string) string {
 func TestRefusedListElementKeepsSiblings(t *testing.T) {
 	for _, tc := range []struct{ name, src string }{
 		// Rows (the M1 witnesses).
-		{"needs-first", "func f() int needs DStore, Log { Log.Put() }\nfunc main() { with wire { Log: L } { _ = f() } }\n"},
+		{"needs-first", "func f() int needs DStore, Log { Log.Put() }\nfunc main() { with context { Log: L } { _ = f() } }\n"},
 		{"needs-last", "func f() int needs Log, DStore { Log.Put() }\n"},
 		{"fails-try", "func g() int fails Fault { 1 }\nfunc f() int fails DStore | Fault { try g() }\n"},
 		{"fails-catch", "func g() int fails DStore | Fault { 1 }\nfunc f() int { g() catch {\ncase Fault: 2\n} }\n"},
@@ -64,7 +64,7 @@ func TestRefusedListElementKeepsSiblings(t *testing.T) {
 		{"tuple-type", "func g() (DStore, int) { g() }\nfunc f() int { let (_, n) = g()\nn }\n"},
 		{"union-variants", "type U2 = A | Box[DU]\nfunc f(x U2) int { match x {\ncase A: 1\n} }\n"},
 		{"union-variants-total", "type U2 = A | Box[DU] | B\nfunc f(x U2) int { match x {\ncase A: 1\ncase B: 2\n} }\n"},
-		{"wire-header", "func f() int needs Log { Log.Put() }\nfunc main() { with wire { DStore: Mem, Log: L } { _ = f() } }\n"},
+		{"context-header", "func f() int needs Log { Log.Put() }\nfunc main() { with context { DStore: Mem, Log: L } { _ = f() } }\n"},
 		{"row-arg-func", "func k[E](a int) int fails E { a }\nfunc f() int { k[Box[DStore]](1) catch {\ncase _: 2\n} }\n"},
 		{"row-arg-type", "type R[E] { Run() int fails E }\nfunc f(r R[Box[DStore]]) int { 1 }\n"},
 		{"params", "func f(s DStore, n int) int { n }\nfunc g() int { f(Mem, 2) }\n"},

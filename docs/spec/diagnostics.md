@@ -181,7 +181,7 @@ The checker refuses a construct that another ticket owns, and names it, instead 
 
 *Prior art:* Go rejects unused locals, imports and unused expression values; Rust and Gleam warn instead. Ergo keeps Go's errors because its output is Go and because an unread value usually hides a dropped result.
 
-### S111: duplicate wire entry
+### S111: duplicate context entry
 
 - A wire has two entries for one capability, and neither is a `replace` of an embedded entry (`duplicate-wire-entry`; README Gap 28).
 - Two embedded wires bind one capability, and no `replace` entry of the embedding wire overrides it (rows.md, Wire 7).

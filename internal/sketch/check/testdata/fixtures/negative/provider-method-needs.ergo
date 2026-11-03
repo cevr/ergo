@@ -5,6 +5,6 @@ type Mem {}
 func Get(_ Mem) string needs Other { return Other.Need() }
 
 func main() needs Console {
-	let v = with wire { Store: Mem } { Store.Get() } // want S106
+	let v = with context { Store: Mem } { Store.Get() } // want S106
 	Console.Println("\(v)")
 }

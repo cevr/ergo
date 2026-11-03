@@ -12,9 +12,9 @@ func Say(_ Quiet, s string) {}
 func Close(_ Res) needs Log { Log.Say("closed") }
 
 let shared = First
-let Shared = wire { A: shared }
+let Shared = context { A: shared }
 func borrowed() { with Shared { A.Use() } }
 
-let W = wire { A: Res }
+let W = context { A: Res }
 func declared() needs A { with W { A.Use() } }
 func inferred() { with W { A.Use() } }

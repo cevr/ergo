@@ -679,7 +679,7 @@ func (p *parser) parseWith() *CallExpr {
 		c.Args[0] = stripParens(c.Args[0])
 	}
 	if p.tok.tok != LBRACE {
-		p.errorf("expected \"{\" after the wires of with, found %s", p.found())
+		p.errorf("expected \"{\" after the contexts of with, found %s", p.found())
 	}
 	c.Trailing = p.parseBlock()
 	return c

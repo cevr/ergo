@@ -1,0 +1,11 @@
+// want S101
+type Fault {}
+type Box { Get() string }
+type Holder { Value string }
+func Get(h Holder) string      { return h.Value }
+func fail() string fails Fault { return Fault{} }
+func main() needs Console {
+	with context { Box: Holder{Value: try fail()} } {
+		Console.Println("\(Box.Get())")
+	}
+}

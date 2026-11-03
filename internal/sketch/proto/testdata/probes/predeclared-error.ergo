@@ -2,7 +2,7 @@
 import timeout
 func main() needs Console {
 	let error = "shadow"
-	let x = with wire { Scheduler: LiveScheduler{} } {
+	let x = with context { Scheduler: LiveScheduler{} } {
 		timeout.After(1s) { "ok" }
 	} catch {
 	case timeout.Expired:

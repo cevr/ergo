@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type y{p()}\ntype Virtual{}\nfunc p(A Virtual,A a){}\nfunc A(){}\nfunc B(){with wire{y:Virtual}{}}")
+string("type y{p()}\ntype Virtual{}\nfunc p(A Virtual,A a){}\nfunc A(){}\nfunc B(){with context{y:Virtual}{}}")

@@ -90,7 +90,7 @@ func (c *checker) charge(n syntax.Node, cap Type) {
 	}
 	switch {
 	case t.context:
-		c.errorf(n, CodeMissingCap, "%s requires %s while it is built; a named wire is closed: its providers require no capability from the with site (README Gap 6)", t.name, cap)
+		c.errorf(n, CodeMissingCap, "%s requires %s while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)", t.name, cap)
 	default:
 		c.errorf(n, CodeMissingCap, "%s requires %s, which is not in the capability row of %s and no with provides it", describeCharge(n), cap, t.name)
 	}
@@ -132,7 +132,7 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 	}
 	switch {
 	case t.context:
-		c.errorf(n, CodeUndeclared, "%s can fail with %s while it is built; a named wire is closed: no failure escapes its build (README Gap 6)", t.name, rowText(extra))
+		c.errorf(n, CodeUndeclared, "%s can fail with %s while it is built; a named context is closed: no failure escapes its build (README Gap 6)", t.name, rowText(extra))
 	default:
 		c.errorf(n, CodeUndeclared, "%s escapes %s, whose error row %s does not list it", rowText(extra), t.name, rowText(t.declErrors))
 	}

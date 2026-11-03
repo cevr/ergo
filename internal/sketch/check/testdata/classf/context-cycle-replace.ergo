@@ -1,0 +1,12 @@
+type A { M() }
+type P {}
+func M(_ P)     {}
+let W1 = context { // want S108
+	replace A: P,
+	W2,
+}
+let W2 = context { // want S108
+	A: P,
+	W1,
+}
+func F() { with W1 { A.M() } }

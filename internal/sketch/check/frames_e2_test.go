@@ -182,8 +182,8 @@ func wait(t Task[int, Fault]) int {
 	}
 }
 
-let Owned = wire { A: get() }
-let Plain = wire { S: Starter{V: 2} }
+let Owned = context { A: get() }
+let Plain = context { S: Starter{V: 2} }
 
 `
 
@@ -210,7 +210,7 @@ var frameRoots = []struct {
 }{
 	{"package let", "let n = $E\n", true},
 	{"pattern let", "let n, m = ($E, 1)\n", true},
-	{"wire entry", "let W2 = wire { B: mkB($E) }\n", true},
+	{"context entry", "let W2 = context { B: mkB($E) }\n", true},
 	{"with body", "let n = with Plain { $E }\n", true},
 	{"trailing block", "let n = apply() { $E }\n", false},
 	{"function literal", "let f = func() int { $E }\n", false},

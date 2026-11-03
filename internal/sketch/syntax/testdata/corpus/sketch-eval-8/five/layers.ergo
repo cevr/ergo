@@ -7,7 +7,7 @@ type Memory { Text string }
 
 func Label(m Memory) string { return m.Text }
 
-type AccountLive { Store Store } // capability field: filled by wire
+type AccountLive { Store Store } // capability field: filled by context
 
 func Label(a AccountLive) string { return a.Store.Label() }
 
@@ -15,26 +15,26 @@ type InvoiceLive { Store Store }
 
 func Label(i InvoiceLive) string { return i.Store.Label() }
 
-let Shared = wire {
+let Shared = context {
 	Store: Memory{Text: "live"},
 }
 
-let Accounts = wire {
+let Accounts = context {
 	Account: AccountLive,
 	Shared,
 }
 
-let Invoices = wire {
+let Invoices = context {
 	Invoice: InvoiceLive,
 	Shared,
 }
 
-let App = wire provides Account, Invoice { // exposes two; Store stays hidden, built once
+let App = context provides Account, Invoice { // exposes two; Store stays hidden, built once
 	Accounts,
 	Invoices,
 }
 
-let Fixture = wire {
+let Fixture = context {
 	replace Store: Memory{Text: "fixture"},
 	App,
 }

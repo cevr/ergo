@@ -139,12 +139,12 @@ func Get(_ StoredSettings, name string) string {
 	return `{"owner":"u-1","defaultStatus":{"_tag":"Enabled"}}`
 }
 
-let Healthy = wire {
+let Healthy = context {
 	Directory: Members{},
 	Audit:     Ledger{},
 }
 
-let Down = wire {
+let Down = context {
 	Directory: Outage{},
 	Audit:     Ledger{},
 }
@@ -214,7 +214,7 @@ test ServiceFailureIsNotMalformedInput {
 // Encoding needs Audit and never Directory: the row says so.
 test EncodeRunsOnlyEncodeServices {
 	let order = Order{UserId{"u-7"}, Member{"sealed", UserId{"u-1"}}, Quantity{1}, Active{}}
-	let outcome = try with wire { Audit: Ledger{} } { orderJSON.Encode(order) } catch {
+	let outcome = try with context { Audit: Ledger{} } { orderJSON.Encode(order) } catch {
 	case AuditRefused:
 		"audit refused"
 	}
@@ -222,12 +222,12 @@ test EncodeRunsOnlyEncodeServices {
 }
 
 test ConfigurationSharesTheWireForms {
-	let settings = try with wire { Env: StoredSettings{} } { loadSettings() }
+	let settings = try with context { Env: StoredSettings{} } { loadSettings() }
 	assert (try settingsJSON.Encode(settings)) == `{"owner":"u-1","defaultStatus":{"_tag":"Active"}}`
 }
 
 func main() string fails json.DecodeFailed | json.EncodeFailed | InvalidQuantity | UnknownMember | DirectoryDown | AuditRefused {
 	let order = try with Healthy { reencodeOrder(stored) }
-	let settings = try with wire { Env: StoredSettings{} } { loadSettings() }
+	let settings = try with context { Env: StoredSettings{} } { loadSettings() }
 	return try order + " " + settingsJSON.Encode(settings)
 }

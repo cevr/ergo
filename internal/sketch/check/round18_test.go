@@ -49,9 +49,9 @@ func TestContextChainLinear(t *testing.T) {
 	counts := map[int]int{}
 	for _, n := range []int{1000, 4000, 8000} {
 		var b strings.Builder
-		b.WriteString("let W0 = wire {}\n")
+		b.WriteString("let W0 = context {}\n")
 		for i := 1; i < n; i++ {
-			fmt.Fprintf(&b, "let W%d = wire { W%d }\n", i, i-1)
+			fmt.Fprintf(&b, "let W%d = context { W%d }\n", i, i-1)
 		}
 		fmt.Fprintf(&b, "func F() { with W%d {} }\n", n-1)
 		diags, _, context := opsOf(t, decided(b.String()))
@@ -64,10 +64,10 @@ func TestContextChainLinear(t *testing.T) {
 	// charged count grows by n log n; the rest is linear.
 	for n, ops := range counts {
 		if sorted := sortReserve(n); ops-sorted > 16*n {
-			t.Errorf("wire chain n=%d: %d steps beyond the sort's %d, more than 16 per wire", n, ops-sorted, sorted)
+			t.Errorf("context chain n=%d: %d steps beyond the sort's %d, more than 16 per context", n, ops-sorted, sorted)
 		}
 	}
-	t.Logf("wire chain: %v", counts)
+	t.Logf("context chain: %v", counts)
 }
 
 // TestCapSetPersistent: every version of a capSet keeps its elements after

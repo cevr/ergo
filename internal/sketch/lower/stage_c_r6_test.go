@@ -92,7 +92,7 @@ func TestErgoRunLiteralRows(t *testing.T) {
 type Svc { Get() int }
 type P {}
 func Get(_ P) int { 40 }
-let W = wire { Svc: P }
+let W = context { Svc: P }
 func fail() int fails Bad { Bad }
 func invoke() int fails Bad needs Svc {
 	let f = func() int fails Bad needs Svc { if Svc.Get() == 40 { fail() } else { 0 } }

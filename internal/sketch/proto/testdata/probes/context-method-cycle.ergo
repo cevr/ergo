@@ -1,0 +1,21 @@
+// want S109
+import timeout
+type Store { Get() string }
+type Factory { Get() string }
+type Holder { Value string }
+type Build {}
+func Get(h Holder) string { return h.Value }
+func Get(_ Build) string  { return again() }
+func again() string       { return with W { Store.Get() } }
+let W = context {
+	Store: Holder{Value: with context { Factory: Build{} } { Factory.Get() }},
+}
+func main() needs Console {
+	let value = with context { Scheduler: LiveScheduler{} } {
+		timeout.After(1ms) { with W { Store.Get() } }
+	} catch {
+	case timeout.Expired:
+		"cycle reached runtime"
+	}
+	Console.Println("\(value)")
+}

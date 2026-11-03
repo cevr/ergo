@@ -16,7 +16,7 @@ import (
 // function's tail; each pure value tail is S110 "this value is not used",
 // in every body kind.
 func TestDiscardedBodiesDropTheirTails(t *testing.T) {
-	const decls = "let W = wire {}\ntype E {}\nfunc g(b bool) int fails E { 1 }\nfunc i() int { 1 }\nfunc s() string { \"s\" }\n"
+	const decls = "let W = context {}\ntype E {}\nfunc g(b bool) int fails E { 1 }\nfunc i() int { 1 }\nfunc s() string { \"s\" }\n"
 	// A and B are the two tails; C is a catch arm's tail.
 	for _, tc := range []struct{ name, src string }{
 		{"with-statement", "func f(b bool) { with W { if b { A } else { B } } }"},
@@ -63,7 +63,7 @@ func TestDiscardedBodiesDropTheirTails(t *testing.T) {
 // path, S107, like every other body kind; it is not "this expression has
 // no value" at the with.
 func TestUsedWithReportsItsPath(t *testing.T) {
-	const decls = "let W = wire {}\n"
+	const decls = "let W = context {}\n"
 	for _, tc := range []struct{ name, src, want string }{
 		{"let", "func f(b bool) int {\n\tlet x = with W {\n\t\tif b { 1 }\n\t}\n\tx\n}", "S107:5"},
 		{"operand", "func f(b bool) int {\n\t1 + with W {\n\t\tif b { 2 }\n\t}\n}", "S107:5"},
@@ -86,7 +86,7 @@ func TestUsedWithReportsItsPath(t *testing.T) {
 // expression, as a with block's does, so an enclosing catch or try
 // handles it; the two shapes agree.
 func TestBranchTailsPassFailures(t *testing.T) {
-	const decls = "let W = wire {}\ntype E {}\ntype F {}\nfunc g(b bool) int fails E { 1 }\nfunc h(n int) int fails F { n }\n"
+	const decls = "let W = context {}\ntype E {}\ntype F {}\nfunc g(b bool) int fails E { 1 }\nfunc h(n int) int fails F { n }\n"
 	for _, tc := range []struct{ name, src, want string }{
 		{"if-catch", "func f(b bool, c bool) int { (if c { g(b) } else { 2 }) catch { case E: 3 } }", ""},
 		{"with-catch", "func f(b bool, c bool) int { with W { if c { g(b) } else { 2 } } catch { case E: 3 } }", ""},

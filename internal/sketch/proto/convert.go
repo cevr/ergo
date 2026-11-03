@@ -115,11 +115,11 @@ func (c *converter) file(f *syntax.File) *File {
 			// hides the unlisted entries, needs joins the with site's row.
 			refused := false
 			if d.Provides != nil {
-				c.refuse(d.Provides, "a wire's provides clause (checked by #196)")
+				c.refuse(d.Provides, "a context's provides clause (checked by #196)")
 				refused = true
 			}
 			if d.Needs != nil {
-				c.refuse(d.Needs, "a wire's needs clause (checked by #196)")
+				c.refuse(d.Needs, "a context's needs clause (checked by #196)")
 				refused = true
 			}
 			if refused {
@@ -127,7 +127,7 @@ func (c *converter) file(f *syntax.File) *File {
 			}
 			out.Contexts = append(out.Contexts, &ContextDecl{Pos: c.pos(d.Context), Name: d.Name.Name, Entries: c.contextEntries(d.Body)})
 		case *syntax.VarDecl:
-			c.refuse(d, "a top-level let that is not a wire")
+			c.refuse(d, "a top-level let that is not a context")
 		default:
 			c.refuse(d, "this declaration")
 		}
@@ -362,15 +362,15 @@ func (c *converter) contextEntries(b *syntax.ContextBody) []ContextEntry {
 	for _, e := range b.Entries {
 		switch {
 		case e.Kind == syntax.ContextEmbed:
-			c.refuse(e, "an embedded wire")
+			c.refuse(e, "an embedded context")
 		case e.Kind == syntax.ContextReplace:
 			c.refuseAt(e.Replace, "a replace entry")
 		case len(e.Keys) > 0:
-			c.refuse(e.Keys[0], "a wire entry with several capabilities")
+			c.refuse(e.Keys[0], "a context entry with several capabilities")
 		default:
 			id, ok := e.Key.(*syntax.Ident)
 			if !ok {
-				c.refuse(e.Key, "a qualified wire key")
+				c.refuse(e.Key, "a qualified context key")
 				continue
 			}
 			if v := c.expr(e.Value); v != nil {
@@ -623,10 +623,10 @@ func (c *converter) expr(x syntax.Expr) Expr {
 		// As for a named context, the header's meaning is the checker's (#196).
 		if x.Provides != nil || x.Needs != nil {
 			if x.Provides != nil {
-				c.refuse(x.Provides, "a wire's provides clause (checked by #196)")
+				c.refuse(x.Provides, "a context's provides clause (checked by #196)")
 			}
 			if x.Needs != nil {
-				c.refuse(x.Needs, "a wire's needs clause (checked by #196)")
+				c.refuse(x.Needs, "a context's needs clause (checked by #196)")
 			}
 			return nil
 		}

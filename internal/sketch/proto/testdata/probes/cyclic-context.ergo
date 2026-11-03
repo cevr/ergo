@@ -1,0 +1,9 @@
+// want S109
+type Store { Get() string }
+type Holder { Value string }
+func Get(h Holder) string { return h.Value }
+let W = context { Store: Holder{Value: with W { Store.Get() }} }
+func main() needs Console {
+	let line = with W { Store.Get() }
+	Console.Println("\(line)")
+}

@@ -1,0 +1,78 @@
+import retry
+import sql
+import build
+import log
+import time
+
+type ConnectFailed { URL string }
+type CloseFailed {}
+type OrderNotFound { ID string }
+
+type Config {
+	String(key string) string,
+}
+
+type Orders {
+	Find(id string) Order fails OrderNotFound,
+}
+
+type Postgres { pool sql.Pool }
+
+func Find(p Postgres, id string) Order fails OrderNotFound {
+	return p.pool.QueryOrder(id)
+}
+
+// A constructor is an ordinary function. Its needs row is resolved from the
+// same context graph, and its error row joins the startup errors of with().
+// build.Scope is the build's scope (Effect Scope, Go's t.Cleanup):
+//   - Scope.Acquire runs open and registers close in one uninterruptible
+//     step (I2). Releases run when the build ends, in reverse order, each
+//     one even if an earlier one failed. The value is the build's: it can be
+//     copied inside the build, but its type cannot escape the with().
+//   - Scope.Go starts a task the build owns and stops at release.
+// Both charge their needs rows to the constructor, so with() sees them.
+func OpenPostgres() Postgres fails ConnectFailed needs Config, Clock, Scheduler, build.Scope {
+	let url = Config.String("DATABASE_URL")
+	let open = func() sql.Pool fails ConnectFailed {
+		return retry.On[ConnectFailed](retry.Exponential(200ms).Times(5)) { sql.Open(url) }
+	}
+	// A release cannot fail with a typed error (Effect's acquireRelease rule):
+	// a fallible Close is handled inside it. The pool Acquire returns is a
+	// view: the scope owns its release, so calling Close on it does not compile.
+	let pool = try Scope.Acquire(open, func(p sql.Pool) {
+		p.Close() catch {
+		case CloseFailed:
+			log.Warn("pool close failed")
+		}
+	})
+	Scope.Go(func() { keepWarm(pool) })
+	return Postgres{pool}
+}
+
+func keepWarm(pool sql.Pool) needs Clock {
+	for _ in Clock.Tick(30s) {
+		pool.Ping()
+	}
+}
+
+// The constructor picks an implementation at build time. Its cleanups were
+// registered inside OpenPostgres, so the interface result hides nothing.
+func OpenOrders() Orders fails ConnectFailed needs Config, Clock, Scheduler, build.Scope {
+	if Config.String("ORDERS") == "memory" {
+		return MemoryOrders{}
+	}
+	return try OpenPostgres()
+}
+
+let Live = context provides Orders {
+	Config: EnvConfig{},
+	Orders: OpenOrders, // effectful: runs during the build
+}
+
+// Built once for the whole server. A defect in a release and a failure in
+// keepWarm are both kept in the exit cause.
+func main() fails ConnectFailed needs Clock, Scheduler, Console {
+	return with Live {
+		serve(time.Minute)
+	}
+}

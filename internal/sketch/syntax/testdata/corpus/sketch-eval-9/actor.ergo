@@ -9,7 +9,7 @@ import tasks
 // reads a bounded mailbox, one message at a time. The actor is a linear
 // handle like a Task: it must be stopped or awaited before main returns.
 func main() string fails ProbeUnavailable needs Console {
-	return with wire { Probe: HealthyProbe{} } {
+	return with context { Probe: HealthyProbe{} } {
 		let b = actor.Start(CircuitBreaker{}, 16)
 		// b is a resource: it is stopped when this with block ends (resources.md).
 
@@ -30,7 +30,7 @@ func main() string fails ProbeUnavailable needs Console {
 // shutdown happen while Probe is still provided. The factory captures
 // nothing linear, so it can run again.
 func supervised() needs Console, Clock, Scheduler {
-	with wire { Probe: HealthyProbe{} } {
+	with context { Probe: HealthyProbe{} } {
 		let set = tasks.Set(tasks.Restart(schedule.Exponential(1s).UpTo(5)))
 		// set is a resource: it is stopped when this with block ends, inside Probe.
 		set.Go(func() { actor.Run(CircuitBreaker{}, signals()) })

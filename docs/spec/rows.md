@@ -99,7 +99,7 @@ Status: **implemented in prototype** (#199 stage 1): the checker records each fr
 Status: **checked** (#196): provider literals, closed named wires, embedding, `replace` and several keys in one entry. The build lowers each of them for a wire of the program's own package (#199 stages 3b and 3c; `TestRuntime199WireProperty`); it refuses a `with` of an imported wire, and an embedded imported wire, until check-v1 stage B supplies the wire. Constructors are **designed, not yet implemented**: S109 naming [#37](https://github.com/cevr/ergo/issues/37).
 
 ```go
-let Live = wire {
+let Live = context {
 	Orders:    MemoryOrders{},
 	Gateway:   FakeGateway{AuthID: "auth-7"},
 	Scheduler: LiveScheduler,
@@ -124,7 +124,7 @@ Status: **checked** (#196) for one wire argument; runs. An inline wire whose ent
 
 ```go
 let value = with Live { checkout(id) }
-let local = with wire { Orders: MemoryOrders{} } { report(id) }
+let local = with context { Orders: MemoryOrders{} } { report(id) }
 ```
 
 1. `with W { block }` takes one wire, named or inline, and a block (S108 otherwise). An unknown wire name is S104.
@@ -137,8 +137,8 @@ let local = with wire { Orders: MemoryOrders{} } { report(id) }
    Measured (fixture `wire-order`, output `outer inner`):
 
    ```go
-   with wire { Store: Holder{Value: "outer"} } {
-   	with wire { Store: Holder{Value: "inner"}, Box: Holder{Value: read()} } {
+   with context { Store: Holder{Value: "outer"} } {
+   	with context { Store: Holder{Value: "inner"}, Box: Holder{Value: read()} } {
    		Console.Println("\(Box.Get()) \(Store.Get())") // read() saw the outer Store
    	}
    }

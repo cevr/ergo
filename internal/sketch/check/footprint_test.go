@@ -24,8 +24,8 @@ func loud() Silent {
 	let _ = xs.Append(1)
 	Silent
 }
-let Local = wire { Probe: Silent }
-let Loud = wire { Probe: loud() }
+let Local = context { Probe: Silent }
+let Loud = context { Probe: loud() }
 func pure(a int) int { a + 1 }
 func pureCall() int { pure(1) }
 func capCall() needs Probe { Probe.Tick() }
@@ -104,9 +104,9 @@ let started = pureCall()
 		case *syntax.ContextDecl:
 			fp, ok := fps[d]
 			if !ok {
-				t.Errorf("wire %s has no footprint", d.Name.Name)
+				t.Errorf("context %s has no footprint", d.Name.Name)
 			}
-			got["wire "+d.Name.Name] = show(fp)
+			got["context "+d.Name.Name] = show(fp)
 		case *syntax.VarDecl:
 			for _, s := range d.Specs {
 				fp, ok := fps[s]
@@ -141,8 +141,8 @@ let started = pureCall()
 	want := map[string]string{
 		"func Tick":            "pure",
 		"func loud":            "opaque",
-		"wire Local":           "pure",
-		"wire Loud":            "opaque",
+		"context Local":        "pure",
+		"context Loud":         "opaque",
 		"func pure":            "pure",
 		"func pureCall":        "pure",
 		"func capCall":         "Probe",
@@ -205,18 +205,18 @@ func mk() PY needs A {
 	A.Use()
 	PY
 }
-let W = wire { A: PX, B: mk() }
-let V = wire { W }
+let W = context { A: PX, B: mk() }
+let V = context { W }
 func idle() needs B {}
 func onlyA() needs A {}
 func named() { with W { idle() } }
-func embedded() { with wire { W } { idle() } }
-func nested() { with wire { V } { idle() } }
+func embedded() { with context { W } { idle() } }
+func nested() { with context { V } { idle() } }
 func namedTwice() { with V { idle() } }
-func own() { with wire { A: PX, B: mk() } { idle() } }
+func own() { with context { A: PX, B: mk() } { idle() } }
 func namedA() { with W { onlyA() } }
-func embeddedA() { with wire { W } { onlyA() } }
-func nestedA() { with wire { V } { onlyA() } }
+func embeddedA() { with context { W } { onlyA() } }
+func nestedA() { with context { V } { onlyA() } }
 `
 	checkFootprints(t, src, map[string]string{
 		"idle": "pure", "onlyA": "pure", "mk": "A",
@@ -246,16 +246,16 @@ func Close(_ PQ) {}
 func idle() needs R {}
 func idleQ() needs Q {}
 func onlyA() needs A {}
-let WR = wire { R: PR }
-let VR = wire { WR }
-let WQ = wire { Q: PQ }
-func inline() needs A { with wire { R: PR } { idle() } }
+let WR = context { R: PR }
+let VR = context { WR }
+let WQ = context { Q: PQ }
+func inline() needs A { with context { R: PR } { idle() } }
 func named() needs A { with WR { idle() } }
-func embedded() needs A { with wire { WR } { idle() } }
-func nested() needs A { with wire { VR } { idle() } }
-func pureClose() { with wire { Q: PQ } { idleQ() } }
+func embedded() needs A { with context { WR } { idle() } }
+func nested() needs A { with context { VR } { idle() } }
+func pureClose() { with context { Q: PQ } { idleQ() } }
 func pureNamed() { with WQ { idleQ() } }
-func unreached() needs A { with wire { WR } { onlyA() } }
+func unreached() needs A { with context { WR } { onlyA() } }
 `
 	checkFootprints(t, src, map[string]string{
 		"idle": "pure", "idleQ": "pure", "onlyA": "pure",
@@ -317,7 +317,7 @@ func TestFootprintsAreNotRows(t *testing.T) {
 	src := `type Probe { Tick() }
 type Silent {}
 func Tick(_ Silent) {}
-let Local = wire { Probe: Silent }
+let Local = context { Probe: Silent }
 func wide() needs Probe {}
 func hidden() { with Local { Probe.Tick() } }
 `

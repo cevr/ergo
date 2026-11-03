@@ -28,7 +28,7 @@ func Charge(g FakeGateway, order Order) string fails GatewayDown {
 	return g.AuthID
 }
 
-let Live = wire {
+let Live = context {
 	Orders:    MemoryOrders,
 	Gateway:   FakeGateway{AuthID: "auth-7"},
 	Scheduler: LiveScheduler,

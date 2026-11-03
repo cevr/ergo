@@ -39,7 +39,7 @@ The decided grammar has **27 keywords**:
 ```text
 break     case      continue  else      for       func      if
 import    return    type
-try       catch     needs     provides  wire      machine
+try       catch     needs     provides  context   machine
 let       mut       in        match     escaping  fails
 test      law       assert    extern    with
 ```
@@ -202,7 +202,7 @@ IfExpr         = "if" Expression Block [ "else" ( IfExpr | Block ) ] .
 MatchExpr      = "match" Expression "{" { CaseClause } "}" .
 CaseClause     = "case" Pattern { "," Pattern } ":" { Statement ";" } .
 WithExpr       = "with" ExpressionList Block .
-ContextLit     = "wire" [ ProvidesClause ] [ NeedsClause ] ContextBody .
+ContextLit     = "context" [ ProvidesClause ] [ NeedsClause ] ContextBody .
 Pattern        = PatternCore [ "as" identifier ] .
 PatternCore    = "_" | identifier | [ "-" ] Literal | TypeName [ TypeArgs ] [ "{" [ FieldPattern { "," FieldPattern } ] "}" ] | "(" Pattern { "," Pattern } ")" .
 FieldPattern   = [ identifier ":" ] Pattern .

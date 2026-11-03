@@ -20,7 +20,7 @@ const sketchWaitSource = `func wait() needs Console, Scheduler {
 	Scheduler.Sleep(60s)
 }
 
-let Host = wire {
+let Host = context {
 	Scheduler: LiveScheduler,
 }
 

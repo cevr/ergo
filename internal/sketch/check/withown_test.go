@@ -101,28 +101,28 @@ func TestContextOwnershipAcquisitions(t *testing.T) {
 		name, src string
 		want      []string
 	}{
-		{"a shared entry is one acquisition", `let W = wire { A, B: Pair }
+		{"a shared entry is one acquisition", `let W = context { A, B: Pair }
 func f() { with W { A.Use(); B.Use() } }
 `, []string{"f: Pair[A,B]!"}},
-		{"an overridden entry is not acquired", `let Base = wire { A: First }
-let W = wire { replace A: Other, Base }
+		{"an overridden entry is not acquired", `let Base = context { A: First }
+let W = context { replace A: Other, Base }
 func f() { with W { A.Use() } }
 `, []string{"f: Other[A]!"}},
-		{"an unreachable entry is not acquired", `let W = wire { A: First, B: Second }
+		{"an unreachable entry is not acquired", `let W = context { A: First, B: Second }
 func f() { with W { B.Use() } }
 `, []string{"f: Second[B]"}},
 		{"a provider's dependency is acquired first", `func second() Second needs A { A.Use(); Second }
-let W = wire { B: second(), A: First }
+let W = context { B: second(), A: First }
 func f() { with W { B.Use() } }
 `, []string{"f: First[A]! Second[B]"}},
-		{"independent entries follow the wire pass's entry order", `let Base = wire { B: Second }
-let W = wire { A: First, Base }
-let V = wire { A: First, B: Second }
+		{"independent entries follow the context pass's entry order", `let Base = context { B: Second }
+let W = context { A: First, Base }
+let V = context { A: First, B: Second }
 func f() { with W { B.Use(); A.Use() } }
 func g() { with V { B.Use(); A.Use() } }
 `, []string{"f: Second[B] First[A]!", "g: First[A]! Second[B]"}},
-		{"a shared entry replaced for one capability binds the other", `let Base = wire { A, B: Pair }
-let W = wire { replace A: Other, Base }
+		{"a shared entry replaced for one capability binds the other", `let Base = context { A, B: Pair }
+let W = context { replace A: Other, Base }
 func f() { with W { A.Use(); B.Use() } }
 `, []string{"f: Pair[B]! Other[A]!"}},
 	} {
@@ -145,7 +145,7 @@ func Use(_ Res) {}
 func Close(_ Res) needs Log { Log.Say("closed") }
 `
 	t.Run("a declared row holds the release need", func(t *testing.T) {
-		_, ds := checkOwn(t, closes+`let W = wire { A: Res }
+		_, ds := checkOwn(t, closes+`let W = context { A: Res }
 func f() needs Log { with W { A.Use() } }
 `)
 		if len(ds) > 0 {
@@ -153,7 +153,7 @@ func f() needs Log { with W { A.Use() } }
 		}
 	})
 	t.Run("a need no row holds is S102 at the with", func(t *testing.T) {
-		src := closes + `let W = wire { A: Res }
+		src := closes + `let W = context { A: Res }
 func f() needs A { with W { A.Use() } }
 func g() { with W { A.Use() } }
 `
@@ -172,8 +172,8 @@ func g() { with W { A.Use() } }
 		}
 	})
 	t.Run("an outer with discharges the need and acquires its provider", func(t *testing.T) {
-		pkg, ds := checkOwn(t, closes+`let Out = wire { Log: Quiet, B: Second }
-let W = wire { A: Res }
+		pkg, ds := checkOwn(t, closes+`let Out = context { Log: Quiet, B: Second }
+let W = context { A: Res }
 func f() { with Out { with W { A.Use() } } }
 `)
 		if len(ds) > 0 {
@@ -189,8 +189,8 @@ func f() { with Out { with W { A.Use() } } }
 		pkg, ds := checkOwn(t, closes+`type Sink {}
 func Say(_ Sink, s string) {}
 func Close(_ Sink) {}
-let Out = wire { Log: Sink }
-let W = wire { A: Res }
+let Out = context { Log: Sink }
+let W = context { A: Res }
 func f() { with Out { with W { A.Use() } } }
 `)
 		if len(ds) > 0 {
@@ -209,8 +209,8 @@ func f() { with Out { with W { A.Use() } } }
 // 3b r4 m1), for a named and an inline context.
 func TestContextOwnershipUntypedProvider(t *testing.T) {
 	for _, src := range []string{
-		"let W = wire { A: missing() }\nfunc f() { with W { A.Use() } }\n",
-		"func f() { with wire { A: missing() } { A.Use() } }\n",
+		"let W = context { A: missing() }\nfunc f() { with W { A.Use() } }\n",
+		"func f() { with context { A: missing() } { A.Use() } }\n",
 	} {
 		_, ds := checkOwn(t, src)
 		if len(ds) == 0 {
@@ -229,20 +229,20 @@ func TestContextOwnershipRefusals(t *testing.T) {
 		name, src, code, msg string
 	}{
 		{"a provider naming a package let", `let shared = First
-let W = wire { A: shared }
+let W = context { A: shared }
 func f() { with W { A.Use() } }
 `, "S109", "this resource provider names an existing value"},
 		{"a provider naming a field", `type Box { R First }
 let box = Box{R: First}
-let W = wire { A: box.R }
+let W = context { A: box.R }
 func f() { with W { A.Use() } }
 `, "S109", "this resource provider names an existing value"},
 		{"an exit action that needs a provider of the with", `import scope
-let W = wire { A: First }
+let W = context { A: First }
 func f() { with W { scope.OnExit() { A.Use() } } }
 `, "S108", "this exit action runs when the function returns"},
 		{"a with value that holds a Task", `import task
-let W = wire { A: First }
+let W = context { A: First }
 func f() {
 	let t = with W { task.Go() { A.Use() } }
 	t.Wait()
@@ -250,7 +250,7 @@ func f() {
 
 `, "S108", "the value of this with holds a Task"},
 		{"a capability's Close", `type R { Close() }
-let W = wire { R: First }
+let W = context { R: First }
 func g() needs R { R.Close() }
 func f() { with W { g() } }
 `, "S108", "R.Close releases the capability's provider"},
@@ -267,16 +267,16 @@ func f() { with W { g() } }
 	// value, and a fresh conversion.
 	for _, src := range []string{
 		`import scope
-let W = wire { A: First }
+let W = context { A: First }
 func f() needs Log { with W { A.Use(); scope.OnExit() { Log.Say("x") } } }
 `,
 		`import scope
 import task
-let W = wire { A: First }
+let W = context { A: First }
 func f() { with W { let t = task.Go() { scope.OnExit() { A.Use() } }; t.Wait() } }
 `,
 		`let s = Second
-let W = wire { B: s }
+let W = context { B: s }
 func f() { with W { B.Use() } }
 `,
 	} {
@@ -308,7 +308,7 @@ func get() First { make() }`, "get()", false},
 func get() First needs Factory { Factory.Make() }
 type Maker {}
 func Make(_ Maker) First { First }
-let Makers = wire { Factory: Maker }`, "get()", false},
+let Makers = context { Factory: Maker }`, "get()", false},
 		{"recursive borrowed branch", `let shared = First
 func get(n int) First { if n == 0 { return shared }; other(n - 1) }
 func other(n int) First { get(n) }`, "other(2)", false},
@@ -372,9 +372,9 @@ func get(ok bool) First {
 }`, "get(true)", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			src := tc.decls + "\nlet W = wire { A: " + tc.provider + " }\nfunc f() { with W { A.Use() } }\n"
+			src := tc.decls + "\nlet W = context { A: " + tc.provider + " }\nfunc f() { with W { A.Use() } }\n"
 			if tc.name == "operation" {
-				src = tc.decls + "\nlet W = wire { A: get(), Factory: Maker }\nfunc f() { with W { A.Use() } }\n"
+				src = tc.decls + "\nlet W = context { A: get(), Factory: Maker }\nfunc f() { with W { A.Use() } }\n"
 			}
 			_, ds := checkOwn(t, src)
 			if tc.fresh {
@@ -412,7 +412,7 @@ func Use(_ Conn) {}
 func Close(_ Conn) {}
 let shared = Conn{n: 1}
 func Get() Conn { ` + result + ` }
-let W = wire { A: Get() }
+let W = context { A: Get() }
 `)
 			if err != nil {
 				t.Fatal(err)
@@ -421,7 +421,7 @@ let W = wire { A: Get() }
 			if len(ds) != 0 {
 				t.Fatal(ds)
 			}
-			main, err := syntax.Parse("import makers\nlet W = wire { makers.A: makers.Get() }\nfunc f() { with W { makers.A.Use() } }\n")
+			main, err := syntax.Parse("import makers\nlet W = context { makers.A: makers.Get() }\nfunc f() { with W { makers.A.Use() } }\n")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -454,7 +454,7 @@ func quiet() Quiet needs Mid { Mid.Use(); Quiet }`, "A: First, Mid: middle(), Lo
 		{"plain dependency", `func quiet() Quiet needs B { B.Use(); Quiet }`, "A: First, B: Second, Log: quiet()", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, ds := checkOwn(t, "import scope\n"+tc.decls+"\nlet W = wire { "+tc.context+` }
+			_, ds := checkOwn(t, "import scope\n"+tc.decls+"\nlet W = context { "+tc.context+` }
 func f() { with W { A.Use(); scope.OnExit() { Log.Say("exit") } } }
 `)
 			if !tc.refused {

@@ -174,7 +174,7 @@ var tokens = [...]string{
 
 	BREAK: "break", CASE: "case", CONTINUE: "continue", ELSE: "else", FOR: "for",
 	FUNC: "func", IF: "if", IMPORT: "import", RETURN: "return", TYPE: "type",
-	TRY: "try", CATCH: "catch", NEEDS: "needs", PROVIDES: "provides", CONTEXT: "wire",
+	TRY: "try", CATCH: "catch", NEEDS: "needs", PROVIDES: "provides", CONTEXT: "context",
 	MACHINE: "machine", LET: "let", MUT: "mut", IN: "in", MATCH: "match",
 	ESCAPING: "escaping", FAILS: "fails", TEST: "test", LAW: "law", ASSERT: "assert",
 	EXTERN: "extern", WITH: "with", AS: "as",

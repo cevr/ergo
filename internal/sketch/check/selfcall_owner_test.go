@@ -15,7 +15,7 @@ func TestSelfCallOwnTypeParameters(t *testing.T) {
 type T { n int }
 type Show { show() string }
 func show[T](x T) string { return "generic" }
-let W = wire { Show: T{n: 1} }
+let W = context { Show: T{n: 1} }
 func main() {
 	let t = T{n: 1}
 	_ = show(t)
@@ -25,28 +25,28 @@ func main() {
 type Box[T] { v T }
 type Show { show() string }
 func show[T, U](b Box[T]) string { return "box" }
-let W = wire { Show: Box[int]{v: 1} }
+let W = context { Show: Box[int]{v: 1} }
 func main() {}
 `, []edgeWant{{"S106", "has a type parameter of its own, U", 5}}},
 		{"an extra type parameter in a parameter", `
 type Getter { Pair(u int) int }
 type Box[T] { v T }
 func Pair[T, U](b Box[T], u U) U { return u }
-let W = wire { Getter: Box[int]{v: 1} }
+let W = context { Getter: Box[int]{v: 1} }
 func main() {}
 `, []edgeWant{{"S106", "has a type parameter of its own, U", 5}}},
 		{"a non-generic owner and a type parameter", `
 type Fixed { n int }
 type Show { show() string }
 func show[U](f Fixed) string { return "fixed" }
-let W = wire { Show: Fixed{n: 1} }
+let W = context { Show: Fixed{n: 1} }
 func main() {}
 `, []edgeWant{{"S106", "has a type parameter of its own, U", 5}}},
 		{"the owner's parameters only", `
 type Box[T] { v T }
 type Show { show() string }
 func show[T](b Box[T]) string { return "box" }
-let W = wire { Show: Box[int]{v: 1} }
+let W = context { Show: Box[int]{v: 1} }
 func main() {}
 `, nil},
 	})

@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type Store{A()}\ntype Mem{}\nfunc Get(Mem){with wire{A:Mem{A:\"\"}}{Stor..Get()}}")
+string("type Store{A()}\ntype Mem{}\nfunc Get(Mem){with context{A:Mem{A:\"\"}}{Stor..Get()}}")

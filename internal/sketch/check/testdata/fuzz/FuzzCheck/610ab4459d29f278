@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type A0000{}\ntype Store{Get()string}\ntype Mem{}\nfunc Get(Mem)needs a{let v=with wire{Store:Mem{}}{Stor..Get()}%A00000000000000(\"0000\")}")
+string("type A0000{}\ntype Store{Get()string}\ntype Mem{}\nfunc Get(Mem)needs a{let v=with context{Store:Mem{}}{Stor..Get()}%A00000000000000(\"0000\")}")

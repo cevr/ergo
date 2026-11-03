@@ -108,7 +108,7 @@ type Silent {}
 type Fault {}
 func Tick(_ Silent) {}
 func Mark(_ Silent) {}
-let Local = wire { Probe: Silent }
+let Local = context { Probe: Silent }
 func helper() needs Probe { Probe.Tick() }
 func pureHelper() {}
 func below(n int) bool { n < 3 }
@@ -416,7 +416,7 @@ func i1EntryCases() []i1Case {
 			"decl":     "func subject() {\n" + body + "}\n",
 			"literal":  "func subject() {\nlet local = func() {\n" + body + "}\nlocal()\n}\n",
 			"task":     "func subject() {\nlet t = task.Go() {\n" + body + "1\n}\nlet _ = t.Wait()\n}\n",
-			"provider": "type Worker { Run(), }\ntype Impl {}\nfunc Run(_ Impl) {\n" + body + "}\nlet Work = wire { Worker: Impl }\nfunc subject() { with Work { Worker.Run() } }\n",
+			"provider": "type Worker { Run(), }\ntype Impl {}\nfunc Run(_ Impl) {\n" + body + "}\nlet Work = context { Worker: Impl }\nfunc subject() { with Work { Worker.Run() } }\n",
 			"trailing": "func run(cb func()) { cb() }\nfunc subject() { run() {\n" + body + "} }\n",
 		}
 		for class, src := range frames {
@@ -483,7 +483,7 @@ var i1Graphs = append([]i1Graph{
 	}, call: "left(%d)", frames: []string{"left", "run"}, opaque: true},
 	// A provider method recursing by a dot call on its receiver.
 	{name: "provider-self", decls: func(row, clause string) string {
-		return "type Worker { Run(n int) int, }\ntype Impl {}\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = wire { Worker: Impl }\n"
+		return "type Worker { Run(n int) int, }\ntype Impl {}\n" + i1Fib("Run(i Impl, n int)", "i.Run(n - 1)", "i.Run(n - 2)")(row, clause) + "let Work = context { Worker: Impl }\n"
 	}, call: "with Work { Worker.Run(%d) }", frames: []string{"Impl.Run"}, provider: true},
 }, i1CallGraphs()...)
 
@@ -496,7 +496,7 @@ type Impl {}
 func Run(_ Impl, n int) int {
 	with Work { left(n) }
 }
-let Work = wire { Worker: Impl }
+let Work = context { Worker: Impl }
 func left(n int) int needs Worker {
 	if n < 2 { return n }
 	Worker.Run(n - 1) + Worker.Run(n - 2)
@@ -1010,7 +1010,7 @@ type Probe {
 }
 type Silent {}
 func Tick(_ Silent) {}
-let Local = wire { Probe: Silent }
+let Local = context { Probe: Silent }
 func nonnegative(n int) bool { n >= 0 }
 `
 
@@ -1141,7 +1141,7 @@ func i1LivePrograms() map[string]string {
 		out["decl-"+kind] = work("func spin() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\n", "spin()\n")
 		out["literal-"+kind] = work("", "let local = func() int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlocal()\n")
 		out["task-"+kind] = work("", "let u = task.Go() {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nu.Wait()\n")
-		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = wire { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
+		out["provider-"+kind] = work("type Worker {\n\tRun(n int) int,\n}\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n"+loop+"with Local {\nProbe.Tick()\n}\nc\n}\nlet Work = context { Worker: Impl }\n", "with Work {\nWorker.Run(1)\n}\n")
 	}
 	out["capability-recursion"] = work("func spinCap() needs Probe {\nProbe.Tick()\nspinCap()\n}\n", "with Local {\nspinCap()\n}\n0\n")
 	out["capability-mutual"] = work("func ping() needs Probe {\npong()\n}\nfunc pong() needs Probe {\nProbe.Tick()\nping()\n}\n", "with Local {\nping()\n}\n0\n")
@@ -1186,7 +1186,7 @@ func spin() int needs Probe {
 }
 type Glue {}
 func Join(_ Glue, a string, b string) string { a + b }
-let Joined = wire { Pair: Glue }
+let Joined = context { Pair: Glue }
 func step(s string) string needs Console {
 	Console.Println(s)
 	s

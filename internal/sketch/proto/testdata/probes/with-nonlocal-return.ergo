@@ -5,7 +5,7 @@ type Store { Get() string }
 type Mem {}
 func Get(_ Mem) string { return "value" }
 func f() string needs Console {
-	with wire { Store: Mem{} } {
+	with context { Store: Mem{} } {
 		Console.Println("\(Store.Get())")
 		return "inner"
 	}

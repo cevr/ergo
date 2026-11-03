@@ -244,14 +244,14 @@ func (s *acqSeq) src() string {
 		inline = append(inline, entry(e))
 	}
 	if len(named) > 0 {
-		fmt.Fprintf(&b, "let N%d = wire { %s }\n", s.k, strings.Join(named, ", "))
+		fmt.Fprintf(&b, "let N%d = context { %s }\n", s.k, strings.Join(named, ", "))
 		inline = append(inline, fmt.Sprintf("N%d", s.k))
 	}
 	var names []string
 	for _, c := range s.uses {
 		names = append(names, s.cap(c)+".Name()")
 	}
-	fmt.Fprintf(&b, "func %s() fails Fault needs Probe {\n\twith wire { %s } {\n\t\tlet _ = Probe.Step(\"body \" + %s)\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
+	fmt.Fprintf(&b, "func %s() fails Fault needs Probe {\n\twith context { %s } {\n\t\tlet _ = Probe.Step(\"body \" + %s)\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
 		s.fn(), strings.Join(inline, ", "), strings.Join(names, " + \" \" + "), s.k)
 	// The silent twin, for checkWithFootprints only (stage 3c r1 M1): the
 	// same with, whose block reaches every capability through a need
@@ -261,7 +261,7 @@ func (s *acqSeq) src() string {
 	for c := 0; c < s.caps; c++ {
 		all = append(all, s.cap(c))
 	}
-	fmt.Fprintf(&b, "func need%d() needs %s {}\nfunc silent%d() fails Fault needs Probe {\n\twith wire { %s } { need%d() }\n}\n",
+	fmt.Fprintf(&b, "func need%d() needs %s {}\nfunc silent%d() fails Fault needs Probe {\n\twith context { %s } { need%d() }\n}\n",
 		s.k, strings.Join(all, ", "), s.k, strings.Join(inline, ", "), s.k)
 	// The named twin (stage 3c r1 m1), run natively: the same entries in a
 	// named context, so its with is lowered through emitContext's builder. A named
@@ -291,7 +291,7 @@ func (s *acqSeq) src() string {
 	if len(named) > 0 {
 		twin = append(twin, fmt.Sprintf("N%d", s.k))
 	}
-	fmt.Fprintf(&b, "let Q%d = wire { %s }\nfunc %s() fails Fault needs Probe {\n\twith Q%d {\n\t\tlet _ = Probe.Step(\"body \" + %s)\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
+	fmt.Fprintf(&b, "let Q%d = context { %s }\nfunc %s() fails Fault needs Probe {\n\twith Q%d {\n\t\tlet _ = Probe.Step(\"body \" + %s)\n\t}\n\tlet _ = Probe.Step(\"end %d\")\n}\n",
 		s.k, strings.Join(twin, ", "), s.namedFn(), s.k, strings.Join(names, " + \" \" + "), s.k)
 	// The deep twin, for checkWithFootprints only (stage 3c r2 M1 and m2):
 	// a with of a context that embeds the named context, so each named entry is
@@ -307,7 +307,7 @@ func (s *acqSeq) src() string {
 				}
 			}
 		}
-		fmt.Fprintf(&b, "let M%d = wire { N%d }\nfunc needN%d() needs %s {}\nfunc deep%d() needs Probe {\n\twith wire { M%d } { needN%d() }\n}\n",
+		fmt.Fprintf(&b, "let M%d = context { N%d }\nfunc needN%d() needs %s {}\nfunc deep%d() needs Probe {\n\twith context { M%d } { needN%d() }\n}\n",
 			s.k, s.k, s.k, strings.Join(ncaps, ", "), s.k, s.k, s.k)
 	}
 	// The nested roots (stage 5a M1), run natively: the same inline with,
@@ -317,9 +317,9 @@ func (s *acqSeq) src() string {
 	// with also meets an enclosing owner: O<k> closes after the inner with's
 	// providers on every exit, and the outer block goes on only after the
 	// inner with ended normally.
-	fmt.Fprintf(&b, "type PO%d { Name() string }\ntype O%d {}\nfunc Name(_ O%d) string { \"O%d\" }\nfunc Close(_ O%d) needs Probe { let _ = Probe.Step(\"close O%d\") }\nfunc mo%d() O%d { O%d }\nlet W%d = wire { PO%d: mo%d() }\n",
+	fmt.Fprintf(&b, "type PO%d { Name() string }\ntype O%d {}\nfunc Name(_ O%d) string { \"O%d\" }\nfunc Close(_ O%d) needs Probe { let _ = Probe.Step(\"close O%d\") }\nfunc mo%d() O%d { O%d }\nlet W%d = context { PO%d: mo%d() }\n",
 		s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k, s.k)
-	inner := fmt.Sprintf("with wire { %s } {\n\t\t\tlet _ = Probe.Step(\"body \" + %s)\n\t\t}", strings.Join(inline, ", "), strings.Join(names, " + \" \" + "))
+	inner := fmt.Sprintf("with context { %s } {\n\t\t\tlet _ = Probe.Step(\"body \" + %s)\n\t\t}", strings.Join(inline, ", "), strings.Join(names, " + \" \" + "))
 	for _, form := range nestForms {
 		var around string
 		switch form {

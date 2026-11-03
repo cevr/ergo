@@ -178,7 +178,7 @@ type One {}
 
 func Get(_ One) int { return 1 }
 
-let W = wire {
+let W = context {
 	Num: One,
 }
 
@@ -234,7 +234,7 @@ func main() fails Bad needs Console {
 		exit:   1,
 		stderr: []string{"error: Bad{At:deep}"},
 	}, {
-		name: "wires",
+		name: "contexts",
 		src: `type Store { Get() string }
 type Timer { Now() string }
 
@@ -253,25 +253,25 @@ func Get(d Div) string { return "div" }
 
 func zero() int { return 0 }
 
-let Base = wire {
+let Base = context {
 	Store: Holder{V: "base"},
 }
 
-let Swapped = wire {
+let Swapped = context {
 	Base,
 	replace Store: Holder{V: "replaced"},
 }
 
-let Poisoned = wire {
+let Poisoned = context {
 	Store: Div{N: 1 / zero()},
 }
 
-let Healed = wire {
+let Healed = context {
 	Poisoned,
 	replace Store: Holder{V: "healed"},
 }
 
-let Shared = wire {
+let Shared = context {
 	Store, Timer: Both{V: "one"},
 }
 
@@ -326,7 +326,7 @@ func main() needs Console {
 func checkContextBuilds(t *testing.T, built map[string]*lowered) {
 	// The shared entry is evaluated once and bound under both keys; the
 	// overridden entry is not built at all.
-	if o := built["wires"]; o != nil {
+	if o := built["contexts"]; o != nil {
 		goSrc := o.mainGo()
 		if n := strings.Count(goSrc, `Both{V: "one"}`); n != 1 {
 			t.Errorf("the shared provider is built %d times, want once:\n%s", n, goSrc)

@@ -1,0 +1,8 @@
+// want S101
+type Fault {}
+type Store { Get() string }
+type Holder { Value string }
+func Get(h Holder) string      { return h.Value }
+func fail() string fails Fault { return Fault{} }
+let W = context { Store: Holder{Value: try fail()} }
+func main() {}

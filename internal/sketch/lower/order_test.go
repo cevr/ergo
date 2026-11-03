@@ -469,7 +469,7 @@ type Seven {}
 
 func Get(_ Seven) int { return 7 }
 
-let Fixed = wire {
+let Fixed = context {
 	Num: Seven,
 }
 

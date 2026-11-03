@@ -18,7 +18,7 @@ func TestRefusedDefinedTypeUsesStayQuiet(t *testing.T) {
 	}{
 		{"needs-row", cap + "func f() needs DStore {}\n", 2},
 		{"capability-selector", cap + "func f() { DStore.Get() }\n", 2},
-		{"wire-key", cap + "type Mem {}\nfunc Get(m Mem) int { 1 }\nfunc f() { with wire { DStore: Mem } {} }\n", 2},
+		{"context-key", cap + "type Mem {}\nfunc Get(m Mem) int { 1 }\nfunc f() { with context { DStore: Mem } {} }\n", 2},
 		{"match-subject", union + "func f(x DU) int { match x {\ncase Mem: 1\ncase Other: 2\n} }\n", 4},
 		{"match-pattern", cap + "func f(x Store) { match x {\ncase DStore: _ = x\ncase _: _ = x\n} }\n", 2},
 		{"union-pattern", cap + "type Mem {}\ntype Other {}\ntype U = Mem | Other\nfunc f(x U) { match x {\ncase DStore: _ = x\ncase _: _ = x\n} }\n", 2},

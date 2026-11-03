@@ -305,7 +305,7 @@ func viaCap() int fails Fault needs Starts {
 	try t.Wait()
 }
 
-let W = wire { Starts: Impl{N: 1} }
+let W = context { Starts: Impl{N: 1} }
 
 func main() fails Fault needs Console {
 	let s Starts = Impl{N: 2}

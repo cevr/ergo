@@ -55,7 +55,7 @@ func main() needs Console {
 // program runs each of them: call tails of two types, a fallible tail
 // under a statement catch, and a with in a void tail.
 func TestErgoRunDiscardedWith(t *testing.T) {
-	wantRun(t, `let W = wire {}
+	wantRun(t, `let W = context {}
 type E {}
 func g(b bool) int fails E { if b { return E }; 7 }
 func each(f func()) { f() }
@@ -83,7 +83,7 @@ func main() needs Console {
 // run time: through a catch, a try operand, a returned tail and a block's
 // tail.
 func TestErgoRunBranchTailsPassFailures(t *testing.T) {
-	wantRun(t, `let W = wire {}
+	wantRun(t, `let W = context {}
 type E { K int }
 type F {}
 func g(b bool) int fails E { if b { return E{K: 4} }; 7 }

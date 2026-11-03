@@ -1,4 +1,4 @@
 // want S109
 type Fault {}
 func unused() fails Fault { return Fault }
-func main()               { with wire {} {} }
+func main()               { with context {} {} }

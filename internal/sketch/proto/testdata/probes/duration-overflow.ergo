@@ -1,7 +1,7 @@
 // want S108
 import timeout
 func main() needs Console {
-	let value = with wire { Scheduler: LiveScheduler{} } {
+	let value = with context { Scheduler: LiveScheduler{} } {
 		timeout.After(9223372036854775807s) { "ok" }
 	} catch {
 	case timeout.Expired:

@@ -38,7 +38,7 @@ func pay(id string) string fails OrderNotFound | GatewayDown needs Orders, Gatew
 
 // A catch with no try must cover every error; GatewayDown is missing.
 func main() needs Console {
-	let outcome = with wire { Orders: MemoryOrders{}, Gateway: FakeGateway{} } { pay("42") } catch {
+	let outcome = with context { Orders: MemoryOrders{}, Gateway: FakeGateway{} } { pay("42") } catch {
 	case OrderNotFound:
 		"no such order"
 	}

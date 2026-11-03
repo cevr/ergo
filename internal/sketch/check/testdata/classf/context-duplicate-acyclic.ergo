@@ -1,0 +1,11 @@
+type A { M() }
+type P {}
+func M(_ P) {}
+let W1 = context {
+	A: P, // want S111
+	W2,
+}
+let W2 = context {
+	A: P,
+}
+func F() { with W1 { A.M() } }

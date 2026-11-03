@@ -47,7 +47,7 @@ type Conn[T] { V T }
 func Use[T](c Conn[T]) {}
 func Close[T](c Conn[T]) {}
 func Get() Conn[int] { Conn[int]{V: 1} }
-let W = wire { A: Get() }
+let W = context { A: Get() }
 func main() { with W { A.Use() } }
 `,
 		`type Tag[T] { V T }
@@ -110,7 +110,7 @@ type Conn { n int }
 func Use(_ Conn) {}
 func Close(_ Conn) {}
 func Get() Conn { Conn{n: 1} }
-let W = wire { A: Get() }
+let W = context { A: Get() }
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ let W = wire { A: Get() }
 	_, err = lowerPackage(Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}, false)
 	var refused *Refused
 	if !errors.As(err, &refused) || len(refused.Refusals) != 1 {
-		t.Fatalf("want one imported-wire refusal, got %v", err)
+		t.Fatalf("want one imported-context refusal, got %v", err)
 	}
 	return refused.Refusals
 }

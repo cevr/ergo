@@ -284,7 +284,7 @@ func (c *checker) expr0(x syntax.Expr, hint Type) operand {
 		return c.catch(x, hint, c.useOf(x) != useDiscard, false)
 	case *syntax.ContextLit:
 		// A context value outside with (grammar.md, Expressions 8).
-		return c.outside(x, "a wire value (196x, extern and wire values)")
+		return c.outside(x, "a context value (196x, extern and context values)")
 	case *syntax.KeyValueExpr:
 		c.errorf(x, CodeType, "a key: value pair belongs in a composite literal")
 		return bad(x)

@@ -2,7 +2,7 @@
 type with2 { Get() string }
 type Plain {}
 func Get(_ Plain) string { return "ok" }
-let with2 = wire { with2: Plain }
+let with2 = context { with2: Plain }
 func main() needs Console {
 	let line = with with2 { with2.Get() }
 	Console.Println("\(line)")

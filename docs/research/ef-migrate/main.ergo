@@ -26,13 +26,13 @@ func greeting(id string) string fails NotFound needs Users {
 }
 
 func main() needs Console {
-	let found = with wire { Users: MemoryUsers{} } { greeting("42") } catch {
+	let found = with context { Users: MemoryUsers{} } { greeting("42") } catch {
 	case NotFound:
 		"Unknown user"
 	}
 	Console.Println(found)
 
-	let absent = with wire { Users: MemoryUsers{} } { greeting("missing") } catch {
+	let absent = with context { Users: MemoryUsers{} } { greeting("missing") } catch {
 	case NotFound:
 		"Unknown user"
 	}

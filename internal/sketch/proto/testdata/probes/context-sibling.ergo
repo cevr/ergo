@@ -1,0 +1,11 @@
+// want S102
+type Store { Get() string }
+type Box { Get() string }
+type Holder { Value string }
+func Get(h Holder) string      { return h.Value }
+func read() string needs Store { return Store.Get() }
+func main() needs Console {
+	with context { Store: Holder{Value: "inner"}, Box: Holder{Value: read()} } {
+		Console.Println("\(Box.Get())")
+	}
+}

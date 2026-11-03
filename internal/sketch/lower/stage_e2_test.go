@@ -28,7 +28,7 @@ func wait(t Task[int, Fault]) int {
 	}
 }
 
-let Owned = wire { A: get() }
+let Owned = context { A: get() }
 
 let a = apply() { wait(start()) }
 let b = apply() { with Owned { A.Use() } }

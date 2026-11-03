@@ -86,7 +86,7 @@ func label(state Breaker) string {
 }
 
 func main() string fails ProbeUnavailable {
-	return with wire { Probe: HealthyProbe{} } {
+	return with context { Probe: HealthyProbe{} } {
 		let open = tripped("primary")
 		let retried = try breakerStep(open, Retry{})
 		let failed = try breakerStep(Closed{2}, Failure{"primary"})

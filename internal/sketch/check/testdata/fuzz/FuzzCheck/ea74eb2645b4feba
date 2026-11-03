@@ -1,2 +1,2 @@
 go test fuzz v1
-string("func d(){with 0{with wire{A:A{d}}{}}}")
+string("func d(){with 0{with context{A:A{d}}{}}}")

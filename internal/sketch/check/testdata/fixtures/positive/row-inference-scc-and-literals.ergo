@@ -27,7 +27,7 @@ func Run(n int64) string fails Fault needs Store {
 }
 
 func main() needs Console {
-	let v = with wire { Store: Mem } { Run(3) } catch {
+	let v = with context { Store: Mem } { Run(3) } catch {
 	case Fault:
 		"fault"
 	}

@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type timeout{A()}\ntype Holder{}\nfunc Get(Holder){with wire{timeout:Holder}{0(\"\\(timeou..Get  )\")}}")
+string("type timeout{A()}\ntype Holder{}\nfunc Get(Holder){with context{timeout:Holder}{0(\"\\(timeou..Get  )\")}}")

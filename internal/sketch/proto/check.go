@@ -113,13 +113,13 @@ func Check(f *File) (*Checked, []Diagnostic) {
 		fc := &fnCtx{escapes: []map[string]Pos{{}}, needs: map[string]Pos{}, scopes: []map[string]*local{{}}}
 		c.contextEntries(w.Entries, fc)
 		for _, u := range sortedKeys(fc.needs) {
-			c.errorf(fc.needs[u], codeMissingCap, "wire %s requires %s to build a provider; build it in an inline wire instead", w.Name, u)
+			c.errorf(fc.needs[u], codeMissingCap, "context %s requires %s to build a provider; build it in an inline context instead", w.Name, u)
 		}
 		for _, e := range sortedKeys(fc.escapes[0]) {
-			c.errorf(fc.escapes[0][e], codeUndeclaredError, "wire %s can fail with %s while building a provider; build it in an inline wire instead", w.Name, e)
+			c.errorf(fc.escapes[0][e], codeUndeclaredError, "context %s can fail with %s while building a provider; build it in an inline context instead", w.Name, e)
 		}
 		if c.contextReaches(w.Name, w.Name, map[string]bool{}) {
-			c.errorf(w.Pos, codeUnsupported, "wire %s needs itself to build its providers", w.Name)
+			c.errorf(w.Pos, codeUnsupported, "context %s needs itself to build its providers", w.Name)
 		}
 	}
 	sort.SliceStable(c.diags, func(i, j int) bool {
@@ -148,7 +148,7 @@ func (c *checker) declare() {
 	for _, w := range f.Contexts {
 		c.checkLocalName(w.Pos, w.Name)
 		if c.Contexts[w.Name] != nil {
-			c.errorf(w.Pos, codeType, "wire %s is declared twice", w.Name)
+			c.errorf(w.Pos, codeType, "context %s is declared twice", w.Name)
 		}
 		c.Contexts[w.Name] = w
 	}
@@ -356,8 +356,8 @@ func (c *checker) reaches(exprs []Expr, stmts []Stmt, target string, seen map[st
 						if w.Name == target {
 							return true
 						}
-						if !seen["wire "+w.Name] {
-							seen["wire "+w.Name] = true
+						if !seen["context "+w.Name] {
+							seen["context "+w.Name] = true
 							if c.contextReaches(w.Name, target, seen) {
 								return true
 							}
@@ -370,7 +370,7 @@ func (c *checker) reaches(exprs []Expr, stmts []Stmt, target string, seen map[st
 					}
 				}
 			}
-			// M4 (round 3): a capability call runs whichever provider is hasContexts, so
+			// M4 (round 3): a capability call runs whichever provider is bound, so
 			// follow every method of that name. This over-approximates: it may
 			// reject a context that only an unrelated provider would cycle through.
 			if sel, ok := e.Fun.(*Selector); ok {
@@ -889,7 +889,7 @@ func (c *checker) expr1(e Expr, fc *fnCtx) info {
 	case *CatchExpr:
 		return c.catch(e, fc, false)
 	case *ContextLit:
-		c.errorf(e.Pos, codeType, "a wire literal is only allowed as the argument of with")
+		c.errorf(e.Pos, codeType, "a context literal is only allowed as the argument of with")
 		return info{typ: "?"}
 	}
 	c.errorf(e.exprPos(), codeUnsupported, "unsupported expression")
@@ -1129,7 +1129,7 @@ func (c *checker) block(b *Block, fc *fnCtx) info {
 
 func (c *checker) with(e *Call, fc *fnCtx) info {
 	if len(e.Args) != 1 || e.Block == nil {
-		c.errorf(e.Pos, codeType, "with takes one wire and a block")
+		c.errorf(e.Pos, codeType, "with takes one context and a block")
 		return info{typ: "?"}
 	}
 	var entries []ContextEntry
@@ -1137,7 +1137,7 @@ func (c *checker) with(e *Call, fc *fnCtx) info {
 	case *Ident:
 		decl := c.Contexts[w.Name]
 		if decl == nil {
-			c.errorf(w.Pos, codeUnknownName, "unknown wire %s", w.Name)
+			c.errorf(w.Pos, codeUnknownName, "unknown context %s", w.Name)
 			return info{typ: "?"}
 		}
 		entries = decl.Entries
@@ -1147,7 +1147,7 @@ func (c *checker) with(e *Call, fc *fnCtx) info {
 		// requirements and failures belong to the enclosing function.
 		c.contextEntries(entries, fc)
 	default:
-		c.errorf(e.Pos, codeType, "with takes a wire")
+		c.errorf(e.Pos, codeType, "with takes a context")
 		return info{typ: "?"}
 	}
 	provided := map[string]bool{}
@@ -1190,7 +1190,7 @@ func (c *checker) contextEntries(entries []ContextEntry, fc *fnCtx) {
 		}
 		lit, ok := en.Value.(*CompositeLit)
 		if !ok {
-			c.errorf(en.Pos, codeUnsupported, "a wire entry must be a provider literal")
+			c.errorf(en.Pos, codeUnsupported, "a context entry must be a provider literal")
 			continue
 		}
 		c.Info[lit] = c.composite(lit, fc)

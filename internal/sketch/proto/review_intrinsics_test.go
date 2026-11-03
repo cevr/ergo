@@ -15,18 +15,18 @@ func TestRound5IntrinsicDeclarations(t *testing.T) {
 		{"function", `func NAME(){};func main(){}`},
 		{"method", `type Box {};func NAME(_ Box){};func main(){}`},
 		{"cap-method", `type Cap {NAME()};func main(){}`},
-		{"wire", `let NAME = wire {};func main(){}`},
+		{"context", `let NAME = context {};func main(){}`},
 		{"param", `func f(NAME string){};func main(){}`},
 		{"receiver", `type Box {};func F(NAME Box){};func main(){}`},
 		{"local", `func main()needs Console{let NAME = "ok";Console.Println(NAME)}`},
 		{"switch", `type A {Value string};type U = A;func value()U{return A{Value:"ok"}};func main()needs Console{match value() {case A as NAME:Console.Println(NAME)}}`},
 	}
-	for _, name := range []string{"Console", "Println", "with", "wire", "timeout", "After", "duration", "LiveScheduler", "Scheduler"} {
+	for _, name := range []string{"Console", "Println", "with", "context", "timeout", "After", "duration", "LiveScheduler", "Scheduler"} {
 		for _, pos := range positions {
 			t.Run(name+"/"+pos.name, func(t *testing.T) {
 				src := "" + strings.ReplaceAll(pos.body, "NAME", name)
 				// with and context are keywords: no declaration may use them.
-				reject := name == "with" || name == "wire" || name == "timeout" || name == "duration" ||
+				reject := name == "with" || name == "context" || name == "timeout" || name == "duration" ||
 					((pos.name == "type" || pos.name == "function") && (name == "Console" || name == "Scheduler" || name == "LiveScheduler"))
 				f, err := Parse("intrinsics.ergo", src)
 				var c *Checked

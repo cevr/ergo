@@ -22,7 +22,7 @@ var nestedChains = []struct{ name, src string }{
 	{"type params and instantiation", "type Pair[K comparable, V] {\n\tk, l K,\n\tv    V,\n}\n\nlet p = Pair[string, int]{k: \"a\", v: 1}\n"},
 	{"catch and match tuples", "func f() {\n\tlet r = try g(a, b) catch {\n\tcase A as e, b.B:\n\t\tlog(e)\n\t}\n\tmatch (r, s) {\n\tcase (A, _), (B{X: x} as b, C):\n\tcase _:\n\t}\n}\n"},
 	{"statements", "func f() {\n\tfor i in 0..n {\n\t\tif g() {\n\t\t\tcontinue\n\t\t} else if b {\n\t\t\tbreak\n\t\t}\n\t}\n\tfor k, v in m {\n\t\tx += v\n\t}\n\tlet mut (q, r) = (1, \"\\(k) of \\(f(\"n\"))\")\n\tassert q == 1\n}\n"},
-	{"wire and machine", "let W = wire provides A, B needs C {\n\tC, D:        X{},\n\treplace e.E: Y{a, b},\n\tShared,\n}\n\ntype M machine[S, E] {\n\tinitial: Idle{},\n\tstep:    f,\n}\n"},
+	{"context and machine", "let W = context provides A, B needs C {\n\tC, D:        X{},\n\treplace e.E: Y{a, b},\n\tShared,\n}\n\ntype M machine[S, E] {\n\tinitial: Idle{},\n\tstep:    f,\n}\n"},
 	{"imports and declarations", "import a\nimport b c\nimport go net/url\n\nextern go example.com/x.F func F(a int64) (int64, bool)\n\ntest T(x int64) {\n\tassert x == x\n}\n\ntype Codec {\n\tEncode(v int64) []byte,\n\n\tlaw RoundTrip(v int64) { Encode(v) == Encode(v) },\n}\n"},
 }
 

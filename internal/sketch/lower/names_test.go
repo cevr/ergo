@@ -32,7 +32,7 @@ type Mem[T] { val T }
 
 func Get[T](m Mem[T]) int { return 4 }
 
-let W = wire {
+let W = context {
 	Store: Mem[int]{val: 1},
 }
 

@@ -5,5 +5,5 @@ type Store { Get(id string) string }
 type Mem {}
 func Get(_ Mem, id int) string { return "ok" }
 func main() needs Console {
-	with wire { Store: Mem{} } { Console.Println("\(Store.Get("42"))") }
+	with context { Store: Mem{} } { Console.Println("\(Store.Get("42"))") }
 }

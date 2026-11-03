@@ -56,7 +56,7 @@ var i1CallRules = map[check.CallKind][]i1CallRule{
 	check.CallWith: {
 		{name: "pure-with", behavior: "transparent-pure", src: "func subject(n int) int { with Local { n } }", graph: "with-body"},
 		{name: "capability-with", behavior: "transparent-capability", src: "func subject(n int) int { with Local { Probe.Tick(); n } }", graph: "with-body"},
-		{name: "opaque-builder", behavior: "opaque", src: "func makeSilent() Silent { let xs = []int{}; let _ = xs.Append(1); Silent }\nlet Loud = wire { Probe: makeSilent() }\nfunc subject(n int) int { with Loud { n } }", graph: "wire-reentry", generated: i1OpaqueGraph("wire-reentry", "with Loud {}")},
+		{name: "opaque-builder", behavior: "opaque", src: "func makeSilent() Silent { let xs = []int{}; let _ = xs.Append(1); Silent }\nlet Loud = context { Probe: makeSilent() }\nfunc subject(n int) int { with Loud { n } }", graph: "context-reentry", generated: i1OpaqueGraph("context-reentry", "with Loud {}")},
 	},
 	check.CallPrelude: {{name: "retired", behavior: "pure", retired: true}},
 }
@@ -72,8 +72,8 @@ var i1SeqRule = i1CallRule{
 func i1OpaqueGraph(name, effect string) *i1Graph {
 	return &i1Graph{name: name, opaque: true, frames: []string{"left"}, call: "left(%d)", decls: func(row, clause string) string {
 		defs := ""
-		if name == "wire-reentry" {
-			defs = "func makeSilent() Silent { let xs = []int{}; let _ = xs.Append(1); Silent }\nlet Loud = wire { Probe: makeSilent() }\n"
+		if name == "context-reentry" {
+			defs = "func makeSilent() Silent { let xs = []int{}; let _ = xs.Append(1); Silent }\nlet Loud = context { Probe: makeSilent() }\n"
 		}
 		return defs + i1Fib("left(n int)", "left(n - 1)", "left(n - 2)")(row, "if n < 0 { "+effect+" }\n"+clause)
 	}}

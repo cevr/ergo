@@ -264,7 +264,7 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	case *syntax.InterpolatedString:
 		return operand{val: fc.interpolated(x)}
 	case *syntax.ContextLit:
-		refuse(x, "an inline wire value is lowered after check-v1 stage E (196x)")
+		refuse(x, "an inline context value is lowered after check-v1 stage E (196x)")
 	case *syntax.TupleExpr:
 		vals := fc.operands(x.Elts, true)
 		parts := make([]string, len(vals))

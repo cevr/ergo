@@ -139,7 +139,7 @@ func (c *checker) withOwnership() {
 			}
 			if info == nil || info.Types[a.Entry.Provider] == nil {
 				c.cur = s.file
-				c.errorf(s.x, CodeOutside, "this wire's provider ownership cannot be proved without its defining package's facts; further resource ownership is #197's (resources.md, Wire ownership)")
+				c.errorf(s.x, CodeOutside, "this context's provider ownership cannot be proved without its defining package's facts; further resource ownership is #197's (resources.md, Context ownership)")
 				continue
 			}
 			if a.Close == nil {
@@ -154,7 +154,7 @@ func (c *checker) withOwnership() {
 				} else {
 					refused[a.Entry] = true
 				}
-				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a call of a function whose every result is made, a composite literal or a unit value; an extern's result is never proved), and a borrowed or reused resource is #197's (resources.md, Wire ownership)")
+				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a call of a function whose every result is made, a composite literal or a unit value; an extern's result is never proved), and a borrowed or reused resource is #197's (resources.md, Context ownership)")
 			}
 			c.cur = s.file
 			for _, cap := range c.releaseNeeds(a.Close) {
@@ -185,7 +185,7 @@ func (c *checker) capabilityCloses() {
 			}
 			if call := c.pkg.Info.Calls[x]; call != nil && call.Kind == CallProviderOp && c.pkg.Info.Closes[x] != nil {
 				c.cur = fi
-				c.errorf(x, CodeType, "%s releases the capability's provider, which the with that built it releases when its block ends (resources.md R24, Wire ownership); a capability's Close is not called", exprText(unparen(x.Fun)))
+				c.errorf(x, CodeType, "%s releases the capability's provider, which the with that built it releases when its block ends (resources.md R24, Context ownership); a capability's Close is not called", exprText(unparen(x.Fun)))
 			}
 			return true
 		})
@@ -318,10 +318,10 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
 	}
 	what := a.Close.Receiver
 	if t.declUses == nil {
-		c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the inferred capability row of %s and no outer with provides it; a release runs outside the with and widens no inferred row, so write the row of %s (resources.md, Wire ownership)", what, cap, t.name, t.name)
+		c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the inferred capability row of %s and no outer with provides it; a release runs outside the with and widens no inferred row, so write the row of %s (resources.md, Context ownership)", what, cap, t.name, t.name)
 		return
 	}
-	c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the capability row of %s and no outer with provides it; a release runs outside the with (resources.md, Wire ownership)", what, cap, t.name)
+	c.errorf(s.x, CodeMissingCap, "the release of %s when this with ends requires %s, which is not in the capability row of %s and no outer with provides it; a release runs outside the with (resources.md, Context ownership)", what, cap, t.name)
 }
 
 // discharge adds cap, provided by e, to the with's discharged list, in its
@@ -576,7 +576,7 @@ func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.C
 		if inner || !closed[w.Contexts[0].Provider(cap)] {
 			continue
 		}
-		c.errorf(n, CodeType, "this exit action runs when the function returns (runtime.md, Exit actions 2), after the with around it closed its providers, but it needs %s, whose provider is or uses an acquired resource of that with; register it outside the with, or release the value in the block (resources.md, Wire ownership)", cap)
+		c.errorf(n, CodeType, "this exit action runs when the function returns (runtime.md, Exit actions 2), after the with around it closed its providers, but it needs %s, whose provider is or uses an acquired resource of that with; register it outside the with, or release the value in the block (resources.md, Context ownership)", cap)
 		return
 	}
 }

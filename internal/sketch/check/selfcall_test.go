@@ -233,7 +233,7 @@ type Fixed { t int }
 
 func Now(f Fixed) int { return f.t }
 
-let W = wire { Clock: Fixed{t: 1} }
+let W = context { Clock: Fixed{t: 1} }
 
 func F() int { return with W { Clock.Now() } }
 `},
@@ -245,7 +245,7 @@ type Fixed { t int }
 
 func Now(f Fixed) string { return "" }
 
-let W = wire { Clock: Fixed{t: 1} }
+let W = context { Clock: Fixed{t: 1} }
 
 func F() int { return with W { Clock.Now() } }
 `, want: []selfWant{{"S106", "Now has signature func() string, want func() int", 9}}},
@@ -259,7 +259,7 @@ type Fixed { t int }
 
 func Now(f Fixed) int fails Bang { return f.t }
 
-let W = wire { Clock: Fixed{t: 1} }
+let W = context { Clock: Fixed{t: 1} }
 
 func F() int { return with W { Clock.Now() } }
 `, want: []selfWant{{"S106", "Bang", 11}}},
@@ -273,7 +273,7 @@ type Fixed { t int }
 
 func Now(f Fixed) int needs Log { return f.t }
 
-let W = wire { Clock: Fixed{t: 1} }
+let W = context { Clock: Fixed{t: 1} }
 
 func F() int { return with W { Clock.Now() } }
 `, want: []selfWant{{"S106", "Log", 11}}},
@@ -283,7 +283,7 @@ type Clock { Now() int }
 
 type Fixed { t int }
 
-let W = wire { Clock: Fixed{t: 1} }
+let W = context { Clock: Fixed{t: 1} }
 
 func F() int { return with W { Clock.Now() } }
 `, want: []selfWant{{"S106", "no method Now", 7}}},
@@ -411,10 +411,10 @@ func TestSelfCallOrderFree(t *testing.T) {
 		"type Clock { Now() int }",
 		"type Fixed { t int }",
 		"type Late { t int }",
-		"func Now(f Fixed) int { return with wire { Clock: Late{t: 2} } { Clock.Now() } + f.t }",
-		"func Now(l Late) int { return with wire { Clock: Fixed{t: 1} } { Clock.Now() } + l.t }",
+		"func Now(f Fixed) int { return with context { Clock: Late{t: 2} } { Clock.Now() } + f.t }",
+		"func Now(l Late) int { return with context { Clock: Fixed{t: 1} } { Clock.Now() } + l.t }",
 		"func Bad(l Late) string { return Now(l) }",
-		"let W = wire { Clock: Fixed{t: 1} }",
+		"let W = context { Clock: Fixed{t: 1} }",
 		"func F() int { return with W { Clock.Now() } }",
 	}
 	var want []string
@@ -440,7 +440,7 @@ func TestSelfCallOrderFree(t *testing.T) {
 		}
 		slices.Sort(keys)
 		if want := []string{"func Fixed.Now", "func Late.Now"}; !slices.Equal(keys, want) {
-			t.Fatalf("order %v: inline wire groups %v, want %v", order, keys, want)
+			t.Fatalf("order %v: inline context groups %v, want %v", order, keys, want)
 		}
 		if want == nil {
 			want = got

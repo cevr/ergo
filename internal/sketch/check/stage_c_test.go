@@ -43,7 +43,7 @@ return out }`, "", 0},
 case _: continue } } }`, check.CodeMissingRet, 1},
 		{"nested-for", `func F(n int) int { match n { case 0: for { break }; return 1
 case _: return 2 } }`, "", 0},
-		{"barrier", `func F(n int) { for { with wire {} { match n { case 0: break
+		{"barrier", `func F(n int) { for { with context {} { match n { case 0: break
 case _: continue } } } }`, check.CodeType, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

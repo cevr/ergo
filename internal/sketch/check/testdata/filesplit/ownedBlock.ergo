@@ -9,7 +9,7 @@ type First {}
 func Use(_ First) {}
 func Close(_ First) {}
 
-let W = wire { A: First }
+let W = context { A: First }
 func exits() { with W { scope.OnExit() { A.Use() } } }
 func holds() {
 	let t = with W { task.Go() { A.Use() } }

@@ -1,0 +1,75 @@
+import retry
+import sql
+import task
+import time
+
+type ConnectFailed { URL string }
+type CloseFailed {}
+type OrderNotFound { ID string }
+
+type Config {
+	String(key string) string,
+}
+
+type Orders {
+	Find(id string) Order fails OrderNotFound,
+}
+
+// Postgres owns a connection pool and a background task.
+type Postgres {
+	pool    sql.Pool,
+	refresh Task[Unit], // a provider may own tasks; Close must consume them
+}
+
+func Find(p Postgres, id string) Order fails OrderNotFound {
+	return p.pool.QueryOrder(id)
+}
+
+// A provider with Close is a resource (io.Closer). context calls Close when the
+// build is released, dependents first, even under interruption.
+func Close(p Postgres) fails CloseFailed {
+	p.refresh.Stop()
+	return p.pool.Close()
+}
+
+// A constructor is an ordinary function. Its needs row is resolved from the
+// same context graph, and its error row joins the startup errors of every with().
+func OpenPostgres() Postgres fails ConnectFailed needs Config, Clock, Scheduler {
+	let url = Config.String("DATABASE_URL")
+	let pool = try retry.On[ConnectFailed](retry.Exponential(200ms).Times(5)) { sql.Open(url) }
+	return Postgres{pool, task.Go() {
+		keepWarm(pool)
+		Unit
+	}}
+}
+
+func keepWarm(pool sql.Pool) needs Clock {
+	for _ in Clock.Tick(30s) {
+		pool.Ping()
+	}
+}
+
+// The constructor picks an implementation at build time, as Effect's
+// Layer.unwrapEffect does. context closes whichever value it returned if that
+// value has a Close method.
+func OpenOrders() Orders fails ConnectFailed needs Config, Clock, Scheduler {
+	if Config.String("ORDERS") == "memory" {
+		return MemoryOrders{}
+	}
+	return try OpenPostgres()
+}
+
+let Live = context provides Orders {
+	Config: EnvConfig{},
+	Orders: OpenOrders, // effectful: runs during the build
+}
+
+// Built once for the whole server, not per request.
+func main() fails ConnectFailed | CloseFailed needs Clock, Scheduler, Console {
+	return with Live {
+		serve(time.Minute)
+	}
+}
+
+// Unit is the empty record a task without a result yields.
+type Unit {}

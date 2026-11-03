@@ -1,5 +1,5 @@
 // A program of the decided language (docs/spec/ v0) inside the prototype
-// checker's subset: rows, try, catch, a closed wire and timeout.After.
+// checker's subset: rows, try, catch, a closed context and timeout.After.
 
 type NotFound { Name string }
 
@@ -16,7 +16,7 @@ func Greet(_ Friends, name string) string fails NotFound {
 	return NotFound{Name: name}
 }
 
-let Live = wire {
+let Live = context {
 	Greeter: Friends,
 }
 

@@ -38,7 +38,7 @@ func pay(id string) string fails OrderNotFound | GatewayDown needs Orders, Gatew
 
 // main supplies Orders but not Gateway, and main's needs clause has only Console.
 func main() needs Console {
-	let outcome = with wire { Orders: MemoryOrders{} } { pay("42") } catch {
+	let outcome = with context { Orders: MemoryOrders{} } { pay("42") } catch {
 	case OrderNotFound:
 		"no such order"
 	case GatewayDown:

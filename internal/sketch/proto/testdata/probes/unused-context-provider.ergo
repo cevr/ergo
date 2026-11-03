@@ -1,0 +1,7 @@
+// out: ok
+type Store { Get() string }
+type Holder {}
+func Get(_ Holder) string { return "ok" }
+func main() needs Console {
+	with context { Store: Holder } { Console.Println("ok") }
+}

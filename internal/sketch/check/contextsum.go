@@ -76,7 +76,7 @@ const contextBudgetPerUnit = 128
 const contextSinglePerUnit = 12
 
 // contextBudgetMessage is the S111 of a context whose summary passed the budget.
-const contextBudgetMessage = "this wire's embedding graph is too large to check for duplicate entries; split it"
+const contextBudgetMessage = "this context's embedding graph is too large to check for duplicate entries; split it"
 
 // A contextGroup is the inline contexts of the top-level declarations of one
 // name, in source order. The pass handles a group as one unit, so two
@@ -153,7 +153,7 @@ func declKey(d syntax.Decl) string {
 		}
 		return "let " + strings.Join(names, ",")
 	case *syntax.ContextDecl:
-		return "wire " + d.Name.Name
+		return "context " + d.Name.Name
 	case *syntax.TypeDecl:
 		return "type " + d.Name.Name
 	}
@@ -348,7 +348,7 @@ func (p *contextPass) order(groups []*contextGroup) ([]*Context, bool) {
 	c, m := p.c, p.m
 	contexts := make([]*Context, 0, len(c.pkg.Contexts))
 	for _, w := range c.pkg.Contexts {
-		op(m, "collect wire", singlePass, 1)
+		op(m, "collect context", singlePass, 1)
 		contexts = append(contexts, w)
 	}
 	if !sortContexts(m, contexts, func(a, b *Context) bool { return a.Name < b.Name }) {
@@ -567,13 +567,13 @@ func (c *checker) bodySummary(body *syntax.ContextBody) *bodySum {
 	c.contextSummaries()
 	s := c.contextBodies[body]
 	if s == nil {
-		panic("check: a wire body outside the wire pass")
+		panic("check: a context body outside the context pass")
 	}
 	if s.pending {
 		s.pending = false
 		allowance := &contextMeter{limit: s.allowance, parent: c.contexts}
 		if !c.finishBody(s, body, allowance) {
-			panic("check: a wire body passed the allowance charged for it")
+			panic("check: a context body passed the allowance charged for it")
 		}
 	}
 	return s
@@ -749,9 +749,9 @@ func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMet
 			// holds one binding per capability (D-A4).
 			op(m, "own probe", singlePass, 1)
 			if first, dup := ownAt[key]; dup {
-				msg := fmt.Sprintf("%s has a second entry in this wire, entry %d; the first is entry %d, and a wire binds a capability once (rows.md, Wire 1)", t, i+1, first.entry)
+				msg := fmt.Sprintf("%s has a second entry in this context, entry %d; the first is entry %d, and a context binds a capability once (rows.md, Context 1)", t, i+1, first.entry)
 				if first.entry == i+1 {
-					msg = fmt.Sprintf("%s is listed twice in entry %d, as its keys %d and %d, and a wire binds a capability once (rows.md, Wire 1)", t, i+1, first.key, at)
+					msg = fmt.Sprintf("%s is listed twice in entry %d, as its keys %d and %d, and a context binds a capability once (rows.md, Context 1)", t, i+1, first.key, at)
 				}
 				s.findings = append(s.findings, contextFinding{k, CodeDuplicateCap, msg})
 				return true
@@ -774,7 +774,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMet
 					return false
 				}
 				if inEmbedded == nil && inCycle == nil {
-					s.findings = append(s.findings, contextFinding{k, CodeType, fmt.Sprintf("replace %s names no entry of an embedded wire (rows.md, Wire 7)", t)})
+					s.findings = append(s.findings, contextFinding{k, CodeType, fmt.Sprintf("replace %s names no entry of an embedded context (rows.md, Context 7)", t)})
 				}
 				if named && inEmbedded != nil && inEmbedded.entry != nil {
 					o := &override{cap: t, by: by, cands: []*ContextEntry{inEmbedded.entry}}
@@ -787,7 +787,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMet
 					return false
 				}
 				if found != nil {
-					s.findings = append(s.findings, contextFinding{k, CodeDuplicateCap, fmt.Sprintf("%s has a second entry in this wire; only replace overrides an embedded entry (rows.md, Wire 1; README Gap 28)", t)})
+					s.findings = append(s.findings, contextFinding{k, CodeDuplicateCap, fmt.Sprintf("%s has a second entry in this context; only replace overrides an embedded entry (rows.md, Context 1; README Gap 28)", t)})
 				}
 			}
 			op(m, "own insert", singlePass, 1)
@@ -803,7 +803,7 @@ func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMet
 		}
 		op(m, "collision", repeatable, 1)
 		if !replaced[k.key] {
-			s.findings = append(s.findings, contextFinding{k.at, CodeDuplicateCap, fmt.Sprintf("%s is bound by two embedded wires; replace one entry (rows.md, Wire 7)", k.cap)})
+			s.findings = append(s.findings, contextFinding{k.at, CodeDuplicateCap, fmt.Sprintf("%s is bound by two embedded contexts; replace one entry (rows.md, Context 7)", k.cap)})
 		} else if o := overrideOf[k.key]; o != nil && k.entry != nil {
 			o.cands = append(o.cands, k.entry)
 		}

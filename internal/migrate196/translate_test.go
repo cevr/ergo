@@ -147,8 +147,8 @@ func TestRules(t *testing.T) {
 			"func Map[A, B](xs []A, f func(A) B) []B {\n\treturn nil\n}\n\nfunc Max[T ordered](a, b T) T {\n\treturn a\n}\n"},
 		{"map append delete", "package p\n\nfunc f(m map[string]int64, xs []int64) []int64 {\n\tdelete(m, \"a\")\n\treturn append(xs, 1, 2)\n}\n",
 			"func f(m Map[string, int64], xs []int64) []int64 {\n\tm.Delete(\"a\")\n\treturn xs.Append(1).Append(2)\n}\n"},
-		{"wire and with", "package p\n\nwire Live {\n\tClock = Fixed{}\n\tOrders = Memory{}\n}\n\nfunc main() {\n\twith(Live) { run() }\n}\n",
-			"let Live = wire {\n\tClock:  Fixed{},\n\tOrders: Memory{},\n}\n\nfunc main() {\n\twith Live { run() }\n}\n"},
+		{"named context and with", "package p\n\nwire Live {\n\tClock = Fixed{}\n\tOrders = Memory{}\n}\n\nfunc main() {\n\twith(Live) { run() }\n}\n",
+			"let Live = context {\n\tClock:  Fixed{},\n\tOrders: Memory{},\n}\n\nfunc main() {\n\twith Live { run() }\n}\n"},
 		{"with a function", "package p\n\nfunc main() string {\n\treturn with(Fixture, labels)\n}\n",
 			"func main() string {\n\treturn with Fixture { labels() }\n}\n"},
 		{"extern", "package p\n\n//ef:go strings.ToUpper\nfunc Upper(s string) string\n",
@@ -203,8 +203,10 @@ func TestRules(t *testing.T) {
 		{"multi-type arm with a record key", "package p\n\ntype Out struct {\n\tp int64\n}\n\nfunc f(v Value) Out {\n\tswitch p := v.(type) {\n\tcase A, B:\n\t\treturn Out{p: size(p)}\n\t}\n\treturn Out{}\n}\n",
 			"type Out {\n\tp int64,\n}\n\nfunc f(v Value) Out {\n\tmatch v {\n\tcase A, B:\n\t\treturn Out{p: size(v)}\n\t}\n\treturn Out{}\n}\n"},
 		// M11: an embed never stands before an entry.
-		{"wire embed after entries", "package p\n\nwire W {\n\tBase\n\tClock = Fixed{}\n}\n\nwire V { Base; Clock = Fixed{} }\n",
-			"let W = wire {\n\tClock: Fixed{},\n\tBase,\n}\n\nlet V = wire { Clock: Fixed{}, Base }\n"},
+		{"context embed after entries", "package p\n\nwire W {\n\tBase\n\tClock = Fixed{}\n}\n\nwire V { Base; Clock = Fixed{} }\n",
+			"let W = context {\n\tClock: Fixed{},\n\tBase,\n}\n\nlet V = context { Clock: Fixed{}, Base }\n"},
+		{"inline context", "package p\n\nfunc main() {\n\twith(wire{ Clock = Fixed{} }) { run() }\n}\n",
+			"func main() {\n\twith context { Clock: Fixed{} } { run() }\n}\n"},
 		// Round-2 M2: a shadow rename and a switch snapshot take their
 		// numbered names from one table, so no block declares one twice.
 		{"fresh names never meet", "package main\n\nfunc g() int { return 1 }\n\nfunc use(i int) {}\n\nfunc f(x int, c bool) {\n\txSubject := 0\n\tuse(xSubject)\n\tif c {\n\t\txSubject := 5\n\t\tswitch x {\n\t\tcase g():\n\t\t\tuse(xSubject)\n\t\t}\n\t}\n}\n",
@@ -246,9 +248,9 @@ func TestRules(t *testing.T) {
 		// parameters is dropped.
 		{"implicit parameter beside a bracket list", "package p\n\ntype Cap interface{ M() }\n\nfunc Run[T any](x T, f func() needs R) needs R { return x }\n",
 			"type Cap { M() }\n\nfunc Run[T, R](x T, f func() needs R) needs R { return x }\n"},
-		// Round-4 review O1: a wire written as a composite literal keeps
-		// its parentheses in the with header.
-		{"with a literal wire", "package p\n\nfunc f() {\n\twith(Cfg{Port: 1}) {\n\t\tuse(1)\n\t}\n\twith(Live, Cfg{}) {\n\t\tuse(2)\n\t}\n\twith(Cfg{}, run)\n}\n",
+		// Round-4 review O1: a context written as a composite literal
+		// keeps its parentheses in the with header.
+		{"with a literal context", "package p\n\nfunc f() {\n\twith(Cfg{Port: 1}) {\n\t\tuse(1)\n\t}\n\twith(Live, Cfg{}) {\n\t\tuse(2)\n\t}\n\twith(Cfg{}, run)\n}\n",
 			"func f() {\n\twith (Cfg{Port: 1}) {\n\t\tuse(1)\n\t}\n\twith Live, (Cfg{}) {\n\t\tuse(2)\n\t}\n\twith (Cfg{}) { run() }\n}\n"},
 		// Round-3 answer O2: a Map follows the slice rule, so Go's
 		// key-only range keeps two bindings and the value-only range has one.

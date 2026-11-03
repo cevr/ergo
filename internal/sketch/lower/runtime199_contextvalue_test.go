@@ -55,7 +55,7 @@ import (
 const (
 	cxRead    = "read"    // the parent reads the context at a step
 	cxCtx     = "ctx"     // with of a context value
-	cxContext = "wire"    // with of a named context of one provider
+	cxContext = "context" // with of a named context of one provider
 	cxFork    = "fork"    // task.Go of a child that reads the context
 	cxRelease = "release" // the parent releases a delayed child
 	cxJoin    = "join"    // the parent waits for a child's reads
@@ -222,7 +222,7 @@ func (s *cxSeq) src() string {
 		if w.res {
 			fmt.Fprintf(&b, "func Close(_ %s) needs Probe { let _ = Probe.Step(\"w%d \" + show()) }\n", t, w.id)
 		}
-		fmt.Fprintf(&b, "let W%d_%d = wire { %s: %s }\n", s.k, w.id, c, t)
+		fmt.Fprintf(&b, "let W%d_%d = context { %s: %s }\n", s.k, w.id, c, t)
 	}
 	row := "Fault"
 	var queues strings.Builder
@@ -335,7 +335,7 @@ func cxFacts(t *testing.T, o *lowered, s *cxSeq) map[*cxNode]*check.With {
 		case cxContext:
 			closes := cxCloses(w)
 			if w.Value != nil || len(w.Contexts) != 1 || closes != x.res {
-				t.Errorf("%s: with W%d_%d: fact context %v wires %d closes %v, model closes %v", s.fn(), s.k, x.id, w.Value != nil, len(w.Contexts), closes, x.res)
+				t.Errorf("%s: with W%d_%d: fact context %v contexts %d closes %v, model closes %v", s.fn(), s.k, x.id, w.Value != nil, len(w.Contexts), closes, x.res)
 			}
 		default:
 			if w.Value == nil {
@@ -533,7 +533,7 @@ func TestRuntime199ContextLexicalOperand(t *testing.T) {
 type A { Use() }
 type Quiet {}
 func Use(_ Quiet) {}
-let W = wire { A: Quiet }
+let W = context { A: Quiet }
 func label() string {
 	match log.Annotation("k") {
 	case Some[string] as v: v.Value
@@ -729,8 +729,8 @@ extern go ergo.local/prototype/runtime/v1.ContextValue func value(key string) st
 		shapes["required child"] = shapes["required child"] || len(c.req) > 0
 		shapes["optional child"] = shapes["optional child"] || len(c.opt) > 0
 	}
-	want := []string{"shadow", "span", "user tag", "operand step", "wire in context", "context in wire",
-		"closing wire", "fork inside, read after", "fork before, read inside", "siblings", "child binds",
+	want := []string{"shadow", "span", "user tag", "operand step", "context in context", "context in context",
+		"closing context", "fork inside, read after", "fork before, read inside", "siblings", "child binds",
 		"immediate child", "required child", "optional child"}
 	for _, shape := range want {
 		if !shapes[shape] {
@@ -757,7 +757,7 @@ func cxShapes(s *cxSeq, shapes map[string]bool) {
 				shapes["span"] = shapes["span"] || x.key == "s"
 				shapes["user tag"] = shapes["user tag"] || x.key == "u"
 				shapes["operand step"] = shapes["operand step"] || x.op
-				shapes["context in wire"] = shapes["context in wire"] || inContext
+				shapes["context in context"] = shapes["context in context"] || inContext
 				inner := append(slices.Clone(regions), x)
 				walk(x.kids, inner, inContext)
 				if x.fork != nil {
@@ -765,9 +765,9 @@ func cxShapes(s *cxSeq, shapes map[string]bool) {
 				}
 			case cxContext:
 				for _, r := range regions {
-					shapes["wire in context"] = shapes["wire in context"] || r.kind == cxCtx
+					shapes["context in context"] = shapes["context in context"] || r.kind == cxCtx
 				}
-				shapes["closing wire"] = shapes["closing wire"] || x.res
+				shapes["closing context"] = shapes["closing context"] || x.res
 				walk(x.kids, append(slices.Clone(regions), x), true)
 			case cxFork:
 				// Another child started and not yet joined: siblings.

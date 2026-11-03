@@ -4,7 +4,7 @@ import schedule
 import tasks
 import trace
 
-// with scopes context values as well as wires. A context value is immutable,
+// with scopes context values as well as contexts. A context value is immutable,
 // and every task started inside inherits it (Java ScopedValue, Effect References).
 func main() fails net.ListenFailed needs net.Listener, Console, Clock, Scheduler {
 	return with trace.Span("ingest"), log.Annotate("region", "eu") {

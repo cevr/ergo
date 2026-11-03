@@ -11,6 +11,6 @@ func tick() int64 needs Clocky, Sleepy {
 }
 
 func main() needs Console {
-	let line = with wire { Clocky, Sleepy: Virtual } { tick() }
+	let line = with context { Clocky, Sleepy: Virtual } { tick() }
 	Console.Println("\(line)")
 }

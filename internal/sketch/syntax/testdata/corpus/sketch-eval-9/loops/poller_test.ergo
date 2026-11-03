@@ -11,7 +11,7 @@ func Read(c Constant) float64 fails SourceDown {
 	return c.Value
 }
 
-// sync.Ref is a shareable mutable cell; each wire build gets a fresh one.
+// sync.Ref is a shareable mutable cell; each context build gets a fresh one.
 type Recorder { sizes sync.Ref[[]int] }
 
 func Flush(r Recorder, batch []Reading) fails FlushFailed {
@@ -24,7 +24,7 @@ func Sizes(r Recorder) []int {
 
 // VirtualClock provides Clock and Scheduler. Virtual time jumps to the next
 // timer when every task waits, as Go's testing/synctest does.
-let TestLive = wire {
+let TestLive = context {
 	Clock, Scheduler: testing.VirtualClock{},
 	Source:           Constant{Value: 1},
 	Sink, Recorded:   Recorder{},

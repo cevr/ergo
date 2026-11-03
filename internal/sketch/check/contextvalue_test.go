@@ -13,7 +13,7 @@ import (
 const contextShadowPrelude = `type A { Use() }
 type Quiet {}
 func Use(_ Quiet) {}
-let W = wire { A: Quiet }
+let W = context { A: Quiet }
 type Tag { Text string }
 func contextKey(_ Tag) string { "k" }
 func contextText(t Tag) string { t.Text }
@@ -80,7 +80,7 @@ func withKinds(pkg *check.Package) string {
 // struct is in Rust (E0428). A type with fields or operations and a context
 // still share a name. The with binds the earlier value, or the context.
 func TestPackageValueNamedLikeContext(t *testing.T) {
-	const context = `let W = wire { A: Quiet }`
+	const context = `let W = context { A: Quiet }`
 	values := map[string]struct {
 		decl string
 		// valueFirst is what the with binds when the value is first ("" is
@@ -101,7 +101,7 @@ func TestPackageValueNamedLikeContext(t *testing.T) {
 			first string
 			later string
 			want  string
-		}{{"wire first", context, value.decl, "services"}, {"value first", value.decl, context, value.valueFirst}} {
+		}{{"context first", context, value.decl, "services"}, {"value first", value.decl, context, value.valueFirst}} {
 			for _, operand := range []string{"W", "(W)"} {
 				t.Run(name+"/"+order.name+"/"+operand, func(t *testing.T) {
 					src := valueContextHeader + order.first + "\n" + order.later + "\n" + fmt.Sprintf("func g() { with %s { A.Use() } }\n", operand)
@@ -128,7 +128,7 @@ func TestPackageValueNamedLikeContext(t *testing.T) {
 			valueContextHeader + context + "\n" + decl + "\nfunc g() { with (W) { A.Use() } }\n",
 		} {
 			if _, ds := check.CheckSource(src); len(ds) != 0 {
-				t.Errorf("a type and a wire share a name: %v", ds)
+				t.Errorf("a type and a context share a name: %v", ds)
 			}
 		}
 	}
@@ -137,7 +137,7 @@ func TestPackageValueNamedLikeContext(t *testing.T) {
 // The duplicate rule across files: the later declaration is the one in the
 // later file, whichever kind it is (runtime-199 stage 4a r3 m4).
 func TestPackageValueNamedLikeContextFiles(t *testing.T) {
-	const context = "let W = wire { A: Quiet }\n"
+	const context = "let W = context { A: Quiet }\n"
 	for _, value := range []string{
 		"let Outer{In: W} = Outer{In: Tag{Text: \"pkg\"}}\n",
 		"let W = Tag{Text: \"pkg\"}\n",
@@ -150,7 +150,7 @@ func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 			column int
 		}{
 			{"value in file 0", [2]string{valueContextHeader + value, context}, 1, 5},
-			{"wire in file 0", [2]string{valueContextHeader + context, value}, 1, strings.Index(value, "W") + 1},
+			{"context in file 0", [2]string{valueContextHeader + context, value}, 1, strings.Index(value, "W") + 1},
 		} {
 			t.Run(strings.Fields(value)[1]+"/"+tc.name, func(t *testing.T) {
 				var files []*syntax.File
@@ -181,10 +181,10 @@ func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 // context beside the package log (runtime-199 stage 4a r3 m1).
 func TestImportNamedLikeContext(t *testing.T) {
 	for _, tc := range []struct{ imp, src, want string }{
-		{"import log\n", "let log = wire { A: Quiet }\nfunc g() { with log { A.Use() } }\n",
-			"log clashes with wire log; alias the import (import t log)"},
-		{"import l log\n", "let l = wire { A: Quiet }\nfunc g() { with l { A.Use() } }\n",
-			"l clashes with wire l; choose another alias"},
+		{"import log\n", "let log = context { A: Quiet }\nfunc g() { with log { A.Use() } }\n",
+			"log clashes with context log; alias the import (import t log)"},
+		{"import l log\n", "let l = context { A: Quiet }\nfunc g() { with l { A.Use() } }\n",
+			"l clashes with context l; choose another alias"},
 	} {
 		_, ds := check.CheckSource(tc.imp + valueContextHeader + tc.src)
 		var got []string
@@ -222,7 +222,7 @@ type Box { W Tag }
 func mk() Tag fails Boom { Tag{Text: "x"} }
 func two[T](a T, b T) []T { []T{a, b} }
 `
-	const hides = "which hides the package wire"
+	const hides = "which hides the package context"
 	for _, tc := range []struct{ name, body, want, diag string }{
 		{"let", `func f() int { let W = Tag{Text: "l"}; with W { 1 } }`, "value", ""},
 		{"param", `func f(W Tag) int { with W { 1 } }`, "value", ""},
@@ -236,7 +236,7 @@ func two[T](a T, b T) []T { []T{a, b} }
 		{"inner-block", `func f() int { if true { let W = Tag{Text: "i"}; return with W { 1 } }; with W { A.Use(); 2 } }`, "services,value", ""},
 		{"type-param", `func f[W](x W) { with W { A.Use() } }`, "none", "W names a type parameter here, " + hides},
 		{"type-param-paren", `func f[W](x W) { with (W) { A.Use() } }`, "none", "W names a type parameter here, " + hides},
-		{"needs-row", "let A = wire { A: Quiet }\nfunc f() needs A { with A { A.Use() } }", "none", "A names the capability of this function's needs row here, " + hides},
+		{"needs-row", "let A = context { A: Quiet }\nfunc f() needs A { with A { A.Use() } }", "none", "A names the capability of this function's needs row here, " + hides},
 		{"type-param-literal", `func f[W](x W) { let g = func() { with W { A.Use() } }; g() }`, "none", "W names a type parameter here, " + hides},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -314,7 +314,7 @@ func contextWiths(pkg *check.Package, f *syntax.File) []string {
 				cb := w.Value
 				out = append(out, fd.Name.Name+": "+cb.Type.String()+" "+cb.Key.Name+"@"+cb.Key.Pkg.Path+" "+cb.Text.Name+"@"+cb.Text.Pkg.Path)
 				if len(w.Contexts) != 0 || len(w.Discharged) != 0 || len(w.Acquired) != 0 {
-					out = append(out, fd.Name.Name+": a context with holds wire facts")
+					out = append(out, fd.Name.Name+": a context with holds context facts")
 				}
 			}
 			return true
@@ -336,9 +336,9 @@ func TestContextBindingAdmission(t *testing.T) {
 `, "f: main.Tag contextKey@main contextText@main"},
 		{"nested shadow", `func f() int { with tag("k", "outer") { with tag("k", "inner") { 1 } } }
 `, "f: main.Tag contextKey@main contextText@main\nf: main.Tag contextKey@main contextText@main"},
-		{"inside a wire with", `type Quiet {}
+		{"inside a context with", `type Quiet {}
 func Say(_ Quiet, s string) {}
-let W = wire { Log: Quiet }
+let W = context { Log: Quiet }
 func f() { with W { with tag("k", "v") { Log.Say("x") } } }
 `, "f: services\nf: main.Tag contextKey@main contextText@main"},
 		{"block value", `func f() string { with tag("k", "v") { "x" } }

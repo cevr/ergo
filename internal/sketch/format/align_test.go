@@ -59,7 +59,7 @@ var columnKinds = []struct {
 	{"record names before comments", "type T {\n", "}\n", func(i, size int) string { return cell("f", i, size) + " int, // c\n" }},
 	{"let values before comments", "", "", func(i, size int) string { return fmt.Sprintf("let v%d = %s // c\n", i, cell("x", i, size)) }},
 	{"map keys", "let m = Map[string, int]{\n", "}\n", func(i, size int) string { return fmt.Sprintf("%q: 1,\n", cell("k", i, max(1, size-2))) }},
-	{"wire keys", "let W = wire {\n", "}\n", func(i, size int) string { return cell("K", i, size) + ": T{},\n" }},
+	{"context keys", "let W = context {\n", "}\n", func(i, size int) string { return cell("K", i, size) + ": T{},\n" }},
 }
 
 // cell is a unique name of at least size characters.

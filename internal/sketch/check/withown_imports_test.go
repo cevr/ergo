@@ -18,9 +18,9 @@ func TestContextOwnershipImportedContext(t *testing.T) {
 					if fresh {
 						result = "Conn{n: 2}"
 					}
-					contexts := "let W = wire { A: Get() }\n"
+					contexts := "let W = context { A: Get() }\n"
 					if embedded {
-						contexts = "let Base = wire { A: Get() }\nlet W = wire { Base }\n"
+						contexts = "let Base = context { A: Get() }\nlet W = context { Base }\n"
 					}
 					lib, err := syntax.Parse(`type A { Use() }
 type Conn { n int }
@@ -63,7 +63,7 @@ func Get() Conn { ` + result + ` }
 						return
 					}
 					if len(ds) != 0 {
-						t.Fatalf("fresh imported wire refused: %v", ds)
+						t.Fatalf("fresh imported context refused: %v", ds)
 					}
 					if len(pkg.Info.Withs) != 1 {
 						t.Fatal("missing with fact")
@@ -81,7 +81,7 @@ func Get() Conn { ` + result + ` }
 
 func TestContextOwnershipUserExtern(t *testing.T) {
 	const src = `extern go example.com/x.Get func get() First
-let W = wire { A: get() }
+let W = context { A: get() }
 func f() { with W { A.Use() } }
 `
 	_, ds := checkOwn(t, src)
@@ -96,7 +96,7 @@ type Conn { n int }
 func Use(_ Conn) {}
 func Close(_ Conn) needs Console { Console.Println("closed") }
 func Get() Conn { Conn{n: 1} }
-let W = wire { A: Get() }
+let W = context { A: Get() }
 `)
 	if err != nil {
 		t.Fatal(err)

@@ -1,7 +1,0 @@
-type Order { ID string }
-
-let W = wire {
-	Order: Order{ID: "x"}, // want S104
-}
-
-func main() {}

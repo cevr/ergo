@@ -74,7 +74,7 @@ type Choice = Left | Right
 type B { Use() }
 type Silent {}
 func Use(_ Silent) {}
-let Plain = wire { B: Silent }
+let Plain = context { B: Silent }
 let choice Choice = Left
 let shared = Conn{n: 1}
 let counter = 0

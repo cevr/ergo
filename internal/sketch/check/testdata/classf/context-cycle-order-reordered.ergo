@@ -1,0 +1,6 @@
+type Invoice {A()}
+extern go fixture.A func A()
+let e = context{App} // want S108
+let Invoices = context{Invoice:0, // want S106 S108
+e}
+let App = context{Invoices} // want S108

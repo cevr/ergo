@@ -14,7 +14,7 @@ import (
 func TestErgoRunReviewCForms(t *testing.T) {
 	wantRun(t, `type E { B bool }
 type X {}
-let W = wire {}
+let W = context {}
 
 func flag(b bool) int fails E { E{B: b} }
 func collective(b bool) int { flag(b) catch { case E{B: true}: 1; case E{B: false}: 2 } }

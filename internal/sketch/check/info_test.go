@@ -419,10 +419,10 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			// not the capability. An inline context's entries are stage E's
 			// (196x): TestInfoComplete exempts them (the with case above).
 			own = map[*TypeParam]bool{}
-			declared(d.Name, "the wire")
+			declared(d.Name, "the context")
 			context, _ := info.Defs[d.Name].(*Context)
 			if context == nil {
-				at(d, "a named wire with no Wire object")
+				at(d, "a named context with no Context object")
 				continue
 			}
 			entries := map[syntax.Expr]*ContextEntry{}
@@ -444,30 +444,30 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 				entry := entries[e.Value]
 				switch {
 				case entry == nil:
-					at(e.Value, "a wire provider with no Entries entry")
+					at(e.Value, "a context provider with no Entries entry")
 				case len(entry.Conversions) != len(entry.Caps) || len(entry.Caps) != 1+len(e.Keys):
-					at(e.Value, fmt.Sprintf("a wire entry with %d capabilities and %d conversions", len(entry.Caps), len(entry.Conversions)))
+					at(e.Value, fmt.Sprintf("a context entry with %d capabilities and %d conversions", len(entry.Caps), len(entry.Conversions)))
 				case len(entry.Caps) == 1 && entry.Conversions[0].Kind != 0:
 					if _, ok := info.Implicit[e.Value]; !ok {
-						at(e.Value, "a wire provider with no Implicit conversion")
+						at(e.Value, "a context provider with no Implicit conversion")
 					}
 				}
 			}
 			if embeds != wantEmbeds {
-				at(d, fmt.Sprintf("a named wire with %d embeddings and %d embedded Entries", wantEmbeds, embeds))
+				at(d, fmt.Sprintf("a named context with %d embeddings and %d embedded Entries", wantEmbeds, embeds))
 			}
 			// Each capability the context binds has a provider entry that
 			// lists it (Context.Provider), and each override names two
 			// provider entries of one capability, the later its own.
 			context.EachProvider(func(cap Type, e *ContextEntry) bool {
 				if e == nil || e.Provider == nil || !listsCap(e, cap) {
-					at(d, "a named wire whose entry for "+typeString(cap)+" does not provide it")
+					at(d, "a named context whose entry for "+typeString(cap)+" does not provide it")
 				}
 				return true
 			})
 			for _, o := range context.Overrides {
 				if o.Entry == nil || o.By == nil || o.Entry.Provider == nil || o.By.Provider == nil || !listsCap(o.Entry, o.Cap) || !listsCap(o.By, o.Cap) || entries[o.By.Provider] != o.By {
-					at(d, "a named wire with an override whose entries do not both list its capability")
+					at(d, "a named context with an override whose entries do not both list its capability")
 				}
 			}
 		}

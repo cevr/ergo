@@ -202,7 +202,7 @@ var pairSites = []string{
 	"reassign", "fieldset", "mapwrite", "maplit", "slicelit", "indexwrite",
 	"tuplelit", "tupleret", "ifjoin", "ifjoinrev", "matchjoin", "matchjoinrev",
 	"closure", "genericfield", "pointer", "nested", "option",
-	"patternlet", "eq", "neq", "wire",
+	"patternlet", "eq", "neq", "context",
 }
 
 // Containers and pointers are invariant in their element type (clauses 1
@@ -367,8 +367,8 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 			}
 			body = "if " + test + " { Console.Println(\"FAIL " + id + "\") }"
 			at = "src " + op + " dst"
-		case "wire":
-			body = "with wire { Store: src } {\nif Store.Get() != 1 { Console.Println(\"FAIL " + id + "\") }\n}"
+		case "context":
+			body = "with context { Store: src } {\nif Store.Get() != 1 { Console.Println(\"FAIL " + id + "\") }\n}"
 			at = "Store: src"
 		default:
 			panic("unknown pair site: " + site)
@@ -423,7 +423,7 @@ func TestCheckedImpliesLowered(t *testing.T) {
 				if s.decl != "" && k.decl != "" && s.name != k.name {
 					continue // two refused definitions are two mistakes
 				}
-				if site == "wire" && k.name != "Store" {
+				if site == "context" && k.name != "Store" {
 					continue // a context key is an operation type
 				}
 				if (site == "field" || site == "fieldset") && k.under == "tuple" && !k.named {

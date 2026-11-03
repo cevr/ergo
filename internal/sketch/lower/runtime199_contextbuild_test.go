@@ -188,13 +188,13 @@ func (d *contextDAG) decls(fail, slow map[string]bool) string {
 	}
 	if d.base >= 0 {
 		typ(d.baseTyp(), true)
-		fmt.Fprintf(&b, "let Base%d = wire { %s: %s }\n", d.k, d.cap(d.base), d.baseTyp())
+		fmt.Fprintf(&b, "let Base%d = context { %s: %s }\n", d.k, d.cap(d.base), d.baseTyp())
 		entries = append(entries, fmt.Sprintf("Base%d", d.k))
 	}
-	fmt.Fprintf(&b, "let W%d = wire { %s }\n", d.k, strings.Join(entries, ", "))
+	fmt.Fprintf(&b, "let W%d = context { %s }\n", d.k, strings.Join(entries, ", "))
 	if d.inner >= 0 {
 		typ(d.innerTyp(), true)
-		fmt.Fprintf(&b, "let V%d = wire { %s: %s }\n", d.k, d.cap(d.inner), d.innerTyp())
+		fmt.Fprintf(&b, "let V%d = context { %s: %s }\n", d.k, d.cap(d.inner), d.innerTyp())
 	}
 	return b.String()
 }
@@ -308,7 +308,7 @@ func (d *contextDAG) call(exit string) string {
 
 const contextBuildPrelude = `type Fault {}
 func boom() fails Fault { return Fault }
-let Live = wire { Scheduler: LiveScheduler }
+let Live = context { Scheduler: LiveScheduler }
 `
 
 // contextProgram is one generated program: its DAGs and the exits main runs,
@@ -799,7 +799,7 @@ func mk() PY needs A {
 	A.Use()
 	PY
 }
-let W = wire { A: PX, B: mk() }
+let W = context { A: PX, B: mk() }
 func idle() needs B {}
 func work() {
 	with W { idle() }
@@ -811,7 +811,7 @@ func main() { work() }
 `
 	twins := []*lowered{
 		mustLower(t, "embedded_named", src),
-		mustLower(t, "embedded_inline", strings.Replace(src, "with W {", "with wire { W } {", 1)),
+		mustLower(t, "embedded_inline", strings.Replace(src, "with W {", "with context { W } {", 1)),
 	}
 	for _, o := range twins {
 		if checkWithFootprints(t, o) == 0 {
@@ -871,23 +871,23 @@ func Use(_ PR) {}
 func Close(_ PR) needs A { A.Use() }
 func idle() needs R {}
 func after() {}
-let WR = wire { R: PR }
-let VR = wire { WR }
+let WR = context { R: PR }
+let VR = context { WR }
 func work() needs A {
-	with wire { R: PR } { idle() }
+	with context { R: PR } { idle() }
 	for n in 0..3 {
 		let _ = n
 	}
 	after()
 }
-func main() { with wire { A: PX } { work() } }
+func main() { with context { A: PX } { work() } }
 `
-	const spelling = "with wire { R: PR } {"
+	const spelling = "with context { R: PR } {"
 	twins := []*lowered{
 		mustLower(t, "close_inline", src),
 		mustLower(t, "close_named", strings.Replace(src, spelling, "with WR {", 1)),
-		mustLower(t, "close_embedded", strings.Replace(src, spelling, "with wire { WR } {", 1)),
-		mustLower(t, "close_nested", strings.Replace(src, spelling, "with wire { VR } {", 1)),
+		mustLower(t, "close_embedded", strings.Replace(src, spelling, "with context { WR } {", 1)),
+		mustLower(t, "close_nested", strings.Replace(src, spelling, "with context { VR } {", 1)),
 	}
 	for _, o := range twins {
 		if checkWithFootprints(t, o) == 0 {
@@ -951,7 +951,7 @@ func Use(_ Conn) {}
 func Close(_ Conn) needs Console { Console.Println("closed") }
 let shared = Conn{n: 1}
 func get() Conn { ` + body + ` }
-let W = wire { A: get() }` + tail
+let W = context { A: get() }` + tail
 	}
 	// The prelude's bodiless Delete returns its argument, the package map
 	// (stage 3b round 3 review, x1).
@@ -961,7 +961,7 @@ func Use(_ Registry) {}
 func Close(_ Registry) needs Console { Console.Println("closed") }
 let shared = Map[string, int]{"a": 1}
 // The with owns no value of this provider.
-let W = wire { A: Registry(shared.Delete("zz")) }` + tail
+let W = context { A: Registry(shared.Delete("zz")) }` + tail
 	for _, tc := range []struct{ name, src string }{
 		{"shared", conn("shared")},
 		{"trailing catch return", conn("run(risky() catch { case Fault: return shared }) {}; Conn{n: 2}")},
@@ -1006,8 +1006,8 @@ func Name(_ TA) string { "A" }
 func Name(_ TB) string { "B" }
 func Close(_ TA) needs Console { Console.Println("A closed") }
 func Close(_ TB) needs Console { Console.Println("B closed") }
-let W = wire { A: TA }
-let V = wire { B: TB }
+let W = context { A: TA }
+let V = context { B: TB }
 `
 	cases := []struct {
 		name, body, want string

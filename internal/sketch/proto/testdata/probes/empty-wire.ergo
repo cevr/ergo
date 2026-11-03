@@ -1,5 +1,0 @@
-// out: ok
-func main() needs Console {
-	let value = with wire {} { "ok" }
-	Console.Println("\(value)")
-}

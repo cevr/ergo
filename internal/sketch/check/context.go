@@ -16,7 +16,7 @@ import (
 func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	use := c.useOf(x)
 	if x.Trailing == nil {
-		c.errorf(x, CodeType, "with takes a wire and a block: with(W) { … } (rows.md, With 1)")
+		c.errorf(x, CodeType, "with takes a context and a block: with(W) { … } (rows.md, With 1)")
 		c.silentArgs(x)
 		return bad(x)
 	}
@@ -26,12 +26,12 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	known := true
 	switch {
 	case len(x.Args) == 0:
-		c.errorf(x, CodeType, "with takes one wire (rows.md, With 1)")
+		c.errorf(x, CodeType, "with takes one context (rows.md, With 1)")
 		known = false
 	case len(x.Args) > 1:
 		// One operand per with in v1 (runtime.md, G1): several contexts are
 		// 196x's, several context values a G1 follow-up.
-		c.errorf(x.Args[1], CodeOutside, "a with takes one operand: several operands are a follow-up, of 196x for wires and of G1 for context values (runtime.md, G1); nest one with per operand: with a { with b { … } }")
+		c.errorf(x.Args[1], CodeOutside, "a with takes one operand: several operands are a follow-up, of 196x for contexts and of G1 for context values (runtime.md, G1); nest one with per operand: with a { with b { … } }")
 		known = false
 		// The values among them are checked silently, as the reference
 		// walk visits them, so their imports and names count as used and
@@ -203,7 +203,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 			if s == operandRow {
 				what = "the capability of this function's needs row"
 			}
-			c.errorf(a, CodeType, "%s names %s here, which hides the package wire %s and is not a with operand: a with operand resolves lexically first (runtime.md, G1); rename the wire or the local", a.Name, what, a.Name)
+			c.errorf(a, CodeType, "%s names %s here, which hides the package context %s and is not a with operand: a with operand resolves lexically first (runtime.md, G1); rename the context or the local", a.Name, what, a.Name)
 			return nil, false, nil, nil
 		}
 		if w == nil {
@@ -212,11 +212,11 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 					// A local holding a context value binds it; one holding
 					// a context value is 196x's. An invalid value is S109
 					// already, and nothing cascades (D3).
-					cb, known := c.contextArg(arg, "with over a value (196x, extern and wire values)")
+					cb, known := c.contextArg(arg, "with over a value (196x, extern and context values)")
 					return nil, known, nil, cb
 				}
 			}
-			c.errorf(a, CodeUnknown, "unknown wire %s", a.Name)
+			c.errorf(a, CodeUnknown, "unknown context %s", a.Name)
 			return nil, false, nil, nil
 		}
 		if c.fn != nil && c.fn.reach != nil {
@@ -236,7 +236,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 					// capability names needs no conversion.
 					return w.binds, !w.unknown, w, nil
 				}
-				c.errorf(a.Sel, CodeUnknown, "%s.%s is not an exported wire of package %s", id.Name, a.Sel.Name, pn.Pkg.Path)
+				c.errorf(a.Sel, CodeUnknown, "%s.%s is not an exported context of package %s", id.Name, a.Sel.Name, pn.Pkg.Path)
 				return nil, false, nil, nil
 			}
 		}
@@ -252,10 +252,10 @@ func (c *checker) contextLit(w *syntax.ContextLit) (binds *capSet, known bool, c
 	// The header of an inline context is refused as a named context's is
 	// (checkContexts): never read partly (rows.md, Context 8).
 	if w.Provides != nil {
-		c.errorf(w.Provides, CodeOutside, "a wire's provides clause is #196 stage b's (the wire header, rows.md Wire 8); it is not checked yet")
+		c.errorf(w.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
 	}
 	if w.Needs != nil {
-		c.errorf(w.Needs, CodeOutside, "a wire's needs clause is #196 stage b's (the wire header, rows.md Wire 8); it is not checked yet")
+		c.errorf(w.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
 	}
 	context = &Context{Name: "inline", Pos: w.Pos(), Lit: w, file: c.cur, pkg: c.pkg}
 	binds, known = c.contextBody(w.Body, context)
@@ -286,7 +286,7 @@ func (c *checker) contextBody(body *syntax.ContextBody, named *Context) (*capSet
 		if e.Kind == syntax.ContextEmbed {
 			inner := c.embeddedContext(e)
 			if inner == nil {
-				c.errorf(e.Key, CodeUnknown, "unknown wire %s", exprText(e.Key))
+				c.errorf(e.Key, CodeUnknown, "unknown context %s", exprText(e.Key))
 			} else if c.fn != nil && c.fn.reach != nil {
 				c.fn.reach.contexts = append(c.fn.reach.contexts, inner)
 			}
@@ -404,7 +404,7 @@ func (c *checker) checkEntryCycles(name string, d *contextDeps) {
 			parts = append(parts, m.String())
 		}
 		parts = append(parts, cycle[0].String())
-		c.errorf(d.at[key(cycle[0])], CodeType, "the entries of %s need each other (%s), so none can be built first (rows.md, Wire 4 and 5)", name, strings.Join(parts, " -> "))
+		c.errorf(d.at[key(cycle[0])], CodeType, "the entries of %s need each other (%s), so none can be built first (rows.md, Context 4 and 5)", name, strings.Join(parts, " -> "))
 	}
 }
 
@@ -428,7 +428,7 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 	}
 	entry.Caps, entry.Conversions = caps, nil
 	if c.isConstructor(e.Value) {
-		c.errorf(e.Value, CodeOutside, "a constructor entry is #37's (wire constructors); write a provider value, not a function")
+		c.errorf(e.Value, CodeOutside, "a constructor entry is #37's (context constructors); write a provider value, not a function")
 		return caps, entry
 	}
 	op := c.valueExpr(e.Value, nil)
@@ -452,7 +452,7 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 			if why == "" {
 				why = pt.String() + " is not assignable to " + cap.String()
 			}
-			c.errorf(e.Value, CodeProvider, "%s cannot provide %s: %s (rows.md, Wire 2)", pt, cap, why)
+			c.errorf(e.Value, CodeProvider, "%s cannot provide %s: %s (rows.md, Context 2)", pt, cap, why)
 			continue
 		}
 		if pn, ok := pt.(*Named); ok {
@@ -492,7 +492,7 @@ func (c *checker) contextEntryKey(k syntax.Expr) Type {
 		return nil
 	}
 	if _, isParam := t.(*TypeParam); isParam {
-		c.errorf(k, CodeType, "a wire entry names a capability, not a row parameter")
+		c.errorf(k, CodeType, "a context entry names a capability, not a row parameter")
 		return nil
 	}
 	return t
@@ -518,12 +518,12 @@ func (c *checker) checkContexts() {
 		// The context header (#217) is checked by #196's second stage; until
 		// then it is refused, never read partly (rows.md, Context 8).
 		if d.Provides != nil {
-			c.errorf(d.Provides, CodeOutside, "a wire's provides clause is #196 stage b's (the wire header, rows.md Wire 8); it is not checked yet")
+			c.errorf(d.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
 		}
 		if d.Needs != nil {
-			c.errorf(d.Needs, CodeOutside, "a wire's needs clause is #196 stage b's (the wire header, rows.md Wire 8); it is not checked yet")
+			c.errorf(d.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
 		}
-		t := &target{name: "wire " + w.Name, declErrors: newRow(), declUses: newRow(), context: true}
+		t := &target{name: "context " + w.Name, declErrors: newRow(), declUses: newRow(), context: true}
 		// The context's providers may use what the context binds (Context 4).
 		t.internal = c.contextBinds(w)
 		if w.budget {

@@ -116,7 +116,7 @@ func (c *checker) checkContextCycles() {
 			continue
 		}
 		c.cur = w.file
-		c.errorf(w.Decl.Name, CodeType, "wire %s can reach itself while it is built (a with or an embedding of %s through its providers); a wire's build may not enter itself (rows.md, Wire 5)", w.Name, w.Name)
+		c.errorf(w.Decl.Name, CodeType, "context %s can reach itself while it is built (a with or an embedding of %s through its providers); a context's build may not enter itself (rows.md, Context 5)", w.Name, w.Name)
 	}
 }
 

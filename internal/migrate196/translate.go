@@ -420,9 +420,9 @@ func (t *translator) decl(d oldsyntax.Decl) {
 	case *oldsyntax.FuncDecl:
 		t.funcDecl(d)
 	case *oldsyntax.WireDecl:
-		t.replace(d.Wire, d.Name.Pos(), "let ")
-		t.insert(d.Name.End(), " = wire")
-		t.wireBody(d.Body)
+		t.replace(d.Pos(), d.Name.Pos(), "let ")
+		t.insert(d.Name.End(), " = context")
+		t.contextBody(d.Body)
 	}
 }
 
@@ -1169,7 +1169,9 @@ func (t *translator) node(n oldsyntax.Node) {
 	case *oldsyntax.CallExpr:
 		t.call(n)
 	case *oldsyntax.WireLit:
-		t.wireBody(n.Body)
+		// The old keyword is four bytes long; the decided one is context.
+		t.replace(n.Pos(), n.Pos()+4, "context")
+		t.contextBody(n.Body)
 	case *oldsyntax.BinaryExpr:
 		t.tryOperands(n)
 	case *oldsyntax.CatchExpr:
@@ -1327,13 +1329,13 @@ func (t *translator) call(c *oldsyntax.CallExpr) {
 	}
 	switch id.Name {
 	case "with":
-		// A wire written as a composite literal keeps parentheses: in the
-		// decided header its brace would open the body (D1.8).
-		wires := c.Args
+		// A context written as a composite literal keeps parentheses: in
+		// the decided header its brace would open the body (D1.8).
+		contexts := c.Args
 		if c.Trailing == nil && len(c.Args) >= 2 {
-			wires = c.Args[:len(c.Args)-1]
+			contexts = c.Args[:len(c.Args)-1]
 		}
-		for _, w := range wires {
+		for _, w := range contexts {
 			if bareLiteral(w) {
 				t.insert(w.Pos(), "(")
 				t.insert(w.End(), ")")
@@ -1381,7 +1383,7 @@ func (t *translator) call(c *oldsyntax.CallExpr) {
 	}
 }
 
-func (t *translator) wireBody(b *oldsyntax.WireBody) {
+func (t *translator) contextBody(b *oldsyntax.WireBody) {
 	for _, e := range b.Entries {
 		if !e.Assign.IsValid() {
 			continue

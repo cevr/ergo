@@ -64,7 +64,7 @@ func Put(_ Keep, v int) int {
 	v + 1
 }
 
-let Kept = wire { Sink: Keep }
+let Kept = context { Sink: Keep }
 
 func dispatch(x int) int needs Sink {
 	Sink.Put(x)
@@ -384,7 +384,7 @@ var loopN = LOOPN
 var sink int
 
 // emittedEnv builds the env as the emitted with does: a copy of the
-// caller's env with the wire's providers built into it.
+// caller's env with the context's providers built into it.
 func emittedEnv(task *rt.Task) *Env {
 	env := &Env{task: task}
 	buildKept(env)

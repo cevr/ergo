@@ -28,6 +28,7 @@ const previewPath = "../../../docs/previews/2026-10-28-without-go-syntax.md"
 // these (196w, docs/previews/2026-11-02-wire-to-context.md).
 var previewRenames = map[string]string{
 	"WireBody": "ContextBody", "WireEntry": "ContextEntry", "WireLit": "ContextLit",
+	"wire": "context",
 }
 
 var previewWord = regexp.MustCompile(`[A-Za-z]+`)
@@ -291,7 +292,7 @@ var handMadeOld = []string{
 	"package p\n\nfunc f(m map[string]int64) {}\n",
 	"package p\n\nfunc f() {\n\tgo work()\n}\n",
 	"package p\n\nfunc f() {\n\tdefer done()\n}\n",
-	"package p\n\nwire W {\n\tClock = Fixed{}\n}\n",
+	"package p\n\ncontext W {\n\tClock = Fixed{}\n}\n",
 	"package p\n\nfunc f() {\n\tg() catch e {\n\tcase E:\n\t\tuse(e)\n\t}\n}\n",
 	"package p\n\nimport \"strings\"\n",
 	"package p\n\nimport (\n\t\"strings\"\n)\n",
@@ -361,6 +362,41 @@ func printlnLines(t *testing.T, src string) []int {
 	return lines
 }
 
+// oldContextLits returns the line of each composite literal of src whose
+// type is the bare name wire, the old inline context, in source order.
+func oldContextLits(t *testing.T, src string) []int {
+	t.Helper()
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []int
+	syntax.Inspect(f, func(n syntax.Node) bool {
+		if lit, ok := n.(*syntax.CompositeLit); ok {
+			if id, ok := lit.Type.(*syntax.Ident); ok && id.Name == "wire" {
+				lines = append(lines, 1+strings.Count(src[:lit.Pos()], "\n"))
+			}
+		}
+		return true
+	})
+	return lines
+}
+
+// oldContextOnly reports whether two texts of the same lines differ only on
+// lines where a writes an old inline context and b its translation.
+func oldContextOnly(a, b string) bool {
+	la, lb := strings.Split(a, "\n"), strings.Split(b, "\n")
+	if len(la) != len(lb) {
+		return false
+	}
+	for i := range la {
+		if la[i] != lb[i] && (!strings.Contains(la[i], "wire{") || !strings.Contains(lb[i], "context {")) {
+			return false
+		}
+	}
+	return true
+}
+
 // diagnosedLines reports whether the checker reports a diagnostic on each
 // of the given lines of src.
 func diagnosedLines(src string, lines []int) bool {
@@ -392,9 +428,12 @@ var packageClause = regexp.MustCompile(`(?m)^package [A-Za-z_][A-Za-z_0-9]*[ \t]
 // Console.Println takes one line string (round 6, A3), so the translator
 // rewrites an old call with any other operands; the old call still parses,
 // and the checker refuses it with a diagnostic on that call's line, so it
-// never runs with another meaning.
+// never runs with another meaning. A second is the old inline context
+// `wire{…}`: since 196w the old keyword is an identifier, so it parses as a
+// composite literal of a type named wire, and the checker refuses it on its
+// line.
 func TestOldCorpusRefusedOrSame(t *testing.T) {
-	refused, same, checked := 0, 0, 0
+	refused, same, checked, oldLits := 0, 0, 0, 0
 	for _, in := range oldInputs(t) {
 		for _, src := range []string{in.Src, packageClause.ReplaceAllString(in.Src, "")} {
 			_, err := syntax.Parse(src)
@@ -431,13 +470,17 @@ func TestOldCorpusRefusedOrSame(t *testing.T) {
 						continue
 					}
 				}
+				if lines := oldContextLits(t, src); len(lines) > 0 && oldContextOnly(dropBlankLines(got), dropBlankLines(want)) && diagnosedLines(src, lines) {
+					oldLits++
+					continue
+				}
 				t.Errorf("%s: parses as decided syntax with another meaning:\nformatted:\n%s\ntranslated:\n%s", in.Name, got, want)
 				continue
 			}
 			same++
 		}
 	}
-	t.Logf("%d refused, %d parse to their translation, %d Println calls refused by the checker", refused, same, checked)
+	t.Logf("%d refused, %d parse to their translation, %d Println calls and %d old inline contexts refused by the checker", refused, same, checked, oldLits)
 	if same == 0 {
 		t.Error("no old input parsed: the property was never exercised")
 	}

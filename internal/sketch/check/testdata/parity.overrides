@@ -1,6 +1,6 @@
 probes/capability-method-needs.ergo S108
 probes/capability-parameter-name.ergo clean
-probes/cyclic-wire.ergo S108
+probes/cyclic-context.ergo S108
 probes/duration-type-name.ergo S104
 probes/empty-block.ergo clean
 probes/error-as-value.ergo skip
@@ -16,7 +16,7 @@ probes/main-call.ergo S113
 probes/main-parameter.ergo S113
 probes/marker-field.ergo clean
 probes/marker-method.ergo clean
-probes/named-wire-shadow.ergo clean
+probes/named-context-shadow.ergo clean
 probes/operators.ergo clean
 probes/predeclared-error.ergo S108
 probes/predeclared-local.ergo S108
@@ -28,8 +28,8 @@ probes/timeout-capability.ergo clean
 probes/timeout-statement-last.ergo clean
 probes/user-type-shadow.ergo S108
 probes/unused-expression.ergo S108
-probes/wire-method-cycle.ergo S108
-probes/wire-predeclared-name.ergo S108
+probes/context-method-cycle.ergo S108
+probes/context-predeclared-name.ergo S108
 probes/with-nonlocal-return.ergo S108
 probes/with-return.ergo S108
 probes/compound-discard.ergo S110

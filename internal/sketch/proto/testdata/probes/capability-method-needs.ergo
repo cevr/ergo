@@ -4,5 +4,5 @@ type Store { Get() string needs Other }
 type Holder {}
 func Get(_ Holder) string { return "ok" }
 func main() needs Console {
-	with wire { Store: Holder{} } { Console.Println("\(Store.Get())") }
+	with context { Store: Holder{} } { Console.Println("\(Store.Get())") }
 }

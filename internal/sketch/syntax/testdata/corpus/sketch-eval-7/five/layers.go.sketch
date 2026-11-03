@@ -9,7 +9,7 @@ type Memory struct{ Text string }
 
 func (m Memory) Label() string { return m.Text }
 
-type AccountLive struct{ Store Store } // capability field: filled by wire
+type AccountLive struct{ Store Store } // capability field: filled by context
 
 func (a AccountLive) Label() string { return a.Store.Label() }
 
@@ -17,26 +17,26 @@ type InvoiceLive struct{ Store Store }
 
 func (i InvoiceLive) Label() string { return i.Store.Label() }
 
-wire Shared {
+context Shared {
 	Store = Memory{Text: "live"}
 }
 
-wire Accounts {
+context Accounts {
 	Shared
 	Account = AccountLive
 }
 
-wire Invoices {
+context Invoices {
 	Shared
 	Invoice = InvoiceLive
 }
 
-wire App provides Account, Invoice { // exposes two; Store stays hidden, built once
+context App provides Account, Invoice { // exposes two; Store stays hidden, built once
 	Accounts
 	Invoices
 }
 
-wire Fixture {
+context Fixture {
 	App
 	replace Store = Memory{Text: "fixture"}
 }

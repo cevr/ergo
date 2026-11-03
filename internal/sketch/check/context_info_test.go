@@ -94,53 +94,53 @@ func TestContextInfo(t *testing.T) {
 		name, contexts string
 		want           []string
 	}{
-		{"own entries and an embedding", `let Base = wire { Log: Mem{V: "log"} }
-let Live = wire { Store: Mem{V: "pkg"}, Base }
+		{"own entries and an embedding", `let Base = context { Log: Mem{V: "log"} }
+let Live = context { Store: Mem{V: "pkg"}, Base }
 `, []string{`Live: Log=Mem{V: "log"} Store=Mem{V: "pkg"}`}},
-		{"an entry of two capabilities", `let Both = wire { Store, Log: Mem{V: "both"} }
+		{"an entry of two capabilities", `let Both = context { Store, Log: Mem{V: "both"} }
 `, []string{`Both: Log=Mem{V: "both"} Store=Mem{V: "both"}`}},
-		{"a replace of an embedded entry", `let Live = wire { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
-let Test = wire { replace Store: Mem{V: "test"}, Live }
+		{"a replace of an embedded entry", `let Live = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Test = context { replace Store: Mem{V: "test"}, Live }
 `, []string{`Test: Log=Mem{V: "log"} Store=Mem{V: "test"}; Store: Mem{V: "live"} by Mem{V: "test"}`}},
-		{"a replace through two levels of embedding", `let Shared = wire { Store: Mem{V: "live"} }
-let Accounts = wire { Log: Mem{V: "log"}, Shared }
-let Fixture = wire { replace Store: Mem{V: "fixture"}, Accounts }
+		{"a replace through two levels of embedding", `let Shared = context { Store: Mem{V: "live"} }
+let Accounts = context { Log: Mem{V: "log"}, Shared }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Accounts }
 `, []string{`Fixture: Log=Mem{V: "log"} Store=Mem{V: "fixture"}; Store: Mem{V: "live"} by Mem{V: "fixture"}`}},
-		{"a replace of a replace", `let Shared = wire { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
-let Fixture = wire { replace Store: Mem{V: "fixture"}, Shared }
-let Outer = wire { replace Store: Mem{V: "outer"}, Fixture }
+		{"a replace of a replace", `let Shared = context { Store: Mem{V: "live"}, Log: Mem{V: "log"} }
+let Fixture = context { replace Store: Mem{V: "fixture"}, Shared }
+let Outer = context { replace Store: Mem{V: "outer"}, Fixture }
 `, []string{`Outer: Log=Mem{V: "log"} Store=Mem{V: "outer"}; Store: Mem{V: "fixture"} by Mem{V: "outer"}, Store: Mem{V: "live"} by Mem{V: "fixture"}`}},
 		// A shared entry replaced for one capability still binds the other
 		// (round-3 review m1): it is in Entries for Log, overridden for
 		// Store only.
-		{"a replace of one capability of a shared entry", `let Both = wire { Store, Log: Mem{V: "both"} }
-let W = wire { replace Store: Mem{V: "one"}, Both }
+		{"a replace of one capability of a shared entry", `let Both = context { Store, Log: Mem{V: "both"} }
+let W = context { replace Store: Mem{V: "one"}, Both }
 `, []string{`W: Log=Mem{V: "both"} Store=Mem{V: "one"}; Store: Mem{V: "both"} by Mem{V: "one"}`}},
 		// Round-4 review M1: a with lists only what its block's row needs;
 		// the context's other bindings stay on the shared context.
-		{"a with lists only what its block needs", `let Live = wire { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+		{"a with lists only what its block needs", `let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
 func b() string {
 	return with Live { Store.Get() }
 }
 `, []string{`Live: Store=Mem{V: "pkg"}`, `Live: Log=Mem{V: "log"} Store=Mem{V: "pkg"}`}},
 		// An inner with discharges what it binds; the outer one only the
 		// rest (rows.md, With 3).
-		{"nested withs split the block's needs", `let Inner = wire { Store: Mem{V: "inner"} }
-let Outer = wire { Store: Mem{V: "outer"}, Log: Mem{V: "log"} }
+		{"nested withs split the block's needs", `let Inner = context { Store: Mem{V: "inner"} }
+let Outer = context { Store: Mem{V: "outer"}, Log: Mem{V: "log"} }
 func b() string {
 	return with Outer { with Inner { Run() } }
 }
 `, []string{`Outer: Log=Mem{V: "log"}`, `Inner: Store=Mem{V: "inner"}`, `Outer: Log=Mem{V: "log"} Store=Mem{V: "outer"}`}},
 		// Two embeddings that bring one entry and a replace of it: one
 		// override per overridden entry.
-		{"a replaced diamond overrides its entry once", `let Base = wire { Store: Mem{V: "base"} }
-let L = wire { Base }
-let R = wire { Base }
-let W = wire { replace Store: Mem{V: "w"}, Log: Mem{V: "log"}, L, R }
+		{"a replaced diamond overrides its entry once", `let Base = context { Store: Mem{V: "base"} }
+let L = context { Base }
+let R = context { Base }
+let W = context { replace Store: Mem{V: "w"}, Log: Mem{V: "log"}, L, R }
 `, []string{`W: Log=Mem{V: "log"} Store=Mem{V: "w"}; Store: Mem{V: "base"} by Mem{V: "w"}`}},
-		{"a replace of two embedded entries", `let A = wire { Store: Mem{V: "a"} }
-let B = wire { Store: Mem{V: "b"}, Log: Mem{V: "log"} }
-let W = wire { replace Store: Mem{V: "w"}, B, A }
+		{"a replace of two embedded entries", `let A = context { Store: Mem{V: "a"} }
+let B = context { Store: Mem{V: "b"}, Log: Mem{V: "log"} }
+let W = context { replace Store: Mem{V: "w"}, B, A }
 `, []string{`W: Log=Mem{V: "log"} Store=Mem{V: "w"}; Store: Mem{V: "a"} by Mem{V: "w"}, Store: Mem{V: "b"} by Mem{V: "w"}`}},
 	}
 	for _, tc := range cases {
@@ -213,7 +213,7 @@ func TestContextInfoLinear(t *testing.T) {
 			m := c.contexts
 			work, units := oc.repeat[m]+oc.single[m], contextNodes(t, src)+len(pkg.Info.Withs)
 			if work > contextInfoWorkPerUnit*units {
-				t.Errorf("the wire pass did %d operations for %d units, over %d per unit", work, units, contextInfoWorkPerUnit)
+				t.Errorf("the context pass did %d operations for %d units, over %d per unit", work, units, contextInfoWorkPerUnit)
 			}
 			size, overrides := 0, 0
 			for _, w := range pkg.Info.Withs {
@@ -266,9 +266,9 @@ func syntaxNodes(t *testing.T, src string) int {
 // each Wi embeds W(i-1), and one function per context runs with Wi.
 func withChain(n int) string {
 	var b strings.Builder
-	b.WriteString("type Store { M() }\ntype P {}\nfunc M(_ P) {}\nlet W0 = wire { Store: P }\n")
+	b.WriteString("type Store { M() }\ntype P {}\nfunc M(_ P) {}\nlet W0 = context { Store: P }\n")
 	for i := 1; i < n; i++ {
-		fmt.Fprintf(&b, "let W%d = wire { W%d }\n", i, i-1)
+		fmt.Fprintf(&b, "let W%d = context { W%d }\n", i, i-1)
 	}
 	for i := range n {
 		fmt.Fprintf(&b, "func F%d() { with W%d { Store.M() } }\n", i, i)
@@ -285,9 +285,9 @@ func ownedChain(n int) string {
 	for i := range n {
 		fmt.Fprintf(&b, "type C%d { Get() string }\n", i)
 	}
-	b.WriteString("let W0 = wire { Store: Mem{V: \"w0\"}, C0: Mem{V: \"c0\"} }\n")
+	b.WriteString("let W0 = context { Store: Mem{V: \"w0\"}, C0: Mem{V: \"c0\"} }\n")
 	for i := 1; i < n; i++ {
-		fmt.Fprintf(&b, "let W%d = wire { C%d: Mem{V: \"c\"}, W%d }\n", i, i, i-1)
+		fmt.Fprintf(&b, "let W%d = context { C%d: Mem{V: \"c\"}, W%d }\n", i, i, i-1)
 	}
 	for i := range n {
 		fmt.Fprintf(&b, "func f%d() string {\n\treturn with W%d { Run() }\n}\n", i, i)
@@ -299,8 +299,8 @@ func ownedChain(n int) string {
 // capability (the 196m table: Store.Get is Get(Mem)), and a provider of
 // one capability has its ConvOperations Implicit.
 func TestContextInfoConversions(t *testing.T) {
-	src := contextInfoPrelude + `let Live = wire { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
-let Both = wire { Store, Log: Mem{V: "both"} }
+	src := contextInfoPrelude + `let Live = context { Store: Mem{V: "pkg"}, Log: Mem{V: "log"} }
+let Both = context { Store, Log: Mem{V: "both"} }
 `
 	pkg, diags := CheckSource(src)
 	if len(diags) > 0 {

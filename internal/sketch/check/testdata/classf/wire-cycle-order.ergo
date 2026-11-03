@@ -1,6 +1,0 @@
-type Invoice {A()}
-let Invoices = wire{Invoice:0, // want S106 S108
-e}
-let App = wire{Invoices} // want S108
-let e = wire{App} // want S108
-extern go fixture.A func A()

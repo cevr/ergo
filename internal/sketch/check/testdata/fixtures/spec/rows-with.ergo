@@ -26,7 +26,7 @@ func Charge(g FakeGateway, order Order) string fails GatewayDown {
 	return g.AuthID
 }
 
-let Live = wire {
+let Live = context {
 	Orders:  MemoryOrders,
 	Gateway: FakeGateway{AuthID: "auth-7"},
 }
@@ -36,7 +36,7 @@ func report(id string) string needs Orders            { return id }
 
 func demo(id string) needs Console {
 	let value = with Live { checkout(id) }
-	let local = with wire { Orders: MemoryOrders } { report(id) }
+	let local = with context { Orders: MemoryOrders } { report(id) }
 	Console.Println("\(value) \(local)")
 }
 

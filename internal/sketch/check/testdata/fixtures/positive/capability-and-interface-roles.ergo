@@ -10,6 +10,6 @@ func viaCap() string needs Store { return Store.Get() }
 func main() needs Console {
 	let line = Exported(Mem)
 	let line2 = viaValue(Mem)
-	let line3 = with wire { Store: Mem } { viaCap() }
+	let line3 = with context { Store: Mem } { viaCap() }
 	Console.Println("\(line) \(line2) \(line3)")
 }

@@ -1,2 +1,2 @@
 go test fuzz v1
-string("func read(){with A{with wire{A:A{read}}{}}}")
+string("func read(){with A{with context{A:A{read}}{}}}")

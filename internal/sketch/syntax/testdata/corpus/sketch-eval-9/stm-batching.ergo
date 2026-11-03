@@ -37,7 +37,7 @@ func withdrawWhenFunded(acct sync.TxRef[int64], amount int64) {
 	}
 }
 
-// Request batching. The provider implements the batched form; wire wraps it
+// Request batching. The provider implements the batched form; context wraps it
 // with batch.Resolve. Go has no scheduler tick to batch on, so the policy is
 // explicit, as DataLoader's is: a batch closes after the window or at the
 // size limit. Duplicate ids share one result. A waiter that is stopped leaves
@@ -59,7 +59,7 @@ func FindMany(u UsersDB, ids []string) Map[string, Option[User]] {
 	return u.Pool.UsersByID(ids)
 }
 
-let Live = wire {
+let Live = context {
 	Users: batch.Resolve(UsersDB, batch.Window(2ms), batch.Max(100)),
 }
 

@@ -22,7 +22,7 @@ func block() string needs Scheduler {
 	return "woke"
 }
 
-let Clock = wire {
+let Clock = context {
 	Scheduler: LiveScheduler,
 }
 

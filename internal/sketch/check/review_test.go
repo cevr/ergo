@@ -160,32 +160,32 @@ func F() { _ = Await[int] }`},
 	{"M13", "embedded-collision-replaced", "", `type I { M() }
 type S {}
 func M(_ S) {}
-let A = wire { I: S }
-let B = wire { I: S }
-let W = wire { replace I: S, A, B }
+let A = context { I: S }
+let B = context { I: S }
+let W = context { replace I: S, A, B }
 func F() { with W { I.M() } }`},
 	{"M13", "embedded-collision-inline-replaced", "", `type I { M() }
 type S {}
 func M(_ S) {}
-let A = wire { I: S }
-let B = wire { I: S }
-func F() { with wire { replace I: S, A, B } { I.M() } }`},
+let A = context { I: S }
+let B = context { I: S }
+func F() { with context { replace I: S, A, B } { I.M() } }`},
 	{"M13", "embedded-collision-unresolved", "S111", `type I { M() }
 type S {}
 func M(_ S) {}
-let A = wire { I: S }
-let B = wire { I: S }
-let W = wire { A, B }
+let A = context { I: S }
+let B = context { I: S }
+let W = context { A, B }
 func F() { with W { I.M() } }`},
 	// Two replaces of one capability in one context are S111 since check-v1
 	// (round-3 review M2): a with binds each capability to one provider.
-	{"M13", "wire-double-replace", "S111", `type I { M() }
+	{"M13", "context-double-replace", "S111", `type I { M() }
 type S {}
 func M(_ S) {}
-let Base = wire { I: S }
-let W = wire { replace I: S, replace I: S, Base }
+let Base = context { I: S }
+let W = context { replace I: S, replace I: S, Base }
 func F() { with W { I.M() } }`},
-	{"M14", "named-wire-internal-capability", "", `type A { M() }
+	{"M14", "named-context-internal-capability", "", `type A { M() }
 type B { N() }
 type S {}
 func M(_ S) {}
@@ -194,9 +194,9 @@ func Make() B needs A {
 	A.M()
 	return S
 }
-let W = wire { A: S, B: Make() }
+let W = context { A: S, B: Make() }
 func F() { with W { B.N() } }`},
-	{"M14", "named-wire-internal-cycle", "S108", `type A { M() }
+	{"M14", "named-context-internal-cycle", "S108", `type A { M() }
 type B { N() }
 type S {}
 func M(_ S) {}
@@ -209,9 +209,9 @@ func MakeB() B needs A {
 	A.M()
 	return S
 }
-let W = wire { A: MakeA(), B: MakeB() }
+let W = context { A: MakeA(), B: MakeB() }
 func F() { with W { B.N() } }`},
-	{"M14", "named-wire-caller-capability", "S102", `type A { M() }
+	{"M14", "named-context-caller-capability", "S102", `type A { M() }
 type B { N() }
 type S {}
 func N(_ S) {}
@@ -219,18 +219,18 @@ func Make() B needs A {
 	A.M()
 	return S
 }
-let W = wire { B: Make() }
+let W = context { B: Make() }
 func F() needs A { with W { B.N() } }`},
-	{"M14", "named-wire-self-cycle", "S108", `type A { M() }
+	{"M14", "named-context-self-cycle", "S108", `type A { M() }
 type S {}
 func M(_ S) {}
 func MakeA() A needs A {
 	A.M()
 	return S
 }
-let W = wire { A: MakeA() }
+let W = context { A: MakeA() }
 func F() { with W { A.M() } }`},
-	{"M14", "named-wire-three-cycle", "S108", `type A { M() }
+	{"M14", "named-context-three-cycle", "S108", `type A { M() }
 type B { N() }
 type C { O() }
 type S {}
@@ -249,9 +249,9 @@ func MakeC() C needs B {
 	B.N()
 	return S
 }
-let W = wire { A: MakeA(), B: MakeB(), C: MakeC() }
+let W = context { A: MakeA(), B: MakeB(), C: MakeC() }
 func F() { with W { B.N() } }`},
-	{"M14", "named-wire-needs-embedded", "", `type A { M() }
+	{"M14", "named-context-needs-embedded", "", `type A { M() }
 type B { N() }
 type S {}
 func M(_ S) {}
@@ -260,10 +260,10 @@ func Make() B needs A {
 	A.M()
 	return S
 }
-let Base = wire { A: S }
-let W = wire { B: Make(), Base }
+let Base = context { A: S }
+let W = context { B: Make(), Base }
 func F() { with W { B.N() } }`},
-	{"M14", "inline-wire-stays-open", "S102", `type A { M() }
+	{"M14", "inline-context-stays-open", "S102", `type A { M() }
 type B { N() }
 type S {}
 func M(_ S) {}
@@ -272,7 +272,7 @@ func Make() B needs A {
 	A.M()
 	return S
 }
-func F() { with wire { A: S, B: Make() } { B.N() } }`},
+func F() { with context { A: S, B: Make() } { B.N() } }`},
 	{"M15", "main-through-alias", "S113", `func main() {}
 func F() {
 	let run = main
@@ -291,7 +291,7 @@ func F() {
 	main()
 }`},
 	{"M16", "with-default-hint", "", `type Box[T] { X T }
-func F() Box[int] { return with wire {} { Box{} } }`},
+func F() Box[int] { return with context {} { Box{} } }`},
 	{"M17", "map-index-field-assignment", "S108", `type S { X int }
 func F(m Map[int, S]) { m[0].X = 1 }`},
 	{"M17", "map-index-assignment", "", `type S { X int }
@@ -319,9 +319,9 @@ func F(xs []S) {
 	{"M17", "map-index-address", "S108", `type S { X int }
 func G(s *S)          {}
 func F(m Map[int, S]) { G(&m[0]) }`},
-	{"M18", "unknown-wire-cascade", "S104", `func F() { with(Missing) { Console.Println("x") } }`},
-	{"M18", "unknown-wire-cascade-in-wire", "S104", `func F() { with(wire{ Missing }) { Console.Println("x") } }`},
-	{"M18", "unknown-wire-cascade-named", "S104", `let W = wire { Missing }
+	{"M18", "unknown-context-cascade", "S104", `func F() { with(Missing) { Console.Println("x") } }`},
+	{"M18", "unknown-context-cascade-in-context", "S104", `func F() { with(context{ Missing }) { Console.Println("x") } }`},
+	{"M18", "unknown-context-cascade-named", "S104", `let W = context { Missing }
 func F() { with W { Console.Println("x") } }`},
 	{"N1", "pointer-receiver-parameter", "", `type I { M() }
 type S {}

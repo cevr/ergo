@@ -176,13 +176,13 @@ func TestAdmittedForms(t *testing.T) {
 		}
 	}
 	// A package-level context is a ContextDecl; a context elsewhere is a ContextLit.
-	f = parse("let App = wire provides A needs B {\n\tC, D:      X{},\n\treplace E: Y{},\n\tShared,\n}\n\nfunc main() {\n\twith wire { A: M{} } {\n\t\trun()\n\t}\n}\n")
+	f = parse("let App = context provides A needs B {\n\tC, D:      X{},\n\treplace E: Y{},\n\tShared,\n}\n\nfunc main() {\n\twith context { A: M{} } {\n\t\trun()\n\t}\n}\n")
 	w := f.Decls[0].(*ContextDecl)
 	if !w.Let.IsValid() || w.Pos() != w.Let || w.Provides == nil || w.Needs == nil || len(w.Body.Entries) != 3 {
-		t.Fatalf("wire %+v", w)
+		t.Fatalf("context %+v", w)
 	}
 	if e := w.Body.Entries; e[0].Kind != ContextBind || len(e[0].Keys) != 1 || e[1].Kind != ContextReplace || e[2].Kind != ContextEmbed {
-		t.Fatalf("wire entries %+v %+v %+v", e[0], e[1], e[2])
+		t.Fatalf("context entries %+v %+v %+v", e[0], e[1], e[2])
 	}
 	with := f.Decls[1].(*FuncDecl).Body.List[0].(*ExprStmt).X.(*CallExpr)
 	if id, ok := with.Fun.(*Ident); !ok || id.Name != "with" || len(with.Args) != 1 || with.Trailing == nil {
@@ -361,13 +361,13 @@ func TestRoundTwoForms(t *testing.T) {
 			t.Fatalf("parameter needs %+v", n)
 		}
 	})
-	t.Run("M11 wire keys without layout", func(t *testing.T) {
+	t.Run("M11 context keys without layout", func(t *testing.T) {
 		// A comma run of names ended by ":" is one entry on any layout;
 		// an embed after the entries stays an embed.
 		for _, src := range []string{
-			"let W = wire { A, B: p, C }\n",
-			"let W = wire {\n\tA,\n\tB: p,\n\tC,\n}\n",
-			"let W = wire { A,\n\tB: p, C }\n",
+			"let W = context { A, B: p, C }\n",
+			"let W = context {\n\tA,\n\tB: p,\n\tC,\n}\n",
+			"let W = context { A,\n\tB: p, C }\n",
 		} {
 			var body *ContextBody
 			switch d := parse(t, src).Decls[0].(type) {
@@ -399,8 +399,8 @@ func TestRoundThreeForms(t *testing.T) {
 	t.Run("M1 capability names take no type arguments", func(t *testing.T) {
 		for _, name := range []string{
 			"needs-type-args", "needs-list-type-args", "operation-needs-type-args", "provides-type-args",
-			"wire-key-type-args", "wire-replace-type-args", "wire-embed-type-args",
-			"wire-second-key-type-args", "wire-first-key-type-args",
+			"context-key-type-args", "context-replace-type-args", "context-embed-type-args",
+			"context-second-key-type-args", "context-first-key-type-args",
 		} {
 			i := slices.IndexFunc(sketchtest.MalformedTable, func(m sketchtest.Malformed) bool { return m.Name == name })
 			if i < 0 {

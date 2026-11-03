@@ -50,7 +50,7 @@ func (c *checker) contextArg(arg syntax.Expr, outside string) (*ContextBinding, 
 		c.outside(arg, outside)
 		return nil, false
 	}
-	c.errorf(arg, CodeType, "with takes a wire or a context value, and %s is neither: %s (runtime.md, G1: a context value's type has the functions contextKey(v) string and contextText(v) string, with no needs and no failures)", op.typ, why)
+	c.errorf(arg, CodeType, "with takes a context or a context value, and %s is neither: %s (runtime.md, G1: a context value's type has the functions contextKey(v) string and contextText(v) string, with no needs and no failures)", op.typ, why)
 	return nil, false
 }
 

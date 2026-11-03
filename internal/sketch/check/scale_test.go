@@ -171,10 +171,10 @@ func longNames(n int, control bool) string {
 	g.line("type P {}")
 	g.line("func Label(_ P) string { return \"p%s\" }", pad)
 	g.line("func Pad() string { return \"p%s\" }", pad)
-	g.line("let B = wire { %s: P }", name)
+	g.line("let B = context { %s: P }", name)
 	for i := range n {
 		g.line("type Y%d { Label() string }", i)
-		g.line("let W%d = wire { Y%d: P, B }", i, i)
+		g.line("let W%d = context { Y%d: P, B }", i, i)
 	}
 	g.line("func main() {}")
 	return g.String()
@@ -218,7 +218,7 @@ var scaleShapes = []scaleShape{
 				g.line("type M%d { Text string }", i)
 				g.line("func Label(m M%d) string { return m.Text }", i)
 			}
-			g.line("let W = wire {")
+			g.line("let W = context {")
 			for i := range n {
 				g.line("\tS%d: M%d{Text: \"%d\"},", i, i, i)
 			}
@@ -599,14 +599,14 @@ var scaleShapes = []scaleShape{
 			}
 			g.line("func Run(k int64) string fails Fault needs Store { return try f0(k) }")
 			g.line("func main() {")
-			g.line("\tlet _ = with wire { Store: Mem } { Run(3) } catch { case Fault: \"fault\" }")
+			g.line("\tlet _ = with context { Store: Mem } { Run(3) } catch { case Fault: \"fault\" }")
 			g.line("}")
 			return g.String()
 		},
 	},
 	{
-		name:    "wire chain",
-		finding: "check-v1 r3 M1 and r4 M1: resolving the bindings of n withs over a wire chain is quadratic (3.1 GB at 8000); checker-196 r17 M1 and r18 M1: the wire embedding chain",
+		name:    "context chain",
+		finding: "check-v1 r3 M1 and r4 M1: resolving the bindings of n withs over a context chain is quadratic (3.1 GB at 8000); checker-196 r17 M1 and r18 M1: the context embedding chain",
 		n:       200,
 		source: func(n int) string {
 			var g gen
@@ -614,9 +614,9 @@ var scaleShapes = []scaleShape{
 			g.line("type Memory { Text string }")
 			g.line("func Label(m Memory) string { return m.Text }")
 			g.line("func run() string needs Store { return Store.Label() }")
-			g.line("let W0 = wire { Store: Memory{Text: \"live\"} }")
+			g.line("let W0 = context { Store: Memory{Text: \"live\"} }")
 			for i := 1; i < n; i++ {
-				g.line("let W%d = wire { W%d }", i, i-1)
+				g.line("let W%d = context { W%d }", i, i-1)
 			}
 			for i := range n {
 				g.line("func run%d() string { return with W%d { run() } }", i, i)
@@ -631,7 +631,7 @@ var scaleShapes = []scaleShape{
 	},
 	{
 		name:    "long names",
-		finding: "checker-196 r21 m1: each wire that reaches a capability hashes its whole name again, so the cost is the name length times the wire count; issue #234",
+		finding: "checker-196 r21 m1: each context that reaches a capability hashes its whole name again, so the cost is the name length times the context count; issue #234",
 		n:       200,
 		// Measured on main e36c9471: bytes exponent 1.02, time exponent
 		// 1.92 to 2.00; the time over the control's grows 3.2x to 3.9x
@@ -641,7 +641,7 @@ var scaleShapes = []scaleShape{
 		// (one run grew only 1.93x, under maxControlGrowth), and the linear
 		// stand-in reached 1.60x. When #234 is fixed and the skip goes, check
 		// that margin again before the shape guards anything.
-		skip:    "#234: a capability's priority (FNV over the whole name) and its key comparison run on every insert, once per wire that reaches it, so check time is the name length times the wire count (checker-196 r21 m1)",
+		skip:    "#234: a capability's priority (FNV over the whole name) and its key comparison run on every insert, once per context that reaches it, so check time is the name length times the context count (checker-196 r21 m1)",
 		source:  func(n int) string { return longNames(n, false) },
 		control: func(n int) string { return longNames(n, true) },
 	},

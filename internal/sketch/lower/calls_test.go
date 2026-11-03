@@ -32,7 +32,7 @@ func Label(m Mem, s string) string fails Missing {
 	return try m.Find(s)
 }
 
-let Live = wire {
+let Live = context {
 	Store: Mem,
 }
 

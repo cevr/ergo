@@ -1,0 +1,18 @@
+// out: ok
+import timeout
+type Store { Get() string }
+type Holder { Value string }
+func Get(h Holder) string { return h.Value }
+func build() string {
+	return with context { Scheduler: LiveScheduler } {
+		timeout.After(1s) { "ok" }
+	} catch {
+	case timeout.Expired:
+		"late"
+	}
+}
+let W = context { Store: Holder{Value: build()} }
+func main() needs Console {
+	let line = with W { Store.Get() }
+	Console.Println("\(line)")
+}

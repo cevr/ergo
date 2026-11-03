@@ -489,7 +489,7 @@ func (p *printer) machineType(t *syntax.MachineType) {
 
 // context prints `context [provides …] [needs …] { entries }`.
 func (p *printer) context(pos syntax.Pos, provides *syntax.ProvidesClause, needs *syntax.NeedsClause, b *syntax.ContextBody) {
-	p.token(pos, "wire")
+	p.token(pos, "context")
 	if provides != nil {
 		p.space()
 		p.token(provides.Provides, "provides")

@@ -39,7 +39,7 @@ var negativeSpans = map[string][2]string{
 	"constant-overflow":                  {"S108", "300"},
 	"constraint-unsatisfied":             {"S108", "same(xs, xs)"},
 	"duplicate-function":                 {"S108", "helper"},
-	"duplicate-wire-entry":               {"S111", "Store"},
+	"duplicate-context-entry":            {"S111", "Store"},
 	"equality-mismatch":                  {"S108", "\"a\" == 1"},
 	"error-method-on-error-type":         {"S108", "Error"},
 	"error-as-value-exported":            {"S101", "v"},
@@ -85,7 +85,7 @@ var negativeSpans = map[string][2]string{
 	"unknown-local":                      {"S104", "missing"},
 	"unknown-selector":                   {"S104", "Total"},
 	"unknown-type":                       {"S104", "Missing"},
-	"unknown-wire":                       {"S104", "Missing"},
+	"unknown-context":                    {"S104", "Missing"},
 	"unprovided-callee":                  {"S102", "read()"},
 	"integer-literal-as-duration":        {"S108", "2"},
 	"unused-expression":                  {"S110", "x"},
@@ -94,11 +94,11 @@ var negativeSpans = map[string][2]string{
 	"needs-non-capability":               {"S104", "Order"},
 	"var-mismatch":                       {"S108", "\"seven\""},
 	"var-nondefaultable":                 {"S108", "c"},
-	"wire-constructor-is-37":             {"S109", "open"},
-	"wire-cycle":                         {"S108", "W"},
-	"wire-entry-non-capability":          {"S104", "Order"},
-	"wire-exposure-hides-entry":          {"S109", "provides Account"},
-	"wire-literal-outside-with":          {"S109", "wire { Store: Mem }"},
+	"context-constructor-is-37":          {"S109", "open"},
+	"context-cycle":                      {"S108", "W"},
+	"context-entry-non-capability":       {"S104", "Order"},
+	"context-exposure-hides-entry":       {"S109", "provides Account"},
+	"context-literal-outside-with":       {"S109", "context { Store: Mem }"},
 }
 
 // TestNegativeSpans: each negative fixture's one diagnostic has the pinned
@@ -241,8 +241,8 @@ func FuzzCheck(f *testing.F) {
 	}
 	f.Add(contextShadowPrelude + `func f() int { let W = Tag{Text: "local"}; with W { 1 } }`)
 	f.Add(contextShadowPrelude + `func f(W Tag) int { with ((W)) { 1 } }`)
-	f.Add(valueContextHeader + "let W = Tag{Text: \"pkg\"}\nlet W = wire { A: Quiet }\nfunc g() { with W { A.Use() } }\n")
-	f.Add(valueContextHeader + "let W = wire { A: Quiet }\nlet Tag{Text: W} = Tag{Text: \"pkg\"}\nfunc g() { with (W) { A.Use() } }\n")
+	f.Add(valueContextHeader + "let W = Tag{Text: \"pkg\"}\nlet W = context { A: Quiet }\nfunc g() { with W { A.Use() } }\n")
+	f.Add(valueContextHeader + "let W = context { A: Quiet }\nlet Tag{Text: W} = Tag{Text: \"pkg\"}\nfunc g() { with (W) { A.Use() } }\n")
 	f.Fuzz(func(t *testing.T, src string) {
 		_, a := check.CheckSource(src)
 		_, b := check.CheckSource(src)

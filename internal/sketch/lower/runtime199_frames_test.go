@@ -43,12 +43,12 @@ var i1FrameKinds = []i1FrameKind{
 		return "func run(f func() int" + row + ") int" + row + " { " + attempt + "f() }\nfunc subject(" + ps + ") int" + row + " {\n" + attempt + "run() {\n" + body + "}\n}\n"
 	}, wrap: func(_ int, body string) string { return "run() {\n" + body + "}\n" }},
 	{name: "provider", goClass: "decl", sites: map[string]int{"emitFuncBody": 1}, program: func(_, _, _ string, body string) string {
-		return "type Worker { Run(n int) int }\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n" + body + "}\nlet Work = wire { Worker: Impl }\nfunc subject() int { with Work { Worker.Run(1) } }\n"
+		return "type Worker { Run(n int) int }\ntype Impl {}\nfunc Run(_ Impl, n int) int {\n" + body + "}\nlet Work = context { Worker: Impl }\nfunc subject() int { with Work { Worker.Run(1) } }\n"
 	}},
 	// The block uses Probe: a with builds only the providers its block
 	// reaches (rows.md, Context 7; With.Acquired).
-	{name: "wire", goClass: "lit", sites: map[string]int{"emitContext": 1}, program: func(_, _, _ string, body string) string {
-		return "type Carrier { n int }\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = wire { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep {\nProbe.Tick()\n1\n} }\n"
+	{name: "context", goClass: "lit", sites: map[string]int{"emitContext": 1}, program: func(_, _, _ string, body string) string {
+		return "type Carrier { n int }\nfunc Tick(_ Carrier) {}\nfunc Mark(_ Carrier) {}\nlet Deep = context { Probe: Carrier { n: func() int {\n" + body + "}() } }\nfunc subject() int { with Deep {\nProbe.Tick()\n1\n} }\n"
 	}},
 	{name: "initializer", goClass: "lit", sites: map[string]int{"packageVar": 2, "packagePattern": 1}, program: func(_, _, _ string, body string) string {
 		// A binding, a destructuring initializer and a discarded value
@@ -151,7 +151,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 	}
 	t.Logf("%d frame classes cover allocation sites %v", len(i1FrameKinds), gotSites)
 	for _, frame := range i1FrameKinds {
-		if frame.name != "wire" && frame.name != "initializer" {
+		if frame.name != "context" && frame.name != "initializer" {
 			continue
 		}
 		for _, effect := range []struct {
@@ -172,7 +172,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 					target := false
 					switch key := key.(type) {
 					case *syntax.ContextDecl:
-						target = frame.name == "wire" && key.Name.Name == "Deep"
+						target = frame.name == "context" && key.Name.Name == "Deep"
 					case *syntax.VarSpec:
 						target = frame.name == "initializer"
 					}
@@ -201,7 +201,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 						continue
 					}
 					var bodies []*ast.BlockStmt
-					if frame.name == "wire" && fd.Name.Name == "buildDeep" {
+					if frame.name == "context" && fd.Name.Name == "buildDeep" {
 						bodies = append(bodies, fd.Body)
 					}
 					if frame.name == "initializer" && fd.Name.Name == "ergoInit" {
@@ -265,7 +265,7 @@ func i1RequireFrameClasses(t *testing.T, o *lowered) {
 				t.Error("footprint block belongs to no frame-opening call")
 			}
 		case *syntax.ContextDecl:
-			require("wire")
+			require("context")
 		case *syntax.VarSpec:
 			require("initializer")
 		default:

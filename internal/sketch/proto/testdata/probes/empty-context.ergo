@@ -1,0 +1,5 @@
+// out: ok
+func main() needs Console {
+	let value = with context {} { "ok" }
+	Console.Println("\(value)")
+}

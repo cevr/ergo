@@ -123,7 +123,7 @@ func Publish(_ Books, cents int64) int64 fails Unpublishable {
 	return cents
 }
 
-let Shop = wire {
+let Shop = context {
 	Directory: Members{},
 	Inventory: Stock{},
 	Ledger:    Books{},

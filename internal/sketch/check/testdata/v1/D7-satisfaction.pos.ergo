@@ -20,7 +20,7 @@ func read(o Orders) string {
 	o.Get("1")
 }
 
-let Live = wire {
+let Live = context {
 	Orders: Disk{Root: "/"},
 }
 

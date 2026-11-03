@@ -114,7 +114,7 @@ func RefWalkProblems(src string) []string {
 				continue
 			}
 			if v, ok := u.(*Var); ok && !v.pkg && wk.w.nameIdents[id] && !diagnosedAt(c.diags, int(id.Pos())) {
-				out = append(out, fmt.Sprintf("%s at %d: typing resolves a local value, the walk treats it as a type or wire name", id.Name, id.Pos()))
+				out = append(out, fmt.Sprintf("%s at %d: typing resolves a local value, the walk treats it as a type or context name", id.Name, id.Pos()))
 			}
 			if _, walked := wk.w.idents[id]; walked {
 				continue
@@ -144,7 +144,7 @@ func RefWalkProblems(src string) []string {
 			}
 			typed := len(with.Contexts) > 0 && c.pkg.Contexts[id.Name] != nil && with.Contexts[0] == c.pkg.Contexts[id.Name]
 			if walked := wk.w.nameIdents[id]; typed != walked {
-				out = append(out, fmt.Sprintf("%s at %d: typing binds the package wire %v, the walk takes a wire name %v", id.Name, id.Pos(), typed, walked))
+				out = append(out, fmt.Sprintf("%s at %d: typing binds the package context %v, the walk takes a context name %v", id.Name, id.Pos(), typed, walked))
 			}
 		}
 	}
@@ -514,9 +514,9 @@ func duplicateName(msg string) (string, bool) {
 			return name, true
 		}
 	}
-	for _, prefix := range []string{"wire ", "method "} {
+	for _, prefix := range []string{"context ", "method "} {
 		if rest, ok := strings.CutPrefix(msg, prefix); ok {
-			if name, ok := strings.CutSuffix(rest, " is declared twice"); ok && (prefix == "wire " || strings.Contains(name, ".")) {
+			if name, ok := strings.CutSuffix(rest, " is declared twice"); ok && (prefix == "context " || strings.Contains(name, ".")) {
 				return name, true
 			}
 		}

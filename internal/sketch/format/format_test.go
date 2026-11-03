@@ -233,7 +233,7 @@ func f(a /* first */ int, // after a
 		log(e)
 		// end of the arm
 	}
-	let w = wire { /* only */ A: X{} }
+	let w = context { /* only */ A: X{} }
 	return 1 /* after the result */
 	// end of the body
 }
@@ -288,7 +288,7 @@ func TestOutputBound(t *testing.T) {
 	for _, g := range []struct{ name, src string }{
 		{"trailing comments after a long field", "type T {\n\t" + long + " int, // c\n" + strings.Repeat("\tx int, // c\n", 2000) + "}\n"},
 		{"keyed literal with a long key", "let m = M{\n\t" + long + ": 1,\n" + strings.Repeat("\tb: 2,\n", 2000) + "}\n"},
-		{"wire with a long key", "let W = wire {\n\t" + long + ": X{},\n" + strings.Repeat("\tb: Y{},\n", 2000) + "}\n"},
+		{"context with a long key", "let W = context {\n\t" + long + ": X{},\n" + strings.Repeat("\tb: Y{},\n", 2000) + "}\n"},
 		{"lets after a long value", "let a = " + long + "{} // c\n" + strings.Repeat("let b = 2 // c\n", 2000)},
 		{"lets before a long value", strings.Repeat("let b = 2 // c\n", 2000) + "let a = " + long + "{} // c\n"},
 	} {
@@ -350,8 +350,8 @@ func TestLayout(t *testing.T) {
 		},
 		{
 			"alignment",
-			"type T {\n\tn int64, // count\n\tlonger string,\n}\n\nlet first = \"a\"\nlet secondName = \"b\"\n\nlet W = wire {\n\tA: X{},\n\tLonger: Y{},\n}\n\ntype M machine[S, E] {\n\tinitial: Idle{},\n\tstep: f,\n}\n\nlet routes = R{\n\t\"a\": x,\n\t\"long\": y,\n}\n",
-			"type T {\n\tn      int64, // count\n\tlonger string,\n}\n\nlet first = \"a\"\nlet secondName = \"b\"\n\nlet W = wire {\n\tA:      X{},\n\tLonger: Y{},\n}\n\ntype M machine[S, E] {\n\tinitial: Idle{},\n\tstep:    f,\n}\n\nlet routes = R{\n\t\"a\":    x,\n\t\"long\": y,\n}\n",
+			"type T {\n\tn int64, // count\n\tlonger string,\n}\n\nlet first = \"a\"\nlet secondName = \"b\"\n\nlet W = context {\n\tA: X{},\n\tLonger: Y{},\n}\n\ntype M machine[S, E] {\n\tinitial: Idle{},\n\tstep: f,\n}\n\nlet routes = R{\n\t\"a\": x,\n\t\"long\": y,\n}\n",
+			"type T {\n\tn      int64, // count\n\tlonger string,\n}\n\nlet first = \"a\"\nlet secondName = \"b\"\n\nlet W = context {\n\tA:      X{},\n\tLonger: Y{},\n}\n\ntype M machine[S, E] {\n\tinitial: Idle{},\n\tstep:    f,\n}\n\nlet routes = R{\n\t\"a\":    x,\n\t\"long\": y,\n}\n",
 		},
 		{
 			"comments take the block's indentation",

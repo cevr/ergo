@@ -1,0 +1,9 @@
+type Store { Get() string }
+type Mem { V string }
+
+func Get(m Mem) string { return m.V }
+
+func main() needs Console {
+	let v = with context { Store: Mem{V: "a"}, Store: Mem{V: "b"} } { Store.Get() } // want S111
+	Console.Println("\(v)")
+}

@@ -160,7 +160,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"funcCtx.envClosure":    "the closure owner",
 		"lowerer.emitFuncBody":  "a declared function's header: func name(env *Env, ...)",
 		"lowerer.initFunc":      "the package initializer's declared header",
-		"lowerer.emitContext":   "a wire builder's declared header",
+		"lowerer.emitContext":   "a context builder's declared header",
 		"lowerer.envField":      "names the type before its first field",
 		"lowerer.entry":         "the root Env value in main",
 		"funcCtx.operations":    "an Env value of the caller's task for an operation table",

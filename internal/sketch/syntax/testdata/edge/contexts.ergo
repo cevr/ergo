@@ -1,0 +1,17 @@
+let Base = context provides Accounts needs Clock {
+	Accounts: MemoryAccounts{},
+}
+
+let Test = context {
+	Base,
+	replace Accounts: FakeAccounts{},
+	Ledger, Audit: Recorder{},
+}
+
+func main() needs Console {
+	with context { Console: Quiet{} } { Console.Println("x") }
+	let local = context { Clock: Fixed{} }
+	with Test, local {
+		Console.Println("y")
+	}
+}

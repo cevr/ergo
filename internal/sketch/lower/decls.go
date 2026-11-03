@@ -118,7 +118,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 				// One builder for each distinct set of providers a with of
 				// this context acquires, in the withs' source order.
 				for _, with := range l.withsOf(w) {
-					l.pkgName(pkgKey{"wire", acquiredSet(with)}, "build"+w.Name)
+					l.pkgName(pkgKey{"context", acquiredSet(with)}, "build"+w.Name)
 				}
 			}
 		}
@@ -166,7 +166,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 	case *syntax.ContextDecl:
 		w, ok := l.info.Defs[d.Name].(*check.Context)
 		if !ok {
-			ice(d.Name, "the wire %s has no Defs entry", d.Name.Name)
+			ice(d.Name, "the context %s has no Defs entry", d.Name.Name)
 		}
 		l.context(w, d.Name)
 	case *syntax.TestDecl:

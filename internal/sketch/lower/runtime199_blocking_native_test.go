@@ -218,7 +218,7 @@ func subject(q queue.Queue[int]) int fails queue.Closed { for v in wrap(q) { ret
 }
 type Keep {}
 func Put(_ Keep, v int) int { v }
-let Kept = wire { Sink: Keep }
+let Kept = context { Sink: Keep }
 func take(q queue.Queue[int]) int fails queue.Closed needs Sink {
 	for {
 		return Sink.Put(try q.Pop())

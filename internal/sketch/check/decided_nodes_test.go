@@ -17,8 +17,8 @@ var decidedFamilies = []string{
 	"import path", "import go", "import std",
 	"let", "let mut", "let without value", "let pattern", "let tuple pattern",
 	"package let pattern", "package let tuple pattern",
-	"wire declaration", "wire header", "wire value", "inline wire header", "wire entries",
-	"with", "with parentheses", "with several wires",
+	"context declaration", "context header", "context value", "inline context header", "context entries",
+	"with", "with parentheses", "with several contexts",
 	"record type", "operation type", "law", "union", "variant in place", "machine",
 	"defined type", "type parameters", "ordered constraint",
 	"fails and needs", "escaping", "tuple type", "tuple value", "Map type",
@@ -116,46 +116,46 @@ func main() {}
 let (a, b) = (1, undefinedName)
 func main() {}
 `, []string{"S104:2"}},
-	{"wire declaration", "let W = wire", `
+	{"context declaration", "let W = context", `
 type Ticker { Now() int64 }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }
-let W = wire { Ticker: Fixed{t: 1} }
+let W = context { Ticker: Fixed{t: 1} }
 func f() int64 { return with W { Ticker.Now() } }
 func main() {}
 `, nil},
-	{"wire header", "a named wire's provides and needs", `
+	{"context header", "a named context's provides and needs", `
 type Ticker { Now() int64 }
 type Log { Write(s string) }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }
-let W = wire provides Ticker needs Log { Ticker: Fixed{t: 1} }
+let W = context provides Ticker needs Log { Ticker: Fixed{t: 1} }
 func main() {}
 `, []string{"S109:6", "S109:6"}},
-	{"wire value", "a wire value outside with is 196x's, with no cascade at its use", `
+	{"context value", "a context value outside with is 196x's, with no cascade at its use", `
 type Ticker { Now() int64 }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }
 func f() int64 {
-	let w = wire { Ticker: Fixed{t: 1} }
+	let w = context { Ticker: Fixed{t: 1} }
 	return with w { Ticker.Now() }
 }
 func main() {}
 `, []string{"S109:6"}},
-	{"inline wire header", "an inline wire's provides", `
+	{"inline context header", "an inline context's provides", `
 type Ticker { Now() int64 }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }
-func f() int64 { return with wire provides Ticker { Ticker: Fixed{t: 1} } { Ticker.Now() } }
+func f() int64 { return with context provides Ticker { Ticker: Fixed{t: 1} } { Ticker.Now() } }
 func main() {}
 `, []string{"S109:5"}},
-	{"wire entries", "an entry of two keys, an embedding and a replace", `
+	{"context entries", "an entry of two keys, an embedding and a replace", `
 type Ticker { Now() int64 }
 type Timer { Now() int64 }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }
-let Base = wire { Ticker, Timer: Fixed{t: 1} }
-let W = wire { replace Ticker: Fixed{t: 2}, Base }
+let Base = context { Ticker, Timer: Fixed{t: 1} }
+let W = context { replace Ticker: Fixed{t: 2}, Base }
 func f() int64 { return with W { Ticker.Now() + Timer.Now() } }
 func main() {}
 `, nil},
@@ -163,7 +163,7 @@ func main() {}
 type Log { Write(s string) }
 type Quiet {}
 func Write(q Quiet, s string) {}
-let W = wire { Log: Quiet }
+let W = context { Log: Quiet }
 func f() { with W { Log.Write("x") } }
 func main() {}
 `, nil},
@@ -171,16 +171,16 @@ func main() {}
 type Log { Write(s string) }
 type Quiet {}
 func Write(q Quiet, s string) {}
-let W = wire { Log: Quiet }
+let W = context { Log: Quiet }
 func f() { with (W) { Log.Write("x") } }
 func main() {}
 `, nil},
-	{"with several wires", "with A, B is 196x's", `
+	{"with several contexts", "with A, B is 196x's", `
 type Log { Write(s string) }
 type Quiet {}
 func Write(q Quiet, s string) {}
-let A = wire { Log: Quiet }
-let B = wire { Log: Quiet }
+let A = context { Log: Quiet }
+let B = context { Log: Quiet }
 func f() { with A, B { Log.Write("x") } }
 func main() {}
 `, []string{"S109:7"}},
@@ -662,7 +662,7 @@ func Now(f Fixed) int64 { return f.t }
 extern go example.com/door.Fail func fail() int
 
 // W provides Ticker.
-let W = wire {
+let W = context {
 	// The fixed clock.
 	Ticker: Fixed{t: 1},
 }
@@ -697,12 +697,12 @@ func main() {}
 type Opt[T] = Has[T]{ V T } | Empty{}
 func main() {}
 `, nil},
-	{"inline wire header", "an inline wire's provides and needs", `
+	{"inline context header", "an inline context's provides and needs", `
 type Ticker { Now() int64 }
 type Log { Write(s string) }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }
-func f() int64 needs Log { return with wire provides Ticker needs Log { Ticker: Fixed{t: 1} } { Ticker.Now() } }
+func f() int64 needs Log { return with context provides Ticker needs Log { Ticker: Fixed{t: 1} } { Ticker.Now() } }
 func main() {}
 `, []string{"S109:6", "S109:6"}},
 	{"law", "a documented law", `

@@ -1,6 +1,6 @@
 type C34 { M() }
 
-let B1 = wire {
+let B1 = context {
 	C45: P,
 	B0,
 }
@@ -9,7 +9,7 @@ func F() { with W43 { C0.M() } }
 
 type C71 { M() }
 
-let W27 = wire {
+let W27 = context {
 	A27,
 	B27,
 }
@@ -20,51 +20,51 @@ type C52 { M() }
 
 type C25 { M() }
 
-let B16 = wire {
+let B16 = context {
 	C60: P,
 	B15,
 }
 
-let B20 = wire {
+let B20 = context {
 	C64: P,
 	B19,
 }
 
 type C20 { M() }
 
-let W0 = wire {
+let W0 = context {
 	A0,
 	B0,
 }
 
-let W36 = wire {
+let W36 = context {
 	A36,
 	B36,
 }
 
 type C36 { M() }
 
-let B14 = wire {
+let B14 = context {
 	C58: P,
 	B13,
 }
 
-let A10 = wire {
+let A10 = context {
 	C10: P,
 	A9,
 }
 
-let B28 = wire {
+let B28 = context {
 	C72: P,
 	B27,
 }
 
-let B17 = wire {
+let B17 = context {
 	C61: P,
 	B16,
 }
 
-let W14 = wire {
+let W14 = context {
 	A14,
 	B14,
 }
@@ -77,95 +77,95 @@ type C21 { M() }
 
 type C86 { M() }
 
-let B6 = wire {
+let B6 = context {
 	C50: P,
 	B5,
 }
 
-let W7 = wire {
+let W7 = context {
 	A7,
 	B7,
 }
 
-let A0 = wire {
+let A0 = context {
 	C0: P,
 }
 
-let W24 = wire {
+let W24 = context {
 	A24,
 	B24,
 }
 
-let A21 = wire {
+let A21 = context {
 	C21: P,
 	A20,
 }
 
-let W29 = wire {
+let W29 = context {
 	A29,
 	B29,
 }
 
-let A30 = wire {
+let A30 = context {
 	C30: P,
 	A29,
 }
 
-let W19 = wire {
+let W19 = context {
 	A19,
 	B19,
 }
 
-let B2 = wire {
+let B2 = context {
 	C46: P,
 	B1,
 }
 
-let A38 = wire {
+let A38 = context {
 	C38: P,
 	A37,
 }
 
-let A33 = wire {
+let A33 = context {
 	C33: P,
 	A32,
 }
 
-let A16 = wire {
+let A16 = context {
 	C16: P,
 	A15,
 }
 
 type C7 { M() }
 
-let B32 = wire {
+let B32 = context {
 	C76: P,
 	B31,
 }
 
-let A36 = wire {
+let A36 = context {
 	C36: P,
 	A35,
 }
 
-let B23 = wire {
+let B23 = context {
 	C67: P,
 	B22,
 }
 
-let W9 = wire {
+let W9 = context {
 	A9,
 	B9,
 }
 
-let A27 = wire {
+let A27 = context {
 	C27: P,
 	A26,
 }
 
 type C76 { M() }
 
-let B31 = wire {
+let B31 = context {
 	C75: P,
 	B30,
 }
@@ -174,46 +174,46 @@ type C79 { M() }
 
 type C30 { M() }
 
-let W23 = wire {
+let W23 = context {
 	A23,
 	B23,
 }
 
-let W41 = wire {
+let W41 = context {
 	A41,
 	B41,
 }
 
-let B7 = wire {
+let B7 = context {
 	C51: P,
 	B6,
 }
 
-let W37 = wire {
+let W37 = context {
 	A37,
 	B37,
 }
 
-let A14 = wire {
+let A14 = context {
 	C14: P,
 	A13,
 }
 
-let A34 = wire {
+let A34 = context {
 	C34: P,
 	A33,
 }
 
 type C26 { M() }
 
-let A11 = wire {
+let A11 = context {
 	C11: P,
 	A10,
 }
 
 type C81 { M() }
 
-let B25 = wire {
+let B25 = context {
 	C69: P,
 	B24,
 }
@@ -222,17 +222,17 @@ type C15 { M() }
 
 type C2 { M() }
 
-let W40 = wire {
+let W40 = context {
 	A40,
 	B40,
 }
 
-let W13 = wire {
+let W13 = context {
 	A13,
 	B13,
 }
 
-let A20 = wire {
+let A20 = context {
 	C20: P,
 	A19,
 }
@@ -243,38 +243,38 @@ type C78 { M() }
 
 type C44 { M() }
 
-let W42 = wire {
+let W42 = context {
 	A42,
 	B42,
 }
 
 type C6 { M() }
 
-let B21 = wire {
+let B21 = context {
 	C65: P,
 	B20,
 }
 
 type C50 { M() }
 
-let A18 = wire {
+let A18 = context {
 	C18: P,
 	A17,
 }
 
-let W5 = wire {
+let W5 = context {
 	A5,
 	B5,
 }
 
-let B33 = wire {
+let B33 = context {
 	C77: P,
 	B32,
 }
 
 type C32 { M() }
 
-let A37 = wire {
+let A37 = context {
 	C37: P,
 	A36,
 }
@@ -287,12 +287,12 @@ type C40 { M() }
 
 type C68 { M() }
 
-let W8 = wire {
+let W8 = context {
 	A8,
 	B8,
 }
 
-let B4 = wire {
+let B4 = context {
 	C48: P,
 	B3,
 }
@@ -301,29 +301,29 @@ func M(_ P) {}
 
 type C5 { M() }
 
-let W17 = wire {
+let W17 = context {
 	A17,
 	B17,
 }
 
-let W18 = wire {
+let W18 = context {
 	A18,
 	B18,
 }
 
 type C17 { M() }
 
-let B19 = wire {
+let B19 = context {
 	C63: P,
 	B18,
 }
 
-let B18 = wire {
+let B18 = context {
 	C62: P,
 	B17,
 }
 
-let B38 = wire {
+let B38 = context {
 	C82: P,
 	B37,
 }
@@ -332,57 +332,57 @@ type C63 { M() }
 
 type C23 { M() }
 
-let B35 = wire {
+let B35 = context {
 	C79: P,
 	B34,
 }
 
-let W15 = wire {
+let W15 = context {
 	A15,
 	B15,
 }
 
-let B42 = wire {
+let B42 = context {
 	C86: P,
 	B41,
 }
 
-let A5 = wire {
+let A5 = context {
 	C5: P,
 	A4,
 }
 
-let W35 = wire {
+let W35 = context {
 	A35,
 	B35,
 }
 
-let B15 = wire {
+let B15 = context {
 	C59: P,
 	B14,
 }
 
-let W16 = wire {
+let W16 = context {
 	A16,
 	B16,
 }
 
-let B39 = wire {
+let B39 = context {
 	C83: P,
 	B38,
 }
 
-let B8 = wire {
+let B8 = context {
 	C52: P,
 	B7,
 }
 
-let B41 = wire {
+let B41 = context {
 	C85: P,
 	B40,
 }
 
-let A35 = wire {
+let A35 = context {
 	C35: P,
 	A34,
 }
@@ -395,11 +395,11 @@ type C59 { M() }
 
 type C45 { M() }
 
-let B0 = wire {
+let B0 = context {
 	C44: P,
 }
 
-let W11 = wire {
+let W11 = context {
 	A11,
 	B11,
 }
@@ -408,24 +408,24 @@ type C57 { M() }
 
 type C61 { M() }
 
-let B13 = wire {
+let B13 = context {
 	C57: P,
 	B12,
 }
 
-let W34 = wire {
+let W34 = context {
 	A34,
 	B34,
 }
 
-let B34 = wire {
+let B34 = context {
 	C78: P,
 	B33,
 }
 
 type C1 { M() }
 
-let W22 = wire {
+let W22 = context {
 	A22,
 	B22,
 }
@@ -434,7 +434,7 @@ type C66 { M() }
 
 type C54 { M() }
 
-let W32 = wire {
+let W32 = context {
 	A32,
 	B32,
 }
@@ -443,19 +443,19 @@ type C83 { M() }
 
 type P {}
 
-let A23 = wire {
+let A23 = context {
 	C23: P,
 	A22,
 }
 
 type C84 { M() }
 
-let A32 = wire {
+let A32 = context {
 	C32: P,
 	A31,
 }
 
-let W43 = wire {
+let W43 = context {
 	A43,
 	B43,
 }
@@ -464,7 +464,7 @@ type C74 { M() }
 
 type C51 { M() }
 
-let W1 = wire {
+let W1 = context {
 	A1,
 	B1,
 }
@@ -473,12 +473,12 @@ type C33 { M() }
 
 type C13 { M() }
 
-let W39 = wire {
+let W39 = context {
 	A39,
 	B39,
 }
 
-let W12 = wire {
+let W12 = context {
 	A12,
 	B12,
 }
@@ -487,14 +487,14 @@ type C22 { M() }
 
 type C67 { M() }
 
-let W4 = wire {
+let W4 = context {
 	A4,
 	B4,
 }
 
 type C46 { M() }
 
-let B27 = wire {
+let B27 = context {
 	C71: P,
 	B26,
 }
@@ -505,22 +505,22 @@ type C9 { M() }
 
 type C85 { M() }
 
-let W2 = wire {
+let W2 = context {
 	A2,
 	B2,
 }
 
-let A43 = wire {
+let A43 = context {
 	C43: P,
 	A42,
 }
 
-let A17 = wire {
+let A17 = context {
 	C17: P,
 	A16,
 }
 
-let A42 = wire {
+let A42 = context {
 	C42: P,
 	A41,
 }
@@ -529,44 +529,44 @@ type C16 { M() }
 
 type C55 { M() }
 
-let A9 = wire {
+let A9 = context {
 	C9: P,
 	A8,
 }
 
-let W31 = wire {
+let W31 = context {
 	A31,
 	B31,
 }
 
-let B43 = wire {
+let B43 = context {
 	C87: P,
 	B42,
 }
 
 type C80 { M() }
 
-let A7 = wire {
+let A7 = context {
 	C7: P,
 	A6,
 }
 
-let A6 = wire {
+let A6 = context {
 	C6: P,
 	A5,
 }
 
-let B36 = wire {
+let B36 = context {
 	C80: P,
 	B35,
 }
 
-let B26 = wire {
+let B26 = context {
 	C70: P,
 	B25,
 }
 
-let W26 = wire {
+let W26 = context {
 	A26,
 	B26,
 }
@@ -575,22 +575,22 @@ type C72 { M() }
 
 type C11 { M() }
 
-let A26 = wire {
+let A26 = context {
 	C26: P,
 	A25,
 }
 
-let B30 = wire {
+let B30 = context {
 	C74: P,
 	B29,
 }
 
-let A8 = wire {
+let A8 = context {
 	C8: P,
 	A7,
 }
 
-let A25 = wire {
+let A25 = context {
 	C25: P,
 	A24,
 }
@@ -599,34 +599,34 @@ type C65 { M() }
 
 type C27 { M() }
 
-let A13 = wire {
+let A13 = context {
 	C13: P,
 	A12,
 }
 
-let W10 = wire {
+let W10 = context {
 	A10,
 	B10,
 }
 
-let A15 = wire {
+let A15 = context {
 	C15: P,
 	A14,
 }
 
-let A40 = wire {
+let A40 = context {
 	C40: P,
 	A39,
 }
 
-let B40 = wire {
+let B40 = context {
 	C84: P,
 	B39,
 }
 
 type C37 { M() }
 
-let B11 = wire {
+let B11 = context {
 	C55: P,
 	B10,
 }
@@ -635,40 +635,40 @@ type C35 { M() }
 
 type C10 { M() }
 
-let B37 = wire {
+let B37 = context {
 	C81: P,
 	B36,
 }
 
 type C14 { M() }
 
-let W21 = wire {
+let W21 = context {
 	A21,
 	B21,
 }
 
 type C49 { M() }
 
-let A31 = wire {
+let A31 = context {
 	C31: P,
 	A30,
 }
 
 type C60 { M() }
 
-let A24 = wire {
+let A24 = context {
 	C24: P,
 	A23,
 }
 
 type C47 { M() }
 
-let W25 = wire {
+let W25 = context {
 	A25,
 	B25,
 }
 
-let A2 = wire {
+let A2 = context {
 	C2: P,
 	A1,
 }
@@ -677,12 +677,12 @@ type C73 { M() }
 
 type C48 { M() }
 
-let W3 = wire {
+let W3 = context {
 	A3,
 	B3,
 }
 
-let A4 = wire {
+let A4 = context {
 	C4: P,
 	A3,
 }
@@ -691,29 +691,29 @@ type C29 { M() }
 
 type C53 { M() }
 
-let A19 = wire {
+let A19 = context {
 	C19: P,
 	A18,
 }
 
 type C8 { M() }
 
-let B10 = wire {
+let B10 = context {
 	C54: P,
 	B9,
 }
 
-let W38 = wire {
+let W38 = context {
 	A38,
 	B38,
 }
 
-let W6 = wire {
+let W6 = context {
 	A6,
 	B6,
 }
 
-let B12 = wire {
+let B12 = context {
 	C56: P,
 	B11,
 }
@@ -722,44 +722,44 @@ type C28 { M() }
 
 type C3 { M() }
 
-let B5 = wire {
+let B5 = context {
 	C49: P,
 	B4,
 }
 
-let B22 = wire {
+let B22 = context {
 	C66: P,
 	B21,
 }
 
-let A39 = wire {
+let A39 = context {
 	C39: P,
 	A38,
 }
 
 type C38 { M() }
 
-let A29 = wire {
+let A29 = context {
 	C29: P,
 	A28,
 }
 
-let W20 = wire {
+let W20 = context {
 	A20,
 	B20,
 }
 
-let W28 = wire {
+let W28 = context {
 	A28,
 	B28,
 }
 
-let W33 = wire {
+let W33 = context {
 	A33,
 	B33,
 }
 
-let A12 = wire {
+let A12 = context {
 	C12: P,
 	A11,
 }
@@ -770,7 +770,7 @@ type C39 { M() }
 
 type C42 { M() }
 
-let B24 = wire {
+let B24 = context {
 	C68: P,
 	B23,
 }
@@ -779,7 +779,7 @@ type C58 { M() }
 
 type C56 { M() }
 
-let B3 = wire {
+let B3 = context {
 	C47: P,
 	B2,
 }
@@ -790,12 +790,12 @@ type C77 { M() }
 
 type C43 { M() }
 
-let A41 = wire {
+let A41 = context {
 	C41: P,
 	A40,
 }
 
-let B9 = wire {
+let B9 = context {
 	C53: P,
 	B8,
 }
@@ -808,32 +808,32 @@ type C31 { M() }
 
 type C12 { M() }
 
-let B29 = wire {
+let B29 = context {
 	C73: P,
 	B28,
 }
 
-let A1 = wire {
+let A1 = context {
 	C1: P,
 	A0,
 }
 
-let A3 = wire {
+let A3 = context {
 	C3: P,
 	A2,
 }
 
-let A28 = wire {
+let A28 = context {
 	C28: P,
 	A27,
 }
 
-let W30 = wire {
+let W30 = context {
 	A30,
 	B30,
 }
 
-let A22 = wire {
+let A22 = context {
 	C22: P,
 	A21,
 }

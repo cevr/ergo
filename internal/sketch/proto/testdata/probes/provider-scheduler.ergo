@@ -2,7 +2,7 @@
 import timeout
 type Mem {}
 func main() needs Console {
-	let x = with wire { Scheduler: Mem{} } {
+	let x = with context { Scheduler: Mem{} } {
 		timeout.After(1s) { "ok" }
 	} catch {
 	case timeout.Expired:

@@ -3,6 +3,6 @@ type Cap { M() }
 type Impl {}
 func M(_ Impl) {}
 extern go fixture.mark func mark() fails Bang
-func a() { with (wire{ Cap: Impl }) { try b() } }
+func a() { with (context{ Cap: Impl }) { try b() } }
 func b() { try mark(); try a() }
 func F() fails Bang { try a() }

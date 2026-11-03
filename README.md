@@ -25,9 +25,9 @@ type Payments {
 }
 
 // A test with replaced providers and virtual time: no sleeps and no mock framework.
-let SlowWorld = wire {
+let SlowWorld = context {
 	Accounts:  MemoryAccounts{},
-	Payments:  NewSlowGateway,         // a constructor: it answers after 5s on this wire's Scheduler
+	Payments:  NewSlowGateway,         // a constructor: it answers after 5s on this context's Scheduler
 	Scheduler: testing.VirtualClock{}, // jumps to the next timer when every task waits
 }
 
@@ -109,11 +109,11 @@ func Settle(id string, card Card) fails NotFound needs Orders, Payments {
 *Status:* the prototype checks `needs` rows, inline wires and closed named wires today. The rest of this section is designed, not built: the `provides` and `needs` wire header, constructors, embedding, `replace` and an error row on `main` parse and format, and their checks are designed ([rows](docs/spec/rows.md#wire)).
 
 ```go
-let Store = wire provides Orders needs Config {
+let Store = context provides Orders needs Config {
 	Orders: OpenPostgres, // a constructor that returns a resource: closed when the with block ends
 }
 
-let Live = wire provides Orders, Payments {
+let Live = context provides Orders, Payments {
 	Payments: Stripe{},
 	Config:   EnvConfig{}, // Store uses it; callers cannot see it
 	Store,
@@ -136,7 +136,7 @@ func main() fails NotFound | Declined | DialFailed needs Console {
 *Status:* designed, not built. `replace` and embedding parse and format; `testing.VirtualClock` is designed ([stdlib](docs/spec/stdlib.md#testing)).
 
 ```go
-let Fixture = wire provides Orders, Payments, Scheduler {
+let Fixture = context provides Orders, Payments, Scheduler {
 	Live,
 	replace Orders:   MemoryOrders{}, // OpenPostgres is never built
 	replace Payments: FakePayments{Decline: "4000"},
@@ -234,7 +234,7 @@ type OrderCodec {
 	law RoundTrip(o Order) { try Decode(Encode(o)) == o },
 }
 
-// It is checked against every provider wired for Store.
+// It is checked against every provider bound to Store.
 type Store {
 	Find(id string) Order fails NotFound,
 	Put(id string, o Order),

@@ -57,7 +57,7 @@ func Get(m Mem) int {
 	return m.k
 }
 
-let W = wire {
+let W = context {
 	Store: Mem{k: 4},
 }
 
@@ -243,7 +243,7 @@ func Bump(b Both) {
 
 func Read(b Both) int { return b.s[0] }
 
-let Shared = wire {
+let Shared = context {
 	Store, Reader: Both{s: []int{0}},
 }
 

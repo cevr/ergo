@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type Invoice {A()}\nlet Invoices = wire{Invoice:0, e }\nlet App = wire{Invoices}\nlet e = wire{App}\nfunc A() {}")
+string("type Invoice {A()}\nlet Invoices = context{Invoice:0, e }\nlet App = context{Invoices}\nlet e = context{App}\nfunc A() {}")

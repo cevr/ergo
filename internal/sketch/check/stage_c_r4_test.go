@@ -54,7 +54,7 @@ func checkWith(t *testing.T, imp check.Importer, src string) []check.Diagnostic 
 func TestOneStatementPositionRule(t *testing.T) {
 	imp := newUnitsImporter(t)
 	const units = "import units\nfunc c(x units.Celsius) units.Celsius { x }\n"
-	const decls = "let W = wire {}\ntype E {}\ntype F {}\ntype N[T] int\n" +
+	const decls = "let W = context {}\ntype E {}\ntype F {}\ntype N[T] int\n" +
 		"func g() int fails E { 1 }\nfunc two() int fails E | F { 2 }\n" +
 		"func i() int { 1 }\nfunc s() string { \"s\" }\nfunc each(f func()) { f() }\n"
 	// X is the tail under test; every other tail is a call.

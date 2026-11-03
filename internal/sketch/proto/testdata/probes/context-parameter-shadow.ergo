@@ -1,0 +1,10 @@
+// out: ok
+type Store { Get() string }
+type Holder { Value string }
+func Get(h Holder) string { return h.Value }
+func envc() string        { return "ok" }
+let W = context { Store: Holder{Value: envc()} }
+func main() needs Console {
+	let line = with W { Store.Get() }
+	Console.Println("\(line)")
+}

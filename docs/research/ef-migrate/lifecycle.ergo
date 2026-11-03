@@ -31,7 +31,7 @@ func program() fails fs.Error needs Clock, fs.FS, Console, config.Config, Schedu
 	Console.Println("label: " + home)
 }
 
-let Live = wire {
+let Live = context {
 	Clock:     LiveClock{},
 	FS:        fs.Live{},
 	Config:    config.Env{},

@@ -227,7 +227,7 @@ func Finish(c Conn) needs Scheduler {
 	}
 }
 
-let Live = wire { Scheduler: LiveScheduler }
+let Live = context { Scheduler: LiveScheduler }
 
 func viaDot(fail bool, signal queue.Queue[int]) {
 	with Live {

@@ -3,7 +3,7 @@ import timeout
 type Fault {}
 func delay() fails Fault { return Fault }
 func main() needs Console {
-	with wire { Scheduler: LiveScheduler } {
+	with context { Scheduler: LiveScheduler } {
 		let line = timeout.After(1s) { "ok" } catch {
 		case timeout.Expired:
 			"late"

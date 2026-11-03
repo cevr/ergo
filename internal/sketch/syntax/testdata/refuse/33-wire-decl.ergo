@@ -1,4 +1,0 @@
-// want: S001 2 -
-wire Live {
-	Orders = MemoryOrders{}
-}

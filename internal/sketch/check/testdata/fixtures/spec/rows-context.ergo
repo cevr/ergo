@@ -1,0 +1,34 @@
+type OrderNotFound { ID string }
+type GatewayDown {}
+
+type Order {
+	ID    string,
+	Total int64,
+}
+
+type Orders {
+	Find(id string) Order fails OrderNotFound,
+}
+
+type Gateway {
+	Charge(order Order) string fails GatewayDown,
+}
+
+type MemoryOrders {}
+
+func Find(_ MemoryOrders, id string) Order fails OrderNotFound {
+	return Order{ID: id, Total: 1999}
+}
+
+type FakeGateway { AuthID string }
+
+func Charge(g FakeGateway, order Order) string fails GatewayDown {
+	return g.AuthID
+}
+
+let Live = context {
+	Orders:    MemoryOrders,
+	Gateway:   FakeGateway{AuthID: "auth-7"},
+	Scheduler: LiveScheduler,
+}
+func main() {}

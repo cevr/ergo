@@ -96,8 +96,8 @@ func label(state Breaker) string {
 
 func main() fails ProbeUnavailable needs Console {
 	let open = tripped("primary")
-	let retried = try with wire { Probe: HealthyProbe{} } { breakerStep(open, Retry{}) }
-	let failed = try with wire { Probe: HealthyProbe{} } { breakerStep(Closed{failures: 2}, Failure{endpoint: "primary"}) }
-	let retired = try with wire { Probe: HealthyProbe{} } { breakerStep(open, Retire{}) }
+	let retried = try with context { Probe: HealthyProbe{} } { breakerStep(open, Retry{}) }
+	let failed = try with context { Probe: HealthyProbe{} } { breakerStep(Closed{failures: 2}, Failure{endpoint: "primary"}) }
+	let retired = try with context { Probe: HealthyProbe{} } { breakerStep(open, Retire{}) }
 	Console.Println(describe(retried) + "; " + describe(failed) + "; " + describe(retired))
 }

@@ -496,7 +496,7 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 		ice(x, "a with with no Withs entry")
 	}
 	if len(x.Args) != 1 || x.Trailing == nil {
-		ice(x, "a with without one wire and a block")
+		ice(x, "a with without one context and a block")
 	}
 	if w.Value != nil {
 		return fc.contextWith(x, w.Value) // the context owner (context.go)
@@ -505,9 +505,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	// this lowering builds only contexts declared in the file it lowers.
 	if len(w.Contexts) == 0 || (w.Contexts[0].Lit == nil && fc.l.isImported(w.Contexts[0])) {
 		if _, inline := unparen(x.Args[0]).(*syntax.ContextLit); inline {
-			refuse(x.Args[0], "an inline wire value is lowered after check-v1 stage E (196x)")
+			refuse(x.Args[0], "an inline context value is lowered after check-v1 stage E (196x)")
 		}
-		refuse(x.Args[0], "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")
+		refuse(x.Args[0], "a with of an imported context is lowered after check-v1 stage B supplies its context (check-v1 r5b m2)")
 	}
 	list := x.Trailing.List
 	var res operand
@@ -632,7 +632,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 	if name, ok := l.contexts[key]; ok {
 		return name
 	}
-	name := l.pkgName(pkgKey{"wire", key}, "build"+key.w.Name)
+	name := l.pkgName(pkgKey{"context", key}, "build"+key.w.Name)
 	l.contexts[key] = name
 	l.pending = append(l.pending, func() { l.emitContext(w, name, site) })
 	return name
@@ -642,7 +642,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil || w.Decl.Needs != nil {
-		refuse(w.Decl, "a wire header is checked by #196 stage b")
+		refuse(w.Decl, "a context header is checked by #196 stage b")
 	}
 }
 
@@ -655,7 +655,7 @@ func (l *lowerer) context(w *check.Context, site syntax.Node) {
 func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	w := with.Contexts[0]
 	if w.Decl == nil || l.isImported(w) {
-		refuse(site, "a with of an imported wire is lowered after check-v1 stage B supplies its wire (check-v1 r5b m2)")
+		refuse(site, "a with of an imported context is lowered after check-v1 stage B supplies its context (check-v1 r5b m2)")
 	}
 	l.localContext(w, site)
 	fc := newFuncCtx(l, newNamer(l.names), true)
@@ -689,7 +689,7 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 		}
 		visited[v] = true
 		if v.Lit == nil && (v.Decl == nil || l.isImported(v)) {
-			refuse(site, "an embedded imported wire is lowered after check-v1 stage B")
+			refuse(site, "an embedded imported context is lowered after check-v1 stage B")
 		}
 		for _, e := range v.Entries {
 			if e.Embedded != nil {
@@ -737,7 +737,7 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 	for _, i := range a.Caps {
 		cap, ok := e.Caps[i].(*check.Named)
 		if !ok {
-			ice(e.Provider, "a wire key that is not a named capability")
+			ice(e.Provider, "a context key that is not a named capability")
 		}
 		conv := check.Conversion{}
 		if i < len(e.Conversions) {

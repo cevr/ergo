@@ -100,14 +100,14 @@ func main() needs Console { Console.Println("x") }`, "S105"},
 		{"a provider without the method", `
 type Empty {}
 func main() needs Console {
-	let v = with wire { Store: Empty{} } { "x" }
+	let v = with context { Store: Empty{} } { "x" }
 	Console.Println(v)
 }`, "S106"},
 		{"a provider whose row is wider", `
 type Loose {}
 func Get(_ Loose, id string) string fails NotFound | Down { return "x" }
 func main() needs Console {
-	let v = with wire { Store: Loose{} } { "x" }
+	let v = with context { Store: Loose{} } { "x" }
 	Console.Println(v)
 }`, "S106"},
 		{"a missing return", `
@@ -176,8 +176,8 @@ func show(id string) needs Console, Store, Net, Scheduler {
 }
 
 func main() needs Console {
-	with wire { Store: MemStore{}, Scheduler: LiveScheduler{} } {
-		with wire { Net: OkNet{} } {
+	with context { Store: MemStore{}, Scheduler: LiveScheduler{} } {
+		with context { Net: OkNet{} } {
 			show("1")
 			show("2")
 		}

@@ -56,7 +56,7 @@ func Authorize(_ FakePayments, order Order) Receipt fails Declined {
 	Receipt{ID: "auth-\(order.ID)"}
 }
 
-let Live = wire {
+let Live = context {
 	Orders:   MemoryOrders,
 	Payments: FakePayments,
 }

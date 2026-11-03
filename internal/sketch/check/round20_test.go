@@ -83,13 +83,13 @@ func (oc *opCount) bounded(t *testing.T, what, src string, c *checker) {
 	m := c.contexts
 	nodes := contextNodes(t, src)
 	if c.contextLimit == nil && m.limit != contextBudgetPerUnit*nodes {
-		t.Errorf("%s: budget %d, want %d × %d wire nodes", what, m.limit, contextBudgetPerUnit, nodes)
+		t.Errorf("%s: budget %d, want %d × %d context nodes", what, m.limit, contextBudgetPerUnit, nodes)
 	}
 	if oc.repeat[m] > m.used || len(oc.early) > 0 {
 		t.Errorf("%s: %d repeatable operations, %d charged (%v)", what, oc.repeat[m], m.used, oc.early)
 	}
 	if oc.single[m] > contextSinglePerUnit*nodes {
-		t.Errorf("%s: %d single-pass operations for %d wire nodes, more than %d each", what, oc.single[m], nodes, contextSinglePerUnit)
+		t.Errorf("%s: %d single-pass operations for %d context nodes, more than %d each", what, oc.single[m], nodes, contextSinglePerUnit)
 	}
 	if oc.repeat[m]+oc.single[m] > m.used+contextSinglePerUnit*nodes {
 		t.Errorf("%s: %d operations, more than %d charged and %d × %d nodes", what, oc.repeat[m]+oc.single[m], m.used, contextSinglePerUnit, nodes)
@@ -174,7 +174,7 @@ func TestContextSinglePass(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("the most single-pass operations per wire node: %.2f (%s), bound %d", worst, worstWhat, contextSinglePerUnit)
+	t.Logf("the most single-pass operations per context node: %.2f (%s), bound %d", worst, worstWhat, contextSinglePerUnit)
 }
 
 // TestContextContractMultiKey (the round-20 reviewer's contract, under the
@@ -305,7 +305,7 @@ func TestContextBudgetOrder(t *testing.T) {
 // choose which of them is refused.
 func TestContextBudgetGroups(t *testing.T) {
 	src := contextFamily("wide fan-in", 6) +
-		"let _ = with wire {\n\tX0,\n\tX1,\n\tX2,\n} { 1 }\nlet _ = with wire {\n\tX3,\n\tX4,\n\tX5,\n} { 2 }\n"
+		"let _ = with context {\n\tX0,\n\tX1,\n\tX2,\n} { 1 }\nlet _ = with context {\n\tX3,\n\tX4,\n\tX5,\n} { 2 }\n"
 	full, c := checkLimited(t, src, nil)
 	if len(full) > 0 {
 		t.Fatalf("want acceptance, got %v", full)

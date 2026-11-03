@@ -3,7 +3,7 @@ import timeout
 type Fault {}
 func unused() fails Fault { return Fault }
 func main() needs Console {
-	with wire { Scheduler: LiveScheduler } {
+	with context { Scheduler: LiveScheduler } {
 		timeout.After(1s) {
 			if "a" == "a" { Console.Println("ok") }
 		} catch {

@@ -26,9 +26,9 @@ func (i contextImporter) Import(path string) (*check.Package, error) {
 func TestRuntime199ContextImportedRefusal(t *testing.T) {
 	for _, embedded := range []bool{false, true} {
 		t.Run(fmt.Sprintf("embedded=%v", embedded), func(t *testing.T) {
-			contexts := "let W = wire { A: Get() }\n"
+			contexts := "let W = context { A: Get() }\n"
 			if embedded {
-				contexts = "let Base = wire { A: Get() }\nlet W = wire { Base }\n"
+				contexts = "let Base = context { A: Get() }\nlet W = context { Base }\n"
 			}
 			lib, err := syntax.Parse(`type A { Use() }
 type Conn { n int }
@@ -50,11 +50,11 @@ func Get() Conn { Conn{n: 1} }
 			}
 			pkg, ds := check.Check("main", []*syntax.File{file}, contextImporter{makers})
 			if len(ds) != 0 {
-				t.Fatalf("fresh imported wire refused by the checker: %v", ds)
+				t.Fatalf("fresh imported context refused by the checker: %v", ds)
 			}
 			for _, w := range pkg.Info.Withs {
 				if len(w.Contexts) != 1 || len(w.Acquired) != 1 {
-					t.Fatalf("the checker no longer records the imported wire's entry: %+v", w)
+					t.Fatalf("the checker no longer records the imported context's entry: %+v", w)
 				}
 			}
 			var refused *Refused
@@ -71,7 +71,7 @@ func Get() Conn { Conn{n: 1} }
 				t.Fatalf("want one located refusal, got %v", err)
 			}
 			r := refused.Refusals[0]
-			if r.Line != 2 || r.Column != 20 || !strings.Contains(r.Message, "a with of an imported wire is lowered after check-v1 stage B") {
+			if r.Line != 2 || r.Column != 20 || !strings.Contains(r.Message, "a with of an imported context is lowered after check-v1 stage B") {
 				t.Fatalf("refusal %d:%d %q, want 2:20 naming stage B", r.Line, r.Column, r.Message)
 			}
 		})

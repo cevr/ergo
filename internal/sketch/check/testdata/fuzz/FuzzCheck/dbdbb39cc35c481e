@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type Box{t()}\ntype Holder{}\nfunc t(Holder)a{}\nfunc A(){}\nfunc A0(){with wire{Box:Holder}{}}")
+string("type Box{t()}\ntype Holder{}\nfunc t(Holder)a{}\nfunc A(){}\nfunc A0(){with context{Box:Holder}{}}")

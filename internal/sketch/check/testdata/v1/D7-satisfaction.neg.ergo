@@ -1,5 +1,5 @@
 // 196m rule 2: a type without the operation's function does not satisfy
-// the operation type: S106 in a wire, S108 as a value; a plain call of a
+// the operation type: S106 in a context, S108 as a value; a plain call of a
 // shared name with several candidates is S108 ("call it as x.f(…)").
 type Orders {
 	Get(id string) string,
@@ -21,7 +21,7 @@ func read(o Orders) string {
 	o.Get("1")
 }
 
-let Live = wire {
+let Live = context {
 	Orders: Tape, // want S106
 }
 

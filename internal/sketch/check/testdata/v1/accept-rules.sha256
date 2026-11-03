@@ -4,6 +4,8 @@
 # stage lands; last synced at stage E2 round 3). TestV1Manifest requires each
 # copy to have its line here, with this hash. Detect drift from the source:
 #   cd /home/exedev/.cache/baton/wf10/check-v1/accept/rules && sha256sum -c <this file>
+# 196w: the D7-satisfaction copies spell the construct keyword context; the
+# source rules take the same rename when the orchestrator syncs them.
 42d3415f36e25b15e3ec1c5d5f7db162c013549fea5e6d7134e4c23b24aa8bb4  A1-literal-context.neg.ergo
 e1e6669a8bb9c6c8ff7f6c2a43489acf828265cf1ba29bb60017c058c7a37b37  A1-literal-context.pos.ergo
 dbbdafd0840737ec447f29252d036748a640ed4ddbd1ce5699d20b85e7689627  A2-default-and-operands.neg.ergo
@@ -62,8 +64,8 @@ f3f00a80f76f57dd4fd638764bdf219e98c129276f863e62138ad304598755d6  D3-prelude-nam
 5956a04bb465e4a94dc37e54a66c65fcb311b2106b0ba58e660d55cd1f1d8903  D5-builtins.pos.ergo
 7220f2c673951f803d6efb1f1d70be41490c3ec90cdfe3a5b816b51e5a98ce43  D6-dot-calls.neg.ergo
 e2a17c53450474d0009e3acadcba3b1e723f885d921544ada3b1bc79b49b6395  D6-dot-calls.pos.ergo
-43c0433f4eb53615fb822335cbbe142fea71ca501410169c81a8d066a2768178  D7-satisfaction.neg.ergo
-cb88e087bd500af38324108ceadc0dca7eae7e7f3c2cb22665c4a280f8170d36  D7-satisfaction.pos.ergo
+33f03598a2a1b52f284bb8dfc391e1b2d4ce094da7fc752056056c8c641c557f  D7-satisfaction.neg.ergo
+9d24f6ef78d2476107f20f19751dc25398db69f4e4f78ac5ac90a16ac6918481  D7-satisfaction.pos.ergo
 80bb4bfaa08095237edaabeb301760be0a862d0eee6761625a7aa6d0de787ce7  D8-imports.neg.ergo
 30ed5c01f89bc53e5f445d7712448dbda947eb88f65006810a560cb573e26bca  D8-imports.pos.ergo
 259e42aade2612bfbecf307f4f9ca51ee6924177a797e38f090f2e13dd044dd4  D9-assign-root.neg.ergo

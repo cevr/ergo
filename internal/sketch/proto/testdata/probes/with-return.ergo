@@ -1,7 +1,7 @@
 // want S109
 type Fault {}
 func f() string {
-	with wire {} { return "ok" }
+	with context {} { return "ok" }
 	return "after"
 }
 func row() fails Fault    { return Fault{} }

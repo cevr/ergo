@@ -158,8 +158,8 @@ var nodeTable = map[string]nodeEntry{
 	"MapType": {"Map type", ""}, "FuncLit": {"function literal", ""}, "ExternSpec": {"extern", ""},
 	"InterpolatedString": {"interpolation", ""},
 	"MachineType":        {"machine", ""}, "MachineEntry": {"machine", ""},
-	"ContextDecl": {"wire declaration", ""}, "ContextBody": {"wire declaration", ""}, "ContextEntry": {"wire entries", ""},
-	"ContextLit": {"wire value", ""}, "ProvidesClause": {"wire header", ""},
+	"ContextDecl": {"context declaration", ""}, "ContextBody": {"context declaration", ""}, "ContextEntry": {"context entries", ""},
+	"ContextLit": {"context value", ""}, "ProvidesClause": {"context header", ""},
 	// A tuple is a value and a type (196t); an inline variant declares a
 	// record in the package scope (196 fifth round).
 	"TupleExpr":   {"tuple value", ""},

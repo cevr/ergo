@@ -1,7 +1,7 @@
 // out: ok
 import timeout
 func main() needs Console {
-	with wire { Scheduler: LiveScheduler } {
+	with context { Scheduler: LiveScheduler } {
 		let line = timeout.After(timeout.After(1s) { 1s } catch {
 		case timeout.Expired:
 			1s

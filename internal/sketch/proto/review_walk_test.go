@@ -43,22 +43,22 @@ func main()                        {}
 		{"binary", `"prefix" + ` + cycle, "", true},
 		{"try and catch", `try bad() catch { case Fault: ` + cycle + ` }`, "", true},
 		{"catch", `bad() catch { case Fault: ` + cycle + ` }`, "", true},
-		{"wire literal entry", `with wire { Other: Holder{Value: ` + cycle + `} } { Other.Get() }`, "", true},
+		{"context literal entry", `with context { Other: Holder{Value: ` + cycle + `} } { Other.Get() }`, "", true},
 		{"call argument", `identity(` + cycle + `)`, "", true},
-		{"call block", `with wire {} { ` + cycle + ` }`, "", true},
-		{"timeout block", `with wire { Scheduler: LiveScheduler{} } { timeout.After(1s) { ` + cycle + ` } } catch { case timeout.Expired: "late" }`, "", true},
+		{"call block", `with context {} { ` + cycle + ` }`, "", true},
+		{"timeout block", `with context { Scheduler: LiveScheduler{} } { timeout.After(1s) { ` + cycle + ` } } catch { case timeout.Expired: "late" }`, "", true},
 		{"function return", `build()`, `func build() string { return ` + cycle + ` }`, true},
 		{"function define", `build()`, `func build() string { let value = ` + cycle + `; return value }`, true},
 		{"if then", `build()`, `func build() string { if "a" == "a" { return ` + cycle + ` }; return "other" }`, true},
 		{"if else", `build()`, `func build() string { if "a" == "a" { return "other" } else { return ` + cycle + ` } }`, true},
 		{"type switch", `build()`, `func build() string { match mark() { case Left as x: return ` + cycle + ` + x.Value; case Right as x: return x.Value } }`, true},
-		{"provider method", `with wire { Other: Builder{} } { Other.Get() }`, `type Builder {}
+		{"provider method", `with context { Other: Builder{} } { Other.Get() }`, `type Builder {}
 func Get(_ Builder) string { return build() }
 func build() string { return ` + cycle + ` }`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src := base + tc.extra + "\nlet W = wire { Store: Holder{Value: " + tc.value + "} }\n"
+			src := base + tc.extra + "\nlet W = context { Store: Holder{Value: " + tc.value + "} }\n"
 			file, err := Parse("cycle.ergo", src)
 			if err != nil {
 				t.Fatal(err)

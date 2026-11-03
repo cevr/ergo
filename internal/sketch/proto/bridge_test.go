@@ -58,14 +58,14 @@ func TestBridgeRefusesOutsideTheSubset(t *testing.T) {
 // source parses, and the bridge refuses it with S109 on the marked line.
 func TestBridgeRefusals(t *testing.T) {
 	for name, src := range map[string]string{
-		"wire needs":                   "let App = wire needs A {\n\tStore: M{},\n}\n// LINE 1\n",
-		"wire provides":                "let App = wire provides A {\n\tStore: M{},\n}\n// LINE 1\n",
-		"wire both":                    "let App = wire provides A needs B {\n\tStore: M{},\n}\n// LINE 1\n",
-		"wire two keys":                "let App = wire {\n\tA, B: M{},\n}\n// LINE 2\n",
-		"wire embed":                   "let App = wire {\n\tShared,\n}\n// LINE 2\n",
-		"wire replace":                 "let App = wire {\n\treplace A: M{},\n}\n// LINE 2\n",
-		"wire value needs":             "func main() {\n\twith wire needs A { Store: M{} } {\n\t\tf()\n\t}\n}\n// LINE 2\n",
-		"wire value provides":          "func main() {\n\twith wire provides A { Store: M{} } {\n\t\tf()\n\t}\n}\n// LINE 2\n",
+		"context needs":                "let App = context needs A {\n\tStore: M{},\n}\n// LINE 1\n",
+		"context provides":             "let App = context provides A {\n\tStore: M{},\n}\n// LINE 1\n",
+		"context both":                 "let App = context provides A needs B {\n\tStore: M{},\n}\n// LINE 1\n",
+		"context two keys":             "let App = context {\n\tA, B: M{},\n}\n// LINE 2\n",
+		"context embed":                "let App = context {\n\tShared,\n}\n// LINE 2\n",
+		"context replace":              "let App = context {\n\treplace A: M{},\n}\n// LINE 2\n",
+		"context value needs":          "func main() {\n\twith context needs A { Store: M{} } {\n\t\tf()\n\t}\n}\n// LINE 2\n",
+		"context value provides":       "func main() {\n\twith context provides A { Store: M{} } {\n\t\tf()\n\t}\n}\n// LINE 2\n",
 		"trailing block":               "func main() {\n\tf() { g() }\n}\n// LINE 2\n",
 		"statement arm":                "func main() {\n\tlet x = f() catch {\n\tcase E:\n\t\treturn\n\t}\n}\n// LINE 3\n",
 		"named import":                 "import u net/url\n// LINE 1\n",
@@ -98,7 +98,7 @@ func TestBridgeRefusals(t *testing.T) {
 				t.Fatalf("got %v, want S109 on line %d", diags, line)
 			}
 			// A context header's meaning belongs to the checker of #196.
-			if strings.Contains(src, "wire provides") || strings.Contains(src, "wire needs") {
+			if strings.Contains(src, "context provides") || strings.Contains(src, "context needs") {
 				for _, d := range diags {
 					if !strings.Contains(d.Msg, "#196") {
 						t.Fatalf("%+v does not name #196", d)

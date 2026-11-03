@@ -1,7 +1,7 @@
 // out: outer inner outer
 func main() needs Console {
 	let x = "outer"
-	let value = with wire {} {
+	let value = with context {} {
 		let x2 = x + " inner"
 		x2
 	}

@@ -15,7 +15,7 @@ type Payments {
 	law RefundNeverExceedsCharge(r Receipt) { Refundable(r) <= r.Amount },
 }
 
-let SlowWorld = wire {
+let SlowWorld = context {
 	Accounts:  MemoryAccounts{},
 	Payments:  NewSlowGateway,
 	Scheduler: testing.VirtualClock{},

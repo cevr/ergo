@@ -1,0 +1,4 @@
+// want S108
+let W = context {}
+let W = context {}
+func main() {}

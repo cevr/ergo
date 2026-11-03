@@ -3,5 +3,5 @@ type timeout { Get() string }
 type Holder {}
 func Get(_ Holder) string { return "ok" }
 func main() needs Console {
-	with wire { timeout: Holder } { Console.Println("\(timeout.Get())") }
+	with context { timeout: Holder } { Console.Println("\(timeout.Get())") }
 }

@@ -377,14 +377,14 @@ func TestPackageNameReportsNameTheirFile(t *testing.T) {
 		want  [2][]report
 	}{
 		{
-			"pattern-restore", [2]string{"let (W, W) = (1, 2)\n", "let W = wire {}\n"},
+			"pattern-restore", [2]string{"let (W, W) = (1, 2)\n", "let W = context {}\n"},
 			[2][]report{
 				{{0, 8, duplicate}, {0, 8, boundTwice}, {1, 4, duplicate}},
 				{{1, 5, duplicate}, {1, 8, duplicate}, {1, 8, boundTwice}},
 			},
 		},
 		{
-			"unit-wire", [2]string{"type W {}\n", "let W = wire {}\n"},
+			"unit-context", [2]string{"type W {}\n", "let W = context {}\n"},
 			[2][]report{{{1, 4, duplicate}}, {{1, 5, duplicate}}},
 		},
 	} {

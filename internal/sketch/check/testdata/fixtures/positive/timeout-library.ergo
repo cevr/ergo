@@ -11,7 +11,7 @@ func nap() string fails timeout.Expired needs Scheduler {
 }
 
 func main() needs Console {
-	let v = with wire { Scheduler: LiveScheduler } { nap() } catch {
+	let v = with context { Scheduler: LiveScheduler } { nap() } catch {
 	case timeout.Expired:
 		"timed out"
 	}

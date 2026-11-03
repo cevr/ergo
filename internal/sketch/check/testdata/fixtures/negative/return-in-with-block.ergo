@@ -1,5 +1,5 @@
 func f() string {
-	with wire {} { return "x" } // want S108
+	with context {} { return "x" } // want S108
 	return "after"
 }
 

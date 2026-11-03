@@ -1,0 +1,4 @@
+// want: S001 2 -
+context Live {
+	Orders = MemoryOrders{}
+}

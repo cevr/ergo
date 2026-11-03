@@ -253,7 +253,7 @@ func (c *checker) collect() {
 				c.preludeName(d.Name) // D-D3; the context still binds
 				w := &Context{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}
 				if _, dup := c.pkg.Contexts[w.Name]; dup {
-					c.errorf(d.Name, CodeType, "wire %s is declared twice", w.Name)
+					c.errorf(d.Name, CodeType, "context %s is declared twice", w.Name)
 					continue
 				}
 				if isPkgValue(c.pkg.Scope.names[w.Name]) {
@@ -460,7 +460,7 @@ func (c *checker) checkImportAliases() {
 			var o Object = c.pkg.Scope.names[pn.Name]
 			kind := "declaration"
 			if w := c.pkg.Contexts[pn.Name]; o == nil && w != nil {
-				o, kind = w, "wire"
+				o, kind = w, "context"
 			}
 			if o != nil {
 				switch o.(type) {

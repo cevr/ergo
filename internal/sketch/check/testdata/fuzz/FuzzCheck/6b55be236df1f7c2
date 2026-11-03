@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type Logger{Println()}\ntype Plain{}\nfunc Println(A Plain){with wire{}{C.A0000.Println(\"\\(Logge..Println  )\")}}")
+string("type Logger{Println()}\ntype Plain{}\nfunc Println(A Plain){with context{}{C.A0000.Println(\"\\(Logge..Println  )\")}}")

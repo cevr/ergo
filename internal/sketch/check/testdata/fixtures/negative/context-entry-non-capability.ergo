@@ -1,0 +1,7 @@
+type Order { ID string }
+
+let W = context {
+	Order: Order{ID: "x"}, // want S104
+}
+
+func main() {}

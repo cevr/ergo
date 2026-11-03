@@ -69,7 +69,7 @@ func (c *checker) checkFrames() {
 					return true
 				}
 				if what := frameNeed(info, x); what != "" && !c.diagnosedIn(f, x) {
-					c.errorf(x, CodeType, "%s needs the frame scope of a function body, and a package let, a wire entry or a type declaration runs outside one; move it into a function", what)
+					c.errorf(x, CodeType, "%s needs the frame scope of a function body, and a package let, a context entry or a type declaration runs outside one; move it into a function", what)
 				}
 				return true
 			})

@@ -1,0 +1,8 @@
+type Store { Get() string }
+type Holder { Value string }
+
+func Get(h Holder) string { return h.Value }
+
+let W = context { Store: Holder{Value: with W { Store.Get() }} } // want S108
+
+func main() {}

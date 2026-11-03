@@ -13,7 +13,7 @@ import (
 // with no value discards its tail. A path without a value where one is
 // needed is S107; S108 is only a no-else if in a value position.
 func TestEveryBodyKindYields(t *testing.T) {
-	const decls = "let W = wire {}\ntype E {}\nfunc g() fails E { E }\nfunc n() int fails E { 1 }\nfunc use(f func() int) int { f() }\n"
+	const decls = "let W = context {}\ntype E {}\nfunc g() fails E { E }\nfunc n() int fails E { 1 }\nfunc use(f func() int) int { f() }\n"
 	for _, tc := range []struct{ name, src, want string }{
 		// with blocks
 		{"with-if", "func f(b bool) int { with W { if b { 1 } else { 2 } } }", ""},

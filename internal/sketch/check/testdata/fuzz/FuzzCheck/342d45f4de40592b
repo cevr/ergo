@@ -1,2 +1,2 @@
 go test fuzz v1
-string("type Store{Get()}\ntype Holder{}\nfunc Get(Holder){}\nlet W=wire{A:0}\nfunc B(){with W{Stor..Get()}}")
+string("type Store{Get()}\ntype Holder{}\nfunc Get(Holder){}\nlet W=context{A:0}\nfunc B(){with W{Stor..Get()}}")

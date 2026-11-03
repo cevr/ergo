@@ -1,0 +1,8 @@
+// want S102
+type Store { Get() string }
+type Box { Get() string }
+type Holder { Value string }
+func Get(h Holder) string      { return h.Value }
+func read() string needs Store { return Store.Get() }
+let W = context { Box: Holder{Value: read()} }
+func main() {}

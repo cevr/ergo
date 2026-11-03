@@ -1279,7 +1279,7 @@ func (p *parser) parseContextLit() *ContextLit {
 		w.Needs = p.parseNeeds(ctxDecl)
 	}
 	if p.tok.tok != LBRACE {
-		p.errorf("expected \"{\" after wire, found %s", p.found())
+		p.errorf("expected \"{\" after context, found %s", p.found())
 	}
 	w.Body = p.parseContextBody()
 	return w
@@ -1299,10 +1299,10 @@ func (p *parser) parseContextBody() *ContextBody {
 			e.Kind, e.Replace = ContextReplace, p.tok.pos
 			p.next()
 		}
-		e.Key = p.parseCapabilityName("a wire entry")
+		e.Key = p.parseCapabilityName("a context entry")
 		if p.keysContinue() {
 			for p.got(COMMA) {
-				e.Keys = append(e.Keys, p.parseCapabilityName("a wire entry"))
+				e.Keys = append(e.Keys, p.parseCapabilityName("a context entry"))
 				if p.tok.tok == COLON {
 					break
 				}
@@ -1324,7 +1324,7 @@ func (p *parser) parseContextBody() *ContextBody {
 	}
 	p.exprLev = saved
 	if p.tok.tok != RBRACE {
-		p.errorf("expected \",\" or \"}\" in a wire, found %s", p.found())
+		p.errorf("expected \",\" or \"}\" in a context, found %s", p.found())
 	}
 	b.Rbrace = p.tok.pos
 	p.next()

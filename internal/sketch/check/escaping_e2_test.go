@@ -161,7 +161,7 @@ var escPositions = map[string][]escCase{
 		{src: "func u(f func(int) int) int {\n\t$len(Map[func(int) int, int]{f: 1})\n}\n", want: "S108"},
 	},
 	"ContextEntry.Value": {
-		{src: "func u(f func(int) int) int {\n\t$with wire { Svc: f } {\n\t\tSvc.Get()\n\t}\n}\n", want: "S106"},
+		{src: "func u(f func(int) int) int {\n\t$with context { Svc: f } {\n\t\tSvc.Get()\n\t}\n}\n", want: "S106"},
 	},
 }
 
@@ -288,8 +288,8 @@ var escUnreachable = map[string]string{
 	"ProvidesClause.Names": "a provides clause names capability types",
 	"MachineType.State":    "a machine's state type",
 	"MachineType.Signal":   "a machine's signal type",
-	"ContextEntry.Key":     "a wire entry's key names a capability type",
-	"ContextEntry.Keys":    "a wire entry's further keys name capability types",
+	"ContextEntry.Key":     "a context entry's key names a capability type",
+	"ContextEntry.Keys":    "a context entry's further keys name capability types",
 	// A machine is a type declaration's body (resolveNamed): its entries
 	// are read at the package level, where no local is in scope.
 	"MachineType.Initial": "a machine's initial value is a package-level expression",
@@ -304,7 +304,7 @@ var escUnreachable = map[string]string{
 	"Field.Names":      "a parameter's or field's name",
 	"FuncDecl.Name":    "a function's name",
 	"TypeDecl.Name":    "a type's name",
-	"ContextDecl.Name": "a wire's name",
+	"ContextDecl.Name": "a context's name",
 	"ImportSpec.Name":  "an import's name",
 	"TestDecl.Name":    "a test's name",
 	"LawDecl.Name":     "a law's name",

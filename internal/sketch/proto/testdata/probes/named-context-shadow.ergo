@@ -1,0 +1,11 @@
+// out: local provider
+type Store { Get() string }
+type Holder { Value string }
+func Get(h Holder) string { return h.Value }
+func build() string       { return "provider" }
+let W = context { Store: Holder{Value: build()} }
+func main() needs Console {
+	let build = "local"
+	let value = with W { Store.Get() }
+	Console.Println("\(build) \(value)")
+}

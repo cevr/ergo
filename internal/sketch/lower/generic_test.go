@@ -161,7 +161,7 @@ type Fixed {}
 
 func Get(_ Fixed) int { return 5 }
 
-let W = wire {
+let W = context {
 	Num: Fixed,
 }
 

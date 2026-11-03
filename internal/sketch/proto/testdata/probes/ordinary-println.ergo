@@ -2,4 +2,4 @@
 type Logger { Println(value string) string }
 type Plain {}
 func Println(_ Plain, value string) string { return "ordinary " + value }
-func main() needs Console                  { with wire { Logger: Plain } { Console.Println("\(Logger.Println("ok"))") } }
+func main() needs Console                  { with context { Logger: Plain } { Console.Println("\(Logger.Println("ok"))") } }

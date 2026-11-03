@@ -6,5 +6,5 @@ type Mem {}
 func pure() string     { return "ok" }
 func Get(_ Mem) string { return pure() }
 func main() needs Console {
-	with wire { Store: Mem } { Console.Println("\(Store.Get())") }
+	with context { Store: Mem } { Console.Println("\(Store.Get())") }
 }

@@ -112,7 +112,7 @@ func leak(p Pool) Task[Unit] {
 
 func bad() {
 	let mut running = Map[int64, Task[Unit]]{} // owned by bad's scope
-	with wire {} {
+	with context {} {
 		let files = []File{open()}                // root owner of files[0]: this block
 		running[0] = task.Go() { read(files[0]) } // error: running is released at the end of bad,
 		"done" // after files is released at the end of this block (R27)
@@ -138,7 +138,7 @@ The corrected forms of `bad`, allowed:
 import task
 
 func good() {
-	with wire {} {
+	with context {} {
 		let files = []File{open()}
 		let mut running = Map[int64, Task[Unit]]{} // bound after files in the same block
 		running[0] = task.Go() { read(files[0]) }  // running is released first (R5, R37)
@@ -147,7 +147,7 @@ func good() {
 }
 
 func goodTask() {
-	with wire {} {
+	with context {} {
 		let files = []File{open()}
 		let t = task.Go() { read(files[0]) } // t is owned by the block, bound after files
 		watch(t)                             // lends t; the block stops and drains t before it closes files (R5)
