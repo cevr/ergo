@@ -245,7 +245,9 @@ func (p *parser) skipKAndR(k knrSkip) {
 
 // declarationEnd returns the index of the `;` that ends the declaration at
 // i, or of the `{`, stray closer or end of file before it, and whether the
-// declaration names one of names.
+// declaration names one of names. The braces of a struct, union or enum
+// type in the declaration specifiers belong to the declaration: they are
+// skipped whole, and the names inside them do not count.
 func (p *parser) declarationEnd(i int, names map[string]bool) (int, bool) {
 	depth, named := 0, false
 	for ; ; i++ {
@@ -253,6 +255,12 @@ func (p *parser) declarationEnd(i int, names map[string]bool) (int, bool) {
 		switch {
 		case t.kind == tEOF:
 			return i, named
+		case depth == 0 && (t.is("struct") || t.is("union") || t.is("enum")):
+			if open, ok := p.typeBrace(i); ok {
+				if i = p.matching(open); p.toks[i].kind == tEOF {
+					return i, named
+				}
+			}
 		case t.is("(") || t.is("["):
 			depth++
 		case t.is(")") || t.is("]"):
@@ -264,6 +272,32 @@ func (p *parser) declarationEnd(i int, names map[string]bool) (int, bool) {
 			return i, named
 		case t.kind == tIdent && names[t.text]:
 			named = true
+		}
+	}
+}
+
+// typeBrace reports whether the struct, union or enum keyword at i opens a
+// braced type, and gives the index of its `{`. Between the keyword and the
+// brace stand at most one tag and attributes (`name(...)` or `[[...]]`), as
+// in `struct __attribute__((packed)) tag {`.
+func (p *parser) typeBrace(i int) (int, bool) {
+	tag := false
+	for k := i + 1; ; k++ {
+		t := p.toks[k]
+		switch {
+		case t.is("{"):
+			return k, true
+		case t.is("[") && p.toks[k+1].is("["):
+			k = p.matching(k)
+		case t.kind == tIdent && p.toks[k+1].is("("):
+			k = p.matching(k + 1)
+		case t.kind == tIdent && !tag:
+			tag = true
+		default:
+			return 0, false
+		}
+		if p.toks[k].kind == tEOF {
+			return 0, false
 		}
 	}
 }
