@@ -121,7 +121,7 @@ let payment = try timeout.After(500ms) { Gateway.Authorize(order) }
 **Classification.** `timeout.After` is an ordinary library function in the `timeout` package, not a construct. Under the owner's rules, constructs get keywords, a dot form is library, and kernel primitives are functions (owner, 2026-10-12). Its kernel primitives are task start (`task.Go`), `Task.Stop` and `Task.Wait`, and the `Scheduler` capability. Its designed signature, in the generic spelling of [types.md](types.md#generics):
 
 ```go
-func After[T, E, R](d duration, body func() T fails E needs R) T fails E | Expired needs Scheduler, R {
+func After[T, E, R](d duration, body func() T fails E needs R) T fails E | Expired needs Scheduler | R {
 	// designed: the body runs as a child task raced against the deadline
 }
 ```

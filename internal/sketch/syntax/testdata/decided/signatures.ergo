@@ -2,7 +2,7 @@
 // declaration (a function needs a body), so the lines are operations of a
 // type, and Retry, which declares type parameters, has a body.
 type Shop {
-	Checkout(id string, card Card) Receipt fails NotFound | Declined needs Orders, Payments,
+	Checkout(id string, card Card) Receipt fails NotFound | Declined needs Orders | Payments,
 	Settle(id string) fails NotFound needs Orders,
 	Split(total int64, parts int64) (int64, int64) fails ZeroParts,
 }

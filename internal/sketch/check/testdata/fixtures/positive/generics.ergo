@@ -40,7 +40,7 @@ func wrap(n int64) Maybe[int64] {
 
 func double(n int64) int64 { return n * 2 }
 
-func both(f func() int64 needs (Clocky, Sleepy)) int64 needs Clocky, Sleepy { return f() }
+func both(f func() int64 needs Clocky | Sleepy) int64 needs Clocky | Sleepy { return f() }
 
 type Clocky { Now() int64 }
 type Sleepy { Nap(d duration) }

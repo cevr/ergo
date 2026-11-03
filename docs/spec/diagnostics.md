@@ -40,7 +40,7 @@ The parser `internal/sketch/syntax` ([#196](https://github.com/cevr/ergo/issues/
 - A keyword or reserved word used as a name (`let match = 1`), and a word that is not in the language (`enum`) where a declaration or statement starts.
 - A context literal with `needs` before `provides`.
 - A form the decided grammar does not admit: a local type declaration, a `~` constraint, a type parameter list on an operation, a trailing block without the call's parentheses (`task.Go { … }`), a statement-leading `if`, `match` or `for` continued by an operator, selector or call, `case limit + 1:` (a case lists patterns), a type that is not a type name in a `fails` row or a union (`fails []int`, `type U = []int | B`).
-- A malformed construct: an unknown or duplicate machine entry, a machine without `step`, `needs (A, B)` on a declaration.
+- A malformed construct: an unknown or duplicate machine entry, a machine without `step`, a capability row written with commas or parentheses (`needs A, B`, `needs (A | B)`; 196n).
 - An unterminated string or block comment, a newline inside an interpreted string, an unknown number suffix (`5kg`), an unexpected character, an import after a declaration.
 - A tree higher than 1000 levels, in any composition of chains, operators, parentheses, types, statements and blocks ([grammar](grammar.md#parser) rule 5).
 
@@ -170,7 +170,7 @@ The checker refuses a construct that another ticket owns, and names it, instead 
 | Rule | Owner |
 | --- | --- |
 | A context entry whose provider is a function (a constructor entry), such as `Orders: OpenOrders` | [#37](https://github.com/cevr/ergo/issues/37), context constructors (`context-constructor-is-37`) |
-| A context header, `context provides A, B { … }` or `context needs C, D { … }` (#217) | [#196](https://github.com/cevr/ergo/issues/196) stage b, the context header ([rows.md](rows.md#context) rule 8; README Gap 33; `context-exposure-hides-entry`) |
+| A context header, `context provides A | B { … }` or `context needs C | D { … }` (#217) | [#196](https://github.com/cevr/ergo/issues/196) stage b, the context header ([rows.md](rows.md#context) rule 8; README Gap 33; `context-exposure-hides-entry`) |
 | A `with` over a local value that is not a context value, and a context literal outside `with`, `let w = context { … }` | 196x, extern and first-class contexts (check-v1) |
 | A `with` of several operands, contexts or context values, `with a, b { … }`; the message says to nest one with per operand | 196x for contexts, G1 for context values ([runtime.md](runtime.md#g1-context-through-with) rule 1) |
 | A union variant from another package, `type E = Declined \| timeout.Expired` | 196b, packages (spec Q7) |

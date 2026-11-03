@@ -1,7 +1,7 @@
 import testing
 import timeout
 
-func Charge(card Card, amount int64) Receipt fails Declined | Frozen | timeout.Expired needs Accounts, Payments, Scheduler {
+func Charge(card Card, amount int64) Receipt fails Declined | Frozen | timeout.Expired needs Accounts | Payments | Scheduler {
 	timeout.After(2s) {
 		let lock = try Accounts.Lock(card)
 		Payments.Charge(lock, amount)

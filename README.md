@@ -7,7 +7,7 @@ import testing
 import timeout
 
 // A signature lists every expected failure and every service the caller must supply.
-func Charge(card Card, amount int64) Receipt fails Declined | Frozen | timeout.Expired needs Accounts, Payments, Scheduler {
+func Charge(card Card, amount int64) Receipt fails Declined | Frozen | timeout.Expired needs Accounts | Payments | Scheduler {
 	return timeout.After(2s) { // the block runs as a child task; at 2s it is stopped and drained
 		let lock = try Accounts.Lock(card) // a resource: released on every exit, the timeout included
 		Payments.Charge(lock, amount)      // lends lock for the call
@@ -47,7 +47,7 @@ From the signature alone you know how `Charge` can fail and what it needs. The l
 Every task belongs to a scope. The scope waits for its tasks, stops them on a timeout, and keeps every cause when several fail.
 
 ```go
-func Prices(ids []string) []Price fails NotFound | timeout.Expired needs Catalog, Scheduler {
+func Prices(ids []string) []Price fails NotFound | timeout.Expired needs Catalog | Scheduler {
 	return timeout.After(2s) {
 		tasks.Map(ids, 8, func(id string) Price fails NotFound needs Catalog {
 			return Catalog.Price(id)

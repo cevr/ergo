@@ -220,8 +220,7 @@ internal/sketch/check/context_residue_test.go	residueAllowlist = "testdata/v1/wi
 internal/sketch/check/context_residue_test.go	line outside history that says wire is the network
 internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec),
 internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec), grammar.md's
-internal/sketch/check/context_residue_test.go	"-n", "-I", "-w", "-i", "-E", "wires?", "--", ".",
-internal/sketch/check/context_residue_test.go	t.Errorf("%s:%s: %q says wire and no row of %s covers it; spell
+internal/sketch/check/context_residue_test.go	grep:      []string{"-w", "-i", "-E", "wires?"},
 internal/sketch/syntax/decided_test.go	(196w, docs/previews/2026-11-02-wire-to-context.md).
 internal/sketch/syntax/decided_test.go	"wire": "context",
 

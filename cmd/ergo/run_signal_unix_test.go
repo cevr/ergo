@@ -15,7 +15,7 @@ import (
 )
 
 // sketchWaitSource prints "ready" and then sleeps for a minute.
-const sketchWaitSource = `func wait() needs Console, Scheduler {
+const sketchWaitSource = `func wait() needs Console | Scheduler {
 	Console.Println("ready")
 	Scheduler.Sleep(60s)
 }

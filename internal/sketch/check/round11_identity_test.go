@@ -255,8 +255,8 @@ func g(x Shape) int {
 		return 0
 	}
 }
-func h() needs Store, Log {}
-func k() needs Log, Store {}
+func h() needs Store | Log {}
+func k() needs Log | Store {}
 func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
 `
 

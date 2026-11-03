@@ -52,8 +52,8 @@ var rowPositions = []rowPosition{
 // them, since a capability name may be `pkg.Name`.
 var rowNames = []string{"A", "pkg.B", "C"}
 
-// TestCapabilityRowPlacement is the placement property of 196n: at every
-// position that holds a needs or provides clause, cross one, two and three
+// TestCapabilityRowPlacement is the placement property of 196n: cross every
+// position of a row clause (needs or provides) with one, two and three
 // names. The pipe form parses and is canonical. A comma between the names
 // is S001 at the comma with the fix; inside a list of types the comma ends
 // the element instead, so the clause holds one name (rule 3: parameters and
@@ -145,7 +145,7 @@ func isName(x syntax.Expr, name string) bool {
 }
 
 // TestCapabilityRowPositionsDerived derives every field of the syntax tree
-// that holds a needs or provides clause, and asserts that rowPositions
+// that holds a row clause (needs or provides), and asserts that rowPositions
 // exercises each one and names no other.
 func TestCapabilityRowPositionsDerived(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("..", "syntax", "ast*.go"))

@@ -74,7 +74,7 @@ type Postgres {
 	refresh Task[Unit], // declared after pool: stopped and drained first
 }
 
-func OpenPostgres() Postgres fails ConnectFailed needs Config, Clock, Scheduler {
+func OpenPostgres() Postgres fails ConnectFailed needs Config | Clock | Scheduler {
 	let pool = try retry.On[ConnectFailed](retry.Exponential(200ms).Times(5)) {
 		sql.Open(Config.String("DATABASE_URL"))
 	}
@@ -175,7 +175,7 @@ func goodTask() {
 ```go
 import queue
 
-func run(signals queue.Queue[Signal]) needs Probe, Clock, Scheduler {
+func run(signals queue.Queue[Signal]) needs Probe | Clock | Scheduler {
 	let b = actor.Start(Breaker{}, 16)
 	let set = tasks.Set(tasks.Restart(schedule.Exponential(1s).UpTo(5))) // bound after b
 	set.Go(func() { actor.Pump(b, signals) })                            // structured lend of b (R31)

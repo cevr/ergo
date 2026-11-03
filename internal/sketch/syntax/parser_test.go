@@ -490,7 +490,7 @@ func TestRoundFourForms(t *testing.T) {
 			"let x = []int{1, 2}\n",
 			"let x = int64(y)\n",
 			"let f = func(x) { x }\n",
-			"func main() {\n\trun(func() needs A, B { g() })\n}\n",
+			"func main() {\n\trun(func() needs A | B { g() })\n}\n",
 		} {
 			if _, err := Parse(src); err != nil {
 				t.Errorf("%q: %v", src, err)

@@ -42,7 +42,7 @@ func Send(_ OkNet, msg string) fails Down {
 
 // both fails with two errors, so a catch can handle one and pass the other on.
 const both = `
-func both(id string) string fails NotFound | Down needs Store, Net {
+func both(id string) string fails NotFound | Down needs Store | Net {
 	let v = try Store.Get(id)
 	try Net.Send(v)
 	return v
@@ -74,7 +74,7 @@ func get(id string) string fails NotFound needs Store {
 }
 func main() needs Console { Console.Println("x") }`, ""},
 		{"partial catch under try passes the rest on", both + `
-func partial(id string) string fails Down needs Store, Net {
+func partial(id string) string fails Down needs Store | Net {
 	let v = try both(id) catch {
 	case NotFound:
 		"none"
@@ -83,7 +83,7 @@ func partial(id string) string fails Down needs Store, Net {
 }
 func main() needs Console { Console.Println("x") }`, ""},
 		{"partial catch under try still needs the rest declared", both + `
-func partial(id string) string fails NotFound needs Store, Net {
+func partial(id string) string fails NotFound needs Store | Net {
 	let v = try both(id) catch {
 	case NotFound:
 		"none"
@@ -129,7 +129,7 @@ func slow(id string) string fails NotFound | timeout.Expired needs Store {
 }
 func main() needs Console { Console.Println("x") }`, "S102"},
 		{"main cannot require what the host lacks", `
-func main() needs Console, Store { Console.Println("x") }`, "S102"},
+func main() needs Console | Store { Console.Println("x") }`, "S102"},
 		{"a reserved name", `
 func main() needs Console {
 	let string = "x"
@@ -156,7 +156,7 @@ func TestBuildAndRun(t *testing.T) {
 		t.Skip("no go tool")
 	}
 	src := base + `
-func lookup(id string) string fails Down | timeout.Expired needs Store, Net, Scheduler {
+func lookup(id string) string fails Down | timeout.Expired needs Store | Net | Scheduler {
 	let v = try timeout.After(1s) { Store.Get(id) } catch {
 	case NotFound:
 		"missing " + id
@@ -165,7 +165,7 @@ func lookup(id string) string fails Down | timeout.Expired needs Store, Net, Sch
 	return v
 }
 
-func show(id string) needs Console, Store, Net, Scheduler {
+func show(id string) needs Console | Store | Net | Scheduler {
 	let v = lookup(id) catch {
 	case Down:
 		"down"
