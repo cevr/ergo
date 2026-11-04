@@ -21,10 +21,23 @@
 // cache records files, environment variables and the module's source, not
 // the programs a test runs or the libraries they load. So this package, whose
 // tests run git, ps, shells, the go command and gates in systemd scopes, is a
-// host package (hostTestPackages): it runs with -count=1 on every gate and
-// never replays, with its parallel tests bounded by hostTestParallel. The packages below it are hermetic: each runs no program
+// host package (hostTestPackages): its step runs with -count=1, so Go's test
+// cache never replays it, with its parallel tests bounded by hostTestParallel.
+// The packages below it are hermetic: each runs no program
 // but its own test binary and builds with CGO_ENABLED=0 (package
 // scripts/gate/hermetic checks them), so they replay.
+//
+// Above the steps sits the whole-gate replay (package replay, wholegate.go).
+// One key covers every input of every step: the gate executable, the
+// checkout root, HEAD, the index, every path of the checkout, the declared
+// step environment, the gate's settings and the host fingerprint, which
+// includes every declared host program. A gate whose steps all pass records
+// the run under that key when the key at its end equals the key at its
+// start; a later gate at the same key prints the recorded run and starts no
+// step, so the host step replays only inside a whole-gate replay. A failed
+// run withdraws the record at its key. The merge tier (--merge) runs every
+// step uncached and compares each verdict with the record; a difference
+// fails it and withdraws the record.
 //
 // Every step runs under a memory budget: a hard cap for the step with all the
 // processes it starts (ERGO_GATE_STEP_MEMORY, default 8G), one for all the
@@ -79,12 +92,14 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/testinputs/testenv"
+	"ergo.local/prototype/scripts/gate/replay"
 )
 
 // cacheVersion is part of every key; bump it when a step's meaning changes in
 // a way its declared inputs cannot see, or when the receipt's form changes
-// (v3: the output moved out of the receipt into a file beside it).
-const cacheVersion = "ergo-gate-v3"
+// (v3: the output moved out of the receipt into a file beside it; v4: a
+// receipt follows the links among its inputs, and the whole-gate store).
+const cacheVersion = replay.Version
 
 // Step is one gate check.
 type Step struct {
@@ -122,7 +137,7 @@ type Inputs struct {
 	// Installed names directories a step walks on disk itself, such as a
 	// committed snapshot, whose contents are an input, files Git ignores
 	// included: every file's path, permissions and content and every
-	// symlink's target, following links (installedDigest). An absent
+	// symlink's target, following links (replay.InstallationDigest). An absent
 	// directory is a distinct input. Each is digested once per run, because
 	// no step writes it.
 	Installed []string
@@ -154,6 +169,9 @@ type result struct {
 	// log shows the critical path and not only each step's own time.
 	begun time.Duration
 	note  string
+	// passedAt is when the step passed: when it finished, or when the
+	// receipt it replayed was recorded. duration is then the receipt's.
+	passedAt time.Time
 }
 
 // receipt is a recorded pass. The step's output is in a file beside it
@@ -181,6 +199,9 @@ type gate struct {
 	tools    map[string]*toolFact
 	toolsMu  sync.Mutex
 
+	// roots are the paths the tool fingerprints cover (installationRoots).
+	roots []string
+
 	installedDigests map[string]string
 	installedMu      sync.Mutex
 
@@ -188,23 +209,47 @@ type gate struct {
 	// or empty; scopeNote says why there is none.
 	scope, scopeNote string
 	limit            limiter
+
+	// whole, when set, keys the whole gate: run replays a recorded pass at
+	// the key, records a passed run and withdraws the record on a failure.
+	whole *wholeGate
+	// verdicts are each step's verdict after run, for the merge tier.
+	verdicts map[string]replay.Verdict
+	// programs replaces hostPrograms in a test of the collector.
+	programs []string
+}
+
+// wholeGate is what a run needs to key, replay and record the whole gate.
+type wholeGate struct {
+	// mechanism is the memory mechanism fact (mechanismFact).
+	mechanism string
+	// identity names the checkout in a record.
+	identity checkoutState
+}
+
+// derive is a gate for another run of the same checkout: the merge tier's
+// inner and uncached runs share the scope, the limiter and the caches.
+func (g *gate) derive(steps []*Step, noCache bool, whole *wholeGate) *gate {
+	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, whole: whole, programs: g.programs}
+}
+
+// collect collects the whole-gate facts afresh: every fingerprint again
+// (collectHost uses a fresh fingerprint cache).
+func (g *gate) collect() (*replay.Facts, error) {
+	return g.collectFacts(g.whole.mechanism)
 }
 
 func main() {
 	list := flag.Bool("list", false, "print the checks the gate runs, one per line, and exit")
 	noCache := flag.Bool("no-cache", false, "run every step even when a pass for identical inputs is recorded")
+	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1) and compare each verdict with the whole-gate record of the checkout's key")
 	recordDurations := flag.Bool("record-durations", false, "measure the sharded Go packages and rewrite "+durationsFile)
 	flag.Parse()
+	if *merge && *noCache {
+		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
+	}
 	scope, scopeNote := os.Getenv(scopeVariable), ""
 	os.Unsetenv(scopeVariable)
-	if !*list && scope == "" {
-		budget, err := currentBudget()
-		if err != nil {
-			fatal(err)
-		}
-		// Returns only when the gate cannot run in its own scope.
-		scopeNote = enterScope(budget)
-	}
 	root, err := repositoryRoot()
 	if err != nil {
 		fatal(err)
@@ -212,10 +257,26 @@ func main() {
 	// File-mode assertions in the process tests expect the conventional
 	// creation mask; the gate fixes it rather than inheriting a caller's.
 	setCreationMask()
-	// Steps run concurrently, and git status/diff (including the Go
-	// toolchain's VCS stamping) otherwise take the index lock to refresh
-	// stat data, failing a concurrent step that must write the index.
+	// The gate's own git commands run concurrently with steps, and git
+	// status otherwise takes the index lock to refresh stat data.
 	os.Setenv("GIT_OPTIONAL_LOCKS", "0")
+	probed := false
+	if !*list && scope == "" {
+		budget, err := currentBudget()
+		if err != nil {
+			fatal(err)
+		}
+		command, reason := scopeProbe(budget)
+		probed = command != ""
+		if !*noCache && !*merge && !*recordDurations {
+			// The replay path starts no step, so it needs no scope.
+			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), os.Stdout); replayed {
+				os.Exit(code)
+			}
+		}
+		// Returns only when the gate cannot run in its own scope.
+		scopeNote = enterScope(command, reason, budget)
+	}
 	if *recordDurations {
 		g := &gate{root: root, scope: scope, scopeNote: scopeNote}
 		if err := g.recordDurations(os.Stdout); err != nil {
@@ -235,13 +296,102 @@ func main() {
 	}
 	// The first line binds the log to the checkout it checked. A dirty
 	// checkout still runs, and says so.
-	identity, err := checkoutIdentity(root)
+	state, err := checkoutStateOf(root)
 	if err != nil {
 		fatal(err)
 	}
-	fmt.Println(identity)
+	fmt.Println(state)
 	g := &gate{root: root, cacheDir: cacheDirectory(), noCache: *noCache, steps: steps, scope: scope, scopeNote: scopeNote}
+	if g.cacheDir != "" {
+		g.whole = &wholeGate{mechanism: mechanismFact(scope, probed, scopeNote), identity: state}
+	}
+	if *merge {
+		os.Exit(g.mergeTier(os.Stdout))
+	}
 	os.Exit(g.run(os.Stdout))
+}
+
+// replayWholeGate replays the whole-gate record of the checkout's key, if
+// one replays (replay.Store.TryReplay): the identity line, then the
+// recorded run. It reports whether it replayed, and the exit code. It runs
+// before the gate enters its scope, and starts no step.
+func replayWholeGate(root, mechanism string, out *os.File) (int, bool) {
+	g := &gate{root: root, cacheDir: cacheDirectory()}
+	if g.cacheDir == "" {
+		return 0, false
+	}
+	facts, err := g.collectFacts(mechanism)
+	if err != nil {
+		return 0, false
+	}
+	spoolDir, err := outputSpoolDir(g.cacheDir)
+	if err != nil {
+		return 0, false
+	}
+	recorded, _ := replay.Open(g.cacheDir).TryReplay(facts, func() (*os.File, error) { return newOutputSpool(spoolDir) })
+	if recorded == nil {
+		// The gate runs, and says there why it did not replay.
+		return 0, false
+	}
+	defer recorded.Close()
+	if err := outputDestination(out); err != nil {
+		return 0, false
+	}
+	state, err := checkoutStateOf(root)
+	if err != nil {
+		return 0, false
+	}
+	fmt.Fprintln(out, state)
+	if err := recorded.Print(out); err != nil {
+		fmt.Fprintf(out, "gate: print the replay: %v\n", err)
+		return 2, true
+	}
+	return 0, true
+}
+
+// mergeTier runs the merge tier (replay.MergeTier): the inner tier first
+// when the key has no record, then every step uncached, then the verdict
+// table. Both runs share one limiter: a gate sets up its scope's cgroups
+// once.
+func (g *gate) mergeTier(out io.Writer) int {
+	if g.whole == nil {
+		fmt.Fprintln(out, "gate: --merge needs a gate cache directory (ERGO_GATE_CACHE, XDG_CACHE_HOME or HOME)")
+		return 2
+	}
+	if g.limit == nil {
+		budget, err := currentBudget()
+		if err == nil {
+			g.limit, err = g.openLimiter(budget)
+		}
+		if err != nil {
+			fmt.Fprintln(out, "gate:", err)
+			return 2
+		}
+		defer g.limit.close()
+	}
+	var uncached []*Step
+	for _, step := range g.steps {
+		uncached = append(uncached, uncachedStep(step))
+	}
+	tier := replay.MergeTier{
+		Store:   replay.Open(g.cacheDir),
+		Collect: g.collect,
+		Inner: func() bool {
+			fmt.Fprintln(out, "merge: the inner tier")
+			return g.derive(g.steps, false, g.whole).run(out) == 0
+		},
+		Uncached: func() ([]string, map[string]replay.Verdict) {
+			fmt.Fprintln(out, "merge: every step uncached")
+			run := g.derive(uncached, true, nil)
+			run.run(out)
+			var names []string
+			for _, step := range uncached {
+				names = append(names, step.Name)
+			}
+			return names, run.verdicts
+		},
+	}
+	return tier.Run(out)
 }
 
 func fatal(err error) {
@@ -261,6 +411,25 @@ func repositoryRoot() (string, error) {
 // whether the checkout matches them: no staged, unstaged or untracked
 // (non-ignored) changes, submodules included.
 func checkoutIdentity(root string) (string, error) {
+	state, err := checkoutStateOf(root)
+	if err != nil {
+		return "", err
+	}
+	return state.String(), nil
+}
+
+// checkoutState is the commit and tree a gate starts from, and whether the
+// checkout matches them.
+type checkoutState struct {
+	head, tree string
+	clean      bool
+}
+
+func (s checkoutState) String() string {
+	return fmt.Sprintf("gate: head %s tree %s clean=%t", s.head, s.tree, s.clean)
+}
+
+func checkoutStateOf(root string) (checkoutState, error) {
 	git := func(args ...string) (string, error) {
 		command := exec.Command("git", args...)
 		command.Dir = root
@@ -272,19 +441,19 @@ func checkoutIdentity(root string) (string, error) {
 	}
 	head, err := git("rev-parse", "HEAD")
 	if err != nil {
-		return "", err
+		return checkoutState{}, err
 	}
 	tree, err := git("rev-parse", "HEAD^{tree}")
 	if err != nil {
-		return "", err
+		return checkoutState{}, err
 	}
 	// Submodule ignore settings in .gitmodules or config cannot hide a
 	// change: the reported cleanliness covers every submodule.
 	status, err := git("status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignore-submodules=none")
 	if err != nil {
-		return "", err
+		return checkoutState{}, err
 	}
-	return fmt.Sprintf("gate: head %s tree %s clean=%t", strings.TrimSpace(head), strings.TrimSpace(tree), status == ""), nil
+	return checkoutState{head: strings.TrimSpace(head), tree: strings.TrimSpace(tree), clean: status == ""}, nil
 }
 
 func cacheDirectory() string {
@@ -354,22 +523,52 @@ func (g *gate) run(out io.Writer) int {
 		fmt.Fprintln(out, "gate:", err)
 		return 2
 	}
-	if slices.ContainsFunc(g.steps, runsGoTest) {
-		fmt.Fprintf(out, "gate: go test steps receive only %s\n", strings.Join(testenv.Names, " "))
+	fmt.Fprintf(out, "gate: steps receive only %s\n", strings.Join(testenv.Names, " "))
+	if g.limit == nil {
+		budget, err := currentBudget()
+		if err == nil {
+			g.limit, err = g.openLimiter(budget)
+		}
+		if err != nil {
+			fmt.Fprintln(out, "gate:", err)
+			return 2
+		}
+		defer g.limit.close()
 	}
-	budget, err := currentBudget()
-	if err == nil {
-		g.limit, err = g.openLimiter(budget)
-	}
-	if err != nil {
-		fmt.Fprintln(out, "gate:", err)
-		return 2
-	}
-	defer g.limit.close()
 	fmt.Fprintf(out, "gate: memory budget: %s\n", g.limit.describe())
+	var err error
 	if g.spoolDir, err = outputSpoolDir(g.cacheDir); err != nil {
 		fmt.Fprintln(out, "gate:", err)
 		return 2
+	}
+	// The start key, after the limiter (which may bound the gates' slice, a
+	// host fact) and before any step.
+	var recording *replay.Run
+	if g.whole != nil {
+		store := replay.Open(g.cacheDir)
+		facts, err := g.collect()
+		switch {
+		case err != nil:
+			fmt.Fprintf(out, "gate: no whole-gate key: %v\n", err)
+		case !g.noCache:
+			if recorded, reason := store.TryReplay(facts, g.spool); recorded != nil {
+				defer recorded.Close()
+				if err := recorded.Print(out); err != nil {
+					fmt.Fprintf(out, "gate: print the replay: %v\n", err)
+					return 2
+				}
+				g.verdicts = map[string]replay.Verdict{}
+				for _, step := range recorded.Record.Steps {
+					g.verdicts[step.Name] = replay.Pass
+				}
+				return 0
+			} else {
+				fmt.Fprintln(out, "gate: "+reason)
+			}
+			fallthrough
+		default:
+			recording = store.Begin(facts)
+		}
 	}
 
 	results := make([]*result, len(g.steps))
@@ -396,26 +595,58 @@ func (g *gate) run(out io.Writer) int {
 	}
 
 	var failures []string
+	g.verdicts = map[string]replay.Verdict{}
 	for i, step := range g.steps {
 		<-done[i]
 		r := results[i]
 		switch r.outcome {
 		case passed:
 			fmt.Fprintf(out, "== %s: ok (%s)\n", step.Name, r.measures())
+			g.verdicts[step.Name] = replay.Pass
 		case cached:
 			fmt.Fprintf(out, "== %s: ok, cached (%s)\n", step.Name, r.note)
+			g.verdicts[step.Name] = replay.Pass
 		case failed:
 			fmt.Fprintf(out, "== %s: FAILED (%s)\n", step.Name, r.measures())
 			failures = append(failures, step.Name)
+			g.verdicts[step.Name] = replay.Failed
 		case blocked:
 			fmt.Fprintf(out, "== %s: not run (%s)\n", step.Name, r.note)
 			failures = append(failures, step.Name)
+			g.verdicts[step.Name] = replay.NotRun
 		}
-		if err := r.print(out); err != nil {
+		// The whole-gate record keeps what is printed for the step, in an
+		// object of the store.
+		destination := out
+		var object *replay.Object
+		if recording != nil {
+			var err error
+			if object, err = recording.Output(); err == nil {
+				if err := outputDestination(object.File()); err != nil {
+					recording.Refuse(fmt.Sprintf("store output in %s %v; set ERGO_GATE_CACHE to a directory on disk", filepath.Dir(object.File().Name()), err))
+				}
+				destination = io.MultiWriter(out, object)
+			}
+		}
+		if err := r.print(destination); err != nil {
 			fmt.Fprintf(out, "gate: %s: print output: %v\n", step.Name, err)
 			if !slices.Contains(failures, step.Name) {
 				failures = append(failures, step.Name)
 			}
+			g.verdicts[step.Name] = replay.Failed
+		} else if recording != nil && (r.outcome == passed || r.outcome == cached) {
+			outcome := "ran"
+			if r.outcome == cached {
+				outcome = "cached"
+			}
+			recording.Passed(step.Name, object, outcome, r.duration.Seconds(), r.passedAt)
+		}
+	}
+	if recording != nil {
+		identity := g.whole.identity
+		line := recording.Finish(len(failures) == 0, g.collect, replay.Meta{Head: identity.head, Tree: identity.tree, Clean: identity.clean, Now: time.Now()})
+		if line != "" {
+			fmt.Fprintln(out, line)
 		}
 	}
 	elapsed := time.Since(started).Seconds()
@@ -427,17 +658,27 @@ func (g *gate) run(out io.Writer) int {
 	return 0
 }
 
+// spool is a new unlinked output spool in the gate's spool directory.
+func (g *gate) spool() (*os.File, error) { return newOutputSpool(g.spoolDir) }
+
 func (g *gate) execute(step *Step) *result {
 	key := ""
+	// notCached says why a step with declared inputs runs without its
+	// receipt: an input that cannot be keyed.
+	notCached := ""
 	if step.Inputs != nil && g.cacheDir != "" {
 		var err error
 		key, err = g.key(step)
-		if err != nil {
+		var unkeyed unkeyedInput
+		switch {
+		case errors.As(err, &unkeyed):
+			key, notCached = "", fmt.Sprintf("gate: %s: not cached: %s\n", step.Name, string(unkeyed))
+		case err != nil:
 			return &result{outcome: failed, output: []byte("gate: hash inputs: " + err.Error() + "\n")}
 		}
-		if !g.noCache {
+		if key != "" && !g.noCache {
 			if recorded, output, ok := g.lookup(key); ok {
-				return &result{outcome: cached, spool: output,
+				return &result{outcome: cached, spool: output, duration: time.Duration(recorded.Duration * float64(time.Second)), passedAt: recorded.Passed,
 					note: fmt.Sprintf("passed in %.1fs at %s, inputs %s", recorded.Duration, recorded.Passed.UTC().Format(time.RFC3339), key[:12])}
 			}
 		}
@@ -457,10 +698,7 @@ func (g *gate) execute(step *Step) *result {
 	started := time.Now()
 	command := exec.CommandContext(context.Background(), step.Argv[0], step.Argv[1:]...)
 	command.Dir = g.root
-	command.Env = stepCommandEnvironment(g.root, step)
-	if len(step.ToolEnv) > 0 {
-		command.Env = append(command.Env, testenv.ToolDigest+"="+g.toolDigest(step))
-	}
+	command.Env = g.commandEnvironment(step)
 	// The step's output goes to a spool file, never to the gate's memory, so
 	// what the gate holds for a step does not grow with what it prints.
 	spool, err := newOutputSpool(g.spoolDir)
@@ -471,7 +709,7 @@ func (g *gate) execute(step *Step) *result {
 	command.Stdout = spool
 	command.Stderr = spool
 	used, err := runBudgeted(g.limit, step.Name, command)
-	r := &result{outcome: passed, spool: spool, duration: time.Since(started), begun: started.Sub(g.started), peak: used.peak}
+	r := &result{outcome: passed, spool: spool, duration: time.Since(started), begun: started.Sub(g.started), peak: used.peak, passedAt: time.Now(), output: []byte(notCached)}
 	if command.ProcessState != nil {
 		// A reaped child's usage includes the descendants it reaped.
 		r.cpu = command.ProcessState.UserTime() + command.ProcessState.SystemTime()
@@ -590,11 +828,25 @@ func (g *gate) toolDigest(step *Step) string {
 	return hex.EncodeToString(digest.Sum(nil))[:16]
 }
 
-// stepEnvironment is the environment every step runs with: the caller's,
-// with the gate's collector target and the soft memory limit below the step
-// budget (stepSoftLimit) unless the caller sets them.
+// stepEnvironment is the environment every step runs with, and every tool
+// query: the caller's variables that testenv names, and no other, as Bazel's
+// strict action environment passes only declared variables, with the
+// gate's collector target and the soft memory limit below the step budget
+// (stepSoftLimit) unless the caller sets them. A variable outside the list
+// cannot reach a step, so the whole-gate key, which holds each listed
+// variable set or not (declaredEnvironment), covers all a step can read
+// from its environment. A step's own variables (Step.Env) come over it.
+//
+// The tool digest (testenv.ToolDigest) is the one listed variable the gate
+// never takes from its caller: it derives the value from key inputs (the
+// tool fingerprints and the other listed variables) for a step that names
+// ToolEnv (commandEnvironment), and no other step or tool query receives
+// it. So every variable a step receives is a key input or derived from key
+// inputs the same way on every run.
 func stepEnvironment() []string {
-	environment := os.Environ()
+	environment := slices.DeleteFunc(testenv.Environment(os.Environ()), func(entry string) bool {
+		return strings.HasPrefix(entry, testenv.ToolDigest+"=")
+	})
 	if _, set := os.LookupEnv("GOGC"); !set {
 		environment = append(environment, "GOGC="+gcPercent)
 	}
@@ -660,16 +912,23 @@ func stepEnvironmentFor(root, name string) []string {
 }
 
 // stepCommandEnvironment is the environment a step's command runs with,
-// before the tool digest: a go test step's filtered one, or the step
-// environment, with the step's own variables over it.
+// before the tool digest: the step environment with the step's TMPDIR and
+// its own variables over it.
 func stepCommandEnvironment(root string, step *Step) []string {
 	environment := stepEnvironmentFor(root, step.Name)
-	if runsGoTest(step) {
-		environment = goTestEnvironmentFor(root, step.Name)
-	}
 	for _, entry := range step.Env {
 		name, value, _ := strings.Cut(entry, "=")
 		environment = setEnvironmentVariable(environment, name, value)
+	}
+	return environment
+}
+
+// commandEnvironment is all that a step's command receives: its step
+// environment, and the tool digest when the step names ToolEnv.
+func (g *gate) commandEnvironment(step *Step) []string {
+	environment := stepCommandEnvironment(g.root, step)
+	if len(step.ToolEnv) > 0 {
+		environment = append(environment, testenv.ToolDigest+"="+g.toolDigest(step))
 	}
 	return environment
 }
@@ -699,16 +958,13 @@ func runsGoTest(step *Step) bool {
 	return len(step.Argv) >= 2 && step.Argv[0] == "go" && step.Argv[1] == "test"
 }
 
-// goTestEnvironment is the environment of a step that runs go test: the step
-// environment's entries that testenv allows, so a variable the gate does not
-// key cannot reach a cached test. Each go test step gets its own stable TMPDIR,
-// and the tool digest keys that path along with the rest of its environment.
+// goTestEnvironment is the environment of a step that runs go test, as of
+// every step: only the variables testenv allows, so a variable the gate
+// does not key cannot reach a cached test. Each step gets its own stable
+// TMPDIR, and the tool digest keys that path along with the rest of its
+// environment.
 func goTestEnvironment() []string {
-	return testenv.Environment(stepEnvironment())
-}
-
-func goTestEnvironmentFor(root, name string) []string {
-	return testenv.Environment(stepEnvironmentFor(root, name))
+	return stepEnvironment()
 }
 
 // stepVariable reads a variable as steps see it, so a key names the value a
@@ -745,7 +1001,7 @@ func (g *gate) loadFiles() error {
 		go func() {
 			defer wg.Done()
 			for name := range work {
-				digest := fileDigest(filepath.Join(g.root, filepath.FromSlash(name)))
+				digest := fileDigest(g.root, name)
 				mu.Lock()
 				g.digests[name] = digest
 				mu.Unlock()
@@ -769,25 +1025,64 @@ func (g *gate) loadFiles() error {
 // execute. Group and other read and write bits are consulted for no process
 // a step starts and asserted by no check, so keying them would only split
 // receipts between checkouts made under different umasks.
-const keyedPermissions os.FileMode = 0o511
+const keyedPermissions os.FileMode = replay.KeyedPermissions
 
-// fileDigest identifies a file's content, kind and keyed permission bits.
-// Missing tracked files, directories (submodule gitlinks) and symlinks hash
-// distinctly from content.
-func fileDigest(name string) string {
+// unreplayable prefixes the digest of an input that cannot be keyed.
+const unreplayable = "unreplayable\x00"
+
+// unkeyedInput says why a step's inputs cannot key its receipt.
+type unkeyedInput string
+
+func (u unkeyedInput) Error() string { return string(u) }
+
+// fileDigest identifies a checkout file's content, kind and keyed
+// permission bits. Missing tracked files, directories (submodule gitlinks)
+// and symlinks hash distinctly from content. A symlink keys its target text
+// and the content it reaches (replay.Links): a file in the checkout by its
+// digest, a missing name by its absence. A link that reaches a directory,
+// or anywhere outside the checkout, cannot be keyed: its digest says so,
+// and the step that selects it runs without its receipt. Every file passes
+// replay.KindOf, the rule of the whole-gate key: a FIFO, a socket or a
+// device, at the path or where its link leads, cannot be keyed either.
+func fileDigest(root, relative string) string {
+	name := filepath.Join(root, filepath.FromSlash(relative))
 	info, err := os.Lstat(name)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
+	if errors.Is(err, os.ErrNotExist) {
 		return "missing"
-	case err != nil:
+	}
+	if err != nil {
 		return "error:" + err.Error()
-	case info.Mode()&os.ModeSymlink != 0:
+	}
+	display := relative
+	if display == "" {
+		display = name
+	}
+	kind, unkeyable := replay.KindOf(display, info.Mode())
+	switch kind {
+	case replay.Other:
+		return unreplayable + unkeyable.Error()
+	case replay.Symlink:
 		target, err := os.Readlink(name)
 		if err != nil {
 			return "error:" + err.Error()
 		}
-		return "symlink:" + target
-	case info.IsDir():
+		links, err := replay.NewLinks(root, nil)
+		if err != nil {
+			return unreplayable + err.Error()
+		}
+		reach, problem := links.Follow(relative)
+		if problem != "" {
+			return unreplayable + problem
+		}
+		resolved := links.Resolved(relative)
+		if resolved == "" {
+			return "symlink:" + target + "\x00" + reach
+		}
+		if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+			return unreplayable + fmt.Sprintf("%s reaches directory %s, which a step key does not cover", relative, strings.TrimPrefix(reach, "checkout "))
+		}
+		return "symlink:" + target + "\x00" + reach + "\x00" + fileDigest(resolved, "")
+	case replay.Directory:
 		return "directory"
 	}
 	content, err := os.ReadFile(name)
@@ -829,7 +1124,11 @@ func (g *gate) key(step *Step) (string, error) {
 	files := 0
 	for _, name := range g.files {
 		if selected(name, inputs) {
-			fmt.Fprintf(hash, "file\x00%s\x00%s\x00", name, g.digests[name])
+			digest := g.digests[name]
+			if problem, ok := strings.CutPrefix(digest, unreplayable); ok {
+				return "", unkeyedInput(problem)
+			}
+			fmt.Fprintf(hash, "file\x00%s\x00%s\x00", name, digest)
 			files++
 		}
 	}
@@ -840,6 +1139,12 @@ func (g *gate) key(step *Step) (string, error) {
 		fmt.Fprintf(hash, "tool\x00%s\x00%s\x00", tool, g.toolVersion(tool))
 	}
 	for _, name := range inputs.Env {
+		// A step receives only the variables testenv names (stepEnvironment),
+		// so an input variable outside them is a declaration no step can
+		// read: refuse it rather than key a value the step never sees.
+		if !slices.Contains(testenv.Names, name) {
+			return "", fmt.Errorf("%s: declares the input variable %s, which no step receives (testenv.Names)", step.Name, name)
+		}
 		value, set := stepVariableFor(g.root, step.Name, name)
 		fmt.Fprintf(hash, "env\x00%s\x00%t\x00%s\x00", name, set, value)
 	}
@@ -859,127 +1164,13 @@ func (g *gate) installed(dir string) string {
 	if digest, ok := g.installedDigests[dir]; ok {
 		return digest
 	}
-	digest, err := installedDigest(filepath.Join(g.root, filepath.FromSlash(dir)), g.root)
+	digest, err := replay.InstallationDigest(filepath.Join(g.root, filepath.FromSlash(dir)), g.root)
 	if err != nil {
 		// An unreadable tree never matches a recorded pass.
 		digest = fmt.Sprintf("error:%v:%d", err, time.Now().UnixNano())
 	}
 	g.installedDigests[dir] = digest
 	return digest
-}
-
-// installedDigest hashes a tree's contents, following symbolic links (each
-// directory once, by its resolved path) and hashing files concurrently. A
-// link from an installed tree back into the repository contributes only its
-// target: a step whose outcome depends on the files there declares them
-// through Paths. A file contributes its keyed permission bits.
-func installedDigest(root, repository string) (string, error) {
-	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
-		return "absent", nil
-	}
-	resolvedRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", err
-	}
-	resolvedRepository, err := filepath.EvalSymlinks(repository)
-	if err != nil {
-		return "", err
-	}
-	within := func(name, dir string) bool {
-		relative, err := filepath.Rel(dir, name)
-		return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
-	}
-	type file struct{ relative, path string }
-	var entries []string
-	var files []file
-	visited := map[string]bool{}
-	var walk func(relative, name string) error
-	walk = func(relative, name string) error {
-		info, err := os.Lstat(name)
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			target, err := os.Readlink(name)
-			if err != nil {
-				return err
-			}
-			entries = append(entries, "link\x00"+relative+"\x00"+target)
-			resolved, err := filepath.EvalSymlinks(name)
-			if err != nil {
-				entries = append(entries, "dangling\x00"+relative)
-				return nil
-			}
-			if within(resolved, resolvedRepository) && !within(resolved, resolvedRoot) {
-				return nil
-			}
-			if info, err = os.Stat(name); err != nil {
-				return err
-			}
-		}
-		switch {
-		case info.IsDir():
-			resolved, err := filepath.EvalSymlinks(name)
-			if err != nil {
-				return err
-			}
-			if visited[resolved] {
-				entries = append(entries, "seen\x00"+relative)
-				return nil
-			}
-			visited[resolved] = true
-			children, err := os.ReadDir(name)
-			if err != nil {
-				return err
-			}
-			entries = append(entries, "dir\x00"+relative)
-			for _, child := range children {
-				if err := walk(path.Join(relative, child.Name()), filepath.Join(name, child.Name())); err != nil {
-					return err
-				}
-			}
-		case info.Mode().IsRegular():
-			entries = append(entries, fmt.Sprintf("file\x00%s\x00%v", relative, info.Mode().Perm()&keyedPermissions))
-			files = append(files, file{relative, name})
-		default:
-			entries = append(entries, fmt.Sprintf("other\x00%s\x00%v", relative, info.Mode()))
-		}
-		return nil
-	}
-	if err := walk(".", root); err != nil {
-		return "", err
-	}
-	sums := make([]string, len(files))
-	errs := make([]error, len(files))
-	var wg sync.WaitGroup
-	work := make(chan int)
-	for range max(2, runtime.NumCPU()) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for index := range work {
-				content, err := os.ReadFile(files[index].path)
-				sum := sha256.Sum256(content)
-				sums[index], errs[index] = hex.EncodeToString(sum[:]), err
-			}
-		}()
-	}
-	for index := range files {
-		work <- index
-	}
-	close(work)
-	wg.Wait()
-	hash := sha256.New()
-	for _, entry := range entries {
-		fmt.Fprintf(hash, "%s\x00", entry)
-	}
-	for index, f := range files {
-		if errs[index] != nil {
-			return "", errs[index]
-		}
-		fmt.Fprintf(hash, "%s\x00%s\x00", f.relative, sums[index])
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (g *gate) git(args ...string) ([]byte, error) {

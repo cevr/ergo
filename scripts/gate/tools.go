@@ -9,9 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/scripts/gate/replay"
 )
 
 // A tool fingerprint keys what a tool prints about itself and every byte the
@@ -160,17 +163,34 @@ func (g *gate) binaryInstallation(rule, resolved string) string {
 }
 
 // digestAll keys each named path and its contents; an absent path is a
-// distinct input.
+// distinct input. Each path is a keyed root (installationRoots) even when
+// its fingerprint fails: the failure already makes the facts unreplayable,
+// and a link that leads into the path is then refused for what it reaches
+// (replay.Links), such as a FIFO, rather than as a link out of every root.
 func (g *gate) digestAll(parts [][2]string) string {
+	g.toolsMu.Lock()
+	for _, part := range parts {
+		g.roots = append(g.roots, part[1])
+	}
+	g.toolsMu.Unlock()
 	var keyed []string
 	for _, part := range parts {
-		digest, err := installedDigest(part[1], g.root)
+		digest, err := replay.InstallationDigest(part[1], g.root)
 		if err != nil {
 			return unlocated(err.Error())
 		}
 		keyed = append(keyed, part[0]+"\x00"+part[1]+"\x00"+digest)
 	}
 	return strings.Join(keyed, "\x00")
+}
+
+// installationRoots are the paths the fingerprints this gate computed cover:
+// each tool's file, GOROOT, git's exec path. A link that leads into one of
+// them stays keyed (replay.Links).
+func (g *gate) installationRoots() []string {
+	g.toolsMu.Lock()
+	defer g.toolsMu.Unlock()
+	return slices.Clone(g.roots)
 }
 
 // isScript reports whether the kernel runs resolved through an interpreter
@@ -211,6 +231,10 @@ var toolQueryTimeout = 10 * time.Second
 
 var errQueryTimeout = errors.New("no answer in time")
 
+// toolQueryEnvironment is the environment of every tool query: the steps'
+// (spec Do 3), so a fingerprint reads only what a step can read.
+func toolQueryEnvironment() []string { return stepEnvironment() }
+
 // queryTool runs a tool in the steps' environment, in dir (the gate's own
 // directory when empty), and returns its standard output, or its combined
 // output when combined is set. The query runs in the gate's own process
@@ -223,7 +247,7 @@ func queryTool(dir string, combined bool, name string, args ...string) ([]byte, 
 	ctx, cancel := context.WithTimeout(context.Background(), toolQueryTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, name, args...)
-	command.Env = stepEnvironment()
+	command.Env = toolQueryEnvironment()
 	command.Dir = dir
 	command.WaitDelay = time.Second
 	var output []byte

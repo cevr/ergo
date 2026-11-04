@@ -74,7 +74,8 @@ var testScratch string
 
 // probeSource is a small executable standing in for a tool. It prints a
 // version that never changes. Beside a file <self>.hang it first sleeps for
-// 30 s, as a tool that never answers. self is its file with symlinks
+// 30 s, as a tool that never answers. Asked --exec-path, as git is, it
+// prints the content of <self>.exec-path. self is its file with symlinks
 // resolved: tests run it through a link on PATH, and os.Executable names the
 // link on darwin (measured on darwin/arm64), the file on Linux.
 const probeSource = `package main
@@ -101,6 +102,14 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--build" {
 		fmt.Println(build)
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--exec-path" {
+		path, err := os.ReadFile(self + ".exec-path")
+		if err != nil {
+			os.Exit(2)
+		}
+		fmt.Println(string(path))
 		return
 	}
 	fmt.Println("v1.0.0")
@@ -366,19 +375,32 @@ func TestRealGoEnvironmentReportsItsGoroot(t *testing.T) {
 }
 
 // git is an executable: its bytes are keyed, and so is its exec path, whose
-// helpers git runs.
+// helpers git runs. The fingerprint asks git for its exec path in the
+// environment steps receive (stepEnvironment), so a caller's GIT_EXEC_PATH,
+// which no step receives, does not move it; a git whose exec path is
+// elsewhere (here a probe that answers --exec-path) is keyed there.
 func TestExecutableFingerprintsKeyTheirInstallations(t *testing.T) {
-	bin := t.TempDir()
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if realTools["git"] == "" {
 		t.Skip("no git")
 	}
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	link(t, bin, "git", realTools["git"])
 	execPath := t.TempDir()
 	write(t, execPath, "git-probe", "#!/bin/sh\n")
+	t.Setenv("GIT_EXEC_PATH", "")
+	os.Unsetenv("GIT_EXEC_PATH")
+	real := fingerprint(t, "git")
 	t.Setenv("GIT_EXEC_PATH", execPath)
+	if moved := fingerprint(t, "git"); strings.Contains(moved, execPath) || moved != real {
+		t.Fatalf("a GIT_EXEC_PATH no step receives moved git's fingerprint:\n%q\n%q", real, moved)
+	}
+
+	fake := probe(t, filepath.Join(t.TempDir(), "git"))
+	write(t, filepath.Dir(fake), "git.exec-path", execPath)
+	link(t, bin, "git", fake)
 	first := fingerprint(t, "git")
-	if strings.Contains(first, "unlocated") || !strings.Contains(first, execPath) {
+	if strings.Contains(first, "unlocated") || !strings.Contains(first, "exec-path\x00"+execPath+"\x00") {
 		t.Fatalf("git's fingerprint does not key its exec path: %q", first)
 	}
 	rewriteInPlace(t, filepath.Join(execPath, "git-probe"), 3, "c")

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -71,29 +72,42 @@ const gateReserve = 512 << 20
 // stepsCgroup is the scope's child cgroup that holds every step.
 const stepsCgroup = "steps"
 
-// enterScope re-executes the gate in its systemd scope, and returns only if
-// it does not: then it says why, and the gate uses the RSS watch.
-func enterScope(budget memoryBudget) string {
+// scopeProbe decides whether the gate can run in its systemd scope: it
+// returns the systemd-run command when a probe scope starts, or else why the
+// gate uses the RSS watch ("" when ERGO_GATE_MEMORY_MECHANISM forces it).
+// The whole-gate key holds its answer (mechanismFact), so a gate that may
+// replay knows the mechanism without entering the scope.
+func scopeProbe(budget memoryBudget) (command, reason string) {
 	if os.Getenv(mechanismVariable) != "" {
-		return ""
+		return "", ""
 	}
 	if membership, err := os.ReadFile("/proc/self/cgroup"); err == nil {
 		if step, ok := outerGateStep(string(membership)); ok {
-			return "inside step cgroup " + step + " of an outer gate, whose caps hold"
+			return "", "inside step cgroup " + step + " of an outer gate, whose caps hold"
 		}
 	}
 	command, err := exec.LookPath("systemd-run")
 	if err != nil {
-		return "no systemd-run"
-	}
-	executable, err := os.Executable()
-	if err != nil {
-		return "locate the gate executable: " + err.Error()
+		return "", "no systemd-run"
 	}
 	probe := exec.Command(command, scopeArguments(gateSlice, "", budget, []string{"true"})...)
 	probe.Env = scopeEnvironment("")
 	if output, err := probe.CombinedOutput(); err != nil {
-		return fmt.Sprintf("systemd-run --user --scope failed (%v): %s", err, firstLine(output))
+		return "", fmt.Sprintf("systemd-run --user --scope failed (%v): %s", err, firstLine(output))
+	}
+	return command, ""
+}
+
+// enterScope re-executes the gate in its systemd scope through command, the
+// answer of scopeProbe, and returns only if it does not: then it says why,
+// and the gate uses the RSS watch.
+func enterScope(command, reason string, budget memoryBudget) string {
+	if command == "" {
+		return reason
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return "locate the gate executable: " + err.Error()
 	}
 	unit := scopeUnit()
 	argv := append([]string{"systemd-run"}, scopeArguments(gateSlice, unit, budget, append([]string{executable}, os.Args[1:]...))...)
@@ -283,6 +297,24 @@ func (s *scopeLimiter) boundHost() {
 	if host < s.budget.gate {
 		s.hostNote += fmt.Sprintf(", below this gate's %s", formatBytes(s.budget.gate))
 	}
+}
+
+// sliceProperty is the MemoryMax that the user's service manager holds for
+// the gates' slice ("infinity" when none is set), the bound every gate's
+// scope runs under. The manager keeps it while no gate runs, when the
+// slice's cgroup is gone, so a gate outside its scope reads the same value
+// as one inside it.
+func sliceProperty() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), toolQueryTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, "systemctl", "--user", "show", "--property=MemoryMax", "--value", gateSlice)
+	command.Env = scopeEnvironment("")
+	command.WaitDelay = time.Second
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("systemctl --user show %s: %w", gateSlice, err)
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 // sliceBound is the slice's memory.max in bytes, or 0 when it has none or

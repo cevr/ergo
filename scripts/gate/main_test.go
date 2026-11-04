@@ -451,14 +451,32 @@ func TestCheckoutIdentityNamesHeadTreeAndCleanliness(t *testing.T) {
 	}
 }
 
+// A declared input variable joins the key. Steps receive only the variables
+// testenv names, so an input variable outside them is refused.
 func TestEnvironmentInputsAreInputs(t *testing.T) {
 	root := fixture(t)
-	inputs := &Inputs{Paths: []string{"src/"}, Env: []string{"ERGO_GATE_ENV_INPUT"}}
-	t.Setenv("ERGO_GATE_ENV_INPUT", "1")
+	inputs := &Inputs{Paths: []string{"src/"}, Env: []string{"GOEXPERIMENT"}}
+	t.Setenv("GOEXPERIMENT", "")
+	os.Unsetenv("GOEXPERIMENT")
+	unset := keyOf(t, root, inputs)
+	t.Setenv("GOEXPERIMENT", "")
+	if keyOf(t, root, inputs) == unset {
+		t.Fatal("a declared environment variable, set but empty, did not join the key")
+	}
+	t.Setenv("GOEXPERIMENT", "1")
 	set := keyOf(t, root, inputs)
-	os.Unsetenv("ERGO_GATE_ENV_INPUT")
+	os.Unsetenv("GOEXPERIMENT")
 	if keyOf(t, root, inputs) == set {
 		t.Fatal("a declared environment variable did not join the key")
+	}
+	g := &gate{root: root, cacheDir: t.TempDir()}
+	if err := g.loadFiles(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ERGO_GATE_ENV_INPUT", "1")
+	_, err := g.key(&Step{Name: "s", Argv: []string{"true"}, Inputs: &Inputs{Paths: []string{"src/"}, Env: []string{"ERGO_GATE_ENV_INPUT"}}})
+	if err == nil || !strings.Contains(err.Error(), "declares the input variable ERGO_GATE_ENV_INPUT, which no step receives") {
+		t.Fatalf("an input variable no step receives was keyed: %v", err)
 	}
 }
 
