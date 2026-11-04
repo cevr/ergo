@@ -49,17 +49,20 @@ type fixture struct {
 	calls string
 }
 
-// newFixture is an empty examples/ root and a fresh copy of the fake
-// compiler, which logs its calls beside itself.
+// newFixture is an empty examples/ root and a fresh link to the fake
+// compiler, which logs its calls beside the link. A link, not a copy: a copy
+// is a file this process writes, and a parallel test's fork can hold that
+// write descriptor open until its exec, so running the copy can fail with
+// "text file busy" (ETXTBSY, golang/go#22315).
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	tools := t.TempDir()
-	fake, err := os.ReadFile(filepath.Join("testdata", "fake-ergo"))
+	fake, err := filepath.Abs(filepath.Join("testdata", "fake-ergo"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ergo := filepath.Join(tools, "ergo")
-	if err := os.WriteFile(ergo, fake, 0o755); err != nil {
+	if err := os.Symlink(fake, ergo); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
