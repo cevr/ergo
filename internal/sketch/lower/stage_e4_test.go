@@ -675,27 +675,17 @@ func main() needs Console {
 	Console.Println("converted")
 }
 `},
-		{"close-operation", "release.go operation Close", "S109", "lower-v1", `type A { Use() }
-type Releaser { Use(), Close() }
-type R {}
-func Use(_ R) {}
-func Close(_ R) {}
-func make() Releaser { R }
-let W = context { A: make() }
-func main() { with W { A.Use() } }
-`},
-		{"close-generic", "release.go generic Close", "S109", "lower-v1", `type A { Use() }
+		// The operation, generic and pointer Close forms release since
+		// lower-v1 stage 4 (stage4_close_test.go); a generic Close that
+		// needs witnesses is still the checker's (closeWitnessed).
+		{"close-witnessed", "release.go generic Close with witnesses", "S109", "#197", `type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
 type G[T] { Value T }
-func Use[T](_ G[T]) {}
-func Close[T](_ G[T]) {}
-let W = context { A: G[int]{Value: 1} }
-func main() { with W { A.Use() } }
-`},
-		{"close-pointer", "release.go pointer Close", "S109", "lower-v1", `type A { Use() }
-type P {}
-func Use(_ P) {}
-func Close(_ *P) {}
-let W = context { A: P }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} }
 func main() { with W { A.Use() } }
 `},
 		{"close-extern", "release.go extern Close", "S109", "#202", `type A { Use() }

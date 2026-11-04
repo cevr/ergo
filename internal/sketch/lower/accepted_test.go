@@ -70,10 +70,11 @@ var refusedFamilies = map[string]string{
 	// (stage_e6a_test.go).
 	// Stage E4 of check-v1 removed three families: a std function used as a
 	// value, an owning with's release that no Go name calls, and a user
-	// extern. An extern is call-only (C25, P3), the checker refuses those
-	// releases (C29), and a user extern in its checked domain lowers as a
-	// direct Go call (C26). The lowering's remaining checks of those forms
-	// are internal errors (stage_e4_test.go).
+	// extern. An extern is call-only (C25, P3), those releases lower since
+	// lower-v1 stage 4 (C29, stage4_close_test.go; the checker refuses only
+	// a Close that needs witnesses, closeWitnessed), and a user extern in
+	// its checked domain lowers as a direct Go call (C26). The lowering's
+	// remaining checks of those forms are internal errors (stage_e4_test.go).
 }
 
 // refusalReasons classifies a refusal by its message into the refused
