@@ -16,7 +16,7 @@ Tag: `default`. It has no declared differences: it is an original program, not a
 ## What it shows
 
 - **Unions and exhaustive `match`.** `Move`, `Game` and `Event` are unions, and every rule is a `match` that names every variant, with no `case _`. A new variant stops the build until each rule handles it. The only wildcard is in `parseMove`, whose subject is a byte.
-- **A machine-shaped step.** `step(g Game, m Move) Decision[Game, string]` is the machine's transition: `Enter` with the next state, `Reject` for a blocked move, `Ignore` for a finished game. The replay loop handles all five `Decision` variants.
+- **A machine.** `type Tidewalk machine[Game, Move] { initial: start(), step: step }` declares the game as a machine. `step(g Game, m Move) Decision[Game, string]` is its transition: `Enter` with the next state, `Reject` for a blocked move, `Ignore` for a finished game. The replay loop handles all five `Decision` variants.
 - **Commands and events.** Moves are the commands. `decide` is pure and records what a move does as past-tense events (`Walked`, `Waited`, `ShellCollected`, `TideRose`, `WalkerDrowned`, `PeakReached`). `evolve` folds one event into the state, is total over `Game` and `Event`, and decides nothing. Each frame names the step's decision and the recorded events.
 - **Laws.** Six top-level laws state the rules: `BlockedIsRejected`, `FinishedIsFinal`, `TurnNeverFalls`, `TideNeverFalls`, `ShellsNeverFall` and `TideFollowsTurn`.
 - **Tests.** Four example tests (`ShoreCollectsEveryShell`, `GreedyDrowns`, `BumpRejectsBlockedMoves`, `TypoIsRejected`) and two property tests over generated moves (`FinishedIgnoresEveryMove`, `TideFollowsEveryTurn`).
@@ -24,10 +24,8 @@ Tag: `default`. It has no declared differences: it is an original program, not a
 
 ## What runs today
 
-The unions, the matches, `step`, `decide`, `evolve`, the typed failure and the replays run. The compiler checks the laws and the tests and leaves them out of the build. These parts wait for other units:
+The unions, the matches, the `Tidewalk` machine, `step`, `decide`, `evolve`, the typed failure and the replays run. `ergo test examples/tidewalk-replay/main.ergo` runs the six tests, and the harness prints `ok tidewalk-replay: test`. The compiler checks the laws and leaves them out of the build. These parts wait for other units:
 
-- The `Tidewalk` machine declaration (`type Tidewalk machine[Game, Move] { initial: start(), step: step }`) is refused at build until lower-v1 stage 4 lowers machine plan values. The program checks clean with it.
-- `ergo test` runs the six tests when lower-v1 stage 4 adds it. Until then the harness prints `skip tidewalk-replay: test`.
 - Laws run as generated tests when #162 lands, and laws move into the machine type when machines carry laws.
 - A runner from the actor library replaces the replay loop over `step`.
 - The program becomes a `tidewalk` package, a `frame` package and `cmd/tidewalk-replay/main.ergo` when a program can hold packages (G7).

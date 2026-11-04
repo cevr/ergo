@@ -266,6 +266,12 @@ func step(g Game, m Move) Decision[Game, string] {
 	}
 }
 
+// Tidewalk is the game as a machine: it starts at start() and moves by step.
+type Tidewalk machine[Game, Move] {
+	initial: start(),
+	step:    step,
+}
+
 // apply is the state after a decision: Enter and Stay take Next; Ignore,
 // Reject and Done keep the state.
 func apply(g Game, d Decision[Game, string]) Game {
