@@ -67,7 +67,7 @@ import (
 //     function's one result may be a tuple, and `let q, r = f()`
 //     destructures it.
 
-// Package is a checked package.
+// Package is a checked package. Std reports its std identity.
 type Package struct {
 	Path  string
 	Name  string
@@ -95,6 +95,10 @@ type Package struct {
 	ErrorTypes map[FactOwner]map[*Named]bool
 
 	qualify bool // print its types with the package name
+	// std marks the prelude and each package the std importer serves (C30,
+	// check-v1 stage E4). Only prelude and stdImporter.Import set it, before
+	// the package is checked; Std reads it.
+	std bool
 	// owners holds the owner of every node of a body the program does not
 	// own (owners.go); OwnerOf reads it.
 	owners map[syntax.Node]FactOwner
@@ -107,6 +111,12 @@ type Package struct {
 	// during Check, kept so its tests read the fact that decided.
 	providerFresh providerFreshness
 }
+
+// Std reports a std package: the prelude or a package of the embedded
+// standard library, which only the std importer checks (C30, added in
+// check-v1 stage E4). A program package never has it, whatever its path,
+// so the lowering keys std's namespaces on it, not on a path string.
+func (p *Package) Std() bool { return p != nil && p.std }
 
 // collKey names a prelude function on a slice (isMap false) or a Map.
 type collKey struct {

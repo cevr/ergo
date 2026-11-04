@@ -52,7 +52,13 @@ func newTranslator(src string) (*translator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &translator{src: src, file: file, parent: map[oldsyntax.Node]oldsyntax.Node{}, imports: map[string][]oldsyntax.Pos{}}, nil
+	t := &translator{src: src, file: file, parent: map[oldsyntax.Node]oldsyntax.Node{}, imports: map[string][]oldsyntax.Pos{}, commentEnd: map[oldsyntax.Pos]oldsyntax.Pos{}}
+	for _, g := range file.Comments {
+		for _, c := range g.List {
+			t.commentEnd[c.Pos()] = c.End()
+		}
+	}
+	return t, nil
 }
 
 // finish applies the edits, guards the result and formats it.
@@ -237,6 +243,10 @@ type translator struct {
 	imports map[string][]oldsyntax.Pos // library packages the rewrites use (task, scope), with the place of each use
 	cur     string                     // the construct being rewritten, for overlap notes
 	seq     int                        // the next edit's sequence number
+
+	// commentEnd maps the start of each comment the frozen scanner
+	// reported (File.Comments) to its end; trivia reads a gap through it.
+	commentEnd map[oldsyntax.Pos]oldsyntax.Pos
 }
 
 // ---------------------------------------------------------------- edits and notes
@@ -792,32 +802,35 @@ func (t *translator) separate(lbrace, rbrace oldsyntax.Pos, items []oldsyntax.No
 		if i+1 < len(items) {
 			next = items[i+1].Pos()
 		}
-		gap := t.src[it.End():next]
-		if j := strings.IndexByte(stripComments(gap), ';'); j >= 0 {
-			t.replace(it.End()+oldsyntax.Pos(j), it.End()+oldsyntax.Pos(j)+1, ",")
-		} else if i+1 < len(items) || strings.Contains(gap, "\n") {
+		toks := t.tokensIn(it.End(), next)
+		if semi := slices.IndexFunc(toks, func(p oldsyntax.Pos) bool { return t.src[p] == ';' }); semi >= 0 {
+			t.replace(toks[semi], toks[semi]+1, ",")
+		} else if i+1 < len(items) || strings.Contains(t.src[it.End():next], "\n") {
 			t.insert(it.End(), ",")
 		}
 	}
 }
 
-// stripComments blanks the comments of a gap, keeping offsets.
-func stripComments(gap string) string {
-	b := []byte(gap)
-	for i := 0; i+1 < len(b); i++ {
-		if b[i] == '/' && b[i+1] == '/' {
-			for i < len(b) && b[i] != '\n' {
-				b[i] = ' '
-				i++
-			}
-		} else if b[i] == '/' && b[i+1] == '*' {
-			for i+1 < len(b) && !(b[i] == '*' && b[i+1] == '/') {
-				b[i] = ' '
-				i++
-			}
+// tokensIn lists the offsets in [from, to) that hold token bytes: neither
+// white space nor a byte of a comment the frozen scanner reported. A gap
+// between two nodes holds only punctuation tokens, one byte each, so each
+// offset is one token (196n M2: comment spans come from the scanner, never
+// from a byte search, so adjacent comments such as `/*a*//*b*/` stay whole).
+func (t *translator) tokensIn(from, to oldsyntax.Pos) []oldsyntax.Pos {
+	var out []oldsyntax.Pos
+	for p := from; p < to; {
+		if end, ok := t.commentEnd[p]; ok {
+			p = end
+			continue
 		}
+		switch t.src[p] {
+		case ' ', '\t', '\r', '\n':
+		default:
+			out = append(out, p)
+		}
+		p++
 	}
-	return string(b)
+	return out
 }
 
 func nodesOf[T oldsyntax.Node](list []T) []oldsyntax.Node {
@@ -1116,6 +1129,10 @@ func (t *translator) node(n oldsyntax.Node) {
 		}
 	case *oldsyntax.FuncType:
 		t.results(n)
+	case *oldsyntax.NeedsClause:
+		t.row(n.Lparen, n.Names, n.Rparen)
+	case *oldsyntax.ProvidesClause:
+		t.row(oldsyntax.NoPos, n.Names, oldsyntax.NoPos)
 	case *oldsyntax.MapType:
 		// Go parses `map[K]V{…}` in a control clause header; the decided
 		// `Map[K, V]{…}` is a type name there, so the literal needs
@@ -1288,6 +1305,32 @@ func (t *translator) results(ft *oldsyntax.FuncType) {
 		last := types[len(types)-1]
 		t.replace(last.End(), r.Closing, ")")
 		t.replace(r.Closing, r.Closing+1, " "+rowText)
+	}
+}
+
+// row respells an old capability row, its names separated by commas and
+// maybe parenthesised, as the decided union `needs A | B` (196n). It edits
+// only the comma and parenthesis tokens, so the comments between the names
+// stay where they were (TestRowCommentsKept); the formatter sets the spaces.
+// The parser gives the parentheses; each comma is the one token between two
+// names (tokensIn). A gap that does not hold exactly one comma leaves the
+// row as it was, with a note.
+func (t *translator) row(lparen oldsyntax.Pos, names []oldsyntax.Expr, rparen oldsyntax.Pos) {
+	commas := make([]oldsyntax.Pos, 0, len(names))
+	for i := 1; i < len(names); i++ {
+		toks := t.tokensIn(names[i-1].End(), names[i].Pos())
+		if len(toks) != 1 || t.src[toks[0]] != ',' {
+			t.note(names[i-1].End(), "a capability row whose names %s and %s are not separated by one comma: separate them with | by hand", t.text(names[i-1]), t.text(names[i]))
+			return
+		}
+		commas = append(commas, toks[0])
+	}
+	if lparen.IsValid() {
+		t.replace(lparen, lparen+1, " ")
+		t.replace(rparen, rparen+1, " ")
+	}
+	for _, comma := range commas {
+		t.replace(comma, comma+1, " | ")
 	}
 }
 

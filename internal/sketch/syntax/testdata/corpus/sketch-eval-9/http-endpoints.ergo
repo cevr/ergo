@@ -61,7 +61,7 @@ func place(order Order) Receipt fails OutOfStock needs Inventory {
 // A handler is an ordinary function from Request to Response. A catch with
 // no try must cover every error, so the checker rejects a handler that
 // leaves a decode, handler or encode failure without a status.
-func placeOrder(req http.Request) http.Response needs Directory, Inventory, Ledger {
+func placeOrder(req http.Request) http.Response needs Directory | Inventory | Ledger {
 	return created(req) catch {
 	case http.UnsupportedMediaType:
 		http.Status(415)
@@ -76,7 +76,7 @@ func placeOrder(req http.Request) http.Response needs Directory, Inventory, Ledg
 	}
 }
 
-func created(req http.Request) http.Response fails http.UnsupportedMediaType | json.DecodeFailed | UnknownMember | OutOfStock | Unpublishable needs Directory, Inventory, Ledger {
+func created(req http.Request) http.Response fails http.UnsupportedMediaType | json.DecodeFailed | UnknownMember | OutOfStock | Unpublishable needs Directory | Inventory | Ledger {
 	let order = try http.ReadJSON[Order](req, 256)
 	return http.JSON(201, try place(order))
 }
@@ -136,7 +136,7 @@ func restoreOrder(stored string) Order fails json.DecodeFailed | UnknownMember n
 
 // Calling the route table directly needs no server. Every failure is
 // mapped, so the result has no error row.
-func order(contentType string, body string) int needs Directory, Inventory, Ledger {
+func order(contentType string, body string) int needs Directory | Inventory | Ledger {
 	return api.Serve(http.Request{Method: "POST", Path: "/orders", ContentType: contentType, Body: body}).Status
 }
 

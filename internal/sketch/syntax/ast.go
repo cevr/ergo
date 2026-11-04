@@ -176,7 +176,7 @@ type FuncDecl struct {
 	Body       *BlockStmt
 }
 
-// ContextDecl is `context Name [provides A, B] [needs C, D] { entries }`.
+// ContextDecl is `context Name [provides A | B] [needs C | D] { entries }`.
 // Provides lists the capabilities the context exposes; the entries it builds
 // and does not list stay private to its build. Needs lists the capabilities
 // its providers require from the with site. Either clause may be nil.
@@ -352,26 +352,19 @@ func (l *FieldList) End() Pos {
 	return l.List[len(l.List)-1].End()
 }
 
-// NeedsClause is a capability row: `needs A, B`, or `needs (A, B)` in a
-// function type inside a list (grammar.md D8). Lparen is NoPos without
-// parentheses.
+// NeedsClause is a capability row: `needs A | B`, a union as an error row
+// is (196n). It is never parenthesised: `|` does not end a parameter, so
+// the row reads the same inside a list.
 type NeedsClause struct {
-	Needs  Pos
-	Lparen Pos
-	Names  []Expr
-	Rparen Pos
+	Needs Pos
+	Names []Expr
 }
 
 func (u *NeedsClause) Pos() Pos { return u.Needs }
-func (u *NeedsClause) End() Pos {
-	if u.Rparen.IsValid() {
-		return u.Rparen + 1
-	}
-	return u.Names[len(u.Names)-1].End()
-}
+func (u *NeedsClause) End() Pos { return u.Names[len(u.Names)-1].End() }
 
-// ProvidesClause is a named context's exposure: `provides A, B`. It is never
-// parenthesised, because it stands only in a context header.
+// ProvidesClause is a context's exposure: `provides A | B`, the same kind of
+// row as a needs clause (196n).
 type ProvidesClause struct {
 	Provides Pos
 	Names    []Expr

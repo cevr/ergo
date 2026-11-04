@@ -1,0 +1,98 @@
+# The tracked lines outside history that write `needs` or `provides` before a comma
+# list of names (196n acceptance check 2). TestRowResidue selects the lines that hold
+# needs or provides with git grep -F, finds rowResidueWord (Go's regexp) in them over
+# every path but the skipped prefixes below, and fails on a match no row covers and on
+# a row that covers no match. A row is `path<TAB>excerpt`:
+# the excerpt is text of one line of the file that contains the match; `*` covers the
+# whole file.
+
+# skipped: the history list of the 196n spec (docs/research/ef-migrate/*.ergo is parsed
+# in the current syntax and stays checked), the old-syntax parser and its inputs
+!docs/receipts/
+!docs/previews/2026-
+!plans/
+!docs/research/
+!prototypes/sketch9/
+!internal/migrate196/oldsyntax/
+!internal/migrate196/testdata/old/
+!docs/decisions.md
+
+# prose that only reads like a row: a verb or a noun before a comma, not a list of capabilities
+CHANGELOG.md	a module function that provides it, or
+NORTH_STAR.md	A build needs Node, Effect
+README.md	error and needs rows, contexts
+docs/spec/resources.md	binds it provides it, else
+docs/spec/rows.md	the entry that provides it, and
+docs/specs/actors.md	No guarantee needs syntax, so
+internal/sketch/check/context.go	written needs row, the
+internal/sketch/check/context.go	// the needs row, then
+internal/sketch/check/contextsum.go	in needs rows, and
+internal/sketch/check/domain_test.go	// still needs C, that
+internal/sketch/check/stage_d1_r5_test.go	and w0 needs Cap2, so
+internal/sketch/lower/checked_lowered_test.go	a needs row, both
+
+# a comma that ends a list element after a one-name row (grammar.md, Declarations rule 9:
+# parameters and type arguments keep their commas)
+internal/sketch/check/round11_identity_test.go	func l(fn func() needs Store, gn func() needs Store, hn func() needs Log) {}
+internal/sketch/format/rows_test.go	needs ROW, Put()
+internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
+
+# the old spelling, named where it is refused: grammar.md rule 9, its diagnostics entry,
+# the parser comment on the parameter case, this check's own doc comment and its host
+# guard's samples, and the README mutant and the malformed fixtures that prove it refused
+docs/spec/grammar.md	so `func(func() needs A, B)` takes two parameters
+docs/spec/grammar.md	A parenthesised row, `needs (A, B)` or
+docs/spec/diagnostics.md	(`needs A, B`, `needs (A | B)`; 196n)
+internal/sketch/syntax/parser.go	`f func() needs A, B`: the entries
+internal/sketch/check/row_residue_test.go	writes `needs A, B` or
+internal/sketch/check/row_residue_test.go	// `provides A, B` is prose
+internal/sketch/check/residue_host_test.go	{"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"}
+cmd/ergo/readme_smoke_test.go	"needs Accounts, Payments, Scheduler {"
+internal/sketch/sketchtest/fixtures.go	"let f = func() needs (A, B) {
+internal/sketch/sketchtest/fixtures.go	"func f() needs (A, B) {}
+
+# old-syntax translator input: internal/migrate196 reads the old comma rows and writes them with |
+internal/migrate196/translate_test.go	Live provides Orders, Clock needs Config
+internal/migrate196/translate_test.go	func f(g func() needs (Orders, Clock)) needs Orders, Clock {
+internal/migrate196/rows_comments_test.go	the old parenthesised form `needs (A, B)`
+
+# vendored upstream prose (foldkit), not Ergo
+conformance/upstream/foldkit-d21db423/AGENTS.md	If code needs explanation, refactor
+conformance/upstream/foldkit-d21db423/RELEASING.md	only finalization needs recovery, run
+conformance/upstream/foldkit-d21db423/packages/create-foldkit-app/CHANGELOG.md	a CommonJS dependency needs one, and
+conformance/upstream/foldkit-d21db423/packages/devtools-mcp/CHANGELOG.md	a CommonJS dependency needs one, and
+conformance/upstream/foldkit-d21db423/packages/oxlint-plugin-foldkit/CHANGELOG.md	a CommonJS dependency needs one, and
+conformance/upstream/foldkit-d21db423/packages/website/src/page/core/embedding.md	Data the app needs once, at
+conformance/upstream/foldkit-d21db423/packages/website/src/page/testing.md	view that needs ViewInputs, and
+conformance/upstream/foldkit-d21db423/packages/website/src/page/ui/comboboxPage.md	Multi-select needs neither, and
+conformance/upstream/foldkit-d21db423/packages/website/src/page/ui/comboboxPage.md	The context provides isActive, isSelected
+conformance/upstream/foldkit-d21db423/packages/website/src/page/ui/listboxPage.md	The context provides isActive, isSelected
+conformance/upstream/foldkit-d21db423/packages/website/src/snippet/eventHandlingComplex.ts	as much as it needs to, with
+conformance/upstream/foldkit-d21db423/skills/generate-program/conventions.md	If code needs explanation, use
+
+# the superseded pre-v0 corpus: frozen old-syntax inputs that no current parse accepts
+# (TestSupersededCorpus: each parses or fails with a located error)
+internal/sketch/syntax/testdata/corpus/sketch-eval-4/checkout.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-4/concurrency.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-4/layers.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-6/five/checkout.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-6/five/concurrency.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-6/five/layers.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-6/loops/fetchall.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-6/loops/poller.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-6/loops/wordcount.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/five/checkout.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/five/concurrency.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/five/layers.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/loops/fetchall.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/loops/poller.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval-7/loops/wordcount.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/checkout-explicit.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/concurrency-explicit.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/layers-explicit.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/host/checkout.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/host/concurrency.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/host/layers.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/rerun/checkout.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/rerun/concurrency.go.sketch	*
+internal/sketch/syntax/testdata/corpus/sketch-eval/review4-work/rerun/layers.go.sketch	*

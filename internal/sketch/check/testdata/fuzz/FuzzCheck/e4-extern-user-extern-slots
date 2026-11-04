@@ -1,0 +1,2 @@
+go test fuzz v1
+string("extern go strings.ToUpper func Upper(s string) string\n\ntype Box { F func(string) string }\n\nfunc main() needs Console {\n\tlet a = Upper // want S108\n\tlet b = (Upper)(\"x\")\n\tlet c = Box{F: Upper} // want S108 S110\n\tlet d = []func(string) string{Upper} // want S108 S110\n\tlet e = \"abc\".Upper // want S104\n\tlet g = \"abc\".Upper() // want S104\n\tConsole.Println(b)\n}\n")

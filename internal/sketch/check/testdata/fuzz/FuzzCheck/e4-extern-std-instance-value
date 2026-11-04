@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import queue\n\nfunc main() needs Console {\n\tlet mk = queue.New[int] // want S108\n\tlet q = mk(1)\n\tq.Close()\n\tConsole.Println(\"made\")\n}\n")

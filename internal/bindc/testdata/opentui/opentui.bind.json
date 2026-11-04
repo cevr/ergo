@@ -34,7 +34,7 @@
     {"field": "abi_version", "value": "abi"}
   ],
   "buffers": {
-    "length_names": ["count", "{name}_count", "{stem}_count", "{name}_length", "{name}_len"],
+    "length_names": ["count", "{name}_count", "{name}_length", "{name}_len", "chunk_count", "column_count", "row_count"],
     "byte_length_names": ["byte_count", "{name}_bytes", "{stem}_byte_count"],
     "capacity_names": ["capacity"],
     "count_names": ["out_count", "out_byte_count"],
@@ -51,10 +51,6 @@
      "why": "unnamed out-parameter: the call writes one ot_editor_view_info"},
     {"function": "ot_text_buffer_view_measure", "position": "#4", "class": "out",
      "why": "unnamed out-parameter: the call writes one ot_editor_measure"},
-    {"function": "ot_text_buffer_set_styled_text", "position": "#4", "class": "in_buffer", "length": "chunk_count", "unit": "elements",
-     "why": "unnamed chunk array: chunk_count counts its ot_styled_text_chunk entries (the header: chunk_count can exceed byte_count)"},
-    {"function": "ot_text_buffer_replace_styled_batch", "position": "#5", "class": "in_buffer", "length": "chunk_count", "unit": "elements",
-     "why": "unnamed chunk array: chunk_count counts its ot_styled_text_chunk entries"},
     {"function": "ot_text_buffer_replace_styled_batch", "position": "out", "class": "out",
      "why": "named out without the out_ prefix: the call writes one ot_text_buffer_replacement_info"}
   ],

@@ -1,5 +1,5 @@
 import task
 type Bang {}
-extern go fixture.mark func mark() fails Bang
+func mark() fails Bang { return Bang }
 func a() {let t = task.Go() { b() };t.Stop();return Bang}
 func b() {return a()} // want S108

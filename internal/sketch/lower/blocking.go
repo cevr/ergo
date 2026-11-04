@@ -109,9 +109,10 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 
 // hostBlockingIntrinsic adapts the catalog's finite host-provider bridges.
 // Identity is the declared Go target, never the source function's name.
-// The extern path has no general host signature loader yet (stage E); the
-// trusted bridge records only its erased provider. BodyOf owns the Go
-// signature, including its hidden task. User externs remain refused.
+// The extern path has no host signature loader (D-E5); the trusted bridge
+// records only its erased provider. BodyOf owns the Go signature, including
+// its hidden task. A user extern is never a bridge: its call is a direct Go
+// call (hostCall).
 func (l *lowerer) hostBlockingIntrinsic(f *check.Func) func(*funcCtx, []string) string {
 	target := strings.Trim(f.Decl.Extern.Target.Value, "\"`")
 	for name, binding := range runtimeBindings {

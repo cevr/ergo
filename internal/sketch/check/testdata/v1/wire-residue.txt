@@ -22,8 +22,8 @@ CHANGELOG.md	`http-transport.ef` and compares the wire transcript.
 GLOSSARY.md	(designed): The pair a type's wire form is found by: `ParseX` decodes
 GLOSSARY.md	found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's
 GLOSSARY.md	is a checked witness relating a wire type and a domain type through
-NORTH_STAR.md	transformations between distinct wire and domain types, including explicit
-NORTH_STAR.md	payload. Native runtime internals and wire protocols may contain null representations
+docs/decisions.md	transformations between distinct wire and domain types, including explicit
+docs/decisions.md	payload. Native runtime internals and wire protocols may contain null representations
 PRIOR_ART.md	with required bounds and explicit wire types instead of a field-attribute
 PRIOR_ART.md	| Explicit wire decoding | Static types do not
 PRIOR_ART.md	multiple representations, versioned wire policies and transformation-specific
@@ -190,6 +190,7 @@ internal/migrate196/testdata/old/v0/sketch-eval-9/stm-batching.go.sketch	*
 internal/migrate196/translate_test.go	"v0/sketch-eval-8/loops/wire-effects.go.sketch": true,
 internal/migrate196/translate_test.go	"v0/sketch-eval-9/loops/wire-effects.go.sketch": true,
 internal/migrate196/translate_test.go	"package p\n\nfunc main() {\n\twith(wire{ Clock = Fixed{} }) { run() }\n}\n",
+internal/migrate196/rows_comments_test.go	{"context provides", "wire L ROW {
 internal/sketch/syntax/decided_test.go	// type is the bare name wire, the old inline context, in source
 internal/sketch/syntax/decided_test.go	lit.Type.(*syntax.Ident); ok && id.Name == "wire" {
 internal/sketch/syntax/decided_test.go	&& (!strings.Contains(la[i], "wire{") || !strings.Contains(lb[i],
@@ -222,8 +223,8 @@ internal/sketch/check/context_residue_test.go	residueAllowlist = "testdata/v1/wi
 internal/sketch/check/context_residue_test.go	line outside history that says wire is the network
 internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec),
 internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec), grammar.md's
-internal/sketch/check/context_residue_test.go	"-n", "-I", "-w", "-i", "-E", "wires?", "--", ".",
-internal/sketch/check/context_residue_test.go	t.Errorf("%s:%s: %q says wire and no row of %s covers it; spell
+internal/sketch/check/context_residue_test.go	literals:  []string{"wire"},
+internal/sketch/check/residue_host_test.go	{"wire", "Wire", "WIRES", "a wire format", "with(wire{ A = a })"}
 internal/sketch/syntax/decided_test.go	(196w, docs/previews/2026-11-02-wire-to-context.md).
 internal/sketch/syntax/decided_test.go	"wire": "context",
 

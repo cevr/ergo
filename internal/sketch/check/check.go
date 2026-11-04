@@ -559,6 +559,7 @@ func prelude() preludeResult {
 			files = append(files, f)
 		}
 		c := newChecker(std.PreludePath, nil, u)
+		c.pkg.std = true
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
@@ -613,6 +614,7 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 		files = append(files, f)
 	}
 	c := newChecker(path, s, prelude().scope)
+	c.pkg.std = true
 	pkg := c.run(files)
 	var err error
 	if len(c.diags) > 0 {

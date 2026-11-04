@@ -6,7 +6,7 @@ import trace
 
 // with scopes context values as well as contexts. A context value is immutable,
 // and every task started inside inherits it (Java ScopedValue, Effect References).
-func main() fails net.ListenFailed needs net.Listener, Console, Clock, Scheduler {
+func main() fails net.ListenFailed needs net.Listener | Console | Clock | Scheduler {
 	return with trace.Span("ingest"), log.Annotate("region", "eu") {
 		// A tasks.Set owns an unbounded number of tasks and drops finished
 		// ones. Set.Go takes a func literal: the Set keeps it after Go returns.

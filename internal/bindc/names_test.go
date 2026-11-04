@@ -81,7 +81,7 @@ func TestGoNameRegressions(t *testing.T) {
 	}{
 		{"ready", "fx_status fx_ready_arg(uint32_t ready);", nil, "func ReadyArg(ready_ uint32) error {"},
 		{"status_error", "fx_status fx_error_arg(uint32_t status_error);", nil, "func ErrorArg(statusError_ uint32) error {"},
-		{"slice_data", "fx_status fx_bytes_arg(const uint8_t *bytes, uint32_t byte_count, uint32_t slice_data);", nil,
+		{"slice_data", "fx_status fx_bytes_arg(const uint8_t *bytes, uint32_t bytes_len, uint32_t slice_data);", nil,
 			"func BytesArg(bytes []byte, sliceData_ uint32) error {"},
 		{"field_method", "", map[string]string{"struct_size": "fill"}, "\tfill_ "},
 	}

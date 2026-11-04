@@ -74,7 +74,7 @@ type Postgres {
 	refresh Task[Unit], // declared after pool: stopped and drained first
 }
 
-func OpenPostgres() Postgres fails ConnectFailed needs Config, Clock, Scheduler {
+func OpenPostgres() Postgres fails ConnectFailed needs Config | Clock | Scheduler {
 	let pool = try retry.On[ConnectFailed](retry.Exponential(200ms).Times(5)) {
 		sql.Open(Config.String("DATABASE_URL"))
 	}
@@ -175,7 +175,7 @@ func goodTask() {
 ```go
 import queue
 
-func run(signals queue.Queue[Signal]) needs Probe, Clock, Scheduler {
+func run(signals queue.Queue[Signal]) needs Probe | Clock | Scheduler {
 	let b = actor.Start(Breaker{}, 16)
 	let set = tasks.Set(tasks.Restart(schedule.Exponential(1s).UpTo(5))) // bound after b
 	set.Go(func() { actor.Pump(b, signals) })                            // structured lend of b (R31)
@@ -253,7 +253,7 @@ Status: **implemented** for providers with a written `Close` (#199 stage 3b; ite
    - an exit action in the block that needs a capability whose provider is an acquired resource of this `with`, or transitively uses one: it runs when the function returns ([runtime.md, Exit actions](runtime.md#exit-actions) 2), after the `with` released its providers, so S108. A plain provider independent of those resources stays admitted;
    - a `with` whose value holds a `Task`: the block drains the task before its providers close, so the value would leave a drained task (S108);
    - a `with` that owns a resource outside a function body, such as in a package `let`'s value: there is no frame scope to own it, so S108 at the `with` ([types.md, Task ownership](types.md#task-ownership) 4; **implemented**, check-v1 stage E2). Inside a package `let`'s trailing block or function literal it has that block's frame scope;
-   - in lowering, until check-v1 stage E: a provider whose `Close` is an operation of its type, is generic, is a std or extern function, or takes a pointer to its value.
+   - a provider whose `Close` is an operation of its type, is generic, or takes a pointer while the provider is a value: S109 "… is released in lower-v1, not yet", once per entry, at the entry's provider, or at the `with` when the entry is another package's (**implemented**, check-v1 stage E4). The checker refuses it, so lowering never meets it. A `Close` that is an extern cannot occur: no std or prelude `Close` is an extern, and a user extern that takes a record is outside its domain (S109, #202).
 8. **Acquisition as one step** (#199 stage 3c, R7 and R8). In a `with` that acquires a resource, the `with` lifetime owner builds every acquired provider through one acquisition step of the runtime (`WithAcquire`, over `runtime/rt`'s `AcquireInto`, the step `rt.Acquire` uses). An inline context's entries take the same step as a named context's, from the same `With.Acquired` fact. The step:
    - begins at an interruption point, so a stop that arrived while an earlier provider was built is observed before the next constructor runs;
    - runs the constructor and the registration of its `Close` masked, as one region; a nested mask of the caller stays in force;

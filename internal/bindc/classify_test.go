@@ -97,8 +97,10 @@ func templRE(templ string) *regexp.Regexp {
 	return regexp.MustCompile("^" + q + "$")
 }
 
-// length: q after the buffer p is its length (and counts bytes).
-func (e *tEnv) length(p, q Param) (bool, bool) {
+// length: q after the buffer p is its length by a length_names template
+// (elements) and by a byte_length_names template (bytes). Both can hold;
+// then two rules match.
+func (e *tEnv) length(p, q Param) (elements, bytes bool) {
 	if q.Name == "" || !e.unsigned(q.Type) {
 		return false, false
 	}
@@ -110,10 +112,7 @@ func (e *tEnv) length(p, q Param) (bool, bool) {
 		}
 		return false
 	}
-	if hit(e.c.Buffers.ByteLengthNames) {
-		return true, true
-	}
-	return hit(e.c.Buffers.LengthNames), false
+	return hit(e.c.Buffers.LengthNames), hit(e.c.Buffers.ByteLengthNames)
 }
 
 func (e *tEnv) capName(q Param) bool {
@@ -189,8 +188,16 @@ var tRules = []tRule{
 		if !isConstPtr(p.Type) || !e.item(*p.Type.Elem) || i+1 >= len(f.Params) {
 			return false
 		}
-		ok, _ := e.length(p, f.Params[i+1])
-		return ok
+		elements, _ := e.length(p, f.Params[i+1])
+		return elements
+	}},
+	{"in_buffer_bytes", ClassInBuffer, func(e *tEnv, f *Function, i int) bool {
+		p := f.Params[i]
+		if !isConstPtr(p.Type) || !e.item(*p.Type.Elem) || i+1 >= len(f.Params) {
+			return false
+		}
+		_, bytes := e.length(p, f.Params[i+1])
+		return bytes
 	}},
 	{"out_buffer", ClassOutBuffer, func(e *tEnv, f *Function, i int) bool {
 		p := f.Params[i]
@@ -249,9 +256,9 @@ func (e *tEnv) expect(f *Function) ([]tPos, bool, []string) {
 		case 1:
 			q.class = hits[0].class
 			switch hits[0].name {
-			case "in_buffer":
+			case "in_buffer", "in_buffer_bytes":
 				q.length = i + 1
-				_, q.bytes = e.length(p, f.Params[i+1])
+				q.bytes = hits[0].name == "in_buffer_bytes"
 			case "out_buffer":
 				q.length, q.count = i+1, i+2
 			case "out_count":
@@ -259,6 +266,13 @@ func (e *tEnv) expect(f *Function) ([]tPos, bool, []string) {
 			}
 		default:
 			q.class, q.why = ClassRaw, "two"
+			names := map[string]bool{}
+			for _, h := range hits {
+				names[h.name] = true
+			}
+			if names["in_buffer"] && names["in_buffer_bytes"] {
+				q.why = "units"
+			}
 		}
 		out = append(out, q)
 	}
@@ -331,11 +345,17 @@ func (e *tEnv) ref(f *Function, r string) int {
 // chained triples, out-parameters, values) next to each other often.
 
 var (
-	gLengthPool = []string{"{name}_count", "{stem}_count", "{name}_len", "count", "n", "{name}_bytes", "byte_count", "size"}
-	gCapPool    = []string{"capacity", "cap", "n", "size"}
-	gCountPool  = []string{"out_count", "out_n", "count", "o_len"}
-	gOutPool    = []string{"out_", "o_", "ret_"}
-	gNamePool   = []string{"a", "bytes", "items", "data", "out_x", "o_y", "ret_v", "out_count", "out_n", "count", "capacity",
+	// gLengthPool overlaps itself on purpose: {name}_X and {stem}_X give one
+	// name for a buffer without a final "s", "byte_count" is {stem}_count of
+	// "bytes", and "data_count" and "a_len" are {name}_count and {name}_len
+	// of two pool names. The contract puts each template in one list, so
+	// an overlap across the lists is a length with two units.
+	gLengthPool = []string{"{name}_count", "{stem}_count", "{name}_len", "{stem}_len", "count", "n", "{name}_bytes",
+		"{stem}_bytes", "byte_count", "size", "data_count", "a_len"}
+	gCapPool   = []string{"capacity", "cap", "n", "size"}
+	gCountPool = []string{"out_count", "out_n", "count", "o_len"}
+	gOutPool   = []string{"out_", "o_", "ret_"}
+	gNamePool  = []string{"a", "bytes", "items", "data", "out_x", "o_y", "ret_v", "out_count", "out_n", "count", "capacity",
 		"cap", "n", "size", "a_count", "item_count", "a_len", "a_bytes", "byte_count", "data_len", "items_count", "o_len", "out_items"}
 	gPointees = []string{"uint8_t", "uint32_t", "uint64_t", "float", "g_u", "g_s0", "g_s1", "g_s2", "g_s3", "g_h", "g_o", "void"}
 	gScalars  = []string{"uint32_t", "uint64_t", "int32_t", "float", "g_u", "uint8_t"}
@@ -439,6 +459,20 @@ func (g *gen2) shape(used map[string]bool, c *Contract) []string {
 		templ := g.pick(append(slices.Clone(c.Buffers.LengthNames), c.Buffers.ByteLengthNames...))
 		if n, ok := fill(templ, b); ok && !used[n] {
 			l, used[n] = n, true
+		}
+		// Take a length that templates of both lists give, when one exists:
+		// a length with two units.
+		for _, te := range c.Buffers.LengthNames {
+			for _, tb := range c.Buffers.ByteLengthNames {
+				ne, ok1 := fill(te, b)
+				nb, ok2 := fill(tb, b)
+				if ok1 && ok2 && ne == nb && !used[ne] {
+					if l != "" {
+						delete(used, l)
+					}
+					l, used[ne] = ne, true
+				}
+			}
 		}
 		if l == "" {
 			l = named(gNamePool)
@@ -703,6 +737,12 @@ func TestClassificationTotality(t *testing.T) {
 					if !strings.Contains(bf.RawOnly, "both cover it") {
 						fail("two rules match, but the reason is %q", bf.RawOnly)
 					}
+				case "units":
+					for _, s := range []string{"in_buffer (", "in_buffer_bytes (", "counts elements", "counts bytes", "both cover it"} {
+						if !strings.Contains(bf.RawOnly, s) {
+							fail("a length counts elements and bytes, but the reason %q does not say %q", bf.RawOnly, s)
+						}
+					}
 				case "none":
 					if !strings.Contains(bf.RawOnly, "no rule covers it") && !strings.Contains(bf.RawOnly, "callback") &&
 						!strings.Contains(bf.RawOnly, "holds a pointer") {
@@ -719,7 +759,7 @@ func TestClassificationTotality(t *testing.T) {
 		stats["exceptions"] += len(c.Exceptions)
 	}
 	if !testingShort() {
-		for _, k := range []string{"by two", "by none", "by exception", "class in_buffer", "class out_buffer",
+		for _, k := range []string{"by two", "by units", "by none", "by exception", "class in_buffer", "class out_buffer",
 			"class out_count", "class out", "class value", "class handle", "typed"} {
 			if stats[k] < *propCases/20 {
 				t.Errorf("the generator makes %d positions of %q in %d cases; want at least %d", stats[k], k, *propCases, *propCases/20)

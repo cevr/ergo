@@ -146,7 +146,7 @@ func (d *contextDAG) decls(fail, slow map[string]bool) string {
 		if res {
 			needs := "Console"
 			if slow[name] {
-				needs += ", Scheduler"
+				needs += " | Scheduler"
 			}
 			fmt.Fprintf(&b, "func Close(_ %s) needs %s {\n\tConsole.Println(\"close %s\")\n", name, needs, name)
 			if slow[name] {
@@ -166,7 +166,7 @@ func (d *contextDAG) decls(fail, slow map[string]bool) string {
 				needs = append(needs, d.cap(c))
 				body = append(body, "\tlet _ = "+d.cap(c)+".Name()\n")
 			}
-			fmt.Fprintf(&b, "func mk%d_%d() %s needs %s {\n%s\t%s\n}\n", d.k, e, d.typ(e), strings.Join(needs, ", "), strings.Join(body, ""), d.typ(e))
+			fmt.Fprintf(&b, "func mk%d_%d() %s needs %s {\n%s\t%s\n}\n", d.k, e, d.typ(e), strings.Join(needs, " | "), strings.Join(body, ""), d.typ(e))
 		}
 	}
 	var entries []string
@@ -248,7 +248,7 @@ func (d *contextDAG) function(exit string) string {
 	if len(fails) > 0 {
 		row = " fails " + strings.Join(fails, " | ")
 	}
-	fmt.Fprintf(&b, "func %s(%s)%s needs %s {\n\twith W%d {\n", d.fn(exit), params, row, strings.Join(needs, ", "), d.k)
+	fmt.Fprintf(&b, "func %s(%s)%s needs %s {\n\twith W%d {\n", d.fn(exit), params, row, strings.Join(needs, " | "), d.k)
 	for _, c := range d.uses {
 		fmt.Fprintf(&b, "\t\tConsole.Println(\"use \" + %s.Name())\n", d.cap(c))
 	}

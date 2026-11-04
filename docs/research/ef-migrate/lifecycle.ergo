@@ -12,14 +12,14 @@ func worker() needs Clock {
 	Clock.Sleep(10000ms)
 }
 
-func scopedRead() string fails fs.Error needs fs.FS, Console {
+func scopedRead() string fails fs.Error needs fs.FS | Console {
 	let file = try FS.Open("examples/fixture.txt")
 	// Runtime.inspect() has no spec-v0 counterpart: live task state is
 	// ef ps (runtime.md, G3), outside the program.
 	return FS.ReadText(file)
 } // file closed here (resources.md, R5)
 
-func program() fails fs.Error needs Clock, fs.FS, Console, config.Config, Scheduler {
+func program() fails fs.Error needs Clock | fs.FS | Console | config.Config | Scheduler {
 	let child = task.Go() { worker() }
 	child.Stop()
 	let text = try scopedRead()

@@ -1,5 +1,5 @@
 type Bang {}
-extern go fixture.run func run(f func() fails Bang) fails Bang
+func run(f func() fails Bang) fails Bang { return f() }
 func a() {return run(func(){return b()})}
 func b() {return a()}
 func F() fails Bang {return a()}

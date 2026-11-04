@@ -310,11 +310,7 @@ func (c *converter) signature(s *Sig, t *syntax.FuncType) {
 		}
 	}
 	if t.Needs != nil {
-		if t.Needs.Lparen.IsValid() {
-			c.refuse(t.Needs, "a parenthesised needs list")
-		} else {
-			s.Needs = c.qnames(t.Needs.Names, "this capability")
-		}
+		s.Needs = c.qnames(t.Needs.Names, "this capability")
 	}
 }
 

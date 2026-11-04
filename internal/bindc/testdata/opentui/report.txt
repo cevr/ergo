@@ -270,19 +270,19 @@ raw-only functions (19):
   ot_clipboard_operation_result_data_copy: param 2 (out_bytes): no rule covers it
   ot_clipboard_operation_result_diagnostic_copy: param 2 (out_bytes): no rule covers it
 
+pointer fields (0):
+
 counts:
   functions 259: typed 240, raw-only 19, skipped 0
-  pointer positions 806: handle 257, value 315, out 99, in_buffer 58, out_buffer 23, out_count 23, raw 31
+  pointer positions 806 (parameters and results 806, fields 0): handle 257, value 315, out 99, in_buffer 58, out_buffer 23, out_count 23, raw 31
   constants 701, status codes 37
 
-exceptions (8):
+exceptions (6):
   ot_session_drain_stdout session: value: max_bytes after session limits the drained output; it is not the length of session
   ot_session_post_stdout session: value: max_bytes after session limits the posted output; it is not the length of session
   ot_text_buffer_get_info #2: out: unnamed out-parameter: the call writes one ot_text_buffer_info
   ot_text_buffer_view_get_info #2: out: unnamed out-parameter: the call writes one ot_editor_view_info
   ot_text_buffer_view_measure #4: out: unnamed out-parameter: the call writes one ot_editor_measure
-  ot_text_buffer_set_styled_text #4: in_buffer, length chunk_count in elements: unnamed chunk array: chunk_count counts its ot_styled_text_chunk entries (the header: chunk_count can exceed byte_count)
-  ot_text_buffer_replace_styled_batch #5: in_buffer, length chunk_count in elements: unnamed chunk array: chunk_count counts its ot_styled_text_chunk entries
   ot_text_buffer_replace_styled_batch out: out: named out without the out_ prefix: the call writes one ot_text_buffer_replacement_info
 
 skips (0):

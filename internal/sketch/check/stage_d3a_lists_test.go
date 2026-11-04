@@ -36,23 +36,23 @@ func listsSource(body string) string {
 func TestRefusedListElementKeepsSiblings(t *testing.T) {
 	for _, tc := range []struct{ name, src string }{
 		// Rows (the M1 witnesses).
-		{"needs-first", "func f() int needs DStore, Log { Log.Put() }\nfunc main() { with context { Log: L } { _ = f() } }\n"},
-		{"needs-last", "func f() int needs Log, DStore { Log.Put() }\n"},
+		{"needs-first", "func f() int needs DStore | Log { Log.Put() }\nfunc main() { with context { Log: L } { _ = f() } }\n"},
+		{"needs-last", "func f() int needs Log | DStore { Log.Put() }\n"},
 		{"fails-try", "func g() int fails Fault { 1 }\nfunc f() int fails DStore | Fault { try g() }\n"},
 		{"fails-catch", "func g() int fails DStore | Fault { 1 }\nfunc f() int { g() catch {\ncase Fault: 2\n} }\n"},
 		{"fails-try-and-catch", "func g() int fails C { 1 }\nfunc f() int fails DStore | Fault | C { try g() }\nfunc h() int { f() catch {\ncase Fault: 1\ncase C: 2\n} }\n"},
 		// An unknown written row may hold what escapes or is charged, as an
 		// unknown destination row accepts any row (clause 5).
 		{"fails-unknown-row-escape", "func g() int fails C { 1 }\nfunc F() int fails DStore | Fault { try g() }\n"},
-		{"needs-unknown-row-charge", "func k() int needs Store { Store.Get() }\nfunc F() int needs DStore, Log { k() }\n"},
+		{"needs-unknown-row-charge", "func k() int needs Store { Store.Get() }\nfunc F() int needs DStore | Log { k() }\n"},
 		{"operation-method-row", "type Ops2 { Run() int fails DStore | C }\nfunc Run(m Mem) int fails Fault { 1 }\nfunc f() Ops2 { Mem }\n"},
 		{"literal-written-row", "func g() int fails C { 1 }\nfunc f() int { let h = func() int fails DStore { try g() }\nh() catch {\ncase _: 1\n} }\n"},
 		{"fails-generic-try", "func g() int fails C { 1 }\nfunc f() int fails Box[DStore] | C { try g() }\n"},
 		{"fails-generic-catch", "func g() int fails Box[DStore] | C { 1 }\nfunc f() int { g() catch {\ncase C: 2\n} }\n"},
 		{"fails-generic-alone-catch", "func g() int fails Box[DStore] { 1 }\nfunc f() int { g() catch {\ncase _: 2\n} }\n"},
-		{"functype-result", "func k() int needs Log { Log.Put() }\nfunc mk() func() int needs DStore, Log { k }\n"},
-		{"functype-into-wider", "func k() int needs Log { Log.Put() }\nfunc f() int needs Log, Store {\nlet h func() int needs DStore, Log = k\nlet w func() int needs Log, Store = h\nw()\n}\n"},
-		{"functype-from-wider", "func k() int needs Log, Store { Log.Put() }\nfunc f() int needs Log, Store {\nlet h func() int needs DStore, Log = k\nh()\n}\n"},
+		{"functype-result", "func k() int needs Log { Log.Put() }\nfunc mk() func() int needs DStore | Log { k }\n"},
+		{"functype-into-wider", "func k() int needs Log { Log.Put() }\nfunc f() int needs Log | Store {\nlet h func() int needs DStore | Log = k\nlet w func() int needs Log | Store = h\nw()\n}\n"},
+		{"functype-from-wider", "func k() int needs Log | Store { Log.Put() }\nfunc f() int needs Log | Store {\nlet h func() int needs DStore | Log = k\nh()\n}\n"},
 		{"functype-errors", "func g() int fails C { 1 }\nfunc f(h func() int fails DStore | C) int fails C { try h() }\nfunc k() int { f(g) catch {\ncase C: 1\n} }\n"},
 		// Catch type-test patterns over a refused type.
 		{"catch-total-refused-arg", "func g() int fails C | Box[Store] { 1 }\nfunc f() int { g() catch {\ncase C: 1\ncase Box[DStore]: 2\n} }\n"},
@@ -87,7 +87,7 @@ func TestRefusedListElementKeepsSiblings(t *testing.T) {
 // missing capability or an unhandled error it names is still reported.
 func TestRefusedListElementKeepsEvidence(t *testing.T) {
 	for _, tc := range []struct{ name, src, want, code string }{
-		{"needs-caller-misses-log", "func g() int needs DStore, Log { Log.Put() }\nfunc main() { _ = g() }\n", "main.Log", check.CodeMissingCap},
+		{"needs-caller-misses-log", "func g() int needs DStore | Log { Log.Put() }\nfunc main() { _ = g() }\n", "main.Log", check.CodeMissingCap},
 		{"fails-caller-misses-c", "func g() int fails DStore | C { 1 }\nfunc main() { _ = g() }\n", "main.C", check.CodeUnhandled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -108,7 +108,7 @@ let settingsJSON = json.Codec[Settings]{MaxBytes: 512, MaxDepth: 2}
 
 type Env { Get(name string) string }
 
-func reencodeOrder(stored string) string fails json.DecodeFailed | json.EncodeFailed | InvalidQuantity | UnknownMember | DirectoryDown | AuditRefused needs Directory, Audit {
+func reencodeOrder(stored string) string fails json.DecodeFailed | json.EncodeFailed | InvalidQuantity | UnknownMember | DirectoryDown | AuditRefused needs Directory | Audit {
 	let order = try orderJSON.Decode(stored)
 	return orderJSON.Encode(order)
 }

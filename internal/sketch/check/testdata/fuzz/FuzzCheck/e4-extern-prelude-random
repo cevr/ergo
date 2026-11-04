@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Mine {}\n\nfunc Int63(_ Mine) int64 { 0 }\n\nfunc use(r Random) { _ = r.Int63() }\n\nfunc main() {\n\tuse(Mine)\n}\n")

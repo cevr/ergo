@@ -35,7 +35,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Error row** (checked): The set of error types a function may fail with, written `fails A | B` after the result type. Order and repetition carry no meaning.
 
-**Capability row** (checked): The set of capabilities a caller must supply, written `needs A, B` after a signature. Also called the `needs` row or requirement row. Before 2026-10-27 it was spelled `uses` ([#217](https://github.com/cevr/ergo/issues/217)); `uses` is now an ordinary identifier.
+**Capability row** (checked): The set of capabilities a caller must supply, written `needs A | B` after a signature, the same union spelling as the error row (196n). Also called the `needs` row or requirement row. Before 2026-10-27 it was spelled `uses` ([#217](https://github.com/cevr/ergo/issues/217)); `uses` is now an ordinary identifier.
 
 **Row**: An error row or a capability row. Rows are checked and then erased from the emitted Go.
 
@@ -65,7 +65,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Context** (checked for provider values; constructors designed): What `with` installs for a block: service bindings and context values. A `context { Cap: provider, … }` literal, inline or named, binds capabilities to providers or constructors; it is Ergo's form of an Effect layer. The construct was spelled `wire` until 196w ([2026-11-02 preview](docs/previews/2026-11-02-wire-to-context.md)). *Prior art:* Effect's `Context` (the service map a Layer builds), Go's `context.Context`, React Context, Scala 3 and Kotlin context parameters.
 
-**Context exposure** (parsed; S109 naming [#196](https://github.com/cevr/ergo/issues/196) stage b, which checks it): The `provides A, B` clause of a named context header: the capabilities a `with` of that context discharges. Entries the context builds and does not list stay private to its build. A header may also state the context's requirements, `let App = context provides Account, Invoice needs Config { … }`, which join the `with` site's capability row.
+**Context exposure** (parsed; S109 naming [#196](https://github.com/cevr/ergo/issues/196) stage b, which checks it): The `provides A | B` clause of a named context header: the capabilities a `with` of that context discharges. Entries the context builds and does not list stay private to its build. A header may also state the context's requirements, `let App = context provides Account | Invoice needs Config { … }`, which join the `with` site's capability row.
 
 **Inline context** (checked): A `context { … }` literal given directly to `with`. Its provider expressions are evaluated in, and charged to, the enclosing function.
 
