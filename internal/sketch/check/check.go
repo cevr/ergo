@@ -84,6 +84,11 @@ type checker struct {
 	// exceeded, so a reference from a later component has those rows
 	// unknown and the others as they are (groupRef, unknownSig).
 	refusedMembers map[*Func][2]bool
+	// inferredRefs holds each identifier the reference walk resolves to a
+	// package function with an inferred row, which class G may refuse, so
+	// a call typing skips is classified by the names it holds, typed or
+	// not (namesRefused; C46).
+	inferredRefs map[*syntax.Ident]*Func
 	// dupNames holds the package names declared more than once (declare):
 	// which declaration is kept depends on the order, so a decision that
 	// reads the kept one is a follow-on of the duplicate (collectSelfFuncs).
@@ -375,6 +380,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 
 		refusedBinders: map[binderKey]bool{},
 		refusedMembers: map[*Func][2]bool{},
+		inferredRefs:   map[*syntax.Ident]*Func{},
 		dupNames:       map[string]bool{},
 	}
 	c.types.substRow = c.substRow

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type A0000{}\ntype Store{Get()A}\ntype A00{}\nfunc A00(A00)A{}\nfunc A000()fail.A00000{A0000}\nfunc n(A)A00000{if 0!=0{try00000()%Store.Get()}\nif n!=0{}}\nfunc A00(A)A00000 fails A0000 needs A0000{A000(){(n)}(){}}")

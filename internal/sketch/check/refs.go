@@ -380,6 +380,7 @@ func (w *refWalker) ident(x *syntax.Ident) {
 		w.refs[o] = true
 	}
 	if f, ok := o.(*Func); ok && (f.inferErrors || f.inferUses) {
+		w.c.inferredRefs[x] = f
 		w.valueUse(f, w.callees[x], x.Pos())
 	}
 	if w.idents != nil {
