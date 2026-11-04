@@ -14,7 +14,7 @@ Every other rule here is **designed, not yet implemented**.
 
 ## Tasks
 
-Status: the task tree is **implemented in prototype**. The bodies of `task.Go`, `Wait` and `Stop` are **implemented** in `runtime/v1` (rules 7 to 12); the signature of `task.Go` checks, and its calls lower (check-v1 stage D3b; `TestTaskGoAndTaskResults`).
+Status: the task tree is **implemented** in the task runtime `runtime/rt`, and every built program runs on it. The bodies of `task.Go`, `Wait` and `Stop` are **implemented** in `runtime/v1` (rules 7 to 12); the signature of `task.Go` checks, and its calls lower (check-v1 stage D3b; `TestTaskGoAndTaskResults`).
 
 1. **Tree.** Every task has a parent, except the task that runs `main`. Stopping a task stops every task below it. A child that finishes detaches from its parent.
 2. **Starting.** `task.Go() { … }` starts a task and yields a `Task[T, E]`. `T` is the body's value and `E` its error row.
@@ -43,7 +43,7 @@ The runtime contract of `runtime/v1` (task.go), which the signature `task.Go` bi
 
 ## I1. Interruption points
 
-Status: **implemented in prototype** for capability calls, loop back-edges and recursive or opaque impure frame entries (#199 stage 1), and task-aware blocking waits (#199 stage 2); stage 5a places loop and capability-call points where no delivered value is in flight (rule 2). `Sleep`, `Wait`, `Push`, `Pop` and `Values` observe interruption in their runtime primitives.
+Status: **implemented** for capability calls, loop back-edges and recursive or opaque impure frame entries (#199 stage 1), and task-aware blocking waits (#199 stage 2); stage 5a places loop and capability-call points where no delivered value is in flight (rule 2). `Sleep`, `Wait`, `Push`, `Pop` and `Values` observe interruption in their runtime primitives.
 
 1. Interruption is cooperative. A stopped task stops at its next interruption point.
 2. The compiler inserts an interruption point before each capability call, queue operation, `Wait` and `Sleep`, and at each loop back-edge, in every frame whose footprint is not empty ([rows.md](rows.md#footprints)). The point checks the frame's own task (`env.task.Check()`), so a task body checks itself, never the task that started it.
@@ -82,7 +82,7 @@ If an acquisition succeeds, its release runs. A blocking primitive inside a mask
 
 ## Exit causes
 
-Status: **partly implemented in prototype**.
+Status: **partly implemented**: the rules hold as each item states, and the "Prototype:" notes say how the built programs do it today.
 
 1. A task ends with one exit: a success value, or a cause. A cause holds one or more of: a typed failure from the error row, a defect, and an interruption.
 2. **Interruption is not a typed error.** No error row names it, and every `catch` passes it on ([rows.md](rows.md#catch)). In a function with no error row, interruption still propagates as part of the exit, not through the row (README Gap 2). Prototype: such a function panics with `rt.Interrupted`, and the nearest task boundary recovers it.

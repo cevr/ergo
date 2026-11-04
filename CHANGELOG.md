@@ -109,6 +109,11 @@ Entries describe user-visible changes and are true at the commit that carries th
 
 ### Language and compiler
 
+- lower-v1 stage 5 ([#196](https://github.com/cevr/ergo/issues/196)): one compiler path, and exact support.
+  - A pure function compiles to a plain Go function with no hidden environment argument, and its callers pass none: `func Fold(n int) int`. A function is pure when it has no `fails`, no `needs`, no row parameter and no `Task` result, has no interruption point, and calls only pure functions ([runtime](docs/spec/runtime.md#host-and-lowering-notes)). A pure function used as a value keeps the one Go shape of a function value through an adapter. A function named `Error`, `String` or `GoString` keeps the environment, because Go reads those names from a method set.
+  - The prototype checker and emitter `internal/sketch/proto` are removed. Its corpus moves byte for byte to `internal/sketch/testdata`, and each of its output probes that the current rules keep runs through the real lowering and prints its oracle (`TestCorpusProbesRun`).
+  - The syntax tree loses the 10 node types and 27 fields that the decided parser never builds (`GoExpr`, `SelectStmt`, `SendStmt`, `CommClause`, `ChanType`, `DeferStmt`, `LabeledStmt`, `IncDecStmt`, `EmptyStmt`, `Ellipsis`, and fields such as `IfStmt.Init` and `CallExpr.Ellipsis`). The old spellings still lex and keep their diagnostics.
+  - The README opens with a program that runs: `examples/checkout` is the same program, gated with its case and its tests. The designed showcase of 2026-11-03 follows under "Designed, not built yet". The new [support table](docs/spec/support.md) lists each family of construct with its status and owner, generated from the lowering's inventory, and [docs/testing.md](docs/testing.md) documents `ergo test`.
 - lower-v1 stage 4 ([#196](https://github.com/cevr/ergo/issues/196)): more checked programs build and run.
   - A machine declaration lowers to a plan value: `Initial` is evaluated once at start, as a package `let` is, and a pure `Step` takes no environment and allocates nothing more than a direct call. There is no runner yet (#57).
   - A refuted property prints its seed and each argument as an Ergo literal (`Point{X: 1, Y: 6}`, `"a\nb"`, `[]int{1, 2}`), which pasted into a test checks and fails the same way.

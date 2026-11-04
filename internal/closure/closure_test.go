@@ -103,6 +103,7 @@ var declared = map[string][]allowance{
 			{"internal/sketch/check/testdata", subtree, "the accepted and refusal inventories walk the checker's fixtures (filepath.WalkDir), lowering each"},
 			{"internal/sketch/testdata", subtree, "the accepted and refusal inventories and TestCorpusProbesRun walk the shared corpus (filepath.WalkDir), lowering each"},
 			{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
+			{"docs/spec/support.md", file, "TestSupportTableIsCurrent compares the support table with the one the family inventory generates"},
 			// TestNoStageERefusal (C43) walks internal/sketch, skipping
 			// testdata, and parses each source: the packages lower builds
 			// on are its inputs already; these are the rest, at the depths
@@ -131,6 +132,7 @@ var declared = map[string][]allowance{
 	),
 	"cmd/ergo": {
 		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},
+		{"examples/checkout/main.ergo", file, "the README smoke test compares the README's first go block with the checkout example and copies it into a workspace (smokeWorkspace)"},
 		{"examples/editions/sketch", listing, "the process and README smoke tests copy the 2026 example into a workspace (smokeWorkspace)"},
 		{"examples/editions/sketch/*", files, "smokeWorkspace copies each file of the 2026 example; it has no subdirectory, so the copy reads one level"},
 	},

@@ -17,10 +17,10 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 
 - "Must", "must not" and "is an error" are normative. An error has a diagnostic code from [diagnostics.md](diagnostics.md).
 - Each construct carries one status label:
-  - **Checked; runs**: the checker `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)) checks it, and `ergo build` lowers it through the prototype emitter.
-  - **Checked; build refused**: the checker checks it on every surface; the prototype emitter cannot lower it, so `ergo build` refuses it with S109 naming [#50](https://github.com/cevr/ergo/issues/50), which lowers from the checker's output.
-  - **Implemented in prototype**: `prototypes/sketch9` accepts it and lowers it to Go, and its fixtures pin the behaviour; the 2026 checker does not check it yet.
+  - **Checked; runs**: the checker `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)) checks it, and `ergo build`, `ergo run` and `ergo test` lower it to Go from the checker's output (`internal/sketch/lower`).
+  - **Checked; build refused (S109 naming its owner)**: the checker checks it, and the build stops at it with S109, whose message names the open owner that will lower it.
   - **Designed, not yet implemented**: decided in the sketches or by the owner, with no compiler support yet.
+  - The [support table](support.md) gives the exact support of the build, one row per family of construct with its status and owner. A test generates it from the lowering's inventory, so it cannot drift.
   - Since [#195](https://github.com/cevr/ergo/issues/195), the parser `internal/sketch/syntax` parses and formats every construct of every label. A parsed construct that another ticket owns is S109 naming that ticket ([diagnostics](diagnostics.md#s109-owned-by-another-ticket)).
 - A design choice between options cites prior art in one line. The standing comparison set is Go, Gleam, ReScript, Elixir/OTP, MoonBit, Rust, Swift, Effect and OCaml/Koka.
 - Examples are fenced as `go` because the surface is Go-shaped. They are Ergo source, not Go.
@@ -37,52 +37,55 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 
 ## Status per construct
 
+The [support table](support.md) lists the exact support of the build, one family of construct per row, with its witness test and owner.
+
 | Construct | Status | Section |
 | --- | --- | --- |
-| Parsing every production of grammar.md and Go's productions where it is silent; S001 | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/syntax`); a decided form the 196a checker lacks is S109 until check-v1 | [grammar](grammar.md#parser) |
+| Parsing every production of grammar.md and Go's productions where it is silent; S001 | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/syntax`); a parsed form that the checker does not check yet is S109 naming its owner | [grammar](grammar.md#parser) |
 | Formatting, `ergo-2026/formatter-2` | Implemented ([#195](https://github.com/cevr/ergo/issues/195), `internal/sketch/format`) | [formatting](../specs/formatting.md#2026-edition) |
 | Name resolution, Go's types where the spec is silent, S101 to S113 | Implemented ([#196](https://github.com/cevr/ergo/issues/196), `internal/sketch/check`) for one package; packages and imports of module packages follow in #196's second part | [types](types.md), [rows](rows.md), [diagnostics](diagnostics.md) |
 | One `import` path per line; the directory names the package; an alias only for a name clash | Checked; runs (the standard-library package `timeout`; the alias rule, check-v1 stage D3a, D-D7) | [grammar](grammar.md#declarations) |
 | Identifiers by decoded code point (round-7 rule) | Checked; runs | [grammar](grammar.md#identifiers) |
-| Integer, duration and string literals | Checked; runs. Rune literals: checked; build refused | [grammar](grammar.md#literals) |
-| Every Go numeric type, with Go's typing | Checked; build refused for types other than `int64` ([#81](https://github.com/cevr/ergo/issues/81) keeps the overflow policy and floating-point literals) | [types](types.md#basic-types) |
-| `duration` as a type name in signatures and fields | Checked; build refused (Gap 25) | [types](types.md#basic-types) |
-| Record types `type T { … }`, keyed and positional literals | Checked; runs | [types](types.md#structs) |
+| Integer, floating-point, rune, duration and string literals | Checked; runs | [grammar](grammar.md#literals) |
+| Every Go numeric type, with Go's typing | Checked; runs, with Go's arithmetic ([#81](https://github.com/cevr/ergo/issues/81) keeps the overflow policy) | [types](types.md#basic-types) |
+| `duration` as a type name in signatures and fields | Checked; runs (Gap 25) | [types](types.md#basic-types) |
+| Record types `type T { … }`, keyed and positional literals | Checked; runs. The text of an error type with a field that has no text form (a map, a tuple, a pointer): checked; build refused (S109 naming [#49](https://github.com/cevr/ergo/issues/49)) | [types](types.md#structs), [error types](types.md#error-types) |
+| Slice and map literals | Checked; runs. An indexed slice literal such as `[]int{2: 5}`: checked; build refused (S109 naming [#196](https://github.com/cevr/ergo/issues/196)) | [types](types.md#prelude-types) |
 | Unions `type T = A \| B` | Checked; runs | [types](types.md#unions) |
 | Capability types (operation types) | Checked; runs | [types](types.md#capabilities) |
-| Capability types as parameter and result types | Checked, with operation calls on such a value (Gap 29); build refused for those calls | [types](types.md#capabilities) |
+| Capability types as parameter and result types | Checked, with operation calls on such a value (Gap 29); runs | [types](types.md#capabilities) |
 | Functions whose first parameter is a local record (no receivers, 196m) | Checked as ordinary functions | [types](types.md#methods) |
 | Single-subject `match` on a union | Checked, total or with `case _` (S103; Gap 3); runs | [rows](rows.md#totality) |
-| Multi-subject `match (a, b)` | Checked, total by a usefulness check (Gap 12); build refused | [rows](rows.md#totality) |
+| Multi-subject `match (a, b)` | Checked, total by a usefulness check (Gap 12); runs | [rows](rows.md#totality) |
 | `if`/`else`, `else if`; `if` and `match` as expressions, function tails (196r) | Checked; runs (check-v1 stage C, D-C1, D-C2) | [grammar](grammar.md#statements) |
 | `let` definitions; `let mut` and assignment roots, no shadowing, prelude names not redeclared (196v) | Checked; runs (check-v1 stage D1, D-D1..D-D3) | [grammar](grammar.md#statements) |
 | Operators `==` (on `string`, `int64`, `bool`) and `+` | Checked; runs | [types](types.md#operators) |
-| Other operators, `&&`, `\|\|`, `==` on `duration` | Checked with Go's operand rules (Gaps 10, 26); build refused | [types](types.md#operators) |
+| Other operators, `&&`, `\|\|`, `==` on `duration` | Checked with Go's operand rules (Gaps 10, 26); runs | [types](types.md#operators) |
 | `fails` rows and `try` | Checked; runs | [rows](rows.md#error-rows) |
 | `catch` without `try` (total) and `try … catch` (partial) | Checked; runs | [rows](rows.md#catch) |
 | `case E as e:` bindings, statements in arms | Statements in arms and `as` bindings checked (Gap 11; check-v1 stage B); `case err:`, `case _`, record patterns and a whole-expression `try` checked and lowered (check-v1 stage C, 196r, D-C3) | [rows](rows.md#catch) |
 | `needs` rows | Checked, inferred for unexported functions and literals; runs | [rows](rows.md#capability-rows) |
-| Footprints and purity | Designed, not yet implemented ([#203](https://github.com/cevr/ergo/issues/203)) | [rows](rows.md#footprints) |
+| Footprints and purity | Checked: the checker records each frame's footprint (`Info.Footprints`). The build places interruption points from it, and a pure function takes no hidden argument ([runtime](runtime.md#host-and-lowering-notes)). Showing footprints in a tool is [#203](https://github.com/cevr/ergo/issues/203) | [rows](rows.md#footprints) |
 | Named contexts `let W = context { … }` with provider literals | Checked: closed contexts (Gap 6), S111 for a repeated entry (Gap 28); runs | [rows](rows.md#context) |
 | Inline `context { … }` | Checked; runs | [rows](rows.md#context) |
-| Context embedding, `replace`, one provider for several capabilities | Checked (Gap 34); build refused | [rows](rows.md#context) |
+| Context embedding, `replace`, one provider for several capabilities | Checked (Gap 34); runs. A `with` or an embedding of an imported context: checked; build refused (S109 naming 196b) | [rows](rows.md#context) |
 | Context constructors | Designed, not yet implemented; S109 naming [#37](https://github.com/cevr/ergo/issues/37) | [rows](rows.md#context) |
 | Context header `provides A needs B` | Parsed and formatted; S109 naming #196 stage b (Gap 33) | [rows](rows.md#context) |
 | `with W { block }` | Checked; runs | [rows](rows.md#with) |
-| `with` context values (G1) | Designed, not yet implemented; S109 naming G1 | [runtime](runtime.md#g1-context-through-with) |
+| `with` context values (G1) | Checked; runs for string values ([#199](https://github.com/cevr/ergo/issues/199)); typed payloads are designed | [runtime](runtime.md#g1-context-through-with) |
 | `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); `ergo build` lowers its call to its `runtime/v1` body, `v1.After` | [runtime](runtime.md#timeouts) |
-| Trailing block as a function-literal argument | Checked; build refused except on `with` and `timeout.After` | [grammar](grammar.md#expressions) |
-| Function literals and function types | Checked, with rows from the expected type or inferred; build refused | [types](types.md#generics) |
+| Trailing block as a function-literal argument | Checked; runs | [grammar](grammar.md#expressions) |
+| Function literals and function types | Checked, with rows from the expected type or inferred; runs | [types](types.md#generics) |
 | Resources and automatic release | Designed, not yet implemented ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
 | `task.Go`, `Task`, `Wait`, `Stop` | Checked (check-v1: the `task` package, and a `Task` leaves its function only by return, stage D3a); runs (stage D3b: a returned `Task` moves to the caller's scope; one held inside another type is refused naming stage E) | [runtime](runtime.md#tasks) |
-| Task tree, stop propagation, defect propagation | Implemented in prototype (runtime `rt`) | [runtime](runtime.md#tasks) |
-| I1 checks before capability calls | Implemented in prototype | [runtime](runtime.md#i1-interruption-points) |
-| I1 at loops and channel operations; I2 masks | Designed, not yet implemented | [runtime](runtime.md#i2-automatic-masks) |
-| G1 to G4 | Designed, not yet implemented | [runtime](runtime.md#observability-and-supervision) |
-| `for … in`, `break`, `continue` | Checked with Go's rules for the range forms they desugar to; build refused | [grammar](grammar.md#statements) |
+| Task tree, stop propagation, defect propagation | Implemented (the task runtime `runtime/rt`); every built program runs on it | [runtime](runtime.md#tasks) |
+| I1 checks before capability calls | Implemented ([#199](https://github.com/cevr/ergo/issues/199)) | [runtime](runtime.md#i1-interruption-points) |
+| I1 at loop back-edges and task-aware blocking waits; I2 masks | Implemented ([#199](https://github.com/cevr/ergo/issues/199); runtime.md, #199 contract status). Channels are not in the language: `chan` is reserved | [runtime](runtime.md#i2-automatic-masks) |
+| G1 to G4 | G1 and G2 implemented ([#199](https://github.com/cevr/ergo/issues/199)); G3 and G4 designed, not yet implemented | [runtime](runtime.md#observability-and-supervision) |
+| `for … in`, `break`, `continue` | Checked with Go's rules for the range forms they desugar to; runs | [grammar](grammar.md#statements) |
 | `scope.OnExit`, queues | Checked; runs (check-v1 stage D3b: `Push`, `Pop` and `Values` take the caller's task, so a stop ends their wait); Go's `range`, `select`, `defer`, `chan` and `var` are reserved words whose use names the Ergo form | [grammar](grammar.md#reserved-words) |
-| Borrows `*T` | Checked: only as a parameter type; escape and exclusivity are #197's; build refused | [types](types.md#borrows) |
-| Generics | Checked in the earlier implicit spelling, with kinds by position, constraints, row parameters and inference by unification; the bracket spelling of [types.md](types.md#generics) is check-v1's; build refused | [types](types.md#generics) |
+| Borrows `*T` | Checked: only as a parameter type; runs. Escape and exclusivity are [#197](https://github.com/cevr/ergo/issues/197)'s | [types](types.md#borrows) |
+| Generics | Checked in the bracket spelling of [types.md](types.md#generics), with constraints, row parameters and inference by unification; runs | [types](types.md#generics) |
 | Tests `test Name { … }`, `test Name(x T) { … }` and `assert` | Implemented (check-v1 stage E3a, 196l): checked, `assert` only in a test or law body (S108); the test build lowers every test and a runner; the run build of `ergo build` and `ergo run` contains none; `ergo test` builds and runs the test binary (lower-v1 stage 4) | [grammar](grammar.md#declarations) |
 | Laws `law Name(…) { … }` | Checked, not run ([#162](https://github.com/cevr/ergo/issues/162)); check-v1 stage E3b, 196l | [types](types.md#laws) |
 | `machine` types; the `actor` library package (#101: library, no compiler rule) | Checked: state and signal unions, initial value, step signature, the export guard. A machine lowers to a plan value with `Initial` and `Step` (lower-v1 stage 4); there is no runner. The `actor` library is not implemented; its lowering is prototyped in `prototypes/actorlib` | [runtime](runtime.md#machines-and-actors) |
@@ -116,7 +119,7 @@ The prototype's behaviour and the sketches leave the points below unstated or in
 7. **Context entries as provider literals only.** The prototype rejects a constructor entry (S109). *Recommendation:* constructors are designed ([rows.md](rows.md#context)). The parser takes both forms; the checker refuses a constructor entry with S109 naming [#37](https://github.com/cevr/ergo/issues/37).
 8. **Visibility (closed 2026-10-27).** Every sketch since the fourth relies on Go's capitalised export, for example an unexported field that makes `ParseQuantity` the only constructor. The owner chose explicit `pub` on 2026-10-08. Asked again with the recommendation "Go's capitalisation", the owner answered on 2026-10-27: "Yeah, let's go with your [recommendations]". *Decision:* a name is exported when it starts with an upper-case letter, and `pub` is superseded. The rule is in [grammar.md](grammar.md#visibility); the [NORTH_STAR tiebreak](../../NORTH_STAR.md#tiebreaks) records the change.
 9. **Integer types.** The prototype has one integer type, `int64`, and the sketches use `int` and `int64`. *Recommendation:* [#81](https://github.com/cevr/ergo/issues/81) decides the numeric types. *Status:* the checker types every Go numeric type with Go's rules (#196, Q5), `complex64` and `complex128` included (arithmetic and `==`, no ordering; no imaginary literal and no `complex`, `real` or `imag` builtin), and a typed floating-point or complex constant holds its type's rounded value; #81 keeps the overflow policy, checked runtime conversions and floating-point literals.
-10. **Short-circuit operators.** The prototype rejects `&&` and `||` (S109) because hoisted calls would run out of order. *Recommendation:* allow them with Go's short-circuit order. The lowering must not hoist a right operand above the left. *Status:* the checker accepts them with Go's typing (#196); the build refuses them until [#50](https://github.com/cevr/ergo/issues/50).
+10. **Short-circuit operators.** The prototype rejects `&&` and `||` (S109) because hoisted calls would run out of order. *Recommendation:* allow them with Go's short-circuit order. The lowering must not hoist a right operand above the left. *Status:* the checker accepts them with Go's typing (#196); the build lowers them ([support](support.md), `BinaryExpr`).
 11. **Bindings and statements in arms.** The prototype's arms are single expressions with no binding. The sketches bind the error in an arm and use `return` in an arm. *Recommendation:* adopt both, as in [rows.md](rows.md#catch): an arm binds with `case E as e:`, and an arm is a statement list whose last statement yields the arm's value when the catch is an expression. *Status:* statements in arms are checked (#196); `as` bindings are check-v1's (196p).
 12. **Multi-subject type switch.** The sketches write `match (s, sig)` with tuple cases and `_`. *Recommendation:* adopt it as the machine-step form, with totality over the product. *Status:* the checker checks it, with totality decided by a usefulness check over the case matrix (#196); the build refuses it until #50.
 13. **Automatic release versus checked `defer`.** The 2026-10-26 sketch 9 made a resource linear with a checked `defer` and `build.Scope.Acquire`. The owner's later direction of the same day ("make it simpler so that defers are automatic") replaced that with automatic release. *Resolved 2026-10-27:* [resources.md](resources.md) follows automatic release. `defer` stays for statements that are not releases. `build.Scope` becomes a library for dynamic registration. The [#65](https://github.com/cevr/ergo/issues/65) body and the [#206](https://github.com/cevr/ergo/issues/206) table now say the same.

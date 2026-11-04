@@ -13,10 +13,13 @@ import (
 )
 
 // TestReadmeSmoke keeps README.md truthful, as Rust doctests and Go Example
-// tests keep documentation executable. The README presents the decided language
-// (docs/spec), whose checker is in progress, so each claim is held to what
-// runs today:
+// tests keep documentation executable. The README opens with a program that
+// runs, then presents the decided language (docs/spec), so each claim is held
+// to what runs today:
 //
+//   - the first go block is examples/checkout/main.ergo, byte for byte, so the
+//     opening program is a gated example (scripts/examples builds it, runs
+//     its case and its tests);
 //   - every fence has the one strict style (markdownlint MD046/MD048): a
 //     backtick fence at column 0, opened as ```<lang> with lowercase
 //     letters and closed by a bare ``` on its own line. Any other line
@@ -32,7 +35,8 @@ import (
 //   - the quoted S102 line is what `ergo diagnostics` prints for
 //     readmeSmokeS102Source;
 //   - each `./bin/ergo` command under "Working in this repo" exits 0 and
-//     prints the output its comment names.
+//     prints the output its comment names; a `test` command's comment
+//     names the runner's summary, its last line.
 //
 // TODO(#196): once the 2026 checker lands, also type-check each block
 // against declarations of the names it leaves undeclared, so a block that
@@ -57,6 +61,10 @@ var (
 
 // readmeSmokeMinBlocks matches the acceptance check of the README unit.
 const readmeSmokeMinBlocks = 5
+
+// readmeSmokeOpening is the example program that the README's first go
+// block must equal (lower-v1 stage 5, D9).
+const readmeSmokeOpening = "examples/checkout/main.ergo"
 
 // readmeSmokeS102Source is the source file behind the README's quoted
 // diagnostic: pay calls Gateway, which its needs clause does not list.
@@ -190,6 +198,24 @@ func readmeBlockProblem(source string) error {
 	return nil
 }
 
+// firstLineDiff names the first line where got and want differ.
+func firstLineDiff(got, want string) string {
+	g, w := strings.Split(got, "\n"), strings.Split(want, "\n")
+	for i := 0; i < len(g) || i < len(w); i++ {
+		var a, b string
+		if i < len(g) {
+			a = g[i]
+		}
+		if i < len(w) {
+			b = w[i]
+		}
+		if a != b {
+			return fmt.Sprintf("line %d:\n  README  %q\n  example %q", i+1, a, b)
+		}
+	}
+	return ""
+}
+
 // isScopeOnExit reports whether call is `scope.OnExit() { … }`, the
 // cleanup a scope runs when it exits (resources.md).
 func isScopeOnExit(call *syntax.CallExpr) bool {
@@ -215,26 +241,46 @@ func TestReadmeSmoke(t *testing.T) {
 		}
 	})
 
+	// The opening program is the checkout example, so the gate's examples
+	// step runs what the README shows first. An edit of one and not the
+	// other fails here.
+	t.Run("opening-is-the-checkout-example", func(t *testing.T) {
+		t.Parallel()
+		example, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(readmeSmokeOpening)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		blocks, _ := readmeGoBlocks(readme)
+		if len(blocks) == 0 {
+			t.Fatal("README has no go block")
+		}
+		if blocks[0] != string(example) {
+			t.Errorf("README's first go block is not %s byte for byte:\n%s", readmeSmokeOpening, firstLineDiff(blocks[0], string(example)))
+		}
+	})
+
 	// Whole-document mutants of the real README. A removed form in a block
 	// is refused by the block check; a fence outside the strict style is
 	// refused as a fence, before its content could hide anything.
 	t.Run("refuses-document-mutants", func(t *testing.T) {
 		t.Parallel()
-		const charge = "needs Accounts | Payments | Scheduler {"
-		const lock = "\t\tlet lock = try Accounts.Lock(card) // a resource: released on every exit, the timeout included\n"
-		if !strings.Contains(readme, "```go\n") || strings.Count(readme, charge) != 1 || strings.Count(readme, lock) != 1 {
+		// Anchors in the opening program (the first go block).
+		const charge = "timeout.Expired needs Payments | Scheduler {"
+		const entry = "func main() needs Console {\n"
+		const last = "\tassert with Declining { purchase(100) } == \"declined\"\n}\n```\n"
+		if !strings.Contains(readme, "```go\n") || strings.Count(readme, charge) != 1 || strings.Count(readme, entry) != 1 || strings.Count(readme, last) != 1 {
 			t.Fatal("the mutant anchors are not in README.md once each; update them with the first snippet")
 		}
 		first := func(mutated string) string { return strings.Replace(readme, "```go\n", mutated, 1) }
 		uses := func(doc string) string {
-			return strings.Replace(doc, charge, "uses Accounts | Payments | Scheduler {", 1)
+			return strings.Replace(doc, charge, "timeout.Expired uses Payments | Scheduler {", 1)
 		}
 		const fence = "non-canonical fence"
 		for _, mutant := range []struct{ name, doc, want string }{
-			{"uses clause", uses(readme), "README go block 1: line 5, column 88: S001"},
+			{"uses clause", uses(readme), "README go block 1: line 12, column 70: S001"},
 			// The comma spelling of the row is refused at its first comma (196n).
-			{"comma row", strings.Replace(readme, charge, "needs Accounts, Payments, Scheduler {", 1), "README go block 1: line 5, column 102: S001 a capability row separates its names with |"},
-			{"deferred Close", strings.Replace(readme, lock, lock+"\t\tscope.OnExit() { lock.Close() }\n", 1), "README go block 1: line 8: a resource releases itself"},
+			{"comma row", strings.Replace(readme, charge, "timeout.Expired needs Payments, Scheduler {", 1), "README go block 1: line 12, column 84: S001 a capability row separates its names with |"},
+			{"deferred Close", strings.Replace(readme, entry, entry+"\tscope.OnExit() { receipt.Close() }\n", 1), "README go block 1: line 45: a resource releases itself"},
 			// The reviewer's round-2 cases (round-2-receipts).
 			{"indented tilde marker before a go block with uses", readme + "\n    ~~~text\n\n```go\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},
 			{"indented closer inside a go block, uses after it", readme + "\n```go\nfunc okay() {\n\twork()\n}\n    ```\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},
@@ -248,13 +294,13 @@ func TestReadmeSmoke(t *testing.T) {
 			{"opener `go title=pay.ergo`", uses(first("```go title=pay.ergo\n")), fence},
 			{"opener of four backticks", uses(first("````go\n")), fence},
 			{"bare opener with no language", readme + "\n```\nfunc bad() uses Console {}\n```\n", fence},
-			{"closer with trailing text", strings.Replace(readme, "\tassert r.ID == \"timed-out\"\n}\n```\n", "\tassert r.ID == \"timed-out\"\n}\n``` end\n", 1), fence},
+			{"closer with trailing text", strings.Replace(readme, last, strings.TrimSuffix(last, "\n")+" end\n", 1), fence},
 			// The reviewer's round-3 cases (round-3-findings, T1).
 			{"quoted fence", readme + "\n> ```go\n> func bad() uses Console {\n> \twork()\n> }\n> ```\n", fence},
 			{"nested quoted tilde fence", readme + "\n>> ~~~go\n>> func bad() uses Console {\n>> \twork()\n>> }\n>> ~~~\n", fence},
 			{"list item holding a quoted fence", readme + "\n- > ```go\n  > func bad() uses Console {\n  > \twork()\n  > }\n  > ```\n", fence},
 			{"CR line endings", strings.ReplaceAll(readme, "\n", "\r\n"), "carriage return"},
-			{"closer of four backticks", strings.Replace(readme, "\tassert r.ID == \"timed-out\"\n}\n```\n", "\tassert r.ID == \"timed-out\"\n}\n````\n", 1), fence},
+			{"closer of four backticks", strings.Replace(readme, last, strings.TrimSuffix(last, "```\n")+"````\n", 1), fence},
 		} {
 			problems := strings.Join(readmeProblems(mutant.doc), "\n")
 			if !strings.Contains(problems, mutant.want) {
@@ -329,27 +375,42 @@ func TestReadmeSmoke(t *testing.T) {
 			t.Fatal("README has no sh block under \"Working in this repo\"")
 		}
 		binary := buildTestCLI(t)
-		workspace := smokeWorkspace(t, "examples/editions/sketch", "go.mod")
+		workspace := smokeWorkspace(t, "examples/editions/sketch", readmeSmokeOpening, "go.mod")
 		commands := 0
+		verbs := map[string]bool{}
 		for _, line := range strings.Split(block[1], "\n") {
 			command := readmeSmokeCommand.FindStringSubmatch(line)
 			if command == nil {
 				continue
 			}
 			commands++
-			stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, workspace, "", strings.Fields(command[1])...)
+			args := strings.Fields(command[1])
+			verbs[args[0]] = true
+			stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, workspace, "", args...)
 			if code != 0 {
 				t.Errorf("ergo %s: exit %d\n%s%s", command[1], code, stdout, stderr)
 				continue
 			}
 			if _, output, ok := strings.Cut(command[2], ": "); ok {
-				if want := strings.ReplaceAll(output, " / ", "\n") + "\n"; string(stdout) != want {
+				got := string(stdout)
+				if args[0] == "test" {
+					// The runner prints a line per test, then its summary;
+					// the README quotes the summary.
+					got = got[strings.LastIndex(strings.TrimSuffix(got, "\n"), "\n")+1:]
+				}
+				if want := strings.ReplaceAll(output, " / ", "\n") + "\n"; got != want {
 					t.Errorf("ergo %s printed %q, README says %q", command[1], stdout, want)
 				}
 			}
 		}
 		if commands == 0 {
 			t.Fatal("README runs no ./bin/ergo command under \"Working in this repo\"")
+		}
+		// The README shows a v1 program both run and tested.
+		for _, verb := range []string{"run", "test"} {
+			if !verbs[verb] {
+				t.Errorf("README shows no ./bin/ergo %s command under \"Working in this repo\"", verb)
+			}
 		}
 	})
 }
