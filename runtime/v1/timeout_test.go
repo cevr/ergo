@@ -119,7 +119,18 @@ func TestAfterBodyFirst(t *testing.T) {
 			var gotErr error
 			within(t, "After with a body that ends", func() {
 				err := runMain(func(root *rt.Task) error {
-					got, gotErr = After(Site("test"), root, s, time.Hour, tc.body)
+					// The body ends only after the deadline child has
+					// registered its sleep, so After must stop and drain a
+					// live deadline, not one that never started (S4c r1 M1).
+					got, gotErr = After(Site("test"), root, s, time.Hour, func(c *rt.Task) (int, error) {
+						s.v.AwaitTimers(1)
+						return tc.body(c)
+					})
+					// Right after After returns, before the root task ends:
+					// no deadline sleep is open and no timer is armed.
+					if n, p := s.open.Load(), s.v.Pending(); n != 0 || p != 0 {
+						t.Errorf("After returned with its deadline alive: %d sleeps open, %d timers armed", n, p)
+					}
 					return nil
 				})
 				if err != nil {
