@@ -84,6 +84,12 @@ func runs(t *testing.T, root, name string) int {
 	return strings.Count(string(content), "run\n")
 }
 
+// runGate runs a gate in this test process. A test that calls it, or that
+// captures a step's output in this process in any other way, stays serial:
+// the output pipes are close-on-exec, but a program another parallel test
+// starts holds their write ends between its fork and its exec, and the gate
+// then reports the step's output as held open
+// (TestCommandOutputReachesEOFAfterStepStop failed so at -parallel 8).
 func runGate(t *testing.T, root, cache string, steps []*Step) (int, string) {
 	t.Helper()
 	var out bytes.Buffer
@@ -92,7 +98,6 @@ func runGate(t *testing.T, root, cache string, steps []*Step) (int, string) {
 }
 
 func TestFailingStepFailsTheGateAndBlocksOnlyItsDependents(t *testing.T) {
-	t.Parallel()
 	root := fixture(t)
 	steps := []*Step{
 		{Name: "broken", Argv: []string{"sh", "-c", "echo broken output; exit 3"}},
@@ -114,7 +119,6 @@ func TestFailingStepFailsTheGateAndBlocksOnlyItsDependents(t *testing.T) {
 }
 
 func TestOutputFollowsDeclarationOrderNotCompletionOrder(t *testing.T) {
-	t.Parallel()
 	root := fixture(t)
 	steps := []*Step{
 		{Name: "slow", Argv: []string{"sh", "-c", "sleep 0.3; echo slow done"}},
@@ -130,7 +134,6 @@ func TestOutputFollowsDeclarationOrderNotCompletionOrder(t *testing.T) {
 }
 
 func TestCachedStepReplaysOnlyWhileItsInputsAreUnchanged(t *testing.T) {
-	t.Parallel()
 	root := fixture(t)
 	cache := t.TempDir()
 	steps := func() []*Step {
@@ -168,7 +171,6 @@ func TestCachedStepReplaysOnlyWhileItsInputsAreUnchanged(t *testing.T) {
 // A receipt replays only the output recorded with it: an output file with
 // another size or other bytes, or none, is a cache miss, and the step runs.
 func TestCachedStepReplaysOnlyItsRecordedOutput(t *testing.T) {
-	t.Parallel()
 	root := fixture(t)
 	cache := t.TempDir()
 	steps := func() []*Step {
@@ -207,7 +209,6 @@ func TestCachedStepReplaysOnlyItsRecordedOutput(t *testing.T) {
 }
 
 func TestFailuresAreNeverCached(t *testing.T) {
-	t.Parallel()
 	root := fixture(t)
 	cache := t.TempDir()
 	step := func() []*Step {
@@ -465,7 +466,6 @@ func TestEnvironmentInputsAreInputs(t *testing.T) {
 // pass recorded while history it needs was present. The control removes only
 // a commit's root tree and keeps the commit, as a partial object store would.
 func TestHistoryReadingStepsNeverReplay(t *testing.T) {
-	t.Parallel()
 	root := fixture(t)
 	git := func(args ...string) string {
 		t.Helper()

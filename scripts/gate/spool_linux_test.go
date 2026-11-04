@@ -87,7 +87,6 @@ func TestOutputDestination(t *testing.T) {
 // pages would be charged to the gate's memory, which is what the spool is
 // there to bound. No step runs, and the gate says why and how to fix it.
 func TestGateRefusesAnOutputSpoolInMemory(t *testing.T) {
-	t.Parallel()
 	cache := memoryDir(t)
 	root := fixture(t)
 	code, out := runGate(t, root, cache, []*Step{{Name: "counted", Argv: count("counted")}})
@@ -102,7 +101,6 @@ func TestGateRefusesAnOutputSpoolInMemory(t *testing.T) {
 // A gate whose standard output is a file on tmpfs refuses to run, and says so
 // in that file with the remedy. No step runs.
 func TestGateRefusesStandardOutputInMemory(t *testing.T) {
-	t.Parallel()
 	name := filepath.Join(memoryDir(t), "gate.out")
 	out := create(t, name)
 	root := fixture(t)
@@ -126,7 +124,6 @@ func TestGateRefusesStandardOutputInMemory(t *testing.T) {
 // record and how to fix it, and the next run executes the step again. No
 // step output is left on tmpfs.
 func TestGateDeclinesACacheInMemory(t *testing.T) {
-	t.Parallel()
 	memory := memoryDir(t)
 	cache := diskDir(t)
 	if err := os.Symlink(memory, filepath.Join(cache, cacheVersion)); err != nil {

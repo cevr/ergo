@@ -577,8 +577,10 @@ func TestRunBudgetedOutputThroughput(t *testing.T) {
 	}
 }
 
+// This test and the drain tests below stay serial, as runGate's tests do:
+// a program another parallel test starts would hold the write ends of their
+// output pipes between its fork and its exec.
 func TestRunBudgetedSharedWritersPreserveRandomInterleavings(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the property uses a Unix shell")
 	}
@@ -709,7 +711,6 @@ func TestDrainPipeDrainsAfterAWriteError(t *testing.T) {
 }
 
 func TestDrainPipeReachesEOFAfterStepStop(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the output pipe requires Unix process groups")
 	}
@@ -746,7 +747,6 @@ func TestDrainPipeReachesEOFAfterStepStop(t *testing.T) {
 }
 
 func TestCommandOutputReachesEOFAfterStepStop(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the output pipe requires Unix process groups")
 	}
