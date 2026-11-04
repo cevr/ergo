@@ -48,11 +48,8 @@ type ergoEmitter struct {
 
 func (e *ergoEmitter) p(format string, args ...any) { fmt.Fprintf(&e.w, format, args...) }
 
-// pkg is the name the import binds: the last element of the import path.
-func (e *ergoEmitter) pkg() string {
-	p := e.b.Contract.Go.ImportPath
-	return p[strings.LastIndexByte(p, '/')+1:]
-}
+// pkg is the name the import binds, which Bind claimed (names.go).
+func (e *ergoEmitter) pkg() string { return importName(e.b.Contract.Go.ImportPath) }
 
 // ergoType is the Ergo type of a C value type: scalars by their Go name,
 // structs as records, other named types through the import, arrays as []T.

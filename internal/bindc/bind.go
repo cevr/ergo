@@ -334,8 +334,7 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 // name that is taken there or that Ergo reserves. It allocates the
 // parameters of each extern in a scope of its own.
 func (b *Binding) ergoNames() error {
-	pkg := ergoPackageScope(b.Contract.Go.ImportPath)
-	var errs []string
+	pkg, errs := ergoPackageScope(b.Contract.Go.ImportPath)
 	claim := func(n, source string) {
 		if !isGoIdent(n) || !isExported(n) {
 			errs = append(errs, fmt.Sprintf("%s: Ergo name %q is not an exported identifier", source, n))
@@ -491,7 +490,7 @@ func (b *Binding) checkNames() error {
 			} else if prev, ok := sc.taken(n); ok {
 				errs = append(errs, fmt.Sprintf("%s: fields %s and %s have the Go name %s", d.Name, prev, f.Name, n))
 			} else {
-				sc.owner[n] = f.Name
+				sc.mustClaim(n, f.Name)
 			}
 		}
 	}

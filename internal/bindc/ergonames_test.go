@@ -2,6 +2,7 @@ package bindc
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	goformat "go/format"
@@ -206,7 +207,30 @@ func TestErgoConflictsControl(t *testing.T) {
 // Bind error, or the text.
 func bindErgo(t *testing.T, extra string) (*Binding, string, error) {
 	t.Helper()
+	return bindErgoImport(t, extra, "fixture")
+}
+
+// bindErgoImport is bindErgo with the Go package imported from
+// ergo.local/bind/<base> (go.package is base when Go allows it as a
+// package name, else the fixture's). Bind must refuse an import that the
+// Ergo text cannot declare: ErgoText failing after Bind accepted fails the
+// test.
+func bindErgoImport(t *testing.T, extra, base string) (*Binding, string, error) {
+	t.Helper()
 	h, ct := fixtureVariant(t, extra, nil)
+	var c map[string]any
+	if err := json.Unmarshal(ct, &c); err != nil {
+		t.Fatal(err)
+	}
+	g := c["go"].(map[string]any)
+	g["import_path"] = "ergo.local/bind/" + base
+	if isGoIdent(base) && !goKeywords[base] && base != "_" {
+		g["package"] = base
+	}
+	ct, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
 	b, err := bindVariant(t, h, ct)
 	if err != nil {
 		if ct2, skipped := skipCallPlans(t, err, ct); len(skipped) > 0 {
@@ -631,6 +655,8 @@ func ergoKinds(line string) string {
 			return "variant"
 		case strings.HasPrefix(s, "an Ergo keyword"):
 			return "predeclared"
+		case strings.HasPrefix(s, "the import of "):
+			return "import"
 		}
 		return "generated"
 	}
@@ -642,4 +668,284 @@ func ergoKinds(line string) string {
 	ks := []string{kind(line[:j]), kind(line[j+len(" and "):])}
 	sort.Strings(ks)
 	return ks[0] + "/" + ks[1]
+}
+
+// ergoDeclared is the oracle's view of an Ergo text: the name its Go
+// import binds (the last element of the path, as the checker binds it),
+// every package-level name it declares (types, the variants of a union,
+// externs) and every parameter name of an extern. It reads the parsed
+// text only.
+func ergoDeclared(t *testing.T, src string) (imp string, decls, params map[string]bool) {
+	t.Helper()
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatalf("the Ergo text does not parse: %v\n%s", err, src)
+	}
+	decls, params = map[string]bool{}, map[string]bool{}
+	imps := 0
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *syntax.ImportDecl:
+			for _, s := range d.Specs {
+				imps++
+				if s.Kind != syntax.ImportGo || s.Name != nil {
+					t.Fatalf("the Ergo text has an import that is not `import go <path>`:\n%s", src)
+				}
+				p := s.Path.Value
+				imp = p[strings.LastIndex(p, "/")+1:]
+			}
+		case *syntax.TypeDecl:
+			decls[d.Name.Name] = true
+			if u, ok := d.Spec.(*syntax.InterfaceType); ok {
+				for _, v := range u.Union {
+					if v, ok := v.(*syntax.VariantSpec); ok {
+						decls[v.Name.Name] = true
+					}
+				}
+			}
+		case *syntax.FuncDecl:
+			decls[d.Name.Name] = true
+			if d.Type.Params != nil {
+				for _, p := range d.Type.Params.List {
+					for _, n := range p.Names {
+						params[n.Name] = true
+					}
+				}
+			}
+		}
+	}
+	if imps != 1 {
+		t.Fatalf("the Ergo text has %d imports, want 1:\n%s", imps, src)
+	}
+	return imp, decls, params
+}
+
+// importClashes is the oracle of the import's name: what makes the name
+// that the import of base binds collide in src. reserved is the set of
+// names the checker refuses (checkerRefuses). It returns nothing for an
+// import that is an identifier Ergo does not reserve, that no
+// package-level name and no parameter takes, in a text with no other
+// conflict (ergoConflicts).
+func importClashes(t *testing.T, src, base string, reserved map[string]bool) []string {
+	t.Helper()
+	imp, decls, params := ergoDeclared(t, src)
+	var out []string
+	if imp != base {
+		out = append(out, fmt.Sprintf("the import binds %q, want %q", imp, base))
+	}
+	if !identRE.MatchString(imp) || syntax.IsKeyword(imp) || imp == "_" || reserved[imp] {
+		out = append(out, fmt.Sprintf("the import binds %q, which Ergo reserves or which is not an identifier", imp))
+	}
+	if decls[imp] {
+		out = append(out, fmt.Sprintf("the import's name %s is also declared in the package", imp))
+	}
+	if params[imp] {
+		out = append(out, fmt.Sprintf("the import's name %s is also a parameter", imp))
+	}
+	return append(out, ergoConflicts(t, src)...)
+}
+
+// importNamePool is the domain of import names (the last element of
+// go.import_path): the generated unions and variants, every name the
+// fixture's Ergo text declares (unions, variants, records, externs) and
+// its parameters, the Ergo keywords and reserved words, the names the
+// checker predeclares, ordinary names, and names that are not identifiers.
+func importNamePool(t *testing.T, reserved map[string]bool) []string {
+	t.Helper()
+	_, src, err := bindErgo(t, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, decls, params := ergoDeclared(t, src)
+	set := map[string]bool{}
+	for _, m := range []map[string]bool{decls, params, reserved} {
+		for n := range m {
+			set[n] = true
+		}
+	}
+	for _, n := range append(syntax.Keywords(), syntax.Reserved()...) {
+		set[n] = true
+	}
+	for _, n := range []string{"Status", "CallError", "NotLoaded", "Destroyed", "TooLong",
+		"fixture", "Fixture", "mylib", "lib2", "purego", "Fresh0", "contextArg2", "box2",
+		"_", "", "my-lib", "9lives", "a.b", "fx lib"} {
+		set[n] = true
+	}
+	out := make([]string, 0, len(set))
+	for n := range set {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestErgoImportProperty (wave 1d r2 M1): the import's name enters the Ergo
+// package scope only through claim. Over every name of the pool, with the
+// fixture header, Bind refuses the import exactly when the oracle sees a
+// clash, with the import as one source; else the text has no clash. Then,
+// for fixture variants that declare pool names as functions, records,
+// status codes and parameters and import one of them (or a pool name),
+// Bind refuses with a name error, or the text has no clash.
+func TestErgoImportProperty(t *testing.T) {
+	reserved := checkerRefuses(t, checkerDomain(t))
+	pool := importNamePool(t, reserved)
+	_, src, err := bindErgo(t, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, decls, params := ergoDeclared(t, src)
+	stats := map[string]int{}
+	for _, base := range pool {
+		clash := !identRE.MatchString(base) || syntax.IsKeyword(base) || base == "_" || reserved[base] || decls[base]
+		_, src, err := bindErgoImport(t, "", base)
+		if err != nil {
+			msg := err.Error()
+			if !clash {
+				t.Errorf("import %q: Bind refuses a name that clashes with nothing: %v", base, err)
+			}
+			if !strings.Contains(msg, "the import of ergo.local/bind/"+base) {
+				t.Errorf("import %q: the refusal does not name the import: %v", base, err)
+			}
+			for _, line := range strings.Split(msg, "\n") {
+				switch {
+				case strings.Contains(line, " have the Ergo name "):
+					stats["refused "+ergoKinds(line)]++
+				case strings.Contains(line, "is not an identifier"):
+					stats["refused not an identifier"]++
+				}
+			}
+			stats["refused"]++
+			continue
+		}
+		if clash {
+			t.Errorf("import %q: Bind accepts an import that clashes", base)
+		}
+		for _, x := range importClashes(t, src, base, reserved) {
+			t.Errorf("import %q: %s", base, x)
+		}
+		stats["bound"]++
+		if params[base] {
+			stats["bound, a parameter renamed"]++
+		}
+	}
+	t.Logf("%d import names: %v", len(pool), stats)
+	for _, k := range []string{"bound", "bound, a parameter renamed", "refused not an identifier",
+		"refused generated/import", "refused import/predeclared", "refused import/variant",
+		"refused import/record", "refused function/import"} {
+		if stats[k] == 0 {
+			t.Errorf("the pool made no case of %q", k)
+		}
+	}
+
+	names := packageNamePool(t)
+	lower := ergoNamePool(t, reserved)
+	base := string(readInput(t, "testdata/fixture/fixture.h"))
+	vstats := map[string]int{}
+	n := max(8, *propCases/10)
+	for i := 0; i < n; i++ {
+		seed := *propSeed + uint64(i)
+		r := rand.New(rand.NewPCG(seed, 0x1a90))
+		var extra strings.Builder
+		used := map[string]bool{}
+		declared := func(c string) bool {
+			return used[c] || regexp.MustCompile(`\b`+c+`\b`).MatchString(base)
+		}
+		var picks []string
+		for k, nd := 0, r.IntN(3); k < nd; k++ {
+			e := names[r.IntN(len(names))]
+			c := snake(e)
+			fn, macro := "fx_"+c, "FX_"+strings.ToUpper(c)
+			switch kind := r.IntN(3); {
+			case kind < 2 && !declared(fn):
+				used[fn] = true
+				picks = append(picks, e)
+				if kind == 0 {
+					fmt.Fprintf(&extra, "uint32_t %s(void);\n", fn)
+				} else {
+					fmt.Fprintf(&extra, "typedef struct %s { uint32_t v; } %s;\nuint32_t fx_use%d_%d(%s value);\n", fn, fn, i, k, fn)
+				}
+			case kind == 2 && !declared(macro):
+				used[macro] = true
+				picks = append(picks, e)
+				fmt.Fprintf(&extra, "#define %s (-INT32_C(%d))\n", macro, 100+k)
+			}
+		}
+		var ps []string
+		for k, np := 0, 1+r.IntN(3); k < np; k++ {
+			p := lower[r.IntN(len(lower))]
+			if !contains(ps, "uint32_t "+p) {
+				ps = append(ps, "uint32_t "+p)
+				picks = append(picks, lowerCamel(p))
+			}
+		}
+		fmt.Fprintf(&extra, "uint32_t fx_imp%d(%s);\n", i, strings.Join(ps, ", "))
+		imp := pool[r.IntN(len(pool))]
+		if r.IntN(3) > 0 {
+			imp = picks[r.IntN(len(picks))]
+		}
+		_, src, err := bindErgoImport(t, extra.String(), imp)
+		if err != nil {
+			msg := err.Error()
+			if !strings.Contains(msg, "Go name") && !strings.Contains(msg, "Ergo name") {
+				t.Fatalf("seed %d: import %q: Bind refuses for a reason other than a name: %v\n%s", seed, imp, err, extra.String())
+			}
+			vstats["refused"]++
+			if strings.Contains(msg, "the import of ") {
+				vstats["refused the import"]++
+			}
+			continue
+		}
+		vstats["bound"]++
+		for _, x := range importClashes(t, src, imp, reserved) {
+			t.Errorf("seed %d: import %q: %s\n%s", seed, imp, x, extra.String())
+		}
+	}
+	t.Logf("%d variants: %v", n, vstats)
+	for _, k := range []string{"bound", "refused the import"} {
+		if vstats[k] == 0 {
+			t.Errorf("the generator made no case of %q", k)
+		}
+	}
+}
+
+// TestErgoImportRegressions: the wave 1d r2 verifier's import probe
+// (TestReviewImportNames). Each import is refused at Bind with the import
+// as one source, or binds to a text with no clash; ErgoText never sees a
+// colliding import.
+func TestErgoImportRegressions(t *testing.T) {
+	reserved := checkerRefuses(t, checkerDomain(t))
+	cases := []struct{ base, want string }{
+		{"CallError", "the import of ergo.local/bind/CallError and the CallError union have the Ergo name CallError"},
+		{"Status", "the import of ergo.local/bind/Status and the Status union have the Ergo name Status"},
+		{"NotLoaded", "the import of ergo.local/bind/NotLoaded and a variant of the CallError union have the Ergo name NotLoaded"},
+		{"Option", "an Ergo keyword or predeclared name and the import of ergo.local/bind/Option have the Ergo name Option"},
+		{"len", "an Ergo keyword or predeclared name and the import of ergo.local/bind/len have the Ergo name len"},
+		// The verifier's product failure: a keyword import made ErgoText
+		// fail to parse `*context.Context`.
+		{"context", "an Ergo keyword or predeclared name and the import of ergo.local/bind/context have the Ergo name context"},
+		{"type", "an Ergo keyword or predeclared name and the import of ergo.local/bind/type have the Ergo name type"},
+		{"InvalidArgument", "the import of ergo.local/bind/InvalidArgument and status code FX_INVALID_ARGUMENT have the Ergo name InvalidArgument"},
+		{"Point", "the import of ergo.local/bind/Point and struct fx_point have the Ergo name Point"},
+		{"AbiVersion", "the import of ergo.local/bind/AbiVersion and function fx_abi_version have the Ergo name AbiVersion"},
+		{"my-lib", `the import of ergo.local/bind/my-lib: Ergo name "my-lib" is not an identifier`},
+		{"fixture", ""},
+		{"node", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.base, func(t *testing.T) {
+			_, src, err := bindErgoImport(t, "", c.base)
+			if c.want != "" {
+				if err == nil || !strings.Contains(err.Error(), c.want) {
+					t.Fatalf("Bind error %v, want one with %q\n%s", err, c.want, src)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Bind: %v", err)
+			}
+			for _, x := range importClashes(t, src, c.base, reserved) {
+				t.Errorf("clash: %s", x)
+			}
+		})
+	}
 }

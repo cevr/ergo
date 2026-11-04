@@ -168,12 +168,15 @@
 //   - one `// not bound: <C name> (<reason>)` line per raw-only function.
 //
 // Every Ergo name comes from the same allocator (names.go), in two scopes.
-// The package scope holds the import's name, the two unions and their
-// variants, the records and the externs. Bind claims each of these names
-// and refuses the binding, with both sources, when two are equal or when
-// Ergo reserves one: a keyword, a reserved word, or a name the checker
-// predeclares (its universe names and the prelude's names, read from the
-// prelude's source). The scope of one extern's parameters is inside it: a
+// The package scope holds the import's name (the last element of
+// go.import_path), the two unions and their variants, the records and the
+// externs. Bind claims each of these names, the import's name first, and
+// refuses the binding, with both sources, when two are equal, when the
+// import's name is not an identifier, or when Ergo reserves one: a
+// keyword, a reserved word, or a name the checker predeclares (its
+// universe names and the prelude's names, read from the prelude's
+// source). A name enters a scope only through claim, so no name is seeded
+// or replaced. The scope of one extern's parameters is inside it: a
 // parameter wants the name its Go parameter wants (its C name in
 // lowerCamelCase, or its type's name), takes the suffix Arg when Ergo
 // reserves that name, and a number when the name is taken, so two

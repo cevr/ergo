@@ -36,11 +36,17 @@ type nameScope struct {
 	escape func(string) string
 	// label names the kind of name in an error: "Go name".
 	label string
+	// owner maps each name given in this scope to its source. claim is its
+	// one writer: a name enters a scope only after claim has checked it
+	// against the reserved names and the owners of this scope and the
+	// scopes around it, so no name is seeded or overwritten.
+	// TestNameScopeOneWriter fails when another function of the package
+	// writes it.
 	owner map[string]string
 }
 
 func newNameScope(parent *nameScope, label string, reserved func(string) bool) *nameScope {
-	return &nameScope{parent: parent, label: label, reserved: reserved, owner: map[string]string{}}
+	return &nameScope{parent: parent, label: label, reserved: reserved}
 }
 
 // taken reports whether n is reserved or given in s or a scope around it,
@@ -61,13 +67,25 @@ func (s *nameScope) taken(n string) (string, bool) {
 }
 
 // claim gives the fixed name n to source, a C identity such as
-// "function fx_load". It fails when n is taken or reserved.
+// "function fx_load". It fails when n is taken or reserved. It is the only
+// function that adds a name to a scope.
 func (s *nameScope) claim(n, source string) error {
 	if o, ok := s.taken(n); ok {
 		return fmt.Errorf("%s and %s have the %s %s", o, source, s.label, n)
 	}
+	if s.owner == nil {
+		s.owner = map[string]string{}
+	}
 	s.owner[n] = source
 	return nil
+}
+
+// mustClaim claims a name that the emitter itself declares; a refusal is
+// a fault of the emitter, not of the header.
+func (s *nameScope) mustClaim(n, source string) {
+	if err := s.claim(n, source); err != nil {
+		panic("bindc: " + err.Error())
+	}
 }
 
 // alloc gives source a free name derived from want, which is not "".
@@ -91,7 +109,8 @@ func (s *nameScope) alloc(want, source string) string {
 			n = base + "_" + strconv.Itoa(k)
 		}
 	}
-	s.owner[n] = source
+	// n is free, so the claim cannot fail.
+	s.mustClaim(n, source)
 	return n
 }
 
@@ -165,7 +184,7 @@ func isGoWord(n string) bool { return goKeywords[n] || goPredeclared[n] || n == 
 func goPackageScope() *nameScope {
 	s := newNameScope(nil, "Go name", func(n string) bool { return isGoWord(n) || isGoPackageHelper(n) })
 	for _, n := range goExported {
-		s.owner[n] = "the generated package"
+		s.mustClaim(n, "the generated package")
 	}
 	return s
 }
@@ -273,24 +292,40 @@ func isErgoReserved(n string) bool {
 }
 
 // ergoPackageScope is the scope of the package-level names of the Ergo
-// text. It holds the import's name and the names the Ergo emitter declares
-// for every binding.
-func ergoPackageScope(importPath string) *nameScope {
+// text. It claims the import's name first, then the names the Ergo emitter
+// declares for every binding, like every other name: an import whose name
+// Ergo reserves, or that a generated name takes, is refused. It returns
+// the refusals; the scope holds only the names it could claim.
+func ergoPackageScope(importPath string) (*nameScope, []string) {
 	s := newNameScope(nil, "Ergo name", isErgoReserved)
 	s.reservedAs = "an Ergo keyword or predeclared name"
-	s.owner[importPath[strings.LastIndexByte(importPath, '/')+1:]] = "the import of " + importPath
-	for n, o := range ergoGenerated {
-		s.owner[n] = o
+	var errs []string
+	imp, source := importName(importPath), "the import of "+importPath
+	if !isGoIdent(imp) {
+		errs = append(errs, fmt.Sprintf("%s: Ergo name %q is not an identifier; choose another go.import_path", source, imp))
+	} else if err := s.claim(imp, source); err != nil {
+		errs = append(errs, err.Error()+"; choose another go.import_path")
 	}
-	return s
+	for _, g := range ergoGenerated {
+		if err := s.claim(g.name, g.source); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	return s, errs
+}
+
+// importName is the name an import binds: the last element of its path
+// (internal/sketch/check, lastElement).
+func importName(importPath string) string {
+	return importPath[strings.LastIndexByte(importPath, '/')+1:]
 }
 
 // ergoGenerated are the package-level names the Ergo emitter declares for
-// every binding, with their owners.
-var ergoGenerated = map[string]string{
-	"Status": "the Status union", "CallError": "the CallError union",
-	"NotLoaded": "a variant of the CallError union", "Destroyed": "a variant of the CallError union",
-	"TooLong": "a variant of the CallError union",
+// every binding, with their sources, in the order the scope claims them.
+var ergoGenerated = []struct{ name, source string }{
+	{"Status", "the Status union"}, {"CallError", "the CallError union"},
+	{"NotLoaded", "a variant of the CallError union"}, {"Destroyed", "a variant of the CallError union"},
+	{"TooLong", "a variant of the CallError union"},
 }
 
 // ergoFuncScope is the scope of the parameters of one extern. A reserved
