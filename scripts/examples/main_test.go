@@ -24,6 +24,17 @@ func TestMain(m *testing.M) {
 	os.Exit(testinputs.Main(m))
 }
 
+// ticker is a fixture's shell lines that start a background loop in the
+// process group: it appends a line to file (a shell word) every 50 ms, and
+// it ends by itself 60 s after it started, so a runner that failed to stop
+// the group cannot leak it for long. Then they wait, at most 10 s, until the
+// loop ticked once. Every detection window of these tests is well inside
+// the 60 s.
+func ticker(file string) string {
+	return `( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> ` + file + `; sleep 0.05; done ) &` + "\n" +
+		`end=$(( $(date +%s) + 10 )); until [ -s ` + file + ` ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done` + "\n"
+}
+
 type fixture struct {
 	t     *testing.T
 	root  string
@@ -280,11 +291,10 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	ticks := t.TempDir()
-	ticker := `( while :; do echo tick >> "$TICKS"; sleep 0.05; done ) &` + "\n"
-	f.program("sleeper", "#!/bin/sh\n"+ticker+"sleep 30\n", "slow\n", map[string]map[string]string{
+	f.program("sleeper", "#!/bin/sh\n"+ticker(`"$TICKS"`)+"sleep 30\n", "slow\n", map[string]map[string]string{
 		"slow": {"env": "TICKS=" + filepath.Join(ticks, "slow") + "\n", "expected.out": ""},
 	}, nil)
-	f.program("leaver", "#!/bin/sh\n"+ticker+"until [ -s \"$TICKS\" ]; do sleep 0.01; done\necho done\n", "slow\n", map[string]map[string]string{
+	f.program("leaver", "#!/bin/sh\n"+ticker(`"$TICKS"`)+"echo done\n", "slow\n", map[string]map[string]string{
 		"quick": {"env": "TICKS=" + filepath.Join(ticks, "quick") + "\n", "expected.out": "done\n"},
 	}, nil)
 	started := time.Now()
@@ -676,6 +686,24 @@ func TestTestLeg(t *testing.T) {
 	}
 	if code, out := f.run("pending"); code != 1 || strings.Contains(out, "skip") {
 		t.Fatalf("a pending reply alone: want exit 1 and no skip, got %d\n%s", code, out)
+	}
+}
+
+// An ergo test that cannot start fails the test leg and the run, as any
+// other failure of the leg does; the cases still run (apps-1 G1 r2 m2).
+func TestTestLegThatCannotStartFails(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	// The fake compiler moves itself away after the build.
+	f.program("gone", "#!/bin/sh\necho hi\nexit 0\n# SELFDESTRUCT\ntest Gone {\n}\n", "default\n",
+		map[string]map[string]string{"basic": {"expected.out": "hi\n"}}, nil)
+	code, out := f.run("gone")
+	oks, _ := verdicts(out)
+	if code != 1 || !strings.Contains(out, "FAIL gone: test: could not start: ") || strings.Contains(out, "ok gone: test") || !oks["gone/basic"] {
+		t.Fatalf("want exit 1, FAIL gone: test: could not start, no ok for the test leg, and ok gone/basic; exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "examples: FAILED: gone: test\n") {
+		t.Fatalf("the start failure is not counted\n%s", out)
 	}
 }
 

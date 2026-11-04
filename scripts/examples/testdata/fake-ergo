@@ -3,22 +3,46 @@
 # own directory. It accepts only the argument shapes the runner uses and logs
 # every call to calls.log beside itself:
 #   build SRC -o OUT     makes SRC (a shell script) the executable OUT; fails
-#                        on a line BUILDFAIL;
+#                        on a line BUILDFAIL; on BUILDTICK starts a ticker
+#                        (below) into ticks-build beside itself, then fails;
+#                        on SELFDESTRUCT moves itself away after the build,
+#                        so the next call cannot start;
 #   fmt --check FILE...  fails on a file holding UNFORMATTED;
 #   test FILE            prints the reply of a compiler without ergo test on
-#                        TESTPENDING, fails on TESTFAIL, passes otherwise.
-printf '%s\n' "$*" >> "$(dirname "$0")/calls.log"
+#                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
+#                        ticker into ticks-test beside itself, then fails; on
+#                        a line "# TESTSIZE OUT ERR" writes OUT bytes to
+#                        stdout and ERR bytes to stderr and passes; passes
+#                        otherwise.
+# A ticker is a background loop in the caller's process group that appends a
+# line every 50 ms and ends by itself 60 s after it started, so a runner that
+# failed to stop the group cannot leak it for long.
+tools=$(dirname "$0")
+printf '%s\n' "$*" >> "$tools/calls.log"
+tick() {
+  ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> "$1"; sleep 0.05; done ) &
+  end=$(( $(date +%s) + 10 )); until [ -s "$1" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done
+}
 case "$1" in
 test)
   [ $# -eq 2 ] || { echo "fake ergo: want test FILE, got $*" >&2; exit 64; }
   if grep -q TESTPENDING "$2"; then echo "ergo test: not available yet; lowering adds it (#196)" >&2; exit 1; fi
   if grep -q TESTFAIL "$2"; then echo "FAIL Fixture: assert failed at main.ergo:1:1: false"; echo "FAIL (1 of 1 tests)"; exit 1; fi
+  if grep -q TESTTICK "$2"; then tick "$tools/ticks-test"; echo "FAIL Fixture"; exit 1; fi
+  if grep -q '^# TESTSIZE ' "$2"; then
+    set -- $(sed -n 's/^# TESTSIZE //p' "$2")
+    head -c "$1" /dev/zero
+    head -c "$2" /dev/zero >&2
+    exit 0
+  fi
   echo "ok Fixture"; echo "PASS (1 tests)"
   ;;
 build)
   [ $# -eq 4 ] && [ "$3" = "-o" ] || { echo "fake ergo: want build SRC -o OUT, got $*" >&2; exit 64; }
   if grep -q BUILDFAIL "$2"; then echo "fake ergo: build failed" >&2; exit 1; fi
-  cp "$2" "$4" && chmod +x "$4"
+  if grep -q BUILDTICK "$2"; then tick "$tools/ticks-build"; echo "fake ergo: build failed" >&2; exit 1; fi
+  cp "$2" "$4" && chmod +x "$4" || exit 1
+  if grep -q SELFDESTRUCT "$2"; then mv "$0" "$0.gone"; fi
   ;;
 fmt)
   [ "$2" = "--check" ] || { echo "fake ergo: want fmt --check FILE..., got $*" >&2; exit 64; }
