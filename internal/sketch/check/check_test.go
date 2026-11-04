@@ -243,6 +243,11 @@ func FuzzCheck(f *testing.F) {
 	f.Add(contextShadowPrelude + `func f(W Tag) int { with ((W)) { 1 } }`)
 	f.Add(valueContextHeader + "let W = Tag{Text: \"pkg\"}\nlet W = context { A: Quiet }\nfunc g() { with W { A.Use() } }\n")
 	f.Add(valueContextHeader + "let W = context { A: Quiet }\nlet Tag{Text: W} = Tag{Text: \"pkg\"}\nfunc g() { with (W) { A.Use() } }\n")
+	// The local-context and several-operand programs of
+	// TestLocalContextRules (check-v1 E5, A2), from their one source.
+	for _, r := range localRules() {
+		f.Add(localPrelude + r.body)
+	}
 	f.Fuzz(func(t *testing.T, src string) {
 		_, a := check.CheckSource(src)
 		_, b := check.CheckSource(src)
