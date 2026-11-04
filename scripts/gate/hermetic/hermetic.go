@@ -21,35 +21,58 @@
 //     CGO_ENABLED=0, so it loads no shared library.
 //
 // Every input of a hermetic test is then a file, an environment variable or
-// the module's source, and Go records all three. The check is static: it
-// reads the module's source, every Go file of a package directory whatever
-// its build constraints, so a package must be hermetic on every platform.
+// the module's source, and Go records all three.
+//
+// The check is static, and it decides what a name denotes from type
+// information, never from its spelling: a local value named os, a dot import
+// or a renamed import cannot pass for the os package. It type-checks the
+// module's packages from source in each build configuration it is given
+// (Build), with the standard library's types of that configuration, and every
+// file of a module package must be type-checked in at least one of them, so a
+// package must be hermetic on every platform the gate runs on. What the check
+// cannot prove, it refuses.
 package hermetic
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
-	"maps"
+	"go/types"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 )
 
 // Package is a package of a test binary's dependency closure, as
-// `go list -deps -test -json` reports it in the environment the binary is
+// `go list -deps -test -json` reports it in the configuration the binary is
 // built in.
 type Package struct {
-	ImportPath string
-	Dir        string
-	Standard   bool
-	Module     *struct{ Path string }
-	Imports    []string
-	CgoFiles   []string
+	ImportPath   string
+	Dir          string
+	Standard     bool
+	Module       *struct{ Path string }
+	Imports      []string
+	CgoFiles     []string
+	GoFiles      []string
+	TestGoFiles  []string
+	XTestGoFiles []string
 }
+
+// Build is the dependency closure of a test binary in one build
+// configuration.
+type Build struct {
+	GOOS, GOARCH string
+	Packages     []Package
+	// Std imports a standard-library package of this configuration by its
+	// path.
+	Std types.Importer
+}
+
+func (b Build) String() string { return b.GOOS + "/" + b.GOARCH }
 
 // Violation is a construct that makes a test binary depend on a program or a
 // library that Go's test cache does not key.
@@ -66,76 +89,6 @@ func (v Violation) String() string { return v.Where + ": " + v.Reason }
 // a fuzzing worker, and only under -test.fuzz, which the gate never passes.
 var startsPrograms = []string{"os/exec", "internal/fuzz"}
 
-// Closure checks the packages of the test binary of the package tested.
-// module is the module's path: its packages are checked by their source, the
-// others by their imports and cgo files. The tested package may hold one
-// helper that runs the test binary; a package of the module it uses may run
-// the test binary where it needs to (testinputs observes the tests that way).
-func Closure(packages []Package, module, tested string) ([]Violation, error) {
-	var violations []Violation
-	testedDir := ""
-	for _, p := range packages {
-		if p.ImportPath == tested {
-			testedDir = p.Dir
-		}
-	}
-	if testedDir == "" {
-		return nil, fmt.Errorf("the packages do not include %s", tested)
-	}
-	checked := map[string]bool{}
-	for _, p := range packages {
-		if p.ImportPath == "plugin" {
-			violations = append(violations, Violation{p.ImportPath, "loads plugins, shared libraries that Go's test cache does not key"})
-		}
-		if len(p.CgoFiles) > 0 {
-			violations = append(violations, Violation{p.ImportPath, "uses cgo, so the test binary loads shared libraries that Go's test cache does not key"})
-		}
-		switch {
-		case p.Module != nil && p.Module.Path == module:
-			if checked[p.Dir] {
-				continue
-			}
-			checked[p.Dir] = true
-			found, err := Directory(p.Dir, p.Dir == testedDir)
-			if err != nil {
-				return nil, err
-			}
-			violations = append(violations, found...)
-		case p.Standard:
-			if slices.Contains(p.Imports, "os/exec") && !slices.Contains(startsPrograms, p.ImportPath) {
-				violations = append(violations, Violation{p.ImportPath, "imports os/exec, so it can run a program that Go's test cache does not key"})
-			}
-		default:
-			violations = append(violations, Violation{p.ImportPath, "is outside the module and the standard library, so the check cannot read what it runs"})
-		}
-	}
-	return violations, nil
-}
-
-// Directory checks every Go file in a package directory, whatever its build
-// constraints: of a tested package, its test files too, and it may hold only
-// one helper that runs the test binary; of a package the binary only uses,
-// the files that are not tests, which are the ones linked in.
-func Directory(dir string, tested bool) ([]Violation, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	fset := token.NewFileSet()
-	var files []*ast.File
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || !tested && strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(fset, filepath.Join(dir, entry.Name()), nil, parser.ParseComments|parser.SkipObjectResolution)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, file)
-	}
-	return Files(fset, files, tested), nil
-}
-
 // program is a function that runs a program, and the index of its argument
 // that names the program.
 type program struct {
@@ -143,7 +96,7 @@ type program struct {
 	argument   int
 }
 
-// programs are the functions that run a program, by import path and name.
+// programs are the functions that run a program.
 var programs = []program{
 	{"os/exec", "Command", 0},
 	{"os/exec", "CommandContext", 1},
@@ -155,338 +108,599 @@ var programs = []program{
 
 // refused are functions a hermetic package never refers to: a lookup of a
 // program on the host's PATH.
-var refused = map[string][]string{
-	"os/exec": {"LookPath"},
-}
+var refused = []program{{path: "os/exec", name: "LookPath"}}
 
 // rawCalls make a system call by number, which runs a program when the
-// number is execve's or execveat's.
+// number is one of execNames.
 var rawCalls = []string{"Syscall", "Syscall6", "RawSyscall", "RawSyscall6", "AllThreadsSyscall", "AllThreadsSyscall6"}
 
-// execNumbers are the numbers of execve and execveat on the architectures
-// the module makes raw system calls for (Linux amd64 and arm64).
-var execNumbers = map[string][]int64{"amd64": {59, 322}, "arm64": {221, 281}}
+// execNames are the constants of package syscall, in the configurations that
+// define them, whose system call runs a program.
+var execNames = []string{"SYS_EXECVE", "SYS_EXECVEAT", "SYS_POSIX_SPAWN"}
 
-// architectures are the GOARCH values, which a file name may end in.
-var architectures = []string{"386", "amd64", "arm", "arm64", "loong64", "mips", "mips64", "mips64le", "mipsle", "ppc64", "ppc64le", "riscv64", "s390x", "wasm"}
+// Closure checks the packages of the test binary of the package tested, in
+// every build configuration. module is the module's path: its packages are
+// checked by their source, the others by their imports and cgo files. The
+// tested package may hold one helper that runs the test binary; a package of
+// the module it uses may run the test binary where it needs to (testinputs
+// observes the tests that way).
+func Closure(builds []Build, module, tested string) ([]Violation, error) {
+	if len(builds) == 0 {
+		return nil, errors.New("no build configuration to check")
+	}
+	var violations []Violation
+	seen := map[string]bool{}
+	add := func(found ...Violation) {
+		for _, v := range found {
+			if !seen[v.String()] {
+				seen[v.String()] = true
+				violations = append(violations, v)
+			}
+		}
+	}
+	covered := map[string]bool{}
+	dirs := map[string]bool{} // module package directory -> tested
+	for _, b := range builds {
+		found, err := b.check(module, tested, covered, dirs)
+		if err != nil {
+			return nil, err
+		}
+		add(found...)
+	}
+	names := make([]string, len(builds))
+	for i, b := range builds {
+		names[i] = b.String()
+	}
+	for _, dir := range slices.Sorted(func(yield func(string) bool) {
+		for dir := range dirs {
+			if !yield(dir) {
+				return
+			}
+		}
+	}) {
+		found, err := uncovered(dir, dirs[dir], covered, strings.Join(names, ", "))
+		if err != nil {
+			return nil, err
+		}
+		add(found...)
+	}
+	return violations, nil
+}
 
-// Files checks the parsed files of one package directory. A tested package
-// may hold only one helper that runs the test binary.
-func Files(fset *token.FileSet, files []*ast.File, tested bool) []Violation {
-	c := &checker{fset: fset, constants: map[string][]constant{}}
-	for _, file := range files {
-		c.collectConstants(file)
+// uncovered refuses every Go file of a module package directory that no
+// configuration type-checked: of a tested package, its test files too; of a
+// package the binary only uses, the files that are not tests.
+func uncovered(dir string, tested bool, covered map[string]bool, configurations string) ([]Violation, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
 	}
-	for _, file := range files {
-		c.file(file)
+	var violations []Violation
+	for _, entry := range entries {
+		name := entry.Name()
+		path := filepath.Join(dir, name)
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || !tested && strings.HasSuffix(name, "_test.go") || covered[path] {
+			continue
+		}
+		reason := "is built in none of the configurations the check type-checks (" + configurations + "), so the check cannot resolve what it runs"
+		if file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly); err == nil {
+			for _, spec := range file.Imports {
+				if spec.Path.Value == `"C"` {
+					reason = `imports "C": cgo links shared libraries that Go's test cache does not key`
+				}
+			}
+		}
+		violations = append(violations, Violation{path, reason})
 	}
-	if tested && len(c.helpers) > 1 {
+	return violations, nil
+}
+
+// basePath is a package's import path without go list's test variant
+// suffix (" [pkg.test]").
+func basePath(importPath string) string {
+	if i := strings.Index(importPath, " ["); i >= 0 {
+		return importPath[:i]
+	}
+	return importPath
+}
+
+// check checks one configuration's closure. It records the files it
+// type-checks in covered and the module's package directories in dirs.
+func (b Build) check(module, tested string, covered map[string]bool, dirs map[string]bool) ([]Violation, error) {
+	var violations []Violation
+	modulePackages := map[string]Package{}
+	var testedPackage *Package
+	for _, p := range b.Packages {
+		if p.ImportPath == "plugin" {
+			violations = append(violations, Violation{p.ImportPath, "loads plugins, shared libraries that Go's test cache does not key"})
+		}
+		if len(p.CgoFiles) > 0 {
+			violations = append(violations, Violation{p.ImportPath, "uses cgo, so the test binary loads shared libraries that Go's test cache does not key"})
+		}
+		path := basePath(p.ImportPath)
+		switch {
+		case p.Module != nil && p.Module.Path == module:
+			// The generated test main and the external test package are
+			// checked through the tested package's own entry.
+			if path == tested+".test" || path == tested+"_test" {
+				continue
+			}
+			if _, ok := modulePackages[path]; ok && p.ImportPath != path {
+				continue // keep the plain entry over a test variant
+			}
+			modulePackages[path] = p
+			if path == tested {
+				copied := p
+				testedPackage = &copied
+			}
+		case p.Standard:
+			if slices.Contains(p.Imports, "os/exec") && !slices.Contains(startsPrograms, p.ImportPath) {
+				violations = append(violations, Violation{p.ImportPath, "imports os/exec, so it can run a program that Go's test cache does not key"})
+			}
+		default:
+			violations = append(violations, Violation{p.ImportPath, "is outside the module and the standard library, so the check cannot read what it runs"})
+		}
+	}
+	if testedPackage == nil {
+		return nil, fmt.Errorf("the packages of %s do not include %s", b, tested)
+	}
+	c := &checker{
+		build:   b,
+		fset:    token.NewFileSet(),
+		module:  modulePackages,
+		checked: map[string]*types.Package{},
+		covered: covered,
+	}
+	if execs, err := c.execNumbers(); err != nil {
+		violations = append(violations, Violation{"syscall", fmt.Sprintf("in %s: %v, so the check cannot tell which raw system calls run a program", b, err)})
+	} else {
+		c.execs = execs
+	}
+	for path, p := range modulePackages {
+		dirs[p.Dir] = dirs[p.Dir] || path == tested
+	}
+	// The tested package with its internal tests, then its external tests;
+	// then every other package of the module the binary holds.
+	// The external tests import the package with its internal tests, as go
+	// test builds it.
+	c.checked[tested] = nil
+	if checked, err := c.checkPackage(*testedPackage, append(slices.Clone(testedPackage.GoFiles), testedPackage.TestGoFiles...), true); err != nil {
+		violations = append(violations, Violation{tested, err.Error()})
+		delete(c.checked, tested)
+	} else {
+		c.checked[tested] = checked
+	}
+	if len(testedPackage.XTestGoFiles) > 0 {
+		external := *testedPackage
+		external.ImportPath = tested + "_test"
+		if _, err := c.checkPackage(external, testedPackage.XTestGoFiles, true); err != nil {
+			violations = append(violations, Violation{tested + "_test", err.Error()})
+		}
+	}
+	for _, path := range slices.Sorted(func(yield func(string) bool) {
+		for path := range modulePackages {
+			if !yield(path) {
+				return
+			}
+		}
+	}) {
+		if path == tested {
+			continue
+		}
+		if _, err := c.importModule(path); err != nil {
+			violations = append(violations, Violation{path, err.Error()})
+		}
+	}
+	if len(c.helpers) > 1 {
 		for _, helper := range c.helpers[1:] {
 			c.report(helper.Pos(), fmt.Sprintf("%s is a second function that runs the test binary (the first is %s): keep one helper", helper.Name.Name, c.helpers[0].Name.Name))
 		}
 	}
-	return c.violations
+	return append(violations, c.violations...), nil
 }
 
 type checker struct {
+	build      Build
 	fset       *token.FileSet
 	violations []Violation
-	// helpers are the functions that run the test binary, in file order.
+	module     map[string]Package
+	// checked are the module's packages type-checked so far, without their
+	// tests; a nil entry is one being checked.
+	checked map[string]*types.Package
+	covered map[string]bool
+	// execs are the raw system call numbers that run a program in this
+	// configuration.
+	execs []int64
+	// helpers are the functions of the tested package that run the test
+	// binary, in the order the check found them.
 	helpers []*ast.FuncDecl
-	// constants are the package's integer constants by name, one for each
-	// file that defines the name.
-	constants map[string][]constant
-}
-
-// constant is an integer constant, and the architecture of the file that
-// defines it ("" when the file is for every architecture).
-type constant struct {
-	value int64
-	known bool
-	arch  string
-}
-
-// collectConstants records the constants a file defines.
-func (c *checker) collectConstants(file *ast.File) {
-	base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(c.fset.File(file.Pos()).Name()), ".go"), "_test")
-	arch := base[strings.LastIndex(base, "_")+1:]
-	if !slices.Contains(architectures, arch) {
-		arch = ""
-	}
-	for _, decl := range file.Decls {
-		group, ok := decl.(*ast.GenDecl)
-		if !ok || group.Tok != token.CONST {
-			continue
-		}
-		for _, spec := range group.Specs {
-			values := spec.(*ast.ValueSpec)
-			for i, name := range values.Names {
-				defined := constant{arch: arch}
-				if i < len(values.Values) {
-					if literal, ok := values.Values[i].(*ast.BasicLit); ok && literal.Kind == token.INT {
-						if value, err := strconv.ParseInt(literal.Value, 0, 64); err == nil {
-							defined.value, defined.known = value, true
-						}
-					}
-				}
-				c.constants[name.Name] = append(c.constants[name.Name], defined)
-			}
-		}
-	}
-}
-
-// rawCall returns why a raw system call with this number may run a program,
-// or "" when it cannot: the number is a syscall.SYS_ constant other than
-// execve's and execveat's, or the package's own integer constant whose every
-// definition differs from them on its file's architecture.
-func (c *checker) rawCall(number ast.Expr, imported map[string]string) string {
-	if path, name, ok := qualified(number, imported); ok && path == "syscall" && strings.HasPrefix(name, "SYS_") {
-		if name == "SYS_EXECVE" || name == "SYS_EXECVEAT" {
-			return "its number is " + name
-		}
-		return ""
-	}
-	ident, ok := number.(*ast.Ident)
-	if !ok || len(c.constants[ident.Name]) == 0 {
-		return "its number is not a named constant the check can read"
-	}
-	for _, defined := range c.constants[ident.Name] {
-		if !defined.known {
-			return fmt.Sprintf("%s is not an integer literal", ident.Name)
-		}
-		arches := []string{defined.arch}
-		if defined.arch == "" {
-			arches = slices.Sorted(maps.Keys(execNumbers))
-		}
-		for _, arch := range arches {
-			numbers, ok := execNumbers[arch]
-			if !ok {
-				return fmt.Sprintf("%s is defined for %s, whose exec numbers the check does not know", ident.Name, arch)
-			}
-			if slices.Contains(numbers, defined.value) {
-				return fmt.Sprintf("%s is %d, which runs a program on %s", ident.Name, defined.value, arch)
-			}
-		}
-	}
-	return ""
 }
 
 func (c *checker) report(pos token.Pos, reason string) {
 	c.violations = append(c.violations, Violation{c.fset.Position(pos).String(), reason})
 }
 
-// file checks one file: its imports, its directives, and every use of the
-// functions that run a program.
-func (c *checker) file(file *ast.File) {
-	imported := map[string]string{} // local name -> import path
-	for _, spec := range file.Imports {
-		path, err := strconv.Unquote(spec.Path.Value)
+// execNumbers reads the numbers of execNames from this configuration's
+// package syscall.
+func (c *checker) execNumbers() ([]int64, error) {
+	syscallPackage, err := c.build.Std.Import("syscall")
+	if err != nil {
+		return nil, err
+	}
+	var numbers []int64
+	for _, name := range execNames {
+		if number, ok := syscallPackage.Scope().Lookup(name).(*types.Const); ok {
+			if value, exact := constant.Int64Val(number.Val()); exact {
+				numbers = append(numbers, value)
+			}
+		}
+	}
+	if len(numbers) == 0 {
+		return nil, fmt.Errorf("package syscall defines none of %s", strings.Join(execNames, ", "))
+	}
+	return numbers, nil
+}
+
+// Import imports a package for the type checker: the module's from source,
+// the others from the configuration's standard library.
+func (c *checker) Import(path string) (*types.Package, error) {
+	if path == "unsafe" {
+		return types.Unsafe, nil
+	}
+	if _, ok := c.module[path]; ok {
+		return c.importModule(path)
+	}
+	return c.build.Std.Import(path)
+}
+
+// importModule type-checks and checks a package of the module the binary
+// holds, without its tests, once.
+func (c *checker) importModule(path string) (*types.Package, error) {
+	if checked, ok := c.checked[path]; ok {
+		if checked == nil {
+			return nil, fmt.Errorf("import cycle through %s", path)
+		}
+		return checked, nil
+	}
+	c.checked[path] = nil
+	p := c.module[path]
+	checked, err := c.checkPackage(p, p.GoFiles, false)
+	if err != nil {
+		delete(c.checked, path)
+		return nil, err
+	}
+	c.checked[path] = checked
+	return checked, nil
+}
+
+// checkPackage parses and type-checks files of package p, then checks every
+// file. tested says whether they belong to the tested package, which may hold
+// only one helper that runs the test binary.
+func (c *checker) checkPackage(p Package, names []string, tested bool) (*types.Package, error) {
+	var files []*ast.File
+	for _, name := range names {
+		path := name
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(p.Dir, name)
+		}
+		file, err := parser.ParseFile(c.fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("does not parse in %s, so the check cannot resolve what it runs: %v", c.build, err)
 		}
-		switch path {
-		case "C":
-			c.report(spec.Pos(), `imports "C": cgo links shared libraries that Go's test cache does not key`)
-			continue
-		case "plugin":
-			c.report(spec.Pos(), "imports plugin: it loads shared libraries that Go's test cache does not key")
-			continue
+		files = append(files, file)
+		// A file of a package that fails to type-check is refused with the
+		// package, so it counts as checked.
+		c.covered[path] = true
+	}
+	info := &types.Info{
+		Types: map[ast.Expr]types.TypeAndValue{},
+		Defs:  map[*ast.Ident]types.Object{},
+		Uses:  map[*ast.Ident]types.Object{},
+	}
+	var first error
+	config := types.Config{
+		Importer: c,
+		// A file that imports "C" is refused by file below; faking the import
+		// lets the rest of the package be checked too.
+		FakeImportC: true,
+		Sizes:       types.SizesFor("gc", c.build.GOARCH),
+		Error: func(err error) {
+			if first == nil {
+				first = err
+			}
+		},
+	}
+	checked, _ := config.Check(basePath(p.ImportPath), c.fset, files, info)
+	if first != nil {
+		return nil, fmt.Errorf("does not type-check in %s, so the check cannot resolve what it runs: %v", c.build, first)
+	}
+	pkg := &packageCheck{checker: c, pkg: checked, info: info, tested: tested, parents: map[ast.Node]ast.Node{}, defs: map[types.Object][]*ast.Ident{}, uses: map[types.Object][]*ast.Ident{}}
+	for _, file := range files {
+		ast.Inspect(file, pkg.recordParents(file))
+	}
+	for id, object := range info.Defs {
+		if object != nil {
+			pkg.defs[object] = append(pkg.defs[object], id)
 		}
-		name := path[strings.LastIndex(path, "/")+1:]
-		if spec.Name != nil {
-			name = spec.Name.Name
+	}
+	for id, object := range info.Uses {
+		pkg.uses[object] = append(pkg.uses[object], id)
+	}
+	for _, file := range files {
+		pkg.file(file)
+	}
+	return checked, nil
+}
+
+// packageCheck checks the files of one type-checked package.
+type packageCheck struct {
+	*checker
+	pkg     *types.Package
+	info    *types.Info
+	tested  bool
+	parents map[ast.Node]ast.Node
+	// defs and uses are the identifiers that define and that use each object.
+	defs, uses map[types.Object][]*ast.Ident
+}
+
+// recordParents returns an inspector that records each node's parent.
+func (p *packageCheck) recordParents(file *ast.File) func(ast.Node) bool {
+	var stack []ast.Node
+	return func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return false
 		}
-		if name == "." && (path == "os" || path == "os/exec" || path == "syscall") {
-			c.report(spec.Pos(), fmt.Sprintf("dot-imports %s, which hides the functions that run a program", path))
+		if len(stack) > 0 {
+			p.parents[n] = stack[len(stack)-1]
 		}
-		imported[name] = path
+		stack = append(stack, n)
+		return true
+	}
+}
+
+// parent returns the node that holds n, past any parentheses around it, and
+// the outermost of n and those parentheses.
+func (p *packageCheck) parent(n ast.Node) (ast.Node, ast.Node) {
+	parent := p.parents[n]
+	for {
+		paren, ok := parent.(*ast.ParenExpr)
+		if !ok {
+			return parent, n
+		}
+		n, parent = paren, p.parents[paren]
+	}
+}
+
+// file checks one file: its imports, its directives, and every use of a
+// function that runs a program and of exec.Cmd.
+func (p *packageCheck) file(file *ast.File) {
+	for _, spec := range file.Imports {
+		switch spec.Path.Value {
+		case `"C"`:
+			p.report(spec.Pos(), `imports "C": cgo links shared libraries that Go's test cache does not key`)
+		case `"plugin"`:
+			p.report(spec.Pos(), "imports plugin: it loads shared libraries that Go's test cache does not key")
+		}
 	}
 	for _, group := range file.Comments {
 		for _, comment := range group.List {
 			if strings.HasPrefix(comment.Text, "//go:linkname") {
-				c.report(comment.Pos(), "a go:linkname directive can reach a function that runs a program past this check")
+				p.report(comment.Pos(), "a go:linkname directive can reach a function that runs a program past this check")
 			}
 		}
 	}
-	execImported := slices.Contains(slices.Collect(maps.Values(imported)), "os/exec")
-	for _, decl := range file.Decls {
-		function, _ := decl.(*ast.FuncDecl)
-		c.uses(decl, function, imported, execImported)
-	}
-}
-
-// uses checks every reference in one top-level declaration. function is the
-// declaration when it is a function, so a call there may run the test
-// binary it names through os.Executable().
-func (c *checker) uses(decl ast.Node, function *ast.FuncDecl, imported map[string]string, execImported bool) {
-	called := map[ast.Expr]*ast.CallExpr{}
-	ast.Inspect(decl, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			called[call.Fun] = call
-		}
-		return true
-	})
-	helper := false
-	ast.Inspect(decl, func(n ast.Node) bool {
+	ast.Inspect(file, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.CompositeLit:
-			if path, name, ok := qualified(n.Type, imported); ok && path == "os/exec" && name == "Cmd" {
-				c.report(n.Pos(), "builds an exec.Cmd by hand, which can name any program")
+			if isExecCmd(p.info.Types[n].Type) {
+				p.report(n.Pos(), "builds an exec.Cmd by hand, which can name any program")
 			}
-		case *ast.AssignStmt:
-			if execImported {
-				for _, lhs := range n.Lhs {
-					if selector, ok := lhs.(*ast.SelectorExpr); ok && selector.Sel.Name == "Path" {
-						c.report(lhs.Pos(), "sets a Path field, which can change the program a command runs")
-					}
-				}
-			}
-		case *ast.UnaryExpr:
-			if selector, ok := n.X.(*ast.SelectorExpr); execImported && ok && n.Op == token.AND && selector.Sel.Name == "Path" {
-				c.report(n.Pos(), "takes the address of a Path field, which can change the program a command runs")
-			}
-		case *ast.SelectorExpr:
-			path, name, ok := qualified(n, imported)
-			if !ok {
-				return true
-			}
-			if slices.Contains(refused[path], name) {
-				c.report(n.Pos(), fmt.Sprintf("refers to %s.%s: a hermetic package looks up no program on the host", path, name))
-				return true
-			}
-			if path == "syscall" && slices.Contains(rawCalls, name) {
-				call := called[n]
-				reason := "it is not called, so the check cannot read its number"
-				if call != nil && len(call.Args) > 0 {
-					reason = c.rawCall(call.Args[0], imported)
-				}
-				if reason != "" {
-					c.report(n.Pos(), fmt.Sprintf("syscall.%s may run a program: %s", name, reason))
-				}
-				return true
-			}
-			index := slices.IndexFunc(programs, func(p program) bool { return p.path == path && p.name == name })
-			if index < 0 {
-				return true
-			}
-			call := called[n]
-			if call == nil {
-				c.report(n.Pos(), fmt.Sprintf("refers to %s.%s without calling it, so the check cannot see the program it runs", path, name))
-				return true
-			}
-			if reason := runsSelf(function, call, programs[index].argument, imported); reason != "" {
-				c.report(call.Pos(), fmt.Sprintf("%s.%s runs a program that Go's test cache does not key: %s", path, name, reason))
-				return true
-			}
-			helper = true
+		case *ast.Ident:
+			p.ident(file, n)
 		}
 		return true
 	})
-	if helper {
-		c.helpers = append(c.helpers, function)
+}
+
+// isExecCmd reports whether t is os/exec's Cmd.
+func isExecCmd(t types.Type) bool {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok {
+		return false
+	}
+	object := named.Obj()
+	return object.Pkg() != nil && object.Pkg().Path() == "os/exec" && object.Name() == "Cmd"
+}
+
+// function returns the package-level function and its import path that
+// object is, or nil: never a method, a variable or a local name.
+func function(object types.Object) (*types.Func, string) {
+	fn, ok := object.(*types.Func)
+	if !ok || fn.Pkg() == nil || fn.Signature().Recv() != nil {
+		return nil, ""
+	}
+	return fn, fn.Pkg().Path()
+}
+
+// ident checks one identifier by the object it denotes.
+func (p *packageCheck) ident(file *ast.File, id *ast.Ident) {
+	object := p.info.Uses[id]
+	if field, ok := object.(*types.Var); ok && field.IsField() && field.Name() == "Path" && field.Pkg() != nil && field.Pkg().Path() == "os/exec" && p.written(id) {
+		p.report(id.Pos(), "sets a Path field, which can change the program a command runs")
+		return
+	}
+	fn, path := function(object)
+	if fn == nil {
+		return
+	}
+	name := fn.Name()
+	if slices.ContainsFunc(refused, func(r program) bool { return r.path == path && r.name == name }) {
+		p.report(id.Pos(), fmt.Sprintf("refers to %s.%s: a hermetic package looks up no program on the host", path, name))
+		return
+	}
+	if path == "syscall" && slices.Contains(rawCalls, name) {
+		call := p.callOf(id)
+		reason := "it is not called, so the check cannot read its number"
+		if call != nil && len(call.Args) > 0 {
+			reason = p.rawCall(call.Args[0])
+		}
+		if reason != "" {
+			p.report(id.Pos(), fmt.Sprintf("syscall.%s may run a program: %s", name, reason))
+		}
+		return
+	}
+	index := slices.IndexFunc(programs, func(r program) bool { return r.path == path && r.name == name })
+	if index < 0 {
+		return
+	}
+	call := p.callOf(id)
+	if call == nil {
+		p.report(id.Pos(), fmt.Sprintf("refers to %s.%s without calling it, so the check cannot see the program it runs", path, name))
+		return
+	}
+	enclosing := enclosingFunction(file, call.Pos())
+	if reason := p.runsSelf(enclosing, call, programs[index].argument); reason != "" {
+		p.report(call.Pos(), fmt.Sprintf("%s.%s runs a program that Go's test cache does not key: %s", path, name, reason))
+		return
+	}
+	if p.tested && !slices.Contains(p.helpers, enclosing) {
+		p.helpers = append(p.helpers, enclosing)
 	}
 }
 
-// qualified reports the import path and name of a reference pkg.Name.
-func qualified(expression ast.Expr, imported map[string]string) (string, string, bool) {
-	selector, ok := expression.(*ast.SelectorExpr)
-	if !ok {
-		return "", "", false
+// callOf returns the call whose function is the reference id, or nil.
+func (p *packageCheck) callOf(id *ast.Ident) *ast.CallExpr {
+	var reference ast.Node = id
+	if selector, ok := p.parents[id].(*ast.SelectorExpr); ok && selector.Sel == id {
+		reference = selector
 	}
-	ident, ok := selector.X.(*ast.Ident)
-	if !ok {
-		return "", "", false
+	parent, outer := p.parent(reference)
+	if call, ok := parent.(*ast.CallExpr); ok && call.Fun == outer {
+		return call
 	}
-	path, ok := imported[ident.Name]
-	return path, selector.Sel.Name, ok
+	return nil
+}
+
+// enclosingFunction returns the top-level function declaration of file that
+// holds pos, or nil.
+func enclosingFunction(file *ast.File, pos token.Pos) *ast.FuncDecl {
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Pos() <= pos && pos < fn.End() {
+			return fn
+		}
+	}
+	return nil
+}
+
+// rawCall returns why a raw system call with this number may run a program,
+// or "" when it cannot: the number is a constant, and not one whose call runs
+// a program in this configuration.
+func (p *packageCheck) rawCall(number ast.Expr) string {
+	value := p.info.Types[number].Value
+	if value == nil {
+		return "its number is not a constant the check can read"
+	}
+	n, exact := constant.Int64Val(constant.ToInt(value))
+	if !exact {
+		return "its number is not an integer constant"
+	}
+	if p.execs == nil {
+		return "the check does not know which numbers run a program in " + p.build.String()
+	}
+	if slices.Contains(p.execs, n) {
+		return fmt.Sprintf("its number is %d, which runs a program in %s", n, p.build)
+	}
+	return ""
+}
+
+// written reports whether the use id of a variable writes it or takes its
+// address.
+func (p *packageCheck) written(id *ast.Ident) bool {
+	var reference ast.Node = id
+	if selector, ok := p.parents[id].(*ast.SelectorExpr); ok && selector.Sel == id {
+		reference = selector
+	}
+	parent, outer := p.parent(reference)
+	switch parent := parent.(type) {
+	case *ast.AssignStmt:
+		return slices.Contains(parent.Lhs, outer.(ast.Expr))
+	case *ast.IncDecStmt:
+		return parent.X == outer
+	case *ast.UnaryExpr:
+		return parent.Op == token.AND && parent.X == outer
+	case *ast.RangeStmt:
+		return parent.Key == outer || parent.Value == outer
+	}
+	return false
 }
 
 // runsSelf returns why call does not run the test binary, or "" when it
-// does: the program argument is a variable of the enclosing function bound
-// once, by `name, err := os.Executable()`, and written nowhere else in it.
-func runsSelf(function *ast.FuncDecl, call *ast.CallExpr, argument int, imported map[string]string) string {
-	if function == nil {
+// does: its program argument is a local variable defined once, by
+// `self, err := os.Executable()` (or var), where os.Executable is the os
+// package's function, and written or address-taken nowhere.
+func (p *packageCheck) runsSelf(enclosing *ast.FuncDecl, call *ast.CallExpr, argument int) string {
+	if enclosing == nil {
 		return "it is outside a function, so no os.Executable() names its program"
 	}
 	if argument >= len(call.Args) {
 		return "it names no program"
 	}
-	ident, ok := call.Args[argument].(*ast.Ident)
+	id, ok := ast.Unparen(call.Args[argument]).(*ast.Ident)
 	if !ok {
 		return "its program is not a variable bound to os.Executable()"
 	}
-	name := ident.Name
-	bindings, writes := 0, 0
-	written := func(expression ast.Expr) {
-		if id, ok := expression.(*ast.Ident); ok && id.Name == name {
-			writes++
-		}
+	self, ok := p.info.Uses[id].(*types.Var)
+	if !ok || self.IsField() {
+		return "its program is not a variable bound to os.Executable()"
 	}
-	fields := func(list *ast.FieldList) {
-		if list == nil {
-			return
-		}
-		for _, field := range list.List {
-			for _, id := range field.Names {
-				written(id)
-			}
-		}
+	name := id.Name
+	if self.Parent() == nil || self.Parent() == p.pkg.Scope() {
+		return fmt.Sprintf("%s is a package variable, so any function may write it", name)
 	}
-	fields(function.Recv)
-	ast.Inspect(function, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.FuncType:
-			fields(n.TypeParams)
-			fields(n.Params)
-			fields(n.Results)
-		case *ast.AssignStmt:
-			if len(n.Lhs) > 0 && len(n.Rhs) == 1 {
-				if lhs, ok := n.Lhs[0].(*ast.Ident); ok && lhs.Name == name && executable(n.Rhs[0], imported) {
-					bindings++
-					for _, other := range n.Lhs[1:] {
-						written(other)
-					}
-					return true
-				}
-			}
-			for _, lhs := range n.Lhs {
-				written(lhs)
-			}
-		case *ast.ValueSpec:
-			if len(n.Values) > 0 {
-				for _, id := range n.Names {
-					written(id)
-				}
-			}
-		case *ast.RangeStmt:
-			if n.Key != nil {
-				written(n.Key)
-			}
-			if n.Value != nil {
-				written(n.Value)
-			}
-		case *ast.UnaryExpr:
-			if n.Op == token.AND {
-				written(n.X)
-			}
+	defs := p.defs[self]
+	if len(defs) != 1 || !p.boundToExecutable(defs[0]) {
+		return fmt.Sprintf("%s is not bound to os.Executable() in %s", name, enclosing.Name.Name)
+	}
+	for _, use := range p.uses[self] {
+		if p.written(use) {
+			return fmt.Sprintf("%s is written again in %s, so it may name another program", name, enclosing.Name.Name)
 		}
-		return true
-	})
-	switch {
-	case bindings == 0:
-		return fmt.Sprintf("%s is not bound to os.Executable() in %s", name, function.Name.Name)
-	case bindings > 1 || writes > 0:
-		return fmt.Sprintf("%s is written again in %s, so it may name another program", name, function.Name.Name)
 	}
 	return ""
 }
 
-// executable reports whether expression is a call of os.Executable().
-func executable(expression ast.Expr, imported map[string]string) bool {
-	call, ok := expression.(*ast.CallExpr)
+// boundToExecutable reports whether def is the first name defined by
+// `def, err := os.Executable()` or `var def, err = os.Executable()`.
+func (p *packageCheck) boundToExecutable(def *ast.Ident) bool {
+	var value ast.Expr
+	switch parent := p.parents[def].(type) {
+	case *ast.AssignStmt:
+		if parent.Tok != token.DEFINE || len(parent.Rhs) != 1 || len(parent.Lhs) == 0 || parent.Lhs[0] != def {
+			return false
+		}
+		value = parent.Rhs[0]
+	case *ast.ValueSpec:
+		if len(parent.Values) != 1 || parent.Names[0] != def {
+			return false
+		}
+		value = parent.Values[0]
+	default:
+		return false
+	}
+	call, ok := ast.Unparen(value).(*ast.CallExpr)
 	if !ok || len(call.Args) != 0 {
 		return false
 	}
-	path, name, ok := qualified(call.Fun, imported)
-	return ok && path == "os" && name == "Executable"
+	var reference *ast.Ident
+	switch fun := ast.Unparen(call.Fun).(type) {
+	case *ast.Ident:
+		reference = fun
+	case *ast.SelectorExpr:
+		reference = fun.Sel
+	default:
+		return false
+	}
+	fn, path := function(p.info.Uses[reference])
+	return fn != nil && path == "os" && fn.Name() == "Executable"
 }
