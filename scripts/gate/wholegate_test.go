@@ -36,14 +36,17 @@ func gitIn(t *testing.T, root string, args ...string) string {
 }
 
 // wholeFixture is a gate over a fixture checkout with the whole-gate key on,
-// keying only git and sh among the host programs.
+// keying only sh among the host programs: git's fingerprint hashes its exec
+// path, about 0.25 s a collection on this host (measured), and each run
+// collects twice. TestWholeGateKeyCollector and the tools tests cover the
+// fingerprints.
 func wholeFixture(t *testing.T, root string, steps []*Step) *gate {
 	t.Helper()
 	state, err := checkoutStateOf(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &gate{root: root, cacheDir: t.TempDir(), steps: steps, programs: []string{"git", "sh"},
+	return &gate{root: root, cacheDir: t.TempDir(), steps: steps, programs: []string{"sh"},
 		whole: &wholeGate{mechanism: "rss: test", identity: state}}
 }
 
