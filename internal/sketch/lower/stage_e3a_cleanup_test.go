@@ -200,9 +200,13 @@ func TestCaseOutcomeProperty(t *testing.T) {
 		default:
 			// A failed assert, an escaped typed failure or both fail the
 			// case; the run goes on to Later and exits 1.
-			want := "FAIL T: a failure escaped the test: Bang{Code:7}"
+			want := "FAIL T: a failure escaped the test at main.ergo:"
+			escaped := true
 			if b.name == "assert" || cl.name == "assert" {
-				want = "FAIL T: assert failed at main.ergo:"
+				want, escaped = "FAIL T: assert failed at main.ergo:", false
+			}
+			if escaped && len(got) > 0 && !strings.HasSuffix(got[0], ": Bang{Code:7}") {
+				fail("an escaped failure's FAIL line must end with its text, Bang{Code:7}")
 			}
 			if code != 1 || len(got) != 3 || !strings.HasPrefix(got[0], want) || got[1] != "ok Later" || got[2] != "FAIL (1 of 2 tests)" {
 				fail(fmt.Sprintf("a failed case must print %q…, run Later and exit 1", want))

@@ -62,6 +62,7 @@ const testDepth = 4
 // testLowering is the test build's state; the run build has none.
 type testLowering struct {
 	gens map[pkgKey]bool // generator functions emitted
+	lits map[pkgKey]bool // argument literal functions emitted (literal.go)
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -74,7 +75,7 @@ func LowerTests(u Unit) ([]File, error) {
 	if len(u.Files) != 1 {
 		return nil, fmt.Errorf("lower: %d files in one package; packages of several files are 196b's", len(u.Files))
 	}
-	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}})
+	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
 	code, err := l.program()
 	if err != nil {
 		return nil, err
@@ -85,11 +86,13 @@ func LowerTests(u Unit) ([]File, error) {
 // testHelpers are the harness's package-scope entities: key and preferred
 // name, in the order the naming pass reserves them.
 var testHelpers = []struct{ key, base string }{
-	{"fmt", "fmt"}, {"os", "os"},
+	{"fmt", "fmt"}, {"os", "os"}, {"sort", "sort"}, {"strconv", "strconv"}, {"strings", "strings"},
 	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"},
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
+	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
+	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
 }
 
@@ -104,8 +107,9 @@ func (l *lowerer) helper(key string) string {
 }
 
 // nameTests reserves the test build's package names: the harness, each
-// test's function and the generator of each named type a property's
-// parameters reach. The run build reserves none (rule 1).
+// test's function, and the generator and the argument literal function of
+// each type a property's parameters reach. The run build reserves none
+// (rule 1).
 func (l *lowerer) nameTests() {
 	if l.tests == nil {
 		return
@@ -117,16 +121,25 @@ func (l *lowerer) nameTests() {
 		l.testFunc(t)
 		for _, v := range t.Params {
 			l.genNamed(v.Type, map[check.Type]bool{}, func(n *check.Named) { l.genName(n) })
+			l.litTypes(v.Type, map[string]bool{}, func(t check.Type) {
+				key, base, _ := l.litKey(t)
+				l.pkgName(key, base)
+			})
 		}
 	}
 }
 
-// testImports are the import lines the test build adds.
+// testImports are the import lines the test build adds; the harness uses
+// each of them.
 func (l *lowerer) testImports() []string {
 	if l.tests == nil {
 		return nil
 	}
-	return []string{l.helper("fmt") + ` "fmt"`, l.helper("os") + ` "os"`}
+	var out []string
+	for _, p := range []string{"fmt", "os", "sort", "strconv", "strings"} {
+		out = append(out, l.helper(p)+" "+strconv.Quote(p))
+	}
+	return out
 }
 
 func (l *lowerer) testFunc(t *check.Test) string {
@@ -200,12 +213,17 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 		ice(s, "an assert reached the run build, which lowers no test or law body")
 	}
 	cond := fc.value(s.X)
-	line, column := fc.l.file.Position(s.Pos())
-	at := path.Base(strings.ReplaceAll(fc.l.src, "\\", "/")) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 	text := fc.l.unit.Sources[0].Text[s.X.Pos():s.X.End()]
 	fc.line("if !(" + cond + ") {")
-	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(at) + ", " + strconv.Quote(text) + ")")
+	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s.Pos())) + ", " + strconv.Quote(text) + ")")
 	fc.line("}")
+}
+
+// siteText is a source position as a report names it: file:line:column,
+// the file by its base name.
+func (l *lowerer) siteText(pos syntax.Pos) string {
+	line, column := l.file.Position(pos)
+	return path.Base(strings.ReplaceAll(l.src, "\\", "/")) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
@@ -244,7 +262,9 @@ func (l *lowerer) testRunner() string {
 	b.WriteString(l.testRunnerHead(env, seed))
 	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(l.pkg.Tests)) + "\n")
 	for _, t := range l.pkg.Tests {
-		name := strconv.Quote(t.Name)
+		// The case runner takes the test's name, and its declaration's
+		// site, which a typed failure that escapes the body names.
+		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl.Pos()))
 		if len(t.Params) == 0 {
 			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")
@@ -254,12 +274,14 @@ func (l *lowerer) testRunner() string {
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 		b.WriteString("\t{\n")
-		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + name + ")\n")
+		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(t.Name) + ")\n")
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
 		args := []string{env}
-		format := "case %d of " + strconv.Itoa(testCases) + ", seed %d"
-		shown := []string{i, seed}
+		conv := l.helper("strconv")
+		// The case's report: its number, the seed and each argument as an
+		// Ergo literal of its type (literal.go), written only when it fails.
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of "+strconv.Itoa(testCases)+", seed "), conv + ".FormatUint(" + seed + ", 10)"}
 		for k, v := range t.Params {
 			base := v.Name
 			if base == "_" {
@@ -272,10 +294,9 @@ func (l *lowerer) testRunner() string {
 			if k == 0 {
 				sep = ": "
 			}
-			format += sep + v.Name + " = %+v"
-			shown = append(shown, a)
+			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, t.Decl))
 		}
-		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + fmtPkg + ".Sprintf(" + strconv.Quote(format) + ", " + strings.Join(shown, ", ") + ") }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") })\n")
+		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { return " + l.testFunc(t) + "(" + strings.Join(args, ", ") + ") })\n")
 		b.WriteString("\t\t}\n")
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
@@ -322,8 +343,9 @@ func (a $Assertion) String() string { return "assert failed at " + a.at + ": " +
 
 func $AssertFail(at, text string) { panic($Assertion{at, text}) }
 
-// $Case runs one case of the test name on the task t. A typed failure that
-// escapes the body fails it: it prints a FAIL line and returns false. A
+// $Case runs one case of the test name, declared at at, on the task t. A
+// typed failure that escapes the body fails it: it prints a FAIL line that
+// names the failure and the test's site, and returns false. A
 // panic is read as the exit that survived the body's unwinding
 // ($Runtime.Capture): when its reasons are failed asserts, with typed
 // failures beside them, the case fails with the first assert. Any other
@@ -331,7 +353,7 @@ func $AssertFail(at, text string) { panic($Assertion{at, text}) }
 // included, prints a FAIL line and is raised again whole ($Runtime.Raise),
 // so the runtime reports every reason with its Ergo frames and the run
 // stops.
-func $Case(t *$Task.Task, name string, args func() string, body func() error) (ok bool) {
+func $Case(t *$Task.Task, name, at string, args func() string, body func() error) (ok bool) {
 	done := false
 	defer func() {
 		if done {
@@ -349,7 +371,7 @@ func $Case(t *$Task.Task, name string, args func() string, body func() error) (o
 	err := body()
 	done = true
 	if err != nil {
-		$fmt.Println("FAIL " + name + $Where(args) + ": a failure escaped the test: " + err.Error())
+		$fmt.Println("FAIL " + name + $Where(args) + ": a failure escaped the test at " + at + ": " + err.Error())
 		return false
 	}
 	return true
@@ -468,8 +490,59 @@ func $GenMap[K comparable, V any](r *$Rand, d int, key func(*$Rand, int) K, val 
 	return m
 }
 
-// $Seed reads --seed N or --seed=N, the seed of every property; 1 by
-// default.
+// $LitFloat is the shortest text that reads back as v, with a decimal
+// point or an exponent, so it is a float literal in any context.
+func $LitFloat(v float64, bits int) string {
+	s := $strconv.FormatFloat(v, 'g', -1, bits)
+	if !$strings.ContainsAny(s, ".eEnN") {
+		s += ".0"
+	}
+	return s
+}
+
+// $LitComplex is Go's form of a complex value, each part of bits: Ergo has
+// no complex literal.
+func $LitComplex(v complex128, bits int) string {
+	return "complex(" + $LitFloat(real(v), bits) + ", " + $LitFloat(imag(v), bits) + ")"
+}
+
+// $LitDuration writes a duration in its largest exact unit: 1500ms, 2h.
+func $LitDuration(n int64) string {
+	if n == -1<<63 {
+		return "-9223372036854775807ns - 1ns"
+	}
+	units := []struct {
+		suffix string
+		size   int64
+	}{{"h", 3600e9}, {"m", 60e9}, {"s", 1e9}, {"ms", 1e6}, {"us", 1e3}}
+	for _, u := range units {
+		if n != 0 && n%u.size == 0 {
+			return $strconv.FormatInt(n/u.size, 10) + u.suffix
+		}
+	}
+	return $strconv.FormatInt(n, 10) + "ns"
+}
+
+// $LitEntries writes a Map literal of the type typ, its keys sorted: by
+// less when the key type is ordered, else by the keys' text.
+func $LitEntries[K comparable, V any](typ string, m map[K]V, key func(K) string, val func(V) string, less func(a, b K) bool) string {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	if less == nil {
+		less = func(a, b K) bool { return key(a) < key(b) }
+	}
+	$sort.Slice(keys, func(i, j int) bool { return less(keys[i], keys[j]) })
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = key(k) + ": " + val(m[k])
+	}
+	return typ + "{" + $strings.Join(parts, ", ") + "}"
+}
+
+// $Seed reads --seed N or --seed=N, N a decimal uint64, the seed of every
+// property; 1 by default. Any other argument is a usage error (exit 2).
 func $Seed() uint64 {
 	seed := uint64(1)
 	args := $os.Args[1:]
@@ -482,10 +555,12 @@ func $Seed() uint64 {
 		case len(a) > len("--seed=") && a[:len("--seed=")] == "--seed=":
 			v = a[len("--seed="):]
 		}
-		if _, err := $fmt.Sscan(v, &seed); v == "" || err != nil {
+		n, err := $strconv.ParseUint(v, 10, 64)
+		if err != nil {
 			$fmt.Fprintln($os.Stderr, "usage: [--seed N], not "+a)
 			$os.Exit(2)
 		}
+		seed = n
 	}
 	return seed
 }
