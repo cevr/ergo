@@ -191,9 +191,10 @@ func (m planMachine) driver() string {
 
 // TestMachinePlanValues generates 24 machines (state unions of 1 to 4
 // variants, signal unions of 1 to 3, total step tables over Enter, Stay,
-// Ignore, Reject and Done, some with a fails row whose cells may fail, some
-// with a needs row, initial values written as a value, a package let or a
-// function that reads one) and sequences of 0 to 8 signals. A Go test in
+// Ignore, Reject and Done; some steps have a fails row whose cells may
+// fail, and some have a needs row; each initial value is written as a
+// value, a package let or a function that reads one) and sequences of 0 to
+// 8 signals. A Go test in
 // the emitted module folds each plan's Initial and Step over each sequence;
 // the result must equal the reference model's. A pure step's plan takes no
 // environment and allocates no more than the direct call of the step. The
