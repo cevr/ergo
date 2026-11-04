@@ -95,13 +95,25 @@ var declared = map[string][]allowance{
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
+		glob("internal/sketch/lower/*.go", "TestTupleAssertionsUnwrap (C45) parses the lowering's sources for type assertions to *Tuple"),
 	),
-	"internal/sketch/lower": {
-		{"cmd/ergo", program, "the tests drive the public CLI, built once per process"},
-		{"internal/sketch/check/testdata", subtree, "the accepted and refusal inventories walk the checker's fixtures (filepath.WalkDir), lowering each"},
-		{"internal/sketch/proto/testdata", subtree, "the accepted and refusal inventories walk the proto fixtures (filepath.WalkDir), lowering each"},
-		{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
-	},
+	"internal/sketch/lower": declare(
+		[]allowance{
+			{"cmd/ergo", program, "the tests drive the public CLI, built once per process"},
+			{"internal/sketch/check/testdata", subtree, "the accepted and refusal inventories walk the checker's fixtures (filepath.WalkDir), lowering each"},
+			{"internal/sketch/proto/testdata", subtree, "the accepted and refusal inventories walk the proto fixtures (filepath.WalkDir), lowering each"},
+			{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
+			// TestNoStageERefusal (C43) walks internal/sketch, skipping
+			// testdata, and parses each source: the packages lower builds
+			// on are its inputs already; these are the rest, at the depths
+			// the walk reads them.
+			{"internal/sketch", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
+			{"internal/sketch/proto", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
+			{"internal/sketch/proto/rt", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
+		},
+		[]allowance{{"internal/sketch/proto/*.go", files, "TestNoStageERefusal (C43) parses each source of the walk"}},
+		[]allowance{{"internal/sketch/proto/rt/*.go", files, "TestNoStageERefusal (C43) parses each source of the walk"}},
+	),
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/proto/testdata/*.ergo", "decidedInputs parses every proto fixture"),
 		glob("internal/sketch/proto/testdata/*/*.ergo", "decidedInputs parses every proto fixture one directory down"),
