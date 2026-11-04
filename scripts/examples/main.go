@@ -475,7 +475,7 @@ func (r *runner) finish() int {
 	if r.cfg.record && !r.cfg.check {
 		verb = "recorded"
 	}
-	fmt.Fprintf(r.out, "examples: %s %d cases\n", verb, r.cases)
+	fmt.Fprintf(r.out, "examples: %s; cases: %d\n", verb, r.cases)
 	return 0
 }
 
