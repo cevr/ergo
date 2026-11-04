@@ -71,7 +71,7 @@ var hermeticEnvironment = []string{"CGO_ENABLED=0"}
 var goRuntimeEnvironment = []string{"GODEBUG", "GOGC", "GOMEMLIMIT", "GOMAXPROCS", "GOTRACEBACK"}
 
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
-var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "examples/go-interop", "tools/provenance"}
+var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "examples/go-interop", "tools/provenance"}
 
 // provenanceManifest lists the checker functions that may make syntax nodes;
 // the provenance analyzer flags a node made anywhere else in the checker.
@@ -175,6 +175,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
 	add(&Step{Name: "build bin/ergo", Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo")})
+	add(examplesStep())
 
 	examples, err := authoredExamples(root)
 	if err != nil {
@@ -303,6 +304,28 @@ func wayfinderSnapshotInputs() *Inputs {
 		Exclude: []string{"cmd/wayfinder/*_test.go"},
 		Tools:   []string{"go"},
 		Env:     []string{"GOFLAGS", "GOEXPERIMENT"},
+	}
+}
+
+// examplesStep runs the example programs of the default tag against their
+// recorded cases (scripts/examples). The runner walks examples/ on disk, so
+// the folder is installed: a file Git ignores there can change its result,
+// and no step writes under it. It runs the bin/ergo its Need wrote, which
+// holds no VCS stamp and embeds the runtime that ergo build emits, so that
+// file's digest stands for the compiler. go builds the runner and, through
+// ergo, the programs; sh runs setup.sh and record.sh.
+func examplesStep() *Step {
+	return &Step{
+		Name:  "examples (default)",
+		Needs: []string{"build bin/ergo"},
+		Argv:  []string{"go", "run", "./scripts/examples"},
+		Inputs: &Inputs{
+			Paths:     []string{"scripts/examples/", "go.mod"},
+			Exclude:   []string{"scripts/examples/*_test.go", "scripts/examples/testdata/"},
+			Tools:     []string{"go", "sh"},
+			Installed: []string{"examples"},
+			Built:     []string{"bin/ergo"},
+		},
 	}
 }
 
