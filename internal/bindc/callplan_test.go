@@ -35,10 +35,20 @@ func TestCallPlanRefusals(t *testing.T) {
 		{"uint64_t g_mixed_ctx(void *ctx, g_mixed value)", "param 1 (value): by-value struct g_mixed: bytes 0 to 7"},
 		{"g_mixed g_mixed_result(void)", "result: by-value struct g_mixed: bytes 0 to 7"},
 		{"uint64_t g_float_pair(g_fpair value)", "by-value struct g_fpair: bytes 0 to 7 hold only floating-point fields"},
-		{"uint64_t g_amd64_regs(" + u64s("n", 6) + ", g_pair p)", "param 6 (p): by-value struct g_pair does not fit the registers left on amd64"},
-		{"uint64_t g_arm64_stack(" + u64s("n", 9) + ", g_big b)", "param 9 (b): by-value struct g_big comes after an argument on the stack on arm64"},
-		{"uint64_t g_arm64_regs(" + f64s(6) + ", g_quad q)", "param 6 (q): by-value struct g_quad does not fit the registers left on arm64"},
+		{"uint64_t g_amd64_regs(" + u64s("n", 6) + ", g_pair p)", "param 6 (p): by-value struct g_pair needs 2 general registers on amd64 and 0 are left"},
+		{"uint64_t g_amd64_split(" + u64s("n", 5) + ", g_pair p)", "param 5 (p): by-value struct g_pair needs 2 general registers on amd64 and 1 are left"},
+		{"uint64_t g_amd64_floats(" + f64s(8) + ", g_hfa v)", "param 8 (v): by-value struct g_hfa needs 1 floating-point registers on amd64 and 0 are left"},
+		{"uint64_t g_arm64_regs(" + f64s(6) + ", g_quad q)", "param 6 (q): by-value struct g_quad needs 4 floating-point registers on arm64 and 2 are left"},
 		{"uint64_t g_stack(" + u64s("s", 40) + ")", "purego v0.11.3 passes at most 26 stack words on amd64, and this call needs 34"},
+	}
+	// Valid calls: a struct needs only its own bank (round 4: the
+	// verifier's g_banks, seven integers and a float HFA, was refused).
+	admitted := []string{
+		"uint64_t g_pair_sum(g_pair p)",
+		"uint64_t g_banks(" + u64s("n", 7) + ", g_hfa v)",
+		"uint64_t g_pair_floats(" + f64s(9) + ", g_pair p)",
+		"uint64_t g_big_after_stack(" + u64s("n", 9) + ", g_big b)",
+		"uint64_t g_quad_after_ints(" + u64s("n", 8) + ", g_quad q)",
 	}
 	header := callHeaderHead + `
 typedef struct { double x; uint64_t y; } g_mixed;
@@ -46,8 +56,11 @@ typedef struct { float a; float b; uint32_t c; } g_fpair;
 typedef struct { uint64_t a; uint64_t b; } g_pair;
 typedef struct { uint64_t a; uint64_t b; uint64_t c; } g_big;
 typedef struct { double a; double b; double c; double d; } g_quad;
-uint64_t g_pair_sum(g_pair p);
+typedef struct { float x; float y; } g_hfa;
 `
+	for _, d := range admitted {
+		header += d + ";\n"
+	}
 	for _, r := range refused {
 		header += r.decl + ";\n"
 	}
@@ -90,8 +103,11 @@ uint64_t g_pair_sum(g_pair p);
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(src), rawName("g_pair_sum")+" ") {
-		t.Errorf("the Go package has no raw function of g_pair_sum")
+	for _, d := range admitted {
+		name := strings.Fields(strings.SplitN(d, "(", 2)[0])[1]
+		if !strings.Contains(string(src), rawName(name)+" ") {
+			t.Errorf("the Go package has no raw function of %s", name)
+		}
 	}
 	for _, s := range skips {
 		if strings.Contains(string(src), rawName(s.Name)) {

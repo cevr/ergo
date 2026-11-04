@@ -121,8 +121,9 @@
 // function of every bound function, typed or raw-only, so Bind refuses a
 // header with a function whose call purego cannot make as C does on all
 // four targets: a struct with no single form (an eightbyte of only floats
-// that is not an HFA), a struct that does not fit the registers left at
-// its place, or a call that needs more stack than purego registers. The
+// that is not an HFA), a struct that does not fit the registers left in
+// the one bank it needs (general or floating-point; the other bank does
+// not matter), or a call that needs more stack than purego registers. The
 // error names the function and the reason; the contract skips it.
 //
 // Every Go name comes from one allocator per scope (names.go): the
