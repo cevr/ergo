@@ -86,8 +86,9 @@ type Package struct {
 	Types []*TypeName
 	// Tests is every test block with its parameters (stage E, 196l).
 	Tests []*Test
-	// Laws is every law of the package's operation types in source order,
-	// a duplicate name included (stage E3b, 196l): checked, never run.
+	// Laws is every law of the package in source order, top-level and
+	// member, a duplicate name included (stage E3b, 196l; law-top):
+	// checked, never run.
 	Laws []*Law
 	// Info is the checker's result for the lowering.
 	Info *Info
@@ -702,13 +703,15 @@ type Test struct {
 	file *fileInfo // the declaring file, selected while the test is checked
 }
 
-// Law is a law of an operation type (196l, spec D-E4): checked, never run
-// (#162 runs laws). Its name has no value: Info.Defs maps the name to the
-// Law, and no scope holds it. Added in check-v1 stage E3b (additive).
+// Law is a law (196l, spec D-E4): a top-level declaration or a member of an
+// operation type; checked, never run (#162 runs laws). Its name has no
+// value: Info.Defs maps the name to the Law, and no scope holds it. Added
+// in check-v1 stage E3b (additive). Since law-top, Owner is nil for a
+// top-level law (a contract change: the field was always set before).
 type Law struct {
 	Name  string
 	Decl  *syntax.LawDecl
-	Owner *TypeName // the operation type that declares it
+	Owner *TypeName // the operation type that declares it; nil at top level
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var

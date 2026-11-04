@@ -176,6 +176,9 @@ func (l *lowerer) decl(d syntax.Decl) {
 		l.context(w, d.Name)
 	case *syntax.TestDecl:
 		l.testDecl(d) // the test build only (tests.go, rule 1)
+	case *syntax.LawDecl:
+		// A top-level law is in neither build (types.md, Laws 11): its facts
+		// are OwnerLaw's, and #162 runs laws.
 	default:
 		refuse(d, "this declaration is not lowered yet")
 	}

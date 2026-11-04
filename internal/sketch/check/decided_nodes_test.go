@@ -718,6 +718,22 @@ type Monoid {
 }
 func main() {}
 `, nil},
+	{"law", "a documented top-level law", `
+func add(a int, b int) int { a + b }
+// AddCommutes: the order of the operands does not matter.
+law AddCommutes(a int, b int) {
+	assert true
+	add(a, b) == add(b, a)
+}
+func main() {}
+`, nil},
+	{"law", "a type with laws and no operations", `
+func add(a int, b int) int { a + b }
+type AddLaws {
+	law AddCommutes(a int, b int) { add(a, b) == add(b, a) },
+}
+func main() {}
+`, []string{"S108:3"}},
 	{"machine", "a machine type with documented entries", `
 type Closed {}
 type Open {}

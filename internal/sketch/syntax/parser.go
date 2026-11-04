@@ -382,12 +382,14 @@ func (p *parser) parseFile() *File {
 			d = p.parseExternDecl(doc)
 		case TEST:
 			d = p.parseTestDecl(doc)
+		case LAW:
+			d = p.parseLawDecl(doc, true)
 		case LET:
 			d = p.parseLetDecl(doc, true)
 		case IMPORT:
 			p.errorf("an import must come before every other declaration")
 		default:
-			p.errorf("expected a declaration (type, func, extern, test or let), found %s", p.found())
+			p.errorf("expected a declaration (type, func, extern, test, law or let), found %s", p.found())
 		}
 		f.Decls = append(f.Decls, d)
 		p.endDecl()
@@ -543,12 +545,7 @@ func (p *parser) parseMembers() *members {
 		switch {
 		case p.tok.tok == LAW:
 			kind = memberLaw
-			law := &LawDecl{Doc: doc, Law: p.tok.pos}
-			p.next()
-			law.Name = p.parseIdent()
-			law.Params = p.parseParameters(paramPlain)
-			law.Body = p.parseBlock()
-			m.laws = append(m.laws, law)
+			m.laws = append(m.laws, p.parseLawDecl(doc, false))
 		case p.tok.tok == IDENT && p.peek(1).tok == LBRACK && p.bracketsThenParen():
 			p.errorAt(p.peek(1).pos, 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
 		case p.tok.tok == IDENT && p.peek(1).tok == LPAREN:
@@ -815,6 +812,21 @@ func (p *parser) parseTestDecl(doc *CommentGroup) *TestDecl {
 	if p.tok.tok != LBRACE {
 		p.errorf("expected \"{\", found %s", p.found())
 	}
+	d.Body = p.parseBlock()
+	return d
+}
+
+// parseLawDecl parses `law Name(params) { body }`, top-level (top) or a
+// member of an operation type. A top-level law has no type parameters: it
+// is stated at concrete types, and a generic law is a member of the
+// protocol's operation type (law-top).
+func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
+	d := &LawDecl{Doc: doc, Law: p.want(LAW)}
+	d.Name = p.parseIdent()
+	if top && p.tok.tok == LBRACK {
+		p.errorAt(p.tok.pos, 1, "a law has no type parameters; state it at concrete types, or as a member of the protocol's operation type")
+	}
+	d.Params = p.parseParameters(paramPlain)
 	d.Body = p.parseBlock()
 	return d
 }

@@ -262,6 +262,8 @@ func (c *checker) collect() {
 				}
 			case *syntax.TestDecl:
 				c.collectTest(d, fi)
+			case *syntax.LawDecl:
+				c.collectTopLaw(d, fi)
 			case *syntax.ContextDecl:
 				c.preludeName(d.Name) // D-D3; the context still binds
 				w := &Context{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}

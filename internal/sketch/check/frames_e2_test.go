@@ -106,6 +106,7 @@ var frameDeclKinds = map[string]struct {
 	"ContextDecl": {&syntax.ContextDecl{}, true},
 	"FuncDecl":    {&syntax.FuncDecl{}, false},
 	"TestDecl":    {&syntax.TestDecl{}, false},
+	"LawDecl":     {&syntax.LawDecl{}, false},
 }
 
 func TestFrameFreeCoversEveryDeclKind(t *testing.T) {
