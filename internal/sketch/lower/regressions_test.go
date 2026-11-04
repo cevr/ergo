@@ -418,18 +418,20 @@ func main() needs Console {
 `,
 		code: "S108", line: 13, column: 7, message: "this case is already covered by the earlier case `A` (unreachable)",
 	}, {
-		name: "generic-error-field",
-		src: `type Fault[T] { F T }
+		// A generic error type's text lowers per instance since lower-v1
+		// stage 4 (TestGenericErrorText); a Map field still has no text.
+		name: "map-error-field",
+		src: `type Fault { F Map[string, int] }
 
-func fail() fails Fault[int] {
-	return Fault[int]{F: 5}
+func fail() fails Fault {
+	return Fault{F: Map[string, int]{}}
 }
 
-func main() fails Fault[int] needs Console {
+func main() fails Fault needs Console {
 	try fail()
 }
 `,
-		code: "S109", line: 1, column: 6, message: "the text of an error type with a field of type parameter T is lowered in lower-v1 stage 3 (the generic text function cannot see the instance's fields)",
+		code: "S109", line: 1, column: 6, message: "the text of an error type with a field of type Map[string, int] is lowered in lower-v1 stage 3",
 	}, {
 		// stage 2 round 3 m1 (r04): the naming pass reads the error type
 		// under quiet and meets the collision first; the lowering reports

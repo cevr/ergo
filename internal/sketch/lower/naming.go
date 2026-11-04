@@ -124,12 +124,14 @@ func (l *lowerer) nameAll() {
 			if !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {
 				continue
 			}
-			l.quiet(func() {
-				l.textTypes(named, tn.Decl.Name, map[pkgKey]bool{}, func(t check.Type) {
-					key, base := l.textKey(t, tn.Decl.Name)
-					generated = append(generated, entry{key, "text " + base + " " + t.String(), base})
+			for _, root := range l.textRoots(named) {
+				l.quiet(func() {
+					l.textTypes(root, tn.Decl.Name, map[pkgKey]bool{}, func(t check.Type) {
+						key, base := l.textKey(t, tn.Decl.Name)
+						generated = append(generated, entry{key, "text " + base + " " + t.String(), base})
+					})
 				})
-			})
+			}
 		}
 	}
 	l.reserveDefaults(func(key pkgKey, base string) {

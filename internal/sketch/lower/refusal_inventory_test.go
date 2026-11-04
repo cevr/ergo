@@ -55,6 +55,11 @@ func contextKey[T](t Tag[T]) string { "tag" }
 func contextText[T](t Tag[T]) string { "v" }
 func main() { with (Tag{V: 1}) { } }
 `,
+		// An error type with a Map field: its text is still refused (a
+		// generic error type's text lowers per instance, lower-v1 stage 4).
+		`type Fault { F Map[string, int] }
+func main() fails Fault { return Fault{F: Map[string, int]{}} }
+`,
 	)
 	seen, met := map[string]bool{}, map[string]int{}
 	for _, src := range sources {
