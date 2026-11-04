@@ -62,8 +62,9 @@ func parityOverrides(t *testing.T) map[string]string {
 // an out header or a sibling .out whose parity override is not a code (a
 // file the designed rules turned into a diagnostic is TestParity's) is
 // checked by the real checker, lowered, vetted, built and run, and its
-// stdout must equal the oracle with exit 0. Fewer than 36 such files means
-// the corpus moved or shrank.
+// stdout must equal the oracle with exit 0. The corpus has 37 such files
+// (the prototype's 36 and its ported TestBuildAndRun program): fewer means
+// the corpus moved or lost a probe.
 func TestCorpusProbesRun(t *testing.T) {
 	overrides := parityOverrides(t)
 	type probe struct{ rel, src, want string }
@@ -95,8 +96,8 @@ func TestCorpusProbesRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	sort.Slice(probes, func(i, j int) bool { return probes[i].rel < probes[j].rel })
-	if len(probes) < 36 {
-		t.Fatalf("found %d output probes below %s, want at least 36", len(probes), corpusRoot)
+	if len(probes) < 37 {
+		t.Fatalf("found %d output probes below %s, want at least 37", len(probes), corpusRoot)
 	}
 	// Each program is package p/NAME of one module: NAME is the path with
 	// every byte outside [a-z0-9] written as _, so a failure names its file.
