@@ -580,7 +580,7 @@ func (fc *funcCtx) noValueArgs(x *syntax.CallExpr, c *check.Call, list []syntax.
 	inResult := func(t check.Type, result bool) bool { return result && isBound(t) }
 	stray := func(t check.Type) bool { return walkType(t, inResult) }
 	refuseAt := func() {
-		refuse(x, "a type parameter of %s that a block with no value binds, inside a function type other than a parameter's own (func(…) T), is lowered after check-v1 stage E", c.Func.Name)
+		refuse(x, "a type parameter of %s that a block with no value binds, inside a function type other than a parameter's own (func(…) T), is lowered by lower-v1 (C11, one Go shape for no-result function values)", c.Func.Name)
 	}
 	for _, r := range sig.Results {
 		if !isBound(r) && stray(r) {

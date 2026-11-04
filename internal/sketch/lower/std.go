@@ -49,7 +49,14 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + l.rt() + "." + obj.Name
 		}
 	}
-	refuse(site, "the std type %s.%s is lowered after check-v1 stage E", obj.Pkg.Path, obj.Name)
+	if !obj.Pkg.Std() {
+		// Only an importer other than check.Std, a test's, reaches here:
+		// a program imports std packages alone until 196b.
+		refuse(site, "the type %s.%s of an imported package is lowered when 196b lowers packages", obj.Pkg.Path, obj.Name)
+	}
+	// Every std type is a record or an operation type
+	// (TestStdTypesHaveRuntimeForms).
+	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""
 }
 

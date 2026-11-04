@@ -48,7 +48,7 @@ var refusedFamilies = map[string]string{
 	"MachineType":  "lower-v1 stage 4",
 	// Narrower families: a form of an implemented node that waits.
 	"call:Func:externTarget": "lower-v1",
-	"NoValue:generic":        "check-v1 stage E",
+	"NoValue:generic":        "lower-v1 (C11",
 	"call:With:imported":     "196b",
 	"TypeDecl:errorText":     "lower-v1 stage 3",
 	// Stage E6b of check-v1 removed the family of a context value whose
@@ -78,7 +78,7 @@ var refusalReasons = []struct {
 }{
 	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
-	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
+	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered by lower-v1 \(C11, one Go shape for no-result function values\)$`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
 }
