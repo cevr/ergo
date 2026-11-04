@@ -561,7 +561,8 @@ func walkType(t check.Type, visit func(t check.Type, result bool) bool) bool {
 // function that returns struct{}{} with its error. A result T is struct{},
 // which the call site discards (funcCtx.call). T in any other function
 // type's result, a parameter's or the result's, is refused: the checked
-// type and Go's instance differ there, and adapting them is stage E's.
+// type and Go's instance differ there, and adapting them is lower-v1's
+// (C11).
 func (fc *funcCtx) noValueArgs(x *syntax.CallExpr, c *check.Call, list []syntax.Expr, vals []string) {
 	sig := c.Func.Sig
 	bound := map[*check.TypeParam]bool{}
