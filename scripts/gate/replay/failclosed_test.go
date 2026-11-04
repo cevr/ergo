@@ -57,6 +57,20 @@ type failCase struct {
 
 type failTree struct {
 	root, keyed, outside string
+	// held are descriptors a case keeps open until the check ends.
+	held []*os.File
+}
+
+// holdFIFO makes a FIFO and holds it open for reading and writing, so its
+// buffer can change while its inode stays.
+func (f *failTree) holdFIFO(name string) *os.File {
+	mkfifo(name)
+	pipe, err := os.OpenFile(name, os.O_RDWR|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		panic(err)
+	}
+	f.held = append(f.held, pipe)
+	return pipe
 }
 
 func (f *failTree) write(name, content string, perm fs.FileMode) {
@@ -104,6 +118,23 @@ func failClosedCases() []failCase {
 			change: rewrite(func(f *failTree) string { return f.in("entry/inner") })},
 		{name: "fifo", build: func(f *failTree) string { mkfifo(f.in("entry")); return "" },
 			change: func(f *failTree) { remove(f.in("entry")); mkfifo(f.in("entry")) }},
+		// The same inode, other bytes in its buffer: no stat field moves.
+		{name: "fifo drained", build: func(f *failTree) string {
+			if _, err := f.holdFIFO(f.in("entry")).Write([]byte("good\n")); err != nil {
+				panic(err)
+			}
+			return ""
+		}, change: func(f *failTree) {
+			if _, err := f.held[0].Read(make([]byte, 16)); err != nil {
+				panic(err)
+			}
+		}},
+		{name: "fifo buffered", build: func(f *failTree) string { f.holdFIFO(f.in("entry")); return "" },
+			change: func(f *failTree) {
+				if _, err := f.held[0].Write([]byte("bad\n")); err != nil {
+					panic(err)
+				}
+			}},
 		{name: "link to a file in the checkout", link: true,
 			build:  func(f *failTree) string { f.write(f.in("target"), "content\n", 0o644); return f.in("target") },
 			change: rewrite(func(f *failTree) string { return f.in("target") })},
@@ -194,6 +225,11 @@ func checkFailsClosed(t *testing.T, seed uint64, c failCase, class Class, absolu
 		return err
 	}
 	f := &failTree{root: filepath.Join(base, "checkout"), keyed: filepath.Join(base, "goroot"), outside: filepath.Join(base, "outside")}
+	defer func() {
+		for _, held := range f.held {
+			held.Close()
+		}
+	}()
 	mkdir(f.root)
 	mkdir(f.outside)
 	f.write(f.keyedAt("tool"), "tool v1\n", 0o755)

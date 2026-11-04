@@ -66,8 +66,10 @@ type Entry struct {
 	// Value is what the key holds for the path:
 	//   - a regular file that Git tracks or sees untracked: its keyed
 	//     permission bits and the SHA-256 of its content;
-	//   - an ignored regular file, and every FIFO, socket or device: its stat
-	//     tuple (size, mtime and ctime in nanoseconds, inode, mode);
+	//   - an ignored regular file: its stat tuple (size, mtime and ctime in
+	//     nanoseconds, inode, mode);
+	//   - a FIFO, a socket or a device: its stat tuple, and the facts are
+	//     unreplayable (Walk), since what a step reads from it is not keyed;
 	//   - a symlink: its target text;
 	//   - a directory: nothing (the path is the input).
 	Value string

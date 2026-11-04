@@ -34,11 +34,12 @@ type Classifier func(path string) Class
 
 // Walk lists every path under root except root/.git, sorted by path, as the
 // whole-gate key holds it (Entry). A regular file that Git tracks or sees
-// untracked is keyed by content; everything else that is not a directory or
-// a symlink is keyed by its stat tuple. Symlinks carry their target text;
-// FollowLinks says where they lead. Recent names the stat-keyed paths changed
-// within RecentWindow before now. A file whose content cannot be read makes
-// the facts unreplayable.
+// untracked is keyed by content, an ignored regular file by its stat tuple.
+// Symlinks carry their target text; FollowLinks says where they lead.
+// Recent names the stat-keyed paths changed within RecentWindow before now.
+// Only regular files, directories and symlinks can be keyed: a FIFO, a
+// socket or a device, and a file whose content cannot be read, make the
+// facts unreplayable.
 func Walk(root string, classify Classifier, now time.Time) (entries []Entry, recent, unreplayable []string, err error) {
 	type pending struct {
 		index int
@@ -91,11 +92,13 @@ func Walk(root string, classify Classifier, now time.Time) (entries []Entry, rec
 				recent = append(recent, relative)
 			}
 		default:
+			// A FIFO, a socket or a device: what a step reads from it is
+			// not in its stat tuple (a FIFO's buffer changes no stat
+			// field), so it cannot be keyed, as fileDigest refuses it in a
+			// step receipt.
 			e.Kind, e.Class = Other, classify(relative)
 			e.Value = statTuple(info)
-			if changedSince(info, now.Add(-RecentWindow)) {
-				recent = append(recent, relative)
-			}
+			unreplayable = append(unreplayable, fmt.Sprintf("%s is a %s: only regular files, directories and symlinks can be keyed", relative, otherKind(mode)))
 		}
 		entries = append(entries, e)
 		return nil
@@ -130,6 +133,22 @@ func Walk(root string, classify Classifier, now time.Time) (entries []Entry, rec
 		}
 	}
 	return entries, recent, unreplayable, nil
+}
+
+// otherKind names a file type that is not a regular file, a directory or a
+// symlink.
+func otherKind(mode fs.FileMode) string {
+	switch {
+	case mode&fs.ModeNamedPipe != 0:
+		return "FIFO"
+	case mode&fs.ModeSocket != 0:
+		return "socket"
+	case mode&fs.ModeCharDevice != 0:
+		return "character device"
+	case mode&fs.ModeDevice != 0:
+		return "device"
+	}
+	return "file of type " + mode.Type().String()
 }
 
 // fileSum is the SHA-256 of a file's content, in hex.
