@@ -5,5 +5,5 @@ type Order {
 func main() needs Console {
 	let order = Order{ID: "42", Total: 1999}
 	let same = Order{"42", 1999}
-	Console.Println("\(order) \(same)")
+	Console.Println("\(order.ID) \(same.Total)")
 }

@@ -118,7 +118,8 @@ const lawFixture = "../check/testdata/fixtures/spec/types-laws.ergo"
 // every sweep program and of the laws fixture, for the run build (Lower)
 // and the test build (LowerTests): no //line directive maps into a law,
 // and each build is byte-identical to the same build of the source with
-// its laws blanked out (blankLaws).
+// its laws blanked out (blankLaws), with no exception (law-top: a type of
+// laws and no operations is S108, so no build meets one).
 func TestBuildsOmitLaws(t *testing.T) {
 	type source struct{ name, src string }
 	var srcs []source
@@ -205,15 +206,20 @@ var lawFacts = []lawFact{
 }
 
 // lawProgram assembles base b with fact f's production source, its canary
-// and its law, in an operation type of its own.
-func lawProgram(b ownerBase, f lawFact) string {
+// and its law: a member of an operation type of its own, or, when top, a
+// top-level law (law-top).
+func lawProgram(b ownerBase, f lawFact, top bool) string {
 	var s strings.Builder
 	s.WriteString(f.imports)
 	parts := []string{b.decls, f.decls}
 	if f.canary != "" {
 		parts = append(parts, "func canary() int {\n\tlet "+f.canary+" = 1\n\t"+f.canary+"\n}\n")
 	}
-	parts = append(parts, "type LawHost {\n\tHostPing() int,\n\n\t"+f.law+",\n}\n", b.main)
+	if top {
+		parts = append(parts, f.law+"\n", b.main)
+	} else {
+		parts = append(parts, "type LawHost {\n\tHostPing() int,\n\n\t"+f.law+",\n}\n", b.main)
+	}
 	for _, d := range parts {
 		if d != "" {
 			s.WriteString(d + "\n")
@@ -224,7 +230,8 @@ func lawProgram(b ownerBase, f lawFact) string {
 
 // TestLawFactsStayOut extends E3a's owner property (TestTestFactsStayInTests)
 // with the law owner: for every production base × every law that alone
-// introduces one emission fact, both builds are the builds of the same
+// introduces one emission fact × both placements of the law (a member and,
+// since law-top, a top-level law), both builds are the builds of the same
 // source with the law (and an import only the law uses) blanked out
 // (buildsOmitLaws), neither build gives a type only the law makes an error
 // type an Error method or a text helper, the canary local keeps its Go
@@ -238,21 +245,28 @@ func TestLawFactsStayOut(t *testing.T) {
 	var builds []*lowered
 	for _, b := range ownerBases {
 		for _, f := range lawFacts {
-			name := "lawfact_" + strings.ReplaceAll(b.name+"_"+f.name, "-", "_")
-			t.Run(b.name+"/"+f.name, func(t *testing.T) {
-				src := lawProgram(b, f)
-				run, test := buildsOmitLaws(t, name, src)
-				for _, build := range []struct{ name, code string }{{"run", run.mainGo()}, {"test", test.mainGo()}} {
-					if f.errType != "" {
-						lawErrorShape(t, name, build.name, f.errType, build.code)
-					}
-					if f.canary != "" && !regexp.MustCompile(`(?m)^\tvar `+f.canary+` `).MatchString(build.code) {
-						t.Errorf("%s: the %s build renamed the canary local %s: a build read the law's fact", name, build.name, f.canary)
-					}
+			for _, top := range []bool{false, true} {
+				name := "lawfact_" + strings.ReplaceAll(b.name+"_"+f.name, "-", "_")
+				label := b.name + "/" + f.name + "/member"
+				if top {
+					name += "_top"
+					label = b.name + "/" + f.name + "/top-level"
 				}
-				pairs = append(pairs, pair{name, b})
-				builds = append(builds, run)
-			})
+				t.Run(label, func(t *testing.T) {
+					src := lawProgram(b, f, top)
+					run, test := buildsOmitLaws(t, name, src)
+					for _, build := range []struct{ name, code string }{{"run", run.mainGo()}, {"test", test.mainGo()}} {
+						if f.errType != "" {
+							lawErrorShape(t, name, build.name, f.errType, build.code)
+						}
+						if f.canary != "" && !regexp.MustCompile(`(?m)^\tvar `+f.canary+` `).MatchString(build.code) {
+							t.Errorf("%s: the %s build renamed the canary local %s: a build read the law's fact", name, build.name, f.canary)
+						}
+					}
+					pairs = append(pairs, pair{name, b})
+					builds = append(builds, run)
+				})
+			}
 		}
 	}
 	if t.Failed() {
@@ -293,14 +307,13 @@ func buildsOmitLaws(t *testing.T, name, src string) (run, test *lowered) {
 	test = lowerTestBuild(t, name+"_test", src)
 	spans := lawSpans(run.file, run.pkg)
 	blanked := blankLaws(t, name, src)
-	kept := func(code string) string { return lawsOnlyKind(t, name, run.file, code) }
 	for _, b := range []struct {
 		build      string
 		code       string
 		blankBuild func() string
 	}{
-		{"run", run.mainGo(), func() string { return kept(mustLower(t, name+"_blank", blanked).mainGo()) }},
-		{"test", test.mainGo(), func() string { return kept(lowerTestBuild(t, name+"_blank_test", blanked).mainGo()) }},
+		{"run", run.mainGo(), func() string { return mustLower(t, name+"_blank", blanked).mainGo() }},
+		{"test", test.mainGo(), func() string { return lowerTestBuild(t, name+"_blank_test", blanked).mainGo() }},
 	} {
 		for _, m := range directiveRe.FindAllStringSubmatch(b.code, -1) {
 			line, _ := strconv.Atoi(m[1])
@@ -316,33 +329,6 @@ func buildsOmitLaws(t *testing.T, name, src string) (run, test *lowered) {
 		}
 	}
 	return run, test
-}
-
-// lawsOnlyKind takes code, the Go of f's blanked source, and undoes the one
-// change blanking makes beyond removing laws. A type of laws and no
-// operations is an operation type (parser.go, parseMembersType), and its
-// blanked body `{ }` is an empty record. So code must declare each such
-// type of f exactly once, as a Go struct, and that one declaration becomes
-// the Go interface f's build declares. Every other byte is compared as it
-// is.
-func lawsOnlyKind(t *testing.T, name string, f *syntax.File, code string) string {
-	t.Helper()
-	for _, d := range f.Decls {
-		td, ok := d.(*syntax.TypeDecl)
-		if !ok {
-			continue
-		}
-		it, ok := td.Spec.(*syntax.InterfaceType)
-		if !ok || len(it.Methods) > 0 || len(it.Laws) == 0 {
-			continue
-		}
-		decl := regexp.MustCompile(`(?m)^((?:/\*line [^*]*\*/)?type ` + regexp.QuoteMeta(td.Name.Name) + `(?:\[[^\]\n]*\])? )struct \{`)
-		if n := len(decl.FindAllStringIndex(code, -1)); n != 1 {
-			t.Fatalf("%s: the blanked build declares the laws-only type %s as a struct %d times, not once", name, td.Name.Name, n)
-		}
-		code = decl.ReplaceAllString(code, "${1}interface {")
-	}
-	return code
 }
 
 // lawSpans are the line and column ranges of the laws pkg records for f.

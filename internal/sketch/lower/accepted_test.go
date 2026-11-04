@@ -47,12 +47,18 @@ var refusedFamilies = map[string]string{
 	"MachineEntry": "lower-v1 stage 4", // entries are refused with their enclosing MachineType
 	"MachineType":  "lower-v1 stage 4",
 	// Narrower families: a form of an implemented node that waits.
-	"call:Func:externTarget":      "lower-v1",
-	"NoValue:generic":             "check-v1 stage E",
-	"InterpolatedString:nonbasic": "check-v1 stage E",
-	"call:With:imported":          "check-v1 stage B",
-	"call:With:context":           "check-v1 stage E",
-	"TypeDecl:errorText":          "lower-v1 stage 3",
+	"call:Func:externTarget": "lower-v1",
+	"NoValue:generic":        "lower-v1 (C11",
+	"call:With:imported":     "196b",
+	"TypeDecl:errorText":     "lower-v1 stage 3",
+	// Stage E6b of check-v1 removed the family of a context value whose
+	// protocol function is generic: the checker records its instance
+	// (ContextBinding.KeyInst, TextInst) and the lowering calls it
+	// (stage_e6b_test.go).
+	// Stage E6a of check-v1 removed the family of an interpolated value of
+	// a type that is not basic: the checker refuses a value with no text
+	// form (D-E6), and a value of a type defined over a basic type lowers
+	// (stage_e6a_test.go).
 	// Stage E4 of check-v1 removed three families: a std function used as a
 	// value, an owning with's release that no Go name calls, and a user
 	// extern. An extern is call-only (C25, P3), the checker refuses those
@@ -70,12 +76,10 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"InterpolatedString:nonbasic", regexp.MustCompile(`^an interpolated value of type .+ is lowered after check-v1 stage E`)},
 	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
-	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
-	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered after check-v1 stage B`)},
-	{"call:With:context", regexp.MustCompile(`^a context value whose \S+ is generic is lowered after check-v1 stage E$`)},
+	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered by lower-v1 \(C11, one Go shape for no-result function values\)$`)},
+	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
 }
 

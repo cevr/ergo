@@ -85,7 +85,7 @@ func frameGaps(file *syntax.File, info *Info) []string {
 	}
 	for _, d := range file.Decls {
 		switch d.(type) {
-		case *syntax.FuncDecl, *syntax.TestDecl:
+		case *syntax.FuncDecl, *syntax.TestDecl, *syntax.LawDecl:
 			walk(d, true)
 		default:
 			walk(d, false)
@@ -106,6 +106,7 @@ var frameDeclKinds = map[string]struct {
 	"ContextDecl": {&syntax.ContextDecl{}, true},
 	"FuncDecl":    {&syntax.FuncDecl{}, false},
 	"TestDecl":    {&syntax.TestDecl{}, false},
+	"LawDecl":     {&syntax.LawDecl{}, false},
 }
 
 func TestFrameFreeCoversEveryDeclKind(t *testing.T) {

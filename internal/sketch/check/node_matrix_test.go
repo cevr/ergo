@@ -136,6 +136,10 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	{"TestDecl", `test T {
 	G(nope)
 }`, "S104", "nope"},
+	{"LawDecl", `law L(x int) {
+	G(nope)
+	x == x
+}`, "S104", "nope"},
 	{"TypeDecl", `type T = Nope`, "S104", "Nope"},
 	{"VarDecl", `let v int = nope`, "S104", "nope"},
 	{"ContextDecl", `let W = context { Nope: S{} }`, "S104", "Nope"},

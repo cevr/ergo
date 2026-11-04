@@ -85,6 +85,12 @@ const contextBudgetMessage = "this context's embedding graph is too large to che
 type contextGroup struct {
 	key  string
 	lits []*syntax.ContextLit
+	// locals[i] is the local context lits[i] is the literal of (a body's
+	// `let x = context { … }`), or nil; embeds maps each embedding entry of
+	// the group's literals that names a local context in scope to it
+	// (scanLocals).
+	locals []*Context
+	embeds map[*syntax.ContextEntry]*Context
 }
 
 // contextSource reads the package's context source once: its size, which fixes
@@ -110,6 +116,7 @@ func (c *checker) contextSource() (size int, groups []*contextGroup, hasContexts
 				// distinct declarations, keyed as methods were.
 				key = "func " + owners[fd].Obj.Name + "." + fd.Name.Name
 			}
+			locals, embeds := c.scanLocals(f, d)
 			syntax.Inspect(d, func(n syntax.Node) bool {
 				switch n := n.(type) {
 				case *syntax.ContextDecl:
@@ -125,6 +132,14 @@ func (c *checker) contextSource() (size int, groups []*contextGroup, hasContexts
 						groups = append(groups, g)
 					}
 					g.lits = append(g.lits, n)
+					g.locals = append(g.locals, locals[n])
+					for e, w := range embeds {
+						if g.embeds == nil {
+							g.embeds = map[*syntax.ContextEntry]*Context{}
+						}
+						g.embeds[e] = w
+					}
+					embeds = nil
 				case *syntax.ContextEntry:
 					size++
 					if n.Kind != syntax.ContextEmbed {
@@ -197,6 +212,16 @@ type bodySum struct {
 	collisions      []collision
 	allowance       int
 	finishes        int // finishBody runs, at most one (TestContextBudgetPrefixes)
+
+	// local is the local context whose literal this body is, or nil, and
+	// embeds the local contexts its literal's embedding entries name
+	// (scanLocals): an embedding resolves through it before the package's
+	// contexts. owns are the body's own bindings in entry and key order
+	// (finishBody), which a local context's summary puts over its
+	// embeddings' (localBinds).
+	local  *Context
+	embeds map[*syntax.ContextEntry]*Context
+	owns   []*capNode
 }
 
 type contextFinding struct {
@@ -305,10 +330,10 @@ func (c *checker) contextSummaries() {
 		}
 	}
 	for _, g := range groups {
-		for _, lit := range g.lits {
+		for i, lit := range g.lits {
 			op(m, "body check", singlePass, 1)
 			if c.contextBodies[lit.Body] == nil {
-				c.contextBodies[lit.Body] = &bodySum{}
+				c.contextBodies[lit.Body] = &bodySum{local: g.locals[i], embeds: g.embeds}
 			}
 		}
 	}
@@ -335,10 +360,15 @@ func (p *contextPass) refuse(w *Context) {
 	}
 }
 
+// refuseGroup gives each literal of g the budget S111. A local context of
+// the group stays unknown, so a with of it discharges everything (D3).
 func (p *contextPass) refuseGroup(g *contextGroup) {
-	for _, lit := range g.lits {
+	for i, lit := range g.lits {
 		op(p.m, "refuse", singlePass, 1)
-		p.c.contextBodies[lit.Body] = &bodySum{findings: []contextFinding{{lit, CodeDuplicateCap, contextBudgetMessage}}}
+		if w := g.locals[i]; w != nil {
+			w.binds, w.unknown = nil, true
+		}
+		p.c.contextBodies[lit.Body] = &bodySum{findings: []contextFinding{{lit, CodeDuplicateCap, contextBudgetMessage}}, local: g.locals[i], embeds: g.embeds}
 	}
 }
 
@@ -390,7 +420,7 @@ func (p *contextPass) own(contexts []*Context) {
 		for _, e := range w.Decl.Body.Entries {
 			op(m, "entry read", singlePass, 1)
 			if e.Kind == syntax.ContextEmbed {
-				inner := c.embeddedContext(e)
+				inner := c.embeddedContext(e, nil)
 				if inner == nil {
 					known = false
 					continue
@@ -528,13 +558,20 @@ func (p *contextPass) namedBody(w *Context) {
 }
 
 // inline prepares a group's inline contexts and charges their allowances.
+// A local context's literal is finished here, in source order, so the
+// literals after it that embed it read its summary (localBinds).
 func (p *contextPass) inline(g *contextGroup) {
 	c, m := p.c, p.m
 	sums := make([]*bodySum, len(g.lits))
 	for i, lit := range g.lits {
 		op(m, "inline read", singlePass, 1)
-		s := &bodySum{pending: true}
+		s := &bodySum{pending: true, local: g.locals[i], embeds: g.embeds}
 		if !c.prepareBody(s, lit.Body, nil, m) || !m.step(s.allowance) {
+			p.stopped = true
+			p.refuseGroup(g)
+			return
+		}
+		if s.local != nil && !c.localBinds(s, lit, m) {
 			p.stopped = true
 			p.refuseGroup(g)
 			return
@@ -556,6 +593,11 @@ func (p *contextPass) inline(g *contextGroup) {
 // what it brings depends on how the cycle is fixed (D3; round 16 m3, round
 // 18). A replace may still name it.
 func (c *checker) embeddedBinds(inner, self *Context) (binds *capSet, known, onCycle bool) {
+	if inner.Local {
+		// A local context is on no cycle: it embeds only what is bound
+		// before its let, and its summary is finished (localBinds).
+		return inner.binds, !inner.unknown, false
+	}
 	comp := c.contextComp[inner]
 	return comp.binds, !comp.unknown, self != nil && comp == c.contextComp[self]
 }
@@ -603,7 +645,7 @@ func (c *checker) prepareBody(s *bodySum, body *syntax.ContextBody, self *Contex
 			names += 1 + len(e.Keys)
 			continue
 		}
-		inner := c.embeddedContext(e)
+		inner := c.embeddedContext(e, s.embeds)
 		if inner == nil {
 			s.known = false
 			continue
@@ -701,8 +743,8 @@ func (c *checker) prepareBody(s *bodySum, body *syntax.ContextBody, self *Contex
 // binds for its capability and each colliding embedded entry, ordered by
 // the context pass's entry order (ContextEntry.seq) and each once (a diamond
 // brings one entry twice). Sorting them is repeatable and charged; an
-// inline context records none (its entries are stage E's, 196x), so its
-// allowance is unchanged.
+// inline or a local context records none (its replace is resolved in its
+// summary, which the lowering reads), so its allowance is unchanged.
 func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMeter) bool {
 	s.finishes++
 	op(m, "body setup", singlePass, 1)
@@ -793,6 +835,9 @@ func (c *checker) finishBody(s *bodySum, body *syntax.ContextBody, m *contextMet
 			}
 			op(m, "own insert", singlePass, 1)
 			own[key] = &capNode{key: key, t: t, entry: by}
+			if s.local != nil {
+				s.owns = append(s.owns, own[key])
+			}
 			return true
 		}) {
 			return false

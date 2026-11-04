@@ -157,7 +157,7 @@ func splitChunks(text string) []string {
 func wrapChunk(chunk string) string {
 	first := firstWord(chunk)
 	switch first {
-	case "import", "type", "func", "let", "test", "extern":
+	case "import", "type", "func", "let", "test", "law", "extern":
 		return chunk + "\n"
 	}
 	return "func snippet() {\n" + chunk + "\n}\n"

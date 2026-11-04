@@ -1,15 +1,23 @@
-// out: ok {a}
+// out: ok a
 type Fault {}
 type A { Value string }
 type B {}
 type Sum = A | B
 func a() Sum                   { return A{Value: "a"} }
 func fail() string fails Fault { return Fault }
+func label(s Sum) string {
+	match s {
+	case A as v:
+		return v.Value
+	case B:
+		return "b"
+	}
+}
 func main() needs Console {
 	let x = fail() catch {
 	case Fault:
 		"ok"
 	}
 	let y = a()
-	Console.Println("\(x) \(y)")
+	Console.Println("\(x) \(label(y))")
 }

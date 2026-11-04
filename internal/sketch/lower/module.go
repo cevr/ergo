@@ -487,15 +487,30 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 }
 
 // readVars is the set of variables some expression of the file that this
-// build lowers reads: every Use the build reads (owners.go) except an
-// assignment's target, which Go does not count as a use.
+// build lowers reads: every Use the build reads (owners.go) except a
+// binder's own name, an assignment's target, which Go does not count as a
+// use, and a read in a
+// local context's literal, which is written only at a with that builds it
+// (calls.go, with), so a local context no with names reads nothing.
 func (l *lowerer) readVars() map[*check.Var]bool {
-	targets := map[*syntax.Ident]bool{}
+	unread := map[*syntax.Ident]bool{}
 	syntax.Inspect(l.file, func(n syntax.Node) bool {
-		if s, ok := n.(*syntax.AssignStmt); ok {
-			for _, lhs := range s.Lhs {
+		switch n := n.(type) {
+		case *syntax.AssignStmt:
+			for _, lhs := range n.Lhs {
 				if id, ok := lhs.(*syntax.Ident); ok {
-					targets[id] = true
+					unread[id] = true
+				}
+			}
+		case *syntax.VarSpec:
+			if len(n.Names) == 1 && len(n.Values) == 1 {
+				if w, ok := l.info.Defs[n.Names[0]].(*check.Context); ok && w.Local {
+					syntax.Inspect(n.Values[0], func(m syntax.Node) bool {
+						if id, ok := m.(*syntax.Ident); ok {
+							unread[id] = true
+						}
+						return true
+					})
 				}
 			}
 		}
@@ -503,7 +518,8 @@ func (l *lowerer) readVars() map[*check.Var]bool {
 	})
 	reads := map[*check.Var]bool{}
 	for id, o := range l.info.Uses {
-		if v, ok := o.(*check.Var); ok && !targets[id] && l.readsFact(l.pkg, id) {
+		// The checker records a binder's own name as a Use too; it reads nothing.
+		if v, ok := o.(*check.Var); ok && !unread[id] && l.info.Defs[id] != o && l.readsFact(l.pkg, id) {
 			reads[v] = true
 		}
 	}

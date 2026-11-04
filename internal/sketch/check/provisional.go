@@ -22,7 +22,8 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // frame passed to a call that does not check it (an invalid callee, an
 // invalid argument, an arity error) is recorded after the call
 // (skipFrames): invalid-diagnosed when the call read no undiagnosed value,
-// refused-by-class-G in the reporting pass when it did, and provisional
+// refused-by-class-G in the reporting pass when it did or when it names a
+// member class G refuses outside the frame (C46), and provisional
 // otherwise. So typing's record of a frame has four states (frameState).
 //
 // Invalid-diagnosed is the positive verdict: typing skipped the frame for
@@ -131,12 +132,58 @@ func (c *checker) bindLocal(v *Var) *Var {
 func (c *checker) skipFrames(x *syntax.CallExpr) {
 	for _, a := range x.Args {
 		if fl, ok := a.(*syntax.FuncLit); ok {
-			c.skipFrame(fl, c.callMark)
+			c.skipCallFrame(x, fl)
 		}
 	}
 	if x.Trailing != nil {
-		c.skipFrame(x.Trailing, c.callMark)
+		c.skipCallFrame(x, x.Trailing)
 	}
+}
+
+// skipCallFrame records the frame f of the call x as skipFrame does, but
+// in the reporting pass a frame whose call names a member class G refuses
+// outside f is refused-by-class-G, never invalid-diagnosed, whatever
+// other diagnosed reason skipped it (C46). The name may be in a part of
+// the call that typing did not read, such as a callback frame of the
+// callee that an arity error skipped, or in a later component, whose
+// reference reads no undiagnosed value (groupRef): the S108 is at the
+// member, so the frame keeps its uses (rows.md, Capability rows 6).
+func (c *checker) skipCallFrame(x *syntax.CallExpr, f syntax.Node) {
+	c.skipFrame(f, c.callMark)
+	if c.silent > 0 || c.curGen == 0 || c.frameInv[f] != c.curGen || !c.namesRefused(x, f) {
+		return
+	}
+	delete(c.frameInv, f)
+	c.frameRef[f] = c.curGen
+}
+
+// namesRefused reports whether the call x names, outside its frame f, a
+// function class G refuses: a member of the component being reported
+// that the reporting pass refuses, or a member of an earlier component it
+// refused (refusedMembers). The names are the reference walk's
+// (inferredRefs), which resolves the frames typing skipped too.
+func (c *checker) namesRefused(x *syntax.CallExpr, f syntax.Node) bool {
+	found := false
+	syntax.Inspect(x, func(n syntax.Node) bool {
+		if found || n == f {
+			return false
+		}
+		id, ok := n.(*syntax.Ident)
+		if !ok {
+			return true
+		}
+		fn := c.inferredRefs[id]
+		if fn == nil {
+			return true
+		}
+		if c.group[fn] {
+			found = c.refused(fn)
+		} else {
+			_, found = c.refusedMembers[fn]
+		}
+		return !found
+	})
+	return found
 }
 
 // skipFrame records the callback frame n, when typing did not check it in

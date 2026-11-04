@@ -37,12 +37,13 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // one sense: nothing at the package level owns a task or a scope.
 
 // frameFree reports whether a file declaration's expressions run outside
-// every function body. A function declaration's and a test block's bodies
-// are frames; a let, a context and a type declaration are not, though a law
-// a type declaration holds is (inspectFrame prunes it).
+// every function body. A function declaration's, a test block's and a
+// top-level law's bodies are frames; a let, a context and a type
+// declaration are not, though a law a type declaration holds is
+// (inspectFrame prunes it).
 func frameFree(d syntax.Decl) bool {
 	switch d.(type) {
-	case *syntax.FuncDecl, *syntax.TestDecl:
+	case *syntax.FuncDecl, *syntax.TestDecl, *syntax.LawDecl:
 		return false
 	case *syntax.VarDecl, *syntax.ContextDecl, *syntax.TypeDecl, *syntax.ImportDecl:
 		return true

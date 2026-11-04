@@ -1,13 +1,13 @@
-// Stage E3b sweep (196l), program 10: a type with laws and no operations.
-// Its laws see the package names only.
+// Stage E3b sweep (196l), program 10: laws about plain functions. Since
+// law-top they are top-level laws, quantified over their parameters; they
+// see the package names only. A type with laws and no operations is S108.
 func square(n int) int {
 	n * n
 }
 
-type Arithmetic {
-	law SquareNonNegative(n int) { square(n) >= 0 },
-	law AddCommutes(a int, b int) { a + b == b + a },
-}
+law SquareNonNegative(n int) { square(n) >= 0 }
+
+law AddCommutes(a int, b int) { a + b == b + a }
 
 func main() needs Console {
 	Console.Println("\(square(10))")

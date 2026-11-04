@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -98,6 +99,9 @@ type footprinter struct {
 	// owners is the checker's one entry-to-declaring-context index
 	// (contextOwners), shared with the ownership pass.
 	owners *contextOwners
+	// trimmed are the nodes of contexts without some of their entries,
+	// by context (without).
+	trimmed map[*Context][]trimmedNode
 }
 
 // footprints records Info.Footprints once every body is final (finishInfo).
@@ -183,8 +187,13 @@ func (fp *footprinter) node(key any) *fpNode {
 	return n
 }
 
-// context is the node of a with of w: an edge to each provider entry its
-// builder runs. A context whose bindings are unknown is opaque.
+// context is the node of a with of w: what its builder runs, each provider
+// entry that binds a capability of w once replace and embedding are
+// resolved (Context.EachProvider). The node is built from w's own entries
+// and one edge per embedded context, as the context summary shares its
+// embedded sets (rows.md, Context 5; contextsum.go), so a chain of n
+// contexts costs O(n) edges, not the O(n²) of an edge per binding of each
+// context (#229, C38). A context whose bindings are unknown is opaque.
 func (fp *footprinter) context(w *Context) *fpNode {
 	n := fp.node(w.Decl)
 	if n.walked {
@@ -195,15 +204,105 @@ func (fp *footprinter) context(w *Context) *fpNode {
 		n.opaque = true
 		return n
 	}
-	seen := map[*ContextEntry]bool{}
-	w.EachProvider(func(_ Type, e *ContextEntry) bool {
-		if e != nil && !seen[e] {
-			seen[e] = true
+	fp.provides(n, w, nil)
+	return n
+}
+
+// provides adds to n an edge for each entry w's builder runs, except the
+// entries of hidden: w's own provider entries, and for each embedded
+// context its node, or, when an entry it runs is hidden here (a replace of
+// w, or of a context that embeds w, overrides it), a node of the embedded
+// context without those entries (fp.without).
+func (fp *footprinter) provides(n *fpNode, w *Context, hidden []*ContextEntry) {
+	hidden = append(hidden[:len(hidden):len(hidden)], fp.overridden(w)...)
+	for _, e := range w.Entries {
+		switch {
+		case e == nil:
+		case e.Embedded != nil:
+			inner := e.Embedded
+			switch {
+			case inner.unknown || inner.binds == nil:
+				n.opaque = true
+			case inner.pkg != fp.pkg || inner.Decl == nil:
+				// A context literal embeds only a named context of its
+				// package (embeddedContext) or a local one, which the with
+				// that builds it walks (build).
+				n.opaque = true
+			default:
+				n.edges = append(n.edges, fp.without(inner, runsIn(inner, hidden)))
+			}
+		case e.Provider != nil && !slices.Contains(hidden, e):
 			n.edges = append(n.edges, fp.entry(e))
 		}
-		return true
-	})
+	}
+}
+
+// overridden are the entries w's replaces override that w's builder does
+// not run: an entry runs while it still binds one of its capabilities.
+func (fp *footprinter) overridden(w *Context) []*ContextEntry {
+	var out []*ContextEntry
+	for _, o := range w.Overrides {
+		if o.Entry != nil && len(runsIn(w, []*ContextEntry{o.Entry})) == 0 && !slices.Contains(out, o.Entry) {
+			out = append(out, o.Entry)
+		}
+	}
+	return out
+}
+
+// runsIn is the subset of entries that w's builder runs: each entry that
+// binds one of its capabilities in w (Context.Provider).
+func runsIn(w *Context, entries []*ContextEntry) []*ContextEntry {
+	var out []*ContextEntry
+	for _, e := range entries {
+		for _, cap := range e.Caps {
+			if w.Provider(cap) == e {
+				out = append(out, e)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// without is the node of what w's builder runs except the entries of
+// hidden, each of which w runs: w's own node when hidden is empty, else a
+// node made once per w and hidden set.
+func (fp *footprinter) without(w *Context, hidden []*ContextEntry) *fpNode {
+	if len(hidden) == 0 {
+		return fp.context(w)
+	}
+	for _, m := range fp.trimmed[w] {
+		if sameEntries(m.hidden, hidden) {
+			return m.n
+		}
+	}
+	n := &fpNode{walked: true}
+	fp.list = append(fp.list, n)
+	if fp.trimmed == nil {
+		fp.trimmed = map[*Context][]trimmedNode{}
+	}
+	fp.trimmed[w] = append(fp.trimmed[w], trimmedNode{hidden: hidden, n: n})
+	fp.provides(n, w, hidden)
 	return n
+}
+
+// trimmedNode is a node of a context without some of its entries (without).
+type trimmedNode struct {
+	hidden []*ContextEntry
+	n      *fpNode
+}
+
+// sameEntries reports whether a and b hold the same entries, each once.
+func sameEntries(a, b []*ContextEntry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, e := range a {
+		if !slices.Contains(b, e) {
+			return false
+		}
+	}
+	return true
 }
 
 // entry is the node of one provider entry of this package: what its
@@ -282,13 +381,22 @@ func (fp *footprinter) build(n *fpNode, w *With) {
 		return
 	}
 	fp.owners.add(root)
+	if root.Local {
+		// A local context's literal is at its let, not in this with: each of
+		// its own providers runs here, at every with that builds it.
+		for _, e := range root.Entries {
+			if e != nil && e.Provider != nil {
+				n.edges = append(n.edges, fp.entry(e))
+			}
+		}
+	}
 	for _, a := range w.Acquired {
 		ow := fp.owners.of[a.Entry]
 		switch {
 		case ow == nil:
 			n.opaque = true
 		case ow == root:
-			// Walked in this frame.
+			// Walked in this frame, or above for a local context.
 		case ow.pkg == fp.pkg:
 			n.edges = append(n.edges, fp.entry(a.Entry))
 		case ow.Decl != nil && providerInfo(ow) != nil:
@@ -310,6 +418,14 @@ func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 	n.walked = true
 	inspectFrame(fp.info, root, func(x syntax.Node, _ []*syntax.CallExpr) bool {
 		switch x := x.(type) {
+		case *syntax.DeclStmt:
+			// The let of a local context runs nothing: each with that
+			// builds it runs its providers (build).
+			for _, spec := range x.Decl.Specs {
+				if localContextLit(spec) != nil {
+					return false
+				}
+			}
 		case *syntax.RangeStmt:
 			// A for-in over a Seq calls the Seq, a function value, which
 			// calls the body back: unknown code runs here.
@@ -362,7 +478,10 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			n.opaque = true
 			return
 		}
-		fp.with(n, w)
+		// Each operand builds its own context (rows.md, With 7).
+		for ; w != nil; w = w.Next {
+			fp.with(n, w)
+		}
 	default:
 		panic(fmt.Sprintf("check: unknown call kind %d in footprint", c.Kind))
 	}
@@ -404,6 +523,9 @@ func (fp *footprinter) solve() {
 		v.index, v.low = next, next
 		stack = append(stack, v)
 		v.onStack = true
+		// A context's node and a with's frame read their edges here: one
+		// step each (withStep; TestWithSiteWorkLinear counts them).
+		withStep(len(v.edges))
 		for _, w := range v.edges {
 			switch {
 			case w.index == 0:

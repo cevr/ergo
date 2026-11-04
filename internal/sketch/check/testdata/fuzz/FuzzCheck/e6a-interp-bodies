@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import task\n\ntype Rec { N int }\ntype Fault {}\ntype Store {\n\tGet() string,\n\n\tlaw L(v Rec, s Store) { \"<\\(v) \\(s) \\(v.N)>\" != \"\" },\n}\ntype Box[T] {\n\tGet() T,\n\n\tlaw G(v T) { \"\\(v)\" != \"\" },\n}\n\nfunc start() Task[int, Fault] {\n\ttask.Go() { 1 }\n}\n\nfunc u(f func(n int) int) string {\n\t\"\\(f)\"\n}\n\ntest T {\n\tlet v = start()\n\tlet z complex128\n\tlet d duration = 90m\n\tassert \"<\\(v) \\(z) \\(d)>\" != \"\"\n}\n")

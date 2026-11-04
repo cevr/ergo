@@ -21,7 +21,7 @@ import (
 //  1. the user package's declarations, in source order: types, functions,
 //     lets and context builders, so a source name keeps its spelling unless Go
 //     reserves it;
-//  2. the generated package entities: the runtime and time imports, the
+//  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
 //     (calls.go, #230), the package initializer (decls.go, initFunc), the
@@ -47,6 +47,7 @@ func (l *lowerer) nameAll() {
 	l.declareNames()
 	l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
 	l.pkgName(pkgKey{"import", "time"}, "time")
+	l.pkgName(pkgKey{"import", "strconv"}, "strconv") // interpolation (interp.go)
 	l.pkgName(pkgKey{"import", taskImport}, "rt")
 	l.pkgName(pkgKey{"env", nil}, "Env")
 	l.pkgName(pkgKey{"host", "Console"}, "hostConsole")

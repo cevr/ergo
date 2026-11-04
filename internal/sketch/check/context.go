@@ -7,12 +7,18 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// with checks `with(W) { block }`: W is a named context or an inline context
-// literal; inside the block every capability W binds is discharged; the
-// block yields its last expression, whose failures pass through (rows.md,
+// with checks `with W { block }`: W is a named, local or inline context, or
+// a context value; inside the block every capability W binds is discharged;
+// the block yields its last expression, whose failures pass through (rows.md,
 // With 1 to 6). An inline context's providers are evaluated in the enclosing
 // scope, before the discharge, so they charge the enclosing function and do
-// not see their own context (With 3).
+// not see their own context (With 3); a local context's are charged at its
+// operand (Context 9).
+//
+// `with A, B, …, Z { b }` is `with A { with B { … with Z { b } } }` for every
+// operand kind (rows.md, With 7): each operand is checked inside the frames
+// of the operands before it, so B's providers see A's bindings, and each
+// has its own frame and With fact (With.Next), in operand order.
 func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	use := c.useOf(x)
 	if x.Trailing == nil {
@@ -20,43 +26,25 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		c.silentArgs(x)
 		return bad(x)
 	}
-	var binds *capSet
-	var context *Context
-	var value *ContextBinding
-	known := true
-	switch {
-	case len(x.Args) == 0:
-		c.errorf(x, CodeType, "with takes one context (rows.md, With 1)")
-		known = false
-	case len(x.Args) > 1:
-		// One operand per with in v1 (runtime.md, G1): several contexts are
-		// 196x's, several context values a G1 follow-up.
-		c.errorf(x.Args[1], CodeOutside, "a with takes one operand: several operands are a follow-up, of 196x for contexts and of G1 for context values (runtime.md, G1); nest one with per operand: with a { with b { … } }")
-		known = false
-		// The values among them are checked silently, as the reference
-		// walk visits them, so their imports and names count as used and
-		// nothing cascades (D3). A context is not a value.
-		c.silent++
-		for _, a := range x.Args {
-			switch u := unparen(a).(type) {
-			case *syntax.ContextLit:
-				continue
-			case *syntax.Ident:
-				if c.withNamedContext(u.Name, c.operandScope(u.Name)) != nil {
-					continue
-				}
-			}
-			c.valueExpr(a, nil)
-		}
-		c.silent--
-	default:
-		binds, known, context, value = c.withArg(x.Args[0])
-	}
 	t := c.fn.t
-	// unknown: discharge everything, so no cascade. A context binding
-	// discharges nothing: its block's row is the enclosing one's.
-	frame := &withFrame{binds: binds, unknown: !known, context: context, value: value}
-	t.withs = append(t.withs, frame)
+	scope := t.scope
+	var frames []*withFrame
+	if len(x.Args) == 0 {
+		c.errorf(x, CodeType, "with takes one context (rows.md, With 1)")
+		// unknown: discharge everything, so no cascade.
+		frames = append(frames, &withFrame{unknown: true, outer: t.scope})
+		c.pushFrame(t, x, frames[0])
+	}
+	for _, a := range x.Args {
+		binds, known, context, value := c.withArg(a)
+		// unknown: discharge everything, so no cascade. A context binding
+		// discharges nothing: its block's row is the enclosing one's. A
+		// push past the with budget leaves the frame unknown too
+		// (withbudget.go).
+		f := &withFrame{binds: binds, unknown: !known, context: context, value: value, outer: t.scope}
+		c.pushFrame(t, a, f)
+		frames = append(frames, f)
+	}
 	done := c.openScope()
 	c.fn.branches = append(c.fn.branches, branch{kind: brBarrier})
 	var errs *Row
@@ -79,8 +67,8 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	})
 	c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
 	done()
-	t.withs = t.withs[:len(t.withs)-1]
-	c.recordWith(x, frame)
+	t.scope = scope
+	c.recordWith(x, frames)
 	// A with's Fails is the row its block passes through (rows.md, With 6).
 	c.callInfo(x).Fails = errs
 	if res == nil {
@@ -100,11 +88,16 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 // that provides it (charge). With.Discharged is that list, so a with's
 // Info is bounded by its body, not by its context (round-4 review M1).
 type withFrame struct {
-	context *Context         // the resolved named or inline context
-	value   *ContextBinding  // the context binding, for a with of a context value
-	site    *syntax.CallExpr // the with call, once recorded
+	context *Context        // the resolved named, local or inline context
+	value   *ContextBinding // the context binding, for a with of a context value
+	with    *With           // the operand's With fact, once recorded
 	binds   *capSet
 	unknown bool
+	// outer is the target's with scope around the frame, read by the
+	// release charge (chargeRelease); depth is the frame's place in the
+	// scope, 1 for the outermost (withScope).
+	outer   withScope
+	depth   int
 	at      map[capKey]int // index in caps
 	caps    []Type
 	entries []*ContextEntry // nil for an inline context's own entry
@@ -165,6 +158,11 @@ func (c *checker) operandScope(name string) operandScope {
 		if !o.pkg {
 			return operandValue
 		}
+	case *Context:
+		// A local context: a local binding, as the reference walk sees it.
+		if o.Local {
+			return operandValue
+		}
 	case *capBinding:
 		return operandRow
 	case *Method:
@@ -214,14 +212,18 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 			return nil, false, nil, nil
 		}
 		if w == nil {
-			if o := c.lookup(a.Name); o != nil {
-				if _, isVar := o.(*Var); isVar {
-					// A local holding a context value binds it; one holding
-					// a context literal is 196x's. An invalid value is S109
-					// already, and nothing cascades (D3).
-					cb, known := c.contextArg(arg, "with over a value (196x, extern and first-class contexts)")
-					return nil, known, nil, cb
-				}
+			switch o := c.lookup(a.Name).(type) {
+			case *Context:
+				// A local context: a recipe this with builds, so its
+				// providers' summary is charged here (rows.md, Context 9).
+				c.recordUse(a, o)
+				c.chargeLocal(a, o)
+				return o.binds, !o.unknown, o, nil
+			case *Var:
+				// A local holding a context value binds it. An invalid value
+				// is reported already, and nothing cascades (D3).
+				cb, known := c.contextArg(arg, "")
+				return nil, known, nil, cb
 			}
 			c.errorf(a, CodeUnknown, "unknown context %s", a.Name)
 			return nil, false, nil, nil
@@ -256,30 +258,33 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 // is false when it embeds an unknown context (reported) or its summary was
 // refused (contextsum.go).
 func (c *checker) contextLit(w *syntax.ContextLit) (binds *capSet, known bool, context *Context) {
-	// The header of an inline context is refused as a named context's is
-	// (checkContexts): never read partly (rows.md, Context 8).
-	if w.Provides != nil {
-		c.errorf(w.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
-	}
-	if w.Needs != nil {
-		c.errorf(w.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
-	}
+	c.contextHeader(w)
 	context = &Context{Name: "inline", Pos: w.Pos(), Lit: w, file: c.cur, pkg: c.pkg}
 	binds, known = c.contextBody(w.Body, context)
 	context.binds, context.unknown = binds, !known
 	return binds, known, context
 }
 
-// contextBody checks the body of a named or an inline context and returns what
-// it binds. The duplicate and replace rules are decided once
-// per body by its summary (bodySummary), whose findings are reported on
-// every pass; the embedded names, the keys and the providers are checked
-// here, on every pass. For a named context (named is not nil) it makes the
-// context's Entries (an inline context's entries are stage E's, 196x).
-func (c *checker) contextBody(body *syntax.ContextBody, named *Context) (*capSet, bool) {
+// contextHeader refuses the header of an inline or a local context as a
+// named context's is (checkContexts): never read partly (rows.md, Context 8).
+func (c *checker) contextHeader(w *syntax.ContextLit) {
+	if w.Provides != nil {
+		c.errorf(w.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+	}
+	if w.Needs != nil {
+		c.errorf(w.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+	}
+}
+
+// contextBody checks the body of a named, an inline or a local context, w,
+// and returns what it binds. The duplicate and replace rules are decided
+// once per body by its summary (bodySummary), whose findings are reported
+// on every pass; the embedded names, the keys and the providers are checked
+// here, on every pass, which makes the context's Entries.
+func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bool) {
 	sum := c.bodySummary(body)
-	if named != nil && c.silent == 0 {
-		named.Entries = nil
+	if c.silent == 0 {
+		w.Entries = nil
 	}
 	for _, f := range sum.findings {
 		c.errorf(f.at, f.code, "%s", f.msg)
@@ -291,14 +296,28 @@ func (c *checker) contextBody(body *syntax.ContextBody, named *Context) (*capSet
 	deps := &contextDeps{tab: c.types, needs: map[int32]*Row{}, at: map[int32]syntax.Expr{}}
 	for _, e := range body.Entries {
 		if e.Kind == syntax.ContextEmbed {
-			inner := c.embeddedContext(e)
-			if inner == nil {
+			inner := c.embeddedContext(e, sum.embeds)
+			switch {
+			case inner == nil:
 				c.errorf(e.Key, CodeUnknown, "unknown context %s", exprText(e.Key))
-			} else if c.fn != nil && c.fn.reach != nil {
+			case inner.Local:
+				// Its providers are built with this literal's: a local's
+				// summary joins the local's that embeds it, and a with of
+				// an inline literal charges it here (rows.md, Context 9).
+				if id, ok := e.Key.(*syntax.Ident); ok {
+					c.recordUse(id, inner)
+				}
+				if w.Local {
+					c.chargeRow(e.Key, inner.needs)
+					c.escape(e.Key, inner.fails)
+				} else {
+					c.chargeLocal(e.Key, inner)
+				}
+			case c.fn != nil && c.fn.reach != nil:
 				c.fn.reach.contexts = append(c.fn.reach.contexts, inner)
 			}
-			if inner != nil && named != nil && c.silent == 0 {
-				named.Entries = append(named.Entries, &ContextEntry{Embedded: inner})
+			if inner != nil && c.silent == 0 {
+				w.Entries = append(w.Entries, &ContextEntry{Embedded: inner})
 			}
 			continue
 		}
@@ -306,16 +325,16 @@ func (c *checker) contextBody(body *syntax.ContextBody, named *Context) (*capSet
 			build.charged = newRow()
 		}
 		var made *ContextEntry
-		if named != nil && c.silent == 0 {
+		if c.silent == 0 {
 			made = c.contextEntries[e] // the record the context summary's nodes carry
 		}
 		caps, entry := c.contextEntry(e, made)
-		if named != nil && c.silent == 0 {
-			named.Entries = append(named.Entries, entry)
+		if c.silent == 0 {
+			w.Entries = append(w.Entries, entry)
 		}
 		if build != nil {
 			deps.add(caps, build.charged, e.Key)
-			if entry != nil && named != nil && c.silent == 0 {
+			if entry != nil && c.silent == 0 {
 				entry.Uses = build.charged.Elems()
 			}
 		}
@@ -326,8 +345,13 @@ func (c *checker) contextBody(body *syntax.ContextBody, named *Context) (*capSet
 	return sum.binds, sum.known
 }
 
-// embeddedContext is the named context an embedding entry names, or nil.
-func (c *checker) embeddedContext(e *syntax.ContextEntry) *Context {
+// embeddedContext is the context an embedding entry names, or nil: the
+// local context in scope that the context pass found for it (embeds,
+// scanLocals), else the package's named context.
+func (c *checker) embeddedContext(e *syntax.ContextEntry, embeds map[*syntax.ContextEntry]*Context) *Context {
+	if w := embeds[e]; w != nil {
+		return w
+	}
 	if id, ok := e.Key.(*syntax.Ident); ok {
 		return c.pkg.Contexts[id.Name]
 	}
@@ -553,7 +577,7 @@ func (c *checker) checkContexts() {
 		if t.internal == nil {
 			// Its summary was refused (contextsum.go): nothing it charges is
 			// reported (D3).
-			t.withs = []*withFrame{{unknown: true}}
+			c.pushFrame(t, d.Name, &withFrame{unknown: true})
 		}
 		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope), reach: c.reachOf(w)}
 		c.contextBody(d.Body, w)

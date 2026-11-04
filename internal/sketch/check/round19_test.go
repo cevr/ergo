@@ -239,4 +239,22 @@ func TestContextBudgetHeadroom(t *testing.T) {
 		}
 	}
 	t.Logf("%d sources, %d with contexts; the largest charged share is %.2f%% (%s); the most operations of both classes, against the budget, %.2f%% (%s)", len(files), metered, 100*worst, worstFile, 100*worstOps, worstOpsFile)
+	// E5 Design B4: a local context's summary is charged to the package's
+	// context budget as an inline context's is. A chain of locals, each
+	// embedding the one before, and one local named by many withs each
+	// charge under 25% of their budget, and check clean.
+	for _, shape := range []string{"local chain", "local many"} {
+		for _, n := range []int{1000, 8000} {
+			diags, c := checkLimited(t, withShape(shape, n), nil)
+			if len(diags) > 0 {
+				t.Errorf("%s n=%d: %v", shape, n, diags[0])
+				continue
+			}
+			share := float64(c.contexts.used) / float64(c.contexts.limit)
+			t.Logf("%s n=%d: %d of %d context steps (%.1f%%)", shape, n, c.contexts.used, c.contexts.limit, 100*share)
+			if share >= 0.25 {
+				t.Errorf("%s n=%d: %d of %d context steps (%.1f%%), want under 25%%", shape, n, c.contexts.used, c.contexts.limit, 100*share)
+			}
+		}
+	}
 }

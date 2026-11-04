@@ -1,0 +1,22 @@
+// Stage E5 (spec D-E5): a local context is a recipe; its provider
+// expressions are checked and charged at each with that names it, so the
+// function that holds the with declares their services.
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func run() string needs Console {
+	let w = context { Greeter: make() }
+	with w { Greeter.Greet("ada") }
+}

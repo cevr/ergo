@@ -410,18 +410,13 @@ func f() int { with bad() { 1 } }
 `, "S108", "string is not a named type"},
 		{"an operation type", `type Keyed { contextKey() string, contextText() string }
 func f(k Keyed) int { with k { 1 } }
-`, "S109", "with over a value"},
-		{"an operand list", `func f() int { with tag("a", "1"), tag("b", "2") { 1 } }
-`, "S109", "nest one with per operand"},
+`, "S108", "are operations, not functions on the type"},
 		{"exported names", `type Bad { K string }
 func ContextKey(b Bad) string { b.K }
 func ContextText(b Bad) string { b.K }
 func bad() Bad { Bad{K: "k"} }
 func f() int { with bad() { 1 } }
 `, "S108", "has no method contextKey"},
-		{"a std operand list", `import log
-func f() int { with log.Annotate("a", "1"), log.Annotate("b", "2") { 1 } }
-`, "S109", "nest one with per operand"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, ds := checkContext(t, tc.src)
