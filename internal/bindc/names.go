@@ -134,13 +134,19 @@ var (
 	goPackageHelpers = map[string]bool{
 		"ready": true, "statusError": true, "sliceData": true, "toABI": true, "fromABI": true,
 		"loadMu": true, "loaded": true, "symbols": true,
+		// The callbacks (emitgo.go, callbacks): the registry, its lock and
+		// helpers, the token counter and the trampolines' C pointers.
+		"cbMu": true, "cbNext": true, "cbPtr": true, "cbFuncs": true, "cbEntry": true, "cbMake": true, "cbNew": true,
+		"cbToken": true, "cbPut": true, "cbUndo": true, "cbDrop": true, "cbDropOwner": true,
 		"strconv": true, "atomic": true, "sync": true, "errors": true, "fmt": true, "runtime": true, "unsafe": true, "purego": true,
 	}
 	// goExported are the exported package-level names that come from no
 	// declaration of the header.
-	goExported = []string{"Status", "Load", "ABIMismatchError", "ErrNotLoaded", "ErrDestroyed", "ErrTooLong"}
-	// goLocals are the locals of a typed function's body.
-	goLocals = map[string]bool{"err": true, "_r": true}
+	goExported = []string{"Status", "Load", "ABIMismatchError", "ErrNotLoaded", "ErrDestroyed", "ErrTooLong",
+		"LiveCallbacks", "CallbackSlotsError"}
+	// goLocals are the locals of a typed function's body and of a
+	// trampoline (_e, the registry entry).
+	goLocals = map[string]bool{"err": true, "_r": true, "_e": true}
 	// goMethods are the methods the emitter gives a struct of the header.
 	goMethods = map[string]bool{"fill": true}
 	// goPredeclared are Go's predeclared identifiers.
@@ -168,13 +174,25 @@ func hasNumber(n, prefix string) bool {
 // An escape must reach a name that is not reserved: every reserved name
 // with "_" appended is free.
 func isGoPackageHelper(n string) bool {
-	return goPackageHelpers[n] || hasNumber(n, "abiW") || hasNumber(n, "abiF32x") || hasNumber(n, "abiF64x")
+	return goPackageHelpers[n] || hasNumber(n, "abiW") || hasNumber(n, "abiF32x") || hasNumber(n, "abiF64x") ||
+		hasNumber(n, "cbMap") || hasNumber(n, "cbTramp") || hasNumber(n, "cbKey")
 }
 
-// isGoLocal reports whether n is a local of a typed body: goLocals, an out
-// variable _o<i> or a loop variable _i<depth>.
+// isGoLocal reports whether n is a local of a typed body or a trampoline:
+// goLocals, an out variable _o<i>, a loop variable _i<depth>, the locals
+// of the callback parameter i of a typed function (_c<i> its C pointer,
+// _k<i> its token, _s<i> and _h<i> the entry it replaced), or an argument
+// _a<i> and a Go result _v<i> of a trampoline.
 func isGoLocal(n string) bool {
-	return goLocals[n] || hasNumber(n, "_o") || hasNumber(n, "_i")
+	if goLocals[n] {
+		return true
+	}
+	for _, p := range []string{"_o", "_i", "_c", "_k", "_s", "_h", "_a", "_v"} {
+		if hasNumber(n, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // isGoWord reports whether n is a Go keyword or a predeclared identifier.

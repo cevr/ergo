@@ -22,6 +22,13 @@ const (
 	callbackFloatRegs = 8
 )
 
+// MaxBoundCallbacks is the most bound callback typedefs one binding may
+// have. Each bound typedef takes one purego callback slot for its
+// trampoline, once per process; purego v0.11.3 has 2000 slots per process
+// and never frees one, so 64 per binding leaves room for other bindings
+// and other purego users. Bind refuses a binding above it.
+const MaxBoundCallbacks = 64
+
 // BoundCallback is one callback typedef of the header and what Bind makes
 // of it.
 type BoundCallback struct {
@@ -40,6 +47,12 @@ type BoundCallback struct {
 	// RawOnly says why no function takes it typed: a shape that is not
 	// admitted, no entry, or a raw position. It is "" when it is bound.
 	RawOnly string
+	// Index is its number among the bound typedefs of the binding, in
+	// model order (its trampoline cbTramp<Index> and its registry
+	// cbMap<Index> in the Go package), or -1 when it is raw.
+	Index int
+	// Sig is the Go func type of a bound typedef, or nil.
+	Sig *GoCallbackSig
 }
 
 // Bound reports whether the typedef has a typed form.
@@ -226,7 +239,7 @@ func (k *classifier) buildCallbacks(b *Binding) {
 		if d.Kind != DeclCallback {
 			continue
 		}
-		bc := &BoundCallback{Decl: d, GoName: b.GoTypes[d.Name], Rule: k.entries[d.Name], Shape: k.callbackShape(d)}
+		bc := &BoundCallback{Decl: d, GoName: b.GoTypes[d.Name], Rule: k.entries[d.Name], Shape: k.callbackShape(d), Index: -1}
 		switch {
 		case bc.Shape != "":
 			bc.RawOnly = d.Name + " is not an admitted callback shape: " + bc.Shape
@@ -240,9 +253,33 @@ func (k *classifier) buildCallbacks(b *Binding) {
 				bc.RawOnly = d.Name + " has a raw position: " + why
 			}
 		}
+		if bc.Bound() {
+			bc.Index = b.boundCallbacks()
+		}
 		k.cbs[d.Name] = bc
 		b.Callbacks = append(b.Callbacks, bc)
 	}
+}
+
+// boundCallbacks is the number of bound callback typedefs of b so far.
+func (b *Binding) boundCallbacks() int {
+	n := 0
+	for _, c := range b.Callbacks {
+		if c.Bound() {
+			n++
+		}
+	}
+	return n
+}
+
+// checkSlotBound refuses a binding with more than MaxBoundCallbacks bound
+// callback typedefs, with the count and the bound.
+func (b *Binding) checkSlotBound() error {
+	if n := b.boundCallbacks(); n > MaxBoundCallbacks {
+		return contractError([]string{fmt.Sprintf("callbacks: %d bound callback typedefs, above the bound of %d per binding "+
+			"(each takes one of purego's 2000 callback slots per process, and purego never frees one)", n, MaxBoundCallbacks)})
+	}
+	return nil
 }
 
 // tokenKey reports whether the key of entry r is one `void *` parameter of

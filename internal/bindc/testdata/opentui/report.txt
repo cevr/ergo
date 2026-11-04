@@ -271,9 +271,9 @@ raw-only functions (17):
   ot_clipboard_operation_result_diagnostic_copy: param 2 (out_bytes): no rule covers it
 
 callbacks (3):
-  ot_scene_measure_callback: bound as SceneMeasureCallback, scope registered, owner ot_context, ends ot_scene_destroy_node, key (context_id, slot, generation) from node; param 0 (context_id) key, param 1 (slot) key, param 2 (generation) key, param 3 (width) scalar, param 4 (width_mode) scalar, param 5 (height) scalar, param 6 (height_mode) scalar, param 7 (out_size) out_array of 2
+  ot_scene_measure_callback: bound as SceneMeasureCallback func(width float32, widthMode uint32, height float32, heightMode uint32) [2]float32, scope registered, owner ot_context, ends ot_scene_destroy_node, key (context_id, slot, generation) from node; param 0 (context_id) key, param 1 (slot) key, param 2 (generation) key, param 3 (width) scalar, param 4 (width_mode) scalar, param 5 (height) scalar, param 6 (height_mode) scalar, param 7 (out_size) out_array of 2
   ot_edit_event_callback: raw: ot_edit_event_callback has no callbacks entry in the contract
-  ot_output_write_callback: bound as OutputWriteCallback, scope call, key (user_data) from user_data, default -1; param 0 (user_data) key, param 1 (bytes) in_buffer (length byte_count in bytes), param 2 (byte_count) length
+  ot_output_write_callback: bound as OutputWriteCallback func(bytes []byte) int64, scope call, key (user_data) from user_data, default -1; param 0 (user_data) key, param 1 (bytes) in_buffer (length byte_count in bytes), param 2 (byte_count) length
 
 pointer fields (0):
 

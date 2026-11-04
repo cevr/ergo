@@ -81,10 +81,9 @@ func (f *BoundFunc) callbacks() []string {
 	return out
 }
 
-// goTyped reports whether GoPackage emits the typed form of f: a typed
-// function without a callback position. The trampolines and the registry
-// that a callback position needs are slice 2b of bind-c-2.
-func (f *BoundFunc) goTyped() bool { return f.Sig != nil && len(f.callbacks()) == 0 }
+// goTyped reports whether GoPackage emits the typed form of f: every
+// typed function, with or without a callback position.
+func (f *BoundFunc) goTyped() bool { return f.Sig != nil }
 
 // ErgoUnbound says why the Ergo text has no extern for f, or "". A
 // raw-only function has its reason; a typed function that takes a callback
@@ -335,6 +334,9 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 		}
 	}
 	k.buildCallbacks(b)
+	if err := b.checkSlotBound(); err != nil {
+		return nil, err
+	}
 	var planErrs []string // calls purego cannot make as C does (abi.go)
 	destroys := map[string]*HandleRule{}
 	for i := range c.Handles {
@@ -364,6 +366,11 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 	for _, bf := range b.Funcs {
 		if bf.RawOnly == "" {
 			bf.Sig = b.goSig(bf)
+		}
+	}
+	for _, cb := range b.Callbacks {
+		if cb.Bound() {
+			cb.Sig = b.goCallbackSig(cb)
 		}
 	}
 	if err := b.ergoNames(); err != nil {

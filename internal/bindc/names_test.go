@@ -322,7 +322,8 @@ func adversarialNames(t *testing.T) []string {
 			goNames = append(goNames, n)
 		}
 	}
-	goNames = append(goNames, "abiW", "abiW1", "abiW2", "abiW12", "abiF32x2", "abiF64x3", "abiF32x", "o1", "i0", "fill2")
+	goNames = append(goNames, "abiW", "abiW1", "abiW2", "abiW12", "abiF32x2", "abiF64x3", "abiF32x", "o1", "i0", "fill2",
+		"cbMap", "cbMap1", "cbTramp", "cbTramp0", "cbMap12", "cbKey", "cbKey0", "k1", "s0", "a0", "v2")
 	var out []string
 	unreachable := 0
 	for _, n := range goNames {
@@ -338,7 +339,7 @@ func adversarialNames(t *testing.T) []string {
 			out = append(out, c)
 		}
 	}
-	if unreachable != 1 { // _r
+	if unreachable != 2 { // _r, _e
 		t.Fatalf("%d inventory names contain \"_\"; the list of unreachable names is out of date", unreachable)
 	}
 	out = append(out, "ready_arg", "type_arg", "context_arg", "ready_", "x_", "_x", "x", "X", "value", "count", "a_b", "A_B", "aB", "a")

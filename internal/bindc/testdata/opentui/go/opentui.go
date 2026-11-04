@@ -1168,11 +1168,17 @@ var symbols = [...]struct {
 // and only then registers the functions. A failed Load leaves the package
 // unloaded: no C function was called but ot_context_abi_version, and every typed function
 // returns ErrNotLoaded.
+// Before it opens the library it makes the C pointer of each callback
+// trampoline that has none yet (once per process); when purego has no
+// callback slot left it returns *CallbackSlotsError and reaches no C code.
 func Load(path string) error {
 	loadMu.Lock()
 	defer loadMu.Unlock()
 	if loaded.Load() {
 		return errors.New("opentui: Load: already loaded")
+	}
+	if err := cbMake(); err != nil {
+		return err
 	}
 	lib, err := purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_LOCAL)
 	if err != nil {
@@ -2110,6 +2116,12 @@ func (s *ScenePaintSlot) fill() {
 	s.Paint.fill()
 	s.PublicLayout.fill()
 }
+
+// SceneMeasureCallback is the Go form of the C callback ot_scene_measure_callback.
+// C keeps it until a replacement, a nil func, a successful
+// ot_scene_destroy_node of its key, or the destroy of its ot_context.
+// When no Go function runs for an invocation, C gets no result.
+type SceneMeasureCallback func(width float32, widthMode uint32, height float32, heightMode uint32) [2]float32
 
 // ScenePropertyUpdate is ot_scene_property_update (24 bytes, alignment 8).
 type ScenePropertyUpdate struct {
@@ -4569,8 +4581,172 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(SceneRecordUnicode{}.Background) - 8 + 1]struct{}{}
 )
 
+// OutputWriteCallback is the Go form of the C callback ot_output_write_callback.
+// C calls it only during the call that passes it.
+// bytes is borrowed C memory: it is valid only during the call, and
+// the func must not retain it.
+// When no Go function runs for an invocation, C gets -1.
+type OutputWriteCallback func(bytes []byte) int64
+
+// CallbackSlotsError is the error of Load when purego has no callback
+// slot left for the trampoline of a callback typedef (purego has 2000 per
+// process and never frees one). Load then leaves the package unloaded.
+type CallbackSlotsError struct {
+	// Typedef is the C callback typedef.
+	Typedef string
+	// Value is purego's panic value.
+	Value any
+}
+
+func (e *CallbackSlotsError) Error() string {
+	return fmt.Sprintf("opentui: Load: no purego callback slot for the trampoline of %s: %v", e.Typedef, e.Value)
+}
+
+// cbEntry is one registration of a callback: its Go function and, for a
+// registered callback, the C address of its owner handle.
+type cbEntry[F any] struct {
+	fn    F
+	owner uintptr
+}
+
+// cbKey0 is the key of ot_scene_measure_callback: (context_id, slot, generation).
+type cbKey0 struct {
+	k0 uint64
+	k1 uint32
+	k2 uint32
+}
+
+// The registry: one map per bound callback typedef, keyed by the
+// contract's key, under cbMu. No lock is held while Go code of a callback
+// runs.
+var (
+	cbMu sync.RWMutex
+	// cbNext is the last token given.
+	cbNext atomic.Uintptr
+	cbMap0 = map[cbKey0]cbEntry[SceneMeasureCallback]{}
+	cbMap1 = map[uintptr]cbEntry[OutputWriteCallback]{}
+	// cbPtr are the C pointers of the trampolines, made once per process.
+	cbPtr [2]uintptr
+)
+
+// cbFuncs are the trampolines, in cbPtr order, with their C typedefs.
+var cbFuncs = [...]struct {
+	name string
+	fn   any
+}{
+	{"ot_scene_measure_callback", cbTramp0},
+	{"ot_output_write_callback", cbTramp1},
+}
+
+// cbMake makes the C pointer of every trampoline that has none yet, with
+// purego.NewCallback: once per process, never per Load, registration or call.
+func cbMake() error {
+	for i := range cbFuncs {
+		if cbPtr[i] != 0 {
+			continue
+		}
+		p, err := cbNew(cbFuncs[i].name, cbFuncs[i].fn)
+		if err != nil {
+			return err
+		}
+		cbPtr[i] = p
+	}
+	return nil
+}
+
+// cbNew makes one C pointer; a panic of purego (no slot left) is a
+// *CallbackSlotsError.
+func cbNew(name string, fn any) (p uintptr, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			err = &CallbackSlotsError{Typedef: name, Value: v}
+		}
+	}()
+	return purego.NewCallback(fn), nil
+}
+
+// cbToken gives a new token: an integer from a counter, never a Go pointer
+// and never reused.
+func cbToken() uintptr { return cbNext.Add(1) }
+
+// cbPut sets the entry of k and returns the entry it replaced.
+func cbPut[K comparable, F any](m map[K]cbEntry[F], k K, e cbEntry[F]) (old cbEntry[F], had bool) {
+	cbMu.Lock()
+	old, had = m[k]
+	m[k] = e
+	cbMu.Unlock()
+	return old, had
+}
+
+// cbUndo puts back the entry that cbPut replaced, or removes k when it
+// replaced none.
+func cbUndo[K comparable, F any](m map[K]cbEntry[F], k K, old cbEntry[F], had bool) {
+	cbMu.Lock()
+	if had {
+		m[k] = old
+	} else {
+		delete(m, k)
+	}
+	cbMu.Unlock()
+}
+
+// cbDrop removes the entry of k.
+func cbDrop[K comparable, F any](m map[K]cbEntry[F], k K) {
+	cbMu.Lock()
+	delete(m, k)
+	cbMu.Unlock()
+}
+
+// cbDropOwner removes every entry of the owner handle at C address owner.
+func cbDropOwner[K comparable, F any](m map[K]cbEntry[F], owner uintptr) {
+	cbMu.Lock()
+	for k, e := range m {
+		if e.owner == owner {
+			delete(m, k)
+		}
+	}
+	cbMu.Unlock()
+}
+
+// LiveCallbacks is the number of live registrations: a call-scoped
+// callback during its call, and a registered one until a replacement, a
+// clear, an end or its owner's destroy releases it.
+func LiveCallbacks() int {
+	cbMu.RLock()
+	defer cbMu.RUnlock()
+	return len(cbMap0) + len(cbMap1)
+}
+
+// cbTramp0 is the trampoline of ot_scene_measure_callback: it runs the Go function of its
+// key (context_id, slot, generation) in cbMap0. With none, or with a NULL pointer where C
+// must pass one, no Go code runs, no out position is written and C gets no result.
+func cbTramp0(_a0 uint64, _a1 uint32, _a2 uint32, _a3 float32, _a4 uint32, _a5 float32, _a6 uint32, _a7 unsafe.Pointer) {
+	cbMu.RLock()
+	_e := cbMap0[cbKey0{_a0, _a1, _a2}]
+	cbMu.RUnlock()
+	if _e.fn == nil || _a7 == nil {
+		return
+	}
+	_v0 := _e.fn(_a3, _a4, _a5, _a6)
+	*(*[2]float32)(_a7) = _v0
+}
+
+// cbTramp1 is the trampoline of ot_output_write_callback: it runs the Go function of its
+// key (user_data) in cbMap1. With none, or with a NULL pointer where C
+// must pass one, no Go code runs, no out position is written and C gets -1.
+func cbTramp1(_a0 uintptr, _a1 unsafe.Pointer, _a2 uint32) int64 {
+	cbMu.RLock()
+	_e := cbMap1[_a0]
+	cbMu.RUnlock()
+	if _e.fn == nil || _a1 == nil && _a2 != 0 {
+		return -1
+	}
+	_v0 := _e.fn(unsafe.Slice((*byte)(_a1), _a2))
+	return _v0
+}
+
 // The raw layer: the exact C shape of every function, with a struct by
-// value in its call form.
+// value in its call form, a callback as uintptr, and a token key as uintptr.
 var (
 	c_ot_scene_set_hooks                              func(uintptr, unsafe.Pointer, unsafe.Pointer) int32
 	c_ot_scene_frame_step_with_geometry               func(uintptr, unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, uint32, unsafe.Pointer, unsafe.Pointer) int32
@@ -4802,7 +4978,7 @@ var (
 	c_ot_session_get_write_limit                      func(uintptr, unsafe.Pointer, unsafe.Pointer) int32
 	c_ot_session_write                                func(uintptr, unsafe.Pointer, unsafe.Pointer, uint32) int32
 	c_ot_session_read_output                          func(uintptr, unsafe.Pointer, unsafe.Pointer, uint32, unsafe.Pointer) int32
-	c_ot_session_drain_output                         func(uintptr, unsafe.Pointer, uint32, unsafe.Pointer, unsafe.Pointer, uintptr) int32
+	c_ot_session_drain_output                         func(uintptr, unsafe.Pointer, uint32, unsafe.Pointer, uintptr, uintptr) int32
 	c_ot_session_drain_stdout                         func(uintptr, unsafe.Pointer, uint32, unsafe.Pointer) int32
 	c_ot_session_post_stdout                          func(uintptr, unsafe.Pointer, uint32, uint32, unsafe.Pointer, unsafe.Pointer) int32
 	c_ot_session_complete_output                      func(uintptr, unsafe.Pointer, unsafe.Pointer, uint32) int32
@@ -4956,6 +5132,7 @@ func SceneDestroyNode(context *Context, node Handle) error {
 	if err := statusError(_r); err != nil {
 		return err
 	}
+	cbDrop(cbMap0, cbKey0{node.ContextId, node.Slot, node.Generation})
 	return nil
 }
 
@@ -4972,6 +5149,38 @@ func SceneMoveNode(context *Context, node Handle, parent Handle, index uint32) e
 	runtime.KeepAlive(&parent)
 	if err := statusError(_r); err != nil {
 		return err
+	}
+	return nil
+}
+
+// SceneSetMeasure calls ot_scene_set_measure.
+// A nil sceneMeasureCallback clears it. sceneMeasureCallback stays registered until a replacement, a
+// clear, a successful ot_scene_destroy_node of its key, or the destroy of its ot_context.
+func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMeasureCallback) error {
+	if err := ready(); err != nil {
+		return err
+	}
+	if context == nil || context.p == 0 {
+		return ErrDestroyed
+	}
+	_k2 := cbKey0{node.ContextId, node.Slot, node.Generation}
+	var _c2 uintptr
+	var _s2 cbEntry[SceneMeasureCallback]
+	var _h2 bool
+	if sceneMeasureCallback != nil {
+		_c2 = cbPtr[0]
+		_s2, _h2 = cbPut(cbMap0, _k2, cbEntry[SceneMeasureCallback]{fn: sceneMeasureCallback, owner: context.p})
+	}
+	_r := c_ot_scene_set_measure(context.p, unsafe.Pointer(&node), _c2)
+	runtime.KeepAlive(&node)
+	if err := statusError(_r); err != nil {
+		if sceneMeasureCallback != nil {
+			cbUndo(cbMap0, _k2, _s2, _h2)
+		}
+		return err
+	}
+	if sceneMeasureCallback == nil {
+		cbDrop(cbMap0, _k2)
 	}
 	return nil
 }
@@ -8207,6 +8416,7 @@ func ContextDestroy(context *Context) error {
 	if err := statusError(_r); err != nil {
 		return err
 	}
+	cbDropOwner(cbMap0, context.p)
 	context.p = 0
 	return nil
 }
@@ -8942,6 +9152,31 @@ func SessionWrite(context *Context, session Handle, bytes []byte) error {
 		return err
 	}
 	return nil
+}
+
+// SessionDrainOutput calls ot_session_drain_output.
+// C may call writer only during this call; a nil writer passes NULL.
+func SessionDrainOutput(context *Context, session Handle, maxBytes uint32, writer OutputWriteCallback) (uint32, error) {
+	if err := ready(); err != nil {
+		return 0, err
+	}
+	if context == nil || context.p == 0 {
+		return 0, ErrDestroyed
+	}
+	var _o3 uint32
+	var _c5, _k5 uintptr
+	if writer != nil {
+		_c5, _k5 = cbPtr[1], cbToken()
+		cbPut(cbMap1, _k5, cbEntry[OutputWriteCallback]{fn: writer})
+		defer cbDrop(cbMap1, _k5)
+	}
+	_r := c_ot_session_drain_output(context.p, unsafe.Pointer(&session), maxBytes, unsafe.Pointer(&_o3), _k5, _c5)
+	runtime.KeepAlive(&session)
+	runtime.KeepAlive(&_o3)
+	if err := statusError(_r); err != nil {
+		return 0, err
+	}
+	return _o3, nil
 }
 
 // SessionDrainStdout calls ot_session_drain_stdout.

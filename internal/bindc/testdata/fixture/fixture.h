@@ -171,6 +171,9 @@ fx_status fx_node_set_measure(fx_context *, const fx_node *node, fx_measure_call
 /* Calls the measure callback of node; out_size is what it wrote (NaN where
  * it wrote nothing). FX_INVALID_ARGUMENT when node has none. */
 fx_status fx_node_measure(fx_context *, const fx_node *node, float width, float height, fx_point *out_size);
+/* Calls the measure callback of node with the key of as instead of its own
+ * (a probe of a key that the binding does not know); out_size as above. */
+fx_status fx_node_measure_as(fx_context *, const fx_node *node, const fx_node *as, fx_point *out_size);
 /* Calls the measure callback of every live node that has one, in slot
  * order; out_count is how many it called. */
 fx_status fx_context_measure_all(fx_context *, float width, float height, uint32_t *out_count);

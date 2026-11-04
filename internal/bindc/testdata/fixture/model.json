@@ -876,6 +876,27 @@
       ]
     },
     {
+      "name": "fx_node_measure_as",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "as",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "out_size",
+          "type": "fx_point *"
+        }
+      ]
+    },
+    {
       "name": "fx_context_measure_all",
       "result": "fx_status",
       "params": [

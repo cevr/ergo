@@ -97,7 +97,7 @@ func Report(b *Binding) []byte {
 }
 
 // callbackLine is the report line of one callback typedef: bound, with its
-// scope, owner, end functions, key, default and the class of each
+// Go func type, scope, owner, end functions, key, default and the class of each
 // parameter; or raw with the reason.
 func callbackLine(cb *BoundCallback) string {
 	if !cb.Bound() {
@@ -105,7 +105,7 @@ func callbackLine(cb *BoundCallback) string {
 	}
 	r := cb.Rule
 	var w strings.Builder
-	fmt.Fprintf(&w, "bound as %s, scope %s", cb.GoName, r.Scope)
+	fmt.Fprintf(&w, "bound as %s %s, scope %s", cb.GoName, cb.Sig.String(), r.Scope)
 	if r.Owner != "" {
 		fmt.Fprintf(&w, ", owner %s", r.Owner)
 	}

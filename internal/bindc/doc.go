@@ -122,10 +122,38 @@
 // the reason: no entry, the shape rule that fails, a raw parameter, or a
 // key with no source.
 //
-// The Go package emits no typed form yet for a typed function that takes a
-// callback: its trampoline and the registry are slice 2b of bind-c-2. The
-// Ergo text keeps every function that takes a callback as a not-bound line
-// (callbacks into Ergo are bind-c-7).
+// In Go (emitcb.go), a bound typedef is an exported func type: scalars,
+// values (a copy) and in_buffers (a slice of C memory, valid only during
+// the call, as io.Writer's "must not retain p") are its parameters; the C
+// result, outs and out_arrays are its results; key and length positions
+// drop out. It has one trampoline, a Go function in the exact C shape that
+// Load makes into a C pointer with purego.NewCallback once per process
+// (never per Load, registration or call), so a binding uses at most one
+// purego callback slot per bound typedef. Bind refuses a binding with more
+// than MaxBoundCallbacks (64) bound typedefs: purego v0.11.3 has 2000 slots
+// per process and never frees one. When NewCallback panics (no slot left),
+// Load returns *CallbackSlotsError before it opens the library. The raw
+// layer keeps every callback a uintptr: a Go func in a RegisterFunc
+// signature would make a new slot on each call.
+//
+// One registry per Go package maps each key to its Go function: a token
+// (an integer from a counter, never a Go pointer, never reused) for a
+// `void *` key, the key's fields for a handle key. The trampoline looks up
+// its key under a read lock, releases it, and calls the Go function; with
+// no entry (or a NULL pointer where C must pass one) C gets the default, no
+// Go code runs and no out position is written. The order against C: an
+// entry is put before the C call that installs it, a replacement keeps the
+// entry it replaced and puts it back when the call fails, a clear (a nil
+// func) removes the entry after the call succeeds, an end function and the
+// owner's destroy remove after a successful return, and a call-scoped
+// entry is removed when its call returns, on every path. A registered
+// callback with a token key keeps its entries until its owner's destroy
+// (the key does not say which registration a clear ends).
+// LiveCallbacks reports the number of live registrations. A panic in a
+// callback is not contained yet (slice 2c of bind-c-2).
+//
+// The Ergo text keeps every function that takes a callback as a not-bound
+// line (callbacks into Ergo are bind-c-7).
 //
 // # The Go output
 //
@@ -138,7 +166,8 @@
 //   - the typed layer: one exported function per typed function. Handles
 //     are *H; a value is passed by address; out-parameters and output
 //     counts are results; buffers are slices (an empty slice passes NULL
-//     and length 0); a status result becomes an error (nil on success, else
+//     and length 0); a callback is the Go func type of its typedef (a nil
+//     func passes NULL, and a token key drops out); a status result becomes an error (nil on success, else
 //     the Status). Every typed function returns an error last, and a call
 //     before Load, on a nil or destroyed handle, or with a slice too long
 //     for its C length, returns an error and does not call C.

@@ -48,6 +48,7 @@
 #define FIXTURE_ID_fx_context_point 23
 #define FIXTURE_ID_fx_context_wide 24
 #define FIXTURE_ID_fx_context_unbound 25
+#define FIXTURE_ID_fx_node_measure_as 26
 #ifdef FIXTURE_OMIT
 #if FIXTURE_CAT(FIXTURE_ID_, FIXTURE_OMIT) == 0
 #error FIXTURE_OMIT does not name a function of fixture.h
@@ -336,6 +337,20 @@ fx_status fx_node_measure(fx_context *c, const fx_node *node, float width, float
     if (st != FX_OK) return st;
     if (out_size == NULL || s->measure == NULL) return FX_INVALID_ARGUMENT;
     *out_size = call_measure(c, node->slot, s->measure, width, height);
+    return FX_OK;
+}
+#endif
+
+#if !OMITTED(26)
+fx_status fx_node_measure_as(fx_context *c, const fx_node *node, const fx_node *as, fx_point *out_size) {
+    fx_slot *s;
+    fx_status st = lookup(c, node, &s);
+    if (st != FX_OK) return st;
+    if (as == NULL || out_size == NULL || s->measure == NULL) return FX_INVALID_ARGUMENT;
+    float size[2] = {NAN, NAN};
+    INVOKE(c, s->measure(as->context_id, as->slot, as->generation, 0, 1, 0, 1, size));
+    out_size->x = size[0];
+    out_size->y = size[1];
     return FX_OK;
 }
 #endif
