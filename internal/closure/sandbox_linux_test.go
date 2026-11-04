@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -65,12 +66,78 @@ func sandboxCommand(binary string, args ...string) (*exec.Cmd, error) {
 	cmd := exec.Command(self, append([]string{binary}, args...)...)
 	uid, gid := os.Getuid(), os.Getgid()
 	cmd.SysProcAttr = &syscall.SysProcAttr{
+		// A process group of its own, which runWithin stops as a whole.
+		Setpgid:     true,
 		Cloneflags:  syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
 		UidMappings: []syscall.SysProcIDMap{{ContainerID: uid, HostID: uid, Size: 1}},
 		GidMappings: []syscall.SysProcIDMap{{ContainerID: gid, HostID: gid, Size: 1}},
 		AmbientCaps: []uintptr{capSetpcap, capSysAdmin, capSysResource},
 	}
 	return cmd, nil
+}
+
+// sysPidfdOpen is pidfd_open(2), the same number on amd64 and arm64.
+const sysPidfdOpen = 434
+
+// runWithin starts cmd, which leads a process group of its own
+// (sandboxCommand), and waits for it at most deadline. Then it stops every
+// process left in the group, the run's whole tree unless a process left the
+// group, and reaps the leader. It reports whether the deadline ended the
+// run. The leader is not reaped before the group is stopped: until then its
+// process id, which is the group's, cannot name another process.
+func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, err error) {
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+	pid := cmd.Process.Pid
+	stop := func() {
+		if pid > 1 {
+			syscall.Kill(-pid, syscall.SIGKILL)
+		}
+	}
+	pidfd, _, errno := syscall.Syscall(sysPidfdOpen, uintptr(pid), 0, 0)
+	if errno != 0 {
+		stop()
+		cmd.Wait()
+		return false, fmt.Errorf("pidfd_open on the run: %w", errno)
+	}
+	exited, pollErr := readableWithin(int(pidfd), deadline)
+	syscall.Close(int(pidfd))
+	stop()
+	waitErr := cmd.Wait()
+	if pollErr != nil {
+		return false, pollErr
+	}
+	return !exited, waitErr
+}
+
+// readableWithin reports whether fd (a pidfd: readable once the process
+// exits) becomes readable within d.
+func readableWithin(fd int, d time.Duration) (bool, error) {
+	const pollIn = 0x1
+	end := time.Now().Add(d)
+	for {
+		left := time.Until(end)
+		if left < 0 {
+			left = 0
+		}
+		pfd := struct {
+			fd              int32
+			events, revents int16
+		}{fd: int32(fd), events: pollIn}
+		ts := syscall.NsecToTimespec(left.Nanoseconds())
+		n, _, errno := syscall.Syscall6(syscall.SYS_PPOLL, uintptr(unsafe.Pointer(&pfd)), 1, uintptr(unsafe.Pointer(&ts)), 0, 0, 0)
+		switch {
+		case errno == syscall.EINTR:
+			continue
+		case errno != 0:
+			return false, fmt.Errorf("poll the run: %w", errno)
+		case n > 0:
+			return true, nil
+		case left == 0:
+			return false, nil
+		}
+	}
 }
 
 // makeSandbox builds the sandbox in this process's new namespaces:

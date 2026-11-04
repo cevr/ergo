@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // The sweep runs every test binary in a sandbox built as Bazel's
@@ -152,6 +153,25 @@ func (v violation) Error() string {
 	return fmt.Sprintf("closure violation: %s writes outside its scratch directories, which the sweep makes read-only (write to t.TempDir instead):\n  %s", v.pkg, strings.Join(v.lines, "\n  "))
 }
 
+// runDeadlineVariable bounds each run of a test binary in the sandbox (a
+// Go duration; 20 minutes by default). A run that has not ended by then is
+// a failure that names its package, and its process group is stopped, so a
+// run that hangs (an observed child stuck in its start, for example) leaves
+// no process behind.
+const runDeadlineVariable = "ERGO_CLOSURE_RUN_DEADLINE"
+
+func runDeadline() (time.Duration, error) {
+	value := os.Getenv(runDeadlineVariable)
+	if value == "" {
+		return 20 * time.Minute, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%s=%q: want a positive duration", runDeadlineVariable, value)
+	}
+	return d, nil
+}
+
 // runProtected runs binary with args from dir in the sandbox sb, with the
 // environment env and its output in output. It returns a refusal when the
 // sandbox cannot be built or verified (the binary did not run), a
@@ -174,8 +194,16 @@ func runProtected(sb sandbox, pkg, dir string, env []string, output string, bina
 	cmd.Dir = dir
 	cmd.Env = append(env, sandboxVariable+"="+string(spec))
 	cmd.Stdout, cmd.Stderr = file, file
-	runErr := cmd.Run()
+	deadline, err := runDeadline()
+	if err != nil {
+		file.Close()
+		return err
+	}
+	timedOut, runErr := runWithin(cmd, deadline)
 	file.Close()
+	if timedOut {
+		return fmt.Errorf("%s: the run did not end within %v (%s), so the sweep stopped its process group; output %s", pkg, deadline, runDeadlineVariable, output)
+	}
 	if runErr == nil {
 		return nil
 	}
@@ -318,4 +346,7 @@ func needSandbox(t *testing.T) {
 	if err := sandboxSupported(); err != nil {
 		t.Skip(err)
 	}
+	// A fixture's run takes seconds: one that hangs fails within a minute,
+	// well inside the test's own deadline.
+	t.Setenv(runDeadlineVariable, "60s")
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os/exec"
 	"runtime"
+	"time"
 )
 
 // errUnsupported: only Linux has the unprivileged user and mount
@@ -16,6 +17,8 @@ var errUnsupported = errors.New("unsupported on " + runtime.GOOS + ": the closur
 func sandboxSupported() error { return errUnsupported }
 
 func sandboxCommand(string, ...string) (*exec.Cmd, error) { return nil, errUnsupported }
+
+func runWithin(*exec.Cmd, time.Duration) (bool, error) { return false, errUnsupported }
 
 func makeSandbox(sandbox) error { return errUnsupported }
 
