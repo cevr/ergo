@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+
+	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // A nameScope gives the names of one scope of a generated file: a
@@ -25,6 +29,9 @@ type nameScope struct {
 	// reserved reports a name the scope may not give (keywords, generated
 	// helpers, generated methods).
 	reserved func(string) bool
+	// reservedAs names the owner of a reserved name in an error; ""
+	// gives "a generated name".
+	reservedAs string
 	// escape turns a reserved name into another candidate; nil appends "_".
 	escape func(string) string
 	// label names the kind of name in an error: "Go name".
@@ -44,6 +51,9 @@ func (s *nameScope) taken(n string) (string, bool) {
 			return o, true
 		}
 		if x.reserved != nil && x.reserved(n) {
+			if x.reservedAs != "" {
+				return x.reservedAs, true
+			}
 			return "a generated name", true
 		}
 	}
@@ -169,4 +179,124 @@ func goFuncScope(pkg *nameScope) *nameScope {
 // goStructScope is the scope of the fields and methods of one struct.
 func goStructScope() *nameScope {
 	return newNameScope(nil, "Go name", func(n string) bool { return isGoWord(n) || goMethods[n] })
+}
+
+// The Ergo text has two scopes that can collide: the package (the import,
+// the unions and their variants, the records and the externs) and the
+// parameters of one extern. A field of a record has its struct's Go name:
+// the Go struct scope makes it unique, and Ergo reserves no capitalized
+// word. An Ergo name avoids what Ergo reserves: its keywords, its reserved
+// words (every Go keyword is one or the other) and its predeclared names.
+// It does not avoid Go's predeclared names: the checker binds an Ergo name
+// by Ergo's rules, and lowering gives every Go name from the binding's
+// identity (internal/sketch/lower, names.go), so an extern's parameter
+// names never reach Go.
+
+// ergoPredeclared returns the names the Ergo checker predeclares for every
+// package, which a declaration or a parameter may not take (D-D3, "a
+// prelude name cannot be redeclared"): the universe names of D-D3's list,
+// and the exported names of the prelude's scope.
+var ergoPredeclared = sync.OnceValue(func() map[string]bool {
+	m := map[string]bool{}
+	// The universe names of internal/sketch/check (check.go universe and
+	// bindings.go predeclaredNames, without notPreludeNames). The checker
+	// does not export them; TestErgoPredeclaredMatchesChecker compares
+	// this set with the checker's refusals.
+	for _, n := range strings.Fields(`bool string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64
+		float32 float64 duration byte rune comparable ordered number true false len Map`) {
+		m[n] = true
+	}
+	// The prelude's names, read from its source as the checker reads it:
+	// every exported top-level name, except a function whose first
+	// parameter is a slice or a Map, which is an operation of that type
+	// and not a name in scope (D-D8).
+	for _, src := range std.Prelude() {
+		f, err := syntax.Parse(src)
+		if err != nil {
+			panic("bindc: the prelude does not parse: " + err.Error())
+		}
+		add := func(id *syntax.Ident) {
+			if id != nil && isExported(id.Name) {
+				m[id.Name] = true
+			}
+		}
+		for _, d := range f.Decls {
+			switch d := d.(type) {
+			case *syntax.TypeDecl:
+				add(d.Name)
+				if u, ok := d.Spec.(*syntax.InterfaceType); ok {
+					for _, v := range u.Union {
+						if v, ok := v.(*syntax.VariantSpec); ok {
+							add(v.Name)
+						}
+					}
+				}
+			case *syntax.FuncDecl:
+				if !isCollectionOp(d) {
+					add(d.Name)
+				}
+			case *syntax.ContextDecl:
+				add(d.Name)
+			case *syntax.VarDecl:
+				for _, s := range d.Specs {
+					for _, id := range s.Names {
+						add(id)
+					}
+				}
+			}
+		}
+	}
+	return m
+})
+
+// isCollectionOp reports whether the first parameter of f is a slice or a
+// Map.
+func isCollectionOp(f *syntax.FuncDecl) bool {
+	if f.Type == nil || f.Type.Params == nil || len(f.Type.Params.List) == 0 {
+		return false
+	}
+	switch t := f.Type.Params.List[0].Type.(type) {
+	case *syntax.ArrayType:
+		return t.Len == nil
+	case *syntax.MapType:
+		return true
+	}
+	return false
+}
+
+func isExported(n string) bool { return n != "" && n[0] >= 'A' && n[0] <= 'Z' }
+
+// isErgoReserved reports whether n is an Ergo keyword, an Ergo reserved
+// word (syntax.IsKeyword holds both) or a predeclared Ergo name.
+func isErgoReserved(n string) bool {
+	return syntax.IsKeyword(n) || ergoPredeclared()[n] || n == "_"
+}
+
+// ergoPackageScope is the scope of the package-level names of the Ergo
+// text. It holds the import's name and the names the Ergo emitter declares
+// for every binding.
+func ergoPackageScope(importPath string) *nameScope {
+	s := newNameScope(nil, "Ergo name", isErgoReserved)
+	s.reservedAs = "an Ergo keyword or predeclared name"
+	s.owner[importPath[strings.LastIndexByte(importPath, '/')+1:]] = "the import of " + importPath
+	for n, o := range ergoGenerated {
+		s.owner[n] = o
+	}
+	return s
+}
+
+// ergoGenerated are the package-level names the Ergo emitter declares for
+// every binding, with their owners.
+var ergoGenerated = map[string]string{
+	"Status": "the Status union", "CallError": "the CallError union",
+	"NotLoaded": "a variant of the CallError union", "Destroyed": "a variant of the CallError union",
+	"TooLong": "a variant of the CallError union",
+}
+
+// ergoFuncScope is the scope of the parameters of one extern. A reserved
+// name gets "Arg", a taken one a number.
+func ergoFuncScope(pkg *nameScope) *nameScope {
+	s := newNameScope(pkg, "Ergo name", isErgoReserved)
+	s.escape = func(n string) string { return n + "Arg" }
+	return s
 }

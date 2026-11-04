@@ -42,6 +42,9 @@ type Binding struct {
 
 	k   *classifier
 	pkg *nameScope // the package-level Go names (names.go)
+	// records are the C structs a typed signature reaches by value: the
+	// Ergo text declares a record for each.
+	records map[string]bool
 }
 
 // BoundFunc is one function of the binding.
@@ -57,6 +60,8 @@ type BoundFunc struct {
 	RawOnly string
 	// Sig is the Go signature of the typed form (nil when raw-only).
 	Sig *GoSig
+	// ErgoParams are the Ergo names of Sig.Params, in order (names.go).
+	ErgoParams []string
 	// Destroys is the handle the function destroys, or nil.
 	Destroys *HandleRule
 }
@@ -317,7 +322,92 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 			bf.Sig = b.goSig(bf)
 		}
 	}
+	if err := b.ergoNames(); err != nil {
+		return nil, err
+	}
 	return b, nil
+}
+
+// ergoNames gives the names of the Ergo text (names.go). It claims the
+// package-level names, the status variants, the records and the externs,
+// in one scope with the import and the generated unions, and refuses a
+// name that is taken there or that Ergo reserves. It allocates the
+// parameters of each extern in a scope of its own.
+func (b *Binding) ergoNames() error {
+	pkg := ergoPackageScope(b.Contract.Go.ImportPath)
+	var errs []string
+	claim := func(n, source string) {
+		if !isGoIdent(n) || !isExported(n) {
+			errs = append(errs, fmt.Sprintf("%s: Ergo name %q is not an exported identifier", source, n))
+			return
+		}
+		if err := pkg.claim(n, source); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	for _, x := range b.Codes {
+		claim(strings.TrimPrefix(b.CodeGoName(x), "Status"), "status code "+x.Name)
+	}
+	b.records = b.recordStructs()
+	for _, d := range b.Model.Types {
+		if b.records[d.Name] {
+			claim(b.GoTypes[d.Name], "struct "+d.Name)
+		}
+	}
+	for _, f := range b.Funcs {
+		if f.Sig != nil {
+			claim(f.GoName, "function "+f.C.Name)
+		}
+	}
+	sort.Strings(errs)
+	if len(errs) > 0 {
+		return contractError(errs)
+	}
+	for _, f := range b.Funcs {
+		if f.Sig == nil {
+			continue
+		}
+		sc := ergoFuncScope(pkg)
+		for _, p := range f.Sig.Params {
+			f.ErgoParams = append(f.ErgoParams, sc.alloc(paramWant(f.C.Params[p.C], p.C, b), paramSource(f.C, p.C)))
+		}
+	}
+	return nil
+}
+
+// recordStructs are the C structs a typed signature reaches by value,
+// directly, through an array or a pointer, or as a field of one.
+func (b *Binding) recordStructs() map[string]bool {
+	k := b.k
+	out := map[string]bool{}
+	var mark func(t Type)
+	mark = func(t Type) {
+		for t.Kind == TypeArray || t.Kind == TypePointer {
+			t = *t.Elem
+		}
+		if d := k.types[t.Name]; t.Kind == TypeNamed && d != nil && d.Kind == DeclStruct && !out[t.Name] {
+			out[t.Name] = true
+			for _, fl := range d.Fields {
+				mark(fl.Type)
+			}
+		}
+	}
+	for _, f := range b.Funcs {
+		if f.Sig == nil {
+			continue
+		}
+		for _, p := range f.Sig.Params {
+			mark(f.C.Params[p.C].Type)
+		}
+		for _, r := range f.Sig.Results {
+			if r.C < 0 {
+				mark(f.C.Result)
+			} else {
+				mark(f.C.Params[r.C].Type)
+			}
+		}
+	}
+	return out
 }
 
 func elemOr(t Type) *Type {

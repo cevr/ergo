@@ -26,31 +26,10 @@ import (
 //     typed function, and a `// not bound: <name> (<reason>)` line per
 //     raw-only one;
 //   - no `needs` rows.
+//
+// Bind gives every name of the text (Binding.ergoNames, names.go).
 func ErgoText(b *Binding) ([]byte, error) {
-	e := &ergoEmitter{b: b, records: map[string]bool{}}
-	for _, f := range b.Funcs {
-		if f.Sig != nil {
-			e.markSig(f)
-		}
-	}
-	// The union variants and the records share the type names of the file.
-	seen := map[string]string{"Status": "the Status union", "CallError": "the CallError union",
-		"NotLoaded": "CallError", "Destroyed": "CallError", "TooLong": "CallError"}
-	for _, x := range b.Codes {
-		v := strings.TrimPrefix(b.CodeGoName(x), "Status")
-		if prev, ok := seen[v]; ok {
-			return nil, fmt.Errorf("bindc: Ergo type name %s of %s is also %s", v, x.Name, prev)
-		}
-		seen[v] = x.Name
-	}
-	for _, d := range b.k.m.Types {
-		if e.records[d.Name] {
-			if prev, ok := seen[b.GoTypes[d.Name]]; ok {
-				return nil, fmt.Errorf("bindc: Ergo type name %s of %s is also %s", b.GoTypes[d.Name], d.Name, prev)
-			}
-			seen[b.GoTypes[d.Name]] = d.Name
-		}
-	}
+	e := &ergoEmitter{b: b}
 	src := e.file()
 	if _, err := syntax.Parse(src); err != nil {
 		return nil, fmt.Errorf("bindc: the generated Ergo does not parse: %v", err)
@@ -63,9 +42,8 @@ func ErgoText(b *Binding) ([]byte, error) {
 }
 
 type ergoEmitter struct {
-	b       *Binding
-	w       strings.Builder
-	records map[string]bool // C struct names that get a record
+	b *Binding
+	w strings.Builder
 }
 
 func (e *ergoEmitter) p(format string, args ...any) { fmt.Fprintf(&e.w, format, args...) }
@@ -74,34 +52,6 @@ func (e *ergoEmitter) p(format string, args ...any) { fmt.Fprintf(&e.w, format, 
 func (e *ergoEmitter) pkg() string {
 	p := e.b.Contract.Go.ImportPath
 	return p[strings.LastIndexByte(p, '/')+1:]
-}
-
-// markSig records every struct a typed signature reaches by value.
-func (e *ergoEmitter) markSig(f *BoundFunc) {
-	k := e.b.k
-	c := f.C
-	var mark func(t Type)
-	mark = func(t Type) {
-		for t.Kind == TypeArray || t.Kind == TypePointer {
-			t = *t.Elem
-		}
-		if d := k.types[t.Name]; t.Kind == TypeNamed && d != nil && d.Kind == DeclStruct && !e.records[t.Name] {
-			e.records[t.Name] = true
-			for _, fl := range d.Fields {
-				mark(fl.Type)
-			}
-		}
-	}
-	for _, p := range f.Sig.Params {
-		mark(c.Params[p.C].Type)
-	}
-	for _, r := range f.Sig.Results {
-		if r.C < 0 {
-			mark(c.Result)
-		} else {
-			mark(c.Params[r.C].Type)
-		}
-	}
 }
 
 // ergoType is the Ergo type of a C value type: scalars by their Go name,
@@ -127,29 +77,6 @@ func (e *ergoEmitter) ergoType(t Type) string {
 	return "?"
 }
 
-// ergoReserved holds the names an Ergo parameter or field may not take:
-// keywords, reserved words, and the predeclared and prelude names.
-var ergoReserved = map[string]bool{}
-
-func init() {
-	for _, w := range append(syntax.Keywords(), syntax.Reserved()...) {
-		ergoReserved[w] = true
-	}
-	for _, n := range strings.Fields("duration comparable ordered number Map Option rt time fmt init Error timeout") {
-		ergoReserved[n] = true
-	}
-}
-
-// ergoName is a parameter name for Ergo: its Go name without a final "_",
-// with "Arg" added when that is reserved.
-func ergoName(goName string) string {
-	n := strings.TrimRight(goName, "_")
-	if ergoReserved[n] {
-		n += "Arg"
-	}
-	return n
-}
-
 func (e *ergoEmitter) file() string {
 	b := e.b
 	c := b.Contract
@@ -168,15 +95,15 @@ func (e *ergoEmitter) file() string {
 	e.p("// CallError is a failure of the binding itself: a call before Load,\n// a nil or destroyed handle, or a slice too long for its C length.\ntype CallError = NotLoaded{} | Destroyed{} | TooLong{}\n\n")
 
 	for _, d := range b.k.m.Types {
-		if d.Kind != DeclStruct || !e.records[d.Name] {
+		if d.Kind != DeclStruct || !b.records[d.Name] {
 			continue
 		}
 		e.p("// %s is %s.\ntype %s {\n", b.GoTypes[d.Name], d.Name, b.GoTypes[d.Name])
-		for _, f := range d.Fields {
+		for i, f := range d.Fields {
 			if b.Autofill[f.Name] != "" {
 				continue
 			}
-			e.p("\t%s %s,\n", goCamel(f.Name), e.ergoType(f.Type))
+			e.p("\t%s %s,\n", b.FieldNames[d.Name][i], e.ergoType(f.Type))
 		}
 		e.p("}\n\n")
 	}
@@ -187,7 +114,7 @@ func (e *ergoEmitter) file() string {
 			continue
 		}
 		var params []string
-		for _, p := range f.Sig.Params {
+		for i, p := range f.Sig.Params {
 			t := f.C.Params[p.C].Type
 			var et string
 			switch p.Class {
@@ -206,7 +133,7 @@ func (e *ergoEmitter) file() string {
 			default:
 				et = e.ergoType(t)
 			}
-			params = append(params, ergoName(p.Name)+" "+et)
+			params = append(params, f.ErgoParams[i]+" "+et)
 		}
 		var res []string
 		for _, r := range f.Sig.Results {

@@ -112,10 +112,17 @@ func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 	return s
 }
 
-// paramName is the Go name of a parameter: its C name in lowerCamelCase,
-// or for an unnamed one the name of its type, allocated in the function's
-// scope (names.go): a reserved name gets a final "_", a taken one a number.
+// paramName is the Go name of a parameter (paramWant), allocated in the
+// function's scope (names.go): a reserved name gets a final "_", a taken
+// one a number.
 func paramName(p Param, i int, b *Binding, scope *nameScope, f *Function) string {
+	return scope.alloc(paramWant(p, i, b), paramSource(f, i))
+}
+
+// paramWant is the wanted name of parameter i in Go and in Ergo: its C name
+// in lowerCamelCase, or for an unnamed one the name of its type, or
+// "arg<i>".
+func paramWant(p Param, i int, b *Binding) string {
 	n := lowerCamel(p.Name)
 	if n == "" {
 		t := p.Type
@@ -129,7 +136,12 @@ func paramName(p Param, i int, b *Binding, scope *nameScope, f *Function) string
 			n = "arg" + strconv.Itoa(i)
 		}
 	}
-	return scope.alloc(n, "parameter "+positionName(f, i)+" of "+f.Name)
+	return n
+}
+
+// paramSource is the C identity of parameter i of f.
+func paramSource(f *Function, i int) string {
+	return "parameter " + positionName(f, i) + " of " + f.Name
 }
 
 // String is the signature as Go source: "func Name(a T, b []U) (V, error)".

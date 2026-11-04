@@ -164,10 +164,20 @@
 //   - handles and scalar typedefs named through the import (opaque nominal);
 //   - one `extern go <path>.<GoName> func <GoName>(...) R fails ...` per
 //     typed function: it fails Status | CallError when the function returns
-//     a status, else CallError. No extern has a needs row. A parameter name
-//     loses a final "_", and a name that Ergo reserves gets the suffix Arg;
+//     a status, else CallError. No extern has a needs row;
 //   - one `// not bound: <C name> (<reason>)` line per raw-only function.
 //
-// ErgoText refuses a binding where two of these type names are equal, and
-// Bind refuses two fields of one struct with one Go name.
+// Every Ergo name comes from the same allocator (names.go), in two scopes.
+// The package scope holds the import's name, the two unions and their
+// variants, the records and the externs. Bind claims each of these names
+// and refuses the binding, with both sources, when two are equal or when
+// Ergo reserves one: a keyword, a reserved word, or a name the checker
+// predeclares (its universe names and the prelude's names, read from the
+// prelude's source). The scope of one extern's parameters is inside it: a
+// parameter wants the name its Go parameter wants (its C name in
+// lowerCamelCase, or its type's name), takes the suffix Arg when Ergo
+// reserves that name, and a number when the name is taken, so two
+// parameters never get one name. Ergo names do not avoid Go's predeclared
+// names: the lowering gives Go names by identity. A record field has its Go
+// field name, which the Go struct scope makes unique.
 package bindc
