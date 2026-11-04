@@ -53,35 +53,54 @@ func TestCapFixturesWriteExactCountsWithBSDHead(t *testing.T) {
 	}
 }
 
-// Every fixture loop ends by itself 60 s after it started, so a runner that
-// failed to stop a group cannot leak it for long (spec D6). Each row runs a
-// fixture's loop with a date on PATH that moves 20 s ahead at each call, so
-// a loop with the bound ends within a few ticks; a loop without it would run
-// on. The row's command leads its own process group, which the test watches
-// until it is empty, and stops (it is the test's own group) if it is not.
+// fixtureBound is the most seconds a fixture loop may run before it ends by
+// itself (spec D6): the longest detection window of these tests is about
+// 15 s, so a leak lives at most four times that.
+const fixtureBound = 60
+
+// Every fixture loop ends by itself at most fixtureBound seconds after it
+// started, so a runner that failed to stop a group cannot leak it for long
+// (spec D6). Each row runs a fixture's loop with a date on PATH that moves
+// one second ahead at each call. A loop calls date once per tick, so a loop
+// bounded at B seconds ticks at most about B times in fake time, within a
+// few seconds of real time; the test fails at the first tick past the bound
+// (with a margin for the clock's racy counter), so a loop with a longer bound
+// or none fails fast. The row's command leads its own process group, which
+// the test watches until it is empty, and stops (it is the test's own group)
+// if it is not.
 func TestFixtureLoopsEndByThemselves(t *testing.T) {
 	t.Parallel()
 	rows := []struct {
 		name string
-		argv func(f *fixture, dir string) []string
+		// argv writes what the row needs and returns its command and the
+		// file its loop ticks into.
+		argv func(f *fixture, dir string) ([]string, string)
 	}{
-		{"ticker", func(f *fixture, dir string) []string {
-			return []string{"sh", "-c", ticker(`"$TICKS"`)}
+		{"ticker", func(f *fixture, dir string) ([]string, string) {
+			return []string{"sh", "-c", ticker(`"$TICKS"`)}, filepath.Join(dir, "ticks")
 		}},
-		{"fake ergo test", func(f *fixture, dir string) []string {
+		{"fake ergo test", func(f *fixture, dir string) ([]string, string) {
 			source := filepath.Join(dir, "main.ergo")
 			if err := os.WriteFile(source, []byte("# TESTTICK\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			return []string{f.ergo, "test", source}
+			return []string{f.ergo, "test", source}, filepath.Join(filepath.Dir(f.ergo), "ticks-test")
 		}},
-		{"fake ergo build", func(f *fixture, dir string) []string {
+		{"fake ergo build", func(f *fixture, dir string) ([]string, string) {
 			source := filepath.Join(dir, "main.ergo")
 			if err := os.WriteFile(source, []byte("# BUILDTICK\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			return []string{f.ergo, "build", source, "-o", filepath.Join(dir, "out")}
+			return []string{f.ergo, "build", source, "-o", filepath.Join(dir, "out")}, filepath.Join(filepath.Dir(f.ergo), "ticks-build")
 		}},
+	}
+	// ticks counts the lines a loop wrote ("tick\n" each).
+	ticks := func(file string) int {
+		info, err := os.Stat(file)
+		if err != nil {
+			return 0
+		}
+		return int(info.Size()) / len("tick\n")
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
@@ -92,7 +111,7 @@ func TestFixtureLoopsEndByThemselves(t *testing.T) {
 			if err := os.Mkdir(bin, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			clock := "#!/bin/sh\nn=$(cat \"$CLOCK\" 2>/dev/null || echo 0)\nn=$((n + 1))\necho \"$n\" > \"$CLOCK\"\necho $((1000000 + n * 20))\n"
+			clock := "#!/bin/sh\nn=$(cat \"$CLOCK\" 2>/dev/null || echo 0)\nn=$((n + 1))\necho \"$n\" > \"$CLOCK\"\necho $((1000000 + n))\n"
 			// sh writes the fake date, not this process: a parallel test's
 			// fork could hold this process's write descriptor of it until
 			// its exec, and then running it fails with "text file busy"
@@ -101,7 +120,7 @@ func TestFixtureLoopsEndByThemselves(t *testing.T) {
 			if out, err := write.CombinedOutput(); err != nil {
 				t.Fatalf("write the fake date: %v\n%s", err, out)
 			}
-			argv := row.argv(f, dir)
+			argv, tickFile := row.argv(f, dir)
 			command := exec.Command(argv[0], argv[1:]...)
 			command.Dir = dir
 			command.Env = []string{"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"), "CLOCK=" + filepath.Join(dir, "clock"), "TICKS=" + filepath.Join(dir, "ticks")}
@@ -111,14 +130,25 @@ func TestFixtureLoopsEndByThemselves(t *testing.T) {
 			}
 			group := command.Process.Pid
 			_ = command.Wait()
-			for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			// The racy counter of the fake clock can repeat a second while
+			// two loops call it at once (only until the first tick), so a
+			// bounded loop may tick a few times past the bound.
+			const margin = 5
+			for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 				if err := syscall.Kill(-group, 0); errors.Is(err, syscall.ESRCH) {
 					break
 				}
-				if time.Now().After(deadline) {
+				if n := ticks(tickFile); n > fixtureBound+margin {
 					_ = syscall.Kill(-group, syscall.SIGKILL) // the group this test started
-					t.Fatal("the fixture loop did not end by itself: it has no time bound")
+					t.Fatalf("the fixture loop ran past its %d s bound: %d ticks of one fake second", fixtureBound, n)
 				}
+				if time.Now().After(deadline) {
+					_ = syscall.Kill(-group, syscall.SIGKILL)
+					t.Fatalf("the fixture loop did not end within 60 s of real time (%d ticks)", ticks(tickFile))
+				}
+			}
+			if n := ticks(tickFile); n == 0 || n > fixtureBound+margin {
+				t.Fatalf("the fixture loop ticked %d times; want 1 to %d", n, fixtureBound+margin)
 			}
 		})
 	}
