@@ -7,7 +7,7 @@ handle ot_context (Context): create ot_context_create.out_context, destroy ot_co
 autofill struct_size = size
 autofill abi_version = abi
 
-typed functions (240):
+typed functions (242):
   ot_scene_set_hooks: func SceneSetHooks(context *Context, node Handle, sceneHooks SceneHooks) error
   ot_scene_frame_step_with_geometry: func SceneFrameStepWithGeometry(context *Context, session Handle, previous SceneFrameRequest, sceneFrameOptions SceneFrameOptions, recording []byte) (SceneFrameRequest, SceneFrameGeometry, error)
   ot_scene_frame_get_paint_slots: func SceneFrameGetPaintSlots(context *Context, session Handle, recordRequest SceneFrameRequest, outSlots []ScenePaintSlot) (uint32, error)
@@ -15,6 +15,7 @@ typed functions (240):
   ot_scene_create_node: func SceneCreateNode(context *Context, session Handle, kind uint32, num uint32) (Handle, error)
   ot_scene_destroy_node: func SceneDestroyNode(context *Context, node Handle) error
   ot_scene_move_node: func SceneMoveNode(context *Context, node Handle, parent Handle, index uint32) error
+  ot_scene_set_measure: func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMeasureCallback) error
   ot_scene_has_measure: func SceneHasMeasure(context *Context, node Handle) (uint32, error)
   ot_scene_mark_dirty: func SceneMarkDirty(context *Context, node Handle) error
   ot_scene_set_style: func SceneSetStyle(context *Context, node Handle, group uint32, kind uint32, edge uint32, unit uint32, value float32, flags uint32) error
@@ -223,6 +224,7 @@ typed functions (240):
   ot_session_input_reset: func SessionInputReset(context *Context, session Handle, flags uint32) error
   ot_session_get_write_limit: func SessionGetWriteLimit(context *Context, session Handle) (uint64, error)
   ot_session_write: func SessionWrite(context *Context, session Handle, bytes []byte) error
+  ot_session_drain_output: func SessionDrainOutput(context *Context, session Handle, maxBytes uint32, writer OutputWriteCallback) (uint32, error)
   ot_session_drain_stdout: func SessionDrainStdout(context *Context, session Handle, maxBytes uint32) (uint32, error)
   ot_session_post_stdout: func SessionPostStdout(context *Context, session Handle, maxBytes uint32, wait uint32) (uint32, uint32, error)
   ot_session_complete_output: func SessionCompleteOutput(context *Context, session Handle, ticket OutputTicket, success uint32) error
@@ -249,10 +251,9 @@ typed functions (240):
   ot_clipboard_operation_result_diagnostic_length: func ClipboardOperationResultDiagnosticLength(context *Context, operation Handle) (uint8, uint32, error)
   ot_clipboard_operation_destroy: func ClipboardOperationDestroy(context *Context, operation Handle) (uint8, error)
 
-raw-only functions (19):
-  ot_scene_set_measure: param 2 (#2): callback parameter (callbacks are raw until bind-c-2)
+raw-only functions (17):
   ot_editor_view_get_lines: param 3 (lines): no rule covers it; param 5 (out_info): no rule covers it
-  ot_context_set_edit_event_callback: param 1 (#1): callback parameter (callbacks are raw until bind-c-2)
+  ot_context_set_edit_event_callback: param 1 (#1): exception: the key of ot_edit_event_callback (its context_id) has no source in the arguments: an ot_context * does not carry its id, and the contract has no key form for it
   ot_image_extend: param 6 (background_rgba): no rule covers it
   ot_image_copy_pixels: param 2 (destination): no rule covers it
   ot_text_buffer_view_get_lines: param 4 (#4): no rule covers it; param 6 (#6): no rule covers it
@@ -265,20 +266,27 @@ raw-only functions (19):
   ot_session_set_palette_state: param 2 (palette): no rule covers it; param 4 (foreground): no rule covers it; param 5 (background): no rule covers it
   ot_session_input_feed: param 5 (records): no rule covers it; param 7 (payload): no rule covers it
   ot_session_read_output: param 2 (bytes): no rule covers it; param 4 (out_ticket): no rule covers it
-  ot_session_drain_output: param 1 (session): no rule covers it; param 4 (user_data): no rule covers it; param 5 (writer): callback parameter (callbacks are raw until bind-c-2)
   ot_clipboard_operation_result_mime_copy: param 2 (out_bytes): no rule covers it
   ot_clipboard_operation_result_data_copy: param 2 (out_bytes): no rule covers it
   ot_clipboard_operation_result_diagnostic_copy: param 2 (out_bytes): no rule covers it
 
+callbacks (3):
+  ot_scene_measure_callback: bound as SceneMeasureCallback, scope registered, owner ot_context, ends ot_scene_destroy_node, key (context_id, slot, generation) from node; param 0 (context_id) key, param 1 (slot) key, param 2 (generation) key, param 3 (width) scalar, param 4 (width_mode) scalar, param 5 (height) scalar, param 6 (height_mode) scalar, param 7 (out_size) out_array of 2
+  ot_edit_event_callback: raw: ot_edit_event_callback has no callbacks entry in the contract
+  ot_output_write_callback: bound as OutputWriteCallback, scope call, key (user_data) from user_data, default -1; param 0 (user_data) key, param 1 (bytes) in_buffer (length byte_count in bytes), param 2 (byte_count) length
+
 pointer fields (0):
 
 counts:
-  functions 259: typed 240, raw-only 19, skipped 0
-  pointer positions 806 (parameters and results 806, fields 0): handle 257, value 315, out 99, in_buffer 58, out_buffer 23, out_count 23, raw 31
+  functions 259: typed 242, raw-only 17, skipped 0
+  pointer positions 806 (parameters and results 806, fields 0): handle 257, value 316, out 99, in_buffer 58, out_buffer 23, out_count 23, callback 2, key 1, raw 27
   constants 701, status codes 37
 
-exceptions (6):
+exceptions (9):
   ot_session_drain_stdout session: value: max_bytes after session limits the drained output; it is not the length of session
+  ot_session_drain_output session: value: max_bytes after session limits the drained output; it is not the length of session
+  ot_scene_measure_callback out_size: out_array of 2: "The result is two floats (width, height)"
+  ot_context_set_edit_event_callback #1: raw: the key of ot_edit_event_callback (its context_id) has no source in the arguments: an ot_context * does not carry its id, and the contract has no key form for it
   ot_session_post_stdout session: value: max_bytes after session limits the posted output; it is not the length of session
   ot_text_buffer_get_info #2: out: unnamed out-parameter: the call writes one ot_text_buffer_info
   ot_text_buffer_view_get_info #2: out: unnamed out-parameter: the call writes one ot_editor_view_info

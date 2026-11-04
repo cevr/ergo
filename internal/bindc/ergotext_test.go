@@ -53,13 +53,19 @@ func TestErgoTextParses(t *testing.T) {
 			var want []string
 			notBound := 0
 			for _, bf := range b.Funcs {
-				if bf.Sig != nil {
+				why := bf.ErgoUnbound()
+				if why == "" {
 					want = append(want, b.Contract.Go.ImportPath+"."+bf.GoName+" "+bf.GoName)
-				} else {
-					notBound++
-					if !strings.Contains(src, "// not bound: "+bf.C.Name+" (") {
-						t.Errorf("%s has no not-bound line for %s", path, bf.C.Name)
-					}
+					continue
+				}
+				notBound++
+				if !strings.Contains(src, "// not bound: "+bf.C.Name+" (") {
+					t.Errorf("%s has no not-bound line for %s", path, bf.C.Name)
+				}
+				// Callbacks into Ergo are bind-c-7: a typed function
+				// that takes one keeps a not-bound line that says so.
+				if bf.Sig != nil && !strings.Contains(why, "bind-c-7") {
+					t.Errorf("%s: %s takes a callback, but its not-bound reason %q does not name bind-c-7", path, bf.C.Name, why)
 				}
 			}
 			if !slices.Equal(externs, want) {

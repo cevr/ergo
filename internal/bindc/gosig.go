@@ -60,8 +60,9 @@ var goScalar = map[Scalar]string{
 }
 
 // goSig builds the Go signature of a typed function: handles, values,
-// slices and plain values are parameters in C order (lengths and
-// capacities drop out); the C result, then out-parameters and output counts
+// slices, callbacks (the Go func type of the typedef) and plain values are
+// parameters in C order (lengths, capacities and token keys drop out);
+// the C result, then out-parameters and output counts
 // in C order, are results; a status result is the final error.
 func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 	f := bf.C
@@ -103,6 +104,10 @@ func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 				et = "byte" // the same type; Go spells byte slices so
 			}
 			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: "[]" + et, C: i, Class: q.Class})
+		case q.Class == ClassKey:
+			continue // the binding makes the token; Go does not see it
+		case q.Class == ClassCallback:
+			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: b.GoTypes[p.Type.Name], C: i, Class: q.Class})
 		case q.Class == ClassOut:
 			s.Results = append(s.Results, GoResult{Type: b.GoType(*p.Type.Elem), C: i})
 		case q.Class == ClassOutCount:

@@ -508,7 +508,7 @@ func TestErgoParamProperty(t *testing.T) {
 		params := ergoParams(t, src)
 		importName := b.Contract.Go.ImportPath[strings.LastIndexByte(b.Contract.Go.ImportPath, '/')+1:]
 		for _, f := range b.Funcs {
-			if f.Sig == nil {
+			if f.ErgoUnbound() != "" {
 				continue
 			}
 			ps, ok := params[f.GoName]

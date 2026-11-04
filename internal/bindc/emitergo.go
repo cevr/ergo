@@ -23,8 +23,9 @@ import (
 //   - handles and scalar typedefs named through the import (opaque
 //     nominal, #202 Level 1);
 //   - one `extern go <path>.<GoName> func <GoName>(...) R fails ...` per
-//     typed function, and a `// not bound: <name> (<reason>)` line per
-//     raw-only one;
+//     typed function without a callback, and a `// not bound: <name>
+//     (<reason>)` line per raw-only one and per one that takes a callback
+//     (callbacks into Ergo are bind-c-7; BoundFunc.ErgoUnbound);
 //   - no `needs` rows.
 //
 // Bind gives every name of the text (Binding.ergoNames, names.go).
@@ -106,8 +107,8 @@ func (e *ergoEmitter) file() string {
 	}
 
 	for _, f := range b.Funcs {
-		if f.Sig == nil {
-			e.p("// not bound: %s (%s)\n", f.C.Name, f.RawOnly)
+		if why := f.ErgoUnbound(); why != "" {
+			e.p("// not bound: %s (%s)\n", f.C.Name, why)
 			continue
 		}
 		var params []string

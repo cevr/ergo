@@ -28,7 +28,7 @@ func genContract() *Contract {
 		Status:   StatusRule{Type: "g_status", MacroPrefix: "G_", Success: "G_OK", Exclude: []Skip{}},
 		ABI:      ABIRule{Function: "g_abi", Macro: "G_ABI"},
 		Handles:  []HandleRule{{Type: "g_h", Create: "g_create", Out: "out_h", Destroy: "g_destroy", Thread: "owner"}},
-		Autofill: []AutofillRule{}, Exceptions: []Exception{}, Skips: []Skip{},
+		Autofill: []AutofillRule{}, Callbacks: []CallbackRule{}, Exceptions: []Exception{}, Skips: []Skip{},
 		Buffers: BufferRules{LengthNames: []string{"{name}_count"}, ByteLengthNames: []string{},
 			CapacityNames: []string{"capacity"}, CountNames: []string{"out_count"}, OutPrefix: "out_"}}
 }

@@ -58,14 +58,41 @@ import (
 //	    "count_names":       names of the `U *` count after the capacity
 //	    "out_prefix":        the name prefix of an out-parameter ("out_")
 //	  },
+//	  "callbacks": [{                  callback typedefs the typed layer binds (may be empty)
+//	    "typedef": the callback typedef ("ot_output_write_callback")
+//	    "scope":   "call" (C uses it only during the call that passes it) or
+//	               "registered" (C keeps it until it is replaced, cleared
+//	               with NULL, or its owner is destroyed)
+//	    "key": {                       the parameters that identify a registration
+//	      "params": the callback's key parameters: one `void *` (a token
+//	                the binding makes), or the scalar fields of a handle
+//	                struct, in field order
+//	      "source": the parameter of each registering function that gives
+//	                the key: a `void *` for a token, a `const S *` whose
+//	                struct S has exactly the key's fields for a handle
+//	    },
+//	    "default": optional; the value C gets when no Go code runs: an
+//	               integer, true or false; required for a non-void result,
+//	               refused for a void result; 0 is the only pointer value
+//	    "owner":   optional; registered only: the contract handle type whose
+//	               destroy function ends every registration
+//	    "ends":    optional; registered only: functions whose successful
+//	               return ends the registration whose key they take
+//	    "why":     the reason
+//	  }],
 //	  "exceptions": [{                 per-position classes (may be empty)
-//	    "function": the function
+//	    "function": the function, or
+//	    "callback": a callback typedef with a callbacks entry (exactly one
+//	                of the two)
 //	    "position": the parameter: its name, or "#N" (N counts from 0)
-//	    "class":    "value", "out", "in_buffer", "out_buffer" or "raw"
+//	    "class":    "value", "out", "in_buffer", "out_buffer" (functions
+//	                only), "out_array" (callbacks only) or "raw"
 //	    "length":   optional; in_buffer: its length parameter; out_buffer:
 //	                its capacity parameter
 //	    "unit":     optional; in_buffer: "elements" or "bytes"
 //	    "count":    optional; out_buffer: its count parameter
+//	    "array_length": optional; out_array: the element count N (a `[N]T`
+//	                result that the trampoline writes into C memory)
 //	    "why":      the reason
 //	  }],
 //	  "skips": [{"name", "why"}]       functions and constants left out (may be empty)
@@ -85,8 +112,38 @@ type Contract struct {
 	Handles      []HandleRule   `json:"handles"`
 	Autofill     []AutofillRule `json:"autofill"`
 	Buffers      BufferRules    `json:"buffers"`
+	Callbacks    []CallbackRule `json:"callbacks"`
 	Exceptions   []Exception    `json:"exceptions"`
 	Skips        []Skip         `json:"skips"`
+}
+
+// The scopes of a callback.
+const (
+	// ScopeCall: C uses the callback only during the call that passes it.
+	ScopeCall = "call"
+	// ScopeRegistered: C keeps the callback until it is replaced, cleared
+	// with NULL, ended by an end function, or its owner is destroyed.
+	ScopeRegistered = "registered"
+)
+
+// CallbackRule is one callback typedef that the typed layer binds: its
+// scope, its key, the value C gets when no Go code runs, and, for a
+// registered callback, its owner and its end functions.
+type CallbackRule struct {
+	Typedef string          `json:"typedef"`
+	Scope   string          `json:"scope"`
+	Key     KeyRule         `json:"key"`
+	Default json.RawMessage `json:"default,omitempty"`
+	Owner   string          `json:"owner,omitempty"`
+	Ends    []string        `json:"ends,omitempty"`
+	Why     string          `json:"why"`
+}
+
+// KeyRule names the key of a callback: its parameters, and the parameter
+// of a registering function that gives them.
+type KeyRule struct {
+	Params []string `json:"params"`
+	Source string   `json:"source"`
 }
 
 // GoTarget names the generated Go package.
@@ -140,16 +197,30 @@ type BufferRules struct {
 	OutPrefix       string   `json:"out_prefix"`
 }
 
-// Exception gives one pointer position its class by hand.
+// Exception gives one position its class by hand: a pointer position of a
+// function, or a parameter of a callback typedef.
 type Exception struct {
-	Function string `json:"function"`
-	Position string `json:"position"`
-	Class    Class  `json:"class"`
-	Length   string `json:"length,omitempty"`
-	Unit     string `json:"unit,omitempty"`
-	Count    string `json:"count,omitempty"`
-	Why      string `json:"why"`
+	Function    string `json:"function,omitempty"`
+	Callback    string `json:"callback,omitempty"`
+	Position    string `json:"position"`
+	Class       Class  `json:"class"`
+	Length      string `json:"length,omitempty"`
+	Unit        string `json:"unit,omitempty"`
+	Count       string `json:"count,omitempty"`
+	ArrayLength int64  `json:"array_length,omitempty"`
+	Why         string `json:"why"`
 }
+
+// target names the function or the callback of an exception.
+func (e *Exception) target() string {
+	if e.Callback != "" {
+		return e.Callback
+	}
+	return e.Function
+}
+
+// maxArrayLength bounds the element count of an out_array exception.
+const maxArrayLength = 1 << 16
 
 // Skip leaves a declaration out, with the reason.
 type Skip struct {
@@ -162,7 +233,10 @@ type Skip struct {
 // of an array.
 var contractKeys = map[string]map[string]bool{
 	"": {"header": true, "header_sha256": true, "go": true, "prefixes": true, "status": true,
-		"abi": true, "handles": true, "autofill": true, "buffers": true, "exceptions": true, "skips": true},
+		"abi": true, "handles": true, "autofill": true, "buffers": true, "callbacks": true, "exceptions": true, "skips": true},
+	"callbacks": {"typedef": true, "scope": true, "key": true, "default": false, "owner": false,
+		"ends": false, "why": true},
+	"callbacks.key":  {"params": true, "source": true},
 	"go":             {"package": true, "import_path": true},
 	"prefixes":       {"function": true, "macro": true, "type": true},
 	"status":         {"type": true, "macro_prefix": true, "success": true, "exclude": true},
@@ -172,8 +246,8 @@ var contractKeys = map[string]map[string]bool{
 	"autofill":       {"field": true, "value": true},
 	"buffers": {"length_names": true, "byte_length_names": true, "capacity_names": true,
 		"count_names": true, "out_prefix": true},
-	"exceptions": {"function": true, "position": true, "class": true, "length": false,
-		"unit": false, "count": false, "why": true},
+	"exceptions": {"function": false, "callback": false, "position": true, "class": true, "length": false,
+		"unit": false, "count": false, "array_length": false, "why": true},
 	"skips": {"name": true, "why": true},
 }
 
@@ -250,25 +324,61 @@ func DecodeContract(data []byte) (*Contract, error) {
 			bad("buffers: %q is in both length_names and byte_length_names", n)
 		}
 	}
+	for i, cb := range c.Callbacks {
+		if cb.Typedef == "" || cb.Why == "" {
+			bad("callbacks[%d]: typedef and why must not be empty", i)
+		}
+		if cb.Scope != ScopeCall && cb.Scope != ScopeRegistered {
+			bad("callbacks[%d] %s: scope is %q, want \"call\" or \"registered\"", i, cb.Typedef, cb.Scope)
+		}
+		if len(cb.Key.Params) == 0 || cb.Key.Source == "" {
+			bad("callbacks[%d] %s: key.params and key.source must not be empty", i, cb.Typedef)
+		}
+		seen := map[string]bool{}
+		for _, p := range cb.Key.Params {
+			if !isCIdent(p) || seen[p] {
+				bad("callbacks[%d] %s: key parameter %q is not a C name, or appears twice", i, cb.Typedef, p)
+			}
+			seen[p] = true
+		}
+		if len(cb.Default) > 0 && !validDefault(cb.Default) {
+			bad("callbacks[%d] %s: default %s is not an integer, true or false", i, cb.Typedef, cb.Default)
+		}
+		for _, f := range cb.Ends {
+			if f == "" {
+				bad("callbacks[%d] %s: an end function is empty", i, cb.Typedef)
+			}
+		}
+	}
 	for i, e := range c.Exceptions {
-		if e.Function == "" || e.Position == "" || e.Why == "" {
-			bad("exceptions[%d]: function, position and why must not be empty", i)
+		if (e.Function == "") == (e.Callback == "") || e.Position == "" || e.Why == "" {
+			bad("exceptions[%d]: exactly one of function and callback, and position and why, must not be empty", i)
 		}
 		switch e.Class {
 		case ClassInBuffer:
-			if e.Length == "" || (e.Unit != "elements" && e.Unit != "bytes") || e.Count != "" {
+			if e.Length == "" || (e.Unit != "elements" && e.Unit != "bytes") || e.Count != "" || e.ArrayLength != 0 {
 				bad("exceptions[%d]: an in_buffer needs length and unit (\"elements\" or \"bytes\"), and no count", i)
 			}
 		case ClassOutBuffer:
-			if e.Length == "" || e.Count == "" || e.Unit != "" {
+			if e.Length == "" || e.Count == "" || e.Unit != "" || e.ArrayLength != 0 {
 				bad("exceptions[%d]: an out_buffer needs length (its capacity) and count, and no unit", i)
 			}
+			if e.Callback != "" && e.Function == "" {
+				bad("exceptions[%d]: out_buffer is not a class of callback positions", i)
+			}
+		case ClassOutArray:
+			if e.ArrayLength < 1 || e.ArrayLength > maxArrayLength || e.Length != "" || e.Unit != "" || e.Count != "" {
+				bad("exceptions[%d]: an out_array needs array_length from 1 to %d, and no length, unit or count", i, maxArrayLength)
+			}
+			if e.Function != "" && e.Callback == "" {
+				bad("exceptions[%d]: out_array is a class of callback positions only", i)
+			}
 		case ClassValue, ClassOut, ClassRaw:
-			if e.Length != "" || e.Unit != "" || e.Count != "" {
-				bad("exceptions[%d]: class %s takes no length, unit or count", i, e.Class)
+			if e.Length != "" || e.Unit != "" || e.Count != "" || e.ArrayLength != 0 {
+				bad("exceptions[%d]: class %s takes no length, unit, count or array_length", i, e.Class)
 			}
 		default:
-			bad("exceptions[%d]: class %q is not value, out, in_buffer, out_buffer or raw", i, e.Class)
+			bad("exceptions[%d]: class %q is not value, out, in_buffer, out_buffer, out_array or raw", i, e.Class)
 		}
 	}
 	for _, l := range []struct {
@@ -285,6 +395,17 @@ func DecodeContract(data []byte) (*Contract, error) {
 		return nil, contractError(errs)
 	}
 	return &c, nil
+}
+
+// validDefault reports whether a callback default is an integer literal
+// (decimal, an optional minus, no fraction or exponent), true or false.
+func validDefault(raw json.RawMessage) bool {
+	s := string(raw)
+	if s == "true" || s == "false" {
+		return true
+	}
+	s = strings.TrimPrefix(s, "-")
+	return s != "" && strings.Trim(s, "0123456789") == "" && (s[0] != '0' || len(s) == 1)
 }
 
 // contractError is the list of the problems of a contract.

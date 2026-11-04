@@ -21,12 +21,12 @@ var contractCases = []struct {
 	{"missing nested key", `"success": "FX_OK",`, ``, `status: missing key "success"`},
 	{"missing exception key", `"exceptions": []`, `"exceptions": [{"function": "fx_node_count", "position": "#0", "class": "raw"}]`, `exceptions: missing key "why"`},
 	{"duplicate key", `"header": "fixture.h",`, `"header": "fixture.h", "header": "fixture.h",`, `key "header" appears twice`},
-	{"null", `"exceptions": []`, `"exceptions": null`, `exceptions is null`},
+	{"null", `"skips": []`, `"skips": null`, `skips is null`},
 	{"wrong type", `"handles": [`, `"handles": {"x": [`, `contract`},
 	{"trailing data", `"skips": []
 }`, `"skips": []
 } {}`, `data after the contract object`},
-	{"not hex", `"57ef22281a09d923747109e92dd3fcc6f2df61ae347a384349cda0e92c838215"`, `"57EF22281A09D923747109E92DD3FCC6F2DF61AE347A384349CDA0E92C838215"`, `not 64 lower-case hex digits`},
+	{"not hex", `"8b585680900c111e74a9caa2bba8744bc07f6f3aa44713ffe019a465f64f67ae"`, `"8B585680900C111E74A9CAA2BBA8744BC07F6F3AA44713FFE019A465F64F67AE"`, `not 64 lower-case hex digits`},
 	{"empty fact", `"success": "FX_OK"`, `"success": ""`, `status.success is empty`},
 	{"package keyword", `"package": "fixture"`, `"package": "func"`, `is not a Go package name`},
 	{"thread", `"thread": "owner"`, `"thread": "main"`, `want "owner" or "any"`},
@@ -41,7 +41,7 @@ var contractCases = []struct {
 
 	// Facts: Bind.
 	{"header name", `"header": "fixture.h",`, `"header": "other.h",`, `header is "other.h"`},
-	{"header sha256", `"57ef22281a09d923747109e92dd3fcc6f2df61ae347a384349cda0e92c838215"`, `"57ef22281a09d923747109e92dd3fcc6f2df61ae347a384349cda0e92c838216"`, `but the header's sha256 is 57ef2228`},
+	{"header sha256", `"8b585680900c111e74a9caa2bba8744bc07f6f3aa44713ffe019a465f64f67ae"`, `"8b585680900c111e74a9caa2bba8744bc07f6f3aa44713ffe019a465f64f67af"`, `but the header's sha256 is 8b585680`},
 	{"status type", `"type": "fx_status"`, `"type": "fx_ticket"`, `status.exclude: FX_SMALL is not a constant with the status prefix and type`},
 	{"status type not integer", `"type": "fx_status"`, `"type": "fx_seconds"`, `status.type fx_seconds is not an integer typedef`},
 	{"success code", `"success": "FX_OK"`, `"success": "FX_NONE"`, `status.success FX_NONE is not a status code`},
@@ -88,10 +88,16 @@ func TestContractStrict(t *testing.T) {
 	}
 	for _, tc := range contractCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if strings.Count(base, tc.old) != 1 {
-				t.Fatalf("the fixture contract holds %q %d times, want once", tc.old, strings.Count(base, tc.old))
+			old, new := tc.old, tc.new
+			if old == `"exceptions": []` {
+				// A case written as "the exceptions are [X]" adds X in
+				// front of the fixture's own exceptions.
+				old, new = `"exceptions": [`, strings.TrimSuffix(new, "]")+","
 			}
-			_, err := Bind(m, header, []byte(strings.Replace(base, tc.old, tc.new, 1)))
+			if strings.Count(base, old) != 1 {
+				t.Fatalf("the fixture contract holds %q %d times, want once", old, strings.Count(base, old))
+			}
+			_, err := Bind(m, header, []byte(strings.Replace(base, old, new, 1)))
 			if err == nil {
 				t.Fatalf("Bind accepts the contract; want %q", tc.want)
 			}
@@ -115,7 +121,7 @@ func TestGoNamesUnique(t *testing.T) {
 "status": {"type": "a_status", "macro_prefix": "A_", "success": "A_OK", "exclude": []},
 "abi": {"function": "a_abi", "macro": "A_V"}, "handles": [], "autofill": [],
 "buffers": {"length_names": [], "byte_length_names": [], "capacity_names": [], "count_names": [], "out_prefix": "out_"},
-"exceptions": [], "skips": []}`
+"callbacks": [], "exceptions": [], "skips": []}`
 	_, err = Bind(m, []byte(src), []byte(contract))
 	if err == nil || !strings.Contains(err.Error(), "x_foo and y_foo have the Go name Foo") {
 		t.Fatalf("Bind error %v, want x_foo and y_foo have the Go name Foo", err)

@@ -216,9 +216,11 @@ func Load(path string) error {
 	}
 	e.p(")\n\n")
 
-	// Typed layer.
+	// Typed layer. A typed function that takes a callback needs its
+	// trampoline and the registry, which slice 2b of bind-c-2 emits; this
+	// emitter writes no typed form for it yet (goTyped).
 	for _, f := range b.Funcs {
-		if f.Sig != nil {
+		if f.goTyped() {
 			e.typedFunc(f)
 		}
 	}

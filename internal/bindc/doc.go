@@ -82,11 +82,50 @@
 //
 // A function is typed when every pointer position has a class other than
 // raw and its buffers fit together (each length serves one buffer, each
-// out_count belongs to its out_buffer, no by-value struct holds a pointer).
+// out_count belongs to its out_buffer, each token key serves one callback,
+// no by-value struct holds a pointer).
 // Otherwise it is raw-only, and the report (Report, report.txt) names each
 // raw position and its reason. A `const S *` whose struct holds a pointer
-// is raw (Go memory that holds Go pointers must not reach C); a callback
-// is raw until bind-c-2.
+// is raw (Go memory that holds Go pointers must not reach C).
+//
+// # Callbacks
+//
+// The contract's callbacks entries (see Contract) name the callback
+// typedefs that the typed layer binds, each with its scope (call or
+// registered), its key, the default C gets when no Go code runs, and for
+// a registered callback its owner handle and its end functions. Bind
+// checks every fact against the model and fails closed (callback.go).
+//
+// Admission (amendment A6 applied to callbacks): a typedef can be bound
+// only when, on each of linux and darwin on amd64 and arm64, every argument
+// travels in a register and purego v0.11.3's callbackWrap supports every
+// type. Its parameters are fixed-width integers, bool, float, double and
+// data pointers, at most 6 of integer class and 8 of float class (the
+// amd64 bounds; arm64 has 8 and 8); its result is void, a fixed-width
+// integer, bool or a data pointer (purego refuses a float or double
+// result); no struct by value. Any other typedef stays a raw uintptr, every
+// function that takes it is raw-only with the shape's reason, and an entry
+// for it is a Bind error.
+//
+// A bound typedef (an entry and an admitted shape) gives each parameter
+// one class from one rule or exception: key (the entry names it; the
+// registry consumes it), scalar, value, in_buffer and its length, out, an
+// out_array (an exception with a length N), or raw; the value, in_buffer
+// and out rules are the function rules. A raw parameter keeps the typedef
+// raw. A key has one of two forms: one `void *` that receives a `void *`
+// parameter of the registering function (the binding passes a token, never
+// a Go pointer), or the integer fields of a handle struct that the
+// registering function takes as `const S *`. In a function, a parameter
+// of a bound typedef is a callback when the function has its key's source
+// (and, when registered, takes its owner); the `void *` source of a token
+// is a key, which Go does not see. Otherwise the function is raw-only with
+// the reason: no entry, the shape rule that fails, a raw parameter, or a
+// key with no source.
+//
+// The Go package emits no typed form yet for a typed function that takes a
+// callback: its trampoline and the registry are slice 2b of bind-c-2. The
+// Ergo text keeps every function that takes a callback as a not-bound line
+// (callbacks into Ergo are bind-c-7).
 //
 // # The Go output
 //
@@ -116,8 +155,8 @@
 // them before every call that passes the struct: by value, by const
 // pointer, as a const array, in a buffer, and in out-parameters, nested
 // structs and arrays included (OpenTUI: "Initialize struct_size and
-// abi_version" of output structs). Callbacks are raw uintptr (bind-c-2);
-// thread affinity is not enforced in Go: the library returns its
+// abi_version" of output structs). In the raw layer a callback is a
+// uintptr; thread affinity is not enforced in Go: the library returns its
 // wrong-thread status.
 //
 // A struct passed or returned by value crosses purego in its call form

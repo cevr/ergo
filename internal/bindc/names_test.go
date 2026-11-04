@@ -141,7 +141,7 @@ func checkGoNames(t *testing.T, std types.Importer, b *Binding) []byte {
 		if !strings.Contains(report, line) {
 			t.Errorf("report.txt has no line %q", line)
 		}
-		if decls[f.GoName] != f.Sig.String(f.GoName) {
+		if f.goTyped() && decls[f.GoName] != f.Sig.String(f.GoName) {
 			t.Errorf("%s: the emitted signature is %q, report.txt has %q", f.C.Name, decls[f.GoName], f.Sig.String(f.GoName))
 		}
 		seen := map[string]bool{}
@@ -175,7 +175,7 @@ func checkGoInventory(t *testing.T, b *Binding, src []byte) {
 	}
 	typed := map[string]bool{}
 	for _, f := range b.Funcs {
-		if f.Sig != nil {
+		if f.goTyped() {
 			typed[f.GoName] = true
 		}
 	}

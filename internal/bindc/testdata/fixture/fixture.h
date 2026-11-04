@@ -5,7 +5,13 @@
  * an options struct with struct_size and abi_version, a struct by value
  * with a fixed array, an input buffer pair, an output triple, an
  * out-parameter, a const struct whose struct holds a pointer (raw-only)
- * and a callback parameter (raw-only).
+ * and callbacks: two call-scoped ones keyed by a void * token (one with a
+ * borrowed buffer and an int64_t result, the OpenTUI writer's shape), one
+ * registered one keyed by the fields of fx_node with an out array (the
+ * OpenTUI measure's shape), the C functions that call them, invocation
+ * counters, the calling thread's id, and four callbacks that stay raw (a
+ * float result, a struct by value, seven integer parameters, no contract
+ * entry).
  *
  * Build: cc -std=c11 -shared -fPIC -o libfixture.so fixture.c
  * -DFIXTURE_ABI=3 builds a library whose ABI version is not this header's.
@@ -107,6 +113,33 @@ typedef struct {
 /* Called once per live node; user_data is the caller's. */
 typedef void (*fx_visit_callback)(void *user_data, const fx_visit *visit);
 
+/* Call scope: C calls it only during the call that passes it (the OpenTUI
+ * writer's shape). It returns the bytes it took, 0 for backpressure, or -1
+ * for failure; data is valid only during the call. */
+typedef int64_t (*fx_write_callback)(void *user_data, const uint8_t *data, uint32_t data_bytes);
+
+/* Registered: C keeps it until a replacement, a clear (NULL), the
+ * destruction of its node, or the destruction of its context (the OpenTUI
+ * measure's shape). out_size is two floats (width, height), NaN before the
+ * call. */
+typedef void (*fx_measure_callback)(uint64_t context_id, uint32_t slot, uint32_t generation,
+    float width, uint32_t width_mode, float height, uint32_t height_mode, float *out_size);
+
+/* Shapes that stay raw: a float result, a struct by value, seven integer
+ * parameters (one on the stack on amd64), and an admitted shape that the
+ * contract does not name. */
+typedef float (*fx_float_callback)(void *user_data);
+typedef void (*fx_point_callback)(void *user_data, fx_point point);
+typedef void (*fx_wide_callback)(void *user_data, uint64_t a, uint64_t b, uint64_t c, uint64_t d,
+    uint64_t e, uint64_t f);
+typedef void (*fx_unbound_callback)(void *user_data, uint32_t value);
+
+/* The callback invocations of a context: started, and returned to C. */
+typedef struct fx_counters {
+    uint64_t started;
+    uint64_t returned;
+} fx_counters;
+
 uint32_t fx_abi_version(void);
 fx_status fx_context_create(const fx_context_options *options, fx_context **out_context);
 fx_status fx_context_destroy(fx_context *context);
@@ -121,6 +154,33 @@ fx_status fx_node_set_text(fx_context *, const fx_node *node, const fx_text *tex
 fx_status fx_context_visit(fx_context *, fx_visit_callback callback, void *user_data);
 float fx_point_length(fx_point point);
 fx_seconds fx_context_age(const fx_context *context);
+
+/* Gives text to writer in spans of at most max_bytes until it is all taken,
+ * the writer returns 0, or the writer fails. out_written is the bytes
+ * taken. A result of -1 or above the span is FX_INVALID_ARGUMENT. */
+fx_status fx_context_write(fx_context *, const uint8_t *text, uint32_t text_bytes, uint32_t max_bytes,
+    uint32_t *out_written, void *user_data, fx_write_callback writer);
+/* Calls writer times times with the one byte 'x'; out_taken is the sum of
+ * its results. */
+fx_status fx_context_repeat(fx_context *, uint32_t times, int64_t *out_taken, void *user_data,
+    fx_write_callback writer);
+/* Sets the measure callback of node, or clears it with NULL. A set calls the
+ * new callback once before it returns; a clear calls the old one once
+ * before it clears it. */
+fx_status fx_node_set_measure(fx_context *, const fx_node *node, fx_measure_callback measure);
+/* Calls the measure callback of node; out_size is what it wrote (NaN where
+ * it wrote nothing). FX_INVALID_ARGUMENT when node has none. */
+fx_status fx_node_measure(fx_context *, const fx_node *node, float width, float height, fx_point *out_size);
+/* Calls the measure callback of every live node that has one, in slot
+ * order; out_count is how many it called. */
+fx_status fx_context_measure_all(fx_context *, float width, float height, uint32_t *out_count);
+fx_status fx_context_counters(fx_context *, fx_counters *out_counters);
+/* The id of the calling OS thread. */
+uint64_t fx_thread_id(void);
+fx_status fx_context_float(fx_context *, void *user_data, fx_float_callback callback);
+fx_status fx_context_point(fx_context *, void *user_data, fx_point_callback callback);
+fx_status fx_context_wide(fx_context *, void *user_data, fx_wide_callback callback);
+fx_status fx_context_unbound(fx_context *, void *user_data, fx_unbound_callback callback);
 
 #ifdef __cplusplus
 }

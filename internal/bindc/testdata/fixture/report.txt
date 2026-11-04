@@ -1,5 +1,5 @@
 binding report: fixture.h
-header sha256 57ef22281a09d923747109e92dd3fcc6f2df61ae347a384349cda0e92c838215
+header sha256 8b585680900c111e74a9caa2bba8744bc07f6f3aa44713ffe019a465f64f67ae
 go package fixture (ergo.local/bind/fixture)
 status fx_status: success FX_OK, 5 codes
 abi fx_abi_version() == FX_ABI_VERSION (2)
@@ -7,7 +7,7 @@ handle fx_context (Context): create fx_context_create.out_context, destroy fx_co
 autofill struct_size = size
 autofill abi_version = abi
 
-typed functions (12):
+typed functions (20):
   fx_abi_version: func AbiVersion() (uint32, error)
   fx_context_create: func ContextCreate(options ContextOptions) (*Context, error)
   fx_context_destroy: func ContextDestroy(context *Context) error
@@ -18,22 +18,43 @@ typed functions (12):
   fx_node_get_box: func NodeGetBox(context *Context, node Node) (Box, error)
   fx_node_set_name: func NodeSetName(context *Context, node Node, name []byte) error
   fx_node_read_name: func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error)
+  fx_context_visit: func ContextVisit(context *Context, callback VisitCallback) error
   fx_point_length: func PointLength(point Point) (float32, error)
   fx_context_age: func ContextAge(context *Context) (Seconds, error)
+  fx_context_write: func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCallback) (uint32, error)
+  fx_context_repeat: func ContextRepeat(context *Context, times uint32, writer WriteCallback) (int64, error)
+  fx_node_set_measure: func NodeSetMeasure(context *Context, node Node, measure MeasureCallback) error
+  fx_node_measure: func NodeMeasure(context *Context, node Node, width float32, height float32) (Point, error)
+  fx_context_measure_all: func ContextMeasureAll(context *Context, width float32, height float32) (uint32, error)
+  fx_context_counters: func ContextCounters(context *Context) (Counters, error)
+  fx_thread_id: func ThreadId() (uint64, error)
 
-raw-only functions (2):
+raw-only functions (5):
   fx_node_set_text: param 2 (text): fx_text holds a pointer (Go memory that holds Go pointers must not reach C)
-  fx_context_visit: param 1 (callback): callback parameter (callbacks are raw until bind-c-2); param 2 (user_data): no rule covers it
+  fx_context_float: param 1 (user_data): no rule covers it; param 2 (callback): callback parameter: fx_float_callback is not an admitted callback shape: a float result (purego v0.11.3 callbacks cannot return float or double)
+  fx_context_point: param 1 (user_data): no rule covers it; param 2 (callback): callback parameter: fx_point_callback is not an admitted callback shape: param 1 (point): a struct by value
+  fx_context_wide: param 1 (user_data): no rule covers it; param 2 (callback): callback parameter: fx_wide_callback is not an admitted callback shape: 7 integer-class parameters (at most 6 travel in registers on amd64)
+  fx_context_unbound: param 1 (user_data): no rule covers it; param 2 (callback): callback parameter: fx_unbound_callback has no callbacks entry in the contract
+
+callbacks (7):
+  fx_visit_callback: bound as VisitCallback, scope call, key (user_data) from user_data; param 0 (user_data) key, param 1 (visit) value
+  fx_write_callback: bound as WriteCallback, scope call, key (user_data) from user_data, default -1; param 0 (user_data) key, param 1 (data) in_buffer (length data_bytes in bytes), param 2 (data_bytes) length
+  fx_measure_callback: bound as MeasureCallback, scope registered, owner fx_context, ends fx_node_destroy, key (context_id, slot, generation) from node; param 0 (context_id) key, param 1 (slot) key, param 2 (generation) key, param 3 (width) scalar, param 4 (width_mode) scalar, param 5 (height) scalar, param 6 (height_mode) scalar, param 7 (out_size) out_array of 2
+  fx_float_callback: raw: fx_float_callback is not an admitted callback shape: a float result (purego v0.11.3 callbacks cannot return float or double)
+  fx_point_callback: raw: fx_point_callback is not an admitted callback shape: param 1 (point): a struct by value
+  fx_wide_callback: raw: fx_wide_callback is not an admitted callback shape: 7 integer-class parameters (at most 6 travel in registers on amd64)
+  fx_unbound_callback: raw: fx_unbound_callback has no callbacks entry in the contract
 
 pointer fields (1):
   fx_text.bytes: raw: pointer field (a struct that holds a pointer reaches C only through the raw layer: Go memory that holds Go pointers must not reach C)
 
 counts:
-  functions 14: typed 12, raw-only 2, skipped 0
-  pointer positions 30 (parameters and results 29, fields 1): handle 11, value 8, out 4, in_buffer 1, out_buffer 1, out_count 1, raw 4
+  functions 25: typed 20, raw-only 5, skipped 0
+  pointer positions 61 (parameters and results 60, fields 1): handle 21, value 10, out 9, in_buffer 2, out_buffer 1, out_count 1, callback 4, key 3, raw 10
   constants 22, status codes 5
 
-exceptions (0):
+exceptions (1):
+  fx_measure_callback out_size: out_array of 2: out_size is two floats (width, height)
 
 skips (4):
   FX_SMALL (not a status code): a limit of the constant forms (INT8_C gives int), not a status code

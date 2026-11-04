@@ -30,6 +30,22 @@ const (
 	// ClassRaw is a position no rule or exception classifies, or that two
 	// rules classify. Its function is raw-only.
 	ClassRaw Class = "raw"
+
+	// ClassCallback is a function parameter of a bound callback typedef:
+	// a Go func.
+	ClassCallback Class = "callback"
+	// ClassKey is a key: in a function, the `void *` that carries a bound
+	// callback's token (the binding makes it; Go does not see it); in a
+	// callback, a parameter that identifies the registration (the registry
+	// consumes it; the Go func does not see it).
+	ClassKey Class = "key"
+	// ClassScalar is a scalar parameter of a callback: passed through.
+	ClassScalar Class = "scalar"
+	// ClassLength is the length parameter of a callback's in_buffer.
+	ClassLength Class = "length"
+	// ClassOutArray is a callback's `T *` that an exception gives a length
+	// N: a `[N]T` result of the Go func that the trampoline writes back.
+	ClassOutArray Class = "out_array"
 )
 
 // The rules. Each is a predicate on one pointer position and its
@@ -48,6 +64,13 @@ const (
 	// length that templates of both lists give makes two matches: the
 	// position is raw, whatever the order of the lists.
 	ruleInBufferBytes = "in_buffer_bytes"
+	// ruleCallback: a parameter of a bound callback typedef (callback.go)
+	// whose key has its source in the function and, when registered, whose
+	// owner the function takes.
+	ruleCallback = "callback"
+	// ruleToken: a named `void *` that is the key source of a parameter of
+	// the function whose callback typedef has a token key.
+	ruleToken = "token"
 )
 
 // Position is the class of one pointer position of a function.
@@ -58,13 +81,16 @@ type Position struct {
 	// By is the rule that gave the class, or "exception".
 	By string
 	// Length is the length parameter of an in_buffer and the capacity
-	// parameter of an out_buffer and an out_count; else -1.
+	// parameter of an out_buffer and an out_count, and the buffer of a
+	// callback's length; else -1.
 	Length int
 	// Count is the count parameter of an out_buffer, and the buffer
 	// parameter of an out_count; else -1.
 	Count int
 	// Bytes is true when the length of an in_buffer counts bytes.
 	Bytes bool
+	// Array is the element count of an out_array; else 0.
+	Array int64
 	// Reason says why a position is raw.
 	Reason string
 }
@@ -99,9 +125,6 @@ func (k *classifier) classifyFields() []FieldPosition {
 				continue
 			}
 			reason := what + " (a struct that holds a pointer reaches C only through the raw layer: Go memory that holds Go pointers must not reach C)"
-			if strings.Contains(what, "callback") {
-				reason = what + " (callbacks are raw until bind-c-2)"
-			}
 			out = append(out, FieldPosition{Struct: d.Name, Field: i, Name: f.Name, Class: ClassRaw, Reason: reason})
 		}
 	}
@@ -137,11 +160,18 @@ type classifier struct {
 	handles map[string]*HandleRule
 	creates map[string]*HandleRule
 	exc     map[string]map[int]*Exception
+	// entries are the callbacks entries by typedef, cbExc the exceptions
+	// of callback positions, and cbs every callback typedef of the model
+	// (callback.go).
+	entries map[string]*CallbackRule
+	cbExc   map[string]map[int]*Exception
+	cbs     map[string]*BoundCallback
 }
 
 func newClassifier(m *Model, c *Contract) *classifier {
 	k := &classifier{m: m, c: c, types: map[string]*TypeDecl{}, handles: map[string]*HandleRule{},
-		creates: map[string]*HandleRule{}, exc: map[string]map[int]*Exception{}}
+		creates: map[string]*HandleRule{}, exc: map[string]map[int]*Exception{},
+		entries: map[string]*CallbackRule{}, cbExc: map[string]map[int]*Exception{}, cbs: map[string]*BoundCallback{}}
 	for i := range m.Types {
 		k.types[m.Types[i].Name] = &m.Types[i]
 	}
@@ -346,8 +376,17 @@ func (k *classifier) rules(f *Function, i int) []string {
 	p := f.Params[i]
 	t := p.Type
 	var out []string
+	if t.Kind == TypeNamed && k.isPointerPos(t) {
+		if k.callbackParam(f, i) == "" {
+			out = append(out, ruleCallback)
+		}
+		return out
+	}
 	if t.Kind != TypePointer {
 		return nil
+	}
+	if k.tokenOf(f, i) >= 0 {
+		out = append(out, ruleToken)
 	}
 	elem := *t.Elem
 	ptr := t.LenExpr == "" // not a `T name[N]` parameter
@@ -392,7 +431,8 @@ func (k *classifier) rules(f *Function, i int) []string {
 var ruleClass = map[string]Class{
 	ruleHandle: ClassHandle, ruleCreate: ClassOut, ruleOut: ClassOut, ruleValue: ClassValue,
 	ruleInBuffer: ClassInBuffer, ruleInBufferBytes: ClassInBuffer, ruleOutBuffer: ClassOutBuffer,
-	ruleOutCount: ClassOutCount,
+	ruleOutCount: ClassOutCount, ruleCallback: ClassCallback, ruleToken: ClassKey,
+	ruleCbKey: ClassKey, ruleCbScalar: ClassScalar, ruleCbLength: ClassLength,
 }
 
 // paramRef resolves a position reference: a parameter name or "#N".
@@ -439,7 +479,7 @@ func (k *classifier) classify(f *Function) ([]Position, string) {
 	if k.isPointerPos(f.Result) {
 		reason := "pointer result"
 		if f.Result.Kind == TypeNamed {
-			reason = "callback result (callbacks are raw until bind-c-2)"
+			reason = "callback result (the typed layer does not call a C function pointer that C returns)"
 		}
 		pos = append(pos, Position{Param: -1, Class: ClassRaw, Length: -1, Count: -1, Reason: reason})
 	}
@@ -457,13 +497,21 @@ func (k *classifier) classify(f *Function) ([]Position, string) {
 
 // fromRules classifies a pointer parameter by the rules.
 func (k *classifier) fromRules(f *Function, i int) Position {
-	p := f.Params[i]
+	q := ruledPosition(f, i, k.rules(f, i))
+	if q.Class == ClassRaw && q.Reason == "" {
+		q.Reason = k.noRuleReason(f, i)
+	}
+	return q
+}
+
+// ruledPosition gives parameter i of f the class of the one rule in rs.
+// Zero rules make it raw with no reason (the caller gives it); two make
+// it raw and name them.
+func ruledPosition(f *Function, i int, rs []string) Position {
 	q := Position{Param: i, Length: -1, Count: -1}
-	rs := k.rules(f, i)
 	switch len(rs) {
 	case 0:
 		q.Class = ClassRaw
-		q.Reason = k.noRuleReason(p.Type)
 		return q
 	case 1:
 	default:
@@ -490,14 +538,17 @@ func (k *classifier) fromRules(f *Function, i int) Position {
 		q.Length, q.Count = i+1, i+2
 	case ruleOutCount:
 		q.Length, q.Count = i-1, i-2
+	case ruleCbLength:
+		q.Length = i - 1
 	}
 	return q
 }
 
-// noRuleReason says why no rule covers a position of type t.
-func (k *classifier) noRuleReason(t Type) string {
+// noRuleReason says why no rule covers parameter i of f.
+func (k *classifier) noRuleReason(f *Function, i int) string {
+	t := f.Params[i].Type
 	if t.Kind == TypeNamed {
-		return "callback parameter (callbacks are raw until bind-c-2)"
+		return "callback parameter: " + k.callbackParam(f, i)
 	}
 	if s := k.holdsPointer(*t.Elem); s != "" {
 		return s + " holds a pointer (Go memory that holds Go pointers must not reach C)"
@@ -588,7 +639,24 @@ func (k *classifier) checkException(f *Function, i int, e *Exception) string {
 // out_buffer that names it, and no by-value parameter or result holds a
 // pointer. It returns the reason f is raw-only, or "".
 func (k *classifier) coherent(f *Function, pos []Position, byParam map[int]int) string {
-	used := map[int]int{} // length or capacity param -> buffer param
+	used := map[int]int{}   // length or capacity param -> buffer param
+	tokens := map[int]int{} // token key param -> callback param
+	for _, q := range pos {
+		if q.Class != ClassCallback {
+			continue
+		}
+		if j := k.tokenSource(f, q.Param); j >= 0 {
+			if c, ok := tokens[j]; ok {
+				return fmt.Sprintf("%s: its key %s also serves %s", positionName(f, q.Param), positionName(f, j), positionName(f, c))
+			}
+			tokens[j] = q.Param
+		}
+	}
+	for _, q := range pos {
+		if _, ok := tokens[q.Param]; q.Class == ClassKey && !ok {
+			return positionName(f, q.Param) + ": a key without its callback"
+		}
+	}
 	for _, q := range pos {
 		switch q.Class {
 		case ClassInBuffer, ClassOutBuffer:
