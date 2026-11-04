@@ -114,15 +114,14 @@ func checkFIFOSequence(t *testing.T, seed uint64, class Class) (int, error) {
 }
 
 func checkSocket(t *testing.T, class Class) error {
-	// A short path: a unix socket's name is at most 104 bytes on darwin.
-	base, err := os.MkdirTemp("", "sock")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(base)
-	root := filepath.Join(base, "c")
+	root := filepath.Join(t.TempDir(), "c")
 	mkdir(root)
-	listener, err := net.Listen("unix", filepath.Join(root, "s"))
+	// The socket sits in the checkout, whose path can be long (the gate's
+	// step TMPDIR): bind it by a relative name from the checkout, since a
+	// unix socket's address holds at most 104 bytes on darwin (108 on
+	// Linux). Walk reaches it by its full path, which has no such bound.
+	t.Chdir(root)
+	listener, err := net.Listen("unix", "s")
 	if err != nil {
 		return err
 	}
