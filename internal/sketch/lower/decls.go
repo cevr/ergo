@@ -71,6 +71,11 @@ type funcDecl struct {
 	extern   string
 	library  bool
 	emitted  bool
+	// lowered is set when the Go body has been written, and readsEnv then
+	// says whether that body names its environment parameter: the fact a
+	// machine plan's Step reads to decide whether it takes one (machine.go).
+	lowered  bool
+	readsEnv bool
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -916,6 +921,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		}
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 		body := l.intrinsic(f)(fc, paramNames)
+		fd.lowered, fd.readsEnv = true, namesIdent(body, fc.env)
 		b.WriteString(head.String() + " {\n" + body + "}\n\n")
 		return
 	}
@@ -943,6 +949,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
+	fd.lowered, fd.readsEnv = true, namesIdent(fc.out.String(), fc.env)
 	b.WriteString(fc.out.String())
 	b.WriteString("}\n\n")
 }

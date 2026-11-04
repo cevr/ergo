@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"go/scanner"
+	"go/token"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -25,13 +27,17 @@ import (
 // an initialization order, and a defect in it is reported at start, as a
 // let's is, even when nothing uses the machine.
 //
-// Step calls the step function directly: no closure, no allocation. A pure
-// step, with no error or capability row and an empty footprint (rows.md,
-// Footprints 2: no capability, no task start, no opaque call), reads no
-// environment, so its plan takes none (spec D5, the zero-overhead pure-call
-// contract) and passes the step function a nil environment. A step with a
-// row, or with a non-empty footprint, takes the environment first and
-// returns the failure carrier last, as the step function does (D3).
+// Step calls the step function directly: no closure, no allocation. A step
+// with no error or capability row whose lowered Go body never names its
+// environment parameter takes no environment (spec D5, the zero-overhead
+// pure-call contract): its plan passes the step function a nil one, which
+// nothing reads. Purity is decided from what the lowered body reads, not
+// from the rows and the footprint alone: a body with no row and an empty
+// footprint still reads the environment when it opens a `with` (calls.go,
+// with blocks copy it) or passes it to a function it calls. Any other step
+// takes the environment first and returns the failure carrier last, as the
+// step function does (D3). The Step is written after every user body is
+// lowered, so the fact exists when it is read.
 //
 // Initial and Step are Go methods of X, so they never collide with a
 // package function: a function on a machine never lowers to a Go method
@@ -84,25 +90,68 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 	b.WriteString("type " + td.name + " struct{}\n\n")
 	b.WriteString("var " + initial + " " + state + "\n\n")
 	b.WriteString("func (" + td.name + ") Initial() " + state + " { return " + initial + " }\n\n")
-	scope := newNamer(l.names)
-	s, e := scope.alloc("s"), scope.alloc("e")
-	if machinePure(m.step, fd) {
-		b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + fd.name + "(nil, " + s + ", " + e + ")\n}\n\n")
-	} else {
+	// The Step waits for the step's body: the body may come later in the
+	// source, and the plan's purity is a fact of that body.
+	l.pending = append(l.pending, func() {
+		if !fd.lowered && len(l.refusals) > 0 {
+			return // the body was refused, and that refusal is reported
+		}
+		b := &l.user
+		if td.library {
+			b = &l.gen
+		} else {
+			b.WriteString(l.directive(td.tn.Decl.Pos()))
+		}
+		scope := newNamer(l.names)
+		s, e := scope.alloc("s"), scope.alloc("e")
+		if machinePure(m.step, fd, site) {
+			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + fd.name + "(nil, " + s + ", " + e + ")\n}\n\n")
+			return
+		}
 		env := scope.alloc("env")
 		results := result
 		if fd.fallible {
 			results = "(" + result + ", error)"
 		}
 		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + fd.name + "(" + env + ", " + s + ", " + e + ")\n}\n\n")
-	}
+	})
 	l.machineInit(td, initial)
 }
 
 // machinePure reports a step whose plan takes no environment: no error
-// row, no capability row, and an empty footprint.
-func machinePure(step *check.Func, fd *funcDecl) bool {
-	return !fd.fallible && len(rowElems(step.Sig.Uses)) == 0 && frameFootprint(step.Pkg.Info, step.Decl).Empty()
+// row, no capability row, and a lowered body that never names its
+// environment. It reads the body's lowered fact, so it runs after the body
+// is written. A non-empty footprint (a capability, a task start, an opaque
+// call) always reads the environment; a body with one that reads none is a
+// compiler defect, not a pure step.
+func machinePure(step *check.Func, fd *funcDecl, site syntax.Node) bool {
+	if !fd.lowered {
+		ice(site, "the plan of a machine reads the step %s before its body is lowered", step.Name)
+	}
+	if !frameFootprint(step.Pkg.Info, step.Decl).Empty() && !fd.readsEnv {
+		ice(site, "the step %s has a non-empty footprint and its lowered body reads no environment", step.Name)
+	}
+	return !fd.fallible && len(rowElems(step.Sig.Uses)) == 0 && !fd.readsEnv
+}
+
+// namesIdent reports whether the Go text src names the identifier id as a
+// token: a string, a comment or a longer name that holds id does not count.
+func namesIdent(src, id string) bool {
+	if !strings.Contains(src, id) {
+		return false
+	}
+	fset := token.NewFileSet()
+	var s scanner.Scanner
+	s.Init(fset.AddFile("", -1, len(src)), []byte(src), nil, 0)
+	for {
+		_, tok, lit := s.Scan()
+		switch {
+		case tok == token.EOF:
+			return false
+		case tok == token.IDENT && lit == id:
+			return true
+		}
+	}
 }
 
 // machineInit lowers the machine's initial value into the initializer, as
