@@ -104,20 +104,19 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.returnStmt(s)
 	case *syntax.BranchStmt:
 		c.branchStmt(s)
-	case *syntax.BlockStmt:
-		// A bare block yields its last expression; return, break and
-		// continue may not leave it (grammar.md, Statements 5).
-		done := c.openScope()
-		c.fn.branches = append(c.fn.branches, branch{kind: brBarrier})
-		c.yieldingBlock(s, s.List, nil, true, false, func(op *operand) { c.handled(op) })
-		c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
-		done()
 	case *syntax.IfStmt:
+		// An else block is a branch of its if, like the body: a jump in it
+		// leaves what a jump in the body leaves (grammar.md, Statements 5).
+		// The grammar has no bare block statement (Statements 4), so no
+		// other block reaches stmt.
 		done := c.openScope()
 		c.condition(s.Cond)
 		c.block(s.Body)
-		if s.Else != nil {
-			c.stmt(s.Else)
+		switch e := s.Else.(type) {
+		case *syntax.BlockStmt:
+			c.block(e)
+		case *syntax.IfStmt:
+			c.stmt(e)
 		}
 		done()
 	case *syntax.SwitchStmt:
@@ -761,10 +760,18 @@ func (c *checker) terminates(s syntax.Stmt) bool {
 	switch s := s.(type) {
 	case *syntax.ReturnStmt:
 		return true
-	case *syntax.BlockStmt:
-		return c.terminatesList(s.List)
 	case *syntax.IfStmt:
-		return s.Else != nil && c.terminatesList(s.Body.List) && c.terminates(s.Else)
+		if !c.terminatesList(s.Body.List) {
+			return false
+		}
+		// The else is a branch: a block's list, or the next if of the chain.
+		switch e := s.Else.(type) {
+		case *syntax.BlockStmt:
+			return c.terminatesList(e.List)
+		case *syntax.IfStmt:
+			return c.terminates(e)
+		}
+		return false
 	case *syntax.ForStmt:
 		return s.Cond == nil && !hasBreak(s.Body)
 	case *syntax.SwitchStmt:

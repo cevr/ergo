@@ -3,9 +3,9 @@ package check
 import "ergo.local/prototype/internal/sketch/syntax"
 
 // Tail results (196r; spec D-C1 and D-C2). A body yields its last
-// statement: an expression statement's value, or the value of a final if,
-// match or bare block, whose branches yield their own last statements in
-// turn. One walk, yieldList, checks every such body against a sink: a
+// statement: an expression statement's value, or the value of a final if
+// or match, whose branches (an else block among them) yield their own last
+// statements in turn. One walk, yieldList, checks every such body against a sink: a
 // function body's result, a value if or match in an expression, a catch
 // arm, or a with block's or trailing block's known result. A branch that
 // ends in return, break or continue has no value and joins any type.
@@ -164,15 +164,6 @@ func (c *checker) yieldList(list []syntax.Stmt, k *sink, end syntax.Pos) {
 	c.yieldStmt(list[len(list)-1], k, end)
 }
 
-// isBranching reports a statement that yields through its branches.
-func isBranching(s syntax.Stmt) bool {
-	switch s.(type) {
-	case *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.BlockStmt:
-		return true
-	}
-	return false
-}
-
 // yieldStmt checks the last statement of a body.
 func (c *checker) yieldStmt(s syntax.Stmt, k *sink, end syntax.Pos) {
 	savedMark := c.stmtMark
@@ -189,12 +180,6 @@ func (c *checker) yieldStmt(s syntax.Stmt, k *sink, end syntax.Pos) {
 			k.bad = true
 			return
 		}
-	case *syntax.BlockStmt:
-		done := c.openScope()
-		c.fn.branches = append(c.fn.branches, branch{kind: brBarrier})
-		c.yieldList(s.List, k, s.Rbrace)
-		c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
-		done()
 	case *syntax.BranchStmt:
 		// break and continue leave the branch: no value, joins any type.
 		c.stmt(s)

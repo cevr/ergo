@@ -977,8 +977,8 @@ func (c *checker) blockLit(b *syntax.BlockStmt, expected *Signature, in *inferer
 }
 
 // yieldingBlock checks a block that yields its last statement, by the one
-// tail rule of function bodies (D-C1, D-C2): a with block, a bare block or
-// a trailing block. With one known result every path yields a value of
+// tail rule of function bodies (D-C1, D-C2): a with block, a trailing
+// block or a function literal's body with an inferred result. With one known result every path yields a value of
 // that type (S107 for a path without one); with no result the tail is
 // discarded; otherwise the block yields a value when every path does, of
 // the first value's type (a single unknown result is still the tail's

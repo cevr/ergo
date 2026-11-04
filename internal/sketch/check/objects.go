@@ -204,7 +204,7 @@ type Scope struct {
 	// capability-row bindings and its top-level locals
 	// (rows-and-constraints §7 amendment 3).
 	frame bool
-	// barrier marks a with block, a trailing block or a bare block: return,
+	// barrier marks a with block or a trailing block: return,
 	// break and continue may not cross it (grammar.md, Statements 5).
 	barrier bool
 }

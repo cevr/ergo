@@ -948,7 +948,7 @@ type branchKind int
 const (
 	brLoop branchKind = iota
 	brSwitch
-	brBarrier // a with, trailing or bare block: nothing crosses it
+	brBarrier // a with or trailing block: nothing crosses it
 )
 
 type branch struct {
