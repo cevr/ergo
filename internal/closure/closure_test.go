@@ -821,12 +821,22 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 // run, and returns the recorded inputs inside the roots. pkg names the
 // package in a violation. The test log and the output are kept in
 // stem.log and stem.out.
+//
+// It classifies the log before it removes the run's scratch directories:
+// a path the tests recorded through a link they left in scratch then
+// resolves through that link, as the read did. Classified after the
+// removal, such a path would name an absent place in scratch, which is no
+// input, and the read would be classified by nothing.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
-	run, err := runObserved(protect, pkg, pkgDir, stem, extra, binary, args...)
-	if err != nil {
+	var entries []entry
+	classify := func(run observedRun) (err error) {
+		entries, err = run.entries(roots)
+		return err
+	}
+	if _, err := runObserved(protect, pkg, pkgDir, stem, extra, classify, binary, args...); err != nil {
 		return nil, err
 	}
-	return run.entries(roots)
+	return entries, nil
 }
 
 // observedRun is one run of a test binary as the sweep runs it: the test log
@@ -846,8 +856,9 @@ func (o observedRun) entries(roots []string) ([]entry, error) {
 	return entries, nil
 }
 
-// runObserved is runTests up to the classification.
-func runObserved(protect, pkg, pkgDir, stem string, extra []string, binary string, args ...string) (observedRun, error) {
+// runObserved is runTests up to the classification. classify, if not nil,
+// runs while the run's scratch directories still exist.
+func runObserved(protect, pkg, pkgDir, stem string, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
 	fail := func(err error) (observedRun, error) { return observedRun{}, err }
 	s, err := newScratch()
 	if err != nil {
@@ -898,7 +909,13 @@ func runObserved(protect, pkg, pkgDir, stem string, extra []string, binary strin
 		}
 	}
 	writable := append(append([]string{"/dev/shm"}, s.dirs()...), sb.Kernel...)
-	return observedRun{pkgDir: pkgDir, stem: stem, log: data, id: newAccessIdentity(id, writable)}, nil
+	run := observedRun{pkgDir: pkgDir, stem: stem, log: data, id: newAccessIdentity(id, writable)}
+	if classify != nil {
+		if err := classify(run); err != nil {
+			return fail(err)
+		}
+	}
+	return run, nil
 }
 
 // summary groups inputs by their first two path elements, with a count and

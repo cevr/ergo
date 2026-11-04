@@ -286,7 +286,7 @@ func TestOutsideAgentChangesFailClosed(t *testing.T) {
 		}
 		sock, stop := startAgent(t)
 		stem := filepath.Join(dir, "internal_p")
-		o, runErr := runObserved(f.root, "internal/p", f.pkg, stem, []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, self, "-test.run=^TestAgentTarget$", "-test.v")
+		o, runErr := runObserved(f.root, "internal/p", f.pkg, stem, []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, nil, self, "-test.run=^TestAgentTarget$", "-test.v")
 		if err := stop(); err != nil {
 			t.Fatalf("run %d: the agent: %v", run, err)
 		}
@@ -422,7 +422,7 @@ func TestChangeAfterTheRunFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	sock, stop := startAgent(t)
-	o, err := runObserved(f.root, "internal/p", f.pkg, filepath.Join(dir, "internal_p"), []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, self, "-test.run=^TestAgentTarget$")
+	o, err := runObserved(f.root, "internal/p", f.pkg, filepath.Join(dir, "internal_p"), []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, nil, self, "-test.run=^TestAgentTarget$")
 	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
