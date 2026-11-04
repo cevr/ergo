@@ -291,7 +291,7 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 		ice(x, "the method value %s has no function type", x.Sel.Name)
 	}
 	if len(sig.Results) > 1 {
-		refuse(x, "a method value with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(x, ruleOneResult, "the method value %s has %d results", x.Sel.Name, len(sig.Results))
 	}
 	recv := fc.spill(fc.value(x.X))
 	return fc.envClosure(callerEnv, "e", x, func(e string) (params []string, results, body string) {

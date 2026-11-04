@@ -453,7 +453,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	if inst == nil {
 		for _, tp := range f.Sig.TParams {
 			if tp.Kind == check.KindType && !paramsMention(f.Sig, tp) {
-				refuse(site, "the generic function %s used as a value has a type parameter %s that no parameter names; its instantiation needs a check-v1 Info fact (lower-v1 request)", f.Name, tp.Name)
+				unreachable(site, ruleGenericValue, "the generic function %s used as a value with no instance, and its type parameter %s in no parameter", f.Name, tp.Name)
 			}
 		}
 	}
@@ -735,7 +735,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil || w.Decl.Needs != nil {
-		refuse(w.Decl, "a context header is checked by #196 stage b")
+		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
 	}
 }
 
@@ -748,7 +748,7 @@ func (l *lowerer) context(w *check.Context, site syntax.Node) {
 func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	w := with.Contexts[0]
 	if w.Decl == nil || l.isImported(w) {
-		refuse(site, "a with of an imported context is lowered after check-v1 stage B supplies its context (check-v1 r5b m2)")
+		refuse(site, "a with of an imported context is lowered when 196b lowers packages")
 	}
 	l.localContext(w, site)
 	fc := newFuncCtx(l, newNamer(l.names), true)
@@ -771,8 +771,8 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
 }
 
-// localContext keeps imported embeddings on their existing stage B refusal,
-// equally for named and inline contexts.
+// localContext refuses an imported embedding, which 196b lowers, equally
+// for named and inline contexts.
 func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 	visited := map[*check.Context]bool{}
 	var walk func(*check.Context)
@@ -782,7 +782,7 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 		}
 		visited[v] = true
 		if v.Lit == nil && (v.Decl == nil || l.isImported(v)) {
-			refuse(site, "an embedded imported context is lowered after check-v1 stage B")
+			refuse(site, "an embedded imported context is lowered when 196b lowers packages")
 		}
 		for _, e := range v.Entries {
 			if e.Embedded != nil {
@@ -879,7 +879,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
 	key, base, ok := adapterName(conv)
 	if !ok {
-		refuse(site, "an operations conversion from %s to %s is not lowered yet", conv.From, conv.To)
+		unreachable(site, ruleAccepted, "an operations conversion from %s to %s with no adapter (adapterName)", conv.From, conv.To)
 	}
 	to := conv.To.(*check.Named)
 	_, ptrSource, _ := opsSource(conv.From)

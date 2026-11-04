@@ -123,7 +123,7 @@ func (tc *typeCtx) funcType(s *check.Signature) string {
 	}
 	var result check.Type
 	if len(s.Results) > 1 {
-		refuse(tc.site, "a function type with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(tc.site, ruleOneResult, "a function type with %d results", len(s.Results))
 	}
 	if len(s.Results) == 1 {
 		result = s.Results[0]
@@ -169,7 +169,7 @@ func (tc *typeCtx) methodSig(s *check.Signature) string {
 		params = append(params, tc.goType(p.Type))
 	}
 	if len(s.Results) > 1 {
-		refuse(tc.site, "an operation with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(tc.site, ruleOneResult, "an operation with %d results", len(s.Results))
 	}
 	var result check.Type
 	if len(s.Results) == 1 {

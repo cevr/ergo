@@ -49,7 +49,18 @@ var implementedFamilies = []string{
 var refusedFamilies = map[string]string{
 	// Narrower families: a form of an implemented node that waits.
 	"call:With:imported": "196b",
-	"TypeDecl:errorText": "lower-v1 stage 3",
+	// The text of an error type with a field whose type has no text form
+	// (a Map, a tuple, a pointer): derived text forms are #49's.
+	"TypeDecl:errorText": "#49",
+	// An indexed slice literal `[]int{2: 5}`: the checker admits any int
+	// key, Go takes only distinct constant keys, and #196 has not decided
+	// what a computed, negative or repeated key does.
+	"CompositeLit:indexedSlice": "#196",
+	// Stage 4 of lower-v1 (S4d) made every other refusal of a form that a
+	// checker or parser rule refuses an internal compiler error that names
+	// the rule (unreachable, unreachable.go; TestRefusalsNameOpenOwners),
+	// and lowered a record whose renamed Error field meets a field named
+	// Error_ (TestErrorFieldNamesStayDistinct).
 	// Stage 4 of lower-v1 removed the family of a call of a std function
 	// with no runtime/v1 body (timeout.After): v1.After takes the caller's
 	// Scheduler as a hidden argument (Q-S4-7; TestTimeoutAfterLowers), and
@@ -86,8 +97,9 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},
-	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
+	{"call:With:imported", regexp.MustCompile(`^(a with of an|an embedded) imported context is lowered when 196b lowers packages`)},
+	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of type .+ waits for derived text forms \(#49\)`)},
+	{"CompositeLit:indexedSlice", regexp.MustCompile(`^an indexed slice literal waits for #196 to decide its keys`)},
 }
 
 // refusalFamily is the refused family a refusal message stands at, or "".

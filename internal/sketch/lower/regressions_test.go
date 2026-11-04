@@ -431,24 +431,11 @@ func main() fails Fault needs Console {
 	try fail()
 }
 `,
-		code: "S109", line: 1, column: 6, message: "the text of an error type with a field of type Map[string, int] is lowered in lower-v1 stage 3",
-	}, {
-		// stage 2 round 3 m1 (r04): the naming pass reads the error type
-		// under quiet and meets the collision first; the lowering reports
-		// the collision at the field, not a name the pass did not give.
-		name: "error-field-collision",
-		src: `type Bad { Error string, Error_ string }
-
-func fail() fails Bad {
-	return Bad{Error: "a", Error_: "b"}
-}
-
-func main() fails Bad needs Console {
-	try fail()
-}
-`,
-		code: "S109", line: 1, column: 26, message: "the field Error_ of Bad and another field have the same Go name Error_",
+		code: "S109", line: 1, column: 6, message: "the text of an error type with a field of type Map[string, int] waits for derived text forms (#49)",
 	}}
+	// stage 2 round 3 m1 (r04) was a refusal of an error type whose field
+	// Error_ met its renamed field Error; since lower-v1 stage 4 (S4d) the
+	// later field takes Error__ (TestErrorFieldNamesStayDistinct).
 	for _, c := range cases {
 		o := lowerSource(c.name, c.src, true)
 		if o.panicked != nil || o.err != nil {

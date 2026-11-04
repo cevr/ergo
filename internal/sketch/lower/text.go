@@ -113,7 +113,7 @@ func (l *lowerer) textTypes(t check.Type, site syntax.Node, seen map[pkgKey]bool
 		l.textTypes(u.Elem, site, seen, visit)
 		return
 	}
-	refuse(site, "the text of an error type with a field of type %s is lowered in lower-v1 stage 3", t)
+	refuse(site, "the text of an error type with a field of type %s waits for derived text forms (#49)", t)
 }
 
 // errorMethod writes the Error method of the error type td, and queues the

@@ -87,17 +87,17 @@ func TestCheckCorpusBuilds(t *testing.T) {
 	buildAll(t, programs, false)
 }
 
-// deferredOwners are the later stages and units a refusal may name: the
-// forms they own are not lowered yet. A refusal owned by a stage that has
-// landed (check-v1 stages A to C, #196 stage b) is a lowering gap.
-var deferredOwners = map[string]bool{
-	"check-v1 stage D": true,
-	"check-v1 stage E": true,
-	"lower-v1 stage 3": true,
-	"lower-v1 request": true,
-	"lower-v1":         true, // a runtime/v1 body runtime/** owns (timeout.After)
-	"unused by v1":     true,
-}
+// deferredOwners are the open owners a refusal may name: the forms they
+// own are not lowered yet. They are the open set of
+// TestRefusalsNameOpenOwners; a refusal owned by a stage or unit that has
+// landed (check-v1, lower-v1) is a lowering gap.
+var deferredOwners = func() map[string]bool {
+	m := map[string]bool{}
+	for _, o := range openOwners {
+		m[o] = true
+	}
+	return m
+}()
 
 // undeferred says why a refusal is not a documented deferral, or "".
 func undeferred(message string) string {

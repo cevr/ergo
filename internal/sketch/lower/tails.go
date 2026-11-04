@@ -107,7 +107,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 // previous condition, never before it.
 func (fc *funcCtx) ifYield(s *syntax.IfStmt, d dest) bool {
 	if s.Init != nil {
-		refuse(s, "an if with an init statement is not produced by the decided parser")
+		unreachable(s, ruleParser, "an if with an init statement")
 	}
 	cond := fc.value(s.Cond)
 	fc.line("if " + cond + " {")
@@ -134,7 +134,7 @@ func (fc *funcCtx) ifYield(s *syntax.IfStmt, d dest) bool {
 		fc.line("}")
 		return then && els
 	}
-	refuse(s.Else, "this else branch is not produced by the decided parser")
+	unreachable(s.Else, ruleParser, "an else branch that is neither a block nor an if")
 	return false
 }
 

@@ -138,7 +138,7 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 		ice(site, "the operation %s of %s has no implementing function and no operation type", op.Name, w.Arg)
 	}
 	if len(op.Sig.Results) > 1 {
-		refuse(site, "an operation with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(site, ruleOneResult, "the operation %s has %d results", op.Name, len(op.Sig.Results))
 	}
 	return fc.envClosure(callerEnv, "e", site, func(e string) (params []string, results, body string) {
 		var vals []string
@@ -196,7 +196,7 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 		args = append(args, n)
 	}
 	if len(op.Sig.Results) > 1 {
-		refuse(tc.site, "an operation with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(tc.site, ruleOneResult, "the operation %s has %d results", op.Name, len(op.Sig.Results))
 	}
 	var result check.Type
 	if len(op.Sig.Results) == 1 {

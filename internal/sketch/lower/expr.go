@@ -278,7 +278,7 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	case *syntax.MachineType:
 		ice(x, "a machine type in an expression; the checker refuses one (S108, unexpected type form in an expression)")
 	}
-	refuse(x, "this expression is not lowered yet")
+	unreachable(x, ruleAccepted, "an expression of the kind %T", x)
 	return operand{}
 }
 
@@ -340,7 +340,7 @@ func (fc *funcCtx) ident(id *syntax.Ident) string {
 	case nil:
 		ice(id, "the identifier %s has no Uses entry", id.Name)
 	}
-	refuse(id, "%s is not a value that lowering supports yet", id.Name)
+	unreachable(id, ruleAccepted, "the name %s in a value position is not a variable, a function, a constant or a bare record", id.Name)
 	return ""
 }
 
@@ -353,7 +353,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 					return fc.funcValue(f, fc.typeOf(x), x, nil)
 				}
 			}
-			refuse(x, "%s.%s is not a value that lowering supports yet", id.Name, x.Sel.Name)
+			refuse(x, "the value %s.%s of an imported package is lowered when 196b lowers packages", id.Name, x.Sel.Name)
 		}
 	}
 	if op := fc.methodOf(x); op != nil {
@@ -464,7 +464,7 @@ func (fc *funcCtx) unary(x *syntax.UnaryExpr) string {
 	case "-", "+", "!", "^", "&":
 		return "(" + op + fc.value(x.X) + ")"
 	}
-	refuse(x, "the operator %s is not produced by the decided parser", op)
+	unreachable(x, ruleParser, "the unary operator %s", op)
 	return ""
 }
 
@@ -490,7 +490,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 			return goType + "{}"
 		}
 		if td.kind != kindRecord && (td.kind != kindDefined || td.fieldName == nil) {
-			refuse(x, "a literal of %s is not a record literal", t)
+			unreachable(x, ruleAccepted, "a record-shaped literal of %s, which is not a record", t)
 		}
 		var keys []string
 		var values []syntax.Expr
@@ -531,7 +531,10 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		var values []syntax.Expr
 		for _, e := range x.Elts {
 			if _, ok := e.(*syntax.KeyValueExpr); ok {
-				refuse(e, "an indexed slice literal is not lowered yet")
+				// The checker admits an index key of any int expression;
+				// Go takes only distinct constant keys, and no Ergo rule
+				// says what a computed, negative or repeated key does.
+				refuse(e, "an indexed slice literal waits for #196 to decide its keys (Go takes only distinct constant keys); write the elements in order")
 			}
 			values = append(values, e)
 		}
@@ -553,7 +556,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		}
 		return goType + "{" + strings.Join(parts, ", ") + "}"
 	}
-	refuse(x, "a literal of %s is not lowered yet", t)
+	unreachable(x, ruleAccepted, "a composite literal of %s", t)
 	return ""
 }
 
@@ -668,7 +671,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 		ice(x, "a catch whose Partial fact disagrees with its try")
 	}
 	if x.Bind != nil {
-		refuse(x, "catch with a binding is not produced by the decided parser")
+		unreachable(x, ruleParser, "a catch with a binding")
 	}
 	o := fc.expr(x.X)
 	if o.err == "" {
@@ -698,7 +701,7 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	caseType := func(t check.Type, item syntax.Node) string {
 		goType := fc.goType(t)
 		if seen[goType] {
-			refuse(item, "this arm's type is an earlier arm's type, so this arm never runs; check-v1 stage B reports such an arm as unreachable (D-B4)")
+			unreachable(item, ruleCaughtTwice, "a catch arm of the Go type %s, which an earlier arm takes", goType)
 		}
 		seen[goType] = true
 		return goType
@@ -715,12 +718,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 				ar.types = append(ar.types, caseType(p.Type, te))
 			case check.PatAs:
 				if len(a.Types) != 1 || len(p.Elems) != 1 || p.Elems[0].Kind != check.PatTypeTest || p.Var == nil {
-					refuse(te, "this catch pattern is lowered after check-v1 stage C (one catch)")
+					unreachable(te, ruleSimpleCatch, "an as pattern that is not one type test in an arm of its own")
 				}
 				ar.types = append(ar.types, caseType(p.Elems[0].Type, te))
 				ar.as, bind = p.Var, true
 			default:
-				refuse(te, "this catch pattern is lowered after check-v1 stage C (one catch)")
+				unreachable(te, ruleSimpleCatch, "a catch pattern that is not a type test")
 			}
 		}
 		arms = append(arms, ar)
@@ -808,7 +811,7 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 		ice(n, "a function literal with no Literals entry")
 	}
 	if len(sig.Results) > 1 {
-		refuse(n, "a literal with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(n, ruleOneResult, "a function literal with %d results", len(sig.Results))
 	}
 	inner := fc.innerFuncCtx()
 	return fc.envClosure(callerEnv, "env", n, func(env string) (parts []string, results, body string) {

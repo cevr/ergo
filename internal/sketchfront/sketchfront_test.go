@@ -212,8 +212,8 @@ func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
 		t.Fatalf("build gave %v, want a BuildError", err)
 	}
 	d := refusal.Diagnostics[0]
-	if d.Code != "S109" || !strings.Contains(d.Message, "lower-v1 stage 3") || d.Span.Line != 1 || d.Span.Column != 6 {
-		t.Fatalf("refusal %+v, want an S109 at 1:6 naming lower-v1 stage 3", d)
+	if d.Code != "S109" || !strings.Contains(d.Message, "(#49)") || d.Span.Line != 1 || d.Span.Column != 6 {
+		t.Fatalf("refusal %+v, want an S109 at 1:6 naming its owner #49", d)
 	}
 	if _, statErr := os.Stat(output); statErr == nil {
 		t.Fatal("a refused build wrote its output")

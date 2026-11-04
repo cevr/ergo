@@ -60,6 +60,13 @@ func main() { with (Tag{V: 1}) { } }
 		`type Fault { F Map[string, int] }
 func main() fails Fault { return Fault{F: Map[string, int]{}} }
 `,
+		// An indexed slice literal: the checker admits it, and its keys
+		// wait for #196.
+		`func main() needs Console {
+	let xs = []int{2: 5}
+	Console.Println("\(len(xs))")
+}
+`,
 	)
 	seen, met := map[string]bool{}, map[string]int{}
 	for _, src := range sources {
