@@ -225,9 +225,9 @@ func (c Cache) module(in Input, emit Emitter) (Module, error) {
 	return Module{}, fmt.Errorf("build: cache entry %s keeps failing verification", dir)
 }
 
-// held is a verified entry's manifest and the release of the build's lock
+// hit is a verified entry's manifest and the release of the build's lock
 // on it.
-type held struct {
+type hit struct {
 	Manifest
 	release func()
 }
@@ -239,29 +239,29 @@ type held struct {
 // moved aside and released. A trim that moved the entry between the open
 // and the lock makes it open dir again, so a build never verifies or uses
 // a path while it holds the lock of another directory.
-func (c Cache) reuse(dir, key string, summary Summary) (held, error) {
+func (c Cache) reuse(dir, key string, summary Summary) (hit, error) {
 	for range 16 {
 		f, err := os.Open(dir)
 		if errors.Is(err, fs.ErrNotExist) {
-			return held{}, fs.ErrNotExist
+			return hit{}, fs.ErrNotExist
 		}
 		if errors.Is(err, fs.ErrPermission) {
 			// An entry the build may not open is damaged as one it may not
 			// read: move it aside and build again, as verify would.
 			if err := c.discard(dir, key, summary); err != nil {
-				return held{}, err
+				return hit{}, err
 			}
-			return held{}, fs.ErrNotExist
+			return hit{}, fs.ErrNotExist
 		}
 		if err != nil {
-			return held{}, err
+			return hit{}, err
 		}
 		if testHookEntryOpened != nil {
 			testHookEntryOpened(dir)
 		}
 		if err := lockShared(f); err != nil {
 			f.Close()
-			return held{}, err
+			return hit{}, err
 		}
 		info, same := sameFile(f, dir)
 		if !same {
@@ -271,20 +271,20 @@ func (c Cache) reuse(dir, key string, summary Summary) (held, error) {
 		manifest, err := verify(dir, key, summary)
 		if err == nil {
 			mark(dir, info, time.Now())
-			return held{Manifest: manifest, release: closer(f)}, nil
+			return hit{Manifest: manifest, release: closer(f)}, nil
 		}
 		if errors.Is(err, errCorrupt) {
 			err = c.discard(dir, key, summary)
 			f.Close()
 			if err != nil {
-				return held{}, err
+				return hit{}, err
 			}
-			return held{}, fs.ErrNotExist
+			return hit{}, fs.ErrNotExist
 		}
 		f.Close()
-		return held{}, err
+		return hit{}, err
 	}
-	return held{}, fmt.Errorf("build: cache entry %s keeps being removed", dir)
+	return hit{}, fmt.Errorf("build: cache entry %s keeps being removed", dir)
 }
 
 // publish writes the runtime files, the emitted files and then the
