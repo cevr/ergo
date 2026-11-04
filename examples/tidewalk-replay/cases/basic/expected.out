@@ -1,0 +1,332 @@
+== shore move 0/15 - start tide 0 shells 0/3 playing events -
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#00110s1#
+##@000###
+
+== shore move 1/15 N enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#0@110s1#
+##1000###
+
+== shore move 2/15 W enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#@0110s1#
+##1000###
+
+== shore move 3/15 N enter tide 0 shells 1/3 playing events walked shell
+###22#333
+#1112#233
+#0#112s##
+0@111#21#
+#00110s1#
+##1000###
+
+== shore move 4/15 E enter tide 0 shells 1/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+00@11#21#
+#00110s1#
+##1000###
+
+== shore move 5/15 E enter tide 0 shells 1/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+001@1#21#
+#00110s1#
+##1000###
+
+== shore move 6/15 E enter tide 1 shells 1/3 playing events walked tide
+###22#333
+#1112#233
+#~#112s##
+~~11@#21#
+#~~11~s1#
+##1~~~###
+
+== shore move 7/15 N enter tide 1 shells 1/3 playing events walked
+###22#333
+#1112#233
+#~#1@2s##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== shore move 8/15 E enter tide 1 shells 1/3 playing events walked
+###22#333
+#1112#233
+#~#11@s##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== shore move 9/15 E enter tide 1 shells 2/3 playing events walked shell
+###22#333
+#1112#233
+#~#112@##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== shore move 10/15 S enter tide 1 shells 2/3 playing events walked
+###22#333
+#1112#233
+#~#1122##
+~~111#@1#
+#~~11~s1#
+##1~~~###
+
+== shore move 11/15 S enter tide 1 shells 3/3 playing events walked shell
+###22#333
+#1112#233
+#~#1122##
+~~111#21#
+#~~11~@1#
+##1~~~###
+
+== shore move 12/15 N enter tide 2 shells 3/3 playing events walked tide
+###22#333
+#~~~2#233
+#~#~~22##
+~~~~~#@~#
+#~~~~~~~#
+##~~~~###
+
+== shore move 13/15 N enter tide 2 shells 3/3 playing events walked
+###22#333
+#~~~2#233
+#~#~~2@##
+~~~~~#2~#
+#~~~~~~~#
+##~~~~###
+
+== shore move 14/15 N enter tide 2 shells 3/3 playing events walked
+###22#333
+#~~~2#@33
+#~#~~22##
+~~~~~#2~#
+#~~~~~~~#
+##~~~~###
+
+== shore move 15/15 E enter tide 2 shells 3/3 won events walked peak
+###22#333
+#~~~2#2@3
+#~#~~22##
+~~~~~#2~#
+#~~~~~~~#
+##~~~~###
+
+result shore won shells 3/3 turns 15
+== greedy move 0/10 - start tide 0 shells 0/3 playing events -
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#00110s1#
+##@000###
+
+== greedy move 1/10 N enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#0@110s1#
+##1000###
+
+== greedy move 2/10 W enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#@0110s1#
+##1000###
+
+== greedy move 3/10 N enter tide 0 shells 1/3 playing events walked shell
+###22#333
+#1112#233
+#0#112s##
+0@111#21#
+#00110s1#
+##1000###
+
+== greedy move 4/10 E enter tide 0 shells 1/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+00@11#21#
+#00110s1#
+##1000###
+
+== greedy move 5/10 E enter tide 0 shells 1/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+001@1#21#
+#00110s1#
+##1000###
+
+== greedy move 6/10 S enter tide 1 shells 1/3 playing events walked tide
+###22#333
+#1112#233
+#~#112s##
+~~111#21#
+#~~@1~s1#
+##1~~~###
+
+== greedy move 7/10 E enter tide 1 shells 1/3 playing events walked
+###22#333
+#1112#233
+#~#112s##
+~~111#21#
+#~~1@~s1#
+##1~~~###
+
+== greedy move 8/10 E enter tide 1 shells 1/3 drowned events walked drowned
+###22#333
+#1112#233
+#~#112s##
+~~111#21#
+#~~11@s1#
+##1~~~###
+
+== greedy move 9/10 N ignore tide 1 shells 1/3 drowned events -
+###22#333
+#1112#233
+#~#112s##
+~~111#21#
+#~~11@s1#
+##1~~~###
+
+== greedy move 10/10 N ignore tide 1 shells 1/3 drowned events -
+###22#333
+#1112#233
+#~#112s##
+~~111#21#
+#~~11@s1#
+##1~~~###
+
+result greedy drowned shells 1/3 turns 8
+== bump move 0/13 - start tide 0 shells 0/3 playing events -
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#00110s1#
+##@000###
+
+== bump move 1/13 S reject tide 0 shells 0/3 playing events -
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#00110s1#
+##@000###
+
+== bump move 2/13 W reject tide 0 shells 0/3 playing events -
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#00110s1#
+##@000###
+
+== bump move 3/13 . enter tide 0 shells 0/3 playing events waited
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#00110s1#
+##@000###
+
+== bump move 4/13 N enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+0s111#21#
+#0@110s1#
+##1000###
+
+== bump move 5/13 N enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+0s@11#21#
+#00110s1#
+##1000###
+
+== bump move 6/13 E enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#112s##
+0s1@1#21#
+#00110s1#
+##1000###
+
+== bump move 7/13 N enter tide 0 shells 0/3 playing events walked
+###22#333
+#1112#233
+#0#@12s##
+0s111#21#
+#00110s1#
+##1000###
+
+== bump move 8/13 E enter tide 1 shells 0/3 playing events walked tide
+###22#333
+#1112#233
+#~#1@2s##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== bump move 9/13 E enter tide 1 shells 0/3 playing events walked
+###22#333
+#1112#233
+#~#11@s##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== bump move 10/13 E enter tide 1 shells 1/3 playing events walked shell
+###22#333
+#1112#233
+#~#112@##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== bump move 11/13 N enter tide 1 shells 1/3 playing events walked
+###22#333
+#1112#@33
+#~#1122##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== bump move 12/13 N enter tide 1 shells 1/3 won events walked peak
+###22#@33
+#1112#233
+#~#1122##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+== bump move 13/13 E ignore tide 1 shells 1/3 won events -
+###22#@33
+#1112#233
+#~#1122##
+~~111#21#
+#~~11~s1#
+##1~~~###
+
+result bump won shells 1/3 turns 10
+rejected typo: move 3 is not one of N E S W .
