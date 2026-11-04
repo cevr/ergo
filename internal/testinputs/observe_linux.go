@@ -371,7 +371,15 @@ func observe(root string) (int, *recorder, error) {
 	defer parent.Close()
 	command := exec.Command(executable, os.Args[1:]...)
 	command.Args[0] = os.Args[0]
-	command.Env = append(os.Environ(), listenerVariable+"="+strconv.Itoa(childSocket))
+	identityFile := os.Getenv(IdentityVariable)
+	// The identity file is the observer's; the tests do not receive it.
+	command.Env = nil
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, IdentityVariable+"=") {
+			command.Env = append(command.Env, kv)
+		}
+	}
+	command.Env = append(command.Env, listenerVariable+"="+strconv.Itoa(childSocket))
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 	command.ExtraFiles = []*os.File{child}
 	// The test process dies with this one: cmd/go kills only the process it
@@ -399,6 +407,15 @@ func observe(root string) (int, *recorder, error) {
 	}()
 	o := newObserver(root)
 	o.child, o.executable = command.Process.Pid, executable
+	if identityFile != "" {
+		// Identity mode starts before the child takes its filter, so
+		// before the tests start.
+		if id, err := newIdentity(identityFile, o.rec); err != nil {
+			o.rec.refuse("identity mode: " + err.Error())
+		} else {
+			o.rec.ident = id
+		}
+	}
 	listener, err := takeListener(int(parent.Fd()), command.Process.Pid)
 	if err != nil {
 		o.rec.fail(err.Error())
@@ -407,6 +424,7 @@ func observe(root string) (int, *recorder, error) {
 	}
 	err = command.Wait()
 	o.rec.stop()
+	o.rec.finishIdentity()
 	if !o.armed.Load() {
 		o.rec.refuse("the test process never reported its armed filter")
 	}
