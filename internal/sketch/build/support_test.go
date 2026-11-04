@@ -50,6 +50,12 @@ func helperMain(mode string) int {
 	if mode == "lease" {
 		return leaseHelper()
 	}
+	if mode == "hold" {
+		return holdHelper()
+	}
+	if mode == "trim-crash" {
+		return trimCrashHelper()
+	}
 	if mode == "identity" {
 		identity, err := CompilerIdentity()
 		if err != nil {

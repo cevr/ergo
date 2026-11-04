@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,9 +26,9 @@ import (
 type Cache struct{ Root string }
 
 // privateLifetime is how long a private root stays after a build last took
-// it. A sweep, which a Module call runs at most once per sweepInterval,
+// it. A trim, which a Module call starts at most once per trimInterval,
 // removes an older root only when no build holds its lease (lease.go).
-const privateLifetime = 24 * time.Hour
+const privateLifetime = unusedLimit
 
 // DefaultRoot is $XDG_CACHE_HOME/ergo when XDG_CACHE_HOME is absolute,
 // else os.UserCacheDir()/ergo. The XDG base directory specification makes
@@ -83,19 +84,26 @@ type Module struct {
 	// module was built in the process's private root and not published.
 	Private  bool
 	Manifest Manifest
-	// release gives back the build's lease on a private root; nil for a
-	// published module.
+	// release gives back the build's shared lock on the module's directory
+	// and, for a private module, its lease on the private root.
 	release func()
 }
 
-// Release ends the build's hold on its module: a private module's root
-// keeps its lease, and so survives every sweep, from Module until Release.
-// Call it after the link that reads the module, on every path; it is safe
-// to call more than once, and a no-op for a published module.
+// Release ends the build's hold on its module. From Module until Release
+// the build holds a shared lock on the module's directory, so no trim moves
+// or removes it, and a private module's root keeps its lease. Call it after
+// the link that reads the module, on every path, for a published module
+// too; it is safe to call more than once.
 func (m Module) Release() {
 	if m.release != nil {
 		m.release()
 	}
+}
+
+// closer is a release that closes f once, which drops its lock.
+func closer(f *os.File) func() {
+	var once sync.Once
+	return func() { once.Do(func() { f.Close() }) }
 }
 
 // Emitter produces the generated files of a module, apart from the runtime
@@ -109,23 +117,34 @@ var errCorrupt = errors.New("corrupt cache entry")
 // rename that publishes it. Tests use it to interrupt publication.
 var testHookStaged func(staging string) error
 
+// testHookEntryOpened, when set, runs after a build has opened an entry
+// and before it locks it.
+var testHookEntryOpened func(dir string)
+
 // Module returns the published module of in, emitting and publishing it on
 // a miss. A complete entry whose files match its manifest is reused as it
-// is. An entry that does not verify (a missing, extra, altered or
-// non-regular file, or an unreadable or foreign manifest) is moved aside
-// and removed, then replaced. When builders race, the first rename wins and
-// every other builder verifies and uses the winner's entry.
+// is, and marked as used (trim.go). An entry that does not verify (a
+// missing, extra, altered or non-regular file, or an unreadable or foreign
+// manifest) is moved aside and removed, then replaced. When builders race,
+// the first rename wins and every other builder verifies and uses the
+// winner's entry.
+//
+// The build holds a shared lock on the module's directory, from before it
+// verifies the entry, or from before it writes the first byte of a new one,
+// until the caller calls Release on the module, after its link; on failure
+// Module holds nothing when it returns. A trim never moves a directory a
+// build holds. Module starts the cache's trim when one is due, after it has
+// decided its own module and while it holds it.
 //
 // When in.Compiler is process-scoped, the same steps run in the process's
 // private root instead, and the module is never published: a key that only
-// one process can trust never names a shared entry. The build holds the
-// root's lease until the caller calls Release on the module, after its
-// link; on failure Module releases it before it returns.
+// one process can trust never names a shared entry. The build also holds
+// the root's lease until Release.
 func (c Cache) Module(in Input, emit Emitter) (Module, error) {
 	if !filepath.IsAbs(c.Root) {
 		return Module{}, fmt.Errorf("build: cache root %q is not absolute", c.Root)
 	}
-	defer c.maybeSweep(time.Now())
+	defer func() { c.maybeTrim(time.Now()) }()
 	if !processScoped(in.Compiler) {
 		return c.module(in, emit)
 	}
@@ -143,7 +162,9 @@ func (c Cache) Module(in Input, emit Emitter) (Module, error) {
 	if err != nil {
 		return Module{}, err
 	}
-	module.Private, module.release, held = true, release, true
+	entry := module.release
+	module.Private, held = true, true
+	module.release = func() { entry(); release() }
 	return module, nil
 }
 
@@ -179,15 +200,11 @@ func (c Cache) module(in Input, emit Emitter) (Module, error) {
 	// Each pass either returns or removes one corrupt entry; a third pass
 	// means another writer keeps corrupting the path.
 	for pass := 0; pass < 3; pass++ {
-		manifest, err := verify(dir, key, summary)
+		entry, err := c.reuse(dir, key, summary)
 		if err == nil {
-			return Module{Dir: dir, Key: key, Reused: !emitted, Manifest: manifest}, nil
+			return Module{Dir: dir, Key: key, Reused: !emitted, Manifest: entry.Manifest, release: entry.release}, nil
 		}
-		if errors.Is(err, errCorrupt) {
-			if err := c.discard(dir, key, summary); err != nil {
-				return Module{}, err
-			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
+		if !errors.Is(err, fs.ErrNotExist) {
 			return Module{}, err
 		}
 		if !emitted {
@@ -196,9 +213,9 @@ func (c Cache) module(in Input, emit Emitter) (Module, error) {
 			}
 			emitted = true
 		}
-		manifest, err = c.publish(dir, key, summary, in.Runtime, files)
+		published, held, err := c.publish(dir, key, summary, in.Runtime, files)
 		if err == nil {
-			return Module{Dir: dir, Key: key, Manifest: manifest}, nil
+			return Module{Dir: dir, Key: key, Manifest: published, release: closer(held)}, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {
 			return Module{}, err
@@ -208,17 +225,83 @@ func (c Cache) module(in Input, emit Emitter) (Module, error) {
 	return Module{}, fmt.Errorf("build: cache entry %s keeps failing verification", dir)
 }
 
+// held is a verified entry's manifest and the release of the build's lock
+// on it.
+type held struct {
+	Manifest
+	release func()
+}
+
+// reuse takes the entry at dir for a build: it opens it, takes a shared
+// lock, checks that dir still names the locked directory, verifies it and
+// marks it used, and returns it holding the lock. It returns an error
+// satisfying fs.ErrNotExist on a miss: no entry, or a corrupt one that it
+// moved aside and released. A trim that moved the entry between the open
+// and the lock makes it open dir again, so a build never verifies or uses
+// a path while it holds the lock of another directory.
+func (c Cache) reuse(dir, key string, summary Summary) (held, error) {
+	for range 16 {
+		f, err := os.Open(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			return held{}, fs.ErrNotExist
+		}
+		if errors.Is(err, fs.ErrPermission) {
+			// An entry the build may not open is damaged as one it may not
+			// read: move it aside and build again, as verify would.
+			if err := c.discard(dir, key, summary); err != nil {
+				return held{}, err
+			}
+			return held{}, fs.ErrNotExist
+		}
+		if err != nil {
+			return held{}, err
+		}
+		if testHookEntryOpened != nil {
+			testHookEntryOpened(dir)
+		}
+		if err := lockShared(f); err != nil {
+			f.Close()
+			return held{}, err
+		}
+		info, same := sameFile(f, dir)
+		if !same {
+			f.Close() // a trim moved the entry while this waited
+			continue
+		}
+		manifest, err := verify(dir, key, summary)
+		if err == nil {
+			mark(dir, info, time.Now())
+			return held{Manifest: manifest, release: closer(f)}, nil
+		}
+		if errors.Is(err, errCorrupt) {
+			err = c.discard(dir, key, summary)
+			f.Close()
+			if err != nil {
+				return held{}, err
+			}
+			return held{}, fs.ErrNotExist
+		}
+		f.Close()
+		return held{}, err
+	}
+	return held{}, fmt.Errorf("build: cache entry %s keeps being removed", dir)
+}
+
 // publish writes the runtime files, the emitted files and then the
-// manifest into a private staging directory and renames it to dir. It
-// returns an error satisfying fs.ErrExist when an entry is already there.
-// Staging is removed unless the rename published it.
-func (c Cache) publish(dir, key string, summary Summary, runtime, emitted []File) (Manifest, error) {
+// manifest into a private staging directory and renames it to dir. The
+// builder takes a shared lock on the staging directory before it writes a
+// byte, and on success returns that directory, open and locked: the lock
+// follows the directory through the rename, so the new entry is held from
+// its first byte until the build releases it. It returns an error
+// satisfying fs.ErrExist when an entry is already there. Staging is
+// removed, and its lock released, unless the rename published it.
+func (c Cache) publish(dir, key string, summary Summary, runtime, emitted []File) (Manifest, *os.File, error) {
 	manifest := Manifest{Schema: SchemaVersion, Key: key, Input: summary}
 	seen := map[string]bool{}
 	all := append(append([]File{}, runtime...), emitted...)
 	for _, f := range all {
 		if err := checkModulePath(f.Path, seen); err != nil {
-			return Manifest{}, err
+			return Manifest{}, nil, err
 		}
 		manifest.Outputs = append(manifest.Outputs, digestOf(f.Path, f.Data))
 	}
@@ -226,45 +309,61 @@ func (c Cache) publish(dir, key string, summary Summary, runtime, emitted []File
 	manifest.Complete = true
 	encoded, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
 	stagingRoot := filepath.Join(c.Root, "staging")
 	for _, d := range []string{stagingRoot, filepath.Dir(dir)} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return Manifest{}, err
+			return Manifest{}, nil, err
 		}
 	}
 	staging, err := os.MkdirTemp(stagingRoot, key+".")
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
+	var lock *os.File
 	published := false
 	defer func() {
 		if !published {
 			_ = os.RemoveAll(staging)
+			if lock != nil {
+				lock.Close()
+			}
 		}
 	}()
+	// The lock comes before any write: a trim removes a staging directory
+	// only when it takes its lock, and only when it is older than
+	// stagingLifetime, which covers the two calls before the lock.
+	if lock, err = os.Open(staging); err != nil {
+		return Manifest{}, nil, err
+	}
+	if err := lockShared(lock); err != nil {
+		return Manifest{}, nil, err
+	}
+	if _, same := sameFile(lock, staging); !same {
+		return Manifest{}, nil, fmt.Errorf("build: staging %s was removed", staging)
+	}
 	if err := os.Chmod(staging, 0o755); err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
 	for _, f := range all {
 		if err := writeNew(filepath.Join(staging, filepath.FromSlash(f.Path)), f.Data); err != nil {
-			return Manifest{}, err
+			return Manifest{}, nil, err
 		}
 	}
 	if err := writeNew(filepath.Join(staging, ManifestName), append(encoded, '\n')); err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
 	if testHookStaged != nil {
 		if err := testHookStaged(staging); err != nil {
-			return Manifest{}, err
+			return Manifest{}, nil, err
 		}
 	}
 	if err := os.Rename(staging, dir); err != nil {
-		return Manifest{}, err
+		return Manifest{}, nil, err
 	}
 	published = true
-	return manifest, nil
+	return manifest, lock, nil
 }
 
 // writeNew creates path, and its parent directories, with data. It never

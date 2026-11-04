@@ -92,7 +92,7 @@ func present(roots []string) int {
 	return n
 }
 
-func (f *sweepFixture) stampPath() string { return filepath.Join(f.root, "private", stampName) }
+func (f *sweepFixture) stampPath() string { return filepath.Join(f.root, trimStampName) }
 
 // stamp reads the stamp file.
 func (f *sweepFixture) stamp() stamp {
@@ -105,10 +105,10 @@ func (f *sweepFixture) stamp() stamp {
 }
 
 // due makes the sweep due from the start: the last complete sweep ended
-// more than sweepInterval ago.
+// more than trimInterval ago.
 func (f *sweepFixture) due() {
 	f.t.Helper()
-	old := stamp{completed: time.Now().Add(-sweepInterval - time.Hour).Unix()}
+	old := stamp{completed: time.Now().Add(-trimInterval - time.Hour).Unix()}
 	if err := os.WriteFile(f.stampPath(), old.bytes(), 0o644); err != nil {
 		f.t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func (f *sweepFixture) leftovers() []string {
 }
 
 // TestSweepIsRateLimited (round 2 review O1, round 3 review M1): a complete
-// sweep starts at most once per sweepInterval per cache. A recent stamp
+// sweep starts at most once per trimInterval per cache. A recent stamp
 // means no pass, so an aged, ownerless root stays; a due stamp runs a pass,
 // which removes it and records the sweep complete; a pass another process
 // has claimed (it holds the stamp's lock) is not run twice; and a pass that
@@ -212,6 +212,55 @@ func TestSweepCatchesUpWithABacklog(t *testing.T) {
 	if present(late) != 1 {
 		t.Fatal("a build swept although the sweep had just completed")
 	}
+
+	// Published entries and staging share the trim, its stamp and its
+	// bounds (required test 8): a backlog of three passes' worth of
+	// unused entries behind more young entries than one pass examines
+	// drains over several builds, each pass within its bounds, and the
+	// stamp records the trim complete only at the end.
+	plantEntries := func(prefix string, n int, age time.Duration) []string {
+		var dirs []string
+		for i := range n {
+			dir := filepath.Join(f.root, "modules", fmt.Sprintf("%s-%04d", prefix, i))
+			if err := os.MkdirAll(filepath.Join(dir, "rt"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mustWrite(t, filepath.Join(dir, "rt", "rt.go"), "package rt\n")
+			then := time.Now().Add(-age)
+			if err := os.Chtimes(dir, then, then); err != nil {
+				t.Fatal(err)
+			}
+			dirs = append(dirs, dir)
+		}
+		return dirs
+	}
+	youngEntries := plantEntries("young", sweepEntries+76, time.Hour)
+	unused := plantEntries("unused", 3*sweepRemovals+10, 2*unusedLimit)
+	if p := f.c.trim(time.Now(), 0); p.complete || p.examined > sweepEntries || p.removed != sweepRemovals {
+		t.Fatalf("one pass over the backlog: %+v; want an unfinished pass within %d names and %d removals", p, sweepEntries, sweepRemovals)
+	}
+	f.due()
+	builds = 0
+	// About 2400 names (young private roots and entries) and 138 removals:
+	// three passes for the removals and three for the names bound the work.
+	for builds < 3+3+2 && !f.stamp().recent(time.Now()) {
+		before := present(unused)
+		f.build()
+		builds++
+		if removed := before - present(unused); removed > sweepRemovals {
+			t.Fatalf("build %d removed %d entries, more than one pass's %d", builds, removed, sweepRemovals)
+		}
+		if present(unused) > 0 && f.stamp().recent(time.Now()) {
+			t.Fatalf("build %d recorded the trim complete with %d unused entries left", builds, present(unused))
+		}
+	}
+	t.Logf("the entry backlog cleared in %d builds", builds)
+	if left := present(unused); left != 0 || !f.stamp().recent(time.Now()) {
+		t.Fatalf("after %d builds: %d unused entries left, stamp %+v; want none and a complete trim", builds, left, f.stamp())
+	}
+	if left := present(youngEntries); left != len(youngEntries) {
+		t.Fatalf("the trim removed %d young entries", len(youngEntries)-left)
+	}
 }
 
 // TestKilledSweepIsRetried (round 3 review m2): a process killed during a
@@ -284,7 +333,7 @@ func TestStampReading(t *testing.T) {
 			t.Errorf("readStamp(%q) = %+v, want %+v", text, got, want)
 		}
 	}
-	if !(stamp{completed: now.Unix()}).recent(now) || (stamp{}).recent(now) || (stamp{completed: now.Add(-sweepInterval).Unix()}).recent(now) {
+	if !(stamp{completed: now.Unix()}).recent(now) || (stamp{}).recent(now) || (stamp{completed: now.Add(-trimInterval).Unix()}).recent(now) || (stamp{completed: now.Add(time.Minute).Unix()}).recent(now) {
 		t.Fatal("recent misjudges a stamp")
 	}
 }
@@ -320,7 +369,7 @@ func TestFailedLeftoverRemovalIsNotCounted(t *testing.T) {
 		t.Fatalf("the leftover is gone: %v", err)
 	}
 	aged := f.plant("aged", sweepRemovals, true)
-	if complete, _ := f.c.sweep(time.Now(), 0); !complete || present(aged) != 0 {
-		t.Fatalf("a pass with a stuck leftover: complete %v, %d of %d aged roots left; want all removed", complete, present(aged), len(aged))
+	if p := f.c.trim(time.Now(), 0); !p.complete || present(aged) != 0 {
+		t.Fatalf("a pass with a stuck leftover: complete %v, %d of %d aged roots left; want all removed", p.complete, present(aged), len(aged))
 	}
 }
