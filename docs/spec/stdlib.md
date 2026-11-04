@@ -34,7 +34,7 @@ Out of scope for now: durable workflows.
 
 ## Prelude
 
-The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random` and `Console`. Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The four capabilities are ordinary interfaces bound by `context` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
+The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random` and `Console`. Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The same holds for a prelude function on a prelude type, which is that type's operation (196m): `Sleep` is `LiveScheduler`'s, reached as `LiveScheduler.Sleep(d)` or through a context that binds `Scheduler: LiveScheduler`. A bare `Sleep(…)` is S104 naming the dot form, and a program may declare its own Scheduler provider with its own `func Sleep(s Instant, d duration)` (checker-fixes prelude-scope S1). `check.IsPredeclared` reports the names the prelude and the universe predeclare, for tools such as bind-c. The four capabilities are ordinary interfaces bound by `context` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
 
 ## v1 packages: task, scope, queue and slice
 

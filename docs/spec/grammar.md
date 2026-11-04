@@ -143,6 +143,7 @@ ContextEntry   = [ "replace" ] TypeName { "," TypeName } ":" Expression | TypeNa
    - A user extern whose target is in the Ergo runtime (`ergo.local/prototype/runtime/…`) is S108: only std binds the runtime, because its functions take hidden arguments that std's bindings supply ([stdlib](stdlib.md)).
    - A user extern whose target is in Go's `unsafe` package (`unsafe.Sizeof`, `unsafe.Pointer`, …) is S108 "Ergo has no unsafe; unsafe stays at the FFI edge" at the declaration, whatever its signature ([NORTH_STAR](../../NORTH_STAR.md), Owner rules). So no Go built-in is a target.
    - The checker trusts the written signature and does not read the Go target; `go build` does.
+   - An extern's parameter names follow a function's binder rules, in std and in user code alike: a prelude name is D-D3's S108, and a name used twice is S108 "x is already a parameter of f" (checker-fixes prelude-scope S2). The names bind nothing, because an extern has no body.
 
    *Prior art:* Gleam `@external` and ReScript `external` trust a written type. cgo functions and Go's built-ins are call-only. Elixir makes a function value only by an explicit capture (`&:math.sqrt/1`), as the wrapping literal does.
 3. **Type parameters** are declared in brackets, each with an optional inline constraint: `[T ordered]`, `[A, B]`, `[K comparable, V]`. The kinds stay implicit: a parameter after `fails` is an error row and one after `needs` a capability row (196g as amended). A bare upper-case letter is not a parameter by itself.
