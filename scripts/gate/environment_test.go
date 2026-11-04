@@ -33,6 +33,7 @@ func TestGoRuntimeEnvironmentKeysEveryStepThatRunsGoPrograms(t *testing.T) {
 			if step.Inputs != nil && step.Argv[0] == "go" {
 				declared := *step.Inputs
 				declared.Paths, declared.Exclude, declared.Installed = []string{"src/"}, nil, nil
+				declared.Built = nil
 				key, err := g.key(&Step{Name: step.Name, Argv: step.Argv, Inputs: &declared})
 				if err != nil {
 					t.Fatal(err)
