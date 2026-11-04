@@ -141,7 +141,7 @@ func checkGoNames(t *testing.T, std types.Importer, b *Binding) []byte {
 		if !strings.Contains(report, line) {
 			t.Errorf("report.txt has no line %q", line)
 		}
-		if decls[f.GoName] != f.Sig.String(f.GoName) {
+		if f.goTyped() && decls[f.GoName] != f.Sig.String(f.GoName) {
 			t.Errorf("%s: the emitted signature is %q, report.txt has %q", f.C.Name, decls[f.GoName], f.Sig.String(f.GoName))
 		}
 		seen := map[string]bool{}
@@ -175,7 +175,7 @@ func checkGoInventory(t *testing.T, b *Binding, src []byte) {
 	}
 	typed := map[string]bool{}
 	for _, f := range b.Funcs {
-		if f.Sig != nil {
+		if f.goTyped() {
 			typed[f.GoName] = true
 		}
 	}
@@ -322,7 +322,8 @@ func adversarialNames(t *testing.T) []string {
 			goNames = append(goNames, n)
 		}
 	}
-	goNames = append(goNames, "abiW", "abiW1", "abiW2", "abiW12", "abiF32x2", "abiF64x3", "abiF32x", "o1", "i0", "fill2")
+	goNames = append(goNames, "abiW", "abiW1", "abiW2", "abiW12", "abiF32x2", "abiF64x3", "abiF32x", "o1", "i0", "fill2",
+		"cbMap", "cbMap1", "cbTramp", "cbTramp0", "cbMap12", "cbKey", "cbKey0", "k1", "s0", "a0", "v2")
 	var out []string
 	unreachable := 0
 	for _, n := range goNames {
@@ -338,7 +339,7 @@ func adversarialNames(t *testing.T) []string {
 			out = append(out, c)
 		}
 	}
-	if unreachable != 1 { // _r
+	if unreachable != 5 { // _r, _e, _p, _ok, _t
 		t.Fatalf("%d inventory names contain \"_\"; the list of unreachable names is out of date", unreachable)
 	}
 	out = append(out, "ready_arg", "type_arg", "context_arg", "ready_", "x_", "_x", "x", "X", "value", "count", "a_b", "A_B", "aB", "a")
@@ -365,16 +366,31 @@ func TestGoNameProperty(t *testing.T) {
 		name := func() string { return respell(r, pool[r.IntN(len(pool))]) }
 		// A struct whose fields take adversarial names.
 		put := func(format string, args ...any) { fmt.Fprintf(&extra, format, args...) }
-		if r.IntN(2) == 0 {
+		// Every fourth case has a second spelling of one field's name, so
+		// Bind must refuse two fields with one Go name (the "refused" case
+		// does not rest on the luck of the draw from the pool).
+		collide := i%4 == 3
+		if collide || r.IntN(2) == 0 {
 			put("typedef struct fx_names {\n")
 			used := map[string]bool{}
+			first := ""
 			for k, nf := 0, 1+r.IntN(4); k < nf; k++ {
-				f := name()
+				pick := pool[r.IntN(len(pool))]
+				f := respell(r, pick)
 				if used[f] {
 					continue
 				}
+				if first == "" {
+					first = pick
+				}
 				used[f] = true
 				put("    uint32_t %s;\n", f)
+			}
+			for try := 0; collide && try < 20; try++ {
+				if f := respell(r, first); !used[f] {
+					put("    uint32_t %s;\n", f)
+					break
+				}
 			}
 			put("} fx_names;\n")
 		}

@@ -552,6 +552,7 @@ func (g *gen2) contract() *Contract {
 		Handles: []HandleRule{{Type: "g_h", Create: "g_create", Out: "out_h", Destroy: "g_destroy",
 			Thread: g.pick([]string{"owner", "any"})}},
 		Autofill:   []AutofillRule{},
+		Callbacks:  []CallbackRule{},
 		Exceptions: []Exception{},
 		Skips:      []Skip{},
 	}

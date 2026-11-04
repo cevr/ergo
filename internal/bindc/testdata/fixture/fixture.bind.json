@@ -1,6 +1,6 @@
 {
   "header": "fixture.h",
-  "header_sha256": "57ef22281a09d923747109e92dd3fcc6f2df61ae347a384349cda0e92c838215",
+  "header_sha256": "43e2966897ed366324a206b067993360012e407e97f8990485154d0d3036a3a1",
   "go": {
     "package": "fixture",
     "import_path": "ergo.local/bind/fixture"
@@ -45,6 +45,21 @@
     "count_names": ["out_count"],
     "out_prefix": "out_"
   },
-  "exceptions": [],
+  "callbacks": [
+    {"typedef": "fx_visit_callback", "scope": "call",
+     "key": {"params": ["user_data"], "source": "user_data"},
+     "why": "fx_context_visit calls it once per live node during the call and keeps nothing"},
+    {"typedef": "fx_write_callback", "scope": "call",
+     "key": {"params": ["user_data"], "source": "user_data"}, "default": -1,
+     "why": "fx_context_write and fx_context_repeat call it only during the call; -1 is its failure value"},
+    {"typedef": "fx_measure_callback", "scope": "registered",
+     "key": {"params": ["context_id", "slot", "generation"], "source": "node"},
+     "owner": "fx_context", "ends": ["fx_node_destroy"],
+     "why": "fx_node_set_measure keeps it until a replacement, a clear (NULL), fx_node_destroy of its node, or fx_context_destroy"}
+  ],
+  "exceptions": [
+    {"callback": "fx_measure_callback", "position": "out_size", "class": "out_array", "array_length": 2,
+     "why": "out_size is two floats (width, height)"}
+  ],
   "skips": []
 }

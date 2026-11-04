@@ -82,11 +82,172 @@
 //
 // A function is typed when every pointer position has a class other than
 // raw and its buffers fit together (each length serves one buffer, each
-// out_count belongs to its out_buffer, no by-value struct holds a pointer).
+// out_count belongs to its out_buffer, each token key serves one callback,
+// no by-value struct holds a pointer).
 // Otherwise it is raw-only, and the report (Report, report.txt) names each
 // raw position and its reason. A `const S *` whose struct holds a pointer
-// is raw (Go memory that holds Go pointers must not reach C); a callback
-// is raw until bind-c-2.
+// is raw (Go memory that holds Go pointers must not reach C).
+//
+// # Callbacks
+//
+// The contract's callbacks entries (see Contract) name the callback
+// typedefs that the typed layer binds, each with its scope (call or
+// registered), its key, the default C gets when no Go code runs, and for
+// a registered callback its owner handle and its end functions. Bind
+// checks every fact against the model and fails closed (callback.go).
+//
+// Admission (amendment A6 applied to callbacks): a typedef can be bound
+// only when, on each of linux and darwin on amd64 and arm64, every argument
+// travels in a register and purego v0.11.3's callbackWrap supports every
+// type. Its parameters are fixed-width integers, bool, float, double and
+// data pointers, at most 6 of integer class and 8 of float class (the
+// amd64 bounds; arm64 has 8 and 8); its result is void, a fixed-width
+// integer, bool or a data pointer (purego refuses a float or double
+// result); no struct by value. Any other typedef stays a raw uintptr, every
+// function that takes it is raw-only with the shape's reason, and an entry
+// for it is a Bind error.
+//
+// A bound typedef (an entry and an admitted shape) gives each parameter
+// one class from one rule or exception: key (the entry names it; the
+// registry consumes it), scalar, value, in_buffer and its length, out, an
+// out_array (an exception with a length N), or raw; the value, in_buffer
+// and out rules are the function rules. A raw parameter keeps the typedef
+// raw. A key has one of two forms: one `void *` that receives a `void *`
+// parameter of the registering function (the binding passes a token, never
+// a Go pointer), or the integer fields of a handle struct that the
+// registering function takes as `const S *`. In a function, a parameter
+// of a bound typedef is a callback when the function has its key's source
+// (and, when registered, takes its owner); the `void *` source of a token
+// is a key, which Go does not see. Otherwise the function is raw-only with
+// the reason: no entry, the shape rule that fails, a raw parameter, or a
+// key with no source.
+//
+// A handle key gives the trampoline only the key's fields, so one key must
+// name one live registration. The registry key of a handle key is the
+// owner's OS thread and the key's fields: the fields that C makes (a slot,
+// a generation) repeat from one owner handle to the next, and C calls back
+// on the thread of the C call, which for a handle with thread owner is the
+// thread that created it. So:
+//   - a handle with thread owner records the thread that created it (the
+//     create call holds its goroutine on its thread);
+//   - a typed call that changes a handle-keyed registration (a register, a
+//     clear, a call-scoped call, an end function) holds its goroutine on
+//     its thread until it returns, and before any registry change and any
+//     C call it returns ErrWrongThread when one of its owner-thread
+//     handles was created on another thread, and ErrKeyInUse when the
+//     registration of the key on this thread belongs to another handle
+//     (two handles of one thread with equal key fields; a call-scoped call
+//     checks only a func it registers). A clear and an end function remove
+//     only their own handle's entry, and the owner's destroy only that
+//     owner's entries;
+//   - the trampoline looks up the key with the thread of the invocation
+//     (cbThread: one system call per invocation of a handle-keyed
+//     callback).
+//
+// Bind fails closed where one key cannot name one live registration: a
+// function with two positions of one handle-keyed typedef is raw-only (one
+// key would serve both); a registered handle-keyed typedef with more than
+// one function that registers it (takes it, its key's source and its
+// owner) is raw, with all those functions (the key does not say which
+// registration C's invocation is for); a registered handle-keyed typedef
+// whose owner handle does not have thread owner is raw (the key needs the
+// owner's thread); and a call-scoped handle-keyed callback binds only in a
+// function that takes a handle with thread owner (its owner), so two calls
+// on one key overlap only by nesting, which the restore of the replaced
+// entry handles. A `void *` token key has none of these limits: each call
+// or registration gets its own token.
+//
+// In Go (emitcb.go), a bound typedef is an exported func type: scalars,
+// values (a copy) and in_buffers (a slice of C memory, valid only during
+// the call, as io.Writer's "must not retain p") are its parameters; the C
+// result, outs and out_arrays are its results; key and length positions
+// drop out. It has one trampoline, a Go function in the exact C shape that
+// Load makes into a C pointer with purego.NewCallback once per process
+// (never per Load, registration or call), so a binding uses at most one
+// purego callback slot per bound typedef. Bind refuses a binding with more
+// than MaxBoundCallbacks (64) bound typedefs: purego v0.11.3 has 2000 slots
+// per process and never frees one. When NewCallback panics (no slot left),
+// Load returns *CallbackSlotsError before it opens the library. The raw
+// layer keeps every callback a uintptr: a Go func in a RegisterFunc
+// signature would make a new slot on each call.
+//
+// One registry per Go package maps each key to its Go function: a token
+// (an integer from a counter, never a Go pointer, never reused) for a
+// `void *` key, the key's fields for a handle key. The trampoline looks up
+// its key under a read lock, releases it, and calls the Go function; with
+// no entry (or a NULL pointer where C must pass one) C gets the default, no
+// Go code runs and no out position is written. The order against C: an
+// entry is put before the C call that installs it, a replacement keeps the
+// entry it replaced and puts it back when the call fails, a clear (a nil
+// func) removes the entry after the call succeeds, an end function and the
+// owner's destroy remove after a successful return, and a call-scoped
+// entry is removed when its call returns, on every path. A registered
+// callback with a token key keeps its entries until its owner's destroy
+// (the key does not say which registration a clear ends).
+// LiveCallbacks reports the number of live registrations.
+//
+// A Go panic or runtime.Goexit must never unwind C frames: C cleanup would
+// not run (OpenTUI: "A C++ exception, longjmp, or thread exit through
+// native frames skips native cleanup and is undefined behavior"). So each
+// trampoline runs its Go function under a deferred recover (emitthread.go).
+// A panic becomes a *CallbackPanic (the typedef, the value and the stack;
+// Unwrap gives the value when it is an error; a value that is a
+// *CallbackPanic already is kept), C gets the default, and the panic is
+// pending on the OS thread of the invocation. While it is pending, a
+// trampoline on that thread runs no Go code and gives C the default. C
+// calls back on the goroutine of the typed call that made the C call, and
+// the trampoline that keeps a panic pending locks that goroutine to its
+// thread (runtime.LockOSThread) until the panic is taken. Each typed call
+// of a binding with bound callbacks takes the panic pending on its thread
+// right after its C call (one atomic load when no panic is pending on any
+// thread), unlocks, lets the registry follow the C call's status, and then
+// panics with it before it converts a result. When a panic is pending on
+// some thread, the take locks its goroutine to its thread from the
+// thread-id read through the delete, so that a goroutine that moves to
+// another thread never takes a panic another goroutine keeps pending
+// there; every read of the thread id outside a trampoline is under such a
+// lock. So the panic surfaces directly above the C frame: in
+// the outermost typed call, or in a nested typed call inside an outer
+// callback, whose trampoline contains it again. runtime.Goexit cannot be
+// stopped, so the trampoline ends the process with exit status 2 and one
+// stderr line that names the typedef. The thread id (cbThread) is gettid
+// on linux and the thread_selfid system call on darwin. On the path with
+// no panic, the containment costs one atomic load, one open-coded defer and
+// one flag per invocation, and no allocation.
+//
+// A typed call that panics again gives its caller no results, but C may
+// keep state that a result names: OpenTUI's ot_scene_paint keeps its draft
+// when a measure callback panicked, so the caller cancels the draft by its
+// frame id (the id after the last frame's; testdata/opentui/hello).
+//
+// The cost (TestLiveCallbackCost, receipts cost-<goos>-<goarch>.txt;
+// amendments B1 and B2): for a typed call (against purego.RegisterFunc with
+// the same status check) and for a callback (against purego.NewCallback
+// with the same key and containment written by hand), the upper end of the
+// 95% interval of the median paired ratio generated/hand-written is at
+// most 1.05. A paired ratio compares two chunks that run next to each
+// other; a round's median of them is one observation; the interval is the
+// order-statistic interval of the median of the observations of at least
+// three driver processes. Both sides go through purego's reflect paths,
+// which dominate (4 allocations per call and 3 per callback, on both
+// sides). What a typed call pays above a bare hand-written call is the
+// ready check, the handle check and the guard of containment (one atomic
+// load); the receipt measures the guard as guard. TestLiveOpenTUIHello
+// runs OpenTUI's own hello example in Go on the npm 0.8.2 library, checked
+// by its sha512 integrity.
+//
+// A binding with a handle whose thread is owner has an Owner: one goroutine
+// locked to one OS thread and never unlocked, so the thread ends with it.
+// Do from another goroutine runs a function there and waits; Do on the
+// owner thread (a job, or a callback inside one) runs it inline; a panic
+// panics again in the caller of Do, and the runner keeps serving. Close:
+// jobs handed over before Close run, a later Do returns ErrOwnerClosed,
+// Close returns after the runner stopped, and Close on the owner thread
+// returns ErrOwnerThread and does nothing (the model owner.qnt of
+// bind-c-2).
+//
+// The Ergo text keeps every function that takes a callback as a not-bound
+// line (callbacks into Ergo are bind-c-7).
 //
 // # The Go output
 //
@@ -99,7 +260,8 @@
 //   - the typed layer: one exported function per typed function. Handles
 //     are *H; a value is passed by address; out-parameters and output
 //     counts are results; buffers are slices (an empty slice passes NULL
-//     and length 0); a status result becomes an error (nil on success, else
+//     and length 0); a callback is the Go func type of its typedef (a nil
+//     func passes NULL, and a token key drops out); a status result becomes an error (nil on success, else
 //     the Status). Every typed function returns an error last, and a call
 //     before Load, on a nil or destroyed handle, or with a slice too long
 //     for its C length, returns an error and does not call C.
@@ -116,8 +278,8 @@
 // them before every call that passes the struct: by value, by const
 // pointer, as a const array, in a buffer, and in out-parameters, nested
 // structs and arrays included (OpenTUI: "Initialize struct_size and
-// abi_version" of output structs). Callbacks are raw uintptr (bind-c-2);
-// thread affinity is not enforced in Go: the library returns its
+// abi_version" of output structs). In the raw layer a callback is a
+// uintptr; thread affinity is not enforced in Go: the library returns its
 // wrong-thread status.
 //
 // A struct passed or returned by value crosses purego in its call form

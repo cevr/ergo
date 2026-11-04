@@ -60,8 +60,9 @@ var goScalar = map[Scalar]string{
 }
 
 // goSig builds the Go signature of a typed function: handles, values,
-// slices and plain values are parameters in C order (lengths and
-// capacities drop out); the C result, then out-parameters and output counts
+// slices, callbacks (the Go func type of the typedef) and plain values are
+// parameters in C order (lengths, capacities and token keys drop out);
+// the C result, then out-parameters and output counts
 // in C order, are results; a status result is the final error.
 func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 	f := bf.C
@@ -103,6 +104,10 @@ func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 				et = "byte" // the same type; Go spells byte slices so
 			}
 			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: "[]" + et, C: i, Class: q.Class})
+		case q.Class == ClassKey:
+			continue // the binding makes the token; Go does not see it
+		case q.Class == ClassCallback:
+			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: b.GoTypes[p.Type.Name], C: i, Class: q.Class})
 		case q.Class == ClassOut:
 			s.Results = append(s.Results, GoResult{Type: b.GoType(*p.Type.Elem), C: i})
 		case q.Class == ClassOutCount:
@@ -110,6 +115,86 @@ func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 		}
 	}
 	return s
+}
+
+// GoCallbackSig is the Go func type of a bound callback typedef. Its key
+// and length positions drop out, and it has no error result: the binding
+// gives C the entry's default whenever no Go code runs.
+type GoCallbackSig struct {
+	// Params are the scalar, value (a copy) and in_buffer (a borrowed
+	// slice, valid only during the call) positions, in C order.
+	Params []GoParam
+	// Results are the C result (C is -1), then each out and out_array
+	// position in C order.
+	Results []GoResult
+}
+
+// goCallbackSig builds the Go func type of the bound callback typedef cb:
+// a scalar keeps its Go type, a value is its struct, an in_buffer a slice
+// of its elements; the C result (a data pointer as uintptr), an out (its
+// element) and an out_array ([N] of its element) are results.
+func (b *Binding) goCallbackSig(cb *BoundCallback) *GoCallbackSig {
+	s := &GoCallbackSig{}
+	cf := callbackFunc(cb.Decl)
+	switch r := cf.Result; r.Kind {
+	case TypeVoid:
+	case TypePointer:
+		s.Results = append(s.Results, GoResult{Type: "uintptr", C: -1})
+	default:
+		s.Results = append(s.Results, GoResult{Type: b.GoType(r), C: -1})
+	}
+	used := goFuncScope(b.pkg)
+	for _, q := range cb.Positions {
+		p := cf.Params[q.Param]
+		name := func() string { return paramName(p, q.Param, b, used, cf) }
+		switch q.Class {
+		case ClassScalar:
+			s.Params = append(s.Params, GoParam{Name: name(), Type: b.GoType(p.Type), C: q.Param, Class: q.Class})
+		case ClassValue:
+			s.Params = append(s.Params, GoParam{Name: name(), Type: b.GoType(*p.Type.Elem), C: q.Param, Class: q.Class})
+		case ClassInBuffer:
+			s.Params = append(s.Params, GoParam{Name: name(), Type: "[]" + b.sliceElem(*p.Type.Elem), C: q.Param, Class: q.Class})
+		case ClassOut:
+			s.Results = append(s.Results, GoResult{Type: b.GoType(*p.Type.Elem), C: q.Param})
+		case ClassOutArray:
+			s.Results = append(s.Results, GoResult{Type: "[" + strconv.FormatInt(q.Array, 10) + "]" + b.GoType(*p.Type.Elem), C: q.Param})
+		}
+	}
+	return s
+}
+
+// sliceElem is the Go element type of a slice of C elements t: byte for
+// uint8_t, as Go spells byte slices.
+func (b *Binding) sliceElem(t Type) string {
+	if et := b.GoType(t); et != "uint8" {
+		return et
+	}
+	return "byte"
+}
+
+// String is the func type as Go source: "func(data []byte) int64".
+func (s *GoCallbackSig) String() string {
+	var w strings.Builder
+	w.WriteString("func(")
+	for i, p := range s.Params {
+		if i > 0 {
+			w.WriteString(", ")
+		}
+		w.WriteString(p.Name + " " + p.Type)
+	}
+	w.WriteString(")")
+	switch len(s.Results) {
+	case 0:
+	case 1:
+		w.WriteString(" " + s.Results[0].Type)
+	default:
+		var ts []string
+		for _, r := range s.Results {
+			ts = append(ts, r.Type)
+		}
+		w.WriteString(" (" + strings.Join(ts, ", ") + ")")
+	}
+	return w.String()
 }
 
 // paramName is the Go name of a parameter (paramWant), allocated in the

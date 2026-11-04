@@ -40,9 +40,24 @@
     "count_names": ["out_count", "out_byte_count"],
     "out_prefix": "out_"
   },
+  "callbacks": [
+    {"typedef": "ot_output_write_callback", "scope": "call",
+     "key": {"params": ["user_data"], "source": "user_data"}, "default": -1,
+     "why": "ot_session_drain_output: \"No callback or user_data is retained\"; the callback returns \"-1 for failure\""},
+    {"typedef": "ot_scene_measure_callback", "scope": "registered",
+     "key": {"params": ["context_id", "slot", "generation"], "source": "node"},
+     "owner": "ot_context", "ends": ["ot_scene_destroy_node"],
+     "why": "ot_scene_set_measure: \"The callback is borrowed until replacement, unset, node destruction, or Context destruction\""}
+  ],
   "exceptions": [
     {"function": "ot_session_drain_stdout", "position": "session", "class": "value",
      "why": "max_bytes after session limits the drained output; it is not the length of session"},
+    {"function": "ot_session_drain_output", "position": "session", "class": "value",
+     "why": "max_bytes after session limits the drained output; it is not the length of session"},
+    {"callback": "ot_scene_measure_callback", "position": "out_size", "class": "out_array", "array_length": 2,
+     "why": "\"The result is two floats (width, height)\""},
+    {"function": "ot_context_set_edit_event_callback", "position": "#1", "class": "raw",
+     "why": "the key of ot_edit_event_callback (its context_id) has no source in the arguments: an ot_context * does not carry its id, and the contract has no key form for it"},
     {"function": "ot_session_post_stdout", "position": "session", "class": "value",
      "why": "max_bytes after session limits the posted output; it is not the length of session"},
     {"function": "ot_text_buffer_get_info", "position": "#2", "class": "out",

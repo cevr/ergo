@@ -23,6 +23,9 @@ type Binding struct {
 	// model order. With the positions of Funcs they are every pointer
 	// position of the binding.
 	Fields []FieldPosition
+	// Callbacks are the callback typedefs of the header, in model order,
+	// bound or not (callback.go).
+	Callbacks []*BoundCallback
 	// Codes are the status codes other than success, in model order.
 	Codes []*Constant
 	// Success is the success code.
@@ -64,6 +67,35 @@ type BoundFunc struct {
 	ErgoParams []string
 	// Destroys is the handle the function destroys, or nil.
 	Destroys *HandleRule
+}
+
+// callbacks names the callback typedefs of the callback positions of a
+// typed function, in parameter order.
+func (f *BoundFunc) callbacks() []string {
+	var out []string
+	for _, q := range f.Positions {
+		if q.Class == ClassCallback {
+			out = append(out, f.C.Params[q.Param].Type.Name)
+		}
+	}
+	return out
+}
+
+// goTyped reports whether GoPackage emits the typed form of f: every
+// typed function, with or without a callback position.
+func (f *BoundFunc) goTyped() bool { return f.Sig != nil }
+
+// ErgoUnbound says why the Ergo text has no extern for f, or "". A
+// raw-only function has its reason; a typed function that takes a callback
+// is not bound because callbacks into Ergo are bind-c-7.
+func (f *BoundFunc) ErgoUnbound() string {
+	if f.Sig == nil {
+		return f.RawOnly
+	}
+	if cbs := f.callbacks(); len(cbs) > 0 {
+		return "it takes a callback (" + strings.Join(cbs, ", ") + "): callbacks into Ergo are bind-c-7"
+	}
+	return ""
 }
 
 // Bind checks a contract against its header and model, and classifies
@@ -229,9 +261,16 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 		}
 	}
 
+	// Callbacks: each entry fits its typedef (callback.go).
+	k.checkCallbacks(funcs, skipped, bad)
+
 	// Exceptions: each fits its position, one per position.
+	k.checkCallbackExceptions(bad)
 	for i := range c.Exceptions {
 		e := &c.Exceptions[i]
+		if e.Callback != "" {
+			continue
+		}
 		f := funcs[e.Function]
 		if f == nil || skipped[e.Function] {
 			need("exceptions: function", e.Function, f != nil)
@@ -257,6 +296,9 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 	}
 	for i := range c.Exceptions {
 		e := &c.Exceptions[i]
+		if e.Callback != "" {
+			continue
+		}
 		f := funcs[e.Function]
 		j, ok := 0, false
 		if f != nil {
@@ -291,6 +333,10 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 			b.GoTypes[d.Name] = goCamel(strings.TrimPrefix(d.Name, c.Prefixes.Type))
 		}
 	}
+	k.buildCallbacks(b, skipped)
+	if err := b.checkSlotBound(); err != nil {
+		return nil, err
+	}
 	var planErrs []string // calls purego cannot make as C does (abi.go)
 	destroys := map[string]*HandleRule{}
 	for i := range c.Handles {
@@ -320,6 +366,11 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 	for _, bf := range b.Funcs {
 		if bf.RawOnly == "" {
 			bf.Sig = b.goSig(bf)
+		}
+	}
+	for _, cb := range b.Callbacks {
+		if cb.Bound() {
+			cb.Sig = b.goCallbackSig(cb)
 		}
 	}
 	if err := b.ergoNames(); err != nil {
@@ -354,7 +405,7 @@ func (b *Binding) ergoNames() error {
 		}
 	}
 	for _, f := range b.Funcs {
-		if f.Sig != nil {
+		if f.ErgoUnbound() == "" {
 			claim(f.GoName, "function "+f.C.Name)
 		}
 	}
@@ -363,7 +414,7 @@ func (b *Binding) ergoNames() error {
 		return contractError(errs)
 	}
 	for _, f := range b.Funcs {
-		if f.Sig == nil {
+		if f.ErgoUnbound() != "" {
 			continue
 		}
 		sc := ergoFuncScope(pkg)
@@ -374,8 +425,9 @@ func (b *Binding) ergoNames() error {
 	return nil
 }
 
-// recordStructs are the C structs a typed signature reaches by value,
-// directly, through an array or a pointer, or as a field of one.
+// recordStructs are the C structs a typed signature of the Ergo text
+// reaches by value, directly, through an array or a pointer, or as a
+// field of one.
 func (b *Binding) recordStructs() map[string]bool {
 	k := b.k
 	out := map[string]bool{}
@@ -392,7 +444,7 @@ func (b *Binding) recordStructs() map[string]bool {
 		}
 	}
 	for _, f := range b.Funcs {
-		if f.Sig == nil {
+		if f.ErgoUnbound() != "" {
 			continue
 		}
 		for _, p := range f.Sig.Params {

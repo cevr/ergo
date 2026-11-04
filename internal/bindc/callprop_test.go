@@ -288,6 +288,7 @@ func callContract(autofill bool) *Contract {
 		ABI:        ABIRule{Function: "g_abi", Macro: "G_ABI"},
 		Handles:    []HandleRule{},
 		Autofill:   []AutofillRule{},
+		Callbacks:  []CallbackRule{},
 		Exceptions: []Exception{},
 		Skips:      []Skip{},
 	}

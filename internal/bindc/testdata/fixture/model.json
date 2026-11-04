@@ -409,6 +409,177 @@
           "type": "const fx_visit *"
         }
       ]
+    },
+    {
+      "kind": "callback",
+      "name": "fx_write_callback",
+      "result": "int64_t",
+      "params": [
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "data",
+          "type": "const uint8_t *"
+        },
+        {
+          "name": "data_bytes",
+          "type": "uint32_t"
+        }
+      ]
+    },
+    {
+      "kind": "callback",
+      "name": "fx_measure_callback",
+      "result": "void",
+      "params": [
+        {
+          "name": "context_id",
+          "type": "uint64_t"
+        },
+        {
+          "name": "slot",
+          "type": "uint32_t"
+        },
+        {
+          "name": "generation",
+          "type": "uint32_t"
+        },
+        {
+          "name": "width",
+          "type": "float"
+        },
+        {
+          "name": "width_mode",
+          "type": "uint32_t"
+        },
+        {
+          "name": "height",
+          "type": "float"
+        },
+        {
+          "name": "height_mode",
+          "type": "uint32_t"
+        },
+        {
+          "name": "out_size",
+          "type": "float *"
+        }
+      ]
+    },
+    {
+      "kind": "callback",
+      "name": "fx_float_callback",
+      "result": "float",
+      "params": [
+        {
+          "name": "user_data",
+          "type": "void *"
+        }
+      ]
+    },
+    {
+      "kind": "callback",
+      "name": "fx_point_callback",
+      "result": "void",
+      "params": [
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "point",
+          "type": "fx_point"
+        }
+      ]
+    },
+    {
+      "kind": "callback",
+      "name": "fx_wide_callback",
+      "result": "void",
+      "params": [
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "a",
+          "type": "uint64_t"
+        },
+        {
+          "name": "b",
+          "type": "uint64_t"
+        },
+        {
+          "name": "c",
+          "type": "uint64_t"
+        },
+        {
+          "name": "d",
+          "type": "uint64_t"
+        },
+        {
+          "name": "e",
+          "type": "uint64_t"
+        },
+        {
+          "name": "f",
+          "type": "uint64_t"
+        }
+      ]
+    },
+    {
+      "kind": "callback",
+      "name": "fx_unbound_callback",
+      "result": "void",
+      "params": [
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "value",
+          "type": "uint32_t"
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "fx_counters",
+      "tag": "fx_counters",
+      "fields": [
+        {
+          "name": "started",
+          "type": "uint64_t",
+          "offset": 0,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "returned",
+          "type": "uint64_t",
+          "offset": 8,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "write_results",
+          "type": "int64_t",
+          "offset": 16,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "unwritten",
+          "type": "uint64_t",
+          "offset": 24,
+          "size": 8,
+          "align": 8
+        }
+      ],
+      "size": 32,
+      "align": 8
     }
   ],
   "functions": [
@@ -615,6 +786,234 @@
         {
           "name": "context",
           "type": "const fx_context *"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_write",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "text",
+          "type": "const uint8_t *"
+        },
+        {
+          "name": "text_bytes",
+          "type": "uint32_t"
+        },
+        {
+          "name": "max_bytes",
+          "type": "uint32_t"
+        },
+        {
+          "name": "out_written",
+          "type": "uint32_t *"
+        },
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "writer",
+          "type": "fx_write_callback"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_repeat",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "times",
+          "type": "uint32_t"
+        },
+        {
+          "name": "out_taken",
+          "type": "int64_t *"
+        },
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "writer",
+          "type": "fx_write_callback"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_set_measure",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "measure",
+          "type": "fx_measure_callback"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_measure",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "width",
+          "type": "float"
+        },
+        {
+          "name": "height",
+          "type": "float"
+        },
+        {
+          "name": "out_size",
+          "type": "fx_point *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_measure_as",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "as",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "out_size",
+          "type": "fx_point *"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_measure_all",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "width",
+          "type": "float"
+        },
+        {
+          "name": "height",
+          "type": "float"
+        },
+        {
+          "name": "out_count",
+          "type": "uint32_t *"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_counters",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "out_counters",
+          "type": "fx_counters *"
+        }
+      ]
+    },
+    {
+      "name": "fx_thread_id",
+      "result": "uint64_t",
+      "params": null
+    },
+    {
+      "name": "fx_context_float",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "callback",
+          "type": "fx_float_callback"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_point",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "callback",
+          "type": "fx_point_callback"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_wide",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "callback",
+          "type": "fx_wide_callback"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_unbound",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "callback",
+          "type": "fx_unbound_callback"
         }
       ]
     }
