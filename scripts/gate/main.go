@@ -141,6 +141,15 @@ type Inputs struct {
 	// directory is a distinct input. Each is digested once per run, because
 	// no step writes it.
 	Installed []string
+	// Built names checkout files that a step in Needs writes, such as
+	// bin/ergo. Each is digested as a Paths file is (fileDigest: content,
+	// keyed permission bits, kind and the link rule), inside key, which runs
+	// only after every step in Needs has passed, and never from a memo: a
+	// digest taken earlier would key the file before its build. A missing or
+	// unreadable built file is a key error, so the step fails and never
+	// replays; a kind that cannot be keyed (a FIFO) runs it without its
+	// receipt.
+	Built []string
 }
 
 type outcome int
@@ -1150,6 +1159,20 @@ func (g *gate) key(step *Step) (string, error) {
 	}
 	for _, dir := range inputs.Installed {
 		fmt.Fprintf(hash, "installed\x00%s\x00%s\x00", dir, g.installed(dir))
+	}
+	// A built file is read here and nowhere earlier: execute keys a step only
+	// after its Needs passed, so the digest is of the file they left.
+	for _, name := range inputs.Built {
+		digest := fileDigest(g.root, name)
+		if problem, ok := strings.CutPrefix(digest, unreplayable); ok {
+			return "", unkeyedInput(problem)
+		}
+		// A file, or a link that reaches one; missing, unreadable, a
+		// directory or a dangling link fails the step.
+		if !strings.HasPrefix(digest, "file:") && !strings.Contains(digest, "\x00file:") {
+			return "", fmt.Errorf("%s: built file %s is not a readable file: %q", step.Name, name, digest)
+		}
+		fmt.Fprintf(hash, "built\x00%s\x00%s\x00", name, digest)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
