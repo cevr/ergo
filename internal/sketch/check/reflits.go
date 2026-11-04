@@ -70,7 +70,7 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 		if env.params[e.Name] || env.local != nil && env.local(e.Name) {
 			return litType{}
 		}
-		if tn, ok := c.typeObject(e.Name, env.file).(*TypeName); ok {
+		if tn, ok := c.typeObjectPast(e.Name, env.file).(*TypeName); ok {
 			return fromType(tn.Type)
 		}
 	case *syntax.IndexExpr:
@@ -82,7 +82,7 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 		if !ok || env.local != nil && env.local(id.Name) {
 			return litType{}
 		}
-		if pn, ok := c.typeObject(id.Name, env.file).(*PkgName); ok && !pn.broken {
+		if pn, ok := c.typeObjectPast(id.Name, env.file).(*PkgName); ok && !pn.broken {
 			if tn, ok := pn.Pkg.Scope.names[e.Sel.Name].(*TypeName); ok {
 				return fromType(tn.Type)
 			}
@@ -93,10 +93,21 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 	return litType{}
 }
 
-// typeObject looks a name up as lookupType does without type parameters:
-// the package scope and the universe, then the file's imports.
+// typeObject looks a name up as lookup does above the locals: the package
+// scope and the universe, then the file's imports.
 func (c *checker) typeObject(name string, file *fileInfo) Object {
-	if o, at := c.pkg.Scope.lookup(name); o != nil {
+	return c.typeObjectWith(name, file, (*Scope).lookup)
+}
+
+// typeObjectPast is typeObject outside a value position, as lookupType
+// looks a name up without type parameters: it sees through a refused
+// package-level binder (P2, P5).
+func (c *checker) typeObjectPast(name string, file *fileInfo) Object {
+	return c.typeObjectWith(name, file, scopeLookupPast)
+}
+
+func (c *checker) typeObjectWith(name string, file *fileInfo, find func(*Scope, string) (Object, *Scope)) Object {
+	if o, at := find(c.pkg.Scope, name); o != nil {
 		if imp := c.shadowImport(name, at, file); imp != nil {
 			return imp
 		}
@@ -163,7 +174,7 @@ func (c *checker) elemOf(lt litType, key bool) litType {
 
 // bodyEnv is the type environment of the body being walked.
 func (w *refWalker) bodyEnv() *typeEnv {
-	return &typeEnv{file: w.c.cur, params: w.tparams, local: w.local}
+	return &typeEnv{file: w.c.cur, params: w.tparams, local: w.typeLocal}
 }
 
 // typingEnv is the type environment of the body being typed, as bodyEnv is
@@ -177,7 +188,7 @@ func (c *checker) typingEnv() *typeEnv {
 	if c.fn != nil && c.fn.scope != nil {
 		sc := c.fn.scope
 		env.local = func(name string) bool {
-			_, at := sc.lookup(name)
+			_, at := scopeLookupPast(sc, name) // a type position (P2)
 			return at != nil && at != c.pkg.Scope && !c.abovePackage(at)
 		}
 	}

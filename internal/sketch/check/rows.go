@@ -1025,8 +1025,8 @@ func (c *checker) checkFuncBody(f *Func) bool {
 				continue
 			}
 		}
-		c.preludeName(p.id) // D-D3; the parameter still binds
-		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true}
+		refused := c.preludeName(p.id) // D-D3; the parameter still binds
+		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true, refused: refused}
 		c.def(p.id, v)
 		frame.insert(p.Name, v)
 	}

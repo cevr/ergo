@@ -113,7 +113,8 @@ func (c *checker) preludeName(id *syntax.Ident) bool {
 // scope of the same function (D-D2) and returns true. sc is the scope the
 // binder enters; the scopes searched are its parents up to, and not
 // including, the package scope. The outer binding counts as read, so the
-// refusal adds no S110 beside it (D3); the inner binder still binds.
+// refusal adds no S110 beside it (D3); the inner binder still binds. A
+// refused binder is never a binding a later binder shadows (P2).
 func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 	name := id.Name
 	if name == "_" || sc == nil {
@@ -121,7 +122,7 @@ func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 	}
 	for p := sc.parent; p != nil && p != c.pkg.Scope; p = p.parent {
 		prev, ok := p.names[name]
-		if !ok {
+		if !ok || isRefusedBinder(prev) {
 			continue
 		}
 		switch prev := prev.(type) {
@@ -147,16 +148,48 @@ func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 
 // localBinder runs the binder rules for a local about to bind the name id
 // declares in the current scope: a prelude name (D-D3) first, else
-// shadowing (D-D2). It reports at most one diagnostic.
-func (c *checker) localBinder(id *syntax.Ident) {
+// shadowing (D-D2). It reports at most one diagnostic, and returns true
+// when the binder is refused (its Var carries the mark).
+func (c *checker) localBinder(id *syntax.Ident) (refused bool) {
 	if c.fn == nil || id.Name == "_" {
-		return
+		return false
 	}
 	if c.preludeName(id) {
-		return
+		return true
 	}
 	c.shadowed(id, c.fn.scope)
+	return false
 }
+
+// Refused binders (rows.md, Totality 6; diagnostics.md, D3): a refused
+// type test's placeholder (declarePlaceholder) and a binder with its own
+// diagnostic, D-D3's or a pattern's (refuseBinder), carry Var.refused. A
+// refused binder changes no other verdict: a read of the name in a value
+// position finds it (P1, lookup), and every other lookup sees through it
+// to what the name means without it (P2, lookupPast): the pattern
+// classifier, the shadow rule and type positions. The reference walk marks
+// the same binders (localBinding.refused) and sees through them the same
+// way (P3).
+
+// isRefusedBinder reports whether o is a refused binder.
+func isRefusedBinder(o Object) bool {
+	v, ok := o.(*Var)
+	return ok && v.refused
+}
+
+// scopeLookupPast is Scope.lookup that sees through refused binders.
+func scopeLookupPast(s *Scope, name string) (Object, *Scope) {
+	for sc := s; sc != nil; sc = sc.parent {
+		if o, ok := sc.names[name]; ok && !isRefusedBinder(o) {
+			return o, sc
+		}
+	}
+	return nil, nil
+}
+
+// lookupPast is lookup outside a value position: it sees through refused
+// binders (P2).
+func (c *checker) lookupPast(name string) Object { return c.lookupWith(name, scopeLookupPast) }
 
 // untypedLet reports `let x` with neither a type nor a value (D-D1): x
 // would have no type. The name binds with the invalid type, so its uses

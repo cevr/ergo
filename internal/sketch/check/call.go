@@ -908,8 +908,8 @@ func (c *checker) body(t *target, ft *syntax.FuncType, params []*Var, check func
 			c.errorf(p.id, CodeType, "%s is already a parameter", p.Name)
 			continue
 		}
-		c.localBinder(p.id) // D-D3, D-D2; the parameter still binds
-		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true}
+		refused := c.localBinder(p.id) // D-D3, D-D2; the parameter still binds
+		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true, refused: refused}
 		c.def(p.id, v)
 		frame.insert(p.Name, v)
 	}

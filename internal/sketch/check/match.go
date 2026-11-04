@@ -252,9 +252,30 @@ func (r *patResolver) bindNames(e syntax.Expr) {
 	}
 }
 
-// placeholder records a refused type test's name for declarePlaceholder.
-func (r *patResolver) placeholder(id *syntax.Ident) {
-	r.binds = append(r.binds, patBinding{id: id, t: invalid, placeholder: true})
+// placeholderBinding is a refused type test's name, for declarePlaceholder.
+func placeholderBinding(id *syntax.Ident) patBinding {
+	return patBinding{id: id, t: invalid, placeholder: true}
+}
+
+// testName is the name a type test e writes, through an instance's
+// brackets; nil for any other form.
+func testName(e syntax.Expr) *syntax.Ident {
+	if ix, indexed := e.(*syntax.IndexExpr); indexed {
+		e = ix.X
+	}
+	id, _ := e.(*syntax.Ident)
+	return id
+}
+
+// refusedTest records the placeholder of a refused type test e, in a match,
+// a let, a for or a catch arm alike (rows.md, Catch 7): a refused type
+// test stays a type test (patternNameTests), so the name names the type
+// and binds nothing, and later reads in the pattern's scope find a silent
+// placeholder, not the type (D3; P1).
+func (r *patResolver) refusedTest(e syntax.Expr) {
+	if id := testName(e); id != nil {
+		r.binds = append(r.binds, placeholderBinding(id))
+	}
 }
 
 func (r *patResolver) bind(id *syntax.Ident, t Type, info *Pattern, as bool) {
@@ -294,7 +315,7 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 			r.bind(x, t, info, false)
 			return resolved{t: t, info: info}
 		}
-		o := c.lookup(x.Name)
+		o := c.lookupPast(x.Name) // as patternTests: past a refused binder (P2)
 		prelude := c.isPreludeName(x.Name)
 		if patternNameTests(o, prelude, r.letFor) {
 			if _, isConst := o.(*Const); isConst {
@@ -395,15 +416,7 @@ func objectNoun(o Object) string {
 func (r *patResolver) typeTest(e syntax.Expr, t Type, col int) resolved {
 	ctor, vt, ok := r.head(e, t, col)
 	if !ok {
-		// A refused type test stays a type test (patternNameTests): the
-		// name names the type, and binds nothing. Later reads in the
-		// pattern's scope find a silent placeholder, not the type (D3).
-		if ix, indexed := e.(*syntax.IndexExpr); indexed {
-			e = ix.X
-		}
-		if id, ok := e.(*syntax.Ident); ok {
-			r.placeholder(id)
-		}
+		r.refusedTest(e)
 		return r.fail(nil, t)
 	}
 	info := &Pattern{Kind: PatTypeTest, Type: vt}
@@ -602,13 +615,6 @@ func (r *patResolver) tuple(x *syntax.TupleExpr, t Type, col int) resolved {
 	}
 	r.sp.sortRow(kids)
 	return resolved{pat: r.sp.node(0, kids), has: true, t: t, info: info}
-}
-
-// isPatternType reports whether a bare name in a pattern tests the value
-// (a type test or a constant) where c checks, outside a let or a for rule
-// (D-B3 rule 1; patternNameTests).
-func (c *checker) isPatternType(name string) bool {
-	return c.patternTests(name, false)
 }
 
 // ---------------------------------------------------------------- match
@@ -894,8 +900,8 @@ func (c *checker) declareArm(all [][]patBinding) []armVar {
 	for _, b := range first {
 		g := &switchGroup{}
 		groups[b.id.Name] = g
-		c.localBinder(b.id)
-		v := c.bindLocal(&Var{Name: b.id.Name, Type: b.t, Pos: b.id.Pos(), id: b.id, group: g, used: true})
+		refused := c.localBinder(b.id)
+		v := c.bindLocal(&Var{Name: b.id.Name, Type: b.t, Pos: b.id.Pos(), id: b.id, group: g, used: true, refused: refused})
 		if isInvalid(b.t) {
 			g.used = true // an invalid pattern adds no S110 (D3)
 		}

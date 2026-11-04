@@ -28,7 +28,7 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 	if t == nil {
 		t = invalid
 	}
-	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos(), id: id})
+	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos(), id: id, refused: refused})
 	c.def(id, v)
 	sc.insert(id.Name, v)
 	if isInvalid(t) || refused {
@@ -51,7 +51,7 @@ func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 		// D-D3: the one diagnostic; the name still binds below, marked
 		// used, so an unread refused binder adds no S110.
 		refused = true
-	} else if prev, ok := sc.names[id.Name]; ok {
+	} else if prev, ok := sc.names[id.Name]; ok && !isRefusedBinder(prev) {
 		switch prev := prev.(type) {
 		case *capBinding:
 			c.errorf(id, CodeUnknown, "%s is in this function's capability row, so a local of that name in the same frame is an error; rename the local (rows-and-constraints §7 amendment 3)", id.Name)
@@ -74,17 +74,19 @@ func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 }
 
 // declarePlaceholder hides, for the rest of the current scope, the type or
-// capability that a refused type test names, so its later reads add no
-// diagnostic (D3; fuzz-17d6). The identifier stays a type test: Info.Uses
-// keeps the object it names and Info.Defs has no entry, as the reference
-// walk reads it. The placeholder has the invalid type, counts as read, and
-// meets none of the binder rules (D-D2, D-D3, bound twice), because it
-// declares nothing. A name the scope already binds keeps that binding.
+// capability that a refused type test names from a read in a value
+// position, so its later reads add no diagnostic (D3; fuzz-17d6; P1). The
+// identifier stays a type test: Info.Uses keeps the object it names and
+// Info.Defs has no entry, as the reference walk reads it. The placeholder
+// has the invalid type, counts as read, and meets none of the binder rules
+// (D-D2, D-D3, bound twice), because it declares nothing. It is a refused
+// binder: every lookup outside a value position sees through it (P2). A
+// name the scope already binds keeps that binding.
 func (c *checker) declarePlaceholder(id *syntax.Ident) {
 	if _, bound := c.fn.scope.names[id.Name]; bound {
 		return
 	}
-	v := c.bindLocal(&Var{Name: id.Name, Type: invalid, Pos: id.Pos(), id: id, used: true})
+	v := c.bindLocal(&Var{Name: id.Name, Type: invalid, Pos: id.Pos(), id: id, used: true, refused: true})
 	c.fn.scope.insert(id.Name, v)
 }
 

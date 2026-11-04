@@ -38,7 +38,7 @@ func (c *checker) undecided(n syntax.Node, what string) operand {
 
 // patternNameTests is the one rule for a bare name in a pattern (rows.md,
 // Totality 1; D-B3 rule 1; D-D3), shared by typing (pattern0, namePattern,
-// isPatternType) and the reference walk (refWalker.patternTests), so the
+// package-level let patterns) and the reference walk (refWalker.patternTests), so the
 // two give the identifier one meaning (fuzz-17d6). o is the object the name
 // resolves to where the pattern stands, prelude whether the name is a
 // prelude name, and letFor whether the pattern is a let's or a for's. In a
@@ -57,9 +57,11 @@ func patternNameTests(o Object, prelude, letFor bool) bool {
 	return false
 }
 
-// patternTests is patternNameTests for a name at the point c checks.
+// patternTests is patternNameTests for a name at the point c checks. A
+// refused binder is invisible to it: the name classifies as it would
+// without the binder (P2, lookupPast).
 func (c *checker) patternTests(name string, letFor bool) bool {
-	return patternNameTests(c.lookup(name), c.isPreludeName(name), letFor)
+	return patternNameTests(c.lookupPast(name), c.isPreludeName(name), letFor)
 }
 
 // patternNames returns the names a pattern binds, in source order: a name

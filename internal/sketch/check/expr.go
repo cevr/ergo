@@ -397,12 +397,16 @@ func (c *checker) localTypeCtx() *typeCtx {
 // then the file's import names (D4). An import named after a prelude name
 // is refused (D-D3) and still binds, so it wins over the prelude name it
 // reuses.
-func (c *checker) lookup(name string) Object {
+func (c *checker) lookup(name string) Object { return c.lookupWith(name, (*Scope).lookup) }
+
+// lookupWith is lookup with find as the scope search: Scope.lookup, or
+// scopeLookupPast, which sees through refused binders.
+func (c *checker) lookupWith(name string, find func(*Scope, string) (Object, *Scope)) Object {
 	sc := c.pkg.Scope
 	if c.fn != nil && c.fn.scope != nil {
 		sc = c.fn.scope
 	}
-	if o, at := sc.lookup(name); o != nil {
+	if o, at := find(sc, name); o != nil {
 		if imp := c.shadowImport(name, at, c.cur); imp != nil {
 			return imp
 		}

@@ -373,7 +373,9 @@ func (c *checker) checkMachine(tn *TypeName) {
 		x syntax.Expr
 		w string
 	}{{state, spec.State, "state"}, {signal, spec.Signal, "signal"}} {
-		if !isInvalid(part.t) && asUnion(part.t) == nil {
+		// A refused type (one a cycle captured before its declaration was
+		// refused, too) adds nothing here (D3; rows.md, Totality 6, P4).
+		if !containsInvalid(part.t) && asUnion(part.t) == nil {
 			c.errorf(part.x, CodeType, "a machine's %s type must be a union, not %s", part.w, part.t)
 		}
 	}
