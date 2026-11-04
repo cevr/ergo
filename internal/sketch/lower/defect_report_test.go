@@ -22,17 +22,15 @@ func defectReport(t *testing.T, src string) string {
 	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "run", "./cmd/ergo", "run", path)
-	cmd.Dir = filepath.Clean("../../..")
+	cmd := exec.Command(ergoCLI(t), "run", path)
+	cmd.Dir = filepath.Dir(path)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	// go run reports the program's own exit status on its last line.
-	out, exited := strings.CutSuffix(stderr.String(), "exit status 2\n")
-	if _, ok := err.(*exec.ExitError); !ok || !exited {
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 2 {
 		t.Fatalf("want exit 2 for a defect, got %v\n%s", err, stderr.String())
 	}
-	out = strings.ReplaceAll(out, path, "F")
+	out := strings.ReplaceAll(stderr.String(), path, "F")
 	for _, goFrame := range []string{"goroutine", ".go:", "main.", "runtime/"} {
 		if strings.Contains(out, goFrame) {
 			t.Fatalf("the report shows a Go frame (%q):\n%s", goFrame, out)
