@@ -660,6 +660,16 @@ func TestClassificationTotality(t *testing.T) {
 		}
 		b, err := Bind(m, []byte(src), data)
 		if err != nil {
+			// A function whose call purego cannot make as C does on every
+			// target (abi.go, A6) is refused for its call plan, whatever
+			// its classes; the contract skips it, as its author would.
+			if d2, skipped := skipCallPlans(t, err, data); len(skipped) > 0 {
+				stats["skipped for the call plan"] += len(skipped)
+				data = d2
+				b, err = Bind(m, []byte(src), data)
+			}
+		}
+		if err != nil {
 			t.Fatalf("seed %d: Bind: %v\ncontract %s\n%s", seed, err, data, src)
 		}
 		for _, bf := range b.Funcs {

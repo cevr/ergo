@@ -38,21 +38,23 @@ import (
 // uint64_t x}, {float f; double d}) has no single form: amd64 passes that
 // eightbyte in an SSE register, arm64 in a general one.
 //
+// The v1 admission rule for by-value structs (orchestrator amendment A6,
+// 2026-11-04): a function with a by-value struct argument or result is
+// bound only when, on every target the build constraint selects
+// (abiTargets), every argument and the result travel in registers (no
+// argument of the call goes on the stack, and each struct is passed in
+// registers under that target's rules: System V classes on amd64, an HFA
+// or up to 16 bytes on arm64). Else Bind refuses it with the targets and
+// the first position that is not in registers on each (structPlan). purego
+// v0.11.3 marshals a struct on the stack differently per target, and on
+// darwin arm64 not as C does (it copies the bytes of a struct above 16
+// bytes inline after a stack argument instead of a pointer to a copy);
+// earlier rules that modelled the conventions' stack cases one by one
+// missed that. Calls of scalars and pointers only are not affected:
+// purego passes them on the stack as C does on every target.
+//
 // purego's RegisterFunc panics ("too many stack arguments") when a call
 // needs more stack than its argument block holds (puregoStack).
-//
-// Both conventions, and purego, count the general and the floating-point
-// registers as two banks, and an argument takes registers only from its
-// own banks; stack arguments take the next stack slots in order. A struct
-// that the convention passes in registers needs registers of one bank
-// (words: general; HFA: floating-point). When that bank has too few left,
-// C passes the whole struct on the stack, but purego splits it between
-// the last registers and the stack, or gives each float member of an HFA
-// its own stack word. So such a struct must fit the bank it needs at its
-// place on both architectures (structPlan); the other bank does not
-// matter. A struct that amd64 passes in memory (above 16 bytes) and the
-// pointer to the copy that arm64 passes for a non-HFA above 16 bytes take
-// stack slots as scalars do, wherever they come.
 //
 // The raw layer registers every bound function at Load, so a call plan is
 // valid on every target the package's build constraint selects, or Bind
@@ -234,87 +236,33 @@ const (
 	arm64IntRegs, arm64FloatRegs = 8, 8
 )
 
-// callPlanRemedy ends the error of a function whose call plan is invalid.
-const callPlanRemedy = "skip it in the contract"
+// The ends of the error of a function whose call plan is invalid: every
+// such error ends with callPlanRemedy, and the error of a by-value struct
+// in a call that does not travel in registers on every target ends with
+// stackStructRemedy (A6).
+const (
+	callPlanRemedy    = "skip it in the contract"
+	stackStructRemedy = "a by-value struct in a call that uses the stack is not supported in v1; " + callPlanRemedy + " or pass a pointer"
+)
 
-// callPlan is the reason purego v0.11.3 cannot call f as C does on every
-// target of the package's build constraint (linux and darwin, amd64 and
-// arm64), or "". Bind refuses a header with such a function.
-func (b *Binding) callPlan(f *Function) string {
-	if r := b.structPlan(f); r != "" {
-		return r
-	}
-	return b.puregoStack(f)
+// abiTarget is one target of the package's build constraint, with the
+// number of argument registers of its calling convention in each bank:
+// System V on amd64 (6 general, 8 SSE), AAPCS64 on arm64 (8 general, 8
+// floating-point), which Apple's arm64 convention keeps for registers.
+type abiTarget struct {
+	goos, goarch string
+	regs         [2]int
 }
 
-// structPlan is the reason a by-value struct argument or result of f has
-// no call form purego passes as C does on every target, or "".
-func (b *Binding) structPlan(f *Function) string {
-	k := b.k
-	has := k.isByValueStruct(f.Result)
-	for _, p := range f.Params {
-		has = has || k.isByValueStruct(p.Type)
-	}
-	if !has {
-		return ""
-	}
-	if k.isByValueStruct(f.Result) {
-		if r := k.form(f.Result.Name); r.Why != "" {
-			return "result: " + r.Why
-		}
-	}
-	// The registers used in each bank, per architecture. A scalar takes one
-	// register of its bank, or a stack slot when the bank is full; either
-	// way it never touches the other bank. On amd64 a result above 16 bytes
-	// is written through a hidden pointer in the first general register.
-	amd64 := regBanks{arch: "amd64", cap: [2]int{amd64IntRegs, amd64FloatRegs}}
-	arm64 := regBanks{arch: "arm64", cap: [2]int{arm64IntRegs, arm64FloatRegs}}
-	if k.isByValueStruct(f.Result) && k.types[f.Result.Name].Size > 16 {
-		amd64.used[bankInt] = 1
-	}
-	for i, p := range f.Params {
-		name := positionName(f, i)
-		if !k.isByValueStruct(p.Type) {
-			bank := bankInt
-			if s, ok := k.scalarOf(p.Type); ok && (s == Float32 || s == Float64) {
-				bank = bankFloat
-			}
-			amd64.used[bank]++
-			arm64.used[bank]++
-			continue
-		}
-		fm := k.form(p.Type.Name)
-		if fm.Why != "" {
-			return name + ": " + fm.Why
-		}
-		// amd64: up to 16 bytes in registers of one bank (an HFA takes one
-		// SSE register per eightbyte), else in memory, on the stack.
-		if fm.Size <= 16 {
-			bank, n := bankInt, fm.N
-			if fm.Kind == abiHFA {
-				bank, n = bankFloat, int((fm.Size+7)/8)
-			}
-			if r := amd64.take(bank, n); r != "" {
-				return fmt.Sprintf("%s: by-value struct %s %s", name, p.Type.Name, r)
-			}
-		}
-		// arm64: an HFA in one floating-point register per member, up to
-		// 16 other bytes in general registers, else a pointer to a copy,
-		// which takes a general register or a stack slot as an integer.
-		switch {
-		case fm.Kind == abiHFA:
-			if r := arm64.take(bankFloat, fm.N); r != "" {
-				return fmt.Sprintf("%s: by-value struct %s %s", name, p.Type.Name, r)
-			}
-		case fm.Size <= 16:
-			if r := arm64.take(bankInt, fm.N); r != "" {
-				return fmt.Sprintf("%s: by-value struct %s %s", name, p.Type.Name, r)
-			}
-		default:
-			arm64.used[bankInt]++
-		}
-	}
-	return ""
+func (t abiTarget) String() string { return t.goos + "/" + t.goarch }
+
+// abiTargets are the targets of "(linux || darwin) && (amd64 || arm64)",
+// the build constraint of the Go package (emitgo.go).
+var abiTargets = []abiTarget{
+	{"linux", "amd64", [2]int{amd64IntRegs, amd64FloatRegs}},
+	{"linux", "arm64", [2]int{arm64IntRegs, arm64FloatRegs}},
+	{"darwin", "amd64", [2]int{amd64IntRegs, amd64FloatRegs}},
+	{"darwin", "arm64", [2]int{arm64IntRegs, arm64FloatRegs}},
 }
 
 // The register banks of an argument list.
@@ -325,26 +273,132 @@ const (
 
 var bankName = [2]string{"general", "floating-point"}
 
-// regBanks counts the registers an argument list has used in each bank
-// of one architecture; a count past the bank's size means the bank is
-// full and the rest went to the stack.
-type regBanks struct {
-	arch string
-	cap  [2]int
-	used [2]int
+// callPlan is the error text of a function whose call purego v0.11.3
+// cannot make as C does on every target of the package's build constraint
+// (linux and darwin, amd64 and arm64), without "function NAME: ", or "".
+// Bind refuses a header with such a function.
+func (b *Binding) callPlan(f *Function) string {
+	k := b.k
+	has := k.isByValueStruct(f.Result)
+	for _, p := range f.Params {
+		has = has || k.isByValueStruct(p.Type)
+	}
+	if has {
+		return b.structPlan(f)
+	}
+	if r := b.puregoStack(f); r != "" {
+		return r + "; " + callPlanRemedy
+	}
+	return ""
 }
 
-// take gives a struct n registers of bank, or says why it cannot: with
-// fewer left, C passes the struct on the stack, which purego v0.11.3 does
-// not do as C does.
-func (r *regBanks) take(bank, n int) string {
-	left := max(0, r.cap[bank]-r.used[bank])
-	if n > left {
-		return fmt.Sprintf("needs %d %s registers on %s and %d are left, so C passes it on the stack, which purego v0.11.3 does not do as C does (it splits a struct between registers and the stack)",
-			n, bankName[bank], r.arch, left)
+// structPlan is the error text of a function f with a by-value struct
+// argument or result when a struct has no call form, or when an argument
+// or the result does not travel in registers on a target, or "".
+func (b *Binding) structPlan(f *Function) string {
+	k := b.k
+	if k.isByValueStruct(f.Result) {
+		if r := k.form(f.Result.Name); r.Why != "" {
+			return "result: " + r.Why + "; " + callPlanRemedy
+		}
 	}
-	r.used[bank] += n
+	for i, p := range f.Params {
+		if k.isByValueStruct(p.Type) {
+			if fm := k.form(p.Type.Name); fm.Why != "" {
+				return positionName(f, i) + ": " + fm.Why + "; " + callPlanRemedy
+			}
+		}
+	}
+	// The targets on which a position is not in registers, grouped by the
+	// position and its reason, in the order of abiTargets.
+	var whys []string
+	on := map[string][]string{}
+	for _, t := range abiTargets {
+		if r := k.registers(t, f); r != "" {
+			if on[r] == nil {
+				whys = append(whys, r)
+			}
+			on[r] = append(on[r], t.String())
+		}
+	}
+	if len(whys) == 0 {
+		return ""
+	}
+	var s []string
+	for _, r := range whys {
+		s = append(s, "on "+strings.Join(on[r], ", ")+": "+r)
+	}
+	return strings.Join(s, "; ") + "; " + stackStructRemedy
+}
+
+// registers is "" when every argument and the result of f travel in
+// registers on target t, else the first position that does not, and why.
+func (k *classifier) registers(t abiTarget, f *Function) string {
+	if k.isByValueStruct(f.Result) {
+		if _, _, why := k.structRegs(t, f.Result.Name, true); why != "" {
+			return "result: " + why
+		}
+	}
+	var used [2]int
+	for i, p := range f.Params {
+		bank, n := bankInt, 1
+		what := "it"
+		if k.isByValueStruct(p.Type) {
+			var why string
+			if bank, n, why = k.structRegs(t, p.Type.Name, false); why != "" {
+				return positionName(f, i) + ": " + why
+			}
+			what = "by-value struct " + p.Type.Name
+		} else if s, ok := k.scalarOf(p.Type); ok && (s == Float32 || s == Float64) {
+			bank = bankFloat
+		}
+		if left := t.regs[bank] - used[bank]; n > left {
+			return fmt.Sprintf("%s: %s needs %d %s registers and %d are left, so it goes on the stack",
+				positionName(f, i), what, n, bankName[bank], left)
+		}
+		used[bank] += n
+	}
 	return ""
+}
+
+// structRegs is the bank and the number of registers in which target t
+// passes (or, for a result, returns) the struct named name, or why it does
+// not pass it in registers. The struct has a call form (form's Why is "").
+func (k *classifier) structRegs(t abiTarget, name string, result bool) (bank, n int, why string) {
+	fm := k.form(name)
+	switch t.goarch {
+	case "amd64":
+		// System V: above 16 bytes the class is MEMORY; else one register
+		// per eightbyte, SSE for an HFA, general for words (the INTEGER
+		// class wins over SSE in an eightbyte).
+		if fm.Size > 16 {
+			verb := "passes"
+			if result {
+				verb = "returns"
+			}
+			return 0, 0, fmt.Sprintf("by-value struct %s is %d bytes, so amd64 %s it in memory", name, fm.Size, verb)
+		}
+		if fm.Kind == abiHFA {
+			return bankFloat, int((fm.Size + 7) / 8), ""
+		}
+		return bankInt, fm.N, ""
+	case "arm64":
+		// AAPCS64: an HFA in one floating-point register per member; any
+		// other struct of up to 16 bytes in one general register per
+		// eightbyte; above 16 bytes a pointer to a copy (an argument) or
+		// memory at the address in x8 (a result).
+		if fm.Kind == abiHFA {
+			return bankFloat, fm.N, ""
+		}
+		if fm.Size > 16 {
+			if result {
+				return 0, 0, fmt.Sprintf("by-value struct %s is %d bytes and not an HFA, so arm64 returns it in memory", name, fm.Size)
+			}
+			return 0, 0, fmt.Sprintf("by-value struct %s is %d bytes and not an HFA, so arm64 passes a pointer to a copy", name, fm.Size)
+		}
+		return bankInt, fm.N, ""
+	}
+	return 0, 0, "no calling convention is known for " + t.String()
 }
 
 // The argument block of purego v0.11.3 (syscall.go maxArgs on amd64 and
@@ -359,27 +413,20 @@ const (
 )
 
 // puregoStack is the reason purego's RegisterFunc would panic on the raw
-// function of f, or "". It counts as RegisterFunc does on each target:
-// scalars past the registers, an amd64 struct above 16 bytes in memory
-// (and its hidden result pointer), and on darwin arm64 the bytes of every
-// argument past the registers, a struct counting as one integer.
+// function of f, which has no by-value struct, or "". It counts as
+// RegisterFunc does on each target: the words of the scalars and pointers
+// past the registers, and on darwin arm64 their bytes.
 func (b *Binding) puregoStack(f *Function) string {
 	k := b.k
 	type arg struct {
 		float  bool
-		struc  bool
-		form   abiForm
 		goSize int64
 	}
 	var args []arg
 	for _, p := range f.Params {
 		a := arg{goSize: pointerSize}
-		switch s, ok := k.scalarOf(p.Type); {
-		case ok:
+		if s, ok := k.scalarOf(p.Type); ok {
 			a.float, a.goSize = s == Float32 || s == Float64, scalarSize[s]
-		case k.isByValueStruct(p.Type):
-			a.struc, a.form = true, k.form(p.Type.Name)
-			a.goSize = a.form.GoSize()
 		}
 		args = append(args, a)
 	}
@@ -387,12 +434,6 @@ func (b *Binding) puregoStack(f *Function) string {
 	ints, floats, stack := 0, 0, 0
 	for _, a := range args {
 		switch {
-		case a.struc && a.goSize > 16:
-			stack += int((a.goSize + 7) / 8)
-		case a.struc && a.form.Kind == abiHFA:
-			floats += int((a.goSize + 7) / 8)
-		case a.struc:
-			ints += a.form.N
 		case a.float && floats < amd64FloatRegs:
 			floats++
 		case !a.float && ints < amd64IntRegs:
@@ -401,9 +442,6 @@ func (b *Binding) puregoStack(f *Function) string {
 			stack++
 		}
 	}
-	if k.isByValueStruct(f.Result) && k.form(f.Result.Name).GoSize() > 16 && ints >= amd64IntRegs {
-		stack++
-	}
 	if stack > amd64StackWords {
 		return fmt.Sprintf("purego v0.11.3 passes at most %d stack words on amd64, and this call needs %d", amd64StackWords, stack)
 	}
@@ -411,14 +449,6 @@ func (b *Binding) puregoStack(f *Function) string {
 	ints, floats, stack = 0, 0, 0
 	for _, a := range args {
 		switch {
-		case a.struc && a.form.Kind == abiHFA:
-			floats += a.form.N
-		case a.struc && a.goSize > 16 && ints < arm64IntRegs: // a pointer to a copy
-			ints++
-		case a.struc && a.goSize > 16:
-			stack++
-		case a.struc:
-			ints += a.form.N
 		case a.float && floats < arm64FloatRegs:
 			floats++
 		case !a.float && ints < arm64IntRegs:
@@ -438,8 +468,6 @@ func (b *Binding) puregoStack(f *Function) string {
 			floats++
 		case !a.float && ints < arm64IntRegs:
 			ints++
-		case a.struc && a.form.Kind != abiHFA && a.goSize > 16: // a pointer to a copy
-			bytes += pointerSize
 		default:
 			bytes += a.goSize
 		}

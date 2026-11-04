@@ -333,9 +333,12 @@ func (cc *callCase) bind(t *testing.T) *Binding {
 				continue
 			}
 			cc.c.Skips = append(cc.c.Skips, Skip{Name: name, Why: "generated: purego cannot call it as C does"})
-			if strings.Contains(why, "purego v0.11.3 passes at most") {
+			switch {
+			case strings.Contains(why, "purego v0.11.3 passes at most"):
 				cc.stats["skipped for the stack"]++
-			} else {
+			case strings.HasSuffix(why, stackStructRemedy):
+				cc.stats["skipped for the registers"]++
+			default:
 				cc.stats["skipped for the call form"]++
 			}
 			cc.stats["skipped "+name]++
@@ -353,9 +356,9 @@ var callScalars = []Scalar{Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uin
 
 // callGenM1 generates by-value structs over the admitted scalars, arrays
 // and nested structs (interior and trailing padding, HFAs, mixed float and
-// integer eightbytes), and functions that take up to 16 arguments (so the
-// registers run out) and return a hash of every leaf or a struct derived
-// from it. It keeps the verifier's trigger: g_padded_value.
+// integer eightbytes), and functions that take up to 8 arguments and
+// return a hash of every leaf or a struct derived from it. It keeps the
+// verifier's trigger: g_padded_value.
 func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 	r := rand.New(rand.NewPCG(seed, 0xb1d))
 	cc := &callCase{stats: map[string]int{}}
@@ -446,7 +449,10 @@ func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 			raw.args = append(raw.args, rawArg{ptr: true})
 			cBody.WriteString("    (void)ctx;\n")
 		}
-		for pi, np := 0, 1+r.IntN(16); pi < np; pi++ {
+		// Up to 8 arguments: A6 refuses a call with a struct that does not
+		// travel in registers (callregs_test.go covers that edge), so
+		// longer calls would leave few bound struct arguments to check.
+		for pi, np := 0, 1+r.IntN(8); pi < np; pi++ {
 			pn := "p" + strconv.Itoa(pi)
 			var pt *pType
 			if r.IntN(2) == 0 {
@@ -769,8 +775,11 @@ func TestLiveByValueProperty(t *testing.T) {
 		}
 	}
 	t.Logf("by-value property: %v", stats)
-	for _, k := range []string{"struct argument words", "struct argument hfa", "padded struct argument", "struct argument in memory",
-		"registers run out", "struct result words", "struct result hfa", "raw-only", "raw-only call", "skipped for the call form", "skipped for the stack"} {
+	// A6: no struct is passed in memory and no call with a struct runs out
+	// of registers; such calls are skipped for the registers, and the
+	// register grid (TestLiveRegisterProperty) calls scalars on the stack.
+	for _, k := range []string{"struct argument words", "struct argument hfa", "padded struct argument",
+		"struct result words", "struct result hfa", "raw-only", "raw-only call", "skipped for the call form", "skipped for the registers"} {
 		if stats[k] == 0 {
 			t.Errorf("the generator made no case of %q", k)
 		}
@@ -789,7 +798,7 @@ func TestLiveAutofillProperty(t *testing.T) {
 		cc := callGenM2(t, seed)
 		b := cc.bind(t)
 		cc.driverSet(t, b)
-		skips := cc.stats["skipped for the stack"] + cc.stats["skipped for the call form"]
+		skips := cc.stats["skipped for the stack"] + cc.stats["skipped for the call form"] + cc.stats["skipped for the registers"]
 		if cc.typed+skips != len(cc.calls) {
 			var raw []string
 			for _, f := range b.Funcs {

@@ -297,7 +297,7 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 		// Every bound function has a raw function that Load registers, so
 		// its call plan is checked whether or not it is typed.
 		if r := b.callPlan(f); r != "" {
-			planErrs = append(planErrs, fmt.Sprintf("function %s: %s; %s", f.Name, r, callPlanRemedy))
+			planErrs = append(planErrs, fmt.Sprintf("function %s: %s", f.Name, r))
 		}
 		b.Funcs = append(b.Funcs, bf)
 	}

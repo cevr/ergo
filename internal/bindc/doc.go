@@ -121,10 +121,16 @@
 // function of every bound function, typed or raw-only, so Bind refuses a
 // header with a function whose call purego cannot make as C does on all
 // four targets: a struct with no single form (an eightbyte of only floats
-// that is not an HFA), a struct that does not fit the registers left in
-// the one bank it needs (general or floating-point; the other bank does
-// not matter), or a call that needs more stack than purego registers. The
-// error names the function and the reason; the contract skips it.
+// that is not an HFA), or a call of scalars and pointers that needs more
+// stack than purego registers. In v1 a function with a by-value struct
+// argument or result is bound only when, on each of the four targets,
+// every argument and the result travel in registers: no argument goes on
+// the stack, and each struct is passed in registers (System V classes on
+// amd64: up to 16 bytes; on arm64 an HFA or up to 16 bytes). purego
+// marshals a struct in a call that uses the stack differently per target,
+// and on darwin arm64 not as C does. The error names the function, each
+// target that fails with its first position and reason, and the remedy:
+// skip it in the contract or pass a pointer.
 //
 // Every Go name comes from one allocator per scope (names.go): the
 // package, each typed function's parameters and locals, and each struct's
