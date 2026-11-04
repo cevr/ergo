@@ -1,0 +1,288 @@
+binding report: opentui.h
+header sha256 477bd524f4c89f58393fda4d253eb6f9de748e548dfbec9a3926065bdf72a8ca
+go package opentui (ergo.local/bind/opentui)
+status ot_status: success OT_OK, 37 codes
+abi ot_context_abi_version() == OT_CONTEXT_ABI_VERSION (2)
+handle ot_context (Context): create ot_context_create.out_context, destroy ot_context_destroy, thread owner
+autofill struct_size = size
+autofill abi_version = abi
+
+typed functions (240):
+  ot_scene_set_hooks: func SceneSetHooks(context *Context, node Handle, sceneHooks SceneHooks) error
+  ot_scene_frame_step_with_geometry: func SceneFrameStepWithGeometry(context *Context, session Handle, previous SceneFrameRequest, sceneFrameOptions SceneFrameOptions, recording []byte) (SceneFrameRequest, SceneFrameGeometry, error)
+  ot_scene_frame_get_paint_slots: func SceneFrameGetPaintSlots(context *Context, session Handle, recordRequest SceneFrameRequest, outSlots []ScenePaintSlot) (uint32, error)
+  ot_scene_frame_cancel: func SceneFrameCancel(context *Context, session Handle, frameId uint64) error
+  ot_scene_create_node: func SceneCreateNode(context *Context, session Handle, kind uint32, num uint32) (Handle, error)
+  ot_scene_destroy_node: func SceneDestroyNode(context *Context, node Handle) error
+  ot_scene_move_node: func SceneMoveNode(context *Context, node Handle, parent Handle, index uint32) error
+  ot_scene_has_measure: func SceneHasMeasure(context *Context, node Handle) (uint32, error)
+  ot_scene_mark_dirty: func SceneMarkDirty(context *Context, node Handle) error
+  ot_scene_set_style: func SceneSetStyle(context *Context, node Handle, group uint32, kind uint32, edge uint32, unit uint32, value float32, flags uint32) error
+  ot_scene_get_style: func SceneGetStyle(context *Context, node Handle, group uint32, kind uint32, edge uint32) (SceneStyleValue, error)
+  ot_scene_set_paint: func SceneSetPaint(context *Context, node Handle, scenePaintOptions ScenePaintOptions) error
+  ot_scene_flush: func SceneFlush(context *Context, updates []byte) (uint32, error)
+  ot_scene_set_surface: func SceneSetSurface(context *Context, node Handle, buffer Handle) error
+  ot_scene_set_box_details: func SceneSetBoxDetails(context *Context, node Handle, sceneBoxDetails SceneBoxDetails, title []byte, bottomTitle []byte) error
+  ot_scene_set_viewport: func SceneSetViewport(context *Context, node Handle, viewport Handle) error
+  ot_scene_set_scroll: func SceneSetScroll(context *Context, node Handle, sceneScrollOptions SceneScrollOptions) error
+  ot_scene_set_scroll_arrow: func SceneSetScrollArrow(context *Context, node Handle, axis uint32, end uint32, sceneArrowOptions SceneArrowOptions, text []byte) error
+  ot_scene_scroll_to: func SceneScrollTo(context *Context, node Handle, x float64, y float64, flags uint32) (SceneScrollState, error)
+  ot_scene_scroll_request: func SceneScrollRequest(context *Context, node Handle, kind uint32, target Handle, align uint32, inset uint32) (SceneScrollState, error)
+  ot_scene_get_scroll: func SceneGetScroll(context *Context, node Handle) (SceneScrollState, error)
+  ot_scene_set_focus: func SceneSetFocus(context *Context, node Handle, focused uint32) error
+  ot_scene_set_slider: func SceneSetSlider(context *Context, node Handle, sceneSliderOptions SceneSliderOptions) error
+  ot_scene_set_arrow: func SceneSetArrow(context *Context, node Handle, sceneArrowOptions SceneArrowOptions, text []byte) error
+  ot_scene_get_slider_thumb: func SceneGetSliderThumb(context *Context, node Handle) (SceneSliderThumb, error)
+  ot_scene_set_text: func SceneSetText(context *Context, node Handle, bytes []byte) error
+  ot_scene_set_styled_text: func SceneSetStyledText(context *Context, node Handle, bytes []byte, chunks []StyledTextChunk, urls []byte) error
+  ot_scene_set_text_options: func SceneSetTextOptions(context *Context, node Handle, sceneTextOptions SceneTextOptions) error
+  ot_scene_set_text_selection: func SceneSetTextSelection(context *Context, node Handle, sceneTextSelectionOptions SceneTextSelectionOptions) (uint32, error)
+  ot_scene_get_text_selection: func SceneGetTextSelection(context *Context, node Handle) (uint64, error)
+  ot_scene_get_selected_text: func SceneGetSelectedText(context *Context, node Handle, bytes []byte) (uint32, error)
+  ot_scene_get_text: func SceneGetText(context *Context, node Handle, bytes []byte) (uint32, error)
+  ot_scene_get_text_info: func SceneGetTextInfo(context *Context, node Handle) (SceneTextInfo, error)
+  ot_scene_get_text_lines: func SceneGetTextLines(context *Context, node Handle, firstLine uint32, lines []SceneTextLine) (uint32, error)
+  ot_scene_get_layout: func SceneGetLayout(context *Context, node Handle, observation uint32) (SceneLayout, error)
+  ot_scene_paint: func ScenePaint(context *Context, session Handle, background [4]uint16, useMouse uint32, excludedHitNum uint32) (SceneFrameRequest, error)
+  ot_scene_hit_test: func SceneHitTest(context *Context, session Handle, x int32, y int32) (uint32, error)
+  ot_scene_get_stats: func SceneGetStats(context *Context, session Handle) (SceneStats, error)
+  ot_scene_set_debug_flags: func SceneSetDebugFlags(context *Context, session Handle, flags uint32) error
+  ot_scene_get_cursor_state: func SceneGetCursorState(context *Context, session Handle) (SceneCursorState, error)
+  ot_scene_frame_copy_buffer: func SceneFrameCopyBuffer(context *Context, session Handle, sceneFrameRequest SceneFrameRequest, target Handle) error
+  ot_scene_measure_layout: func SceneMeasureLayout(context *Context, session Handle, root Handle) error
+  ot_session_render_split: func SessionRenderSplit(context *Context, session Handle, sceneFrameRequest SceneFrameRequest, splitSnapshot []SplitSnapshot, pinnedRenderOffset uint32, force uint32) (uint32, error)
+  ot_session_split_control: func SessionSplitControl(context *Context, session Handle, splitControl SplitControl) (uint32, error)
+  ot_session_set_screen: func SessionSetScreen(context *Context, session Handle, alternate uint32, width uint32, height uint32, trailingOutput []byte) error
+  ot_session_sync_detached: func SessionSyncDetached(context *Context, session Handle, parent Handle) error
+  ot_unicode_create: func UnicodeCreate(context *Context, bytes []byte, widthMethod uint32) (Handle, error)
+  ot_unicode_destroy: func UnicodeDestroy(context *Context, unicode Handle) error
+  ot_unicode_get: func UnicodeGet(context *Context, unicode Handle, characters []UnicodeChar) (uint32, error)
+  ot_buffer_draw_unicode: func BufferDrawUnicode(context *Context, target Handle, frame SceneFrameRequest, unicode Handle, index uint32, x int32, y int32, foreground [4]uint16, background [4]uint16, attributes uint32) error
+  ot_embedded_terminal_create: func EmbeddedTerminalCreate(context *Context, embeddedTerminalOptions EmbeddedTerminalOptions) (Handle, error)
+  ot_embedded_terminal_destroy: func EmbeddedTerminalDestroy(context *Context, terminal Handle) error
+  ot_embedded_terminal_write: func EmbeddedTerminalWrite(context *Context, terminal Handle, bytes []byte) error
+  ot_embedded_terminal_resize: func EmbeddedTerminalResize(context *Context, terminal Handle, cols uint32, rows uint32) error
+  ot_embedded_terminal_command: func EmbeddedTerminalCommand(context *Context, terminal Handle, command uint32, argument int32) error
+  ot_embedded_terminal_set_selection: func EmbeddedTerminalSetSelection(context *Context, terminal Handle, startX uint32, startY uint32, endX uint32, endY uint32) error
+  ot_embedded_terminal_get_selected_text: func EmbeddedTerminalGetSelectedText(context *Context, terminal Handle, bytes []byte) (uint32, error)
+  ot_embedded_terminal_compose: func EmbeddedTerminalCompose(context *Context, terminal Handle, target Handle, frame SceneFrameRequest, x int32, y int32) error
+  ot_embedded_terminal_cursor_get: func EmbeddedTerminalCursorGet(context *Context, terminal Handle) (EmbeddedTerminalCursor, error)
+  ot_embedded_terminal_encode_key: func EmbeddedTerminalEncodeKey(context *Context, terminal Handle, embeddedTerminalKey EmbeddedTerminalKey, key []byte, text []byte, bytes []byte) (uint32, error)
+  ot_embedded_terminal_encode_mouse: func EmbeddedTerminalEncodeMouse(context *Context, terminal Handle, embeddedTerminalMouse EmbeddedTerminalMouse, bytes []byte) (uint32, error)
+  ot_embedded_terminal_encode_paste: func EmbeddedTerminalEncodePaste(context *Context, terminal Handle, input []byte, bytes []byte) (uint32, error)
+  ot_embedded_terminal_encode_focus: func EmbeddedTerminalEncodeFocus(context *Context, terminal Handle, focused uint32, bytes []byte) (uint32, error)
+  ot_embedded_terminal_drain_responses: func EmbeddedTerminalDrainResponses(context *Context, terminal Handle, bytes []byte) (uint32, error)
+  ot_edit_buffer_create: func EditBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Handle, error)
+  ot_edit_buffer_destroy: func EditBufferDestroy(context *Context, editBuffer Handle) error
+  ot_editor_view_create: func EditorViewCreate(context *Context, editBuffer Handle, width uint32, height uint32) (Handle, error)
+  ot_editor_view_destroy: func EditorViewDestroy(context *Context, view Handle) error
+  ot_syntax_style_create: func SyntaxStyleCreate(context *Context) (Handle, error)
+  ot_syntax_style_destroy: func SyntaxStyleDestroy(context *Context, style Handle) error
+  ot_edit_buffer_set_syntax_style: func EditBufferSetSyntaxStyle(context *Context, editBuffer Handle, style Handle) error
+  ot_edit_buffer_set_text: func EditBufferSetText(context *Context, editBuffer Handle, bytes []byte, preserveHistory uint32) error
+  ot_edit_buffer_insert_text: func EditBufferInsertText(context *Context, editBuffer Handle, bytes []byte) error
+  ot_edit_buffer_delete_range: func EditBufferDeleteRange(context *Context, editBuffer Handle, startRow uint32, startCol uint32, endRow uint32, endCol uint32) error
+  ot_edit_buffer_set_cursor: func EditBufferSetCursor(context *Context, editBuffer Handle, row uint32, col uint32) error
+  ot_edit_buffer_get_text: func EditBufferGetText(context *Context, editBuffer Handle, bytes []byte) (uint32, error)
+  ot_edit_buffer_get_info: func EditBufferGetInfo(context *Context, editBuffer Handle) (EditBufferInfo, error)
+  ot_edit_buffer_set_tab_width: func EditBufferSetTabWidth(context *Context, editBuffer Handle, width uint32) error
+  ot_edit_buffer_command: func EditBufferCommand(context *Context, handle Handle, command uint32, argument uint32) error
+  ot_edit_buffer_history: func EditBufferHistory(context *Context, handle Handle, redo uint32, bytes []byte) (uint32, error)
+  ot_edit_buffer_get_position: func EditBufferGetPosition(context *Context, handle Handle, query uint32, a uint32, b uint32) (EditPosition, error)
+  ot_edit_buffer_get_range: func EditBufferGetRange(context *Context, handle Handle, byCoords uint32, startRow uint32, startCol uint32, endRow uint32, endCol uint32, bytes []byte) (uint32, error)
+  ot_edit_buffer_measure_text: func EditBufferMeasureText(context *Context, editBuffer Handle, bytes []byte) (uint32, error)
+  ot_edit_measure_text: func EditMeasureText(context *Context, bytes []byte, widthMethod uint32, tabWidth uint32) (uint32, error)
+  ot_edit_buffer_set_defaults: func EditBufferSetDefaults(context *Context, handle Handle, mask uint32, editorStyle EditorStyle) error
+  ot_syntax_style_register: func SyntaxStyleRegister(context *Context, handle Handle, name []byte, editorStyle EditorStyle) (uint32, error)
+  ot_syntax_style_resolve: func SyntaxStyleResolve(context *Context, handle Handle, name []byte) (uint32, error)
+  ot_syntax_style_get_count: func SyntaxStyleGetCount(context *Context, handle Handle) (uint32, error)
+  ot_edit_buffer_highlight: func EditBufferHighlight(context *Context, handle Handle, operation uint32, argument uint32, highlight EditHighlight) error
+  ot_edit_buffer_get_highlights: func EditBufferGetHighlights(context *Context, handle Handle, line uint32, highlights []EditHighlight) (uint32, error)
+  ot_editor_view_set_viewport: func EditorViewSetViewport(context *Context, handle Handle, editorViewport EditorViewport, sizeOnly uint32, moveCursor uint32) error
+  ot_editor_view_get_viewport: func EditorViewGetViewport(context *Context, handle Handle) (EditorViewport, error)
+  ot_editor_view_set_scroll_margin: func EditorViewSetScrollMargin(context *Context, handle Handle, margin float32) error
+  ot_editor_view_command: func EditorViewCommand(context *Context, handle Handle, command uint32, argument uint32) error
+  ot_editor_view_replace_selection: func EditorViewReplaceSelection(context *Context, handle Handle, bytes []byte) (uint32, error)
+  ot_editor_view_set_tab_color: func EditorViewSetTabColor(context *Context, handle Handle, color [4]uint16) error
+  ot_editor_view_select: func EditorViewSelect(context *Context, handle Handle, editorSelection EditorSelection) (uint32, error)
+  ot_editor_view_get_info: func EditorViewGetInfo(context *Context, handle Handle, followCursor uint32) (EditorViewInfo, error)
+  ot_editor_view_get_selection: func EditorViewGetSelection(context *Context, handle Handle) (EditorViewInfo, error)
+  ot_editor_view_get_selected_text: func EditorViewGetSelectedText(context *Context, handle Handle, bytes []byte) (uint32, error)
+  ot_editor_view_get_position: func EditorViewGetPosition(context *Context, handle Handle, query uint32) (EditorPosition, error)
+  ot_editor_view_measure: func EditorViewMeasure(context *Context, handle Handle, width uint32, height uint32) (EditorMeasure, error)
+  ot_editor_view_set_placeholder: func EditorViewSetPlaceholder(context *Context, handle Handle, bytes []byte, chunks []StyledTextChunk) error
+  ot_scene_set_editor_view: func SceneSetEditorView(context *Context, node Handle, view Handle) error
+  ot_scene_set_editor_options: func SceneSetEditorOptions(context *Context, node Handle, sceneEditorOptions SceneEditorOptions) error
+  ot_image_destroy: func ImageDestroy(context *Context, image Handle) error
+  ot_image_inspect: func ImageInspect(context *Context, bytes []byte) (ImageInfo, error)
+  ot_image_decode: func ImageDecode(context *Context, bytes []byte) (Handle, error)
+  ot_image_create_pixels: func ImageCreatePixels(context *Context, pixels []byte, width uint32, height uint32, stride uint32, format uint32, alpha uint32) (Handle, error)
+  ot_image_update_pixels: func ImageUpdatePixels(context *Context, image Handle, pixels []byte, stride uint32, format uint32, alpha uint32) error
+  ot_image_clone: func ImageClone(destination *Context, source *Context, image Handle) (Handle, error)
+  ot_image_retain: func ImageRetain(context *Context, image Handle) (Handle, error)
+  ot_image_get_info: func ImageGetInfo(context *Context, image Handle) (ImageInfo, error)
+  ot_image_resize: func ImageResize(context *Context, image Handle, width uint32, height uint32, filter uint32) (Handle, error)
+  ot_image_extract: func ImageExtract(context *Context, image Handle, left uint32, top uint32, width uint32, height uint32) (Handle, error)
+  ot_image_transform: func ImageTransform(context *Context, image Handle, operation uint32) (Handle, error)
+  ot_image_composite: func ImageComposite(context *Context, base Handle, overlay Handle, left int32, top int32, blend uint32, opacity uint8) (Handle, error)
+  ot_image_copy_png: func ImageCopyPng(context *Context, image Handle, destination []byte) (uint64, error)
+  ot_image_take_pixels: func ImageTakePixels(context *Context, image Handle) (ImagePixels, error)
+  ot_image_pixels_release: func ImagePixelsRelease(context *Context, lease Handle) error
+  ot_scene_set_image: func SceneSetImage(context *Context, node Handle, image Handle, fit uint32, protocol uint32, buffer Handle) error
+  ot_scene_set_crop: func SceneSetCrop(context *Context, node Handle, left uint32, top uint32, width uint32, height uint32) error
+  ot_scene_set_video: func SceneSetVideo(context *Context, node Handle, fit uint32, buffer Handle) error
+  ot_video_open: func VideoOpen(context *Context, node Handle, path []byte, flags uint32) (VideoInfo, error)
+  ot_video_play: func VideoPlay(context *Context, node Handle) error
+  ot_video_pause: func VideoPause(context *Context, node Handle) error
+  ot_video_seek: func VideoSeek(context *Context, node Handle, timeUs int64) error
+  ot_video_set_loop: func VideoSetLoop(context *Context, node Handle, loop uint32) error
+  ot_video_set_muted: func VideoSetMuted(context *Context, node Handle, muted uint32) error
+  ot_video_set_volume: func VideoSetVolume(context *Context, node Handle, volume float32) error
+  ot_video_set_av_sync_offset: func VideoSetAvSyncOffset(context *Context, node Handle, offsetUs int64) error
+  ot_video_set_max_fps: func VideoSetMaxFps(context *Context, node Handle, fps uint32) error
+  ot_video_get_state: func VideoGetState(context *Context, node Handle) (VideoState, error)
+  ot_video_get_error: func VideoGetError(context *Context, node Handle, bytes []byte) (uint32, error)
+  ot_buffer_draw_image: func BufferDrawImage(context *Context, target Handle, frame SceneFrameRequest, image Handle, imageDrawOptions ImageDrawOptions) (uint32, error)
+  ot_session_set_image_resolution: func SessionSetImageResolution(context *Context, session Handle, terminalWidth uint32, terminalHeight uint32, pixelWidth uint32, pixelHeight uint32) error
+  ot_session_set_kitty_image_transport: func SessionSetKittyImageTransport(context *Context, session Handle, mode uint32) error
+  ot_session_get_kitty_image_transport: func SessionGetKittyImageTransport(context *Context, session Handle) (SessionKittyImageTransport, error)
+  ot_session_poll_kitty_image_transport: func SessionPollKittyImageTransport(context *Context, session Handle, nowNs uint64) (uint32, error)
+  ot_session_cancel_kitty_image_transport: func SessionCancelKittyImageTransport(context *Context, session Handle, failed uint32) error
+  ot_session_process_kitty_image_reply: func SessionProcessKittyImageReply(context *Context, session Handle, bytes []byte) (uint32, error)
+  ot_session_start_kitty_file_probe: func SessionStartKittyFileProbe(context *Context, session Handle) error
+  ot_text_buffer_create: func TextBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Handle, error)
+  ot_text_buffer_destroy: func TextBufferDestroy(context *Context, handle Handle) error
+  ot_text_buffer_view_create: func TextBufferViewCreate(context *Context, buffer Handle) (Handle, error)
+  ot_text_buffer_view_destroy: func TextBufferViewDestroy(context *Context, handle Handle) error
+  ot_text_buffer_set_text: func TextBufferSetText(context *Context, handle Handle, arg2 []byte) error
+  ot_text_buffer_append: func TextBufferAppend(context *Context, handle Handle, arg2 []byte) error
+  ot_text_buffer_clear: func TextBufferClear(context *Context, handle Handle, reset uint32) error
+  ot_text_buffer_set_styled_text: func TextBufferSetStyledText(context *Context, handle Handle, arg2 []byte, styledTextChunk []StyledTextChunk, urls []byte) error
+  ot_text_buffer_replace_styled_batch: func TextBufferReplaceStyledBatch(context *Context, textBufferReplacement []TextBufferReplacement, bytes []byte, styledTextChunk []StyledTextChunk, urls []byte) (TextBufferReplacementInfo, error)
+  ot_text_buffer_set_syntax_style: func TextBufferSetSyntaxStyle(context *Context, handle Handle, style Handle) error
+  ot_text_buffer_get_info: func TextBufferGetInfo(context *Context, handle Handle) (TextBufferInfo, error)
+  ot_text_buffer_get_text: func TextBufferGetText(context *Context, handle Handle, arg2 []byte) (uint32, error)
+  ot_text_buffer_get_range: func TextBufferGetRange(context *Context, handle Handle, start uint32, end uint32, arg4 []byte) (uint32, error)
+  ot_text_buffer_set_defaults: func TextBufferSetDefaults(context *Context, handle Handle, mask uint32, editorStyle EditorStyle) error
+  ot_text_buffer_set_tab_width: func TextBufferSetTabWidth(context *Context, handle Handle, width uint32) error
+  ot_text_buffer_highlight: func TextBufferHighlight(context *Context, handle Handle, operation uint32, argument uint32, editHighlight EditHighlight) error
+  ot_text_buffer_get_highlights: func TextBufferGetHighlights(context *Context, handle Handle, line uint32, editHighlight []EditHighlight) (uint32, error)
+  ot_text_buffer_view_set_viewport: func TextBufferViewSetViewport(context *Context, handle Handle, editorViewport EditorViewport, sizeOnly uint32) error
+  ot_text_buffer_view_command: func TextBufferViewCommand(context *Context, handle Handle, command uint32, argument uint32) error
+  ot_text_buffer_view_set_tab_color: func TextBufferViewSetTabColor(context *Context, handle Handle, color [4]uint16) error
+  ot_text_buffer_view_select: func TextBufferViewSelect(context *Context, handle Handle, editorSelection EditorSelection) (uint32, error)
+  ot_text_buffer_view_get_info: func TextBufferViewGetInfo(context *Context, handle Handle) (EditorViewInfo, error)
+  ot_text_buffer_view_get_selected_text: func TextBufferViewGetSelectedText(context *Context, handle Handle, arg2 []byte) (uint32, error)
+  ot_text_buffer_view_measure: func TextBufferViewMeasure(context *Context, handle Handle, width uint32, height uint32) (EditorMeasure, error)
+  ot_scene_set_text_view: func SceneSetTextView(context *Context, node Handle, view Handle) error
+  ot_scene_set_text_view_paint: func SceneSetTextViewPaint(context *Context, node Handle, enabled uint32) error
+  ot_buffer_draw_text_view: func BufferDrawTextView(context *Context, target Handle, sceneFrameRequest SceneFrameRequest, view Handle, x int32, y int32) error
+  ot_buffer_draw_editor_view: func BufferDrawEditorView(context *Context, target Handle, sceneFrameRequest SceneFrameRequest, view Handle, x int32, y int32) error
+  ot_buffer_draw_scene_body: func BufferDrawSceneBody(context *Context, target Handle, sceneFrameRequest SceneFrameRequest, node Handle, x int32, y int32) error
+  ot_scene_frame_acquire_buffer_lease: func SceneFrameAcquireBufferLease(context *Context, session Handle, frameRequest SceneFrameRequest, which uint32) (BufferLeaseSnapshot, error)
+  ot_scene_frame_commit: func SceneFrameCommit(context *Context, session Handle, frameRequest SceneFrameRequest, force uint32) (uint32, error)
+  ot_context_abi_version: func ContextAbiVersion() (uint32, error)
+  ot_context_create: func ContextCreate(options ContextOptions) (*Context, error)
+  ot_context_destroy: func ContextDestroy(context *Context) error
+  ot_context_get_last_error: func ContextGetLastError(context *Context) (ContextError, error)
+  ot_context_get_link_url: func ContextGetLinkUrl(context *Context, linkId uint32, bytes []byte) (uint32, error)
+  ot_buffer_create: func BufferCreate(context *Context, options BufferOptions) (Handle, error)
+  ot_buffer_destroy: func BufferDestroy(context *Context, buffer Handle) error
+  ot_buffer_resize: func BufferResize(context *Context, buffer Handle, width uint32, height uint32) error
+  ot_buffer_draw: func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, options BufferDrawHeader, source Handle, text []byte, bottomTitle []byte) error
+  ot_buffer_draw_grid: func BufferDrawGrid(context *Context, target Handle, frame SceneFrameRequest, options BufferGridOptions, columns []int32, rows []int32) error
+  ot_buffer_draw_packed: func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest SceneFrameRequest, data []byte, x int32, y int32, width uint32, height uint32) error
+  ot_buffer_draw_supersample: func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest SceneFrameRequest, data []byte, x int32, y int32, format uint32, stride uint32) error
+  ot_buffer_acquire_lease: func BufferAcquireLease(context *Context, buffer Handle) (BufferLeaseSnapshot, error)
+  ot_session_create: func SessionCreate(context *Context, options SessionOptions) (Handle, error)
+  ot_session_attach_renderer: func SessionAttachRenderer(context *Context, session Handle, options SessionRendererOptions) error
+  ot_session_render: func SessionRender(context *Context, session Handle, force uint32) (uint32, error)
+  ot_session_resize_renderer: func SessionResizeRenderer(context *Context, session Handle, width uint32, height uint32) error
+  ot_session_draw_buffer: func SessionDrawBuffer(context *Context, session Handle, source Handle, x int32, y int32) error
+  ot_scene_frame_draw_buffer: func SceneFrameDrawBuffer(context *Context, session Handle, frameRequest SceneFrameRequest, source Handle, x int32, y int32) error
+  ot_session_set_debug_overlay: func SessionSetDebugOverlay(context *Context, session Handle, enabled uint32, corner uint32) error
+  ot_session_update_stats: func SessionUpdateStats(context *Context, session Handle, overallMs float64, fps uint32, callbackMs float64) error
+  ot_session_update_memory_stats: func SessionUpdateMemoryStats(context *Context, session Handle, heapUsed uint32, heapTotal uint32, arrayBuffers uint32) error
+  ot_session_dump_hit_grid: func SessionDumpHitGrid(context *Context, session Handle) error
+  ot_session_get_renderer_state: func SessionGetRendererState(context *Context, session Handle) (SessionRendererState, error)
+  ot_session_acquire_buffer_lease: func SessionAcquireBufferLease(context *Context, session Handle, which uint32) (BufferLeaseSnapshot, error)
+  ot_session_get_link_id: func SessionGetLinkId(context *Context, session Handle, x int32, y int32) (uint32, error)
+  ot_buffer_lease_validate: func BufferLeaseValidate(context *Context, lease Handle) error
+  ot_buffer_lease_release: func BufferLeaseRelease(context *Context, lease Handle) error
+  ot_buffer_lease_get_real_char_size: func BufferLeaseGetRealCharSize(context *Context, lease Handle, addLineBreaks uint32) (uint32, error)
+  ot_session_setup_terminal: func SessionSetupTerminal(context *Context, session Handle, options SessionTerminalOptions) error
+  ot_session_suspend: func SessionSuspend(context *Context, session Handle) error
+  ot_session_resume: func SessionResume(context *Context, session Handle) error
+  ot_session_get_terminal_state: func SessionGetTerminalState(context *Context, session Handle) (uint32, error)
+  ot_session_control: func SessionControl(context *Context, session Handle, options SessionControlOptions, bytes []byte) error
+  ot_session_get_capabilities: func SessionGetCapabilities(context *Context, session Handle) (SessionCapabilities, error)
+  ot_session_clipboard: func SessionClipboard(context *Context, session Handle, target uint32, bytes []byte) (uint32, error)
+  ot_session_notification: func SessionNotification(context *Context, handle Handle, message []byte, title []byte) (uint32, error)
+  ot_session_pump: func SessionPump(context *Context, session Handle, nowNs uint64, workBudget uint32) (SessionPumpResult, error)
+  ot_session_input_expect: func SessionInputExpect(context *Context, session Handle, flags uint32) error
+  ot_session_input_reset: func SessionInputReset(context *Context, session Handle, flags uint32) error
+  ot_session_get_write_limit: func SessionGetWriteLimit(context *Context, session Handle) (uint64, error)
+  ot_session_write: func SessionWrite(context *Context, session Handle, bytes []byte) error
+  ot_session_drain_stdout: func SessionDrainStdout(context *Context, session Handle, maxBytes uint32) (uint32, error)
+  ot_session_post_stdout: func SessionPostStdout(context *Context, session Handle, maxBytes uint32, wait uint32) (uint32, uint32, error)
+  ot_session_complete_output: func SessionCompleteOutput(context *Context, session Handle, ticket OutputTicket, success uint32) error
+  ot_session_close: func SessionClose(context *Context, session Handle) error
+  ot_session_drop_output: func SessionDropOutput(context *Context, session Handle) error
+  ot_session_pump_exit: func SessionPumpExit(context *Context, session Handle) (uint32, error)
+  ot_terminal_flush_input: func TerminalFlushInput() error
+  ot_session_cancel: func SessionCancel(context *Context, session Handle) error
+  ot_session_get_state: func SessionGetState(context *Context, session Handle) (uint32, error)
+  ot_session_destroy: func SessionDestroy(context *Context, session Handle) error
+  ot_clipboard_service_create: func ClipboardServiceCreate(context *Context, maxOperations uint32, maxProviderTransfers uint32, waylandSeat []byte) (int32, error)
+  ot_clipboard_service_begin_shutdown: func ClipboardServiceBeginShutdown(context *Context) (uint8, error)
+  ot_clipboard_service_poll_shutdown: func ClipboardServicePollShutdown(context *Context) (uint8, error)
+  ot_clipboard_service_destroy: func ClipboardServiceDestroy(context *Context) (uint8, error)
+  ot_clipboard_service_drain: func ClipboardServiceDrain(context *Context) (uint8, error)
+  ot_clipboard_read_operation_start: func ClipboardReadOperationStart(context *Context, request []byte, selection uint8, maxBytes uint32, maxImagePixels uint32, maxConversionBytes uint32, timeoutMs uint32) (uint8, Handle, error)
+  ot_clipboard_write_operation_start: func ClipboardWriteOperationStart(context *Context, text []byte, selection uint8, timeoutMs uint32) (uint8, Handle, error)
+  ot_clipboard_clear_operation_start: func ClipboardClearOperationStart(context *Context, selection uint8, timeoutMs uint32) (uint8, Handle, error)
+  ot_clipboard_operation_poll: func ClipboardOperationPoll(context *Context, operation Handle) (uint8, error)
+  ot_clipboard_operation_cancel: func ClipboardOperationCancel(context *Context, operation Handle) (uint8, error)
+  ot_clipboard_operation_result_mime_length: func ClipboardOperationResultMimeLength(context *Context, operation Handle) (uint8, uint32, error)
+  ot_clipboard_operation_result_data_length: func ClipboardOperationResultDataLength(context *Context, operation Handle) (uint8, uint32, error)
+  ot_clipboard_operation_result_error_code: func ClipboardOperationResultErrorCode(context *Context, operation Handle) (uint8, uint32, error)
+  ot_clipboard_operation_result_diagnostic_length: func ClipboardOperationResultDiagnosticLength(context *Context, operation Handle) (uint8, uint32, error)
+  ot_clipboard_operation_destroy: func ClipboardOperationDestroy(context *Context, operation Handle) (uint8, error)
+
+raw-only functions (19):
+  ot_scene_set_measure: param 2 (#2): callback parameter (callbacks are raw until bind-c-2)
+  ot_editor_view_get_lines: param 3 (lines): no rule covers it; param 5 (out_info): no rule covers it
+  ot_context_set_edit_event_callback: param 1 (#1): callback parameter (callbacks are raw until bind-c-2)
+  ot_image_extend: param 6 (background_rgba): no rule covers it
+  ot_image_copy_pixels: param 2 (destination): no rule covers it
+  ot_text_buffer_view_get_lines: param 4 (#4): no rule covers it; param 6 (#6): no rule covers it
+  ot_context_drain_diagnostics: param 1 (records): no rule covers it; param 3 (out_drain): no rule covers it
+  ot_buffer_stack: param 8 (opacity): no rule covers it
+  ot_buffer_draw_grayscale: param 3 (data): no rule covers it; param 9 (foreground): no rule covers it; param 10 (background): no rule covers it
+  ot_buffer_color_matrix: param 7 (strength): no rule covers it
+  ot_session_attach_renderer_with_env: param 3 (environment): no rule covers it
+  ot_buffer_lease_write_resolved_chars: param 2 (bytes): no rule covers it; param 5 (cell_lengths): no rule covers it
+  ot_session_set_palette_state: param 2 (palette): no rule covers it; param 4 (foreground): no rule covers it; param 5 (background): no rule covers it
+  ot_session_input_feed: param 5 (records): no rule covers it; param 7 (payload): no rule covers it
+  ot_session_read_output: param 2 (bytes): no rule covers it; param 4 (out_ticket): no rule covers it
+  ot_session_drain_output: param 1 (session): no rule covers it; param 4 (user_data): no rule covers it; param 5 (writer): callback parameter (callbacks are raw until bind-c-2)
+  ot_clipboard_operation_result_mime_copy: param 2 (out_bytes): no rule covers it
+  ot_clipboard_operation_result_data_copy: param 2 (out_bytes): no rule covers it
+  ot_clipboard_operation_result_diagnostic_copy: param 2 (out_bytes): no rule covers it
+
+pointer fields (0):
+
+counts:
+  functions 259: typed 240, raw-only 19, skipped 0
+  pointer positions 806 (parameters and results 806, fields 0): handle 257, value 315, out 99, in_buffer 58, out_buffer 23, out_count 23, raw 31
+  constants 701, status codes 37
+
+exceptions (6):
+  ot_session_drain_stdout session: value: max_bytes after session limits the drained output; it is not the length of session
+  ot_session_post_stdout session: value: max_bytes after session limits the posted output; it is not the length of session
+  ot_text_buffer_get_info #2: out: unnamed out-parameter: the call writes one ot_text_buffer_info
+  ot_text_buffer_view_get_info #2: out: unnamed out-parameter: the call writes one ot_editor_view_info
+  ot_text_buffer_view_measure #4: out: unnamed out-parameter: the call writes one ot_editor_measure
+  ot_text_buffer_replace_styled_batch out: out: named out without the out_ prefix: the call writes one ot_text_buffer_replacement_info
+
+skips (0):
