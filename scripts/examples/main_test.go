@@ -226,6 +226,16 @@ func TestCaseSeesOnlyItsDeclaredWorld(t *testing.T) {
 	f := newFixture(t)
 	t.Setenv("EXAMPLES_LEAK", "leaked")
 	t.Setenv("FOO", "leaked")
+	// TMPDIR goes through a link, as it does on darwin (/var is a link to
+	// /private/var): HOME must still name the working directory itself.
+	temp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(temp, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(temp, "real"), filepath.Join(temp, "link")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", filepath.Join(temp, "link"))
 	probe := `#!/bin/sh
 echo "argc=$#"
 printf '[%s]' "$@"
@@ -534,6 +544,89 @@ func TestRecordLegWritesGoldensFromTheOriginal(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(drift, "cases/r1/expected.err")); err != nil {
 		t.Fatalf("drifter's recorded stderr: %v", err)
+	}
+}
+
+// When the original cannot start, -record fails the case and writes nothing:
+// the goldens keep their bytes. A command that never ran has no output to
+// record. Each cause of a start failure that a fixture can show is a row.
+func TestRecordLegWritesNothingWhenTheOriginalCannotStart(t *testing.T) {
+	goldens := map[string]string{"expected.out": "original out\n", "expected.err": "original err\n", "expected.status": "3\n"}
+	port := func(t *testing.T, stdin bool) (*fixture, string) {
+		f := newFixture(t)
+		files := map[string]string{}
+		for file, content := range goldens {
+			files[file] = content
+		}
+		if stdin {
+			files["stdin"] = "input\n"
+		}
+		dir := f.program("port", "#!/bin/sh\necho port\n", "default\n", map[string]map[string]string{"basic": files},
+			map[string]string{"record.sh": "echo original out; echo original err >&2; exit 3\n", "origin": "a fixture original\n"})
+		return f, filepath.Join(dir, "cases", "basic")
+	}
+	check := func(t *testing.T, f *fixture, caseDir string) {
+		t.Helper()
+		code, out := f.run("-record", "port")
+		_, fails := verdicts(out)
+		if code != 1 || !strings.HasPrefix(fails["port/basic"], " could not start: ") || strings.Contains(out, "recorded port/basic") {
+			t.Errorf("-record: want exit 1, FAIL port/basic: could not start, and no recorded line; exit %d\n%s", code, out)
+		}
+		for file, want := range goldens {
+			if got, ok := read(t, filepath.Join(caseDir, file)); !ok || got != want {
+				t.Errorf("%s: want %q kept, got %q (present %t)", file, want, got, ok)
+			}
+		}
+		code, out = f.run("-record", "-check", "port")
+		if _, fails := verdicts(out); code != 1 || !strings.HasPrefix(fails["port/basic"], " could not start: ") {
+			t.Errorf("-record -check: want exit 1 and FAIL port/basic: could not start; exit %d\n%s", code, out)
+		}
+	}
+	t.Run("no sh on PATH", func(t *testing.T) {
+		f, caseDir := port(t, false)
+		t.Setenv("PATH", filepath.Join(t.TempDir(), "no-sh-here"))
+		check(t, f, caseDir)
+	})
+	t.Run("stdin cannot be opened", func(t *testing.T) {
+		f, caseDir := port(t, true)
+		stdin := filepath.Join(caseDir, "stdin")
+		if err := os.Chmod(stdin, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(stdin, 0o644) })
+		if file, err := os.Open(stdin); err == nil {
+			file.Close()
+			t.Skip("this user can open a file of mode 000 (root or CAP_DAC_OVERRIDE), so the row has no unopenable stdin")
+		}
+		check(t, f, caseDir)
+	})
+}
+
+// execute returns an error, and no outcome, for each cause of a start
+// failure: a stdin that cannot be opened, output files that cannot be made,
+// and a command that cannot be started. A command that ran returns no error.
+func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing")
+	rows := []struct {
+		what    string
+		argv    []string
+		stdin   string
+		scratch string
+	}{
+		{"stdin cannot be opened", []string{"sh", "-c", "exit 0"}, missing, dir},
+		{"output files cannot be made", []string{"sh", "-c", "exit 0"}, "", missing},
+		{"command cannot be started", []string{missing}, "", dir},
+	}
+	for _, row := range rows {
+		o, err := execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, row.scratch)
+		if err == nil {
+			t.Errorf("%s: no error; outcome %+v", row.what, o)
+		}
+	}
+	if o, err := execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, dir); err != nil || o.status != 4 {
+		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.status, err)
 	}
 }
 

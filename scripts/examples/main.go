@@ -481,15 +481,15 @@ func (r *runner) finish() int {
 
 // tool runs a compiler command from the root with the runner's environment
 // and empty input, in its own process group.
-func (r *runner) tool(timeout time.Duration, args ...string) outcome {
+func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
 	return execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout, r.scratch)
 }
 
 // runProgram formats, builds and tests one program and runs its cases.
 func (r *runner) runProgram(p *program) {
-	if o := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); !o.passed() {
+	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
 		fmt.Fprintf(r.out, "FAIL %s: fmt\n", p.name)
-		r.printOutput(o)
+		r.printOutput(o, err)
 		r.fail(p.name + ": fmt")
 		return
 	}
@@ -500,9 +500,9 @@ func (r *runner) runProgram(p *program) {
 		return
 	}
 	binary := filepath.Join(dir, p.name)
-	if o := r.tool(0, "build", filepath.Join(p.dir, "main.ergo"), "-o", binary); !o.passed() {
+	if o, err := r.tool(0, "build", filepath.Join(p.dir, "main.ergo"), "-o", binary); err != nil || !o.passed() {
 		fmt.Fprintf(r.out, "FAIL %s: build\n", p.name)
-		r.printOutput(o)
+		r.printOutput(o, err)
 		r.fail(p.name + ": build")
 		return
 	}
@@ -517,15 +517,18 @@ func (r *runner) runProgram(p *program) {
 // testProgram runs the program's own test declarations. A failure fails the
 // program; its cases still run.
 func (r *runner) testProgram(p *program) {
-	o := r.tool(r.cfg.timeout, "test", filepath.Join(p.dir, "main.ergo"))
+	o, err := r.tool(r.cfg.timeout, "test", filepath.Join(p.dir, "main.ergo"))
 	switch {
+	case err != nil:
+		fmt.Fprintf(r.out, "FAIL %s: test: could not start: %v\n", p.name, err)
+		r.fail(p.name + ": test")
 	case o.passed():
 		fmt.Fprintf(r.out, "ok %s: test (%s)\n", p.name, seconds(o.elapsed))
 	case pendingReply(o):
 		fmt.Fprintf(r.out, "skip %s: test (ergo test is not available yet in this compiler)\n", p.name)
 	default:
 		fmt.Fprintf(r.out, "FAIL %s: test%s\n", p.name, o.why(r.cfg.timeout))
-		r.printOutput(o)
+		r.printOutput(o, nil)
 		r.fail(p.name + ": test")
 	}
 }
@@ -533,7 +536,7 @@ func (r *runner) testProgram(p *program) {
 // pendingReply is the reply of a compiler without ergo test: exit 1, nothing
 // on stdout, and stderr that starts with the pending line.
 func pendingReply(o outcome) bool {
-	return o.startErr == nil && !o.timedOut && o.status == 1 && len(o.stdout) == 0 && bytes.HasPrefix(o.stderr, []byte(pendingTest))
+	return !o.timedOut && o.status == 1 && len(o.stdout) == 0 && bytes.HasPrefix(o.stderr, []byte(pendingTest))
 }
 
 // recordProgram runs a port's original through record.sh for each case and
@@ -545,6 +548,9 @@ func (r *runner) recordProgram(p *program) {
 			r.runCase(p, c, command, false)
 			continue
 		}
+		// The goldens come only from a run of the original that started
+		// and ended by itself: execCase fails a case whose command could
+		// not start, and a timeout or a signal records nothing.
 		o, ok := r.execCase(p, c, command)
 		if !ok {
 			continue
@@ -595,7 +601,9 @@ func writeGoldens(dir string, o outcome) error {
 }
 
 // execCase runs one case's setup.sh and command in a fresh empty directory.
-// It prints a FAIL line and returns false when the case could not run.
+// It prints a FAIL line and returns false when the case could not run: its
+// directory, its setup.sh or its command could not start, or setup.sh failed.
+// So an outcome it returns is always of a command that started.
 func (r *runner) execCase(p *program, c *testCase, command []string) (outcome, bool) {
 	work, err := os.MkdirTemp("", "ergo-case-")
 	if err == nil {
@@ -615,19 +623,28 @@ func (r *runner) execCase(p *program, c *testCase, command []string) (outcome, b
 	}
 	env = append(env, c.env...)
 	if c.setup {
-		o := execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, work, env, "", r.cfg.timeout, r.scratch)
-		if !o.passed() {
+		o, err := execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, work, env, "", r.cfg.timeout, r.scratch)
+		if err != nil || !o.passed() {
 			what := fmt.Sprintf("setup.sh exit %d", o.status)
-			if o.timedOut || o.status < 0 {
+			switch {
+			case err != nil:
+				what = fmt.Sprintf("setup.sh could not start: %v", err)
+			case o.timedOut || o.status < 0:
 				what = "setup.sh" + o.why(r.cfg.timeout)
 			}
 			fmt.Fprintf(r.out, "FAIL %s/%s: %s\n", p.name, c.name, what)
-			r.printOutput(o)
+			r.printOutput(o, nil)
 			r.fail(p.name + "/" + c.name)
 			return outcome{}, false
 		}
 	}
-	return execute(append(slices.Clone(command), c.args...), work, env, c.stdin, r.cfg.timeout, r.scratch), true
+	o, err := execute(append(slices.Clone(command), c.args...), work, env, c.stdin, r.cfg.timeout, r.scratch)
+	if err != nil {
+		fmt.Fprintf(r.out, "FAIL %s/%s: could not start: %v\n", p.name, c.name, err)
+		r.fail(p.name + "/" + c.name)
+		return outcome{}, false
+	}
+	return o, true
 }
 
 // runCase runs one case and compares its streams and status with the goldens.
@@ -638,7 +655,7 @@ func (r *runner) runCase(p *program, c *testCase, command []string, budgeted boo
 	}
 	r.cases++
 	label := p.name + "/" + c.name
-	if o.startErr != nil || o.timedOut {
+	if o.timedOut {
 		fmt.Fprintf(r.out, "FAIL %s:%s\n", label, o.why(r.cfg.timeout))
 		r.fail(label)
 		return
@@ -673,10 +690,11 @@ func (r *runner) runCase(p *program, c *testCase, command []string, budgeted boo
 }
 
 // printOutput prints a command's output indented, so no line of it reads as
-// a verdict of the runner.
-func (r *runner) printOutput(o outcome) {
-	if o.startErr != nil {
-		fmt.Fprintf(r.out, "    %v\n", o.startErr)
+// a verdict of the runner, or why the command could not start (err).
+func (r *runner) printOutput(o outcome, err error) {
+	if err != nil {
+		fmt.Fprintf(r.out, "    could not start: %v\n", err)
+		return
 	}
 	for _, stream := range [][]byte{o.stdout, o.stderr} {
 		for _, line := range lines(stream) {
@@ -702,18 +720,19 @@ func removeAll(dir string) {
 
 func seconds(d time.Duration) string { return fmt.Sprintf("%.2fs", d.Seconds()) }
 
-// outcome is what a command did.
+// outcome is what a command that started did. A command that could not start
+// has no outcome: execute returns an error instead, so no caller can read an
+// exit status 0 from a command that never ran.
 type outcome struct {
 	stdout, stderr []byte
 	// status is the exit status, or -1 when a signal ended the process.
 	status   int
 	signal   string
 	timedOut bool
-	startErr error
 	elapsed  time.Duration
 }
 
-func (o outcome) passed() bool { return o.startErr == nil && !o.timedOut && o.status == 0 }
+func (o outcome) passed() bool { return !o.timedOut && o.status == 0 }
 
 func (o outcome) statusText() string {
 	if o.status < 0 {
@@ -725,8 +744,6 @@ func (o outcome) statusText() string {
 // why says, after a colon, why a command did not finish, or nothing.
 func (o outcome) why(timeout time.Duration) string {
 	switch {
-	case o.startErr != nil:
-		return fmt.Sprintf(" could not start: %v", o.startErr)
 	case o.timedOut:
 		return fmt.Sprintf(" timed out after %s", timeout)
 	case o.status < 0:
@@ -740,27 +757,26 @@ func (o outcome) why(timeout time.Duration) string {
 // process that keeps a stream open can hold the runner. When the command
 // exits, or when timeout (if not 0) passes, execute stops the whole group:
 // the only signal the runner sends, to the group of a child it started.
-func execute(argv []string, dir string, env []string, stdin string, timeout time.Duration, scratch string) outcome {
-	var o outcome
+// It returns an error, and no outcome, when the command could not start: its
+// stdin cannot be opened, its output files cannot be made, or the command
+// cannot be started.
+func execute(argv []string, dir string, env []string, stdin string, timeout time.Duration, scratch string) (outcome, error) {
 	input, err := os.Open(os.DevNull)
 	if stdin != "" {
 		input, err = os.Open(stdin)
 	}
 	if err != nil {
-		o.startErr = err
-		return o
+		return outcome{}, err
 	}
 	defer input.Close()
 	stdout, err := os.CreateTemp(scratch, "stdout-")
 	if err != nil {
-		o.startErr = err
-		return o
+		return outcome{}, err
 	}
 	defer removeFile(stdout)
 	stderr, err := os.CreateTemp(scratch, "stderr-")
 	if err != nil {
-		o.startErr = err
-		return o
+		return outcome{}, err
 	}
 	defer removeFile(stderr)
 	command := exec.Command(argv[0], argv[1:]...)
@@ -770,9 +786,9 @@ func execute(argv []string, dir string, env []string, stdin string, timeout time
 	ownGroup(command)
 	started := time.Now()
 	if err := command.Start(); err != nil {
-		o.startErr = err
-		return o
+		return outcome{}, err
 	}
+	var o outcome
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
 	var expired <-chan time.Time
@@ -797,7 +813,7 @@ func execute(argv []string, dir string, env []string, stdin string, timeout time
 	}
 	o.stdout, _ = os.ReadFile(stdout.Name())
 	o.stderr, _ = os.ReadFile(stderr.Name())
-	return o
+	return o, nil
 }
 
 func removeFile(f *os.File) {
