@@ -53,6 +53,7 @@ func create(t *testing.T, name string) *os.File {
 // and a disk file are admitted; a file on tmpfs is refused, also when it is
 // opened through a link on disk, and the refusal names the file system.
 func TestOutputDestination(t *testing.T) {
+	t.Parallel()
 	disk, memory := diskDir(t), memoryDir(t)
 	link := filepath.Join(disk, "link")
 	if err := os.Symlink(memory, link); err != nil {

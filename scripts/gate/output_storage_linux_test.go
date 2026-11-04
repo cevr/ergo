@@ -146,6 +146,11 @@ func TestBudgetOutputStorage(t *testing.T) {
 			name = fixed + ":" + name
 		}
 		t.Run(name, func(t *testing.T) {
+			// Each layout has its own roots, cache, fixture and helper
+			// scope; the test's environment and slice are set before the
+			// layouts start and only read by them. The host step bounds
+			// how many run at once (-parallel).
+			t.Parallel()
 			checkStorageLayout(t, slice, budget, layout)
 		})
 	}

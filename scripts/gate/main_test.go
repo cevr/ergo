@@ -84,6 +84,12 @@ func runs(t *testing.T, root, name string) int {
 	return strings.Count(string(content), "run\n")
 }
 
+// runGate runs a gate in this test process. A test that calls it, or that
+// captures a step's output in this process in any other way, stays serial:
+// the output pipes are close-on-exec, but a program another parallel test
+// starts holds their write ends between its fork and its exec, and the gate
+// then reports the step's output as held open
+// (TestCommandOutputReachesEOFAfterStepStop failed so at -parallel 8).
 func runGate(t *testing.T, root, cache string, steps []*Step) (int, string) {
 	t.Helper()
 	var out bytes.Buffer
@@ -217,6 +223,7 @@ func TestFailuresAreNeverCached(t *testing.T) {
 }
 
 func TestToolsAreInputs(t *testing.T) {
+	t.Parallel()
 	root := fixture(t)
 	g := &gate{root: root, cacheDir: t.TempDir()}
 	key := func(inputs *Inputs) string {
@@ -243,6 +250,7 @@ func TestToolsAreInputs(t *testing.T) {
 }
 
 func TestShardsRunEveryTestExactlyOnce(t *testing.T) {
+	t.Parallel()
 	names := []string{"TestA", "TestB", "TestC", "TestD", "TestE"}
 	durations := map[string]float64{"TestA": 10, "TestB": 1, "TestC": 1, "TestD": 8}
 	groups := shard(names, durations, 3)
@@ -270,6 +278,7 @@ func TestShardsRunEveryTestExactlyOnce(t *testing.T) {
 }
 
 func TestTestNamesFindTopLevelTestsOnly(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "a_test.go", "package a\n\nfunc TestMain(m *testing.M) {}\nfunc TestOne(t *testing.T) {}\nfunc helper() {}\nfunc (s suite) TestMethod(t *testing.T) {}\nfunc ExampleTwo() {}\nfunc FuzzThree(f *testing.F) {}\n")
 	write(t, dir, "a.go", "package a\n\nfunc TestNotATestFile() {}\n")
@@ -297,6 +306,7 @@ func keyOf(t *testing.T, root string, inputs *Inputs) string {
 }
 
 func TestInstalledTreeContentsAreInputs(t *testing.T) {
+	t.Parallel()
 	root := fixture(t)
 	write(t, root, ".gitignore", "/runs/\n/deps/\n/src/out/\n")
 	write(t, root, "deps/pkg/index.js", "export const one = 1\n")
@@ -357,6 +367,7 @@ func TestInstalledTreeContentsAreInputs(t *testing.T) {
 // executable bits and owner-read, the bits a step's result can depend on,
 // and no other.
 func TestInstalledAndPathDigestsKeyOnlyTheKeyedPermissionBits(t *testing.T) {
+	t.Parallel()
 	root := fixture(t)
 	write(t, root, ".gitignore", "/runs/\nignored/\n")
 	write(t, root, "leaf/src/index.txt", "one\n")
@@ -399,6 +410,7 @@ func TestInstalledAndPathDigestsKeyOnlyTheKeyedPermissionBits(t *testing.T) {
 }
 
 func TestCheckoutIdentityNamesHeadTreeAndCleanliness(t *testing.T) {
+	t.Parallel()
 	root := fixture(t)
 	git := func(args ...string) string {
 		t.Helper()

@@ -8,6 +8,7 @@ import (
 // An output spool is unlinked as it is made, so it leaves nothing behind
 // however the gate ends.
 func TestOutputSpoolIsUnlinked(t *testing.T) {
+	t.Parallel()
 	dir, err := outputSpoolDir(t.TempDir())
 	if err != nil {
 		t.Skipf("the test temp directory cannot hold a spool: %v", err)

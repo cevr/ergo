@@ -572,6 +572,7 @@ func TestBudgetUnboundedHost(t *testing.T) {
 // scope in the slice), so only memory.events.local says which bound was
 // reached.
 func TestBudgetVerdict(t *testing.T) {
+	t.Parallel()
 	budget := memoryBudget{step: 512 << 20, gate: 2 << 30, host: 47 << 30}
 	kill := "oom 0\noom_kill 1\n"
 	for _, c := range []struct {
@@ -679,6 +680,7 @@ func TestBudgetScopeHelper(t *testing.T) {
 // out-of-memory domain read back: "steps" at the gate budget, and the scope
 // at least the gate's reserve above it. Each broken bound refuses the step.
 func TestBudgetStepDomainReadBack(t *testing.T) {
+	t.Parallel()
 	budget := memoryBudget{step: 256 << 20, gate: 256 << 20}
 	bound := func(n int64) string { return strconv.FormatInt(n, 10) + "\n" }
 	for _, c := range []struct {
@@ -724,6 +726,7 @@ func TestBudgetStepDomainReadBack(t *testing.T) {
 // The scope systemd runs the gate in holds the gate budget for the steps
 // and the gate's reserve above it.
 func TestBudgetScopeArgumentsReserve(t *testing.T) {
+	t.Parallel()
 	budget := memoryBudget{step: 256 << 20, gate: 1 << 30}
 	arguments := strings.Join(scopeArguments(gateSlice, "u", budget, []string{"true"}), " ")
 	if want := "MemoryMax=" + strconv.FormatInt(budget.gate+gateReserve, 10) + " "; !strings.Contains(arguments, want) {
@@ -789,6 +792,7 @@ func TestStopStepCgroupWaitsForKernelPopulationZero(t *testing.T) {
 }
 
 func TestStepCgroupPopulatedRequiresKernelField(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cgroup.events")
 	for _, content := range []string{"frozen 0\n", "populated 2\n"} {
@@ -824,6 +828,7 @@ func TestBudgetNestedHelper(t *testing.T) {
 // the steps cgroup of an ergo-gate-*.scope; the gate's own leaf and other
 // cgroups are not steps.
 func TestBudgetOuterGateStep(t *testing.T) {
+	t.Parallel()
 	scope := "/user.slice/user-1000.slice/user@1000.service/ergo.slice/ergo-gates.slice/ergo-gate-12-ab12cd34.scope"
 	for _, c := range []struct {
 		membership string
