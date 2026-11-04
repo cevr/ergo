@@ -2,7 +2,6 @@ package migrate196
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -48,8 +47,8 @@ func rowTokens(s rowSite, n int) []string {
 }
 
 // rowProgram declares the names, then puts the row's tokens in the site,
-// with comments[i] (empty for none) after token i.
-func rowProgram(s rowSite, n int, comments []string) string {
+// with gaps[i] (empty for none) after token i.
+func rowProgram(s rowSite, n int, gaps []string) string {
 	var b strings.Builder
 	b.WriteString("package p\n\n")
 	for _, name := range rowNames[:n] {
@@ -61,8 +60,8 @@ func rowProgram(s rowSite, n int, comments []string) string {
 			row.WriteByte(' ')
 		}
 		row.WriteString(tok)
-		if comments[i] != "" {
-			row.WriteString(" " + comments[i])
+		if gaps[i] != "" {
+			row.WriteString(" " + gaps[i])
 		}
 	}
 	var entries strings.Builder
@@ -74,34 +73,84 @@ func rowProgram(s rowSite, n int, comments []string) string {
 	return b.String()
 }
 
-var commentMarker = regexp.MustCompile(`/\*[^*]*\*/|//[^\n]*`)
+// rowTrivia are the comment sequences a gap of a row can hold, as format
+// strings of one tag (%[1]s): block and line comments alone, adjacent and
+// spaced, mixed, and comments that hold the row's punctuation (, | ( )) or
+// the other comment kind's delimiters. Adjacent block comments put `*//*`
+// in the source, which reads as a line comment to a byte scanner.
+var rowTrivia = []struct{ name, format string }{
+	{"block", "/* %[1]s */"},
+	{"adjacent blocks", "/* %[1]sa *//* %[1]sb */"},
+	{"adjacent blocks, no spaces, comma", "/*%[1]sa*//*%[1]sb,*/"},
+	{"spaced blocks", "/* %[1]sa */ /* %[1]sb */"},
+	{"block then line", "/* %[1]sa */ // %[1]sb\n"},
+	{"line", "// %[1]s\n"},
+	{"line then block", "// %[1]sa\n/* %[1]sb */"},
+	{"block with punctuation", "/* %[1]s, | ( ) */"},
+	{"line with punctuation and a block opener", "// %[1]s, | ( ) /* x\n"},
+	{"block with delimiters inside", "/* %[1]s /* // , */"},
+	{"block of stars", "/** %[1]s, **/"},
+}
 
-// markers lists the comments of a source in order.
-func markers(src string) []string {
-	var out []string
-	for _, c := range commentMarker.FindAllString(src, -1) {
-		out = append(out, strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(c, "//"), "/*"), "*/")))
+// rowCommentCase is one generated program: a site, a name count and the
+// comment sequences placed after the row's tokens.
+type rowCommentCase struct {
+	label  string
+	trivia int // index in rowTrivia
+	site   rowSite
+	n      int
+	src    string
+}
+
+// rowCommentCases places each comment sequence after each token of every
+// row of one to three names, one gap at a time, and then after every token
+// at once.
+func rowCommentCases() []rowCommentCase {
+	var out []rowCommentCase
+	for _, s := range rowSites {
+		for n := 1; n <= 3; n++ {
+			toks := rowTokens(s, n)
+			for ti, tr := range rowTrivia {
+				for at := range toks {
+					gaps := make([]string, len(toks))
+					gaps[at] = fmt.Sprintf(tr.format, fmt.Sprintf("c%d", at))
+					out = append(out, rowCommentCase{fmt.Sprintf("%s, %d names, %s after %q (token %d)", s.name, n, tr.name, toks[at], at), ti, s, n, rowProgram(s, n, gaps)})
+				}
+				all := make([]string, len(toks))
+				for k := range toks {
+					all[k] = fmt.Sprintf(tr.format, fmt.Sprintf("c%d", k))
+				}
+				out = append(out, rowCommentCase{fmt.Sprintf("%s, %d names, %s after every token", s.name, n, tr.name), ti, s, n, rowProgram(s, n, all)})
+			}
+		}
 	}
 	return out
 }
 
-// isSubsequence reports whether want appears in got in order.
-func isSubsequence(want, got []string) bool {
-	i := 0
-	for _, g := range got {
-		if i < len(want) && g == want[i] {
-			i++
+// oldComments and newComments list a source's comments in order, as the
+// parser of each syntax reports them.
+func oldComments(f *oldsyntax.File) []string {
+	var out []string
+	for _, g := range f.Comments {
+		for _, c := range g.List {
+			out = append(out, c.Text)
 		}
 	}
-	return i == len(want)
+	return out
 }
 
-// rowNamesOf lists the names of each capability row of a decided source.
-func rowNamesOf(t *testing.T, src string) [][]string {
-	file, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
+func newComments(f *syntax.File) []string {
+	var out []string
+	for _, g := range f.Comments {
+		for _, c := range g.List {
+			out = append(out, c.Text)
+		}
 	}
+	return out
+}
+
+// rowNamesOf lists the names of each capability row of a decided file.
+func rowNamesOf(f *syntax.File, src string) [][]string {
 	var rows [][]string
 	add := func(names []syntax.Expr) {
 		var row []string
@@ -110,7 +159,7 @@ func rowNamesOf(t *testing.T, src string) [][]string {
 		}
 		rows = append(rows, row)
 	}
-	syntax.Inspect(file, func(n syntax.Node) bool {
+	syntax.Inspect(f, func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.NeedsClause:
 			if n != nil {
@@ -126,108 +175,95 @@ func rowNamesOf(t *testing.T, src string) [][]string {
 	return rows
 }
 
-// rowCommentCase is one generated program: a site, a name count and the
-// comments placed after the row's tokens.
-type rowCommentCase struct {
-	label string
-	site  rowSite
-	n     int
-	src   string
-}
-
-// rowCommentCases places a block or a line comment after each token of
-// every row of one to three names, one comment at a time, and then a
-// comment after every token at once.
-func rowCommentCases() []rowCommentCase {
-	var out []rowCommentCase
-	for _, s := range rowSites {
-		for n := 1; n <= 3; n++ {
-			toks := rowTokens(s, n)
-			for _, kind := range []string{"block", "line"} {
-				// Each comment holds a comma, so a comma found inside a
-				// comment instead of between the names changes its text.
-				comment := func(k int) string {
-					if kind == "block" {
-						return fmt.Sprintf("/* c%d, kept */", k)
-					}
-					return fmt.Sprintf("// c%d, kept\n", k)
-				}
-				for at := range toks {
-					cs := make([]string, len(toks))
-					cs[at] = comment(at)
-					out = append(out, rowCommentCase{fmt.Sprintf("%s, %d names, %s comment after %q (token %d)", s.name, n, kind, toks[at], at), s, n, rowProgram(s, n, cs)})
-				}
-				all := make([]string, len(toks))
-				for k := range toks {
-					all[k] = comment(k)
-				}
-				out = append(out, rowCommentCase{fmt.Sprintf("%s, %d names, a %s comment after every token", s.name, n, kind), s, n, rowProgram(s, n, all)})
-			}
-		}
-	}
-	return out
-}
-
-// TestRowCommentsKept is the property of 196n round 2 (M1): translating an
-// old capability row keeps every comment the old parser admits in it. With
-// no note the output parses, holds the same comments in the same order, and
-// each row keeps its names. With a note the old text, comments included,
-// stays in the output in order.
+// TestRowCommentsKept is the property of 196n rounds 2 and 3 (M1, M2):
+// every old capability row the frozen parser admits, with any of the
+// comment sequences of rowTrivia in any gap, translates with no note, and
+// the output parses, holds the same comments in the same order, and keeps
+// each row's names.
 func TestRowCommentsKept(t *testing.T) {
-	admitted := map[string]int{}
+	admitted := make([]int, len(rowTrivia))
+	total := 0
 	for _, c := range rowCommentCases() {
-		if _, err := oldsyntax.Parse(c.src); err != nil {
-			continue // the old parser does not admit a comment there
-		}
-		kind := "block"
-		if strings.Contains(c.label, "line comment") {
-			kind = "line"
-		}
-		admitted[kind]++
-		want := markers(c.src)
-		out, notes, err := Translate(c.src)
+		old, err := oldsyntax.Parse(c.src)
 		if err != nil {
-			t.Errorf("%s: %v\n%s", c.label, err, c.src)
+			continue // the old parser does not admit this sequence there
+		}
+		admitted[c.trivia]++
+		total++
+		out, notes, err := Translate(c.src)
+		if err != nil || len(notes) > 0 {
+			t.Errorf("%s: err %v, notes %v\n--- in\n%s--- out\n%s", c.label, err, notes, c.src, out)
 			continue
 		}
-		got := markers(out)
-		if len(notes) > 0 {
-			admitted["noted"]++
-			if !isSubsequence(want, got) {
-				t.Errorf("%s: notes %v, and the output lost a comment: want %q in order, got %q\n--- in\n%s--- out\n%s", c.label, notes, want, got, c.src, out)
-			}
+		f, err := syntax.Parse(out)
+		if err != nil {
+			t.Errorf("%s: the output does not parse: %v\n--- out\n%s", c.label, err, out)
 			continue
 		}
-		if !slices.Equal(want, got) {
+		if want, got := oldComments(old), newComments(f); !slices.Equal(want, got) {
 			t.Errorf("%s: comments %q, want %q\n--- in\n%s--- out\n%s", c.label, got, want, c.src, out)
 			continue
 		}
-		rows := rowNamesOf(t, out)
-		if len(rows) != 1 || !slices.Equal(rows[0], rowNames[:c.n]) {
+		if rows := rowNamesOf(f, out); len(rows) != 1 || !slices.Equal(rows[0], rowNames[:c.n]) {
 			t.Errorf("%s: rows %v, want one row %v\n--- out\n%s", c.label, rows, rowNames[:c.n], out)
 		}
 	}
-	t.Logf("admitted programs: %d with block comments, %d with line comments; %d translated with a note", admitted["block"], admitted["line"], admitted["noted"])
-	// The property is not vacuous: the old parser admits both kinds.
-	if admitted["block"] == 0 || admitted["line"] == 0 {
-		t.Fatalf("admitted programs %v: the old parser admits no comment of a kind; the generator is wrong", admitted)
+	t.Logf("admitted programs: %d; by comment sequence %v", total, admitted)
+	// The property is not vacuous: the old parser admits each sequence somewhere.
+	for i, n := range admitted {
+		if n == 0 {
+			t.Errorf("the old parser admits no program with %q; the generator is wrong", rowTrivia[i].name)
+		}
 	}
 }
 
-// TestRowCommentsVerifierCases are the round 1 verifier's probes (M1):
-// a comment after a comma, after a removed parenthesis, and in provides.
+// TestRowCommentsVerifierCases are the verifiers' probes: round 1's comment
+// after a comma, after a removed parenthesis, and in provides (M1), and
+// round 2's adjacent block comments before the comma (M2).
 func TestRowCommentsVerifierCases(t *testing.T) {
-	for _, src := range []string{
-		"package p\nfunc F() needs A, /* KEEP */ B {}\n",
-		"package p\nfunc F(f func() needs (/* KEEP */ A, B)) {}\n",
-		"package p\nwire C provides A, /* KEEP */ B { A = a\n B = b }\n",
+	for _, c := range []struct {
+		src  string
+		keep []string
+	}{
+		{"package p\nfunc F() needs A, /* KEEP */ B {}\n", []string{"/* KEEP */"}},
+		{"package p\nfunc F(f func() needs (/* KEEP */ A, B)) {}\n", []string{"/* KEEP */"}},
+		{"package p\nwire C provides A, /* KEEP */ B { A = a\n B = b }\n", []string{"/* KEEP */"}},
+		{"package p\ntype A interface { M() }\ntype B interface { N() }\nfunc F() needs A /*one*//*two,*/, B {}\n", []string{"/*one*/", "/*two,*/"}},
 	} {
-		out, notes, err := Translate(src)
+		out, notes, err := Translate(c.src)
+		if err != nil || len(notes) > 0 {
+			t.Errorf("%q: err %v, notes %v\n%s", c.src, err, notes, out)
+			continue
+		}
+		f, err := syntax.Parse(out)
 		if err != nil {
-			t.Fatalf("%q: %v", src, err)
+			t.Errorf("%q: the output does not parse: %v\n%s", c.src, err, out)
+			continue
 		}
-		if !strings.Contains(out, "/* KEEP */") {
-			t.Errorf("%q: the translation lost the comment (notes %v):\n%s", src, notes, out)
+		rows, comments := rowNamesOf(f, out), newComments(f)
+		if !slices.Equal(comments, c.keep) || len(rows) != 1 || !slices.Equal(rows[0], []string{"A", "B"}) {
+			t.Errorf("%q: rows %v and comments %q, want one row [A B] and comments %q:\n%s", c.src, rows, comments, c.keep, out)
 		}
+	}
+}
+
+// TestSeparateAdjacentComments is the regression case of the members
+// rewrite (separate), the other reader of comment spans: adjacent block
+// comments before a struct's semicolon must not hide it.
+func TestSeparateAdjacentComments(t *testing.T) {
+	src := "package p\n\ntype T struct {\n\tA int64 /*one*//*two;*/; B string\n}\n"
+	out, notes, err := Translate(src)
+	if err != nil || len(notes) > 0 {
+		t.Fatalf("err %v, notes %v\n%s", err, notes, out)
+	}
+	f, err := syntax.Parse(out)
+	if err != nil {
+		t.Fatalf("the output does not parse: %v\n%s", err, out)
+	}
+	if got := newComments(f); !slices.Equal(got, []string{"/*one*/", "/*two;*/"}) {
+		t.Errorf("comments %q, want both kept\n%s", got, out)
+	}
+	if strings.Contains(strings.ReplaceAll(out, "/*two;*/", ""), ";") {
+		t.Errorf("the old semicolon is left in the output:\n%s", out)
 	}
 }

@@ -19,6 +19,8 @@ func TestWriteKeepsRowComments(t *testing.T) {
 		"paren.ergo":    "package p\nfunc F(f func() needs (/* KEEP */ A, B)) {}\n",
 		"provides.ergo": "package p\nwire C provides A, /* KEEP */ B { A = a\n B = b }\n",
 		"line.ergo":     "package p\nfunc F() needs A, // KEEP\n\tB {}\n",
+		// Round 2 verifier (M2): adjacent block comments before the comma.
+		"adjacent.ergo": "package p\ntype A interface { M() }\ntype B interface { N() }\nfunc F() needs A /*KEEP*//*two,*/, B {}\n",
 	}
 	var paths []string
 	for name, src := range cases {
