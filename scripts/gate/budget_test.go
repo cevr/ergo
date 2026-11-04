@@ -578,6 +578,7 @@ func TestRunBudgetedOutputThroughput(t *testing.T) {
 }
 
 func TestRunBudgetedSharedWritersPreserveRandomInterleavings(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the property uses a Unix shell")
 	}
@@ -708,6 +709,7 @@ func TestDrainPipeDrainsAfterAWriteError(t *testing.T) {
 }
 
 func TestDrainPipeReachesEOFAfterStepStop(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the output pipe requires Unix process groups")
 	}
@@ -744,6 +746,7 @@ func TestDrainPipeReachesEOFAfterStepStop(t *testing.T) {
 }
 
 func TestCommandOutputReachesEOFAfterStepStop(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("the output pipe requires Unix process groups")
 	}

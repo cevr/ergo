@@ -11,6 +11,7 @@ import (
 // mapping names, wherever they live, each once and sorted; a mapping that
 // does not parse adds none.
 func TestEvidenceDirectoriesFollowTheMapping(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write := func(content string) {
 		t.Helper()

@@ -135,6 +135,7 @@ func TestProbe(t *testing.T) {
 // A submodule configured with ignore=all still makes the checkout unclean
 // when its contents change.
 func TestCheckoutIdentitySeesIgnoredSubmoduleChanges(t *testing.T) {
+	t.Parallel()
 	root := fixture(t)
 	module := fixture(t)
 	git := func(args ...string) {

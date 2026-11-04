@@ -22,6 +22,7 @@ import (
 // package runs with -count=1 on every gate, so it is not checked: it never
 // replays. This test is itself a host test: it runs the go command.
 func TestCachedGatePackagesAreHermetic(t *testing.T) {
+	t.Parallel()
 	goCommand := realTools["go"]
 	if goCommand == "" {
 		t.Fatal("go is required")
