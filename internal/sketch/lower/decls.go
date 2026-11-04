@@ -1116,7 +1116,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 		var tests []string
 		fc.pattern(p, init, t, spec.Pattern, &tests, &binds)
 	} else {
-		tup, ok := t.(*check.Tuple)
+		tup, ok := underlying(t).(*check.Tuple)
 		if !ok || len(tup.Types) != len(spec.Names) {
 			refuse(spec, "this let of several names is lowered after check-v1 stage D (the Map rule)")
 		}

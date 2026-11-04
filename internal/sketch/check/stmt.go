@@ -345,8 +345,8 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 	}
 }
 
-// multiValue checks a value that must give n values: a call with n
-// results, or a comma-ok map index.
+// multiValue checks a value that must give n values: a tuple of n
+// elements (or a type defined over one), or a comma-ok map index.
 func (c *checker) multiValue(x syntax.Expr, n int) []Type {
 	out := make([]Type, n)
 	for i := range out {
@@ -374,7 +374,8 @@ func (c *checker) multiValue(x syntax.Expr, n int) []Type {
 		// A refused result type is reported at the signature.
 		return out
 	}
-	tup, ok := op.typ.(*Tuple)
+	// A type defined over a tuple gives its elements too (C45).
+	tup, ok := under(op.typ).(*Tuple)
 	if !ok || len(tup.Types) != n {
 		got := 1
 		if ok {
