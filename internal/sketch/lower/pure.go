@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -45,7 +47,7 @@ func (l *lowerer) pureFuncs() map[*check.Func]bool {
 	pure := map[*check.Func]bool{}
 	callees := map[*check.Func][]*check.Func{}
 	for _, f := range l.pkg.Funcs {
-		if cs, ok := pureCandidate(l.pkg.Info, f); ok {
+		if cs, ok := pureCandidate(l.pkg.Info, f); ok && !l.meetsHostProtocol(f) {
 			pure[f], callees[f] = true, cs
 		}
 	}
@@ -69,7 +71,7 @@ func (l *lowerer) pureFuncs() map[*check.Func]bool {
 // the last's fixed point, with the package functions its body calls.
 func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 	d := f.Decl
-	if d == nil || d.Body == nil || d.Extern != nil || f.Name == "main" || isClose(f) || hostProtocolNames[f.Name] {
+	if d == nil || d.Body == nil || d.Extern != nil || f.Name == "main" || isClose(f) {
 		return nil, false
 	}
 	s := f.Sig
@@ -113,13 +115,119 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 	return callees, ok
 }
 
-// hostProtocolNames are the method names Go's fmt and errors read from a
-// method set with no parameter and a string result (error, fmt.Stringer,
-// fmt.GoStringer), and that go vet's unusedresult check reads at a call. A
-// function with such a name may lower as a Go method; without its
-// environment parameter it would join a host protocol by accident, so it
-// keeps the environment, and so does each function that calls it.
-var hostProtocolNames = map[string]bool{"Error": true, "String": true, "GoString": true}
+// Host protocols (Q-S5-6). Go joins an interface by the method set, so the
+// lowering decides from the Go method it emits, never from a source name:
+//   - (a) a pure function that lowers to a Go method whose name and Go
+//     signature meet a host protocol exactly keeps the environment
+//     (meetsHostProtocol), so its type never joins the protocol by
+//     accident, and so does each function that calls it;
+//   - (b) a pure function that lowers to a Go method whose name is a host
+//     protocol's but whose signature is not gets a Go name outside the
+//     table (protocolFreeName), so go vet's stdmethods check and Go's fmt
+//     and errors never read it;
+//   - (c) every other function, a plain function named String included, is
+//     pure by D-S5-10 alone.
+
+// hostProtocols are the Go method protocols: error, fmt.Stringer and
+// fmt.GoStringer (no parameter, a string result), and every canonical
+// method of go vet's stdmethods check (Go 1.27; Flush is not in vet's
+// table), each with the Go spellings of its parameters and results. A "="
+// marks a parameter go vet keys on; an exact match ignores the mark.
+var hostProtocols = map[string]struct{ args, results []string }{
+	"Error":         {nil, []string{"string"}},
+	"String":        {nil, []string{"string"}},
+	"GoString":      {nil, []string{"string"}},
+	"As":            {[]string{"any"}, []string{"bool"}},
+	"Format":        {[]string{"=fmt.State", "rune"}, nil},
+	"GobDecode":     {[]string{"[]byte"}, []string{"error"}},
+	"GobEncode":     {nil, []string{"[]byte", "error"}},
+	"Is":            {[]string{"error"}, []string{"bool"}},
+	"MarshalJSON":   {nil, []string{"[]byte", "error"}},
+	"MarshalXML":    {[]string{"*xml.Encoder", "xml.StartElement"}, []string{"error"}},
+	"ReadByte":      {nil, []string{"byte", "error"}},
+	"ReadFrom":      {[]string{"=io.Reader"}, []string{"int64", "error"}},
+	"ReadRune":      {nil, []string{"rune", "int", "error"}},
+	"Scan":          {[]string{"=fmt.ScanState", "rune"}, []string{"error"}},
+	"Seek":          {[]string{"=int64", "int"}, []string{"int64", "error"}},
+	"UnmarshalJSON": {[]string{"[]byte"}, []string{"error"}},
+	"UnmarshalXML":  {[]string{"*xml.Decoder", "xml.StartElement"}, []string{"error"}},
+	"UnreadByte":    {nil, []string{"error"}},
+	"UnreadRune":    {nil, []string{"error"}},
+	"Unwrap":        {nil, []string{"error"}},
+	"WriteByte":     {[]string{"byte"}, []string{"error"}},
+	"WriteTo":       {[]string{"=io.Writer"}, []string{"int64", "error"}},
+}
+
+// meetsHostProtocol reports whether f lowers to a Go method whose name and
+// Go signature, without an environment, are a host protocol's exactly
+// (case a). Only a function with a protocol's name is asked, so the
+// receiver of any other function is not resolved here.
+func (l *lowerer) meetsHostProtocol(f *check.Func) bool {
+	p, ok := hostProtocols[memberName(f.Name)]
+	if !ok {
+		return false
+	}
+	if td, _ := l.methodReceiver(f); td == nil {
+		return false
+	}
+	params := f.Sig.Params[1:]
+	if len(params) != len(p.args) || len(f.Sig.Results) != len(p.results) {
+		return false
+	}
+	for i, q := range params {
+		if goBasicName(q.Type) != strings.TrimPrefix(p.args[i], "=") {
+			return false
+		}
+	}
+	for i, r := range f.Sig.Results {
+		if goBasicName(r) != p.results[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// goBasicName is the Go spelling of a basic type, as go vet prints it, or
+// "" for any other type: no host protocol's type is another Ergo type's
+// lowering (Ergo has no any, error or byte alias; byte is uint8).
+func goBasicName(t check.Type) string {
+	if b, ok := t.(*check.Basic); ok && b.Kind != check.Duration && b.Kind != check.Invalid {
+		return b.Name
+	}
+	return ""
+}
+
+// protocolFreeName is the Go method name of a pure function f that lowers
+// to a method of td under name (case b): name itself unless it is a host
+// protocol's, else the name with an underscore appended until it is free
+// among td's fields and the functions on td, as a field renamed for Error
+// is (typeDecl).
+func (l *lowerer) protocolFreeName(f *check.Func, td *typeDecl, name string) string {
+	if _, ok := hostProtocols[name]; !ok {
+		return name
+	}
+	taken := map[string]bool{}
+	for _, goName := range td.fieldName {
+		taken[goName] = true
+	}
+	for _, g := range f.Pkg.Funcs {
+		if g == f || len(g.Sig.Params) == 0 {
+			continue
+		}
+		first := g.Sig.Params[0].Type
+		if p, ok := first.(*check.Pointer); ok {
+			first = p.Elem
+		}
+		if n, ok := first.(*check.Named); ok && (n.Obj == td.tn || n.Orig != nil && n.Orig.Obj == td.tn) {
+			taken[memberName(g.Name)] = true
+		}
+	}
+	name += "_"
+	for taken[name] {
+		name += "_"
+	}
+	return name
+}
 
 // envLead is the leading environment argument of a direct call of fd from
 // code whose environment is env: none for a pure function.

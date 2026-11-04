@@ -582,6 +582,9 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	}
 	if td, ptr := l.methodReceiver(f); td != nil {
 		fd.method, fd.ptr, fd.name = td, ptr, memberName(f.Name)
+		if fd.pure {
+			fd.name = l.protocolFreeName(f, td, fd.name)
+		}
 		return fd
 	}
 	base := f.Name
