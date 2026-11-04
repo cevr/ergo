@@ -31,8 +31,9 @@ func sizePairs(seed uint64, count int) [][2]int {
 }
 
 // writer is a shell program that writes $1 bytes to stdout, then $2 bytes to
-// stderr.
-const writer = "#!/bin/sh\nhead -c \"$1\" /dev/zero\nhead -c \"$2\" /dev/zero >&2\n"
+// stderr. It runs no `head -c 0`: darwin's head refuses a zero count with a
+// line on stderr (TestCapFixturesWriteExactCountsWithBSDHead).
+const writer = "#!/bin/sh\n[ \"$1\" -eq 0 ] || head -c \"$1\" /dev/zero\n[ \"$2\" -eq 0 ] || head -c \"$2\" /dev/zero >&2\n"
 
 // wantOver is the verdict of writer for these sizes: "" when both are within
 // the cap; else the stream that went over first, and only it, since the
@@ -179,7 +180,13 @@ func TestOutputCap(t *testing.T) {
 			passed := strings.Contains(out, "ok "+name+": test (")
 			failed := strings.Contains(out, "FAIL "+name+": test")
 			if over == "" && (!passed || failed) {
-				t.Errorf("%s %v is within the cap: want ok %s: test", name, sizes, name)
+				var got []string
+				for _, line := range lines {
+					if strings.HasPrefix(line, "FAIL "+name+": test") {
+						got = append(got, line)
+					}
+				}
+				t.Errorf("%s %v is within the cap: want ok %s: test, got %q", name, sizes, name, got)
 			}
 			if over != "" {
 				want := "FAIL " + name + ": test: " + over

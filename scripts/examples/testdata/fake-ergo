@@ -31,8 +31,9 @@ test)
   if grep -q TESTTICK "$2"; then tick "$tools/ticks-test"; echo "FAIL Fixture"; exit 1; fi
   if grep -q '^# TESTSIZE ' "$2"; then
     set -- $(sed -n 's/^# TESTSIZE //p' "$2")
-    head -c "$1" /dev/zero
-    head -c "$2" /dev/zero >&2
+    # No head -c 0: darwin's head refuses a zero count with a line on stderr.
+    [ "$1" -eq 0 ] || head -c "$1" /dev/zero
+    [ "$2" -eq 0 ] || head -c "$2" /dev/zero >&2
     exit 0
   fi
   echo "ok Fixture"; echo "PASS (1 tests)"
