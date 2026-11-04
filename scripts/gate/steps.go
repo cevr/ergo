@@ -104,13 +104,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// packages.
 	foldkit := &Inputs{Paths: []string{"scripts/conformance/", "conformance/", "go.mod"}, Tools: []string{"go"}, Installed: []string{"conformance/upstream/foldkit-d21db423"}}
 	add(&Step{Name: "foldkit corpus self-check", Argv: []string{"go", "run", "./scripts/conformance", "foldkit", "--self-check"}, Inputs: foldkit})
-	// The mapping check reads the mapping and the evidence tests it names,
-	// so the directories of those tests are inputs too, and it asks git
-	// whether each evidence file is tracked. Untracking a file without
-	// changing it leaves the key alone. Its own tests run with the other Go
-	// packages.
-	mapping := &Inputs{Paths: append([]string{"scripts/conformance/", "conformance/effect-cases.json", "go.mod"}, evidenceDirectories(root)...), Tools: []string{"go", "git"}}
-	add(&Step{Name: "effect conformance mapping", Argv: []string{"go", "run", "./scripts/conformance", "check"}, Inputs: mapping})
+	add(effectMappingStep())
 
 	add(&Step{Name: "gofmt", Argv: append([]string{"sh", "-c", `unformatted=$(gofmt -l "$@"); if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi`, "gofmt"}, gofmtDirectories...)})
 	// Building every test binary once lets vet, the shards and the CLI build
@@ -272,12 +266,33 @@ func stagedBuild(root, out, pkg string) []string {
 	return []string{"sh", "-c", script, "sh", staging, out, pkg}
 }
 
+// effectMappingStep checks the Effect behavior mapping and its evidence
+// tests. The check reads the mapping, the evidence files it names and Git's
+// index: an evidence file must be tracked. No digest of declared paths sees
+// the index, so the step has no receipt of its own and runs on every
+// whole-gate miss; it takes about 0.15 s (measured, gate-testcache-gap
+// mapping-cost.log), less than the receipt lookup it replaces. A whole-gate
+// record keys the index, so the step still replays inside one. Its own
+// tests run with the other Go packages.
+func effectMappingStep() *Step {
+	return &Step{Name: "effect conformance mapping", Argv: []string{"go", "run", "./scripts/conformance", "check"}}
+}
+
 // provenanceAnalyzer returns a command that runs the provenance analyzer's own
 // controls, then the analyzer on the checker. tools/provenance is its own
 // module, so the main module keeps no dependency on golang.org/x/tools and
 // ./... never reaches it. The analyzer binary goes beside the gate's cache, or
-// to a temporary directory without one. The step always runs: Go's caches
-// skip an unchanged build and test, and the analysis takes about a second.
+// to a temporary directory without one.
+//
+// The controls run with -count=1, so Go's test cache never replays them. They
+// read main-module sources (the checker's syntax), in their own process and
+// through analysistest, and Go rechecks a cached result only against files
+// inside the package's own module: a field removed from a main-module source
+// would replay a stale pass (gate-testcache-gap accept-base.log). The
+// observation of the main module's tests (internal/testinputs) does not reach
+// another module. TestTestCommandsHaveCacheCoverage refuses a go test of
+// another module without -count=1. Go's build cache still skips an unchanged
+// build.
 func provenanceAnalyzer(root string) []string {
 	binary := ""
 	// go build -C resolves -o in tools/provenance, so the path is absolute;
@@ -287,7 +302,7 @@ func provenanceAnalyzer(root string) []string {
 		binary = filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), "provenance")
 	}
 	script := `bin=${1:-$(mktemp -d)/provenance} && mkdir -p "$(dirname "$bin")" &&
-go test -C tools/provenance ` + testTimeout + ` ./... &&
+go test -C tools/provenance -count=1 ` + testTimeout + ` ./... &&
 go build -C tools/provenance -buildvcs=false -o "$bin" ./cmd/provenance &&
 "$bin" -test=false -manifest "$2" ./internal/sketch/check`
 	return []string{"sh", "-c", script, "sh", binary, provenanceManifest}
@@ -369,43 +384,6 @@ func readDurations(root string) (map[string]map[string]float64, error) {
 		return nil, fmt.Errorf("%s: %w", durationsFile, err)
 	}
 	return durations, nil
-}
-
-// evidenceDirectories are the directories of the evidence tests that the
-// Effect behavior mapping names, each as a subtree input ("dir/"), sorted.
-// A mapping that does not parse names none: the mapping file is an input
-// of its step, and the step refuses it.
-func evidenceDirectories(root string) []string {
-	content, err := os.ReadFile(filepath.Join(root, "conformance", "effect-cases.json"))
-	if err != nil {
-		return nil
-	}
-	var mapping struct {
-		Cases []struct {
-			Evidence []struct {
-				File string `json:"file"`
-			} `json:"evidence"`
-		} `json:"cases"`
-	}
-	if json.Unmarshal(content, &mapping) != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var directories []string
-	for _, item := range mapping.Cases {
-		for _, evidence := range item.Evidence {
-			directory := filepath.ToSlash(filepath.Dir(evidence.File)) + "/"
-			if directory == "./" {
-				directory = evidence.File
-			}
-			if !seen[directory] {
-				seen[directory] = true
-				directories = append(directories, directory)
-			}
-		}
-	}
-	slices.Sort(directories)
-	return directories
 }
 
 func authoredExamples(root string) ([]string, error) {
