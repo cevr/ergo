@@ -14,8 +14,6 @@ type fate int
 const (
 	// available commands run on the one front end.
 	available fate = iota
-	// pending commands are not available yet; their ticket adds them.
-	pending
 	// removed commands were removed in v1; their ticket restores them on
 	// the new front end.
 	removed
@@ -29,18 +27,17 @@ type cliCommand struct {
 	// name is the command word, or a word and a subcommand ("lint rules").
 	name string
 	fate fate
-	// usage is the help line of an available or pending command.
+	// usage is the help line of an available command.
 	usage string
 	// help is the text of `ergo NAME --help`; empty means the general help.
 	help string
-	// reason follows "removed in v1;" or "not available yet;".
+	// reason follows "removed in v1;".
 	reason string
 	ticket string
 	run    func(args []string) error
 }
 
 const (
-	ticketLowering = "#196"
 	ticketTooling  = "#203"
 	ticketEditions = "#205"
 )
@@ -55,7 +52,7 @@ var commands = []cliCommand{
 	{name: "build", usage: "build FILE [-o PATH] [-work] [--target go]", run: buildCommand},
 	{name: "run", usage: "run FILE [--target go]", run: runCommand},
 	{name: "fmt", usage: "fmt FILE... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
-	{name: "test", fate: pending, usage: "test FILE", reason: "lowering adds it", ticket: ticketLowering},
+	{name: "test", usage: "test FILE [--seed N] [-work] [--target go]", run: testCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
 	{name: "lint", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
 	{name: "lint rules", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
@@ -91,8 +88,6 @@ func lookupCommand(args []string) (cliCommand, bool) {
 // stubMessage is the one line a command that does not run prints.
 func (c cliCommand) stubMessage() string {
 	switch c.fate {
-	case pending:
-		return fmt.Sprintf("ergo %s: not available yet; %s (%s)", c.name, c.reason, c.ticket)
 	case removed:
 		return fmt.Sprintf("ergo %s: removed in v1; %s (%s)", c.name, c.reason, c.ticket)
 	case dark:
@@ -101,17 +96,14 @@ func (c cliCommand) stubMessage() string {
 	return ""
 }
 
-// generalHelp lists the available and pending commands. It never names a
-// removed or dark command.
+// generalHelp lists the available commands. It never names a removed or
+// dark command.
 func generalHelp() string {
 	var b strings.Builder
 	b.WriteString("Ergo prototype\nusage: ergo COMMAND ...\n\n")
 	for _, c := range commands {
-		switch c.fate {
-		case available:
+		if c.fate == available {
 			fmt.Fprintf(&b, "  ergo %s\n", c.usage)
-		case pending:
-			fmt.Fprintf(&b, "  ergo %s  (not available yet, %s)\n", c.usage, c.ticket)
 		}
 	}
 	b.WriteString("\nGo is the only target; --target accepts only go.\nRun ergo COMMAND --help for one command's options and exit codes.\n")

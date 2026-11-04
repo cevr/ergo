@@ -74,6 +74,7 @@ func buildSource(command string, args []string) (receipt.Location, error) {
 		return receipt.Location{}, err
 	}
 	module, err := sketchfront.Build(l.analysis, sketchfront.BuildRequest{
+		Mode:      build.ModeBuild,
 		Source:    l.source.Admitted(),
 		Output:    output.Path(),
 		Cache:     build.Cache{Root: root},
@@ -115,7 +116,8 @@ func locateArtifact(path string) (receipt.Location, error) {
 	return location, nil
 }
 
-// runEntryProcess runs a built program as `ergo run`'s child. SIGINT and
+// runEntryProcess runs a built program as the child of `ergo run` or of
+// `ergo test`. SIGINT and
 // SIGTERM are forwarded to the program, and the program's exit status
 // passes through without an extra message: the program reports its own
 // failure. A program that a forwarded signal ended exits 128 plus the

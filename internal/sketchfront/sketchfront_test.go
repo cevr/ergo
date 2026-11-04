@@ -228,7 +228,51 @@ func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
 }
 
 func buildRequest(cache, source, output string, stderr io.Writer) BuildRequest {
-	return BuildRequest{Source: source, Output: output, Cache: build.Cache{Root: cache}, Toolchain: build.HostToolchain(), Stderr: stderr}
+	return BuildRequest{Mode: build.ModeBuild, Source: source, Output: output, Cache: build.Cache{Root: cache}, Toolchain: build.HostToolchain(), Stderr: stderr}
+}
+
+// TestBuildModeChoosesTheRoot: the request's mode chooses the lowering and
+// keys the module. One analysis built in both modes gives two modules in
+// one cache; the build binary runs main and no test, the test binary runs
+// the test and not main. A request with no mode is refused before anything
+// is published.
+func TestBuildModeChoosesTheRoot(t *testing.T) {
+	analysis := Check("func main() needs Console {\n\tConsole.Println(\"main\")\n}\n\ntest Runs { assert 1 + 1 == 2 }\n")
+	if len(analysis.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", analysis.Diagnostics)
+	}
+	cache := t.TempDir()
+	var stderr bytes.Buffer
+	run := func(mode build.Mode) (build.Module, string) {
+		t.Helper()
+		req := buildRequest(cache, "/x/main.ergo", filepath.Join(t.TempDir(), "program"), &stderr)
+		req.Mode = mode
+		module, err := Build(analysis, req)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", mode, err, stderr.String())
+		}
+		out, err := exec.Command(req.Output).Output()
+		if err != nil {
+			t.Fatalf("%s: run: %v", mode, err)
+		}
+		return module, string(out)
+	}
+	built, mainOut := run(build.ModeBuild)
+	tested, testOut := run(build.ModeTest)
+	if mainOut != "main\n" || testOut != "ok Runs\nPASS (1 tests)\n" {
+		t.Fatalf("build printed %q and test printed %q", mainOut, testOut)
+	}
+	if built.Dir == tested.Dir {
+		t.Fatalf("both modes used the module %s", built.Dir)
+	}
+	req := buildRequest(cache, "/x/main.ergo", filepath.Join(t.TempDir(), "program"), &stderr)
+	req.Mode = ""
+	if _, err := Build(analysis, req); err == nil || !strings.Contains(err.Error(), "unknown build mode") {
+		t.Fatalf("a request with no mode gave %v", err)
+	}
+	if entries := moduleEntries(t, cache); len(entries) != 2 {
+		t.Fatalf("cache holds %v, want the two modules", entries)
+	}
 }
 
 // moduleEntries lists the published modules of the cache at root.

@@ -237,6 +237,16 @@ The laws of [docs/research/lawful-runtime-contract.md](../research/lawful-runtim
 
 The queue contract runs as TestQueueContract (each rule above), TestQueueModel (300 seeded sequences against a model) and TestQueueInterleavings (300 seeded runs of producers, consumers by `Pop` and by `Values`, early stops and a `Close` at a random point; every delivered value is taken exactly once, no value whose `Push` failed is taken, and each producer's values keep their order), and TestQueueStress (the same checks with up to 6 producers, 6 consumers and 350 values each). TestNoTaskOutlivesItsFrame, TestQueueInterleavings and TestQueueStress also check that no goroutine is left.
 
+## Tests
+
+Status: **implemented** (lower-v1 stage 4). `ergo test FILE [--seed N] [-work]` checks the file, builds its test binary through `lower.LowerTests` in test mode (`build.ModeTest`, a module of the emission cache apart from the run build's, so `-work` names a different module), writes the binary into a private temporary directory, and runs it as a child, as `ergo run` runs a program: SIGINT gives 130 and SIGTERM 143.
+
+1. **Order.** Each test runs once, in source order, after the package's `let` values are initialised. `main` is not called and is not required.
+2. **Verdicts.** A pass prints `ok Name`, a property `ok Name (100 cases)`. A failed assert prints `FAIL Name: assert failed at file:line:column: text`. A typed failure that escapes the body prints `FAIL Name: a failure escaped the test at file:line:column: text`, the site being the test's declaration. Both fail the test, and the run goes on.
+3. **Defects stop the run.** A defect, an exit action's defect after a failed assert included, prints `FAIL Name: a defect, which stops the run` and the runtime's report, and the binary exits 2 with no summary ([decisions](../decisions.md), 2026-11-04).
+4. **Summary and status.** The run ends with `PASS (N tests)` and exit 0, or `FAIL (K of N tests)` and exit 1. `ergo test` returns the binary's status. An invalid invocation, a malformed `--seed` included, is exit 2, runs nothing and prints no report line.
+5. **Replay.** A property draws its 100 cases from its own stream, the seed (`--seed N`, a decimal number, 1 by default) mixed with the test's name, so another test never changes them. A refuted property prints `FAIL Name (case K of 100, seed S: x = …)`, each argument as an Ergo literal of its type: `Point{X: 1, Y: 6}`, a bare empty variant (`Wait`), a quoted string, `[]int{1, 2}`, `Map[string, int]{"a": 1}` with its keys sorted, `(1, "a")`, a float in its shortest exact form with a decimal point or an exponent, a duration in its largest exact unit (`1500ms`). The literal checks in a test and gives an equal value (`TestArgumentTextRoundTrips`). A complex value prints in Go's form, `complex(1.5, -2)`, because Ergo has no complex literal. There is no shrinking ([#162](https://github.com/cevr/ergo/issues/162)).
+
 ## Machines and actors
 
 Status: **designed, not yet implemented** ([#57](https://github.com/cevr/ergo/issues/57)).
