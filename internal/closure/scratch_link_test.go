@@ -21,7 +21,8 @@ import (
 // testinputs.Main, as internal/testinputs's tests are. SCRATCH_LINK "kept"
 // makes the link in a directory of its own under TMPDIR, which the test
 // leaves for the sweep to remove; "tempdir" makes it in t.TempDir, which the
-// testing package removes when the test ends.
+// testing package removes when the test ends; "retarget" leaves it in its
+// own directory but points it at the package's own testdata after the read.
 const scratchLinkTest = `package p
 
 import (
@@ -32,7 +33,8 @@ import (
 
 func TestReadThroughAScratchLink(t *testing.T) {
 	dir := t.TempDir()
-	if os.Getenv("SCRATCH_LINK") == "kept" {
+	where := os.Getenv("SCRATCH_LINK")
+	if where != "tempdir" {
 		var err error
 		if dir, err = os.MkdirTemp("", "link"); err != nil {
 			t.Fatal(err)
@@ -44,6 +46,17 @@ func TestReadThroughAScratchLink(t *testing.T) {
 	}
 	if _, err := os.ReadFile(filepath.Join(link, "tooling.md")); err != nil {
 		t.Fatal(err)
+	}
+	if where == "retarget" {
+		// Left in scratch, but pointed at the package's own testdata after
+		// the read.
+		next := link + ".next"
+		if err := os.Symlink(os.Getenv("SCRATCH_LINK_OWN"), next); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(next, link); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 `
@@ -70,7 +83,7 @@ func TestScratchLinkReadFailsClosed(t *testing.T) {
 	}
 	run := func(where string) ([]entry, []entry) {
 		stem := filepath.Join(t.TempDir(), "internal_testinputs")
-		extra := []string{"SCRATCH_LINK=" + where, "SCRATCH_LINK_DOCS=" + filepath.Join(f.root, "docs")}
+		extra := []string{"SCRATCH_LINK=" + where, "SCRATCH_LINK_DOCS=" + filepath.Join(f.root, "docs"), "SCRATCH_LINK_OWN=" + filepath.Join(f.pkg, "testdata/in")}
 		es, err := runTests(f.root, []string{f.root}, pkg, f.pkg, stem, extra, binary, "-test.run=^TestReadThroughAScratchLink$")
 		if err != nil {
 			t.Fatalf("%s: want the run classified; got %v", where, err)
@@ -82,9 +95,18 @@ func TestScratchLinkReadFailsClosed(t *testing.T) {
 	if want := (entry{opUnidentified + opOpen, "docs/tooling.md"}); !slices.Contains(outside, want) {
 		t.Errorf("the test read docs/tooling.md through a link in its scratch, and the sweep has no %v outside the closure: %v", want, outside)
 	}
-	// A link in t.TempDir is gone before the test process exits, so the
-	// log alone cannot tell where it led: the known limit of a package
-	// with no identity (docs/tooling.md). Measured, not asserted.
-	es, outside = run("tempdir")
-	t.Logf("tempdir: entries %v; outside the closure %v", es, outside)
+	// The known limit of a package with no identity (docs/tooling.md): a
+	// scratch link the test removes or changes after the read. The log
+	// alone cannot tell where the link led at the read. A link in
+	// t.TempDir is gone before the test process exits; a link pointed at
+	// the package's own testdata after the read names that. Measured, not
+	// asserted: follow-up A closes both.
+	for _, where := range []string{"tempdir", "retarget"} {
+		es, _ = run(where)
+		// As in the real package, exact entries name what the link
+		// points at after the run.
+		c := newClosure(pkg, nil, nil)
+		c.declared = exactly("the package's own files", "internal/p/testdata/in", "internal/p/testdata/in/tooling.md")
+		t.Logf("%s: entries %v; outside a closure that declares the link's final target %v", where, es, c.check(es, map[string]bool{}))
+	}
 }
