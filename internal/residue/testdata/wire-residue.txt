@@ -130,6 +130,7 @@ internal/sketch/syntax/testdata/corpus/sketch-eval-7/loops/poller_test.go.sketch
 internal/migrate196/embedded.go	"import", "type", "func", "var", "wire":
 internal/migrate196/embedded.go	// import, type, func, var or wire is a file; any other is a function
 internal/migrate196/testdata/old-verdicts.tsv	*
+internal/migrate196/testdata/translated-verdicts.tsv	*
 internal/migrate196/testdata/old/proto/checkout.sketch	*
 internal/migrate196/testdata/old/proto/probes/capability-method-needs.sketch	*
 internal/migrate196/testdata/old/proto/probes/compound-discard.sketch	*
