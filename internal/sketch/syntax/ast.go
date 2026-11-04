@@ -188,7 +188,7 @@ func (s *ImportSpec) Pos() Pos {
 }
 func (s *ImportSpec) End() Pos { return s.Path.End() }
 func (d *VarDecl) Pos() Pos    { return d.Var }
-func (d *VarDecl) End() Pos { return d.Specs[0].End() }
+func (d *VarDecl) End() Pos    { return d.Specs[0].End() }
 func (s *VarSpec) Pos() Pos {
 	if s.Pattern != nil {
 		return s.Pattern.Pos()
@@ -632,8 +632,8 @@ func (x *CatchExpr) End() Pos  { return x.Rbrace + 1 }
 func (x *ContextLit) Pos() Pos { return x.Context }
 func (x *ContextLit) End() Pos { return x.Body.End() }
 func (x *ArrayType) Pos() Pos  { return x.Lbrack }
-func (x *ArrayType) End() Pos { return x.Elt.End() }
-func (x *MapType) Pos() Pos   { return x.Map }
+func (x *ArrayType) End() Pos  { return x.Elt.End() }
+func (x *MapType) Pos() Pos    { return x.Map }
 func (x *MapType) End() Pos {
 	if x.Rbrack.IsValid() {
 		return x.Rbrack + 1
@@ -672,8 +672,8 @@ func (x *InterfaceType) End() Pos {
 	}
 	return x.Union[len(x.Union)-1].End()
 }
-func (x *ErrorRow) Pos() Pos { return x.Error }
-func (x *ErrorRow) End() Pos { return x.Types[len(x.Types)-1].End() }
+func (x *ErrorRow) Pos() Pos    { return x.Error }
+func (x *ErrorRow) End() Pos    { return x.Types[len(x.Types)-1].End() }
 func (x *MachineType) Pos() Pos { return x.Machine }
 func (x *MachineType) End() Pos { return x.Rbrace + 1 }
 func (x *TupleExpr) Pos() Pos {
@@ -837,8 +837,8 @@ func (s *ReturnStmt) End() Pos {
 func (s *BranchStmt) Pos() Pos { return s.TokPos }
 func (s *BranchStmt) End() Pos { return s.TokPos + Pos(len(s.Tok.String())) }
 func (s *BlockStmt) Pos() Pos  { return s.Lbrace }
-func (s *BlockStmt) End() Pos { return s.Rbrace + 1 }
-func (s *IfStmt) Pos() Pos    { return s.If }
+func (s *BlockStmt) End() Pos  { return s.Rbrace + 1 }
+func (s *IfStmt) Pos() Pos     { return s.If }
 func (s *IfStmt) End() Pos {
 	if s.Else != nil {
 		return s.Else.End()
