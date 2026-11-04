@@ -27,7 +27,9 @@ import (
 // least 4 and runtime.Gosched in their callbacks, each re-raise only their
 // own panic, while 32 other goroutines make typed calls with no callback
 // (each takes the slow path of cbTake while panics are pending) and never
-// raise one. In subprocesses, runtime.Goexit in a
+// raise one. Goroutines that lock their own threads, recover a contained
+// panic and unlock exit without their threads (the lock of the pending
+// panic ended when it was taken). In subprocesses, runtime.Goexit in a
 // callback and in a function of Owner.Do ends the process with exit status
 // 2 and a stderr line that names the typedef (or Owner.Do), before C
 // frames unwind.
@@ -59,6 +61,11 @@ func TestLivePanicContainment(t *testing.T) {
 	out, err = e.try(e.root, "", nil, driver, "stress", lib, strconv.Itoa(calls), strconv.Itoa(stressTakers))
 	if got := okLines(out); err != nil || !slices.Equal(got, []string{"no goroutine got another goroutine's panic or lost its own"}) {
 		t.Fatalf("the stress driver (%d calls per goroutine, %d takers): %v\n%s", calls, stressTakers, err, tail(out, 2000))
+	}
+	t.Log(strings.TrimSpace(out[:strings.Index(out, "\nok: ")]))
+	out, err = e.try(e.root, "", nil, driver, "unlock", lib)
+	if got := okLines(out); err != nil || !slices.Equal(got, []string{"after a typed call takes a pending panic and the goroutine unlocks its own lock, the goroutine is not locked to its thread"}) {
+		t.Fatalf("the unlock driver: %v\n%s", err, tail(out, 2000))
 	}
 	t.Log(strings.TrimSpace(out[:strings.Index(out, "\nok: ")]))
 	for _, c := range []struct{ mode, line string }{

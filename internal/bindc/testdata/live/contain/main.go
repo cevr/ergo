@@ -9,6 +9,9 @@
 //	                        callbacks call runtime.Gosched and may panic,
 //	                        beside k goroutines that make typed calls with
 //	                        no callback;
+//	unlock <lib>            goroutines that recovered a panic of a typed
+//	                        call and unlocked their own lock exit: the
+//	                        runtime must keep their threads (none locked);
 //	goexit <lib>            a callback calls runtime.Goexit: the process must
 //	                        end with exit status 2 before C frames unwind;
 //	goexit-owner <lib>      a function of Owner.Do calls runtime.Goexit;
@@ -29,6 +32,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/metrics"
 	"slices"
 	"strconv"
 	"sync"
@@ -97,6 +101,8 @@ func main() {
 		contain()
 	case "stress":
 		stress(arg(3), arg(4))
+	case "unlock":
+		unlock()
 	case "goexit":
 		goexit()
 	case "goexit-owner":
@@ -509,6 +515,65 @@ func stress(n, takers int) {
 	fmt.Printf("stress: GOMAXPROCS %d, %d calls per goroutine, %d raised, %d returned, %d moved between calls, %d taker calls\n",
 		runtime.GOMAXPROCS(0), n, raised.Load(), returned.Load(), moved.Load(), took.Load())
 	ok("no goroutine got another goroutine's panic or lost its own")
+}
+
+// unlock: the lock that a pending panic puts on its goroutine ends when a
+// typed call takes the panic (bind-c-2 r2, 2d M1). 20 goroutines each lock
+// their thread for a context of their own, make a typed call whose callback
+// panics, recover the *CallbackPanic, destroy the context and call their
+// own runtime.UnlockOSThread; then they wait, and exit together. A
+// goroutine that exits while it is still locked takes its thread with it
+// (the runtime ends that thread), and the runtime ends no other thread, so
+// the count of the runtime's threads (/sched/threads/total:threads) must
+// not drop when they exit.
+func unlock() {
+	const goroutines = 20
+	sample := []metrics.Sample{{Name: "/sched/threads/total:threads"}}
+	threads := func() uint64 {
+		metrics.Read(sample)
+		if sample[0].Value.Kind() != metrics.KindUint64 {
+			fail("the runtime has no metric %s (Go 1.26 or later has it)", sample[0].Name)
+		}
+		return sample[0].Value.Uint64()
+	}
+	var ready, exited sync.WaitGroup
+	release := make(chan struct{})
+	for g := range goroutines {
+		ready.Add(1)
+		exited.Add(1)
+		go func() {
+			defer exited.Done()
+			runtime.LockOSThread()
+			ctx, err := fixture.ContextCreate(fixture.ContextOptions{NodeCapacity: 1})
+			must("ContextCreate", err)
+			want := fmt.Sprintf("unlock g%d", g)
+			v := catch(func() {
+				_, _ = fixture.ContextRepeat(ctx, 3, func([]byte) int64 { panic(want) })
+			})
+			wantPanic(want, v, "fx_write_callback", want)
+			must("ContextDestroy", fixture.ContextDestroy(ctx))
+			runtime.UnlockOSThread()
+			ready.Done()
+			<-release
+		}()
+	}
+	ready.Wait()
+	before := threads()
+	close(release)
+	exited.Wait()
+	// A thread that ends with its goroutine ends after the goroutine; give
+	// the runtime time to end it.
+	after := threads()
+	for i := 0; i < 50 && after >= before; i++ {
+		time.Sleep(10 * time.Millisecond)
+		after = threads()
+	}
+	if after < before {
+		fail("%d goroutines exited after their typed calls took their panics, and the runtime's threads went from %d to %d: "+
+			"a goroutine kept the lock of its pending panic, and its thread ended with it", goroutines, before, after)
+	}
+	fmt.Printf("unlock: %d goroutines, the runtime's threads %d before they exited and %d after\n", goroutines, before, after)
+	ok("after a typed call takes a pending panic and the goroutine unlocks its own lock, the goroutine is not locked to its thread")
 }
 
 // goexit: a callback calls runtime.Goexit. The trampoline must end the
