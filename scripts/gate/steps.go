@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -182,6 +183,59 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	add(&Step{Name: "ergo fmt --check", Needs: []string{"build bin/ergo"}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...)})
 
 	return steps, nil
+}
+
+// uncachedStep is the step as the merge tier runs it: every go test it
+// starts, in its argv or in its shell script, carries -count=1, so Go's test
+// cache replays nothing. The flag goes in the command line, not in GOFLAGS,
+// which would reach the go commands and gates the tests themselves start.
+// Go's build cache stays: it is keyed by content, the toolchain included.
+func uncachedStep(step *Step) *Step {
+	uncached := *step
+	argv := slices.Clone(step.Argv)
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "go" && argv[i+1] == "test" && !slices.ContainsFunc(argv[i+2:], isCountFlag) {
+			argv = slices.Insert(argv, i+2, "-count=1")
+		}
+	}
+	if len(argv) >= 3 && argv[0] == "sh" && argv[1] == "-c" {
+		argv[2] = uncachedScript(argv[2])
+	}
+	uncached.Argv = argv
+	return &uncached
+}
+
+func isCountFlag(arg string) bool {
+	return strings.HasPrefix(arg, "-count=") || strings.HasPrefix(arg, "-test.count=")
+}
+
+// goTestCommand finds "go test" as a command word in a shell script.
+var goTestCommand = regexp.MustCompile(`(^|[\s;&|(]|\$\()go test\b`)
+
+// scriptCommandEnd ends a shell command: a newline, ;, & or |.
+var scriptCommandEnd = regexp.MustCompile(`[\n;&|]`)
+
+// uncachedScript adds -count=1 to every go test command of a shell script
+// that does not set a count.
+func uncachedScript(script string) string {
+	var b strings.Builder
+	rest := script
+	for {
+		match := goTestCommand.FindStringIndex(rest)
+		if match == nil {
+			b.WriteString(rest)
+			return b.String()
+		}
+		b.WriteString(rest[:match[1]])
+		rest = rest[match[1]:]
+		command := rest
+		if end := scriptCommandEnd.FindStringIndex(rest); end != nil {
+			command = rest[:end[0]]
+		}
+		if !strings.Contains(command, "-count=") {
+			b.WriteString(" -count=1")
+		}
+	}
 }
 
 // stagedBuild returns a command that builds a package's executable to a

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -170,7 +171,21 @@ func (g *gate) digestAll(parts [][2]string) string {
 		}
 		keyed = append(keyed, part[0]+"\x00"+part[1]+"\x00"+digest)
 	}
+	g.toolsMu.Lock()
+	for _, part := range parts {
+		g.roots = append(g.roots, part[1])
+	}
+	g.toolsMu.Unlock()
 	return strings.Join(keyed, "\x00")
+}
+
+// installationRoots are the paths the fingerprints this gate computed cover:
+// each tool's file, GOROOT, git's exec path. A link that leads into one of
+// them stays keyed (replay.Links).
+func (g *gate) installationRoots() []string {
+	g.toolsMu.Lock()
+	defer g.toolsMu.Unlock()
+	return slices.Clone(g.roots)
 }
 
 // isScript reports whether the kernel runs resolved through an interpreter

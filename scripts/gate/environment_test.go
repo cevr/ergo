@@ -77,7 +77,8 @@ func TestGoRuntimeEnvironmentKeysEveryStepThatRunsGoPrograms(t *testing.T) {
 // the test runs may read it, and if it was unset when the result was cached
 // nothing names it, so exporting it later would replay a stale pass. A Go
 // test step receives only testenv's variables, whose values the tool digest
-// keys whether they are set or not, and the gate log names them.
+// keys whether they are set or not, and the gate log names them. Every other
+// step receives the same declared set (spec decision 3).
 func TestGoTestStepsReceiveOnlyKeyedVariables(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Fatal("go is required")
@@ -104,11 +105,11 @@ func TestProbe(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "unknown= path=true") {
 		t.Fatalf("exit %d; the go test step saw an unkeyed variable, or no PATH:\n%s", code, out)
 	}
-	if !strings.Contains(out, "gate: go test steps receive only "+strings.Join(testenv.Names, " ")+"\n") {
-		t.Fatalf("the gate log does not name the variables go test steps receive:\n%s", out)
+	if !strings.Contains(out, "gate: steps receive only "+strings.Join(testenv.Names, " ")+"\n") {
+		t.Fatalf("the gate log does not name the variables steps receive:\n%s", out)
 	}
-	if !strings.Contains(out, "plain=leaked") {
-		t.Fatalf("a step that runs no go test lost the caller's environment:\n%s", out)
+	if !strings.Contains(out, "plain=unset") {
+		t.Fatalf("a step that runs no go test received a variable the gate does not declare:\n%s", out)
 	}
 	for _, entry := range goTestEnvironment() {
 		name, _, _ := strings.Cut(entry, "=")
