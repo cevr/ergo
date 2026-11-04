@@ -243,7 +243,9 @@ func (c parityConfig) steps(t *testing.T, root string, epoch int) []*Step {
 // never runs a command.
 type parityModel struct {
 	config parityConfig
-	// observes says whether testinputs observes children here (Linux).
+	// observes says whether testinputs observes children here: Linux on
+	// amd64 or arm64. Elsewhere it refuses to cache, so the child-read
+	// test never answers from Go's cache.
 	observes bool
 	// source is the syntax source's version, tracked the evidence file's
 	// index entry.
@@ -373,7 +375,7 @@ type parityHarness struct {
 
 func newParityHarness(t *testing.T, config parityConfig) *parityHarness {
 	f := newParityFixture(t)
-	h := &parityHarness{t: t, fixture: f, config: config, model: &parityModel{config: config, observes: runtime.GOOS == "linux", source: true, tracked: true, records: map[[2]bool]bool{}}}
+	h := &parityHarness{t: t, fixture: f, config: config, model: &parityModel{config: config, observes: runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64"), source: true, tracked: true, records: map[[2]bool]bool{}}}
 	h.newGate()
 	return h
 }
