@@ -500,10 +500,17 @@ func duplicateName(msg string) (string, bool) {
 			return name, true
 		}
 	}
-	for _, prefix := range []string{"context ", "method ", "test "} {
+	for _, prefix := range []string{"context ", "method ", "test ", "law "} {
 		if rest, ok := strings.CutPrefix(msg, prefix); ok {
 			if name, ok := strings.CutSuffix(rest, " is declared twice"); ok && (prefix != "method " || strings.Contains(name, ".")) {
 				return name, true
+			}
+			// A top-level law and a test share one namespace (law-top):
+			// whichever comes second in source order is reported.
+			for _, other := range []string{"test ", "law "} {
+				if name, kept, ok := strings.Cut(rest, " is named like "+other); ok && prefix != other && name == kept {
+					return name, true
+				}
 			}
 		}
 	}

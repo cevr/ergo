@@ -2,24 +2,34 @@ package check
 
 import "ergo.local/prototype/internal/sketch/syntax"
 
-// Laws (196l; spec D-E4). A law is a member of an operation type, checked
-// and never run: running laws is #162. Each rule is an invariant over its
-// whole domain:
+// Laws (196l; spec D-E4; law-top). A law is checked and never run: running
+// laws is #162. Its placement sets what it is quantified over: a top-level
+// law over its parameters; a member of an operation type over its
+// parameters and every provider of its type. Both placements take one
+// checker path (checkLaw); they differ only in the operation scope of rule
+// 3. Each rule is an invariant over its whole domain:
 //
-//  1. A law declares no value. Law names have their own namespace, as test
-//     names do: a law is never entered in a value scope, so a use of its
-//     name resolves as any undeclared name does (S104), and its type has no
-//     member of that name (S104). A second law of one name in one type is
-//     S108 at the second, and so is a law named like an operation of its
-//     type.
+//  1. A law declares no value: it is never entered in a value scope, so a
+//     use of its name resolves as any undeclared name does (S104), and its
+//     type has no member of that name (S104). A top-level law's name is in
+//     the namespace of the package's tests (tests.go, claimTestName): a
+//     second top-level law of one name, or one named like an earlier test,
+//     is S108 at the second. A member law's name is in its type's own
+//     namespace: a second law of one name in one type is S108 at the
+//     second, and so is a law named like an operation of its type. A type
+//     with laws and no operations is S108 once, at its name, with the fix
+//     "write it as a top-level law"; its laws are still checked, with no
+//     operation scope, so their bodies report their own errors (D3).
 //  2. A law's body is a failure target: an escaping failure refutes the
 //     law, so its failure row is inferred and unbounded (Law.Fails). Its
 //     service row, after its own with blocks, is empty: a charging call
 //     that no with of the law discharges is S102 ("it needs no service").
-//  3. Its scope is its parameters, then the operations of its type, then
-//     the package. An operation therefore wins over a package function of
-//     its name, and no binder of the law may take an operation's name (D-D2:
-//     the operation scope encloses the law's body, so shadowed refuses it).
+//  3. Its scope is its parameters, then, for a member law, the operations
+//     of its type, then the package. An operation therefore wins over a
+//     package function of its name, and no binder of a member law may take
+//     an operation's name (D-D2: the operation scope encloses the law's
+//     body, so shadowed refuses it). A top-level law has no operation
+//     scope, so rules 4 and 6 have nothing to apply to.
 //  4. An operation is call-only in a law: a call of it is checked against
 //     the operation's signature and recorded as CallLawOp, whose failures
 //     join the law's row and which charges nothing; any other use is S108.
@@ -27,9 +37,10 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     bool is S108 once, at the tail; a body that can end with no value is
 //     S108 at the end of that path. A fallible tail must be tried (S105), as
 //     every value position's. An invalid tail adds nothing (D3).
-//  6. A law's parameters are typed in its type's bracket parameters, and a
-//     law of a generic type is generic in them, as a generic function body
-//     is in its own (funcCtx.typeParams). One written as a function type
+//  6. A member law's parameters are typed in its type's bracket parameters,
+//     and a law of a generic type is generic in them, as a generic function
+//     body is in its own (funcCtx.typeParams). A top-level law has no type
+//     parameters (the parser refuses them). A parameter written as a function type
 //     without `escaping` is non-escaping, as a function's is (writtenParamType).
 //     They need not be generatable: that is a property test's rule, and
 //     #162 decides how laws are run.
@@ -44,15 +55,32 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // keeps it out of the binary, as Zig keeps its `test` blocks out of
 // non-test builds.
 
+// collectTopLaw records a top-level law (rule 1), owned by OwnerLaw, with no
+// owning type (Law.Owner nil). Its body is checked by checkLaws, once every
+// type is resolved.
+func (c *checker) collectTopLaw(d *syntax.LawDecl, fi *fileInfo) {
+	c.ownBody(d, OwnerLaw)
+	law := &Law{Name: d.Name.Name, Decl: d, file: fi}
+	c.def(d.Name, law)
+	// A second law of a name is checked as well, so which one is reported
+	// does not decide which body's diagnostics appear.
+	c.pkg.Laws = append(c.pkg.Laws, law)
+	c.claimTestName(d.Name, "law")
+}
+
 // collectLaws records the laws of tn's operation type spec in source order
 // (rule 1), each owned by OwnerLaw. Their bodies are checked by checkLaws,
-// once every type is resolved.
+// once every type is resolved. A spec with laws and no operations is S108
+// at the type's name, once; its laws are recorded as any type's are.
 func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *fileInfo) {
 	ops := map[string]bool{}
 	for _, m := range spec.Methods {
 		for _, id := range m.Names {
 			ops[id.Name] = true
 		}
+	}
+	if len(spec.Methods) == 0 && len(spec.Laws) > 0 {
+		c.errorf(tn.Decl.Name, CodeType, "%s has laws and no operations; write it as a top-level law: law %s(…) { … }", tn.Name, spec.Laws[0].Name.Name)
 	}
 	names := map[string]bool{}
 	for _, d := range spec.Laws {
@@ -75,8 +103,12 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 	}
 }
 
-// typeParams are the type parameters of the law's type (rule 6).
+// typeParams are the type parameters of the law's type (rule 6); a
+// top-level law has none.
 func (l *Law) typeParams() []*TypeParam {
+	if l.Owner == nil {
+		return nil
+	}
 	if n, ok := l.Owner.Type.(*Named); ok {
 		return n.TParams
 	}
@@ -102,15 +134,20 @@ func (c *checker) checkLaw(law *Law) {
 	name := "law " + law.Name
 	// results gives a bare `return` its message; lawResult admits a value.
 	tg := &target{name: name, errors: newRow(), declUses: newRow(), results: []Type{Typ[Bool]}, resultKnown: true, isFunc: true, law: true}
-	// The operation scope sits between the law's frame and the package
-	// (rule 3).
-	ops := newScope(c.pkg.Scope)
-	if it, ok := under(law.Owner.Type).(*Interface); ok {
-		for _, m := range it.Methods {
-			ops.insert(m.Name, m)
+	// A member law's operation scope sits between the law's frame and the
+	// package; a top-level law's frame encloses the package directly (rule
+	// 3). This is the only step the two placements do not share.
+	outer := c.pkg.Scope
+	if law.Owner != nil {
+		ops := newScope(c.pkg.Scope)
+		if it, ok := under(law.Owner.Type).(*Interface); ok {
+			for _, m := range it.Methods {
+				ops.insert(m.Name, m)
+			}
 		}
+		outer = ops
 	}
-	frame := newScope(ops)
+	frame := newScope(outer)
 	frame.frame = true
 	fc := &funcCtx{t: tg, scope: frame, law: law}
 	prev := c.fn

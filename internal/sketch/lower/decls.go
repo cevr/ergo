@@ -125,19 +125,23 @@ func (l *lowerer) declareName(d syntax.Decl) {
 	}
 }
 
-// withsOf are the withs of the named context w that this build lowers, in
-// source order.
+// withsOf are the with operands of the named context w that this build
+// lowers, in source order (each operand of a with is a fact, With.Next).
 func (l *lowerer) withsOf(w *check.Context) []*check.With {
 	var xs []*syntax.CallExpr
-	for x, with := range l.info.Withs {
-		if len(with.Contexts) > 0 && with.Contexts[0] == w && l.readsFact(l.pkg, x) {
+	for x := range l.info.Withs {
+		if l.readsFact(l.pkg, x) {
 			xs = append(xs, x)
 		}
 	}
 	sort.Slice(xs, func(i, j int) bool { return xs[i].Pos() < xs[j].Pos() })
-	out := make([]*check.With, len(xs))
-	for i, x := range xs {
-		out[i] = l.info.Withs[x]
+	var out []*check.With
+	for _, x := range xs {
+		for with := l.info.Withs[x]; with != nil; with = with.Next {
+			if len(with.Contexts) > 0 && with.Contexts[0] == w {
+				out = append(out, with)
+			}
+		}
 	}
 	return out
 }
@@ -172,6 +176,9 @@ func (l *lowerer) decl(d syntax.Decl) {
 		l.context(w, d.Name)
 	case *syntax.TestDecl:
 		l.testDecl(d) // the test build only (tests.go, rule 1)
+	case *syntax.LawDecl:
+		// A top-level law is in neither build (types.md, Laws 11): its facts
+		// are OwnerLaw's, and #162 runs laws.
 	default:
 		refuse(d, "this declaration is not lowered yet")
 	}
@@ -1112,7 +1119,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 		var tests []string
 		fc.pattern(p, init, t, spec.Pattern, &tests, &binds)
 	} else {
-		tup, ok := t.(*check.Tuple)
+		tup, ok := underlying(t).(*check.Tuple)
 		if !ok || len(tup.Types) != len(spec.Names) {
 			refuse(spec, "this let of several names is lowered after check-v1 stage D (the Map rule)")
 		}

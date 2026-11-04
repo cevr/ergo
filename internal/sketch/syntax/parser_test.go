@@ -247,6 +247,15 @@ func TestAdmittedForms(t *testing.T) {
 	if td := f.Decls[2].(*TestDecl); td.Params == nil || len(td.Params.List) != 1 {
 		t.Fatalf("property %+v", td)
 	}
+	// A top-level law (law-top) is a declaration with its doc comment; a
+	// member law stays in its operation type.
+	f = parse("type C {\n\tE(v int) int,\n\n\tlaw M(v int) { E(v) == E(v) },\n}\n\n// Holds is a top-level law.\nlaw Holds(a int64, b int64) {\n\ta == a\n}\n")
+	if len(f.Decls) != 2 || len(f.Decls[0].(*TypeDecl).Spec.(*InterfaceType).Laws) != 1 {
+		t.Fatalf("decls %+v", f.Decls)
+	}
+	if ld, ok := f.Decls[1].(*LawDecl); !ok || ld.Name.Name != "Holds" || len(ld.Params.List) != 2 || ld.Doc == nil || ld.Doc.List[0].Text != "// Holds is a top-level law." || len(ld.Body.List) != 1 {
+		t.Fatalf("top-level law %+v", f.Decls[1])
+	}
 	// if as an expression; match on literals is a value switch, any other
 	// match a type switch; tuple subjects; as-patterns; case _.
 	stmts = body("let v = if a { 1 } else { 2 }\nmatch n {\ncase 1, -2:\ncase _:\n}\nmatch p {\ncase Declined as d:\n\tuse(d)\ncase Pending:\n}\nmatch (a, b) {\ncase (X, _):\n}")

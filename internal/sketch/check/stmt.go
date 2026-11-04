@@ -24,7 +24,29 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 		return nil
 	}
 	sc := c.fn.scope
-	refused := false
+	refused := c.localNameRules(id)
+	if t == nil {
+		t = invalid
+	}
+	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos(), id: id})
+	c.def(id, v)
+	sc.insert(id.Name, v)
+	if isInvalid(t) || refused {
+		v.used = true
+	}
+	c.fn.locals = append(c.fn.locals, v)
+	c.recordUse(id, v)
+	return v
+}
+
+// localNameRules runs the rules of a local's name about to bind in the
+// current block, a let's value or a local context alike, and reports at
+// most one diagnostic: a prelude name (D-D3; refused, and the name still
+// binds), a second declaration in one block (S108), a capability-row
+// binding of the same name in the body's frame (S104), or a binding of an
+// enclosing scope (D-D2).
+func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
+	sc := c.fn.scope
 	if c.preludeName(id) {
 		// D-D3: the one diagnostic; the name still binds below, marked
 		// used, so an unread refused binder adds no S110.
@@ -48,18 +70,7 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 	} else {
 		c.shadowed(id, sc)
 	}
-	if t == nil {
-		t = invalid
-	}
-	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos(), id: id})
-	c.def(id, v)
-	sc.insert(id.Name, v)
-	if isInvalid(t) || refused {
-		v.used = true
-	}
-	c.fn.locals = append(c.fn.locals, v)
-	c.recordUse(id, v)
-	return v
+	return refused
 }
 
 // declarePlaceholder hides, for the rest of the current scope, the type or
@@ -265,6 +276,11 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 		}
 	}
 	for _, spec := range d.Specs {
+		if lit := localContextLit(spec); lit != nil {
+			// A local context (rows.md, Context 9).
+			c.localContextLet(d, spec, lit)
+			continue
+		}
 		if mut && spec.Pattern != nil {
 			c.mutPattern(d)
 		}
@@ -329,8 +345,8 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 	}
 }
 
-// multiValue checks a value that must give n values: a call with n
-// results, or a comma-ok map index.
+// multiValue checks a value that must give n values: a tuple of n
+// elements (or a type defined over one), or a comma-ok map index.
 func (c *checker) multiValue(x syntax.Expr, n int) []Type {
 	out := make([]Type, n)
 	for i := range out {
@@ -358,7 +374,8 @@ func (c *checker) multiValue(x syntax.Expr, n int) []Type {
 		// A refused result type is reported at the signature.
 		return out
 	}
-	tup, ok := op.typ.(*Tuple)
+	// A type defined over a tuple gives its elements too (C45).
+	tup, ok := under(op.typ).(*Tuple)
 	if !ok || len(tup.Types) != n {
 		got := 1
 		if ok {

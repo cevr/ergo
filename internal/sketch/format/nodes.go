@@ -90,6 +90,14 @@ func (p *printer) decl(d syntax.Decl) {
 		}
 		p.space()
 		p.block(d.Body, true)
+	case *syntax.LawDecl:
+		// A top-level law prints as a top-level test does (law-top).
+		p.token(d.Law, "law")
+		p.space()
+		p.ident(d.Name)
+		p.fieldList(d.Params, "(", ")")
+		p.space()
+		p.block(d.Body, true)
 	}
 }
 

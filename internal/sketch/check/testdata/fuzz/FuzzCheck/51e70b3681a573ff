@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type F[]A\nfunc f(){let F[A]=0}")

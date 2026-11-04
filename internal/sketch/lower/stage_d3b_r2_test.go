@@ -205,7 +205,7 @@ func TestErgoRunNoValueTypeArgument(t *testing.T) {
 
 // TestNoValueTypeArgumentRefusals: where Go's instance and the checked type
 // differ beyond a parameter func(…) T and a result T, the call or the type
-// is refused naming check-v1 stage E, never wrong Go: a declared generic
+// is refused naming lower-v1 (C11), never wrong Go: a declared generic
 // type instantiated with no value, and T inside another function type.
 func TestNoValueTypeArgumentRefusals(t *testing.T) {
 	cases := []struct {
@@ -227,8 +227,8 @@ func TestNoValueTypeArgumentRefusals(t *testing.T) {
 				t.Fatalf("want a refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
 			}
 			r := o.refused[0]
-			if r.Line != tc.line || r.Column != tc.col || !strings.Contains(r.Message, "no value") || !strings.Contains(r.Message, "check-v1 stage E") {
-				t.Fatalf("want a refusal at %d:%d of a no-value type argument naming check-v1 stage E; got %+v", tc.line, tc.col, r)
+			if r.Line != tc.line || r.Column != tc.col || !strings.Contains(r.Message, "no value") || !strings.Contains(r.Message, "lower-v1 (C11") {
+				t.Fatalf("want a refusal at %d:%d of a no-value type argument naming lower-v1 (C11); got %+v", tc.line, tc.col, r)
 			}
 		})
 	}

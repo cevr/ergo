@@ -1,0 +1,16 @@
+// 196s: an interpolated part is an ordinary expression: a fallible part is
+// S105; a record has no text form in v1 (spec D-E6, S109 naming #49).
+type NotFound {}
+type Card { Number string }
+
+func find() string fails NotFound {
+	"x"
+}
+
+func line() string fails NotFound {
+	"found \(find())" // want S105
+}
+
+func card(c Card) string {
+	"card \(c)" // want S109
+}

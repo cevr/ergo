@@ -48,7 +48,9 @@ func (d *TestDecl) Pos() Pos { return d.Test }
 func (d *TestDecl) End() Pos { return d.Body.End() }
 func (*TestDecl) declNode()  {}
 
-// LawDecl is `law Name(params) { body }`, a member of an operation type.
+// LawDecl is `law Name(params) { body }`: a top-level declaration in
+// File.Decls, or a member of an operation type in InterfaceType.Laws
+// (law-top). A top-level law has no type parameters.
 type LawDecl struct {
 	Doc    *CommentGroup
 	Law    Pos
@@ -59,6 +61,7 @@ type LawDecl struct {
 
 func (d *LawDecl) Pos() Pos { return d.Law }
 func (d *LawDecl) End() Pos { return d.Body.End() }
+func (*LawDecl) declNode()  {}
 
 // AssertStmt is `assert e`.
 type AssertStmt struct {

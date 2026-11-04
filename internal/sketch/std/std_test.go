@@ -75,7 +75,7 @@ func main() fails Fault | queue.Closed needs Console {
 	let b = try q.Pop()
 	let xs = slice.WithCapacity[int64](4)
 	let ys = xs.Append(a + b + v)
-	Console.Println("\(ys)")
+	Console.Println("\(ys[0])")
 }
 `
 	if _, diags := check.CheckSource(program); len(diags) > 0 {

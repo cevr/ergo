@@ -49,7 +49,14 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			return "*" + l.rt() + "." + obj.Name
 		}
 	}
-	refuse(site, "the std type %s.%s is lowered after check-v1 stage E", obj.Pkg.Path, obj.Name)
+	if !obj.Pkg.Std() {
+		// Only an importer other than check.Std, a test's, reaches here:
+		// a program imports std packages alone until 196b.
+		refuse(site, "the type %s.%s of an imported package is lowered when 196b lowers packages", obj.Pkg.Path, obj.Name)
+	}
+	// Every std type is a record or an operation type
+	// (TestStdTypesHaveRuntimeForms).
+	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""
 }
 
@@ -124,11 +131,13 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 				found = true
 				return false
 			}
-			// An owning with opens its scope on the frame (calls.go, with),
-			// and a context with its region (context.go).
-			if w := l.info.Withs[n]; w != nil && (ownsResources(w) || w.Value != nil) {
-				found = true
-				return false
+			// An owning with operand opens its scope on the frame (calls.go,
+			// with), and a context value operand its region (context.go).
+			for w := l.info.Withs[n]; w != nil; w = w.Next {
+				if ownsResources(w) || w.Value != nil {
+					found = true
+					return false
+				}
 			}
 			if c := l.info.Calls[n]; n.Trailing != nil && (c == nil || c.Kind != check.CallWith) {
 				syntax.Inspect(n.Fun, visit)

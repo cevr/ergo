@@ -17,7 +17,9 @@ type target struct {
 	// (rows-and-constraints §7 amendment 1).
 	declErrors, declUses *Row
 	errors, uses         *Row // what escapes or is charged (inferred rows)
-	withs                []*withFrame
+	// scope is what the with frames around the body being checked bind
+	// (withScope): a charge reads it once, whatever their number (#229).
+	scope withScope
 	// results are the value results a return gives; resultKnown is false
 	// for a block whose result is its last expression's type.
 	results     []Type
@@ -68,17 +70,15 @@ func (c *checker) charge(n syntax.Node, cap Type) {
 		}
 		return
 	}
-	for i := len(t.withs) - 1; i >= 0; i-- {
-		// An unknown scope is a with whose context is unknown (reported): it
-		// discharges everything, so no charge cascades from it (D3; M18).
-		f := t.withs[i]
-		if f.unknown {
-			return
-		}
-		if found, node := f.binds.find(c.types, cap); found {
-			f.discharge(cap, node)
-			return
-		}
+	// The innermost with that binds cap discharges it. An unknown scope
+	// inside it is a with whose context is unknown (reported): it
+	// discharges everything, so no charge cascades from it (D3; M18).
+	if f, unknown := t.scope.binder(c.types, cap); unknown {
+		return
+	} else if f != nil {
+		_, node := f.binds.find(c.types, cap)
+		f.discharge(cap, node)
+		return
 	}
 	if t.context && t.internal.has(c.types, cap) {
 		t.charged = t.charged.with(c.types, cap)

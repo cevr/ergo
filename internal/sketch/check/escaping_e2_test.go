@@ -155,7 +155,9 @@ var escPositions = map[string][]escCase{
 		{src: "func g(n int) int {\n\tn\n}\n\ntest T {\n\t$assert g\n}\n", want: "S108"},
 	},
 	"InterpolatedString.Exprs": {
-		{src: "func u(f func(int) int) string {\n\t$\"\\(f)\"\n}\n"},
+		// A function part has no text form (E6a): the text-form S108, and
+		// no second, non-escaping S108 for the same part.
+		{src: "func u(f func(int) int) string {\n\t$\"\\(f)\"\n}\n", want: "S108"},
 	},
 	"KeyValueExpr.Key": {
 		{src: "func u(f func(int) int) int {\n\t$len(Map[func(int) int, int]{f: 1})\n}\n", want: "S108"},

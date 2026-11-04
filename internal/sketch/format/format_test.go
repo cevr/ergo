@@ -344,6 +344,18 @@ func TestLayout(t *testing.T) {
 			"import a\nimport b c\nimport go d\nfunc f(a, b int,\n) (int, string) fails A | B needs X | Y { return a*b + 1 }\n",
 		},
 		{
+			"a top-level law prints as a test does",
+			"func add(a, b int) int { a + b }\n// Commutes: the order does not matter.\nlaw   Commutes( a int,b int ){ add(a,b)==add(b,a) }\n\n\n\nlaw Long(a int) {\n  let x = a\n  x == a\n}\ntest T { assert true }\n",
+			"func add(a, b int) int { a + b }\n// Commutes: the order does not matter.\nlaw Commutes(a int, b int) { add(a, b) == add(b, a) }\n\nlaw Long(a int) {\n\tlet x = a\n\tx == a\n}\ntest T { assert true }\n",
+		},
+		{
+			// The same layout, with test in law's place: the blank-line
+			// rules are one rule (gofmt's: kept, at most one).
+			"a top-level test, for comparison",
+			"func add(a, b int) int { a + b }\n// Commutes: the order does not matter.\ntest   Commutes( a int,b int ){ assert add(a,b)==add(b,a) }\n\n\n\ntest Long(a int) {\n  let x = a\n  assert x == a\n}\nlaw T() { true }\n",
+			"func add(a, b int) int { a + b }\n// Commutes: the order does not matter.\ntest Commutes(a int, b int) { assert add(a, b) == add(b, a) }\n\ntest Long(a int) {\n\tlet x = a\n\tassert x == a\n}\nlaw T() { true }\n",
+		},
+		{
 			"explicit semicolons become line breaks",
 			"func main() {\n\tf(); g()\n}\n",
 			"func main() {\n\tf()\n\tg()\n}\n",

@@ -18,6 +18,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.files = append(c.files, &fileInfo{syntax: f, index: i, scope: newScope(nil)})
 	}
 	c.pkg.files = c.files
+	c.startWithBudget(files)
 	// A decided source has no package clause: the directory names the
 	// package (grammar.md, Old spellings), so the name is the last element
 	// of the import path.
@@ -83,6 +84,9 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkFrames,
 		c.checkEscapes,
 		c.footprints,
+		// After every body: the first with operand past the with budget,
+		// silent checks included (withbudget.go).
+		c.reportWithBudget,
 	} {
 		c.cur = nil
 		pass()
@@ -262,6 +266,8 @@ func (c *checker) collect() {
 				}
 			case *syntax.TestDecl:
 				c.collectTest(d, fi)
+			case *syntax.LawDecl:
+				c.collectTopLaw(d, fi)
 			case *syntax.ContextDecl:
 				c.preludeName(d.Name) // D-D3; the context still binds
 				w := &Context{Name: d.Name.Name, Pos: d.Name.Pos(), Decl: d, file: fi, pkg: c.pkg}

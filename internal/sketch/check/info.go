@@ -18,11 +18,14 @@ import (
 //     entry, every identifier a Defs or Uses entry, every call a Calls
 //     entry, every pattern a Patterns entry, every match and catch a
 //     Matches entry, every for-in a Loops entry and every with a Withs
-//     entry, whose Entries hold its named context's providers of what its
-//     block needs, with their conversions; the context itself holds the rest
-//     (Context.Provider, Context.Overrides; TestInfoComplete). A package name before a dot and a
-//     built-in callee are no values and have no Types entry. An inline
-//     context literal's entries are stage E's (196x).
+//     entry per operand (With.Next), whose Entries hold its context's
+//     providers of what its block needs, with their conversions; the context
+//     itself holds the rest (Context.Provider, Context.Overrides,
+//     Context.Entries, for a named, local or inline context alike;
+//     TestInfoComplete). A package name before a dot and a built-in callee
+//     are no values and have no Types entry. A local context's let name has
+//     its *Context as its Defs entry, and its uses theirs as Uses entries;
+//     its literal has no Types entry, as a with's inline literal has none.
 //  2. Final: no type in Info is invalid or holds a row variable; a type
 //     parameter appears only inside its own generic declaration. The one
 //     exception is go/types': the name in an explicit instantiation
@@ -83,8 +86,9 @@ type Package struct {
 	Types []*TypeName
 	// Tests is every test block with its parameters (stage E, 196l).
 	Tests []*Test
-	// Laws is every law of the package's operation types in source order,
-	// a duplicate name included (stage E3b, 196l): checked, never run.
+	// Laws is every law of the package in source order, top-level and
+	// member, a duplicate name included (stage E3b, 196l; law-top):
+	// checked, never run.
 	Laws []*Law
 	// Info is the checker's result for the lowering.
 	Info *Info
@@ -607,13 +611,19 @@ type With struct {
 	// the entries of Entries, and each entry whose capability an acquired
 	// provider uses while it is built. Each entry is one acquisition,
 	// however many capabilities it binds. An overridden entry and an entry
-	// that nothing the block needs reaches are not acquired. Named and inline
-	// contexts use the same fact; general first-class contexts stay stage E's.
+	// that nothing the block needs reaches are not acquired. Named, local and
+	// inline contexts use the same fact: a local context named by two withs
+	// is acquired, and released, once per with.
 	Acquired []*Acquisition
 	// Context is the context binding a with of a context value opens
 	// (runtime.md, G1), nil for a with of a context. Such a with has no Contexts
 	// and discharges nothing.
 	Value *ContextBinding
+	// Next is the fact of the with's next operand, nil for the last:
+	// Info.Withs holds the first operand's, and `with A, B { b }` has the
+	// facts `with A { with B { b } }` would have, A's Next being B's
+	// (rows.md, With 7).
+	Next *With
 }
 
 // ContextBinding is the operand of `with v { … }` when v's type satisfies
@@ -629,6 +639,12 @@ type ContextBinding struct {
 	Type Type
 	// Key and Text are the protocol's functions on Type.
 	Key, Text *Func
+	// KeyInst and TextInst are the instances of Key and Text at Type when
+	// they are generic: their type arguments bound by Type's (as a dot
+	// call's receiver binds them, D-D8), with a witness for each type
+	// parameter an operation type constrains; nil when the function is
+	// not generic. Added in check-v1 stage E6b (additive).
+	KeyInst, TextInst *Instance
 }
 
 // Acquisition is one provider entry a with builds: the
@@ -687,13 +703,15 @@ type Test struct {
 	file *fileInfo // the declaring file, selected while the test is checked
 }
 
-// Law is a law of an operation type (196l, spec D-E4): checked, never run
-// (#162 runs laws). Its name has no value: Info.Defs maps the name to the
-// Law, and no scope holds it. Added in check-v1 stage E3b (additive).
+// Law is a law (196l, spec D-E4): a top-level declaration or a member of an
+// operation type; checked, never run (#162 runs laws). Its name has no
+// value: Info.Defs maps the name to the Law, and no scope holds it. Added
+// in check-v1 stage E3b (additive). Since law-top, Owner is nil for a
+// top-level law (a contract change: the field was always set before).
 type Law struct {
 	Name  string
 	Decl  *syntax.LawDecl
-	Owner *TypeName // the operation type that declares it
+	Owner *TypeName // the operation type that declares it; nil at top level
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var
@@ -780,39 +798,50 @@ func (c *checker) recordCall(x *syntax.CallExpr, fun operand) {
 	}
 }
 
-// recordWith records a with site: the named context, and the capabilities its
+// recordWith records a with site, one With per operand frame, chained by
+// Next in operand order: the operand's context, and the capabilities the
 // block needed from it with their entries, which the block's charges found
-// (withFrame), sorted by name. It reads nothing of the context's summary, so
-// its work and its size are the block's.
-func (c *checker) recordWith(x *syntax.CallExpr, f *withFrame) {
+// (withFrame), sorted by name. It reads nothing of the context's summary,
+// so its work and its size are the block's. The sites are listed innermost
+// operand first, each with the frames around it (withOwnership).
+func (c *checker) recordWith(x *syntax.CallExpr, frames []*withFrame) {
 	if c.silent > 0 {
 		return
 	}
-	w := &With{Value: f.value}
-	if f.context != nil {
-		w.Contexts = []*Context{f.context}
-	}
-	if !f.unknown && len(f.caps) > 0 {
-		order := make([]int, len(f.caps))
-		keys := make([]capKey, len(f.caps))
-		for i, cap := range f.caps {
-			order[i] = i
-			keys[i], _ = keyOf(cap)
+	withs := make([]*With, len(frames))
+	for i, f := range frames {
+		w := &With{Value: f.value}
+		if f.context != nil {
+			w.Contexts = []*Context{f.context}
 		}
-		sort.Slice(order, func(a, b int) bool { return keys[order[a]].compare(keys[order[b]]) < 0 })
-		for _, i := range order {
-			w.Discharged = append(w.Discharged, f.caps[i])
-			if w.Contexts != nil {
-				w.Entries = append(w.Entries, f.entries[i])
+		if !f.unknown && len(f.caps) > 0 {
+			order := make([]int, len(f.caps))
+			keys := make([]capKey, len(f.caps))
+			for i, cap := range f.caps {
+				order[i] = i
+				keys[i], _ = keyOf(cap)
+			}
+			sort.Slice(order, func(a, b int) bool { return keys[order[a]].compare(keys[order[b]]) < 0 })
+			for _, i := range order {
+				w.Discharged = append(w.Discharged, f.caps[i])
+				if w.Contexts != nil {
+					w.Entries = append(w.Entries, f.entries[i])
+				}
 			}
 		}
+		if i > 0 {
+			withs[i-1].Next = w
+		}
+		withs[i] = w
+		f.with = w
 	}
-	c.pkg.Info.Withs[x] = w
+	c.pkg.Info.Withs[x] = withs[0]
 	c.callInfo(x).Kind = CallWith
-	f.site = x
-	c.withSites = append(c.withSites, withSite{
-		x: x, file: c.cur, t: c.fn.t, outer: append([]*withFrame(nil), c.fn.t.withs...),
-	})
+	// Operand i's environment is the scope around its frame, a persistent
+	// version shared, never copied (chargeRelease; #229).
+	for i := len(frames) - 1; i >= 0; i-- {
+		c.withSites = append(c.withSites, withSite{x: x, operand: i, w: withs[i], file: c.cur, t: c.fn.t, outer: frames[i].outer})
+	}
 }
 
 // Provider returns the entry that binds cap in a with of w, once replace

@@ -280,6 +280,11 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 			vf, ok2 := w.varFrame[v]
 			return ok1 && ok2 && tf >= vf
 		}
+	case *syntax.InterpolatedString:
+		// A function part has no text form: the text-form rule refuses it
+		// (expr.go, textForm), so it keeps nothing, and one diagnostic
+		// stands for the one mistake (check-v1 E6a).
+		return true
 	}
 	return false
 }

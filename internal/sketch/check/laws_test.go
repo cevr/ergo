@@ -169,10 +169,14 @@ func f() {
 }
 `},
 		{"a law of one name in two types", `type A {
+	Op() int,
+
 	law Same() { true },
 }
 
 type B {
+	Op() int,
+
 	law Same() { true },
 }
 `},
@@ -244,17 +248,11 @@ func uses() int {
 	law Twice(v int, v int) { true }, // want S108
 }
 `},
-		{"a charging call in a law", lawDecls + `type Laws {
-	law Charged() { read() == "ok" }, // want S102
-}
+		{"a charging call in a law", lawDecls + `law Charged() { read() == "ok" } // want S102
 `},
-		{"a charging call in a law's with", lawDecls + `type Laws {
-	law Discharged() { with context { Store: Mem } { read() } == "ok" },
-}
+		{"a charging call in a law's with", lawDecls + `law Discharged() { with context { Store: Mem } { read() } == "ok" }
 `},
-		{"a capability operation in a law", lawDecls + `type Laws {
-	law Direct() { Store.Get() == "ok" }, // want S102
-}
+		{"a capability operation in a law", lawDecls + `law Direct() { Store.Get() == "ok" } // want S102
 `},
 		{"an operation call charges nothing", lawDecls + `type Uses {
 	Fetch() string,
@@ -379,16 +377,16 @@ type Codec {
 	law Unnamed(int) { true },
 }
 `},
-		{"a type with laws and no operations", `type Laws {
+		// law-top: a type with laws and no operations is S108 once, at its
+		// name; its laws are still checked, and nothing cascades.
+		{"a type with laws and no operations", `type Laws { // want S108
 	law Truth() { true },
 	law Sum(a int, b int) { a + b == b + a },
 }
 `},
-		{"an unused local", `type Laws {
-	law Unused() {
-		let x = 1 // want S110
-		true
-	},
+		{"an unused local", `law Unused() {
+	let x = 1 // want S110
+	true
 }
 `},
 	} {
@@ -483,14 +481,10 @@ func TestLawSites(t *testing.T) {
 }
 `},
 		// withown.go capabilityCloses walks law bodies.
-		{"a capability's Close in a law", `type Laws {
-	law Twice() { with Releasing { R.Close(); true } }, // want S108
-}
+		{"a capability's Close in a law", `law Twice() { with Releasing { R.Close(); true } } // want S108
 `},
 		// contextsum.go: a law's inline context is summarised.
-		{"a duplicate entry in a law's inline context", `type Laws {
-	law Dup() { with context { Store: Mem, Store: Mem } { Store.Get() == "ok" } }, // want S111
-}
+		{"a duplicate entry in a law's inline context", `law Dup() { with context { Store: Mem, Store: Mem } { Store.Get() == "ok" } } // want S111
 `},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

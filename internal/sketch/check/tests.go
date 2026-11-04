@@ -8,10 +8,11 @@ import (
 // Tests and assert (196l; spec D-E4 and Q4). Each rule is an invariant over
 // its whole domain:
 //
-//  1. A test declares no value. Test names have their own namespace: a test
-//     is never entered in a value scope, so a use of its name resolves as
-//     any undeclared name does (S104), and a second test of one name is
-//     S108 at the second.
+//  1. A test declares no value. Test names have their own namespace, which
+//     the package's top-level laws share (laws.go rule 1): a test is never
+//     entered in a value scope, so a use of its name resolves as any
+//     undeclared name does (S104), and a second test of one name, or a test
+//     named like an earlier top-level law, is S108 at the second.
 //  2. A test body is a failure target: what escapes it fails the test, so
 //     its failure row is inferred and unbounded. Its service row, after its
 //     own with blocks, is empty: a charging call that no with of the test
@@ -41,7 +42,10 @@ type testState struct {
 	// stray holds each assert outside a test or law body, already reported
 	// by strayAsserts; the body check types its operand only.
 	stray map[*syntax.AssertStmt]bool
-	names map[string]bool
+	// names is the one namespace of the package's tests and top-level laws
+	// (rule 1; laws.go rule 1): each name maps to the kind, "test" or
+	// "law", of its first declaration in source order.
+	names map[string]string
 	all   []*Test // every test declaration, a duplicate name included
 	ranks *ValueRanks
 }
@@ -49,22 +53,39 @@ type testState struct {
 // collectTest records a test declaration (rule 1). Its parameters are typed
 // by checkTests, once every type is resolved.
 func (c *checker) collectTest(d *syntax.TestDecl, fi *fileInfo) {
-	if c.tests.names == nil {
-		c.tests.names = map[string]bool{}
-	}
 	t := &Test{Name: d.Name.Name, Decl: d, file: fi}
 	c.ownBody(d, OwnerTest)
 	// A second test of a name is checked as well, so which one is reported
 	// does not decide which body's diagnostics appear (declaration order).
 	c.tests.all = append(c.tests.all, t)
-	if c.tests.names[d.Name.Name] {
-		// The message's form is the one the declaration-order oracle reads
-		// as a duplicate (export_classh_test.go, duplicateName).
-		c.errorf(d.Name, CodeType, "test %s is declared twice", d.Name.Name)
+	if !c.claimTestName(d.Name, "test") {
 		return
 	}
-	c.tests.names[d.Name.Name] = true
 	c.pkg.Tests = append(c.pkg.Tests, t)
+}
+
+// claimTestName claims id's name for a test or a top-level law (kind) in
+// their one namespace (rule 1). A test report and a law report name the
+// declaration by its name alone (#162), so two of one name would be
+// ambiguous: the second in source order is S108, and claimTestName reports
+// false. A member law is not in this namespace (its report names T.L).
+func (c *checker) claimTestName(id *syntax.Ident, kind string) bool {
+	if c.tests.names == nil {
+		c.tests.names = map[string]string{}
+	}
+	prior, taken := c.tests.names[id.Name]
+	switch {
+	case !taken:
+		c.tests.names[id.Name] = kind
+		return true
+	case prior == kind:
+		// The message's form is the one the declaration-order oracle reads
+		// as a duplicate (export_classh_test.go, duplicateName).
+		c.errorf(id, CodeType, "%s %s is declared twice", kind, id.Name)
+	default:
+		c.errorf(id, CodeType, "%s %s is named like %s %s", kind, id.Name, prior, id.Name)
+	}
+	return false
 }
 
 // strayAsserts reports every assert that stands outside a test body and

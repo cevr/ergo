@@ -46,8 +46,8 @@ func (tc *typeCtx) goType(t check.Type) string {
 					// Go's instance keeps struct{} where the checked
 					// type's function types drop the result (a field
 					// func() T); a runtime type's operations adapt it
-					// (std.go), a declared type's are stage E's.
-					refuse(tc.site, "the type %s, a declared generic type whose type argument a block with no value binds, is lowered after check-v1 stage E", t)
+					// (std.go), a declared type's are lower-v1's (C11).
+					refuse(tc.site, "the type %s, a declared generic type whose type argument a block with no value binds, is lowered by lower-v1 (C11, one Go shape for no-result function values)", t)
 				}
 			}
 			name = tc.l.useType(tc.l.typeDecl(t.Obj, tc.site)).name
