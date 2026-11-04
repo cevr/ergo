@@ -1,4 +1,4 @@
-// out: {one} {two}
+// out: one two
 type Fault {}
 func unused() fails Fault { return Fault }
 type A { Value string }
@@ -6,6 +6,22 @@ type B {}
 type C {}
 type Sum = A | B
 type Other = A | C
-func one() Sum            { return A{Value: "one"} }
-func two() Other          { return A{Value: "two"} }
-func main() needs Console { Console.Println("\(one()) \(two())") }
+func one() Sum   { return A{Value: "one"} }
+func two() Other { return A{Value: "two"} }
+func sumText(s Sum) string {
+	match s {
+	case A as v:
+		return v.Value
+	case B:
+		return "b"
+	}
+}
+func otherText(o Other) string {
+	match o {
+	case A as v:
+		return v.Value
+	case C:
+		return "c"
+	}
+}
+func main() needs Console { Console.Println("\(sumText(one())) \(otherText(two()))") }
