@@ -3,10 +3,12 @@
 //
 //	cost <lib> <rounds> <n> <chunks>
 //
-// Each round runs n operations of each variant, in chunks of n/chunks. In
-// each chunk the variants run one after the other, in an order that rotates
-// from chunk to chunk, so load on the host falls on every variant alike.
-// The variants:
+// Each round has chunks slots. In each slot, each pair (a generated variant
+// and the variant it is compared with) runs one chunk of n/chunks
+// operations of each of its two variants next to each other, so load on
+// the host falls on both alike; the order of the pairs rotates from slot to
+// slot, and which chunk of a pair runs first alternates. The ratio of the
+// two chunk times is one paired ratio. The variants:
 //
 //	call_gen   fixture.NodeCount: a typed call of the generated binding.
 //	call_hand  fx_node_count through a hand-written purego RegisterFunc,
@@ -22,12 +24,17 @@
 //	           the Go function directly (no key, no containment): for
 //	           information, the cost of the contract itself.
 //	call_guard call_hand with the guard that containment adds to a typed
-//	           call (LockOSThread, the pending panic taken after C
-//	           returns): for information, the cost of that guard.
+//	           call (the pending panic taken after C returns: one atomic
+//	           load when none is pending): for information, the cost of
+//	           that guard.
+//
+// The pairs: call (call_gen, call_hand), callback (cb_gen, cb_hand),
+// callback_bare (cb_gen, cb_bare) and guard (call_guard, call_hand).
 //
 // It prints, per round, "round <i> load <1 min load or -> call_gen <ns/op>
 // call_hand <ns/op> cb_gen <ns/op> cb_hand <ns/op> cb_bare <ns/op>
-// call_guard <ns/op>"; then
+// call_guard <ns/op>" and, for each pair, "pairs <i> <kind> <ratio>..."
+// (one paired ratio gen/hand per slot); then
 // "allocs <variant> <allocs/op>" for each variant and "thread <ns/op>" for
 // the generated thread-identity helper (fixture.CostThread, a file the test
 // adds to the package). It exits 1 at the first wrong result.
@@ -91,10 +98,8 @@ func hCount(context uintptr) (uint32, error) {
 // hCountGuard is hCount with the guard of containment.
 func hCountGuard(context uintptr) (uint32, error) {
 	var n uint32
-	runtime.LockOSThread()
 	st := hNodeCount(context, unsafe.Pointer(&n))
 	p := hTake()
-	runtime.UnlockOSThread()
 	if st != 0 {
 		if p != nil {
 			panic(p)
@@ -108,7 +113,9 @@ func hCountGuard(context uintptr) (uint32, error) {
 }
 
 // The hand-written contract: a registry keyed by a token, and the panics
-// pending by OS thread.
+// pending by OS thread. As in the generated package, a callback that keeps
+// a panic pending locks its goroutine (the goroutine of the C call) to the
+// thread until hTake takes it.
 var (
 	hMu      sync.RWMutex
 	hNext    atomic.Uintptr
@@ -160,6 +167,7 @@ func hContain(done *bool) {
 	t := hThread()
 	hPendMu.Lock()
 	if _, had := hPendOn[t]; !had {
+		runtime.LockOSThread() // until hTake, on the goroutine of the C call
 		hPendOn[t] = v
 		hPendN.Add(1)
 	}
@@ -184,6 +192,7 @@ func hTake() any {
 	if had {
 		delete(hPendOn, t)
 		hPendN.Add(-1)
+		runtime.UnlockOSThread()
 	}
 	hPendMu.Unlock()
 	return v
@@ -202,10 +211,8 @@ func hRepeatWith(context uintptr, times uint32, fn func([]byte) int64) (int64, e
 		delete(hMap, k)
 		hMu.Unlock()
 	}()
-	runtime.LockOSThread()
 	st := hRepeat(context, times, unsafe.Pointer(&out), k, hPtr)
 	p := hTake()
-	runtime.UnlockOSThread()
 	if st != 0 {
 		if p != nil {
 			panic(p)
@@ -247,6 +254,14 @@ func load() string {
 const nvariants = 6
 
 var names = [nvariants]string{"call_gen", "call_hand", "cb_gen", "cb_hand", "cb_bare", "call_guard"}
+
+// pairs are the paired comparisons: a chunk of gen next to a chunk of hand.
+// call and callback decide the test; callback_bare and guard are for
+// information.
+var pairs = []struct {
+	kind      string
+	gen, hand int
+}{{"call", 0, 1}, {"callback", 2, 3}, {"callback_bare", 2, 4}, {"guard", 5, 1}}
 
 func main() {
 	// Both contexts belong to this OS thread.
@@ -326,26 +341,53 @@ func main() {
 		}
 	}
 
+	timed := func(v int) time.Duration {
+		start := time.Now()
+		run(v)
+		return time.Since(start)
+	}
 	// A warm-up chunk of each variant.
 	for v := range nvariants {
 		run(v)
 	}
 	for r := range rounds {
 		var spent [nvariants]time.Duration
+		var ops [nvariants]int
+		ratios := make([][]float64, len(pairs))
 		l := load()
 		for c := range chunks {
-			for i := range nvariants {
-				v := (i + r*chunks + c) % nvariants
-				start := time.Now()
-				run(v)
-				spent[v] += time.Since(start)
+			for i := range pairs {
+				k := (i + c + r) % len(pairs)
+				p := pairs[k]
+				// The two chunks of a pair run next to each other; which one
+				// runs first alternates from chunk to chunk.
+				var tg, th time.Duration
+				if (c+r)%2 == 0 {
+					tg = timed(p.gen)
+					th = timed(p.hand)
+				} else {
+					th = timed(p.hand)
+					tg = timed(p.gen)
+				}
+				spent[p.gen] += tg
+				spent[p.hand] += th
+				ops[p.gen] += chunk
+				ops[p.hand] += chunk
+				ratios[k] = append(ratios[k], float64(tg)/float64(th))
 			}
 		}
 		fmt.Printf("round %d load %s", r, l)
 		for v := range nvariants {
-			fmt.Printf(" %s %.1f", names[v], float64(spent[v].Nanoseconds())/float64(n))
+			fmt.Printf(" %s %.1f", names[v], float64(spent[v].Nanoseconds())/float64(ops[v]))
 		}
 		fmt.Println()
+		for k, p := range pairs {
+			fmt.Printf("pairs %d %s", r, p.kind)
+			for _, x := range ratios[k] {
+				fmt.Printf(" %.4f", x)
+			}
+			fmt.Println()
+		}
 	}
 
 	for v := range nvariants {

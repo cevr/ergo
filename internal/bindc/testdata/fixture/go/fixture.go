@@ -609,6 +609,10 @@ func cbContain(typedef string, done *bool) {
 	t := cbThread()
 	cbPendMu.Lock()
 	if _, had := cbPendOn[t]; !had {
+		// C calls back on the goroutine of the typed call that made the C
+		// call. Lock it to this thread until that typed call takes the
+		// panic (cbTakeHere unlocks), so that it takes it from here.
+		runtime.LockOSThread()
 		cbPendOn[t] = p
 		cbPendN.Add(1)
 	}
@@ -643,6 +647,7 @@ func cbTakeHere() *CallbackPanic {
 	if had {
 		delete(cbPendOn, t)
 		cbPendN.Add(-1)
+		runtime.UnlockOSThread() // the lock of cbContain
 	}
 	cbPendMu.Unlock()
 	return p
@@ -904,10 +909,8 @@ func AbiVersion() (uint32, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
-	runtime.LockOSThread()
 	_r := c_fx_abi_version()
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	if _p != nil {
 		panic(_p)
 	}
@@ -921,10 +924,8 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	}
 	options.fill()
 	var _o1 uintptr
-	runtime.LockOSThread()
 	_r := c_fx_context_create(unsafe.Pointer(&options), unsafe.Pointer(&_o1))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&options)
 	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
@@ -948,10 +949,8 @@ func ContextDestroy(context *Context) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	runtime.LockOSThread()
 	_r := c_fx_context_destroy(context.p)
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	if err := statusError(_r); err != nil {
 		if _p != nil {
 			panic(_p)
@@ -975,10 +974,8 @@ func NodeCreate(context *Context, kind uint32) (Node, error) {
 		return Node{}, ErrDestroyed
 	}
 	var _o2 Node
-	runtime.LockOSThread()
 	_r := c_fx_node_create(context.p, kind, unsafe.Pointer(&_o2))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
 		if _p != nil {
@@ -1000,10 +997,8 @@ func NodeDestroy(context *Context, node Node) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	runtime.LockOSThread()
 	_r := c_fx_node_destroy(context.p, unsafe.Pointer(&node))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
 		if _p != nil {
@@ -1027,10 +1022,8 @@ func NodeCount(context *Context) (uint32, error) {
 		return 0, ErrDestroyed
 	}
 	var _o1 uint32
-	runtime.LockOSThread()
 	_r := c_fx_node_count(context.p, unsafe.Pointer(&_o1))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
 		if _p != nil {
@@ -1053,10 +1046,8 @@ func NodeSetBox(context *Context, node Node, box Box) error {
 		return ErrDestroyed
 	}
 	box.fill()
-	runtime.LockOSThread()
 	_r := c_fx_node_set_box(context.p, unsafe.Pointer(&node), unsafe.Pointer(&box))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&box)
 	if err := statusError(_r); err != nil {
@@ -1081,10 +1072,8 @@ func NodeGetBox(context *Context, node Node) (Box, error) {
 	}
 	var _o2 Box
 	_o2.fill()
-	runtime.LockOSThread()
 	_r := c_fx_node_get_box(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
@@ -1110,10 +1099,8 @@ func NodeSetName(context *Context, node Node, name []byte) error {
 	if uint64(len(name)) > 4294967295 {
 		return ErrTooLong
 	}
-	runtime.LockOSThread()
 	_r := c_fx_node_set_name(context.p, unsafe.Pointer(&node), sliceData(name), uint32(len(name)))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(name)
 	if err := statusError(_r); err != nil {
@@ -1140,10 +1127,8 @@ func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error) {
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
-	runtime.LockOSThread()
 	_r := c_fx_node_read_name(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
@@ -1174,10 +1159,8 @@ func ContextVisit(context *Context, callback VisitCallback) error {
 		cbPut(cbMap0, _k1, cbEntry[VisitCallback]{fn: callback})
 		defer cbDrop(cbMap0, _k1)
 	}
-	runtime.LockOSThread()
 	_r := c_fx_context_visit(context.p, _c1, _k1)
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	if err := statusError(_r); err != nil {
 		if _p != nil {
 			panic(_p)
@@ -1195,10 +1178,8 @@ func PointLength(point Point) (float32, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
-	runtime.LockOSThread()
 	_r := c_fx_point_length(toABI[abiF32x2](point))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	if _p != nil {
 		panic(_p)
 	}
@@ -1213,10 +1194,8 @@ func ContextAge(context *Context) (Seconds, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
-	runtime.LockOSThread()
 	_r := c_fx_context_age(context.p)
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	if _p != nil {
 		panic(_p)
 	}
@@ -1242,10 +1221,8 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 		cbPut(cbMap1, _k6, cbEntry[WriteCallback]{fn: writer})
 		defer cbDrop(cbMap1, _k6)
 	}
-	runtime.LockOSThread()
 	_r := c_fx_context_write(context.p, sliceData(text), uint32(len(text)), maxBytes, unsafe.Pointer(&_o4), _k6, _c6)
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(text)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
@@ -1276,10 +1253,8 @@ func ContextRepeat(context *Context, times uint32, writer WriteCallback) (int64,
 		cbPut(cbMap1, _k4, cbEntry[WriteCallback]{fn: writer})
 		defer cbDrop(cbMap1, _k4)
 	}
-	runtime.LockOSThread()
 	_r := c_fx_context_repeat(context.p, times, unsafe.Pointer(&_o2), _k4, _c4)
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
 		if _p != nil {
@@ -1311,10 +1286,8 @@ func NodeSetMeasure(context *Context, node Node, measure MeasureCallback) error 
 		_c2 = cbPtr[2]
 		_s2, _h2 = cbPut(cbMap2, _k2, cbEntry[MeasureCallback]{fn: measure, owner: context.p})
 	}
-	runtime.LockOSThread()
 	_r := c_fx_node_set_measure(context.p, unsafe.Pointer(&node), _c2)
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
 		if measure != nil {
@@ -1343,10 +1316,8 @@ func NodeMeasure(context *Context, node Node, width float32, height float32) (Po
 		return Point{}, ErrDestroyed
 	}
 	var _o4 Point
-	runtime.LockOSThread()
 	_r := c_fx_node_measure(context.p, unsafe.Pointer(&node), width, height, unsafe.Pointer(&_o4))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
@@ -1370,10 +1341,8 @@ func NodeMeasureAs(context *Context, node Node, as Node) (Point, error) {
 		return Point{}, ErrDestroyed
 	}
 	var _o3 Point
-	runtime.LockOSThread()
 	_r := c_fx_node_measure_as(context.p, unsafe.Pointer(&node), unsafe.Pointer(&as), unsafe.Pointer(&_o3))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&as)
 	runtime.KeepAlive(&_o3)
@@ -1398,10 +1367,8 @@ func ContextMeasureAll(context *Context, width float32, height float32) (uint32,
 		return 0, ErrDestroyed
 	}
 	var _o3 uint32
-	runtime.LockOSThread()
 	_r := c_fx_context_measure_all(context.p, width, height, unsafe.Pointer(&_o3))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
 		if _p != nil {
@@ -1424,10 +1391,8 @@ func ContextCounters(context *Context) (Counters, error) {
 		return Counters{}, ErrDestroyed
 	}
 	var _o1 Counters
-	runtime.LockOSThread()
 	_r := c_fx_context_counters(context.p, unsafe.Pointer(&_o1))
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
 		if _p != nil {
@@ -1446,10 +1411,8 @@ func ThreadId() (uint64, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
-	runtime.LockOSThread()
 	_r := c_fx_thread_id()
 	_p := cbTake()
-	runtime.UnlockOSThread()
 	if _p != nil {
 		panic(_p)
 	}

@@ -16,13 +16,19 @@ import (
 //     A runtime.Goexit cannot be stopped (Go resumes it after a recover),
 //     so cbContain ends the process with exit status 2 and one stderr line
 //     that names the typedef, before any C frame unwinds;
-//   - each typed call of a binding with bound callbacks keeps its goroutine
-//     on its OS thread (runtime.LockOSThread, which nests) from before its
-//     C call until it has taken the panic pending on that thread (cbTake;
-//     one atomic load when none is pending). It does what the C call's
-//     status asks of the registry, then panics with the pending panic
-//     before it converts a result. So the panic surfaces in the Go frame
-//     directly above the C frame, and the registry stays what C did;
+//   - C calls back on the goroutine of the typed call that made the C call
+//     (purego and cgo run a callback on the calling goroutine, which stays
+//     on its thread during the C call). When cbContain keeps a panic
+//     pending, it locks that goroutine to the thread
+//     (runtime.LockOSThread, which nests), and cbTakeHere unlocks it when
+//     it takes the panic. So each typed call of a binding with bound
+//     callbacks takes the panic pending on its thread right after its C
+//     call (cbTake; one atomic load when none is pending) with no lock of
+//     its own: a panic of its C call holds the goroutine on that thread,
+//     and with none, there is nothing of its own to take. It does what the
+//     C call's status asks of the registry, then panics with the pending
+//     panic before it converts a result. So the panic surfaces in the Go
+//     frame directly above the C frame, and the registry stays what C did;
 //   - Owner (a binding with a handle whose thread is owner) is one
 //     goroutine locked to one OS thread and never unlocked, so the thread
 //     ends with it. Do from another goroutine runs a function there and
@@ -132,6 +138,10 @@ func cbContain(typedef string, done *bool) {
 	t := cbThread()
 	cbPendMu.Lock()
 	if _, had := cbPendOn[t]; !had {
+		// C calls back on the goroutine of the typed call that made the C
+		// call. Lock it to this thread until that typed call takes the
+		// panic (cbTakeHere unlocks), so that it takes it from here.
+		%[7]s.LockOSThread()
 		cbPendOn[t] = p
 		cbPendN.Add(1)
 	}
@@ -166,12 +176,13 @@ func cbTakeHere() *CallbackPanic {
 	if had {
 		delete(cbPendOn, t)
 		cbPendN.Add(-1)
+		%[7]s.UnlockOSThread() // the lock of cbContain
 	}
 	cbPendMu.Unlock()
 	return p
 }
 
-`, fmtPkg, pkg+": panic in the callback %s: %v", osPkg, pkg+": runtime.Goexit in the callback ", " would unwind C frames; exit status 2\n", dbg)
+`, fmtPkg, pkg+": panic in the callback %s: %v", osPkg, pkg+": runtime.Goexit in the callback ", " would unwind C frames; exit status 2\n", dbg, e.use("runtime"))
 }
 
 // ownerRunner emits the owner-thread runner when the binding has a handle

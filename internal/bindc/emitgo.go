@@ -579,14 +579,12 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 	for _, u := range uses {
 		e.cbBefore(u, s.Status)
 	}
-	// With bound callbacks, the goroutine stays on its OS thread from before
-	// the C call until it has taken the panic pending there (_p,
-	// emitthread.go); it panics with it after the registry follows the
-	// status, before a result is converted.
+	// With bound callbacks, the typed call takes the panic pending on its OS
+	// thread right after the C call (_p, emitthread.go): a callback that
+	// panicked during the C call ran on this goroutine and locked it to the
+	// thread, so it is still there. It panics with it after the registry
+	// follows the status, before a result is converted.
 	guard := e.guardsCalls()
-	if guard {
-		e.p("\t%s.LockOSThread()\n", e.use("runtime"))
-	}
 	call := rawName(c.Name) + "(" + strings.Join(args, ", ") + ")"
 	switch {
 	case c.Result.Kind == TypeVoid:
@@ -595,7 +593,7 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 		e.p("\t_r := %s\n", call)
 	}
 	if guard {
-		e.p("\t_p := cbTake()\n\truntime.UnlockOSThread()\n")
+		e.p("\t_p := cbTake()\n")
 	}
 	raise := func(indent string) {
 		if guard {

@@ -172,12 +172,15 @@
 // Unwrap gives the value when it is an error; a value that is a
 // *CallbackPanic already is kept), C gets the default, and the panic is
 // pending on the OS thread of the invocation. While it is pending, a
-// trampoline on that thread runs no Go code and gives C the default. Each
-// typed call of a binding with bound callbacks keeps its goroutine on its
-// OS thread (runtime.LockOSThread) from before its C call until it has
-// taken the panic pending there (one atomic load when none is), lets the
+// trampoline on that thread runs no Go code and gives C the default. C
+// calls back on the goroutine of the typed call that made the C call, and
+// the trampoline that keeps a panic pending locks that goroutine to its
+// thread (runtime.LockOSThread) until the panic is taken. Each typed call
+// of a binding with bound callbacks takes the panic pending on its thread
+// right after its C call (one atomic load when none is), unlocks, lets the
 // registry follow the C call's status, and then panics with it before it
-// converts a result. So the panic surfaces directly above the C frame: in
+// converts a result. A typed call whose C call kept no panic pending takes
+// no lock at all. So the panic surfaces directly above the C frame: in
 // the outermost typed call, or in a nested typed call inside an outer
 // callback, whose trampoline contains it again. runtime.Goexit cannot be
 // stopped, so the trampoline ends the process with exit status 2 and one
@@ -191,16 +194,21 @@
 // when a measure callback panicked, so the caller cancels the draft by its
 // frame id (the id after the last frame's; testdata/opentui/hello).
 //
-// The cost (TestLiveCallbackCost, receipts cost-<goos>-<goarch>.txt):
-// the median of the per-round ratios generated/hand-written is within 1.25
-// for a typed call (against purego.RegisterFunc with the same status check)
-// and for a callback (against purego.NewCallback with the same key and
-// containment written by hand). Both sides go through purego's reflect
-// paths, which dominate (4 allocations per call and 3 per callback, on
-// both sides). What a typed call pays above a bare hand-written call is
-// mostly the guard of containment (LockOSThread and one atomic load); the
-// receipt measures it as call_guard. TestLiveOpenTUIHello runs OpenTUI's own hello example in Go
-// on the npm 0.8.2 library, checked by its sha512 integrity.
+// The cost (TestLiveCallbackCost, receipts cost-<goos>-<goarch>.txt;
+// amendments B1 and B2): for a typed call (against purego.RegisterFunc with
+// the same status check) and for a callback (against purego.NewCallback
+// with the same key and containment written by hand), the upper end of the
+// 95% interval of the median paired ratio generated/hand-written is at
+// most 1.05. A paired ratio compares two chunks that run next to each
+// other; a round's median of them is one observation; the interval is the
+// order-statistic interval of the median of the observations of at least
+// three driver processes. Both sides go through purego's reflect paths,
+// which dominate (4 allocations per call and 3 per callback, on both
+// sides). What a typed call pays above a bare hand-written call is the
+// ready check, the handle check and the guard of containment (one atomic
+// load); the receipt measures the guard as guard. TestLiveOpenTUIHello
+// runs OpenTUI's own hello example in Go on the npm 0.8.2 library, checked
+// by its sha512 integrity.
 //
 // A binding with a handle whose thread is owner has an Owner: one goroutine
 // locked to one OS thread and never unlocked, so the thread ends with it.
