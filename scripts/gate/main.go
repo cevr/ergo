@@ -698,10 +698,7 @@ func (g *gate) execute(step *Step) *result {
 	started := time.Now()
 	command := exec.CommandContext(context.Background(), step.Argv[0], step.Argv[1:]...)
 	command.Dir = g.root
-	command.Env = stepCommandEnvironment(g.root, step)
-	if len(step.ToolEnv) > 0 {
-		command.Env = append(command.Env, testenv.ToolDigest+"="+g.toolDigest(step))
-	}
+	command.Env = g.commandEnvironment(step)
 	// The step's output goes to a spool file, never to the gate's memory, so
 	// what the gate holds for a step does not grow with what it prints.
 	spool, err := newOutputSpool(g.spoolDir)
@@ -839,8 +836,17 @@ func (g *gate) toolDigest(step *Step) string {
 // cannot reach a step, so the whole-gate key, which holds each listed
 // variable set or not (declaredEnvironment), covers all a step can read
 // from its environment. A step's own variables (Step.Env) come over it.
+//
+// The tool digest (testenv.ToolDigest) is the one listed variable the gate
+// never takes from its caller: it derives the value from key inputs (the
+// tool fingerprints and the other listed variables) for a step that names
+// ToolEnv (commandEnvironment), and no other step or tool query receives
+// it. So every variable a step receives is a key input or derived from key
+// inputs the same way on every run.
 func stepEnvironment() []string {
-	environment := testenv.Environment(os.Environ())
+	environment := slices.DeleteFunc(testenv.Environment(os.Environ()), func(entry string) bool {
+		return strings.HasPrefix(entry, testenv.ToolDigest+"=")
+	})
 	if _, set := os.LookupEnv("GOGC"); !set {
 		environment = append(environment, "GOGC="+gcPercent)
 	}
@@ -913,6 +919,16 @@ func stepCommandEnvironment(root string, step *Step) []string {
 	for _, entry := range step.Env {
 		name, value, _ := strings.Cut(entry, "=")
 		environment = setEnvironmentVariable(environment, name, value)
+	}
+	return environment
+}
+
+// commandEnvironment is all that a step's command receives: its step
+// environment, and the tool digest when the step names ToolEnv.
+func (g *gate) commandEnvironment(step *Step) []string {
+	environment := stepCommandEnvironment(g.root, step)
+	if len(step.ToolEnv) > 0 {
+		environment = append(environment, testenv.ToolDigest+"="+g.toolDigest(step))
 	}
 	return environment
 }

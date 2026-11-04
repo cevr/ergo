@@ -43,6 +43,11 @@ var hostPrograms = []string{
 	"nohup", "head", "python3", "seq", "setsid", "sleep", "ls", "chmod",
 }
 
+// readPhysicalMemory reads the host's physical memory in bytes, or 0 when
+// it cannot. The host fingerprint calls it at every collection; a test
+// replaces it to inject an unknown or a changing size.
+var readPhysicalMemory = totalMemory
+
 // hostFacts are the host fingerprint, with the installation roots the tool
 // fingerprints cover (where a link may lead and stay keyed), and the facts
 // the gate could not read.
@@ -92,7 +97,14 @@ func (g *gate) collectHost(mechanism string) hostFacts {
 	add("goos", runtime.GOOS)
 	add("goarch", runtime.GOARCH)
 	add("cpus", strconv.Itoa(runtime.NumCPU()))
-	add("physical memory", strconv.FormatInt(physicalMemory(), 10))
+	// Read afresh at each collection, so the end key sees a change; an
+	// unknown size is never a value that matches (spec Do 2).
+	if total := readPhysicalMemory(); total > 0 {
+		add("physical memory", strconv.FormatInt(total, 10))
+	} else {
+		problem("the physical memory cannot be read")
+		add("physical memory", "unknown")
+	}
 	add("memory mechanism", mechanism)
 	if budget, err := currentBudget(); err != nil {
 		problem("the memory budget: %v", err)
@@ -293,9 +305,13 @@ func executableDigest() (string, error) {
 }
 
 // declaredEnvironment is everything a step can read from its environment:
-// each variable of testenv.Names (but the tool digest, which the gate
-// computes) as steps receive it, set or not. A step's own variables (Env)
-// and its TMPDIR follow from the gate's code and the checkout root.
+// each variable of testenv.Names as steps receive it, set or not, but the
+// tool digest. The gate never takes the tool digest from its caller
+// (stepEnvironment): it derives it from these values and the tool
+// fingerprints. A step's own variables (Env) and its TMPDIR follow from the
+// gate's code and the checkout root. TestReceivedVariablesAreKeyed checks
+// that every variable a step or a tool query receives is keyed here or
+// derived.
 func declaredEnvironment() []replay.Variable {
 	environment := stepEnvironment()
 	var variables []replay.Variable

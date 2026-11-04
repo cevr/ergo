@@ -226,6 +226,10 @@ var toolQueryTimeout = 10 * time.Second
 
 var errQueryTimeout = errors.New("no answer in time")
 
+// toolQueryEnvironment is the environment of every tool query: the steps'
+// (spec Do 3), so a fingerprint reads only what a step can read.
+func toolQueryEnvironment() []string { return stepEnvironment() }
+
 // queryTool runs a tool in the steps' environment, in dir (the gate's own
 // directory when empty), and returns its standard output, or its combined
 // output when combined is set. The query runs in the gate's own process
@@ -238,7 +242,7 @@ func queryTool(dir string, combined bool, name string, args ...string) ([]byte, 
 	ctx, cancel := context.WithTimeout(context.Background(), toolQueryTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, name, args...)
-	command.Env = stepEnvironment()
+	command.Env = toolQueryEnvironment()
 	command.Dir = dir
 	command.WaitDelay = time.Second
 	var output []byte
