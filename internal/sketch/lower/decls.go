@@ -755,9 +755,10 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 		if _, _, ok := l.stdBody(fd); ok {
 			return fd // called at its site, its runtime/v1 body directly (stdCall)
 		}
-		// The missing piece is the runtime's, which runtime/** owns
-		// (stage D3b round 1 review m1): timeout.After.
-		refuse(site, "a call to the std function %s (extern go target %s) is lowered in lower-v1 (a runtime/v1 body for %s)", f.Name, fd.extern, f.Pkg.Name+"."+f.Name)
+		// Every std extern is an intrinsic or has a runtime/v1 body
+		// (TestStdExternsHaveBodies): a program declares no extern that
+		// is not a user extern.
+		ice(site, "the std function %s binds %s, which is neither an intrinsic nor a runtime/v1 body", f.Pkg.Name+"."+f.Name, fd.extern)
 	case fd.extern == "" && (f.Decl == nil || f.Decl.Body == nil):
 		refuse(site, "%s has no body, so it cannot be called", f.Name)
 	}

@@ -112,7 +112,7 @@ Status: the runtime body is **implemented** in `runtime/v1` (`OnExit`, rule 5); 
 
 ## Timeouts
 
-Status: **implemented in prototype** as a name-keyed exception (README Gap 31); **designed** as the library function below.
+Status: **lowered** as the library function below (lower-v1 stage 4). `ergo build` calls its `runtime/v1` body, `v1.After`, which takes the caller's `Scheduler` as a hidden argument ([stdlib.md, Hidden arguments](stdlib.md#v1-packages-task-scope-queue-and-slice)). The prototype's name-keyed exception (README Gap 31) is retired with the prototype.
 
 ```go
 let payment = try timeout.After(500ms) { Gateway.Authorize(order) }
@@ -135,7 +135,8 @@ The callback type carries `needs R`, so the requirements of the block appear in 
 5. If the parent is stopped first, or while the block runs, the child is stopped and drained, and the expression's exit is an interruption.
 6. A defect in the child re-raises in the parent on every path.
 7. The block ends with an expression, and it may not contain `return` ([grammar.md](grammar.md#expressions), trailing-block rule; S109 in the prototype). Write an explicit `func` literal to return early.
-8. **Lowering.** The block is the only Go func literal the prototype emits: the child task's body.
+8. **Deadline.** The deadline is time, and time is a capability: `v1.After` arms no host timer. It starts a second child of the caller's task that calls `Sleep(d)` on the `Scheduler` the caller's environment binds, and the deadline passes when that `Sleep` ends without a stop. So a test `Scheduler` decides when the deadline passes, and a timeout test needs no real sleep (Q-S4-7; `TestTimeoutDeadlineIsTheProgramScheduler`). `rt.AfterSpan` races the two children and stops and drains both before `After` returns, so no child outlives the call. A `Sleep` that ends by a defect ends the race too, and the defect is raised in the caller (rule 6).
+9. **Lowering.** The block is a function literal of the uniform shape, adapted to `func(*rt.Task) (T, error)`, which runs on the body's child task with a copy of the caller's environment ([stdlib.md](stdlib.md#v1-packages-task-scope-queue-and-slice), Hidden arguments). `timeout.Expired` is `v1.Expired`, so a `catch` arm of it matches the value `After` returns.
 
 *Prior art:* Effect `Effect.timeout`; Go `context.WithTimeout`, which cancels but does not wait for the work to stop; Elixir `Task.yield` followed by `Task.shutdown`.
 

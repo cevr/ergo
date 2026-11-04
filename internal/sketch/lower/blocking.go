@@ -20,6 +20,12 @@ const (
 	callerWait          // the hidden *rt.Task, from the invocation environment
 	handleWait          // the handle's owner; Move changes the owning frame, not task
 	drainWait           // uninterruptible stop and completed drain
+	// childWait is the hidden *rt.Task of the invocation environment as the
+	// parent of the children the body starts and joins (timeout.After,
+	// through rt.AfterSpan). It parks on no primitive of its own: the
+	// children's exits and the parent's stop end its wait, and the
+	// runtime/v1 laws of After (timeout_test.go) are its native property.
+	childWait
 )
 
 type runtimeBinding struct {
@@ -39,7 +45,7 @@ type runtimeBinding struct {
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.release == callerRelease || b.reads
+	return b.wait == callerWait || b.wait == childWait || b.release == callerRelease || b.reads
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -51,6 +57,9 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Queue.Values": {wait: callerWait},
 	"Queue.Close":  {},
 	"Go":           {},
+	// timeout.After joins its body and deadline children, whichever ends
+	// first, as their parent (runtime.md, Timeouts).
+	"After":        {wait: childWait},
 	"OnExit":       {release: frameRelease},
 	"Release":      {release: callerRelease},
 	"New":          {},

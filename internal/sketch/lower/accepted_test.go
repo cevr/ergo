@@ -48,9 +48,13 @@ var implementedFamilies = []string{
 // it, never lowered partly.
 var refusedFamilies = map[string]string{
 	// Narrower families: a form of an implemented node that waits.
-	"call:Func:externTarget": "lower-v1",
-	"call:With:imported":     "196b",
-	"TypeDecl:errorText":     "lower-v1 stage 3",
+	"call:With:imported": "196b",
+	"TypeDecl:errorText": "lower-v1 stage 3",
+	// Stage 4 of lower-v1 removed the family of a call of a std function
+	// with no runtime/v1 body (timeout.After): v1.After takes the caller's
+	// Scheduler as a hidden argument (Q-S4-7; TestTimeoutAfterLowers), and
+	// a std extern with no body is an internal error
+	// (TestStdExternsHaveBodies).
 	// Stage 4 of lower-v1 removed the family of a type argument that a
 	// block with no value binds, in a declared generic type or inside
 	// another function type (C11): a function value with no result has the
@@ -81,7 +85,6 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
 }

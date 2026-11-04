@@ -509,6 +509,11 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 			out = append(out, fc.l.rt()+".Site("+fmt.Sprintf("%q", fmt.Sprintf("%s calls %s at %s:%d:%d", fc.owner, fc.callee(x, c), fc.l.src, line, column))+")")
 		case v1.CallerTask:
 			out = append(out, taskOf(env))
+		case v1.CallerScheduler:
+			// The caller's Scheduler provider (Q-S4-7): the environment's
+			// field for the prelude's Scheduler, which the called
+			// signature needs, so the checker has bound it at the call.
+			out = append(out, env+"."+fc.l.envField(schedulerCap(c, site)))
 		case v1.ReadingPackage:
 			if c == nil || c.Func == nil || c.Func.Pkg == nil {
 				ice(site, "a context read without its declaring package")
@@ -519,6 +524,21 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 		}
 	}
 	return out
+}
+
+// schedulerCap is the prelude's Scheduler in the needs row of the std
+// function the call c calls: the capability whose provider a body's hidden
+// scheduler argument is.
+func schedulerCap(c *check.Call, site syntax.Node) *check.TypeName {
+	if c != nil && c.Func != nil {
+		for _, e := range rowElems(c.Func.Sig.Uses) {
+			if isPreludeType(e, "Scheduler") {
+				return e.(*check.Named).Obj
+			}
+		}
+	}
+	ice(site, "a std body takes the caller's Scheduler, and the called signature needs no Scheduler")
+	return nil
 }
 
 // stdTypeArgs writes a std body's Go type arguments, each the call's type

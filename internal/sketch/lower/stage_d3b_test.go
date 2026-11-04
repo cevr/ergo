@@ -454,32 +454,8 @@ func main() needs Console {
 `, "2 8\n")
 }
 
-// TestTimeoutAfterRefusedNamingLowerV1: timeout.After is the one std
-// function that does not lower in stage D3b. Its Go body is runtime/rt.After,
-// which takes an rt.Scheduler (NewTimer) where the Ergo Scheduler is
-// Sleep-shaped, and fails with rt.Expired where timeout.Expired is a program
-// type; it needs a runtime/v1 body, which runtime/** owns (a lower-v1
-// Follow-up). The refusal names that owner at the call (stage D3b round 1
-// review m1).
-func TestTimeoutAfterRefusedNamingLowerV1(t *testing.T) {
-	o := lowerSource("r", `import timeout
-
-func work() int { 1 }
-
-func f() int fails timeout.Expired needs Scheduler {
-	timeout.After(5s) { work() }
-}
-`, false)
-	if len(o.diags) != 0 {
-		t.Fatalf("want a clean check; got %v", o.diags)
-	}
-	if o.panicked != nil || len(o.refused) != 1 {
-		t.Fatalf("want one refusal; got refusals %v, panic %v, err %v", o.refused, o.panicked, o.err)
-	}
-	if r := o.refused[0]; r.Line != 6 || !strings.Contains(r.Message, "lower-v1 (a runtime/v1 body for timeout.After)") {
-		t.Fatalf("want a refusal of timeout.After on line 6 naming lower-v1 (a runtime/v1 body for timeout.After); got %+v", r)
-	}
-}
+// timeout.After, which stage D3b refused naming lower-v1, lowers since
+// lower-v1 stage 4 to v1.After (stage4_timeout_test.go).
 
 // TestInterpolationOfOtherTypes: a value of a type that is not basic is
 // never Go's %v of a lowered representation. Since check-v1 stage E6a

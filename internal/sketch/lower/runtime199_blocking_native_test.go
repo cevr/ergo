@@ -29,7 +29,16 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		if hasHidden(body.Hidden, v1.CallerTask) != binding.takesCaller() {
 			t.Errorf("%s: hidden task and waiting policy disagree", name)
 		}
-		if binding.wait != noWait {
+		switch binding.wait {
+		case noWait:
+		case childWait:
+			// A child join parks on no primitive of its own: its stop, mask
+			// and drain laws are the runtime/v1 tests of its body, which
+			// must exist (runtime/v1/timeout_test.go).
+			if !childWaitLaws[name] {
+				t.Errorf("%s joins children and names no runtime/v1 law test", name)
+			}
+		default:
 			names = append(names, name)
 		}
 	}
@@ -43,6 +52,14 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		}
 	}
 }
+
+// childWaitLaws are the childWait bindings whose stop, mask and drain laws
+// runtime/v1/timeout_test.go states: TestAfterParentStopped (a stop of
+// the caller is the interruption, both children drained),
+// TestAfterMaskedCaller (a masked caller runs After to its end, the stop
+// pending), TestAfterBodyFirst and TestAfterDeadlineFromScheduler (no
+// child outlives the call).
+var childWaitLaws = map[string]bool{"After": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,
