@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -164,7 +165,25 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 // differs from the record fails the merge tier and withdraws the record.
 func TestMergeTierUncached(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
-	repository, steps := repositorySteps(t)
+	repository, _ := repositorySteps(t)
+	// The durations file names neither a host nor a hermetic gate package:
+	// declare the steps with one of each too, so every kind of go test step
+	// is checked.
+	durations, err := readDurations(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := modulePath(repository)
+	packages := append(slices.Sorted(maps.Keys(durations)), module+"/scripts/gate", module+"/scripts/gate/replay")
+	steps, err := declareSteps(repository, packages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"go test ./scripts/gate (host, every run)", "go test (hermetic gate packages)", "go test (other packages)", "go test ./prototypes/sketch9/sketch (kernel)", "provenance analyzer"} {
+		if !slices.ContainsFunc(steps, func(s *Step) bool { return s.Name == name }) {
+			t.Fatalf("no step %q among the declared steps; the check is vacuous", name)
+		}
+	}
 	sites := 0
 	for _, step := range steps {
 		merged := uncachedStep(step)
