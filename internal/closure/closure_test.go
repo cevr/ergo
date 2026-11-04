@@ -573,26 +573,15 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if protect != root {
 		roots = append(roots, protect)
 	}
-	// Each test binary runs with the checkout read-only, so the tree the
-	// classifier resolves after the run is the tree the tests read
-	// (sandbox_test.go). Without it the sweep does not run.
+	// Each test binary runs in the sandbox, so the tree the classifier
+	// resolves after the run is the tree the tests read (sandbox_test.go).
+	// The sweep first checks the sandbox as a test sees it (S1 to S3);
+	// without it the sweep does not run.
 	if err := sandboxSupported(); err != nil {
 		t.Fatalf("the sweep cannot run: %v", err)
 	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec, err := json.Marshal(childOp{Op: "readonly", Path: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runProtected(protect, "the sweep's own check", root, append(sweepEnvironment(), childVariable+"="+string(spec)), filepath.Join(work, "readonly.out"), self); err != nil {
+	if err := checkSandboxAsATest(protect, root, filepath.Join(work, "sandbox.out")); err != nil {
 		t.Fatalf("the sweep cannot run: %v", err)
-	}
-	var seen childResult
-	if b, err := os.ReadFile(filepath.Join(work, "readonly.out")); err != nil || json.Unmarshal(b, &seen) != nil || seen.Err != "" {
-		t.Fatalf("the sweep cannot run: the tests would not see a read-only checkout: %q %v", b, err)
 	}
 	closures, targets := modulePackages(t, root)
 	if selection != "all" {
@@ -763,26 +752,28 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 
 // runTests runs a test binary the way cmd/go runs a cacheable test: from
 // the package directory, with the environment a cached test may receive
-// (and extra) and a test log. It runs it with protect read-only
-// (runProtected), and returns the recorded inputs inside the roots. pkg
-// names the package in a violation.
+// (and extra) and a test log. It runs it in a sandbox (runProtected) whose
+// checkout is protect and whose scratch directories are fresh for this
+// run, and returns the recorded inputs inside the roots. pkg names the
+// package in a violation. The test log and the output are kept in
+// stem.log and stem.out.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
-	log, output := stem+".log", stem+".out"
-	args = append([]string{"-test.paniconexit0", "-test.timeout=45m", "-test.testlogfile=" + log}, args...)
-	before, err := os.Stat(protect)
+	s, err := newScratch()
 	if err != nil {
 		return nil, err
 	}
-	if err := runProtected(protect, pkg, pkgDir, append(append(sweepEnvironment(), "PWD="+pkgDir), extra...), output, binary, args...); err != nil {
+	defer s.remove()
+	log := filepath.Join(s.log, "test.log")
+	args = append([]string{"-test.paniconexit0", "-test.timeout=45m", "-test.testlogfile=" + log}, args...)
+	env := withEnv(sweepEnvironment(), append(append([]string{"PWD=" + pkgDir}, s.env()...), extra...)...)
+	if err := runProtected(sandbox{protect, s.dirs()}, pkg, pkgDir, env, stem+".out", binary, args...); err != nil {
 		return nil, err
-	}
-	// The directories above the checkout are not read-only: a test that
-	// moved the checkout would make every path it read look outside it.
-	if after, err := os.Stat(protect); err != nil || !os.SameFile(before, after) {
-		return nil, fmt.Errorf("closure violation: %s moved the checkout during the run (%v)", pkg, err)
 	}
 	data, err := os.ReadFile(log)
 	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(stem+".log", data, 0o644); err != nil {
 		return nil, err
 	}
 	entries, err := parseLog(data, pkgDir, roots)
