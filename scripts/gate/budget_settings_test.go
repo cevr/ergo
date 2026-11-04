@@ -9,6 +9,7 @@ import (
 
 // Sizes read and print as systemd's MemoryMax writes them.
 func TestBudgetSizes(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		text  string
 		bytes int64

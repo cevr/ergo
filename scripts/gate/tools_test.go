@@ -342,6 +342,7 @@ func TestGoFingerprintKeysTheReportedToolchain(t *testing.T) {
 // The real go, asked as the gate asks it, reports the GOROOT go env GOROOT
 // prints. Only the subprocess opens files there, so Go's test cache logs none.
 func TestRealGoEnvironmentReportsItsGoroot(t *testing.T) {
+	t.Parallel()
 	if realTools["go"] == "" {
 		t.Skip("no go")
 	}
