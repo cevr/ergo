@@ -22,7 +22,7 @@
 // the programs a test runs or the libraries they load. So this package, whose
 // tests run git, ps, shells, the go command and gates in systemd scopes, is a
 // host package (hostTestPackages): it runs with -count=1 on every gate and
-// never replays. The packages below it are hermetic: each runs no program
+// never replays, with its parallel tests bounded by hostTestParallel. The packages below it are hermetic: each runs no program
 // but its own test binary and builds with CGO_ENABLED=0 (package
 // scripts/gate/hermetic checks them), so they replay.
 //

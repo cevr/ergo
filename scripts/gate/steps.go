@@ -39,8 +39,17 @@ var testTools = []string{"git", "sh"}
 // the user's service manager and the file systems of the temporary
 // directories. scripts/gate is one: the gate runs git and ps on every run,
 // and its storage property runs gates in real systemd scopes. The gate runs
-// each with -count=1, so a host test never replays: it runs on every gate.
+// each with -count=1, so a host test never replays: it runs on every gate,
+// with -parallel hostTestParallel.
 var hostTestPackages = []string{"scripts/gate"}
+
+// hostTestParallel bounds the parallel tests of a host package. In
+// scripts/gate each parallel storage layout runs a gate in its own systemd
+// scope (MemoryMax 576M), so the bound is also the number of those gates
+// that run at once; Go's default, GOMAXPROCS, would scale it with the host's
+// CPUs. Measured on a 16-CPU host at a 1-minute load of 13 to 60, the
+// package took 151 s at 4, 126 s at 6 and 114 s at 8.
+const hostTestParallel = "8"
 
 // hermeticTestRoot holds the gate's hermetic test packages: every package
 // below it that is not a host package. They replay from Go's test cache, so
@@ -117,7 +126,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
 		if slices.Contains(hostTestPackages, relative) {
-			add(&Step{Name: fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg)), Needs: []string{"go test build"}, Argv: []string{"go", "test", "-count=1", testTimeout, pkg}})
+			add(&Step{Name: fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg)), Needs: []string{"go test build"}, Argv: []string{"go", "test", "-count=1", "-parallel", hostTestParallel, testTimeout, pkg}})
 			continue
 		}
 		if strings.HasPrefix(relative, hermeticTestRoot) {
