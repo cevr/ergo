@@ -99,10 +99,6 @@ func (c *checker) catch(x *syntax.CatchExpr, hint Type, wantValue, partial bool)
 // catchValid is catch, and whether the catch is valid: its rest row (a
 // partial catch's errs) is then exact.
 func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial bool) (operand, bool) {
-	if x.Bind != nil {
-		c.undecided(x.Bind, "a catch binding before the arms")
-		return bad(x), false
-	}
 	openMark := c.openRowSeq
 	// A catch whose value is discarded discards its caught expression's
 	// value too (D-C1).

@@ -113,10 +113,6 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
 		done()
 	case *syntax.IfStmt:
-		if s.Init != nil {
-			c.undecided(s.Init, "an if header's init statement")
-			return
-		}
 		done := c.openScope()
 		c.condition(s.Cond)
 		c.block(s.Body)
@@ -145,8 +141,8 @@ func (c *checker) armStmts(list []syntax.Stmt) { c.stmtList(list, false) }
 // switchHeader checks a match on literal patterns with body checking each
 // arm; false when its header is not decided syntax (reported).
 func (c *checker) switchHeader(s *syntax.SwitchStmt, body func([]syntax.Stmt)) bool {
-	if s.Init != nil || s.Tag == nil {
-		c.undecided(s, "a match with an init statement or no subject")
+	if s.Tag == nil {
+		c.undecided(s, "a match with no subject")
 		return false
 	}
 	c.matchStmt(s, s.Switch, []syntax.Expr{s.Tag}, s.Clauses, body)
@@ -155,10 +151,6 @@ func (c *checker) switchHeader(s *syntax.SwitchStmt, body func([]syntax.Stmt)) b
 
 // typeSwitchHeader checks any other match, one subject per tuple element.
 func (c *checker) typeSwitchHeader(s *syntax.TypeSwitchStmt, body func([]syntax.Stmt)) bool {
-	if s.Init != nil || s.Binds != nil || s.Define.IsValid() {
-		c.undecided(s, "a match header with an init statement or a binding")
-		return false
-	}
 	subjects := make([]syntax.Expr, len(s.Subjects))
 	for i, g := range s.Subjects {
 		subjects[i] = g.X
@@ -715,13 +707,8 @@ func (c *checker) isErrorValue(t Type) bool {
 // ---------------------------------------------------------------- branches
 
 // branchStmt checks break and continue: they may not leave a with block or
-// a block argument (grammar.md, Statements 5). A label is not produced by
-// the decided parser (D-A5).
+// a block argument (grammar.md, Statements 5).
 func (c *checker) branchStmt(s *syntax.BranchStmt) {
-	if s.Label != nil {
-		c.undecided(s.Label, "a label on break or continue")
-		return
-	}
 	crossed := false
 	for i := len(c.fn.branches) - 1; i >= 0; i-- {
 		b := c.fn.branches[i]
@@ -750,10 +737,6 @@ func (c *checker) push(kind branchKind) func() {
 }
 
 func (c *checker) forStmt(s *syntax.ForStmt) {
-	if s.Init != nil || s.Post != nil {
-		c.undecided(s, "a for header with an init or post statement")
-		return
-	}
 	done := c.openScope()
 	defer done()
 	c.condition(s.Cond)

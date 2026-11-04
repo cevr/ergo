@@ -170,7 +170,7 @@ func TestAcceptedNodesLower(t *testing.T) {
 	type source struct{ name, path, src, want string }
 	var sources []source
 	clean := regexp.MustCompile(`[^A-Za-z0-9]+`)
-	for _, root := range []string{"../check/testdata", "../proto/testdata", "../../../examples", "testdata"} {
+	for _, root := range []string{"../check/testdata", "../testdata", "../../../examples", "testdata"} {
 		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".ergo") {
 				return err

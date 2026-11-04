@@ -164,12 +164,9 @@ var assertOwners = map[string]assertOwner{
 
 // assertNotBuilt are statement fields the decided parser never sets
 // (node_inventory_test.go, notBuiltFields and the not-built family).
-var assertNotBuilt = map[string]bool{
-	"GoExpr.Block": true, "CommClause.Body": true, "CommClause.Comm": true,
-	"DeferStmt.Stmt": true, "LabeledStmt.Stmt": true,
-	"IfStmt.Init": true, "SwitchStmt.Init": true, "TypeSwitchStmt.Init": true,
-	"ForStmt.Init": true, "ForStmt.Post": true,
-}
+// Stage 5 (D10) deleted every such field and node type, so the set is
+// empty.
+var assertNotBuilt = map[string]bool{}
 
 const strayMessage = "assert stands only in a test or law body"
 

@@ -22,7 +22,7 @@ func TestRefusedFamiliesHaveWitnesses(t *testing.T) {
 		}
 		sources = append(sources, ss...)
 	}
-	for _, root := range []string{"../check/testdata", "../proto/testdata", "../../../examples", "testdata"} {
+	for _, root := range []string{"../check/testdata", "../testdata", "../../../examples", "testdata"} {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err

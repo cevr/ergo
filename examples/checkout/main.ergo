@@ -1,0 +1,55 @@
+import timeout
+
+type Declined { Reason string }
+type Receipt { ID string, Amount int64 }
+
+// An operation type: the service a caller must supply.
+type Payments {
+	Charge(amount int64) Receipt fails Declined,
+}
+
+// A signature lists every expected failure and every service the caller must supply.
+func Checkout(amount int64) Receipt fails Declined | timeout.Expired needs Payments | Scheduler {
+	timeout.After(2s) { Payments.Charge(amount) } // the block runs as a child task; at 2s it is stopped
+}
+
+// Two providers of Payments: same-named functions on distinct types.
+type Gateway {}
+type Decliner {}
+
+func Charge(_ Gateway, amount int64) Receipt fails Declined {
+	if amount <= 0 {
+		return Declined{Reason: "amount must be positive"}
+	}
+	Receipt{ID: "paid", Amount: amount}
+}
+
+func Charge(_ Decliner, amount int64) Receipt fails Declined {
+	Declined{Reason: "card declined"}
+}
+
+let Live = context { Payments: Gateway, Scheduler: LiveScheduler }
+let Declining = context { Live, replace Payments: Decliner }
+
+func purchase(amount int64) string needs Payments | Scheduler {
+	let receipt = Checkout(amount) catch {
+	case Declined:
+		Receipt{ID: "declined"}
+	case timeout.Expired:
+		Receipt{ID: "timed-out"}
+	}
+	receipt.ID
+}
+
+func main() needs Console {
+	Console.Println(with Live { purchase(100) })
+}
+
+test ChargeSucceeds {
+	let receipt = try with Live { Checkout(100) }
+	assert receipt.Amount == 100
+}
+
+test DeclineIsHandled {
+	assert with Declining { purchase(100) } == "declined"
+}

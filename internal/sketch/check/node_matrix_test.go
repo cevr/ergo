@@ -146,15 +146,11 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 }
 
 // notBuilt are the node kinds the decided parser never builds (the
-// syntax package's TestDecidedOnly): channels, select, go, defer, labels,
+// syntax package's TestDecidedOnly). Channels, select, go, defer, labels,
 // ++ and --, the empty statement and variadic parameters left the language
-// (#196). The syntax package still declares them; the checker keeps no
-// branch for them, and TestUndecidedNodes covers each, so they need no
-// matrix row.
-var notBuilt = map[string]bool{
-	"GoExpr": true, "SelectStmt": true, "SendStmt": true, "ChanType": true, "DeferStmt": true,
-	"LabeledStmt": true, "IncDecStmt": true, "EmptyStmt": true, "Ellipsis": true,
-}
+// (#196), and their node types left the syntax package in lower-v1 stage
+// 5 (D10), so the set is empty.
+var notBuilt = map[string]bool{}
 
 // TestNodeMatrix: each node kind's program contains a node of that kind,
 // and checking it yields exactly the expected diagnostic, at the mistake

@@ -94,7 +94,7 @@ func sweepUntil(t *testing.T, c Cache, root string) (stop func() int64) {
 			default:
 			}
 			_ = os.Chtimes(root, old, old)
-			c.sweep(time.Now(), 0)
+			c.trim(time.Now(), 0)
 			n.Add(1)
 		}
 	}()
@@ -168,7 +168,7 @@ func TestPrivateRootLease(t *testing.T) {
 	t.Run("a stale building owner keeps its root", func(t *testing.T) {
 		for range 3 {
 			age(t, private)
-			c.sweep(time.Now(), 0)
+			c.trim(time.Now(), 0)
 		}
 		if !exists() {
 			t.Fatal("a sweep removed the root of a live build")
@@ -207,7 +207,7 @@ func TestPrivateRootLease(t *testing.T) {
 			t.Fatalf("the owner answered %q", reply)
 		}
 		age(t, private)
-		c.sweep(time.Now(), 0)
+		c.trim(time.Now(), 0)
 		if _, err := os.Stat(private); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("the released root of a live owner is still there: %v", err)
 		}
@@ -223,11 +223,11 @@ func TestPrivateRootLease(t *testing.T) {
 		_ = owner.Wait()
 		killed = true
 		age(t, private)
-		c.sweep(time.Now(), 0)
+		c.trim(time.Now(), 0)
 		if _, err := os.Stat(private); !os.IsNotExist(err) {
 			t.Fatalf("the abandoned root is still there: %v", err)
 		}
-		if names := slices.DeleteFunc(entries(t, root, "private"), func(name string) bool { return name == stampName }); len(names) != 0 {
+		if names := entries(t, root, "private"); len(names) != 0 {
 			t.Fatalf("the sweep left %v", names)
 		}
 	})
@@ -393,5 +393,5 @@ func TestLeaseIsHeldPerBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Release() // a published module holds nothing; Release is a no-op
+	m.Release() // a published module holds its entry until Release
 }

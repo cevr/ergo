@@ -39,7 +39,6 @@ func Inspect(n Node, f func(Node) bool) {
 	}
 	switch n := n.(type) {
 	case *File:
-		walk(n.Name)
 		for _, d := range n.Decls {
 			Inspect(d, f)
 		}
@@ -60,7 +59,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *TypeDecl:
 		walk(n.Name, n.TypeParams, n.Spec)
 	case *FuncDecl:
-		walk(n.Extern, n.Recv, n.Name, n.TypeParams, n.Type, n.Body)
+		walk(n.Extern, n.Name, n.TypeParams, n.Type, n.Body)
 	case *ExternSpec:
 		walk(n.Target)
 	case *TestDecl:
@@ -130,7 +129,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *TryExpr:
 		walk(n.X)
 	case *CatchExpr:
-		walk(n.X, n.Bind)
+		walk(n.X)
 		for _, a := range n.Arms {
 			Inspect(a, f)
 		}
@@ -139,16 +138,10 @@ func Inspect(n Node, f func(Node) bool) {
 		stmts(n.Body)
 	case *ContextLit:
 		walk(n.Provides, n.Needs, n.Body)
-	case *GoExpr:
-		walk(n.Call, n.Block)
-	case *Ellipsis:
-		walk(n.Elt)
 	case *ArrayType:
-		walk(n.Len, n.Elt)
+		walk(n.Elt)
 	case *MapType:
 		walk(n.Key, n.Value)
-	case *ChanType:
-		walk(n.Value)
 	case *FuncType:
 		walk(n.Params, n.Results, n.Needs)
 	case *StructType:
@@ -174,53 +167,34 @@ func Inspect(n Node, f func(Node) bool) {
 		exprs(n.Elts)
 	case *DeclStmt:
 		walk(n.Decl)
-	case *LabeledStmt:
-		walk(n.Label, n.Stmt)
 	case *ExprStmt:
-		walk(n.X)
-	case *SendStmt:
-		walk(n.Chan, n.Value)
-	case *IncDecStmt:
 		walk(n.X)
 	case *AssignStmt:
 		exprs(n.Lhs)
 		exprs(n.Rhs)
-	case *DeferStmt:
-		walk(n.Stmt)
 	case *ReturnStmt:
 		exprs(n.Results)
-	case *BranchStmt:
-		walk(n.Label)
 	case *BlockStmt:
 		stmts(n.List)
 	case *IfStmt:
-		walk(n.Init, n.Cond, n.Body, n.Else)
+		walk(n.Cond, n.Body, n.Else)
 	case *CaseClause:
 		exprs(n.List)
 		stmts(n.Body)
 	case *SwitchStmt:
-		walk(n.Init, n.Tag)
+		walk(n.Tag)
 		for _, c := range n.Clauses {
 			Inspect(c, f)
 		}
 	case *TypeSwitchStmt:
-		walk(n.Init)
-		idents(n.Binds)
 		for _, g := range n.Subjects {
 			Inspect(g, f)
 		}
 		for _, c := range n.Clauses {
 			Inspect(c, f)
 		}
-	case *CommClause:
-		walk(n.Comm)
-		stmts(n.Body)
-	case *SelectStmt:
-		for _, c := range n.Clauses {
-			Inspect(c, f)
-		}
 	case *ForStmt:
-		walk(n.Init, n.Cond, n.Post, n.Body)
+		walk(n.Cond, n.Body)
 	case *RangeStmt:
 		walk(n.Key, n.Value, n.X, n.Body)
 	}

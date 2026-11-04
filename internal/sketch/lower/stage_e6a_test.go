@@ -278,7 +278,7 @@ func TestInterpolationText(t *testing.T) {
 			if f.typ != "%s" {
 				arg = fmt.Sprintf(f.typ, k.name) + "(v)"
 			}
-			fmt.Fprintf(&feed, "\t\tw(%s%s(nil, %s))\n", f.fn, k.name, arg)
+			fmt.Fprintf(&feed, "\t\tw(%s%s(%s))\n", f.fn, k.name, arg)
 		}
 		feed.WriteString("\t}\n")
 	}
@@ -354,12 +354,12 @@ func handWritten(n int, f float64, s string) string {
 func init() {
 	s := "a string part"
 	allocs := func(f func()) string { return strconv.FormatFloat(testing.AllocsPerRun(200, f), 'f', -1, 64) }
-	os.Stdout.WriteString("label " + allocs(func() { sink = label(nil, 123456789, -2.2250738585072014e-308, s) }) + "\n")
+	os.Stdout.WriteString("label " + allocs(func() { sink = label(123456789, -2.2250738585072014e-308, s) }) + "\n")
 	os.Stdout.WriteString("hand " + allocs(func() { sink = handWritten(123456789, -2.2250738585072014e-308, s) }) + "\n")
-	os.Stdout.WriteString("reading " + allocs(func() { sink = reading(nil, -273.15, -9223372036854775808, true) }) + "\n")
-	os.Stdout.WriteString("alone7 " + allocs(func() { sink = alone(nil, 7) }) + "\n")
-	os.Stdout.WriteString("alone " + allocs(func() { sink = alone(nil, 1234567) }) + "\n")
-	os.Stdout.WriteString(label(nil, 123456789, -2.2250738585072014e-308, s) + "\n")
+	os.Stdout.WriteString("reading " + allocs(func() { sink = reading(-273.15, -9223372036854775808, true) }) + "\n")
+	os.Stdout.WriteString("alone7 " + allocs(func() { sink = alone(7) }) + "\n")
+	os.Stdout.WriteString("alone " + allocs(func() { sink = alone(1234567) }) + "\n")
+	os.Stdout.WriteString(label(123456789, -2.2250738585072014e-308, s) + "\n")
 }
 `
 	got := runFed(t, "e6a_allocs", src, feed)
@@ -518,10 +518,10 @@ func runFed(t *testing.T, name, src, feed string) string {
 	case len(o.refused) > 0:
 		t.Fatalf("refused %+v", o.refused)
 	}
-	// The feed passes nil for each function's environment: a function with
-	// no capability reads none.
-	if !regexp.MustCompile(`func \w+\(env \*Env, `).MatchString(o.mainGo()) {
-		t.Fatalf("the lowered functions do not take (env *Env, …):\n%s", firstLines(o.mainGo(), 40))
+	// The feed calls each function with no environment: a function with no
+	// row, no capability and only pure calls is pure (pure.go, D-S5-10).
+	if regexp.MustCompile(`func \w+\(env \*Env, `).MatchString(o.mainGo()) {
+		t.Fatalf("a fed function takes (env *Env, …), want none (pure):\n%s", firstLines(o.mainGo(), 40))
 	}
 	root := t.TempDir()
 	write := func(rel string, data []byte) {

@@ -134,6 +134,9 @@ func blockingNative(t *testing.T, name, route string) {
 	src := "import queue\nimport task\n" + maker + "\nfunc subject(" + param + ") int fails queue.Closed { " + body + " }\n" +
 		"func launch(q queue.Queue[int]) Task[int, queue.Closed] { task.Go() { " + child + " } }\nfunc main() {}\n"
 	o := mustLower(t, "blocking", src)
+	if maker != "" && !envParams(t, o.mainGo())["maker"] {
+		arg = "maker(q)" // a pure maker takes no environment (pure.go, D-S5-10)
+	}
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()

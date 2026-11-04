@@ -79,7 +79,7 @@ Status: **implemented**: checked (#196), with inference (rule 6), and lowered as
 
 ## Footprints
 
-Status: **implemented in prototype** (#199 stage 1): the checker records each frame's footprint in `Info.Footprints`, and the lowering reads it to place interruption points ([runtime.md, I1](runtime.md#i1-interruption-points)). No tool shows it yet: `ergo inspect` is removed, and showing footprints belongs to tooling #203.
+Status: **implemented** (#199 stage 1): the checker records each frame's footprint in `Info.Footprints`, and the lowering reads it to place interruption points ([runtime.md, I1](runtime.md#i1-interruption-points)) and to find the pure functions, which take no hidden argument ([runtime.md, Host and lowering notes](runtime.md#host-and-lowering-notes)). No tool shows it yet: `ergo inspect` is removed, and showing footprints belongs to tooling #203.
 
 1. A function's footprint is every capability its body exercises, including those its own `with` provides, plus each task it starts (`task.Go`). The compiler infers it and never asks for it.
 2. A function is pure when its footprint is empty, not when its `needs` row is empty. `with context { Console: Stdout{} } { Console.Println("x") }` has an empty row and a non-empty footprint, and `func f() needs Probe {}` has a row and an empty footprint.

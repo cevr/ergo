@@ -126,7 +126,7 @@ func (p *parser) parseForStmt() Stmt {
 			p.errorf("not a range header")
 		}
 	}) {
-		s := &RangeStmt{For: pos, Tok: DEFINE, TokPos: NoPos, Range: p.want(IN)}
+		s := &RangeStmt{For: pos, Tok: DEFINE, Range: p.want(IN)}
 		switch len(pats) {
 		case 1:
 			s.Value = pats[0]

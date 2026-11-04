@@ -124,20 +124,6 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"VarSpec.Names":            {guardBinder, "func main() {\n\tlet @w = context { Greeter: Plain }\n\t_ = with w { Greeter.Greet(\"x\") }\n}\n"},
 	"VarSpec.Pattern":          {guardBinder, "func main() {\n\tlet (@w, b) = (1, 2)\n\t_ = w + b\n}\n"},
 	"VariantSpec.Name":         {guardBinder, "type U = @w{ ID string } | Pending{}\n"},
-
-	// Never built by the decided parser.
-	"ArrayType.Len":        {guardNotBuilt, ""},
-	"BranchStmt.Label":     {guardNotBuilt, ""},
-	"CatchExpr.Bind":       {guardNotBuilt, ""},
-	"ChanType.Value":       {guardNotBuilt, ""},
-	"Ellipsis.Elt":         {guardNotBuilt, ""},
-	"File.Name":            {guardNotBuilt, ""},
-	"GoExpr.Call":          {guardNotBuilt, ""},
-	"IncDecStmt.X":         {guardNotBuilt, ""},
-	"LabeledStmt.Label":    {guardNotBuilt, ""},
-	"SendStmt.Chan":        {guardNotBuilt, ""},
-	"SendStmt.Value":       {guardNotBuilt, ""},
-	"TypeSwitchStmt.Binds": {guardNotBuilt, ""},
 }
 
 // contextTypeMatchGuard is a type match whose subject is the context.

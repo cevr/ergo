@@ -3,6 +3,70 @@
 Ergo reads like Go and compiles to plain Go. What Go leaves to convention, Ergo writes in the signature: every expected failure, every service a function needs, every cleanup, every task and every rule that must always hold. The compiler checks all of it, then erases it, so the Go it emits is the Go you would write by hand.
 
 ```go
+import timeout
+
+type Declined { Reason string }
+type Receipt { ID string, Amount int64 }
+
+// An operation type: the service a caller must supply.
+type Payments {
+	Charge(amount int64) Receipt fails Declined,
+}
+
+// A signature lists every expected failure and every service the caller must supply.
+func Checkout(amount int64) Receipt fails Declined | timeout.Expired needs Payments | Scheduler {
+	timeout.After(2s) { Payments.Charge(amount) } // the block runs as a child task; at 2s it is stopped
+}
+
+// Two providers of Payments: same-named functions on distinct types.
+type Gateway {}
+type Decliner {}
+
+func Charge(_ Gateway, amount int64) Receipt fails Declined {
+	if amount <= 0 {
+		return Declined{Reason: "amount must be positive"}
+	}
+	Receipt{ID: "paid", Amount: amount}
+}
+
+func Charge(_ Decliner, amount int64) Receipt fails Declined {
+	Declined{Reason: "card declined"}
+}
+
+let Live = context { Payments: Gateway, Scheduler: LiveScheduler }
+let Declining = context { Live, replace Payments: Decliner }
+
+func purchase(amount int64) string needs Payments | Scheduler {
+	let receipt = Checkout(amount) catch {
+	case Declined:
+		Receipt{ID: "declined"}
+	case timeout.Expired:
+		Receipt{ID: "timed-out"}
+	}
+	receipt.ID
+}
+
+func main() needs Console {
+	Console.Println(with Live { purchase(100) })
+}
+
+test ChargeSucceeds {
+	let receipt = try with Live { Checkout(100) }
+	assert receipt.Amount == 100
+}
+
+test DeclineIsHandled {
+	assert with Declining { purchase(100) } == "declined"
+}
+```
+
+From the signature alone you know how `Checkout` can fail and what it needs. `purchase` catches both failures, so its own signature has no `fails`. `Declining` keeps every provider of `Live` and replaces one, so the tests swap providers without a mock framework. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/checkout](examples/checkout/main.ergo): `ergo run` prints `paid`, and `ergo test` runs both tests.
+
+## Designed, not built yet
+
+The program below is the language as the owner designed it on 2026-11-03. It is a fragment, and it does not build yet: the `testing` package with its virtual clock, context constructors ([#37](https://github.com/cevr/ergo/issues/37)) and resources ([#197](https://github.com/cevr/ergo/issues/197)) are not built, and a law is checked but not run ([#162](https://github.com/cevr/ergo/issues/162)).
+
+```go
 import testing
 import timeout
 
@@ -157,7 +221,7 @@ Ergo keeps Go's spelling, runtime, garbage collector and single binaries. It rem
 
 ## Status
 
-Ergo is a prototype, and the code above is the designed language. The parser and `ergo fmt` accept all of it except refinements and laws inside machines, which were decided on 2026-11-03. `ergo check` checks, and `ergo build` and `ergo run` lower, a growing part of v1 ([#196](https://github.com/cevr/ergo/issues/196)): types, unions and `match`, error and needs rows, contexts, generics and `timeout.After`. Tests and laws are checked but not yet run; running them is [#162](https://github.com/cevr/ergo/issues/162). The task runtime `runtime/rt` runs scopes, stops and traces. It keeps every defect, but not yet every typed failure: a child's failure that nobody waited for is dropped when its scope ends normally ([runtime](docs/spec/runtime.md)). Not built yet: `ergo test`, the `tasks` package, resource tracking ([#197](https://github.com/cevr/ergo/issues/197)), virtual time, `import go` ([#202](https://github.com/cevr/ergo/issues/202)), laws inside machines, refinements, and `ergo inspect` and MCP on the new front end ([#203](https://github.com/cevr/ergo/issues/203)).
+Ergo is a prototype. The opening program builds, runs and passes its tests. The sections after it show the designed language, and parts of them are not built. The parser and `ergo fmt` accept all of the designed language except refinements and laws inside machines, which were decided on 2026-11-03. `ergo check` checks one package of v1 ([#196](https://github.com/cevr/ergo/issues/196)): types, unions and `match`, error and needs rows, contexts, generics, tasks, machines, tests and laws. `ergo build`, `ergo run` and `ergo test` lower every construct that the checker accepts, except the few that the [support table](docs/spec/support.md) lists with their owners. `ergo test` runs tests and property tests ([testing](docs/testing.md)). Laws are checked, not run; running them is [#162](https://github.com/cevr/ergo/issues/162). A pure function compiles to a plain Go function with no hidden argument. The task runtime `runtime/rt` runs scopes, stops and traces. It keeps every defect, but not yet every typed failure: a child's failure that nobody waited for is dropped when its scope ends normally ([runtime](docs/spec/runtime.md)). Not built yet: the `tasks` package, packages of several files (196b), resource tracking ([#197](https://github.com/cevr/ergo/issues/197)), virtual time, `import go` ([#202](https://github.com/cevr/ergo/issues/202)), laws inside machines, refinements, and `ergo inspect` and MCP on the new front end ([#203](https://github.com/cevr/ergo/issues/203)).
 
 ## Learn more
 
@@ -176,6 +240,8 @@ git clone https://github.com/cevr/ergo.git
 cd ergo
 go build -o bin/ergo ./cmd/ergo
 
+./bin/ergo run examples/checkout/main.ergo         # prints: paid
+./bin/ergo test examples/checkout/main.ergo        # prints: PASS (2 tests)
 ./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
 ./bin/ergo fmt --check examples/editions/sketch/main.ergo
 go run ./scripts/examples                          # builds and runs the example programs against their recorded cases

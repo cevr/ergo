@@ -21,8 +21,8 @@ func infoCorpus(t *testing.T) map[string]string {
 	for _, pattern := range []string{
 		"testdata/fixtures/*/*.ergo",
 		"testdata/v1/*.ergo",
-		"../proto/testdata/*.ergo",
-		"../proto/testdata/*/*.ergo",
+		"../testdata/*.ergo",
+		"../testdata/*/*.ergo",
 		"../syntax/testdata/corpus/*/*.ergo",
 		"../syntax/testdata/corpus/*/*/*.ergo",
 	} {

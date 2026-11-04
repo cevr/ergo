@@ -362,7 +362,7 @@ func (p *parser) parseQualifiedName() Expr {
 // ---------------------------------------------------------------- file and declarations
 
 func (p *parser) parseFile() *File {
-	f := &File{Package: NoPos}
+	f := &File{}
 	for p.tok.tok == SEMICOLON {
 		p.next()
 	}
@@ -411,7 +411,7 @@ func (p *parser) endDecl() {
 // parseImportDecl parses `import [go] [alias] path`, one per line, the path
 // unquoted (#196, D1.6). The scanner lexes the alias and the path as PATH.
 func (p *parser) parseImportDecl() *ImportDecl {
-	d := &ImportDecl{Doc: p.leadComment(), Import: p.want(IMPORT), Lparen: NoPos, Rparen: NoPos}
+	d := &ImportDecl{Doc: p.leadComment(), Import: p.want(IMPORT)}
 	switch p.tok.tok {
 	case LPAREN:
 		p.habit(p.tok.pos, 1, habitImportGroup)
@@ -644,15 +644,15 @@ func (p *parser) groupsName(t Token) bool {
 func (p *parser) parseMembersType() Expr {
 	m := p.parseMembers()
 	if len(m.ops) > 0 || len(m.laws) > 0 {
-		return &InterfaceType{Interface: NoPos, Lbrace: m.lbrace, Methods: m.ops, Laws: m.laws, Rbrace: m.rbrace}
+		return &InterfaceType{Lbrace: m.lbrace, Methods: m.ops, Laws: m.laws, Rbrace: m.rbrace}
 	}
-	return &StructType{Struct: NoPos, Fields: &FieldList{Opening: m.lbrace, List: m.fields, Closing: m.rbrace}}
+	return &StructType{Fields: &FieldList{Opening: m.lbrace, List: m.fields, Closing: m.rbrace}}
 }
 
 // parseUnion parses `[ "|" ] Variant { "|" Variant }` after `=`. An inserted
 // semicolon before `|` does not end the union (#196, D1.5).
 func (p *parser) parseUnion() *InterfaceType {
-	t := &InterfaceType{Interface: NoPos, Lbrace: NoPos, Rbrace: NoPos}
+	t := &InterfaceType{Lbrace: NoPos, Rbrace: NoPos}
 	if p.tok.tok == LPAREN {
 		p.errorf("`=` declares a union of variants; a tuple type is written `type Name (A, B)`")
 	}
@@ -834,7 +834,7 @@ func (p *parser) parseLawDecl(doc *CommentGroup, top bool) *LawDecl {
 // parseLetDecl parses `let [mut] Pattern {, Pattern} [Type] [= e]`. At
 // package level, `let Name = context …` is a named context (ContextDecl).
 func (p *parser) parseLetDecl(doc *CommentGroup, top bool) Decl {
-	d := &VarDecl{Doc: doc, Var: p.want(LET), Mut: NoPos, Lparen: NoPos, Rparen: NoPos}
+	d := &VarDecl{Doc: doc, Var: p.want(LET), Mut: NoPos}
 	if p.tok.tok == MUT {
 		d.Mut = p.tok.pos
 		p.next()
@@ -943,7 +943,7 @@ func (p *parser) parseResultType(ctx typeCtx) Expr {
 
 // parseFails parses `fails A | B[T]`.
 func (p *parser) parseFails() *ErrorRow {
-	r := &ErrorRow{Error: p.want(FAILS), Lbrack: NoPos, Rbrack: NoPos}
+	r := &ErrorRow{Error: p.want(FAILS)}
 	r.Types = append(r.Types, p.parseTypeName("fails"))
 	for p.got(OR) {
 		r.Types = append(r.Types, p.parseTypeName("fails"))
