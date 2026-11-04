@@ -815,11 +815,29 @@ func (w *world) mergeGate() error {
 			uncached[name] = pick(w.rng, []Verdict{Pass, Pass, Failed, NotRun})
 		}
 	}
+	// What happens during the uncached run: nothing, a keyed edit (a
+	// source, an ignored file or the host), or an end collection that
+	// fails. A proven mismatch withdraws W(K) in each case.
+	during := pick(w.rng, []string{"nothing", "nothing", "edit", "collection error"})
+	failCollect := false
+	var startKey string
+	collect := func() (*Facts, error) {
+		if failCollect {
+			failCollect = false
+			return nil, fmt.Errorf("the end collection failed")
+		}
+		facts, err := w.collect()
+		if err == nil && startKey == "" {
+			startKey = facts.Key()
+		}
+		return facts, err
+	}
 	innerRan := false
 	var innerErr error
+	var record *mrecord
 	tier := MergeTier{
 		Store:   w.store,
-		Collect: w.collect,
+		Collect: collect,
 		Inner: func() bool {
 			innerRan = true
 			start, err := w.collect()
@@ -830,14 +848,29 @@ func (w *world) mergeGate() error {
 			innerErr = w.runGate(start, innerVerdicts, false)
 			return allPass(innerVerdicts)
 		},
-		Uncached: func() ([]string, map[string]Verdict) { return steps, uncached },
+		Uncached: func() ([]string, map[string]Verdict) {
+			// The record the uncached verdicts answer for: W(K) at the
+			// start, after the inner tier, before any edit below.
+			record = w.records[projection]
+			if !w.replayable() {
+				record = nil
+			}
+			switch during {
+			case "edit":
+				w.edit()
+				w.note("  (edit during the uncached run)")
+			case "collection error":
+				failCollect = true
+			}
+			return steps, uncached
+		},
 	}
 	var out bytes.Buffer
 	code := tier.Run(&out)
 	if innerErr != nil {
 		return innerErr
 	}
-	w.note("merge (record %t, uncached %v) -> %d", hadRecord, uncached, code)
+	w.note("merge (record %t, uncached %v, during: %s) -> %d", hadRecord, uncached, during, code)
 	if innerRan == hadRecord {
 		return fmt.Errorf("merge: inner tier ran %t with a record %t", innerRan, hadRecord)
 	}
@@ -846,10 +879,6 @@ func (w *world) mergeGate() error {
 			return fmt.Errorf("merge after a failed inner tier exited %d:\n%s", code, out.String())
 		}
 		return nil
-	}
-	record := w.records[projection]
-	if !w.replayable() {
-		record = nil
 	}
 	var want []string
 	var differ []string
@@ -863,27 +892,42 @@ func (w *world) mergeGate() error {
 			differ = append(differ, name)
 		}
 	}
+	// With equal verdicts, a change or a failed collection at the end may
+	// fail the merge before its summary; a difference always prints it.
+	endUnknown := len(differ) == 0 && during != "nothing"
 	if len(differ) > 0 {
 		want = append(want, "merge: FAILED: verdicts differ: "+strings.Join(differ, ", "))
-	} else {
+	} else if !endUnknown {
 		want = append(want, fmt.Sprintf("merge: verdicts equal (%d steps)", len(steps)))
 	}
 	var got []string
 	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-		if strings.HasPrefix(line, "merge: s") || strings.HasPrefix(line, "merge: FAILED: verdicts") || strings.HasPrefix(line, "merge: verdicts") {
+		if strings.HasPrefix(line, "merge: s") || strings.HasPrefix(line, "merge: FAILED: verdicts") || (!endUnknown && strings.HasPrefix(line, "merge: verdicts")) {
 			got = append(got, line)
 		}
 	}
 	if !slices.Equal(got, want) {
 		return fmt.Errorf("merge printed\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	wantCode := 0
 	if len(differ) > 0 {
-		wantCode = 1
+		// (d), (e): a proven mismatch withdraws W(K), whatever the end
+		// collection found.
 		delete(w.records, projection)
+		if _, err := w.store.Load(startKey); err == nil {
+			return fmt.Errorf("merge: verdicts differ (during: %s) and W(K) %s is still there", during, startKey[:12])
+		}
+		if code != 1 {
+			return fmt.Errorf("merge exited %d with differing verdicts, want 1", code)
+		}
+		return nil
 	}
-	if code != wantCode {
-		return fmt.Errorf("merge exited %d, want %d", code, wantCode)
+	switch {
+	case during == "collection error" && code != 1:
+		return fmt.Errorf("merge exited %d after a failed end collection, want 1", code)
+	case during == "edit" && code != 0 && code != 1:
+		return fmt.Errorf("merge exited %d after an edit, want 0 or 1", code)
+	case during == "nothing" && code != 0:
+		return fmt.Errorf("merge exited %d, want 0", code)
 	}
 	return nil
 }

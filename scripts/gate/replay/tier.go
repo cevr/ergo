@@ -251,7 +251,8 @@ type MergeTier struct {
 //   - With no W(K), the inner tier runs first; if it fails, the merge tier
 //     fails without the uncached run.
 //   - The uncached run's verdicts are compared with W(K). A difference, or
-//     step sets that differ, withdraws W(K) and fails.
+//     step sets that differ, withdraws W(K) at once, before the end check,
+//     and fails.
 //   - A source, HEAD, the index, the environment, a setting or the host
 //     that changed during the uncached run fails it; ignored files the run
 //     wrote are named and admitted (sources).
@@ -280,9 +281,21 @@ func (m MergeTier) Run(out io.Writer) int {
 	for _, row := range comparison.Rows {
 		fmt.Fprintln(out, row)
 	}
+	// A proven mismatch discredits W(K) whatever happens next: withdraw it
+	// before the end check can return. A withdrawal is always safe; it
+	// costs at most one rerun (gatestore.qnt sweepRecord).
+	differ := len(comparison.Differ) > 0
+	if differ {
+		if err := m.Store.Withdraw(key); err != nil {
+			fmt.Fprintf(out, "merge: withdraw whole-gate record %s: %v\n", key[:12], err)
+		}
+	}
 	end, err := m.Collect()
 	if err != nil {
 		fmt.Fprintf(out, "merge: FAILED: collect the end key: %v\n", err)
+		if differ {
+			fmt.Fprintln(out, comparison.Summary())
+		}
 		return 1
 	}
 	// The uncached run starts at K, so its verdicts answer for W(K) unless
@@ -293,17 +306,16 @@ func (m MergeTier) Run(out io.Writer) int {
 	if end.Key() != key {
 		if start.sources().Key() != end.sources().Key() {
 			fmt.Fprintf(out, "merge: FAILED: the checkout or the host changed during the merge run: %s\n", strings.Join(Diff(start, end, 5), ", "))
+			if differ {
+				fmt.Fprintln(out, comparison.Summary())
+			}
 			return 1
 		}
 		fmt.Fprintf(out, "merge: the run wrote into the checkout: %s\n", strings.Join(Diff(start, end, 5), ", "))
 	}
-	if len(comparison.Differ) > 0 {
-		if err := m.Store.Withdraw(key); err != nil {
-			fmt.Fprintf(out, "merge: withdraw whole-gate record %s: %v\n", key[:12], err)
-		}
-		fmt.Fprintln(out, comparison.Summary())
+	fmt.Fprintln(out, comparison.Summary())
+	if differ {
 		return 1
 	}
-	fmt.Fprintln(out, comparison.Summary())
 	return 0
 }
