@@ -33,6 +33,35 @@ const testTimeout = "-timeout=15m"
 // which runs the shell scripts tests write.
 var testTools = []string{"git", "sh"}
 
+// hostTestPackages are test packages whose results depend on the host in
+// ways Go's test cache does not record: the programs they and the code they
+// test run (git, sh, ps, systemd-run, the go command), the kernel's cgroups,
+// the user's service manager and the file systems of the temporary
+// directories. scripts/gate is one: the gate runs git and ps on every run,
+// and its storage property runs gates in real systemd scopes. The gate runs
+// each with -count=1, so a host test never replays: it runs on every gate,
+// with -parallel hostTestParallel.
+var hostTestPackages = []string{"scripts/gate"}
+
+// hostTestParallel bounds the parallel tests of a host package. In
+// scripts/gate each parallel storage layout runs a gate in its own systemd
+// scope (MemoryMax 576M), so the bound is also the number of those gates
+// that run at once; Go's default, GOMAXPROCS, would scale it with the host's
+// CPUs. Measured on a 16-CPU host at a 1-minute load of 13 to 60, the
+// package took 151 s at 4, 126 s at 6 and 114 s at 8.
+const hostTestParallel = "8"
+
+// hermeticTestRoot holds the gate's hermetic test packages: every package
+// below it that is not a host package. They replay from Go's test cache, so
+// each must be hermetic (package scripts/gate/hermetic): it runs no program
+// but its own test binary, and its step builds it with CGO_ENABLED=0, so it
+// loads no shared library. TestCachedGatePackagesAreHermetic checks every
+// package below the root that a step lets Go cache.
+const hermeticTestRoot = "scripts/gate/"
+
+// hermeticEnvironment is what a hermetic step adds to the environment.
+var hermeticEnvironment = []string{"CGO_ENABLED=0"}
+
 // goRuntimeEnvironment are variables every Go-built program reads at startup.
 // They change what a program prints without changing its bytes: GODEBUG=
 // inittrace=1 writes to standard error, GOTRACEBACK shapes a crash report. A
@@ -93,8 +122,17 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	var unsharded []string
+	var unsharded, hermetic []string
 	for _, pkg := range packages {
+		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
+		if slices.Contains(hostTestPackages, relative) {
+			add(&Step{Name: fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg)), Needs: []string{"go test build"}, Argv: []string{"go", "test", "-count=1", "-parallel", hostTestParallel, testTimeout, pkg}})
+			continue
+		}
+		if strings.HasPrefix(relative, hermeticTestRoot) {
+			hermetic = append(hermetic, pkg)
+			continue
+		}
 		measured, ok := durations[pkg]
 		if !ok {
 			unsharded = append(unsharded, pkg)
@@ -118,6 +156,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		}
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools})
+	if len(hermetic) > 0 {
+		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment})
+	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
 	// kernel tests that checkout explicitly: set, any problem with it (a
