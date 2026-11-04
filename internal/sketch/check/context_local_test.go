@@ -14,7 +14,7 @@ import (
 )
 
 // localPrelude declares what the local-context rules name: three
-// capabilities, providers for them, a function that needs Store, a
+// capabilities, providers for them, a function that requires Store, a
 // context-value type (runtime.md, G1) and two package contexts.
 const localPrelude = `type Greeter {
 	Greet(name string) string,

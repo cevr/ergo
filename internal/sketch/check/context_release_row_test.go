@@ -8,7 +8,7 @@ import (
 
 // TestReleaseNeedRowMessages (check-v1 E5, C35; resources.md, Context
 // ownership): a release runs outside its with, so its need widens no
-// inferred row. An owning with whose provider's Close needs Log, in a
+// inferred row. An owning with whose provider's Close requires Log, in a
 // function no row or outer with gives Log, is S102 at the with, with the
 // inferred-row text when the function writes no row and the written-row
 // text when it writes one. Each holds for a named, an inline and a local

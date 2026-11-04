@@ -19,7 +19,7 @@ func (i importedImporter) Import(path string) (*check.Package, error) {
 
 // TestImportedContextFootprint (check-v1 E5, C36): an imported context's
 // provider expressions count in the importing package's view. Package b
-// binds Store to Mem{V: read()}, and read needs Log, which W binds too. In
+// binds Store to Mem{V: read()}; read requires Log, which W binds too. In
 // package a, a with of b.W, of (b.W) and of b.W beside an inline context
 // each give their function a footprint that holds Log (what the provider
 // runs) and is not opaque; and b's Info holds the Calls fact of read() in
