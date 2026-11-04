@@ -151,9 +151,9 @@ func main() {}
 		want: []string{
 			armError13,
 			"26:9 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"28:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)",
+			"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
 	},
 	{
 		name: "p3: the same through a generic reader",
@@ -172,9 +172,9 @@ func main() {}
 		want: []string{
 			armError13,
 			"26:9 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"28:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)",
+			"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
 	},
 	{
 		name: "p4: a local function literal reads the pinned row",
@@ -193,9 +193,9 @@ func main() {}
 		want: []string{
 			armError13,
 			"26:6 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"28:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)",
+			"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
 	},
 	{
 		name: "p5: a local and a package let bound to the pinned function",
@@ -296,13 +296,13 @@ func main() {}
 		want: []string{
 			armError13,
 			"22:7 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"24:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)",
+			"24:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
 			"30:2 S108 try on an expression that cannot fail (rows.md, Error rows 6)",
 			"34:2 S108 try on an expression that cannot fail (rows.md, Error rows 6)",
 			"37:7 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
 			"38:7 S108 main.E is not in the caught row {main.Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"24:7 S108 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"24:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
 	},
 	{
 		// walk's S108 is kept (its capability row); Q from quit is really
@@ -1052,7 +1052,7 @@ func main() {}
 	wantA := []string{"S108@13:7 generic type main.H needs type arguments"}
 	wantB := []string{
 		"S103@6:9 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-		"S108@8:7 main.E is not in the caught row {main.G[int], main.Q} (rows.md, Catch 2)",
+		"S108@8:7 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
 		"S108@13:2 try on an expression that cannot fail (rows.md, Error rows 6)",
 		"S103@16:7 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
 		"S108@17:7 main.E is not in the caught row {main.Q} (rows.md, Catch 2)",

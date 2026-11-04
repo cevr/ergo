@@ -1,5 +1,5 @@
 type Fault[T] {}
-extern go fixture.mark func mark() fails Fault[int]
-extern go fixture.run func run[T](x T, f func() fails Fault[T]) fails Fault[T]
+func mark() fails Fault[int] { return Fault[int] }
+func run[T](x T, f func() fails Fault[T]) fails Fault[T] { return f() }
 func a() { try mark(); try run(int(1), func() { try a() }) }
 func F() fails Fault[int] { return a() }

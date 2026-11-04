@@ -287,12 +287,20 @@ func (p *printer) signature(t *syntax.FuncType) {
 
 func (p *printer) needs(u *syntax.NeedsClause) {
 	p.token(u.Needs, "needs")
-	p.space()
-	if u.Lparen.IsValid() {
-		p.list(u.Lparen, "(", nodes(u.Names), func(i int) { p.typ(u.Names[i]) }, u.Rparen, ")")
-		return
+	p.row(u.Names)
+}
+
+// row prints the names of an error row or a capability row, ` A | B`: both
+// rows are unions and are spelled alike (196n).
+func (p *printer) row(names []syntax.Expr) {
+	for i, x := range names {
+		p.space()
+		if i > 0 {
+			p.synth("|")
+			p.space()
+		}
+		p.typ(x)
 	}
-	p.exprList(u.Names, 1)
 }
 
 // ---------------------------------------------------------------- types
@@ -493,8 +501,7 @@ func (p *printer) context(pos syntax.Pos, provides *syntax.ProvidesClause, needs
 	if provides != nil {
 		p.space()
 		p.token(provides.Provides, "provides")
-		p.space()
-		p.exprList(provides.Names, 1)
+		p.row(provides.Names)
 	}
 	if needs != nil {
 		p.space()
@@ -939,14 +946,7 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		p.machineType(x)
 	case *syntax.ErrorRow:
 		p.token(x.Error, "fails")
-		for i, t := range x.Types {
-			p.space()
-			if i > 0 {
-				p.synth("|")
-				p.space()
-			}
-			p.typ(t)
-		}
+		p.row(x.Types)
 	case *syntax.TupleExpr:
 		if !x.Lparen.IsValid() {
 			p.exprList(x.Elts, depth)

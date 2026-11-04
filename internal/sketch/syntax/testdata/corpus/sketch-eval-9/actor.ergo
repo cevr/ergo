@@ -29,7 +29,7 @@ func main() string fails ProbeUnavailable needs Console {
 // The Set sits inside the Probe binding, so every restart and the final
 // shutdown happen while Probe is still provided. The factory captures
 // nothing linear, so it can run again.
-func supervised() needs Console, Clock, Scheduler {
+func supervised() needs Console | Clock | Scheduler {
 	with context { Probe: HealthyProbe{} } {
 		let set = tasks.Set(tasks.Restart(schedule.Exponential(1s).UpTo(5)))
 		// set is a resource: it is stopped when this with block ends, inside Probe.

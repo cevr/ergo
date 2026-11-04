@@ -32,7 +32,7 @@ func Charge(_ FakeGateway, order Order) string fails GatewayDown {
 }
 
 // OrderNotFound can escape through try, but the signature does not declare it.
-func pay(id string) string fails GatewayDown needs Orders, Gateway {
+func pay(id string) string fails GatewayDown needs Orders | Gateway {
 	let order = try Orders.Find(id)
 	return Gateway.Charge(order)
 }

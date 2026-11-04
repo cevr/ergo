@@ -34,7 +34,7 @@ let Live = context {
 	Scheduler: LiveScheduler,
 }
 
-func checkout(id string) string fails OrderNotFound | GatewayDown | timeout.Expired needs Orders, Gateway, Scheduler {
+func checkout(id string) string fails OrderNotFound | GatewayDown | timeout.Expired needs Orders | Gateway | Scheduler {
 	let order = try Orders.Find(id)
 	return Gateway.Charge(order)
 }

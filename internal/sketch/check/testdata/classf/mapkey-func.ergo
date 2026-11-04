@@ -1,4 +1,4 @@
 type Bang {}
-extern go fixture.mark func mark() fails Bang
+func mark() fails Bang { return Bang }
 func a() { let m = Map[func(), int]{a: 1}; _ = m; try mark() } // want S108 S108
 func F() fails Bang { try a() }

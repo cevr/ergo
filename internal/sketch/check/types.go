@@ -366,7 +366,7 @@ func (t *Signature) String() string {
 	} else if t.Fallible {
 		b.WriteString(" fails")
 	}
-	if uses := t.Uses.list(", "); uses != "" {
+	if uses := t.Uses.String(); uses != "" {
 		b.WriteString(" " + requirementKeyword + " " + uses)
 	}
 	return b.String()

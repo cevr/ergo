@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import slice\n\nextern go strings.ToUpper func Upper(s string) string\n\nfunc main() needs Console {\n\tlet f = func() string { Upper(\"x\") }\n\tlet g = func(n int) []int { slice.WithCapacity[int](n) }\n\tConsole.Println(f())\n\t_ = g\n}\n")

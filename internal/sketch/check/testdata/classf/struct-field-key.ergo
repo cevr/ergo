@@ -1,6 +1,6 @@
 type Bang {}
 type S { b int }
-extern go fixture.mark func mark() fails Bang
+func mark() fails Bang { return Bang }
 func a() { _ = S{b: 1}; try mark() }
 func b() { try a() }
 func F() fails Bang { try b() }

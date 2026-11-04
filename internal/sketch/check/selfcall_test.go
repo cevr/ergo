@@ -193,7 +193,7 @@ type Bang {}
 
 type Door { open bool }
 
-extern go example.com/door.Fail func fail() fails Bang
+func fail() fails Bang { return Bang }
 
 func knock(d Door) { try fail() }
 
@@ -214,7 +214,7 @@ func K(d Door) fails Bang { try h(d) }
 
 func knock(d Door) { try fail() }
 
-extern go example.com/door.Fail func fail() fails Bang
+func fail() fails Bang { return Bang }
 
 type Door { open bool }
 

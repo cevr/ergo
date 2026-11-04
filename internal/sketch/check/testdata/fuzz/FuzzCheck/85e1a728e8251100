@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Attempt[A]{}\ntype y{}\nfunc probe(){y[0]{{Attempt[string]{func(){probe}}} }}")

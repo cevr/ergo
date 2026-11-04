@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import queue\n\nfunc use(q queue.Queue[int]) { q.Close() }\n\nfunc main() {\n\tuse(queue.New[int](1))\n}\n")

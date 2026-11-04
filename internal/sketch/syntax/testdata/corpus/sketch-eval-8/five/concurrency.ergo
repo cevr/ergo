@@ -17,7 +17,7 @@ func bad() string fails Bad {
 }
 
 // Every task is consumed by Wait or Stop before the function returns.
-func program() fails Bad needs Clock, Console, Scheduler {
+func program() fails Bad needs Clock | Console | Scheduler {
 	let child = task.Go() { immediate() }
 	Console.Println(child.Wait())
 
@@ -39,6 +39,6 @@ func program() fails Bad needs Clock, Console, Scheduler {
 	return
 }
 
-func main() fails Bad needs Clock, Console, Scheduler {
+func main() fails Bad needs Clock | Console | Scheduler {
 	return program()
 }

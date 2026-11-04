@@ -1,0 +1,2 @@
+go test fuzz v1
+string("func wait(s Scheduler) { s.Sleep(1s) }\n\nfunc main() {\n\twait(LiveScheduler)\n}\n")

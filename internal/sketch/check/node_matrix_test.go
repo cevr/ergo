@@ -15,14 +15,14 @@ import (
 )
 
 // nodePrelude declares what the matrix programs share. Its names are
-// exported or extern, so none of them is unused.
+// exported, so none of them is unused.
 const nodePrelude = `type A {}
 type B {}
 type U = A | B
 type S { X int }
 func G(x int) {}
 func Work(x int) int { return x }
-extern go fixture.Fail func Fail(x int) fails A
+func Fail(x int) fails A { return A }
 `
 
 // nodeMatrix gives every expression, statement and declaration node kind of
@@ -56,7 +56,7 @@ var nodeMatrix = []struct {
 	}
 }`, "S104", "nope"},
 	{"CompositeLit", `func F() S { return S{nope} }`, "S104", "nope"},
-	{"ErrorRow", `extern go fixture.F func F() fails Nope`, "S104", "Nope"},
+	{"ErrorRow", `func F() fails Nope {}`, "S104", "Nope"},
 	{"FuncLit", `func F() { _ = func() { G(nope) } }`, "S104", "nope"},
 	{"FuncType", `func F(f func(Nope)) {}`, "S104", "Nope"},
 	{"Ident", `func F() int { return nope }`, "S104", "nope"},

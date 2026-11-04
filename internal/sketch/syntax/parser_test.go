@@ -351,13 +351,13 @@ func TestRoundTwoForms(t *testing.T) {
 	})
 	t.Run("M10 function literal needs", func(t *testing.T) {
 		// A literal's own row takes the declaration spelling.
-		lit := parse(t, "let f = func() needs A, B {\n\twork()\n}\n").Decls[0].(*VarDecl).Specs[0].Values[0].(*FuncLit)
-		if n := lit.Type.Needs; n == nil || len(n.Names) != 2 || n.Lparen.IsValid() {
+		lit := parse(t, "let f = func() needs A | B {\n\twork()\n}\n").Decls[0].(*VarDecl).Specs[0].Values[0].(*FuncLit)
+		if n := lit.Type.Needs; n == nil || len(n.Names) != 2 {
 			t.Fatalf("literal needs %+v", n)
 		}
-		// A function type inside a list keeps the parenthesised row.
-		param := parse(t, "func g(h func() needs (A, B)) {}\n").Decls[0].(*FuncDecl).Type.Params.List[0].Type.(*FuncType)
-		if n := param.Needs; len(n.Names) != 2 || !n.Lparen.IsValid() {
+		// A function type inside a list takes the same row (196n).
+		param := parse(t, "func g(h func() needs A | B) {}\n").Decls[0].(*FuncDecl).Type.Params.List[0].Type.(*FuncType)
+		if n := param.Needs; len(n.Names) != 2 {
 			t.Fatalf("parameter needs %+v", n)
 		}
 	})
@@ -490,7 +490,7 @@ func TestRoundFourForms(t *testing.T) {
 			"let x = []int{1, 2}\n",
 			"let x = int64(y)\n",
 			"let f = func(x) { x }\n",
-			"func main() {\n\trun(func() needs A, B { g() })\n}\n",
+			"func main() {\n\trun(func() needs A | B { g() })\n}\n",
 		} {
 			if _, err := Parse(src); err != nil {
 				t.Errorf("%q: %v", src, err)

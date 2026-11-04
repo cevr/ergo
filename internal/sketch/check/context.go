@@ -434,8 +434,14 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 		entry = &ContextEntry{Provider: e.Value, Replace: e.Replace.IsValid()}
 	}
 	entry.Caps, entry.Conversions = caps, nil
-	if c.isConstructor(e.Value) {
-		c.errorf(e.Value, CodeOutside, "a constructor entry is #37's (context constructors); write a provider value, not a function")
+	if f := c.constructorFunc(e.Value); f != nil {
+		if isExtern(f) {
+			// A constructor entry is a function value; an extern is
+			// call-only (P3), before and after #37.
+			c.errorf(e.Value, CodeType, "%s", externCallOnlyText)
+		} else {
+			c.errorf(e.Value, CodeOutside, "a constructor entry is #37's (context constructors); write a provider value, not a function")
+		}
 		return caps, entry
 	}
 	op := c.valueExpr(e.Value, nil)
@@ -455,6 +461,9 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 		// Assignability), whose conversion holds its operations' functions
 		// (196m); the lowering reads it and never re-derives it.
 		a, why := c.assignability(pt, cap)
+		if c.sealedRefused(e.Value, a) {
+			continue
+		}
 		if !a.ok() {
 			if why == "" {
 				why = pt.String() + " is not assignable to " + cap.String()
@@ -477,19 +486,24 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 // isConstructor reports whether a provider expression names a function
 // without calling it (rows.md, Context 6: constructor entries, #37).
 func (c *checker) isConstructor(x syntax.Expr) bool {
+	return c.constructorFunc(x) != nil
+}
+
+// constructorFunc is the function a constructor entry names, or nil.
+func (c *checker) constructorFunc(x syntax.Expr) *Func {
 	switch x := unparen(x).(type) {
 	case *syntax.Ident:
-		_, ok := c.lookup(x.Name).(*Func)
-		return ok
+		f, _ := c.lookup(x.Name).(*Func)
+		return f
 	case *syntax.SelectorExpr:
 		if id, ok := x.X.(*syntax.Ident); ok {
 			if pn, ok := c.lookup(id.Name).(*PkgName); ok {
-				_, isFunc := pn.Pkg.Scope.names[x.Sel.Name].(*Func)
-				return isFunc
+				f, _ := pn.Pkg.Scope.names[x.Sel.Name].(*Func)
+				return f
 			}
 		}
 	}
-	return false
+	return nil
 }
 
 // contextEntryKey resolves a context entry's key to a capability (S104 otherwise).

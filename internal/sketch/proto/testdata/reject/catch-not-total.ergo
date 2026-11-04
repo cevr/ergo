@@ -31,7 +31,7 @@ func Charge(_ FakeGateway, order Order) string fails GatewayDown {
 	return "auth-7"
 }
 
-func pay(id string) string fails OrderNotFound | GatewayDown needs Orders, Gateway {
+func pay(id string) string fails OrderNotFound | GatewayDown needs Orders | Gateway {
 	let order = try Orders.Find(id)
 	return Gateway.Charge(order)
 }

@@ -262,7 +262,7 @@ func TestEscapingMarker(t *testing.T) {
 // is never checked, so it has no Calls entry; its argument and its literal
 // add no diagnostic to the callee's own.
 func TestEscapingAddsNothingToAnUncheckedCall(t *testing.T) {
-	src := "type Bang {}\nextern go fixture.mark func mark() fails Bang\nfunc a(run func(func()), r func(func())) {\n\tr(func() { a(run, r) })\n\ttry mark()\n}\n"
+	src := "type Bang {}\nfunc mark() fails Bang { return Bang }\nfunc a(run func(func()), r func(func())) {\n\tr(func() { a(run, r) })\n\ttry mark()\n}\n"
 	_, diags := checkFor(src)
 	if len(diags) != 1 || diags[0].Line != 3 || strings.Contains(diags[0].Message, "non-escaping") {
 		t.Errorf("want only the recursive group's S108 at line 3; got %v\n%s", diags, src)

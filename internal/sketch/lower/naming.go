@@ -24,8 +24,10 @@ import (
 //  2. the generated package entities: the runtime and time imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
-//     (calls.go, #230), the package initializer (decls.go, initFunc) and
-//     the type-set interfaces of ordered and number (decls.go, constraint);
+//     (calls.go, #230), the package initializer (decls.go, initFunc), the
+//     type-set interfaces of ordered and number (decls.go, constraint) and
+//     the imports of the Go packages that user externs target, in path
+//     order (calls.go, hostImportNames);
 //  3. every type and function of every library package the program reaches
 //     (the prelude and imported std packages, by path), used or not;
 //  4. the operations adapters of every operations conversion, the text
@@ -57,6 +59,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
 	libs := l.libraryPackages()
+	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
 		for _, tn := range p.Types {
 			l.typeName(tn)

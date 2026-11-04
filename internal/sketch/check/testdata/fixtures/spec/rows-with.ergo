@@ -31,8 +31,8 @@ let Live = context {
 	Gateway: FakeGateway{AuthID: "auth-7"},
 }
 
-func checkout(id string) string needs Orders, Gateway { return id }
-func report(id string) string needs Orders            { return id }
+func checkout(id string) string needs Orders | Gateway { return id }
+func report(id string) string needs Orders             { return id }
 
 func demo(id string) needs Console {
 	let value = with Live { checkout(id) }

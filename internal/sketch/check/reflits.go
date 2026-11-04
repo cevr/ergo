@@ -37,12 +37,13 @@ type litType struct {
 
 // A typeEnv resolves the names of a written type: the file (imports), the
 // type parameters in scope, which come first (decl.go lookupType), and in a
-// body the walk's local scopes, which shadow declarations (a local is not a
-// type).
+// body its local scopes, which shadow declarations (a local is not a type).
+// The walk reads its own scopes (bodyEnv), typing its own (typingEnv), so
+// both read a literal's kind by the one rule (litTypeOf, elemOf).
 type typeEnv struct {
 	file   *fileInfo
 	params map[string]bool
-	w      *refWalker // nil outside a body
+	local  func(name string) bool // nil outside a body
 }
 
 // fromType is the litType of a checked type.
@@ -66,7 +67,7 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 	case *syntax.ParenExpr:
 		return c.litTypeOf(e.X, env)
 	case *syntax.Ident:
-		if env.params[e.Name] || env.w != nil && env.w.local(e.Name) {
+		if env.params[e.Name] || env.local != nil && env.local(e.Name) {
 			return litType{}
 		}
 		if tn, ok := c.typeObject(e.Name, env.file).(*TypeName); ok {
@@ -78,7 +79,7 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 		return c.litTypeOf(e.X, env)
 	case *syntax.SelectorExpr:
 		id, ok := e.X.(*syntax.Ident)
-		if !ok || env.w != nil && env.w.local(id.Name) {
+		if !ok || env.local != nil && env.local(id.Name) {
 			return litType{}
 		}
 		if pn, ok := c.typeObject(id.Name, env.file).(*PkgName); ok && !pn.broken {
@@ -162,7 +163,38 @@ func (c *checker) elemOf(lt litType, key bool) litType {
 
 // bodyEnv is the type environment of the body being walked.
 func (w *refWalker) bodyEnv() *typeEnv {
-	return &typeEnv{file: w.c.cur, params: w.tparams, w: w}
+	return &typeEnv{file: w.c.cur, params: w.tparams, local: w.local}
+}
+
+// typingEnv is the type environment of the body being typed, as bodyEnv is
+// the walk's: the body's type parameters (localTypeCtx) and the names its
+// scopes bind below the package scope.
+func (c *checker) typingEnv() *typeEnv {
+	env := &typeEnv{file: c.cur, params: map[string]bool{}}
+	for _, tp := range c.fn.typeParams() {
+		env.params[tp.Name] = true
+	}
+	if c.fn != nil && c.fn.scope != nil {
+		sc := c.fn.scope
+		env.local = func(name string) bool {
+			_, at := sc.lookup(name)
+			return at != nil && at != c.pkg.Scope && !c.abovePackage(at)
+		}
+	}
+	return env
+}
+
+// litTypeOfLit is the type of a composite literal as the walk knows it: its
+// written type read by litTypeOf, or, for an elided type, the type elided
+// reads from the enclosing literal (elemOf; nil where none gives one).
+func (c *checker) litTypeOfLit(x *syntax.CompositeLit, elided func() litType) litType {
+	if x.Type == nil {
+		if elided == nil {
+			return litType{}
+		}
+		return elided()
+	}
+	return c.litTypeOf(x.Type, c.typingEnv())
 }
 
 // element walks an element, key or value of a composite literal of type
