@@ -191,13 +191,14 @@ func TestSketchBuildRunsProgram(t *testing.T) {
 }
 
 // TestSketchBuildRefusesWhatTheLoweringCannotLower: the checker accepts a
-// program whose error type has a field of a type parameter, whose text
-// waits for lower-v1 stage 3, so Build refuses it with a located S109
-// naming that stage and writes nothing. A checker diagnostic refuses the
-// build with its own code. (Before check-v1 E6a the witness was an
-// interpolated record, which the checker now refuses: D-E6.)
+// program whose error type has a Map field, whose text the lowering
+// refuses, so Build refuses it with a located S109 and writes nothing. A
+// checker diagnostic refuses the build with its own code. (Before check-v1
+// E6a the witness was an interpolated record, which the checker now
+// refuses: D-E6; before lower-v1 stage 4 it was a field of a type
+// parameter, whose text is now written per instance.)
 func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
-	source := "type Fault[T] { F T }\n\nfunc fail() fails Fault[int] {\n\treturn Fault[int]{F: 5}\n}\n\nfunc main() fails Fault[int] needs Console {\n\ttry fail()\n}\n"
+	source := "type Fault { F Map[string, int] }\n\nfunc fail() fails Fault {\n\treturn Fault{F: Map[string, int]{}}\n}\n\nfunc main() fails Fault needs Console {\n\ttry fail()\n}\n"
 	analysis := Check(source)
 	if len(analysis.Diagnostics) != 0 {
 		t.Fatalf("checker diagnostics: %+v", analysis.Diagnostics)
