@@ -52,9 +52,135 @@
 // translate-c table (TestOpenTUIMatchesTranslateC) and the host C compiler
 // with `_Static_assert` (TestCOracle).
 //
-// # The binding contract and the two Go layers
+// # The binding contract and the classes
 //
-// The binding contract (slice 1b), the Go emitter with its raw and typed
-// layers (slice 1c) and the Ergo text (slice 1d) come in later slices of
-// bind-c-1.
+// The binding contract (see Contract for its keys) holds what C types
+// cannot prove: the header's sha256, the Go package, the name prefixes,
+// the status type and its codes, the ABI-version pair, the handle types
+// with their create and destroy functions, the autofill fields, the name
+// rules of buffers, per-position exceptions and skips, each with a reason.
+// DecodeContract reads it strictly; Bind checks every fact against the
+// model and fails closed.
+//
+// Bind gives every pointer position exactly one Class: a parameter or
+// result that is a data pointer or a callback (BoundFunc.Positions), and a
+// struct field that is a data pointer, a callback or an array of those
+// (Binding.Fields, for every struct, used or not). An exception names the
+// class of a parameter. Otherwise each rule (see the rule constants in
+// classify.go) is a predicate on the position and its neighbors, and the
+// rules do not consult each other: one match gives the rule's class, and
+// zero or two matches make the position raw. The in_buffer rule is two
+// rules, one per length unit: a length that a length_names template and a
+// byte_length_names template both give for one buffer is two matches, and
+// the position is raw (the order of the lists decides nothing). No rule
+// covers a field: the typed layer passes no struct that holds a pointer,
+// so every pointer field is raw with its reason. A position is "lone" when it
+// is not next to a parameter whose name could be a length or a capacity;
+// only a lone pointer can be a value or an out-parameter, so `const S *,
+// uint32_t chunk_count` is never one value, named or not. A length that
+// comes before its buffer is not recognized (C APIs put it after).
+//
+// A function is typed when every pointer position has a class other than
+// raw and its buffers fit together (each length serves one buffer, each
+// out_count belongs to its out_buffer, no by-value struct holds a pointer).
+// Otherwise it is raw-only, and the report (Report, report.txt) names each
+// raw position and its reason. A `const S *` whose struct holds a pointer
+// is raw (Go memory that holds Go pointers must not reach C); a callback
+// is raw until bind-c-2.
+//
+// # The Go output
+//
+// GoPackage emits one gofmt-clean Go file over purego v0.11.3, built for
+// linux and darwin on amd64 and arm64, with two layers:
+//
+//   - the raw layer: one unexported function variable per function, in the
+//     exact C shape, registered with purego.Dlsym and purego.RegisterFunc
+//     (never RegisterLibFunc, which panics on a missing symbol);
+//   - the typed layer: one exported function per typed function. Handles
+//     are *H; a value is passed by address; out-parameters and output
+//     counts are results; buffers are slices (an empty slice passes NULL
+//     and length 0); a status result becomes an error (nil on success, else
+//     the Status). Every typed function returns an error last, and a call
+//     before Load, on a nil or destroyed handle, or with a slice too long
+//     for its C length, returns an error and does not call C.
+//
+// Load opens the library, looks up every symbol (a missing one is an error
+// that names it), calls the ABI-version function first and returns
+// *ABIMismatchError on a mismatch; it registers the raw functions only
+// after that check, so a failed Load leaves nothing callable. A Go value
+// passed by address stays alive until C returns through runtime.KeepAlive
+// after the call (purego also keeps its arguments alive for the call). Each
+// struct has compile-time asserts of its size, its alignment, and every
+// field's offset and size (TestGeneratedGoTypechecks checks them for amd64
+// and arm64). Autofill fields are unexported, and the typed layer sets
+// them before every call that passes the struct: by value, by const
+// pointer, as a const array, in a buffer, and in out-parameters, nested
+// structs and arrays included (OpenTUI: "Initialize struct_size and
+// abi_version" of output structs). Callbacks are raw uintptr (bind-c-2);
+// thread affinity is not enforced in Go: the library returns its
+// wrong-thread status.
+//
+// A struct passed or returned by value crosses purego in its call form
+// (abi.go): N flat floats for an HFA, else uint64 words, which purego
+// marshals as the C calling convention passes the struct on every tier-1
+// target. purego does not pad a Go struct and guesses register classes,
+// so the Go struct itself would lose fields. Load registers the raw
+// function of every bound function, typed or raw-only, so Bind refuses a
+// header with a function whose call purego cannot make as C does on all
+// four targets: a struct with no single form (an eightbyte of only floats
+// that is not an HFA), or a call of scalars and pointers that needs more
+// stack than purego registers. In v1 a function with a by-value struct
+// argument or result is bound only when, on each of the four targets,
+// every argument and the result travel in registers: no argument goes on
+// the stack, and each struct is passed in registers (System V classes on
+// amd64: up to 16 bytes; on arm64 an HFA or up to 16 bytes). purego
+// marshals a struct in a call that uses the stack differently per target,
+// and on darwin arm64 not as C does. The error names the function, each
+// target that fails with its first position and reason, and the remedy:
+// skip it in the contract or pass a pointer.
+//
+// Every Go name comes from one allocator per scope (names.go): the
+// package, each typed function's parameters and locals, and each struct's
+// fields and methods. Each scope reserves the generated names of its
+// inventory (helpers, locals, methods, Go's keywords). An exported name
+// that collides is refused with both C sources; a parameter or an
+// unexported field takes "_" or a number instead.
+//
+// # The Ergo text
+//
+// ErgoText emits the Ergo signatures of the Go package (<header>.ergo). The
+// text is provisional: it parses with internal/sketch/syntax and is in
+// canonical internal/sketch/format form, and the checker does not read it
+// yet. It holds:
+//
+//   - a provenance header and `import go <import path>`, unquoted, because
+//     the grammar parses import paths only in that form;
+//   - the Status union, one variant in place per status code and no
+//     success arm, and the CallError union of the binding's own failures:
+//     NotLoaded (a call before Load), Destroyed (a nil or destroyed handle)
+//     and TooLong (a slice too long for its C length);
+//   - one record per C struct that a typed signature reaches by value, with
+//     CamelCase fields, without autofill fields, and arrays as []T;
+//   - handles and scalar typedefs named through the import (opaque nominal);
+//   - one `extern go <path>.<GoName> func <GoName>(...) R fails ...` per
+//     typed function: it fails Status | CallError when the function returns
+//     a status, else CallError. No extern has a needs row;
+//   - one `// not bound: <C name> (<reason>)` line per raw-only function.
+//
+// Every Ergo name comes from the same allocator (names.go), in two scopes.
+// The package scope holds the import's name (the last element of
+// go.import_path), the two unions and their variants, the records and the
+// externs. Bind claims each of these names, the import's name first, and
+// refuses the binding, with both sources, when two are equal, when the
+// import's name is not an identifier, or when Ergo reserves one: a
+// keyword, a reserved word, or a name the checker predeclares (its
+// universe names and the prelude's names, read from the prelude's
+// source). A name enters a scope only through claim, so no name is seeded
+// or replaced. The scope of one extern's parameters is inside it: a
+// parameter wants the name its Go parameter wants (its C name in
+// lowerCamelCase, or its type's name), takes the suffix Arg when Ergo
+// reserves that name, and a number when the name is taken, so two
+// parameters never get one name. Ergo names do not avoid Go's predeclared
+// names: the lowering gives Go names by identity. A record field has its Go
+// field name, which the Go struct scope makes unique.
 package bindc

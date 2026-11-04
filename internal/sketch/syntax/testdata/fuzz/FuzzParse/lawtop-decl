@@ -1,0 +1,2 @@
+go test fuzz v1
+string("// Holds: a top-level law.\nlaw Holds(a int, b int) {\n\ta + b == b + a\n}\n\ntype C {\n\tE(v int) int,\n\n\tlaw M(v int) { E(v) == E(v) },\n}\n\nlaw L[T](x T) { true }\n")

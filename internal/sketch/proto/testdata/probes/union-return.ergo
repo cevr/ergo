@@ -1,14 +1,22 @@
-// out: {}
-type Item {}
-type Other {}
+// out: item
+type Item { Name string }
+type Other { Name string }
 type Choice = Item | Other
 type Fault {}
-func inner() Item fails Fault   { return Item }
+func inner() Item fails Fault   { return Item{Name: "item"} }
 func outer() Choice fails Fault { return inner() }
+func choiceText(c Choice) string {
+	match c {
+	case Item as v:
+		return v.Name
+	case Other as v:
+		return v.Name
+	}
+}
 func main() needs Console {
 	let line = outer() catch {
 	case Fault:
-		Other
+		Other{Name: "other"}
 	}
-	Console.Println("\(line)")
+	Console.Println("\(choiceText(line))")
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -103,6 +104,35 @@ func TestGolden(t *testing.T) {
 		t.Run(h.header, func(t *testing.T) {
 			m := parseHeader(t, h.dir, h.header)
 			checkGolden(t, filepath.Join(h.dir, "model.json"), JSON(m))
+			b := bindHeader(t, h.dir, h.header, m)
+			checkGolden(t, filepath.Join(h.dir, "report.txt"), Report(b))
+			name, src, err := GoPackage(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *update {
+				if err := os.MkdirAll(filepath.Join(h.dir, "go"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			checkGolden(t, filepath.Join(h.dir, "go", name), src)
+			ergo, err := ErgoText(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkGolden(t, filepath.Join(h.dir, strings.TrimSuffix(h.header, ".h")+".ergo"), ergo)
 		})
 	}
+}
+
+// bindHeader binds a golden-tested header with its contract,
+// testdata/<name>/<name>.bind.json.
+func bindHeader(t *testing.T, dir, header string, m *Model) *Binding {
+	t.Helper()
+	contract := filepath.Join(dir, strings.TrimSuffix(filepath.Base(dir), ".h")+".bind.json")
+	b, err := Bind(m, readInput(t, filepath.Join(dir, header)), readInput(t, contract))
+	if err != nil {
+		t.Fatalf("Bind %s:\n%v", contract, err)
+	}
+	return b
 }

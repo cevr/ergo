@@ -264,7 +264,10 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	case *syntax.InterpolatedString:
 		return operand{val: fc.interpolated(x)}
 	case *syntax.ContextLit:
-		refuse(x, "an inline context literal is lowered after check-v1 stage E (196x)")
+		// A context literal stands only as a with operand (calls.go, with)
+		// or as a local context's let (body.go, let), and neither is a value;
+		// the checker refuses every other place (S108).
+		ice(x, "a context literal as a value; the checker refuses one (S108)")
 	case *syntax.TupleExpr:
 		vals := fc.operands(x.Elts, true)
 		parts := make([]string, len(vals))

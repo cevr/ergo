@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/sketchtest"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -98,7 +99,7 @@ var negativeSpans = map[string][2]string{
 	"context-cycle":                      {"S108", "W"},
 	"context-entry-non-capability":       {"S104", "Order"},
 	"context-exposure-hides-entry":       {"S109", "provides Account"},
-	"context-literal-outside-with":       {"S109", "context { Store: Mem }"},
+	"context-literal-outside-with":       {"S108", "context { Store: Mem }"},
 }
 
 // TestNegativeSpans: each negative fixture's one diagnostic has the pinned
@@ -243,6 +244,16 @@ func FuzzCheck(f *testing.F) {
 	f.Add(contextShadowPrelude + `func f(W Tag) int { with ((W)) { 1 } }`)
 	f.Add(valueContextHeader + "let W = Tag{Text: \"pkg\"}\nlet W = context { A: Quiet }\nfunc g() { with W { A.Use() } }\n")
 	f.Add(valueContextHeader + "let W = context { A: Quiet }\nlet Tag{Text: W} = Tag{Text: \"pkg\"}\nfunc g() { with (W) { A.Use() } }\n")
+	// The local-context and several-operand programs of
+	// TestLocalContextRules (check-v1 E5, A2), from their one source.
+	for _, r := range localRules() {
+		f.Add(localPrelude + r.body)
+	}
+	// The top-level law programs of TestTopLevelLawRules (law-top A2), so
+	// the declaration-order oracle meets a law and a test of one name.
+	for _, c := range sketchtest.LawTopCases {
+		f.Add(c.Src)
+	}
 	f.Fuzz(func(t *testing.T, src string) {
 		_, a := check.CheckSource(src)
 		_, b := check.CheckSource(src)

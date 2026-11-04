@@ -99,9 +99,20 @@ func (c *e1cSliceCoverage) observe(ds []e1cDecl, kind int) {
 	arities := []int{ds[0].params, ds[1].params}
 	for d, decl := range ds {
 		for position, field := range decl.fields {
-			c.positions[fmt.Sprintf("%v/D%d/%c%d/%s", arities, d, decl.form, position, field.text())] = true
+			c.positions[e1cCoverageKey(arities, d, decl.form, len(decl.fields), position, field.text())] = true
 		}
 	}
+}
+
+// e1cCoverageKey is one atom position of the slice coverage. A record's
+// key holds its arity, so one-field and two-field records are separate
+// positions (r1/0, r2/0, r2/1; stage E1c round 3 m2, check-v1 E6b).
+func e1cCoverageKey(arities []int, d int, form byte, fields, position int, atom string) string {
+	shape := fmt.Sprintf("%c%d", form, position)
+	if form == 'r' {
+		shape = fmt.Sprintf("r%d/%d", fields, position)
+	}
+	return fmt.Sprintf("%v/D%d/%s/%s", arities, d, shape, atom)
 }
 
 func e1cAssertSliceCoverage(t *testing.T, parts []e1cSliceCoverage) {
@@ -116,9 +127,9 @@ func e1cAssertSliceCoverage(t *testing.T, parts []e1cSliceCoverage) {
 			kinds[kind] += count
 		}
 	}
-	require := func(arities []int, d int, form byte, position int, atom string) {
+	require := func(arities []int, d int, form byte, fields, position int, atom string) {
 		t.Helper()
-		key := fmt.Sprintf("%v/D%d/%c%d/%s", arities, d, form, position, atom)
+		key := e1cCoverageKey(arities, d, form, fields, position, atom)
 		if !seen[key] {
 			t.Fatalf("slice lost atom position %s", key)
 		}
@@ -128,14 +139,16 @@ func e1cAssertSliceCoverage(t *testing.T, parts []e1cSliceCoverage) {
 			arities := []int{a, b}
 			for d, params := range arities {
 				for atom := range e1cRequiredAtoms(arities, params) {
-					for position := range 2 {
-						for _, field := range []string{atom, "Option[" + atom + "]", "[]" + atom} {
-							require(arities, d, 'r', position, field)
-						}
+					for _, field := range []string{atom, "Option[" + atom + "]", "[]" + atom} {
+						// A one-field record, and each position of a
+						// two-field one (the pair {f, f} holds f at both).
+						require(arities, d, 'r', 1, 0, field)
+						require(arities, d, 'r', 2, 0, field)
+						require(arities, d, 'r', 2, 1, field)
 					}
-					require(arities, d, 'q', 0, "("+atom+", int)")
+					require(arities, d, 'q', 1, 0, "("+atom+", int)")
 					if atom != "T" && atom != "U" {
-						require(arities, d, 'd', 0, atom)
+						require(arities, d, 'd', 1, 0, atom)
 					}
 				}
 			}

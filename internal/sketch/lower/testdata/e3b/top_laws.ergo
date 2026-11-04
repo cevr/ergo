@@ -1,0 +1,48 @@
+// law-top sweep program: top-level laws beside tests and main. One law
+// alone uses an error type, a generic instance and a std package, so a
+// build that read the law would declare them (spec Risk 2). The test build
+// runs the tests and no law; the run build runs main only.
+import slice
+
+type Gone {}
+
+type Box[T] { V T }
+
+func wrap[T](v T) Box[T] {
+	Box{V: v}
+}
+
+func double(n int) int {
+	n + n
+}
+
+// DoubleIsSum: doubling is adding a number to itself.
+law DoubleIsSum(n int) { double(n) == n + n }
+
+law Alone(n int, s string) {
+	let f = func() int fails Gone { return Gone }
+	let v = f() catch {
+	case Gone:
+		n
+	}
+	let xs = slice.WithCapacity[int](n)
+	v == n && wrap(s).V == s && len(xs) == 0
+}
+
+test Doubles {
+	assert double(21) == 42
+}
+
+test DoubleEven(n int) {
+	assert double(n) % 2 == 0
+}
+
+func main() needs Console {
+	Console.Println("\(double(21))")
+}
+
+// run> 42
+// test> ok Doubles
+// test> ok DoubleEven (100 cases)
+// test> PASS (2 tests)
+// test exit 0

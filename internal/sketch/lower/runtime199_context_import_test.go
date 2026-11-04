@@ -71,8 +71,8 @@ func Get() Conn { Conn{n: 1} }
 				t.Fatalf("want one located refusal, got %v", err)
 			}
 			r := refused.Refusals[0]
-			if r.Line != 2 || r.Column != 20 || !strings.Contains(r.Message, "a with of an imported context is lowered after check-v1 stage B") {
-				t.Fatalf("refusal %d:%d %q, want 2:20 naming stage B", r.Line, r.Column, r.Message)
+			if r.Line != 2 || r.Column != 20 || !strings.Contains(r.Message, "a with of an imported context is lowered when 196b lowers packages") {
+				t.Fatalf("refusal %d:%d %q, want 2:20 naming 196b", r.Line, r.Column, r.Message)
 			}
 		})
 	}

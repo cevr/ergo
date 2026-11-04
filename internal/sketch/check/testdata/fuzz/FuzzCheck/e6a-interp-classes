@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Card { n int }\ntype Celsius float64\ntype Warm Celsius\ntype Fault {}\n\nfunc g(s string) int fails Fault {\n\tlen(s)\n}\n\nfunc f[T ordered](c Card, t Warm, x T, h escaping func(n int) int, p *Card, m Map[string, int], o Option[int]) int fails Fault {\n\tlet k = func(v Card) string { \"<\\(v)>\" }\n\ttry g(\"a \\(c) \\(t) \\(x) \\(h) \\(p) \\(\"n \\(m) \\(c.n)\") \\(k(c)) \\(o)\")\n}\n")

@@ -71,7 +71,18 @@ func (c *checker) contextBinding(t Type) (*ContextBinding, string) {
 	if key == nil || text == nil {
 		return nil, fmt.Sprintf("%s's contextKey and contextText are operations, not functions on the type", n)
 	}
-	return &ContextBinding{Type: t, Key: key, Text: text}, ""
+	cb := &ContextBinding{Type: t, Key: key, Text: text}
+	// A generic protocol function is instantiated at the operand's type
+	// arguments, as a dot call's receiver binds them (D-D8), so the
+	// lowering calls the instance, with its witnesses, like any call.
+	var why string
+	if cb.KeyInst, why = c.witnessInstance(key, receiverTypeArgs(n, key)); why != "" {
+		return nil, why
+	}
+	if cb.TextInst, why = c.witnessInstance(text, receiverTypeArgs(n, text)); why != "" {
+		return nil, why
+	}
+	return cb, ""
 }
 
 // contextProtocol is the protocol as an interface: contextKey() string and

@@ -1,8 +1,16 @@
-// out: {{}}
+// out: node end
 type Node { Next Link }
 type End {}
 type Link = Node | End
+func linkText(l Link) string {
+	match l {
+	case Node as n:
+		return "node " + linkText(n.Next)
+	case End:
+		return "end"
+	}
+}
 func main() needs Console {
 	let node = Node{Next: End}
-	Console.Println("\(node)")
+	Console.Println("\(linkText(node))")
 }

@@ -1,0 +1,50 @@
+{
+  "header": "fixture.h",
+  "header_sha256": "57ef22281a09d923747109e92dd3fcc6f2df61ae347a384349cda0e92c838215",
+  "go": {
+    "package": "fixture",
+    "import_path": "ergo.local/bind/fixture"
+  },
+  "prefixes": {
+    "function": "fx_",
+    "macro": "FX_",
+    "type": "fx_"
+  },
+  "status": {
+    "type": "fx_status",
+    "macro_prefix": "FX_",
+    "success": "FX_OK",
+    "exclude": [
+      {"name": "FX_SMALL", "why": "a limit of the constant forms (INT8_C gives int), not a status code"},
+      {"name": "FX_WIDE", "why": "a limit of the constant forms (UINT16_C gives int), not a status code"},
+      {"name": "FX_HEX", "why": "a hex constant of the constant forms, not a status code"},
+      {"name": "FX_ALIAS", "why": "an alias of FX_STALE_HANDLE; one code has one name"}
+    ]
+  },
+  "abi": {
+    "function": "fx_abi_version",
+    "macro": "FX_ABI_VERSION"
+  },
+  "handles": [
+    {
+      "type": "fx_context",
+      "create": "fx_context_create",
+      "out": "out_context",
+      "destroy": "fx_context_destroy",
+      "thread": "owner"
+    }
+  ],
+  "autofill": [
+    {"field": "struct_size", "value": "size"},
+    {"field": "abi_version", "value": "abi"}
+  ],
+  "buffers": {
+    "length_names": ["count", "{name}_count", "{stem}_count", "{name}_length", "{name}_len"],
+    "byte_length_names": ["byte_count", "{name}_bytes", "{stem}_byte_count"],
+    "capacity_names": ["capacity"],
+    "count_names": ["out_count"],
+    "out_prefix": "out_"
+  },
+  "exceptions": [],
+  "skips": []
+}

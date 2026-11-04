@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Money { cents int }\n\nfunc add(a Money, b Money) Money {\n\tMoney{cents: a.cents + b.cents}\n}\n\n// AddCommutes: the order does not matter.\nlaw AddCommutes(a Money, b Money) {\n\tadd(a, b) == add(b, a)\n}\n\ntest Adds {\n\tassert add(Money{cents: 1}, Money{cents: 2}) == Money{cents: 3}\n}\n\nlaw Adds(a Money) { a == a }\n\ntype MoneyLaws {\n\tlaw Sum(a Money, b Money) { add(a, b) },\n}\n\nfunc main() {}\n")

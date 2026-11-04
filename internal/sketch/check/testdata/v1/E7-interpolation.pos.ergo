@@ -1,0 +1,7 @@
+// 196s: `"…\(e)…"` interpolates an expression; each part has a text form
+// (spec D-E6: the basic types and types defined over them in v1).
+type Celsius float64
+
+func line(id string, n int, ok bool, t Celsius, d duration) string {
+	"ok \(id) after \(n + 1) tries: \(ok) \(t) \(d) \(len(id))"
+}

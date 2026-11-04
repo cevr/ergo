@@ -209,12 +209,7 @@ func (fc *funcCtx) pattern(p *check.Pattern, val string, t check.Type, site synt
 			fc.pattern(f.Pattern, inner+"."+goName, ft, site, tests, binds)
 		}
 	case check.PatTuple:
-		tup, ok := t.(*check.Tuple)
-		if !ok {
-			if n, isNamed := t.(*check.Named); isNamed {
-				tup, ok = n.Underlying().(*check.Tuple)
-			}
-		}
+		tup, ok := underlying(t).(*check.Tuple)
 		if !ok || len(tup.Types) != len(p.Elems) {
 			ice(site, "a tuple pattern of %d elements against %s", len(p.Elems), t)
 		}
@@ -255,6 +250,16 @@ func (fc *funcCtx) narrow(val string, t, to check.Type) string {
 
 // tupleField is the Go field name of a tuple's i-th element.
 func tupleField(i int) string { return "F" + strconv.Itoa(i) }
+
+// underlying is the type t is defined over, at every level of definition,
+// or t itself. A value of a type defined over a tuple is a Go value of a
+// defined struct type, so its elements are read as its fields (C45).
+func underlying(t check.Type) check.Type {
+	if n, ok := t.(*check.Named); ok {
+		return n.Underlying()
+	}
+	return t
+}
 
 // isHelper is the generic Go function that reports whether an interface
 // value holds a type, emitted once.
@@ -301,7 +306,7 @@ func (fc *funcCtx) letPattern(spec *syntax.VarSpec) {
 		bindAll(binds)
 	case spec.Pattern == nil && len(spec.Values) == 1 && len(spec.Names) > 1:
 		x := spec.Values[0]
-		tup, ok := fc.typeOf(x).(*check.Tuple)
+		tup, ok := underlying(fc.typeOf(x)).(*check.Tuple)
 		if !ok || len(tup.Types) != len(spec.Names) {
 			refuse(spec, "this let of several names is lowered after check-v1 stage D (the Map rule)")
 		}

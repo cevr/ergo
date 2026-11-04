@@ -1,0 +1,35 @@
+// 196x: `extern go` binds a Go function with written rows; a context is a
+// value bound by `let` (package-level or local) and used by `with`, which
+// takes one or more contexts (spec D-E5: `with A, B { b }` is
+// `with A { with B { b } }`).
+extern go strings.ToUpper func Upper(s string) string
+
+type Greeter {
+	Greet(name string) string,
+}
+
+type Loud {}
+type Plain {}
+
+func Greet(_ Loud, name string) string {
+	Upper(name)
+}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+let Live = context {
+	Greeter: Loud,
+}
+
+func main() needs Console {
+	let quiet = context { Greeter: Plain }
+	Console.Println(with Live { Greeter.Greet("ada") })
+	with Live, quiet {
+		Console.Println(Greeter.Greet("bob"))
+	}
+	with context { Greeter: Plain } {
+		Console.Println(Greeter.Greet("cy"))
+	}
+}

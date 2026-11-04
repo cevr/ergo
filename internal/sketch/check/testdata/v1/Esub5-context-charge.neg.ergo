@@ -1,0 +1,22 @@
+// Stage E5 (spec D-E5): a local context's provider expressions are
+// charged at each with that names it; a service they need and the function
+// does not declare is S102 at that with (plan open point 5).
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+func run() string {
+	let w = context { Greeter: make() }
+	with w { Greeter.Greet("ada") } // want S102
+}

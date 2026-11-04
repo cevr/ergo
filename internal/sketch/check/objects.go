@@ -124,17 +124,27 @@ type capBinding struct {
 func (o *capBinding) name() string    { return o.tn.Name }
 func (o *capBinding) pos() syntax.Pos { return o.at }
 
-// Context is a named context.
+// Context is a context: a named context (Decl), an inline context literal
+// (Lit), or a local context, the literal a body's `let x = context { … }`
+// binds (Lit, Local; rows.md, Context 9). A local context is a recipe: one
+// object, made by the context pass, shared by every with that names it.
 type Context struct {
 	Name string
 	Pos  syntax.Pos
 	Decl *syntax.ContextDecl
-	// Lit is the syntax of an inline context, nil for a named context. Both
-	// share the binding summary and ownership facts.
-	Lit   *syntax.ContextLit
-	file  *fileInfo
-	binds *capSet // capabilities the context binds; nil until resolved
-	own   *capSet // the context's own entries (contextSummaries)
+	// Lit is the syntax of an inline or a local context, nil for a named
+	// context. All share the binding summary and ownership facts.
+	Lit *syntax.ContextLit
+	// Local marks a local context: Name is its let's name, and Lit the
+	// literal the let binds.
+	Local bool
+	// needs and fails are a local context's summary: the capabilities and
+	// the failures its provider expressions charge, checked once at its let
+	// and charged at each with that builds it (rows.md, Context 9).
+	needs, fails *Row
+	file         *fileInfo
+	binds        *capSet // capabilities the context binds; nil until resolved
+	own          *capSet // the context's own entries (contextSummaries)
 	// unknown marks a context that embeds, directly or not, a context that does
 	// not exist (reported at the embedding): what it binds is unknown, so
 	// a with of it discharges everything (D3; M18).
@@ -144,8 +154,9 @@ type Context struct {
 	budget bool
 	pkg    *Package
 	// Entries are the context's own entries as written, in source order, made
-	// when its body is checked: its provider entries, and an entry per
-	// embedding that points to the embedded context. Provider reads the
+	// when its body is checked (a named, inline or local context alike): its
+	// provider entries, and an entry per embedding that points to the
+	// embedded context. Provider reads the
 	// resolved bindings, shared with the contexts that embed it.
 	Entries []*ContextEntry
 	// Overrides are this context's own replace overrides, so a replaced

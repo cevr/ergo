@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Card { n int }\ntype Pick = Yes{} | No{}\ntype Bad {}\n\nfunc get() int fails Bad {\n\t1\n}\n\nfunc show() string fails Bad {\n\t\"a \\(get()) b \\(try get())\"\n}\n\nfunc main() needs Console {\n\tlet c = Card{n: 1}\n\tlet p Pick = Yes\n\tlet z complex128\n\tConsole.Println(\"c=\\(c)\")\n\tConsole.Println(\"p=\\(p)\")\n\tConsole.Println(\"xs=\\([]int{1, 2})\")\n\tConsole.Println(\"z=\\(z)\")\n\tConsole.Println(\"t=\\((1, 2))\")\n\tConsole.Println(\"\\(c) \\(c.n + \"x\") \\(c.n) \\(c)\")\n}\n")

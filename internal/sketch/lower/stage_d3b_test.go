@@ -481,30 +481,21 @@ func f() int fails timeout.Expired needs Scheduler {
 	}
 }
 
-// TestInterpolationOfOtherTypesRefused: a value of a type that is not basic
-// (a record, a defined type) is check-v1 stage E's: a located refusal at the
-// value, never Go's %v of a lowered representation.
-func TestInterpolationOfOtherTypesRefused(t *testing.T) {
-	cases := []struct {
-		name, src string
-		line, col int
-	}{
-		{"record", "type P { X int }\nfunc f(p P) string {\n\t\"p \\(p)\"\n}\n", 3, 7},
-		{"defined", "type Celsius int\nfunc f(c Celsius) string {\n\t\"\\(c) C\"\n}\n", 3, 5},
+// TestInterpolationOfOtherTypes: a value of a type that is not basic is
+// never Go's %v of a lowered representation. Since check-v1 stage E6a
+// (D-E6) a record is refused by the checker at the value (S109, #49), so it
+// never reaches the lowering, and a type defined over a basic type lowers
+// as its basic value.
+func TestInterpolationOfOtherTypes(t *testing.T) {
+	o := lowerSource("r", "type P { X int }\nfunc f(p P) string {\n\t\"p \\(p)\"\n}\n", false)
+	if len(o.diags) != 1 || o.diags[0].Code != "S109" || o.diags[0].Line != 3 || o.diags[0].Column != 7 || !strings.Contains(o.diags[0].Message, "#49") {
+		t.Fatalf("record: want one S109 naming #49 at 3:7; got %v", o.diags)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			o := lowerSource("r", tc.src, false)
-			if len(o.diags) != 0 {
-				t.Fatalf("want a clean check; got %v", o.diags)
-			}
-			if o.panicked != nil || len(o.refused) == 0 {
-				t.Fatalf("want a refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
-			}
-			r := o.refused[0]
-			if r.Line != tc.line || r.Column != tc.col || !strings.Contains(r.Message, "check-v1 stage E") {
-				t.Fatalf("want a refusal at %d:%d naming check-v1 stage E; got %+v", tc.line, tc.col, r)
-			}
-		})
+	o = lowerSource("r", "type Celsius int\nfunc f(c Celsius) string {\n\t\"\\(c) C\"\n}\n", false)
+	if len(o.diags) != 0 || o.panicked != nil || len(o.refused) != 0 || o.err != nil {
+		t.Fatalf("defined: want a clean lowering; got %v, refusals %v, panic %v, err %v", o.diags, o.refused, o.panicked, o.err)
+	}
+	if !strings.Contains(o.mainGo(), "strconv.AppendInt(make([]byte, 0, 20), int64(c), 10)") {
+		t.Fatalf("defined: want c converted to int64 and appended:\n%s", o.mainGo())
 	}
 }

@@ -132,7 +132,7 @@ func Now(f Fixed) int64 { return f.t }
 let W = context provides Ticker needs Log { Ticker: Fixed{t: 1} }
 func main() {}
 `, []string{"S109:6", "S109:6"}},
-	{"context literal", "a context literal outside with is 196x's, with no cascade at its use", `
+	{"context literal", "a local context (E5): checked at its let, built at its with; a literal elsewhere is S108, with no cascade", `
 type Ticker { Now() int64 }
 type Fixed { t int64 }
 func Now(f Fixed) int64 { return f.t }
@@ -140,8 +140,10 @@ func f() int64 {
 	let w = context { Ticker: Fixed{t: 1} }
 	return with w { Ticker.Now() }
 }
+func g() int64 { return use(context { Ticker: Fixed{t: 2} }) }
+func use(n int64) int64 { n }
 func main() {}
-`, []string{"S109:6"}},
+`, []string{"S108:9"}},
 	{"inline context header", "an inline context's provides", `
 type Ticker { Now() int64 }
 type Fixed { t int64 }
@@ -175,7 +177,7 @@ let W = context { Log: Quiet }
 func f() { with (W) { Log.Write("x") } }
 func main() {}
 `, nil},
-	{"with several contexts", "with A, B is 196x's", `
+	{"with several contexts", "with A, B is with A { with B { … } } (E5)", `
 type Log { Write(s string) }
 type Quiet {}
 func Write(q Quiet, s string) {}
@@ -183,7 +185,7 @@ let A = context { Log: Quiet }
 let B = context { Log: Quiet }
 func f() { with A, B { Log.Write("x") } }
 func main() {}
-`, []string{"S109:7"}},
+`, nil},
 	{"record type", "a record and an empty record", `
 type P { X int, Y int }
 type E {}
@@ -716,6 +718,22 @@ type Monoid {
 }
 func main() {}
 `, nil},
+	{"law", "a documented top-level law", `
+func add(a int, b int) int { a + b }
+// AddCommutes: the order of the operands does not matter.
+law AddCommutes(a int, b int) {
+	assert true
+	add(a, b) == add(b, a)
+}
+func main() {}
+`, nil},
+	{"law", "a type with laws and no operations", `
+func add(a int, b int) int { a + b }
+type AddLaws {
+	law AddCommutes(a int, b int) { add(a, b) == add(b, a) },
+}
+func main() {}
+`, []string{"S108:3"}},
 	{"machine", "a machine type with documented entries", `
 type Closed {}
 type Open {}
