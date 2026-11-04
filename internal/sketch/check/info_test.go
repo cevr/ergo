@@ -48,15 +48,15 @@ func infoCorpus(t *testing.T) map[string]string {
 // entry, every match and catch a Matches entry, every for-in a Loops entry
 // and every with a Withs entry. Declarations count too: every declared
 // name (function, type, context, type parameter, parameter, record field,
-// operation and operation parameter) has a Defs entry, and every named
-// context's providers are expressions with an Entries entry and, for one
-// capability, an Implicit conversion. Names that denote no object are not
-// identifiers of the contract: a field or operation name after a dot or
-// before a colon in a record literal, a package name before a dot, and the
-// blank `_`. An inline context's entries are stage E's (196x), so a with's
-// argument is exempt. Invariant 2 holds for every Types entry, but the
-// name in an explicit instantiation Fn[int] keeps its generic type, as in
-// go/types.
+// operation and operation parameter) has a Defs entry, and every context's
+// providers, named, local or inline, are expressions with an Entries entry
+// and, for one capability, an Implicit conversion (bodyGaps). Names that
+// denote no object are not identifiers of the contract: a field or
+// operation name after a dot or before a colon in a record literal, a
+// package name before a dot, a named context's name as a with operand or
+// an embedding, and the blank `_`. Invariant 2 holds for every Types entry,
+// but the name in an explicit instantiation Fn[int] keeps its generic type,
+// as in go/types.
 func infoGaps(file *syntax.File, src string, info *Info) []string {
 	var gaps []string
 	at := func(n syntax.Node, what string) {
@@ -69,8 +69,8 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 	calledIndex := map[*syntax.IndexExpr]bool{} // Fn[int] called: its call holds the instance
 	var own map[*TypeParam]bool                 // the enclosing declaration's type parameters
 	// skip marks a subtree that holds no value expression: a written type,
-	// a pattern (Patterns holds it) or a with's context (Withs holds it; an
-	// inline context's entries are stage E's).
+	// a pattern (Patterns holds it), a context entry's key or a with's
+	// context name (Withs holds it).
 	skip := func(n syntax.Node, objects bool) {
 		syntax.Inspect(n, func(m syntax.Node) bool {
 			if x, ok := m.(syntax.Expr); ok {
@@ -155,12 +155,107 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 		}
 	}
 	var visit func(n syntax.Node) bool
+	// bodyGaps checks a context's body against its Context, a named, local
+	// or inline context alike (spec D-A4; review M4; check-v1 E5, C33): each
+	// provider is an expression of the contract, its entry is in the
+	// context's Entries with a conversion per capability, a provider of one
+	// capability has its Implicit conversion when its type is not the
+	// capability, and each embedding has its embedded Entries entry; an
+	// embedded local context's name has its Uses entry, and a key names a
+	// capability, no value. visitValues walks the providers, which a body's
+	// walk reaches by itself.
+	bodyGaps := func(where syntax.Node, body *syntax.ContextBody, context *Context, visitValues bool) {
+		entries := map[syntax.Expr]*ContextEntry{}
+		embeds := 0
+		for _, e := range context.Entries {
+			if e.Provider != nil {
+				entries[e.Provider] = e
+			} else if e.Embedded != nil {
+				embeds++
+			}
+		}
+		wantEmbeds := 0
+		for _, e := range body.Entries {
+			if e.Kind == syntax.ContextEmbed {
+				wantEmbeds++
+				if id, ok := e.Key.(*syntax.Ident); ok {
+					notValue[id] = true
+					if w, local := info.Uses[id].(*Context); local && !w.Local {
+						at(id, "an embedding whose Uses entry is not a local context")
+					} else if !local {
+						notObject[id] = true
+					}
+				}
+				continue
+			}
+			skip(e.Key, false)
+			for _, k := range e.Keys {
+				skip(k, false)
+			}
+			if visitValues {
+				syntax.Inspect(e.Value, visit)
+			}
+			entry := entries[e.Value]
+			switch {
+			case entry == nil:
+				at(e.Value, "a context provider with no Entries entry")
+			case len(entry.Conversions) != len(entry.Caps) || len(entry.Caps) != 1+len(e.Keys):
+				at(e.Value, fmt.Sprintf("a context entry with %d capabilities and %d conversions", len(entry.Caps), len(entry.Conversions)))
+			case len(entry.Caps) == 1 && entry.Conversions[0].Kind != 0:
+				if _, ok := info.Implicit[e.Value]; !ok {
+					at(e.Value, "a context provider with no Implicit conversion")
+				}
+			}
+		}
+		if embeds != wantEmbeds {
+			at(where, fmt.Sprintf("a context with %d embeddings and %d embedded Entries", wantEmbeds, embeds))
+		}
+		// Each capability the context binds has a provider entry that
+		// lists it (Context.Provider), and each override names two
+		// provider entries of one capability, the later its own.
+		context.EachProvider(func(cap Type, e *ContextEntry) bool {
+			if e == nil || e.Provider == nil || !listsCap(e, cap) {
+				at(where, "a context whose entry for "+typeString(cap)+" does not provide it")
+			}
+			return true
+		})
+		for _, o := range context.Overrides {
+			if o.Entry == nil || o.By == nil || o.Entry.Provider == nil || o.By.Provider == nil || !listsCap(o.Entry, o.Cap) || !listsCap(o.By, o.Cap) || entries[o.By.Provider] != o.By {
+				at(where, "a context with an override whose entries do not both list its capability")
+			}
+		}
+	}
+	// litGaps checks a local or inline context literal, which has no Types
+	// entry: its parentheses and itself are no values.
+	litGaps := func(x syntax.Expr, context *Context) {
+		for p, ok := x.(*syntax.ParenExpr); ok; p, ok = x.(*syntax.ParenExpr) {
+			notValue[p] = true
+			x = p.X
+		}
+		lit := x.(*syntax.ContextLit)
+		notValue[lit] = true
+		if context == nil || context.Lit != lit {
+			at(lit, "a context literal with no Context object")
+			return
+		}
+		bodyGaps(lit, lit.Body, context, false)
+	}
 	visit = func(n syntax.Node) bool {
 		switch n := n.(type) {
 		case *syntax.DeclStmt:
 			for _, spec := range n.Decl.Specs {
 				if spec.Type != nil {
 					skip(spec.Type, false)
+				}
+				if lit := localContextLit(spec); lit != nil {
+					w, _ := info.Defs[spec.Names[0]].(*Context)
+					if w == nil || !w.Local {
+						at(spec, "a local context with no local Context in Defs")
+						skip(spec.Values[0], true)
+						continue
+					}
+					litGaps(spec.Values[0], w)
+					continue
 				}
 				if spec.Pattern != nil {
 					pattern(spec.Pattern)
@@ -298,11 +393,29 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			if id, ok := n.Fun.(*syntax.Ident); ok && id.Name == "with" {
 				notObject[id] = true
 				notValue[id] = true
-				if info.Withs[n] == nil {
+				w := info.Withs[n]
+				if w == nil {
 					at(n, "a with with no Withs entry")
 				}
+				// One With per operand (With.Next): a context literal is
+				// checked as a context, a context's name is no value (a
+				// local's has its Uses entry), and a context value is an
+				// expression with its facts.
 				for _, a := range n.Args {
-					skip(a, true)
+					switch {
+					case w == nil:
+						skip(a, true)
+					case len(w.Contexts) == 0:
+					case isContextLit(a):
+						litGaps(a, w.Contexts[0])
+					default:
+						id, _ := unparen(a).(*syntax.Ident)
+						_, local := info.Uses[id].(*Context)
+						skip(a, !local)
+					}
+					if w != nil {
+						w = w.Next
+					}
 				}
 			}
 		case *syntax.FuncLit:
@@ -439,12 +552,7 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 				}
 			}
 		case *syntax.ContextDecl:
-			// A named context (spec D-A4; review M4): each provider is an
-			// expression of the contract, its entry is in the context's
-			// Entries with a conversion per capability, and a provider of
-			// one capability has its Implicit conversion when its type is
-			// not the capability. An inline context's entries are stage E's
-			// (196x): TestInfoComplete exempts them (the with case above).
+			// A named context (spec D-A4; review M4).
 			own = map[*TypeParam]bool{}
 			declared(d.Name, "the context")
 			context, _ := info.Defs[d.Name].(*Context)
@@ -452,67 +560,29 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 				at(d, "a named context with no Context object")
 				continue
 			}
-			entries := map[syntax.Expr]*ContextEntry{}
-			embeds := 0
-			for _, e := range context.Entries {
-				if e.Provider != nil {
-					entries[e.Provider] = e
-				} else if e.Embedded != nil {
-					embeds++
-				}
-			}
-			wantEmbeds := 0
-			for _, e := range d.Body.Entries {
-				if e.Kind == syntax.ContextEmbed {
-					wantEmbeds++
-					continue
-				}
-				syntax.Inspect(e.Value, visit)
-				entry := entries[e.Value]
-				switch {
-				case entry == nil:
-					at(e.Value, "a context provider with no Entries entry")
-				case len(entry.Conversions) != len(entry.Caps) || len(entry.Caps) != 1+len(e.Keys):
-					at(e.Value, fmt.Sprintf("a context entry with %d capabilities and %d conversions", len(entry.Caps), len(entry.Conversions)))
-				case len(entry.Caps) == 1 && entry.Conversions[0].Kind != 0:
-					if _, ok := info.Implicit[e.Value]; !ok {
-						at(e.Value, "a context provider with no Implicit conversion")
-					}
-				}
-			}
-			if embeds != wantEmbeds {
-				at(d, fmt.Sprintf("a named context with %d embeddings and %d embedded Entries", wantEmbeds, embeds))
-			}
-			// Each capability the context binds has a provider entry that
-			// lists it (Context.Provider), and each override names two
-			// provider entries of one capability, the later its own.
-			context.EachProvider(func(cap Type, e *ContextEntry) bool {
-				if e == nil || e.Provider == nil || !listsCap(e, cap) {
-					at(d, "a named context whose entry for "+typeString(cap)+" does not provide it")
-				}
-				return true
-			})
-			for _, o := range context.Overrides {
-				if o.Entry == nil || o.By == nil || o.Entry.Provider == nil || o.By.Provider == nil || !listsCap(o.Entry, o.Cap) || !listsCap(o.By, o.Cap) || entries[o.By.Provider] != o.By {
-					at(d, "a named context with an override whose entries do not both list its capability")
-				}
-			}
+			bodyGaps(d, d.Body, context, true)
 		}
 	}
-	// Each with of a named context holds one provider entry per discharged
+	// Each with operand of a context holds one provider entry per discharged
 	// capability: the entry its context's Provider returns, which lists it.
-	for x, w := range info.Withs {
-		if len(w.Contexts) == 0 {
-			continue // an inline context literal: stage E (196x)
-		}
-		if len(w.Entries) != len(w.Discharged) {
-			at(x, fmt.Sprintf("a with of %d capabilities with %d Entries", len(w.Discharged), len(w.Entries)))
-			continue
-		}
-		for i, d := range w.Discharged {
-			e := w.Entries[i]
-			if e == nil || e.Provider == nil || !listsCap(e, d) || w.Contexts[0].Provider(d) != e {
-				at(x, "a with whose entry for "+typeString(d)+" does not provide it")
+	// An operand of a context value discharges nothing.
+	for x, first := range info.Withs {
+		for w := first; w != nil; w = w.Next {
+			if len(w.Contexts) == 0 {
+				if len(w.Discharged) != 0 || w.Value == nil {
+					at(x, "a with operand with no context and no context value")
+				}
+				continue
+			}
+			if len(w.Entries) != len(w.Discharged) {
+				at(x, fmt.Sprintf("a with of %d capabilities with %d Entries", len(w.Discharged), len(w.Entries)))
+				continue
+			}
+			for i, d := range w.Discharged {
+				e := w.Entries[i]
+				if e == nil || e.Provider == nil || !listsCap(e, d) || w.Contexts[0].Provider(d) != e {
+					at(x, "a with whose entry for "+typeString(d)+" does not provide it")
+				}
 			}
 		}
 	}
@@ -525,6 +595,12 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 }
 
 // listsCap reports whether a provider entry lists cap among its keys.
+// isContextLit reports a context literal, through parentheses.
+func isContextLit(x syntax.Expr) bool {
+	_, ok := unparen(x).(*syntax.ContextLit)
+	return ok
+}
+
 func listsCap(e *ContextEntry, cap Type) bool {
 	k, ok := keyOf(cap)
 	if !ok {

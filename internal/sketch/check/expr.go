@@ -288,8 +288,11 @@ func (c *checker) expr0(x syntax.Expr, hint Type) operand {
 	case *syntax.CatchExpr:
 		return c.catch(x, hint, c.useOf(x) != useDiscard, false)
 	case *syntax.ContextLit:
-		// A context literal outside with (grammar.md, Expressions 8).
-		return c.outside(x, "a context literal (196x, extern and first-class contexts)")
+		// A context literal outside its places (grammar.md, Expressions 8;
+		// rows.md, Context 9): after `let x =` in a body, as a with operand,
+		// or in a package-level let, which are checked there.
+		c.errorf(x, CodeType, "%s", contextOutsideText)
+		return bad(x)
 	case *syntax.KeyValueExpr:
 		c.errorf(x, CodeType, "a key: value pair belongs in a composite literal")
 		return bad(x)
@@ -387,6 +390,11 @@ func (c *checker) ident(x *syntax.Ident) operand {
 	}
 	o := c.lookup(x.Name)
 	if o == nil {
+		if c.pkg.Contexts[x.Name] != nil {
+			// A named context: only a with operand or an embedding (rows.md,
+			// Context 9).
+			return c.contextValue(x)
+		}
 		if form, ok := removedBuiltins[x.Name]; ok {
 			c.errorf(x, CodeUnknown, "%s is not predeclared in Ergo; %s", x.Name, form)
 			return bad(x)
@@ -472,6 +480,10 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			return bad(x)
 		}
 		return operand{mode: modePkg, obj: o, typ: invalid}
+	case *Context:
+		// A local context: only a with operand or an embedding (rows.md,
+		// Context 9).
+		return c.contextValue(x)
 	case *Method:
 		// Only a law's operation scope holds an operation, and a call of
 		// one is checked before its callee (lawOpCall): every other use is

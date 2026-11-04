@@ -993,8 +993,9 @@ func (w *refWalker) expr(x syntax.Expr) {
 			// Lexical bindings precede the package's context namespace, by
 			// the same resolver as withArg, including parenthesised names.
 			w.visit(id)
-			for i, a := range x.Args {
-				if i > 0 || x.Trailing == nil {
+			for _, a := range x.Args {
+				// Every operand of `with A, B { … }` is one (rows.md, With 7).
+				if x.Trailing == nil {
 					// Without a block it is an error, and the arguments are
 					// checked as values (context.go with, silentArgs).
 					w.expr(a)

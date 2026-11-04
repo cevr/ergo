@@ -282,13 +282,22 @@ func (fp *footprinter) build(n *fpNode, w *With) {
 		return
 	}
 	fp.owners.add(root)
+	if root.Local {
+		// A local context's literal is at its let, not in this with: each of
+		// its own providers runs here, at every with that builds it.
+		for _, e := range root.Entries {
+			if e != nil && e.Provider != nil {
+				n.edges = append(n.edges, fp.entry(e))
+			}
+		}
+	}
 	for _, a := range w.Acquired {
 		ow := fp.owners.of[a.Entry]
 		switch {
 		case ow == nil:
 			n.opaque = true
 		case ow == root:
-			// Walked in this frame.
+			// Walked in this frame, or above for a local context.
 		case ow.pkg == fp.pkg:
 			n.edges = append(n.edges, fp.entry(a.Entry))
 		case ow.Decl != nil && providerInfo(ow) != nil:
@@ -310,6 +319,14 @@ func (fp *footprinter) walk(n *fpNode, root syntax.Node) {
 	n.walked = true
 	inspectFrame(fp.info, root, func(x syntax.Node, _ []*syntax.CallExpr) bool {
 		switch x := x.(type) {
+		case *syntax.DeclStmt:
+			// The let of a local context runs nothing: each with that
+			// builds it runs its providers (build).
+			for _, spec := range x.Decl.Specs {
+				if localContextLit(spec) != nil {
+					return false
+				}
+			}
 		case *syntax.RangeStmt:
 			// A for-in over a Seq calls the Seq, a function value, which
 			// calls the body back: unknown code runs here.
@@ -362,7 +379,10 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			n.opaque = true
 			return
 		}
-		fp.with(n, w)
+		// Each operand builds its own context (rows.md, With 7).
+		for ; w != nil; w = w.Next {
+			fp.with(n, w)
+		}
 	default:
 		panic(fmt.Sprintf("check: unknown call kind %d in footprint", c.Kind))
 	}

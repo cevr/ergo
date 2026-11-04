@@ -47,10 +47,12 @@ import (
 // needs reach an outer with's acquisitions before the outer one is
 // recorded.
 type withSite struct {
-	x     *syntax.CallExpr
-	file  *fileInfo
-	t     *target
-	outer []*withFrame // the frames of t around x, outermost first
+	x       *syntax.CallExpr
+	operand int   // the operand's index in x (rows.md, With 7)
+	w       *With // the operand's fact
+	file    *fileInfo
+	t       *target
+	outer   []*withFrame // the frames of t around the operand, outermost first
 }
 
 // contextOwners maps each entry to the context that declares it, through
@@ -79,10 +81,8 @@ func (o *contextOwners) add(w *Context) {
 
 func (c *checker) withOwnership() {
 	for _, s := range c.withSites {
-		if w := c.pkg.Info.Withs[s.x]; w != nil {
-			for _, context := range w.Contexts {
-				c.contextOwners.add(context)
-			}
+		for _, context := range s.w.Contexts {
+			c.contextOwners.add(context)
 		}
 	}
 	owners := c.contextOwners.of
@@ -111,20 +111,25 @@ func (c *checker) withOwnership() {
 	// they are published and imported ones from their packages.
 	fresh := providerFreshFunctions(roots, func(t Type) bool { return c.errorValueRow(t) != nil })
 	c.pkg.providerFresh = fresh
-	last := make(map[*syntax.CallExpr]int, len(c.withSites))
-	for i, s := range c.withSites {
-		last[s.x] = i
+	// A body checked twice records its sites twice: the last record of each
+	// operand is the one Info holds.
+	type operandKey struct {
+		x *syntax.CallExpr
+		i int
 	}
-	frames := map[*syntax.CallExpr]*withSite{}
+	last := make(map[operandKey]int, len(c.withSites))
+	for i, s := range c.withSites {
+		last[operandKey{s.x, s.operand}] = i
+	}
 	refused := map[*ContextEntry]bool{}
+	taskHeld := map[*syntax.CallExpr]bool{} // a with whose Task value is reported, once
 	for i := range c.withSites {
 		s := &c.withSites[i]
-		if last[s.x] != i {
+		if last[operandKey{s.x, s.operand}] != i {
 			continue
 		}
-		frames[s.x] = s
-		w := c.pkg.Info.Withs[s.x]
-		if w == nil || len(w.Contexts) == 0 || len(w.Entries) == 0 {
+		w := s.w
+		if len(w.Contexts) == 0 || len(w.Entries) == 0 {
 			continue
 		}
 		w.Acquired = c.acquire(w.Contexts[0], w.Entries, owners)
@@ -177,7 +182,7 @@ func (c *checker) withOwnership() {
 			}
 		}
 		if owning {
-			c.ownedBlock(s.x, w)
+			c.ownedBlock(s.x, w, taskHeld)
 		}
 	}
 	c.withSites = nil
@@ -314,12 +319,12 @@ func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
 			return
 		}
 		if found, node := f.binds.find(c.types, cap); found {
-			if f.site != nil {
+			if f.with != nil {
 				var e *ContextEntry
 				if node != nil {
 					e = node.entry
 				}
-				c.pkg.Info.Withs[f.site].discharge(cap, e)
+				f.with.discharge(cap, e)
 			}
 			return
 		}
@@ -542,9 +547,13 @@ func (fresh providerFreshness) expression(info *Info, x syntax.Expr) bool {
 // that need a capability x provides and a value of x that holds a Task
 // (rule 4). A function literal and the trailing block of a call other than
 // with are frames of their own: what they register ends with them, before
-// the block ends.
-func (c *checker) ownedBlock(x *syntax.CallExpr, w *With) {
-	if t := c.pkg.Info.Types[x]; t != nil && c.holdsTask(t) {
+// the block ends. w is the fact of one operand of x: the operands after it
+// are withs between it and its block (rows.md, With 7). taskHeld records
+// the withs whose Task value is reported, so a with of several owning
+// operands is reported once.
+func (c *checker) ownedBlock(x *syntax.CallExpr, w *With, taskHeld map[*syntax.CallExpr]bool) {
+	if t := c.pkg.Info.Types[x]; t != nil && c.holdsTask(t) && !taskHeld[x] {
+		taskHeld[x] = true
 		c.errorf(x, CodeType, "the value of this with holds a Task, which leaves the block that stops it before its providers close; wait on the Task inside the block (resources.md, Release before the end)")
 	}
 	// Acquisitions are topological: every dependency is visited before
@@ -582,13 +591,22 @@ func (c *checker) exitAction(n, x *syntax.CallExpr, w *With, between []*syntax.C
 	if sig == nil {
 		return
 	}
+	// binds reports whether an operand from v on, in its with, binds cap.
+	binds := func(v *With, cap Type) bool {
+		for ; v != nil; v = v.Next {
+			if len(v.Contexts) > 0 && v.Contexts[0].Provider(cap) != nil {
+				return true
+			}
+		}
+		return false
+	}
 	for _, cap := range c.types.resolve(sig.Uses).Elems() {
-		inner := false
+		inner := binds(w.Next, cap)
 		for _, y := range between {
-			if v := c.pkg.Info.Withs[y]; v != nil && len(v.Contexts) > 0 && v.Contexts[0].Provider(cap) != nil {
-				inner = true
+			if inner {
 				break
 			}
+			inner = binds(c.pkg.Info.Withs[y], cap)
 		}
 		if inner || !closed[w.Contexts[0].Provider(cap)] {
 			continue

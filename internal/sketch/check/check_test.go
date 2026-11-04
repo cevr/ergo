@@ -98,7 +98,7 @@ var negativeSpans = map[string][2]string{
 	"context-cycle":                      {"S108", "W"},
 	"context-entry-non-capability":       {"S104", "Order"},
 	"context-exposure-hides-entry":       {"S109", "provides Account"},
-	"context-literal-outside-with":       {"S109", "context { Store: Mem }"},
+	"context-literal-outside-with":       {"S108", "context { Store: Mem }"},
 }
 
 // TestNegativeSpans: each negative fixture's one diagnostic has the pinned

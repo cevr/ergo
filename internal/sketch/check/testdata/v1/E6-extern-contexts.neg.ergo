@@ -1,0 +1,25 @@
+// Spec D-E5: a context is bound by `let` and used by `with` or embedded;
+// any other use is S108. A provider that lacks an operation is S106.
+type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+type Mute {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func use(w int) int {
+	w
+}
+
+let Bad = context {
+	Greeter: Mute, // want S106
+}
+
+func main() {
+	let w = context { Greeter: Plain }
+	use(w) // want S108
+}
