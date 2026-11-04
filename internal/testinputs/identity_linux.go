@@ -34,15 +34,18 @@ func inode(info fs.FileInfo) (dev, ino uint64) {
 //
 //   - every directory of the checkout, from before the tests start: any
 //     change in it is a changed location, since the sandbox keeps the
-//     checkout read-only for the tree; a new hard link of a checkout file
-//     counts (its link count is an attribute);
+//     checkout read-only for the tree. A directory watch does not report a
+//     new hard link of a checkout file made in another directory (its link
+//     count changes, but the watch is on the directory, not the file): a
+//     known limit, docs/tooling.md;
 //   - every other directory a lookup passes that a process of this user can
 //     change, on a read-only mount: a directory on a writable mount is the
 //     tree's own scratch, whose changes the tree makes itself (a change
 //     there by a process outside the tree is not told apart: a known gap,
 //     which only cutting the tree off from such processes closes), and a
 //     directory that another user owns and no group or other may write
-//     cannot change by this user's processes;
+//     cannot change by this user's processes (a process of that user, such
+//     as a root service, can: it is not watched, a known limit);
 //   - the mount table of the namespace (/proc/self/mountinfo, which poll
 //     reports changed): the tree cannot mount, so a change of it during the
 //     run comes from outside, from a process that entered the namespace.

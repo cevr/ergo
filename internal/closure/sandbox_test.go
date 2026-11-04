@@ -24,7 +24,9 @@ import (
 // does not stop it, so the sweep does not infer from the sandbox that a path
 // names after the run what it named at access time. It classifies each path
 // by the access-time identity the observer recorded and fails closed where
-// the two differ (readLog, testinputs identity mode). The sandbox is a rule
+// the two differ (readLog, testinputs identity mode). That covers only part
+// of what a process outside the tree can do; the rest is a known limit
+// (docs/tooling.md, the unit sandbox-host-services). The sandbox is a rule
 // of construction, not an inference from the log:
 //
 //   - S1: every mount of the sandbox's mount namespace is read-only,

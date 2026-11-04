@@ -375,8 +375,11 @@ func readLog(data []byte, pwd string, roots []string, scratch string, id *access
 	res := newResolver(real...)
 	if id != nil {
 		// A change in the checkout that no access looked up: the tree may
-		// have read the object by another name (a hard link made during the
-		// run), which no line shows. It fails closed as an input of its own.
+		// have read the object by another name (a name added or moved in a
+		// checkout directory during the run), which no line shows. It fails
+		// closed as an input of its own. A hard link made outside the
+		// checkout changes no checkout directory, so no event shows it: a
+		// known limit (docs/tooling.md).
 		var unseen []string
 		for at := range id.changed {
 			if rel, inside := relative(at, real); inside && !id.visited(at) {
