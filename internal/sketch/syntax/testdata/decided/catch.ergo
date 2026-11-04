@@ -16,13 +16,13 @@ type Payments {
 	Authorize(order Order) Receipt fails Declined,
 }
 
-func Checkout(id string) Receipt fails NotFound | Declined needs Orders, Payments {
+func Checkout(id string) Receipt fails NotFound | Declined needs Orders | Payments {
 	let order = try Orders.Get(id)
 	Payments.Authorize(order)
 }
 
 // Partial: Declined is handled here, and NotFound escapes into the row of Settle.
-func Settle(id string) string fails NotFound needs Orders, Payments {
+func Settle(id string) string fails NotFound needs Orders | Payments {
 	let receipt = try Checkout(id) catch {
 	case Declined:
 		Receipt{ID: "none"}
@@ -31,7 +31,7 @@ func Settle(id string) string fails NotFound needs Orders, Payments {
 }
 
 // Total: every failure is handled, so Quote has no error row.
-func Quote(id string) string needs Orders, Payments {
+func Quote(id string) string needs Orders | Payments {
 	let receipt = Checkout(id) catch {
 	case NotFound:
 		Receipt{ID: "missing"}

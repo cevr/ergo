@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import queue\n\nextern go strings.ToUpper func Upper(s string) string\n\nfunc main() needs Console {\n\tlet a = Upper(\"x\")\n\tlet b = (Upper)(\"x\")\n\tlet c = ((Upper))(\"x\")\n\tlet q = queue.New[int](1)\n\tlet r = (queue.New[int])(1)\n\tq.Close()\n\tr.Close()\n\tConsole.Println(a + b + c)\n}\n")

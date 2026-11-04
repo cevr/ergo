@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import scope\n\nfunc main() needs Console {\n\tlet f = scope.OnExit[Console] // want S108\n\t_ = f\n}\n")

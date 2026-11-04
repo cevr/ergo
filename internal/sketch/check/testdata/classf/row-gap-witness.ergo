@@ -1,8 +1,8 @@
 type Fault[T] {}
 type Hold[T] { F func() fails Fault[T] }
 type Bang {}
-extern go fixture.mark func mark() fails Bang
-extern go fixture.newHold func newHold[T](x T) Hold[T]
+func mark() fails Bang { return Bang }
+func newHold[T](x T) Hold[T] { newHold(x) }
 let old = newHold(f).F
 func f() { return Bang }
 func F() { _ = Hold[func()]{func() fails Fault[func()] {}} }

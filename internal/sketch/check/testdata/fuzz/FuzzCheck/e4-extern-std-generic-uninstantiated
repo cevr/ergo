@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import queue\n\nfunc main() {\n\tlet mk = queue.New // want S108\n\t_ = mk\n}\n")

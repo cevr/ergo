@@ -17,7 +17,7 @@ type Log { Put(s string) }
 type Mem { V string }
 func Get(m Mem) string { return m.V }
 func Put(m Mem, s string) {}
-func Run() string needs Store, Log {
+func Run() string needs Store | Log {
 	Log.Put("x")
 	return Store.Get()
 }

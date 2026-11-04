@@ -31,7 +31,7 @@ func Find(p Postgres, id string) Order fails OrderNotFound {
 //     copied inside the build, but its type cannot escape the with().
 //   - Scope.Go starts a task the build owns and stops at release.
 // Both charge their needs rows to the constructor, so with() sees them.
-func OpenPostgres() Postgres fails ConnectFailed needs Config, Clock, Scheduler, build.Scope {
+func OpenPostgres() Postgres fails ConnectFailed needs Config | Clock | Scheduler | build.Scope {
 	let url = Config.String("DATABASE_URL")
 	let open = func() sql.Pool fails ConnectFailed {
 		return retry.On[ConnectFailed](retry.Exponential(200ms).Times(5)) { sql.Open(url) }
@@ -57,7 +57,7 @@ func keepWarm(pool sql.Pool) needs Clock {
 
 // The constructor picks an implementation at build time. Its cleanups were
 // registered inside OpenPostgres, so the interface result hides nothing.
-func OpenOrders() Orders fails ConnectFailed needs Config, Clock, Scheduler, build.Scope {
+func OpenOrders() Orders fails ConnectFailed needs Config | Clock | Scheduler | build.Scope {
 	if Config.String("ORDERS") == "memory" {
 		return MemoryOrders{}
 	}
@@ -71,7 +71,7 @@ let Live = context provides Orders {
 
 // Built once for the whole server. A defect in a release and a failure in
 // keepWarm are both kept in the exit cause.
-func main() fails ConnectFailed needs Clock, Scheduler, Console {
+func main() fails ConnectFailed needs Clock | Scheduler | Console {
 	return with Live {
 		serve(time.Minute)
 	}

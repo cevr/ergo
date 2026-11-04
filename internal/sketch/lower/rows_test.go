@@ -275,7 +275,7 @@ let Shared = context {
 	Store, Timer: Both{V: "one"},
 }
 
-func show() needs Console, Store {
+func show() needs Console | Store {
 	Console.Println(Store.Get())
 }
 

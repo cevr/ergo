@@ -1,4 +1,4 @@
 type Fault[T] { F T }
-extern go fixture.marker func marker[T]() fails Fault[T]
+func marker[T]() fails Fault[T] { try marker[T]() }
 func fail[T](x T) {return Fault{x}}
 func F() fails Fault[int] {return fail(1)}

@@ -1,5 +1,5 @@
 type Box[T] { M(T) }
-extern go fixture.BoxOf func BoxOf[T](x T) Box[T]
+func BoxOf[T](x T) Box[T] { BoxOf(x) }
 func Same[T](x T,y T) {}
 func a() {Same(BoxOf(a),BoxOf(b))}
 func b() {_ = a;Same(BoxOf(b),BoxOf(b))}

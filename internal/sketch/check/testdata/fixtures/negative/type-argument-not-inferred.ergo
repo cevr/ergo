@@ -1,5 +1,5 @@
 
-extern go fixture.zero func zero[A]() A
+func zero[A]() A { zero[A]() }
 
 func main() needs Console {
 	let x = zero() // want S108

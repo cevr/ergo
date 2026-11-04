@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Mine {}\n\nfunc Now(_ Mine) int64 { 0 }\n\nfunc use(c Clock) { _ = c.Now() }\n\nfunc main() {\n\tuse(Mine)\n}\n")

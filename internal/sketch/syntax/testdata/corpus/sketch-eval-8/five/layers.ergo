@@ -29,7 +29,7 @@ let Invoices = context {
 	Shared,
 }
 
-let App = context provides Account, Invoice { // exposes two; Store stays hidden, built once
+let App = context provides Account | Invoice { // exposes two; Store stays hidden, built once
 	Accounts,
 	Invoices,
 }
@@ -39,7 +39,7 @@ let Fixture = context {
 	App,
 }
 
-func labels() string needs Account, Invoice {
+func labels() string needs Account | Invoice {
 	return Account.Label() + ":" + Invoice.Label()
 }
 

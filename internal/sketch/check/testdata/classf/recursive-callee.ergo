@@ -1,5 +1,5 @@
 type Bang {}
-extern go fixture.mark func mark() fails Bang
+func mark() fails Bang { return Bang }
 func each(f func() fails Bang) { try f(); try a() }
 func a() { try mark(); return each(func() { return a() }) }
 func F() fails Bang { return a() }

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("func main() {\n\tlet xs = []int{1}\n\tlet f = xs.Append // want S104\n\t_ = f\n}\n")

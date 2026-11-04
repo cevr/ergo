@@ -1,7 +1,7 @@
 type Bang {}
 type Key[T] {}
-extern go fixture.KeyOf func KeyOf[T](x T) Key[T]
-extern go fixture.mark func mark() fails Bang
+func KeyOf[T](x T) Key[T] { Key[T] }
+func mark() fails Bang { return Bang }
 func f() int { let m = Map[Key[func() fails Bang], int]{h: 1}; return len(m) }
 let h = KeyOf(a)
 func a() fails Bang { try mark() }

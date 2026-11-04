@@ -11,7 +11,7 @@ type Gateway {
 	Charge(order string) string fails Declined,
 }
 
-func Pay(id string) string fails NotFound | Declined needs Orders, Gateway {
+func Pay(id string) string fails NotFound | Declined needs Orders | Gateway {
 	let order = try Orders.Find(id)
 	Gateway.Charge(order)
 }

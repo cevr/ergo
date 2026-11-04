@@ -50,29 +50,32 @@ func isClose(f *check.Func) bool {
 // the provider's value, in outer, the environment outside the with, where
 // the checker charged the release's needs. The Close's Go function masks
 // its own body (closeBody), so the call adds no mask, as no dispatch path
-// to a checked Close adds one. A Close this route cannot call by its Go
-// name is refused with its owner.
+// to a checked Close adds one. The checker refuses every Close this route
+// cannot call by its Go name (C29: S109 naming lower-v1 at the owning
+// with), so each is an internal error here.
 func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site syntax.Node) string {
 	cl := a.Close
 	if cl.Func == nil {
-		refuse(site, "a provider whose Close is an operation of its type is released after check-v1 stage E")
+		ice(site, "a provider whose Close is an operation of its type, which the checker refuses (C29)")
 	}
 	if len(cl.Func.Sig.TParams) > 0 {
-		refuse(site, "a provider whose Close is generic is released after check-v1 stage E")
+		ice(site, "a provider whose Close is generic, which the checker refuses (C29)")
 	}
 	if !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
 		ice(site, "a provider's Close with no checked Close identity")
 	}
 	fd := fc.l.useFunc(cl.Func, site)
 	if _, _, std := fc.l.stdBody(fd); std || fd.extern != "" {
-		refuse(site, "a provider whose Close is a std or extern function is released after check-v1 stage E")
+		// A Close takes a named type, outside a user extern's domain (C26),
+		// and no std package declares a Close function.
+		ice(site, "a provider whose Close is a std or extern function, which the checker refuses (C26)")
 	}
 	_, byPtr := cl.Func.Sig.Params[0].Type.(*check.Pointer)
 	_, ptrValue := cl.Receiver.(*check.Pointer)
 	recv := val
 	switch {
 	case byPtr && !ptrValue:
-		refuse(site, "a provider whose Close takes a pointer to its value is released after check-v1 stage E")
+		ice(site, "a provider whose Close takes a pointer to its value, which the checker refuses (C29)")
 	case !byPtr && ptrValue:
 		recv = "*" + val
 	}

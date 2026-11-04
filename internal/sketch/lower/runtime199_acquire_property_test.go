@@ -202,7 +202,7 @@ func (s *acqSeq) src() string {
 			}
 			row := ""
 			if len(needs) > 0 {
-				row = " needs " + strings.Join(needs, ", ")
+				row = " needs " + strings.Join(needs, " | ")
 			}
 			fmt.Fprintf(&b, "func nk%d_%d() %s%s {\n%s\t%s\n}\n", s.k, e, t, row, strings.Join(body, ""), t)
 		case en.ctor:
@@ -262,7 +262,7 @@ func (s *acqSeq) src() string {
 		all = append(all, s.cap(c))
 	}
 	fmt.Fprintf(&b, "func need%d() needs %s {}\nfunc silent%d() fails Fault needs Probe {\n\twith context { %s } { need%d() }\n}\n",
-		s.k, strings.Join(all, ", "), s.k, strings.Join(inline, ", "), s.k)
+		s.k, strings.Join(all, " | "), s.k, strings.Join(inline, ", "), s.k)
 	// The named twin (stage 3c r1 m1), run natively: the same entries in a
 	// named context, so its with is lowered through emitContext's builder. A named
 	// context is closed, so each inline constructor becomes a constructor that
@@ -308,7 +308,7 @@ func (s *acqSeq) src() string {
 			}
 		}
 		fmt.Fprintf(&b, "let M%d = context { N%d }\nfunc needN%d() needs %s {}\nfunc deep%d() needs Probe {\n\twith context { M%d } { needN%d() }\n}\n",
-			s.k, s.k, s.k, strings.Join(ncaps, ", "), s.k, s.k, s.k)
+			s.k, s.k, s.k, strings.Join(ncaps, " | "), s.k, s.k, s.k)
 	}
 	// The nested roots (stage 5a M1), run natively: the same inline with,
 	// nested inside an owning with of the named context W<k>, whose provider

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import slice\n\nfunc main() needs Console {\n\tlet xs = slice.WithCapacity[int](2)\n\tConsole.Println(\"\\(len(xs))\")\n}\n")

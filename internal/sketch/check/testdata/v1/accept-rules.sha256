@@ -1,11 +1,13 @@
 # Each testdata/v1/*.ergo is a byte-for-byte copy of the check-v1 acceptance
 # rule of the same name. Source: the orchestrator-owned acceptance tree,
 # /home/exedev/.cache/baton/wf10/check-v1/accept/rules/<name> (copied as each
-# stage lands; last synced at stage E3b round 1). TestV1Manifest requires each
+# stage lands; last synced at stage E4 round 1). TestV1Manifest requires each
 # copy to have its line here, with this hash. Detect drift from the source:
 #   cd /home/exedev/.cache/baton/wf10/check-v1/accept/rules && sha256sum -c <this file>
 # 196w: the D7-satisfaction copies spell the construct keyword context; the
 # source rules take the same rename when the orchestrator syncs them.
+# 196n: C4-rows.pos spells its capability rows with |; the source rule takes the
+# same respelling when the orchestrator syncs it.
 42d3415f36e25b15e3ec1c5d5f7db162c013549fea5e6d7134e4c23b24aa8bb4  A1-literal-context.neg.ergo
 e1e6669a8bb9c6c8ff7f6c2a43489acf828265cf1ba29bb60017c058c7a37b37  A1-literal-context.pos.ergo
 dbbdafd0840737ec447f29252d036748a640ed4ddbd1ce5699d20b85e7689627  A2-default-and-operands.neg.ergo
@@ -45,7 +47,7 @@ dcdf22bdab02dfb40b7fd012aa08c3a45d5956ef68b27edff992dacb907fcaa5  B9-tuples.pos.
 c92cb69b6261572ddf5923deb2b787384e48ae68d1b158c5ff6d089531956437  C3-match-expression.neg.ergo
 fc1f137a0c582b0f20fa491cd2279672d74a671bbc81a0bb563a57c0756a8edb  C3-match-expression.pos.ergo
 933f752299bd6f7ae298fa9ead0cea2370d492274e2348ee85928bd89155c474  C4-rows.neg.ergo
-f2eac6fbec5638e90a4626fbf88418f2178300a0d9f3a45c7cd3c8bd1140c531  C4-rows.pos.ergo
+9451ab34588325bbf2fff6cdf8b7241396b11a362d1d9cecfd7aec3648ca96b5  C4-rows.pos.ergo
 8bc3354e07a85f877b108fa45a3325520d76cb278c3f121671daf411bd82d2d6  C5-one-catch.neg.ergo
 97ccd99be7622a295df8385c3f213ae7bbf3fd3e852a3b4cc4a6c8ba2575c3ab  C5-one-catch.pos.ergo
 0f767f10b92ccbba65ea212ffa954dedf01b80d7855327f14cbe219934512fff  C6-break-in-match.neg.ergo
@@ -86,3 +88,5 @@ ad36a14e661cbecb97202ba13bc01524e268a06c795b1348a0130c870cc376ca  Esub1-instance
 a6dcbc09a9d61c412e3a17ef022e8c89452e4ad5613b9e4d3478ddf91db73c93  Esub1-instances.pos.ergo
 6182b87a0720eeb3d5001c5efa4a324fc34034d40a3aac95b0ff15b751431f97  Esub2-task-type-args.neg.ergo
 c1f91f94a70d53a83e9180ebcbffed0fd84eed9eeb048f701aff0faa50068caf  Esub2-task-type-args.pos.ergo
+a45f07fb90a6caa185a6e4a2087dfa3c754d7c013c8cb13ca6adc6d009720b0d  Esub4-extern-call-only.neg.ergo
+139b24048b77d6fb3dbc4bd14fbe95f48e491af9bc1ad0a9841f99c945f36b90  Esub4-extern-call-only.pos.ergo

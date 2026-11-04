@@ -414,7 +414,7 @@ func bodyComponents(n int, succ func(int) []int) []int {
 var expandingCases = []struct{ name, src string }{
 	{"self-slice", `func f[T](x T) { f([]T{x}) }`},
 	{"self-row", `type Fault[T] { Value T }
-extern go fixture.Mark func Mark() fails Fault[int]
+func Mark() fails Fault[int] { return Fault[int]{1} }
 func f[T](x T) {
 	try f([]T{x})
 	return Fault[T]{x}
@@ -425,7 +425,7 @@ func f[T](x T) fails Fault[T] {
 	return Fault[T]{x}
 }`},
 	{"mutual", `type Fault[T] { Value T }
-extern go fixture.Mark func Mark() fails Fault[int]
+func Mark() fails Fault[int] { return Fault[int]{1} }
 func f[T](x T) {
 	try g([]T{x})
 	return Fault[T]{x}

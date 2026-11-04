@@ -13,7 +13,7 @@ type Result {
 }
 
 // The deadline covers the headers and the body, as Go's context timeout does.
-func fetchOnce(url string) int fails Unauthorized | Failed | timeout.Expired needs http.Client, Scheduler {
+func fetchOnce(url string) int fails Unauthorized | Failed | timeout.Expired needs http.Client | Scheduler {
 	return timeout.After(2s) { get(url) }
 }
 
@@ -31,7 +31,7 @@ func get(url string) int fails Unauthorized | Failed needs http.Client {
 }
 
 // retry.On retries only the listed errors; Unauthorized passes straight through.
-func fetch(url string) Result fails Unauthorized needs http.Client, Scheduler {
+func fetch(url string) Result fails Unauthorized needs http.Client | Scheduler {
 	let n = try retry.On[Failed | timeout.Expired](retry.Exponential(100ms).Times(3)) { fetchOnce(url) } catch {
 	case Failed, timeout.Expired:
 		return Result{URL: url}
@@ -40,11 +40,11 @@ func fetch(url string) Result fails Unauthorized needs http.Client, Scheduler {
 }
 
 // The first Unauthorized exits fetchAll, and that exit stops the fetches still running.
-func fetchAll(urls []string) []Result fails Unauthorized needs http.Client, Scheduler {
+func fetchAll(urls []string) []Result fails Unauthorized needs http.Client | Scheduler {
 	return tasks.Map(urls, 8, fetch)
 }
 
-func main() fails Unauthorized needs http.Client, os.Args, Scheduler, Console {
+func main() fails Unauthorized needs http.Client | os.Args | Scheduler | Console {
 	let results = try fetchAll(Args.Rest())
 	let mut ok, total = (0, 0)
 	for r in results {

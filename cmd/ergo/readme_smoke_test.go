@@ -220,18 +220,20 @@ func TestReadmeSmoke(t *testing.T) {
 	// refused as a fence, before its content could hide anything.
 	t.Run("refuses-document-mutants", func(t *testing.T) {
 		t.Parallel()
-		const charge = "needs Accounts, Payments, Scheduler {"
+		const charge = "needs Accounts | Payments | Scheduler {"
 		const lock = "\t\tlet lock = try Accounts.Lock(card) // a resource: released on every exit, the timeout included\n"
 		if !strings.Contains(readme, "```go\n") || strings.Count(readme, charge) != 1 || strings.Count(readme, lock) != 1 {
 			t.Fatal("the mutant anchors are not in README.md once each; update them with the first snippet")
 		}
 		first := func(mutated string) string { return strings.Replace(readme, "```go\n", mutated, 1) }
 		uses := func(doc string) string {
-			return strings.Replace(doc, charge, "uses Accounts, Payments, Scheduler {", 1)
+			return strings.Replace(doc, charge, "uses Accounts | Payments | Scheduler {", 1)
 		}
 		const fence = "non-canonical fence"
 		for _, mutant := range []struct{ name, doc, want string }{
 			{"uses clause", uses(readme), "README go block 1: line 5, column 88: S001"},
+			// The comma spelling of the row is refused at its first comma (196n).
+			{"comma row", strings.Replace(readme, charge, "needs Accounts, Payments, Scheduler {", 1), "README go block 1: line 5, column 102: S001 a capability row separates its names with |"},
 			{"deferred Close", strings.Replace(readme, lock, lock+"\t\tscope.OnExit() { lock.Close() }\n", 1), "README go block 1: line 8: a resource releases itself"},
 			// The reviewer's round-2 cases (round-2-receipts).
 			{"indented tilde marker before a go block with uses", readme + "\n    ~~~text\n\n```go\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},

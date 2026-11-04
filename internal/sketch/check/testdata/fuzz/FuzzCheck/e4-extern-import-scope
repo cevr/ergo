@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import scope\n\nfunc main() needs Console {\n\tscope.OnExit() { Console.Println(\"bye\") }\n}\n")

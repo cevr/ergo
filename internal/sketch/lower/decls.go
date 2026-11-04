@@ -638,8 +638,8 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 // nil. Collection intrinsics bind to the prelude declaration and its exact
 // signature. The finite host-provider bridge instead resolves the declared
 // Go target through runtimeBindings; BodyOf supplies its hidden arguments.
-// Both paths require a prelude declaration. General user externs and host
-// signature loading follow check-v1 stage E.
+// Both paths require a prelude declaration. A user extern has no Go body:
+// each call of it is a direct call of its Go target (hostCall).
 //
 // The body is Go statements, one per line, each indented by one tab.
 func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) string {
@@ -726,16 +726,14 @@ func isBasic(t check.Type, k check.BasicKind) bool {
 }
 
 // useFunc is a use of f at site: it refuses a function with no Go body and
-// queues a library function's emission. A user extern is refused at its
-// declaration; a library one, whose declaration is in another file, where
-// it is used.
+// queues a library function's emission. A user extern has no Go
+// declaration: its call is a direct call of its Go target (hostCall).
 func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 	fd := l.funcDecl(f)
 	switch {
+	case userExtern(f):
+		return fd
 	case fd.extern != "" && l.intrinsic(f) == nil:
-		if !fd.library {
-			refuse(f.Decl, "a user extern go binding (here of %s) is lowered after check-v1 stage E (196x); this lowering implements an extern target only for the prelude declaration it binds", fd.extern)
-		}
 		if _, _, ok := l.stdBody(fd); ok {
 			return fd // called at its site, its runtime/v1 body directly (stdCall)
 		}

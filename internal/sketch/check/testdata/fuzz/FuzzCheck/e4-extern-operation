@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type A { Use() }\ntype Releaser { Use(), Close() }\ntype R {}\nfunc Use(_ R) {}\nfunc Close(_ R) {}\nfunc make() Releaser { R }\nlet W = context { A: make() } // want S109\nfunc main() { with W { A.Use() } }\n")

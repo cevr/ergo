@@ -33,18 +33,28 @@ var previewRenames = map[string]string{
 
 var previewWord = regexp.MustCompile(`[A-Za-z]+`)
 
-// readPreview returns the preview's text with previewRenames applied.
+// previewRow is a capability row in the preview's comma spelling. The
+// preview keeps it as recorded; the tests read it in the pipe spelling
+// (196n). Every row of the preview is a declaration's, so its commas are
+// the row's.
+var previewRow = regexp.MustCompile(`\b(needs|provides) [A-Za-z_][A-Za-z0-9_.]*(, [A-Za-z_][A-Za-z0-9_.]*)+`)
+
+// readPreview returns the preview's text with previewRenames and the pipe
+// spelling of rows applied.
 func readPreview(t *testing.T) string {
 	t.Helper()
 	data, err := os.ReadFile(previewPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return previewWord.ReplaceAllStringFunc(string(data), func(w string) string {
+	text := previewWord.ReplaceAllStringFunc(string(data), func(w string) string {
 		if r, ok := previewRenames[w]; ok {
 			return r
 		}
 		return w
+	})
+	return previewRow.ReplaceAllStringFunc(text, func(row string) string {
+		return strings.ReplaceAll(row, ", ", " | ")
 	})
 }
 
