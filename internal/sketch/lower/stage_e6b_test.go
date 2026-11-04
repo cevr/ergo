@@ -197,6 +197,64 @@ func TestGenericKeys(t *testing.T) {
 }
 `
 
+// The docs claims of stage E's close (types.md, Interface assignability and
+// Generics): an operations conversion whose implementing function is
+// itself generic over a method-set constraint lowers, as a value and
+// through a dot call.
+func TestErgoRunGenericImplementingFunction(t *testing.T) {
+	wantRun(t, `type Valid {
+	Check() bool,
+}
+
+type Card { Number string }
+
+func Check(c Card) bool {
+	c.Number != ""
+}
+
+type Holder[T Valid] { item T }
+
+func Check[T Valid](h Holder[T]) bool {
+	h.item.Check()
+}
+
+func use(v Valid) bool {
+	v.Check()
+}
+
+func main() needs Console {
+	let h = Holder[Card]{item: Card{Number: "1"}}
+	let e = Holder[Card]{item: Card{Number: ""}}
+	Console.Println("\(use(h)) \(h.Check()) \(use(e))")
+}
+`, "true true false\n")
+}
+
+// types.md, Operators: each operator of rules 1 to 4 runs, on the
+// operand types the rules name.
+func TestErgoRunOperators(t *testing.T) {
+	wantRun(t, `type Celsius float64
+
+type P { X int, Y string }
+
+func main() needs Console {
+	let a int8 = 7
+	let b uint16 = 65535
+	let f float32 = 1.5
+	let c Celsius = 20.5
+	let s = "ab"
+	let d = 90s
+	let z complex128 = complex128(2)
+	Console.Println("\(a + 2) \(a - 9) \(a * 3) \(a / 2) \(a % 4) \(-a)")
+	Console.Println("\(b + 1) \(b & 255) \(b | 1) \(b ^ 1) \(b &^ 255) \(b >> 8) \(1 << 4)")
+	Console.Println("\(f * 2) \(c - 0.5) \(z * z)")
+	Console.Println("\(s + "c") \(s < "b") \(s == "ab") \(s != "ab")")
+	Console.Println("\(d + 30s) \(d - 30s) \(d > 1m) \(d == 90s)")
+	Console.Println("\(a < 8 && b > 1) \(a > 8 || !(b > 1)) \(P{X: 1, Y: "y"} == P{X: 1, Y: "y"})")
+}
+`, "9 -2 21 3 3 -7\n0 255 65535 65534 65280 255 16\n3 20 (4+0i)\nabc true true false\n2m0s 1m0s true true\ntrue false true\n")
+}
+
 // Every type of every std package and of the prelude has a runtime form or
 // lowers as a declaration: runtimeType never reaches its last branch, which
 // is an internal error (C43: it named a closed stage before).
