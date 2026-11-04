@@ -114,7 +114,10 @@ func TestVariantB2KeyedRootFIFO(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	fifo := filepath.Join(keyed, "stream")
+	// The FIFO's name sorts before every GOROOT entry, so each collection's
+	// fingerprint walk stops at it at once (the host-test time bound);
+	// where it sits in GOROOT does not change what the test proves.
+	fifo := filepath.Join(keyed, "0stream")
 	if err := syscall.Mkfifo(fifo, 0600); err != nil {
 		t.Fatal(err)
 	}
