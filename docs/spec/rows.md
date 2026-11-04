@@ -6,7 +6,7 @@ Every function has two rows besides its result: an error row, `fails …`, and a
 
 ## Error rows
 
-Status: **checked** by `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)); runs through the prototype emitter.
+Status: **implemented**: checked by `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)) and lowered by `internal/sketch/lower` as rule 7 states (check-v1 stage C): `try`, a fallible tail and an error value returned run under `ergo run` (`TestErgoRunFunctionTails`, `TestErgoRunWholeTry`).
 
 ```go
 func pay(id string) string fails OrderNotFound | GatewayDown needs Orders | Gateway {
@@ -37,7 +37,7 @@ func pay(id string) string fails OrderNotFound | GatewayDown needs Orders | Gate
 
 ## Catch
 
-Status: **checked** and **lowered** (196r, check-v1 stage C): type tests, record patterns, `as`, `case err:` and `case _` arms run under `ergo run`.
+Status: **implemented**: checked and lowered (196r, check-v1 stage C; `TestErgoRunOneCatch`): type tests, record patterns, `as`, `case err:` and `case _` arms run under `ergo run`.
 
 ```go
 let outcome = with Live { checkout(id) } catch {
@@ -64,7 +64,7 @@ case OrderNotFound:
 
 ## Capability rows
 
-Status: **checked** (#196), with inference (rule 6); runs.
+Status: **implemented**: checked (#196), with inference (rule 6), and lowered as rule 7 states, a capability being a Go interface reached through the hidden environment (check-v1 stages C and D3b); every `ergo run` test that prints calls `Console` this way.
 
 1. **Spelling.** `needs A | B` lists capabilities ([types.md](types.md#capabilities)). The row is a set, a union as the error row is, so both rows are spelled with `|` (196n); a comma between the names is S001 ([grammar.md](grammar.md#declarations) rule 9).
 2. **Charges.** A body charges a capability when it:
@@ -128,7 +128,7 @@ let Live = context {
 
 ## With
 
-Status: **checked** (#196) and **runs** for every operand kind: a named, an inline or a local context (Context 9), a context value (rule 9; #199 stage 4a), and several operands (rule 7; check-v1 E5, `TestErgoRunE5Contexts`). An inline context whose entries are explicit provider expressions runs (#199 stage 3c; `TestRuntime199AcquireProperty`).
+Status: **implemented**: checked (#196) and lowered for every operand kind: a named, an inline or a local context (Context 9), a context value (rule 9; #199 stage 4a), its protocol functions generic or not (check-v1 E6b, `TestErgoRunGenericContextKey`), and several operands (rule 7; check-v1 E5, `TestErgoRunE5Contexts`). A `with` of an imported context waits for 196b (Context), and rule 6's constructor startup errors for [#37](https://github.com/cevr/ergo/issues/37). An inline context whose entries are explicit provider expressions runs (#199 stage 3c; `TestRuntime199AcquireProperty`).
 
 ```go
 let value = with Live { checkout(id) }
@@ -166,7 +166,7 @@ let both = with Live, quiet { report(id) }
 
 ## Totality
 
-Status: **checked** (#196) and **lowered** (check-v1 stage C): every pattern form, several subjects included, runs under `ergo run`.
+Status: **implemented**: checked (#196) and lowered (check-v1 stage C): every pattern form, several subjects included, runs under `ergo run` (`TestErgoRunPatterns`), and a tuple pattern matches a type defined over a tuple (check-v1 E6b, `TestErgoRunDefinedTuple`).
 
 1. **Patterns** (check-v1 D-B3, 196p). A `match` takes a subject of any type, and its cases list patterns ([grammar.md](grammar.md#expressions), Expressions 6): `_`; a name, which binds; a literal (an integer, rune, string or `bool` constant, typed by the subject; a float or duration pattern is S108, test with `if`); a type, which tests the variant of a union subject or is the subject's own type (any other type is S108); a record pattern `T{F: p, …}` with keyed field patterns, or one positional pattern for a one-field record (an unknown field is S104, a field twice S108, and `T{}` is S108 "write case T:"); a tuple pattern `(p, q)` of the subject's arity; and `p as x`. A name that names a type or a constant is that pattern; a name that names a function, a package or a package value is S108 ("a pattern name binds"); any other name binds, and a capitalised name that binds gets a hint in its S110. A name is bound at most once in a pattern (S108), and every pattern of a case binds the same names with one type (S108). A binding its arm never reads is S110. A match on an operation-type value admits only `_` and bindings: Ergo has no type assertions (S108). A case that earlier cases cover is unreachable (S108), including `case _`. When one earlier case covers it, the message names that case's pattern. A refused pattern name binds an invalid placeholder, so later uses add no diagnostic. *Prior art:* Gleam, ReScript, OCaml and Rust patterns mirror construction; Elixir matches structs by name.
 2. **Totality rule (S103; README Gap 3; check-v1 D-B4).** A `match` names every constructor or has a covering case: the constructors of a union are its variants, nested through record patterns; of `bool` its two constants; of a tuple the product of its elements'; of a non-union record its one shape. Constants of other types never cover (S103 "constant patterns never cover int; add case _"). A match that misses a case is S103 at `match`, naming one missing pattern (`no case handles main.Declined{Reason: main.CardExpired}`). *Prior art:* Gleam, Rust and Swift reject a non-exhaustive match; OCaml warns (warning 8); Go accepts one.

@@ -52,13 +52,13 @@ t = task.Go() { work() }       // reassignment is not an allowed use
 
 ## Basic types
 
-Status: **implemented in prototype** for `string`, `int64` and `bool`; **partly implemented** for `duration`, which the prototype types only as a literal and as the `timeout.After` argument (README Gap 25). Rules 6 and 8 are **implemented** by `internal/sketch/check` and the lowering (check-v1 stage E1).
+Status: **implemented**: `bool`, `string`, `int` to `int64`, `uint` to `uint64`, `float32`, `float64`, `complex64`, `complex128` and `duration`, with `byte` and `rune`, are checked by `internal/sketch/check` and lowered to their Go types, `duration` to `time.Duration` (check-v1 stages B to E; `TestInterpolationText` runs a value of every basic kind through lowered code). Rules 6 and 8 are **implemented** by the checker and the lowering (check-v1 stage E1).
 
 1. `string` holds bytes. A literal's value is the bytes its spelling decodes to ([grammar.md](grammar.md#literals)).
-2. `int64` is the only integer type with checked meaning in v0 (README Gap 9). Non-constant arithmetic wraps; constant overflow is an error.
+2. The integer types are Go's, with Go's sizes. Non-constant arithmetic wraps; constant overflow is an error (rule 7).
 3. `bool` is the type of comparisons and `if` conditions.
-4. `duration` is the type of duration literals. It is a basic type, usable in every type position: parameters, results, fields and type arguments. Its name is predeclared. Prototype: `duration` as a type name is S104, and the name is reserved as a source name (S109).
-5. Designed, with [#81](https://github.com/cevr/ergo/issues/81) and [#211](https://github.com/cevr/ergo/issues/211): Go's other numeric types, `byte`, `rune`, floating point, slices `[]T`, maps `Map[K, V]`, queues `queue.Queue[T]` ([runtime](runtime.md#channels)), function types and the prelude `Option[T]`.
+4. `duration` is the type of duration literals. It is a basic type, usable in every type position: parameters, results, fields and type arguments. Its name is predeclared.
+5. The composite types are slices `[]T`, maps `Map[K, V]`, queues `queue.Queue[T]` ([runtime](runtime.md#channels)), function types, tuples ([Tuples](#tuples)) and the prelude `Option[T]`. Ordering constraints such as `cmp.Ordered` are [#211](https://github.com/cevr/ergo/issues/211)'s.
 6. **Literals are typed where they appear** (196u; checked by `internal/sketch/check`). A literal takes the type its context expects: a written `let` type, a parameter (after the type arguments that typed arguments fixed), a result (a `return` or a tail value), a record field, a slice element, a Map key or value, the other operand of a binary operator or of `..`, an assignment's target, an index or slice bound (`int`), and a constant `case` (the subject's type). An integer literal may take any integer or float type, a float literal only a float type, a rune literal any integer type, and a string literal a string type; an integer literal is never a `duration` (S108 "an integer literal is not a duration: write a duration literal such as 5s"). Every other position gives no expected type, and the literal takes its default: `int`, `float64`, `rune`, `string`, `duration`, and `bool` for `true` and `false`. A literal that cannot take the expected type is S108 naming the form to write ("a float literal takes only a float type, not int; write 2").
 7. **A name has one type.** A package-level `let` has one type, and no name converts by itself: `let b int8 = Limit` with `let Limit = 10` is S108 "Limit is int; write int8(Limit) or declare Limit int8". Constant expressions evaluate exactly, step by step, and each typed step must fit its type: an overflow is S108 ("the constant 200 overflows int8" for `let y int8 = 100 + 100`, and for `100 + 100 - 100`, whose first step overflows), as in Rust's constant evaluation. A literal fits its type after its sign, in parentheses or not, so `-128` and `-(128)` are `int8`. Ergo has no untyped constants: Go's untyped kinds, their defaulting order and the contextual types Go records afterwards are the counter-example (#196, 196u "Why"). *Prior art:* Rust and Swift type a literal from its context with `i32` and `Int` defaults, and `1 + 2.5` is an error in Rust; MoonBit overloads an integer literal by its expected type (`let x : Int64 = 1`); Gleam, and ReScript after OCaml, keep `Int` and `Float` apart with separate operators (`+`, `+.`); Elixir's numbers are dynamic.
 8. **The closed world** (196d; check-v1 D-E2). `any` is not a type: its use, as a type or as a constraint, is S104 "Ergo has no any; use a type parameter or a union", and `[T any]` is written `[T]`. `error` is not a constraint either: `[E error]` is S104 at `error`, and a failure row parameter is written `[E]` and used after `fails`. No std package is named `reflect`. Equality is generated from declared types ([Operators](#operators) 1), so no value is compared through an interface. *Prior art:* Gleam has no `any` and compares by structure; ReScript and OCaml compare structurally; MoonBit derives `Eq`; Go's `==` on interfaces panics at run time on an incomparable dynamic type.
@@ -66,11 +66,11 @@ Status: **implemented in prototype** for `string`, `int64` and `bool`; **partly 
 
 ## Zero values and definite initialisation
 
-Status: **implemented in prototype** for struct literals; **designed** for the rest.
+Status: **implemented** for rules 1 to 3 and 5: checked by `internal/sketch/check` and lowered, a defaultable type to Go's zero value (check-v1 stages B to D; `let p Payment` with no value is S108 "let p of type main.Payment needs a value: main.Payment has no zero value (types.md, Zero values 3)", `TestDecidedMessages`). Rule 4 has no built-in to apply to. Rule 6 is **designed** and needs packages ([196b](https://github.com/cevr/ergo/issues/196)).
 
 1. A type is *defaultable* when it has a valid zero value: a basic type, or a struct whose fields are all defaultable. A union, a capability, a function type, a `Task`, a resource, a borrow, and a struct that contains any of them are not defaultable. Outside its package, a struct type with an unexported field is not defaultable either (rule 6).
 2. A keyed struct literal must set every field whose type is not defaultable (S108). A positional literal sets every field.
-3. Designed: a variable of a non-defaultable type must be initialised before use. `let p Payment` with no value is an error. *Prior art:* Swift and Kotlin definite initialisation; Go instead gives every type a zero value, which is how a nil interface reaches a type switch.
+3. A variable of a non-defaultable type must be initialised before use. `let p Payment` with no value is an error. *Prior art:* Swift and Kotlin definite initialisation; Go instead gives every type a zero value, which is how a nil interface reaches a type switch.
 4. Designed: an operation that invents zero values needs a defaultable element type. The decided language has no such built-in (`make`, the comma-ok forms and channels are gone, #196); the library returns `Option` instead, as `m.Lookup(k)` returns `Option[V]`.
 5. There is no `nil`. *Prior art:* Gleam, ReScript and Rust have no null; Go's typed-nil interface and nil map are its most cited traps.
 6. **Construction authority (designed).** Outside the package that declares it, a struct type with an unexported field ([grammar.md](grammar.md#visibility)) is neither defaultable nor literal-constructible. Each of these is an error outside the package:
@@ -96,7 +96,7 @@ Status: **implemented in prototype** for struct literals; **designed** for the r
 
 ## Structs
 
-Status: **implemented in prototype**.
+Status: **implemented**: rules 1 to 4 are checked by `internal/sketch/check` (check-v1 stage B, D-B2) and lowered to Go structs (check-v1 stage C). Rule 5 is [#197](https://github.com/cevr/ergo/issues/197)'s (aggregate resources, [resources.md](resources.md)); rule 6 is **designed**.
 
 ```go
 type Order {
@@ -117,7 +117,7 @@ let same = Order{"42", 1999}
 
 ## Unions
 
-Status: **checked** by `internal/sketch/check` (check-v1 stage B); **implemented in prototype** for bare-name variants declared in the same file.
+Status: **implemented**: checked by `internal/sketch/check` (check-v1 stage B) and lowered (check-v1 stage C): a union is a sealed Go interface that its variants implement, and a `match` on it runs (`TestErgoRunUnionOfOneGenericRecord`; [rows.md](rows.md#totality)). A record of another package as a variant is S109 naming 196b (rule 1).
 
 ```go
 type Payment = Pending | Authorized | Declined{ Reason string }
@@ -132,7 +132,7 @@ type Option[T] = Some[T]{ Value T } | None{}
 2. A value of a variant type is assignable to every union that lists it ([Assignability](#assignability) clause 4). A struct may be a variant of several unions (fixture `multiple-unions`).
 3. A union has no zero value.
 4. A `match` narrows a union value to its variants, nested through record patterns ([rows.md](rows.md#totality)).
-5. The emitter generates a marker method per union on each variant, so a source method with that marker's name is an error in the prototype (fixture `marker-method`, S109).
+5. The lowering gives each variant a marker method per union, with a Go name that no field or function of the variants takes (`lower/decls.go`, `unionMarker`). Ergo has no receivers (196m), so no source name collides with it; the prototype's S109 for such a name is gone (probe `marker-method` checks clean, `parity.overrides`).
 6. **Lowering.** A union becomes a sealed Go interface with an unexported marker method, and each variant keeps its own struct fields. *Prior art:* Borgo lowers an enum to a tagged struct and matches on the tag; ReScript picks a representation per variant; Ergo keeps the interface form so a Go type switch narrows and each variant keeps its fields. The size trade-off between the two forms is not measured.
 
 ## Defined types
@@ -163,13 +163,13 @@ let pair (int, string) = (q, "x")
 
 1. A tuple type `(A, B, …)` has two or more elements and is structural: two tuple types are identical when their elements are. A tuple value is `(a, b)`.
 2. A tuple is read only through a pattern ([rows.md](rows.md#totality)): `let (a, b) = t`, `for (k, v) in …`, `case (A, _):`. There is no `.0`.
-3. A function has one result, which may be a tuple; a call is one value, so `f(g())` passes `g`'s tuple as one argument. `let q, r = e` destructures a tuple result. Tuple assignment does not convert its elements. Returning `pair()` from `(Mem, int)` as `(Store, int)` therefore names a repair when `Mem` implements `Store`: `let (m, n) = pair(); return (m, n)`, source on one line, with the call copied byte for byte, that checks in place of the body. There is no repair for a call written over more than one line. Each element of the returned literal takes its expected type. The checker chooses unbound names for the repair.
+3. A function has one result, which may be a tuple; a call is one value, so `f(g())` passes `g`'s tuple as one argument. `let q, r = e` destructures a tuple result, and a value of a type defined over a tuple through its underlying tuple, as a tuple pattern matches it (check-v1 E6b, C45; `TestDefinedTupleLet`, `TestErgoRunDefinedTuple`). Tuple assignment does not convert its elements. Returning `pair()` from `(Mem, int)` as `(Store, int)` therefore names a repair when `Mem` implements `Store`: `let (m, n) = pair(); return (m, n)`, source on one line, with the call copied byte for byte, that checks in place of the body. There is no repair for a call written over more than one line. Each element of the returned literal takes its expected type. The checker chooses unbound names for the repair.
 4. A tuple is comparable when its elements are, and defaultable when they are. It has no operations, so it implements no operation type.
 5. *Prior art:* Gleam, ReScript and MoonBit tuples with pattern access; Elixir tuples; Go's several results exist mostly for `(T, error)`, which `fails` replaces.
 
 ## Capabilities
 
-Status: **checked** by `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)); runs.
+Status: **implemented**: checked by `internal/sketch/check` ([#196](https://github.com/cevr/ergo/issues/196)) and lowered: a capability call reaches the provider the nearest `with` binds, and a method call on a value of an operation type runs that value's method (check-v1 stages C and D3b; `TestErgoRunE1Witnesses`). The prelude capabilities' method sets are provisional until [#209](https://github.com/cevr/ergo/issues/209) (rule 5).
 
 ```go
 type Orders {
@@ -183,14 +183,14 @@ type Orders {
    - in a `needs` clause, a `context` entry, or as the receiver of a method call `Orders.m(…)`, the name is the **capability**: an ambient requirement that only `with` supplies;
    - in a type position (a parameter, result, field or type argument), the name is an ordinary **interface type**. A value of it is a provider value. Calling its method, `o.Find(id)`, runs that provider's method with the method's declared error row and charges no capability. A constructor that returns `Orders` returns such a value.
 
-   This keeps decision #102: a capability is an ordinary interface bound by `context`, and only the ambient binding is second-class. The checker implements both roles (README Gap 29); the build refuses a method call on an interface value until [#50](https://github.com/cevr/ergo/issues/50). *Prior art:* Effect separates a service's tag, the requirement, from a service value; Scala 3 capture checking treats capabilities apart from their types.
+   This keeps decision #102: a capability is an ordinary interface bound by `context`, and only the ambient binding is second-class. The checker implements both roles (README Gap 29), and the lowering runs both. *Prior art:* Effect separates a service's tag, the requirement, from a service value; Scala 3 capture checking treats capabilities apart from their types.
 4. A capability method's signature carries its error row. A capability or interface method writes no capability row (S108), because a provider's requirements are captured at construction (README Gap 17).
 5. The prelude capabilities `Console`, `Clock`, `Scheduler` and `Random` are ordinary interfaces bound by `context` (decision #102). The prelude (`internal/sketch/std/prelude.ergo`) declares them with the methods the fixtures and the corpus call, provisionally until [#209](https://github.com/cevr/ergo/issues/209) fixes their method sets.
 6. An interface is also a generic constraint, with Go's method-set rules.
 
 ## Methods
 
-Status: **checked** (#196, 196m); the build refuses a direct method call until #50.
+Status: **implemented**: checked (#196, 196m) and lowered: `x.f(…)` calls the function, a Go method on the type where rule 3 allows one (check-v1 stages C to E1; `TestErgoRunE1Witnesses`, `TestErgoRunMethodValues`).
 
 There are no receivers. A package function whose first parameter is a named type declared in the package is a function on that type, and `x.f(y)` calls `f(x, y)` (196m).
 
@@ -205,7 +205,7 @@ There are no receivers. A package function whose first parameter is a named type
 
 ## Interface assignability
 
-Status: **implemented** (#196; check-v1 stage E1): rules 1 to 3 and 5 are checked, and every conversion they admit lowers, inside a generic function too, except one whose implementing function is itself generic over a method-set constraint, which the build refuses with S109 naming check-v1 stage E.
+Status: **implemented** (#196; check-v1 stage E1): rules 1 to 3 and 5 are checked, and every conversion they admit lowers, inside a generic function too, and so does one whose implementing function is itself generic over a method-set constraint (`TestErgoRunE1Witnesses`, `TestErgoRunGenericImplementingFunction`).
 
 ```go
 type Store { Get() string }
@@ -237,7 +237,7 @@ Status: **checked** (#196).
 
 ## Operators
 
-Status: **checked** (#196); the build refuses operators other than `==` and `+` until #50.
+Status: **implemented**: checked (#196, 196u) and lowered to Go's operators, so every operator of rules 1 to 4 runs (check-v1 stages C to E1; `TestErgoRunOperators`). Ordering constraints such as `cmp.Ordered` are [#211](https://github.com/cevr/ergo/issues/211)'s, and `duration` arithmetic beyond rule 4 is [#175](https://github.com/cevr/ergo/issues/175)'s.
 
 1. Go's operators on Go's operand types, with exact constant arithmetic (an overflow of the typed result is S108): arithmetic on numeric types, `+` on strings, ordering on numbers and strings, `==` and `!=` on comparable types (structs whose fields are comparable included; README Gap 26). Comparability is structural, and every use reads it (`==`, a tuple, a record field, a `comparable` constraint, a map key): a record or tuple compares when its fields do, a union only when every variant does, and a row value (`case err:`) and an operation type's value never do, because Go would compare them as interfaces and panic on a variant that does not compare (stage C round 2 review M1, M2); `&&`, `||` and `!` on `bool`, shifts on integers. S108 otherwise. A comparison is `bool`.
 2. **One type per operator** (196u rule 4). Both operands of a binary operator have one type, and no operand converts by itself: `a + b` with `a int32` and `b int64` is S108 "mismatched types int32 and int64; write int64(a)". A literal takes the other operand's type (`x + 1` with `x int8` adds two `int8`s). Two literals each take the expected type, else their defaults, so `let d = 1 + 2.5` is S108 "mismatched types int and float64; write 1.0 + 2.5". *Prior art:* Rust's rule; Gleam and OCaml separate float operators.
@@ -275,7 +275,7 @@ Status: placement (rule 1, first sentence) is **checked** (#196): `*T` outside a
 
 ## Generics
 
-Status: **implemented** in the decided spelling of [#196](https://github.com/cevr/ergo/issues/196) (196g as amended, sixth round) by `internal/sketch/check` and the lowering (check-v1 stage E1, D-E1). Rules 1, 2, 5 and 6 are checked and lowered; rules 3 and 4 are outside stage E1. Two forms wait, refused by the build with S109 naming check-v1 stage E: a type argument that stands for no value inside a function type other than a parameter's own `func(…) T`, or in a declared generic type; and an operations conversion whose implementing function is itself generic over a method-set constraint.
+Status: **implemented** in the decided spelling of [#196](https://github.com/cevr/ergo/issues/196) (196g as amended, sixth round) by `internal/sketch/check` and the lowering (check-v1 stage E1, D-E1). Rules 1, 2, 5 and 6 are checked and lowered; rules 3 and 4 are outside stage E1. One form waits, refused by the build with S109 naming lower-v1 (C11, one Go shape for no-result function values): a type argument that stands for no value inside a function type other than a parameter's own `func(…) T`, or in a declared generic type. An operations conversion whose implementing function is itself generic over a method-set constraint lowers (`TestErgoRunGenericImplementingFunction`), and so does a generic context protocol function (`TestErgoRunGenericContextKey`).
 
 ```go
 func Transform[A, B, E, R](xs []A, f func(A) B fails E needs R) []B fails E needs R {
