@@ -308,6 +308,80 @@ func TestRecentChangesAreNotRecorded(t *testing.T) {
 	}
 }
 
+// TestMergeTierAdmitsOnlyItsOwnWrites: the uncached run's steps may write
+// ignored files and directories into the checkout, and the merge tier still
+// compares; a source, the index, HEAD, the environment or the host that
+// changed during the run fails it, and leaves the record in place.
+func TestMergeTierAdmitsOnlyItsOwnWrites(t *testing.T) {
+	base := func() *Facts {
+		return &Facts{
+			Root: "/checkout", Head: "h", Index: []string{"100644 b 0\tsrc/a.go"},
+			Entries: []Entry{
+				{Path: "src", Kind: Directory},
+				{Path: "src/a.go", Class: Tracked, Kind: File, Value: "-r--r--r--:a"},
+				{Path: "notes.txt", Class: Untracked, Kind: File, Value: "-r--r--r--:n"},
+			},
+			Environment: []Variable{{"GOFLAGS", false, ""}},
+			Host:        []Fact{{"cpus", "16"}},
+		}
+	}
+	wrote := func(f *Facts) {
+		f.Entries = append(f.Entries, Entry{Path: "dist", Kind: Directory}, Entry{Path: "dist/main", Class: Ignored, Kind: File, Value: "1:2:3:4:-rwxr-xr-x"})
+	}
+	for _, c := range []struct {
+		name   string
+		change func(*Facts)
+		code   int
+		line   string
+	}{
+		{"no change", func(*Facts) {}, 0, "merge: verdicts equal (1 steps)\n"},
+		{"the run wrote ignored files", wrote, 0, "merge: the run wrote into the checkout: dist (added), dist/main (added)\n"},
+		{"a tracked file changed beside the writes", func(f *Facts) { wrote(f); f.Entries[1].Value = "-r--r--r--:b" }, 1, "merge: FAILED: the checkout or the host changed during the merge run: dist (added), dist/main (added), src/a.go\n"},
+		{"an untracked file appeared", func(f *Facts) {
+			f.Entries = append(f.Entries, Entry{Path: "src/b.go", Class: Untracked, Kind: File, Value: "-r--r--r--:c"})
+		}, 1, "merge: FAILED: the checkout or the host changed during the merge run: src/b.go (added)"},
+		{"the index changed", func(f *Facts) { f.Index = append(f.Index, "100644 c 0\tsrc/b.go") }, 1, "merge: FAILED: the checkout or the host changed during the merge run: the index"},
+		{"HEAD moved", func(f *Facts) { f.Head = "h2" }, 1, "merge: FAILED: the checkout or the host changed during the merge run: HEAD"},
+		{"a variable changed", func(f *Facts) { f.Environment[0] = Variable{"GOFLAGS", true, "-count=1"} }, 1, "merge: FAILED: the checkout or the host changed during the merge run: variable GOFLAGS"},
+		{"a host fact changed", func(f *Facts) { f.Host[0].Value = "8" }, 1, "merge: FAILED: the checkout or the host changed during the merge run: host fact cpus"},
+	} {
+		store := Open(t.TempDir())
+		start := base()
+		key := start.Key()
+		run := store.Begin(start)
+		object, err := run.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		run.Passed("step", object, "ran", 1, time.Now())
+		if line := run.Finish(true, func() (*Facts, error) { return base(), nil }, Meta{Now: time.Now()}); !strings.HasPrefix(line, "gate: recorded") {
+			t.Fatalf("%s: the inner run did not record: %q", c.name, line)
+		}
+		collected := 0
+		tier := MergeTier{
+			Store: store,
+			Collect: func() (*Facts, error) {
+				collected++
+				f := base()
+				if collected > 1 {
+					c.change(f)
+				}
+				return f, nil
+			},
+			Inner:    func() bool { t.Fatalf("%s: the inner tier ran with a record", c.name); return false },
+			Uncached: func() ([]string, map[string]Verdict) { return []string{"step"}, map[string]Verdict{"step": Pass} },
+		}
+		var out strings.Builder
+		code := tier.Run(&out)
+		if code != c.code || !strings.Contains(out.String(), c.line) {
+			t.Errorf("%s: exit %d, want %d with %q:\n%s", c.name, code, c.code, c.line, out.String())
+		}
+		if _, err := store.Load(key); err != nil {
+			t.Errorf("%s: the record at the start key is gone: %v", c.name, err)
+		}
+	}
+}
+
 // TestMergeComparisonCoversEveryStep: a step the record holds that is not
 // declared, or declared and not in the record, is a differing row.
 func TestMergeComparisonCoversEveryStep(t *testing.T) {

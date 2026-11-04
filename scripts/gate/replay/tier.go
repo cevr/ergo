@@ -252,6 +252,9 @@ type MergeTier struct {
 //     fails without the uncached run.
 //   - The uncached run's verdicts are compared with W(K). A difference, or
 //     step sets that differ, withdraws W(K) and fails.
+//   - A source, HEAD, the index, the environment, a setting or the host
+//     that changed during the uncached run fails it; ignored files the run
+//     wrote are named and admitted (sources).
 //   - The merge tier writes no whole-gate record.
 func (m MergeTier) Run(out io.Writer) int {
 	start, err := m.Collect()
@@ -282,9 +285,17 @@ func (m MergeTier) Run(out io.Writer) int {
 		fmt.Fprintf(out, "merge: FAILED: collect the end key: %v\n", err)
 		return 1
 	}
+	// The uncached run starts at K, so its verdicts answer for W(K) unless
+	// a source, HEAD, the index, the environment, a setting or the host
+	// changed under it. Its steps write ignored files into the checkout
+	// (bin/ergo, test leftovers such as dist/main), which changes the whole
+	// key but no source: the merge tier says so and goes on.
 	if end.Key() != key {
-		fmt.Fprintf(out, "merge: FAILED: the checkout or the host changed during the merge run: %s\n", strings.Join(Diff(start, end, 5), ", "))
-		return 1
+		if start.sources().Key() != end.sources().Key() {
+			fmt.Fprintf(out, "merge: FAILED: the checkout or the host changed during the merge run: %s\n", strings.Join(Diff(start, end, 5), ", "))
+			return 1
+		}
+		fmt.Fprintf(out, "merge: the run wrote into the checkout: %s\n", strings.Join(Diff(start, end, 5), ", "))
 	}
 	if len(comparison.Differ) > 0 {
 		if err := m.Store.Withdraw(key); err != nil {

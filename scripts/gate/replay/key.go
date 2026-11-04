@@ -145,6 +145,21 @@ func (f *Facts) Key() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// sources are the facts without the paths a step can write and Git does not
+// see: ignored files, FIFOs, sockets and devices (the stat-keyed paths), and
+// directories. They keep every tracked and untracked file and link, HEAD,
+// the index, the environment, the settings and the host.
+func (f *Facts) sources() *Facts {
+	kept := *f
+	kept.Entries = nil
+	for _, e := range f.Entries {
+		if e.Kind != Directory && e.Kind != Other && e.Class != Ignored {
+			kept.Entries = append(kept.Entries, e)
+		}
+	}
+	return &kept
+}
+
 // put writes one record of the key: a label and length-prefixed parts, so no
 // two different fact lists encode alike.
 func put(h hash.Hash, parts ...string) {
