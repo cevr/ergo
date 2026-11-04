@@ -29,10 +29,12 @@ import (
 
 // fixture is a module checkout for the sandbox tests: root holds go.mod,
 // docs and the package internal/p, whose testdata has links of each kind.
-// outside is a directory next to the checkout, with a link back into it and
-// a replacement tree for the checkout's parent; base holds both.
+// outside is a directory next to the checkout, with a link back into it;
+// base holds both. other, elsewhere, is a replacement for base: the round-3
+// verifier's tree, whose link reaches docs in the checkout once base has
+// moved to base-moved.
 type fixture struct {
-	base, root, pkg, outside string // physical paths
+	base, root, pkg, outside, other string // physical paths
 }
 
 // fixtureLinks are the links in internal/p/testdata, by name, with their
@@ -55,7 +57,11 @@ func newFixture(t *testing.T) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := fixture{base: base, root: filepath.Join(base, "m"), outside: filepath.Join(base, "s")}
+	other, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fixture{base: base, root: filepath.Join(base, "m"), outside: filepath.Join(base, "s"), other: other}
 	f.pkg = filepath.Join(f.root, "internal", "p")
 	for name, data := range map[string]string{
 		"m/go.mod":                           "module fixture\n\ngo 1.27\n",
@@ -66,7 +72,6 @@ func newFixture(t *testing.T) fixture {
 		"m/internal/p/testdata/in/sub/b.txt": "own testdata below",
 		"m/internal/p/testdata/sub/c.txt":    "own testdata",
 		"s/plain.txt":                        "outside the checkout",
-		"s/other/m/internal/p/testdata/.dir": "",
 	} {
 		name = filepath.Join(base, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
@@ -87,7 +92,10 @@ func newFixture(t *testing.T) fixture {
 	}
 	// The round-3 verifier's replacement for the checkout's parent: the
 	// same package path, whose link reaches docs in the moved checkout.
-	if err := os.Symlink(base+"-moved/m/docs", filepath.Join(f.outside, "other/m/internal/p/testdata/local")); err != nil {
+	if err := os.MkdirAll(filepath.Join(other, "m/internal/p/testdata"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(base+"-moved/m/docs", filepath.Join(other, "m/internal/p/testdata/local")); err != nil {
 		t.Fatal(err)
 	}
 	return f
@@ -600,7 +608,7 @@ func sequences(f fixture, n int, seed uint64) [][]step {
 	targets := []string{filepath.Join(f.root, "docs"), "in", "../../../docs", "out", "sub", "/nonexistent/loop-probe-x", filepath.Join(f.pkg, "testdata", "in"), f.outside}
 	scratchLinks := []string{tmpPrefix + "/l", tmpPrefix + "/d", tmpPrefix + "/l2"}
 	back := filepath.Join(f.outside, "back")
-	other := filepath.Join(f.outside, "other")
+	other := f.other
 	// Ancestor changes: the round-3 verifier's move of the checkout's
 	// parent, its replacement and its restore, and a move of the checkout.
 	ancestors := []step{
@@ -751,6 +759,7 @@ func TestReadOnlyStateSequences(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := snapshot(t, f.base)
+	maps.Copy(before, snapshot(t, f.other))
 	baseID, err := identity(f.base)
 	if err != nil {
 		t.Fatal(err)
@@ -775,8 +784,10 @@ func TestReadOnlyStateSequences(t *testing.T) {
 	if len(results) != len(seqs) {
 		t.Fatalf("%d results for %d sequences", len(results), len(seqs))
 	}
-	if after := snapshot(t, f.base); !maps.Equal(before, after) {
-		t.Errorf("the run changed the checkout or the directory next to it:\nbefore %v\nafter  %v", before, after)
+	after := snapshot(t, f.base)
+	maps.Copy(after, snapshot(t, f.other))
+	if !maps.Equal(before, after) {
+		t.Errorf("the run changed the checkout, the directory next to it or the parent's replacement:\nbefore %v\nafter  %v", before, after)
 	}
 	if id, err := identity(f.base); err != nil || id != baseID {
 		t.Errorf("the checkout's parent is not the one it was: %v", err)

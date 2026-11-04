@@ -28,8 +28,9 @@ import (
 //     recursively from the root of the file system: the checkout, each of
 //     its ancestors, and any bind mount of it made before the run.
 //   - S2: the only writable places are the run's scratch directories
-//     (TMPDIR, GOTMPDIR, GOCACHE and the test log's directory), each a
-//     mount of its own, outside the checkout and not an ancestor of it.
+//     (TMPDIR and GOTMPDIR; XDG_CACHE_HOME, which holds GOCACHE; the test
+//     log's directory), each a mount of its own, outside the checkout and
+//     not an ancestor of it.
 //     Linux refuses a hard link or a rename across mounts (EXDEV), so a
 //     scratch directory cannot gain a name of a checkout file.
 //   - S3: the tests hold no capability and cannot gain one (no_new_privs,
@@ -195,9 +196,10 @@ func runProtected(sb sandbox, pkg, dir string, env []string, output string, bina
 
 // scratch is the writable part of one run: a base directory made fresh
 // for the run, outside the checkout, and in it the scratch directories,
-// empty: tmp (TMPDIR and GOTMPDIR), cache (GOCACHE) and log (the test
-// log). The names are short, because a test's unix socket path must fit in
-// 108 bytes.
+// empty: tmp (TMPDIR and GOTMPDIR), cache (XDG_CACHE_HOME, so GOCACHE and
+// the user cache that ergo run stages programs in) and log (the test log).
+// The names are short, because a test's unix socket path must fit in 108
+// bytes.
 type scratch struct {
 	base, tmp, cache, log string
 }
@@ -224,7 +226,7 @@ func (s scratch) dirs() []string { return []string{s.tmp, s.cache, s.log} }
 // env is the environment that points the tests and the go command at the
 // scratch directories.
 func (s scratch) env() []string {
-	return []string{"TMPDIR=" + s.tmp, "GOTMPDIR=" + s.tmp, "GOCACHE=" + s.cache}
+	return []string{"TMPDIR=" + s.tmp, "GOTMPDIR=" + s.tmp, "XDG_CACHE_HOME=" + s.cache, "GOCACHE=" + filepath.Join(s.cache, "go-build")}
 }
 
 // remove deletes the scratch directories. A test or the go command may

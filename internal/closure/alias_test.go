@@ -221,20 +221,19 @@ func TestWritableAliasesFailTheSweep(t *testing.T) {
 
 	t.Run("root-move", func(t *testing.T) {
 		f := newFixture(t)
-		other := filepath.Join(f.outside, "other")
 		baseID, err := identity(f.base)
 		if err != nil {
 			t.Fatal(err)
 		}
-		before := snapshot(t, f.base)
+		before := fmt.Sprint(snapshot(t, f.base), snapshot(t, f.other))
 		stem := filepath.Join(t.TempDir(), "internal_p")
-		entries, err := runTests(f.root, []string{f.root}, "internal/p", f.pkg, stem, []string{rootParentVariable + "=" + f.base, rootOtherVariable + "=" + other}, self, "-test.run=^TestRootMoveTarget$")
+		entries, err := runTests(f.root, []string{f.root}, "internal/p", f.pkg, stem, []string{rootParentVariable + "=" + f.base, rootOtherVariable + "=" + f.other}, self, "-test.run=^TestRootMoveTarget$")
 		wantViolation(t, err, entries)
 		if id, err := identity(f.base); err != nil || id != baseID {
 			t.Errorf("the checkout's parent moved: %v", err)
 		}
-		if after := snapshot(t, f.base); fmt.Sprint(after) != fmt.Sprint(before) {
-			t.Errorf("the run changed the checkout's parent:\nbefore %v\nafter  %v", before, after)
+		if after := fmt.Sprint(snapshot(t, f.base), snapshot(t, f.other)); after != before {
+			t.Errorf("the run changed the checkout's parent or its replacement:\nbefore %v\nafter  %v", before, after)
 		}
 	})
 
