@@ -4,6 +4,7 @@ package testinputs
 
 import (
 	"errors"
+	"io/fs"
 	"runtime"
 )
 
@@ -30,3 +31,6 @@ func privileged() bool { return true }
 func foreignDir(string) bool { return false }
 
 func physicalDir(string) (string, bool) { return "", false }
+
+// inode is unknown here: identity mode runs only with the observer.
+func inode(fs.FileInfo) (dev, ino uint64) { return 0, 0 }

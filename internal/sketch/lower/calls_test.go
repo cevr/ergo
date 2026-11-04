@@ -201,8 +201,8 @@ func main() needs Console {
 	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "run", "./cmd/ergo", "run", path)
-	cmd.Dir = filepath.Clean("../../..")
+	cmd := exec.Command(ergoCLI(t), "run", path)
+	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("the program did not fail:\n%s", out)

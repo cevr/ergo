@@ -5,11 +5,59 @@ package lower
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/testinputs"
 )
 
+// testCLI is the ergo CLI the tests that go through the public command
+// run, built once per test process outside the tree. It is built with
+// -buildvcs=false: a VCS stamp would make the checkout's version-control
+// state, every tracked file's metadata included, an input of this package
+// (internal/closure).
+var testCLI struct {
+	once        sync.Once
+	environment []string
+	dir         string
+	path        string
+	err         error
+	output      []byte
+}
+
 // TestMain runs the tests under observation, so the files and variables
 // any process they start reads are inputs of Go's test cache.
-func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
+func TestMain(m *testing.M) {
+	// The CLI builds in the process's own environment, before any test
+	// overrides Go variables with t.Setenv.
+	testCLI.environment = os.Environ()
+	code := testinputs.Main(m)
+	if testCLI.dir != "" {
+		_ = os.RemoveAll(testCLI.dir)
+	}
+	os.Exit(code)
+}
+
+// ergoCLI returns the path of the ergo CLI, building it on first use. Run
+// it from a temporary directory: ergo run and ergo build write dist/ under
+// the working directory.
+func ergoCLI(t *testing.T) string {
+	t.Helper()
+	testCLI.once.Do(func() {
+		testCLI.dir, testCLI.err = os.MkdirTemp("", "ergo-lower-cli-")
+		if testCLI.err != nil {
+			return
+		}
+		testCLI.path = filepath.Join(testCLI.dir, "ergo")
+		command := exec.Command("go", "build", "-buildvcs=false", "-o", testCLI.path, "./cmd/ergo")
+		command.Dir = filepath.Clean("../../..")
+		command.Env = testCLI.environment
+		testCLI.output, testCLI.err = command.CombinedOutput()
+	})
+	if testCLI.err != nil {
+		t.Fatalf("build the ergo CLI: %v\n%s", testCLI.err, testCLI.output)
+	}
+	return testCLI.path
+}

@@ -44,9 +44,9 @@ docs/spec/grammar.md	so `func(func() needs A, B)` takes two parameters
 docs/spec/grammar.md	A parenthesised row, `needs (A, B)` or
 docs/spec/diagnostics.md	(`needs A, B`, `needs (A | B)`; 196n)
 internal/sketch/syntax/parser.go	`f func() needs A, B`: the entries
-internal/sketch/check/row_residue_test.go	writes `needs A, B` or
-internal/sketch/check/row_residue_test.go	// `provides A, B` is prose
-internal/sketch/check/residue_host_test.go	{"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"}
+internal/residue/row_residue_test.go	writes `needs A, B` or
+internal/residue/row_residue_test.go	// `provides A, B` is prose
+internal/residue/residue_host_test.go	{"needs A, B", "provides A, B", "needs (A, B)", "x needs pkg.A ,B", "provides\tA,\tB"}
 cmd/ergo/readme_smoke_test.go	"needs Accounts, Payments, Scheduler {"
 internal/sketch/sketchtest/fixtures.go	"let f = func() needs (A, B) {
 internal/sketch/sketchtest/fixtures.go	"func f() needs (A, B) {}
