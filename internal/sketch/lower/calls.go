@@ -168,7 +168,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// instance in parentheses, (Fn[int])(1) (D-E1, Info.Instances).
 			head, rest = fd.name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
-		lead := append(fc.taskDestArgs(x, c, c.Func.Sig), fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)...)
+		// A pure function takes no environment (pure.go): no Task result
+		// and no witness either, so its call passes its operands alone.
+		lead := fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)
+		if !fd.pure {
+			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
+		}
 		rest = append(lead, rest...)
 		return head + "(" + strings.Join(rest, ", ") + ")", len(c.Func.Sig.Results) > 0, fd.fallible
 	case check.CallOp:
@@ -457,8 +462,14 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 			}
 		}
 	}
-	return fc.envClosure(callerEnv, "env", site, func(env string) (params []string, results, body string) {
-		lead := []string{env}
+	// The value has the one Go shape of every function value; for a pure
+	// function the closure discards its environment (pure.go).
+	envParam := "env"
+	if fd.pure {
+		envParam = "_"
+	}
+	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
+		lead := fd.envLead(env)
 		// Since stage E2 (C13) a result holds a Task only by being one, and
 		// an instance's type argument is never a Task, so the value, the
 		// declaration and Info agree.
@@ -1006,7 +1017,11 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			// the table function runs in an environment of that task alone.
 			task := locals.alloc("t")
 			params := []string{task + " *" + l.taskPkg() + ".Task"}
-			args := []string{"&" + l.env() + "{" + envTask + ": " + task + "}"}
+			if fd.pure {
+				// A pure table function takes no environment (pure.go).
+				params[0] = "_ *" + l.taskPkg() + ".Task"
+			}
+			args := fd.envLead("&" + l.env() + "{" + envTask + ": " + task + "}")
 			// An operation that returns a Task takes the destination after
 			// the task (methodSig) and passes it to the function, whose
 			// return moves the Task there (stage D3b, Rule 2; stage E2, C15).

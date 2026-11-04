@@ -100,7 +100,11 @@ func (fc *funcCtx) contextCall(f *check.Func, inst *check.Instance, val string, 
 	if _, byPtr := f.Sig.Params[0].Type.(*check.Pointer); byPtr {
 		recv = "&" + val
 	}
-	lead := append([]string{fc.envExpr(site)}, fc.witnessArgs(f, inst, site)...)
+	// A pure protocol function takes no environment (pure.go).
+	lead := fc.witnessArgs(f, inst, site)
+	if !fd.pure {
+		lead = append([]string{fc.envExpr(site)}, lead...)
+	}
 	if fd.method != nil {
 		return "(" + recv + ")." + fd.name + "(" + strings.Join(lead, ", ") + ")"
 	}

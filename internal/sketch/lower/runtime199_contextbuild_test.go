@@ -826,12 +826,14 @@ func main() { work() }
 		}
 		// The test seam: PX.Use interrupts the task; returning from work
 		// after the three back-edges panics with a sentinel.
+		// PX's Use is pure (pure.go, D-S5-10), so the seam is the operations
+		// adapter, which receives the caller's task.
 		text := o.mainGo()
-		const hook, end = "func (_p PX) Use(env *Env) {\n", "\twork(env)\n"
+		const hook, end = "func (a *opsPXAsA) Use(_ *rt.Task) {\n", "\twork(env)\n"
 		if strings.Count(text, hook) != 1 || strings.Count(text, end) != 1 {
 			t.Fatalf("%s: the seam drifted:\n%s", o.name, text)
 		}
-		text = strings.Replace(text, hook, hook+"\tenv.task.Interrupt()\n", 1)
+		text = strings.Replace(text, hook, "func (a *opsPXAsA) Use(t *rt.Task) {\n\tt.Interrupt()\n", 1)
 		text = strings.Replace(text, end, end+"\tpanic(\"BAD: stopped work returned after three back-edges\")\n", 1)
 		for i := range o.files {
 			if o.files[i].Path == "main.go" {
@@ -903,12 +905,14 @@ func main() { with context { A: PX } { work() } }
 		// The test seam: PX.Use interrupts the task; reaching the call of
 		// after, past the three back-edges and before work's frame ends,
 		// panics with a sentinel.
+		// PX's Use and after are pure (pure.go, D-S5-10), so the seam is
+		// the operations adapter, which receives the caller's task.
 		text := o.mainGo()
-		const hook, end = "func (_p PX) Use(env *Env) {\n", "\tafter(env)\n"
+		const hook, end = "func (a *opsPXAsA) Use(_ *rt.Task) {\n", "\tafter()\n"
 		if strings.Count(text, hook) != 1 || strings.Count(text, end) != 1 {
 			t.Fatalf("%s: the seam drifted:\n%s", o.name, text)
 		}
-		text = strings.Replace(text, hook, hook+"\tenv.task.Interrupt()\n", 1)
+		text = strings.Replace(text, hook, "func (a *opsPXAsA) Use(t *rt.Task) {\n\tt.Interrupt()\n", 1)
 		text = strings.Replace(text, end, "\tpanic(\"BAD: stopped work passed three back-edges\")\n", 1)
 		for i := range o.files {
 			if o.files[i].Path == "main.go" {

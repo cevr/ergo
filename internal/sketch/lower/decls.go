@@ -71,6 +71,9 @@ type funcDecl struct {
 	extern   string
 	library  bool
 	emitted  bool
+	// pure is a function with no environment parameter, called with none
+	// (pure.go, D-S5-10).
+	pure bool
 	// lowered is set when the Go body has been written, and readsEnv then
 	// says whether that body names its environment parameter: the fact a
 	// machine plan's Step reads to decide whether it takes one (machine.go).
@@ -573,6 +576,7 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	fd := &funcDecl{fn: f, library: f.Pkg != l.pkg}
 	l.funcs[f] = fd
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
+	fd.pure = !fd.library && l.pureFuncs()[f]
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		fd.extern = strings.Trim(f.Decl.Extern.Target.Value, "\"`")
 	}
@@ -875,10 +879,15 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.params = tps
 		head.WriteString("func " + fd.name + list + "(")
 	}
-	// Every function takes the environment first, which carries the running
-	// task (stage D3b, Rule 1).
-	fc.env = scope.alloc("env")
-	parts := []string{fc.env + " *" + l.env()}
+	// Every impure function takes the environment first, which carries the
+	// running task (stage D3b, Rule 1). A pure function takes none, and its
+	// body binds none (pure.go, D-S5-10), so a read of it is a located ICE
+	// (envExpr).
+	var parts []string
+	if !fd.pure {
+		fc.env = scope.alloc("env")
+		parts = append(parts, fc.env+" *"+l.env())
+	}
 	fc.frame = newFrame(nil, fd.fallible, false)
 	if fd.extern == "" && f.Decl.Body != nil {
 		fc.frame.polls = framePolls(f.Pkg.Info, f.Decl)
@@ -954,7 +963,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
-	fd.lowered, fd.readsEnv = true, namesIdent(fc.out.String(), fc.env)
+	fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	b.WriteString(fc.out.String())
 	b.WriteString("}\n\n")
 }

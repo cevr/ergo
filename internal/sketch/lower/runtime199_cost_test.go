@@ -307,7 +307,7 @@ func targetImpure(env *targetEnv, n int) int {
 	return env.Sink.Put(env.task, sum)
 }
 
-func targetPure(env *targetEnv, n int) int {
+func targetPure(n int) int {
 	sum := 0
 	for i := 0; i < n; i++ {
 		sum += i
@@ -346,7 +346,7 @@ func Emitted(work string, task *rt.Task, x int) (int, int) {
 	case "impure-loop":
 		return count(func() int { return impure(env, x) })
 	case "pure-loop":
-		return count(func() int { return pure(env, x) })
+		return count(func() int { return pure(x) })
 	}
 	panic("unknown work " + work)
 }
@@ -360,7 +360,7 @@ func Target(work string, task *rt.Task, x int) (int, int) {
 	case "impure-loop":
 		return count(func() int { return targetImpure(env, x) })
 	case "pure-loop":
-		return count(func() int { return targetPure(env, x) })
+		return count(func() int { return targetPure(x) })
 	}
 	panic("unknown work " + work)
 }
@@ -429,7 +429,7 @@ func BenchmarkRuntime199Emitted(b *testing.B) {
 		report := polls(b, "emitted", "pure-loop", loopN)
 		s := 0
 		for i := 0; i < b.N; i++ {
-			s += pure(env, loopN)
+			s += pure(loopN)
 		}
 		sink = s
 		report()
@@ -461,7 +461,7 @@ func BenchmarkRuntime199Target(b *testing.B) {
 		report := polls(b, "target", "pure-loop", loopN)
 		s := 0
 		for i := 0; i < b.N; i++ {
-			s += targetPure(env, loopN)
+			s += targetPure(loopN)
 		}
 		sink = s
 		report()
@@ -507,7 +507,7 @@ func TestCostContract(t *testing.T) {
 		{"dispatch", func() { sink = dispatch(env, 1) }, func() { sink = targetDispatch(tenv, 1) }, true},
 		{"impure-loop", func() { sink = impure(env, 3) }, func() { sink = targetImpure(tenv, 3) }, true},
 		{"impure-loop empty", func() { sink = impure(env, 0) }, func() { sink = targetImpure(tenv, 0) }, true},
-		{"pure-loop", func() { sink = pure(env, 3) }, func() { sink = targetPure(tenv, 3) }, false},
+		{"pure-loop", func() { sink = pure(3) }, func() { sink = targetPure(3) }, false},
 	} {
 		if e, g := interrupted(c.emitted), interrupted(c.target); e != c.wantStopped || g != c.wantStopped {
 			t.Errorf("%s on a stopped task: emitted interrupted %v, target %v, want %v", c.work, e, g, c.wantStopped)

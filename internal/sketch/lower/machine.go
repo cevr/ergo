@@ -105,7 +105,10 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		scope := newNamer(l.names)
 		s, e := scope.alloc("s"), scope.alloc("e")
 		if machinePure(m.step, fd, site) {
-			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + fd.name + "(nil, " + s + ", " + e + ")\n}\n\n")
+			// A pure step function takes no environment (pure.go); another
+			// step that reads none is passed nil.
+			args := strings.Join(append(fd.envLead("nil"), s, e), ", ")
+			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + fd.name + "(" + args + ")\n}\n\n")
 			return
 		}
 		env := scope.alloc("env")
