@@ -88,8 +88,8 @@ var declared = map[string][]allowance{
 		{".", subtree, "the guard lists every directory and reads every test file, so a test package added anywhere reruns it"},
 	},
 	"internal/sketch/check": declare(
-		glob("internal/sketch/proto/testdata/*.ergo", "the corpus globs (check_test.go corpus, info_test.go, round19_test.go) check every proto fixture"),
-		glob("internal/sketch/proto/testdata/*/*.ergo", "the corpus globs check every proto fixture one directory down"),
+		glob("internal/sketch/testdata/*.ergo", "the corpus globs (check_test.go corpus, info_test.go, round19_test.go) check every source of the shared corpus"),
+		glob("internal/sketch/testdata/*/*.ergo", "the corpus globs check every source of the shared corpus one directory down"),
 		glob("internal/sketch/syntax/testdata/corpus/*/*.ergo", "the corpus globs check every sketch-eval source"),
 		glob("internal/sketch/syntax/testdata/corpus/*/*/*.ergo", "the corpus globs check every sketch-eval source one directory down"),
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
@@ -101,22 +101,18 @@ var declared = map[string][]allowance{
 		[]allowance{
 			{"cmd/ergo", program, "the tests drive the public CLI, built once per process"},
 			{"internal/sketch/check/testdata", subtree, "the accepted and refusal inventories walk the checker's fixtures (filepath.WalkDir), lowering each"},
-			{"internal/sketch/proto/testdata", subtree, "the accepted and refusal inventories walk the proto fixtures (filepath.WalkDir), lowering each"},
+			{"internal/sketch/testdata", subtree, "the accepted and refusal inventories and TestCorpusProbesRun walk the shared corpus (filepath.WalkDir), lowering each"},
 			{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
 			// TestNoStageERefusal (C43) walks internal/sketch, skipping
 			// testdata, and parses each source: the packages lower builds
 			// on are its inputs already; these are the rest, at the depths
 			// the walk reads them.
 			{"internal/sketch", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
-			{"internal/sketch/proto", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
-			{"internal/sketch/proto/rt", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
 		},
-		[]allowance{{"internal/sketch/proto/*.go", files, "TestNoStageERefusal (C43) parses each source of the walk"}},
-		[]allowance{{"internal/sketch/proto/rt/*.go", files, "TestNoStageERefusal (C43) parses each source of the walk"}},
 	),
 	"internal/sketch/syntax": declare(
-		glob("internal/sketch/proto/testdata/*.ergo", "decidedInputs parses every proto fixture"),
-		glob("internal/sketch/proto/testdata/*/*.ergo", "decidedInputs parses every proto fixture one directory down"),
+		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),
+		glob("internal/sketch/testdata/*/*.ergo", "decidedInputs parses every source of the shared corpus one directory down"),
 		[]allowance{{"internal/migrate196/testdata/old", subtree, "the old spellings must stop parsing: decided_test.go walks them (filepath.WalkDir)"}},
 		glob("docs/spec/*.md", "every go fence of the language spec parses (sketchtest.SpecFences); grammar.md is read by name too"),
 		glob("docs/research/ef-migrate/*.ergo", "the migrated examples parse (sketchtest.Repository)"),

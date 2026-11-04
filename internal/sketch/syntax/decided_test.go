@@ -87,8 +87,12 @@ func decidedInputs(t *testing.T) []sketchtest.Input {
 	}
 	inputs = append(inputs, readDir(t, "decided")...)
 	inputs = append(inputs, readDir(t, "edge")...)
-	protos, _ := filepath.Glob("../proto/testdata/*.ergo")
-	more, _ := filepath.Glob("../proto/testdata/*/*.ergo")
+	protos, _ := filepath.Glob("../testdata/*.ergo")
+	more, _ := filepath.Glob("../testdata/*/*.ergo")
+	// The shared corpus has 113 sources (stage 5): a wrong path reads none.
+	if len(protos)+len(more) < 100 {
+		t.Fatalf("found %d sources in the shared corpus ../testdata", len(protos)+len(more))
+	}
 	for _, p := range append(protos, more...) {
 		data, err := os.ReadFile(p)
 		if err != nil {
