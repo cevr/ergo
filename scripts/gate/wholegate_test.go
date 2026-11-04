@@ -196,6 +196,10 @@ func TestMergeTierUncached(t *testing.T) {
 				if !slices.Contains(merged.Argv[i+2:], "-count=1") {
 					t.Errorf("merge step %q runs go test without -count=1: %q", step.Name, merged.Argv)
 				}
+				// go refuses a -C that is not the first flag.
+				if slices.Contains(merged.Argv[i+2:], "-C") && merged.Argv[i+2] != "-C" {
+					t.Errorf("merge step %q puts a flag before go test's -C: %q", step.Name, merged.Argv)
+				}
 			}
 		}
 		if len(merged.Argv) >= 3 && merged.Argv[0] == "sh" && merged.Argv[1] == "-c" {
@@ -209,6 +213,9 @@ func TestMergeTierUncached(t *testing.T) {
 				if !strings.Contains(command[:end], "-count=1") {
 					t.Errorf("merge step %q runs go test without -count=1 in its script: %q", step.Name, script)
 				}
+				if strings.Contains(command[:end], " -C") && !strings.HasPrefix(command, " -C") {
+					t.Errorf("merge step %q puts a flag before go test's -C in its script: %q", step.Name, script)
+				}
 			}
 		}
 		before, _ := environmentVariable(stepCommandEnvironment(repository, step), "GOFLAGS")
@@ -220,8 +227,11 @@ func TestMergeTierUncached(t *testing.T) {
 	if sites < 4 {
 		t.Fatalf("found %d go test commands in the gate's steps; the check is vacuous", sites)
 	}
-	if got := uncachedScript(`a && go test -C x ./... && go test -count=2 y`); got != `a && go test -count=1 -C x ./... && go test -count=2 y` {
+	if got := uncachedScript(`a && go test -C x ./... && go test -count=2 y && go test -C=z -run T ./...`); got != `a && go test -C x -count=1 ./... && go test -count=2 y && go test -C=z -count=1 -run T ./...` {
 		t.Fatalf("uncachedScript gave %q", got)
+	}
+	if got := uncachedStep(&Step{Argv: []string{"env", "A=1", "go", "test", "-C", "m", "./..."}}).Argv; !slices.Equal(got, []string{"env", "A=1", "go", "test", "-C", "m", "-count=1", "./..."}) {
+		t.Fatalf("uncachedStep gave %q", got)
 	}
 
 	// A fixture: the inner tier records, the merge tier reruns every step

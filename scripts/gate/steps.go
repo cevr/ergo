@@ -195,7 +195,15 @@ func uncachedStep(step *Step) *Step {
 	argv := slices.Clone(step.Argv)
 	for i := 0; i+1 < len(argv); i++ {
 		if argv[i] == "go" && argv[i+1] == "test" && !slices.ContainsFunc(argv[i+2:], isCountFlag) {
-			argv = slices.Insert(argv, i+2, "-count=1")
+			// go's -C must be the first flag, so -count=1 goes after it.
+			at := i + 2
+			switch {
+			case at+1 < len(argv) && argv[at] == "-C":
+				at += 2
+			case at < len(argv) && strings.HasPrefix(argv[at], "-C="):
+				at++
+			}
+			argv = slices.Insert(argv, at, "-count=1")
 		}
 	}
 	if len(argv) >= 3 && argv[0] == "sh" && argv[1] == "-c" {
@@ -215,8 +223,12 @@ var goTestCommand = regexp.MustCompile(`(^|[\s;&|(]|\$\()go test\b`)
 // scriptCommandEnd ends a shell command: a newline, ;, & or |.
 var scriptCommandEnd = regexp.MustCompile(`[\n;&|]`)
 
+// leadingDirectoryFlag is go's -C flag and its value at the start of a go
+// test command's arguments; go requires it to be the first flag.
+var leadingDirectoryFlag = regexp.MustCompile(`^\s+-C(=|\s+)\S+`)
+
 // uncachedScript adds -count=1 to every go test command of a shell script
-// that does not set a count.
+// that does not set a count, after a leading -C.
 func uncachedScript(script string) string {
 	var b strings.Builder
 	rest := script
@@ -233,6 +245,10 @@ func uncachedScript(script string) string {
 			command = rest[:end[0]]
 		}
 		if !strings.Contains(command, "-count=") {
+			if flag := leadingDirectoryFlag.FindString(rest); flag != "" {
+				b.WriteString(flag)
+				rest = rest[len(flag):]
+			}
 			b.WriteString(" -count=1")
 		}
 	}
