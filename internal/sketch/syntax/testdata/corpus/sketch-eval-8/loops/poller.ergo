@@ -21,7 +21,7 @@ type Sink {
 }
 
 // The ticker stops when the loop ends. A full queue blocks the push.
-func poll(out queue.Queue[Reading]) needs Source, Clock, Console {
+func poll(out queue.Queue[Reading]) needs Source | Clock | Console {
 	for at in Clock.Tick(1s) {
 		let v = Source.Read() catch {
 		case SourceDown:
@@ -47,7 +47,7 @@ func batch(in2 queue.Queue[Reading], size int) fails FlushFailed needs Sink {
 }
 
 // A flush failure exits Run, and that exit stops the producer.
-func Run(d time.Duration) fails FlushFailed needs Source, Sink, Clock, Scheduler, Console {
+func Run(d time.Duration) fails FlushFailed needs Source | Sink | Clock | Scheduler | Console {
 	let ch = queue.New[Reading](16)
 	let producer = task.Go() {
 		scope.OnExit() { ch.Close() }

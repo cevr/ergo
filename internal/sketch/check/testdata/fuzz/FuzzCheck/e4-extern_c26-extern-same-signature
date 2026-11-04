@@ -1,0 +1,2 @@
+go test fuzz v1
+string("extern go ergo.local/prototype/runtime/rt.Sleep func nap(s LiveScheduler, d duration)\n\nfunc main() needs Console {\n\tlet s LiveScheduler\n\tnap(s, 1ms)\n\tConsole.Println(\"ok\")\n}\n")

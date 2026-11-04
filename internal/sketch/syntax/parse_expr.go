@@ -312,7 +312,7 @@ func (p *parser) parseOperand() Expr {
 		return t
 	case FUNC:
 		// In value position `func` always starts a literal, whose
-		// signature takes the declaration spelling, `func() needs A, B
+		// signature takes the declaration spelling, `func() needs A | B
 		// { … }`. A type is never a value, so there is no fallback to a
 		// function type: an error inside the signature is reported where
 		// it stands, and a signature with no block is a bare type.

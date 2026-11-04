@@ -203,7 +203,7 @@ func get(o Option[string]) string {
 	}
 }
 func show() string {
-	"a=" + get(log.Annotation("a")) + " b=" + get(log.Annotation("b")) + " s=" + get(trace.Current()) + " u=" + userctx.Read()
+	"a=" + get(log.Annotation("a")) + " b=" + get(log.Annotation("b")) + " s=" + get(trace.Current())
 }
 func step(line string) fails Fault needs Probe {
 	if Probe.Step(line) { return Fault }
@@ -631,19 +631,20 @@ func cxLower(t *testing.T, name, src string, imports cxImporter) *lowered {
 }
 
 // The checker Importer is the existing multi-package seam. Identical
-// source in two packages must read its own binding, even when main opens
-// their regions. This also exercises a region inside an imported body.
+// source in two packages binds its own key: a binding of one package's
+// type is never the other's, even when main opens their regions. This also
+// exercises a region inside an imported body.
+//
+// Only std binds the runtime (check-v1 E4, C26), and no user read API is
+// specified (runtime.md, stdlib.md), so the bindings are observed from the
+// Go side: the test's Console provider reads both packages' keys through
+// the runtime at each line the program prints.
 func TestRuntime199ContextPackageRead(t *testing.T) {
 	const library = `type Tag { text string }
 func New(text string) Tag { Tag{text: text} }
 func contextKey(_ Tag) string { "shared" }
 func contextText(t Tag) string { t.text }
-func Read() string {
-	if bound("shared") { value("shared") } else { "none" }
-}
-func Own() string { with New("own") { Read() } }
-extern go ergo.local/prototype/runtime/v1.ContextBound func bound(key string) bool
-extern go ergo.local/prototype/runtime/v1.ContextValue func value(key string) string
+func Own() needs Console { with New("own") { Console.Println("own") } }
 `
 	imports := cxImporter{}
 	for _, path := range []string{"example.test/a", "example.test/b"} {
@@ -651,28 +652,50 @@ extern go ergo.local/prototype/runtime/v1.ContextValue func value(key string) st
 	}
 	const src = `import example.test/a
 import example.test/b
-func main() needs Console {
-	Console.Println(a.Own())
+func reads() needs Console {
+	a.Own()
+	b.Own()
 	with a.New("a") {
-		Console.Println(a.Read() + "/" + b.Read())
-		with b.New("b") { Console.Println(a.Read() + "/" + b.Read()) }
-		Console.Println(a.Read() + "/" + b.Read())
+		Console.Println("a")
+		with b.New("b") { Console.Println("a b") }
+		Console.Println("a")
 	}
-	Console.Println(a.Read() + "/" + b.Read())
+	Console.Println("none")
 }
+func main() {}
 `
 	o := cxLower(t, "package-read", src, imports)
-	exes := buildAll(t, []*lowered{o}, true)
-	if t.Failed() {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, exes[o.name]).CombinedOutput()
-	if err != nil || string(out) != "own\na/none\na/b\na/none\nnone/none\n" {
-		t.Fatalf("package reads: %v\n%s", err, out)
-	}
+	contextModuleTest(t, o, packageReadTest)
 }
+
+// packageReadTest runs reads with a Console that appends, to each line,
+// the binding of the key "shared" in package a and in package b.
+const packageReadTest = `package main
+import (
+ "strings"
+ "testing"
+ rt "ergo.local/prototype/runtime/rt"
+ ergo "ergo.local/prototype/runtime/v1"
+)
+type console struct{ lines []string }
+func read(t *rt.Task, pkg ergo.ContextPackage) string {
+ if ergo.ContextBound(t, pkg, "shared") { return ergo.ContextValue(t, pkg, "shared") }
+ return "none"
+}
+func (c *console) Println(t *rt.Task, line string) {
+ c.lines = append(c.lines, line+" "+read(t, "example.test/a")+"/"+read(t, "example.test/b"))
+}
+func TestPackageRead(t *testing.T) {
+ c := &console{}
+ if err := ergo.ContextRun(func(task *rt.Task) error { reads(&Env{task: task, Console: c}); return nil }); err != nil {
+  t.Fatal(err)
+ }
+ want := "own own/none\nown none/own\na a/none\na b a/b\na a/none\nnone none/none"
+ if got := strings.Join(c.lines, "\n"); got != want {
+  t.Fatalf("package reads:\n%s\nwant:\n%s", got, want)
+ }
+}
+`
 
 func TestRuntime199ContextValueProperty(t *testing.T) {
 	if testing.Short() {
@@ -688,17 +711,17 @@ func TestRuntime199ContextValueProperty(t *testing.T) {
 		src.WriteString(s.src())
 	}
 	src.WriteString("func main() {}\n")
-	// The user type reads its own private namespace through an ordinary
-	// imported Ergo body, just as the std types do. show retains empty rows,
-	// so its footprint assertion still discriminates a context read marked
-	// pure; the test host does not supply the user's read.
+	// The user type binds in its own private namespace. Only std binds the
+	// runtime (check-v1 E4, C26) and no user read API is specified, so the
+	// probe reads the user key from the Go side at each step and appends it
+	// to the line (contextNativeTest, probe.Step): the line is the one an
+	// Ergo read in show would print. show reads log and trace and retains
+	// empty rows, so its footprint assertion still discriminates a context
+	// read marked pure.
 	const user = `type tag { text string }
 func Make(text string) tag { tag{text: text} }
 func contextKey(_ tag) string { "u" }
 func contextText(t tag) string { t.text }
-func Read() string { if bound("u") { value("u") } else { "-" } }
-extern go ergo.local/prototype/runtime/v1.ContextBound func bound(key string) bool
-extern go ergo.local/prototype/runtime/v1.ContextValue func value(key string) string
 `
 	o := cxLower(t, "context", src.String(), cxImporter{"example.test/userctx": cxPackage(t, "example.test/userctx", user)})
 	// A context read is effectful for footprints, though its rows are empty.
@@ -808,6 +831,20 @@ func cxShapes(s *cxSeq, shapes map[string]bool) {
 // is not changed.
 func contextNative(t *testing.T, o *lowered, cases []cxCase, funcs int) {
 	t.Helper()
+	var table strings.Builder
+	for _, c := range cases {
+		fmt.Fprintf(&table, "\t{name: %q, mode: %q, target: %q, exit: %q, parent: %#v, req: %#v, opt: %#v, run: func(env *Env, p *probe) error {\n\t\tif err := run%d(env); err != nil {\n\t\t\tif _, ok := err.(Fault); ok { p.add(\"failure\"); return nil }\n\t\t\treturn err\n\t\t}\n\t\treturn nil\n\t}},\n",
+			c.name, c.mode, c.target, c.exit, c.parent, c.req, c.opt, c.k)
+	}
+	contextModuleTest(t, o, strings.Replace(contextNativeTest, "CASES", table.String(), 1))
+	t.Logf("%d native cases: every parent step under a failure, a defect and a stop, and a normal run of each of %d functions; native PASS", len(cases), funcs)
+}
+
+// contextModuleTest writes the emitted program, a copy of the runtime with
+// the context test seams (contextProbeRT, contextProbeV1) and test as one
+// module, and runs its go test. The emitted code is not changed.
+func contextModuleTest(t *testing.T, o *lowered, test string) {
+	t.Helper()
 	dir := t.TempDir()
 	write := func(path string, data []byte) {
 		t.Helper()
@@ -826,12 +863,7 @@ func contextNative(t *testing.T, o *lowered, cases []cxCase, funcs int) {
 	}
 	write("ergo/runtime/rt/context_probe.go", []byte(contextProbeRT))
 	write("ergo/runtime/v1/context_probe.go", []byte(contextProbeV1))
-	var table strings.Builder
-	for _, c := range cases {
-		fmt.Fprintf(&table, "\t{name: %q, mode: %q, target: %q, exit: %q, parent: %#v, req: %#v, opt: %#v, run: func(env *Env, p *probe) error {\n\t\tif err := run%d(env); err != nil {\n\t\t\tif _, ok := err.(Fault); ok { p.add(\"failure\"); return nil }\n\t\t\treturn err\n\t\t}\n\t\treturn nil\n\t}},\n",
-			c.name, c.mode, c.target, c.exit, c.parent, c.req, c.opt, c.k)
-	}
-	write("context_test.go", []byte(strings.Replace(contextNativeTest, "CASES", table.String(), 1)))
+	write("context_test.go", []byte(test))
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=3m", ".")
@@ -839,9 +871,8 @@ func contextNative(t *testing.T, o *lowered, cases []cxCase, funcs int) {
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("native context cases: %v\n%s\nErgo:\n%s", err, firstLines(string(output), 120), o.src)
+		t.Fatalf("native %s: %v\n%s\nErgo:\n%s", o.name, err, firstLines(string(output), 120), o.src)
 	}
-	t.Logf("%d native cases: every parent step under a failure, a defect and a stop, and a normal run of each of %d functions; native PASS", len(cases), funcs)
 }
 
 const contextProbeRT = `package rt
@@ -873,7 +904,7 @@ func ContextRun(body func(*rt.Task) error) error { return runMain(body) }
 
 // ContextBind binds a caller's value around a run and returns its end.
 func ContextBind(t *rt.Task, key, text string) func() {
-	c := t.WithValue(contextKey{"log", key}, text)
+	c := t.WithValue(contextKey{"std:log", key}, text)
 	return c.End
 }
 `
@@ -898,9 +929,17 @@ type probe struct {
  mode, target string
 }
 func (p *probe) add(line string) { p.mu.Lock(); p.lines = append(p.lines, line); p.mu.Unlock() }
-// Step is the probe capability. At the target parent step it fails,
+// user reads the user type's key from the Go side: the program has no read
+// for it (only std binds the runtime).
+func user(t *rt.Task) string {
+ if ergo.ContextBound(t, "example.test/userctx", "u") { return ergo.ContextValue(t, "example.test/userctx", "u") }
+ return "-"
+}
+// Step is the probe capability. It appends the user key's binding in force
+// for the calling task to the line. At the target parent step it fails,
 // panics or stops the calling task, by mode; the stop is observed here.
 func (p *probe) Step(t *rt.Task, line string) bool {
+ line += " u=" + user(t)
  alive, bound, strs := rt.ContextProbe(t)
  p.mu.Lock()
  p.lines = append(p.lines, line)
@@ -918,14 +957,13 @@ func (p *probe) Step(t *rt.Task, line string) bool {
 }
 func values(t *rt.Task) string {
  var parts []string
- for _, k := range []string{"a", "b", "u"} {
+ for _, k := range []string{"a", "b"} {
   v := "-"
-  pkg, key := ergo.ContextPackage("log"), k
-  if k == "u" { pkg, key = "example.test/userctx", "u" }
-  if ergo.ContextBound(t, pkg, key) { v = ergo.ContextValue(t, pkg, key) }
+  if ergo.ContextBound(t, "std:log", k) { v = ergo.ContextValue(t, "std:log", k) }
   parts = append(parts, k+"="+v)
  }
- if ergo.ContextBound(t, "trace", "span") { parts = append(parts, "s="+ergo.ContextValue(t, "trace", "span")) }
+ parts = append(parts, "u="+user(t))
+ if ergo.ContextBound(t, "std:trace", "span") { parts = append(parts, "s="+ergo.ContextValue(t, "std:trace", "span")) }
  return strings.Join(parts, " ")
 }
 type cxCase struct {

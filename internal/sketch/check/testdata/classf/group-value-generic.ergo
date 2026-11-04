@@ -1,4 +1,4 @@
 type Fault[T] { V T }
-extern go fixture.mark func mark[T]() fails Fault[T]
+func mark[T]() fails Fault[T] { try mark[T]() }
 func raise[T](x T) {_ = lift[T];return Fault{x}}
 func lift[U](x U) {return raise[U](x)} // want S108

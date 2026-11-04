@@ -137,14 +137,14 @@ func TestPackageLetLiteralLocals(t *testing.T) {
 // (classf/go-statement.ergo, mapkey-*.ergo).
 func TestRefusedMemberKeepsItsSignature(t *testing.T) {
 	runD1(t, []d1Case{
-		{"p13", "type Bang {}\nextern go fixture.mark func mark() fails Bang\n" +
+		{"p13", "type Bang {}\nfunc mark() fails Bang { return Bang }\n" +
 			"func a(n int) int { let m = Map[int, func(int) int]{1: a}; _ = m; try mark(); n }\n" +
 			"func F() fails Bang {\n\tlet s string = try a(1, 2)\n\tlet t = a(\"x\")\n\t_ = s\n\t_ = t\n}\n" +
 			"func G() fails Bang {\n\tlet u = try a(1) + undefinedName\n\t_ = u\n}\n",
 			[]string{"S108:3", "S108:5", "S108:6", "S104:11"}},
 		// The follow-ons of the pinned row stay dropped: a try that cannot
 		// fail, a catch that cannot fail, a return of no value.
-		{"follow-ons", "type Bang {}\nextern go fixture.mark func mark() fails Bang\n" +
+		{"follow-ons", "type Bang {}\nfunc mark() fails Bang { return Bang }\n" +
 			"func a() { let m = Map[int, func()]{1: a}; _ = m; try mark() }\n" +
 			"func F() fails Bang { try a() }\nfunc G() { a() catch { case Bang: } }\nfunc H() fails Bang { return a() }\n",
 			[]string{"S108:3"}},

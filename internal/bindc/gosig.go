@@ -33,23 +33,6 @@ type GoResult struct {
 	C int
 }
 
-// goReserved are names a parameter of a generated function may not take:
-// Go keywords, predeclared identifiers, the imported packages and the
-// locals of a generated body.
-var goReserved = map[string]bool{}
-
-func init() {
-	for k := range goKeywords {
-		goReserved[k] = true
-	}
-	for _, n := range strings.Fields(`bool byte complex64 complex128 error float32 float64 int int8 int16 int32 int64
-		rune string uint uint8 uint16 uint32 uint64 uintptr any comparable true false iota nil append cap clear close
-		complex copy delete imag len make max min new panic print println real recover
-		purego unsafe runtime errors fmt sync`) {
-		goReserved[n] = true
-	}
-}
-
 // GoType is the Go type of a C type of a value: a field, a by-value
 // parameter or result, an element or the target of an out-parameter.
 func (b *Binding) GoType(t Type) string {
@@ -98,28 +81,28 @@ func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 			s.Results = append(s.Results, GoResult{Type: b.GoType(f.Result), C: -1})
 		}
 	}
-	used := map[string]bool{}
+	used := goFuncScope(b.pkg)
 	for i, p := range f.Params {
 		q, isPos := class[i]
 		switch {
 		case consumed[i]:
 			continue
 		case !isPos:
-			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used), Type: b.GoType(p.Type), C: i})
+			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: b.GoType(p.Type), C: i})
 		case q.Class == ClassHandle:
-			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used), Type: "*" + b.GoTypes[p.Type.Elem.Name], C: i, Class: q.Class})
+			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: "*" + b.GoTypes[p.Type.Elem.Name], C: i, Class: q.Class})
 		case q.Class == ClassValue:
 			t := b.GoType(*p.Type.Elem)
 			if p.Type.LenExpr != "" {
 				t = "[" + strconv.FormatInt(p.Type.Len, 10) + "]" + t
 			}
-			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used), Type: t, C: i, Class: q.Class})
+			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: t, C: i, Class: q.Class})
 		case q.Class == ClassInBuffer || q.Class == ClassOutBuffer:
 			et := b.GoType(*p.Type.Elem)
 			if et == "uint8" {
 				et = "byte" // the same type; Go spells byte slices so
 			}
-			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used), Type: "[]" + et, C: i, Class: q.Class})
+			s.Params = append(s.Params, GoParam{Name: paramName(p, i, b, used, f), Type: "[]" + et, C: i, Class: q.Class})
 		case q.Class == ClassOut:
 			s.Results = append(s.Results, GoResult{Type: b.GoType(*p.Type.Elem), C: i})
 		case q.Class == ClassOutCount:
@@ -130,9 +113,9 @@ func (b *Binding) goSig(bf *BoundFunc) *GoSig {
 }
 
 // paramName is the Go name of a parameter: its C name in lowerCamelCase,
-// or for an unnamed one the name of its type, made unique in the function
-// and kept off goReserved with a final "_".
-func paramName(p Param, i int, b *Binding, used map[string]bool) string {
+// or for an unnamed one the name of its type, allocated in the function's
+// scope (names.go): a reserved name gets a final "_", a taken one a number.
+func paramName(p Param, i int, b *Binding, scope *nameScope, f *Function) string {
 	n := lowerCamel(p.Name)
 	if n == "" {
 		t := p.Type
@@ -146,15 +129,7 @@ func paramName(p Param, i int, b *Binding, used map[string]bool) string {
 			n = "arg" + strconv.Itoa(i)
 		}
 	}
-	for goReserved[n] {
-		n += "_"
-	}
-	base := n
-	for k := 2; used[n]; k++ {
-		n = base + strconv.Itoa(k)
-	}
-	used[n] = true
-	return n
+	return scope.alloc(n, "parameter "+positionName(f, i)+" of "+f.Name)
 }
 
 // String is the signature as Go source: "func Name(a T, b []U) (V, error)".

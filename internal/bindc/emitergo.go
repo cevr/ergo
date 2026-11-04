@@ -135,9 +135,6 @@ func init() {
 	for _, w := range append(syntax.Keywords(), syntax.Reserved()...) {
 		ergoReserved[w] = true
 	}
-	for n := range goReserved {
-		ergoReserved[n] = true
-	}
 	for _, n := range strings.Fields("duration comparable ordered number Map Option rt time fmt init Error timeout") {
 		ergoReserved[n] = true
 	}

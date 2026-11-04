@@ -340,7 +340,29 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(Visit{}.Ticket) - 8 + 1]struct{}{}
 )
 
-// The raw layer: the exact C shape of every function.
+// The call forms: a struct passed or returned by value crosses purego as
+// the plainest Go struct that purego marshals as C passes the struct.
+type abiF32x2 struct{ f0, f1 float32 }
+
+// toABI copies the Go struct v into its call form W, byte for byte.
+func toABI[W, T any](v T) (w W) {
+	*(*T)(unsafe.Pointer(&w)) = v
+	return w
+}
+
+// fromABI copies the call form w back into its Go struct T.
+func fromABI[T, W any](w W) T {
+	return *(*T)(unsafe.Pointer(&w))
+}
+
+// Each call form holds its struct: it is no smaller and no less aligned.
+var (
+	_ = [unsafe.Sizeof(abiF32x2{}) - unsafe.Sizeof(Point{})]struct{}{}
+	_ = [unsafe.Alignof(abiF32x2{}) - unsafe.Alignof(Point{})]struct{}{}
+)
+
+// The raw layer: the exact C shape of every function, with a struct by
+// value in its call form.
 var (
 	c_fx_abi_version     func() uint32
 	c_fx_context_create  func(unsafe.Pointer, unsafe.Pointer) int32
@@ -354,7 +376,7 @@ var (
 	c_fx_node_read_name  func(uintptr, unsafe.Pointer, unsafe.Pointer, uint32, unsafe.Pointer) int32
 	c_fx_node_set_text   func(uintptr, unsafe.Pointer, unsafe.Pointer) int32
 	c_fx_context_visit   func(uintptr, uintptr, unsafe.Pointer) int32
-	c_fx_point_length    func(Point) float32
+	c_fx_point_length    func(abiF32x2) float32
 	c_fx_context_age     func(uintptr) float64
 )
 
@@ -534,7 +556,7 @@ func PointLength(point Point) (float32, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
-	_r := c_fx_point_length(point)
+	_r := c_fx_point_length(toABI[abiF32x2](point))
 	return _r, nil
 }
 

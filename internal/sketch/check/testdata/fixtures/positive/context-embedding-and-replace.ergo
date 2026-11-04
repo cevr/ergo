@@ -18,7 +18,7 @@ let Fixture = context {
 	Accounts,
 }
 
-func labels() string needs Store, Account { return Store.Label() + Account.Label() }
+func labels() string needs Store | Account { return Store.Label() + Account.Label() }
 
 func main() needs Console {
 	let line = with Fixture { labels() }

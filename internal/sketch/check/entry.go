@@ -415,6 +415,11 @@ func (c *checker) checkMachine(tn *TypeName) {
 	}
 	f.called = true
 	c.pkg.Info.Uses[id] = f
+	if isExtern(f) {
+		// A step is a function value; an extern is call-only (P3).
+		c.errorf(id, CodeType, "%s", externCallOnlyText)
+		return
+	}
 	if !valid || f.Sig == nil {
 		return
 	}

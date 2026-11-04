@@ -27,7 +27,7 @@ func topWords(path string, n int) []WordCount fails fs.NotFound | fs.ReadFailed 
 	return words[:min(n, len(words))]
 }
 
-func main() fails fs.NotFound | fs.ReadFailed needs fs.Files, os.Args, Console {
+func main() fails fs.NotFound | fs.ReadFailed needs fs.Files | os.Args | Console {
 	let words = try topWords(Args.Get(1), 5)
 	for w in words {
 		Console.Println(w.Word, w.Count)

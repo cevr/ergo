@@ -62,12 +62,19 @@
 // DecodeContract reads it strictly; Bind checks every fact against the
 // model and fails closed.
 //
-// Bind gives every pointer position (a parameter or result that is a data
-// pointer or a callback) exactly one Class. An exception names the class
-// of its position. Otherwise each rule (see the rule constants in
+// Bind gives every pointer position exactly one Class: a parameter or
+// result that is a data pointer or a callback (BoundFunc.Positions), and a
+// struct field that is a data pointer, a callback or an array of those
+// (Binding.Fields, for every struct, used or not). An exception names the
+// class of a parameter. Otherwise each rule (see the rule constants in
 // classify.go) is a predicate on the position and its neighbors, and the
 // rules do not consult each other: one match gives the rule's class, and
-// zero or two matches make the position raw. A position is "lone" when it
+// zero or two matches make the position raw. The in_buffer rule is two
+// rules, one per length unit: a length that a length_names template and a
+// byte_length_names template both give for one buffer is two matches, and
+// the position is raw (the order of the lists decides nothing). No rule
+// covers a field: the typed layer passes no struct that holds a pointer,
+// so every pointer field is raw with its reason. A position is "lone" when it
 // is not next to a parameter whose name could be a length or a capacity;
 // only a lone pointer can be a value or an out-parameter, so `const S *,
 // uint32_t chunk_count` is never one value, named or not. A length that
@@ -106,10 +113,38 @@
 // struct has compile-time asserts of its size, its alignment, and every
 // field's offset and size (TestGeneratedGoTypechecks checks them for amd64
 // and arm64). Autofill fields are unexported, and the typed layer sets
-// them before every call that passes the struct, out-parameters included
-// (OpenTUI: "Initialize struct_size and abi_version" of output structs).
-// Callbacks are raw uintptr (bind-c-2); thread affinity is not enforced in
-// Go: the library returns its wrong-thread status.
+// them before every call that passes the struct: by value, by const
+// pointer, as a const array, in a buffer, and in out-parameters, nested
+// structs and arrays included (OpenTUI: "Initialize struct_size and
+// abi_version" of output structs). Callbacks are raw uintptr (bind-c-2);
+// thread affinity is not enforced in Go: the library returns its
+// wrong-thread status.
+//
+// A struct passed or returned by value crosses purego in its call form
+// (abi.go): N flat floats for an HFA, else uint64 words, which purego
+// marshals as the C calling convention passes the struct on every tier-1
+// target. purego does not pad a Go struct and guesses register classes,
+// so the Go struct itself would lose fields. Load registers the raw
+// function of every bound function, typed or raw-only, so Bind refuses a
+// header with a function whose call purego cannot make as C does on all
+// four targets: a struct with no single form (an eightbyte of only floats
+// that is not an HFA), or a call of scalars and pointers that needs more
+// stack than purego registers. In v1 a function with a by-value struct
+// argument or result is bound only when, on each of the four targets,
+// every argument and the result travel in registers: no argument goes on
+// the stack, and each struct is passed in registers (System V classes on
+// amd64: up to 16 bytes; on arm64 an HFA or up to 16 bytes). purego
+// marshals a struct in a call that uses the stack differently per target,
+// and on darwin arm64 not as C does. The error names the function, each
+// target that fails with its first position and reason, and the remedy:
+// skip it in the contract or pass a pointer.
+//
+// Every Go name comes from one allocator per scope (names.go): the
+// package, each typed function's parameters and locals, and each struct's
+// fields and methods. Each scope reserves the generated names of its
+// inventory (helpers, locals, methods, Go's keywords). An exported name
+// that collides is refused with both C sources; a parameter or an
+// unexported field takes "_" or a number instead.
 //
 // # The Ergo text
 //

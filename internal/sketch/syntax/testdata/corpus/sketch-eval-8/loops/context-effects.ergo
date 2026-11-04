@@ -34,7 +34,7 @@ func Close(p Postgres) fails CloseFailed {
 
 // A constructor is an ordinary function. Its needs row is resolved from the
 // same context graph, and its error row joins the startup errors of every with().
-func OpenPostgres() Postgres fails ConnectFailed needs Config, Clock, Scheduler {
+func OpenPostgres() Postgres fails ConnectFailed needs Config | Clock | Scheduler {
 	let url = Config.String("DATABASE_URL")
 	let pool = try retry.On[ConnectFailed](retry.Exponential(200ms).Times(5)) { sql.Open(url) }
 	return Postgres{pool, task.Go() {
@@ -52,7 +52,7 @@ func keepWarm(pool sql.Pool) needs Clock {
 // The constructor picks an implementation at build time, as Effect's
 // Layer.unwrapEffect does. context closes whichever value it returned if that
 // value has a Close method.
-func OpenOrders() Orders fails ConnectFailed needs Config, Clock, Scheduler {
+func OpenOrders() Orders fails ConnectFailed needs Config | Clock | Scheduler {
 	if Config.String("ORDERS") == "memory" {
 		return MemoryOrders{}
 	}
@@ -65,7 +65,7 @@ let Live = context provides Orders {
 }
 
 // Built once for the whole server, not per request.
-func main() fails ConnectFailed | CloseFailed needs Clock, Scheduler, Console {
+func main() fails ConnectFailed | CloseFailed needs Clock | Scheduler | Console {
 	return with Live {
 		serve(time.Minute)
 	}

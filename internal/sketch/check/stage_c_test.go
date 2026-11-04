@@ -346,7 +346,7 @@ func F(id string) int fails NotFound | Declined | Frozen { 1 }
 }
 
 // D-C5: a function literal spells its own rows as a declaration does,
-// func() T fails E needs A, B { … }, and a written row is declared: a
+// func() T fails E needs A | B { … }, and a written row is declared: a
 // failure or a service outside it is S101 or S102, never a wider row.
 func TestLiteralRowsAreDeclared(t *testing.T) {
 	const decls = `type E {}
@@ -365,7 +365,7 @@ func H() int fails X { 1 }
 	let f = func() int fails E { H() }
 	try f()
 }`, "S101:8"},
-		{"undeclared-service", `func F() int needs Svc, Other {
+		{"undeclared-service", `func F() int needs Svc | Other {
 	let f = func() int needs Svc { Other.Go() }
 	f()
 }`, "S102:8"},

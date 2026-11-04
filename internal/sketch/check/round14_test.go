@@ -63,20 +63,21 @@ func recursiveAdmission(seed uint64, errors bool) admissionGroup {
 	}
 	if errors {
 		emit("type Bang {}")
-		// A Go binding with no body is extern go.
-		emit("extern go fixture.mark func mark() fails Bang")
+		// The fixed signatures are ordinary functions with written rows
+		// (a user extern takes basic types only, C26).
+		emit("func mark() fails Bang { return Bang }")
 		emit("type Box[T] { M(T) }")
-		emit("extern go fixture.BoxOf func BoxOf[T](x T) Box[T]")
-		emit("extern go fixture.Choose func Choose[T](x T, y T) fails Bang")
+		emit("func BoxOf[T](x T) Box[T] { BoxOf(x) }")
+		emit("func Choose[T](x T, y T) fails Bang { return Bang }")
 		// E is an error row by its position after fails.
-		emit("extern go fixture.Run func Run[E, T](x T, y T, callback func() fails E) fails E")
+		emit("func Run[E, T](x T, y T, callback func() fails E) fails E { return callback() }")
 	} else {
 		emit("type Cap { M() }")
 		emit("type Box[T] { M(T) }")
-		emit("extern go fixture.BoxOf func BoxOf[T](x T) Box[T]")
-		emit("extern go fixture.Choose func Choose[T](x T, y T) needs Cap")
+		emit("func BoxOf[T](x T) Box[T] { BoxOf(x) }")
+		emit("func Choose[T](x T, y T) needs Cap { Cap.M() }")
 		emit("func Same[T](x T, y T) {}")
-		emit("extern go fixture.Run func Run[T, R](x T, y T, callback func() needs R) needs R")
+		emit("func Run[T, R](x T, y T, callback func() needs R) needs R { callback() }")
 	}
 	// Which members are used as values, and which of those write rows.
 	value := make([]bool, n)

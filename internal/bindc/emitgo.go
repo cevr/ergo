@@ -14,7 +14,8 @@ import (
 //
 // The raw layer has one unexported function variable per function, with
 // the exact C shape (a pointer to a handle type and a callback are uintptr,
-// every other pointer is unsafe.Pointer). Load opens the library, looks up
+// every other pointer is unsafe.Pointer, a struct by value is its call form
+// of abi.go). Load opens the library, looks up
 // every symbol with purego.Dlsym (an error names a missing symbol), calls
 // the ABI-version function first, and registers the raw functions with
 // purego.RegisterFunc only when the ABI matches; RegisterLibFunc, which
@@ -187,8 +188,29 @@ func Load(path string) error {
 		}
 	}
 
+	// Call forms (abi.go).
+	if structs := e.byValueStructs(); len(structs) > 0 {
+		e.p("// The call forms: a struct passed or returned by value crosses purego as\n// the plainest Go struct that purego marshals as C passes the struct.\n")
+		seen := map[string]bool{}
+		for _, s := range structs {
+			if fm := k.form(s); !seen[fm.GoName()] {
+				seen[fm.GoName()] = true
+				e.p("%s\n", fm.GoDecl())
+			}
+		}
+		e.p("\n// toABI copies the Go struct v into its call form W, byte for byte.\nfunc toABI[W, T any](v T) (w W) {\n\t*(*T)(unsafe.Pointer(&w)) = v\n\treturn w\n}\n\n")
+		e.p("// fromABI copies the call form w back into its Go struct T.\nfunc fromABI[T, W any](w W) T {\n\treturn *(*T)(unsafe.Pointer(&w))\n}\n\n")
+		e.p("// Each call form holds its struct: it is no smaller and no less aligned.\nvar (\n")
+		for _, s := range structs {
+			gn, fn := b.GoTypes[s], k.form(s).GoName()
+			e.p("\t_ = [unsafe.Sizeof(%s{}) - unsafe.Sizeof(%s{})]struct{}{}\n", fn, gn)
+			e.p("\t_ = [unsafe.Alignof(%s{}) - unsafe.Alignof(%s{})]struct{}{}\n", fn, gn)
+		}
+		e.p(")\n\n")
+	}
+
 	// Raw layer.
-	e.p("// The raw layer: the exact C shape of every function.\nvar (\n")
+	e.p("// The raw layer: the exact C shape of every function, with a struct by\n// value in its call form.\nvar (\n")
 	for _, f := range b.Funcs {
 		e.p("\t%s func(%s)%s\n", rawName(f.C.Name), e.rawParams(f.C), e.rawResult(f.C.Result))
 	}
@@ -203,6 +225,30 @@ func Load(path string) error {
 	return e.w.String()
 }
 
+// byValueStructs are the structs that a function passes
+// or returns by value, sorted.
+func (e *goEmitter) byValueStructs() []string {
+	k := e.b.k
+	set := map[string]bool{}
+	for _, f := range e.b.Funcs {
+		ts := []Type{f.C.Result}
+		for _, p := range f.C.Params {
+			ts = append(ts, p.Type)
+		}
+		for _, t := range ts {
+			if k.isByValueStruct(t) {
+				set[t.Name] = true
+			}
+		}
+	}
+	var out []string
+	for s := range set {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func mustScalar(k *classifier, t Type) Scalar {
 	s, _ := k.scalarOf(t)
 	return s
@@ -210,14 +256,10 @@ func mustScalar(k *classifier, t Type) Scalar {
 
 func rawName(c string) string { return "c_" + c }
 
-// fieldName is the Go name of a struct field: CamelCase, or lowerCamel for
-// an autofill field, which the binding sets and the caller cannot.
-func (e *goEmitter) fieldName(f Field) string {
-	if e.b.Autofill[f.Name] != "" {
-		return lowerCamel(f.Name)
-	}
-	return goCamel(f.Name)
-}
+// fieldName is the Go name of field i of struct d (Binding.FieldNames):
+// CamelCase, or an unexported name for an autofill field, which the
+// binding sets and the caller cannot.
+func (e *goEmitter) fieldName(d TypeDecl, i int) string { return e.b.FieldNames[d.Name][i] }
 
 // fieldType is the Go type of a field: a pointer or a callback is uintptr.
 func (e *goEmitter) fieldType(t Type) string {
@@ -256,24 +298,24 @@ func (e *goEmitter) needsFill(name string) bool {
 func (e *goEmitter) structDecl(d TypeDecl) {
 	gn := e.b.GoTypes[d.Name]
 	e.p("// %s is %s (%d bytes, alignment %d).\ntype %s struct {\n", gn, d.Name, d.Size, d.Align, gn)
-	for _, f := range d.Fields {
-		e.p("\t%s %s\n", e.fieldName(f), e.fieldType(f.Type))
+	for i, f := range d.Fields {
+		e.p("\t%s %s\n", e.fieldName(d, i), e.fieldType(f.Type))
 	}
 	e.p("}\n\n")
 	e.p("// The layout of %s: each line fails to compile when Go's layout differs.\nvar (\n", gn)
 	e.p("\t_ [1]struct{} = [unsafe.Sizeof(%s{}) - %d + 1]struct{}{}\n", gn, d.Size)
 	e.p("\t_ [1]struct{} = [unsafe.Alignof(%s{}) - %d + 1]struct{}{}\n", gn, d.Align)
-	for _, f := range d.Fields {
-		e.p("\t_ [1]struct{} = [unsafe.Offsetof(%s{}.%s) - %d + 1]struct{}{}\n", gn, e.fieldName(f), f.Offset)
-		e.p("\t_ [1]struct{} = [unsafe.Sizeof(%s{}.%s) - %d + 1]struct{}{}\n", gn, e.fieldName(f), f.Size)
+	for i, f := range d.Fields {
+		e.p("\t_ [1]struct{} = [unsafe.Offsetof(%s{}.%s) - %d + 1]struct{}{}\n", gn, e.fieldName(d, i), f.Offset)
+		e.p("\t_ [1]struct{} = [unsafe.Sizeof(%s{}.%s) - %d + 1]struct{}{}\n", gn, e.fieldName(d, i), f.Size)
 	}
 	e.p(")\n\n")
 	if !e.needsFill(d.Name) {
 		return
 	}
 	e.p("// fill sets the autofill fields of s.\nfunc (s *%s) fill() {\n", gn)
-	for _, f := range d.Fields {
-		fn := e.fieldName(f)
+	for i, f := range d.Fields {
+		fn := e.fieldName(d, i)
 		switch e.b.Autofill[f.Name] {
 		case "size":
 			e.p("\ts.%s = %d\n", fn, d.Size)
@@ -282,28 +324,34 @@ func (e *goEmitter) structDecl(d TypeDecl) {
 			e.p("\ts.%s = %d\n", fn, e.b.ABIWant)
 			continue
 		}
-		t, idx := f.Type, ""
-		depth := 0
-		base := t
-		for base.Kind == TypeArray {
-			base = *base.Elem
-		}
-		if base.Kind != TypeNamed || !e.needsFill(base.Name) {
-			continue
-		}
-		for t.Kind == TypeArray {
-			v := "i" + strconv.Itoa(depth)
-			e.p("\tfor %s := range s.%s%s {\n", v, fn, idx)
-			idx += "[" + v + "]"
-			t = *t.Elem
-			depth++
-		}
-		e.p("\ts.%s%s.fill()\n", fn, idx)
-		for ; depth > 0; depth-- {
-			e.p("\t}\n")
-		}
+		e.fill("s."+fn, f.Type, 0)
 	}
 	e.p("}\n\n")
+}
+
+// needsFillType reports whether a value of type t holds an autofill
+// field: a struct that holds one, or an array of them.
+func (e *goEmitter) needsFillType(t Type) bool {
+	for t.Kind == TypeArray {
+		t = *t.Elem
+	}
+	return t.Kind == TypeNamed && e.needsFill(t.Name)
+}
+
+// fill emits the statements that set the autofill fields of the Go value
+// x of C type t: x.fill() for a struct that holds one, and a loop for an
+// array of them (or a slice: an array type with no length). Each loop
+// variable is _i<depth>.
+func (e *goEmitter) fill(x string, t Type, depth int) {
+	switch {
+	case t.Kind == TypeArray && e.needsFillType(*t.Elem):
+		v := "_i" + strconv.Itoa(depth)
+		e.p("\tfor %s := range %s {\n", v, x)
+		e.fill(x+"["+v+"]", *t.Elem, depth+1)
+		e.p("\t}\n")
+	case t.Kind == TypeNamed && e.needsFill(t.Name):
+		e.p("\t%s.fill()\n", x)
+	}
 }
 
 // rawType is the Go type of a C parameter or result in the raw layer.
@@ -322,6 +370,8 @@ func (e *goEmitter) rawType(t Type) string {
 			return "uintptr"
 		case DeclScalar:
 			return goScalar[d.Scalar]
+		case DeclStruct:
+			return k.form(t.Name).GoName()
 		}
 		return e.b.GoTypes[t.Name]
 	case TypeScalar:
@@ -349,7 +399,6 @@ func (e *goEmitter) rawResult(t Type) string {
 func (e *goEmitter) typedFunc(f *BoundFunc) {
 	b, k, s := e.b, e.b.k, f.Sig
 	c := f.C
-	rt := e.use("runtime")
 	var params []string
 	for _, p := range s.Params {
 		params = append(params, p.Name+" "+p.Type)
@@ -364,7 +413,7 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 		e.p("// On success it sets the handle to nil; a later call on it returns ErrDestroyed.\n")
 	}
 	for _, p := range s.Params {
-		if t := c.Params[p.C].Type; (p.Class == ClassInBuffer || p.Class == ClassOutBuffer) && e.needsFill(t.Elem.Name) {
+		if t := c.Params[p.C].Type; (p.Class == ClassInBuffer || p.Class == ClassOutBuffer) && e.needsFillType(*t.Elem) {
 			e.p("// It sets the autofill fields of each element of %s.\n", p.Name)
 		}
 	}
@@ -434,9 +483,7 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 				e.p("\tvar %s uintptr\n", v)
 			} else {
 				e.p("\tvar %s %s\n", v, b.GoType(t))
-				if t.Kind == TypeNamed && e.needsFill(t.Name) {
-					e.p("\t%s.fill()\n", v)
-				}
+				e.fill(v, t, 0)
 			}
 			args = append(args, "unsafe.Pointer(&"+v+")")
 			keep = append(keep, "&"+v)
@@ -444,16 +491,15 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			args = append(args, gp.Name+".p")
 		case isPos && q.Class == ClassValue:
 			t := *p.Type.Elem
-			if t.Kind == TypeNamed && e.needsFill(t.Name) {
-				e.p("\t%s.fill()\n", gp.Name)
+			if p.Type.LenExpr != "" {
+				// const T name[N]: the Go parameter is a [N]T.
+				t = Type{Kind: TypeArray, Elem: p.Type.Elem, Len: p.Type.Len}
 			}
+			e.fill(gp.Name, t, 0)
 			args = append(args, "unsafe.Pointer(&"+gp.Name+")")
 			keep = append(keep, "&"+gp.Name)
 		case isPos && (q.Class == ClassInBuffer || q.Class == ClassOutBuffer):
-			t := *p.Type.Elem
-			if t.Kind == TypeNamed && e.needsFill(t.Name) {
-				e.p("\tfor _i := range %s {\n\t\t%s[_i].fill()\n\t}\n", gp.Name, gp.Name)
-			}
+			e.fill(gp.Name, Type{Kind: TypeArray, Elem: p.Type.Elem}, 0)
 			args = append(args, "sliceData("+gp.Name+")")
 			keep = append(keep, gp.Name)
 		default:
@@ -470,7 +516,11 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 				continue
 			}
 			rt := e.rawType(p.Type)
-			if gp.Type != rt {
+			if k.isByValueStruct(p.Type) {
+				// A struct by value: its autofill fields, then its call form.
+				e.fill(gp.Name, p.Type, 0)
+				args = append(args, "toABI["+rt+"]("+gp.Name+")")
+			} else if gp.Type != rt {
 				args = append(args, rt+"("+gp.Name+")")
 			} else {
 				args = append(args, gp.Name)
@@ -485,7 +535,8 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 		e.p("\t_r := %s\n", call)
 	}
 	for _, v := range keep {
-		e.p("\t%s.KeepAlive(%s)\n", rt, v)
+		// Only a function that passes Go memory imports runtime.
+		e.p("\t%s.KeepAlive(%s)\n", e.use("runtime"), v)
 	}
 	if s.Status {
 		e.p("\tif err := statusError(_r); err != nil {\n\t\t%s\n\t}\n", ret("err"))
@@ -500,6 +551,8 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 	var outs []string
 	for _, r := range s.Results {
 		switch {
+		case r.C < 0 && k.isByValueStruct(c.Result):
+			outs = append(outs, "fromABI["+r.Type+"](_r)")
 		case r.C < 0 && r.Type == e.rawType(c.Result):
 			outs = append(outs, "_r")
 		case r.C < 0:

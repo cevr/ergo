@@ -25,9 +25,12 @@ raw-only functions (2):
   fx_node_set_text: param 2 (text): fx_text holds a pointer (Go memory that holds Go pointers must not reach C)
   fx_context_visit: param 1 (callback): callback parameter (callbacks are raw until bind-c-2); param 2 (user_data): no rule covers it
 
+pointer fields (1):
+  fx_text.bytes: raw: pointer field (a struct that holds a pointer reaches C only through the raw layer: Go memory that holds Go pointers must not reach C)
+
 counts:
   functions 14: typed 12, raw-only 2, skipped 0
-  pointer positions 29: handle 11, value 8, out 4, in_buffer 1, out_buffer 1, out_count 1, raw 3
+  pointer positions 30 (parameters and results 29, fields 1): handle 11, value 8, out 4, in_buffer 1, out_buffer 1, out_count 1, raw 4
   constants 22, status codes 5
 
 exceptions (0):

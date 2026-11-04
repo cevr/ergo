@@ -318,7 +318,7 @@ func main() {}
 extern go example.com/door.Fail func fail() int
 func f() int { return fail() }
 func main() {}
-`, nil},
+`, []string{"S109:2"}},
 	{"test", "test declaration", `
 test Adds {
 	assert 1 + 1 == 2
@@ -661,8 +661,8 @@ type Fixed {
 // Now reads f.
 func Now(f Fixed) int64 { return f.t }
 
-// fail is Go's.
-extern go example.com/door.Fail func fail() int
+// fail is one.
+func fail() int { return 1 }
 
 // W provides Ticker.
 let W = context {

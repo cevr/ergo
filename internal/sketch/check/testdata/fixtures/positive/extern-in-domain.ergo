@@ -1,0 +1,7 @@
+
+// A user extern binds a function of Go's standard library and takes and
+// returns predeclared basic types only (check-v1 stage E4, C26). It is
+// the lowering corpus's ExternSpec witness: declared, never called.
+extern go strings.ToUpper func Upper(s string) string
+
+func main() {}

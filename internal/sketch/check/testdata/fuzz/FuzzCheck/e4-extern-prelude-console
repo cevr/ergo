@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Mine {}\n\nfunc Println(_ Mine, line string) {}\n\nfunc use(c Console) { c.Println(\"x\") }\n\nfunc main() {\n\tuse(Mine)\n}\n")

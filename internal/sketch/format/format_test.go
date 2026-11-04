@@ -340,8 +340,8 @@ func TestLayout(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{
 			"gofmt layout",
-			"\n\n\nimport  a\nimport b   c\n  import go d\nfunc f( a,b int,\n) (int, string) fails A|B needs X,Y { return a*b+1 }\n",
-			"import a\nimport b c\nimport go d\nfunc f(a, b int,\n) (int, string) fails A | B needs X, Y { return a*b + 1 }\n",
+			"\n\n\nimport  a\nimport b   c\n  import go d\nfunc f( a,b int,\n) (int, string) fails A|B needs X | Y { return a*b+1 }\n",
+			"import a\nimport b c\nimport go d\nfunc f(a, b int,\n) (int, string) fails A | B needs X | Y { return a*b + 1 }\n",
 		},
 		{
 			"explicit semicolons become line breaks",

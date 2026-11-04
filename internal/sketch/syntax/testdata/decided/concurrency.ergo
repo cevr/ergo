@@ -1,4 +1,4 @@
-func GetQuote(id string) Quote fails NotFound | timeout.Expired needs Catalog, Rates, Scheduler {
+func GetQuote(id string) Quote fails NotFound | timeout.Expired needs Catalog | Rates | Scheduler {
 	timeout.After(2s) {
 		let price = task.Go() { Catalog.Price(id) }
 		let rate = task.Go() { Rates.Current() }

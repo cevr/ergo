@@ -7,8 +7,8 @@ import (
 
 // Report is the classification report of a binding (the report.txt
 // golden): the inputs, every typed function with its Go signature, every
-// raw-only function with its reason, the counts, and every exception and
-// skip with its reason. The order is the model's, so the report is stable.
+// raw-only function with its reason, every pointer field with its class
+// and reason, the counts, and every exception and skip with its reason. The order is the model's, so the report is stable.
 func Report(b *Binding) []byte {
 	var w strings.Builder
 	c := b.Contract
@@ -27,7 +27,7 @@ func Report(b *Binding) []byte {
 
 	var typed, raw []*BoundFunc
 	counts := map[Class]int{}
-	positions := 0
+	funcPositions := 0
 	for _, f := range b.Funcs {
 		if f.RawOnly == "" {
 			typed = append(typed, f)
@@ -36,8 +36,11 @@ func Report(b *Binding) []byte {
 		}
 		for _, q := range f.Positions {
 			counts[q.Class]++
-			positions++
+			funcPositions++
 		}
+	}
+	for _, q := range b.Fields {
+		counts[q.Class]++
 	}
 	fmt.Fprintf(&w, "\ntyped functions (%d):\n", len(typed))
 	for _, f := range typed {
@@ -47,10 +50,15 @@ func Report(b *Binding) []byte {
 	for _, f := range raw {
 		fmt.Fprintf(&w, "  %s: %s\n", f.C.Name, f.RawOnly)
 	}
+	fmt.Fprintf(&w, "\npointer fields (%d):\n", len(b.Fields))
+	for _, q := range b.Fields {
+		fmt.Fprintf(&w, "  %s.%s: %s: %s\n", q.Struct, q.Name, q.Class, q.Reason)
+	}
 	fmt.Fprintf(&w, "\ncounts:\n")
 	fmt.Fprintf(&w, "  functions %d: typed %d, raw-only %d, skipped %d\n",
 		len(b.Model.Functions), len(typed), len(raw), len(b.Model.Functions)-len(b.Funcs))
-	fmt.Fprintf(&w, "  pointer positions %d:", positions)
+	fmt.Fprintf(&w, "  pointer positions %d (parameters and results %d, fields %d):",
+		funcPositions+len(b.Fields), funcPositions, len(b.Fields))
 	for i, cl := range []Class{ClassHandle, ClassValue, ClassOut, ClassInBuffer, ClassOutBuffer, ClassOutCount, ClassRaw} {
 		if i > 0 {
 			w.WriteString(",")

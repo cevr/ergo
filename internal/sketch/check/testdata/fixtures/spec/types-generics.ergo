@@ -1,3 +1,3 @@
 
-extern go fixture.Transform func Transform[A, B, E, R](xs []A, limit int64, f func(A) B fails E needs R) []B fails E needs R
+func Transform[A, B, E, R](xs []A, limit int64, f func(A) B fails E needs R) []B fails E needs R { return []B{} }
 func main() {}

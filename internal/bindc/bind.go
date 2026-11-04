@@ -19,6 +19,10 @@ type Binding struct {
 	HeaderSHA256, ContractSHA256 string
 	// Funcs are the functions that are not skipped, in model order.
 	Funcs []*BoundFunc
+	// Fields are the pointer fields of every struct, used or not, in
+	// model order. With the positions of Funcs they are every pointer
+	// position of the binding.
+	Fields []FieldPosition
 	// Codes are the status codes other than success, in model order.
 	Codes []*Constant
 	// Success is the success code.
@@ -31,8 +35,13 @@ type Binding struct {
 	GoTypes map[string]string
 	// Autofill maps a field name to "size" or "abi".
 	Autofill map[string]string
+	// FieldNames maps a struct to the Go names of its fields, in order:
+	// CamelCase, or for an autofill field an unexported name off the
+	// generated methods (names.go).
+	FieldNames map[string][]string
 
-	k *classifier
+	k   *classifier
+	pkg *nameScope // the package-level Go names (names.go)
 }
 
 // BoundFunc is one function of the binding.
@@ -277,6 +286,7 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 			b.GoTypes[d.Name] = goCamel(strings.TrimPrefix(d.Name, c.Prefixes.Type))
 		}
 	}
+	var planErrs []string // calls purego cannot make as C does (abi.go)
 	destroys := map[string]*HandleRule{}
 	for i := range c.Handles {
 		destroys[c.Handles[i].Destroy] = &c.Handles[i]
@@ -288,13 +298,24 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 		}
 		bf := &BoundFunc{C: f, GoName: goCamel(strings.TrimPrefix(f.Name, c.Prefixes.Function)), Destroys: destroys[f.Name]}
 		bf.Positions, bf.RawOnly = k.classify(f)
-		if bf.RawOnly == "" {
-			bf.Sig = b.goSig(bf)
+		// Every bound function has a raw function that Load registers, so
+		// its call plan is checked whether or not it is typed.
+		if r := b.callPlan(f); r != "" {
+			planErrs = append(planErrs, fmt.Sprintf("function %s: %s", f.Name, r))
 		}
 		b.Funcs = append(b.Funcs, bf)
 	}
+	if len(planErrs) > 0 {
+		return nil, contractError(planErrs)
+	}
+	b.Fields = k.classifyFields()
 	if err := b.checkNames(); err != nil {
 		return nil, err
+	}
+	for _, bf := range b.Funcs {
+		if bf.RawOnly == "" {
+			bf.Sig = b.goSig(bf)
+		}
 	}
 	return b, nil
 }
@@ -340,24 +361,54 @@ func fitsScalar(x *Constant, s Scalar) bool {
 	return bits == 64 || v>>bits == 0
 }
 
-// checkNames refuses two declarations with one Go name, and a Go name that
-// is not an exported identifier.
+// checkNames gives the Go names of the package scope and of every struct's
+// fields (names.go). It refuses two declarations with one Go name, a Go
+// name that is not an exported identifier, and two fields of one struct
+// with one Go name; it renames an unexported (autofill) field off the
+// generated methods and Go's keywords.
 func (b *Binding) checkNames() error {
-	owner := map[string]string{}
+	pkg := goPackageScope()
 	var errs []string
 	add := func(goName, cName string) {
 		if !isGoIdent(goName) || goName[0] < 'A' || goName[0] > 'Z' {
 			errs = append(errs, fmt.Sprintf("%s: Go name %q is not an exported identifier", cName, goName))
 			return
 		}
-		if prev, ok := owner[goName]; ok {
-			errs = append(errs, fmt.Sprintf("%s and %s have the Go name %s", prev, cName, goName))
-			return
+		if err := pkg.claim(goName, cName); err != nil {
+			errs = append(errs, err.Error())
 		}
-		owner[goName] = cName
 	}
-	for _, n := range generatedNames {
-		owner[n] = "the generated package"
+	b.FieldNames = map[string][]string{}
+	for _, d := range b.Model.Types {
+		if d.Kind != DeclStruct {
+			continue
+		}
+		sc := goStructScope()
+		for _, f := range d.Fields {
+			if b.Autofill[f.Name] != "" {
+				n := lowerCamel(f.Name)
+				if n == "" {
+					errs = append(errs, fmt.Sprintf("%s: field %s has no Go name", d.Name, f.Name))
+					continue
+				}
+				b.FieldNames[d.Name] = append(b.FieldNames[d.Name], sc.alloc(n, f.Name))
+				continue
+			}
+			n := goCamel(f.Name)
+			b.FieldNames[d.Name] = append(b.FieldNames[d.Name], n)
+			if !isGoIdent(n) || n[0] < 'A' || n[0] > 'Z' {
+				errs = append(errs, fmt.Sprintf("%s: field %s: Go name %q is not an exported identifier", d.Name, f.Name, n))
+			} else if prev, ok := sc.taken(n); ok {
+				errs = append(errs, fmt.Sprintf("%s: fields %s and %s have the Go name %s", d.Name, prev, f.Name, n))
+			} else {
+				sc.owner[n] = f.Name
+			}
+		}
+	}
+	for _, f := range b.Funcs {
+		if err := pkg.claim(rawName(f.C.Name), "the raw function of "+f.C.Name); err != nil {
+			errs = append(errs, err.Error())
+		}
 	}
 	for _, d := range b.Model.Types {
 		if d.Name == b.Contract.Status.Type {
@@ -374,30 +425,16 @@ func (b *Binding) checkNames() error {
 	for _, x := range b.Constants {
 		add(x.Name, x.Name)
 	}
-	// The fields of one Go struct: CamelCase, or lowerCamel for autofill.
-	for _, d := range b.Model.Types {
-		fields := map[string]string{}
-		for _, f := range d.Fields {
-			n := goCamel(f.Name)
-			if b.Autofill[f.Name] != "" {
-				n = lowerCamel(f.Name)
-			}
-			if prev, ok := fields[n]; ok {
-				errs = append(errs, fmt.Sprintf("%s: fields %s and %s have the Go name %s", d.Name, prev, f.Name, n))
-			}
-			fields[n] = f.Name
-		}
-	}
 	sort.Strings(errs)
 	if len(errs) > 0 {
 		return contractError(errs)
 	}
+	b.pkg = pkg
 	return nil
 }
 
-// generatedNames are the exported names of the generated package that come
-// from no declaration.
-var generatedNames = []string{"Status", "Load", "ABIMismatchError", "ErrNotLoaded", "ErrDestroyed", "ErrTooLong"}
+// goNameOwner is the source that has the package-level Go name n, or "".
+func (b *Binding) goNameOwner(n string) string { return b.pkg.owner[n] }
 
 // CodeGoName is the Go name of a status code: "Status" and the code's name
 // without the status prefix, in CamelCase.
