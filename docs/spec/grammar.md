@@ -1,6 +1,6 @@
 # Grammar
 
-Status: the parser `internal/sketch/syntax` and the formatter `internal/sketch/format` **implement the decided grammar of [#196](https://github.com/cevr/ergo/issues/196)**, and nothing else. The source is the appendix "Decided Go-shaped sketch" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5). The prototype checker (`internal/sketch/proto`, behind its bridge) checks a subset of the parsed forms and refuses every other form with S109 until the checker of #196 implements it.
+Status: the parser `internal/sketch/syntax` and the formatter `internal/sketch/format` **implement the decided grammar of [#196](https://github.com/cevr/ergo/issues/196)**, and nothing else. The source is the appendix "Decided Go-shaped sketch" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).
 
 A Go form that this file does not admit is an error, never a passthrough to the host (AGENTS.md). The old Go-shaped spelling has no compatibility path ([#217](https://github.com/cevr/ergo/issues/217)); a Go habit gets a message that names the Ergo form ([Old spellings](#old-spellings)).
 
@@ -30,7 +30,7 @@ digit      = <a code point with Unicode general category Nd> .
 2. An identifier starts with a letter or `_`, and continues with letters, digits or `_`. This is Go's identifier rule (`go/token.IsIdentifier`). `xª` is an identifier; `x⪪` is not.
 3. A code point that cannot start an identifier, or invalid UTF-8, where an identifier may start, is an error (S001). The same holds for a code point that cannot continue the identifier it follows: `x⪪` is S001, not the identifier `x` followed by an operator.
 
-Fixtures: `internal/sketch/proto/testdata/probes/letter-name.ergo` (builds), `nonletter-name.ergo` (S001); `TestIdentifierRunesMatchGo` sweeps every non-ASCII code point against `go/token.IsIdentifier`.
+Fixtures: `internal/sketch/testdata/probes/letter-name.ergo` (builds), `nonletter-name.ergo` (S001); `TestIdentifierRunesMatchGo` sweeps every non-ASCII code point against `go/token.IsIdentifier`.
 
 ## Keywords
 

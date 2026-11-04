@@ -123,7 +123,10 @@ func main(){json.NewEncoder(os.Stdout).Encode(map[string]any{"marker":marker,"pr
 		for _, marker := range []string{"dirty-A", "dirty-B"} {
 			smokeWrite(t, fixture, "main.go", strings.Replace(host, "baseline", marker, 1))
 			binary := filepath.Join(directory, marker)
-			producerSmokeRun(t, fixture, "go", "build", "-o", binary, ".")
+			// The assertion reads vcs.modified, so the build asks for VCS
+			// stamping itself; an inherited GOFLAGS=-buildvcs=false must not
+			// change what this subtest proves.
+			producerSmokeRun(t, fixture, "go", "build", "-buildvcs=true", "-o", binary, ".")
 			result := smokeJSON(t, []byte(producerSmokeRun(t, directory, binary)))
 			identity, _ := result["producer"].(map[string]any)
 			declaration, _ := identity["declaration"].(map[string]any)

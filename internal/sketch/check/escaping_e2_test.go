@@ -316,18 +316,13 @@ var escUnreachable = map[string]string{
 	"SwitchStmt.Tag":   "an expression switch is a match on a value: a TypeSwitchStmt whose subject is a TypeGuard",
 	"paramEntry.typ":   "the parser's own record of a parameter, not a node of the tree",
 	"paramEntry.name":  "the parser's own record of a parameter, not a node of the tree",
-	// Fields the decided parser never sets (node_inventory_test.go,
-	// notBuiltFields).
-	"ArrayType.Len":        "a fixed-size array [N]T does not parse",
-	"BranchStmt.Label":     "Ergo has no labels (S001)",
-	"CatchExpr.Bind":       "a catch binds in a catch-all arm; `catch e {` does not parse",
-	"File.Name":            "a source file has no package clause",
-	"TypeSwitchStmt.Binds": "a match binds with `as` in each case (196p)",
 }
 
 // escNotBuilt are the node types the decided parser never builds
 // (node_inventory_test.go, notBuiltFamily, in the external test package).
-var escNotBuilt = []string{"GoExpr", "SelectStmt", "CommClause", "SendStmt", "ChanType", "DeferStmt", "LabeledStmt", "IncDecStmt", "EmptyStmt", "Ellipsis"}
+// Stage 5 (D10) deleted them from the syntax package, so the list is
+// empty.
+var escNotBuilt = []string{}
 
 // escDomain reads the positions where a local's name can stand: every
 // field of type Expr, []Expr, *Ident or []*Ident of every struct of the

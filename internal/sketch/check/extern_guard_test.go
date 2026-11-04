@@ -133,20 +133,6 @@ var externPlaceRows = map[string]externPlaceRow{
 	"VarSpec.Names":            {guardBinder, "func main() {\n\tlet @Upper = 1\n\t_ = Upper\n}\n"},
 	"VarSpec.Pattern":          {guardBinder, "func main() {\n\tlet (@Upper, b) = (1, 2)\n\t_ = Upper + b\n}\n"},
 	"VariantSpec.Name":         {guardBinder, "type U = @Upper{ ID string } | Pending{}\n"},
-
-	// Never built by the decided parser.
-	"ArrayType.Len":        {guardNotBuilt, ""},
-	"BranchStmt.Label":     {guardNotBuilt, ""},
-	"CatchExpr.Bind":       {guardNotBuilt, ""},
-	"ChanType.Value":       {guardNotBuilt, ""},
-	"Ellipsis.Elt":         {guardNotBuilt, ""},
-	"File.Name":            {guardNotBuilt, ""},
-	"GoExpr.Call":          {guardNotBuilt, ""},
-	"IncDecStmt.X":         {guardNotBuilt, ""},
-	"LabeledStmt.Label":    {guardNotBuilt, ""},
-	"SendStmt.Chan":        {guardNotBuilt, ""},
-	"SendStmt.Value":       {guardNotBuilt, ""},
-	"TypeSwitchStmt.Binds": {guardNotBuilt, ""},
 }
 
 // machineGuard is a machine declaration with the given entries.

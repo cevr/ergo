@@ -1,0 +1,58 @@
+// Ported from the retired prototype's TestBuildAndRun (lower-v1 stage 5): a
+// partial catch under try, a function with no result, a with nested in
+// another, and a timeout that the body beats.
+import timeout
+
+type NotFound { ID string }
+type Down {}
+
+type Store {
+	Get(id string) string fails NotFound,
+}
+
+type Net {
+	Send(msg string) fails Down,
+}
+
+type MemStore {}
+
+func Get(_ MemStore, id string) string fails NotFound {
+	if id == "1" {
+		return "one"
+	}
+	return NotFound{ID: id}
+}
+
+type OkNet {}
+
+func Send(_ OkNet, msg string) fails Down {
+	return
+}
+
+func lookup(id string) string fails Down | timeout.Expired needs Store | Net | Scheduler {
+	let v = try timeout.After(1s) { Store.Get(id) } catch {
+	case NotFound:
+		"missing " + id
+	}
+	try Net.Send(v)
+	return v
+}
+
+func show(id string) needs Console | Store | Net | Scheduler {
+	let v = lookup(id) catch {
+	case Down:
+		"down"
+	case timeout.Expired:
+		"slow"
+	}
+	Console.Println(v)
+}
+
+func main() needs Console {
+	with context { Store: MemStore, Scheduler: LiveScheduler } {
+		with context { Net: OkNet } {
+			show("1")
+			show("2")
+		}
+	}
+}

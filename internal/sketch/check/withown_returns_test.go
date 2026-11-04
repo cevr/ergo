@@ -274,7 +274,7 @@ func TestContextOwnershipReturnCatalog(t *testing.T) {
 			continue
 		}
 		for _, field := range st.Fields.List {
-			if statements(field.Type, map[string]bool{}) && !forms[name] && ownReturnBoundaries[name] == "" && name != "GoExpr" && !declOnly[name] {
+			if statements(field.Type, map[string]bool{}) && !forms[name] && ownReturnBoundaries[name] == "" && !declOnly[name] {
 				t.Errorf("statement-bearing %s needs a return form or frame boundary", name)
 			}
 		}
@@ -283,7 +283,7 @@ func TestContextOwnershipReturnCatalog(t *testing.T) {
 	// evaluate an arbitrary expression; adding an admitted form needs a case.
 	// AsPattern.X is a pattern (parsePatternCore: names, literals, records,
 	// tuples).
-	typeOnly := map[string]bool{"AsPattern": true, "ArrayType": true, "MapType": true, "ChanType": true, "FuncType": true, "StructType": true, "InterfaceType": true, "ErrorRow": true, "MachineType": true, "Ellipsis": true}
+	typeOnly := map[string]bool{"AsPattern": true, "ArrayType": true, "MapType": true, "FuncType": true, "StructType": true, "InterfaceType": true, "ErrorRow": true, "MachineType": true}
 	// Dereference needs a borrow parameter, never an expression-produced
 	// borrow. A composite type position is not an evaluated value slot.
 	slots := map[string]bool{"CompositeLit.Type": true, "StarExpr.X": true}

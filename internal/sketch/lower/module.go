@@ -159,6 +159,7 @@ type lowerer struct {
 
 	types    map[*check.TypeName]*typeDecl
 	funcs    map[*check.Func]*funcDecl
+	pure     map[*check.Func]bool  // the program's pure functions (pure.go), once computed
 	vars     map[*check.Var]string // package-level lets
 	contexts map[contextSet]string
 	adapters map[string]string        // operation-table adapters by source and target Go types

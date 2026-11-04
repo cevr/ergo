@@ -13,11 +13,12 @@ import (
 // task, the Values adapter and queue.Closed (Rule 3); the runtime files in
 // the emitted module (Rule 4); and the pointer-receiver rule (Rule 5).
 
-// TestEveryFunctionTakesTheEnvironment: a pure function, a method, a
-// package initializer and the entry all bind the environment, which holds
-// the running task; no shared empty environment remains (Rule 1, D1). The
-// program runs, with a pure caller of a function value and a package let
-// that calls a function.
+// TestEveryFunctionTakesTheEnvironment: every impure function, a package
+// initializer and the entry bind the environment, which holds the running
+// task; no shared empty environment remains (Rule 1, D1). Since lower-v1
+// stage 5 (D-S5-10, pure.go) a pure function and a pure method take none:
+// D5's zero-overhead pure call. The program runs, with a caller of a
+// function value and a package let that calls a function.
 func TestEveryFunctionTakesTheEnvironment(t *testing.T) {
 	src := `type Box { N int }
 
@@ -40,8 +41,8 @@ func main() needs Console {
 	goSrc := o.mainGo()
 	for _, want := range []string{
 		"type Env struct {\n\ttask    *rt.Task\n\tConsole Console\n}",
-		"func pure(env *Env, n int) int {",
-		"func (b Box) Twice(env *Env) int {",
+		"func pure(n int) int {",
+		"func (b Box) Twice() int {",
 		"func apply(env *Env, f func(*Env, int) (int, error), n int) int {",
 		"func ergoInit(env *Env) {",
 		"ergo.Main(func(t *rt.Task) error {\n\t\tenv := &Env{task: t, Console: hostConsole{}}\n\t\tergoInit(env)\n\t\tmain_1(env)",
@@ -199,7 +200,8 @@ func main() needs Console {
 	if n := strings.Count(goSrc, "NewScope("); n != 2 {
 		t.Errorf("want 2 frame scopes (the literal and the trailing block); got %d:\n%s", n, goSrc)
 	}
-	for _, head := range []string{"func plain(env *Env, n int) int {\n", "func outer(env *Env) int {\n", "func main_1(env *Env) {\n"} {
+	// plain is pure, so it takes no environment (pure.go, D-S5-10).
+	for _, head := range []string{"func plain(n int) int {\n", "func outer(env *Env) int {\n", "func main_1(env *Env) {\n"} {
 		i := strings.Index(goSrc, head)
 		if i < 0 {
 			t.Fatalf("no %q in:\n%s", head, goSrc)

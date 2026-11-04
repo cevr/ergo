@@ -209,7 +209,9 @@ func (m planMachine) driver() string {
 	if m.pure() {
 		fmt.Fprintf(&b, "\tvar plan M%d\n\ts := plan.Initial()\n\tfor _, e := range signals {\n", k)
 		fmt.Fprintf(&b, "\t\tviaPlan := testing.AllocsPerRun(200, func() { sink%d = plan.Step(s, e) })\n", k)
-		fmt.Fprintf(&b, "\t\tdirect := testing.AllocsPerRun(200, func() { sink%d = step%d(nil, s, e) })\n", k, k)
+		// A pure step is a pure function (pure.go, D-S5-10): Go's
+		// stepK(s, e), with no environment.
+		fmt.Fprintf(&b, "\t\tdirect := testing.AllocsPerRun(200, func() { sink%d = step%d(s, e) })\n", k, k)
 		fmt.Fprintf(&b, "\t\tif viaPlan > direct {\n\t\t\tt.Errorf(\"M%d.Step allocates %%v per call, the direct call %%v\", viaPlan, direct)\n\t\t}\n\t}\n", k)
 	}
 	b.WriteString("}\n\n")

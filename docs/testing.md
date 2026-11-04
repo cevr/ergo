@@ -1,36 +1,78 @@
-# Testing with explicit effects
+# Testing
 
-> **Status:** describes the retired `.ef` language, removed 2026-10-28 by [#205](https://github.com/cevr/ergo/issues/205); kept as design reference. The [retirement record](receipts/retire-ef.md) lists what was removed.
+`ergo test FILE [--seed N]` builds the tests of one `.ergo` file and runs them. A test is a top-level declaration of the file, beside its functions. The rules are in [grammar.md](spec/grammar.md#declarations) (declarations 11) and [runtime.md](spec/runtime.md); this page shows how to use them.
 
-`ergo test FILE [--target go] [--live] [--timeout-ms 30000]` discovers top-level `test_` functions in source order. Each must be an effect with no parameters returning `void`. `Assert` is implicit; `Clock`, `Scheduler` and `Sync` are explicit capability rows that receive fresh deterministic fixtures when the test declares them. The test file does not need `main`.
+## Tests
 
-```rust
-effect fn test_greeting() -> void raises {AssertionFailed, Missing} uses {Assert} {
-    let actual = run greeting("42").provide<Directory>(FixtureDirectory)
-    run Assert.equalText(actual, "Hello, Ada")
+A test has a name and a body. `assert` takes a `bool` expression and stands only in a test or a law body (S108 elsewhere).
+
+```go
+func double(n int) int { n + n }
+
+test DoubleOfTwo {
+	assert double(2) == 4
 }
 ```
 
-[testing.ef](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/testing.ef) defines the service/fixture and tests success, typed recovery and an owned child.
+A test with parameters is a property. The runner draws 100 cases from a seed, and the test must hold for each:
 
-## Supplied guarantees
+```go
+test DoubleIsEven(n int) {
+	assert double(n) % 2 == 0
+}
+```
 
-Each case runs serially with a fresh owning root scope. A normal result is reported after child shutdown and resource cleanup. Failure, defect and interruption reasons survive that boundary; assertion reasons include actual/expected values. A failed case does not stop later cases. Existing runtime conformance tests cover unobserved child failures and cleanup defects.
+A test can use a context, so it swaps providers with no mock framework. The README's opening program ([examples/checkout](../examples/checkout/main.ergo)) tests the same `Checkout` with a provider that pays and one that declines:
 
-`Assert.check(bool, message)` and `Assert.equalText(actual, expected)` are lazy, typed operations admitting `AssertionFailed`. `Assertions` is their portable provider, also usable explicitly outside tests. Assertions are currently primitive; source spans identify checked source, but assertion results do not yet carry a precise failing-call span.
+```go
+test DeclineIsHandled {
+	assert with Declining { purchase(100) } == "declined"
+}
+```
 
-The CLI emits a JSON suite receipt with revision, target, per-case status/causes and watchdog state. User output is captured separately; at most 1 MiB of each output stream's tail is retained, with a truncation flag. The read-only MCP `project.tests` exposes contracts and whether live opt-in is required; it does not execute source.
+A test declares no `needs` row (S102): the services it uses come from a `with`.
 
-## Host/time boundaries
+## Running
 
-The default mode conservatively rejects file-level native host features and live clock/scheduler/environment providers. A declared `.timeout(ms)` uses the case's deterministic `TestScheduler` in default mode. `--live` permits explicit `LiveScheduler`, `LiveClock` and other live providers, but does not replace the default fixtures; a test must provision a live provider explicitly to use wall-clock time. Custom fixture providers remain ordinary checked provision. This is a capability policy over the whole file, including unused functions, not an OS sandbox or an analysis of only reachable test code. A pure imported Go function also needs live opt-in because the conservative import boundary does not prove purity.
+```sh
+./bin/ergo test examples/checkout/main.ergo
+```
 
-The runner's real wall-clock watchdog defaults to 30 seconds for the suite process, after compilation. It forcibly stops the runner on expiry and reports `watchdogExpired: true`, `cleanupCompleted: false`. It does not claim to terminate unmanaged descendants or complete finalizers. The watchdog is a harness limit, distinct from a managed language timeout that waits for owned shutdown.
+The runner prints one line per test, in source order, then a summary:
 
-## Causal and time fixtures
+```text
+ok ChargeSucceeds
+ok DeclineIsHandled
+PASS (2 tests)
+```
 
-`Sync.latch()` creates an opaque one-shot handle. `Sync.signal(latch)` is idempotent and `Sync.await(latch)` can be cancelled for one waiter without completing the shared latch. Use it for readiness and completion instead of fixed wall-clock waits. A signal makes its waiters runnable and returns; the signaller keeps its turn, and each waiter resumes on its own ([latch handoff](runtime.md#lifecycle-contract), pinned by [latch-handoff.ef](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/latch-handoff.ef)).
+A property prints its case count, `ok DoubleIsEven (100 cases)`. A failed assert prints its position and its text. A refuted property also prints the case number, the seed and each argument as an Ergo literal of its type, so the case can be pasted into a test:
 
-`Clock.sleep(ms)` and `.timeout(ms)` share the case's scheduler-backed virtual time. The timeout driver is the `Scheduler.sleep(ms)` capability; `Scheduler.awaitRegistration()` returns at [quiescence](../GLOSSARY.md#tooling-and-testing): no managed fiber is running or runnable, and a wake in flight, such as a signalled waiter or a cancelled sleeper that has not run again, is not idle. Every timer that managed work can register is then registered. The barrier does not wait for a new registration, so forked work that already completed, or whose timeout timer was cancelled, passes it. The release order of several concurrent waiters is unspecified, and tests must not depend on it ([runtime contract](runtime.md#lifecycle-contract)). `Scheduler.advance(ms)` performs the strong adjustment: it selects and fires intermediate deadlines, each only at quiescence, and commits its target only when no running or runnable managed fiber can register earlier work. Cleanup parked on a registered virtual timer or managed signal may remain pending during a partial adjustment; the next adjustment or signal can finish it. Unmanaged goroutines and foreign blocking calls are not observable by the fixture and may delay completion. A provider that implements only `Clock.sleep` does not control timeout deadlines; timeout's explicit `Scheduler` row is the authority. [quiescence.ef](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/quiescence.ef) and [quiescence-wakes.ef](https://github.com/cevr/ergo/blob/dbf135bff09901e85385945593113f35b300199c/examples/quiescence-wakes.ef) pin the barrier and `advance`.
+```text
+FAIL DoubleIsSmall (case 3 of 100, seed 1: n = -6039945012424161084): assert failed at tests.ergo:12:2: double(n) < 10
+FAIL (1 of 3 tests)
+```
 
-The real wall-clock watchdog remains independent of these fixtures. Provider substitution does not by itself provide network denial, scratch-directory isolation, process reaping or crash recovery.
+`--seed N` (a decimal `uint64`, default 1) selects the cases, so a failure reproduces with the same seed.
+
+## Exit status
+
+| Status | Meaning |
+| --- | --- |
+| 0 | every test passed |
+| 1 | at least one test failed; the other tests still ran |
+| 2 | a defect (a Go panic, for example a division by zero) stopped the run |
+
+A defect is not a failed assert. The runner prints the test's `FAIL` line, `FAIL Divides: a defect, which stops the run`, then the runtime's report of every reason with the Ergo frames, and stops: no later test runs.
+
+## Builds
+
+`ergo test` builds a test binary apart from the program's. `ergo build` and `ergo run` contain no Go from a test, so tests add nothing to the program. `-work` prints the directory of the generated Go module on standard error, as `WORK=DIR`.
+
+## Laws
+
+A law is checked and is not run: `ergo test` does not run laws yet ([#162](https://github.com/cevr/ergo/issues/162)). A law does not change what `ergo test` prints. The [support table](spec/support.md) lists what each build lowers.
+
+## Example programs
+
+Each program of `examples/` that declares tests runs them in the gate: `go run ./scripts/examples` runs `ergo test <program>/main.ergo` and fails the program when a test fails ([examples/README.md](../examples/README.md)).

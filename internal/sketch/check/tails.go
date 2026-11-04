@@ -183,11 +183,6 @@ func (c *checker) yieldStmt(s syntax.Stmt, k *sink, end syntax.Pos) {
 		c.yieldExpr(s, k, end)
 		return
 	case *syntax.IfStmt:
-		if s.Init != nil {
-			c.undecided(s.Init, "an if header's init statement")
-			k.bad = true
-			return
-		}
 		c.ifYield(s, k, end)
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		if !c.matchYield(s, k) {
@@ -332,11 +327,6 @@ func (c *checker) ifYield(s *syntax.IfStmt, k *sink, end syntax.Pos) {
 		c.yieldList(e.List, k, e.Rbrace)
 		inner()
 	case *syntax.IfStmt:
-		if e.Init != nil {
-			c.undecided(e.Init, "an if header's init statement")
-			k.bad = true
-			return
-		}
 		c.ifYield(e, k, end)
 	default:
 		c.stmt(e)
@@ -384,10 +374,6 @@ func (c *checker) branches(x syntax.Expr, hint Type) operand {
 	}
 	switch s := x.(type) {
 	case *syntax.IfStmt:
-		if s.Init != nil {
-			c.undecided(s.Init, "an if header's init statement")
-			return bad(x)
-		}
 		c.ifYield(s, k, s.Body.Rbrace)
 	case *syntax.SwitchStmt:
 		if !c.matchYield(s, k) {

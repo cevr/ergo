@@ -199,13 +199,8 @@ func paramType(sig *Signature, i int) Type {
 	return nil
 }
 
-// arity checks the argument count. A spread argument `f(xs...)` is not
-// produced by the decided parser (D-A5): Ergo has no variadic parameters.
+// arity checks the argument count. Ergo has no variadic parameters.
 func (c *checker) arity(x *syntax.CallExpr, sig *Signature, n int) bool {
-	if x.Ellipsis.IsValid() {
-		c.undecided(x, "a spread argument")
-		return false
-	}
 	if n != len(sig.Params) {
 		which := "too many"
 		if n < len(sig.Params) {

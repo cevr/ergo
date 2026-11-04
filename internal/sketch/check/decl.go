@@ -182,7 +182,7 @@ func (c *checker) collect() {
 		for _, d := range f.Decls {
 			switch d := d.(type) {
 			case *syntax.ImportDecl:
-				if len(d.Specs) != 1 || d.Lparen.IsValid() {
+				if len(d.Specs) != 1 {
 					c.undecided(d, "a grouped import")
 					continue
 				}
@@ -213,10 +213,6 @@ func (c *checker) collect() {
 					}
 				}
 			case *syntax.FuncDecl:
-				if d.Recv != nil {
-					c.undecided(d.Recv, "a receiver")
-					continue
-				}
 				fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi}
 				c.funcs = append(c.funcs, fn)
 				// A second function of one name waits for the types:
@@ -232,7 +228,7 @@ func (c *checker) collect() {
 					c.pkg.Funcs = append(c.pkg.Funcs, fn)
 				}
 			case *syntax.VarDecl:
-				if len(d.Specs) != 1 || d.Lparen.IsValid() {
+				if len(d.Specs) != 1 {
 					c.undecided(d, "a grouped let")
 					continue
 				}
@@ -969,10 +965,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		}
 		return c.instantiateExprs(n, x.Indices, x, ctx)
 	case *syntax.ArrayType:
-		if x.Len != nil {
-			c.undecided(x, "an array type with a length")
-			return invalid
-		}
 		elem := c.typExpr(x.Elt, ctx)
 		if c.taskRefused(x.Elt, elem) {
 			return invalid
@@ -1769,9 +1761,6 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 	key := collKey{name: f.Name}
 	switch t := d.Type.Params.List[0].Type.(type) {
 	case *syntax.ArrayType:
-		if t.Len != nil {
-			return collKey{}, nil, false
-		}
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
 		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true

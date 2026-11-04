@@ -17,12 +17,16 @@ var (
 
 func acceptGlobalParsed() {
 	f, err := syntax.Parse("type T int\n")
-	if err != nil {
+	if err != nil || len(f.Decls) == 0 {
 		return
 	}
-	acceptParsedFile, acceptParsedName, acceptParsedNode = f, f.Name, f
+	decl, ok := f.Decls[0].(*syntax.TypeDecl)
+	if !ok {
+		return
+	}
+	acceptParsedFile, acceptParsedName, acceptParsedNode = f, decl.Name, f
 	acceptParsedDecls = f.Decls
-	acceptParsedNames = map[string]*syntax.Ident{"T": f.Name}
+	acceptParsedNames = map[string]*syntax.Ident{"T": decl.Name}
 }
 
 func acceptGlobalRead() syntax.Node {

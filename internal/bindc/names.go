@@ -298,10 +298,8 @@ func isCollectionOp(f *syntax.FuncDecl) bool {
 	if f.Type == nil || f.Type.Params == nil || len(f.Type.Params.List) == 0 {
 		return false
 	}
-	switch t := f.Type.Params.List[0].Type.(type) {
-	case *syntax.ArrayType:
-		return t.Len == nil
-	case *syntax.MapType:
+	switch f.Type.Params.List[0].Type.(type) {
+	case *syntax.ArrayType, *syntax.MapType:
 		return true
 	}
 	return false

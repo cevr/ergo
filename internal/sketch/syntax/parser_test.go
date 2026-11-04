@@ -144,7 +144,7 @@ func TestAdmittedForms(t *testing.T) {
 
 	// No package clause; File.Pos falls back to the first declaration.
 	f := parse("// c\nimport strings\n")
-	if f.Package.IsValid() || f.Name != nil || f.Pos() != 0 {
+	if f.Pos() != 0 {
 		t.Fatalf("file %+v at %d", f, f.Pos())
 	}
 	// import [go] [alias] path, unquoted, one per line.
@@ -154,7 +154,7 @@ func TestAdmittedForms(t *testing.T) {
 	for i, d := range f.Decls {
 		imp := d.(*ImportDecl)
 		s := imp.Specs[0]
-		if len(imp.Specs) != 1 || imp.Lparen.IsValid() || s.Kind != kinds[i] || s.Path.Kind != PATH || s.Path.Value != paths[i] {
+		if len(imp.Specs) != 1 || s.Kind != kinds[i] || s.Path.Kind != PATH || s.Path.Value != paths[i] {
 			t.Fatalf("import %d: %+v %+v", i, imp, s)
 		}
 	}
@@ -170,7 +170,7 @@ func TestAdmittedForms(t *testing.T) {
 	}{{false, false, 1, false}, {true, true, 1, false}, {false, true, 1, false}, {false, false, 2, false}, {false, false, 0, true}} {
 		d := stmts[i].(*DeclStmt).Decl
 		s := d.Specs[0]
-		if len(d.Specs) != 1 || d.Lparen.IsValid() || d.Mut.IsValid() != want.mut || (s.Type != nil) != want.typed ||
+		if len(d.Specs) != 1 || d.Mut.IsValid() != want.mut || (s.Type != nil) != want.typed ||
 			len(s.Names) != want.names || (s.Pattern != nil) != want.pattern {
 			t.Fatalf("let %d: %+v %+v", i, d, s)
 		}
@@ -194,7 +194,7 @@ func TestAdmittedForms(t *testing.T) {
 	// Records, operation types with laws, unions with inline variants,
 	// machines and defined types.
 	f = parse("type Card { Number string, Expiry Date }\ntype Empty {}\ntype Store {\n\tFind(id string) Order fails NotFound,\n\n\tlaw Found(id string) { true },\n}\ntype Payment = Pending | Paid{ID string}\ntype M machine[S, E] { initial: Idle{}, step: Step }\ntype Celsius float64\n")
-	if s := f.Decls[0].(*TypeDecl).Spec.(*StructType); s.Struct.IsValid() || len(s.Fields.List) != 2 {
+	if s := f.Decls[0].(*TypeDecl).Spec.(*StructType); len(s.Fields.List) != 2 {
 		t.Fatalf("record %+v", s)
 	}
 	if _, ok := f.Decls[1].(*TypeDecl).Spec.(*StructType); !ok {
@@ -262,11 +262,11 @@ func TestAdmittedForms(t *testing.T) {
 	if _, ok := stmts[0].(*DeclStmt).Decl.Specs[0].Values[0].(*IfStmt); !ok {
 		t.Fatal("if expression")
 	}
-	if sw := stmts[1].(*SwitchStmt); sw.Tag == nil || len(sw.Clauses) != 2 || sw.Clauses[1].List != nil || sw.Init != nil {
+	if sw := stmts[1].(*SwitchStmt); sw.Tag == nil || len(sw.Clauses) != 2 || sw.Clauses[1].List != nil {
 		t.Fatalf("value match %+v", sw)
 	}
 	ts := stmts[2].(*TypeSwitchStmt)
-	if len(ts.Subjects) != 1 || ts.Binds != nil || ts.Subjects[0].Lparen.IsValid() || ts.Subjects[0].End() != ts.Subjects[0].X.End() {
+	if len(ts.Subjects) != 1 || ts.Subjects[0].End() != ts.Subjects[0].X.End() {
 		t.Fatalf("type match %+v", ts)
 	}
 	if as, ok := ts.Clauses[0].List[0].(*AsPattern); !ok || as.Name.Name != "d" {
@@ -284,7 +284,7 @@ func TestAdmittedForms(t *testing.T) {
 	}
 	// catch without a binding, patterns in the arms.
 	c := body("let r = f() catch {\ncase NotFound as e:\n\tlog(e)\n\t0\ncase A, B:\n\t1\n}")[0].(*DeclStmt).Decl.Specs[0].Values[0].(*CatchExpr)
-	if c.Bind != nil || len(c.Arms) != 2 || len(c.Arms[1].Types) != 2 {
+	if len(c.Arms) != 2 || len(c.Arms[1].Types) != 2 {
 		t.Fatalf("catch %+v", c)
 	}
 	// for x in xs, for i, x in xs, for i in a..b, for cond, for.
@@ -298,7 +298,7 @@ func TestAdmittedForms(t *testing.T) {
 	if r := stmts[2].(*RangeStmt); r.X.(*BinaryExpr).Op != DOTDOT {
 		t.Fatalf("for range %+v", r)
 	}
-	if l := stmts[3].(*ForStmt); l.Cond == nil || l.Init != nil || l.Post != nil {
+	if l := stmts[3].(*ForStmt); l.Cond == nil {
 		t.Fatalf("for cond %+v", l)
 	}
 	if l := stmts[4].(*ForStmt); l.Cond != nil {

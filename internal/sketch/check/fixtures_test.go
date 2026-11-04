@@ -85,10 +85,10 @@ func TestFixtures(t *testing.T) {
 // TestParity checks the prototype's fixtures: each keeps its `// want` code
 // (or stays clean), except the overrides the designed rules change (spec
 // D11, mirrored in testdata/parity.overrides). It reads their decided
-// translations in the proto package's testdata (#196; the frozen
+// translations in the shared corpus ../testdata (#196; the frozen
 // prototypes/sketch9 copies no longer parse).
 func TestParity(t *testing.T) {
-	base := filepath.Join("..", "proto", "testdata")
+	base := filepath.Join("..", "testdata")
 	overrides := map[string]string{}
 	data, err := os.ReadFile(filepath.Join("testdata", "parity.overrides"))
 	if err != nil {

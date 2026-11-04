@@ -200,16 +200,18 @@ func checkGenericDecls(t *testing.T, built map[string]*lowered) {
 	}
 	if o := built["samename"]; o != nil {
 		goSrc := o.mainGo()
-		for _, m := range []string{"func (c Circle) Area(env *Env) int", "func (s Square) Area(env *Env) int"} {
+		// Each Area is pure, so its Go method takes no environment (pure.go,
+		// D-S5-10).
+		for _, m := range []string{"func (c Circle) Area() int", "func (s Square) Area() int"} {
 			if !strings.Contains(goSrc, m) {
 				t.Errorf("Go lacks the method %q:\n%s", m, goSrc)
 			}
 		}
-		// An operation takes the caller's task first (rows.md, Rows 7) and a
-		// method takes an environment, so each record reaches Shape through
-		// an adapter that runs its method in an environment of that task
-		// (stage D3b, D2).
-		for _, m := range []string{"func (a *opsCircleAsShape) Area(t *rt.Task) int {\n\treturn (a.v).Area(&Env{task: t})\n}", "func (a *opsSquareAsShape) Area(t *rt.Task) int {\n\treturn (a.v).Area(&Env{task: t})\n}"} {
+		// An operation takes the caller's task first (rows.md, Rows 7), so
+		// each record reaches Shape through an adapter; a pure method needs
+		// no environment of that task, so the adapter discards the task
+		// (stage D3b, D2; D-S5-10).
+		for _, m := range []string{"func (a *opsCircleAsShape) Area(_ *rt.Task) int {\n\treturn (a.v).Area()\n}", "func (a *opsSquareAsShape) Area(_ *rt.Task) int {\n\treturn (a.v).Area()\n}"} {
 			if !strings.Contains(goSrc, m) {
 				t.Errorf("Go lacks the adapter method %q:\n%s", m, goSrc)
 			}
