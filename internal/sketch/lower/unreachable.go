@@ -27,8 +27,8 @@ const (
 	// ruleMainSignature: main takes nothing and returns nothing.
 	ruleMainSignature = `the checker's S113 "main takes no parameters" and "main returns no value" (rows.md, Capability rows 4)`
 
-	// ruleParser: the decided parser builds no such node (an init
-	// statement, a label, a catch binding, a Go operator, an else that is
+	// ruleParser: the decided parser builds no such node (a Go operator,
+	// a statement kind or an assignment of several values, an else that is
 	// neither a block nor an if).
 	ruleParser = `the decided parser, which builds no such node`
 	// ruleLiteralCases: a value match is a match whose cases are all

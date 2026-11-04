@@ -34,7 +34,7 @@ func (c *checker) declareVariant(fi *fileInfo, d *syntax.TypeDecl, vs *syntax.Va
 	}
 	// The declaration is made from the variant, its record from the
 	// variant's fields (owner.go); its parameters come from the union's.
-	spec := made(c, &syntax.StructType{Struct: syntax.NoPos, Fields: vs.Fields}, vs.Fields)
+	spec := made(c, &syntax.StructType{Fields: vs.Fields}, vs.Fields)
 	decl := made(c, &syntax.TypeDecl{Type: vs.Pos(), Name: vs.Name, TypeParams: params, Spec: spec}, vs)
 	tn := &TypeName{Name: vs.Name.Name, Pkg: c.pkg, Pos: vs.Name.Pos(), Decl: decl, file: fi, id: newID()}
 	tn.Type = &Named{Obj: tn}

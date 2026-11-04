@@ -569,9 +569,6 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 // of every iteration, inside the loop, so a condition with effects runs once
 // per test; a loop with no condition and no break is terminating.
 func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
-	if s.Init != nil || s.Post != nil {
-		unreachable(s, ruleParser, "a for with an init or a post statement")
-	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
 	saved := fc.out
@@ -788,9 +785,6 @@ func (fc *funcCtx) containsBreak(body *syntax.BlockStmt) bool {
 // branch lowers break and continue to the innermost loop, by a label when a
 // Go switch lies between them.
 func (fc *funcCtx) branch(s *syntax.BranchStmt) {
-	if s.Label != nil {
-		unreachable(s, ruleParser, "a labelled branch")
-	}
 	if len(fc.loops) == 0 {
 		ice(s, "a break or continue outside a loop")
 	}
@@ -848,9 +842,6 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 	m := fc.l.info.Matches[s]
 	if m == nil {
 		ice(s, "a match with no Matches entry")
-	}
-	if s.Init != nil || len(s.Binds) > 0 {
-		unreachable(s, ruleParser, "a match with an init statement or a header binding")
 	}
 	if !fc.simpleTypeMatch(s) {
 		subjects := make([]syntax.Expr, len(s.Subjects))
@@ -950,9 +941,6 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 func (fc *funcCtx) valueMatch(s *syntax.SwitchStmt, d dest) bool {
 	if fc.l.info.Matches[s] == nil {
 		ice(s, "a value match with no Matches entry")
-	}
-	if s.Init != nil {
-		unreachable(s, ruleParser, "a value match with an init statement")
 	}
 	if s.Tag == nil {
 		ice(s, "a match with no subject; the checker refuses it as undecided syntax")

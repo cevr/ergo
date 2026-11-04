@@ -165,32 +165,15 @@ var nodeTable = map[string]nodeEntry{
 	"TupleExpr":   {"tuple value", ""},
 	"VariantSpec": {"variant in place", ""},
 	"LawDecl":     {"law", ""}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""},
-	// The forms that left the language (#196; syntax TestDecidedOnly):
-	// still declared by the syntax package; the checker keeps no branch for
-	// them, and TestUndecidedNodes covers each.
-	"GoExpr": {notBuiltFamily, ""}, "SelectStmt": {notBuiltFamily, ""}, "CommClause": {notBuiltFamily, ""},
-	"SendStmt": {notBuiltFamily, ""}, "ChanType": {notBuiltFamily, ""}, "DeferStmt": {notBuiltFamily, ""},
-	"LabeledStmt": {notBuiltFamily, ""}, "IncDecStmt": {notBuiltFamily, ""}, "EmptyStmt": {notBuiltFamily, ""},
-	"Ellipsis": {notBuiltFamily, ""},
+	// The forms that left the language (#196) left the syntax package in
+	// lower-v1 stage 5 (D10), so no type names notBuiltFamily today.
 }
 
 // notBuiltFields are the fields of built node types that the decided
-// parser never sets, each with the rule that keeps it empty.
-var notBuiltFields = map[string]string{
-	"ArrayType.Len":        "a fixed-size array [N]T does not parse: the decided grammar has slices only",
-	"BranchStmt.Label":     "Ergo has no labels (S001)",
-	"CatchExpr.Bind":       "a catch binds in a catch-all arm, `case err:` (196r); `catch e {` does not parse",
-	"File.Name":            "a source file has no package clause",
-	"ForStmt.Init":         "there is no three-clause for (S001)",
-	"ForStmt.Post":         "there is no three-clause for (S001)",
-	"FuncDecl.Recv":        "there are no receivers: a function on a type takes it first (196m)",
-	"IfStmt.Init":          "an if or match header has no init statement (S001)",
-	"SwitchStmt.Init":      "an if or match header has no init statement (S001)",
-	"TypeSwitchStmt.Init":  "an if or match header has no init statement (S001)",
-	"TypeSwitchStmt.Binds": "a match binds with `as` in each case (196p), never `match v = u`",
-	"ImportSpec.Doc":       "a doc comment belongs to the import declaration (ImportDecl.Doc)",
-	"VarSpec.Doc":          "a doc comment belongs to the let declaration (VarDecl.Doc)",
-}
+// parser never sets, each with the rule that keeps it empty. Stage 5
+// (D10) deleted every such field, so the map is empty; a field added
+// later that no row sets fails TestDecidedNodeInventory by name.
+var notBuiltFields = map[string]string{}
 
 // TestDecidedNodeInventory (round 7 review T2): the decided families and
 // their rows cover every node type and field of the syntax package, where

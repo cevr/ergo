@@ -2,7 +2,6 @@ package syntax_test
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -171,10 +170,12 @@ func TestRefusedFixtures(t *testing.T) {
 	}
 }
 
-// TestDecidedOnly: no positive input produces a node or field that no
-// decided form produces (D3, D7). Those nodes stay declared for the
-// consumers that check-v1 and lower-v1 rewrite; the parser never builds
-// them.
+// TestDecidedOnly: no positive input produces a shape that no decided form
+// produces (D3, D7). The nodes and fields of retired forms are deleted
+// (lower-v1 stage 5, D10), so the type system rules them out; this test
+// keeps the shapes the tree can still express: a grouped import or let,
+// a dot import, a := or several-sided assignment, and a bodiless function
+// with no extern (D-S5-3).
 func TestDecidedOnly(t *testing.T) {
 	for _, in := range decidedInputs(t) {
 		f, err := syntax.Parse(in.Src)
@@ -195,70 +196,32 @@ func TestDecidedOnly(t *testing.T) {
 // undecided names the undecided node or field n holds, or returns "".
 func undecided(n syntax.Node) string {
 	switch n := n.(type) {
-	case *syntax.GoExpr, *syntax.SelectStmt, *syntax.SendStmt, *syntax.ChanType, *syntax.DeferStmt,
-		*syntax.LabeledStmt, *syntax.IncDecStmt, *syntax.EmptyStmt, *syntax.Ellipsis:
-		return strings.TrimPrefix(fmt.Sprintf("%T", n), "*syntax.")
-	case *syntax.ArrayType:
-		if n.Len != nil {
-			return "an ArrayType with Len"
-		}
-	case *syntax.IfStmt:
-		if n.Init != nil {
-			return "IfStmt.Init"
-		}
-	case *syntax.SwitchStmt:
-		if n.Init != nil {
-			return "SwitchStmt.Init"
-		}
-	case *syntax.TypeSwitchStmt:
-		if n.Init != nil || n.Binds != nil || n.Define.IsValid() {
-			return "TypeSwitchStmt.Init, Binds or Define"
-		}
-	case *syntax.ForStmt:
-		if n.Init != nil || n.Post != nil {
-			return "ForStmt.Init or Post"
-		}
-	case *syntax.CatchExpr:
-		if n.Bind != nil {
-			return "CatchExpr.Bind"
-		}
 	case *syntax.FuncDecl:
-		if n.Recv != nil {
-			return "FuncDecl.Recv"
-		}
 		if n.Body == nil && n.Extern == nil {
 			return "a bodiless FuncDecl without extern"
 		}
-	case *syntax.BranchStmt:
-		if n.Label != nil {
-			return "BranchStmt.Label"
-		}
 	case *syntax.ImportDecl:
-		if len(n.Specs) != 1 || n.Lparen.IsValid() {
+		if len(n.Specs) != 1 {
 			return "a grouped ImportDecl"
 		}
 		if n.Specs[0].Kind == syntax.ImportDot {
 			return "ImportDot"
 		}
 	case *syntax.VarDecl:
-		if len(n.Specs) != 1 || n.Lparen.IsValid() {
+		if len(n.Specs) != 1 {
 			return "a grouped VarDecl"
 		}
 	case *syntax.AssignStmt:
 		if n.Tok == syntax.DEFINE || len(n.Lhs) != 1 || len(n.Rhs) != 1 {
 			return "an AssignStmt with := or several sides"
 		}
-	case *syntax.CallExpr:
-		if n.Ellipsis.IsValid() {
-			return "CallExpr.Ellipsis"
+	case *syntax.RangeStmt:
+		if n.Tok != syntax.DEFINE {
+			return "a RangeStmt whose token is not :="
 		}
-	case *syntax.File:
-		if n.Package.IsValid() || n.Name != nil {
-			return "a package clause"
-		}
-	case *syntax.StructType:
-		if n.Struct.IsValid() {
-			return "a struct keyword"
+	case *syntax.UnaryExpr:
+		if n.Op == syntax.ARROW {
+			return "a receive"
 		}
 	}
 	return ""

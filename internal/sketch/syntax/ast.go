@@ -4,7 +4,7 @@ package syntax
 // and comments live in File.Comments in source order with a Doc group on the
 // nodes that carry documentation. Ergo's constructs have dedicated nodes
 // (ErrorRow, NeedsClause, ProvidesClause, TryExpr, CatchExpr,
-// TypeSwitchStmt, MachineType, ContextDecl, ContextLit, GoExpr,
+// TypeSwitchStmt, MachineType, ContextDecl, ContextLit,
 // CallExpr.Trailing). The parser resolves no names: with(…) and
 // timeout.After(…) are ordinary calls.
 
@@ -59,21 +59,15 @@ func (g *CommentGroup) End() Pos { return g.List[len(g.List)-1].End() }
 // File is one parsed source file.
 type File struct {
 	Src      string
-	Package  Pos
-	Name     *Ident
 	Decls    []Decl // imports first, in source order
 	Comments []*CommentGroup
 	EOF      Pos
 	lines    []int
 }
 
-// Pos is the position of the package clause, which no decided source has
-// (#196); without one it is the first declaration or comment, and the end
-// of an empty file.
+// Pos is the first declaration or comment, or the end of an empty file: a
+// decided source has no package clause (#196).
 func (f *File) Pos() Pos {
-	if f.Package.IsValid() {
-		return f.Package
-	}
 	pos := f.EOF
 	if len(f.Decls) > 0 {
 		pos = f.Decls[0].Pos()
@@ -106,20 +100,17 @@ const (
 	ImportGo                      // go "path": a Go package
 )
 
-// ImportDecl is `import "p"` or `import ( … )`. Lparen is NoPos without
-// parentheses.
+// ImportDecl is `import p`: the decided parser builds one spec and no
+// parentheses (#196).
 type ImportDecl struct {
 	Doc    *CommentGroup
 	Import Pos
-	Lparen Pos
 	Specs  []*ImportSpec
-	Rparen Pos
 }
 
 // ImportSpec is one imported path. Name is set for ImportNamed; NamePos is
 // the position of the name, `.` or `go`.
 type ImportSpec struct {
-	Doc     *CommentGroup
 	Kind    ImportKind
 	Name    *Ident
 	NamePos Pos
@@ -128,15 +119,11 @@ type ImportSpec struct {
 
 // VarDecl is `let [mut] patterns [Type] [= e]` (#196): one VarSpec, no
 // parentheses, Var at `let`. Mut is the position of `mut`, or NoPos.
-// Lparen, Rparen and further specs are never produced by the decided
-// grammar; they stay for the consumers that check-v1 rewrites.
 type VarDecl struct {
-	Doc    *CommentGroup
-	Var    Pos
-	Mut    Pos
-	Lparen Pos
-	Specs  []*VarSpec
-	Rparen Pos
+	Doc   *CommentGroup
+	Var   Pos
+	Mut   Pos
+	Specs []*VarSpec
 }
 
 // VarSpec is the bound part of a let. Names holds the names of `let x` and
@@ -144,7 +131,6 @@ type VarDecl struct {
 // parentheses, or several patterns as a TupleExpr without parentheses), and
 // then Names is empty. Values holds the one value, if any.
 type VarSpec struct {
-	Doc     *CommentGroup
 	Names   []*Ident
 	Pattern Expr
 	Type    Expr
@@ -163,13 +149,12 @@ type TypeDecl struct {
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
-// `extern go path.F func Name(sig)`. Recv is never produced by the decided
-// grammar (receivers are first parameters, #196).
+// `extern go path.F func Name(sig)`. A receiver is the first parameter
+// (#196).
 type FuncDecl struct {
 	Doc        *CommentGroup
 	Extern     *ExternSpec
 	Func       Pos
-	Recv       *FieldList
 	Name       *Ident
 	TypeParams *FieldList
 	Type       *FuncType
@@ -194,12 +179,7 @@ type ContextDecl struct {
 }
 
 func (d *ImportDecl) Pos() Pos { return d.Import }
-func (d *ImportDecl) End() Pos {
-	if d.Rparen.IsValid() {
-		return d.Rparen + 1
-	}
-	return d.Specs[0].End()
-}
+func (d *ImportDecl) End() Pos { return d.Specs[0].End() }
 func (s *ImportSpec) Pos() Pos {
 	if s.Kind != ImportPlain {
 		return s.NamePos
@@ -208,12 +188,7 @@ func (s *ImportSpec) Pos() Pos {
 }
 func (s *ImportSpec) End() Pos { return s.Path.End() }
 func (d *VarDecl) Pos() Pos    { return d.Var }
-func (d *VarDecl) End() Pos {
-	if d.Rparen.IsValid() {
-		return d.Rparen + 1
-	}
-	return d.Specs[0].End()
-}
+func (d *VarDecl) End() Pos { return d.Specs[0].End() }
 func (s *VarSpec) Pos() Pos {
 	if s.Pattern != nil {
 		return s.Pattern.Pos()
@@ -445,12 +420,10 @@ type (
 		Rbrack Pos
 	}
 
-	// TypeGuard is a subject of a TypeSwitchStmt: the subject of a match,
-	// with Lparen and Rparen NoPos (#196).
+	// TypeGuard is a subject of a TypeSwitchStmt: the subject of a match
+	// (#196).
 	TypeGuard struct {
-		X      Expr
-		Lparen Pos
-		Rparen Pos
+		X Expr
 	}
 
 	// CallExpr is a call or a conversion, with an optional trailing block
@@ -459,7 +432,6 @@ type (
 		Fun      Expr
 		Lparen   Pos
 		Args     []Expr
-		Ellipsis Pos // position of `...`, or NoPos
 		Rparen   Pos
 		Trailing *BlockStmt
 	}
@@ -493,11 +465,10 @@ type (
 		X   Expr
 	}
 
-	// CatchExpr is `x catch [bind] { arms }`. Arms hold statements.
+	// CatchExpr is `x catch { arms }`. Arms hold statements.
 	CatchExpr struct {
 		X      Expr
 		Catch  Pos
-		Bind   *Ident
 		Lbrace Pos
 		Arms   []*CatchArm
 		Rbrace Pos
@@ -512,26 +483,9 @@ type (
 		Body     *ContextBody
 	}
 
-	// GoExpr is `go f(x)` or `go { … }`: it starts a task. Exactly one of
-	// Call and Block is set.
-	GoExpr struct {
-		Go    Pos
-		Call  *CallExpr
-		Block *BlockStmt
-	}
-
-	// Ellipsis is `...T`, the type of a variadic parameter, or `...` with no
-	// Elt, the length of an array composite literal `[...]T{…}`.
-	Ellipsis struct {
-		Ellipsis Pos
-		Elt      Expr
-	}
-
-	// ArrayType is `[N]T`, or `[]T` when Len is nil, or `[...]T` when Len
-	// is an Ellipsis (only as the type of a composite literal).
+	// ArrayType is the slice type `[]T`.
 	ArrayType struct {
 		Lbrack Pos
-		Len    Expr
 		Elt    Expr
 	}
 
@@ -546,14 +500,6 @@ type (
 		Rbrack Pos
 	}
 
-	// ChanType is `chan T`, `chan<- T` or `<-chan T`.
-	ChanType struct {
-		Begin Pos
-		Arrow Pos // NoPos for a bidirectional channel
-		Dir   ChanDir
-		Value Expr
-	}
-
 	// FuncType is a signature. Func is NoPos in a declaration or method.
 	// Results is nil without results; otherwise it holds the result type
 	// and, after it, the failures as one Field of type *ErrorRow. Escaping
@@ -566,33 +512,28 @@ type (
 		Needs    *NeedsClause
 	}
 
-	// StructType is the record of `type T { fields }`: Struct is NoPos and
-	// Fields holds the braces.
+	// StructType is the record of `type T { fields }`: Fields holds the
+	// braces.
 	StructType struct {
-		Struct Pos
 		Fields *FieldList
 	}
 
 	// InterfaceType is an operation type `type T { operations, laws }`
 	// (Methods and Laws, braces set) or a union `type T = A | B{…}` (Union,
-	// each a type name or a *VariantSpec; Interface, Lbrace and Rbrace
-	// NoPos).
+	// each a type name or a *VariantSpec; Lbrace and Rbrace NoPos).
 	InterfaceType struct {
-		Interface Pos
-		Lbrace    Pos
-		Methods   []*Field
-		Laws      []*LawDecl
-		Union     []Expr
-		Rbrace    Pos
+		Lbrace  Pos
+		Methods []*Field
+		Laws    []*LawDecl
+		Union   []Expr
+		Rbrace  Pos
 	}
 
 	// ErrorRow is the failure row `fails A | B` of a signature: Error is the
-	// position of `fails`; Lbrack and Rbrack are NoPos.
+	// position of `fails`.
 	ErrorRow struct {
-		Error  Pos
-		Lbrack Pos
-		Types  []Expr
-		Rbrack Pos
+		Error Pos
+		Types []Expr
 	}
 
 	// MachineType is `machine[S, E] { initial x; step f }`.
@@ -616,15 +557,6 @@ type (
 		Elts   []Expr
 		Rparen Pos
 	}
-)
-
-// ChanDir is a channel direction.
-type ChanDir int
-
-const (
-	ChanBoth ChanDir = iota
-	ChanSend         // chan<- T
-	ChanRecv         // <-chan T
 )
 
 // MachineEntry is `initial: x` or `step: f`.
@@ -679,13 +611,8 @@ func (x *IndexExpr) End() Pos    { return x.Rbrack + 1 }
 func (x *SliceExpr) Pos() Pos    { return x.X.Pos() }
 func (x *SliceExpr) End() Pos    { return x.Rbrack + 1 }
 func (x *TypeGuard) Pos() Pos    { return x.X.Pos() }
-func (x *TypeGuard) End() Pos {
-	if !x.Rparen.IsValid() {
-		return x.X.End()
-	}
-	return x.Rparen + 1
-}
-func (x *CallExpr) Pos() Pos { return x.Fun.Pos() }
+func (x *TypeGuard) End() Pos    { return x.X.End() }
+func (x *CallExpr) Pos() Pos     { return x.Fun.Pos() }
 func (x *CallExpr) End() Pos {
 	if x.Trailing != nil {
 		return x.Trailing.End()
@@ -704,21 +631,7 @@ func (x *CatchExpr) Pos() Pos  { return x.X.Pos() }
 func (x *CatchExpr) End() Pos  { return x.Rbrace + 1 }
 func (x *ContextLit) Pos() Pos { return x.Context }
 func (x *ContextLit) End() Pos { return x.Body.End() }
-func (x *GoExpr) Pos() Pos     { return x.Go }
-func (x *GoExpr) End() Pos {
-	if x.Block != nil {
-		return x.Block.End()
-	}
-	return x.Call.End()
-}
-func (x *Ellipsis) Pos() Pos { return x.Ellipsis }
-func (x *Ellipsis) End() Pos {
-	if x.Elt == nil {
-		return x.Ellipsis + 3
-	}
-	return x.Elt.End()
-}
-func (x *ArrayType) Pos() Pos { return x.Lbrack }
+func (x *ArrayType) Pos() Pos  { return x.Lbrack }
 func (x *ArrayType) End() Pos { return x.Elt.End() }
 func (x *MapType) Pos() Pos   { return x.Map }
 func (x *MapType) End() Pos {
@@ -727,8 +640,6 @@ func (x *MapType) End() Pos {
 	}
 	return x.Value.End()
 }
-func (x *ChanType) Pos() Pos { return x.Begin }
-func (x *ChanType) End() Pos { return x.Value.End() }
 func (x *FuncType) Pos() Pos {
 	switch {
 	case x.Escaping.IsValid():
@@ -747,18 +658,10 @@ func (x *FuncType) End() Pos {
 	}
 	return x.Params.End()
 }
-func (x *StructType) Pos() Pos {
-	if x.Struct.IsValid() {
-		return x.Struct
-	}
-	return x.Fields.Pos()
-}
+func (x *StructType) Pos() Pos { return x.Fields.Pos() }
 func (x *StructType) End() Pos { return x.Fields.End() }
 func (x *InterfaceType) Pos() Pos {
-	switch {
-	case x.Interface.IsValid():
-		return x.Interface
-	case x.Lbrace.IsValid():
+	if x.Lbrace.IsValid() {
 		return x.Lbrace
 	}
 	return x.Union[0].Pos()
@@ -770,12 +673,7 @@ func (x *InterfaceType) End() Pos {
 	return x.Union[len(x.Union)-1].End()
 }
 func (x *ErrorRow) Pos() Pos { return x.Error }
-func (x *ErrorRow) End() Pos {
-	if x.Rbrack.IsValid() {
-		return x.Rbrack + 1
-	}
-	return x.Types[len(x.Types)-1].End()
-}
+func (x *ErrorRow) End() Pos { return x.Types[len(x.Types)-1].End() }
 func (x *MachineType) Pos() Pos { return x.Machine }
 func (x *MachineType) End() Pos { return x.Rbrace + 1 }
 func (x *TupleExpr) Pos() Pos {
@@ -808,11 +706,8 @@ func (*BinaryExpr) exprNode()    {}
 func (*TryExpr) exprNode()       {}
 func (*CatchExpr) exprNode()     {}
 func (*ContextLit) exprNode()    {}
-func (*GoExpr) exprNode()        {}
-func (*Ellipsis) exprNode()      {}
 func (*ArrayType) exprNode()     {}
 func (*MapType) exprNode()       {}
-func (*ChanType) exprNode()      {}
 func (*FuncType) exprNode()      {}
 func (*StructType) exprNode()    {}
 func (*InterfaceType) exprNode() {}
@@ -828,39 +723,9 @@ type (
 		Decl *VarDecl
 	}
 
-	// EmptyStmt is the empty statement of a label: an explicit `;` after
-	// the colon (`L: ;`), or an implicit one before a block's `}` (`L: }`),
-	// as go/ast.EmptyStmt. An explicit one is a statement of its own, so the
-	// statement after it is not labelled.
-	EmptyStmt struct {
-		Semicolon Pos
-		Implicit  bool // no `;` in the source: the label ends its block
-	}
-
-	// LabeledStmt is `label: stmt`.
-	LabeledStmt struct {
-		Label *Ident
-		Colon Pos
-		Stmt  Stmt
-	}
-
 	// ExprStmt is an expression used as a statement.
 	ExprStmt struct {
 		X Expr
-	}
-
-	// SendStmt is `ch <- v`.
-	SendStmt struct {
-		Chan  Expr
-		Arrow Pos
-		Value Expr
-	}
-
-	// IncDecStmt is `x++` or `x--`.
-	IncDecStmt struct {
-		X      Expr
-		TokPos Pos
-		Tok    Token
 	}
 
 	// AssignStmt is `lhs := rhs`, `lhs = rhs` or `lhs op= rhs`.
@@ -871,23 +736,16 @@ type (
 		Rhs    []Expr
 	}
 
-	// DeferStmt is `defer stmt` for any simple statement.
-	DeferStmt struct {
-		Defer Pos
-		Stmt  Stmt
-	}
-
 	// ReturnStmt is `return [results]`.
 	ReturnStmt struct {
 		Return  Pos
 		Results []Expr
 	}
 
-	// BranchStmt is `break [label]` or `continue [label]`.
+	// BranchStmt is `break` or `continue`.
 	BranchStmt struct {
 		TokPos Pos
 		Tok    Token
-		Label  *Ident
 	}
 
 	// BlockStmt is a braced statement list.
@@ -897,69 +755,52 @@ type (
 		Rbrace Pos
 	}
 
-	// IfStmt is `if [init;] cond { } [else …]`; Else is an *IfStmt or a
+	// IfStmt is `if cond { } [else …]`; Else is an *IfStmt or a
 	// *BlockStmt.
 	IfStmt struct {
 		If      Pos
-		Init    Stmt
 		Cond    Expr
 		Body    *BlockStmt
 		ElsePos Pos // NoPos without else
 		Else    Stmt
 	}
 
-	// SwitchStmt is an expression switch.
+	// SwitchStmt is a match on a literal subject.
 	SwitchStmt struct {
 		Switch  Pos
-		Init    Stmt
 		Tag     Expr
 		Lbrace  Pos
 		Clauses []*CaseClause
 		Rbrace  Pos
 	}
 
-	// TypeSwitchStmt is `switch [binds :=] x.(type)[, y.(type)] { … }`.
-	// Binds is empty without a binding; otherwise it has one name per
-	// subject. Each case item of a multi-subject switch is a *TupleExpr.
+	// TypeSwitchStmt is any other match, with one subject per tuple
+	// element. Each case item of a multi-subject match is a *TupleExpr.
 	TypeSwitchStmt struct {
 		Switch   Pos
-		Init     Stmt
-		Binds    []*Ident
-		Define   Pos
 		Subjects []*TypeGuard
 		Lbrace   Pos
 		Clauses  []*CaseClause
 		Rbrace   Pos
 	}
 
-	// SelectStmt is `select { … }`.
-	SelectStmt struct {
-		Select  Pos
-		Lbrace  Pos
-		Clauses []*CommClause
-		Rbrace  Pos
-	}
-
-	// ForStmt is `for [init; cond; post] { }` or `for cond { }`.
+	// ForStmt is `for { }` or `for cond { }`.
 	ForStmt struct {
 		For  Pos
-		Init Stmt
 		Cond Expr
-		Post Stmt
 		Body *BlockStmt
 	}
 
-	// RangeStmt is `for [key[, value] :=|=] range x { }`. Tok is ILLEGAL
-	// without key and value.
+	// RangeStmt is `for [key[, value]] in x { }`. Tok is ILLEGAL without
+	// key and value.
 	RangeStmt struct {
-		For    Pos
-		Key    Expr
-		Value  Expr
-		TokPos Pos
-		Tok    Token
-		Range  Pos
-		X      Expr
-		Body   *BlockStmt
+		For   Pos
+		Key   Expr
+		Value Expr
+		Tok   Token
+		Range Pos
+		X     Expr
+		Body  *BlockStmt
 	}
 )
 
@@ -980,43 +821,12 @@ func (c *CaseClause) End() Pos {
 	return c.Colon + 1
 }
 
-// CommClause is a select clause; Comm is nil for `default`.
-type CommClause struct {
-	Case  Pos
-	Comm  Stmt
-	Colon Pos
-	Body  []Stmt
-}
-
-func (c *CommClause) Pos() Pos { return c.Case }
-func (c *CommClause) End() Pos {
-	if len(c.Body) > 0 {
-		return c.Body[len(c.Body)-1].End()
-	}
-	return c.Colon + 1
-}
-
-func (s *DeclStmt) Pos() Pos    { return s.Decl.Pos() }
-func (s *DeclStmt) End() Pos    { return s.Decl.End() }
-func (s *EmptyStmt) Pos() Pos   { return s.Semicolon }
-func (s *EmptyStmt) End() Pos   { return s.Semicolon }
-func (s *LabeledStmt) Pos() Pos { return s.Label.Pos() }
-func (s *LabeledStmt) End() Pos {
-	if s.Stmt == nil {
-		return s.Colon + 1
-	}
-	return s.Stmt.End()
-}
+func (s *DeclStmt) Pos() Pos   { return s.Decl.Pos() }
+func (s *DeclStmt) End() Pos   { return s.Decl.End() }
 func (s *ExprStmt) Pos() Pos   { return s.X.Pos() }
 func (s *ExprStmt) End() Pos   { return s.X.End() }
-func (s *SendStmt) Pos() Pos   { return s.Chan.Pos() }
-func (s *SendStmt) End() Pos   { return s.Value.End() }
-func (s *IncDecStmt) Pos() Pos { return s.X.Pos() }
-func (s *IncDecStmt) End() Pos { return s.TokPos + 2 }
 func (s *AssignStmt) Pos() Pos { return s.Lhs[0].Pos() }
 func (s *AssignStmt) End() Pos { return s.Rhs[len(s.Rhs)-1].End() }
-func (s *DeferStmt) Pos() Pos  { return s.Defer }
-func (s *DeferStmt) End() Pos  { return s.Stmt.End() }
 func (s *ReturnStmt) Pos() Pos { return s.Return }
 func (s *ReturnStmt) End() Pos {
 	if len(s.Results) > 0 {
@@ -1025,13 +835,8 @@ func (s *ReturnStmt) End() Pos {
 	return s.Return + 6
 }
 func (s *BranchStmt) Pos() Pos { return s.TokPos }
-func (s *BranchStmt) End() Pos {
-	if s.Label != nil {
-		return s.Label.End()
-	}
-	return s.TokPos + Pos(len(s.Tok.String()))
-}
-func (s *BlockStmt) Pos() Pos { return s.Lbrace }
+func (s *BranchStmt) End() Pos { return s.TokPos + Pos(len(s.Tok.String())) }
+func (s *BlockStmt) Pos() Pos  { return s.Lbrace }
 func (s *BlockStmt) End() Pos { return s.Rbrace + 1 }
 func (s *IfStmt) Pos() Pos    { return s.If }
 func (s *IfStmt) End() Pos {
@@ -1044,28 +849,20 @@ func (s *SwitchStmt) Pos() Pos     { return s.Switch }
 func (s *SwitchStmt) End() Pos     { return s.Rbrace + 1 }
 func (s *TypeSwitchStmt) Pos() Pos { return s.Switch }
 func (s *TypeSwitchStmt) End() Pos { return s.Rbrace + 1 }
-func (s *SelectStmt) Pos() Pos     { return s.Select }
-func (s *SelectStmt) End() Pos     { return s.Rbrace + 1 }
 func (s *ForStmt) Pos() Pos        { return s.For }
 func (s *ForStmt) End() Pos        { return s.Body.End() }
 func (s *RangeStmt) Pos() Pos      { return s.For }
 func (s *RangeStmt) End() Pos      { return s.Body.End() }
 
 func (*DeclStmt) stmtNode()       {}
-func (*EmptyStmt) stmtNode()      {}
-func (*LabeledStmt) stmtNode()    {}
 func (*ExprStmt) stmtNode()       {}
-func (*SendStmt) stmtNode()       {}
-func (*IncDecStmt) stmtNode()     {}
 func (*AssignStmt) stmtNode()     {}
-func (*DeferStmt) stmtNode()      {}
 func (*ReturnStmt) stmtNode()     {}
 func (*BranchStmt) stmtNode()     {}
 func (*BlockStmt) stmtNode()      {}
 func (*IfStmt) stmtNode()         {}
 func (*SwitchStmt) stmtNode()     {}
 func (*TypeSwitchStmt) stmtNode() {}
-func (*SelectStmt) stmtNode()     {}
 func (*ForStmt) stmtNode()        {}
 func (*RangeStmt) stmtNode()      {}
 

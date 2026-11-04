@@ -670,9 +670,6 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if m.Partial != partial {
 		ice(x, "a catch whose Partial fact disagrees with its try")
 	}
-	if x.Bind != nil {
-		unreachable(x, ruleParser, "a catch with a binding")
-	}
 	o := fc.expr(x.X)
 	if o.err == "" {
 		ice(x.X, "catch on an expression that cannot fail")

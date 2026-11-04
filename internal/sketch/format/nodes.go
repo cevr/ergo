@@ -377,9 +377,6 @@ func (p *printer) fieldMembers(fl *syntax.FieldList) []member {
 }
 
 func (p *printer) structType(t *syntax.StructType) {
-	if t.Struct.IsValid() {
-		p.token(t.Struct, "struct")
-	}
 	p.members(t.Fields.Opening, t.Fields.Closing, p.fieldMembers(t.Fields), false)
 }
 
@@ -416,7 +413,7 @@ func (p *printer) operationType(t *syntax.InterfaceType) {
 // setup, so a body written on one line stays on one line with its
 // statements separated by `;` when nothing in it breaks.
 func (p *printer) lawBody(b *syntax.BlockStmt) {
-	list := nonEmpty(b.List)
+	list := b.List
 	oneLine := p.line(b.Lbrace) == p.line(b.Rbrace)
 	for _, s := range list {
 		oneLine = oneLine && !forcesBreak(s)
@@ -570,7 +567,7 @@ func forcesBreak(n syntax.Node) bool {
 		case *syntax.SwitchStmt, *syntax.TypeSwitchStmt, *syntax.CatchExpr:
 			forced = true
 		case *syntax.BlockStmt:
-			forced = forced || len(nonEmpty(n.List)) > 1
+			forced = forced || len(n.List) > 1
 		}
 		return !forced
 	})
@@ -597,7 +594,7 @@ func (p *printer) bodyLine(i int) {
 // has on one line with at most one statement stays on one line (gofmt's
 // function-body rule).
 func (p *printer) block(b *syntax.BlockStmt, oneLineOK bool) {
-	list := nonEmpty(b.List)
+	list := b.List
 	if oneLineOK && p.oneLine(b.Lbrace, b.Rbrace, nodes(list)...) {
 		p.token(b.Lbrace, "{")
 		if len(list) == 1 {
@@ -615,7 +612,7 @@ func (p *printer) block(b *syntax.BlockStmt, oneLineOK bool) {
 
 // blockOneLine reports whether a function-body-like block prints on one line.
 func (p *printer) blockOneLine(b *syntax.BlockStmt) bool {
-	return p.oneLine(b.Lbrace, b.Rbrace, nodes(nonEmpty(b.List))...)
+	return p.oneLine(b.Lbrace, b.Rbrace, nodes(b.List)...)
 }
 
 // indexDepth is the depth of an index element: gofmt's depth+1, except for
@@ -627,18 +624,8 @@ func indexDepth(x syntax.Expr, depth int) int {
 	return depth + 1
 }
 
-func nonEmpty(list []syntax.Stmt) []syntax.Stmt {
-	out := list[:0:0]
-	for _, s := range list {
-		if _, ok := s.(*syntax.EmptyStmt); !ok {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 func (p *printer) stmtList(list []syntax.Stmt) {
-	for i, s := range nonEmpty(list) {
+	for i, s := range list {
 		p.bodyLine(i)
 		p.stmt(s)
 	}

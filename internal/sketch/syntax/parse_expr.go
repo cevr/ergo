@@ -445,7 +445,7 @@ func (p *parser) parseIndexValue() Expr {
 }
 
 func (p *parser) parseCall(fun Expr) *CallExpr {
-	c := &CallExpr{Fun: fun, Lparen: p.want(LPAREN), Ellipsis: NoPos}
+	c := &CallExpr{Fun: fun, Lparen: p.want(LPAREN)}
 	p.exprLev++
 	for p.tok.tok != RPAREN {
 		c.Args = append(c.Args, p.parseExpr())
@@ -616,13 +616,13 @@ func (p *parser) parseMatch() Stmt {
 	if !isTuple && literalCases(clauses) {
 		return &SwitchStmt{Switch: pos, Tag: subject, Lbrace: lbrace, Clauses: clauses, Rbrace: rbrace}
 	}
-	s := &TypeSwitchStmt{Switch: pos, Define: NoPos, Lbrace: lbrace, Clauses: clauses, Rbrace: rbrace}
+	s := &TypeSwitchStmt{Switch: pos, Lbrace: lbrace, Clauses: clauses, Rbrace: rbrace}
 	subjects := []Expr{subject}
 	if isTuple {
 		subjects = tuple.Elts
 	}
 	for _, x := range subjects {
-		s.Subjects = append(s.Subjects, &TypeGuard{X: x, Lparen: NoPos, Rparen: NoPos})
+		s.Subjects = append(s.Subjects, &TypeGuard{X: x})
 	}
 	return s
 }
@@ -670,7 +670,7 @@ func (p *parser) parseCaseList() []Expr {
 // `with(E, F) { body }` that the checker reads (#196, D3).
 func (p *parser) parseWith() *CallExpr {
 	pos := p.want(WITH)
-	c := &CallExpr{Fun: &Ident{NamePos: pos, Name: "with"}, Lparen: NoPos, Ellipsis: NoPos, Rparen: NoPos}
+	c := &CallExpr{Fun: &Ident{NamePos: pos, Name: "with"}, Lparen: NoPos, Rparen: NoPos}
 	c.Args = append(c.Args, p.parseHeader())
 	for p.got(COMMA) {
 		c.Args = append(c.Args, p.parseHeader())
