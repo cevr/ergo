@@ -300,11 +300,18 @@ func (r readable) covers(op string, info fs.FileInfo) bool {
 // chdir through a link: an absent name is classified where the walk looks
 // for it; a ".." after an absent component or a file, and a loop, fail
 // closed, wherever lexical cleaning would put them; a walk lost in scratch
-// outside the root is dropped only when the caller names that scratch.
+// outside the root is dropped only when the caller names that scratch and
+// the walk never entered the root. A walk that leaves the root after it
+// entered it fails closed, wherever it ends: the part outside the root is
+// writable during the sweep, so it may have led elsewhere when the test
+// read it.
 func TestLostWalksFailClosed(t *testing.T) {
 	l := newLinkLayout(t)
 	c := newClosure("internal/a", nil, nil)
 	gone := filepath.Join(l.base, "ext", "gone") + "/../../root/docs/tooling.md"
+	if err := os.Symlink(filepath.Join(l.base, "ext"), filepath.Join(l.pwd, "testdata", "through-ext")); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		log     string
 		scratch string
@@ -329,6 +336,12 @@ func TestLostWalksFailClosed(t *testing.T) {
 		{"open " + filepath.Join(l.root, "internal", "a", "testdata", "missing") + "/../own.txt", l.base, true, "a walk lost in the root, even when the root is in scratch"},
 		{"chdir " + filepath.Join(l.pwd, "testdata", "out") + "\nopen ../tooling.md", "", true, "a chdir through a link, then a parent traversal"},
 		{"chdir " + filepath.Join(l.pwd, "testdata", "in") + "\nopen ../own.txt", "", false, "a chdir through a link in testdata"},
+		{"open testdata/through-ext/into-own/own.txt", l.base, true, "out of the root through a link in testdata and back into testdata"},
+		{"open testdata/through-ext/into-docs/tooling.md", l.base, true, "out of the root and back into docs"},
+		{"stat testdata/through-ext/plain.txt", l.base, true, "out of the root to a file in scratch"},
+		{"stat testdata/../../../../ext/plain.txt", l.base, true, "out of the root by parent traversals"},
+		{"open " + filepath.Join(l.base, "ext", "into-own") + "/own.txt", l.base, false, "into the root from scratch, once"},
+		{"open " + filepath.Join(l.pwd, "testdata", "outabs") + "/../../internal/a/testdata/own.txt", l.base, false, "an absolute link through the root's ancestors into docs, then up, staying in the root"},
 	} {
 		entries, err := readLog([]byte("# test log\n"+tc.log+"\n"), l.pwd, []string{l.root}, tc.scratch)
 		if err != nil {

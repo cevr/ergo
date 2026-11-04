@@ -37,10 +37,16 @@ const maxLinks = 40
 // resolver walks recorded paths component by component, as the kernel
 // does, so a path is classified by the objects it reaches and never by its
 // spelling: "testdata/link/../x" names x next to the link's target, not
-// testdata/x. It reads the file system as it is when the log is read, which
-// is when cmd/go hashes the same inputs. Lookups are memoized.
+// testdata/x. It reads the file system as it is when the log is read, after
+// the run. That is the tree the test read only inside the checkout, which
+// the sweep keeps read-only during the run (sandbox_test.go): a walk that
+// enters the checkout and then leaves it, to a place outside it that the
+// test could change, is lost. Lookups are memoized.
 type resolver struct {
 	lookups map[string]lookup
+	// roots are the checkout's link-free locations; ancestors are the
+	// directories above them, which a walk may pass on its way back in.
+	roots, ancestors []string
 }
 
 // lookup is what an lstat of one absolute, link-free path found.
@@ -69,7 +75,32 @@ type walk struct {
 	lost string
 }
 
-func newResolver() *resolver { return &resolver{lookups: map[string]lookup{}} }
+// newResolver returns a resolver for the checkout at roots (link-free); a
+// resolver with no root never loses a walk for leaving one.
+func newResolver(roots ...string) *resolver {
+	r := &resolver{lookups: map[string]lookup{}, roots: roots}
+	for _, root := range roots {
+		for a := filepath.Dir(root); ; a = filepath.Dir(a) {
+			if !slices.Contains(r.ancestors, a) {
+				r.ancestors = append(r.ancestors, a)
+			}
+			if a == filepath.Dir(a) {
+				break
+			}
+		}
+	}
+	return r
+}
+
+// inside reports whether the link-free location p lies in the checkout.
+func (r *resolver) inside(p string) bool {
+	for _, root := range r.roots {
+		if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
 
 func (r *resolver) lstat(name string) lookup {
 	if l, ok := r.lookups[name]; ok {
@@ -95,7 +126,10 @@ func (r *resolver) lstat(name string) lookup {
 // that directory (which has no link in it), and a link splices its target
 // in front of the rest. A lookup that finds nothing, or a file where the
 // path continues, ends the walk: the path names an absent object, unless a
-// ".." follows, which the kernel never reaches, so the walk is lost.
+// ".." follows, which the kernel never reaches, so the walk is lost. A walk
+// that leaves the checkout after it entered it, for a place that is neither
+// in it nor above it, is lost at the last location in the checkout it
+// passed (left).
 func (r *resolver) walk(name string) walk {
 	var w walk
 	if !filepath.IsAbs(name) {
@@ -105,6 +139,21 @@ func (r *resolver) walk(name string) walk {
 	rest := strings.Split(filepath.ToSlash(name), "/")
 	cur := string(filepath.Separator)
 	followed := 0
+	lastIn := "" // the last location in the checkout the walk passed
+	// left reports whether the walk, at p, has left the checkout it
+	// entered, and records p when it is in the checkout.
+	left := func(p string) bool {
+		if r.inside(p) {
+			lastIn = p
+			return false
+		}
+		return lastIn != "" && !slices.Contains(r.ancestors, p)
+	}
+	leave := func() walk {
+		w.lost = "the path leaves the checkout after it entered it; the part outside is not read-only during the run, so what it read then is unknown now"
+		w.stop, w.reached = lastIn, lastIn
+		return w
+	}
 	for len(rest) > 0 {
 		c := rest[0]
 		rest = rest[1:]
@@ -113,9 +162,15 @@ func (r *resolver) walk(name string) walk {
 			continue
 		case "..":
 			cur = filepath.Dir(cur)
+			if left(cur) {
+				return leave()
+			}
 			continue
 		}
 		next := filepath.Join(cur, c)
+		if left(next) {
+			return leave()
+		}
 		l := r.lstat(next)
 		lose := func(why string) walk {
 			w.lost, w.stop, w.reached = why, next, joinRaw(next, rest)
@@ -172,11 +227,17 @@ func parseLog(data []byte, pwd string, roots []string) ([]entry, error) {
 //
 // Each path is resolved on the file system (resolver): the entry is the
 // object it reaches, an open of a directory is a listing (opList), and
-// each link the path traverses inside the root is an opLink entry. A path
-// the walk cannot resolve fails closed: it is an opLost entry, unless the
-// walk stopped in scratch, outside the root. Scratch is where tests make
-// and remove their temporary trees (t.TempDir): a walk lost there passed a
-// tree the test has since removed, which cmd/go does not hash either.
+// each link the path traverses inside the root is an opLink entry. The
+// sweep runs the tests with the checkout read-only, so the walk inside it
+// sees the tree the test read; a path that reached the checkout from
+// outside it was also recorded resolved at access time by testinputs
+// (recorder.walk). A path the walk cannot resolve fails closed: it is an
+// opLost entry, unless the walk stopped in scratch, outside the root,
+// before it ever entered the root. Scratch is where tests make and remove
+// their temporary trees (t.TempDir): a walk lost there passed a tree the
+// test has since removed, which cmd/go does not hash either. A walk that
+// leaves the root after it entered it stops at the last place in the root
+// it passed, so it is never dropped.
 //
 // A log without its final newline was left uncacheable on purpose
 // (testinputs.Main), so its inputs are unknown and readLog returns an
@@ -216,7 +277,7 @@ func readLog(data []byte, pwd string, roots []string, scratch string) ([]entry, 
 			entries = append(entries, e)
 		}
 	}
-	res := newResolver()
+	res := newResolver(real...)
 	body := string(data[len(header):])
 	if body == "" {
 		return nil, nil // the tests read nothing

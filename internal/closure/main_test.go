@@ -11,5 +11,10 @@ import (
 )
 
 // TestMain runs the tests under observation, so the files and variables
-// any process they start reads are inputs of Go's test cache.
-func TestMain(m *testing.M) { os.Exit(testinputs.Main(m)) }
+// any process they start reads are inputs of Go's test cache. The binary
+// also runs as the sweep's sandbox helper and as a child of the sandbox
+// tests (helperMain), which never return.
+func TestMain(m *testing.M) {
+	helperMain()
+	os.Exit(testinputs.Main(m))
+}
