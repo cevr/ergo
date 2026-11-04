@@ -611,9 +611,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	}
 
 	type result struct {
-		outside []entry
-		used    map[string]bool
-		err     error
+		outside  []entry
+		used     map[string]bool
+		identity string
+		err      error
 	}
 	results := make([]result, len(targets))
 	sem := make(chan struct{}, jobs)
@@ -632,6 +633,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 			}
 			results[i].used = map[string]bool{}
 			results[i].outside = closures[dir].check(entries, results[i].used)
+			results[i].identity = identityCounts(entries)
 		}()
 	}
 	wg.Wait()
@@ -647,6 +649,10 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 				t.Errorf("%s: the declared entry %s is an input of no recorded access; remove it", dir, a.key())
 			}
 		}
+		// The counts show whether a package's inputs depend on a change by a
+		// process outside the sandbox (docs/tooling.md, the closure rule's
+		// limit).
+		t.Logf("%s: identity: %s", dir, r.identity)
 		if len(r.outside) == 0 {
 			t.Logf("%s: every recorded input lies in its closure", dir)
 			continue
@@ -663,6 +669,24 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		}
 		t.Errorf("%s: %d recorded inputs lie outside its closure:\n%s", dir, len(r.outside), summary(r.outside))
 	}
+}
+
+// identityCounts counts the entries that fail closed on identity: those that
+// met a change during the run, those whose object changed after it, and those
+// with no identity. opRaced starts with opChanged, so it is tested first.
+func identityCounts(entries []entry) string {
+	var raced, changed, unidentified int
+	for _, e := range entries {
+		switch {
+		case strings.HasPrefix(e.op, opRaced):
+			raced++
+		case strings.HasPrefix(e.op, opChanged):
+			changed++
+		case strings.HasPrefix(e.op, opUnidentified):
+			unidentified++
+		}
+	}
+	return fmt.Sprintf("%d changed during, %d changed, %d unidentified, of %d entries", raced, changed, unidentified, len(entries))
 }
 
 // modulePackages returns the closure of every test package of the module,
