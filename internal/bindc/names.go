@@ -140,7 +140,7 @@ var (
 		"cbToken": true, "cbPut": true, "cbUndo": true, "cbDrop": true, "cbDropOwner": true,
 		// The panic containment, the thread id and the Owner (emitthread.go).
 		"cbPendMu": true, "cbPendN": true, "cbPendOn": true, "cbContain": true, "cbPending": true, "cbPendingHere": true,
-		"cbTake": true, "cbTakeHere": true, "cbThread": true, "ownerJob": true, "ownerServe": true, "ownerRun": true,
+		"cbTake": true, "cbTakeHere": true, "cbThread": true, "ownerJob": true, "ownerServe": true, "ownerRun": true, "ownerHere": true,
 		"strconv": true, "atomic": true, "sync": true, "errors": true, "fmt": true, "runtime": true, "unsafe": true, "purego": true,
 		"os": true, "debug": true, "syscall": true,
 	}

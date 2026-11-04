@@ -4948,13 +4948,30 @@ func ownerRun(fn func()) (v any, panicked bool) {
 	return nil, false
 }
 
+// ownerHere reports whether the caller runs on the owner thread: its
+// thread id is the runner's and the runner has not stopped. A live thread
+// keeps its id, so a match while the runner lives is the runner's thread;
+// after the runner stopped, its thread has ended, and the OS may give the
+// id to another thread (linux reuses thread ids).
+func ownerHere(o *Owner) bool {
+	if cbThread() != o.thread {
+		return false
+	}
+	select {
+	case <-o.stopped:
+		return false
+	default:
+		return true
+	}
+}
+
 // Do runs fn on the owner thread and waits for it to return. On the owner
 // thread (in a function that Do runs, or in a callback that C calls inside
 // one) Do runs fn inline. A panic in fn panics again in the caller of Do,
 // and the runner keeps serving. After Close, Do returns ErrOwnerClosed and
 // fn does not run.
 func (o *Owner) Do(fn func()) error {
-	if cbThread() == o.thread {
+	if ownerHere(o) {
 		fn()
 		return nil
 	}
@@ -4979,7 +4996,7 @@ func (o *Owner) Do(fn func()) error {
 // ErrOwnerClosed. On the owner thread Close returns ErrOwnerThread and does
 // nothing.
 func (o *Owner) Close() error {
-	if cbThread() == o.thread {
+	if ownerHere(o) {
 		return ErrOwnerThread
 	}
 	o.mu.Lock()

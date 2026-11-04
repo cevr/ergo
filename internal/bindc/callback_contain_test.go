@@ -3,6 +3,7 @@ package bindc
 import (
 	"errors"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -73,7 +74,9 @@ func TestLivePanicContainment(t *testing.T) {
 // begins after Close returned; Close returns after every begun job ended),
 // noSelfWait (a Do on the owner thread runs inline); and every job runs on
 // the owner thread (fx_thread_id), where no fixture call gets the
-// wrong-thread status.
+// wrong-thread status. On linux, a new thread that gets the ended owner
+// thread's id (in a user and pid namespace) still gets ErrOwnerClosed from
+// Do and Close.
 func TestLiveOwnerModel(t *testing.T) {
 	e := newLiveEnv(t)
 	lib, driver := e.fixtureDriverFrom("testdata/live/contain/main.go")
@@ -87,6 +90,24 @@ func TestLiveOwnerModel(t *testing.T) {
 	out, err := e.try(e.root, "", nil, driver, "owner", lib, strconv.FormatUint(*propSeed, 10), strconv.Itoa(n))
 	if got := okLines(out); err != nil || !slices.Equal(got, want) {
 		t.Fatalf("the owner driver (seed %d, %d schedules): %v\n%s", *propSeed, n, err, tail(out, 3000))
+	}
+	t.Log(strings.TrimSpace(out[:strings.Index(out, "\nok: ")]))
+
+	// Thread-id reuse (linux; darwin's 64-bit thread ids are not reused,
+	// inferred): the model has no thread ids, so this state is driven
+	// directly. In its own user and pid namespace the driver gives the
+	// ended owner thread's id to a new thread through ns_last_pid; Do and
+	// Close there must still return ErrOwnerClosed.
+	if runtime.GOOS != "linux" {
+		return
+	}
+	unshare, err := exec.LookPath("unshare")
+	if err != nil {
+		t.Fatalf("the thread-id reuse case needs unshare(1) on linux: %v", err)
+	}
+	out, err = e.try(e.root, "", nil, unshare, "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", driver, "reuse", lib)
+	if got := okLines(out); err != nil || !slices.Equal(got, []string{"after Close, a thread with the old owner id gets ErrOwnerClosed from Do and Close"}) {
+		t.Fatalf("the reuse driver (in a user and pid namespace): %v\n%s", err, tail(out, 2000))
 	}
 	t.Log(strings.TrimSpace(out[:strings.Index(out, "\nok: ")]))
 }

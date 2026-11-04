@@ -10,7 +10,11 @@
 //	goexit <lib>            a callback calls runtime.Goexit: the process must
 //	                        end with exit status 2 before C frames unwind;
 //	goexit-owner <lib>      a function of Owner.Do calls runtime.Goexit;
-//	owner <lib> <seed> <n>  n generated schedules of the Owner (owner.qnt).
+//	owner <lib> <seed> <n>  n generated schedules of the Owner (owner.qnt);
+//	reuse <lib>             linux, in a user and pid namespace: after Close,
+//	                        a new thread gets the old owner thread's id
+//	                        (ns_last_pid), and Do and Close there still
+//	                        return ErrOwnerClosed.
 //
 // It exits 1 at the first failed check. The proof that C frames completed
 // is the fixture's own counters (fx_context_counters), not Go-side flags.
@@ -97,9 +101,94 @@ func main() {
 		goexitOwner()
 	case "owner":
 		owner(uint64(arg(3)), arg(4))
+	case "reuse":
+		reuse()
 	default:
 		fail("unknown mode %s", os.Args[1])
 	}
+}
+
+// reuse makes linux give the ended owner thread's id to a new thread (the
+// verifier's probe of 2c M1): the driver runs as root of its own user and
+// pid namespace, so it may write /proc/sys/kernel/ns_last_pid, and the next
+// thread it makes gets the id after the one written. A goroutine on that
+// thread calls Do and Close: both must return ErrOwnerClosed, and Do must
+// not run its function. The thread id is the fixture's fx_thread_id
+// (gettid on linux).
+func reuse() {
+	// Keep the main thread for main, so that the runner has a thread of its
+	// own (Go never ends the main thread).
+	runtime.LockOSThread()
+	o := fixture.NewOwner()
+	runtime.UnlockOSThread()
+	var tid uint64
+	must("Do", o.Do(func() {
+		var err error
+		tid, err = fixture.ThreadId()
+		must("ThreadId", err)
+	}))
+	must("Close", o.Close())
+	if err := o.Do(func() {}); err != fixture.ErrOwnerClosed {
+		fail("Do after Close returned %v, want ErrOwnerClosed", err)
+	}
+	task := "/proc/self/task/" + strconv.FormatUint(tid, 10)
+	for i := 0; i < 500; i++ {
+		if _, err := os.Stat(task); err != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(task); err == nil {
+		fail("the owner thread %d is still alive after Close", tid)
+	}
+	type hit struct {
+		found           bool // the caller's thread had the old id
+		doErr, closeErr error
+		ran             bool
+	}
+	// here calls Do and Close when the caller's thread has the old id.
+	here := func() hit {
+		t, err := fixture.ThreadId()
+		must("ThreadId", err)
+		if t != tid {
+			return hit{}
+		}
+		h := hit{found: true}
+		h.doErr = o.Do(func() { h.ran = true })
+		h.closeErr = o.Close()
+		return h
+	}
+	for i := 0; i < 400; i++ {
+		if _, err := os.Stat(task); err != nil {
+			// The id is free: the next thread of this namespace gets it.
+			must("write ns_last_pid", os.WriteFile("/proc/sys/kernel/ns_last_pid", []byte(strconv.FormatUint(tid-1, 10)), 0))
+		}
+		got := make(chan hit, 1)
+		go func() {
+			runtime.LockOSThread() // keep this thread, so that the next one is new
+			got <- here()
+			select {}
+		}()
+		h := <-got
+		if !h.found {
+			runtime.LockOSThread()
+			h = here()
+			runtime.UnlockOSThread()
+		}
+		if !h.found {
+			continue
+		}
+		if h.doErr != fixture.ErrOwnerClosed || h.ran {
+			fail("on a new thread with the old owner id %d, Do after Close returned %v and ran fn %v; want ErrOwnerClosed, fn not run", tid, h.doErr, h.ran)
+		}
+		if h.closeErr != fixture.ErrOwnerClosed {
+			fail("on a new thread with the old owner id %d, a second Close returned %v; want ErrOwnerClosed", tid, h.closeErr)
+		}
+		fmt.Printf("the owner id %d came back on a new thread in iteration %d\n", tid, i)
+		ok("after Close, a thread with the old owner id gets ErrOwnerClosed from Do and Close")
+		return
+	}
+	fail("no new thread got the old owner id %d in 400 iterations", tid)
 }
 
 // counts is the change of a context's counters over f.
