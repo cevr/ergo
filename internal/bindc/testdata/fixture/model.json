@@ -1,0 +1,622 @@
+{
+  "header": "fixture.h",
+  "guard": "FIXTURE_H",
+  "cplusplus": true,
+  "includes": [
+    "stdint.h",
+    "stdbool.h",
+    "stddef.h"
+  ],
+  "constants": [
+    {
+      "name": "FX_ABI_VERSION",
+      "type": "uint32_t",
+      "value": "2",
+      "expr": "UINT32_C(2)"
+    },
+    {
+      "name": "FX_OK",
+      "type": "int32_t",
+      "value": "0",
+      "expr": "INT32_C(0)"
+    },
+    {
+      "name": "FX_INVALID_ARGUMENT",
+      "type": "int32_t",
+      "value": "-1",
+      "expr": "(-INT32_C(1))"
+    },
+    {
+      "name": "FX_WRONG_THREAD",
+      "type": "int32_t",
+      "value": "-2",
+      "expr": "(-INT32_C(2))"
+    },
+    {
+      "name": "FX_STALE_HANDLE",
+      "type": "int32_t",
+      "value": "-3",
+      "expr": "(-INT32_C(3))"
+    },
+    {
+      "name": "FX_UNSUPPORTED_VERSION",
+      "type": "int32_t",
+      "value": "-4",
+      "expr": "(-INT32_C(4))"
+    },
+    {
+      "name": "FX_OUT_OF_MEMORY",
+      "type": "int32_t",
+      "value": "-5",
+      "expr": "(-INT32_C(5))"
+    },
+    {
+      "name": "FX_NAME_MAX",
+      "type": "uint32_t",
+      "value": "16",
+      "expr": "UINT32_C(16)"
+    },
+    {
+      "name": "FX_NODE_MAX",
+      "type": "uint32_t",
+      "value": "64",
+      "expr": "(FX_NAME_MAX * 4)"
+    },
+    {
+      "name": "FX_FLAG_VISIBLE",
+      "type": "uint32_t",
+      "value": "1",
+      "expr": "(UINT32_C(1) \u003c\u003c 0)"
+    },
+    {
+      "name": "FX_FLAG_FOCUSED",
+      "type": "uint32_t",
+      "value": "2",
+      "expr": "(UINT32_C(1) \u003c\u003c 1)"
+    },
+    {
+      "name": "FX_FLAGS_ALL",
+      "type": "uint32_t",
+      "value": "3",
+      "expr": "(FX_FLAG_VISIBLE | FX_FLAG_FOCUSED)"
+    },
+    {
+      "name": "FX_NO_SLOT",
+      "type": "uint32_t",
+      "value": "4294967295",
+      "expr": "UINT32_C(0xFFFFFFFF)"
+    },
+    {
+      "name": "FX_TICKET_NONE",
+      "type": "uint64_t",
+      "value": "18446744073709551615",
+      "expr": "UINT64_C(0xFFFFFFFFFFFFFFFF)"
+    },
+    {
+      "name": "FX_DEPTH_MIN",
+      "type": "int64_t",
+      "value": "-9223372036854775808",
+      "expr": "(-INT64_C(9223372036854775807) - 1)"
+    },
+    {
+      "name": "FX_SMALL",
+      "type": "int32_t",
+      "value": "127",
+      "expr": "INT8_C(127)"
+    },
+    {
+      "name": "FX_WIDE",
+      "type": "int32_t",
+      "value": "65535",
+      "expr": "UINT16_C(65535)"
+    },
+    {
+      "name": "FX_OFFSET",
+      "type": "uint32_t",
+      "value": "4294967280",
+      "expr": "(FX_NAME_MAX - 32)"
+    },
+    {
+      "name": "FX_HEX",
+      "type": "int32_t",
+      "value": "2147483647",
+      "expr": "0x7fffffff"
+    },
+    {
+      "name": "FX_HEX_UNSIGNED",
+      "type": "uint32_t",
+      "value": "2147483648",
+      "expr": "0x80000000"
+    },
+    {
+      "name": "FX_LARGE",
+      "type": "int64_t",
+      "value": "3000000000",
+      "expr": "3000000000"
+    },
+    {
+      "name": "FX_ALIAS",
+      "type": "int32_t",
+      "value": "-3",
+      "expr": "FX_STALE_HANDLE"
+    }
+  ],
+  "types": [
+    {
+      "kind": "scalar",
+      "name": "fx_status",
+      "scalar": "int32_t"
+    },
+    {
+      "kind": "scalar",
+      "name": "fx_ticket",
+      "scalar": "uint64_t"
+    },
+    {
+      "kind": "scalar",
+      "name": "fx_flag",
+      "scalar": "bool"
+    },
+    {
+      "kind": "scalar",
+      "name": "fx_seconds",
+      "scalar": "double"
+    },
+    {
+      "kind": "opaque",
+      "name": "fx_context",
+      "tag": "fx_context"
+    },
+    {
+      "kind": "struct",
+      "name": "fx_node",
+      "tag": "fx_node",
+      "fields": [
+        {
+          "name": "context_id",
+          "type": "uint64_t",
+          "offset": 0,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "slot",
+          "type": "uint32_t",
+          "offset": 8,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "generation",
+          "type": "uint32_t",
+          "offset": 12,
+          "size": 4,
+          "align": 4
+        }
+      ],
+      "size": 16,
+      "align": 8
+    },
+    {
+      "kind": "struct",
+      "name": "fx_context_options",
+      "tag": "fx_context_options",
+      "fields": [
+        {
+          "name": "struct_size",
+          "type": "uint32_t",
+          "offset": 0,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "abi_version",
+          "type": "uint32_t",
+          "offset": 4,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "node_capacity",
+          "type": "uint32_t",
+          "offset": 8,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "strict",
+          "type": "bool",
+          "offset": 12,
+          "size": 1,
+          "align": 1
+        }
+      ],
+      "size": 16,
+      "align": 4
+    },
+    {
+      "kind": "struct",
+      "name": "fx_point",
+      "tag": "fx_point",
+      "fields": [
+        {
+          "name": "x",
+          "type": "float",
+          "offset": 0,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "y",
+          "type": "float",
+          "offset": 4,
+          "size": 4,
+          "align": 4
+        }
+      ],
+      "size": 8,
+      "align": 4
+    },
+    {
+      "kind": "struct",
+      "name": "fx_box",
+      "tag": "fx_box",
+      "fields": [
+        {
+          "name": "struct_size",
+          "type": "uint32_t",
+          "offset": 0,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "abi_version",
+          "type": "uint32_t",
+          "offset": 4,
+          "size": 4,
+          "align": 4
+        },
+        {
+          "name": "kind",
+          "type": "uint8_t",
+          "offset": 8,
+          "size": 1,
+          "align": 1
+        },
+        {
+          "name": "origin",
+          "type": "double[2]",
+          "offset": 16,
+          "size": 16,
+          "align": 8
+        },
+        {
+          "name": "corner",
+          "type": "fx_point",
+          "offset": 32,
+          "size": 8,
+          "align": 4
+        },
+        {
+          "name": "color",
+          "type": "uint16_t[4]",
+          "offset": 40,
+          "size": 8,
+          "align": 2
+        },
+        {
+          "name": "layer",
+          "type": "int8_t",
+          "offset": 48,
+          "size": 1,
+          "align": 1
+        },
+        {
+          "name": "depth",
+          "type": "int16_t",
+          "offset": 50,
+          "size": 2,
+          "align": 2
+        },
+        {
+          "name": "z",
+          "type": "int64_t",
+          "offset": 56,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "visible",
+          "type": "fx_flag",
+          "offset": 64,
+          "size": 1,
+          "align": 1
+        },
+        {
+          "name": "age",
+          "type": "fx_seconds",
+          "offset": 72,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "name",
+          "type": "uint8_t[FX_NAME_MAX]",
+          "offset": 80,
+          "size": 16,
+          "align": 1
+        }
+      ],
+      "size": 96,
+      "align": 8
+    },
+    {
+      "kind": "struct",
+      "name": "fx_text",
+      "tag": "fx_text",
+      "fields": [
+        {
+          "name": "bytes",
+          "type": "const uint8_t *",
+          "offset": 0,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "byte_count",
+          "type": "uint32_t",
+          "offset": 8,
+          "size": 4,
+          "align": 4
+        }
+      ],
+      "size": 16,
+      "align": 8
+    },
+    {
+      "kind": "struct",
+      "name": "fx_visit",
+      "fields": [
+        {
+          "name": "node",
+          "type": "fx_node",
+          "offset": 0,
+          "size": 16,
+          "align": 8
+        },
+        {
+          "name": "ticket",
+          "type": "fx_ticket",
+          "offset": 16,
+          "size": 8,
+          "align": 8
+        }
+      ],
+      "size": 24,
+      "align": 8
+    },
+    {
+      "kind": "callback",
+      "name": "fx_visit_callback",
+      "result": "void",
+      "params": [
+        {
+          "name": "user_data",
+          "type": "void *"
+        },
+        {
+          "name": "visit",
+          "type": "const fx_visit *"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "fx_abi_version",
+      "result": "uint32_t",
+      "params": null
+    },
+    {
+      "name": "fx_context_create",
+      "result": "fx_status",
+      "params": [
+        {
+          "name": "options",
+          "type": "const fx_context_options *"
+        },
+        {
+          "name": "out_context",
+          "type": "fx_context **"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_destroy",
+      "result": "fx_status",
+      "params": [
+        {
+          "name": "context",
+          "type": "fx_context *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_create",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "kind",
+          "type": "uint32_t"
+        },
+        {
+          "name": "out_node",
+          "type": "fx_node *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_destroy",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_count",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "out_count",
+          "type": "uint32_t *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_set_box",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "box",
+          "type": "const fx_box *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_get_box",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "out_box",
+          "type": "fx_box *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_set_name",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "name",
+          "type": "const uint8_t *"
+        },
+        {
+          "name": "name_bytes",
+          "type": "uint32_t"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_read_name",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "bytes",
+          "type": "uint8_t *"
+        },
+        {
+          "name": "capacity",
+          "type": "uint32_t"
+        },
+        {
+          "name": "out_count",
+          "type": "uint32_t *"
+        }
+      ]
+    },
+    {
+      "name": "fx_node_set_text",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "node",
+          "type": "const fx_node *"
+        },
+        {
+          "name": "text",
+          "type": "const fx_text *"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_visit",
+      "result": "fx_status",
+      "params": [
+        {
+          "type": "fx_context *"
+        },
+        {
+          "name": "callback",
+          "type": "fx_visit_callback"
+        },
+        {
+          "name": "user_data",
+          "type": "void *"
+        }
+      ]
+    },
+    {
+      "name": "fx_point_length",
+      "result": "float",
+      "params": [
+        {
+          "name": "point",
+          "type": "fx_point"
+        }
+      ]
+    },
+    {
+      "name": "fx_context_age",
+      "result": "fx_seconds",
+      "params": [
+        {
+          "name": "context",
+          "type": "const fx_context *"
+        }
+      ]
+    }
+  ]
+}

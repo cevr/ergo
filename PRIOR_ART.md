@@ -236,7 +236,7 @@ These sources inform traceability by construction ([#188](https://github.com/cev
 
 ### Owner direction references, 2026-11-02
 
-These sources inform the four north-star changes and the SIMD rule of 2026-11-02 ([NORTH_STAR](NORTH_STAR.md#owner-direction-2026-11-02)). The owner asked which languages align most closely with Ergo's thinking on effectful code, using the phrase "like FAI and Roc", and named Fai: "https://github.com/Krzysztof-Cieslak/fai is the lang". Each source was opened on 2026-11-02 at the revision given; a source marked (nf) was not opened and supports no claim here. No row claims that Ergo currently supports the behavior it describes.
+These sources inform the four north-star changes and the SIMD rule of 2026-11-02 ([decisions](docs/decisions.md#owner-direction-2026-11-02)). The owner asked which languages align most closely with Ergo's thinking on effectful code, using the phrase "like FAI and Roc", and named Fai: "https://github.com/Krzysztof-Cieslak/fai is the lang". Each source was opened on 2026-11-02 at the revision given; a source marked (nf) was not opened and supports no claim here. No row claims that Ergo currently supports the behavior it describes.
 
 | Source (pin / inspected paths) | Take | Reject | Open |
 | --- | --- | --- | --- |
