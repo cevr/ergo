@@ -320,23 +320,56 @@ func (c *checker) expr0(x syntax.Expr, hint Type) operand {
 	return c.undecided(x, "")
 }
 
-// interpolated checks `"a \(x) b"`: each interpolated expression is a
-// value of any type, printed as Go's %v prints it, and the whole is a
-// string (grammar.md, Lexical; the Console.Println rule of #196). A
-// literal takes its default type, as an argument of Go's fmt.Sprint
-// does.
+// interpolated checks `"a \(x) b"` (grammar.md, Lexical 5; D-E6; 196s):
+// each part is a value with no expected type, so a literal takes its
+// default type, and a fallible part is S105 unless it is tried. A part
+// has a text form, Go's %v text of its value, exactly when its type is a
+// basic type or a type defined over one (textForm). A part with no text
+// form gets one diagnostic at the part, and the whole is still a string,
+// so nothing cascades from it. An invalid part adds nothing.
 func (c *checker) interpolated(x *syntax.InterpolatedString) operand {
 	ok := true
 	for _, e := range x.Exprs {
 		op := c.valueExpr(e, nil)
-		if op.invalid() || isInvalid(c.typeOf(&op)) {
+		t := c.typeOf(&op)
+		if op.invalid() || isInvalid(t) {
 			ok = false
+			continue
 		}
+		c.textForm(e, t)
 	}
 	if !ok {
 		return bad(x)
 	}
 	return operand{mode: modeValue, typ: Typ[String]}
+}
+
+// textForm reports an interpolated part e of type t that has no text form
+// in v1 (D-E6, Q5). The rule reads t's underlying type, which unwraps
+// every level of definition (`type A Celsius` is float64):
+//
+//   - a basic type has a text form;
+//   - a record, a union or a variant, a tuple, a slice or a Map (so
+//     Option[T]) is data whose text form #49 derives: S109;
+//   - a type parameter has none in v1, whatever its constraint, since a
+//     text needs a per-instance function and v1 boxes nothing: S109 #49;
+//   - any other type (a function, an operation type such as Task, a
+//     pointer, a machine) never has one: S108.
+//
+// Prior art: MoonBit's "\{x}" requires Show, which records derive; Elixir's
+// "#{x}" fails at run time for a struct with no String.Chars; Ergo
+// refuses at check time.
+func (c *checker) textForm(e syntax.Expr, t Type) {
+	switch u := under(t).(type) {
+	case *Basic:
+		return
+	case *Struct, *Union, *Tuple, *Slice, *Map:
+		c.errorf(e, CodeOutside, "a value of type %s has no text form yet; interpolate one of its fields, or wait for derived text forms (#49)", c.localTypeText(t))
+	case *TypeParam:
+		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms (#49)", c.localTypeText(u))
+	default:
+		c.errorf(e, CodeType, "a value of type %s has no text form; interpolate a value of a basic type or of a type defined over one (grammar.md, Strings 5)", c.localTypeText(t))
+	}
 }
 
 func under0(t Type) Type {
