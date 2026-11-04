@@ -23,9 +23,14 @@ import (
 //     (runtime.LockOSThread, which nests), and cbTakeHere unlocks it when
 //     it takes the panic. So each typed call of a binding with bound
 //     callbacks takes the panic pending on its thread right after its C
-//     call (cbTake; one atomic load when none is pending) with no lock of
-//     its own: a panic of its C call holds the goroutine on that thread,
-//     and with none, there is nothing of its own to take. It does what the
+//     call (cbTake): a panic of its C call holds the goroutine on that
+//     thread, and with none, there is nothing of its own to take. When no
+//     panic is pending on any thread, this is one atomic load. Else
+//     cbTakeHere locks the goroutine to its thread from the thread-id read
+//     through the delete, so that a goroutine that moves to another thread
+//     never takes the panic another goroutine keeps pending there. Every
+//     read of cbThread outside a trampoline (where the runtime holds the
+//     goroutine on its thread) is under such a lock. It does what the
 //     C call's status asks of the registry, then panics with the pending
 //     panic before it converts a result. So the panic surfaces in the Go
 //     frame directly above the C frame, and the registry stays what C did;
@@ -169,7 +174,11 @@ func cbTake() *CallbackPanic {
 	return cbTakeHere()
 }
 
+// cbTakeHere holds its goroutine on this thread from the id read through
+// the delete: a goroutine that moved to another thread after the read
+// could take a panic that another goroutine keeps pending there.
 func cbTakeHere() *CallbackPanic {
+	%[7]s.LockOSThread()
 	t := cbThread()
 	cbPendMu.Lock()
 	p, had := cbPendOn[t]
@@ -179,6 +188,7 @@ func cbTakeHere() *CallbackPanic {
 		%[7]s.UnlockOSThread() // the lock of cbContain
 	}
 	cbPendMu.Unlock()
+	%[7]s.UnlockOSThread()
 	return p
 }
 
@@ -272,8 +282,11 @@ func ownerRun(fn func()) (v any, panicked bool) {
 // thread id is the runner's and the runner has not stopped. A live thread
 // keeps its id, so a match while the runner lives is the runner's thread;
 // after the runner stopped, its thread has ended, and the OS may give the
-// id to another thread (linux reuses thread ids).
+// id to another thread (linux reuses thread ids). The caller stays on its
+// thread while ownerHere reads the id.
 func ownerHere(o *Owner) bool {
+	%[5]s.LockOSThread()
+	defer %[5]s.UnlockOSThread()
 	if cbThread() != o.thread {
 		return false
 	}

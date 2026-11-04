@@ -186,15 +186,18 @@ func hTake() any {
 	if hPendN.Load() == 0 {
 		return nil
 	}
+	// Stay on this thread from the id read through the delete.
+	runtime.LockOSThread()
 	t := hThread()
 	hPendMu.Lock()
 	v, had := hPendOn[t]
 	if had {
 		delete(hPendOn, t)
 		hPendN.Add(-1)
-		runtime.UnlockOSThread()
+		runtime.UnlockOSThread() // the lock of hContain
 	}
 	hPendMu.Unlock()
+	runtime.UnlockOSThread()
 	return v
 }
 

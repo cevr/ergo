@@ -4,9 +4,11 @@
 //
 //	contain <lib>           the containment checks on one locked thread: one
 //	                        "ok: <check>" line each;
-//	stress <lib> <n>        100 goroutines (GOMAXPROCS at least 4) that do
+//	stress <lib> <n> <k>    100 goroutines (GOMAXPROCS at least 4) that do
 //	                        not lock their threads make n calls each whose
-//	                        callbacks call runtime.Gosched and may panic;
+//	                        callbacks call runtime.Gosched and may panic,
+//	                        beside k goroutines that make typed calls with
+//	                        no callback;
 //	goexit <lib>            a callback calls runtime.Goexit: the process must
 //	                        end with exit status 2 before C frames unwind;
 //	goexit-owner <lib>      a function of Owner.Do calls runtime.Goexit;
@@ -94,7 +96,7 @@ func main() {
 		runtime.LockOSThread()
 		contain()
 	case "stress":
-		stress(arg(3))
+		stress(arg(3), arg(4))
 	case "goexit":
 		goexit()
 	case "goexit-owner":
@@ -431,11 +433,33 @@ func isStatus(err error, want fixture.Status) bool {
 // the goroutine and the call. Each call must re-raise exactly its own
 // panic, or return its own sum. A goroutine that moves to another thread
 // between ContextCreate and ContextRepeat gets the wrong-thread status (no
-// callback runs); it tries again with a new context.
-func stress(n int) {
+// callback runs); it tries again with a new context. Beside them, takers
+// goroutines make typed calls with no callback (ThreadId) until the others
+// end: each takes the pending panics' slow path (cbTakeHere) while other
+// goroutines keep panics pending, and none may raise a panic.
+func stress(n, takers int) {
 	runtime.GOMAXPROCS(max(4, runtime.GOMAXPROCS(0)))
-	var raised, returned, moved atomic.Int64
+	var raised, returned, moved, took atomic.Int64
 	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	var tg sync.WaitGroup
+	for k := range takers {
+		tg.Add(1)
+		go func() {
+			defer tg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if v := catch(func() { _, _ = fixture.ThreadId() }); v != nil {
+					fail("taker %d: a typed call with no callback raised %v; want no panic", k, v)
+				}
+				took.Add(1)
+			}
+		}()
+	}
 	for g := range 100 {
 		wg.Add(1)
 		go func() {
@@ -480,7 +504,10 @@ func stress(n int) {
 		}()
 	}
 	wg.Wait()
-	fmt.Printf("stress: GOMAXPROCS %d, %d raised, %d returned, %d moved between calls\n", runtime.GOMAXPROCS(0), raised.Load(), returned.Load(), moved.Load())
+	close(stop)
+	tg.Wait()
+	fmt.Printf("stress: GOMAXPROCS %d, %d calls per goroutine, %d raised, %d returned, %d moved between calls, %d taker calls\n",
+		runtime.GOMAXPROCS(0), n, raised.Load(), returned.Load(), moved.Load(), took.Load())
 	ok("no goroutine got another goroutine's panic or lost its own")
 }
 

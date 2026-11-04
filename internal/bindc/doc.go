@@ -177,10 +177,14 @@
 // the trampoline that keeps a panic pending locks that goroutine to its
 // thread (runtime.LockOSThread) until the panic is taken. Each typed call
 // of a binding with bound callbacks takes the panic pending on its thread
-// right after its C call (one atomic load when none is), unlocks, lets the
-// registry follow the C call's status, and then panics with it before it
-// converts a result. A typed call whose C call kept no panic pending takes
-// no lock at all. So the panic surfaces directly above the C frame: in
+// right after its C call (one atomic load when no panic is pending on any
+// thread), unlocks, lets the registry follow the C call's status, and then
+// panics with it before it converts a result. When a panic is pending on
+// some thread, the take locks its goroutine to its thread from the
+// thread-id read through the delete, so that a goroutine that moves to
+// another thread never takes a panic another goroutine keeps pending
+// there; every read of the thread id outside a trampoline is under such a
+// lock. So the panic surfaces directly above the C frame: in
 // the outermost typed call, or in a nested typed call inside an outer
 // callback, whose trampoline contains it again. runtime.Goexit cannot be
 // stopped, so the trampoline ends the process with exit status 2 and one

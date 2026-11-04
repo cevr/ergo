@@ -640,7 +640,11 @@ func cbTake() *CallbackPanic {
 	return cbTakeHere()
 }
 
+// cbTakeHere holds its goroutine on this thread from the id read through
+// the delete: a goroutine that moved to another thread after the read
+// could take a panic that another goroutine keeps pending there.
 func cbTakeHere() *CallbackPanic {
+	runtime.LockOSThread()
 	t := cbThread()
 	cbPendMu.Lock()
 	p, had := cbPendOn[t]
@@ -650,6 +654,7 @@ func cbTakeHere() *CallbackPanic {
 		runtime.UnlockOSThread() // the lock of cbContain
 	}
 	cbPendMu.Unlock()
+	runtime.UnlockOSThread()
 	return p
 }
 
@@ -812,8 +817,11 @@ func ownerRun(fn func()) (v any, panicked bool) {
 // thread id is the runner's and the runner has not stopped. A live thread
 // keeps its id, so a match while the runner lives is the runner's thread;
 // after the runner stopped, its thread has ended, and the OS may give the
-// id to another thread (linux reuses thread ids).
+// id to another thread (linux reuses thread ids). The caller stays on its
+// thread while ownerHere reads the id.
 func ownerHere(o *Owner) bool {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	if cbThread() != o.thread {
 		return false
 	}

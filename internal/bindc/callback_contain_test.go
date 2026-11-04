@@ -25,9 +25,16 @@ import (
 // with equal counters at both levels; and the next typed call is clean.
 // Then 100 goroutines that do not lock their threads, with GOMAXPROCS at
 // least 4 and runtime.Gosched in their callbacks, each re-raise only their
-// own panic. In subprocesses, runtime.Goexit in a callback and in a
-// function of Owner.Do ends the process with exit status 2 and a stderr
-// line that names the typedef (or Owner.Do), before C frames unwind.
+// own panic, while 32 other goroutines make typed calls with no callback
+// (each takes the slow path of cbTake while panics are pending) and never
+// raise one. In subprocesses, runtime.Goexit in a
+// callback and in a function of Owner.Do ends the process with exit status
+// 2 and a stderr line that names the typedef (or Owner.Do), before C
+// frames unwind.
+// stressTakers are the goroutines of the stress driver that make typed calls
+// with no callback.
+const stressTakers = 32
+
 func TestLivePanicContainment(t *testing.T) {
 	e := newLiveEnv(t)
 	lib, driver := e.fixtureDriverFrom("testdata/live/contain/main.go")
@@ -45,10 +52,13 @@ func TestLivePanicContainment(t *testing.T) {
 	if got := okLines(out); err != nil || !slices.Equal(got, want) {
 		t.Fatalf("the contain driver: %v\n%s\nwant the checks:\n%s", err, out, strings.Join(want, "\n"))
 	}
-	calls := max(60, *propCases/20)
-	out, err = e.try(e.root, "", nil, driver, "stress", lib, strconv.Itoa(calls))
+	// 300 calls per goroutine with 32 takers: without the lock of
+	// cbTakeHere, 20 of 20 runs failed on linux/amd64 (16 CPUs); without
+	// the takers, 1 of 10 (bind-c-2 r3, measured).
+	calls := max(300, *propCases/20)
+	out, err = e.try(e.root, "", nil, driver, "stress", lib, strconv.Itoa(calls), strconv.Itoa(stressTakers))
 	if got := okLines(out); err != nil || !slices.Equal(got, []string{"no goroutine got another goroutine's panic or lost its own"}) {
-		t.Fatalf("the stress driver (%d calls per goroutine): %v\n%s", calls, err, tail(out, 2000))
+		t.Fatalf("the stress driver (%d calls per goroutine, %d takers): %v\n%s", calls, stressTakers, err, tail(out, 2000))
 	}
 	t.Log(strings.TrimSpace(out[:strings.Index(out, "\nok: ")]))
 	for _, c := range []struct{ mode, line string }{
