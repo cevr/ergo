@@ -73,13 +73,19 @@ func (e *liveEnv) try(dir, stdin string, extra []string, name string, args ...st
 // (testdata/live/callbacks/main.go) in the module, builds the fixture
 // library and the driver, and returns their paths.
 func (e *liveEnv) fixtureDriver() (lib, driver string) {
+	e.t.Helper()
+	return e.fixtureDriverFrom("testdata/live/callbacks/main.go")
+}
+
+// fixtureDriverFrom is fixtureDriver for the driver source driverSrc.
+func (e *liveEnv) fixtureDriverFrom(driverSrc string) (lib, driver string) {
 	t := e.t
 	t.Helper()
 	cc := requireCC(t)
 	for name, src := range goldenGoFiles(t, "testdata/fixture") {
 		e.write(filepath.Join(e.mod, "fixture", name), src)
 	}
-	e.write(filepath.Join(e.mod, "cbdriver", "main.go"), readInput(t, "testdata/live/callbacks/main.go"))
+	e.write(filepath.Join(e.mod, "cbdriver", "main.go"), readInput(t, driverSrc))
 	ext := ".so"
 	if runtime.GOOS == "darwin" {
 		ext = ".dylib"
