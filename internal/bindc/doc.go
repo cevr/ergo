@@ -173,6 +173,22 @@
 // no panic, the containment costs one atomic load, one open-coded defer and
 // one flag per invocation, and no allocation.
 //
+// A typed call that panics again gives its caller no results, but C may
+// keep state that a result names: OpenTUI's ot_scene_paint keeps its draft
+// when a measure callback panicked, so the caller cancels the draft by its
+// frame id (the id after the last frame's; testdata/opentui/hello).
+//
+// The cost (TestLiveCallbackCost, receipts cost-<goos>-<goarch>.txt):
+// the median of the per-round ratios generated/hand-written is within 1.25
+// for a typed call (against purego.RegisterFunc with the same status check)
+// and for a callback (against purego.NewCallback with the same key and
+// containment written by hand). Both sides go through purego's reflect
+// paths, which dominate (4 allocations per call and 3 per callback, on
+// both sides). What a typed call pays above a bare hand-written call is
+// mostly the guard of containment (LockOSThread and one atomic load); the
+// receipt measures it as call_guard. TestLiveOpenTUIHello runs OpenTUI's own hello example in Go
+// on the npm 0.8.2 library, checked by its sha512 integrity.
+//
 // A binding with a handle whose thread is owner has an Owner: one goroutine
 // locked to one OS thread and never unlocked, so the thread ends with it.
 // Do from another goroutine runs a function there and waits; Do on the
