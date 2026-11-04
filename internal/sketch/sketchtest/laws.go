@@ -127,6 +127,15 @@ test Adds {
 }
 `},
 
+	{"a documented top-level law first in the file", `// Reflexive: every int equals itself.
+law Reflexive(n int) { n == n }
+
+// Symmetric is the second law.
+law Symmetric(a int, b int) {
+	(a == b) == (b == a)
+}
+`},
+
 	// Names (rule 2): one namespace for top-level laws and tests, none for
 	// values.
 	{"two top-level laws of one name", LawTopDecls + `law Same(a Money) { a == a }

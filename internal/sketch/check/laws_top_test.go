@@ -133,8 +133,8 @@ func mixedLine(seq []string) string {
 }
 
 // TestTopLevelLawFormat: spec A6. ergo fmt of every clean A2 program and
-// every clean A3 top-level program is idempotent, keeps every comment, and
-// the formatted program checks clean.
+// every clean A3 top-level program is idempotent, keeps every token and
+// comment in order, and the formatted program checks clean.
 func TestTopLevelLawFormat(t *testing.T) {
 	var srcs []string
 	for _, tc := range sketchtest.LawTopCases {
@@ -160,8 +160,12 @@ func TestTopLevelLawFormat(t *testing.T) {
 		if err != nil || twice != once {
 			t.Fatalf("not idempotent (%v):\n%s\n--- then\n%s", err, once, twice)
 		}
-		if strings.Count(once, "//") != strings.Count(src, "//") {
-			t.Fatalf("a comment was lost or gained:\n%s\n--- formatted\n%s", src, once)
+		// Every token and comment keeps its order: a doc comment stays
+		// before its law's keyword.
+		before, _ := sketchtest.Interleaved(src)
+		after, _ := sketchtest.Interleaved(once)
+		if i, x, y := sketchtest.FirstDiff(before, after); i >= 0 {
+			t.Fatalf("token or comment %d changed: %q became %q\n%s\n--- formatted\n%s", i, x, y, src, once)
 		}
 		if _, diags := check.CheckSource(once); len(diags) != 0 {
 			t.Fatalf("the formatted program is refused:\n\t%s\n%s", describe(diags), once)
