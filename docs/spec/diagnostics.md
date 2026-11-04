@@ -106,7 +106,7 @@ The checker does not restrict `main`'s capability row; the build refuses what th
 
 ### S107: missing return
 
-- A body that needs a value and whose path ends in a statement with no value (`missing-return`; check-v1 D-C1): a function or function literal with a result, a branch of a value `if` or `match`, a trailing block with a known result, a `catch` arm whose value is used (review m1). A body yields its last expression; a final `if` with an `else`, a total `match` and a bare block yield through their branches (D-C2); a branch that ends in `return`, `break` or `continue` leaves. An `if` without `else` as a body's tail is S107 at the body's closing brace (`C1-tail-result.neg`). Other final statements terminate as in Go: a `for` without a condition or `break`.
+- A body that needs a value and whose path ends in a statement with no value (`missing-return`; check-v1 D-C1): a function or function literal with a result, a branch of a value `if` or `match`, a trailing block with a known result, a `catch` arm whose value is used (review m1). A body yields its last expression; a final `if` with an `else` and a total `match` yield through their branches (D-C2); a branch that ends in `return`, `break` or `continue` leaves. An `if` without `else` as a body's tail is S107 at the body's closing brace (`C1-tail-result.neg`). Other final statements terminate as in Go: a `for` without a condition or `break`.
 
 ### S108: type or declaration misuse
 
@@ -159,7 +159,7 @@ The checker does not restrict `main`'s capability row; the build refuses what th
 | A function value whose rows are wider than the function type's, such as a fallible function where an infallible type is expected | `fallible-function-value` |
 | A context literal outside `with` | `context-literal-outside-with` |
 | An interface or capability method writes a capability row | `interface-method-needs` |
-| `return`, `break` or `continue` crosses a `with` block, a block argument or a bare block | `return-in-with-block` |
+| `return`, `break` or `continue` crosses a `with` block or a block argument (an `else` block is a branch of its `if`, not a barrier) | `return-in-with-block`; `TestElseBranchJumps` |
 | An error type declares a method named `Error` | `error-method-on-error-type` |
 | A named context whose build can reach itself: a `with` of the context in its providers, through a function, a method or a capability provider that enters it, or an embedding; entries of one named context whose providers use each other's capabilities, so none can be built first | `context-cycle`, `probes/cyclic-context.ergo`, `probes/context-method-cycle.ergo`; checker review tests (M14) |
 | A machine's state or signal type is not a union; its initial value is not a value of the state type; its step is not a function from the state and signal types to `Decision[S, O]` | runtime.md, Machines and actors 1 |

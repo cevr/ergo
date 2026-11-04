@@ -186,7 +186,7 @@ ForStmt        = "for" [ Expression | Pattern { "," Pattern } "in" Expression ] 
 2. **Assignment** has one left side and one right side: `x = e`, `x += 1`. Its target is a `let mut` local, or a field or element reached from one; a parameter, a `let`, a pattern, `as`, `case err:` or loop binding and a package-level `let` are immutable, and so are their fields and elements (196v; check-v1 D-D1, Q2). A write through a pointer changes the pointee, not the root, and needs no `let mut`; a borrow `&x`, or a call `x.f()` of a function whose first parameter is `*T`, needs `x` rooted at a `let mut` (pointers are #222's). A `let mut` that is never reassigned is an error (S110, Q3). There is no `++` or `--` and no multiple assignment.
 3. **`break` and `continue`** act on the innermost `for`, also inside a `match` arm (seventh round, item 4). There are no labels.
 4. There is no bare block statement, and no init statement in an `if` or `match` header (eighth round): write `let x = f()` on the line before.
-5. A `with` block and a trailing block yield their last expression. `return`, `break` and `continue` that would leave them are errors (S108). A `func` literal's `return` returns from the literal, as in Go. A `catch` arm or a `match` arm holds statements; a `return` there leaves the enclosing function.
+5. A `with` block and a trailing block yield their last expression. `return`, `break` and `continue` that would leave them are errors (S108). A `func` literal's `return` returns from the literal, as in Go. A `catch` arm or a `match` arm holds statements; a `return` there leaves the enclosing function. An `else` block is a branch of its `if`, like the `if` body: a jump in it leaves what a jump in the body leaves.
 
 ## Expressions
 
