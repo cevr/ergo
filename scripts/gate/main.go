@@ -1116,6 +1116,12 @@ func (g *gate) key(step *Step) (string, error) {
 		fmt.Fprintf(hash, "tool\x00%s\x00%s\x00", tool, g.toolVersion(tool))
 	}
 	for _, name := range inputs.Env {
+		// A step receives only the variables testenv names (stepEnvironment),
+		// so an input variable outside them is a declaration no step can
+		// read: refuse it rather than key a value the step never sees.
+		if !slices.Contains(testenv.Names, name) {
+			return "", fmt.Errorf("%s: declares the input variable %s, which no step receives (testenv.Names)", step.Name, name)
+		}
 		value, set := stepVariableFor(g.root, step.Name, name)
 		fmt.Fprintf(hash, "env\x00%s\x00%t\x00%s\x00", name, set, value)
 	}

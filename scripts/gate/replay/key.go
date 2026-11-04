@@ -6,7 +6,10 @@
 // The package runs no program and builds without cgo (package hermetic
 // checks it), so its tests replay from Go's test cache. Package main
 // collects the facts that need programs (git, tool queries, the systemd
-// probe) and passes them here as Facts.
+// probe) and passes them here as Facts. It builds on Linux and darwin, the
+// platforms the gate runs on: the stat tuple of an ignored file needs each
+// one's stat fields, and package hermetic refuses a file that none of its
+// configurations builds.
 //
 // The store protocol follows the Quint model of the unit that introduced it
 // (gate-incr slice 1, gatestore.qnt): content-addressed objects written once,
@@ -29,7 +32,7 @@ import (
 
 // Version names the store's format and the meaning of its keys. It is part
 // of every key and of the store's directory, so a change orphans old entries.
-// v4: the whole-gate key, and step receipts that follow links (Do 8).
+// v4: the whole-gate key, and step receipts that follow links (Links).
 const Version = "ergo-gate-v4"
 
 // Class is how Git sees a path of the checkout.

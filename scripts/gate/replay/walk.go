@@ -180,15 +180,18 @@ const maxLinkHops = 40
 // leads: "checkout <path>" for a location in the checkout, "root <path>" for
 // one in a keyed root, with "missing " before the path when the lookup
 // stops at a name that does not exist. When the link cannot be keyed,
-// problem names the place it reaches; reach is then empty.
+// problem names the target of the link in the chain that left the keyed
+// roots, as an absolute path; reach is then empty.
 func (l Links) Follow(relative string) (reach, problem string) {
 	link := filepath.Join(l.root, filepath.FromSlash(relative))
 	target, err := os.Readlink(link)
 	if err != nil {
 		return "", fmt.Sprintf("%s cannot be read: %v", relative, err)
 	}
-	outside := func(place string) (string, string) {
-		return "", fmt.Sprintf("%s reaches %s outside every keyed root", relative, place)
+	// hop is the target of the last link followed, absolute.
+	hop := absoluteTarget(filepath.Dir(link), target)
+	outside := func() (string, string) {
+		return "", fmt.Sprintf("%s reaches %s outside every keyed root", relative, hop)
 	}
 	current := filepath.Dir(link)
 	if filepath.IsAbs(target) {
@@ -205,20 +208,20 @@ func (l Links) Follow(relative string) (reach, problem string) {
 		case "..":
 			current = filepath.Dir(current)
 			if !l.passable(current) {
-				return outside(current)
+				return outside()
 			}
 			continue
 		}
 		next := filepath.Join(current, name)
 		if !l.passable(next) {
-			return outside(next)
+			return outside()
 		}
 		info, err := os.Lstat(next)
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 			// The lookup stops here: creating the name later changes the
 			// entry or the fingerprint that covers it.
 			if !l.covered(next) {
-				return outside(next)
+				return outside()
 			}
 			return "missing " + l.describe(next), ""
 		}
@@ -234,6 +237,7 @@ func (l Links) Follow(relative string) (reach, problem string) {
 			if err != nil {
 				return "", fmt.Sprintf("%s: %v", relative, err)
 			}
+			hop = absoluteTarget(current, again)
 			if filepath.IsAbs(again) {
 				current = string(filepath.Separator)
 			}
@@ -243,16 +247,25 @@ func (l Links) Follow(relative string) (reach, problem string) {
 		if len(rest) > 0 && !info.IsDir() {
 			// A file used as a directory: the lookup stops at it.
 			if !l.covered(next) {
-				return outside(next)
+				return outside()
 			}
 			return "missing " + l.describe(next) + "/" + path.Join(rest...), ""
 		}
 		current = next
 	}
 	if !l.covered(current) {
-		return outside(current)
+		return outside()
 	}
 	return l.describe(current), ""
+}
+
+// absoluteTarget is a link's target text as an absolute path, for a link in
+// dir.
+func absoluteTarget(dir, target string) string {
+	if filepath.IsAbs(target) {
+		return filepath.Clean(target)
+	}
+	return filepath.Join(dir, target)
 }
 
 // Resolved is the location the link at relative leads to, when Follow keys

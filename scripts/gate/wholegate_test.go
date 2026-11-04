@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -300,21 +299,19 @@ func TestStepKeyFollowsLinks(t *testing.T) {
 // declaredSources are the program arguments of exec calls that are not
 // literals, by "<function> <expression>", and what each one is.
 var declaredSources = map[string]string{
-	"toolVersion argv[0]":                   "a tool the gate fingerprints: a declared host program, or a test's probe",
-	"installation command":                  "a tool the gate fingerprints",
-	"resolveCommand command":                "a tool the gate fingerprints",
-	"queryTool name":                        "a tool the gate fingerprints, or the git that git --exec-path resolved",
-	"scopeProbe command":                    "systemd-run, as exec.LookPath resolved it",
-	"enterScope command":                    "systemd-run, as exec.LookPath resolved it",
-	"execute step.Argv[0]":                  "a step's program: TestHostProgramsDeclared checks every step",
-	"TestBudgetRecordDurationsScope binary": "the gate built by the test from this package",
-	"hermeticBuilds goCommand":              "the real go of TestMain (realTools)",
-	"TestHermeticCheckResolvesExecutableByIdentity goCommand": "the real go of TestMain (realTools)",
+	"toolVersion argv[0]":                                     "a tool the gate fingerprints: a declared host program, or a test's probe",
+	"installation command":                                    "a tool the gate fingerprints",
+	"resolveCommand command":                                  "a tool the gate fingerprints",
+	"queryTool name":                                          "a tool the gate fingerprints, or the git that git --exec-path resolved",
+	"scopeProbe command":                                      "systemd-run, as exec.LookPath resolved it",
+	"enterScope command":                                      "systemd-run, as exec.LookPath resolved it",
+	"execute step.Argv[0]":                                    "a step's program: TestHostProgramsDeclared checks every step",
+	"TestBudgetRecordDurationsScope binary":                   "the gate built by the test from this package",
+	"testBinaryPackages goCommand":                            "the real go of TestMain (realTools)",
 	"TestGroupProcessZombieLeaderOfRealPS python":             "python3, as exec.LookPath resolved it",
-	"TestMain tool":           "go or git, to find the real tools",
-	"probe realTools[\"go\"]": "the real go of TestMain (realTools)",
+	"TestMain tool":                                           "go or git, to find the real tools",
+	"probe realTools[\"go\"]":                                 "the real go of TestMain (realTools)",
 	"TestRealGoEnvironmentReportsItsGoroot realTools[\"go\"]": "the real go of TestMain (realTools)",
-	"newScopeHelper \"systemd-run\"":                          "systemd-run",
 }
 
 // scriptVariables are programs a step's script runs by a variable.
@@ -424,6 +421,8 @@ func TestHostProgramsDeclared(t *testing.T) {
 	}
 	fset := token.NewFileSet()
 	calls := 0
+	// used are the declared sources a call names; an unused one is stale.
+	used := map[string]bool{}
 	for _, name := range files {
 		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
@@ -473,7 +472,9 @@ func TestHostProgramsDeclared(t *testing.T) {
 				if err := printer.Fprint(&text, fset, program); err != nil {
 					t.Fatal(err)
 				}
-				if _, ok := declaredSources[function.Name.Name+" "+text.String()]; !ok {
+				source := function.Name.Name + " " + text.String()
+				used[source] = true
+				if _, ok := declaredSources[source]; !ok {
 					t.Errorf("%s: %s starts the program %s, which is neither a literal in hostPrograms nor a declared source (declaredSources)", fset.Position(call.Pos()), function.Name.Name, text.String())
 				}
 				return true
@@ -482,6 +483,11 @@ func TestHostProgramsDeclared(t *testing.T) {
 	}
 	if calls < 20 {
 		t.Fatalf("found %d calls that start programs; the check is vacuous", calls)
+	}
+	for source := range declaredSources {
+		if !used[source] {
+			t.Errorf("declaredSources names %q, which no call starts; remove it", source)
+		}
 	}
 
 	_, steps := repositorySteps(t)
@@ -595,7 +601,10 @@ func TestWholeGateKeyCollector(t *testing.T) {
 	link(t, bin, "probe-tool", tool)
 	gone := probe(t, filepath.Join(t.TempDir(), "probe-gone"))
 	link(t, bin, "probe-gone", gone)
-	g := &gate{root: root, cacheDir: t.TempDir(), programs: []string{"git", "sh", "probe-tool", "probe-gone"}}
+	// The declared programs are the probes and sh: git's fingerprint hashes
+	// its exec path (about 0.25 s a key on this host, measured), which
+	// TestExecutableFingerprintsKeyTheirInstallations covers.
+	g := &gate{root: root, cacheDir: t.TempDir(), programs: []string{"sh", "probe-tool", "probe-gone"}}
 	m := &collectorModel{files: map[string]*collectorFile{}, dirs: map[string]bool{"src": true, "docs": true}, index: map[string]string{}, excluded: map[string]bool{}, host: map[string]string{}}
 	stamp := int64(1_000_000_000)
 	touch := func(name string) {
@@ -757,13 +766,15 @@ func TestWholeGateKeyCollector(t *testing.T) {
 				gitIn(t, root, "add", "-f", "--", name)
 				m.index[name] = blob(name)
 			case 1:
+				// -f: the index entry may differ from both the file and
+				// HEAD; --cached keeps the file.
 				if m.index[name] != "" {
-					gitIn(t, root, "rm", "-q", "--cached", "--", name)
+					gitIn(t, root, "rm", "-q", "-f", "--cached", "--", name)
 					delete(m.index, name)
 				}
 			case 2:
 				if m.index[name] != "" {
-					gitIn(t, root, "rm", "-q", "--cached", "--", name)
+					gitIn(t, root, "rm", "-q", "-f", "--cached", "--", name)
 					delete(m.index, name)
 				}
 				m.excluded[name] = true
@@ -896,10 +907,4 @@ func TestWholeGateKeyCollector(t *testing.T) {
 		}
 		before, beforeFacts, reference = after, afterFacts, next
 	}
-}
-
-func init() {
-	// The digest of a probe copy in the reference: unused but for its
-	// identity in failure messages.
-	_ = hex.EncodeToString
 }
