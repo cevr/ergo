@@ -52,7 +52,7 @@ type withSite struct {
 	w       *With // the operand's fact
 	file    *fileInfo
 	t       *target
-	outer   []*withFrame // the frames of t around the operand, outermost first
+	outer   withScope // the with scope of t around the operand
 }
 
 // contextOwners maps each entry to the context that declares it, through
@@ -313,21 +313,17 @@ func (c *checker) releaseNeeds(cl *Close) []Type {
 // chargeRelease charges cap, a need of a's release, at s against the
 // environment outside the with (rule 3).
 func (c *checker) chargeRelease(s *withSite, a *Acquisition, cap Type) {
-	for i := len(s.outer) - 1; i >= 0; i-- {
-		f := s.outer[i]
-		if f.unknown {
-			return
-		}
-		if found, node := f.binds.find(c.types, cap); found {
-			if f.with != nil {
-				var e *ContextEntry
-				if node != nil {
-					e = node.entry
-				}
-				f.with.discharge(cap, e)
+	if f, unknown := s.outer.binder(c.types, cap); unknown {
+		return
+	} else if f != nil {
+		if f.with != nil {
+			var e *ContextEntry
+			if _, node := f.binds.find(c.types, cap); node != nil {
+				e = node.entry
 			}
-			return
+			f.with.discharge(cap, e)
 		}
+		return
 	}
 	t := s.t
 	switch {

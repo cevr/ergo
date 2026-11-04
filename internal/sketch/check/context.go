@@ -27,19 +27,20 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		return bad(x)
 	}
 	t := c.fn.t
+	scope := t.scope
 	var frames []*withFrame
 	if len(x.Args) == 0 {
 		c.errorf(x, CodeType, "with takes one context (rows.md, With 1)")
 		// unknown: discharge everything, so no cascade.
-		frames = append(frames, &withFrame{unknown: true})
-		t.withs = append(t.withs, frames[0])
+		frames = append(frames, &withFrame{unknown: true, outer: t.scope})
+		t.scope = t.scope.push(frames[0])
 	}
 	for _, a := range x.Args {
 		binds, known, context, value := c.withArg(a)
 		// unknown: discharge everything, so no cascade. A context binding
 		// discharges nothing: its block's row is the enclosing one's.
-		f := &withFrame{binds: binds, unknown: !known, context: context, value: value}
-		t.withs = append(t.withs, f)
+		f := &withFrame{binds: binds, unknown: !known, context: context, value: value, outer: t.scope}
+		t.scope = t.scope.push(f)
 		frames = append(frames, f)
 	}
 	done := c.openScope()
@@ -64,7 +65,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 	})
 	c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
 	done()
-	t.withs = t.withs[:len(t.withs)-len(frames)]
+	t.scope = scope
 	c.recordWith(x, frames)
 	// A with's Fails is the row its block passes through (rows.md, With 6).
 	c.callInfo(x).Fails = errs
@@ -90,6 +91,11 @@ type withFrame struct {
 	with    *With           // the operand's With fact, once recorded
 	binds   *capSet
 	unknown bool
+	// outer is the target's with scope around the frame, read by the
+	// release charge (chargeRelease); depth is the frame's place in the
+	// scope, 1 for the outermost (withScope).
+	outer   withScope
+	depth   int
 	at      map[capKey]int // index in caps
 	caps    []Type
 	entries []*ContextEntry // nil for an inline context's own entry
@@ -569,7 +575,7 @@ func (c *checker) checkContexts() {
 		if t.internal == nil {
 			// Its summary was refused (contextsum.go): nothing it charges is
 			// reported (D3).
-			t.withs = []*withFrame{{unknown: true}}
+			t.scope = t.scope.push(&withFrame{unknown: true})
 		}
 		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope), reach: c.reachOf(w)}
 		c.contextBody(d.Body, w)

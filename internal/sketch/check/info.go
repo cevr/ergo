@@ -828,12 +828,10 @@ func (c *checker) recordWith(x *syntax.CallExpr, frames []*withFrame) {
 	}
 	c.pkg.Info.Withs[x] = withs[0]
 	c.callInfo(x).Kind = CallWith
-	// One copy of the frames serves every operand: operand i's frames are
-	// its prefix, read only (chargeRelease).
-	outer := len(c.fn.t.withs)
-	all := append(append([]*withFrame(nil), c.fn.t.withs...), frames...)
+	// Operand i's environment is the scope around its frame, a persistent
+	// version shared, never copied (chargeRelease; #229).
 	for i := len(frames) - 1; i >= 0; i-- {
-		c.withSites = append(c.withSites, withSite{x: x, operand: i, w: withs[i], file: c.cur, t: c.fn.t, outer: all[:outer+i:outer+i]})
+		c.withSites = append(c.withSites, withSite{x: x, operand: i, w: withs[i], file: c.cur, t: c.fn.t, outer: frames[i].outer})
 	}
 }
 

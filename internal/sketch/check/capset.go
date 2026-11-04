@@ -2,6 +2,7 @@ package check
 
 import (
 	"math/bits"
+	"sort"
 	"strings"
 )
 
@@ -24,10 +25,12 @@ import (
 // charged before it is read, each node copied or created before it is
 // made, each element enumerated before it is passed on, and the operation
 // stops when the package's budget would be passed (D16 as amended in
-// round 18; contextsum.go). Only the membership test of a with scope while a
-// body is checked (has, find), which charges the body's own budget like
-// Row.has, and the lowering's lookups (Context.Provider) are not context-summary
-// work and are not metered.
+// round 18; contextsum.go). Only the with scopes while a body is checked
+// (withScope, and the membership test has, find), which charge the body's
+// own budget like Row.has and cost O(log n) per charge (#229; withScope
+// states the cost of a frame, TestWithSiteWorkLinear counts it), and the
+// lowering's lookups (Context.Provider)
+// are not context-summary work and are not metered.
 // Prior art: OCaml's Set and Erlang maps share structure between
 // versions; TypeScript (TS2589) and rustc (recursion_limit) refuse past a
 // deterministic, source-only budget instead of accepting unproven.
@@ -163,7 +166,7 @@ func (s *capSet) has(tab *typeTable, t Type) bool {
 
 // find is has, and also returns the node that holds t. A with's discharge test reads the
 // providing entry from it, so a with's Info costs no lookup of its own
-// (recordWith).
+// (recordWith). Each node it reads is one with-site step (withStep).
 func (s *capSet) find(tab *typeTable, t Type) (found bool, n *capNode) {
 	if s == nil || s.size == 0 && len(s.extra) == 0 {
 		return false, nil
@@ -173,10 +176,238 @@ func (s *capSet) find(tab *typeTable, t Type) (found bool, n *capNode) {
 	if !ok {
 		return false, nil
 	}
-	if n := s.node(k); n != nil {
+	withStep(1)
+	if n := s.extra[k]; n != nil {
 		return true, n
 	}
+	for n := s.root; n != nil; {
+		withStep(1)
+		switch c := k.compare(n.key); {
+		case c < 0:
+			n = n.left
+		case c > 0:
+			n = n.right
+		default:
+			return true, n
+		}
+	}
 	return false, nil
+}
+
+// withOp, set only by tests, is called at each step of the with-site work
+// with the steps it does: a node of a with scope read, made or copied
+// (withScope), a node the membership test reads (find), and an edge of the
+// footprint graph read (footprinter.solve), where a with's frame joins its
+// context's node. TestWithSiteWorkLinear counts them.
+var withOp func(n int)
+
+func withStep(n int) {
+	if withOp != nil {
+		withOp(n)
+	}
+}
+
+// A withScope is what the with frames of a target bind while its body is
+// checked (#229): a persistent map from each capability to the innermost
+// frame that binds it, and the innermost unknown frame. A charge reads it
+// once, O(log n) of the capabilities in scope, whatever the number of
+// frames: `with A1, …, An` makes n frames from one source line, so a walk
+// of the frames per charge would cost O(n) each.
+//
+// It is a treap ordered by capability key with the summaries' priorities
+// (capKey.priority). Pushing a frame is the union of its summary with the
+// scope, the frame winning: the frame's summary joins as a shared subtree
+// (scopeNode.set), and a subtree whose keys the frame's summary holds
+// already is replaced by it without a visit (scopeNode.eq). So a with
+// on an empty scope costs O(1), a frame of k capabilities over a scope of
+// m costs O(min(k, m) log) at most, and a context that embeds the one
+// below it (a chain, whose summaries share every node but a path) costs
+// O(log) per frame. Popping a frame restores the previous version, O(1).
+// Prior art: the context summaries (contextsum.go) share embedded sets the
+// same way; the split-based union is Blelloch, Ferizovic and Sun's "Just
+// Join for Parallel Ordered Sets" (2016).
+type withScope struct {
+	root *scopeNode
+	top  *withFrame // the innermost frame, or nil
+	// unknown is the depth of the innermost unknown frame (a with whose
+	// context is unknown, reported), 0 for none: it discharges everything
+	// inside it (D3).
+	unknown int
+}
+
+// A scopeNode is one capability of a withScope, bound by frame. When set
+// is not nil, the node stands for the whole subtree of a frame's summary
+// at set, every element bound by frame (expose reads it). eq, when not nil,
+// is a summary subtree that holds exactly the node's keys.
+type scopeNode struct {
+	key         capKey
+	pri         uint32
+	frame       *withFrame
+	left, right *scopeNode
+	set         *capNode
+	eq          *capNode
+}
+
+// shared is the summary subtree n, each element bound by f.
+func shared(n *capNode, f *withFrame) *scopeNode {
+	if n == nil {
+		return nil
+	}
+	return &scopeNode{key: n.key, pri: n.pri, frame: f, set: n, eq: n}
+}
+
+// expose returns n with its children as scope nodes: a shared subtree is
+// read one node down.
+func expose(n *scopeNode) *scopeNode {
+	if n.set == nil {
+		return n
+	}
+	withStep(1)
+	return &scopeNode{key: n.key, pri: n.pri, frame: n.frame, eq: n.set,
+		left: shared(n.set.left, n.frame), right: shared(n.set.right, n.frame)}
+}
+
+// above reports whether a's node goes above b's in the treap: the higher
+// priority, and the smaller key between equal ones.
+func above(a, b *scopeNode) bool {
+	return a.pri > b.pri || a.pri == b.pri && a.key.compare(b.key) < 0
+}
+
+// holdsExactly reports whether n is known to hold exactly the keys of s.
+func holdsExactly(n *scopeNode, s *capNode) bool {
+	if n == nil {
+		return s == nil
+	}
+	return s != nil && n.eq == s
+}
+
+// scopeUnion is the union of a and b, a's frame binding each key both
+// hold.
+func scopeUnion(a, b *scopeNode) *scopeNode {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	withStep(1)
+	if a.eq != nil && a.eq == b.eq {
+		return a // the same keys: a binds them all
+	}
+	a, b = expose(a), expose(b)
+	if a.key == b.key || above(a, b) {
+		bl, br := b.left, b.right
+		if a.key != b.key {
+			bl, _, br = scopeSplit(b, a.key)
+		}
+		n := &scopeNode{key: a.key, pri: a.pri, frame: a.frame, left: scopeUnion(a.left, bl), right: scopeUnion(a.right, br)}
+		if a.eq != nil && holdsExactly(n.left, a.eq.left) && holdsExactly(n.right, a.eq.right) {
+			n.eq = a.eq // b added no key
+		}
+		return n
+	}
+	// b's node goes above a's: a holds b's key only when two keys' priorities
+	// tie (a heap-ordered treap's root has its highest priority), and then
+	// a's frame binds it.
+	al, am, ar := scopeSplit(a, b.key)
+	f := b.frame
+	if am != nil {
+		f = am.frame
+	}
+	return &scopeNode{key: b.key, pri: b.pri, frame: f, left: scopeUnion(al, b.left), right: scopeUnion(ar, b.right)}
+}
+
+// scopeSplit splits n at k: the keys below k, the node of k (or nil), and
+// the keys above k. The nodes on the path are copies.
+func scopeSplit(n *scopeNode, k capKey) (l, mid, r *scopeNode) {
+	if n == nil {
+		return nil, nil, nil
+	}
+	withStep(1)
+	n = expose(n)
+	switch c := k.compare(n.key); {
+	case c == 0:
+		return n.left, n, n.right
+	case c < 0:
+		l, mid, r = scopeSplit(n.left, k)
+		return l, mid, &scopeNode{key: n.key, pri: n.pri, frame: n.frame, left: r, right: n.right}
+	default:
+		l, mid, r = scopeSplit(n.right, k)
+		return &scopeNode{key: n.key, pri: n.pri, frame: n.frame, left: n.left, right: l}, mid, r
+	}
+}
+
+// push returns s with f the innermost frame.
+func (s withScope) push(f *withFrame) withScope {
+	f.depth = 1
+	if s.top != nil {
+		f.depth = s.top.depth + 1
+	}
+	s.top = f
+	switch {
+	case f.unknown:
+		s.unknown = f.depth
+	case f.binds != nil:
+		s.root = scopeUnion(shared(f.binds.root, f), s.root)
+		if len(f.binds.extra) > 0 {
+			// An inline context's own entries, over its embeddings: its
+			// source, in key order so the work is the same on every run.
+			keys := make([]capKey, 0, len(f.binds.extra))
+			for k := range f.binds.extra {
+				keys = append(keys, k)
+			}
+			sort.Slice(keys, func(i, j int) bool { return keys[i].compare(keys[j]) < 0 })
+			for _, k := range keys {
+				s.root = scopeUnion(&scopeNode{key: k, pri: k.priority(), frame: f}, s.root)
+			}
+		}
+	}
+	return s
+}
+
+// binder is the innermost frame of s that binds cap, or nil; unknown
+// reports an unknown frame inside it, which discharges cap (D3).
+func (s withScope) binder(tab *typeTable, cap Type) (f *withFrame, unknown bool) {
+	k, ok := keyOf(cap)
+	if ok {
+		tab.charge(1)
+		f = s.root.lookup(k)
+	}
+	depth := 0
+	if f != nil {
+		depth = f.depth
+	}
+	return f, s.unknown > depth
+}
+
+// lookup is the frame that binds k in the scope at n, or nil.
+func (n *scopeNode) lookup(k capKey) *withFrame {
+	for n != nil {
+		withStep(1)
+		if n.set != nil {
+			for s := n.set; s != nil; {
+				withStep(1)
+				switch c := k.compare(s.key); {
+				case c < 0:
+					s = s.left
+				case c > 0:
+					s = s.right
+				default:
+					return n.frame
+				}
+			}
+			return nil
+		}
+		switch c := k.compare(n.key); {
+		case c < 0:
+			n = n.left
+		case c > 0:
+			n = n.right
+		default:
+			return n.frame
+		}
+	}
+	return nil
 }
 
 // node is the node of k, or nil, read without a meter: the with test
