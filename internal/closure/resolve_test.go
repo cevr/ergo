@@ -1,0 +1,291 @@
+package closure
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+)
+
+// The operations of an entry. A test log records open, stat and chdir; the
+// check adds the links a path traverses, and marks a path it cannot resolve.
+const (
+	opOpen = "open" // a read of a file's content
+	opStat = "stat" // a lookup: whether the path exists and its metadata
+	// opList is an open of a directory: cmd/go hashes the names and the
+	// metadata of its entries, so it is a listing, not a read of them.
+	opList = "list"
+	// opLink is a symbolic link a recorded path traverses. Its target is
+	// read, so a link is an input as a file is.
+	opLink = "link"
+	// opLost prefixes the operation of a recorded path whose walk cannot
+	// tell what it names: a ".." after an absent component or a file, a
+	// loop of links, or a lookup the file system refuses. Its path is the
+	// raw rest of the path after the place the walk stopped, so only a
+	// declared entry that names it exactly covers it.
+	opLost = "unresolved "
+)
+
+// maxLinks is the number of links the kernel follows in one lookup before
+// it reports a loop (Linux's MAXSYMLINKS).
+const maxLinks = 40
+
+// resolver walks recorded paths component by component, as the kernel
+// does, so a path is classified by the objects it reaches and never by its
+// spelling: "testdata/link/../x" names x next to the link's target, not
+// testdata/x. It reads the file system as it is when the log is read, which
+// is when cmd/go hashes the same inputs. Lookups are memoized.
+type resolver struct {
+	lookups map[string]lookup
+}
+
+// lookup is what an lstat of one absolute, link-free path found.
+type lookup struct {
+	mode   fs.FileMode
+	target string // the link's target, for a link
+	err    error
+}
+
+// walk is what resolving one path found.
+type walk struct {
+	// links are the links the path traverses, in order, by their absolute
+	// link-free location.
+	links []string
+	// reached is the absolute, clean, link-free location the path names. It
+	// may not exist: a lookup of an absent name is an input of that name.
+	reached string
+	// exists reports whether reached exists, and dir whether it is a
+	// directory: an open of a directory lists it.
+	exists, dir bool
+	// stop is where a lost walk stopped: the component it could not look
+	// up, or the link that closed a loop.
+	stop string
+	// lost says why the walk cannot tell what the path names; reached is
+	// then the place the walk stopped joined with the raw rest of the path.
+	lost string
+}
+
+func newResolver() *resolver { return &resolver{lookups: map[string]lookup{}} }
+
+func (r *resolver) lstat(name string) lookup {
+	if l, ok := r.lookups[name]; ok {
+		return l
+	}
+	var l lookup
+	info, err := os.Lstat(name)
+	switch {
+	case err != nil:
+		l.err = err
+	case info.Mode()&fs.ModeSymlink != 0:
+		l.mode = info.Mode()
+		l.target, l.err = os.Readlink(name)
+	default:
+		l.mode = info.Mode()
+	}
+	r.lookups[name] = l
+	return l
+}
+
+// walk resolves the absolute path name. Each component is looked up in the
+// directory the walk has reached: "." stays, ".." moves to the parent of
+// that directory (which has no link in it), and a link splices its target
+// in front of the rest. A lookup that finds nothing, or a file where the
+// path continues, ends the walk: the path names an absent object, unless a
+// ".." follows, which the kernel never reaches, so the walk is lost.
+func (r *resolver) walk(name string) walk {
+	var w walk
+	if !filepath.IsAbs(name) {
+		w.lost, w.stop, w.reached = "the path is not absolute", name, name
+		return w
+	}
+	rest := strings.Split(filepath.ToSlash(name), "/")
+	cur := string(filepath.Separator)
+	followed := 0
+	for len(rest) > 0 {
+		c := rest[0]
+		rest = rest[1:]
+		switch c {
+		case "", ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+			continue
+		}
+		next := filepath.Join(cur, c)
+		l := r.lstat(next)
+		lose := func(why string) walk {
+			w.lost, w.stop, w.reached = why, next, joinRaw(next, rest)
+			return w
+		}
+		switch {
+		case l.err != nil && !errors.Is(l.err, fs.ErrNotExist):
+			return lose(fmt.Sprintf("the lookup failed: %v", l.err))
+		case l.mode&fs.ModeSymlink != 0:
+			followed++
+			if followed > maxLinks {
+				return lose("a loop of links")
+			}
+			w.links = append(w.links, next)
+			if filepath.IsAbs(l.target) {
+				cur = string(filepath.Separator)
+			}
+			rest = append(strings.Split(filepath.ToSlash(l.target), "/"), rest...)
+		case l.err != nil || !l.mode.IsDir() && len(rest) > 0:
+			// Absent, or a file where the path goes on.
+			if slices.Contains(rest, "..") {
+				return lose(`a ".." after an absent component or a file`)
+			}
+			w.reached = filepath.Join(append([]string{next}, rest...)...)
+			return w
+		default:
+			cur = next
+		}
+	}
+	w.reached, w.exists = cur, true
+	w.dir = cur == string(filepath.Separator) || r.lstat(cur).mode.IsDir()
+	return w
+}
+
+// joinRaw joins the rest of a path to a location without cleaning it, so a
+// ".." stays.
+func joinRaw(at string, rest []string) string {
+	if len(rest) == 0 {
+		return at
+	}
+	return at + "/" + strings.Join(rest, "/")
+}
+
+// parseLog reads a test log with the system's temporary directory as the
+// scratch area (readLog).
+func parseLog(data []byte, pwd string, roots []string) ([]entry, error) {
+	return readLog(data, pwd, roots, os.TempDir())
+}
+
+// readLog reads a test log (cmd/go's -test.testlogfile format, with the
+// lines testinputs.Main appends) and returns its inputs inside the module
+// root, relative to it. pwd is the directory the test started in, which
+// relative paths and chdir lines resolve against.
+//
+// Each path is resolved on the file system (resolver): the entry is the
+// object it reaches, an open of a directory is a listing (opList), and
+// each link the path traverses inside the root is an opLink entry. A path
+// the walk cannot resolve fails closed: it is an opLost entry, unless the
+// walk stopped in scratch, outside the root. Scratch is where tests make
+// and remove their temporary trees (t.TempDir): a walk lost there passed a
+// tree the test has since removed, which cmd/go does not hash either.
+//
+// A log without its final newline was left uncacheable on purpose
+// (testinputs.Main), so its inputs are unknown and readLog returns an
+// error that says why.
+func readLog(data []byte, pwd string, roots []string, scratch string) ([]entry, error) {
+	const header = "# test log\n"
+	if !bytes.HasPrefix(data, []byte(header)) {
+		return nil, errors.New("no test log header; the test binary did not write a log")
+	}
+	if !bytes.HasSuffix(data, []byte("\n")) {
+		last := data[bytes.LastIndexByte(data, '\n')+1:]
+		return nil, fmt.Errorf("the log is marked uncacheable, so its inputs are unknown: %q", last)
+	}
+	// The walk yields link-free locations, so compare them with the
+	// link-free location of each root.
+	linkFree := func(dirs ...string) []string {
+		var out []string
+		for _, d := range dirs {
+			if d == "" {
+				continue
+			}
+			if r, err := filepath.EvalSymlinks(d); err == nil {
+				d = r
+			}
+			if !slices.Contains(out, d) {
+				out = append(out, d)
+			}
+		}
+		return out
+	}
+	real, scratches := linkFree(roots...), linkFree(scratch)
+	var entries []entry
+	seen := map[entry]bool{}
+	add := func(e entry) {
+		if !seen[e] {
+			seen[e] = true
+			entries = append(entries, e)
+		}
+	}
+	res := newResolver()
+	body := string(data[len(header):])
+	if body == "" {
+		return nil, nil // the tests read nothing
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(body, "\n"), "\n") {
+		op, name, ok := strings.Cut(line, " ")
+		if !ok {
+			return nil, fmt.Errorf("log line %q", line)
+		}
+		switch op {
+		case "getenv":
+			continue
+		case "chdir", opOpen, opStat:
+		default:
+			return nil, fmt.Errorf("log line %q: unknown operation", line)
+		}
+		if !filepath.IsAbs(name) {
+			name = joinRaw(pwd, []string{name})
+		}
+		if op == "chdir" {
+			// The kernel resolves the directory at the chdir; the walk of
+			// each later path resolves it again from the raw name.
+			pwd = name
+			continue
+		}
+		w := res.walk(name)
+		for _, link := range w.links {
+			if rel, inside := relative(link, real); inside {
+				add(entry{opLink, rel})
+			}
+		}
+		if w.lost != "" {
+			// Fail closed: the path may have reached anything, here or
+			// in the checkout, so it is an input no closure covers unless
+			// a declared entry names it exactly.
+			if rel, inside := relative(w.stop, real); inside {
+				add(entry{opLost + op, rel + filepath.ToSlash(strings.TrimPrefix(w.reached, w.stop))})
+			} else if _, inScratch := relative(w.stop, scratches); !inScratch {
+				add(entry{opLost + op, w.reached})
+			}
+			continue
+		}
+		if w.dir && op == opOpen {
+			op = opList
+		}
+		if rel, inside := relative(w.reached, real); inside {
+			add(entry{op, rel})
+		}
+	}
+	return entries, nil
+}
+
+// relative returns name relative to the first root it lies in, with forward
+// slashes. A name with a ".." component is never inside.
+func relative(name string, roots []string) (string, bool) {
+	for _, root := range roots {
+		rest, ok := strings.CutPrefix(name, root)
+		switch {
+		case !ok:
+			continue
+		case rest == "":
+			return ".", true
+		case strings.HasPrefix(rest, string(filepath.Separator)):
+			rel := filepath.ToSlash(rest[1:])
+			if slices.Contains(strings.Split(rel, "/"), "..") {
+				return "", false
+			}
+			return rel, true
+		}
+	}
+	return "", false
+}

@@ -3,7 +3,6 @@ package closure
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,85 +21,169 @@ import (
 
 // allowance is one declared input of a test package outside the directories
 // of its dependencies and its own testdata, with the reason it is an input.
-// The path is relative to the module root, with forward slashes; a path that
-// ends in "/" covers the subtree below it, and "./" covers the whole tree.
-// A program entry names the directory of a package of the module whose
-// executable the tests build: it covers what the go command reads to build
-// it, the directories of `go list -deps` for it.
+// The path is clean, relative to the module root, with forward slashes. The
+// grant says which accesses at that path it covers; each grant is as narrow
+// as the measured reads allow, so a listing never grants the files below
+// it and a flat pattern never grants a subdirectory.
 type allowance struct {
-	path    string
-	reason  string
-	program bool
+	path   string
+	grant  grant
+	reason string
+}
+
+// grant is the kind of access an allowance covers.
+type grant int
+
+const (
+	// file covers any access to exactly this path.
+	file grant = iota + 1
+	// listing covers a lookup (stat) or a listing (open) of this
+	// directory, and nothing in it.
+	listing
+	// files covers any access to a path the pattern matches (path.Match:
+	// "*" and "?" never match "/"), so docs/x/*.ergo covers docs/x/a.ergo
+	// and neither docs/x/a.txt, docs/x/sub/a.ergo nor the directory docs/x.
+	files
+	// subtree covers this directory and every path below it, at any depth,
+	// with any access; "." is the whole tree. Only a measured recursive
+	// walk earns it.
+	subtree
+	// program names the directory of a package of the module whose
+	// executable the tests build: it covers what the go command reads to
+	// build it, the directories of `go list -deps` for it.
+	program
+)
+
+func (g grant) String() string {
+	switch g {
+	case file:
+		return "file"
+	case listing:
+		return "listing"
+	case files:
+		return "files"
+	case subtree:
+		return "subtree"
+	case program:
+		return "program"
+	}
+	return fmt.Sprintf("grant(%d)", int(g))
 }
 
 // declared are the inputs each test package may record outside its own
 // closure, by package directory. Keep it short: an entry is a package that
 // reruns when its path changes, so each one needs a reason the test cannot
 // avoid. The sweep fails on an entry no recorded input uses.
+//
+// Each entry has the narrowest grant the measured reads allow (sweep logs):
+// a glob is declared as glob declares it, a read by name as a file, and a
+// subtree only where the test walks the tree and the reads go deeper than
+// one level.
 var declared = map[string][]allowance{
 	"internal/residue": {
-		{path: "./", reason: "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
+		{".", subtree, "the residue checks read every tracked file by design: git grep, git ls-files and Go's reads of each file"},
 	},
 	"internal/testinputs/guard": {
-		{path: "./", reason: "the guard lists every directory and reads every test file, so a test package added anywhere reruns it"},
+		{".", subtree, "the guard lists every directory and reads every test file, so a test package added anywhere reruns it"},
 	},
-	"internal/sketch/check": {
-		{path: "internal/sketch/proto/testdata/", reason: "the corpus tests check every proto fixture"},
-		{path: "internal/sketch/syntax/testdata/corpus/", reason: "the corpus tests check every sketch-eval source"},
-		{path: "examples/", reason: "round19 checks every example program (a glob of examples/*/*/*.ergo)"},
-		{path: "docs/research/ef-migrate/", reason: "round19 checks the migrated examples"},
-		{path: "docs/spec/diagnostics.md", reason: "TestRegistry: the spec's code rows and the code table agree"},
-	},
+	"internal/sketch/check": declare(
+		glob("internal/sketch/proto/testdata/*.ergo", "the corpus globs (check_test.go corpus, info_test.go, round19_test.go) check every proto fixture"),
+		glob("internal/sketch/proto/testdata/*/*.ergo", "the corpus globs check every proto fixture one directory down"),
+		glob("internal/sketch/syntax/testdata/corpus/*/*.ergo", "the corpus globs check every sketch-eval source"),
+		glob("internal/sketch/syntax/testdata/corpus/*/*/*.ergo", "the corpus globs check every sketch-eval source one directory down"),
+		glob("examples/*/*/*.ergo", "round19 checks every example program"),
+		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
+		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
+	),
 	"internal/sketch/lower": {
-		{path: "cmd/ergo", reason: "the tests drive the public CLI, built once per process", program: true},
-		{path: "internal/sketch/check/testdata/", reason: "the accepted and refusal inventories lower every checker fixture"},
-		{path: "internal/sketch/proto/testdata/", reason: "the accepted and refusal inventories lower every proto fixture"},
-		{path: "examples/", reason: "the accepted and refusal inventories lower every example program"},
+		{"cmd/ergo", program, "the tests drive the public CLI, built once per process"},
+		{"internal/sketch/check/testdata", subtree, "the accepted and refusal inventories walk the checker's fixtures (filepath.WalkDir), lowering each"},
+		{"internal/sketch/proto/testdata", subtree, "the accepted and refusal inventories walk the proto fixtures (filepath.WalkDir), lowering each"},
+		{"examples", subtree, "the accepted and refusal inventories walk the example programs (filepath.WalkDir), lowering each"},
 	},
-	"internal/sketch/syntax": {
-		{path: "internal/sketch/proto/testdata/", reason: "the decided-syntax tests parse every proto fixture"},
-		{path: "internal/migrate196/testdata/old/", reason: "the old spellings must stop parsing"},
-		{path: "docs/spec/", reason: "every go fence of the language spec parses (sketchtest.SpecFences lists docs/spec)"},
-		{path: "docs/research/ef-migrate/", reason: "the migrated examples parse (sketchtest.Repository)"},
-		{path: "examples/editions/sketch/main.ergo", reason: "the 2026 example program parses (sketchtest.Repository)"},
-		{path: "docs/previews/2026-10-28-without-go-syntax.md", reason: "the decided syntax matches the preview it was decided from"},
-	},
-	"internal/sketch/format": {
-		{path: "internal/sketch/syntax/testdata/corpus/", reason: "the formatter round-trips the parser's corpus"},
-		{path: "internal/sketch/syntax/testdata/decided/", reason: "the formatter round-trips the decided-syntax fixtures"},
-		{path: "internal/sketch/syntax/testdata/edge/", reason: "the formatter round-trips the edge fixtures"},
-		{path: "docs/spec/", reason: "the formatter round-trips every go fence of the language spec (sketchtest.SpecFences)"},
-		{path: "docs/research/ef-migrate/", reason: "the formatter round-trips the migrated examples (sketchtest.Repository)"},
-		{path: "examples/editions/sketch/main.ergo", reason: "the formatter round-trips the 2026 example program (sketchtest.Repository)"},
-	},
+	"internal/sketch/syntax": declare(
+		glob("internal/sketch/proto/testdata/*.ergo", "decidedInputs parses every proto fixture"),
+		glob("internal/sketch/proto/testdata/*/*.ergo", "decidedInputs parses every proto fixture one directory down"),
+		[]allowance{{"internal/migrate196/testdata/old", subtree, "the old spellings must stop parsing: decided_test.go walks them (filepath.WalkDir)"}},
+		glob("docs/spec/*.md", "every go fence of the language spec parses (sketchtest.SpecFences); grammar.md is read by name too"),
+		glob("docs/research/ef-migrate/*.ergo", "the migrated examples parse (sketchtest.Repository)"),
+		[]allowance{
+			{"examples/editions/sketch/main.ergo", file, "the 2026 example program parses (sketchtest.Repository)"},
+			{"docs/previews/2026-10-28-without-go-syntax.md", file, "the decided syntax matches the preview it was decided from"},
+		},
+	),
+	"internal/sketch/format": declare(
+		[]allowance{{"internal/sketch/syntax/testdata/corpus", subtree, "the formatter round-trips the parser's corpus: sketchtest.Corpus walks it (filepath.WalkDir)"}},
+		glob("internal/sketch/syntax/testdata/decided/*.ergo", "the formatter round-trips the decided-syntax fixtures"),
+		glob("internal/sketch/syntax/testdata/edge/*.ergo", "the formatter round-trips the edge fixtures"),
+		glob("docs/spec/*.md", "the formatter round-trips every go fence of the language spec (sketchtest.SpecFences)"),
+		glob("docs/research/ef-migrate/*.ergo", "the formatter round-trips the migrated examples (sketchtest.Repository)"),
+		[]allowance{{"examples/editions/sketch/main.ergo", file, "the formatter round-trips the 2026 example program (sketchtest.Repository)"}},
+	),
 	"cmd/ergo": {
-		{path: "README.md", reason: "the README smoke test runs the README's go blocks and commands"},
-		{path: "examples/editions/sketch/", reason: "the process and README smoke tests copy the 2026 example into a workspace"},
+		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},
+		{"examples/editions/sketch", listing, "the process and README smoke tests copy the 2026 example into a workspace (smokeWorkspace)"},
+		{"examples/editions/sketch/*", files, "smokeWorkspace copies each file of the 2026 example; it has no subdirectory, so the copy reads one level"},
 	},
 	"internal/sketchfront": {
-		{path: "examples/editions/sketch/main.ergo", reason: "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
-		{path: "examples/editions/sketch/expected.out", reason: "TestSketchBuildRunsProgram compares the run with the expected output"},
+		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
+		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 	},
 	"internal/testinputs": {
-		{path: "internal/testinputs/guard/guard.go", reason: "the end-to-end test copies the guard into a scratch module"},
-		{path: "internal/testinputs/guard/guard_test.go", reason: "the end-to-end test copies the guard into a scratch module"},
+		{"internal/testinputs/guard/guard.go", file, "the end-to-end test copies the guard into a scratch module"},
+		{"internal/testinputs/guard/guard_test.go", file, "the end-to-end test copies the guard into a scratch module"},
 	},
 	"scripts/conformance": {
-		{path: "conformance/effect-cases.json", reason: "the mapping reads the Effect case list"},
-		{path: "conformance/upstream/foldkit-d21db423/", reason: "the mapping reads the pinned foldkit evidence (follow-up: outside this unit's Owns)"},
-		{path: ".git", reason: "the mapping asks git whether evidence is tracked (follow-up: outside this unit's Owns)"},
+		{"conformance/effect-cases.json", file, "the mapping reads the Effect case list"},
+		{"conformance/upstream/foldkit-d21db423", subtree, "the mapping walks the pinned foldkit evidence at every depth (follow-up: outside this unit's Owns)"},
+		{".git", file, "the mapping asks git whether evidence is tracked (follow-up: outside this unit's Owns)"},
 	},
 	"scripts/gate": {
-		{path: "./", reason: "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
+		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
 	},
+}
+
+// glob declares what filepath.Glob(pattern) reads, as Go's Glob reads it:
+// a lookup and a listing of the directory above the first element with a
+// pattern; a lookup of each match of that element and of each further one
+// but the last, and a listing of each that is a directory; and the files
+// the whole pattern matches, which the test then reads. Each pattern
+// matches at one depth, so nothing below the last element is granted.
+func glob(pattern, reason string) []allowance {
+	elems := strings.Split(pattern, "/")
+	first := slices.IndexFunc(elems, func(e string) bool { return strings.ContainsAny(e, `*?[\`) })
+	if first < 1 {
+		panic("glob " + pattern + ": want a pattern below a directory")
+	}
+	out := []allowance{{strings.Join(elems[:first], "/"), listing, reason}}
+	for j := first; j < len(elems)-1; j++ {
+		out = append(out, allowance{strings.Join(elems[:j+1], "/"), listing, reason})
+	}
+	return append(out, allowance{pattern, files, reason})
+}
+
+// declare joins entries and drops a repeat of an entry (the same grant and
+// path), keeping the first reason.
+func declare(parts ...[]allowance) []allowance {
+	var out []allowance
+	seen := map[string]bool{}
+	for _, part := range parts {
+		for _, a := range part {
+			if !seen[a.key()] {
+				seen[a.key()] = true
+				out = append(out, a)
+			}
+		}
+	}
+	return out
 }
 
 // everyPackage are the inputs any test package may record: the go command
 // reads them for every build in the module, and a test binary depends on
 // them already.
 var everyPackage = []allowance{
-	{path: "go.mod", reason: "the go command reads the module file for every build in the module"},
-	{path: "go.sum", reason: "the go command checks module sums for every build in the module"},
+	{"go.mod", file, "the go command reads the module file for every build in the module"},
+	{"go.sum", file, "the go command checks module sums for every build in the module"},
 }
 
 // moduleLookups are the names the go command (and a test that finds the
@@ -163,25 +246,36 @@ func (c closure) check(entries []entry, used map[string]bool) []entry {
 }
 
 func (c closure) inside(e entry, used map[string]bool) bool {
+	if strings.HasPrefix(e.op, opLost) {
+		// The walk could not tell what the path reached: only a declared
+		// file entry that names it exactly covers it.
+		for _, a := range c.declared {
+			if a.grant == file && a.path == e.path {
+				used[a.key()] = true
+				return true
+			}
+		}
+		return false
+	}
 	p := e.path
 	switch {
 	case c.compiled(e):
 		return true
 	case p == c.dir+"/testdata" || strings.HasPrefix(p, c.dir+"/testdata/"):
 		return true
-	case e.op == "stat" && moduleLookups[path.Base(p)]:
+	case e.op == opStat && moduleLookups[path.Base(p)]:
 		// The go command looks for these where it finds a module's root
 		// and layout; each is absent, and adding one changes the layout.
 		return true
 	}
 	for _, a := range everyPackage {
-		if covers(a.path, p) {
+		if covers(a, e) {
 			return true
 		}
 	}
 	for _, a := range c.declared {
-		if prog, ok := c.programs[a.path]; a.program && ok && prog.compiled(e) || !a.program && covers(a.path, p) {
-			used[a.path] = true
+		if prog, ok := c.programs[a.path]; a.grant == program && ok && prog.compiled(e) || covers(a, e) {
+			used[a.key()] = true
 			return true
 		}
 	}
@@ -195,98 +289,44 @@ func (c closure) inside(e entry, used map[string]bool) bool {
 // of every entry in it, so only a lookup passes.
 func (c closure) compiled(e entry) bool {
 	p := e.path
-	return c.deps[p] || c.deps[path.Dir(p)] && p != "." || c.embeds[p] || c.ancestors[p] && e.op == "stat"
+	return c.deps[p] || c.deps[path.Dir(p)] && p != "." || c.embeds[p] || c.ancestors[p] && e.op == opStat
 }
 
-// covers reports whether the declared path a covers the path p.
-func covers(a, p string) bool {
-	switch {
-	case a == "./":
-		return true
-	case strings.HasSuffix(a, "/"):
-		return p == strings.TrimSuffix(a, "/") || strings.HasPrefix(p, a)
-	default:
-		return p == a
+// covers reports whether the declared entry a covers the resolved input e.
+// A program entry covers nothing here: closure.inside asks its closure.
+func covers(a allowance, e entry) bool {
+	p := e.path
+	match := func() bool {
+		ok, err := path.Match(a.path, p)
+		return ok && err == nil
 	}
+	switch a.grant {
+	case file:
+		return p == a.path
+	case listing:
+		return (e.op == opList || e.op == opStat) && match()
+	case files:
+		return (e.op == opOpen || e.op == opStat || e.op == opLink) && match()
+	case subtree:
+		return a.path == "." || p == a.path || strings.HasPrefix(p, a.path+"/")
+	}
+	return false
 }
 
-// parseLog reads a test log (cmd/go's -test.testlogfile format, with the
-// lines testinputs.Main appends) and returns its inputs inside root,
-// relative to it. pwd is the directory the test started in, which relative
-// paths and chdir lines resolve against. A log without its final newline
-// was left uncacheable on purpose (testinputs.Main), so its inputs are
-// unknown and parseLog returns an error that says why.
-func parseLog(data []byte, pwd string, roots []string) ([]entry, error) {
-	const header = "# test log\n"
-	if !bytes.HasPrefix(data, []byte(header)) {
-		return nil, errors.New("no test log header; the test binary did not write a log")
-	}
-	if !bytes.HasSuffix(data, []byte("\n")) {
-		last := data[bytes.LastIndexByte(data, '\n')+1:]
-		return nil, fmt.Errorf("the log is marked uncacheable, so its inputs are unknown: %q", last)
-	}
-	var entries []entry
-	seen := map[entry]bool{}
-	body := string(data[len(header):])
-	if body == "" {
-		return nil, nil // the tests read nothing
-	}
-	for _, line := range strings.Split(strings.TrimSuffix(body, "\n"), "\n") {
-		op, name, ok := strings.Cut(line, " ")
-		if !ok {
-			return nil, fmt.Errorf("log line %q", line)
-		}
-		switch op {
-		case "getenv":
-			continue
-		case "chdir", "open", "stat":
-		default:
-			return nil, fmt.Errorf("log line %q: unknown operation", line)
-		}
-		if !filepath.IsAbs(name) {
-			name = filepath.Join(pwd, name)
-		}
-		name = filepath.Clean(name)
-		if op == "chdir" {
-			pwd = name
-			continue
-		}
-		rel, inside := relative(name, roots)
-		if !inside {
-			continue
-		}
-		e := entry{op, rel}
-		if !seen[e] {
-			seen[e] = true
-			entries = append(entries, e)
-		}
-	}
-	return entries, nil
-}
-
-// relative returns name relative to the first root it lies in, with forward
-// slashes.
-func relative(name string, roots []string) (string, bool) {
-	for _, root := range roots {
-		rel, err := filepath.Rel(root, name)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return filepath.ToSlash(rel), true
-		}
-	}
-	return "", false
-}
+// key names the entry in the set of entries a sweep used.
+func (a allowance) key() string { return a.grant.String() + " " + a.path }
 
 // TestClosureClassifiesInputs pins the closure rule on a fixed package.
 func TestClosureClassifiesInputs(t *testing.T) {
 	c := newClosure("internal/a", []string{"internal/b", "cmd/c"}, []string{"internal/b/files/x.txt"})
-	c.declared = []allowance{{path: "examples/", reason: "walks the examples"}, {path: "docs/one.md", reason: "reads one page"}}
+	c.declared = []allowance{{"examples", subtree, "walks the examples"}, {"docs/one.md", file, "reads one page"}}
 	in := []entry{
 		{"open", "internal/a/a_test.go"},
-		{"open", "internal/a"},
+		{"list", "internal/a"},
 		{"open", "internal/b/b.go"},
 		{"stat", "cmd/c"},
 		{"open", "internal/b/files/x.txt"},
-		{"open", "internal/b/files"},
+		{"list", "internal/b/files"},
 		{"open", "internal/a/testdata/v1/x.txt"},
 		{"stat", "internal/a/testdata"},
 		{"stat", "internal"},
@@ -296,14 +336,16 @@ func TestClosureClassifiesInputs(t *testing.T) {
 		{"open", "examples/game/main.ergo"},
 		{"stat", "examples"},
 		{"open", "docs/one.md"},
+		{"unresolved open", "docs/one.md"},
+		{"link", "internal/a/testdata/link"},
 		{"stat", "internal/go.work"},
 		{"stat", "runtime/rt/x.go/go.mod"},
 		{"stat", "vendor"},
 		{"getenv", "HOME"},
 	}
 	out := []entry{
-		{"open", "."},                       // listing the root
-		{"open", "internal"},                // listing an ancestor
+		{"list", "."},                       // listing the root
+		{"list", "internal"},                // listing an ancestor
 		{"open", "internal/b/testdata/y"},   // another package's testdata
 		{"open", "internal/b/files/z.txt"},  // not embedded
 		{"open", "internal/ab/x.go"},        // a sibling whose name shares a prefix
@@ -316,13 +358,19 @@ func TestClosureClassifiesInputs(t *testing.T) {
 		{"stat", "scripts/gate/budget.go"},  // a git grep
 		{"open", "internal/sketch/check/x"}, // an unrelated package
 		{"open", "internal/go.work"},        // a module file read, not looked up
-		{"open", "vendor"},                  // a vendor directory listed
+		{"list", "vendor"},                  // a vendor directory listed
+		{"link", "internal/link"},           // a link in an ancestor
+		// A lost walk, even where the package may read: only an exact
+		// declared file covers it.
+		{"unresolved open", "internal/a/testdata/x"},
+		{"unresolved stat", "internal/a/testdata/gone/../x"},
+		{"unresolved stat", "examples/game/main.ergo"},
 	}
 	used := map[string]bool{}
 	if got := c.check(in, used); len(got) != 0 {
 		t.Errorf("inputs inside the closure reported outside: %v", got)
 	}
-	if !used["examples/"] || !used["docs/one.md"] {
+	if !used["subtree examples"] || !used["file docs/one.md"] {
 		t.Errorf("declared entries not marked used: %v", used)
 	}
 	for _, e := range out {
@@ -332,13 +380,13 @@ func TestClosureClassifiesInputs(t *testing.T) {
 	}
 
 	// A declared program covers what building it reads, and nothing else.
-	c.declared = []allowance{{path: "cmd/p", reason: "the tests build it", program: true}}
+	c.declared = []allowance{{"cmd/p", program, "the tests build it"}}
 	c.programs = map[string]closure{"cmd/p": newClosure("cmd/p", []string{"internal/q"}, nil)}
 	used = map[string]bool{}
-	if got := c.check([]entry{{"open", "cmd/p/main.go"}, {"open", "internal/q/q.go"}, {"stat", "cmd"}}, used); len(got) != 0 || !used["cmd/p"] {
+	if got := c.check([]entry{{"open", "cmd/p/main.go"}, {"open", "internal/q/q.go"}, {"stat", "cmd"}}, used); len(got) != 0 || !used["program cmd/p"] {
 		t.Errorf("a program's sources reported outside the closure: %v (used %v)", got, used)
 	}
-	for _, e := range []entry{{"open", "cmd/p/testdata/x"}, {"open", "cmd/p/sub/x.go"}, {"open", "cmd"}, {"open", "internal/r/r.go"}} {
+	for _, e := range []entry{{"open", "cmd/p/testdata/x"}, {"open", "cmd/p/sub/x.go"}, {"list", "cmd"}, {"open", "internal/r/r.go"}} {
 		if got := c.check([]entry{e}, map[string]bool{}); len(got) != 1 {
 			t.Errorf("%v: a declared program covers it", e)
 		}
@@ -351,15 +399,29 @@ func TestClosureClassifiesInputs(t *testing.T) {
 
 // TestParseLogResolvesAndRefuses pins the log reading: relative paths
 // resolve against the start directory and each chdir, paths outside the
-// root drop, and a log testinputs left uncacheable is refused.
+// root drop, and a log testinputs left uncacheable is refused. The symbolic
+// link cases are properties (resolve_property_test.go).
 func TestParseLogResolvesAndRefuses(t *testing.T) {
-	root := filepath.FromSlash("/r")
-	log := "# test log\ngetenv HOME\nopen x.go\nstat ../b\nchdir /r/c\nopen y\nopen /usr/lib/go/src/fmt/print.go\nopen /r/x.go\n"
-	got, err := parseLog([]byte(log), filepath.FromSlash("/r/a"), []string{root})
+	base := t.TempDir()
+	root := filepath.Join(base, "r")
+	for _, f := range []string{"a/x.go", "b/b.go", "c/y", "x.go", "outside/f"} {
+		name := filepath.Join(root, filepath.FromSlash(f))
+		if f == "outside/f" {
+			name = filepath.Join(base, "outside", "f")
+		}
+		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	log := "# test log\ngetenv HOME\nopen x.go\nstat ../b\nchdir " + filepath.Join(root, "c") + "\nopen y\nopen " + filepath.Join(base, "outside", "f") + "\nopen " + filepath.Join(root, "x.go") + "\nstat absent\n"
+	got, err := parseLog([]byte(log), filepath.Join(root, "a"), []string{root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []entry{{"open", "a/x.go"}, {"stat", "b"}, {"open", "c/y"}, {"open", "x.go"}}
+	want := []entry{{"open", "a/x.go"}, {"stat", "b"}, {"open", "c/y"}, {"open", "x.go"}, {"stat", "c/absent"}}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -381,12 +443,28 @@ func TestParseLogResolvesAndRefuses(t *testing.T) {
 }
 
 // TestDeclaredAllowanceIsWellFormed: every declared entry is a clean
-// relative path with a reason. The sweep checks that each one is used.
+// relative path with a known grant and a reason. Only a listing or a files
+// entry has a pattern, and a pattern is path.Match's, so it matches at one
+// depth only; a files entry has one in its last element. Only a subtree is
+// the whole tree, and no entry is declared twice. The sweep checks that
+// each one is used.
 func TestDeclaredAllowanceIsWellFormed(t *testing.T) {
 	check := func(owner string, a allowance) {
-		p := strings.TrimSuffix(a.path, "/")
-		if a.path != "./" && (p == "" || path.Clean(p) != p || path.IsAbs(p) || strings.HasPrefix(p, "../") || p == "..") {
+		p := a.path
+		if p == "" || path.Clean(p) != p || path.IsAbs(p) || strings.HasPrefix(p, "../") || p == ".." || p == "." && a.grant != subtree {
 			t.Errorf("%s: %q is not a clean path relative to the module root", owner, a.path)
+		}
+		const meta = `*?[\`
+		switch {
+		case a.grant < file || a.grant > program:
+			t.Errorf("%s: %q has an unknown grant %v", owner, p, a.grant)
+		case a.grant == files && !strings.ContainsAny(path.Base(p), meta):
+			t.Errorf("%s: the files entry %q has no pattern in its last element; declare a file", owner, p)
+		case a.grant != files && a.grant != listing && strings.ContainsAny(p, meta):
+			t.Errorf("%s: the %v entry %q has a pattern", owner, a.grant, p)
+		}
+		if _, err := path.Match(p, ""); err != nil {
+			t.Errorf("%s: %q: %v", owner, p, err)
 		}
 		if strings.TrimSpace(a.reason) == "" {
 			t.Errorf("%s: %q has no reason", owner, a.path)
@@ -399,19 +477,27 @@ func TestDeclaredAllowanceIsWellFormed(t *testing.T) {
 		if len(list) == 0 {
 			t.Errorf("declared package %s has no entry", dir)
 		}
+		seen := map[string]bool{}
 		for _, a := range list {
 			check(dir, a)
+			if seen[a.key()] {
+				t.Errorf("%s: %s is declared twice", dir, a.key())
+			}
+			seen[a.key()] = true
 		}
 	}
 	for _, a := range everyPackage {
 		check("every package", a)
 	}
 	// The checker and the lowerer must stay cached across an edit of an
-	// unrelated document (speed plan U2): no entry of theirs covers it.
+	// unrelated document (speed plan U2): no entry of theirs covers it, nor
+	// a listing of its directory, which an atomic save changes.
 	for _, dir := range []string{"internal/sketch/check", "internal/sketch/lower"} {
 		for _, a := range append(slices.Clone(everyPackage), declared[dir]...) {
-			if !a.program && covers(a.path, "docs/tooling.md") {
-				t.Errorf("%s: %q covers docs/tooling.md, so an edit of it reruns the package", dir, a.path)
+			for _, e := range []entry{{opOpen, "docs/tooling.md"}, {opStat, "docs/tooling.md"}, {opOpen, "docs"}} {
+				if covers(a, e) {
+					t.Errorf("%s: %q (%v) covers %s %s, so an edit of docs/tooling.md reruns the package", dir, a.path, a.grant, e.op, e.path)
+				}
 			}
 		}
 	}
@@ -533,8 +619,8 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 			continue
 		}
 		for _, a := range declared[dir] {
-			if !r.used[a.path] {
-				t.Errorf("%s: the declared entry %q is an input of no recorded access; remove it", dir, a.path)
+			if !r.used[a.key()] {
+				t.Errorf("%s: the declared entry %s is an input of no recorded access; remove it", dir, a.key())
 			}
 		}
 		if len(r.outside) == 0 {
@@ -619,7 +705,7 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 		c := closureOf(dir, append([]string{p.ImportPath + " [" + p.ImportPath + ".test]", p.ImportPath + "_test [" + p.ImportPath + ".test]"}, main.Deps...))
 		c.programs = map[string]closure{}
 		for _, a := range c.declared {
-			if !a.program {
+			if a.grant != program {
 				continue
 			}
 			prog, ok := byDir[a.path]
