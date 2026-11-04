@@ -263,7 +263,9 @@ func stagedBuild(root, out, pkg string) []string {
 	sum := sha256.Sum256([]byte(root))
 	staging := filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), filepath.Base(out))
 	script := `mkdir -p "$(dirname "$1")" "$(dirname "$2")" && go build -buildvcs=false -o "$1" "$3" && { cmp -s "$1" "$2" || mv -f "$1" "$2"; }`
-	return []string{"sh", "-c", script, "sh", staging, out, pkg}
+	// The script's $0 names it, not a shell: TestTestCommandsHaveCacheCoverage
+	// refuses a sh -c script whose arguments name go or a shell.
+	return []string{"sh", "-c", script, "stagedbuild", staging, out, pkg}
 }
 
 // effectMappingStep checks the Effect behavior mapping and its evidence
@@ -305,7 +307,7 @@ func provenanceAnalyzer(root string) []string {
 go test -C tools/provenance -count=1 ` + testTimeout + ` ./... &&
 go build -C tools/provenance -buildvcs=false -o "$bin" ./cmd/provenance &&
 "$bin" -test=false -manifest "$2" ./internal/sketch/check`
-	return []string{"sh", "-c", script, "sh", binary, provenanceManifest}
+	return []string{"sh", "-c", script, "provenance", binary, provenanceManifest}
 }
 
 // wayfinderSnapshotInputs keys the check that the committed Wayfinder snapshot

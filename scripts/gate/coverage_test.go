@@ -69,49 +69,88 @@ var cacheableTestFlags = map[string]bool{"-run": true, "-skip": true, "-timeout"
 // shellKeywords may start a shell command before the program it runs.
 var shellKeywords = []string{"{", "}", "!", "if", "then", "else", "elif", "fi", "do", "done", "while", "until"}
 
-// stepInvocations returns every go test command step starts, in its argv,
-// behind an env prefix, or in a sh -c script. A command that names go where
-// the guard cannot read it is an invocation with a problem.
+// shells are programs that run a script or a command they are given. The
+// guard reads only one shape of one shell, sh -c SCRIPT; every other shell, or
+// sh in another shape, runs commands the guard cannot see.
+var shells = []string{"sh", "bash", "dash", "zsh", "ksh", "mksh", "ash", "yash", "posh", "fish", "csh", "tcsh", "rc", "busybox"}
+
+// stepInvocations returns every go test command step starts. The guard reads
+// a step's argv through an allowlist of wrapper shapes and unwraps each to
+// the command it runs (argvInvocations). A command it cannot read is an
+// invocation with a problem, which the guard refuses.
 func stepInvocations(step *Step) []invocation {
 	return argvInvocations(step.Name, step.Argv, "")
 }
 
+// argvInvocations reads one command line. The wrapper shapes it understands
+// are the ones the gate uses:
+//
+//   - go test ...: the invocation itself (parseGoCommand);
+//   - env NAME=VALUE... COMMAND: COMMAND, behind env;
+//   - timeout DURATION COMMAND: COMMAND, behind timeout;
+//   - sh -c SCRIPT [NAME [ARG...]]: each simple command of SCRIPT, behind
+//     shell. The guard does not read what SCRIPT does with NAME ($0) and the
+//     ARGs ($1...): "$@" or "$0" -c may run them. So none of them may name
+//     go or a shell. The gate's scripts pass a name and paths there (gofmt,
+//     stagedBuild, provenanceAnalyzer), and their NAME is not "sh".
+//
+// Any other program, a go command other than go test included, is read as
+// one that runs no go test of its own. If one of its arguments, split into
+// shell words, names go or a shell, the guard cannot see what it runs, so it
+// refuses the step. Every other shell, sh in another shape, and a wrapper
+// with options are refused too: fail closed until classified.
 func argvInvocations(step string, argv []string, wrapped string) []invocation {
 	if len(argv) == 0 {
 		return nil
 	}
-	switch program := path.Base(argv[0]); {
-	case program == "go":
+	refuse := func(problem string) []invocation {
+		return []invocation{{step: step, wrapped: wrapped, problem: problem + ": " + strings.Join(argv, " ")}}
+	}
+	switch program := path.Base(argv[0]); program {
+	case "go":
 		if c, ok := parseGoCommand(step, argv, wrapped); ok {
 			return []invocation{c}
 		}
-		return nil
-	case program == "env":
+	case "env":
 		rest := argv[1:]
 		for len(rest) > 0 && isAssignment(rest[0]) {
 			rest = rest[1:]
 		}
 		if len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
-			return []invocation{{step: step, wrapped: "env", problem: "env with options: " + strings.Join(argv, " ")}}
+			return refuse("env with options runs a command the guard cannot read")
 		}
 		return argvInvocations(step, rest, orDefault(wrapped, "env"))
-	case program == "sh" || program == "bash":
+	case "timeout":
+		if len(argv) < 3 || strings.HasPrefix(argv[1], "-") {
+			return refuse("timeout with options or without a command runs a command the guard cannot read")
+		}
+		return argvInvocations(step, argv[2:], orDefault(wrapped, "timeout"))
+	case "sh":
 		if len(argv) < 3 || argv[1] != "-c" {
-			return []invocation{{step: step, wrapped: "shell", problem: "a shell without -c runs a script the guard cannot read: " + strings.Join(argv, " ")}}
+			return refuse("a shell without -c runs a script the guard cannot read")
 		}
 		var found []invocation
 		for _, words := range scriptCommands(argv[2]) {
 			found = append(found, scriptInvocations(step, words)...)
 		}
+		if slices.ContainsFunc(argv[3:], namesCommand) {
+			found = append(found, refuse("the arguments of a sh -c script name go or a shell, and the guard does not read how the script runs them")...)
+		}
 		return found
+	default:
+		if slices.Contains(shells, program) {
+			return refuse("a shell other than sh -c runs a script the guard does not read")
+		}
 	}
-	if slices.ContainsFunc(argv[1:], isGoProgram) {
-		return []invocation{{step: step, wrapped: wrapped, problem: "go is an argument of another program: " + strings.Join(argv, " ")}}
+	if slices.ContainsFunc(argv[1:], namesCommand) {
+		return refuse("a program the guard does not read is given go or a shell")
 	}
 	return nil
 }
 
-// scriptInvocations reads one simple command of a shell script.
+// scriptInvocations reads one simple command of a shell script. The script's
+// quotes are gone, so a shell inside it is refused: its own script cannot be
+// told apart from its arguments.
 func scriptInvocations(step string, words []string) []invocation {
 	for len(words) > 0 && (isAssignment(words[0]) || slices.Contains(shellKeywords, words[0])) {
 		words = words[1:]
@@ -119,19 +158,29 @@ func scriptInvocations(step string, words []string) []invocation {
 	if len(words) == 0 {
 		return nil
 	}
-	if program := path.Base(words[0]); program == "go" || program == "env" {
-		return argvInvocations(step, words, "shell")
-	}
-	if slices.ContainsFunc(words, isGoProgram) {
-		return []invocation{{step: step, wrapped: "shell", problem: "go is not in command position: " + strings.Join(words, " ")}}
+	if slices.ContainsFunc(words, isShell) {
+		return []invocation{{step: step, wrapped: "shell", problem: "a shell inside a sh -c script runs commands the guard cannot read: " + strings.Join(words, " ")}}
 	}
 	if strings.Contains(words[0], "$") && len(words) > 1 && words[1] == "test" {
 		return []invocation{{step: step, wrapped: "shell", problem: "a program named by a variable runs test: " + strings.Join(words, " ")}}
 	}
-	return nil
+	return argvInvocations(step, words, "shell")
 }
 
 func isGoProgram(word string) bool { return path.Base(word) == "go" }
+
+func isShell(word string) bool { return slices.Contains(shells, path.Base(word)) }
+
+// namesCommand reports whether an argument, split into shell words, names go
+// or a shell.
+func namesCommand(argument string) bool {
+	for _, words := range scriptCommands(argument) {
+		if slices.ContainsFunc(words, isGoProgram) || slices.ContainsFunc(words, isShell) {
+			return true
+		}
+	}
+	return false
+}
 
 func isAssignment(word string) bool {
 	name, _, ok := strings.Cut(word, "=")
@@ -381,10 +430,11 @@ func repositoryCensus(t *testing.T) (census, []*Step) {
 // step is classified when it appears. Then it generates additions and
 // mutations in each form a step can write a go test (a plain argv, go -C DIR
 // test, go test -C DIR, an env prefix, a second command in the provenance
-// script), over each kind of target (an observed main-module package, a
-// hermetic gate package, a package of another module, a missing module) and
-// each count (none, 0, 1), and checks the guard's verdict against a table
-// that does not parse commands.
+// script, and each wrapper the guard reads or must refuse), over each kind of
+// target (an observed main-module package, a hermetic gate package, a
+// package of another module, a missing module) and each count (none, 0, 1),
+// and checks the guard's verdict against a table that does not parse
+// commands.
 func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 	t.Parallel()
 	k, steps := repositoryCensus(t)
@@ -421,6 +471,7 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 		t.Fatalf("the census has %d observed and %d hermetic cached packages; the check is vacuous", classes["observed"], classes["hermetic"])
 	}
 	provenance := stepNamed(t, steps, "provenance analyzer")
+	kernel := stepNamed(t, steps, "go test ./prototypes/sketch9/sketch (kernel)")
 	controls := stepInvocations(provenance)
 	if len(controls) != 1 || controls[0].directory != "tools/provenance" || controls[0].count != "1" || controls[0].wrapped != "shell" {
 		t.Fatalf("the provenance script's go test is not read as one uncached test of tools/provenance: %v", controls)
@@ -452,6 +503,50 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 		{name: "missing module", directory: "nonexistent/loop-probe-x", pkg: "./...", module: false},
 	}
 	forms := []string{"argv", "go -C DIR test", "go test -C DIR", "env", "shell", "new step in shell"}
+	// Wrappers run the go test -C DIR form. The guard can unwrap a readable
+	// one, so it admits the command exactly where it admits the bare -C form
+	// with -count=1. Every other wrapper hides the command, so the guard
+	// refuses it at every count. The first four unreadable ones are the
+	// forms gate-testcache-gap round 1 found admitted (M1).
+	type wrapper struct {
+		name     string
+		readable bool
+		wrap     func(command []string) []string
+	}
+	line := func(command []string) string { return strings.Join(command, " ") }
+	wrappers := []wrapper{
+		{"timeout", true, func(c []string) []string { return append([]string{"timeout", "900"}, c...) }},
+		{"timeout sh -c", true, func(c []string) []string { return []string{"timeout", "900", "sh", "-c", line(c)} }},
+		{"env sh -c", true, func(c []string) []string { return []string{"env", "ERGO_COVERAGE_PROBE=1", "sh", "-c", line(c)} }},
+		{"timeout in a sh -c script", true, func(c []string) []string { return []string{"sh", "-c", "cd . && timeout 60 " + line(c)} }},
+		{"nested wrappers", true, func(c []string) []string {
+			return []string{"timeout", "900", "env", "ERGO_COVERAGE_PROBE=1", "timeout", "60", "sh", "-c", "cd . && " + line(c)}
+		}},
+		{"sh -c with a name and a path", true, func(c []string) []string { return []string{"sh", "-c", line(c), "probe", "/nonexistent/loop-probe-x"} }},
+
+		{"dash -c", false, func(c []string) []string { return []string{"dash", "-c", line(c)} }},
+		{"sh -c \"$@\" sh go", false, func(c []string) []string { return append([]string{"sh", "-c", `"$@"`, "sh"}, c...) }},
+		{"sh -c exec \"$@\" sh go", false, func(c []string) []string { return append([]string{"sh", "-c", `exec "$@"`, "sh"}, c...) }},
+		{"bash -c", false, func(c []string) []string { return []string{"bash", "-c", line(c)} }},
+		{"/bin/zsh -c", false, func(c []string) []string { return []string{"/bin/zsh", "-c", line(c)} }},
+		{"env dash -c", false, func(c []string) []string { return []string{"env", "ERGO_COVERAGE_PROBE=1", "dash", "-c", line(c)} }},
+		{"timeout bash -c", false, func(c []string) []string { return []string{"timeout", "900", "bash", "-c", line(c)} }},
+		{"sh -c \"$@\" with a name", false, func(c []string) []string { return append([]string{"sh", "-c", `"$@"`, "probe"}, c...) }},
+		{"sh -c $1 split into words", false, func(c []string) []string { return []string{"sh", "-c", "$1", "probe", line(c)} }},
+		{"sh -c \"$0\" -c", false, func(c []string) []string { return []string{"sh", "-c", `"$0" -c "$1"`, "sh", line(c)} }},
+		{"sh inside a sh -c script", false, func(c []string) []string { return []string{"sh", "-c", "sh -c '" + line(c) + "'"} }},
+		{"env sh -c inside a sh -c script", false, func(c []string) []string { return []string{"sh", "-c", "env X=1 sh -c '" + line(c) + "'"} }},
+		{"sh -ec", false, func(c []string) []string { return []string{"sh", "-ec", line(c)} }},
+		{"nice", false, func(c []string) []string { return append([]string{"nice"}, c...) }},
+		{"timeout nice", false, func(c []string) []string { return append([]string{"timeout", "900", "nice"}, c...) }},
+		{"timeout with options", false, func(c []string) []string { return append([]string{"timeout", "-k", "5", "900"}, c...) }},
+		{"env -S", false, func(c []string) []string { return []string{"env", "-S", line(c)} }},
+		{"xargs in a sh -c script", false, func(c []string) []string { return []string{"sh", "-c", "echo | xargs " + line(c)} }},
+		{"go run given go test", false, func(c []string) []string { return append([]string{"go", "run", "./scripts/probe"}, c...) }},
+	}
+	for _, w := range wrappers {
+		forms = append(forms, "wrapper: "+w.name)
+	}
 	counts := []string{"", "-count=0", "-count=1"}
 	cases := 0
 	for _, tg := range targets {
@@ -464,11 +559,14 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 				}
 				cases++
 				name := fmt.Sprintf("%s, %s, count %q", tg.name, form, count)
+				wrapperName, isWrapper := strings.CutPrefix(form, "wrapper: ")
+				w := wrappers[slices.IndexFunc(wrappers, func(w wrapper) bool { return !isWrapper || w.name == wrapperName })]
 				// The oracle: -count=1 in an existing module never replays;
 				// with no count only a plain argv in the root, of a package
-				// the census resolves, is in a guarded class.
+				// the census resolves, is in a guarded class. A wrapper the
+				// guard cannot read is refused at every count.
 				inCensus := tg.pkg == observed || tg.pkg == hermeticPackage || tg.pkg == k.module+"/internal/coverageprobe"
-				want := count == "-count=1" && tg.module || count == "" && form == "argv" && tg.main && inCensus
+				want := count == "-count=1" && tg.module && (!isWrapper || w.readable) || count == "" && form == "argv" && tg.main && inCensus
 				flags := []string{}
 				if count != "" {
 					flags = append(flags, count)
@@ -491,15 +589,17 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 				if tg.pkg == k.module+"/internal/coverageprobe" {
 					census.packages = append(slices.Clone(k.packages), tg.pkg)
 				}
-				switch form {
-				case "shell":
+				switch {
+				case form == "shell":
 					// A second go test in the real provenance script.
 					changed := *provenance
 					changed.Argv = slices.Clone(provenance.Argv)
 					changed.Argv[2] = strings.Replace(changed.Argv[2], "&&\n", "&&\n"+strings.Join(argv, " ")+" &&\n", 1)
 					mutated[slices.Index(steps, provenance)] = &changed
-				case "new step in shell":
+				case form == "new step in shell":
 					mutated = append(mutated, &Step{Name: "coverage probe", Argv: []string{"sh", "-c", "cd . && " + strings.Join(argv, " ")}})
+				case isWrapper:
+					mutated = append(mutated, &Step{Name: "coverage probe", Argv: w.wrap(argv), Env: tg.env})
 				default:
 					mutated = append(mutated, &Step{Name: "coverage probe", Argv: argv, Env: tg.env})
 				}
@@ -509,6 +609,39 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 				}
 			}
 		}
+	}
+
+	// A step that runs a script the guard cannot read is refused even when
+	// no go appears in its argv.
+	for _, argv := range [][]string{
+		{"dash", "/nonexistent/loop-probe-x.sh"},
+		{"bash", "-c", "$ERGO_COVERAGE_PROBE"},
+		{"timeout", "900", "zsh", "/nonexistent/loop-probe-x.sh"},
+		{"sh", "/nonexistent/loop-probe-x.sh"},
+		{"env", "-i", "make"},
+	} {
+		if refusals := k.refusals([]*Step{{Name: "coverage probe", Argv: argv}}); len(refusals) == 0 {
+			t.Errorf("the guard admits a step that runs a script or command it cannot read: %q", argv)
+		}
+	}
+
+	// The gate's own wrapper shapes are read and admitted: a sh -c script
+	// with a name and positional paths (gofmt, stagedBuild, provenance) and
+	// env with assignments (the kernel step). The test asserts their shape,
+	// so a refactor that drops the shape does not leave the case vacuous.
+	accepted := []*Step{stepNamed(t, steps, "gofmt"), stepNamed(t, steps, "build bin/ergo"), provenance, kernel}
+	for _, step := range accepted {
+		if refusals := k.refusals([]*Step{step}); len(refusals) > 0 {
+			t.Errorf("the guard refuses the gate's own shape %q: %q", step.Argv, refusals)
+		}
+	}
+	for _, step := range accepted[:3] {
+		if len(step.Argv) < 4 || step.Argv[0] != "sh" || step.Argv[1] != "-c" {
+			t.Errorf("step %q is no longer a sh -c script with positional arguments: %q", step.Name, step.Argv)
+		}
+	}
+	if kernel.Argv[0] != "env" {
+		t.Errorf("the kernel step is no longer behind env: %q", kernel.Argv)
 	}
 
 	// Mutations of the real step bodies.
@@ -531,7 +664,6 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 			t.Errorf("%s: the guard admits %q", mutation.name, changed.Argv[2])
 		}
 	}
-	kernel := stepNamed(t, steps, "go test ./prototypes/sketch9/sketch (kernel)")
 	for _, mutation := range []struct {
 		name string
 		edit func([]string) []string
@@ -552,7 +684,7 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 			t.Errorf("%s: the guard admits %q", mutation.name, changed.Argv)
 		}
 	}
-	if cases < 60 {
+	if cases < 500 {
 		t.Fatalf("only %d generated cases; the property is vacuous", cases)
 	}
 }
