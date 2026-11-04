@@ -70,7 +70,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 | Context header `provides A needs B` | Parsed and formatted; S109 naming #196 stage b (Gap 33) | [rows](rows.md#context) |
 | `with W { block }` | Checked; runs | [rows](rows.md#with) |
 | `with` context values (G1) | Designed, not yet implemented; S109 naming G1 | [runtime](runtime.md#g1-context-through-with) |
-| `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); runs through the prototype emitter's own `timeout.After` | [runtime](runtime.md#timeouts) |
+| `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); `ergo build` lowers its call to its `runtime/v1` body, `v1.After` | [runtime](runtime.md#timeouts) |
 | Trailing block as a function-literal argument | Checked; build refused except on `with` and `timeout.After` | [grammar](grammar.md#expressions) |
 | Function literals and function types | Checked, with rows from the expected type or inferred; build refused | [types](types.md#generics) |
 | Resources and automatic release | Designed, not yet implemented ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
