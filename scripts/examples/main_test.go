@@ -632,8 +632,8 @@ func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
 
 // The test leg runs ergo test DIR/main.ergo for each program that declares a
 // test, after its build; a failure fails the program and its cases still run.
-// While this checkout's compiler has no ergo test, its pending reply is a
-// skip, never a pass or a silent run.
+// The checkout's compiler has ergo test, so the reply of a compiler without
+// it (the pending line) is a failure like any other, never a skip.
 func TestTestLeg(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -650,7 +650,7 @@ func TestTestLeg(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("a failing test: want exit 1, got %d\n%s", code, out)
 	}
-	for _, want := range []string{"ok passing: test (", "FAIL failing: test\n", "    FAIL Fixture: assert failed", "skip pending: test (ergo test is not available yet in this compiler)\n", "ok other: test ("} {
+	for _, want := range []string{"ok passing: test (", "FAIL failing: test\n", "    FAIL Fixture: assert failed", "FAIL pending: test\n", "    ergo test: not available yet", "ok other: test ("} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q\n%s", want, out)
 		}
@@ -674,33 +674,8 @@ func TestTestLeg(t *testing.T) {
 	if !slices.Equal(tests, want) {
 		t.Fatalf("ergo test calls:\n%q\nwant\n%q", tests, want)
 	}
-	if code, out := f.run("pending"); code != 0 {
-		t.Fatalf("a pending reply alone: want exit 0, got %d\n%s", code, out)
-	}
-}
-
-// Only the pending reply is a skip: exit 1, nothing on stdout, and stderr
-// that starts with the pending line. Any other failure is a failure.
-func TestOnlyThePendingReplyIsASkip(t *testing.T) {
-	t.Parallel()
-	line := []byte(pendingTest + "; lowering adds it (#196)\n")
-	cases := []struct {
-		what    string
-		reply   outcome
-		pending bool
-	}{
-		{"the pending reply", outcome{status: 1, stderr: line}, true},
-		{"a failing test", outcome{status: 1, stdout: []byte("FAIL X\n")}, false},
-		{"output on stdout too", outcome{status: 1, stdout: []byte("FAIL X\n"), stderr: line}, false},
-		{"the line after other output", outcome{status: 1, stderr: append([]byte("panic\n"), line...)}, false},
-		{"another status", outcome{status: 2, stderr: line}, false},
-		{"a pass", outcome{status: 0, stderr: line}, false},
-		{"a timeout", outcome{status: -1, timedOut: true, stderr: line}, false},
-	}
-	for _, c := range cases {
-		if pendingReply(c.reply) != c.pending {
-			t.Errorf("%s: pending %t, want %t", c.what, !c.pending, c.pending)
-		}
+	if code, out := f.run("pending"); code != 1 || strings.Contains(out, "skip") {
+		t.Fatalf("a pending reply alone: want exit 1 and no skip, got %d\n%s", code, out)
 	}
 }
 

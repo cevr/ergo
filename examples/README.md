@@ -45,7 +45,7 @@ A case passes when stdout, stderr and the status all equal the recorded ones. A 
 
 ## Test leg
 
-A program can declare its own tests: a top-level `.ergo` file with a line that starts with `test` and a name. For such a program the runner runs `ergo test <dir>/main.ergo` after the build and prints `ok <program>: test (<time>)`, or `FAIL <program>: test` with the command's output. A failing test fails the program, and its cases still run. While the checkout's compiler has no `ergo test` (it prints `ergo test: not available yet`), the runner prints `skip <program>: test (ergo test is not available yet in this compiler)` instead. This exception goes away when the compiler gets `ergo test`.
+A program can declare its own tests: a top-level `.ergo` file with a line that starts with `test` and a name. For such a program the runner runs `ergo test <dir>/main.ergo` after the build and prints `ok <program>: test (<time>)`, or `FAIL <program>: test` with the command's output. A failing test fails the program, and its cases still run. A test leg is never skipped: any reply other than a pass is a failure.
 
 ## Record leg
 

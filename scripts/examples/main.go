@@ -52,12 +52,6 @@ var nonPrograms = map[string]string{
 // caseFiles are the files a case folder may hold.
 var caseFiles = []string{"args", "stdin", "env", "setup.sh", "expected.out", "expected.err", "expected.status"}
 
-// pendingTest starts what ergo test prints while the compiler has no test
-// command (lowering adds it, #196). Revision 3, C4: the skip exists only
-// while the checkout's compiler has no ergo test; the merge that joins this
-// runner with lower-v1 stage 4 removes it and its tests.
-const pendingTest = "ergo test: not available yet"
-
 // testDeclaration finds a top-level test declaration in an .ergo file.
 var testDeclaration = regexp.MustCompile(`(?m)^test [A-Za-z_]`)
 
@@ -524,19 +518,11 @@ func (r *runner) testProgram(p *program) {
 		r.fail(p.name + ": test")
 	case o.passed():
 		fmt.Fprintf(r.out, "ok %s: test (%s)\n", p.name, seconds(o.elapsed))
-	case pendingReply(o):
-		fmt.Fprintf(r.out, "skip %s: test (ergo test is not available yet in this compiler)\n", p.name)
 	default:
 		fmt.Fprintf(r.out, "FAIL %s: test%s\n", p.name, o.why(r.cfg.timeout))
 		r.printOutput(o, nil)
 		r.fail(p.name + ": test")
 	}
-}
-
-// pendingReply is the reply of a compiler without ergo test: exit 1, nothing
-// on stdout, and stderr that starts with the pending line.
-func pendingReply(o outcome) bool {
-	return !o.timedOut && o.status == 1 && len(o.stdout) == 0 && bytes.HasPrefix(o.stderr, []byte(pendingTest))
 }
 
 // recordProgram runs a port's original through record.sh for each case and

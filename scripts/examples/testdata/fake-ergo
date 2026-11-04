@@ -5,8 +5,8 @@
 #   build SRC -o OUT     makes SRC (a shell script) the executable OUT; fails
 #                        on a line BUILDFAIL;
 #   fmt --check FILE...  fails on a file holding UNFORMATTED;
-#   test FILE            prints the pending-command line on TESTPENDING,
-#                        fails on TESTFAIL, passes otherwise.
+#   test FILE            prints the reply of a compiler without ergo test on
+#                        TESTPENDING, fails on TESTFAIL, passes otherwise.
 printf '%s\n' "$*" >> "$(dirname "$0")/calls.log"
 case "$1" in
 test)
