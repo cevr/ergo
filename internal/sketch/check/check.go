@@ -161,6 +161,14 @@ type checker struct {
 	// contextLimit, set only by tests, replaces the budget of a package of
 	// the given context size.
 	contextLimit func(size int) int
+	// withs meters the pushes of the with scopes against the package's
+	// with budget (withBudget); withLimit, set only by tests, replaces that
+	// budget for a package of the given source size. withRefused is the
+	// first with operand whose push did not fit, in its file, reported
+	// once at the end of the run (reportWithBudget).
+	withs       *contextMeter
+	withLimit   func(size int) int
+	withRefused *withRefusal
 	// contextComp maps each named context to its embedding component (contextSummaries).
 	contextComp map[*Context]*contextComp
 	// contextBodies holds each context body's summary, decided once (contextSummaries,

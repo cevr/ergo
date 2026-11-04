@@ -99,6 +99,67 @@ func withShape(shape string, n int) string {
 			fmt.Fprintf(&b, "\tlet w%d = context { C%d: Mem{V: \"c\"}, w%d }\n", i, i, i-1)
 		}
 		fmt.Fprintf(&b, "\twith w%d { all() }\n}\n", n-1)
+	case "alternating", "local alternating": // with W0, V0, W1, V1, … of two chains that bind the same capabilities (E5 r1 M1)
+		// Wi and Vi each embed the one before and bind C0 to Ci, from
+		// different entries: each frame's summary has the keys of the scope
+		// below it, and one more, but none of its nodes.
+		caps()
+		w, v, indent := "W", "V", ""
+		if shape == "local alternating" {
+			w, v, indent = "w", "v", "\t"
+			b.WriteString("func f() string {\n")
+		}
+		fmt.Fprintf(&b, "%slet %s0 = context { C0: Mem{V: \"w\"} }\n", indent, w)
+		fmt.Fprintf(&b, "%slet %s0 = context { C0: Mem{V: \"v\"} }\n", indent, v)
+		for i := 1; i < n; i++ {
+			fmt.Fprintf(&b, "%slet %s%d = context { C%d: Mem{V: \"w\"}, %s%d }\n", indent, w, i, i, w, i-1)
+			fmt.Fprintf(&b, "%slet %s%d = context { C%d: Mem{V: \"v\"}, %s%d }\n", indent, v, i, i, v, i-1)
+		}
+		if shape == "alternating" {
+			b.WriteString("func f() string {\n")
+		}
+		fmt.Fprintf(&b, "\treturn with %s0, %s0", w, v)
+		for i := 1; i < n; i++ {
+			fmt.Fprintf(&b, ", %s%d, %s%d", w, i, v, i)
+		}
+		fmt.Fprintf(&b, " { C0.Get() + C%d.Get() }\n}\n", n-1)
+	case "pairs", "fan": // the with budget's shapes (withbudget.go): each push changes the binder of n capabilities
+		// pairs: with A, B, A, B, … (n of each) of two contexts that bind
+		// n capabilities each, whose names interleave. fan: with Z0, …,
+		// Zn-1, where each Zi embeds B and binds one capability of its own.
+		for i := range n {
+			fmt.Fprintf(&b, "type K%da { Get() string }\ntype K%db { Get() string }\n", i, i)
+		}
+		b.WriteString("type Mem { V string }\n\nfunc Get(m Mem) string { return m.V }\n\n")
+		// one declares context name, binding K0s to Kn-1s.
+		one := func(name, s string) {
+			fmt.Fprintf(&b, "let %s = context { K0%s: Mem{V: \"c\"}", name, s)
+			for i := 1; i < n; i++ {
+				fmt.Fprintf(&b, ", K%d%s: Mem{V: \"c\"}", i, s)
+			}
+			b.WriteString(" }\n")
+		}
+		if shape == "pairs" {
+			one("A", "a")
+			one("B", "b")
+		} else {
+			one("B", "a")
+		}
+		if shape == "fan" {
+			for i := range n {
+				fmt.Fprintf(&b, "let Z%d = context { K%db: Mem{V: \"z\"}, B }\n", i, i)
+			}
+			b.WriteString("func f() string {\n\treturn with Z0")
+			for i := 1; i < n; i++ {
+				fmt.Fprintf(&b, ", Z%d", i)
+			}
+		} else {
+			b.WriteString("func f() string {\n\treturn with A, B")
+			for i := 1; i < n; i++ {
+				b.WriteString(", A, B")
+			}
+		}
+		b.WriteString(" { K0a.Get() + K0b.Get() }\n}\n")
 	default:
 		panic(shape)
 	}
@@ -132,7 +193,7 @@ const withStepsPerByte = 4
 // quadratic count grows about four times). The nested shape is bounded by
 // the parser's nesting cap, so it runs at 50 and 200.
 func TestWithSiteWorkLinear(t *testing.T) {
-	for _, shape := range []string{"wowned", "nested", "several", "stack", "local many", "local chain"} {
+	for _, shape := range []string{"wowned", "nested", "several", "stack", "local many", "local chain", "alternating", "local alternating"} {
 		n := 1000
 		if shape == "nested" {
 			n = 50
@@ -217,7 +278,7 @@ func TestWithScopeIsTheWalk(t *testing.T) {
 				f := frame()
 				scopes = append(scopes, scope)
 				stack = append(stack, f)
-				scope = scope.push(f)
+				scope, _ = scope.push(nil, f)
 			}
 			for _, cap := range caps {
 				var want *withFrame

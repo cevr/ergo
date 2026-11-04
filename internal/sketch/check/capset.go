@@ -4,6 +4,7 @@ import (
 	"math/bits"
 	"sort"
 	"strings"
+	"unique"
 )
 
 // A capSet is a persistent set of capabilities, keyed by their qualified
@@ -52,6 +53,49 @@ type capNode struct {
 	pri         uint32
 	h           int32 // nodes on the longest path down from here
 	left, right *capNode
+	// keys is the subtree's keys, hash-consed (keyShape): two subtrees
+	// hold the same keys when their keys are equal, whatever their entries
+	// (sameKeys). capInsert sets it with h (fix).
+	keys unique.Handle[keyShape]
+}
+
+// A keyShape is the shape of a capSet subtree without its entries: the
+// node's key and its children's shapes. unique.Make hash-conses it, so two
+// subtrees of one shape share one handle, and a handle comparison is one
+// pointer comparison. One shape holds one set of keys, so equal handles
+// mean equal key sets. A treap's shape is a function of its keys, as the
+// priorities hash the keys (capKey.priority), so two summaries that bind
+// the same capabilities from different entries have equal handles (with
+// scopes, E5 round 1 M1); two keys whose priorities tie can give one key
+// set two shapes, and then sameKeys is false, which costs only work.
+// Prior art: hash-consing (Filliâtre and Conchon, "Type-safe modular
+// hash-consing", 2006), and Go's unique package, which interns comparable
+// values behind weak references; a treap with hashed priorities is a
+// uniquely represented set (Seidel and Aragon, "Randomized search trees",
+// 1996).
+type keyShape struct {
+	key         capKey
+	left, right unique.Handle[keyShape]
+}
+
+// keysOf is n's key shape; the zero handle for the empty subtree.
+func keysOf(n *capNode) unique.Handle[keyShape] {
+	if n == nil {
+		return unique.Handle[keyShape]{}
+	}
+	return n.keys
+}
+
+// fix sets n's height and key shape from its key and its children.
+func (n *capNode) fix() {
+	n.h = 1 + max(height(n.left), height(n.right))
+	n.keys = unique.Make(keyShape{key: n.key, left: keysOf(n.left), right: keysOf(n.right)})
+}
+
+// sameKeys reports whether summary subtrees a and b are known to hold the
+// same keys: the same node, or one key shape.
+func sameKeys(a, b *capNode) bool {
+	return a == b || a != nil && b != nil && a.keys == b.keys
 }
 
 // A capKey is a capability's qualified name. A capability is a named,
@@ -217,15 +261,34 @@ func withStep(n int) {
 // It is a treap ordered by capability key with the summaries' priorities
 // (capKey.priority). Pushing a frame is the union of its summary with the
 // scope, the frame winning: the frame's summary joins as a shared subtree
-// (scopeNode.set), and a subtree whose keys the frame's summary holds
-// already is replaced by it without a visit (scopeNode.eq). So a with
-// on an empty scope costs O(1), a frame of k capabilities over a scope of
-// m costs O(min(k, m) log) at most, and a context that embeds the one
-// below it (a chain, whose summaries share every node but a path) costs
-// O(log) per frame. Popping a frame restores the previous version, O(1).
+// (scopeNode.set), and a subtree that holds the keys of the frame's
+// summary subtree, from any entries, is replaced by it without a visit
+// (scopeNode.eq, compared by key shape: sameKeys). So a with on an empty
+// scope costs O(1), a frame of k capabilities over a scope of m costs
+// O(min(k, m) log) at most, and a frame whose summary holds the scope's
+// keys and d more, or the scope's keys but d (a chain of contexts, each
+// embedding the one before; two such chains in turn, E5 round 1 M1),
+// costs O(d log).
+// Popping a frame restores the previous version, O(1).
+//
+// The bound O(min(k, m) log) is reached when the frame's capabilities and
+// the scope's interleave in key order and other frames bind the scope's:
+// `with A, B, A, B, …` of two large contexts, or `with Z1, …, Zn` where
+// each Zi embeds one large context and binds one capability of its own.
+// Then each push changes the binder of m capabilities, which a map from
+// capability to frame cannot do in less than m steps, and a walk of the
+// frames per charge costs O(n) per charge instead. That is a batch
+// reachability question again (contextsum.go: no known linear algorithm),
+// so the pushes are repeatable work under a budget (D16; #229 done-when
+// 1): each step of a union, a split or an exposed shared node is charged
+// to the package's with meter (withBudget) before it runs, and a push
+// that does not fit leaves the scope as it was and reports false; its
+// frame is then unknown (D3) and the with is S102 (checker.pushFrame).
 // Prior art: the context summaries (contextsum.go) share embedded sets the
 // same way; the split-based union is Blelloch, Ferizovic and Sun's "Just
-// Join for Parallel Ordered Sets" (2016).
+// Join for Parallel Ordered Sets" (2016); Go's type checker walks its
+// scope chain per lookup (types2 Scope.LookupParent), which the source's
+// nesting bounds and `with A1, …, An` does not.
 type withScope struct {
 	root *scopeNode
 	top  *withFrame // the innermost frame, or nil
@@ -256,15 +319,25 @@ func shared(n *capNode, f *withFrame) *scopeNode {
 	return &scopeNode{key: n.key, pri: n.pri, frame: f, set: n, eq: n}
 }
 
-// expose returns n with its children as scope nodes: a shared subtree is
-// read one node down.
-func expose(n *scopeNode) *scopeNode {
-	if n.set == nil {
-		return n
-	}
+// scopeStep counts one step of a push (withStep) and charges it to m
+// before it runs; it reports false once m's budget is passed. A nil m is
+// not metered.
+func scopeStep(m *contextMeter) bool {
 	withStep(1)
+	return m == nil || m.step(1)
+}
+
+// expose returns n with its children as scope nodes: a shared subtree is
+// read one node down. ok is false when m's budget ran out.
+func expose(m *contextMeter, n *scopeNode) (_ *scopeNode, ok bool) {
+	if n.set == nil {
+		return n, true
+	}
+	if !scopeStep(m) {
+		return nil, false
+	}
 	return &scopeNode{key: n.key, pri: n.pri, frame: n.frame, eq: n.set,
-		left: shared(n.set.left, n.frame), right: shared(n.set.right, n.frame)}
+		left: shared(n.set.left, n.frame), right: shared(n.set.right, n.frame)}, true
 }
 
 // above reports whether a's node goes above b's in the treap: the higher
@@ -278,91 +351,136 @@ func holdsExactly(n *scopeNode, s *capNode) bool {
 	if n == nil {
 		return s == nil
 	}
-	return s != nil && n.eq == s
+	return s != nil && n.eq != nil && sameKeys(n.eq, s)
 }
 
 // scopeUnion is the union of a and b, a's frame binding each key both
-// hold.
-func scopeUnion(a, b *scopeNode) *scopeNode {
+// hold. ok is false when m's budget ran out; the result is then nil.
+func scopeUnion(m *contextMeter, a, b *scopeNode) (_ *scopeNode, ok bool) {
 	if a == nil {
-		return b
+		return b, true
 	}
 	if b == nil {
-		return a
+		return a, true
 	}
-	withStep(1)
-	if a.eq != nil && a.eq == b.eq {
-		return a // the same keys: a binds them all
+	if !scopeStep(m) {
+		return nil, false
 	}
-	a, b = expose(a), expose(b)
+	if a.eq != nil && b.eq != nil && sameKeys(a.eq, b.eq) {
+		return a, true // the same keys, from any entries: a binds them all
+	}
+	if a, ok = expose(m, a); !ok {
+		return nil, false
+	}
+	if b, ok = expose(m, b); !ok {
+		return nil, false
+	}
 	if a.key == b.key || above(a, b) {
 		bl, br := b.left, b.right
 		if a.key != b.key {
-			bl, _, br = scopeSplit(b, a.key)
+			if bl, _, br, ok = scopeSplit(m, b, a.key); !ok {
+				return nil, false
+			}
 		}
-		n := &scopeNode{key: a.key, pri: a.pri, frame: a.frame, left: scopeUnion(a.left, bl), right: scopeUnion(a.right, br)}
+		n := &scopeNode{key: a.key, pri: a.pri, frame: a.frame}
+		if n.left, ok = scopeUnion(m, a.left, bl); !ok {
+			return nil, false
+		}
+		if n.right, ok = scopeUnion(m, a.right, br); !ok {
+			return nil, false
+		}
 		if a.eq != nil && holdsExactly(n.left, a.eq.left) && holdsExactly(n.right, a.eq.right) {
 			n.eq = a.eq // b added no key
 		}
-		return n
+		return n, true
 	}
 	// b's node goes above a's: a holds b's key only when two keys' priorities
 	// tie (a heap-ordered treap's root has its highest priority), and then
 	// a's frame binds it.
-	al, am, ar := scopeSplit(a, b.key)
-	f := b.frame
-	if am != nil {
-		f = am.frame
+	al, am, ar, ok := scopeSplit(m, a, b.key)
+	if !ok {
+		return nil, false
 	}
-	return &scopeNode{key: b.key, pri: b.pri, frame: f, left: scopeUnion(al, b.left), right: scopeUnion(ar, b.right)}
+	n := &scopeNode{key: b.key, pri: b.pri, frame: b.frame}
+	if am != nil {
+		n.frame = am.frame
+	}
+	if n.left, ok = scopeUnion(m, al, b.left); !ok {
+		return nil, false
+	}
+	if n.right, ok = scopeUnion(m, ar, b.right); !ok {
+		return nil, false
+	}
+	return n, true
 }
 
 // scopeSplit splits n at k: the keys below k, the node of k (or nil), and
-// the keys above k. The nodes on the path are copies.
-func scopeSplit(n *scopeNode, k capKey) (l, mid, r *scopeNode) {
+// the keys above k. The nodes on the path are copies. ok is false when m's
+// budget ran out.
+func scopeSplit(m *contextMeter, n *scopeNode, k capKey) (l, mid, r *scopeNode, ok bool) {
 	if n == nil {
-		return nil, nil, nil
+		return nil, nil, nil, true
 	}
-	withStep(1)
-	n = expose(n)
+	if !scopeStep(m) {
+		return nil, nil, nil, false
+	}
+	if n, ok = expose(m, n); !ok {
+		return nil, nil, nil, false
+	}
 	switch c := k.compare(n.key); {
 	case c == 0:
-		return n.left, n, n.right
+		return n.left, n, n.right, true
 	case c < 0:
-		l, mid, r = scopeSplit(n.left, k)
-		return l, mid, &scopeNode{key: n.key, pri: n.pri, frame: n.frame, left: r, right: n.right}
+		if l, mid, r, ok = scopeSplit(m, n.left, k); !ok {
+			return nil, nil, nil, false
+		}
+		return l, mid, &scopeNode{key: n.key, pri: n.pri, frame: n.frame, left: r, right: n.right}, true
 	default:
-		l, mid, r = scopeSplit(n.right, k)
-		return &scopeNode{key: n.key, pri: n.pri, frame: n.frame, left: n.left, right: l}, mid, r
+		if l, mid, r, ok = scopeSplit(m, n.right, k); !ok {
+			return nil, nil, nil, false
+		}
+		return &scopeNode{key: n.key, pri: n.pri, frame: n.frame, left: n.left, right: l}, mid, r, true
 	}
 }
 
-// push returns s with f the innermost frame.
-func (s withScope) push(f *withFrame) withScope {
+// push returns s with f the innermost frame, its union charged to m. When
+// m's budget runs out, ok is false and the returned scope is s with f
+// unknown: it discharges everything inside it (D3), and the caller reports
+// the with (checker.pushFrame).
+func (s withScope) push(m *contextMeter, f *withFrame) (_ withScope, ok bool) {
 	f.depth = 1
 	if s.top != nil {
 		f.depth = s.top.depth + 1
 	}
 	s.top = f
-	switch {
-	case f.unknown:
-		s.unknown = f.depth
-	case f.binds != nil:
-		s.root = scopeUnion(shared(f.binds.root, f), s.root)
-		if len(f.binds.extra) > 0 {
-			// An inline context's own entries, over its embeddings: its
-			// source, in key order so the work is the same on every run.
-			keys := make([]capKey, 0, len(f.binds.extra))
-			for k := range f.binds.extra {
-				keys = append(keys, k)
-			}
-			sort.Slice(keys, func(i, j int) bool { return keys[i].compare(keys[j]) < 0 })
-			for _, k := range keys {
-				s.root = scopeUnion(&scopeNode{key: k, pri: k.priority(), frame: f}, s.root)
+	if f.unknown || f.binds == nil {
+		if f.unknown {
+			s.unknown = f.depth
+		}
+		return s, true
+	}
+	root := s.root
+	if root, ok = scopeUnion(m, shared(f.binds.root, f), root); ok && len(f.binds.extra) > 0 {
+		// An inline context's own entries, over its embeddings: its
+		// source, in key order so the work is the same on every run.
+		keys := make([]capKey, 0, len(f.binds.extra))
+		for k := range f.binds.extra {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool { return keys[i].compare(keys[j]) < 0 })
+		for _, k := range keys {
+			if root, ok = scopeUnion(m, &scopeNode{key: k, pri: k.priority(), frame: f}, root); !ok {
+				break
 			}
 		}
 	}
-	return s
+	if !ok {
+		f.unknown = true
+		s.unknown = f.depth
+		return s, false
+	}
+	s.root = root
+	return s, true
 }
 
 // binder is the innermost frame of s that binds cap, or nil; unknown
@@ -503,7 +621,9 @@ func capInsert(m *contextMeter, n *capNode, k capKey, t Type, e *ContextEntry, p
 			return nil, false, false, false
 		}
 		op(m, "node made", repeatable, 1)
-		return &capNode{key: k, t: t, entry: e, pri: pri, h: 1}, true, false, true
+		n := &capNode{key: k, t: t, entry: e, pri: pri}
+		n.fix()
+		return n, true, false, true
 	}
 	if !m.step(1) {
 		return n, false, false, false
@@ -540,20 +660,20 @@ func capInsert(m *contextMeter, n *capNode, k capKey, t Type, e *ContextEntry, p
 		c.left = child
 		if child.pri > c.pri {
 			c.left, child.right = child.right, &c
-			c.h = 1 + max(height(c.left), height(c.right))
-			child.h = 1 + max(height(child.left), height(child.right))
+			c.fix()
+			child.fix()
 			return child, added, changed, true
 		}
 	} else {
 		c.right = child
 		if child.pri > c.pri {
 			c.right, child.left = child.left, &c
-			c.h = 1 + max(height(c.left), height(c.right))
-			child.h = 1 + max(height(child.left), height(child.right))
+			c.fix()
+			child.fix()
 			return child, added, changed, true
 		}
 	}
-	c.h = 1 + max(height(c.left), height(c.right))
+	c.fix()
 	return &c, added, changed, true
 }
 

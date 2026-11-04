@@ -33,14 +33,16 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		c.errorf(x, CodeType, "with takes one context (rows.md, With 1)")
 		// unknown: discharge everything, so no cascade.
 		frames = append(frames, &withFrame{unknown: true, outer: t.scope})
-		t.scope = t.scope.push(frames[0])
+		c.pushFrame(t, x, frames[0])
 	}
 	for _, a := range x.Args {
 		binds, known, context, value := c.withArg(a)
 		// unknown: discharge everything, so no cascade. A context binding
-		// discharges nothing: its block's row is the enclosing one's.
+		// discharges nothing: its block's row is the enclosing one's. A
+		// push past the with budget leaves the frame unknown too
+		// (withbudget.go).
 		f := &withFrame{binds: binds, unknown: !known, context: context, value: value, outer: t.scope}
-		t.scope = t.scope.push(f)
+		c.pushFrame(t, a, f)
 		frames = append(frames, f)
 	}
 	done := c.openScope()
@@ -575,7 +577,7 @@ func (c *checker) checkContexts() {
 		if t.internal == nil {
 			// Its summary was refused (contextsum.go): nothing it charges is
 			// reported (D3).
-			t.scope = t.scope.push(&withFrame{unknown: true})
+			c.pushFrame(t, d.Name, &withFrame{unknown: true})
 		}
 		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope), reach: c.reachOf(w)}
 		c.contextBody(d.Body, w)
