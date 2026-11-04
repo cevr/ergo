@@ -70,6 +70,11 @@ func TestAgentTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
+	// The agent stops answering when a step fails: the deadline turns that
+	// into a failure that names the step, not a hang until the test timeout.
+	if err := c.SetDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	in := bufio.NewReader(c)
 	pwd, err := os.Getwd()
 	if err != nil {
