@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // The naming pass. Before any body is lowered, it gives every package-scope
@@ -45,6 +46,13 @@ import (
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
 	l.declareNames()
+	for _, tn := range l.pkg.Types {
+		if tn.Decl != nil {
+			if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
+				l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+			}
+		}
+	}
 	l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
 	l.pkgName(pkgKey{"import", "time"}, "time")
 	l.pkgName(pkgKey{"import", "strconv"}, "strconv") // interpolation (interp.go)

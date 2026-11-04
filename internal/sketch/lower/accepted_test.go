@@ -38,14 +38,15 @@ var implementedFamilies = []string{
 	// A law is checked, not run (#162): neither build lowers it, so a
 	// source that holds one lowers whole without it (stage E3b-2).
 	"LawDecl", "call:LawOp",
+	// A machine declaration lowers to a plan value (lower-v1 stage 4,
+	// machine.go; TestMachinePlanValues).
+	"MachineType", "MachineEntry",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,
 // with the owner the refusal names. A source that holds one is refused at
 // it, never lowered partly.
 var refusedFamilies = map[string]string{
-	"MachineEntry": "lower-v1 stage 4", // entries are refused with their enclosing MachineType
-	"MachineType":  "lower-v1 stage 4",
 	// Narrower families: a form of an implemented node that waits.
 	"call:Func:externTarget": "lower-v1",
 	"NoValue:generic":        "lower-v1 (C11",
@@ -76,7 +77,6 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
 	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered by lower-v1 \(C11, one Go shape for no-result function values\)$`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},

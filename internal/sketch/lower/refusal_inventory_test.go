@@ -76,12 +76,6 @@ func main() { with (Tag{V: 1}) { } }
 				continue
 			} // classification has its own corpus check
 			met[family]++
-			// A machine entry is a member of a machine plan; the plan's
-			// located refusal covers it. Require an actual entry in this
-			// same checked source, rather than a catalogue exemption.
-			if family == "MachineType" && families(o.file, o.pkg.Info)["MachineEntry"] {
-				met["MachineEntry"]++
-			}
 		}
 	}
 	for _, r := range importedContextRefusalWitness(t) {

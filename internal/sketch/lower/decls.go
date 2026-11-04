@@ -32,6 +32,9 @@ const (
 	// kindDefined is `type N T` (D-B7): Go's `type N T`, with T's fields
 	// when T is a record.
 	kindDefined
+	// kindMachine is `type X machine[S, E] { … }` (spec D5): a plan value
+	// (machine.go).
+	kindMachine
 )
 
 // typeDecl is a lowered type declaration.
@@ -45,6 +48,7 @@ type typeDecl struct {
 	fieldName map[string]string
 	ops       []*check.Method
 	defined   check.Type // kindDefined: T, the type N is defined over
+	machine   *machineDecl
 	variants  []*check.TypeName
 	marker    string
 	errorType bool
@@ -291,7 +295,7 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 			}
 		}
 	case *syntax.MachineType:
-		refuse(site, "machine plan values are lowered in lower-v1 stage 4 (spec D5)")
+		td.kind, td.machine = kindMachine, l.machineOf(tn, named, spec, site)
 	default:
 		def := named.Defined()
 		if def == nil {
@@ -498,6 +502,8 @@ func (l *lowerer) emitType(td *typeDecl) {
 		if td.errorType {
 			l.errorMethod(b, td)
 		}
+	case kindMachine:
+		l.machinePlan(b, td)
 	}
 }
 
@@ -999,12 +1005,13 @@ func (l *lowerer) hasInits() bool {
 			return true
 		}
 	}
-	return false
+	return len(l.machineInits) > 0
 }
 
 // initFunc is the Go function that runs the package-level initializers in
 // Info.InitOrder (Go's initialization order: a let after every let it
-// refers to, directly or through functions, else in declaration order), or
+// refers to, directly or through functions, else in declaration order),
+// then each machine's initial value in declaration order (machine.go), or
 // "" when there is none. The entry calls it first inside v1.Main.
 func (l *lowerer) initFunc() string {
 	if !l.hasInits() {
@@ -1015,6 +1022,9 @@ func (l *lowerer) initFunc() string {
 	b.WriteString("// " + name + " runs the package-level lets in Go's initialization order,\n// inside the program's root task.\nfunc " + name + "(" + initEnv(l) + " *" + l.env() + ") {\n")
 	for _, in := range l.info.InitOrder {
 		b.WriteString(l.inits[in.Value])
+	}
+	for _, x := range l.machineInits {
+		b.WriteString(l.inits[x])
 	}
 	b.WriteString("}\n\n")
 	return b.String()

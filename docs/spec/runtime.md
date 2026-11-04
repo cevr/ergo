@@ -249,7 +249,14 @@ Status: **implemented** (lower-v1 stage 4). `ergo test FILE [--seed N] [-work]` 
 
 ## Machines and actors
 
-Status: **designed, not yet implemented** ([#57](https://github.com/cevr/ergo/issues/57)).
+Status: **machine plan values are implemented; no runner and no actor library yet** ([#57](https://github.com/cevr/ergo/issues/57), [#101](https://github.com/cevr/ergo/issues/101)). A machine declaration is checked and lowered (lower-v1 stage 4): a program that declares a machine builds and runs, and a value `X{}` is bound, passed, returned and stored like a record value. The lowering is a plan value (item 5), not a running machine:
+
+- `X` is a Go type with no fields, so its values have zero size and are all equal.
+- `Initial()` returns the initial value. The program computes it once at start, after every package `let`, in declaration order. It is checked like a package `let`: it has no typed failure and uses no capability. A defect in it stops the program at start, as a package `let`'s defect does, even when nothing uses the machine.
+- `Step(s, e)` calls the step function directly, with no closure and no allocation. A pure step (no error row, no `needs` row, an empty footprint; [rows.md](rows.md#footprints)) gives a plan `Step` that takes no environment, so a plan call costs the same as the direct call (D5). A step with a row takes the environment and returns the failure, as a function with that row does (D3). `TestMachinePlanValues` holds both rules against a reference model.
+- `Initial` and `Step` are Go methods of `X`, so a user function named `Initial` or `Step` does not collide with them.
+
+The Ergo surface has no accessor for `Initial` or `Step` and no built-in runner. A program steps its machine through its own call of the step function until the runner of the actor library ([#57](https://github.com/cevr/ergo/issues/57), [#101](https://github.com/cevr/ergo/issues/101)) lands.
 
 ```go
 type State = Closed | Open | HalfOpen

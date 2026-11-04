@@ -197,6 +197,9 @@ type lowerer struct {
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
 	inits map[syntax.Expr]string
+	// machineInits are the initial values of the package's machines, in
+	// declaration order, which initFunc runs after every let (machine.go).
+	machineInits []syntax.Expr
 
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.

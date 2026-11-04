@@ -63,6 +63,12 @@ var i1FrameKinds = []i1FrameKind{
 		value := "func() int {\n" + body + "}()"
 		return "let seed = " + value + "\nlet other, second = (" + value + ", 0)\nlet _ = " + value + "\nfunc subject() int { seed + other + second }\n"
 	}},
+	// A machine's initial value runs in the program's initializer as a
+	// package let's does (machine.go; lower-v1 stage 4).
+	{name: "machine", goClass: "lit", sites: map[string]int{"machineInit": 1}, program: func(_, _, _ string, body string) string {
+		return "type MState = MAt{N int}\ntype MSignal = MGo{}\nfunc mstep(s MState, e MSignal) Decision[MState, int] { Ignore }\n" +
+			"type MPlan machine[MState, MSignal] {\n\tinitial: MAt{N: func() int {\n" + body + "}()},\n\tstep:    mstep,\n}\nfunc subject() int { 1 }\n"
+	}},
 }
 
 func i1Depth(d int) string { return strconv.Itoa(d) }

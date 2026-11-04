@@ -94,7 +94,6 @@ var deferredOwners = map[string]bool{
 	"check-v1 stage D": true,
 	"check-v1 stage E": true,
 	"lower-v1 stage 3": true,
-	"lower-v1 stage 4": true,
 	"lower-v1 request": true,
 	"lower-v1":         true, // a runtime/v1 body runtime/** owns (timeout.After)
 	"unused by v1":     true,

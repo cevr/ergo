@@ -276,7 +276,7 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 		}
 		return operand{val: fc.goType(fc.typeOf(x)) + "{" + strings.Join(parts, ", ") + "}"}
 	case *syntax.MachineType:
-		refuse(x, "machine plan values are lowered in lower-v1 stage 4 (spec D5)")
+		ice(x, "a machine type in an expression; the checker refuses one (S108, unexpected type form in an expression)")
 	}
 	refuse(x, "this expression is not lowered yet")
 	return operand{}
@@ -484,6 +484,11 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 	switch u := shape.(type) {
 	case *check.Named:
 		td := fc.l.typeDecl(u.Obj, x)
+		if td.kind == kindMachine {
+			// A machine value has no fields (the checker refuses any): the
+			// plan's zero-size value (machine.go).
+			return goType + "{}"
+		}
 		if td.kind != kindRecord && (td.kind != kindDefined || td.fieldName == nil) {
 			refuse(x, "a literal of %s is not a record literal", t)
 		}
