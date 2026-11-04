@@ -1,4 +1,4 @@
-package check_test
+package residue_test
 
 import (
 	"bufio"
@@ -53,7 +53,7 @@ var contextResidue = residue{
 // written (196w decision 6) and the old-syntax parser. docs/research is
 // history too, except the inputs code parses in the current syntax
 // (residueParsed).
-const residueAllowlist = "testdata/v1/wire-residue.txt"
+const residueAllowlist = "testdata/wire-residue.txt"
 
 var residueParsed = regexp.MustCompile(`^docs/research/ef-migrate/[^/]+\.ergo$`)
 
@@ -79,7 +79,7 @@ func (r residue) run(t *testing.T) {
 	allow, order, skipped := r.read(t)
 
 	args := append([]string{"-c", "core.quotePath=false", "grep", "-n", "-I"}, r.grepArgs()...)
-	args = append(args, "--", ".", ":(exclude)internal/sketch/check/"+r.allowlist)
+	args = append(args, "--", ".", ":(exclude)internal/residue/"+r.allowlist)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repo
 	out, err := cmd.Output()

@@ -1,4 +1,4 @@
-package check_test
+package residue_test
 
 import (
 	"regexp"
@@ -13,7 +13,7 @@ var rowResidueWord = regexp.MustCompile(`\b(needs|provides)[[:space:]]+\(?[[:spa
 
 // rowResidue is the check of TestRowResidue.
 var rowResidue = residue{
-	allowlist: "testdata/v1/row-residue.txt",
+	allowlist: "testdata/row-residue.txt",
 	literals:  []string{"needs", "provides"},
 	word:      rowResidueWord,
 	fix:       "write the row with |: needs A | B, or add the prose to the allowlist with its reason",
@@ -22,7 +22,7 @@ var rowResidue = residue{
 // TestRowResidue is 196n acceptance check 2: a capability row is written
 // with |, so a tracked line outside history that writes `needs A, B` or
 // `provides A, B` is prose that only reads like a row, an old-syntax input,
-// or the record of the change, and testdata/v1/row-residue.txt names it
+// or the record of the change, and testdata/row-residue.txt names it
 // with its reason. A match no row covers fails, and so does a row that
 // covers no match.
 func TestRowResidue(t *testing.T) { rowResidue.run(t) }
