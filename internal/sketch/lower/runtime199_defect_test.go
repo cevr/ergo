@@ -63,13 +63,7 @@ func main() needs Console {
 	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ergo := filepath.Join(dir, "ergo")
-	build := exec.Command("go", "build", "-o", ergo, "./cmd/ergo")
-	build.Dir = filepath.Clean("../../..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build ./cmd/ergo: %v\n%s", err, out)
-	}
-	cmd := exec.Command(ergo, "run", path)
+	cmd := exec.Command(ergoCLI(t), "run", path)
 	cmd.Dir = dir // ergo run builds into ./dist
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

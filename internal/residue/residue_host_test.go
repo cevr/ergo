@@ -1,4 +1,4 @@
-package check_test
+package residue_test
 
 import (
 	"bytes"

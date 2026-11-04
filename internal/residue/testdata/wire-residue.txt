@@ -218,13 +218,13 @@ internal/sketch/check/context_keyword_test.go	"func f(wire int) int { wire }\n",
 internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int
 internal/sketch/check/context_keyword_test.go	"type wire { N int }\nfunc f(w wire) int { w.N }\n",
 internal/sketch/check/context_keyword_test.go	stContextIsAKeyword: context is reserved, in wire's place, so the
-internal/sketch/check/context_residue_test.go	outside history that still say wire, and
-internal/sketch/check/context_residue_test.go	residueAllowlist = "testdata/v1/wire-residue.txt"
-internal/sketch/check/context_residue_test.go	line outside history that says wire is the network
-internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec),
-internal/sketch/check/context_residue_test.go	// sense (a wire format, the wire key of a codec), grammar.md's
-internal/sketch/check/context_residue_test.go	literals:  []string{"wire"},
-internal/sketch/check/residue_host_test.go	{"wire", "Wire", "WIRES", "a wire format", "with(wire{ A = a })"}
+internal/residue/context_residue_test.go	outside history that still say wire, and
+internal/residue/context_residue_test.go	residueAllowlist = "testdata/wire-residue.txt"
+internal/residue/context_residue_test.go	line outside history that says wire is the network
+internal/residue/context_residue_test.go	// sense (a wire format, the wire key of a codec),
+internal/residue/context_residue_test.go	// sense (a wire format, the wire key of a codec), grammar.md's
+internal/residue/context_residue_test.go	literals:  []string{"wire"},
+internal/residue/residue_host_test.go	{"wire", "Wire", "WIRES", "a wire format", "with(wire{ A = a })"}
 internal/sketch/syntax/decided_test.go	(196w, docs/previews/2026-11-02-wire-to-context.md).
 internal/sketch/syntax/decided_test.go	"wire": "context",
 

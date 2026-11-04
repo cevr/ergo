@@ -17,8 +17,8 @@ func ergoRun(t *testing.T, src string) (string, error) {
 	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "run", "./cmd/ergo", "run", path)
-	cmd.Dir = filepath.Clean("../../..")
+	cmd := exec.Command(ergoCLI(t), "run", path)
+	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

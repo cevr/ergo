@@ -42,6 +42,10 @@ type recorder struct {
 	execs   int
 	failure string
 	stopped bool // the test process has exited; later calls are not its inputs
+
+	// ident, when not nil, keeps the identity of each recorded access
+	// (identity.go). It is set before the tree starts.
+	ident *identity
 }
 
 // An entryKey says how cmd/go rechecks a path: "open" hashes a file's
@@ -177,11 +181,15 @@ func shebang(path string) string {
 
 // record keeps one access to a path inside the module root.
 func (r *recorder) record(path string, key entryKey) {
-	if virtual(path) {
+	if r.ident == nil && virtual(path) {
 		return
 	}
 	if strings.ContainsRune(path, '\n') {
 		r.fail("a path holds a newline, which the test log cannot carry")
+		return
+	}
+	if r.ident != nil {
+		r.recordIdentified(path, key)
 		return
 	}
 	inside, ok := r.inside(clean(path))
@@ -237,6 +245,10 @@ func hasDotDot(path string) bool {
 // inside returns path under the logical root, if the kernel's lookup of it
 // reaches the root.
 func (r *recorder) inside(path string) (string, bool) {
+	if r.ident != nil {
+		w := r.identify(path)
+		return w.logged, w.entered
+	}
 	if rest, ok := r.within(path); ok {
 		return r.logical + rest, true
 	}
@@ -437,8 +449,9 @@ func (r *recorder) lines() []string {
 // recorded path. cmd/go rechecks an "open" path by what it leads to, and
 // the file a retargeted link now leads to may have the same metadata as the
 // old one; the link's own Lstat changes with it. The links are read once
-// the tree has exited, as they are when cmd/go rechecks the key.
-func (r *recorder) statLinksLocked() {
+// the tree has exited, as they are when cmd/go rechecks the key. It returns
+// the links.
+func (r *recorder) statLinksLocked() []string {
 	const (
 		plain = iota + 1
 		link
@@ -479,4 +492,5 @@ func (r *recorder) statLinksLocked() {
 	for _, link := range found {
 		r.paths[link] |= keyStat
 	}
+	return found
 }
