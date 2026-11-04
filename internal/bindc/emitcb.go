@@ -326,10 +326,10 @@ func (e *goEmitter) trampoline(cb *BoundCallback) {
 
 // cbUse is one callback parameter of a typed function.
 type cbUse struct {
-	i     int // the C parameter
-	cb    *BoundCallback
-	fn    string // the Go parameter (the func)
-	key   string // the Go expression of the key, a local _k<i>
+	i         int // the C parameter
+	cb        *BoundCallback
+	fn        string // the Go parameter (the func)
+	key       string // the Go expression of the key, a local _k<i>
 	ownerAddr string // the Go expression of the owner's C address (registered)
 }
 
