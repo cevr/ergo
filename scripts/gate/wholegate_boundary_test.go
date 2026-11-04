@@ -148,9 +148,12 @@ func TestCallerToolDigestNeverReachesAStep(t *testing.T) {
 // holds "good\n" since more than RecentWindow; a real step reads it and
 // passes. The FIFO keeps its inode, so no stat field changes when the step
 // drains it. The next inner gate must not replay a pass that the uncached
-// run fails.
+// run fails. The verifier slept past RecentWindow; here the collections
+// happen an hour ahead instead, which is the same for the recent rule.
 func TestFIFOInputDoesNotReplay(t *testing.T) {
-	t.Parallel()
+	prior := collectionTime
+	collectionTime = func() time.Time { return time.Now().Add(time.Hour) }
+	t.Cleanup(func() { collectionTime = prior })
 	root := fixture(t)
 	name := root + "/stream"
 	if err := syscall.Mkfifo(name, 0o600); err != nil {
@@ -164,8 +167,6 @@ func TestFIFOInputDoesNotReplay(t *testing.T) {
 	if _, err := pipe.Write([]byte("good\n")); err != nil {
 		t.Fatal(err)
 	}
-	// Past the recent-change rule, so only the FIFO rule can refuse.
-	time.Sleep(replay.RecentWindow + 100*time.Millisecond)
 	steps := []*Step{{Name: "reads FIFO", Argv: []string{"python3", "-c", `import os; fd=os.open('stream',os.O_RDONLY|os.O_NONBLOCK); assert os.read(fd,16)==b'good\n'`}}}
 	g := wholeFixture(t, root, steps)
 	g.programs = []string{"sh", "python3"}

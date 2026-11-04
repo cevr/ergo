@@ -236,6 +236,11 @@ func (g *gate) collectCheckout() (checkoutFacts, error) {
 	return facts, nil
 }
 
+// collectionTime is the time of a collection, against which Walk finds
+// recent stat-keyed paths. A test sets it ahead to step past RecentWindow
+// without waiting.
+var collectionTime = time.Now
+
 // collectFacts collects every fact of the whole-gate key at this moment:
 // the checkout and the host at once, then the links against the keyed
 // roots the host fingerprint found.
@@ -243,7 +248,7 @@ func (g *gate) collectFacts(mechanism string) (*replay.Facts, error) {
 	var host hostFacts
 	var wg sync.WaitGroup
 	wg.Go(func() { host = g.collectHost(mechanism) })
-	facts, err := g.checkoutFacts(time.Now())
+	facts, err := g.checkoutFacts(collectionTime())
 	wg.Wait()
 	if err != nil {
 		return nil, err
