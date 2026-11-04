@@ -816,7 +816,9 @@ func TestBudgetNestedHelper(t *testing.T) {
 		fmt.Println("re-executed in a scope")
 		return
 	}
-	note := enterScope(memoryBudget{step: 256 << 20, gate: 512 << 20, host: 512 << 20})
+	budget := memoryBudget{step: 256 << 20, gate: 512 << 20, host: 512 << 20}
+	command, reason := scopeProbe(budget)
+	note := enterScope(command, reason, budget)
 	membership, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		t.Fatal(err)

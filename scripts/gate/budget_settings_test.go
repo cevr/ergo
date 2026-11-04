@@ -130,7 +130,7 @@ func TestStepTempDirectoryIsStablePerCheckoutAndStep(t *testing.T) {
 		t.Fatalf("step temp path %q is outside the caller's temp directory %q", first, tmp)
 	}
 	want := "TMPDIR=" + first
-	if !slices.Contains(stepEnvironmentFor(root, name), want) || !slices.Contains(goTestEnvironmentFor(root, name), want) {
+	if !slices.Contains(stepEnvironmentFor(root, name), want) || !slices.Contains(stepCommandEnvironment(root, &Step{Name: name, Argv: []string{"go", "test"}}), want) {
 		t.Fatalf("the step environments do not use their stable temp path %q", want)
 	}
 }
