@@ -295,7 +295,7 @@ func severalCases(seed int64) []severalCase {
 func runSeveral(t *testing.T, seed int64) string {
 	t.Helper()
 	var digest strings.Builder
-	failures := 0
+	failures, sampled := 0, 0
 	for n, sc := range severalCases(seed) {
 		flat, line := sc.source(false)
 		nested, _ := sc.source(true)
@@ -368,7 +368,8 @@ func runSeveral(t *testing.T, seed int64) string {
 		if strings.Join(ffail, " ") != strings.Join(nfail, " ") {
 			fail("failure rows: flat %v, nested %v", ffail, nfail)
 		}
-		if n%10 == 0 {
+		if n%5 == 0 {
+			sampled++
 			if gaps := check.InfoGaps(flat); len(gaps) > 0 {
 				fail("Info gaps (flat):\n\t%s", strings.Join(gaps, "\n\t"))
 			}
@@ -379,6 +380,10 @@ func runSeveral(t *testing.T, seed int64) string {
 	}
 	if failures > 5 {
 		t.Errorf("%d failures in all", failures)
+	}
+	// A8: Info is complete over a sample of at least 200 clean programs.
+	if sampled < 200 {
+		t.Errorf("Info checked over %d clean programs, want at least 200", sampled)
 	}
 	return digest.String()
 }

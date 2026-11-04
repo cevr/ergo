@@ -508,7 +508,7 @@ func TestLocalContextChargeSite(t *testing.T) {
 				fail("f needs %q, the reference says %q", have, ref.fNeeds)
 			}
 		}
-		if n%10 == 0 && len(diags) == 0 {
+		if len(diags) == 0 {
 			if gaps := check.InfoGaps(src); len(gaps) > 0 {
 				fail("Info gaps:\n\t%s", strings.Join(gaps, "\n\t"))
 			}

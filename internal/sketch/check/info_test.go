@@ -718,6 +718,11 @@ func TestInfoComplete(t *testing.T) {
 		}
 		pkg, diags := Check("main", []*syntax.File{file}, nil)
 		if len(diags) > 0 {
+			// A positive acceptance rule is clean, so its Info is checked
+			// here: a defect that makes it unclean cannot skip the check.
+			if strings.HasPrefix(name, "testdata/v1/") && strings.HasSuffix(name, ".pos.ergo") {
+				t.Errorf("%s: a positive rule has diagnostics: %v", name, diags)
+			}
 			continue
 		}
 		clean++
