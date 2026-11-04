@@ -558,12 +558,13 @@ func TestLiveCallbackShapeProperty(t *testing.T) {
 		ext = ".dylib"
 	}
 	var d strings.Builder
-	d.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"slices\"\n\n")
+	d.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"runtime\"\n\t\"slices\"\n\n")
 	for _, sb := range batches {
 		fmt.Fprintf(&d, "\t%q\n", "ergo.local/bind/"+sb.pkg())
 	}
 	d.WriteString(")\n\nfunc fail(format string, args ...any) {\n\tfmt.Printf(\"FAIL: \"+format+\"\\n\", args...)\n\tos.Exit(1)\n}\n\nfunc ok(c string) { fmt.Println(\"ok: \" + c) }\n\n")
-	d.WriteString("var _ = slices.Equal[[]byte, byte]\n\nfunc main() {\n\tcalls := 0\n\t_ = calls\n")
+	// g_h has thread owner: every handle stays on the thread that created it.
+	d.WriteString("var _ = slices.Equal[[]byte, byte]\n\nfunc main() {\n\truntime.LockOSThread()\n\tcalls := 0\n\t_ = calls\n")
 	var libs []string
 	for i, sb := range batches {
 		header, c, csrc := sb.files()

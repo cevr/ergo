@@ -441,13 +441,23 @@ func TestCallbackClassificationTotality(t *testing.T) {
 			}
 		}
 		// Sometimes g_h is not confined to an owner thread: then no function
-		// can bind a call-scoped callback with a handle key.
+		// can bind a call-scoped callback with a handle key, and a registered
+		// handle-keyed callback owned by g_h is raw.
 		if g.r.IntN(4) == 0 {
 			g.c.Handles[0].Thread = "any"
 		}
 		cbs := 1 + g.r.IntN(4)
 		for i := 0; i < cbs; i++ {
 			g.typedef(i)
+		}
+		if g.r.IntN(2) == 0 {
+			// A registered handle-keyed typedef in an admitted shape with one
+			// function that registers it: bound when g_h has thread owner,
+			// raw otherwise (its registry key holds the owner's thread).
+			g.src.WriteString("typedef void (*g_kept)(uint64_t context_id, uint32_t slot, uint32_t generation, float w);\n" +
+				"g_status g_keep(g_h *h, const g_node *node, g_kept cb);\n")
+			g.c.Callbacks = append(g.c.Callbacks, CallbackRule{Typedef: "g_kept", Scope: ScopeRegistered, Owner: "g_h",
+				Key: KeyRule{Params: []string{"context_id", "slot", "generation"}, Source: "node"}, Why: "generated"})
 		}
 		for i := 0; i < 1+g.r.IntN(4); i++ {
 			g.function(i, cbs)
@@ -530,6 +540,13 @@ func TestCallbackClassificationTotality(t *testing.T) {
 				if !strings.Contains(bc.RawOnly, "functions that register it") {
 					fail("%s: two functions register it with a handle key, but the reason is %q", d.Name, bc.RawOnly)
 				}
+			} else if ok && r.Scope == ScopeRegistered && !e.token(d, r) && e.handles[r.Owner].Thread != "owner" {
+				// The registry key holds the owner's thread.
+				ok = false
+				stats["callback owner without thread"]++
+				if !strings.Contains(bc.RawOnly, "has a handle key, and its owner "+r.Owner+" has thread "+e.handles[r.Owner].Thread) {
+					fail("%s: a registered handle key whose owner has thread %s, but the reason is %q", d.Name, e.handles[r.Owner].Thread, bc.RawOnly)
+				}
 			}
 			if bc.Bound() != ok {
 				fail("%s: bound %v (%s), the table says %v", d.Name, bc.Bound(), bc.RawOnly, ok)
@@ -581,7 +598,7 @@ func TestCallbackClassificationTotality(t *testing.T) {
 		for _, k := range []string{"callback by two", "callback by none", "callback by exception", "callback class key",
 			"callback class scalar", "callback class length", "callback class in_buffer", "callback class value",
 			"callback class out", "callback class out_array", "bound", "raw callback", "function class callback",
-			"function class key", "typed with a callback", "callback two registrars",
+			"function class key", "typed with a callback", "callback two registrars", "callback owner without thread",
 			"function call handle without owner thread", "function two handle positions"} {
 			if stats[k] < *propCases/20 {
 				t.Errorf("the generator makes %d of %q in %d cases; want at least %d", stats[k], k, *propCases, *propCases/20)

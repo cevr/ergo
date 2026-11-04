@@ -255,6 +255,9 @@ func (k *classifier) buildCallbacks(b *Binding, skipped map[string]bool) {
 			} else if rs := k.registrars(d, bc.Rule, skipped); !bc.Token && bc.Rule.Scope == ScopeRegistered && len(rs) > 1 {
 				bc.RawOnly = fmt.Sprintf("%s has a handle key and %d functions that register it (%s): "+
 					"C's invocation gives only the key, so one registry entry would serve two registrations", d.Name, len(rs), strings.Join(rs, ", "))
+			} else if h := k.handles[bc.Rule.Owner]; !bc.Token && bc.Rule.Scope == ScopeRegistered && h != nil && h.Thread != "owner" {
+				bc.RawOnly = fmt.Sprintf("%s has a handle key, and its owner %s has thread %s: the registry key holds the owner's OS thread, "+
+					"so the owner needs thread owner (a `void *` token key has no such limit)", d.Name, h.Type, h.Thread)
 			}
 		}
 		if bc.Bound() {

@@ -26,11 +26,27 @@ func main() {
 		fmt.Println("FAIL: Load:", err)
 		os.Exit(1)
 	}
-	h, err := cb.GCreate()
-	if err != nil {
-		fmt.Println("FAIL: GCreate:", err)
+	// g_h has thread owner: the handle and every call that changes its
+	// callback registrations stay on the Owner's thread.
+	o := cb.NewOwner()
+	var h *cb.GH
+	var err error
+	if derr := o.Do(func() { h, err = cb.GCreate() }); derr != nil || err != nil {
+		fmt.Println("FAIL: GCreate:", derr, err)
 		os.Exit(1)
 	}
+	if err := o.Do(func() { scenarios(h) }); err != nil {
+		fmt.Println("FAIL: Do:", err)
+	}
+	overlap(o, h)
+	if err := o.Close(); err != nil {
+		fmt.Println("FAIL: Close:", err)
+	}
+}
+
+// scenarios runs the scenarios of the probes on the owner thread of h.
+func scenarios(h *cb.GH) {
+	var err error
 	n := cb.GNode{ContextId: 1, Slot: 2, Generation: 3}
 	ran := ""
 	mk := func(s string) func(float32) { return func(float32) { ran += s } }
@@ -93,11 +109,13 @@ func main() {
 	err = cb.GVisit(h, n, f1)
 	check(err == nil && f1n == 2 && f2n == 2, "nest: f1 2 f2 2", err, f1n, f2n)
 	check(cb.LiveCallbacks() == 0, "nest: live 0", cb.LiveCallbacks())
+}
 
-	// The overlap probe through the Owner: the second goroutine's call
-	// begins only after the first one's returned, so the calls on one key
-	// never overlap.
-	o := cb.NewOwner()
+// overlap is the overlap probe through the Owner: the second goroutine's
+// call begins only after the first one's returned, so the calls on one key
+// never overlap.
+func overlap(o *cb.Owner, h *cb.GH) {
+	n := cb.GNode{ContextId: 1, Slot: 2, Generation: 3}
 	in1, rel, in2 := make(chan bool, 1), make(chan bool), make(chan bool, 1)
 	var g1n, g2n atomic.Int32
 	g1 := func(uint32) int32 {
@@ -141,7 +159,4 @@ func main() {
 	check(!began, "owner: the second call began after the first returned")
 	check(e1 == nil && e2 == nil && g1n.Load() == 2 && g2n.Load() == 2, "owner: f1 2 f2 2", e1, e2, g1n.Load(), g2n.Load())
 	check(cb.LiveCallbacks() == 0, "owner: live 0", cb.LiveCallbacks())
-	if err := o.Close(); err != nil {
-		fmt.Println("FAIL: Close:", err)
-	}
 }

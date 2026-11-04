@@ -195,8 +195,13 @@ func Load(path string) error {
 			e.p("// %s is %s.\ntype %s %s\n\n", gn, d.Name, gn, goScalar[d.Scalar])
 		case DeclOpaque:
 			if h := k.handles[d.Name]; h != nil {
-				e.p("// %s is a %s handle. %s destroys it and sets it to nil; a later\n// call on it returns ErrDestroyed. Thread affinity: %s.\ntype %s struct{ p uintptr }\n\n",
-					gn, d.Name, goCamel(strings.TrimPrefix(h.Destroy, b.Contract.Prefixes.Function)), h.Thread, gn)
+				e.p("// %s is a %s handle. %s destroys it and sets it to nil; a later\n// call on it returns ErrDestroyed. Thread affinity: %s.\n",
+					gn, d.Name, goCamel(strings.TrimPrefix(h.Destroy, b.Contract.Prefixes.Function)), h.Thread)
+				if h.Thread == "owner" {
+					e.p("type %s struct {\n\tp uintptr\n\t// t is the OS thread that created it (cbThread): a call that\n\t// changes a callback registration of a handle key checks it.\n\tt uintptr\n}\n\n", gn)
+				} else {
+					e.p("type %s struct{ p uintptr }\n\n", gn)
+				}
 			}
 		case DeclStruct:
 			e.structDecl(d)
@@ -511,6 +516,24 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			e.p("\tif uint64(len(%s)) > %d {\n\t\t%s\n\t}\n", sl, limit, ret("ErrTooLong"))
 		}
 	}
+	// A call that changes a registry entry of a handle key, or that creates
+	// a handle with thread owner, holds its goroutine on its OS thread until
+	// it returns and reads the thread (_t): a handle key's registry entry
+	// holds it, and the handle records it. A handle-key call first checks
+	// that each of its owner-thread handles was created on this thread
+	// (emitcb.go).
+	keyed, creates := e.threadKeyed(f), e.createsOwnerHandle(f)
+	if keyed || creates {
+		rt := e.use("runtime")
+		e.p("\t%s.LockOSThread()\n\tdefer %s.UnlockOSThread()\n\t_t := cbThread()\n", rt, rt)
+	}
+	if keyed {
+		for _, p := range s.Params {
+			if p.Class == ClassHandle && e.ownerThreadHandle(*c.Params[p.C].Type.Elem) {
+				e.p("\tif %s.t != _t {\n\t\t%s\n\t}\n", p.Name, ret("ErrWrongThread"))
+			}
+		}
+	}
 	// Autofill and out-parameters.
 	var args, keep []string
 	outVar := map[int]string{}
@@ -577,6 +600,9 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 	// Callbacks: the registry entries before the C call (emitcb.go).
 	uses := e.cbUses(f, goParam)
 	for _, u := range uses {
+		e.cbCheck(u, ret("ErrKeyInUse"))
+	}
+	for _, u := range uses {
 		e.cbBefore(u, s.Status)
 	}
 	// With bound callbacks, the typed call takes the panic pending on its OS
@@ -636,6 +662,8 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			outs = append(outs, "_r")
 		case r.C < 0:
 			outs = append(outs, r.Type+"(_r)")
+		case pos[r.C].By == ruleCreate && e.ownerThreadHandle(*c.Params[r.C].Type.Elem.Elem):
+			outs = append(outs, "&"+strings.TrimPrefix(r.Type, "*")+"{p: "+outVar[r.C]+", t: _t}")
 		case pos[r.C].By == ruleCreate:
 			outs = append(outs, "&"+strings.TrimPrefix(r.Type, "*")+"{p: "+outVar[r.C]+"}")
 		default:

@@ -339,7 +339,7 @@ func adversarialNames(t *testing.T) []string {
 			out = append(out, c)
 		}
 	}
-	if unreachable != 4 { // _r, _e, _p, _ok
+	if unreachable != 5 { // _r, _e, _p, _ok, _t
 		t.Fatalf("%d inventory names contain \"_\"; the list of unreachable names is out of date", unreachable)
 	}
 	out = append(out, "ready_arg", "type_arg", "context_arg", "ready_", "x_", "_x", "x", "X", "value", "count", "a_b", "A_B", "aB", "a")

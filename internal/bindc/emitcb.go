@@ -122,7 +122,8 @@ func (e *goEmitter) callbacks() {
 		if cb.Token {
 			continue
 		}
-		e.p("// cbKey%d is the key of %s: (%s).\ntype cbKey%d struct {\n", cb.Index, cb.Decl.Name, strings.Join(cb.Rule.Key.Params, ", "), cb.Index)
+		e.p("// cbKey%d is the key of %s: the owner's OS thread and (%s).\ntype cbKey%d struct {\n", cb.Index, cb.Decl.Name, strings.Join(cb.Rule.Key.Params, ", "), cb.Index)
+		e.p("\tt uintptr\n")
 		for i, j := range cbKeyFields(cb) {
 			e.p("\tk%d %s\n", i, e.rawType(cb.Decl.Params[j].Type))
 		}
@@ -210,6 +211,41 @@ func cbDropOwner[K comparable, F any](m map[K]cbEntry[F], owner uintptr) {
 }
 
 `, pg)
+	if e.handleKeys() {
+		e.p(`var (
+	// ErrWrongThread is the error of a call that would change a callback
+	// registration of a handle key on an OS thread other than the one that
+	// created its handle (thread owner). Nothing changed: no registration,
+	// and no C call.
+	ErrWrongThread = %[1]s.New(%[2]q)
+	// ErrKeyInUse is the error of a call that would register or clear a
+	// callback under a handle key whose registration on this OS thread
+	// belongs to another handle. Nothing changed: no registration, and no C
+	// call.
+	ErrKeyInUse = %[1]s.New(%[3]q)
+)
+
+// cbOther reports whether the live entry of k belongs to an owner other
+// than the handle at C address owner.
+func cbOther[K comparable, F any](m map[K]cbEntry[F], k K, owner uintptr) bool {
+	cbMu.RLock()
+	e, had := m[k]
+	cbMu.RUnlock()
+	return had && e.owner != owner
+}
+
+// cbDropOf removes the entry of k when it belongs to the handle at C
+// address owner.
+func cbDropOf[K comparable, F any](m map[K]cbEntry[F], k K, owner uintptr) {
+	cbMu.Lock()
+	if e, had := m[k]; had && e.owner == owner {
+		delete(m, k)
+	}
+	cbMu.Unlock()
+}
+
+`, e.use("errors"), pkg+": the handle belongs to another OS thread", pkg+": the callback key is registered for another handle on this OS thread")
+	}
 	var lens []string
 	for _, cb := range cbs {
 		lens = append(lens, "len(cbMap"+strconv.Itoa(cb.Index)+")")
@@ -250,7 +286,10 @@ func (e *goEmitter) trampoline(cb *BoundCallback) {
 	if cb.Token {
 		key = a(cbKeyFields(cb)[0])
 	} else {
-		var ks []string
+		// C calls back on the thread of the C call, and the key holds the
+		// owner's thread: the runtime holds the goroutine on its thread
+		// during a callback, so cbThread is this invocation's thread.
+		ks := []string{"cbThread()"}
 		for _, j := range cbKeyFields(cb) {
 			ks = append(ks, a(j))
 		}
@@ -366,12 +405,17 @@ func (e *goEmitter) cbUses(f *BoundFunc, goParam map[int]GoParam) []cbUse {
 		}
 		cb := k.cbs[f.C.Params[q.Param].Type.Name]
 		u := cbUse{i: q.Param, cb: cb, fn: goParam[q.Param].Name, key: "_k" + strconv.Itoa(q.Param)}
-		if cb.Rule.Scope == ScopeRegistered {
-			for j, p := range f.C.Params {
-				if t := p.Type; t.Kind == TypePointer && t.LenExpr == "" && t.Elem.Kind == TypeNamed && t.Elem.Name == cb.Rule.Owner {
-					u.ownerAddr = goParam[j].Name + ".p"
-					break
-				}
+		// The owner of the entry: the registered callback's owner handle; for
+		// a call-scoped handle key, the first owner-thread handle of f.
+		for j, p := range f.C.Params {
+			t := p.Type
+			if t.Kind != TypePointer || t.LenExpr != "" || t.Elem.Kind != TypeNamed {
+				continue
+			}
+			if cb.Rule.Scope == ScopeRegistered && t.Elem.Name == cb.Rule.Owner ||
+				cb.Rule.Scope == ScopeCall && !cb.Token && e.ownerThreadHandle(*t.Elem) {
+				u.ownerAddr = goParam[j].Name + ".p"
+				break
 			}
 		}
 		if !cb.Token {
@@ -395,7 +439,8 @@ func (e *goEmitter) fail(err error) {
 }
 
 // cbKeyOf is the Go expression of the handle key of cb in f: cbKey<n> of
-// the fields of the key source, a value parameter.
+// the calling thread _t and the fields of the key source, a value
+// parameter.
 func (e *goEmitter) cbKeyOf(f *BoundFunc, cb *BoundCallback, goParam map[int]GoParam) (string, error) {
 	k := e.b.k
 	j, why := k.keySource(cb.Decl, cb.Rule, f.C)
@@ -404,7 +449,7 @@ func (e *goEmitter) cbKeyOf(f *BoundFunc, cb *BoundCallback, goParam map[int]GoP
 		return "", fmt.Errorf("bindc: %s: the key source %s of %s is not a value parameter", f.C.Name, cb.Rule.Key.Source, cb.Decl.Name)
 	}
 	s := f.C.Params[j].Type.Elem.Name
-	var fs []string
+	fs := []string{"_t"} // the thread the typed call holds (typedFunc)
 	for i, ki := range cbKeyFields(cb) {
 		rt := e.rawType(cb.Decl.Params[ki].Type)
 		x := gp.Name + "." + e.b.FieldNames[s][i]
@@ -433,6 +478,24 @@ func (e *goEmitter) cbParamDoc(c *Function, p GoParam) {
 		e.p("a successful %s of its key, ", strings.Join(r.Ends, " or "))
 	}
 	e.p("or the destroy of its %s.\n", r.Owner)
+}
+
+// cbCheck emits, for a handle key, the refusal before any registry change
+// and before the C call (ret, which returns ErrKeyInUse) when the live
+// entry of its key belongs to another handle: the key holds the thread, so
+// only two handles of one thread can meet here. A registered callback
+// checks a clear too (C would clear this handle's callback, and the entry
+// is the other handle's); a call-scoped one checks only a func it puts.
+func (e *goEmitter) cbCheck(u cbUse, ret string) {
+	if u.cb.Token {
+		return
+	}
+	m := "cbMap" + strconv.Itoa(u.cb.Index)
+	if u.cb.Rule.Scope == ScopeCall {
+		e.p("\tif %s != nil && cbOther(%s, %s, %s) {\n\t\t%s\n\t}\n", u.fn, m, u.key, u.ownerAddr, ret)
+		return
+	}
+	e.p("\tif cbOther(%s, %s, %s) {\n\t\t%s\n\t}\n", m, u.key, u.ownerAddr, ret)
 }
 
 // cbBefore emits the registry entry of u before the C call: its C pointer
@@ -483,22 +546,24 @@ func (e *goEmitter) cbFailed(u cbUse) {
 }
 
 // cbSucceeded emits what a successful C call does for u: a clear (a nil
-// func) of a registered handle key removes its entry. A token key does not
-// say which registration a clear ends; its entries live until their
-// owner's destroy.
+// func) of a registered handle key removes its entry, when the entry is
+// this handle's. A token key does not say which registration a clear ends;
+// its entries live until their owner's destroy.
 func (e *goEmitter) cbSucceeded(u cbUse) {
 	if u.cb.Rule.Scope != ScopeRegistered || u.cb.Token {
 		return
 	}
-	e.p("\tif %s == nil {\n\t\tcbDrop(cbMap%d, %s)\n\t}\n", u.fn, u.cb.Index, u.key)
+	e.p("\tif %s == nil {\n\t\tcbDropOf(cbMap%d, %s, %s)\n\t}\n", u.fn, u.cb.Index, u.key, u.ownerAddr)
 }
 
 // cbEnds emits, for the typed function f that is an end function of a
 // registered callback with a handle key, the removal of the entry of its
-// key after a successful return.
+// key after a successful return: only the entry of f's owner handle when f
+// takes one (another handle of this thread may hold the key), else the
+// entry of the key.
 func (e *goEmitter) cbEnds(f *BoundFunc, goParam map[int]GoParam) {
 	for _, cb := range e.boundCbs() {
-		if cb.Rule.Scope != ScopeRegistered || cb.Token || !slices.Contains(cb.Rule.Ends, f.C.Name) {
+		if !e.endsHandleKey(f, cb) {
 			continue
 		}
 		lit, err := e.cbKeyOf(f, cb, goParam)
@@ -506,8 +571,72 @@ func (e *goEmitter) cbEnds(f *BoundFunc, goParam map[int]GoParam) {
 			e.fail(err)
 			continue
 		}
-		e.p("\tcbDrop(cbMap%d, %s)\n", cb.Index, lit)
+		owner := ""
+		for j, p := range f.C.Params {
+			if t := p.Type; t.Kind == TypePointer && t.LenExpr == "" && t.Elem.Kind == TypeNamed && t.Elem.Name == cb.Rule.Owner {
+				owner = goParam[j].Name + ".p"
+				break
+			}
+		}
+		if owner != "" {
+			e.p("\tcbDropOf(cbMap%d, %s, %s)\n", cb.Index, lit, owner)
+		} else {
+			e.p("\tcbDrop(cbMap%d, %s)\n", cb.Index, lit)
+		}
 	}
+}
+
+// endsHandleKey reports whether f is an end function of the registered
+// handle-keyed callback cb.
+func (e *goEmitter) endsHandleKey(f *BoundFunc, cb *BoundCallback) bool {
+	return cb.Rule.Scope == ScopeRegistered && !cb.Token && slices.Contains(cb.Rule.Ends, f.C.Name)
+}
+
+// handleKeys reports whether a bound callback of the binding has a handle
+// key.
+func (e *goEmitter) handleKeys() bool {
+	for _, cb := range e.boundCbs() {
+		if !cb.Token {
+			return true
+		}
+	}
+	return false
+}
+
+// threadKeyed reports whether the typed function f changes a registry
+// entry of a handle key: it takes a handle-keyed callback, or it ends one.
+// It then holds its goroutine on its thread, whose id the key holds, and
+// checks its owner-thread handles against that thread (typedFunc).
+func (e *goEmitter) threadKeyed(f *BoundFunc) bool {
+	for _, q := range f.Positions {
+		if q.Class == ClassCallback && !e.b.k.cbs[f.C.Params[q.Param].Type.Name].Token {
+			return true
+		}
+	}
+	for _, cb := range e.boundCbs() {
+		if e.endsHandleKey(f, cb) {
+			return true
+		}
+	}
+	return false
+}
+
+// ownerThreadHandle reports whether t names a contract handle whose thread
+// is owner.
+func (e *goEmitter) ownerThreadHandle(t Type) bool {
+	h := e.b.k.handles[t.Name]
+	return t.Kind == TypeNamed && h != nil && h.Thread == "owner"
+}
+
+// createsOwnerHandle reports whether the typed function f creates a handle
+// whose thread is owner (it records its thread).
+func (e *goEmitter) createsOwnerHandle(f *BoundFunc) bool {
+	for _, q := range f.Positions {
+		if q.By == ruleCreate && q.Param >= 0 && e.ownerThreadHandle(*f.C.Params[q.Param].Type.Elem.Elem) {
+			return true
+		}
+	}
+	return false
 }
 
 // cbOwnerDestroyed emits, for the destroy function of the handle type h,

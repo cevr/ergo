@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -16,11 +17,15 @@ import (
 //     registers it typed;
 //   - a call-scoped handle-keyed callback binds only in a function that
 //     takes a handle with thread owner, so two calls with one key overlap
-//     only by nesting (which the restore of the replaced entry handles).
+//     only by nesting (which the restore of the replaced entry handles);
+//   - a registered handle-keyed callback binds only when its owner handle
+//     has thread owner (round 3, 2b r2 M1).
 // Otherwise Bind makes the function (or the typedef) raw-only with the
 // reason. The verifier's probe headers (verify-2b/receipts/probes) are the
-// fixed cases; the live test runs the probes' scenarios on the forms that
-// stay typed.
+// fixed cases; the live tests run the probes' scenarios on the forms that
+// stay typed. Round 3 adds the owner's thread to the registry key, the
+// thread check (ErrWrongThread) and the refusal of a key that another
+// handle of the thread holds (ErrKeyInUse): TestLiveCallbackOwnerKeys.
 
 // keyProbeShared is the verifier's shared-key probe header (M1).
 const keyProbeShared = `#define G_FAIL INT32_C(1)
@@ -116,6 +121,11 @@ func TestCallbackHandleKeys(t *testing.T) {
 		{name: "the overlap probe: a handle with thread any", decls: keyProbeOverlap, thread: "any", entries: []CallbackRule{keyCall},
 			funcs: []want{{"g_visit", "needs a parameter `H *` of a handle with thread owner"},
 				{"g_visit_h", "needs a parameter `H *` of a handle with thread owner"}}},
+		{name: "a registered handle key whose owner has thread any", decls: "typedef void (*g_m)(uint64_t context_id, uint32_t slot, uint32_t generation, float w);\n" +
+			"g_status g_set_x(g_h *h, const g_node *node, g_m cb);\n", thread: "any",
+			entries: []CallbackRule{keyRegistered},
+			typedef: "g_m has a handle key, and its owner g_h has thread any: the registry key holds the owner's OS thread",
+			funcs:   []want{{"g_set_x", "g_m has a handle key, and its owner g_h has thread any"}}},
 		{name: "two call-scoped functions with an owner-thread handle", decls: "typedef int32_t (*g_v)(uint64_t context_id, uint32_t slot, uint32_t generation, uint32_t v);\n" +
 			"g_status g_visit_a(g_h *h, const g_node *node, g_v cb);\ng_status g_visit_b(g_h *h, const g_node *node, g_v cb);\n", thread: "owner",
 			entries: []CallbackRule{keyCall},
@@ -153,6 +163,123 @@ func TestCallbackHandleKeys(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ownerKeyDecls is the verifier's two-owner probe (bind-c-2 r2, 2b M1): the
+// key (slot, generation) of g_m and g_v does not name the owner g_h, so its
+// values repeat from one handle to the next. g_drop ends a registration of
+// g_m; g_calls counts the g_set and g_visit calls C saw for a handle.
+const ownerKeyDecls = `#define G_FAIL INT32_C(1)
+typedef struct g_k { uint32_t slot; uint32_t generation; } g_k;
+typedef void (*g_m)(uint32_t slot, uint32_t generation, float w);
+typedef int32_t (*g_v)(uint32_t slot, uint32_t generation, uint32_t v);
+g_status g_set(g_h *h, const g_k *node, g_m cb);
+g_status g_drop(g_h *h, const g_k *node);
+g_status g_call(g_h *h, const g_k *node);
+g_status g_visit(g_h *h, const g_k *node, g_v cb);
+g_status g_calls(g_h *h, uint32_t *out_n);
+`
+
+const ownerKeyC = `#include "cb.h"
+#include <stddef.h>
+#include <stdlib.h>
+struct g_h { g_m m[4]; uint32_t calls; };
+uint32_t g_abi(void) { return 1; }
+g_status g_create(g_h **out_h) { *out_h = calloc(1, sizeof(g_h)); return *out_h ? G_OK : G_FAIL; }
+g_status g_destroy(g_h *h) { free(h); return G_OK; }
+g_status g_set(g_h *h, const g_k *n, g_m cb) {
+    h->calls++;
+    if (n->slot >= 4) return G_FAIL;
+    h->m[n->slot] = cb;
+    return G_OK;
+}
+g_status g_drop(g_h *h, const g_k *n) {
+    if (n->slot >= 4) return G_FAIL;
+    h->m[n->slot] = NULL;
+    return G_OK;
+}
+g_status g_call(g_h *h, const g_k *n) {
+    if (n->slot >= 4 || h->m[n->slot] == NULL) return G_FAIL;
+    h->m[n->slot](n->slot, n->generation, 1.0f);
+    return G_OK;
+}
+g_status g_visit(g_h *h, const g_k *n, g_v cb) {
+    h->calls++;
+    if (cb == NULL) return G_OK;
+    cb(n->slot, n->generation, 1);
+    cb(n->slot, n->generation, 2);
+    return G_OK;
+}
+g_status g_calls(g_h *h, uint32_t *out_n) { *out_n = h->calls; return G_OK; }
+`
+
+// TestLiveCallbackOwnerKeys (ERGO_BINDC_LIVE=1; bind-c-2 r2, 2b M1): a
+// handle key whose fields do not name the owner (testdata/live/ownerkeys).
+// The registry key holds the owner's thread, so on two owner threads with
+// equal key values each handle runs its own func, and a destroy of one
+// keeps the other's registration; on one thread a second handle with an
+// equal key value gets ErrKeyInUse (no registry change, no C call); and a
+// call from a thread that did not create the handle gets ErrWrongThread
+// (no registry change, no C call). Then max(200, bindc.cases/5) generated
+// sequences of up to 40 commands (set, clear, end, invoke, call-scoped
+// call, destroy) over 4 handles on 2 owner threads with 2 key values, from
+// the right and the wrong thread, run against a reference model: each
+// invocation runs the func the model has for its owner thread and key, and
+// LiveCallbacks equals the model's count after each command.
+func TestLiveCallbackOwnerKeys(t *testing.T) {
+	e := newLiveEnv(t)
+	cc := requireCC(t)
+	src := cbPrelude + ownerKeyDecls
+	c := cbContract(src)
+	c.Callbacks = []CallbackRule{
+		{Typedef: "g_m", Scope: ScopeRegistered, Owner: "g_h", Ends: []string{"g_drop"},
+			Key: KeyRule{Params: []string{"slot", "generation"}, Source: "node"}, Why: "probe"},
+		{Typedef: "g_v", Scope: ScopeCall, Default: []byte("-1"),
+			Key: KeyRule{Params: []string{"slot", "generation"}, Source: "node"}, Why: "probe"},
+	}
+	b, err := cbBind(t, src, c)
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	for _, f := range b.Funcs {
+		if f.RawOnly != "" {
+			t.Fatalf("%s is raw-only: %s", f.C.Name, f.RawOnly)
+		}
+	}
+	name, gosrc, err := GoPackage(b)
+	if err != nil {
+		t.Fatalf("GoPackage: %v", err)
+	}
+	e.write(filepath.Join(e.mod, "cb", name), gosrc)
+	cdir := filepath.Join(e.root, "c")
+	e.write(filepath.Join(cdir, "cb.h"), []byte(src))
+	e.write(filepath.Join(cdir, "gen.c"), []byte(ownerKeyC))
+	ext := ".so"
+	if runtime.GOOS == "darwin" {
+		ext = ".dylib"
+	}
+	lib := filepath.Join(e.root, "libcb"+ext)
+	e.run(cdir, "", nil, cc, "-std=c11", "-Wall", "-Werror", "-shared", "-fPIC", "-o", lib, "gen.c")
+	e.write(filepath.Join(e.mod, "driver", "main.go"), readInput(t, "testdata/live/ownerkeys/main.go"))
+	e.run(e.mod, "", nil, e.goTool, "vet", "./...")
+	bin := filepath.Join(e.root, "driver-bin")
+	e.run(e.mod, "", nil, e.goTool, "build", "-o", bin, "./driver")
+	n := max(200, *propCases/5)
+	out, err := e.try(e.root, "", nil, bin, lib, strconv.FormatUint(*propSeed, 10), strconv.Itoa(n))
+	want := []string{
+		"two threads, one key value: h1 runs A and h2 runs B",
+		"two threads: after GDestroy(h2), h1 still runs A and LiveCallbacks is 1",
+		"two threads, call scope: overlapping calls with one key value each run their own func",
+		"one thread, one key value: a second handle gets ErrKeyInUse, no C call, and h1 still runs A",
+		"one thread: an end and a destroy of the second handle keep h1's registration",
+		"one thread, call scope: a nested call of another handle with one key value gets ErrKeyInUse",
+		"another thread: each call that changes h1's registrations gets ErrWrongThread, and nothing changes",
+		"generated sequences: each invocation ran the func the model has for its owner thread and key, and LiveCallbacks matched",
+	}
+	if got := okLines(out); err != nil || !slices.Equal(got, want) {
+		t.Fatalf("the driver (seed %d, %d sequences): %v\ngot  %q\nwant %q\n%s", *propSeed, n, err, got, want, tail(out, 3000))
+	}
+	t.Log(strings.TrimSpace(out[strings.Index(out, "model: "):strings.Index(out, "\nok: generated")]))
 }
 
 // keyLiveDecls are the probes' scenarios in the forms that stay typed: two

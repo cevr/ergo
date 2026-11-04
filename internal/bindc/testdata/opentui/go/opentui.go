@@ -1211,7 +1211,12 @@ func Load(path string) error {
 
 // Context is a ot_context handle. ContextDestroy destroys it and sets it to nil; a later
 // call on it returns ErrDestroyed. Thread affinity: owner.
-type Context struct{ p uintptr }
+type Context struct {
+	p uintptr
+	// t is the OS thread that created it (cbThread): a call that
+	// changes a callback registration of a handle key checks it.
+	t uintptr
+}
 
 // Handle is ot_handle (16 bytes, alignment 8).
 type Handle struct {
@@ -4612,8 +4617,9 @@ type cbEntry[F any] struct {
 	owner uintptr
 }
 
-// cbKey0 is the key of ot_scene_measure_callback: (context_id, slot, generation).
+// cbKey0 is the key of ot_scene_measure_callback: the owner's OS thread and (context_id, slot, generation).
 type cbKey0 struct {
+	t  uintptr
 	k0 uint64
 	k1 uint32
 	k2 uint32
@@ -4707,6 +4713,38 @@ func cbDropOwner[K comparable, F any](m map[K]cbEntry[F], owner uintptr) {
 		if e.owner == owner {
 			delete(m, k)
 		}
+	}
+	cbMu.Unlock()
+}
+
+var (
+	// ErrWrongThread is the error of a call that would change a callback
+	// registration of a handle key on an OS thread other than the one that
+	// created its handle (thread owner). Nothing changed: no registration,
+	// and no C call.
+	ErrWrongThread = errors.New("opentui: the handle belongs to another OS thread")
+	// ErrKeyInUse is the error of a call that would register or clear a
+	// callback under a handle key whose registration on this OS thread
+	// belongs to another handle. Nothing changed: no registration, and no C
+	// call.
+	ErrKeyInUse = errors.New("opentui: the callback key is registered for another handle on this OS thread")
+)
+
+// cbOther reports whether the live entry of k belongs to an owner other
+// than the handle at C address owner.
+func cbOther[K comparable, F any](m map[K]cbEntry[F], k K, owner uintptr) bool {
+	cbMu.RLock()
+	e, had := m[k]
+	cbMu.RUnlock()
+	return had && e.owner != owner
+}
+
+// cbDropOf removes the entry of k when it belongs to the handle at C
+// address owner.
+func cbDropOf[K comparable, F any](m map[K]cbEntry[F], k K, owner uintptr) {
+	cbMu.Lock()
+	if e, had := m[k]; had && e.owner == owner {
+		delete(m, k)
 	}
 	cbMu.Unlock()
 }
@@ -4836,7 +4874,7 @@ func cbTramp0(_a0 uint64, _a1 uint32, _a2 uint32, _a3 float32, _a4 uint32, _a5 f
 		return
 	}
 	cbMu.RLock()
-	_e := cbMap0[cbKey0{_a0, _a1, _a2}]
+	_e := cbMap0[cbKey0{cbThread(), _a0, _a1, _a2}]
 	cbMu.RUnlock()
 	if _e.fn == nil || _a7 == nil {
 		return
@@ -5443,6 +5481,12 @@ func SceneDestroyNode(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	_t := cbThread()
+	if context.t != _t {
+		return ErrWrongThread
+	}
 	_r := c_ot_scene_destroy_node(context.p, unsafe.Pointer(&node))
 	_p := cbTake()
 	runtime.KeepAlive(&node)
@@ -5452,7 +5496,7 @@ func SceneDestroyNode(context *Context, node Handle) error {
 		}
 		return err
 	}
-	cbDrop(cbMap0, cbKey0{node.ContextId, node.Slot, node.Generation})
+	cbDropOf(cbMap0, cbKey0{_t, node.ContextId, node.Slot, node.Generation}, context.p)
 	if _p != nil {
 		panic(_p)
 	}
@@ -5493,7 +5537,16 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
-	_k2 := cbKey0{node.ContextId, node.Slot, node.Generation}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	_t := cbThread()
+	if context.t != _t {
+		return ErrWrongThread
+	}
+	_k2 := cbKey0{_t, node.ContextId, node.Slot, node.Generation}
+	if cbOther(cbMap0, _k2, context.p) {
+		return ErrKeyInUse
+	}
 	var _c2 uintptr
 	var _s2 cbEntry[SceneMeasureCallback]
 	var _h2 bool
@@ -5514,7 +5567,7 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 		return err
 	}
 	if sceneMeasureCallback == nil {
-		cbDrop(cbMap0, _k2)
+		cbDropOf(cbMap0, _k2, context.p)
 	}
 	if _p != nil {
 		panic(_p)
@@ -9895,6 +9948,9 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	if err := ready(); err != nil {
 		return nil, err
 	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	_t := cbThread()
 	options.fill()
 	var _o1 uintptr
 	_r := c_ot_context_create(unsafe.Pointer(&options), unsafe.Pointer(&_o1))
@@ -9910,7 +9966,7 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	if _p != nil {
 		panic(_p)
 	}
-	return &Context{p: _o1}, nil
+	return &Context{p: _o1, t: _t}, nil
 }
 
 // ContextDestroy calls ot_context_destroy.

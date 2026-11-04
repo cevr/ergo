@@ -123,17 +123,39 @@
 // key with no source.
 //
 // A handle key gives the trampoline only the key's fields, so one key must
-// name one live registration, and Bind fails closed where it cannot: a
+// name one live registration. The registry key of a handle key is the
+// owner's OS thread and the key's fields: the fields that C makes (a slot,
+// a generation) repeat from one owner handle to the next, and C calls back
+// on the thread of the C call, which for a handle with thread owner is the
+// thread that created it. So:
+//   - a handle with thread owner records the thread that created it (the
+//     create call holds its goroutine on its thread);
+//   - a typed call that changes a handle-keyed registration (a register, a
+//     clear, a call-scoped call, an end function) holds its goroutine on
+//     its thread until it returns, and before any registry change and any
+//     C call it returns ErrWrongThread when one of its owner-thread
+//     handles was created on another thread, and ErrKeyInUse when the
+//     registration of the key on this thread belongs to another handle
+//     (two handles of one thread with equal key fields; a call-scoped call
+//     checks only a func it registers). A clear and an end function remove
+//     only their own handle's entry, and the owner's destroy only that
+//     owner's entries;
+//   - the trampoline looks up the key with the thread of the invocation
+//     (cbThread: one system call per invocation of a handle-keyed
+//     callback).
+//
+// Bind fails closed where one key cannot name one live registration: a
 // function with two positions of one handle-keyed typedef is raw-only (one
 // key would serve both); a registered handle-keyed typedef with more than
 // one function that registers it (takes it, its key's source and its
 // owner) is raw, with all those functions (the key does not say which
-// registration C's invocation is for); and a call-scoped handle-keyed
-// callback binds only in a function that takes a handle with thread
-// owner, so two calls on one key overlap only by nesting, which the
-// restore of the replaced entry handles (two threads would share one
-// entry). A `void *` token key has none of these limits: each call or
-// registration gets its own token.
+// registration C's invocation is for); a registered handle-keyed typedef
+// whose owner handle does not have thread owner is raw (the key needs the
+// owner's thread); and a call-scoped handle-keyed callback binds only in a
+// function that takes a handle with thread owner (its owner), so two calls
+// on one key overlap only by nesting, which the restore of the replaced
+// entry handles. A `void *` token key has none of these limits: each call
+// or registration gets its own token.
 //
 // In Go (emitcb.go), a bound typedef is an exported func type: scalars,
 // values (a copy) and in_buffers (a slice of C memory, valid only during
