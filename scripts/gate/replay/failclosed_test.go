@@ -69,6 +69,10 @@ type failCase struct {
 	// refuses: the facts must refuse replay and record before and after
 	// the change.
 	special bool
+	// named, for a file a step reaches through a keyed root's tool rather
+	// than through the checkout, is what a problem must name instead of
+	// the entry: the file's path and kind, as the fingerprint states them.
+	named func(f *failTree) string
 }
 
 type failTree struct {
@@ -303,6 +307,33 @@ func failClosedCases() []failCase {
 				return f.in("hop")
 			},
 			change: (*failTree).fill},
+
+		// A file under a keyed root that a step reaches through the tool,
+		// not through the checkout: the fingerprint is the reader.
+		{name: "fifo in a keyed root, drained", special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.keyedAt("stream"), "good\n"); return "" },
+			change: (*failTree).drain,
+			named:  func(f *failTree) string { return f.keyedAt("stream") + " is a FIFO" }},
+		{name: "fifo in a keyed root's directory, filled", special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.keyedAt("lib/deep/stream"), ""); return "" },
+			change: (*failTree).fill,
+			named:  func(f *failTree) string { return f.keyedAt("lib/deep/stream") + " is a FIFO" }},
+		{name: "socket in a keyed root", special: true,
+			build:  func(f *failTree) string { f.bind(f.keyed, "sock"); return "" },
+			change: func(*failTree) {},
+			named:  func(f *failTree) string { return f.keyedAt("sock") + " is a socket" }},
+		{name: "device as a keyed root", special: true,
+			build:  func(f *failTree) string { f.extra = append(f.extra, os.DevNull); return "" },
+			change: func(*failTree) {},
+			named:  func(*failTree) string { return os.DevNull + " is a character device" }},
+		{name: "link in a keyed root to a device", special: true,
+			build: func(f *failTree) string {
+				mkdir(f.keyedAt("lib"))
+				symlink(os.DevNull, f.keyedAt("lib/null"))
+				return ""
+			},
+			change: func(*failTree) {},
+			named:  func(f *failTree) string { return f.keyedAt("lib/null") + " is a character device" }},
 	}
 }
 
@@ -402,7 +433,12 @@ func checkFailsClosed(t *testing.T, seed uint64, c failCase, class Class, absolu
 	// names reports whether a problem names the entry, by its path in the
 	// checkout: the entry, a path below it, or the link it is.
 	names := func(facts *Facts) bool {
-		return slices.ContainsFunc(facts.Unreplayable, func(p string) bool { return strings.HasPrefix(p, "entry ") || strings.HasPrefix(p, "entry/") })
+		return slices.ContainsFunc(facts.Unreplayable, func(p string) bool {
+			if c.named != nil {
+				return strings.Contains(p, c.named(f))
+			}
+			return strings.HasPrefix(p, "entry ") || strings.HasPrefix(p, "entry/")
+		})
 	}
 	before, err := collect()
 	if err != nil {
