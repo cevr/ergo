@@ -37,9 +37,8 @@ type Classifier func(path string) Class
 // untracked is keyed by content, an ignored regular file by its stat tuple.
 // Symlinks carry their target text; FollowLinks says where they lead.
 // Recent names the stat-keyed paths changed within RecentWindow before now.
-// Only regular files, directories and symlinks can be keyed: a FIFO, a
-// socket or a device, and a file whose content cannot be read, make the
-// facts unreplayable.
+// Every path passes KindOf: a FIFO, a socket or a device, and a file whose
+// content cannot be read, make the facts unreplayable.
 func Walk(root string, classify Classifier, now time.Time) (entries []Entry, recent, unreplayable []string, err error) {
 	type pending struct {
 		index int
@@ -69,20 +68,20 @@ func Walk(root string, classify Classifier, now time.Time) (entries []Entry, rec
 		if err != nil {
 			return err
 		}
-		e := Entry{Path: relative}
 		mode := info.Mode()
-		switch {
-		case mode.IsDir():
-			e.Kind = Directory
-		case mode&fs.ModeSymlink != 0:
-			e.Kind, e.Class = Symlink, classify(relative)
+		kind, unkeyable := KindOf(relative, mode)
+		e := Entry{Path: relative, Kind: kind}
+		switch kind {
+		case Directory:
+		case Symlink:
+			e.Class = classify(relative)
 			target, err := os.Readlink(name)
 			if err != nil {
 				return err
 			}
 			e.Value = target
-		case mode.IsRegular():
-			e.Kind, e.Class = File, classify(relative)
+		case File:
+			e.Class = classify(relative)
 			if e.Class != Ignored {
 				hashes = append(hashes, pending{len(entries), name, mode.Perm() & KeyedPermissions})
 				break
@@ -91,14 +90,12 @@ func Walk(root string, classify Classifier, now time.Time) (entries []Entry, rec
 			if changedSince(info, now.Add(-RecentWindow)) {
 				recent = append(recent, relative)
 			}
-		default:
-			// A FIFO, a socket or a device: what a step reads from it is
-			// not in its stat tuple (a FIFO's buffer changes no stat
-			// field), so it cannot be keyed, as fileDigest refuses it in a
-			// step receipt.
-			e.Kind, e.Class = Other, classify(relative)
+		case Other:
+			// The stat tuple keeps the key apart from a regular file's at
+			// the path; the problem keeps the facts from keying a replay.
+			e.Class = classify(relative)
 			e.Value = statTuple(info)
-			unreplayable = append(unreplayable, fmt.Sprintf("%s is a %s: only regular files, directories and symlinks can be keyed", relative, otherKind(mode)))
+			unreplayable = append(unreplayable, unkeyable.Error())
 		}
 		entries = append(entries, e)
 		return nil
@@ -135,22 +132,6 @@ func Walk(root string, classify Classifier, now time.Time) (entries []Entry, rec
 	return entries, recent, unreplayable, nil
 }
 
-// otherKind names a file type that is not a regular file, a directory or a
-// symlink.
-func otherKind(mode fs.FileMode) string {
-	switch {
-	case mode&fs.ModeNamedPipe != 0:
-		return "FIFO"
-	case mode&fs.ModeSocket != 0:
-		return "socket"
-	case mode&fs.ModeCharDevice != 0:
-		return "character device"
-	case mode&fs.ModeDevice != 0:
-		return "device"
-	}
-	return "file of type " + mode.Type().String()
-}
-
 // fileSum is the SHA-256 of a file's content, in hex.
 func fileSum(name string) (string, error) {
 	file, err := os.Open(name)
@@ -170,7 +151,9 @@ func fileSum(name string) (string, error) {
 // inside the checkout (outside its .git) is covered by its own entry, and a
 // location inside a keyed root (a fingerprinted installation such as
 // GOROOT) by that fingerprint. A link that reaches anywhere else, directly,
-// dangling or through a chain of links, or that loops, cannot be keyed.
+// dangling or through a chain of links, or that loops, cannot be keyed, and
+// neither can a link that reaches a file KindOf refuses, at its target or
+// below it.
 type Links struct {
 	root  string
 	keyed []string
@@ -199,18 +182,25 @@ const maxLinkHops = 40
 // leads: "checkout <path>" for a location in the checkout, "root <path>" for
 // one in a keyed root, with "missing " before the path when the lookup
 // stops at a name that does not exist. When the link cannot be keyed,
-// problem names the target of the link in the chain that left the keyed
-// roots, as an absolute path; reach is then empty.
+// problem names the link and why: the target of the link in the chain that
+// left the keyed roots, as an absolute path, or the file it reaches that
+// KindOf refuses (reaches); reach is then empty.
 func (l Links) Follow(relative string) (reach, problem string) {
-	link := filepath.Join(l.root, filepath.FromSlash(relative))
+	return l.follow(relative, filepath.Join(l.root, filepath.FromSlash(relative)), map[string]bool{})
+}
+
+// follow leads the link at the absolute path link, for the checkout entry
+// named name, by the rule of Follow. seen holds the directories this lookup
+// has checked (reaches).
+func (l Links) follow(name, link string, seen map[string]bool) (reach, problem string) {
 	target, err := os.Readlink(link)
 	if err != nil {
-		return "", fmt.Sprintf("%s cannot be read: %v", relative, err)
+		return "", fmt.Sprintf("%s cannot be read: %v", name, err)
 	}
 	// hop is the target of the last link followed, absolute.
 	hop := absoluteTarget(filepath.Dir(link), target)
 	outside := func() (string, string) {
-		return "", fmt.Sprintf("%s reaches %s outside every keyed root", relative, hop)
+		return "", fmt.Sprintf("%s reaches %s outside every keyed root", name, hop)
 	}
 	current := filepath.Dir(link)
 	if filepath.IsAbs(target) {
@@ -219,9 +209,9 @@ func (l Links) Follow(relative string) (reach, problem string) {
 	rest := components(target)
 	hops := 1
 	for len(rest) > 0 {
-		name := rest[0]
+		part := rest[0]
 		rest = rest[1:]
-		switch name {
+		switch part {
 		case "", ".":
 			continue
 		case "..":
@@ -231,7 +221,7 @@ func (l Links) Follow(relative string) (reach, problem string) {
 			}
 			continue
 		}
-		next := filepath.Join(current, name)
+		next := filepath.Join(current, part)
 		if !l.passable(next) {
 			return outside()
 		}
@@ -245,16 +235,16 @@ func (l Links) Follow(relative string) (reach, problem string) {
 			return "missing " + l.describe(next), ""
 		}
 		if err != nil {
-			return "", fmt.Sprintf("%s: %v", relative, err)
+			return "", fmt.Sprintf("%s: %v", name, err)
 		}
 		if info.Mode()&fs.ModeSymlink != 0 {
 			hops++
 			if hops > maxLinkHops {
-				return "", fmt.Sprintf("%s reaches a loop of links at %s", relative, next)
+				return "", fmt.Sprintf("%s reaches a loop of links at %s", name, next)
 			}
 			again, err := os.Readlink(next)
 			if err != nil {
-				return "", fmt.Sprintf("%s: %v", relative, err)
+				return "", fmt.Sprintf("%s: %v", name, err)
 			}
 			hop = absoluteTarget(current, again)
 			if filepath.IsAbs(again) {
@@ -275,7 +265,50 @@ func (l Links) Follow(relative string) (reach, problem string) {
 	if !l.covered(current) {
 		return outside()
 	}
+	if problem := l.reaches(name, current, seen); problem != "" {
+		return "", problem
+	}
 	return l.describe(current), ""
+}
+
+// reaches applies KindOf to what a link leads to, the location place: the
+// file at place and, for a directory, every path below it but the
+// checkout's .git, with the links below led by the rule of follow. It
+// returns the first problem, which names the link's entry, or "". The entry
+// or the fingerprint that covers place holds the content; this check holds
+// that content to the one rule of what a key can read, wherever the walk
+// reaches it.
+func (l Links) reaches(name, place string, seen map[string]bool) string {
+	if seen[place] {
+		return ""
+	}
+	seen[place] = true
+	git := filepath.Join(l.root, ".git")
+	problem := ""
+	err := filepath.WalkDir(place, func(below string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		kind, _ := KindOf(below, entry.Type())
+		switch {
+		case kind == Directory && below == git:
+			return filepath.SkipDir
+		case kind == Other && below == place:
+			problem = fmt.Sprintf("%s reaches %s, a %s: %s", name, place, otherKind(entry.Type()), onlyKeyable)
+		case kind == Other:
+			problem = fmt.Sprintf("%s reaches %s, which holds %s, a %s: %s", name, place, below, otherKind(entry.Type()), onlyKeyable)
+		case kind == Symlink:
+			_, problem = l.follow(name, below, seen)
+		}
+		if problem != "" {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Sprintf("%s reaches %s, which cannot be read: %v", name, place, err)
+	}
+	return problem
 }
 
 // absoluteTarget is a link's target text as an absolute path, for a link in

@@ -147,6 +147,16 @@ func refusesReplay(t *testing.T, root string, classify Classifier, want string) 
 	if !strings.Contains(strings.Join(facts.Unreplayable, "\n"), want) {
 		return fmt.Errorf("the facts can key a replay (problems %q); want a problem %q", facts.Unreplayable, want)
 	}
+	return refuses(t, facts, collect)
+}
+
+// refuses checks that unreplayable facts refuse both ways: a passed run at
+// them records nothing, and a record at their key (an older gate's) does
+// not replay, for their first problem.
+func refuses(t *testing.T, facts *Facts, collect func() (*Facts, error)) error {
+	if facts.Problem() == "" {
+		return fmt.Errorf("the facts can key a replay")
+	}
 	store := Open(t.TempDir())
 	// A passed run at these facts records nothing.
 	run := store.Begin(facts)
@@ -182,8 +192,8 @@ func refusesReplay(t *testing.T, root string, classify Classifier, want string) 
 		replay.Close()
 		return fmt.Errorf("a record at the key replayed")
 	}
-	if !strings.Contains(reason, want) {
-		return fmt.Errorf("no replay, but for %q; want %q", reason, want)
+	if reason != "no whole-gate replay: "+facts.Problem() {
+		return fmt.Errorf("no replay, but for %q; want the problem %q", reason, facts.Problem())
 	}
 	return nil
 }

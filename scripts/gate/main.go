@@ -137,7 +137,7 @@ type Inputs struct {
 	// Installed names directories a step walks on disk itself, such as a
 	// committed snapshot, whose contents are an input, files Git ignores
 	// included: every file's path, permissions and content and every
-	// symlink's target, following links (installedDigest). An absent
+	// symlink's target, following links (replay.InstallationDigest). An absent
 	// directory is a distinct input. Each is digested once per run, because
 	// no step writes it.
 	Installed []string
@@ -1041,16 +1041,27 @@ func (u unkeyedInput) Error() string { return string(u) }
 // and the content it reaches (replay.Links): a file in the checkout by its
 // digest, a missing name by its absence. A link that reaches a directory,
 // or anywhere outside the checkout, cannot be keyed: its digest says so,
-// and the step that selects it runs without its receipt.
+// and the step that selects it runs without its receipt. Every file passes
+// replay.KindOf, the rule of the whole-gate key: a FIFO, a socket or a
+// device, at the path or where its link leads, cannot be keyed either.
 func fileDigest(root, relative string) string {
 	name := filepath.Join(root, filepath.FromSlash(relative))
 	info, err := os.Lstat(name)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
+	if errors.Is(err, os.ErrNotExist) {
 		return "missing"
-	case err != nil:
+	}
+	if err != nil {
 		return "error:" + err.Error()
-	case info.Mode()&os.ModeSymlink != 0:
+	}
+	display := relative
+	if display == "" {
+		display = name
+	}
+	kind, unkeyable := replay.KindOf(display, info.Mode())
+	switch kind {
+	case replay.Other:
+		return unreplayable + unkeyable.Error()
+	case replay.Symlink:
 		target, err := os.Readlink(name)
 		if err != nil {
 			return "error:" + err.Error()
@@ -1071,12 +1082,8 @@ func fileDigest(root, relative string) string {
 			return unreplayable + fmt.Sprintf("%s reaches directory %s, which a step key does not cover", relative, strings.TrimPrefix(reach, "checkout "))
 		}
 		return "symlink:" + target + "\x00" + reach + "\x00" + fileDigest(resolved, "")
-	case info.IsDir():
+	case replay.Directory:
 		return "directory"
-	case !info.Mode().IsRegular():
-		// A FIFO or a device: reading it could block, and its content is
-		// not a file's.
-		return unreplayable + fmt.Sprintf("%s is a %v, which a step key does not cover", relative, info.Mode().Type())
 	}
 	content, err := os.ReadFile(name)
 	if err != nil {
@@ -1157,127 +1164,13 @@ func (g *gate) installed(dir string) string {
 	if digest, ok := g.installedDigests[dir]; ok {
 		return digest
 	}
-	digest, err := installedDigest(filepath.Join(g.root, filepath.FromSlash(dir)), g.root)
+	digest, err := replay.InstallationDigest(filepath.Join(g.root, filepath.FromSlash(dir)), g.root)
 	if err != nil {
 		// An unreadable tree never matches a recorded pass.
 		digest = fmt.Sprintf("error:%v:%d", err, time.Now().UnixNano())
 	}
 	g.installedDigests[dir] = digest
 	return digest
-}
-
-// installedDigest hashes a tree's contents, following symbolic links (each
-// directory once, by its resolved path) and hashing files concurrently. A
-// link from an installed tree back into the repository contributes only its
-// target: a step whose outcome depends on the files there declares them
-// through Paths. A file contributes its keyed permission bits.
-func installedDigest(root, repository string) (string, error) {
-	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
-		return "absent", nil
-	}
-	resolvedRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", err
-	}
-	resolvedRepository, err := filepath.EvalSymlinks(repository)
-	if err != nil {
-		return "", err
-	}
-	within := func(name, dir string) bool {
-		relative, err := filepath.Rel(dir, name)
-		return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
-	}
-	type file struct{ relative, path string }
-	var entries []string
-	var files []file
-	visited := map[string]bool{}
-	var walk func(relative, name string) error
-	walk = func(relative, name string) error {
-		info, err := os.Lstat(name)
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			target, err := os.Readlink(name)
-			if err != nil {
-				return err
-			}
-			entries = append(entries, "link\x00"+relative+"\x00"+target)
-			resolved, err := filepath.EvalSymlinks(name)
-			if err != nil {
-				entries = append(entries, "dangling\x00"+relative)
-				return nil
-			}
-			if within(resolved, resolvedRepository) && !within(resolved, resolvedRoot) {
-				return nil
-			}
-			if info, err = os.Stat(name); err != nil {
-				return err
-			}
-		}
-		switch {
-		case info.IsDir():
-			resolved, err := filepath.EvalSymlinks(name)
-			if err != nil {
-				return err
-			}
-			if visited[resolved] {
-				entries = append(entries, "seen\x00"+relative)
-				return nil
-			}
-			visited[resolved] = true
-			children, err := os.ReadDir(name)
-			if err != nil {
-				return err
-			}
-			entries = append(entries, "dir\x00"+relative)
-			for _, child := range children {
-				if err := walk(path.Join(relative, child.Name()), filepath.Join(name, child.Name())); err != nil {
-					return err
-				}
-			}
-		case info.Mode().IsRegular():
-			entries = append(entries, fmt.Sprintf("file\x00%s\x00%v", relative, info.Mode().Perm()&keyedPermissions))
-			files = append(files, file{relative, name})
-		default:
-			entries = append(entries, fmt.Sprintf("other\x00%s\x00%v", relative, info.Mode()))
-		}
-		return nil
-	}
-	if err := walk(".", root); err != nil {
-		return "", err
-	}
-	sums := make([]string, len(files))
-	errs := make([]error, len(files))
-	var wg sync.WaitGroup
-	work := make(chan int)
-	for range max(2, runtime.NumCPU()) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for index := range work {
-				content, err := os.ReadFile(files[index].path)
-				sum := sha256.Sum256(content)
-				sums[index], errs[index] = hex.EncodeToString(sum[:]), err
-			}
-		}()
-	}
-	for index := range files {
-		work <- index
-	}
-	close(work)
-	wg.Wait()
-	hash := sha256.New()
-	for _, entry := range entries {
-		fmt.Fprintf(hash, "%s\x00", entry)
-	}
-	for index, f := range files {
-		if errs[index] != nil {
-			return "", errs[index]
-		}
-		fmt.Fprintf(hash, "%s\x00%s\x00", f.relative, sums[index])
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (g *gate) git(args ...string) ([]byte, error) {

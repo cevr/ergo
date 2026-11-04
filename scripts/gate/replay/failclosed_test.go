@@ -1,11 +1,10 @@
 package replay
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"math/rand/v2"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,12 +14,25 @@ import (
 	"time"
 )
 
-// TestKeyFailsClosed is a property over generated trees: for every kind of
-// entry in every class, and for every kind of link target, a change to the
-// content reached through the entry either changes the whole-gate key, or
-// leaves facts that cannot key a replay and whose problem names the entry,
-// or names the entry as recently changed (so no run records under it). A
-// key that stays the same and still replays never occurs.
+// TestKeyFailsClosed is a property over generated trees, over spec Do 8's
+// "what it reaches": for every kind of entry in every class, and for every
+// kind of link target, relative and absolute, in the checkout, in a keyed
+// root or outside, a change to the content reached through the entry
+// either changes the whole-gate key, or leaves facts that cannot key a
+// replay and whose problem names the entry (a record at their key does not
+// replay, and a passed run records nothing), or names the entry as
+// recently changed (so no run records under it). A key that stays the same
+// and still replays never occurs.
+//
+// When what the entry reaches holds a FIFO, a socket or a device (KindOf),
+// at the entry itself, below a directory, at a link's target or below it,
+// in the checkout or in a keyed root, the facts must name the entry and
+// refuse replay and record before and after the change, whatever the key
+// does. Held FIFOs keep their inode while their buffer fills or drains. The
+// keyed root's fingerprint is the real one (InstallationDigest), and a
+// fingerprint failure makes the facts unreplayable, as collectHost does.
+// (Round-2 finding B2: a FIFO in GOROOT, reached through a link in the
+// checkout, replayed a pass that read its buffer.)
 func TestKeyFailsClosed(t *testing.T) {
 	cases := failClosedCases()
 	checked := 0
@@ -53,12 +65,21 @@ type failCase struct {
 	build func(f *failTree) (target string)
 	// change changes the content reached through the entry.
 	change func(f *failTree)
+	// special says that what the entry reaches holds a file KindOf
+	// refuses: the facts must refuse replay and record before and after
+	// the change.
+	special bool
 }
 
 type failTree struct {
+	t                    *testing.T
 	root, keyed, outside string
+	// extra are keyed roots beside keyed, such as a device file.
+	extra []string
 	// held are descriptors a case keeps open until the check ends.
 	held []*os.File
+	// listeners are sockets a case keeps bound until the check ends.
+	listeners []net.Listener
 }
 
 // holdFIFO makes a FIFO and holds it open for reading and writing, so its
@@ -71,6 +92,47 @@ func (f *failTree) holdFIFO(name string) *os.File {
 	}
 	f.held = append(f.held, pipe)
 	return pipe
+}
+
+// heldFIFO holds a FIFO at name, with content in its buffer.
+func (f *failTree) heldFIFO(name, content string) {
+	mkdir(filepath.Dir(name))
+	pipe := f.holdFIFO(name)
+	if content != "" {
+		if _, err := pipe.Write([]byte(content)); err != nil {
+			panic(err)
+		}
+	}
+}
+
+// drain reads the bytes the last held FIFO buffers (fewer than 64, so one
+// read takes them all; a read of an empty FIFO waits in Go's poller); fill
+// writes to it. Neither moves its inode or a stat field a key could hold.
+func (f *failTree) drain() {
+	if _, err := f.held[len(f.held)-1].Read(make([]byte, 64)); err != nil {
+		panic(err)
+	}
+}
+
+func (f *failTree) fill() {
+	if _, err := f.held[len(f.held)-1].Write([]byte("bad\n")); err != nil {
+		panic(err)
+	}
+}
+
+// bind binds a unix socket at dir/name. The address is the relative name
+// from dir, since a socket's address holds at most 104 bytes on darwin and
+// dir can be long; the socket stays bound until the check ends, and its
+// file is left for the temporary directory's removal.
+func (f *failTree) bind(dir, name string) {
+	mkdir(dir)
+	f.t.Chdir(dir)
+	listener, err := net.Listen("unix", name)
+	if err != nil {
+		panic(err)
+	}
+	listener.(*net.UnixListener).SetUnlinkOnClose(false)
+	f.listeners = append(f.listeners, listener)
 }
 
 func (f *failTree) write(name, content string, perm fs.FileMode) {
@@ -178,6 +240,69 @@ func failClosedCases() []failCase {
 		{name: "link into .git", link: true,
 			build:  func(f *failTree) string { f.write(f.in(".git/HEAD"), "ref: a\n", 0o644); return f.in(".git/HEAD") },
 			change: rewrite(func(f *failTree) string { return f.in(".git/HEAD") })},
+		{name: "link to a file in a keyed root's directory", link: true,
+			build:  func(f *failTree) string { f.write(f.keyedAt("lib/file"), "lib v1\n", 0o644); return f.keyedAt("lib") },
+			change: rewrite(func(f *failTree) string { return f.keyedAt("lib/file") })},
+
+		// What the entry reaches holds a file KindOf refuses.
+		{name: "fifo in a directory, drained", special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.in("entry/inner/stream"), "good\n"); return "" },
+			change: (*failTree).drain},
+		{name: "fifo in a directory, filled", special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.in("entry/inner/stream"), ""); return "" },
+			change: (*failTree).fill},
+		{name: "socket", special: true,
+			build:  func(f *failTree) string { f.bind(f.root, "entry"); return "" },
+			change: func(*failTree) {}},
+		{name: "socket in a directory", special: true,
+			build:  func(f *failTree) string { f.bind(f.in("entry"), "sock"); return "" },
+			change: func(*failTree) {}},
+		{name: "link to a fifo in the checkout", link: true, special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.in("stream"), "good\n"); return f.in("stream") },
+			change: (*failTree).drain},
+		{name: "link to a directory in the checkout holding a fifo", link: true, special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.in("dir/stream"), ""); return f.in("dir") },
+			change: (*failTree).fill},
+		{name: "link to a fifo in a keyed root, drained", link: true, special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.keyedAt("stream"), "good\n"); return f.keyedAt("stream") },
+			change: (*failTree).drain},
+		{name: "link to a fifo in a keyed root, filled", link: true, special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.keyedAt("stream"), ""); return f.keyedAt("stream") },
+			change: (*failTree).fill},
+		{name: "link to a directory in a keyed root holding a fifo", link: true, special: true,
+			build:  func(f *failTree) string { f.heldFIFO(f.keyedAt("lib/deep/stream"), "good\n"); return f.keyedAt("lib") },
+			change: (*failTree).drain},
+		{name: "link to a socket in a keyed root", link: true, special: true,
+			build:  func(f *failTree) string { f.bind(f.keyed, "sock"); return f.keyedAt("sock") },
+			change: func(*failTree) {}},
+		{name: "link to a device in a keyed root", link: true, special: true,
+			build:  func(f *failTree) string { f.extra = append(f.extra, os.DevNull); return os.DevNull },
+			change: func(*failTree) {}},
+		{name: "link to a directory in a keyed root holding a link to a device", link: true, special: true,
+			build: func(f *failTree) string {
+				f.extra = append(f.extra, os.DevNull)
+				mkdir(f.keyedAt("lib"))
+				symlink(os.DevNull, f.keyedAt("lib/null"))
+				return f.keyedAt("lib")
+			},
+			change: func(*failTree) {}},
+		{name: "link to a device outside", link: true, special: true,
+			build:  func(f *failTree) string { return os.DevNull },
+			change: func(*failTree) {}},
+		{name: "chain through a keyed root to a fifo", link: true, special: true,
+			build: func(f *failTree) string {
+				f.heldFIFO(f.keyedAt("stream"), "good\n")
+				symlink(f.keyedAt("stream"), f.keyedAt("hop"))
+				return f.keyedAt("hop")
+			},
+			change: (*failTree).drain},
+		{name: "chain through the checkout to a fifo in a keyed root", link: true, special: true,
+			build: func(f *failTree) string {
+				f.heldFIFO(f.keyedAt("stream"), "")
+				symlink("../goroot/stream", f.in("hop"))
+				return f.in("hop")
+			},
+			change: (*failTree).fill},
 	}
 }
 
@@ -205,29 +330,18 @@ func mkfifo(name string) {
 	}
 }
 
-// keyedFingerprint stands for a tool fingerprint: every file of the keyed
-// root with its content.
-func keyedFingerprint(root string) string {
-	digest := sha256.New()
-	_ = filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
-		if err == nil && entry.Type().IsRegular() {
-			content, _ := os.ReadFile(name)
-			fmt.Fprintf(digest, "%s\x00%x\x00", name, sha256.Sum256(content))
-		}
-		return nil
-	})
-	return hex.EncodeToString(digest.Sum(nil))
-}
-
 func checkFailsClosed(t *testing.T, seed uint64, c failCase, class Class, absolute bool) error {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		return err
 	}
-	f := &failTree{root: filepath.Join(base, "checkout"), keyed: filepath.Join(base, "goroot"), outside: filepath.Join(base, "outside")}
+	f := &failTree{t: t, root: filepath.Join(base, "checkout"), keyed: filepath.Join(base, "goroot"), outside: filepath.Join(base, "outside")}
 	defer func() {
 		for _, held := range f.held {
 			held.Close()
+		}
+		for _, listener := range f.listeners {
+			listener.Close()
 		}
 	}()
 	mkdir(f.root)
@@ -260,35 +374,67 @@ func checkFailsClosed(t *testing.T, seed uint64, c failCase, class Class, absolu
 		}
 		return nil
 	})
+	// The facts as collectFacts composes them: the checkout, the keyed
+	// roots' fingerprints (a failure is a problem, as collectHost makes it),
+	// then the links against those roots.
 	collect := func() (*Facts, error) {
 		entries, recent, unreplayable, err := Walk(f.root, classify, time.Now())
 		if err != nil {
 			return nil, err
 		}
-		links, err := NewLinks(f.root, []string{f.keyed})
+		roots := append([]string{f.keyed}, f.extra...)
+		var host []Fact
+		for i, root := range roots {
+			digest, err := InstallationDigest(root, f.root)
+			if err != nil {
+				unreplayable = append(unreplayable, fmt.Sprintf("program tool%d cannot be fingerprinted: %v", i, err))
+				digest = "unlocated"
+			}
+			host = append(host, Fact{fmt.Sprintf("program tool%d", i), digest})
+		}
+		links, err := NewLinks(f.root, roots)
 		if err != nil {
 			return nil, err
 		}
 		unreplayable = append(unreplayable, links.FollowLinks(entries)...)
-		return &Facts{Root: f.root, Entries: entries, Host: []Fact{{"program tool", keyedFingerprint(f.keyed)}}, Unreplayable: unreplayable, Recent: recent}, nil
+		return &Facts{Root: f.root, Entries: entries, Host: host, Unreplayable: unreplayable, Recent: recent}, nil
+	}
+	// names reports whether a problem names the entry, by its path in the
+	// checkout: the entry, a path below it, or the link it is.
+	names := func(facts *Facts) bool {
+		return slices.ContainsFunc(facts.Unreplayable, func(p string) bool { return strings.HasPrefix(p, "entry ") || strings.HasPrefix(p, "entry/") })
 	}
 	before, err := collect()
 	if err != nil {
 		return err
+	}
+	if c.special {
+		if !names(before) {
+			return fmt.Errorf("before the change, no problem names the entry (problems %q)", before.Unreplayable)
+		}
+		if err := refuses(t, before, collect); err != nil {
+			return fmt.Errorf("before the change: %v", err)
+		}
 	}
 	c.change(f)
 	after, err := collect()
 	if err != nil {
 		return err
 	}
+	if c.special {
+		if !names(after) {
+			return fmt.Errorf("after the change, no problem names the entry (problems %q)", after.Unreplayable)
+		}
+		if err := refuses(t, after, collect); err != nil {
+			return fmt.Errorf("after the change: %v", err)
+		}
+		return nil
+	}
 	if after.Key() != before.Key() {
 		return nil
 	}
-	names := func(facts *Facts) bool {
-		return slices.ContainsFunc(facts.Unreplayable, func(p string) bool { return strings.HasPrefix(p, "entry ") || strings.Contains(p, "entry") })
-	}
 	if names(after) && names(before) {
-		return nil
+		return refuses(t, after, collect)
 	}
 	if slices.ContainsFunc(after.Recent, func(p string) bool { return p == "entry" || strings.HasPrefix(p, "entry/") }) {
 		return nil
