@@ -272,13 +272,14 @@ func TestSandboxRefusesWhenItCannotProtect(t *testing.T) {
 		sb   sandbox
 		want string
 	}{
-		{"no checkout", sandbox{filepath.Join(f.root, "missing"), []string{fresh()}}, "no such file or directory"},
-		{"no scratch", sandbox{f.root, nil}, "no scratch directory"},
-		{"scratch is the checkout's parent", sandbox{f.root, []string{f.base}}, "is an ancestor of the checkout"},
-		{"scratch is the checkout", sandbox{f.root, []string{f.root}}, "lies in the checkout"},
-		{"scratch in the checkout", sandbox{f.root, []string{inside}}, "lies in the checkout"},
-		{"scratch not fresh", sandbox{f.root, []string{full}}, "is not empty"},
-		{"scratch by a link", sandbox{f.root, []string{filepath.Join(f.pkg, "testdata", "ext")}}, "physical path"},
+		{"no checkout", sandbox{Root: filepath.Join(f.root, "missing"), Scratch: []string{fresh()}}, "no such file or directory"},
+		{"no scratch", sandbox{Root: f.root}, "no scratch directory"},
+		{"scratch is the checkout's parent", sandbox{Root: f.root, Scratch: []string{f.base}}, "is an ancestor of the checkout"},
+		{"scratch is the checkout", sandbox{Root: f.root, Scratch: []string{f.root}}, "lies in the checkout"},
+		{"scratch in the checkout", sandbox{Root: f.root, Scratch: []string{inside}}, "lies in the checkout"},
+		{"scratch not fresh", sandbox{Root: f.root, Scratch: []string{full}}, "is not empty"},
+		{"scratch by a link", sandbox{Root: f.root, Scratch: []string{filepath.Join(f.pkg, "testdata", "ext")}}, "physical path"},
+		{"a kernel write that is not cgroup2", sandbox{Root: f.root, Scratch: []string{fresh()}, Kernel: []string{f.base}}, "is not a cgroup2 file system"},
 	}
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -306,7 +307,7 @@ func TestSandboxRefusesWhenItCannotProtect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runProtected(sandbox{f.root, []string{scratchDir}}, "internal/p", f.pkg, testEnv(f.pkg, childVariable+"="+string(op)), filepath.Join(report, "ran.out"), self); err != nil {
+	if err := runProtected(sandbox{Root: f.root, Scratch: []string{scratchDir}}, "internal/p", f.pkg, testEnv(f.pkg, childVariable+"="+string(op)), filepath.Join(report, "ran.out"), self); err != nil {
 		t.Fatalf("the control run failed: %v", err)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -387,7 +388,7 @@ func do(op childOp) childResult {
 	case "mount":
 		err = bindMount(op.Path, op.Target)
 	case "sandbox":
-		sb := sandbox{op.Path, op.Scratch}
+		sb := sandbox{Root: op.Path, Scratch: op.Scratch}
 		if err = checkSandbox(sb); err == nil {
 			var self string
 			if self, err = os.Executable(); err == nil {

@@ -274,7 +274,7 @@ func runChild(t *testing.T, f fixture, op childOp) childResult {
 	}
 	output := filepath.Join(t.TempDir(), "child.out")
 	env := testEnv(f.pkg, append(s.env(), childVariable+"="+string(spec))...)
-	if err := runProtected(sandbox{f.root, s.dirs()}, "internal/p", f.pkg, env, output, self); err != nil {
+	if err := runProtected(sandbox{Root: f.root, Scratch: s.dirs()}, "internal/p", f.pkg, env, output, self); err != nil {
 		t.Fatalf("%+v: %v", op, err)
 	}
 	var r childResult
@@ -333,7 +333,7 @@ func TestSandboxHoldsNoPrivilege(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.remove()
-	if err := checkSandbox(sandbox{f.root, s.dirs()}); err == nil {
+	if err := checkSandbox(sandbox{Root: f.root, Scratch: s.dirs()}); err == nil {
 		t.Fatal("checkSandbox accepts the host's writable mounts")
 	}
 }

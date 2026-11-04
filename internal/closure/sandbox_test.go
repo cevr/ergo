@@ -29,8 +29,10 @@ import (
 //     its ancestors, and any bind mount of it made before the run.
 //   - S2: the only writable places are the run's scratch directories
 //     (TMPDIR and GOTMPDIR; XDG_CACHE_HOME, which holds GOCACHE; the test
-//     log's directory), each a mount of its own, outside the checkout and
-//     not an ancestor of it.
+//     log's directory; a fresh tmpfs at /dev/shm), each a mount of its
+//     own, outside the checkout and not an ancestor of it. A package may
+//     declare a cgroup2 mount it writes (declaredKernelWrites); cgroup2
+//     holds no file that could be a name of a checkout file.
 //     Linux refuses a hard link or a rename across mounts (EXDEV), so a
 //     scratch directory cannot gain a name of a checkout file.
 //   - S3: the tests hold no capability and cannot gain one (no_new_privs,
@@ -60,10 +62,13 @@ const (
 )
 
 // sandbox is what one protected run needs: the checkout, by its physical
-// path, and the scratch directories that stay writable.
+// path, the scratch directories that stay writable, and the mount points
+// of the cgroup2 file systems the package declares it writes
+// (declaredKernelWrites).
 type sandbox struct {
 	Root    string
 	Scratch []string
+	Kernel  []string `json:",omitempty"`
 }
 
 // helperMain runs the helper modes of this test binary, from TestMain,
@@ -273,7 +278,7 @@ func checkSandboxAsATest(root, dir, output string) error {
 	if err != nil {
 		return err
 	}
-	sb := sandbox{root, s.dirs()}
+	sb := sandbox{Root: root, Scratch: s.dirs()}
 	op, err := json.Marshal(childOp{Op: "sandbox", Path: root, Scratch: sb.Scratch})
 	if err != nil {
 		return err

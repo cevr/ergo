@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -77,10 +78,11 @@ func sandboxCommand(binary string, args ...string) (*exec.Cmd, error) {
 //   - no process of the user namespace can make another user namespace
 //     (S3, with dropPrivileges);
 //   - each scratch directory is bound onto itself (one mount each, no
-//     submount);
+//     submount), and a fresh tmpfs covers /dev/shm;
 //   - every mount of the namespace is made read-only, recursively from
 //     the root of the file system, in one call (S1);
-//   - the scratch mounts are made writable again (S2).
+//   - the scratch mounts and /dev/shm are made writable again (S2), and
+//     each declared cgroup2 mount.
 //
 // The namespace's mounts are made private first, so nothing propagates out
 // of it.
@@ -99,16 +101,36 @@ func makeSandbox(sb sandbox) error {
 			return fmt.Errorf("bind the scratch directory %s: %w", dir, err)
 		}
 	}
+	// POSIX shared memory gets a fresh, empty tmpfs of its own: a scratch
+	// directory, not the host's /dev/shm.
+	if err := syscall.Mount("tmpfs", sharedMemory, "tmpfs", syscall.MS_NOSUID|syscall.MS_NODEV, "mode=1777"); err != nil {
+		return fmt.Errorf("mount a fresh %s: %w", sharedMemory, err)
+	}
 	if err := mountSetattr("/", atRecursive, mountAttr{set: mountAttrReadOnly}); err != nil {
 		return fmt.Errorf("make every mount read-only: %w", err)
 	}
-	for _, dir := range sb.Scratch {
+	for _, dir := range append(slices.Clone(sb.Scratch), sharedMemory) {
 		if err := mountSetattr(dir, 0, mountAttr{clr: mountAttrReadOnly}); err != nil {
 			return fmt.Errorf("make the scratch directory %s writable: %w", dir, err)
 		}
 	}
+	for _, point := range sb.Kernel {
+		var st syscall.Statfs_t
+		if err := syscall.Statfs(point, &st); err != nil {
+			return err
+		}
+		if st.Type != cgroup2SuperMagic {
+			return fmt.Errorf("the declared kernel write %s is not a cgroup2 file system", point)
+		}
+		if err := mountSetattr(point, 0, mountAttr{clr: mountAttrReadOnly}); err != nil {
+			return fmt.Errorf("make the declared cgroup2 mount %s writable: %w", point, err)
+		}
+	}
 	return nil
 }
+
+// cgroup2SuperMagic is CGROUP2_SUPER_MAGIC (linux/magic.h).
+const cgroup2SuperMagic = 0x63677270
 
 // checkScratch is S2's rule for the scratch directories, before any is
 // mounted: each is a physical, absolute directory, empty (fresh), outside
@@ -190,6 +212,11 @@ func checkSandbox(sb sandbox) error {
 	}
 	if err := readOnly(sb.Root); err != nil {
 		return err
+	}
+	if entries, err := os.ReadDir(sharedMemory); err != nil {
+		return err
+	} else if len(entries) > 0 {
+		return fmt.Errorf("%s is not the sandbox's fresh tmpfs: it holds %s", sharedMemory, entries[0].Name())
 	}
 	for _, dir := range sb.Scratch {
 		if err := readOnly(dir); err == nil {

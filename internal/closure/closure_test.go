@@ -598,6 +598,11 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 				t.Errorf("declared package %s is not a test package of the module", dir)
 			}
 		}
+		for dir := range declaredKernelWrites {
+			if _, ok := closures[dir]; !ok {
+				t.Errorf("the package %s of a declared kernel write is not a test package of the module", dir)
+			}
+		}
 	}
 
 	type result struct {
@@ -766,7 +771,11 @@ func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []
 	log := filepath.Join(s.log, "test.log")
 	args = append([]string{"-test.paniconexit0", "-test.timeout=45m", "-test.testlogfile=" + log}, args...)
 	env := withEnv(sweepEnvironment(), append(append([]string{"PWD=" + pkgDir}, s.env()...), extra...)...)
-	if err := runProtected(sandbox{protect, s.dirs()}, pkg, pkgDir, env, stem+".out", binary, args...); err != nil {
+	sb := sandbox{Root: protect, Scratch: s.dirs()}
+	for _, k := range declaredKernelWrites[pkg] {
+		sb.Kernel = append(sb.Kernel, k.point)
+	}
+	if err := runProtected(sb, pkg, pkgDir, env, stem+".out", binary, args...); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(log)
