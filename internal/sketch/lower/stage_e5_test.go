@@ -148,14 +148,18 @@ func shout() Holder needs Greeter {
 }
 
 func main() needs Console {
+	let a = context { Greeter: Plain }
 	let w = context { Store: shout() }
 	with Live {
 		with context { Greeter: Plain, w } {
-			Console.Println("\(Store.Get()) \(Greeter.Greet("bo"))")
+			Console.Println("\(Greeter.Greet("bo")) \(Store.Get())")
+		}
+		with context { a, w } {
+			Console.Println("\(Greeter.Greet("cy")) \(Store.Get())")
 		}
 	}
 }
-`, "ada! bo\n"},
+`, "bo ada!\ncy ada!\n"},
 	// A with of a local context inside a function literal that runs after
 	// the block that defines it has ended.
 	{"literal", e5Prelude + `
