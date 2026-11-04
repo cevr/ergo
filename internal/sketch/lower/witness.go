@@ -162,7 +162,7 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 		call, hasResult, fallible := fc.opCall(w.Arg, m, result, vals, e, dest, nil, nil, site)
 		ind := strings.Repeat("\t", fc.depth)
 		fc.depth--
-		return params, fc.resultList(result, true), uniformBody(ind, call, hasResult, result != nil, fallible)
+		return params, fc.valueResults(result), uniformBody(ind, call, hasResult, result != nil, fallible)
 	})
 }
 
@@ -233,5 +233,7 @@ func (fc *funcCtx) witnessCall(tp *check.TypeParam, op *check.Method, vals []str
 	if dest != "" {
 		lead = append(lead, dest)
 	}
-	return w + "." + memberName(op.Name) + "(" + strings.Join(append(lead, vals...), ", ") + ")", len(op.Sig.Results) > 0, true
+	// The field has the uniform shape (typeCtx.funcType): a Go value, which
+	// is struct{} for an operation with no result, and an error.
+	return w + "." + memberName(op.Name) + "(" + strings.Join(append(lead, vals...), ", ") + ")", true, true
 }

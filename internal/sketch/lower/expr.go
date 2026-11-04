@@ -799,7 +799,8 @@ func (fc *funcCtx) arm(a *syntax.CatchArm, result string) {
 
 // funcLit lowers a function literal or a trailing block to a Go closure of
 // the uniform function shape (typeCtx.funcType): it takes the caller's
-// environment and returns an error. Its rows are its Info.Literals
+// environment and returns its value, or struct{}{} when it has none (a unit
+// frame, errReturn), and an error. Its rows are its Info.Literals
 // signature; its body is its own frame.
 func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Node) string {
 	sig := fc.l.info.Literals[n]
@@ -843,12 +844,17 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 			result = sig.Results[0]
 		}
 		inner.frame.result = result
+		inner.frame.unit = result == nil
 		inner.depth = fc.depth + 1
-		results = fc.resultList(result, true)
+		results = fc.valueResults(result)
 		if fc.l.bodyNeedsFrame(list) {
 			// The literal is a frame of its own (stage D3b, Rule 2).
 			errName := fc.scope.alloc("err")
-			results = fc.namedResults(result, errName)
+			named := result
+			if named == nil {
+				named = check.NoValue // the unit shape's blank struct{}
+			}
+			results = fc.namedResults(named, errName)
 			inner.site = n
 			inner.openFrame(errName)
 		}
@@ -872,13 +878,13 @@ func (fc *funcCtx) retTail(x syntax.Expr) {
 		if f.result != nil {
 			fc.returnFallible(x, o)
 		} else {
-			fc.line("return " + o.err)
+			fc.line(fc.errReturn(o.err))
 		}
 		return
 	}
 	if f.result == nil {
 		fc.discard(x)
-		fc.line("return nil")
+		fc.line(fc.errReturn("nil"))
 		return
 	}
 	fc.line("return " + fc.moved(fc.assigned(x)) + ", nil")

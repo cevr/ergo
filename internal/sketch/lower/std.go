@@ -317,7 +317,7 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 		call, hasResult, fallible := fc.opCall(fc.typeOf(x.X), op, result, vals, e, dest, nil, nil, x)
 		ind := strings.Repeat("\t", fc.depth)
 		fc.depth--
-		return params, fc.resultList(result, true), uniformBody(ind, call, hasResult, result != nil, fallible)
+		return params, fc.valueResults(result), uniformBody(ind, call, hasResult, result != nil, fallible)
 	})
 }
 
@@ -325,19 +325,22 @@ func (fc *funcCtx) methodValue(x *syntax.SelectorExpr, op *check.Method) string 
 // (typeCtx.funcType) that makes the Go call call: goVal and goErr are the
 // call's Go form (a value, an error), and value whether the function value
 // returns a value. A Go value the function value does not return is
-// struct{}, a no-value type argument's (types.md, Inference), discarded.
+// struct{}, a no-value type argument's (types.md, Inference), discarded; a
+// function value with no value returns struct{}{} in its place.
 func uniformBody(ind, call string, goVal, value, goErr bool) string {
 	switch {
 	case goVal && !value && goErr:
-		return ind + "_, err := " + call + "\n" + ind + "return err\n"
+		return ind + "_, err := " + call + "\n" + ind + "return struct{}{}, err\n"
 	case goVal && !value:
-		return ind + "_ = " + call + "\n" + ind + "return nil\n"
-	case goErr:
+		return ind + "_ = " + call + "\n" + ind + "return struct{}{}, nil\n"
+	case goVal && goErr:
 		return ind + "return " + call + "\n"
 	case goVal:
 		return ind + "return " + call + ", nil\n"
+	case goErr:
+		return ind + "return struct{}{}, " + call + "\n"
 	}
-	return ind + call + "\n" + ind + "return nil\n"
+	return ind + call + "\n" + ind + "return struct{}{}, nil\n"
 }
 
 // opCall is the Go call of the operation op on a value of the operation
@@ -453,17 +456,19 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 		// The yield parameter has the Seq's checked function type. It is a
 		// type, not another emitted closure or another env-binding owner.
 		yieldType := fc.goType(n.Underlying().(*check.Signature).Params[0].Type)
-		return []string{yield + " " + yieldType}, " error",
+		// A Seq has no result: the uniform shape returns struct{}{} first
+		// (typeCtx.funcType).
+		return []string{yield + " " + yieldType}, " (struct{}, error)",
 			ind + "\tfor " + v + " := range " + call(e) + " {\n" +
 				ind + "\t\t" + ok2 + ", " + err + " := " + yield + "(" + e + ", " + v + ")\n" +
 				ind + "\t\tif " + err + " != nil {\n" +
-				ind + "\t\t\treturn " + err + "\n" +
+				ind + "\t\t\treturn struct{}{}, " + err + "\n" +
 				ind + "\t\t}\n" +
 				ind + "\t\tif !" + ok2 + " {\n" +
-				ind + "\t\t\treturn nil\n" +
+				ind + "\t\t\treturn struct{}{}, nil\n" +
 				ind + "\t\t}\n" +
 				ind + "\t}\n" +
-				ind + "\treturn nil\n"
+				ind + "\treturn struct{}{}, nil\n"
 	})
 }
 
@@ -590,25 +595,25 @@ func (fc *funcCtx) adaptFunc(fv string, shape *v1.Body, sig *check.Signature, si
 	}
 	return fc.envClosure(binding, "e", site, func(env string) (params []string, results, body string) {
 		ind := strings.Repeat("\t", fc.depth+1)
+		// fv has the uniform shape: a value, struct{} when the block has
+		// none, and an error (typeCtx.funcType).
 		call := fv + "(" + env + ")"
 		switch len(shape.Results) {
 		case 0:
-			if len(sig.Results) == 1 {
-				body = ind + "_, _ = " + call + "\n"
-			} else {
-				body = ind + "_ = " + call + "\n"
-			}
+			body = ind + "_, _ = " + call + "\n"
 		case 1:
 			if len(sig.Results) != 0 {
 				ice(site, "a std function parameter returns error alone and the block a value")
 			}
-			results, body = " error", ind+"return "+call+"\n"
+			err := fc.scope.alloc("err")
+			results, body = " error", ind+"_, "+err+" := "+call+"\n"+ind+"return "+err+"\n"
 		case 2:
 			switch len(sig.Results) {
 			case 0:
 				// A block with no value binds the body's T to no value, which
-				// is struct{} (types.md, Inference; stage D3b round 1 review M2).
-				results, body = " (struct{}, error)", ind+"return struct{}{}, "+call+"\n"
+				// is struct{} (types.md, Inference; stage D3b round 1 review
+				// M2): the block's own shape.
+				results, body = " (struct{}, error)", ind+"return "+call+"\n"
 			case 1:
 				results, body = " ("+fc.goType(sig.Results[0])+", error)", ind+"return "+call+"\n"
 			default:

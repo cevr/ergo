@@ -203,35 +203,54 @@ func TestErgoRunNoValueTypeArgument(t *testing.T) {
 	runWithin(t, "novalue", noValueProgram, "1121 3 7 1\n", 60*time.Second)
 }
 
-// TestNoValueTypeArgumentRefusals: where Go's instance and the checked type
-// differ beyond a parameter func(…) T and a result T, the call or the type
-// is refused naming lower-v1 (C11), never wrong Go: a declared generic
-// type instantiated with no value, and T inside another function type.
-func TestNoValueTypeArgumentRefusals(t *testing.T) {
-	cases := []struct {
-		name, src string
-		line, col int
-	}{
-		{"declared-type", "type Job[T] { Run func() T }\nfunc f() {\n\tlet j = Job{Run: func() {}}\n\tj.Run()\n}\n", 3, 2},
-		{"slice-of-funcs", "func all[T](fs []func() T) int { len(fs) }\nfunc f() int {\n\tall([]func(){func() {}})\n}\n", 3, 2},
-		{"func-result", "func later[T](f escaping func() T) func() T { f }\nfunc f() {\n\tlet g = later() { }\n\tg()\n}\n", 3, 10},
-		{"func-param", "func outer[T](f func(g func() T) int) int { 0 }\nfunc f() int {\n\touter(func(h func()) int { 1 })\n}\n", 3, 2},
+// noValueShapesProgram binds a type parameter to no value where the checked
+// type and Go's instance used to differ (C11): a declared generic type's
+// field, a slice of function values (read through the same slice after an
+// element is replaced, so no copy stands in for it), a function result and
+// a parameter's parameter. A function value with no result now has the one
+// Go shape of func(…) struct{} (typeCtx.funcType).
+const noValueShapesProgram = `type Job[T] { Run func() T }
+
+func all[T](fs []func() T) int { len(fs) }
+
+func runAll[T](fs []func() T) {
+	for f in fs {
+		f()
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			o := lowerSource("r", tc.src, false)
-			if len(o.diags) != 0 {
-				t.Fatalf("want a clean check; got %v", o.diags)
-			}
-			if o.panicked != nil || len(o.refused) == 0 {
-				t.Fatalf("want a refusal; got refusals %v, panic %v, err %v\n%s", o.refused, o.panicked, o.err, o.mainGo())
-			}
-			r := o.refused[0]
-			if r.Line != tc.line || r.Column != tc.col || !strings.Contains(r.Message, "no value") || !strings.Contains(r.Message, "lower-v1 (C11") {
-				t.Fatalf("want a refusal at %d:%d of a no-value type argument naming lower-v1 (C11); got %+v", tc.line, tc.col, r)
-			}
-		})
+}
+
+func later[T](f escaping func() T) func() T { f }
+
+func outer[T](f func(g func() T) int) int { 3 }
+
+func main() needs Console {
+	let mut hits = 0
+	let j = Job{Run: func() { hits = hits + 1 }}
+	j.Run()
+	j.Run()
+	let mut fs = []func(){func() {}, func() {}}
+	fs[1] = func() { hits = hits + 100 }
+	runAll(fs)
+	let n = all(fs)
+	let g = later() { hits = hits + 10 }
+	g()
+	let k = outer(func(h func()) int {
+		h()
+		4
+	})
+	Console.Println("\(hits) \(n) \(k)")
+}
+`
+
+// TestNoValueTypeArgumentsLower (C11, lower-v1 stage 4): each shape of
+// noValueShapesProgram lowers with no adapter and runs: the Job's Run, the
+// replaced slice element, the later result and the parameter's parameter.
+func TestNoValueTypeArgumentsLower(t *testing.T) {
+	o := mustLower(t, "shapes", noValueShapesProgram)
+	if goSrc := stripDirectives(o.mainGo()); !strings.Contains(goSrc, "Job[struct{}]") || !strings.Contains(goSrc, "runAll[struct{}](") {
+		t.Errorf("the no-value type argument is not struct{}:\n%s", goSrc)
 	}
+	runWithin(t, "shapes", noValueShapesProgram, "112 2 3\n", 60*time.Second)
 }
 
 // TestErgoRunTaskBodyBoundAtGo: a function value passed to task.Go is

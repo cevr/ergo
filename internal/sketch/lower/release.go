@@ -129,6 +129,13 @@ func (fc *funcCtx) sourceReturn(vals ...string) {
 		fc.line("return nil, nil")
 		return
 	}
+	if fc.frame.unit {
+		if len(vals) != 1 {
+			ice(nil, "a return of %d results from a function value with no result", len(vals))
+		}
+		fc.line(fc.errReturn(vals[0]))
+		return
+	}
 	fc.line("return " + strings.Join(vals, ", "))
 }
 

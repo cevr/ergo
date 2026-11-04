@@ -220,7 +220,7 @@ func (fc *funcCtx) blockBody(list []syntax.Stmt) {
 		fc.line("panic(\"ergo: unreachable: the block's end\")")
 		return
 	}
-	fc.line("return nil")
+	fc.line(fc.errReturn("nil"))
 }
 
 // needsDefault reports whether a total match without case _ gets the

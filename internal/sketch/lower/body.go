@@ -21,6 +21,10 @@ import (
 type frame struct {
 	result   check.Type // nil when it returns no value
 	fallible bool
+	// unit marks a function value with no result: its Go form returns
+	// struct{}{} before the error, the uniform shape (typeCtx.funcType;
+	// errReturn writes each such return).
+	unit bool
 	// scope is the Go name of the frame scope, "" when the frame opens
 	// none (stage D3b, Rule 2); dest is the destination parameter of a
 	// frame that returns a Task, "" otherwise.
@@ -170,8 +174,18 @@ func (fc *funcCtx) body(list []syntax.Stmt) {
 	case fc.frame.result != nil:
 		fc.line("panic(\"ergo: unreachable: the function's end\")")
 	case fc.frame.fallible:
-		fc.line("return nil")
+		fc.line(fc.errReturn("nil"))
 	}
+}
+
+// errReturn is the Go return of the error err, with no value, from the
+// current frame: a unit frame (a function value with no result) returns
+// struct{}{} first.
+func (fc *funcCtx) errReturn(err string) string {
+	if fc.frame.unit {
+		return "return struct{}{}, " + err
+	}
+	return "return " + err
 }
 
 // stmts writes a statement list and reports whether its Go form ends in a
@@ -509,7 +523,7 @@ func (fc *funcCtx) fail(err string) {
 		fc.line("return " + fc.zero(f.result) + ", " + err)
 		return
 	}
-	fc.line("return " + err)
+	fc.line(fc.errReturn(err))
 }
 
 // exprStmt writes an expression statement for its effects.
@@ -654,7 +668,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		callback := fc.envClosure(callerEnv, "_", s, func(_ string) ([]string, string, string) {
 			return []string{v + " " + elemType}, " (bool, error)", "return " + yield + "(" + v + "), nil\n"
 		})
-		adapter := "func(" + yield + " func(" + elemType + ") bool) { _ = " + x + "(" + env + ", " + callback + ") }"
+		adapter := "func(" + yield + " func(" + elemType + ") bool) { _, _ = " + x + "(" + env + ", " + callback + ") }"
 		if elem == "_" {
 			fc.line("for range " + adapter + " {")
 		} else {
