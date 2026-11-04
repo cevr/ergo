@@ -1088,19 +1088,21 @@ func (c *checker) collFunc(t Type, name string) *Func {
 	return nil
 }
 
-// collNamed is the prelude function on slices or Maps named name, for the
-// message of a bare name that is in no scope (orchestrator ruling, stage
-// D3 round 1: Get(m, k) is S104 naming m.Get(k)).
-func (c *checker) collNamed(name string) *Func {
-	if f := c.collFuncs()[collKey{name: name}]; f != nil {
-		return f
+// preludeOp is the prelude operation named name, for the message of a bare
+// name that is in no scope (orchestrator ruling, stage D3 round 1: Get(m,
+// k) is S104 naming m.Get(k)): a function on slices or Maps, or on a
+// prelude type (Sleep). The prelude's own operations are in its package
+// scope, so it has none here.
+func (c *checker) preludeOp(name string) *Func {
+	if c.pkg.Path == std.PreludePath {
+		return nil
 	}
-	return c.collFuncs()[collKey{name: name, isMap: true}]
+	return prelude().ops[name]
 }
 
-// collForm is the dot form of the prelude function f, spelled with its
-// parameter names: m.Get(k).
-func collForm(f *Func) string {
+// opForm is the dot form of the prelude function f, spelled with its
+// parameter names: m.Get(k), s.Sleep(d).
+func opForm(f *Func) string {
 	var names []string
 	for _, field := range f.Decl.Type.Params.List {
 		for _, id := range field.Names {

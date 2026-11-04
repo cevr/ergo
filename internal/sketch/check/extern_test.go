@@ -85,7 +85,7 @@ func main() needs Console {
 	let xs = []int{1}
 	let f = xs.Append // want S104
 	let g = scope.OnExit[Console] // want S108
-	let h = Sleep // want S108
+	let h = Sleep // want S104
 	Console.Println("\(len(f(2)))")
 	g(func() { Console.Println("x") })
 	Console.Println("\(h == h)")
@@ -99,7 +99,7 @@ func main() needs Console {
 }
 `,
 		"prelude-sleep-value": `func main() {
-	let h = Sleep // want S108
+	let h = Sleep // want S104
 	_ = h
 }
 `,

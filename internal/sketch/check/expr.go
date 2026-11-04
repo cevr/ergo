@@ -436,8 +436,8 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			c.errorf(x, CodeUnknown, "%s is not predeclared in Ergo; %s", x.Name, form)
 			return bad(x)
 		}
-		if f := c.collNamed(x.Name); f != nil {
-			c.errorf(x, CodeUnknown, "unknown name %s; the prelude function %s is reached only by the dot form, %s", x.Name, x.Name, collForm(f))
+		if f := c.preludeOp(x.Name); f != nil {
+			c.errorf(x, CodeUnknown, "unknown name %s; the prelude function %s is reached only by the dot form, %s", x.Name, x.Name, opForm(f))
 			return bad(x)
 		}
 		c.errorf(x, CodeUnknown, "unknown name %s", x.Name)

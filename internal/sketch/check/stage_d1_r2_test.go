@@ -64,7 +64,9 @@ func TestPreludeNamesInCatchAndMatchArms(t *testing.T) {
 	runD1Prelude(t, []d1Case{
 		{"catch-rest-len", decls + "func f() int {\n\tg() catch {\n\tcase len:\n\t\t_ = len\n\t\t0\n\t}\n}\n", []string{"S108:5"}},
 		{"match-record-len", "func f(o Option[int]) int {\n\tmatch o {\n\tcase Some{Value: len}:\n\t\tlen\n\tcase None:\n\t\t0\n\t}\n}\n", []string{"S108:3"}},
-		{"match-bare-Sleep", "func f(n int) int {\n\tmatch n {\n\tcase Sleep:\n\t\tSleep\n\t}\n}\n", []string{"S108:3"}},
+		// Sleep is a prelude operation, in no scope (prelude-scope S1): the
+		// arm binds it with no diagnostic.
+		{"match-bare-Sleep", "func f(n int) int {\n\tmatch n {\n\tcase Sleep:\n\t\tSleep\n\t}\n}\n", nil},
 		{"catch-record-len", decls + "func f() int {\n\tg() catch {\n\tcase E{N: len}:\n\t\tlen\n\t}\n}\n", []string{"S108:5"}},
 	})
 }
@@ -87,7 +89,7 @@ func TestInvalidValueBindersKeepTheBinderRules(t *testing.T) {
 	runD1(t, []d1Case{
 		{"pattern-over-parameter", "func f(a int) int {\n\tlet (a, b) = unknownFn()\n\tb\n}\n", []string{"S108:2", "S104:2"}},
 		{"name-over-parameter", "func f(a int) int {\n\tlet a = unknownFn()\n\t1\n}\n", []string{"S108:2", "S104:2"}},
-		{"prelude-name", "func f() int {\n\tlet (Sleep, b) = unknownFn()\n\tb\n}\n", []string{"S108:2", "S104:2"}},
+		{"prelude-name", "func f() int {\n\tlet (len, b) = unknownFn()\n\tb\n}\n", []string{"S108:2", "S104:2"}},
 		{"duplicate", "func f() int {\n\tlet (b, b) = unknownFn()\n\t1\n}\n", []string{"S108:2", "S104:2"}},
 	})
 }

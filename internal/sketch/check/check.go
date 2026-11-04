@@ -551,6 +551,8 @@ func universe() *Scope {
 type preludeResult struct {
 	scope *Scope
 	pkg   *Package
+	// ops are the prelude's exported operations, which are in no scope.
+	ops   map[string]*Func
 	diags []Diagnostic
 }
 
@@ -581,15 +583,24 @@ func prelude() preludeResult {
 		for _, f := range pkg.collFuncs {
 			coll[f] = true
 		}
+		ops := map[string]*Func{}
 		for name, o := range pkg.Scope.names {
-			// A function on slices or Maps is an operation of that type,
-			// reached by x.f(…), not a name in scope (D-D8; the decided
-			// preview's func Get on a local type keeps its name).
-			if isExported(name) && !coll[o] {
-				scope.insert(name, o)
+			if !isExported(name) {
+				continue
 			}
+			// An operation is reached by x.f(…), not a name in scope: a
+			// function on slices or Maps (D-D8) or on a type the prelude
+			// declares (196m, as Sleep on LiveScheduler). A program may
+			// declare a function of its name (the decided preview's func
+			// Get on a local type; a program's own Scheduler provider's
+			// Sleep).
+			if f, ok := o.(*Func); ok && (coll[o] || f.owner != nil) {
+				ops[name] = f
+				continue
+			}
+			scope.insert(name, o)
 		}
-		preludeOnce.r = preludeResult{scope: scope, pkg: pkg, diags: c.sorted()}
+		preludeOnce.r = preludeResult{scope: scope, pkg: pkg, ops: ops, diags: c.sorted()}
 	})
 	return preludeOnce.r
 }

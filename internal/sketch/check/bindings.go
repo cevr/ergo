@@ -20,35 +20,29 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // one of three functions: preludeName (every declaration), shadowed (every
 // local binder) and the mutability rules of lhs.
 
-// predeclaredNames are the names the decided language predeclares that the
-// checker spells as syntax (`Map[K, V]`). Every other predeclared name is
-// found in the scopes above the package: the universe and the prelude's
-// exported names.
-var predeclaredNames = map[string]bool{"Map": true}
-
-// notPreludeNames are universe names outside D-D3's decided list: `error`
-// is only the head of an error row (D-E2), `uintptr`, `complex64` and
-// `complex128` are not v1 types, `with` is a keyword and `go` names the
-// extern go package. Each keeps the treatment it had before D-D3.
-var notPreludeNames = map[string]bool{"error": true, "uintptr": true, "complex64": true, "complex128": true, "with": true, "go": true}
-
-// isPreludeName reports whether name is predeclared for this package: a
-// universe name of D-D3's list, an exported prelude name, or one of
-// predeclaredNames. The prelude package itself sees only the universe
-// above it, so its own declarations are not refused.
+// isPreludeName reports whether name is predeclared for this package
+// (predeclared.go): a universe name of D-D3's list, a name of the prelude
+// scope, or one of predeclaredNames. The prelude package itself sees only
+// the universe above it, so its own declarations are not refused.
 func (c *checker) isPreludeName(name string) bool {
-	if name == "_" || notPreludeNames[name] {
-		return false
+	return predeclaredAbove(name, c.pkg.Scope.parent)
+}
+
+// paramBinder applies the binder rules of a declared function's parameter
+// list, an extern's included (D-D3 "parameter"): a name the list already
+// holds is S108 and binds nothing; a prelude name is S108 and still binds.
+// seen holds the names of the list so far. It reports whether the
+// parameter binds and whether D-D3 refused it.
+func (c *checker) paramBinder(f *Func, p *Var, seen map[string]bool) (bind, refused bool) {
+	if p.Name == "_" {
+		return false, false
 	}
-	if predeclaredNames[name] {
-		return true
+	if seen[p.Name] {
+		c.errorf(p.id, CodeType, "%s is already a parameter of %s", p.Name, f.Name)
+		return false, false
 	}
-	for sc := c.pkg.Scope.parent; sc != nil; sc = sc.parent {
-		if _, ok := sc.names[name]; ok {
-			return true
-		}
-	}
-	return false
+	seen[p.Name] = true
+	return true, c.preludeName(p.id)
 }
 
 // binderKey names a binder by its file and position.
