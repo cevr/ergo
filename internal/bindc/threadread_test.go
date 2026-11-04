@@ -134,31 +134,36 @@ func unlockedThreadReads(t *testing.T, src []byte) []string {
 	return bad
 }
 
-// TestThreadReadsLocked (bind-c-2 r2, 2c M1): in both golden Go packages,
-// every read of the thread id outside a trampoline is under a lock of the
-// goroutine to its thread. The controls remove the lock of cbTakeHere (the
-// r2 head's take, which let a goroutine take another goroutine's pending
-// panic) and the lock of ownerHere; each must be found.
+// TestThreadReadsLocked (bind-c-2 r2, 2c M1): in the Go packages that the
+// emitter makes for both golden headers (TestGolden holds the goldens equal
+// to them), every read of the thread id outside a trampoline is under a
+// lock of the goroutine to its thread. The controls remove the lock of
+// cbTakeHere (the r2 head's take, which let a goroutine take another
+// goroutine's pending panic) and the lock of ownerHere; each must be found.
 func TestThreadReadsLocked(t *testing.T) {
 	for _, h := range headers {
-		for name, src := range goldenGoFiles(t, h.dir) {
-			if bad := unlockedThreadReads(t, src); len(bad) > 0 {
-				t.Errorf("%s/go/%s reads cbThread with the goroutine free to move in %v", h.dir, name, bad)
+		m := parseHeader(t, h.dir, h.header)
+		b := bindHeader(t, h.dir, h.header, m)
+		name, src, err := GoPackage(b)
+		if err != nil {
+			t.Fatalf("%s: GoPackage: %v", h.header, err)
+		}
+		if bad := unlockedThreadReads(t, src); len(bad) > 0 {
+			t.Errorf("%s/go/%s reads cbThread with the goroutine free to move in %v", h.dir, name, bad)
+		}
+		if !bytes.Contains(src, []byte("func cbThread()")) {
+			continue
+		}
+		for _, c := range []struct{ fn, from, to string }{
+			{"cbTakeHere", "func cbTakeHere() *CallbackPanic {\n\truntime.LockOSThread()\n", "func cbTakeHere() *CallbackPanic {\n"},
+			{"ownerHere", "func ownerHere(o *Owner) bool {\n\truntime.LockOSThread()\n", "func ownerHere(o *Owner) bool {\n"},
+		} {
+			mut := bytes.Replace(src, []byte(c.from), []byte(c.to), 1)
+			if bytes.Equal(mut, src) {
+				t.Fatalf("%s/go/%s: the control finds no lock in %s", h.dir, name, c.fn)
 			}
-			if !bytes.Contains(src, []byte("func cbThread()")) {
-				continue
-			}
-			for _, c := range []struct{ fn, from, to string }{
-				{"cbTakeHere", "func cbTakeHere() *CallbackPanic {\n\truntime.LockOSThread()\n", "func cbTakeHere() *CallbackPanic {\n"},
-				{"ownerHere", "func ownerHere(o *Owner) bool {\n\truntime.LockOSThread()\n", "func ownerHere(o *Owner) bool {\n"},
-			} {
-				mut := bytes.Replace(src, []byte(c.from), []byte(c.to), 1)
-				if bytes.Equal(mut, src) {
-					t.Fatalf("%s/go/%s: the control finds no lock in %s", h.dir, name, c.fn)
-				}
-				if bad := unlockedThreadReads(t, mut); !slices.Contains(bad, c.fn) {
-					t.Errorf("%s/go/%s: without its lock, %s is not found (found %v)", h.dir, name, c.fn, bad)
-				}
+			if bad := unlockedThreadReads(t, mut); !slices.Contains(bad, c.fn) {
+				t.Errorf("%s/go/%s: without its lock, %s is not found (found %v)", h.dir, name, c.fn, bad)
 			}
 		}
 	}
