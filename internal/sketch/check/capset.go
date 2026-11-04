@@ -4,7 +4,6 @@ import (
 	"math/bits"
 	"sort"
 	"strings"
-	"unique"
 )
 
 // A capSet is a persistent set of capabilities, keyed by their qualified
@@ -54,48 +53,66 @@ type capNode struct {
 	h           int32 // nodes on the longest path down from here
 	left, right *capNode
 	// keys is the subtree's keys, hash-consed (keyShape): two subtrees
-	// hold the same keys when their keys are equal, whatever their entries
-	// (sameKeys). capInsert sets it with h (fix).
-	keys unique.Handle[keyShape]
+	// hold the same keys when their keys are one pointer, whatever their
+	// entries (sameKeys). capInsert sets it with h (fix).
+	keys *keyShape
 }
 
 // A keyShape is the shape of a capSet subtree without its entries: the
-// node's key and its children's shapes. unique.Make hash-conses it, so two
-// subtrees of one shape share one handle, and a handle comparison is one
-// pointer comparison. One shape holds one set of keys, so equal handles
-// mean equal key sets. A treap's shape is a function of its keys, as the
-// priorities hash the keys (capKey.priority), so two summaries that bind
-// the same capabilities from different entries have equal handles (with
-// scopes, E5 round 1 M1); two keys whose priorities tie can give one key
-// set two shapes, and then sameKeys is false, which costs only work.
+// node's key and its children's shapes. The package's shape table
+// (contextMeter.shapes) hash-conses it, so two subtrees of one shape share
+// one keyShape, and a comparison is one pointer comparison. One shape
+// holds one set of keys, so one pointer means one key set. A treap's shape
+// is a function of its keys, as the priorities hash the keys
+// (capKey.priority), so two summaries that bind the same capabilities from
+// different entries share their keyShapes (with scopes, E5 round 1 M1).
+// Two keys whose priorities tie can give one key set two shapes, and
+// summaries built under another package's table have their own shapes;
+// then sameKeys is false, which costs only work, never a wrong answer.
 // Prior art: hash-consing (Filliâtre and Conchon, "Type-safe modular
-// hash-consing", 2006), and Go's unique package, which interns comparable
-// values behind weak references; a treap with hashed priorities is a
-// uniquely represented set (Seidel and Aragon, "Randomized search trees",
-// 1996).
+// hash-consing", 2006; Go's unique package interns values the same way,
+// globally); a treap with hashed priorities is a uniquely represented set
+// (Seidel and Aragon, "Randomized search trees", 1996).
 type keyShape struct {
 	key         capKey
-	left, right unique.Handle[keyShape]
+	left, right *keyShape
 }
 
-// keysOf is n's key shape; the zero handle for the empty subtree.
-func keysOf(n *capNode) unique.Handle[keyShape] {
+// keysOf is n's key shape; nil for the empty subtree.
+func keysOf(n *capNode) *keyShape {
 	if n == nil {
-		return unique.Handle[keyShape]{}
+		return nil
 	}
 	return n.keys
 }
 
-// fix sets n's height and key shape from its key and its children.
-func (n *capNode) fix() {
+// fix sets n's height and its key shape, interned in tab, from its key and
+// its children.
+func (n *capNode) fix(tab map[keyShape]*keyShape) {
 	n.h = 1 + max(height(n.left), height(n.right))
-	n.keys = unique.Make(keyShape{key: n.key, left: keysOf(n.left), right: keysOf(n.right)})
+	s := keyShape{key: n.key, left: keysOf(n.left), right: keysOf(n.right)}
+	if n.keys = tab[s]; n.keys == nil {
+		n.keys = &s
+		tab[s] = n.keys
+	}
 }
 
 // sameKeys reports whether summary subtrees a and b are known to hold the
 // same keys: the same node, or one key shape.
 func sameKeys(a, b *capNode) bool {
 	return a == b || a != nil && b != nil && a.keys == b.keys
+}
+
+// shapes is the key-shape table of m's outermost meter, the package's
+// context meter (an allowance's parent; keyShape), made on first use.
+func (m *contextMeter) shapes() map[keyShape]*keyShape {
+	for m.parent != nil {
+		m = m.parent
+	}
+	if m.shapeTab == nil {
+		m.shapeTab = map[keyShape]*keyShape{}
+	}
+	return m.shapeTab
 }
 
 // A capKey is a capability's qualified name. A capability is a named,
@@ -166,6 +183,10 @@ type contextMeter struct {
 	used, limit int
 	out         bool
 	parent      *contextMeter
+	// shapeTab interns the key shapes of the summaries built under this
+	// meter and its allowances (shapes; keyShape). It is not metered: each
+	// entry is made with a node, which is charged.
+	shapeTab map[keyShape]*keyShape
 }
 
 func (m *contextMeter) step(n int) bool {
@@ -622,7 +643,7 @@ func capInsert(m *contextMeter, n *capNode, k capKey, t Type, e *ContextEntry, p
 		}
 		op(m, "node made", repeatable, 1)
 		n := &capNode{key: k, t: t, entry: e, pri: pri}
-		n.fix()
+		n.fix(m.shapes())
 		return n, true, false, true
 	}
 	if !m.step(1) {
@@ -656,24 +677,25 @@ func capInsert(m *contextMeter, n *capNode, k capKey, t Type, e *ContextEntry, p
 	}
 	op(m, "node copied", repeatable, 1)
 	c := *n
+	tab := m.shapes()
 	if cmp < 0 {
 		c.left = child
 		if child.pri > c.pri {
 			c.left, child.right = child.right, &c
-			c.fix()
-			child.fix()
+			c.fix(tab)
+			child.fix(tab)
 			return child, added, changed, true
 		}
 	} else {
 		c.right = child
 		if child.pri > c.pri {
 			c.right, child.left = child.left, &c
-			c.fix()
-			child.fix()
+			c.fix(tab)
+			child.fix(tab)
 			return child, added, changed, true
 		}
 	}
-	c.fix()
+	c.fix(tab)
 	return &c, added, changed, true
 }
 
