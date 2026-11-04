@@ -4569,7 +4569,8 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(SceneRecordUnicode{}.Background) - 8 + 1]struct{}{}
 )
 
-// The raw layer: the exact C shape of every function.
+// The raw layer: the exact C shape of every function, with a struct by
+// value in its call form.
 var (
 	c_ot_scene_set_hooks                              func(uintptr, unsafe.Pointer, unsafe.Pointer) int32
 	c_ot_scene_frame_step_with_geometry               func(uintptr, unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, unsafe.Pointer, uint32, unsafe.Pointer, unsafe.Pointer) int32
@@ -4893,8 +4894,8 @@ func SceneFrameGetPaintSlots(context *Context, session Handle, recordRequest Sce
 		return 0, ErrTooLong
 	}
 	recordRequest.fill()
-	for _i := range outSlots {
-		outSlots[_i].fill()
+	for _i0 := range outSlots {
+		outSlots[_i0].fill()
 	}
 	var _o5 uint32
 	_r := c_ot_scene_frame_get_paint_slots(context.p, unsafe.Pointer(&session), unsafe.Pointer(&recordRequest), sliceData(outSlots), uint32(len(outSlots)), unsafe.Pointer(&_o5))
@@ -5354,8 +5355,8 @@ func SceneSetStyledText(context *Context, node Handle, bytes []byte, chunks []St
 	if uint64(len(urls)) > 4294967295 {
 		return ErrTooLong
 	}
-	for _i := range chunks {
-		chunks[_i].fill()
+	for _i0 := range chunks {
+		chunks[_i0].fill()
 	}
 	_r := c_ot_scene_set_styled_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)), sliceData(urls), uint32(len(urls)))
 	runtime.KeepAlive(&node)
@@ -6838,8 +6839,8 @@ func EditorViewSetPlaceholder(context *Context, handle Handle, bytes []byte, chu
 	if uint64(len(chunks)) > 4294967295 {
 		return ErrTooLong
 	}
-	for _i := range chunks {
-		chunks[_i].fill()
+	for _i0 := range chunks {
+		chunks[_i0].fill()
 	}
 	_r := c_ot_editor_view_set_placeholder(context.p, unsafe.Pointer(&handle), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)))
 	runtime.KeepAlive(&handle)
@@ -7698,8 +7699,8 @@ func TextBufferSetStyledText(context *Context, handle Handle, arg2 []byte, style
 	if uint64(len(urls)) > 4294967295 {
 		return ErrTooLong
 	}
-	for _i := range styledTextChunk {
-		styledTextChunk[_i].fill()
+	for _i0 := range styledTextChunk {
+		styledTextChunk[_i0].fill()
 	}
 	_r := c_ot_text_buffer_set_styled_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)))
 	runtime.KeepAlive(&handle)
@@ -7734,11 +7735,11 @@ func TextBufferReplaceStyledBatch(context *Context, textBufferReplacement []Text
 	if uint64(len(urls)) > 4294967295 {
 		return TextBufferReplacementInfo{}, ErrTooLong
 	}
-	for _i := range textBufferReplacement {
-		textBufferReplacement[_i].fill()
+	for _i0 := range textBufferReplacement {
+		textBufferReplacement[_i0].fill()
 	}
-	for _i := range styledTextChunk {
-		styledTextChunk[_i].fill()
+	for _i0 := range styledTextChunk {
+		styledTextChunk[_i0].fill()
 	}
 	var _o9 TextBufferReplacementInfo
 	_r := c_ot_text_buffer_replace_styled_batch(context.p, sliceData(textBufferReplacement), uint32(len(textBufferReplacement)), sliceData(bytes), uint32(len(bytes)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)), unsafe.Pointer(&_o9))
