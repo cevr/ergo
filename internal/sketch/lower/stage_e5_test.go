@@ -111,7 +111,7 @@ func main() needs Console {
 	with w { Console.Println(Store.Get()) }
 }
 `, "ada\nbo\n"},
-	// B sees A: w's provider needs Greeter, which the operand before it binds.
+	// B sees A: w's provider calls Greeter, which the operand before it binds.
 	{"b-sees-a", e5Prelude + `
 func shout() Holder needs Greeter {
 	Holder{v: Greeter.Greet("ada")}

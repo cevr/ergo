@@ -864,7 +864,7 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 // lexical inline and local contexts. All consume exactly the checker's
 // Acquired fact. The entries of an inline or a local context, and of each
 // local context it embeds, see the environment outside the with, where the
-// checker charged their needs (rows.md, Context 3 and 9); embedded named
+// checker charged what they use (rows.md, Context 3 and 9); embedded named
 // entries see the partially built context, as their checked Uses require.
 func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 	local := map[*check.ContextEntry]bool{}
