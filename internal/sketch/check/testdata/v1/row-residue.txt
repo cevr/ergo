@@ -52,6 +52,7 @@ internal/sketch/sketchtest/fixtures.go	"func f() needs (A, B) {}
 # old-syntax translator input: internal/migrate196 reads the old comma rows and writes them with |
 internal/migrate196/translate_test.go	Live provides Orders, Clock needs Config
 internal/migrate196/translate_test.go	func f(g func() needs (Orders, Clock)) needs Orders, Clock {
+internal/migrate196/rows_comments_test.go	the old parenthesised form `needs (A, B)`
 
 # vendored upstream prose (foldkit), not Ergo
 conformance/upstream/foldkit-d21db423/AGENTS.md	If code needs explanation, refactor

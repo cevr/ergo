@@ -1296,14 +1296,18 @@ func (t *translator) results(ft *oldsyntax.FuncType) {
 }
 
 // row respells an old capability row, its names separated by commas and
-// maybe parenthesised, as the decided union `needs A | B` (196n).
+// maybe parenthesised, as the decided union `needs A | B` (196n). It edits
+// only the comma and parenthesis tokens, so the comments between the names
+// stay where they were (TestRowCommentsKept); the formatter sets the spaces.
 func (t *translator) row(lparen oldsyntax.Pos, names []oldsyntax.Expr, rparen oldsyntax.Pos) {
 	if lparen.IsValid() {
-		t.replace(lparen, names[0].Pos(), "")
-		t.replace(names[len(names)-1].End(), rparen+1, "")
+		t.replace(lparen, lparen+1, " ")
+		t.replace(rparen, rparen+1, " ")
 	}
 	for i := 1; i < len(names); i++ {
-		t.replace(names[i-1].End(), names[i].Pos(), " | ")
+		from := names[i-1].End()
+		comma := from + oldsyntax.Pos(strings.IndexByte(stripComments(t.src[from:names[i].Pos()]), ','))
+		t.replace(comma, comma+1, " | ")
 	}
 }
 

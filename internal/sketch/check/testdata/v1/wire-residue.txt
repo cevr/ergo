@@ -190,6 +190,7 @@ internal/migrate196/testdata/old/v0/sketch-eval-9/stm-batching.go.sketch	*
 internal/migrate196/translate_test.go	"v0/sketch-eval-8/loops/wire-effects.go.sketch": true,
 internal/migrate196/translate_test.go	"v0/sketch-eval-9/loops/wire-effects.go.sketch": true,
 internal/migrate196/translate_test.go	"package p\n\nfunc main() {\n\twith(wire{ Clock = Fixed{} }) { run() }\n}\n",
+internal/migrate196/rows_comments_test.go	{"context provides", "wire L ROW {
 internal/sketch/syntax/decided_test.go	// type is the bare name wire, the old inline context, in source
 internal/sketch/syntax/decided_test.go	lit.Type.(*syntax.Ident); ok && id.Name == "wire" {
 internal/sketch/syntax/decided_test.go	&& (!strings.Contains(la[i], "wire{") || !strings.Contains(lb[i],
