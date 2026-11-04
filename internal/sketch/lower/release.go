@@ -50,16 +50,24 @@ func isClose(f *check.Func) bool {
 // the provider's value, in outer, the environment outside the with, where
 // the checker charged the release's needs. The Close's Go function masks
 // its own body (closeBody), so the call adds no mask, as no dispatch path
-// to a checked Close adds one. The checker refuses every Close this route
-// cannot call by its Go name (C29: S109 naming lower-v1 at the owning
-// with), so each is an internal error here.
+// to a checked Close adds one. Each form of C29 releases (lower-v1 stage
+// 4):
+//   - a Close that is an operation of the provider's operation type calls
+//     the operation, whose implementation is a checked Close that masks
+//     its own body;
+//   - a generic Close is called with the type arguments that its
+//     parameter's type binds against the provider's type;
+//   - a Close that takes a pointer to a provider that is a value takes the
+//     address of the with's own copy of the provider (publishProvider
+//     spills it), which no operation of the block sees.
 func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site syntax.Node) string {
 	cl := a.Close
 	if cl.Func == nil {
-		ice(site, "a provider whose Close is an operation of its type, which the checker refuses (C29)")
-	}
-	if len(cl.Func.Sig.TParams) > 0 {
-		ice(site, "a provider whose Close is generic, which the checker refuses (C29)")
+		if cl.Op == nil {
+			ice(site, "a provider's Close with neither a function nor an operation")
+		}
+		text, _, _ := fc.opCall(cl.Receiver, cl.Op, nil, []string{val}, outer, "", nil, nil, site)
+		return text
 	}
 	if !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
 		ice(site, "a provider's Close with no checked Close identity")
@@ -75,14 +83,78 @@ func (fc *funcCtx) providerRelease(a *check.Acquisition, outer, val string, site
 	recv := val
 	switch {
 	case byPtr && !ptrValue:
-		ice(site, "a provider whose Close takes a pointer to its value, which the checker refuses (C29)")
+		recv = "&" + val
 	case !byPtr && ptrValue:
 		recv = "*" + val
 	}
 	if fd.method != nil {
 		return "(" + recv + ")." + fd.name + "(" + outer + ")"
 	}
-	return fd.name + "(" + outer + ", " + recv + ")"
+	targs := ""
+	if len(cl.Func.Sig.TParams) > 0 {
+		if len(witnessParams(cl.Func.Sig)) > 0 {
+			ice(site, "a provider whose generic Close has a type parameter with operations, which the checker refuses (S109, closeWitnessed; TestCloseRefusals)")
+		}
+		targs = fc.typeArgs(cl.Func.Sig, closeTypeArgs(cl, site), site)
+	}
+	return fd.name + targs + "(" + outer + ", " + recv + ")"
+}
+
+// closeTypeArgs are the type arguments of a generic Close's call: each of
+// its type parameters, bound by matching its parameter's type against the
+// provider's type (the receiver G[int] against the parameter G[T] or
+// *G[T]). Rows are erased (typeArgs skips them).
+func closeTypeArgs(cl *check.Close, site syntax.Node) []check.Type {
+	sig := cl.Func.Sig
+	binds := map[*check.TypeParam]check.Type{}
+	param, recv := sig.Params[0].Type, cl.Receiver
+	if p, ok := param.(*check.Pointer); ok {
+		param = p.Elem
+	}
+	if p, ok := recv.(*check.Pointer); ok {
+		recv = p.Elem
+	}
+	var match func(p, r check.Type)
+	match = func(p, r check.Type) {
+		switch p := p.(type) {
+		case *check.TypeParam:
+			binds[p] = r
+		case *check.Named:
+			rn, ok := r.(*check.Named)
+			if !ok || len(rn.TArgs) != len(p.TArgs) {
+				ice(site, "the Close parameter %s does not match the provider %s", p, r)
+			}
+			for i := range p.TArgs {
+				match(p.TArgs[i], rn.TArgs[i])
+			}
+		case *check.Pointer:
+			if rp, ok := r.(*check.Pointer); ok {
+				match(p.Elem, rp.Elem)
+			}
+		case *check.Slice:
+			if rs, ok := r.(*check.Slice); ok {
+				match(p.Elem, rs.Elem)
+			}
+		case *check.Map:
+			if rm, ok := r.(*check.Map); ok {
+				match(p.Key, rm.Key)
+				match(p.Elem, rm.Elem)
+			}
+		}
+	}
+	match(param, recv)
+	args := make([]check.Type, len(sig.TParams))
+	for i, tp := range sig.TParams {
+		if tp.Kind != check.KindType {
+			continue
+		}
+		t, ok := binds[tp]
+		if !ok {
+			ice(site, "the generic Close %s does not bind its type parameter %s from the provider %s", cl.Func.Name, tp.Name, cl.Receiver)
+		}
+		args[i] = t
+	}
+	return args
 }
 
 // providerCloser returns the checked release callback of this acquisition.
@@ -127,6 +199,13 @@ func (fc *funcCtx) sourceReturn(vals ...string) {
 		}
 		fc.line(a.flow + " = 1")
 		fc.line("return nil, nil")
+		return
+	}
+	if fc.frame.unit {
+		if len(vals) != 1 {
+			ice(nil, "a return of %d results from a function value with no result", len(vals))
+		}
+		fc.line(fc.errReturn(vals[0]))
 		return
 	}
 	fc.line("return " + strings.Join(vals, ", "))

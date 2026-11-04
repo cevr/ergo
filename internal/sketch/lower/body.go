@@ -21,6 +21,10 @@ import (
 type frame struct {
 	result   check.Type // nil when it returns no value
 	fallible bool
+	// unit marks a function value with no result: its Go form returns
+	// struct{}{} before the error, the uniform shape (typeCtx.funcType;
+	// errReturn writes each such return).
+	unit bool
 	// scope is the Go name of the frame scope, "" when the frame opens
 	// none (stage D3b, Rule 2); dest is the destination parameter of a
 	// frame that returns a Task, "" otherwise.
@@ -170,8 +174,18 @@ func (fc *funcCtx) body(list []syntax.Stmt) {
 	case fc.frame.result != nil:
 		fc.line("panic(\"ergo: unreachable: the function's end\")")
 	case fc.frame.fallible:
-		fc.line("return nil")
+		fc.line(fc.errReturn("nil"))
 	}
+}
+
+// errReturn is the Go return of the error err, with no value, from the
+// current frame: a unit frame (a function value with no result) returns
+// struct{}{} first.
+func (fc *funcCtx) errReturn(err string) string {
+	if fc.frame.unit {
+		return "return struct{}{}, " + err
+	}
+	return "return " + err
 }
 
 // stmts writes a statement list and reports whether its Go form ends in a
@@ -226,7 +240,7 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 	case *syntax.AssertStmt:
 		fc.assert(s) // the test build only (tests.go)
 	default:
-		refuse(s, "this statement is not produced by the decided parser")
+		unreachable(s, ruleParser, "a statement of the kind %T", s)
 	}
 	return false
 }
@@ -293,7 +307,7 @@ func (fc *funcCtx) declare(v *check.Var) string {
 // its target before the value.
 func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	if len(s.Lhs) != 1 || len(s.Rhs) != 1 {
-		refuse(s, "an assignment of several values is not produced by the decided parser")
+		unreachable(s, ruleParser, "an assignment of several values")
 	}
 	op := ""
 	switch s.Tok {
@@ -301,7 +315,7 @@ func (fc *funcCtx) assign(s *syntax.AssignStmt) {
 	default:
 		text := s.Tok.String()
 		if !strings.HasSuffix(text, "=") || text == "==" || text == ":=" {
-			refuse(s, "the assignment %s is not produced by the decided parser", text)
+			unreachable(s, ruleParser, "the assignment %s", text)
 		}
 		op = strings.TrimSuffix(text, "=")
 	}
@@ -357,7 +371,7 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 		return fc.target(x.X, later) + "." + fc.fieldName(x)
 	case *syntax.IndexExpr:
 		if len(x.Indices) != 1 {
-			refuse(x, "this assignment target is not lowered yet")
+			unreachable(x, ruleAccepted, "an assignment target indexed by %d expressions", len(x.Indices))
 		}
 		var base string
 		indexEmits := fc.emits(x.Indices[0])
@@ -378,7 +392,7 @@ func (fc *funcCtx) target(x syntax.Expr, later bool) string {
 		}
 		return base + "[" + index + "]"
 	}
-	refuse(x, "this assignment target is not lowered yet")
+	unreachable(x, ruleAccepted, "an assignment target of the kind %T", x)
 	return ""
 }
 
@@ -436,7 +450,7 @@ func (fc *funcCtx) place(x syntax.Expr, later bool) string {
 func (fc *funcCtx) ret(s *syntax.ReturnStmt) {
 	f := fc.frame
 	if len(s.Results) > 1 {
-		refuse(s, "returning several values is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(s, ruleOneResult, "a return of %d values", len(s.Results))
 	}
 	if len(s.Results) == 0 {
 		if f.fallible {
@@ -509,7 +523,7 @@ func (fc *funcCtx) fail(err string) {
 		fc.line("return " + fc.zero(f.result) + ", " + err)
 		return
 	}
-	fc.line("return " + err)
+	fc.line(fc.errReturn(err))
 }
 
 // exprStmt writes an expression statement for its effects.
@@ -556,7 +570,7 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 // per test; a loop with no condition and no break is terminating.
 func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 	if s.Init != nil || s.Post != nil {
-		refuse(s, "a for with init or post statements is not produced by the decided parser")
+		unreachable(s, ruleParser, "a for with an init or a post statement")
 	}
 	loop := &loopCtx{}
 	fc.loops = append(fc.loops, loop)
@@ -654,7 +668,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		callback := fc.envClosure(callerEnv, "_", s, func(_ string) ([]string, string, string) {
 			return []string{v + " " + elemType}, " (bool, error)", "return " + yield + "(" + v + "), nil\n"
 		})
-		adapter := "func(" + yield + " func(" + elemType + ") bool) { _ = " + x + "(" + env + ", " + callback + ") }"
+		adapter := "func(" + yield + " func(" + elemType + ") bool) { _, _ = " + x + "(" + env + ", " + callback + ") }"
 		if elem == "_" {
 			fc.line("for range " + adapter + " {")
 		} else {
@@ -775,7 +789,7 @@ func (fc *funcCtx) containsBreak(body *syntax.BlockStmt) bool {
 // Go switch lies between them.
 func (fc *funcCtx) branch(s *syntax.BranchStmt) {
 	if s.Label != nil {
-		refuse(s, "a labelled branch is not produced by the decided parser")
+		unreachable(s, ruleParser, "a labelled branch")
 	}
 	if len(fc.loops) == 0 {
 		ice(s, "a break or continue outside a loop")
@@ -836,7 +850,7 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		ice(s, "a match with no Matches entry")
 	}
 	if s.Init != nil || len(s.Binds) > 0 {
-		refuse(s, "a match with an init statement or a header binding is not produced by the decided parser")
+		unreachable(s, ruleParser, "a match with an init statement or a header binding")
 	}
 	if !fc.simpleTypeMatch(s) {
 		subjects := make([]syntax.Expr, len(s.Subjects))
@@ -858,7 +872,7 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 	caseType := func(t check.Type, item syntax.Node) string {
 		goType := fc.goType(t)
 		if seen[goType] {
-			refuse(item, "this case's type is an earlier case's type, so this arm never runs; check-v1 stage B reports such an arm as unreachable (D-B4)")
+			unreachable(item, ruleCoveredCase, "a case of the Go type %s, which an earlier case of this match takes", goType)
 		}
 		seen[goType] = true
 		return goType
@@ -877,13 +891,13 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 				a.types = append(a.types, caseType(p.Type, item))
 			case check.PatAs:
 				if len(cl.List) != 1 || len(p.Elems) != 1 || p.Elems[0].Kind != check.PatTypeTest || p.Var == nil {
-					refuse(item, "this pattern is lowered after check-v1 stage B (196p)")
+					unreachable(item, ruleSimpleMatch, "an as pattern that is not one type test in a case of its own")
 				}
 				a.types = append(a.types, caseType(p.Elems[0].Type, item))
 				a.as = p.Var
 				bind = true
 			default:
-				refuse(item, "this pattern is lowered after check-v1 stage B (196p)")
+				unreachable(item, ruleSimpleMatch, "a pattern that is not a type test in a type switch")
 			}
 		}
 		arms = append(arms, a)
@@ -938,7 +952,7 @@ func (fc *funcCtx) valueMatch(s *syntax.SwitchStmt, d dest) bool {
 		ice(s, "a value match with no Matches entry")
 	}
 	if s.Init != nil {
-		refuse(s, "a match with an init statement is not produced by the decided parser")
+		unreachable(s, ruleParser, "a value match with an init statement")
 	}
 	if s.Tag == nil {
 		ice(s, "a match with no subject; the checker refuses it as undecided syntax")
@@ -962,12 +976,12 @@ func (fc *funcCtx) valueMatch(s *syntax.SwitchStmt, d dest) bool {
 			case check.PatConst:
 				key := caseKey(p.Type, p.Value)
 				if seen[key] {
-					refuse(item, "this case value equals an earlier case's value in its type, so this arm never runs; check-v1 stage B reports such an arm as unreachable (D-B4)")
+					unreachable(item, ruleCoveredCase, "a case value that an earlier case of this match takes")
 				}
 				seen[key] = true
 				values = append(values, fc.constant(p.Type, p.Value, item))
 			default:
-				refuse(item, "this pattern is lowered after check-v1 stage B (196p)")
+				unreachable(item, ruleLiteralCases, "a value match case that is not a literal")
 			}
 		}
 		if def || len(cl.List) == 0 {

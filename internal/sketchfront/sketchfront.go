@@ -7,8 +7,9 @@
 //
 // Build lowers a checked program from the checker's own Package and Info
 // (internal/sketch/lower) into the content-addressed emission cache
-// (internal/sketch/build, #224) and links it with the go command. There is
-// no second checker: a program the checker accepts and the lowering cannot
+// (internal/sketch/build, #224) and links it with the go command; in test
+// mode it lowers the test binary instead (lower.LowerTests), a distinct
+// module of the same checked program. There is no second checker: a program the checker accepts and the lowering cannot
 // lower yet is refused with a located S109 that names the stage owning the
 // form, and nothing is published.
 //
@@ -212,6 +213,11 @@ const emitterRevision = "lower/2"
 
 // BuildRequest is one build of a checked analysis.
 type BuildRequest struct {
+	// Mode is the root the module runs: build.ModeBuild, main (ergo build
+	// and ergo run), or build.ModeTest, the tests (ergo test). It is part
+	// of the emission key, so the two builds of one source are distinct
+	// modules.
+	Mode build.Mode
 	// Source is the admitted absolute path of the analysed source. //line
 	// directives and the emission key name it.
 	Source string
@@ -231,13 +237,23 @@ var compilerIdentity = build.CompilerIdentity
 
 // Build emits the checked analysis into the emission cache, or reuses its
 // published module, and links the module to the request's output with the
-// go command. It returns the module whenever one is published, also when
-// the link fails, so the caller can name it. An analysis with diagnostics,
-// one whose source path cannot be anchored, or one the lowering refuses is
-// refused before anything is published; a refusal is a *BuildError.
+// go command. The request's mode chooses the lowering: lower.Lower for a
+// build of main, lower.LowerTests for the test binary. It returns the
+// module whenever one is published, also when the link fails, so the
+// caller can name it. An analysis with diagnostics, one whose source path
+// cannot be anchored, or one the lowering refuses is refused before
+// anything is published; a refusal is a *BuildError.
 func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	if len(a.Diagnostics) > 0 || a.file == nil || a.pkg == nil {
 		return build.Module{}, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	lowering := lower.Lower
+	switch req.Mode {
+	case build.ModeBuild:
+	case build.ModeTest:
+		lowering = lower.LowerTests
+	default:
+		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
 	}
 	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: req.Source, Text: a.source}}}
 	if err := unit.Validate(); err != nil {
@@ -252,7 +268,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		Compiler:     compiler,
 		Emitter:      emitterRevision,
 		Language:     LanguageRevision,
-		Mode:         build.ModeBuild,
+		Mode:         req.Mode,
 	}
 	for _, f := range lower.Runtime() {
 		input.Runtime = append(input.Runtime, build.File{Path: f.Path, Data: f.Data})
@@ -261,7 +277,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		input.Sources = append(input.Sources, build.Source{Path: s.Path, Text: []byte(s.Text)})
 	}
 	module, err := req.Cache.Module(input, func() ([]build.File, error) {
-		files, err := lower.Lower(unit)
+		files, err := lowering(unit)
 		var refused *lower.Refused
 		if errors.As(err, &refused) {
 			return nil, &BuildError{Diagnostics: a.refusals(refused)}

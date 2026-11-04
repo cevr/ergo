@@ -70,7 +70,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 | Context header `provides A needs B` | Parsed and formatted; S109 naming #196 stage b (Gap 33) | [rows](rows.md#context) |
 | `with W { block }` | Checked; runs | [rows](rows.md#with) |
 | `with` context values (G1) | Designed, not yet implemented; S109 naming G1 | [runtime](runtime.md#g1-context-through-with) |
-| `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); runs through the prototype emitter's own `timeout.After` | [runtime](runtime.md#timeouts) |
+| `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); `ergo build` lowers its call to its `runtime/v1` body, `v1.After` | [runtime](runtime.md#timeouts) |
 | Trailing block as a function-literal argument | Checked; build refused except on `with` and `timeout.After` | [grammar](grammar.md#expressions) |
 | Function literals and function types | Checked, with rows from the expected type or inferred; build refused | [types](types.md#generics) |
 | Resources and automatic release | Designed, not yet implemented ([#197](https://github.com/cevr/ergo/issues/197)) | [resources](resources.md) |
@@ -83,9 +83,9 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 | `scope.OnExit`, queues | Checked; runs (check-v1 stage D3b: `Push`, `Pop` and `Values` take the caller's task, so a stop ends their wait); Go's `range`, `select`, `defer`, `chan` and `var` are reserved words whose use names the Ergo form | [grammar](grammar.md#reserved-words) |
 | Borrows `*T` | Checked: only as a parameter type; escape and exclusivity are #197's; build refused | [types](types.md#borrows) |
 | Generics | Checked in the earlier implicit spelling, with kinds by position, constraints, row parameters and inference by unification; the bracket spelling of [types.md](types.md#generics) is check-v1's; build refused | [types](types.md#generics) |
-| Tests `test Name { … }`, `test Name(x T) { … }` and `assert` | Implemented (check-v1 stage E3a, 196l): checked, `assert` only in a test or law body (S108); the test build lowers every test and a runner; the run build of `ergo build` and `ergo run` contains none; the `ergo test` command is not wired yet | [grammar](grammar.md#declarations) |
+| Tests `test Name { … }`, `test Name(x T) { … }` and `assert` | Implemented (check-v1 stage E3a, 196l): checked, `assert` only in a test or law body (S108); the test build lowers every test and a runner; the run build of `ergo build` and `ergo run` contains none; `ergo test` builds and runs the test binary (lower-v1 stage 4) | [grammar](grammar.md#declarations) |
 | Laws `law Name(…) { … }` | Checked, not run ([#162](https://github.com/cevr/ergo/issues/162)); check-v1 stage E3b, 196l | [types](types.md#laws) |
-| `machine` types; the `actor` library package (#101: library, no compiler rule) | Checked: state and signal unions, initial value, step signature, the export guard; build refused; the library lowering is prototyped in `prototypes/actorlib` | [runtime](runtime.md#machines-and-actors) |
+| `machine` types; the `actor` library package (#101: library, no compiler rule) | Checked: state and signal unions, initial value, step signature, the export guard. A machine lowers to a plan value with `Initial` and `Step` (lower-v1 stage 4); there is no runner. The `actor` library is not implemented; its lowering is prototyped in `prototypes/actorlib` | [runtime](runtime.md#machines-and-actors) |
 | Actors | Designed, not yet implemented | [runtime](runtime.md#machines-and-actors) |
 | Go imports | Designed, not yet implemented; S109 naming [#202](https://github.com/cevr/ergo/issues/202) | [grammar](grammar.md#declarations) |
 | Packages and visibility by capitalisation | Designed, not yet implemented (Gap 8, decided); #196's second part | [grammar](grammar.md#visibility) |

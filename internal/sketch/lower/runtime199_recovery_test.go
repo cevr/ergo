@@ -91,6 +91,9 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"Go -> Go":               "guarded",
 		"Scope.end -> Scope.End": "",
 		"release -> Release":     "classify",
+		// timeout.After's body child and its deadline child.
+		"After -> AfterSpan":       "guarded",
+		"deadlines.NewTimer -> Go": "guarded",
 	}
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")

@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -34,9 +35,11 @@ import (
 //  4. Refusals, each located. A resource provider that names an existing
 //     value (a variable, a field, an element) is borrowed or reused: this
 //     bounded ownership owns only a value the provider makes (S109, #197).
-//     A resource whose Close is an operation of its type, is generic, or
-//     takes a pointer to a provider that is a value is released in
-//     lower-v1, not yet (S109 at the provider, closeStaged; C29). An exit action registered in the block runs when the function
+//     Every checked Close releases: an operation of the provider's type, a
+//     generic Close and a Close that takes a pointer to a provider that is
+//     a value included (C29). A generic Close whose type parameter is
+//     constrained by operations would pass witnesses that no fact
+//     records: S109 naming #197 at the provider (closeWitnessed). An exit action registered in the block runs when the function
 //     returns (runtime.md, Exit actions 2), after the with closed its
 //     providers, so one that needs a provider that depends on a resource
 //     acquired by this with is S108. A with's value that holds a Task leaves the block that drains
@@ -153,9 +156,9 @@ func (c *checker) withOwnership() {
 				continue
 			}
 			owning = true
-			if msg := closeStaged(a.Close); msg != "" {
-				// The release route lowers no such Close (C29): refused
-				// here, at the provider lowering would release, once.
+			if msg := closeWitnessed(a.Close); msg != "" {
+				// The release would pass witnesses this with records no
+				// instance for: refused here, at the provider, once.
 				if owner.pkg != c.pkg {
 					c.cur = s.file
 					c.errorf(s.x, CodeOutside, "%s", msg)
@@ -296,6 +299,33 @@ func (c *checker) providerClose(p Type) *Close {
 		return &Close{Receiver: p, Func: f}
 	}
 	return c.closeOperation(p, nil, "Close")
+}
+
+// closeWitnessed is the S109 of a provider whose generic Close has a type
+// parameter constrained by operations, or "". Its release would pass the
+// Close's witnesses (a struct of the type argument's operations), and an
+// Acquisition records no instance of its Close: a release beyond the
+// bounded with, which #197 owns with generated and aggregate Close (C29).
+func closeWitnessed(cl *Close) string {
+	if cl == nil || cl.Func == nil || cl.Func.Sig == nil {
+		return ""
+	}
+	for _, tp := range cl.Func.Sig.TParams {
+		if tp.Kind != KindType {
+			continue
+		}
+		var it *Interface
+		switch k := tp.Constraint.(type) {
+		case *Interface:
+			it = k
+		case *Named:
+			it, _ = k.Underlying().(*Interface)
+		}
+		if it != nil && len(it.Methods) > 0 {
+			return fmt.Sprintf("a provider whose generic Close has the type parameter %s, constrained by operations, is released with #197: the release passes its witnesses, and a with records no instance of its Close", tp.Name)
+		}
+	}
+	return ""
 }
 
 // releaseNeeds are the capabilities a release by cl requires.

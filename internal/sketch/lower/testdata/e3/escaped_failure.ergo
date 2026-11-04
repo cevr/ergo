@@ -31,7 +31,7 @@ func main() needs Console {
 }
 
 // run> 4
-// test> FAIL Escapes: a failure escaped the test: Bang{Code:-3}
+// test> FAIL Escapes: a failure escaped the test at main.ergo:12:1: Bang{Code:-3}
 // test> ok Caught
 // test> FAIL (1 of 2 tests)
 // test exit 1

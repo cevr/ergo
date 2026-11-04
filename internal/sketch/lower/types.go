@@ -41,15 +41,9 @@ func (tc *typeCtx) goType(t check.Type) string {
 		// A std type is the runtime's Go type (stage D3b; std.go).
 		name := tc.l.runtimeType(t, tc.site)
 		if name == "" {
-			for _, a := range t.TArgs {
-				if a == check.NoValue {
-					// Go's instance keeps struct{} where the checked
-					// type's function types drop the result (a field
-					// func() T); a runtime type's operations adapt it
-					// (std.go), a declared type's are lower-v1's (C11).
-					refuse(tc.site, "the type %s, a declared generic type whose type argument a block with no value binds, is lowered by lower-v1 (C11, one Go shape for no-result function values)", t)
-				}
-			}
+			// A type argument that is no value is struct{} (above); a
+			// field func() T of the instance is then the one Go shape of
+			// a function value with no result (funcType, C11).
 			name = tc.l.useType(tc.l.typeDecl(t.Obj, tc.site)).name
 		}
 		origin := t
@@ -111,10 +105,14 @@ func (tc *typeCtx) goType(t check.Type) string {
 // funcType is the Go type of an Ergo function value. Every function value
 // has one shape whatever its rows: it takes the environment first and
 // returns an error last, so a row parameter never changes a Go type and a
-// generic function over rows needs no specialised copy (spec D5). A call of
-// a declared function by name uses the declaration's own signature, which
-// takes the environment too (stage D3b, Rule 1) and returns an error only
-// when its error row is not empty.
+// generic function over rows needs no specialised copy (spec D5). A
+// function value with no result returns struct{} before the error
+// (valueResults), so func() and the instance func() T whose T a block with
+// no value binds (struct{}, types.md, Inference) are one Go type, wherever
+// it is nested: a field, a slice element, a parameter's parameter (C11). A
+// call of a declared function by name uses the declaration's own signature,
+// which takes the environment too (stage D3b, Rule 1) and returns an error
+// only when its error row is not empty.
 func (tc *typeCtx) funcType(s *check.Signature) string {
 	parts := []string{"*" + tc.l.env()}
 	if s.ResultIsTask() {
@@ -125,12 +123,22 @@ func (tc *typeCtx) funcType(s *check.Signature) string {
 	}
 	var result check.Type
 	if len(s.Results) > 1 {
-		refuse(tc.site, "a function type with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(tc.site, ruleOneResult, "a function type with %d results", len(s.Results))
 	}
 	if len(s.Results) == 1 {
 		result = s.Results[0]
 	}
-	return "func(" + strings.Join(parts, ", ") + ")" + tc.resultList(result, true)
+	return "func(" + strings.Join(parts, ", ") + ")" + tc.valueResults(result)
+}
+
+// valueResults is the result list of a function value of the uniform shape
+// (funcType): its value, or struct{} when it has none, then the error.
+// struct{} has no size, so the shape costs no register and no allocation.
+func (tc *typeCtx) valueResults(result check.Type) string {
+	if result == nil {
+		return " (struct{}, error)"
+	}
+	return tc.resultList(result, true)
 }
 
 // resultList is a Go signature's results: the value, then the error when
@@ -161,7 +169,7 @@ func (tc *typeCtx) methodSig(s *check.Signature) string {
 		params = append(params, tc.goType(p.Type))
 	}
 	if len(s.Results) > 1 {
-		refuse(tc.site, "an operation with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(tc.site, ruleOneResult, "an operation with %d results", len(s.Results))
 	}
 	var result check.Type
 	if len(s.Results) == 1 {

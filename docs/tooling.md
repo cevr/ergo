@@ -9,15 +9,15 @@ Every `ergo` command reads one `.ef` source through one front end, `internal/ske
 | `build FILE [-o PATH] [--target go]` | Runs | Builds a native executable, `dist/NAME` by default, and prints its path; a source that does not check prints its check envelope and builds nothing |
 | `run FILE [--target go]` | Runs | Builds, then runs the program; SIGINT and SIGTERM are forwarded and the program's exit status passes through; a program that a forwarded signal ends exits 128 plus the signal number (130 for SIGINT, 143 for SIGTERM), with no message of `ergo`'s own |
 | `fmt FILE... [--check] [--json]`, `fmt --stdin` | Runs | Canonical formatting; files are replaced atomically |
-| `test FILE` | Not available yet | `not available yet; lowering adds it (#196)`, exit 1 |
+| `test FILE [--seed N] [-work] [--target go]` | Runs | Builds the test binary into a private temporary directory and runs it: one `ok` or `FAIL` line per test in source order, then `PASS (N tests)` and exit 0, or `FAIL (K of N tests)` and exit 1; a defect stops the run with exit 2. `--seed N` (or `--seed=N`, a decimal number) replays a property's cases; a malformed seed is an invalid invocation, exit 2, and runs nothing. Signals are forwarded as for `run` |
 | `edition` | Removed | `removed in v1; there is one language and no editions (#205)`, exit 1 |
 | `lint`, `lint rules`, `lint test`, `lint receipt` | Removed | `removed in v1; linting returns on the new checker (#203)`, exit 1 |
 | `inspect`, `explain`, `query`, `type`, `graph` | Removed | `removed in v1; semantic tooling returns on the new front end (#203)`, exit 1 |
 | `lsp`, `mcp` | Dark | `unavailable until ported to the new front end (#203)`, exit 1 ([language server](lsp.md), [MCP](mcp.md)) |
 
-A command that does not run prints one line to stderr, `ergo NAME: ` and the text in the table, prints nothing to stdout and exits 1, before it reads its arguments: `ergo inspect --help` prints the stub too. `ergo --help` lists only the commands that run and `ergo test`. An unknown word is `unknown command X; use ergo --help`, exit 1. The [retirement record](receipts/retire-ef.md) lists what [#203](https://github.com/cevr/ergo/issues/203) restores.
+A command that does not run prints one line to stderr, `ergo NAME: ` and the text in the table, prints nothing to stdout and exits 1, before it reads its arguments: `ergo inspect --help` prints the stub too. `ergo --help` lists only the commands that run. An unknown word is `unknown command X; use ergo --help`, exit 1. The [retirement record](receipts/retire-ef.md) lists what [#203](https://github.com/cevr/ergo/issues/203) restores.
 
-Go is the only target. `--target` accepts only `go`, the default; any other value is the EF110 refusal. `--strict` and `--json` belong to `diagnostics`, and `-o` to `build`; any other option is unknown: exit 2 for `diagnostics` and `fmt`, exit 1 for `check`, `build` and `run`.
+Go is the only target. `--target` accepts only `go`, the default; any other value is the EF110 refusal. `--strict` and `--json` belong to `diagnostics`, `-o` to `build`, `-work` to `build` and `test`, and `--seed` to `test`; any other option is unknown: exit 2 for `diagnostics`, `fmt` and `test`, exit 1 for `check`, `build` and `run`.
 
 ## Source admission
 

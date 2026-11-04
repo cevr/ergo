@@ -41,7 +41,7 @@ func TestRunForwardsSignalsToTheProgram(t *testing.T) {
 	file := smokeWrite(t, root, "wait.ergo", sketchWaitSource)
 	for signal, want := range map[syscall.Signal]int{syscall.SIGINT: 130, syscall.SIGTERM: 143} {
 		start := time.Now()
-		stdout, stderr, code := runInterruptedEntry(t, binary, root, file, signal)
+		stdout, stderr, code := runInterruptedEntry(t, binary, root, signal, "run", file)
 		if stdout != "ready\n" || code != want || stderr != "" || time.Since(start) > 50*time.Second {
 			t.Errorf("%v: code=%d stdout=%q stderr=%q after %v; want exit %d, the program ended by the forwarded signal", signal, code, stdout, stderr, time.Since(start), want)
 		}
@@ -69,12 +69,13 @@ func TestRunPassesTheProgramsExitStatusThrough(t *testing.T) {
 	}
 }
 
-// runInterruptedEntry runs `ergo run` in its own process group, signals only
-// `ergo` once the program is ready, and on a timeout kills the whole group so
-// no descendant keeps the capture pipes open. WaitDelay bounds pipe draining.
-func runInterruptedEntry(t *testing.T, binary, root, file string, signal syscall.Signal) (string, string, int) {
+// runInterruptedEntry runs `ergo ARGS` (run or test) in its own process
+// group, signals only `ergo` once the program has printed its first line,
+// and on a timeout kills the whole group so no descendant keeps the capture
+// pipes open. WaitDelay bounds pipe draining.
+func runInterruptedEntry(t *testing.T, binary, root string, signal syscall.Signal, args ...string) (string, string, int) {
 	t.Helper()
-	command := exec.Command(binary, "run", file)
+	command := exec.Command(binary, args...)
 	command.Dir = root
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.WaitDelay = 5 * time.Second

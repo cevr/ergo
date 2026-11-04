@@ -38,6 +38,10 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"Task.Move":    {TypeParams: anyT, Hidden: []Hidden{Frame}, Results: []string{"*Task[T]"}},
 		"ContextBound": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"bool"}},
 		"ContextValue": {Hidden: []Hidden{CallerTask, ReadingPackage}, Params: []Param{{Type: "string"}}, Results: []string{"string"}},
+		// timeout.After: the site names the body's task, the caller's task
+		// is its parent, and the caller's Scheduler gives the deadline; the
+		// block receives the child's task.
+		"After": {TypeParams: []TypeParam{{Name: "A", Constraint: "any"}}, Hidden: []Hidden{CallSite, CallerTask, CallerScheduler}, Params: []Param{{Type: "time.Duration"}, {Type: "func(*rt.Task) (A, error)", Func: &Body{Hidden: []Hidden{CallerTask}, Results: []string{"A", "error"}}}}, Results: []string{"A", "error"}},
 	}
 	for name, w := range want {
 		got, err := BodyOf(name)
@@ -67,6 +71,10 @@ type Site string
 type Task[T any] struct{}
 
 func Ordered(s *Scope, at Site, t *rtx.Task, pkg ContextPackage, n int) {}
+func Scheduled(at Site, t *rtx.Task, s Sleeper, pkg ContextPackage, n int) {}
+func SleeperAfterParam(n int, s Sleeper) {}
+func SleeperOutOfOrder(s Sleeper, t *rtx.Task) {}
+func SleeperTwice(a, b Sleeper) {}
 func AfterParam(n int, t *rtx.Task) {}
 func OutOfOrder(t *rtx.Task, s *Scope) {}
 func Twice(s *Scope, p *Scope) {}
@@ -84,9 +92,10 @@ func unexported(s *Scope) {}
 		t.Fatal(err)
 	}
 	ok := map[string][]Hidden{
-		"Ordered": {Frame, CallSite, CallerTask, ReadingPackage},
-		"OwnTask": nil, // v1's Task is an Ergo value, not the hidden task
-		"OtherRt": nil, // only runtime/rt's Task is the hidden task
+		"Ordered":   {Frame, CallSite, CallerTask, ReadingPackage},
+		"Scheduled": {CallSite, CallerTask, CallerScheduler, ReadingPackage},
+		"OwnTask":   nil, // v1's Task is an Ergo value, not the hidden task
+		"OtherRt":   nil, // only runtime/rt's Task is the hidden task
 	}
 	for name, hidden := range ok {
 		b, err := decls.body(name)
@@ -106,6 +115,9 @@ func unexported(s *Scope) {}
 		"PackageAfterParam": "follows an Ergo parameter",
 		"PackageOutOfOrder": "out of order",
 		"PackageTwice":      "repeated",
+		"SleeperAfterParam": "follows an Ergo parameter",
+		"SleeperOutOfOrder": "out of order",
+		"SleeperTwice":      "repeated",
 		"BadBlock":          "function parameter 1",
 		"unexported":        "no exported Go body",
 		"Skipped":           "no exported Go body",

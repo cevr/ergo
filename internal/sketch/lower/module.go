@@ -134,7 +134,7 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 		return name
 	}
 	if l.prenamed {
-		refuse(l.file, "internal compiler error: the package-scope name %s (%s) was not given by the naming pass (a compiler defect)", base, key.kind)
+		unreachable(l.file, ruleNamingPass, "the package-scope name %s (%s) has no name from the naming pass", base, key.kind)
 	}
 	name := l.names.alloc(base)
 	l.pkgNames[key] = name
@@ -197,6 +197,12 @@ type lowerer struct {
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
 	inits map[syntax.Expr]string
+	// machineInits are the initial values of the package's machines, in
+	// declaration order, which initFunc runs after every let (machine.go).
+	machineInits []syntax.Expr
+	// instances are the concrete instances of each generic type that the
+	// program's types name (text.go, instancesOf), computed once.
+	instances map[*check.TypeName][]check.Type
 
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
@@ -253,20 +259,49 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 	return l
 }
 
-// refuse ends the current declaration's lowering with a located refusal.
-func refuse(n syntax.Node, format string, args ...any) {
+// A lowering stops at a node in one of four ways, each with its own
+// function, so every stop says what it is (TestRefusalsNameOpenOwners):
+// refuse for a checked form that an open owner lowers later, ice for a
+// missing Info fact, unreachable for a form a named checker or parser rule
+// refuses, and entryError for a checked program that has no runnable main.
+
+// stop ends the current declaration's lowering with a located refusal.
+func stop(n syntax.Node, msg string) {
 	var pos syntax.Pos
 	if n != nil {
 		pos = n.Pos()
 	}
-	panic(refusal{pos: pos, msg: fmt.Sprintf(format, args...)})
+	panic(refusal{pos: pos, msg: msg})
+}
+
+// refuse stops at a form that the checker admits and the lowering does not
+// lower yet. Its text names the open owner that lowers it (openOwners in
+// TestRefusalsNameOpenOwners): an unsupported form stays a diagnostic.
+func refuse(n syntax.Node, format string, args ...any) {
+	stop(n, fmt.Sprintf(format, args...))
 }
 
 // ice is an internal compiler error: Info lacks a fact that an accepted
 // program's form needs (the Info contract, check-v1 spec). It is located,
 // and it never becomes unchecked Go.
 func ice(n syntax.Node, format string, args ...any) {
-	refuse(n, "internal compiler error: "+format+" (the check-v1 Info contract)", args...)
+	stop(n, "internal compiler error: "+fmt.Sprintf(format, args...)+" (the check-v1 Info contract)")
+}
+
+// unreachable is an internal compiler error at a form that rule refuses
+// before the lowering meets it: a checker or parser rule, or an invariant
+// of the lowering itself. The rules are the constants of unreachable.go; a
+// rule that names a diagnostic code has a negative fixture
+// (unreachableFixtures) that shows the rule refusing the form.
+func unreachable(n syntax.Node, rule, format string, args ...any) {
+	stop(n, "internal compiler error: "+fmt.Sprintf(format, args...)+"; unreachable by "+rule)
+}
+
+// entryError stops ergo build and ergo run of a checked program whose main
+// the host cannot run. It is a rule of the entry, not a form waiting for an
+// owner: a test build and a library build have no entry and never meet it.
+func entryError(n syntax.Node, format string, args ...any) {
+	stop(n, fmt.Sprintf(format, args...))
 }
 
 // guard runs f, turning a refusal into a recorded Refusal.
@@ -299,7 +334,7 @@ func (l *lowerer) program() ([]byte, error) {
 		entry.WriteString("func main() {}\n\n")
 	case main == nil:
 		l.guard(func() {
-			refuse(l.file, "this program has no main function, so ergo build and ergo run have no entry point")
+			entryError(l.file, "this program has no main function, so ergo build and ergo run have no entry point")
 		})
 	default:
 		l.guard(func() { l.entry(&entry, main) })
@@ -445,7 +480,7 @@ func (l *lowerer) mainFunc() *check.Func {
 func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	fd := l.funcDecl(main)
 	if len(main.Sig.Params) > 0 || len(main.Sig.Results) > 0 || len(main.Sig.TParams) > 0 {
-		refuse(main.Decl.Name, "main takes no parameters and returns no value")
+		unreachable(main.Decl.Name, ruleMainSignature, "main has parameters, results or type parameters")
 	}
 	rt := l.rt()
 	locals := newNamer(l.names) // main's locals reference only the names above
@@ -455,7 +490,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	for _, cap := range rowElems(main.Sig.Uses) {
 		n, ok := cap.(*check.Named)
 		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" {
-			refuse(main.Decl.Name, "main needs %s, and the host provides only Console; bind it with a with block inside main", cap)
+			entryError(main.Decl.Name, "main needs %s, and the host provides only Console; bind it with a with block inside main", cap)
 		}
 		// The runtime's Console prints a line; the capability's operation
 		// takes the task first (rows.md, Rows 7), so the host's provider is

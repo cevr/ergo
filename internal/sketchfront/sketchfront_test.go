@@ -191,13 +191,14 @@ func TestSketchBuildRunsProgram(t *testing.T) {
 }
 
 // TestSketchBuildRefusesWhatTheLoweringCannotLower: the checker accepts a
-// program whose error type has a field of a type parameter, whose text
-// waits for lower-v1 stage 3, so Build refuses it with a located S109
-// naming that stage and writes nothing. A checker diagnostic refuses the
-// build with its own code. (Before check-v1 E6a the witness was an
-// interpolated record, which the checker now refuses: D-E6.)
+// program whose error type has a Map field, whose text the lowering
+// refuses, so Build refuses it with a located S109 and writes nothing. A
+// checker diagnostic refuses the build with its own code. (Before check-v1
+// E6a the witness was an interpolated record, which the checker now
+// refuses: D-E6; before lower-v1 stage 4 it was a field of a type
+// parameter, whose text is now written per instance.)
 func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
-	source := "type Fault[T] { F T }\n\nfunc fail() fails Fault[int] {\n\treturn Fault[int]{F: 5}\n}\n\nfunc main() fails Fault[int] needs Console {\n\ttry fail()\n}\n"
+	source := "type Fault { F Map[string, int] }\n\nfunc fail() fails Fault {\n\treturn Fault{F: Map[string, int]{}}\n}\n\nfunc main() fails Fault needs Console {\n\ttry fail()\n}\n"
 	analysis := Check(source)
 	if len(analysis.Diagnostics) != 0 {
 		t.Fatalf("checker diagnostics: %+v", analysis.Diagnostics)
@@ -211,8 +212,8 @@ func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
 		t.Fatalf("build gave %v, want a BuildError", err)
 	}
 	d := refusal.Diagnostics[0]
-	if d.Code != "S109" || !strings.Contains(d.Message, "lower-v1 stage 3") || d.Span.Line != 1 || d.Span.Column != 6 {
-		t.Fatalf("refusal %+v, want an S109 at 1:6 naming lower-v1 stage 3", d)
+	if d.Code != "S109" || !strings.Contains(d.Message, "(#49)") || d.Span.Line != 1 || d.Span.Column != 6 {
+		t.Fatalf("refusal %+v, want an S109 at 1:6 naming its owner #49", d)
 	}
 	if _, statErr := os.Stat(output); statErr == nil {
 		t.Fatal("a refused build wrote its output")
@@ -228,7 +229,51 @@ func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
 }
 
 func buildRequest(cache, source, output string, stderr io.Writer) BuildRequest {
-	return BuildRequest{Source: source, Output: output, Cache: build.Cache{Root: cache}, Toolchain: build.HostToolchain(), Stderr: stderr}
+	return BuildRequest{Mode: build.ModeBuild, Source: source, Output: output, Cache: build.Cache{Root: cache}, Toolchain: build.HostToolchain(), Stderr: stderr}
+}
+
+// TestBuildModeChoosesTheRoot: the request's mode chooses the lowering and
+// keys the module. One analysis built in both modes gives two modules in
+// one cache; the build binary runs main and no test, the test binary runs
+// the test and not main. A request with no mode is refused before anything
+// is published.
+func TestBuildModeChoosesTheRoot(t *testing.T) {
+	analysis := Check("func main() needs Console {\n\tConsole.Println(\"main\")\n}\n\ntest Runs { assert 1 + 1 == 2 }\n")
+	if len(analysis.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", analysis.Diagnostics)
+	}
+	cache := t.TempDir()
+	var stderr bytes.Buffer
+	run := func(mode build.Mode) (build.Module, string) {
+		t.Helper()
+		req := buildRequest(cache, "/x/main.ergo", filepath.Join(t.TempDir(), "program"), &stderr)
+		req.Mode = mode
+		module, err := Build(analysis, req)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", mode, err, stderr.String())
+		}
+		out, err := exec.Command(req.Output).Output()
+		if err != nil {
+			t.Fatalf("%s: run: %v", mode, err)
+		}
+		return module, string(out)
+	}
+	built, mainOut := run(build.ModeBuild)
+	tested, testOut := run(build.ModeTest)
+	if mainOut != "main\n" || testOut != "ok Runs\nPASS (1 tests)\n" {
+		t.Fatalf("build printed %q and test printed %q", mainOut, testOut)
+	}
+	if built.Dir == tested.Dir {
+		t.Fatalf("both modes used the module %s", built.Dir)
+	}
+	req := buildRequest(cache, "/x/main.ergo", filepath.Join(t.TempDir(), "program"), &stderr)
+	req.Mode = ""
+	if _, err := Build(analysis, req); err == nil || !strings.Contains(err.Error(), "unknown build mode") {
+		t.Fatalf("a request with no mode gave %v", err)
+	}
+	if entries := moduleEntries(t, cache); len(entries) != 2 {
+		t.Fatalf("cache holds %v, want the two modules", entries)
+	}
 }
 
 // moduleEntries lists the published modules of the cache at root.

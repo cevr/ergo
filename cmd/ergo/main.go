@@ -2,7 +2,7 @@
 // end (internal/sketchfront). The command table (commands.go) classifies
 // every command word; this file holds the options and loading of the
 // commands that read one source, and check and diagnostics; build.go holds
-// build and run.
+// build and run, and test.go holds test.
 package main
 
 import (
@@ -91,25 +91,36 @@ const diagnosticsHelp = "usage: ergo diagnostics FILE [--strict] [--json] [--tar
 type fileOptions struct {
 	target, output     string
 	strict, json, work bool
-	file               string
+	// seed is test's --seed, a decimal uint64; empty when not given.
+	seed string
+	file string
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
-// to diagnostics and -o and -work to build; any other option is unknown. A
-// target other than Go is the EF110 refusal.
+// to diagnostics, -o to build, -work to build and test, and --seed N (or
+// --seed=N) to test; any other option is unknown. A target other than Go is
+// the EF110 refusal.
 func parseFileOptions(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target}
 	var positional []string
+	seeded := false
 	for i := 0; i < len(args); i++ {
+		if value, ok := strings.CutPrefix(args[i], "--seed="); ok {
+			opts.seed, seeded = value, true
+			continue
+		}
 		switch args[i] {
-		case "--target", "-o":
+		case "--target", "-o", "--seed":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
-			if args[i] == "--target" {
+			switch args[i] {
+			case "--target":
 				opts.target = args[i+1]
-			} else {
+			case "-o":
 				opts.output = args[i+1]
+			default:
+				opts.seed, seeded = args[i+1], true
 			}
 			i++
 		case "--strict":
@@ -137,8 +148,12 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--json is only supported by diagnostics")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
-	case opts.work && command != "build":
-		return opts, fmt.Errorf("-work is only supported by build")
+	case opts.work && command != "build" && command != "test":
+		return opts, fmt.Errorf("-work is only supported by build and test")
+	case seeded && command != "test":
+		return opts, fmt.Errorf("--seed is only supported by test")
+	case seeded && !validSeed(opts.seed):
+		return opts, fmt.Errorf("--seed takes a decimal number from 0 to 18446744073709551615, not %q", opts.seed)
 	case len(positional) != 1:
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}

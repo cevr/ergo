@@ -55,6 +55,18 @@ func contextKey[T](t Tag[T]) string { "tag" }
 func contextText[T](t Tag[T]) string { "v" }
 func main() { with (Tag{V: 1}) { } }
 `,
+		// An error type with a Map field: its text is still refused (a
+		// generic error type's text lowers per instance, lower-v1 stage 4).
+		`type Fault { F Map[string, int] }
+func main() fails Fault { return Fault{F: Map[string, int]{}} }
+`,
+		// An indexed slice literal: the checker admits it, and its keys
+		// wait for #196.
+		`func main() needs Console {
+	let xs = []int{2: 5}
+	Console.Println("\(len(xs))")
+}
+`,
 	)
 	seen, met := map[string]bool{}, map[string]int{}
 	for _, src := range sources {
@@ -76,12 +88,6 @@ func main() { with (Tag{V: 1}) { } }
 				continue
 			} // classification has its own corpus check
 			met[family]++
-			// A machine entry is a member of a machine plan; the plan's
-			// located refusal covers it. Require an actual entry in this
-			// same checked source, rather than a catalogue exemption.
-			if family == "MachineType" && families(o.file, o.pkg.Info)["MachineEntry"] {
-				met["MachineEntry"]++
-			}
 		}
 	}
 	for _, r := range importedContextRefusalWitness(t) {

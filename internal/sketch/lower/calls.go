@@ -151,8 +151,10 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			_, isPtr := fc.typeOf(c.Recv).(*check.Pointer)
 			addr = !isPtr
 		}
+		// An argument for a parameter func(…) T whose T a block with no
+		// value binds needs no adapter: a function value with no result
+		// and the instance's func(…) struct{} are one Go shape (C11).
 		vals := fc.callArgsAddr(list, x, addr)
-		fc.noValueArgs(x, c, list, vals)
 		var head string
 		var rest []string
 		if fd.method != nil {
@@ -218,7 +220,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			ice(x.Fun, "a called value that is not a function")
 		}
 		vals := fc.callArgs(append([]syntax.Expr{x.Fun}, args...), x)
-		return vals[0] + "(" + strings.Join(append(fc.taskDestArgs(x, c, sig), vals[1:]...), ", ") + ")", len(sig.Results) > 0, true
+		// The uniform shape returns a Go value even with no result: struct{}
+		// (typeCtx.funcType), which call discards.
+		return vals[0] + "(" + strings.Join(append(fc.taskDestArgs(x, c, sig), vals[1:]...), ", ") + ")", true, true
 	}
 	ice(x, "an unknown call kind %d", c.Kind)
 	return "", false, false
@@ -449,7 +453,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 	if inst == nil {
 		for _, tp := range f.Sig.TParams {
 			if tp.Kind == check.KindType && !paramsMention(f.Sig, tp) {
-				refuse(site, "the generic function %s used as a value has a type parameter %s that no parameter names; its instantiation needs a check-v1 Info fact (lower-v1 request)", f.Name, tp.Name)
+				unreachable(site, ruleGenericValue, "the generic function %s used as a value with no instance, and its type parameter %s in no parameter", f.Name, tp.Name)
 			}
 		}
 	}
@@ -494,7 +498,7 @@ func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst
 		}
 		ind := strings.Repeat("\t", fc.depth+1)
 		body = uniformBody(ind, call, len(f.Sig.Results) > 0, result != nil, fd.fallible)
-		return params, fc.resultList(result, true), body
+		return params, fc.valueResults(result), body
 	})
 }
 
@@ -550,78 +554,6 @@ func walkType(t check.Type, visit func(t check.Type, result bool) bool) bool {
 		return false
 	}
 	return walk(t, false)
-}
-
-// noValueArgs adapts the arguments vals of the call x of a declared generic
-// function whose type argument is no value: a type parameter T that a block
-// with no value bound (types.md, Inference). Go instantiates T with
-// struct{}, so a parameter func(…) T is a Go function that returns
-// struct{}, while the argument, of the checked type with no result, returns
-// only its error: the argument is bound once, here, and wrapped in a
-// function that returns struct{}{} with its error. A result T is struct{},
-// which the call site discards (funcCtx.call). T in any other function
-// type's result, a parameter's or the result's, is refused: the checked
-// type and Go's instance differ there, and adapting them is lower-v1's
-// (C11).
-func (fc *funcCtx) noValueArgs(x *syntax.CallExpr, c *check.Call, list []syntax.Expr, vals []string) {
-	sig := c.Func.Sig
-	bound := map[*check.TypeParam]bool{}
-	for i, tp := range sig.TParams {
-		if i < len(c.TypeArgs) && tp.Kind == check.KindType && c.TypeArgs[i] == check.NoValue {
-			bound[tp] = true
-		}
-	}
-	if len(bound) == 0 {
-		return
-	}
-	isBound := func(t check.Type) bool {
-		tp, ok := t.(*check.TypeParam)
-		return ok && bound[tp]
-	}
-	inResult := func(t check.Type, result bool) bool { return result && isBound(t) }
-	stray := func(t check.Type) bool { return walkType(t, inResult) }
-	refuseAt := func() {
-		refuse(x, "a type parameter of %s that a block with no value binds, inside a function type other than a parameter's own (func(…) T), is lowered by lower-v1 (C11, one Go shape for no-result function values)", c.Func.Name)
-	}
-	for _, r := range sig.Results {
-		if !isBound(r) && stray(r) {
-			refuseAt()
-		}
-	}
-	if len(vals) != len(sig.Params) {
-		ice(x, "a call of %s with %d operands for %d parameters", c.Func.Name, len(vals), len(sig.Params))
-	}
-	for i, p := range sig.Params {
-		ps, ok := p.Type.(*check.Signature)
-		if !ok || len(ps.Results) != 1 || !isBound(ps.Results[0]) {
-			if stray(p.Type) {
-				refuseAt()
-			}
-			continue
-		}
-		for _, q := range ps.Params {
-			if walkType(q.Type, func(t check.Type, _ bool) bool { return isBound(t) }) {
-				refuseAt()
-			}
-		}
-		// The wrapper's parameters are the argument's checked ones, which
-		// are the instance's: T is not in them (stray above).
-		as := fc.argSig(list[i], x)
-		if len(as.Params) != len(ps.Params) || len(as.Results) != 0 {
-			ice(x, "an argument for a parameter func(…) T with T no value has the type %s", as)
-		}
-		fv := fc.bindFunc(vals[i])
-		ind := strings.Repeat("\t", fc.depth+1)
-		vals[i] = fc.envClosure(callerEnv, "e", x, func(e string) (params []string, results, body string) {
-			args := []string{e}
-			for _, q := range as.Params {
-				name := fc.scope.alloc("p")
-				params = append(params, name+" "+fc.goType(q.Type))
-				args = append(args, name)
-			}
-			return params, " (struct{}, error)", ind + "return struct{}{}, " + fv + "(" + strings.Join(args, ", ") + ")\n"
-		})
-	}
 }
 
 // withExpr lowers with A, …, Z { block } (rows.md, With) as its nesting,
@@ -803,7 +735,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil || w.Decl.Needs != nil {
-		refuse(w.Decl, "a context header is checked by #196 stage b")
+		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
 	}
 }
 
@@ -816,7 +748,7 @@ func (l *lowerer) context(w *check.Context, site syntax.Node) {
 func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	w := with.Contexts[0]
 	if w.Decl == nil || l.isImported(w) {
-		refuse(site, "a with of an imported context is lowered after check-v1 stage B supplies its context (check-v1 r5b m2)")
+		refuse(site, "a with of an imported context is lowered when 196b lowers packages")
 	}
 	l.localContext(w, site)
 	fc := newFuncCtx(l, newNamer(l.names), true)
@@ -839,8 +771,8 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
 }
 
-// localContext keeps imported embeddings on their existing stage B refusal,
-// equally for named and inline contexts.
+// localContext refuses an imported embedding, which 196b lowers, equally
+// for named and inline contexts.
 func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 	visited := map[*check.Context]bool{}
 	var walk func(*check.Context)
@@ -850,7 +782,7 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 		}
 		visited[v] = true
 		if v.Lit == nil && (v.Decl == nil || l.isImported(v)) {
-			refuse(site, "an embedded imported context is lowered after check-v1 stage B")
+			refuse(site, "an embedded imported context is lowered when 196b lowers packages")
 		}
 		for _, e := range v.Entries {
 			if e.Embedded != nil {
@@ -947,7 +879,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
 	key, base, ok := adapterName(conv)
 	if !ok {
-		refuse(site, "an operations conversion from %s to %s is not lowered yet", conv.From, conv.To)
+		unreachable(site, ruleAccepted, "an operations conversion from %s to %s with no adapter (adapterName)", conv.From, conv.To)
 	}
 	to := conv.To.(*check.Named)
 	_, ptrSource, _ := opsSource(conv.From)

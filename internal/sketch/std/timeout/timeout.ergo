@@ -6,4 +6,4 @@ type Expired {}
 // trailing block is its f argument, and its row parameters give the rows
 // that the prototype gave timeout.After by name (README Gap 31). The host
 // implements it: it is an extern go binding (grammar.md, Declarations 2).
-extern go ergo.local/prototype/runtime/rt.After func After[A, E, R](d duration, f func() A fails E needs R) A fails E | Expired needs R | Scheduler
+extern go ergo.local/prototype/runtime/v1.After func After[A, E, R](d duration, f func() A fails E needs R) A fails E | Expired needs R | Scheduler

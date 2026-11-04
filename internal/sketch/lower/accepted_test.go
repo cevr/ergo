@@ -38,19 +38,39 @@ var implementedFamilies = []string{
 	// A law is checked, not run (#162): neither build lowers it, so a
 	// source that holds one lowers whole without it (stage E3b-2).
 	"LawDecl", "call:LawOp",
+	// A machine declaration lowers to a plan value (lower-v1 stage 4,
+	// machine.go; TestMachinePlanValues).
+	"MachineType", "MachineEntry",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,
 // with the owner the refusal names. A source that holds one is refused at
 // it, never lowered partly.
 var refusedFamilies = map[string]string{
-	"MachineEntry": "lower-v1 stage 4", // entries are refused with their enclosing MachineType
-	"MachineType":  "lower-v1 stage 4",
 	// Narrower families: a form of an implemented node that waits.
-	"call:Func:externTarget": "lower-v1",
-	"NoValue:generic":        "lower-v1 (C11",
-	"call:With:imported":     "196b",
-	"TypeDecl:errorText":     "lower-v1 stage 3",
+	"call:With:imported": "196b",
+	// The text of an error type with a field whose type has no text form
+	// (a Map, a tuple, a pointer): derived text forms are #49's.
+	"TypeDecl:errorText": "#49",
+	// An indexed slice literal `[]int{2: 5}`: the checker admits any int
+	// key, Go takes only distinct constant keys, and #196 has not decided
+	// what a computed, negative or repeated key does.
+	"CompositeLit:indexedSlice": "#196",
+	// Stage 4 of lower-v1 (S4d) made every other refusal of a form that a
+	// checker or parser rule refuses an internal compiler error that names
+	// the rule (unreachable, unreachable.go; TestRefusalsNameOpenOwners),
+	// and lowered a record whose renamed Error field meets a field named
+	// Error_ (TestErrorFieldNamesStayDistinct).
+	// Stage 4 of lower-v1 removed the family of a call of a std function
+	// with no runtime/v1 body (timeout.After): v1.After takes the caller's
+	// Scheduler as a hidden argument (Q-S4-7; TestTimeoutAfterLowers), and
+	// a std extern with no body is an internal error
+	// (TestStdExternsHaveBodies).
+	// Stage 4 of lower-v1 removed the family of a type argument that a
+	// block with no value binds, in a declared generic type or inside
+	// another function type (C11): a function value with no result has the
+	// one Go shape func(…) (struct{}, error) (types.go, funcType;
+	// TestNoValueTypeArgumentsLower).
 	// Stage E6b of check-v1 removed the family of a context value whose
 	// protocol function is generic: the checker records its instance
 	// (ContextBinding.KeyInst, TextInst) and the lowering calls it
@@ -61,10 +81,11 @@ var refusedFamilies = map[string]string{
 	// (stage_e6a_test.go).
 	// Stage E4 of check-v1 removed three families: a std function used as a
 	// value, an owning with's release that no Go name calls, and a user
-	// extern. An extern is call-only (C25, P3), the checker refuses those
-	// releases (C29), and a user extern in its checked domain lowers as a
-	// direct Go call (C26). The lowering's remaining checks of those forms
-	// are internal errors (stage_e4_test.go).
+	// extern. An extern is call-only (C25, P3), those releases lower since
+	// lower-v1 stage 4 (C29, stage4_close_test.go; the checker refuses only
+	// a Close whose release would pass witnesses, closeWitnessed), and a user extern in
+	// its checked domain lowers as a direct Go call (C26). The lowering's
+	// remaining checks of those forms are internal errors (stage_e4_test.go).
 }
 
 // refusalReasons classifies a refusal by its message into the refused
@@ -76,11 +97,9 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
-	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
-	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered by lower-v1 \(C11, one Go shape for no-result function values\)$`)},
-	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},
-	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
+	{"call:With:imported", regexp.MustCompile(`^(a with of an|an embedded) imported context is lowered when 196b lowers packages`)},
+	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of type .+ waits for derived text forms \(#49\)`)},
+	{"CompositeLit:indexedSlice", regexp.MustCompile(`^an indexed slice literal waits for #196 to decide its keys`)},
 }
 
 // refusalFamily is the refused family a refusal message stands at, or "".

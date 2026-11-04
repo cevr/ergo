@@ -538,13 +538,15 @@ func sortedHas(xs []string, x string) bool {
 	return i < len(xs) && xs[i] == x
 }
 
-// TestCloseRefusals is C29 of check-v1 stage E4 (A6): an owning with whose
-// provider's Close the release route does not lower (an operation of its
-// type, a generic Close, a Close on a pointer while the provider is a
-// value) is S109 naming lower-v1 in the checker, once, at the provider,
-// where lower/release.go refused. The fourth case, a std or extern Close,
-// is unreachable: no std or prelude Close is an extern, and a user extern
-// Close takes a named type, outside the C26 domain.
+// TestCloseRefusals is C29 (check-v1 stage E4 A6; lower-v1 stage 4): every
+// checked Close of an owning with's provider releases, an operation of its
+// type, a generic Close and a Close on a pointer while the provider is a
+// value included, so each checks clean (lower/stage4_close_test.go runs
+// them). One form stays refused, once, at the provider: a generic Close
+// whose type parameter is constrained by operations, whose release would
+// pass witnesses no fact records (S109 naming #197, closeWitnessed). A std
+// or extern Close is unreachable: no std or prelude Close is an extern, and
+// a user extern Close takes a named type, outside the C26 domain.
 func TestCloseRefusals(t *testing.T) {
 	cases := map[string]string{
 		"operation": `type A { Use() }
@@ -553,35 +555,23 @@ type R {}
 func Use(_ R) {}
 func Close(_ R) {}
 func make() Releaser { R }
-let W = context { A: make() } // want S109
+let W = context { A: make() }
 func main() { with W { A.Use() } }
 `,
 		"generic": `type A { Use() }
 type G[T] { Value T }
 func Use[T](_ G[T]) {}
 func Close[T](_ G[T]) {}
-let W = context { A: G[int]{Value: 1} } // want S109
+let W = context { A: G[int]{Value: 1} }
 func main() { with W { A.Use() } }
 `,
 		"pointer-close-value-provider": `type A { Use() }
 type P {}
 func Use(_ P) {}
 func Close(_ *P) {}
-let W = context { A: P } // want S109
+let W = context { A: P }
 func main() { with W { A.Use() } }
 `,
-		// Once per provider, though two withs release it.
-		"once": `type A { Use() }
-type P {}
-func Use(_ P) {}
-func Close(_ *P) {}
-let W = context { A: P } // want S109
-func main() {
-	with W { A.Use() }
-	with W { A.Use() }
-}
-`,
-		// Control: a Close on the value releases.
 		"value-close": `type A { Use() }
 type P {}
 func Use(_ P) {}
@@ -589,9 +579,33 @@ func Close(_ P) {}
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `,
+		"generic-witnessed": `type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() { with W { A.Use() } }
+`,
+		// Once per provider, though two withs release it.
+		"generic-witnessed-once": `type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) {}
+let W = context { A: G[N]{Value: N} } // want S109
+func main() {
+	with W { A.Use() }
+	with W { A.Use() }
+}
+`,
 	}
 	for name, src := range cases {
-		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "lower-v1") })
+		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
 	}
 	t.Run("user-extern-close", func(t *testing.T) {
 		judgeOutside(t, "type R {}\nextern go strings.F func Close(r R) // want S109\n", "#202")

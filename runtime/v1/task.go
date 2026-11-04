@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"time"
+
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -457,5 +459,109 @@ func (t *Task[T]) Stop() {
 	t.consume()
 	if err := t.h.Stop(); err != nil {
 		raise(err)
+	}
+}
+
+// Expired is timeout.Expired, the typed failure of After when the deadline
+// passes before the body ends (docs/spec/runtime.md, Timeouts 4). It is a
+// record of a v1 package, so the lowering binds timeout.Expired to this Go
+// type (docs/spec/stdlib.md, Types 4), and a catch arm `case
+// timeout.Expired:` matches the value After returns.
+type Expired struct{}
+
+// Error is the failure's text, its Ergo name.
+func (Expired) Error() string { return "timeout.Expired" }
+
+// Sleeper is the program's Scheduler capability, the hidden scheduler
+// argument of After (docs/spec/stdlib.md, Hidden arguments): the lowering
+// passes the Scheduler field of the caller's environment, an interface of
+// the program whose one operation is Sleep(*rt.Task, time.Duration). No
+// Ergo type lowers to Sleeper, so its Go type alone marks the argument.
+type Sleeper interface {
+	Sleep(t *rt.Task, d time.Duration)
+}
+
+// After is timeout.After(d) { body } (docs/spec/runtime.md, Timeouts): it
+// runs body as a child of t, the caller's task, and races it against a
+// deadline that the program's Scheduler gives. span, t and s are the
+// hidden site, task and scheduler arguments; body receives the child's
+// task. The deadline is a second child of t that calls s.Sleep(d): time is
+// a capability, so a test Scheduler controls when the deadline passes, and
+// After arms no host timer of its own.
+//
+// rt.AfterSpan races the two and drains both before it returns. The body
+// ends first: its value or its typed failure. The deadline passes first:
+// the body is stopped and drained, and After fails with Expired. A defect
+// in the body, in the deadline child or in either drain is raised in the
+// caller on every path, as Task.Wait raises it; so is an interruption of
+// t. A Sleep that ends without a stop, by a defect included, ends the
+// race: a deadline that cannot be kept never leaves the body unbounded.
+func After[A any](span Site, t *rt.Task, s Sleeper, d time.Duration, body func(*rt.Task) (A, error)) (A, error) {
+	v, err := rt.AfterSpan(t, deadlines{t: t, s: s, span: string(span) + " (deadline)"}, d, string(span), func(ct *rt.Task) (A, error) {
+		return guarded(ct, body)
+	})
+	if err == nil {
+		return v, nil
+	}
+	var zero A
+	if f, ok := rt.Failure(err); ok {
+		if f == (rt.Expired{}) {
+			f = Expired{}
+		}
+		return zero, f
+	}
+	raise(err)
+	panic("unreachable")
+}
+
+// deadlines is the rt.Scheduler of one After call: each timer it arms is a
+// child of t that sleeps on the program's Scheduler.
+type deadlines struct {
+	t    *rt.Task
+	s    Sleeper
+	span string
+}
+
+// NewTimer starts the deadline child. Its timer fires when s.Sleep(d) ends
+// while the child is not stopped: a stop of the child (Stop below, or a
+// stop of t that cascades to it) never fires it.
+func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
+	holder := rt.NewScope(ds.t)
+	dl := &deadline{fired: make(chan time.Time)}
+	dl.h = rt.Go(&holder, ds.span, func(ct *rt.Task) (struct{}, error) {
+		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
+			defer func() {
+				if !ct.Stopped() {
+					close(dl.fired)
+				}
+			}()
+			ds.s.Sleep(ct, d)
+			return struct{}{}, nil
+		})
+	})
+	return dl
+}
+
+// deadline is one armed deadline: its child and the channel the child
+// closes when the deadline passes.
+type deadline struct {
+	h     *rt.Handle[struct{}]
+	fired chan time.Time
+}
+
+// C delivers when the deadline passes.
+func (dl *deadline) C() <-chan time.Time { return dl.fired }
+
+// Stop stops and drains the deadline child, so no child of After outlives
+// it, and reports whether the deadline had not passed. A defect of the
+// child is raised as a panic, which rt.AfterSpan records as a release
+// defect of the call.
+func (dl *deadline) Stop() bool {
+	dl.h.Close()
+	select {
+	case <-dl.fired:
+		return false
+	default:
+		return true
 	}
 }

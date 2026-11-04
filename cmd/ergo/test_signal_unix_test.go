@@ -1,0 +1,48 @@
+//go:build unix
+
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// sketchSleepingTest passes one test, which prints its ok line, and then
+// sleeps for a minute in the next.
+const sketchSleepingTest = `test First { assert true }
+
+test Sleeps {
+	with context { Scheduler: LiveScheduler } {
+		Scheduler.Sleep(60s)
+	}
+}
+`
+
+// TestTestSignals: `ergo test` forwards SIGINT and SIGTERM to the test
+// binary it runs, as `ergo run` does. The signal ends the binary during its
+// second test, and `ergo test` exits 128 plus the signal number (130 for
+// SIGINT, 143 for SIGTERM) with no message of its own and no summary line.
+// The binary's temporary directory is removed after the signal too.
+func TestTestSignals(t *testing.T) {
+	binary := buildTestCLI(t)
+	root := smokeDir(t)
+	file := smokeWrite(t, root, "sleeps.ergo", sketchSleepingTest)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	for signal, want := range map[syscall.Signal]int{syscall.SIGINT: 130, syscall.SIGTERM: 143} {
+		start := time.Now()
+		stdout, stderr, code := runInterruptedEntry(t, binary, root, signal, "test", file)
+		if stdout != "ok First\n" || code != want || stderr != "" || time.Since(start) > 50*time.Second {
+			t.Errorf("%v: code=%d stdout=%q stderr=%q after %v; want exit %d, the test binary ended by the forwarded signal", signal, code, stdout, stderr, time.Since(start), want)
+		}
+		if entries, err := os.ReadDir(tmp); err != nil || len(entries) != 0 {
+			t.Errorf("%v: the temporary directory holds %v (%v) after the signal", signal, entries, err)
+		}
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 1 || entries[0].Name() != filepath.Base(file) {
+		t.Errorf("ergo test wrote into the source directory: %v", entries)
+	}
+}

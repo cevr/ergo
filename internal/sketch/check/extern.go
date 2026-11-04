@@ -187,28 +187,3 @@ func (c *checker) sealedRefused(x syntax.Node, a assignment) bool {
 	c.errorf(x, CodeOutside, "%s", sealedText(a.from, a.sealed))
 	return true
 }
-
-// ---------------------------------------------------------------- Close refusals (C29)
-
-// closeStaged is the S109 of a provider release this release route does
-// not lower yet, or "": a Close that is an operation of the provider's
-// type, a generic Close, and a Close that takes a pointer to a provider
-// that is a value. A std or extern Close is not reachable: a Close takes a
-// named type, outside the extern domain, and no std package declares a
-// Close function (TestCloseRefusals).
-func closeStaged(cl *Close) string {
-	switch {
-	case cl.Func == nil:
-		return "a provider whose Close is an operation of its type is released in lower-v1, not yet"
-	case len(cl.Func.Sig.TParams) > 0:
-		return "a provider whose Close is generic is released in lower-v1, not yet"
-	}
-	if len(cl.Func.Sig.Params) == 1 {
-		_, byPtr := cl.Func.Sig.Params[0].Type.(*Pointer)
-		_, ptrValue := cl.Receiver.(*Pointer)
-		if byPtr && !ptrValue {
-			return "a provider whose Close takes a pointer to its value is released in lower-v1, not yet"
-		}
-	}
-	return ""
-}

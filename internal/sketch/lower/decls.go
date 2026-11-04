@@ -32,6 +32,9 @@ const (
 	// kindDefined is `type N T` (D-B7): Go's `type N T`, with T's fields
 	// when T is a record.
 	kindDefined
+	// kindMachine is `type X machine[S, E] { … }` (spec D5): a plan value
+	// (machine.go).
+	kindMachine
 )
 
 // typeDecl is a lowered type declaration.
@@ -45,6 +48,7 @@ type typeDecl struct {
 	fieldName map[string]string
 	ops       []*check.Method
 	defined   check.Type // kindDefined: T, the type N is defined over
+	machine   *machineDecl
 	variants  []*check.TypeName
 	marker    string
 	errorType bool
@@ -67,6 +71,11 @@ type funcDecl struct {
 	extern   string
 	library  bool
 	emitted  bool
+	// lowered is set when the Go body has been written, and readsEnv then
+	// says whether that body names its environment parameter: the fact a
+	// machine plan's Step reads to decide whether it takes one (machine.go).
+	lowered  bool
+	readsEnv bool
 }
 
 // declareNames gives every package-level declaration of the user package its
@@ -180,7 +189,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 		// A top-level law is in neither build (types.md, Laws 11): its facts
 		// are OwnerLaw's, and #162 runs laws.
 	default:
-		refuse(d, "this declaration is not lowered yet")
+		unreachable(d, ruleAccepted, "a declaration of the kind %T", d)
 	}
 }
 
@@ -220,7 +229,7 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 	}()
 	named, ok := tn.Type.(*check.Named)
 	if !ok || tn.Decl == nil || tn.Pkg == nil || tn.Pkg.Info == nil {
-		refuse(site, "the type %s is not a declared record, operation type or union, which lowering supports so far", tn.Name)
+		ice(site, "the type %s has no checked declaration (a Named type, a declaration and a package with Info)", tn.Name)
 	}
 	if named.Orig != nil {
 		named = named.Orig
@@ -251,8 +260,12 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 				if avoidError && goName == "Error" {
 					goName = "Error_"
 				}
-				if taken[goName] {
-					refuse(id, "the field %s of %s and another field have the same Go name %s", field.Name, tn.Name, goName)
+				// The renamed Error field can meet a field the source
+				// names Error_: the later field in source order takes one
+				// more underscore, until its Go name is free. Every use of
+				// a field reads its Go name from fieldName.
+				for taken[goName] {
+					goName += "_"
 				}
 				taken[goName] = true
 				td.fields = append(td.fields, field)
@@ -284,14 +297,14 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 					ice(id, "the operation %s of %s has no Defs entry", id.Name, tn.Name)
 				}
 				if taken[memberName(op.Name)] {
-					refuse(id, "two operations of %s have the same Go name %s", tn.Name, memberName(op.Name))
+					unreachable(id, ruleMemberNames, "two operations of %s have the Go name %s", tn.Name, memberName(op.Name))
 				}
 				taken[memberName(op.Name)] = true
 				td.ops = append(td.ops, op)
 			}
 		}
 	case *syntax.MachineType:
-		refuse(site, "machine plan values are lowered in lower-v1 stage 4 (spec D5)")
+		td.kind, td.machine = kindMachine, l.machineOf(tn, named, spec, site)
 	default:
 		def := named.Defined()
 		if def == nil {
@@ -483,7 +496,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 		for _, v := range td.variants {
 			vd := l.useType(l.typeDecl(v, site))
 			if vd.kind != kindRecord {
-				refuse(site, "the variant %s of %s is not a record", v.Name, td.tn.Name)
+				unreachable(site, ruleVariantRecord, "the variant %s of %s is not a record", v.Name, td.tn.Name)
 			}
 			l.emitType(vd)
 			if marked[vd] {
@@ -498,6 +511,8 @@ func (l *lowerer) emitType(td *typeDecl) {
 		if td.errorType {
 			l.errorMethod(b, td)
 		}
+	case kindMachine:
+		l.machinePlan(b, td)
 	}
 }
 
@@ -744,11 +759,12 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 		if _, _, ok := l.stdBody(fd); ok {
 			return fd // called at its site, its runtime/v1 body directly (stdCall)
 		}
-		// The missing piece is the runtime's, which runtime/** owns
-		// (stage D3b round 1 review m1): timeout.After.
-		refuse(site, "a call to the std function %s (extern go target %s) is lowered in lower-v1 (a runtime/v1 body for %s)", f.Name, fd.extern, f.Pkg.Name+"."+f.Name)
+		// Every std extern is an intrinsic or has a runtime/v1 body
+		// (TestStdExternsHaveBodies): a program declares no extern that
+		// is not a user extern.
+		ice(site, "the std function %s binds %s, which is neither an intrinsic nor a runtime/v1 body", f.Pkg.Name+"."+f.Name, fd.extern)
 	case fd.extern == "" && (f.Decl == nil || f.Decl.Body == nil):
-		refuse(site, "%s has no body, so it cannot be called", f.Name)
+		unreachable(site, ruleFuncBody, "the function %s has no body and no extern target", f.Name)
 	}
 	if fd.library && !fd.emitted {
 		fd.emitted = true
@@ -896,7 +912,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
 	if len(f.Sig.Results) > 1 {
-		refuse(site, "several results are a tuple, which lowering supports after check-v1 stage B (196t)")
+		unreachable(site, ruleOneResult, "the function %s has %d results", f.Name, len(f.Sig.Results))
 	}
 	if len(f.Sig.Results) == 1 {
 		fc.frame.result = f.Sig.Results[0]
@@ -910,6 +926,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		}
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 		body := l.intrinsic(f)(fc, paramNames)
+		fd.lowered, fd.readsEnv = true, namesIdent(body, fc.env)
 		b.WriteString(head.String() + " {\n" + body + "}\n\n")
 		return
 	}
@@ -937,6 +954,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
+	fd.lowered, fd.readsEnv = true, namesIdent(fc.out.String(), fc.env)
 	b.WriteString(fc.out.String())
 	b.WriteString("}\n\n")
 }
@@ -999,12 +1017,13 @@ func (l *lowerer) hasInits() bool {
 			return true
 		}
 	}
-	return false
+	return len(l.machineInits) > 0
 }
 
 // initFunc is the Go function that runs the package-level initializers in
 // Info.InitOrder (Go's initialization order: a let after every let it
-// refers to, directly or through functions, else in declaration order), or
+// refers to, directly or through functions, else in declaration order),
+// then each machine's initial value in declaration order (machine.go), or
 // "" when there is none. The entry calls it first inside v1.Main.
 func (l *lowerer) initFunc() string {
 	if !l.hasInits() {
@@ -1015,6 +1034,9 @@ func (l *lowerer) initFunc() string {
 	b.WriteString("// " + name + " runs the package-level lets in Go's initialization order,\n// inside the program's root task.\nfunc " + name + "(" + initEnv(l) + " *" + l.env() + ") {\n")
 	for _, in := range l.info.InitOrder {
 		b.WriteString(l.inits[in.Value])
+	}
+	for _, x := range l.machineInits {
+		b.WriteString(l.inits[x])
 	}
 	b.WriteString("}\n\n")
 	return b.String()
@@ -1121,7 +1143,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	} else {
 		tup, ok := underlying(t).(*check.Tuple)
 		if !ok || len(tup.Types) != len(spec.Names) {
-			refuse(spec, "this let of several names is lowered after check-v1 stage D (the Map rule)")
+			unreachable(spec, ruleLetNames, "a package let of %d names whose value is not a tuple of %d elements", len(spec.Names), len(spec.Names))
 		}
 		for i, id := range spec.Names {
 			if w, ok := l.info.Defs[id].(*check.Var); ok {

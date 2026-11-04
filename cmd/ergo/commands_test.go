@@ -9,7 +9,7 @@ import (
 
 // TestCommandTableClassifiesEveryWordOnce iterates the command table: names
 // are unique, each row has the fields its fate needs and no others, and the
-// general help lists exactly the available and pending rows.
+// general help lists exactly the available rows.
 func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 	seen := map[string]bool{}
 	help := generalHelp()
@@ -30,14 +30,11 @@ func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 			if !strings.Contains(help, "ergo "+c.usage+"\n") {
 				t.Fatalf("help does not list %q", c.usage)
 			}
-		case pending, removed, dark:
-			if c.run != nil || c.help != "" || !ticket.MatchString(c.ticket) || (c.fate == dark) != (c.reason == "") {
+		case removed, dark:
+			if c.run != nil || c.help != "" || c.usage != "" || !ticket.MatchString(c.ticket) || (c.fate == dark) != (c.reason == "") {
 				t.Fatalf("stub %q: %+v", c.name, c)
 			}
-			if (c.fate == pending) != (c.usage != "") {
-				t.Fatalf("only a pending stub has a usage line: %+v", c)
-			}
-			if c.fate != pending && regexp.MustCompile(`\b`+regexp.QuoteMeta(strings.Fields(c.name)[0])+`\b`).MatchString(help) {
+			if regexp.MustCompile(`\b` + regexp.QuoteMeta(strings.Fields(c.name)[0]) + `\b`).MatchString(help) {
 				t.Fatalf("help names the %s command %q", map[fate]string{removed: "removed", dark: "dark"}[c.fate], c.name)
 			}
 		default:
@@ -45,7 +42,7 @@ func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 		}
 	}
 	for _, kept := range []string{"check", "diagnostics", "build", "run", "fmt", "test"} {
-		if row, ok := lookupCommand([]string{kept}); !ok || (row.fate != available && row.fate != pending) {
+		if row, ok := lookupCommand([]string{kept}); !ok || row.fate != available {
 			t.Fatalf("%s is not kept", kept)
 		}
 	}
@@ -81,7 +78,6 @@ func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 	}
 	// Each stub is "ergo NAME: " and the text the spec gives the command.
 	want := map[string]string{
-		"test":         "not available yet; lowering adds it (#196)",
 		"edition":      "removed in v1; there is one language and no editions (#205)",
 		"lint receipt": "removed in v1; linting returns on the new checker (#203)",
 		"graph":        "removed in v1; semantic tooling returns on the new front end (#203)",

@@ -138,7 +138,7 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 		ice(site, "the operation %s of %s has no implementing function and no operation type", op.Name, w.Arg)
 	}
 	if len(op.Sig.Results) > 1 {
-		refuse(site, "an operation with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(site, ruleOneResult, "the operation %s has %d results", op.Name, len(op.Sig.Results))
 	}
 	return fc.envClosure(callerEnv, "e", site, func(e string) (params []string, results, body string) {
 		var vals []string
@@ -162,7 +162,7 @@ func (fc *funcCtx) witnessOp(w *check.Witness, op check.WitnessOp, site syntax.N
 		call, hasResult, fallible := fc.opCall(w.Arg, m, result, vals, e, dest, nil, nil, site)
 		ind := strings.Repeat("\t", fc.depth)
 		fc.depth--
-		return params, fc.resultList(result, true), uniformBody(ind, call, hasResult, result != nil, fallible)
+		return params, fc.valueResults(result), uniformBody(ind, call, hasResult, result != nil, fallible)
 	})
 }
 
@@ -196,7 +196,7 @@ func (fc *funcCtx) witnessMethod(tc *typeCtx, locals *namer, recv string, op *ch
 		args = append(args, n)
 	}
 	if len(op.Sig.Results) > 1 {
-		refuse(tc.site, "an operation with several results is a tuple, lowered after check-v1 stage B (196t)")
+		unreachable(tc.site, ruleOneResult, "the operation %s has %d results", op.Name, len(op.Sig.Results))
 	}
 	var result check.Type
 	if len(op.Sig.Results) == 1 {
@@ -233,5 +233,7 @@ func (fc *funcCtx) witnessCall(tp *check.TypeParam, op *check.Method, vals []str
 	if dest != "" {
 		lead = append(lead, dest)
 	}
-	return w + "." + memberName(op.Name) + "(" + strings.Join(append(lead, vals...), ", ") + ")", len(op.Sig.Results) > 0, true
+	// The field has the uniform shape (typeCtx.funcType): a Go value, which
+	// is struct{} for an operation with no result, and an error.
+	return w + "." + memberName(op.Name) + "(" + strings.Join(append(lead, vals...), ", ") + ")", true, true
 }

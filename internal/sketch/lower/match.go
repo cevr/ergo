@@ -308,7 +308,7 @@ func (fc *funcCtx) letPattern(spec *syntax.VarSpec) {
 		x := spec.Values[0]
 		tup, ok := underlying(fc.typeOf(x)).(*check.Tuple)
 		if !ok || len(tup.Types) != len(spec.Names) {
-			refuse(spec, "this let of several names is lowered after check-v1 stage D (the Map rule)")
+			unreachable(spec, ruleLetNames, "a let of %d names whose value is not a tuple of %d elements", len(spec.Names), len(spec.Names))
 		}
 		v := fc.temp("p")
 		fc.line(v + " := " + fc.value(x))
