@@ -836,7 +836,8 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 //
 // It classifies the log before it removes the run's scratch directories:
 // a path the tests recorded through a link they left in scratch then
-// resolves through that link, as the read did. Classified after the
+// resolves through that link, as the read did if the link is unchanged (a
+// run with identity replays the access-time walk instead). Classified after the
 // removal, such a path would name an absent place in scratch, which is no
 // input, and the read would be classified by nothing.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
