@@ -72,7 +72,7 @@ var refusedFamilies = map[string]string{
 	// value, an owning with's release that no Go name calls, and a user
 	// extern. An extern is call-only (C25, P3), those releases lower since
 	// lower-v1 stage 4 (C29, stage4_close_test.go; the checker refuses only
-	// a Close that needs witnesses, closeWitnessed), and a user extern in
+	// a Close whose release would pass witnesses, closeWitnessed), and a user extern in
 	// its checked domain lowers as a direct Go call (C26). The lowering's
 	// remaining checks of those forms are internal errors (stage_e4_test.go).
 }
