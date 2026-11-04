@@ -638,6 +638,12 @@ type ContextBinding struct {
 	Type Type
 	// Key and Text are the protocol's functions on Type.
 	Key, Text *Func
+	// KeyInst and TextInst are the instances of Key and Text at Type when
+	// they are generic: their type arguments bound by Type's (as a dot
+	// call's receiver binds them, D-D8), with a witness for each type
+	// parameter an operation type constrains; nil when the function is
+	// not generic. Added in check-v1 stage E6b (additive).
+	KeyInst, TextInst *Instance
 }
 
 // Acquisition is one provider entry a with builds: the

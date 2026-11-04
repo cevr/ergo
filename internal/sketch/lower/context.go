@@ -2,6 +2,7 @@ package lower
 
 import (
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -44,8 +45,8 @@ func (fc *funcCtx) contextWith(arg syntax.Expr, cb *check.ContextBinding, inner 
 	// function that takes a pointer reads this value and no variable.
 	val := fc.temp("cv")
 	fc.line(val + " := " + fc.value(arg))
-	key := fc.contextCall(cb.Key, val, arg)
-	text := fc.contextCall(cb.Text, val, arg)
+	key := fc.contextCall(cb.Key, cb.KeyInst, val, arg)
+	text := fc.contextCall(cb.Text, cb.TextInst, val, arg)
 	// The namespace comes from the checked binding type, even when its
 	// value was made in or imported through another package.
 	pkg := strconv.Quote(contextNamespace(cb.Type.(*check.Named).Obj.Pkg))
@@ -79,10 +80,12 @@ func contextNamespace(pkg *check.Package) string {
 // contextText; check.ContextBinding) on the operand's value val. The
 // checker admits f only with empty rows and a string result, so the call
 // cannot fail; it still takes the environment, as every lowered function
-// does.
-func (fc *funcCtx) contextCall(f *check.Func, val string, site syntax.Node) string {
-	if len(f.Sig.TParams) > 0 {
-		refuse(site, "a context value whose %s is generic is lowered after check-v1 stage E", f.Name)
+// does. A generic f is called at its instance inst (ContextBinding.KeyInst,
+// TextInst): its type arguments, which a Go method takes from its receiver,
+// and its witnesses, passed after the environment as at any call.
+func (fc *funcCtx) contextCall(f *check.Func, inst *check.Instance, val string, site syntax.Node) string {
+	if (len(f.Sig.TParams) > 0) != (inst != nil) || inst != nil && inst.Func != f {
+		ice(site, "the context protocol function %s has no instance that matches it", f.Name)
 	}
 	if len(f.Sig.Params) != 1 || len(f.Sig.Results) != 1 {
 		ice(site, "the context protocol function %s does not take one value and return its text", f.Name)
@@ -97,9 +100,13 @@ func (fc *funcCtx) contextCall(f *check.Func, val string, site syntax.Node) stri
 	if _, byPtr := f.Sig.Params[0].Type.(*check.Pointer); byPtr {
 		recv = "&" + val
 	}
-	env := fc.envExpr(site)
+	lead := append([]string{fc.envExpr(site)}, fc.witnessArgs(f, inst, site)...)
 	if fd.method != nil {
-		return "(" + recv + ")." + fd.name + "(" + env + ")"
+		return "(" + recv + ")." + fd.name + "(" + strings.Join(lead, ", ") + ")"
 	}
-	return fd.name + "(" + env + ", " + recv + ")"
+	head := fd.name
+	if inst != nil {
+		head += fc.typeArgs(f.Sig, inst.TypeArgs, site)
+	}
+	return head + "(" + strings.Join(append(lead, recv), ", ") + ")"
 }

@@ -50,8 +50,11 @@ var refusedFamilies = map[string]string{
 	"call:Func:externTarget": "lower-v1",
 	"NoValue:generic":        "check-v1 stage E",
 	"call:With:imported":     "196b",
-	"call:With:context":      "check-v1 stage E",
 	"TypeDecl:errorText":     "lower-v1 stage 3",
+	// Stage E6b of check-v1 removed the family of a context value whose
+	// protocol function is generic: the checker records its instance
+	// (ContextBinding.KeyInst, TextInst) and the lowering calls it
+	// (stage_e6b_test.go).
 	// Stage E6a of check-v1 removed the family of an interpolated value of
 	// a type that is not basic: the checker refuses a value with no text
 	// form (D-E6), and a value of a type defined over a basic type lowers
@@ -77,7 +80,6 @@ var refusalReasons = []struct {
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
 	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
 	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},
-	{"call:With:context", regexp.MustCompile(`^a context value whose \S+ is generic is lowered after check-v1 stage E$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
 }
 
