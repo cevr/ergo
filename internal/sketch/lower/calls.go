@@ -29,7 +29,7 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	}
 	switch c.Kind {
 	case check.CallWith:
-		return fc.with(x)
+		return fc.withExpr(x)
 	case check.CallConversion:
 		if len(x.Args) != 1 {
 			ice(x, "a conversion with %d arguments", len(x.Args))
@@ -623,30 +623,18 @@ func (fc *funcCtx) noValueArgs(x *syntax.CallExpr, c *check.Call, list []syntax.
 	}
 }
 
-// with lowers with W { block } (rows.md, With): a Go block that copies the
-// environment, builds the context's providers into the copy and runs the block
-// against it, with no closure (With 8). The block's tail is the with's
-// value, and its untried failure the with's.
-func (fc *funcCtx) with(x *syntax.CallExpr) operand {
+// withExpr lowers with A, …, Z { block } (rows.md, With) as its nesting,
+// with A { … with Z { block } … } (With 7): one Go block per operand, the
+// first operand outermost, each read from its own With fact (With.Next).
+// The block's tail is the with's value, and its untried failure the with's.
+func (fc *funcCtx) withExpr(x *syntax.CallExpr) operand {
 	w := fc.l.info.Withs[x]
 	if w == nil {
 		ice(x, "a with with no Withs entry")
 	}
-	if len(x.Args) != 1 || x.Trailing == nil {
-		ice(x, "a with without one context and a block")
+	if len(x.Args) == 0 || x.Trailing == nil {
+		ice(x, "a with without a context and a block")
 	}
-	if w.Value != nil {
-		return fc.contextWith(x, w.Value) // the context owner (context.go)
-	}
-	// The checker records an imported context's entries (context ownership), but
-	// this lowering builds only contexts declared in the file it lowers.
-	if len(w.Contexts) == 0 || (w.Contexts[0].Lit == nil && fc.l.isImported(w.Contexts[0])) {
-		if _, inline := unparen(x.Args[0]).(*syntax.ContextLit); inline {
-			refuse(x.Args[0], "an inline context literal is lowered after check-v1 stage E (196x)")
-		}
-		refuse(x.Args[0], "a with of an imported context is lowered after check-v1 stage B supplies its context (check-v1 r5b m2)")
-	}
-	list := x.Trailing.List
 	var res operand
 	if !fc.noValue(x) {
 		res.val = fc.temp("v")
@@ -656,6 +644,49 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 		res.err = fc.temp("err")
 		fc.line("var " + res.err + " error")
 	}
+	// The block yields by the one tail rule (D-C1, D-C2): its last
+	// statement, through a final if, match or block, assigns the with's
+	// value and passes its failure on.
+	d := dest{kind: destStmt}
+	if res.val != "" || res.err != "" {
+		d = dest{kind: destAssign, name: res.val, err: res.err}
+	}
+	fc.with(x, 0, w, d)
+	return res
+}
+
+// with lowers operand i of the with x, whose fact is w, around the
+// operands after it and the block, which yields to d. A context operand
+// is a Go block that copies the environment, builds the context's
+// providers into the copy and runs what it holds against it, with no
+// closure (With 8). A named context's providers are built by its builder;
+// an inline or a local context's in place, so a local context is its
+// literal at each with that names it, and its recipe has no value at run
+// time (rows.md, Context 9).
+func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
+	arg := x.Args[i]
+	if (w.Next == nil) != (i == len(x.Args)-1) {
+		ice(arg, "a with of %d operands whose With.Next chain ends at operand %d", len(x.Args), i+1)
+	}
+	inner := func() {
+		if w.Next != nil {
+			fc.with(x, i+1, w.Next, d)
+		} else {
+			fc.yieldList(x.Trailing.List, d)
+		}
+	}
+	if w.Value != nil {
+		fc.contextWith(arg, w.Value, inner) // the context owner (context.go)
+		return
+	}
+	if len(w.Contexts) == 0 {
+		ice(arg, "a with operand with neither a context nor a context binding (With.Contexts, With.Value)")
+	}
+	// The checker records an imported context's entries (context ownership), but
+	// this lowering builds only contexts declared in the file it lowers.
+	if w.Contexts[0].Lit == nil && fc.l.isImported(w.Contexts[0]) {
+		refuse(arg, "a with of an imported context is lowered when 196b lowers packages")
+	}
 	// The with lifetime owner (resources.md, Context ownership; runtime.md,
 	// With cleanup): a with that acquires a resource opens its own scope on
 	// the scope of the code around it. The builder registers each
@@ -664,19 +695,19 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	// and the frame's End ends it on every other exit (v1.Scope.close).
 	owning := ownsResources(w)
 	if owning && (fc.frame == nil || fc.frame.scope == "") {
-		ice(x, "a with that owns a provider with a Close outside a function body; the checker refuses one (S108, check/frames.go)")
+		ice(arg, "a with that owns a provider with a Close outside a function body; the checker refuses one (S108, check/frames.go)")
 	}
-	inline := w.Contexts[0].Lit != nil
+	lit := w.Contexts[0].Lit != nil // an inline or a local context
 	build := ""
-	if !inline {
-		build = fc.l.contextBuilder(w, x)
+	if !lit {
+		build = fc.l.contextBuilder(w, arg)
 	}
 	env := fc.temp("env")
 	fc.line("{")
 	fc.depth++
-	outer := fc.envExpr(x)
+	outer := fc.envExpr(arg)
 	fc.line(env + " := *" + outer)
-	if inline {
+	if lit {
 		// An empty inline context and a pure body may read no capability.
 		fc.line("_ = " + env)
 	}
@@ -684,11 +715,11 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	ws := ""
 	if owning {
 		ws = fc.temp("ws")
-		fc.line(ws + " := " + fc.scopeCall("Scope.OpenWith", fc.frameScope(x), nil, x))
+		fc.line(ws + " := " + fc.scopeCall("Scope.OpenWith", fc.frameScope(arg), nil, arg))
 		savedWith, fc.frame.with = fc.frame.with, ws
 	}
-	if inline {
-		fc.l.localContext(w.Contexts[0], x)
+	if lit {
+		fc.l.localContext(w.Contexts[0], arg)
 		fc.buildProviders(w, "(&"+env+")", outer, ws)
 	} else if owning {
 		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
@@ -697,26 +728,18 @@ func (fc *funcCtx) with(x *syntax.CallExpr) operand {
 	}
 	saved := fc.env
 	fc.env = "(&" + env + ")"
-	// The block yields by the one tail rule (D-C1, D-C2): its last
-	// statement, through a final if, match or block, assigns the with's
-	// value and passes its failure on.
-	if res.val == "" && res.err == "" {
-		fc.yieldList(list, dest{kind: destStmt})
-	} else {
-		fc.yieldList(list, dest{kind: destAssign, name: res.val, err: res.err})
-	}
+	inner()
 	fc.env = saved
 	if owning {
 		fc.frame.with = savedWith
 		errArg := "nil"
-		if res.err != "" {
-			errArg = "&" + res.err
+		if d.err != "" {
+			errArg = "&" + d.err
 		}
-		fc.line(fc.scopeCall("Scope.EndWith", ws, []string{errArg}, x))
+		fc.line(fc.scopeCall("Scope.EndWith", ws, []string{errArg}, arg))
 	}
 	fc.depth--
 	fc.line("}")
-	return res
 }
 
 // scopeCall writes a call of the with scope's method name on recv through
@@ -838,16 +861,27 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 }
 
 // buildProviders is the acquisition owner shared by named builders and
-// lexical inline contexts. Both consume exactly the checker's Acquired fact.
-// Inline own entries see the outer environment; embedded named entries
-// see the partially built context, as their checked Uses require.
+// lexical inline and local contexts. All consume exactly the checker's
+// Acquired fact. The entries of an inline or a local context, and of each
+// local context it embeds, see the environment outside the with, where the
+// checker charged their needs (rows.md, Context 3 and 9); embedded named
+// entries see the partially built context, as their checked Uses require.
 func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 	local := map[*check.ContextEntry]bool{}
-	if with.Contexts[0].Lit != nil {
-		for _, e := range with.Contexts[0].Entries {
-			local[e] = true
+	var lexical func(*check.Context)
+	lexical = func(w *check.Context) {
+		if w.Lit == nil {
+			return
+		}
+		for _, e := range w.Entries {
+			if e.Embedded != nil {
+				lexical(e.Embedded)
+			} else {
+				local[e] = true
+			}
 		}
 	}
+	lexical(with.Contexts[0])
 	for _, a := range with.Acquired {
 		e := a.Entry
 		fc.at(e.Provider)

@@ -246,6 +246,12 @@ func (fc *funcCtx) let(d *syntax.VarDecl) {
 			fc.discard(spec.Values[0])
 			continue
 		}
+		if w, ok := fc.l.info.Defs[id].(*check.Context); ok && w.Local {
+			// A local context is a recipe (rows.md, Context 9): its let
+			// lowers to nothing, and each with that names it builds its
+			// providers in place (calls.go, with).
+			continue
+		}
 		v, ok := fc.l.info.Defs[id].(*check.Var)
 		if id.Name == "_" {
 			if len(spec.Values) == 1 {

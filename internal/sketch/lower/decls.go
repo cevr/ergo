@@ -125,19 +125,23 @@ func (l *lowerer) declareName(d syntax.Decl) {
 	}
 }
 
-// withsOf are the withs of the named context w that this build lowers, in
-// source order.
+// withsOf are the with operands of the named context w that this build
+// lowers, in source order (each operand of a with is a fact, With.Next).
 func (l *lowerer) withsOf(w *check.Context) []*check.With {
 	var xs []*syntax.CallExpr
-	for x, with := range l.info.Withs {
-		if len(with.Contexts) > 0 && with.Contexts[0] == w && l.readsFact(l.pkg, x) {
+	for x := range l.info.Withs {
+		if l.readsFact(l.pkg, x) {
 			xs = append(xs, x)
 		}
 	}
 	sort.Slice(xs, func(i, j int) bool { return xs[i].Pos() < xs[j].Pos() })
-	out := make([]*check.With, len(xs))
-	for i, x := range xs {
-		out[i] = l.info.Withs[x]
+	var out []*check.With
+	for _, x := range xs {
+		for with := l.info.Withs[x]; with != nil; with = with.Next {
+			if len(with.Contexts) > 0 && with.Contexts[0] == w {
+				out = append(out, with)
+			}
+		}
 	}
 	return out
 }

@@ -50,7 +50,7 @@ var refusedFamilies = map[string]string{
 	"call:Func:externTarget":      "lower-v1",
 	"NoValue:generic":             "check-v1 stage E",
 	"InterpolatedString:nonbasic": "check-v1 stage E",
-	"call:With:imported":          "check-v1 stage B",
+	"call:With:imported":          "196b",
 	"call:With:context":           "check-v1 stage E",
 	"TypeDecl:errorText":          "lower-v1 stage 3",
 	// Stage E4 of check-v1 removed three families: a std function used as a
@@ -74,7 +74,7 @@ var refusalReasons = []struct {
 	{"MachineType", regexp.MustCompile(`^machine plan values are lowered in lower-v1 stage 4`)},
 	{"call:Func:externTarget", regexp.MustCompile(`^a call to the std function \S+ \(extern go target \S+\) is lowered in lower-v1 \(a runtime/v1 body for \S+\)$`)},
 	{"NoValue:generic", regexp.MustCompile(`^(the type .+, a declared generic type whose type argument a block with no value binds,|a type parameter of \S+ that a block with no value binds, inside a function type other than a parameter's own \(func\(…\) T\),) is lowered after check-v1 stage E$`)},
-	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered after check-v1 stage B`)},
+	{"call:With:imported", regexp.MustCompile(`^a with of an imported context is lowered when 196b lowers packages`)},
 	{"call:With:context", regexp.MustCompile(`^a context value whose \S+ is generic is lowered after check-v1 stage E$`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of .+ is lowered in lower-v1 stage 3`)},
 }

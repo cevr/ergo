@@ -33,45 +33,31 @@ import (
 // withContext and Effect's FiberRef locally do the same with an explicit
 // restore. All restore on every exit, as the frame's End does here.
 
-// contextWith lowers `with v { block }` for a context binding cb.
-func (fc *funcCtx) contextWith(x *syntax.CallExpr, cb *check.ContextBinding) operand {
+// contextWith lowers the with operand arg, a context binding cb, around
+// inner: the operands after it and the block, which yield to the with's
+// destination (calls.go, with).
+func (fc *funcCtx) contextWith(arg syntax.Expr, cb *check.ContextBinding, inner func()) {
 	if fc.frame == nil || fc.frame.scope == "" {
-		ice(x.Args[0], "a with of a context value outside a function body; the checker refuses one (S108, check/frames.go)")
-	}
-	list := x.Trailing.List
-	var res operand
-	if !fc.noValue(x) {
-		res.val = fc.temp("v")
-		fc.line("var " + res.val + " " + fc.goType(fc.typeOf(x)))
-	}
-	if fc.fallibleExpr(x) {
-		res.err = fc.temp("err")
-		fc.line("var " + res.err + " error")
+		ice(arg, "a with of a context value outside a function body; the checker refuses one (S108, check/frames.go)")
 	}
 	// The operand once, in the enclosing frame; a copy, so a protocol
 	// function that takes a pointer reads this value and no variable.
 	val := fc.temp("cv")
-	fc.line(val + " := " + fc.value(x.Args[0]))
-	key := fc.contextCall(cb.Key, val, x.Args[0])
-	text := fc.contextCall(cb.Text, val, x.Args[0])
+	fc.line(val + " := " + fc.value(arg))
+	key := fc.contextCall(cb.Key, val, arg)
+	text := fc.contextCall(cb.Text, val, arg)
 	// The namespace comes from the checked binding type, even when its
 	// value was made in or imported through another package.
 	pkg := strconv.Quote(contextNamespace(cb.Type.(*check.Named).Obj.Pkg))
-	scope := fc.frameScope(x)
+	scope := fc.frameScope(arg)
 	cx := fc.temp("cx")
 	fc.line("{")
 	fc.depth++
-	fc.line(cx + " := " + fc.scopeCall("Scope.OpenContext", scope, []string{pkg, key, text}, x))
-	// The block yields by the one tail rule (D-C1, D-C2), as a context with's.
-	if res.val == "" && res.err == "" {
-		fc.yieldList(list, dest{kind: destStmt})
-	} else {
-		fc.yieldList(list, dest{kind: destAssign, name: res.val, err: res.err})
-	}
-	fc.line(fc.scopeCall("Context.End", cx, nil, x))
+	fc.line(cx + " := " + fc.scopeCall("Scope.OpenContext", scope, []string{pkg, key, text}, arg))
+	inner()
+	fc.line(fc.scopeCall("Context.End", cx, nil, arg))
 	fc.depth--
 	fc.line("}")
-	return res
 }
 
 // contextNamespace is the namespace of the context values whose binding

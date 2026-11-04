@@ -124,11 +124,13 @@ func (l *lowerer) bodyNeedsFrame(list []syntax.Stmt) bool {
 				found = true
 				return false
 			}
-			// An owning with opens its scope on the frame (calls.go, with),
-			// and a context with its region (context.go).
-			if w := l.info.Withs[n]; w != nil && (ownsResources(w) || w.Value != nil) {
-				found = true
-				return false
+			// An owning with operand opens its scope on the frame (calls.go,
+			// with), and a context value operand its region (context.go).
+			for w := l.info.Withs[n]; w != nil; w = w.Next {
+				if ownsResources(w) || w.Value != nil {
+					found = true
+					return false
+				}
 			}
 			if c := l.info.Calls[n]; n.Trailing != nil && (c == nil || c.Kind != check.CallWith) {
 				syntax.Inspect(n.Fun, visit)
