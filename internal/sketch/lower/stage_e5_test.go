@@ -202,6 +202,40 @@ func main() needs Console {
 	with w { Console.Println(Store.Get()) }
 }
 `, "open\nconn\nclose\nopen\nconn\nclose\n"},
+	// rows.md With 7 (E5 round 1 M3): where a and b both bind Store, a's
+	// Store is built and released only when the with acquires it, as in
+	// the nesting: here when b's Greeter provider reads Store.
+	{"shadowed-unbuilt", e5Prelude + `
+type Conn { n string }
+
+func Get(c Conn) string {
+	c.n
+}
+
+func Greet(c Conn, name string) string {
+	"\(c.n):\(name)"
+}
+
+func open(n string) Conn needs Console {
+	Console.Println("open \(n)")
+	Conn{n: n}
+}
+
+func Close(c Conn) needs Console {
+	Console.Println("close \(c.n)")
+}
+
+func main() needs Console {
+	let a = context { Store: open("a") }
+	let b = context { Store: open("b") }
+	with a, b { Console.Println("in \(Store.Get())") }
+	with a {
+		with b { Console.Println("in \(Store.Get())") }
+	}
+	let c = context { Store: open("c"), Greeter: open("g" + Store.Get()) }
+	with a, c { Console.Println("in \(Store.Get()) \(Greeter.Greet("x"))") }
+}
+`, "open b\nin b\nclose b\nopen b\nin b\nclose b\nopen a\nopen c\nopen ga\nin c ga:x\nclose ga\nclose c\nclose a\n"},
 	// A context value and a context in one with print what the nested
 	// forms print.
 	{"value-and-context", "import trace\n\n" + e5Prelude + `

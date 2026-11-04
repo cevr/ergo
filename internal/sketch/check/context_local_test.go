@@ -527,3 +527,63 @@ func numbered(src string) string {
 	}
 	return b.String()
 }
+
+// TestLocalContextLawNine (rows.md, Composition law 9 and its exception;
+// E5 round 1 M2): the provider make() needs Console. In a function that
+// writes its capability row, `with w` and the inline literal at the same
+// with give one row and one set of codes. In a function whose row is
+// inferred, the literal's need widens the row and the local's is S102 at
+// its operand.
+func TestLocalContextLawNine(t *testing.T) {
+	const prelude = `type Greeter {
+	Greet(name string) string,
+}
+
+type Plain {}
+
+func Greet(_ Plain, name string) string {
+	name
+}
+
+func make() Plain needs Console {
+	Console.Println("made")
+	Plain
+}
+
+`
+	bodies := [2]string{
+		"\twith context { Greeter: make() } { Greeter.Greet(\"ada\") }\n",
+		"\tlet w = context { Greeter: make() }\n\twith w { Greeter.Greet(\"ada\") }\n",
+	}
+	// check gives f's capability row and its diagnostics' codes.
+	check1 := func(sig, body string) (string, []string, string) {
+		src := prelude + "func f() string" + sig + " {\n" + body + "}\n"
+		pkg, diags := check.CheckSource(src)
+		var codes []string
+		for _, d := range diags {
+			codes = append(codes, d.Code)
+		}
+		for _, f := range pkg.Funcs {
+			if f.Name == "f" && f.Sig != nil {
+				return rowSet(f.Sig.Uses.String()), codes, src
+			}
+		}
+		t.Fatalf("no f in\n%s", numbered(src))
+		return "", nil, ""
+	}
+	for _, sig := range []string{" needs Console", " needs Console | Greeter", " needs Greeter"} {
+		inRow, inCodes, _ := check1(sig, bodies[0])
+		locRow, locCodes, src := check1(sig, bodies[1])
+		if inRow != locRow || strings.Join(inCodes, " ") != strings.Join(locCodes, " ") {
+			t.Errorf("written row%s: the inline literal gives %q %v, the local %q %v\n%s", sig, inRow, inCodes, locRow, locCodes, numbered(src))
+		}
+	}
+	inRow, inCodes, src := check1("", bodies[0])
+	if inRow != "Console" || len(inCodes) != 0 {
+		t.Errorf("inferred row: the inline literal gives %q %v, want Console and no diagnostic\n%s", inRow, inCodes, numbered(src))
+	}
+	_, diags := check.CheckSource(prelude + "func f() string {\n" + bodies[1] + "}\n")
+	if have := strings.Join(got(diags), " "); have != "S102@18" || diags[0].Column != 7 {
+		t.Errorf("inferred row: the local gives %v, want S102@18 at the operand w\n\t%s", have, describe(diags))
+	}
+}
