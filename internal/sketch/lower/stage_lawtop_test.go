@@ -102,12 +102,16 @@ func TestTopLevelLawNamesAbsent(t *testing.T) {
 		}
 		for law, n := range decls {
 			word := regexp.MustCompile(`\b` + regexp.QuoteMeta(law) + `\b`)
-			if len(word.FindAllStringIndex(src, -1)) != n {
-				continue // the name is also another declaration's or a use's
+			if len(word.FindAllStringIndex(src, -1)) != n || len(law) < 5 {
+				// The name is also another declaration's or a use's, or
+				// too short to grep for inside a Go identifier.
+				continue
 			}
 			checked++
 			for _, b := range []*lowered{run, test} {
-				if word.MatchString(b.mainGo()) {
+				// Inside an identifier too: a Go name such as ergoLawX
+				// made from the law's name.
+				if strings.Contains(b.mainGo(), law) {
 					t.Errorf("%s: the Go of %s names the law %s", tc.Name, b.name, law)
 				}
 			}
@@ -116,6 +120,7 @@ func TestTopLevelLawNamesAbsent(t *testing.T) {
 	if checked < 10 {
 		t.Fatalf("%d law names grepped for; want 10 or more", checked)
 	}
+	t.Logf("%d law names grepped for in both builds", checked)
 }
 
 // TestErgoRunTopLevelLaw: spec A5. A program with top-level laws, tests and
