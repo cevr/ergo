@@ -122,6 +122,19 @@
 // the reason: no entry, the shape rule that fails, a raw parameter, or a
 // key with no source.
 //
+// A handle key gives the trampoline only the key's fields, so one key must
+// name one live registration, and Bind fails closed where it cannot: a
+// function with two positions of one handle-keyed typedef is raw-only (one
+// key would serve both); a registered handle-keyed typedef with more than
+// one function that registers it (takes it, its key's source and its
+// owner) is raw, with all those functions (the key does not say which
+// registration C's invocation is for); and a call-scoped handle-keyed
+// callback binds only in a function that takes a handle with thread
+// owner, so two calls on one key overlap only by nesting, which the
+// restore of the replaced entry handles (two threads would share one
+// entry). A `void *` token key has none of these limits: each call or
+// registration gets its own token.
+//
 // In Go (emitcb.go), a bound typedef is an exported func type: scalars,
 // values (a copy) and in_buffers (a slice of C memory, valid only during
 // the call, as io.Writer's "must not retain p") are its parameters; the C

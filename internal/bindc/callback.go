@@ -233,7 +233,8 @@ func (k *classifier) classifyCallback(d *TypeDecl, r *CallbackRule) ([]Position,
 
 // buildCallbacks gives every callback typedef of the model its
 // BoundCallback, after Bind has checked the entries and the exceptions.
-func (k *classifier) buildCallbacks(b *Binding) {
+// skipped names the functions the contract skips.
+func (k *classifier) buildCallbacks(b *Binding, skipped map[string]bool) {
 	for i := range k.m.Types {
 		d := &k.m.Types[i]
 		if d.Kind != DeclCallback {
@@ -251,6 +252,9 @@ func (k *classifier) buildCallbacks(b *Binding) {
 			bc.Positions, why = k.classifyCallback(d, bc.Rule)
 			if why != "" {
 				bc.RawOnly = d.Name + " has a raw position: " + why
+			} else if rs := k.registrars(d, bc.Rule, skipped); !bc.Token && bc.Rule.Scope == ScopeRegistered && len(rs) > 1 {
+				bc.RawOnly = fmt.Sprintf("%s has a handle key and %d functions that register it (%s): "+
+					"C's invocation gives only the key, so one registry entry would serve two registrations", d.Name, len(rs), strings.Join(rs, ", "))
 			}
 		}
 		if bc.Bound() {
@@ -259,6 +263,28 @@ func (k *classifier) buildCallbacks(b *Binding) {
 		k.cbs[d.Name] = bc
 		b.Callbacks = append(b.Callbacks, bc)
 	}
+}
+
+// registrars are the functions that could register the callback typedef d
+// with entry r typed: each function, not skipped, that takes d and has its
+// key's source and (when registered) its owner, in model order. A function
+// that is raw-only for another position still counts (fail closed).
+func (k *classifier) registrars(d *TypeDecl, r *CallbackRule, skipped map[string]bool) []string {
+	var out []string
+	for i := range k.m.Functions {
+		f := &k.m.Functions[i]
+		if skipped[f.Name] || !takesType(f, d.Name) {
+			continue
+		}
+		if _, why := k.keySource(d, r, f); why != "" {
+			continue
+		}
+		if r.Scope == ScopeRegistered && !k.takesHandle(f, r.Owner) {
+			continue
+		}
+		out = append(out, f.Name)
+	}
+	return out
 }
 
 // boundCallbacks is the number of bound callback typedefs of b so far.
@@ -361,7 +387,26 @@ func (k *classifier) callbackParam(f *Function, i int) string {
 	if bc.Rule.Scope == ScopeRegistered && !k.takesHandle(f, bc.Rule.Owner) {
 		return fmt.Sprintf("registered %s needs its owner, a `%s *`, as a parameter", bc.Decl.Name, bc.Rule.Owner)
 	}
+	if bc.Rule.Scope == ScopeCall && !bc.Token && !k.takesOwnerThreadHandle(f) {
+		return fmt.Sprintf("call-scoped %s has a handle key, so it needs a parameter `H *` of a handle with thread owner: "+
+			"calls with one key on two threads would share one registry entry (a `void *` token key has no such limit)", bc.Decl.Name)
+	}
 	return ""
+}
+
+// takesOwnerThreadHandle reports whether f has a `H *` parameter of a
+// contract handle H whose thread is owner. Calls of f are then confined
+// to that handle's owner thread, so two calls with one key overlap only
+// when one nests inside a callback of the other.
+func (k *classifier) takesOwnerThreadHandle(f *Function) bool {
+	for _, p := range f.Params {
+		if t := p.Type; t.Kind == TypePointer && t.LenExpr == "" && t.Elem.Kind == TypeNamed {
+			if h := k.handles[t.Elem.Name]; h != nil && h.Thread == "owner" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // takesHandle reports whether f has a `H *` parameter.

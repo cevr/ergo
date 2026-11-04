@@ -639,8 +639,9 @@ func (k *classifier) checkException(f *Function, i int, e *Exception) string {
 // out_buffer that names it, and no by-value parameter or result holds a
 // pointer. It returns the reason f is raw-only, or "".
 func (k *classifier) coherent(f *Function, pos []Position, byParam map[int]int) string {
-	used := map[int]int{}   // length or capacity param -> buffer param
-	tokens := map[int]int{} // token key param -> callback param
+	used := map[int]int{}       // length or capacity param -> buffer param
+	tokens := map[int]int{}     // token key param -> callback param
+	handles := map[string]int{} // handle-keyed callback typedef -> callback param
 	for _, q := range pos {
 		if q.Class != ClassCallback {
 			continue
@@ -650,7 +651,17 @@ func (k *classifier) coherent(f *Function, pos []Position, byParam map[int]int) 
 				return fmt.Sprintf("%s: its key %s also serves %s", positionName(f, q.Param), positionName(f, j), positionName(f, c))
 			}
 			tokens[j] = q.Param
+			continue
 		}
+		// A handle key: one typedef's registry holds one Go function per
+		// key, so two positions of one typedef would share one entry.
+		bc := k.cbs[f.Params[q.Param].Type.Name]
+		if c, ok := handles[bc.Decl.Name]; ok {
+			j, _ := k.keySource(bc.Decl, bc.Rule, f)
+			return fmt.Sprintf("%s: its handle key %s also serves %s, so one registry entry would serve both",
+				positionName(f, q.Param), positionName(f, j), positionName(f, c))
+		}
+		handles[bc.Decl.Name] = q.Param
 	}
 	for _, q := range pos {
 		if _, ok := tokens[q.Param]; q.Class == ClassKey && !ok {

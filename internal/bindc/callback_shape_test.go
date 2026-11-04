@@ -310,7 +310,9 @@ func (sb spBatch) files() (header string, c *Contract, csrc string) {
 		fmt.Fprintf(&h, "typedef %s(*%s)(%s);\n", sh.cResult(), name, strings.Join(sh.cParams(), ", "))
 		src := "void *user_data"
 		if sh.handle {
-			src = "const g_node *node"
+			// A call-scoped handle key binds only with an owner-thread
+			// handle (g_h): calls on one key then nest, never overlap.
+			src = "g_h *h, const g_node *node"
 		}
 		for _, fn := range []string{"call", "miss"} {
 			fmt.Fprintf(&h, "g_status g_%s%d(%s, %s cb);\n", fn, sh.n, src, name)
@@ -462,7 +464,7 @@ func (sh spShape) goDriver(pkg string) string {
 	}
 	keyArg := ""
 	if sh.handle {
-		keyArg = fmt.Sprintf("%s.GNode{ContextId: %d, Slot: %d, Generation: %d}, ", pkg, 1000+sh.n, sh.n%7, 1+sh.n%5)
+		keyArg = fmt.Sprintf("h, %s.GNode{ContextId: %d, Slot: %d, Generation: %d}, ", pkg, 1000+sh.n, sh.n%7, 1+sh.n%5)
 	}
 	id := fmt.Sprintf("%s.%d", pkg, sh.n)
 	var checks, rets, zeros []string
@@ -595,9 +597,11 @@ func TestLiveCallbackShapeProperty(t *testing.T) {
 		}
 		libs = append(libs, lib)
 		fmt.Fprintf(&d, "\tif err := %s.Load(os.Args[%d]); err != nil {\n\t\tfail(\"Load %s: %%v\", err)\n\t}\n", sb.pkg(), i+1, sb.pkg())
+		fmt.Fprintf(&d, "\t{\n\th, err := %s.GCreate()\n\tif err != nil {\n\t\tfail(\"GCreate %s: %%v\", err)\n\t}\n\t_ = h\n", sb.pkg(), sb.pkg())
 		for _, sh := range sb.shapes {
 			d.WriteString(sh.goDriver(sb.pkg()))
 		}
+		d.WriteString("\t}\n")
 	}
 	d.WriteString("}\n")
 	e.write(filepath.Join(e.mod, "driver", "main.go"), []byte(d.String()))

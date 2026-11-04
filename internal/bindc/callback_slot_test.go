@@ -37,9 +37,9 @@ func cbVariety(i int) (decls string, entry CallbackRule, exc []Exception) {
 		fmt.Fprintf(&w, "typedef bool (*%s)(void *user_data, double x);\n", name)
 		fmt.Fprintf(&w, "g_status g_reg%d(g_h *h, void *user_data, %s cb);\n", i, name)
 		entry.Scope, entry.Owner, entry.Default = ScopeRegistered, "g_h", []byte("false")
-	case 4: // call, handle key, a pointer result, a value and an out
+	case 4: // call, handle key (with an owner-thread handle), a pointer result, a value and an out
 		fmt.Fprintf(&w, "typedef void *(*%s)(uint64_t context_id, uint32_t slot, uint32_t generation, const g_pt *pt, int32_t *out_n);\n", name)
-		fmt.Fprintf(&w, "g_status g_reg%d(const g_node *node, %s cb);\n", i, name)
+		fmt.Fprintf(&w, "g_status g_reg%d(g_h *h, const g_node *node, %s cb);\n", i, name)
 		entry.Key, entry.Default = handle, []byte("0")
 	case 5: // registered, handle key, a registering function without a status
 		fmt.Fprintf(&w, "typedef int8_t (*%s)(uint64_t context_id, uint32_t slot, uint32_t generation, int16_t a, uint64_t b);\n", name)

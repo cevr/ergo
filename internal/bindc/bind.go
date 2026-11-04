@@ -333,7 +333,7 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 			b.GoTypes[d.Name] = goCamel(strings.TrimPrefix(d.Name, c.Prefixes.Type))
 		}
 	}
-	k.buildCallbacks(b)
+	k.buildCallbacks(b, skipped)
 	if err := b.checkSlotBound(); err != nil {
 		return nil, err
 	}

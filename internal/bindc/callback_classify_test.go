@@ -155,13 +155,47 @@ func (e *tCbEnv) token(d TypeDecl, r CallbackRule) bool {
 	return false
 }
 
+// ownerThread: f has a `H *` parameter of a contract handle H whose thread
+// is owner.
+func (e *tCbEnv) ownerThread(f *Function) bool {
+	for _, p := range f.Params {
+		if p.Type.Kind == TypePointer && p.Type.Elem.Kind == TypeNamed {
+			if h, ok := e.handles[p.Type.Elem.Name]; ok && h.Thread == "owner" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// registrars counts the functions that could register d typed: they take
+// d, have its key's source and (when registered) its owner.
+func (e *tCbEnv) registrars(d TypeDecl, r CallbackRule, funcs []Function) int {
+	n := 0
+	for i := range funcs {
+		f := &funcs[i]
+		takes := false
+		for _, p := range f.Params {
+			takes = takes || p.Type.Kind == TypeNamed && p.Type.Name == d.Name
+		}
+		if takes && e.source(d, r, f) && (r.Scope == ScopeCall || e.takes(f, r.Owner)) {
+			n++
+		}
+	}
+	return n
+}
+
 // expectFunc classifies the pointer positions of f by the table (the rules
 // of tRules, the callback rule and the token rule), and says whether f is
-// typed; bound says which callback typedefs are bound.
-func (e *tCbEnv) expectFunc(f *Function, bound map[string]bool) ([]Class, bool) {
-	var out []Class
+// typed; bound says which callback typedefs are bound. A call-scoped
+// callback with a handle key needs an owner-thread handle parameter (two
+// threads with one key would share one entry), and a handle-keyed typedef
+// serves one position of f (two would share one entry); why says which of
+// these made f raw.
+func (e *tCbEnv) expectFunc(f *Function, bound map[string]bool) (out []Class, typed bool, why string) {
 	tokens := map[string]int{}
-	typed := true
+	handleKeyed := map[string]int{}
+	typed = true
 	for i, p := range f.Params {
 		if !e.pointerPos(p.Type) {
 			continue
@@ -171,9 +205,15 @@ func (e *tCbEnv) expectFunc(f *Function, bound map[string]bool) ([]Class, bool) 
 			d := e.types[p.Type.Name]
 			r, has := e.entries[d.Name]
 			if has && bound[d.Name] && e.source(d, r, f) && (r.Scope == ScopeCall || e.takes(f, r.Owner)) {
-				hits = append(hits, ClassCallback)
-				if e.token(d, r) {
-					tokens[r.Key.Source]++
+				if r.Scope == ScopeCall && !e.token(d, r) && !e.ownerThread(f) {
+					why = "call handle without owner thread"
+				} else {
+					hits = append(hits, ClassCallback)
+					if e.token(d, r) {
+						tokens[r.Key.Source]++
+					} else {
+						handleKeyed[d.Name]++
+					}
 				}
 			}
 		} else {
@@ -206,7 +246,12 @@ func (e *tCbEnv) expectFunc(f *Function, bound map[string]bool) ([]Class, bool) 
 			typed = false // one token serves two callbacks
 		}
 	}
-	return out, typed
+	for _, n := range handleKeyed {
+		if n > 1 && typed {
+			typed, why = false, "two handle positions" // one handle key serves two callbacks
+		}
+	}
+	return out, typed, why
 }
 
 func (e *tCbEnv) takes(f *Function, h string) bool {
@@ -259,9 +304,9 @@ func (g *cbGen) typedef(n int) {
 	used := map[string]bool{}
 	var ps []string
 	// Most typedefs start with a key group, so that they can have an entry.
-	if k := g.r.IntN(4); k < 2 {
+	if k := g.r.IntN(5); k < 2 {
 		ps, used["user_data"] = []string{cbGroups[0][0]}, true
-	} else if k == 2 {
+	} else if k < 4 {
 		ps = slices.Clone(cbGroups[1])
 		used["context_id"], used["generation"] = true, true
 	}
@@ -299,7 +344,20 @@ func (g *cbGen) typedef(n int) {
 		fmt.Fprintf(&g.src, "g_status g_reg%d(g_h *h, void *user_data, %s cb);\n", n, name)
 	case used["context_id"]:
 		entry = &CallbackRule{Key: KeyRule{Params: []string{"context_id", "slot", "generation"}, Source: "node"}}
-		fmt.Fprintf(&g.src, "g_status g_reg%d(g_h *h, const g_node *node, %s cb);\n", n, name)
+		// The registering functions of a handle key: one, one that takes
+		// two positions (one key for both), two (one key for two
+		// registrations), or one without the owner-thread handle.
+		switch g.r.IntN(6) {
+		case 0:
+			fmt.Fprintf(&g.src, "g_status g_reg%d(g_h *h, const g_node *node, %s cb);\n", n, name)
+		case 1, 4:
+			fmt.Fprintf(&g.src, "g_status g_reg%d(g_h *h, const g_node *node, %s a, %s b);\n", n, name, name)
+		case 2, 5:
+			fmt.Fprintf(&g.src, "g_status g_reg%d(g_h *h, const g_node *node, %s cb);\n", n, name)
+			fmt.Fprintf(&g.src, "g_status g_set%d(g_h *h, const g_node *node, %s cb);\n", n, name)
+		case 3:
+			fmt.Fprintf(&g.src, "g_status g_reg%d(const g_node *node, %s cb);\n", n, name)
+		}
 	default:
 		return
 	}
@@ -342,8 +400,15 @@ func (g *cbGen) function(n, cbs int) {
 			ps = append(ps, p)
 		}
 	}
-	for i := 0; i < 1+g.r.IntN(2); i++ {
-		ps = append(ps, fmt.Sprintf("g_cb%d cb%d", g.r.IntN(cbs), i))
+	first := g.r.IntN(cbs)
+	ps = append(ps, fmt.Sprintf("g_cb%d cb0", first))
+	if g.r.IntN(2) == 0 {
+		// Often two positions of one typedef: one key source serves both.
+		second := g.r.IntN(cbs)
+		if g.r.IntN(2) == 0 {
+			second = first
+		}
+		ps = append(ps, fmt.Sprintf("g_cb%d cb1", second))
 	}
 	g.r.Shuffle(len(ps), func(i, j int) { ps[i], ps[j] = ps[j], ps[i] })
 	fmt.Fprintf(&g.src, "g_status g_f%d(%s);\n", n, strings.Join(ps, ", "))
@@ -375,6 +440,11 @@ func TestCallbackClassificationTotality(t *testing.T) {
 				g.c.Buffers.ByteLengthNames = append(g.c.Buffers.ByteLengthNames, l)
 			}
 		}
+		// Sometimes g_h is not confined to an owner thread: then no function
+		// can bind a call-scoped callback with a handle key.
+		if g.r.IntN(4) == 0 {
+			g.c.Handles[0].Thread = "any"
+		}
 		cbs := 1 + g.r.IntN(4)
 		for i := 0; i < cbs; i++ {
 			g.typedef(i)
@@ -384,7 +454,7 @@ func TestCallbackClassificationTotality(t *testing.T) {
 		}
 		src := g.src.String()
 		c := cbContract(src)
-		c.Buffers, c.Callbacks, c.Exceptions = g.c.Buffers, g.c.Callbacks, g.c.Exceptions
+		c.Buffers, c.Callbacks, c.Exceptions, c.Handles = g.c.Buffers, g.c.Callbacks, g.c.Exceptions, g.c.Handles
 		b, err := cbBind(t, src, c)
 		fail := func(format string, args ...any) {
 			t.Helper()
@@ -451,6 +521,16 @@ func TestCallbackClassificationTotality(t *testing.T) {
 					stats["callback by "+w.why]++
 				}
 			}
+			// A registered callback with a handle key and two functions
+			// that register it: the key does not say which one C's
+			// invocation comes from.
+			if r := e.entries[d.Name]; ok && r.Scope == ScopeRegistered && !e.token(d, r) && e.registrars(d, r, b.Model.Functions) > 1 {
+				ok = false
+				stats["callback two registrars"]++
+				if !strings.Contains(bc.RawOnly, "functions that register it") {
+					fail("%s: two functions register it with a handle key, but the reason is %q", d.Name, bc.RawOnly)
+				}
+			}
 			if bc.Bound() != ok {
 				fail("%s: bound %v (%s), the table says %v", d.Name, bc.Bound(), bc.RawOnly, ok)
 			}
@@ -462,7 +542,20 @@ func TestCallbackClassificationTotality(t *testing.T) {
 			}
 		}
 		for _, bf := range b.Funcs {
-			want, typed := e.expectFunc(bf.C, bound)
+			want, typed, why := e.expectFunc(bf.C, bound)
+			switch why {
+			case "call handle without owner thread":
+				if !strings.Contains(bf.RawOnly, "needs a parameter `H *` of a handle with thread owner") {
+					fail("%s: a call-scoped handle key without an owner-thread handle, but the reason is %q", bf.C.Name, bf.RawOnly)
+				}
+			case "two handle positions":
+				if !strings.Contains(bf.RawOnly, "its handle key") || !strings.Contains(bf.RawOnly, "also serves") {
+					fail("%s: one handle key serves two positions, but the reason is %q", bf.C.Name, bf.RawOnly)
+				}
+			}
+			if why != "" {
+				stats["function "+why]++
+			}
 			if len(bf.Positions) != len(want) {
 				fail("%s: %d positions, the table has %d", bf.C.Name, len(bf.Positions), len(want))
 			}
@@ -488,7 +581,8 @@ func TestCallbackClassificationTotality(t *testing.T) {
 		for _, k := range []string{"callback by two", "callback by none", "callback by exception", "callback class key",
 			"callback class scalar", "callback class length", "callback class in_buffer", "callback class value",
 			"callback class out", "callback class out_array", "bound", "raw callback", "function class callback",
-			"function class key", "typed with a callback"} {
+			"function class key", "typed with a callback", "callback two registrars",
+			"function call handle without owner thread", "function two handle positions"} {
 			if stats[k] < *propCases/20 {
 				t.Errorf("the generator makes %d of %q in %d cases; want at least %d", stats[k], k, *propCases, *propCases/20)
 			}
