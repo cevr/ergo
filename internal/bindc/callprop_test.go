@@ -21,7 +21,9 @@ import (
 // Go driver of the typed layer; the C library computes what it receives,
 // and the driver compares it with what the test computed from what it
 // sent. callGenM1 checks by-value structs (M1 of wave 1c): every leaf of
-// every argument and of a result crosses purego with its value. callGenM2
+// every argument and of a result crosses purego with its value, through
+// the typed function and through a direct call of the raw function of
+// every bound function, raw-only ones included (round 3). callGenM2
 // checks autofill (M2 of wave 1c): C validates struct_size and abi_version
 // of every struct it receives, directly, nested, in arrays, through a
 // const pointer, a buffer, an output buffer and an out-parameter.
@@ -92,6 +94,9 @@ func (t *pType) goType(pkg string) string {
 	case t.elem != nil:
 		return "[" + strconv.Itoa(t.n) + "]" + t.elem.goType(pkg)
 	case t.st != nil:
+		if pkg == "" {
+			return goCamel(strings.TrimPrefix(t.st.c, "g_"))
+		}
 		return pkg + "." + goCamel(strings.TrimPrefix(t.st.c, "g_"))
 	}
 	return goScalar[t.scalar]
@@ -202,17 +207,60 @@ type callCase struct {
 	header, csrc string
 	c            *Contract
 	contract     []byte
-	// driverHead and the calls of the typed functions (typedSet) make the
+	// driverHead and the calls of the typed functions (driverSet) make the
 	// driver.
 	driverHead, driver string
 	calls              []callSnippet
-	// typed is the number of typed functions the driver calls.
-	typed int
-	stats map[string]int
+	// raws are the direct calls of raw functions (callGenM1); driverSet
+	// makes rawSrc, a file of the generated package with the calls of the
+	// bound ones, and the driver calls it.
+	raws   []rawFn
+	rawSrc string
+	// typed and raw are the numbers of typed and raw calls the driver makes.
+	typed, raw int
+	stats      map[string]int
 }
 
 // callSnippet is the driver's call of one function.
 type callSnippet struct{ name, code string }
+
+// rawFn is a direct call of the raw function of a C function: its
+// arguments, and the Go literal of the result C computes from them.
+type rawFn struct {
+	name string
+	args []rawArg
+	res  *pType // a struct result, or nil
+	want string
+}
+
+// rawArg is one argument of a raw call: a value of type t whose Go literal
+// in package gen is lit, or a nil pointer.
+type rawArg struct {
+	t   *pType
+	lit string
+	ptr bool
+}
+
+// rawCode is the call of fn in package gen: a struct crosses in its call
+// form, as the typed layer passes it.
+func rawCode(b *Binding, fn rawFn) string {
+	var args []string
+	for _, a := range fn.args {
+		switch {
+		case a.ptr:
+			args = append(args, "nil")
+		case a.t.st != nil:
+			args = append(args, "toABI["+b.k.form(a.t.st.c).GoName()+"]("+a.lit+")")
+		default:
+			args = append(args, a.lit)
+		}
+	}
+	call := rawName(fn.name) + "(" + strings.Join(args, ", ") + ")"
+	if fn.res != nil {
+		call = "fromABI[" + fn.res.goType("") + "](" + call + ")"
+	}
+	return fmt.Sprintf("\t{\n\t\tgot := %s\n\t\twant := %s\n\t\tcheck(%q, got == want, got, want, nil)\n\t}\n", call, fn.want, "raw "+fn.name)
+}
 
 const callDriverTail = "\tif bad > 0 {\n\t\tos.Exit(1)\n\t}\n}\n"
 
@@ -266,9 +314,10 @@ func (cc *callCase) finish(t *testing.T, c *Contract) {
 	cc.contract = data
 }
 
-// bind parses and binds the case. A function whose call needs more stack
-// than purego holds makes Bind refuse the header; the contract then skips
-// it, as its author would.
+// bind parses and binds the case. A function whose call plan purego cannot
+// make as C does on every target makes Bind refuse the header, one line
+// per function ("function NAME: reason; skip it in the contract"); the
+// contract then skips it, as its author would.
 func (cc *callCase) bind(t *testing.T) *Binding {
 	t.Helper()
 	m, err := Parse("gen.h", []byte(cc.header))
@@ -276,12 +325,20 @@ func (cc *callCase) bind(t *testing.T) *Binding {
 		t.Fatalf("the generated header does not parse: %v\n%s", err, cc.header)
 	}
 	b, err := Bind(m, []byte(cc.header), cc.contract)
-	if err != nil && strings.Contains(err.Error(), puregoStackRemedy) {
+	if refused := callPlanRefusals(err); len(refused) > 0 {
 		for _, f := range m.Functions {
-			if strings.Contains(err.Error(), f.Name+": purego v0.11.3 passes at most") {
-				cc.c.Skips = append(cc.c.Skips, Skip{Name: f.Name, Why: "generated: purego cannot register it"})
-				cc.stats["skipped for the stack"]++
+			name := f.Name
+			why, ok := refused[name]
+			if !ok {
+				continue
 			}
+			cc.c.Skips = append(cc.c.Skips, Skip{Name: name, Why: "generated: purego cannot call it as C does"})
+			if strings.Contains(why, "purego v0.11.3 passes at most") {
+				cc.stats["skipped for the stack"]++
+			} else {
+				cc.stats["skipped for the call form"]++
+			}
+			cc.stats["skipped "+name]++
 		}
 		cc.finish(t, cc.c)
 		b, err = Bind(m, []byte(cc.header), cc.contract)
@@ -311,6 +368,18 @@ func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 	d.WriteString("\tcheck := func(name string, ok bool, got, want any, err error) {\n\t\tif ok && err == nil {\n\t\t\tfmt.Println(\"ok:\", name)\n\t\t\treturn\n\t\t}\n\t\tbad++\n\t\tfmt.Printf(\"bad: %s: got %#v, want %#v, error %v\\n\", name, got, want, err)\n\t}\n")
 	cc.calls = append(cc.calls, callSnippet{"g_padded_value",
 		"\t{\n\t\tgot, err := gen.PaddedValue(gen.Padded{Tag: 3, Value: 0x12345678})\n\t\tcheck(\"g_padded_value\", got == 0x12345678, got, uint32(0x12345678), err)\n\t}\n"})
+	padded := &pType{st: &pStruct{c: "g_padded", fields: []pField{{c: "tag", t: &pType{scalar: Uint8}}, {c: "value", t: &pType{scalar: Uint32}}}}}
+	cc.raws = append(cc.raws, rawFn{name: "g_padded_value", args: []rawArg{{t: padded, lit: "Padded{Tag: 3, Value: 0x12345678}"}}, want: "uint32(0x12345678)"})
+	// The verifier's trigger of round 2 (M1, a repeat): a mixed float and
+	// integer struct has no call form purego passes as C does on both
+	// architectures, so Bind refuses the function, raw-only or not; a raw
+	// function registered with the words form returned the bits of 1.5.
+	h.WriteString("typedef struct { double x; uint64_t y; } g_mixed;\nuint64_t g_mixed_value(g_mixed value);\n\n")
+	c.WriteString("uint64_t g_mixed_value(g_mixed value) { return value.y; }\n\n")
+	mixed := &pType{st: &pStruct{c: "g_mixed", fields: []pField{{c: "x", t: &pType{scalar: Float64}}, {c: "y", t: &pType{scalar: Uint64}}}}}
+	cc.calls = append(cc.calls, callSnippet{"g_mixed_value",
+		"\t{\n\t\tgot, err := gen.MixedValue(gen.Mixed{X: 1.5, Y: 7})\n\t\tcheck(\"g_mixed_value\", got == 7, got, uint64(7), err)\n\t}\n"})
+	cc.raws = append(cc.raws, rawFn{name: "g_mixed_value", args: []rawArg{{t: mixed, lit: "Mixed{X: 1.5, Y: 7}"}}, want: "uint64(7)"})
 
 	// Structs.
 	var structs []*pStruct
@@ -368,6 +437,15 @@ func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 		var cBody strings.Builder
 		hash := uint64(14695981039346656037)
 		cBody.WriteString("    uint64_t h = UINT64_C(14695981039346656037);\n")
+		raw := rawFn{name: name}
+		// A function with a void *ctx (no rule covers it) is raw-only: its
+		// raw function is still registered and called.
+		ctx := r.IntN(4) == 0
+		if ctx {
+			params = append(params, "void *ctx")
+			raw.args = append(raw.args, rawArg{ptr: true})
+			cBody.WriteString("    (void)ctx;\n")
+		}
 		for pi, np := 0, 1+r.IntN(16); pi < np; pi++ {
 			pn := "p" + strconv.Itoa(pi)
 			var pt *pType
@@ -380,6 +458,8 @@ func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 			ls := value(pt)
 			k := 0
 			args = append(args, pt.goLit("gen", ls, &k))
+			k = 0
+			raw.args = append(raw.args, rawArg{t: pt, lit: pt.goLit("", ls, &k)})
 			for _, l := range ls {
 				l.path = pn + l.path
 				cBody.WriteString("    h = mix(h, " + cLeafU64(l) + ");\n")
@@ -401,6 +481,7 @@ func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 		if rt == nil {
 			c.WriteString("    return h;\n}\n\n")
 			want = "uint64(" + strconv.FormatUint(hash, 10) + ")"
+			raw.want = want
 		} else {
 			var ls []leafVal
 			rt.leafPaths("", &ls)
@@ -415,9 +496,14 @@ func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 			c.WriteString("    return r;\n}\n\n")
 			k := 0
 			want = rt.goLit("gen", ls, &k)
+			k = 0
+			raw.res, raw.want = rt, rt.goLit("", ls, &k)
 		}
-		cc.calls = append(cc.calls, callSnippet{name, fmt.Sprintf("\t{\n\t\tgot, err := gen.%s(%s)\n\t\twant := %s\n\t\tcheck(%q, got == want, got, want, err)\n\t}\n",
-			goCamel(strings.TrimPrefix(name, "g_")), strings.Join(args, ", "), want, name)})
+		cc.raws = append(cc.raws, raw)
+		if !ctx {
+			cc.calls = append(cc.calls, callSnippet{name, fmt.Sprintf("\t{\n\t\tgot, err := gen.%s(%s)\n\t\twant := %s\n\t\tcheck(%q, got == want, got, want, err)\n\t}\n",
+				goCamel(strings.TrimPrefix(name, "g_")), strings.Join(args, ", "), want, name)})
+		}
 	}
 	h.WriteString("\n#endif\n")
 	cc.header = h.String()
@@ -427,22 +513,23 @@ func callGenM1(t *testing.T, seed uint64, nFuncs int) *callCase {
 	return cc
 }
 
-// typedSet makes the driver from the calls of the typed functions of the
-// binding (a raw-only function has no typed function to call), and counts
-// the shapes the typed functions cover.
-func (cc *callCase) typedSet(t *testing.T, b *Binding) {
+// driverSet makes the driver from the calls of the typed functions of the
+// binding (a raw-only function has no typed function to call) and the
+// direct calls of every bound function's raw function, and counts the
+// shapes the calls cover. Every function of the header is bound or skipped
+// by the contract for its call plan.
+func (cc *callCase) driverSet(t *testing.T, b *Binding) {
 	t.Helper()
 	k := b.k
-	typed := map[string]bool{}
+	typed, bound := map[string]bool{}, map[string]bool{}
 	for _, f := range b.Funcs {
+		bound[f.C.Name] = true
 		if f.RawOnly != "" {
-			if !strings.Contains(f.RawOnly, "by-value struct") {
-				t.Fatalf("%s is raw-only for a reason other than its call form: %s", f.C.Name, f.RawOnly)
-			}
-			cc.stats["refused"]++
-			continue
+			// Its raw function is called below, whatever the reason.
+			cc.stats["raw-only"]++
+		} else {
+			typed[f.C.Name] = true
 		}
-		typed[f.C.Name] = true
 		ints, floats := 0, 0
 		for _, p := range f.C.Params {
 			if k.isByValueStruct(p.Type) {
@@ -480,12 +567,40 @@ func (cc *callCase) typedSet(t *testing.T, b *Binding) {
 			cc.stats["struct result "+map[abiKind]string{abiWords: "words", abiHFA: "hfa"}[k.form(f.C.Result.Name).Kind]]++
 		}
 	}
-	cc.driver, cc.typed = cc.driverHead, 0
+	skipped := map[string]bool{}
+	for _, s := range b.Contract.Skips {
+		skipped[s.Name] = true
+	}
+	for _, s := range cc.calls {
+		if !bound[s.name] && !skipped[s.name] {
+			t.Fatalf("%s is neither bound nor skipped", s.name)
+		}
+	}
+	cc.driver, cc.typed, cc.raw = cc.driverHead, 0, 0
 	for _, s := range cc.calls {
 		if typed[s.name] {
 			cc.driver += s.code
 			cc.typed++
 		}
+	}
+	cc.rawSrc = ""
+	if len(cc.raws) > 0 {
+		var w strings.Builder
+		w.WriteString("package " + b.Contract.Go.Package + "\n\n// RawCalls calls the raw function of every bound function of the property.\n")
+		w.WriteString("func RawCalls(check func(name string, ok bool, got, want any, err error)) {\n")
+		for _, fn := range cc.raws {
+			if !bound[fn.name] {
+				continue
+			}
+			w.WriteString(rawCode(b, fn))
+			cc.raw++
+			if !typed[fn.name] {
+				cc.stats["raw-only call"]++
+			}
+		}
+		w.WriteString("}\n")
+		cc.rawSrc = w.String()
+		cc.driver += "\tgen.RawCalls(check)\n"
 	}
 	cc.driver += callDriverTail
 }
@@ -598,22 +713,31 @@ g_status g_options_take(g_options options);
 }
 
 // TestCallPropertyTypechecks: the Go packages of the generated call
-// properties type-check on amd64 and arm64 (with the purego stub). The
-// gate runs it; TestLiveByValueProperty and TestLiveAutofillProperty run
-// the same packages against C.
+// properties, with their direct raw calls, type-check on amd64 and arm64
+// (with the purego stub), and Bind refuses the verifier's g_mixed_value.
+// The gate runs it; TestLiveByValueProperty and TestLiveAutofillProperty
+// run the same packages against C.
 func TestCallPropertyTypechecks(t *testing.T) {
 	std := importer.ForCompiler(gotoken.NewFileSet(), "source", nil)
 	n := max(1, *propCases/250)
 	for i := 0; i < n; i++ {
 		seed := *propSeed + uint64(i)
-		for _, cc := range []*callCase{callGenM1(t, seed, 30), callGenM2(t, seed)} {
+		for gi, cc := range []*callCase{callGenM1(t, seed, 30), callGenM2(t, seed)} {
 			b := cc.bind(t)
+			cc.driverSet(t, b)
+			if gi == 0 && cc.stats["skipped g_mixed_value"] != 1 {
+				t.Fatalf("seed %d: Bind did not refuse g_mixed_value (a mixed float and integer struct by value)", seed)
+			}
 			name, src, err := GoPackage(b)
 			if err != nil {
 				t.Fatalf("seed %d: GoPackage: %v", seed, err)
 			}
+			files := map[string][]byte{name: src}
+			if cc.rawSrc != "" {
+				files["rawcalls.go"] = []byte(cc.rawSrc)
+			}
 			for _, arch := range []string{"amd64", "arm64"} {
-				if err := checkGoPackage(t, std, b.Contract.Go.ImportPath, arch, map[string][]byte{name: src}); err != nil {
+				if err := checkGoPackage(t, std, b.Contract.Go.ImportPath, arch, files); err != nil {
 					t.Fatalf("seed %d: the generated package does not type-check on %s:\n%v\n%s", seed, arch, err, cc.header)
 				}
 			}
@@ -624,8 +748,10 @@ func TestCallPropertyTypechecks(t *testing.T) {
 
 // TestLiveByValueProperty (ERGO_BINDC_LIVE=1; cc and the network): for
 // generated by-value structs and functions (callGenM1), every typed call
-// through the real purego v0.11.3 gives the value C computes from the
-// fields it received, and every struct result has the fields C set.
+// and every direct call of a bound function's raw function (raw-only ones
+// included) through the real purego v0.11.3 gives the value C computes
+// from the fields it received, and every struct result has the fields C
+// set. A function Bind refuses for its call plan is skipped and not called.
 func TestLiveByValueProperty(t *testing.T) {
 	if os.Getenv("ERGO_BINDC_LIVE") != "1" {
 		t.Skip("set ERGO_BINDC_LIVE=1 to call generated C libraries through the real purego")
@@ -634,15 +760,17 @@ func TestLiveByValueProperty(t *testing.T) {
 	for i := 0; i < max(1, *propCases/500); i++ {
 		seed := *propSeed + uint64(i)
 		cc := callGenM1(t, seed, 40)
-		cc.typedSet(t, cc.bind(t))
+		cc.driverSet(t, cc.bind(t))
 		runCallCase(t, cc)
 		for k, v := range cc.stats {
-			stats[k] += v
+			if !strings.HasPrefix(k, "skipped g_") {
+				stats[k] += v
+			}
 		}
 	}
 	t.Logf("by-value property: %v", stats)
 	for _, k := range []string{"struct argument words", "struct argument hfa", "padded struct argument", "struct argument in memory",
-		"registers run out", "struct result words", "struct result hfa", "refused", "skipped for the stack"} {
+		"registers run out", "struct result words", "struct result hfa", "raw-only", "raw-only call", "skipped for the call form", "skipped for the stack"} {
 		if stats[k] == 0 {
 			t.Errorf("the generator made no case of %q", k)
 		}
@@ -660,16 +788,17 @@ func TestLiveAutofillProperty(t *testing.T) {
 		seed := *propSeed + uint64(i)
 		cc := callGenM2(t, seed)
 		b := cc.bind(t)
-		cc.typedSet(t, b)
-		if cc.typed+cc.stats["skipped for the stack"] != len(cc.calls) {
+		cc.driverSet(t, b)
+		skips := cc.stats["skipped for the stack"] + cc.stats["skipped for the call form"]
+		if cc.typed+skips != len(cc.calls) {
 			var raw []string
 			for _, f := range b.Funcs {
 				if f.RawOnly != "" {
 					raw = append(raw, f.C.Name+": "+f.RawOnly)
 				}
 			}
-			t.Fatalf("seed %d: %d of %d calls are typed, want every form typed but those skipped for the stack (%d); raw-only:\n%s\n%s",
-				seed, cc.typed, len(cc.calls), cc.stats["skipped for the stack"], strings.Join(raw, "\n"), cc.header)
+			t.Fatalf("seed %d: %d of %d calls are typed, want every form typed but those skipped (%d); raw-only:\n%s\n%s",
+				seed, cc.typed, len(cc.calls), skips, strings.Join(raw, "\n"), cc.header)
 		}
 		runCallCase(t, cc)
 	}
@@ -677,7 +806,7 @@ func TestLiveAutofillProperty(t *testing.T) {
 
 // runCallCase builds the case's C library and its Go package with the real
 // purego v0.11.3 (vet on linux and darwin, amd64 and arm64), runs the
-// driver and requires one "ok" line per typed call.
+// driver and requires one "ok" line per typed call and per raw call.
 func runCallCase(t *testing.T, cc *callCase) {
 	t.Helper()
 	cc0 := requireCC(t)
@@ -700,6 +829,9 @@ func runCallCase(t *testing.T, cc *callCase) {
 	write("mod/go.mod", []byte("module ergo.local/bind\n\ngo 1.25.0\n\nrequire github.com/ebitengine/purego v0.11.3\n"))
 	write("mod/go.sum", readInput(t, "testdata/purego.sum"))
 	write("mod/gen/"+name, src)
+	if cc.rawSrc != "" {
+		write("mod/gen/rawcalls.go", []byte(cc.rawSrc))
+	}
 	write("mod/driver/main.go", []byte(cc.driver))
 	write("c/gen.h", []byte(cc.header))
 	write("c/gen.c", []byte(cc.csrc))
@@ -733,7 +865,7 @@ func runCallCase(t *testing.T, cc *callCase) {
 	must(run("mod", nil, goTool, "build", "-o", filepath.Join(root, "driver-bin"), "./driver"))
 	out, err := run("", nil, filepath.Join(root, "driver-bin"), lib)
 	oks := strings.Count(out, "ok: ")
-	if err != nil || oks != cc.typed {
-		t.Fatalf("the driver: %v; %d ok lines, want %d\n%s\nheader:\n%s", err, oks, cc.typed, out, cc.header)
+	if err != nil || oks != cc.typed+cc.raw {
+		t.Fatalf("the driver: %v; %d ok lines, want %d (typed %d, raw %d)\n%s\nheader:\n%s", err, oks, cc.typed+cc.raw, cc.typed, cc.raw, out, cc.header)
 	}
 }

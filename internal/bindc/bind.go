@@ -282,7 +282,7 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 			b.GoTypes[d.Name] = goCamel(strings.TrimPrefix(d.Name, c.Prefixes.Type))
 		}
 	}
-	var stackErrs []string // calls purego cannot register (abi.go)
+	var planErrs []string // calls purego cannot make as C does (abi.go)
 	destroys := map[string]*HandleRule{}
 	for i := range c.Handles {
 		destroys[c.Handles[i].Destroy] = &c.Handles[i]
@@ -294,16 +294,15 @@ func Bind(m *Model, header, contract []byte) (*Binding, error) {
 		}
 		bf := &BoundFunc{C: f, GoName: goCamel(strings.TrimPrefix(f.Name, c.Prefixes.Function)), Destroys: destroys[f.Name]}
 		bf.Positions, bf.RawOnly = k.classify(f)
-		if bf.RawOnly == "" {
-			bf.RawOnly = b.callFormReason(f)
-		}
-		if r := b.puregoStack(f); r != "" {
-			stackErrs = append(stackErrs, r)
+		// Every bound function has a raw function that Load registers, so
+		// its call plan is checked whether or not it is typed.
+		if r := b.callPlan(f); r != "" {
+			planErrs = append(planErrs, fmt.Sprintf("function %s: %s; %s", f.Name, r, callPlanRemedy))
 		}
 		b.Funcs = append(b.Funcs, bf)
 	}
-	if len(stackErrs) > 0 {
-		return nil, contractError(stackErrs)
+	if len(planErrs) > 0 {
+		return nil, contractError(planErrs)
 	}
 	if err := b.checkNames(); err != nil {
 		return nil, err

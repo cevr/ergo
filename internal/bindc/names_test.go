@@ -419,6 +419,14 @@ func TestGoNameProperty(t *testing.T) {
 		h, ct := fixtureVariant(t, extra.String(), rename)
 		b, err := bindVariant(t, h, ct)
 		if err != nil {
+			// A function whose by-value struct does not fit the registers
+			// left is refused for its call plan; the contract skips it.
+			if ct2, skipped := skipCallPlans(t, err, ct); len(skipped) > 0 {
+				stats["skipped for the call plan"]++
+				b, err = bindVariant(t, h, ct2)
+			}
+		}
+		if err != nil {
 			if !strings.Contains(err.Error(), "Go name") {
 				t.Fatalf("seed %d: Bind refuses for a reason other than a name: %v\n%s", seed, err, extra.String())
 			}

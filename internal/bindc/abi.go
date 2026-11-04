@@ -36,21 +36,23 @@ import (
 // A struct of up to 16 bytes with an eightbyte of only floating-point
 // fields that is not an HFA ({float a, b; uint32_t c}, {double d;
 // uint64_t x}, {float f; double d}) has no single form: amd64 passes that
-// eightbyte in an SSE register, arm64 in a general one. Its functions are
-// raw-only; its raw layer uses the words form (right on arm64 only), so
-// that purego counts its arguments as for any other struct.
+// eightbyte in an SSE register, arm64 in a general one.
 //
 // purego's RegisterFunc panics ("too many stack arguments") when a call
-// needs more stack than its argument block holds. Load registers every
-// function, so Bind refuses a header with such a function (puregoStack);
-// the contract skips it.
+// needs more stack than its argument block holds (puregoStack).
 //
 // purego also splits a struct between the last free registers and the
 // stack, which no calling convention does, and its darwin arm64 stack
 // packing is defined for scalars. So a by-value struct argument must fit
 // in the registers left at its place on both architectures, and on arm64
-// no argument before it may be on the stack; else the function is
-// raw-only. Scalars after the last struct may spill to the stack.
+// no argument before it may be on the stack (structPlan). Scalars after
+// the last struct may spill to the stack.
+//
+// The raw layer registers every bound function at Load, so a call plan is
+// valid on every target the package's build constraint selects, or Bind
+// refuses the header (callPlan): no function, raw-only or typed, is
+// emitted with a call purego would make wrongly or not at all. The
+// contract skips such a function to bind the rest of the header.
 
 // abiKind is the kind of a call form.
 type abiKind int
@@ -226,9 +228,22 @@ const (
 	arm64IntRegs, arm64FloatRegs = 8, 8
 )
 
-// callFormReason is the reason a function with a by-value struct argument
-// or result has no typed form, or "".
-func (b *Binding) callFormReason(f *Function) string {
+// callPlanRemedy ends the error of a function whose call plan is invalid.
+const callPlanRemedy = "skip it in the contract"
+
+// callPlan is the reason purego v0.11.3 cannot call f as C does on every
+// target of the package's build constraint (linux and darwin, amd64 and
+// arm64), or "". Bind refuses a header with such a function.
+func (b *Binding) callPlan(f *Function) string {
+	if r := b.structPlan(f); r != "" {
+		return r
+	}
+	return b.puregoStack(f)
+}
+
+// structPlan is the reason a by-value struct argument or result of f has
+// no call form purego passes as C does on every target, or "".
+func (b *Binding) structPlan(f *Function) string {
 	k := b.k
 	has := k.isByValueStruct(f.Result)
 	for _, p := range f.Params {
@@ -320,11 +335,10 @@ func (b *Binding) callFormReason(f *Function) string {
 // (func.go: maxArgs minus the integer registers, in words; on darwin
 // arm64, estimateStackBytes against the same words as bytes).
 const (
-	puregoMaxArgs     = 32
-	amd64StackWords   = puregoMaxArgs - amd64IntRegs
-	arm64StackWords   = puregoMaxArgs - arm64IntRegs
-	darwinStackBytes  = 8 * arm64StackWords
-	puregoStackRemedy = "skip it in the contract"
+	puregoMaxArgs    = 32
+	amd64StackWords  = puregoMaxArgs - amd64IntRegs
+	arm64StackWords  = puregoMaxArgs - arm64IntRegs
+	darwinStackBytes = 8 * arm64StackWords
 )
 
 // puregoStack is the reason purego's RegisterFunc would panic on the raw
@@ -374,7 +388,7 @@ func (b *Binding) puregoStack(f *Function) string {
 		stack++
 	}
 	if stack > amd64StackWords {
-		return fmt.Sprintf("%s: purego v0.11.3 passes at most %d stack words on amd64, and this call needs %d; %s", f.Name, amd64StackWords, stack, puregoStackRemedy)
+		return fmt.Sprintf("purego v0.11.3 passes at most %d stack words on amd64, and this call needs %d", amd64StackWords, stack)
 	}
 	// arm64.
 	ints, floats, stack = 0, 0, 0
@@ -395,7 +409,7 @@ func (b *Binding) puregoStack(f *Function) string {
 		}
 	}
 	if stack > arm64StackWords {
-		return fmt.Sprintf("%s: purego v0.11.3 passes at most %d stack words on arm64, and this call needs %d; %s", f.Name, arm64StackWords, stack, puregoStackRemedy)
+		return fmt.Sprintf("purego v0.11.3 passes at most %d stack words on arm64, and this call needs %d", arm64StackWords, stack)
 	}
 	// darwin arm64.
 	ints, floats, bytes := 0, 0, int64(0)
@@ -410,7 +424,7 @@ func (b *Binding) puregoStack(f *Function) string {
 		}
 	}
 	if bytes = (bytes + 7) &^ 7; bytes > darwinStackBytes {
-		return fmt.Sprintf("%s: purego v0.11.3 passes at most %d stack bytes on darwin arm64, and this call needs %d; %s", f.Name, darwinStackBytes, bytes, puregoStackRemedy)
+		return fmt.Sprintf("purego v0.11.3 passes at most %d stack bytes on darwin arm64, and this call needs %d", darwinStackBytes, bytes)
 	}
 	return ""
 }

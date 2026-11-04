@@ -117,11 +117,13 @@
 // (abi.go): N flat floats for an HFA, else uint64 words, which purego
 // marshals as the C calling convention passes the struct on every tier-1
 // target. purego does not pad a Go struct and guesses register classes,
-// so the Go struct itself would lose fields. A function is raw-only when a
-// struct has no single form (an eightbyte of only floats that is not an
-// HFA) or does not fit the registers left at its place; Bind refuses a
-// header with a call that needs more stack than purego registers, and the
-// contract skips that function.
+// so the Go struct itself would lose fields. Load registers the raw
+// function of every bound function, typed or raw-only, so Bind refuses a
+// header with a function whose call purego cannot make as C does on all
+// four targets: a struct with no single form (an eightbyte of only floats
+// that is not an HFA), a struct that does not fit the registers left at
+// its place, or a call that needs more stack than purego registers. The
+// error names the function and the reason; the contract skips it.
 //
 // Every Go name comes from one allocator per scope (names.go): the
 // package, each typed function's parameters and locals, and each struct's
