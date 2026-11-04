@@ -777,6 +777,12 @@ func TestReadOnlyStateSequences(t *testing.T) {
 	inLog := map[string]bool{}
 	for _, e := range logged {
 		inLog[e.op+" "+e.path] = true
+		// The observer's walk at access time and the sweep's replay of it
+		// agree (no lookup missing, every line has a walk), and no process
+		// outside the tree changed a looked-up location during the run.
+		if strings.HasPrefix(e.op, opUnidentified) || strings.HasPrefix(e.op, opRaced) {
+			t.Errorf("the run's log has %v", e)
+		}
 	}
 	results, err := readResults(stem + ".out")
 	if err != nil {

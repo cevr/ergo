@@ -238,7 +238,7 @@ func TestClassificationFollowsReachedObjects(t *testing.T) {
 					inside = false
 				}
 			}
-			entries, err := readLog([]byte("# test log\n"+op+" "+raw+"\n"), l.pwd, []string{l.root}, "")
+			entries, err := readLog([]byte("# test log\n"+op+" "+raw+"\n"), l.pwd, []string{l.root}, "", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -343,7 +343,7 @@ func TestLostWalksFailClosed(t *testing.T) {
 		{"open " + filepath.Join(l.base, "ext", "into-own") + "/own.txt", l.base, false, "into the root from scratch, once"},
 		{"open " + filepath.Join(l.pwd, "testdata", "outabs") + "/../../internal/a/testdata/own.txt", l.base, false, "an absolute link through the root's ancestors into docs, then up, staying in the root"},
 	} {
-		entries, err := readLog([]byte("# test log\n"+tc.log+"\n"), l.pwd, []string{l.root}, tc.scratch)
+		entries, err := readLog([]byte("# test log\n"+tc.log+"\n"), l.pwd, []string{l.root}, tc.scratch, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

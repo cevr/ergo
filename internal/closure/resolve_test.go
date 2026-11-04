@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"ergo.local/prototype/internal/testinputs"
 )
 
 // The operations of an entry. A test log records open, stat and chdir; the
@@ -28,7 +30,29 @@ const (
 	// raw rest of the path after the place the walk stopped, so only a
 	// declared entry that names it exactly covers it.
 	opLost = "unresolved "
+	// opChanged prefixes the operation of an access whose lookup met an
+	// object that is not there after the run (testinputs identity mode).
+	// Its path is the object the access reached at access time, which only a
+	// declared entry that names it exactly covers.
+	opChanged = "changed "
+	// opRaced prefixes the operation of an access whose lookup met a
+	// location that changed during the run, after the lookup (the observer's
+	// watch). The kernel's lookup of the call may then have met another
+	// object than the observer's, so no declared entry covers it. A change
+	// in the checkout that no access looked up is such an entry too.
+	opRaced = "changed during "
+	// opUnidentified prefixes the operation of a recorded path that has no
+	// access-time identity, whose walk after the run reaches the checkout.
+	// Only a declared entry that names it exactly covers it.
+	opUnidentified = "unidentified "
 )
+
+// failsClosed reports whether an entry's operation says the check cannot
+// tell what the access reached, or that it changed, so only an exact
+// declared file entry covers it.
+func failsClosed(op string) bool {
+	return strings.HasPrefix(op, opLost) || strings.HasPrefix(op, opChanged) || strings.HasPrefix(op, opRaced) || strings.HasPrefix(op, opUnidentified)
+}
 
 // maxLinks is the number of links the kernel follows in one lookup before
 // it reports a loop (Linux's MAXSYMLINKS).
@@ -47,6 +71,9 @@ type resolver struct {
 	// roots are the checkout's link-free locations; ancestors are the
 	// directories above them, which a walk may pass on its way back in.
 	roots, ancestors []string
+	// look finds what is at a location: on the file system now
+	// (testinputs.Look), or in a walk recorded at access time (replay).
+	look func(at string) testinputs.Visit
 }
 
 // lookup is what an lstat of one absolute, link-free path found.
@@ -54,6 +81,23 @@ type lookup struct {
 	mode   fs.FileMode
 	target string // the link's target, for a link
 	err    error
+}
+
+// lookupOf is the lookup a visit describes.
+func lookupOf(v testinputs.Visit) lookup {
+	switch v.Kind {
+	case testinputs.KindAbsent:
+		return lookup{err: fs.ErrNotExist}
+	case testinputs.KindError:
+		return lookup{err: errors.New(v.Err)}
+	case testinputs.KindLink:
+		return lookup{mode: fs.ModeSymlink, target: v.Target}
+	case testinputs.KindDir:
+		return lookup{mode: fs.ModeDir}
+	case testinputs.KindFile:
+		return lookup{}
+	}
+	return lookup{mode: fs.ModeIrregular}
 }
 
 // walk is what resolving one path found.
@@ -78,7 +122,7 @@ type walk struct {
 // newResolver returns a resolver for the checkout at roots (link-free); a
 // resolver with no root never loses a walk for leaving one.
 func newResolver(roots ...string) *resolver {
-	r := &resolver{lookups: map[string]lookup{}, roots: roots}
+	r := &resolver{lookups: map[string]lookup{}, roots: roots, look: testinputs.Look}
 	for _, root := range roots {
 		for a := filepath.Dir(root); ; a = filepath.Dir(a) {
 			if !slices.Contains(r.ancestors, a) {
@@ -106,17 +150,7 @@ func (r *resolver) lstat(name string) lookup {
 	if l, ok := r.lookups[name]; ok {
 		return l
 	}
-	var l lookup
-	info, err := os.Lstat(name)
-	switch {
-	case err != nil:
-		l.err = err
-	case info.Mode()&fs.ModeSymlink != 0:
-		l.mode = info.Mode()
-		l.target, l.err = os.Readlink(name)
-	default:
-		l.mode = info.Mode()
-	}
+	l := lookupOf(r.look(name))
 	r.lookups[name] = l
 	return l
 }
@@ -215,9 +249,54 @@ func joinRaw(at string, rest []string) string {
 }
 
 // parseLog reads a test log with the system's temporary directory as the
-// scratch area (readLog).
+// scratch area and no access-time identity (readLog): each path is
+// classified by what it names now.
 func parseLog(data []byte, pwd string, roots []string) ([]entry, error) {
-	return readLog(data, pwd, roots, os.TempDir())
+	return readLog(data, pwd, roots, os.TempDir(), nil)
+}
+
+// accessIdentity is what a run's observer saw at access time (testinputs
+// identity mode): each walk an access of a path made, by the path's key, and
+// the locations that changed after a walk looked them up, before the tree
+// exited. writable are the run's writable places (its scratch directories,
+// its own /dev/shm, a declared cgroup2 mount): the tree changes them itself,
+// and the sweep's view of them after the run is not the run's, so their
+// state after the run is not compared.
+type accessIdentity struct {
+	walks    map[string][][]testinputs.Visit
+	changed  map[string]bool
+	writable []string
+}
+
+func newAccessIdentity(id testinputs.Identity, writable []string) *accessIdentity {
+	a := &accessIdentity{walks: id.Walks, changed: map[string]bool{}, writable: writable}
+	for _, at := range id.Changed {
+		a.changed[at] = true
+	}
+	return a
+}
+
+func (a *accessIdentity) isWritable(at string) bool {
+	for _, w := range a.writable {
+		if at == w || strings.HasPrefix(at, w+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// visited reports whether some walk looked the location up.
+func (a *accessIdentity) visited(at string) bool {
+	for _, walks := range a.walks {
+		for _, visits := range walks {
+			for _, v := range visits {
+				if v.At == at {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // readLog reads a test log (cmd/go's -test.testlogfile format, with the
@@ -242,7 +321,23 @@ func parseLog(data []byte, pwd string, roots []string) ([]entry, error) {
 // A log without its final newline was left uncacheable on purpose
 // (testinputs.Main), so its inputs are unknown and readLog returns an
 // error that says why.
-func readLog(data []byte, pwd string, roots []string, scratch string) ([]entry, error) {
+//
+// With an access-time identity (id; the sweep), each path is classified by
+// the objects its accesses reached, replayed from the walks the observer
+// recorded at access time, and that classification is compared with the
+// path's walk after the run. Any difference fails closed, named by the
+// access-time objects: a location an access looked up changed during the
+// run (opRaced, which nothing covers, since the kernel's lookup may then
+// have met another object than the observer's), or is not after the run
+// what it was (outside the writable places), or the walk after the run
+// reaches something in the checkout no access reached (opChanged, which only
+// an exact declared entry covers). A path with no access-time walk whose
+// walk after the run reaches the checkout fails closed too
+// (opUnidentified), and so does a replay that needs a lookup the observer
+// did not make. A change in the checkout that no access looked up is an
+// opRaced entry of its own: the tree may have read the changed object by
+// another name, which no log line shows.
+func readLog(data []byte, pwd string, roots []string, scratch string, id *accessIdentity) ([]entry, error) {
 	const header = "# test log\n"
 	if !bytes.HasPrefix(data, []byte(header)) {
 		return nil, errors.New("no test log header; the test binary did not write a log")
@@ -278,9 +373,68 @@ func readLog(data []byte, pwd string, roots []string, scratch string) ([]entry, 
 		}
 	}
 	res := newResolver(real...)
+	if id != nil {
+		// A change in the checkout that no access looked up: the tree may
+		// have read the object by another name (a hard link made during the
+		// run), which no line shows. It fails closed as an input of its own.
+		var unseen []string
+		for at := range id.changed {
+			if rel, inside := relative(at, real); inside && !id.visited(at) {
+				unseen = append(unseen, rel)
+			}
+		}
+		slices.Sort(unseen)
+		for _, rel := range unseen {
+			add(entry{opRaced + opStat, rel})
+		}
+	}
+	// entriesOf classifies one walk of a path the log records with op.
+	entriesOf := func(w walk, op string) []entry {
+		var es []entry
+		for _, link := range w.links {
+			if rel, inside := relative(link, real); inside {
+				es = append(es, entry{opLink, rel})
+			}
+		}
+		if w.lost != "" {
+			// Fail closed: the path may have reached anything, here or
+			// in the checkout, so it is an input no closure covers unless
+			// a declared entry names it exactly.
+			if rel, inside := relative(w.stop, real); inside {
+				es = append(es, entry{opLost + op, rel + filepath.ToSlash(strings.TrimPrefix(w.reached, w.stop))})
+			} else if _, inScratch := relative(w.stop, scratches); !inScratch {
+				es = append(es, entry{opLost + op, w.reached})
+			}
+			return es
+		}
+		if w.dir && op == opOpen {
+			op = opList
+		}
+		if rel, inside := relative(w.reached, real); inside {
+			es = append(es, entry{op, rel})
+		}
+		return es
+	}
+	now := map[string]testinputs.Visit{} // each location's object after the run
+	lookNow := func(at string) testinputs.Visit {
+		v, ok := now[at]
+		if !ok {
+			v = testinputs.Look(at)
+			now[at] = v
+		}
+		return v
+	}
+	mark := func(prefix string, es []entry) {
+		for _, e := range es {
+			if !strings.HasPrefix(e.op, opLost) {
+				e.op = prefix + e.op
+			}
+			add(e)
+		}
+	}
 	body := string(data[len(header):])
 	if body == "" {
-		return nil, nil // the tests read nothing
+		return entries, nil // the tests read nothing
 	}
 	for _, line := range strings.Split(strings.TrimSuffix(body, "\n"), "\n") {
 		op, name, ok := strings.Cut(line, " ")
@@ -303,28 +457,62 @@ func readLog(data []byte, pwd string, roots []string, scratch string) ([]entry, 
 			pwd = name
 			continue
 		}
-		w := res.walk(name)
-		for _, link := range w.links {
-			if rel, inside := relative(link, real); inside {
-				add(entry{opLink, rel})
-			}
-		}
-		if w.lost != "" {
-			// Fail closed: the path may have reached anything, here or
-			// in the checkout, so it is an input no closure covers unless
-			// a declared entry names it exactly.
-			if rel, inside := relative(w.stop, real); inside {
-				add(entry{opLost + op, rel + filepath.ToSlash(strings.TrimPrefix(w.reached, w.stop))})
-			} else if _, inScratch := relative(w.stop, scratches); !inScratch {
-				add(entry{opLost + op, w.reached})
-			}
+		post := entriesOf(res.walk(name), op)
+		if id == nil {
+			mark("", post)
 			continue
 		}
-		if w.dir && op == opOpen {
-			op = opList
+		walks := id.walks[testinputs.IdentityKey(name)]
+		if len(walks) == 0 {
+			// No access of this path reached the checkout at access time.
+			mark(opUnidentified, post)
+			continue
 		}
-		if rel, inside := relative(w.reached, real); inside {
-			add(entry{op, rel})
+		var at []entry
+		changed, raced, unidentified := false, false, false
+		for _, visits := range walks {
+			recorded := map[string]testinputs.Visit{}
+			for _, v := range visits {
+				if _, ok := recorded[v.At]; !ok {
+					recorded[v.At] = v
+				}
+				switch {
+				case id.changed[v.At]:
+					raced = true
+				case !id.isWritable(v.At) && lookNow(v.At) != v:
+					changed = true
+				}
+			}
+			replay := newResolver(real...)
+			replay.look = func(at string) testinputs.Visit {
+				if v, ok := recorded[at]; ok {
+					return v
+				}
+				unidentified = true
+				return testinputs.Visit{At: at, Kind: testinputs.KindError, Err: "the observer did not look this location up"}
+			}
+			at = append(at, entriesOf(replay.walk(name), op)...)
+		}
+		if unidentified {
+			p := name
+			if rel, inside := relative(name, real); inside {
+				p = rel
+			}
+			mark(opUnidentified, []entry{{op, p}})
+			continue
+		}
+		for _, e := range post {
+			if !slices.Contains(at, e) {
+				changed = true // the path reaches after the run what no access reached
+			}
+		}
+		switch {
+		case raced:
+			mark(opRaced, at)
+		case changed:
+			mark(opChanged, at)
+		default:
+			mark("", at)
 		}
 	}
 	return entries, nil

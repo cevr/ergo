@@ -16,6 +16,7 @@ import (
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/testinputs"
 	"ergo.local/prototype/internal/testinputs/testenv"
 )
 
@@ -246,9 +247,13 @@ func (c closure) check(entries []entry, used map[string]bool) []entry {
 }
 
 func (c closure) inside(e entry, used map[string]bool) bool {
-	if strings.HasPrefix(e.op, opLost) {
-		// The walk could not tell what the path reached: only a declared
-		// file entry that names it exactly covers it.
+	if strings.HasPrefix(e.op, opRaced) {
+		return false // the access may have reached another object than the one named
+	}
+	if failsClosed(e.op) {
+		// The walk could not tell what the path reached, or what it
+		// reached changed: only a declared file entry that names it
+		// exactly covers it.
 		for _, a := range c.declared {
 			if a.grant == file && a.path == e.path {
 				used[a.key()] = true
@@ -763,33 +768,72 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 // package in a violation. The test log and the output are kept in
 // stem.log and stem.out.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
-	s, err := newScratch()
+	run, err := runObserved(protect, pkg, pkgDir, stem, extra, binary, args...)
 	if err != nil {
 		return nil, err
 	}
+	return run.entries(roots)
+}
+
+// observedRun is one run of a test binary as the sweep runs it: the test log
+// and what its observer saw at access time.
+type observedRun struct {
+	pkgDir, stem string
+	log          []byte
+	id           *accessIdentity
+}
+
+// entries classifies the run's recorded inputs inside the roots (readLog).
+func (o observedRun) entries(roots []string) ([]entry, error) {
+	entries, err := readLog(o.log, o.pkgDir, roots, os.TempDir(), o.id)
+	if err != nil {
+		return nil, fmt.Errorf("%s.log: %w (run the sweep with -count=1, so it is not observed itself)", o.stem, err)
+	}
+	return entries, nil
+}
+
+// runObserved is runTests up to the classification.
+func runObserved(protect, pkg, pkgDir, stem string, extra []string, binary string, args ...string) (observedRun, error) {
+	fail := func(err error) (observedRun, error) { return observedRun{}, err }
+	s, err := newScratch()
+	if err != nil {
+		return fail(err)
+	}
 	defer s.remove()
 	log := filepath.Join(s.log, "test.log")
+	identityFile := filepath.Join(s.log, "identity.json")
 	args = append([]string{"-test.paniconexit0", "-test.timeout=45m", "-test.testlogfile=" + log}, args...)
-	env := withEnv(sweepEnvironment(), append(append([]string{"PWD=" + pkgDir}, s.env()...), extra...)...)
+	// The observer of the test binary (testinputs.Main) records the
+	// identity of each access at access time (testinputs.IdentityVariable).
+	env := withEnv(sweepEnvironment(), append(append([]string{"PWD=" + pkgDir, testinputs.IdentityVariable + "=" + identityFile}, s.env()...), extra...)...)
 	sb := sandbox{Root: protect, Scratch: s.dirs()}
 	for _, k := range declaredKernelWrites[pkg] {
 		sb.Kernel = append(sb.Kernel, k.point)
 	}
 	if err := runProtected(sb, pkg, pkgDir, env, stem+".out", binary, args...); err != nil {
-		return nil, err
+		return fail(err)
 	}
 	data, err := os.ReadFile(log)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if err := os.WriteFile(stem+".log", data, 0o644); err != nil {
-		return nil, err
+		return fail(err)
 	}
-	entries, err := parseLog(data, pkgDir, roots)
+	id, err := testinputs.ReadIdentity(identityFile)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w (run the sweep with -count=1, so it is not observed itself)", log, err)
+		if bytes.HasSuffix(data, []byte("\n")) {
+			return fail(fmt.Errorf("%s: the run has no access-time identity of its inputs (it did not run under testinputs.Main): %w", pkg, err))
+		}
+		id = testinputs.Identity{} // the log says why it is unobserved
 	}
-	return entries, nil
+	if raw, err := os.ReadFile(identityFile); err == nil {
+		if err := os.WriteFile(stem+".identity.json", raw, 0o644); err != nil {
+			return fail(err)
+		}
+	}
+	writable := append(append([]string{"/dev/shm"}, s.dirs()...), sb.Kernel...)
+	return observedRun{pkgDir: pkgDir, stem: stem, log: data, id: newAccessIdentity(id, writable)}, nil
 }
 
 // summary groups inputs by their first two path elements, with a count and
