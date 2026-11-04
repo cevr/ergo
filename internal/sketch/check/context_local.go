@@ -88,7 +88,7 @@ func (c *checker) scanLocals(fi *fileInfo, d syntax.Node) (map[*syntax.ContextLi
 			closeTo(len(ends))
 		}
 		switch n := n.(type) {
-		case *syntax.BlockStmt, *syntax.CaseClause, *syntax.CatchArm, *syntax.CommClause:
+		case *syntax.BlockStmt, *syntax.CaseClause, *syntax.CatchArm:
 			ends = append(ends, n.End())
 		case *syntax.DeclStmt:
 			for _, spec := range n.Decl.Specs {
