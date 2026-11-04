@@ -281,7 +281,7 @@ func (l *lowerer) testRunner() string {
 		conv := l.helper("strconv")
 		// The case's report: its number, the seed and each argument as an
 		// Ergo literal of its type (literal.go), written only when it fails.
-		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of "+strconv.Itoa(testCases)+", seed "), conv + ".FormatUint(" + seed + ", 10)"}
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)"}
 		for k, v := range t.Params {
 			base := v.Name
 			if base == "_" {
