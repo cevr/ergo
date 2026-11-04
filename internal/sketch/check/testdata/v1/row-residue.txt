@@ -18,8 +18,6 @@
 
 # prose that only reads like a row: a verb or a noun before a comma, not a list of capabilities
 CHANGELOG.md	a module function that provides it, or
-NORTH_STAR.md	`needs A | B` no longer needs parentheses, because
-NORTH_STAR.md	formatting needs syntax, not
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
 docs/spec/resources.md	binds it provides it, else
@@ -39,18 +37,20 @@ internal/sketch/format/rows_test.go	needs ROW, Put()
 internal/sketch/lower/generic_test.go	func apply[A, E, R](f func(A) A fails E needs R, x A) A fails E needs R {
 
 # the old spelling, named where it is refused: grammar.md rule 9, its diagnostics entry,
-# the parser comment on the parameter case, and the README mutant and the malformed
-# fixtures that prove it refused
+# the parser comment on the parameter case, this check's own doc comment, and the README
+# mutant and the malformed fixtures that prove it refused
 docs/spec/grammar.md	so `func(func() needs A, B)` takes two parameters
 docs/spec/grammar.md	A parenthesised row, `needs (A, B)` or
 docs/spec/diagnostics.md	(`needs A, B`, `needs (A | B)`; 196n)
 internal/sketch/syntax/parser.go	`f func() needs A, B`: the entries
+internal/sketch/check/row_residue_test.go	writes `needs A, B` or
+internal/sketch/check/row_residue_test.go	// `provides A, B` is prose
 cmd/ergo/readme_smoke_test.go	"needs Accounts, Payments, Scheduler {"
 internal/sketch/sketchtest/fixtures.go	"let f = func() needs (A, B) {
 internal/sketch/sketchtest/fixtures.go	"func f() needs (A, B) {}
 
 # old-syntax translator input: internal/migrate196 reads the old comma rows and writes them with |
-internal/migrate196/translate_test.go	wire Live provides Orders, Clock needs Config
+internal/migrate196/translate_test.go	Live provides Orders, Clock needs Config
 internal/migrate196/translate_test.go	func f(g func() needs (Orders, Clock)) needs Orders, Clock {
 
 # vendored upstream prose (foldkit), not Ergo
