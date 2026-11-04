@@ -138,15 +138,20 @@ var (
 		// helpers, the token counter and the trampolines' C pointers.
 		"cbMu": true, "cbNext": true, "cbPtr": true, "cbFuncs": true, "cbEntry": true, "cbMake": true, "cbNew": true,
 		"cbToken": true, "cbPut": true, "cbUndo": true, "cbDrop": true, "cbDropOwner": true,
+		// The panic containment, the thread id and the Owner (emitthread.go).
+		"cbPendMu": true, "cbPendN": true, "cbPendOn": true, "cbContain": true, "cbPending": true, "cbPendingHere": true,
+		"cbTake": true, "cbTakeHere": true, "cbThread": true, "ownerJob": true, "ownerServe": true, "ownerRun": true,
 		"strconv": true, "atomic": true, "sync": true, "errors": true, "fmt": true, "runtime": true, "unsafe": true, "purego": true,
+		"os": true, "debug": true, "syscall": true,
 	}
 	// goExported are the exported package-level names that come from no
 	// declaration of the header.
 	goExported = []string{"Status", "Load", "ABIMismatchError", "ErrNotLoaded", "ErrDestroyed", "ErrTooLong",
-		"LiveCallbacks", "CallbackSlotsError"}
-	// goLocals are the locals of a typed function's body and of a
-	// trampoline (_e, the registry entry).
-	goLocals = map[string]bool{"err": true, "_r": true, "_e": true}
+		"LiveCallbacks", "CallbackSlotsError", "CallbackPanic", "Owner", "NewOwner", "ErrOwnerClosed", "ErrOwnerThread"}
+	// goLocals are the locals of a typed function's body (_p, the pending
+	// panic) and of a trampoline (_e, the registry entry; _ok, the Go
+	// function returned).
+	goLocals = map[string]bool{"err": true, "_r": true, "_e": true, "_p": true, "_ok": true}
 	// goMethods are the methods the emitter gives a struct of the header.
 	goMethods = map[string]bool{"fill": true}
 	// goPredeclared are Go's predeclared identifiers.

@@ -277,6 +277,7 @@ fx_status fx_context_write(fx_context *c, const uint8_t *text, uint32_t text_byt
         uint32_t span = text_bytes - done < max_bytes ? text_bytes - done : max_bytes;
         int64_t took;
         INVOKE(c, took = writer(user_data, text + done, span));
+        c->counters.write_results += took;
         if (took < 0 || took > (int64_t)span) {
             *out_written = done;
             return FX_INVALID_ARGUMENT;
@@ -299,6 +300,7 @@ fx_status fx_context_repeat(fx_context *c, uint32_t times, int64_t *out_taken, v
     for (uint32_t i = 0; i < times; i++) {
         int64_t took;
         INVOKE(c, took = writer(user_data, &x, 1));
+        c->counters.write_results += took;
         sum += took;
     }
     *out_taken = sum;
@@ -310,6 +312,7 @@ fx_status fx_context_repeat(fx_context *c, uint32_t times, int64_t *out_taken, v
 static fx_point call_measure(fx_context *c, uint32_t i, fx_measure_callback m, float width, float height) {
     float size[2] = {NAN, NAN};
     INVOKE(c, m(c->id, i, c->slots[i].generation, width, 1, height, 1, size));
+    if (isnan(size[0]) && isnan(size[1])) c->counters.unwritten++;
     fx_point p = {size[0], size[1]};
     return p;
 }
@@ -349,6 +352,7 @@ fx_status fx_node_measure_as(fx_context *c, const fx_node *node, const fx_node *
     if (as == NULL || out_size == NULL || s->measure == NULL) return FX_INVALID_ARGUMENT;
     float size[2] = {NAN, NAN};
     INVOKE(c, s->measure(as->context_id, as->slot, as->generation, 0, 1, 0, 1, size));
+    if (isnan(size[0]) && isnan(size[1])) c->counters.unwritten++;
     out_size->x = size[0];
     out_size->y = size[1];
     return FX_OK;

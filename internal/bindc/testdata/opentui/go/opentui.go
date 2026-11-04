@@ -13,10 +13,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ebitengine/purego"
+	"os"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"unsafe"
 )
 
@@ -4717,32 +4720,280 @@ func LiveCallbacks() int {
 	return len(cbMap0) + len(cbMap1)
 }
 
+// CallbackPanic is a panic of the Go function of a callback that C
+// called. The trampoline recovers it before it can unwind C frames, gives C
+// the callback's default and keeps it pending on the OS thread of the
+// invocation; while it is pending, no Go code runs for an invocation on
+// that thread. The typed call that made the C call panics with it after C
+// returns: in the outermost typed call, or in a typed call inside an outer
+// callback, whose trampoline keeps it (it does not wrap it again).
+type CallbackPanic struct {
+	// Typedef is the C callback typedef.
+	Typedef string
+	// Value is the value the Go function panicked with.
+	Value any
+	// Stack is the stack of the panic (runtime/debug.Stack).
+	Stack []byte
+}
+
+func (p *CallbackPanic) Error() string {
+	return fmt.Sprintf("opentui: panic in the callback %s: %v", p.Typedef, p.Value)
+}
+
+// Unwrap is the panic value when it is an error, else nil.
+func (p *CallbackPanic) Unwrap() error {
+	err, _ := p.Value.(error)
+	return err
+}
+
+// The pending panics, by OS thread (cbThread), under cbPendMu. cbPendN
+// counts them, so a thread pays one atomic load when none is pending.
+var (
+	cbPendMu sync.Mutex
+	cbPendN  atomic.Int32
+	cbPendOn = map[uintptr]*CallbackPanic{}
+)
+
+// cbContain is the deferred call of a trampoline: done is true when the Go
+// function returned. Else it recovers the panic and keeps it pending on
+// this thread. When there is none to recover, the Go function called
+// runtime.Goexit, which cannot be stopped: cbContain ends the process with
+// exit status 2 before a C frame unwinds. (With GODEBUG=panicnil=1, a
+// panic(nil) recovers as nil and ends the process too.)
+func cbContain(typedef string, done *bool) {
+	if *done {
+		return
+	}
+	v := recover()
+	if v == nil {
+		os.Stderr.WriteString("opentui: runtime.Goexit in the callback " + typedef + " would unwind C frames; exit status 2\n")
+		os.Exit(2)
+	}
+	p, ok := v.(*CallbackPanic)
+	if !ok {
+		p = &CallbackPanic{Typedef: typedef, Value: v, Stack: debug.Stack()}
+	}
+	t := cbThread()
+	cbPendMu.Lock()
+	if _, had := cbPendOn[t]; !had {
+		cbPendOn[t] = p
+		cbPendN.Add(1)
+	}
+	cbPendMu.Unlock()
+}
+
+// cbPending reports whether a panic is pending on this thread.
+func cbPending() bool {
+	return cbPendN.Load() != 0 && cbPendingHere()
+}
+
+func cbPendingHere() bool {
+	t := cbThread()
+	cbPendMu.Lock()
+	_, had := cbPendOn[t]
+	cbPendMu.Unlock()
+	return had
+}
+
+// cbTake removes the panic pending on this thread and returns it, or nil.
+func cbTake() *CallbackPanic {
+	if cbPendN.Load() == 0 {
+		return nil
+	}
+	return cbTakeHere()
+}
+
+func cbTakeHere() *CallbackPanic {
+	t := cbThread()
+	cbPendMu.Lock()
+	p, had := cbPendOn[t]
+	if had {
+		delete(cbPendOn, t)
+		cbPendN.Add(-1)
+	}
+	cbPendMu.Unlock()
+	return p
+}
+
 // cbTramp0 is the trampoline of ot_scene_measure_callback: it runs the Go function of its
-// key (context_id, slot, generation) in cbMap0. With none, or with a NULL pointer where C
-// must pass one, no Go code runs, no out position is written and C gets no result.
+// key (context_id, slot, generation) in cbMap0. With none, with a NULL pointer where C
+// must pass one, or with a panic pending on this thread, no Go code runs,
+// no out position is written and C gets no result.
+// A panic of the Go function gives C the same, and stays pending on this
+// thread (cbContain) until the typed call that made the C call takes it.
 func cbTramp0(_a0 uint64, _a1 uint32, _a2 uint32, _a3 float32, _a4 uint32, _a5 float32, _a6 uint32, _a7 unsafe.Pointer) {
+	if cbPending() {
+		return
+	}
 	cbMu.RLock()
 	_e := cbMap0[cbKey0{_a0, _a1, _a2}]
 	cbMu.RUnlock()
 	if _e.fn == nil || _a7 == nil {
 		return
 	}
+	_ok := false
+	defer cbContain("ot_scene_measure_callback", &_ok)
 	_v0 := _e.fn(_a3, _a4, _a5, _a6)
 	*(*[2]float32)(_a7) = _v0
+	_ok = true
 }
 
 // cbTramp1 is the trampoline of ot_output_write_callback: it runs the Go function of its
-// key (user_data) in cbMap1. With none, or with a NULL pointer where C
-// must pass one, no Go code runs, no out position is written and C gets -1.
-func cbTramp1(_a0 uintptr, _a1 unsafe.Pointer, _a2 uint32) int64 {
+// key (user_data) in cbMap1. With none, with a NULL pointer where C
+// must pass one, or with a panic pending on this thread, no Go code runs,
+// no out position is written and C gets -1.
+// A panic of the Go function gives C the same, and stays pending on this
+// thread (cbContain) until the typed call that made the C call takes it.
+func cbTramp1(_a0 uintptr, _a1 unsafe.Pointer, _a2 uint32) (_r int64) {
+	if cbPending() {
+		return -1
+	}
 	cbMu.RLock()
 	_e := cbMap1[_a0]
 	cbMu.RUnlock()
 	if _e.fn == nil || _a1 == nil && _a2 != 0 {
 		return -1
 	}
+	_r = -1
+	_ok := false
+	defer cbContain("ot_output_write_callback", &_ok)
 	_v0 := _e.fn(unsafe.Slice((*byte)(_a1), _a2))
+	_ok = true
 	return _v0
+}
+
+// cbThread is the id of the calling OS thread: gettid on linux, the
+// thread_selfid system call on darwin (pthread_threadid_np reads the same
+// id). A goroutine keeps its thread while it is locked with
+// runtime.LockOSThread.
+func cbThread() uintptr {
+	trap := uintptr(syscall.SYS_GETTID)
+	if runtime.GOOS == "darwin" {
+		trap = 372 // SYS_thread_selfid
+	}
+	t, _, _ := syscall.RawSyscall(trap, 0, 0, 0)
+	return t
+}
+
+var (
+	// ErrOwnerClosed is the error of Do after Close: the function did not run.
+	ErrOwnerClosed = errors.New("opentui: the owner is closed")
+	// ErrOwnerThread is the error of Close on the owner thread: Close waits
+	// for the runner, which would wait on itself. Close then does nothing.
+	ErrOwnerThread = errors.New("opentui: Close on the owner thread")
+)
+
+// Owner runs functions on one OS thread, for the handles whose thread is
+// owner (ot_context): C lets only the thread that created such a handle use
+// it. Its runner is one goroutine locked to that thread with
+// runtime.LockOSThread and never unlocked, so the thread ends with it.
+type Owner struct {
+	// mu: Do reads closed and hands its job over under the read lock; Close
+	// sets closed and closes jobs under the lock.
+	mu      sync.RWMutex
+	closed  bool
+	jobs    chan *ownerJob
+	stopped chan struct{}
+	thread  uintptr
+}
+
+// ownerJob is one Do from another goroutine: its function, and the value
+// it panicked with.
+type ownerJob struct {
+	fn       func()
+	done     chan struct{}
+	panicked bool
+	value    any
+}
+
+// NewOwner starts the runner of an Owner and returns when its thread is
+// known.
+func NewOwner() *Owner {
+	o := &Owner{jobs: make(chan *ownerJob), stopped: make(chan struct{})}
+	ready := make(chan uintptr)
+	go ownerServe(o, ready)
+	o.thread = <-ready
+	return o
+}
+
+// ownerServe is the runner: it runs each job it receives, until Close
+// closes jobs, and then it stops.
+func ownerServe(o *Owner, ready chan<- uintptr) {
+	runtime.LockOSThread() // never unlocked: the thread ends with the runner
+	ready <- cbThread()
+	for j := range o.jobs {
+		j.value, j.panicked = ownerRun(j.fn)
+		close(j.done)
+	}
+	close(o.stopped)
+}
+
+// ownerRun runs fn and returns the value it panicked with. A
+// runtime.Goexit in fn would stop the runner and strand every later Do, and
+// it cannot be stopped, so ownerRun ends the process with exit status 2.
+func ownerRun(fn func()) (v any, panicked bool) {
+	done := false
+	defer func() {
+		if done {
+			return
+		}
+		if v = recover(); v == nil {
+			os.Stderr.WriteString("opentui: runtime.Goexit in a function of Owner.Do would stop the owner thread; exit status 2\n")
+			os.Exit(2)
+		}
+		panicked = true
+	}()
+	fn()
+	done = true
+	return nil, false
+}
+
+// Do runs fn on the owner thread and waits for it to return. On the owner
+// thread (in a function that Do runs, or in a callback that C calls inside
+// one) Do runs fn inline. A panic in fn panics again in the caller of Do,
+// and the runner keeps serving. After Close, Do returns ErrOwnerClosed and
+// fn does not run.
+func (o *Owner) Do(fn func()) error {
+	if cbThread() == o.thread {
+		fn()
+		return nil
+	}
+	j := &ownerJob{fn: fn, done: make(chan struct{})}
+	o.mu.RLock()
+	if o.closed {
+		o.mu.RUnlock()
+		return ErrOwnerClosed
+	}
+	o.jobs <- j
+	o.mu.RUnlock()
+	<-j.done
+	if j.panicked {
+		panic(j.value)
+	}
+	return nil
+}
+
+// Close stops the runner. The functions that Do handed over before Close
+// run; a later Do returns ErrOwnerClosed; Close returns after the runner
+// goroutine stopped. A second Close waits for the same and returns
+// ErrOwnerClosed. On the owner thread Close returns ErrOwnerThread and does
+// nothing.
+func (o *Owner) Close() error {
+	if cbThread() == o.thread {
+		return ErrOwnerThread
+	}
+	o.mu.Lock()
+	first := !o.closed
+	if first {
+		o.closed = true
+		close(o.jobs)
+	}
+	o.mu.Unlock()
+	<-o.stopped
+	if !first {
+		return ErrOwnerClosed
+	}
+	return nil
 }
 
 // The raw layer: the exact C shape of every function, with a struct by
@@ -5018,11 +5269,20 @@ func SceneSetHooks(context *Context, node Handle, sceneHooks SceneHooks) error {
 		return ErrDestroyed
 	}
 	sceneHooks.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_hooks(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneHooks))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneHooks)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5044,7 +5304,10 @@ func SceneFrameStepWithGeometry(context *Context, session Handle, previous Scene
 	_o6.fill()
 	var _o7 SceneFrameGeometry
 	_o7.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_frame_step_with_geometry(context.p, unsafe.Pointer(&session), unsafe.Pointer(&previous), unsafe.Pointer(&sceneFrameOptions), sliceData(recording), uint32(len(recording)), unsafe.Pointer(&_o6), unsafe.Pointer(&_o7))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&previous)
 	runtime.KeepAlive(&sceneFrameOptions)
@@ -5052,7 +5315,13 @@ func SceneFrameStepWithGeometry(context *Context, session Handle, previous Scene
 	runtime.KeepAlive(&_o6)
 	runtime.KeepAlive(&_o7)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneFrameRequest{}, SceneFrameGeometry{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o6, _o7, nil
 }
@@ -5074,13 +5343,22 @@ func SceneFrameGetPaintSlots(context *Context, session Handle, recordRequest Sce
 		outSlots[_i0].fill()
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_frame_get_paint_slots(context.p, unsafe.Pointer(&session), unsafe.Pointer(&recordRequest), sliceData(outSlots), uint32(len(outSlots)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&recordRequest)
 	runtime.KeepAlive(outSlots)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -5093,10 +5371,19 @@ func SceneFrameCancel(context *Context, session Handle, frameId uint64) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_frame_cancel(context.p, unsafe.Pointer(&session), frameId)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5110,11 +5397,20 @@ func SceneCreateNode(context *Context, session Handle, kind uint32, num uint32) 
 		return Handle{}, ErrDestroyed
 	}
 	var _o4 Handle
+	runtime.LockOSThread()
 	_r := c_ot_scene_create_node(context.p, unsafe.Pointer(&session), kind, num, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -5127,12 +5423,21 @@ func SceneDestroyNode(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_destroy_node(context.p, unsafe.Pointer(&node))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
 	}
 	cbDrop(cbMap0, cbKey0{node.ContextId, node.Slot, node.Generation})
+	if _p != nil {
+		panic(_p)
+	}
 	return nil
 }
 
@@ -5144,11 +5449,20 @@ func SceneMoveNode(context *Context, node Handle, parent Handle, index uint32) e
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_move_node(context.p, unsafe.Pointer(&node), unsafe.Pointer(&parent), index)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&parent)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5171,16 +5485,25 @@ func SceneSetMeasure(context *Context, node Handle, sceneMeasureCallback SceneMe
 		_c2 = cbPtr[0]
 		_s2, _h2 = cbPut(cbMap0, _k2, cbEntry[SceneMeasureCallback]{fn: sceneMeasureCallback, owner: context.p})
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_measure(context.p, unsafe.Pointer(&node), _c2)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
 		if sceneMeasureCallback != nil {
 			cbUndo(cbMap0, _k2, _s2, _h2)
 		}
+		if _p != nil {
+			panic(_p)
+		}
 		return err
 	}
 	if sceneMeasureCallback == nil {
 		cbDrop(cbMap0, _k2)
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5194,11 +5517,20 @@ func SceneHasMeasure(context *Context, node Handle) (uint32, error) {
 		return 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_has_measure(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -5211,10 +5543,19 @@ func SceneMarkDirty(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_mark_dirty(context.p, unsafe.Pointer(&node))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5227,10 +5568,19 @@ func SceneSetStyle(context *Context, node Handle, group uint32, kind uint32, edg
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_style(context.p, unsafe.Pointer(&node), group, kind, edge, unit, value, flags)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5245,11 +5595,20 @@ func SceneGetStyle(context *Context, node Handle, group uint32, kind uint32, edg
 	}
 	var _o5 SceneStyleValue
 	_o5.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_style(context.p, unsafe.Pointer(&node), group, kind, edge, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneStyleValue{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -5263,11 +5622,20 @@ func SceneSetPaint(context *Context, node Handle, scenePaintOptions ScenePaintOp
 		return ErrDestroyed
 	}
 	scenePaintOptions.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_paint(context.p, unsafe.Pointer(&node), unsafe.Pointer(&scenePaintOptions))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&scenePaintOptions)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5284,11 +5652,20 @@ func SceneFlush(context *Context, updates []byte) (uint32, error) {
 		return 0, ErrTooLong
 	}
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_flush(context.p, sliceData(updates), uint32(len(updates)), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(updates)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -5301,11 +5678,20 @@ func SceneSetSurface(context *Context, node Handle, buffer Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_surface(context.p, unsafe.Pointer(&node), unsafe.Pointer(&buffer))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5325,13 +5711,22 @@ func SceneSetBoxDetails(context *Context, node Handle, sceneBoxDetails SceneBoxD
 		return ErrTooLong
 	}
 	sceneBoxDetails.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_box_details(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneBoxDetails), sliceData(title), uint32(len(title)), sliceData(bottomTitle), uint32(len(bottomTitle)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneBoxDetails)
 	runtime.KeepAlive(title)
 	runtime.KeepAlive(bottomTitle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5344,11 +5739,20 @@ func SceneSetViewport(context *Context, node Handle, viewport Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_viewport(context.p, unsafe.Pointer(&node), unsafe.Pointer(&viewport))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&viewport)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5362,11 +5766,20 @@ func SceneSetScroll(context *Context, node Handle, sceneScrollOptions SceneScrol
 		return ErrDestroyed
 	}
 	sceneScrollOptions.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_scroll(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneScrollOptions))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneScrollOptions)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5383,12 +5796,21 @@ func SceneSetScrollArrow(context *Context, node Handle, axis uint32, end uint32,
 		return ErrTooLong
 	}
 	sceneArrowOptions.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_scroll_arrow(context.p, unsafe.Pointer(&node), axis, end, unsafe.Pointer(&sceneArrowOptions), sliceData(text), uint32(len(text)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneArrowOptions)
 	runtime.KeepAlive(text)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5403,11 +5825,20 @@ func SceneScrollTo(context *Context, node Handle, x float64, y float64, flags ui
 	}
 	var _o5 SceneScrollState
 	_o5.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_scroll_to(context.p, unsafe.Pointer(&node), x, y, flags, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneScrollState{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -5422,12 +5853,21 @@ func SceneScrollRequest(context *Context, node Handle, kind uint32, target Handl
 	}
 	var _o6 SceneScrollState
 	_o6.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_scroll_request(context.p, unsafe.Pointer(&node), kind, unsafe.Pointer(&target), align, inset, unsafe.Pointer(&_o6))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneScrollState{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o6, nil
 }
@@ -5442,11 +5882,20 @@ func SceneGetScroll(context *Context, node Handle) (SceneScrollState, error) {
 	}
 	var _o2 SceneScrollState
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_scroll(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneScrollState{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -5459,10 +5908,19 @@ func SceneSetFocus(context *Context, node Handle, focused uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_focus(context.p, unsafe.Pointer(&node), focused)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5476,11 +5934,20 @@ func SceneSetSlider(context *Context, node Handle, sceneSliderOptions SceneSlide
 		return ErrDestroyed
 	}
 	sceneSliderOptions.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_slider(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneSliderOptions))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneSliderOptions)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5497,12 +5964,21 @@ func SceneSetArrow(context *Context, node Handle, sceneArrowOptions SceneArrowOp
 		return ErrTooLong
 	}
 	sceneArrowOptions.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_arrow(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneArrowOptions), sliceData(text), uint32(len(text)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneArrowOptions)
 	runtime.KeepAlive(text)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5517,11 +5993,20 @@ func SceneGetSliderThumb(context *Context, node Handle) (SceneSliderThumb, error
 	}
 	var _o2 SceneSliderThumb
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_slider_thumb(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneSliderThumb{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -5537,11 +6022,20 @@ func SceneSetText(context *Context, node Handle, bytes []byte) error {
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5567,13 +6061,22 @@ func SceneSetStyledText(context *Context, node Handle, bytes []byte, chunks []St
 	for _i0 := range chunks {
 		chunks[_i0].fill()
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_styled_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)), sliceData(urls), uint32(len(urls)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(chunks)
 	runtime.KeepAlive(urls)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5587,11 +6090,20 @@ func SceneSetTextOptions(context *Context, node Handle, sceneTextOptions SceneTe
 		return ErrDestroyed
 	}
 	sceneTextOptions.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_text_options(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneTextOptions))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneTextOptions)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5606,12 +6118,21 @@ func SceneSetTextSelection(context *Context, node Handle, sceneTextSelectionOpti
 	}
 	sceneTextSelectionOptions.fill()
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_text_selection(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneTextSelectionOptions), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneTextSelectionOptions)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -5625,11 +6146,20 @@ func SceneGetTextSelection(context *Context, node Handle) (uint64, error) {
 		return 0, ErrDestroyed
 	}
 	var _o2 uint64
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_text_selection(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -5646,12 +6176,21 @@ func SceneGetSelectedText(context *Context, node Handle, bytes []byte) (uint32, 
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_selected_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -5668,12 +6207,21 @@ func SceneGetText(context *Context, node Handle, bytes []byte) (uint32, error) {
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_text(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -5688,11 +6236,20 @@ func SceneGetTextInfo(context *Context, node Handle) (SceneTextInfo, error) {
 	}
 	var _o2 SceneTextInfo
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_text_info(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneTextInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -5709,12 +6266,21 @@ func SceneGetTextLines(context *Context, node Handle, firstLine uint32, lines []
 		return 0, ErrTooLong
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_text_lines(context.p, unsafe.Pointer(&node), firstLine, sliceData(lines), uint32(len(lines)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(lines)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -5729,11 +6295,20 @@ func SceneGetLayout(context *Context, node Handle, observation uint32) (SceneLay
 	}
 	var _o3 SceneLayout
 	_o3.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_layout(context.p, unsafe.Pointer(&node), observation, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneLayout{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -5748,12 +6323,21 @@ func ScenePaint(context *Context, session Handle, background [4]uint16, useMouse
 	}
 	var _o5 SceneFrameRequest
 	_o5.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_paint(context.p, unsafe.Pointer(&session), unsafe.Pointer(&background), useMouse, excludedHitNum, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&background)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneFrameRequest{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -5767,11 +6351,20 @@ func SceneHitTest(context *Context, session Handle, x int32, y int32) (uint32, e
 		return 0, ErrDestroyed
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_hit_test(context.p, unsafe.Pointer(&session), x, y, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -5786,11 +6379,20 @@ func SceneGetStats(context *Context, session Handle) (SceneStats, error) {
 	}
 	var _o2 SceneStats
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_stats(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneStats{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -5803,10 +6405,19 @@ func SceneSetDebugFlags(context *Context, session Handle, flags uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_debug_flags(context.p, unsafe.Pointer(&session), flags)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5821,11 +6432,20 @@ func SceneGetCursorState(context *Context, session Handle) (SceneCursorState, er
 	}
 	var _o2 SceneCursorState
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_get_cursor_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SceneCursorState{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -5839,12 +6459,21 @@ func SceneFrameCopyBuffer(context *Context, session Handle, sceneFrameRequest Sc
 		return ErrDestroyed
 	}
 	sceneFrameRequest.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_frame_copy_buffer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&sceneFrameRequest), unsafe.Pointer(&target))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&sceneFrameRequest)
 	runtime.KeepAlive(&target)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5857,11 +6486,20 @@ func SceneMeasureLayout(context *Context, session Handle, root Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_measure_layout(context.p, unsafe.Pointer(&session), unsafe.Pointer(&root))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&root)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5879,13 +6517,22 @@ func SessionRenderSplit(context *Context, session Handle, sceneFrameRequest Scen
 	}
 	sceneFrameRequest.fill()
 	var _o7 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_render_split(context.p, unsafe.Pointer(&session), unsafe.Pointer(&sceneFrameRequest), sliceData(splitSnapshot), uint32(len(splitSnapshot)), pinnedRenderOffset, force, unsafe.Pointer(&_o7))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&sceneFrameRequest)
 	runtime.KeepAlive(splitSnapshot)
 	runtime.KeepAlive(&_o7)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o7, nil
 }
@@ -5900,12 +6547,21 @@ func SessionSplitControl(context *Context, session Handle, splitControl SplitCon
 	}
 	splitControl.fill()
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_split_control(context.p, unsafe.Pointer(&session), unsafe.Pointer(&splitControl), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&splitControl)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -5921,11 +6577,20 @@ func SessionSetScreen(context *Context, session Handle, alternate uint32, width 
 	if uint64(len(trailingOutput)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_set_screen(context.p, unsafe.Pointer(&session), alternate, width, height, sliceData(trailingOutput), uint32(len(trailingOutput)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(trailingOutput)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5938,11 +6603,20 @@ func SessionSyncDetached(context *Context, session Handle, parent Handle) error 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_sync_detached(context.p, unsafe.Pointer(&session), unsafe.Pointer(&parent))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&parent)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5959,11 +6633,20 @@ func UnicodeCreate(context *Context, bytes []byte, widthMethod uint32) (Handle, 
 		return Handle{}, ErrTooLong
 	}
 	var _o4 Handle
+	runtime.LockOSThread()
 	_r := c_ot_unicode_create(context.p, sliceData(bytes), uint32(len(bytes)), widthMethod, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -5976,10 +6659,19 @@ func UnicodeDestroy(context *Context, unicode Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_unicode_destroy(context.p, unsafe.Pointer(&unicode))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&unicode)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -5996,12 +6688,21 @@ func UnicodeGet(context *Context, unicode Handle, characters []UnicodeChar) (uin
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_unicode_get(context.p, unsafe.Pointer(&unicode), sliceData(characters), uint32(len(characters)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&unicode)
 	runtime.KeepAlive(characters)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6015,14 +6716,23 @@ func BufferDrawUnicode(context *Context, target Handle, frame SceneFrameRequest,
 		return ErrDestroyed
 	}
 	frame.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_unicode(context.p, unsafe.Pointer(&target), unsafe.Pointer(&frame), unsafe.Pointer(&unicode), index, x, y, unsafe.Pointer(&foreground), unsafe.Pointer(&background), attributes)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&frame)
 	runtime.KeepAlive(&unicode)
 	runtime.KeepAlive(&foreground)
 	runtime.KeepAlive(&background)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6037,11 +6747,20 @@ func EmbeddedTerminalCreate(context *Context, embeddedTerminalOptions EmbeddedTe
 	}
 	embeddedTerminalOptions.fill()
 	var _o2 Handle
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_create(context.p, unsafe.Pointer(&embeddedTerminalOptions), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&embeddedTerminalOptions)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -6054,10 +6773,19 @@ func EmbeddedTerminalDestroy(context *Context, terminal Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_destroy(context.p, unsafe.Pointer(&terminal))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6073,11 +6801,20 @@ func EmbeddedTerminalWrite(context *Context, terminal Handle, bytes []byte) erro
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_write(context.p, unsafe.Pointer(&terminal), sliceData(bytes), uint32(len(bytes)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6090,10 +6827,19 @@ func EmbeddedTerminalResize(context *Context, terminal Handle, cols uint32, rows
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_resize(context.p, unsafe.Pointer(&terminal), cols, rows)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6106,10 +6852,19 @@ func EmbeddedTerminalCommand(context *Context, terminal Handle, command uint32, 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_command(context.p, unsafe.Pointer(&terminal), command, argument)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6122,10 +6877,19 @@ func EmbeddedTerminalSetSelection(context *Context, terminal Handle, startX uint
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_set_selection(context.p, unsafe.Pointer(&terminal), startX, startY, endX, endY)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6142,12 +6906,21 @@ func EmbeddedTerminalGetSelectedText(context *Context, terminal Handle, bytes []
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_get_selected_text(context.p, unsafe.Pointer(&terminal), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6161,12 +6934,21 @@ func EmbeddedTerminalCompose(context *Context, terminal Handle, target Handle, f
 		return ErrDestroyed
 	}
 	frame.fill()
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_compose(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&target), unsafe.Pointer(&frame), x, y)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&frame)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6181,11 +6963,20 @@ func EmbeddedTerminalCursorGet(context *Context, terminal Handle) (EmbeddedTermi
 	}
 	var _o2 EmbeddedTerminalCursor
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_cursor_get(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EmbeddedTerminalCursor{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -6209,7 +7000,10 @@ func EmbeddedTerminalEncodeKey(context *Context, terminal Handle, embeddedTermin
 	}
 	embeddedTerminalKey.fill()
 	var _o9 uint32
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_encode_key(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&embeddedTerminalKey), sliceData(key), uint32(len(key)), sliceData(text), uint32(len(text)), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o9))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(&embeddedTerminalKey)
 	runtime.KeepAlive(key)
@@ -6217,7 +7011,13 @@ func EmbeddedTerminalEncodeKey(context *Context, terminal Handle, embeddedTermin
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o9)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o9, nil
 }
@@ -6235,13 +7035,22 @@ func EmbeddedTerminalEncodeMouse(context *Context, terminal Handle, embeddedTerm
 	}
 	embeddedTerminalMouse.fill()
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_encode_mouse(context.p, unsafe.Pointer(&terminal), unsafe.Pointer(&embeddedTerminalMouse), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(&embeddedTerminalMouse)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -6261,13 +7070,22 @@ func EmbeddedTerminalEncodePaste(context *Context, terminal Handle, input []byte
 		return 0, ErrTooLong
 	}
 	var _o6 uint32
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_encode_paste(context.p, unsafe.Pointer(&terminal), sliceData(input), uint32(len(input)), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o6))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(input)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o6, nil
 }
@@ -6284,12 +7102,21 @@ func EmbeddedTerminalEncodeFocus(context *Context, terminal Handle, focused uint
 		return 0, ErrTooLong
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_encode_focus(context.p, unsafe.Pointer(&terminal), focused, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -6306,12 +7133,21 @@ func EmbeddedTerminalDrainResponses(context *Context, terminal Handle, bytes []b
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_embedded_terminal_drain_responses(context.p, unsafe.Pointer(&terminal), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&terminal)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6326,11 +7162,20 @@ func EditBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 	}
 	editBufferOptions.fill()
 	var _o2 Handle
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_create(context.p, unsafe.Pointer(&editBufferOptions), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBufferOptions)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -6343,10 +7188,19 @@ func EditBufferDestroy(context *Context, editBuffer Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_destroy(context.p, unsafe.Pointer(&editBuffer))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6360,11 +7214,20 @@ func EditorViewCreate(context *Context, editBuffer Handle, width uint32, height 
 		return Handle{}, ErrDestroyed
 	}
 	var _o4 Handle
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_create(context.p, unsafe.Pointer(&editBuffer), width, height, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6377,10 +7240,19 @@ func EditorViewDestroy(context *Context, view Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_destroy(context.p, unsafe.Pointer(&view))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6394,10 +7266,19 @@ func SyntaxStyleCreate(context *Context) (Handle, error) {
 		return Handle{}, ErrDestroyed
 	}
 	var _o1 Handle
+	runtime.LockOSThread()
 	_r := c_ot_syntax_style_create(context.p, unsafe.Pointer(&_o1))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o1, nil
 }
@@ -6410,10 +7291,19 @@ func SyntaxStyleDestroy(context *Context, style Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_syntax_style_destroy(context.p, unsafe.Pointer(&style))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&style)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6426,11 +7316,20 @@ func EditBufferSetSyntaxStyle(context *Context, editBuffer Handle, style Handle)
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_set_syntax_style(context.p, unsafe.Pointer(&editBuffer), unsafe.Pointer(&style))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	runtime.KeepAlive(&style)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6446,11 +7345,20 @@ func EditBufferSetText(context *Context, editBuffer Handle, bytes []byte, preser
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_set_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)), preserveHistory)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6466,11 +7374,20 @@ func EditBufferInsertText(context *Context, editBuffer Handle, bytes []byte) err
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_insert_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6483,10 +7400,19 @@ func EditBufferDeleteRange(context *Context, editBuffer Handle, startRow uint32,
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_delete_range(context.p, unsafe.Pointer(&editBuffer), startRow, startCol, endRow, endCol)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6499,10 +7425,19 @@ func EditBufferSetCursor(context *Context, editBuffer Handle, row uint32, col ui
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_set_cursor(context.p, unsafe.Pointer(&editBuffer), row, col)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6519,12 +7454,21 @@ func EditBufferGetText(context *Context, editBuffer Handle, bytes []byte) (uint3
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_get_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6539,11 +7483,20 @@ func EditBufferGetInfo(context *Context, editBuffer Handle) (EditBufferInfo, err
 	}
 	var _o2 EditBufferInfo
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_get_info(context.p, unsafe.Pointer(&editBuffer), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditBufferInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -6556,10 +7509,19 @@ func EditBufferSetTabWidth(context *Context, editBuffer Handle, width uint32) er
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_set_tab_width(context.p, unsafe.Pointer(&editBuffer), width)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6572,10 +7534,19 @@ func EditBufferCommand(context *Context, handle Handle, command uint32, argument
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_command(context.p, unsafe.Pointer(&handle), command, argument)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6592,12 +7563,21 @@ func EditBufferHistory(context *Context, handle Handle, redo uint32, bytes []byt
 		return 0, ErrTooLong
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_history(context.p, unsafe.Pointer(&handle), redo, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -6612,11 +7592,20 @@ func EditBufferGetPosition(context *Context, handle Handle, query uint32, a uint
 	}
 	var _o5 EditPosition
 	_o5.fill()
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_get_position(context.p, unsafe.Pointer(&handle), query, a, b, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditPosition{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -6633,12 +7622,21 @@ func EditBufferGetRange(context *Context, handle Handle, byCoords uint32, startR
 		return 0, ErrTooLong
 	}
 	var _o9 uint32
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_get_range(context.p, unsafe.Pointer(&handle), byCoords, startRow, startCol, endRow, endCol, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o9))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o9)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o9, nil
 }
@@ -6655,12 +7653,21 @@ func EditBufferMeasureText(context *Context, editBuffer Handle, bytes []byte) (u
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_measure_text(context.p, unsafe.Pointer(&editBuffer), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBuffer)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6677,11 +7684,20 @@ func EditMeasureText(context *Context, bytes []byte, widthMethod uint32, tabWidt
 		return 0, ErrTooLong
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_edit_measure_text(context.p, sliceData(bytes), uint32(len(bytes)), widthMethod, tabWidth, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -6695,11 +7711,20 @@ func EditBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 		return ErrDestroyed
 	}
 	editorStyle.fill()
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_set_defaults(context.p, unsafe.Pointer(&handle), mask, unsafe.Pointer(&editorStyle))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&editorStyle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6717,13 +7742,22 @@ func SyntaxStyleRegister(context *Context, handle Handle, name []byte, editorSty
 	}
 	editorStyle.fill()
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_syntax_style_register(context.p, unsafe.Pointer(&handle), sliceData(name), uint32(len(name)), unsafe.Pointer(&editorStyle), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(name)
 	runtime.KeepAlive(&editorStyle)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -6740,12 +7774,21 @@ func SyntaxStyleResolve(context *Context, handle Handle, name []byte) (uint32, e
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_syntax_style_resolve(context.p, unsafe.Pointer(&handle), sliceData(name), uint32(len(name)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(name)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6759,11 +7802,20 @@ func SyntaxStyleGetCount(context *Context, handle Handle) (uint32, error) {
 		return 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_syntax_style_get_count(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -6776,11 +7828,20 @@ func EditBufferHighlight(context *Context, handle Handle, operation uint32, argu
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_highlight(context.p, unsafe.Pointer(&handle), operation, argument, unsafe.Pointer(&highlight))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&highlight)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6797,12 +7858,21 @@ func EditBufferGetHighlights(context *Context, handle Handle, line uint32, highl
 		return 0, ErrTooLong
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_edit_buffer_get_highlights(context.p, unsafe.Pointer(&handle), line, sliceData(highlights), uint32(len(highlights)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(highlights)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -6816,11 +7886,20 @@ func EditorViewSetViewport(context *Context, handle Handle, editorViewport Edito
 		return ErrDestroyed
 	}
 	editorViewport.fill()
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_set_viewport(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorViewport), sizeOnly, moveCursor)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&editorViewport)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6835,11 +7914,20 @@ func EditorViewGetViewport(context *Context, handle Handle) (EditorViewport, err
 	}
 	var _o2 EditorViewport
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_get_viewport(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditorViewport{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -6852,10 +7940,19 @@ func EditorViewSetScrollMargin(context *Context, handle Handle, margin float32) 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_set_scroll_margin(context.p, unsafe.Pointer(&handle), margin)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6868,10 +7965,19 @@ func EditorViewCommand(context *Context, handle Handle, command uint32, argument
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_command(context.p, unsafe.Pointer(&handle), command, argument)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6888,12 +7994,21 @@ func EditorViewReplaceSelection(context *Context, handle Handle, bytes []byte) (
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_replace_selection(context.p, unsafe.Pointer(&handle), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -6906,11 +8021,20 @@ func EditorViewSetTabColor(context *Context, handle Handle, color [4]uint16) err
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_set_tab_color(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&color))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&color)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -6925,12 +8049,21 @@ func EditorViewSelect(context *Context, handle Handle, editorSelection EditorSel
 	}
 	editorSelection.fill()
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_select(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorSelection), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&editorSelection)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -6945,11 +8078,20 @@ func EditorViewGetInfo(context *Context, handle Handle, followCursor uint32) (Ed
 	}
 	var _o3 EditorViewInfo
 	_o3.fill()
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_get_info(context.p, unsafe.Pointer(&handle), followCursor, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditorViewInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -6964,11 +8106,20 @@ func EditorViewGetSelection(context *Context, handle Handle) (EditorViewInfo, er
 	}
 	var _o2 EditorViewInfo
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_get_selection(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditorViewInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -6985,12 +8136,21 @@ func EditorViewGetSelectedText(context *Context, handle Handle, bytes []byte) (u
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_get_selected_text(context.p, unsafe.Pointer(&handle), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -7005,11 +8165,20 @@ func EditorViewGetPosition(context *Context, handle Handle, query uint32) (Edito
 	}
 	var _o3 EditorPosition
 	_o3.fill()
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_get_position(context.p, unsafe.Pointer(&handle), query, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditorPosition{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -7024,11 +8193,20 @@ func EditorViewMeasure(context *Context, handle Handle, width uint32, height uin
 	}
 	var _o4 EditorMeasure
 	_o4.fill()
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_measure(context.p, unsafe.Pointer(&handle), width, height, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditorMeasure{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -7051,12 +8229,21 @@ func EditorViewSetPlaceholder(context *Context, handle Handle, bytes []byte, chu
 	for _i0 := range chunks {
 		chunks[_i0].fill()
 	}
+	runtime.LockOSThread()
 	_r := c_ot_editor_view_set_placeholder(context.p, unsafe.Pointer(&handle), sliceData(bytes), uint32(len(bytes)), sliceData(chunks), uint32(len(chunks)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(chunks)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7069,11 +8256,20 @@ func SceneSetEditorView(context *Context, node Handle, view Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_editor_view(context.p, unsafe.Pointer(&node), unsafe.Pointer(&view))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7087,11 +8283,20 @@ func SceneSetEditorOptions(context *Context, node Handle, sceneEditorOptions Sce
 		return ErrDestroyed
 	}
 	sceneEditorOptions.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_editor_options(context.p, unsafe.Pointer(&node), unsafe.Pointer(&sceneEditorOptions))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&sceneEditorOptions)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7104,10 +8309,19 @@ func ImageDestroy(context *Context, image Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_image_destroy(context.p, unsafe.Pointer(&image))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7124,11 +8338,20 @@ func ImageInspect(context *Context, bytes []byte) (ImageInfo, error) {
 		return ImageInfo{}, ErrTooLong
 	}
 	var _o3 ImageInfo
+	runtime.LockOSThread()
 	_r := c_ot_image_inspect(context.p, sliceData(bytes), uint64(len(bytes)), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return ImageInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -7145,11 +8368,20 @@ func ImageDecode(context *Context, bytes []byte) (Handle, error) {
 		return Handle{}, ErrTooLong
 	}
 	var _o3 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_decode(context.p, sliceData(bytes), uint64(len(bytes)), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -7166,11 +8398,20 @@ func ImageCreatePixels(context *Context, pixels []byte, width uint32, height uin
 		return Handle{}, ErrTooLong
 	}
 	var _o8 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_create_pixels(context.p, sliceData(pixels), uint64(len(pixels)), width, height, stride, format, alpha, unsafe.Pointer(&_o8))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(pixels)
 	runtime.KeepAlive(&_o8)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o8, nil
 }
@@ -7186,11 +8427,20 @@ func ImageUpdatePixels(context *Context, image Handle, pixels []byte, stride uin
 	if uint64(len(pixels)) > 18446744073709551615 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_image_update_pixels(context.p, unsafe.Pointer(&image), sliceData(pixels), uint64(len(pixels)), stride, format, alpha)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(pixels)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7207,11 +8457,20 @@ func ImageClone(destination *Context, source *Context, image Handle) (Handle, er
 		return Handle{}, ErrDestroyed
 	}
 	var _o3 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_clone(destination.p, source.p, unsafe.Pointer(&image), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -7225,11 +8484,20 @@ func ImageRetain(context *Context, image Handle) (Handle, error) {
 		return Handle{}, ErrDestroyed
 	}
 	var _o2 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_retain(context.p, unsafe.Pointer(&image), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -7243,11 +8511,20 @@ func ImageGetInfo(context *Context, image Handle) (ImageInfo, error) {
 		return ImageInfo{}, ErrDestroyed
 	}
 	var _o2 ImageInfo
+	runtime.LockOSThread()
 	_r := c_ot_image_get_info(context.p, unsafe.Pointer(&image), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return ImageInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -7261,11 +8538,20 @@ func ImageResize(context *Context, image Handle, width uint32, height uint32, fi
 		return Handle{}, ErrDestroyed
 	}
 	var _o5 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_resize(context.p, unsafe.Pointer(&image), width, height, filter, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -7279,11 +8565,20 @@ func ImageExtract(context *Context, image Handle, left uint32, top uint32, width
 		return Handle{}, ErrDestroyed
 	}
 	var _o6 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_extract(context.p, unsafe.Pointer(&image), left, top, width, height, unsafe.Pointer(&_o6))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o6, nil
 }
@@ -7297,11 +8592,20 @@ func ImageTransform(context *Context, image Handle, operation uint32) (Handle, e
 		return Handle{}, ErrDestroyed
 	}
 	var _o3 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_transform(context.p, unsafe.Pointer(&image), operation, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -7315,12 +8619,21 @@ func ImageComposite(context *Context, base Handle, overlay Handle, left int32, t
 		return Handle{}, ErrDestroyed
 	}
 	var _o7 Handle
+	runtime.LockOSThread()
 	_r := c_ot_image_composite(context.p, unsafe.Pointer(&base), unsafe.Pointer(&overlay), left, top, blend, opacity, unsafe.Pointer(&_o7))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&base)
 	runtime.KeepAlive(&overlay)
 	runtime.KeepAlive(&_o7)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o7, nil
 }
@@ -7334,12 +8647,21 @@ func ImageCopyPng(context *Context, image Handle, destination []byte) (uint64, e
 		return 0, ErrDestroyed
 	}
 	var _o4 uint64
+	runtime.LockOSThread()
 	_r := c_ot_image_copy_png(context.p, unsafe.Pointer(&image), sliceData(destination), uint64(len(destination)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(destination)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -7353,11 +8675,20 @@ func ImageTakePixels(context *Context, image Handle) (ImagePixels, error) {
 		return ImagePixels{}, ErrDestroyed
 	}
 	var _o2 ImagePixels
+	runtime.LockOSThread()
 	_r := c_ot_image_take_pixels(context.p, unsafe.Pointer(&image), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return ImagePixels{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -7370,10 +8701,19 @@ func ImagePixelsRelease(context *Context, lease Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_image_pixels_release(context.p, unsafe.Pointer(&lease))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&lease)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7386,12 +8726,21 @@ func SceneSetImage(context *Context, node Handle, image Handle, fit uint32, prot
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_image(context.p, unsafe.Pointer(&node), unsafe.Pointer(&image), fit, protocol, unsafe.Pointer(&buffer))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7404,10 +8753,19 @@ func SceneSetCrop(context *Context, node Handle, left uint32, top uint32, width 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_crop(context.p, unsafe.Pointer(&node), left, top, width, height)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7420,11 +8778,20 @@ func SceneSetVideo(context *Context, node Handle, fit uint32, buffer Handle) err
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_video(context.p, unsafe.Pointer(&node), fit, unsafe.Pointer(&buffer))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7441,12 +8808,21 @@ func VideoOpen(context *Context, node Handle, path []byte, flags uint32) (VideoI
 		return VideoInfo{}, ErrTooLong
 	}
 	var _o5 VideoInfo
+	runtime.LockOSThread()
 	_r := c_ot_video_open(context.p, unsafe.Pointer(&node), sliceData(path), uint32(len(path)), flags, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(path)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return VideoInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -7459,10 +8835,19 @@ func VideoPlay(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_play(context.p, unsafe.Pointer(&node))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7475,10 +8860,19 @@ func VideoPause(context *Context, node Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_pause(context.p, unsafe.Pointer(&node))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7491,10 +8885,19 @@ func VideoSeek(context *Context, node Handle, timeUs int64) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_seek(context.p, unsafe.Pointer(&node), timeUs)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7507,10 +8910,19 @@ func VideoSetLoop(context *Context, node Handle, loop uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_set_loop(context.p, unsafe.Pointer(&node), loop)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7523,10 +8935,19 @@ func VideoSetMuted(context *Context, node Handle, muted uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_set_muted(context.p, unsafe.Pointer(&node), muted)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7539,10 +8960,19 @@ func VideoSetVolume(context *Context, node Handle, volume float32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_set_volume(context.p, unsafe.Pointer(&node), volume)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7555,10 +8985,19 @@ func VideoSetAvSyncOffset(context *Context, node Handle, offsetUs int64) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_set_av_sync_offset(context.p, unsafe.Pointer(&node), offsetUs)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7571,10 +9010,19 @@ func VideoSetMaxFps(context *Context, node Handle, fps uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_video_set_max_fps(context.p, unsafe.Pointer(&node), fps)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7588,11 +9036,20 @@ func VideoGetState(context *Context, node Handle) (VideoState, error) {
 		return VideoState{}, ErrDestroyed
 	}
 	var _o2 VideoState
+	runtime.LockOSThread()
 	_r := c_ot_video_get_state(context.p, unsafe.Pointer(&node), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return VideoState{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -7609,12 +9066,21 @@ func VideoGetError(context *Context, node Handle, bytes []byte) (uint32, error) 
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_video_get_error(context.p, unsafe.Pointer(&node), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -7630,14 +9096,23 @@ func BufferDrawImage(context *Context, target Handle, frame SceneFrameRequest, i
 	frame.fill()
 	imageDrawOptions.fill()
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_image(context.p, unsafe.Pointer(&target), unsafe.Pointer(&frame), unsafe.Pointer(&image), unsafe.Pointer(&imageDrawOptions), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&frame)
 	runtime.KeepAlive(&image)
 	runtime.KeepAlive(&imageDrawOptions)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -7650,10 +9125,19 @@ func SessionSetImageResolution(context *Context, session Handle, terminalWidth u
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_set_image_resolution(context.p, unsafe.Pointer(&session), terminalWidth, terminalHeight, pixelWidth, pixelHeight)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7666,10 +9150,19 @@ func SessionSetKittyImageTransport(context *Context, session Handle, mode uint32
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_set_kitty_image_transport(context.p, unsafe.Pointer(&session), mode)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7684,11 +9177,20 @@ func SessionGetKittyImageTransport(context *Context, session Handle) (SessionKit
 	}
 	var _o2 SessionKittyImageTransport
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_get_kitty_image_transport(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SessionKittyImageTransport{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -7702,11 +9204,20 @@ func SessionPollKittyImageTransport(context *Context, session Handle, nowNs uint
 		return 0, ErrDestroyed
 	}
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_poll_kitty_image_transport(context.p, unsafe.Pointer(&session), nowNs, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -7719,10 +9230,19 @@ func SessionCancelKittyImageTransport(context *Context, session Handle, failed u
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_cancel_kitty_image_transport(context.p, unsafe.Pointer(&session), failed)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7739,12 +9259,21 @@ func SessionProcessKittyImageReply(context *Context, session Handle, bytes []byt
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_process_kitty_image_reply(context.p, unsafe.Pointer(&session), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -7757,10 +9286,19 @@ func SessionStartKittyFileProbe(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_start_kitty_file_probe(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7775,11 +9313,20 @@ func TextBufferCreate(context *Context, editBufferOptions EditBufferOptions) (Ha
 	}
 	editBufferOptions.fill()
 	var _o2 Handle
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_create(context.p, unsafe.Pointer(&editBufferOptions), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&editBufferOptions)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -7792,10 +9339,19 @@ func TextBufferDestroy(context *Context, handle Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_destroy(context.p, unsafe.Pointer(&handle))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7809,11 +9365,20 @@ func TextBufferViewCreate(context *Context, buffer Handle) (Handle, error) {
 		return Handle{}, ErrDestroyed
 	}
 	var _o2 Handle
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_create(context.p, unsafe.Pointer(&buffer), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&buffer)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -7826,10 +9391,19 @@ func TextBufferViewDestroy(context *Context, handle Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_destroy(context.p, unsafe.Pointer(&handle))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7845,11 +9419,20 @@ func TextBufferSetText(context *Context, handle Handle, arg2 []byte) error {
 	if uint64(len(arg2)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_set_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(arg2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7865,11 +9448,20 @@ func TextBufferAppend(context *Context, handle Handle, arg2 []byte) error {
 	if uint64(len(arg2)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_append(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(arg2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7882,10 +9474,19 @@ func TextBufferClear(context *Context, handle Handle, reset uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_clear(context.p, unsafe.Pointer(&handle), reset)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7911,13 +9512,22 @@ func TextBufferSetStyledText(context *Context, handle Handle, arg2 []byte, style
 	for _i0 := range styledTextChunk {
 		styledTextChunk[_i0].fill()
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_set_styled_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(arg2)
 	runtime.KeepAlive(styledTextChunk)
 	runtime.KeepAlive(urls)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7951,14 +9561,23 @@ func TextBufferReplaceStyledBatch(context *Context, textBufferReplacement []Text
 		styledTextChunk[_i0].fill()
 	}
 	var _o9 TextBufferReplacementInfo
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_replace_styled_batch(context.p, sliceData(textBufferReplacement), uint32(len(textBufferReplacement)), sliceData(bytes), uint32(len(bytes)), sliceData(styledTextChunk), uint32(len(styledTextChunk)), sliceData(urls), uint32(len(urls)), unsafe.Pointer(&_o9))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(textBufferReplacement)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(styledTextChunk)
 	runtime.KeepAlive(urls)
 	runtime.KeepAlive(&_o9)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return TextBufferReplacementInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o9, nil
 }
@@ -7971,11 +9590,20 @@ func TextBufferSetSyntaxStyle(context *Context, handle Handle, style Handle) err
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_set_syntax_style(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&style))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&style)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -7990,11 +9618,20 @@ func TextBufferGetInfo(context *Context, handle Handle) (TextBufferInfo, error) 
 	}
 	var _o2 TextBufferInfo
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_get_info(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return TextBufferInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -8011,12 +9648,21 @@ func TextBufferGetText(context *Context, handle Handle, arg2 []byte) (uint32, er
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_get_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(arg2)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -8033,12 +9679,21 @@ func TextBufferGetRange(context *Context, handle Handle, start uint32, end uint3
 		return 0, ErrTooLong
 	}
 	var _o6 uint32
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_get_range(context.p, unsafe.Pointer(&handle), start, end, sliceData(arg4), uint32(len(arg4)), unsafe.Pointer(&_o6))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(arg4)
 	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o6, nil
 }
@@ -8052,11 +9707,20 @@ func TextBufferSetDefaults(context *Context, handle Handle, mask uint32, editorS
 		return ErrDestroyed
 	}
 	editorStyle.fill()
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_set_defaults(context.p, unsafe.Pointer(&handle), mask, unsafe.Pointer(&editorStyle))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&editorStyle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8069,10 +9733,19 @@ func TextBufferSetTabWidth(context *Context, handle Handle, width uint32) error 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_set_tab_width(context.p, unsafe.Pointer(&handle), width)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8085,11 +9758,20 @@ func TextBufferHighlight(context *Context, handle Handle, operation uint32, argu
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_highlight(context.p, unsafe.Pointer(&handle), operation, argument, unsafe.Pointer(&editHighlight))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&editHighlight)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8106,12 +9788,21 @@ func TextBufferGetHighlights(context *Context, handle Handle, line uint32, editH
 		return 0, ErrTooLong
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_get_highlights(context.p, unsafe.Pointer(&handle), line, sliceData(editHighlight), uint32(len(editHighlight)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(editHighlight)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -8125,11 +9816,20 @@ func TextBufferViewSetViewport(context *Context, handle Handle, editorViewport E
 		return ErrDestroyed
 	}
 	editorViewport.fill()
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_set_viewport(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorViewport), sizeOnly)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&editorViewport)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8142,10 +9842,19 @@ func TextBufferViewCommand(context *Context, handle Handle, command uint32, argu
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_command(context.p, unsafe.Pointer(&handle), command, argument)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8158,11 +9867,20 @@ func TextBufferViewSetTabColor(context *Context, handle Handle, color [4]uint16)
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_set_tab_color(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&color))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&color)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8177,12 +9895,21 @@ func TextBufferViewSelect(context *Context, handle Handle, editorSelection Edito
 	}
 	editorSelection.fill()
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_select(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&editorSelection), unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&editorSelection)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -8197,11 +9924,20 @@ func TextBufferViewGetInfo(context *Context, handle Handle) (EditorViewInfo, err
 	}
 	var _o2 EditorViewInfo
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_get_info(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditorViewInfo{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -8218,12 +9954,21 @@ func TextBufferViewGetSelectedText(context *Context, handle Handle, arg2 []byte)
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_get_selected_text(context.p, unsafe.Pointer(&handle), sliceData(arg2), uint32(len(arg2)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(arg2)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -8238,11 +9983,20 @@ func TextBufferViewMeasure(context *Context, handle Handle, width uint32, height
 	}
 	var _o4 EditorMeasure
 	_o4.fill()
+	runtime.LockOSThread()
 	_r := c_ot_text_buffer_view_measure(context.p, unsafe.Pointer(&handle), width, height, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return EditorMeasure{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -8255,11 +10009,20 @@ func SceneSetTextView(context *Context, node Handle, view Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_text_view(context.p, unsafe.Pointer(&node), unsafe.Pointer(&view))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8272,10 +10035,19 @@ func SceneSetTextViewPaint(context *Context, node Handle, enabled uint32) error 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_scene_set_text_view_paint(context.p, unsafe.Pointer(&node), enabled)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8289,12 +10061,21 @@ func BufferDrawTextView(context *Context, target Handle, sceneFrameRequest Scene
 		return ErrDestroyed
 	}
 	sceneFrameRequest.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_text_view(context.p, unsafe.Pointer(&target), unsafe.Pointer(&sceneFrameRequest), unsafe.Pointer(&view), x, y)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&sceneFrameRequest)
 	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8308,12 +10089,21 @@ func BufferDrawEditorView(context *Context, target Handle, sceneFrameRequest Sce
 		return ErrDestroyed
 	}
 	sceneFrameRequest.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_editor_view(context.p, unsafe.Pointer(&target), unsafe.Pointer(&sceneFrameRequest), unsafe.Pointer(&view), x, y)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&sceneFrameRequest)
 	runtime.KeepAlive(&view)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8327,12 +10117,21 @@ func BufferDrawSceneBody(context *Context, target Handle, sceneFrameRequest Scen
 		return ErrDestroyed
 	}
 	sceneFrameRequest.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_scene_body(context.p, unsafe.Pointer(&target), unsafe.Pointer(&sceneFrameRequest), unsafe.Pointer(&node), x, y)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&sceneFrameRequest)
 	runtime.KeepAlive(&node)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8348,12 +10147,21 @@ func SceneFrameAcquireBufferLease(context *Context, session Handle, frameRequest
 	frameRequest.fill()
 	var _o4 BufferLeaseSnapshot
 	_o4.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_frame_acquire_buffer_lease(context.p, unsafe.Pointer(&session), unsafe.Pointer(&frameRequest), which, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&frameRequest)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return BufferLeaseSnapshot{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -8368,12 +10176,21 @@ func SceneFrameCommit(context *Context, session Handle, frameRequest SceneFrameR
 	}
 	frameRequest.fill()
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_scene_frame_commit(context.p, unsafe.Pointer(&session), unsafe.Pointer(&frameRequest), force, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&frameRequest)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -8383,7 +10200,13 @@ func ContextAbiVersion() (uint32, error) {
 	if err := ready(); err != nil {
 		return 0, err
 	}
+	runtime.LockOSThread()
 	_r := c_ot_context_abi_version()
+	_p := cbTake()
+	runtime.UnlockOSThread()
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -8394,11 +10217,20 @@ func ContextCreate(options ContextOptions) (*Context, error) {
 	}
 	options.fill()
 	var _o1 uintptr
+	runtime.LockOSThread()
 	_r := c_ot_context_create(unsafe.Pointer(&options), unsafe.Pointer(&_o1))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&options)
 	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return nil, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return &Context{p: _o1}, nil
 }
@@ -8412,12 +10244,21 @@ func ContextDestroy(context *Context) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_context_destroy(context.p)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
 	}
 	cbDropOwner(cbMap0, context.p)
 	context.p = 0
+	if _p != nil {
+		panic(_p)
+	}
 	return nil
 }
 
@@ -8431,10 +10272,19 @@ func ContextGetLastError(context *Context) (ContextError, error) {
 	}
 	var _o1 ContextError
 	_o1.fill()
+	runtime.LockOSThread()
 	_r := c_ot_context_get_last_error(context.p, unsafe.Pointer(&_o1))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o1)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return ContextError{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o1, nil
 }
@@ -8451,11 +10301,20 @@ func ContextGetLinkUrl(context *Context, linkId uint32, bytes []byte) (uint32, e
 		return 0, ErrTooLong
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_context_get_link_url(context.p, linkId, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -8470,11 +10329,20 @@ func BufferCreate(context *Context, options BufferOptions) (Handle, error) {
 	}
 	options.fill()
 	var _o2 Handle
+	runtime.LockOSThread()
 	_r := c_ot_buffer_create(context.p, unsafe.Pointer(&options), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&options)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -8487,10 +10355,19 @@ func BufferDestroy(context *Context, buffer Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_buffer_destroy(context.p, unsafe.Pointer(&buffer))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8503,10 +10380,19 @@ func BufferResize(context *Context, buffer Handle, width uint32, height uint32) 
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_buffer_resize(context.p, unsafe.Pointer(&buffer), width, height)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&buffer)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8527,7 +10413,10 @@ func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, option
 	}
 	frame.fill()
 	options.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw(context.p, unsafe.Pointer(&target), unsafe.Pointer(&frame), unsafe.Pointer(&options), unsafe.Pointer(&source), sliceData(text), uint32(len(text)), sliceData(bottomTitle), uint32(len(bottomTitle)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&frame)
 	runtime.KeepAlive(&options)
@@ -8535,7 +10424,13 @@ func BufferDraw(context *Context, target Handle, frame SceneFrameRequest, option
 	runtime.KeepAlive(text)
 	runtime.KeepAlive(bottomTitle)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8556,14 +10451,23 @@ func BufferDrawGrid(context *Context, target Handle, frame SceneFrameRequest, op
 	}
 	frame.fill()
 	options.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_grid(context.p, unsafe.Pointer(&target), unsafe.Pointer(&frame), unsafe.Pointer(&options), sliceData(columns), uint32(len(columns)), sliceData(rows), uint32(len(rows)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&target)
 	runtime.KeepAlive(&frame)
 	runtime.KeepAlive(&options)
 	runtime.KeepAlive(columns)
 	runtime.KeepAlive(rows)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8580,12 +10484,21 @@ func BufferDrawPacked(context *Context, handle Handle, sceneFrameRequest SceneFr
 		return ErrTooLong
 	}
 	sceneFrameRequest.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_packed(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&sceneFrameRequest), sliceData(data), uint32(len(data)), x, y, width, height)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&sceneFrameRequest)
 	runtime.KeepAlive(data)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8602,12 +10515,21 @@ func BufferDrawSupersample(context *Context, handle Handle, sceneFrameRequest Sc
 		return ErrTooLong
 	}
 	sceneFrameRequest.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_draw_supersample(context.p, unsafe.Pointer(&handle), unsafe.Pointer(&sceneFrameRequest), sliceData(data), uint32(len(data)), x, y, format, stride)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(&sceneFrameRequest)
 	runtime.KeepAlive(data)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8622,11 +10544,20 @@ func BufferAcquireLease(context *Context, buffer Handle) (BufferLeaseSnapshot, e
 	}
 	var _o2 BufferLeaseSnapshot
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_buffer_acquire_lease(context.p, unsafe.Pointer(&buffer), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&buffer)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return BufferLeaseSnapshot{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -8641,11 +10572,20 @@ func SessionCreate(context *Context, options SessionOptions) (Handle, error) {
 	}
 	options.fill()
 	var _o2 Handle
+	runtime.LockOSThread()
 	_r := c_ot_session_create(context.p, unsafe.Pointer(&options), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&options)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return Handle{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -8659,11 +10599,20 @@ func SessionAttachRenderer(context *Context, session Handle, options SessionRend
 		return ErrDestroyed
 	}
 	options.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_attach_renderer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&options))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&options)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8677,11 +10626,20 @@ func SessionRender(context *Context, session Handle, force uint32) (uint32, erro
 		return 0, ErrDestroyed
 	}
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_render(context.p, unsafe.Pointer(&session), force, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -8694,10 +10652,19 @@ func SessionResizeRenderer(context *Context, session Handle, width uint32, heigh
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_resize_renderer(context.p, unsafe.Pointer(&session), width, height)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8710,11 +10677,20 @@ func SessionDrawBuffer(context *Context, session Handle, source Handle, x int32,
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_draw_buffer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&source), x, y)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&source)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8728,12 +10704,21 @@ func SceneFrameDrawBuffer(context *Context, session Handle, frameRequest SceneFr
 		return ErrDestroyed
 	}
 	frameRequest.fill()
+	runtime.LockOSThread()
 	_r := c_ot_scene_frame_draw_buffer(context.p, unsafe.Pointer(&session), unsafe.Pointer(&frameRequest), unsafe.Pointer(&source), x, y)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&frameRequest)
 	runtime.KeepAlive(&source)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8746,10 +10731,19 @@ func SessionSetDebugOverlay(context *Context, session Handle, enabled uint32, co
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_set_debug_overlay(context.p, unsafe.Pointer(&session), enabled, corner)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8762,10 +10756,19 @@ func SessionUpdateStats(context *Context, session Handle, overallMs float64, fps
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_update_stats(context.p, unsafe.Pointer(&session), overallMs, fps, callbackMs)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8778,10 +10781,19 @@ func SessionUpdateMemoryStats(context *Context, session Handle, heapUsed uint32,
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_update_memory_stats(context.p, unsafe.Pointer(&session), heapUsed, heapTotal, arrayBuffers)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8794,10 +10806,19 @@ func SessionDumpHitGrid(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_dump_hit_grid(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8812,11 +10833,20 @@ func SessionGetRendererState(context *Context, session Handle) (SessionRendererS
 	}
 	var _o2 SessionRendererState
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_get_renderer_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SessionRendererState{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -8831,11 +10861,20 @@ func SessionAcquireBufferLease(context *Context, session Handle, which uint32) (
 	}
 	var _o3 BufferLeaseSnapshot
 	_o3.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_acquire_buffer_lease(context.p, unsafe.Pointer(&session), which, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return BufferLeaseSnapshot{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -8849,11 +10888,20 @@ func SessionGetLinkId(context *Context, session Handle, x int32, y int32) (uint3
 		return 0, ErrDestroyed
 	}
 	var _o4 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_get_link_id(context.p, unsafe.Pointer(&session), x, y, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -8866,10 +10914,19 @@ func BufferLeaseValidate(context *Context, lease Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_buffer_lease_validate(context.p, unsafe.Pointer(&lease))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&lease)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8882,10 +10939,19 @@ func BufferLeaseRelease(context *Context, lease Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_buffer_lease_release(context.p, unsafe.Pointer(&lease))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&lease)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8899,11 +10965,20 @@ func BufferLeaseGetRealCharSize(context *Context, lease Handle, addLineBreaks ui
 		return 0, ErrDestroyed
 	}
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_buffer_lease_get_real_char_size(context.p, unsafe.Pointer(&lease), addLineBreaks, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&lease)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -8917,11 +10992,20 @@ func SessionSetupTerminal(context *Context, session Handle, options SessionTermi
 		return ErrDestroyed
 	}
 	options.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_setup_terminal(context.p, unsafe.Pointer(&session), unsafe.Pointer(&options))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&options)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8934,10 +11018,19 @@ func SessionSuspend(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_suspend(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8950,10 +11043,19 @@ func SessionResume(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_resume(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -8967,11 +11069,20 @@ func SessionGetTerminalState(context *Context, session Handle) (uint32, error) {
 		return 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_get_terminal_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -8988,12 +11099,21 @@ func SessionControl(context *Context, session Handle, options SessionControlOpti
 		return ErrTooLong
 	}
 	options.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_control(context.p, unsafe.Pointer(&session), unsafe.Pointer(&options), sliceData(bytes), uint32(len(bytes)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&options)
 	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9008,11 +11128,20 @@ func SessionGetCapabilities(context *Context, session Handle) (SessionCapabiliti
 	}
 	var _o2 SessionCapabilities
 	_o2.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_get_capabilities(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SessionCapabilities{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -9029,12 +11158,21 @@ func SessionClipboard(context *Context, session Handle, target uint32, bytes []b
 		return 0, ErrTooLong
 	}
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_clipboard(context.p, unsafe.Pointer(&session), target, sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(bytes)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o5, nil
 }
@@ -9054,13 +11192,22 @@ func SessionNotification(context *Context, handle Handle, message []byte, title 
 		return 0, ErrTooLong
 	}
 	var _o6 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_notification(context.p, unsafe.Pointer(&handle), sliceData(message), uint32(len(message)), sliceData(title), uint32(len(title)), unsafe.Pointer(&_o6))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&handle)
 	runtime.KeepAlive(message)
 	runtime.KeepAlive(title)
 	runtime.KeepAlive(&_o6)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o6, nil
 }
@@ -9075,11 +11222,20 @@ func SessionPump(context *Context, session Handle, nowNs uint64, workBudget uint
 	}
 	var _o4 SessionPumpResult
 	_o4.fill()
+	runtime.LockOSThread()
 	_r := c_ot_session_pump(context.p, unsafe.Pointer(&session), nowNs, workBudget, unsafe.Pointer(&_o4))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o4)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return SessionPumpResult{}, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, nil
 }
@@ -9092,10 +11248,19 @@ func SessionInputExpect(context *Context, session Handle, flags uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_input_expect(context.p, unsafe.Pointer(&session), flags)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9108,10 +11273,19 @@ func SessionInputReset(context *Context, session Handle, flags uint32) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_input_reset(context.p, unsafe.Pointer(&session), flags)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9125,11 +11299,20 @@ func SessionGetWriteLimit(context *Context, session Handle) (uint64, error) {
 		return 0, ErrDestroyed
 	}
 	var _o2 uint64
+	runtime.LockOSThread()
 	_r := c_ot_session_get_write_limit(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -9145,11 +11328,20 @@ func SessionWrite(context *Context, session Handle, bytes []byte) error {
 	if uint64(len(bytes)) > 4294967295 {
 		return ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_write(context.p, unsafe.Pointer(&session), sliceData(bytes), uint32(len(bytes)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(bytes)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9170,11 +11362,20 @@ func SessionDrainOutput(context *Context, session Handle, maxBytes uint32, write
 		cbPut(cbMap1, _k5, cbEntry[OutputWriteCallback]{fn: writer})
 		defer cbDrop(cbMap1, _k5)
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_drain_output(context.p, unsafe.Pointer(&session), maxBytes, unsafe.Pointer(&_o3), _k5, _c5)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -9188,11 +11389,20 @@ func SessionDrainStdout(context *Context, session Handle, maxBytes uint32) (uint
 		return 0, ErrDestroyed
 	}
 	var _o3 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_drain_stdout(context.p, unsafe.Pointer(&session), maxBytes, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o3)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o3, nil
 }
@@ -9207,12 +11417,21 @@ func SessionPostStdout(context *Context, session Handle, maxBytes uint32, wait u
 	}
 	var _o4 uint32
 	var _o5 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_post_stdout(context.p, unsafe.Pointer(&session), maxBytes, wait, unsafe.Pointer(&_o4), unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o4)
 	runtime.KeepAlive(&_o5)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o4, _o5, nil
 }
@@ -9225,11 +11444,20 @@ func SessionCompleteOutput(context *Context, session Handle, ticket OutputTicket
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_complete_output(context.p, unsafe.Pointer(&session), unsafe.Pointer(&ticket), success)
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&ticket)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9242,10 +11470,19 @@ func SessionClose(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_close(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9258,10 +11495,19 @@ func SessionDropOutput(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_drop_output(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9275,11 +11521,20 @@ func SessionPumpExit(context *Context, session Handle) (uint32, error) {
 		return 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_pump_exit(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -9289,9 +11544,18 @@ func TerminalFlushInput() error {
 	if err := ready(); err != nil {
 		return err
 	}
+	runtime.LockOSThread()
 	_r := c_ot_terminal_flush_input()
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9304,10 +11568,19 @@ func SessionCancel(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_cancel(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9321,11 +11594,20 @@ func SessionGetState(context *Context, session Handle) (uint32, error) {
 		return 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_session_get_state(context.p, unsafe.Pointer(&session), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	runtime.KeepAlive(&_o2)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return 0, err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return _o2, nil
 }
@@ -9338,10 +11620,19 @@ func SessionDestroy(context *Context, session Handle) error {
 	if context == nil || context.p == 0 {
 		return ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_session_destroy(context.p, unsafe.Pointer(&session))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&session)
 	if err := statusError(_r); err != nil {
+		if _p != nil {
+			panic(_p)
+		}
 		return err
+	}
+	if _p != nil {
+		panic(_p)
 	}
 	return nil
 }
@@ -9357,8 +11648,14 @@ func ClipboardServiceCreate(context *Context, maxOperations uint32, maxProviderT
 	if uint64(len(waylandSeat)) > 4294967295 {
 		return 0, ErrTooLong
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_service_create(context.p, maxOperations, maxProviderTransfers, sliceData(waylandSeat), uint32(len(waylandSeat)))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(waylandSeat)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -9370,7 +11667,13 @@ func ClipboardServiceBeginShutdown(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_service_begin_shutdown(context.p)
+	_p := cbTake()
+	runtime.UnlockOSThread()
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -9382,7 +11685,13 @@ func ClipboardServicePollShutdown(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_service_poll_shutdown(context.p)
+	_p := cbTake()
+	runtime.UnlockOSThread()
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -9394,7 +11703,13 @@ func ClipboardServiceDestroy(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_service_destroy(context.p)
+	_p := cbTake()
+	runtime.UnlockOSThread()
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -9406,7 +11721,13 @@ func ClipboardServiceDrain(context *Context) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_service_drain(context.p)
+	_p := cbTake()
+	runtime.UnlockOSThread()
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -9422,9 +11743,15 @@ func ClipboardReadOperationStart(context *Context, request []byte, selection uin
 		return 0, Handle{}, ErrTooLong
 	}
 	var _o8 Handle
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_read_operation_start(context.p, sliceData(request), uint32(len(request)), selection, maxBytes, maxImagePixels, maxConversionBytes, timeoutMs, unsafe.Pointer(&_o8))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(request)
 	runtime.KeepAlive(&_o8)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, _o8, nil
 }
 
@@ -9440,9 +11767,15 @@ func ClipboardWriteOperationStart(context *Context, text []byte, selection uint8
 		return 0, Handle{}, ErrTooLong
 	}
 	var _o5 Handle
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_write_operation_start(context.p, sliceData(text), uint32(len(text)), selection, timeoutMs, unsafe.Pointer(&_o5))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(text)
 	runtime.KeepAlive(&_o5)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, _o5, nil
 }
 
@@ -9455,8 +11788,14 @@ func ClipboardClearOperationStart(context *Context, selection uint8, timeoutMs u
 		return 0, Handle{}, ErrDestroyed
 	}
 	var _o3 Handle
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_clear_operation_start(context.p, selection, timeoutMs, unsafe.Pointer(&_o3))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&_o3)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, _o3, nil
 }
 
@@ -9468,8 +11807,14 @@ func ClipboardOperationPoll(context *Context, operation Handle) (uint8, error) {
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_operation_poll(context.p, unsafe.Pointer(&operation))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&operation)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -9481,8 +11826,14 @@ func ClipboardOperationCancel(context *Context, operation Handle) (uint8, error)
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_operation_cancel(context.p, unsafe.Pointer(&operation))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&operation)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }
 
@@ -9495,9 +11846,15 @@ func ClipboardOperationResultMimeLength(context *Context, operation Handle) (uin
 		return 0, 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_operation_result_mime_length(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&operation)
 	runtime.KeepAlive(&_o2)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, _o2, nil
 }
 
@@ -9510,9 +11867,15 @@ func ClipboardOperationResultDataLength(context *Context, operation Handle) (uin
 		return 0, 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_operation_result_data_length(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&operation)
 	runtime.KeepAlive(&_o2)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, _o2, nil
 }
 
@@ -9525,9 +11888,15 @@ func ClipboardOperationResultErrorCode(context *Context, operation Handle) (uint
 		return 0, 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_operation_result_error_code(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&operation)
 	runtime.KeepAlive(&_o2)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, _o2, nil
 }
 
@@ -9540,9 +11909,15 @@ func ClipboardOperationResultDiagnosticLength(context *Context, operation Handle
 		return 0, 0, ErrDestroyed
 	}
 	var _o2 uint32
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_operation_result_diagnostic_length(context.p, unsafe.Pointer(&operation), unsafe.Pointer(&_o2))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&operation)
 	runtime.KeepAlive(&_o2)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, _o2, nil
 }
 
@@ -9554,7 +11929,13 @@ func ClipboardOperationDestroy(context *Context, operation Handle) (uint8, error
 	if context == nil || context.p == 0 {
 		return 0, ErrDestroyed
 	}
+	runtime.LockOSThread()
 	_r := c_ot_clipboard_operation_destroy(context.p, unsafe.Pointer(&operation))
+	_p := cbTake()
+	runtime.UnlockOSThread()
 	runtime.KeepAlive(&operation)
+	if _p != nil {
+		panic(_p)
+	}
 	return _r, nil
 }

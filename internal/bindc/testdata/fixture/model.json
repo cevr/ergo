@@ -562,9 +562,23 @@
           "offset": 8,
           "size": 8,
           "align": 8
+        },
+        {
+          "name": "write_results",
+          "type": "int64_t",
+          "offset": 16,
+          "size": 8,
+          "align": 8
+        },
+        {
+          "name": "unwritten",
+          "type": "uint64_t",
+          "offset": 24,
+          "size": 8,
+          "align": 8
         }
       ],
-      "size": 16,
+      "size": 32,
       "align": 8
     }
   ],

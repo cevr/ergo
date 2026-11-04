@@ -27,7 +27,11 @@ import (
 //     no reflection, and one indirect call (the Go function), as a
 //     hand-written purego callback with the same contract has. With no
 //     entry, or a NULL pointer where C must pass one, C gets the entry's
-//     default, no Go code runs and no out position is written.
+//     default, no Go code runs and no out position is written. The panic
+//     containment (emitthread.go) adds one atomic load (a panic pending on
+//     this thread) before the lookup, and runs the Go function under one
+//     open-coded defer with a flag: no allocation on the path with no
+//     panic.
 //
 // The order against C: a typed call puts the entry before the C call that
 // installs the callback (a probe during that call finds it); a replacement
@@ -211,6 +215,7 @@ func cbDropOwner[K comparable, F any](m map[K]cbEntry[F], owner uintptr) {
 		lens = append(lens, "len(cbMap"+strconv.Itoa(cb.Index)+")")
 	}
 	e.p("// LiveCallbacks is the number of live registrations: a call-scoped\n// callback during its call, and a registered one until a replacement, a\n// clear, an end or its owner's destroy releases it.\nfunc LiveCallbacks() int {\n\tcbMu.RLock()\n\tdefer cbMu.RUnlock()\n\treturn %s\n}\n\n", strings.Join(lens, " + "))
+	e.containment()
 	for _, cb := range cbs {
 		e.trampoline(cb)
 	}
@@ -255,13 +260,21 @@ func (e *goEmitter) trampoline(cb *BoundCallback) {
 	if res != "" {
 		def = " " + string(r.Default)
 	}
-	e.p("// cbTramp%d is the trampoline of %s: it runs the Go function of its\n// key (%s) in cbMap%d. With none, or with a NULL pointer where C\n// must pass one, no Go code runs, no out position is written and C gets", n, d.Name, strings.Join(r.Key.Params, ", "), n)
+	e.p("// cbTramp%d is the trampoline of %s: it runs the Go function of its\n// key (%s) in cbMap%d. With none, with a NULL pointer where C\n// must pass one, or with a panic pending on this thread, no Go code runs,\n// no out position is written and C gets", n, d.Name, strings.Join(r.Key.Params, ", "), n)
 	if def != "" {
 		e.p("%s.\n", def)
 	} else {
 		e.p(" no result.\n")
 	}
-	e.p("func cbTramp%d(%s)%s {\n", n, strings.Join(params, ", "), res)
+	e.p("// A panic of the Go function gives C the same, and stays pending on this\n// thread (cbContain) until the typed call that made the C call takes it.\n")
+	named := ""
+	if res != "" {
+		// A named result: when cbContain recovers a panic, the trampoline
+		// returns what _r holds, the default.
+		named = " (_r" + res + ")"
+	}
+	e.p("func cbTramp%d(%s)%s {\n", n, strings.Join(params, ", "), named)
+	e.p("\tif cbPending() {\n\t\treturn%s\n\t}\n", def)
 	e.p("\tcbMu.RLock()\n\t_e := cbMap%d[%s]\n\tcbMu.RUnlock()\n", n, key)
 	conds := []string{"_e.fn == nil"}
 	pos := map[int]Position{}
@@ -296,9 +309,16 @@ func (e *goEmitter) trampoline(cb *BoundCallback) {
 			args = append(args, "unsafe.Slice((*"+strings.TrimPrefix(gp.Type, "[]")+")("+a(gp.C)+"), "+ln+")")
 		}
 	}
+	// Containment: the arguments are read, the Go function runs and the
+	// out positions are written under cbContain; _ok is true only when all
+	// of it returned.
+	if def != "" {
+		e.p("\t_r =%s\n", def)
+	}
+	e.p("\t_ok := false\n\tdefer cbContain(%q, &_ok)\n", d.Name)
 	call := "_e.fn(" + strings.Join(args, ", ") + ")"
 	if len(cb.Sig.Results) == 0 {
-		e.p("\t%s\n}\n\n", call)
+		e.p("\t%s\n\t_ok = true\n}\n\n", call)
 		return
 	}
 	var vs []string
@@ -318,6 +338,7 @@ func (e *goEmitter) trampoline(cb *BoundCallback) {
 		}
 		e.p("\t*(*%s)(%s) = %s\n", gr.Type, a(gr.C), vs[i])
 	}
+	e.p("\t_ok = true\n")
 	if ret != "" {
 		e.p("\treturn %s\n", ret)
 	}

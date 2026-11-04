@@ -26,7 +26,7 @@ var contractCases = []struct {
 	{"trailing data", `"skips": []
 }`, `"skips": []
 } {}`, `data after the contract object`},
-	{"not hex", `"99b19e69573ae69040c801ec1d398acf55ed8601e94f385f84fbad40c380620d"`, `"99B19E69573AE69040C801EC1D398ACF55ED8601E94F385F84FBAD40C380620D"`, `not 64 lower-case hex digits`},
+	{"not hex", `"43e2966897ed366324a206b067993360012e407e97f8990485154d0d3036a3a1"`, `"43E2966897ED366324A206B067993360012E407E97F8990485154D0D3036A3A1"`, `not 64 lower-case hex digits`},
 	{"empty fact", `"success": "FX_OK"`, `"success": ""`, `status.success is empty`},
 	{"package keyword", `"package": "fixture"`, `"package": "func"`, `is not a Go package name`},
 	{"thread", `"thread": "owner"`, `"thread": "main"`, `want "owner" or "any"`},
@@ -41,7 +41,7 @@ var contractCases = []struct {
 
 	// Facts: Bind.
 	{"header name", `"header": "fixture.h",`, `"header": "other.h",`, `header is "other.h"`},
-	{"header sha256", `"99b19e69573ae69040c801ec1d398acf55ed8601e94f385f84fbad40c380620d"`, `"99b19e69573ae69040c801ec1d398acf55ed8601e94f385f84fbad40c380620e"`, `but the header's sha256 is 99b19e69`},
+	{"header sha256", `"43e2966897ed366324a206b067993360012e407e97f8990485154d0d3036a3a1"`, `"43e2966897ed366324a206b067993360012e407e97f8990485154d0d3036a3a0"`, `but the header's sha256 is 43e29668`},
 	{"status type", `"type": "fx_status"`, `"type": "fx_ticket"`, `status.exclude: FX_SMALL is not a constant with the status prefix and type`},
 	{"status type not integer", `"type": "fx_status"`, `"type": "fx_seconds"`, `status.type fx_seconds is not an integer typedef`},
 	{"success code", `"success": "FX_OK"`, `"success": "FX_NONE"`, `status.success FX_NONE is not a status code`},

@@ -134,10 +134,14 @@ typedef void (*fx_wide_callback)(void *user_data, uint64_t a, uint64_t b, uint64
     uint64_t e, uint64_t f);
 typedef void (*fx_unbound_callback)(void *user_data, uint32_t value);
 
-/* The callback invocations of a context: started, and returned to C. */
+/* The callback invocations of a context: started, and returned to C; the
+ * sum of the results C got from its write callbacks; and the measure
+ * invocations after which C found its out array unwritten (still NaN). */
 typedef struct fx_counters {
     uint64_t started;
     uint64_t returned;
+    int64_t write_results;
+    uint64_t unwritten;
 } fx_counters;
 
 uint32_t fx_abi_version(void);

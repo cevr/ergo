@@ -149,8 +149,39 @@
 // entry is removed when its call returns, on every path. A registered
 // callback with a token key keeps its entries until its owner's destroy
 // (the key does not say which registration a clear ends).
-// LiveCallbacks reports the number of live registrations. A panic in a
-// callback is not contained yet (slice 2c of bind-c-2).
+// LiveCallbacks reports the number of live registrations.
+//
+// A Go panic or runtime.Goexit must never unwind C frames: C cleanup would
+// not run (OpenTUI: "A C++ exception, longjmp, or thread exit through
+// native frames skips native cleanup and is undefined behavior"). So each
+// trampoline runs its Go function under a deferred recover (emitthread.go).
+// A panic becomes a *CallbackPanic (the typedef, the value and the stack;
+// Unwrap gives the value when it is an error; a value that is a
+// *CallbackPanic already is kept), C gets the default, and the panic is
+// pending on the OS thread of the invocation. While it is pending, a
+// trampoline on that thread runs no Go code and gives C the default. Each
+// typed call of a binding with bound callbacks keeps its goroutine on its
+// OS thread (runtime.LockOSThread) from before its C call until it has
+// taken the panic pending there (one atomic load when none is), lets the
+// registry follow the C call's status, and then panics with it before it
+// converts a result. So the panic surfaces directly above the C frame: in
+// the outermost typed call, or in a nested typed call inside an outer
+// callback, whose trampoline contains it again. runtime.Goexit cannot be
+// stopped, so the trampoline ends the process with exit status 2 and one
+// stderr line that names the typedef. The thread id (cbThread) is gettid
+// on linux and the thread_selfid system call on darwin. On the path with
+// no panic, the containment costs one atomic load, one open-coded defer and
+// one flag per invocation, and no allocation.
+//
+// A binding with a handle whose thread is owner has an Owner: one goroutine
+// locked to one OS thread and never unlocked, so the thread ends with it.
+// Do from another goroutine runs a function there and waits; Do on the
+// owner thread (a job, or a callback inside one) runs it inline; a panic
+// panics again in the caller of Do, and the runner keeps serving. Close:
+// jobs handed over before Close run, a later Do returns ErrOwnerClosed,
+// Close returns after the runner stopped, and Close on the owner thread
+// returns ErrOwnerThread and does nothing (the model owner.qnt of
+// bind-c-2).
 //
 // The Ergo text keeps every function that takes a callback as a not-bound
 // line (callbacks into Ergo are bind-c-7).

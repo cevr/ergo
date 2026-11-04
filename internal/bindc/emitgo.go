@@ -228,8 +228,11 @@ func Load(path string) error {
 		e.p(")\n\n")
 	}
 
-	// Callbacks: the trampolines and the registry (emitcb.go).
+	// Callbacks: the trampolines and the registry (emitcb.go), the panic
+	// containment, the thread id and the Owner (emitthread.go).
 	e.callbacks()
+	e.threadHelper()
+	e.ownerRunner()
 
 	// Raw layer.
 	e.p("// The raw layer: the exact C shape of every function, with a struct by\n// value in its call form, a callback as uintptr, and a token key as uintptr.\nvar (\n")
@@ -576,12 +579,28 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 	for _, u := range uses {
 		e.cbBefore(u, s.Status)
 	}
+	// With bound callbacks, the goroutine stays on its OS thread from before
+	// the C call until it has taken the panic pending there (_p,
+	// emitthread.go); it panics with it after the registry follows the
+	// status, before a result is converted.
+	guard := e.guardsCalls()
+	if guard {
+		e.p("\t%s.LockOSThread()\n", e.use("runtime"))
+	}
 	call := rawName(c.Name) + "(" + strings.Join(args, ", ") + ")"
 	switch {
 	case c.Result.Kind == TypeVoid:
 		e.p("\t%s\n", call)
 	default:
 		e.p("\t_r := %s\n", call)
+	}
+	if guard {
+		e.p("\t_p := cbTake()\n\truntime.UnlockOSThread()\n")
+	}
+	raise := func(indent string) {
+		if guard {
+			e.p("%sif _p != nil {\n%s\tpanic(_p)\n%s}\n", indent, indent, indent)
+		}
 	}
 	for _, v := range keep {
 		// Only a function that passes Go memory imports runtime.
@@ -592,6 +611,7 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 		for _, u := range uses {
 			e.cbFailed(u)
 		}
+		raise("\t\t")
 		e.p("\t\t%s\n\t}\n", ret("err"))
 	}
 	// After a successful return: clears, ends and the owner's destroy
@@ -608,6 +628,7 @@ func (e *goEmitter) typedFunc(f *BoundFunc) {
 			}
 		}
 	}
+	raise("\t")
 	var outs []string
 	for _, r := range s.Results {
 		switch {
