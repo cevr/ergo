@@ -239,9 +239,13 @@ func TestAStreamHolderOutsideTheGroupDoesNotHoldTheRunner(t *testing.T) {
 		t.Skip("no /usr/bin/setsid on this host")
 	}
 	f := newFixture(t)
-	// The holder sleeps 4 s with the case's stdout open, then marks its end;
-	// the test waits for the mark, so no holder outlives the test.
-	ended := filepath.Join(t.TempDir(), "ended")
+	// The holder leaves the group, marks its start, sleeps 4 s with the
+	// case's stdout open, then marks its end. The leader waits (at most 10 s)
+	// for the start mark, so the group stop cannot catch the holder before it
+	// left the group; the test waits for the end mark, so no holder outlives
+	// the test.
+	marks := t.TempDir()
+	ended := filepath.Join(marks, "ended")
 	t.Cleanup(func() {
 		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 			if _, err := os.Stat(ended); err == nil {
@@ -250,13 +254,18 @@ func TestAStreamHolderOutsideTheGroupDoesNotHoldTheRunner(t *testing.T) {
 		}
 		t.Error("the holder never ended")
 	})
-	f.program("escaper", "#!/bin/sh\n/usr/bin/setsid sh -c 'sleep 4; touch \"$ENDED\"' &\necho done\n", "slow\n",
-		map[string]map[string]string{"basic": {"env": "ENDED=" + ended + "\n", "expected.out": "done\n"}}, nil)
+	escaper := "#!/bin/sh\n/usr/bin/setsid sh -c 'touch \"$MARKS/started\"; sleep 4; touch \"$MARKS/ended\"' &\n" +
+		`end=$(( $(date +%s) + 10 )); until [ -e "$MARKS/started" ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done` + "\necho done\n"
+	f.program("escaper", escaper, "slow\n",
+		map[string]map[string]string{"basic": {"env": "MARKS=" + marks + "\n", "expected.out": "done\n"}}, nil)
 	started := time.Now()
 	code, out := f.run("-timeout", "20s", "escaper")
 	took := time.Since(started)
 	if oks, _ := verdicts(out); code != 0 || !oks["escaper/basic"] {
 		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(marks, "started")); err != nil {
+		t.Fatalf("the holder never left the group: %v", err)
 	}
 	if took > 3*time.Second {
 		t.Fatalf("a stream held outside the group held the runner %s", took)
