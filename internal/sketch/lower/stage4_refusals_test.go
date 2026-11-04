@@ -31,6 +31,11 @@ var openOwners = []string{"196b", "#197", "#199", "#57", "#162", "#49", "#196"}
 // lower-v1 itself, a check-v1 stage, or "after check-v1".
 var closedOwner = regexp.MustCompile(`lower-v1|check-v1 stage|after check-v1|check-v1 Info fact`)
 
+// namesStage matches a text that names a stage or a versioned unit at all.
+// A rule text reaches the user through unreachable (module.go), so it
+// names an open owner or no stage.
+var namesStage = regexp.MustCompile(`(?i)\bstage\b|\b(lower|check)-v[0-9]`)
+
 // namesOpenOwner reports whether text names one of openOwners as a whole
 // word, so #1970 is not #197.
 func namesOpenOwner(text string) bool {
@@ -267,6 +272,9 @@ func TestRefusalsNameOpenOwners(t *testing.T) {
 		}
 		if diagCode.MatchString(text) && len(unreachableFixtures[text]) == 0 {
 			t.Errorf("the rule %s names a code and has no negative fixture", name)
+		}
+		if closedOwner.MatchString(text) || (namesStage.MatchString(text) && !namesOpenOwner(text)) {
+			t.Errorf("the rule %s names a stage that is not an open owner %v: %q", name, openOwners, text)
 		}
 	}
 	sort.Strings(names)
