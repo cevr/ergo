@@ -44,8 +44,54 @@ var declared = map[string][]allowance{
 	"internal/testinputs/guard": {
 		{path: "./", reason: "the guard lists every directory and reads every test file, so a test package added anywhere reruns it"},
 	},
+	"internal/sketch/check": {
+		{path: "internal/sketch/proto/testdata/", reason: "the corpus tests check every proto fixture"},
+		{path: "internal/sketch/syntax/testdata/corpus/", reason: "the corpus tests check every sketch-eval source"},
+		{path: "examples/", reason: "round19 checks every example program (a glob of examples/*/*/*.ergo)"},
+		{path: "docs/research/ef-migrate/", reason: "round19 checks the migrated examples"},
+		{path: "docs/spec/diagnostics.md", reason: "TestRegistry: the spec's code rows and the code table agree"},
+	},
 	"internal/sketch/lower": {
 		{path: "cmd/ergo", reason: "the tests drive the public CLI, built once per process", program: true},
+		{path: "internal/sketch/check/testdata/", reason: "the accepted and refusal inventories lower every checker fixture"},
+		{path: "internal/sketch/proto/testdata/", reason: "the accepted and refusal inventories lower every proto fixture"},
+		{path: "examples/", reason: "the accepted and refusal inventories lower every example program"},
+	},
+	"internal/sketch/syntax": {
+		{path: "internal/sketch/proto/testdata/", reason: "the decided-syntax tests parse every proto fixture"},
+		{path: "internal/migrate196/testdata/old/", reason: "the old spellings must stop parsing"},
+		{path: "docs/spec/", reason: "every go fence of the language spec parses (sketchtest.SpecFences lists docs/spec)"},
+		{path: "docs/research/ef-migrate/", reason: "the migrated examples parse (sketchtest.Repository)"},
+		{path: "examples/editions/sketch/main.ergo", reason: "the 2026 example program parses (sketchtest.Repository)"},
+		{path: "docs/previews/2026-10-28-without-go-syntax.md", reason: "the decided syntax matches the preview it was decided from"},
+	},
+	"internal/sketch/format": {
+		{path: "internal/sketch/syntax/testdata/corpus/", reason: "the formatter round-trips the parser's corpus"},
+		{path: "internal/sketch/syntax/testdata/decided/", reason: "the formatter round-trips the decided-syntax fixtures"},
+		{path: "internal/sketch/syntax/testdata/edge/", reason: "the formatter round-trips the edge fixtures"},
+		{path: "docs/spec/", reason: "the formatter round-trips every go fence of the language spec (sketchtest.SpecFences)"},
+		{path: "docs/research/ef-migrate/", reason: "the formatter round-trips the migrated examples (sketchtest.Repository)"},
+		{path: "examples/editions/sketch/main.ergo", reason: "the formatter round-trips the 2026 example program (sketchtest.Repository)"},
+	},
+	"cmd/ergo": {
+		{path: "README.md", reason: "the README smoke test runs the README's go blocks and commands"},
+		{path: "examples/editions/sketch/", reason: "the process and README smoke tests copy the 2026 example into a workspace"},
+	},
+	"internal/sketchfront": {
+		{path: "examples/editions/sketch/main.ergo", reason: "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
+		{path: "examples/editions/sketch/expected.out", reason: "TestSketchBuildRunsProgram compares the run with the expected output"},
+	},
+	"internal/testinputs": {
+		{path: "internal/testinputs/guard/guard.go", reason: "the end-to-end test copies the guard into a scratch module"},
+		{path: "internal/testinputs/guard/guard_test.go", reason: "the end-to-end test copies the guard into a scratch module"},
+	},
+	"scripts/conformance": {
+		{path: "conformance/effect-cases.json", reason: "the mapping reads the Effect case list"},
+		{path: "conformance/upstream/foldkit-d21db423/", reason: "the mapping reads the pinned foldkit evidence (follow-up: outside this unit's Owns)"},
+		{path: ".git", reason: "the mapping asks git whether evidence is tracked (follow-up: outside this unit's Owns)"},
+	},
+	"scripts/gate": {
+		{path: "./", reason: "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
 	},
 }
 
@@ -359,6 +405,15 @@ func TestDeclaredAllowanceIsWellFormed(t *testing.T) {
 	}
 	for _, a := range everyPackage {
 		check("every package", a)
+	}
+	// The checker and the lowerer must stay cached across an edit of an
+	// unrelated document (speed plan U2): no entry of theirs covers it.
+	for _, dir := range []string{"internal/sketch/check", "internal/sketch/lower"} {
+		for _, a := range append(slices.Clone(everyPackage), declared[dir]...) {
+			if !a.program && covers(a.path, "docs/tooling.md") {
+				t.Errorf("%s: %q covers docs/tooling.md, so an edit of it reruns the package", dir, a.path)
+			}
+		}
 	}
 }
 
