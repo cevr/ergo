@@ -498,6 +498,15 @@ func infoGaps(file *syntax.File, src string, info *Info) []string {
 			own = map[*TypeParam]bool{}
 			fields(d.Params, "the test parameter")
 			syntax.Inspect(d.Body, visit)
+		case *syntax.LawDecl:
+			// A top-level law (law-top): its name's Defs entry is its Law,
+			// with no owning type, and it has no type parameters.
+			if law, ok := info.Defs[d.Name].(*Law); !ok || law.Owner != nil {
+				at(d.Name, "the top-level law "+d.Name.Name+" with no ownerless Law in Defs")
+			}
+			own = map[*TypeParam]bool{}
+			fields(d.Params, "the law parameter")
+			syntax.Inspect(d.Body, visit)
 		case *syntax.TypeDecl:
 			declared(d.Name, "the type")
 			fields(d.TypeParams, "the type parameter")

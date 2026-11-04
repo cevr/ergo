@@ -85,7 +85,7 @@ func frameGaps(file *syntax.File, info *Info) []string {
 	}
 	for _, d := range file.Decls {
 		switch d.(type) {
-		case *syntax.FuncDecl, *syntax.TestDecl:
+		case *syntax.FuncDecl, *syntax.TestDecl, *syntax.LawDecl:
 			walk(d, true)
 		default:
 			walk(d, false)

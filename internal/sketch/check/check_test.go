@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/sketchtest"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -247,6 +248,11 @@ func FuzzCheck(f *testing.F) {
 	// TestLocalContextRules (check-v1 E5, A2), from their one source.
 	for _, r := range localRules() {
 		f.Add(localPrelude + r.body)
+	}
+	// The top-level law programs of TestTopLevelLawRules (law-top A2), so
+	// the declaration-order oracle meets a law and a test of one name.
+	for _, c := range sketchtest.LawTopCases {
+		f.Add(c.Src)
 	}
 	f.Fuzz(func(t *testing.T, src string) {
 		_, a := check.CheckSource(src)
