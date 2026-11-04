@@ -96,7 +96,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		steps = append(steps, step)
 		return step
 	}
-	add(&Step{Name: "no tracked python bytecode", Argv: []string{"sh", "-c", `tracked=$(git ls-files '*.pyc'); if [ -n "$tracked" ]; then echo "tracked Python bytecode (git rm it; __pycache__/ is ignored):"; echo "$tracked"; exit 1; fi`}})
+	add(&Step{Name: "no tracked python bytecode", Argv: bytecodeScript.command()})
 	add(&Step{Name: "wayfinder snapshot check", Argv: []string{"go", "run", "./cmd/wayfinder", "check", "--snapshot"}, Inputs: wayfinderSnapshotInputs()})
 
 	// The Foldkit checks walk the snapshot directory, so files Git ignores
@@ -106,7 +106,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	add(&Step{Name: "foldkit corpus self-check", Argv: []string{"go", "run", "./scripts/conformance", "foldkit", "--self-check"}, Inputs: foldkit})
 	add(effectMappingStep())
 
-	add(&Step{Name: "gofmt", Argv: append([]string{"sh", "-c", `unformatted=$(gofmt -l "$@"); if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi`, "gofmt"}, gofmtDirectories...)})
+	add(&Step{Name: "gofmt", Argv: gofmtScript.command(append([]string{"gofmt"}, gofmtDirectories...)...)})
 	// Building every test binary once lets vet, the shards and the CLI build
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: "go test build", Argv: []string{"go", "test", "-run", "^$", "./..."}})
@@ -254,7 +254,8 @@ func uncachedScript(script string) string {
 // bytes differ. go build touches its output even when it relinks nothing,
 // and Go's test cache keys a test that listed a directory on every entry's
 // modification time, so rewriting an unchanged bin/ergo would rerun every test
-// that lists bin/. Without a cache directory it builds in place.
+// that lists bin/. Without a cache directory it builds in place. The script
+// is stagedBuildScript, a reviewed script (reviewed.go).
 func stagedBuild(root, out, pkg string) []string {
 	cache := cacheDirectory()
 	if cache == "" {
@@ -262,10 +263,9 @@ func stagedBuild(root, out, pkg string) []string {
 	}
 	sum := sha256.Sum256([]byte(root))
 	staging := filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), filepath.Base(out))
-	script := `mkdir -p "$(dirname "$1")" "$(dirname "$2")" && go build -buildvcs=false -o "$1" "$3" && { cmp -s "$1" "$2" || mv -f "$1" "$2"; }`
 	// The script's $0 names it, not a shell: TestTestCommandsHaveCacheCoverage
-	// refuses a sh -c script whose arguments name go or a shell.
-	return []string{"sh", "-c", script, "stagedbuild", staging, out, pkg}
+	// refuses a sh -c step whose arguments name go or a shell.
+	return stagedBuildScript.command("stagedbuild", staging, out, pkg)
 }
 
 // effectMappingStep checks the Effect behavior mapping and its evidence
@@ -294,7 +294,7 @@ func effectMappingStep() *Step {
 // observation of the main module's tests (internal/testinputs) does not reach
 // another module. TestTestCommandsHaveCacheCoverage refuses a go test of
 // another module without -count=1. Go's build cache still skips an unchanged
-// build.
+// build. The script is provenanceScript, a reviewed script (reviewed.go).
 func provenanceAnalyzer(root string) []string {
 	binary := ""
 	// go build -C resolves -o in tools/provenance, so the path is absolute;
@@ -303,11 +303,7 @@ func provenanceAnalyzer(root string) []string {
 		sum := sha256.Sum256([]byte(root))
 		binary = filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), "provenance")
 	}
-	script := `bin=${1:-$(mktemp -d)/provenance} && mkdir -p "$(dirname "$bin")" &&
-go test -C tools/provenance -count=1 ` + testTimeout + ` ./... &&
-go build -C tools/provenance -buildvcs=false -o "$bin" ./cmd/provenance &&
-"$bin" -test=false -manifest "$2" ./internal/sketch/check`
-	return []string{"sh", "-c", script, "provenance", binary, provenanceManifest}
+	return provenanceScript.command("provenance", binary, provenanceManifest)
 }
 
 // wayfinderSnapshotInputs keys the check that the committed Wayfinder snapshot
