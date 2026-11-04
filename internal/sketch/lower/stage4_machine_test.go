@@ -276,7 +276,7 @@ func TestMachinePlanValues(t *testing.T) {
 	for _, m := range machines {
 		driver.WriteString(m.driver())
 	}
-	goTestPlans(t, prog, driver.String())
+	goTestEmitted(t, prog, driver.String())
 	exes := buildAll(t, []*lowered{prog}, true)
 	if exes == nil {
 		return
@@ -286,9 +286,10 @@ func TestMachinePlanValues(t *testing.T) {
 	}
 }
 
-// goTestPlans runs the Go test source text beside prog's emitted main.go,
-// in a module with the runtime, and fails t when it fails.
-func goTestPlans(t *testing.T, prog *lowered, text string) {
+// goTestEmitted runs the Go test source text beside prog's emitted main.go,
+// in a module with the runtime, with env added to its environment, and
+// fails t when it fails.
+func goTestEmitted(t *testing.T, prog *lowered, text string, env ...string) {
 	t.Helper()
 	root := t.TempDir()
 	write := func(rel string, data []byte) {
@@ -308,11 +309,11 @@ func goTestPlans(t *testing.T, prog *lowered, text string) {
 	write("p/plans/plans_test.go", []byte(text))
 	cmd := exec.Command("go", "test", "-count=1", "./p/plans")
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
+	cmd.Env = append(append(os.Environ(), "GOWORK=off", "GOPROXY=off"), env...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("the plans' Go test failed: %v\n%s", err, firstLines(out.String(), 60))
+		t.Fatalf("the emitted module's Go test failed: %v\n%s", err, firstLines(out.String(), 60))
 	}
 }
 
@@ -334,5 +335,5 @@ func TestMachinePlanStepReadsItsEnvironment(t *testing.T) {
 		"\t\tvar s Light = Green{}\n\t\tvar e Tick = Go{}\n\t\targs = append(args, reflect.ValueOf(&s).Elem(), reflect.ValueOf(&e).Elem())\n" +
 		"\t\td := step.Call(args)[0].Interface()\n\t\tif done, ok := d.(Done[string]); !ok || done.Output != \"n=1\" {\n\t\t\tt.Errorf(\"Signal.Step(Green, Go) = %#v, want Done n=1\", d)\n\t\t}\n" +
 		"\t\treturn struct{}{}, nil\n\t})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n"
-	goTestPlans(t, prog, driver)
+	goTestEmitted(t, prog, driver)
 }

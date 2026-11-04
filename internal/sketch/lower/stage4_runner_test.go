@@ -2,7 +2,10 @@ package lower
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -241,6 +244,8 @@ func eqMap[K comparable, V comparable](a Map[K, V], b Map[K, V]) bool {
 // first argument under that seed, and asserts that they differ: it must
 // fail at case 1 for every kind, so the text gave an equal value. The
 // second files must check with no diagnostic. Map keys print sorted.
+// Durations also round-trip from values that reach every unit, h to ns
+// (durationTextRoundTrips).
 func TestArgumentTextRoundTrips(t *testing.T) {
 	const seeds = 12
 	var first strings.Builder
@@ -248,7 +253,9 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	for _, k := range literalKinds {
 		first.WriteString("\ntest K" + k.name + "(v " + k.typ + ") { assert false }\n")
 	}
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "first", first.String())}, true)
+	firstProg := lowerTestBuild(t, "first", first.String())
+	durationTextRoundTrips(t, firstProg)
+	exes := buildAll(t, []*lowered{firstProg}, true)
 	if exes == nil {
 		return
 	}
@@ -301,6 +308,105 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 				t.Errorf("seed %d: %s: the literal %s did not give the value it was printed from", s, k.name, texts[s][k.name])
 			}
 		}
+	}
+}
+
+// durationUnits are the duration units, largest first, with their sizes.
+var durationUnits = []struct {
+	suffix string
+	size   int64
+}{{"h", 3600e9}, {"m", 60e9}, {"s", 1e9}, {"ms", 1e6}, {"us", 1e3}, {"ns", 1}}
+
+// durationValues draws whole multiples of each unit, h to ns, small and
+// large, with both signs; mixed values, a whole number of one unit plus a
+// part of the next smaller one; and the edges 0, 1500ms, the largest and
+// the smallest duration. The product generator draws a whole number of a
+// unit above ns about once in 1000 draws (S4a round 1 M1), so the round
+// trip of the product's draws alone does not reach the other units.
+func durationValues(rng *rand.Rand) []int64 {
+	var out []int64
+	for i, u := range durationUnits {
+		most := int64(math.MaxInt64) / u.size
+		for j := 0; j < 6; j++ {
+			n := 1 + rng.Int63n(min(most, 100))
+			if j >= 3 {
+				n = 1 + rng.Int63n(most)
+			}
+			if j%2 == 1 {
+				n = -n
+			}
+			out = append(out, n*u.size)
+		}
+		if i+1 < len(durationUnits) {
+			small := durationUnits[i+1].size
+			out = append(out, (1+rng.Int63n(50))*u.size+(1+rng.Int63n(u.size/small-1))*small)
+		}
+	}
+	return append(out, 0, 1500e6, math.MaxInt64, math.MinInt64)
+}
+
+// durationUnit is the largest unit of which n is a whole number: the unit
+// the argument text must print n in (runtime.md, test runner rule 5).
+func durationUnit(n int64) string {
+	for _, u := range durationUnits {
+		if n != 0 && n%u.size == 0 {
+			return u.suffix
+		}
+	}
+	return "ns"
+}
+
+// durationTextRoundTrips is the duration leg of TestArgumentTextRoundTrips.
+// A Go test in prog's emitted module prints durationValues through the
+// emitted duration text helper. Each text must name the largest exact unit,
+// the values must reach every unit, and a test file that binds each text
+// with `let w duration = text` must check and find it equal to the value
+// written in nanoseconds.
+func durationTextRoundTrips(t *testing.T, prog *lowered) {
+	t.Helper()
+	values := durationValues(rand.New(rand.NewSource(1500)))
+	lits := make([]string, len(values))
+	for i, v := range values {
+		lits[i] = strconv.FormatInt(v, 10)
+	}
+	out := filepath.Join(t.TempDir(), "durations.txt")
+	driver := "package main\n\nimport (\n\t\"os\"\n\t\"strings\"\n\t\"testing\"\n)\n\n" +
+		"func TestDurationText(t *testing.T) {\n\tvar b strings.Builder\n\tfor _, v := range []int64{" + strings.Join(lits, ", ") + "} {\n\t\tb.WriteString(ergoLitDuration(v) + \"\\n\")\n\t}\n" +
+		"\tif err := os.WriteFile(os.Getenv(\"ERGO_DURATION_TEXT\"), []byte(b.String()), 0o644); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n"
+	goTestEmitted(t, prog, driver, "ERGO_DURATION_TEXT="+out)
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(texts) != len(values) {
+		t.Fatalf("%d duration texts for %d values", len(texts), len(values))
+	}
+	reached := map[string]bool{}
+	shape := regexp.MustCompile(`^-?[0-9]+(h|m|s|ms|us|ns)$`)
+	var src strings.Builder
+	for i, v := range values {
+		want := lits[i] + "ns"
+		if v == math.MinInt64 {
+			want = "-9223372036854775807ns - 1ns"
+		} else if m := shape.FindStringSubmatch(texts[i]); m == nil || m[1] != durationUnit(v) {
+			t.Errorf("the duration %dns prints as %q, not in its largest exact unit %s", v, texts[i], durationUnit(v))
+		}
+		reached[durationUnit(v)] = true
+		fmt.Fprintf(&src, "test D%d() {\n\tlet w duration = %s\n\tassert w == %s\n}\n\n", i, texts[i], want)
+	}
+	for _, u := range durationUnits {
+		if !reached[u.suffix] {
+			t.Errorf("no drawn duration is a whole number of %s", u.suffix)
+		}
+	}
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "durations", src.String())}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["durations"])
+	if code != 0 || !strings.HasSuffix(stdout, fmt.Sprintf("PASS (%d tests)\n", len(values))) {
+		t.Errorf("the printed durations do not give their values back: exit %d\n%s\n%s\n%s", code, firstLines(stdout, 40), firstLines(stderr, 8), src.String())
 	}
 }
 
