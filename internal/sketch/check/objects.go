@@ -143,8 +143,8 @@ type Context struct {
 	// and charged at each with that builds it (rows.md, Context 9).
 	needs, fails *Row
 	file         *fileInfo
-	binds *capSet // capabilities the context binds; nil until resolved
-	own   *capSet // the context's own entries (contextSummaries)
+	binds        *capSet // capabilities the context binds; nil until resolved
+	own          *capSet // the context's own entries (contextSummaries)
 	// unknown marks a context that embeds, directly or not, a context that does
 	// not exist (reported at the embedding): what it binds is unknown, so
 	// a with of it discharges everything (D3; M18).
