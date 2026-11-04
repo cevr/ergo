@@ -20,7 +20,14 @@ import (
 // t.TempDir(), with the fake compiler in testdata. They read nothing else of
 // the checkout: the real tree and the real compiler belong to the gate step.
 
+// asRunner makes this test binary run as the runner itself: the signal test
+// starts it so, to signal a runner that is not the test process.
+const asRunner = "EXAMPLES_TEST_AS_RUNNER"
+
 func TestMain(m *testing.M) {
+	if os.Getenv(asRunner) == "1" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	os.Exit(testinputs.Main(m))
 }
 
@@ -613,29 +620,32 @@ func TestRecordLegWritesNothingWhenTheOriginalCannotStart(t *testing.T) {
 }
 
 // execute returns an error, and no outcome, for each cause of a start
-// failure: a stdin that cannot be opened, output files that cannot be made,
-// and a command that cannot be started. A command that ran returns no error.
+// failure that a test can make: a stdin that cannot be opened, a command that
+// cannot be started, and a run that a signal is stopping. A command that ran
+// returns no error.
 func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
+	stopping := newLive()
+	stopping.closed = true
 	rows := []struct {
-		what    string
-		argv    []string
-		stdin   string
-		scratch string
+		what  string
+		live  *live
+		argv  []string
+		stdin string
 	}{
-		{"stdin cannot be opened", []string{"sh", "-c", "exit 0"}, missing, dir},
-		{"output files cannot be made", []string{"sh", "-c", "exit 0"}, "", missing},
-		{"command cannot be started", []string{missing}, "", dir},
+		{"stdin cannot be opened", newLive(), []string{"sh", "-c", "exit 0"}, missing},
+		{"command cannot be started", newLive(), []string{missing}, ""},
+		{"the run is stopping", stopping, []string{"sh", "-c", "exit 0"}, ""},
 	}
 	for _, row := range rows {
-		o, err := execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, row.scratch)
+		o, err := row.live.execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second)
 		if err == nil {
 			t.Errorf("%s: no error; outcome %+v", row.what, o)
 		}
 	}
-	if o, err := execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, dir); err != nil || o.status != 4 {
+	if o, err := newLive().execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second); err != nil || o.status != 4 {
 		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.status, err)
 	}
 }

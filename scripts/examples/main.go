@@ -121,13 +121,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "examples: no program selected (-tags %s); nothing to run\n", strings.Join(cfg.tags, ","))
 		return 0
 	}
-	scratch, err := os.MkdirTemp("", "ergo-examples-")
+	// From here every exit path the runner controls stops each process group
+	// it started: the end of a command, a timeout, the cap, a panic on this
+	// goroutine (execute's deferred stop) and a stop signal.
+	l := newLive()
+	defer l.handleSignals(stderr)()
+	scratch, err := l.makeDir("", "ergo-examples-")
 	if err != nil {
 		fmt.Fprintln(stderr, "examples:", err)
 		return 2
 	}
-	defer os.RemoveAll(scratch)
-	r := &runner{cfg: cfg, out: stdout, scratch: scratch}
+	defer l.removeDir(scratch)
+	r := &runner{cfg: cfg, out: stdout, scratch: scratch, live: l}
 	for _, p := range selected {
 		if cfg.record {
 			r.recordProgram(p)
@@ -453,7 +458,8 @@ func sortedKeys(m map[string]string) []string {
 type runner struct {
 	cfg      *config
 	out      io.Writer
-	scratch  string
+	scratch  string // holds only the built programs
+	live     *live
 	cases    int
 	failures []string
 }
@@ -476,15 +482,25 @@ func (r *runner) finish() int {
 // tool runs a compiler command from the root with the runner's environment
 // and empty input, in its own process group.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
-	return execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout, r.scratch)
+	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout)
+}
+
+// toolFailed prints the failure of a compiler leg (fmt or build) and counts
+// it. Output over the cap is named, never printed.
+func (r *runner) toolFailed(p *program, leg string, o outcome, err error) {
+	if over := o.overCap(); err == nil && over != "" {
+		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, over)
+	} else {
+		fmt.Fprintf(r.out, "FAIL %s: %s\n", p.name, leg)
+		r.printOutput(o, err)
+	}
+	r.fail(p.name + ": " + leg)
 }
 
 // runProgram formats, builds and tests one program and runs its cases.
 func (r *runner) runProgram(p *program) {
 	if o, err := r.tool(0, append([]string{"fmt", "--check"}, p.sources...)...); err != nil || !o.passed() {
-		fmt.Fprintf(r.out, "FAIL %s: fmt\n", p.name)
-		r.printOutput(o, err)
-		r.fail(p.name + ": fmt")
+		r.toolFailed(p, "fmt", o, err)
 		return
 	}
 	dir, err := os.MkdirTemp(r.scratch, "build-")
@@ -495,9 +511,7 @@ func (r *runner) runProgram(p *program) {
 	}
 	binary := filepath.Join(dir, p.name)
 	if o, err := r.tool(0, "build", filepath.Join(p.dir, "main.ergo"), "-o", binary); err != nil || !o.passed() {
-		fmt.Fprintf(r.out, "FAIL %s: build\n", p.name)
-		r.printOutput(o, err)
-		r.fail(p.name + ": build")
+		r.toolFailed(p, "build", o, err)
 		return
 	}
 	if p.tested {
@@ -515,6 +529,9 @@ func (r *runner) testProgram(p *program) {
 	switch {
 	case err != nil:
 		fmt.Fprintf(r.out, "FAIL %s: test: could not start: %v\n", p.name, err)
+		r.fail(p.name + ": test")
+	case o.overCap() != "":
+		fmt.Fprintf(r.out, "FAIL %s: test: %s\n", p.name, o.overCap())
 		r.fail(p.name + ": test")
 	case o.passed():
 		fmt.Fprintf(r.out, "ok %s: test (%s)\n", p.name, seconds(o.elapsed))
@@ -534,11 +551,17 @@ func (r *runner) recordProgram(p *program) {
 			r.runCase(p, c, command, false)
 			continue
 		}
-		// The goldens come only from a run of the original that started
-		// and ended by itself: execCase fails a case whose command could
-		// not start, and a timeout or a signal records nothing.
+		// The goldens come only from a run of the original that started,
+		// stayed within the cap and ended by itself: execCase fails a case
+		// whose command could not start, and output over the cap, a timeout
+		// or a signal records nothing.
 		o, ok := r.execCase(p, c, command)
 		if !ok {
+			continue
+		}
+		if over := o.overCap(); over != "" {
+			fmt.Fprintf(r.out, "FAIL %s/%s: %s\n", p.name, c.name, over)
+			r.fail(p.name + "/" + c.name)
 			continue
 		}
 		if o.timedOut || o.status < 0 {
@@ -591,40 +614,39 @@ func writeGoldens(dir string, o outcome) error {
 // directory, its setup.sh or its command could not start, or setup.sh failed.
 // So an outcome it returns is always of a command that started.
 func (r *runner) execCase(p *program, c *testCase, command []string) (outcome, bool) {
-	work, err := os.MkdirTemp("", "ergo-case-")
-	if err == nil {
-		// HOME and the working directory name the same place, as the
-		// program sees it (on darwin TMPDIR goes through a link).
-		work, err = filepath.EvalSymlinks(work)
-	}
+	work, err := r.live.makeDir("", "ergo-case-")
 	if err != nil {
 		fmt.Fprintf(r.out, "FAIL %s/%s: make its directory: %v\n", p.name, c.name, err)
 		r.fail(p.name + "/" + c.name)
 		return outcome{}, false
 	}
-	defer removeAll(work)
+	defer r.live.removeDir(work)
 	env := []string{"HOME=" + work}
 	if path, ok := os.LookupEnv("PATH"); ok {
 		env = append([]string{"PATH=" + path}, env...)
 	}
 	env = append(env, c.env...)
 	if c.setup {
-		o, err := execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, work, env, "", r.cfg.timeout, r.scratch)
+		o, err := r.live.execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, work, env, "", r.cfg.timeout)
 		if err != nil || !o.passed() {
 			what := fmt.Sprintf("setup.sh exit %d", o.status)
 			switch {
 			case err != nil:
 				what = fmt.Sprintf("setup.sh could not start: %v", err)
+			case o.overCap() != "":
+				what = "setup.sh " + o.overCap()
 			case o.timedOut || o.status < 0:
 				what = "setup.sh" + o.why(r.cfg.timeout)
 			}
 			fmt.Fprintf(r.out, "FAIL %s/%s: %s\n", p.name, c.name, what)
-			r.printOutput(o, nil)
+			if o.overCap() == "" {
+				r.printOutput(o, nil)
+			}
 			r.fail(p.name + "/" + c.name)
 			return outcome{}, false
 		}
 	}
-	o, err := execute(append(slices.Clone(command), c.args...), work, env, c.stdin, r.cfg.timeout, r.scratch)
+	o, err := r.live.execute(append(slices.Clone(command), c.args...), work, env, c.stdin, r.cfg.timeout)
 	if err != nil {
 		fmt.Fprintf(r.out, "FAIL %s/%s: could not start: %v\n", p.name, c.name, err)
 		r.fail(p.name + "/" + c.name)
@@ -641,6 +663,13 @@ func (r *runner) runCase(p *program, c *testCase, command []string, budgeted boo
 	}
 	r.cases++
 	label := p.name + "/" + c.name
+	// Output over the cap replaces every other verdict and prints no diff:
+	// a diff of a near-miss of 1 MiB is the dump the cap exists to stop.
+	if over := o.overCap(); over != "" {
+		fmt.Fprintf(r.out, "FAIL %s: %s\n", label, over)
+		r.fail(label)
+		return
+	}
 	if o.timedOut {
 		fmt.Fprintf(r.out, "FAIL %s:%s\n", label, o.why(r.cfg.timeout))
 		r.fail(label)
@@ -710,7 +739,10 @@ func seconds(d time.Duration) string { return fmt.Sprintf("%.2fs", d.Seconds()) 
 // has no outcome: execute returns an error instead, so no caller can read an
 // exit status 0 from a command that never ran.
 type outcome struct {
-	stdout, stderr []byte
+	// stdout and stderr hold at most outputCap bytes each; a stream over the
+	// cap is marked, and its bytes are dropped.
+	stdout, stderr         []byte
+	stdoutOver, stderrOver bool
 	// status is the exit status, or -1 when a signal ended the process.
 	status   int
 	signal   string
@@ -718,7 +750,9 @@ type outcome struct {
 	elapsed  time.Duration
 }
 
-func (o outcome) passed() bool { return !o.timedOut && o.status == 0 }
+func (o outcome) passed() bool {
+	return !o.timedOut && o.status == 0 && !o.stdoutOver && !o.stderrOver
+}
 
 func (o outcome) statusText() string {
 	if o.status < 0 {
@@ -738,15 +772,30 @@ func (o outcome) why(timeout time.Duration) string {
 	return ""
 }
 
+// testHookStarted, when not nil, is called by execute on its own goroutine
+// right after a command started, its group was registered and its deferred
+// stop was armed. It is nil in production; a test sets it to inject a panic
+// (net/http's testHook pattern).
+var testHookStarted func(argv []string)
+
+// streamDelay bounds how long execute waits, after the last stop of a
+// command's group, for its streams to end: a process that left the group
+// (setsid) and still holds a stream holds the runner no longer than this, as
+// exec.Cmd.WaitDelay bounds it for Go.
+const streamDelay = time.Second
+
 // execute runs argv in dir with exactly env, stdin from the file named (or
-// empty input), in its own process group. Its output goes to files, so no
-// process that keeps a stream open can hold the runner. When the command
-// exits, or when timeout (if not 0) passes, execute stops the whole group:
-// the only signal the runner sends, to the group of a child it started.
+// empty input), in its own process group, registered with l. Each of its
+// streams goes through a pipe into memory, at most outputCap bytes, so no
+// output reaches the disk; at the first byte past the cap the stream is over
+// and execute stops the group at once. It also stops the group when timeout
+// (if not 0) passes, when the leader exits (whatever the leader left running
+// goes with it), and when a panic unwinds this goroutine: stopGroup is the
+// only signal the runner sends, to the group of a child it started.
 // It returns an error, and no outcome, when the command could not start: its
-// stdin cannot be opened, its output files cannot be made, or the command
-// cannot be started.
-func execute(argv []string, dir string, env []string, stdin string, timeout time.Duration, scratch string) (outcome, error) {
+// stdin cannot be opened, its pipes cannot be made, the run is stopping, or
+// the command cannot be started.
+func (l *live) execute(argv []string, dir string, env []string, stdin string, timeout time.Duration) (outcome, error) {
 	input, err := os.Open(os.DevNull)
 	if stdin != "" {
 		input, err = os.Open(stdin)
@@ -755,28 +804,43 @@ func execute(argv []string, dir string, env []string, stdin string, timeout time
 		return outcome{}, err
 	}
 	defer input.Close()
-	stdout, err := os.CreateTemp(scratch, "stdout-")
+	outRead, outWrite, err := os.Pipe()
 	if err != nil {
 		return outcome{}, err
 	}
-	defer removeFile(stdout)
-	stderr, err := os.CreateTemp(scratch, "stderr-")
+	defer outRead.Close()
+	errRead, errWrite, err := os.Pipe()
 	if err != nil {
+		outWrite.Close()
 		return outcome{}, err
 	}
-	defer removeFile(stderr)
+	defer errRead.Close()
 	command := exec.Command(argv[0], argv[1:]...)
 	command.Dir = dir
 	command.Env = env
-	command.Stdin, command.Stdout, command.Stderr = input, stdout, stderr
+	command.Stdin, command.Stdout, command.Stderr = input, outWrite, errWrite
 	ownGroup(command)
 	started := time.Now()
-	if err := command.Start(); err != nil {
+	err = l.start(command)
+	// The command holds its own copies of the write ends. The runner's go
+	// now, or no reader would ever see the end of a stream.
+	outWrite.Close()
+	errWrite.Close()
+	if err != nil {
 		return outcome{}, err
 	}
-	var o outcome
+	// From here a panic on this goroutine stops the group as it unwinds.
+	defer l.release(command.Process)
+	stdout, stderr := newCapture(), newCapture()
+	overCap := func() { l.stop(command.Process) }
+	go stdout.fill(outRead, overCap)
+	go stderr.fill(errRead, overCap)
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
+	if testHookStarted != nil {
+		testHookStarted(argv)
+	}
+	var o outcome
 	var expired <-chan time.Time
 	if timeout > 0 {
 		timer := time.NewTimer(timeout)
@@ -787,22 +851,34 @@ func execute(argv []string, dir string, env []string, stdin string, timeout time
 	case <-done:
 	case <-expired:
 		o.timedOut = true
-		stopGroup(command.Process)
+		l.stop(command.Process)
 		<-done
 	}
 	o.elapsed = time.Since(started)
-	// Whatever the leader left running in its group goes with it.
-	stopGroup(command.Process)
+	// The last stop: whatever the leader left running in its group goes with
+	// it, and no cap stop signals the group after this.
+	l.release(command.Process)
+	held := time.NewTimer(streamDelay)
+	defer held.Stop()
+wait:
+	for _, c := range []*capture{stdout, stderr} {
+		select {
+		case <-c.done:
+		case <-held.C:
+			break wait
+		}
+	}
+	// A process outside the group that still holds a stream now writes into
+	// a closed pipe (EPIPE or SIGPIPE); each fill ends at once.
+	outRead.Close()
+	errRead.Close()
+	<-stdout.done
+	<-stderr.done
+	o.stdout, o.stdoutOver = stdout.data, stdout.over
+	o.stderr, o.stderrOver = stderr.data, stderr.over
 	o.status = command.ProcessState.ExitCode()
 	if o.status < 0 {
 		o.signal = signalName(command.ProcessState)
 	}
-	o.stdout, _ = os.ReadFile(stdout.Name())
-	o.stderr, _ = os.ReadFile(stderr.Name())
 	return o, nil
-}
-
-func removeFile(f *os.File) {
-	_ = f.Close()
-	_ = os.Remove(f.Name())
 }
