@@ -130,10 +130,19 @@ var declared = map[string][]allowance{
 		{"examples/editions/sketch/main.ergo", file, "TestSketchBuildRunsProgram and the lease test build the 2026 example program"},
 		{"examples/editions/sketch/expected.out", file, "TestSketchBuildRunsProgram compares the run with the expected output"},
 	},
-	"internal/testinputs": {
-		{"internal/testinputs/guard/guard.go", file, "the end-to-end test copies the guard into a scratch module"},
-		{"internal/testinputs/guard/guard_test.go", file, "the end-to-end test copies the guard into a scratch module"},
-	},
+	"internal/testinputs": declare(
+		[]allowance{
+			{"internal/testinputs/guard/guard.go", file, "the end-to-end test copies the guard into a scratch module"},
+			{"internal/testinputs/guard/guard_test.go", file, "the end-to-end test copies the guard into a scratch module"},
+		},
+		exactly("the observer's own tests run unobserved (unobservable), so what the end-to-end test's scratch modules read through their link to the package has no identity",
+			"internal/testinputs", "internal/testinputs/guard", "internal/testinputs/testenv",
+			"internal/testinputs/identity.go", "internal/testinputs/identity_linux.go",
+			"internal/testinputs/observe_linux.go", "internal/testinputs/observe_other.go",
+			"internal/testinputs/recorder.go", "internal/testinputs/sys_linux_amd64.go",
+			"internal/testinputs/sys_linux_arm64.go", "internal/testinputs/testinputs.go",
+			"internal/testinputs/testenv/testenv.go"),
+	),
 	"scripts/conformance": {
 		{"conformance/effect-cases.json", file, "the mapping reads the Effect case list"},
 		{"conformance/upstream/foldkit-d21db423", subtree, "the mapping walks the pinned foldkit evidence at every depth (follow-up: outside this unit's Owns)"},
@@ -165,6 +174,27 @@ func glob(pattern, reason string) []allowance {
 
 // declare joins entries and drops a repeat of an entry (the same grant and
 // path), keeping the first reason.
+// exactly declares one file grant per path, with one reason: the exact
+// entries that cover an input with no identity.
+func exactly(reason string, paths ...string) []allowance {
+	out := make([]allowance, len(paths))
+	for i, p := range paths {
+		out[i] = allowance{p, file, reason}
+	}
+	return out
+}
+
+// unobservable are the test packages the observer cannot observe, with the
+// reason: the sweep gives them no identity file, so each recorded input of
+// theirs in the checkout fails closed (unidentified) unless an exact
+// declared entry covers it.
+var unobservable = map[string]string{
+	// Measured: under testinputs.Main, its tests' own observers fail with
+	// "seccomp(SECCOMP_SET_MODE_FILTER): device or resource busy" (Linux
+	// allows one user-notification listener in a filter chain).
+	"internal/testinputs": "the observer's own tests install seccomp listeners, and a second listener in one filter chain is refused (EBUSY)",
+}
+
 func declare(parts ...[]allowance) []allowance {
 	var out []allowance
 	seen := map[string]bool{}
@@ -829,7 +859,13 @@ func runObserved(protect, pkg, pkgDir, stem string, extra []string, binary strin
 	args = append([]string{"-test.paniconexit0", "-test.timeout=45m", "-test.testlogfile=" + log}, args...)
 	// The observer of the test binary (testinputs.Main) records the
 	// identity of each access at access time (testinputs.IdentityVariable).
-	env := withEnv(sweepEnvironment(), append(append([]string{"PWD=" + pkgDir, testinputs.IdentityVariable + "=" + identityFile}, s.env()...), extra...)...)
+	// A package the observer cannot observe gets no identity file to write.
+	_, unobserved := unobservable[pkg]
+	vars := []string{"PWD=" + pkgDir}
+	if !unobserved {
+		vars = append(vars, testinputs.IdentityVariable+"="+identityFile)
+	}
+	env := withEnv(sweepEnvironment(), append(append(vars, s.env()...), extra...)...)
 	sb := sandbox{Root: protect, Scratch: s.dirs()}
 	for _, k := range declaredKernelWrites[pkg] {
 		sb.Kernel = append(sb.Kernel, k.point)
@@ -845,13 +881,18 @@ func runObserved(protect, pkg, pkgDir, stem string, extra []string, binary strin
 		return fail(err)
 	}
 	id, err := testinputs.ReadIdentity(identityFile)
-	if err != nil {
+	switch {
+	case unobserved:
+		// No access has an identity, so each recorded input in the
+		// checkout fails closed: only an exact declared entry covers it.
+		id = testinputs.Identity{}
+	case err != nil:
 		if bytes.HasSuffix(data, []byte("\n")) {
 			return fail(fmt.Errorf("%s: the run has no access-time identity of its inputs (it did not run under testinputs.Main): %w", pkg, err))
 		}
 		id = testinputs.Identity{} // the log says why it is unobserved
 	}
-	if raw, err := os.ReadFile(identityFile); err == nil {
+	if raw, err := os.ReadFile(identityFile); err == nil && !unobserved {
 		if err := os.WriteFile(stem+".identity.json", raw, 0o644); err != nil {
 			return fail(err)
 		}
