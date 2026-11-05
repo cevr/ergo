@@ -73,9 +73,10 @@ func effectiveMount(mounts []sandboxMount, path string) sandboxMount {
 // sandboxProperty checks the sandbox's guarantees on bwrap's argv for the
 // plan's environment, independently of checkSandboxPlan: no host path is
 // writable (every binding is read-only, at its own path, but the object
-// store at sourceMount); HOME, TMPDIR, XDG_CACHE_HOME, GOCACHE and the
-// checkout are each on a tmpfs; and the read-only set exposes neither host
-// HOME, /tmp, /var/tmp, GOCACHE, $HOME/.cache, $HOME/Library/Caches, nor a
+// store at sourceMount); HOME, TMPDIR, GOTMPDIR, XDG_CACHE_HOME, GOCACHE
+// and the checkout are each on a tmpfs; and the read-only set exposes
+// neither host HOME, /tmp, /var/tmp, GOCACHE, GOTMPDIR, $HOME/.cache,
+// $HOME/Library/Caches, nor a
 // parent of one of them, nor a path under one but HOME.
 func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []string {
 	t.Helper()
@@ -86,7 +87,7 @@ func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []st
 			problems = append(problems, fmt.Sprintf("%s bound at another path %s", m.source, m.dest))
 		}
 	}
-	for _, name := range []string{"HOME", "TMPDIR", "XDG_CACHE_HOME", "GOCACHE", "checkout"} {
+	for _, name := range []string{"HOME", "TMPDIR", "XDG_CACHE_HOME", "GOCACHE", "GOTMPDIR", "checkout"} {
 		if path := env[name]; path != "" {
 			if m := effectiveMount(mounts, path); m.op != "--tmpfs" {
 				problems = append(problems, fmt.Sprintf("%s %s is on %s %s", name, path, m.op, m.source))
@@ -94,7 +95,7 @@ func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []st
 		}
 	}
 	home := env["HOME"]
-	exposed := []string{"/tmp", "/var/tmp", env["GOCACHE"], env["TMPDIR"], env["XDG_CACHE_HOME"], filepath.Join(home, ".cache"), filepath.Join(home, "Library", "Caches")}
+	exposed := []string{"/tmp", "/var/tmp", env["GOCACHE"], env["TMPDIR"], env["GOTMPDIR"], env["XDG_CACHE_HOME"], filepath.Join(home, ".cache"), filepath.Join(home, "Library", "Caches")}
 	for _, m := range mounts {
 		if m.op != "--ro-bind" || m.dest == sourceMount {
 			continue
@@ -129,15 +130,16 @@ func TestSandboxArgvProperty(t *testing.T) {
 		goRoot := pick(modCache+"/golang.org/toolchain@v0.0.1-go1.27.0.linux-amd64", "/usr/local/go", "/opt/go", home, "/tmp/go", goCache+"/root")
 		checkout := pick(home+"/src/repo", "/srv/repo", "/tmp/repo", "/opt/gomod/repo")
 		gateCache := pick("", home+"/.cache/ergo-gate", "/var/cache/gate")
+		goTmpDir := pick("", tempDir+"/gotmp", "/srv/gotmp", "/opt/gomod/tmp")
 		xdgCache := xdg
 		if xdgCache == "" {
 			xdgCache = home + "/.cache"
 		}
 		plan := sandboxPlan{Head: "head", Checkout: checkout, Source: "/srv/repo/.git", Clean: true,
 			ReadOnly: sandboxReadOnly(modCache, goRoot), Links: [][2]string{{"/bin", "usr/bin"}},
-			Scratch: sandboxScratch(home, xdgCache, goCache, tempDir, gateCache, checkout)}
-		plan.Forbidden, plan.Homes = sandboxForbidden(home, goCache, xdgCache, tempDir)
-		env := map[string]string{"HOME": home, "TMPDIR": tempDir, "XDG_CACHE_HOME": xdgCache, "GOCACHE": goCache, "checkout": checkout}
+			Scratch: sandboxScratch(home, xdgCache, goCache, tempDir, goTmpDir, gateCache, checkout)}
+		plan.Forbidden, plan.Homes = sandboxForbidden(home, goCache, xdgCache, tempDir, goTmpDir)
+		env := map[string]string{"HOME": home, "TMPDIR": tempDir, "XDG_CACHE_HOME": xdgCache, "GOCACHE": goCache, "GOTMPDIR": goTmpDir, "checkout": checkout}
 		problems := sandboxProperty(t, plan, env)
 		err := plan.admissible()
 		switch {
@@ -202,7 +204,8 @@ func TestSandboxPlanOfThisHost(t *testing.T) {
 	if xdg == "" {
 		xdg = filepath.Join(home, ".cache")
 	}
-	env := map[string]string{"HOME": home, "TMPDIR": os.TempDir(), "XDG_CACHE_HOME": xdg, "GOCACHE": paths.GOCACHE, "checkout": root}
+	goTmpDir, _ := stepVariable("GOTMPDIR")
+	env := map[string]string{"HOME": home, "TMPDIR": os.TempDir(), "XDG_CACHE_HOME": xdg, "GOCACHE": paths.GOCACHE, "GOTMPDIR": goTmpDir, "checkout": root}
 	if problems := sandboxProperty(t, plan, env); len(problems) > 0 {
 		t.Fatalf("this host's plan breaks the sandbox: %v", problems)
 	}

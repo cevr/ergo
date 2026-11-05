@@ -168,8 +168,8 @@ func sandboxReadOnly(goModCache, goRoot string) []sandboxPath {
 // a path or a parent: a cache or temporary directory another run writes
 // would hand its results to this one. HOME itself is forbidden as a path
 // or parent; a declared path under it (the module cache) is not.
-func sandboxForbidden(home, goCache, xdgCacheHome, tempDir string) (forbidden, homes []string) {
-	for _, path := range []string{"/tmp", "/var/tmp", goCache, xdgCacheHome, tempDir} {
+func sandboxForbidden(home, goCache, xdgCacheHome, tempDir, goTmpDir string) (forbidden, homes []string) {
+	for _, path := range []string{"/tmp", "/var/tmp", goCache, xdgCacheHome, tempDir, goTmpDir} {
 		if path != "" {
 			forbidden = append(forbidden, path)
 		}
@@ -255,6 +255,7 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 		xdg = filepath.Join(home, ".cache")
 	}
 	tempDir := os.TempDir()
+	goTmpDir, _ := stepVariable("GOTMPDIR")
 	plan := sandboxPlan{
 		Head:     identity.head,
 		Checkout: root,
@@ -262,20 +263,21 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 		ReadOnly: sandboxReadOnly(paths.GOMODCACHE, paths.GOROOT),
 		Links:    sandboxLinks(),
 	}
-	plan.Scratch = sandboxScratch(home, xdg, paths.GOCACHE, tempDir, g.cacheDir, root)
+	plan.Scratch = sandboxScratch(home, xdg, paths.GOCACHE, tempDir, goTmpDir, g.cacheDir, root)
 	for _, step := range steps {
 		plan.Dirs = append(plan.Dirs, stepTempDir(root, step.Name))
 	}
 	plan.Clean = identity.clean
-	plan.Forbidden, plan.Homes = sandboxForbidden(home, paths.GOCACHE, xdg, tempDir)
+	plan.Forbidden, plan.Homes = sandboxForbidden(home, paths.GOCACHE, xdg, tempDir, goTmpDir)
 	return plan, nil
 }
 
 // sandboxScratch are the tmpfs mounts: every directory a step may write by
-// name, so each is empty in the sandbox whatever the host holds there.
-func sandboxScratch(home, xdgCacheHome, goCache, tempDir, gateCache, checkout string) []string {
+// name, so each is empty in the sandbox whatever the host holds there. Go
+// needs GOTMPDIR to exist; its tmpfs creates it.
+func sandboxScratch(home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout string) []string {
 	var scratch []string
-	for _, path := range []string{"/tmp", "/var/tmp", home, xdgCacheHome, goCache, tempDir, gateCache, checkout} {
+	for _, path := range []string{"/tmp", "/var/tmp", home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout} {
 		if path == "" {
 			continue
 		}
