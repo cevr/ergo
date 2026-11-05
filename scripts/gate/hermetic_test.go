@@ -18,13 +18,14 @@ import (
 	"ergo.local/prototype/scripts/gate/hermetic"
 )
 
-// TestCachedGatePackagesAreHermetic checks every gate package (this one and
-// the packages below it) that a gate step lets Go's test cache replay. Go's
-// test cache records files, environment variables and the module's source,
-// not the programs a test runs or the libraries they load, so a gate package
-// may replay only when its test binary is hermetic (package hermetic), built
-// as its step builds it, and the step builds it with CGO_ENABLED=0. A host
-// package runs with -count=1 on every gate, so it is not checked: it never
+// TestCachedGatePackagesAreHermetic checks every package of the steps that
+// keep Go's test cache: the hermetic exception (Step.Hermetic) to the gate's
+// uncached default. Go's test cache records files, environment variables and
+// the module's source, not the programs a test runs or the libraries they
+// load, so a package may replay only when it is a gate package below
+// hermeticTestRoot, its test binary is hermetic (package hermetic), built as
+// its step builds it, and the step builds it with CGO_ENABLED=0. Every other
+// step runs with -count=1 (TestTestCommandsHaveCacheCoverage), so it never
 // replays. This test is itself a host test: it runs the go command.
 func TestCachedGatePackagesAreHermetic(t *testing.T) {
 	t.Parallel()
@@ -43,13 +44,21 @@ func TestCachedGatePackagesAreHermetic(t *testing.T) {
 	module := modulePath(root)
 	checked := 0
 	for _, step := range steps {
-		if !runsGoTest(step) || slices.Contains(step.Argv, "-count=1") {
+		if !step.Hermetic {
+			continue
+		}
+		if !runsGoTest(step) {
+			t.Errorf("step %q keeps Go's test cache, but it is not a go test of hermetic gate packages: %q", step.Name, step.Argv)
 			continue
 		}
 		environment := setEnvironmentVariable(stepCommandEnvironment(root, step), "TMPDIR", t.TempDir())
 		for _, pkg := range step.Argv[2:] {
+			if strings.HasPrefix(pkg, "-") {
+				continue
+			}
 			relative, ok := strings.CutPrefix(pkg, module+"/")
-			if !ok || relative+"/" != hermeticTestRoot && !strings.HasPrefix(relative, hermeticTestRoot) {
+			if !ok || !strings.HasPrefix(relative, hermeticTestRoot) || slices.Contains(hostTestPackages, relative) || strings.Contains(relative, "...") {
+				t.Errorf("step %q keeps Go's test cache, but %s is not a gate package below %s", step.Name, pkg, hermeticTestRoot)
 				continue
 			}
 			checked++
@@ -66,7 +75,7 @@ func TestCachedGatePackagesAreHermetic(t *testing.T) {
 		}
 	}
 	if checked == 0 {
-		t.Fatalf("no gate step lets Go's test cache replay a package below %s, so nothing was checked", hermeticTestRoot)
+		t.Fatalf("no hermetic step lets Go's test cache replay a package below %s, so nothing was checked", hermeticTestRoot)
 	}
 }
 

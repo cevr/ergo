@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -53,11 +52,12 @@ var hostTestPackages = []string{"scripts/gate"}
 const hostTestParallel = "8"
 
 // hermeticTestRoot holds the gate's hermetic test packages: every package
-// below it that is not a host package. They replay from Go's test cache, so
-// each must be hermetic (package scripts/gate/hermetic): it runs no program
-// but its own test binary, and its step builds it with CGO_ENABLED=0, so it
-// loads no shared library. TestCachedGatePackagesAreHermetic checks every
-// package below the root that a step lets Go cache.
+// below it that is not a host package. Their step is the gate's one
+// exception to uncached go tests (Step.Hermetic): they replay from Go's test
+// cache, so each must be hermetic (package scripts/gate/hermetic): it runs
+// no program but its own test binary, and its step builds it with
+// CGO_ENABLED=0, so it loads no shared library.
+// TestCachedGatePackagesAreHermetic checks every package of that step.
 const hermeticTestRoot = "scripts/gate/"
 
 // hermeticEnvironment is what a hermetic step adds to the environment.
@@ -151,8 +151,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		}
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools})
+	// The one step that keeps Go's test cache (Step.Hermetic); every other
+	// step runs its go tests uncached.
 	if len(hermetic) > 0 {
-		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment})
+		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment, Hermetic: true})
 	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
@@ -180,73 +182,15 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	return steps, nil
 }
 
-// uncachedStep is the step as the merge tier runs it: every go test it
-// starts, in its argv or in its shell script, carries -count=1, so Go's test
-// cache replays nothing. The flag goes in the command line, not in GOFLAGS,
-// which would reach the go commands and gates the tests themselves start.
-// Go's build cache stays: it is keyed by content, the toolchain included.
+// uncachedStep is the step as the merge tier runs it: without the hermetic
+// exception, so it runs with the gate's uncached default (stepEnvironment)
+// like every other step, and no go test it starts, at any depth, replays
+// Go's test cache. Its argv is the inner tier's. Go's build cache stays: it
+// is keyed by content, the toolchain included.
 func uncachedStep(step *Step) *Step {
 	uncached := *step
-	argv := slices.Clone(step.Argv)
-	for i := 0; i+1 < len(argv); i++ {
-		if argv[i] == "go" && argv[i+1] == "test" && !slices.ContainsFunc(argv[i+2:], isCountFlag) {
-			// go's -C must be the first flag, so -count=1 goes after it.
-			at := i + 2
-			switch {
-			case at+1 < len(argv) && argv[at] == "-C":
-				at += 2
-			case at < len(argv) && strings.HasPrefix(argv[at], "-C="):
-				at++
-			}
-			argv = slices.Insert(argv, at, "-count=1")
-		}
-	}
-	if len(argv) >= 3 && argv[0] == "sh" && argv[1] == "-c" {
-		argv[2] = uncachedScript(argv[2])
-	}
-	uncached.Argv = argv
+	uncached.Hermetic = false
 	return &uncached
-}
-
-func isCountFlag(arg string) bool {
-	return strings.HasPrefix(arg, "-count=") || strings.HasPrefix(arg, "-test.count=")
-}
-
-// goTestCommand finds "go test" as a command word in a shell script.
-var goTestCommand = regexp.MustCompile(`(^|[\s;&|(]|\$\()go test\b`)
-
-// scriptCommandEnd ends a shell command: a newline, ;, & or |.
-var scriptCommandEnd = regexp.MustCompile(`[\n;&|]`)
-
-// leadingDirectoryFlag is go's -C flag and its value at the start of a go
-// test command's arguments; go requires it to be the first flag.
-var leadingDirectoryFlag = regexp.MustCompile(`^\s+-C(=|\s+)\S+`)
-
-// uncachedScript adds -count=1 to every go test command of a shell script
-// that does not set a count, after a leading -C.
-func uncachedScript(script string) string {
-	var b strings.Builder
-	rest := script
-	for {
-		match := goTestCommand.FindStringIndex(rest)
-		if match == nil {
-			b.WriteString(rest)
-			return b.String()
-		}
-		b.WriteString(rest[:match[1]])
-		rest = rest[match[1]:]
-		command := rest
-		if end := scriptCommandEnd.FindStringIndex(rest); end != nil {
-			command = rest[:end[0]]
-		}
-		if !strings.Contains(command, "-count=") {
-			if flag := leadingDirectoryFlag.FindString(rest); flag != "" {
-				b.WriteString(flag)
-				rest = rest[len(flag):]
-			}
-			b.WriteString(" -count=1")
-		}
-	}
 }
 
 // stagedBuild returns a command that builds a package's executable to a

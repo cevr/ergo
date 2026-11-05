@@ -16,7 +16,7 @@ import (
 
 // TestReceivedVariablesAreKeyed is a property over every variable of
 // testenv.Names, each consumer of the step environment (a step without
-// ToolEnv, a step with ToolEnv, a tool query) and each change of the
+// ToolEnv, a step with ToolEnv, a hermetic step, a tool query) and each change of the
 // caller's value (unset to set, one value to another, set to unset): the
 // whole-gate key changes, or the consumer receives the same environment.
 // So every variable a step or a tool query receives is a key input or
@@ -36,6 +36,12 @@ func TestReceivedVariablesAreKeyed(t *testing.T) {
 		{"a step with ToolEnv", func() []string {
 			g := &gate{root: root}
 			return g.commandEnvironment(&Step{Name: "tools", Argv: []string{"go", "test"}, ToolEnv: []string{"sh"}})
+		}},
+		// The hermetic step receives the caller's GOFLAGS without the
+		// uncached default.
+		{"a hermetic step", func() []string {
+			g := &gate{root: root}
+			return g.commandEnvironment(&Step{Name: "hermetic", Argv: []string{"go", "test"}, Env: hermeticEnvironment, Hermetic: true})
 		}},
 		{"a tool query", toolQueryEnvironment},
 	}

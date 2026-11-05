@@ -162,10 +162,10 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	}
 }
 
-// TestMergeTierUncached: in merge mode every go test a step starts, in its
-// argv or in its shell script, carries -count=1; GOFLAGS is the inner
-// tier's; no receipt or whole-gate record is looked up; and a verdict that
-// differs from the record fails the merge tier and withdraws the record.
+// TestMergeTierUncached: in merge mode every step, the hermetic one too,
+// runs its own command with -count=1 after the caller's GOFLAGS; no receipt
+// or whole-gate record is looked up; and a verdict that differs from the
+// record fails the merge tier and withdraws the record.
 func TestMergeTierUncached(t *testing.T) {
 	t.Setenv("GOFLAGS", "-mod=mod")
 	repository, _ := repositorySteps(t)
@@ -187,54 +187,30 @@ func TestMergeTierUncached(t *testing.T) {
 			t.Fatalf("no step %q among the declared steps; the check is vacuous", name)
 		}
 	}
-	sites := 0
+	// The merge tier runs each step's own command with the gate's uncached
+	// default (stepEnvironment), the hermetic step too: GOFLAGS is the inner
+	// tier's caller flags with -count=1 after them, so no go test the step
+	// starts, at any depth, replays Go's test cache.
+	hermeticSteps := 0
 	for _, step := range steps {
 		merged := uncachedStep(step)
-		if merged.Name != step.Name {
-			t.Fatalf("the merge tier renamed %q to %q", step.Name, merged.Name)
+		if merged.Name != step.Name || !slices.Equal(merged.Argv, step.Argv) || !slices.Equal(merged.Env, step.Env) {
+			t.Errorf("the merge tier changed step %q to %q %q env %q", step.Name, merged.Name, merged.Argv, merged.Env)
 		}
-		for i := 0; i+1 < len(merged.Argv); i++ {
-			if merged.Argv[i] == "go" && merged.Argv[i+1] == "test" {
-				sites++
-				if !slices.Contains(merged.Argv[i+2:], "-count=1") {
-					t.Errorf("merge step %q runs go test without -count=1: %q", step.Name, merged.Argv)
-				}
-				// go refuses a -C that is not the first flag.
-				if slices.Contains(merged.Argv[i+2:], "-C") && merged.Argv[i+2] != "-C" {
-					t.Errorf("merge step %q puts a flag before go test's -C: %q", step.Name, merged.Argv)
-				}
-			}
-		}
-		if len(merged.Argv) >= 3 && merged.Argv[0] == "sh" && merged.Argv[1] == "-c" {
-			script := merged.Argv[2]
-			for _, command := range strings.Split(script, "go test")[1:] {
-				sites++
-				end := len(command)
-				if i := strings.IndexAny(command, "\n;&|"); i >= 0 {
-					end = i
-				}
-				if !strings.Contains(command[:end], "-count=1") {
-					t.Errorf("merge step %q runs go test without -count=1 in its script: %q", step.Name, script)
-				}
-				if strings.Contains(command[:end], " -C") && !strings.HasPrefix(command, " -C") {
-					t.Errorf("merge step %q puts a flag before go test's -C in its script: %q", step.Name, script)
-				}
-			}
+		if step.Hermetic {
+			hermeticSteps++
 		}
 		before, _ := environmentVariable(stepCommandEnvironment(repository, step), "GOFLAGS")
 		after, _ := environmentVariable(stepCommandEnvironment(repository, merged), "GOFLAGS")
-		if before != after {
-			t.Errorf("merge step %q gets GOFLAGS %q, the inner tier %q", step.Name, after, before)
+		if after != "-mod=mod -count=1" {
+			t.Errorf("merge step %q gets GOFLAGS %q, want the caller's -mod=mod with -count=1 after it (inner tier %q)", step.Name, after, before)
+		}
+		if want := map[bool]string{false: "-mod=mod -count=1", true: "-mod=mod"}[step.Hermetic]; before != want {
+			t.Errorf("inner step %q (hermetic %t) gets GOFLAGS %q, want %q", step.Name, step.Hermetic, before, want)
 		}
 	}
-	if sites < 4 {
-		t.Fatalf("found %d go test commands in the gate's steps; the check is vacuous", sites)
-	}
-	if got := uncachedScript(`a && go test -C x ./... && go test -count=2 y && go test -C=z -run T ./...`); got != `a && go test -C x -count=1 ./... && go test -count=2 y && go test -C=z -count=1 -run T ./...` {
-		t.Fatalf("uncachedScript gave %q", got)
-	}
-	if got := uncachedStep(&Step{Argv: []string{"env", "A=1", "go", "test", "-C", "m", "./..."}}).Argv; !slices.Equal(got, []string{"env", "A=1", "go", "test", "-C", "m", "-count=1", "./..."}) {
-		t.Fatalf("uncachedStep gave %q", got)
+	if hermeticSteps == 0 {
+		t.Fatal("no hermetic step among the declared steps; the merge tier's exception check is vacuous")
 	}
 
 	// A fixture: the inner tier records, the merge tier reruns every step

@@ -7,7 +7,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -17,12 +16,13 @@ import (
 )
 
 // The gate reuses results at three layers: Go's test cache inside a go test
-// step, a step's receipt (Inputs) and the whole-gate record. Each layer must
-// key every input the result read, or an incremental gate replays a pass
-// that a fresh run fails. TestGateCacheParityModel runs the gate on a small
-// checkout, with real Go test caching and the real mapping validator, and
-// compares it after each invocation with a reference model that knows which
-// inputs each layer keys.
+// step (only in the hermetic exception, Step.Hermetic: every other step runs
+// its go tests with -count=1 in GOFLAGS), a step's receipt (Inputs) and the
+// whole-gate record. Each layer must key every input the result read, or an
+// incremental gate replays a pass that a fresh run fails.
+// TestGateCacheParityModel runs the gate on a small checkout, with real Go
+// test caching and the real mapping validator, and compares it after each
+// invocation with a reference model that knows which inputs each layer keys.
 
 // parityFixture is a checkout shaped like the parts of the repository the
 // two repaired steps read:
@@ -207,7 +207,9 @@ const (
 // that restores one of the two reuses this unit removed.
 type parityConfig struct {
 	name string
-	// cachedControls runs the provenance controls without -count=1.
+	// cachedControls puts the provenance step in the hermetic exception
+	// (Step.Hermetic), which is not hermetic, and drops its own -count=1, so
+	// Go's test cache may replay its controls.
 	cachedControls bool
 	// mappingReceipt gives the mapping step its old Inputs.
 	mappingReceipt bool
@@ -227,6 +229,7 @@ func (c parityConfig) steps(t *testing.T, root string, epoch int) []*Step {
 		}
 		provenance.Argv = slices.Clone(provenance.Argv)
 		provenance.Argv[2] = strings.Replace(script, "go test -C tools/provenance -count=1 ", "go test -C tools/provenance ", 1)
+		provenance.Hermetic = true
 	}
 	mapping := effectMappingStep()
 	if mapping.Name != parityMapping {
@@ -243,18 +246,15 @@ func (c parityConfig) steps(t *testing.T, root string, epoch int) []*Step {
 // never runs a command.
 type parityModel struct {
 	config parityConfig
-	// observes says whether testinputs observes children here: Linux on
-	// amd64 or arm64. Elsewhere it refuses to cache, so the child-read
-	// test never answers from Go's cache.
-	observes bool
 	// source is the syntax source's version, tracked the evidence file's
 	// index entry.
 	source, tracked bool
-	// controls is a cached pass of the provenance controls. cmd/go keys it
+	// controls is a cached pass of the provenance controls, which only the
+	// control that puts them in the hermetic exception makes. cmd/go keys it
 	// on nothing the source changes: the source is outside their module.
+	// internal/probe, which reads the source through a child, runs with the
+	// uncached default, so Go's test cache holds no pass of it.
 	controls bool
-	// childRead is a cached pass of internal/probe, for the good source.
-	childRead bool
 	// receipt is a mapping receipt; its key holds file contents, not the
 	// index.
 	receipt bool
@@ -305,13 +305,7 @@ func (m *parityModel) gate() parityRun {
 		run.verdicts[parityProvenance] = verdictOf(m.source)
 		m.controls = m.controls || m.config.cachedControls && m.source
 	}
-	switch {
-	case m.observes && m.childRead && m.source:
-		run.verdicts[parityObserved], run.hits[parityObserved] = replay.Pass, true
-	default:
-		run.verdicts[parityObserved] = verdictOf(m.source)
-		m.childRead = m.childRead || m.observes && m.source
-	}
+	run.verdicts[parityObserved] = verdictOf(m.source)
 	switch {
 	case m.config.mappingReceipt && m.receipt:
 		run.verdicts[parityMapping], run.hits[parityMapping] = replay.Pass, true
@@ -355,7 +349,7 @@ func (m *parityModel) merge() (*parityRun, []string, int) {
 }
 
 func (m *parityModel) sweep() {
-	m.controls, m.childRead, m.receipt = false, false, false
+	m.controls, m.receipt = false, false
 	m.records = map[[2]bool]bool{}
 }
 
@@ -375,7 +369,7 @@ type parityHarness struct {
 
 func newParityHarness(t *testing.T, config parityConfig) *parityHarness {
 	f := newParityFixture(t)
-	h := &parityHarness{t: t, fixture: f, config: config, model: &parityModel{config: config, observes: runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64"), source: true, tracked: true, records: map[[2]bool]bool{}}}
+	h := &parityHarness{t: t, fixture: f, config: config, model: &parityModel{config: config, source: true, tracked: true, records: map[[2]bool]bool{}}}
 	h.newGate()
 	return h
 }
@@ -532,8 +526,9 @@ const paritySeed = 10
 //     the verdict a fresh run gives: no step passes from any layer while its
 //     fresh run fails. A fixed prefix takes every action; a seeded tail
 //     follows.
-//   - Two negative controls restore what this unit removed: the provenance
-//     controls without -count=1, and the mapping step's old receipt. The
+//   - Two negative controls restore what this unit removed: cached provenance
+//     controls (the step in the hermetic exception, without its own
+//     -count=1), and the mapping step's old receipt. The
 //     model predicts their stale passes, and each must occur from a real
 //     cache hit (cmd/go's "(cached)", the gate's "ok, cached"), so the
 //     fixture can see the failure the design refuses.
