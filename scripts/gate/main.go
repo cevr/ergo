@@ -415,7 +415,11 @@ func (g *gate) mergeTier(out io.Writer) int {
 		fmt.Fprintf(out, "gate: --merge needs its sandbox and gives no verdict without it: %v\n", err)
 		return 2
 	}
-	defer box.close()
+	defer func() {
+		if err := box.close(); err != nil {
+			fmt.Fprintf(out, "gate: the merge sandbox's run directory %s was not removed: %v\n", plan.Fresh, err)
+		}
+	}()
 	tier := replay.MergeTier{
 		Store:   replay.Open(g.cacheDir),
 		Collect: g.collect,

@@ -31,11 +31,12 @@ type sandboxMount struct {
 }
 
 // parseSandboxArgv reads bwrap's argv as bwrap does and returns its mounts
-// in order. An option it does not know fails the test: a writable binding
-// (--bind, --dev-bind, --bind-try, --overlay) is never among the known ones.
+// in order. An option it does not know fails the test: --dev-bind,
+// --bind-try and --overlay are never among the known ones, and the
+// property checks every --bind.
 func parseSandboxArgv(t *testing.T, argv []string) []sandboxMount {
 	t.Helper()
-	arity := map[string]int{"--userns": 1, "--pidns": 1, "--unshare-pid": 0, "--die-with-parent": 0, "--info-fd": 1, "--proc": 1, "--dev": 1, "--tmpfs": 1, "--ro-bind": 2, "--symlink": 2, "--chdir": 1}
+	arity := map[string]int{"--userns": 1, "--pidns": 1, "--unshare-pid": 0, "--die-with-parent": 0, "--info-fd": 1, "--proc": 1, "--dev": 1, "--tmpfs": 1, "--bind": 2, "--ro-bind": 2, "--symlink": 2, "--chdir": 1}
 	var mounts []sandboxMount
 	for i := 0; i < len(argv); {
 		op := argv[i]
@@ -49,7 +50,7 @@ func parseSandboxArgv(t *testing.T, argv []string) []sandboxMount {
 		switch op {
 		case "--tmpfs":
 			mounts = append(mounts, sandboxMount{op, "", argv[i+1]})
-		case "--ro-bind":
+		case "--ro-bind", "--bind":
 			mounts = append(mounts, sandboxMount{op, argv[i+1], argv[i+2]})
 		}
 		i += n + 1
@@ -73,29 +74,44 @@ func effectiveMount(mounts []sandboxMount, path string) sandboxMount {
 // sandboxProperty checks the sandbox's guarantees on bwrap's argv for the
 // plan's environment, independently of checkSandboxPlan: no host path is
 // writable (every binding is read-only, at its own path, but the object
-// store at sourceMount); HOME, TMPDIR, GOTMPDIR, XDG_CACHE_HOME, GOCACHE
-// and the checkout are each on a tmpfs; and the read-only set exposes
+// store at sourceMount), and every writable binding is its own directory
+// under the run's (plan.Fresh); HOME, TMPDIR, GOTMPDIR, XDG_CACHE_HOME,
+// GOCACHE and the checkout are each on one; and the read-only set exposes
 // neither host HOME, /tmp, /var/tmp, GOCACHE, GOTMPDIR, $HOME/.cache,
-// $HOME/Library/Caches, nor a
+// $HOME/Library/Caches, the runs' directory, nor a
 // parent of one of them, nor a path under one but HOME.
 func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []string {
 	t.Helper()
 	var problems []string
 	mounts := parseSandboxArgv(t, sandboxArgv(plan))
+	// fresh is a writable binding from the run's own directory.
+	fresh := func(m sandboxMount) bool {
+		return m.op == "--bind" && filepath.IsAbs(plan.Fresh) && filepath.Dir(m.source) == filepath.Clean(plan.Fresh)
+	}
+	bound := map[string]bool{}
 	for _, m := range mounts {
 		if m.op == "--ro-bind" && m.source != m.dest && !(m.source == plan.Source && m.dest == sourceMount) {
 			problems = append(problems, fmt.Sprintf("%s bound at another path %s", m.source, m.dest))
 		}
+		if m.op == "--bind" {
+			if !fresh(m) {
+				problems = append(problems, fmt.Sprintf("host path %s is writable at %s", m.source, m.dest))
+			}
+			if bound[m.source] {
+				problems = append(problems, fmt.Sprintf("%s is bound twice", m.source))
+			}
+			bound[m.source] = true
+		}
 	}
 	for _, name := range []string{"HOME", "TMPDIR", "XDG_CACHE_HOME", "GOCACHE", "GOTMPDIR", "checkout"} {
 		if path := env[name]; path != "" {
-			if m := effectiveMount(mounts, path); m.op != "--tmpfs" {
-				problems = append(problems, fmt.Sprintf("%s %s is on %s %s", name, path, m.op, m.source))
+			if m := effectiveMount(mounts, path); !fresh(m) {
+				problems = append(problems, fmt.Sprintf("%s %s is on %s %s, not the run's own directory", name, path, m.op, m.source))
 			}
 		}
 	}
 	home := env["HOME"]
-	exposed := []string{"/tmp", "/var/tmp", env["GOCACHE"], env["TMPDIR"], env["GOTMPDIR"], env["XDG_CACHE_HOME"], filepath.Join(home, ".cache"), filepath.Join(home, "Library", "Caches")}
+	exposed := []string{"/tmp", "/var/tmp", env["GOCACHE"], env["TMPDIR"], env["GOTMPDIR"], env["XDG_CACHE_HOME"], filepath.Join(home, ".cache"), filepath.Join(home, "Library", "Caches"), filepath.Dir(plan.Fresh)}
 	for _, m := range mounts {
 		if m.op != "--ro-bind" || m.dest == sourceMount {
 			continue
@@ -135,7 +151,8 @@ func TestSandboxArgvProperty(t *testing.T) {
 		if xdgCache == "" {
 			xdgCache = home + "/.cache"
 		}
-		plan := sandboxPlan{Head: "head", Checkout: checkout, Source: "/srv/repo/.git", Clean: true,
+		run := pick("/var/cache/gate/sandbox/r1", home+"/.cache/ergo-gate/sandbox/r1", "/usr/cache/sandbox/r1", "/opt/gomod/sandbox/r1", "sandbox/r1")
+		plan := sandboxPlan{Head: "head", Checkout: checkout, Source: "/srv/repo/.git", Clean: true, Fresh: run,
 			ReadOnly: sandboxReadOnly(modCache, goRoot), Links: [][2]string{{"/bin", "usr/bin"}},
 			Scratch: sandboxScratch(home, xdgCache, goCache, tempDir, goTmpDir, gateCache, checkout)}
 		plan.Forbidden, plan.Homes = sandboxForbidden(home, goCache, xdgCache, tempDir, goTmpDir)
@@ -213,7 +230,19 @@ func TestSandboxPlanOfThisHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer box.close()
+	closed := false
+	defer func() {
+		if !closed {
+			box.close()
+		}
+	}()
+	// The run's directory is new, or the sandbox does not start.
+	if again, err := startSandbox(plan); err == nil || !strings.Contains(err.Error(), "the run's directory") {
+		if again != nil {
+			again.close()
+		}
+		t.Errorf("a second sandbox over the run's directory %s: %v; want refused", plan.Fresh, err)
+	}
 	inside := func(script string, args ...string) (string, error) {
 		argv := box.wrap(append([]string{"sh", "-c", script, "sh"}, args...), root)
 		output, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
@@ -238,6 +267,18 @@ func TestSandboxPlanOfThisHost(t *testing.T) {
 	output, err := inside(`git rev-parse HEAD && git status --porcelain && test ! -e runs/stale && echo fresh`)
 	if err != nil || output != head+"\nfresh\n" {
 		t.Errorf("the checkout inside is not a fresh export of %s: %v\n%s", head, err, output)
+	}
+	// What the run wrote goes with it, a directory a step made read-only
+	// too.
+	if output, err := inside(`mkdir -p "$1/locked" && echo x > "$1/locked/file" && chmod 500 "$1/locked"`, os.TempDir()); err != nil {
+		t.Fatalf("could not lock a directory inside: %v %s", err, output)
+	}
+	closed = true
+	if err := box.close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(plan.Fresh); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the run's directory %s outlived the sandbox: %v", plan.Fresh, err)
 	}
 }
 

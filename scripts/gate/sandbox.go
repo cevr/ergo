@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,15 +17,24 @@ import (
 // verdict, so no state a run leaves on the host may decide it: Go's test
 // cache, at any path a tool may pick (GOCACHE, GOENV, HOME, XDG_CACHE_HOME,
 // a fresh child environment), and every other file a step writes. The
-// sandbox gives the run a filesystem in which no host path is writable:
-// the root and every directory a step writes (HOME, the temporary
-// directories, the caches, the checkout) are tmpfs, empty when the run
-// starts and gone when it ends; the few host paths the steps must read are
-// bound read-only (sandboxReadOnly); and the checkout is a fresh export of
-// the head commit from the repository's object store, not the caller's
-// working tree. So a cache a step fills lives only as long as the run, and
-// two runs never share one (Bazel's sandboxed actions and Nix's build
-// sandbox are the prior art; neither trusts a tool's own cache choice).
+// sandbox gives the run a filesystem in which no host path is writable but
+// the run's own: the root is a tmpfs; every directory a step writes (HOME,
+// the temporary directories, the caches, the checkout) is bound from its
+// own directory under the run's directory (sandboxPlan.Fresh), which the
+// sandbox creates, so it is empty when the run starts, and removes when the
+// run ends; the few host paths the steps must read are bound read-only
+// (sandboxReadOnly); and the checkout is a fresh export of the head commit
+// from the repository's object store, not the caller's working tree. So a
+// cache a step fills lives only as long as the run, and two runs never
+// share one (Bazel's sandboxed actions and Nix's build sandbox are the
+// prior art; neither trusts a tool's own cache choice).
+//
+// The writable directories are on disk, not tmpfs, measured: on tmpfs the
+// gate's own tests refused their output spools (the gate keeps a step's
+// output on disk, never in memory), a directory-order test of
+// internal/sketch/build failed, and the uncached Go tests' peak memory
+// rose from 2.6G to 6.7G against an 8G step budget, the build cache's pages
+// charged to the step.
 //
 // The run's processes enter the sandbox per step (sandbox.wrap): each step
 // still runs as the gate's child, under the gate's memory limiter and with
@@ -58,9 +68,16 @@ type sandboxPlan struct {
 	Source string
 	// ReadOnly are the host paths bound read-only (sandboxReadOnly).
 	ReadOnly []sandboxPath
-	// Scratch are the paths mounted as empty tmpfs: every path a step
-	// writes, by name (sandboxScratch). The root is a tmpfs as well.
+	// Scratch are the paths a step writes, by name (sandboxScratch), each
+	// bound read-write from its own empty directory under Fresh. The root
+	// is a tmpfs.
 	Scratch []string
+	// Fresh is the run's own directory on the host's disk: the sandbox
+	// creates it, so it cannot exist before (startSandbox fails if it
+	// does), and removes it when it closes. Scratch path i is bound from
+	// sandboxFresh(Fresh, i); no other host path is writable. Its parent
+	// holds every run's, so no read-only path may expose it.
+	Fresh string
 	// Dirs are directories the export creates before any step: the steps'
 	// temporary directories.
 	Dirs []string
@@ -109,7 +126,7 @@ exec cat >/dev/null
 
 // sandboxArgv is bubblewrap's argv for a plan: the one place the
 // sandbox's mounts are decided. Mounts are ordered parents first, so a
-// read-only path under a scratch tmpfs (the module cache under HOME) is
+// read-only path under a scratch path (the module cache under HOME) is
 // bound over it.
 func sandboxArgv(plan sandboxPlan) []string {
 	argv := []string{
@@ -126,13 +143,13 @@ func sandboxArgv(plan sandboxPlan) []string {
 		args []string
 	}
 	var mounts []mount
-	for _, path := range plan.Scratch {
-		mounts = append(mounts, mount{path, []string{"--tmpfs", path}})
+	for i, path := range plan.Scratch {
+		mounts = append(mounts, mount{path, []string{"--bind", sandboxFresh(plan.Fresh, i), path}})
 	}
 	for _, path := range plan.ReadOnly {
 		mounts = append(mounts, mount{path.Path, []string{"--ro-bind", path.Path, path.Path}})
 	}
-	// Parents first; at one path the tmpfs before the binding.
+	// Parents first; at one path the scratch before the read-only binding.
 	slices.SortStableFunc(mounts, func(a, b mount) int {
 		return strings.Count(filepath.Clean(a.path), "/") - strings.Count(filepath.Clean(b.path), "/")
 	})
@@ -209,7 +226,22 @@ func checkSandboxPlan(plan sandboxPlan, forbidden, homes []string) error {
 			return fmt.Errorf("scratch path %q is not absolute", path)
 		}
 	}
+	if !filepath.IsAbs(plan.Fresh) || filepath.Dir(plan.Fresh) == plan.Fresh {
+		return fmt.Errorf("the run's directory %q is not an absolute path below the root", plan.Fresh)
+	}
+	runs := filepath.Dir(plan.Fresh)
+	for _, path := range plan.ReadOnly {
+		if within(path.Path, runs) || within(runs, path.Path) {
+			return fmt.Errorf("read-only path %s exposes the runs' directories %s", path.Path, runs)
+		}
+	}
 	return nil
+}
+
+// sandboxFresh is the directory under a run's own directory that scratch
+// path i is bound from.
+func sandboxFresh(fresh string, i int) string {
+	return filepath.Join(fresh, strconv.Itoa(i))
 }
 
 // within reports whether path is parent or the same path.
@@ -264,6 +296,17 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 		Links:    sandboxLinks(),
 	}
 	plan.Scratch = sandboxScratch(home, xdg, paths.GOCACHE, tempDir, goTmpDir, g.cacheDir, root)
+	// The runs' directory is in the gate's cache, on disk (the gate keeps
+	// its spools there), and hidden in the sandbox under the cache's own
+	// scratch binding. The name is random, so no two runs share one.
+	if g.cacheDir == "" {
+		return sandboxPlan{}, errors.New("no gate cache directory for the run's directory")
+	}
+	runs, err := filepath.Abs(filepath.Join(g.cacheDir, "sandbox"))
+	if err != nil {
+		return sandboxPlan{}, err
+	}
+	plan.Fresh = filepath.Join(runs, strings.ToLower(rand.Text()))
 	for _, step := range steps {
 		plan.Dirs = append(plan.Dirs, stepTempDir(root, step.Name))
 	}
@@ -272,9 +315,9 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 	return plan, nil
 }
 
-// sandboxScratch are the tmpfs mounts: every directory a step may write by
-// name, so each is empty in the sandbox whatever the host holds there. Go
-// needs GOTMPDIR to exist; its tmpfs creates it.
+// sandboxScratch are the writable mounts: every directory a step may write
+// by name, so each is empty in the sandbox whatever the host holds there.
+// Go needs GOTMPDIR to exist; its mount creates it.
 func sandboxScratch(home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout string) []string {
 	var scratch []string
 	for _, path := range []string{"/tmp", "/var/tmp", home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout} {

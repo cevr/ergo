@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +28,7 @@ type sandbox struct {
 	holdIn, wrapIn io.Closer
 	nsenter        string
 	pid            int
+	fresh          string
 }
 
 // startSandbox starts the sandbox of a plan and waits for the export. An
@@ -47,7 +49,24 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 	if err != nil {
 		return nil, errors.New("no cat on PATH")
 	}
-	s := &sandbox{nsenter: nsenter}
+	// The run's directory: Mkdir fails if it exists, so every directory
+	// the run writes starts empty.
+	if err := os.MkdirAll(filepath.Dir(plan.Fresh), 0o700); err != nil {
+		return nil, fmt.Errorf("the runs' directory: %w", err)
+	}
+	if err := os.Mkdir(plan.Fresh, 0o700); err != nil {
+		return nil, fmt.Errorf("the run's directory: %w", err)
+	}
+	s := &sandbox{nsenter: nsenter, fresh: plan.Fresh}
+	fail := func(err error) (enclosure, error) {
+		_ = s.close()
+		return nil, err
+	}
+	for i := range plan.Scratch {
+		if err := os.Mkdir(sandboxFresh(plan.Fresh, i), 0o700); err != nil {
+			return fail(err)
+		}
+	}
 	// The holder is the first process of a new pid namespace, in a new
 	// user namespace that maps only the gate's own user: it reads its
 	// input until the gate closes it or exits.
@@ -60,15 +79,11 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 	}
 	holdIn, err := s.holder.StdinPipe()
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	s.holdIn = holdIn
 	if err := s.holder.Start(); err != nil {
-		return nil, fmt.Errorf("no user namespace: %w", err)
-	}
-	fail := func(err error) (enclosure, error) {
-		_ = s.close()
-		return nil, err
+		return fail(fmt.Errorf("no user namespace: %w", err))
 	}
 	var files []*os.File
 	for _, name := range []string{"user", "pid"} {
@@ -164,5 +179,13 @@ func (s *sandbox) close() error {
 		_ = command.Wait()
 		close(done)
 	}
-	return nil
+	// Every process in the sandbox has ended: remove what the run wrote,
+	// restoring the permissions a step took away (emptyStepTempDir).
+	if s.fresh == "" {
+		return nil
+	}
+	if err := emptyStepTempDir(s.fresh); err != nil {
+		return err
+	}
+	return os.Remove(s.fresh)
 }
