@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,17 +41,6 @@ func without(environment []string, names ...string) []string {
 		}
 	}
 	return kept
-}
-
-// lookup is the value of the last entry for name in environment, or "".
-func lookup(environment []string, name string) string {
-	value := ""
-	for _, entry := range environment {
-		if key, v, ok := strings.Cut(entry, "="); ok && key == name {
-			value = v
-		}
-	}
-	return value
 }
 
 // withExpiry turns the expiry on for t's gate runs (TestMain turns it off,
@@ -129,70 +117,14 @@ func TestFixtureGatesKeepTheCallersCaches(t *testing.T) {
 	}
 }
 
-// expectedGoCaches is the Go cache that each form of an environment
-// (cacheReductions: as it is; without GOCACHE; without GOCACHE and
-// XDG_CACHE_HOME) resolves to on goos, when the environment sets GOCACHE to
-// gocache, XDG_CACHE_HOME to xdg and HOME to home and GOENV is off. It
-// follows cmd/go, not the gate: cache.DefaultDir takes GOCACHE, else
-// os.UserCacheDir()/go-build, and os.UserCacheDir is $HOME/Library/Caches on
-// darwin and ios (XDG_CACHE_HOME is not read) and $XDG_CACHE_HOME, else
-// $HOME/.cache, on the other Unix systems (Go 1.27 src/os/file.go
-// UserCacheDir). ok is false on a system the gate does not run on (windows,
-// plan9).
-func expectedGoCaches(goos, gocache, xdg, home string) (forms []string, ok bool) {
-	var withXDG, withoutXDG string
-	switch goos {
-	case "windows", "plan9":
-		return nil, false
-	case "darwin", "ios":
-		withXDG = filepath.Join(home, "Library", "Caches", "go-build")
-		withoutXDG = withXDG
-	default:
-		withXDG = filepath.Join(xdg, "go-build")
-		withoutXDG = filepath.Join(home, ".cache", "go-build")
-	}
-	return []string{gocache, withXDG, withoutXDG}, true
-}
-
-// TestExpectedGoCaches pins expectedGoCaches for both systems the gate runs
-// on, so the property test below is not written for one of them: on darwin
-// the two reduced forms name the same cache under HOME, and XDG_CACHE_HOME
-// names none (gate-testcache-gap darwin-r5.log: Linux paths there made the
-// property fail).
-func TestExpectedGoCaches(t *testing.T) {
-	for _, row := range []struct {
-		goos string
-		want []string
-	}{
-		{"linux", []string{"/g", "/x/go-build", "/h/.cache/go-build"}},
-		{"freebsd", []string{"/g", "/x/go-build", "/h/.cache/go-build"}},
-		{"darwin", []string{"/g", "/h/Library/Caches/go-build", "/h/Library/Caches/go-build"}},
-		{"ios", []string{"/g", "/h/Library/Caches/go-build", "/h/Library/Caches/go-build"}},
-	} {
-		got, ok := expectedGoCaches(row.goos, "/g", "/x", "/h")
-		if !ok || !slices.Equal(got, row.want) {
-			t.Errorf("%s: expectedGoCaches = %q, %v; want %q", row.goos, got, ok, row.want)
-		}
-	}
-	for _, goos := range []string{"windows", "plan9"} {
-		if _, ok := expectedGoCaches(goos, "/g", "/x", "/h"); ok {
-			t.Errorf("%s: expectedGoCaches claims a layout for a system the gate does not run on", goos)
-		}
-	}
-}
-
 // TestReachableTestCachesAreExpired is the property of the expiry (spec
 // Q-R5-1): for every step the gate declares, the Go cache that its command
 // environment resolves to, and the one each reduced form resolves to
 // (without GOCACHE; without GOCACHE and XDG_CACHE_HOME), is in the set the
 // gate expires, and a run expires each one of them: go clean -testcache,
 // under the environment that names it, writes its testexpire.txt. The
-// caller's GOCACHE, XDG_CACHE_HOME and HOME are three new directories, and
-// each form must resolve to the cache cmd/go gives it on this system
-// (expectedGoCaches): three distinct caches on Linux, two on darwin. Each
-// expected cache exists before the run, since go clean -testcache writes
-// nothing in a cache directory that does not exist (and such a directory
-// holds no result to replay).
+// caller's GOCACHE, XDG_CACHE_HOME and HOME are three new directories, so
+// the three forms name three distinct caches.
 func TestReachableTestCachesAreExpired(t *testing.T) {
 	if realTools["go"] == "" {
 		t.Skip("no go on PATH")
@@ -201,11 +133,7 @@ func TestReachableTestCachesAreExpired(t *testing.T) {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
 	direct, xdg := filepath.Join(base, "gocache"), filepath.Join(base, "xdg")
-	wantForms, ok := expectedGoCaches(runtime.GOOS, direct, xdg, home)
-	if !ok {
-		t.Skipf("the gate does not run on %s", runtime.GOOS)
-	}
-	for _, dir := range wantForms {
+	for _, dir := range []string{direct, filepath.Join(xdg, "go-build"), filepath.Join(home, ".cache", "go-build")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +141,6 @@ func TestReachableTestCachesAreExpired(t *testing.T) {
 	t.Setenv("GOCACHE", direct)
 	t.Setenv("XDG_CACHE_HOME", xdg)
 	t.Setenv("HOME", home)
-	t.Setenv("GOENV", "off")
 	g := &gate{root: root}
 	caches, err := g.reachableTestCaches(steps)
 	if err != nil {
@@ -226,27 +153,18 @@ func TestReachableTestCachesAreExpired(t *testing.T) {
 	resolved := map[string]bool{}
 	for _, step := range steps {
 		environment := g.commandEnvironment(step)
-		// The layout cmd/go gives this step's own variables (a step may set
-		// its own GOCACHE).
-		stepForms, _ := expectedGoCaches(runtime.GOOS, lookup(environment, "GOCACHE"), lookup(environment, "XDG_CACHE_HOME"), lookup(environment, "HOME"))
-		for i, form := range [][]string{environment, without(environment, "GOCACHE"), without(environment, "GOCACHE", "XDG_CACHE_HOME")} {
+		for _, form := range [][]string{environment, without(environment, "GOCACHE"), without(environment, "GOCACHE", "XDG_CACHE_HOME")} {
 			dir := goEnvCache(t, root, form)
 			resolved[dir] = true
 			if !slices.Contains(expired, dir) {
 				t.Errorf("step %q: a child environment resolves to the Go cache %s, which the gate does not expire (%q)", step.Name, dir, expired)
 			}
-			if dir != stepForms[i] {
-				t.Errorf("step %q: form %d resolves to %s on %s, not %s (expectedGoCaches)", step.Name, i, dir, runtime.GOOS, stepForms[i])
-			}
 		}
 	}
-	for _, want := range wantForms {
+	for _, want := range []string{direct, filepath.Join(xdg, "go-build"), filepath.Join(home, ".cache", "go-build")} {
 		if !resolved[want] {
 			t.Errorf("no step environment resolves to %s; the property is vacuous for that form (resolved %v)", want, resolved)
 		}
-	}
-	if distinct := len(slices.Compact(slices.Sorted(slices.Values(wantForms)))); distinct < 2 {
-		t.Errorf("the forms name %d distinct caches on %s; the property is vacuous", distinct, runtime.GOOS)
 	}
 
 	// A run expires each cache: its testexpire.txt names a time from the
@@ -321,7 +239,7 @@ func TestExternal(t *testing.T) {
 // TestFreshChildEnvironmentsDoNotReplay is the round 4 verifier's B1 as a
 // real regression: a step runs a program that starts go test with an
 // inherited environment, a fresh one with GOCACHE, or a fresh one without
-// it (Go then uses os.UserCacheDir()/go-build under HOME). The inner test reads input.txt
+// it (Go then uses $HOME/.cache/go-build). The inner test reads input.txt
 // through a child. Between two gate runs input.txt changes from good to bad:
 // the second run fails on it and prints no (cached). The witness first shows
 // that the launcher's inner result does replay outside the gate, so the

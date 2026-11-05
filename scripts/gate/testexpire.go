@@ -24,11 +24,7 @@ import (
 // environment gets the step's; a child that builds its own environment from
 // a list of names (ordinary process isolation) may drop GOCACHE, and then
 // XDG_CACHE_HOME, and Go takes the next default (cmd/go's cache.DefaultDir:
-// os.UserCacheDir()/go-build, which is $XDG_CACHE_HOME or $HOME/.cache on
-// Linux and $HOME/Library/Caches on darwin, and the GOENV file can name one
-// too). go env GOCACHE asks the go command on the host, so the set is right
-// on either system; a cache directory that does not exist holds no result,
-// and go clean -testcache leaves it absent.
+// os.UserCacheDir, then $HOME/.cache, and the GOENV file can name one too).
 // So the reachable caches are what go env GOCACHE gives under the step's
 // environment and under its two reduced forms (reducedEnvironments). A child
 // that points GOCACHE at a new, empty directory has no earlier result to
