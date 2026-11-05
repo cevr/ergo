@@ -286,3 +286,122 @@ func TestCheckListsAreCanonical(t *testing.T) {
 		}
 	}
 }
+
+// setSources are n files, each declaring the capability Ck and the error
+// type Ek with a function whose rows name only them, and main.ergo, whose
+// rows name each, with a catch over every Ek and a row value (case err) of
+// the rest. Which single-member row is interned first follows the order of
+// the files.
+func setSources(n int) []string {
+	var files, caps, errs, calls, tries []string
+	for k := 0; k < n; k++ {
+		files = append(files, fmt.Sprintf("type C%[1]d { Get() int }\nfunc use%[1]d() int needs C%[1]d { C%[1]d.Get() }\ntype E%[1]d { N int }\nfunc fail%[1]d() int fails E%[1]d { E%[1]d{N: 1} }\n", k))
+		caps = append(caps, fmt.Sprintf("C%d", k))
+		errs = append(errs, fmt.Sprintf("E%d", k))
+		calls = append(calls, fmt.Sprintf("use%d()", k))
+		tries = append(tries, fmt.Sprintf("\tlet _ = try fail%d()\n", k))
+	}
+	main := fmt.Sprintf("func all() int needs %s { %s }\nfunc each() int fails %s {\n%s\t0\n}\nfunc rest() int { each() catch { case E0: 0; case err: keep(err) } }\nfunc keep[T](v T) int { 1 }\n",
+		strings.Join(caps, " | "), strings.Join(calls, " + "), strings.Join(errs, " | "), strings.Join(tries, ""))
+	return append(files, main)
+}
+
+// setViews checks files in the order given (main last) and returns each set
+// of main's result, raw and through its canonical view, by TypeKey.
+func setViews(t *testing.T, files []string) (raw, canon map[string]string) {
+	t.Helper()
+	var parsed []*syntax.File
+	for _, src := range files {
+		f, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatalf("%v\n%s", err, src)
+		}
+		parsed = append(parsed, f)
+	}
+	p, ds := Check("main", parsed, nil)
+	if len(ds) != 0 {
+		t.Fatalf("diagnostics: %v", ds)
+	}
+	keys := func(ts []Type) string {
+		var out []string
+		for _, x := range ts {
+			out = append(out, TypeKey(x))
+		}
+		return strings.Join(out, " | ")
+	}
+	raw, canon = map[string]string{}, map[string]string{}
+	for _, f := range p.Funcs {
+		switch f.Name {
+		case "all":
+			raw["uses"], canon["uses"] = keys(f.Sig.Uses.Elems()), keys(CanonElems(f.Sig.Uses))
+		case "each":
+			raw["errors"], canon["errors"] = keys(f.Sig.Errors.Elems()), keys(CanonElems(f.Sig.Errors))
+		}
+	}
+	for n, m := range p.Info.Matches {
+		if _, ok := n.(*syntax.CatchExpr); ok {
+			raw["catch"], canon["catch"] = keys(m.Subjects), keys(CanonCatchSubjects(m))
+		}
+	}
+	for id, o := range p.Info.Defs {
+		if v, ok := o.(*Var); ok && id.Name == "err" {
+			u, ok := v.Type.(*Union)
+			if !ok {
+				t.Fatalf("err is %v, not a row value", v.Type)
+			}
+			raw["row value"], canon["row value"] = keys(u.Variants), keys(CanonVariants(u))
+		}
+	}
+	if len(canon) != 4 {
+		t.Fatalf("found the sets %v, want uses, errors, catch and row value", canon)
+	}
+	return raw, canon
+}
+
+// TestCheckSetViewsAreCanonical: for every order of the files that intern
+// a set's members (main last), each set's canonical view is the same,
+// element by element; and some order changes the raw intern order, so the
+// property sees what the view removes.
+func TestCheckSetViewsAreCanonical(t *testing.T) {
+	const n = 4
+	files := setSources(n)
+	var want map[string]string
+	moved := map[string]bool{}
+	var wantRaw map[string]string
+	var perm func(prefix, rest []int)
+	perm = func(prefix, rest []int) {
+		if len(rest) == 0 {
+			var listed []string
+			for _, k := range prefix {
+				listed = append(listed, files[k])
+			}
+			raw, canon := setViews(t, append(listed, files[n]))
+			if want == nil {
+				want, wantRaw = canon, raw
+				return
+			}
+			for kind, w := range want {
+				if canon[kind] != w {
+					t.Fatalf("order %v: %s view\n%s\nwant\n%s", prefix, kind, canon[kind], w)
+				}
+				if raw[kind] != wantRaw[kind] {
+					moved[kind] = true
+				}
+			}
+			return
+		}
+		for i := range rest {
+			next := append(slices.Clone(rest[:i]), rest[i+1:]...)
+			perm(append(slices.Clone(prefix), rest[i]), next)
+		}
+	}
+	perm(nil, []int{0, 1, 2, 3})
+	for kind := range want {
+		if !moved[kind] {
+			t.Errorf("no order of the files moves the raw %s; the property cannot see its order", kind)
+		}
+	}
+	if a, b := TypeKey(&Named{Obj: &TypeName{Name: "Q", Pkg: &Package{Path: "x/lib"}}}), TypeKey(&Named{Obj: &TypeName{Name: "Q", Pkg: &Package{Path: "y/lib"}}}); a == b {
+		t.Fatalf("x/lib.Q and y/lib.Q share the key %s", a)
+	}
+}

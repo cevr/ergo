@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -51,9 +52,49 @@ import (
 //     gives the files sorted by name, a fixed order, and does not call
 //     Check, so its lists stay in that order.
 //
-// The checker hands out no other list: Info's other facts are maps keyed
-// by node, and a caller builds its own list of imported packages (the
-// lowering's Unit.Imports, which the lowering orders by package path).
+// Every slice of the check result is of one of three kinds (round 7). The
+// rule is stated per kind of value, not per list:
+//
+//	(a) a sequence: its order is the program's, written in the source or
+//	    fixed by a rule of the language. Kept as it is.
+//	(b) a set: its order means nothing. The checker keeps such a set in
+//	    the order of its intern ids (intern.go), which follow the order in
+//	    which it met the types, and so the order of the files. A reader
+//	    whose result can depend on the order enumerates the set only
+//	    through its canonical view below, sorted by TypeKey.
+//	(c) a list sorted by the checker by a canonical key. Kept as it is.
+//
+//	slice                                   kind  why
+//	Package.Funcs, Types, Tests, Laws       (c)   canonicalOrder (above)
+//	Info.InitOrder                          (a)   initialization rule (above)
+//	Signature.TParams, Params, Results      (a)   the declaration's text
+//	Struct.Fields, Interface.Methods        (a)   the declaration's text
+//	Named.TArgs, Instance.TypeArgs          (a)   the type parameters' order
+//	Instance.Witnesses, Witness.Ops         (a)   parameters, constraint ops
+//	Tuple.Types, Info.ImplicitElems values  (a)   the elements' positions
+//	TypeName.Laws, Context.Entries          (a)   the declaration's text
+//	Pattern.Fields, Elems; Loop.Bindings    (a)   the pattern's text
+//	Union.Variants of a declared union      (a)   the declaration's text
+//	Match.Subjects of a match               (a)   the operands' positions
+//	With.Contexts                           (a)   the operands' positions
+//	With.Discharged, Entries; Entry.Caps,   (c)   by capability name (capKey)
+//	  Conversions
+//	Context.Overrides                       (c)   context name, then the
+//	                                              source order of entries
+//	With.Acquired                           (c)   dependencies, then the
+//	                                              context name and source
+//	                                              order of its entries
+//	Row elements (Row.Elems): every         (b)   CanonElems
+//	  Signature.Errors and Uses row
+//	Union.Variants of a row value (an       (b)   CanonVariants
+//	  anonymous union: case err, ConvRow)
+//	Match.Subjects of a catch               (b)   CanonCatchSubjects
+//	ContextEntry.Uses                       (b)   CanonEntryUses
+//
+// A caller builds its own list of imported packages (the lowering's
+// Unit.Imports, which the lowering orders by package path). Row.String
+// prints a row sorted by its package-qualified text (types.go), so a
+// diagnostic that prints a row does not follow the intern order either.
 //
 // Prior art: go build gives the compiler a package's files sorted by name,
 // so go/types' lists are in a canonical order; cmd/compile sorts what it
@@ -125,3 +166,149 @@ func declOrder[T any](rank map[*fileInfo]int, list []T, at func(T) (*fileInfo, s
 	})
 	return out
 }
+
+// TypeKey is t's canonical key: a total text of t's identity, a function
+// of the sources. A declared type is its package path, name and the
+// offset of its name (two declarations of one name in one package are an
+// error); an instance adds its type arguments' keys; every other type is
+// spelled from its parts' keys, and a set inside it (a row, the variants
+// of a row value) in canonical order. It is the order of every canonical
+// set view below. Unlike typeString, which is for printing, two distinct
+// declarations never share a key.
+func TypeKey(t Type) string {
+	var b strings.Builder
+	writeKey(&b, t)
+	return b.String()
+}
+
+func writeKey(b *strings.Builder, t Type) {
+	list := func(open, sep, close string, n int, at func(int)) {
+		b.WriteString(open)
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				b.WriteString(sep)
+			}
+			at(i)
+		}
+		b.WriteString(close)
+	}
+	switch t := t.(type) {
+	case nil:
+		b.WriteString("<nil>")
+	case *Basic:
+		b.WriteString(t.Name)
+	case *Named:
+		o := t.origin().Obj
+		if o.Pkg != nil {
+			b.WriteString(o.Pkg.Path)
+		}
+		fmt.Fprintf(b, ".%s@%d", o.Name, o.Pos)
+		if len(t.TArgs) > 0 {
+			list("[", ", ", "]", len(t.TArgs), func(i int) { writeKey(b, t.TArgs[i]) })
+		}
+	case *TypeParam:
+		fmt.Fprintf(b, "$%s@%d", t.Name, t.Pos)
+	case *Slice:
+		b.WriteString("[]")
+		writeKey(b, t.Elem)
+	case *Map:
+		b.WriteString("map[")
+		writeKey(b, t.Key)
+		b.WriteString("]")
+		writeKey(b, t.Elem)
+	case *Pointer:
+		b.WriteString("*")
+		writeKey(b, t.Elem)
+	case *Tuple:
+		list("(", ", ", ")", len(t.Types), func(i int) { writeKey(b, t.Types[i]) })
+	case *Signature:
+		list("func(", ", ", ")", len(t.Params), func(i int) { writeKey(b, t.Params[i].Type) })
+		list(" (", ", ", ")", len(t.Results), func(i int) { writeKey(b, t.Results[i]) })
+		writeRowKey(b, " fails ", t.Errors)
+		writeRowKey(b, " needs ", t.Uses)
+	case *Struct:
+		list("struct{", "; ", "}", len(t.Fields), func(i int) {
+			b.WriteString(t.Fields[i].Name + " ")
+			writeKey(b, t.Fields[i].Type)
+		})
+	case *Union:
+		vs := CanonVariants(t)
+		list("union{", " | ", "}", len(vs), func(i int) { writeKey(b, vs[i]) })
+	case *Interface:
+		b.WriteString("interface/" + t.Set.String())
+		list("{", "; ", "}", len(t.Methods), func(i int) {
+			b.WriteString(t.Methods[i].Name)
+			writeKey(b, t.Methods[i].Sig)
+		})
+	case *MachineType:
+		b.WriteString("machine[")
+		writeKey(b, t.State)
+		b.WriteString(", ")
+		writeKey(b, t.Signal)
+		b.WriteString("]")
+	case *RowVar:
+		v := t.root()
+		fmt.Fprintf(b, "?row/%d ", v.Kind)
+		if v.Fn != nil {
+			if v.Fn.Pkg != nil {
+				b.WriteString(v.Fn.Pkg.Path)
+			}
+			fmt.Fprintf(b, ".%s@%d", v.Fn.Name, v.Fn.Pos)
+		}
+	case *RowArg:
+		writeRowKey(b, "row", t.Row)
+	default:
+		b.WriteString("?" + t.String())
+	}
+}
+
+// writeRowKey writes the key of the row r, its elements in canonical order.
+func writeRowKey(b *strings.Builder, head string, r *Row) {
+	if r.Empty() {
+		return
+	}
+	es := CanonElems(r)
+	b.WriteString(head + "{")
+	for i, e := range es {
+		if i > 0 {
+			b.WriteString(" | ")
+		}
+		writeKey(b, e)
+	}
+	b.WriteString("}")
+}
+
+// CanonSet is the set ts in canonical order: sorted by TypeKey, a new
+// slice. Two elements of one key are one type; the sort is stable.
+func CanonSet(ts []Type) []Type {
+	if len(ts) == 0 {
+		return nil
+	}
+	keys := make(map[Type]string, len(ts))
+	for _, t := range ts {
+		keys[t] = TypeKey(t)
+	}
+	out := slices.Clone(ts)
+	slices.SortStableFunc(out, func(a, b Type) int { return strings.Compare(keys[a], keys[b]) })
+	return out
+}
+
+// CanonElems is the row r's elements in canonical order (kind b). Row.Elems
+// stays in intern id order, which the row's set operations and its dedup
+// need; this view is the one outward enumeration.
+func CanonElems(r *Row) []Type { return CanonSet(r.Elems()) }
+
+// CanonVariants is u's variants in canonical order. Use it for a row value
+// (an anonymous union, kind b), whose variants are a row's elements. A
+// declared union's Variants (the Underlying of a Named) are in the
+// declaration's order (kind a), which this view does not keep.
+func CanonVariants(u *Union) []Type { return CanonSet(u.Variants) }
+
+// CanonCatchSubjects is a catch's subjects (its row's elements) in
+// canonical order. A match's subjects are its operands, in their order:
+// read m.Subjects for a match.
+func CanonCatchSubjects(m *Match) []Type { return CanonSet(m.Subjects) }
+
+// CanonEntryUses is the capabilities an entry's provider uses while it is
+// built, a row's elements, in canonical order.
+func CanonEntryUses(e *ContextEntry) []Type { return CanonSet(e.Uses) }
