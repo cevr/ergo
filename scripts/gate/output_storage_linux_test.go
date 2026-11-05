@@ -14,8 +14,8 @@ import (
 
 // The output-storage property: whatever the gate does with a step's output,
 // none of it is held in memory charged to the gate. The step is
-// gateOutputCase's: 1.09 GB of output from a step far under its budget, in a
-// real scope where the gate has its 512M reserve and no more. Every place
+// gateOutputCase's: 31 MB of output from a step far under its budget, in a
+// real scope. Every place
 // the gate writes step output is a destination: the output spool, the cache's
 // output file, and the gate's own standard output. Each is put, in turn, in
 // each storage place (on disk, on tmpfs, a link on tmpfs to disk, a link on
@@ -23,9 +23,15 @@ import (
 // to replay. On every layout the gate must finish (gate-exit) and either
 //   - pass with every line of the output, in order; or
 //   - refuse with exit 2, naming the destination, before any step runs.
-// It records a pass only where the cache's output file is on disk; with the
-// cache in memory it says it did not record, and the second run executes
-// again. Whatever the runs leave on tmpfs is small: no step output.
+// Its resident memory stays under gateResidentLimit, under half the output:
+// no step output in its heap. It records a pass only where the cache's
+// output file is on disk; with the cache in memory it says it did not
+// record, and the second run executes again. Whatever the runs leave on
+// tmpfs is small: no step output in a file in memory.
+//
+// The output is small so that the property costs little disk (2026-11-05,
+// measured): with 1.09 GB, enough to fill the gate's 512M reserve, the
+// layouts took 14.2 GB at their peak, eight at a time.
 
 // storagePlace is where a destination's directory is.
 type storagePlace int
@@ -145,14 +151,34 @@ func TestBudgetOutputStorage(t *testing.T) {
 		if fixed, ok := fixedStorageCases[layout]; ok {
 			name = fixed + ":" + name
 		}
+		// The layouts run one at a time: a layout that records its pass
+		// holds the step's output on disk two or three times at its peak
+		// (the spool, the recorded output and a standard output file), and
+		// each layout that runs at once would add that again.
 		t.Run(name, func(t *testing.T) {
-			// Each layout has its own roots, cache, fixture and helper
-			// scope; the test's environment and slice are set before the
-			// layouts start and only read by them. The host step bounds
-			// how many run at once (-parallel).
-			t.Parallel()
 			checkStorageLayout(t, slice, budget, layout)
 		})
+	}
+}
+
+// storageDiskLimit is the most disk the output-storage tests may take at
+// once: a gate runs them on every run, often several gates at once on one
+// host, and on 2026-11-04 their 1.09 GB outputs filled the shared disk.
+const storageDiskLimit = 100 << 20
+
+// The output case's step prints enough that a gate that held the output in
+// its memory passes gateResidentLimit at least twice over, and little
+// enough that a layout, which holds it on disk at most three times (the
+// spool, the recorded output and a standard output file), stays under
+// storageDiskLimit.
+func TestBudgetOutputCaseSize(t *testing.T) {
+	t.Parallel()
+	size := seqBytes(outputLines)
+	if size < 2*gateResidentLimit {
+		t.Errorf("the step prints %d bytes, under twice the gate's resident limit %d", size, int64(gateResidentLimit))
+	}
+	if 3*size > storageDiskLimit {
+		t.Errorf("a storage layout holds up to %d bytes of step output on disk, over the %d limit", 3*size, storageDiskLimit)
 	}
 }
 
@@ -257,6 +283,7 @@ func checkStorageLayout(t *testing.T, slice string, budget memoryBudget, layout 
 		// result fails the layout when the gate did not finish: the kernel
 		// stopped it, and the output it had not printed is lost.
 		code, text := h.result(t)
+		gateResident(t, run, text)
 		want := layout.expect(run)
 		if want.refusal != "" {
 			if code != 2 || !strings.Contains(text, want.refusal) || strings.Contains(text, "== print:") {

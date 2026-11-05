@@ -241,21 +241,63 @@ func TestBudgetGateSurvivesStepOOM(t *testing.T) {
 	}
 }
 
-// outputLines is how many lines gateOutputCase's step prints: 1088888898
-// bytes (seqBytes), past the 64M gate budget and the gate's 512M reserve
-// together.
-const outputLines = 120_000_000
+// gateResidentLimit is the most resident memory (VmHWM) a gateOutputCase
+// helper gate may reach. The gate's own is far under it: measured 7.8M to
+// 10M on 26 helper gates (2026-11-05), most of it the test binary's code. A
+// gate that held the step's output in its memory would reach at least the
+// output's size, outputLines' twice this limit or more
+// (TestBudgetOutputCaseSize).
+const gateResidentLimit = 14 << 20
+
+// outputLines is how many lines gateOutputCase's step prints: 30888896
+// bytes (seqBytes).
+const outputLines = 4_000_000
 
 // gateOutputCase is a step whose memory stays far under its 64M budget while
-// it prints 1.09 GB. The gate must hold no more for it than for any step:
-// output the gate kept in its memory would fill its scope, and the kernel
-// would stop the gate. The step declares inputs, so its pass is recorded
-// and the helper's second run replays it from the receipt.
+// it prints 31 MB. The gate must hold no more for it than for any step: its
+// resident memory must stay under gateResidentLimit (gateResident). The
+// step declares inputs, so its pass is recorded and the helper's second run
+// replays it from the receipt.
 var gateOutputCase = budgetCase{
 	name: "gate-output", step: "64M", gate: "64M", scopeOnly: true,
 	steps: func() []*Step {
 		return []*Step{{Name: "print", Argv: []string{"seq", "1", strconv.Itoa(outputLines)}, Inputs: &Inputs{Paths: []string{"src/"}}}}
 	},
+}
+
+// gateResident checks the resident memory a gateOutputCase helper gate
+// reports (runOutputHelper) against gateResidentLimit.
+func gateResident(t *testing.T, run int, text string) {
+	t.Helper()
+	_, value, ok := strings.Cut(text, "gate-resident-peak=")
+	var peak int64
+	if _, err := fmt.Sscanf(value, "%d", &peak); !ok || err != nil {
+		t.Errorf("run %d: the helper gate reported no resident peak", run)
+		return
+	}
+	if peak > gateResidentLimit {
+		t.Errorf("run %d: the gate's resident memory reached %d bytes, over %d: it held step output in its memory", run, peak, int64(gateResidentLimit))
+	}
+}
+
+// residentPeak is this process's peak resident memory (VmHWM) in bytes, or
+// -1 if /proc does not say.
+func residentPeak() int64 {
+	status, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return -1
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		if rest, ok := strings.CutPrefix(line, "VmHWM:"); ok {
+			fields := strings.Fields(rest)
+			if len(fields) == 2 && fields[1] == "kB" {
+				if kilobytes, err := strconv.ParseInt(fields[0], 10, 64); err == nil {
+					return kilobytes << 10
+				}
+			}
+		}
+	}
+	return -1
 }
 
 // seqBytes is the size of `seq 1 n`'s output.
@@ -270,8 +312,8 @@ func seqBytes(n int64) int64 {
 // TestBudgetGateSurvivesStepOutput runs gateOutputCase in a real scope, as
 // two gates one after the other on one cache: the first executes the step
 // and records it, the second replays the receipt. Each must finish
-// (gate-exit=0) and print every line in order, and no output spool or step
-// temp file may remain.
+// (gate-exit=0), print every line in order and stay under
+// gateResidentLimit, and no output spool or step temp file may remain.
 func TestBudgetGateSurvivesStepOutput(t *testing.T) {
 	if _, err := exec.LookPath("seq"); err != nil {
 		t.Skip("seq is unavailable")
@@ -303,6 +345,7 @@ func TestBudgetGateSurvivesStepOutput(t *testing.T) {
 		if code != 0 {
 			t.Errorf("run %d: gate exit %d, want 0", run+1, code)
 		}
+		gateResident(t, run+1, text)
 	}
 	receipts := receiptsIn(t, cache)
 	if len(receipts) != 1 {
@@ -429,7 +472,7 @@ func runOutputHelper(scope string) {
 	if len(check.partial) > 0 {
 		check.line(check.partial)
 	}
-	fmt.Printf("%sseq-check run=%s lines=%d broken=%q\ngate-exit=%d\n", check.kept.String(), os.Getenv("GATE_OUTPUT_RUN"), check.lines, check.broken, code)
+	fmt.Printf("%sseq-check run=%s lines=%d broken=%q\ngate-resident-peak=%d\ngate-exit=%d\n", check.kept.String(), os.Getenv("GATE_OUTPUT_RUN"), check.lines, check.broken, residentPeak(), code)
 }
 
 // TestBudgetHostSlice runs two gates, each under its own budgets, that
