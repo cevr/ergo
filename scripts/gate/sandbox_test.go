@@ -778,10 +778,19 @@ func TestMergeTierInputContractRegression(t *testing.T) {
 	if problems := hygieneProblems(steps[0], reviewedScripts); len(problems) != 0 {
 		t.Fatal(problems)
 	}
+	// The witness runs with the environment the step has in the sandbox
+	// (sandboxEnvironment: GOROOT/bin first on PATH, which the inner test's
+	// exec reads), so the primed result is one the run's child would
+	// replay if the host's cache reached it.
+	paths, err := hostGoPaths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	prime := append(slices.Clone(steps[0].Argv[:len(steps[0].Argv)-1]), "prime")
 	for round := range 2 {
 		command := exec.Command(prime[0], prime[1:]...)
 		command.Dir = root
+		command.Env = sandboxEnvironment(os.Environ(), os.Getenv("GOMODCACHE"), paths.GOROOT)
 		output, err := command.CombinedOutput()
 		if err != nil || round == 1 && !bytes.Contains(output, []byte("(cached)")) {
 			t.Fatalf("witness prime %d: %v; the tool's cache does not replay, so the row is vacuous:\n%s", round+1, err, output)
