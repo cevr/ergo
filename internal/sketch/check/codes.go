@@ -29,6 +29,7 @@ const (
 	CodeUnused       = "S110" // an unread local, binding or import, or a value statement
 	CodeDuplicateCap = "S111" // two entries for one capability in a context
 	CodeEntry        = "S113" // the entry function and test functions
+	CodeAuthority    = "S114" // a record built outside the package that has its construction authority
 )
 
 // Codes is the S code table: every code the parser or the checker emits.
@@ -47,6 +48,7 @@ var Codes = []Code{
 	{CodeDuplicateCap, "duplicate context entry", "implemented", "s111-duplicate-context-entry"},
 	{"S112", "resource map key", "designed", "s112-resource-map-key"},
 	{CodeEntry, "entry and test functions", "implemented", "s113-entry-and-test-functions"},
+	{CodeAuthority, "construction authority", "implemented", "s114-construction-authority"},
 }
 
 // Registered reports whether code is in the table.
