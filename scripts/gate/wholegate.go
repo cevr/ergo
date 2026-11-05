@@ -39,6 +39,9 @@ var hostPrograms = []string{
 	"git", "sh", "env", "cmp", "mv", "mkdir", "dirname", "mktemp", "grep",
 	// The gate's own: the systemd scope, the RSS watch, darwin's memory size.
 	"systemd-run", "systemctl", "ps", "true", "sysctl",
+	// The merge tier's sandbox: bubblewrap, the namespace holder, and the
+	// nsenter every step of the uncached run starts through.
+	"bwrap", "nsenter", "cat",
 	// The host tests' and their scripts'.
 	"nohup", "head", "python3", "seq", "setsid", "sleep", "ls", "chmod",
 }
