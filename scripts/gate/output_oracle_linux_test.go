@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -43,7 +44,12 @@ type scopeReport struct {
 	shmem int64
 	// memoryFiles maps each open file in memory to the most bytes it held.
 	memoryFiles map[string]int64
-	samples     int
+	// lookupErrors are failed lookups other than of a file or process
+	// that is gone: the scan did not see everything.
+	lookupErrors []string
+	// denied holds this sample's denied lookups by pid (settleDenied).
+	denied  map[string][]string
+	samples int
 }
 
 // scopeWatch samples the scope of a started helper every millisecond.
@@ -112,6 +118,7 @@ func (r *scopeReport) sample(pid int, unit string) {
 		}
 		return nil
 	})
+	r.settleDenied()
 }
 
 // memoryFilesOf records the open files in memory of process pid.
@@ -119,29 +126,130 @@ func (r *scopeReport) memoryFilesOf(pid string) {
 	fds := filepath.Join("/proc", pid, "fd")
 	entries, err := os.ReadDir(fds)
 	if err != nil {
+		r.lookupFailed(fds, err)
 		return
 	}
 	for _, entry := range entries {
-		name := filepath.Join(fds, entry.Name())
-		info, err := os.Stat(name)
-		if err != nil || !info.Mode().IsRegular() {
-			continue
+		if file, ok := r.pinnedFile(filepath.Join(fds, entry.Name())); ok && file.inMemory() {
+			key := file.system + ":" + file.name
+			r.memoryFiles[key] = max(r.memoryFiles[key], file.size)
 		}
-		target, _ := os.Readlink(name)
-		var stat syscall.Statfs_t
-		if err := syscall.Statfs(name, &stat); err != nil {
-			continue
-		}
-		if memoryMagics[int64(stat.Type)] == "" && !strings.HasPrefix(target, "/memfd:") {
-			continue
-		}
-		size := info.Size()
-		if system, ok := info.Sys().(*syscall.Stat_t); ok {
-			size = max(size, system.Blocks*512)
-		}
-		key := memoryMagics[int64(stat.Type)] + ":" + target
-		r.memoryFiles[key] = max(r.memoryFiles[key], size)
 	}
+}
+
+// oPath is open(2)'s O_PATH, which the syscall package does not name: a
+// handle to a file that reads no data and needs no permission on it.
+const oPath = 0x200000
+
+// pinnedFile is what the kernel says of one open file, every fact taken
+// from one handle to it.
+type pinnedFile struct {
+	// system is the memory file system's name, or empty.
+	system string
+	// name is the file's path, "/memfd:..." for a memfd.
+	name string
+	// size is the larger of its size and its allocated blocks.
+	size int64
+}
+
+func (f pinnedFile) inMemory() bool {
+	return f.system != "" || strings.HasPrefix(f.name, "/memfd:")
+}
+
+// pinnedFile opens the file that the fd link fd names once, as an O_PATH
+// handle, and takes its type, size, file system and name from that handle
+// alone. A process may close the fd, reuse its number for another file, or
+// exit at any time; separate lookups of the link could then mix facts of
+// two files (round 3 B1). With one handle, every fact is of the file the
+// open found. It reports false for a regular file it did not find, or for a
+// file that is not regular.
+func (r *scopeReport) pinnedFile(fd string) (pinnedFile, bool) {
+	handle, err := syscall.Open(fd, oPath|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		r.lookupFailed(fd, err)
+		return pinnedFile{}, false
+	}
+	defer syscall.Close(handle)
+	var stat syscall.Stat_t
+	if err := syscall.Fstat(handle, &stat); err != nil {
+		r.lookupFailed(fd, err)
+		return pinnedFile{}, false
+	}
+	if stat.Mode&syscall.S_IFMT != syscall.S_IFREG {
+		return pinnedFile{}, false
+	}
+	var system syscall.Statfs_t
+	if err := syscall.Fstatfs(handle, &system); err != nil {
+		r.lookupFailed(fd, err)
+		return pinnedFile{}, false
+	}
+	name, err := os.Readlink("/proc/self/fd/" + strconv.Itoa(handle))
+	if err != nil {
+		r.lookupFailed(fd, err)
+		return pinnedFile{}, false
+	}
+	return pinnedFile{system: memoryMagics[int64(system.Type)], name: name, size: max(stat.Size, stat.Blocks*512)}, true
+}
+
+// lookupFailed records a failed lookup, unless the fd or its process is
+// gone, which a scan of live processes must expect. The kernel also denies
+// a process's fds (EACCES) once it has begun to exit and dropped its
+// memory, so a denied lookup waits for the end of the sample
+// (settleDenied), which keeps it only if its process still runs.
+func (r *scopeReport) lookupFailed(name string, err error) {
+	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ESRCH) {
+		return
+	}
+	failure := fmt.Sprintf("%s: %v", name, err)
+	if errors.Is(err, syscall.EACCES) {
+		if pid, _, ok := strings.Cut(strings.TrimPrefix(name, "/proc/"), "/"); ok {
+			if r.denied == nil {
+				r.denied = map[string][]string{}
+			}
+			r.denied[pid] = append(r.denied[pid], failure)
+			return
+		}
+	}
+	r.addLookupError(failure)
+}
+
+func (r *scopeReport) addLookupError(failure string) {
+	if len(r.lookupErrors) < 8 {
+		r.lookupErrors = append(r.lookupErrors, failure)
+	}
+}
+
+// settleDenied keeps the denied lookups of processes that still run: not
+// gone, not a zombie and not dead.
+func (r *scopeReport) settleDenied() {
+	for pid, failures := range r.denied {
+		if !scannedProcessEnded(pid) {
+			for _, failure := range failures {
+				r.addLookupError(failure)
+			}
+		}
+		delete(r.denied, pid)
+	}
+}
+
+// scannedProcessEnded reports whether process pid is gone, a zombie or dead, or
+// exiting: its memory is gone (no VmSize in its status).
+func scannedProcessEnded(pid string) bool {
+	stat, err := os.ReadFile("/proc/" + pid + "/stat")
+	if err != nil {
+		return true
+	}
+	// The state follows the command name, which is in parentheses and may
+	// hold any byte.
+	end := bytes.LastIndexByte(stat, ')')
+	if end < 0 || end+2 >= len(stat) {
+		return true
+	}
+	if state := stat[end+2]; state == 'Z' || state == 'X' || state == 'x' {
+		return true
+	}
+	status, err := os.ReadFile("/proc/" + pid + "/status")
+	return err != nil || !bytes.Contains(status, []byte("\nVmSize:"))
 }
 
 // shmemIn is the shmem bytes of a memory.stat, or -1.
@@ -179,6 +287,9 @@ func checkPlacement(t *testing.T, run int, report scopeReport, diskLayout bool) 
 	if report.scope == "" || report.shmem < 0 {
 		t.Errorf("run %d: the watch did not see the helper's scope (scope %q, shmem %d)", run, report.scope, report.shmem)
 		return
+	}
+	if len(report.lookupErrors) > 0 {
+		t.Errorf("run %d: the watch could not look at every open file: %v", run, report.lookupErrors)
 	}
 	if report.shmem > gateShmemLimit {
 		t.Errorf("run %d: the helper's scope held %d bytes on tmpfs, over %d: step output was written to memory", run, report.shmem, int64(gateShmemLimit))
@@ -240,6 +351,9 @@ func TestBudgetOutputOracle(t *testing.T) {
 				if report.scope == "" || report.shmem < 0 {
 					t.Fatalf("the watch did not see the helper's scope (scope %q, shmem %d)", report.scope, report.shmem)
 				}
+				if len(report.lookupErrors) > 0 {
+					t.Errorf("the watch could not look at every open file: %v", report.lookupErrors)
+				}
 				largest := int64(0)
 				for _, held := range report.memoryFiles {
 					largest = max(largest, held)
@@ -262,6 +376,163 @@ func TestBudgetOutputOracle(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// reuseSize is the size of reuseDescriptor's sparse disk file: over
+// gateShmemLimit, with no block allocated.
+const reuseSize = 31 << 20
+
+// churnStepLife is how long each step of the "exit" churn reuses its
+// descriptor before it exits.
+const churnStepLife = 20 * time.Millisecond
+
+// reuseDescriptor puts, for life, a sparse disk file of reuseSize bytes in
+// dir and an empty memfd at one descriptor number in turn. No file in
+// memory ever holds a byte, so a watch that says one does mixed the facts
+// of the two files.
+func reuseDescriptor(dir string, life time.Duration) error {
+	disk, err := oracleFileIn(dir)
+	if err != nil {
+		return err
+	}
+	defer disk.Close()
+	if err := disk.Truncate(reuseSize); err != nil {
+		return err
+	}
+	memory, err := oracleFile("memfd")
+	if err != nil {
+		return err
+	}
+	defer memory.Close()
+	fd, err := syscall.Dup(int(disk.Fd()))
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(fd)
+	for until := time.Now().Add(life); time.Now().Before(until); {
+		if err := syscall.Dup3(int(disk.Fd()), fd, syscall.O_CLOEXEC); err != nil {
+			return err
+		}
+		if err := syscall.Dup3(int(memory.Fd()), fd, syscall.O_CLOEXEC); err != nil {
+			return err
+		}
+	}
+	if info, err := memory.Stat(); err != nil || info.Size() != 0 {
+		return fmt.Errorf("the memfd: %v, %v; want 0 bytes", info, err)
+	}
+	return nil
+}
+
+// oracleFileIn makes an unlinked file in dir.
+func oracleFileIn(dir string) (*os.File, error) {
+	file, err := os.CreateTemp(dir, "oracle-")
+	if err != nil {
+		return nil, err
+	}
+	return file, os.Remove(file.Name())
+}
+
+// checkReuseReport checks a watch of descriptor reuse: it saw the empty
+// memfd, so the scan ran while it was open, and every file in memory it
+// reports is a memfd with no bytes, so it never mixed the disk file's size
+// or name with the memfd's file system.
+func checkReuseReport(t *testing.T, report scopeReport) {
+	t.Helper()
+	t.Logf("%d samples, shmem peak %d, open files in memory %v, lookup errors %v", report.samples, report.shmem, report.memoryFiles, report.lookupErrors)
+	if len(report.lookupErrors) > 0 {
+		t.Errorf("the watch could not look at every open file: %v", report.lookupErrors)
+	}
+	sawMemfd := false
+	for file, size := range report.memoryFiles {
+		if strings.HasPrefix(file, "tmpfs:/memfd:gate-oracle") {
+			sawMemfd = true
+		}
+		if size != 0 || !strings.HasPrefix(file, "tmpfs:/memfd:") {
+			t.Errorf("the watch reported %s with %d bytes in memory; the only file in memory is an empty memfd", file, size)
+		}
+	}
+	if !sawMemfd {
+		t.Errorf("the watch never saw the memfd: the scan did not run while it was open")
+	}
+}
+
+// TestBudgetOutputOracleFDReuse scans this process 2000 times while one of
+// its descriptors switches between a sparse disk file and an empty memfd
+// (the verifier's round-3 TestVerifyFDReuse).
+func TestBudgetOutputOracleFDReuse(t *testing.T) {
+	if _, ok := memfdCreateNumber[runtime.GOARCH]; !ok {
+		t.Skipf("no memfd_create number for %s", runtime.GOARCH)
+	}
+	t.Setenv("GATE_ORACLE_DISK", t.TempDir())
+	done, ended := make(chan struct{}), make(chan error, 1)
+	go func() {
+		for {
+			if err := reuseDescriptor(os.Getenv("GATE_ORACLE_DISK"), 10*time.Millisecond); err != nil {
+				ended <- err
+				return
+			}
+			select {
+			case <-done:
+				ended <- nil
+				return
+			default:
+			}
+		}
+	}()
+	report := scopeReport{shmem: 0, memoryFiles: map[string]int64{}}
+	pid := strconv.Itoa(os.Getpid())
+	for range 2000 {
+		report.samples++
+		report.memoryFilesOf(pid)
+		report.settleDenied()
+	}
+	close(done)
+	if err := <-ended; err != nil {
+		t.Fatal(err)
+	}
+	checkReuseReport(t, report)
+}
+
+// TestBudgetOutputOracleChurn runs the watch on real gate scopes whose
+// processes reuse descriptors ("reuse": the gate, as in the verifier's
+// round-3 TestVerifyScopeFDReuse) and exit while they are scanned
+// ("exit": steps that each reuse a descriptor for churnStepLife and exit,
+// four at a time). The watch must report no mixed file and no failure.
+func TestBudgetOutputOracleChurn(t *testing.T) {
+	if _, ok := memfdCreateNumber[runtime.GOARCH]; !ok {
+		t.Skipf("no memfd_create number for %s", runtime.GOARCH)
+	}
+	slice := testSlice(t)
+	setBudgetCaseTemp(t)
+	t.Setenv(stepMemoryVariable, gateOutputCase.step)
+	t.Setenv(gateMemoryVariable, gateOutputCase.gate)
+	t.Setenv(hostMemoryVariable, "4G")
+	budget, err := currentBudget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	startableScope(t, slice, budget)
+	for _, allocator := range []string{"reuse", "exit"} {
+		t.Run(allocator, func(t *testing.T) {
+			h := newScopeHelper(t, slice, oracleCase, budget)
+			for name, value := range map[string]string{"GATE_ORACLE_ALLOCATOR": allocator, "GATE_ORACLE_DISK": t.TempDir()} {
+				h.command.Env = setEnvironmentVariable(h.command.Env, name, value)
+			}
+			report := runWatched(t, h)
+			text := h.output.String()
+			t.Logf("helper output:\n%s", text)
+			if !strings.Contains(text, "oracle-exit=0\n") {
+				t.Fatalf("the oracle helper failed:\n%s", text)
+			}
+			if report.scope == "" || report.shmem < 0 {
+				t.Fatalf("the watch did not see the helper's scope (scope %q, shmem %d)", report.scope, report.shmem)
+			}
+			if report.shmem > gateShmemLimit {
+				t.Errorf("the scope's shmem peak is %d, over %d, with no byte in memory", report.shmem, int64(gateShmemLimit))
+			}
+			checkReuseReport(t, report)
+		})
 	}
 }
 
@@ -320,6 +591,9 @@ func writeOutput(file *os.File) error {
 // as a step (GATE_ORACLE_STEP), it makes, writes and holds the file itself.
 func runOracleHelper(scope string) error {
 	backing := os.Getenv("GATE_ORACLE_BACKING")
+	if os.Getenv("GATE_ORACLE_STEP") == "churn" {
+		return reuseDescriptor(os.Getenv("GATE_ORACLE_DISK"), churnStepLife)
+	}
 	if os.Getenv("GATE_ORACLE_STEP") != "" {
 		file, err := oracleFile(backing)
 		if err != nil {
@@ -371,6 +645,29 @@ func runOracleHelper(scope string) error {
 		command := exec.Command(os.Args[0], "-test.run=^TestBudgetScopeHelper$", "-test.count=1")
 		command.Env = append(os.Environ(), "GATE_ORACLE_STEP=1")
 		return step(command)
+	case "reuse":
+		return reuseDescriptor(os.Getenv("GATE_ORACLE_DISK"), oracleHold)
+	case "exit":
+		// Steps that each reuse a descriptor and exit, four at a time,
+		// for oracleHold: processes leave the scope while it is scanned.
+		until := time.Now().Add(oracleHold)
+		started := 0
+		for time.Now().Before(until) {
+			errs := make(chan error, 4)
+			for range 4 {
+				command := exec.Command(os.Args[0], "-test.run=^TestBudgetScopeHelper$", "-test.count=1")
+				command.Env = append(os.Environ(), "GATE_ORACLE_STEP=churn")
+				go func() { errs <- step(command) }()
+			}
+			for range 4 {
+				if err := <-errs; err != nil {
+					return err
+				}
+			}
+			started += 4
+		}
+		fmt.Printf("oracle: %d churn steps\n", started)
+		return nil
 	case "passed":
 		file, err := oracleFile(backing)
 		if err != nil {
