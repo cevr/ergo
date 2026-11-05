@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -114,6 +115,35 @@ func free(t *testing.T, path string) bool {
 	}
 	defer f.Close()
 	return tryLockExclusive(f)
+}
+
+// openUnder lists the targets of this process's open descriptors that name
+// root or a path inside it, from /proc/self/fd. It sees only the cache's
+// own descriptors: one that another goroutine, an earlier test's dropped
+// file or the runtime opens or closes elsewhere does not change the list.
+func openUnder(t *testing.T, root string) []string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var open []string
+	for _, fd := range list {
+		// A descriptor closed since ReadDir is gone, and was not root's:
+		// the cache's calls have returned.
+		target, err := os.Readlink(filepath.Join("/proc/self/fd", fd.Name()))
+		if err != nil {
+			continue
+		}
+		if target == resolved || strings.HasPrefix(target, resolved+string(filepath.Separator)) {
+			open = append(open, fd.Name()+" -> "+target)
+		}
+	}
+	return open
 }
 
 // once makes a hook that runs fn on its first call only.
@@ -544,27 +574,24 @@ func TestTrimKeepsYoungAndRemovesOld(t *testing.T) {
 // TestEntryLockReleasedOnEveryPath (spec risk 4): every path of Module that
 // returns a module holds exactly its directory's lock until Release, and
 // every path that fails holds nothing. After each one, the trim's
-// exclusive lock on the entry is free, and no descriptor stays open.
+// exclusive lock on the entry is free, and no descriptor of the cache stays
+// open.
 func TestEntryLockReleasedOnEveryPath(t *testing.T) {
 	needLocks(t)
 	if _, err := os.Stat("/proc/self/fd"); err != nil {
 		t.Skip("no /proc/self/fd to count descriptors")
 	}
 	t.Cleanup(func() { testHookStaged = nil })
-	fds := func() int {
-		list, err := os.ReadDir("/proc/self/fd")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return len(list)
-	}
+	// No collection runs while the test does, so a descriptor that a path
+	// drops without closing stays open until openUnder sees it: a finalizer
+	// never closes the leak first.
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
 	root := t.TempDir()
 	c := Cache{Root: root}
 	base := baseInput()
-	publishBase(t, root) // warm up the runtime's own descriptors
+	publishBase(t, root)
 	check := func(name string, build func() (Module, error), succeeds bool) {
 		t.Helper()
-		before := fds()
 		m, err := build()
 		if (err == nil) != succeeds {
 			t.Fatalf("%s: error %v", name, err)
@@ -579,9 +606,12 @@ func TestEntryLockReleasedOnEveryPath(t *testing.T) {
 				t.Fatalf("%s: the module is still held after Release", name)
 			}
 		}
-		if after := fds(); after != before {
-			t.Fatalf("%s: %d descriptors open before, %d after", name, before, after)
+		if open := openUnder(t, root); len(open) != 0 {
+			t.Fatalf("%s: descriptors still open in the cache: %v", name, open)
 		}
+	}
+	if open := openUnder(t, root); len(open) != 0 {
+		t.Fatalf("publishBase left descriptors open in the cache: %v", open)
 	}
 	check("hit", func() (Module, error) { return c.Module(base, emitFor(base, nil)) }, true)
 	other := base
