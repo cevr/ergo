@@ -751,6 +751,9 @@ func (g *gate) execute(step *Step) *result {
 	command := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	command.Dir = g.root
 	command.Env = g.commandEnvironment(step)
+	if g.enclosure != nil {
+		command.Env = g.enclosure.environment(command.Env)
+	}
 	// The step's output goes to a spool file, never to the gate's memory, so
 	// what the gate holds for a step does not grow with what it prints.
 	spool, err := newOutputSpool(g.spoolDir)

@@ -10,14 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 )
 
-// sandboxReadyTimeout bounds the export: a clone of the object store and a
-// checkout of the head commit (seconds on this repository).
+// sandboxReadyTimeout bounds bwrap's start, until its first process says
+// ready.
 const sandboxReadyTimeout = 5 * time.Minute
 
 // sandbox is a running merge-tier sandbox: a holder process that owns the
@@ -30,14 +31,24 @@ type sandbox struct {
 	nsenter        string
 	pid            int
 	fresh          string
+	modCache       string
+	goRoot         string
 }
 
-// startSandbox starts the sandbox of a plan and waits for the export. An
-// error means the merge tier cannot run sandboxed, and fails closed.
+// startSandbox starts the sandbox of a plan: it checks the read-only
+// trees (checkInputs) and masks what it found, exports the head commit and
+// seeds the module cache on the host, into the run's directory, and waits
+// until bwrap's first process is ready. An error means the merge tier
+// cannot run sandboxed, and fails closed.
 func startSandbox(plan sandboxPlan) (enclosure, error) {
 	if err := plan.admissible(); err != nil {
 		return nil, err
 	}
+	masks, err := checkInputs(plan.ReadOnly, plan.Programs)
+	if err != nil {
+		return nil, fmt.Errorf("the input contract: %w", err)
+	}
+	plan.Masks = append(plan.Masks, masks...)
 	bwrap, err := exec.LookPath("bwrap")
 	if err != nil {
 		return nil, errors.New("no bwrap (bubblewrap) on PATH")
@@ -58,7 +69,7 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 	if err := os.Mkdir(plan.Fresh, 0o700); err != nil {
 		return nil, fmt.Errorf("the run's directory: %w", err)
 	}
-	s := &sandbox{nsenter: nsenter, fresh: plan.Fresh}
+	s := &sandbox{nsenter: nsenter, fresh: plan.Fresh, modCache: plan.ModCache, goRoot: plan.GoRoot}
 	fail := func(err error) (enclosure, error) {
 		_ = s.close()
 		return nil, err
@@ -66,6 +77,16 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 	for i := range plan.Scratch {
 		if err := os.Mkdir(sandboxFresh(plan.Fresh, i), 0o700); err != nil {
 			return fail(err)
+		}
+	}
+	if i := slices.Index(plan.Scratch, plan.Checkout); i < 0 {
+		return fail(fmt.Errorf("the checkout %s is not a scratch path", plan.Checkout))
+	} else if err := exportCommit(plan.Source, plan.Head, sandboxFresh(plan.Fresh, i)); err != nil {
+		return fail(err)
+	}
+	if plan.ModCache != "" {
+		if _, err := seedModules(plan.Source, plan.Head, plan.HostModCache, sandboxFresh(plan.Fresh, slices.Index(plan.Scratch, plan.ModCache))); err != nil {
+			return fail(fmt.Errorf("the module inputs: %w", err))
 		}
 	}
 	// The holder is the first process of a new pid namespace, in a new
@@ -182,6 +203,10 @@ func processEnded(pid int) bool {
 
 func (s *sandbox) wrap(argv []string, dir string) []string {
 	return sandboxWrap(s.nsenter, s.pid, dir, argv)
+}
+
+func (s *sandbox) environment(env []string) []string {
+	return sandboxEnvironment(env, s.modCache, s.goRoot)
 }
 
 // close ends the sandbox. The holder goes first: when the first process of

@@ -22,12 +22,17 @@ import (
 // the temporary directories, the caches, the checkout) is bound from its
 // own directory under the run's directory (sandboxPlan.Fresh), which the
 // sandbox creates, so it is empty when the run starts, and removes when the
-// run ends; the few host paths the steps must read are bound read-only
-// (sandboxReadOnly); and the checkout is a fresh export of the head commit
-// from the repository's object store, not the caller's working tree. So a
-// cache a step fills lives only as long as the run, and two runs never
-// share one (Bazel's sandboxed actions and Nix's build sandbox are the
-// prior art; neither trusts a tool's own cache choice).
+// run ends; the few host trees the steps must read are bound read-only
+// (sandboxReadOnly), and checked at the start of every run, so none shows
+// a path a process of this user could have written or a Go cache
+// (checkInputs, inputs.go); the checkout is a fresh export of the head
+// commit, fetched by its hash, not the caller's working tree; and the
+// module cache is empty but for the modules go.sum verifies (seedModules).
+// So a cache a step fills lives only as long as the run, two runs never
+// share one, and no state from before the run is visible but the commit
+// and the verified modules (Bazel's sandboxed actions and Nix's build
+// sandbox with its fixed-output inputs are the prior art; neither trusts a
+// tool's own cache choice).
 //
 // The writable directories are on disk, not tmpfs, measured: on tmpfs the
 // gate's own tests refused their output spools (the gate keeps a step's
@@ -44,14 +49,13 @@ import (
 // bwrap or nsenter, without user namespaces) the merge tier fails closed:
 // it exits non-zero with one line and gives no verdict.
 
-// sourceMount is where the sandbox binds the repository's object store,
-// read-only, for the export. It is outside every path the steps name.
-const sourceMount = "/run/ergo-gate/source.git"
-
 // sandboxPath is a host path the sandbox binds read-only, and why.
+// Maskable says whether checkInputs may mask a path inside it, or must
+// refuse the run (GOROOT: the run needs all of it).
 type sandboxPath struct {
-	Path   string
-	Reason string
+	Path     string
+	Reason   string
+	Maskable bool
 }
 
 // sandboxPlan is everything the sandbox mounts. sandboxArgv turns it into
@@ -62,11 +66,22 @@ type sandboxPlan struct {
 	// Checkout is the host path of the gate's checkout. The export is at
 	// the same path inside, so the steps' declarations need no rewrite.
 	Checkout string
-	// Source is the host's Git common directory, bound read-only at
-	// sourceMount.
+	// Source is the host's Git common directory, which the export fetches
+	// Head from on the host (exportCommit). The sandbox does not bind it.
 	Source string
 	// ReadOnly are the host paths bound read-only (sandboxReadOnly).
 	ReadOnly []sandboxPath
+	// Masks are the paths inside ReadOnly bound empty (checkInputs).
+	Masks []sandboxMask
+	// Programs are the host programs the steps run, resolved; no mask may
+	// hide one (sandboxPrograms).
+	Programs []string
+	// ModCache is the module cache the steps use (GOMODCACHE): a scratch
+	// path, which the sandbox fills from HostModCache with the modules the
+	// head commit's go.sum files verify (seedModules).
+	ModCache, HostModCache string
+	// GoRoot is the toolchain the steps run (GOROOT), first on their PATH.
+	GoRoot string
 	// Scratch are the paths a step writes, by name (sandboxScratch), each
 	// bound read-write from its own empty directory under Fresh. The root
 	// is a tmpfs.
@@ -109,15 +124,10 @@ const (
 	sandboxInfoFD   = 5
 )
 
-// sandboxExportScript runs in the sandbox before any step: it exports the
-// head commit into the checkout from the read-only object store, creates
-// the steps' temporary directories, says ready, and holds the sandbox open
-// until the gate closes its standard input.
-const sandboxExportScript = `set -eu
-source=$1 checkout=$2 head=$3
-shift 3
-git clone -q --shared --no-checkout "$source" "$checkout"
-git -C "$checkout" -c advice.detachedHead=false checkout -q --detach "$head"
+// sandboxReadyScript runs in the sandbox before any step: it creates the
+// steps' temporary directories in the export, says ready, and holds the
+// sandbox open until the gate closes its standard input.
+const sandboxReadyScript = `set -eu
 for dir in "$@"; do mkdir -p "$dir"; done
 echo ready
 exec cat >/dev/null
@@ -125,8 +135,8 @@ exec cat >/dev/null
 
 // sandboxArgv is bubblewrap's argv for a plan: the one place the
 // sandbox's mounts are decided. Mounts are ordered parents first, so a
-// read-only path under a scratch path (the module cache under HOME) is
-// bound over it.
+// read-only path under a scratch path (GOROOT under HOME) is bound over
+// it, and a mask over the tree that holds it.
 func sandboxArgv(plan sandboxPlan) []string {
 	argv := []string{
 		"--userns", strconv.Itoa(sandboxUserNSFD),
@@ -148,6 +158,9 @@ func sandboxArgv(plan sandboxPlan) []string {
 	for _, path := range plan.ReadOnly {
 		mounts = append(mounts, mount{path.Path, []string{"--ro-bind", path.Path, path.Path}})
 	}
+	for _, mask := range plan.Masks {
+		mounts = append(mounts, mount{mask.Path, maskArgs(mask)})
+	}
 	// Parents first; at one path the scratch before the read-only binding.
 	slices.SortStableFunc(mounts, func(a, b mount) int {
 		return strings.Count(filepath.Clean(a.path), "/") - strings.Count(filepath.Clean(b.path), "/")
@@ -158,34 +171,33 @@ func sandboxArgv(plan sandboxPlan) []string {
 	for _, m := range mounts {
 		argv = append(argv, m.args...)
 	}
-	argv = append(argv, "--ro-bind", plan.Source, sourceMount, "--chdir", "/", "--", "/bin/sh", "-c", sandboxExportScript, "sandbox", sourceMount, plan.Checkout, plan.Head)
+	argv = append(argv, "--chdir", "/", "--", "/bin/sh", "-c", sandboxReadyScript, "sandbox")
 	return append(argv, plan.Dirs...)
 }
 
-// sandboxHostPaths are the paths the steps read from the host, with the
+// sandboxReadOnly are the trees the steps read from the host, with the
 // reason for each; the merge tier binds these read-only and nothing else
 // (docs/tooling.md, "Merge gate", lists them). Each was found necessary by
 // running the merge tier without it; /etc was not (the merge tier passed
 // without it), so the host's configuration (git's, the resolver's, the
-// user database) is not an input of the verdict.
-func sandboxReadOnly(goModCache, goRoot string) []sandboxPath {
+// user database) is not an input of the verdict. No module cache is bound:
+// the run's own is filled from go.sum (seedModules).
+func sandboxReadOnly(goRoot string) []sandboxPath {
 	paths := []sandboxPath{
-		{"/usr", "the programs the steps run (sh, git, go, cc, ps, bwrap) and their libraries"},
+		{"/usr", "the programs the steps run (sh, git, cc, ps, bwrap) and their libraries", true},
 	}
-	if goModCache != "" {
-		paths = append(paths, sandboxPath{goModCache, "the Go module cache: the modules the build reads, and the Go toolchain go.mod selects, which no step may download"})
-	}
-	if goRoot != "" && !slices.ContainsFunc(paths, func(p sandboxPath) bool { return within(goRoot, p.Path) }) {
-		paths = append(paths, sandboxPath{goRoot, "the Go toolchain (GOROOT)"})
+	if goRoot != "" {
+		paths = append(paths, sandboxPath{goRoot, "the Go toolchain (GOROOT), first on the steps' PATH, with GOTOOLCHAIN=local", false})
 	}
 	return paths
 }
 
 // sandboxForbidden are the host paths no read-only binding may expose, as
 // a path or a parent: a cache or temporary directory another run writes
-// would hand its results to this one. HOME itself is forbidden as a path
-// or parent; a declared path under it (the module cache) is not.
-func sandboxForbidden(home, goCache, xdgCacheHome, tempDir, goTmpDir string) (forbidden, homes []string) {
+// would hand its results to this one. HOME and the host's module cache
+// are forbidden as a path or parent; a declared path under one (GOROOT in
+// the module cache) is not.
+func sandboxForbidden(home, goCache, xdgCacheHome, tempDir, goTmpDir, goModCache string) (forbidden, homes []string) {
 	for _, path := range []string{"/tmp", "/var/tmp", goCache, xdgCacheHome, tempDir, goTmpDir} {
 		if path != "" {
 			forbidden = append(forbidden, path)
@@ -194,6 +206,9 @@ func sandboxForbidden(home, goCache, xdgCacheHome, tempDir, goTmpDir string) (fo
 	if home != "" {
 		forbidden = append(forbidden, filepath.Join(home, ".cache"), filepath.Join(home, "Library", "Caches"))
 		homes = append(homes, home)
+	}
+	if goModCache != "" {
+		homes = append(homes, goModCache)
 	}
 	return forbidden, homes
 }
@@ -214,7 +229,7 @@ func checkSandboxPlan(plan sandboxPlan, forbidden, homes []string) error {
 		}
 		for _, home := range homes {
 			if within(home, path.Path) {
-				return fmt.Errorf("read-only path %s exposes HOME %s", path.Path, home)
+				return fmt.Errorf("read-only path %s exposes %s", path.Path, home)
 			}
 		}
 		if within(plan.Checkout, path.Path) || within(path.Path, plan.Checkout) {
@@ -225,6 +240,9 @@ func checkSandboxPlan(plan sandboxPlan, forbidden, homes []string) error {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("scratch path %q is not absolute", path)
 		}
+	}
+	if plan.ModCache != "" && !slices.Contains(plan.Scratch, plan.ModCache) {
+		return fmt.Errorf("the module cache %s is not a scratch path", plan.ModCache)
 	}
 	if !filepath.IsAbs(plan.Fresh) || filepath.Dir(plan.Fresh) == plan.Fresh {
 		return fmt.Errorf("the run's directory %q is not an absolute path below the root", plan.Fresh)
@@ -288,14 +306,24 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 	}
 	tempDir := os.TempDir()
 	goTmpDir, _ := stepVariable("GOTMPDIR")
-	plan := sandboxPlan{
-		Head:     identity.head,
-		Checkout: root,
-		Source:   strings.TrimSpace(string(source)),
-		ReadOnly: sandboxReadOnly(paths.GOMODCACHE, paths.GOROOT),
-		Links:    sandboxLinks(),
+	modCache := paths.GOMODCACHE
+	if modCache != "" {
+		if modCache, err = filepath.Abs(modCache); err != nil {
+			return sandboxPlan{}, err
+		}
 	}
-	plan.Scratch = sandboxScratch(home, xdg, paths.GOCACHE, tempDir, goTmpDir, g.cacheDir, root)
+	plan := sandboxPlan{
+		Head:         identity.head,
+		Checkout:     root,
+		Source:       strings.TrimSpace(string(source)),
+		ReadOnly:     sandboxReadOnly(paths.GOROOT),
+		Programs:     sandboxPrograms(),
+		ModCache:     modCache,
+		HostModCache: modCache,
+		GoRoot:       paths.GOROOT,
+		Links:        sandboxLinks(),
+	}
+	plan.Scratch = sandboxScratch(home, xdg, paths.GOCACHE, tempDir, goTmpDir, g.cacheDir, root, modCache)
 	// The runs' directory is in the gate's cache, on disk (the gate keeps
 	// its spools there), and hidden in the sandbox under the cache's own
 	// scratch binding. The name is random, so no two runs share one.
@@ -311,16 +339,17 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 		plan.Dirs = append(plan.Dirs, stepTempDir(root, step.Name))
 	}
 	plan.Clean = identity.clean
-	plan.Forbidden, plan.Homes = sandboxForbidden(home, paths.GOCACHE, xdg, tempDir, goTmpDir)
+	plan.Forbidden, plan.Homes = sandboxForbidden(home, paths.GOCACHE, xdg, tempDir, goTmpDir, modCache)
 	return plan, nil
 }
 
 // sandboxScratch are the writable mounts: every directory a step may write
 // by name, so each is empty in the sandbox whatever the host holds there.
-// Go needs GOTMPDIR to exist; its mount creates it.
-func sandboxScratch(home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout string) []string {
+// Go needs GOTMPDIR to exist; its mount creates it. The module cache is one
+// too: the sandbox fills it with the verified modules (seedModules).
+func sandboxScratch(home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout, goModCache string) []string {
 	var scratch []string
-	for _, path := range []string{"/tmp", "/var/tmp", home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout} {
+	for _, path := range []string{"/tmp", "/var/tmp", home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout, goModCache} {
 		if path == "" {
 			continue
 		}
@@ -382,5 +411,39 @@ func sandboxWrap(nsenter string, pid int, dir string, argv []string) []string {
 type enclosure interface {
 	// wrap is the argv that runs argv inside, in dir.
 	wrap(argv []string, dir string) []string
+	// environment is a step's environment inside.
+	environment(env []string) []string
 	close() error
+}
+
+// sandboxEnvironment is a step's environment in the sandbox: the run's own
+// module cache, no module download (GOPROXY=off), no toolchain switch
+// (GOTOOLCHAIN=local), and GOROOT's go first on PATH.
+func sandboxEnvironment(env []string, modCache, goRoot string) []string {
+	set := map[string]string{"GOPROXY": "off", "GOTOOLCHAIN": "local"}
+	if modCache != "" {
+		set["GOMODCACHE"] = modCache
+	}
+	path := ""
+	var out []string
+	for _, kv := range env {
+		name, value, _ := strings.Cut(kv, "=")
+		if name == "PATH" {
+			path = value
+			continue
+		}
+		if _, ok := set[name]; !ok {
+			out = append(out, kv)
+		}
+	}
+	if goRoot != "" {
+		path = strings.TrimSuffix(filepath.Join(goRoot, "bin")+string(os.PathListSeparator)+path, string(os.PathListSeparator))
+	}
+	out = append(out, "PATH="+path)
+	for _, name := range []string{"GOMODCACHE", "GOPROXY", "GOTOOLCHAIN"} {
+		if value, ok := set[name]; ok {
+			out = append(out, name+"="+value)
+		}
+	}
+	return out
 }
