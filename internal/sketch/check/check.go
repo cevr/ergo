@@ -309,10 +309,6 @@ type checker struct {
 	reach     map[any]*reachNode
 	providers map[*Named][]*Named // capability → provider types bound to it anywhere
 
-	// totalSwitch holds the matches that are total (proved, or reported
-	// S103): such a match terminates when every case does (D8).
-	totalSwitch map[syntax.Stmt]bool
-
 	// variants holds the record each inline variant `Name{…}` of a union
 	// declares (spec D-B1), and synthetic the identifiers the checker made
 	// for those records' type parameters: they are not in the tree, so
@@ -380,7 +376,6 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 		reach:          map[any]*reachNode{},
 		providers:      map[*Named][]*Named{},
 
-		totalSwitch: map[syntax.Stmt]bool{},
 		variants:    map[*syntax.VariantSpec]*TypeName{},
 		synthetic:   map[*syntax.Ident]bool{},
 		pkgPatterns: map[*syntax.VarSpec]*pkgPattern{},
