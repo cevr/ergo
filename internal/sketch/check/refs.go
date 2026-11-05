@@ -904,16 +904,18 @@ func closedRows(pt Type) [2]bool {
 
 func (w *refWalker) local(name string) bool { return w.lookupLocal(name) != nil }
 
-// withValueName reports whether typing reads a with operand's bare name,
-// which names no package context, as a value (context.go withArg): a local
-// value or a package var. Any other name (a function, a type, a row
-// capability, nothing) is an "unknown context" error there, which reads no
-// value and records no use, so the walk takes it as a name: no reference
-// edge, and no use typing would not resolve when it checks the frame
-// (checker-fuzz: `func w(){with 0{with w{}}}`).
+// withValueName reports whether a with operand's bare name, which names no
+// package context, is a value as typing reads it (context.go withArg): a
+// local or a package var. Any package object other than a var (a function,
+// a type, a prelude function) and a name of nothing is an "unknown
+// context" error there, which reads no value and records no use, so the
+// walk takes it as a name: no reference edge, and no use typing would not
+// resolve when it checks the frame (checker-fuzz: `func w(){with 0{with
+// w{}}}`). A local is never a package object, so a local row capability,
+// which typing also refuses, adds no edge either way.
 func (w *refWalker) withValueName(name string) bool {
-	if b := w.lookupLocal(name); b != nil {
-		return !b.row
+	if w.local(name) {
+		return true
 	}
 	_, ok := w.c.typeObject(name, w.c.cur).(*Var)
 	return ok
