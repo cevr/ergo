@@ -511,7 +511,11 @@ func (g *gate) openLimiter(budget memoryBudget) (limiter, error) {
 	}
 	reason := g.scopeNote
 	if g.scope != "" {
-		scope, err := openScope(g.scope, budget)
+		cpus, err := currentCPUs()
+		if err != nil {
+			return nil, err
+		}
+		scope, err := openScope(g.scope, budget, cpus)
 		if err != nil {
 			return nil, fmt.Errorf("memory budget: systemd scope %s could not establish gate OOM protection: %w", g.scope, err)
 		}

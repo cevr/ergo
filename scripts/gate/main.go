@@ -275,8 +275,18 @@ func main() {
 	if *merge && *noCache {
 		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
 	}
-	scope, scopeNote := os.Getenv(scopeVariable), ""
-	os.Unsetenv(scopeVariable)
+	scope, err := takeScope()
+	if err != nil {
+		fatal(err)
+	}
+	scopeNote := ""
+	// The CPU budget bounds the gate's own Go code too, where no cgroup
+	// does (darwin, the RSS watch).
+	cpus, err := currentCPUs()
+	if err != nil {
+		fatal(err)
+	}
+	runtime.GOMAXPROCS(cpus)
 	root, err := repositoryRoot()
 	if err != nil {
 		fatal(err)
@@ -293,7 +303,7 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
-		command, reason := scopeProbe(budget)
+		command, reason := scopeProbe(budget, cpus)
 		probed = command != ""
 		if !*noCache && !*merge && !*recordDurations {
 			// The replay path starts no step, so it needs no scope.
@@ -302,7 +312,7 @@ func main() {
 			}
 		}
 		// Returns only when the gate cannot run in its own scope.
-		scopeNote = enterScope(command, reason, budget)
+		scopeNote = enterScope(command, reason, budget, cpus)
 	}
 	if *recordDurations {
 		g := &gate{root: root, scope: scope, scopeNote: scopeNote}
@@ -584,7 +594,12 @@ func (g *gate) run(out io.Writer) int {
 		defer g.limit.close()
 	}
 	fmt.Fprintf(out, "gate: memory budget: %s\n", g.limit.describe())
-	var err error
+	cpus, err := currentCPUs()
+	if err != nil {
+		fmt.Fprintln(out, "gate:", err)
+		return 2
+	}
+	fmt.Fprintf(out, "gate: cpu budget: %s\n", describeCPUs(g.limit, cpus))
 	if g.spoolDir, err = outputSpoolDir(g.cacheDir); err != nil {
 		fmt.Fprintln(out, "gate:", err)
 		return 2
@@ -624,7 +639,8 @@ func (g *gate) run(out io.Writer) int {
 	for i := range done {
 		done[i] = make(chan struct{})
 	}
-	slots := make(chan struct{}, max(2, runtime.NumCPU()))
+	// At most the CPU budget of steps run at once.
+	slots := make(chan struct{}, cpus)
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])
@@ -887,7 +903,8 @@ func (g *gate) toolDigest(step *Step) string {
 // (declaredEnvironment): the caller's variables that testenv names, and no
 // other, as Bazel's strict action environment passes only declared
 // variables, with the gate's collector target and the soft memory limit
-// below the step budget (stepSoftLimit) unless the caller sets them. A
+// below the step budget (stepSoftLimit) unless the caller sets them, and
+// GOMAXPROCS at most the CPU budget (stepGOMAXPROCS). A
 // variable outside the list cannot reach a step, so the key, which holds
 // each listed variable set or not, covers all a step can read from its
 // environment.
@@ -908,7 +925,7 @@ func keyedEnvironment() []string {
 	if _, set := os.LookupEnv("GOMEMLIMIT"); !set {
 		environment = append(environment, "GOMEMLIMIT="+stepSoftLimit())
 	}
-	return environment
+	return setEnvironmentVariable(environment, "GOMAXPROCS", stepGOMAXPROCS(os.Getenv("GOMAXPROCS"), stepCPUs()))
 }
 
 // uncachedTestFlag is what the gate adds to the caller's GOFLAGS for every
@@ -1083,7 +1100,7 @@ func (g *gate) loadFiles() error {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	work := make(chan string)
-	for range max(2, runtime.NumCPU()) {
+	for range stepCPUs() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
