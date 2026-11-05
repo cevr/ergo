@@ -416,6 +416,12 @@ func runOn(root *rt.Task, body func(*rt.Task) error) error {
 //
 // With no source map registered (a runtime test), the chain comes first
 // and the raw Go stack follows it.
+//
+// When the only reason is the failure os.Exit, reportExit writes it
+// instead (Exit causes, os.Exit rules 1 and 2). With any other reason
+// beside it, os.Exit is a typed failure like any other: a defect still
+// wins with status 2 (rule 3), and otherwise every reason is written as
+// its text and the status is 1 (rule 4).
 func report(w io.Writer, err error) int {
 	if err == nil {
 		return 0
@@ -429,6 +435,11 @@ func report(w io.Writer, err error) int {
 			reasons = []rt.Reason{{Kind: rt.KindInterruption}}
 		} else {
 			reasons = []rt.Reason{{Kind: rt.KindFailure, Err: err}}
+		}
+	}
+	if len(reasons) == 1 && reasons[0].Kind == rt.KindFailure {
+		if x, ok := reasons[0].Err.(Exit); ok {
+			return reportExit(w, x)
 		}
 	}
 	defect, interruptedOnly := false, true
@@ -452,6 +463,19 @@ func report(w io.Writer, err error) int {
 	default:
 		return 1
 	}
+}
+
+// reportExit writes x, main's only reason, and returns its status: Message
+// and a line feed, verbatim, and Code when it is in 1..125. Any other Code
+// would claim success (0) or a status the shell reserves (126 and up), so
+// reportExit adds a line that names it and returns 1.
+func reportExit(w io.Writer, x Exit) int {
+	fmt.Fprintln(w, x.Message)
+	if x.Code >= 1 && x.Code <= 125 {
+		return x.Code
+	}
+	fmt.Fprintf(w, "error: os.Exit code %d is outside 1..125\n", x.Code)
+	return 1
 }
 
 // reportDefect writes the defect r as report describes.
