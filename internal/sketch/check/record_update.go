@@ -82,8 +82,8 @@ func (c *checker) orphanFields(x *syntax.CompositeLit, mark int, lt func() litTy
 }
 
 // updateBaseText is the diagnostic for a base of type got in an update of
-// want: a union that lists want is named as such, since its value may be
-// another variant.
+// the type want. A union that lists want is named as such, since its value
+// may be another variant.
 func (c *checker) updateBaseText(base syntax.Expr, got, want Type) string {
 	what := exprText(base)
 	if what == "this expression" {
