@@ -37,7 +37,12 @@
 // step, so the host step replays only inside a whole-gate replay. A failed
 // run withdraws the record at its key. The merge tier (--merge) runs every
 // step uncached and compares each verdict with the record; a difference
-// fails it and withdraws the record.
+// fails it and withdraws the record. Only the merge tier gives a merge
+// verdict: its uncached run is in a sandbox (sandbox.go) with no persistent
+// state, over a fresh export of the head commit. The inner tier is hygiene:
+// a step's go test replays no result through the gate's environment
+// (uncachedTestFlag), but a tool that gives its child its own environment can
+// still replay a stale pass from a cache on the host.
 //
 // Every step runs under a memory budget: a hard cap for the step with all the
 // processes it starts (ERGO_GATE_STEP_MEMORY, default 8G), one for all the
@@ -121,6 +126,13 @@ type Step struct {
 	// Env sets variables ("NAME=value") for the step, over the environment
 	// the gate gives it; a hermetic Go test step sets CGO_ENABLED=0.
 	Env []string
+	// Hermetic marks the go test step of the hermetic gate packages (below
+	// hermeticTestRoot), the one exception to the gate's default: every other
+	// step runs with -count=1 added to GOFLAGS (stepEnvironment), so no go
+	// test it starts replays Go's test cache. A hermetic step keeps the
+	// caller's GOFLAGS, so Go may replay its tests.
+	// TestCachedGatePackagesAreHermetic checks each of its packages.
+	Hermetic bool
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -226,6 +238,12 @@ type gate struct {
 	verdicts map[string]replay.Verdict
 	// programs replaces hostPrograms in a test of the collector.
 	programs []string
+	// enclosure, when set, runs every step of the run inside it: the merge
+	// tier's sandbox for its uncached run.
+	enclosure enclosure
+	// openSandbox replaces startSandbox in a test of the merge tier's
+	// verdict logic over fixture steps that read the host.
+	openSandbox func(sandboxPlan) (enclosure, error)
 }
 
 // wholeGate is what a run needs to key, replay and record the whole gate.
@@ -239,7 +257,7 @@ type wholeGate struct {
 // derive is a gate for another run of the same checkout: the merge tier's
 // inner and uncached runs share the scope, the limiter and the caches.
 func (g *gate) derive(steps []*Step, noCache bool, whole *wholeGate) *gate {
-	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, whole: whole, programs: g.programs}
+	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, whole: whole, programs: g.programs, openSandbox: g.openSandbox}
 }
 
 // collect collects the whole-gate facts afresh: every fingerprint again
@@ -382,6 +400,26 @@ func (g *gate) mergeTier(out io.Writer) int {
 	for _, step := range g.steps {
 		uncached = append(uncached, uncachedStep(step))
 	}
+	// The uncached run is the merge verdict, so it runs sandboxed or not at
+	// all: no sandbox, no verdict (sandbox.go).
+	open := g.openSandbox
+	if open == nil {
+		open = startSandbox
+	}
+	plan, err := g.sandboxPlanFor(uncached)
+	var box enclosure
+	if err == nil {
+		box, err = open(plan)
+	}
+	if err != nil {
+		fmt.Fprintf(out, "gate: --merge needs its sandbox and gives no verdict without it: %v\n", err)
+		return 2
+	}
+	defer func() {
+		if err := box.close(); err != nil {
+			fmt.Fprintf(out, "gate: the merge sandbox's run directory %s was not removed: %v\n", plan.Fresh, err)
+		}
+	}()
 	tier := replay.MergeTier{
 		Store:   replay.Open(g.cacheDir),
 		Collect: g.collect,
@@ -392,6 +430,7 @@ func (g *gate) mergeTier(out io.Writer) int {
 		Uncached: func() ([]string, map[string]replay.Verdict) {
 			fmt.Fprintln(out, "merge: every step uncached")
 			run := g.derive(uncached, true, nil)
+			run.enclosure = box
 			run.run(out)
 			var names []string
 			for _, step := range uncached {
@@ -705,9 +744,16 @@ func (g *gate) execute(step *Step) *result {
 		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: prepare step temp dir: %v\n", step.Name, err))}
 	}
 	started := time.Now()
-	command := exec.CommandContext(context.Background(), step.Argv[0], step.Argv[1:]...)
+	argv := step.Argv
+	if g.enclosure != nil {
+		argv = g.enclosure.wrap(argv, g.root)
+	}
+	command := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	command.Dir = g.root
 	command.Env = g.commandEnvironment(step)
+	if g.enclosure != nil {
+		command.Env = g.enclosure.environment(command.Env)
+	}
 	// The step's output goes to a spool file, never to the gate's memory, so
 	// what the gate holds for a step does not grow with what it prints.
 	spool, err := newOutputSpool(g.spoolDir)
@@ -831,20 +877,20 @@ func (g *gate) toolDigest(step *Step) string {
 		if name == testenv.ToolDigest {
 			continue
 		}
-		value, set := stepVariableFor(g.root, step.Name, name)
+		value, set := stepVariableFor(g.root, step, name)
 		fmt.Fprintf(digest, "env\x00%s\x00%t\x00%s\x00", name, set, value)
 	}
 	return hex.EncodeToString(digest.Sum(nil))[:16]
 }
 
-// stepEnvironment is the environment every step runs with, and every tool
-// query: the caller's variables that testenv names, and no other, as Bazel's
-// strict action environment passes only declared variables, with the
-// gate's collector target and the soft memory limit below the step budget
-// (stepSoftLimit) unless the caller sets them. A variable outside the list
-// cannot reach a step, so the whole-gate key, which holds each listed
-// variable set or not (declaredEnvironment), covers all a step can read
-// from its environment. A step's own variables (Step.Env) come over it.
+// keyedEnvironment is the environment the whole-gate key holds
+// (declaredEnvironment): the caller's variables that testenv names, and no
+// other, as Bazel's strict action environment passes only declared
+// variables, with the gate's collector target and the soft memory limit
+// below the step budget (stepSoftLimit) unless the caller sets them. A
+// variable outside the list cannot reach a step, so the key, which holds
+// each listed variable set or not, covers all a step can read from its
+// environment.
 //
 // The tool digest (testenv.ToolDigest) is the one listed variable the gate
 // never takes from its caller: it derives the value from key inputs (the
@@ -852,7 +898,7 @@ func (g *gate) toolDigest(step *Step) string {
 // ToolEnv (commandEnvironment), and no other step or tool query receives
 // it. So every variable a step receives is a key input or derived from key
 // inputs the same way on every run.
-func stepEnvironment() []string {
+func keyedEnvironment() []string {
 	environment := slices.DeleteFunc(testenv.Environment(os.Environ()), func(entry string) bool {
 		return strings.HasPrefix(entry, testenv.ToolDigest+"=")
 	})
@@ -863,6 +909,31 @@ func stepEnvironment() []string {
 		environment = append(environment, "GOMEMLIMIT="+stepSoftLimit())
 	}
 	return environment
+}
+
+// uncachedTestFlag is what the gate adds to the caller's GOFLAGS for every
+// step but a hermetic one (Step.Hermetic). Go's test cache replays a result
+// only when every test flag is cacheable, and -count is not, so no go test
+// that a step starts replays a result: one in the step's argv, one a shell
+// script runs, one a program runs (go run, go test -exec, -toolexec,
+// -vettool), at any depth, as long as the process inherits its environment
+// (gate-testcache-gap probe-r4.log). Go applies a GOFLAGS flag only to the
+// go commands that know it, so go build, go vet, go run and go list are
+// unchanged. A step that sets GOFLAGS or -count itself would undo this; the
+// policy test refuses both by name.
+const uncachedTestFlag = "-count=1"
+
+// stepEnvironment is the environment every step runs with, a hermetic one
+// excepted (stepEnvironmentFor), and every tool query: keyedEnvironment with
+// uncachedTestFlag after the caller's GOFLAGS. It is added, not set, so the
+// caller's flags still apply, and it comes last, so it wins over a -count
+// the caller gives. The flag follows from the gate's code, which the
+// whole-gate key holds, so the key stays the caller's (declaredEnvironment).
+// A step's own variables (Step.Env) come over it.
+func stepEnvironment() []string {
+	environment := keyedEnvironment()
+	flags, _ := environmentVariable(environment, "GOFLAGS")
+	return setEnvironmentVariable(environment, "GOFLAGS", strings.TrimSpace(flags+" "+uncachedTestFlag))
 }
 
 // stepTempDir is stable for the same checkout and step, so Go's test cache
@@ -916,15 +987,22 @@ func emptyStepTempDir(name string) error {
 	return nil
 }
 
-func stepEnvironmentFor(root, name string) []string {
-	return setEnvironmentVariable(stepEnvironment(), "TMPDIR", stepTempDir(root, name))
+// stepEnvironmentFor is the environment of one step, before its own
+// variables: stepEnvironment, or keyedEnvironment for a hermetic step (the
+// one exception to the uncached default), with the step's TMPDIR.
+func stepEnvironmentFor(root string, step *Step) []string {
+	environment := stepEnvironment()
+	if step.Hermetic {
+		environment = keyedEnvironment()
+	}
+	return setEnvironmentVariable(environment, "TMPDIR", stepTempDir(root, step.Name))
 }
 
 // stepCommandEnvironment is the environment a step's command runs with,
 // before the tool digest: the step environment with the step's TMPDIR and
 // its own variables over it.
 func stepCommandEnvironment(root string, step *Step) []string {
-	environment := stepEnvironmentFor(root, step.Name)
+	environment := stepEnvironmentFor(root, step)
 	for _, entry := range step.Env {
 		name, value, _ := strings.Cut(entry, "=")
 		environment = setEnvironmentVariable(environment, name, value)
@@ -982,8 +1060,8 @@ func stepVariable(name string) (string, bool) {
 	return environmentVariable(stepEnvironment(), name)
 }
 
-func stepVariableFor(root, stepName, name string) (string, bool) {
-	return environmentVariable(stepEnvironmentFor(root, stepName), name)
+func stepVariableFor(root string, step *Step, name string) (string, bool) {
+	return environmentVariable(stepEnvironmentFor(root, step), name)
 }
 
 // loadFiles hashes every tracked and untracked (non-ignored) file once.
@@ -1154,7 +1232,7 @@ func (g *gate) key(step *Step) (string, error) {
 		if !slices.Contains(testenv.Names, name) {
 			return "", fmt.Errorf("%s: declares the input variable %s, which no step receives (testenv.Names)", step.Name, name)
 		}
-		value, set := stepVariableFor(g.root, step.Name, name)
+		value, set := stepVariableFor(g.root, step, name)
 		fmt.Fprintf(hash, "env\x00%s\x00%t\x00%s\x00", name, set, value)
 	}
 	for _, dir := range inputs.Installed {

@@ -51,8 +51,8 @@ func TestGoRuntimeEnvironmentKeysEveryStepThatRunsGoPrograms(t *testing.T) {
 		os.Unsetenv(name)
 	}
 	unset := observe()
-	if _, ok := unset.keys["effect conformance mapping"]; !ok {
-		t.Fatal("no effect conformance mapping step")
+	if _, ok := unset.keys["foldkit corpus self-check"]; !ok {
+		t.Fatal("no foldkit corpus self-check step")
 	}
 	if len(unset.keys) < 3 || len(unset.digests) < 2 {
 		t.Fatalf("too few Go-running steps observed: %d keyed, %d with a tool digest", len(unset.keys), len(unset.digests))

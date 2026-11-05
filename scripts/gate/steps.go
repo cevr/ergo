@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -53,11 +52,12 @@ var hostTestPackages = []string{"scripts/gate"}
 const hostTestParallel = "8"
 
 // hermeticTestRoot holds the gate's hermetic test packages: every package
-// below it that is not a host package. They replay from Go's test cache, so
-// each must be hermetic (package scripts/gate/hermetic): it runs no program
-// but its own test binary, and its step builds it with CGO_ENABLED=0, so it
-// loads no shared library. TestCachedGatePackagesAreHermetic checks every
-// package below the root that a step lets Go cache.
+// below it that is not a host package. Their step is the gate's one
+// exception to uncached go tests (Step.Hermetic): they replay from Go's test
+// cache, so each must be hermetic (package scripts/gate/hermetic): it runs
+// no program but its own test binary, and its step builds it with
+// CGO_ENABLED=0, so it loads no shared library.
+// TestCachedGatePackagesAreHermetic checks every package of that step.
 const hermeticTestRoot = "scripts/gate/"
 
 // hermeticEnvironment is what a hermetic step adds to the environment.
@@ -96,7 +96,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		steps = append(steps, step)
 		return step
 	}
-	add(&Step{Name: "no tracked python bytecode", Argv: []string{"sh", "-c", `tracked=$(git ls-files '*.pyc'); if [ -n "$tracked" ]; then echo "tracked Python bytecode (git rm it; __pycache__/ is ignored):"; echo "$tracked"; exit 1; fi`}})
+	add(&Step{Name: "no tracked python bytecode", Argv: bytecodeScript.command()})
 	add(&Step{Name: "wayfinder snapshot check", Argv: []string{"go", "run", "./cmd/wayfinder", "check", "--snapshot"}, Inputs: wayfinderSnapshotInputs()})
 
 	// The Foldkit checks walk the snapshot directory, so files Git ignores
@@ -104,15 +104,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// packages.
 	foldkit := &Inputs{Paths: []string{"scripts/conformance/", "conformance/", "go.mod"}, Tools: []string{"go"}, Installed: []string{"conformance/upstream/foldkit-d21db423"}}
 	add(&Step{Name: "foldkit corpus self-check", Argv: []string{"go", "run", "./scripts/conformance", "foldkit", "--self-check"}, Inputs: foldkit})
-	// The mapping check reads the mapping and the evidence tests it names,
-	// so the directories of those tests are inputs too, and it asks git
-	// whether each evidence file is tracked. Untracking a file without
-	// changing it leaves the key alone. Its own tests run with the other Go
-	// packages.
-	mapping := &Inputs{Paths: append([]string{"scripts/conformance/", "conformance/effect-cases.json", "go.mod"}, evidenceDirectories(root)...), Tools: []string{"go", "git"}}
-	add(&Step{Name: "effect conformance mapping", Argv: []string{"go", "run", "./scripts/conformance", "check"}, Inputs: mapping})
+	add(effectMappingStep())
 
-	add(&Step{Name: "gofmt", Argv: append([]string{"sh", "-c", `unformatted=$(gofmt -l "$@"); if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi`, "gofmt"}, gofmtDirectories...)})
+	add(&Step{Name: "gofmt", Argv: gofmtScript.command(append([]string{"gofmt"}, gofmtDirectories...)...)})
 	// Building every test binary once lets vet, the shards and the CLI build
 	// reuse one compilation instead of racing to repeat it.
 	add(&Step{Name: "go test build", Argv: []string{"go", "test", "-run", "^$", "./..."}})
@@ -157,8 +151,10 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		}
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools})
+	// The one step that keeps Go's test cache (Step.Hermetic); every other
+	// step runs its go tests uncached.
 	if len(hermetic) > 0 {
-		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment})
+		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment, Hermetic: true})
 	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
@@ -186,73 +182,15 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	return steps, nil
 }
 
-// uncachedStep is the step as the merge tier runs it: every go test it
-// starts, in its argv or in its shell script, carries -count=1, so Go's test
-// cache replays nothing. The flag goes in the command line, not in GOFLAGS,
-// which would reach the go commands and gates the tests themselves start.
-// Go's build cache stays: it is keyed by content, the toolchain included.
+// uncachedStep is the step as the merge tier runs it: without the hermetic
+// exception, so it runs with the gate's uncached default (stepEnvironment)
+// like every other step, and no go test it starts, at any depth, replays
+// Go's test cache. Its argv is the inner tier's. Go's build cache stays: it
+// is keyed by content, the toolchain included.
 func uncachedStep(step *Step) *Step {
 	uncached := *step
-	argv := slices.Clone(step.Argv)
-	for i := 0; i+1 < len(argv); i++ {
-		if argv[i] == "go" && argv[i+1] == "test" && !slices.ContainsFunc(argv[i+2:], isCountFlag) {
-			// go's -C must be the first flag, so -count=1 goes after it.
-			at := i + 2
-			switch {
-			case at+1 < len(argv) && argv[at] == "-C":
-				at += 2
-			case at < len(argv) && strings.HasPrefix(argv[at], "-C="):
-				at++
-			}
-			argv = slices.Insert(argv, at, "-count=1")
-		}
-	}
-	if len(argv) >= 3 && argv[0] == "sh" && argv[1] == "-c" {
-		argv[2] = uncachedScript(argv[2])
-	}
-	uncached.Argv = argv
+	uncached.Hermetic = false
 	return &uncached
-}
-
-func isCountFlag(arg string) bool {
-	return strings.HasPrefix(arg, "-count=") || strings.HasPrefix(arg, "-test.count=")
-}
-
-// goTestCommand finds "go test" as a command word in a shell script.
-var goTestCommand = regexp.MustCompile(`(^|[\s;&|(]|\$\()go test\b`)
-
-// scriptCommandEnd ends a shell command: a newline, ;, & or |.
-var scriptCommandEnd = regexp.MustCompile(`[\n;&|]`)
-
-// leadingDirectoryFlag is go's -C flag and its value at the start of a go
-// test command's arguments; go requires it to be the first flag.
-var leadingDirectoryFlag = regexp.MustCompile(`^\s+-C(=|\s+)\S+`)
-
-// uncachedScript adds -count=1 to every go test command of a shell script
-// that does not set a count, after a leading -C.
-func uncachedScript(script string) string {
-	var b strings.Builder
-	rest := script
-	for {
-		match := goTestCommand.FindStringIndex(rest)
-		if match == nil {
-			b.WriteString(rest)
-			return b.String()
-		}
-		b.WriteString(rest[:match[1]])
-		rest = rest[match[1]:]
-		command := rest
-		if end := scriptCommandEnd.FindStringIndex(rest); end != nil {
-			command = rest[:end[0]]
-		}
-		if !strings.Contains(command, "-count=") {
-			if flag := leadingDirectoryFlag.FindString(rest); flag != "" {
-				b.WriteString(flag)
-				rest = rest[len(flag):]
-			}
-			b.WriteString(" -count=1")
-		}
-	}
 }
 
 // stagedBuild returns a command that builds a package's executable to a
@@ -260,7 +198,8 @@ func uncachedScript(script string) string {
 // bytes differ. go build touches its output even when it relinks nothing,
 // and Go's test cache keys a test that listed a directory on every entry's
 // modification time, so rewriting an unchanged bin/ergo would rerun every test
-// that lists bin/. Without a cache directory it builds in place.
+// that lists bin/. Without a cache directory it builds in place. The script
+// is stagedBuildScript, a reviewed script (reviewed.go).
 func stagedBuild(root, out, pkg string) []string {
 	cache := cacheDirectory()
 	if cache == "" {
@@ -268,16 +207,38 @@ func stagedBuild(root, out, pkg string) []string {
 	}
 	sum := sha256.Sum256([]byte(root))
 	staging := filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), filepath.Base(out))
-	script := `mkdir -p "$(dirname "$1")" "$(dirname "$2")" && go build -buildvcs=false -o "$1" "$3" && { cmp -s "$1" "$2" || mv -f "$1" "$2"; }`
-	return []string{"sh", "-c", script, "sh", staging, out, pkg}
+	// The script's $0 names it, not a shell.
+	return stagedBuildScript.command("stagedbuild", staging, out, pkg)
+}
+
+// effectMappingStep checks the Effect behavior mapping and its evidence
+// tests. The check reads the mapping, the evidence files it names and Git's
+// index: an evidence file must be tracked. No digest of declared paths sees
+// the index, so the step has no receipt of its own and runs on every
+// whole-gate miss; it takes about 0.15 s (measured, gate-testcache-gap
+// mapping-cost.log), less than the receipt lookup it replaces. A whole-gate
+// record keys the index, so the step still replays inside one. Its own
+// tests run with the other Go packages.
+func effectMappingStep() *Step {
+	return &Step{Name: "effect conformance mapping", Argv: []string{"go", "run", "./scripts/conformance", "check"}}
 }
 
 // provenanceAnalyzer returns a command that runs the provenance analyzer's own
 // controls, then the analyzer on the checker. tools/provenance is its own
 // module, so the main module keeps no dependency on golang.org/x/tools and
 // ./... never reaches it. The analyzer binary goes beside the gate's cache, or
-// to a temporary directory without one. The step always runs: Go's caches
-// skip an unchanged build and test, and the analysis takes about a second.
+// to a temporary directory without one.
+//
+// The controls run with -count=1, so Go's test cache never replays them. They
+// read main-module sources (the checker's syntax), in their own process and
+// through analysistest, and Go rechecks a cached result only against files
+// inside the package's own module: a field removed from a main-module source
+// would replay a stale pass (gate-testcache-gap accept-base.log). The
+// observation of the main module's tests (internal/testinputs) does not reach
+// another module. The gate's uncached default (stepEnvironment) gives them
+// -count=1 too; the flag in the script keeps them uncached if the default
+// changes. Go's build cache still skips an unchanged
+// build. The script is provenanceScript, a reviewed script (reviewed.go).
 func provenanceAnalyzer(root string) []string {
 	binary := ""
 	// go build -C resolves -o in tools/provenance, so the path is absolute;
@@ -286,11 +247,7 @@ func provenanceAnalyzer(root string) []string {
 		sum := sha256.Sum256([]byte(root))
 		binary = filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), "provenance")
 	}
-	script := `bin=${1:-$(mktemp -d)/provenance} && mkdir -p "$(dirname "$bin")" &&
-go test -C tools/provenance ` + testTimeout + ` ./... &&
-go build -C tools/provenance -buildvcs=false -o "$bin" ./cmd/provenance &&
-"$bin" -test=false -manifest "$2" ./internal/sketch/check`
-	return []string{"sh", "-c", script, "sh", binary, provenanceManifest}
+	return provenanceScript.command("provenance", binary, provenanceManifest)
 }
 
 // wayfinderSnapshotInputs keys the check that the committed Wayfinder snapshot
@@ -369,43 +326,6 @@ func readDurations(root string) (map[string]map[string]float64, error) {
 		return nil, fmt.Errorf("%s: %w", durationsFile, err)
 	}
 	return durations, nil
-}
-
-// evidenceDirectories are the directories of the evidence tests that the
-// Effect behavior mapping names, each as a subtree input ("dir/"), sorted.
-// A mapping that does not parse names none: the mapping file is an input
-// of its step, and the step refuses it.
-func evidenceDirectories(root string) []string {
-	content, err := os.ReadFile(filepath.Join(root, "conformance", "effect-cases.json"))
-	if err != nil {
-		return nil
-	}
-	var mapping struct {
-		Cases []struct {
-			Evidence []struct {
-				File string `json:"file"`
-			} `json:"evidence"`
-		} `json:"cases"`
-	}
-	if json.Unmarshal(content, &mapping) != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var directories []string
-	for _, item := range mapping.Cases {
-		for _, evidence := range item.Evidence {
-			directory := filepath.ToSlash(filepath.Dir(evidence.File)) + "/"
-			if directory == "./" {
-				directory = evidence.File
-			}
-			if !seen[directory] {
-				seen[directory] = true
-				directories = append(directories, directory)
-			}
-		}
-	}
-	slices.Sort(directories)
-	return directories
 }
 
 func authoredExamples(root string) ([]string, error) {
