@@ -320,10 +320,12 @@ func (l *lowerer) defaultKey(n *check.Named) pkgKey {
 // typeKey spells t for a key: deterministic, from the source alone, and
 // distinct for distinct Go types. A declared type is named by its package
 // path, name and position, a type parameter by its name, position and
-// source file (paramFile); a
+// source file (paramFile), and every other type by its parts' keys, never
+// by its display (String), which two packages' types can share (196b); a
 // type argument that is not type-kinded is left out, as goType leaves it
-// out. It is memoized per type object, so a key is built from its
-// children's keys once.
+// out. A package-level name is unique in its package, so path, name and
+// position identify a declared type without its file. It is memoized per
+// type object, so a key is built from its children's keys once.
 func (l *lowerer) typeKey(t check.Type) string {
 	if k, ok := l.typeKeys[t]; ok {
 		return k
@@ -368,7 +370,29 @@ func (l *lowerer) typeKey(t check.Type) string {
 		for _, r := range u.Results {
 			k += " " + l.typeKey(r)
 		}
+	case *check.Struct:
+		keys := make([]string, len(u.Fields))
+		for i, f := range u.Fields {
+			keys[i] = f.Name + " " + l.typeKey(f.Type)
+		}
+		k = "struct{" + strings.Join(keys, "; ") + "}"
+	case *check.Union:
+		keys := make([]string, len(u.Variants))
+		for i, v := range u.Variants {
+			keys[i] = l.typeKey(v)
+		}
+		k = "union{" + strings.Join(keys, " | ") + "}"
+	case *check.Interface:
+		keys := make([]string, len(u.Methods))
+		for i, m := range u.Methods {
+			keys[i] = m.Name + l.typeKey(m.Sig)
+		}
+		k = "interface/" + u.Set.String() + "{" + strings.Join(keys, "; ") + "}"
+	case *check.MachineType:
+		k = "machine[" + l.typeKey(u.State) + ", " + l.typeKey(u.Signal) + "]"
 	default:
+		// A row (RowVar, RowArg) and noValue have no Go type: goType and
+		// typeArgs leave them out, so no generated name is keyed by one.
 		k = "?" + t.String()
 	}
 	l.typeKeys[t] = k

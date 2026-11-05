@@ -48,7 +48,7 @@ import (
 func (l *lowerer) nameAll() {
 	l.declareNames()
 	for _, p := range l.sourcedPkgs() {
-		for _, tn := range p.Types {
+		for _, tn := range l.typesInOrder(p) {
 			if tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
@@ -73,10 +73,10 @@ func (l *lowerer) nameAll() {
 	libs := l.libraries()
 	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
-		for _, tn := range p.Types {
+		for _, tn := range l.typesInOrder(p) {
 			l.typeName(tn)
 		}
-		for _, f := range p.Funcs {
+		for _, f := range l.funcsInOrder(p) {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
@@ -140,7 +140,7 @@ func (l *lowerer) nameAll() {
 				l.quiet(func() {
 					l.textTypes(root, tn.Decl.Name, map[pkgKey]bool{}, func(t check.Type) {
 						key, base := l.textKey(t, tn.Decl.Name)
-						generated = append(generated, entry{key, "text " + base + " " + t.String(), base})
+						generated = append(generated, entry{key, "text " + l.typeKey(t), base})
 					})
 				})
 			}
@@ -149,7 +149,16 @@ func (l *lowerer) nameAll() {
 	l.reserveDefaults(func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "default " + key.obj.(string), base})
 	})
-	sort.SliceStable(generated, func(i, j int) bool { return generated[i].sort < generated[j].sort })
+	// The order is total: each entry's sort string is its key's canonical
+	// spelling (typeKey), so no map's iteration order and no display
+	// decides which entry takes a base name first (196b).
+	sort.Slice(generated, func(i, j int) bool { return generated[i].sort < generated[j].sort })
+	for i := 1; i < len(generated); i++ {
+		a, b := generated[i-1], generated[i]
+		if a.sort == b.sort && (a.key != b.key || a.base != b.base) {
+			ice(nil, "two generated entries share the sort key %q", a.sort)
+		}
+	}
 	for _, e := range generated {
 		l.pkgName(e.key, e.base)
 	}

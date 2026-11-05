@@ -193,7 +193,8 @@ func textVariants(u *check.Named, site syntax.Node) []check.Type {
 // type of the program names: in an expression, a call's error row, a
 // declaration, a pattern or a literal's signature, of the user package and
 // of every library package, and in the fields of those instances. It is
-// computed once, sorted by the instances' text.
+// computed once, sorted by the instances' canonical keys (typeKey), never
+// by their display, which instances of two packages' types can share.
 func (l *lowerer) instancesOf(tn *check.TypeName) []check.Type {
 	if l.instances == nil {
 		l.instances = map[*check.TypeName][]check.Type{}
@@ -290,7 +291,7 @@ func (l *lowerer) instancesOf(tn *check.TypeName) []check.Type {
 			}
 		}
 		for _, list := range l.instances {
-			sort.Slice(list, func(i, j int) bool { return list[i].String() < list[j].String() })
+			sort.Slice(list, func(i, j int) bool { return l.typeKey(list[i]) < l.typeKey(list[j]) })
 		}
 	}
 	return l.instances[tn]

@@ -12,8 +12,9 @@ import (
 
 // Sources (196b). A program is the root package's files and the files of
 // every user package it imports (Unit.Imports), lowered into one Go
-// package. Every source file is one srcFile, the root's first, in file
-// order, then each import's (the order Refusal.Source counts). A user
+// package. Every source file is one srcFile, the root's first, then each
+// import's, in canonical order (sources); Refusal.Source counts the unit's
+// own order. A user
 // package is sourced: its declarations go into the user part of main.go,
 // each after the //line directive of its own file, and its calls and
 // declarations into the call and declaration tables. A std package has no
@@ -37,11 +38,13 @@ import (
 // its scope, and the naming pass gives each its own (naming.go).
 
 // srcFile is one source file of the program and the package it belongs to.
+// unit is its index in the unit's order (Refusal.Source).
 type srcFile struct {
 	file *syntax.File
 	path string
 	text string
 	pkg  *check.Package
+	unit int
 }
 
 // lowerState is the lowering's current source file and the Info whose facts
@@ -51,19 +54,41 @@ type lowerState struct {
 	info *check.Info
 }
 
-// sources lists u's files: the root's, then each import's.
+// sources lists u's files in canonical order: the root's, then each
+// import's in package path order, each package's files in path order. The
+// unit's own order of files and imports is how a caller found them, not
+// what the program is, so it decides no part of the output (196b); it
+// stays only in each file's unit index, which Refusal.Source reports.
 func sources(u Unit) ([]srcFile, map[*check.Package]*Unit) {
 	var srcs []srcFile
 	units := map[*check.Package]*Unit{}
+	next := 0
 	add := func(u *Unit) {
 		units[u.Package] = u
+		start := len(srcs)
 		for i, f := range u.Files {
-			srcs = append(srcs, srcFile{file: f, path: u.Sources[i].Path, text: u.Sources[i].Text, pkg: u.Package})
+			srcs = append(srcs, srcFile{file: f, path: u.Sources[i].Path, text: u.Sources[i].Text, pkg: u.Package, unit: next})
+			next++
 		}
+		own := srcs[start:]
+		sort.SliceStable(own, func(i, j int) bool { return own[i].path < own[j].path })
 	}
 	add(&u)
+	imports := make([]*Unit, len(u.Imports))
 	for i := range u.Imports {
-		add(&u.Imports[i])
+		imports[i] = &u.Imports[i]
+	}
+	order := slices.Clone(imports)
+	sort.SliceStable(order, func(i, j int) bool { return order[i].Package.Path < order[j].Package.Path })
+	// Unit indexes follow Unit.Imports order, so they are counted first.
+	base := map[*Unit]int{}
+	for _, imp := range imports {
+		base[imp] = next
+		next += len(imp.Files)
+	}
+	for _, imp := range order {
+		next = base[imp]
+		add(imp)
 	}
 	return srcs, units
 }
@@ -146,6 +171,56 @@ func (l *lowerer) sourceOf(n syntax.Node) (int, bool) {
 	}
 	i, ok := l.nodeSrc[n]
 	return i, ok
+}
+
+// sourceLess orders two nodes of the program's sources by source file
+// (sources), then by offset; a node that no source file holds comes last.
+// An offset alone is no order: it counts from the start of each file.
+func (l *lowerer) sourceLess(a, b syntax.Node) bool {
+	i, j := l.sourceIndex(a), l.sourceIndex(b)
+	return i < j || i == j && a.Pos() < b.Pos()
+}
+
+func (l *lowerer) sourceIndex(n syntax.Node) int {
+	if i, ok := l.sourceOf(n); ok && n != nil {
+		return i
+	}
+	return len(l.srcs)
+}
+
+// typesInOrder are p's types in source order (sourceLess) when p is
+// sourced, each declared type at its declaration; a type with no
+// declaration keeps its place after them. The checker lists them in the
+// order it met the files, which is no part of the program.
+func (l *lowerer) typesInOrder(p *check.Package) []*check.TypeName {
+	out := slices.Clone(p.Types)
+	if !l.isSourced(p) {
+		return out
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Decl == nil || b.Decl == nil {
+			return a.Decl != nil && b.Decl == nil
+		}
+		return l.sourceLess(a.Decl.Name, b.Decl.Name)
+	})
+	return out
+}
+
+// funcsInOrder are p's functions in source order, as typesInOrder.
+func (l *lowerer) funcsInOrder(p *check.Package) []*check.Func {
+	out := slices.Clone(p.Funcs)
+	if !l.isSourced(p) {
+		return out
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Decl == nil || b.Decl == nil {
+			return a.Decl != nil && b.Decl == nil
+		}
+		return l.sourceLess(a.Decl.Name, b.Decl.Name)
+	})
+	return out
 }
 
 // nodeID is the identity of the node n as a number, given in the order the

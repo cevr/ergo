@@ -96,13 +96,14 @@ func (l *lowerer) declareNames() {
 		j, ok := l.sourceOf(tn.Decl.Name)
 		return !ok || j == i
 	}
+	types := l.typesInOrder(l.pkg)
 	for i, s := range l.srcs {
 		if s.pkg != l.pkg {
 			continue
 		}
 		for _, d := range s.file.Decls {
-			for nextType < len(l.pkg.Types) && inFile(l.pkg.Types[nextType], i) && l.pkg.Types[nextType].Pos < d.End() {
-				l.typeName(l.pkg.Types[nextType])
+			for nextType < len(types) && inFile(types[nextType], i) && types[nextType].Pos < d.End() {
+				l.typeName(types[nextType])
 				nextType++
 			}
 			l.guard(func() {
@@ -111,8 +112,8 @@ func (l *lowerer) declareNames() {
 			})
 		}
 	}
-	for ; nextType < len(l.pkg.Types); nextType++ {
-		l.typeName(l.pkg.Types[nextType])
+	for ; nextType < len(types); nextType++ {
+		l.typeName(types[nextType])
 	}
 }
 
@@ -164,7 +165,9 @@ func (l *lowerer) withsOf(w *check.Context) []*check.With {
 			xs = append(xs, x)
 		}
 	}
-	sort.Slice(xs, func(i, j int) bool { return xs[i].Pos() < xs[j].Pos() })
+	// Source order: by source file, then by offset. An offset alone counts
+	// from the start of each file, so two files' operands can share one.
+	sort.Slice(xs, func(i, j int) bool { return l.sourceLess(xs[i], xs[j]) })
 	var out []*check.With
 	for _, x := range xs {
 		for with := l.info.Withs[x]; with != nil; with = with.Next {
@@ -576,7 +579,7 @@ func (l *lowerer) methodsOf(tn *check.TypeName) []*check.Func {
 	byType, ok := l.methods[tn.Pkg]
 	if !ok {
 		byType = map[*check.TypeName][]*check.Func{}
-		for _, f := range tn.Pkg.Funcs {
+		for _, f := range l.funcsInOrder(tn.Pkg) {
 			if fd := l.funcDecl(f); fd.method != nil {
 				byType[fd.method.tn] = append(byType[fd.method.tn], f)
 			}

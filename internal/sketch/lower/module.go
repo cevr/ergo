@@ -346,7 +346,7 @@ func (l *lowerer) guard(f func()) {
 			}
 			s := l.srcs[src]
 			line, col := s.file.Position(ref.pos)
-			l.refusals = append(l.refusals, Refusal{Source: src, Path: s.path, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
+			l.refusals = append(l.refusals, Refusal{Source: s.unit, Path: s.path, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
 		}
 	}()
 	f()
