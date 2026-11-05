@@ -19,7 +19,8 @@ clone clone
 import cmp container/heap encoding/binary fmt go/constant go/token maps math math/bits path regexp runtime slices sort strconv strings sync unicode unicode/utf8
 import ergo.local/prototype/internal/sketch/std ergo.local/prototype/internal/sketch/syntax
 # runtime/v1 (G5b, the std purity fact): footprint.go calls only
-# v1.BodyOf(name string) and reads Body.Pure. runtime/v1 depends on no
+# v1.BodyOf(name string) and reads Body.Pure; extern.go reads only the
+# []string v1.PureImports (G9, the user extern allowlist). runtime/v1 depends on no
 # ergo.local package but runtime and runtime/rt (go list -deps), so it
 # cannot name, receive or build a syntax node.
 import ergo.local/prototype/runtime/v1

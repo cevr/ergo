@@ -32,49 +32,64 @@ func TestPureGoPackages(t *testing.T) {
 	}
 }
 
-// TestPureGoPackagesMatchRuntime guards the one list (G9 with G5b): the
-// checker's allowlist equals runtime/v1's PureImports, the imports a pure
-// std body's file may have, read from its source. Before G5b merges,
-// runtime/v1 has no PureImports and the test skips; the batch merge then
-// points the checker at v1.PureImports, and this test catches any drift
-// left in between.
-func TestPureGoPackagesMatchRuntime(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "runtime", "v1", "files.go")
-	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+// TestNoCheckerPackageTable is G9's lint (round 2 M1): the pure allowlist
+// has one owner, runtime/v1's PureImports (G5b), and the checker declares
+// no package table of its own. In the checker's non-test sources, no
+// composite literal (a slice, array or map, by element or key) and no
+// switch (over its case lists) names two or more allowlisted packages as
+// string literals. A second table in any of those shapes fails here.
+func TestNoCheckerPackageTable(t *testing.T) {
+	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var runtime []string
-	found := false
-	ast.Inspect(f, func(n ast.Node) bool {
-		vs, ok := n.(*ast.ValueSpec)
-		if !ok || len(vs.Names) != 1 || vs.Names[0].Name != "PureImports" || len(vs.Values) != 1 {
+	fset := token.NewFileSet()
+	scanned := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scanned++
+		ast.Inspect(f, func(n ast.Node) bool {
+			var exprs []ast.Expr
+			switch n := n.(type) {
+			case *ast.CompositeLit:
+				for _, e := range n.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						exprs = append(exprs, kv.Key, kv.Value)
+					} else {
+						exprs = append(exprs, e)
+					}
+				}
+			case *ast.SwitchStmt:
+				for _, s := range n.Body.List {
+					exprs = append(exprs, s.(*ast.CaseClause).List...)
+				}
+			default:
+				return true
+			}
+			var named []string
+			for _, e := range exprs {
+				b, ok := e.(*ast.BasicLit)
+				if !ok || b.Kind != token.STRING {
+					continue
+				}
+				if s, err := strconv.Unquote(b.Value); err == nil && slices.Contains(allowlist, s) {
+					named = append(named, s)
+				}
+			}
+			if len(named) >= 2 {
+				t.Errorf("%s: a package table %v in the checker; read v1.PureImports instead", fset.Position(n.Pos()), named)
+			}
 			return true
-		}
-		found = true
-		lit, ok := vs.Values[0].(*ast.CompositeLit)
-		if !ok {
-			t.Fatalf("PureImports is not a literal list: %T", vs.Values[0])
-		}
-		for _, e := range lit.Elts {
-			b, ok := e.(*ast.BasicLit)
-			if !ok || b.Kind != token.STRING {
-				t.Fatalf("PureImports has a non-string element: %T", e)
-			}
-			s, err := strconv.Unquote(b.Value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			runtime = append(runtime, s)
-		}
-		return false
-	})
-	if !found {
-		t.Skip("runtime/v1 declares no PureImports yet (G5b)")
+		})
 	}
-	slices.Sort(runtime)
-	if got := check.PureGoPackages(); !slices.Equal(got, runtime) {
-		t.Fatalf("the checker's allowlist %v differs from runtime/v1 PureImports %v", got, runtime)
+	if scanned == 0 {
+		t.Fatal("no checker source scanned")
 	}
 }
 
@@ -139,8 +154,8 @@ func TestExternAllowlist(t *testing.T) {
 				}
 				return
 			}
-			want := "extern go " + target + " reaches the host; use "
-			if !strings.HasPrefix(msg, want) || !strings.Contains(msg, "or wait for #202") {
+			want := "extern go " + target + " reaches the host; wait for "
+			if !strings.HasPrefix(msg, want) || !strings.Contains(msg, " or #202 ") {
 				t.Fatalf("want the host text %q…, got %s", want, msg)
 			}
 		})
@@ -154,10 +169,12 @@ func malformed(path string) bool {
 		strings.HasSuffix(path, "/") || strings.Contains(path, "\\")
 }
 
-// TestExternAllowlistHostText pins F7's message for os (std-1 plan, G9).
+// TestExternAllowlistHostText pins F7's message for os (std-1 plan, G9;
+// round 2: std os.Process is G2's and not on main yet, so the text waits
+// for it).
 func TestExternAllowlistHostText(t *testing.T) {
 	_, diags := check.CheckSource("extern go os.Getenv func Getenv(k string) string\n")
-	const want = "extern go os.Getenv reaches the host; use std os.Process, or wait for #202"
+	const want = "extern go os.Getenv reaches the host; wait for std os.Process or #202"
 	if len(diags) != 1 || diags[0].Code != "S109" || !strings.HasPrefix(diags[0].Message, want) {
 		t.Fatalf("want one S109 starting %q, got\n\t%s", want, describe(diags))
 	}
