@@ -530,8 +530,8 @@ func TestSandboxAdmitsSymlinkRoots(t *testing.T) {
 			t.Fatal(err)
 		}
 		plan.Admitted = admitted
-		argv := strings.Join(sandboxArgv(plan), "\x00")
-		if want := strings.Join([]string{"--ro-bind", resolved, alias}, "\x00"); !strings.Contains(argv, want) {
+		bwrapArgv := strings.Join(sandboxArgv(plan), "\x00")
+		if want := strings.Join([]string{"--ro-bind", resolved, alias}, "\x00"); !strings.Contains(bwrapArgv, want) {
 			t.Errorf("argv %q does not bind the resolved tree %s at %s", sandboxArgv(plan), resolved, alias)
 		}
 		box, err := startSandbox(plan)
@@ -539,8 +539,8 @@ func TestSandboxAdmitsSymlinkRoots(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer box.close()
-		argvInside := box.wrap([]string{"sh", "-c", `printf 'deep=%s;clean=%s;' "$(ls -A "$1/deep" 2>&1)" "$(cat "$1/clean")"`, "sh", alias}, root)
-		output, err := exec.Command(argvInside[0], argvInside[1:]...).CombinedOutput()
+		argv := box.wrap([]string{"sh", "-c", `printf 'deep=%s;clean=%s;' "$(ls -A "$1/deep" 2>&1)" "$(cat "$1/clean")"`, "sh", alias}, root)
+		output, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
 		if want := "deep=;clean=visible;"; err != nil || string(output) != want {
 			t.Fatalf("inside the sandbox: %v\n%s\nwant %s", err, output, want)
 		}
@@ -584,13 +584,13 @@ func TestSandboxArgvBindsAdmittedRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan.Admitted = admitted
-	argv := sandboxArgv(plan)
-	for i := range len(argv) - 2 {
-		if argv[i] != "--ro-bind" || argv[i+1] == "/dev/null" {
+	bwrapArgv := sandboxArgv(plan)
+	for i := range len(bwrapArgv) - 2 {
+		if bwrapArgv[i] != "--ro-bind" || bwrapArgv[i+1] == "/dev/null" {
 			continue
 		}
-		if resolved, err := filepath.EvalSymlinks(argv[i+2]); err != nil || resolved != argv[i+1] {
-			t.Errorf("--ro-bind %s %s: the destination resolves to %q (%v), not the source", argv[i+1], argv[i+2], resolved, err)
+		if resolved, err := filepath.EvalSymlinks(bwrapArgv[i+2]); err != nil || resolved != bwrapArgv[i+1] {
+			t.Errorf("--ro-bind %s %s: the destination resolves to %q (%v), not the source", bwrapArgv[i+1], bwrapArgv[i+2], resolved, err)
 		}
 	}
 	// ".." above the root stays at the root, so the relative link climbs
@@ -604,8 +604,8 @@ func TestSandboxArgvBindsAdmittedRoots(t *testing.T) {
 		if dir, ok := masked[want]; !ok || !dir {
 			t.Errorf("the outward link's target %s is not masked with a directory (masks %v)", want, admitted.Masks)
 		}
-		if !strings.Contains(strings.Join(argv, "\x00"), strings.Join([]string{"--tmpfs", want, "--remount-ro", want}, "\x00")) {
-			t.Errorf("argv %q does not mask %s", argv, want)
+		if !strings.Contains(strings.Join(bwrapArgv, "\x00"), strings.Join([]string{"--tmpfs", want, "--remount-ro", want}, "\x00")) {
+			t.Errorf("argv %q does not mask %s", bwrapArgv, want)
 		}
 	}
 	// /tmp is a scratch path, the run's own; ".." holds the tree's own
@@ -620,8 +620,8 @@ func TestSandboxArgvBindsAdmittedRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer box.close()
-	inside := box.wrap([]string{"sh", "-c", `cd "$1" && printf 'out=%s;up=%s;in=%s;' "$(ls -A out/ 2>&1)" "$(ls -A up/ 2>&1)" "$(cat in)" && ! touch out/probe 2>/dev/null && echo read-only`, "sh", alias}, root)
-	output, err := exec.Command(inside[0], inside[1:]...).CombinedOutput()
+	argv := box.wrap([]string{"sh", "-c", `cd "$1" && printf 'out=%s;up=%s;in=%s;' "$(ls -A out/ 2>&1)" "$(ls -A up/ 2>&1)" "$(cat in)" && ! touch out/probe 2>/dev/null && echo read-only`, "sh", alias}, root)
+	output, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
 	if want := "out=;up=;in=visible;read-only\n"; err != nil || string(output) != want {
 		t.Fatalf("inside the sandbox: %v\n%s\nwant %s", err, output, want)
 	}
