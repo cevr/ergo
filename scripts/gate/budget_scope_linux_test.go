@@ -352,7 +352,7 @@ func TestBudgetGateSurvivesStepOutput(t *testing.T) {
 			t.Errorf("run %d: gate exit %d, want 0", run+1, code)
 		}
 		gateResident(t, run+1, text)
-		checkPlacement(t, run+1, report, true)
+		checkPlacement(t, run+1, report, true, false)
 	}
 	receipts := receiptsIn(t, cache)
 	if len(receipts) != 1 {

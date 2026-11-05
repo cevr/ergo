@@ -303,8 +303,9 @@ func checkStorageLayout(t *testing.T, slice string, budget memoryBudget, layout 
 		// stopped it, and the output it had not printed is lost.
 		code, text := h.result(t)
 		gateResident(t, run, text)
-		checkPlacement(t, run, report, layout.onDiskOnly())
 		want := layout.expect(run)
+		refused := want.refusal != "" && code == 2 && !strings.Contains(text, "== print:")
+		checkPlacement(t, run, report, layout.onDiskOnly(), refused)
 		if want.refusal != "" {
 			if code != 2 || !strings.Contains(text, want.refusal) || strings.Contains(text, "== print:") {
 				t.Errorf("run %d: gate exit %d; want 2, the line %q, and no step run", run, code, want.refusal)

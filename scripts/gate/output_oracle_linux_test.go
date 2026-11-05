@@ -280,10 +280,17 @@ func runWatched(t *testing.T, h *scopeHelper) scopeReport {
 // checkPlacement checks a scopeReport of a gateOutputCase helper. On a
 // disk layout no open file in the scope may be in memory at all; on any
 // layout none may hold more than gateShmemLimit, and the scope's shmem
-// stays under it.
-func checkPlacement(t *testing.T, run int, report scopeReport, diskLayout bool) {
+// stays under it. The watch must have seen the scope, unless refused is
+// set: the gate refused before any step ran, so there was no step output
+// to place, and such a gate can end before the watch's first sample
+// (measured at load 15-38: 2 of 960 helper runs, both refusals).
+func checkPlacement(t *testing.T, run int, report scopeReport, diskLayout, refused bool) {
 	t.Helper()
 	t.Logf("run %d: scope %s, %d samples, shmem peak %d, open files in memory %v", run, report.scope, report.samples, report.shmem, report.memoryFiles)
+	if report.scope == "" && refused {
+		t.Logf("run %d: the gate refused before the watch's first sample", run)
+		return
+	}
 	if report.scope == "" || report.shmem < 0 {
 		t.Errorf("run %d: the watch did not see the helper's scope (scope %q, shmem %d)", run, report.scope, report.shmem)
 		return
