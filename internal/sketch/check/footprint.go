@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Footprints (rows.md, Footprints; #199 stage 1). A frame's footprint is
@@ -27,7 +28,8 @@ import (
 // imported package whose Info holds its footprint. Every other call is
 // opaque: a function value, an operation of an operation-type value (a
 // queue's Push, a Task's Wait, a program's own operation type), and a host
-// function, whose body is Go. A for-in over a Seq calls the Seq, a function
+// function, whose body is Go. A std extern whose Go body is marked pure is
+// the exception: its call runs nothing a footprint counts. A for-in over a Seq calls the Seq, a function
 // value, so it is opaque too. Recursive frames join to the least fixpoint,
 // one strongly connected component at a time, so the work is linear in the
 // bodies and the call edges.
@@ -490,11 +492,14 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 // runs adds a run of the function f to n: an edge to its node when it is
 // a function of the package, the footprint its package recorded when it
 // is imported, and opaque when its body is unknown. A host function's
-// body is Go; taskResult reports that its result holds a Task.
+// body is Go; taskResult reports that its result holds a Task. A std
+// extern whose Go body is pure (pureStd) adds nothing but that Task.
 func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 	switch {
 	case f == nil || f.Decl == nil:
 		n.opaque = true
+	case pureStd(f):
+		n.tasks = n.tasks || taskResult
 	case f.Decl.Extern != nil || f.Decl.Body == nil:
 		n.opaque = true
 		n.tasks = n.tasks || taskResult
@@ -509,6 +514,21 @@ func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 		}
 		n.opaque = true
 	}
+}
+
+// pureStd reports a std extern whose runtime/v1 Go body carries the
+// reviewed purity fact (v1.Body.Pure; docs/spec/stdlib.md, Pure bodies). A
+// user extern is never pure: its Go body is outside the reviewed set.
+func pureStd(f *Func) bool {
+	if f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.std {
+		return false
+	}
+	path, name := f.Decl.Extern.Split()
+	if path != runtimeModule+"/v1" {
+		return false
+	}
+	body, err := v1.BodyOf(name)
+	return err == nil && body.Pure
 }
 
 // solve joins every node's footprint with those of the nodes it reaches, by
