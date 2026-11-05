@@ -142,8 +142,10 @@ func (l *lowerer) testImports() []string {
 // runTests are the tests the test build runs: the root package's only. An
 // imported package's tests belong to that package's own test build, as Go's
 // go test runs the tests of the package it names, not of its imports.
+// They are in canonical order (canon.go), so the runner, the names and the
+// report do not depend on the order the checker met the files.
 func (l *lowerer) runTests() []*check.Test {
-	return l.pkg.Tests
+	return l.canon.tests(l.pkg)
 }
 
 func (l *lowerer) testFunc(t *check.Test) string {

@@ -330,7 +330,7 @@ func (l *lowerer) hostImportNames(pkgs []*check.Package) {
 	seen := map[string]bool{}
 	var paths []string
 	for _, p := range pkgs {
-		for _, f := range p.Funcs {
+		for _, f := range l.canon.funcs(p) {
 			if !userExtern(f) {
 				continue
 			}
@@ -866,8 +866,11 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 
 // isImported reports a context declared outside the user package.
 func (l *lowerer) isImported(w *check.Context) bool {
-	for _, f := range l.unit.Files {
-		for _, d := range f.Decls {
+	for _, s := range l.srcs {
+		if s.pkg != l.pkg {
+			continue
+		}
+		for _, d := range s.file.Decls {
 			if d == syntax.Decl(w.Decl) {
 				return false
 			}

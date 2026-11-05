@@ -10,7 +10,9 @@ import (
 // Round 3 (196b): the lowering output is a function of the program's
 // canonical identity. Lowering one checked unit again, with its files and
 // imports listed in another order, or checked again from files and import
-// lines in another order, emits the same Go files, byte for byte.
+// lines in another order, emits the same Go files, byte for byte, in the
+// run build and the test build. Round 4: every declaration kind of the
+// generated program lands in any of several files of its package.
 
 // genProgram is a generated program: its libraries and the root's files.
 type genProgram struct {
@@ -25,56 +27,142 @@ type genLib struct {
 	files []pkgSource
 }
 
-// generateProgram builds a program from seed: two to four libraries whose
-// paths end alike (x/lib, y/lib, ...), each with the same declarations
-// over one or two files: an operation type Read that Q converts to (an
-// adapter), a generic Box with functions over it, and a function Show over
-// each of Q and Box, in two files when the library has two. The root names each
-// library's Box[int] (instances whose displays coincide), and an error type
-// Oops over each library's Q and Box[int] (error-text instances), over one
-// or two files, whose import lines come in a seeded order.
+// genChunk is one top-level declaration of a generated package and the
+// libraries (by index) whose import it needs.
+type genChunk struct {
+	text string
+	uses []int
+}
+
+// spread lays chunks out over one to three files of dir, in an order and
+// a file each that r chooses, every file non-empty. Each file starts with
+// the import lines of the libraries its chunks use, in an order r chooses.
+func spread(r *rand.Rand, dir string, chunks []genChunk, names, paths []string) []pkgSource {
+	files := 1 + r.Intn(3)
+	if files > len(chunks) {
+		files = len(chunks)
+	}
+	order := r.Perm(len(chunks))
+	of := make([][]genChunk, files)
+	for k, c := range order {
+		f := k // the first chunks fill each file once
+		if k >= files {
+			f = r.Intn(files)
+		}
+		of[f] = append(of[f], chunks[c])
+	}
+	base := []string{"main", "errors", "more"}
+	var out []pkgSource
+	for f, cs := range of {
+		uses := map[int]bool{}
+		var body strings.Builder
+		for _, c := range cs {
+			for _, i := range c.uses {
+				uses[i] = true
+			}
+			body.WriteString(c.text + "\n")
+		}
+		var head strings.Builder
+		for _, k := range r.Perm(len(paths)) {
+			if uses[k] {
+				fmt.Fprintf(&head, "import %s %s\n", names[k], paths[k])
+			}
+		}
+		out = append(out, pkgSource{"/gen/" + dir + base[f] + ".ergo", head.String() + body.String()})
+	}
+	return out
+}
+
+// generateProgram builds a program from seed. It has two to four
+// libraries whose paths end alike (x/lib, y/lib, ...), each with the same
+// declarations: an operation type Read that Q converts to (an adapter), a
+// generic Box with functions over it, a function Show over each of Q and
+// Box (methods), generic overloads Pick[T] over Q and R, which lower as
+// package functions, and a test. The root names each library's Box[int]
+// (instances whose displays coincide) and has an error type Oops over each
+// library's Q and Box[int] (error-text instances); methods and generic
+// overloads of its own; error types generic over a failure row only
+// (Hold), over a type and a row (Pair) and over a service row (Job), and
+// records over them, whose text functions are one per Go type; tests,
+// properties and a law. Every package's declarations land in one to three
+// files, each declaration in a file and at a place the seed chooses.
 func generateProgram(seed int64) genProgram {
 	r := rand.New(rand.NewSource(seed))
 	paths := []string{"x/lib", "y/lib", "z/lib", "w/lib"}[:2+r.Intn(3)]
 	names := []string{"a", "b", "c", "d"}
 	g := genProgram{alias: map[string]string{}}
-	var calls, errs, tests []string
-	var want []string
+	var calls, want []string
+	var root []genChunk
 	for i, path := range paths {
 		n := fmt.Sprint(i + 1)
-		ops := "type Read { Get() int }\ntype Q { N int }\nfunc Get(q Q) int { q.N }\nfunc Make() Read { Q{N: " + n + "} }\nfunc Show(q Q, n int) int { n + q.N }\n"
-		box := "type Box[T] { V T }\nfunc Wrap[T](v T) Box[T] { Box[T]{V: v} }\nfunc Unwrap[T](b Box[T]) T { b.V }\nfunc Show[T](b Box[T], n int) int { n }\n"
-		lib := genLib{path: path}
-		if r.Intn(2) == 0 {
-			lib.files = []pkgSource{{"/gen/" + path + "/lib.ergo", ops + box}}
-		} else {
-			lib.files = []pkgSource{{"/gen/" + path + "/ops.ergo", ops}, {"/gen/" + path + "/box.ergo", box}}
+		lib := []genChunk{
+			{"type Read { Get() int }", nil},
+			{"type Q { N int }", nil},
+			{"func Get(q Q) int { q.N }", nil},
+			{"func Make() Read { Q{N: " + n + "} }", nil},
+			{"func Show(q Q, n int) int { n + q.N }", nil},
+			{"type Box[T] { V T }", nil},
+			{"func Wrap[T](v T) Box[T] { Box[T]{V: v} }", nil},
+			{"func Unwrap[T](b Box[T]) T { b.V }", nil},
+			{"func Show[T](b Box[T], n int) int { n }", nil},
+			{"type R { M int }", nil},
+			{"func Pick[T](q Q, x T) T { x }", nil},
+			{"func Pick[T](r R, x T) T { x }", nil},
+			{"test Own { assert 1 == 1 }", nil},
 		}
-		g.libs = append(g.libs, lib)
+		g.libs = append(g.libs, genLib{path: path, files: spread(r, path+"/", lib, nil, nil)})
 		a := names[i]
 		g.alias[path] = a
-		calls = append(calls, fmt.Sprintf(`\(%s.Make().Get()) \(%s.Unwrap(%s.Wrap(%d))) \(%s.Q{N: 1}.Show(100)) \(%s.Wrap(true).Show(200))`, a, a, a, 10*(i+1), a, a))
-		want = append(want, fmt.Sprintf("%d %d 101 200", i+1, 10*(i+1)))
-		errs = append(errs,
-			fmt.Sprintf("func q%s() fails Oops[%s.Q] { Oops[%s.Q]{V: %s.Q{N: %d}} }\n", a, a, a, a, i+1),
-			fmt.Sprintf("func box%s() fails Oops[%s.Box[int]] { Oops[%s.Box[int]]{V: %s.Wrap(%d)} }\n", a, a, a, a, i+1))
-		tests = append(tests, fmt.Sprintf("test Q%s { try q%s() }\ntest Box%s { try box%s() }\n", a, a, a, a))
+		calls = append(calls, fmt.Sprintf(`\(%s.Make().Get()) \(%s.Unwrap(%s.Wrap(%d))) \(%s.Q{N: 1}.Show(100)) \(%s.Wrap(true).Show(200)) \(%s.Q{N: 1}.Pick(7)) \(%s.R{M: 1}.Pick(8))`, a, a, a, 10*(i+1), a, a, a, a))
+		want = append(want, fmt.Sprintf("%d %d 101 200 7 8", i+1, 10*(i+1)))
+		root = append(root,
+			genChunk{fmt.Sprintf("func q%s() fails Oops[%s.Q] { Oops[%s.Q]{V: %s.Q{N: %d}} }", a, a, a, a, i+1), []int{i}},
+			genChunk{fmt.Sprintf("func box%s() fails Oops[%s.Box[int]] { Oops[%s.Box[int]]{V: %s.Wrap(%d)} }", a, a, a, a, i+1), []int{i}},
+			genChunk{fmt.Sprintf("test Q%s { try q%s() }", a, a), nil},
+			genChunk{fmt.Sprintf("test Box%s { try box%s() }", a, a), nil},
+			genChunk{fmt.Sprintf("test Prop%s(n int) { assert %s.Q{N: n}.Get() == n }", a, a), []int{i}},
+		)
 	}
-	imports := func() string {
-		order := r.Perm(len(paths))
-		var b strings.Builder
-		for _, k := range order {
-			fmt.Fprintf(&b, "import %s %s\n", names[k], paths[k])
-		}
-		return b.String()
+	all := make([]int, len(paths))
+	for i := range all {
+		all[i] = i
 	}
-	mainDecls := "type lib {}\nfunc main() needs Console { Console.Println(\"" + strings.Join(calls, " ") + "\") }\n"
-	errDecls := "type Oops[T] { V T }\n" + strings.Join(errs, "") + strings.Join(tests, "")
-	if r.Intn(2) == 0 {
-		g.root = []pkgSource{{"/gen/main.ergo", imports() + mainDecls + errDecls}}
-	} else {
-		g.root = []pkgSource{{"/gen/main.ergo", imports() + mainDecls}, {"/gen/errors.ergo", imports() + errDecls}}
-	}
+	calls = append(calls, `\(P{N: 3}.Get()) \(P{N: 3}.Show(4)) \(P{N: 0}.Pick(5)) \(S.Pick(6))`)
+	want = append(want, "3 4 5 6")
+	root = append(root,
+		genChunk{"type lib {}", nil},
+		genChunk{"func main() needs Console { Console.Println(\"" + strings.Join(calls, " ") + "\") }", all},
+		genChunk{"type Oops[T] { V T }", nil},
+		genChunk{"type P { N int }", nil},
+		genChunk{"func Get(p P) int { p.N }", nil},
+		genChunk{"func Show(p P, n int) int { n }", nil},
+		genChunk{"type S {}", nil},
+		genChunk{"func Pick[T](p P, x T) T { x }", nil},
+		genChunk{"func Pick[T](s S, x T) T { x }", nil},
+		// An inline variant whose name is a Go name an overload of Pick
+		// can take: the naming pass names inline variants from the type
+		// list, so the order of that list is visible in the output.
+		genChunk{"type U = Pick_1 { N int } | Other { M int }", nil},
+		genChunk{"type Bad {}", nil},
+		genChunk{"type Hold[E] { F func() fails E }", nil},
+		genChunk{"type Outer { V Hold[Bad] }", nil},
+		genChunk{"func bad() fails Bad { Bad }", nil},
+		genChunk{"func hold() fails Hold[Bad] { Hold[Bad]{F: bad} }", nil},
+		genChunk{"func outer() fails Outer { Outer{V: Hold[Bad]{F: bad}} }", nil},
+		genChunk{"type Pair[T, E] { V T, F func() fails E }", nil},
+		genChunk{"func pair() fails Pair[int, Bad] { Pair[int, Bad]{V: 1, F: bad} }", nil},
+		genChunk{"type Job[R] { Run func() needs R }", nil},
+		genChunk{"type Late { J Job[Console] }", nil},
+		genChunk{"func say() needs Console { Console.Println(\"x\") }", nil},
+		genChunk{"func late() fails Late { Late{J: Job[Console]{Run: say}} }", nil},
+		genChunk{"test THold { try hold() }", nil},
+		genChunk{"test TOuter { try outer() }", nil},
+		genChunk{"test TPair { try pair() }", nil},
+		genChunk{"test TLate { try late() }", nil},
+		genChunk{"test Prop(n int) { assert n + 0 == n }", nil},
+		genChunk{"law Ident(n int) { n + 0 == n }", nil},
+	)
+	g.root = spread(r, "", root, names, paths)
 	g.want = strings.Join(want, " ") + "\n"
 	return g
 }
@@ -142,12 +230,15 @@ func permuteUnit(r *rand.Rand, u Unit) Unit {
 	return out
 }
 
-// emitted is every file a lowering emits, by path.
+// emitted is every file the run build and the test build emit, by build
+// and path.
 func emitted(t *testing.T, name string, u Unit) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	for _, f := range mustLowerUnit(t, name, u, true).files {
-		out[f.Path] = string(f.Data)
+	for _, tests := range []bool{false, true} {
+		for _, f := range mustLowerUnit(t, name, u, tests).files {
+			out[fmt.Sprintf("tests=%v/%s", tests, f.Path)] = string(f.Data)
+		}
 	}
 	return out
 }
@@ -181,7 +272,7 @@ func sameEmission(t *testing.T, what string, want, got map[string]string) {
 }
 
 func TestLoweringIsCanonical(t *testing.T) {
-	const programs = 8
+	const programs = 12
 	for seed := int64(0); seed < programs; seed++ {
 		g := generateProgram(seed)
 		r := rand.New(rand.NewSource(seed + 1000))

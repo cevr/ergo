@@ -149,16 +149,16 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 
 // lowerer holds the lowering of one package.
 type lowerer struct {
-	unit Unit
-	pkg  *check.Package
-	info *check.Info
-	file *syntax.File // the current source file (sources.go)
-	src  string       // its admitted path, which //line directives name
-	cur  int          // its index in srcs
+	// canon is the checked unit in canonical form (canon.go): the only
+	// place the lowering reads the unit's and the checker's lists from.
+	canon *canonical
+	pkg   *check.Package
+	info  *check.Info
+	file  *syntax.File // the current source file (sources.go)
+	src   string       // its admitted path, which //line directives name
+	cur   int          // its index in srcs
 
-	srcs     []srcFile                // every source file: the root's, then each import's
-	units    map[*check.Package]*Unit // the sourced packages: the root and its imports
-	nodeSrc  map[syntax.Node]int      // each node's source file, built at first need
+	srcs     []srcFile                // every source file in canonical order (canon.srcs)
 	tpSrc    map[*check.TypeParam]int // each type parameter's source file (paramFile)
 	nodeIDs  map[syntax.Node]int      // node identities for keys (nodeID)
 	libs     []*check.Package         // the libraries the program reaches (libraries)
@@ -254,16 +254,15 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	srcs, units := sources(u)
+	c := canonicalize(u)
 	l := &lowerer{
 		tests:     tests,
-		unit:      u,
+		canon:     c,
 		pkg:       u.Package,
 		info:      u.Package.Info,
-		file:      u.Files[0],
-		src:       u.Sources[0].Path,
-		srcs:      srcs,
-		units:     units,
+		file:      c.srcs[0].file,
+		src:       c.srcs[0].path,
+		srcs:      c.srcs,
 		names:     newNamer(nil),
 		pkgNames:  map[pkgKey]string{},
 		types:     map[*check.TypeName]*typeDecl{},
@@ -510,7 +509,7 @@ func (l *lowerer) taskPkg() string {
 
 // mainFunc is the package's main function, or nil.
 func (l *lowerer) mainFunc() *check.Func {
-	for _, f := range l.pkg.Funcs {
+	for _, f := range l.canon.funcs(l.pkg) {
 		if f.Name == "main" && f.Decl != nil && f.Decl.Extern == nil {
 			return f
 		}
@@ -598,8 +597,8 @@ func (l *lowerer) readVars() map[*check.Var]bool {
 		})
 	}
 	reads := map[*check.Var]bool{}
-	for p, u := range l.units {
-		info := u.Package.Info
+	for p := range l.canon.sourced {
+		info := p.Info
 		for id, o := range info.Uses {
 			// The checker records a binder's own name as a Use too; it reads nothing.
 			if v, ok := o.(*check.Var); ok && !unread[id] && info.Defs[id] != o && l.readsFact(p, id) {

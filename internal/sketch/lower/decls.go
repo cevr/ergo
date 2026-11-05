@@ -96,7 +96,7 @@ func (l *lowerer) declareNames() {
 		j, ok := l.sourceOf(tn.Decl.Name)
 		return !ok || j == i
 	}
-	types := l.typesInOrder(l.pkg)
+	types := l.canon.types(l.pkg)
 	for i, s := range l.srcs {
 		if s.pkg != l.pkg {
 			continue
@@ -579,7 +579,7 @@ func (l *lowerer) methodsOf(tn *check.TypeName) []*check.Func {
 	byType, ok := l.methods[tn.Pkg]
 	if !ok {
 		byType = map[*check.TypeName][]*check.Func{}
-		for _, f := range l.funcsInOrder(tn.Pkg) {
+		for _, f := range l.canon.funcs(tn.Pkg) {
 			if fd := l.funcDecl(f); fd.method != nil {
 				byType[fd.method.tn] = append(byType[fd.method.tn], f)
 			}
@@ -1070,9 +1070,9 @@ func (l *lowerer) hasInits() bool {
 func (l *lowerer) initOrder() []*check.Initializer {
 	var out []*check.Initializer
 	for _, p := range l.sourcedLibs() {
-		out = append(out, p.Info.InitOrder...)
+		out = append(out, l.canon.initOrder(p)...)
 	}
-	return append(out, l.pkg.Info.InitOrder...)
+	return append(out, l.canon.initOrder(l.pkg)...)
 }
 
 // initFunc is the Go function that runs the package-level initializers in

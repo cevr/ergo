@@ -39,16 +39,16 @@ import (
 // Elixir's protocol consolidation makes that dispatch static at compile
 // time, as the per-instance functions here are.
 
-// textKey is the package-scope key of the text function of t: one per
-// declared type or instance, one per slice type.
+// textKey is the package-scope key of the text function of t: one per Go
+// type. Its identity is the canonical Go type the function takes (typeKey,
+// which erases row arguments as goType does), so a declared type and an
+// instance of it that differ only in rows, such as Hold and Hold[Bad] of
+// type Hold[E] { F func() fails E }, share one function (196b).
 func (l *lowerer) textKey(t check.Type, site syntax.Node) (pkgKey, string) {
 	switch u := t.(type) {
 	case *check.Named:
 		td := l.typeDecl(u.Obj, site)
-		if len(u.TArgs) > 0 {
-			return pkgKey{"text", "instance " + l.typeKey(u)}, "text" + td.name
-		}
-		return pkgKey{"text", td.tn}, "text" + td.name
+		return pkgKey{"text", "named " + l.typeKey(u)}, "text" + td.name
 	case *check.Slice:
 		return pkgKey{"text", "slice " + l.typeKey(t)}, "textList"
 	}

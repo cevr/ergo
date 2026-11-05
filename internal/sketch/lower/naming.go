@@ -48,7 +48,7 @@ import (
 func (l *lowerer) nameAll() {
 	l.declareNames()
 	for _, p := range l.sourcedPkgs() {
-		for _, tn := range l.typesInOrder(p) {
+		for _, tn := range l.canon.types(p) {
 			if tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
@@ -73,10 +73,10 @@ func (l *lowerer) nameAll() {
 	libs := l.libraries()
 	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
-		for _, tn := range l.typesInOrder(p) {
+		for _, tn := range l.canon.types(p) {
 			l.typeName(tn)
 		}
-		for _, f := range l.funcsInOrder(p) {
+		for _, f := range l.canon.funcs(p) {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
@@ -89,11 +89,7 @@ func (l *lowerer) nameAll() {
 			}
 		})
 	}
-	type entry struct {
-		key  pkgKey
-		sort string
-		base string
-	}
+	type entry = generatedEntry
 	var generated []entry
 	for _, p := range append([]*check.Package{l.pkg}, libs...) {
 		var convs []check.Conversion
@@ -131,7 +127,7 @@ func (l *lowerer) nameAll() {
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
 		}
-		for _, tn := range p.Types {
+		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)
 			if !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {
 				continue
@@ -149,9 +145,28 @@ func (l *lowerer) nameAll() {
 	l.reserveDefaults(func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "default " + key.obj.(string), base})
 	})
-	// The order is total: each entry's sort string is its key's canonical
-	// spelling (typeKey), so no map's iteration order and no display
-	// decides which entry takes a base name first (196b).
+	for _, e := range sortGenerated(generated) {
+		l.pkgName(e.key, e.base)
+	}
+	l.nameTests() // the test build's names (tests.go); none in the run build
+	l.prenamed = true
+}
+
+// generatedEntry is a generated package entity the naming pass reserves:
+// its key, its canonical sort string and its base Go name.
+type generatedEntry struct {
+	key  pkgKey
+	sort string
+	base string
+}
+
+// sortGenerated orders the generated entries by their sort strings. The
+// order is total: each entry's sort string is its key's canonical
+// spelling (typeKey), so no map's iteration order and no display decides
+// which entry takes a base name first (196b). Two entries that share a sort
+// string are one entity, met twice; a different key or base under one
+// sort string would make the order partial, and is a compiler defect.
+func sortGenerated(generated []generatedEntry) []generatedEntry {
 	sort.Slice(generated, func(i, j int) bool { return generated[i].sort < generated[j].sort })
 	for i := 1; i < len(generated); i++ {
 		a, b := generated[i-1], generated[i]
@@ -159,11 +174,7 @@ func (l *lowerer) nameAll() {
 			ice(nil, "two generated entries share the sort key %q", a.sort)
 		}
 	}
-	for _, e := range generated {
-		l.pkgName(e.key, e.base)
-	}
-	l.nameTests() // the test build's names (tests.go); none in the run build
-	l.prenamed = true
+	return generated
 }
 
 // adapterKey identifies the adapter of an operations conversion by the

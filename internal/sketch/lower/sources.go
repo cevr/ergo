@@ -13,8 +13,8 @@ import (
 // Sources (196b). A program is the root package's files and the files of
 // every user package it imports (Unit.Imports), lowered into one Go
 // package. Every source file is one srcFile, the root's first, then each
-// import's, in canonical order (sources); Refusal.Source counts the unit's
-// own order. A user
+// import's, in canonical order (canon.go, sources); Refusal.Source counts
+// the unit's own order. A user
 // package is sourced: its declarations go into the user part of main.go,
 // each after the //line directive of its own file, and its calls and
 // declarations into the call and declaration tables. A std package has no
@@ -54,45 +54,6 @@ type lowerState struct {
 	info *check.Info
 }
 
-// sources lists u's files in canonical order: the root's, then each
-// import's in package path order, each package's files in path order. The
-// unit's own order of files and imports is how a caller found them, not
-// what the program is, so it decides no part of the output (196b); it
-// stays only in each file's unit index, which Refusal.Source reports.
-func sources(u Unit) ([]srcFile, map[*check.Package]*Unit) {
-	var srcs []srcFile
-	units := map[*check.Package]*Unit{}
-	next := 0
-	add := func(u *Unit) {
-		units[u.Package] = u
-		start := len(srcs)
-		for i, f := range u.Files {
-			srcs = append(srcs, srcFile{file: f, path: u.Sources[i].Path, text: u.Sources[i].Text, pkg: u.Package, unit: next})
-			next++
-		}
-		own := srcs[start:]
-		sort.SliceStable(own, func(i, j int) bool { return own[i].path < own[j].path })
-	}
-	add(&u)
-	imports := make([]*Unit, len(u.Imports))
-	for i := range u.Imports {
-		imports[i] = &u.Imports[i]
-	}
-	order := slices.Clone(imports)
-	sort.SliceStable(order, func(i, j int) bool { return order[i].Package.Path < order[j].Package.Path })
-	// Unit indexes follow Unit.Imports order, so they are counted first.
-	base := map[*Unit]int{}
-	for _, imp := range imports {
-		base[imp] = next
-		next += len(imp.Files)
-	}
-	for _, imp := range order {
-		next = base[imp]
-		add(imp)
-	}
-	return srcs, units
-}
-
 func (l *lowerer) state() lowerState { return lowerState{l.cur, l.info} }
 
 func (l *lowerer) setCur(i int) {
@@ -114,7 +75,7 @@ func (l *lowerer) within(i int) lowerState {
 // defer l.leave(l.enter(n, p)).
 func (l *lowerer) enter(n syntax.Node, p *check.Package) lowerState {
 	s := l.state()
-	if p != nil && l.units[p] == nil {
+	if p != nil && !l.isSourced(p) {
 		return s
 	}
 	if i, ok := l.sourceOf(n); ok && (p == nil || l.srcs[i].pkg == p) {
@@ -149,79 +110,11 @@ func (l *lowerer) queue(n syntax.Node, f func()) {
 	})
 }
 
-// sourceOf is the index of the source file that holds n. A program of one
-// file holds every node it meets there.
-func (l *lowerer) sourceOf(n syntax.Node) (int, bool) {
-	if len(l.srcs) == 1 {
-		return 0, true
-	}
-	if n == nil {
-		return 0, false
-	}
-	if l.nodeSrc == nil {
-		l.nodeSrc = map[syntax.Node]int{}
-		for i, s := range l.srcs {
-			syntax.Inspect(s.file, func(m syntax.Node) bool {
-				if m != nil {
-					l.nodeSrc[m] = i
-				}
-				return true
-			})
-		}
-	}
-	i, ok := l.nodeSrc[n]
-	return i, ok
-}
+// sourceOf is the index of the source file that holds n (canon.go).
+func (l *lowerer) sourceOf(n syntax.Node) (int, bool) { return l.canon.sourceOf(n) }
 
-// sourceLess orders two nodes of the program's sources by source file
-// (sources), then by offset; a node that no source file holds comes last.
-// An offset alone is no order: it counts from the start of each file.
-func (l *lowerer) sourceLess(a, b syntax.Node) bool {
-	i, j := l.sourceIndex(a), l.sourceIndex(b)
-	return i < j || i == j && a.Pos() < b.Pos()
-}
-
-func (l *lowerer) sourceIndex(n syntax.Node) int {
-	if i, ok := l.sourceOf(n); ok && n != nil {
-		return i
-	}
-	return len(l.srcs)
-}
-
-// typesInOrder are p's types in source order (sourceLess) when p is
-// sourced, each declared type at its declaration; a type with no
-// declaration keeps its place after them. The checker lists them in the
-// order it met the files, which is no part of the program.
-func (l *lowerer) typesInOrder(p *check.Package) []*check.TypeName {
-	out := slices.Clone(p.Types)
-	if !l.isSourced(p) {
-		return out
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if a.Decl == nil || b.Decl == nil {
-			return a.Decl != nil && b.Decl == nil
-		}
-		return l.sourceLess(a.Decl.Name, b.Decl.Name)
-	})
-	return out
-}
-
-// funcsInOrder are p's functions in source order, as typesInOrder.
-func (l *lowerer) funcsInOrder(p *check.Package) []*check.Func {
-	out := slices.Clone(p.Funcs)
-	if !l.isSourced(p) {
-		return out
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if a.Decl == nil || b.Decl == nil {
-			return a.Decl != nil && b.Decl == nil
-		}
-		return l.sourceLess(a.Decl.Name, b.Decl.Name)
-	})
-	return out
-}
+// sourceLess orders two nodes by source file, then by offset (canon.go).
+func (l *lowerer) sourceLess(a, b syntax.Node) bool { return l.canon.less(a, b) }
 
 // nodeID is the identity of the node n as a number, given in the order the
 // lowering first asks for it, so a key built of it is deterministic. A key
@@ -282,7 +175,7 @@ func (l *lowerer) libraries() []*check.Package {
 // the unit holds no unit of: its lets would not run.
 func (l *lowerer) missingImport() error {
 	for _, p := range l.libraries() {
-		if !p.Std() && l.units[p] == nil {
+		if !p.Std() && !l.isSourced(p) {
 			return fmt.Errorf("lower: the program reaches package %q, and the unit lists no unit of it (Unit.Imports)", p.Path)
 		}
 	}
@@ -298,7 +191,7 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 	}
 	var todo []*check.Package
 	for _, p := range l.libraries() {
-		if l.units[p] != nil {
+		if l.isSourced(p) {
 			todo = append(todo, p)
 		}
 	}
@@ -306,7 +199,7 @@ func (l *lowerer) sourcedLibs() []*check.Package {
 	deps := map[*check.Package][]*check.Package{}
 	for _, p := range todo {
 		for _, o := range p.Info.Uses {
-			if pn, ok := o.(*check.PkgName); ok && l.units[pn.Pkg] != nil && pn.Pkg != p && !slices.Contains(deps[p], pn.Pkg) {
+			if pn, ok := o.(*check.PkgName); ok && l.isSourced(pn.Pkg) && pn.Pkg != p && !slices.Contains(deps[p], pn.Pkg) {
 				deps[p] = append(deps[p], pn.Pkg)
 			}
 		}
@@ -346,7 +239,7 @@ func (l *lowerer) sourcedPkgs() []*check.Package {
 }
 
 // isSourced reports a package whose declarations carry //line directives.
-func (l *lowerer) isSourced(p *check.Package) bool { return l.units[p] != nil }
+func (l *lowerer) isSourced(p *check.Package) bool { return l.canon.sourced[p] }
 
 // paramFile qualifies the key of the type parameter tp with its source
 // file: positions are offsets into one file, so two files' parameters of
@@ -359,7 +252,7 @@ func (l *lowerer) paramFile(tp *check.TypeParam) string {
 	if l.tpSrc == nil {
 		l.tpSrc = map[*check.TypeParam]int{}
 		for _, p := range l.sourcedPkgs() {
-			for _, tn := range p.Types {
+			for _, tn := range l.canon.types(p) {
 				named, ok := tn.Type.(*check.Named)
 				if !ok || tn.Decl == nil {
 					continue
@@ -370,7 +263,7 @@ func (l *lowerer) paramFile(tp *check.TypeParam) string {
 					}
 				}
 			}
-			for _, f := range p.Funcs {
+			for _, f := range l.canon.funcs(p) {
 				if f.Decl == nil {
 					continue
 				}
