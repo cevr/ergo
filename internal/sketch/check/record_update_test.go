@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +23,8 @@ const updateDecls = `type Walk { At int, Turn int }
 type Other { At int, Turn int }
 
 type Box[T] { V T, N int }
+
+type Pair[T] { V T, N int }
 
 type Playing { W Walk }
 
@@ -91,6 +94,10 @@ var updateCases = []updateCase{
 	let c = Box{..w, N: 2}
 	c.N
 }`, []string{"2:16 S108"}},
+	{"a base of another generic record that gives no type arguments", `func f(p Pair[int]) int {
+	let c = Box{..p, N: 2}
+	c.N
+}`, []string{"2:16 S108"}},
 	{"a value the inferred instance refuses", `func f(b Box[int]) int {
 	let c = Box{..b, V: "z"}
 	c.N
@@ -107,6 +114,14 @@ var updateCases = []updateCase{
 	{"an unhandled failure in the base", `func f() Walk { Walk{..walkOrBad(1), Turn: 1} }`, []string{"1:24 S105"}},
 }
 
+// updateTexts holds, by case name, the text a case's first diagnostic must
+// contain, where the code and position alone do not show the rule.
+var updateTexts = map[string]string{
+	// A Box literal must not give a Pair: the inferred base is an instance
+	// of the literal's own generic record, or it is refused.
+	"a base of another generic record that gives no type arguments": "the base of a record update of Box has type Pair[int], not Box",
+}
+
 func updateDiags(src string) []string {
 	_, diags := check.CheckSource(src)
 	var got []string
@@ -120,6 +135,11 @@ func updateDiags(src string) []string {
 // and that the reference walk agrees with typing on it.
 func TestRecordUpdateRules(t *testing.T) {
 	offset := strings.Count(updateDecls, "\n") + 1
+	for name := range updateTexts {
+		if !slices.ContainsFunc(updateCases, func(c updateCase) bool { return c.name == name }) {
+			t.Errorf("updateTexts names no case %q", name)
+		}
+	}
 	for _, c := range updateCases {
 		src := updateDecls + "\n" + c.src + "\n"
 		var want []string
@@ -135,6 +155,12 @@ func TestRecordUpdateRules(t *testing.T) {
 		if strings.Join(got, ", ") != strings.Join(want, ", ") {
 			_, diags := check.CheckSource(src)
 			t.Errorf("%s: got %v, want %v\n%v", c.name, got, want, diags)
+		}
+		if text, ok := updateTexts[c.name]; ok {
+			_, diags := check.CheckSource(src)
+			if len(diags) == 0 || !strings.Contains(diags[0].Message, text) {
+				t.Errorf("%s: want the first diagnostic to contain %q, got %v", c.name, text, diags)
+			}
 		}
 		if p := check.RefWalkProblems(src); len(p) != 0 {
 			t.Errorf("%s: the walk and typing disagree: %v", c.name, p)
@@ -294,5 +320,60 @@ func TestRecordUpdateWalk(t *testing.T) {
 	}
 	if updates != 8 {
 		t.Errorf("Info records %d updates, want 8", updates)
+	}
+}
+
+// TestRecordUpdateProviderFreshness: a with owns a resource provider only
+// when it is fresh (resources.md, Refusals). A record update copies every
+// field it does not name from its base, so it is fresh only when its base
+// is: an update of a package value is a second owner of that value, S109
+// at the provider; an update of a literal or of a fresh call is fresh.
+func TestRecordUpdateProviderFreshness(t *testing.T) {
+	const decls = `type A { Use() }
+
+type Res { n int }
+
+func Use(_ Res) {}
+
+func Close(_ Res) {}
+
+let shared = Res{n: 1}
+
+func open() Res { Res{n: 1} }
+
+`
+	for _, tc := range []struct {
+		name, src string
+		want      []string // "line:col code"; lines count from the case's first line
+	}{
+		{"an update of a package value", `let V = context { A: Res{..shared, n: 3} }
+func g() { with V { A.Use() } }`, []string{"1:22 S109"}},
+		{"a constructor that returns an update of a package value", `func make() Res { Res{..shared, n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }`, []string{"2:22 S109"}},
+		{"an inline update of a package value", `func g() { with context { A: Res{..shared, n: 3} } { A.Use() } }`, []string{"1:30 S109"}},
+		{"an update of a literal", `let V = context { A: Res{..Res{n: 1}, n: 3} }
+func g() { with V { A.Use() } }`, nil},
+		{"an update of a fresh call", `let V = context { A: Res{..open(), n: 3} }
+func g() { with V { A.Use() } }`, nil},
+		{"a constructor that returns an update of a fresh call", `func make() Res { Res{..open(), n: 2} }
+let V = context { A: make() }
+func g() { with V { A.Use() } }`, nil},
+	} {
+		offset := strings.Count(decls, "\n")
+		var want []string
+		for _, w := range tc.want {
+			var line, col int
+			var code string
+			if _, err := fmt.Sscanf(w, "%d:%d %s", &line, &col, &code); err != nil {
+				t.Fatalf("%s: bad want %q", tc.name, w)
+			}
+			want = append(want, fmt.Sprintf("%d:%d %s", line+offset, col, code))
+		}
+		src := decls + tc.src + "\n"
+		if got := updateDiags(src); strings.Join(got, ", ") != strings.Join(want, ", ") {
+			_, diags := check.CheckSource(src)
+			t.Errorf("%s: got %v, want %v\n%v", tc.name, got, want, diags)
+		}
 	}
 }
