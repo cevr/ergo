@@ -30,12 +30,13 @@ func TestRuntime199ContextImportedRefusal(t *testing.T) {
 			if embedded {
 				contexts = "let Base = context { A: Get() }\nlet W = context { Base }\n"
 			}
-			lib, err := syntax.Parse(`type A { Use() }
+			libSrc := `type A { Use() }
 type Conn { n int }
 func Use(_ Conn) {}
 func Close(_ Conn) {}
 func Get() Conn { Conn{n: 1} }
-` + contexts)
+` + contexts
+			lib, err := syntax.Parse(libSrc)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,7 +65,8 @@ func Get() Conn { Conn{n: 1} }
 						t.Fatalf("lowering panicked: %v", p)
 					}
 				}()
-				u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}
+				lu := Unit{Package: makers, Files: []*syntax.File{lib}, Sources: []Source{{Path: "/ergo-test/makers/lib.ergo", Text: libSrc}}}
+				u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}, Imports: []Unit{lu}}
 				_, err = lowerPackage(u, false)
 			}()
 			if !errors.As(err, &refused) || len(refused.Refusals) != 1 {

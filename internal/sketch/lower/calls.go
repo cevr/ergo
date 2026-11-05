@@ -738,7 +738,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 	}
 	name := l.pkgName(pkgKey{"context", key}, "build"+key.w.Name)
 	l.contexts[key] = name
-	l.pending = append(l.pending, func() { l.emitContext(w, name, site) })
+	l.queue(key.w.Decl, func() { l.emitContext(w, name, site) })
 	return name
 }
 
@@ -865,9 +865,11 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 
 // isImported reports a context declared outside the user package.
 func (l *lowerer) isImported(w *check.Context) bool {
-	for _, d := range l.file.Decls {
-		if d == syntax.Decl(w.Decl) {
-			return false
+	for _, f := range l.unit.Files {
+		for _, d := range f.Decls {
+			if d == syntax.Decl(w.Decl) {
+				return false
+			}
 		}
 	}
 	return true
@@ -888,7 +890,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	l := fc.l
 	// A *T source (types.md, Methods 5) holds the pointer: a table function
 	// on T reads *v, one on *T takes v (stage C round 4 review T1).
-	key, base, ok := adapterName(conv)
+	key, base, ok := l.adapterName(conv)
 	if !ok {
 		unreachable(site, ruleAccepted, "an operations conversion from %s to %s with no adapter (adapterName)", conv.From, conv.To)
 	}
@@ -1191,7 +1193,7 @@ func (fc *funcCtx) callee(x *syntax.CallExpr, c *check.Call) string {
 
 // callIdent is one entry of the call table.
 type callIdent struct {
-	offset       int
+	src, offset  int // the source file (sources.go) and the offset in it
 	fn, callee   string
 	line, column int
 }
@@ -1207,15 +1209,15 @@ func (l *lowerer) recordCall(x *syntax.CallExpr, owner, callee string) {
 	}
 	l.callSeen[x] = true
 	line, column := l.file.Position(x.Pos())
-	l.calls = append(l.calls, callIdent{offset: int(x.Pos()), fn: owner, callee: callee, line: line, column: column})
+	l.calls = append(l.calls, callIdent{src: l.cur, offset: int(x.Pos()), fn: owner, callee: callee, line: line, column: column})
 }
 
 // declIdent is one entry of the declaration table: a source declaration's
 // name (the Func of its calls) and its first and last lines.
 type declIdent struct {
-	offset    int
-	name      string
-	line, end int
+	src, offset int // the source file (sources.go) and the offset in it
+	name        string
+	line, end   int
 }
 
 // recordDecl adds the source declaration n, named name, to the
@@ -1230,7 +1232,7 @@ func (l *lowerer) recordDecl(name string, n syntax.Node) {
 	l.declSeen[n] = true
 	line, _ := l.file.Position(n.Pos())
 	end, _ := l.file.Position(n.End())
-	l.decls = append(l.decls, declIdent{offset: int(n.Pos()), name: name, line: line, end: end})
+	l.decls = append(l.decls, declIdent{src: l.cur, offset: int(n.Pos()), name: name, line: line, end: end})
 }
 
 // callTable is the Go declaration of the program's source map and the init
@@ -1245,20 +1247,27 @@ func (l *lowerer) recordDecl(name string, n syntax.Node) {
 // (runtime.md, Exit causes). It is written after the entry, so it may name
 // the runtime package.
 func (l *lowerer) callTable() string {
-	sort.SliceStable(l.decls, func(i, j int) bool { return l.decls[i].offset < l.decls[j].offset })
-	sort.SliceStable(l.calls, func(i, j int) bool { return l.calls[i].offset < l.calls[j].offset })
+	// Source order: by source file (sources.go), then by offset.
+	sort.SliceStable(l.decls, func(i, j int) bool {
+		a, b := l.decls[i], l.decls[j]
+		return a.src < b.src || a.src == b.src && a.offset < b.offset
+	})
+	sort.SliceStable(l.calls, func(i, j int) bool {
+		a, b := l.calls[i], l.calls[j]
+		return a.src < b.src || a.src == b.src && a.offset < b.offset
+	})
 	declEntry := l.pkgName(pkgKey{"decl", nil}, "ergoDecl")
 	declTable := l.pkgName(pkgKey{"decls", nil}, "ergoDecls")
 	entry := l.pkgName(pkgKey{"call", nil}, "ergoCall")
 	table := l.pkgName(pkgKey{"calls", nil}, "ergoCalls")
-	file := strconv.Quote(l.src)
+	file := func(src int) string { return strconv.Quote(l.srcs[src].path) }
 	var b strings.Builder
 	b.WriteString("// " + declEntry + " is one source declaration and its lines (#230).\n")
 	b.WriteString("type " + declEntry + " = struct {\n\tName      string\n\tFile      string\n\tLine, End int\n}\n\n")
 	b.WriteString("// " + declTable + " lists the program's source declarations, in source order.\n")
 	b.WriteString("var " + declTable + " = [...]" + declEntry + "{\n")
 	for _, d := range l.decls {
-		fmt.Fprintf(&b, "\t{Name: %s, File: %s, Line: %d, End: %d},\n", strconv.Quote(d.name), file, d.line, d.end)
+		fmt.Fprintf(&b, "\t{Name: %s, File: %s, Line: %d, End: %d},\n", strconv.Quote(d.name), file(d.src), d.line, d.end)
 	}
 	b.WriteString("}\n\n")
 	b.WriteString("// " + entry + " is the Ergo identity of one lowered call (#230).\n")
@@ -1266,7 +1275,7 @@ func (l *lowerer) callTable() string {
 	b.WriteString("// " + table + " lists the identity of each call of the program, in source order.\n")
 	b.WriteString("var " + table + " = [...]" + entry + "{\n")
 	for _, c := range l.calls {
-		fmt.Fprintf(&b, "\t{Func: %s, Callee: %s, File: %s, Line: %d, Column: %d},\n", strconv.Quote(c.fn), strconv.Quote(c.callee), file, c.line, c.column)
+		fmt.Fprintf(&b, "\t{Func: %s, Callee: %s, File: %s, Line: %d, Column: %d},\n", strconv.Quote(c.fn), strconv.Quote(c.callee), file(c.src), c.line, c.column)
 	}
 	b.WriteString("}\n\n")
 	b.WriteString("func init() {\n\t" + l.rt() + ".RegisterCalls(" + declTable + "[:], " + table + "[:])\n}\n\n")

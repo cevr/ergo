@@ -19,9 +19,9 @@ import (
 //
 // The pass reserves, in this order:
 //
-//  1. the user package's declarations, in source order: types, functions,
-//     lets and context builders, so a source name keeps its spelling unless Go
-//     reserves it;
+//  1. the user package's declarations, in source order, file by file: types,
+//     functions, lets and context builders, so a source name keeps its
+//     spelling unless Go reserves it;
 //  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
@@ -30,7 +30,9 @@ import (
 //     the imports of the Go packages that user externs target, in path
 //     order (calls.go, hostImportNames);
 //  3. every type and function of every library package the program reaches
-//     (the prelude and imported std packages, by path), used or not;
+//     (the prelude, imported std packages and imported user packages, by
+//     path), used or not, then the lets of each imported user package
+//     (sources.go), in initialization order;
 //  4. the operations adapters of every operations conversion, the text
 //     functions every error type's text needs, and the default function of
 //     every defined type or instance whose default holds a Map (types.go,
@@ -46,10 +48,12 @@ import (
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
 	l.declareNames()
-	for _, tn := range l.pkg.Types {
-		if tn.Decl != nil {
-			if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
-				l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+	for _, p := range l.sourcedPkgs() {
+		for _, tn := range p.Types {
+			if tn.Decl != nil {
+				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
+					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+				}
 			}
 		}
 	}
@@ -67,7 +71,7 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
-	libs := l.libraryPackages()
+	libs := l.libraries()
 	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
 		for _, tn := range p.Types {
@@ -76,6 +80,15 @@ func (l *lowerer) nameAll() {
 		for _, f := range p.Funcs {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
+	}
+	// A sourced library's lets, which the program lowers, used or not
+	// (sources.go), in its source order.
+	for _, p := range l.sourcedLibs() {
+		l.eachDecl(p, func(d syntax.Decl) {
+			if vd, ok := d.(*syntax.VarDecl); ok {
+				l.declareName(vd)
+			}
+		})
 	}
 	type entry struct {
 		key  pkgKey
@@ -113,7 +126,7 @@ func (l *lowerer) nameAll() {
 			}
 		}
 		for _, c := range convs {
-			key, base, ok := adapterName(c)
+			key, base, ok := l.adapterName(c)
 			if !ok {
 				continue
 			}
@@ -148,11 +161,12 @@ func (l *lowerer) nameAll() {
 // adapterKey identifies the adapter of an operations conversion by its
 // source and target types. A conversion inside a generic function also
 // names the declaration of each type parameter it mentions, whose adapter
-// is generic over them (D-E1, C8), so two functions' T never share one.
-func adapterKey(c check.Conversion) string {
+// is generic over them (D-E1, C8), so two functions' T never share one,
+// in one file or in two (paramFile).
+func (l *lowerer) adapterKey(c check.Conversion) string {
 	key := c.From.String() + " => " + c.To.String()
 	for _, tp := range convParams(c) {
-		key += fmt.Sprintf(" %s@%v", tp.Name, tp.Pos)
+		key += fmt.Sprintf(" %s@%v%s", tp.Name, tp.Pos, l.paramFile(tp))
 	}
 	return key
 }
@@ -161,7 +175,7 @@ func adapterKey(c check.Conversion) string {
 // operations conversion c, and false when c is not one an adapter lowers:
 // its source is a named type, a type parameter, or a pointer to either,
 // and its target a named operation type.
-func adapterName(c check.Conversion) (key, base string, ok bool) {
+func (l *lowerer) adapterName(c check.Conversion) (key, base string, ok bool) {
 	to, ok := c.To.(*check.Named)
 	if c.Kind != check.ConvOperations || !ok {
 		return "", "", false
@@ -174,7 +188,7 @@ func adapterName(c check.Conversion) (key, base string, ok bool) {
 	} else {
 		return "", "", false
 	}
-	return adapterKey(c), "ops" + from + "As" + to.Obj.Name, true
+	return l.adapterKey(c), "ops" + from + "As" + to.Obj.Name, true
 }
 
 // paramSource is the type parameter an operations conversion converts

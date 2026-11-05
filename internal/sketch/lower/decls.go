@@ -82,19 +82,37 @@ type funcDecl struct {
 }
 
 // declareNames gives every package-level declaration of the user package its
-// Go name before anything else is named, in source order, so a source name
-// keeps its spelling unless Go reserves it.
+// Go name before anything else is named, in source order, file by file, so
+// a source name keeps its spelling unless Go reserves it.
 func (l *lowerer) declareNames() {
 	// Package.Types includes the synthetic declarations of inline variants,
-	// immediately after their union. Merge that order with the source's
-	// other declarations before reserving any generated names.
+	// immediately after their union, file by file. Merge that order with
+	// the source's other declarations before reserving any generated names.
 	nextType := 0
-	for _, d := range l.file.Decls {
-		for nextType < len(l.pkg.Types) && l.pkg.Types[nextType].Pos < d.End() {
-			l.typeName(l.pkg.Types[nextType])
-			nextType++
+	inFile := func(tn *check.TypeName, i int) bool {
+		if tn.Decl == nil {
+			return true
 		}
-		l.guard(func() { l.declareName(d) })
+		j, ok := l.sourceOf(tn.Decl.Name)
+		return !ok || j == i
+	}
+	for i, s := range l.srcs {
+		if s.pkg != l.pkg {
+			continue
+		}
+		for _, d := range s.file.Decls {
+			for nextType < len(l.pkg.Types) && inFile(l.pkg.Types[nextType], i) && l.pkg.Types[nextType].Pos < d.End() {
+				l.typeName(l.pkg.Types[nextType])
+				nextType++
+			}
+			l.guard(func() {
+				defer l.leave(l.within(i))
+				l.declareName(d)
+			})
+		}
+	}
+	for ; nextType < len(l.pkg.Types); nextType++ {
+		l.typeName(l.pkg.Types[nextType])
 	}
 }
 
@@ -458,14 +476,16 @@ func (l *lowerer) useType(td *typeDecl) *typeDecl {
 	return td
 }
 
-// emitType writes a type declaration once.
+// emitType writes a type declaration once: a sourced package's within its
+// file, after its //line directive (sources.go), a std package's with none.
 func (l *lowerer) emitType(td *typeDecl) {
 	if td.emitted {
 		return
 	}
 	td.emitted = true
+	defer l.leave(l.enter(td.tn.Decl.Name, td.tn.Pkg))
 	b := &l.user
-	if td.library {
+	if !l.isSourced(td.tn.Pkg) {
 		b = &l.gen
 	} else {
 		b.WriteString(l.directive(td.tn.Decl.Pos()))
@@ -794,8 +814,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
-	directives := !fd.library
-	if fd.library {
+	directives := l.isSourced(f.Pkg)
+	// A sourced package's body is lowered within its file, reading its
+	// package's Info (sources.go).
+	defer l.leave(l.enter(f.Decl.Name, f.Pkg))
+	if !directives {
 		b = &l.gen
 		// A library body with Ergo source (std log and trace) reads the
 		// facts of its own package's Info: every fact of the lowering is
@@ -1024,7 +1047,7 @@ func (l *lowerer) addInit(x syntax.Expr, at syntax.Pos, stmts string, assigns []
 
 // hasInits reports whether initFunc runs any initializer.
 func (l *lowerer) hasInits() bool {
-	for _, in := range l.info.InitOrder {
+	for _, in := range l.initOrder() {
 		if _, ok := l.inits[in.Value]; ok {
 			return true
 		}
@@ -1032,11 +1055,23 @@ func (l *lowerer) hasInits() bool {
 	return len(l.machineInits) > 0
 }
 
+// initOrder is the program's package-level initializers in Go's order:
+// each sourced library's, in initialization order (sources.go), then the
+// root package's, each package's in its Info.InitOrder.
+func (l *lowerer) initOrder() []*check.Initializer {
+	var out []*check.Initializer
+	for _, p := range l.sourcedLibs() {
+		out = append(out, p.Info.InitOrder...)
+	}
+	return append(out, l.pkg.Info.InitOrder...)
+}
+
 // initFunc is the Go function that runs the package-level initializers in
-// Info.InitOrder (Go's initialization order: a let after every let it
-// refers to, directly or through functions, else in declaration order),
-// then each machine's initial value in declaration order (machine.go), or
-// "" when there is none. The entry calls it first inside v1.Main.
+// initOrder (Go's initialization order: a package after the packages it
+// imports; in a package, a let after every let it refers to, directly or
+// through functions, else in declaration order), then each machine's
+// initial value in the order it was lowered (machine.go), or "" when there
+// is none. The entry calls it first inside v1.Main.
 func (l *lowerer) initFunc() string {
 	if !l.hasInits() {
 		return ""
@@ -1044,7 +1079,7 @@ func (l *lowerer) initFunc() string {
 	name := l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	var b strings.Builder
 	b.WriteString("// " + name + " runs the package-level lets in Go's initialization order,\n// inside the program's root task.\nfunc " + name + "(" + initEnv(l) + " *" + l.env() + ") {\n")
-	for _, in := range l.info.InitOrder {
+	for _, in := range l.initOrder() {
 		b.WriteString(l.inits[in.Value])
 	}
 	for _, x := range l.machineInits {

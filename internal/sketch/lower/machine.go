@@ -92,12 +92,12 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 	b.WriteString("func (" + td.name + ") Initial() " + state + " { return " + initial + " }\n\n")
 	// The Step waits for the step's body: the body may come later in the
 	// source, and the plan's purity is a fact of that body.
-	l.pending = append(l.pending, func() {
+	l.queue(td.tn.Decl.Name, func() {
 		if !fd.lowered && len(l.refusals) > 0 {
 			return // the body was refused, and that refusal is reported
 		}
 		b := &l.user
-		if td.library {
+		if !l.isSourced(td.tn.Pkg) {
 			b = &l.gen
 		} else {
 			b.WriteString(l.directive(td.tn.Decl.Pos()))

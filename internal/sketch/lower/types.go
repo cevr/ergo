@@ -319,7 +319,8 @@ func (l *lowerer) defaultKey(n *check.Named) pkgKey {
 
 // typeKey spells t for a key: deterministic, from the source alone, and
 // distinct for distinct Go types. A declared type is named by its package
-// path, name and position, a type parameter by its name and position; a
+// path, name and position, a type parameter by its name, position and
+// source file (paramFile); a
 // type argument that is not type-kinded is left out, as goType leaves it
 // out. It is memoized per type object, so a key is built from its
 // children's keys once.
@@ -345,7 +346,7 @@ func (l *lowerer) typeKey(t check.Type) string {
 			k += "[" + strings.Join(keys, ", ") + "]"
 		}
 	case *check.TypeParam:
-		k = "$" + u.Name + "@" + strconv.Itoa(int(u.Pos))
+		k = "$" + u.Name + "@" + strconv.Itoa(int(u.Pos)) + l.paramFile(u)
 	case *check.Slice:
 		k = "[]" + l.typeKey(u.Elem)
 	case *check.Map:
@@ -471,14 +472,16 @@ func (l *lowerer) reserveDefaults(reserve func(key pkgKey, base string)) {
 			}
 		}
 	}
-	for id, o := range l.info.Defs {
-		if v, ok := o.(*check.Var); ok && l.readsFact(l.pkg, id) {
-			walk(v.Type)
+	for _, p := range l.sourcedPkgs() {
+		for id, o := range p.Info.Defs {
+			if v, ok := o.(*check.Var); ok && l.readsFact(p, id) {
+				walk(v.Type)
+			}
 		}
-	}
-	for x, t := range l.info.Types {
-		if l.readsFact(l.pkg, x) {
-			walk(t)
+		for x, t := range p.Info.Types {
+			if l.readsFact(p, x) {
+				walk(t)
+			}
 		}
 	}
 }

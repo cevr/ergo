@@ -22,15 +22,16 @@ import (
 
 // runtimeType is the runtime/v1 Go type, without type arguments, that the
 // std type n lowers to, or "" when n is lowered as a declaration of the
-// program (the program's own types, the prelude's other types, and a std
-// record the runtime has no struct for, such as timeout.Expired). A std
+// program (the types of the program's own packages, the prelude's other
+// types, and a std record the runtime has no struct for, such as
+// timeout.Expired). A std
 // record the runtime declares is the runtime's struct of the same name; a
 // std operation type is a pointer to the runtime's type of the same name,
 // whose methods are its operations.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
-	if obj.Pkg == nil || obj.Pkg == l.pkg || obj.Decl == nil {
-		return ""
+	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
+		return "" // a user package's type is a declaration of the program
 	}
 	if obj.Pkg.Path == "prelude" {
 		if obj.Name == "Task" {
@@ -48,11 +49,6 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		if len(spec.Union) == 0 {
 			return "*" + l.rt() + "." + obj.Name
 		}
-	}
-	if !obj.Pkg.Std() {
-		// Only an importer other than check.Std, a test's, reaches here:
-		// a program imports std packages alone until 196b.
-		refuse(site, "the type %s.%s of an imported package is lowered when 196b lowers packages", obj.Pkg.Path, obj.Name)
 	}
 	// Every std type is a record or an operation type
 	// (TestStdTypesHaveRuntimeForms).

@@ -62,7 +62,10 @@ const goMod = "module " + programModule + "\n\ngo " + goVersion + "\n\nrequire "
 // whose checker stage has not landed, or an extern with no Go body. It is
 // located at the source construct, and names its owner.
 type Refusal struct {
-	Source       int // index into Unit.Sources
+	// Source indexes the program's sources: the root unit's Sources, then
+	// each import's, in Unit.Imports order. Path is that source's path.
+	Source       int
+	Path         string
 	Offset       int // byte offset into the source
 	Line, Column int // 1-based; the column counts bytes
 	Message      string
@@ -81,8 +84,13 @@ func (e *Refused) Error() string {
 
 // refusal is the panic value that ends the lowering of one declaration.
 type refusal struct {
-	pos syntax.Pos
-	msg string
+	pos  syntax.Pos
+	node syntax.Node // the node at pos, which locates its source file
+	msg  string
+	// src is the source file current where the refusal was raised, once
+	// a leave has located it (sources.go).
+	src     int
+	located bool
 }
 
 // Lower lowers the checked unit to the generated files of a Go module,
@@ -94,9 +102,6 @@ type refusal struct {
 func Lower(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
-	}
-	if len(u.Files) != 1 {
-		return nil, fmt.Errorf("lower: %d files in one package; packages of several files are 196b's", len(u.Files))
 	}
 	code, err := lowerPackage(u, false)
 	if err != nil {
@@ -147,8 +152,17 @@ type lowerer struct {
 	unit Unit
 	pkg  *check.Package
 	info *check.Info
-	file *syntax.File
-	src  string // the admitted path //line directives name
+	file *syntax.File // the current source file (sources.go)
+	src  string       // its admitted path, which //line directives name
+	cur  int          // its index in srcs
+
+	srcs     []srcFile                // every source file: the root's, then each import's
+	units    map[*check.Package]*Unit // the sourced packages: the root and its imports
+	nodeSrc  map[syntax.Node]int      // each node's source file, built at first need
+	tpSrc    map[*check.TypeParam]int // each type parameter's source file (paramFile)
+	libs     []*check.Package         // the libraries the program reaches (libraries)
+	libsDone bool
+	initPkgs []*check.Package // the sourced libraries in initialization order
 
 	names    *namer // the Go package scope
 	pkgNames map[pkgKey]string
@@ -217,10 +231,15 @@ type lowerer struct {
 // declaration can be refused while it is named and again while it is
 // lowered.
 func sortedRefusals(list []Refusal) []Refusal {
-	sort.SliceStable(list, func(i, j int) bool { return list[i].Offset < list[j].Offset })
+	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].Source != list[j].Source {
+			return list[i].Source < list[j].Source
+		}
+		return list[i].Offset < list[j].Offset
+	})
 	var out []Refusal
 	for _, r := range list {
-		if n := len(out); n > 0 && out[n-1].Offset == r.Offset && out[n-1].Message == r.Message {
+		if n := len(out); n > 0 && out[n-1].Source == r.Source && out[n-1].Offset == r.Offset && out[n-1].Message == r.Message {
 			continue
 		}
 		out = append(out, r)
@@ -234,6 +253,7 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
+	srcs, units := sources(u)
 	l := &lowerer{
 		tests:     tests,
 		unit:      u,
@@ -241,6 +261,8 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 		info:      u.Package.Info,
 		file:      u.Files[0],
 		src:       u.Sources[0].Path,
+		srcs:      srcs,
+		units:     units,
 		names:     newNamer(nil),
 		pkgNames:  map[pkgKey]string{},
 		types:     map[*check.TypeName]*typeDecl{},
@@ -272,7 +294,7 @@ func stop(n syntax.Node, msg string) {
 	if n != nil {
 		pos = n.Pos()
 	}
-	panic(refusal{pos: pos, msg: msg})
+	panic(refusal{pos: pos, node: n, msg: msg})
 }
 
 // refuse stops at a form that the checker admits and the lowering does not
@@ -313,19 +335,38 @@ func (l *lowerer) guard(f func()) {
 			if !ok {
 				panic(r)
 			}
-			line, col := l.file.Position(ref.pos)
-			l.refusals = append(l.refusals, Refusal{Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
+			// The refusal's node locates its file; else the file current
+			// where it was raised (leave), else the current one.
+			src := l.cur
+			if i, ok := l.sourceOf(ref.node); ok {
+				src = i
+			} else if ref.located {
+				src = ref.src
+			}
+			s := l.srcs[src]
+			line, col := s.file.Position(ref.pos)
+			l.refusals = append(l.refusals, Refusal{Source: src, Path: s.path, Offset: int(ref.pos), Line: line, Column: col, Message: ref.msg})
 		}
 	}()
 	f()
 }
 
-// program lowers the package and assembles main.go.
+// program lowers the program and assembles main.go: the root package's
+// declarations, file by file, then the lets of each sourced library, in
+// initialization order (sources.go).
 func (l *lowerer) program() ([]byte, error) {
+	if err := l.missingImport(); err != nil {
+		return nil, err
+	}
 	l.nameAll()
 	main := l.mainFunc()
-	for _, d := range l.file.Decls {
-		l.guard(func() { l.decl(d) })
+	l.eachDecl(l.pkg, l.decl)
+	for _, p := range l.sourcedLibs() {
+		l.eachDecl(p, func(d syntax.Decl) {
+			if vd, ok := d.(*syntax.VarDecl); ok {
+				l.packageLet(vd)
+			}
+		})
 	}
 	var entry strings.Builder
 	switch {
@@ -522,41 +563,47 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	b.WriteString("\t})\n}\n\n" + host)
 }
 
-// readVars is the set of variables some expression of the file that this
-// build lowers reads: every Use the build reads (owners.go) except a
+// readVars is the set of variables some expression of the files that this
+// build lowers reads, in the root package and its imports: every Use the build reads (owners.go) except a
 // binder's own name, an assignment's target, which Go does not count as a
 // use, and a read in a
 // local context's literal, which is written only at a with that builds it
 // (calls.go, with), so a local context no with names reads nothing.
 func (l *lowerer) readVars() map[*check.Var]bool {
 	unread := map[*syntax.Ident]bool{}
-	syntax.Inspect(l.file, func(n syntax.Node) bool {
-		switch n := n.(type) {
-		case *syntax.AssignStmt:
-			for _, lhs := range n.Lhs {
-				if id, ok := lhs.(*syntax.Ident); ok {
-					unread[id] = true
+	for _, s := range l.srcs {
+		info := s.pkg.Info
+		syntax.Inspect(s.file, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.AssignStmt:
+				for _, lhs := range n.Lhs {
+					if id, ok := lhs.(*syntax.Ident); ok {
+						unread[id] = true
+					}
+				}
+			case *syntax.VarSpec:
+				if len(n.Names) == 1 && len(n.Values) == 1 {
+					if w, ok := info.Defs[n.Names[0]].(*check.Context); ok && w.Local {
+						syntax.Inspect(n.Values[0], func(m syntax.Node) bool {
+							if id, ok := m.(*syntax.Ident); ok {
+								unread[id] = true
+							}
+							return true
+						})
+					}
 				}
 			}
-		case *syntax.VarSpec:
-			if len(n.Names) == 1 && len(n.Values) == 1 {
-				if w, ok := l.info.Defs[n.Names[0]].(*check.Context); ok && w.Local {
-					syntax.Inspect(n.Values[0], func(m syntax.Node) bool {
-						if id, ok := m.(*syntax.Ident); ok {
-							unread[id] = true
-						}
-						return true
-					})
-				}
-			}
-		}
-		return true
-	})
+			return true
+		})
+	}
 	reads := map[*check.Var]bool{}
-	for id, o := range l.info.Uses {
-		// The checker records a binder's own name as a Use too; it reads nothing.
-		if v, ok := o.(*check.Var); ok && !unread[id] && l.info.Defs[id] != o && l.readsFact(l.pkg, id) {
-			reads[v] = true
+	for p, u := range l.units {
+		info := u.Package.Info
+		for id, o := range info.Uses {
+			// The checker records a binder's own name as a Use too; it reads nothing.
+			if v, ok := o.(*check.Var); ok && !unread[id] && info.Defs[id] != o && l.readsFact(p, id) {
+				reads[v] = true
+			}
 		}
 	}
 	return reads

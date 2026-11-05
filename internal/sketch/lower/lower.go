@@ -32,21 +32,53 @@ type Source struct {
 }
 
 // Unit is the checked input of lowering: the checker's package and the
-// syntax files and sources it checked. Files[i] was parsed from
-// Sources[i].Text.
+// syntax files and sources it checked, in the package's file order.
+// Files[i] was parsed from Sources[i].Text.
+//
+// Imports are the units of the user packages the program reaches, directly
+// or through another import, in any order; each has no Imports of its own.
+// A std package has no unit: the lowering reads its declarations from the
+// checker. A program that reaches a user package with no unit is an error.
 type Unit struct {
 	Package *check.Package
 	Files   []*syntax.File
 	Sources []Source
+	Imports []Unit
 }
 
-// Validate reports a unit whose files and sources are not aligned, or whose
-// source paths cannot be anchored.
+// Validate reports a unit whose files and sources are not aligned, whose
+// source paths cannot be anchored or are admitted twice, or whose imports
+// are not distinct user packages with flat units.
 func (u Unit) Validate() error {
+	seen := map[string]bool{}
+	if err := u.validateFiles(seen); err != nil {
+		return err
+	}
+	pkgs := map[*check.Package]bool{u.Package: true}
+	for _, imp := range u.Imports {
+		switch {
+		case imp.Package == nil:
+			return fmt.Errorf("lower: an imported unit has no package")
+		case imp.Package.Std():
+			return fmt.Errorf("lower: package %q is std and has no unit", imp.Package.Path)
+		case pkgs[imp.Package]:
+			return fmt.Errorf("lower: package %q is admitted twice", imp.Package.Path)
+		case len(imp.Imports) > 0:
+			return fmt.Errorf("lower: the unit of package %q has imports of its own; the root unit lists every import", imp.Package.Path)
+		}
+		pkgs[imp.Package] = true
+		if err := imp.validateFiles(seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateFiles validates u's own files and sources against the paths seen.
+func (u Unit) validateFiles(seen map[string]bool) error {
 	if len(u.Files) == 0 || len(u.Files) != len(u.Sources) {
 		return fmt.Errorf("lower: %d syntax files for %d sources", len(u.Files), len(u.Sources))
 	}
-	seen := map[string]bool{}
 	for i, s := range u.Sources {
 		if u.Files[i] == nil {
 			return fmt.Errorf("lower: source %s has no syntax file", s.Path)

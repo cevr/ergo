@@ -72,9 +72,6 @@ func LowerTests(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	if len(u.Files) != 1 {
-		return nil, fmt.Errorf("lower: %d files in one package; packages of several files are 196b's", len(u.Files))
-	}
 	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
 	code, err := l.program()
 	if err != nil {
@@ -117,7 +114,7 @@ func (l *lowerer) nameTests() {
 	for _, h := range testHelpers {
 		l.helper(h.key)
 	}
-	for _, t := range l.pkg.Tests {
+	for _, t := range l.runTests() {
 		l.testFunc(t)
 		for _, v := range t.Params {
 			l.genNamed(v.Type, map[check.Type]bool{}, func(n *check.Named) { l.genName(n) })
@@ -142,13 +139,20 @@ func (l *lowerer) testImports() []string {
 	return out
 }
 
+// runTests are the tests the test build runs: the root package's only. An
+// imported package's tests belong to that package's own test build, as Go's
+// go test runs the tests of the package it names, not of its imports.
+func (l *lowerer) runTests() []*check.Test {
+	return l.pkg.Tests
+}
+
 func (l *lowerer) testFunc(t *check.Test) string {
 	return l.pkgName(pkgKey{"test", t}, "ergoTest"+t.Name)
 }
 
 // testOf is the checked test of the declaration d.
 func (l *lowerer) testOf(d *syntax.TestDecl) *check.Test {
-	for _, t := range l.pkg.Tests {
+	for _, t := range l.runTests() {
 		if t.Decl == d {
 			return t
 		}
@@ -213,7 +217,7 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 		ice(s, "an assert reached the run build, which lowers no test or law body")
 	}
 	cond := fc.value(s.X)
-	text := fc.l.unit.Sources[0].Text[s.X.Pos():s.X.End()]
+	text := fc.l.srcs[fc.l.cur].text[s.X.Pos():s.X.End()]
 	fc.line("if !(" + cond + ") {")
 	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s.Pos())) + ", " + strconv.Quote(text) + ")")
 	fc.line("}")
@@ -260,8 +264,9 @@ func (l *lowerer) testRunner() string {
 	var b strings.Builder
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
-	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(l.pkg.Tests)) + "\n")
-	for _, t := range l.pkg.Tests {
+	tests := l.runTests()
+	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)) + "\n")
+	for _, t := range tests {
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
 		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl.Pos()))

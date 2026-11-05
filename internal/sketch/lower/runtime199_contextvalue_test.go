@@ -590,16 +590,32 @@ func main() needs Console {
 `, "real\nreal\nreal-log\nreal-log\n")
 }
 
-type cxImporter map[string]*check.Package
+// cxImporter serves the units of the test's imported packages by path, and
+// std otherwise; the lowering takes the same units (Unit.Imports).
+type cxImporter map[string]Unit
 
 func (p cxImporter) Import(path string) (*check.Package, error) {
-	if pkg := p[path]; pkg != nil {
-		return pkg, nil
+	if u, ok := p[path]; ok {
+		return u.Package, nil
 	}
 	return check.Std.Import(path)
 }
 
-func cxPackage(t *testing.T, path, src string) *check.Package {
+// units are the served units, in path order.
+func (p cxImporter) units() []Unit {
+	paths := make([]string, 0, len(p))
+	for path := range p {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	out := make([]Unit, 0, len(paths))
+	for _, path := range paths {
+		out = append(out, p[path])
+	}
+	return out
+}
+
+func cxPackage(t *testing.T, path, src string) Unit {
 	t.Helper()
 	f, err := syntax.Parse(src)
 	if err != nil {
@@ -609,7 +625,7 @@ func cxPackage(t *testing.T, path, src string) *check.Package {
 	if len(ds) != 0 {
 		t.Fatalf("%s: %v", path, ds)
 	}
-	return pkg
+	return Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: "/ergo-test/" + path + "/lib.ergo", Text: src}}}
 }
 
 func cxLower(t *testing.T, name, src string, imports cxImporter) *lowered {
@@ -622,7 +638,7 @@ func cxLower(t *testing.T, name, src string, imports cxImporter) *lowered {
 	if len(ds) != 0 {
 		t.Fatal(ds)
 	}
-	u := Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: testSourcePath, Text: src}}}
+	u := Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: testSourcePath, Text: src}}, Imports: imports.units()}
 	code, err := lowerPackage(u, false)
 	if err != nil {
 		t.Fatal(err)
