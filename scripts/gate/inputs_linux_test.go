@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -624,5 +626,94 @@ func TestSandboxArgvBindsAdmittedRoots(t *testing.T) {
 	output, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
 	if want := "out=;up=;in=visible;read-only\n"; err != nil || string(output) != want {
 		t.Fatalf("inside the sandbox: %v\n%s\nwant %s", err, output, want)
+	}
+}
+
+// probeZip is a one-file module zip for example.com/probe v1.0.0 with the
+// archive comment comment, and a second member when extra.
+func probeZip(t *testing.T, comment string, extra bool) []byte {
+	t.Helper()
+	var data bytes.Buffer
+	writer := zip.NewWriter(&data)
+	if err := writer.SetComment(comment); err != nil {
+		t.Fatal(err)
+	}
+	members := []string{"example.com/probe@v1.0.0/probe.go"}
+	if extra {
+		members = append(members, "example.com/probe@v1.0.0/extra")
+	}
+	for _, name := range members {
+		member, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		member.Write([]byte("package probe\n"))
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return data.Bytes()
+}
+
+// TestSandboxModuleZipIsConstructed is round 7's verifier probe
+// TestVerifyR7ZipMetadata (M1) as a regression: the host's module zip has
+// a comment h1 does not cover, and host files beside it (.info, .ziphash,
+// .lock) that no hash covers. Seeding writes one file, a member added to
+// the zip fails closed, and inside the sandbox the run's module zip exists
+// and holds no byte of the comment (TestModuleZipByConstructionProperty
+// checks the written archive's hash and shape).
+func TestSandboxModuleZipIsConstructed(t *testing.T) {
+	requireSandbox(t)
+	sandboxHome(t)
+	host := t.TempDir()
+	t.Setenv("GOMODCACHE", host)
+	rel := "cache/download/example.com/probe/@v/v1.0.0.zip"
+	want, err := hashZip(probeZip(t, "", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := "HOST_WRITTEN_BEFORE_RUN_NOT_IN_MODULE_HASH"
+	commented := probeZip(t, marker, false)
+	if got, err := hashZip(commented); err != nil || got != want {
+		t.Fatalf("the witness: the commented zip hashes to %s (%v), not %s", got, err, want)
+	}
+	write(t, host, rel, string(commented))
+	for _, ext := range []string{"info", "ziphash", "lock"} {
+		write(t, host, strings.TrimSuffix(rel, "zip")+ext, marker)
+	}
+	goSum := "example.com/probe v1.0.0 " + want + "\n"
+	source, head := moduleCommit(t, map[string]string{"go.sum": goSum})
+	dest := t.TempDir()
+	if seeded, err := seedModules(source, head, host, dest); err != nil || seeded != 1 {
+		t.Fatalf("seeded %d: %v; want the zip alone", seeded, err)
+	}
+	for _, ext := range []string{"info", "ziphash", "lock"} {
+		if _, err := os.Lstat(filepath.Join(dest, strings.TrimSuffix(rel, "zip")+ext)); !os.IsNotExist(err) {
+			t.Errorf("the host's .%s reached the run's module cache: %v", ext, err)
+		}
+	}
+	write(t, host, rel, string(probeZip(t, "", true)))
+	if _, err := seedModules(source, head, host, t.TempDir()); err == nil || !strings.Contains(err.Error(), "has hash") {
+		t.Fatalf("a zip with a member go.sum does not cover: %v; want refused", err)
+	}
+	write(t, host, rel, string(commented))
+	root := fixture(t)
+	write(t, root, "go.sum", goSum)
+	gitIn(t, root, "add", "go.sum")
+	gitIn(t, root, "commit", "-qm", "module checksum")
+	g := wholeFixture(t, root, nil)
+	plan, err := g.sandboxPlanFor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, err := startSandbox(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer box.close()
+	argv := box.wrap([]string{"sh", "-c", `zip="$GOMODCACHE/cache/download/example.com/probe/@v/v1.0.0.zip"; test -s "$zip" || exit 3; if grep -a -q "$1" "$zip"; then echo HOST_METADATA_VISIBLE; else echo constructed; fi`, "sh", marker}, root)
+	output, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+	if err != nil || string(output) != "constructed\n" {
+		t.Fatalf("inside the sandbox: %v\n%s\nwant constructed: the host's zip comment is visible, or the module zip is missing", err, output)
 	}
 }

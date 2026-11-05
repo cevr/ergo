@@ -333,6 +333,7 @@ var declaredSources = map[string]string{
 	"TestSandboxMasksContaminatedInputs argv[0]":              "a probe script wrapped by the sandbox: its nsenter",
 	"TestSandboxAdmitsSymlinkRoots argv[0]":                   "a probe script wrapped by the sandbox: its nsenter",
 	"TestSandboxArgvBindsAdmittedRoots argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
+	"TestSandboxModuleZipIsConstructed argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"moduleHost goTool":                                       "the real go of TestMain (realTools)",
 	"TestMergeTierInputContractRegression prime[0]":           "the regression step's own program, launched outside the gate to prime the host cache",
 }
