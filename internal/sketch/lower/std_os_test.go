@@ -129,6 +129,49 @@ func TestOSProcessRuns(t *testing.T) {
 	}
 }
 
+// TestOSExitRuns: main's only failure os.Exit writes its Message verbatim
+// and exits with its Code, after the exit actions of the function it left
+// have run; a Code outside 1..125 adds a line and exits 1 (runtime.md,
+// Exit causes 8; runtime/v1 TestMainExit holds the rest of the rules). It
+// needs no Process, so it runs before G2 part 2.
+func TestOSExitRuns(t *testing.T) {
+	const work = `import os
+import scope
+
+func work(code int) fails os.Exit needs Console {
+	scope.OnExit() { Console.Println("cleanup ran") }
+	Console.Println("working")
+	return os.Exit{Code: code, Message: "  [NOT_FOUND] Unknown topic 'nope'"}
+}
+`
+	runBehaviors(t, []behavior{
+		{name: "exit3", src: work + `
+func main() fails os.Exit needs Console { try work(3) }
+`, stdout: "working\ncleanup ran\n", exit: 3, stderr: []string{"  [NOT_FOUND] Unknown topic 'nope'\n"}},
+		{name: "exit0", src: work + `
+func main() fails os.Exit needs Console { try work(0) }
+`, stdout: "working\ncleanup ran\n", exit: 1, stderr: []string{"  [NOT_FOUND] Unknown topic 'nope'\nerror: os.Exit code 0 is outside 1..125\n"}},
+		{name: "exit126", src: work + `
+func main() fails os.Exit needs Console { try work(126) }
+`, stdout: "working\ncleanup ran\n", exit: 1, stderr: []string{"error: os.Exit code 126 is outside 1..125\n"}},
+	})
+	// The whole of stderr: the message alone, with no "error:" prefix.
+	o := mustLower(t, "exitAlone", `import os
+
+func main() fails os.Exit needs Console {
+	return os.Exit{Code: 7, Message: "usage: tool TOPIC"}
+}
+`)
+	exes := buildAll(t, []*lowered{o}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runWithEnv(t, exes["exitAlone"], nil)
+	if stdout != "" || stderr != "usage: tool TOPIC\n" || code != 7 {
+		t.Errorf("exitAlone: exit %d, want 7\nstdout %q\nstderr %q, want %q", code, stdout, stderr, "usage: tool TOPIC\n")
+	}
+}
+
 // TestOSProcessIsNotImplicit: the entry provides only Console, so main
 // that names os.Process in its row is S109 (stdlib.md, host packages).
 func TestOSProcessIsNotImplicit(t *testing.T) {
