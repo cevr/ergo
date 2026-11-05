@@ -1,0 +1,16 @@
+// Package strconv converts between text and numbers (docs/spec/stdlib.md,
+// strings and strconv). Each extern binds a runtime/v1 body
+// (runtime/v1/text.go) that calls Go's strconv package.
+
+// Malformed is the failure of Atoi: Text is not a decimal int.
+type Malformed { Text string }
+
+// Itoa is n in decimal.
+extern go ergo.local/prototype/runtime/v1.StrconvItoa func Itoa(n int) string
+
+// Atoi is the decimal int in s, with an optional sign. Text that is not
+// one, or that is out of int's range, fails Malformed.
+extern go ergo.local/prototype/runtime/v1.StrconvAtoi func Atoi(s string) int fails Malformed
+
+// Quote is s as a double-quoted Go string literal, with Go escapes.
+extern go ergo.local/prototype/runtime/v1.StrconvQuote func Quote(s string) string

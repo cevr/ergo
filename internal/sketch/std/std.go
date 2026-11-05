@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-//go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slice/*.ergo queue/*.ergo log/*.ergo trace/*.ergo
+//go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slice/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 var sources embed.FS
 
 // PreludePath is the package path of the prelude. No import names it: its

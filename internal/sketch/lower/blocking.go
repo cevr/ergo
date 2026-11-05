@@ -81,6 +81,25 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Context.End":       {},
 	"ContextBound":      {reads: true},
 	"ContextValue":      {reads: true},
+	// std strings and strconv (G5a; stdlib.md, strings and strconv): pure
+	// bodies that neither wait nor release.
+	"StringsSplit":      {},
+	"StringsJoin":       {},
+	"StringsHasPrefix":  {},
+	"StringsHasSuffix":  {},
+	"StringsTrimSpace":  {},
+	"StringsTrimPrefix": {},
+	"StringsTrimSuffix": {},
+	"StringsFields":     {},
+	"StringsRepeat":     {},
+	"StringsToLower":    {},
+	"StringsToUpper":    {},
+	"StringsIndex":      {},
+	"StringsContains":   {},
+	"StringsSlice":      {},
+	"StrconvItoa":       {},
+	"StrconvAtoi":       {},
+	"StrconvQuote":      {},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

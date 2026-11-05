@@ -21,7 +21,7 @@ import (
 )
 
 //go:embed rt/cause.go rt/clock.go rt/doc.go rt/handle.go rt/regions.go rt/run.go rt/scope.go rt/task.go rt/timeout.go rt/trace.go rt/values.go
-//go:embed v1/context.go v1/data.go v1/exit.go v1/queue.go v1/runtime.go v1/task.go
+//go:embed v1/context.go v1/data.go v1/exit.go v1/queue.go v1/runtime.go v1/task.go v1/text.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -44,7 +44,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "handle.go", "regions.go", "run.go", "scope.go", "task.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"context.go", "data.go", "exit.go", "queue.go", "runtime.go", "task.go"},
+		files:   []string{"context.go", "data.go", "exit.go", "queue.go", "runtime.go", "task.go", "text.go"},
 		imports: []string{"runtime/rt"},
 	},
 }
