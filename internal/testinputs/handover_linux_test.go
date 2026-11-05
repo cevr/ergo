@@ -88,13 +88,18 @@ func TestCallBeforeTheHandoverNeverWaits(t *testing.T) {
 		code, rec, err := observe(t.TempDir())
 		results <- result{code, rec, err}
 	}()
+	// A hang is permanent, so only the test's own deadline bounds the wait;
+	// the last tenth of it is left to report the child's output. The child
+	// dies with the observing thread (Pdeathsig) when this binary exits.
+	var hung <-chan time.Time
+	if deadline, ok := t.Deadline(); ok {
+		hung = time.After(time.Until(deadline) * 9 / 10)
+	}
 	var r result
 	select {
 	case r = <-results:
-	case <-time.After(time.Minute):
-		// The child dies with the observing thread (Pdeathsig) when this
-		// test binary exits.
-		r.err = fmt.Errorf("the observed child did not end within a minute")
+	case <-hung:
+		r.err = fmt.Errorf("the observed child did not end before the test's deadline")
 	}
 	os.Args, os.Stdout, os.Stderr = args, stdout, stderr
 	text, _ := os.ReadFile(output.Name())

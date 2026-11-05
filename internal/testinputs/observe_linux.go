@@ -175,8 +175,10 @@ func init() {
 	if verdict, _ := receive(socket); verdict != "go" {
 		return // the observer cannot take a descriptor from this process, and says why itself
 	}
-	// Only this thread takes the filter, and it stays locked to it up to
-	// the exec, which passes the filter on (see installFilter).
+	// Only this thread takes the filter (see installFilter). runtime.main
+	// already keeps init on the main thread, which does the exec; the
+	// explicit lock makes the runtime start every new thread from its
+	// template thread, which has no filter, not from this one.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread() // reached only if the exec fails
 	listener, err := installFilter(filter())
