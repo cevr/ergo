@@ -382,7 +382,7 @@ func (h *parityHarness) newGate() {
 		h.t.Fatal(err)
 	}
 	h.g = &gate{root: h.fixture.root, cacheDir: h.t.TempDir(), steps: h.config.steps(h.t, h.fixture.root, h.epoch), programs: []string{"sh"}, limit: passThroughLimiter{},
-		whole: &wholeGate{mechanism: "rss: parity", identity: state}}
+		whole: &wholeGate{mechanism: "rss: parity", identity: state}, openSandbox: unsandboxed}
 }
 
 func (h *parityHarness) fail(format string, args ...any) {

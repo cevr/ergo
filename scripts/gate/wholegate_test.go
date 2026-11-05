@@ -225,7 +225,11 @@ func TestMergeTierUncached(t *testing.T) {
 		{Name: "counted", Argv: outsideCount(filepath.Join(outside, "counted"))},
 		{Name: "flagged", Argv: []string{"sh", "-c", `test -f "$1"`, "sh", flag}},
 	}
+	// The steps read files outside the checkout, which the sandbox hides:
+	// this checks the tier's verdict logic, on the host
+	// (TestMergeTierSandbox* check the sandbox).
 	g := wholeFixture(t, root, fixtureSteps)
+	g.openSandbox = unsandboxed
 	var out bytes.Buffer
 	if code := g.mergeTier(&out); code != 0 {
 		t.Fatalf("merge with no record exited %d:\n%s", code, out.String())

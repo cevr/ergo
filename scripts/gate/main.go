@@ -37,7 +37,12 @@
 // step, so the host step replays only inside a whole-gate replay. A failed
 // run withdraws the record at its key. The merge tier (--merge) runs every
 // step uncached and compares each verdict with the record; a difference
-// fails it and withdraws the record.
+// fails it and withdraws the record. Only the merge tier gives a merge
+// verdict: its uncached run is in a sandbox (sandbox.go) with no persistent
+// state, over a fresh export of the head commit. The inner tier is hygiene:
+// a step's go test replays no result through the gate's environment
+// (uncachedTestFlag), but a tool that gives its child its own environment can
+// still replay a stale pass from a cache on the host.
 //
 // Every step runs under a memory budget: a hard cap for the step with all the
 // processes it starts (ERGO_GATE_STEP_MEMORY, default 8G), one for all the
@@ -233,6 +238,12 @@ type gate struct {
 	verdicts map[string]replay.Verdict
 	// programs replaces hostPrograms in a test of the collector.
 	programs []string
+	// enclosure, when set, runs every step of the run inside it: the merge
+	// tier's sandbox for its uncached run.
+	enclosure enclosure
+	// openSandbox replaces startSandbox in a test of the merge tier's
+	// verdict logic over fixture steps that read the host.
+	openSandbox func(sandboxPlan) (enclosure, error)
 }
 
 // wholeGate is what a run needs to key, replay and record the whole gate.
@@ -246,7 +257,7 @@ type wholeGate struct {
 // derive is a gate for another run of the same checkout: the merge tier's
 // inner and uncached runs share the scope, the limiter and the caches.
 func (g *gate) derive(steps []*Step, noCache bool, whole *wholeGate) *gate {
-	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, whole: whole, programs: g.programs}
+	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, whole: whole, programs: g.programs, openSandbox: g.openSandbox}
 }
 
 // collect collects the whole-gate facts afresh: every fingerprint again
@@ -389,6 +400,22 @@ func (g *gate) mergeTier(out io.Writer) int {
 	for _, step := range g.steps {
 		uncached = append(uncached, uncachedStep(step))
 	}
+	// The uncached run is the merge verdict, so it runs sandboxed or not at
+	// all: no sandbox, no verdict (sandbox.go).
+	open := g.openSandbox
+	if open == nil {
+		open = startSandbox
+	}
+	plan, err := g.sandboxPlanFor(uncached)
+	var box enclosure
+	if err == nil {
+		box, err = open(plan)
+	}
+	if err != nil {
+		fmt.Fprintf(out, "gate: --merge needs its sandbox and gives no verdict without it: %v\n", err)
+		return 2
+	}
+	defer box.close()
 	tier := replay.MergeTier{
 		Store:   replay.Open(g.cacheDir),
 		Collect: g.collect,
@@ -399,6 +426,7 @@ func (g *gate) mergeTier(out io.Writer) int {
 		Uncached: func() ([]string, map[string]replay.Verdict) {
 			fmt.Fprintln(out, "merge: every step uncached")
 			run := g.derive(uncached, true, nil)
+			run.enclosure = box
 			run.run(out)
 			var names []string
 			for _, step := range uncached {
@@ -712,7 +740,11 @@ func (g *gate) execute(step *Step) *result {
 		return &result{outcome: failed, output: []byte(fmt.Sprintf("gate: %s: prepare step temp dir: %v\n", step.Name, err))}
 	}
 	started := time.Now()
-	command := exec.CommandContext(context.Background(), step.Argv[0], step.Argv[1:]...)
+	argv := step.Argv
+	if g.enclosure != nil {
+		argv = g.enclosure.wrap(argv, g.root)
+	}
+	command := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	command.Dir = g.root
 	command.Env = g.commandEnvironment(step)
 	// The step's output goes to a spool file, never to the gate's memory, so
