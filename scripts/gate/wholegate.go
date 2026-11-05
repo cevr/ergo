@@ -39,6 +39,9 @@ var hostPrograms = []string{
 	"git", "sh", "env", "cmp", "mv", "mkdir", "dirname", "mktemp", "grep",
 	// The gate's own: the systemd scope, the RSS watch, darwin's memory size.
 	"systemd-run", "systemctl", "ps", "true", "sysctl",
+	// The merge tier's sandbox: bubblewrap, the namespace holder, and the
+	// nsenter every step of the uncached run starts through.
+	"bwrap", "nsenter", "cat",
 	// The host tests' and their scripts'.
 	"nohup", "head", "python3", "seq", "setsid", "sleep", "ls", "chmod",
 }
@@ -310,15 +313,15 @@ func executableDigest() (string, error) {
 }
 
 // declaredEnvironment is everything a step can read from its environment:
-// each variable of testenv.Names as steps receive it, set or not, but the
-// tool digest. The gate never takes the tool digest from its caller
-// (stepEnvironment): it derives it from these values and the tool
-// fingerprints. A step's own variables (Env) and its TMPDIR follow from the
-// gate's code and the checkout root. TestReceivedVariablesAreKeyed checks
-// that every variable a step or a tool query receives is keyed here or
-// derived.
+// each variable of testenv.Names as the caller gives it to steps, set or
+// not (keyedEnvironment), but the tool digest. The gate never takes the tool
+// digest from its caller: it derives it from these values and the tool
+// fingerprints. The uncached default in GOFLAGS (stepEnvironment), a step's
+// own variables (Env) and its TMPDIR follow from the gate's code and the
+// checkout root. TestReceivedVariablesAreKeyed checks that every variable a
+// step or a tool query receives is keyed here or derived.
 func declaredEnvironment() []replay.Variable {
-	environment := stepEnvironment()
+	environment := keyedEnvironment()
 	var variables []replay.Variable
 	for _, name := range testenv.Names {
 		if name == testenv.ToolDigest {
