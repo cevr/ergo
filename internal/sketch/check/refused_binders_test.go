@@ -33,6 +33,9 @@ func rbCodes(src string) []string {
 // and the scoping risks: each program's diagnostics are exactly want, and
 // the reference walk agrees with typing.
 func TestRefusedBinderCases(t *testing.T) {
+	// reads names, per case, a refused binder whose last occurrence in the
+	// program is a value read.
+	reads := map[string]string{"catch-tbad": "tbad"}
 	for _, c := range []struct {
 		name, src string
 		want      []string
@@ -48,7 +51,9 @@ func TestRefusedBinderCases(t *testing.T) {
 		{"tbad-match", "type tbad = Nope\n\nfunc host(v int) {\n\tmatch v {\n\tcase tbad:\n\t\tlet _ = 0\n\tcase _:\n\t\tlet _ = 1\n\t}\n}\n", []string{"S104@1:13"}},
 		{"tbad-let", "type tbad = Nope\n\nfunc host(v int) int {\n\tlet tbad = v\n\tlet _ = tbad\n\t0\n}\n", []string{"S104@1:13"}},
 		{"tbad-literal", "type tbad = Nope\n\nfunc t() int { 1 }\n\nfunc host() int {\n\tlet _ = tbad[0]{{t}}\n\t0\n}\n", []string{"S104@1:13"}},
-		{"catch-tbad", "type tbad = Nope\n\ntype E {}\n\nfunc n(v int) int fails E { v }\n\nfunc host(v int) int {\n\tn(v) catch {\n\tcase tbad:\n\t\t0\n\tcase _:\n\t\t1\n\t}\n}\n", []string{"S104@1:13"}},
+		// A catch arm whose test type does not resolve declares the
+		// placeholder, so the arm's read of tbad uses it (P1, P3).
+		{"catch-tbad", "type tbad = Nope\n\ntype E {}\n\nfunc n(v int) int fails E { v }\n\nfunc host(v int) int {\n\tn(v) catch {\n\tcase tbad:\n\t\tlet _ = tbad\n\t\t0\n\tcase _:\n\t\t1\n\t}\n}\n", []string{"S104@1:13"}},
 		// A refused type a cycle reaches before its refusal adds nothing
 		// as a machine's state, in either declaration order (FuzzCheck
 		// seed b7fef5a76c229eda).
@@ -71,6 +76,9 @@ func TestRefusedBinderCases(t *testing.T) {
 		{"dd3-package-type", "let int = 1\n\nfunc host(x int) int {\n\tx + int\n}\n", []string{"S108@1:5"}},
 		// A placeholder is not a binding a later binder shadows.
 		{"placeholder-no-shadow", "type tr { A int }\n\nfunc host(v int, b bool) int {\n\tlet tr = v\n\tif b {\n\t\tlet fl = func(tr int) int { tr }\n\t\tlet _ = fl(1)\n\t}\n\t0\n}\n", []string{"S108@4:6"}},
+		// A refused binder in a block is not a declaration a later binder
+		// of the same block repeats: `let f` gets no "already declared".
+		{"same-block-after-refused", "func f() {}\n\nfunc host(v int) int {\n\tmatch v {\n\tcase f:\n\t\tlet f = 2\n\t\tf\n\t}\n}\n", []string{"S108@5:7"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := rbCodes(c.src); strings.Join(got, " ") != strings.Join(c.want, " ") {
@@ -78,6 +86,14 @@ func TestRefusedBinderCases(t *testing.T) {
 			}
 			if p := check.RefWalkProblems(c.src); len(p) > 0 {
 				t.Errorf("reference walk problems %v\n%s", p, c.src)
+			}
+			if read, ok := reads[c.name]; ok {
+				// The last occurrence of read is a value read of a refused
+				// binder: typing and the walk agree that it uses a local.
+				info, walk, found := check.BinderMeaning(c.src, strings.LastIndex(c.src, read))
+				if !found || info != "uses a local" || walk != "value" {
+					t.Errorf("the read of %s: want Info %q walk %q, got %q %q (found %v)\n%s", read, "uses a local", "value", info, walk, found, c.src)
+				}
 			}
 		})
 	}
