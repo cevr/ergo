@@ -217,14 +217,14 @@ func decide(g Game, m Move) []Event {
 func evolveWalk(w Walk, e Event) Game {
 	match e {
 	case Walked as x:
-		return Playing{W: Walk{At: x.To, Tide: w.Tide, Turn: w.Turn + 1, Shells: w.Shells, Left: w.Left}}
+		return Playing{W: Walk{..w, At: x.To, Turn: w.Turn + 1}}
 	case Waited:
-		return Playing{W: Walk{At: w.At, Tide: w.Tide, Turn: w.Turn + 1, Shells: w.Shells, Left: w.Left}}
+		return Playing{W: Walk{..w, Turn: w.Turn + 1}}
 	case ShellCollected as s:
 		let k = s.At.Y*len(ground[0]) + s.At.X
-		return Playing{W: Walk{At: w.At, Tide: w.Tide, Turn: w.Turn, Shells: w.Shells + 1, Left: w.Left[0:k] + "." + w.Left[k+1:]}}
+		return Playing{W: Walk{..w, Shells: w.Shells + 1, Left: w.Left[0:k] + "." + w.Left[k+1:]}}
 	case TideRose as t:
-		return Playing{W: Walk{At: w.At, Tide: t.Tide, Turn: w.Turn, Shells: w.Shells, Left: w.Left}}
+		return Playing{W: Walk{..w, Tide: t.Tide}}
 	case WalkerDrowned:
 		return Drowned{W: w}
 	case PeakReached:
