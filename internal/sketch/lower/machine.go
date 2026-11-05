@@ -100,7 +100,7 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		if !l.isSourced(td.tn.Pkg) {
 			b = &l.gen
 		} else {
-			b.WriteString(l.directive(td.tn.Decl.Pos()))
+			b.WriteString(l.directiveAt(td.tn.Decl.Name, td.tn.Decl.Pos()))
 		}
 		scope := newNamer(l.names)
 		s, e := scope.alloc("s"), scope.alloc("e")
@@ -168,6 +168,6 @@ func (l *lowerer) machineInit(td *typeDecl, initial string) {
 	fc.frame = newFrame(td.machine.state, false, false)
 	l.recordDecl(fc.owner, x)
 	val := fc.assigned(x)
-	l.addInit(x, x.Pos(), fc.out.String(), []string{initial + " = " + val})
+	l.addInit(x, x, fc.out.String(), []string{initial + " = " + val})
 	l.machineInits = append(l.machineInits, x)
 }

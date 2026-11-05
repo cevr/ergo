@@ -708,17 +708,18 @@ func ownsResources(w *check.With) bool {
 }
 
 // contextSet names the builder of a with: its context and the providers it
-// acquires, by their source positions in acquisition order. Two withs that
-// acquire the same entries share one builder.
+// acquires, by node identity in acquisition order (nodeID). Two withs that
+// acquire the same entries share one builder. A position is no identity:
+// two files' providers can start at one offset (196b).
 type contextSet struct {
 	w   *check.Context
 	set string
 }
 
-func acquiredSet(w *check.With) contextSet {
+func (l *lowerer) acquiredSet(w *check.With) contextSet {
 	var b strings.Builder
 	for _, a := range w.Acquired {
-		b.WriteString(strconv.Itoa(int(a.Entry.Provider.Pos())))
+		b.WriteString(strconv.Itoa(l.nodeID(a.Entry.Provider)))
 		b.WriteByte(' ')
 	}
 	return contextSet{w.Contexts[0], b.String()}
@@ -732,7 +733,7 @@ func acquiredSet(w *check.With) contextSet {
 // unreached provider never runs (Context 7), and an entry whose provider uses
 // a capability of this context is built after that capability's entry.
 func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
-	key := acquiredSet(w)
+	key := l.acquiredSet(w)
 	if name, ok := l.contexts[key]; ok {
 		return name
 	}
@@ -778,7 +779,7 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	}
 	fc.entryPoll(l.info, w.Decl)
 	fc.buildProviders(with, fc.env, outer, ws)
-	l.user.WriteString(l.directive(w.Decl.Pos()))
+	l.user.WriteString(l.directive(w.Decl))
 	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
 }
 
@@ -1139,12 +1140,15 @@ func (fc *funcCtx) identify(x *syntax.CallExpr, c *check.Call) func() {
 	if x.Pos() == fc.lastPos {
 		return none
 	}
-	prev, site := fc.lastPos, fc.site
+	prev, prevNode, site := fc.lastPos, fc.lastNode, fc.site
+	if prevNode == nil {
+		prevNode = x // no directive yet: prev is an offset in x's file
+	}
 	fc.at(x)
 	return func() {
 		if prev.IsValid() {
-			fc.out.WriteString(fc.l.directive(prev))
-			fc.lastPos = prev
+			fc.out.WriteString(fc.l.directiveAt(prevNode, prev))
+			fc.lastPos, fc.lastNode = prev, prevNode
 		}
 		fc.site = site
 	}
@@ -1208,8 +1212,8 @@ func (l *lowerer) recordCall(x *syntax.CallExpr, owner, callee string) {
 		l.callSeen = map[*syntax.CallExpr]bool{}
 	}
 	l.callSeen[x] = true
-	line, column := l.file.Position(x.Pos())
-	l.calls = append(l.calls, callIdent{src: l.cur, offset: int(x.Pos()), fn: owner, callee: callee, line: line, column: column})
+	src, _, line, column := l.at(x, x.Pos())
+	l.calls = append(l.calls, callIdent{src: src, offset: int(x.Pos()), fn: owner, callee: callee, line: line, column: column})
 }
 
 // declIdent is one entry of the declaration table: a source declaration's
@@ -1230,9 +1234,9 @@ func (l *lowerer) recordDecl(name string, n syntax.Node) {
 		l.declSeen = map[syntax.Node]bool{}
 	}
 	l.declSeen[n] = true
-	line, _ := l.file.Position(n.Pos())
-	end, _ := l.file.Position(n.End())
-	l.decls = append(l.decls, declIdent{src: l.cur, offset: int(n.Pos()), name: name, line: line, end: end})
+	src, _, line, _ := l.at(n, n.Pos())
+	_, _, end, _ := l.at(n, n.End())
+	l.decls = append(l.decls, declIdent{src: src, offset: int(n.Pos()), name: name, line: line, end: end})
 }
 
 // callTable is the Go declaration of the program's source map and the init

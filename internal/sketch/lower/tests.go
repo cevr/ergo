@@ -196,7 +196,7 @@ func (l *lowerer) testDecl(d *syntax.TestDecl) {
 	} else {
 		head += fc.resultList(nil, true)
 	}
-	l.user.WriteString(l.directive(d.Pos()))
+	l.user.WriteString(l.directive(d))
 	l.user.WriteString(head + " {\n")
 	fc.depth = 1
 	if needsFrame {
@@ -217,17 +217,18 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 		ice(s, "an assert reached the run build, which lowers no test or law body")
 	}
 	cond := fc.value(s.X)
-	text := fc.l.srcs[fc.l.cur].text[s.X.Pos():s.X.End()]
+	i, _, _, _ := fc.l.at(s.X, s.X.Pos())
+	text := fc.l.srcs[i].text[s.X.Pos():s.X.End()]
 	fc.line("if !(" + cond + ") {")
-	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s.Pos())) + ", " + strconv.Quote(text) + ")")
+	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + strconv.Quote(text) + ")")
 	fc.line("}")
 }
 
-// siteText is a source position as a report names it: file:line:column,
-// the file by its base name.
-func (l *lowerer) siteText(pos syntax.Pos) string {
-	line, column := l.file.Position(pos)
-	return path.Base(strings.ReplaceAll(l.src, "\\", "/")) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+// siteText is the position of the node n as a report names it:
+// file:line:column, the file, the one that holds n (at), by its base name.
+func (l *lowerer) siteText(n syntax.Node) string {
+	_, src, line, column := l.at(n, n.Pos())
+	return path.Base(strings.ReplaceAll(src, "\\", "/")) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
@@ -269,7 +270,7 @@ func (l *lowerer) testRunner() string {
 	for _, t := range tests {
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
-		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl.Pos()))
+		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl))
 		if len(t.Params) == 0 {
 			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")

@@ -501,8 +501,8 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 		case v1.Frame:
 			out = append(out, fc.frameScope(x))
 		case v1.CallSite:
-			line, column := fc.l.file.Position(x.Pos())
-			out = append(out, fc.l.rt()+".Site("+fmt.Sprintf("%q", fmt.Sprintf("%s calls %s at %s:%d:%d", fc.owner, fc.callee(x, c), fc.l.src, line, column))+")")
+			_, src, line, column := fc.l.at(x, x.Pos())
+			out = append(out, fc.l.rt()+".Site("+fmt.Sprintf("%q", fmt.Sprintf("%s calls %s at %s:%d:%d", fc.owner, fc.callee(x, c), src, line, column))+")")
 		case v1.CallerTask:
 			out = append(out, taskOf(env))
 		case v1.CallerScheduler:

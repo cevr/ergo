@@ -148,6 +148,36 @@ func (l *lowerer) sourceOf(n syntax.Node) (int, bool) {
 	return i, ok
 }
 
+// nodeID is the identity of the node n as a number, given in the order the
+// lowering first asks for it, so a key built of it is deterministic. A key
+// of node positions is not an identity: offsets count from the start of
+// each file, so two files' nodes can share one.
+func (l *lowerer) nodeID(n syntax.Node) int {
+	if id, ok := l.nodeIDs[n]; ok {
+		return id
+	}
+	if l.nodeIDs == nil {
+		l.nodeIDs = map[syntax.Node]int{}
+	}
+	id := len(l.nodeIDs)
+	l.nodeIDs[n] = id
+	return id
+}
+
+// at is the location of pos in the source file that holds the node n: the
+// file's index and path, and pos's line and column there. Every rendered
+// location goes through it, so a location is never read against the
+// current file of an unrelated declaration (196b); a node that no source
+// file holds is a compiler defect.
+func (l *lowerer) at(n syntax.Node, pos syntax.Pos) (src int, path string, line, column int) {
+	i, ok := l.sourceOf(n)
+	if !ok {
+		ice(n, "a location of a node that no source file holds")
+	}
+	line, column = l.srcs[i].file.Position(pos)
+	return i, l.srcs[i].path, line, column
+}
+
 // eachDecl runs f on each top-level declaration of p's files, in file
 // order, each guarded and within its file.
 func (l *lowerer) eachDecl(p *check.Package, f func(syntax.Decl)) {

@@ -46,11 +46,11 @@ func (l *lowerer) textKey(t check.Type, site syntax.Node) (pkgKey, string) {
 	case *check.Named:
 		td := l.typeDecl(u.Obj, site)
 		if len(u.TArgs) > 0 {
-			return pkgKey{"text", "instance " + u.String()}, "text" + td.name
+			return pkgKey{"text", "instance " + l.typeKey(u)}, "text" + td.name
 		}
 		return pkgKey{"text", td.tn}, "text" + td.name
 	case *check.Slice:
-		return pkgKey{"text", "slice " + t.String()}, "textList"
+		return pkgKey{"text", "slice " + l.typeKey(t)}, "textList"
 	}
 	return pkgKey{}, ""
 }
@@ -220,7 +220,7 @@ func (l *lowerer) instancesOf(tn *check.TypeName) []check.Type {
 				if len(u.TArgs) == 0 || mentionsTypeParam(u) {
 					return
 				}
-				if key := u.String(); !named[key] {
+				if key := l.typeKey(u); !named[key] {
 					named[key] = true
 					l.instances[u.Obj] = append(l.instances[u.Obj], u)
 				}

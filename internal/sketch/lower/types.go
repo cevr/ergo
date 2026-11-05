@@ -615,11 +615,13 @@ func exactFloat(v constant.Value) string {
 	return "(" + num.ExactString() + ".0 / " + den.ExactString() + ")"
 }
 
-// foreignOwner is the type of another, non-prelude package that declares
-// the operations of t, or nil: t itself, or the type a defined type is
-// defined over, at any depth, through a pointer too. So `type MyQ
+// foreignOwner is the type of a std package other than the prelude that
+// declares the operations of t, or nil: t itself, or the type a defined
+// type is defined over, at any depth, through a pointer too. So `type MyQ
 // queue.Queue[int]` has queue.Queue's operations, and so has
-// `*queue.Queue[int]`.
+// `*queue.Queue[int]`. An imported user package's operation type is no
+// foreign owner: it is a declaration of the program, which lowers its
+// operations as the root's (196b).
 func (l *lowerer) foreignOwner(t check.Type) *check.Named {
 	seen := map[*check.Named]bool{}
 	for t != nil {
@@ -631,7 +633,7 @@ func (l *lowerer) foreignOwner(t check.Type) *check.Named {
 			return nil
 		}
 		seen[n] = true
-		if pkg := n.Obj.Pkg; pkg != nil && pkg != l.pkg && pkg.Path != "prelude" {
+		if pkg := n.Obj.Pkg; pkg.Std() && pkg.Path != "prelude" {
 			return n
 		}
 		t = n.Defined()

@@ -148,7 +148,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 				// One builder for each distinct set of providers a with of
 				// this context acquires, in the withs' source order.
 				for _, with := range l.withsOf(w) {
-					l.pkgName(pkgKey{"context", acquiredSet(with)}, "build"+w.Name)
+					l.pkgName(pkgKey{"context", l.acquiredSet(with)}, "build"+w.Name)
 				}
 			}
 		}
@@ -488,7 +488,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 	if !l.isSourced(td.tn.Pkg) {
 		b = &l.gen
 	} else {
-		b.WriteString(l.directive(td.tn.Decl.Pos()))
+		b.WriteString(l.directiveAt(td.tn.Decl.Name, td.tn.Decl.Pos())) // an inline variant's Decl is made; its Name is in the file
 	}
 	site := syntax.Node(td.tn.Decl.Name)
 	tparams, names := l.typeParams(td.tparams, newNamer(l.names), site)
@@ -977,7 +977,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 	}
 	if directives {
-		b.WriteString(l.directive(f.Decl.Pos()))
+		b.WriteString(l.directive(f.Decl))
 	}
 	b.WriteString(head.String() + " {\n")
 	fc.depth = 1
@@ -994,11 +994,17 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	b.WriteString("}\n\n")
 }
 
-// directive is the //line directive that maps the next Go line to pos in
-// the user file.
-func (l *lowerer) directive(pos syntax.Pos) string {
-	line, column := l.file.Position(pos)
-	return Directive(l.src, line, column)
+// directive is the //line directive that maps the next Go line to the
+// start of the node n, in the file that holds n (at).
+func (l *lowerer) directive(n syntax.Node) string {
+	return l.directiveAt(n, n.Pos())
+}
+
+// directiveAt is the //line directive that maps the next Go line to pos,
+// in the file that holds the node n.
+func (l *lowerer) directiveAt(n syntax.Node, pos syntax.Pos) string {
+	_, src, line, column := l.at(n, pos)
+	return Directive(src, line, column)
 }
 
 // packageLet lowers a package-level let to a Go package variable. A
@@ -1029,9 +1035,9 @@ func (l *lowerer) packageLet(d *syntax.VarDecl) {
 }
 
 // addInit records the Go code of the package initializer x for initFunc:
-// after the //line directive of at, a block of its own that runs stmts and
-// then assigns.
-func (l *lowerer) addInit(x syntax.Expr, at syntax.Pos, stmts string, assigns []string) {
+// after the //line directive of the node at, a block of its own that runs
+// stmts and then assigns.
+func (l *lowerer) addInit(x syntax.Expr, at syntax.Node, stmts string, assigns []string) {
 	var b strings.Builder
 	b.WriteString(l.directive(at))
 	b.WriteString("\t{\n" + stmts)
@@ -1122,7 +1128,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	}
 	l.recordDecl(fc.owner, spec)
 	if x == nil {
-		l.user.WriteString(l.directive(id.Pos()))
+		l.user.WriteString(l.directive(id))
 		if def := fc.defaultValue(v.Type); def != "" {
 			l.user.WriteString("var " + name + " " + goType + " = " + def + "\n\n")
 		} else {
@@ -1133,15 +1139,15 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	fc.entryPoll(l.info, spec)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
-		l.user.WriteString(l.directive(id.Pos()))
+		l.user.WriteString(l.directive(id))
 		l.user.WriteString("var " + name + " " + goType + " = " + val + "\n\n")
 		return
 	}
 	if name != "_" {
-		l.user.WriteString(l.directive(id.Pos()))
+		l.user.WriteString(l.directive(id))
 		l.user.WriteString("var " + name + " " + goType + "\n\n")
 	}
-	l.addInit(x, id.Pos(), fc.out.String(), []string{name + " = " + val})
+	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
 }
 
 // packagePattern lowers a package-level let that destructures one value
@@ -1168,9 +1174,9 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	fc.frame = newFrame(t, false, framePolls(l.info, spec))
 	fc.entryPoll(l.info, spec)
 	l.recordDecl(fc.owner, spec)
-	at := spec.Pos()
+	var at syntax.Node = spec
 	if len(spec.Names) > 0 {
-		at = spec.Names[0].Pos()
+		at = spec.Names[0]
 	}
 	val := ""
 	if spec.Pattern != nil {

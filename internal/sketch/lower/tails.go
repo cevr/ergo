@@ -203,7 +203,7 @@ func (fc *funcCtx) tailFallible(s syntax.Stmt) bool {
 // ruling, 2026-10-30). Only a value Go can hold and Ergo cannot write, such
 // as a nil interface, reaches it.
 func (fc *funcCtx) noCase(n syntax.Node) {
-	line, col := fc.l.file.Position(n.Pos())
+	_, _, line, col := fc.l.at(n, n.Pos())
 	fc.line("\tpanic(" + strconv.Quote("ergo: defect: no case of the match at "+strconv.Itoa(line)+":"+strconv.Itoa(col)+" matched") + ")")
 }
 

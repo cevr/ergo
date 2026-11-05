@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"fmt"
 	"slices"
 	"sort"
 
@@ -158,17 +157,14 @@ func (l *lowerer) nameAll() {
 	l.prenamed = true
 }
 
-// adapterKey identifies the adapter of an operations conversion by its
-// source and target types. A conversion inside a generic function also
-// names the declaration of each type parameter it mentions, whose adapter
-// is generic over them (D-E1, C8), so two functions' T never share one,
-// in one file or in two (paramFile).
+// adapterKey identifies the adapter of an operations conversion by the
+// canonical keys of its source and target types (typeKey): a named type by
+// its package's full path, so two packages' Q, whose display is lib.Q in
+// both, never share one (196b), and a type parameter by its declaration,
+// whose adapter is generic over it (D-E1, C8), so two functions' T never
+// share one, in one file or in two (paramFile).
 func (l *lowerer) adapterKey(c check.Conversion) string {
-	key := c.From.String() + " => " + c.To.String()
-	for _, tp := range convParams(c) {
-		key += fmt.Sprintf(" %s@%v%s", tp.Name, tp.Pos, l.paramFile(tp))
-	}
-	return key
+	return l.typeKey(c.From) + " => " + l.typeKey(c.To)
 }
 
 // adapterName is the key and the base Go name of the adapter of the

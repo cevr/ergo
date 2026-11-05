@@ -235,22 +235,29 @@ func (l *lowerer) ergoType(t check.Type) string {
 	return t.String()
 }
 
-// importName is the name the lowered file imports p under: the import's
-// own name when it gives one, else the package's name.
+// importName is the name the root package imports p under: the import's
+// own name, in the first of the root's files that gives one, else the
+// package's name. It reads the root's files, not the current one, so the
+// name does not depend on which declaration is being lowered (196b).
 func (l *lowerer) importName(p *check.Package) string {
-	for _, d := range l.file.Decls {
-		g, ok := d.(*syntax.ImportDecl)
-		if !ok {
+	for _, f := range l.srcs {
+		if f.pkg != l.pkg {
 			continue
 		}
-		for _, s := range g.Specs {
-			if s.Path == nil || s.Name == nil {
+		for _, d := range f.file.Decls {
+			g, ok := d.(*syntax.ImportDecl)
+			if !ok {
 				continue
 			}
-			if path, err := strconv.Unquote(s.Path.Value); err != nil || path != p.Path {
-				continue
+			for _, s := range g.Specs {
+				if s.Path == nil || s.Name == nil {
+					continue
+				}
+				if path, err := strconv.Unquote(s.Path.Value); err != nil || path != p.Path {
+					continue
+				}
+				return s.Name.Name
 			}
-			return s.Name.Name
 		}
 	}
 	return p.Name

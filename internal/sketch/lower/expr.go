@@ -240,19 +240,19 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	case *syntax.BinaryExpr:
 		switch x.Op {
 		case syntax.QUO, syntax.REM, syntax.SHL, syntax.SHR:
-			return operand{val: fc.atSite(x.OpPos, fc.binary(x))}
+			return operand{val: fc.atSite(x, x.OpPos, fc.binary(x))}
 		}
 		return operand{val: fc.binary(x)}
 	case *syntax.UnaryExpr:
 		return operand{val: fc.unary(x)}
 	case *syntax.StarExpr:
-		return operand{val: fc.atSite(x.Pos(), "(*"+fc.value(x.X)+")")}
+		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
-		return operand{val: fc.atSite(x.Pos(), fc.index(x))}
+		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}
 	case *syntax.SliceExpr:
-		return operand{val: fc.atSite(x.Pos(), fc.sliceExpr(x))}
+		return operand{val: fc.atSite(x, x.Pos(), fc.sliceExpr(x))}
 	case *syntax.CallExpr:
 		return fc.call(x)
 	case *syntax.TryExpr:
