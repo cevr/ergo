@@ -43,6 +43,7 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	}
 	c := newChecker(path, imp, prelude().scope)
 	pkg := c.run(files)
+	canonicalOrder(pkg) // canon.go
 	return pkg, c.sorted()
 }
 
