@@ -16,10 +16,11 @@ import (
 // could write it: owned by this user with a write bit, group-writable with
 // a group of this user, writable by others, or writable by access(2) (an
 // ACL); when it is a directory this user cannot read; or when it marks a Go
-// cache (goCacheRoot), whose root is found. A symbolic link is not read:
-// its directory's entry decides. A tree that does not exist is left to
-// bwrap, which refuses to bind it.
-func checkInputs(trees []sandboxPath, programs []string) ([]sandboxMask, error) {
+// cache (goCacheRoot), whose root is found. A symbolic link is not
+// followed in the walk: its directory's entry decides, and linkMasks masks
+// its target when it leaves every root. A tree that does not exist is left
+// to bwrap, which refuses to bind it.
+func checkInputs(plan sandboxPlan, roots []admittedRoot) ([]sandboxMask, error) {
 	uid := uint32(os.Getuid())
 	groups := map[uint32]bool{uint32(os.Getgid()): true}
 	if list, err := os.Getgroups(); err == nil {
@@ -28,14 +29,15 @@ func checkInputs(trees []sandboxPath, programs []string) ([]sandboxMask, error) 
 		}
 	}
 	var findings []inputFinding
-	for _, tree := range trees {
-		if _, err := os.Lstat(tree.Path); errors.Is(err, fs.ErrNotExist) {
+	var links []string
+	for _, tree := range roots {
+		if _, err := os.Lstat(tree.Resolved); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		found := func(path string, dir bool, reason string) {
 			findings = append(findings, inputFinding{tree: tree, path: path, dir: dir, reason: reason})
 		}
-		err := filepath.WalkDir(tree.Path, func(path string, entry fs.DirEntry, err error) error {
+		err := filepath.WalkDir(tree.Resolved, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
 				// A directory that cannot be listed, or an entry that
 				// cannot be read: its directory is masked.
@@ -47,6 +49,7 @@ func checkInputs(trees []sandboxPath, programs []string) ([]sandboxMask, error) 
 				return filepath.SkipDir
 			}
 			if entry.Type()&fs.ModeSymlink != 0 {
+				links = append(links, path)
 				return nil
 			}
 			info, err := entry.Info()
@@ -74,7 +77,15 @@ func checkInputs(trees []sandboxPath, programs []string) ([]sandboxMask, error) 
 			return nil, err
 		}
 	}
-	return planMasks(findings, trees, programs)
+	masks, err := planMasks(findings, roots, plan.Programs)
+	if err != nil {
+		return nil, err
+	}
+	var inSandbox []string
+	for _, link := range links {
+		inSandbox = append(inSandbox, sandboxPaths(link, roots)...)
+	}
+	return keepOuterMasks(append(masks, linkMasks(inSandbox, roots, masks, plan, hostLink)...)), nil
 }
 
 func skip(entry fs.DirEntry) error {

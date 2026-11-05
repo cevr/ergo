@@ -16,14 +16,16 @@ import (
 	"strings"
 )
 
-// The merge tier's input contract (spec Q-R7-1). The uncached run reads
-// three things from before the run: the head commit, exported on the host
-// from the object store by its hash (exportCommit); the modules each
+// The merge tier's input contract (spec Q-R7-1, Q-R8-1). The uncached run
+// reads three things from before the run: the head commit, exported on the
+// host from the object store by its hash (exportCommit); the modules each
 // tracked go.sum names, copied from the host's module cache only after
 // their bytes match go.sum's hash (seedModules); and the declared
-// read-only trees (sandboxReadOnly), which checkInputs reads entry by entry
-// at the start of every run. A path in a declared tree that a process of
-// this user could have written, or a Go cache, is masked (bound empty) or,
+// read-only trees (sandboxReadOnly), each admitted by its resolved
+// identity (admittedRoot), which checkInputs reads entry by entry at the
+// start of every run, in the resolved tree the sandbox binds. A path in a
+// declared tree that a process of this user could have written, or a Go
+// cache, is masked (bound empty) or,
 // where a mask would hide what the run needs, refused: the merge tier then
 // fails closed and names the path. So no byte a process of this user could
 // write before the run is visible in the run, but the commit and the
@@ -75,28 +77,47 @@ func isHex(s string, n int) bool {
 	return true
 }
 
-// inputFinding is a path checkInputs found in a read-only tree: one that
-// must be masked, and why.
+// admitInputs is the one function that makes the sandbox's admitted set
+// (spec Q-R8-1): it resolves each declared tree (resolvePath on the host),
+// refuses a plan whose resolved or declared trees expose what the run must
+// not see (checkSandboxPlan), and checks the resolved trees (checkInputs).
+// sandboxArgv binds what it returns, and nothing else.
+func admitInputs(plan sandboxPlan) (admittedSet, error) {
+	roots, err := plan.admitRoots(hostLink)
+	if err != nil {
+		return admittedSet{}, err
+	}
+	masks, err := checkInputs(plan, roots)
+	if err != nil {
+		return admittedSet{}, fmt.Errorf("the input contract: %w", err)
+	}
+	return admittedSet{Roots: roots, Masks: masks}, nil
+}
+
+// inputFinding is a host path checkInputs found in a read-only tree's
+// resolved tree: one that must be masked, and why.
 type inputFinding struct {
-	tree   sandboxPath
+	tree   admittedRoot
 	path   string
 	dir    bool
 	reason string
 }
 
-// planMasks turns findings into masks, or refuses: a finding at a tree's
-// root, in, at or above a tree that may not be masked (GOROOT: the run
-// needs all of it), or at or above a program the steps run fails closed
-// and names the path. Masks inside another mask are dropped.
-func planMasks(findings []inputFinding, trees []sandboxPath, programs []string) ([]sandboxMask, error) {
+// planMasks turns findings into masks at their paths in the sandbox, or
+// refuses: a finding at a tree's root, in, at or above a tree that may not
+// be masked (GOROOT: the run needs all of it), or at or above a program
+// the steps run fails closed and names the path. Findings and programs
+// are host paths, compared with each root's resolved path; a finding is
+// masked at every path where a root shows it (sandboxPaths).
+func planMasks(findings []inputFinding, roots []admittedRoot, programs []string) ([]sandboxMask, error) {
 	var masks []sandboxMask
 	for _, f := range findings {
-		if filepath.Clean(f.path) == filepath.Clean(f.tree.Path) {
-			return nil, fmt.Errorf("read-only input %s is %s itself", f.tree.Path, f.reason)
+		if filepath.Clean(f.path) == filepath.Clean(f.tree.Resolved) {
+			return nil, fmt.Errorf("read-only input %s (%s) is %s itself", f.tree.Path, f.tree.Resolved, f.reason)
 		}
-		for _, tree := range trees {
-			if !tree.Maskable && (within(f.path, tree.Path) || within(tree.Path, f.path)) {
-				return nil, fmt.Errorf("read-only input %s holds %s (%s), and %s cannot be masked", f.tree.Path, f.path, f.reason, tree.Path)
+		for _, root := range roots {
+			if !root.Maskable && (within(f.path, root.Resolved) || within(root.Resolved, f.path)) {
+				return nil, fmt.Errorf("read-only input %s holds %s (%s), and %s (%s) cannot be masked", f.tree.Path, f.path, f.reason, root.Path, root.Resolved)
 			}
 		}
 		for _, program := range programs {
@@ -104,8 +125,35 @@ func planMasks(findings []inputFinding, trees []sandboxPath, programs []string) 
 				return nil, fmt.Errorf("read-only input %s holds %s (%s), which holds the program %s", f.tree.Path, f.path, f.reason, program)
 			}
 		}
-		masks = append(masks, sandboxMask{Path: filepath.Clean(f.path), Dir: f.dir, Reason: f.reason})
+		for _, path := range sandboxPaths(f.path, roots) {
+			masks = append(masks, sandboxMask{Path: path, Dir: f.dir, Reason: f.reason})
+		}
 	}
+	return keepOuterMasks(masks), nil
+}
+
+// sandboxPaths are the paths in the sandbox where a host path under a
+// root's resolved tree is visible: one per root that holds it.
+func sandboxPaths(host string, roots []admittedRoot) []string {
+	var paths []string
+	for _, root := range roots {
+		if !within(host, root.Resolved) {
+			continue
+		}
+		rel, err := filepath.Rel(root.Resolved, host)
+		if err != nil {
+			continue
+		}
+		if path := filepath.Join(root.Path, rel); !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+// keepOuterMasks sorts masks and drops each inside a directory mask, or at
+// the path of one already kept.
+func keepOuterMasks(masks []sandboxMask) []sandboxMask {
 	sort.SliceStable(masks, func(i, j int) bool { return masks[i].Path < masks[j].Path })
 	var kept []sandboxMask
 	for _, m := range masks {
@@ -114,7 +162,85 @@ func planMasks(findings []inputFinding, trees []sandboxPath, programs []string) 
 		}
 		kept = append(kept, m)
 	}
-	return kept, nil
+	return kept
+}
+
+// sandboxKernelPaths are the sandbox's own file systems (bwrap's --proc and
+// --dev): no host file is in them.
+var sandboxKernelPaths = []string{"/proc", "/dev"}
+
+// linkMasks are the masks for the symbolic links found in the read-only
+// trees (at their paths in the sandbox) whose targets leave every
+// admitted root (spec Q-R8-1). Each target is resolved as the sandbox
+// resolves it (sandboxLink): through the roots as bound, the masks and
+// the sandbox's top-level links. A target in a root is checked; a target
+// in a scratch path is the run's own; a target in /proc or /dev is the
+// kernel's; a target that holds one of these shows only them. Any other
+// target is masked with an empty read-only directory, so the link shows
+// nothing whatever a later change binds there. A link whose target loops
+// shows nothing.
+func linkMasks(links []string, roots []admittedRoot, masks []sandboxMask, plan sandboxPlan, readlink linkReader) []sandboxMask {
+	own := append(slices.Clone(plan.Scratch), sandboxKernelPaths...)
+	mounts := slices.Clone(own)
+	for _, root := range roots {
+		mounts = append(mounts, root.Path)
+	}
+	var found []sandboxMask
+	for _, link := range links {
+		if slices.ContainsFunc(masks, func(m sandboxMask) bool { return within(link, m.Path) }) {
+			continue
+		}
+		target, err := resolvePath(link, sandboxLink(roots, masks, plan, readlink))
+		if err != nil {
+			continue
+		}
+		if slices.ContainsFunc(roots, func(r admittedRoot) bool { return within(target, r.Path) }) ||
+			slices.ContainsFunc(own, func(p string) bool { return within(target, p) }) ||
+			slices.ContainsFunc(mounts, func(p string) bool { return within(p, target) }) {
+			continue
+		}
+		found = append(found, sandboxMask{Path: target, Dir: true, Reason: "the target of the symbolic link " + link + ", outside every read-only tree"})
+	}
+	return found
+}
+
+// sandboxLink reads a symbolic link as the sandbox shows it: the
+// sandbox's top-level links; nothing under a mask, a scratch path or a
+// kernel path; under a root, the link of its resolved tree (the deepest
+// root wins, as its binding is mounted last); elsewhere nothing (the
+// sandbox's root is an empty tmpfs).
+func sandboxLink(roots []admittedRoot, masks []sandboxMask, plan sandboxPlan, readlink linkReader) linkReader {
+	hidden := append(slices.Clone(plan.Scratch), sandboxKernelPaths...)
+	for _, m := range masks {
+		hidden = append(hidden, m.Path)
+	}
+	return func(path string) (string, bool) {
+		for _, link := range plan.Links {
+			if path == link[0] {
+				return link[1], true
+			}
+		}
+		depth := func(p string) int { return strings.Count(filepath.Clean(p), "/") }
+		best, bestDepth := -1, -1
+		for i, root := range roots {
+			if within(path, root.Path) && depth(root.Path) > bestDepth {
+				best, bestDepth = i, depth(root.Path)
+			}
+		}
+		if best < 0 {
+			return "", false
+		}
+		for _, other := range hidden {
+			if within(path, other) && depth(other) >= bestDepth {
+				return "", false
+			}
+		}
+		rel, err := filepath.Rel(roots[best].Path, path)
+		if err != nil {
+			return "", false
+		}
+		return readlink(filepath.Join(roots[best].Resolved, rel))
+	}
 }
 
 // maskArgs is bubblewrap's argv for a mask.
@@ -180,8 +306,9 @@ func exportCommit(source, head, dir string) error {
 // host module cache's download (cache/download/<path>/@v/<version>.zip or
 // .mod), copied only when its bytes hash to the line's h1 hash. A file the
 // host lacks is left out (a build that needs it fails: GOPROXY is off). A
-// mismatch, or a go.mod that requires a module with no go.sum beside it,
-// fails closed. It returns the number of files copied.
+// mismatch, a go.mod that requires a module with no go.sum beside it, or a
+// go.work anywhere in the commit (the steps run with GOWORK=off) fails
+// closed. It returns the number of files copied.
 func seedModules(source, head, hostModCache, dest string) (int, error) {
 	listing, err := hostGit("/", "--git-dir="+source, "ls-tree", "-r", "-z", "--name-only", head)
 	if err != nil {
@@ -194,6 +321,8 @@ func seedModules(source, head, hostModCache, dest string) (int, error) {
 	seeded := 0
 	for _, name := range files {
 		switch path.Base(name) {
+		case "go.work":
+			return seeded, fmt.Errorf("%s: the merge tier runs with GOWORK=off and admits no workspace", name)
 		case "go.mod":
 			content, err := read(name)
 			if err != nil {

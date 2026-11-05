@@ -69,10 +69,13 @@ type sandboxPlan struct {
 	// Source is the host's Git common directory, which the export fetches
 	// Head from on the host (exportCommit). The sandbox does not bind it.
 	Source string
-	// ReadOnly are the host paths bound read-only (sandboxReadOnly).
+	// ReadOnly are the declared read-only trees (sandboxReadOnly): the
+	// input of admission, never bound as spelled.
 	ReadOnly []sandboxPath
-	// Masks are the paths inside ReadOnly bound empty (checkInputs).
-	Masks []sandboxMask
+	// Admitted is what the sandbox binds from the host: each declared
+	// tree by its resolved identity, and the masks over it (admitInputs).
+	// sandboxArgv reads only this.
+	Admitted admittedSet
 	// Programs are the host programs the steps run, resolved; no mask may
 	// hide one (sandboxPrograms).
 	Programs []string
@@ -106,13 +109,99 @@ type sandboxPlan struct {
 	Forbidden, Homes []string
 }
 
-// admissible says why the sandbox cannot give the plan's run a verdict, or
-// nil.
-func (plan sandboxPlan) admissible() error {
-	if !plan.Clean {
-		return errors.New("the checkout has changes; the merge tier checks a fresh export of the head commit, so commit or remove them")
+// admittedRoot is a declared read-only tree by its resolved identity
+// (spec Q-R8-1): Resolved is the declared path with every symbolic link,
+// in the path and in its parents, followed. The input check walks
+// Resolved, and the sandbox binds Resolved at Path, the path the steps
+// name, so the tree checked is the tree bound whatever its spelling.
+type admittedRoot struct {
+	sandboxPath
+	Resolved string
+}
+
+// admittedSet is what the sandbox admits from the host: the roots and the
+// masks over them, at their paths in the sandbox. admitInputs makes it,
+// and sandboxArgv reads nothing else, so the check and the binding cannot
+// disagree by spelling.
+type admittedSet struct {
+	Roots []admittedRoot
+	Masks []sandboxMask
+}
+
+// linkReader says whether a path is a symbolic link, and its target.
+type linkReader func(path string) (target string, link bool)
+
+// hostLink reads a symbolic link on the host.
+func hostLink(path string) (string, bool) {
+	target, err := os.Readlink(path)
+	return target, err == nil
+}
+
+// resolvePath is path with every symbolic link followed, component by
+// component, as the kernel follows them: a link's target replaces it,
+// from the root when absolute, and ".." goes up from where the links led.
+// A component that does not exist ends no link, so the rest is appended as
+// written (a directory a step makes later).
+func resolvePath(path string, readlink linkReader) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%q is not absolute", path)
 	}
-	return checkSandboxPlan(plan, plan.Forbidden, plan.Homes)
+	pending := strings.Split(path, "/")
+	current := "/"
+	for hops := 0; len(pending) > 0; {
+		name := pending[0]
+		pending = pending[1:]
+		switch name {
+		case "", ".":
+			continue
+		case "..":
+			current = filepath.Dir(current)
+			continue
+		}
+		next := filepath.Join(current, name)
+		target, link := readlink(next)
+		if !link {
+			current = next
+			continue
+		}
+		if hops++; hops > 255 {
+			return "", fmt.Errorf("%s: too many levels of symbolic links", path)
+		}
+		if filepath.IsAbs(target) {
+			current = "/"
+		}
+		pending = append(strings.Split(target, "/"), pending...)
+	}
+	return current, nil
+}
+
+// resolveRoots resolves each declared tree.
+func resolveRoots(trees []sandboxPath, readlink linkReader) ([]admittedRoot, error) {
+	roots := make([]admittedRoot, 0, len(trees))
+	for _, tree := range trees {
+		resolved, err := resolvePath(tree.Path, readlink)
+		if err != nil {
+			return nil, fmt.Errorf("read-only path: %w", err)
+		}
+		roots = append(roots, admittedRoot{sandboxPath: tree, Resolved: resolved})
+	}
+	return roots, nil
+}
+
+// admitRoots resolves the plan's declared trees and refuses the plan when
+// the sandbox cannot give its run a verdict (checkSandboxPlan).
+func (plan sandboxPlan) admitRoots(readlink linkReader) ([]admittedRoot, error) {
+	if !plan.Clean {
+		return nil, errors.New("the checkout has changes; the merge tier checks a fresh export of the head commit, so commit or remove them")
+	}
+	roots, err := resolveRoots(plan.ReadOnly, readlink)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkSandboxPlan(plan, roots, readlink); err != nil {
+		return nil, err
+	}
+	return roots, nil
 }
 
 // sandboxFDs are the descriptors bwrap receives from the gate: the user
@@ -155,10 +244,10 @@ func sandboxArgv(plan sandboxPlan) []string {
 	for i, path := range plan.Scratch {
 		mounts = append(mounts, mount{path, []string{"--bind", sandboxFresh(plan.Fresh, i), path}})
 	}
-	for _, path := range plan.ReadOnly {
-		mounts = append(mounts, mount{path.Path, []string{"--ro-bind", path.Path, path.Path}})
+	for _, root := range plan.Admitted.Roots {
+		mounts = append(mounts, mount{root.Path, []string{"--ro-bind", root.Resolved, root.Path}})
 	}
-	for _, mask := range plan.Masks {
+	for _, mask := range plan.Admitted.Masks {
 		mounts = append(mounts, mount{mask.Path, maskArgs(mask)})
 	}
 	// Parents first; at one path the scratch before the read-only binding.
@@ -216,24 +305,54 @@ func sandboxForbidden(home, goCache, xdgCacheHome, tempDir, goTmpDir, goModCache
 // checkSandboxPlan refuses a plan that would let a step write or read a
 // host path the run must not see: a read-only binding of a forbidden path,
 // its parent, or a path under it, or of HOME or HOME's parent; a scratch
-// path that is not absolute; a read-only binding over the checkout.
-func checkSandboxPlan(plan sandboxPlan, forbidden, homes []string) error {
-	for _, path := range plan.ReadOnly {
-		if !filepath.IsAbs(path.Path) {
-			return fmt.Errorf("read-only path %q is not absolute", path.Path)
+// path that is not absolute; a read-only binding over the checkout. Each
+// root is compared by its declared and its resolved path, and each
+// forbidden path, HOME, the checkout and the runs' directory by their
+// spelling and their resolved path (spec Q-R8-1), so a symbolic link on
+// either side does not hide an overlap.
+func checkSandboxPlan(plan sandboxPlan, roots []admittedRoot, readlink linkReader) error {
+	spellings := func(path string) []string {
+		if resolved, err := resolvePath(path, readlink); err == nil && resolved != filepath.Clean(path) {
+			return []string{path, resolved}
 		}
-		for _, f := range forbidden {
-			if within(path.Path, f) || within(f, path.Path) {
-				return fmt.Errorf("read-only path %s exposes %s", path.Path, f)
+		return []string{path}
+	}
+	runs := ""
+	if filepath.IsAbs(plan.Fresh) && filepath.Dir(plan.Fresh) != plan.Fresh {
+		runs = filepath.Dir(plan.Fresh)
+	}
+	for _, root := range roots {
+		if !filepath.IsAbs(root.Path) {
+			return fmt.Errorf("read-only path %q is not absolute", root.Path)
+		}
+		for _, path := range []string{root.Path, root.Resolved} {
+			for _, forbidden := range plan.Forbidden {
+				for _, f := range spellings(forbidden) {
+					if within(path, f) || within(f, path) {
+						return fmt.Errorf("read-only path %s (%s) exposes %s", root.Path, path, f)
+					}
+				}
 			}
-		}
-		for _, home := range homes {
-			if within(home, path.Path) {
-				return fmt.Errorf("read-only path %s exposes %s", path.Path, home)
+			for _, home := range plan.Homes {
+				for _, h := range spellings(home) {
+					if within(h, path) {
+						return fmt.Errorf("read-only path %s (%s) exposes %s", root.Path, path, h)
+					}
+				}
 			}
-		}
-		if within(plan.Checkout, path.Path) || within(path.Path, plan.Checkout) {
-			return fmt.Errorf("read-only path %s overlaps the checkout %s", path.Path, plan.Checkout)
+			for _, checkout := range spellings(plan.Checkout) {
+				if within(checkout, path) || within(path, checkout) {
+					return fmt.Errorf("read-only path %s (%s) overlaps the checkout %s", root.Path, path, checkout)
+				}
+			}
+			if runs == "" {
+				continue
+			}
+			for _, r := range spellings(runs) {
+				if within(path, r) || within(r, path) {
+					return fmt.Errorf("read-only path %s (%s) exposes the runs' directories %s", root.Path, path, r)
+				}
+			}
 		}
 	}
 	for _, path := range plan.Scratch {
@@ -244,14 +363,8 @@ func checkSandboxPlan(plan sandboxPlan, forbidden, homes []string) error {
 	if plan.ModCache != "" && !slices.Contains(plan.Scratch, plan.ModCache) {
 		return fmt.Errorf("the module cache %s is not a scratch path", plan.ModCache)
 	}
-	if !filepath.IsAbs(plan.Fresh) || filepath.Dir(plan.Fresh) == plan.Fresh {
+	if runs == "" {
 		return fmt.Errorf("the run's directory %q is not an absolute path below the root", plan.Fresh)
-	}
-	runs := filepath.Dir(plan.Fresh)
-	for _, path := range plan.ReadOnly {
-		if within(path.Path, runs) || within(runs, path.Path) {
-			return fmt.Errorf("read-only path %s exposes the runs' directories %s", path.Path, runs)
-		}
 	}
 	return nil
 }
@@ -417,30 +530,37 @@ type enclosure interface {
 }
 
 // sandboxEnvironment is a step's environment in the sandbox: the run's own
-// module cache, no module download (GOPROXY=off), no toolchain switch
-// (GOTOOLCHAIN=local), and GOROOT's go first on PATH.
+// module cache, no module download (GOPROXY=off), no change to a go.mod
+// (-mod=readonly after the step's GOFLAGS, round 4's -count=1 among them),
+// no workspace (GOWORK=off), no toolchain switch (GOTOOLCHAIN=local), and
+// GOROOT's go first on PATH.
 func sandboxEnvironment(env []string, modCache, goRoot string) []string {
-	set := map[string]string{"GOPROXY": "off", "GOTOOLCHAIN": "local"}
+	set := map[string]string{"GOPROXY": "off", "GOTOOLCHAIN": "local", "GOWORK": "off", "GOFLAGS": "-mod=readonly"}
 	if modCache != "" {
 		set["GOMODCACHE"] = modCache
 	}
-	path := ""
+	path, goFlags := "", ""
 	var out []string
 	for _, kv := range env {
 		name, value, _ := strings.Cut(kv, "=")
-		if name == "PATH" {
+		switch name {
+		case "PATH":
 			path = value
+			continue
+		case "GOFLAGS":
+			goFlags = value
 			continue
 		}
 		if _, ok := set[name]; !ok {
 			out = append(out, kv)
 		}
 	}
+	set["GOFLAGS"] = strings.TrimSpace(goFlags + " " + set["GOFLAGS"])
 	if goRoot != "" {
 		path = strings.TrimSuffix(filepath.Join(goRoot, "bin")+string(os.PathListSeparator)+path, string(os.PathListSeparator))
 	}
 	out = append(out, "PATH="+path)
-	for _, name := range []string{"GOMODCACHE", "GOPROXY", "GOTOOLCHAIN"} {
+	for _, name := range []string{"GOMODCACHE", "GOPROXY", "GOTOOLCHAIN", "GOWORK", "GOFLAGS"} {
 		if value, ok := set[name]; ok {
 			out = append(out, name+"="+value)
 		}

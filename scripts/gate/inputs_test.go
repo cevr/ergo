@@ -154,3 +154,44 @@ func TestSeedModulesRefusesUnverifiedRequirements(t *testing.T) {
 		t.Errorf("a go.mod without requirements: %v", err)
 	}
 }
+
+// TestSeedModulesRefusesWorkspaces: a go.work anywhere in the commit fails
+// closed, at the root or nested, whatever it uses: the steps run with
+// GOWORK=off, and a workspace could name a host path outside the commit.
+func TestSeedModulesRefusesWorkspaces(t *testing.T) {
+	for _, name := range []string{"go.work", "nested/go.work"} {
+		source, head := moduleCommit(t, map[string]string{"go.mod": "module example.com/a\n\ngo 1.21\n", name: "go 1.21\n\nuse .\n"})
+		if _, err := seedModules(source, head, t.TempDir(), t.TempDir()); err == nil || !strings.Contains(err.Error(), name+": the merge tier runs with GOWORK=off") {
+			t.Errorf("a commit with %s: %v; want refused", name, err)
+		}
+	}
+}
+
+// TestSandboxEnvironmentPinsModules: in the sandbox a step's GOFLAGS end
+// with -mod=readonly, after the caller's and round 4's -count=1, so no
+// flag in GOFLAGS lets a step change a go.mod or go.sum (cmd/go applies
+// GOFLAGS in order, the last value winning); GOWORK is off, GOPROXY off and
+// GOTOOLCHAIN local whatever the caller set.
+func TestSandboxEnvironmentPinsModules(t *testing.T) {
+	for _, caller := range []string{"", "-mod=mod -count=1", "-mod=vendor", "-modfile=x.mod -count=1"} {
+		env := []string{"PATH=/bin", "GOWORK=/host/go.work", "GOPROXY=https://proxy.golang.org", "GOTOOLCHAIN=auto", "HOME=/h"}
+		if caller != "" {
+			env = append(env, "GOFLAGS="+caller)
+		}
+		got := sandboxEnvironment(env, "/run/mod", "/go")
+		want := map[string]string{"GOFLAGS": strings.TrimSpace(caller + " -mod=readonly"), "GOWORK": "off", "GOPROXY": "off", "GOTOOLCHAIN": "local", "GOMODCACHE": "/run/mod", "PATH": "/go/bin:/bin", "HOME": "/h"}
+		seen := map[string]int{}
+		for _, kv := range got {
+			name, value, _ := strings.Cut(kv, "=")
+			seen[name]++
+			if want[name] != value {
+				t.Errorf("caller GOFLAGS %q: %s=%q, want %q", caller, name, value, want[name])
+			}
+		}
+		for name := range want {
+			if seen[name] != 1 {
+				t.Errorf("caller GOFLAGS %q: %s set %d times in %q", caller, name, seen[name], got)
+			}
+		}
+	}
+}

@@ -85,10 +85,18 @@ func effectiveMount(mounts []sandboxMount, path string) sandboxMount {
 // host HOME, GOMODCACHE, /tmp, /var/tmp, GOCACHE, GOTMPDIR, $HOME/.cache,
 // $HOME/Library/Caches, the runs' directory, nor a parent of one of them,
 // nor a path under one but HOME and GOMODCACHE.
-func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []string {
+func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string, readlink linkReader) []string {
 	t.Helper()
 	var problems []string
 	mounts := parseSandboxArgv(t, sandboxArgv(plan))
+	// spellings are a path as written and resolved: a read-only binding is
+	// compared by both, and by both its source and its destination.
+	spellings := func(path string) []string {
+		if resolved, err := resolvePath(path, readlink); err == nil && resolved != path {
+			return []string{path, resolved}
+		}
+		return []string{path}
+	}
 	// fresh is a writable binding from the run's own directory.
 	fresh := func(m sandboxMount) bool {
 		return m.op == "--bind" && filepath.IsAbs(plan.Fresh) && filepath.Dir(m.source) == filepath.Clean(plan.Fresh)
@@ -98,8 +106,12 @@ func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []st
 	}
 	bound := map[string]bool{}
 	for i, m := range mounts {
-		if m.op == "--ro-bind" && m.source != m.dest && m.source != "/dev/null" {
-			problems = append(problems, fmt.Sprintf("%s bound at another path %s", m.source, m.dest))
+		if m.op == "--ro-bind" && m.source != "/dev/null" {
+			// A read-only binding is a tree by its resolved identity, at
+			// its declared path: the source is the destination resolved.
+			if resolved, err := resolvePath(m.dest, readlink); err != nil || m.source != resolved {
+				problems = append(problems, fmt.Sprintf("%s bound at %s, which resolves to %s (%v)", m.source, m.dest, resolved, err))
+			}
 		}
 		if m.op == "--ro-bind" && plan.Source != "" && (within(m.source, plan.Source) || within(plan.Source, m.source)) {
 			problems = append(problems, fmt.Sprintf("read-only %s exposes the object store %s", m.source, plan.Source))
@@ -124,7 +136,7 @@ func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []st
 			}
 		}
 	}
-	for _, mask := range plan.Masks {
+	for _, mask := range plan.Admitted.Masks {
 		if m := effectiveMount(mounts, mask.Path); !masked(m) || m.dest != mask.Path {
 			problems = append(problems, fmt.Sprintf("masked %s is visible on %s %s", mask.Path, m.op, m.source))
 		}
@@ -135,18 +147,32 @@ func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []st
 		if m.op != "--ro-bind" || m.source == "/dev/null" {
 			continue
 		}
-		for _, parent := range []string{home, env["GOMODCACHE"]} {
-			if parent != "" && within(parent, m.source) {
-				problems = append(problems, fmt.Sprintf("read-only %s exposes %s", m.source, parent))
+		for _, bound := range []string{m.source, m.dest} {
+			for _, parent := range []string{home, env["GOMODCACHE"]} {
+				for _, p := range spellings(parent) {
+					if parent != "" && within(p, bound) {
+						problems = append(problems, fmt.Sprintf("read-only %s at %s exposes %s", m.source, m.dest, p))
+					}
+				}
 			}
-		}
-		for _, path := range exposed {
-			if path != "" && (within(path, m.source) || within(m.source, path)) {
-				problems = append(problems, fmt.Sprintf("read-only %s exposes %s", m.source, path))
+			for _, path := range exposed {
+				for _, p := range spellings(path) {
+					if path != "" && (within(p, bound) || within(bound, p)) {
+						problems = append(problems, fmt.Sprintf("read-only %s at %s exposes %s", m.source, m.dest, p))
+					}
+				}
 			}
 		}
 	}
 	return problems
+}
+
+// fakeLinks is a link table as a linkReader: the property's file system.
+func fakeLinks(links map[string]string) linkReader {
+	return func(path string) (string, bool) {
+		target, ok := links[path]
+		return target, ok
+	}
 }
 
 // TestSandboxArgvProperty generates environments (homes, caches, temporary
@@ -173,23 +199,40 @@ func TestSandboxArgvProperty(t *testing.T) {
 			xdgCache = home + "/.cache"
 		}
 		run := pick("/var/cache/gate/sandbox/r1", home+"/.cache/ergo-gate/sandbox/r1", "/usr/cache/sandbox/r1", "/opt/gomod/sandbox/r1", "sandbox/r1")
+		if random.IntN(3) == 0 {
+			goRoot = pick("/opt/go", "/srv/sdk/go", "/opt/links/go")
+		}
+		// The host's symbolic links: a declared root, a parent of one, a
+		// chain of links, and links on the side of HOME and the caches,
+		// each to a clean, a writable or a cache-bearing place.
+		links := map[string]string{}
+		for range random.IntN(4) {
+			from := pick("/opt/go", "/opt", "/srv/sdk", "/opt/links", "/opt/links/go", "/home", "/srv/xdg", "/var/cache", "/usr/local/go")
+			links[from] = pick("/usr/local/go", "/usr/lib/go", home+"/sdk/go", home, "/tmp/go", "/srv/home", goCache, "/opt/links/go", "/var/cache/gate", "../usr/lib/go", "go2", "/srv/xdg/mod")
+		}
+		readlink := fakeLinks(links)
 		plan := sandboxPlan{Head: "head", Checkout: checkout, Source: "/srv/repo/.git", Clean: true, Fresh: run,
 			ReadOnly: sandboxReadOnly(goRoot), Links: [][2]string{{"/bin", "usr/bin"}}, ModCache: modCache,
 			Scratch: sandboxScratch(home, xdgCache, goCache, tempDir, goTmpDir, gateCache, checkout, modCache)}
+		roots, err := resolveRoots(plan.ReadOnly, readlink)
+		if err != nil {
+			continue // a link loop: no tree to admit
+		}
+		plan.Admitted.Roots = roots
 		for _, mask := range []sandboxMask{{Path: "/usr/share/doc/tools", Dir: true}, {Path: "/usr/bin/tool"}, {Path: "/usr/local/bin/porter"}, {Path: goRoot + "/pkg/cache", Dir: true}} {
 			if random.IntN(2) == 0 {
-				plan.Masks = append(plan.Masks, mask)
+				plan.Admitted.Masks = append(plan.Admitted.Masks, mask)
 			}
 		}
 		plan.Forbidden, plan.Homes = sandboxForbidden(home, goCache, xdgCache, tempDir, goTmpDir, modCache)
 		env := map[string]string{"HOME": home, "TMPDIR": tempDir, "XDG_CACHE_HOME": xdgCache, "GOCACHE": goCache, "GOTMPDIR": goTmpDir, "GOMODCACHE": modCache, "checkout": checkout}
-		problems := sandboxProperty(t, plan, env)
-		err := plan.admissible()
+		problems := sandboxProperty(t, plan, env, readlink)
+		_, err = plan.admitRoots(readlink)
 		switch {
 		case err == nil && len(problems) > 0:
-			t.Fatalf("case %d: admitted a plan that breaks the sandbox: %v\nenv %v\nargv %q", i, problems, env, sandboxArgv(plan))
-		case err != nil && len(problems) == 0 && !overlapsCheckout(plan):
-			t.Fatalf("case %d: refused a plan that keeps every guarantee: %v\nenv %v", i, err, env)
+			t.Fatalf("case %d: admitted a plan that breaks the sandbox: %v\nenv %v\nlinks %v\nargv %q", i, problems, env, links, sandboxArgv(plan))
+		case err != nil && len(problems) == 0 && !overlapsCheckout(plan, readlink):
+			t.Fatalf("case %d: refused a plan that keeps every guarantee: %v\nenv %v\nlinks %v", i, err, env, links)
 		case err == nil:
 			admitted++
 		default:
@@ -203,9 +246,15 @@ func TestSandboxArgvProperty(t *testing.T) {
 
 // overlapsCheckout reports a read-only path at or around the checkout,
 // which the plan refuses though the property does not name it.
-func overlapsCheckout(plan sandboxPlan) bool {
-	return slices.ContainsFunc(plan.ReadOnly, func(p sandboxPath) bool {
-		return within(plan.Checkout, p.Path) || within(p.Path, plan.Checkout)
+func overlapsCheckout(plan sandboxPlan, readlink linkReader) bool {
+	checkouts := []string{plan.Checkout}
+	if resolved, err := resolvePath(plan.Checkout, readlink); err == nil {
+		checkouts = append(checkouts, resolved)
+	}
+	return slices.ContainsFunc(plan.Admitted.Roots, func(r admittedRoot) bool {
+		return slices.ContainsFunc(checkouts, func(c string) bool {
+			return within(c, r.Path) || within(r.Path, c) || within(c, r.Resolved) || within(r.Resolved, c)
+		})
 	})
 }
 
@@ -249,19 +298,20 @@ func TestSandboxPlanOfThisHost(t *testing.T) {
 	}
 	goTmpDir, _ := stepVariable("GOTMPDIR")
 	env := map[string]string{"HOME": home, "TMPDIR": os.TempDir(), "XDG_CACHE_HOME": xdg, "GOCACHE": paths.GOCACHE, "GOTMPDIR": goTmpDir, "GOMODCACHE": paths.GOMODCACHE, "checkout": root}
-	masks, err := checkInputs(plan.ReadOnly, plan.Programs)
+	admitted, err := admitInputs(plan)
 	if err != nil {
 		t.Fatalf("the input contract refuses this host: %v", err)
 	}
-	for _, tree := range plan.ReadOnly {
-		t.Logf("read-only %s (maskable %t): %s", tree.Path, tree.Maskable, tree.Reason)
+	masks := admitted.Masks
+	for _, tree := range admitted.Roots {
+		t.Logf("read-only %s at %s (maskable %t): %s", tree.Resolved, tree.Path, tree.Maskable, tree.Reason)
 	}
 	for _, mask := range masks {
 		t.Logf("masked %s (directory %t): %s", mask.Path, mask.Dir, mask.Reason)
 	}
 	withMasks := plan
-	withMasks.Masks = masks
-	if problems := sandboxProperty(t, withMasks, env); len(problems) > 0 {
+	withMasks.Admitted = admitted
+	if problems := sandboxProperty(t, withMasks, env, hostLink); len(problems) > 0 {
 		t.Fatalf("this host's plan breaks the sandbox: %v", problems)
 	}
 	box, err := startSandbox(plan)
@@ -300,8 +350,12 @@ func TestSandboxPlanOfThisHost(t *testing.T) {
 	}
 	// The module cache is the run's own: no host cache, no download, the
 	// toolchain on PATH.
-	if output, err := inside(`go env GOMODCACHE GOPROXY GOTOOLCHAIN GOROOT && test ! -e "$(go env GOMODCACHE)/cache/go-build" && echo own`); err != nil || output != paths.GOMODCACHE+"\noff\nlocal\n"+paths.GOROOT+"\nown\n" {
+	if output, err := inside(`go env GOMODCACHE GOPROXY GOTOOLCHAIN GOROOT GOWORK && test ! -e "$(go env GOMODCACHE)/cache/go-build" && echo own`); err != nil || output != paths.GOMODCACHE+"\noff\nlocal\n"+paths.GOROOT+"\noff\nown\n" {
 		t.Errorf("the module cache inside is not the run's own: %v\n%s", err, output)
+	}
+	// No step may change a go.mod: -mod=readonly comes last in GOFLAGS.
+	if output, err := inside(`go env GOFLAGS`); err != nil || !strings.HasSuffix(strings.TrimSpace(output), "-mod=readonly") {
+		t.Errorf("GOFLAGS inside does not end with -mod=readonly: %v %q", err, output)
 	}
 	for _, path := range plan.ReadOnly {
 		if output, err := inside(`touch "$1/.gate-sandbox-probe"`, path.Path); err == nil || !strings.Contains(output, "Read-only file system") {

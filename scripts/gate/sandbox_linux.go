@@ -35,20 +35,18 @@ type sandbox struct {
 	goRoot         string
 }
 
-// startSandbox starts the sandbox of a plan: it checks the read-only
-// trees (checkInputs) and masks what it found, exports the head commit and
-// seeds the module cache on the host, into the run's directory, and waits
-// until bwrap's first process is ready. An error means the merge tier
-// cannot run sandboxed, and fails closed.
+// startSandbox starts the sandbox of a plan: it admits the read-only trees
+// by their resolved identity and masks what their check found
+// (admitInputs), exports the head commit and seeds the module cache on the
+// host, into the run's directory, and waits until bwrap's first process is
+// ready. An error means the merge tier cannot run sandboxed, and fails
+// closed.
 func startSandbox(plan sandboxPlan) (enclosure, error) {
-	if err := plan.admissible(); err != nil {
+	admitted, err := admitInputs(plan)
+	if err != nil {
 		return nil, err
 	}
-	masks, err := checkInputs(plan.ReadOnly, plan.Programs)
-	if err != nil {
-		return nil, fmt.Errorf("the input contract: %w", err)
-	}
-	plan.Masks = append(plan.Masks, masks...)
+	plan.Admitted = admitted
 	bwrap, err := exec.LookPath("bwrap")
 	if err != nil {
 		return nil, errors.New("no bwrap (bubblewrap) on PATH")
