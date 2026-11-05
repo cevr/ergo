@@ -773,7 +773,6 @@ func (c *checker) matchStmt(s syntax.Stmt, kw syntax.Pos, subjects []syntax.Expr
 		c.usefulSteps = append(c.usefulSteps, useful.steps)
 		c.patternCosts = append(c.patternCosts, patternCost{r.sp.written, total.budget, total.meter.cellBudget, total.steps, useful.steps, total.cells, useful.cells})
 	}
-	c.totalSwitch[s] = true
 	switch {
 	case useful.over:
 		// A case whose reachability is unproven is never accepted.
