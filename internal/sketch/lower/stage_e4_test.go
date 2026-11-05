@@ -103,17 +103,41 @@ func main() needs Console {
 	Console.Println("\(Repeat(first(), second()))")
 }
 `, "first\nsecond\nxx\nfirst\nsecond\nfirst\nsecond\nfirst\nsecond\nxx\nfirst\nsecond\nxx\n"},
+	// A declaration with no result over a Go function that has one: the
+	// call runs as a statement and Go drops the result. The no-result
+	// shape is reachable in the pure allowlist (G9 round 2 M2);
+	// TestErgoRunE4DiscardVariadic proves the call is made.
+	{"no_result", `extern go strings.ToUpper func Discard(s string)
+extern go strings.Repeat func Check(s string, n int)
+func main() needs Console {
+	Discard("x")
+	Check("x", 2)
+	Console.Println("discarded")
+}
+`, "discarded\n"},
+	// A Go target whose parameter is variadic ...string accepts the call
+	// with a fixed Ergo arity (strings.NewReplacer, its *Replacer result
+	// discarded); Go checks the call against the Ergo signature.
+	{"variadic", `extern go strings.NewReplacer func Pairs(a string, b string, c string, d string)
+func main() needs Console {
+	Pairs("a", "b", "c", "d")
+	Console.Println("paired")
+}
+`, "paired\n"},
 }
 
 // e4HostTargets are the stage E4 programs whose targets are outside the
-// pure allowlist (G9, std-1): a target with no result (runtime.GC), a
-// duration parameter (time.Sleep), packages that share a last path element
-// or whose name is not it (math/rand/v2, crypto/rand, text/template,
-// html/template), a variadic target (fmt.Sprint), a generic target
-// (cmp.Compare), a named type as target (time.Duration) and a host call
-// that must run once (fmt.Print). Each lowered and ran before G9. Now
-// each is one S109 per extern at the checker, so the lowering never sees
-// it. They return as run rows when #202 or a wider allowlist admits them.
+// pure allowlist (G9, std-1), kept as negatives: a target with no result
+// (runtime.GC), a duration parameter (time.Sleep), packages that share a
+// last path element or whose name is not it (math/rand/v2, crypto/rand,
+// text/template, html/template), a variadic target (fmt.Sprint), a generic
+// target (cmp.Compare), a named type as target (time.Duration) and a host
+// call that must run once (fmt.Print). Each lowered and ran before G9.
+// Now each is one S109 per extern at the checker, so the lowering never
+// sees it. The no-result and variadic shapes still run through allowlisted
+// targets (e4Externs, TestErgoRunE4DiscardVariadic). The generic,
+// named-type, duration, package-name and host-call-once shapes have no
+// allowlisted target of basic types; they return as run rows with #202.
 var e4HostTargets = []struct {
 	name, src string
 	externs   int
@@ -424,6 +448,101 @@ func TestErgoRunE4HostPanic(t *testing.T) {
 	}
 }
 
+// TestErgoRunE4DiscardVariadic (G9 round 2 M2) is a property over the two
+// lowering shapes of a user extern that the pure allowlist still reaches
+// and whose call is seen only by its effect on the run: a declaration with
+// no result over a Go function that returns one, and a variadic Go target.
+// Each program crosses:
+//   - the target: strings.NewReplacer (variadic ...string) at arity 0 to
+//     5, and strings.Repeat (string, int) with a count of 2 or -1;
+//   - each argument as a literal or a nonconstant (a let), all literal,
+//     all nonconstant and alternating;
+//   - the use: a statement in main, or a statement in a function literal
+//     that main calls.
+//
+// Oracle, from Go's own rules: NewReplacer panics "odd argument count" at
+// an odd arity and runs at an even one; Repeat panics "negative Repeat
+// count" at -1 and runs at 2. A panic is a defect: exit 2, the panic
+// text, the Ergo call's line in the trace, and no later output. A run
+// prints "end" and exits 0. So a lowering that drops a no-result call, or
+// a variadic call, runs where Go would panic, and fails here.
+func TestErgoRunE4DiscardVariadic(t *testing.T) {
+	type want struct {
+		panic string // "" when the call runs
+		line  int
+	}
+	var builds []*lowered
+	wants := map[string]want{}
+	add := func(name, decl string, args []string, defect string) {
+		for _, mix := range []string{"literal", "nonconstant", "alternating"} {
+			var lets, actual []string
+			for i, a := range args {
+				if mix == "nonconstant" || mix == "alternating" && i%2 == 1 {
+					v := fmt.Sprintf("v%d", i)
+					lets = append(lets, "\tlet "+v+" = "+a+"\n")
+					a = v
+				}
+				actual = append(actual, a)
+			}
+			call := "F(" + strings.Join(actual, ", ") + ")"
+			for _, use := range []string{"statement", "closure"} {
+				body := strings.Join(lets, "")
+				line := 3 + len(lets)
+				if use == "statement" {
+					body += "\t" + call + "\n"
+				} else {
+					body += "\tlet g = func() {\n\t\t" + call + "\n\t}\n\tg()\n"
+					line++
+				}
+				src := decl + "\nfunc main() needs Console {\n" + body + "\tConsole.Println(\"end\")\n}\n"
+				o := mustLower(t, "e4_discard_"+name+"_"+mix+"_"+use, src)
+				builds = append(builds, o)
+				wants[o.name] = want{defect, line}
+				if checked, bad := e4CallChecks(o.mainGo(), decl[len("extern go "):strings.Index(decl, " func")]); checked < 1 || len(bad) > 0 {
+					t.Errorf("%s: %d checked calls; unchecked: %q\n%s", o.name, checked, bad, o.mainGo())
+				}
+			}
+		}
+	}
+	for arity := 0; arity <= 5; arity++ {
+		var params, args []string
+		for i := 0; i < arity; i++ {
+			params = append(params, fmt.Sprintf("p%d string", i))
+			args = append(args, fmt.Sprintf("%q", fmt.Sprintf("s%d", i)))
+		}
+		defect := ""
+		if arity%2 == 1 {
+			defect = "panic: strings.NewReplacer: odd argument count"
+		}
+		add(fmt.Sprintf("replacer%d", arity), "extern go strings.NewReplacer func F("+strings.Join(params, ", ")+")", args, defect)
+	}
+	for _, n := range []string{"2", "-1"} {
+		defect := ""
+		if n == "-1" {
+			defect = "panic: strings: negative Repeat count"
+		}
+		add("repeat_"+strings.Replace(n, "-", "neg", 1), "extern go strings.Repeat func F(s string, n int)", []string{`"x"`, n}, defect)
+	}
+	exes := buildAll(t, builds, true)
+	if exes == nil {
+		return
+	}
+	for _, o := range builds {
+		w := wants[o.name]
+		stdout, stderr, code := runExe(t, exes[o.name])
+		if w.panic == "" {
+			if code != 0 || stdout != "end\n" {
+				t.Errorf("%s: exit %d, stdout %q, stderr %q; want a run that prints end\n%s", o.name, code, stdout, firstLines(stderr, 8), o.src)
+			}
+			continue
+		}
+		at := regexp.MustCompile(fmt.Sprintf(`(?m)main\.ergo:%d$`, w.line))
+		if code != 2 || stdout != "" || !strings.Contains(stderr, w.panic) || !at.MatchString(stderr) {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit 2 with %q at main.ergo:%d\n%s", o.name, code, stdout, firstLines(stderr, 8), w.panic, w.line, o.src)
+		}
+	}
+}
+
 // e4Value is an Ergo expression of the basic type k, a literal where Ergo
 // has one, and its fmt.Sprint text. Ergo has no imaginary literal
 // (syntax/scanner.go), so a complex value is a conversion of an integer.
@@ -453,9 +572,11 @@ func e4Value(t *testing.T, k *check.Basic) (expr, text string) {
 // over the Go target's category crossed with every basic type the checker
 // admits as a parameter (check.Typ, Bool to Duration) and with a literal
 // and a nonconstant argument. Since G9 (std-1) a user extern's target is
-// in the pure allowlist, which has no variadic or generic function over
-// basic types and no named basic type, so two categories remain: a
-// function, and a constant. Oracle: a function runs and prints the value;
+// in the pure allowlist, which has no generic function over basic types
+// and no named basic type, so two categories remain here: a function, and
+// a constant. (Its one variadic function, strings.NewReplacer, returns a
+// *Replacer, so only a no-result declaration binds it:
+// TestErgoRunE4DiscardVariadic.) Oracle: a function runs and prints the value;
 // a constant fails go build, and every error names the call's line (5).
 // Each call of a target in the lowered Go follows its call check, `if
 // false { defer CALL }` with the same CALL text, under the call's //line
