@@ -207,8 +207,7 @@ func stagedBuild(root, out, pkg string) []string {
 	}
 	sum := sha256.Sum256([]byte(root))
 	staging := filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), filepath.Base(out))
-	// The script's $0 names it, not a shell: TestTestCommandsHaveCacheCoverage
-	// refuses a sh -c step whose arguments name go or a shell.
+	// The script's $0 names it, not a shell.
 	return stagedBuildScript.command("stagedbuild", staging, out, pkg)
 }
 
@@ -236,8 +235,9 @@ func effectMappingStep() *Step {
 // inside the package's own module: a field removed from a main-module source
 // would replay a stale pass (gate-testcache-gap accept-base.log). The
 // observation of the main module's tests (internal/testinputs) does not reach
-// another module. TestTestCommandsHaveCacheCoverage refuses a go test of
-// another module without -count=1. Go's build cache still skips an unchanged
+// another module. The gate's uncached default (stepEnvironment) gives them
+// -count=1 too; the flag in the script keeps them uncached if the default
+// changes. Go's build cache still skips an unchanged
 // build. The script is provenanceScript, a reviewed script (reviewed.go).
 func provenanceAnalyzer(root string) []string {
 	binary := ""
