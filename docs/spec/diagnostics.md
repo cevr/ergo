@@ -22,8 +22,9 @@ A diagnostic has a position, a code and a message: `file:line:col: CODE message`
 | S111 | A context must not have two entries for one capability, except a `replace` of an embedded entry. | [rows: context](rows.md#context), README Gap 28 | `duplicate-context-entry` |
 | S112 (designed) | A map's key type must not be a resource in v0. | [resources: containers](resources.md#containers), README Gap 32 | none yet: negative example `Map[Key, string]{openKey(): "v"}` in resources.md |
 | S113 | The entry function `main` takes no parameters, returns no value (an error row is allowed) and is not called. | [rows: capability rows](rows.md#capability-rows), README Gap 4 | `main-parameter`, `main-called`, `main-value-result` |
+| S114 | Outside its package, a record with an unexported field is not built by a literal, a record update or an implicit zero value. | [types: zero values](types.md#zero-values-and-definite-initialisation) 6, [grammar: visibility](grammar.md#visibility) 3 | `TestConstructionAuthority`, `TestConstructionAuthorityShapes` |
 
-Designed codes are not emitted yet. Other designed errors in `docs/spec/` (resources, escape, exclusivity, channels of resources) get codes when [#197](https://github.com/cevr/ergo/issues/197) implements them; construction authority (types.md Zero values 6) gets S114 with packages (#196, second part).
+Designed codes are not emitted yet. Other designed errors in `docs/spec/` (resources, escape, exclusivity, channels of resources) get codes when [#197](https://github.com/cevr/ergo/issues/197) implements them.
 
 ## Rules by code
 
@@ -81,6 +82,7 @@ The checker does not restrict `main`'s capability row; the build refuses what th
 ### S104: unknown name
 
 - An unknown local, function, type, field, method, package or context (`reject/unknown-name.ergo`, `unknown-local`, `unknown-type`, `unknown-field`, `unknown-selector`, `unknown-context`).
+- Outside its package, an unexported field read, written, named as a keyed literal's key or in a record pattern, "units is not an exported field of lib.Q", and an unexported operation called, "inner is not an exported operation of lib.Ops" ([grammar](grammar.md#visibility) Visibility 2; 196b Q6; `TestFieldVisibility`). A type of another package that would implement an operation type with an unexported operation is S108, "inner is an unexported operation of lib.Ops, so only a type of package lib implements it".
 - A Go built-in function other than `len`: `make`, `new`, `cap`, `copy`, `close`, `print`, `println`, `append`, `delete`, `min`, `max`, `clear`, `panic`, `recover`, `complex`, `real` and `imag` are not predeclared. The message names the Ergo form: `xs.Append(x)`, `m.Delete(k)`, a literal, `Console.Println`, `if a < b { a } else { b }` (#196, fourth round, item 2).
 - A bare call of a prelude function on slice and Map types, `Append(xs, x)`, `Get(m, k)` or `Delete(m, k)`, which is reached only by the dot form the message names (check-v1 D-D6, D-D8; `TestPreludeDotCallRefusals`).
 - A dot call of a prelude function on slice and Map types on a defined type over a slice or Map, whose message names the assignment to the unnamed type: `let raw []int = xs; then raw.Append(…)`, choosing `raw2`, `raw3`, … when the earlier names are bound (check-v1 D-D8; `TestPreludeDotCallRefusals`, `TestRepairTextsCheck`).
@@ -218,3 +220,15 @@ Designed: a map's key type must not be a resource in v0 ([resources: containers]
 - `main` is used as a value, such as `run := main` or `call(main)`: a value would let ordinary code call it.
 
 *Prior art:* Go's `func main()` takes nothing and returns nothing (Go still allows a call of `main`; Ergo refuses it, so the host is its only caller); Gleam's `main` takes no arguments.
+
+### S114: construction authority
+
+Outside the package that declares it, a record with an unexported field, a defined type over one, and a type that holds one by value are built only by that package ([types](types.md#zero-values-and-definite-initialisation) Zero values 6; 196b Q7). Each message names the package and up to three of its exported functions whose result is the record: "lib.Q has an unexported field, so only package lib builds it; use lib.ParseQ" (`TestConstructionAuthority`, `TestConstructionAuthorityShapes`).
+
+- A literal of the record or of a defined type over it, keyed, positional or empty: `lib.Q{N: 1}`, `lib.Q{}`, `M{}` with `type M lib.Q`. A key that names an unexported field is also S104.
+- A record update of it, `lib.Q{..q, N: 2}`, even of exported fields only.
+- An implicit zero value: `let q lib.Q` with no value, in a body or at package level, also in a tuple type or an instance (`let b Box[lib.Q]`), and a keyed literal of an enclosing record that leaves a field of such a type unset (`H{B: 1}` with `A lib.Q`).
+
+Not S114: a value an exported function returns, a conversion between a defined type and its base, a pattern, a copy, and a literal or update of an enclosing record that sets the field. A record with a field of a non-defaultable type that is left unset stays S108 (Zero values 2), which comes first.
+
+*Prior art:* Rust refuses a struct literal and a functional update with a private field outside its module (E0451); Gleam's `opaque` types hide their constructors; ReScript's abstract type in an interface file hides the representation; Elixir builds `%S{}` anywhere; Go builds `Q{}` from another package.

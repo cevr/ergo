@@ -69,6 +69,10 @@ type Named struct {
 type Struct struct {
 	Fields []*Field
 	index  map[string]int
+	// obj is the record declaration whose body this is (an instance keeps
+	// its origin's), so its package owns the fields: a defined type over the
+	// record shares this body and so the package (authority.go).
+	obj *TypeName
 }
 
 // Field is a struct field.
@@ -89,6 +93,10 @@ type Interface struct {
 	// resolved (go/types NewInterfaceType): identity reads it and never
 	// sorts (round 11 M3).
 	byName []*Method
+	// obj is the operation type's declaration (an instance keeps its
+	// origin's), so its package owns the unexported operations; nil for a
+	// predeclared constraint and the context protocol (authority.go).
+	obj *TypeName
 }
 
 // TypeSet is the type set of a predeclared constraint (types.md, Generics
@@ -124,6 +132,11 @@ type Method struct {
 	Name string
 	Sig  *Signature
 	Pos  syntax.Pos
+	// pkg is the package that declares an unexported operation, part of
+	// its identity as in Go (grammar.md, Visibility 2): an inner of lib
+	// and an inner of main are different operations. Nil for an exported
+	// one and for a checker-built protocol (contextProtocol).
+	pkg *Package
 }
 
 // Union is a closed set of struct variants.

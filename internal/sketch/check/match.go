@@ -546,6 +546,10 @@ func (r *patResolver) record(x *syntax.CompositeLit, t Type, col int) resolved {
 			c.errorf(x, CodeType, "a record pattern names its fields, %s{F: p}; only a record of one field may omit the key (rows.md, Totality 1)", exprText(x.Type))
 			return r.fail(x, t)
 		}
+		if c.hiddenField(s, s.Fields[0].Name) {
+			c.errorf(x.Elts[0], CodeUnknown, "%s (grammar.md, Visibility 2)", hiddenFieldText(s, s.Fields[0].Name))
+			return r.fail(x, t)
+		}
 		fps = append(fps, fieldPat{0, x.Elts[0]})
 	} else {
 		seen := map[string]bool{}
@@ -559,6 +563,10 @@ func (r *patResolver) record(x *syntax.CompositeLit, t Type, col int) resolved {
 			f, i := s.field(id.Name)
 			if f == nil {
 				c.errorf(id, CodeUnknown, "%s has no field %s (rows.md, Totality 1)", rt, id.Name)
+				return r.fail(x, t)
+			}
+			if c.hiddenField(s, id.Name) {
+				c.errorf(id, CodeUnknown, "%s (grammar.md, Visibility 2)", hiddenFieldText(s, id.Name))
 				return r.fail(x, t)
 			}
 			if seen[id.Name] {

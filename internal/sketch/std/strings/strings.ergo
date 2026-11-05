@@ -1,0 +1,62 @@
+// Package strings works on text (docs/spec/stdlib.md, strings and strconv).
+// Each extern binds a runtime/v1 body (runtime/v1/text.go) that calls Go's
+// strings package; Cut is Ergo over Index and Slice. Lengths and indexes
+// are bytes, as len(s) is.
+
+// Split is the parts of s between each sep. An empty sep splits s after
+// each UTF-8 sequence.
+extern go ergo.local/prototype/runtime/v1.StringsSplit func Split(s string, sep string) []string
+
+// Join is the elements of xs with sep between each pair.
+extern go ergo.local/prototype/runtime/v1.StringsJoin func Join(xs []string, sep string) string
+
+// HasPrefix reports whether s begins with prefix.
+extern go ergo.local/prototype/runtime/v1.StringsHasPrefix func HasPrefix(s string, prefix string) bool
+
+// HasSuffix reports whether s ends with suffix.
+extern go ergo.local/prototype/runtime/v1.StringsHasSuffix func HasSuffix(s string, suffix string) bool
+
+// TrimSpace is s with its leading and trailing white space removed.
+extern go ergo.local/prototype/runtime/v1.StringsTrimSpace func TrimSpace(s string) string
+
+// TrimPrefix is s without prefix, or s when it does not begin with prefix.
+extern go ergo.local/prototype/runtime/v1.StringsTrimPrefix func TrimPrefix(s string, prefix string) string
+
+// TrimSuffix is s without suffix, or s when it does not end with suffix.
+extern go ergo.local/prototype/runtime/v1.StringsTrimSuffix func TrimSuffix(s string, suffix string) string
+
+// Fields is the runs of s between white space; none when s is all space.
+extern go ergo.local/prototype/runtime/v1.StringsFields func Fields(s string) []string
+
+// Repeat is n copies of s. A negative n is a defect.
+extern go ergo.local/prototype/runtime/v1.StringsRepeat func Repeat(s string, n int) string
+
+// ToLower is s with each letter in lower case.
+extern go ergo.local/prototype/runtime/v1.StringsToLower func ToLower(s string) string
+
+// ToUpper is s with each letter in upper case.
+extern go ergo.local/prototype/runtime/v1.StringsToUpper func ToUpper(s string) string
+
+// Index is the byte index of the first sub in s, or -1.
+extern go ergo.local/prototype/runtime/v1.StringsIndex func Index(s string, sub string) int
+
+// Contains reports whether sub is in s.
+extern go ergo.local/prototype/runtime/v1.StringsContains func Contains(s string, sub string) bool
+
+// Slice is the bytes of s from i up to j. An i or j outside 0..len(s), or
+// an i after j, is a defect, as an index out of range is.
+extern go ergo.local/prototype/runtime/v1.StringsSlice func Slice(s string, i int, j int) string
+
+// Halves is the text before and after a separator.
+type Halves { Before string, After string }
+
+// Cut is the text before and after the first sep in s, or None when s has
+// no sep.
+func Cut(s string, sep string) Option[Halves] {
+	let i = Index(s, sep)
+	if i < 0 {
+		None
+	} else {
+		Some[Halves]{Value: Halves{Before: Slice(s, 0, i), After: Slice(s, i + len(sep), len(s))}}
+	}
+}

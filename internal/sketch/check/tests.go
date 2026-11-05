@@ -240,6 +240,11 @@ func (c *checker) ungeneratable(t Type) string {
 			}
 			switch under := u.Underlying().(type) {
 			case *Struct:
+				if obj := literalAuthority(u, c.pkg); obj != nil {
+					// A generator builds the record field by field: only
+					// its package may (types.md, Zero values 6).
+					return authorityText(obj)
+				}
 				for _, f := range under.Fields {
 					if s := why(f.Type); s != "" {
 						return s

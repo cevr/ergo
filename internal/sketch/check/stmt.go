@@ -296,6 +296,10 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 		case len(spec.Values) == 0:
 			if declared != nil && !isInvalid(declared) && !defaultable(declared) {
 				c.errorf(spec.Names[0], CodeType, "let %s of type %s needs a value: %s has no zero value (types.md, Zero values 3)", spec.Names[0].Name, declared, declared)
+			} else if declared != nil && !isInvalid(declared) {
+				if a := zeroAuthority(declared, c.pkg); a != nil {
+					c.errorf(spec.Names[0], CodeAuthority, "let %s of type %s needs a value: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", spec.Names[0].Name, c.localTypeText(declared), qualifiedName(a), authorityText(a))
+				}
 			}
 			for _, n := range spec.Names {
 				if spec.Type == nil {

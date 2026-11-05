@@ -15,7 +15,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Package**: One unit of compilation, declared by `package name`, lowered to one Go package. The prototype compiles one file as the whole program.
 
-**Exported name** (designed; owner decision 2026-10-27): A package-level name, field or method whose first character is an upper-case letter. Only exported names are visible to other packages, as in Go. See [grammar](docs/spec/grammar.md#visibility).
+**Exported name** (owner decision 2026-10-27; implemented for fields and operations, 196b Q6): A package-level name, field or operation whose first character is an upper-case letter. Only exported names are visible to other packages, as in Go: another package's unexported field or operation is S104, and an operation type with an unexported operation is implemented only by its package's types. See [grammar](docs/spec/grammar.md#visibility).
 
 **Capability** (checked): An interface with method signatures that names replaceable behaviour, such as `Orders` or `Clock`. Code reaches it only by calling its methods on the capability name, `Orders.Find(id)`, and every such call charges the capability to the caller's capability row. The capability is not a first-class value: it cannot be passed, returned or stored (S104). See [types](docs/spec/types.md#capabilities) and [rows](docs/spec/rows.md#capability-rows).
 
@@ -87,7 +87,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Variant** (checked): One struct type listed in a union. A variant value is assignable to every union that lists it.
 
-**Defaultable type**: A type with a valid zero value: a basic type, or a struct whose fields are all defaultable. Unions, capabilities, function types, tasks, resources and borrows are not defaultable. Outside its package, a struct with an unexported field is not defaultable either, so its only values there come from the package's exported functions.
+**Defaultable type**: A type with a valid zero value: a basic type, or a struct whose fields are all defaultable. Unions, capabilities, function types, tasks, resources and borrows are not defaultable. Outside its package, a struct with an unexported field is not defaultable either, so its only values there come from the package's exported functions (construction authority, S114).
 
 **Definite initialisation** (checked for `var x T`; the rest designed, [#197](https://github.com/cevr/ergo/issues/197)): The rule that a variable of a non-defaultable type has a value before it is used.
 
@@ -287,9 +287,9 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Constant parameter default** (admitted, not implemented): A literal or named constant declared for a parameter and inserted at the call site when the argument is omitted.
 
-**Visibility** (admitted, not implemented): Whether another module may name a declaration. Declarations are private by default and exported with `pub`; the case of a name carries no meaning. Superseded 2026-10-27 by exported names (owner: "Yeah, let's go with your [recommendations]").
+**Visibility** (admitted, not implemented): Whether another module may name a declaration. Declarations are private by default and exported with `pub`; the case of a name carries no meaning. Superseded 2026-10-27 by exported names (owner: "Yeah, let's go with your [recommendations]"). Counterpart: exported name, implemented for fields, operations and construction (196b Q6).
 
-**Construction authority** (admitted, not implemented): The right to construct values of a nominal type. A `pub readonly` type lets other modules read and match its values while only its owner module constructs them. In the Go-shaped language, an unexported field gives the same authority (designed): outside the owner package, the struct has no literal and no implicit zero value (`Quantity{}`, `var q Quantity`, `make([]Quantity, n)`, a zero-filled field, a missed map lookup), so only the owner package can build the value. See [types](docs/spec/types.md#zero-values-and-definite-initialisation).
+**Construction authority** (implemented in the Go-shaped language, 196b Q7): The right to construct values of a nominal type. In the `.ef` language a `pub readonly` type let other modules read and match its values while only its owner module constructed them. In the Go-shaped language, an unexported field gives the same authority: outside the package that declares the fields, the struct, a defined type over it and a type that holds it by value have no literal, no record update and no implicit zero value (`lib.Q{}`, `lib.Q{..q, N: 2}`, `let q lib.Q`, a zero-filled field of an enclosing struct), S114, so only the owner package builds the value and its exported functions are the way in. `check.Constructible` exports the rule. See [types](docs/spec/types.md#zero-values-and-definite-initialisation) Zero values 6.
 
 **JSX pragma** (admitted, not implemented): A user-defined selection of the factory, fragment and result types to which JSX notation desugars.
 
