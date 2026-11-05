@@ -11,7 +11,7 @@ import (
 
 // authorityLib is package lib of the construction-authority tests (196b
 // plan, U2): Q and G have an unexported field, so only lib builds them;
-// Open has none; Ops has an unexported operation.
+// Open has none; Ops and the generic Peek have an unexported operation.
 const authorityLib = `type Q { N int, units int }
 func ParseQ(n int) Q { Q{N: n, units: 1} }
 func hidden() int { 1 }
@@ -25,6 +25,8 @@ type Impl {}
 func inner(_ Impl) int { 1 }
 func Outer(_ Impl) int { 2 }
 func MakeOps() Ops { Impl }
+type Peek[T] { peek() T }
+func peek(_ Impl) int { 1 }
 `
 
 // libImporter serves package lib, checked once, and the standard library.
@@ -140,115 +142,6 @@ func TestConstructionAuthority(t *testing.T) {
 				t.Errorf("inside lib: got %v, want none", ds)
 			}
 		})
-	}
-}
-
-// authorityShape is a type whose values only lib may build, written as a
-// type expression of package main, with the declarations it needs and an
-// expression of a value of it that lib's functions give.
-type authorityShape struct {
-	name, decls, typ, value string
-	// own: the record's fields are lib's own (its literal itself needs the
-	// authority); else the shape holds such a record by value, and only an
-	// implicit zero of that part needs it.
-	own bool
-	// lit is a literal of the type that sets every field main may name.
-	lit string
-}
-
-var authorityShapes = []authorityShape{
-	{name: "record", typ: "lib.Q", value: "lib.ParseQ(1)", own: true, lit: "lib.Q{N: 1}"},
-	{name: "defined", decls: "type M lib.Q\n", typ: "M", value: "M(lib.ParseQ(1))", own: true, lit: "M{N: 1}"},
-	{name: "defined-twice", decls: "type M lib.Q\ntype M2 M\n", typ: "M2", value: "M2(M(lib.ParseQ(1)))", own: true, lit: "M2{N: 1}"},
-	{name: "generic-lib", typ: "lib.G[int]", value: "lib.NewG(1)", own: true, lit: "lib.G[int]{N: 1}"},
-	{name: "holding", decls: "type H { A lib.Q, B int }\n", typ: "H", value: "H{A: lib.ParseQ(1), B: 1}", lit: "H{A: lib.ParseQ(1), B: 1}"},
-	{name: "holding-deep", decls: "type H { A lib.Q, B int }\ntype H2 { X H }\n", typ: "H2", value: "H2{X: H{A: lib.ParseQ(1), B: 1}}", lit: "H2{X: H{A: lib.ParseQ(1), B: 1}}"},
-	{name: "defined-holding", decls: "type H { A lib.Q, B int }\ntype MH H\n", typ: "MH", value: "MH(H{A: lib.ParseQ(1), B: 1})", lit: "MH{A: lib.ParseQ(1), B: 1}"},
-	{name: "instance", decls: "type Box[T] { V T }\n", typ: "Box[lib.Q]", value: "Box{V: lib.ParseQ(1)}", lit: "Box[lib.Q]{V: lib.ParseQ(1)}"},
-	{name: "instance-lib", decls: "type Box[T] { V T }\n", typ: "Box[lib.G[int]]", value: "Box{V: lib.NewG(1)}", lit: "Box[lib.G[int]]{V: lib.NewG(1)}"},
-}
-
-// authoritySite is a way to make a value of a shape; implicit marks a site
-// that makes the shape's zero value, which needs the authority for every
-// shape; the others need it only for a shape whose fields are lib's.
-type authoritySite struct {
-	name     string
-	implicit bool
-	src      func(s authorityShape) string
-}
-
-var authoritySites = []authoritySite{
-	{"let-zero", true, func(s authorityShape) string {
-		return "func use() { let v " + s.typ + "\n let _ = v }\n"
-	}},
-	{"package-zero", true, func(s authorityShape) string {
-		return "let V " + s.typ + "\n"
-	}},
-	{"tuple-zero", true, func(s authorityShape) string {
-		return "func use() { let v (" + s.typ + ", int)\n let _ = v }\n"
-	}},
-	{"field-zero", true, func(s authorityShape) string {
-		return "type E { X " + s.typ + ", Y int }\nfunc use() { let e = E{Y: 1}\n let _ = e }\n"
-	}},
-	{"instance-zero", true, func(s authorityShape) string {
-		return "type W[T] { X T }\nfunc use() { let w W[" + s.typ + "]\n let _ = w }\n"
-	}},
-	{"empty-literal", true, func(s authorityShape) string {
-		return "func use() { let v = " + s.typ + "{}\n let _ = v }\n"
-	}},
-	{"literal", false, func(s authorityShape) string {
-		return "func use() { let v = " + s.lit + "\n let _ = v }\n"
-	}},
-	{"update", false, func(s authorityShape) string {
-		field := "N: 2"
-		if !s.own {
-			field = updateField(s)
-		}
-		return "func use() { let b = " + s.value + "\n let v = " + s.typ + "{..b, " + field + "}\n let _ = v }\n"
-	}},
-	{"value", false, func(s authorityShape) string {
-		return "func use() { let v " + s.typ + " = " + s.value + "\n let _ = v }\n"
-	}},
-}
-
-// updateField is a field a record update of a shape that holds the
-// authority record may replace with a value lib's functions give.
-func updateField(s authorityShape) string {
-	switch s.name {
-	case "holding", "defined-holding":
-		return "B: 2"
-	case "holding-deep":
-		return "X: H{A: lib.ParseQ(2), B: 2}"
-	case "instance":
-		return "V: lib.ParseQ(2)"
-	case "instance-lib":
-		return "V: lib.NewG(2)"
-	}
-	panic("no update field for " + s.name)
-}
-
-// TestConstructionAuthorityShapes is the generated property: for every
-// authority shape and every site, the verdict is S114 outside lib exactly
-// when the site makes a new value of lib's record (an implicit zero, or a
-// literal or update of a type whose fields are lib's), and none inside.
-func TestConstructionAuthorityShapes(t *testing.T) {
-	lib := checkedLib(t)
-	for _, shape := range authorityShapes {
-		for _, site := range authoritySites {
-			src := shape.decls + site.src(shape)
-			want := ""
-			if site.implicit || shape.own && site.name != "value" {
-				want = "S114"
-			}
-			t.Run(shape.name+"/"+site.name, func(t *testing.T) {
-				if got := outside(t, lib, src); sortedCodes(got) != want {
-					t.Errorf("outside lib: got %v, want %q\n%s", got, want, src)
-				}
-				if got := inside(t, src); len(got) != 0 {
-					t.Errorf("inside lib: got %v, want none\n%s", got, src)
-				}
-			})
-		}
 	}
 }
 

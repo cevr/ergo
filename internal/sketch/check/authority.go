@@ -185,32 +185,63 @@ func hiddenFieldText(s *Struct, name string) string {
 // hiddenOperation is the S104 text of a call of the operation name of it
 // from this package, or "" when the call is allowed.
 func (c *checker) hiddenOperation(it *Interface, name string) string {
-	if it == nil || it.obj == nil || it.obj.Pkg == c.pkg || isExported(name) {
+	if it == nil {
 		return ""
 	}
-	return name + " is not an exported operation of " + qualifiedName(it.obj)
+	m := it.method(name)
+	if m == nil || m.pkg == nil || m.pkg == c.pkg {
+		return ""
+	}
+	return name + " is not an exported operation of " + operationOwner(it, m)
 }
 
-// sealedBy is why v does not implement the unexported operation m of it:
-// only a type of it's package implements it, as in Go. implFn is the
-// function that would implement it, when v's method is one.
+// operationOwner names the operation type that declares m, for a message.
+func operationOwner(it *Interface, m *Method) string {
+	if it.obj != nil {
+		return qualifiedName(it.obj)
+	}
+	return "an operation type of package " + m.pkg.Name
+}
+
+// operation is the operation name of t's operation set when t is an
+// operation type, a type defined over one, a type parameter (its
+// constraint's) or a pointer to one of them: the method methodOf finds
+// when it returns no function.
+func operation(t Type, name string) *Method {
+	switch t := t.(type) {
+	case *Pointer:
+		return operation(t.Elem, name)
+	case *TypeParam:
+		if it := asInterface(t.Constraint); it != nil {
+			return it.method(name)
+		}
+		return nil
+	}
+	if it := asInterface(t); it != nil {
+		return it.method(name)
+	}
+	return nil
+}
+
+// sealedBy is why v does not implement the unexported operation m of it.
+// An unexported operation's identity is its name and its package (Method
+// pkg), as in Go: v's operation of that name is the same one only when it
+// comes from the same package, whether v's is a function (implFn), an
+// operation of an operation type or of a type parameter's constraint
+// (196b Q6). So a type of another package does not implement it, directly
+// or through a constraint of its own.
 func sealedBy(v Type, it *Interface, m *Method, implFn *Func) string {
-	if it.obj == nil || isExported(m.Name) {
+	if m.pkg == nil {
 		return ""
 	}
 	var pkg *Package
-	switch {
-	case implFn != nil:
+	if implFn != nil {
 		pkg = implFn.Pkg
-	default:
-		n, ok := v.(*Named)
-		if !ok {
-			return "" // a type parameter's constraint: its own operations
-		}
-		pkg = n.origin().Obj.Pkg
+	} else if src := operation(v, m.Name); src != nil {
+		pkg = src.pkg
 	}
-	if pkg == it.obj.Pkg {
+	if pkg == m.pkg {
 		return ""
 	}
-	return m.Name + " is an unexported operation of " + qualifiedName(it.obj) + ", so only a type of package " + it.obj.Pkg.Name + " implements it"
+	return m.Name + " is an unexported operation of " + operationOwner(it, m) + ", so only a type of package " + m.pkg.Name + " implements it"
 }

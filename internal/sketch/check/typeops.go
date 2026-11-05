@@ -81,7 +81,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj}
 		newOf := make(map[*Method]*Method, len(t.Methods))
 		for i, mt := range t.Methods {
-			it.Methods[i] = &Method{Name: mt.Name, Sig: c.subst(mt.Sig, m).(*Signature), Pos: mt.Pos}
+			it.Methods[i] = &Method{Name: mt.Name, Sig: c.subst(mt.Sig, m).(*Signature), Pos: mt.Pos, pkg: mt.pkg}
 			newOf[mt] = it.Methods[i]
 		}
 		// The order sorted at resolution carries over (no sort here).

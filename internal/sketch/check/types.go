@@ -132,6 +132,11 @@ type Method struct {
 	Name string
 	Sig  *Signature
 	Pos  syntax.Pos
+	// pkg is the package that declares an unexported operation, part of
+	// its identity as in Go (grammar.md, Visibility 2): an inner of lib
+	// and an inner of main are different operations. Nil for an exported
+	// one and for a checker-built protocol (contextProtocol).
+	pkg *Package
 }
 
 // Union is a closed set of struct variants.

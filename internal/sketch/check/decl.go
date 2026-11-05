@@ -765,6 +765,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 		}
 		seen[name.Name] = true
 		m := &Method{Name: name.Name, Sig: sig, Pos: name.Pos()}
+		if !isExported(name.Name) {
+			m.pkg = c.pkg
+		}
 		it.Methods = append(it.Methods, m)
 		c.def(name, m)
 		c.defParams(ft, sig)
