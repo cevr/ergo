@@ -23,7 +23,7 @@ const sandboxReadyTimeout = 5 * time.Minute
 // Closing the holder's input ends both, and the kernel stops every process
 // left in the namespaces.
 type sandbox struct {
-	holder, bwrap *exec.Cmd
+	holder, bwrap  *exec.Cmd
 	holdIn, wrapIn io.Closer
 	nsenter        string
 	pid            int

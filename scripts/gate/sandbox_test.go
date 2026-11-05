@@ -23,7 +23,7 @@ func unsandboxed(sandboxPlan) (enclosure, error) { return hostEnclosure{}, nil }
 type hostEnclosure struct{}
 
 func (hostEnclosure) wrap(argv []string, _ string) []string { return argv }
-func (hostEnclosure) close() error                         { return nil }
+func (hostEnclosure) close() error                          { return nil }
 
 // sandboxMount is one mount in bwrap's argv, in order.
 type sandboxMount struct {
@@ -278,7 +278,9 @@ func TestMergeTierFailsClosed(t *testing.T) {
 	})
 	t.Run("sandbox fails to start", func(t *testing.T) {
 		g := wholeFixture(t, root, steps)
-		g.openSandbox = func(sandboxPlan) (enclosure, error) { return nil, errors.New("no user namespace: operation not permitted") }
+		g.openSandbox = func(sandboxPlan) (enclosure, error) {
+			return nil, errors.New("no user namespace: operation not permitted")
+		}
 		check(t, g, "no user namespace")
 	})
 	t.Run("changes", func(t *testing.T) {
