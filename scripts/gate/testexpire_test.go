@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +41,80 @@ func without(environment []string, names ...string) []string {
 		}
 	}
 	return kept
+}
+
+// withExpiry turns the expiry on for t's gate runs (TestMain turns it off,
+// expireBeforeRun) with Go caches of t's own: GOCACHE, XDG_CACHE_HOME and
+// HOME are new directories and GOENV is off, so no form of a step's
+// environment names a cache that another process uses.
+func withExpiry(t *testing.T) {
+	t.Helper()
+	base := t.TempDir()
+	t.Setenv("GOCACHE", filepath.Join(base, "gocache"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(base, "xdg"))
+	t.Setenv("HOME", filepath.Join(base, "home"))
+	t.Setenv("GOENV", "off")
+	expireBeforeRun = true
+	t.Cleanup(func() { expireBeforeRun = false })
+}
+
+// TestExpiryIsOnOutsideTests: the gate expires before every run unless its
+// own TestMain says otherwise. The declaration is true, and no file of the
+// gate that is not a test writes it.
+func TestExpiryIsOnOutsideTests(t *testing.T) {
+	fset := token.NewFileSet()
+	packages, err := parser.ParseDir(fset, ".", func(info fs.FileInfo) bool { return !strings.HasSuffix(info.Name(), "_test.go") }, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared := false
+	for _, pkg := range packages {
+		for _, file := range pkg.Files {
+			ast.Inspect(file, func(node ast.Node) bool {
+				switch node := node.(type) {
+				case *ast.ValueSpec:
+					for i, name := range node.Names {
+						if name.Name == "expireBeforeRun" {
+							value, ok := node.Values[i].(*ast.Ident)
+							declared = ok && value.Name == "true"
+						}
+					}
+				case *ast.AssignStmt:
+					for _, lhs := range node.Lhs {
+						if ident, ok := lhs.(*ast.Ident); ok && ident.Name == "expireBeforeRun" {
+							t.Errorf("%s: gate code writes expireBeforeRun; only the gate's TestMain may turn the expiry off", fset.Position(node.Pos()))
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	if !declared {
+		t.Error("expireBeforeRun is not declared true")
+	}
+}
+
+// TestFixtureGatesKeepTheCallersCaches: a fixture gate that a test of the
+// gate runs leaves the caller's Go cache unexpired, so a real gate whose
+// step runs these tests keeps its other steps' test results within the
+// run (cause-r5.log).
+func TestFixtureGatesKeepTheCallersCaches(t *testing.T) {
+	if realTools["go"] == "" {
+		t.Skip("no go on PATH")
+	}
+	dir := goEnvCache(t, ".", os.Environ())
+	before, _ := os.ReadFile(filepath.Join(dir, "testexpire.txt"))
+	root := fixture(t)
+	if code, out := runGate(t, root, t.TempDir(), []*Step{{Name: "go version", Argv: []string{"go", "version"}}}); code != 0 {
+		t.Fatalf("fixture gate: exit %d\n%s", code, out)
+	} else if strings.Contains(out, "gate: expired Go test results") {
+		t.Errorf("a fixture gate expired Go test results:\n%s", out)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "testexpire.txt"))
+	if !bytes.Equal(before, after) {
+		t.Errorf("a fixture gate expired the caller's Go cache %s: testexpire.txt %q, then %q", dir, before, after)
+	}
 }
 
 // TestReachableTestCachesAreExpired is the property of the expiry (spec
@@ -173,9 +251,7 @@ func TestFreshChildEnvironmentsDoNotReplay(t *testing.T) {
 	}
 	t.Setenv("GOFLAGS", "")
 	t.Setenv("GOWORK", "off")
-	// A HOME of its own: the fresh environment without GOCACHE uses its
-	// .cache/go-build, a cache no other test shares.
-	t.Setenv("HOME", t.TempDir())
+	withExpiry(t)
 	for _, mode := range []string{"fresh-gocache", "fresh-no-gocache", "inherited"} {
 		for _, tier := range []string{"gate", "merge"} {
 			t.Run(mode+" "+tier, func(t *testing.T) {
