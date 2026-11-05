@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -164,6 +165,73 @@ func TestCPUBudgetScopedReceipt(t *testing.T) {
 	if code, _ := run("2", t.TempDir()); code != 1 {
 		t.Errorf("budget 2 on a fresh cache: exit %d, want 1", code)
 	}
+}
+
+// effectiveVariable names the shared cache of TestCPUBudgetKeysTheEffectiveBudget's
+// helper; the helper runs only when it is set.
+const effectiveVariable = "GATE_EFFECTIVE_CACHE"
+
+// The step receipt key holds the effective budget, not the requested one:
+// with ERGO_GATE_CPUS=8 fixed, a gate in a cgroup with CPUQuota=200% (budget
+// 2) records a pass that a gate under CPUQuota=400% (budget 4) on the same
+// cache does not replay; it runs the step, as a gate on a fresh cache does
+// (the round-2 verifier's TestR2EffectiveBudgetKey). The step passes only at
+// -p=2 and declares only sh, so only the step key's budget line keeps the
+// pass from crossing.
+func TestCPUBudgetKeysTheEffectiveBudget(t *testing.T) {
+	if _, err := exec.LookPath("systemd-run"); err != nil {
+		t.Skip("no systemd-run")
+	}
+	if usableCPUsOnce() < 4 {
+		t.Skip("fewer than 4 usable CPUs: no budget 4")
+	}
+	slice := testSlice(t)
+	t.Setenv(cpuVariable, "8")
+	t.Setenv("GOMAXPROCS", "1")
+	t.Setenv("GOFLAGS", "")
+	root, shared := fixture(t), t.TempDir()
+	run := func(quota, cache string) (int, int, string) {
+		t.Helper()
+		command := exec.Command("systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice="+slice, "-p", "CPUQuota="+quota, "--",
+			os.Args[0], "-test.run=^TestCPUBudgetEffectiveHelper$", "-test.count=1", "-test.v")
+		command.Env = append(scopeEnvironment(""), effectiveVariable+"="+cache, "GATE_EFFECTIVE_ROOT="+root)
+		out, err := command.CombinedOutput()
+		text := string(out)
+		var code, budget int
+		_, verdict, _ := strings.Cut(text, "effective budget=")
+		if _, scanErr := fmt.Sscanf(verdict, "%d verdict=%d", &budget, &code); scanErr != nil {
+			t.Fatalf("quota %s: %v, no verdict (%v):\n%s", quota, err, scanErr, text)
+		}
+		return budget, code, text
+	}
+	if budget, code, text := run("200%", shared); budget != 2 || code != 0 {
+		t.Fatalf("quota 200%%: budget %d exit %d, want budget 2 and a pass:\n%s", budget, code, text)
+	}
+	budget, reused, text := run("400%", shared)
+	if budget != 4 {
+		t.Fatalf("quota 400%%: budget %d, want 4:\n%s", budget, text)
+	}
+	_, fresh, _ := run("400%", t.TempDir())
+	if reused != fresh || fresh != 1 || strings.Contains(text, "cached") {
+		t.Errorf("quota 400%% on the 200%% cache: exit %d, on a fresh cache %d; want both 1, the step run again:\n%s", reused, fresh, text)
+	}
+}
+
+// TestCPUBudgetEffectiveHelper is the gate TestCPUBudgetKeysTheEffectiveBudget
+// runs in each quota.
+func TestCPUBudgetEffectiveHelper(t *testing.T) {
+	cache := os.Getenv(effectiveVariable)
+	if cache == "" {
+		t.Skip("a helper of TestCPUBudgetKeysTheEffectiveBudget")
+	}
+	g := wholeFixture(t, os.Getenv("GATE_EFFECTIVE_ROOT"), []*Step{{
+		Name:   "effective-sensitive",
+		Argv:   []string{"sh", "-c", `p=${GOFLAGS##*-p=}; p=${p%% *}; echo "p=$p"; test "$p" = 2`},
+		Inputs: &Inputs{Paths: []string{"src/"}, Tools: []string{"sh"}},
+	}})
+	g.cacheDir = cache
+	code, out := runWhole(t, g)
+	fmt.Printf("%s\neffective budget=%d verdict=%d\n", out, stepCPUs(), code)
 }
 
 // A gate in a scope without its CPU quota refuses to run a step, and says
