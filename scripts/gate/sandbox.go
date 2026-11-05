@@ -32,9 +32,8 @@ import (
 // The writable directories are on disk, not tmpfs, measured: on tmpfs the
 // gate's own tests refused their output spools (the gate keeps a step's
 // output on disk, never in memory), a directory-order test of
-// internal/sketch/build failed, and the uncached Go tests' peak memory
-// rose from 2.6G to 6.7G against an 8G step budget, the build cache's pages
-// charged to the step.
+// internal/sketch/build failed, and every byte a step wrote (a cold build
+// cache, gigabytes) would be charged to the step's memory budget.
 //
 // The run's processes enter the sandbox per step (sandbox.wrap): each step
 // still runs as the gate's child, under the gate's memory limiter and with
