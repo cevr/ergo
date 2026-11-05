@@ -2,7 +2,12 @@ package check_test
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -24,6 +29,52 @@ func TestPureGoPackages(t *testing.T) {
 	got[0] = "os"
 	if check.PureGoPackage("os") || !check.PureGoPackage("math") {
 		t.Fatal("PureGoPackages returned the list itself, not a copy")
+	}
+}
+
+// TestPureGoPackagesMatchRuntime guards the one list (G9 with G5b): the
+// checker's allowlist equals runtime/v1's PureImports, the imports a pure
+// std body's file may have, read from its source. Before G5b merges,
+// runtime/v1 has no PureImports and the test skips; the batch merge then
+// points the checker at v1.PureImports, and this test catches any drift
+// left in between.
+func TestPureGoPackagesMatchRuntime(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "runtime", "v1", "files.go")
+	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runtime []string
+	found := false
+	ast.Inspect(f, func(n ast.Node) bool {
+		vs, ok := n.(*ast.ValueSpec)
+		if !ok || len(vs.Names) != 1 || vs.Names[0].Name != "PureImports" || len(vs.Values) != 1 {
+			return true
+		}
+		found = true
+		lit, ok := vs.Values[0].(*ast.CompositeLit)
+		if !ok {
+			t.Fatalf("PureImports is not a literal list: %T", vs.Values[0])
+		}
+		for _, e := range lit.Elts {
+			b, ok := e.(*ast.BasicLit)
+			if !ok || b.Kind != token.STRING {
+				t.Fatalf("PureImports has a non-string element: %T", e)
+			}
+			s, err := strconv.Unquote(b.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime = append(runtime, s)
+		}
+		return false
+	})
+	if !found {
+		t.Skip("runtime/v1 declares no PureImports yet (G5b)")
+	}
+	slices.Sort(runtime)
+	if got := check.PureGoPackages(); !slices.Equal(got, runtime) {
+		t.Fatalf("the checker's allowlist %v differs from runtime/v1 PureImports %v", got, runtime)
 	}
 }
 

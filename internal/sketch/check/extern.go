@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/std"
@@ -132,14 +133,20 @@ func externTargetRefusal(f *Func) (string, string) {
 // no environment, no clock, no randomness, no process). Any other package
 // may reach the host, and a user extern has no needs row (C26), so its
 // call would be a hidden effect. NORTH_STAR: public effect contracts are
-// explicit. The list is the one source for std's purity fact too (G5b,
-// runtime/v1/files.go): read it through PureGoPackages or PureGoPackage.
-// Keep it sorted.
-var pureGoPackages = [...]string{"math", "slices", "sort", "strconv", "strings", "unicode/utf8"}
+// explicit.
+//
+// The list has one owner: std's purity fact (G5b), runtime/v1's
+// PureImports, the imports a pure Go body's file may have. This variable
+// is the one reference to it in the checker; the batch merge with G5b
+// points it at v1.PureImports. Until then it is a copy, and
+// TestPureGoPackagesMatchRuntime fails when the two lists differ.
+var pureGoPackages = []string{"math", "slices", "sort", "strconv", "strings", "unicode/utf8"}
 
 // PureGoPackages returns a copy of the pure allowlist, sorted.
 func PureGoPackages() []string {
-	return append([]string(nil), pureGoPackages[:]...)
+	out := slices.Clone(pureGoPackages)
+	slices.Sort(out)
+	return out
 }
 
 // PureGoPackage reports whether path, a Go import path, is in the pure
@@ -147,12 +154,7 @@ func PureGoPackages() []string {
 // ("stringsx"), a vendored path ("vendor/strings") or a module path
 // ("example.com/strings") is not in it.
 func PureGoPackage(path string) bool {
-	for _, p := range pureGoPackages {
-		if p == path {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pureGoPackages, path)
 }
 
 // hostText is the S109 of a user extern whose Go package is outside the
@@ -163,7 +165,7 @@ func hostText(path, target string) string {
 	if path == "os" {
 		route = "std os.Process"
 	}
-	return fmt.Sprintf("extern go %s reaches the host; use %s, or wait for #202 (a user extern binds only the pure Go packages %s)", target, route, strings.Join(pureGoPackages[:], ", "))
+	return fmt.Sprintf("extern go %s reaches the host; use %s, or wait for #202 (a user extern binds only the pure Go packages %s)", target, route, strings.Join(PureGoPackages(), ", "))
 }
 
 // externOutsideDomain names the first part of f's signature outside the
