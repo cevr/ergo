@@ -17,8 +17,7 @@ import (
 
 // The gate reuses results at three layers: Go's test cache inside a go test
 // step (only in the hermetic exception, Step.Hermetic: every other step runs
-// its go tests with -count=1 in GOFLAGS, and each run first expires the
-// results saved before it, testexpire.go), a step's receipt (Inputs) and the
+// its go tests with -count=1 in GOFLAGS), a step's receipt (Inputs) and the
 // whole-gate record. Each layer must key every input the result read, or an
 // incremental gate replays a pass that a fresh run fails.
 // TestGateCacheParityModel runs the gate on a small checkout, with real Go
@@ -209,9 +208,8 @@ const (
 type parityConfig struct {
 	name string
 	// cachedControls puts the provenance step in the hermetic exception
-	// (Step.Hermetic), which is not hermetic, drops its own -count=1 and
-	// gives the controls a Go cache of the script's own, which the expiry
-	// does not reach, so Go's test cache may replay them across gate runs.
+	// (Step.Hermetic), which is not hermetic, and drops its own -count=1, so
+	// Go's test cache may replay its controls.
 	cachedControls bool
 	// mappingReceipt gives the mapping step its old Inputs.
 	mappingReceipt bool
@@ -230,10 +228,7 @@ func (c parityConfig) steps(t *testing.T, root string, epoch int) []*Step {
 			t.Fatalf("the provenance script has no uncached controls to restore the cache of: %q", script)
 		}
 		provenance.Argv = slices.Clone(provenance.Argv)
-		// The expiry (testexpire.go) reaches every cache the step's
-		// environment names; a cache the script names itself is the case it
-		// excludes, so the controls' results persist across gate runs.
-		provenance.Argv[2] = strings.Replace(script, "go test -C tools/provenance -count=1 ", "GOCACHE="+t.TempDir()+" go test -C tools/provenance ", 1)
+		provenance.Argv[2] = strings.Replace(script, "go test -C tools/provenance -count=1 ", "go test -C tools/provenance ", 1)
 		provenance.Hermetic = true
 	}
 	mapping := effectMappingStep()
@@ -533,8 +528,7 @@ const paritySeed = 10
 //     follows.
 //   - Two negative controls restore what this unit removed: cached provenance
 //     controls (the step in the hermetic exception, without its own
-//     -count=1, in a Go cache the expiry does not reach), and the mapping
-//     step's old receipt. The
+//     -count=1), and the mapping step's old receipt. The
 //     model predicts their stale passes, and each must occur from a real
 //     cache hit (cmd/go's "(cached)", the gate's "ok, cached"), so the
 //     fixture can see the failure the design refuses.

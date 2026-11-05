@@ -320,8 +320,6 @@ var declaredSources = map[string]string{
 	"TestMain tool":                                           "go or git, to find the real tools",
 	"probe realTools[\"go\"]":                                 "the real go of TestMain (realTools)",
 	"TestRealGoEnvironmentReportsItsGoroot realTools[\"go\"]": "the real go of TestMain (realTools)",
-	"goEnvCache realTools[\"go\"]":                            "the real go of TestMain (realTools)",
-	"TestFreshChildEnvironmentsDoNotReplay launcher[0]":       "go, the step's program the test runs outside the gate as its witness",
 }
 
 // scriptVariables are programs a step's script runs by a variable.
