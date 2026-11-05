@@ -36,9 +36,6 @@ func TestMain(m *testing.M) {
 		defer os.RemoveAll(stub)
 		testScratch = stub
 		startEnvironment = os.Environ()
-		// Fixture gates do not expire the caller's Go caches
-		// (expireBeforeRun); the expiry's own tests turn it on.
-		expireBeforeRun = false
 		bin, goroot := filepath.Join(stub, "bin"), filepath.Join(stub, "goroot")
 		files := map[string]string{
 			filepath.Join(goroot, "VERSION"): "go1.0.0-stub\n",

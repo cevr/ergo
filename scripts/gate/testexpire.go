@@ -40,16 +40,6 @@ import (
 // step changes during the run after another child in the same run saved a
 // result that read it.
 
-// expireBeforeRun is whether run expires the reachable test results. Only
-// this package's TestMain turns it off, for the fixture gates its tests
-// run: those run inside a step of a real gate, and their expiry would
-// expire that gate's caches while its other steps run (cause-r5.log: an
-// expiry every 2 s fails 19 cases of internal/testinputs, which rely on
-// Go's test cache within their own run). The tests of the expiry turn it
-// on with caches of their own (withExpiry). TestExpiryIsOnOutsideTests
-// checks that no other code writes it.
-var expireBeforeRun = true
-
 // cacheReductions are the variables each reduced form of a step's
 // environment drops, in order: the step's environment itself, then without
 // GOCACHE, then without GOCACHE and XDG_CACHE_HOME.

@@ -589,14 +589,12 @@ func (g *gate) run(out io.Writer) int {
 	// Before the first step: no go test a step starts, whatever
 	// environment it has, replays a result from before this run
 	// (testexpire.go). The merge tier's runs come here too.
-	if expireBeforeRun {
-		line, err := g.expireTestResults(g.steps)
-		if err != nil {
-			fmt.Fprintln(out, "gate: expire Go test results:", err)
-			return 2
-		}
-		fmt.Fprintln(out, line)
+	line, err := g.expireTestResults(g.steps)
+	if err != nil {
+		fmt.Fprintln(out, "gate: expire Go test results:", err)
+		return 2
 	}
+	fmt.Fprintln(out, line)
 
 	results := make([]*result, len(g.steps))
 	done := make([]chan struct{}, len(g.steps))
