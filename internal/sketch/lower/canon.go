@@ -26,14 +26,24 @@ import (
 //     goes through it. The lowerer holds no Unit, so after the entry no
 //     code can reach the caller's order of files or imports.
 //
-// What the tests of this package prove about layer 2, and no more:
+//  3. Sets (round 7). A row's elements, a row value's variants and a
+//     catch's subjects are sets, which the checker holds in intern order,
+//     the order it met the types. The lowering enumerates a set only
+//     through its canonical view (check.CanonElems, CanonVariants,
+//     CanonCatchSubjects, CanonEntryUses: sorted by check.TypeKey), and
+//     rowElems, its one walk of a row, returns check.CanonSet order.
+//
+// What the tests of this package prove about layers 2 and 3, and no more:
 // TestLoweringReadsCanonicalLists finds each direct read of a list field
-// (by its go/types field object) outside this file and Validate;
+// or a set (by its go/types object) outside this file and Validate, but
+// for the named reads of a declared union's variants (setAllowed);
 // TestLoweringUnitStaysAtEntries finds each expression of a Unit type
 // outside the entry functions; TestLoweringImportsNoReflection finds an
 // import of reflect or unsafe. A helper in another package that takes a
 // check.Package is not seen by them; layer 1 is what makes its result
-// canonical (TestRawTestsReaderIsCanonical).
+// canonical (TestRawListEscapesAreCanonical). TestLoweringSetsAreCanonical
+// compares output and refusals over every order of the files that intern
+// a set's members.
 //
 // The canonical order of each list kind:
 //
@@ -238,13 +248,6 @@ func (c *canonical) tests(p *check.Package) []*check.Test {
 	}
 	return p.Tests
 }
-
-// testsRead reads the tests the test build runs (runTests). It is
-// canonical.tests; TestRawTestsReaderIsCanonical routes it through a
-// reader of the raw list in another package, the round 5 escape, and
-// requires the same output, which the producer's order (check/canon.go)
-// gives.
-var testsRead = (*canonical).tests
 
 // initOrder is p's package-level initializers in the checker's
 // initialization order, which is semantic (see above).

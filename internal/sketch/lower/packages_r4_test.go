@@ -23,14 +23,40 @@ var rawLists = map[string]map[string][]string{
 	"ergo.local/prototype/internal/sketch/lower": {"Unit": {"Files", "Sources", "Imports"}},
 }
 
-// rawListReads returns each use, in src, of a raw list field outside the
-// places that may read one: canon.go, which builds the canonical unit, and
-// Validate and validateFiles in lower.go, which check the Unit before it.
-// A use is matched by the field object itself (the *types.Var that go/types
-// resolves the selector to), not by how the receiver's type is written. An
-// alias, a defined type over the struct, an embedded struct (a promoted
-// field) and a local copy type all resolve to the same field object.
-func rawListReads(t *testing.T, src *typedSource) []string {
+// rawSets are the sets of the check result (check/canon.go, kind b): the
+// fields and the method (Row.Elems) that enumerate one in the checker's
+// intern order, by the type that declares them. Round 7.
+var rawSets = map[string][]string{
+	"Union":        {"Variants"},
+	"Match":        {"Subjects"},
+	"ContextEntry": {"Uses"},
+	"Row":          {"Elems"},
+}
+
+// setAllowed are the reads of a set field that may stay, by "file:func
+// object", each with its reason. A read of an unlisted one is reported, and
+// an entry that matches no read is stale (TestLoweringReadsCanonicalLists).
+var setAllowed = map[string]string{
+	"decls.go:typeDecl Union.Variants":       "a declared union's variants, in declaration order (kind a)",
+	"decls.go:optionVariants Union.Variants": "the prelude's declared Option: its length and membership by name",
+	"literal.go:litTypes Union.Variants":     "a declared union (a Named's underlying), declaration order",
+	"literal.go:litFunc Union.Variants":      "a declared union (a Named's underlying), declaration order",
+	"tests.go:genNamed Union.Variants":       "a declared union (a Named's underlying), declaration order",
+	"tests.go:genFunc Union.Variants":        "a declared union (a Named's underlying), declaration order",
+	"text.go:textVariants Union.Variants":    "a declared union (a Named's underlying), declaration order",
+	"text.go:instancesOf Union.Variants":     "a declared union's variants; the row value's go through CanonVariants",
+	"expr.go:patternCatch Union.Variants":    "builds the row value from CanonCatchSubjects (a literal key, not a read)",
+}
+
+// rawListReads returns each use, in src, of a raw list field or a set
+// outside the places that may read one: canon.go, which builds the
+// canonical unit, Validate and validateFiles in lower.go, which check the
+// Unit before it, and the entries of allowed, which it reports as used. A
+// use is matched by the object itself (the *types.Var or *types.Func that
+// go/types resolves the selector to), not by how the receiver's type is
+// written. An alias, a defined type over the struct, an embedded struct (a
+// promoted field) and a local copy type all resolve to the same object.
+func rawListReads(t *testing.T, src *typedSource, allowed map[string]string, used map[string]bool) []string {
 	t.Helper()
 	raw := map[types.Object]string{}
 	for _, pkg := range append([]*types.Package{src.pkg}, src.pkg.Imports()...) {
@@ -46,9 +72,21 @@ func rawListReads(t *testing.T, src *typedSource) []string {
 				}
 			}
 		}
+		if path != "ergo.local/prototype/internal/sketch/check" {
+			continue
+		}
+		for typ, names := range rawSets {
+			for _, name := range names {
+				obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(pkg.Scope().Lookup(typ).Type()), false, pkg, name)
+				if obj == nil {
+					t.Fatalf("no %s.%s", typ, name)
+				}
+				raw[obj] = typ + "." + name
+			}
+		}
 	}
-	if len(raw) != 8 {
-		t.Fatalf("found %d of the 8 raw list fields", len(raw))
+	if want := 8 + len(rawSets); len(raw) != want {
+		t.Fatalf("found %d of the %d raw list and set objects", len(raw), want)
 	}
 	var found []string
 	for _, f := range src.files {
@@ -64,7 +102,12 @@ func rawListReads(t *testing.T, src *typedSource) []string {
 			ast.Inspect(decl, func(n ast.Node) bool {
 				if id, ok := n.(*ast.Ident); ok {
 					if name, ok := raw[src.info.Uses[id]]; ok {
-						found = append(found, fmt.Sprintf("%s:%s %s", file, fn, name))
+						site := fmt.Sprintf("%s:%s %s", file, fn, name)
+						if _, ok := allowed[site]; ok {
+							used[site] = true
+						} else {
+							found = append(found, site)
+						}
 					}
 				}
 				return true
@@ -84,10 +127,27 @@ func rawListReads(t *testing.T, src *typedSource) []string {
 // TestLoweringImportsNoReflection cover those routes (canon.go). The
 // fixture testdata/rawreads holds the round 4 verify's escape probe and a
 // read in lower.go outside Validate; the guard reports each of them and
-// nothing else.
+// nothing else. Round 7: a direct read of a set (rawSets) is reported too,
+// but for the reads setAllowed names with a reason; the fixture
+// testdata/rawsets holds one read of each set object.
 func TestLoweringReadsCanonicalLists(t *testing.T) {
-	if found := rawListReads(t, typedPackage(t, ".")); len(found) > 0 {
-		t.Fatalf("raw list reads outside canon.go (read the canonical unit instead):\n%s", strings.Join(found, "\n"))
+	used := map[string]bool{}
+	if found := rawListReads(t, typedPackage(t, "."), setAllowed, used); len(found) > 0 {
+		t.Fatalf("raw list or set reads outside canon.go (read the canonical unit or view instead):\n%s", strings.Join(found, "\n"))
+	}
+	for site := range setAllowed {
+		if !used[site] {
+			t.Errorf("setAllowed lists %s, which reads no set: remove it", site)
+		}
+	}
+	sets := []string{
+		"probe.go:escCatch Match.Subjects",
+		"probe.go:escEntry ContextEntry.Uses",
+		"probe.go:escRow Row.Elems",
+		"probe.go:escRowValue Union.Variants",
+	}
+	if got := rawListReads(t, typedPackage(t, "testdata/rawsets"), nil, nil); !slices.Equal(got, sets) {
+		t.Fatalf("set fixture reads:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(sets, "\n"))
 	}
 	want := []string{
 		"lower.go:escInLowerGo Unit.Sources",
@@ -98,7 +158,7 @@ func TestLoweringReadsCanonicalLists(t *testing.T) {
 		"probe.go:escViaDefined Package.Types",
 		"probe.go:escViaMirror Unit.Files",
 	}
-	if got := rawListReads(t, typedPackage(t, "testdata/rawreads")); !slices.Equal(got, want) {
+	if got := rawListReads(t, typedPackage(t, "testdata/rawreads"), nil, nil); !slices.Equal(got, want) {
 		t.Fatalf("fixture reads:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

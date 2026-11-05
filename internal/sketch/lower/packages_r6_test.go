@@ -187,29 +187,6 @@ func TestLoweringImportsNoReflection(t *testing.T) {
 	}
 }
 
-// TestRawTestsReaderIsCanonical: the round 5 verify's mutation, runTests
-// routed through a reader of the raw p.Tests in another package, emits
-// the same files for every listing and fresh check of the program, as the
-// checker hands the list out in canonical order. In the second program the
-// checker's order (by file content) is not the path order.
-func TestRawTestsReaderIsCanonical(t *testing.T) {
-	defer func(old func(*canonical, *check.Package) []*check.Test) { testsRead = old }(testsRead)
-	testsRead = func(_ *canonical, p *check.Package) []*check.Test { return rawhelper.Tests(p) }
-	for _, root := range [][]pkgSource{
-		{
-			{"/probe/a.ergo", "test A { assert 1 == 1 }\n"},
-			{"/probe/z.ergo", "test Z { assert 2 == 2 }\nfunc main() {}\n"},
-		},
-		{
-			{"/probe/a.ergo", "test Z { assert 2 == 2 }\n"},
-			{"/probe/m.ergo", "test M { assert 3 == 3 }\nfunc main() {}\n"},
-			{"/probe/z.ergo", "test A { assert 1 == 1 }\n"},
-		},
-	} {
-		verifyCanonical(t, genProgram{root: root})
-	}
-}
-
 // declKeys names each element of a raw list by its source path, offset
 // and name; the sources are u's and its imports'.
 func declKeys[T any](u Unit, list []T, at func(T) (syntax.Node, string)) []string {
