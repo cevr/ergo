@@ -858,6 +858,14 @@ func instanceFromHint(orig *Named, hint Type) Type {
 // review M4).
 func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int) bool {
 	ok := true
+	// A literal or record update of a record with another package's
+	// unexported field builds a new value of it: S114 (types.md, Zero
+	// values 6). Its values are still typed.
+	denied := false
+	if obj := literalAuthority(t, c.pkg); obj != nil {
+		c.errorf(x, CodeAuthority, "%s", c.literalAuthorityText(t, obj, x.Base != nil))
+		denied = true
+	}
 	if len(x.Elts) > 0 {
 		if _, keyed := x.Elts[0].(*syntax.KeyValueExpr); !keyed {
 			if len(x.Elts) != len(s.Fields) {
@@ -877,7 +885,7 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 				op := c.fieldValue(e, f.Type)
 				c.assign(&op, f.Type, "field "+f.Name)
 			}
-			return true
+			return !denied
 		}
 	}
 	set := map[string]bool{}
@@ -901,6 +909,12 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 			ok = false
 			continue
 		}
+		if c.hiddenField(s, id.Name) {
+			c.errorf(id, CodeUnknown, "%s (grammar.md, Visibility 2)", hiddenFieldText(s, id.Name))
+			c.strayValue(kv.Value, mark, true)
+			ok = false
+			continue
+		}
 		if set[id.Name] {
 			c.errorf(id, CodeType, "field %s is set twice", id.Name)
 			c.strayValue(kv.Value, mark, false)
@@ -911,20 +925,31 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 		op := c.fieldValue(kv.Value, f.Type)
 		c.assign(&op, f.Type, "field "+f.Name)
 	}
-	if !ok {
+	if !ok || denied {
 		return false
 	}
 	if x.Base != nil {
 		return true // a record update takes every field it omits from its base
 	}
 	var missing []string
+	var held *TypeName // the authority an omitted field's zero needs
+	var heldField string
 	for _, f := range s.Fields {
-		if !set[f.Name] && !isInvalid(f.Type) && !defaultable(f.Type) {
+		if set[f.Name] || isInvalid(f.Type) {
+			continue
+		}
+		if !defaultable(f.Type) {
 			missing = append(missing, f.Name)
+		} else if a := zeroAuthority(f.Type, c.pkg); a != nil && held == nil {
+			held, heldField = a, f.Name
 		}
 	}
 	if len(missing) > 0 {
 		c.errorf(x, CodeType, "%s must set %s: a %s has no zero value (types.md, Zero values 2)", t, strings.Join(missing, ", "), kindName(s, missing[0]))
+		return false
+	}
+	if held != nil {
+		c.errorf(x, CodeAuthority, "%s must set %s: its zero value builds a new value of %s, and %s (types.md, Zero values 6)", c.localTypeText(t), heldField, qualifiedName(held), authorityText(held))
 		return false
 	}
 	return true
@@ -1051,6 +1076,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			c.errorf(x.Sel, CodeUnknown, "the capability %s has no method %s", base.cap, x.Sel.Name)
 			return bad(x)
 		}
+		if text := c.hiddenOperation(it, m.Name); text != "" {
+			c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 3)", text)
+			return bad(x)
+		}
 		if c.fn != nil && c.fn.reach != nil {
 			c.fn.reach.capCalls = append(c.fn.reach.capCalls, capCall{cap: base.cap.(*Named), name: m.Name})
 		}
@@ -1082,6 +1111,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 	}
 	if s := asStruct(t); s != nil {
 		if f, _ := s.field(x.Sel.Name); f != nil {
+			if c.hiddenField(s, x.Sel.Name) {
+				c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 2)", hiddenFieldText(s, x.Sel.Name))
+				return bad(x)
+			}
 			return operand{mode: modeValue, typ: f.Type, addressable: base.addressable || isPointer(base.typ)}
 		}
 	}
@@ -1103,6 +1136,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		var m *Method
 		if it := asInterface(t); it != nil {
 			m = it.method(x.Sel.Name)
+			if text := c.hiddenOperation(it, x.Sel.Name); m != nil && text != "" {
+				c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 3)", text)
+				return bad(x)
+			}
 		}
 		if m != nil && isPointer(base.typ) {
 			// An operation type's value is a reference already (types.md,
@@ -1116,6 +1153,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			// lowering calls it through the function's witness (D-E1).
 			if it := asInterface(tp.Constraint); it != nil {
 				m = it.method(x.Sel.Name)
+				if text := c.hiddenOperation(it, x.Sel.Name); m != nil && text != "" {
+					c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 3)", text)
+					return bad(x)
+				}
 			}
 		}
 		return operand{mode: modeValue, typ: sig, method: m}

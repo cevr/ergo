@@ -72,13 +72,13 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		}
 		return &RowVar{of: root, m: nm, ctx: c}
 	case *Struct:
-		s := &Struct{Fields: make([]*Field, len(t.Fields))}
+		s := &Struct{Fields: make([]*Field, len(t.Fields)), obj: t.obj}
 		for i, f := range t.Fields {
 			s.Fields[i] = &Field{Name: f.Name, Type: c.subst(f.Type, m), Pos: f.Pos}
 		}
 		return s
 	case *Interface:
-		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods))}
+		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj}
 		newOf := make(map[*Method]*Method, len(t.Methods))
 		for i, mt := range t.Methods {
 			it.Methods[i] = &Method{Name: mt.Name, Sig: c.subst(mt.Sig, m).(*Signature), Pos: mt.Pos}
@@ -627,6 +627,9 @@ func (c *checker) implements(v Type, it *Interface) string {
 		}
 		if fn != nil && fn.Ptr && !ptr {
 			return fmt.Sprintf("%s.%s has a *T receiver", v, m.Name)
+		}
+		if why := sealedBy(v, it, m, fn); why != "" {
+			return why
 		}
 		// An operation takes no type parameters, so a 196m function with
 		// type parameters beyond those its first parameter binds from v's

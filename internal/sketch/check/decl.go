@@ -652,12 +652,16 @@ func (c *checker) resolveNamed(n *Named) {
 	switch spec := d.Spec.(type) {
 	case *syntax.StructType:
 		ctx.field = true
-		n.under = c.structType(spec, ctx)
+		s := c.structType(spec, ctx)
+		s.obj = n.Obj
+		n.under = s
 	case *syntax.InterfaceType:
 		if len(spec.Union) > 0 {
 			n.under = c.unionType(n, spec, ctx)
 		} else {
-			n.under = c.interfaceType(spec, ctx)
+			it := c.interfaceType(spec, ctx)
+			it.obj = n.Obj
+			n.under = it
 		}
 	case *syntax.MachineType:
 		// The state and signal must be unions (checkMachine, after every
