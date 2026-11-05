@@ -99,10 +99,13 @@ func (c *checker) checkExternParams() {
 }
 
 // externTargetRefusal is the refusal of a user extern's Go target, with its
-// code, or "". The target is in the domain when its import path's first
-// element has no dot: Go's standard library, by Go's own rule for module
-// paths. A missing package or function there is go build's error (D-E5).
-// The Ergo runtime and Go's unsafe are S108 whatever the signature.
+// code, or "". The target is in the domain when its import path is in the
+// pure allowlist (G9): a package of Go's standard library that does not
+// reach the host. A missing function there is go build's error (D-E5).
+// The Ergo runtime and Go's unsafe are S108 whatever the signature. A path
+// whose first element has a dot is a module outside Go's standard library
+// (Go's own rule for module paths) and keeps its #202 text; any other path
+// outside the allowlist may reach the host and is S109 (hostText).
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
@@ -115,7 +118,52 @@ func externTargetRefusal(f *Func) (string, string) {
 	if strings.Contains(first, ".") {
 		return fmt.Sprintf("the Go package %s of the extern %s is #202's (Go imports); it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
 	}
+	if !PureGoPackage(path) {
+		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
+	}
 	return "", ""
+}
+
+// ---------------------------------------------------------------- the pure allowlist (G9, F7)
+
+// pureGoPackages is the pure allowlist: the Go standard-library packages a
+// user extern may bind, compared by exact import path. A function of these
+// packages reads only its arguments and touches no host state (no files,
+// no environment, no clock, no randomness, no process). Any other package
+// may reach the host, and a user extern has no needs row (C26), so its
+// call would be a hidden effect. NORTH_STAR: public effect contracts are
+// explicit. The list is the one source for std's purity fact too (G5b,
+// runtime/v1/files.go): read it through PureGoPackages or PureGoPackage.
+// Keep it sorted.
+var pureGoPackages = [...]string{"math", "slices", "sort", "strconv", "strings", "unicode/utf8"}
+
+// PureGoPackages returns a copy of the pure allowlist, sorted.
+func PureGoPackages() []string {
+	return append([]string(nil), pureGoPackages[:]...)
+}
+
+// PureGoPackage reports whether path, a Go import path, is in the pure
+// allowlist. The match is exact: a subpackage ("strings/x"), a longer name
+// ("stringsx"), a vendored path ("vendor/strings") or a module path
+// ("example.com/strings") is not in it.
+func PureGoPackage(path string) bool {
+	for _, p := range pureGoPackages {
+		if p == path {
+			return true
+		}
+	}
+	return false
+}
+
+// hostText is the S109 of a user extern whose Go package is outside the
+// pure allowlist (G9). It names the std route for the package when std has
+// one.
+func hostText(path, target string) string {
+	route := "a std capability"
+	if path == "os" {
+		route = "std os.Process"
+	}
+	return fmt.Sprintf("extern go %s reaches the host; use %s, or wait for #202 (a user extern binds only the pure Go packages %s)", target, route, strings.Join(pureGoPackages[:], ", "))
 }
 
 // externOutsideDomain names the first part of f's signature outside the

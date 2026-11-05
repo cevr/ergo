@@ -186,7 +186,10 @@ func TestExternUnsafeTarget(t *testing.T) {
 func TestExternTargetDomain(t *testing.T) {
 	for _, tc := range []struct{ path, code, text string }{
 		{"strings", "", ""},
-		{"math/bits", "", ""},
+		{"unicode/utf8", "", ""},
+		// G9: a standard-library package outside the pure allowlist.
+		{"math/bits", "S109", "extern go math/bits.F reaches the host"},
+		{"os", "S109", "extern go os.F reaches the host; use std os.Process, or wait for #202"},
 		{"example.com/x", "S109", "#202"},
 		{"ergo.local/prototype/runtime/rt", "S108", "only std binds the Ergo runtime"},
 		{"ergo.local/prototype/runtime/v1", "S108", "only std binds the Ergo runtime"},
