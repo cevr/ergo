@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 )
@@ -24,7 +25,10 @@ import (
 //   - pass with every line of the output, in order; or
 //   - refuse with exit 2, naming the destination, before any step runs.
 // Its resident memory stays under gateResidentLimit, under half the output:
-// no step output in its heap. It records a pass only where the cache's
+// no step output in its heap. Its cgroup's tmpfs memory (shmem, sampled
+// every millisecond) stays under gateShmemLimit: no step output in a file
+// in memory, linked or unlinked. The kernel's accounting, not the gate's
+// own placement check, judges where the output went. It records a pass only where the cache's
 // output file is on disk; with the cache in memory it says it did not
 // record, and the second run executes again. Whatever the runs leave on
 // tmpfs is small: no step output in a file in memory.
@@ -252,9 +256,18 @@ func (r storageRoots) at(t *testing.T, p storagePlace, name string) string {
 	return ""
 }
 
+// layoutsRunning counts the storage layouts in checkStorageLayout. The
+// disk bound (storageDiskLimit) holds for one layout at a time; a layout
+// that starts while another runs fails.
+var layoutsRunning atomic.Int32
+
 // checkStorageLayout runs the gate twice on one cache in layout and checks
 // each run against the property.
 func checkStorageLayout(t *testing.T, slice string, budget memoryBudget, layout storageLayout) {
+	if running := layoutsRunning.Add(1); running > 1 {
+		t.Errorf("%d storage layouts run at once; they must run one at a time to stay under storageDiskLimit", running)
+	}
+	defer layoutsRunning.Add(-1)
 	roots := newStorageRoots(t)
 	cache := roots.at(t, layout.cache, "cache")
 	if layout.cache == inMemory || layout.cache == onDisk {
@@ -284,6 +297,7 @@ func checkStorageLayout(t *testing.T, slice string, budget memoryBudget, layout 
 		// stopped it, and the output it had not printed is lost.
 		code, text := h.result(t)
 		gateResident(t, run, text)
+		gateShmem(t, run, text)
 		want := layout.expect(run)
 		if want.refusal != "" {
 			if code != 2 || !strings.Contains(text, want.refusal) || strings.Contains(text, "== print:") {
