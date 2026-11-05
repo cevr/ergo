@@ -182,7 +182,8 @@ func TestTestReportsNameTheirFiles(t *testing.T) {
 }
 
 // opsLib is a user package that exports the operation type Read, the
-// record Q that provides it, and Make, which converts a Q into a Read.
+// record Q with the Get operation of Read, and Make, which converts a Q
+// into a Read.
 func opsLib(n string) string {
 	return "type Read { Get() int }\ntype Q { N int }\nfunc Get(q Q) int { q.N }\nfunc Make() Read { Q{N: " + n + "} }\n"
 }
