@@ -262,6 +262,13 @@ func nodes[T syntax.Node](list []T) []syntax.Node {
 	return out
 }
 
+// updateBase is `..base`, the first item of a record update's element
+// list: it spans from the `..` to the end of the base.
+type updateBase struct{ x *syntax.CompositeLit }
+
+func (b updateBase) Pos() syntax.Pos { return b.x.DotDot }
+func (b updateBase) End() syntax.Pos { return b.x.Base.End() }
+
 // ---------------------------------------------------------------- signatures and fields
 
 // fieldList prints a parameter or type parameter list.
@@ -886,7 +893,21 @@ func (p *printer) expr1(x syntax.Expr, depth int) {
 		if x.Type != nil {
 			p.expr1(x.Type, depth)
 		}
-		p.list(x.Lbrace, "{", nodes(x.Elts), func(i int) { p.element(x.Elts[i]) }, x.Rbrace, "}")
+		if x.Base == nil {
+			p.list(x.Lbrace, "{", nodes(x.Elts), func(i int) { p.element(x.Elts[i]) }, x.Rbrace, "}")
+			break
+		}
+		// A record update: `..base` is the first item of the list, so it
+		// shares the line rules of the fields after it.
+		items := append([]syntax.Node{updateBase{x}}, nodes(x.Elts)...)
+		p.list(x.Lbrace, "{", items, func(i int) {
+			if i == 0 {
+				p.token(x.DotDot, "..")
+				p.expr(x.Base)
+				return
+			}
+			p.element(x.Elts[i-1])
+		}, x.Rbrace, "}")
 	case *syntax.KeyValueExpr:
 		p.element(x)
 	case *syntax.AsPattern:

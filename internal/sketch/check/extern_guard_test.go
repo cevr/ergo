@@ -60,6 +60,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"CallExpr.Args":            {guardValue, "func take(f func(string) string) {}\nfunc main() {\n\ttake(@Upper)\n}\n"},
 	"CatchExpr.X":              {guardValue, "type Bang {}\nfunc main() {\n\tlet v = @Upper catch {\n\tcase Bang: return\n\t}\n\t_ = v\n}\n"},
 	"CompositeLit.Elts":        {guardValue, "func main() {\n\t_ = []func(string) string{@Upper}\n}\n"},
+	"CompositeLit.Base":        {guardValue, "type Box { F int }\nfunc main() {\n\t_ = Box{..@Upper, F: 1}\n}\n"},
 	"ContextEntry.Value":       {guardValue, "type C { M() }\nlet W = context { C: @Upper }\n"},
 	"ExprStmt.X":               {guardValue, "func main() {\n\t@Upper\n}\n"},
 	"ForStmt.Cond":             {guardValue, "func main() {\n\tfor @Upper { }\n}\n"},

@@ -156,6 +156,7 @@ var litShapes = map[string]string{
 // with its reason.
 var litNoShape = map[string]string{
 	"CompositeLit.Type": "the literal's type: the crossed type axis (litTypeForms)",
+	"CompositeLit.Base": "a record update's base: a value of the written record type, never an elided literal (S001); TestRecordUpdateBaseRefs crosses it",
 	"KeyValueExpr.Key":  "a record literal's key is a field name, no reference (rows.md, Inference 6); a slice's index is a value as its element is",
 }
 

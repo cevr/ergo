@@ -39,6 +39,7 @@ var ownReturnSlots = []ownReturnSlot{
 	{"BinaryExpr.X", "int", "0", "(EXPR) + 1"},
 	{"BinaryExpr.Y", "int", "0", "1 + (EXPR)"},
 	{"CompositeLit.Elts", "int", "0", "[]int{EXPR}"},
+	{"CompositeLit.Base", "Box", "Box{n: 0}", "Box{..EXPR, n: 1}"},
 	{"KeyValueExpr.Value", "int", "0", "Box{n: EXPR}"},
 	{"KeyValueExpr.Key", "int", "0", "Map[int, int]{EXPR: 0}"},
 	{"SelectorExpr.X", "Box", "Box{n: 0}", "(EXPR).n"},

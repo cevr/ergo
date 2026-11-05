@@ -625,6 +625,7 @@ func g(p *P) int { return p.X }
 func f(xs []int, m Map[string, int]) int {
 	let mut p = P{X: 1, Y: 2}
 	p.X = -(g(&p) + 1)
+	let q = P{..p, Y: 3}
 	let ys = xs[1:2:3]
 	let zs = xs[:1]
 	let n = ys[0] + len(m) + len(zs)
@@ -640,7 +641,7 @@ func f(xs []int, m Map[string, int]) int {
 		continue
 	}
 	g(&p)
-	return len(ys)
+	return len(ys) + q.Y
 }
 func main() {}
 `, nil},

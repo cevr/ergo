@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Walk { At int, Turn int }\n\nfunc a(w Walk) int {\n\tmatch w {\n\tcase Walk{..w}:\n\t\t1\n\t}\n}\n")

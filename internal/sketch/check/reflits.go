@@ -237,6 +237,9 @@ func (w *refWalker) compositeLit(x *syntax.CompositeLit, lt litType) {
 		w.typ(x.Type)
 		lt = w.c.litTypeOf(x.Type, w.bodyEnv())
 	}
+	if x.Base != nil {
+		w.expr(x.Base) // a record update's base is a value, read first
+	}
 	for _, e := range x.Elts {
 		kv, ok := e.(*syntax.KeyValueExpr)
 		if !ok {

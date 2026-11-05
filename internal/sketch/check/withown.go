@@ -547,7 +547,9 @@ func (fresh providerFreshness) expression(info *Info, x syntax.Expr) bool {
 	}
 	switch x := unparen(x).(type) {
 	case *syntax.CompositeLit:
-		return true
+		// A record update copies every field it does not name from its
+		// base, so it is fresh only when its base is.
+		return x.Base == nil || fresh.expression(info, x.Base)
 	case *syntax.CallExpr:
 		if call := info.Calls[x]; call != nil {
 			switch call.Kind {

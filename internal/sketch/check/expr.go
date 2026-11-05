@@ -556,6 +556,9 @@ func fitsInt64(v constant.Value) bool {
 // whatever typing made of it: an elided literal among the values takes its
 // type from lt (orphanValue).
 func (c *checker) orphanElements(x *syntax.CompositeLit, mark int, lt litType) {
+	if x.Base != nil {
+		c.orphan(x.Base, mark) // a record update's base is a value the walk reads
+	}
 	for _, e := range x.Elts {
 		if kv, ok := e.(*syntax.KeyValueExpr); ok {
 			e = kv.Value
@@ -615,8 +618,11 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		}
 		return *walkLt
 	}
-	var t Type
 	mark := c.undiagSeq
+	if x.Base != nil {
+		return c.recordUpdate(x, hint, mark, lt)
+	}
+	var t Type
 	switch {
 	case x.Type == nil:
 		if hint == nil || isInvalid(hint) {
@@ -907,6 +913,9 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 	}
 	if !ok {
 		return false
+	}
+	if x.Base != nil {
+		return true // a record update takes every field it omits from its base
 	}
 	var missing []string
 	for _, f := range s.Fields {

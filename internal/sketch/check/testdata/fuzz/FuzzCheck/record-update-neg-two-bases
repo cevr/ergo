@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Walk { At int, Turn int }\n\nfunc a(w Walk, v Walk) Walk { Walk{..w, ..v, Turn: 1} }\n")
