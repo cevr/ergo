@@ -232,7 +232,7 @@ func openScope(unit string, budget memoryBudget, cpus int) (limiter, error) {
 		return nil, fmt.Errorf("the scope's memory.max is %q (%v), not the gate budget plus the gate's reserve %d", limit, err, scopeMemory(budget))
 	}
 	if err := checkCPUMax(s.dir, cpus); err != nil {
-		return nil, fmt.Errorf("the scope does not enforce the CPU budget: %w", err)
+		return nil, cpuScopeError{err}
 	}
 	if swap, err := readTrimmed(filepath.Join(s.dir, "memory.swap.max")); err == nil && swap != "0" {
 		return nil, fmt.Errorf("the scope's memory.swap.max is %q, not 0", swap)
@@ -265,7 +265,7 @@ func openScope(unit string, budget memoryBudget, cpus int) (limiter, error) {
 	// cpu.max of the cgroup its process is in for GOMAXPROCS.
 	for _, dir := range []string{s.dir, s.steps} {
 		if err := os.WriteFile(filepath.Join(dir, "cgroup.subtree_control"), []byte("+cpu"), 0); err != nil {
-			return nil, fmt.Errorf("enable the cpu controller below %s: %w", dir, err)
+			return nil, cpuScopeError{fmt.Errorf("enable the cpu controller below %s: %w", dir, err)}
 		}
 	}
 	probe := exec.Command("true")

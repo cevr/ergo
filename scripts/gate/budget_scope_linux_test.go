@@ -670,7 +670,7 @@ func TestBudgetScopeHelper(t *testing.T) {
 		runOutputHelper(scope)
 		return
 	}
-	for _, c := range append(append(budgetCases, hostCase, holdCase, cpuCase), gateOOMCases...) {
+	for _, c := range append(append(budgetCases, hostCase, holdCase, cpuCase, quotaCase), gateOOMCases...) {
 		if c.name == name {
 			var out bytes.Buffer
 			g := &gate{root: os.Getenv("GATE_BUDGET_ROOT"), cacheDir: os.Getenv("GATE_BUDGET_CACHE"), steps: c.steps(), scope: scope}

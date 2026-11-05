@@ -168,6 +168,39 @@ func describeCPUs(limit limiter, cpus int) string {
 	return fmt.Sprintf("%d CPUs, %s", cpus, note)
 }
 
+// cpuScopeError is a scope that does not enforce the CPU budget, which the
+// gate refuses as it refuses a scope without its memory bounds.
+type cpuScopeError struct{ err error }
+
+func (e cpuScopeError) Error() string { return e.err.Error() }
+func (e cpuScopeError) Unwrap() error { return e.err }
+
+// stepGOFLAGS is the caller's GOFLAGS with the go command's -p, how many
+// packages it builds at once, at most the budget: the caller's last -p when
+// it is a whole number within the budget, else the budget. It comes after
+// the caller's flags, and cmd/go applies GOFLAGS in order, the last value
+// winning, so a caller's -p=16 cannot raise it; every go command a step
+// starts inherits it, through any shell or program, as it inherits the
+// uncached default. A -p on a go command's own command line still wins:
+// no step of the gate writes one.
+func stepGOFLAGS(flags string, cpus int) string {
+	p := cpus
+	for _, field := range strings.Fields(flags) {
+		value, ok := strings.CutPrefix(field, "-p=")
+		if !ok {
+			value, ok = strings.CutPrefix(field, "--p=")
+		}
+		if !ok {
+			continue
+		}
+		p = cpus
+		if n, err := strconv.Atoi(value); err == nil && n > 0 {
+			p = min(n, cpus)
+		}
+	}
+	return strings.TrimSpace(flags + " -p=" + strconv.Itoa(p))
+}
+
 // stepGOMAXPROCS is the GOMAXPROCS of every step's Go processes: the
 // caller's when it is a whole number no larger than the budget, or else the
 // budget. A child that does not read cgroups, or reads only its own leaf as

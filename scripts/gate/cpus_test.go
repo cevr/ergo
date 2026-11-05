@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -102,6 +103,118 @@ func TestStepGOMAXPROCSIsBoundedByTheBudget(t *testing.T) {
 		}
 		if len(got) != 1 || got[0] != want {
 			t.Errorf("caller GOMAXPROCS %q: steps get %q, want [%s]", caller, got, want)
+		}
+	}
+}
+
+// The go command's -p in every step's GOFLAGS is at most the budget, after
+// the caller's flags, so a caller's larger -p cannot raise it; a smaller
+// one stays.
+func TestStepGOFLAGSBoundsThePackagesAtOnce(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ caller, want string }{
+		{"", "-p=4"},
+		{"-mod=mod", "-mod=mod -p=4"},
+		{"-p=1", "-p=1 -p=1"},
+		{"-p=16", "-p=16 -p=4"},
+		{"--p=3", "--p=3 -p=3"},
+		{"-p=2 -p=64", "-p=2 -p=64 -p=4"},
+		{"-p=64 -p=2", "-p=64 -p=2 -p=2"},
+		{"-p=x", "-p=x -p=4"},
+		{"-p=0", "-p=0 -p=4"},
+	} {
+		if got := stepGOFLAGS(c.caller, 4); got != c.want {
+			t.Errorf("stepGOFLAGS(%q, 4) = %q, want %q", c.caller, got, c.want)
+		}
+	}
+}
+
+// A caller's GOFLAGS=-p=16 does not raise how many packages a step's go
+// command compiles at once above the budget: a real go build of 16
+// independent packages under ERGO_GATE_CPUS=2, its compilers counted by a
+// -toolexec wrapper that holds each for half a second (the verifier's
+// TestVerifierBuildParallelism, round 1).
+func TestCPUBudgetBoundsCallerGoFlagsParallelism(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go on PATH")
+	}
+	t.Setenv(cpuVariable, "2")
+	t.Setenv("GOMAXPROCS", "2")
+	budget := stepCPUs()
+	root := fixture(t)
+	write(t, root, "go.mod", "module cpuprobe\n\ngo 1.24\n")
+	for i := range 16 {
+		write(t, root, fmt.Sprintf("p%d/p.go", i), fmt.Sprintf("package p%d\n\nfunc F() int { return %d }\n", i, i))
+	}
+	active, counts := t.TempDir(), filepath.Join(t.TempDir(), "counts")
+	wrapper := filepath.Join(t.TempDir(), "compiler")
+	script := "#!/bin/sh\ncase \"$2\" in -V=full) exec \"$@\";; esac\ncase \"$1\" in */compile)\n" +
+		"mkdir '" + active + "/'$$\nls '" + active + "' | wc -l >> '" + counts + "'\nsleep 0.5\n\"$@\"\nstatus=$?\nrmdir '" + active + "/'$$\nexit $status;;\n*) exec \"$@\";; esac\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOCACHE", t.TempDir())
+	t.Setenv("GOFLAGS", "-p=16 -toolexec="+wrapper)
+	code, out := runGate(t, root, t.TempDir(), []*Step{{Name: "build", Argv: []string{"go", "build", "./..."}}})
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	content, err := os.ReadFile(counts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	most, compiles := 0, 0
+	for _, field := range strings.Fields(string(content)) {
+		n, _ := strconv.Atoi(field)
+		most = max(most, n)
+		compiles++
+	}
+	if compiles < 16 || most > budget {
+		t.Errorf("%d compiles, up to %d at once; want 16 or more, at most %d", compiles, most, budget)
+	}
+}
+
+// A step's pass is never reused under another CPU budget, in its own
+// receipt or by promotion into a whole-gate record, while every variable
+// the step declares reads the same (caller GOMAXPROCS fixed below every
+// budget). For random sequences of budgets, a gate on one shared cache and a
+// gate on a fresh cache give the same verdict. The step passes only at an
+// odd -p, the budget's (stepGOFLAGS), a stand-in for a step whose result
+// depends on its quota (the verifier's TestVerifierScopedReceipt, round 1,
+// which the real-scope test keeps); it declares only sh, so no tool
+// fingerprint holds the budget for it.
+func TestStepReceiptsDoNotCrossCPUBudgets(t *testing.T) {
+	t.Setenv("GOMAXPROCS", "1")
+	t.Setenv("GOFLAGS", "")
+	r := rand.New(rand.NewPCG(3, 4))
+	step := func() []*Step {
+		return []*Step{{
+			Name:   "budget-sensitive",
+			Argv:   []string{"sh", "-c", `p=${GOFLAGS##*-p=}; p=${p%% *}; echo "p=$p"; test $((p % 2)) = 1`},
+			Inputs: &Inputs{Paths: []string{"src/"}, Tools: []string{"sh"}},
+		}}
+	}
+	for sequence := range 3 {
+		root := fixture(t)
+		shared := t.TempDir()
+		var budgets []int
+		for range 6 {
+			budgets = append(budgets, r.IntN(3)+1)
+		}
+		for i, requested := range budgets {
+			t.Setenv(cpuVariable, strconv.Itoa(requested))
+			budget := stepCPUs()
+			reused := wholeFixture(t, root, step())
+			reused.cacheDir = shared
+			reusedCode, reusedOut := runWhole(t, reused)
+			fresh := wholeFixture(t, root, step())
+			freshCode, freshOut := runWhole(t, fresh)
+			if want := 1 - budget%2; reusedCode != freshCode || freshCode != want {
+				t.Fatalf("sequence %d %v, run %d (budget %d): reused cache exit %d, fresh exit %d, want %d\nreused:\n%s\nfresh:\n%s", sequence, budgets, i, budget, reusedCode, freshCode, want, reusedOut, freshOut)
+			}
+			if !strings.Contains(reusedOut, fmt.Sprintf("p=%d\n", budget)) {
+				t.Fatalf("sequence %d, run %d: the reused gate printed another budget's output:\n%s", sequence, i, reusedOut)
+			}
 		}
 	}
 }

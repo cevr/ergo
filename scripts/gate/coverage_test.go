@@ -263,7 +263,7 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 		set   bool
 		flags string
 	}
-	callers := []caller{{"unset", false, ""}, {"empty", true, ""}, {"-mod=mod", true, "-mod=mod"}, {"-count=0", true, "-count=0"}, {"several", true, "-mod=mod -count=2 -v"}}
+	callers := []caller{{"unset", false, ""}, {"empty", true, ""}, {"-mod=mod", true, "-mod=mod"}, {"-count=0", true, "-count=0"}, {"several", true, "-mod=mod -count=2 -v"}, {"-p=64", true, "-p=64"}}
 	for _, c := range callers {
 		t.Run("caller GOFLAGS "+c.name, func(t *testing.T) {
 			t.Setenv("GOFLAGS", c.flags)
@@ -276,9 +276,12 @@ func TestTestCommandsHaveCacheCoverage(t *testing.T) {
 					t.Errorf("%s", strings.Join(problems, "\n"))
 				}
 				flags, set := environmentVariable(g.commandEnvironment(step), "GOFLAGS")
-				want, wantSet := strings.TrimSpace(c.flags+" "+uncachedTestFlag), true
+				// The gate's -p bound follows the caller's flags in every
+				// step (stepGOFLAGS), and the uncached default follows it.
+				bounded := stepGOFLAGS(c.flags, stepCPUs())
+				want, wantSet := bounded+" "+uncachedTestFlag, true
 				if step.Hermetic {
-					want, wantSet = c.flags, c.set
+					want = bounded
 				}
 				if flags != want || set != wantSet {
 					t.Errorf("step %q (hermetic %t) runs with GOFLAGS %q (set %t), want the caller's flags %q with the default: %q (set %t)", step.Name, step.Hermetic, flags, set, c.flags, want, wantSet)

@@ -904,7 +904,8 @@ func (g *gate) toolDigest(step *Step) string {
 // other, as Bazel's strict action environment passes only declared
 // variables, with the gate's collector target and the soft memory limit
 // below the step budget (stepSoftLimit) unless the caller sets them, and
-// GOMAXPROCS at most the CPU budget (stepGOMAXPROCS). A
+// GOMAXPROCS and the go command's -p at most the CPU budget
+// (stepGOMAXPROCS, stepGOFLAGS). A
 // variable outside the list cannot reach a step, so the key, which holds
 // each listed variable set or not, covers all a step can read from its
 // environment.
@@ -925,7 +926,9 @@ func keyedEnvironment() []string {
 	if _, set := os.LookupEnv("GOMEMLIMIT"); !set {
 		environment = append(environment, "GOMEMLIMIT="+stepSoftLimit())
 	}
-	return setEnvironmentVariable(environment, "GOMAXPROCS", stepGOMAXPROCS(os.Getenv("GOMAXPROCS"), stepCPUs()))
+	cpus := stepCPUs()
+	environment = setEnvironmentVariable(environment, "GOFLAGS", stepGOFLAGS(os.Getenv("GOFLAGS"), cpus))
+	return setEnvironmentVariable(environment, "GOMAXPROCS", stepGOMAXPROCS(os.Getenv("GOMAXPROCS"), cpus))
 }
 
 // uncachedTestFlag is what the gate adds to the caller's GOFLAGS for every
@@ -1222,6 +1225,10 @@ func (g *gate) key(step *Step) (string, error) {
 	inputs := step.Inputs
 	hash := sha256.New()
 	fmt.Fprintf(hash, "%s\x00%s\x00%q\x00", cacheVersion, step.Name, step.Argv)
+	// The CPU budget a step ran under: its quota, the steps beside it, its
+	// GOMAXPROCS and -p. A pass under one budget says nothing of another,
+	// even when every variable the step declares reads the same.
+	fmt.Fprintf(hash, "cpu budget\x00%d\x00", stepCPUs())
 	if len(step.Env) > 0 {
 		fmt.Fprintf(hash, "step env\x00%q\x00", step.Env)
 	}
