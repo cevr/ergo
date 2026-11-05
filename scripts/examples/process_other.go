@@ -19,3 +19,10 @@ func stopGroup(process *os.Process) {
 }
 
 func signalName(*os.ProcessState) string { return "unknown" }
+
+// stopSignals stop a run; here only an interrupt.
+var stopSignals = []os.Signal{os.Interrupt}
+
+// signalExit names a stop signal and gives the status of a run it stopped:
+// 130, as for SIGINT.
+func signalExit(sig os.Signal) (string, int) { return sig.String(), 130 }
