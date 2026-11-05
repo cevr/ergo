@@ -97,6 +97,8 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 			return false
 		case *syntax.TryExpr, *syntax.CatchExpr, *syntax.IfStmt, *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 			found = true
+		case *syntax.CompositeLit:
+			found = n.Base != nil // a record update writes its copy and stores (update)
 		case *syntax.CallExpr:
 			if c := fc.l.info.Calls[n]; c == nil || (c.Kind != check.CallConversion && c.Kind != check.CallLen) {
 				found = true
@@ -492,6 +494,9 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 		if td.kind != kindRecord && (td.kind != kindDefined || td.fieldName == nil) {
 			unreachable(x, ruleAccepted, "a record-shaped literal of %s, which is not a record", t)
 		}
+		if x.Base != nil {
+			return fc.update(x, t, td)
+		}
 		var keys []string
 		var values []syntax.Expr
 		set := map[string]bool{}
@@ -558,6 +563,46 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 	}
 	unreachable(x, ruleAccepted, "a composite literal of %s", t)
 	return ""
+}
+
+// update lowers a record update `T{..base, F: v}` of type t (grammar.md,
+// Expressions 11) to a copy of the base and one store per named field, in
+// source order:
+//
+//	u := base
+//	u.F = v
+//
+// The base is evaluated once, before the field values; the result is the
+// copy u, and the base is unchanged. The copy is a Go value of the record
+// type, so the update allocates nothing (TestRecordUpdateAllocs). Go has
+// no update expression; Borgo lowers Rust's `..rest` to a called function
+// literal that evaluates the field values first.
+func (fc *funcCtx) update(x *syntax.CompositeLit, t check.Type, td *typeDecl) string {
+	u := fc.temp("u")
+	fc.line(u + " := " + fc.value(x.Base))
+	var keys []string
+	var values []syntax.Expr
+	for _, e := range x.Elts {
+		kv, ok := e.(*syntax.KeyValueExpr)
+		if !ok {
+			ice(e, "a record update element that is not keyed")
+		}
+		id, ok := kv.Key.(*syntax.Ident)
+		if !ok {
+			ice(kv.Key, "a record update key that is not a field name")
+		}
+		name, ok := td.fieldName[id.Name]
+		if !ok {
+			ice(id, "%s has no field %s", t, id.Name)
+		}
+		keys = append(keys, name)
+		values = append(values, kv.Value)
+	}
+	vals := fc.operands(values, true)
+	for i := range keys {
+		fc.line(u + "." + keys[i] + " = " + vals[i])
+	}
+	return u
 }
 
 // elements lowers composite elements left to right; an elided-type element
