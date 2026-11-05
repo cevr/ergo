@@ -167,6 +167,64 @@ func TestCPUBudgetScopedReceipt(t *testing.T) {
 	}
 }
 
+// A tool fingerprint does not keep a gate from setting up its scope: the
+// gate opens its scope before it starts a fingerprint, so no fingerprint
+// child stays in the scope's own cgroup, where the kernel would refuse the
+// scope's controllers (EBUSY) and fail the gate before any step (the
+// round-4 verifier's TestVerifierScopePrefetch). A stand-in sh on PATH, the
+// tool the step declares, logs the cgroup of each start, and its
+// fingerprint query holds until the scope's steps cgroup exists, the end
+// of the controller setup. Started before the setup, it is held in the
+// scope's cgroup across it; started after, it goes on at once.
+func TestCPUBudgetScopeSetupPrecedesFingerprints(t *testing.T) {
+	slice := testSlice(t)
+	setBudgetCaseTemp(t)
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "1G")
+	t.Setenv(hostMemoryVariable, "4G")
+	t.Setenv(cpuVariable, "1")
+	budget, err := currentBudget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	startableScope(t, slice, budget)
+	tools := t.TempDir()
+	log := filepath.Join(t.TempDir(), "starts")
+	script := "#!/bin/sh\nread member < /proc/self/cgroup\npath=${member#0::}\necho \"start $path\" >> '" + log + "'\n" +
+		"case \"$1\" in --version)\n" +
+		"  scope=/sys/fs/cgroup$path; case \"$path\" in */gate) scope=${scope%/gate};; esac\n" +
+		"  i=0; while [ ! -d \"$scope/" + stepsCgroup + "\" ]; do i=$((i+1)); if [ $i -gt 100 ]; then echo \"held $path\" >> '" + log + "'; break; fi; sleep 0.05; done;;\n" +
+		"esac\nexec /bin/sh \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(tools, "sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tools+string(os.PathListSeparator)+os.Getenv("PATH"))
+	h := newScopeHelper(t, slice, quotaCase.name, budget)
+	h.command.Run()
+	code, text := h.result(t)
+	content, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("the stand-in sh never started: %v", err)
+	}
+	starts := strings.Split(strings.TrimSpace(string(content)), "\n")
+	t.Logf("sh starts:\n%s", content)
+	fingerprinted := false
+	for _, start := range starts {
+		kind, path, _ := strings.Cut(start, " ")
+		if kind == "held" || strings.HasSuffix(path, ".scope") {
+			t.Errorf("a stand-in sh stayed in the scope's own cgroup across its setup: %q", start)
+		}
+		fingerprinted = fingerprinted || strings.HasSuffix(path, "/gate")
+	}
+	if !fingerprinted {
+		t.Errorf("no sh started in the gate's leaf cgroup, where a fingerprint after the setup starts: %q", starts)
+	}
+	wantAll(t, text, "== quota-sensitive: ok", "quota=100000")
+	if code != 0 {
+		t.Errorf("exit %d; want the gate past its scope setup and its step passed", code)
+	}
+}
+
 // effectiveVariable names the shared cache of TestCPUBudgetKeysTheEffectiveBudget's
 // helper; the helper runs only when it is set.
 const effectiveVariable = "GATE_EFFECTIVE_CACHE"

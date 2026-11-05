@@ -558,6 +558,23 @@ func (g *gate) run(out io.Writer) int {
 			}
 		}
 	}
+	// The limiter comes before any process the gate starts and does not wait
+	// for: in its systemd scope it moves the gate to a leaf cgroup and then
+	// enables controllers for the scope's children, which the kernel refuses
+	// (EBUSY) while a process stays in the scope's own cgroup, and moving
+	// the gate does not move a child it already started. A fingerprint
+	// started after it is born in the gate's leaf.
+	if g.limit == nil {
+		budget, err := currentBudget()
+		if err == nil {
+			g.limit, err = g.openLimiter(budget)
+		}
+		if err != nil {
+			fmt.Fprintln(out, "gate:", err)
+			return 2
+		}
+		defer g.limit.close()
+	}
 	// Start every tool fingerprint while files load; each is computed once
 	// per run, so a step that names a tool finds it ready or waits for it.
 	// The prefetches are joined before run returns, so no fingerprint work
@@ -582,17 +599,6 @@ func (g *gate) run(out io.Writer) int {
 		return 2
 	}
 	fmt.Fprintf(out, "gate: steps receive only %s\n", strings.Join(testenv.Names, " "))
-	if g.limit == nil {
-		budget, err := currentBudget()
-		if err == nil {
-			g.limit, err = g.openLimiter(budget)
-		}
-		if err != nil {
-			fmt.Fprintln(out, "gate:", err)
-			return 2
-		}
-		defer g.limit.close()
-	}
 	fmt.Fprintf(out, "gate: memory budget: %s\n", g.limit.describe())
 	cpus, err := currentCPUs()
 	if err != nil {
