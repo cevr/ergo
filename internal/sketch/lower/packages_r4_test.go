@@ -75,10 +75,16 @@ func rawListReads(t *testing.T, src *typedSource) []string {
 	return found
 }
 
-// TestLoweringReadsCanonicalLists: no lowering site reads a raw list, so
-// none can read one in discovery order. The fixture testdata/rawreads
-// holds the round 4 verify's escape probe and a read in lower.go outside
-// Validate; the guard reports each of them and nothing else.
+// TestLoweringReadsCanonicalLists: no code of package lower names a raw
+// list field outside canon.go and Validate. That is the whole claim: it
+// matches direct field selections in this package's files. A helper in
+// another package, a conversion to a struct of the same fields,
+// reflection and unsafe name no such field; the producer's order
+// (check/canon.go), TestLoweringUnitStaysAtEntries and
+// TestLoweringImportsNoReflection cover those routes (canon.go). The
+// fixture testdata/rawreads holds the round 4 verify's escape probe and a
+// read in lower.go outside Validate; the guard reports each of them and
+// nothing else.
 func TestLoweringReadsCanonicalLists(t *testing.T) {
 	if found := rawListReads(t, typedPackage(t, ".")); len(found) > 0 {
 		t.Fatalf("raw list reads outside canon.go (read the canonical unit instead):\n%s", strings.Join(found, "\n"))

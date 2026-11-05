@@ -10,15 +10,30 @@ import (
 
 // The canonical unit (196b). The lowering output is a function of the
 // program, not of how a caller or the checker listed it. A Unit lists its
-// files and imports in the order the caller found them, and the checker
-// lists a package's functions, types and tests in the order it met the
-// files. Neither order is part of the program, so the lowering reads
-// neither: its one entry (newBuildLowerer) converts the Unit once into a
-// canonical value, and every later read of a list goes through it.
-// TestLoweringReadsCanonicalLists keeps it so: outside this file and
-// Validate, no code of the package reads Unit.Files, Unit.Sources,
-// Unit.Imports, Package.Funcs, Package.Types, Package.Tests,
-// Package.Laws or Info.InitOrder.
+// files and imports in the order the caller found them. Neither that order
+// nor the order in which the checker met the files is part of the program.
+//
+// Two layers keep the output free of them (pkg-lower round 6):
+//
+//  1. The producer. check.Check returns every list of a Package in its
+//     canonical order (check/canon.go): a function of the sources, so a
+//     reader of p.Funcs, p.Types, p.Tests or p.Laws gets the same order by
+//     any route. TestCheckListsAreCanonical (check) proves it over fresh
+//     checks of files and import lines in other orders.
+//  2. The entry. newBuildLowerer converts the Unit once into a canonical
+//     value, which orders the sources by path and re-sorts each sourced
+//     package's lists by (source, offset), and every later read of a list
+//     goes through it. The lowerer holds no Unit, so after the entry no
+//     code can reach the caller's order of files or imports.
+//
+// What the tests of this package prove about layer 2, and no more:
+// TestLoweringReadsCanonicalLists finds each direct read of a list field
+// (by its go/types field object) outside this file and Validate;
+// TestLoweringUnitStaysAtEntries finds each expression of a Unit type
+// outside the entry functions; TestLoweringImportsNoReflection finds an
+// import of reflect or unsafe. A helper in another package that takes a
+// check.Package is not seen by them; layer 1 is what makes its result
+// canonical (TestRawTestsReaderIsCanonical).
 //
 // The canonical order of each list kind:
 //
@@ -26,7 +41,11 @@ import (
 //     each package's files in path order (sources);
 //   - a sourced package's functions, types and tests: by source file in
 //     that order, then by offset (declOrder). This is declaration order in
-//     each file, which the source fixes;
+//     each file, which the source fixes. The checker's own key orders the
+//     files by content, as it has no paths; the lowering has the paths, so
+//     it orders by path, the order go build gives. Both are functions of
+//     the sources, so a site that read the checker's list would still emit
+//     a function of the program, only in another canonical order;
 //   - a std package's lists: the checker's order. A std package has no
 //     source in the unit; the checker reads its embedded files in one
 //     fixed order, so that order is a function of the sources too.
@@ -219,6 +238,13 @@ func (c *canonical) tests(p *check.Package) []*check.Test {
 	}
 	return p.Tests
 }
+
+// testsRead reads the tests the test build runs (runTests). It is
+// canonical.tests; TestRawTestsReaderIsCanonical routes it through a
+// reader of the raw list in another package, the round 5 escape, and
+// requires the same output, which the producer's order (check/canon.go)
+// gives.
+var testsRead = (*canonical).tests
 
 // initOrder is p's package-level initializers in the checker's
 // initialization order, which is semantic (see above).

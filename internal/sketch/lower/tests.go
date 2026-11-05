@@ -145,7 +145,7 @@ func (l *lowerer) testImports() []string {
 // They are in canonical order (canon.go), so the runner, the names and the
 // report do not depend on the order the checker met the files.
 func (l *lowerer) runTests() []*check.Test {
-	return l.canon.tests(l.pkg)
+	return testsRead(l.canon, l.pkg)
 }
 
 func (l *lowerer) testFunc(t *check.Test) string {
