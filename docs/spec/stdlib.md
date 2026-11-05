@@ -93,6 +93,23 @@ The std test compares each Ergo type parameter, parameter and result type with i
 
 Each value's type (`span`, `annotation`) is an unexported record with the protocol's unexported functions `contextKey` and `contextText` on it, so it binds by the rule every type uses and the packages export only the four declarations above. A read has empty rows and is effectful ([rows.md, Footprints](rows.md#footprints)). The rest of the trace and log APIs is [#206](https://github.com/cevr/ergo/issues/206). The lowering opens and ends a region with `Scope.OpenContext(pkg, key, text string) *Context` and `Context.End()` (context.go), which only the lowering calls. *Prior art:* OpenTelemetry's `Tracer.start_as_current_span` and Elixir's `Logger.metadata` set a value for the running process; Java's `ScopedValue` scopes it to a block, as `with` does.
 
+## strings and strconv
+
+Std `strings` and `strconv` work on text (wave std-1, unit G5a). They are pure functions: no operation type and no capability. Each export is an `extern go` of a `runtime/v1` body in `text.go` that calls the Go function of the same name, under the convention of [v1 packages](#v1-packages-task-scope-queue-and-slice): no hidden argument, a `runtime/v1` Go name with the std package as prefix (`StringsSplit`, `StrconvAtoi`), because the lowering keys its runtime bindings by bare name, and one `runtimeBindings` row each, which neither waits nor releases. `TestStdTextRuns` runs each function.
+
+| Package | Signatures |
+| --- | --- |
+| `strings` | `Split(s, sep string) []string`, `Join(xs []string, sep string) string`, `HasPrefix`, `HasSuffix`, `Contains(s, x string) bool`, `TrimSpace(s string) string`, `TrimPrefix`, `TrimSuffix(s, x string) string`, `Fields(s string) []string`, `Repeat(s string, n int) string`, `ToLower`, `ToUpper(s string) string`, `Index(s, sub string) int`, `Slice(s string, i int, j int) string`; `type Halves { Before string, After string }`, `func Cut(s, sep string) Option[Halves]` |
+| `strconv` | `type Malformed { Text string }`; `Itoa(n int) string`, `Atoi(s string) int fails Malformed`, `Quote(s string) string` |
+
+1. Lengths and indexes are bytes, as `len(s)` is. Ergo has no substring syntax yet (`s[i..j]` is an index by a `Range`, S108), so `strings.Slice(s, i, j)` is Go's `s[i:j]`. A bound outside `0..len(s)`, or an `i` after `j`, is a defect, as an index out of range is; so is a negative `n` in `Repeat`.
+2. `Cut` is Ergo over `Index` and `Slice`: `Some` of the text before and after the first `sep`, or `None` when `s` has no `sep`. A `sep` at index 0 gives an empty `Before`.
+3. `Atoi` fails `Malformed` with the text for every text Go's `strconv.Atoi` refuses, a value out of `int`'s range included. `Malformed` is the `runtime/v1` struct `v1.Malformed` (Types 4), so `case strconv.Malformed:` matches the value the body returns. Its text is `strconv.Malformed{Text:…}`, the generated text of a record.
+4. Each call is opaque in footprints until std purity lands (G5b), as every extern call is today.
+5. `slice.SortFunc` and `SortStableFunc` are not here: a std function parameter with parameters of its own does not bind yet (`lower/std.go`, `adaptFunc`); they are follow-up G5c.
+
+*Prior art:* Gleam's `gleam/string` and ReScript's `Js.String2` bind host text functions as direct externals with no wrapper; Elixir's `String` and `Integer.parse/1` (`{n, rest} | :error`) are plain BEAM calls. Ergo binds Go's `strings` and `strconv` the same way, and gives `Atoi` a typed failure in its row in place of Go's `error`.
+
 ## Packages by origin
 
 - **Same as Go:** `strings`, `slices`, `maps`, `cmp`, `math`, `time`, `os`, `fs`, `net`, `sql`.
