@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"os/exec"
 	"path"
@@ -16,11 +17,13 @@ import (
 	"strings"
 )
 
-// The merge tier's input contract (spec Q-R7-1, Q-R8-1). The uncached run
-// reads three things from before the run: the head commit, exported on the
-// host from the object store by its hash (exportCommit); the modules each
-// tracked go.sum names, copied from the host's module cache only after
-// their bytes match go.sum's hash (seedModules); and the declared
+// The merge tier's input contract (spec Q-R7-1, Q-R8-1, Q-R9-1). The
+// uncached run reads three things from before the run: the head commit,
+// exported on the host from the object store by its hash (exportCommit);
+// the file contents of the modules each tracked go.sum names, read from the
+// host's module cache, verified against go.sum's hash and written into the
+// run's module cache as a new archive built from those contents alone
+// (seedModules, moduleZip); and the declared
 // read-only trees (sandboxReadOnly), each admitted by its resolved
 // identity (admittedRoot), which checkInputs reads entry by entry at the
 // start of every run, in the resolved tree the sandbox binds. A path in a
@@ -28,8 +31,8 @@ import (
 // cache, is masked (bound empty) or,
 // where a mask would hide what the run needs, refused: the merge tier then
 // fails closed and names the path. So no byte a process of this user could
-// write before the run is visible in the run, but the commit and the
-// verified modules (docs/tooling.md, "Merge gate", lists the residuals).
+// write before the run is visible in the run, but the commit and module
+// file contents verified against the commit's go.sum (docs/tooling.md, "Merge gate", lists the residuals).
 
 // sandboxMask is a path of a read-only tree that the sandbox binds empty:
 // a directory as an empty read-only tmpfs, a file as /dev/null.
@@ -301,14 +304,22 @@ func exportCommit(source, head, dir string) error {
 	return nil
 }
 
-// seedModules fills dest, the run's empty module cache, with the module
-// files the head commit's go.sum files name: for each go.sum line, the
-// host module cache's download (cache/download/<path>/@v/<version>.zip or
-// .mod), copied only when its bytes hash to the line's h1 hash. A file the
-// host lacks is left out (a build that needs it fails: GOPROXY is off). A
-// mismatch, a go.mod that requires a module with no go.sum beside it, or a
-// go.work anywhere in the commit (the steps run with GOWORK=off) fails
-// closed. It returns the number of files copied.
+// seedModules fills dest, the run's empty module cache, with the modules
+// the head commit's go.sum files name, built by construction (Nix
+// fixed-output style): for each go.sum line it reads the host module
+// cache's download (cache/download/<path>/@v/<version>.zip or .mod),
+// verifies the line's h1 hash over the file contents, and writes only those
+// verified contents: a .mod file's bytes as they are (h1 covers the whole
+// file), and a .zip as a new archive (moduleZip) whose bytes are a function
+// of the member names and contents alone. No byte of a host container (a
+// ZIP comment, header fields, extra fields, trailing data) and no other
+// host file (.info, .ziphash, list) reaches the run; Go needs none of them
+// offline to build from a go.sum-pinned cache, and writes its own .ziphash
+// into the run's cache. A file the host lacks is left out (a build that
+// needs it fails: GOPROXY is off). A mismatch, a go.mod that requires a
+// module with no go.sum beside it, or a go.work anywhere in the commit (the
+// steps run with GOWORK=off) fails closed. It returns the number of files
+// written.
 func seedModules(source, head, hostModCache, dest string) (int, error) {
 	listing, err := hostGit("/", "--git-dir="+source, "ls-tree", "-r", "-z", "--name-only", head)
 	if err != nil {
@@ -386,11 +397,21 @@ func seedGoSum(name string, content []byte, hostModCache, dest string) (int, err
 		if err != nil {
 			return seeded, err
 		}
+		// out is what the run gets: the verified contents only.
 		var got string
+		var out []byte
 		if ext == ".mod" {
-			got = hashH1(map[string][]byte{"go.mod": data})
-		} else if got, err = hashZip(data); err != nil {
-			return seeded, fmt.Errorf("module input %s: %w", filepath.Join(hostModCache, rel), err)
+			got, out = hashH1(map[string][]byte{"go.mod": data}), data
+		} else {
+			files, err := zipFiles(data)
+			if err != nil {
+				return seeded, fmt.Errorf("module input %s: %w", filepath.Join(hostModCache, rel), err)
+			}
+			if got = hashH1(files); got == want {
+				if out, err = moduleZip(files); err != nil {
+					return seeded, fmt.Errorf("module input %s: %w", filepath.Join(hostModCache, rel), err)
+				}
+			}
 		}
 		if got != want {
 			return seeded, fmt.Errorf("module input %s has hash %s, not %s as %s says", filepath.Join(hostModCache, rel), got, want, name)
@@ -398,7 +419,7 @@ func seedGoSum(name string, content []byte, hostModCache, dest string) (int, err
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return seeded, err
 		}
-		if err := os.WriteFile(target, data, 0o444); err != nil {
+		if err := os.WriteFile(target, out, 0o444); err != nil {
 			return seeded, err
 		}
 		seeded++
@@ -439,29 +460,85 @@ func hashH1(files map[string][]byte) string {
 
 // hashZip is the h1 hash of a module zip's files (dirhash.HashZip).
 func hashZip(data []byte) (string, error) {
-	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	files, err := zipFiles(data)
 	if err != nil {
 		return "", err
+	}
+	return hashH1(files), nil
+}
+
+// moduleZipDate is the fixed MS-DOS date of every member moduleZip writes,
+// 1980-01-01, the format's earliest (its time is 00:00:00).
+const moduleZipDate = 1<<5 | 1
+
+// moduleZip is the module archive the run gets for verified member
+// contents: a function of the names and contents alone, which h1 covers.
+// Members are sorted by name and stored (no compression, so no compressor
+// version shows), each with the fixed date, no flags, no attributes and no
+// extra field; the archive has no comment and nothing after the central
+// directory. archive/zip writes an extra field only for a non-zero Modified
+// or for sizes past 4 GiB, which a module may not have (cmd/go limits a
+// module zip to 500 MiB).
+func moduleZip(files map[string][]byte) ([]byte, error) {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	for _, name := range names {
+		content := files[name]
+		header := &zip.FileHeader{
+			Name:               name,
+			Method:             zip.Store,
+			CreatorVersion:     20,
+			ReaderVersion:      20,
+			ModifiedDate:       moduleZipDate,
+			CRC32:              crc32.ChecksumIEEE(content),
+			CompressedSize64:   uint64(len(content)),
+			UncompressedSize64: uint64(len(content)),
+		}
+		member, err := writer.CreateRaw(header)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := member.Write(content); err != nil {
+			return nil, fmt.Errorf("member %q: %w", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return archive.Bytes(), nil
+}
+
+// zipFiles is a module zip's members by name: the file tree h1 covers. A
+// name with a newline or a name twice is refused (dirhash refuses both).
+func zipFiles(data []byte) (map[string][]byte, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
 	}
 	files := map[string][]byte{}
 	for _, file := range reader.File {
 		if strings.Contains(file.Name, "\n") {
-			return "", fmt.Errorf("file name %q has a newline", file.Name)
+			return nil, fmt.Errorf("file name %q has a newline", file.Name)
 		}
 		if _, ok := files[file.Name]; ok {
-			return "", fmt.Errorf("file %q twice", file.Name)
+			return nil, fmt.Errorf("file %q twice", file.Name)
 		}
 		content, err := file.Open()
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		var buf bytes.Buffer
 		_, err = buf.ReadFrom(content)
 		content.Close()
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		files[file.Name] = buf.Bytes()
 	}
-	return hashH1(files), nil
+	return files, nil
 }

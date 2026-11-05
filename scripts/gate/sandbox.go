@@ -27,7 +27,8 @@ import (
 // a path a process of this user could have written or a Go cache
 // (checkInputs, inputs.go); the checkout is a fresh export of the head
 // commit, fetched by its hash, not the caller's working tree; and the
-// module cache is empty but for the modules go.sum verifies (seedModules).
+// module cache is empty but for archives built from the module contents
+// go.sum verifies (seedModules).
 // So a cache a step fills lives only as long as the run, two runs never
 // share one, and no state from before the run is visible but the commit
 // and the verified modules (Bazel's sandboxed actions and Nix's build
@@ -80,8 +81,9 @@ type sandboxPlan struct {
 	// hide one (sandboxPrograms).
 	Programs []string
 	// ModCache is the module cache the steps use (GOMODCACHE): a scratch
-	// path, which the sandbox fills from HostModCache with the modules the
-	// head commit's go.sum files verify (seedModules).
+	// path, which the sandbox fills with archives built from the module
+	// contents in HostModCache that the head commit's go.sum files verify
+	// (seedModules).
 	ModCache, HostModCache string
 	// GoRoot is the toolchain the steps run (GOROOT), first on their PATH.
 	GoRoot string
@@ -459,7 +461,8 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 // sandboxScratch are the writable mounts: every directory a step may write
 // by name, so each is empty in the sandbox whatever the host holds there.
 // Go needs GOTMPDIR to exist; its mount creates it. The module cache is one
-// too: the sandbox fills it with the verified modules (seedModules).
+// too: the sandbox fills it with modules built from verified contents
+// (seedModules).
 func sandboxScratch(home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout, goModCache string) []string {
 	var scratch []string
 	for _, path := range []string{"/tmp", "/var/tmp", home, xdgCacheHome, goCache, tempDir, goTmpDir, gateCache, checkout, goModCache} {
