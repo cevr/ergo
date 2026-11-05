@@ -96,6 +96,8 @@ type scopeHelper struct {
 	command *exec.Cmd
 	output  bytes.Buffer
 	cache   string
+	// unit is the scope's unit name.
+	unit string
 }
 
 // startableScope skips the test where no systemd user scope can start.
@@ -116,7 +118,7 @@ func startableScope(t *testing.T, slice string, budget memoryBudget) {
 func newScopeHelper(t *testing.T, slice, name string, budget memoryBudget) *scopeHelper {
 	t.Helper()
 	unit := scopeUnit()
-	h := &scopeHelper{cache: t.TempDir()}
+	h := &scopeHelper{cache: t.TempDir(), unit: unit}
 	h.command = exec.Command("systemd-run", scopeArguments(slice, unit, budget, []string{os.Args[0], "-test.run=^TestBudgetScopeHelper$", "-test.count=1"})...)
 	h.command.Env = append(scopeEnvironment(unit), "GATE_BUDGET_CASE="+name, "GATE_BUDGET_ROOT="+budgetFixture(t), "GATE_BUDGET_CACHE="+h.cache)
 	h.command.Stdout, h.command.Stderr = &h.output, &h.output
@@ -253,13 +255,10 @@ const gateResidentLimit = 14 << 20
 // bytes (seqBytes).
 const outputLines = 4_000_000
 
-// gateShmemLimit is the most tmpfs memory (memory.stat shmem) a
-// gateOutputCase helper gate's cgroup may hold at any sample. A page of a
-// file on tmpfs, linked or not, is charged to the cgroup of the process that
-// writes it, and the gate writes the step's output to every destination
-// itself, so step output on tmpfs anywhere (a spool, a recorded output, a
-// standard output file) shows here, whatever the gate's own placement check
-// says. Pages of files on disk are page cache, not shmem.
+// gateShmemLimit is the most tmpfs memory (memory.stat shmem) the scope of
+// a gateOutputCase helper may hold at any sample, and the most bytes any
+// open file in memory in the scope may hold (checkPlacement). Pages of files
+// on disk are page cache, not shmem.
 const gateShmemLimit = 4 << 20
 
 // gateOutputCase is a step whose memory stays far under its 64M budget while
@@ -272,117 +271,6 @@ var gateOutputCase = budgetCase{
 	steps: func() []*Step {
 		return []*Step{{Name: "print", Argv: []string{"seq", "1", strconv.Itoa(outputLines)}, Inputs: &Inputs{Paths: []string{"src/"}}}}
 	},
-}
-
-// gateShmem checks the peak tmpfs memory a gateOutputCase helper gate
-// reports (runOutputHelper) against gateShmemLimit.
-func gateShmem(t *testing.T, run int, text string) {
-	t.Helper()
-	_, value, ok := strings.Cut(text, "gate-shmem-peak=")
-	var peak int64
-	if _, err := fmt.Sscanf(value, "%d", &peak); !ok || err != nil || peak < 0 {
-		t.Errorf("run %d: the helper gate reported no tmpfs peak", run)
-		return
-	}
-	if peak > gateShmemLimit {
-		t.Errorf("run %d: the gate's cgroup held %d bytes on tmpfs, over %d: it wrote step output to memory", run, peak, int64(gateShmemLimit))
-	}
-}
-
-// sampleShmem samples this process's cgroup's shmem every millisecond until
-// stop is called, and stop returns the largest value, or -1 if no sample
-// succeeded. A sample fails while the process moves between cgroups; the
-// sampler then finds its cgroup again. It reuses one buffer, so it adds
-// little to the gate's resident memory (gateResidentLimit).
-func sampleShmem() (stop func() int64) {
-	done, result := make(chan struct{}), make(chan int64, 1)
-	go func() {
-		peak := int64(-1)
-		buffer := make([]byte, 16<<10)
-		var stat *os.File
-		var path, current []byte
-		take := func() {
-			current = cgroupPath(buffer, current[:0])
-			if stat != nil && !bytes.Equal(current, path) {
-				_ = stat.Close()
-				stat = nil
-			}
-			if stat == nil && len(current) > 0 {
-				stat, _ = os.Open(filepath.Join("/sys/fs/cgroup", string(current), "memory.stat"))
-				path = append(path[:0], current...)
-			}
-			if stat == nil {
-				return
-			}
-			if value := shmemOf(stat, buffer); value >= 0 {
-				peak = max(peak, value)
-			} else {
-				_ = stat.Close()
-				stat = nil
-			}
-		}
-		tick := time.NewTicker(time.Millisecond)
-		defer tick.Stop()
-		for {
-			take()
-			select {
-			case <-done:
-				take()
-				if stat != nil {
-					_ = stat.Close()
-				}
-				result <- peak
-				return
-			case <-tick.C:
-			}
-		}
-	}()
-	return func() int64 {
-		close(done)
-		return <-result
-	}
-}
-
-// cgroupPath appends this process's cgroup (v2) path to into, or appends
-// nothing.
-func cgroupPath(buffer, into []byte) []byte {
-	membership, err := os.Open("/proc/self/cgroup")
-	if err != nil {
-		return into
-	}
-	n, _ := membership.Read(buffer)
-	_ = membership.Close()
-	path, ok := bytes.CutPrefix(bytes.TrimSpace(buffer[:n]), []byte("0::"))
-	if !ok {
-		return into
-	}
-	return append(into, path...)
-}
-
-// shmemOf reads the shmem bytes from an open memory.stat, or -1.
-func shmemOf(stat *os.File, buffer []byte) int64 {
-	n, err := stat.ReadAt(buffer, 0)
-	if n == 0 && err != nil {
-		return -1
-	}
-	content := buffer[:n]
-	start := bytes.Index(content, []byte("\nshmem "))
-	if start < 0 {
-		return -1
-	}
-	value := int64(0)
-	digits := 0
-	for _, b := range content[start+len("\nshmem "):] {
-		if b < '0' || b > '9' {
-			break
-		}
-		value = value*10 + int64(b-'0')
-		digits++
-	}
-	if digits == 0 {
-		return -1
-	}
-	return value
 }
 
 // gateResident checks the resident memory a gateOutputCase helper gate
@@ -457,16 +345,14 @@ func TestBudgetGateSurvivesStepOutput(t *testing.T) {
 		for name, value := range map[string]string{"GATE_BUDGET_ROOT": root, "GATE_BUDGET_CACHE": cache, "GATE_OUTPUT_RUN": strconv.Itoa(run + 1)} {
 			h.command.Env = setEnvironmentVariable(h.command.Env, name, value)
 		}
-		if err := h.command.Run(); err != nil {
-			t.Logf("scope helper exited %v", err)
-		}
+		report := runWatched(t, h)
 		code, text := h.result(t)
 		wantAll(t, text, want, fmt.Sprintf("seq-check run=%d %s", run+1, checked))
 		if code != 0 {
 			t.Errorf("run %d: gate exit %d, want 0", run+1, code)
 		}
 		gateResident(t, run+1, text)
-		gateShmem(t, run+1, text)
+		checkPlacement(t, run+1, report, true)
 	}
 	receipts := receiptsIn(t, cache)
 	if len(receipts) != 1 {
@@ -563,11 +449,6 @@ func (c *seqCheck) fail(reason string) {
 // does, and the check reads the file when the gate is done.
 func runOutputHelper(scope string) {
 	var check seqCheck
-	stopShmem := sampleShmem()
-	shmem := int64(-1)
-	defer func() {
-		fmt.Printf("gate-shmem-peak=%d\n", shmem)
-	}()
 	g := &gate{root: os.Getenv("GATE_BUDGET_ROOT"), cacheDir: os.Getenv("GATE_BUDGET_CACHE"), steps: gateOutputCase.steps(), scope: scope}
 	var code int
 	if name := os.Getenv("GATE_OUTPUT_FILE"); name != "" {
@@ -595,7 +476,6 @@ func runOutputHelper(scope string) {
 	} else {
 		code = g.run(&check)
 	}
-	shmem = stopShmem()
 	if len(check.partial) > 0 {
 		check.line(check.partial)
 	}
@@ -832,6 +712,14 @@ func TestBudgetScopeHelper(t *testing.T) {
 	os.Unsetenv(scopeVariable)
 	if name == gateOutputCase.name {
 		runOutputHelper(scope)
+		return
+	}
+	if name == oracleCase {
+		if err := runOracleHelper(scope); err != nil {
+			fmt.Printf("oracle: %v\noracle-exit=1\n", err)
+			return
+		}
+		fmt.Printf("oracle-exit=0\n")
 		return
 	}
 	for _, c := range append(append(budgetCases, hostCase, holdCase), gateOOMCases...) {

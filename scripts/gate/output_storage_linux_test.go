@@ -25,10 +25,13 @@ import (
 //   - pass with every line of the output, in order; or
 //   - refuse with exit 2, naming the destination, before any step runs.
 // Its resident memory stays under gateResidentLimit, under half the output:
-// no step output in its heap. Its cgroup's tmpfs memory (shmem, sampled
-// every millisecond) stays under gateShmemLimit: no step output in a file
-// in memory, linked or unlinked. The kernel's accounting, not the gate's
-// own placement check, judges where the output went. It records a pass only where the cache's
+// no step output in its heap. The test's own oracle (output_oracle_linux_test.go)
+// watches the whole helper scope, the gate and every step: its shmem stays
+// under gateShmemLimit, and no process in it has a file in memory open
+// (tmpfs, ramfs, hugetlbfs or a memfd, linked or unlinked) on a layout of
+// disks only, or one larger than gateShmemLimit on any layout. The kernel's
+// view of the real files, not the gate's own placement check, judges where
+// the output went. It records a pass only where the cache's
 // output file is on disk; with the cache in memory it says it did not
 // record, and the second run executes again. Whatever the runs leave on
 // tmpfs is small: no step output in a file in memory.
@@ -117,6 +120,11 @@ func (l storageLayout) spoolMemoryBacked() bool {
 		return l.cache.memoryBacked()
 	}
 	return l.spool.memoryBacked()
+}
+
+// onDiskOnly reports whether every destination of the layout is on disk.
+func (l storageLayout) onDiskOnly() bool {
+	return !l.cache.memoryBacked() && !l.spoolMemoryBacked() && (l.stdout == toPipe || !l.stdout.memoryBacked())
 }
 
 func (l storageLayout) expect(run int) expected {
@@ -290,14 +298,12 @@ func checkStorageLayout(t *testing.T, slice string, budget memoryBudget, layout 
 		for name, value := range map[string]string{"GATE_BUDGET_ROOT": root, "GATE_BUDGET_CACHE": cache, "GATE_OUTPUT_RUN": strconv.Itoa(run), "GATE_OUTPUT_FILE": stdout} {
 			h.command.Env = setEnvironmentVariable(h.command.Env, name, value)
 		}
-		if err := h.command.Run(); err != nil {
-			t.Logf("run %d: scope helper exited %v", run, err)
-		}
+		report := runWatched(t, h)
 		// result fails the layout when the gate did not finish: the kernel
 		// stopped it, and the output it had not printed is lost.
 		code, text := h.result(t)
 		gateResident(t, run, text)
-		gateShmem(t, run, text)
+		checkPlacement(t, run, report, layout.onDiskOnly())
 		want := layout.expect(run)
 		if want.refusal != "" {
 			if code != 2 || !strings.Contains(text, want.refusal) || strings.Contains(text, "== print:") {
