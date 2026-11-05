@@ -904,6 +904,23 @@ func closedRows(pt Type) [2]bool {
 
 func (w *refWalker) local(name string) bool { return w.lookupLocal(name) != nil }
 
+// withValueName reports whether a with operand's bare name, which names no
+// package context, is a value as typing reads it (context.go withArg): a
+// local or a package var. Any package object other than a var (a function,
+// a type, a prelude function) and a name of nothing is an "unknown
+// context" error there, which reads no value and records no use, so the
+// walk takes it as a name: no reference edge, and no use typing would not
+// resolve when it checks the frame (checker-fuzz: `func w(){with 0{with
+// w{}}}`). A local is never a package object, so a local row capability,
+// which typing also refuses, adds no edge either way.
+func (w *refWalker) withValueName(name string) bool {
+	if w.local(name) {
+		return true
+	}
+	_, ok := w.c.typeObject(name, w.c.cur).(*Var)
+	return ok
+}
+
 // operandScope resolves a with operand's name lexically in the walk's
 // scopes, as checker.operandScope does in typing's (context.go).
 func (w *refWalker) operandScope(name string) operandScope {
@@ -1023,7 +1040,7 @@ func (w *refWalker) expr(x syntax.Expr) {
 					w.expr(a)
 					continue
 				}
-				if wid, ok := unparen(a).(*syntax.Ident); ok && w.c.withNamedContext(wid.Name, w.operandScope(wid.Name)) != nil {
+				if wid, ok := unparen(a).(*syntax.Ident); ok && (w.c.withNamedContext(wid.Name, w.operandScope(wid.Name)) != nil || !w.withValueName(wid.Name)) {
 					for p, ok := a.(*syntax.ParenExpr); ok; p, ok = p.X.(*syntax.ParenExpr) {
 						w.visit(p)
 					}

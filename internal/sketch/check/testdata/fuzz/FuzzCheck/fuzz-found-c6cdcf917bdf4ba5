@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Greeter{A()A}\ntype A0000{}\ntype A00000{}\nfunc A(name A){name}\nfunc A0(){B}\nfunc A00(A0000000){A()}\nfunc A(){B}\nfunc A(n A){n}\nlet 0=A{Greeter:B}\nfunc A(){let run=func(){_=B\n_=with A{A00000000()}}%A00()}")

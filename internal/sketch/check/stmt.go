@@ -748,54 +748,20 @@ func (c *checker) forStmt(s *syntax.ForStmt) {
 
 // ---------------------------------------------------------------- termination
 
-// terminatesList reports whether a statement list ends in a terminating
-// statement: Go's rules, plus a total type switch whose cases all terminate
-// (rows.md, Totality 3; D8).
-func (c *checker) terminatesList(list []syntax.Stmt) bool {
-	if len(list) == 0 {
-		return false
-	}
-	return c.terminates(list[len(list)-1])
-}
-
-func (c *checker) terminates(s syntax.Stmt) bool {
+// terminates reports whether the last statement of a body that is no
+// expression, if, match or branch ends every path (yieldStmt's default
+// arm, its one caller): a return, or a for with no condition and no break
+// of its own (Go's rules). An if and a match at the end of a body are
+// decided where they yield (ifYield, matchYield; rows.md, Totality 3; D8),
+// so they never reach here.
+func terminates(s syntax.Stmt) bool {
 	switch s := s.(type) {
 	case *syntax.ReturnStmt:
 		return true
-	case *syntax.IfStmt:
-		if !c.terminatesList(s.Body.List) {
-			return false
-		}
-		// The else is a branch: a block's list, or the next if of the chain.
-		switch e := s.Else.(type) {
-		case *syntax.BlockStmt:
-			return c.terminatesList(e.List)
-		case *syntax.IfStmt:
-			return c.terminates(e)
-		}
-		return false
 	case *syntax.ForStmt:
 		return s.Cond == nil && !hasBreak(s.Body)
-	case *syntax.SwitchStmt:
-		return c.matchTerminates(s, s.Clauses)
-	case *syntax.TypeSwitchStmt:
-		return c.matchTerminates(s, s.Clauses)
 	}
 	return false
-}
-
-// matchTerminates reports whether a match terminates: it is total (proved,
-// or reported S103 so no S107 follows) and every case terminates.
-func (c *checker) matchTerminates(s syntax.Stmt, clauses []*syntax.CaseClause) bool {
-	if !c.totalSwitch[s] {
-		return false
-	}
-	for _, cl := range clauses {
-		if !c.terminatesList(cl.Body) || hasBreakList(cl.Body) {
-			return false
-		}
-	}
-	return true
 }
 
 // hasBreak reports a break of the enclosing loop: match is transparent,
@@ -819,13 +785,4 @@ func hasBreak(s syntax.Stmt) bool {
 		return true
 	})
 	return found
-}
-
-func hasBreakList(list []syntax.Stmt) bool {
-	for _, s := range list {
-		if hasBreak(s) {
-			return true
-		}
-	}
-	return false
 }
