@@ -186,7 +186,7 @@ func (c *checker) yieldStmt(s syntax.Stmt, k *sink, end syntax.Pos) {
 		return
 	default:
 		c.stmt(s)
-		if !k.discard && !c.terminates(s) {
+		if !k.discard && !terminates(s) {
 			k.miss(end)
 		}
 		return

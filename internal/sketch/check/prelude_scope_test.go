@@ -91,6 +91,37 @@ func TestExternParametersKeepTheBinderRules(t *testing.T) {
 	}
 }
 
+// A prelude name used twice in one parameter list: D-D3's S108 at the
+// first, which still binds, so the second is "already a parameter", not a
+// second prelude-name refusal (diagnostics.md, the D-D3 row: "with a
+// function's 'already a parameter' rule"). The function and the extern
+// forms share the binder (paramBinder), so each is pinned by its text.
+func TestPreludeNameTwiceIsAlreadyAParameter(t *testing.T) {
+	const prelude = "len is a prelude name, which cannot be redeclared; choose another name (#196, eighth round, item 3)"
+	for _, tc := range []struct{ name, src, fn string }{
+		{"func", "func f(len string, len string) {}\n", "f"},
+		{"extern", "extern go strings.Index func Idx(len string, len string) int\n", "Idx"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, d := check.CheckSource(tc.src)
+			first := strings.Index(tc.src, "len")
+			second := strings.LastIndex(tc.src, "len")
+			want := []check.Diagnostic{
+				{Code: check.CodeType, Message: prelude, Offset: first},
+				{Code: check.CodeType, Message: "len is already a parameter of " + tc.fn, Offset: second},
+			}
+			if len(d) != len(want) {
+				t.Fatalf("want %d diagnostics, got %s", len(want), describe(d))
+			}
+			for i, w := range want {
+				if d[i].Code != w.Code || d[i].Message != w.Message || d[i].Offset != w.Offset {
+					t.Fatalf("diagnostic %d: want %s %q at %d, got %s", i, w.Code, w.Message, w.Offset, describe(d))
+				}
+			}
+		})
+	}
+}
+
 // IsPredeclared answers what D-D3 refuses: a prelude type, a variant, a
 // built-in, a universe type and Map are predeclared; a prelude operation,
 // a universe name outside D-D3's list and `_` are not.
