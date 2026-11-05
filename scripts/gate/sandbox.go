@@ -165,11 +165,12 @@ func sandboxArgv(plan sandboxPlan) []string {
 // sandboxHostPaths are the paths the steps read from the host, with the
 // reason for each; the merge tier binds these read-only and nothing else
 // (docs/tooling.md, "Merge gate", lists them). Each was found necessary by
-// running the merge tier without it.
+// running the merge tier without it; /etc was not (the merge tier passed
+// without it), so the host's configuration (git's, the resolver's, the
+// user database) is not an input of the verdict.
 func sandboxReadOnly(goModCache, goRoot string) []sandboxPath {
 	paths := []sandboxPath{
-		{"/usr", "the programs the steps run (sh, git, go, cc, ps) and their libraries"},
-		{"/etc", "the dynamic linker's cache, the user database git and ps look the user up in, and git's system configuration"},
+		{"/usr", "the programs the steps run (sh, git, go, cc, ps, bwrap) and their libraries"},
 	}
 	if goModCache != "" {
 		paths = append(paths, sandboxPath{goModCache, "the Go module cache: the modules the build reads, and the Go toolchain go.mod selects, which no step may download"})
