@@ -218,7 +218,11 @@ var written = struct {
 // a fixture named like a copied checker file or a generated file, fails the
 // test naming both origins instead of replacing the first file and the
 // controls in it (E2d round 2 review M1). The registry names the first
-// origin; O_EXCL refuses an existing file the registry did not see.
+// origin; O_EXCL refuses an existing file the registry did not see. A
+// second write from the same unpatched origin is the same file and is
+// skipped: the runtime package embeds runtime/rt's sources, which the
+// checker reaches through runtime/v1 (the std purity fact, G5b), so both
+// packages list them.
 func write(t *testing.T, path, origin, data string) {
 	t.Helper()
 	path, err := filepath.Abs(path)
@@ -231,6 +235,9 @@ func write(t *testing.T, path, origin, data string) {
 		written.origin[path] = origin
 	}
 	written.Unlock()
+	if taken && first == origin {
+		return
+	}
 	if taken {
 		t.Fatalf("the assembled module gets %s twice: from %s and from %s", path, first, origin)
 	}
