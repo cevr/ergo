@@ -63,7 +63,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"LiteralType", "func f() {\n\tuse(json.Codec[Order]{MaxBytes: 4096}, [][]int64{{1}, {2, 3}})\n}\n"},
 	{"LiteralValue", "func f() {\n\tlet o = Order{\n\t\tID:    \"1\",\n\t\tTotal: 2,\n\t}\n\tuse(o)\n}\n"},
 	{"LiteralValue", "func f(o Order) {\n\tuse(Order{..o, Total: 3}, Box[int64]{..b, V: 1})\n\tuse(Order{\n\t\t..o,\n\t\tID:    \"2\",\n\t\tTotal: 4,\n\t})\n}\n"},
-	{"Element","func f() {\n\tuse([]Pair{{1, 2}, {First: 3, Second: 4}})\n}\n"},
+	{"Element", "func f() {\n\tuse([]Pair{{1, 2}, {First: 3, Second: 4}})\n}\n"},
 	{"FuncLit", "func f(xs []int64) {\n\tuse(xs.Fold(0, func(acc, x) { acc + x }), func(a int64) int64 { a + 1 })\n}\n"},
 	{"LitParam", "func f() {\n\tuse(func(x) { x }, func(a, b int64) int64 { a * b })\n}\n"},
 	{"IfExpr", "func fee(gold bool, total int64) int64 {\n\tlet rate int64 = if gold { 0 } else { 3 }\n\tif total > 100 {\n\t\ttotal * rate\n\t} else if total > 10 {\n\t\ttotal\n\t} else {\n\t\t0\n\t}\n}\n"},
