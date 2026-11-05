@@ -249,7 +249,9 @@ func (c *checker) collect() {
 					for i, name := range spec.Names {
 						// A refused package-level let mut (mutPackageLet)
 						// keeps mut, so its assignments add nothing (D3).
-						v := &Var{Name: name.Name, Pos: name.Pos(), id: name, pkg: true, used: true, mut: d.Mut.IsValid()}
+						// A prelude name binds, refused by D-D3 (declare):
+						// only a value read sees it (P5).
+						v := &Var{Name: name.Name, Pos: name.Pos(), id: name, pkg: true, used: true, mut: d.Mut.IsValid(), refused: c.isPreludeName(name.Name)}
 						if !c.contextNamed(name) {
 							c.declare(name, v)
 						}
@@ -284,13 +286,15 @@ func (c *checker) collect() {
 	}
 	// A package-level let with a pattern declares the names the pattern
 	// binds, read with every type declared (a type name in it tests the
-	// type, D-B3 rule 1); checkPkgVar types them all from the one value.
+	// type, D-B3 rule 1, by the let rule: a prelude name binds, refused by
+	// D-D3, P5); checkPkgVar types them all from the one value.
+	letTests := func(name string) bool { return c.patternTests(name, true) }
 	for _, p := range patterns {
 		c.cur = p.file
 		group := &pkgPattern{spec: p.spec}
 		c.pkgPatterns[p.spec] = group
-		for _, id := range patternNames(p.spec.Pattern, c.isPatternType) {
-			v := &Var{Name: id.Name, Pos: id.Pos(), id: id, pkg: true, used: true}
+		for _, id := range patternNames(p.spec.Pattern, letTests) {
+			v := &Var{Name: id.Name, Pos: id.Pos(), id: id, pkg: true, used: true, refused: c.isPreludeName(id.Name)}
 			if w, ok := c.pkg.Contexts[id.Name]; ok && id.Name != "_" && (w.file.index > p.file.index || w.file == p.file && w.Pos > id.Pos()) {
 				// The pattern is collected after every context: when the
 				// context is the later declaration, it is the duplicate.
@@ -835,6 +839,12 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 		seen[key] = true
 		u.Variants = append(u.Variants, t)
 	}
+	if u.Bad && len(u.Variants) == 0 {
+		// Every variant was lost to a reported error: the declaration is
+		// refused, as a defined type over an unknown base is, so every
+		// use of the type sees invalid and adds nothing (P4; D3).
+		return invalid
+	}
 	return u
 }
 
@@ -912,7 +922,9 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 	if ctx != nil && ctx.scope != nil {
 		scope = ctx.scope
 	}
-	if o, at := scope.lookup(name); o != nil {
+	// A type position sees through a refused binder: it was refused as a
+	// value binding, so the name keeps its meaning here (P2).
+	if o, at := scopeLookupPast(scope, name); o != nil {
 		// A refused import of a prelude name still binds (D-D3; lookup).
 		if imp := c.shadowImport(name, at, c.cur); imp != nil {
 			return imp

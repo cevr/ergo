@@ -56,7 +56,8 @@ func F() { let timeout = 1; _ = timeout }`, ""},
 		{"nested-function-binding", `type R { N int }
 func helper() int { return 1 }
 func F(r R) int { let R{N: helper} = r; return helper }`, ""},
-		{"prelude-function", `func F() { let Sleep = 1; _ = Sleep }`, check.CodeType},
+		{"prelude-builtin", `func F() { let len = 1; _ = len }`, check.CodeType},
+		{"prelude-operation", `func F() { let Sleep = 1; _ = Sleep }`, ""},
 		{"explicit-function-binding", `func helper() int { return 1 }
 func F() { let _ as helper = func() {}; helper() }`, ""},
 		{"explicit-type-binding", `type R { N int }

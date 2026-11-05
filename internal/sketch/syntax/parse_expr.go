@@ -476,10 +476,31 @@ func (p *parser) parseCompositeLit(typ Expr) *CompositeLit {
 	lit := &CompositeLit{Type: typ, Lbrace: p.want(LBRACE)}
 	saved := p.exprLev
 	p.exprLev = 1
+	more := true
+	if p.tok.tok == DOTDOT {
+		// A record update `T{..base, F: v}`: the base comes first, and the
+		// literal names a record type (grammar.md, Expressions 11).
+		if !isTypeName(typ) {
+			p.errorf("a record update names its record type: T{..base, F: v}")
+		}
+		lit.DotDot = p.tok.pos
+		p.next()
+		lit.Base = p.parseExpr()
+		more = p.got(COMMA)
+	}
 	keyed, positional := -1, -1
-	for p.tok.tok != RBRACE {
+	for more && p.tok.tok != RBRACE {
+		if p.tok.tok == DOTDOT && lit.Base != nil {
+			p.errorf("a record update has one base")
+		} else if p.tok.tok == DOTDOT {
+			p.errorf("the base of a record update comes first: T{..base, F: v}")
+		}
 		elt := p.parseElement()
-		if _, ok := elt.(*KeyValueExpr); ok {
+		_, isKV := elt.(*KeyValueExpr)
+		if !isKV && lit.Base != nil {
+			p.errorAt(elt.Pos(), int(elt.End()-elt.Pos()), "a record update sets fields by name: T{..base, F: v}")
+		}
+		if isKV {
 			keyed = len(lit.Elts)
 		} else {
 			positional = len(lit.Elts)
@@ -499,6 +520,24 @@ func (p *parser) parseCompositeLit(typ Expr) *CompositeLit {
 	lit.Rbrace = p.tok.pos
 	p.next()
 	return lit
+}
+
+// isTypeName reports whether x is a type name with optional type
+// arguments, `T`, `pkg.T` or `T[A]`: the only type a record update names.
+func isTypeName(x Expr) bool {
+	switch t := x.(type) {
+	case *Ident:
+		return true
+	case *SelectorExpr:
+		_, ok := t.X.(*Ident)
+		return ok
+	case *IndexExpr:
+		switch t.X.(type) {
+		case *Ident, *SelectorExpr:
+			return isTypeName(t.X)
+		}
+	}
+	return false
 }
 
 func (p *parser) parseElement() Expr {

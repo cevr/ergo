@@ -232,6 +232,10 @@ type localBinding struct {
 	// row marks a bare name of the written needs row: the capability
 	// typing binds as a capBinding (bindRequirements), not a value.
 	row bool
+	// refused marks a binder D-D3 refuses, as typing's Var.refused: only
+	// a read in a value position finds it (lookupPast). The walk binds no
+	// placeholder: a refused type test is a name.
+	refused bool
 }
 
 // writtenType resolves a written type at the point it is declared: a type
@@ -248,10 +252,10 @@ func (w *refWalker) writtenType(t syntax.Expr) Type {
 		t = ix.X
 	}
 	id, ok := t.(*syntax.Ident)
-	if !ok || w.tparams[id.Name] || w.local(id.Name) {
+	if !ok || w.tparams[id.Name] || w.typeLocal(id.Name) {
 		return nil
 	}
-	if tn, ok := w.c.typeObject(id.Name, w.c.cur).(*TypeName); ok {
+	if tn, ok := w.c.typeObjectPast(id.Name, w.c.cur).(*TypeName); ok {
 		return tn.Type
 	}
 	return nil
@@ -270,6 +274,7 @@ func (w *refWalker) binder(id *syntax.Ident, b *localBinding) {
 	if w.binders != nil {
 		w.binders[id] = true
 	}
+	b.refused = w.c.isPreludeName(id.Name) // D-D3 refuses it; it still binds
 	w.bindAs(id.Name, b)
 }
 
@@ -597,15 +602,16 @@ func (w *refWalker) catchAll(id *syntax.Ident) bool {
 // typing's lookup does: a local first, then the package scope, the universe
 // and the file's imports (typeObject). A local row binding is the
 // capability typing binds (capBinding, bindRequirements); any other local
-// is a local value.
+// is a local value. A refused binder is invisible here, as in typing's
+// lookupPast (P2).
 func (w *refWalker) walkObject(name string) Object {
-	if b := w.lookupLocal(name); b != nil {
+	if b := w.lookupLocalPast(name); b != nil {
 		if b.row {
 			return &capBinding{}
 		}
 		return &Var{Name: name}
 	}
-	return w.c.typeObject(name, w.c.cur)
+	return w.c.typeObjectPast(name, w.c.cur)
 }
 
 // patternTests is typing's rule for a bare name in a pattern
@@ -922,6 +928,21 @@ func (w *refWalker) lookupLocal(name string) *localBinding {
 	}
 	return nil
 }
+
+// lookupLocalPast is lookupLocal outside a value position: it sees through
+// refused binders, as typing's lookupPast does (P2, P3).
+func (w *refWalker) lookupLocalPast(name string) *localBinding {
+	for i := len(w.scopes) - 1; i >= 0; i-- {
+		if b, ok := w.scopes[i][name]; ok && !b.refused {
+			return b
+		}
+	}
+	return nil
+}
+
+// typeLocal reports a local that a type position sees: any but a refused
+// binder (P2).
+func (w *refWalker) typeLocal(name string) bool { return w.lookupLocalPast(name) != nil }
 
 // typ visits a type expression: no identifier in it is a value.
 func (w *refWalker) typ(n syntax.Node) {

@@ -81,6 +81,11 @@ var escPositions = map[string][]escCase{
 	"CompositeLit.Elts": {
 		{src: "func u(f func(int) int) int {\n\t$let xs = []func(int) int{f}\n\txs[0](1)\n}\n"},
 	},
+	"CompositeLit.Base": {
+		{src: "func u(f func(int) int) int {\n\t$Box{..Box{V: pass(f)}, V: 2}.V\n}\n", ok: true},
+		{src: "func u(f func(int) int) int {\n\t$Box{..Box{V: f}, V: give(f)}.V(1)\n}\n"},
+		{src: "func u(f func(int) int) int {\n\t$Box{..f, V: 2}.V\n}\n", want: "S108"},
+	},
 	"KeyValueExpr.Value": {
 		{src: "func u(f func(int) int) Holder {\n\t$Holder{Run: f}\n}\n"},
 		{src: "func u(f func(int) int) int {\n\t$Box{V: f}.V(1)\n}\n"},

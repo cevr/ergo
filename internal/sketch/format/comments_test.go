@@ -16,6 +16,7 @@ import (
 var nestedChains = []struct{ name, src string }{
 	{"selector call index chain", "func f() {\n\tlet x = a.b(c, d)[e].g(h)[i:j].k[l:m:n]\n}\n"},
 	{"slice and map types", "let xs [][]Map[string, []int]\n\nlet ys = []int{1, 2}\n"},
+	{"record updates", "func f() {\n\tlet w = W{..g(a).b[c], X: V[int]{..w.y, Z: 1}.z, Y: 2}\n}\n"},
 	{"nested literals", "let m = Map[string, []T]{\"a\": {{X: 1, Y: []int{2, 3}}, {X: 4}}, \"b\": nil}\n"},
 	{"func types and results", "func f[E](a, b int, g func(x, y int) (int, string) fails E | go.Error needs A | B) int fails E needs C | D {\n\treturn g(a, b)\n}\n"},
 	{"union and error rows", "type U[C, T] = A | b.B | C[T, U]\n\nfunc f[A]() fails A | b.B { return nil }\n"},

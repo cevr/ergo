@@ -255,14 +255,6 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 	panic("binderRule: no rule")
 }
 
-// binderFollowUps are the programs whose codes elsewhere differ from the
-// rule for a reason outside the binder's meaning, each with the follow-up
-// that owns it. Their meaning and their codes at the binder are checked.
-var binderFollowUps = map[string]string{
-	"a catch arm's rest/int":     "a refused type test in a catch arm declares no placeholder, so the arm's read adds S108 (fuzz-17d6 follow-up)",
-	"a catch arm's rest/Console": "a refused type test in a catch arm declares no placeholder, so the arm's read adds S104 (fuzz-17d6 follow-up)",
-}
-
 // binderFields are the binder fields: lawScopeDomain less lawNoBinder.
 func binderFields(t *testing.T) []string {
 	t.Helper()
@@ -314,7 +306,6 @@ func TestBinderNamesAgree(t *testing.T) {
 	}
 	sort.Strings(keys)
 	programs := 0
-	seenFollowUp := map[string]bool{}
 	for _, field := range keys {
 		for _, form := range binderForms[field] {
 			for _, bn := range binderNames {
@@ -359,21 +350,13 @@ func TestBinderNamesAgree(t *testing.T) {
 				if strings.Join(atBinder, " ") != strings.Join(want.at, " ") {
 					t.Errorf("%s: want %v at the binder, got %v\n\t%s\n%s", label, want.at, atBinder, describe(diags), src)
 				}
-				if reason, skip := binderFollowUps[row]; skip {
-					seenFollowUp[row] = true
-					t.Logf("%s: codes elsewhere not checked: %s", label, reason)
-				} else if strings.Join(other, " ") != strings.Join(want.other, " ") {
+				if strings.Join(other, " ") != strings.Join(want.other, " ") {
 					t.Errorf("%s: want %v elsewhere, got %v\n\t%s\n%s", label, want.other, other, describe(diags), src)
 				}
 				if bn.class == badType && len(diags)-len(atBinder)-len(other) != 1 {
 					t.Errorf("%s: want one diagnostic at tbad's declaration\n\t%s\n%s", label, describe(diags), src)
 				}
 			}
-		}
-	}
-	for row := range binderFollowUps {
-		if !seenFollowUp[row] {
-			t.Errorf("binderFollowUps names %q, no program", row)
 		}
 	}
 	t.Logf("%d binder fields, %d programs (%d names each)", len(fields), programs, len(binderNames))

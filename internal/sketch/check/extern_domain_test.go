@@ -25,16 +25,15 @@ type externForm struct {
 // externForms is every reference form of the call-only rule's domain. Std
 // exports no non-generic extern (task.Go, queue.New, slice.WithCapacity,
 // timeout.After and scope.OnExit are generic; log's and trace's externs are
-// unexported), so the qualified non-generic form has no row.
+// unexported), so the qualified non-generic form has no row. The prelude's
+// one extern, Sleep, is an operation of LiveScheduler and in no scope
+// (prelude-scope S1): only the dot form reaches it, and its value form is
+// the S104 of every operation, so the prelude has no row either.
 var externForms = []externForm{
 	{
 		name: "user", decl: "extern go strings.ToUpper func Upper(s string) string\n",
 		ref: "Upper", typ: "func(string) string", args: `("x")`,
 		ctlDecl: "func upper(s string) string { s }\n", ctlRef: "upper",
-	},
-	{
-		name: "prelude", ref: "Sleep", typ: "func(LiveScheduler, duration)", args: "(LiveScheduler, 1s)",
-		ctlDecl: "func nap(s LiveScheduler, d duration) {}\n", ctlRef: "nap",
 	},
 	{
 		name: "queue-explicit", imports: "import queue\n",

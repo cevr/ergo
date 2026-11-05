@@ -26,9 +26,9 @@ import (
 // these tests is the Ergo checker itself (internal/sketch/check, read
 // only): an emitted text is conflict-free when the checker reports no
 // declaration in it as already declared, declared twice or a prelude name,
-// and no extern has two parameters with one name. The product reads none
-// of this: it derives its reserved set from the syntax keywords, the
-// prelude source and the checker's universe names.
+// and no extern has two parameters with one name. The product reads no
+// diagnostics: it derives its reserved set from the syntax keywords and
+// the checker's predeclared set (check.IsPredeclared).
 
 var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -62,7 +62,7 @@ func checkerRefuses(t *testing.T, names []string) map[string]bool {
 // checkerDomain is the set of names the predeclared names are compared
 // on: every identifier in a string literal of the checker's source (its
 // universe names are literals there), every identifier of the prelude's
-// source, Go's keywords and predeclared names, and the product's set.
+// source, and Go's keywords and predeclared names.
 func checkerDomain(t *testing.T) []string {
 	t.Helper()
 	set := map[string]bool{}
@@ -95,7 +95,7 @@ func checkerDomain(t *testing.T) []string {
 			set[w] = true
 		}
 	}
-	for _, m := range []map[string]bool{goKeywords, goPredeclared, ergoPredeclared()} {
+	for _, m := range []map[string]bool{goKeywords, goPredeclared} {
 		for n := range m {
 			set[n] = true
 		}
@@ -122,7 +122,7 @@ func TestErgoPredeclaredMatchesChecker(t *testing.T) {
 		if syntax.IsKeyword(n) {
 			continue
 		}
-		if got := ergoPredeclared()[n]; got != refused[n] {
+		if got := ergoPredeclared(n); got != refused[n] {
 			t.Errorf("%s: predeclared %v, the checker refuses it: %v", n, got, refused[n])
 		}
 	}
@@ -131,9 +131,10 @@ func TestErgoPredeclaredMatchesChecker(t *testing.T) {
 
 // ergoConflicts is the oracle: the checker's diagnostics of src that name a
 // declaration that collides, and every extern with two parameters of one
-// name. The checker does not refuse a predeclared parameter name of an
-// extern today (measured: the extern `func F(len uint32)` gets no
-// diagnostic), so the parameters are checked on the syntax tree, and
+// name. The checker refuses an extern's parameter as it refuses a
+// function's (D-D3: a prelude name is "is a prelude name"; a name used
+// twice is "already a parameter", which this filter leaves out), so the
+// two parameters of one name are also checked on the syntax tree, and
 // TestErgoParamProperty checks that none is reserved.
 func ergoConflicts(t *testing.T, src string) []string {
 	t.Helper()

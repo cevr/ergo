@@ -87,6 +87,10 @@ type Var struct {
 	// undiagnosed: a local bound to a value typing treats as invalid with no
 	// diagnostic of its own (provisional.go).
 	undiagnosed bool
+	// refused marks a refused binder: a refused type test's placeholder or
+	// a binder with its own diagnostic (D-D3). Only a read in a value
+	// position finds it; every other lookup sees through it (lookupPast).
+	refused bool
 }
 
 // Const is a predeclared constant (true, false).
@@ -204,7 +208,7 @@ type Scope struct {
 	// capability-row bindings and its top-level locals
 	// (rows-and-constraints §7 amendment 3).
 	frame bool
-	// barrier marks a with block, a trailing block or a bare block: return,
+	// barrier marks a with block or a trailing block: return,
 	// break and continue may not cross it (grammar.md, Statements 5).
 	barrier bool
 }

@@ -908,8 +908,8 @@ func (c *checker) body(t *target, ft *syntax.FuncType, params []*Var, check func
 			c.errorf(p.id, CodeType, "%s is already a parameter", p.Name)
 			continue
 		}
-		c.localBinder(p.id) // D-D3, D-D2; the parameter still binds
-		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true}
+		refused := c.localBinder(p.id) // D-D3, D-D2; the parameter still binds
+		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true, refused: refused}
 		c.def(p.id, v)
 		frame.insert(p.Name, v)
 	}
@@ -977,8 +977,8 @@ func (c *checker) blockLit(b *syntax.BlockStmt, expected *Signature, in *inferer
 }
 
 // yieldingBlock checks a block that yields its last statement, by the one
-// tail rule of function bodies (D-C1, D-C2): a with block, a bare block or
-// a trailing block. With one known result every path yields a value of
+// tail rule of function bodies (D-C1, D-C2): a with block, a trailing
+// block or a function literal's body with an inferred result. With one known result every path yields a value of
 // that type (S107 for a path without one); with no result the tail is
 // discarded; otherwise the block yields a value when every path does, of
 // the first value's type (a single unknown result is still the tail's
@@ -1088,19 +1088,21 @@ func (c *checker) collFunc(t Type, name string) *Func {
 	return nil
 }
 
-// collNamed is the prelude function on slices or Maps named name, for the
-// message of a bare name that is in no scope (orchestrator ruling, stage
-// D3 round 1: Get(m, k) is S104 naming m.Get(k)).
-func (c *checker) collNamed(name string) *Func {
-	if f := c.collFuncs()[collKey{name: name}]; f != nil {
-		return f
+// preludeOp is the prelude operation named name, for the message of a bare
+// name that is in no scope (orchestrator ruling, stage D3 round 1: Get(m,
+// k) is S104 naming m.Get(k)): a function on slices or Maps, or on a
+// prelude type (Sleep). The prelude's own operations are in its package
+// scope, so it has none here.
+func (c *checker) preludeOp(name string) *Func {
+	if c.pkg.Path == std.PreludePath {
+		return nil
 	}
-	return c.collFuncs()[collKey{name: name, isMap: true}]
+	return prelude().ops[name]
 }
 
-// collForm is the dot form of the prelude function f, spelled with its
-// parameter names: m.Get(k).
-func collForm(f *Func) string {
+// opForm is the dot form of the prelude function f, spelled with its
+// parameter names: m.Get(k), s.Sleep(d).
+func opForm(f *Func) string {
 	var names []string
 	for _, field := range f.Decl.Type.Params.List {
 		for _, id := range field.Names {

@@ -177,7 +177,7 @@ func (c *checker) withOwnership() {
 				} else {
 					refused[a.Entry] = true
 				}
-				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a call of a function whose every result is made, a composite literal or a unit value; an extern's result is never proved), and a borrowed or reused resource is #197's (resources.md, Context ownership)")
+				c.errorf(at, CodeOutside, "this resource provider names an existing value or cannot be proved fresh; a with owns and releases only a provider it makes (a call of a function whose every result is made, a composite literal or a unit value, and a record update only when its base is made; an extern's result is never proved), and a borrowed or reused resource is #197's (resources.md, Context ownership)")
 			}
 			c.cur = s.file
 			for _, cap := range c.releaseNeeds(a.Close) {
@@ -547,7 +547,9 @@ func (fresh providerFreshness) expression(info *Info, x syntax.Expr) bool {
 	}
 	switch x := unparen(x).(type) {
 	case *syntax.CompositeLit:
-		return true
+		// A record update copies every field it does not name from its
+		// base, so it is fresh only when its base is.
+		return x.Base == nil || fresh.expression(info, x.Base)
 	case *syntax.CallExpr:
 		if call := info.Calls[x]; call != nil {
 			switch call.Kind {

@@ -194,11 +194,16 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 				}
 				continue
 			}
-			lists = append(lists, it.binds)
-			if it.t == nil || unreachable {
-				continue
+			binds := it.binds
+			if it.t != nil && !unreachable && cs.judge(it, row, valid && !unknown) && it.whole {
+				// A type test of a type outside the row is refused: it
+				// declares its placeholder (rows.md, Catch 7).
+				core, _ := asParts(it.te)
+				if id := testName(core); id != nil {
+					binds = append(binds[:len(binds):len(binds)], placeholderBinding(id))
+				}
 			}
-			cs.judge(it, row, valid && !unknown)
+			lists = append(lists, binds)
 		}
 		saved := c.fn.scope
 		c.fn.scope = newScope(saved)
@@ -392,6 +397,9 @@ func (cs *catchSpace) resolve(arm *syntax.CatchArm, te syntax.Expr, row *Row, op
 	} else {
 		// A refused or unknown type, already reported: the arm proves
 		// nothing, so no totality verdict follows, as for a record pattern.
+		// The test declares its placeholder, as a match arm's does
+		// (rows.md, Catch 7).
+		r.refusedTest(core)
 		ok = false
 	}
 	if name != nil && name.Name != "_" {
@@ -450,8 +458,10 @@ func (cs *catchSpace) over() bool {
 // judge adds a pattern of a valid type to its matrix. A pattern the rows
 // before it cover is unreachable, a fact of the arms alone, so a row
 // diagnostic never hides it (round 13 review M1); then the type must be in
-// the caught row (rows.md, Catch 2).
-func (cs *catchSpace) judge(it catchItem, row *Row, valid bool) {
+// the caught row (rows.md, Catch 2). It reports whether the type is
+// refused for not being in the row: a refused type test, as a match arm's
+// test of a type that does not match the subject.
+func (cs *catchSpace) judge(it catchItem, row *Row, valid bool) (refused bool) {
 	c := cs.c
 	id := c.types.id(it.t)
 	c.types.charge(1)
@@ -479,7 +489,9 @@ func (cs *catchSpace) judge(it catchItem, row *Row, valid bool) {
 	}
 	if valid && !row.has(c.types, it.t) {
 		c.errorf(it.te, CodeType, "%s is not in the caught row %s (rows.md, Catch 2)", it.t, rowText(row))
+		return true
 	}
+	return false
 }
 
 // coverWhole records that the `case err:` or `case _` arm at n handles

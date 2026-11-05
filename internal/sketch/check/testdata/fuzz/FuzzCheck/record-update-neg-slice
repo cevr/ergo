@@ -1,0 +1,2 @@
+go test fuzz v1
+string("func a(xs []int) []int { []int{..xs, 1} }\n")

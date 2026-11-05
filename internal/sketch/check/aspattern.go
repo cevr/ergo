@@ -31,11 +31,12 @@ func (c *checker) declareAs(name *syntax.Ident, t Type, placeholder bool) (asBin
 	if name.Name == "_" {
 		return asBinding{}, false
 	}
+	refused := false
 	if !placeholder {
-		c.localBinder(name)
+		refused = c.localBinder(name)
 	}
 	g := &switchGroup{}
-	v := c.bindLocal(&Var{Name: name.Name, Type: t, Pos: name.Pos(), id: name, group: g, used: true})
+	v := c.bindLocal(&Var{Name: name.Name, Type: t, Pos: name.Pos(), id: name, group: g, used: true, refused: refused})
 	if isInvalid(t) {
 		g.used = true // an invalid pattern adds no S110 (D3)
 	}
@@ -72,7 +73,7 @@ func (c *checker) refusedRest(id *syntax.Ident) bool {
 	if id.Name == "_" || c.isPreludeName(id.Name) {
 		return false
 	}
-	o := c.lookup(id.Name)
+	o := c.lookupPast(id.Name)
 	switch o := o.(type) {
 	case *Func, *PkgName:
 		if p, ok := o.(*PkgName); ok {

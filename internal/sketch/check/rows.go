@@ -948,7 +948,7 @@ type branchKind int
 const (
 	brLoop branchKind = iota
 	brSwitch
-	brBarrier // a with, trailing or bare block: nothing crosses it
+	brBarrier // a with or trailing block: nothing crosses it
 )
 
 type branch struct {
@@ -1015,18 +1015,13 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	prev := c.fn
 	c.fn = fc
 	defer func() { c.fn = prev }()
+	seen := map[string]bool{}
 	for _, p := range sig.Params {
-		if p.Name == "_" {
+		bind, refused := c.paramBinder(f, p, seen) // the extern's rules too (extern.go)
+		if !bind {
 			continue
 		}
-		if prev, ok := frame.names[p.Name]; ok {
-			if _, isVar := prev.(*Var); isVar && prev.(*Var).param {
-				c.errorf(p.id, CodeType, "%s is already a parameter of %s", p.Name, f.Name)
-				continue
-			}
-		}
-		c.preludeName(p.id) // D-D3; the parameter still binds
-		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true}
+		v := &Var{Name: p.Name, Type: p.Type, Pos: p.Pos, id: p.id, param: true, used: true, refused: refused}
 		c.def(p.id, v)
 		frame.insert(p.Name, v)
 	}

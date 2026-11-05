@@ -13,7 +13,9 @@ import (
 // match arm alike (D-D3 for every binder kind; stage D1 round 1 review
 // m2).
 func TestPreludeLetNamesUseBinderDiagnostic(t *testing.T) {
-	for _, name := range []string{"Sleep", "len"} {
+	// No prelude function is a name in scope (every one is an operation,
+	// prelude-scope S1), so the built-in len is the case.
+	for _, name := range []string{"len"} {
 		t.Run(name, func(t *testing.T) {
 			_, d := check.CheckSource(fmt.Sprintf("func F() { let %s = 3; _ = %s }\n", name, name))
 			want := name + " is a prelude name, which cannot be redeclared; choose another name (#196, eighth round, item 3)"

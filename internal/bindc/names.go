@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
-	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -235,82 +234,19 @@ func goStructScope() *nameScope {
 // identity (internal/sketch/lower, names.go), so an extern's parameter
 // names never reach Go.
 
-// ergoPredeclared returns the names the Ergo checker predeclares for every
-// package, which a declaration or a parameter may not take (D-D3, "a
-// prelude name cannot be redeclared"): the universe names of D-D3's list,
-// and the exported names of the prelude's scope.
-var ergoPredeclared = sync.OnceValue(func() map[string]bool {
-	m := map[string]bool{}
-	// The universe names of internal/sketch/check (check.go universe and
-	// bindings.go predeclaredNames, without notPreludeNames). The checker
-	// does not export them; TestErgoPredeclaredMatchesChecker compares
-	// this set with the checker's refusals.
-	for _, n := range strings.Fields(`bool string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64
-		float32 float64 duration byte rune comparable ordered number true false len Map`) {
-		m[n] = true
-	}
-	// The prelude's names, read from its source as the checker reads it:
-	// every exported top-level name, except a function whose first
-	// parameter is a slice or a Map, which is an operation of that type
-	// and not a name in scope (D-D8).
-	for _, src := range std.Prelude() {
-		f, err := syntax.Parse(src)
-		if err != nil {
-			panic("bindc: the prelude does not parse: " + err.Error())
-		}
-		add := func(id *syntax.Ident) {
-			if id != nil && isExported(id.Name) {
-				m[id.Name] = true
-			}
-		}
-		for _, d := range f.Decls {
-			switch d := d.(type) {
-			case *syntax.TypeDecl:
-				add(d.Name)
-				if u, ok := d.Spec.(*syntax.InterfaceType); ok {
-					for _, v := range u.Union {
-						if v, ok := v.(*syntax.VariantSpec); ok {
-							add(v.Name)
-						}
-					}
-				}
-			case *syntax.FuncDecl:
-				if !isCollectionOp(d) {
-					add(d.Name)
-				}
-			case *syntax.ContextDecl:
-				add(d.Name)
-			case *syntax.VarDecl:
-				for _, s := range d.Specs {
-					for _, id := range s.Names {
-						add(id)
-					}
-				}
-			}
-		}
-	}
-	return m
-})
-
-// isCollectionOp reports whether the first parameter of f is a slice or a
-// Map.
-func isCollectionOp(f *syntax.FuncDecl) bool {
-	if f.Type == nil || f.Type.Params == nil || len(f.Type.Params.List) == 0 {
-		return false
-	}
-	switch f.Type.Params.List[0].Type.(type) {
-	case *syntax.ArrayType, *syntax.MapType:
-		return true
-	}
-	return false
-}
+// ergoPredeclared reports whether the Ergo checker predeclares n for every
+// program package, so a declaration or a parameter may not take it (D-D3,
+// "a prelude name cannot be redeclared"). The checker owns the set
+// (check.IsPredeclared); TestErgoPredeclaredMatchesChecker compares it with
+// the checker's refusals.
+func ergoPredeclared(n string) bool { return check.IsPredeclared(n) }
 
 func isExported(n string) bool { return n != "" && n[0] >= 'A' && n[0] <= 'Z' }
 
 // isErgoReserved reports whether n is an Ergo keyword, an Ergo reserved
 // word (syntax.IsKeyword holds both) or a predeclared Ergo name.
 func isErgoReserved(n string) bool {
-	return syntax.IsKeyword(n) || ergoPredeclared()[n] || n == "_"
+	return syntax.IsKeyword(n) || ergoPredeclared(n) || n == "_"
 }
 
 // ergoPackageScope is the scope of the package-level names of the Ergo

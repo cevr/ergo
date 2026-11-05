@@ -28,7 +28,7 @@ func (c *checker) declareLocal(id *syntax.Ident, t Type) *Var {
 	if t == nil {
 		t = invalid
 	}
-	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos(), id: id})
+	v := c.bindLocal(&Var{Name: id.Name, Type: t, Pos: id.Pos(), id: id, refused: refused})
 	c.def(id, v)
 	sc.insert(id.Name, v)
 	if isInvalid(t) || refused {
@@ -51,7 +51,7 @@ func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 		// D-D3: the one diagnostic; the name still binds below, marked
 		// used, so an unread refused binder adds no S110.
 		refused = true
-	} else if prev, ok := sc.names[id.Name]; ok {
+	} else if prev, ok := sc.names[id.Name]; ok && !isRefusedBinder(prev) {
 		switch prev := prev.(type) {
 		case *capBinding:
 			c.errorf(id, CodeUnknown, "%s is in this function's capability row, so a local of that name in the same frame is an error; rename the local (rows-and-constraints §7 amendment 3)", id.Name)
@@ -74,17 +74,19 @@ func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 }
 
 // declarePlaceholder hides, for the rest of the current scope, the type or
-// capability that a refused type test names, so its later reads add no
-// diagnostic (D3; fuzz-17d6). The identifier stays a type test: Info.Uses
-// keeps the object it names and Info.Defs has no entry, as the reference
-// walk reads it. The placeholder has the invalid type, counts as read, and
-// meets none of the binder rules (D-D2, D-D3, bound twice), because it
-// declares nothing. A name the scope already binds keeps that binding.
+// capability that a refused type test names from a read in a value
+// position, so its later reads add no diagnostic (D3; fuzz-17d6; P1). The
+// identifier stays a type test: Info.Uses keeps the object it names and
+// Info.Defs has no entry, as the reference walk reads it. The placeholder
+// has the invalid type, counts as read, and meets none of the binder rules
+// (D-D2, D-D3, bound twice), because it declares nothing. It is a refused
+// binder: every lookup outside a value position sees through it (P2). A
+// name the scope already binds keeps that binding.
 func (c *checker) declarePlaceholder(id *syntax.Ident) {
 	if _, bound := c.fn.scope.names[id.Name]; bound {
 		return
 	}
-	v := c.bindLocal(&Var{Name: id.Name, Type: invalid, Pos: id.Pos(), id: id, used: true})
+	v := c.bindLocal(&Var{Name: id.Name, Type: invalid, Pos: id.Pos(), id: id, used: true, refused: true})
 	c.fn.scope.insert(id.Name, v)
 }
 
@@ -104,20 +106,19 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.returnStmt(s)
 	case *syntax.BranchStmt:
 		c.branchStmt(s)
-	case *syntax.BlockStmt:
-		// A bare block yields its last expression; return, break and
-		// continue may not leave it (grammar.md, Statements 5).
-		done := c.openScope()
-		c.fn.branches = append(c.fn.branches, branch{kind: brBarrier})
-		c.yieldingBlock(s, s.List, nil, true, false, func(op *operand) { c.handled(op) })
-		c.fn.branches = c.fn.branches[:len(c.fn.branches)-1]
-		done()
 	case *syntax.IfStmt:
+		// An else block is a branch of its if, like the body: a jump in it
+		// leaves what a jump in the body leaves (grammar.md, Statements 5).
+		// The grammar has no bare block statement (Statements 4), so no
+		// other block reaches stmt.
 		done := c.openScope()
 		c.condition(s.Cond)
 		c.block(s.Body)
-		if s.Else != nil {
-			c.stmt(s.Else)
+		switch e := s.Else.(type) {
+		case *syntax.BlockStmt:
+			c.block(e)
+		case *syntax.IfStmt:
+			c.stmt(e)
 		}
 		done()
 	case *syntax.SwitchStmt:
@@ -761,10 +762,18 @@ func (c *checker) terminates(s syntax.Stmt) bool {
 	switch s := s.(type) {
 	case *syntax.ReturnStmt:
 		return true
-	case *syntax.BlockStmt:
-		return c.terminatesList(s.List)
 	case *syntax.IfStmt:
-		return s.Else != nil && c.terminatesList(s.Body.List) && c.terminates(s.Else)
+		if !c.terminatesList(s.Body.List) {
+			return false
+		}
+		// The else is a branch: a block's list, or the next if of the chain.
+		switch e := s.Else.(type) {
+		case *syntax.BlockStmt:
+			return c.terminatesList(e.List)
+		case *syntax.IfStmt:
+			return c.terminates(e)
+		}
+		return false
 	case *syntax.ForStmt:
 		return s.Cond == nil && !hasBreak(s.Body)
 	case *syntax.SwitchStmt:

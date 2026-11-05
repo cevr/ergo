@@ -99,7 +99,7 @@ func Inspect(n Node, f func(Node) bool) {
 	case *ProvidesClause:
 		exprs(n.Names)
 	case *CompositeLit:
-		walk(n.Type)
+		walk(n.Type, n.Base)
 		exprs(n.Elts)
 	case *KeyValueExpr:
 		walk(n.Key, n.Value)

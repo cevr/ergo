@@ -61,6 +61,7 @@ const unsafeText = "Ergo has no unsafe; unsafe stays at the FFI edge"
 // diagnostic. Std's externs bind runtime/v1 with hidden arguments and are
 // not in this rule.
 func (c *checker) checkExterns() {
+	c.checkExternParams()
 	if c.pkg.std {
 		return
 	}
@@ -75,6 +76,24 @@ func (c *checker) checkExterns() {
 		}
 		if part := c.externOutsideDomain(f); part != "" {
 			c.errorf(f.Decl, CodeOutside, "%s of the extern %s is #202's (Go imports); it is not checked yet: a user extern takes and returns predeclared basic types only, with no type parameter and no rows", part, f.Name)
+		}
+	}
+}
+
+// checkExternParams gives every extern's parameter list, std's included,
+// the binder rules of a function's (D-D3 names "parameter" at any scope):
+// a prelude name and a name used twice are S108, with the diagnostics the
+// same list gets on a function declaration (rows.go checkFuncBody). An
+// extern has no body, so its parameters bind nothing.
+func (c *checker) checkExternParams() {
+	for _, f := range c.funcs {
+		if !isExtern(f) || f.Sig == nil {
+			continue
+		}
+		c.cur = f.file
+		seen := map[string]bool{}
+		for _, p := range f.Sig.Params {
+			c.paramBinder(f, p, seen)
 		}
 	}
 }

@@ -53,6 +53,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"CallExpr.Fun":             {guardValue, "func main() {\n\t$W\n\t_ = @w()\n}\n"},
 	"CatchExpr.X":              {guardValue, "func main() {\n\t$W\n\tlet v = @w catch {\n\tcase Bang: return\n\t}\n\t_ = v\n}\n"},
 	"CompositeLit.Elts":        {guardValue, "func main() {\n\t$W\n\t_ = []int{@w}\n}\n"},
+	"CompositeLit.Base":        {guardValue, "func main() {\n\t$W\n\t_ = Box{..@w, F: 1}\n}\n"},
 	"ContextEntry.Value":       {guardValue, "func main() {\n\t$W\n\t_ = with context { Greeter: @w } { Greeter.Greet(\"x\") }\n}\n"},
 	"ExprStmt.X":               {guardValue, "func main() {\n\t$W\n\t@w\n}\n"},
 	"ForStmt.Cond":             {guardValue, "func main() {\n\t$W\n\tfor @w { }\n}\n"},

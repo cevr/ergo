@@ -20,35 +20,29 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // one of three functions: preludeName (every declaration), shadowed (every
 // local binder) and the mutability rules of lhs.
 
-// predeclaredNames are the names the decided language predeclares that the
-// checker spells as syntax (`Map[K, V]`). Every other predeclared name is
-// found in the scopes above the package: the universe and the prelude's
-// exported names.
-var predeclaredNames = map[string]bool{"Map": true}
-
-// notPreludeNames are universe names outside D-D3's decided list: `error`
-// is only the head of an error row (D-E2), `uintptr`, `complex64` and
-// `complex128` are not v1 types, `with` is a keyword and `go` names the
-// extern go package. Each keeps the treatment it had before D-D3.
-var notPreludeNames = map[string]bool{"error": true, "uintptr": true, "complex64": true, "complex128": true, "with": true, "go": true}
-
-// isPreludeName reports whether name is predeclared for this package: a
-// universe name of D-D3's list, an exported prelude name, or one of
-// predeclaredNames. The prelude package itself sees only the universe
-// above it, so its own declarations are not refused.
+// isPreludeName reports whether name is predeclared for this package
+// (predeclared.go): a universe name of D-D3's list, a name of the prelude
+// scope, or one of predeclaredNames. The prelude package itself sees only
+// the universe above it, so its own declarations are not refused.
 func (c *checker) isPreludeName(name string) bool {
-	if name == "_" || notPreludeNames[name] {
-		return false
+	return predeclaredAbove(name, c.pkg.Scope.parent)
+}
+
+// paramBinder applies the binder rules of a declared function's parameter
+// list, an extern's included (D-D3 "parameter"): a name the list already
+// holds is S108 and binds nothing; a prelude name is S108 and still binds.
+// seen holds the names of the list so far. It reports whether the
+// parameter binds and whether D-D3 refused it.
+func (c *checker) paramBinder(f *Func, p *Var, seen map[string]bool) (bind, refused bool) {
+	if p.Name == "_" {
+		return false, false
 	}
-	if predeclaredNames[name] {
-		return true
+	if seen[p.Name] {
+		c.errorf(p.id, CodeType, "%s is already a parameter of %s", p.Name, f.Name)
+		return false, false
 	}
-	for sc := c.pkg.Scope.parent; sc != nil; sc = sc.parent {
-		if _, ok := sc.names[name]; ok {
-			return true
-		}
-	}
-	return false
+	seen[p.Name] = true
+	return true, c.preludeName(p.id)
 }
 
 // binderKey names a binder by its file and position.
@@ -113,7 +107,8 @@ func (c *checker) preludeName(id *syntax.Ident) bool {
 // scope of the same function (D-D2) and returns true. sc is the scope the
 // binder enters; the scopes searched are its parents up to, and not
 // including, the package scope. The outer binding counts as read, so the
-// refusal adds no S110 beside it (D3); the inner binder still binds.
+// refusal adds no S110 beside it (D3); the inner binder still binds. A
+// refused binder is never a binding a later binder shadows (P2).
 func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 	name := id.Name
 	if name == "_" || sc == nil {
@@ -121,7 +116,7 @@ func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 	}
 	for p := sc.parent; p != nil && p != c.pkg.Scope; p = p.parent {
 		prev, ok := p.names[name]
-		if !ok {
+		if !ok || isRefusedBinder(prev) {
 			continue
 		}
 		switch prev := prev.(type) {
@@ -147,16 +142,48 @@ func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 
 // localBinder runs the binder rules for a local about to bind the name id
 // declares in the current scope: a prelude name (D-D3) first, else
-// shadowing (D-D2). It reports at most one diagnostic.
-func (c *checker) localBinder(id *syntax.Ident) {
+// shadowing (D-D2). It reports at most one diagnostic, and returns true
+// when the binder is refused (its Var carries the mark).
+func (c *checker) localBinder(id *syntax.Ident) (refused bool) {
 	if c.fn == nil || id.Name == "_" {
-		return
+		return false
 	}
 	if c.preludeName(id) {
-		return
+		return true
 	}
 	c.shadowed(id, c.fn.scope)
+	return false
 }
+
+// Refused binders (rows.md, Totality 6; diagnostics.md, D3): a refused
+// type test's placeholder (declarePlaceholder) and a binder with its own
+// diagnostic, D-D3's or a pattern's (refuseBinder), carry Var.refused. A
+// refused binder changes no other verdict: a read of the name in a value
+// position finds it (P1, lookup), and every other lookup sees through it
+// to what the name means without it (P2, lookupPast): the pattern
+// classifier, the shadow rule and type positions. The reference walk marks
+// the same binders (localBinding.refused) and sees through them the same
+// way (P3).
+
+// isRefusedBinder reports whether o is a refused binder.
+func isRefusedBinder(o Object) bool {
+	v, ok := o.(*Var)
+	return ok && v.refused
+}
+
+// scopeLookupPast is Scope.lookup that sees through refused binders.
+func scopeLookupPast(s *Scope, name string) (Object, *Scope) {
+	for sc := s; sc != nil; sc = sc.parent {
+		if o, ok := sc.names[name]; ok && !isRefusedBinder(o) {
+			return o, sc
+		}
+	}
+	return nil, nil
+}
+
+// lookupPast is lookup outside a value position: it sees through refused
+// binders (P2).
+func (c *checker) lookupPast(name string) Object { return c.lookupWith(name, scopeLookupPast) }
 
 // untypedLet reports `let x` with neither a type nor a value (D-D1): x
 // would have no type. The name binds with the invalid type, so its uses

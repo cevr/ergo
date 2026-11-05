@@ -367,10 +367,15 @@ type (
 	}
 
 	// CompositeLit is `T{…}`, or `{…}` with an elided type inside another
-	// composite literal (Type is nil).
+	// composite literal (Type is nil). A record update `T{..Base, F: v}`
+	// has a Base, written first after `..` at DotDot; Elts are then its
+	// keyed fields (grammar.md, Expressions 11). Base is nil in every other
+	// literal.
 	CompositeLit struct {
 		Type   Expr
 		Lbrace Pos
+		DotDot Pos
+		Base   Expr
 		Elts   []Expr
 		Rbrace Pos
 	}

@@ -26,12 +26,12 @@ import (
 // TestBinderNamesAgree derives the binder fields: the fields of
 // CompositeLit and KeyValueExpr in lawScopeDomain.
 //
-// The domain's written types name package declarations only: no local of
-// the body shadows a name a literal's type is written with. A local that
-// shadows a package type and is then written as a literal's type
-// (`type y{}` and `let y = 1; y[0]{{t} }`) is a scoping question outside
-// this rule: there typing binds y as the local and the walk names the type
-// (fuzz-863c, a known gap and follow-up).
+// The domain's written types name package declarations. Each program also
+// runs after a refused binder of the name its type is written with
+// (`let Rec = v`: a refused type test, whose placeholder hides the type
+// from a read only). A type position sees through a refused binder (rows.md
+// Totality 6; fuzz-863c's `type y{}` and `let y = 1; y[0]{{t} }`), so the
+// oracle is the same with it as without it.
 
 // litWalk is a literal's kind as the walk reads it (reflits.go litKind).
 type litWalk int
@@ -108,6 +108,17 @@ var litTypeForms = []struct {
 	{"a valid map", litMapType, "1", walkListRecord, typedList},
 }
 
+// litRefusedBinders are the lines a program starts with: none, and, when
+// the literal's type is written with a declared type's name, a let of that
+// name, which is a refused type test over the int v (a placeholder).
+func litRefusedBinders(src string) []string {
+	head, _, _ := strings.Cut(src, "[")
+	if head == "" || head == "Missing" {
+		return []string{""}
+	}
+	return []string{"", "let " + head + " = v\n\t"}
+}
+
 // litMapType is the map type of litTypeForms. A map literal's elements are
 // key: value pairs; typing refuses a positional one, an orphan, of the
 // kind the walk reads.
@@ -145,6 +156,7 @@ var litShapes = map[string]string{
 // with its reason.
 var litNoShape = map[string]string{
 	"CompositeLit.Type": "the literal's type: the crossed type axis (litTypeForms)",
+	"CompositeLit.Base": "a record update's base: a value of the written record type, never an elided literal (S001); TestRecordUpdateBaseRefs crosses it",
 	"KeyValueExpr.Key":  "a record literal's key is a field name, no reference (rows.md, Inference 6); a slice's index is a value as its element is",
 }
 
@@ -267,26 +279,31 @@ func TestLiteralRefsAgree(t *testing.T) {
 						tp = tp.elem(w)
 					}
 					for _, nm := range litNames {
-						programs++
-						body := "func host(v int) {\n\tlet _ = " + ty.src + "{" + elem + "}\n}\n"
-						at := len(litRefDecls) + strings.Index(body, "$N")
-						src := litRefDecls + strings.Replace(body, "$N", nm.name, 1)
-						label := fmt.Sprintf("%s, %s, depth %d, %s, %s", ty.name, shape, depth, lf.name, nm.name)
+						for _, refused := range litRefusedBinders(ty.src) {
+							programs++
+							body := "func host(v int) {\n\t" + refused + "let _ = " + ty.src + "{" + elem + "}\n}\n"
+							at := len(litRefDecls) + strings.Index(body, "$N")
+							src := litRefDecls + strings.Replace(body, "$N", nm.name, 1)
+							label := fmt.Sprintf("%s, %s, depth %d, %s, %s", ty.name, shape, depth, lf.name, nm.name)
+							if refused != "" {
+								label += ", after " + strings.TrimSpace(refused)
+							}
 
-						wantInfo, wantWalk := litRule(tp, w, lf.leaf, nm.class)
-						if wantInfo == "edge" {
-							edges++
-						}
-						info, walk, found := check.RefEdge(src, at)
-						if !found {
-							t.Errorf("%s: no identifier at the name\n%s", label, src)
-							continue
-						}
-						if info != wantInfo || walk != wantWalk {
-							t.Errorf("%s: want Info %s and the walk %s, got Info %s and the walk %s\n%s", label, wantInfo, wantWalk, info, walk, src)
-						}
-						if p := check.RefWalkProblems(src); len(p) > 0 {
-							t.Errorf("%s: reference walk problems %v\n%s", label, p, src)
+							wantInfo, wantWalk := litRule(tp, w, lf.leaf, nm.class)
+							if wantInfo == "edge" {
+								edges++
+							}
+							info, walk, found := check.RefEdge(src, at)
+							if !found {
+								t.Errorf("%s: no identifier at the name\n%s", label, src)
+								continue
+							}
+							if info != wantInfo || walk != wantWalk {
+								t.Errorf("%s: want Info %s and the walk %s, got Info %s and the walk %s\n%s", label, wantInfo, wantWalk, info, walk, src)
+							}
+							if p := check.RefWalkProblems(src); len(p) > 0 {
+								t.Errorf("%s: reference walk problems %v\n%s", label, p, src)
+							}
 						}
 					}
 				}

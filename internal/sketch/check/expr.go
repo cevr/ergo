@@ -397,12 +397,16 @@ func (c *checker) localTypeCtx() *typeCtx {
 // then the file's import names (D4). An import named after a prelude name
 // is refused (D-D3) and still binds, so it wins over the prelude name it
 // reuses.
-func (c *checker) lookup(name string) Object {
+func (c *checker) lookup(name string) Object { return c.lookupWith(name, (*Scope).lookup) }
+
+// lookupWith is lookup with find as the scope search: Scope.lookup, or
+// scopeLookupPast, which sees through refused binders.
+func (c *checker) lookupWith(name string, find func(*Scope, string) (Object, *Scope)) Object {
 	sc := c.pkg.Scope
 	if c.fn != nil && c.fn.scope != nil {
 		sc = c.fn.scope
 	}
-	if o, at := sc.lookup(name); o != nil {
+	if o, at := find(sc, name); o != nil {
 		if imp := c.shadowImport(name, at, c.cur); imp != nil {
 			return imp
 		}
@@ -432,8 +436,8 @@ func (c *checker) ident(x *syntax.Ident) operand {
 			c.errorf(x, CodeUnknown, "%s is not predeclared in Ergo; %s", x.Name, form)
 			return bad(x)
 		}
-		if f := c.collNamed(x.Name); f != nil {
-			c.errorf(x, CodeUnknown, "unknown name %s; the prelude function %s is reached only by the dot form, %s", x.Name, x.Name, collForm(f))
+		if f := c.preludeOp(x.Name); f != nil {
+			c.errorf(x, CodeUnknown, "unknown name %s; the prelude function %s is reached only by the dot form, %s", x.Name, x.Name, opForm(f))
 			return bad(x)
 		}
 		c.errorf(x, CodeUnknown, "unknown name %s", x.Name)
@@ -552,6 +556,9 @@ func fitsInt64(v constant.Value) bool {
 // whatever typing made of it: an elided literal among the values takes its
 // type from lt (orphanValue).
 func (c *checker) orphanElements(x *syntax.CompositeLit, mark int, lt litType) {
+	if x.Base != nil {
+		c.orphan(x.Base, mark) // a record update's base is a value the walk reads
+	}
 	for _, e := range x.Elts {
 		if kv, ok := e.(*syntax.KeyValueExpr); ok {
 			e = kv.Value
@@ -611,8 +618,11 @@ func (c *checker) compositeLit(x *syntax.CompositeLit, hint Type) operand {
 		}
 		return *walkLt
 	}
-	var t Type
 	mark := c.undiagSeq
+	if x.Base != nil {
+		return c.recordUpdate(x, hint, mark, lt)
+	}
+	var t Type
 	switch {
 	case x.Type == nil:
 		if hint == nil || isInvalid(hint) {
@@ -903,6 +913,9 @@ func (c *checker) structLit(x *syntax.CompositeLit, t Type, s *Struct, mark int)
 	}
 	if !ok {
 		return false
+	}
+	if x.Base != nil {
+		return true // a record update takes every field it omits from its base
 	}
 	var missing []string
 	for _, f := range s.Fields {

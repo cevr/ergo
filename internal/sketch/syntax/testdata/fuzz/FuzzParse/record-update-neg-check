@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Walk { At int, Turn int }\n\ntype Other { At int, Turn int }\n\ntype Playing { W Walk }\n\ntype Won { W Walk }\n\ntype Game = Playing | Won\n\nfunc a(w Walk) Walk { Walk{..w} }\n\nfunc b(o Other) Walk { Walk{..o, Turn: 1} }\n\nfunc c(w Walk) Walk { Walk{..w, Turn: 1, Turn: 2} }\n\nfunc d(w Walk) Walk { Walk{..w, Nope: 1} }\n\nfunc e(g Game) Playing { Playing{..g, W: Walk{At: 0, Turn: 0}} }\n\nfunc f(w Walk) Walk { Walk{..w, Turn: \"x\"} }\n")
