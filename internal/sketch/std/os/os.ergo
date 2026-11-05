@@ -1,0 +1,43 @@
+// Package os is the host process: its arguments, its environment and its
+// exit status (docs/spec/stdlib.md, host packages). Process is the
+// capability; Host is the host's provider of it, and a program binds it
+// in a context, `context { os.Process: os.Host }`. A test binds its own
+// provider instead. The externs are unexported: a program reaches the host
+// only through a Process it names in its row.
+
+// Exit is the failure that ends main with status Code. When it is main's
+// only reason, the entry writes Message and a line feed to standard error,
+// verbatim, and exits with Code; Code must be in 1..125 (docs/spec/
+// runtime.md, Exit causes). It is a failure, not a call, so every scope's
+// cleanup runs before the program ends.
+type Exit { Code int, Message string }
+
+// Process is the host process: the arguments after the program name, and
+// the environment.
+type Process {
+	Args() []string,
+	Getenv(key string) Option[string],
+
+	// GetenvIsStable: two reads of one key agree.
+	law GetenvIsStable(key string) { Getenv(key) == Getenv(key) },
+}
+
+// Host is the host's Process provider.
+type Host {}
+
+// Args is the host process's arguments after the program name.
+func Args(_ Host) []string { hostArgs() }
+
+// Getenv is the value of the environment variable key: None when key is
+// unset, Some("") when it is set to the empty string.
+func Getenv(_ Host, key string) Option[string] {
+	if hostHasEnv(key) {
+		Some[string]{Value: hostGetenv(key)}
+	} else {
+		None
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.OSArgs func hostArgs() []string
+extern go ergo.local/prototype/runtime/v1.OSHasEnv func hostHasEnv(key string) bool
+extern go ergo.local/prototype/runtime/v1.OSGetenv func hostGetenv(key string) string

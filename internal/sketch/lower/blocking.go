@@ -100,6 +100,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvItoa":       {},
 	"StrconvAtoi":       {},
 	"StrconvQuote":      {},
+	// std os (G2; stdlib.md, host packages): bodies that read the host
+	// process and neither wait nor release.
+	"OSArgs":   {},
+	"OSHasEnv": {},
+	"OSGetenv": {},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.
