@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // unsandboxed runs the merge tier's uncached run on the host. Only tests of
@@ -326,6 +327,24 @@ func TestMergeTierFailsClosed(t *testing.T) {
 			return nil, errors.New("no user namespace: operation not permitted")
 		}
 		check(t, g, "no user namespace")
+	})
+	t.Run("bwrap fails to mount", func(t *testing.T) {
+		requireSandbox(t)
+		g := wholeFixture(t, root, steps)
+		var fresh string
+		g.openSandbox = func(plan sandboxPlan) (enclosure, error) {
+			plan.ReadOnly = append(plan.ReadOnly, sandboxPath{"/nonexistent-gate-sandbox-path", "a path the host lacks"})
+			fresh = plan.Fresh
+			return startSandbox(plan)
+		}
+		began := time.Now()
+		check(t, g, "Can't find source path /nonexistent-gate-sandbox-path")
+		if took := time.Since(began); took > time.Minute {
+			t.Errorf("the failed sandbox took %s to give up", took)
+		}
+		if _, err := os.Lstat(fresh); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the failed sandbox left its run directory %s: %v", fresh, err)
+		}
 	})
 	t.Run("changes", func(t *testing.T) {
 		requireSandbox(t)

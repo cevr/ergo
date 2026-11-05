@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -120,6 +121,7 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 		return fail(fmt.Errorf("start bwrap: %w", err))
 	}
 	ready := make(chan error, 1)
+	var childPid atomic.Int64
 	go func() {
 		var child struct {
 			Pid int `json:"child-pid"`
@@ -128,7 +130,7 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 			ready <- fmt.Errorf("bwrap named no child: %w", err)
 			return
 		}
-		s.pid = child.Pid
+		childPid.Store(int64(child.Pid))
 		line, err := bufio.NewReader(stdout).ReadString('\n')
 		if err != nil || line != "ready\n" {
 			ready <- errors.New("the export did not finish")
@@ -136,16 +138,46 @@ func startSandbox(plan sandboxPlan) (enclosure, error) {
 		}
 		ready <- nil
 	}()
-	select {
-	case err = <-ready:
-	case <-time.After(sandboxReadyTimeout):
-		err = fmt.Errorf("the export took over %s", sandboxReadyTimeout)
+	// bwrap, given a pid namespace and --unshare-pid, does not exit when
+	// its first process fails (a mount that cannot be made, measured: it
+	// waits until killed), so the gate watches that process itself.
+	deadline := time.After(sandboxReadyTimeout)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for waiting := true; waiting; {
+		select {
+		case err = <-ready:
+			waiting = false
+		case <-tick.C:
+			if pid := childPid.Load(); pid != 0 && processEnded(int(pid)) {
+				err, waiting = errors.New("the sandbox's first process ended before the export finished"), false
+			}
+		case <-deadline:
+			err, waiting = fmt.Errorf("the export took over %s", sandboxReadyTimeout), false
+		}
+	}
+	if err == nil {
+		s.pid = int(childPid.Load())
 	}
 	if err != nil {
+		// A sandbox that failed has nothing to keep: bwrap need not be
+		// waited for.
+		_ = s.bwrap.Process.Kill()
 		_ = s.close()
 		return nil, fmt.Errorf("%w: %s", err, strings.Join(strings.Fields(stderr.String()), " "))
 	}
 	return s, nil
+}
+
+// processEnded reports whether the process pid is gone or a zombie.
+func processEnded(pid int) bool {
+	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return true
+	}
+	// The state follows the command name's closing parenthesis.
+	end := bytes.LastIndexByte(stat, ')')
+	return end < 0 || end+2 >= len(stat) || stat[end+2] == 'Z' || stat[end+2] == 'X'
 }
 
 func (s *sandbox) wrap(argv []string, dir string) []string {
