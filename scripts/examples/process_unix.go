@@ -25,6 +25,24 @@ func stopGroup(process *os.Process) {
 	_ = syscall.Kill(-process.Pid, syscall.SIGKILL)
 }
 
+// stopSignals stop a run: the runner stops every group it started, removes
+// its directories and exits 128 plus the signal number (live.handleSignals).
+var stopSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
+
+// signalExit names a stop signal and gives the status of a run it stopped.
+func signalExit(sig os.Signal) (string, int) {
+	names := map[os.Signal]string{syscall.SIGINT: "SIGINT", syscall.SIGTERM: "SIGTERM", syscall.SIGHUP: "SIGHUP"}
+	number, ok := sig.(syscall.Signal)
+	if !ok {
+		return sig.String(), 1
+	}
+	name, ok := names[sig]
+	if !ok {
+		name = sig.String()
+	}
+	return name, 128 + int(number)
+}
+
 func signalName(state *os.ProcessState) string {
 	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
 		return status.Signal().String()
