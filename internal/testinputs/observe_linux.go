@@ -66,9 +66,7 @@ type call struct {
 const (
 	prSetNoNewPrivs           = 38
 	seccompModeFilter         = 1
-	seccompFlagTsync          = 1 << 0
 	seccompFlagNewListener    = 1 << 3
-	seccompFlagTsyncESRCH     = 1 << 4
 	seccompFlagWaitKillable   = 1 << 5
 	seccompRetAllow           = 0x7fff0000
 	seccompRetUserNotif       = 0x7fc00000
@@ -177,10 +175,17 @@ func init() {
 	if verdict, _ := receive(socket); verdict != "go" {
 		return // the observer cannot take a descriptor from this process, and says why itself
 	}
+	// Only this thread takes the filter, and it stays locked to it up to
+	// the exec, which passes the filter on (see installFilter).
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread() // reached only if the exec fails
 	listener, err := installFilter(filter())
 	if err != nil {
 		syscall.Write(socket, []byte(noFilter+err.Error()))
 		return
+	}
+	if beforeHandover != nil {
+		beforeHandover()
 	}
 	syscall.Write(socket, []byte(listenerMessage+strconv.Itoa(listener)))
 	reply, _ := receive(socket)
@@ -331,16 +336,34 @@ func filter() []sockFilter {
 		sockFilter{code: bpfRetK, k: seccompRetAllow})
 }
 
-// installFilter installs a filter on every thread of this process and
-// returns its listener.
+// beforeHandover, when not nil, runs in the child between installFilter and
+// the handover of the listener. Tests set it to make calls in that window.
+var beforeHandover func()
+
+// installFilter installs a filter on the calling thread, which the caller
+// keeps locked, and returns its listener.
+//
+// The filter goes on this thread only, not on every thread (no
+// SECCOMP_FILTER_FLAG_TSYNC). Until the observer holds the listener, no one
+// answers a notified call, and the observer takes it only once this thread
+// sends its number. With the filter on every thread, a call another thread
+// makes in that window waits, and this thread can wait for it: with cgo,
+// the runtime starts a thread with pthread_create, which glibc (2.34 on)
+// makes with clone3, a notified call, and the runtime can need that thread
+// to run this one. With the filter on this thread only, the window has no
+// notified call: write and read are not filtered, and a locked thread asks
+// the runtime's template thread, which is not filtered, to start each new
+// thread (runtime.newm).
+// The exec that follows the handover passes the filter on: the test process
+// starts single-threaded with the filter from its first instruction, and
+// every thread and process it makes inherits it. What other threads of this
+// process do before the exec is not the tests' work, as before the filter.
 func installFilter(program []sockFilter) (int, error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	if _, _, errno := syscall.RawSyscall6(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0, 0, 0, 0); errno != 0 {
 		return -1, fmt.Errorf("prctl(PR_SET_NO_NEW_PRIVS): %w", errno)
 	}
 	prog := sockFprog{len: uint16(len(program)), filter: &program[0]}
-	flags := uintptr(seccompFlagTsync | seccompFlagTsyncESRCH | seccompFlagNewListener)
+	flags := uintptr(seccompFlagNewListener)
 	// A thread waiting on the parent then ignores all but fatal signals, so
 	// the runtime's preemption signals do not restart every call; kernels
 	// before 5.19 lack the flag.
