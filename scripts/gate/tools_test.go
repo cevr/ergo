@@ -47,7 +47,7 @@ func TestMain(m *testing.M) {
 		}
 		if real := realTools["go"]; real != "" {
 			files[filepath.Join(bin, "go")] = "#!/bin/sh\n" +
-				"if [ \"$1\" = env ]; then echo '{\"GOVERSION\": \"go1.0.0-stub\", \"GOROOT\": \"" + goroot + "\"}'; exit 0; fi\n" +
+				"if [ \"$1\" = env ] && [ \"$2\" = -json ]; then echo '{\"GOVERSION\": \"go1.0.0-stub\", \"GOROOT\": \"" + goroot + "\"}'; exit 0; fi\n" +
 				"exec " + real + " \"$@\"\n"
 		}
 		for path, content := range files {
