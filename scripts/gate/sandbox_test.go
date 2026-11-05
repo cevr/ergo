@@ -24,6 +24,7 @@ func unsandboxed(sandboxPlan) (enclosure, error) { return hostEnclosure{}, nil }
 type hostEnclosure struct{}
 
 func (hostEnclosure) wrap(argv []string, _ string) []string { return argv }
+func (hostEnclosure) environment(env []string) []string     { return env }
 func (hostEnclosure) close() error                          { return nil }
 
 // sandboxMount is one mount in bwrap's argv, in order.
@@ -37,7 +38,7 @@ type sandboxMount struct {
 // property checks every --bind.
 func parseSandboxArgv(t *testing.T, argv []string) []sandboxMount {
 	t.Helper()
-	arity := map[string]int{"--userns": 1, "--pidns": 1, "--unshare-pid": 0, "--die-with-parent": 0, "--info-fd": 1, "--proc": 1, "--dev": 1, "--tmpfs": 1, "--bind": 2, "--ro-bind": 2, "--symlink": 2, "--chdir": 1}
+	arity := map[string]int{"--userns": 1, "--pidns": 1, "--unshare-pid": 0, "--die-with-parent": 0, "--info-fd": 1, "--proc": 1, "--dev": 1, "--tmpfs": 1, "--bind": 2, "--ro-bind": 2, "--symlink": 2, "--chdir": 1, "--perms": 1, "--remount-ro": 1}
 	var mounts []sandboxMount
 	for i := 0; i < len(argv); {
 		op := argv[i]
@@ -49,7 +50,7 @@ func parseSandboxArgv(t *testing.T, argv []string) []sandboxMount {
 			t.Fatalf("bwrap argv has option %q the sandbox does not admit: %q", op, argv)
 		}
 		switch op {
-		case "--tmpfs":
+		case "--tmpfs", "--remount-ro":
 			mounts = append(mounts, sandboxMount{op, "", argv[i+1]})
 		case "--ro-bind", "--bind":
 			mounts = append(mounts, sandboxMount{op, argv[i+1], argv[i+2]})
@@ -61,11 +62,12 @@ func parseSandboxArgv(t *testing.T, argv []string) []sandboxMount {
 }
 
 // effectiveMount is the mount a path is on: the last one in argv order
-// whose destination holds it, or none (the sandbox's root tmpfs).
+// whose destination holds it, or none (the sandbox's root tmpfs). A
+// remount changes a mount's flags, not the mount.
 func effectiveMount(mounts []sandboxMount, path string) sandboxMount {
 	found := sandboxMount{op: "--tmpfs", dest: "/"}
 	for _, m := range mounts {
-		if within(path, m.dest) {
+		if m.op != "--remount-ro" && within(path, m.dest) {
 			found = m
 		}
 	}
@@ -74,13 +76,15 @@ func effectiveMount(mounts []sandboxMount, path string) sandboxMount {
 
 // sandboxProperty checks the sandbox's guarantees on bwrap's argv for the
 // plan's environment, independently of checkSandboxPlan: no host path is
-// writable (every binding is read-only, at its own path, but the object
-// store at sourceMount), and every writable binding is its own directory
-// under the run's (plan.Fresh); HOME, TMPDIR, GOTMPDIR, XDG_CACHE_HOME,
-// GOCACHE and the checkout are each on one; and the read-only set exposes
-// neither host HOME, /tmp, /var/tmp, GOCACHE, GOTMPDIR, $HOME/.cache,
-// $HOME/Library/Caches, the runs' directory, nor a
-// parent of one of them, nor a path under one but HOME.
+// writable (every binding is read-only and at its own path, but /dev/null
+// over a masked file; every tmpfs is remounted read-only at once), and
+// every writable binding is its own directory under the run's
+// (plan.Fresh); HOME, TMPDIR, GOTMPDIR, XDG_CACHE_HOME, GOCACHE,
+// GOMODCACHE and the checkout are each on one; every mask hides its path;
+// no host object store is bound; and the read-only set exposes neither
+// host HOME, GOMODCACHE, /tmp, /var/tmp, GOCACHE, GOTMPDIR, $HOME/.cache,
+// $HOME/Library/Caches, the runs' directory, nor a parent of one of them,
+// nor a path under one but HOME and GOMODCACHE.
 func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []string {
 	t.Helper()
 	var problems []string
@@ -89,10 +93,19 @@ func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []st
 	fresh := func(m sandboxMount) bool {
 		return m.op == "--bind" && filepath.IsAbs(plan.Fresh) && filepath.Dir(m.source) == filepath.Clean(plan.Fresh)
 	}
+	masked := func(m sandboxMount) bool {
+		return m.op == "--tmpfs" || m.op == "--ro-bind" && m.source == "/dev/null"
+	}
 	bound := map[string]bool{}
-	for _, m := range mounts {
-		if m.op == "--ro-bind" && m.source != m.dest && !(m.source == plan.Source && m.dest == sourceMount) {
+	for i, m := range mounts {
+		if m.op == "--ro-bind" && m.source != m.dest && m.source != "/dev/null" {
 			problems = append(problems, fmt.Sprintf("%s bound at another path %s", m.source, m.dest))
+		}
+		if m.op == "--ro-bind" && plan.Source != "" && (within(m.source, plan.Source) || within(plan.Source, m.source)) {
+			problems = append(problems, fmt.Sprintf("read-only %s exposes the object store %s", m.source, plan.Source))
+		}
+		if m.op == "--tmpfs" && (i+1 >= len(mounts) || mounts[i+1].op != "--remount-ro" || mounts[i+1].dest != m.dest) {
+			problems = append(problems, fmt.Sprintf("tmpfs %s is writable", m.dest))
 		}
 		if m.op == "--bind" {
 			if !fresh(m) {
@@ -104,21 +117,28 @@ func sandboxProperty(t *testing.T, plan sandboxPlan, env map[string]string) []st
 			bound[m.source] = true
 		}
 	}
-	for _, name := range []string{"HOME", "TMPDIR", "XDG_CACHE_HOME", "GOCACHE", "GOTMPDIR", "checkout"} {
+	for _, name := range []string{"HOME", "TMPDIR", "XDG_CACHE_HOME", "GOCACHE", "GOTMPDIR", "GOMODCACHE", "checkout"} {
 		if path := env[name]; path != "" {
 			if m := effectiveMount(mounts, path); !fresh(m) {
 				problems = append(problems, fmt.Sprintf("%s %s is on %s %s, not the run's own directory", name, path, m.op, m.source))
 			}
 		}
 	}
+	for _, mask := range plan.Masks {
+		if m := effectiveMount(mounts, mask.Path); !masked(m) || m.dest != mask.Path {
+			problems = append(problems, fmt.Sprintf("masked %s is visible on %s %s", mask.Path, m.op, m.source))
+		}
+	}
 	home := env["HOME"]
 	exposed := []string{"/tmp", "/var/tmp", env["GOCACHE"], env["TMPDIR"], env["GOTMPDIR"], env["XDG_CACHE_HOME"], filepath.Join(home, ".cache"), filepath.Join(home, "Library", "Caches"), filepath.Dir(plan.Fresh)}
 	for _, m := range mounts {
-		if m.op != "--ro-bind" || m.dest == sourceMount {
+		if m.op != "--ro-bind" || m.source == "/dev/null" {
 			continue
 		}
-		if within(home, m.source) {
-			problems = append(problems, fmt.Sprintf("read-only %s exposes HOME %s", m.source, home))
+		for _, parent := range []string{home, env["GOMODCACHE"]} {
+			if parent != "" && within(parent, m.source) {
+				problems = append(problems, fmt.Sprintf("read-only %s exposes %s", m.source, parent))
+			}
 		}
 		for _, path := range exposed {
 			if path != "" && (within(path, m.source) || within(m.source, path)) {
@@ -154,10 +174,15 @@ func TestSandboxArgvProperty(t *testing.T) {
 		}
 		run := pick("/var/cache/gate/sandbox/r1", home+"/.cache/ergo-gate/sandbox/r1", "/usr/cache/sandbox/r1", "/opt/gomod/sandbox/r1", "sandbox/r1")
 		plan := sandboxPlan{Head: "head", Checkout: checkout, Source: "/srv/repo/.git", Clean: true, Fresh: run,
-			ReadOnly: sandboxReadOnly(modCache, goRoot), Links: [][2]string{{"/bin", "usr/bin"}},
-			Scratch: sandboxScratch(home, xdgCache, goCache, tempDir, goTmpDir, gateCache, checkout)}
-		plan.Forbidden, plan.Homes = sandboxForbidden(home, goCache, xdgCache, tempDir, goTmpDir)
-		env := map[string]string{"HOME": home, "TMPDIR": tempDir, "XDG_CACHE_HOME": xdgCache, "GOCACHE": goCache, "GOTMPDIR": goTmpDir, "checkout": checkout}
+			ReadOnly: sandboxReadOnly(goRoot), Links: [][2]string{{"/bin", "usr/bin"}}, ModCache: modCache,
+			Scratch: sandboxScratch(home, xdgCache, goCache, tempDir, goTmpDir, gateCache, checkout, modCache)}
+		for _, mask := range []sandboxMask{{Path: "/usr/share/doc/tools", Dir: true}, {Path: "/usr/bin/tool"}, {Path: "/usr/local/bin/porter"}, {Path: goRoot + "/pkg/cache", Dir: true}} {
+			if random.IntN(2) == 0 {
+				plan.Masks = append(plan.Masks, mask)
+			}
+		}
+		plan.Forbidden, plan.Homes = sandboxForbidden(home, goCache, xdgCache, tempDir, goTmpDir, modCache)
+		env := map[string]string{"HOME": home, "TMPDIR": tempDir, "XDG_CACHE_HOME": xdgCache, "GOCACHE": goCache, "GOTMPDIR": goTmpDir, "GOMODCACHE": modCache, "checkout": checkout}
 		problems := sandboxProperty(t, plan, env)
 		err := plan.admissible()
 		switch {
@@ -223,8 +248,20 @@ func TestSandboxPlanOfThisHost(t *testing.T) {
 		xdg = filepath.Join(home, ".cache")
 	}
 	goTmpDir, _ := stepVariable("GOTMPDIR")
-	env := map[string]string{"HOME": home, "TMPDIR": os.TempDir(), "XDG_CACHE_HOME": xdg, "GOCACHE": paths.GOCACHE, "GOTMPDIR": goTmpDir, "checkout": root}
-	if problems := sandboxProperty(t, plan, env); len(problems) > 0 {
+	env := map[string]string{"HOME": home, "TMPDIR": os.TempDir(), "XDG_CACHE_HOME": xdg, "GOCACHE": paths.GOCACHE, "GOTMPDIR": goTmpDir, "GOMODCACHE": paths.GOMODCACHE, "checkout": root}
+	masks, err := checkInputs(plan.ReadOnly, plan.Programs)
+	if err != nil {
+		t.Fatalf("the input contract refuses this host: %v", err)
+	}
+	for _, tree := range plan.ReadOnly {
+		t.Logf("read-only %s (maskable %t): %s", tree.Path, tree.Maskable, tree.Reason)
+	}
+	for _, mask := range masks {
+		t.Logf("masked %s (directory %t): %s", mask.Path, mask.Dir, mask.Reason)
+	}
+	withMasks := plan
+	withMasks.Masks = masks
+	if problems := sandboxProperty(t, withMasks, env); len(problems) > 0 {
 		t.Fatalf("this host's plan breaks the sandbox: %v", problems)
 	}
 	box, err := startSandbox(plan)
@@ -246,8 +283,25 @@ func TestSandboxPlanOfThisHost(t *testing.T) {
 	}
 	inside := func(script string, args ...string) (string, error) {
 		argv := box.wrap(append([]string{"sh", "-c", script, "sh"}, args...), root)
-		output, err := exec.Command(argv[0], argv[1:]...).CombinedOutput()
+		command := exec.Command(argv[0], argv[1:]...)
+		command.Env = box.environment(os.Environ())
+		output, err := command.CombinedOutput()
 		return string(output), err
+	}
+	// Each mask is empty inside, and read-only.
+	for _, mask := range masks {
+		script := `test ! -s "$1" && ! (echo x > "$1") 2>/dev/null && echo hidden`
+		if mask.Dir {
+			script = `test -d "$1" && test -z "$(ls -A "$1" 2>&1)" && ! touch "$1/.probe" 2>/dev/null && echo hidden`
+		}
+		if output, err := inside(script, mask.Path); err != nil || output != "hidden\n" {
+			t.Errorf("masked %s is visible inside: %v %s", mask.Path, err, output)
+		}
+	}
+	// The module cache is the run's own: no host cache, no download, the
+	// toolchain on PATH.
+	if output, err := inside(`go env GOMODCACHE GOPROXY GOTOOLCHAIN GOROOT && test ! -e "$(go env GOMODCACHE)/cache/go-build" && echo own`); err != nil || output != paths.GOMODCACHE+"\noff\nlocal\n"+paths.GOROOT+"\nown\n" {
+		t.Errorf("the module cache inside is not the run's own: %v\n%s", err, output)
 	}
 	for _, path := range plan.ReadOnly {
 		if output, err := inside(`touch "$1/.gate-sandbox-probe"`, path.Path); err == nil || !strings.Contains(output, "Read-only file system") {
@@ -333,7 +387,7 @@ func TestMergeTierFailsClosed(t *testing.T) {
 		g := wholeFixture(t, root, steps)
 		var fresh string
 		g.openSandbox = func(plan sandboxPlan) (enclosure, error) {
-			plan.ReadOnly = append(plan.ReadOnly, sandboxPath{"/nonexistent-gate-sandbox-path", "a path the host lacks"})
+			plan.ReadOnly = append(plan.ReadOnly, sandboxPath{Path: "/nonexistent-gate-sandbox-path", Reason: "a path the host lacks"})
 			fresh = plan.Fresh
 			return startSandbox(plan)
 		}
@@ -361,7 +415,8 @@ type recordingEnclosure struct{ log string }
 func (r recordingEnclosure) wrap(argv []string, _ string) []string {
 	return append([]string{"sh", "-c", `echo "$1" >> "$0"; shift; exec "$@"`, r.log, "enclosed"}, argv...)
 }
-func (recordingEnclosure) close() error { return nil }
+func (recordingEnclosure) environment(env []string) []string { return env }
+func (recordingEnclosure) close() error                      { return nil }
 
 // TestEnclosedRunWrapsEveryStep: a run with an enclosure runs every step
 // through it, whatever the step's shape: independent or needing another,
@@ -675,5 +730,74 @@ func TestMergeTierSandboxConcurrent(t *testing.T) {
 	}
 	if codes[1] != 1 || !strings.Contains(outs[1], "external input bad") || strings.Contains(outs[1], ", uncached pass\n") {
 		t.Errorf("the bad run's merge tier exited %d or passed its uncached run:\n%s", codes[1], outs[1])
+	}
+}
+
+// verifierR6Launcher is the round-6 verifier's probe tool
+// (gate-testcache-gap round-6-receipts/verify/zz_verify_r6_test.go.txt): it
+// keeps a Go build cache beside the module downloads, in
+// $GOMODCACHE/cache/go-build, and before a run restores it into a fresh
+// HOME directory and gives its child that GOCACHE. One change: it restores
+// the cache only when one is there, as a tool does on its first run.
+const verifierR6Launcher = `package main
+import ("os";"os/exec";"path/filepath")
+func main() {
+ c:=exec.Command("go","test","-vet=off","./inner")
+ for _,n:=range []string{"PATH","HOME","GOMEMLIMIT","TMPDIR","GOTOOLCHAIN"} {c.Env=append(c.Env,n+"="+os.Getenv(n))}
+ cache:=filepath.Join(os.Getenv("GOMODCACHE"),"cache","go-build")
+ if os.Args[1]!="prime" {
+  local:=filepath.Join(os.Getenv("HOME"),"local-go-build")
+  if os.MkdirAll(local,0700)!=nil {os.Exit(2)}
+  if _,err:=os.Stat(cache);err==nil {
+   cp:=exec.Command("cp","-a",cache+"/.",local);cp.Stdout=os.Stdout;cp.Stderr=os.Stderr
+   if cp.Run()!=nil {os.Exit(2)}
+  }
+  cache=local
+ }
+ c.Env=append(c.Env,"GOCACHE="+cache,"GODEBUG=gocachetest=1")
+ c.Stdout=os.Stdout;c.Stderr=os.Stderr
+ if c.Run()!=nil {os.Exit(1)}
+}
+`
+
+// TestMergeTierInputContractRegression is round 6's B1 as a regression: a
+// tool restores a Go cache it keeps in the module cache. The witness primes
+// that cache on the host, twice, and the second run replays. The merge tier
+// passes on the good input; the bad input is committed; the second merge
+// tier fails on the inner test's own failure: the run's module cache is its
+// own, so no result from before the run reaches the child.
+func TestMergeTierInputContractRegression(t *testing.T) {
+	requireSandbox(t)
+	sandboxHome(t)
+	t.Setenv("GOMODCACHE", t.TempDir())
+	t.Setenv("GOTOOLCHAIN", "local")
+	root, steps := sandboxFixture(t, []sandboxRow{{name: "tool-modcache", launcher: verifierR6Launcher, args: []string{"modcache"}}}, "")
+	if problems := cacheProblems(&gate{root: root}, "example.com/sandboxed", steps[0]); len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	if problems := hygieneProblems(steps[0], reviewedScripts); len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	prime := append(slices.Clone(steps[0].Argv[:len(steps[0].Argv)-1]), "prime")
+	for round := range 2 {
+		command := exec.Command(prime[0], prime[1:]...)
+		command.Dir = root
+		output, err := command.CombinedOutput()
+		if err != nil || round == 1 && !bytes.Contains(output, []byte("(cached)")) {
+			t.Fatalf("witness prime %d: %v; the tool's cache does not replay, so the row is vacuous:\n%s", round+1, err, output)
+		}
+	}
+	g := wholeFixture(t, root, steps)
+	if code, out := mergeOnce(t, g); code != 0 {
+		t.Fatalf("first merge tier, good input: exit %d\n%s", code, out)
+	}
+	write(t, root, "input.txt", "bad\n")
+	gitIn(t, root, "commit", "-qam", "bad input")
+	g = wholeFixture(t, root, steps)
+	code, out := mergeOnce(t, g)
+	t.Logf("second merge tier, bad input: exit %d\n%s", code, out)
+	uncached := strings.Index(out, "merge: every step uncached\n")
+	if code != 1 || uncached < 0 || !strings.Contains(out, "merge: tool-modcache: inner pass, uncached FAILED\n") || !strings.Contains(out[uncached:], "external input bad") {
+		t.Fatalf("the second merge tier passed, or failed for another reason (exit %d)", code)
 	}
 }

@@ -329,6 +329,10 @@ var declaredSources = map[string]string{
 	"TestMain tool":                                           "go or git, to find the real tools",
 	"probe realTools[\"go\"]":                                 "the real go of TestMain (realTools)",
 	"TestRealGoEnvironmentReportsItsGoroot realTools[\"go\"]": "the real go of TestMain (realTools)",
+	"sandboxPrograms name":                                    "a name from hostPrograms, looked up so that no mask hides it",
+	"TestSandboxMasksContaminatedInputs argv[0]":              "a probe script wrapped by the sandbox: its nsenter",
+	"moduleHost goTool":                                       "the real go of TestMain (realTools)",
+	"TestMergeTierInputContractRegression prime[0]":           "the regression step's own program, launched outside the gate to prime the host cache",
 }
 
 // scriptVariables are programs a step's script runs by a variable.
