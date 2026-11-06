@@ -9,20 +9,6 @@ import (
 	"testing"
 )
 
-// osPart2 names the environment variable that runs the os tests before G2
-// part 2 lands. Part 1 (runtime/v1/host.go, std/os) is in; part 2 adds the
-// sealed rule (check/extern.go sealedStd, lower/std.go runtimeType;
-// stdlib.md, Types 3). Until then a program value does not convert to
-// os.Process (S109), so these tests skip. Part 2 removes the skip.
-const osPart2 = "ERGO_G2_PART2"
-
-func skipBeforePart2(t *testing.T) {
-	t.Helper()
-	if os.Getenv(osPart2) == "" {
-		t.Skip("G2 part 2: os.Process is sealed until check.SealedStd lands; set " + osPart2 + "=1 to run")
-	}
-}
-
 // osProgram reads the host process through os.Process: the count and the
 // arguments, a set, an empty and an unset variable; it fails os.Exit when
 // the first argument is "nope" or "zero".
@@ -98,9 +84,10 @@ func main() needs Console {
 // Getenv tells Some("") from None; os.Exit alone writes its Message
 // verbatim and exits with its Code, and a Code outside 1..125 exits 1
 // (runtime.md, Exit causes). A program's own provider gives the same
-// output through the same calls.
+// output through the same calls. os.Process is an open std protocol
+// (check.SealedStd), so both providers convert to it and it lowers as a
+// declaration of the program.
 func TestOSProcessRuns(t *testing.T) {
-	skipBeforePart2(t)
 	host := mustLower(t, "osHost", osProgram)
 	fake := mustLower(t, "osFake", fakeProgram)
 	exes := buildAll(t, []*lowered{host, fake}, true)
@@ -132,8 +119,7 @@ func TestOSProcessRuns(t *testing.T) {
 // TestOSExitRuns: main's only failure os.Exit writes its Message verbatim
 // and exits with its Code, after the exit actions of the function it left
 // have run; a Code outside 1..125 adds a line and exits 1 (runtime.md,
-// Exit causes 8; runtime/v1 TestMainExit holds the rest of the rules). It
-// needs no Process, so it runs before G2 part 2.
+// Exit causes 8; runtime/v1 TestMainExit holds the rest of the rules).
 func TestOSExitRuns(t *testing.T) {
 	const work = `import os
 import scope

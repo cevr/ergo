@@ -26,8 +26,9 @@ import (
 // types, and a std record the runtime has no struct for, such as
 // timeout.Expired). A std
 // record the runtime declares is the runtime's struct of the same name; a
-// std operation type is a pointer to the runtime's type of the same name,
-// whose methods are its operations.
+// sealed std operation type (check.SealedStd) is a pointer to the runtime's
+// type of the same name, whose methods are its operations, and an open one
+// is a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
 	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
@@ -47,6 +48,9 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 		return l.rt() + "." + obj.Name
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
+			if !check.SealedStd(n) {
+				return "" // an open std protocol, such as os.Process: a program provides it
+			}
 			return "*" + l.rt() + "." + obj.Name
 		}
 	}

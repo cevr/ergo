@@ -344,8 +344,8 @@ func main() {
 	use(Mine)
 }
 `,
-	// std os (G2): sealed until G2 part 2 seals only a std operation type
-	// a std extern's result names (stdlib.md, os 5).
+	// std os (G2): open, as no std extern's result names it (stdlib.md,
+	// os 5).
 	"os.Process": `import os
 
 type Mine {}
@@ -359,6 +359,17 @@ func main() {
 	use(Mine)
 }
 `,
+}
+
+// openStd is the std operation types a program provides: no std extern's
+// result names them (check.SealedStd; stdlib.md, Types 3). Every other
+// std operation type is sealed.
+var openStd = map[string]bool{
+	"prelude.Console":   true,
+	"prelude.Scheduler": true,
+	"prelude.Clock":     true,
+	"prelude.Random":    true,
+	"os.Process":        true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
@@ -517,9 +528,9 @@ func main() {
 			if !ok {
 				t.Fatalf("the std operation type %s has no row in sealedPrograms", key)
 			}
-			path, name, _ := strings.Cut(key, ".")
-			// The oracle: lower/std.go runtimeType's set.
-			isSealed := path != std.PreludePath || name == "Task"
+			// The oracle, written by hand: the operation types a std
+			// extern's result names (task.Go, queue.New) are sealed.
+			isSealed := !openStd[key]
 			at, uses := 0, 0
 			for i, line := range strings.Split(src, "\n") {
 				if strings.HasPrefix(line, "\tuse(") {
@@ -545,6 +556,62 @@ func main() {
 		if !sortedHas(types, key) {
 			t.Errorf("sealedPrograms row %s: std declares no such operation type", key)
 		}
+	}
+}
+
+// TestStdProtocolOpen is the sealed rule of G2 part 2 (stdlib.md, Types 3;
+// check.SealedStd): os.Process, which no std extern's result names, takes
+// a program provider at each site that converts by assignability, while
+// queue.Queue, which queue.New returns, still refuses the same program
+// value at the same sites with S109.
+func TestStdProtocolOpen(t *testing.T) {
+	const fake = `import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { None }
+`
+	cases := map[string]string{
+		"process-context": fake + `
+func run() needs os.Process { _ = os.Process.Args() }
+
+func main() {
+	with context { os.Process: FakeEnv{Argv: []string{}} } { run() }
+}
+`,
+		"process-host-context": `import os
+
+func run() needs os.Process { _ = os.Process.Args() }
+
+let Live = context { os.Process: os.Host }
+
+func main() {
+	with Live { run() }
+}
+`,
+		"process-param": fake + `
+func use(p os.Process) { _ = p.Args() }
+
+func main() {
+	use(FakeEnv{Argv: []string{}})
+	let p os.Process = os.Host
+	use(p)
+}
+`,
+		"queue-param": queueMine + `
+func use(q queue.Queue[int]) { q.Close() }
+
+func main() {
+	use(Mine) // want S109
+	let q queue.Queue[int] = Mine // want S109
+	q.Close()
+}
+`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "sealed std protocol", "#206") })
 	}
 }
 

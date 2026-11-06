@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -218,27 +219,111 @@ func externBasic(t Type) bool {
 
 // ---------------------------------------------------------------- sealed std protocols (C28)
 
-// sealedStd is t when t is a sealed std protocol: the prelude's Task, or
-// an operation type a std package other than the prelude declares (the
-// types the lowering represents by a runtime/v1 type, lower/std.go
-// runtimeType). Only the runtime implements them, so no program value is
-// converted into one (#206 lets a program implement a lawful protocol).
-// The prelude's capabilities (Console, Scheduler, Clock, Random) are not
-// sealed: programs provide them.
+// sealedStd is t when t is a sealed std protocol, else nil (SealedStd).
 func sealedStd(t Type) *Named {
 	n, ok := t.(*Named)
-	if !ok || n.Obj == nil || n.Obj.Pkg == nil || !n.Obj.Pkg.std || n.Obj.Decl == nil {
-		return nil
-	}
-	spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType)
-	if !ok || len(spec.Union) > 0 {
-		return nil
-	}
-	if n.Obj.Pkg.Path == std.PreludePath && n.Obj.Name != "Task" {
+	if !ok || !SealedStd(n) {
 		return nil
 	}
 	return n
 }
+
+// SealedStd reports a sealed std protocol: an operation type of the
+// prelude or a std package that the result of a std extern names, such as
+// the prelude's Task (task.Go) and queue.Queue (queue.New). A std extern
+// gives a runtime value whose identity a program must not forge, so only
+// the runtime implements the type: no program value converts into it
+// (S109; #206), and the lowering represents it by its runtime/v1 type
+// (lower/std.go runtimeType). Any other std operation type is open: a
+// program provides it, as it provides the prelude's Console or os.Process
+// (stdlib.md, Types 3; std-1 plan 2.2).
+func SealedStd(n *Named) bool {
+	if n == nil || n.Obj == nil || n.Obj.Pkg == nil || !n.Obj.Pkg.std || n.Obj.Decl == nil {
+		return false
+	}
+	spec, ok := n.Obj.Decl.Spec.(*syntax.InterfaceType)
+	if !ok || len(spec.Union) > 0 {
+		return false
+	}
+	return stdExternResults()[n.Obj.Pkg.Path+"."+n.Obj.Name]
+}
+
+// stdExternResults is the set, as path.Name, of the std types the results
+// of std extern functions name, at any depth of the result and its fails
+// row (not its needs row), read once from the std sources with the parser.
+// An unqualified name is the declaring package's type when it declares
+// one, else the prelude's.
+var stdExternResults = sync.OnceValue(func() map[string]bool {
+	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
+	for _, path := range std.Packages() {
+		if files, ok := std.Package(path); ok {
+			sources[path] = files
+		}
+	}
+	set := map[string]bool{}
+	for path, files := range sources {
+		var parsed []*syntax.File
+		declared := map[string]bool{}
+		for _, src := range files {
+			f, err := syntax.Parse(src)
+			if err != nil {
+				// Std always parses; a file that did not would unseal
+				// what its externs return.
+				panic(fmt.Sprintf("std package %s does not parse: %v", path, err))
+			}
+			parsed = append(parsed, f)
+			for _, d := range f.Decls {
+				if td, ok := d.(*syntax.TypeDecl); ok {
+					declared[td.Name.Name] = true
+				}
+			}
+		}
+		for _, f := range parsed {
+			imports := map[string]string{}
+			for _, d := range f.Decls {
+				id, ok := d.(*syntax.ImportDecl)
+				if !ok {
+					continue
+				}
+				for _, s := range id.Specs {
+					p := strings.Trim(s.Path.Value, "\"`")
+					name := p[strings.LastIndex(p, "/")+1:]
+					if s.Name != nil {
+						name = s.Name.Name
+					}
+					imports[name] = p
+				}
+			}
+			for _, d := range f.Decls {
+				fd, ok := d.(*syntax.FuncDecl)
+				if !ok || fd.Extern == nil || fd.Type == nil || fd.Type.Results == nil {
+					continue
+				}
+				for _, r := range fd.Type.Results.List {
+					syntax.Inspect(r.Type, func(x syntax.Node) bool {
+						switch x := x.(type) {
+						case *syntax.SelectorExpr:
+							if q, ok := x.X.(*syntax.Ident); ok {
+								if p, ok := imports[q.Name]; ok {
+									set[p+"."+x.Sel.Name] = true
+								}
+							}
+							return false
+						case *syntax.Ident:
+							if declared[x.Name] {
+								set[path+"."+x.Name] = true
+							} else {
+								set[std.PreludePath+"."+x.Name] = true
+							}
+						}
+						return true
+					})
+				}
+			}
+		}
+	}
+	return set
+})
 
 // sealedText is the S109 of a conversion into the sealed std protocol t.
 func sealedText(v, t Type) string {
