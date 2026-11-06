@@ -3,6 +3,7 @@
 package testinputs
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
+	"unsafe"
 )
 
 // TestWatchSeesChangesAfterALookup: the watch reports a change of a name a
@@ -84,6 +87,63 @@ func TestWatchSkipsWhatOnlyTheTreeChanges(t *testing.T) {
 	var st syscall.Stat_t
 	if syscall.Stat("/", &st) == nil && st.Uid != uint32(os.Geteuid()) && st.Mode&0o022 == 0 && changeableDir("/") {
 		t.Errorf("/ cannot change by this user's processes")
+	}
+}
+
+// TestWatchGroupEndsInTheHolder: the watch's inotify group is held by a
+// holder from the start, so finish's close in this process is not the last
+// one and does not wait for the kernel's mark reaper; the holder ends once
+// finish closed its input. The holder's descriptor 3 lists the watch this
+// process added after the holder started, so it is the same group.
+func TestWatchGroupEndsInTheHolder(t *testing.T) {
+	dir := t.TempDir()
+	w, err := newWatcher(func(string) bool { return true })
+	if err != nil {
+		t.Skip(err)
+	}
+	if w.holder < 0 || w.holderPid <= 0 {
+		w.finish()
+		t.Fatal("no holder started: this process's close would be the group's last one")
+	}
+	// The holder runs until finish closes its input: the pidfd names it.
+	pidfd, _, errno := syscall.Syscall(434, uintptr(w.holderPid), 0, 0) // pidfd_open
+	if errno != 0 {
+		w.finish()
+		t.Fatalf("pidfd_open of the holder %d: %v", w.holderPid, errno)
+	}
+	defer syscall.Close(int(pidfd))
+	w.see(dir, "x")
+	var st syscall.Stat_t
+	if err := syscall.Stat(dir, &st); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.ReadFile(fmt.Sprintf("/proc/%d/fdinfo/3", w.holderPid))
+	if want := fmt.Sprintf("ino:%x ", st.Ino); err != nil || !strings.Contains(string(info), want) {
+		t.Errorf("the holder's descriptor 3 does not hold the watch of %s (%s): %v\n%s", dir, want, err, info)
+	}
+	if _, reason := w.finish(); reason != "" {
+		t.Fatalf("the watch cannot vouch: %s", reason)
+	}
+	// Only the test's deadline bounds the wait for the holder's end (the
+	// pidfd turns readable when it exits); with no deadline, no bound.
+	pfd := struct {
+		fd              int32
+		events, revents int16
+	}{fd: int32(pidfd), events: 0x1} // POLLIN
+	var ts *syscall.Timespec
+	if deadline, ok := t.Deadline(); ok {
+		left := syscall.NsecToTimespec((time.Until(deadline) * 9 / 10).Nanoseconds())
+		ts = &left
+	}
+	for {
+		n, _, errno := syscall.Syscall6(syscall.SYS_PPOLL, uintptr(unsafe.Pointer(&pfd)), 1, uintptr(unsafe.Pointer(ts)), 0, 0, 0)
+		if errno == syscall.EINTR {
+			continue
+		}
+		if errno != 0 || n == 0 {
+			t.Fatalf("the holder did not end after finish closed its input (%v)", errno)
+		}
+		return
 	}
 }
 
