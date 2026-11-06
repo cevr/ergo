@@ -15,8 +15,9 @@ import (
 // function. It is emitted with no environment parameter, its callers pass
 // none, and a pure function that calls it is pure too. A catch of a pure
 // body's failure (strconv.Atoi) keeps it pure. A call of a std library
-// function with an Ergo body (strings.Cut) and of a user extern keeps the
-// environment, as before. The program builds and prints its output.
+// function with a pure Ergo body (strings.Cut) is pure too (batch-9 C3); a
+// call of a user extern keeps the environment. The program builds and
+// prints its output.
 func TestPureStdCallsKeepFunctionsPure(t *testing.T) {
 	built := runBehaviors(t, []behavior{{name: "purestd", src: pureStdSource, stdout: "HI!\nn=7 n=-1\n3\nhalves\nlow\nwrapped HI!\n"}})
 	o := built["purestd"]
@@ -25,8 +26,8 @@ func TestPureStdCallsKeepFunctionsPure(t *testing.T) {
 	}
 	checkEnvParams(t, pureModel{
 		name:   "purestd",
-		pure:   []string{"shout", "label", "parse", "count", "wrap"},
-		impure: []string{"halves", "low", "main"},
+		pure:   []string{"shout", "label", "parse", "count", "wrap", "halves"}, // halves calls strings.Cut (batch-9 C3)
+		impure: []string{"low", "main"},
 	}, o.mainGo())
 }
 
