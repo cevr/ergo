@@ -157,12 +157,18 @@ func (l *lowerer) declareName(d syntax.Decl) {
 }
 
 // withsOf are the with operands of the named context w that this build
-// lowers, in source order (each operand of a with is a fact, With.Next).
+// lowers, in source order (each operand of a with is a fact, With.Next):
+// those of every sourced package, since a context of an imported package
+// is built at its importers' withs too (196b U4).
 func (l *lowerer) withsOf(w *check.Context) []*check.With {
 	var xs []*syntax.CallExpr
-	for x := range l.info.Withs {
-		if l.readsFact(l.pkg, x) {
-			xs = append(xs, x)
+	facts := map[*syntax.CallExpr]*check.With{}
+	for _, p := range l.sourcedPkgs() {
+		for x, with := range p.Info.Withs {
+			if l.readsFact(p, x) {
+				xs = append(xs, x)
+				facts[x] = with
+			}
 		}
 	}
 	// Source order: by source file, then by offset. An offset alone counts
@@ -170,7 +176,7 @@ func (l *lowerer) withsOf(w *check.Context) []*check.With {
 	sort.Slice(xs, func(i, j int) bool { return l.sourceLess(xs[i], xs[j]) })
 	var out []*check.With
 	for _, x := range xs {
-		for with := l.info.Withs[x]; with != nil; with = with.Next {
+		for with := facts[x]; with != nil; with = with.Next {
 			if len(with.Contexts) > 0 && with.Contexts[0] == w {
 				out = append(out, with)
 			}

@@ -1,9 +1,7 @@
 package lower
 
 import (
-	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -19,11 +17,13 @@ func (i contextImporter) Import(path string) (*check.Package, error) {
 	return check.Std.Import(path)
 }
 
-// The checker records an imported context's entries and admits a fresh one,
-// but this lowering builds only the contexts of the file it lowers. A with of
-// an imported context, direct or embedded in it, stays a located refusal, not
-// an internal compiler error at naming (stage 3b round 3 review, m1).
-func TestRuntime199ContextImportedRefusal(t *testing.T) {
+// The checker records an imported context's entries and admits a fresh one.
+// Until 196b U4 this lowering refused a with of an imported context, direct
+// or embedded in it, as a located refusal (stage 3b round 3 review, m1).
+// That test is inverted, not deleted: the unit now sources the imported
+// package, so the with builds the imported provider, runs its block and
+// closes the provider once.
+func TestRuntime199ContextImportedBuilds(t *testing.T) {
 	for _, embedded := range []bool{false, true} {
 		t.Run(fmt.Sprintf("embedded=%v", embedded), func(t *testing.T) {
 			contexts := "let W = context { A: Get() }\n"
@@ -33,7 +33,7 @@ func TestRuntime199ContextImportedRefusal(t *testing.T) {
 			libSrc := `type A { Use() }
 type Conn { n int }
 func Use(_ Conn) {}
-func Close(_ Conn) {}
+func Close(_ Conn) needs Console { Console.Println("closed") }
 func Get() Conn { Conn{n: 1} }
 ` + contexts
 			lib, err := syntax.Parse(libSrc)
@@ -44,7 +44,7 @@ func Get() Conn { Conn{n: 1} }
 			if len(ds) != 0 {
 				t.Fatal(ds)
 			}
-			src := "import makers\nfunc main() { with makers.W { makers.A.Use() } }\n"
+			src := "import makers\nfunc main() needs Console { with makers.W { makers.A.Use() }\nConsole.Println(\"end\") }\n"
 			file, err := syntax.Parse(src)
 			if err != nil {
 				t.Fatal(err)
@@ -58,23 +58,20 @@ func Get() Conn { Conn{n: 1} }
 					t.Fatalf("the checker no longer records the imported context's entry: %+v", w)
 				}
 			}
-			var refused *Refused
-			func() {
-				defer func() {
-					if p := recover(); p != nil {
-						t.Fatalf("lowering panicked: %v", p)
-					}
-				}()
-				lu := Unit{Package: makers, Files: []*syntax.File{lib}, Sources: []Source{{Path: "/ergo-test/makers/lib.ergo", Text: libSrc}}}
-				u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}, Imports: []Unit{lu}}
-				_, err = lowerPackage(u, false)
-			}()
-			if !errors.As(err, &refused) || len(refused.Refusals) != 1 {
-				t.Fatalf("want one located refusal, got %v", err)
+			lu := Unit{Package: makers, Files: []*syntax.File{lib}, Sources: []Source{{Path: "/ergo-test/makers/lib.ergo", Text: libSrc}}}
+			u := Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}, Imports: []Unit{lu}}
+			name := "ctx_import_plain"
+			if embedded {
+				name = "ctx_import_embedded"
 			}
-			r := refused.Refusals[0]
-			if r.Line != 2 || r.Column != 20 || !strings.Contains(r.Message, "a with of an imported context is lowered when 196b lowers packages") {
-				t.Fatalf("refusal %d:%d %q, want 2:20 naming 196b", r.Line, r.Column, r.Message)
+			o := mustLowerUnit(t, name, u, false)
+			exes := buildAll(t, []*lowered{o}, true)
+			if exes == nil {
+				t.FailNow()
+			}
+			stdout, stderr, code := runExe(t, exes[o.name])
+			if code != 0 || stdout != "closed\nend\n" {
+				t.Fatalf("exit %d, stdout %q, want %q; stderr:\n%s", code, stdout, "closed\nend\n", stderr)
 			}
 		})
 	}

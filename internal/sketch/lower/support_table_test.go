@@ -17,7 +17,7 @@ var updateSupport = flag.Bool("update-support", false, "rewrite docs/spec/suppor
 // ownerText says what each open owner that a refusal may name builds
 // (openOwners, stage4_refusals_test.go).
 var ownerText = map[string]string{
-	"196b": "imported contexts",
+	"196b": "the context header, `provides` and `needs` on a context",
 	"#197": "further resource ownership",
 	"#199": "the runtime",
 	"#57":  "the actor library and its machine runner",

@@ -81,11 +81,14 @@ func (l *lowerer) nameAll() {
 		}
 	}
 	// A sourced library's lets, which the program lowers, used or not
-	// (sources.go), in its source order.
+	// (sources.go), and the builders of its named contexts, one for each
+	// set of providers a with of the program acquires (196b U4), in its
+	// source order.
 	for _, p := range l.sourcedLibs() {
 		l.eachDecl(p, func(d syntax.Decl) {
-			if vd, ok := d.(*syntax.VarDecl); ok {
-				l.declareName(vd)
+			switch d.(type) {
+			case *syntax.VarDecl, *syntax.ContextDecl:
+				l.declareName(d)
 			}
 		})
 	}

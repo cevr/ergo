@@ -48,7 +48,9 @@ var implementedFamilies = []string{
 // it, never lowered partly.
 var refusedFamilies = map[string]string{
 	// Narrower families: a form of an implemented node that waits.
-	"call:With:imported": "196b",
+	// 196b U4 removed the family of a with or an embedding of an imported
+	// context: the unit sources the imported package, and its contexts are
+	// built as the root's are (TestRunImportedContext).
 	// The text of an error type with a field whose type has no text form
 	// (a Map, a tuple, a pointer): derived text forms are #49's.
 	"TypeDecl:errorText": "#49",
@@ -97,7 +99,6 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"call:With:imported", regexp.MustCompile(`^(a with of an|an embedded) imported context is lowered when 196b lowers packages`)},
 	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of type .+ waits for derived text forms \(#49\)`)},
 	{"CompositeLit:indexedSlice", regexp.MustCompile(`^an indexed slice literal waits for #196 to decide its keys`)},
 }
