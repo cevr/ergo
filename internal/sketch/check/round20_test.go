@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"iter"
 	"os"
 	"strings"
 	"sync"
@@ -229,74 +230,154 @@ func TestContextContractInline(t *testing.T) {
 	}
 }
 
+// budgetOrderCase is one case of TestContextBudgetOrder: the saved pair,
+// one rung n of the disjoint ladder, one shape at one budget (pct of its
+// cost), or one shape's seeded permutations.
+type budgetOrderCase struct {
+	kind  string // "pair", "disjoint", "budget" or "seeds"
+	n     int
+	shape string
+	pct   int
+}
+
+// budgetOrderLadder is the disjoint ladder of TestContextBudgetOrder: it
+// crosses the refusal boundary at the real budget.
+func budgetOrderLadder() []int {
+	var out []int
+	for n := 16; n <= 96; n += 4 {
+		out = append(out, n)
+	}
+	return out
+}
+
+// budgetOrderCases is the domain of TestContextBudgetOrder at 0a8e52fd,
+// in its order: the saved pair, the ladder, then for each shape its
+// budgets and its seeds.
+func budgetOrderCases() []budgetOrderCase {
+	out := []budgetOrderCase{{kind: "pair"}}
+	for _, n := range budgetOrderLadder() {
+		out = append(out, budgetOrderCase{kind: "disjoint", n: n})
+	}
+	for _, shape := range budgetShapes {
+		for _, pct := range []int{90, 95, 99, 100, 101, 105, 110} {
+			out = append(out, budgetOrderCase{kind: "budget", n: 12, shape: shape, pct: pct})
+		}
+		out = append(out, budgetOrderCase{kind: "seeds", n: 12, shape: shape})
+	}
+	return out
+}
+
 // TestContextBudgetOrder: the budget verdict, the charged work and the place
 // of a refusal do not depend on the order of the declarations (round 19
 // M2), for the reviewer's saved pair, the disjoint ladder across the
 // refusal boundary at the real budget, and every shape at budgets within
-// 10% of its cost, for whole-file and context-only permutations.
-func TestContextBudgetOrder(t *testing.T) {
-	var used [2]int
-	var verdict [2]string
-	for i, name := range []string{"order-original.ergo", "order-permuted.ergo"} {
-		data, err := os.ReadFile("testdata/contextorder/" + name)
-		if err != nil {
-			t.Fatal(err)
+// 10% of its cost, for whole-file and context-only permutations. The
+// cases took 6 to 12.2 s of one test under load (check-split round 1), so
+// they are a Split (check-split-2, batch 9) with the domain of the unsplit
+// test at 0a8e52fd; the check that the ladder crosses the refusal
+// boundary reads every rung, so it is a test of its own
+// (TestContextBudgetOrderLadder). The parts run in the full tier only
+// (Short 0), as the unsplit test did (it was over the size cutoff).
+var contextBudgetOrder = NewSplit(Split[budgetOrderCase]{
+	Name: "TestContextBudgetOrder", Parts: 3,
+	Count: 94, Digest: "9319c4ad3e9b94686dc7823aee65790a36230f75d534074074d51f157cc41e46",
+	Cases: SeqOf(budgetOrderCases),
+	Key: func(c budgetOrderCase) string {
+		return fmt.Sprintf("%s n=%d shape=%q pct=%d", c.kind, c.n, c.shape, c.pct)
+	},
+	Run: func(t *testing.T, cases iter.Seq[budgetOrderCase]) {
+		for c := range cases {
+			budgetOrder(t, c)
 		}
-		diags, c := checkLimited(t, string(data), nil)
-		used[i], verdict[i] = c.contexts.used, fmt.Sprint(len(diags) == 0)
-		if p := OrderProblems(string(data), 4); len(p) > 0 {
-			t.Errorf("%s: %s", name, p[0])
-		}
-	}
-	if used[0] != used[1] || verdict[0] != verdict[1] {
-		t.Errorf("the saved pair: %d steps (accepted %s) and %d steps (accepted %s)", used[0], verdict[0], used[1], verdict[1])
-	}
-	t.Logf("saved pair: %d steps each, accepted %s", used[0], verdict[0])
+	},
+})
+
+func TestContextBudgetOrderPart0(t *testing.T) { contextBudgetOrder.Part(t, 0) }
+func TestContextBudgetOrderPart1(t *testing.T) { contextBudgetOrder.Part(t, 1) }
+func TestContextBudgetOrderPart2(t *testing.T) { contextBudgetOrder.Part(t, 2) }
+
+// budgetPermutations are the two permutations TestContextBudgetOrder
+// checks: of the whole file and of the contexts only.
+var budgetPermutations = []func(string, uint64) (string, func(int) (int, int), func(int) (int, int), bool){PermuteDecls, PermuteContexts}
+
+// budgetOrder checks one case of TestContextBudgetOrder.
+func budgetOrder(t *testing.T, c budgetOrderCase) {
+	t.Helper()
 	check := func(limit func(int) int) func(string) []Diagnostic {
 		return func(s string) []Diagnostic { d, _ := checkLimited(t, s, limit); return d }
 	}
-	refused := 0
-	for n := 16; n <= 96; n += 4 {
-		src := contextFamily("disjoint", n)
-		if d, _ := checkLimited(t, src, nil); len(d) > 0 {
-			refused++
+	switch c.kind {
+	case "pair":
+		var used [2]int
+		var verdict [2]string
+		for i, name := range []string{"order-original.ergo", "order-permuted.ergo"} {
+			data, err := os.ReadFile("testdata/contextorder/" + name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			diags, c := checkLimited(t, string(data), nil)
+			used[i], verdict[i] = c.contexts.used, fmt.Sprint(len(diags) == 0)
+			if p := OrderProblems(string(data), 4); len(p) > 0 {
+				t.Errorf("%s: %s", name, p[0])
+			}
 		}
-		for _, permute := range []func(string, uint64) (string, func(int) (int, int), func(int) (int, int), bool){PermuteDecls, PermuteContexts} {
+		if used[0] != used[1] || verdict[0] != verdict[1] {
+			t.Errorf("the saved pair: %d steps (accepted %s) and %d steps (accepted %s)", used[0], verdict[0], used[1], verdict[1])
+		}
+		t.Logf("saved pair: %d steps each, accepted %s", used[0], verdict[0])
+	case "disjoint":
+		src := contextFamily("disjoint", c.n)
+		for _, permute := range budgetPermutations {
 			if p := orderProblems(src, 3, permute, check(nil)); len(p) > 0 {
-				t.Fatalf("disjoint n=%d: %s", n, p[0])
+				t.Fatalf("disjoint n=%d: %s", c.n, p[0])
 			}
 		}
-	}
-	if refused == 0 || refused == 21 {
-		t.Errorf("the ladder from 16 to 96 should cross the refusal boundary; %d of 21 refused", refused)
-	}
-	for _, shape := range budgetShapes {
-		src := contextFamily(shape, 12)
-		_, c := checkLimited(t, src, nil)
-		cost := c.contexts.used
-		for _, pct := range []int{90, 95, 99, 100, 101, 105, 110} {
-			limit := cost * pct / 100
-			if pct == 99 {
-				limit = cost - 1
-			}
-			if pct == 101 {
-				limit = cost + 1
-			}
-			for _, permute := range []func(string, uint64) (string, func(int) (int, int), func(int) (int, int), bool){PermuteDecls, PermuteContexts} {
-				if p := orderProblems(src, 3, permute, check(func(int) int { return limit })); len(p) > 0 {
-					t.Fatalf("%s n=12 at %d%% of %d: %s", shape, pct, cost, p[0])
-				}
+	case "budget":
+		src := contextFamily(c.shape, c.n)
+		_, checked := checkLimited(t, src, nil)
+		cost := checked.contexts.used
+		limit := cost * c.pct / 100
+		if c.pct == 99 {
+			limit = cost - 1
+		}
+		if c.pct == 101 {
+			limit = cost + 1
+		}
+		for _, permute := range budgetPermutations {
+			if p := orderProblems(src, 3, permute, check(func(int) int { return limit })); len(p) > 0 {
+				t.Fatalf("%s n=%d at %d%% of %d: %s", c.shape, c.n, c.pct, cost, p[0])
 			}
 		}
+	case "seeds":
+		src := contextFamily(c.shape, c.n)
+		_, checked := checkLimited(t, src, nil)
+		cost := checked.contexts.used
 		for seed := uint64(1); seed <= 3; seed++ {
 			permuted, _, _, ok := PermuteDecls(src, seed)
 			if !ok {
-				t.Fatalf("%s: no permutation", shape)
+				t.Fatalf("%s: no permutation", c.shape)
 			}
 			if _, pc := checkLimited(t, permuted, nil); pc.contexts.used != cost {
-				t.Errorf("%s n=12 seed %d: %d steps, the original %d", shape, seed, pc.contexts.used, cost)
+				t.Errorf("%s n=%d seed %d: %d steps, the original %d", c.shape, c.n, seed, pc.contexts.used, cost)
 			}
 		}
+	default:
+		t.Fatalf("budgetOrder: no case kind %q", c.kind)
+	}
+}
+
+// TestContextBudgetOrderLadder: the disjoint ladder of
+// TestContextBudgetOrder crosses the refusal boundary at the real budget,
+// so its rungs check the order of both verdicts.
+func TestContextBudgetOrderLadder(t *testing.T) {
+	refused, ladder := 0, budgetOrderLadder()
+	for _, n := range ladder {
+		if d, _ := checkLimited(t, contextFamily("disjoint", n), nil); len(d) > 0 {
+			refused++
+		}
+	}
+	if refused == 0 || refused == len(ladder) {
+		t.Errorf("the ladder from 16 to 96 should cross the refusal boundary; %d of %d refused", refused, len(ladder))
 	}
 }
 

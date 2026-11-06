@@ -27,6 +27,17 @@ type typedSource struct {
 
 var typedSources sync.Map // dir -> *typedSource
 
+// typedImports is the one source importer of every typedPackage call, with
+// its file set: each package the scanned packages import, the standard
+// library's included, is type-checked once per test binary, not once per
+// scanned package (fast-cpu, batch 9). The importer is not safe for
+// concurrent use, so a call holds the lock while it checks.
+var typedImports = struct {
+	sync.Mutex
+	fset     *token.FileSet
+	importer types.Importer
+}{fset: token.NewFileSet()}
+
 // typedPackage type-checks the non-test files of dir (relative to this
 // package) once per test binary.
 func typedPackage(t *testing.T, dir string) *typedSource {
@@ -34,11 +45,19 @@ func typedPackage(t *testing.T, dir string) *typedSource {
 	if v, ok := typedSources.Load(dir); ok {
 		return v.(*typedSource)
 	}
+	typedImports.Lock()
+	defer typedImports.Unlock()
+	if v, ok := typedSources.Load(dir); ok {
+		return v.(*typedSource)
+	}
+	if typedImports.importer == nil {
+		typedImports.importer = importer.ForCompiler(typedImports.fset, "source", nil)
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := &typedSource{fset: token.NewFileSet(), info: &types.Info{
+	src := &typedSource{fset: typedImports.fset, info: &types.Info{
 		Types: map[ast.Expr]types.TypeAndValue{},
 		Defs:  map[*ast.Ident]types.Object{},
 		Uses:  map[*ast.Ident]types.Object{},
@@ -54,7 +73,7 @@ func typedPackage(t *testing.T, dir string) *typedSource {
 		}
 		src.files = append(src.files, f)
 	}
-	conf := types.Config{Importer: importer.ForCompiler(src.fset, "source", nil)}
+	conf := types.Config{Importer: typedImports.importer}
 	src.pkg, err = conf.Check(src.files[0].Name.Name, src.fset, src.files, src.info)
 	if err != nil {
 		t.Fatalf("type-check %s: %v", dir, err)

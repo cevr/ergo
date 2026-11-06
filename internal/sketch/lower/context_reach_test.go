@@ -24,6 +24,10 @@ const (
 	reachT = "type T { Hi() string }\n\ntype H {}\n\nfunc Hi(_ H) string { \"h\" }\n"
 )
 
+// reachShortStride is the stride of the programs TestContextReachProperty
+// builds under -short.
+const reachShortStride = 4
+
 // reachUnits checks p, n, m1, m2 and q.
 func reachUnits(t *testing.T) map[string]Unit {
 	t.Helper()
@@ -52,6 +56,12 @@ func reachUnits(t *testing.T) map[string]Unit {
 // (checkPackage fails otherwise), lowers with no refusal and no internal
 // error, builds, runs, closes n's resource once when it builds it, and
 // prints the provider's value.
+//
+// Each program is a go build and a run, so the domain is the test's cost
+// (11 s of the fast tier's lower CPU, fast-cpu batch 9). Under -short it
+// keeps every reachShortStride-th program in generation order: each depth
+// generates 21 programs, so a stride of 4 takes other forms and operand
+// orders at each depth.
 func TestContextReachProperty(t *testing.T) {
 	units := reachUnits(t)
 	imp := pkgImporter{}
@@ -62,7 +72,15 @@ func TestContextReachProperty(t *testing.T) {
 	closure := map[string][]string{"p": {"p"}, "n": {"n", "p"}, "m1": {"m1", "n", "p"}, "m2": {"m2", "m1", "n", "p"}, "q": {"q"}}
 	var programs []*lowered
 	want := map[string]string{}
+	generated := 0
 	program := func(name string, imports []string, src, out string) {
+		generated++
+		// Under -short (the gate's fast tier) the test builds every
+		// reachShortStride-th program of the generation order, a fixed
+		// subset; the full tier builds them all.
+		if testing.Short() && (generated-1)%reachShortStride != 0 {
+			return
+		}
 		main := checkPackage(t, "main", []pkgSource{{"/ergo-test/" + name + "/main.ergo", src}}, imp)
 		seen := map[string]bool{}
 		for _, i := range imports {
@@ -160,8 +178,11 @@ func TestContextReachProperty(t *testing.T) {
 			}
 		}
 	}
-	if len(programs) < 63 {
-		t.Fatalf("the generator made %d programs", len(programs))
+	if generated < 63 {
+		t.Fatalf("the generator made %d programs", generated)
+	}
+	if want := (generated + reachShortStride - 1) / reachShortStride; testing.Short() && len(programs) != want || !testing.Short() && len(programs) != generated {
+		t.Fatalf("the test builds %d of %d generated programs", len(programs), generated)
 	}
 	exes := buildAll(t, programs, true)
 	if exes == nil {

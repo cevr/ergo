@@ -152,6 +152,12 @@ type Step struct {
 	// (internal/testinputs) and fails the step on a checkout read its
 	// package key does not cover (readsOutsideKey).
 	ObserveInputs bool
+	// Sweep, on a step of the closure sweep (sweepStep), names what it
+	// sweeps: "all", or the directory of the one package it sweeps. A
+	// fast sweep step has a Package key of its own (sweepClosure), which
+	// is not the swept package's closure, so the package steps' checks
+	// and the fast CPU record pass it by.
+	Sweep string
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -400,11 +406,7 @@ func main() {
 		// Returns only when the gate cannot run in its own scope.
 		scopeNote = enterScope(command, reason, budget, cpus)
 	}
-	declared := tier
-	if *recordDurations {
-		declared = ""
-	}
-	g, err := setUpTier(scope, scopeNote, declared)
+	g, err := setUpRun(scope, scopeNote, tier, *recordDurations)
 	if err != nil {
 		fmt.Println("gate:", err)
 		exitGate(2)
@@ -423,7 +425,6 @@ func main() {
 	}
 	fmt.Println(state)
 	g.noCache = *noCache
-	g.tier = tier
 	if g.cacheDir != "" {
 		g.whole = &wholeGate{mechanism: mechanismFact(scope, probed, scopeNote), identity: state}
 	}
@@ -452,10 +453,24 @@ func setUp(scope, scopeNote string, declare bool) (*gate, error) {
 	return setUpTier(scope, scopeNote, tier)
 }
 
-// setUpTier is setUp declaring the steps of the tier (stepsFor), or none
-// when the tier is empty.
+// setUpRun sets up the gate of a run of tier, the one value main computes
+// (tierFor) and also gives the replay before the scope (replayWholeGate):
+// the gate declares that tier's steps and keys its record with it
+// (gate.tier, collectTier). -record-durations declares no step and records
+// no whole gate, so its gate has no tier. Before, main set gate.tier apart
+// from the steps, and a run that lost it recorded under no tier with every
+// test green (gate-shard round 1, mutant v3).
+func setUpRun(scope, scopeNote, tier string, recordDurations bool) (*gate, error) {
+	if recordDurations {
+		tier = ""
+	}
+	return setUpTier(scope, scopeNote, tier)
+}
+
+// setUpTier is setUp declaring the steps of the tier (stepsFor) and
+// naming it (gate.tier), or no step and no tier when the tier is empty.
 func setUpTier(scope, scopeNote, tier string) (*gate, error) {
-	g := &gate{scope: scope, scopeNote: scopeNote, cacheDir: cacheDirectory()}
+	g := &gate{scope: scope, scopeNote: scopeNote, cacheDir: cacheDirectory(), tier: tier}
 	budget, err := currentBudget()
 	if err == nil {
 		g.limit, err = g.openLimiter(budget)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -80,6 +81,65 @@ var hermeticEnvironment = []string{"CGO_ENABLED=0"}
 // the "go" tool fingerprint or the test tool digest.
 var goRuntimeEnvironment = []string{"GODEBUG", "GOGC", "GOMEMLIMIT", "GOMAXPROCS", "GOTRACEBACK"}
 
+// The closure sweep (internal/closure, TestEveryPackageRecordsOnlyItsClosure)
+// builds a package's test binary, runs it with a test log and fails on a
+// read of the checkout outside the package's declared closure: the check
+// that the fast tier's package keys (replay.PackageKey) cover what each
+// package's tests read. sweepVariable selects what it sweeps: sweepAll, or
+// a comma list of package directories; which packages it skips, and why,
+// is internal/closure's (the gate names none).
+const (
+	sweepTest     = "TestEveryPackageRecordsOnlyItsClosure"
+	sweepPackage  = "./internal/closure"
+	sweepVariable = "ERGO_CLOSURE_SWEEP"
+	sweepAll      = "all"
+	// sweepTable is the file of the sweep and of the closure table.
+	sweepTable = "internal/closure/closure_test.go"
+)
+
+// sweepOS is the GOOS whose steps the gate declares: runtime.GOOS, which a
+// test sets to another to read that OS's steps (TestClosureSweepTier).
+var sweepOS = runtime.GOOS
+
+// sweepSupported says whether the closure sweep can run here. Its sandbox
+// needs Linux user and mount namespaces; on any other OS (macOS)
+// internal/closure reports the sweep unsupported and fails it. So the gate
+// declares the sweep steps of both tiers only on Linux, as it observes a
+// fast step's reads only there (observable).
+func sweepSupported() bool { return sweepOS == "linux" }
+
+// sweepStep runs the closure sweep over selection: sweepAll, or one
+// package directory.
+func sweepStep(selection string) *Step {
+	return &Step{
+		Name:    "closure sweep",
+		Argv:    []string{"go", "test", testTimeout, "-run", "^" + sweepTest + "$", sweepPackage},
+		Env:     []string{sweepVariable + "=" + selection},
+		ToolEnv: testTools,
+		Sweep:   selection,
+	}
+}
+
+// buildCLIStep builds the ergo CLI into bin/ergo, once per gate run.
+const buildCLIStep = "build bin/ergo"
+
+// cliTestPackages are the test packages whose tests run the ergo CLI. A
+// test process built cmd/ergo for itself, so a package in n shards built it
+// n times per run, each build racing the others after an edit of the
+// compiler (fast-cpu, batch 9). In every tier each step of these packages
+// needs buildCLIStep and names its output in cliTestEnvironment, so the
+// tests run the binary that this run built. The package's key covers what
+// the binary is built from: its closure table entry grants the cmd/ergo
+// program (internal/closure), and the toolchain is in every key. The tests
+// build the CLI themselves when the variable is unset (a bare go test), and
+// fail when the file it names is missing.
+var cliTestPackages = []string{"internal/sketch/lower"}
+
+// cliTestEnvironment names the gate's CLI to a cliTestPackages step: the
+// path is relative to the module root, so the value, a part of the step's
+// key, is the same on every run and in every checkout.
+var cliTestEnvironment = []string{"ERGO_TEST_CLI=bin/ergo"}
+
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
 var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "examples/go-interop", "tools/provenance"}
 
@@ -139,9 +199,16 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			continue
 		}
 		measured, ok := durations[pkg]
-		if !ok || !slices.Contains(slowPackages, "./"+relative) {
+		cli := slices.Contains(cliTestPackages, relative)
+		// A CLI package always gets steps of its own, which need the
+		// CLI's build (cliTestPackages); unmeasured, it runs in one.
+		if !cli && (!ok || !slices.Contains(slowPackages, "./"+relative)) {
 			unsharded = append(unsharded, pkg)
 			continue
+		}
+		needs, env := []string{"go test build"}, []string(nil)
+		if cli {
+			needs, env = append(needs, buildCLIStep), cliTestEnvironment
 		}
 		dir := filepath.Join(root, strings.TrimPrefix(pkg, modulePath(root)+"/"))
 		names, err := testNames(dir)
@@ -157,10 +224,19 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		selections := shardArgs(shard(names, measured, n))
 		for i, selection := range selections {
 			argv := append([]string{"go", "test", testTimeout}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: []string{"go test build"}, Argv: append(argv, pkg), ToolEnv: testTools})
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools})
 		}
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools})
+	// The full tier sweeps every package's closure on every run (gate-tier
+	// round 1 and plan G2: "always in the full tier"; owner question 3 of
+	// batch 9, on its default).
+	// Only where the sweep can run (sweepSupported).
+	if sweepSupported() {
+		sweep := sweepStep(sweepAll)
+		sweep.Needs = []string{"go test build"}
+		add(sweep)
+	}
 	// The one step that keeps Go's test cache (Step.Hermetic); every other
 	// step runs its go tests uncached.
 	if len(hermetic) > 0 {
@@ -180,14 +256,18 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// new revision. The gate's bin/ergo therefore declares no vcs.revision in
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
-	add(&Step{Name: "build bin/ergo", Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo")})
-	add(examplesStep())
+	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo")})
+	examplesRun, err := examplesStep(root)
+	if err != nil {
+		return nil, err
+	}
+	add(examplesRun)
 
 	examples, err := authoredExamples(root)
 	if err != nil {
 		return nil, err
 	}
-	add(&Step{Name: "ergo fmt --check", Needs: []string{"build bin/ergo"}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...)})
+	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...)})
 
 	return steps, nil
 }
@@ -280,20 +360,80 @@ func wayfinderSnapshotInputs() *Inputs {
 // and no step writes under it. It runs the bin/ergo its Need wrote, which
 // holds no VCS stamp and embeds the runtime that ergo build emits, so that
 // file's digest stands for the compiler. go builds the runner and, through
-// ergo, the programs; sh runs setup.sh and record.sh.
-func examplesStep() *Step {
+// ergo, the programs; sh runs setup.sh and record.sh. The runner's own Go
+// inputs are its closure as go list -deps lists it (examplesRunnerInputs):
+// a runner that links the checker (batch 9 D3) keys on the checker's
+// sources too, so a checker edit cannot replay a stale pass.
+func examplesStep(root string) (*Step, error) {
+	paths, exclude, err := examplesRunnerInputs(root)
+	if err != nil {
+		return nil, err
+	}
 	return &Step{
 		Name:  "examples (default)",
 		Needs: []string{"build bin/ergo"},
-		Argv:  []string{"go", "run", "./scripts/examples"},
+		Argv:  []string{"go", "run", examplesRunner},
 		Inputs: &Inputs{
-			Paths:     []string{"scripts/examples/", "go.mod"},
-			Exclude:   []string{"scripts/examples/*_test.go", "scripts/examples/testdata/"},
+			Paths:     append([]string{"scripts/examples/", "go.mod"}, paths...),
+			Exclude:   append([]string{"scripts/examples/*_test.go", "scripts/examples/testdata/"}, exclude...),
 			Tools:     []string{"go", "sh"},
 			Installed: []string{"examples"},
 			Built:     []string{"bin/ergo"},
 		},
+	}, nil
+}
+
+// examplesRunner is the package the examples step runs.
+const examplesRunner = "./scripts/examples"
+
+// examplesRunnerInputs are the Go files of the module that the examples
+// runner links besides its own directory: for each package of the module
+// in `go list -deps` of the runner, its non-test Go files and the files it
+// embeds, as Inputs patterns. A checkout with no runner directory (a test
+// fixture module) has nothing to list: the step's own paths key it, and the
+// step, if it runs there, fails.
+func examplesRunnerInputs(root string) (paths, exclude []string, err error) {
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(examplesRunner, "./")))); os.IsNotExist(err) {
+		return nil, nil, nil
 	}
+	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", examplesRunner)
+	command.Dir = root
+	command.Env = stepEnvironment()
+	output, err := runOutput(command)
+	if err != nil {
+		return nil, nil, fmt.Errorf("go list -deps %s: %w", examplesRunner, err)
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		fields := strings.Split(line, "\t")
+		if fields[0] == "" {
+			continue
+		}
+		dir := fields[0]
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = real
+		}
+		rel, err := filepath.Rel(resolved, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			// Outside the module: go.mod and the go fingerprint key it.
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == strings.TrimPrefix(examplesRunner, "./") {
+			continue
+		}
+		paths = append(paths, rel+"/*.go")
+		exclude = append(exclude, rel+"/*_test.go")
+		for _, embedded := range fields[1:] {
+			if embedded != "" {
+				paths = append(paths, rel+"/"+embedded)
+			}
+		}
+	}
+	return paths, exclude, nil
 }
 
 func goPackages(root string) ([]string, error) {

@@ -313,9 +313,13 @@ func fastSteps(root string) ([]*Step, error) {
 	for _, p := range packages {
 		relative := strings.TrimPrefix(p.importPath, module+"/")
 		// A hermetic package builds as its full-tier step builds it.
-		var env []string
+		var env, needs []string
 		if strings.HasPrefix(relative, hermeticTestRoot) && !slices.Contains(hostTestPackages, relative) {
 			env = hermeticEnvironment
+		}
+		// A package whose tests run the CLI runs the one this run built.
+		if slices.Contains(cliTestPackages, relative) {
+			env, needs = cliTestEnvironment, []string{buildCLIStep}
 		}
 		names, err := testNames(filepath.Join(root, filepath.FromSlash(p.dir)))
 		if err != nil {
@@ -340,7 +344,7 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 		selections := fastShardArgs(shard(fast, measured, n), large)
 		for i, selection := range selections {
-			step := &Step{Name: name, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
 			// A key from a declared list holds only while the input
 			// observer checks the reads (testPackages).
 			_, step.ObserveInputs = hostPackageInputs[p.dir]
@@ -351,8 +355,37 @@ func fastSteps(root string) ([]*Step, error) {
 			tests = append(tests, step)
 		}
 	}
+	// The closure sweep of each package, keyed so that it runs only when
+	// what decides its verdict in the fast tier changes (sweepClosure);
+	// only where the sweep can run (sweepSupported).
+	for _, p := range packages {
+		if sweepSupported() {
+			step := sweepStep(p.dir)
+			step.Name = "closure sweep ./" + p.dir + " (fast)"
+			step.Package, step.PackageProblem = sweepClosure(p.dir, problem), problem
+			tests = append(tests, step)
+		}
+	}
 	// The tests after the steps they need, in package order.
 	return append(steps, tests...), nil
+}
+
+// sweepClosure is the key of a package's fast-tier closure sweep: the
+// package's test files and the sweep's own package (internal/closure, the
+// table in sweepTable among it), with what every key holds. So the fast
+// tier sweeps every package after an edit of the table or of the sweep,
+// one package after an edit of its tests, which is where a new test input
+// comes from, and none after an edit of a non-test file: that keeps a
+// checker edit's fast set as it was (TestFastTierReachOfAnEdit). The full
+// tier sweeps every package on every run (declareSteps). A table the gate
+// cannot read keys the sweep on the whole checkout, as it keys every
+// package (testPackages).
+func sweepClosure(dir, problem string) *replay.Closure {
+	c := &replay.Closure{Dir: path.Dir(sweepTable), Declared: []replay.Allowance{{Path: dir + "/*_test.go", Grant: replay.GrantFiles}}}
+	if problem != "" {
+		c.Declared = []replay.Allowance{{Path: ".", Grant: replay.GrantSubtree}}
+	}
+	return c
 }
 
 // checkObservedInputs ends a passed step that ran under the input observer
@@ -465,12 +498,54 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		return err
 	}
 	module := modulePath(root)
+	// A step a package step needs (the CLI's build, cliTestPackages) runs
+	// once, before the package steps, and is not counted: the fast tier
+	// runs it once per run whichever packages run.
+	prepared := map[string]bool{}
+	prepare := func(need string) error {
+		if prepared[need] {
+			return nil
+		}
+		prepared[need] = true
+		i := slices.IndexFunc(steps, func(s *Step) bool { return s.Name == need })
+		if i < 0 {
+			return fmt.Errorf("no fast-tier step %q", need)
+		}
+		// The build is a go build, or the staged build's reviewed sh
+		// script (stagedBuild): name each as a declared host program.
+		var command *exec.Cmd
+		switch argv := steps[i].Argv; argv[0] {
+		case "go":
+			command = exec.Command("go", argv[1:]...)
+		case "sh":
+			command = exec.Command("sh", argv[1:]...)
+		default:
+			return fmt.Errorf("%s: not a go build or a reviewed script: %q", need, argv)
+		}
+		command.Env = append(stepEnvironment(), steps[i].Env...)
+		command.Dir = root
+		command.Stdout = io.Discard
+		command.Stderr = os.Stderr
+		used, err := runBudgeted(limit, need, command)
+		if used.verdict != "" {
+			return fmt.Errorf("%s: %s", need, used.verdict)
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", need, err)
+		}
+		return nil
+	}
 	for _, pkg := range packages {
 		dir := strings.TrimPrefix(path.Clean(pkg), "./")
 		cpu, ran := 0.0, 0
 		for _, step := range steps {
-			if step.Package == nil || step.Package.Dir != dir {
+			if step.Package == nil || step.Package.Dir != dir || step.Sweep != "" {
 				continue
+			}
+			for _, need := range step.Needs {
+				if err := prepare(need); err != nil {
+					return err
+				}
 			}
 			// Every package step is a go test (fastSteps).
 			if step.Argv[0] != "go" {
