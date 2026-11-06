@@ -14,6 +14,8 @@
 #                        a line "# TESTSIZE OUT ERR" writes OUT bytes to
 #                        stdout and ERR bytes to stderr and passes; passes
 #                        otherwise.
+# A SRC or FILE that is a folder is a package (196b): build reads its
+# main.ergo, and test reads every .ergo file in it.
 # A ticker is a background loop in the caller's process group that appends a
 # line every 50 ms and ends by itself 60 s after it started, so a runner that
 # failed to stop the group cannot leak it for long.
@@ -26,6 +28,10 @@ tick() {
 case "$1" in
 test)
   [ $# -eq 2 ] || { echo "fake ergo: want test FILE, got $*" >&2; exit 64; }
+  if [ -d "$2" ]; then
+    cat "$2"/*.ergo > "$tools/package.ergo" || exit 1
+    set -- "$1" "$tools/package.ergo"
+  fi
   if grep -q TESTPENDING "$2"; then echo "ergo test: not available yet; lowering adds it (#196)" >&2; exit 1; fi
   if grep -q TESTFAIL "$2"; then echo "FAIL Fixture: assert failed at main.ergo:1:1: false"; echo "FAIL (1 of 1 tests)"; exit 1; fi
   if grep -q TESTTICK "$2"; then tick "$tools/ticks-test"; echo "FAIL Fixture"; exit 1; fi
@@ -40,6 +46,7 @@ test)
   ;;
 build)
   [ $# -eq 4 ] && [ "$3" = "-o" ] || { echo "fake ergo: want build SRC -o OUT, got $*" >&2; exit 64; }
+  if [ -d "$2" ]; then set -- "$1" "$2/main.ergo" "$3" "$4"; fi
   if grep -q BUILDFAIL "$2"; then echo "fake ergo: build failed" >&2; exit 1; fi
   if grep -q BUILDTICK "$2"; then tick "$tools/ticks-build"; echo "fake ergo: build failed" >&2; exit 1; fi
   cp "$2" "$4" && chmod +x "$4" || exit 1
