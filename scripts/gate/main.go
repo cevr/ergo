@@ -72,6 +72,10 @@
 // "memory budget exceeded (<budget>)" and its output, and its result
 // is never recorded as passed. Each step's summary line reports its peak
 // memory. -record-durations runs its packages under the same budget.
+//
+// A gate told to stop (SIGINT, SIGTERM, SIGHUP) kills every step it
+// started, waits until each is empty, and exits; nothing it started
+// outlives it (stop.go).
 package main
 
 import (
@@ -275,6 +279,8 @@ func main() {
 	if *merge && *noCache {
 		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
 	}
+	// Before any process starts, so a stop finds every one (stop.go).
+	stopOnSignals()
 	scope, err := takeScope()
 	if err != nil {
 		fatal(err)
@@ -287,18 +293,30 @@ func main() {
 		fatal(err)
 	}
 	runtime.GOMAXPROCS(cpus)
-	root, err := repositoryRoot()
-	if err != nil {
-		fatal(err)
-	}
 	// File-mode assertions in the process tests expect the conventional
 	// creation mask; the gate fixes it rather than inheriting a caller's.
 	setCreationMask()
 	// The gate's own git commands run concurrently with steps, and git
 	// status otherwise takes the index lock to refresh stat data.
 	os.Setenv("GIT_OPTIONAL_LOCKS", "0")
+	if *list {
+		root, err := repositoryRoot()
+		if err != nil {
+			fatal(err)
+		}
+		steps, err := gateSteps(root)
+		if err != nil {
+			fatal(err)
+		}
+		for _, step := range steps {
+			fmt.Printf("%s: %s\n", step.Name, strings.Join(append(slices.Clone(step.Env), step.Argv...), " "))
+		}
+		return
+	}
 	probed := false
-	if !*list && scope == "" {
+	if scope == "" {
+		// Outside the scope: whatever the gate starts here stays outside
+		// it, in the caller's cgroup, when the gate re-executes in it.
 		budget, err := currentBudget()
 		if err != nil {
 			fatal(err)
@@ -307,45 +325,75 @@ func main() {
 		probed = command != ""
 		if !*noCache && !*merge && !*recordDurations {
 			// The replay path starts no step, so it needs no scope.
+			root, err := repositoryRoot()
+			if err != nil {
+				fatal(err)
+			}
 			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), os.Stdout); replayed {
-				os.Exit(code)
+				exitGate(code)
 			}
 		}
 		// Returns only when the gate cannot run in its own scope.
 		scopeNote = enterScope(command, reason, budget, cpus)
 	}
+	g, err := setUp(scope, scopeNote, !*recordDurations)
+	if err != nil {
+		fmt.Println("gate:", err)
+		exitGate(2)
+	}
 	if *recordDurations {
-		g := &gate{root: root, scope: scope, scopeNote: scopeNote}
 		if err := g.recordDurations(os.Stdout); err != nil {
 			fatal(err)
 		}
 		return
 	}
-	steps, err := gateSteps(root)
-	if err != nil {
-		fatal(err)
-	}
-	if *list {
-		for _, step := range steps {
-			fmt.Printf("%s: %s\n", step.Name, strings.Join(append(slices.Clone(step.Env), step.Argv...), " "))
-		}
-		return
-	}
 	// The first line binds the log to the checkout it checked. A dirty
 	// checkout still runs, and says so.
-	state, err := checkoutStateOf(root)
+	state, err := checkoutStateOf(g.root)
 	if err != nil {
 		fatal(err)
 	}
 	fmt.Println(state)
-	g := &gate{root: root, cacheDir: cacheDirectory(), noCache: *noCache, steps: steps, scope: scope, scopeNote: scopeNote}
+	g.noCache = *noCache
 	if g.cacheDir != "" {
 		g.whole = &wholeGate{mechanism: mechanismFact(scope, probed, scopeNote), identity: state}
 	}
 	if *merge {
-		os.Exit(g.mergeTier(os.Stdout))
+		exitGate(g.mergeTier(os.Stdout))
 	}
-	os.Exit(g.run(os.Stdout))
+	exitGate(g.run(os.Stdout))
+}
+
+// setUp opens the gate's limiter, then finds the checkout and, when
+// declare is set, declares the steps over its Go packages (-record-durations
+// runs no step of the graph). The limiter comes first: in the gate's systemd
+// scope it moves the gate to its leaf cgroup and enables the controllers
+// for the scope's children, which the kernel refuses (EBUSY) while any
+// process stays in the scope's own cgroup. Moving the gate does not move a
+// child it started before, and a joined command is no proof that its
+// descendants ended: go list starts Go's telemetry sidecar, which can
+// outlive it (gate-cpu round 5, discovery-sidecar.log), and git can start a
+// file system monitor daemon. So no process starts in the scope before the
+// limiter; every one after it is born in the gate's leaf.
+func setUp(scope, scopeNote string, declare bool) (*gate, error) {
+	g := &gate{scope: scope, scopeNote: scopeNote, cacheDir: cacheDirectory()}
+	budget, err := currentBudget()
+	if err == nil {
+		g.limit, err = g.openLimiter(budget)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if g.root, err = repositoryRoot(); err != nil {
+		return nil, err
+	}
+	if !declare {
+		return g, nil
+	}
+	if g.steps, err = gateSteps(g.root); err != nil {
+		return nil, err
+	}
+	return g, nil
 }
 
 // replayWholeGate replays the whole-gate record of the checkout's key, if
@@ -417,16 +465,32 @@ func (g *gate) mergeTier(out io.Writer) int {
 		open = startSandbox
 	}
 	plan, err := g.sandboxPlanFor(uncached)
+	// The sandbox's opening is tracked as a command is (stop.go): a stop
+	// that begins while the sandbox opens waits until its close is
+	// registered, and a stop already begun refuses to open it, so its
+	// holder and bwrap never start out of a stop's reach.
+	var opening *trackedStep
+	if err == nil {
+		opening, err = gateStop.track()
+	}
 	var box enclosure
 	if err == nil {
 		box, err = open(plan)
+		if err != nil {
+			opening.done()
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(out, "gate: --merge needs its sandbox and gives no verdict without it: %v\n", err)
 		return 2
 	}
+	// A stop of the gate (stop.go) closes the sandbox after its steps have
+	// stopped; whichever comes first closes it.
+	closeBox := once(box.close)
+	defer gateStop.atStop(closeBox)()
+	opening.done()
 	defer func() {
-		if err := box.close(); err != nil {
+		if err := closeBox(); err != nil {
 			fmt.Fprintf(out, "gate: the merge sandbox's run directory %s was not removed: %v\n", plan.Fresh, err)
 		}
 	}()
@@ -454,11 +518,11 @@ func (g *gate) mergeTier(out io.Writer) int {
 
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "gate:", err)
-	os.Exit(2)
+	exitGate(2)
 }
 
 func repositoryRoot() (string, error) {
-	executable, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	executable, err := runOutput(exec.Command("git", "rev-parse", "--show-toplevel"))
 	if err != nil {
 		return "", fmt.Errorf("locate repository root: %w", err)
 	}
@@ -491,7 +555,7 @@ func checkoutStateOf(root string) (checkoutState, error) {
 	git := func(args ...string) (string, error) {
 		command := exec.Command("git", args...)
 		command.Dir = root
-		output, err := command.Output()
+		output, err := runOutput(command)
 		if err != nil {
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 		}
@@ -1307,7 +1371,7 @@ func (g *gate) installed(dir string) string {
 func (g *gate) git(args ...string) ([]byte, error) {
 	command := exec.Command("git", args...)
 	command.Dir = g.root
-	output, err := command.Output()
+	output, err := runOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}

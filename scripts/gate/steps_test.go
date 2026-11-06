@@ -8,9 +8,8 @@ import (
 )
 
 // Each host package has one step that never replays (-count=1) and bounds
-// its parallel tests explicitly (-parallel hostTestParallel()): Go's default,
-// GOMAXPROCS, would start as many helper gates and systemd scopes at once as
-// the CPU budget, which may be the whole host.
+// its parallel tests explicitly (-parallel hostTestParallel()): at most
+// maxHostTestParallel and the CPU budget.
 func TestHostPackagesRunOnEveryGateWithBoundedParallelism(t *testing.T) {
 	t.Parallel()
 	parallel := hostTestParallel()

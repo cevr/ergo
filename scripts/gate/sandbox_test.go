@@ -684,9 +684,13 @@ func mergeOnce(t *testing.T, g *gate) (int, string) {
 // has a fixture of its own: it carries the gate's -count=1, so its inner
 // tier fails on the bad input first and the uncached run never starts.
 // The other rows share one fixture, one step each, so one cold build serves
-// them all.
+// them all. The gates run at a CPU budget of 2, so at most two steps build
+// at once; at the default budget (8 on this host) the eight steps started
+// together, each compiled the cold sandbox cache's packages again, and the
+// test peaked at 2.96 GB of anonymous memory (measured 2026-11-06).
 func TestMergeTierSandboxRegression(t *testing.T) {
 	requireSandbox(t)
+	t.Setenv(cpuVariable, "2")
 	rows := sandboxRows()
 	for _, group := range [][]sandboxRow{rows[:1], rows[1:]} {
 		t.Run(group[0].name, func(t *testing.T) {
