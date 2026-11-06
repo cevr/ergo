@@ -64,7 +64,11 @@ func (l *lowerer) isRuntimeType(t check.Type, site syntax.Node) bool {
 
 // stdBody is the runtime/v1 body of the std extern function f, or false
 // when f's Go body is not a runtime/v1 function or f is an intrinsic, whose
-// body the lowering writes (lowerer.intrinsic).
+// body the lowering writes (lowerer.intrinsic). A std extern that binds a
+// runtime/v1 body BodyOf cannot read (missing, or a pure mark the reviewed
+// rules refuse) is an internal compiler error with BodyOf's error: std and
+// runtime/v1 ship with the compiler, so no user program can cause it
+// (TestStdExternsHaveBodies holds every std extern to a body).
 func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
 	if fd.extern == "" || !fd.library || l.intrinsic(fd.fn) != nil {
 		return v1.Body{}, "", false
@@ -76,7 +80,7 @@ func (l *lowerer) stdBody(fd *funcDecl) (v1.Body, string, bool) {
 	name := fd.extern[i+1:]
 	body, err := v1.BodyOf(name)
 	if err != nil {
-		return v1.Body{}, "", false
+		ice(fd.fn.Decl, "the std function %s binds %s, which has no readable runtime/v1 body: %v", fd.fn.Name, fd.extern, err)
 	}
 	return body, name, true
 }
