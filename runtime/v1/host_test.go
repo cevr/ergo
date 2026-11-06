@@ -121,6 +121,23 @@ func TestFSBodies(t *testing.T) {
 	if info, err := FSStat(at("sub")); info.Name != "sub" || !info.Dir || err != nil {
 		t.Errorf("FSStat(sub) = %#v, %v", info, err)
 	}
+	// Stat follows symbolic links (os.Stat, not os.Lstat): a link to a
+	// file gives the target's size, a link to a directory is a directory,
+	// a dangling link is NotFound. Name is the link's own name.
+	for _, l := range []struct{ link, target string }{{"link-a", "a.md"}, {"link-sub", "sub"}, {"link-gone", "gone.md"}} {
+		if err := os.Symlink(l.target, at(l.link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if info, err := FSStat(at("link-a")); info != (Info{Name: "link-a", Size: 6, Dir: false}) || err != nil {
+		t.Errorf("FSStat(link-a) = %#v, %v; want the target's size 6", info, err)
+	}
+	if info, err := FSStat(at("link-sub")); info.Name != "link-sub" || !info.Dir || err != nil {
+		t.Errorf("FSStat(link-sub) = %#v, %v; want a directory", info, err)
+	}
+	if _, err := FSStat(at("link-gone")); err != (NotFound{Path: at("link-gone")}) {
+		t.Errorf("FSStat(link-gone) error = %#v; want NotFound", err)
+	}
 	missing := at("missing.md")
 	if _, err := FSReadFile(missing); err != (NotFound{Path: missing}) {
 		t.Errorf("FSReadFile(missing) error = %#v", err)
