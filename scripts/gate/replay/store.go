@@ -19,6 +19,7 @@ import (
 //
 //	<cache>/ergo-gate-v4/objects/<sha[:2]>/<sha>   a step's output, named by its SHA-256
 //	<cache>/ergo-gate-v4/whole/<key[:2]>/<key>.json the whole-gate record W(key)
+//	<cache>/ergo-gate-v4/packages/<key[:2]>/<key>.json a package record (Packages)
 //
 // Objects are written once: a temporary file linked into place. A record is
 // written last, by one atomic rename. Any process may delete or damage
@@ -28,6 +29,9 @@ import (
 type Store struct {
 	// Dir is <cache>/ergo-gate-v4.
 	Dir string
+	// records names the directory of the records: "whole" when empty, or
+	// "packages" (Packages).
+	records string
 }
 
 // Open is the store under the gate cache directory cache.
@@ -66,7 +70,11 @@ func (s Store) objectPath(sum string) string {
 
 // RecordPath is where W(key) lives.
 func (s Store) RecordPath(key string) string {
-	return filepath.Join(s.Dir, "whole", key[:2], key+".json")
+	records := s.records
+	if records == "" {
+		records = "whole"
+	}
+	return filepath.Join(s.Dir, records, key[:2], key+".json")
 }
 
 // validName reports whether name is a lowercase SHA-256 in hex, so a record
@@ -91,6 +99,15 @@ type Object struct {
 	hash  hash.Hash
 	size  int64
 	err   error
+	// committed holds commit's result once it has run: a package record
+	// and the whole-gate record can name one object.
+	committed *committedObject
+}
+
+type committedObject struct {
+	sum  string
+	size int64
+	err  error
 }
 
 // NewObject starts an object: a temporary file in the store's objects
@@ -131,7 +148,16 @@ func (o *Object) Abort() {
 // commit names the object by its SHA-256. An object of that name that
 // verifies is kept (write once); one that does not, damaged by a sweeper, is
 // replaced by a rename, which a reader that holds the old file never sees.
+// A second commit returns the first one's result.
 func (o *Object) commit() (sum string, size int64, err error) {
+	if o.committed == nil {
+		sum, size, err := o.commitOnce()
+		o.committed = &committedObject{sum, size, err}
+	}
+	return o.committed.sum, o.committed.size, o.committed.err
+}
+
+func (o *Object) commitOnce() (sum string, size int64, err error) {
 	temporary := o.file.Name()
 	defer os.Remove(temporary)
 	closeErr := o.file.Close()
