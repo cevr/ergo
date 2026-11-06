@@ -1,22 +1,24 @@
-// Package fs is the host file system, read only (docs/spec/stdlib.md, host
-// packages). Files is the capability; Host is the host's provider of it.
-// Host has an unexported field, so only this package builds one (S114),
-// and NewHost, its one constructor, needs the prelude's Ambient, which only
-// the entry provides. So code that makes a Host shows Ambient in its row:
-// main lists it and binds `context { fs.Files: fs.NewHost() }`. A test
-// cannot get Ambient and binds its own provider instead, such as a map of
-// paths to text. The externs are unexported, so a program reads the disk
-// only through a Host it was given or made under Ambient. No handle is
-// exposed, so no file stays open after a call returns.
+// Package fs is the host file system (docs/spec/stdlib.md, host packages).
+// Files reads it and Writes changes it: two capabilities, so code that
+// only reads shows only Files in its row, and Files has no writer. Host is
+// the host's provider of both. Host has an unexported field, so only this
+// package builds one (S114), and NewHost, its one constructor, needs the
+// prelude's Ambient, which only the entry provides. So code that makes a
+// Host shows Ambient in its row: main lists it and binds
+// `context { fs.Files: fs.NewHost() }`. A test cannot get Ambient and
+// binds its own provider instead, such as a map of paths to text. The
+// externs are unexported, so a program reads or writes the disk only
+// through a Host it was given or made under Ambient. No handle is exposed,
+// so no file stays open after a call returns.
 
 // NotFound is the failure of a path that does not exist.
 type NotFound { Path string }
 
-// Denied is the failure of a path the process may not read.
+// Denied is the failure of a path the process may not read or write.
 type Denied { Path string }
 
-// Failed is any other failure of a read at Path. Reason is the host's
-// text for it, without the path, such as "is a directory".
+// Failed is any other failure of an operation at Path. Reason is the
+// host's text for it, without the path, such as "is a directory".
 type Failed { Path string, Reason string }
 
 // Info describes the file at a path: its last element, its size in bytes,
@@ -38,16 +40,43 @@ type Files {
 	},
 }
 
-// Host is the host's Files provider. Its field gives this package the
-// construction authority (types.md, Zero values 6): no other package
-// writes fs.Host{}, its zero value or a record update of it.
+// Writes changes the file system. A path is the host's, as for Files. A
+// provider of Files and Writes over one store also keeps this contract,
+// which no single law can state yet (a member law sees only the
+// operations of its own type): after WriteFile(path, text) succeeds, and
+// with no other writer, ReadFile(path) is text.
+type Writes {
+	// WriteFile makes the file at path hold text: it writes a new file in
+	// the directory of path and renames it over path, so a reader sees the
+	// old text or the new text, never a part. A new file has mode
+	// 0666 less the umask; a file that was there keeps its mode.
+	WriteFile(path string, text string) fails NotFound | Denied | Failed,
+	// MkdirAll makes the directory path and each missing parent, with mode
+	// 0777 less the umask. A directory that is there already is no failure.
+	MkdirAll(path string) fails Denied | Failed,
+
+	// MkdirAllIsIdempotent: when MkdirAll(path) succeeds, a second
+	// MkdirAll(path) succeeds too.
+	law MkdirAllIsIdempotent(path string) {
+		MkdirAll(path) catch {
+		case Denied, Failed:
+			return true
+		}
+		try MkdirAll(path)
+		true
+	},
+}
+
+// Host is the host's Files and Writes provider. Its field gives this
+// package the construction authority (types.md, Zero values 6): no other
+// package writes fs.Host{}, its zero value or a record update of it.
 type Host { live hostOnly }
 
 // hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}
 
-// NewHost is the host's Files provider. It needs Ambient: only code whose
-// row holds the authority to choose the host makes one.
+// NewHost is the host's Files and Writes provider. It needs Ambient: only
+// code whose row holds the authority to choose the host makes one.
 func NewHost() Host needs Ambient { Host{live: hostOnly} }
 
 // ReadFile is the whole text of the file at path.
@@ -65,6 +94,19 @@ func Stat(_ Host, path string) Info fails NotFound | Denied | Failed {
 	try hostStat(path)
 }
 
+// WriteFile makes the file at path hold text, by a new file in its
+// directory renamed over it.
+func WriteFile(_ Host, path string, text string) fails NotFound | Denied | Failed {
+	try hostWriteFile(path, text)
+}
+
+// MkdirAll makes the directory path and each missing parent.
+func MkdirAll(_ Host, path string) fails Denied | Failed {
+	try hostMkdirAll(path)
+}
+
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSWriteFile func hostWriteFile(path string, text string) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSMkdirAll func hostMkdirAll(path string) fails Denied | Failed

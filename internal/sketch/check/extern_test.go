@@ -377,6 +377,20 @@ func main() {
 	use(Mine)
 }
 `,
+	// std fs writes (G4b): open, as fs.Files is.
+	"fs.Writes": `import fs
+
+type Mine {}
+
+func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
+
+func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
+
+func main() {
+	use(Mine)
+}
+`,
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
@@ -409,6 +423,7 @@ var openStd = map[string]bool{
 	"prelude.Random":    true,
 	"os.Process":        true,
 	"fs.Files":          true,
+	"fs.Writes":         true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

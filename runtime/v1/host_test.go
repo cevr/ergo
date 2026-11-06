@@ -165,6 +165,79 @@ func TestFSBodies(t *testing.T) {
 	}
 }
 
+// TestFSWriteFileStopsBeforeRename: a write that stops after the new file
+// is complete and before the rename, as a crash there would, leaves the
+// old file whole, removes the new file, and is Failed at the target path.
+// The new file is made in the directory of the target, so the rename does
+// not cross a device.
+func TestFSWriteFileStopsBeforeRename(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "x.md")
+	if err := os.WriteFile(target, []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	var seen string
+	beforeRename = func(tmp string) error {
+		seen = tmp
+		if data, err := os.ReadFile(tmp); string(data) != "new" || err != nil {
+			t.Errorf("the new file holds %q, %v before the rename; want %q", data, err, "new")
+		}
+		return errors.New("stopped")
+	}
+	t.Cleanup(func() { beforeRename = nil })
+	err := FSWriteFile(target, "new")
+	if err != (Failed{Path: target, Reason: "stopped"}) {
+		t.Errorf("FSWriteFile error = %#v; want Failed at the target", err)
+	}
+	if seen == "" {
+		t.Fatal("FSWriteFile did not reach the point before the rename")
+	}
+	if filepath.Dir(seen) != dir {
+		t.Errorf("the new file %s is not in the directory of the target %s", seen, dir)
+	}
+	if data, err := os.ReadFile(target); string(data) != "old" || err != nil {
+		t.Errorf("the target holds %q, %v; want the old text whole", data, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "x.md" {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("the directory holds %q; want only x.md", names)
+	}
+	beforeRename = nil
+	if err := FSWriteFile(target, "new"); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(target); string(data) != "new" || err != nil {
+		t.Errorf("after a write with no stop the target holds %q, %v", data, err)
+	}
+}
+
+// TestFSMkdirAllRow: MkdirAll's row is Denied | Failed, so a missing path
+// is Failed with the host's reason, never NotFound; a file in the way is
+// Failed too.
+func TestFSMkdirAllRow(t *testing.T) {
+	if err := FSMkdirAll(""); err != (Failed{Path: "", Reason: "no such file or directory"}) {
+		t.Errorf("FSMkdirAll(\"\") = %#v; want Failed", err)
+	}
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := FSMkdirAll(filepath.Join(file, "c")); err != (Failed{Path: filepath.Join(file, "c"), Reason: "not a directory"}) {
+		t.Errorf("FSMkdirAll(f/c) = %#v; want Failed not a directory", err)
+	}
+	if err := FSMkdirAll(filepath.Join(dir, "a", "b")); err != nil {
+		t.Errorf("FSMkdirAll(a/b) = %v", err)
+	}
+}
+
 // TestFSFailureText: each fs failure's text, which report writes for an
 // uncaught one, is its Ergo name and fields as the lowering writes a
 // record's.
