@@ -29,7 +29,9 @@ import ergo.local/prototype/runtime/v1
 # call it (E2b round 4 review M2). Each site parses a whole file and checks
 # it as a package; a parse elsewhere makes nodes of no checked file. prelude
 # parses inside its preludeOnce.Do closure, prelude$1.
-callee Parse CheckSource prelude$1 (*stdImporter).Import
+# stdExternResultSet (extern.go, #206) parses the std sources, checks
+# nothing and returns only type names, so no node it makes reaches a pass.
+callee Parse CheckSource prelude$1 (*stdImporter).Import stdExternResultSet
 
 # The checker's own functions that parse caller text, with the sites that
 # may reference them: none, so a pass cannot reach the parser through the

@@ -248,12 +248,17 @@ func SealedStd(n *Named) bool {
 	return stdExternResults()[n.Obj.Pkg.Path+"."+n.Obj.Name]
 }
 
-// stdExternResults is the set, as path.Name, of the std types the results
+// stdExternResults is stdExternResultSet, computed once per process.
+var stdExternResults = sync.OnceValue(stdExternResultSet)
+
+// stdExternResultSet is the set, as path.Name, of the std types the results
 // of std extern functions name, at any depth of the result and its fails
-// row (not its needs row), read once from the std sources with the parser.
-// An unqualified name is the declaring package's type when it declares
-// one, else the prelude's.
-var stdExternResults = sync.OnceValue(func() map[string]bool {
+// row (not its needs row), read from the std sources with the parser. An
+// unqualified name is the declaring package's type when it declares one,
+// else the prelude's. It is a named function, not a closure, so it is a
+// Parse site of its own in the provenance manifest; it returns only names,
+// so no node it parses leaves it.
+func stdExternResultSet() map[string]bool {
 	sources := map[string]map[string]string{std.PreludePath: std.Prelude()}
 	for _, path := range std.Packages() {
 		if files, ok := std.Package(path); ok {
@@ -323,7 +328,7 @@ var stdExternResults = sync.OnceValue(func() map[string]bool {
 		}
 	}
 	return set
-})
+}
 
 // sealedText is the S109 of a conversion into the sealed std protocol t.
 func sealedText(v, t Type) string {

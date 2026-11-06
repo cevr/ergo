@@ -9,7 +9,20 @@ package check
 // (*checker).closureInMethodAtSite as Parse sites, so each control fails on
 // its flow, not on its site.
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"sync"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
+
+// The batch-8 shape (g2, #206): a package variable computed once by a
+// function literal that parses. The literal is a closure of init, which
+// the manifest cannot list, so the parse is flagged; the checker's own
+// stdExternResultSet is a named function the manifest lists instead.
+var onceParsed = sync.OnceValue(func() *syntax.File { // want `init\$[0-9]+ makes a node outside the manifest and becomes a function value in init`
+	f, _ := syntax.Parse("type T int\n") // want `syntax callee Parse is called in init\$[0-9]+, which the manifest does not list for it`
+	return f
+})
 
 // The closureHook mutant (check.go patch): CheckSource sets snippetParse,
 // and a pass parses a snippet through it.
