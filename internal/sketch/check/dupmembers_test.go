@@ -186,38 +186,56 @@ func TestDuplicateMembersInDuplicateTypes(t *testing.T) {
 					}
 					want := duplicateKeys(f1, one)
 
-					// Two files, in both orders: the earlier file holds the
-					// kept T, whose members report as in one file; the later
-					// file holds the refused T; and the package-level
-					// duplicates are those of one file.
-					for _, order := range [][2]string{{d1 + extra, d2}, {d2, d1 + extra}} {
-						files := parseFiles(t, order[0], order[1])
-						_, two := Check("main", files, nil)
-						// Each file starts with its T; a top-level law's
-						// duplicate follows it.
-						decls := [2]string{d1, d2}
-						if order[0] == d2 {
-							decls = [2]string{d2, d1}
+					// Two files: Check orders a package's files by name
+					// (canon.go), so the file whose name sorts first holds
+					// the kept T, whose members report as in one file; the
+					// other holds the refused T; the package-level
+					// duplicates are those of one file; and the caller's
+					// order of the two files changes no diagnostic.
+					for _, named := range [][2]string{{d1 + extra, d2}, {d2, d1 + extra}} {
+						// named[0] is a.ergo, the kept file; each file
+						// starts with its T, and a top-level law's duplicate
+						// follows it.
+						decls := map[string]string{"a.ergo": d1, "b.ergo": d2}
+						if named[0] == d2 {
+							decls = map[string]string{"a.ergo": d2, "b.ergo": d1}
 						}
-						got := k.split(two, func(d Diagnostic) bool { return d.Offset < len(decls[d.File]) })
-						if len(got.types) != 1 || got.types[0].File != 1 || got.types[0].Offset != len("type ") {
-							t.Errorf("%s files %q: want one type duplicate at T in file 1, got %v", name, order, got.types)
-						}
-						if k.twice != "" {
-							want := k.later(decls[0])
-							if have := offsetsOf(got.members); !slices.Equal(have, want) {
-								t.Errorf("%s files %q: member duplicates at %v, want %v in file 0: %v", name, order, have, want, got.members)
+						var byOrder [2][]string
+						for o, callerOrder := range [2][2]int{{0, 1}, {1, 0}} {
+							files := parseFiles(t, named[callerOrder[0]], named[callerOrder[1]])
+							files[0].Name, files[1].Name = [2]string{"a.ergo", "b.ergo"}[callerOrder[0]], [2]string{"a.ergo", "b.ergo"}[callerOrder[1]]
+							label := fmt.Sprintf("%s files a=%q b=%q caller order %v", name, named[0], named[1], callerOrder)
+							_, two := Check("main", files, nil)
+							for _, d := range two {
+								byOrder[o] = append(byOrder[o], fmt.Sprintf("%s %s", files[d.File].Name, d))
 							}
-							for _, d := range got.members {
-								if d.File != 0 {
-									t.Errorf("%s files %q: a member duplicate outside the kept file: %v", name, order, d)
+							got := k.split(two, func(d Diagnostic) bool { return d.Offset < len(decls[files[d.File].Name]) })
+							if len(got.types) != 1 || files[got.types[0].File].Name != "b.ergo" || got.types[0].Offset != len("type ") {
+								t.Errorf("%s: want one type duplicate at T in b.ergo, got %v", label, got.types)
+							}
+							if k.twice != "" {
+								want := k.later(decls["a.ergo"])
+								if have := offsetsOf(got.members); !slices.Equal(have, want) {
+									t.Errorf("%s: member duplicates at %v, want %v in a.ergo: %v", label, have, want, got.members)
 								}
+								for _, d := range got.members {
+									if files[d.File].Name != "a.ergo" {
+										t.Errorf("%s: a member duplicate outside the kept file: %v", label, d)
+									}
+								}
+							} else if len(got.members) != packageLevel {
+								t.Errorf("%s: want %d package-level duplicates of %s, got %v", label, packageLevel, k.name, got.members)
 							}
-						} else if len(got.members) != packageLevel {
-							t.Errorf("%s files %q: want %d package-level duplicates of %s, got %v", name, order, packageLevel, k.name, got.members)
+							if have := duplicateKeys(files, two); !slices.Equal(have, want) {
+								t.Errorf("%s: duplicates %v, one file %v", label, have, want)
+							}
 						}
-						if have := duplicateKeys(files, two); !slices.Equal(have, want) {
-							t.Errorf("%s files %q: duplicates %v, one file %v", name, order, have, want)
+						// The list is in the caller's file order; compare
+						// the diagnostics, each with its file's name.
+						slices.Sort(byOrder[0])
+						slices.Sort(byOrder[1])
+						if !slices.Equal(byOrder[0], byOrder[1]) {
+							t.Errorf("%s files a=%q b=%q: the caller's file order changes the diagnostics:\n%v\n%v", name, named[0], named[1], byOrder[0], byOrder[1])
 						}
 					}
 				}
