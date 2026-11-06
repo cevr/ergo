@@ -227,48 +227,90 @@ func reachedPath(reach string) string {
 // replay nor be recorded: facts that cannot key a replay, or a stat-keyed
 // input changed within RecentWindow.
 func PackageKey(facts *Facts, c *Closure, identity ...string) (key, problem string) {
-	if problem := facts.Problem(); problem != "" {
+	parts, problem := packageKeyParts(facts, c, identity)
+	if problem != "" {
 		return "", problem
 	}
-	facts.sort()
-	selected := c.Select(facts.Entries)
 	h := sha256.New()
 	put(h, "package", Version)
-	for _, part := range identity {
-		put(h, "identity", part)
+	for _, input := range packageKeyInputs {
+		for _, part := range parts[input] {
+			put(h, append([]string{string(input)}, part...)...)
+		}
 	}
-	put(h, "executable", facts.Executable)
-	put(h, "root", facts.Root)
-	put(h, "closure", c.Dir)
+	return hex.EncodeToString(h.Sum(nil)), ""
+}
+
+// keyInput is one input class of the package key.
+type keyInput string
+
+const (
+	inputIdentity    keyInput = "identity"
+	inputExecutable  keyInput = "executable"
+	inputRoot        keyInput = "root"
+	inputClosure     keyInput = "closure"
+	inputDeclared    keyInput = "declared"
+	inputHead        keyInput = "head"
+	inputIndex       keyInput = "index"
+	inputEntry       keyInput = "entry"
+	inputEnvironment keyInput = "environment"
+	inputSetting     keyInput = "setting"
+	inputHost        keyInput = "host"
+)
+
+// packageKeyInputs are the input classes of the package key, in the order
+// it hashes them: the one list of them. PackageKey hashes nothing else but
+// its version, and the package key model has, for each class here, an
+// action that changes that class alone (TestPackageKeyModelChangesEachInputAlone).
+var packageKeyInputs = []keyInput{
+	inputIdentity, inputExecutable, inputRoot, inputClosure, inputDeclared, inputHead, inputIndex,
+	inputEntry, inputEnvironment, inputSetting, inputHost,
+}
+
+// packageKeyParts are the parts of a package's key by input class, or a
+// reason it has no key.
+func packageKeyParts(facts *Facts, c *Closure, identity []string) (map[keyInput][][]string, string) {
+	if problem := facts.Problem(); problem != "" {
+		return nil, problem
+	}
+	facts.sort()
+	parts := map[keyInput][][]string{}
+	add := func(input keyInput, part ...string) { parts[input] = append(parts[input], part) }
+	for _, part := range identity {
+		add(inputIdentity, part)
+	}
+	add(inputExecutable, facts.Executable)
+	add(inputRoot, facts.Root)
+	add(inputClosure, c.Dir)
 	for _, a := range c.Declared {
-		put(h, "declared", a.Path, string(a.Grant))
+		add(inputDeclared, a.Path, string(a.Grant))
 	}
 	if c.ReadsGit() {
-		put(h, "head", facts.Head)
+		add(inputHead, facts.Head)
 		for _, entry := range facts.Index {
-			put(h, "index", entry)
+			add(inputIndex, entry)
 		}
 	}
 	recent := map[string]bool{}
 	for _, p := range facts.Recent {
 		recent[p] = true
 	}
-	for _, e := range selected {
+	for _, e := range c.Select(facts.Entries) {
 		if recent[e.Path] {
-			return "", fmt.Sprintf("%s changed within %v of the key", e.Path, RecentWindow)
+			return nil, fmt.Sprintf("%s changed within %v of the key", e.Path, RecentWindow)
 		}
-		put(h, "entry", e.Path, string(e.Class), string(e.Kind), e.Value, e.Reach)
+		add(inputEntry, e.Path, string(e.Class), string(e.Kind), e.Value, e.Reach)
 	}
 	for _, v := range facts.Environment {
-		put(h, "environment", v.Name, strconv.FormatBool(v.Set), v.Value)
+		add(inputEnvironment, v.Name, strconv.FormatBool(v.Set), v.Value)
 	}
 	for _, v := range facts.Settings {
-		put(h, "setting", v.Name, strconv.FormatBool(v.Set), v.Value)
+		add(inputSetting, v.Name, strconv.FormatBool(v.Set), v.Value)
 	}
 	for _, fact := range facts.Host {
-		put(h, "host", fact.Name, fact.Value)
+		add(inputHost, fact.Name, fact.Value)
 	}
-	return hex.EncodeToString(h.Sum(nil)), ""
+	return parts, ""
 }
 
 // TierSetting is the setting that names the run's tier in every key.

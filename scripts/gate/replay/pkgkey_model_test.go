@@ -3,6 +3,10 @@ package replay
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"go/types"
 	"io/fs"
 	"math/rand/v2"
 	"os"
@@ -10,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,10 +33,12 @@ import (
 // embedded from a subdirectory, the package's testdata, the module lookups,
 // a file grant, a listing that gains a name, a glob, a subtree, a program
 // grant with its own closure); symbolic links created and retargeted to
-// covered, uncovered and missing places; HEAD and the index, for a package
-// that reads .git and for one that does not; the environment, the gate's
-// settings, the gate executable, the tools and the host facts; the step's
-// identity (its selection, with and without -short); an edit between a
+// covered, uncovered and missing places; HEAD alone, the index alone and
+// both, for a package that reads .git and for one that does not; the
+// environment, the gate's settings, the gate executable, the checkout
+// root, the tools and the host facts; a package's table entry (its
+// declarations, its directory); the step's identity (its selection, with
+// and without -short); an edit between a
 // step's start key and its end key; an ignored input changed within
 // RecentWindow.
 //
@@ -71,7 +78,9 @@ func TestPackageKeyModel(t *testing.T) {
 //     file, a listing and the program p, whose closure imports q;
 //   - b is a leaf;
 //   - c walks the examples and globs the spec;
-//   - g reads .git, so HEAD and the index are its inputs.
+//   - g reads .git, so HEAD and the index are its inputs;
+//   - n is a directory that holds nothing, so its table entry can move
+//     ("move package") with no change of what it reads.
 func modelPackages() []*Closure {
 	return []*Closure{
 		{Dir: "a", Deps: []string{"b", "x/y/z"}, Embeds: []string{"a/assets/e.txt", "a/assets/deep/f.txt"},
@@ -80,6 +89,7 @@ func modelPackages() []*Closure {
 		{Dir: "b"},
 		{Dir: "c", Declared: []Allowance{{"examples", GrantSubtree}, {"docs/spec/*.md", GrantFiles}}},
 		{Dir: "g", Declared: []Allowance{{".git", GrantSubtree}}},
+		{Dir: "n"},
 	}
 }
 
@@ -117,6 +127,11 @@ type packageWorld struct {
 	rng      *rand.Rand
 	root     string
 	packages []*Closure
+	// names are the packages' step names, by slot: a package's step keeps
+	// its name when its table entry moves.
+	names []string
+	// rootName is the checkout root the facts name.
+	rootName string
 	// store is a real store; the model's records are below.
 	store Store
 	tools map[string]string
@@ -141,8 +156,9 @@ func newPackageWorld(t *testing.T, seed uint64) *packageWorld {
 		store: Open(t.TempDir()), spool: t.TempDir(),
 		tools: map[string]string{"go": "go1", "git": "git1", "sh": "sh1"}, host: map[string]string{"kernel release": "6.1", "cpu budget": "4"},
 		env: "-p=4", setting: "cache0", exe: "gate0", index: []string{"100644 blob0 0\tg/g.go"},
-		passed: map[string]bool{}, identity: map[string]string{}, clock: time.Now()}
+		passed: map[string]bool{}, identity: map[string]string{}, clock: time.Now(), rootName: "/checkout0"}
 	for _, c := range w.packages {
+		w.names = append(w.names, c.Dir)
 		w.identity[c.Dir] = identities[0]
 	}
 	for _, p := range modelPaths {
@@ -205,9 +221,23 @@ func (w *packageWorld) files() []string {
 	return names
 }
 
-func (w *packageWorld) step() {
-	switch w.rng.IntN(22) {
-	case 0, 1, 2:
+// modelAction is one change or run of the generator. changes is the one
+// input class of the package key (packageKeyInputs) the action changes
+// alone, for some package; "" for a run, or for a change of several classes
+// at once.
+type modelAction struct {
+	name    string
+	changes keyInput
+	weight  int
+	do      func(w *packageWorld)
+}
+
+// modelActions are the generator's actions. Each input class of the key has
+// at least one action that changes it alone, so a key that drops the class
+// replays a stale pass in the model
+// (TestPackageKeyModelChangesEachInputAlone).
+var modelActions = []modelAction{
+	{"write", inputEntry, 3, func(w *packageWorld) {
 		name := modelPaths[w.rng.IntN(len(modelPaths))]
 		if w.rng.IntN(2) == 0 {
 			// One path of a class only one rule covers: what the link can
@@ -219,7 +249,8 @@ func (w *packageWorld) step() {
 			name = hot[w.rng.IntN(len(hot))]
 		}
 		w.note("write %s: %t", name, w.write(name))
-	case 3:
+	}},
+	{"delete", inputEntry, 1, func(w *packageWorld) {
 		if files := w.files(); len(files) > 0 {
 			name := files[w.rng.IntN(len(files))]
 			if err := os.Remove(w.full(name)); err != nil {
@@ -227,14 +258,16 @@ func (w *packageWorld) step() {
 			}
 			w.note("delete %s", name)
 		}
-	case 4:
+	}},
+	{"remove tree", inputEntry, 1, func(w *packageWorld) {
 		// A directory on the way to a dependency, or a tree, goes away.
 		dir := []string{"x", "x/y", "docs/list", "docs/tree", "a/assets", "q"}[w.rng.IntN(6)]
 		if err := os.RemoveAll(w.full(dir)); err != nil {
 			w.t.Fatal(err)
 		}
 		w.note("remove tree %s", dir)
-	case 5:
+	}},
+	{"chmod", inputEntry, 1, func(w *packageWorld) {
 		if files := w.files(); len(files) > 0 {
 			name := files[w.rng.IntN(len(files))]
 			// The owner's executable bit is keyed, group write is not.
@@ -248,51 +281,244 @@ func (w *packageWorld) step() {
 			}
 			w.note("chmod %s ^%o", name, bit)
 		}
-	case 6, 21:
-		w.link()
-	case 7:
+	}},
+	{"link", inputEntry, 2, func(w *packageWorld) { w.link() }},
+	{"write ignored", inputEntry, 1, func(w *packageWorld) {
+		w.write(ignoredPath)
+		w.note("write %s (ignored)", ignoredPath)
+	}},
+	{"tool", inputHost, 1, func(w *packageWorld) {
 		tool := []string{"go", "git", "sh"}[w.rng.IntN(3)]
 		w.tools[tool] = fmt.Sprintf("%s%d", tool, w.rng.IntN(3))
 		w.note("tool %s = %s", tool, w.tools[tool])
-	case 8:
+	}},
+	{"host fact", inputHost, 1, func(w *packageWorld) {
 		fact := []string{"kernel release", "cpu budget"}[w.rng.IntN(2)]
 		w.host[fact] = fmt.Sprint(w.rng.IntN(3))
 		w.note("host %s = %s", fact, w.host[fact])
-	case 9:
-		switch w.rng.IntN(5) {
-		case 4:
-			// A package's step gets another selection.
-			dir := w.packages[w.rng.IntN(len(w.packages))].Dir
-			w.identity[dir] = identities[w.rng.IntN(len(identities))]
-			w.note("identity %s = [%s]", dir, w.identity[dir])
-		case 0:
-			w.env = fmt.Sprintf("-p=%d", w.rng.IntN(3))
-			w.note("environment GOFLAGS = %s", w.env)
-		case 1:
-			w.setting = fmt.Sprintf("cache%d", w.rng.IntN(3))
-			w.note("setting = %s", w.setting)
-		case 2:
-			w.exe = fmt.Sprintf("gate%d", w.rng.IntN(3))
-			w.note("executable = %s", w.exe)
-		case 3:
-			// A commit: HEAD moves, and the index may change.
-			w.head++
-			if w.rng.IntN(2) == 0 {
-				w.index = []string{fmt.Sprintf("100644 blob%d 0\tg/g.go", w.rng.IntN(3))}
-			}
-			w.note("commit: head %d, index %v", w.head, w.index)
+	}},
+	{"identity", inputIdentity, 1, func(w *packageWorld) {
+		// A package's step gets another selection.
+		name := w.names[w.rng.IntN(len(w.names))]
+		w.identity[name] = identities[w.rng.IntN(len(identities))]
+		w.note("identity %s = [%s]", name, w.identity[name])
+	}},
+	{"environment", inputEnvironment, 1, func(w *packageWorld) {
+		w.env = fmt.Sprintf("-p=%d", w.rng.IntN(3))
+		w.note("environment GOFLAGS = %s", w.env)
+	}},
+	{"setting", inputSetting, 1, func(w *packageWorld) {
+		w.setting = fmt.Sprintf("cache%d", w.rng.IntN(3))
+		w.note("setting = %s", w.setting)
+	}},
+	{"executable", inputExecutable, 1, func(w *packageWorld) {
+		w.exe = fmt.Sprintf("gate%d", w.rng.IntN(3))
+		w.note("executable = %s", w.exe)
+	}},
+	{"root", inputRoot, 1, func(w *packageWorld) {
+		// The same tree at another checkout path.
+		w.rootName = fmt.Sprintf("/checkout%d", w.rng.IntN(3))
+		w.note("root = %s", w.rootName)
+	}},
+	{"commit", "", 1, func(w *packageWorld) {
+		// A commit of a staged change: HEAD moves and the index changes.
+		w.head++
+		w.stage()
+		w.note("commit: head %d, index %v", w.head, w.index)
+	}},
+	{"move HEAD", inputHead, 1, func(w *packageWorld) {
+		// An empty commit, or a checkout of another commit of the same
+		// tree: HEAD moves, the index stays.
+		w.head++
+		w.note("HEAD moves to %d, index stays", w.head)
+	}},
+	{"stage", inputIndex, 1, func(w *packageWorld) {
+		// git add or git rm --cached: the index changes, HEAD stays.
+		w.stage()
+		w.note("stage: index %v, head stays %d", w.index, w.head)
+	}},
+	{"declare", inputDeclared, 1, func(w *packageWorld) {
+		// b's table entry gains or loses an input that names no file.
+		b := w.packages[slices.Index(w.names, "b")]
+		extra := Allowance{"docs/absent.md", GrantFile}
+		if i := slices.Index(b.Declared, extra); i >= 0 {
+			b.Declared = slices.Delete(slices.Clone(b.Declared), i, i+1)
+		} else {
+			b.Declared = append(slices.Clone(b.Declared), extra)
 		}
-	case 10:
-		w.write(ignoredPath)
-		w.note("write %s (ignored)", ignoredPath)
-	case 11:
-		w.recentRun()
-	case 12, 13, 14, 18, 19, 20:
-		w.fastRun()
-	case 15, 16:
-		w.fullRun()
-	case 17:
-		w.mergeRun()
+		w.note("b declares %v", b.Declared)
+	}},
+	{"move package", inputClosure, 1, func(w *packageWorld) {
+		// n's table entry names another directory, which holds what n
+		// held (nothing); its step keeps its name.
+		i := slices.Index(w.names, "n")
+		dir := map[string]string{"n": "n2", "n2": "n"}[w.packages[i].Dir]
+		w.packages[i] = &Closure{Dir: dir}
+		w.note("n moves to %s", dir)
+	}},
+	{"recent run", "", 1, func(w *packageWorld) { w.recentRun() }},
+	{"fast run", "", 6, func(w *packageWorld) { w.fastRun() }},
+	{"full run", "", 2, func(w *packageWorld) { w.fullRun() }},
+	{"merge run", "", 1, func(w *packageWorld) { w.mergeRun() }},
+}
+
+func (w *packageWorld) step() {
+	total := 0
+	for _, a := range modelActions {
+		total += a.weight
+	}
+	pick := w.rng.IntN(total)
+	for _, a := range modelActions {
+		if pick < a.weight {
+			a.do(w)
+			return
+		}
+		pick -= a.weight
+	}
+}
+
+// stage changes the index: a new blob staged for a tracked file, a file
+// added, or an entry removed.
+func (w *packageWorld) stage() {
+	w.version++
+	switch w.rng.IntN(3) {
+	case 0:
+		w.index = append(slices.DeleteFunc(slices.Clone(w.index), func(e string) bool { return strings.HasSuffix(e, "\tg/g.go") }),
+			fmt.Sprintf("100644 blob%d 0\tg/g.go", w.version))
+	case 1:
+		w.index = append(slices.Clone(w.index), fmt.Sprintf("100644 blob%d 0\tg/new%d.go", w.version, w.version))
+	case 2:
+		if len(w.index) > 0 {
+			w.index = slices.Clone(w.index[1:])
+		} else {
+			w.index = []string{fmt.Sprintf("100644 blob%d 0\tg/g.go", w.version)}
+		}
+	}
+	slices.Sort(w.index)
+}
+
+// keyParts are each package's key parts by input class, at the world's
+// facts, printed.
+func (w *packageWorld) keyParts() []map[keyInput]string {
+	facts := w.facts("fast")
+	var all []map[keyInput]string
+	for i, c := range w.packages {
+		parts, problem := packageKeyParts(facts, c, []string{w.stepName(i), w.identity[w.names[i]]})
+		if problem != "" {
+			w.t.Fatalf("%s: %s", w.stepName(i), problem)
+		}
+		printed := map[keyInput]string{}
+		for input, part := range parts {
+			printed[input] = fmt.Sprint(part)
+		}
+		all = append(all, printed)
+	}
+	return all
+}
+
+// TestPackageKeyModelChangesEachInputAlone requires that each action of the
+// generator that names an input class changes that class, and no other, of
+// some package's key, and that every input class of the key has such an
+// action. A key input added without a model action, or an action dropped,
+// fails here.
+func TestPackageKeyModelChangesEachInputAlone(t *testing.T) {
+	alone := map[keyInput][]string{}
+	for i, action := range modelActions {
+		if action.changes == "" {
+			continue
+		}
+		w := newPackageWorld(t, uint64(i))
+		found := false
+		var seen []string
+		for try := 0; try < 200 && !found; try++ {
+			before := w.keyParts()
+			action.do(w)
+			after := w.keyParts()
+			for p := range after {
+				var changed []string
+				for _, input := range packageKeyInputs {
+					if before[p][input] != after[p][input] {
+						changed = append(changed, string(input))
+					}
+				}
+				if len(changed) == 1 && changed[0] == string(action.changes) {
+					found = true
+				} else if len(changed) > 0 {
+					seen = append(seen, fmt.Sprintf("%s: %v", w.stepName(p), changed))
+				}
+			}
+		}
+		if !found {
+			t.Errorf("action %q never changes the key input %q alone (it changed %v)", action.name, action.changes, seen)
+			continue
+		}
+		alone[action.changes] = append(alone[action.changes], action.name)
+	}
+	for _, input := range packageKeyInputs {
+		if len(alone[input]) == 0 {
+			t.Errorf("the package key's input %q has no generator action that changes it alone", input)
+		}
+	}
+}
+
+// TestPackageKeyInputsAreTheOneList requires that the package key hashes
+// only its version and the classes of packageKeyInputs: every keyInput
+// constant is in the list, every part packageKeyParts adds names one, and
+// PackageKey's two calls of put are the only ones in pkgkey.go.
+func TestPackageKeyInputsAreTheOneList(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "pkgkey.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]bool{}
+	for _, input := range packageKeyInputs {
+		listed[string(input)] = true
+	}
+	constants := map[string]bool{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value := spec.(*ast.ValueSpec)
+			if typ, ok := value.Type.(*ast.Ident); !ok || typ.Name != "keyInput" {
+				continue
+			}
+			for i, name := range value.Names {
+				literal, _ := strconv.Unquote(value.Values[i].(*ast.BasicLit).Value)
+				constants[name.Name] = true
+				if !listed[literal] {
+					t.Errorf("the key input %s (%q) is not in packageKeyInputs", name.Name, literal)
+				}
+			}
+		}
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		puts := 0
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch callee, _ := call.Fun.(*ast.Ident); {
+			case callee == nil:
+			case callee.Name == "put":
+				puts++
+			case callee.Name == "add" && fn.Name.Name == "packageKeyParts":
+				if arg, ok := call.Args[0].(*ast.Ident); !ok || !constants[arg.Name] {
+					t.Errorf("packageKeyParts adds a part under %s, not a keyInput constant", types.ExprString(call.Args[0]))
+				}
+			}
+			return true
+		})
+		if want := map[bool]int{true: 2, false: 0}[fn.Name.Name == "PackageKey"]; puts != want {
+			t.Errorf("%s calls put %d times, want %d: the key hashes its inputs only through packageKeyInputs", fn.Name.Name, puts, want)
+		}
 	}
 }
 
@@ -334,7 +560,7 @@ func (w *packageWorld) collect(tier string, now time.Time) *Facts {
 	if len(unreplayable) > 0 {
 		w.t.Fatalf("unreplayable %v", unreplayable)
 	}
-	f := &Facts{Executable: w.exe, Root: w.root, Head: fmt.Sprint(w.head), Index: slices.Clone(w.index), Entries: entries,
+	f := &Facts{Executable: w.exe, Root: w.rootName, Head: fmt.Sprint(w.head), Index: slices.Clone(w.index), Entries: entries,
 		Environment: []Variable{{Name: "GOFLAGS", Set: true, Value: w.env}},
 		Settings:    []Variable{{Name: "ERGO_GATE_CACHE", Set: true, Value: w.setting}},
 		Recent:      recent}
@@ -466,11 +692,14 @@ func (w *packageWorld) describe(b *strings.Builder, rel string, follow bool) {
 	}
 }
 
-// refInputs is the model's statement of a package's inputs: each path its
-// closure covers, described, HEAD and the index when it reads .git, and
-// every fact that is not a path.
+// refInputs is the model's statement of a package's inputs: its table
+// entry, each path its closure covers, described, HEAD and the index when
+// it reads .git, and every fact that is not a path.
 func (w *packageWorld) refInputs(c *Closure) string {
 	var b strings.Builder
+	if c != nil {
+		fmt.Fprintf(&b, "package %s declares %v\n", c.Dir, c.Declared)
+	}
 	_ = filepath.WalkDir(w.root, func(name string, entry fs.DirEntry, err error) error {
 		if err != nil || name == w.root {
 			return err
@@ -485,8 +714,11 @@ func (w *packageWorld) refInputs(c *Closure) string {
 	if c == nil || refReadsGit(c) {
 		fmt.Fprintf(&b, "head %d index %v\n", w.head, w.index)
 	}
-	return b.String() + fmt.Sprint(w.tools, w.host, w.env, w.setting, w.exe)
+	return b.String() + fmt.Sprint(w.tools, w.host, w.env, w.setting, w.exe, w.rootName)
 }
+
+// stepName is the name of the fast step of the package in slot i.
+func (w *packageWorld) stepName(i int) string { return "go test ./" + w.names[i] + " (fast)" }
 
 // refWhole is the model's statement of the whole run's inputs: everything.
 func (w *packageWorld) refWhole() string { return w.refInputs(nil) }
@@ -504,14 +736,14 @@ func (w *packageWorld) fastRun() {
 	facts := w.facts("fast")
 	packages := w.store.Packages()
 	allPassed := true
-	for _, c := range w.packages {
-		identity := w.identity[c.Dir]
-		name := "go test ./" + c.Dir + " (fast)"
+	for i, c := range w.packages {
+		identity := w.identity[w.names[i]]
+		name := w.stepName(i)
 		key, problem := PackageKey(facts, c, name, identity)
 		if problem != "" {
 			w.t.Fatalf("%s: %s", name, problem)
 		}
-		ref := "fast " + c.Dir + " " + identity + " " + w.refInputs(c)
+		ref := "fast " + name + " " + identity + " " + w.refInputs(c)
 		replayed := w.lookup(key)
 		w.note("fast %s [%s]: replayed %t, model %t", c.Dir, identity, replayed, w.passed[ref])
 		if replayed != w.passed[ref] {
@@ -591,8 +823,8 @@ func (w *packageWorld) recentRun() {
 	if !slices.Contains(facts.Recent, ignoredPath) {
 		w.t.Fatalf("Walk does not name %s, written now, as recent: %v", ignoredPath, facts.Recent)
 	}
-	for _, c := range w.packages {
-		_, problem := PackageKey(facts, c, "go test ./"+c.Dir+" (fast)", identities[0])
+	for i, c := range w.packages {
+		_, problem := PackageKey(facts, c, w.stepName(i), identities[0])
 		covered := refCovers(c, ignoredPath)
 		w.note("recent %s: covered %t, problem %q", c.Dir, covered, problem)
 		if covered != (problem != "") {
