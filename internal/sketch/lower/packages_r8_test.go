@@ -206,7 +206,13 @@ func (d *checkerDump) val(v reflect.Value) string {
 		return "rowvar(" + x.String() + " fn=" + d.ref(reflect.ValueOf(x.Fn)) + fmt.Sprintf(" kind=%v", x.Kind) + " sol=" + d.val(reflect.ValueOf(x.Solution())) + ")"
 	case *check.Named:
 		d.named[v.Pointer()] = x
-		return "named(" + x.String() + " obj=" + d.ref(reflect.ValueOf(x.Obj)) + " targs=" + d.val(reflect.ValueOf(x.TArgs)) + ")"
+		// Every exported field of Named: Obj, Orig, TArgs, TParams. Orig is
+		// rendered as this shallow form too, so a recursive type ends.
+		orig := "nil"
+		if x.Orig != nil && x.Orig != x {
+			orig = d.val(reflect.ValueOf(x.Orig))
+		}
+		return "named(" + x.String() + " obj=" + d.ref(reflect.ValueOf(x.Obj)) + " orig=" + orig + " targs=" + d.val(reflect.ValueOf(x.TArgs)) + " tparams=" + d.val(reflect.ValueOf(x.TParams)) + ")"
 	}
 	if t.Implements(objectType) {
 		return d.ref(v)
@@ -234,6 +240,7 @@ func checkListed(t *testing.T, path string, srcs []pkgSource, imp pkgImporter) (
 		if err != nil {
 			t.Fatalf("%s: %v\n%s", s.path, err, s.text)
 		}
+		f.Name = s.path
 		u.Files = append(u.Files, f)
 		u.Sources = append(u.Sources, Source{Path: s.path, Text: s.text})
 	}
@@ -396,6 +403,24 @@ func canonCases() []canonCase {
 			{"/tie/b.ergo", "func Get(q Q1) int { 1 }\ntype Q1 {}\ntype E1 { N int }\nfunc fail1() int fails E1 { E1{N: 1} }\n"},
 			{"/tie/main.ergo", "func each() int fails E0 | E1 {\n\tlet _ = try fail1()\n\tlet _ = try fail0()\n\t0\n}\nfunc rest() int { each() catch { case err: keep(err) } }\nfunc keep[T](v T) int { 1 }\nfunc main() { let _ = rest() }\n"},
 		}, false, false, ""},
+		// Round 9: files of equal text under distinct names. Only the name
+		// tells them apart; the duplicate is in the later name.
+		{"equal text duplicate", []pkgSource{
+			{"/equal/a.ergo", "type A {}\n"},
+			{"/equal/b.ergo", "type A {}\n"},
+			{"/equal/main.ergo", "func main() {}\n"},
+		}, true, false, ""},
+		{"equal text errors", []pkgSource{
+			{"/equal/a.ergo", "func f() int { missing }\n"},
+			{"/equal/b.ergo", "func f() int { missing }\n"},
+			{"/equal/c.ergo", "func f() int { missing }\n"},
+			{"/equal/main.ergo", "func main() {}\n"},
+		}, true, false, ""},
+		{"equal text valid", []pkgSource{
+			{"/equal/a.ergo", "// shared\n"},
+			{"/equal/b.ergo", "// shared\n"},
+			{"/equal/main.ergo", "type A { N int }\nfunc main() needs Console { Console.Println(\"\\(A{N: 1}.N)\") }\n"},
+		}, false, false, "1\n"},
 	}
 	for seed := int64(0); seed < 3; seed++ {
 		cases = append(cases,
@@ -469,7 +494,8 @@ func TestCheckIsCanonical(t *testing.T) {
 // the other and fails with a defect of its own. The program reports the
 // defect of the let that runs first and stops, so the order is
 // observable; it is the same for both listings, the one of the file whose
-// canonical key (its text) sorts first.
+// name sorts first. A let can also observe another through shared closure
+// state, with no defect (the counter case below).
 func TestInitOrderIsCanonical(t *testing.T) {
 	files := []pkgSource{
 		{"/init/a.ergo", "let xs1 = []int{1}\nlet A1 = xs1[5]\n"},
@@ -494,10 +520,67 @@ func TestInitOrderIsCanonical(t *testing.T) {
 		reports = append(reports, stderr)
 	}
 	if !strings.Contains(reports[0], "index out of range [5] with length 1") {
-		t.Fatalf("want the defect of a.ergo's let, whose text sorts first; got:\n%s", reports[0])
+		t.Fatalf("want the defect of a.ergo's let, whose name sorts first; got:\n%s", reports[0])
 	}
 	if reports[0] != reports[1] {
 		t.Fatalf("the listing changes which let runs first:\n%s\nversus\n%s", reports[0], reports[1])
+	}
+	// The round 8 verify's fixture: no defect, but both lets call one
+	// counter closure, so each sees whether the other ran first. a.ergo's
+	// let runs first (name order) in both listings.
+	state := []pkgSource{
+		{"/state/counter.ergo", "func counter() func() int { let mut n = 0; func() int { n += 1; n } }\nlet C = counter()\n"},
+		{"/state/a.ergo", "let A = C()\n"},
+		{"/state/b.ergo", "let B = C()\n"},
+		{"/state/main.ergo", "func main() needs Console { Console.Println(\"\\(A) \\(B)\") }\n"},
+	}
+	for _, order := range [][]int{{0, 1, 2, 3}, {0, 2, 1, 3}, {3, 2, 1, 0}} {
+		var listed []pkgSource
+		for _, k := range order {
+			listed = append(listed, state[k])
+		}
+		p := mustLowerUnit(t, "state", checkPackage(t, "main", listed, nil), false)
+		buildAndRun(t, []*lowered{p}, map[string]string{"state": "1 2\n"})
+	}
+}
+
+// TestDumpCoversNamedFields: the dump renders every exported field of a
+// named type. Clearing an origin's TParams, or an instance's Orig, in a
+// checked result changes its dump (round 8 verify, test-strength note).
+func TestDumpCoversNamedFields(t *testing.T) {
+	u, ds := checkListed(t, "main", []pkgSource{{"/dump/main.ergo", "type Box[T comparable] { V T }\nfunc main() { let b = Box[int]{V: 1}; let _ = b.V }\n"}}, nil)
+	if len(ds) > 0 {
+		t.Fatal(ds)
+	}
+	base := dumpUnit(u, ds)
+	var origin, instance *check.Named
+	for _, tn := range u.Package.Types {
+		if n, ok := tn.Type.(*check.Named); ok && tn.Name == "Box" {
+			origin = n
+		}
+	}
+	for _, ty := range u.Package.Info.Types {
+		if n, ok := ty.(*check.Named); ok && n.Orig != nil && n.Orig != n {
+			instance = n
+		}
+	}
+	if origin == nil || len(origin.TParams) == 0 || instance == nil {
+		t.Fatalf("no generic origin with type parameters (%v) or no instance (%v)", origin, instance)
+	}
+	tparams := origin.TParams
+	origin.TParams = nil
+	if dumpUnit(u, ds) == base {
+		t.Error("the dump does not see an origin's TParams")
+	}
+	origin.TParams = tparams
+	orig := instance.Orig
+	instance.Orig = nil
+	if dumpUnit(u, ds) == base {
+		t.Error("the dump does not see an instance's Orig")
+	}
+	instance.Orig = orig
+	if dumpUnit(u, ds) != base {
+		t.Fatal("restoring the fields does not restore the dump")
 	}
 }
 
@@ -533,4 +616,84 @@ func TestVerifyR7Probes(t *testing.T) {
 			files = append([]pkgSource{files[1], files[0]}, files[2:]...)
 		}
 	}
+}
+
+// pathDiags is each diagnostic of a fresh check of files as listed, by the
+// path of the file it names, sorted; and the paths the checker imported,
+// in order.
+func pathDiags(t *testing.T, files []pkgSource, order []int) (diags, imports []string) {
+	t.Helper()
+	var listed []pkgSource
+	for _, k := range order {
+		listed = append(listed, files[k])
+	}
+	u, _ := checkListed(t, "main", listed, nil)
+	imp := &tracingImporter{}
+	_, ds := check.Check("main", u.Files, imp)
+	for _, d := range ds {
+		diags = append(diags, fmt.Sprintf("%s %s", u.Sources[d.File].Path, d))
+	}
+	sort.Strings(diags)
+	return diags, imp.calls
+}
+
+// tracingImporter serves std and records each import path asked for.
+type tracingImporter struct{ calls []string }
+
+func (i *tracingImporter) Import(path string) (*check.Package, error) {
+	i.calls = append(i.calls, path)
+	return check.Std.Import(path)
+}
+
+// The round 8 verify's probes, as regressions: for every listing of files
+// of equal text under distinct names, of files with errors in several of
+// them, of files that tie on their import-stripped text and of files that
+// differ only in comments, the diagnostics name the same files by path,
+// and the checker imports the same paths in the same order.
+func TestVerifyR8EqualTextIdentity(t *testing.T) {
+	for k, files := range [][]pkgSource{
+		{{"/equal/a.ergo", "type A {}\n"}, {"/equal/b.ergo", "type A {}\n"}, {"/equal/main.ergo", "func main() {}\n"}},
+		{{"/cycle/a.ergo", "let A = B\n"}, {"/cycle/b.ergo", "let B = A\n"}, {"/cycle/main.ergo", "func main() {}\n"}},
+		{{"/bad/a.ergo", "func a() int { missing }\n"}, {"/bad/b.ergo", "func b() string { 7 }\n"}, {"/bad/main.ergo", "func main() {}\n"}},
+		{{"/ties/a.ergo", "import log\nimport trace\ntype A {}\n"}, {"/ties/b.ergo", "import trace\nimport log\ntype A {}\n"}, {"/ties/main.ergo", "func main() {}\n"}},
+		{{"/comments/a.ergo", "// alpha\ntype A {}\n"}, {"/comments/b.ergo", "// beta\ntype A {}\n"}, {"/comments/main.ergo", "func main() {}\n"}},
+	} {
+		var want, wantCalls []string
+		for i, order := range permutations(len(files)) {
+			got, calls := pathDiags(t, files, order)
+			if len(got) == 0 {
+				t.Fatalf("case %d: expected diagnostics", k)
+			}
+			if i == 0 {
+				want, wantCalls = got, calls
+			} else if !reflect.DeepEqual(want, got) || !reflect.DeepEqual(wantCalls, calls) {
+				t.Fatalf("case %d, listing %v: %v imports %v; want %v imports %v", k, order, got, calls, want, wantCalls)
+			}
+		}
+	}
+	// The duplicate is in the later name, as in Go.
+	got, _ := pathDiags(t, []pkgSource{{"/equal/a.ergo", "type A {}\n"}, {"/equal/b.ergo", "type A {}\n"}, {"/equal/main.ergo", "func main() {}\n"}}, []int{1, 0, 2})
+	if len(got) != 1 || !strings.HasPrefix(got[0], "/equal/b.ergo ") {
+		t.Fatalf("want the duplicate in b.ergo, got %v", got)
+	}
+}
+
+// TestCheckRefusesTwoFilesOfOneName: two files with the same non-empty
+// name are a caller error, an internal compiler error (check/canon.go).
+func TestCheckRefusesTwoFilesOfOneName(t *testing.T) {
+	var files []*syntax.File
+	for _, src := range []string{"type A {}\n", "type B {}\n"} {
+		f, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Name = "same.ergo"
+		files = append(files, f)
+	}
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), `two files of one package are named "same.ergo"`) {
+			t.Fatalf("recovered %v", r)
+		}
+	}()
+	check.Check("main", files, nil)
 }

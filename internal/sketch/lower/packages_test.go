@@ -39,6 +39,7 @@ func checkPackage(t *testing.T, path string, srcs []pkgSource, imp pkgImporter) 
 		if err != nil {
 			t.Fatalf("%s: %v", s.path, err)
 		}
+		f.Name = s.path // a driver that reads files names them
 		u.Files = append(u.Files, f)
 		u.Sources = append(u.Sources, Source{Path: s.path, Text: s.text})
 	}
