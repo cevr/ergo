@@ -526,6 +526,8 @@ type passThroughWatch struct{}
 
 func (passThroughWatch) started(int) {}
 
+func (passThroughWatch) kill() {}
+
 func (passThroughWatch) finish() usage { return usage{} }
 
 type outputThroughputLimiter struct{}
@@ -541,6 +543,8 @@ func (outputThroughputLimiter) close() {}
 type outputThroughputWatch struct{}
 
 func (outputThroughputWatch) started(int) {}
+
+func (outputThroughputWatch) kill() {}
 
 func (outputThroughputWatch) finish() usage { return usage{} }
 
@@ -889,6 +893,8 @@ func (failedStopLimiter) close() {}
 type failedStopWatch struct{}
 
 func (failedStopWatch) started(int) {}
+
+func (failedStopWatch) kill() {}
 
 func (failedStopWatch) finish() usage {
 	return usage{processIssue: "could not stop test process", stopFailed: true}

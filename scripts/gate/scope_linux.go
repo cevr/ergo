@@ -205,6 +205,9 @@ type scopeLimiter struct {
 	// hostNote describes the slice's bound for the budget line.
 	hostNote string
 	started  atomic.Int64
+	// withdraw withdraws the sweep of the gate's leaf from a stop of the
+	// gate (stop.go), which runs it after the steps have stopped.
+	withdraw func()
 }
 
 // openScope takes over the scope the gate runs in, checking that it is the
@@ -279,7 +282,35 @@ func openScope(unit string, budget memoryBudget, cpus int) (limiter, error) {
 		return nil, fmt.Errorf("start a process in a step cgroup: %w", err)
 	}
 	s.boundHost()
+	s.withdraw = gateStop.atStop(func() { sweepLeaf(leaf) })
 	return s, nil
+}
+
+// sweepLeaf kills, for a stop of the gate, every process but the gate in
+// its leaf cgroup, until none is left: what the gate started outside its
+// steps (a tool query, the merge tier's sandbox holder, a go command's
+// telemetry sidecar). Only the gate's own descendants are born in the leaf.
+func sweepLeaf(leaf string) {
+	self := strconv.Itoa(os.Getpid())
+	for range 100 {
+		content, err := os.ReadFile(filepath.Join(leaf, "cgroup.procs"))
+		if err != nil {
+			return
+		}
+		left := false
+		for _, field := range strings.Fields(string(content)) {
+			pid, err := strconv.Atoi(field)
+			if field == self || err != nil || pid <= 0 || processIsZombie(pid) {
+				continue
+			}
+			left = true
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+		if !left {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // boundHost finds the bound of the gates' slice, which holds this gate and
@@ -446,7 +477,11 @@ func cgroupBound(dir string) (int64, error) {
 	return bound, nil
 }
 
-func (s *scopeLimiter) close() {}
+func (s *scopeLimiter) close() {
+	if s.withdraw != nil {
+		s.withdraw()
+	}
+}
 
 // scopeStep is one step's cgroup.
 type scopeStep struct {
@@ -459,6 +494,12 @@ type scopeStep struct {
 }
 
 func (s *scopeStep) started(int) {}
+
+// kill stops every process in the step's cgroup, for a stop of the gate;
+// finish then waits until the cgroup is empty.
+func (s *scopeStep) kill() {
+	_ = os.WriteFile(filepath.Join(s.dir, "cgroup.kill"), []byte("1"), 0)
+}
 
 // finish reads the step cgroup's counters. Its own "oom" counts the times
 // the step reached its memory.max; "oom_kill" counts its processes the
