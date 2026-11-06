@@ -43,13 +43,17 @@ var testTools = []string{"git", "sh"}
 // with -parallel hostTestParallel.
 var hostTestPackages = []string{"scripts/gate"}
 
-// hostTestParallel bounds the parallel tests of a host package. In
-// scripts/gate each parallel storage layout runs a gate in its own systemd
-// scope (MemoryMax 576M), so the bound is also the number of those gates
-// that run at once; Go's default, GOMAXPROCS, would scale it with the host's
-// CPUs. Measured on a 16-CPU host at a 1-minute load of 13 to 60, the
-// package took 151 s at 4, 126 s at 6 and 114 s at 8. A CPU budget below 8
-// lowers it to the budget.
+// maxHostTestParallel bounds the parallel tests of a host package
+// (hostTestParallel): the step passes -parallel at most 8, and at most the
+// CPU budget. A test binary's default -parallel is its GOMAXPROCS, which the
+// gate holds at most at the CPU budget (stepGOMAXPROCS), so the bound can
+// lower the default only when that is above 8. No parallel test of scripts/gate
+// starts a gate in a systemd scope: the scope tests and the output-storage
+// layouts run one at a time (TestBudgetOutputStorage). The 8 dates from
+// before the CPU budget (02e1653e), when the 24 storage layouts ran as
+// parallel gates: on a 16-CPU host at a 1-minute load of 13 to 60 the
+// package took 151 s at 4, 126 s at 6 and 114 s at 8. It was not measured
+// again since.
 const maxHostTestParallel = 8
 
 // hostTestParallel is the -parallel of a host package's step.
