@@ -49,7 +49,9 @@ type Writes {
 	// WriteFile makes the file at path hold text: it writes a new file in
 	// the directory of path and renames it over path, so a reader sees the
 	// old text or the new text, never a part. A new file has mode
-	// 0666 less the umask; a file that was there keeps its mode.
+	// 0666 less the umask; a file that was there keeps its mode. A
+	// symbolic link at path is followed, as Go's os.WriteFile follows it:
+	// the file it names gets the text and the link stays.
 	WriteFile(path string, text string) fails NotFound | Denied | Failed,
 	// MkdirAll makes the directory path and each missing parent, with mode
 	// 0777 less the umask. A directory that is there already is no failure.

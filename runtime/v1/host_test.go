@@ -218,6 +218,130 @@ func TestFSWriteFileStopsBeforeRename(t *testing.T) {
 	}
 }
 
+// TestFSWriteFileFailedRename: a rename that fails for a reason that is
+// neither NotFound nor Denied (here the target became a directory with an
+// entry just before it) is Failed at the target with the host's reason
+// alone: the reason names neither the new file nor the target
+// (fs.ergo: "Reason is the host's text for it, without the path"). The new
+// file is removed.
+func TestFSWriteFileFailedRename(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "x.md")
+	var seen string
+	beforeRename = func(tmp string) error {
+		seen = tmp
+		if err := os.MkdirAll(filepath.Join(target, "entry"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return nil
+	}
+	t.Cleanup(func() { beforeRename = nil })
+	err := FSWriteFile(target, "new")
+	failed, ok := err.(Failed)
+	if !ok || failed.Path != target || failed.Reason == "" {
+		t.Fatalf("FSWriteFile error = %#v; want Failed at the target with a reason", err)
+	}
+	for _, p := range []string{dir, "x.md", ".tmp", "rename"} {
+		if strings.Contains(failed.Reason, p) {
+			t.Errorf("Failed.Reason %q holds %q; want the host's reason without the operation and the paths", failed.Reason, p)
+		}
+	}
+	if _, err := os.Lstat(seen); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the new file %s is still there after the failed rename (%v)", seen, err)
+	}
+}
+
+// TestFSWriteFileFollowsLinks: a symbolic link at the path is followed, as
+// Go's os.WriteFile follows it. The file it names gets the text, keeps its
+// mode, and the link stays; a link to a missing name makes that file; a
+// link to a directory is Failed "is a directory" and stays; a ".." in a
+// link's text is the host's to resolve after a linked directory, not
+// cleaned away; a loop of links is Failed.
+func TestFSWriteFileFollowsLinks(t *testing.T) {
+	dir := t.TempDir()
+	at := func(name string) string { return filepath.Join(dir, name) }
+	if err := os.WriteFile(at("file"), []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(at("real/sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []struct{ link, text string }{
+		{"lf", "file"}, {"lf2", "lf"}, {"ld", "real"}, {"dangling", "made"},
+		{"dsub", at("real/sub")}, {"real/sub/up", "../up.md"}, {"loop1", "loop2"}, {"loop2", "loop1"},
+	} {
+		if err := os.Symlink(l.text, at(l.link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	isLink := func(name string) {
+		t.Helper()
+		if fi, err := os.Lstat(at(name)); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("%s is no longer a symbolic link (%v)", name, err)
+		}
+	}
+	holds := func(name, want string) {
+		t.Helper()
+		if data, err := os.ReadFile(at(name)); string(data) != want || err != nil {
+			t.Errorf("%s holds %q, %v; want %q", name, data, err, want)
+		}
+	}
+	if err := FSWriteFile(at("lf2"), "new"); err != nil {
+		t.Fatalf("FSWriteFile(lf2) = %v", err)
+	}
+	holds("file", "new")
+	isLink("lf")
+	isLink("lf2")
+	if fi, err := os.Stat(at("file")); err != nil || fi.Mode().Perm() != 0o640 {
+		t.Errorf("file mode after a write through a link = %v, %v; want 0640", fi.Mode(), err)
+	}
+	if err := FSWriteFile(at("ld"), "new"); err != (Failed{Path: at("ld"), Reason: "is a directory"}) {
+		t.Errorf("FSWriteFile(ld) = %#v; want Failed is a directory", err)
+	}
+	isLink("ld")
+	if err := FSWriteFile(at("dangling"), "made"); err != nil {
+		t.Fatalf("FSWriteFile(dangling) = %v", err)
+	}
+	isLink("dangling")
+	holds("made", "made")
+	if err := FSWriteFile(at("dsub/up"), "up"); err != nil {
+		t.Fatalf("FSWriteFile(dsub/up) = %v", err)
+	}
+	holds("real/up.md", "up")
+	if _, err := os.Lstat(at("up.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the write through dsub/up made %s: the link's text was cleaned (%v)", at("up.md"), err)
+	}
+	if err := FSWriteFile(at("loop1"), "x"); err != (Failed{Path: at("loop1"), Reason: "too many levels of symbolic links"}) {
+		t.Errorf("FSWriteFile(loop1) = %#v; want Failed too many levels of symbolic links", err)
+	}
+	// A chain of maxLinks links is followed; one more is too many.
+	for i := 1; i <= maxLinks+1; i++ {
+		text := "file"
+		if i <= maxLinks {
+			text = fmt.Sprintf("c%d", i+1)
+		}
+		if err := os.Symlink(text, at(fmt.Sprintf("c%d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := FSWriteFile(at("c2"), "chain"); err != nil {
+		t.Errorf("FSWriteFile through %d links = %v", maxLinks, err)
+	}
+	holds("file", "chain")
+	if err := FSWriteFile(at("c1"), "x"); err != (Failed{Path: at("c1"), Reason: "too many levels of symbolic links"}) {
+		t.Errorf("FSWriteFile through %d links = %#v; want Failed too many levels of symbolic links", maxLinks+1, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("a new file %s is left in %s", e.Name(), dir)
+		}
+	}
+}
+
 // TestFSMkdirAllRow: MkdirAll's row is Denied | Failed, so a missing path
 // is Failed with the host's reason, never NotFound; a file in the way is
 // Failed too.
