@@ -80,8 +80,10 @@ type inotifyWatcher struct {
 	mounts int      // /proc/self/mountinfo, open since the start
 	done   chan struct{}
 	// holder is the write end of the holder's standard input, or -1 when
-	// no holder started (startHolder); holderPid is its process id.
-	holder, holderPid int
+	// no holder started (startHolder); holderPid is its process id, and
+	// holderReady the read end of the pipe on which it reports that it
+	// holds the watch (one byte, then EOF).
+	holder, holderPid, holderReady int
 	// changeable reports whether a process outside the tree may change a
 	// directory, so that it needs a watch.
 	changeable func(dir string) bool
@@ -122,7 +124,7 @@ func newWatcher(changeable func(string) bool) (*inotifyWatcher, error) {
 		return nil, fmt.Errorf("open the mount table: %w", err)
 	}
 	w := &inotifyWatcher{fd: fd, mounts: mounts, done: make(chan struct{}), changeable: changeable}
-	w.holder, w.holderPid = startHolder(fd)
+	w.holder, w.holderPid, w.holderReady = startHolder(fd)
 	// The descriptor is non-blocking, so package os reads it through the
 	// poller, and a read deadline ends the reader (finish).
 	w.file = os.NewFile(uintptr(fd), "inotify")
@@ -144,6 +146,10 @@ func (w *inotifyWatcher) closeWatch() {
 	if w.holder >= 0 {
 		syscall.Close(w.holder)
 		w.holder = -1
+	}
+	if w.holderReady >= 0 {
+		syscall.Close(w.holderReady)
+		w.holderReady = -1
 	}
 }
 
@@ -178,8 +184,14 @@ func init() {
 
 // holdWatch is the holder: it holds descriptor 3, the watch, until its
 // standard input ends, and exits. It runs in init, before the binary's
-// TestMain, so it runs no test and no test setup.
+// TestMain, so it runs no test and no test setup. Just before it waits, it
+// writes one byte on descriptor 4 and closes it: the report that it is up
+// and holding (TestWatchGroupEndsInTheHolder reads it; the observer does not
+// wait for it, since the holder has the group's descriptor from its fork).
+// A write error there (the reader is gone) is no reason to stop holding.
 func holdWatch() {
+	syscall.Write(4, []byte{1})
+	syscall.Close(4)
 	buf := make([]byte, 64)
 	for {
 		n, err := syscall.Read(0, buf)
@@ -191,30 +203,37 @@ func holdWatch() {
 }
 
 // startHolder starts a holder of fd and returns the write end of its
-// standard input and its process id, or -1 and 0 when none started. It uses syscall.ForkExec, not
-// package os: passing an os.File to a child puts its descriptor in blocking
+// standard input, its process id and the read end of its ready pipe, or -1,
+// 0 and -1 when none started. It uses syscall.ForkExec, not package os: passing an os.File to a child puts its descriptor in blocking
 // mode (File.Fd), and fd's mode is shared with the poller's reads of it.
 // ForkExec returns once the holder runs this binary, so the holder has its
 // descriptor of the group before any close of this one. A goroutine reaps
 // the holder; if this process ends first, the holder's new parent does.
-func startHolder(fd int) (int, int) {
+func startHolder(fd int) (int, int, int) {
 	self, err := os.Executable()
 	if err != nil {
-		return -1, 0
+		return -1, 0, -1
 	}
-	var pipe [2]int
+	var pipe, ready [2]int
 	if err := syscall.Pipe2(pipe[:], syscall.O_CLOEXEC); err != nil {
-		return -1, 0
+		return -1, 0, -1
+	}
+	if err := syscall.Pipe2(ready[:], syscall.O_CLOEXEC); err != nil {
+		syscall.Close(pipe[0])
+		syscall.Close(pipe[1])
+		return -1, 0, -1
 	}
 	closed := ^uintptr(0) // -1: the holder has no stdout or stderr
 	pid, err := syscall.ForkExec(self, []string{self}, &syscall.ProcAttr{
 		Env:   []string{holderVariable + "=1"},
-		Files: []uintptr{uintptr(pipe[0]), closed, closed, uintptr(fd)},
+		Files: []uintptr{uintptr(pipe[0]), closed, closed, uintptr(fd), uintptr(ready[1])},
 	})
 	syscall.Close(pipe[0])
+	syscall.Close(ready[1])
 	if err != nil {
 		syscall.Close(pipe[1])
-		return -1, 0
+		syscall.Close(ready[0])
+		return -1, 0, -1
 	}
 	go func() {
 		var status syscall.WaitStatus
@@ -224,7 +243,7 @@ func startHolder(fd int) (int, int) {
 			}
 		}
 	}()
-	return pipe[1], pid
+	return pipe[1], pid, ready[0]
 }
 
 // watchTree watches every directory below root, links not followed.

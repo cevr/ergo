@@ -93,8 +93,11 @@ func TestWatchSkipsWhatOnlyTheTreeChanges(t *testing.T) {
 // TestWatchGroupEndsInTheHolder: the watch's inotify group is held by a
 // holder from the start, so finish's close in this process is not the last
 // one and does not wait for the kernel's mark reaper; the holder ends once
-// finish closed its input. The holder's descriptor 3 lists the watch this
-// process added after the holder started, so it is the same group.
+// finish closed its input. Before finish, the holder has reported that it
+// is up and about to wait (its ready byte), and it is still alive: a holder
+// that ends early would leave this process's close as the last one. The
+// holder's descriptor 3 lists the watch this process added after the holder
+// started, so it is the same group.
 func TestWatchGroupEndsInTheHolder(t *testing.T) {
 	dir := t.TempDir()
 	w, err := newWatcher(func(string) bool { return true })
@@ -112,6 +115,22 @@ func TestWatchGroupEndsInTheHolder(t *testing.T) {
 		t.Fatalf("pidfd_open of the holder %d: %v", w.holderPid, errno)
 	}
 	defer syscall.Close(int(pidfd))
+	// The event: the holder's ready byte, written just before its read of
+	// its input. EOF instead means the holder ended without reporting.
+	if ready, err := pollIn(t, w.holderReady, deadlineLeft(t)); err != nil || !ready {
+		w.finish()
+		t.Fatalf("the holder never reported that it holds the watch: %v", err)
+	}
+	if n, err := syscall.Read(w.holderReady, make([]byte, 1)); n != 1 {
+		w.finish()
+		t.Fatalf("the holder ended before it reported that it holds the watch (read %d, %v)", n, err)
+	}
+	// Now the holder only waits on its input, which only finish closes: it
+	// must be alive (its pidfd is not readable).
+	if ended, err := pollIn(t, int(pidfd), 0); err != nil || ended {
+		w.finish()
+		t.Fatalf("the holder ended before finish (%v): this process's close would be the group's last one", err)
+	}
 	w.see(dir, "x")
 	var st syscall.Stat_t
 	if err := syscall.Stat(dir, &st); err != nil {
@@ -125,14 +144,32 @@ func TestWatchGroupEndsInTheHolder(t *testing.T) {
 		t.Fatalf("the watch cannot vouch: %s", reason)
 	}
 	// Only the test's deadline bounds the wait for the holder's end (the
-	// pidfd turns readable when it exits); with no deadline, no bound.
+	// pidfd turns readable when it exits).
+	if ended, err := pollIn(t, int(pidfd), deadlineLeft(t)); err != nil || !ended {
+		t.Fatalf("the holder did not end after finish closed its input (%v)", err)
+	}
+}
+
+// deadlineLeft is 9/10 of the time left before the test's deadline, or -1
+// (no bound) when the test has none.
+func deadlineLeft(t *testing.T) time.Duration {
+	if deadline, ok := t.Deadline(); ok {
+		return max(time.Until(deadline)*9/10, 0)
+	}
+	return -1
+}
+
+// pollIn reports whether fd turns readable (POLLIN or POLLHUP) within d;
+// d < 0 waits with no bound, d == 0 does not wait.
+func pollIn(t *testing.T, fd int, d time.Duration) (bool, error) {
+	t.Helper()
 	pfd := struct {
 		fd              int32
 		events, revents int16
-	}{fd: int32(pidfd), events: 0x1} // POLLIN
+	}{fd: int32(fd), events: 0x1} // POLLIN
 	var ts *syscall.Timespec
-	if deadline, ok := t.Deadline(); ok {
-		left := syscall.NsecToTimespec((time.Until(deadline) * 9 / 10).Nanoseconds())
+	if d >= 0 {
+		left := syscall.NsecToTimespec(d.Nanoseconds())
 		ts = &left
 	}
 	for {
@@ -140,10 +177,10 @@ func TestWatchGroupEndsInTheHolder(t *testing.T) {
 		if errno == syscall.EINTR {
 			continue
 		}
-		if errno != 0 || n == 0 {
-			t.Fatalf("the holder did not end after finish closed its input (%v)", errno)
+		if errno != 0 {
+			return false, errno
 		}
-		return
+		return n > 0, nil
 	}
 }
 
