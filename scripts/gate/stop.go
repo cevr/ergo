@@ -133,7 +133,9 @@ func (t *trackedStep) done() {
 }
 
 // atStop registers a cleanup a stop runs after the steps have stopped, and
-// returns the function that withdraws it.
+// returns the function that withdraws it before a stop begins. A cleanup
+// can run after its owner has already done the same work (closeBox is
+// once), so it must be safe to run late.
 func (s *stopper) atStop(cleanup func() error) (withdraw func()) {
 	return s.register(stopCleanup{run: cleanup})
 }
@@ -155,8 +157,13 @@ func (s *stopper) register(cleanup stopCleanup) (withdraw func()) {
 	s.cleanups[id] = cleanup
 	return func() {
 		s.mu.Lock()
-		delete(s.cleanups, id)
-		s.mu.Unlock()
+		defer s.mu.Unlock()
+		// Once a stop has begun, the stop runs the cleanup: a run that a
+		// stop's kill made fail returns, and its deferred withdraw must not
+		// take the leaf sweep from the stop.
+		if s.signal == 0 {
+			delete(s.cleanups, id)
+		}
 	}
 }
 

@@ -90,6 +90,45 @@ func TestStopperOrdersAStop(t *testing.T) {
 	}
 }
 
+// A run that a stop's kill made fail returns and withdraws its cleanups
+// (the scope's leaf sweep) while the stop waits; the stop still runs them,
+// so it still sweeps the leaf and proves it empty (round 2: measured once
+// in the whole-repo run, where a killed git made the run return and the
+// stop skipped the sweep).
+func TestStopperRunsACleanupWithdrawnDuringTheStop(t *testing.T) {
+	var s stopper
+	swept := false
+	withdraw := s.atStopSweep(func() error { swept = true; return nil })
+	step, err := s.track()
+	if err != nil {
+		t.Fatal(err)
+	}
+	killed := make(chan struct{})
+	step.arm(func() { close(killed) })
+	returned := make(chan stopResult, 1)
+	go func() {
+		result, _ := s.stop(syscall.SIGTERM)
+		returned <- result
+	}()
+	<-killed
+	withdraw()
+	step.done()
+	if result := <-returned; !result.swept || !swept {
+		t.Errorf("a sweep withdrawn during the stop did not run (ran %v, result %+v)", swept, result)
+	}
+}
+
+// A cleanup withdrawn before any stop does not run.
+func TestStopperSkipsACleanupWithdrawnBeforeTheStop(t *testing.T) {
+	var s stopper
+	ran := false
+	s.atStop(func() error { ran = true; return nil })()
+	s.stop(syscall.SIGTERM)
+	if ran {
+		t.Error("a withdrawn cleanup ran")
+	}
+}
+
 // A step tracked before the signal and started after it (between track
 // and arm) is killed the moment it is armed, and the stop waits for it.
 func TestStopperKillsAStepArmedDuringTheStop(t *testing.T) {
