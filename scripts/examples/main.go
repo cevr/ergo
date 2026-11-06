@@ -63,6 +63,7 @@ type config struct {
 	budget  time.Duration
 	record  bool
 	check   bool
+	lawless bool
 	names   []string
 }
 
@@ -110,6 +111,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "examples:", err)
 		}
 		return 2
+	}
+	if cfg.lawless {
+		return reportLawless(cfg.root, stdout)
 	}
 	programs, problems := loadExamples(cfg.root, cfg.record)
 	if len(problems) > 0 {
@@ -162,6 +166,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.DurationVar(&cfg.budget, "budget", 5*time.Second, "a case of a default program that runs longer fails; tag the program slow")
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
+	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
 		flags.PrintDefaults()
@@ -314,6 +319,7 @@ func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program
 		problem("a program of packages has no cmd/%s/main.ergo", p.name)
 	}
 	slices.Sort(p.sources)
+	problems = append(problems, moduleLawProblems(p)...)
 	p.main = filepath.Join(p.dir, "cmd", p.name)
 	return finishProgram(p, present, problems, record)
 }
