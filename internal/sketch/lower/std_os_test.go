@@ -9,20 +9,6 @@ import (
 	"testing"
 )
 
-// osPart2 names the environment variable that runs the os tests before G2
-// part 2 lands. Part 1 (runtime/v1/host.go, std/os) is in; part 2 adds the
-// sealed rule (check/extern.go sealedStd, lower/std.go runtimeType;
-// stdlib.md, Types 3). Until then a program value does not convert to
-// os.Process (S109), so these tests skip. Part 2 removes the skip.
-const osPart2 = "ERGO_G2_PART2"
-
-func skipBeforePart2(t *testing.T) {
-	t.Helper()
-	if os.Getenv(osPart2) == "" {
-		t.Skip("G2 part 2: os.Process is sealed until check.SealedStd lands; set " + osPart2 + "=1 to run")
-	}
-}
-
 // osProgram reads the host process through os.Process: the count and the
 // arguments, a set, an empty and an unset variable; it fails os.Exit when
 // the first argument is "nope" or "zero".
@@ -52,10 +38,9 @@ func run() fails os.Exit needs Console | os.Process {
 	Console.Println(show(os.Process.Getenv("ERGO_G2_UNSET")))
 }
 
-let Live = context { os.Process: os.Host }
-
-func main() fails os.Exit needs Console {
-	with Live { try run() }
+func main() fails os.Exit needs Console | Ambient {
+	let live = context { os.Process: os.NewHost() }
+	with live { try run() }
 }
 `
 
@@ -93,17 +78,45 @@ func main() needs Console {
 }
 `
 
+// paramProgram passes os.Host and a program's own provider as values of
+// os.Process, and calls the operations on the parameter.
+const paramProgram = `import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { Some[string]{Value: "fake"} }
+
+func show(p os.Process) string {
+	match p.Getenv("ERGO_G2_K") {
+	case Some[string] as s:
+		"\(len(p.Args())) \(s.Value)"
+	case None:
+		"\(len(p.Args())) None"
+	}
+}
+
+func main() needs Console | Ambient {
+	Console.Println(show(os.NewHost()))
+	let p os.Process = FakeEnv{Argv: []string{"x", "y", "z"}}
+	Console.Println(show(p))
+}
+`
+
 // TestOSProcessRuns: std os reads the host process through os.Host bound in
 // a context (stdlib.md, host packages): Args excludes the program name;
 // Getenv tells Some("") from None; os.Exit alone writes its Message
 // verbatim and exits with its Code, and a Code outside 1..125 exits 1
 // (runtime.md, Exit causes). A program's own provider gives the same
-// output through the same calls.
+// output through the same calls. os.Process is an open std protocol
+// (check.SealedStd), so both providers convert to it and it lowers as a
+// declaration of the program.
 func TestOSProcessRuns(t *testing.T) {
-	skipBeforePart2(t)
 	host := mustLower(t, "osHost", osProgram)
 	fake := mustLower(t, "osFake", fakeProgram)
-	exes := buildAll(t, []*lowered{host, fake}, true)
+	param := mustLower(t, "osParam", paramProgram)
+	exes := buildAll(t, []*lowered{host, fake, param}, true)
 	if exes == nil {
 		return
 	}
@@ -120,6 +133,7 @@ func TestOSProcessRuns(t *testing.T) {
 		{"hostNope", exes["osHost"], []string{"nope"}, "", "[NOT_FOUND] Unknown topic 'nope'\n", 3},
 		{"hostZero", exes["osHost"], []string{"zero"}, "", "claims success\nerror: os.Exit code 0 is outside 1..125\n", 1},
 		{"fake", exes["osFake"], []string{"ignored"}, want, "", 0},
+		{"param", exes["osParam"], []string{"a"}, "1 v\n3 fake\n", "", 0},
 	}
 	for _, c := range cases {
 		stdout, stderr, code := runWithEnv(t, c.exe, env, c.args...)
@@ -132,8 +146,7 @@ func TestOSProcessRuns(t *testing.T) {
 // TestOSExitRuns: main's only failure os.Exit writes its Message verbatim
 // and exits with its Code, after the exit actions of the function it left
 // have run; a Code outside 1..125 adds a line and exits 1 (runtime.md,
-// Exit causes 8; runtime/v1 TestMainExit holds the rest of the rules). It
-// needs no Process, so it runs before G2 part 2.
+// Exit causes 8; runtime/v1 TestMainExit holds the rest of the rules).
 func TestOSExitRuns(t *testing.T) {
 	const work = `import os
 import scope
@@ -172,7 +185,7 @@ func main() fails os.Exit needs Console {
 	}
 }
 
-// TestOSProcessIsNotImplicit: the entry provides only Console, so main
+// TestOSProcessIsNotImplicit: the entry provides only Console and Ambient, so main
 // that names os.Process in its row is S109 (stdlib.md, host packages).
 func TestOSProcessIsNotImplicit(t *testing.T) {
 	o := lowerSource("osEntry", `import os
@@ -181,8 +194,8 @@ func main() needs Console | os.Process {
 	Console.Println("\(len(os.Process.Args()))")
 }
 `, true)
-	if len(o.diags) != 0 || len(o.refused) != 1 || !strings.Contains(o.refused[0].Message, "main needs os.Process, and the host provides only Console") {
-		t.Fatalf("want one entry refusal naming os.Process and the host's Console; got diags %v refused %+v err %v panicked %v", o.diags, o.refused, o.err, o.panicked)
+	if len(o.diags) != 0 || len(o.refused) != 1 || !strings.Contains(o.refused[0].Message, "main needs os.Process, and the host provides only Console and Ambient") {
+		t.Fatalf("want one entry refusal naming os.Process and the host's Console and Ambient; got diags %v refused %+v err %v panicked %v", o.diags, o.refused, o.err, o.panicked)
 	}
 }
 

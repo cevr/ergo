@@ -10,6 +10,15 @@ type Console {
 	Println(line string),
 }
 
+// Ambient is the authority to choose the host (docs/spec/stdlib.md, Host
+// packages). Only the entry provides it: main lists it, and the host binds
+// it. Its one operation is unexported, so no program type implements it
+// and no context binds it. A host package's NewHost has it in its row:
+// code that makes a host provider shows Ambient in its row too.
+type Ambient {
+	ambient(),
+}
+
 // Scheduler suspends the calling task.
 type Scheduler {
 	Sleep(d duration),
