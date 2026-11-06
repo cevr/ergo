@@ -5,7 +5,10 @@ import (
 	"io/fs"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
 )
 
 // The bodies of std os (docs/spec/stdlib.md, host packages). Each is a
@@ -160,12 +163,20 @@ var beforeRename func(tmp string) error
 // path if there is one, closes it and renames it over path. So a reader
 // sees the old text or the new, never a part. A new file is opened with
 // mode 0666, so the umask applies, as for Go's os.WriteFile. On any
-// failure the new file is removed. A symbolic link at path is replaced by
-// a regular file, not followed; its target keeps its text.
+// failure the new file is removed. A symbolic link at path is followed,
+// as Go's os.WriteFile and Effect's FileSystem.writeFile follow it: the
+// file the link names gets the text and the link stays (a link to a
+// missing name makes that file; a link to a directory is Failed "is a
+// directory", as a directory is). The new file is made beside the file
+// the link names, so the rename replaces that file, not the link.
 func FSWriteFile(path string, text string) error {
+	dest, err := followLink(path)
+	if err != nil {
+		return fsErr(path, err)
+	}
 	var mode fs.FileMode
 	keep := false
-	switch fi, err := os.Stat(path); {
+	switch fi, err := os.Stat(dest); {
 	case err == nil && fi.IsDir():
 		return Failed{Path: path, Reason: "is a directory"}
 	case err == nil:
@@ -173,7 +184,7 @@ func FSWriteFile(path string, text string) error {
 	case !errors.Is(err, fs.ErrNotExist):
 		return fsErr(path, err)
 	}
-	f, err := createSibling(path)
+	f, err := createSibling(dest)
 	if err != nil {
 		return fsErr(path, err)
 	}
@@ -183,13 +194,43 @@ func FSWriteFile(path string, text string) error {
 		err = beforeRename(tmp)
 	}
 	if err == nil {
-		err = os.Rename(tmp, path)
+		err = os.Rename(tmp, dest)
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
 		return fsErr(path, err)
 	}
 	return nil
+}
+
+// maxLinks is the most symbolic links followLink follows; one more is
+// ELOOP, as for Linux's open.
+const maxLinks = 40
+
+// followLink is the path of the file that an open of path for writing
+// reaches: while the last element of path is a symbolic link, it is the
+// link's text, read relative to the directory of the link. It does not
+// clean the path, so ".." after a linked directory stays the host's to
+// resolve, as it is for open. A path that is no link, or that Lstat cannot
+// read, is returned as it is; the Stat after it reports the failure.
+func followLink(path string) (string, error) {
+	for n := 0; ; n++ {
+		fi, err := os.Lstat(path)
+		if err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+			return path, nil
+		}
+		if n == maxLinks {
+			return "", &fs.PathError{Op: "open", Path: path, Err: syscall.ELOOP}
+		}
+		text, err := os.Readlink(path)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(text) {
+			text = path[:strings.LastIndexByte(path, os.PathSeparator)+1] + text
+		}
+		path = text
+	}
 }
 
 // createSibling creates a new file beside path, named path.tmpN for a
