@@ -707,10 +707,14 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 // copy. The holder closes it at release: when runBudgeted returns, or
 // releaseAfter after the step ended when releaseAfter is positive. The test
 // starts the holder and ends it through its own stdin; it signals nothing.
+// With execTail, the watch releases ForkLock first and the holder closes
+// its copy execTail later: the exec tail of a vfork child, where the
+// parent resumes before close-on-exec has run.
 type siblingFork struct {
 	t            *testing.T
 	inFlight     bool
 	releaseAfter time.Duration
+	execTail     time.Duration
 	command      *exec.Cmd
 	holder       *exec.Cmd
 	release      *os.File
@@ -769,9 +773,13 @@ func (s *siblingFork) finish() usage {
 		case <-s.returned:
 		case <-after:
 		}
+		if s.inFlight && s.execTail > 0 {
+			syscall.ForkLock.Unlock()
+			time.Sleep(s.execTail)
+		}
 		_ = s.release.Close()
 		_ = s.holder.Wait()
-		if s.inFlight {
+		if s.inFlight && s.execTail == 0 {
 			syscall.ForkLock.Unlock()
 		}
 	}()
@@ -839,6 +847,25 @@ func TestRunBudgetedWaitsForASiblingForkInFlight(t *testing.T) {
 	t.Logf("runBudgeted returned after %s", elapsed)
 	if err != nil || used.processIssue != "" {
 		t.Fatalf("err %v, process issue %q: want neither, the holder was a fork in flight", err, used.processIssue)
+	}
+	if output != "step ran\n" {
+		t.Fatalf("output %q, want the step's line", output)
+	}
+}
+
+// A sibling fork whose ForkLock is released while its copy of the writer
+// is still open for a short time (the exec tail of a vfork child) does not
+// fail the step: after the wait for forks, the gate waits up to
+// execTailBound for the end of the pipe before it reports it held open.
+func TestRunBudgetedWaitsForASiblingForkExecTail(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	fork := &siblingFork{inFlight: true, releaseAfter: 100 * time.Millisecond, execTail: 30 * time.Millisecond}
+	used, output, elapsed, err := runSiblingFork(t, fork, 10*time.Second)
+	t.Logf("runBudgeted returned after %s", elapsed)
+	if err != nil || used.processIssue != "" {
+		t.Fatalf("err %v, process issue %q: want neither, the holder was in its exec tail", err, used.processIssue)
 	}
 	if output != "step ran\n" {
 		t.Fatalf("output %q, want the step's line", output)
