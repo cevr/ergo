@@ -304,24 +304,25 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		t.Errorf("a checker edit reaches %v; want %v", check, want)
 	}
 	t.Logf("the checker edit's fast set: %.1f CPU-s recorded, target %.0f, gap %.1f", cpu, fastCPUTarget, cpu-fastCPUTarget)
+	if fastCPUKnownGap != 0 {
+		t.Errorf("fastCPUKnownGap is %.0f: fast-cpu (batch 9) closed the gap, and a new excess is a defect to fix, not a gap to allow", fastCPUKnownGap)
+	}
 	if cpu > fastCPUTarget+fastCPUKnownGap {
 		t.Errorf("the checker edit's fast set is %.1f CPU-s; the target is %.0f and the known gap %.0f (gate-fast plan 3.4)", cpu, fastCPUTarget, fastCPUKnownGap)
 	}
 }
 
 // fastCPUTarget is the CPU the checker edit's fast set must stay under to
-// finish in 60 s at a CPU budget of 4 (gate-fast plan 3.4). The leg is red
-// against it: fastCPUKnownGap is the measured excess at gate-tier's head
-// (2026-11-06), which the follow-up unit fast-cpu must remove; it is not a
-// looser target. The test fails when the set grows past target plus gap,
-// so the gap can only shrink. fast-cpu sets the gap to 0 when it is done.
-// Measured: 205.8 CPU-s recorded with a warm build cache
-// (record-fastcpu-2.log); the gate's own runs after a checker edit
-// accounted 213 to 223 CPU-s to these steps and 235 to 242 to the whole
-// run, and took 71.6 s at the fastest (load ≤ 40), not 60.
+// finish in 60 s at a CPU budget of 4 (gate-fast plan 3.4). fastCPUKnownGap
+// was the measured excess at gate-tier's head (2026-11-06: 205.8 CPU-s,
+// gap 6), which fast-cpu (batch 9) removed: the lower shards run the
+// gate's one bin/ergo (cliTestPackages) instead of building cmd/ergo per
+// shard, TestContextReachProperty builds a fixed quarter of its programs
+// under -short, and the lower typed scans share one source importer. The
+// gap stays 0: the test fails when it is not.
 const (
 	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 6.0
+	fastCPUKnownGap = 0.0
 )
 
 // Over the module's tests as go test lists them: each fast-tier package's
