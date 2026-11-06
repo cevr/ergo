@@ -2,10 +2,12 @@ package check
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // The host edge (check-v1 stage E4, 196x; D-E5). An `extern go path.F func
@@ -99,10 +101,13 @@ func (c *checker) checkExternParams() {
 }
 
 // externTargetRefusal is the refusal of a user extern's Go target, with its
-// code, or "". The target is in the domain when its import path's first
-// element has no dot: Go's standard library, by Go's own rule for module
-// paths. A missing package or function there is go build's error (D-E5).
-// The Ergo runtime and Go's unsafe are S108 whatever the signature.
+// code, or "". The target is in the domain when its import path is in the
+// pure allowlist (G9): a package of Go's standard library that does not
+// reach the host. A missing function there is go build's error (D-E5).
+// The Ergo runtime and Go's unsafe are S108 whatever the signature. A path
+// whose first element has a dot is a module outside Go's standard library
+// (Go's own rule for module paths) and keeps its #202 text; any other path
+// outside the allowlist may reach the host and is S109 (hostText).
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
@@ -115,7 +120,52 @@ func externTargetRefusal(f *Func) (string, string) {
 	if strings.Contains(first, ".") {
 		return fmt.Sprintf("the Go package %s of the extern %s is #202's (Go imports); it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
 	}
+	if !PureGoPackage(path) {
+		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
+	}
 	return "", ""
+}
+
+// ---------------------------------------------------------------- the pure allowlist (G9, F7)
+
+// The pure allowlist is the set of Go standard-library packages a user
+// extern may bind, compared by exact import path. A function of these
+// packages reads only its arguments and touches no host state (no files,
+// no environment, no clock, no randomness, no process). Any other package
+// may reach the host, and a user extern has no needs row (C26), so its
+// call would be a hidden effect. NORTH_STAR: public effect contracts are
+// explicit.
+//
+// The list has one owner, std's purity fact (G5b): v1.PureImports, the
+// imports a pure Go body's file may have. A user extern and a pure std
+// body trust the same packages. The checker reads that list here and
+// declares no table of its own (TestNoCheckerPackageTable guards it).
+
+// PureGoPackages returns a copy of the pure allowlist, sorted.
+func PureGoPackages() []string {
+	out := slices.Clone(v1.PureImports)
+	slices.Sort(out)
+	return out
+}
+
+// PureGoPackage reports whether path, a Go import path, is in the pure
+// allowlist. The match is exact: a subpackage ("strings/x"), a longer name
+// ("stringsx"), a vendored path ("vendor/strings") or a module path
+// ("example.com/strings") is not in it.
+func PureGoPackage(path string) bool {
+	return slices.Contains(v1.PureImports, path)
+}
+
+// hostText is the S109 of a user extern whose Go package is outside the
+// pure allowlist (G9). It names the std route for the package when std
+// will have one: os.Process is G2's (wave std-1), not yet on main, so the
+// text says to wait for it.
+func hostText(path, target string) string {
+	route := "a std capability"
+	if path == "os" {
+		route = "std os.Process"
+	}
+	return fmt.Sprintf("extern go %s reaches the host; wait for %s or #202 (a user extern binds only the pure Go packages %s)", target, route, strings.Join(PureGoPackages(), ", "))
 }
 
 // externOutsideDomain names the first part of f's signature outside the

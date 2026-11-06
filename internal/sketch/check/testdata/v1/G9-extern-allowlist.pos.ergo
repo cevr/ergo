@@ -1,0 +1,17 @@
+// Unit G9 (std-1): a user extern of a package in the pure allowlist checks
+// clean. Probe q01 of the std-1 plan, with one target from math and from
+// unicode/utf8. (sort and slices are in the allowlist too, but each of
+// their functions takes a slice or a function, outside C26's domain.)
+extern go strings.ToUpper func Upper(s string) string
+extern go strings.HasPrefix func HasPrefix(s string, p string) bool
+extern go strings.Repeat func Repeat(s string, n int) string
+extern go strings.TrimSpace func TrimSpace(s string) string
+extern go strconv.Itoa func Itoa(n int) string
+extern go math.Sqrt func Sqrt(x float64) float64
+extern go unicode/utf8.RuneLen func RuneLen(r int32) int
+
+func main() needs Console {
+	Console.Println(Upper("abc") + Repeat("-", 3) + TrimSpace("  x  ") + Itoa(42))
+	if HasPrefix("okra", "ok") { Console.Println("prefix") }
+	Console.Println("\(Sqrt(2.25)) \(RuneLen(65))")
+}
