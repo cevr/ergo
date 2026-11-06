@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"maps"
+	"math"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixture is a git repository with a counter script: each run of `count NAME`
@@ -274,6 +277,80 @@ func TestShardsRunEveryTestExactlyOnce(t *testing.T) {
 	}
 	if groups[0][0] != "TestA" || len(groups[0]) != 1 {
 		t.Fatalf("the heaviest test should run alone: %q", groups)
+	}
+
+	// The property over the checker's and the lowering's test names: for
+	// generated listings (a subset of the real names, so the source scan
+	// may miss tests, plus names no package has), generated durations (the
+	// recorded ones, other values, or none) and every shard count up to 16,
+	// each real test runs in exactly one shard.
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := readDurations(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := modulePath(root)
+	seed := uint64(time.Now().UnixNano())
+	random := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
+	for _, pkg := range []string{"internal/sketch/check", "internal/sketch/lower"} {
+		defined, err := testNames(filepath.Join(root, pkg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(defined) < 100 {
+			t.Fatalf("%s lists %d tests; the property would be vacuous", pkg, len(defined))
+		}
+		for trial := range 60 {
+			var listed []string
+			keep := random.Float64()
+			for _, name := range defined {
+				if random.Float64() < keep {
+					listed = append(listed, name)
+				}
+			}
+			for i := range random.IntN(4) {
+				listed = append(listed, fmt.Sprintf("TestGenerated%d", i))
+			}
+			durations := map[string]float64{}
+			for _, name := range listed {
+				switch random.IntN(3) {
+				case 0:
+					if d, ok := recorded[module+"/"+pkg][name]; ok {
+						durations[name] = d
+					}
+				case 1:
+					durations[name] = math.Round(random.ExpFloat64()*300) / 100
+				}
+			}
+			n := 1 + random.IntN(16)
+			if len(listed) > 0 {
+				n = min(n, len(listed))
+			}
+			selections := shardArgs(shard(listed, durations, n))
+			if len(selections) == 0 || len(selections) > n {
+				t.Fatalf("seed %d, %s trial %d: %d selections for %d shards", seed, pkg, trial, len(selections), n)
+			}
+			patterns := make([]*regexp.Regexp, len(selections))
+			for i, selection := range selections {
+				if selection != nil {
+					patterns[i] = regexp.MustCompile(selection[1])
+				}
+			}
+			for _, test := range append(slices.Clone(defined), "TestUnlisted") {
+				matched := 0
+				for i, selection := range selections {
+					if selection == nil || (selection[0] == "-run") == patterns[i].MatchString(test) {
+						matched++
+					}
+				}
+				if matched != 1 {
+					t.Fatalf("seed %d, %s trial %d (%d listed, %d shards): %s runs in %d shards", seed, pkg, trial, len(listed), n, test, matched)
+				}
+			}
+		}
 	}
 }
 
