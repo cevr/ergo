@@ -24,31 +24,44 @@ func (i importedFootprintImporter) Import(path string) (*check.Package, error) {
 const footprintCaps = 6
 
 // footprintDecls declares, for each capability Ci, its operation type, a
-// provider type Mi, and three providers of it: Mi runs nothing, UseI()
+// provider type Mi, and four providers of it: Mi runs nothing, UseI()
 // calls C0's operation (C0 is bound by every generated context, and a
-// named context is closed: its providers use only what it binds), and
-// OpaqueI() calls a function value.
+// named context is closed: its providers use only what it binds),
+// OpaqueI() calls a function value, and SpawnI() starts a task.
 func footprintDecls() string {
 	var b strings.Builder
+	b.WriteString("import task\n\n")
 	for i := range footprintCaps {
 		fmt.Fprintf(&b, "type C%d { Get%d() int }\n\ntype M%d {}\n\nfunc Get%d(_ M%d) int { %d }\n\n", i, i, i, i, i, i)
 		if i > 0 {
 			fmt.Fprintf(&b, "func Use%d() M%d needs C0 {\n\tlet _ = C0.Get0()\n\tM%d\n}\n\n", i, i, i)
 		}
 		fmt.Fprintf(&b, "func Opaque%d() M%d {\n\tlet f = func() M%d { M%d }\n\tf()\n}\n\n", i, i, i, i)
+		fmt.Fprintf(&b, "func Spawn%d() M%d {\n\tlet t = task.Go() { %d }\n\tt.Stop()\n\tM%d\n}\n\n", i, i, i, i)
 	}
 	return b.String()
 }
 
+// footprintKinds is the number of provider kinds of footprintProvider.
+const footprintKinds = 5
+
 // footprintProvider is a provider of capability i, by kind, with the
-// qualifier q of the package that declares it ("" or "lib."). C0 has no
-// Use provider: it would use itself.
+// qualifier q of the package that declares it ("" or "lib."): 0 the value
+// Mi, 1 UseI(), 2 OpaqueI(), 3 SpawnI(), 4 a function literal called where
+// it is written that uses C0. C0 has no Use provider and its literal uses
+// nothing: it would use itself.
 func footprintProvider(q string, i, kind int) string {
 	switch {
 	case kind == 0:
 		return fmt.Sprintf("%sM%d", q, i)
 	case kind == 1 && i > 0:
 		return fmt.Sprintf("%sUse%d()", q, i)
+	case kind == 3:
+		return fmt.Sprintf("%sSpawn%d()", q, i)
+	case kind == 4 && i > 0:
+		return fmt.Sprintf("func() %sM%d {\n\tlet _ = %sC0.Get0()\n\t%sM%d\n}()", q, i, q, q, i)
+	case kind == 4:
+		return fmt.Sprintf("func() %sM0 { %sM0 }()", q, q)
 	}
 	return fmt.Sprintf("%sOpaque%d()", q, i)
 }
@@ -59,9 +72,12 @@ func footprintProvider(q string, i, kind int) string {
 // embeds the last, may replace entries of the chain at any depth and may
 // bind a fresh capability. contexts writes the chain; x writes X with the
 // qualifier q of the chain's package.
+// hiddenKinds holds the provider kinds of the chain when X hides an entry
+// (the imported side then walks the chain's providers one by one).
 type footprintCase struct {
-	contexts string
-	x        func(q string) string
+	contexts    string
+	x           func(q string) string
+	hiddenKinds map[int]bool
 }
 
 type footprintEntry struct {
@@ -88,13 +104,13 @@ func writeContext(q string, es []footprintEntry, embed string) string {
 
 func genFootprintCase(r *rand.Rand) footprintCase {
 	n := 1 + r.Intn(3)
-	bound := map[int]bool{}
+	bound, kinds := map[int]bool{}, map[int]bool{}
 	var b strings.Builder
 	for i := range n {
 		var es []footprintEntry
 		var mine []int
 		if i == 0 {
-			es = append(es, footprintEntry{cap: 0, kind: 2 * r.Intn(2)})
+			es = append(es, footprintEntry{cap: 0, kind: []int{0, 2, 3, 4}[r.Intn(4)]})
 			mine = append(mine, 0)
 		}
 		var free, below []int
@@ -107,18 +123,21 @@ func genFootprintCase(r *rand.Rand) footprintCase {
 		}
 		r.Shuffle(len(free), func(a, c int) { free[a], free[c] = free[c], free[a] })
 		for _, k := range free[:min(len(free), r.Intn(3))] {
-			es = append(es, footprintEntry{cap: k, kind: r.Intn(3)})
+			es = append(es, footprintEntry{cap: k, kind: r.Intn(footprintKinds)})
 			mine = append(mine, k)
 		}
 		if len(below) > 0 && r.Intn(2) == 0 {
 			k := below[r.Intn(len(below))]
-			es = append(es, footprintEntry{replace: true, cap: k, kind: r.Intn(3)})
+			es = append(es, footprintEntry{replace: true, cap: k, kind: r.Intn(footprintKinds)})
 		}
 		embed := ""
 		if i > 0 {
 			embed = fmt.Sprintf("W%d", i-1)
 		}
 		fmt.Fprintf(&b, "let W%d = %s\n\n", i, writeContext("", es, embed))
+		for _, e := range es {
+			kinds[e.kind] = true
+		}
 		for _, k := range mine {
 			bound[k] = true
 		}
@@ -138,14 +157,19 @@ func genFootprintCase(r *rand.Rand) footprintCase {
 			break
 		}
 		j := r.Intn(len(boundList))
-		xs = append(xs, footprintEntry{replace: true, cap: boundList[j], kind: r.Intn(3)})
+		xs = append(xs, footprintEntry{replace: true, cap: boundList[j], kind: r.Intn(footprintKinds)})
 		boundList = append(boundList[:j], boundList[j+1:]...)
 	}
 	if len(freeList) > 0 && r.Intn(2) == 0 {
-		xs = append(xs, footprintEntry{cap: freeList[r.Intn(len(freeList))], kind: r.Intn(3)})
+		xs = append(xs, footprintEntry{cap: freeList[r.Intn(len(freeList))], kind: r.Intn(footprintKinds)})
+	}
+	var hidden map[int]bool
+	if len(xs) > 0 && xs[0].replace {
+		hidden = kinds
 	}
 	return footprintCase{
-		contexts: b.String(),
+		hiddenKinds: hidden,
+		contexts:    b.String(),
 		x: func(q string) string {
 			return "let X = " + writeContext(q, xs, fmt.Sprintf("%sW%d", q, n-1)) + "\n"
 		},
@@ -195,7 +219,7 @@ func showFootprint(fp check.Footprint) string {
 func TestEmbeddedImportedContextFootprint(t *testing.T) {
 	r := rand.New(rand.NewSource(9))
 	decls := footprintDecls()
-	kinds := map[string]bool{}
+	kinds, hiddenKinds := map[string]bool{}, map[int]bool{}
 	for i := range 300 {
 		c := genFootprintCase(r)
 		_, same := footprintOfX(t, "main", decls+c.contexts+c.x(""), nil)
@@ -205,11 +229,68 @@ func TestEmbeddedImportedContextFootprint(t *testing.T) {
 			t.Fatalf("case %d: same package %s, imported %s\nlib:\n%s\nmain:\n%s", i, same, imported, c.contexts, c.x("lib."))
 		}
 		kinds[same] = true
+		for k := range c.hiddenKinds {
+			hiddenKinds[k] = true
+		}
 	}
-	// The cases reach each footprint: empty, C0 only, opaque only, both.
-	for _, want := range []string{"caps=[] tasks=false opaque=false", "caps=[C0] tasks=false opaque=false", "caps=[] tasks=false opaque=true", "caps=[C0] tasks=false opaque=true"} {
+	// The cases reach each footprint: empty, C0 only, opaque only, both,
+	// and Tasks with and without C0 (a task start is also opaque: task.Go
+	// is a host function).
+	for _, want := range []string{
+		"caps=[] tasks=false opaque=false", "caps=[C0] tasks=false opaque=false",
+		"caps=[] tasks=false opaque=true", "caps=[C0] tasks=false opaque=true",
+		"caps=[] tasks=true opaque=true", "caps=[C0] tasks=true opaque=true",
+	} {
 		if !kinds[want] {
 			t.Errorf("no case has the footprint %s; have %v", want, kinds)
+		}
+	}
+	// Each provider kind sits in a chain whose entry X hides, so the
+	// imported side walks it provider by provider.
+	for k := range footprintKinds {
+		if !hiddenKinds[k] {
+			t.Errorf("no case hides an entry of a chain with a provider of kind %d", k)
+		}
+	}
+}
+
+// TestForeignEntryProviderKinds (batch-9 C4 r2, the round-1 verifier's
+// probe): an imported context whose entry the importer hides is walked
+// provider by provider. A provider that starts a task keeps Tasks, and a
+// function literal called where it is written keeps the capability it
+// uses: the imported footprint equals the same-package one.
+func TestForeignEntryProviderKinds(t *testing.T) {
+	decls := `import task
+
+type C0 { Get0() int }
+type M0 {}
+func Get0(_ M0) int { 0 }
+type C1 { Get1() int }
+type M1 {}
+func Get1(_ M1) int { 1 }
+type C2 { Get2() int }
+type M2 {}
+func Get2(_ M2) int { 2 }
+func spawn() M1 {
+	let t = task.Go() { 1 }
+	t.Stop()
+	M1
+}
+
+`
+	cases := []struct{ name, w, want string }{
+		{"task", "let W = context { C0: M0, C1: spawn() }\n", "caps=[] tasks=true opaque=true"},
+		{"lit", "let W = context { C0: M0, C2: func() M2 {\n\tlet _ = C0.Get0()\n\tM2\n}() }\n", "caps=[C0] tasks=false opaque=false"},
+	}
+	for _, c := range cases {
+		x := func(q string) string {
+			return "let X = context { replace " + q + "C0: " + q + "M0, " + q + "W }\n"
+		}
+		_, same := footprintOfX(t, "main", decls+c.w+x(""), nil)
+		lib, _ := footprintOfX(t, "lib", decls+c.w, nil)
+		_, imported := footprintOfX(t, "main", "import lib\n\n"+x("lib."), importedFootprintImporter{lib})
+		if same != c.want || imported != c.want {
+			t.Errorf("%s: same package %s, imported %s, want both %s", c.name, same, imported, c.want)
 		}
 	}
 }
