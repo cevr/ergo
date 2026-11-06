@@ -19,7 +19,7 @@ import (
 // Stage 4 (S4d): every stop of the lowering says what it is.
 
 // openOwners are the owners a refusal may name: units and stages that are
-// open after lower-v1. 196b lowers imported contexts; #197 owns further resource ownership (and the checker's S109
+// open after lower-v1. 196b checks the context header; #197 owns further resource ownership (and the checker's S109
 // for a generic Close whose type parameter has operations, Q-S4-8); #199
 // the runtime; #57 the actor library and its machine runner; #162 runs
 // laws; #49 owns derived text forms; #196 decides the syntax that the

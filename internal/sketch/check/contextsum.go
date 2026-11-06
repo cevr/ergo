@@ -91,6 +91,9 @@ type contextGroup struct {
 	// (scanLocals).
 	locals []*Context
 	embeds map[*syntax.ContextEntry]*Context
+	// files[i] is the file of lits[i], whose imports a qualified
+	// embedding of it resolves through (qualifiedContext).
+	files []*fileInfo
 }
 
 // contextSource reads the package's context source once: its size, which fixes
@@ -133,6 +136,7 @@ func (c *checker) contextSource() (size int, groups []*contextGroup, hasContexts
 					}
 					g.lits = append(g.lits, n)
 					g.locals = append(g.locals, locals[n])
+					g.files = append(g.files, f)
 					for e, w := range embeds {
 						if g.embeds == nil {
 							g.embeds = map[*syntax.ContextEntry]*Context{}
@@ -351,6 +355,9 @@ type contextNode struct {
 	index, low int
 	onStack    bool
 	embeds     []*Context
+	// imports are the embedded contexts of imported packages (196b Q9),
+	// each a summarised leaf of the graph.
+	imports []*Context
 }
 
 // refuse marks the named context being summarised and stops the pass.
@@ -423,6 +430,14 @@ func (p *contextPass) own(contexts []*Context) {
 				inner := c.embeddedContext(e, nil)
 				if inner == nil {
 					known = false
+					continue
+				}
+				if inner.pkg != c.pkg {
+					// An imported context (196b Q9) is summarised by its own
+					// package's pass, and imports are acyclic, so it is on
+					// no cycle here: one node of the graph, whose summary
+					// is read once, as one probe (components).
+					n.imports = append(n.imports, inner)
 					continue
 				}
 				n.embeds = append(n.embeds, inner)
@@ -505,6 +520,7 @@ func (p *contextPass) components(contexts []*Context) {
 		sets := make([]*capSet, len(members))
 		var succs []*capSet
 		succ := map[*contextComp]bool{}
+		imported := map[*Context]bool{}
 		for i, v := range members {
 			op(m, "member read", singlePass, 1)
 			sets[i] = v.own
@@ -516,6 +532,21 @@ func (p *contextPass) components(contexts []*Context) {
 					succs = append(succs, d.binds)
 					comp.unknown = comp.unknown || d.unknown
 				}
+			}
+			// An imported context's summary is one probe of the budget.
+			for _, e := range p.nodes[v].imports {
+				op(m, "member edge", singlePass, 1)
+				if imported[e] {
+					continue
+				}
+				imported[e] = true
+				if !m.step(1) {
+					p.refuse(w)
+					return
+				}
+				op(m, "import probe", repeatable, 1)
+				succs = append(succs, e.binds)
+				comp.unknown = comp.unknown || e.unknown || e.binds == nil
 			}
 		}
 		binds, ok := capUnion(m, append(sets, succs...), len(members))
@@ -565,6 +596,7 @@ func (p *contextPass) inline(g *contextGroup) {
 	sums := make([]*bodySum, len(g.lits))
 	for i, lit := range g.lits {
 		op(m, "inline read", singlePass, 1)
+		c.cur = g.files[i]
 		s := &bodySum{pending: true, local: g.locals[i], embeds: g.embeds}
 		if !c.prepareBody(s, lit.Body, nil, m) || !m.step(s.allowance) {
 			p.stopped = true
@@ -593,10 +625,12 @@ func (p *contextPass) inline(g *contextGroup) {
 // what it brings depends on how the cycle is fixed (D3; round 16 m3, round
 // 18). A replace may still name it.
 func (c *checker) embeddedBinds(inner, self *Context) (binds *capSet, known, onCycle bool) {
-	if inner.Local {
+	if inner.Local || inner.pkg != c.pkg {
 		// A local context is on no cycle: it embeds only what is bound
-		// before its let, and its summary is finished (localBinds).
-		return inner.binds, !inner.unknown, false
+		// before its let, and its summary is finished (localBinds). Nor is
+		// an imported one (196b Q9): imports are acyclic, and its own
+		// package's pass summarised it.
+		return inner.binds, !inner.unknown && inner.binds != nil, false
 	}
 	comp := c.contextComp[inner]
 	return comp.binds, !comp.unknown, self != nil && comp == c.contextComp[self]
@@ -649,6 +683,13 @@ func (c *checker) prepareBody(s *bodySum, body *syntax.ContextBody, self *Contex
 		if inner == nil {
 			s.known = false
 			continue
+		}
+		if inner.pkg != c.pkg {
+			// An imported context's summary is read as one probe (196b Q9).
+			if !m.step(1) {
+				return false
+			}
+			op(m, "import probe", repeatable, 1)
 		}
 		reach, known, onCycle := c.embeddedBinds(inner, self)
 		if !known {

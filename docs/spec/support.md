@@ -96,7 +96,6 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `call:Op` | a call of kind `Op` | Checked; runs |  |
 | `call:ProviderOp` | a call of kind `ProviderOp` | Checked; runs |  |
 | `call:With` | a call of kind `With` | Checked; runs |  |
-| `call:With:imported` | a call of kind `With:imported` | Checked; build refused (S109) | [196b](https://github.com/cevr/ergo/issues/196) |
 | `conv:Operations` | an implicit `Operations` conversion | Checked; runs |  |
 | `conv:Row` | an implicit `Row` conversion | Checked; runs |  |
 | `conv:Variant` | an implicit `Variant` conversion | Checked; runs |  |
@@ -112,7 +111,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 
 A refusal names one of these owners.
 
-- [196b](https://github.com/cevr/ergo/issues/196): imported contexts.
+- [196b](https://github.com/cevr/ergo/issues/196): the context header, `provides` and `needs` on a context.
 - [#197](https://github.com/cevr/ergo/issues/197): further resource ownership.
 - [#199](https://github.com/cevr/ergo/issues/199): the runtime.
 - [#57](https://github.com/cevr/ergo/issues/57): the actor library and its machine runner.

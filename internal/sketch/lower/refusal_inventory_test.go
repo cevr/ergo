@@ -1,9 +1,6 @@
 package lower
 
 import (
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,9 +88,6 @@ func main() fails Fault { return Fault{F: Map[string, int]{}} }
 			met[family]++
 		}
 	}
-	for _, r := range importedContextRefusalWitness(t) {
-		met[refusalFamily(r.Message)]++
-	}
 	for family := range refusedFamilies {
 		if met[family] == 0 {
 			t.Errorf("stale refused family %s: no admitted source reaches it", family)
@@ -105,42 +99,4 @@ func main() fails Fault { return Fault{F: Map[string, int]{}} }
 			t.Errorf("undocumented refusal matcher %s", reason.family)
 		}
 	}
-}
-
-// An imported context needs two checked packages; a source-string replay
-// cannot supply its importer. This is the same public seam as the
-// runtime199 imported-context regression, with the observed refusal returned.
-func importedContextRefusalWitness(t *testing.T) []Refusal {
-	t.Helper()
-	const libSrc = `type A { Use() }
-type Conn { n int }
-func Use(_ Conn) {}
-func Close(_ Conn) {}
-func Get() Conn { Conn{n: 1} }
-let W = context { A: Get() }
-`
-	lib, err := syntax.Parse(libSrc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	makers, ds := check.Check("makers", []*syntax.File{lib}, nil)
-	if len(ds) != 0 {
-		t.Fatal(ds)
-	}
-	const src = "import makers\nfunc main() { with makers.W { makers.A.Use() } }\n"
-	file, err := syntax.Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg, ds := check.Check("main", []*syntax.File{file}, contextImporter{makers})
-	if len(ds) != 0 {
-		t.Fatal(ds)
-	}
-	lu := Unit{Package: makers, Files: []*syntax.File{lib}, Sources: []Source{{Path: "/ergo-test/makers/lib.ergo", Text: libSrc}}}
-	_, err = lowerPackage(Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}, Imports: []Unit{lu}}, false)
-	var refused *Refused
-	if !errors.As(err, &refused) || len(refused.Refusals) != 1 {
-		t.Fatalf("want one imported-context refusal, got %v", err)
-	}
-	return refused.Refusals
 }

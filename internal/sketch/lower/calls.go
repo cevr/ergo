@@ -626,10 +626,11 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if len(w.Contexts) == 0 {
 		ice(arg, "a with operand with neither a context nor a context binding (With.Contexts, With.Value)")
 	}
-	// The checker records an imported context's entries (context ownership), but
-	// this lowering builds only contexts declared in the file it lowers.
-	if w.Contexts[0].Lit == nil && fc.l.isImported(w.Contexts[0]) {
-		refuse(arg, "a with of an imported context is lowered when 196b lowers packages")
+	// A named context of an imported user package is built as the root's
+	// are (196b U4): the unit sources it. One of a package with no source
+	// (std declares none) is a compiler defect.
+	if w.Contexts[0].Lit == nil && fc.l.unsourced(w.Contexts[0]) {
+		ice(arg, "a with of the context %s, which no source file of the program declares", w.Contexts[0].Name)
 	}
 	// The with lifetime owner (resources.md, Context ownership; runtime.md,
 	// With cleanup): a with that acquires a resource opens its own scope on
@@ -759,8 +760,8 @@ func (l *lowerer) context(w *check.Context, site syntax.Node) {
 // environment, where the checker charged its needs (With.Acquired).
 func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	w := with.Contexts[0]
-	if w.Decl == nil || l.isImported(w) {
-		refuse(site, "a with of an imported context is lowered when 196b lowers packages")
+	if w.Decl == nil || l.unsourced(w) {
+		ice(site, "a builder of the context %s, which no source file of the program declares", w.Name)
 	}
 	l.localContext(w, site)
 	fc := newFuncCtx(l, newNamer(l.names), true)
@@ -783,8 +784,10 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
 }
 
-// localContext refuses an imported embedding, which 196b lowers, equally
-// for named and inline contexts.
+// localContext checks that every named context w embeds, at any depth, has
+// a source in the program, equally for named and inline contexts: an
+// embedded context of an imported user package is built as the root's
+// are (196b U4), and one with no source is a compiler defect.
 func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 	visited := map[*check.Context]bool{}
 	var walk func(*check.Context)
@@ -793,8 +796,8 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 			return
 		}
 		visited[v] = true
-		if v.Lit == nil && (v.Decl == nil || l.isImported(v)) {
-			refuse(site, "an embedded imported context is lowered when 196b lowers packages")
+		if v.Lit == nil && (v.Decl == nil || l.unsourced(v)) {
+			ice(site, "an embedded context %s, which no source file of the program declares", v.Name)
 		}
 		for _, e := range v.Entries {
 			if e.Embedded != nil {
@@ -828,20 +831,29 @@ func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 	}
 	lexical(with.Contexts[0])
 	for _, a := range with.Acquired {
-		e := a.Entry
-		fc.at(e.Provider)
-		saved := fc.env
-		fc.env = target
-		if local[e] {
-			fc.env = outer
-		}
-		if ws != "" {
-			fc.withClose(a, target, outer, ws, e.Provider)
-		} else {
-			fc.publishProvider(a, target)
-		}
-		fc.env = saved
+		fc.buildProvider(a, target, outer, ws, local[a.Entry])
 	}
+}
+
+// buildProvider builds the provider of one acquisition into target. Its
+// expression is lowered within its own file and its package's Info: an
+// entry of an imported context (196b U4) reads the facts of the package
+// that declares it, as every declaration of that package does (sources.go).
+func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string, local bool) {
+	e := a.Entry
+	defer fc.l.leave(fc.l.enter(e.Provider, nil))
+	fc.at(e.Provider)
+	saved := fc.env
+	fc.env = target
+	if local {
+		fc.env = outer
+	}
+	if ws != "" {
+		fc.withClose(a, target, outer, ws, e.Provider)
+	} else {
+		fc.publishProvider(a, target)
+	}
+	fc.env = saved
 }
 
 func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
@@ -864,12 +876,10 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 	return val
 }
 
-// isImported reports a context declared outside the user package.
-func (l *lowerer) isImported(w *check.Context) bool {
+// unsourced reports a named context that no source file of the program
+// declares: neither the root package's nor an imported user package's.
+func (l *lowerer) unsourced(w *check.Context) bool {
 	for _, s := range l.srcs {
-		if s.pkg != l.pkg {
-			continue
-		}
 		for _, d := range s.file.Decls {
 			if d == syntax.Decl(w.Decl) {
 				return false

@@ -8,9 +8,24 @@ import timeout
 type Declined { Reason string }
 type Receipt { ID string, Amount int64 }
 
-// An operation type: the service a caller must supply.
+// An operation type: the service a caller must supply, with its contract.
 type Payments {
 	Charge(amount int64) Receipt fails Declined,
+
+	// A charge that succeeds is receipted, for the amount charged.
+	law Receipted(amount int64) {
+		let receipt = Charge(amount) catch {
+		case Declined:
+			return true
+		}
+		Receipted(receipt, amount)
+	},
+}
+
+// Receipted reports whether receipt has an ID and the amount: the law's
+// check, which a provider's test calls.
+func Receipted(receipt Receipt, amount int64) bool {
+	receipt.ID != "" && receipt.Amount == amount
 }
 
 // A signature lists every expected failure and every service the caller must supply.
@@ -18,25 +33,7 @@ func Checkout(amount int64) Receipt fails Declined | timeout.Expired needs Payme
 	timeout.After(2s) { Payments.Charge(amount) } // the block runs as a child task; at 2s it is stopped
 }
 
-// Two providers of Payments: same-named functions on distinct types.
-type Gateway {}
-type Decliner {}
-
-func Charge(_ Gateway, amount int64) Receipt fails Declined {
-	if amount <= 0 {
-		return Declined{Reason: "amount must be positive"}
-	}
-	Receipt{ID: "paid", Amount: amount}
-}
-
-func Charge(_ Decliner, amount int64) Receipt fails Declined {
-	Declined{Reason: "card declined"}
-}
-
-let Live = context { Payments: Gateway, Scheduler: LiveScheduler }
-let Declining = context { Live, replace Payments: Decliner }
-
-func purchase(amount int64) string needs Payments | Scheduler {
+func Purchase(amount int64) string needs Payments | Scheduler {
 	let receipt = Checkout(amount) catch {
 	case Declined:
 		Receipt{ID: "declined"}
@@ -45,22 +42,33 @@ func purchase(amount int64) string needs Payments | Scheduler {
 	}
 	receipt.ID
 }
+```
+
+The binary binds the contract to providers in a context. Package `memory` holds two of them, `Gateway`, which pays, and `Decliner`, and its context `Paying` binds `payments.Payments` to `Gateway`:
+
+```go
+import checkout/memory
+import checkout/payments
+
+// This binary is the only place that chooses the providers.
+let Live = context { Scheduler: LiveScheduler, memory.Paying }
+let Declining = context { Live, replace payments.Payments: memory.Decliner }
 
 func main() needs Console {
-	Console.Println(with Live { purchase(100) })
+	Console.Println(with Live { payments.Purchase(100) })
 }
 
 test ChargeSucceeds {
-	let receipt = try with Live { Checkout(100) }
+	let receipt = try with Live { payments.Checkout(100) }
 	assert receipt.Amount == 100
 }
 
 test DeclineIsHandled {
-	assert with Declining { purchase(100) } == "declined"
+	assert with Declining { payments.Purchase(100) } == "declined"
 }
 ```
 
-From the signature alone you know how `Checkout` can fail and what it needs. `purchase` catches both failures, so its own signature has no `fails`. `Declining` keeps every provider of `Live` and replaces one, so the tests swap providers without a mock framework. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/checkout](examples/checkout/main.ergo): `ergo run` prints `paid`, and `ergo test` runs both tests.
+From the signature alone you know how `Checkout` can fail and what it needs. `Purchase` catches both failures, so its own signature has no `fails`. The law `Receipted` states what every provider of `Payments` must keep. `Live` embeds the context of another package, and `Declining` keeps every provider of `Live` and replaces one, so the tests swap providers without a mock framework. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/checkout](examples/checkout/cmd/checkout/main.ergo): `ergo run` prints `paid`, and `ergo test` runs both tests.
 
 ## Designed, not built yet
 
@@ -240,8 +248,8 @@ git clone https://github.com/cevr/ergo.git
 cd ergo
 go build -o bin/ergo ./cmd/ergo
 
-./bin/ergo run examples/checkout/main.ergo         # prints: paid
-./bin/ergo test examples/checkout/main.ergo        # prints: PASS (2 tests)
+./bin/ergo run examples/checkout/cmd/checkout      # prints: paid
+./bin/ergo test examples/checkout/cmd/checkout     # prints: PASS (2 tests)
 ./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
 ./bin/ergo fmt --check examples/editions/sketch/main.ergo
 go run ./scripts/examples                          # builds and runs the example programs against their recorded cases

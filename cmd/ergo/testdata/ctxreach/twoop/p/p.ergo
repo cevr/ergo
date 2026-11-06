@@ -1,0 +1,3 @@
+type S { N() string }
+
+func Use() string needs S { S.N() }

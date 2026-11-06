@@ -1,0 +1,9 @@
+type G2 { k int }
+
+func N(g G2) string { "o \(g.k)" }
+
+func Close(g G2) needs Console {
+	Console.Println("closed o")
+}
+
+func Make() G2 { G2{k: 3} }

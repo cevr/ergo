@@ -1,0 +1,16 @@
+import q/n
+import q/p
+
+type T { Hi() string }
+
+type H {}
+
+func Hi(_ H) string { "hi" }
+
+let Mine = context { T: H }
+
+func both() string needs p.S | T { "\(p.Use()) \(T.Hi())" }
+
+func main() needs Console {
+	Console.Println(with Mine, n.Q { both() })
+}

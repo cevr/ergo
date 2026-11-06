@@ -1,0 +1,9 @@
+import q/o
+import q/p
+import q/r
+
+func K() int { 5 }
+
+let W = context { p.S: o.Make() }
+
+let Q = context { p.S: r.Pl }
