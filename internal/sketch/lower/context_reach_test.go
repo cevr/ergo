@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,14 +17,19 @@ const (
 	reachN  = "import p\n\ntype C { k int }\n\nfunc N(c C) string { \"n \\(c.k)\" }\n\nfunc Close(c C) needs Console {\n\tConsole.Println(\"closed n\")\n}\n\nfunc mk() C { C{k: 2} }\n\nfunc Make(k int) C { C{k: k} }\n\nfunc K() int { 5 }\n\nlet W = context { p.S: mk() }\n"
 	reachM1 = "import n\n\nlet W = context { n.W }\n"
 	reachM2 = "import m1\n\nlet W = context { m1.W }\n"
+	// q is an imported context that the program also names: a with body
+	// calls q.R.
+	reachQ = "type R { Get() string }\n\ntype G {}\n\nfunc Get(_ G) string { \"q\" }\n\nlet V = context { R: G }\n"
+	// reachT is the root's own contract T and its provider H.
+	reachT = "type T { Hi() string }\n\ntype H {}\n\nfunc Hi(_ H) string { \"h\" }\n"
 )
 
-// reachUnits checks p, n, m1 and m2.
+// reachUnits checks p, n, m1, m2 and q.
 func reachUnits(t *testing.T) map[string]Unit {
 	t.Helper()
 	units := map[string]Unit{}
 	imp := pkgImporter{}
-	for _, s := range []struct{ path, src string }{{"p", reachP}, {"n", reachN}, {"m1", reachM1}, {"m2", reachM2}} {
+	for _, s := range []struct{ path, src string }{{"p", reachP}, {"n", reachN}, {"m1", reachM1}, {"m2", reachM2}, {"q", reachQ}} {
 		u := checkPackage(t, s.path, []pkgSource{{"/ergo-test/" + s.path + "/" + s.path + ".ergo", s.src}}, imp)
 		units[s.path] = u
 		imp[s.path] = u.Package
@@ -38,7 +44,11 @@ func reachUnits(t *testing.T) map[string]Unit {
 // { X }, a named context and a local context that embed X, a replace over
 // X's entry by a provider of the root and by one of n), every depth of X
 // (n.W, m1.W ⊃ n.W, m2.W ⊃ m1.W ⊃ n.W) and both reaches of n (through the
-// context only, or also by a call of n.K). Every generated program checks
+// context only, or also by a call of n.K). It also makes withs of two and
+// three operands, with X in every position beside a root context, a
+// body-local context and an imported context whose package the program
+// also names (round 2 M1: the reach reads every operand, not only the
+// first). Every generated program checks
 // (checkPackage fails otherwise), lowers with no refusal and no internal
 // error, builds, runs, closes n's resource once when it builds it, and
 // prints the provider's value.
@@ -49,7 +59,23 @@ func TestContextReachProperty(t *testing.T) {
 		imp[path] = u.Package
 	}
 	// The import closure of each package, as the loader lists it.
-	closure := map[string][]string{"p": {"p"}, "n": {"n", "p"}, "m1": {"m1", "n", "p"}, "m2": {"m2", "m1", "n", "p"}}
+	closure := map[string][]string{"p": {"p"}, "n": {"n", "p"}, "m1": {"m1", "n", "p"}, "m2": {"m2", "m1", "n", "p"}, "q": {"q"}}
+	var programs []*lowered
+	want := map[string]string{}
+	program := func(name string, imports []string, src, out string) {
+		main := checkPackage(t, "main", []pkgSource{{"/ergo-test/" + name + "/main.ergo", src}}, imp)
+		seen := map[string]bool{}
+		for _, i := range imports {
+			for _, dep := range closure[i] {
+				if !seen[dep] {
+					seen[dep] = true
+					main.Imports = append(main.Imports, units[dep])
+				}
+			}
+		}
+		programs = append(programs, mustLowerUnit(t, name, main, false))
+		want[name] = out
+	}
 	type form struct {
 		name, decls, expr, want string
 		namesN                  bool // the form itself names n
@@ -64,8 +90,6 @@ func TestContextReachProperty(t *testing.T) {
 			{"replace-n", "let C = context { " + x + ", replace p.S: n.Make(9) }\n", "with C { p.Use() }", "closed n\nn 9\n", true},
 		}
 	}
-	var programs []*lowered
-	want := map[string]string{}
 	for depth, pkg := range []string{"n", "m1", "m2"} {
 		x := pkg + ".W"
 		for _, f := range forms(x) {
@@ -93,23 +117,50 @@ func TestContextReachProperty(t *testing.T) {
 					out += "5\n"
 				}
 				src.WriteString("}\n")
-				name := fmt.Sprintf("reach_d%d_%s_%v", depth+1, strings.ReplaceAll(f.name, "-", "_"), alsoN)
-				main := checkPackage(t, "main", []pkgSource{{"/ergo-test/" + name + "/main.ergo", src.String()}}, imp)
-				seen := map[string]bool{}
-				for _, i := range imports {
-					for _, dep := range closure[i] {
-						if !seen[dep] {
-							seen[dep] = true
-							main.Imports = append(main.Imports, units[dep])
-						}
-					}
+				program(fmt.Sprintf("reach_d%d_%s_%v", depth+1, strings.ReplaceAll(f.name, "-", "_"), alsoN), imports, src.String(), out)
+			}
+		}
+		// Withs of two and three operands (round 2 M1): X, the only reach
+		// of n, in every position, beside a context of the root (Mine), a
+		// body-local context (l) and an imported context whose package
+		// the body also names (q.V).
+		for _, set := range [][]string{{x, "Mine"}, {x, "q.V"}, {x, "l", "q.V"}} {
+			for _, order := range permutations(len(set)) {
+				ops := make([]string, len(order))
+				for i, k := range order {
+					ops[i] = set[k]
 				}
-				programs = append(programs, mustLowerUnit(t, name, main, false))
-				want[name] = out
+				has := func(op string) bool { return slices.Contains(ops, op) }
+				imports := []string{pkg, "p"}
+				if has("q.V") {
+					imports = append(imports, "q")
+				}
+				var src strings.Builder
+				for _, i := range imports {
+					src.WriteString("import " + i + "\n")
+				}
+				src.WriteString("\n" + reachT + "\n")
+				if has("Mine") {
+					src.WriteString("let Mine = context { T: H }\n\n")
+				}
+				src.WriteString("func main() needs Console {\n")
+				if has("l") {
+					src.WriteString("\tlet l = context { T: H }\n")
+				}
+				body, out := `\(p.Use())`, "n 2"
+				if has("Mine") || has("l") {
+					body, out = body+` \(T.Hi())`, out+" h"
+				}
+				if has("q.V") {
+					body, out = body+` \(q.R.Get())`, out+" q"
+				}
+				src.WriteString("\tConsole.Println(with " + strings.Join(ops, ", ") + " { \"" + body + "\" })\n}\n")
+				label := strings.NewReplacer(pkg+".W", "X", "q.V", "V").Replace(strings.Join(ops, "_"))
+				program(fmt.Sprintf("reach_d%d_ops_%s", depth+1, label), imports, src.String(), "closed n\n"+out+"\n")
 			}
 		}
 	}
-	if len(programs) < 30 {
+	if len(programs) < 63 {
 		t.Fatalf("the generator made %d programs", len(programs))
 	}
 	exes := buildAll(t, programs, true)

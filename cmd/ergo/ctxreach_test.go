@@ -13,6 +13,8 @@ import (
 // stopped with an internal compiler error from the naming pass.
 //   - shop: `with mem.Paying { p.Use() }` (cmd/app) and `let Live =
 //     context { mem.Paying }` (cmd/app2); main names mem nowhere else.
+//   - twoop: `with Mine, n.Q { both() }`; n is named only by the second
+//     operand of the with (round 2 M1).
 //   - examples/checkout without Declining and the tests: main names the
 //     memory package only in `let Live = context { …, memory.Paying }`.
 func TestErgoRunContextOnlyPackage(t *testing.T) {
@@ -24,6 +26,12 @@ func TestErgoRunContextOnlyPackage(t *testing.T) {
 		if code != 0 || string(stdout) != "mem\n" {
 			t.Errorf("shop: ergo run %s: exit %d stdout %q, want mem\n%s", app, code, stdout, stderr)
 		}
+	}
+	// twoop (round 2 M1, the verifier's probe): `with Mine, n.Q { … }`,
+	// where the second operand is the only name of n.
+	twoop := filepath.Join(workspace, "cmd", "ergo", "testdata", "ctxreach", "twoop")
+	if stdout, stderr, code := runSmokeCLI(t, packagesDeadline, binary, twoop, "", "run", "cmd/twoop"); code != 0 || string(stdout) != "pl hi\n" {
+		t.Errorf("twoop: ergo run cmd/twoop: exit %d stdout %q, want pl hi\n%s", code, stdout, stderr)
 	}
 
 	checkout := filepath.Join(workspace, filepath.FromSlash(readmeSmokeProgram))
