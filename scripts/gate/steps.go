@@ -363,7 +363,13 @@ func authoredExamples(root string) ([]string, error) {
 }
 
 // slowPackages are measured by -record-durations and sharded by the gate.
-var slowPackages = []string{"./cmd/ergo"}
+// The checker and the lowering have run their tests in one process, one at
+// a time: 294 s and 509 s serial at a CPU budget of 4 (gate-fast plan, run
+// wf10, section 1.1, measured). Their shards are processes, so they need no
+// t.Parallel audit; each shard is a step with its own TMPDIR (stepTempDir).
+// The shard count is the measured work over shardTargetSeconds, at most the
+// CPU budget.
+var slowPackages = []string{"./cmd/ergo", "./internal/sketch/check", "./internal/sketch/lower"}
 
 // writeDurations measures each slow package's tests serially (as a single
 // process runs them), each under the memory budget of limit, and rewrites
