@@ -96,7 +96,7 @@ Status: **implemented** (#199 stage 1): the checker records each frame's footpri
 
 ## Context
 
-Status: **checked** (#196): provider literals, closed named contexts, inline and local contexts (rule 9; check-v1 E5), embedding, `replace` and several keys in one entry. The build lowers each of them for a context of the program's own package (#199 stages 3b and 3c; `TestRuntime199ContextBuildProperty`, `TestErgoRunE5Contexts`); it refuses a `with` of an imported context until 196b lowers packages. Constructors are **designed, not yet implemented**: S109 naming [#37](https://github.com/cevr/ergo/issues/37).
+Status: **checked** (#196): provider literals, closed named contexts, inline and local contexts (rule 9; check-v1 E5), embedding, `replace` and several keys in one entry. The build lowers each of them for a context of the program's own package (#199 stages 3b and 3c; `TestRuntime199ContextBuildProperty`, `TestErgoRunE5Contexts`) and for a context of an imported package (196b U4; `TestRunImportedContext`). A qualified embedding `context { b.W }` names the exported named context `W` of the imported package `b` and means what a bare embedding of a named context means: it brings `W`'s bindings, and a `replace` of the embedding context may override them. An unexported or a missing context of `b` is S104 at the name, "b.w is not an exported context of package b", and the embedding is a use of the import, so the import is not S110. Imports are acyclic, so an imported context is on no embedding cycle; the context pass reads its summary, made by its own package's pass, as one probe of the package's context budget (196b Q9; `TestQualifiedContextEmbed`). Constructors are **designed, not yet implemented**: S109 naming [#37](https://github.com/cevr/ergo/issues/37).
 
 ```go
 let Live = context {
@@ -128,7 +128,7 @@ let Live = context {
 
 ## With
 
-Status: **implemented**: checked (#196) and lowered for every operand kind: a named, an inline or a local context (Context 9), a context value (rule 9; #199 stage 4a), its protocol functions generic or not (check-v1 E6b, `TestErgoRunGenericContextKey`), and several operands (rule 7; check-v1 E5, `TestErgoRunE5Contexts`). A `with` of an imported context waits for 196b (Context), and rule 6's constructor startup errors for [#37](https://github.com/cevr/ergo/issues/37). An inline context whose entries are explicit provider expressions runs (#199 stage 3c; `TestRuntime199AcquireProperty`).
+Status: **implemented**: checked (#196) and lowered for every operand kind: a named, an inline or a local context (Context 9), a context value (rule 9; #199 stage 4a), its protocol functions generic or not (check-v1 E6b, `TestErgoRunGenericContextKey`), and several operands (rule 7; check-v1 E5, `TestErgoRunE5Contexts`). A `with` of an imported context, `with b.W`, and of a context that embeds one are lowered too: the providers are built and released as those of a named context of the program's own package are (196b U4; `TestRunImportedContext`). Rule 6's constructor startup errors for [#37](https://github.com/cevr/ergo/issues/37). An inline context whose entries are explicit provider expressions runs (#199 stage 3c; `TestRuntime199AcquireProperty`).
 
 ```go
 let value = with Live { checkout(id) }
