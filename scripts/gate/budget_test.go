@@ -555,29 +555,60 @@ func (w *outputCounter) Write(content []byte) (int, error) {
 	return len(content), nil
 }
 
+// The gate drains a step's output as fast as os/exec's own copy does: its
+// readers wait in Go's poller and wake when the pipe has data, not on a
+// timer. The drain that polled every 5 ms (before 33fd0355) moved one pipe's
+// worth of output per tick. The bound is relative, so the host's load does
+// not decide it: in the same run, the same program writes the same output
+// through os/exec's copy (a pipe, a goroutine and a 32K buffer, as
+// runBudgeted's), alternating with runBudgeted, and the fastest of each
+// kind is compared. A fixed 1.5 s limit failed under load (follow-up of
+// closure-flake, 2026-11-05).
 func TestRunBudgetedOutputThroughput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the output pipe requires Unix process groups")
 	}
 
 	const outputBytes = 50 << 20
-	const generousLimit = 1500 * time.Millisecond
-	var output outputCounter
-	command := exec.Command("head", "-c", strconv.Itoa(outputBytes), "/dev/zero")
-	command.Stdout = &output
-	command.Stderr = &output
-
-	started := time.Now()
-	if _, err := runBudgeted(outputThroughputLimiter{}, "output-throughput", command); err != nil {
-		t.Fatalf("runBudgeted: %v", err)
+	// Measured 2026-11-06 at a load of about 28: a 5 ms timer drain took
+	// 163 times os/exec's copy (4.29 s against 26 ms), and the poller drain
+	// 0.9 times; under CPUQuota=2% the poller drain took 0.7 to 1.3 times.
+	const ratio = 4
+	run := func(budgeted bool) time.Duration {
+		t.Helper()
+		var output outputCounter
+		command := exec.Command("head", "-c", strconv.Itoa(outputBytes), "/dev/zero")
+		command.Stdout = &output
+		command.Stderr = &output
+		started := time.Now()
+		var err error
+		if budgeted {
+			_, err = runBudgeted(outputThroughputLimiter{}, "output-throughput", command)
+		} else {
+			err = command.Run()
+		}
+		elapsed := time.Since(started)
+		if err != nil {
+			t.Fatalf("budgeted %t: %v", budgeted, err)
+		}
+		if output.bytes != outputBytes {
+			t.Fatalf("budgeted %t: captured %d bytes, want %d", budgeted, output.bytes, outputBytes)
+		}
+		return elapsed
 	}
-	elapsed := time.Since(started)
-	t.Logf("runBudgeted shared output: %d bytes in %s (generous limit %s)", output.bytes, elapsed, generousLimit)
-	if output.bytes != outputBytes {
-		t.Fatalf("captured %d bytes, want %d", output.bytes, outputBytes)
+	var fastestCopy, fastestBudgeted time.Duration
+	for trial := range 3 {
+		copied, budgeted := run(false), run(true)
+		if trial == 0 || copied < fastestCopy {
+			fastestCopy = copied
+		}
+		if trial == 0 || budgeted < fastestBudgeted {
+			fastestBudgeted = budgeted
+		}
 	}
-	if elapsed > generousLimit {
-		t.Fatalf("50 MB output took %s, above the generous %s limit", elapsed, generousLimit)
+	t.Logf("50 MB: fastest runBudgeted %s, fastest os/exec copy %s", fastestBudgeted, fastestCopy)
+	if fastestBudgeted > ratio*fastestCopy {
+		t.Fatalf("runBudgeted drained 50 MB in %s at best, over %d times os/exec's copy (%s at best)", fastestBudgeted, ratio, fastestCopy)
 	}
 }
 
