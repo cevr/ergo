@@ -13,7 +13,8 @@ import (
 // with no environment parameter, and every direct call of it passes none:
 // the benchmark's Fold(n int) int is Go's Fold(n int) int.
 //
-// A function of the program's package is pure when
+// A function with an Ergo body, of the program's package, of an imported
+// user package or of std (strings.Cut), is pure when
 //   - it has an Ergo body (no extern target), it is not the program's main
 //     (the generated Go main runs it in the root task's environment), and
 //     it is not a checked Close (a release masks its own body in its task,
@@ -26,55 +27,108 @@ import (
 //   - every call in its body, outside the bodies of function literals
 //     (each a frame of its own that takes its caller's environment as its
 //     parameter), is a built-in operation (len, a conversion), a call of a
-//     pure std body (pureStdBody), or a call of a pure function.
+//     pure std body (pureStdBody), or a call of a pure function of any
+//     package.
 //
-// The last rule is a greatest fixed point over the call graph, so plain,
-// recursive and mutually recursive functions are pure together. A pure std
+// Each rule reads the facts of the function's own package (its Info). The
+// last rule is a greatest fixed point over the call graph across packages
+// (isPure), so plain, recursive and mutually recursive functions are pure
+// together, and a function of another package is pure only when its own
+// body is. A pure std
 // body is a std extern whose runtime/v1 Go body v1.BodyOf reports Pure
 // (stdlib.md, Pure bodies): it takes no hidden argument and no function,
 // so its call (stdCall) is a plain Go call that reads no environment, and
 // the checker's footprint already counts it as nothing. A call of any
 // other extern (a user extern, a std body that is not pure, an intrinsic),
 // a with, an operation and a function value is never a pure call. A
-// library function (std Ergo source, such as strings.Cut) keeps its
-// environment. A function value of a pure function keeps the one Go shape
+// library function (std Ergo source, such as strings.Cut, or an imported
+// user package's) is emitted pure by the same rules. A function value of a pure function keeps the one Go shape
 // of every function value: its closure takes an environment and discards
 // it (funcValue). The body of a pure function binds no environment, so any
 // lowering that would read one is an internal compiler error with its
 // source site (envExpr), never an unbound name.
 
-// pureFuncs is the set of pure functions of the program's package,
-// computed once from the package's own Info (a library body swaps l.info
-// while it is emitted).
-func (l *lowerer) pureFuncs() map[*check.Func]bool {
-	if l.pure != nil {
-		return l.pure
+// isPure reports whether f is a pure function. l.pure records every
+// function decided so far, true or false. An undecided f is decided with
+// every undecided function its body calls, at any depth and in any
+// package: a function of the program's package, of an imported user
+// package or of a std package with an Ergo body (strings.Cut). Each is
+// read with its own package's Info (Footprints, Calls and TaskResults are
+// keyed by its package's nodes), so a callee of another package is pure
+// only when its own body is. The set is the greatest fixed point over that
+// call graph: a function stays a candidate until a callee of it is known
+// impure, and that fact is passed to each caller in turn (a worklist), so
+// a chain of packages of any length is decided. Imports form no cycle, so
+// the graph of other packages' callees is the import graph, imports first.
+func (l *lowerer) isPure(f *check.Func) bool {
+	if l.pure == nil {
+		l.pure = map[*check.Func]bool{}
 	}
-	pure := map[*check.Func]bool{}
+	if p, ok := l.pure[f]; ok {
+		return p
+	}
+	// Collect the undecided closure of f in a fixed order: f first, then
+	// each candidate's callees in body order. The order matters only to
+	// meetsHostProtocol, which may name a record's Go type.
+	var order []*check.Func
 	callees := map[*check.Func][]*check.Func{}
-	for _, f := range l.canon.funcs(l.pkg) {
-		if cs, ok := pureCandidate(l.pkg.Info, f); ok && !l.meetsHostProtocol(f) {
-			pure[f], callees[f] = true, cs
+	cand := map[*check.Func]bool{}
+	seen := map[*check.Func]bool{f: true}
+	for queue := []*check.Func{f}; len(queue) > 0; {
+		g := queue[0]
+		queue = queue[1:]
+		order = append(order, g)
+		if g.Pkg == nil || g.Pkg.Info == nil {
+			continue
 		}
-	}
-	for changed := true; changed; {
-		changed = false
-		for f := range pure {
-			for _, g := range callees[f] {
-				if !pure[g] {
-					delete(pure, f)
-					changed = true
-					break
-				}
+		cs, ok := pureCandidate(g.Pkg.Info, g)
+		if !ok || l.meetsHostProtocol(g) {
+			continue
+		}
+		cand[g], callees[g] = true, cs
+		for _, h := range cs {
+			if _, done := l.pure[h]; !done && !seen[h] {
+				seen[h] = true
+				queue = append(queue, h)
 			}
 		}
 	}
-	l.pure = pure
-	return pure
+	// A function is impure when a callee is: a decided impure one, or one
+	// of the closure that is no candidate or is found impure here.
+	callers := map[*check.Func][]*check.Func{}
+	var impure []*check.Func
+	for _, g := range order {
+		if !cand[g] {
+			impure = append(impure, g)
+			continue
+		}
+		for _, h := range callees[g] {
+			callers[h] = append(callers[h], g)
+			if p, done := l.pure[h]; done && !p {
+				impure = append(impure, g)
+			}
+		}
+	}
+	for len(impure) > 0 {
+		g := impure[0]
+		impure = impure[1:]
+		if _, done := l.pure[g]; done {
+			continue // found impure already
+		}
+		l.pure[g] = false
+		impure = append(impure, callers[g]...)
+	}
+	for _, g := range order {
+		if _, done := l.pure[g]; !done {
+			l.pure[g] = true
+		}
+	}
+	return l.pure[f]
 }
 
 // pureCandidate reports whether f meets every rule of a pure function but
-// the last's fixed point, with the package functions its body calls.
+// the last's fixed point, with the Ergo-bodied functions its body calls,
+// of any package; info is f's own package's Info.
 func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 	d := f.Decl
 	if d == nil || d.Body == nil || d.Extern != nil || f.Name == "main" || isClose(f) {
@@ -111,7 +165,7 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 				ok = false
 			case c.Kind == check.CallLen || c.Kind == check.CallConversion:
 			case c.Kind == check.CallFunc && !c.TaskResult && pureStdBody(c.Func):
-			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg == f.Pkg && c.Func.Decl != nil && c.Func.Decl.Extern == nil && !c.TaskResult:
+			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil && !c.TaskResult:
 				callees = append(callees, c.Func)
 			default:
 				ok = false

@@ -605,7 +605,7 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	fd := &funcDecl{fn: f, library: f.Pkg != l.pkg}
 	l.funcs[f] = fd
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
-	fd.pure = !fd.library && l.pureFuncs()[f]
+	fd.pure = l.isPure(f)
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		fd.extern = strings.Trim(f.Decl.Extern.Target.Value, "\"`")
 	}
