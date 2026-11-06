@@ -15,9 +15,11 @@ import (
 //
 // Two layers keep the output free of them:
 //
-//  1. The producer (pkg-lower round 8). check.Check meets a package's
-//     files in one canonical order, a function of their contents
-//     (check/canon.go), so all it derives is a function of the sources:
+//  1. The producer (pkg-lower rounds 8 and 9). check.Check meets a
+//     package's files in one canonical order (check/canon.go,
+//     canonicalFiles): by file name (syntax.File.Name), then by a key of
+//     the text with the import lines sorted (fileKey), then by the full
+//     text. So all it derives is a function of the sources:
 //     its lists, the intern order of its types and so the order of every
 //     row's elements, a row value's variants and a catch's subjects, the
 //     text of every type, and its diagnostics. A reader of the check
@@ -54,11 +56,14 @@ import (
 //     each package's files in path order (sources);
 //   - a sourced package's functions, types and tests: by source file in
 //     that order, then by offset (declOrder). This is declaration order in
-//     each file, which the source fixes. The checker's own key orders the
-//     files by content, as it has no paths; the lowering has the paths, so
-//     it orders by path, the order go build gives. Both are functions of
-//     the sources, so a site that read the checker's list would still emit
-//     a function of the program, only in another canonical order;
+//     each file, which the source fixes. The checker orders the files by
+//     syntax.File.Name, then by content, then by full text
+//     (canonicalFiles); the lowering orders them by the Unit's source
+//     path, the order go build gives. Both are functions of the sources,
+//     so a site that read the checker's list would still emit a function
+//     of the program, in the checker's canonical order. The two orders
+//     differ when a caller sets no syntax.File.Name or sets one that is
+//     not the source path;
 //   - a std package's lists: the checker's order. A std package has no
 //     source in the unit; the checker reads its embedded files in one
 //     fixed order, so that order is a function of the sources too.
