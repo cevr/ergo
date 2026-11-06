@@ -4,6 +4,8 @@ package closure
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -17,6 +19,11 @@ var errUnsupported = errors.New("unsupported on " + runtime.GOOS + ": the closur
 func sandboxSupported() error { return errUnsupported }
 
 func sandboxCommand(string, ...string) (*exec.Cmd, error) { return nil, errUnsupported }
+
+func reaperMain([]string) {
+	fmt.Fprintf(os.Stderr, "%s%v\n", sandboxMarker, errUnsupported)
+	os.Exit(sandboxExit)
+}
 
 func runWithin(*exec.Cmd, time.Duration) (bool, error) { return false, errUnsupported }
 

@@ -65,6 +65,9 @@ const (
 	// the sandbox; its output then starts with sandboxMarker and the reason.
 	sandboxExit   = 125
 	sandboxMarker = "closure sandbox: "
+	// reaperArgument, the first argument of a helper run, makes it the
+	// run's reaper (reaperMain), which starts the helper with the rest.
+	reaperArgument = "-closure.reaper"
 )
 
 // sandbox is what one protected run needs: the checkout, by its physical
@@ -81,6 +84,9 @@ type sandbox struct {
 // before testinputs.Main. It returns only when the binary runs as a test.
 func helperMain() {
 	if spec, ok := os.LookupEnv(sandboxVariable); ok {
+		if len(os.Args) > 1 && os.Args[1] == reaperArgument {
+			reaperMain(os.Args[2:])
+		}
 		sandboxMain(spec, os.Args[1:])
 	}
 	if op, ok := os.LookupEnv(childVariable); ok {
