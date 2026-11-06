@@ -5,7 +5,8 @@
 //
 //	go run ./scripts/examples [flags] [PROGRAM...]
 //
-// It imports only the standard library: the gate needs only Go and Git.
+// It imports the standard library and, for the law check (laws.go), the
+// checker's front end: the gate needs only Go and Git.
 package main
 
 import (

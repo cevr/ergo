@@ -33,7 +33,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 
 `ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for each package folder that declares a test, printing `ok <program>: test <folder>`.
 
-A domain package states each contract it needs as an operation type with laws (`AGENTS.md`). So in a program of packages, an operation type declared outside `cmd/` with no member law is a layout error: `examples/<name>: <file>:<line>: operation type T has no law; …`. The runner reads the source as text for this check. `go run ./scripts/examples -lawless` reports every operation type with no law under `examples/`, in any program or folder, runs nothing, and exits 0.
+A domain package states each contract it needs as an operation type with laws (`AGENTS.md`). So in a program of packages, an operation type declared outside `cmd/` with no member law is a layout error: `examples/<name>: <file>:<line>: operation type T has no law; …`. The runner reads each package folder with the checker for this check, as `ergo check DIR` does, and takes the operation types and their member laws from the checked package; a package the checker refuses is a layout error that names the diagnostic. `go run ./scripts/examples -lawless` reports every operation type with no law under `examples/`, in any program or folder, runs nothing, and exits 0.
 
 Nothing else. The runner checks the layout of every folder before any case runs, whatever the selection. A layout error prints `examples/<name>: <reason>` and exits 2.
 
