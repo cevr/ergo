@@ -2,9 +2,12 @@
 // packages). Files is the capability; Host is the host's provider of it,
 // and a program binds it in a context, `context { fs.Files: fs.Host }`. A
 // test binds its own provider instead, such as a map of paths to text. The
-// externs are unexported: a program reaches the disk only through a Files
-// it names in its row. No handle is exposed, so no file stays open after a
-// call returns.
+// externs are unexported, but the value fs.Host is not: today any code that
+// holds it reads the disk, by `fs.ReadFile(fs.Host, p)` or by its own
+// context, with no Files in its row. Binding fs.Host only in the context of
+// cmd/<name>/main.ergo is a convention; a checker rule will enforce it
+// (host-authority, planned). No handle is exposed, so no file stays open
+// after a call returns.
 
 // NotFound is the failure of a path that does not exist.
 type NotFound { Path string }

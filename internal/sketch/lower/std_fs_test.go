@@ -85,9 +85,14 @@ func run() needs Console | fs.Files {
 
 let Live = context { fs.Files: fs.Host }
 
+// main names fs.Host only in its context and inside that context's with,
+// the convention a checker rule will enforce (stdlib.md, fs 6;
+// host-authority, planned).
 func main() needs Console {
-	with Live { run() }
-	Console.Println(viaValue(fs.Host))
+	with Live {
+		run()
+		Console.Println(viaValue(fs.Host))
+	}
 }
 `
 
