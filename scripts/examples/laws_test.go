@@ -69,6 +69,35 @@ func TestLawlessTypes(t *testing.T) {
 	}
 }
 
+// In a package of several files, each lawless type is reported at the file
+// and line of its own declaration, not at another file of the package
+// (b9 D3 r1 M1: the declaration-to-file match).
+func TestLawlessPackageNamesTheDeclaringFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for name, source := range map[string]string{
+		"a.ergo": "// The store.\n\ntype Store {\n\tGet(k string) int,\n}\n",
+		"b.ergo": "type Ticker {\n\tNow() int,\n\tlaw Steady() { Now() == Now() },\n}\n",
+		"c.ergo": "\ntype Queue {\n\tPush(n int),\n}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found, problems := lawlessPackage(dir, dir)
+	if len(problems) > 0 {
+		t.Fatalf("problems %q", problems)
+	}
+	var got []string
+	for _, l := range found {
+		got = append(got, fmt.Sprintf("%s:%d %s", l.file, l.line, l.name))
+	}
+	slices.Sort(got)
+	if want := []string{"a.ergo:3 Store", "c.ergo:2 Queue"}; !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // A package the checker refuses is a problem that names the diagnostic,
 // so a type error never hides a lawless type.
 func TestLawlessPackageReportsCheckErrors(t *testing.T) {
@@ -95,6 +124,9 @@ func TestModuleProgramOperationTypeNeedsALaw(t *testing.T) {
 	lawless := newFixture(t)
 	setup(lawless)
 	lawless.write("examples/walker/walk/replays.ergo", "type Replay { Name string }\n\n// Library is a contract.\ntype Library {\n\tReplays() []Replay,\n}\n")
+	// A later file of the same package, so the report must name the file
+	// that declares Library, not the package's last file.
+	lawless.write("examples/walker/walk/zones.ergo", "type Zones {\n\tCount() int,\n\tlaw Counted() { Count() >= 0 },\n}\n")
 	code, out := lawless.run()
 	want := "examples/walker: walk/replays.ergo:4: operation type Library has no law"
 	if code != 2 || !strings.Contains(out, want) {
