@@ -52,7 +52,7 @@ import (
 func TestPackageKeyModel(t *testing.T) {
 	sequences, commands := 80, 50
 	if testing.Short() {
-		sequences = 25
+		sequences = 40
 	}
 	for seed := range uint64(sequences) {
 		w := newPackageWorld(t, seed)
@@ -176,6 +176,16 @@ func (w *packageWorld) write(name string) bool {
 	if err := os.WriteFile(full, []byte(fmt.Sprintf("v%d %s", w.version, name)), 0o644); err != nil {
 		return false
 	}
+	if name == ignoredPath {
+		// Its key is its stat tuple. Two writes within one tick of the
+		// kernel's coarse file clock can leave it equal (what RecentWindow
+		// guards against, which facts() steps over): a distinct mtime per
+		// write keeps each write a change of the tuple.
+		stamp := time.Unix(1_000_000_000+int64(w.version), 0)
+		if err := os.Chtimes(full, stamp, stamp); err != nil {
+			w.t.Fatal(err)
+		}
+	}
 	return true
 }
 
@@ -196,7 +206,7 @@ func (w *packageWorld) files() []string {
 }
 
 func (w *packageWorld) step() {
-	switch w.rng.IntN(18) {
+	switch w.rng.IntN(22) {
 	case 0, 1, 2:
 		name := modelPaths[w.rng.IntN(len(modelPaths))]
 		if w.rng.IntN(2) == 0 {
@@ -238,7 +248,7 @@ func (w *packageWorld) step() {
 			}
 			w.note("chmod %s ^%o", name, bit)
 		}
-	case 6:
+	case 6, 21:
 		w.link()
 	case 7:
 		tool := []string{"go", "git", "sh"}[w.rng.IntN(3)]
@@ -277,7 +287,7 @@ func (w *packageWorld) step() {
 		w.note("write %s (ignored)", ignoredPath)
 	case 11:
 		w.recentRun()
-	case 12, 13, 14:
+	case 12, 13, 14, 18, 19, 20:
 		w.fastRun()
 	case 15, 16:
 		w.fullRun()
