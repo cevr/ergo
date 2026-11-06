@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/build"
+	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
 	"io/fs"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path"
@@ -61,7 +64,14 @@ func TestPackageKeyModel(t *testing.T) {
 	if testing.Short() {
 		sequences = 40
 	}
-	for seed := range uint64(sequences) {
+	offset := uint64(0)
+	if text := os.Getenv(seedOffsetVariable); text != "" {
+		var err error
+		if offset, err = strconv.ParseUint(text, 10, 64); err != nil {
+			t.Fatalf("%s=%q: %v", seedOffsetVariable, text, err)
+		}
+	}
+	for seed := offset; seed < offset+uint64(sequences); seed++ {
 		w := newPackageWorld(t, seed)
 		for range commands {
 			w.step()
@@ -71,6 +81,12 @@ func TestPackageKeyModel(t *testing.T) {
 		}
 	}
 }
+
+// seedOffsetVariable moves TestPackageKeyModel's seeds: with it set to n
+// the sequences are seeds n, n+1, …, so a check of the model's margin can
+// run other sequences (gate-tier round 3 TS2 ran offsets 1000 and 5000).
+// The gate never sets it: its runs use seeds from 0.
+const seedOffsetVariable = "ERGO_PKGKEY_SEED_OFFSET"
 
 // modelPackages are the model's test packages:
 //   - a imports b and x/y/z (so x and x/y are on the way to a dependency),
@@ -288,6 +304,8 @@ var modelActions = []modelAction{
 		}
 	}},
 	{"link", inputEntry, 20, func(w *packageWorld) { w.link() }},
+	{"ancestor", inputEntry, 8, func(w *packageWorld) { w.ancestor() }},
+	{"reach", inputEntry, 8, func(w *packageWorld) { w.reach() }},
 	{"write ignored", inputEntry, 10, func(w *packageWorld) {
 		w.write(ignoredPath)
 		w.note("write %s (ignored)", ignoredPath)
@@ -341,6 +359,29 @@ var modelActions = []modelAction{
 		// git add or git rm --cached: the index changes, HEAD stays.
 		w.stage()
 		w.note("stage: index %v, head stays %d", w.index, w.head)
+	}},
+	{"staged rename", inputIndex, 2, func(w *packageWorld) {
+		// git mv: an index entry's path changes, its mode and blob stay.
+		w.rename()
+		w.note("staged rename: index %v, head stays %d", w.index, w.head)
+	}},
+	{"regrant", inputDeclared, 2, func(w *packageWorld) {
+		// b's table entry keeps the path of an input and changes its
+		// grant: a file grant becomes a glob, or back. Neither names a
+		// file, so only the declaration changes.
+		b := w.packages[slices.Index(w.names, "b")]
+		declared := slices.Clone(b.Declared)
+		i := slices.IndexFunc(declared, func(a Allowance) bool { return a.Path == "docs/absent.md" })
+		switch {
+		case i < 0:
+			declared = append(declared, Allowance{"docs/absent.md", GrantFiles})
+		case declared[i].Grant == GrantFile:
+			declared[i].Grant = GrantFiles
+		default:
+			declared[i].Grant = GrantFile
+		}
+		b.Declared = declared
+		w.note("b declares %v", b.Declared)
 	}},
 	{"declare", inputDeclared, 2, func(w *packageWorld) {
 		// b's table entry gains or loses an input that names no file.
@@ -432,6 +473,12 @@ func TestPackageKeyModelChangesEachInputAlone(t *testing.T) {
 		if action.changes == "" {
 			continue
 		}
+		// An action the generator never picks changes nothing in the
+		// model's runs (gate-tier round 3 TS1, mutant s5).
+		if action.weight <= 0 {
+			t.Errorf("action %q has weight %d: the generator never picks it", action.name, action.weight)
+			continue
+		}
 		w := newPackageWorld(t, uint64(i))
 		found := false
 		var seen []string
@@ -501,30 +548,153 @@ func TestPackageKeyInputsAreTheOneList(t *testing.T) {
 	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
+		if !ok || fn.Body == nil || fn.Name.Name != "packageKeyParts" {
 			continue
 		}
-		puts := 0
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
-			switch callee, _ := call.Fun.(*ast.Ident); {
-			case callee == nil:
-			case callee.Name == "put":
-				puts++
-			case callee.Name == "add" && fn.Name.Name == "packageKeyParts":
+			if callee, _ := call.Fun.(*ast.Ident); callee != nil && callee.Name == "add" {
 				if arg, ok := call.Args[0].(*ast.Ident); !ok || !constants[arg.Name] {
 					t.Errorf("packageKeyParts adds a part under %s, not a keyInput constant", types.ExprString(call.Args[0]))
 				}
 			}
 			return true
 		})
-		if want := map[bool]int{true: 2, false: 0}[fn.Name.Name == "PackageKey"]; puts != want {
-			t.Errorf("%s calls put %d times, want %d: the key hashes its inputs only through packageKeyInputs", fn.Name.Name, puts, want)
+	}
+	for _, problem := range packageKeyHashUses(t) {
+		t.Error(problem)
+	}
+}
+
+// packageKeyHashUses type-checks the package's non-test files and returns
+// each use of PackageKey's hasher, or of put, that is not one of the key's
+// three: put(h, "package", Version), the put of each part inside the range
+// over packageKeyInputs, and h.Sum. Uses resolve through go/types, so an
+// alias of put (a variable, in any file), a method value or a direct
+// h.Write is a use of the same object and is reported (gate-tier round 3
+// TS1, mutants e1 and e2). key.go's whole-gate key (Facts.Key) hashes
+// through put on its own hasher; it is the one other function that may
+// call put.
+func packageKeyHashUses(t *testing.T) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	names, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []*ast.File
+	for _, name := range names {
+		// The files this build compiles: its build constraints hold.
+		if match, err := build.Default.MatchFile(".", name); err != nil || !match || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	info := &types.Info{Defs: map[*ast.Ident]types.Object{}, Uses: map[*ast.Ident]types.Object{}}
+	conf := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
+	pkg, err := conf.Check("replay", fset, files, info)
+	if err != nil {
+		t.Fatalf("type-check the package: %v", err)
+	}
+	put, _ := pkg.Scope().Lookup("put").(*types.Func)
+	if put == nil {
+		return []string{"the package has no function put"}
+	}
+	// The functions each identifier is in, and the allowed uses.
+	var problems []string
+	var key *ast.FuncDecl
+	allowed := map[*ast.Ident]bool{}
+	var hasher types.Object
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			switch {
+			case fn.Name.Name == "PackageKey" && fn.Recv == nil:
+				key = fn
+			case fn.Name.Name == "Key" && fn.Recv != nil && filepath.Base(fset.Position(fn.Pos()).Filename) == "key.go":
+				// The whole-gate key: each direct call of put is allowed.
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if call, ok := n.(*ast.CallExpr); ok {
+						if id, ok := call.Fun.(*ast.Ident); ok && info.Uses[id] == put {
+							allowed[id] = true
+						}
+					}
+					return true
+				})
+			}
 		}
 	}
+	if key == nil {
+		return []string{"the package has no function PackageKey"}
+	}
+	// In PackageKey: h := sha256.New(), the version put, the class loop's
+	// put and h.Sum.
+	puts := 0
+	ast.Inspect(key.Body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			if id, ok := n.Lhs[0].(*ast.Ident); ok && id.Name == "h" && n.Tok == token.DEFINE {
+				hasher = info.Defs[id]
+			}
+		case *ast.RangeStmt:
+			if x, ok := n.X.(*ast.Ident); !ok || x.Name != "packageKeyInputs" {
+				return true
+			}
+			ast.Inspect(n.Body, func(m ast.Node) bool {
+				if call, ok := m.(*ast.CallExpr); ok && isHasherPut(info, call, put, hasher) {
+					allowed[call.Fun.(*ast.Ident)] = true
+					allowed[call.Args[0].(*ast.Ident)] = true
+					puts++
+				}
+				return true
+			})
+			return false
+		case *ast.ExprStmt:
+			if call, ok := n.X.(*ast.CallExpr); ok && isHasherPut(info, call, put, hasher) && len(call.Args) == 3 && types.ExprString(call.Args[1]) == `"package"` && types.ExprString(call.Args[2]) == "Version" {
+				allowed[call.Fun.(*ast.Ident)] = true
+				allowed[call.Args[0].(*ast.Ident)] = true
+				puts++
+			}
+		case *ast.SelectorExpr:
+			if id, ok := n.X.(*ast.Ident); ok && hasher != nil && info.Uses[id] == hasher && n.Sel.Name == "Sum" {
+				allowed[id] = true
+			}
+		}
+		return true
+	})
+	if hasher == nil {
+		problems = append(problems, "PackageKey defines no hasher h")
+	}
+	if puts != 2 {
+		problems = append(problems, fmt.Sprintf("PackageKey has %d of its two puts (the version, and each part in the range over packageKeyInputs)", puts))
+	}
+	for id, obj := range info.Uses {
+		if (obj == put || hasher != nil && obj == hasher) && !allowed[id] {
+			problems = append(problems, fmt.Sprintf("%s: a use of %s outside the key's hashing: the package key hashes its inputs only through packageKeyInputs", fset.Position(id.Pos()), id.Name))
+		}
+	}
+	sort.Strings(problems)
+	return problems
+}
+
+// isHasherPut reports whether call is put(h, …) with PackageKey's hasher.
+func isHasherPut(info *types.Info, call *ast.CallExpr, put, hasher types.Object) bool {
+	fun, ok := call.Fun.(*ast.Ident)
+	if !ok || info.Uses[fun] != put || len(call.Args) == 0 || hasher == nil {
+		return false
+	}
+	arg, ok := call.Args[0].(*ast.Ident)
+	return ok && info.Uses[arg] == hasher
 }
 
 // link creates the link, or retargets it.
@@ -540,6 +710,72 @@ func (w *packageWorld) link() {
 		w.t.Fatal(err)
 	}
 	w.note("link %s -> %s", linkPath, target)
+}
+
+// rename moves an index entry to a new path with the same mode and blob,
+// as git mv does; with no entry it stages one.
+func (w *packageWorld) rename() {
+	if len(w.index) == 0 {
+		w.stage()
+		return
+	}
+	w.version++
+	i := w.rng.IntN(len(w.index))
+	staged, _, _ := strings.Cut(w.index[i], "\t")
+	index := slices.Delete(slices.Clone(w.index), i, i+1)
+	w.index = append(index, fmt.Sprintf("%s\tg/moved%d.go", staged, w.version))
+	slices.Sort(w.index)
+}
+
+// ancestor changes a name on the way to the dependency x/y/z (TS2 of
+// gate-tier round 3): x or x/y becomes a file, or a file there gets new
+// content, so a closure that drops the directories on the way to a
+// dependency misses it. When the name is a file already, the rewrite
+// changes that entry alone.
+func (w *packageWorld) ancestor() {
+	name := []string{"x", "x/y"}[w.rng.IntN(2)]
+	if info, err := os.Lstat(w.full(name)); err == nil && info.Mode().IsRegular() {
+		w.note("ancestor %s: rewrite %t", name, w.write(name))
+		return
+	}
+	// The name becomes a file: what is there goes, and for x/y a file
+	// at x goes too.
+	if info, err := os.Lstat(w.full("x")); name == "x/y" && err == nil && !info.IsDir() {
+		if err := os.Remove(w.full("x")); err != nil {
+			w.t.Fatal(err)
+		}
+	}
+	if err := os.RemoveAll(w.full(name)); err != nil {
+		w.t.Fatal(err)
+	}
+	w.note("ancestor %s: replaced by a file %t", name, w.write(name))
+}
+
+// reachTargets are the places outside a's closure that the link can lead
+// to, each with a file in it that reach writes.
+var reachTargets = map[string]string{"../docs/tree": "docs/tree/sub/t2.txt", "../docs/two.md": "docs/two.md", "../c/c.go": "c/c.go"}
+
+// reach changes what the link leads to and nothing else of a's closure
+// (TS2): it writes the file the link reaches outside a's closure, after it
+// points the link at such a place when it leads elsewhere. So a key that
+// does not follow a covered link's reach misses the write.
+func (w *packageWorld) reach() {
+	target, err := os.Readlink(w.full(linkPath))
+	if _, ok := reachTargets[target]; err != nil || !ok {
+		targets := slices.Sorted(maps.Keys(reachTargets))
+		target = targets[w.rng.IntN(len(targets))]
+		if err := os.Remove(w.full(linkPath)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			w.t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(w.full(linkPath)), 0o755); err != nil {
+			w.t.Fatal(err)
+		}
+		if err := os.Symlink(target, w.full(linkPath)); err != nil {
+			w.t.Fatal(err)
+		}
+		w.note("reach: link %s -> %s", linkPath, target)
+	}
+	w.note("reach: write %s: %t", reachTargets[target], w.write(reachTargets[target]))
 }
 
 // classify is the model's Git: one ignored file, every other path tracked.
