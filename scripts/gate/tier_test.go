@@ -158,6 +158,32 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	}
 }
 
+// The variables systemd sets per invocation (a service's or a scope's
+// INVOCATION_ID, JOURNAL_STREAM, SYSTEMD_EXEC_PID, MANAGERPID) differ on
+// every run: a step never receives them and no key holds them, or no
+// package key would ever match a run before it.
+func TestPerInvocationVariablesAreNotKeyed(t *testing.T) {
+	steps, declared := stepEnvironment(), declaredEnvironment()
+	names := []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID"}
+	for _, name := range names {
+		t.Setenv(name, "per-invocation-"+name)
+	}
+	// The messages name variables, never values: the environment can
+	// hold credentials.
+	if got := stepEnvironment(); !slices.Equal(got, steps) {
+		var passed []string
+		for _, entry := range got {
+			if name, _, _ := strings.Cut(entry, "="); slices.Contains(names, name) {
+				passed = append(passed, name)
+			}
+		}
+		t.Errorf("the step environment changed with the per-invocation variables; it passes %q", passed)
+	}
+	if got := declaredEnvironment(); !slices.Equal(got, declared) {
+		t.Errorf("the keyed environment changed with the per-invocation variables")
+	}
+}
+
 // The closure table parses (replay.ParseDeclared): a form the parser does
 // not know would key every package on the whole checkout.
 func TestTheClosureTableParses(t *testing.T) {
