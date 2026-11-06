@@ -256,6 +256,7 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		seen[p] = true
 		out = append(out, p)
 	}
+	visited := map[*check.Context]bool{}
 	visit := func(p *check.Package) {
 		info := p.Info
 		for id, o := range info.Uses {
@@ -283,6 +284,22 @@ func (l *lowerer) libraryPackages() []*check.Package {
 				add(c.Func.Pkg)
 			}
 		}
+		// A with reaches the package of each context it builds, and of
+		// every context that one embeds, at any depth, with no name of the
+		// package written (196b U4): `with mem.Paying { … }` names mem only
+		// as an operand, and an embedding of m.W ⊃ n.W reaches n through
+		// m. That package's facts are then visited like any other's: its
+		// providers' types and functions, and its own withs.
+		for x, with := range info.Withs {
+			if !l.readsFact(p, x) {
+				continue
+			}
+			for ; with != nil; with = with.Next {
+				for _, w := range with.Contexts {
+					contextPackages(w, add, visited)
+				}
+			}
+		}
 	}
 	visit(l.pkg)
 	for i := 0; i < len(out); i++ {
@@ -290,6 +307,21 @@ func (l *lowerer) libraryPackages() []*check.Package {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// contextPackages adds the package of w and of each context w embeds,
+// transitively, each context once.
+func contextPackages(w *check.Context, add func(*check.Package), visited map[*check.Context]bool) {
+	if w == nil || visited[w] {
+		return
+	}
+	visited[w] = true
+	add(w.Package())
+	for _, e := range w.Entries {
+		if e != nil {
+			contextPackages(e.Embedded, add, visited)
+		}
+	}
 }
 
 // quiet runs f and drops a refusal: the naming pass meets the same forms

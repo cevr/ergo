@@ -345,6 +345,11 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 	return sum.binds, sum.known
 }
 
+// Package is the package that declares the context w: a named context's,
+// or the package of the body that holds an inline or a local one. A build
+// reaches it through each with that acquires w (196b U4).
+func (w *Context) Package() *Package { return w.pkg }
+
 // embeddedContext is the context an embedding entry names, or nil: the
 // local context in scope that the context pass found for it (embeds,
 // scanLocals), else the package's named context, else, for a qualified

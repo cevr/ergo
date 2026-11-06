@@ -1,0 +1,8 @@
+import shop/mem
+import shop/p
+
+let Live = context { mem.Paying }
+
+func main() needs Console {
+	Console.Println(with Live { p.Use() })
+}
