@@ -56,28 +56,32 @@ func TestBudgetRecordDurations(t *testing.T) {
 	}
 }
 
-// `-record-durations -short` measures the tests under -short and rewrites
-// only their rows of the short table: the full table, which the size rule
-// and the shards read, keeps its rows.
-func TestRecordShortDurationsWritesOnlyTheShortTable(t *testing.T) {
+// `-record-durations -fast` runs the package's tests as its fast-tier
+// steps run them (-short, without its large tests) and rewrites only its
+// row of the fast CPU table: the durations file, which the size rule and
+// the shards read, and the other packages' rows keep theirs.
+func TestRecordFastCPUWritesOnlyTheFastCPUTable(t *testing.T) {
 	t.Setenv(mechanismVariable, "rss")
 	root := t.TempDir()
-	write(t, root, "go.mod", "module example.test/short\n\ngo 1.24\n")
-	write(t, root, "p/short_test.go", "package p\n\nimport \"testing\"\n\nfunc TestOnlyShort(t *testing.T) {\n\tif !testing.Short() {\n\t\tt.Fatal(\"not run under -short\")\n\t}\n}\n")
-	full := "{\n  \"example.test/short/p\": {\n    \"TestOnlyShort\": 9\n  }\n}\n"
+	write(t, root, "go.mod", "module example.test/fast\n\ngo 1.24\n")
+	write(t, root, "p/fast_test.go", "package p\n\nimport \"testing\"\n\nfunc TestOnlyShort(t *testing.T) {\n\tif !testing.Short() {\n\t\tt.Fatal(\"not run under -short\")\n\t}\n}\n\nfunc TestLarge(t *testing.T) {\n\tt.Fatal(\"a large test ran in the fast tier\")\n}\n")
+	full := "{\n  \"example.test/fast/p\": {\n    \"TestLarge\": 9\n  }\n}\n"
 	write(t, root, durationsFile, full)
+	write(t, root, fastCPUFile, "{\n  \"example.test/fast/q\": 7\n}\n")
+	// The rest of the graph's declarations (declareSteps) read it.
+	write(t, root, "scripts/authored_examples.txt", "go.mod\n")
 	var out strings.Builder
 	if err := (&gate{root: root}).recordDurations(&out, []string{"./p"}, true); err != nil {
 		t.Fatalf("%v; output %q", err, out.String())
 	}
 	if got, err := os.ReadFile(filepath.Join(root, durationsFile)); err != nil || string(got) != full {
-		t.Errorf("the full table changed: %q, %v", got, err)
+		t.Errorf("the durations file changed: %q, %v", got, err)
 	}
-	short, err := readDurationsFile(root, shortDurationsFile)
+	table, err := readFastCPU(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := short["example.test/short/p"]["TestOnlyShort"]; !ok || len(short) != 1 {
-		t.Errorf("short table %v; want the one row TestOnlyShort", short)
+	if cpu, ok := table["example.test/fast/p"]; !ok || cpu <= 0 || table["example.test/fast/q"] != 7 || len(table) != 2 {
+		t.Errorf("fast CPU table %v; want a positive row for p and q's row kept", table)
 	}
 }

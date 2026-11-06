@@ -329,10 +329,10 @@ func main() {
 	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded")
 	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1) and compare each verdict with the full tier's whole-gate record of the checkout's key")
 	recordDurations := flag.Bool("record-durations", false, "measure the tests of the named Go packages (every test package when none is named) serially and rewrite their rows of "+durationsFile)
-	short := flag.Bool("short", false, "with -record-durations: measure under -short, the fast tier's domain, and rewrite "+shortDurationsFile)
+	fast := flag.Bool("fast", false, "with -record-durations: run the named packages' fast-tier steps one at a time and rewrite their CPU seconds in "+fastCPUFile)
 	flag.Parse()
-	if *short && !*recordDurations {
-		fatal(errors.New("-short goes with -record-durations only"))
+	if *fast && !*recordDurations {
+		fatal(errors.New("-fast goes with -record-durations only"))
 	}
 	if *merge && *noCache {
 		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
@@ -408,7 +408,7 @@ func main() {
 		exitGate(2)
 	}
 	if *recordDurations {
-		if err := g.recordDurations(os.Stdout, flag.Args(), *short); err != nil {
+		if err := g.recordDurations(os.Stdout, flag.Args(), *fast); err != nil {
 			fatal(err)
 		}
 		return

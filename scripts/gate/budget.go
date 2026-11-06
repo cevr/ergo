@@ -493,8 +493,9 @@ func interfaceEqual(a, b any) (equal bool) {
 
 // recordDurations measures the packages (writeDurations), every test
 // package of the module when none is named, under the memory budget, as
-// the gate runs its steps; with short, under -short (shortDurationsFile).
-func (g *gate) recordDurations(out io.Writer, packages []string, short bool) error {
+// the gate runs its steps; with fast, the CPU of the packages' fast-tier
+// steps instead (writeFastCPU).
+func (g *gate) recordDurations(out io.Writer, packages []string, fast bool) error {
 	limit := g.limit
 	if limit == nil {
 		budget, err := currentBudget()
@@ -514,7 +515,10 @@ func (g *gate) recordDurations(out io.Writer, packages []string, short bool) err
 		}
 		packages = listed
 	}
-	return writeDurations(g.root, limit, packages, short)
+	if fast {
+		return writeFastCPU(g.root, limit, packages)
+	}
+	return writeDurations(g.root, limit, packages)
 }
 
 // openLimiter chooses the mechanism: the systemd scope the gate runs in, or

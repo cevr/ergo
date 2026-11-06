@@ -347,6 +347,78 @@ func fastSteps(root string) ([]*Step, error) {
 	return append(steps, tests...), nil
 }
 
+// fastCPUFile holds, per test package, the CPU seconds (user and system,
+// its children included) of its fast-tier steps, each run alone as the
+// fast tier declares it (`-record-durations -fast`): -short, without the
+// large tests, one process per shard, so each shard's own setup counts.
+// Only the fast tier's CPU budget reads it (TestFastTierReachOfAnEdit):
+// at a CPU budget of n a set of steps cannot finish in less than its CPU
+// over n, so this sum predicts the wall where serial test times do not.
+const fastCPUFile = "scripts/gate/fast-cpu.json"
+
+func readFastCPU(root string) (map[string]float64, error) {
+	content, err := os.ReadFile(filepath.Join(root, fastCPUFile))
+	if os.IsNotExist(err) {
+		return map[string]float64{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var table map[string]float64
+	if err := json.Unmarshal(content, &table); err != nil {
+		return nil, fmt.Errorf("%s: %w", fastCPUFile, err)
+	}
+	return table, nil
+}
+
+// writeFastCPU runs each named package's fast-tier steps one after
+// another, each under the memory budget of limit, and rewrites their rows
+// of fastCPUFile, keeping the other rows.
+func writeFastCPU(root string, limit limiter, packages []string) error {
+	steps, err := fastSteps(root)
+	if err != nil {
+		return err
+	}
+	table, err := readFastCPU(root)
+	if err != nil {
+		return err
+	}
+	module := modulePath(root)
+	for _, pkg := range packages {
+		dir := strings.TrimPrefix(path.Clean(pkg), "./")
+		cpu, ran := 0.0, 0
+		for _, step := range steps {
+			if step.Package == nil || step.Package.Dir != dir {
+				continue
+			}
+			command := exec.Command(step.Argv[0], step.Argv[1:]...)
+			command.Env = append(stepEnvironment(), step.Env...)
+			command.Dir = root
+			command.Stdout = io.Discard
+			command.Stderr = os.Stderr
+			used, err := runBudgeted(limit, step.Name, command)
+			if used.verdict != "" {
+				return fmt.Errorf("%s: %s", step.Name, used.verdict)
+			}
+			if err != nil {
+				return fmt.Errorf("%s: %w", step.Name, err)
+			}
+			state := command.ProcessState
+			cpu += (state.UserTime() + state.SystemTime()).Seconds()
+			ran++
+		}
+		if ran == 0 {
+			return fmt.Errorf("%s: no fast-tier step runs this package", pkg)
+		}
+		table[module+"/"+dir] = math.Round(cpu*10) / 10
+	}
+	data, err := json.MarshalIndent(table, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, fastCPUFile), append(data, '\n'), 0644)
+}
+
 // stepsDigest identifies the steps the gate declares: names, needs, argv,
 // variables and declared inputs. A host package's tests inspect the
 // declarations, so the digest is in its key (hostPackageInputs).
