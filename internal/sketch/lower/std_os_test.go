@@ -79,6 +79,32 @@ func main() needs Console {
 }
 `
 
+// paramProgram passes os.Host and a program's own provider as values of
+// os.Process, and calls the operations on the parameter.
+const paramProgram = `import os
+
+type FakeEnv { Argv []string }
+
+func Args(e FakeEnv) []string { e.Argv }
+
+func Getenv(_ FakeEnv, key string) Option[string] { Some[string]{Value: "fake"} }
+
+func show(p os.Process) string {
+	match p.Getenv("ERGO_G2_K") {
+	case Some[string] as s:
+		"\(len(p.Args())) \(s.Value)"
+	case None:
+		"\(len(p.Args())) None"
+	}
+}
+
+func main() needs Console {
+	Console.Println(show(os.Host))
+	let p os.Process = FakeEnv{Argv: []string{"x", "y", "z"}}
+	Console.Println(show(p))
+}
+`
+
 // TestOSProcessRuns: std os reads the host process through os.Host bound in
 // a context (stdlib.md, host packages): Args excludes the program name;
 // Getenv tells Some("") from None; os.Exit alone writes its Message
@@ -90,7 +116,8 @@ func main() needs Console {
 func TestOSProcessRuns(t *testing.T) {
 	host := mustLower(t, "osHost", osProgram)
 	fake := mustLower(t, "osFake", fakeProgram)
-	exes := buildAll(t, []*lowered{host, fake}, true)
+	param := mustLower(t, "osParam", paramProgram)
+	exes := buildAll(t, []*lowered{host, fake, param}, true)
 	if exes == nil {
 		return
 	}
@@ -107,6 +134,7 @@ func TestOSProcessRuns(t *testing.T) {
 		{"hostNope", exes["osHost"], []string{"nope"}, "", "[NOT_FOUND] Unknown topic 'nope'\n", 3},
 		{"hostZero", exes["osHost"], []string{"zero"}, "", "claims success\nerror: os.Exit code 0 is outside 1..125\n", 1},
 		{"fake", exes["osFake"], []string{"ignored"}, want, "", 0},
+		{"param", exes["osParam"], []string{"a"}, "1 v\n3 fake\n", "", 0},
 	}
 	for _, c := range cases {
 		stdout, stderr, code := runWithEnv(t, c.exe, env, c.args...)

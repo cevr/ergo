@@ -49,7 +49,7 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
 			if !check.SealedStd(n) {
-				return "" // an open std protocol, such as os.Process: a program provides it
+				return "" // an open std protocol, such as os.Process: a program value implements it
 			}
 			return "*" + l.rt() + "." + obj.Name
 		}
@@ -399,10 +399,12 @@ func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, 
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, site) != "" {
 		ice(site, "the std operation %s.%s bypasses its runtime binding", n.Obj.Name, op.Name)
 	}
-	// The checker refuses every other way to reach a std operation: a type
-	// defined over a std operation type (S108 at the definition) and a
-	// pointer to one (S108 at the call, stage D3b Rule 5).
-	if n := fc.l.foreignOwner(t); n != nil {
+	// The checker refuses every other way to reach a sealed std operation:
+	// a type defined over a std operation type (S108 at the definition)
+	// and a pointer to one (S108 at the call, stage D3b Rule 5). An open
+	// one (check.SealedStd), such as os.Process, is an interface of the
+	// program, so its operation is the Go method below.
+	if n := fc.l.foreignOwner(t); n != nil && check.SealedStd(n) {
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
 	rest := []string{taskOf(env)}

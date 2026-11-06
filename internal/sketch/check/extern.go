@@ -234,9 +234,9 @@ func sealedStd(t Type) *Named {
 // gives a runtime value whose identity a program must not forge, so only
 // the runtime implements the type: no program value converts into it
 // (S109; #206), and the lowering represents it by its runtime/v1 type
-// (lower/std.go runtimeType). Any other std operation type is open: a
-// program provides it, as it provides the prelude's Console or os.Process
-// (stdlib.md, Types 3; std-1 plan 2.2).
+// (lower/std.go runtimeType). Any other std operation type is open, as
+// the prelude's Console and std os.Process are: a program value implements
+// it (stdlib.md, os 5; std-1 plan 2.2).
 func SealedStd(n *Named) bool {
 	if n == nil || n.Obj == nil || n.Obj.Pkg == nil || !n.Obj.Pkg.std || n.Obj.Decl == nil {
 		return false
