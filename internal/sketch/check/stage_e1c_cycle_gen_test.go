@@ -692,7 +692,7 @@ func e1cDomain(full bool) iter.Seq[e1cCase] {
 // acceptance batch (ERGO_CYCLE_GEN=full) runs the same parts over its own
 // domain.
 var e1cCycleGenerator = check.NewSplit(check.Split[e1cCase]{
-	Name: "TestE1cCycleGenerator", Parts: 4, Short: 8,
+	Name: "TestE1cCycleGenerator", Parts: 4, Short: 8, Workers: 4,
 	Count: 14358, Digest: "d08b4ade23f478f9eb73978e3b8e02c3b0578d623b2bbf598fdd15d7c93469ca",
 	Pinned: func() bool { return !e1cFull() },
 	Cases:  func(yield func(e1cCase) bool) { e1cDomain(e1cFull())(yield) },
@@ -711,45 +711,44 @@ func TestE1cCycleGeneratorPart1(t *testing.T) { e1cCycleGenerator.Part(t, 1) }
 func TestE1cCycleGeneratorPart2(t *testing.T) { e1cCycleGenerator.Part(t, 2) }
 func TestE1cCycleGeneratorPart3(t *testing.T) { e1cCycleGenerator.Part(t, 3) }
 
-// e1cWorkers is the number of parallel subtests a part deals its programs to.
-const e1cWorkers = 4
+// e1cGC sets the acceptance batch's GC pacing while any worker of a part
+// runs, and restores the caller's policy when the last one ends; the gate
+// slice keeps the caller's policy.
+var e1cGC struct {
+	sync.Mutex
+	running, previous int
+}
 
+// runE1cCycleGenerator checks the programs of one worker of a part; the
+// split deals each part to four parallel workers.
 func runE1cCycleGenerator(t *testing.T, cases iter.Seq[e1cCase]) {
 	start := time.Now()
 	if e1cFull() {
-		// Only the acceptance batch changes GC pacing; the gate slice uses
-		// the caller's policy. Restore it before any other test runs.
-		runtime.GC()
-		previousGC := debug.SetGCPercent(1000)
-		defer debug.SetGCPercent(previousGC)
-	}
-	var programs, calls [e1cWorkers]int
-	t.Run("domain", func(t *testing.T) {
-		for worker := range e1cWorkers {
-			t.Run(fmt.Sprint(worker), func(t *testing.T) {
-				t.Parallel()
-				position := 0
-				for c := range cases {
-					position++
-					if (position-1)%e1cWorkers != worker {
-						continue
-					}
-					groups, finite, _ := e1cOracleCase(c.ds)
-					if !finite {
-						t.Fatalf("one-level argument alphabet must be finite: program %d expands", c.ordinal)
-					}
-					programs[worker]++
-					calls[worker] += e1cProperties(t, c.ds, groups)
-				}
-			})
+		e1cGC.Lock()
+		if e1cGC.running == 0 {
+			runtime.GC()
+			e1cGC.previous = debug.SetGCPercent(1000)
 		}
-	})
-	var total [2]int
-	for w := range e1cWorkers {
-		total[0] += programs[w]
-		total[1] += calls[w]
+		e1cGC.running++
+		e1cGC.Unlock()
+		defer func() {
+			e1cGC.Lock()
+			if e1cGC.running--; e1cGC.running == 0 {
+				debug.SetGCPercent(e1cGC.previous)
+			}
+			e1cGC.Unlock()
+		}()
 	}
-	t.Logf("P1-P7: full=%v programs=%d CheckSource-calls=%d elapsed=%s", e1cFull(), total[0], total[1], time.Since(start))
+	programs, calls := 0, 0
+	for c := range cases {
+		groups, finite, _ := e1cOracleCase(c.ds)
+		if !finite {
+			t.Fatalf("one-level argument alphabet must be finite: program %d expands", c.ordinal)
+		}
+		programs++
+		calls += e1cProperties(t, c.ds, groups)
+	}
+	t.Logf("P1-P7: full=%v programs=%d CheckSource-calls=%d elapsed=%s", e1cFull(), programs, calls, time.Since(start))
 }
 
 // TestE1cCycleGeneratorDomain: the generator's domain has the size section

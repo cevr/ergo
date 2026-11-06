@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -137,7 +138,14 @@ var contextBudget = NewSplit(Split[contextBudgetCase]{
 	Count: 27, Digest: "442eb1ac963b95d1623448d54c943f495b64e30e7239133fc5b3e6c46f090174",
 	Cases: SeqOf(contextBudgetCases),
 	Key: func(c contextBudgetCase) string {
-		return fmt.Sprintf("%s n=%d refused=%v\n%s", c.shape, c.n, c.refused, contextFamily(c.shape, c.n))
+		// The sources are slow to write at n = 8000, and the coverage test
+		// reads each key twice (the domain, then the parts), so keep them.
+		if k, ok := contextBudgetKeys.Load(c); ok {
+			return k.(string)
+		}
+		k := fmt.Sprintf("%s n=%d refused=%v\n%s", c.shape, c.n, c.refused, contextFamily(c.shape, c.n))
+		contextBudgetKeys.Store(c, k)
+		return k
 	},
 	Run: runContextBudget,
 })
@@ -156,6 +164,8 @@ func TestContextBudgetPart10(t *testing.T) { contextBudget.Part(t, 10) }
 func TestContextBudgetPart11(t *testing.T) { contextBudget.Part(t, 11) }
 func TestContextBudgetPart12(t *testing.T) { contextBudget.Part(t, 12) }
 func TestContextBudgetPart13(t *testing.T) { contextBudget.Part(t, 13) }
+
+var contextBudgetKeys sync.Map
 
 type contextBudgetCase struct {
 	shape   string
