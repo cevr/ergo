@@ -4,8 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/build"
-	"go/importer"
+	"go/build/constraint"
 	"go/parser"
 	"go/token"
 	"go/types"
@@ -15,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -588,7 +588,7 @@ func packageKeyHashUses(t *testing.T) []string {
 	var files []*ast.File
 	for _, name := range names {
 		// The files this build compiles: its build constraints hold.
-		if match, err := build.Default.MatchFile(".", name); err != nil || !match || strings.HasSuffix(name, "_test.go") {
+		if strings.HasSuffix(name, "_test.go") || !compiledHere(t, name) {
 			continue
 		}
 		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
@@ -597,11 +597,26 @@ func packageKeyHashUses(t *testing.T) []string {
 		}
 		files = append(files, f)
 	}
+	// The package is type-checked without its imports: go/importer and
+	// go/build import os/exec, and this package's tests replay from Go's
+	// test cache, so their closure may not start a program
+	// (TestCachedGatePackagesAreHermetic). The objects the check follows,
+	// put and the hasher h, are the package's own, so an import that
+	// resolves to an empty package leaves their uses resolved; only an
+	// error that is not an undefined import's selector fails the test.
 	info := &types.Info{Defs: map[*ast.Ident]types.Object{}, Uses: map[*ast.Ident]types.Object{}}
-	conf := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
-	pkg, err := conf.Check("replay", fset, files, info)
-	if err != nil {
-		t.Fatalf("type-check the package: %v", err)
+	var typeErrors []string
+	conf := types.Config{
+		Importer: emptyImporter{},
+		Error: func(err error) {
+			if typeErr, ok := err.(types.Error); !ok || !importedSelector(typeErr.Msg) {
+				typeErrors = append(typeErrors, err.Error())
+			}
+		},
+	}
+	pkg, _ := conf.Check("replay", fset, files, info)
+	if len(typeErrors) > 0 {
+		t.Fatalf("type-check the package: %s", strings.Join(typeErrors, "\n"))
 	}
 	put, _ := pkg.Scope().Lookup("put").(*types.Func)
 	if put == nil {
@@ -695,6 +710,73 @@ func isHasherPut(info *types.Info, call *ast.CallExpr, put, hasher types.Object)
 	}
 	arg, ok := call.Args[0].(*ast.Ident)
 	return ok && info.Uses[arg] == hasher
+}
+
+// emptyImporter resolves every import to an empty package
+// (packageKeyHashUses).
+type emptyImporter struct{}
+
+func (emptyImporter) Import(importPath string) (*types.Package, error) {
+	pkg := types.NewPackage(importPath, path.Base(importPath))
+	pkg.MarkComplete()
+	return pkg, nil
+}
+
+// importedSelector reports whether a type error comes from an empty
+// imported package: a selector of it ("undefined: sha256.New"), or an
+// import whose only uses are such selectors ("\"syscall\" imported and not
+// used").
+func importedSelector(message string) bool {
+	if strings.HasPrefix(message, `"`) && strings.HasSuffix(message, `" imported and not used`) {
+		return true
+	}
+	name, ok := strings.CutPrefix(message, "undefined: ")
+	return ok && strings.Count(name, ".") == 1 && !strings.ContainsAny(name, " ()")
+}
+
+// knownOS are the GOOS values a file name suffix can select (go/build's
+// list).
+var knownOS = []string{"aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux", "nacl", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos"}
+
+// compiledHere reports whether this build compiles the package file name:
+// its _GOOS name suffix and its //go:build line hold for runtime.GOOS and
+// runtime.GOARCH. It reads only what this package's files use; a file name
+// with a _GOARCH suffix, or a +build line, fails the test, so a new kind of
+// constraint is never skipped silently.
+func compiledHere(t *testing.T, name string) bool {
+	t.Helper()
+	parts := strings.Split(strings.TrimSuffix(name, ".go"), "_")
+	if len(parts) > 2 && slices.Contains(knownOS, parts[len(parts)-2]) {
+		t.Fatalf("%s: a _GOOS_GOARCH name; teach compiledHere its rule", name)
+	}
+	if last := parts[len(parts)-1]; len(parts) > 1 && slices.Contains(knownOS, last) && last != runtime.GOOS {
+		return false
+	}
+	content, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+		if constraint.IsPlusBuild(line) {
+			t.Fatalf("%s: a +build line; teach compiledHere its rule", name)
+		}
+		if !constraint.IsGoBuild(line) {
+			continue
+		}
+		expr, err := constraint.Parse(line)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		unix := runtime.GOOS != "windows" && runtime.GOOS != "plan9" && runtime.GOOS != "js" && runtime.GOOS != "wasip1"
+		return expr.Eval(func(tag string) bool {
+			return tag == runtime.GOOS || tag == runtime.GOARCH || tag == "gc" || tag == "unix" && unix
+		})
+	}
+	return true
 }
 
 // link creates the link, or retargets it.
