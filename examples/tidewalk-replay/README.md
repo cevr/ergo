@@ -34,16 +34,16 @@ The program is a module of packages (`ergo.mod`: `module tidewalk`), in the Go l
 - **A machine.** `type Tidewalk machine[Game, Move] { initial: Start(), step: Step }` declares the game as a machine. `Step(g Game, m Move) Decision[Game, string]` is its transition: `Enter` with the next state, `Reject` for a blocked move, `Ignore` for a finished game. `Apply` and `Word` handle all five `Decision` variants.
 - **Commands and events.** Moves are the commands. `Decide` is pure and records what a move does as past-tense events (`Walked`, `Waited`, `ShellCollected`, `TideRose`, `WalkerDrowned`, `PeakReached`). `Evolve` folds one event into the state, is total over `Game` and `Event`, and decides nothing. Each frame names the step's decision and the recorded events.
 - **Record update.** `evolveWalk` writes each next state as a copy of the walk with the changed fields: `Walk{..w, Turn: w.Turn + 1}`.
-- **Laws.** Six top-level laws state the rules: `BlockedIsRejected`, `FinishedIsFinal`, `TurnNeverFalls`, `TideNeverFalls`, `ShellsNeverFall` and `TideFollowsTurn`.
-- **Tests.** Four example tests (`ShoreCollectsEveryShell`, `GreedyDrowns`, `BumpRejectsBlockedMoves`, `TypoIsRejected`) and two property tests over generated moves (`FinishedIgnoresEveryMove`, `TideFollowsEveryTurn`), in package `walk`.
+- **Laws.** Six top-level laws state the rules: `BlockedIsRejected`, `FinishedIsFinal`, `TurnNeverFalls`, `TideNeverFalls`, `ShellsNeverFall` and `TideFollowsTurn`. The member law `NamedOnce` states the `Library` contract: every replay has a name, and no two share one, because the output names each replay. A provider that holds two replays of one name breaks it.
+- **Tests.** Four example tests (`ShoreCollectsEveryShell`, `GreedyDrowns`, `BumpRejectsBlockedMoves`, `TypoIsRejected`) and two property tests over generated moves (`FinishedIgnoresEveryMove`, `TideFollowsEveryTurn`), in package `walk`. In package `memory`, `FixedNamesEachReplayOnce` runs the `NamedOnce` predicate against `Fixed`.
 - **A contract and a provider.** `walk.Library` is an operation type; `replayAll` declares `needs Console | walk.Library`, and `main` supplies `memory.Fixed` with `with Live { … }`.
 - **A typed failure.** `ParseMoves` fails with `BadMove`, which holds the position of the bad letter. A move list is parsed whole before play. `replayAll` catches the failure for each replay.
 
 ## What runs today
 
-All of the above runs. `scripts/examples` runs `ergo test` on `walk/` and prints `ok tidewalk-replay: test walk`. The compiler checks the laws and leaves them out of the build. These parts wait for other units:
+All of the above runs. `scripts/examples` runs `ergo test` on `memory/` and `walk/` and prints `ok tidewalk-replay: test memory` and `ok tidewalk-replay: test walk`. The compiler checks the laws and leaves them out of the build. `scripts/examples` refuses an operation type with no law in a package outside `cmd/`. These parts wait for other units:
 
-- Laws run as generated tests when #162 lands, and laws move into the machine type when machines carry laws.
+- Laws run as generated tests when #162 lands: then `NamedOnce` runs against every provider of `Library`, and the test in `memory` is no longer needed. Laws move into the machine type when machines carry laws.
 - A runner from the actor library replaces the replay loop over `Step`.
 
 ## Case

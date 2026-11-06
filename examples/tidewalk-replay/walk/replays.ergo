@@ -6,4 +6,24 @@ type Replay { Name string, Moves string }
 // program supplies in its context (package memory holds fixed ones).
 type Library {
 	Replays() []Replay,
+
+	// A program names each replay in its output, so every replay a
+	// library holds has a name, and no two share one.
+	law NamedOnce() { NamedOnce(Replays()) },
+}
+
+// NamedOnce reports whether every replay in rs has a name and no two
+// share one: the Library law, as a function a provider's test calls.
+func NamedOnce(rs []Replay) bool {
+	for i, a in rs {
+		if a.Name == "" {
+			return false
+		}
+		for j, b in rs {
+			if i != j && a.Name == b.Name {
+				return false
+			}
+		}
+	}
+	return true
 }

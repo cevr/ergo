@@ -1,0 +1,11 @@
+// Fixed keeps the walk.Library law. The compiler checks laws and does not
+// run them yet (#162); until it does, this test runs the law's predicate
+// against the one provider.
+
+import tidewalk/walk
+
+test FixedNamesEachReplayOnce {
+	with context { walk.Library: Fixed } {
+		assert walk.NamedOnce(walk.Library.Replays())
+	}
+}
