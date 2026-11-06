@@ -175,6 +175,52 @@ func TestStopperRefusesACommandDuringAStop(t *testing.T) {
 	}
 }
 
+// The gate re-executes itself in its scope only while no stop has begun
+// (fu-gate round 2's Unproven U4): a stop that began while it probed or
+// replayed refuses the exec, and a stop that a signal starts while the
+// exec is under way waits for the stopper's lock, so it cannot begin
+// between the check and the exec.
+func TestStopperRefusesTheScopeExecDuringAStop(t *testing.T) {
+	var s stopper
+	execs := 0
+	if err := s.execUnlessStopping(func() error { execs++; return errors.New("exec failed") }); err == nil || errors.Is(err, errStopped) || execs != 1 {
+		t.Fatalf("before a stop: err %v, %d execs; want the exec's own error after one exec", err, execs)
+	}
+	s.stop(syscall.SIGTERM)
+	if err := s.execUnlessStopping(func() error { execs++; return nil }); !errors.Is(err, errStopped) || execs != 1 {
+		t.Errorf("during a stop: err %v, %d execs; want errStopped and no exec", err, execs)
+	}
+
+	// A stop that begins during the exec waits until the exec returns
+	// (here it fails, as a real one returns only on failure).
+	var during stopper
+	entered, release := make(chan struct{}), make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- during.execUnlessStopping(func() error {
+			close(entered)
+			<-release
+			return errors.New("exec failed")
+		})
+	}()
+	<-entered
+	stopped := make(chan struct{})
+	go func() {
+		during.stop(syscall.SIGTERM)
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("a stop began while the exec was under way")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	if err := <-result; err == nil || errors.Is(err, errStopped) {
+		t.Errorf("the exec returned %v; want its own error", err)
+	}
+	<-stopped
+}
+
 // A stop kills a running command's whole process group, a descendant
 // included, and waits for it before the cleanups run: every holder of the
 // command's output has ended by then (round 1's M1, under any watch).

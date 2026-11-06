@@ -201,6 +201,24 @@ func (s *stopper) stop(received syscall.Signal) (stopResult, bool) {
 	return result, true
 }
 
+// execUnlessStopping runs exec, which replaces the gate's process (the
+// re-execution in its scope), only while no stop has begun, and holds the
+// stopper's lock while it does: a stop that began before refuses it with
+// errStopped, and a stop cannot begin between the check and the exec. A
+// signal the Go runtime takes in that window (microseconds) is lost with
+// the old process image; masking the stop signals across execve would keep
+// it pending, but the runtime saves the mask a process starts with and
+// gives it to every child it starts, so the steps would start with the
+// stop signals blocked.
+func (s *stopper) execUnlessStopping(exec func() error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.signal != 0 {
+		return errStopped
+	}
+	return exec()
+}
+
 // stopping reports whether a stop has begun.
 func (s *stopper) stopping() bool {
 	s.mu.Lock()

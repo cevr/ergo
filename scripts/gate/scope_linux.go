@@ -111,7 +111,14 @@ func enterScope(command, reason string, budget memoryBudget, cpus int) string {
 	}
 	unit := scopeUnit()
 	argv := append([]string{"systemd-run"}, scopeArguments(gateSlice, unit, budget, cpus, append([]string{executable}, os.Args[1:]...))...)
-	err = syscall.Exec(command, argv, scopeGateEnvironment(unit, cpus))
+	// A stop that began while the gate probed or replayed (both run
+	// commands) stops this gate; it never re-executes past it.
+	err = gateStop.execUnlessStopping(func() error {
+		return syscall.Exec(command, argv, scopeGateEnvironment(unit, cpus))
+	})
+	if errors.Is(err, errStopped) {
+		exitGate(2)
+	}
 	return "re-execute in a systemd scope: " + err.Error()
 }
 
