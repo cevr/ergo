@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"iter"
 	"math"
 	"runtime"
 	"runtime/debug"
@@ -36,13 +37,42 @@ import (
 //
 // The test is not parallel: TotalAlloc counts every goroutine, so it runs
 // while no other test of the package does.
-func TestCheckerScale(t *testing.T) {
-	if testing.Short() {
-		t.Skip("scale test skipped in -short mode")
+//
+// The shapes are a split (gate-fast T1): part k checks every fourth shape
+// from shape k, as a top-level test of its own. Under -short the parts
+// skip, as the whole test did.
+var checkerScale = check.NewSplit(check.Split[scaleShape]{
+	Name: "TestCheckerScale", Parts: 4,
+	Count: 22, Digest: "c9d3ef6a318b5ac9e2a5f7d3661b787bb552a97cba74e398afb2de9894f65346",
+	Cases: check.SeqOf(func() []scaleShape { return scaleShapes }),
+	Key:   scaleKey,
+	Run:   runCheckerScale,
+})
+
+func TestCheckerScalePart0(t *testing.T) { checkerScale.Part(t, 0) }
+func TestCheckerScalePart1(t *testing.T) { checkerScale.Part(t, 1) }
+func TestCheckerScalePart2(t *testing.T) { checkerScale.Part(t, 2) }
+func TestCheckerScalePart3(t *testing.T) { checkerScale.Part(t, 3) }
+
+// scaleKey is what a shape checks: its fields and its sources at every
+// size it is measured at.
+func scaleKey(s scaleShape) string {
+	k := s.name + "\x00" + s.finding + "\x00" + s.skip + fmt.Sprintf("\x00n=%d diagnostics=%d", s.n, s.diagnostics)
+	for _, size := range []int{s.n, 2 * s.n, 4 * s.n} {
+		k += "\x00" + s.source(size)
 	}
+	if s.control != nil {
+		for _, size := range []int{s.n, 4 * s.n} {
+			k += "\x00control\x00" + s.control(size)
+		}
+	}
+	return k
+}
+
+func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
 	empty, _ := measure("func main() {}\n")
 	start := time.Now()
-	for _, shape := range scaleShapes {
+	for shape := range shapes {
 		t.Run(shape.name, func(t *testing.T) {
 			if shape.skip != "" {
 				t.Skip(shape.skip)
