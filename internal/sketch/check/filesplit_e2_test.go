@@ -364,6 +364,10 @@ func TestRecursiveGroupsNameTheirFile(t *testing.T) {
 // The package-pattern loop temporarily selects a later duplicate context,
 // then must restore the pattern's file before declaring its next name.
 // Unit types also share the context namespace, with the later file blamed.
+// The later file is the later in canonical order (check/canon.go: the
+// checker meets the files by their text, as these have no imports), not
+// the later as listed (pkg-lower round 8), so both listings blame the same
+// file at the same place. want names each file by its index in files.
 func TestPackageNameReportsNameTheirFile(t *testing.T) {
 	const duplicate = "W is already declared in this package"
 	const boundTwice = "W is bound twice in this pattern (rows.md, Totality 1)"
@@ -374,18 +378,17 @@ func TestPackageNameReportsNameTheirFile(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		files [2]string
-		want  [2][]report
+		want  []report
 	}{
 		{
+			// "let (W" sorts before "let W": the context's file is later.
 			"pattern-restore", [2]string{"let (W, W) = (1, 2)\n", "let W = context {}\n"},
-			[2][]report{
-				{{0, 8, duplicate}, {0, 8, boundTwice}, {1, 4, duplicate}},
-				{{1, 5, duplicate}, {1, 8, duplicate}, {1, 8, boundTwice}},
-			},
+			[]report{{0, 8, duplicate}, {0, 8, boundTwice}, {1, 4, duplicate}},
 		},
 		{
+			// "type W" sorts after "let W": the unit type's file is later.
 			"unit-context", [2]string{"type W {}\n", "let W = context {}\n"},
-			[2][]report{{{1, 4, duplicate}}, {{1, 5, duplicate}}},
+			[]report{{0, 5, duplicate}},
 		},
 	} {
 		for order := range 2 {
@@ -404,12 +407,26 @@ func TestPackageNameReportsNameTheirFile(t *testing.T) {
 					t.Fatal(ice)
 				}
 				var want []check.Diagnostic
-				for _, r := range tc.want[order] {
+				for _, r := range tc.want {
+					file := r.file // the file's index as listed
+					if order == 1 {
+						file = 1 - file
+					}
 					want = append(want, check.Diagnostic{
-						Code: "S108", Message: r.message, File: r.file,
+						Code: "S108", Message: r.message, File: file,
 						Offset: r.offset, Length: 1, Line: 1, Column: r.offset + 1,
 					})
 				}
+				sort.SliceStable(want, func(i, j int) bool {
+					a, b := want[i], want[j]
+					if a.File != b.File {
+						return a.File < b.File
+					}
+					if a.Offset != b.Offset {
+						return a.Offset < b.Offset
+					}
+					return a.Message < b.Message
+				})
 				if !reflect.DeepEqual(got, want) {
 					t.Fatalf("package names across files:\n got: %+v\nwant: %+v", got, want)
 				}
