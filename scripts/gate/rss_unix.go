@@ -100,6 +100,11 @@ func (w *rssWatch) sample() {
 // reaped and finish runs, so the group ID cannot yet belong to anyone else
 // unless the host cycles through every process ID in between.
 func (w *rssWatch) check(resident map[int]int64, err error) {
+	if errors.Is(err, errStopped) {
+		// The gate stops: the stop kills every group, and no budget verdict
+		// is due.
+		return
+	}
 	if err != nil {
 		for _, group := range w.groups {
 			if group.verdict == "" {
@@ -205,9 +210,12 @@ func (p groupProcess) running() bool {
 
 func (p groupProcess) String() string { return fmt.Sprintf("%s (pid %d)", p.name, p.pid) }
 
-// processGroup lists the processes ps shows in process group pgid.
+// processGroup lists the processes ps shows in process group pgid. A
+// step's finish runs it, so its ps is tracked as a command of the step
+// (runStepOutput): a stop waits for it and still lets it run, as the stop
+// needs it to see the step's group end.
 func processGroup(pgid int) ([]groupProcess, error) {
-	output, err := exec.Command("ps", "-A", "-o", "pid=,pgid=,stat=,comm=").Output()
+	output, err := runStepOutput(exec.Command("ps", "-A", "-o", "pid=,pgid=,stat=,comm="))
 	if err != nil {
 		return nil, fmt.Errorf("ps: %w", err)
 	}
@@ -332,9 +340,11 @@ func pipeReadInterrupted(err error) bool {
 }
 
 // sampleGroups returns the resident memory, in bytes, of every process
-// group on the host.
+// group on the host. Its ps is tracked (runOutput), so a stop kills it and
+// waits for it, and none is in flight when the gate exits; a stop refuses
+// one that would start (errStopped).
 func sampleGroups() (map[int]int64, error) {
-	output, err := exec.Command("ps", "-A", "-o", "pgid=,rss=").Output()
+	output, err := runOutput(exec.Command("ps", "-A", "-o", "pgid=,rss="))
 	if err != nil {
 		return nil, fmt.Errorf("ps: %w", err)
 	}

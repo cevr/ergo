@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -50,7 +51,22 @@ const maxUserNamespaces = "/proc/sys/user/max_user_namespaces"
 
 func sandboxSupported() error { return nil }
 
-// sandboxCommand returns the helper command: this test binary, started in
+// sandboxCommand returns the command of one run: this test binary as the
+// run's reaper (reaperMain), in a process group of its own, which starts
+// the helper, this test binary again, in a new user and mount namespace
+// (helperCommand).
+func sandboxCommand(binary string, args ...string) (*exec.Cmd, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(self, append([]string{reaperArgument, binary}, args...)...)
+	// A process group of its own, which runWithin stops as a whole.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd, nil
+}
+
+// helperCommand returns the helper command: this test binary, started in
 // a new user and mount namespace. The user namespace maps only the
 // current user and group to themselves, so the tests run as the same user
 // as without it. The kernel denies a process of the new user namespace
@@ -58,33 +74,199 @@ func sandboxSupported() error { return nil }
 // outside it, the sweep included (ptrace access mode across user
 // namespaces), so no process of the run reaches the writable mount
 // namespace it came from.
-func sandboxCommand(binary string, args ...string) (*exec.Cmd, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	cmd := exec.Command(self, append([]string{binary}, args...)...)
+func helperCommand(self string, args []string) *exec.Cmd {
+	cmd := exec.Command(self, args...)
 	uid, gid := os.Getuid(), os.Getgid()
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		// A process group of its own, which runWithin stops as a whole.
-		Setpgid:     true,
 		Cloneflags:  syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
 		UidMappings: []syscall.SysProcIDMap{{ContainerID: uid, HostID: uid, Size: 1}},
 		GidMappings: []syscall.SysProcIDMap{{ContainerID: gid, HostID: gid, Size: 1}},
 		AmbientCaps: []uintptr{capSetpcap, capSysAdmin, capSysResource},
 	}
-	return cmd, nil
+	return cmd
+}
+
+// prSetChildSubreaper is PR_SET_CHILD_SUBREAPER (linux/prctl.h).
+const prSetChildSubreaper = 36
+
+// reaperMain is the reaper of one run. It marks itself a child subreaper,
+// so every process of the run that loses its parent becomes its child,
+// a process that left the run's process group or session (setsid)
+// included; it starts the helper (helperCommand) with args and waits for
+// it, or, on SIGTERM (runWithin's deadline), kills it and then waits.
+// While the run goes on, it reaps each adopted process that ends
+// (reapEnded). Then it collects the run (collectChildren): no process started under
+// the run survives it. It exits with the helper's status, 128 plus the
+// signal when a signal ended the helper. It never returns.
+//
+// The reaper waits for no process but its own: the helper by its
+// exec.Cmd, then each adopted descendant, which nothing else waits for.
+// It runs outside the sandbox, as the sweep's user, with no capability.
+func reaperMain(args []string) {
+	fail := func(err error) {
+		fmt.Fprintf(os.Stderr, "%s%v\n", sandboxMarker, err)
+		os.Exit(sandboxExit)
+	}
+	if _, _, e := syscall.RawSyscall6(syscall.SYS_PRCTL, prSetChildSubreaper, 1, 0, 0, 0, 0); e != 0 {
+		fail(fmt.Errorf("make the run's reaper a child subreaper: %w", e))
+	}
+	self, err := os.Executable()
+	if err != nil {
+		fail(err)
+	}
+	terminate := make(chan os.Signal, 1)
+	signal.Notify(terminate, syscall.SIGTERM)
+	// Each adopted process that ends while the run goes on is reaped then
+	// (reapEnded), as an init such as tini does: a test that waits for an
+	// orphan of its own, or its process group, to go away sees it go.
+	childEnded := make(chan os.Signal, 1)
+	signal.Notify(childEnded, syscall.SIGCHLD)
+	helper := helperCommand(self, args)
+	helper.Stdin, helper.Stdout, helper.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := helper.Start(); err != nil {
+		fail(fmt.Errorf("no user namespace: %w", err))
+	}
+	done := make(chan error, 1)
+	go func() { done <- helper.Wait() }()
+wait:
+	for {
+		select {
+		case err = <-done:
+			break wait
+		case <-terminate:
+			// The helper is this process's child, not yet waited for, so
+			// its id is still its own.
+			syscall.Kill(helper.Process.Pid, syscall.SIGKILL)
+			err = <-done
+			break wait
+		case <-childEnded:
+			if err := reapEnded(helper.Process.Pid); err != nil {
+				fmt.Fprintf(os.Stderr, "closure reaper: %v\n", err)
+			}
+		}
+	}
+	if err := collectChildren(); err != nil {
+		fmt.Fprintf(os.Stderr, "closure reaper: %v\n", err)
+		os.Exit(sandboxExit)
+	}
+	code := 0
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		code = exit.ExitCode()
+		if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			code = 128 + int(status.Signal())
+		}
+	} else if err != nil {
+		code = 1
+	}
+	os.Exit(code)
+}
+
+// reapEnded reaps each child of this process that has ended, except the
+// helper, whose exec.Cmd waits for it and keeps its status for the run's
+// exit. A child it reaps is one that the run left (the subreaper adopted
+// it): nothing else waits for it, and until it is reaped it stays a zombie,
+// still a member of its process group. Each wait names one child by its
+// id, which, not yet waited for, is still that child's; a child that has
+// not ended is left (WNOHANG).
+func reapEnded(helper int) error {
+	children, err := ownChildren()
+	if err != nil {
+		return err
+	}
+	for _, pid := range children {
+		if pid == helper {
+			continue
+		}
+		var status syscall.WaitStatus
+		for {
+			_, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+			if !errors.Is(err, syscall.EINTR) {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+// collectChildren kills every child of this process and waits for each,
+// until it has no child left. A child that a killed child leaves becomes
+// this process's child (the subreaper), so the loop ends only when every
+// descendant has ended. Each process it signals is its own child that it
+// has not waited for, so the id names that process.
+func collectChildren() error {
+	for {
+		children, err := ownChildren()
+		if err != nil {
+			return err
+		}
+		for _, pid := range children {
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+		var status syscall.WaitStatus
+		pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
+		switch {
+		case errors.Is(err, syscall.ECHILD):
+			return nil
+		case errors.Is(err, syscall.EINTR):
+		case err != nil:
+			return fmt.Errorf("wait for the run's processes: %w", err)
+		case pid == 0:
+			// A child that has not ended yet, or one adopted after the
+			// listing: list and kill again.
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+// ownChildren lists the processes whose parent is this process
+// (/proc/<pid>/stat), zombies included.
+func ownChildren() ([]int, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	self := os.Getpid()
+	var children []int
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
+		if err != nil {
+			continue // ended meanwhile
+		}
+		// The fields after the command name's closing parenthesis: state,
+		// then the parent's id.
+		end := strings.LastIndexByte(string(stat), ')')
+		if end < 0 {
+			continue
+		}
+		fields := strings.Fields(string(stat[end+1:]))
+		if len(fields) > 1 && fields[1] == strconv.Itoa(self) {
+			children = append(children, pid)
+		}
+	}
+	return children, nil
 }
 
 // sysPidfdOpen is pidfd_open(2), the same number on amd64 and arm64.
 const sysPidfdOpen = 434
 
-// runWithin starts cmd, which leads a process group of its own
-// (sandboxCommand), and waits for it at most deadline. Then it stops every
-// process left in the group, the run's whole tree unless a process left the
-// group, and reaps the leader. It reports whether the deadline ended the
-// run. The leader is not reaped before the group is stopped: until then its
-// process id, which is the group's, cannot name another process.
+// reaperBound is how long runWithin waits, after the deadline, for the
+// run's reaper to collect the run before it stops the group whole.
+const reaperBound = 30 * time.Second
+
+// runWithin starts cmd, the run's reaper, which leads a process group of
+// its own (sandboxCommand), and waits for it at most deadline. At the
+// deadline it asks the reaper to end the run (SIGTERM) and waits for it at
+// most reaperBound. The reaper collects every process of the run, those
+// that left the group included. Then runWithin stops every process left
+// in the group, and reaps the leader. It reports whether the deadline
+// ended the run. The leader is not reaped before the group is stopped:
+// until then its process id, which is the group's, cannot name another
+// process.
 func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, err error) {
 	if err := cmd.Start(); err != nil {
 		return false, err
@@ -102,6 +284,10 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, err error)
 		return false, fmt.Errorf("pidfd_open on the run: %w", errno)
 	}
 	exited, pollErr := readableWithin(int(pidfd), deadline)
+	if pollErr == nil && !exited {
+		syscall.Kill(pid, syscall.SIGTERM)
+		readableWithin(int(pidfd), reaperBound)
+	}
 	syscall.Close(int(pidfd))
 	stop()
 	waitErr := cmd.Wait()

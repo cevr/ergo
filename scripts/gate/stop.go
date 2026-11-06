@@ -23,7 +23,9 @@ import (
 // stopOnSignals, which main calls first, installs the handler. Every
 // process the gate starts is tracked from before it starts until it has
 // ended: a step through runBudgeted, any other command (git, a tool query,
-// go list, systemctl) through runCommand. On the first signal the stopper
+// go list, systemctl, the RSS watch's ps) through runCommand, and the ps a
+// step's watch runs to see its group end through runInStep, which a stop
+// waits for but neither refuses nor kills. On the first signal the stopper
 //
 //  1. refuses every step and command not yet started;
 //  2. kills every running one whole: a step's cgroup (cgroup.kill) in the
@@ -104,6 +106,20 @@ func (s *stopper) track() (*trackedStep, error) {
 	s.next++
 	s.running.Add(1)
 	return &trackedStep{stopper: s, id: s.next}, nil
+}
+
+// trackInStep records a command that a running step's watch starts to see
+// the step's process group end (the ps of the RSS watch's finish). A stop
+// does not refuse it, since the stop needs it to see the step end, and does
+// not kill it; it waits for it, as for every tracked command. The step's
+// own entry holds the stop's wait until the watch's finish returns, so the
+// stop's wait has not ended when this one begins.
+func (s *stopper) trackInStep() *trackedStep {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.next++
+	s.running.Add(1)
+	return &trackedStep{stopper: s, id: s.next}
 }
 
 // arm gives the started step's kill to the stopper; a stop already in
@@ -236,6 +252,19 @@ func (s *stopper) runCommand(command *exec.Cmd) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", command.Path, err)
 	}
+	return s.runTracked(tracked, command, true)
+}
+
+// runInStep runs command, a process a running step's watch starts, as
+// runCommand does, but tracked by trackInStep: a stop neither refuses nor
+// kills it, and waits until it has ended.
+func (s *stopper) runInStep(command *exec.Cmd) error {
+	return s.runTracked(s.trackInStep(), command, false)
+}
+
+// runTracked runs command in a process group of its own and ends its
+// tracked entry once Wait has returned; armed gives a stop its kill.
+func (s *stopper) runTracked(tracked *trackedStep, command *exec.Cmd, armed bool) error {
 	defer tracked.done()
 	ownProcessGroup(command)
 	// A descendant that left the group and holds the output pipes cannot
@@ -247,20 +276,32 @@ func (s *stopper) runCommand(command *exec.Cmd) error {
 	if err := command.Start(); err != nil {
 		return err
 	}
-	pid := command.Process.Pid
-	tracked.arm(func() { killProcessGroup(pid) })
+	if armed {
+		pid := command.Process.Pid
+		tracked.arm(func() { killProcessGroup(pid) })
+	}
 	return command.Wait()
 }
 
 // runOutput is command's standard output, as exec.Cmd.Output, run by
 // runCommand.
 func runOutput(command *exec.Cmd) ([]byte, error) {
+	return trackedOutput(gateStop.runCommand, command)
+}
+
+// runStepOutput is command's standard output, as exec.Cmd.Output, run by
+// runInStep.
+func runStepOutput(command *exec.Cmd) ([]byte, error) {
+	return trackedOutput(gateStop.runInStep, command)
+}
+
+func trackedOutput(run func(*exec.Cmd) error, command *exec.Cmd) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	if command.Stderr == nil {
 		command.Stderr = &stderr
 	}
-	err := gateStop.runCommand(command)
+	err := run(command)
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		exit.Stderr = stderr.Bytes()

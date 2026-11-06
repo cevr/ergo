@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -157,6 +158,9 @@ var declared = map[string][]allowance{
 		{"conformance/effect-cases.json", file, "the mapping reads the Effect case list"},
 		{"conformance/upstream/foldkit-d21db423", subtree, "the mapping walks the pinned foldkit evidence at every depth (follow-up: outside this unit's Owns)"},
 		{".git", file, "the mapping asks git whether evidence is tracked (follow-up: outside this unit's Owns)"},
+	},
+	"scripts/examples": {
+		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
 	},
 	"scripts/gate": {
 		{".", subtree, "gate-speed2 owns scripts/gate (do not touch); its tests build in the module with VCS stamping and walk the tree (follow-up)"},
@@ -628,16 +632,18 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	if err := checkSandboxAsATest(protect, root, filepath.Join(work, "sandbox.out")); err != nil {
 		t.Fatalf("the sweep cannot run: %v", err)
 	}
-	closures, targets := modulePackages(t, root)
-	if selection != "all" {
-		targets = nil
-		for _, dir := range strings.Split(selection, ",") {
-			if _, ok := closures[dir]; !ok {
-				t.Fatalf("%s: %q is not a test package of the module", sweepVariable, dir)
-			}
-			targets = append(targets, dir)
-		}
-	} else {
+	closures, all := modulePackages(t, root)
+	targets, skipped, errs := sweepTargets(selection, closures, all, unsweepable)
+	for _, err := range errs {
+		t.Error(err)
+	}
+	if len(errs) > 0 {
+		t.FailNow()
+	}
+	for _, dir := range skipped {
+		t.Logf("%s: not swept: %s", dir, unsweepable[dir])
+	}
+	if selection == "all" {
 		for dir := range declared {
 			if _, ok := closures[dir]; !ok {
 				t.Errorf("declared package %s is not a test package of the module", dir)
@@ -708,6 +714,86 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 			}
 		}
 		t.Errorf("%s: %d recorded inputs lie outside its closure:\n%s", dir, len(r.outside), summary(r.outside))
+	}
+}
+
+// unsweepable are the test packages the sweep does not run, by package
+// directory, each with the reason its tests cannot run in the sweep's
+// sandbox. Keep it short: a package here has no checked closure. An empty
+// reason, or a directory that is not a test package of the module, fails
+// the sweep (sweepTargets).
+var unsweepable = map[string]string{
+	// Measured at 0a8e52fd (batch-9 B3, b3-red-base-5.log): the merge
+	// tier's tests exit 2 and TestSandboxMasksContaminatedInputs fails
+	// with "no user namespace: fork/exec /usr/bin/cat: no space left on
+	// device".
+	"scripts/gate": "its tests start bwrap and processes in new user namespaces (the merge tier's sandbox), which the sweep's sandbox refuses by design (S3: max_user_namespaces is 0)",
+}
+
+// sweepTargets resolves the sweep's selection ("all", or a comma list of
+// package directories) against the module's test packages (closures, and
+// all, sorted) and the skip list: the packages to run, the selected
+// packages the skip list holds, and an error for each selected directory
+// that is not a test package and each skip with no reason or no package.
+func sweepTargets(selection string, closures map[string]closure, all []string, skips map[string]string) (targets, skipped []string, errs []error) {
+	for _, dir := range slices.Sorted(maps.Keys(skips)) {
+		if strings.TrimSpace(skips[dir]) == "" {
+			errs = append(errs, fmt.Errorf("the sweep skips %s with no reason; state why its tests cannot run in the sweep", dir))
+		}
+		if _, ok := closures[dir]; !ok {
+			errs = append(errs, fmt.Errorf("the sweep skips %s, which is not a test package of the module", dir))
+		}
+	}
+	selected := all
+	if selection != "all" {
+		selected = strings.Split(selection, ",")
+	}
+	for _, dir := range selected {
+		if _, ok := closures[dir]; !ok {
+			errs = append(errs, fmt.Errorf("%s: %q is not a test package of the module", sweepVariable, dir))
+			continue
+		}
+		if _, ok := skips[dir]; ok {
+			skipped = append(skipped, dir)
+			continue
+		}
+		targets = append(targets, dir)
+	}
+	return targets, skipped, errs
+}
+
+// The sweep's skip list states a reason for each package it skips, names
+// only test packages, and takes a skipped package out of a selection,
+// "all" or a list.
+func TestSweepTargets(t *testing.T) {
+	closures := map[string]closure{"a": {}, "b": {}, "c": {}}
+	all := []string{"a", "b", "c"}
+	for _, c := range []struct {
+		name, selection string
+		skips           map[string]string
+		targets         []string
+		skipped         []string
+		errs            int
+	}{
+		{"all, no skips", "all", nil, []string{"a", "b", "c"}, nil, 0},
+		{"all, one skip", "all", map[string]string{"b": "why"}, []string{"a", "c"}, []string{"b"}, 0},
+		{"a list with a skip", "c,b", map[string]string{"b": "why"}, []string{"c"}, []string{"b"}, 0},
+		{"a skip with no reason", "a", map[string]string{"b": ""}, []string{"a"}, nil, 1},
+		{"a skip with a blank reason", "all", map[string]string{"b": "  "}, []string{"a", "c"}, []string{"b"}, 1},
+		{"a skip of no package", "a", map[string]string{"z": "why"}, []string{"a"}, nil, 1},
+		{"a selection of no package", "a,z", nil, []string{"a"}, nil, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			targets, skipped, errs := sweepTargets(c.selection, closures, all, c.skips)
+			if !slices.Equal(targets, c.targets) || !slices.Equal(skipped, c.skipped) || len(errs) != c.errs {
+				t.Errorf("targets %v, skipped %v, errors %v; want %v, %v and %d errors", targets, skipped, errs, c.targets, c.skipped, c.errs)
+			}
+		})
+	}
+	for dir, reason := range unsweepable {
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("unsweepable %s has no reason", dir)
+		}
 	}
 }
 

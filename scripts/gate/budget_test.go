@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -694,6 +695,205 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("runBudgeted remained blocked after test cleanup stopped the output writer")
 		}
+	}
+}
+
+// siblingFork is a limiter whose watch, once the step has started and
+// while the gate still holds the step's output writer, starts a holder: a
+// child of the test that holds a copy of the writer, as a sibling child of
+// the gate (another step, a ps of the RSS watch) does from its fork to its
+// exec. With inFlight, the watch also holds syscall.ForkLock for writing,
+// as Go does while a fork is in flight, until the holder has closed its
+// copy. The holder closes it at release: when runBudgeted returns, or
+// releaseAfter after the step ended when releaseAfter is positive. The test
+// starts the holder and ends it through its own stdin; it signals nothing.
+// With execTail, the watch releases ForkLock first and the holder closes
+// its copy execTail later: the exec tail of a vfork child, where the
+// parent resumes before close-on-exec has run.
+type siblingFork struct {
+	t            *testing.T
+	inFlight     bool
+	releaseAfter time.Duration
+	execTail     time.Duration
+	command      *exec.Cmd
+	holder       *exec.Cmd
+	release      *os.File
+	returned     chan struct{}
+	settled      chan struct{}
+}
+
+func (s *siblingFork) describe() string { return "sibling-fork test limiter" }
+
+func (s *siblingFork) prepare(_ string, command *exec.Cmd) (stepWatch, error) {
+	s.command = command
+	return s, nil
+}
+
+func (s *siblingFork) close() {}
+
+func (s *siblingFork) kill() {}
+
+func (s *siblingFork) started(int) {
+	writer, ok := s.command.Stdout.(*os.File)
+	if !ok {
+		s.t.Errorf("the step's output is %T, not the gate's pipe writer", s.command.Stdout)
+		return
+	}
+	releaseReader, release, err := os.Pipe()
+	if err != nil {
+		s.t.Error(err)
+		return
+	}
+	defer releaseReader.Close()
+	holder := exec.Command("sh", "-c", "read -r _")
+	holder.Stdin = releaseReader
+	holder.ExtraFiles = []*os.File{writer}
+	if err := holder.Start(); err != nil {
+		_ = release.Close()
+		s.t.Errorf("start the holder: %v", err)
+		return
+	}
+	s.holder, s.release = holder, release
+	if s.inFlight {
+		syscall.ForkLock.Lock()
+	}
+}
+
+func (s *siblingFork) finish() usage {
+	go func() {
+		defer close(s.settled)
+		if s.holder == nil {
+			return
+		}
+		var after <-chan time.Time
+		if s.releaseAfter > 0 {
+			after = time.After(s.releaseAfter)
+		}
+		select {
+		case <-s.returned:
+		case <-after:
+		}
+		if s.inFlight && s.execTail > 0 {
+			syscall.ForkLock.Unlock()
+			time.Sleep(s.execTail)
+		}
+		_ = s.release.Close()
+		_ = s.holder.Wait()
+		if s.inFlight && s.execTail == 0 {
+			syscall.ForkLock.Unlock()
+		}
+	}()
+	return usage{}
+}
+
+// runSiblingFork runs a step that prints one line under fork, and returns
+// what runBudgeted returned, its output and how long it took. It fails the
+// test if runBudgeted does not return within limit.
+func runSiblingFork(t *testing.T, fork *siblingFork, limit time.Duration) (usage, string, time.Duration, error) {
+	t.Helper()
+	fork.t = t
+	fork.returned = make(chan struct{})
+	fork.settled = make(chan struct{})
+	command := exec.Command("sh", "-c", "echo step ran")
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	type runResult struct {
+		used usage
+		err  error
+	}
+	done := make(chan runResult, 1)
+	start := time.Now()
+	go func() {
+		used, err := runBudgeted(fork, "sibling", command)
+		done <- runResult{used, err}
+	}()
+	select {
+	case result := <-done:
+		elapsed := time.Since(start)
+		close(fork.returned)
+		<-fork.settled
+		return result.used, output.String(), elapsed, result.err
+	case <-time.After(limit):
+		close(fork.returned)
+		<-fork.settled
+		select {
+		case result := <-done:
+			t.Fatalf("runBudgeted did not return within %s; after the holder ended it returned %+v", limit, result)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("runBudgeted did not return within %s, nor after the holder ended", limit)
+		}
+	}
+	return usage{}, "", 0, nil
+}
+
+// A sibling fork of the gate that holds a step's output writer until its
+// exec, which closes the copy, does not fail the step: the gate waits for
+// the fork in flight before it reports the output held open. This is the
+// flake of TestBudgetSystemdScope/over (apps-1 gate-R0-1.log:95), where the
+// step independent, which ran 0.0 s, was reported held open while the step
+// alloc started beside it.
+func TestRunBudgetedWaitsForASiblingForkInFlight(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	// The fork ends after the wait for the end of the pipe would: only the
+	// wait for the fork in flight keeps the step from failing.
+	savedTail := execTailBound
+	execTailBound = 50 * time.Millisecond
+	t.Cleanup(func() { execTailBound = savedTail })
+	fork := &siblingFork{inFlight: true, releaseAfter: 300 * time.Millisecond}
+	used, output, elapsed, err := runSiblingFork(t, fork, 10*time.Second)
+	t.Logf("runBudgeted returned after %s", elapsed)
+	if err != nil || used.processIssue != "" {
+		t.Fatalf("err %v, process issue %q: want neither, the holder was a fork in flight", err, used.processIssue)
+	}
+	if output != "step ran\n" {
+		t.Fatalf("output %q, want the step's line", output)
+	}
+}
+
+// A sibling fork whose ForkLock is released while its copy of the writer
+// is still open for a short time (the exec tail of a vfork child) does not
+// fail the step: after the wait for forks, the gate waits up to
+// execTailBound for the end of the pipe before it reports it held open.
+func TestRunBudgetedWaitsForASiblingForkExecTail(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	fork := &siblingFork{inFlight: true, releaseAfter: 100 * time.Millisecond, execTail: 30 * time.Millisecond}
+	used, output, elapsed, err := runSiblingFork(t, fork, 10*time.Second)
+	t.Logf("runBudgeted returned after %s", elapsed)
+	if err != nil || used.processIssue != "" {
+		t.Fatalf("err %v, process issue %q: want neither, the holder was in its exec tail", err, used.processIssue)
+	}
+	if output != "step ran\n" {
+		t.Fatalf("output %q, want the step's line", output)
+	}
+}
+
+// A process that still holds a step's output writer after the step ended
+// is reported, whether or not a fork is in flight, and the gate's wait for
+// forks and for the end of the pipe is bounded.
+func TestRunBudgetedReportsAHolderPastItsBounds(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	for _, inFlight := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fork-in-flight=%t", inFlight), func(t *testing.T) {
+			if inFlight {
+				// A fork that never ends within the bounds; lowered so the
+				// test stays short.
+				savedFork, savedTail := forkSettleBound, execTailBound
+				forkSettleBound, execTailBound = 200*time.Millisecond, 100*time.Millisecond
+				t.Cleanup(func() { forkSettleBound, execTailBound = savedFork, savedTail })
+			}
+			used, _, elapsed, err := runSiblingFork(t, &siblingFork{inFlight: inFlight}, 10*time.Second)
+			t.Logf("runBudgeted returned after %s", elapsed)
+			if err != nil || !strings.Contains(used.processIssue, "step output held open") {
+				t.Fatalf("err %v, process issue %q: want the holder reported", err, used.processIssue)
+			}
+		})
 	}
 }
 

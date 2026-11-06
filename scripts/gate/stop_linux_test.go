@@ -200,6 +200,193 @@ func TestGateStopsItsStepsOnSignal(t *testing.T) {
 	}
 }
 
+// A --merge gate that gets SIGTERM in its sandboxed phase, as a terminal or
+// timeout(1) sends it to the gate's whole process group, stops and leaves
+// no holder of the lock its caller passed it (fu-gate U3). The test locks a
+// private lock file, as flock(1) does gate.lock, and passes it as the
+// gate's fd 3; the step, sandboxed, inherits it and waits on a child. The
+// test starts the helper gate in a process group of its own, signals that
+// group once the gate prints "merge: every step uncached", and after the
+// gate exits counts the processes with the lock file open in /proc/*/fd
+// (expect none), takes the lock itself, and checks that the stop closed the
+// sandbox (its run directory is gone). It signals only the group it
+// started; a holder it finds is reported, not signalled (the service unit
+// the test runs in ends it).
+func TestMergeGateStopsOnGroupSIGTERM(t *testing.T) {
+	if os.Getenv(stopVariable) != "" {
+		t.Skip("the helper runs as a subprocess of this test")
+	}
+	startsSandbox(t)
+	requireSandbox(t)
+	setBudgetCaseTemp(t)
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "1G")
+	t.Setenv(hostMemoryVariable, "4G")
+	t.Setenv(cpuVariable, "1")
+	root, cache := fixture(t), t.TempDir()
+	write(t, root, "runs/stale", "only in the host checkout\n")
+	lockPath := filepath.Join(t.TempDir(), "private-gate.lock")
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	helper := exec.Command(os.Args[0], "-test.run=^TestGateStopHelper$", "-test.count=1")
+	helper.Env = append(os.Environ(), stopVariable+"=merge", "GATE_STOP_ROOT="+root, "GATE_STOP_CACHE="+cache, mechanismVariable+"=rss")
+	helper.ExtraFiles = []*os.File{lock}
+	helper.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdout, err := helper.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	helper.Stderr = &output
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// The gate holds the lock now; the test's own descriptor goes.
+	lock.Close()
+	group := helper.Process.Pid
+	uncached := make(chan struct{})
+	copied := make(chan struct{})
+	var text strings.Builder
+	go func() {
+		defer close(copied)
+		scanner := bufio.NewScanner(stdout)
+		said := false
+		for scanner.Scan() {
+			text.WriteString(scanner.Text() + "\n")
+			if !said && scanner.Text() == "merge: every step uncached" {
+				said = true
+				close(uncached)
+			}
+		}
+	}()
+	deadline := stopDeadline(t)
+	select {
+	case <-uncached:
+	case <-copied:
+		_ = helper.Wait()
+		t.Fatalf("the gate ended before its sandboxed phase:\n%s%s", text.String(), output.String())
+	case <-deadline:
+		_ = syscall.Kill(-group, syscall.SIGKILL)
+		<-copied
+		_ = helper.Wait()
+		t.Fatalf("the gate did not reach its sandboxed phase by the test's deadline:\n%s%s", text.String(), output.String())
+	}
+	if err := syscall.Kill(-group, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() {
+		<-copied
+		exited <- helper.Wait()
+	}()
+	select {
+	case err := <-exited:
+		t.Logf("the gate ended: %v", err)
+	case <-deadline:
+		_ = syscall.Kill(-group, syscall.SIGKILL)
+		t.Fatalf("the gate did not end after SIGTERM by the test's deadline:\n%s%s", text.String(), output.String())
+	}
+	if holders := pipeHolders(lockPath); len(holders) > 0 {
+		t.Fatalf("after SIGTERM the gate exited, and processes it started still hold its lock: %v\n%s%s", holders, text.String(), output.String())
+	}
+	probe, err := os.OpenFile(lockPath, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("the lock is still held after the gate exited: %v", err)
+	}
+	// The stop closed the sandbox: its run directory is gone, which only
+	// the sandbox's close removes once every process in it has ended.
+	if runs, _ := os.ReadDir(filepath.Join(cache, "sandbox")); len(runs) > 0 {
+		t.Errorf("the merge sandbox's run directory outlived the gate: %v", runs)
+	}
+	want := "gate: stopped by SIGTERM; every step and command it started has ended, with its process group\n"
+	if !strings.Contains(text.String()+output.String(), want) {
+		t.Errorf("the gate does not say %q:\n%s%s", want, text.String(), output.String())
+	}
+	if state := helper.ProcessState; state == nil || state.ExitCode() != 128+int(syscall.SIGTERM) {
+		t.Errorf("the gate exited %v; want status %d", state, 128+int(syscall.SIGTERM))
+	}
+}
+
+// A command a step's watch runs inside the step (runInStep: the ps that
+// sees the step's group end) runs while the gate stops, where runCommand
+// refuses, is not killed by the stop, and holds the stop's wait until it
+// has ended. The test ends the command through its stdin; it signals
+// nothing.
+func TestStopWaitsForACommandInAStep(t *testing.T) {
+	var s stopper
+	step, err := s.track()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan stopResult, 1)
+	go func() {
+		result, _ := s.stop(syscall.SIGTERM)
+		stopped <- result
+	}()
+	for !s.stopping() {
+		time.Sleep(time.Millisecond)
+	}
+	if err := s.runCommand(exec.Command("true")); !errors.Is(err, errStopped) {
+		t.Fatalf("runCommand during a stop: %v, want errStopped", err)
+	}
+	releaseReader, release, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseReader.Close()
+	readyReader, ready, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readyReader.Close()
+	command := exec.Command("sh", "-c", "echo ready; read -r _; exit 0")
+	command.Stdin, command.Stdout = releaseReader, ready
+	ran := make(chan error, 1)
+	go func() { ran <- s.runInStep(command) }()
+	lines := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(readyReader).ReadString('\n')
+		lines <- line
+	}()
+	select {
+	case line := <-lines:
+		if line != "ready\n" {
+			_ = release.Close()
+			t.Fatalf("the command in the step did not start during the stop: %q, %v", line, <-ran)
+		}
+	case err := <-ran:
+		t.Fatalf("the command in the step ended (%v) before it said ready", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the command in the step did not say ready")
+	}
+	ready.Close()
+	// The step's finish returns; only the command holds the stop now.
+	step.done()
+	select {
+	case <-stopped:
+		t.Fatal("the stop ended while a command in a step ran")
+	case <-time.After(200 * time.Millisecond):
+	}
+	_ = release.Close()
+	if err := <-ran; err != nil {
+		t.Errorf("the command in the step: %v, want it to run to its end", err)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop did not end after the command in the step ended")
+	}
+}
+
 // stopDeadline fires a little before the test's own deadline, so a failure
 // is reported, and the helper stopped, before go test kills the binary.
 func stopDeadline(t *testing.T) <-chan time.Time {
