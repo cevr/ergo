@@ -517,13 +517,56 @@ func duplicateName(msg string) (string, bool) {
 	return "", false
 }
 
+// duplicateKey is duplicateName for a diagnostic of the file f. A member
+// law's name is in its type's own namespace (types.md, Laws 2), and its
+// duplicate message is the one a top-level law's duplicate has, so the
+// name is keyed by its owner: "T.X". A member law of a type refused as a
+// duplicate is not checked (decl.go collect), so which of the two types
+// reports it depends on the order, as for a duplicate method of a
+// receiver; duplicatesOf leaves both out (fuzz-found-524f2c0c838cd56a).
+func duplicateKey(d Diagnostic, f *syntax.File) (string, bool) {
+	name, ok := duplicateName(d.Message)
+	if !ok || !strings.HasPrefix(d.Message, "law ") {
+		return name, ok
+	}
+	if owner := memberLawOwner(f, d.Offset); owner != "" {
+		return owner + "." + name, true
+	}
+	return name, true
+}
+
+// memberLawOwner returns the name of the type whose member law's name
+// starts at off in f, or "" (a top-level law, or no parsed file).
+func memberLawOwner(f *syntax.File, off int) string {
+	if f == nil {
+		return ""
+	}
+	for _, d := range f.Decls {
+		td, ok := d.(*syntax.TypeDecl)
+		if !ok {
+			continue
+		}
+		it, ok := td.Spec.(*syntax.InterfaceType)
+		if !ok {
+			continue
+		}
+		for _, l := range it.Laws {
+			if int(l.Name.Pos()) == off {
+				return td.Name.Name
+			}
+		}
+	}
+	return ""
+}
+
 func orderKeys(diags []Diagnostic, src string, key func(int) (int, int)) []string {
 	var out []string
+	f, _ := syntax.Parse(src)
 	for _, d := range diags {
 		if d.Code == CodeSyntax {
 			continue
 		}
-		if name, ok := duplicateName(d.Message); ok {
+		if name, ok := duplicateKey(d, f); ok {
 			out = append(out, fmt.Sprintf("%s duplicate %s", d.Code, name))
 			continue
 		}

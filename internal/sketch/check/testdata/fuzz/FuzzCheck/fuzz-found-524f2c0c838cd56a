@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Malformed{}\ntype A0000{A00()string}\ntype A00{}\ntype A0000{A(A00)A000000, A000000(A0000000)A000 fails A00000000,   law A0000(A0000) {   le%A0000(0) %0},law A(){},law A(){},law A(){0%0},law A(){le%A0%func()A000{}%0} }\nfunc A(A){00%0}")
