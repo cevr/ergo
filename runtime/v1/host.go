@@ -3,8 +3,12 @@ package v1
 import (
 	"errors"
 	"io/fs"
+	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
 )
 
 // The bodies of std os (docs/spec/stdlib.md, host packages). Each is a
@@ -48,7 +52,7 @@ func OSHasEnv(key string) bool {
 // key is unset, so os.Host's Getenv asks OSHasEnv first.
 func OSGetenv(key string) string { return os.Getenv(key) }
 
-// The bodies of std fs, read only (docs/spec/stdlib.md, fs). Each reads
+// The bodies of std fs (docs/spec/stdlib.md, fs). Each reads or writes
 // the host file system and returns one of the three failures below, so
 // none is pure. No body keeps a file open after it returns.
 
@@ -87,7 +91,8 @@ type Info struct {
 
 // fsErr is the std fs failure of err, a failure of an operation at path:
 // NotFound for fs.ErrNotExist, Denied for fs.ErrPermission, and Failed
-// with the cause of a *fs.PathError (or err's text) otherwise.
+// with the cause of a *fs.PathError or *os.LinkError (or err's text)
+// otherwise.
 func fsErr(path string, err error) error {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -95,11 +100,21 @@ func fsErr(path string, err error) error {
 	case errors.Is(err, fs.ErrPermission):
 		return Denied{Path: path}
 	}
+	return Failed{Path: path, Reason: fsReason(err)}
+}
+
+// fsReason is the host's text for err without the operation and the
+// paths: the cause of a *fs.PathError or *os.LinkError, else err's text.
+func fsReason(err error) string {
 	var pe *fs.PathError
 	if errors.As(err, &pe) {
-		return Failed{Path: path, Reason: pe.Err.Error()}
+		return pe.Err.Error()
 	}
-	return Failed{Path: path, Reason: err.Error()}
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return le.Err.Error()
+	}
+	return err.Error()
 }
 
 // FSReadFile is the body of fs.Host's ReadFile: the whole file at path as
@@ -134,4 +149,130 @@ func FSStat(path string) (Info, error) {
 		return Info{}, fsErr(path, err)
 	}
 	return Info{Name: fi.Name(), Size: int(fi.Size()), Dir: fi.IsDir()}, nil
+}
+
+// beforeRename, when it is set, runs on the complete, closed new file of
+// FSWriteFile just before the rename. An error from it stops the write at
+// that point, as a crash there would, so a test sees the old file whole
+// and the new file removed. Only tests set it.
+var beforeRename func(tmp string) error
+
+// FSWriteFile is the body of fs.Host's WriteFile: path holds text after
+// it. It makes a new file in the directory of path (so the rename stays on
+// one device), writes text, syncs it, gives it the mode of the file at
+// path if there is one, closes it and renames it over path. So a reader
+// sees the old text or the new, never a part. A new file is opened with
+// mode 0666, so the umask applies, as for Go's os.WriteFile. On any
+// failure the new file is removed. A symbolic link at path is followed,
+// as Go's os.WriteFile and Effect's FileSystem.writeFile follow it: the
+// file the link names gets the text and the link stays (a link to a
+// missing name makes that file; a link to a directory is Failed "is a
+// directory", as a directory is). The new file is made beside the file
+// the link names, so the rename replaces that file, not the link.
+func FSWriteFile(path string, text string) error {
+	dest, err := followLink(path)
+	if err != nil {
+		return fsErr(path, err)
+	}
+	var mode fs.FileMode
+	keep := false
+	switch fi, err := os.Stat(dest); {
+	case err == nil && fi.IsDir():
+		return Failed{Path: path, Reason: "is a directory"}
+	case err == nil:
+		mode, keep = fi.Mode().Perm(), true
+	case !errors.Is(err, fs.ErrNotExist):
+		return fsErr(path, err)
+	}
+	f, err := createSibling(dest)
+	if err != nil {
+		return fsErr(path, err)
+	}
+	tmp := f.Name()
+	err = fillSibling(f, text, mode, keep)
+	if err == nil && beforeRename != nil {
+		err = beforeRename(tmp)
+	}
+	if err == nil {
+		err = os.Rename(tmp, dest)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return fsErr(path, err)
+	}
+	return nil
+}
+
+// maxLinks is the most symbolic links followLink follows; one more is
+// ELOOP, as for Linux's open.
+const maxLinks = 40
+
+// followLink is the path of the file that an open of path for writing
+// reaches: while the last element of path is a symbolic link, it is the
+// link's text, read relative to the directory of the link. It does not
+// clean the path, so ".." after a linked directory stays the host's to
+// resolve, as it is for open. A path that is no link, or that Lstat cannot
+// read, is returned as it is; the Stat after it reports the failure.
+func followLink(path string) (string, error) {
+	for n := 0; ; n++ {
+		fi, err := os.Lstat(path)
+		if err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+			return path, nil
+		}
+		if n == maxLinks {
+			return "", &fs.PathError{Op: "open", Path: path, Err: syscall.ELOOP}
+		}
+		text, err := os.Readlink(path)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(text) {
+			text = path[:strings.LastIndexByte(path, os.PathSeparator)+1] + text
+		}
+		path = text
+	}
+}
+
+// createSibling creates a new file beside path, named path.tmpN for a
+// random N, with mode 0666 less the umask. It retries a name that exists.
+func createSibling(path string) (*os.File, error) {
+	for i := 0; ; i++ {
+		name := path + ".tmp" + strconv.FormatUint(uint64(rand.Uint32()), 10)
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		if errors.Is(err, fs.ErrExist) && i < 100 {
+			continue
+		}
+		return f, err
+	}
+}
+
+// fillSibling writes text to f, syncs it, sets mode when keep is true, and
+// closes f in every case.
+func fillSibling(f *os.File, text string, mode fs.FileMode, keep bool) error {
+	_, err := f.WriteString(text)
+	if err == nil {
+		err = f.Sync()
+	}
+	if err == nil && keep {
+		err = f.Chmod(mode)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// FSMkdirAll is the body of fs.Host's MkdirAll: os.MkdirAll with mode
+// 0777, so the umask applies. Its row has no NotFound, so a missing path
+// (the empty path, or a parent removed during the call) is Failed with the
+// host's reason.
+func FSMkdirAll(path string) error {
+	err := os.MkdirAll(path, 0o777)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		return Failed{Path: path, Reason: fsReason(err)}
+	}
+	return fsErr(path, err)
 }
