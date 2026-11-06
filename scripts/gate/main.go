@@ -147,9 +147,11 @@ type Step struct {
 	// PackageProblem says why the package's closure is keyed on the whole
 	// checkout (testPackages).
 	PackageProblem string
-	// Declarations, on a host package's fast step, is the digest of the
-	// steps the gate declares (stepsDigest), which its tests inspect.
-	Declarations string
+	// ObserveInputs, on a fast step whose package key is a declared list
+	// (hostPackageInputs), runs its tests under the input observer
+	// (internal/testinputs) and fails the step on a checkout read its
+	// package key does not cover (readsOutsideKey).
+	ObserveInputs bool
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -948,6 +950,15 @@ func (g *gate) execute(step *Step) *result {
 	}
 	started := time.Now()
 	argv := step.Argv
+	inputsLog := ""
+	if step.ObserveInputs {
+		// Beside the step's temp dir, under its lock, so the step's own
+		// cleanup does not remove it before the gate reads it.
+		inputsLog = tmpDir + ".inputs"
+		_ = os.Remove(inputsLog)
+		defer os.Remove(inputsLog)
+		argv = append(slices.Clone(argv), "-args", "-test.testlogfile="+inputsLog)
+	}
 	if g.enclosure != nil {
 		argv = g.enclosure.wrap(argv, g.root)
 	}
@@ -985,6 +996,9 @@ func (g *gate) execute(step *Step) *result {
 		if used.processIssue != "" {
 			r.output = fmt.Appendf(r.output, "gate: %s: %s\n", step.Name, used.processIssue)
 		}
+	}
+	if inputsLog != "" && r.outcome == passed {
+		g.checkObservedInputs(step, inputsLog, r)
 	}
 	cleanupErr := emptyStepTempDir(tmpDir)
 	unlockErr := unlockStepTemp(lock)

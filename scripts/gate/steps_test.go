@@ -15,10 +15,7 @@ import (
 // fewer, by its measured work (shardTargetSeconds). At a budget of 4 or more
 // each has at least 4. Neither is left to the step of the other packages.
 func TestCheckAndLowerShardByTheCPUBudget(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	module := modulePath(root)
 	durations, err := readDurations(root)
 	if err != nil {
@@ -84,10 +81,7 @@ func TestHostPackagesRunOnEveryGateWithBoundedParallelism(t *testing.T) {
 	if n, err := strconv.Atoi(parallel); err != nil || n < 1 || n > maxHostTestParallel || n > stepCPUs() {
 		t.Fatalf("hostTestParallel() %q is not a positive count within %d and the CPU budget %d", parallel, maxHostTestParallel, stepCPUs())
 	}
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	steps, err := gateSteps(root)
 	if err != nil {
 		t.Fatal(err)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -211,10 +210,7 @@ func cacheProblems(g *gate, module string, step *Step) []string {
 // step is checked when it appears.
 func declaredGateSteps(t *testing.T) (string, []*Step) {
 	t.Helper()
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	packages, err := goPackages(root)
 	if err != nil {
 		t.Fatal(err)

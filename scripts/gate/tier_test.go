@@ -16,6 +16,27 @@ import (
 	"ergo.local/prototype/scripts/gate/replay"
 )
 
+// checkoutRoot is the real checkout's root, for a test that reads what the
+// gate declares of it: its packages and their closures (go list, which reads
+// every Go file of the module), the test names of the sharded packages, the
+// declared steps. Under -short (the fast tier) it skips: the fast tier keys
+// this package on its compiled closure and hostPackageInputs, and its input
+// observer (Step.ObserveInputs) fails the step on any read outside them;
+// keyed on every Go file of the module, the package would rerun (about 250 s)
+// on every edit. These tests run in the full tier, uncached, on every batch
+// head.
+func checkoutRoot(t *testing.T) string {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("full tier: it reads the gate's declarations of the whole checkout, which the fast tier's key does not hold")
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 // runsIn reports whether go test with these selection flags runs the
 // top-level test name: -run must match it and -skip must not.
 func runsIn(selection []string, name string) bool {
@@ -120,10 +141,7 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 // (it relinks its test binaries on every run to find Go's cached result),
 // and neither is the build of every test binary, nor a need on it.
 func TestFastStepsKeyEveryTestPackage(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	steps, err := fastSteps(root)
 	if err != nil {
 		t.Fatal(err)
@@ -139,8 +157,8 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			if !runsGoTest(step) || !slices.Contains(step.Argv, fastFlag) {
 				t.Errorf("%s: a package step that does not run go test -short: %q", step.Name, step.Argv)
 			}
-			if step.Package.Dir == "scripts/gate" && (step.Declarations == "" || !slices.Equal(step.Package.Declared, hostPackageInputs["scripts/gate"])) {
-				t.Errorf("%s: the host package is not keyed on its declared inputs and the declarations", step.Name)
+			if _, host := hostPackageInputs[step.Package.Dir]; host != step.ObserveInputs || host && !slices.Equal(step.Package.Declared, hostPackageInputs[step.Package.Dir]) {
+				t.Errorf("%s: observed %t; a package keyed on its declared inputs (hostPackageInputs) runs under the input observer, no other does", step.Name, step.ObserveInputs)
 			}
 			hermetic := strings.HasPrefix(step.Package.Dir, hermeticTestRoot) && !slices.Contains(hostTestPackages, step.Package.Dir)
 			if hermetic != slices.Equal(step.Env, hermeticEnvironment) {
@@ -155,6 +173,46 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	}
 	if keyed < 30 {
 		t.Errorf("%d keyed package steps; want one per test package", keyed)
+	}
+}
+
+// A step that runs under the input observer (Step.ObserveInputs) gets the
+// test log flag and passes only when the log is a complete observation
+// whose checkout reads its package key covers: a read outside the key, an
+// observation the observer could not complete, and no log at all fail the
+// step, so a declared list (hostPackageInputs) that misses an input goes red
+// instead of making a stale pass. The step here stands in for go test: it
+// writes the log the observer would.
+func TestObservedStepFailsOnAReadOutsideItsKey(t *testing.T) {
+	// $0 is the checkout root; the gate appends -args -test.testlogfile=<log>.
+	writer := func(log string) string {
+		return `for a; do case $a in -test.testlogfile=*) log=${a#*=};; esac; done; [ -n "$log" ] || exit 9; ` + log
+	}
+	cases := []struct {
+		name, script string
+		want         []string
+	}{
+		{"covered reads", writer(`printf '# test log\nopen %s/src/input.txt\nstat %s/src/missing\ngetenv HOME\nopen ../go.mod\nopen /etc/hostname\n' "$0" "$0" > "$log"`),
+			[]string{"== observed: ok"}},
+		{"a read outside the key", writer(`printf '# test log\nopen %s/src/input.txt\nopen %s/docs/notes.md\nstat ../docs/other.md\n' "$0" "$0" > "$log"`),
+			[]string{"== observed: FAILED", "its tests read 2 checkout paths its package key does not cover", "  docs/notes.md\n", "  docs/other.md\n"}},
+		{"an incomplete observation", writer(`printf '# test log\nopen %s/src/input.txt\ntestinputs: unobserved: clone' "$0" > "$log"`),
+			[]string{"== observed: FAILED", "the input observer could not observe the tests, so its declared key cannot be checked"}},
+		{"no log", writer(`:`),
+			[]string{"== observed: FAILED", "the tests wrote no input log"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := fixture(t)
+			step := &Step{Name: "observed", Argv: []string{"sh", "-c", c.script, root}, ObserveInputs: true,
+				Package: &replay.Closure{Dir: "src", Deps: []string{"src"}}}
+			_, out := runGate(t, root, t.TempDir(), []*Step{step})
+			for _, want := range c.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("output lacks %q:\n%s", want, out)
+				}
+			}
+		})
 	}
 }
 
@@ -211,10 +269,7 @@ func TestTheClosureTableParses(t *testing.T) {
 // fast steps (fastCPUFile), which bounds the wall from below at a CPU
 // budget, so a growing suite fails here before the wall time grows.
 func TestFastTierReachOfAnEdit(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	packages, problem, err := testPackages(root)
 	if err != nil || problem != "" {
 		t.Fatalf("%v %s", err, problem)
@@ -275,13 +330,7 @@ const (
 // acceptance leg 4). It builds every test binary, so the full tier runs
 // it.
 func TestFastTierCoversEveryListedTest(t *testing.T) {
-	if testing.Short() {
-		t.Skip("full tier: lists every test package's tests (go test -list)")
-	}
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	durations, err := readDurations(root)
 	if err != nil {
 		t.Fatal(err)

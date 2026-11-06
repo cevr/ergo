@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +11,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -58,23 +57,32 @@ const fastFlag = "-short"
 // the host package would run on every edit, and the fast tier could not
 // meet its 60 s target (gate-fast plan section 5, which keys the host
 // package by its compiled closure and the host fingerprint). These are the
-// reads its fast-tier tests make of the real checkout, from their source:
-// the scripts directory (the gate script, the authored example list, the
-// conformance and examples runners the parity fixture copies), the
+// reads its fast-tier tests make of the real checkout: the scripts
+// directory (the gate script, the durations, the authored example list,
+// the conformance and examples runners the parity fixture copies), the
 // observer the parity fixture copies, the Effect case list and the syntax
-// source the parity fixture reads, and the steps the gate declares
-// (stepsDigest), which stands for every input of the declarations the tests
-// inspect (the package list, durationsFile, the sharded packages' test
-// names). A read outside these makes a stale fast pass; the full tier runs
-// every test of the package uncached on every batch head.
+// source the parity fixture reads, and the closure table
+// (TestTheClosureTableParses). The fast step runs its tests under the input
+// observer (Step.ObserveInputs) and fails on a read outside its key
+// (readsOutsideKey), so a test that reads more fails the step instead of
+// making a stale pass. The tests that read the gate's declarations of the
+// whole checkout (go list of every package) skip under -short
+// (checkoutRoot), as do those that start the merge tier's sandbox, which
+// the observer cannot observe (startsSandbox); the full tier runs every
+// test uncached on every batch head.
 var hostPackageInputs = map[string][]replay.Allowance{
 	"scripts/gate": {
 		{Path: "scripts", Grant: replay.GrantSubtree},
 		{Path: "internal/testinputs", Grant: replay.GrantSubtree},
 		{Path: "conformance/effect-cases.json", Grant: replay.GrantFile},
 		{Path: "internal/sketch/syntax/probe.go", Grant: replay.GrantFile},
+		{Path: replay.DeclaredFile, Grant: replay.GrantFile},
 	},
 }
+
+// observable says whether the input observer (internal/testinputs) can
+// check a fast step's reads here: it needs Linux's seccomp notification.
+const observable = runtime.GOOS == "linux"
 
 // tierFlags picks the run's tier from the flags: --merge keys and compares
 // the full tier, --no-cache and -record-durations run as the full tier,
@@ -196,7 +204,9 @@ func testPackages(root string) ([]testPackage, string, error) {
 		switch declared, host := hostPackageInputs[dir]; {
 		case problem != "":
 			c.Declared = []replay.Allowance{{Path: ".", Grant: replay.GrantSubtree}}
-		case host:
+		case host && observable:
+			// Only the input observer (Linux) checks a declared list;
+			// elsewhere the package keeps its table entry.
 			c.Declared = declared
 		default:
 			c.Declared = table[dir]
@@ -331,20 +341,91 @@ func fastSteps(root string) ([]*Step, error) {
 		selections := fastShardArgs(shard(fast, measured, n), large)
 		for i, selection := range selections {
 			step := &Step{Name: name, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
+			// A key from a declared list holds only while the input
+			// observer checks the reads (testPackages).
+			_, step.ObserveInputs = hostPackageInputs[p.dir]
+			step.ObserveInputs = step.ObserveInputs && observable && problem == ""
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
 			tests = append(tests, step)
 		}
 	}
-	digest := stepsDigest(append(slices.Clone(full), append(slices.Clone(steps), tests...)...))
-	for _, step := range tests {
-		if slices.Contains(hostTestPackages, step.Package.Dir) {
-			step.Declarations = digest
-		}
-	}
 	// The tests after the steps they need, in package order.
 	return append(steps, tests...), nil
+}
+
+// checkObservedInputs ends a passed step that ran under the input observer
+// (Step.ObserveInputs): a checkout path its tests read that its package key
+// does not cover fails the step, so a declared list that misses an input
+// goes red the first time a test reads it. A log the observer could not
+// complete fails the step too: its tests did something the observer
+// cannot see through (a namespace, a second seccomp listener), and a pass
+// left unrecorded would rerun the package on every gate in silence.
+func (g *gate) checkObservedInputs(step *Step, log string, r *result) {
+	outside, unobserved, err := readsOutsideKey(g.root, step.Package, log)
+	switch {
+	case err != nil:
+		r.outcome = failed
+		r.output = fmt.Appendf(r.output, "gate: %s: read the observed inputs: %v\n", step.Name, err)
+	case unobserved != "":
+		r.outcome = failed
+		r.output = fmt.Appendf(r.output, "gate: %s: %s, so its declared key cannot be checked (a test that starts the merge tier's sandbox calls startsSandbox; see the observer's reason above)\n", step.Name, unobserved)
+	case len(outside) > 0:
+		r.outcome = failed
+		const shown = 20
+		r.output = fmt.Appendf(r.output, "gate: %s: its tests read %d checkout paths its package key does not cover (add each to hostPackageInputs in scripts/gate/tier.go, or run the test only in the full tier):\n", step.Name, len(outside))
+		for _, p := range outside[:min(len(outside), shown)] {
+			r.output = fmt.Appendf(r.output, "  %s\n", p)
+		}
+	}
+}
+
+// readsOutsideKey reads a test log that the input observer wrote
+// (internal/testinputs: "open", "stat" and "chdir" lines with absolute
+// paths) and returns the checkout paths in it that the closure does not
+// cover, sorted, or why the log is not a complete observation.
+func readsOutsideKey(root string, c *replay.Closure, log string) (outside []string, unobserved string, err error) {
+	content, err := os.ReadFile(log)
+	if os.IsNotExist(err) {
+		return nil, "the tests wrote no input log", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	text := string(content)
+	if !strings.HasPrefix(text, "# test log\n") || !strings.HasSuffix(text, "\n") {
+		return nil, "the input observer could not observe the tests", nil
+	}
+	roots := []string{filepath.Clean(root)}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != roots[0] {
+		roots = append(roots, resolved)
+	}
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n")[1:] {
+		verb, name, _ := strings.Cut(line, " ")
+		if verb != "open" && verb != "stat" && verb != "chdir" {
+			continue
+		}
+		if !filepath.IsAbs(name) {
+			name = filepath.Join(root, filepath.FromSlash(c.Dir), name)
+		}
+		name = filepath.Clean(name)
+		for _, base := range roots {
+			rel, err := filepath.Rel(base, name)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
+			rel = filepath.ToSlash(rel)
+			if !c.Covers(rel) && !seen[rel] {
+				seen[rel] = true
+				outside = append(outside, rel)
+			}
+			break
+		}
+	}
+	sort.Strings(outside)
+	return outside, "", nil
 }
 
 // fastCPUFile holds, per test package, the CPU seconds (user and system,
@@ -423,20 +504,6 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 	return os.WriteFile(filepath.Join(root, fastCPUFile), append(data, '\n'), 0644)
 }
 
-// stepsDigest identifies the steps the gate declares: names, needs, argv,
-// variables and declared inputs. A host package's tests inspect the
-// declarations, so the digest is in its key (hostPackageInputs).
-func stepsDigest(steps []*Step) string {
-	digest := sha256.New()
-	for _, step := range steps {
-		fmt.Fprintf(digest, "%q %q %q %q %t\n", step.Name, step.Needs, step.Argv, step.Env, step.Hermetic)
-		if step.Inputs != nil {
-			fmt.Fprintf(digest, "%q\n", *step.Inputs)
-		}
-	}
-	return hex.EncodeToString(digest.Sum(nil))
-}
-
 // replayPackage is the recorded pass of a package step at key, or nil when
 // none verifies (replay.Store.Lookup): the step then runs.
 func (g *gate) replayPackage(step *Step, key string) *result {
@@ -478,8 +545,8 @@ func (g *gate) recordPackages(out io.Writer, results []*result, objects []*repla
 	}
 }
 
-// packageIdentity names a package step in its key: its name, argv,
-// variables and, for a host package, the declarations its tests inspect.
+// packageIdentity names a package step in its key: its name, argv and
+// variables, and whether its reads are observed.
 func packageIdentity(step *Step) []string {
-	return []string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env), step.Declarations}
+	return []string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env), fmt.Sprintf("observed %t", step.ObserveInputs)}
 }

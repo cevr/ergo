@@ -68,6 +68,9 @@ func TestGateStopsItsStepsOnSignal(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			if c.tier == "merge" {
+				startsSandbox(t)
+			}
 			requireSandbox(t)
 			setBudgetCaseTemp(t)
 			t.Setenv(stepMemoryVariable, "512M")

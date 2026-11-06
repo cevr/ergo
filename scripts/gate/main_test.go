@@ -56,10 +56,7 @@ func write(t *testing.T, root, name, content string) {
 // gate rewrites, so Go's test cache would never replay the test in a gate.
 func repositorySteps(t *testing.T) (string, []*Step) {
 	t.Helper()
-	repository, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	repository := checkoutRoot(t)
 	durations, err := readDurations(repository)
 	if err != nil {
 		t.Fatal(err)
@@ -284,10 +281,7 @@ func TestShardsRunEveryTestExactlyOnce(t *testing.T) {
 	// may miss tests, plus names no package has), generated durations (the
 	// recorded ones, other values, or none) and every shard count up to 16,
 	// each real test runs in exactly one shard.
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	recorded, err := readDurations(root)
 	if err != nil {
 		t.Fatal(err)
