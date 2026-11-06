@@ -127,7 +127,7 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 	}
 	byPackage := map[string][]*Step{}
 	for _, step := range steps {
-		if step.Package != nil {
+		if step.Package != nil && step.Sweep == "" {
 			byPackage[step.Package.Dir] = append(byPackage[step.Package.Dir], step)
 		}
 	}
@@ -152,6 +152,8 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			t.Errorf("%s needs %q, which the fast tier does not run", step.Name, fullBuildStep)
 		}
 		switch {
+		case step.Sweep != "":
+			// The closure sweep's steps (TestClosureSweepTier).
 		case step.Package != nil:
 			keyed++
 			if !runsGoTest(step) || !slices.Contains(step.Argv, fastFlag) {

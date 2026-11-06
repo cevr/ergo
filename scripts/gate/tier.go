@@ -355,8 +355,34 @@ func fastSteps(root string) ([]*Step, error) {
 			tests = append(tests, step)
 		}
 	}
+	// The closure sweep of each package, keyed so that it runs only when
+	// what decides its verdict in the fast tier changes (sweepClosure).
+	for _, p := range packages {
+		step := sweepStep(p.dir)
+		step.Name = "closure sweep ./" + p.dir + " (fast)"
+		step.Package, step.PackageProblem = sweepClosure(p.dir, problem), problem
+		tests = append(tests, step)
+	}
 	// The tests after the steps they need, in package order.
 	return append(steps, tests...), nil
+}
+
+// sweepClosure is the key of a package's fast-tier closure sweep: the
+// package's test files and the sweep's own package (internal/closure, the
+// table in sweepTable among it), with what every key holds. So the fast
+// tier sweeps every package after an edit of the table or of the sweep,
+// one package after an edit of its tests, which is where a new test input
+// comes from, and none after an edit of a non-test file: that keeps a
+// checker edit's fast set as it was (TestFastTierReachOfAnEdit). The full
+// tier sweeps every package on every run (declareSteps). A table the gate
+// cannot read keys the sweep on the whole checkout, as it keys every
+// package (testPackages).
+func sweepClosure(dir, problem string) *replay.Closure {
+	c := &replay.Closure{Dir: path.Dir(sweepTable), Declared: []replay.Allowance{{Path: dir + "/*_test.go", Grant: replay.GrantFiles}}}
+	if problem != "" {
+		c.Declared = []replay.Allowance{{Path: ".", Grant: replay.GrantSubtree}}
+	}
+	return c
 }
 
 // checkObservedInputs ends a passed step that ran under the input observer
@@ -510,7 +536,7 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		dir := strings.TrimPrefix(path.Clean(pkg), "./")
 		cpu, ran := 0.0, 0
 		for _, step := range steps {
-			if step.Package == nil || step.Package.Dir != dir {
+			if step.Package == nil || step.Package.Dir != dir || step.Sweep != "" {
 				continue
 			}
 			for _, need := range step.Needs {
