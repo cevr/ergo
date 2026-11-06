@@ -126,15 +126,24 @@ ctypes.CDLL(None).syscall({"x86_64": 60, "aarch64": 93}[platform.machine()], 0)`
 // process group of its own, which a stop kills and waits for; an
 // untracked exec.Command runs in the gate's group, and a ps of it in
 // flight when the gate exits holds what the gate inherited. The fake ps
-// records its pid and its process group; each must be equal.
+// records its pid and its process group; each must be equal. Then the test
+// observes the gate's stopper itself, with a ps that runs until the test
+// lets it end: a stop kills a sampler's ps in flight and has waited for it
+// when it ends, and a stop waits for a finish's ps in flight and lets it
+// run to its end. An untracked ps in a group of its own fails both.
 func TestRSSWatchTracksItsPS(t *testing.T) {
 	if _, err := os.Stat("/proc/self/stat"); err != nil {
 		t.Skip("the fake ps reads its process group from /proc")
 	}
 	bin := t.TempDir()
 	record := filepath.Join(bin, "groups")
-	executable(t, bin, "ps", "#!/bin/sh\nread -r pid comm state ppid pgrp rest < /proc/$$/stat\necho \"$pid $pgrp\" >> '"+record+"'\nprintf '125 4321 S live\\n'\n")
+	hold := filepath.Join(bin, "hold")
+	executable(t, bin, "ps", "#!/bin/sh\nread -r pid comm state ppid pgrp rest < /proc/$$/stat\necho \"$pid $pgrp\" >> '"+record+"'\nwhile [ -e '"+hold+"' ]; do sleep 0.01; done\nprintf '125 4321 S live\\n'\n")
 	t.Setenv("PATH", bin)
+	// The test stops the gate's stopper; a fresh one serves the tests after
+	// it. No other test runs meanwhile: this one is not parallel.
+	gateStop = stopper{}
+	t.Cleanup(func() { gateStop = stopper{} })
 
 	watch, err := openRSSWatch(memoryBudget{}, "test")
 	if err != nil {
@@ -158,4 +167,115 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 			t.Errorf("ps %d (pid, process group) %q: not in a group of its own, so not a tracked command", i+1, line)
 		}
 	}
+
+	// From here each ps runs until the hold file is gone. The test removes
+	// it at its end in every case, so no ps outlives it.
+	if err := os.WriteFile(hold, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(hold) })
+
+	// A stop kills the sampler's ps in flight, and has waited for it: when
+	// the stop ends, the ps has been reaped.
+	sampled := make(chan error, 1)
+	go func() {
+		_, err := sampleGroups()
+		sampled <- err
+	}()
+	pid := awaitPS(t, record, 3)
+	// A tracked ps can run before its kill is armed (Start returns after
+	// exec); the stop under test is the one that finds it armed. Untracked,
+	// it is never armed, and the stop below shows that.
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		gateStop.mu.Lock()
+		armed := len(gateStop.kills)
+		gateStop.mu.Unlock()
+		if armed > 0 {
+			break
+		}
+	}
+	stopped := make(chan struct{})
+	go func() {
+		gateStop.stop(syscall.SIGTERM)
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop did not end: it did not kill the sampler's ps")
+	}
+	if _, err := os.Stat(filepath.Join("/proc", pid)); err == nil {
+		t.Error("the stop ended while the sampler's ps (pid " + pid + ") ran: the stop did not track it")
+	}
+	select {
+	case err := <-sampled:
+		if err == nil {
+			t.Error("the sampler's ps ran to its end during a stop, want it killed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("the sampler's ps still ran 2 s after the stop ended: the stop did not track it")
+	}
+
+	// A stop waits for a finish's ps in flight and does not kill it: the
+	// step's entry holds the stop until its finish returns, and then the ps
+	// alone holds it.
+	gateStop = stopper{}
+	step, err := gateStop.track()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected := make(chan error, 1)
+	go func() {
+		_, err := processGroupMembers(4321)
+		inspected <- err
+	}()
+	awaitPS(t, record, 4)
+	stopped = make(chan struct{})
+	go func() {
+		gateStop.stop(syscall.SIGTERM)
+		close(stopped)
+	}()
+	for !gateStop.stopping() {
+		time.Sleep(time.Millisecond)
+	}
+	step.done()
+	select {
+	case <-stopped:
+		t.Error("the stop ended while a finish's ps ran: the stop did not track it")
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := os.Remove(hold); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-inspected:
+		if err != nil {
+			t.Errorf("the finish's ps during a stop: %v, want it to run to its end", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the finish's ps did not end once released")
+	}
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop did not end after the finish's ps ended")
+	}
+}
+
+// awaitPS waits until the fake ps has recorded its nth run and returns that
+// run's pid.
+func awaitPS(t *testing.T, record string, n int) string {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		recorded, err := os.ReadFile(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+		if len(lines) >= n {
+			return strings.Fields(lines[n-1])[0]
+		}
+	}
+	t.Fatalf("ps did not start its run %d", n)
+	return ""
 }
