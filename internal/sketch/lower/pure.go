@@ -5,6 +5,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Pure functions (spec D5, the zero-overhead pure-call contract; lower-v1
@@ -24,13 +25,18 @@ import (
 //     (runtime.md, I1); and
 //   - every call in its body, outside the bodies of function literals
 //     (each a frame of its own that takes its caller's environment as its
-//     parameter), is a built-in operation (len, a conversion) or a call of
-//     a pure function.
+//     parameter), is a built-in operation (len, a conversion), a call of a
+//     pure std body (pureStdBody), or a call of a pure function.
 //
 // The last rule is a greatest fixed point over the call graph, so plain,
-// recursive and mutually recursive functions are pure together. A call of
-// a std or extern function, a with, an operation and a function value are
-// never pure calls. A library function (std Ergo source) keeps its
+// recursive and mutually recursive functions are pure together. A pure std
+// body is a std extern whose runtime/v1 Go body v1.BodyOf reports Pure
+// (stdlib.md, Pure bodies): it takes no hidden argument and no function,
+// so its call (stdCall) is a plain Go call that reads no environment, and
+// the checker's footprint already counts it as nothing. A call of any
+// other extern (a user extern, a std body that is not pure, an intrinsic),
+// a with, an operation and a function value is never a pure call. A
+// library function (std Ergo source, such as strings.Cut) keeps its
 // environment. A function value of a pure function keeps the one Go shape
 // of every function value: its closure takes an environment and discards
 // it (funcValue). The body of a pure function binds no environment, so any
@@ -104,6 +110,7 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 			case c == nil:
 				ok = false
 			case c.Kind == check.CallLen || c.Kind == check.CallConversion:
+			case c.Kind == check.CallFunc && !c.TaskResult && pureStdBody(c.Func):
 			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Pkg == f.Pkg && c.Func.Decl != nil && c.Func.Decl.Extern == nil && !c.TaskResult:
 				callees = append(callees, c.Func)
 			default:
@@ -113,6 +120,24 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 		return ok
 	})
 	return callees, ok
+}
+
+// pureStdBody reports a std extern function whose runtime/v1 Go body
+// v1.BodyOf reports Pure: the fact the checker's footprint reads
+// (check/footprint.go, pureStd). A body BodyOf refuses is not pure here;
+// its call stops at stdBody with BodyOf's error. No prelude intrinsic
+// (Append, Get, Delete) is marked pure; if one were, its call would keep
+// the environment and stop at envExpr with an internal compiler error.
+func pureStdBody(f *check.Func) bool {
+	if f == nil || !f.Pkg.Std() || f.Decl == nil || f.Decl.Extern == nil {
+		return false
+	}
+	path, name := f.Decl.Extern.Split()
+	if path != runtimeImport {
+		return false
+	}
+	body, err := v1.BodyOf(name)
+	return err == nil && body.Pure
 }
 
 // Host protocols (Q-S5-6). Go joins an interface by the method set, so the
