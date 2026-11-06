@@ -232,7 +232,13 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 		}
 	}
 	fc.bindDeferred(body, vals)
-	text := fc.stdResult(body, fc.typeOf(x), fc.envExpr(x), x, func(env string) string {
+	// A body with no hidden argument whose call is made here reads no
+	// environment: a pure function calls it with none bound (pure.go).
+	env := ""
+	if len(body.Hidden) > 0 || defersCall(body) {
+		env = fc.envExpr(x)
+	}
+	text := fc.stdResult(body, fc.typeOf(x), env, x, func(env string) string {
 		return fc.runtimeCall(name, body, fc.stdTypeArgs(body, f.Sig, c.TypeArgs, x), "", vals, env, x, c, x)
 	})
 	return text, len(f.Sig.Results) > 0, goFallible(body)
