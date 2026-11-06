@@ -10,7 +10,6 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -33,10 +32,7 @@ func TestCachedGatePackagesAreHermetic(t *testing.T) {
 	if goCommand == "" {
 		t.Fatal("go is required")
 	}
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	steps, err := gateSteps(root)
 	if err != nil {
 		t.Fatal(err)
@@ -229,10 +225,7 @@ func TestHermeticCheckResolvesExecutableByIdentity(t *testing.T) {
 	if goCommand == "" {
 		t.Fatal("go is required")
 	}
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := checkoutRoot(t)
 	steps, err := gateSteps(root)
 	if err != nil {
 		t.Fatal(err)

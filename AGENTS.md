@@ -14,5 +14,5 @@ For language architecture, runtime/interop contracts, or terminology changes, re
 - Build a small Go compiler. Go is the only target (owner, 2026-10-26); any other target is a diagnostic. Effect is prior art for the guarantees, not a runtime. Preserve the shared conformance corpus.
 - Use Rift for isolated repository changes. Implementers never push; the orchestrator integrates accepted, reviewed, gated heads into local `main` and may fast-forward `origin/main` to them (owner, 2026-10-07). Other publishing requires an explicit owner request.
 - On the exe workbox, transferred `.rift` markers may be unregistered and the transferred source is on ext4. If `workrift` cannot resolve it, use an isolated Git worktree as the loop skill permits. Verify registry membership before workspace cleanup.
-- Run `./scripts/gate.sh` before handoff. Performance claims require measured evidence.
+- Run `./scripts/gate.sh` (the fast tier) before handoff. The full tier (`./scripts/gate.sh --full`), `--merge` and the macOS check run on every batch head before main. Performance claims require measured evidence.
 - Wayfinder execution is explicitly authorized for this effort; do not close HITL tickets without user feedback.

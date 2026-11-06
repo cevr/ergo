@@ -697,7 +697,9 @@ func TestBudgetRecordDurationsScope(t *testing.T) {
 		t.Skip("no systemd-run: the RSS watch tests cover this host")
 	}
 	binary := filepath.Join(t.TempDir(), "gate")
-	if output, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+	// Without VCS stamping: its git status reads every tracked file of the
+	// checkout, none an input of this test (hostPackageInputs).
+	if output, err := exec.Command("go", "build", "-buildvcs=false", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, output)
 	}
 	root := fixture(t)

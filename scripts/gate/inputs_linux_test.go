@@ -433,7 +433,7 @@ func TestInputAdmissionResolvesLinks(t *testing.T) {
 // file and a Go cache, and reads each inside: every one is empty, and the
 // clean file beside them is visible.
 func TestSandboxMasksContaminatedInputs(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	base := t.TempDir()
 	restorePermissions(t, base)
 	tree := filepath.Join(base, "tree")
@@ -498,7 +498,7 @@ func symlinkRootPlan(t *testing.T, alias string, maskable bool) (string, sandbox
 // starts, the written bytes are empty inside, the clean file beside them
 // is visible, and bwrap's argv binds the resolved tree at the link's path.
 func TestSandboxAdmitsSymlinkRoots(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	base := t.TempDir()
 	restorePermissions(t, base)
 	tree, alias := filepath.Join(base, "tree"), filepath.Join(base, "alias")
@@ -555,7 +555,7 @@ func TestSandboxAdmitsSymlinkRoots(t *testing.T) {
 // every tree, absolute or relative, with an empty read-only directory; a
 // link inside a tree gets none. Inside, each outward link shows nothing.
 func TestSandboxArgvBindsAdmittedRoots(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	base := t.TempDir()
 	restorePermissions(t, base)
 	tree, alias := filepath.Join(base, "tree"), filepath.Join(base, "links", "alias")
@@ -663,7 +663,7 @@ func probeZip(t *testing.T, comment string, extra bool) []byte {
 // and holds no byte of the comment (TestModuleZipByConstructionProperty
 // checks the written archive's hash and shape).
 func TestSandboxModuleZipIsConstructed(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	sandboxHome(t)
 	host := t.TempDir()
 	t.Setenv("GOMODCACHE", host)

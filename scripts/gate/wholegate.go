@@ -44,6 +44,8 @@ var hostPrograms = []string{
 	"bwrap", "nsenter", "cat",
 	// The host tests' and their scripts'.
 	"nohup", "head", "python3", "seq", "setsid", "sleep", "ls", "chmod",
+	// scripts/gate.sh's, which TestGateScriptExecsTheGate runs.
+	"cksum", "cut",
 }
 
 // readPhysicalMemory reads the host's physical memory in bytes, or 0 when

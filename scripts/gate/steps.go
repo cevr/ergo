@@ -139,7 +139,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			continue
 		}
 		measured, ok := durations[pkg]
-		if !ok {
+		if !ok || !slices.Contains(slowPackages, "./"+relative) {
 			unsharded = append(unsharded, pkg)
 			continue
 		}
@@ -362,7 +362,7 @@ func authoredExamples(root string) ([]string, error) {
 	return examples, nil
 }
 
-// slowPackages are measured by -record-durations and sharded by the gate.
+// slowPackages are sharded by the gate over their recorded durations.
 // The checker and the lowering have run their tests in one process, one at
 // a time: 294 s and 509 s serial at a CPU budget of 4 (gate-fast plan, run
 // wf10, section 1.1, measured). Their shards are processes, so they need no
@@ -371,13 +371,34 @@ func authoredExamples(root string) ([]string, error) {
 // CPU budget.
 var slowPackages = []string{"./cmd/ergo", "./internal/sketch/check", "./internal/sketch/lower"}
 
-// writeDurations measures each slow package's tests serially (as a single
+// testedPackages are the module's packages that have tests, as "./dir".
+func testedPackages(root string) ([]string, error) {
+	command := exec.Command("go", "list", "-f", "{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}", "./...")
+	command.Dir = root
+	output, err := runOutput(command)
+	if err != nil {
+		return nil, fmt.Errorf("go list ./...: %w", err)
+	}
+	var packages []string
+	for _, pkg := range strings.Fields(string(output)) {
+		packages = append(packages, shortPackage(root, pkg))
+	}
+	return packages, nil
+}
+
+// writeDurations measures each package's tests serially (as a single
 // process runs them), each under the memory budget of limit, and rewrites
-// the durations file.
-func writeDurations(root string, limit limiter) error {
-	durations := map[string]map[string]float64{}
+// their rows of the durations file, keeping the rows of the packages it
+// did not measure. The sharded packages (slowPackages) balance their
+// shards by these rows; every package's rows decide its large tests (the
+// size rule, sizeCutoff).
+func writeDurations(root string, limit limiter, packages []string) error {
+	durations, err := readDurations(root)
+	if err != nil {
+		return err
+	}
 	module := modulePath(root)
-	for _, pkg := range slowPackages {
+	for _, pkg := range packages {
 		name := "go test -json " + pkg
 		command := exec.Command("go", "test", "-count=1", "-json", testTimeout, pkg)
 		command.Env = stepEnvironment()

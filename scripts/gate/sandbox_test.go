@@ -273,13 +273,29 @@ func requireSandbox(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(realTools["go"])+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// startsSandbox is requireSandbox for a test that starts the merge tier's
+// sandbox, which makes a user and a pid namespace. Under -short (the fast
+// tier) it skips: the fast tier runs this package under the input observer
+// (Step.ObserveInputs), which cannot observe a process that makes a
+// namespace (clone with CLONE_NEW*: the paths inside mean other files) and
+// refuses the whole observation, so no read of the package could be checked
+// against its declared key. These tests run in the full tier, uncached, on
+// every batch head.
+func startsSandbox(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("full tier: it makes a namespace, which the fast tier's input observer cannot observe")
+	}
+	requireSandbox(t)
+}
+
 // TestSandboxPlanOfThisHost: the plan the gate makes here keeps every
 // guarantee, and inside the sandbox it starts a host path the steps read
 // is read-only, a write to HOME, GOCACHE or the temporary directory stays
 // inside, and the checkout is the head commit, without an ignored file the
 // host checkout has.
 func TestSandboxPlanOfThisHost(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	root := fixture(t)
 	write(t, root, "runs/stale", "from an earlier run\n")
 	g := wholeFixture(t, root, nil)
@@ -437,7 +453,7 @@ func TestMergeTierFailsClosed(t *testing.T) {
 		check(t, g, "no user namespace")
 	})
 	t.Run("bwrap fails to mount", func(t *testing.T) {
-		requireSandbox(t)
+		startsSandbox(t)
 		g := wholeFixture(t, root, steps)
 		var fresh string
 		g.openSandbox = func(plan sandboxPlan) (enclosure, error) {
@@ -689,7 +705,7 @@ func mergeOnce(t *testing.T, g *gate) (int, string) {
 // together, each compiled the cold sandbox cache's packages again, and the
 // test peaked at 2.96 GB of anonymous memory (measured 2026-11-06).
 func TestMergeTierSandboxRegression(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	t.Setenv(cpuVariable, "2")
 	rows := sandboxRows()
 	for _, group := range [][]sandboxRow{rows[:1], rows[1:]} {
@@ -759,7 +775,7 @@ func TestMergeTierSandboxRegression(t *testing.T) {
 // one and bad in the other. Each gives its own verdict: neither run's cache
 // is the other's, and nothing one run does reaches the other's.
 func TestMergeTierSandboxConcurrent(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	sandboxHome(t)
 	check := []string{"sh", "-c", `go run ./cmd/launcher0 fresh-no-gocache && go run ./cmd/launcher0 fresh-no-gocache | tee /dev/stderr | grep -q "(cached)"`}
 	var roots []string
@@ -825,7 +841,7 @@ func main() {
 // tier fails on the inner test's own failure: the run's module cache is its
 // own, so no result from before the run reaches the child.
 func TestMergeTierInputContractRegression(t *testing.T) {
-	requireSandbox(t)
+	startsSandbox(t)
 	sandboxHome(t)
 	t.Setenv("GOMODCACHE", t.TempDir())
 	t.Setenv("GOTOOLCHAIN", "local")
