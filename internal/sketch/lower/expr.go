@@ -240,19 +240,19 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	case *syntax.BinaryExpr:
 		switch x.Op {
 		case syntax.QUO, syntax.REM, syntax.SHL, syntax.SHR:
-			return operand{val: fc.atSite(x.OpPos, fc.binary(x))}
+			return operand{val: fc.atSite(x, x.OpPos, fc.binary(x))}
 		}
 		return operand{val: fc.binary(x)}
 	case *syntax.UnaryExpr:
 		return operand{val: fc.unary(x)}
 	case *syntax.StarExpr:
-		return operand{val: fc.atSite(x.Pos(), "(*"+fc.value(x.X)+")")}
+		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
-		return operand{val: fc.atSite(x.Pos(), fc.index(x))}
+		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}
 	case *syntax.SliceExpr:
-		return operand{val: fc.atSite(x.Pos(), fc.sliceExpr(x))}
+		return operand{val: fc.atSite(x, x.Pos(), fc.sliceExpr(x))}
 	case *syntax.CallExpr:
 		return fc.call(x)
 	case *syntax.TryExpr:
@@ -350,12 +350,26 @@ func (fc *funcCtx) ident(id *syntax.Ident) string {
 func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 	if id, ok := x.X.(*syntax.Ident); ok {
 		if pn, isPkg := fc.l.info.Uses[id].(*check.PkgName); isPkg {
+			// The checker records no Use of the selected name: the
+			// package's exported object of that name is the one.
 			for _, o := range pn.Pkg.Exported() {
-				if f, ok := o.(*check.Func); ok && f.Name == x.Sel.Name {
-					return fc.funcValue(f, fc.typeOf(x), x, nil)
+				switch o := o.(type) {
+				case *check.Func:
+					if o.Name == x.Sel.Name {
+						return fc.funcValue(o, fc.typeOf(x), x, nil)
+					}
+				case *check.Var:
+					if o.Name == x.Sel.Name {
+						// An imported package's let, lowered with the
+						// program (sources.go).
+						if name, ok := fc.l.vars[o]; ok {
+							return name
+						}
+						ice(x, "the let %s.%s has no Go name", id.Name, x.Sel.Name)
+					}
 				}
 			}
-			refuse(x, "the value %s.%s of an imported package is lowered when 196b lowers packages", id.Name, x.Sel.Name)
+			unreachable(x, ruleAccepted, "the selector %s.%s is no function or let of the imported package", id.Name, x.Sel.Name)
 		}
 	}
 	if op := fc.methodOf(x); op != nil {

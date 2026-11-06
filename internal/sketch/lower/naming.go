@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"fmt"
 	"slices"
 	"sort"
 
@@ -19,9 +18,9 @@ import (
 //
 // The pass reserves, in this order:
 //
-//  1. the user package's declarations, in source order: types, functions,
-//     lets and context builders, so a source name keeps its spelling unless Go
-//     reserves it;
+//  1. the user package's declarations, in source order, file by file: types,
+//     functions, lets and context builders, so a source name keeps its
+//     spelling unless Go reserves it;
 //  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
@@ -30,7 +29,9 @@ import (
 //     the imports of the Go packages that user externs target, in path
 //     order (calls.go, hostImportNames);
 //  3. every type and function of every library package the program reaches
-//     (the prelude and imported std packages, by path), used or not;
+//     (the prelude, imported std packages and imported user packages, by
+//     path), used or not, then the lets of each imported user package
+//     (sources.go), in initialization order;
 //  4. the operations adapters of every operations conversion, the text
 //     functions every error type's text needs, and the default function of
 //     every defined type or instance whose default holds a Map (types.go,
@@ -46,10 +47,12 @@ import (
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
 	l.declareNames()
-	for _, tn := range l.pkg.Types {
-		if tn.Decl != nil {
-			if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
-				l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+	for _, p := range l.sourcedPkgs() {
+		for _, tn := range l.canon.types(p) {
+			if tn.Decl != nil {
+				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
+					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
+				}
 			}
 		}
 	}
@@ -67,21 +70,26 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
 	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
-	libs := l.libraryPackages()
+	libs := l.libraries()
 	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
-		for _, tn := range p.Types {
+		for _, tn := range l.canon.types(p) {
 			l.typeName(tn)
 		}
-		for _, f := range p.Funcs {
+		for _, f := range l.canon.funcs(p) {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
-	type entry struct {
-		key  pkgKey
-		sort string
-		base string
+	// A sourced library's lets, which the program lowers, used or not
+	// (sources.go), in its source order.
+	for _, p := range l.sourcedLibs() {
+		l.eachDecl(p, func(d syntax.Decl) {
+			if vd, ok := d.(*syntax.VarDecl); ok {
+				l.declareName(vd)
+			}
+		})
 	}
+	type entry = generatedEntry
 	var generated []entry
 	for _, p := range append([]*check.Package{l.pkg}, libs...) {
 		var convs []check.Conversion
@@ -113,13 +121,13 @@ func (l *lowerer) nameAll() {
 			}
 		}
 		for _, c := range convs {
-			key, base, ok := adapterName(c)
+			key, base, ok := l.adapterName(c)
 			if !ok {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
 		}
-		for _, tn := range p.Types {
+		for _, tn := range l.canon.types(p) {
 			named, ok := tn.Type.(*check.Named)
 			if !ok || !l.errorType(named, l.buildView()) || tn.Decl == nil {
 				continue
@@ -128,7 +136,7 @@ func (l *lowerer) nameAll() {
 				l.quiet(func() {
 					l.textTypes(root, tn.Decl.Name, map[pkgKey]bool{}, func(t check.Type) {
 						key, base := l.textKey(t, tn.Decl.Name)
-						generated = append(generated, entry{key, "text " + base + " " + t.String(), base})
+						generated = append(generated, entry{key, "text " + l.typeKey(t), base})
 					})
 				})
 			}
@@ -137,31 +145,53 @@ func (l *lowerer) nameAll() {
 	l.reserveDefaults(func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "default " + key.obj.(string), base})
 	})
-	sort.SliceStable(generated, func(i, j int) bool { return generated[i].sort < generated[j].sort })
-	for _, e := range generated {
+	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}
 	l.nameTests() // the test build's names (tests.go); none in the run build
 	l.prenamed = true
 }
 
-// adapterKey identifies the adapter of an operations conversion by its
-// source and target types. A conversion inside a generic function also
-// names the declaration of each type parameter it mentions, whose adapter
-// is generic over them (D-E1, C8), so two functions' T never share one.
-func adapterKey(c check.Conversion) string {
-	key := c.From.String() + " => " + c.To.String()
-	for _, tp := range convParams(c) {
-		key += fmt.Sprintf(" %s@%v", tp.Name, tp.Pos)
+// generatedEntry is a generated package entity the naming pass reserves:
+// its key, its canonical sort string and its base Go name.
+type generatedEntry struct {
+	key  pkgKey
+	sort string
+	base string
+}
+
+// sortGenerated orders the generated entries by their sort strings. The
+// order is total: each entry's sort string is its key's canonical
+// spelling (typeKey), so no map's iteration order and no display decides
+// which entry takes a base name first (196b). Two entries that share a sort
+// string are one entity, met twice; a different key or base under one
+// sort string would make the order partial, and is a compiler defect.
+func sortGenerated(generated []generatedEntry) []generatedEntry {
+	sort.Slice(generated, func(i, j int) bool { return generated[i].sort < generated[j].sort })
+	for i := 1; i < len(generated); i++ {
+		a, b := generated[i-1], generated[i]
+		if a.sort == b.sort && (a.key != b.key || a.base != b.base) {
+			ice(nil, "two generated entries share the sort key %q", a.sort)
+		}
 	}
-	return key
+	return generated
+}
+
+// adapterKey identifies the adapter of an operations conversion by the
+// canonical keys of its source and target types (typeKey): a named type by
+// its package's full path, so two packages' Q, whose display is lib.Q in
+// both, never share one (196b), and a type parameter by its declaration,
+// whose adapter is generic over it (D-E1, C8), so two functions' T never
+// share one, in one file or in two (paramFile).
+func (l *lowerer) adapterKey(c check.Conversion) string {
+	return l.typeKey(c.From) + " => " + l.typeKey(c.To)
 }
 
 // adapterName is the key and the base Go name of the adapter of the
 // operations conversion c, and false when c is not one an adapter lowers:
 // its source is a named type, a type parameter, or a pointer to either,
 // and its target a named operation type.
-func adapterName(c check.Conversion) (key, base string, ok bool) {
+func (l *lowerer) adapterName(c check.Conversion) (key, base string, ok bool) {
 	to, ok := c.To.(*check.Named)
 	if c.Kind != check.ConvOperations || !ok {
 		return "", "", false
@@ -174,7 +204,7 @@ func adapterName(c check.Conversion) (key, base string, ok bool) {
 	} else {
 		return "", "", false
 	}
-	return adapterKey(c), "ops" + from + "As" + to.Obj.Name, true
+	return l.adapterKey(c), "ops" + from + "As" + to.Obj.Name, true
 }
 
 // paramSource is the type parameter an operations conversion converts

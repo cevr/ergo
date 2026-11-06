@@ -39,18 +39,18 @@ import (
 // Elixir's protocol consolidation makes that dispatch static at compile
 // time, as the per-instance functions here are.
 
-// textKey is the package-scope key of the text function of t: one per
-// declared type or instance, one per slice type.
+// textKey is the package-scope key of the text function of t: one per Go
+// type. Its identity is the canonical Go type the function takes (typeKey,
+// which erases row arguments as goType does), so a declared type and an
+// instance of it that differ only in rows, such as Hold and Hold[Bad] of
+// type Hold[E] { F func() fails E }, share one function (196b).
 func (l *lowerer) textKey(t check.Type, site syntax.Node) (pkgKey, string) {
 	switch u := t.(type) {
 	case *check.Named:
 		td := l.typeDecl(u.Obj, site)
-		if len(u.TArgs) > 0 {
-			return pkgKey{"text", "instance " + u.String()}, "text" + td.name
-		}
-		return pkgKey{"text", td.tn}, "text" + td.name
+		return pkgKey{"text", "named " + l.typeKey(u)}, "text" + td.name
 	case *check.Slice:
-		return pkgKey{"text", "slice " + t.String()}, "textList"
+		return pkgKey{"text", "slice " + l.typeKey(t)}, "textList"
 	}
 	return pkgKey{}, ""
 }
@@ -193,7 +193,8 @@ func textVariants(u *check.Named, site syntax.Node) []check.Type {
 // type of the program names: in an expression, a call's error row, a
 // declaration, a pattern or a literal's signature, of the user package and
 // of every library package, and in the fields of those instances. It is
-// computed once, sorted by the instances' text.
+// computed once, sorted by the instances' canonical keys (typeKey), never
+// by their display, which instances of two packages' types can share.
 func (l *lowerer) instancesOf(tn *check.TypeName) []check.Type {
 	if l.instances == nil {
 		l.instances = map[*check.TypeName][]check.Type{}
@@ -220,7 +221,7 @@ func (l *lowerer) instancesOf(tn *check.TypeName) []check.Type {
 				if len(u.TArgs) == 0 || mentionsTypeParam(u) {
 					return
 				}
-				if key := u.String(); !named[key] {
+				if key := l.typeKey(u); !named[key] {
 					named[key] = true
 					l.instances[u.Obj] = append(l.instances[u.Obj], u)
 				}
@@ -290,7 +291,7 @@ func (l *lowerer) instancesOf(tn *check.TypeName) []check.Type {
 			}
 		}
 		for _, list := range l.instances {
-			sort.Slice(list, func(i, j int) bool { return list[i].String() < list[j].String() })
+			sort.Slice(list, func(i, j int) bool { return l.typeKey(list[i]) < l.typeKey(list[j]) })
 		}
 	}
 	return l.instances[tn]

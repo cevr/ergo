@@ -173,7 +173,9 @@ var nodeTable = map[string]nodeEntry{
 // parser never sets, each with the rule that keeps it empty. Stage 5
 // (D10) deleted every such field, so the map is empty; a field added
 // later that no row sets fails TestDecidedNodeInventory by name.
-var notBuiltFields = map[string]string{}
+var notBuiltFields = map[string]string{
+	"File.Name": "set by a caller that loads files from a directory, not by the parser; check.Check orders a package's files by it (pkg-lower round 9)",
+}
 
 // TestDecidedNodeInventory (round 7 review T2): the decided families and
 // their rows cover every node type and field of the syntax package, where

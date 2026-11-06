@@ -112,7 +112,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 
 A refusal names one of these owners.
 
-- [196b](https://github.com/cevr/ergo/issues/196): packages of several files and imported contexts.
+- [196b](https://github.com/cevr/ergo/issues/196): imported contexts.
 - [#197](https://github.com/cevr/ergo/issues/197): further resource ownership.
 - [#199](https://github.com/cevr/ergo/issues/199): the runtime.
 - [#57](https://github.com/cevr/ergo/issues/57): the actor library and its machine runner.
