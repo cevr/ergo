@@ -85,3 +85,55 @@ func TestRecordFastCPUWritesOnlyTheFastCPUTable(t *testing.T) {
 		t.Errorf("fast CPU table %v; want a positive row for p and q's row kept", table)
 	}
 }
+
+// `-record-durations -fast` of a package whose tests run the CLI
+// (cliTestPackages) builds bin/ergo from this checkout before it measures
+// them, as the fast tier does (buildCLIStep): the recorded CPU is never the
+// CPU of a stale or missing CLI. The checkout starts with a stale bin/ergo;
+// the package's test fails unless the CLI it is named prints the fresh
+// build's output.
+func TestRecordFastCPUBuildsTheCLIFirst(t *testing.T) {
+	t.Setenv(mechanismVariable, "rss")
+	t.Setenv("ERGO_GATE_CACHE", t.TempDir())
+	root := t.TempDir()
+	write(t, root, "go.mod", "module example.test/cli\n\ngo 1.24\n")
+	write(t, root, "cmd/ergo/main.go", "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"fresh\") }\n")
+	write(t, root, "internal/sketch/lower/cli_test.go", `package lower
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestRunsTheBuiltCLI(t *testing.T) {
+	name := os.Getenv("ERGO_TEST_CLI")
+	if name == "" {
+		t.Fatal("ERGO_TEST_CLI is not set")
+	}
+	output, err := exec.Command(filepath.Join("..", "..", "..", name)).Output()
+	if err != nil || strings.TrimSpace(string(output)) != "fresh" {
+		t.Fatalf("the CLI printed %q (%v); want the build of this checkout", output, err)
+	}
+}
+`)
+	write(t, root, "bin/ergo", "#!/bin/sh\necho stale\n")
+	if err := os.Chmod(filepath.Join(root, "bin/ergo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "scripts/authored_examples.txt", "go.mod\n")
+	write(t, root, fastCPUFile, "{}\n")
+	var out strings.Builder
+	if err := (&gate{root: root}).recordDurations(&out, []string{"./internal/sketch/lower"}, true); err != nil {
+		t.Fatalf("%v; output %q", err, out.String())
+	}
+	table, err := readFastCPU(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cpu, ok := table["example.test/cli/internal/sketch/lower"]; !ok || cpu <= 0 || len(table) != 1 {
+		t.Errorf("fast CPU table %v; want one positive row for the lowering", table)
+	}
+}

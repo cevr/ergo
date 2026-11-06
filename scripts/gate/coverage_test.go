@@ -48,8 +48,12 @@ var stepPrograms = map[string]string{
 
 // stepEnvironmentNames are the variables a step may set, in an env prefix or
 // in Step.Env: the ones the gate sets. ERGO_REPO_ROOT gives the kernel tests
-// the checkout; CGO_ENABLED=0 builds the hermetic gate packages.
-var stepEnvironmentNames = []string{"CGO_ENABLED", "ERGO_REPO_ROOT"}
+// the checkout; CGO_ENABLED=0 builds the hermetic gate packages;
+// ERGO_TEST_CLI names to a cliTestPackages step the bin/ergo that the step's
+// need (buildCLIStep) wrote in this run. Its value is a constant relative
+// path, and Step.Env is a part of both tiers' keys (TestCLIPathIsInTheStepKey),
+// so a changed value cannot replay a pass recorded with another CLI.
+var stepEnvironmentNames = []string{"CGO_ENABLED", "ERGO_REPO_ROOT", "ERGO_TEST_CLI"}
 
 // timeoutDuration is the DURATION operand of timeout, written literally.
 var timeoutDuration = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)
