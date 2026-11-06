@@ -37,16 +37,21 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Analysis is the 2026 front-end's outcome for one source text. It keeps
-// the parsed file and the checker's package, so building reads the same
-// checked program and never parses or checks again.
+// Analysis is the 2026 front-end's outcome for one source text (Check) or
+// one package folder and the packages it imports (CheckDir, load.go). It
+// keeps the parsed files and the checker's packages, so building reads the
+// same checked program and never parses or checks again.
 type Analysis struct {
 	// Diagnostics are the checker's diagnostics in source order, with UTF-8
-	// byte spans into the analysed text.
+	// byte spans into the analysed text; for a program read from a folder,
+	// into the text of the diagnostic's File, package by package in
+	// dependency order.
 	Diagnostics []report.Diagnostic
 	source      string
 	file        *syntax.File
 	pkg         *check.Package
+	// program is the program read from a folder; nil for one source text.
+	program *program
 }
 
 // Check parses source and checks it as one package with the 2026 checker.
@@ -73,14 +78,16 @@ func Check(source string) Analysis {
 // checker accepted the program, and its form waits for the stage the
 // message names.
 func (a Analysis) refusals(refused *lower.Refused) []report.Diagnostic {
-	lines := lineStarts(a.source)
 	var out []report.Diagnostic
 	for _, r := range refused.Refusals {
-		out = append(out, report.Diagnostic{
-			Code:    check.CodeOutside,
-			Message: r.Message,
-			Span:    span(a.source, lines, r.Line, r.Column),
-		})
+		d := report.Diagnostic{Code: check.CodeOutside, Message: r.Message}
+		if a.program == nil {
+			d.Span = span(a.source, lineStarts(a.source), r.Line, r.Column)
+		} else if f, ok := a.program.file(r.Path); ok {
+			d.File = f.rel
+			d.Span = span(f.text, lineStarts(f.text), r.Line, r.Column)
+		}
+		out = append(out, d)
 	}
 	return out
 }
@@ -94,7 +101,10 @@ func (e *BuildError) Error() string {
 		return "the 2026 front-end refused the build"
 	}
 	d := e.Diagnostics[0]
-	if d.Span.Line > 0 {
+	switch {
+	case d.Span.Line > 0 && d.File != "":
+		return fmt.Sprintf("%s at %s:%d:%d: %s", d.Code, d.File, d.Span.Line, d.Span.Column, d.Message)
+	case d.Span.Line > 0:
 		return fmt.Sprintf("%s at %d:%d: %s", d.Code, d.Span.Line, d.Span.Column, d.Message)
 	}
 	return fmt.Sprintf("%s: %s", d.Code, d.Message)
@@ -244,7 +254,7 @@ var compilerIdentity = build.CompilerIdentity
 // cannot be anchored, or one the lowering refuses is refused before
 // anything is published; a refusal is a *BuildError.
 func Build(a Analysis, req BuildRequest) (build.Module, error) {
-	if len(a.Diagnostics) > 0 || a.file == nil || a.pkg == nil {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
 		return build.Module{}, &BuildError{Diagnostics: a.Diagnostics}
 	}
 	lowering := lower.Lower
@@ -255,7 +265,16 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 	default:
 		return build.Module{}, fmt.Errorf("sketchfront: unknown build mode %q", req.Mode)
 	}
+	// A program of one source text is anchored at the request's Source; a
+	// program read from a folder at the admitted path of each file it read.
 	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: req.Source, Text: a.source}}}
+	dependencies := stdDependencies()
+	if a.program != nil {
+		unit = a.program.unit()
+		// The key holds every local package the program reaches: an edit
+		// of an imported package builds again.
+		dependencies = append(dependencies, a.program.dependencies()...)
+	}
 	if err := unit.Validate(); err != nil {
 		return build.Module{}, err
 	}
@@ -264,7 +283,7 @@ func Build(a Analysis, req BuildRequest) (build.Module, error) {
 		return build.Module{}, err
 	}
 	input := build.Input{
-		Dependencies: stdDependencies(),
+		Dependencies: dependencies,
 		Compiler:     compiler,
 		Emitter:      emitterRevision,
 		Language:     LanguageRevision,

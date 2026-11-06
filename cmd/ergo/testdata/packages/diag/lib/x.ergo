@@ -1,0 +1,3 @@
+func Broken() int {
+	return missing
+}

@@ -65,7 +65,7 @@ func buildSource(command string, args []string) (receipt.Location, error) {
 		_ = printJSON(l.result.CheckEnvelope())
 		return receipt.Location{}, fmt.Errorf("check failed")
 	}
-	output, err := locateArtifact(outputPath(l.source.String(), opts.output))
+	output, err := locateArtifact(outputPath(l.name, opts.output))
 	if err != nil {
 		return receipt.Location{}, err
 	}
@@ -90,12 +90,13 @@ func buildSource(command string, args []string) (receipt.Location, error) {
 	return output, nil
 }
 
-// outputPath is the executable a build writes.
-func outputPath(source, output string) string {
+// outputPath is the executable a build writes: -o, or dist/NAME, NAME
+// being the source file's name without its extension or the folder's name.
+func outputPath(name, output string) string {
 	if output != "" {
 		return output
 	}
-	return filepath.Join("dist", strings.TrimSuffix(filepath.Base(source), filepath.Ext(source)))
+	return filepath.Join("dist", name)
 }
 
 // locateArtifact locates a file the build writes. A directory is refused

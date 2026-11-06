@@ -15,11 +15,14 @@ import (
 const DiagnosticReportSchemaVersion = 2
 
 // SourceSnapshot identifies the exact text a result was computed from. The
-// text stays out of JSON.
+// text stays out of JSON. A program read from a directory has no one text:
+// Files maps each file a diagnostic can name (Diagnostic.File) to its text,
+// and a diagnostic with a File is projected onto that text.
 type SourceSnapshot struct {
 	URI    string
 	Origin string
-	Text   string `json:"-"`
+	Text   string            `json:"-"`
+	Files  map[string]string `json:"-"`
 }
 
 // FileURI is the file URI of the requested document, not of its symlink
@@ -66,7 +69,10 @@ type LSPDiagnostic struct {
 // DiagnosticFinding is one diagnostic as the report projects it: its UTF-8
 // span, and the LSP range of that span when the span lies in the text.
 type DiagnosticFinding struct {
-	Code              string         `json:"code"`
+	Code string `json:"code"`
+	// File is the diagnostic's file relative to the module root, for a
+	// program read from a directory (Diagnostic.File); omitted otherwise.
+	File              string         `json:"file,omitempty"`
 	Origin            string         `json:"origin"`
 	Severity          string         `json:"severity"`
 	Message           string         `json:"message"`
@@ -124,20 +130,36 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 		PolicyPassed:     r.Checked,
 		Diagnostics:      []DiagnosticFinding{},
 	}
-	index := newSourcePositionIndex(snapshot.Text)
+	indexes := map[string]sourcePositionIndex{}
+	textOf := func(file string) (string, sourcePositionIndex) {
+		text := snapshot.Text
+		if file != "" {
+			text = snapshot.Files[file]
+		}
+		index, ok := indexes[file]
+		if !ok {
+			index = newSourcePositionIndex(text)
+			indexes[file] = index
+		}
+		return text, index
+	}
 	seen := map[string]bool{}
 	for _, diagnostic := range r.Diagnostics {
 		span := diagnostic.Span
-		key := strings.Join([]string{diagnostic.Code, diagnostic.Message, fmt.Sprintf("%d:%d", span.Offset, span.Length)}, "\x00")
+		key := strings.Join([]string{diagnostic.Code, diagnostic.File, diagnostic.Message, fmt.Sprintf("%d:%d", span.Offset, span.Length)}, "\x00")
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		finding := DiagnosticFinding{Code: diagnostic.Code, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span}
+		finding := DiagnosticFinding{Code: diagnostic.Code, File: diagnostic.File, Origin: "compiler", Severity: "error", Message: diagnostic.Message, Span: span}
 		lsp := &LSPDiagnostic{Severity: 1, Code: diagnostic.Code, Source: "ergo", Message: diagnostic.Message}
 		// A zero Span is the no-location value, such as the EF110 refusal.
 		// A real span carries one-based coordinates, also when it is empty.
-		if location, ok := index.rangeFor(snapshot.Text, span); span != (Span{}) && ok {
+		text, index := textOf(diagnostic.File)
+		if _, known := snapshot.Files[diagnostic.File]; diagnostic.File != "" && !known {
+			span = Span{} // a file the snapshot does not hold has no location here
+		}
+		if location, ok := index.rangeFor(text, span); span != (Span{}) && ok {
 			finding.LocationAvailable = true
 			lsp.Range = location
 		}
@@ -148,6 +170,9 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 		left, right := report.Diagnostics[i], report.Diagnostics[j]
 		if left.LocationAvailable != right.LocationAvailable {
 			return left.LocationAvailable
+		}
+		if left.File != right.File {
+			return left.File < right.File
 		}
 		if left.Span.Offset != right.Span.Offset {
 			return left.Span.Offset < right.Span.Offset
@@ -168,7 +193,8 @@ func (r *Result) Report(snapshot SourceSnapshot, strict bool) DiagnosticReport {
 // WriteText renders the report for a terminal, naming the source as source:
 // one line per finding at the one-based UTF-16 line and column of its LSP
 // range (the document start for a finding without a location), and
-// `source: no diagnostics` when there is none.
+// `source: no diagnostics` when there is none. A finding with a File names
+// that file (relative to the module root) in place of source.
 func (r DiagnosticReport) WriteText(w io.Writer, source string) error {
 	if len(r.Diagnostics) == 0 {
 		_, err := fmt.Fprintf(w, "%s: no diagnostics\n", source)
@@ -176,7 +202,11 @@ func (r DiagnosticReport) WriteText(w io.Writer, source string) error {
 	}
 	for _, finding := range r.Diagnostics {
 		start := finding.LSP.Range.Start
-		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s\n", source, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Message); err != nil {
+		name := source
+		if finding.File != "" {
+			name = finding.File
+		}
+		if _, err := fmt.Fprintf(w, "%s:%d:%d: %s %s: %s\n", name, start.Line+1, start.Character+1, finding.Severity, finding.Code, finding.Message); err != nil {
 			return err
 		}
 	}

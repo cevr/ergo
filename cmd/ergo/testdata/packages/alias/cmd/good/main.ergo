@@ -1,0 +1,5 @@
+import okra my-app/okra-repo
+
+func main() needs Console {
+	Console.Println(okra.Name())
+}

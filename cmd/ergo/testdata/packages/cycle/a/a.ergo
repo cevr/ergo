@@ -1,0 +1,5 @@
+import cyc/b
+
+func A() int {
+	return b.B()
+}

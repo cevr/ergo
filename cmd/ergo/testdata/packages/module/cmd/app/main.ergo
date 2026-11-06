@@ -1,0 +1,5 @@
+import app/lib
+
+func main() needs Console {
+	Console.Println(lib.Value)
+}

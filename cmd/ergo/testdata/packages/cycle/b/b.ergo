@@ -1,0 +1,9 @@
+import cyc/a
+
+func B() int {
+	return 1
+}
+
+func C() int {
+	return a.A()
+}

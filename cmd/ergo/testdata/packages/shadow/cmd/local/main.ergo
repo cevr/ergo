@@ -1,0 +1,5 @@
+import app/log
+
+func main() needs Console {
+	Console.Println(log.Hello())
+}
