@@ -51,7 +51,7 @@ func needsAmbient(site string) string {
 // TestHostAuthority is host-authority H1's acceptance check (stdlib.md,
 // Host packages): a host provider, os.Host or fs.Host, is made only by its
 // package's NewHost, which needs the prelude's Ambient; only the entry
-// provides Ambient, and no program type implements it. Each case pins the
+// gives Ambient to main, and no program type implements it. Each case pins the
 // exact diagnostics, at the lines of its `// want` markers, or none.
 func TestHostAuthority(t *testing.T) {
 	cases := []struct {
