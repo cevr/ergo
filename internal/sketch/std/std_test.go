@@ -519,16 +519,22 @@ var unguardedHosts = map[string]string{
 }
 
 // TestStdHostProvidersHaveAuthority is host-authority H1's structural
-// guard (stdlib.md, Host packages): a std record type T is a host
-// provider when a function whose first parameter is T reaches the host,
-// that is, it is a std extern whose Go body is not a pure runtime/v1
-// body, or its body names such a function of its package (at any depth).
+// guard (stdlib.md, Host packages): a std defined type T, whatever its
+// underlying type, is a host provider when a function whose first
+// parameter is T reaches the host, that is, it is a std extern whose Go
+// body is not a pure runtime/v1 body, or its body names such a function
+// of its package (at any depth).
 // Every host provider has construction authority, so no other package
 // builds one (check.Constructible), and each exported function of its
-// package whose result is T lists Ambient in its written row. So a later
-// host package (io, clock) follows the rule, or this test names it. The
-// set found today is pinned; a fixture package with an unguarded Host is
-// flagged, so the walk itself is checked.
+// package whose result is T lists Ambient in its written row. Only a
+// record holds the authority, in an unexported field: a defined type over
+// a basic type, a slice, a Map or a union has no field, and another
+// package builds it from a literal or its zero value, so such a provider
+// always breaks the rule (fu-hostguard). So a later host package (io,
+// clock) follows the rule, or this test names it. The set found today is
+// pinned; fixture packages with an unguarded record Host and with
+// providers over int, a slice and a Map are flagged, so the walk itself
+// is checked.
 func TestStdHostProvidersHaveAuthority(t *testing.T) {
 	outside, ds := check.CheckSource("let x = LiveScheduler\n")
 	if len(ds) != 0 {
@@ -603,6 +609,58 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 	if !slices.Equal(got, want) {
 		t.Errorf("the fixture's violations are %q, want %q", got, want)
 	}
+
+	// Defined types over a basic type, a slice and a Map are providers
+	// too, and none has a field to hold the authority (fu-hostguard).
+	const defined = `type Host int
+
+type Hosts []string
+
+type HostMap Map[string, string]
+
+type Gone { Path string }
+
+func NewHost() Host needs Ambient { 0 }
+
+func NewHosts() Hosts { Hosts{} }
+
+func Read(_ Host) string fails Gone { try read() }
+
+func ReadAll(_ Hosts) string fails Gone { try read() }
+
+func ReadMap(_ HostMap) string fails Gone { try read() }
+
+func read() string fails Gone { try hostRead("x") }
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
+`
+	f, err = syntax.Parse(defined)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake, ds = check.Check("fixture", []*syntax.File{f}, nil)
+	// Only std binds runtime/v1 (S108); the fixture is checked as a
+	// program package, so its extern has that one diagnostic.
+	for _, d := range ds {
+		if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+			t.Fatalf("the defined-type fixture: %v", ds)
+		}
+	}
+	var names []string
+	for _, tn := range hostProviderTypes(fake) {
+		names = append(names, tn.Name)
+		got := hostAuthorityViolations(fake, tn, outside)
+		want := []string{"another package builds it: a defined type over " + tn.Type.(*check.Named).Underlying().String() + " has no field; it needs a record with an unexported field"}
+		if tn.Name == "Hosts" {
+			want = append(want, "fixture.NewHosts returns it and does not list Ambient in its written row")
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("the fixture's %s violations are %q, want %q", tn.Name, got, want)
+		}
+	}
+	if want := []string{"Host", "Hosts", "HostMap"}; !slices.Equal(names, want) {
+		t.Errorf("the defined-type fixture's host providers are %v, want %v", names, want)
+	}
 }
 
 // hostProviderTypes are pkg's host providers, in source order.
@@ -634,13 +692,11 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 			changed = changed || reaches[f]
 		}
 	}
+	// Every defined type is a candidate, whatever its underlying type: a
+	// record, a basic type, a slice, a Map, a union (fu-hostguard).
 	var out []*check.TypeName
 	for _, tn := range pkg.Types {
-		n, ok := tn.Type.(*check.Named)
-		if !ok {
-			continue
-		}
-		if _, ok := n.Underlying().(*check.Struct); !ok {
+		if _, ok := tn.Type.(*check.Named); !ok {
 			continue
 		}
 		for _, f := range pkg.Funcs {
@@ -660,7 +716,10 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 // the rule, as seen from the package outside.
 func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *check.Package) []string {
 	var out []string
-	if check.Constructible(tn.Type, outside) {
+	under := tn.Type.(*check.Named).Underlying()
+	if _, record := under.(*check.Struct); !record {
+		out = append(out, "another package builds it: a defined type over "+under.String()+" has no field; it needs a record with an unexported field")
+	} else if check.Constructible(tn.Type, outside) {
 		out = append(out, "another package builds it: it needs an unexported field")
 	}
 	for _, f := range pkg.Funcs {
