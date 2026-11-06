@@ -139,7 +139,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			continue
 		}
 		measured, ok := durations[pkg]
-		if !ok {
+		if !ok || !slices.Contains(slowPackages, "./"+relative) {
 			unsharded = append(unsharded, pkg)
 			continue
 		}
@@ -323,8 +323,19 @@ func shortPackage(root, pkg string) string {
 	return "./" + strings.TrimPrefix(pkg, modulePath(root)+"/")
 }
 
+// shortDurationsFile holds the same rows as durationsFile, measured under
+// -short (`-record-durations -short`): what each test costs in the fast
+// tier, whose properties run their -short domain. Only the fast tier's
+// CPU-second budget reads it (TestFastTierReachOfAnEdit); the size rule
+// and the shards read durationsFile.
+const shortDurationsFile = "scripts/gate/durations-short.json"
+
 func readDurations(root string) (map[string]map[string]float64, error) {
-	content, err := os.ReadFile(filepath.Join(root, durationsFile))
+	return readDurationsFile(root, durationsFile)
+}
+
+func readDurationsFile(root, file string) (map[string]map[string]float64, error) {
+	content, err := os.ReadFile(filepath.Join(root, file))
 	if os.IsNotExist(err) {
 		return map[string]map[string]float64{}, nil
 	}
@@ -333,7 +344,7 @@ func readDurations(root string) (map[string]map[string]float64, error) {
 	}
 	var durations map[string]map[string]float64
 	if err := json.Unmarshal(content, &durations); err != nil {
-		return nil, fmt.Errorf("%s: %w", durationsFile, err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
 	return durations, nil
 }
@@ -362,7 +373,7 @@ func authoredExamples(root string) ([]string, error) {
 	return examples, nil
 }
 
-// slowPackages are measured by -record-durations and sharded by the gate.
+// slowPackages are sharded by the gate over their recorded durations.
 // The checker and the lowering have run their tests in one process, one at
 // a time: 294 s and 509 s serial at a CPU budget of 4 (gate-fast plan, run
 // wf10, section 1.1, measured). Their shards are processes, so they need no
@@ -371,15 +382,46 @@ func authoredExamples(root string) ([]string, error) {
 // CPU budget.
 var slowPackages = []string{"./cmd/ergo", "./internal/sketch/check", "./internal/sketch/lower"}
 
-// writeDurations measures each slow package's tests serially (as a single
+// testedPackages are the module's packages that have tests, as "./dir".
+func testedPackages(root string) ([]string, error) {
+	command := exec.Command("go", "list", "-f", "{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}", "./...")
+	command.Dir = root
+	output, err := runOutput(command)
+	if err != nil {
+		return nil, fmt.Errorf("go list ./...: %w", err)
+	}
+	var packages []string
+	for _, pkg := range strings.Fields(string(output)) {
+		packages = append(packages, shortPackage(root, pkg))
+	}
+	return packages, nil
+}
+
+// writeDurations measures each package's tests serially (as a single
 // process runs them), each under the memory budget of limit, and rewrites
-// the durations file.
-func writeDurations(root string, limit limiter) error {
-	durations := map[string]map[string]float64{}
+// their rows of the durations file, keeping the rows of the packages it
+// did not measure. The sharded packages (slowPackages) balance their
+// shards by these rows; every package's rows decide its large tests (the
+// size rule, sizeCutoff). With short it runs the tests under -short and
+// rewrites shortDurationsFile instead.
+func writeDurations(root string, limit limiter, packages []string, short bool) error {
+	file := durationsFile
+	if short {
+		file = shortDurationsFile
+	}
+	durations, err := readDurationsFile(root, file)
+	if err != nil {
+		return err
+	}
 	module := modulePath(root)
-	for _, pkg := range slowPackages {
+	for _, pkg := range packages {
 		name := "go test -json " + pkg
-		command := exec.Command("go", "test", "-count=1", "-json", testTimeout, pkg)
+		argv := []string{"test", "-count=1", "-json", testTimeout}
+		if short {
+			name = "go test -json -short " + pkg
+			argv = append(argv, fastFlag)
+		}
+		command := exec.Command("go", append(argv, pkg)...)
 		command.Env = stepEnvironment()
 		command.Dir = root
 		var stdout bytes.Buffer
@@ -424,5 +466,5 @@ func writeDurations(root string, limit limiter) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, durationsFile), append(data, '\n'), 0644)
+	return os.WriteFile(filepath.Join(root, file), append(data, '\n'), 0644)
 }

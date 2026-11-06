@@ -140,6 +140,16 @@ type Step struct {
 	// caller's GOFLAGS, so Go may replay its tests.
 	// TestCachedGatePackagesAreHermetic checks each of its packages.
 	Hermetic bool
+	// Package, set on a fast-tier test step, is the closure of the test
+	// package it runs: the step replays its last pass while its package
+	// key (replay.PackageKey) is unchanged, and records a pass under it.
+	Package *replay.Closure
+	// PackageProblem says why the package's closure is keyed on the whole
+	// checkout (testPackages).
+	PackageProblem string
+	// Declarations, on a host package's fast step, is the digest of the
+	// steps the gate declares (stepsDigest), which its tests inspect.
+	Declarations string
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -256,6 +266,15 @@ type gate struct {
 	// openSandbox replaces startSandbox in a test of the merge tier's
 	// verdict logic over fixture steps that read the host.
 	openSandbox func(sandboxPlan) (enclosure, error)
+	// packageKeys are the start keys of the run's package steps
+	// (Step.Package), made before any step starts.
+	packageKeys map[*Step]packageKey
+}
+
+// packageKey is a package step's key at the start of the run, or why it has
+// none (replay.PackageKey).
+type packageKey struct {
+	key, problem string
 }
 
 // wholeGate is what a run needs to key, replay and record the whole gate.
@@ -272,20 +291,19 @@ func (g *gate) derive(steps []*Step, noCache bool, whole *wholeGate) *gate {
 	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, tier: g.tier, whole: whole, programs: g.programs, openSandbox: g.openSandbox}
 }
 
-// The tiers a run names (gate.tier). fullTier is the default run and
-// --no-cache: every step of the graph, every test of every package, the
-// only run that writes a whole-gate record, and so the only record --merge
-// compares with. mergeTierName is --merge's uncached run, which writes no
-// record. A tier that runs fewer tests (the planned fast tier) takes another
-// name, so its record has another key and never stands for a full run.
+// The tiers a run names (gate.tier). fullTier is --full and --no-cache:
+// every step of the graph, every test of every package, and the only
+// record --merge compares with. fastTier (tier.go) is the default run.
+// mergeTierName is --merge's uncached run, which writes no record. Each
+// tier's record has its own key, so a fast record never stands for a full
+// run.
 const (
 	fullTier      = "full"
 	mergeTierName = "merge"
 )
 
-// tierSetting is the name of the setting that holds the tier in the
-// whole-gate key.
-const tierSetting = "gate tier"
+// tierSetting is the name of the setting that holds the tier in every key.
+const tierSetting = replay.TierSetting
 
 // collect collects the whole-gate facts afresh: every fingerprint again
 // (collectHost uses a fresh fingerprint cache).
@@ -293,27 +311,36 @@ func (g *gate) collect() (*replay.Facts, error) {
 	return g.collectTier(g.whole.mechanism)
 }
 
-// collectTier is collectFacts with the gate's tier among the settings. Both
-// the replay before the scope (replayWholeGate) and a run's record key
-// their facts through it, so they agree on the tier.
+// collectTier is collectFacts with the gate's tier among the settings
+// (replay.WithTier). The replay before the scope (replayWholeGate), a
+// run's record and its package keys all key their facts through it, so
+// they agree on the tier.
 func (g *gate) collectTier(mechanism string) (*replay.Facts, error) {
 	facts, err := g.collectFacts(mechanism)
 	if err != nil {
 		return nil, err
 	}
-	facts.Settings = append(facts.Settings, replay.Variable{Name: tierSetting, Set: g.tier != "", Value: g.tier})
-	return facts, nil
+	return replay.WithTier(facts, g.tier), nil
 }
 
 func main() {
 	list := flag.Bool("list", false, "print the checks the gate runs, one per line, and exit")
-	noCache := flag.Bool("no-cache", false, "run every step even when a pass for identical inputs is recorded")
-	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1) and compare each verdict with the whole-gate record of the checkout's key")
-	recordDurations := flag.Bool("record-durations", false, "measure the sharded Go packages and rewrite "+durationsFile)
+	full := flag.Bool("full", false, "the full tier: every test of every package, uncached; the batch gate before main")
+	noCache := flag.Bool("no-cache", false, "the full tier, run even when a pass for identical inputs is recorded")
+	merge := flag.Bool("merge", false, "the merge tier: run every step uncached (every go test with -count=1) and compare each verdict with the full tier's whole-gate record of the checkout's key")
+	recordDurations := flag.Bool("record-durations", false, "measure the tests of the named Go packages (every test package when none is named) serially and rewrite their rows of "+durationsFile)
+	short := flag.Bool("short", false, "with -record-durations: measure under -short, the fast tier's domain, and rewrite "+shortDurationsFile)
 	flag.Parse()
+	if *short && !*recordDurations {
+		fatal(errors.New("-short goes with -record-durations only"))
+	}
 	if *merge && *noCache {
 		fatal(errors.New("--merge runs every step uncached already; it takes no --no-cache"))
 	}
+	if flag.NArg() > 0 && !*recordDurations {
+		fatal(fmt.Errorf("unexpected arguments %q: only -record-durations takes packages", flag.Args()))
+	}
+	tier := tierFor(*full, *noCache, *merge, *recordDurations)
 	// Before any process starts, so a stop finds every one (stop.go).
 	stopOnSignals()
 	scope, err := takeScope()
@@ -339,7 +366,7 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
-		steps, err := gateSteps(root)
+		steps, err := stepsFor(root, tier)
 		if err != nil {
 			fatal(err)
 		}
@@ -364,20 +391,24 @@ func main() {
 			if err != nil {
 				fatal(err)
 			}
-			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), fullTier, os.Stdout); replayed {
+			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), tier, os.Stdout); replayed {
 				exitGate(code)
 			}
 		}
 		// Returns only when the gate cannot run in its own scope.
 		scopeNote = enterScope(command, reason, budget, cpus)
 	}
-	g, err := setUp(scope, scopeNote, !*recordDurations)
+	declared := tier
+	if *recordDurations {
+		declared = ""
+	}
+	g, err := setUpTier(scope, scopeNote, declared)
 	if err != nil {
 		fmt.Println("gate:", err)
 		exitGate(2)
 	}
 	if *recordDurations {
-		if err := g.recordDurations(os.Stdout); err != nil {
+		if err := g.recordDurations(os.Stdout, flag.Args(), *short); err != nil {
 			fatal(err)
 		}
 		return
@@ -390,7 +421,7 @@ func main() {
 	}
 	fmt.Println(state)
 	g.noCache = *noCache
-	g.tier = fullTier
+	g.tier = tier
 	if g.cacheDir != "" {
 		g.whole = &wholeGate{mechanism: mechanismFact(scope, probed, scopeNote), identity: state}
 	}
@@ -412,6 +443,16 @@ func main() {
 // file system monitor daemon. So no process starts in the scope before the
 // limiter; every one after it is born in the gate's leaf.
 func setUp(scope, scopeNote string, declare bool) (*gate, error) {
+	tier := ""
+	if declare {
+		tier = fullTier
+	}
+	return setUpTier(scope, scopeNote, tier)
+}
+
+// setUpTier is setUp declaring the steps of the tier (stepsFor), or none
+// when the tier is empty.
+func setUpTier(scope, scopeNote, tier string) (*gate, error) {
 	g := &gate{scope: scope, scopeNote: scopeNote, cacheDir: cacheDirectory()}
 	budget, err := currentBudget()
 	if err == nil {
@@ -423,10 +464,10 @@ func setUp(scope, scopeNote string, declare bool) (*gate, error) {
 	if g.root, err = repositoryRoot(); err != nil {
 		return nil, err
 	}
-	if !declare {
+	if tier == "" {
 		return g, nil
 	}
-	if g.steps, err = gateSteps(g.root); err != nil {
+	if g.steps, err = stepsFor(g.root, tier); err != nil {
 		return nil, err
 	}
 	return g, nil
@@ -744,6 +785,24 @@ func (g *gate) run(out io.Writer) int {
 		default:
 			recording = store.Begin(facts)
 		}
+		if err == nil {
+			g.packageKeys = map[*Step]packageKey{}
+			for _, step := range g.steps {
+				if step.Package == nil {
+					continue
+				}
+				key, problem := replay.PackageKey(facts, step.Package, packageIdentity(step)...)
+				if step.PackageProblem != "" && problem == "" {
+					problem = step.PackageProblem
+					// Keyed on the whole checkout, it may still replay an
+					// unchanged commit.
+					g.packageKeys[step] = packageKey{key: key}
+					fmt.Fprintf(out, "gate: %s: %s\n", step.Name, problem)
+					continue
+				}
+				g.packageKeys[step] = packageKey{key: key, problem: problem}
+			}
+		}
 	}
 
 	results := make([]*result, len(g.steps))
@@ -772,6 +831,7 @@ func (g *gate) run(out io.Writer) int {
 
 	var failures []string
 	g.verdicts = map[string]replay.Verdict{}
+	objects := make([]*replay.Object, len(g.steps))
 	for i, step := range g.steps {
 		<-done[i]
 		r := results[i]
@@ -804,6 +864,7 @@ func (g *gate) run(out io.Writer) int {
 				destination = io.MultiWriter(out, object)
 			}
 		}
+		objects[i] = object
 		if err := r.print(destination); err != nil {
 			fmt.Fprintf(out, "gate: %s: print output: %v\n", step.Name, err)
 			if !slices.Contains(failures, step.Name) {
@@ -818,9 +879,13 @@ func (g *gate) run(out io.Writer) int {
 			recording.Passed(step.Name, object, outcome, r.duration.Seconds(), r.passedAt)
 		}
 	}
+	// The end facts, collected once: the package records and the
+	// whole-gate record both compare their start keys with them.
+	end := sync.OnceValues(g.collect)
+	g.recordPackages(out, results, objects, end)
 	if recording != nil {
 		identity := g.whole.identity
-		line := recording.Finish(len(failures) == 0, g.collect, replay.Meta{Head: identity.head, Tree: identity.tree, Clean: identity.clean, Now: time.Now()})
+		line := recording.Finish(len(failures) == 0, end, replay.Meta{Head: identity.head, Tree: identity.tree, Clean: identity.clean, Now: time.Now()})
 		if line != "" {
 			fmt.Fprintln(out, line)
 		}
@@ -842,6 +907,16 @@ func (g *gate) execute(step *Step) *result {
 	// notCached says why a step with declared inputs runs without its
 	// receipt: an input that cannot be keyed.
 	notCached := ""
+	if pk, ok := g.packageKeys[step]; ok {
+		switch {
+		case pk.problem != "":
+			notCached = fmt.Sprintf("gate: %s: not cached: %s\n", step.Name, pk.problem)
+		case !g.noCache:
+			if r := g.replayPackage(step, pk.key); r != nil {
+				return r
+			}
+		}
+	}
 	if step.Inputs != nil && g.cacheDir != "" {
 		var err error
 		key, err = g.key(step)

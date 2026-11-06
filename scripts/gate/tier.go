@@ -1,0 +1,393 @@
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	"ergo.local/prototype/scripts/gate/replay"
+)
+
+// The fast tier (the default ./scripts/gate.sh) is what a lane runs before
+// it hands back a unit; the full tier (--full) and the merge tier (--merge)
+// run on every batch head before main moves (NORTH_STAR.md, docs/tooling.md).
+// The fast tier runs every step of the graph but the Go tests as the full
+// tier does. Its Go tests run one step per test package (sharded packages
+// in shards), each with -short and without its large tests (sizeCutoff),
+// and each step replays its last pass while its package key
+// (replay.PackageKey) is unchanged: the package's closure, as
+// internal/closure declares and checks it, with the tool and host
+// fingerprints, the step environment, the gate executable and the step's
+// own selection. A fast record never stands for a full run: every key
+// names its tier (replay.WithTier), and --merge compares only with a
+// full-tier record.
+const fastTier = "fast"
+
+// sizeCutoff is the size rule (gate-fast decision D3): a test whose
+// recorded serial wall time (durationsFile) is this long or longer is large
+// and runs only in the full tier. A test with no recorded time runs in the
+// fast tier until the next record. The rule reads measured times, so a test
+// that grows leaves the fast tier at the next -record-durations.
+const sizeCutoff = 2.0
+
+// fastFlag is what every fast-tier test step adds: properties and growth
+// checks run their -short domain (testing.Short).
+const fastFlag = "-short"
+
+// hostPackageInputs are the inputs of a host test package's fast-tier key
+// outside its compiled closure, declared here instead of read from
+// internal/closure. That table declares scripts/gate as the whole checkout
+// ("." subtree, a placeholder its reason marks as a follow-up): keyed so,
+// the host package would run on every edit, and the fast tier could not
+// meet its 60 s target (gate-fast plan section 5, which keys the host
+// package by its compiled closure and the host fingerprint). These are the
+// reads its fast-tier tests make of the real checkout, from their source:
+// the scripts directory (the gate script, the authored example list, the
+// conformance and examples runners the parity fixture copies), the
+// observer the parity fixture copies, the Effect case list and the syntax
+// source the parity fixture reads, and the steps the gate declares
+// (stepsDigest), which stands for every input of the declarations the tests
+// inspect (the package list, durationsFile, the sharded packages' test
+// names). A read outside these makes a stale fast pass; the full tier runs
+// every test of the package uncached on every batch head.
+var hostPackageInputs = map[string][]replay.Allowance{
+	"scripts/gate": {
+		{Path: "scripts", Grant: replay.GrantSubtree},
+		{Path: "internal/testinputs", Grant: replay.GrantSubtree},
+		{Path: "conformance/effect-cases.json", Grant: replay.GrantFile},
+		{Path: "internal/sketch/syntax/probe.go", Grant: replay.GrantFile},
+	},
+}
+
+// tierFlags picks the run's tier from the flags: --merge keys and compares
+// the full tier, --no-cache and -record-durations run as the full tier,
+// and only a plain run is fast.
+func tierFor(full, noCache, merge, recordDurations bool) string {
+	if full || noCache || merge || recordDurations {
+		return fullTier
+	}
+	return fastTier
+}
+
+// stepsFor declares the steps of a tier.
+func stepsFor(root, tier string) ([]*Step, error) {
+	if tier == fastTier {
+		return fastSteps(root)
+	}
+	return gateSteps(root)
+}
+
+// listedPackage is the part of `go list -json` the fast tier reads.
+type listedPackage struct {
+	ImportPath, Dir, ForTest                    string
+	Deps, TestGoFiles, XTestGoFiles             []string
+	EmbedFiles, TestEmbedFiles, XTestEmbedFiles []string
+}
+
+// testPackage is one test package of the module, with its closure.
+type testPackage struct {
+	importPath string
+	dir        string
+	closure    *replay.Closure
+}
+
+// testPackages lists the module's test packages and the closure of each,
+// as internal/closure computes it (modulePackages): the directories of
+// `go list -deps -test` inside the module, the files they embed, and the
+// declared inputs of DeclaredFile. A table the gate cannot read keys each
+// package on the whole checkout, HEAD and the index included: it then
+// replays only an unchanged commit.
+func testPackages(root string) ([]testPackage, string, error) {
+	command := exec.Command("go", "list", "-e", "-deps", "-test", "-json=ImportPath,Dir,ForTest,Deps,TestGoFiles,XTestGoFiles,EmbedFiles,TestEmbedFiles,XTestEmbedFiles", "./...")
+	command.Dir = root
+	command.Env = stepEnvironment()
+	output, err := runOutput(command)
+	if err != nil {
+		return nil, "", fmt.Errorf("go list -deps -test ./...: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, "", err
+	}
+	relative := func(dir string) (string, bool) {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = real
+		}
+		rel, err := filepath.Rel(resolved, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
+			return "", false
+		}
+		return filepath.ToSlash(rel), true
+	}
+	byPath := map[string]listedPackage{}
+	var order []listedPackage
+	for decoder := json.NewDecoder(bytes.NewReader(output)); ; {
+		var p listedPackage
+		if err := decoder.Decode(&p); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return nil, "", err
+		}
+		byPath[p.ImportPath] = p
+		order = append(order, p)
+	}
+	closureOf := func(dir string, imports []string) *replay.Closure {
+		c := &replay.Closure{Dir: dir}
+		for _, imported := range imports {
+			p, ok := byPath[imported]
+			if !ok {
+				continue
+			}
+			pdir, inside := relative(p.Dir)
+			if !inside {
+				continue
+			}
+			c.Deps = append(c.Deps, pdir)
+			for _, files := range [][]string{p.EmbedFiles, p.TestEmbedFiles, p.XTestEmbedFiles} {
+				for _, f := range files {
+					c.Embeds = append(c.Embeds, path.Join(pdir, f))
+				}
+			}
+		}
+		return c
+	}
+	problem := ""
+	source, err := os.ReadFile(filepath.Join(root, replay.DeclaredFile))
+	var table map[string][]replay.Allowance
+	if err == nil {
+		table, err = replay.ParseDeclared(source)
+	}
+	if err != nil {
+		problem = fmt.Sprintf("the closure table cannot be read (%v): every package is keyed on the whole checkout", err)
+	}
+	byDir := map[string]listedPackage{}
+	for _, p := range order {
+		if dir, inside := relative(p.Dir); inside && p.ForTest == "" && !strings.Contains(p.ImportPath, " ") && !strings.HasSuffix(p.ImportPath, ".test") {
+			byDir[dir] = p
+		}
+	}
+	var packages []testPackage
+	for dir, p := range byDir {
+		if len(p.TestGoFiles)+len(p.XTestGoFiles) == 0 {
+			continue
+		}
+		main, ok := byPath[p.ImportPath+".test"]
+		if !ok {
+			return nil, "", fmt.Errorf("go list has no test main for %s", p.ImportPath)
+		}
+		c := closureOf(dir, append([]string{p.ImportPath + " [" + p.ImportPath + ".test]", p.ImportPath + "_test [" + p.ImportPath + ".test]"}, main.Deps...))
+		switch declared, host := hostPackageInputs[dir]; {
+		case problem != "":
+			c.Declared = []replay.Allowance{{Path: ".", Grant: replay.GrantSubtree}}
+		case host:
+			c.Declared = declared
+		default:
+			c.Declared = table[dir]
+		}
+		for _, a := range c.Declared {
+			if a.Grant != replay.GrantProgram {
+				continue
+			}
+			program, ok := byDir[a.Path]
+			if !ok {
+				// No closure: the grant covers every path (Allowance).
+				continue
+			}
+			if c.Programs == nil {
+				c.Programs = map[string]*replay.Closure{}
+			}
+			c.Programs[a.Path] = closureOf(a.Path, append([]string{program.ImportPath}, program.Deps...))
+		}
+		packages = append(packages, testPackage{importPath: p.ImportPath, dir: dir, closure: c})
+	}
+	sort.Slice(packages, func(i, j int) bool { return packages[i].dir < packages[j].dir })
+	return packages, problem, nil
+}
+
+// fastSelection splits a package's tests by the size rule: the tests the
+// fast tier runs and the large ones it leaves to the full tier. Together
+// they are every name.
+func fastSelection(names []string, durations map[string]float64) (fast, large []string) {
+	for _, name := range names {
+		if d, ok := durations[name]; ok && d >= sizeCutoff {
+			large = append(large, name)
+		} else {
+			fast = append(fast, name)
+		}
+	}
+	return fast, large
+}
+
+// fastShardArgs are the selections of a fast-tier package: shards over its
+// fast tests, each before the last running exactly its names, the last
+// skipping every name the others run and every large test. So the shards
+// run every test of the package that is not large, a test the source scan
+// missed included, each once.
+func fastShardArgs(groups [][]string, large []string) [][]string {
+	var args [][]string
+	var assigned []string
+	for i, group := range groups {
+		if i == len(groups)-1 {
+			skip := append(slices.Clone(assigned), large...)
+			if len(skip) == 0 {
+				args = append(args, nil)
+			} else {
+				args = append(args, []string{"-skip", exactNames(skip)})
+			}
+			break
+		}
+		if len(group) == 0 {
+			continue
+		}
+		args = append(args, []string{"-run", exactNames(group)})
+		assigned = append(assigned, group...)
+	}
+	return args
+}
+
+// fastSteps declares the fast tier: the full tier's steps but its Go tests
+// (declareSteps), and one keyed step per test package or shard.
+func fastSteps(root string) ([]*Step, error) {
+	packages, problem, err := testPackages(root)
+	if err != nil {
+		return nil, err
+	}
+	var importPaths []string
+	for _, p := range packages {
+		importPaths = append(importPaths, p.importPath)
+	}
+	full, err := declareSteps(root, importPaths)
+	if err != nil {
+		return nil, err
+	}
+	durations, err := readDurations(root)
+	if err != nil {
+		return nil, err
+	}
+	module := modulePath(root)
+	var steps, tests []*Step
+	for _, step := range full {
+		// The hermetic step keeps Go's test cache; every other step that
+		// is not a package's tests is the full tier's.
+		if step.Hermetic || !runsGoTest(step) || step.Name == "go test build" {
+			steps = append(steps, step)
+		}
+	}
+	for _, p := range packages {
+		relative := strings.TrimPrefix(p.importPath, module+"/")
+		if strings.HasPrefix(relative, hermeticTestRoot) && !slices.Contains(hostTestPackages, relative) {
+			continue
+		}
+		names, err := testNames(filepath.Join(root, filepath.FromSlash(p.dir)))
+		if err != nil {
+			return nil, err
+		}
+		measured := durations[p.importPath]
+		fast, large := fastSelection(names, measured)
+		pkg := "./" + p.dir
+		base := []string{"go", "test", fastFlag, testTimeout}
+		name := "go test " + pkg + " (fast)"
+		if slices.Contains(hostTestPackages, relative) {
+			base = []string{"go", "test", "-count=1", fastFlag, "-parallel", hostTestParallel(), testTimeout}
+			name = "go test " + pkg + " (host, fast)"
+		}
+		n := 1
+		if slices.Contains(slowPackages, pkg) {
+			total := 0.0
+			for _, test := range fast {
+				total += measured[test]
+			}
+			n = max(1, min(int(math.Ceil(total/shardTargetSeconds)), stepCPUs(), len(fast)))
+		}
+		selections := fastShardArgs(shard(fast, measured, n), large)
+		for i, selection := range selections {
+			step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append(slices.Clone(base), selection...), pkg), ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
+			if len(selections) > 1 {
+				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
+			}
+			tests = append(tests, step)
+		}
+	}
+	digest := stepsDigest(append(slices.Clone(full), append(slices.Clone(steps), tests...)...))
+	for _, step := range tests {
+		if slices.Contains(hostTestPackages, step.Package.Dir) {
+			step.Declarations = digest
+		}
+	}
+	// The tests after the steps they need, in package order.
+	return append(steps, tests...), nil
+}
+
+// stepsDigest identifies the steps the gate declares: names, needs, argv,
+// variables and declared inputs. A host package's tests inspect the
+// declarations, so the digest is in its key (hostPackageInputs).
+func stepsDigest(steps []*Step) string {
+	digest := sha256.New()
+	for _, step := range steps {
+		fmt.Fprintf(digest, "%q %q %q %q %t\n", step.Name, step.Needs, step.Argv, step.Env, step.Hermetic)
+		if step.Inputs != nil {
+			fmt.Fprintf(digest, "%q\n", *step.Inputs)
+		}
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+// replayPackage is the recorded pass of a package step at key, or nil when
+// none verifies (replay.Store.Lookup): the step then runs.
+func (g *gate) replayPackage(step *Step, key string) *result {
+	recorded, err := replay.Open(g.cacheDir).Packages().Lookup(key, g.spool)
+	if err != nil {
+		return nil
+	}
+	passed := recorded.Record.Steps[0]
+	return &result{outcome: cached, spool: recorded.Outputs[0], duration: time.Duration(passed.Seconds * float64(time.Second)), passedAt: passed.Passed,
+		note: fmt.Sprintf("passed in %.1fs at %s, package key %s", passed.Seconds, passed.Passed.UTC().Format(time.RFC3339), key[:12])}
+}
+
+// recordPackages ends the run's package steps (replay.Store.RecordPackage):
+// a step that ran and passed records its output under its start key when
+// its key from the end facts is the same; a failed one withdraws the
+// record at its key. A step that replayed, or has no key, records nothing.
+func (g *gate) recordPackages(out io.Writer, results []*result, objects []*replay.Object, end func() (*replay.Facts, error)) {
+	store := replay.Open(g.cacheDir).Packages()
+	for i, step := range g.steps {
+		pk, ok := g.packageKeys[step]
+		if !ok || pk.key == "" || pk.problem != "" {
+			continue
+		}
+		r := results[i]
+		line := ""
+		switch {
+		case r.outcome == passed && g.verdicts[step.Name] == replay.Pass:
+			endKey := ""
+			if facts, err := end(); err == nil {
+				endKey, _ = replay.PackageKey(facts, step.Package, packageIdentity(step)...)
+			}
+			line = store.RecordPackage(pk.key, endKey, true, replay.Step{Name: step.Name, Outcome: "ran", Seconds: r.duration.Seconds(), Passed: r.passedAt}, objects[i], time.Now())
+		case r.outcome == failed:
+			line = store.RecordPackage(pk.key, "", false, replay.Step{Name: step.Name}, nil, time.Now())
+		}
+		if line != "" {
+			fmt.Fprintln(out, line)
+		}
+	}
+}
+
+// packageIdentity names a package step in its key: its name, argv,
+// variables and, for a host package, the declarations its tests inspect.
+func packageIdentity(step *Step) []string {
+	return []string{step.Name, fmt.Sprintf("%q", step.Argv), fmt.Sprintf("%q", step.Env), step.Declarations}
+}
