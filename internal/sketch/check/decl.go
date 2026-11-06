@@ -1,7 +1,6 @@
 package check
 
 import (
-	"errors"
 	"fmt"
 	"path"
 	"slices"
@@ -449,8 +448,9 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	pkg, err := imp.Import(path)
 	if err != nil || pkg == nil {
-		var reason *ImportError
-		if errors.As(err, &reason) {
+		// An importer returns its *ImportError unwrapped, so a type
+		// assertion finds it; errors is not on the reviewed import list.
+		if reason, ok := err.(*ImportError); ok {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q: %s", path, reason.Reason)
 		} else {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
@@ -591,7 +591,8 @@ func importName(element string) bool {
 
 // ImportError is an importer's refusal with a reason the checker adds to
 // its S104 "unknown package" diagnostic, such as a program with no
-// ergo.mod importing a local path (196b Q1).
+// ergo.mod importing a local path (196b Q1). An importer returns it
+// unwrapped: the checker finds it by a type assertion.
 type ImportError struct {
 	Path   string
 	Reason string
