@@ -132,6 +132,36 @@ func TestCLIPackagesRunTheCLIThisRunBuilt(t *testing.T) {
 	}
 }
 
+// The CLI a cliTestPackages step names (cliTestEnvironment) is a part of
+// its key in both tiers: the full tier's step key (gate.key) and the fast
+// tier's package identity (packageIdentity). A step that names another CLI
+// cannot replay a pass recorded with this one.
+func TestCLIPathIsInTheStepKey(t *testing.T) {
+	root := fixture(t)
+	g := &gate{root: root, cacheDir: t.TempDir()}
+	if err := g.loadFiles(); err != nil {
+		t.Fatal(err)
+	}
+	step := func(env []string) *Step {
+		return &Step{Name: "go test ./internal/sketch/lower [1/8]", Argv: []string{"go", "test", "./internal/sketch/lower"}, Env: env, Inputs: &Inputs{Paths: []string{"src/"}}}
+	}
+	this, other := step(cliTestEnvironment), step([]string{"ERGO_TEST_CLI=bin/other"})
+	thisKey, err := g.key(this)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := g.key(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thisKey == otherKey {
+		t.Errorf("full tier: the step key does not change with the CLI the step names (%q, %q)", this.Env, other.Env)
+	}
+	if slices.Equal(packageIdentity(this), packageIdentity(other)) {
+		t.Errorf("fast tier: the package identity does not change with the CLI the step names: %q", packageIdentity(this))
+	}
+}
+
 // Each host package has one step that never replays (-count=1) and bounds
 // its parallel tests explicitly (-parallel hostTestParallel()): at most
 // maxHostTestParallel and the CPU budget.
