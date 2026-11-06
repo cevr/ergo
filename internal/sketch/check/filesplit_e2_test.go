@@ -347,9 +347,11 @@ func TestRecursiveGroupsNameTheirFile(t *testing.T) {
 						Line: strings.Count(before, "\n") + 1, Column: offset - strings.LastIndexByte(before, '\n'),
 					})
 				}
+				// Check lists them in the canonical order of their files:
+				// for unnamed files with no imports, by text.
 				sort.Slice(want, func(i, j int) bool {
 					if want[i].File != want[j].File {
-						return want[i].File < want[j].File
+						return texts[want[i].File] < texts[want[j].File]
 					}
 					return want[i].Offset < want[j].Offset
 				})
@@ -416,10 +418,12 @@ func TestPackageNameReportsNameTheirFile(t *testing.T) {
 						Offset: r.offset, Length: 1, Line: 1, Column: r.offset + 1,
 					})
 				}
+				// Check lists them in the canonical order of their files:
+				// by name, and files[i] is named f(i^order).ergo.
 				sort.SliceStable(want, func(i, j int) bool {
 					a, b := want[i], want[j]
 					if a.File != b.File {
-						return a.File < b.File
+						return a.File^order < b.File^order
 					}
 					if a.Offset != b.Offset {
 						return a.Offset < b.Offset

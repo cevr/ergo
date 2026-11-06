@@ -26,8 +26,11 @@ import (
 // Only the identity of a file stays the caller's. A Diagnostic names its
 // file by the caller's index (Diagnostic.File), and every node of the
 // result is a node of the caller's *syntax.File values, which Check does
-// not copy or change. Check maps each diagnostic from the index of the
-// file as met to the caller's index, once, before it sorts them.
+// not copy or change. Check sorts the diagnostics by the file as met (its
+// canonical rank), then offset, length, code and message, and only then
+// maps each from the index of the file as met to the caller's index, once.
+// So the order of the list, too, is a function of the sources
+// (TestCheckDiagnosticOrderIsCanonical).
 //
 // The order is by file name first (syntax.File.Name, the package-relative
 // path a caller that read the files from a directory sets), as go build

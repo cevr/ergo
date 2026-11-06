@@ -35,7 +35,8 @@ func (d Diagnostic) String() string {
 }
 
 // Check checks the parsed files of one package with the import path path.
-// It returns the package and every diagnostic, sorted by file and position.
+// It returns the package and every diagnostic, sorted by file in the
+// canonical order, then offset, length, code and message.
 // A nil importer resolves the standard library only.
 //
 // The checker meets the files in their canonical order (canon.go: by
@@ -54,11 +55,14 @@ func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnos
 	c := newChecker(path, imp, prelude().scope)
 	pkg := c.run(met)
 	// Every report has a current file (owner.go), so File is the index of
-	// a file as met: map it to the caller's.
-	for i := range c.diags {
-		c.diags[i].File = order[c.diags[i].File]
+	// a file as met, its rank in the canonical order. Sort by it, so the
+	// order of the list is a function of the sources (canon.go), and only
+	// then map File to the caller's index.
+	ds := c.sorted()
+	for i := range ds {
+		ds[i].File = order[ds[i].File]
 	}
-	return pkg, c.sorted()
+	return pkg, ds
 }
 
 // CheckSource parses and checks one source text as a package.
@@ -477,6 +481,10 @@ func (c *checker) report(pos, end syntax.Pos, code, format string, args ...any) 
 	c.diags = append(c.diags, d)
 }
 
+// sorted is the diagnostics sorted by file as met (the canonical order for
+// Check, the given order for a std package), then offset, length, code and
+// message: one total order of what a diagnostic shows. File must still be
+// the index of the file as met.
 func (c *checker) sorted() []Diagnostic {
 	out := append([]Diagnostic(nil), c.diags...)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -486,6 +494,9 @@ func (c *checker) sorted() []Diagnostic {
 		}
 		if a.Offset != b.Offset {
 			return a.Offset < b.Offset
+		}
+		if a.Length != b.Length {
+			return a.Length < b.Length
 		}
 		if a.Code != b.Code {
 			return a.Code < b.Code

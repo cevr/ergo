@@ -432,15 +432,19 @@ func TestCheckSetsAreCanonical(t *testing.T) {
 // fileDiags checks srcs in the order given and returns each diagnostic
 // with the text of the caller's file it names (by its label in labels),
 // in the order Check returns them. It fails t unless they are sorted by
-// the caller's index and each position is the file's own.
+// the canonical order of their files and each position is the file's own.
 func fileDiags(t *testing.T, srcs []string, labels map[string]string) []string {
 	t.Helper()
 	files := parseAll(t, srcs)
+	rank := make([]int, len(files))
+	for r, k := range canonicalFiles(files) {
+		rank[k] = r
+	}
 	_, ds := Check("main", files, nil)
 	var out []string
 	for i, d := range ds {
-		if i > 0 && ds[i-1].File > d.File {
-			t.Fatalf("diagnostics not sorted by the caller's file: %v", ds)
+		if i > 0 && rank[ds[i-1].File] > rank[d.File] {
+			t.Fatalf("diagnostics not sorted by the canonical order of their files: %v", ds)
 		}
 		f := files[d.File]
 		line, col := f.Position(syntax.Pos(d.Offset))

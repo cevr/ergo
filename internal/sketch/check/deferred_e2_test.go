@@ -73,7 +73,9 @@ func TestDeferredReportsNameTheirFile(t *testing.T) {
 						Line: strings.Count(before, "\n") + 1, Column: offset - strings.LastIndexByte(before, '\n'),
 					})
 				}
-				sort.Slice(want, func(i, j int) bool { return want[i].File < want[j].File })
+				// Check lists them in the canonical order of their files:
+				// for unnamed files with no imports, by text.
+				sort.Slice(want, func(i, j int) bool { return texts[want[i].File] < texts[want[j].File] })
 				if !reflect.DeepEqual(got, want) {
 					t.Fatalf("deferred reports across files:\n got: %#v\nwant: %#v", got, want)
 				}
