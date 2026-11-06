@@ -267,7 +267,7 @@ func TestFSWriteFileFollowsLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, l := range []struct{ link, text string }{
-		{"lf", "file"}, {"lf2", "lf"}, {"ld", "real"}, {"dangling", "made"},
+		{"lf", "file"}, {"lf2", "lf"}, {"lr", "real/far.md"}, {"ld", "real"}, {"dangling", "made"},
 		{"dsub", at("real/sub")}, {"real/sub/up", "../up.md"}, {"loop1", "loop2"}, {"loop2", "loop1"},
 	} {
 		if err := os.Symlink(l.text, at(l.link)); err != nil {
@@ -286,10 +286,37 @@ func TestFSWriteFileFollowsLinks(t *testing.T) {
 			t.Errorf("%s holds %q, %v; want %q", name, data, err, want)
 		}
 	}
+	// madeIn makes the next write record its new file and checks that the
+	// file's directory is the directory want, the one that holds the file
+	// the link names: then the rename replaces that file and never crosses
+	// a device (stdlib.md fs 8), even when the link is in another
+	// directory or on another file system (D1 r2 M3).
+	madeIn := func(want string) {
+		t.Helper()
+		beforeRename = func(tmp string) error {
+			// filepath.Dir would clean "dsub/.." lexically, which the host
+			// does not, so the file is looked up in want by its name.
+			got, err := os.Stat(tmp)
+			there, err2 := os.Stat(filepath.Join(at(want), filepath.Base(tmp)))
+			if err != nil || err2 != nil || !os.SameFile(got, there) {
+				t.Errorf("the new file %s is not in the directory %s of the file the link names (%v, %v)", tmp, at(want), err, err2)
+			}
+			return nil
+		}
+	}
+	t.Cleanup(func() { beforeRename = nil })
+	madeIn(".")
 	if err := FSWriteFile(at("lf2"), "new"); err != nil {
 		t.Fatalf("FSWriteFile(lf2) = %v", err)
 	}
 	holds("file", "new")
+	madeIn("real")
+	if err := FSWriteFile(at("lr"), "far"); err != nil {
+		t.Fatalf("FSWriteFile(lr) = %v", err)
+	}
+	isLink("lr")
+	holds("real/far.md", "far")
+	beforeRename = nil
 	isLink("lf")
 	isLink("lf2")
 	if fi, err := os.Stat(at("file")); err != nil || fi.Mode().Perm() != 0o640 {
@@ -304,9 +331,11 @@ func TestFSWriteFileFollowsLinks(t *testing.T) {
 	}
 	isLink("dangling")
 	holds("made", "made")
+	madeIn("real")
 	if err := FSWriteFile(at("dsub/up"), "up"); err != nil {
 		t.Fatalf("FSWriteFile(dsub/up) = %v", err)
 	}
+	beforeRename = nil
 	holds("real/up.md", "up")
 	if _, err := os.Lstat(at("up.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the write through dsub/up made %s: the link's text was cleaned (%v)", at("up.md"), err)
