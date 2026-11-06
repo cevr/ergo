@@ -125,9 +125,9 @@ type packageWorld struct {
 	env, setting, exe string
 	head              int
 	index             []string
+	version           int
 	// identity is each package step's selection (identities).
 	identity map[string]string
-	version           int
 	// passed holds the model's recorded passes: "tier package identity
 	// inputs" for a package, "tier * inputs" for a whole run.
 	passed map[string]bool
