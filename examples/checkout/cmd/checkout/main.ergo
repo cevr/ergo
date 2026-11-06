@@ -1,0 +1,19 @@
+import checkout/memory
+import checkout/payments
+
+// This binary is the only place that chooses the providers.
+let Live = context { Scheduler: LiveScheduler, memory.Paying }
+let Declining = context { Live, replace payments.Payments: memory.Decliner }
+
+func main() needs Console {
+	Console.Println(with Live { payments.Purchase(100) })
+}
+
+test ChargeSucceeds {
+	let receipt = try with Live { payments.Checkout(100) }
+	assert receipt.Amount == 100
+}
+
+test DeclineIsHandled {
+	assert with Declining { payments.Purchase(100) } == "declined"
+}

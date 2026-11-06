@@ -1,0 +1,27 @@
+// Gateway and Decliner keep the payments.Payments law. The compiler checks
+// laws and does not run them yet (#162); until it does, these tests run the
+// law's check against each provider.
+
+import checkout/payments
+
+test GatewayReceiptsTheAmount {
+	with context { payments.Payments: Gateway } {
+		for amount in []int64{-1, 0, 1, 100, 2500} {
+			let receipt = payments.Payments.Charge(amount) catch {
+			case payments.Declined:
+				payments.Receipt{ID: "declined", Amount: amount}
+			}
+			assert payments.Receipted(receipt, amount)
+		}
+	}
+}
+
+test DeclinerReceiptsNothing {
+	with context { payments.Payments: Decliner } {
+		let receipt = payments.Payments.Charge(100) catch {
+		case payments.Declined:
+			payments.Receipt{ID: "declined", Amount: 100}
+		}
+		assert payments.Receipted(receipt, 100)
+	}
+}

@@ -132,7 +132,7 @@ var declared = map[string][]allowance{
 	),
 	"cmd/ergo": {
 		{"README.md", file, "the README smoke test runs the README's go blocks and commands"},
-		{"examples/checkout/main.ergo", file, "the README smoke test compares the README's first go block with the checkout example and copies it into a workspace (smokeWorkspace)"},
+		{"examples/checkout", subtree, "the README smoke test compares the README's first two go blocks with the checkout example's files and copies the program, a module of packages, into a workspace (smokeWorkspace walks it)"},
 		{"examples/editions/sketch", listing, "the process and README smoke tests copy the 2026 example into a workspace (smokeWorkspace)"},
 		{"examples/editions/sketch/*", files, "smokeWorkspace copies each file of the 2026 example; it has no subdirectory, so the copy reads one level"},
 	},

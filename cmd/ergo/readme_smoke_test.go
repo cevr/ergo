@@ -17,7 +17,8 @@ import (
 // runs, then presents the decided language (docs/spec), so each claim is held
 // to what runs today:
 //
-//   - the first go block is examples/checkout/main.ergo, byte for byte, so the
+//   - the first two go blocks are examples/checkout/payments/payments.ergo
+//     and examples/checkout/cmd/checkout/main.ergo, byte for byte, so the
 //     opening program is a gated example (scripts/examples builds it, runs
 //     its case and its tests);
 //   - every fence has the one strict style (markdownlint MD046/MD048): a
@@ -62,9 +63,16 @@ var (
 // readmeSmokeMinBlocks matches the acceptance check of the README unit.
 const readmeSmokeMinBlocks = 5
 
-// readmeSmokeOpening is the example program that the README's first go
-// block must equal (lower-v1 stage 5, D9).
-const readmeSmokeOpening = "examples/checkout/main.ergo"
+// readmeSmokeOpening are the files of the example program that the
+// README's first go blocks must equal, in order (lower-v1 stage 5, D9;
+// 196b U4 moved the program to the Go layout of packages).
+var readmeSmokeOpening = []string{
+	"examples/checkout/payments/payments.ergo",
+	"examples/checkout/cmd/checkout/main.ergo",
+}
+
+// readmeSmokeProgram is the folder of that program.
+const readmeSmokeProgram = "examples/checkout"
 
 // readmeSmokeS102Source is the source file behind the README's quoted
 // diagnostic: pay calls Gateway, which its needs clause does not list.
@@ -246,16 +254,18 @@ func TestReadmeSmoke(t *testing.T) {
 	// other fails here.
 	t.Run("opening-is-the-checkout-example", func(t *testing.T) {
 		t.Parallel()
-		example, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(readmeSmokeOpening)))
-		if err != nil {
-			t.Fatal(err)
-		}
 		blocks, _ := readmeGoBlocks(readme)
-		if len(blocks) == 0 {
-			t.Fatal("README has no go block")
+		if len(blocks) < len(readmeSmokeOpening) {
+			t.Fatalf("README has %d go blocks, want the %d files of the opening program first", len(blocks), len(readmeSmokeOpening))
 		}
-		if blocks[0] != string(example) {
-			t.Errorf("README's first go block is not %s byte for byte:\n%s", readmeSmokeOpening, firstLineDiff(blocks[0], string(example)))
+		for i, path := range readmeSmokeOpening {
+			example, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(path)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if blocks[i] != string(example) {
+				t.Errorf("README's go block %d is not %s byte for byte:\n%s", i+1, path, firstLineDiff(blocks[i], string(example)))
+			}
 		}
 	})
 
@@ -264,10 +274,11 @@ func TestReadmeSmoke(t *testing.T) {
 	// refused as a fence, before its content could hide anything.
 	t.Run("refuses-document-mutants", func(t *testing.T) {
 		t.Parallel()
-		// Anchors in the opening program (the first go block).
+		// Anchors in the opening program: charge in its first go block
+		// (payments.ergo), entry and last in its second (the binary).
 		const charge = "timeout.Expired needs Payments | Scheduler {"
 		const entry = "func main() needs Console {\n"
-		const last = "\tassert with Declining { purchase(100) } == \"declined\"\n}\n```\n"
+		const last = "\tassert with Declining { payments.Purchase(100) } == \"declined\"\n}\n```\n"
 		if !strings.Contains(readme, "```go\n") || strings.Count(readme, charge) != 1 || strings.Count(readme, entry) != 1 || strings.Count(readme, last) != 1 {
 			t.Fatal("the mutant anchors are not in README.md once each; update them with the first snippet")
 		}
@@ -277,10 +288,10 @@ func TestReadmeSmoke(t *testing.T) {
 		}
 		const fence = "non-canonical fence"
 		for _, mutant := range []struct{ name, doc, want string }{
-			{"uses clause", uses(readme), "README go block 1: line 12, column 70: S001"},
+			{"uses clause", uses(readme), "README go block 1: line 27, column 70: S001"},
 			// The comma spelling of the row is refused at its first comma (196n).
-			{"comma row", strings.Replace(readme, charge, "timeout.Expired needs Payments, Scheduler {", 1), "README go block 1: line 12, column 84: S001 a capability row separates its names with |"},
-			{"deferred Close", strings.Replace(readme, entry, entry+"\tscope.OnExit() { receipt.Close() }\n", 1), "README go block 1: line 45: a resource releases itself"},
+			{"comma row", strings.Replace(readme, charge, "timeout.Expired needs Payments, Scheduler {", 1), "README go block 1: line 27, column 84: S001 a capability row separates its names with |"},
+			{"deferred Close", strings.Replace(readme, entry, entry+"\tscope.OnExit() { receipt.Close() }\n", 1), "README go block 2: line 9: a resource releases itself"},
 			// The reviewer's round-2 cases (round-2-receipts).
 			{"indented tilde marker before a go block with uses", readme + "\n    ~~~text\n\n```go\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},
 			{"indented closer inside a go block, uses after it", readme + "\n```go\nfunc okay() {\n\twork()\n}\n    ```\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},
@@ -375,7 +386,7 @@ func TestReadmeSmoke(t *testing.T) {
 			t.Fatal("README has no sh block under \"Working in this repo\"")
 		}
 		binary := buildTestCLI(t)
-		workspace := smokeWorkspace(t, "examples/editions/sketch", readmeSmokeOpening, "go.mod")
+		workspace := smokeWorkspace(t, "examples/editions/sketch", readmeSmokeProgram, "go.mod")
 		commands := 0
 		verbs := map[string]bool{}
 		for _, line := range strings.Split(block[1], "\n") {
