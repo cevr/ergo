@@ -92,15 +92,16 @@ func local() string {
 	}
 	// A with acquires what its block needs (With.Acquired): mixed's block
 	// needs Box only, so lib.W's providers do not run there. A named
-	// context's builder node reads an imported embedding as opaque
-	// (footprint.go provides, outside this unit: a sound over-count; see
-	// the ctx-pkg follow-ups); an inline or a local context's frame joins
+	// context's builder node joins what lib.W's builder runs, less the
+	// entries a replace hides (batch-9 C4): Plain counts read()'s Log, and
+	// Over, whose replace hides the Store entry that calls read(), counts
+	// none of lib.W's providers. An inline or a local context's frame joins
 	// the imported entries it acquires.
 	want := map[string]string{
 		"inline": "Log Store",
 		"mixed":  "Box",
-		"over":   "Store opaque",
-		"plain":  "Store opaque",
+		"over":   "Store",
+		"plain":  "Log Store",
 		"local":  "Log Store",
 	}
 	for _, f := range pkg.Funcs {
