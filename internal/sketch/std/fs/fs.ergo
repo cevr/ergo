@@ -1,0 +1,58 @@
+// Package fs is the host file system, read only (docs/spec/stdlib.md, host
+// packages). Files is the capability; Host is the host's provider of it,
+// and a program binds it in a context, `context { fs.Files: fs.Host }`. A
+// test binds its own provider instead, such as a map of paths to text. The
+// externs are unexported: a program reaches the disk only through a Files
+// it names in its row. No handle is exposed, so no file stays open after a
+// call returns.
+
+// NotFound is the failure of a path that does not exist.
+type NotFound { Path string }
+
+// Denied is the failure of a path the process may not read.
+type Denied { Path string }
+
+// Failed is any other failure of a read at Path. Reason is the host's
+// text for it, without the path, such as "is a directory".
+type Failed { Path string, Reason string }
+
+// Info describes the file at a path: its last element, its size in bytes,
+// and whether it is a directory.
+type Info { Name string, Size int, Dir bool }
+
+// Files reads the file system. A path is the host's: relative paths are
+// relative to the working directory.
+type Files {
+	ReadFile(path string) string fails NotFound | Denied | Failed,
+	// ReadDir is the names of the entries of the directory path, sorted.
+	ReadDir(path string) []string fails NotFound | Denied | Failed,
+	Stat(path string) Info fails NotFound | Denied | Failed,
+
+	// ReadIsRepeatable: with no writer, two reads of one path agree.
+	law ReadIsRepeatable(path string) {
+		let first = try ReadFile(path)
+		try ReadFile(path) == first
+	},
+}
+
+// Host is the host's Files provider.
+type Host {}
+
+// ReadFile is the whole text of the file at path.
+func ReadFile(_ Host, path string) string fails NotFound | Denied | Failed {
+	try hostReadFile(path)
+}
+
+// ReadDir is the names of the entries of the directory at path, sorted.
+func ReadDir(_ Host, path string) []string fails NotFound | Denied | Failed {
+	try hostReadDir(path)
+}
+
+// Stat describes the file at path, after symbolic links.
+func Stat(_ Host, path string) Info fails NotFound | Denied | Failed {
+	try hostStat(path)
+}
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed

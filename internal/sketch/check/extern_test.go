@@ -359,6 +359,24 @@ func main() {
 	use(Mine)
 }
 `,
+	// std fs (G4): open, as no std extern's result names it (stdlib.md,
+	// fs 5).
+	"fs.Files": `import fs
+
+type Mine {}
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false}
+}
+
+func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // openStd is the std operation types a program provides: no std extern's
@@ -370,6 +388,7 @@ var openStd = map[string]bool{
 	"prelude.Clock":     true,
 	"prelude.Random":    true,
 	"os.Process":        true,
+	"fs.Files":          true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

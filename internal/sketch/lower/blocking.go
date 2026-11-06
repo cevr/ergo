@@ -105,6 +105,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"OSArgs":   {},
 	"OSHasEnv": {},
 	"OSGetenv": {},
+	// std fs (G4; stdlib.md, fs): bodies that read the host file system
+	// and neither wait nor release.
+	"FSReadFile": {},
+	"FSReadDir":  {},
+	"FSStat":     {},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.
