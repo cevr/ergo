@@ -94,7 +94,8 @@ const prSetChildSubreaper = 36
 // a process that left the run's process group or session (setsid)
 // included; it starts the helper (helperCommand) with args and waits for
 // it, or, on SIGTERM (runWithin's deadline), kills it and then waits.
-// Then it collects the run (collectChildren): no process started under
+// While the run goes on, it reaps each adopted process that ends
+// (reapEnded). Then it collects the run (collectChildren): no process started under
 // the run survives it. It exits with the helper's status, 128 plus the
 // signal when a signal ended the helper. It never returns.
 //
@@ -115,6 +116,11 @@ func reaperMain(args []string) {
 	}
 	terminate := make(chan os.Signal, 1)
 	signal.Notify(terminate, syscall.SIGTERM)
+	// Each adopted process that ends while the run goes on is reaped then
+	// (reapEnded), as an init such as tini does: a test that waits for an
+	// orphan of its own, or its process group, to go away sees it go.
+	childEnded := make(chan os.Signal, 1)
+	signal.Notify(childEnded, syscall.SIGCHLD)
 	helper := helperCommand(self, args)
 	helper.Stdin, helper.Stdout, helper.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := helper.Start(); err != nil {
@@ -122,13 +128,22 @@ func reaperMain(args []string) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- helper.Wait() }()
-	select {
-	case err = <-done:
-	case <-terminate:
-		// The helper is this process's child, not yet waited for, so its
-		// id is still its own.
-		syscall.Kill(helper.Process.Pid, syscall.SIGKILL)
-		err = <-done
+wait:
+	for {
+		select {
+		case err = <-done:
+			break wait
+		case <-terminate:
+			// The helper is this process's child, not yet waited for, so
+			// its id is still its own.
+			syscall.Kill(helper.Process.Pid, syscall.SIGKILL)
+			err = <-done
+			break wait
+		case <-childEnded:
+			if err := reapEnded(helper.Process.Pid); err != nil {
+				fmt.Fprintf(os.Stderr, "closure reaper: %v\n", err)
+			}
+		}
 	}
 	if err := collectChildren(); err != nil {
 		fmt.Fprintf(os.Stderr, "closure reaper: %v\n", err)
@@ -145,6 +160,33 @@ func reaperMain(args []string) {
 		code = 1
 	}
 	os.Exit(code)
+}
+
+// reapEnded reaps each child of this process that has ended, except the
+// helper, whose exec.Cmd waits for it and keeps its status for the run's
+// exit. A child it reaps is one that the run left (the subreaper adopted
+// it): nothing else waits for it, and until it is reaped it stays a zombie,
+// still a member of its process group. Each wait names one child by its
+// id, which, not yet waited for, is still that child's; a child that has
+// not ended is left (WNOHANG).
+func reapEnded(helper int) error {
+	children, err := ownChildren()
+	if err != nil {
+		return err
+	}
+	for _, pid := range children {
+		if pid == helper {
+			continue
+		}
+		var status syscall.WaitStatus
+		for {
+			_, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+			if !errors.Is(err, syscall.EINTR) {
+				break
+			}
+		}
+	}
+	return nil
 }
 
 // collectChildren kills every child of this process and waits for each,
