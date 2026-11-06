@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"iter"
 	"math/rand"
 	"sort"
 	"strings"
@@ -186,31 +187,71 @@ func withWork(t *testing.T, name, src string) int {
 // passes it by a factor of tens at 4n.
 const withStepsPerByte = 4
 
-// TestWithSiteWorkLinear (#229 done-when 2 and 3; E5 Design B3): for each
-// shape, the with-site steps at n and at 4n are at most withStepsPerByte
-// per byte of the source, and the steps per byte at 4n at most 1.5 times
-// those at n (linear, with a logarithmic factor for the treaps; a
-// quadratic count grows about four times). The nested shape is bounded by
-// the parser's nesting cap, so it runs at 50 and 200.
-func TestWithSiteWorkLinear(t *testing.T) {
+// withSiteShape is one case of TestWithSiteWorkLinear: a shape and its
+// smaller size n (the test also checks 4n).
+type withSiteShape struct {
+	shape string
+	n     int
+}
+
+// withSiteShapes are the shapes of TestWithSiteWorkLinear, in its order.
+// The nested shape is bounded by the parser's nesting cap, so it runs at
+// 50 and 200.
+func withSiteShapes() []withSiteShape {
+	var out []withSiteShape
 	for _, shape := range []string{"wowned", "nested", "several", "stack", "local many", "local chain", "alternating", "local alternating"} {
 		n := 1000
 		if shape == "nested" {
 			n = 50
 		}
-		var per [2]float64
-		for i, size := range []int{n, 4 * n} {
-			src := withShape(shape, size)
-			steps := withWork(t, fmt.Sprintf("%s n=%d", shape, size), src)
-			per[i] = float64(steps) / float64(len(src))
-			t.Logf("%s n=%d: %d with-site steps, %d bytes, %.2f per byte", shape, size, steps, len(src), per[i])
-			if steps > withStepsPerByte*len(src) {
-				t.Errorf("%s n=%d: %d with-site steps for %d bytes, want at most %d per byte", shape, size, steps, len(src), withStepsPerByte)
-			}
+		out = append(out, withSiteShape{shape, n})
+	}
+	return out
+}
+
+// TestWithSiteWorkLinear (#229 done-when 2 and 3; E5 Design B3): for each
+// shape, the with-site steps at n and at 4n are at most withStepsPerByte
+// per byte of the source, and the steps per byte at 4n at most 1.5 times
+// those at n (linear, with a logarithmic factor for the treaps; a
+// quadratic count grows about four times). One shape took up to 15.6 s
+// of a test under load (check-split round 1), so the shapes are a Split
+// (check-split-2, batch 9) with the domain of the unsplit test at
+// 0a8e52fd: its 8 shapes, each at n and 4n. withOp is one package hook,
+// so a part checks its shapes one after another. The parts run in the
+// full tier only (Short 0), as the unsplit test did (it was over the size
+// cutoff).
+var withSiteWorkLinear = NewSplit(Split[withSiteShape]{
+	Name: "TestWithSiteWorkLinear", Parts: 4,
+	Count: 8, Digest: "5c7961894f94b6b80b706784df1ed93a43b906c6a2fa02469b00ccdf898c81cd",
+	Cases: SeqOf(withSiteShapes),
+	Key:   func(c withSiteShape) string { return fmt.Sprintf("%s n=%d,%d", c.shape, c.n, 4*c.n) },
+	Run: func(t *testing.T, cases iter.Seq[withSiteShape]) {
+		for c := range cases {
+			withSiteWork(t, c.shape, c.n)
 		}
-		if per[1] > 1.5*per[0] {
-			t.Errorf("%s: %.2f steps per byte at n=%d and %.2f at 4n, want at most 1.5 times", shape, per[0], n, per[1])
+	},
+})
+
+func TestWithSiteWorkLinearPart0(t *testing.T) { withSiteWorkLinear.Part(t, 0) }
+func TestWithSiteWorkLinearPart1(t *testing.T) { withSiteWorkLinear.Part(t, 1) }
+func TestWithSiteWorkLinearPart2(t *testing.T) { withSiteWorkLinear.Part(t, 2) }
+func TestWithSiteWorkLinearPart3(t *testing.T) { withSiteWorkLinear.Part(t, 3) }
+
+// withSiteWork checks one shape of TestWithSiteWorkLinear at n and 4n.
+func withSiteWork(t *testing.T, shape string, n int) {
+	t.Helper()
+	var per [2]float64
+	for i, size := range []int{n, 4 * n} {
+		src := withShape(shape, size)
+		steps := withWork(t, fmt.Sprintf("%s n=%d", shape, size), src)
+		per[i] = float64(steps) / float64(len(src))
+		t.Logf("%s n=%d: %d with-site steps, %d bytes, %.2f per byte", shape, size, steps, len(src), per[i])
+		if steps > withStepsPerByte*len(src) {
+			t.Errorf("%s n=%d: %d with-site steps for %d bytes, want at most %d per byte", shape, size, steps, len(src), withStepsPerByte)
 		}
+	}
+	if per[1] > 1.5*per[0] {
+		t.Errorf("%s: %.2f steps per byte at n=%d and %.2f at 4n, want at most 1.5 times", shape, per[0], n, per[1])
 	}
 }
 

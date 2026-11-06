@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"iter"
 	"math"
 	"math/rand"
 	"os"
@@ -75,13 +76,10 @@ func runnerModel(seq []string) (lines []runnerOutcome, exit int) {
 	return append(lines, runnerOutcome{line: fmt.Sprintf("PASS (%d tests)", len(seq))}), 0
 }
 
-// TestTestRunnerModel builds, through LowerTests, one test file per
-// sequence of outcomes, every sequence of length 1 and 2 and 24 seeded
-// sequences of length 3 to 6, runs each test binary and compares its
-// report and exit status with the rule (runnerModel). A run that fails
-// names its count on stderr; a defect leaves the runtime's report; main
-// never runs.
-func TestTestRunnerModel(t *testing.T) {
+// runnerSeqs is the domain of TestTestRunnerModel at 0a8e52fd, in its
+// order: every sequence of outcomes of length 1 and 2, and 24 seeded
+// sequences of length 3 to 6.
+func runnerSeqs() [][]string {
 	names := make([]string, 0, len(runnerOutcomes))
 	for n := range runnerOutcomes {
 		names = append(names, n)
@@ -102,6 +100,56 @@ func TestTestRunnerModel(t *testing.T) {
 		}
 		seqs = append(seqs, seq)
 	}
+	return seqs
+}
+
+// TestTestRunnerModel builds, through LowerTests, one test file per
+// sequence of outcomes (runnerSeqs), runs each test binary and compares
+// its report and exit status with the rule (runnerModel). A run that
+// fails names its count on standard error; a defect leaves the runtime's
+// report; main never runs. The unsplit test took 16.1 s (25.6 s under
+// load), more than a shard's target, so the sequences are a split
+// (check-split-2, batch 9) with the domain of the unsplit test at
+// 0a8e52fd; each part builds its own module. The parts run in the full
+// tier only (short 0), as the unsplit test did.
+//
+// A case is a sequence with its index in the domain: two seeded sequences
+// may be equal, and a key names one case.
+var testRunnerModel = newSplit(split[runnerSeq]{
+	name: "TestTestRunnerModel", parts: 4,
+	count: 156, digest: "351bd631b132896b7551977363489b09be8bc17cf9629efeaebb92cef33a3bb9",
+	cases: func(yield func(runnerSeq) bool) {
+		for k, seq := range runnerSeqs() {
+			if !yield(runnerSeq{k, seq}) {
+				return
+			}
+		}
+	},
+	key: func(c runnerSeq) string { return fmt.Sprintf("%03d %s", c.k, strings.Join(c.seq, " ")) },
+	run: func(t *testing.T, cases iter.Seq[runnerSeq]) {
+		var seqs [][]string
+		for c := range cases {
+			seqs = append(seqs, c.seq)
+		}
+		runnerModelCheck(t, seqs)
+	},
+})
+
+// runnerSeq is one case of TestTestRunnerModel.
+type runnerSeq struct {
+	k   int
+	seq []string
+}
+
+func TestTestRunnerModelPart0(t *testing.T) { testRunnerModel.Part(t, 0) }
+func TestTestRunnerModelPart1(t *testing.T) { testRunnerModel.Part(t, 1) }
+func TestTestRunnerModelPart2(t *testing.T) { testRunnerModel.Part(t, 2) }
+func TestTestRunnerModelPart3(t *testing.T) { testRunnerModel.Part(t, 3) }
+
+// runnerModelCheck builds and runs the test file of each sequence and
+// compares it with the rule.
+func runnerModelCheck(t *testing.T, seqs [][]string) {
+	t.Helper()
 	var builds []*lowered
 	for k, seq := range seqs {
 		var src strings.Builder
