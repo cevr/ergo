@@ -9,7 +9,8 @@ import (
 )
 
 // qualifiedLib is package lib of the qualified-embed tests: W binds Store to
-// Mem{V: read()}, and read needs Log, which W binds too; w is unexported.
+// Mem{V: read()}; read requires the capability Log, and W binds Log too.
+// The context w is unexported.
 const qualifiedLib = `type Store { Get() string }
 type Log { Say(s string) }
 type Mem { V string }
