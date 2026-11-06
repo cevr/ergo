@@ -16,14 +16,40 @@ import (
 // the two differ in more than the duplicate members.
 type dupMemberKind struct {
 	name   string // the member's name
+	member string // the text of one member, the name in it
 	decl   func(i, n int) string
 	twice  string // the member duplicate message, "" when it is package-level
 	extras []string
 }
 
+// later returns the offsets in decl of the member's name in each of its
+// members after the first: where the kept declaration reports them.
+func (k dupMemberKind) later(decl string) []int {
+	var out []int
+	for i, at := 0, 0; ; i++ {
+		j := strings.Index(decl[at:], k.member)
+		if j < 0 {
+			return out
+		}
+		if i > 0 {
+			out = append(out, at+j+strings.Index(k.member, k.name))
+		}
+		at += j + len(k.member)
+	}
+}
+
+func offsetsOf(diags []Diagnostic) []int {
+	var out []int
+	for _, d := range diags {
+		out = append(out, d.Offset)
+	}
+	return out
+}
+
 var dupMemberKinds = []dupMemberKind{
 	{
-		name: "L",
+		name:   "L",
+		member: ", law L(){true}",
 		decl: func(i, n int) string {
 			return fmt.Sprintf("type T{a%d()int%s}\n", i, strings.Repeat(", law L(){true}", n))
 		},
@@ -33,7 +59,8 @@ var dupMemberKinds = []dupMemberKind{
 		extras: []string{"law L() { true }\n", "law L() { true }\nlaw L() { true }\n"},
 	},
 	{
-		name: "m",
+		name:   "m",
+		member: ", m()int",
 		decl: func(i, n int) string {
 			return fmt.Sprintf("type T{a%d()int%s}\n", i, strings.Repeat(", m()int", n))
 		},
@@ -41,7 +68,8 @@ var dupMemberKinds = []dupMemberKind{
 		extras: []string{"func m() int { 1 }\n"},
 	},
 	{
-		name: "x",
+		name:   "x",
+		member: ", x int",
 		decl: func(i, n int) string {
 			return fmt.Sprintf("type T{f%d int%s}\n", i, strings.Repeat(", x int", n))
 		},
@@ -52,7 +80,8 @@ var dupMemberKinds = []dupMemberKind{
 		// An inline variant declares a record in the package scope (spec
 		// D-B1), also in a refused declaration: its duplicate is
 		// package-level.
-		name: "V",
+		name:   "V",
+		member: " | V{}",
 		decl: func(i, n int) string {
 			return fmt.Sprintf("type T = W%d{}%s\n", i, strings.Repeat(" | V{}", n))
 		},
@@ -142,17 +171,13 @@ func TestDuplicateMembersInDuplicateTypes(t *testing.T) {
 					if len(got.types) != 1 || got.types[0].Offset != len(d1)+len("type ") {
 						t.Errorf("%s: want one type duplicate at the second T, got %v\n%s", name, got.types, src)
 					}
+					packageLevel := max(0, n1+n2-1+strings.Count(extra, "func "+k.name))
 					if k.twice != "" {
-						if len(got.members) != max(0, n1-1) {
-							t.Errorf("%s: want %d member duplicates in the kept declaration, got %v\n%s", name, max(0, n1-1), got.members, src)
+						if have, want := offsetsOf(got.members), k.later(d1); !slices.Equal(have, want) || len(want) != max(0, n1-1) {
+							t.Errorf("%s: member duplicates at %v, want %v in the kept declaration: %v\n%s", name, have, want, got.members, src)
 						}
-						for _, d := range got.members {
-							if d.Offset >= len(d1) {
-								t.Errorf("%s: a member duplicate outside the kept declaration: %v\n%s", name, d, src)
-							}
-						}
-					} else if want := n1 + n2 - 1 + strings.Count(extra, "func "+k.name); len(got.members) != max(0, want) {
-						t.Errorf("%s: want %d package-level duplicates of %s, got %v\n%s", name, max(0, want), k.name, got.members, src)
+					} else if len(got.members) != packageLevel {
+						t.Errorf("%s: want %d package-level duplicates of %s, got %v\n%s", name, packageLevel, k.name, got.members, src)
 					}
 
 					// One file: the declaration-order oracle.
@@ -161,14 +186,35 @@ func TestDuplicateMembersInDuplicateTypes(t *testing.T) {
 					}
 					want := duplicateKeys(f1, one)
 
-					// Two files, in both orders: the later file holds the
-					// refused T, and the duplicates are those of one file.
+					// Two files, in both orders: the earlier file holds the
+					// kept T, whose members report as in one file; the later
+					// file holds the refused T; and the package-level
+					// duplicates are those of one file.
 					for _, order := range [][2]string{{d1 + extra, d2}, {d2, d1 + extra}} {
 						files := parseFiles(t, order[0], order[1])
 						_, two := Check("main", files, nil)
-						got := k.split(two, func(Diagnostic) bool { return true })
-						if len(got.types) != 1 || got.types[0].File != 1 {
-							t.Errorf("%s files %q: want one type duplicate in file 1, got %v", name, order, got.types)
+						// Each file starts with its T; a top-level law's
+						// duplicate follows it.
+						decls := [2]string{d1, d2}
+						if order[0] == d2 {
+							decls = [2]string{d2, d1}
+						}
+						got := k.split(two, func(d Diagnostic) bool { return d.Offset < len(decls[d.File]) })
+						if len(got.types) != 1 || got.types[0].File != 1 || got.types[0].Offset != len("type ") {
+							t.Errorf("%s files %q: want one type duplicate at T in file 1, got %v", name, order, got.types)
+						}
+						if k.twice != "" {
+							want := k.later(decls[0])
+							if have := offsetsOf(got.members); !slices.Equal(have, want) {
+								t.Errorf("%s files %q: member duplicates at %v, want %v in file 0: %v", name, order, have, want, got.members)
+							}
+							for _, d := range got.members {
+								if d.File != 0 {
+									t.Errorf("%s files %q: a member duplicate outside the kept file: %v", name, order, d)
+								}
+							}
+						} else if len(got.members) != packageLevel {
+							t.Errorf("%s files %q: want %d package-level duplicates of %s, got %v", name, order, packageLevel, k.name, got.members)
 						}
 						if have := duplicateKeys(files, two); !slices.Equal(have, want) {
 							t.Errorf("%s files %q: duplicates %v, one file %v", name, order, have, want)
