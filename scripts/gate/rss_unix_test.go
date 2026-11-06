@@ -120,3 +120,42 @@ ctypes.CDLL(None).syscall({"x86_64": 60, "aarch64": 93}[platform.machine()], 0)`
 	}
 	t.Fatalf("pid %d not in its process group %d: %v", pid, pgid, group)
 }
+
+// Every ps the RSS watch runs is a tracked command (fu-gate U5): the
+// sampler's and the one a step's finish runs. A tracked command runs in a
+// process group of its own, which a stop kills and waits for; an
+// untracked exec.Command runs in the gate's group, and a ps of it in
+// flight when the gate exits holds what the gate inherited. The fake ps
+// records its pid and its process group; each must be equal.
+func TestRSSWatchTracksItsPS(t *testing.T) {
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("the fake ps reads its process group from /proc")
+	}
+	bin := t.TempDir()
+	record := filepath.Join(bin, "groups")
+	executable(t, bin, "ps", "#!/bin/sh\nread -r pid comm state ppid pgrp rest < /proc/$$/stat\necho \"$pid $pgrp\" >> '"+record+"'\nprintf '125 4321 S live\\n'\n")
+	t.Setenv("PATH", bin)
+
+	watch, err := openRSSWatch(memoryBudget{}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	watch.close()
+	if _, err := processGroupMembers(4321); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("ps ran %d times, want 2 (the sampler's, the finish's): %q", len(lines), recorded)
+	}
+	for i, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != fields[1] {
+			t.Errorf("ps %d (pid, process group) %q: not in a group of its own, so not a tracked command", i+1, line)
+		}
+	}
+}
