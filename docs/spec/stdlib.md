@@ -188,6 +188,43 @@ func OrderRow(o Order) html.Node {
 
 [#210](https://github.com/cevr/ergo/issues/210). `os`, `fs`, `net` and `sql` are the only standard-library code that calls Go. They are reviewed. Every blocking call has a cancel hook, or is recorded as an uninterruptible host wait that `ergo inspect` lists (G8). Each package states the Go targets it supports. File handles are resources ([resources.md](resources.md)). Through host packages and `import go`, every effect appears in a footprint ([rows.md](rows.md#footprints)).
 
+A host package has four parts, as the prelude's `Scheduler` and `LiveScheduler` do: an operation type, the capability a program names in its rows; a zero-field record `Host {}`, the host's provider; the provider's functions, with Ergo bodies; and unexported externs that bind the Go bodies in `runtime/v1` (`host.go`). A program binds the provider in a context, and the entry stays as it is: `main` provides only `Console`, so `main needs os.Process` is S109 "the host provides only Console". The context in `cmd/<name>/main.ergo` is the one place that chooses the host, and a test binds its own provider in the same place.
+
+### os
+
+Std `os` is the host process (wave std-1, unit G2).
+
+```go
+import os
+
+func run() fails os.Exit needs Console | os.Process {
+	match os.Process.Getenv("TOPIC") {
+	case Some[string] as t:
+		Console.Println(t.Value)
+	case None:
+		return os.Exit{Code: 3, Message: "[NOT_FOUND] no TOPIC"}
+	}
+}
+
+let Live = context { os.Process: os.Host }
+
+func main() fails os.Exit needs Console { with Live { try run() } }
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type Process { Args() []string, Getenv(key string) Option[string], law GetenvIsStable(key string) }` | The capability. |
+| `type Host {}`; `func Args(_ Host) []string`; `func Getenv(_ Host, key string) Option[string]` | The host's provider. |
+| `type Exit { Code int, Message string }` | The failure that ends `main` with status `Code`. |
+
+1. `Args` is the arguments after the program name, Go's `os.Args[1:]`.
+2. `Getenv` is `None` when `key` is unset and `Some("")` when it is set to the empty string. The law `GetenvIsStable` states `Getenv(key) == Getenv(key)`: two reads of one key agree, for any provider.
+3. `os.Exit` is a failure in the row, not a call. When it is `main`'s only reason, the entry writes `Message` and a line feed to standard error, verbatim, and exits with `Code`; `Code` must be in 1..125 ([runtime.md](runtime.md#exit-causes) 8). It never skips cleanup: every scope's exit actions run before the entry writes it. Go's `os.Exit` skips deferred calls; Ergo has no call that does.
+4. The Go bodies are `v1.OSArgs`, `v1.OSHasEnv` and `v1.OSGetenv`, each with one `runtimeBindings` row that neither waits nor releases. They read the host process, so none is pure. `os.Exit` is the `runtime/v1` struct `v1.Exit` (Types 4).
+5. Status: the package checks, and its bodies and the `os.Exit` report are built (`runtime/v1` `TestOSArgs`, `TestOSEnv`, `TestMainExit`). A program value does not convert to `os.Process` yet: every std operation type is sealed, so `context { os.Process: os.Host }` is S109 "it is a sealed std protocol". G2 part 2 seals a std operation type only when a std extern's result names it (`check.SealedStd`), and runs `TestOSProcessRuns`.
+
+*Prior art:* Roc's basic-cli platform gives `Arg` and `Env` as platform effects, and its `main` can fail with `Exit code message`, which the platform writes and exits with; `os.Exit` takes that shape and adds the 1..125 check. Effect Platform reads the environment through a `ConfigProvider` layer and leaves argv to `@effect/cli`. Gleam's `argv` and `envoy` packages, Elixir's `System.argv/0` and `System.get_env/1`, and ReScript's Node bindings read the process directly, with no capability; Elixir's `System.get_env/1` returns `nil` for an unset key, and Gleam's `envoy.get` returns `Result(String, Nil)`. Elixir's `System.halt/1` ends the VM at once with any status; Ergo's `os.Exit` is a failure, so cleanup runs first and the status is checked.
+
 ## Testing
 
 [#209](https://github.com/cevr/ergo/issues/209). `testing.VirtualClock` provides `Clock` and `Scheduler` and jumps to the next timer when every task in the test is blocked. `T.Idle()` reports the tasks that keep a test from reaching idle. The test harness is an ordinary `context`, so production code needs no change to run on virtual time. *Prior art:* Go `testing/synctest` bubbles; Trio `MockClock(autojump_threshold=0)`; Effect `TestClock`.

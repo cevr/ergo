@@ -344,6 +344,21 @@ func main() {
 	use(Mine)
 }
 `,
+	// std os (G2): sealed until G2 part 2 seals only a std operation type
+	// a std extern's result names (stdlib.md, os 5).
+	"os.Process": `import os
+
+type Mine {}
+
+func Args(_ Mine) []string { []string{} }
+func Getenv(_ Mine, key string) Option[string] { None }
+
+func use(p os.Process) { _ = p.Args() }
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
