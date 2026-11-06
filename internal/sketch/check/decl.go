@@ -1,10 +1,13 @@
 package check
 
 import (
+	"errors"
+	"fmt"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -421,6 +424,13 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		c.bindBrokenImport(fi, spec, path)
 		return
 	}
+	// The same rule holds for a last element that is not a name, such as
+	// the folder okra-repo (196b Q3): the import needs an alias.
+	if def := lastElement(path); spec.Name == nil && !syntax.IsKeyword(def) && !importName(def) {
+		c.errorf(spec.Path, CodeType, "%s is not a name; import the package under a name: import %s %s", def, strings.ReplaceAll(def, "-", ""), path)
+		c.bindBrokenImport(fi, spec, path)
+		return
+	}
 	switch spec.Kind {
 	case syntax.ImportPlain, syntax.ImportNamed:
 	case syntax.ImportGo:
@@ -439,7 +449,12 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	pkg, err := imp.Import(path)
 	if err != nil || pkg == nil {
-		c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
+		var reason *ImportError
+		if errors.As(err, &reason) {
+			c.errorf(spec.Path, CodeUnknown, "unknown package %q: %s", path, reason.Reason)
+		} else {
+			c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
+		}
 		c.bindBrokenImport(fi, spec, path)
 		return
 	}
@@ -526,7 +541,9 @@ func (c *checker) checkImportAliases() {
 		}
 		c.cur = a.file
 		def := lastElement(a.path)
-		clash := syntax.IsKeyword(def) // a keyword is never a bound name
+		// A keyword, or an element that is not a name (196b Q3), is never
+		// a bound name, so its alias is needed.
+		clash := syntax.IsKeyword(def) || !importName(def)
 		if _, ok := c.pkg.Scope.names[def]; ok {
 			clash = true
 		}
@@ -555,6 +572,32 @@ func (c *checker) checkImportAliases() {
 func lastElement(path string) string {
 	return path[strings.LastIndex(path, "/")+1:]
 }
+
+// importName reports whether an import path element can be the name a
+// plain import binds: a letter or `_`, then letters, digits and `_`. A
+// path element may also hold `-` (grammar.md, Literals), and such an
+// element needs an alias (196b Q3).
+func importName(element string) bool {
+	if element == "" {
+		return false
+	}
+	for i, r := range element {
+		if r != '_' && !unicode.IsLetter(r) && (i == 0 || !unicode.IsDigit(r)) {
+			return false
+		}
+	}
+	return true
+}
+
+// ImportError is an importer's refusal with a reason the checker adds to
+// its S104 "unknown package" diagnostic, such as a program with no
+// ergo.mod importing a local path (196b Q1).
+type ImportError struct {
+	Path   string
+	Reason string
+}
+
+func (e *ImportError) Error() string { return fmt.Sprintf("package %q: %s", e.Path, e.Reason) }
 
 // importBinds is the name an import spec binds in its file: its alias, or
 // its path's last element; "" for a malformed path.
@@ -821,9 +864,12 @@ func (c *checker) unionType(n *Named, spec *syntax.InterfaceType, ctx *typeCtx) 
 				u.Bad = true
 				continue
 			}
-			// A variant from another package needs a sealed interface over
-			// a foreign type (spec Q7): 196b's.
-			c.errorf(x, CodeOutside, "a union variant from another package (%s) is 196b's (packages); declare the record in this package", t)
+			// A union's variants are records of its package (196b Q8, a
+			// permanent rule): a union's marker is a function of the
+			// variant's type, and a type's functions live in the package
+			// that declares it (196m). An error row still names a foreign
+			// error type directly.
+			c.errorf(x, CodeType, "a union's variants are records of its package; wrap %s: type %s = … | %s{ Cause %s }", t, n.Obj.Name, vn.origin().Obj.Name, t)
 			u.Bad = true
 			continue
 		}
