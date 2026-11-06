@@ -104,6 +104,10 @@ type footprinter struct {
 	// trimmed are the nodes of contexts without some of their entries,
 	// by context (without).
 	trimmed map[*Context][]trimmedNode
+	// foreign marks a footprinter that walks one provider expression of an
+	// imported context with its own package's facts (foreignEntry): it
+	// makes no edge, since no node of that package is walked here.
+	foreign bool
 }
 
 // footprints records Info.Footprints once every body is final (finishInfo).
@@ -225,11 +229,15 @@ func (fp *footprinter) provides(n *fpNode, w *Context, hidden []*ContextEntry) {
 			switch {
 			case inner.unknown || inner.binds == nil:
 				n.opaque = true
-			case inner.pkg != fp.pkg || inner.Decl == nil:
+			case inner.Decl == nil:
 				// A context literal embeds only a named context of its
 				// package (embeddedContext) or a local one, which the with
 				// that builds it walks (build).
 				n.opaque = true
+			case inner.pkg != fp.pkg:
+				// An imported named context (196b U4): what its own
+				// package recorded, less the entries hidden here.
+				fp.imported(n, inner, runsIn(inner, hidden))
 			default:
 				n.edges = append(n.edges, fp.without(inner, runsIn(inner, hidden)))
 			}
@@ -237,6 +245,66 @@ func (fp *footprinter) provides(n *fpNode, w *Context, hidden []*ContextEntry) {
 			n.edges = append(n.edges, fp.entry(e))
 		}
 	}
+}
+
+// imported adds to n what the builder of w, a named context of another
+// package, runs except the entries of hidden, each of which w runs (batch-9
+// C4). With none hidden it joins the footprint w's package recorded for
+// w's builder, which is the node fp.context makes for a context of this
+// package. With some hidden it joins, as provides does, each entry w runs
+// that is not hidden: an embedded context by this rule again, and a
+// provider entry by its provider expression, walked with its own package's
+// facts (foreignEntry). A fact that is missing makes n opaque, which only
+// adds polls.
+func (fp *footprinter) imported(n *fpNode, w *Context, hidden []*ContextEntry) {
+	p := w.pkg
+	if p == nil || p.Info == nil {
+		n.opaque = true
+		return
+	}
+	if len(hidden) == 0 {
+		if g, ok := p.Info.Footprints[w.Decl]; ok {
+			n.join(g)
+		} else {
+			n.opaque = true
+		}
+		return
+	}
+	hidden = append(hidden[:len(hidden):len(hidden)], fp.overridden(w)...)
+	for _, e := range w.Entries {
+		switch {
+		case e == nil:
+		case e.Embedded != nil:
+			inner := e.Embedded
+			switch {
+			case inner.unknown || inner.binds == nil || inner.Decl == nil:
+				n.opaque = true
+			case inner.pkg == fp.pkg:
+				n.edges = append(n.edges, fp.without(inner, runsIn(inner, hidden)))
+			default:
+				fp.imported(n, inner, runsIn(inner, hidden))
+			}
+		case e.Provider != nil && !slices.Contains(hidden, e):
+			fp.foreignEntry(n, e, p)
+		}
+	}
+}
+
+// foreignEntry adds to n what the provider expression of e, an entry of a
+// context of package p, runs, read with p's facts: p's Info keys its
+// nodes. Its package recorded no node for one entry, so the expression is
+// walked here by a footprinter of p that makes no edge: a call of a
+// function, of p or not, and of a literal joins the footprint its package
+// recorded, and a with inside the expression is opaque.
+func (fp *footprinter) foreignEntry(n *fpNode, e *ContextEntry, p *Package) {
+	ffp := &footprinter{pkg: p, info: p.Info, nodes: map[any]*fpNode{}, owners: fp.owners, foreign: true}
+	m := &fpNode{}
+	ffp.walk(m, e.Provider)
+	for _, t := range m.caps {
+		n.addCap(t.(*Named))
+	}
+	n.tasks = n.tasks || m.tasks
+	n.opaque = n.opaque || m.opaque || len(m.edges) > 0
 }
 
 // overridden are the entries w's replaces override that w's builder does
@@ -465,6 +533,14 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 	case CallFuncValue:
 		if lit, ok := unparen(x.Fun).(*syntax.FuncLit); ok {
 			// A literal called where it is written runs its body here.
+			if fp.foreign {
+				if g, ok := fp.info.Footprints[lit]; ok {
+					n.join(g)
+				} else {
+					n.opaque = true
+				}
+				return
+			}
 			n.edges = append(n.edges, fp.node(lit))
 			return
 		}
@@ -476,7 +552,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		// The block's calls are walked in this frame; the with also runs
 		// the providers it acquires.
 		w := fp.info.Withs[x]
-		if w == nil {
+		if w == nil || fp.foreign {
 			n.opaque = true
 			return
 		}
@@ -503,7 +579,7 @@ func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 	case f.Decl.Extern != nil || f.Decl.Body == nil:
 		n.opaque = true
 		n.tasks = n.tasks || taskResult
-	case f.Pkg == fp.pkg:
+	case f.Pkg == fp.pkg && !fp.foreign:
 		n.edges = append(n.edges, fp.node(f.Decl))
 	default:
 		if f.Pkg != nil && f.Pkg.Info != nil {
