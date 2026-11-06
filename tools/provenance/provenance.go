@@ -75,7 +75,7 @@ func New() *analysis.Analyzer {
 	a := &analysis.Analyzer{
 		Name: "provenance",
 		Doc:  "flag syntax nodes a checker makes outside its registered constructions",
-		URL:  "https://github.com/cevr/effra",
+		URL:  "https://github.com/cevr/ergo",
 	}
 	a.Flags.Var(&paths, "manifest", "a provenance manifest file (repeatable)")
 	a.Run = func(pass *analysis.Pass) (any, error) {
