@@ -32,10 +32,20 @@ func testSlice(t *testing.T) string {
 	return cleanSlice(t, fmt.Sprintf("%s-test-%d.slice", strings.TrimSuffix(gateSlice, ".slice"), os.Getpid()))
 }
 
-// cleanSlice reverts and stops slice when the test ends.
+// startedSlices are the slices in which startableScope started a scope in
+// this test process. A slice in which no scope started was never created,
+// so cleanSlice leaves it alone: where no user manager is reachable (the
+// merge tier's sandbox has no user bus), systemctl could only fail.
+var startedSlices sync.Map
+
+// cleanSlice reverts and stops slice when the test ends, if a scope started
+// in it.
 func cleanSlice(t *testing.T, slice string) string {
 	t.Helper()
 	t.Cleanup(func() {
+		if _, started := startedSlices.Load(slice); !started {
+			return
+		}
 		for _, action := range []string{"revert", "stop"} {
 			command := exec.Command("systemctl", "--user", action, slice)
 			command.Env = scopeEnvironment("")
@@ -111,6 +121,7 @@ func startableScope(t *testing.T, slice string, budget memoryBudget) {
 	if output, err := probe.CombinedOutput(); err != nil {
 		t.Skipf("no systemd user scope here (%v: %s): the RSS watch tests cover this host", err, firstLine(output))
 	}
+	startedSlices.Store(slice, true)
 }
 
 // newScopeHelper prepares a helper gate in slice that runs the named case

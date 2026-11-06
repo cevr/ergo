@@ -237,13 +237,19 @@ const effectiveVariable = "GATE_EFFECTIVE_CACHE"
 // -p=2 and declares only sh, so only the step key's budget line keeps the
 // pass from crossing.
 func TestCPUBudgetKeysTheEffectiveBudget(t *testing.T) {
-	if _, err := exec.LookPath("systemd-run"); err != nil {
-		t.Skip("no systemd-run")
+	slice := testSlice(t)
+	setBudgetCaseTemp(t)
+	t.Setenv(stepMemoryVariable, "512M")
+	t.Setenv(gateMemoryVariable, "1G")
+	t.Setenv(hostMemoryVariable, "4G")
+	memory, err := currentBudget()
+	if err != nil {
+		t.Fatal(err)
 	}
+	startableScope(t, slice, memory)
 	if usableCPUsOnce() < 4 {
 		t.Skip("fewer than 4 usable CPUs: no budget 4")
 	}
-	slice := testSlice(t)
 	t.Setenv(cpuVariable, "8")
 	t.Setenv("GOMAXPROCS", "1")
 	t.Setenv("GOFLAGS", "")
