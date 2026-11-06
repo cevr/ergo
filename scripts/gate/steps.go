@@ -80,6 +80,26 @@ var hermeticEnvironment = []string{"CGO_ENABLED=0"}
 // the "go" tool fingerprint or the test tool digest.
 var goRuntimeEnvironment = []string{"GODEBUG", "GOGC", "GOMEMLIMIT", "GOMAXPROCS", "GOTRACEBACK"}
 
+// buildCLIStep builds the ergo CLI into bin/ergo, once per gate run.
+const buildCLIStep = "build bin/ergo"
+
+// cliTestPackages are the test packages whose tests run the ergo CLI. A
+// test process built cmd/ergo for itself, so a package in n shards built it
+// n times per run, each build racing the others after an edit of the
+// compiler (fast-cpu, batch 9). In every tier each step of these packages
+// needs buildCLIStep and names its output in cliTestEnvironment, so the
+// tests run the binary that this run built. The package's key covers what
+// the binary is built from: its closure table entry grants the cmd/ergo
+// program (internal/closure), and the toolchain is in every key. The tests
+// build the CLI themselves when the variable is unset (a bare go test), and
+// fail when the file it names is missing.
+var cliTestPackages = []string{"internal/sketch/lower"}
+
+// cliTestEnvironment names the gate's CLI to a cliTestPackages step: the
+// path is relative to the module root, so the value, a part of the step's
+// key, is the same on every run and in every checkout.
+var cliTestEnvironment = []string{"ERGO_TEST_CLI=bin/ergo"}
+
 // gofmtDirectories are the Go trees the gate requires to be gofmt-clean.
 var gofmtDirectories = []string{"cmd", "internal", "runtime", "scripts/gate", "scripts/conformance", "scripts/examples", "examples/go-interop", "tools/provenance"}
 
@@ -139,9 +159,16 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			continue
 		}
 		measured, ok := durations[pkg]
-		if !ok || !slices.Contains(slowPackages, "./"+relative) {
+		cli := slices.Contains(cliTestPackages, relative)
+		// A CLI package always gets steps of its own, which need the
+		// CLI's build (cliTestPackages); unmeasured, it runs in one.
+		if !cli && (!ok || !slices.Contains(slowPackages, "./"+relative)) {
 			unsharded = append(unsharded, pkg)
 			continue
+		}
+		needs, env := []string{"go test build"}, []string(nil)
+		if cli {
+			needs, env = append(needs, buildCLIStep), cliTestEnvironment
 		}
 		dir := filepath.Join(root, strings.TrimPrefix(pkg, modulePath(root)+"/"))
 		names, err := testNames(dir)
@@ -157,7 +184,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		selections := shardArgs(shard(names, measured, n))
 		for i, selection := range selections {
 			argv := append([]string{"go", "test", testTimeout}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: []string{"go test build"}, Argv: append(argv, pkg), ToolEnv: testTools})
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools})
 		}
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools})
@@ -180,14 +207,14 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// new revision. The gate's bin/ergo therefore declares no vcs.revision in
 	// its producer identity, while its artifact digest still identifies the
 	// executing bytes.
-	add(&Step{Name: "build bin/ergo", Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo")})
+	add(&Step{Name: buildCLIStep, Needs: []string{"go test build"}, Argv: stagedBuild(root, "bin/ergo", "./cmd/ergo")})
 	add(examplesStep())
 
 	examples, err := authoredExamples(root)
 	if err != nil {
 		return nil, err
 	}
-	add(&Step{Name: "ergo fmt --check", Needs: []string{"build bin/ergo"}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...)})
+	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...)})
 
 	return steps, nil
 }

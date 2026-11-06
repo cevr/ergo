@@ -4,23 +4,37 @@
 package lower
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/testinputs"
 )
 
+// cliVariable names an ergo CLI that is already built, for the tests to
+// run instead of building their own: a path relative to the module root,
+// or an absolute path. The gate sets it to bin/ergo on every step of this
+// package, and each such step needs the gate's "build bin/ergo" step
+// (scripts/gate, cliTestPackages), so the gate builds cmd/ergo once per
+// run and not once per test process (shard). The path is stable, so the
+// variable does not change a cache key from run to run. Without the
+// variable (a bare go test) the tests build the CLI themselves.
+const cliVariable = "ERGO_TEST_CLI"
+
 // testCLI is the ergo CLI the tests that go through the public command
-// run, built once per test process outside the tree. It is built with
-// -buildvcs=false: a VCS stamp would make the checkout's version-control
-// state, every tracked file's metadata included, an input of this package
-// (internal/closure).
+// run: the one cliVariable names, or one built once per test process
+// outside the tree. It is built with -buildvcs=false: a VCS stamp would
+// make the checkout's version-control state, every tracked file's metadata
+// included, an input of this package (internal/closure).
 var testCLI struct {
 	once        sync.Once
 	environment []string
+	given       string
 	dir         string
 	path        string
 	err         error
@@ -33,6 +47,7 @@ func TestMain(m *testing.M) {
 	// The CLI builds in the process's own environment, before any test
 	// overrides Go variables with t.Setenv.
 	testCLI.environment = os.Environ()
+	testCLI.given = os.Getenv(cliVariable)
 	code := testinputs.Main(m)
 	if testCLI.dir != "" {
 		_ = os.RemoveAll(testCLI.dir)
@@ -40,19 +55,27 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// ergoCLI returns the path of the ergo CLI, building it on first use. Run
-// it from a temporary directory: ergo run and ergo build write dist/ under
-// the working directory.
+// moduleRoot is the module root, relative to this package's directory,
+// where go test runs the tests.
+const moduleRoot = "../../.."
+
+// ergoCLI returns the path of the ergo CLI: the one cliVariable names, or
+// one it builds on first use. Run it from a temporary directory: ergo run
+// and ergo build write dist/ under the working directory.
 func ergoCLI(t *testing.T) string {
 	t.Helper()
 	testCLI.once.Do(func() {
+		if testCLI.given != "" {
+			testCLI.path, testCLI.err = givenCLI(testCLI.given)
+			return
+		}
 		testCLI.dir, testCLI.err = os.MkdirTemp("", "ergo-lower-cli-")
 		if testCLI.err != nil {
 			return
 		}
 		testCLI.path = filepath.Join(testCLI.dir, "ergo")
 		command := exec.Command("go", "build", "-buildvcs=false", "-o", testCLI.path, "./cmd/ergo")
-		command.Dir = filepath.Clean("../../..")
+		command.Dir = filepath.Clean(moduleRoot)
 		command.Env = testCLI.environment
 		testCLI.output, testCLI.err = command.CombinedOutput()
 	})
@@ -60,4 +83,89 @@ func ergoCLI(t *testing.T) string {
 		t.Fatalf("build the ergo CLI: %v\n%s", testCLI.err, testCLI.output)
 	}
 	return testCLI.path
+}
+
+// givenCLI resolves the value of cliVariable to an absolute path and
+// checks that it names an executable file. A missing file is an error,
+// never a reason to build: the variable says a step before this one built
+// it, so a missing file means that step did not run.
+func givenCLI(given string) (string, error) {
+	path := given
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(moduleRoot, filepath.FromSlash(given))
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("%s=%s: %w (the step that builds it did not run)", cliVariable, given, err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return "", fmt.Errorf("%s=%s: %s is not an executable file", cliVariable, given, path)
+	}
+	return path, nil
+}
+
+// probeVariable makes TestErgoCLIProbe print the CLI path that ergoCLI
+// returns; TestErgoCLIUsesTheGivenBinary runs this test binary with it.
+const probeVariable = "ERGO_TEST_CLI_PROBE"
+
+// TestErgoCLIProbe prints the path ergoCLI returns, when probeVariable is
+// set; otherwise it does nothing.
+func TestErgoCLIProbe(t *testing.T) {
+	if os.Getenv(probeVariable) == "" {
+		t.Skip("a probe for TestErgoCLIUsesTheGivenBinary")
+	}
+	fmt.Printf("cli: %s\n", ergoCLI(t))
+}
+
+// ergoCLIProbe runs this test binary's TestErgoCLIProbe with the variable
+// set to given (unset when empty), and returns its output.
+func ergoCLIProbe(t *testing.T, given string) (string, error) {
+	t.Helper()
+	command := exec.Command(os.Args[0], "-test.run=^TestErgoCLIProbe$", "-test.count=1", "-test.v")
+	var environment []string
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); name != cliVariable && name != probeVariable {
+			environment = append(environment, entry)
+		}
+	}
+	environment = append(environment, probeVariable+"=1")
+	if given != "" {
+		environment = append(environment, cliVariable+"="+given)
+	}
+	command.Env = environment
+	output, err := command.CombinedOutput()
+	return string(output), err
+}
+
+// The tests run the CLI that cliVariable names, so the gate's one build of
+// bin/ergo serves every shard; a named file that is missing fails the
+// tests instead of building one; and without the variable they build the
+// CLI themselves, so a bare go test still works (the last case builds
+// cmd/ergo, so only the full tier runs it).
+func TestErgoCLIUsesTheGivenBinary(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fake-ergo")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output, err := ergoCLIProbe(t, fake)
+	if err != nil || !slices.Contains(strings.Split(output, "\n"), "cli: "+fake) {
+		t.Errorf("with %s=%s the tests do not run the given binary (err %v):\n%s", cliVariable, fake, err, output)
+	}
+	missing := filepath.Join(dir, "missing-ergo")
+	output, err = ergoCLIProbe(t, missing)
+	if err == nil || !strings.Contains(output, "the step that builds it did not run") {
+		t.Errorf("with %s naming a missing file the probe passed or built a CLI (err %v):\n%s", cliVariable, err, output)
+	}
+	if testing.Short() {
+		return
+	}
+	output, err = ergoCLIProbe(t, "")
+	if err != nil || !strings.Contains(output, "/ergo-lower-cli-") {
+		t.Errorf("without %s the tests did not build their own CLI (err %v):\n%s", cliVariable, err, output)
+	}
 }
