@@ -61,6 +61,10 @@ func TestGateStopsItsStepsOnSignal(t *testing.T) {
 		// running, which no step cgroup holds: the stop sweeps the gate's
 		// leaf cgroup.
 		{"tool query in a scope, SIGTERM", "tool", true, syscall.SIGTERM},
+		// The tool itself hangs, with no descendant, under the RSS watch
+		// (the darwin mechanism), where no leaf sweep runs: the stop kills
+		// the query's process group (the verifier's case, round 1).
+		{"hanging tool query under the RSS watch, SIGTERM", "hanging tool", false, syscall.SIGTERM},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -71,7 +75,11 @@ func TestGateStopsItsStepsOnSignal(t *testing.T) {
 			t.Setenv(hostMemoryVariable, "4G")
 			t.Setenv(cpuVariable, "1")
 			bin := t.TempDir()
-			executable(t, bin, "probe-tool", "#!/bin/sh\nsleep 1000 &\necho ready >&3\nwait\n")
+			tool := "#!/bin/sh\nsleep 1000 &\necho ready >&3\nwait\n"
+			if c.tier == "hanging tool" {
+				tool = "#!/bin/sh\necho ready >&3\nexec sleep 1000\n"
+			}
+			executable(t, bin, "probe-tool", tool)
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			root, cache := fixture(t), t.TempDir()
 			write(t, root, "runs/stale", "only in the host checkout\n")
@@ -172,7 +180,14 @@ func TestGateStopsItsStepsOnSignal(t *testing.T) {
 			if c.tier == "merge" && !strings.Contains(text, "merge: every step uncached") {
 				t.Errorf("the signal did not stop the gate in its uncached, sandboxed run:\n%s", text)
 			}
-			if want := "gate: stopped by " + signalName(c.signal) + "; every process it started has ended\n"; !strings.Contains(text, want) {
+			// The gate claims only what its stop proved: in a scope, the
+			// sweep read its leaf cgroup back empty; under the RSS watch,
+			// the stop saw every step and command end with its group.
+			want := "gate: stopped by " + signalName(c.signal) + "; every process it started has ended\n"
+			if !c.scope {
+				want = "gate: stopped by " + signalName(c.signal) + "; every step and command it started has ended, with its process group\n"
+			}
+			if !strings.Contains(text, want) {
 				t.Errorf("the gate does not say %q:\n%s", want, text)
 			}
 			if state := helper.ProcessState; state == nil || state.ExitCode() != 128+int(c.signal) {
@@ -252,11 +267,11 @@ func TestGateStopHelper(t *testing.T) {
 	switch tier {
 	case "merge":
 		code = g.mergeTier(os.Stdout)
-	case "inner", "tool":
+	case "inner", "tool", "hanging tool":
 		if err := os.Remove(filepath.Join(g.root, "runs", "stale")); err != nil && !errors.Is(err, os.ErrNotExist) {
 			t.Fatal(err)
 		}
-		if tier == "tool" {
+		if tier != "inner" {
 			g.steps = []*Step{{Name: "fingerprinted", Argv: []string{"true"}, ToolEnv: []string{"probe-tool"}}}
 		}
 		code = g.run(os.Stdout)

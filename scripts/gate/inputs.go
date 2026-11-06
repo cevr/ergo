@@ -281,7 +281,7 @@ func hostGit(dir string, args ...string) ([]byte, error) {
 	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/nonexistent", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "LC_ALL=C"}
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
-	output, err := command.Output()
+	output, err := runOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}

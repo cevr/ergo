@@ -465,9 +465,20 @@ func (g *gate) mergeTier(out io.Writer) int {
 		open = startSandbox
 	}
 	plan, err := g.sandboxPlanFor(uncached)
+	// The sandbox's opening is tracked as a command is (stop.go): a stop
+	// that begins while the sandbox opens waits until its close is
+	// registered, and a stop already begun refuses to open it, so its
+	// holder and bwrap never start out of a stop's reach.
+	var opening *trackedStep
+	if err == nil {
+		opening, err = gateStop.track()
+	}
 	var box enclosure
 	if err == nil {
 		box, err = open(plan)
+		if err != nil {
+			opening.done()
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(out, "gate: --merge needs its sandbox and gives no verdict without it: %v\n", err)
@@ -476,7 +487,8 @@ func (g *gate) mergeTier(out io.Writer) int {
 	// A stop of the gate (stop.go) closes the sandbox after its steps have
 	// stopped; whichever comes first closes it.
 	closeBox := once(box.close)
-	defer gateStop.atStop(func() { _ = closeBox() })()
+	defer gateStop.atStop(closeBox)()
+	opening.done()
 	defer func() {
 		if err := closeBox(); err != nil {
 			fmt.Fprintf(out, "gate: the merge sandbox's run directory %s was not removed: %v\n", plan.Fresh, err)
@@ -510,7 +522,7 @@ func fatal(err error) {
 }
 
 func repositoryRoot() (string, error) {
-	executable, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	executable, err := runOutput(exec.Command("git", "rev-parse", "--show-toplevel"))
 	if err != nil {
 		return "", fmt.Errorf("locate repository root: %w", err)
 	}
@@ -543,7 +555,7 @@ func checkoutStateOf(root string) (checkoutState, error) {
 	git := func(args ...string) (string, error) {
 		command := exec.Command("git", args...)
 		command.Dir = root
-		output, err := command.Output()
+		output, err := runOutput(command)
 		if err != nil {
 			return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 		}
@@ -1359,7 +1371,7 @@ func (g *gate) installed(dir string) string {
 func (g *gate) git(args ...string) ([]byte, error) {
 	command := exec.Command("git", args...)
 	command.Dir = g.root
-	output, err := command.Output()
+	output, err := runOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}

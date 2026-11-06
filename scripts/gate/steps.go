@@ -299,7 +299,7 @@ func examplesStep() *Step {
 func goPackages(root string) ([]string, error) {
 	command := exec.Command("go", "list", "./...")
 	command.Dir = root
-	output, err := command.Output()
+	output, err := runOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("go list ./...: %w", err)
 	}
