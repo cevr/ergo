@@ -1,13 +1,13 @@
 // Package fs is the host file system, read only (docs/spec/stdlib.md, host
-// packages). Files is the capability; Host is the host's provider of it,
-// and a program binds it in a context, `context { fs.Files: fs.Host }`. A
-// test binds its own provider instead, such as a map of paths to text. The
-// externs are unexported, but the value fs.Host is not: today any code that
-// holds it reads the disk, by `fs.ReadFile(fs.Host, p)` or by its own
-// context, with no Files in its row. Binding fs.Host only in the context of
-// cmd/<name>/main.ergo is a convention; a checker rule will enforce it
-// (host-authority, planned). No handle is exposed, so no file stays open
-// after a call returns.
+// packages). Files is the capability; Host is the host's provider of it.
+// Host has an unexported field, so only this package builds one (S114),
+// and NewHost, its one constructor, needs the prelude's Ambient, which only
+// the entry provides. So code that makes a Host shows Ambient in its row:
+// main lists it and binds `context { fs.Files: fs.NewHost() }`. A test
+// cannot get Ambient and binds its own provider instead, such as a map of
+// paths to text. The externs are unexported, so a program reads the disk
+// only through a Host it was given or made under Ambient. No handle is
+// exposed, so no file stays open after a call returns.
 
 // NotFound is the failure of a path that does not exist.
 type NotFound { Path string }
@@ -38,8 +38,17 @@ type Files {
 	},
 }
 
-// Host is the host's Files provider.
-type Host {}
+// Host is the host's Files provider. Its field gives this package the
+// construction authority (types.md, Zero values 6): no other package
+// writes fs.Host{}, its zero value or a record update of it.
+type Host { live hostOnly }
+
+// hostOnly is the zero-size type of Host's field, so Host stays zero size.
+type hostOnly {}
+
+// NewHost is the host's Files provider. It needs Ambient: only code whose
+// row holds the authority to choose the host makes one.
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
 
 // ReadFile is the whole text of the file at path.
 func ReadFile(_ Host, path string) string fails NotFound | Denied | Failed {

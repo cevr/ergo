@@ -377,6 +377,26 @@ func main() {
 	use(Mine)
 }
 `,
+	// The prelude's Ambient (host-authority H1): its one operation is
+	// unexported, so no program type implements it (sealedBy), though no
+	// std extern names it (unexportedStd).
+	"prelude.Ambient": `type Mine {}
+
+func ambient(_ Mine) {}
+
+func use(_ Ambient) {}
+
+func main() {
+	use(Mine)
+}
+`,
+}
+
+// unexportedStd is the std operation types sealed by an unexported
+// operation: a program value is refused at the use line by the sealedBy
+// text, not by SealedStd's S109.
+var unexportedStd = map[string]string{
+	"prelude.Ambient": "ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it",
 }
 
 // openStd is the std operation types a program provides: no std extern's
@@ -560,6 +580,12 @@ func main() {
 				t.Fatalf("the row has %d use( lines, want 1", uses)
 			}
 			_, diags := check.CheckSource(src)
+			if text, ok := unexportedStd[key]; ok {
+				if len(diags) != 1 || diags[0].Line != at || !strings.Contains(diags[0].Message, text) {
+					t.Fatalf("want one diagnostic %q at line %d, got\n\t%s", text, at, describe(diags))
+				}
+				return
+			}
 			if !isSealed {
 				if len(diags) != 0 {
 					t.Fatalf("want clean (a program provides %s), got\n\t%s", key, describe(diags))
@@ -604,18 +630,17 @@ func main() {
 
 func run() needs os.Process { _ = os.Process.Args() }
 
-let Live = context { os.Process: os.Host }
-
-func main() {
-	with Live { run() }
+func main() needs Ambient {
+	let live = context { os.Process: os.NewHost() }
+	with live { run() }
 }
 `,
 		"process-param": fake + `
 func use(p os.Process) { _ = p.Args() }
 
-func main() {
+func main() needs Ambient {
 	use(FakeEnv{Argv: []string{}})
-	let p os.Process = os.Host
+	let p os.Process = os.NewHost()
 	use(p)
 }
 `,

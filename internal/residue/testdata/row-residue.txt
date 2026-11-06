@@ -30,8 +30,8 @@ internal/sketch/check/contextsum.go	in needs rows, and
 internal/sketch/check/domain_test.go	// still needs C, that
 internal/sketch/check/stage_d1_r5_test.go	and w0 needs Cap2, so
 internal/sketch/lower/checked_lowered_test.go	a needs row, both
-# the entry's diagnostic text (lower/module.go entryError): "main needs CAP, and the host provides only Console"
-internal/sketch/lower/std_os_test.go	main needs os.Process, and the host provides only Console
+# the entry's diagnostic text (lower/module.go entryError): "main needs CAP, and the host provides only Console and Ambient"
+internal/sketch/lower/std_os_test.go	main needs os.Process, and the host provides only Console and Ambient
 
 # a comma that ends a list element after a one-name row (grammar.md, Declarations rule 9:
 # parameters and type arguments keep their commas)

@@ -1,9 +1,13 @@
 // Package os is the host process: its arguments, its environment and its
 // exit status (docs/spec/stdlib.md, host packages). Process is the
-// capability; Host is the host's provider of it, and a program binds it
-// in a context, `context { os.Process: os.Host }`. A test binds its own
-// provider instead. The externs are unexported: a program reaches the host
-// only through a Process it names in its row.
+// capability; Host is the host's provider of it. Host has an unexported
+// field, so only this package builds one (S114), and NewHost, its one
+// constructor, needs the prelude's Ambient, which only the entry provides.
+// So code that makes a Host shows Ambient in its row: main lists it and
+// binds `context { os.Process: os.NewHost() }`. A test cannot get Ambient
+// and binds its own provider instead. The externs are unexported, so a
+// program reaches the host only through a Host it was given or made under
+// Ambient.
 
 // Exit is the failure that ends main with status Code. When it is main's
 // only reason, the entry writes Message and a line feed to standard error,
@@ -22,8 +26,17 @@ type Process {
 	law GetenvIsStable(key string) { Getenv(key) == Getenv(key) },
 }
 
-// Host is the host's Process provider.
-type Host {}
+// Host is the host's Process provider. Its field gives this package the
+// construction authority (types.md, Zero values 6): no other package
+// writes os.Host{}, its zero value or a record update of it.
+type Host { live hostOnly }
+
+// hostOnly is the zero-size type of Host's field, so Host stays zero size.
+type hostOnly {}
+
+// NewHost is the host's Process provider. It needs Ambient: only code
+// whose row holds the authority to choose the host makes one.
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
 
 // Args is the host process's arguments after the program name.
 func Args(_ Host) []string { hostArgs() }

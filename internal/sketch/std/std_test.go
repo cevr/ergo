@@ -7,6 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -509,4 +510,183 @@ func baseName(goType string) string {
 		s = s[:i]
 	}
 	return s
+}
+
+// unguardedHosts are the host providers that do not follow the rule yet,
+// each with the unit that moves it under the rule. H2 empties the set.
+var unguardedHosts = map[string]string{
+	"prelude.LiveScheduler": "host-authority-sched (H2)",
+}
+
+// TestStdHostProvidersHaveAuthority is host-authority H1's structural
+// guard (stdlib.md, Host packages): a std record type T is a host
+// provider when a function whose first parameter is T reaches the host,
+// that is, it is a std extern whose Go body is not a pure runtime/v1
+// body, or its body names such a function of its package (at any depth).
+// Every host provider has construction authority, so no other package
+// builds one (check.Constructible), and each exported function of its
+// package whose result is T lists Ambient in its written row. So a later
+// host package (io, clock) follows the rule, or this test names it. The
+// set found today is pinned; a fixture package with an unguarded Host is
+// flagged, so the walk itself is checked.
+func TestStdHostProvidersHaveAuthority(t *testing.T) {
+	outside, ds := check.CheckSource("let x = LiveScheduler\n")
+	if len(ds) != 0 {
+		t.Fatalf("outside: %v", ds)
+	}
+	var prelude *check.Package
+	for id, obj := range outside.Info.Uses {
+		if tn, ok := obj.(*check.TypeName); ok && id.Name == "LiveScheduler" {
+			prelude = tn.Pkg
+		}
+	}
+	if prelude == nil {
+		t.Fatal("no prelude package behind LiveScheduler")
+	}
+	pkgs := []*check.Package{prelude}
+	for _, path := range std.Packages() {
+		pkg, err := check.Std.Import(path)
+		if err != nil {
+			t.Fatalf("check.Std.Import(%q): %v", path, err)
+		}
+		pkgs = append(pkgs, pkg)
+	}
+	var found []string
+	for _, pkg := range pkgs {
+		for _, tn := range hostProviderTypes(pkg) {
+			name := pkg.Name + "." + tn.Name
+			found = append(found, name)
+			if _, ok := unguardedHosts[name]; ok {
+				continue
+			}
+			for _, v := range hostAuthorityViolations(pkg, tn, outside) {
+				t.Errorf("%s: %s", name, v)
+			}
+		}
+	}
+	slices.Sort(found)
+	if want := []string{"fs.Host", "os.Host", "prelude.LiveScheduler"}; !slices.Equal(found, want) {
+		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
+	}
+	for name, unit := range unguardedHosts {
+		if !slices.Contains(found, name) {
+			t.Errorf("unguardedHosts lists %s (%s), which is not a host provider", name, unit)
+		}
+	}
+
+	// The fixture is std-shaped: a provider that reaches the host through
+	// a helper declared after it, which takes no Host, with no field and a
+	// constructor with no Ambient.
+	const fixture = `type Host {}
+
+type Gone { Path string }
+
+func NewHost() Host { Host }
+
+func Read(_ Host) string fails Gone { try read() }
+
+func read() string fails Gone { try hostRead("x") }
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
+`
+	f, err := syntax.Parse(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake, _ := check.Check("fixture", []*syntax.File{f}, nil)
+	hosts := hostProviderTypes(fake)
+	if len(hosts) != 1 || hosts[0].Name != "Host" {
+		t.Fatalf("the fixture's host providers are %v, want its Host", hosts)
+	}
+	got := hostAuthorityViolations(fake, hosts[0], outside)
+	want := []string{"another package builds it: it needs an unexported field", "fixture.NewHost returns it and does not list Ambient in its written row"}
+	if !slices.Equal(got, want) {
+		t.Errorf("the fixture's violations are %q, want %q", got, want)
+	}
+}
+
+// hostProviderTypes are pkg's host providers, in source order.
+func hostProviderTypes(pkg *check.Package) []*check.TypeName {
+	// reaches: an extern with an impure body, or a function whose body
+	// names one of pkg's functions that reaches; a fixpoint over pkg.
+	reaches := map[*check.Func]bool{}
+	for _, f := range pkg.Funcs {
+		if f.Decl != nil && f.Decl.Extern != nil {
+			target, name := f.Decl.Extern.Split()
+			body, err := v1.BodyOf(name)
+			reaches[f] = target != v1Path || err != nil || !body.Pure
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, f := range pkg.Funcs {
+			if reaches[f] || f.Decl == nil || f.Decl.Body == nil {
+				continue
+			}
+			syntax.Inspect(f.Decl.Body, func(n syntax.Node) bool {
+				if id, ok := n.(*syntax.Ident); ok {
+					if g, ok := pkg.Info.Uses[id].(*check.Func); ok && g.Pkg == pkg && reaches[g] {
+						reaches[f] = true
+					}
+				}
+				return !reaches[f]
+			})
+			changed = changed || reaches[f]
+		}
+	}
+	var out []*check.TypeName
+	for _, tn := range pkg.Types {
+		n, ok := tn.Type.(*check.Named)
+		if !ok {
+			continue
+		}
+		if _, ok := n.Underlying().(*check.Struct); !ok {
+			continue
+		}
+		for _, f := range pkg.Funcs {
+			if !reaches[f] || f.Sig == nil || len(f.Sig.Params) == 0 {
+				continue
+			}
+			if p, ok := f.Sig.Params[0].Type.(*check.Named); ok && p.Obj == tn {
+				out = append(out, tn)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// hostAuthorityViolations are the ways the host provider tn of pkg breaks
+// the rule, as seen from the package outside.
+func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *check.Package) []string {
+	var out []string
+	if check.Constructible(tn.Type, outside) {
+		out = append(out, "another package builds it: it needs an unexported field")
+	}
+	for _, f := range pkg.Funcs {
+		if !isExportedName(f.Name) || f.Sig == nil || len(f.Sig.Results) != 1 {
+			continue
+		}
+		if r, ok := f.Sig.Results[0].(*check.Named); !ok || r.Obj != tn {
+			continue
+		}
+		if !writesAmbient(f) {
+			out = append(out, pkg.Name+"."+f.Name+" returns it and does not list Ambient in its written row")
+		}
+	}
+	return out
+}
+
+// writesAmbient reports whether f's written row names the prelude's
+// Ambient.
+func writesAmbient(f *check.Func) bool {
+	if f.Decl == nil || f.Decl.Type == nil || f.Decl.Type.Needs == nil {
+		return false
+	}
+	for _, e := range f.Sig.Uses.Elems() {
+		if n, ok := e.(*check.Named); ok && n.Obj.Name == "Ambient" && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
+			return true
+		}
+	}
+	return false
 }

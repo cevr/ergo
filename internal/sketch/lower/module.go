@@ -528,21 +528,37 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 	locals := newNamer(l.names) // main's locals reference only the names above
 	task, env := locals.alloc("t"), locals.alloc("env")
 	fields := []string{envTask + ": " + task}
-	var host string
+	// The host's provider of each capability the entry binds is one
+	// adapter type with one method per capability (rows.md, Capability
+	// rows 4): Console's Println and Ambient's ambient.
+	var methods []string
+	name := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
 	for _, cap := range rowElems(main.Sig.Uses) {
 		n, ok := cap.(*check.Named)
-		if !ok || n.Obj.Pkg == nil || n.Obj.Pkg.Path != "prelude" || n.Obj.Name != "Console" {
-			entryError(main.Decl.Name, "main needs %s, and the host provides only Console; bind it with a with block inside main", cap)
+		var prelude string
+		if ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
+			prelude = n.Obj.Name
 		}
-		// The runtime's Console prints a line; the capability's operation
-		// takes the task first (rows.md, Rows 7), so the host's provider is
-		// a one-method adapter.
-		name := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
-		hl := newNamer(l.names)
-		line := hl.alloc("line")
-		host = "// " + name + " is the host's Console.\ntype " + name + " struct{}\n\n" +
-			"func (" + name + ") " + memberName("Println") + "(_ *" + l.taskPkg() + ".Task, " + line + " string) { " + rt + ".Console{}.Println(" + line + ") }\n\n"
+		switch prelude {
+		case "Console":
+			// The runtime's Console prints a line; the capability's
+			// operation takes the task first (rows.md, Rows 7).
+			hl := newNamer(l.names)
+			line := hl.alloc("line")
+			methods = append(methods, "func ("+name+") "+memberName("Println")+"(_ *"+l.taskPkg()+".Task, "+line+" string) { "+rt+".Console{}.Println("+line+") }\n\n")
+		case "Ambient":
+			// Ambient is the authority to choose the host (stdlib.md, Host
+			// packages). Its one operation is unexported and never called:
+			// the method only makes the adapter a value of Ambient.
+			methods = append(methods, "func ("+name+") "+memberName("ambient")+"(_ *"+l.taskPkg()+".Task) {}\n\n")
+		default:
+			entryError(main.Decl.Name, "main needs %s, and the host provides only Console and Ambient; bind it with a with block inside main", cap)
+		}
 		fields = append(fields, l.envField(n.Obj)+": "+name+"{}")
+	}
+	var host string
+	if len(methods) > 0 {
+		host = "// " + name + " is the host's provider of the capabilities the entry binds.\ntype " + name + " struct{}\n\n" + strings.Join(methods, "")
 	}
 	b.WriteString("func main() {\n")
 	// main runs as the root task under v1.Main, which reports its exit:

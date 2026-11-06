@@ -38,10 +38,9 @@ func run() fails os.Exit needs Console | os.Process {
 	Console.Println(show(os.Process.Getenv("ERGO_G2_UNSET")))
 }
 
-let Live = context { os.Process: os.Host }
-
-func main() fails os.Exit needs Console {
-	with Live { try run() }
+func main() fails os.Exit needs Console | Ambient {
+	let live = context { os.Process: os.NewHost() }
+	with live { try run() }
 }
 `
 
@@ -98,8 +97,8 @@ func show(p os.Process) string {
 	}
 }
 
-func main() needs Console {
-	Console.Println(show(os.Host))
+func main() needs Console | Ambient {
+	Console.Println(show(os.NewHost()))
 	let p os.Process = FakeEnv{Argv: []string{"x", "y", "z"}}
 	Console.Println(show(p))
 }
@@ -186,7 +185,7 @@ func main() fails os.Exit needs Console {
 	}
 }
 
-// TestOSProcessIsNotImplicit: the entry provides only Console, so main
+// TestOSProcessIsNotImplicit: the entry provides only Console and Ambient, so main
 // that names os.Process in its row is S109 (stdlib.md, host packages).
 func TestOSProcessIsNotImplicit(t *testing.T) {
 	o := lowerSource("osEntry", `import os
@@ -195,8 +194,8 @@ func main() needs Console | os.Process {
 	Console.Println("\(len(os.Process.Args()))")
 }
 `, true)
-	if len(o.diags) != 0 || len(o.refused) != 1 || !strings.Contains(o.refused[0].Message, "main needs os.Process, and the host provides only Console") {
-		t.Fatalf("want one entry refusal naming os.Process and the host's Console; got diags %v refused %+v err %v panicked %v", o.diags, o.refused, o.err, o.panicked)
+	if len(o.diags) != 0 || len(o.refused) != 1 || !strings.Contains(o.refused[0].Message, "main needs os.Process, and the host provides only Console and Ambient") {
+		t.Fatalf("want one entry refusal naming os.Process and the host's Console and Ambient; got diags %v refused %+v err %v panicked %v", o.diags, o.refused, o.err, o.panicked)
 	}
 }
 

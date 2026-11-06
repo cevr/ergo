@@ -83,15 +83,13 @@ func run() needs Console | fs.Files {
 	Console.Println(stat("missing.md"))
 }
 
-let Live = context { fs.Files: fs.Host }
-
-// main names fs.Host only in its context and inside that context's with,
-// the convention a checker rule will enforce (stdlib.md, fs 6;
-// host-authority, planned).
-func main() needs Console {
-	with Live {
+// main chooses the host: it lists Ambient, which only the entry provides,
+// and makes fs.Host with fs.NewHost (stdlib.md, Host packages).
+func main() needs Console | Ambient {
+	let live = context { fs.Files: fs.NewHost() }
+	with live {
 		run()
-		Console.Println(viaValue(fs.Host))
+		Console.Println(viaValue(fs.NewHost()))
 	}
 }
 `
@@ -100,10 +98,9 @@ func main() needs Console {
 const fsUncaught = `import fs
 import os
 
-let Live = context { fs.Files: fs.Host, os.Process: os.Host }
-
-func main() fails fs.NotFound | fs.Denied | fs.Failed needs Console {
-	with Live {
+func main() fails fs.NotFound | fs.Denied | fs.Failed needs Console | Ambient {
+	let live = context { fs.Files: fs.NewHost(), os.Process: os.NewHost() }
+	with live {
 		let text = try fs.Files.ReadFile(os.Process.Args()[0])
 		Console.Println(text)
 	}

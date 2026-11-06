@@ -137,6 +137,13 @@ func (c *checker) needValue(op *operand) {
 			return
 		}
 		if s, ok := under(op.typ).(*Struct); ok && len(s.Fields) > 0 && isRecordName(op.typ) {
+			// A record whose construction authority is another package's
+			// has no literal here either: name the way in (S114), not
+			// braces (host-authority H1: fs.Host says use fs.NewHost).
+			if obj := literalAuthority(op.typ, c.pkg); obj != nil {
+				c.errorf(op.expr, CodeAuthority, "%s", authorityText(obj))
+				break
+			}
 			name := exprText(op.expr)
 			if name == "this expression" {
 				name = op.typ.String()
@@ -1086,6 +1093,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		return operand{mode: modeCapFn, typ: m.Sig, cap: base.cap, method: m}
 	case modeType:
 		if !isZeroRecord(base.typ) {
+			// os.Host.Args() names a record of another package's
+			// authority as a value: say how to get one, as needValue does.
+			if obj := literalAuthority(base.typ, c.pkg); obj != nil && isRecordName(base.typ) {
+				c.errorf(base.expr, CodeAuthority, "%s", authorityText(obj))
+				return bad(x)
+			}
 			c.errorf(x, CodeType, "%s.%s: a method expression is not part of the language; call the method on a value", base.typ, x.Sel.Name)
 			return bad(x)
 		}
