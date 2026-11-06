@@ -1,0 +1,69 @@
+// A move is a command to the walker.
+type Move = North{} | East{} | South{} | West{} | Wait{}
+
+// BadMove is a letter of a move list that is not a move, at its 1-based
+// position.
+type BadMove { At int }
+
+// Moves is a move list that parsed whole. Its fields are unexported, so
+// only this package builds one, through ParseMoves: outside the package,
+// walk.Moves{} and a Moves with no value are S114. A Moves is never a
+// list with a bad letter.
+type Moves { list []Move, text string }
+
+func parseMove(c byte, at int) Move fails BadMove {
+	match c {
+	case 'N':
+		return North
+	case 'E':
+		return East
+	case 'S':
+		return South
+	case 'W':
+		return West
+	case '.':
+		return Wait
+	case _:
+		return BadMove{At: at}
+	}
+}
+
+// ParseMoves parses a whole move list before any move is played.
+func ParseMoves(s string) Moves fails BadMove {
+	let mut out = []Move{}
+	for i in 0..len(s) {
+		let m = try parseMove(s[i], i+1)
+		out = out.Append(m)
+	}
+	return Moves{list: out, text: s}
+}
+
+// All is the list of moves, in order.
+func All(ms Moves) []Move {
+	return ms.list
+}
+
+// Count is the number of moves.
+func Count(ms Moves) int {
+	return len(ms.list)
+}
+
+// Letter is the letter of the move at index i.
+func Letter(ms Moves, i int) string {
+	return ms.text[i : i+1]
+}
+
+func target(p Pos, m Move) Pos {
+	match m {
+	case North:
+		return Pos{X: p.X, Y: p.Y - 1}
+	case East:
+		return Pos{X: p.X + 1, Y: p.Y}
+	case South:
+		return Pos{X: p.X, Y: p.Y + 1}
+	case West:
+		return Pos{X: p.X - 1, Y: p.Y}
+	case Wait:
+		return p
+	}
+}

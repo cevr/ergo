@@ -47,12 +47,12 @@ const toolingReason = "semantic tooling returns on the new front end"
 // commands is the command table. Dispatch, the general help and the stubs
 // read only this table.
 var commands = []cliCommand{
-	{name: "check", usage: "check FILE [--target go]", run: checkCommand},
-	{name: "diagnostics", usage: "diagnostics FILE [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
-	{name: "build", usage: "build FILE [-o PATH] [-work] [--target go]", run: buildCommand},
-	{name: "run", usage: "run FILE [--target go]", run: runCommand},
+	{name: "check", usage: "check FILE|DIR [--target go]", run: checkCommand},
+	{name: "diagnostics", usage: "diagnostics FILE|DIR [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
+	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--target go]", run: buildCommand},
+	{name: "run", usage: "run FILE|DIR [--target go]", run: runCommand},
 	{name: "fmt", usage: "fmt FILE... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
-	{name: "test", usage: "test FILE [--seed N] [-work] [--target go]", run: testCommand},
+	{name: "test", usage: "test FILE|DIR [--seed N] [-work] [--target go]", run: testCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
 	{name: "lint", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
 	{name: "lint rules", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},

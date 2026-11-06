@@ -1,0 +1,78 @@
+// Package frame draws a Tidewalk state as text: one header line, one line
+// per row of the level, and a blank line.
+
+import tidewalk/walk
+
+func eventWord(e walk.Event) string {
+	match e {
+	case walk.Walked:
+		return "walked"
+	case walk.Waited:
+		return "waited"
+	case walk.ShellCollected:
+		return "shell"
+	case walk.TideRose:
+		return "tide"
+	case walk.WalkerDrowned:
+		return "drowned"
+	case walk.PeakReached:
+		return "peak"
+	}
+}
+
+func eventWords(es []walk.Event) string {
+	if len(es) == 0 {
+		return "-"
+	}
+	let mut out = ""
+	for i, e in es {
+		if i > 0 {
+			out = out + " "
+		}
+		out = out + eventWord(e)
+	}
+	return out
+}
+
+// cell draws one cell: the walker, rock, water over sand below the tide (a
+// shell there is hidden), a shell, or the height of the sand.
+func cell(w walk.Walk, p walk.Pos) string {
+	if w.At.X == p.X && w.At.Y == p.Y {
+		return "@"
+	}
+	if walk.Blocked(p) {
+		return "#"
+	}
+	let h = walk.Height(p)
+	if h < w.Tide {
+		return "~"
+	}
+	if walk.ShellLeft(w, p) {
+		return "s"
+	}
+	return "\(h)"
+}
+
+// Step names one frame: the replay, the move's index and count, its letter
+// and the machine's decision.
+type Step { Name string, I int, N int, Move string, Decision string }
+
+// Show prints the frame of g after a step, with the events it recorded.
+func Show(s Step, g walk.Game, es []walk.Event) needs Console {
+	let w = walk.WalkOf(g)
+	Console.Println("== \(s.Name) move \(s.I)/\(s.N) \(s.Move) \(s.Decision) tide \(w.Tide) shells \(w.Shells)/\(walk.ShellCount()) \(walk.Status(g)) events \(eventWords(es))")
+	for y in 0..walk.Rows() {
+		let mut row = ""
+		for x in 0..walk.Width() {
+			row = row + cell(w, walk.Pos{X: x, Y: y})
+		}
+		Console.Println(row)
+	}
+	Console.Println("")
+}
+
+// Result prints the line that ends a replay.
+func Result(name string, g walk.Game) needs Console {
+	let w = walk.WalkOf(g)
+	Console.Println("result \(name) \(walk.Status(g)) shells \(w.Shells)/\(walk.ShellCount()) turns \(w.Turn)")
+}

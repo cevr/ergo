@@ -34,9 +34,14 @@ type Span struct {
 }
 
 // Diagnostic is one finding of the front end: a registered code, a message
-// and where it applies.
+// and where it applies. File is the slash-separated path of the source file
+// the span lies in, relative to the module root, for a program read from a
+// directory (196b Q10); it is empty for a program of one named file, whose
+// spans lie in that file, and for a diagnostic with no location. The JSON
+// field is additive: omitted when empty, and in key order.
 type Diagnostic struct {
 	Code    string `json:"code"`
+	File    string `json:"file,omitempty"`
 	Message string `json:"message"`
 	Span    Span   `json:"span"`
 }

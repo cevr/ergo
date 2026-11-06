@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/sketch/build"
@@ -46,8 +45,7 @@ func testCommand(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	name := strings.TrimSuffix(filepath.Base(l.source.String()), filepath.Ext(l.source.String()))
-	binary := filepath.Join(dir, name+".test")
+	binary := filepath.Join(dir, l.name+".test")
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return err

@@ -1,0 +1,3 @@
+func fromB() string {
+	return "b"
+}

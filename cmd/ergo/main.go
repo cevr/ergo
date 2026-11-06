@@ -82,8 +82,9 @@ func requireSourceExtension(path string) error {
 	return nil
 }
 
-const diagnosticsHelp = "usage: ergo diagnostics FILE [--strict] [--json] [--target go]\n" +
+const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--strict] [--json] [--target go]\n" +
 	"Locations: one-based UTF-16 lines/columns in text; zero-based UTF-16 ranges and original UTF-8 byte spans in JSON.\n" +
+	"A DIR is a package: each finding names its file relative to the module root (file in JSON).\n" +
 	"Exit codes: 0 policy passed; 1 failed policy or source/operational failure; 2 invalid invocation.\n" +
 	"With --json, source findings produce a report on stdout even when policy fails; operational failures produce no report and explain the error on stderr.\n"
 
@@ -158,13 +159,31 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
 	opts.file = positional[0]
+	if isPackageFolder(opts.file) {
+		return opts, nil
+	}
 	return opts, requireSourceExtension(opts.file)
+}
+
+// isPackageFolder reports whether path names a folder: a package of every
+// .ergo file in it, which may import the packages of its module (196b).
+// Any other path is one source file, with the one-file meaning it has
+// always had; so is a path with the .ergo extension, even when it names a
+// folder, which is then refused as a source that is not a regular file.
+func isPackageFolder(path string) bool {
+	if filepath.Ext(path) == sourceExtension {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // loaded is one source admitted once and checked: its location, the bytes
 // read from the open file, the analysis and its diagnostics-only result.
+// name names the executable a build writes.
 type loaded struct {
 	source   receipt.Location
+	name     string
 	snapshot report.SourceSnapshot
 	analysis sketchfront.Analysis
 	result   *report.Result
@@ -173,8 +192,13 @@ type loaded struct {
 // load admits a source path once and checks it. The spelling is located
 // once (receipt.LocateSource): diagnostics name the admitted path and
 // //line directives name it too, and the bytes come from one non-blocking
-// open of the located file, which must be a regular file.
+// open of the located file, which must be a regular file. A folder is a
+// package: the loader reads it and the local packages it imports
+// (sketchfront.CheckDir), and each diagnostic names its file.
 func load(path, target string) (loaded, error) {
+	if isPackageFolder(path) {
+		return loadFolder(path, target)
+	}
 	if err := requireSourceExtension(path); err != nil {
 		return loaded{}, err
 	}
@@ -198,9 +222,34 @@ func load(path, target string) (loaded, error) {
 	analysis := sketchfront.Check(string(text))
 	return loaded{
 		source:   source,
+		name:     strings.TrimSuffix(filepath.Base(source.String()), filepath.Ext(source.String())),
 		snapshot: report.SourceSnapshot{URI: uri, Origin: "disk", Text: string(text)},
 		analysis: analysis,
 		result:   analysis.Result(string(text), target),
+	}, nil
+}
+
+// loadFolder admits a package folder once and checks its program. The
+// executable is named after the folder, as go build names it.
+func loadFolder(path, target string) (loaded, error) {
+	source, err := receipt.LocateSource(path)
+	if err != nil {
+		return loaded{}, err
+	}
+	uri, err := report.FileURI(source.Admitted())
+	if err != nil {
+		return loaded{}, err
+	}
+	analysis, err := sketchfront.CheckDir(source.Admitted())
+	if err != nil {
+		return loaded{}, err
+	}
+	return loaded{
+		source:   source,
+		name:     filepath.Base(source.Admitted()),
+		snapshot: report.SourceSnapshot{URI: uri, Origin: "disk", Files: analysis.Files()},
+		analysis: analysis,
+		result:   analysis.Result(analysis.Text(), target),
 	}, nil
 }
 

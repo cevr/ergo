@@ -1,0 +1,88 @@
+// Event is a fact an entered move records, in the past tense.
+type Event = Walked{To Pos} | Waited{} | ShellCollected{At Pos} | TideRose{Tide int} | WalkerDrowned{} | PeakReached{}
+
+func moved(to Pos, m Move) Event {
+	match m {
+	case North:
+		return Walked{To: to}
+	case East:
+		return Walked{To: to}
+	case South:
+		return Walked{To: to}
+	case West:
+		return Walked{To: to}
+	case Wait:
+		return Waited
+	}
+}
+
+// record is what a move from w does: nothing when its target is blocked;
+// else the walk or the wait, a shell collected on dry sand, the tide rising
+// on every sixth turn, then drowning under the tide or reaching the peak.
+func record(w Walk, m Move) []Event {
+	let to = target(w.At, m)
+	if Blocked(to) {
+		return []Event{}
+	}
+	let h = Height(to)
+	let mut out = []Event{moved(to, m)}
+	if ShellLeft(w, to) && h >= w.Tide {
+		out = out.Append(ShellCollected{At: to})
+	}
+	let mut tide = w.Tide
+	if (w.Turn+1)%6 == 0 {
+		tide = tide + 1
+		out = out.Append(TideRose{Tide: tide})
+	}
+	if h < tide {
+		out = out.Append(WalkerDrowned)
+	}
+	if h >= tide && h == 3 {
+		out = out.Append(PeakReached)
+	}
+	return out
+}
+
+// Decide records the events of a move. It is pure, and a finished game
+// records none.
+func Decide(g Game, m Move) []Event {
+	match g {
+	case Playing as p:
+		return record(p.W, m)
+	case Won:
+		return []Event{}
+	case Drowned:
+		return []Event{}
+	}
+}
+
+func evolveWalk(w Walk, e Event) Game {
+	match e {
+	case Walked as x:
+		return Playing{W: Walk{..w, At: x.To, Turn: w.Turn + 1}}
+	case Waited:
+		return Playing{W: Walk{..w, Turn: w.Turn + 1}}
+	case ShellCollected as s:
+		let k = s.At.Y*len(ground[0]) + s.At.X
+		return Playing{W: Walk{..w, Shells: w.Shells + 1, Left: w.Left[0:k] + "." + w.Left[k+1:]}}
+	case TideRose as t:
+		return Playing{W: Walk{..w, Tide: t.Tide}}
+	case WalkerDrowned:
+		return Drowned{W: w}
+	case PeakReached:
+		return Won{W: w}
+	}
+}
+
+// Evolve applies one event. It is total over Game and Event and decides
+// nothing.
+func Evolve(g Game, e Event) Game {
+	match g {
+	case Playing as p:
+		return evolveWalk(p.W, e)
+	case Won:
+		return g
+	case Drowned:
+		return g
+	}
+}

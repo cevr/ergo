@@ -63,6 +63,7 @@ type config struct {
 	budget  time.Duration
 	record  bool
 	check   bool
+	lawless bool
 	names   []string
 }
 
@@ -70,10 +71,17 @@ type program struct {
 	name    string
 	dir     string
 	tags    []string
-	sources []string // the top-level .ergo files, sorted
+	sources []string // the .ergo files the fmt leg checks, sorted
 	port    bool     // holds record.sh and origin
 	tested  bool     // declares a test
-	cases   []*testCase
+	// module marks a program of packages (196b): ergo.mod, the binary's
+	// package cmd/NAME/main.ergo and package folders. main is what the
+	// build leg builds, and tests are the targets of the test leg: one
+	// per package that declares a test, sorted.
+	module bool
+	main   string
+	tests  []string
+	cases  []*testCase
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -103,6 +111,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "examples:", err)
 		}
 		return 2
+	}
+	if cfg.lawless {
+		return reportLawless(cfg.root, stdout)
 	}
 	programs, problems := loadExamples(cfg.root, cfg.record)
 	if len(problems) > 0 {
@@ -155,6 +166,7 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	flags.DurationVar(&cfg.budget, "budget", 5*time.Second, "a case of a default program that runs longer fails; tag the program slow")
 	flags.BoolVar(&cfg.record, "record", false, "run each selected port's record.sh in place of the built program and write its goldens")
 	flags.BoolVar(&cfg.check, "check", false, "with -record: compare the original's output with the goldens; write nothing")
+	flags.BoolVar(&cfg.lawless, "lawless", false, "report every operation type under examples/ with no law, run nothing, and exit 0")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: go run ./scripts/examples [flags] [PROGRAM...]")
 		flags.PrintDefaults()
@@ -234,6 +246,14 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 	}
 	present := map[string]bool{}
 	for _, entry := range entries {
+		if entry.Name() == "ergo.mod" {
+			p.module = true
+		}
+	}
+	if p.module {
+		return loadModuleProgram(p, entries, record)
+	}
+	for _, entry := range entries {
 		file := entry.Name()
 		present[file] = true
 		switch {
@@ -257,6 +277,97 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 		problem("not a program: no main.ergo (the folders that are not programs are %s)", strings.Join(sortedKeys(nonPrograms), " and "))
 		return nil, problems
 	}
+	p.main = filepath.Join(dir, "main.ergo")
+	return finishProgram(p, present, problems, record)
+}
+
+// loadModuleProgram reads the layout of a program of packages (196b; the
+// Go layout of AGENTS.md): ergo.mod, the binary's package cmd/NAME (NAME
+// being the program folder's name) with its main.ergo, and package
+// folders of .ergo files, beside the files every program holds. Top-level
+// .ergo files are the module root's package.
+func loadModuleProgram(p *program, entries []os.DirEntry, record bool) (*program, []string) {
+	var problems []string
+	problem := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
+	present := map[string]bool{}
+	for _, entry := range entries {
+		file := entry.Name()
+		present[file] = true
+		switch {
+		case file == "cases" || file == "testdata":
+			if !entry.IsDir() {
+				problem("%s is not a folder", file)
+			}
+		case file == "ergo.mod" || file == "README.md" || file == "tags" || file == "origin" || file == "record.sh" || strings.HasSuffix(file, ".ergo"):
+			if !entry.Type().IsRegular() {
+				problem("%s is not a regular file", file)
+				continue
+			}
+			if strings.HasSuffix(file, ".ergo") {
+				p.sources = append(p.sources, filepath.Join(p.dir, file))
+			}
+		case entry.IsDir():
+			if file == "cmd" {
+				problems = append(problems, checkCommands(p, filepath.Join(p.dir, file))...)
+			}
+			problems = append(problems, packageSources(p, filepath.Join(p.dir, file), file)...)
+		default:
+			problem("unexpected %s; a program of packages holds ergo.mod, cmd/%s/main.ergo, package folders, README.md, tags and cases/, and may hold origin with record.sh and testdata/", file, p.name)
+		}
+	}
+	if !present["cmd"] {
+		problem("a program of packages has no cmd/%s/main.ergo", p.name)
+	}
+	slices.Sort(p.sources)
+	problems = append(problems, moduleLawProblems(p)...)
+	p.main = filepath.Join(p.dir, "cmd", p.name)
+	return finishProgram(p, present, problems, record)
+}
+
+// checkCommands checks that cmd holds the one binary of the program,
+// cmd/NAME with its main.ergo.
+func checkCommands(p *program, dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	if len(entries) != 1 || entries[0].Name() != p.name || !entries[0].IsDir() {
+		return []string{fmt.Sprintf("cmd holds one folder, cmd/%s, the program's binary", p.name)}
+	}
+	if info, err := os.Stat(filepath.Join(dir, p.name, "main.ergo")); err != nil || !info.Mode().IsRegular() {
+		return []string{fmt.Sprintf("no cmd/%s/main.ergo", p.name)}
+	}
+	return nil
+}
+
+// packageSources adds the .ergo files of the package folder dir, and of
+// the package folders under it, to the program's sources. A package
+// folder holds .ergo files and package folders only.
+func packageSources(p *program, dir, label string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	var problems []string
+	for _, entry := range entries {
+		name := entry.Name()
+		switch {
+		case entry.IsDir():
+			problems = append(problems, packageSources(p, filepath.Join(dir, name), label+"/"+name)...)
+		case strings.HasSuffix(name, ".ergo") && entry.Type().IsRegular():
+			p.sources = append(p.sources, filepath.Join(dir, name))
+		default:
+			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders", label, name))
+		}
+	}
+	return problems
+}
+
+// finishProgram checks the files every program holds, reads its tags,
+// finds its tests and loads its cases.
+func finishProgram(p *program, present map[string]bool, problems []string, record bool) (*program, []string) {
+	dir := p.dir
+	problem := func(format string, args ...any) { problems = append(problems, fmt.Sprintf(format, args...)) }
 	for _, required := range []string{"README.md", "tags", "cases"} {
 		if !present[required] {
 			problem("no %s", required)
@@ -279,10 +390,21 @@ func loadProgram(dir, name string, record bool) (*program, []string) {
 			problem("%v", err)
 			continue
 		}
-		if testDeclaration.Match(content) {
-			p.tested = true
+		if !testDeclaration.Match(content) {
+			continue
+		}
+		p.tested = true
+		// A program of one folder tests its main.ergo, as before; a module
+		// program tests each package folder that declares a test.
+		target := p.main
+		if p.module {
+			target = filepath.Dir(source)
+		}
+		if !slices.Contains(p.tests, target) {
+			p.tests = append(p.tests, target)
 		}
 	}
+	slices.Sort(p.tests)
 	if present["cases"] {
 		cases, found := loadCases(filepath.Join(dir, "cases"), record)
 		problems = append(problems, found...)
@@ -510,7 +632,7 @@ func (r *runner) runProgram(p *program) {
 		return
 	}
 	binary := filepath.Join(dir, p.name)
-	if o, err := r.tool(0, "build", filepath.Join(p.dir, "main.ergo"), "-o", binary); err != nil || !o.passed() {
+	if o, err := r.tool(0, "build", p.main, "-o", binary); err != nil || !o.passed() {
 		r.toolFailed(p, "build", o, err)
 		return
 	}
@@ -522,23 +644,36 @@ func (r *runner) runProgram(p *program) {
 	}
 }
 
-// testProgram runs the program's own test declarations. A failure fails the
-// program; its cases still run.
+// testProgram runs the program's own test declarations: `ergo test` of its
+// main.ergo, or of each package folder of a program of packages that
+// declares a test (as go test runs one package at a time). A failure fails
+// the program; its cases still run.
 func (r *runner) testProgram(p *program) {
-	o, err := r.tool(r.cfg.timeout, "test", filepath.Join(p.dir, "main.ergo"))
+	for _, target := range p.tests {
+		leg := "test"
+		if p.module {
+			rel, _ := filepath.Rel(p.dir, target)
+			leg = "test " + filepath.ToSlash(rel)
+		}
+		r.testTarget(p, target, leg)
+	}
+}
+
+func (r *runner) testTarget(p *program, target, leg string) {
+	o, err := r.tool(r.cfg.timeout, "test", target)
 	switch {
 	case err != nil:
-		fmt.Fprintf(r.out, "FAIL %s: test: could not start: %v\n", p.name, err)
-		r.fail(p.name + ": test")
+		fmt.Fprintf(r.out, "FAIL %s: %s: could not start: %v\n", p.name, leg, err)
+		r.fail(p.name + ": " + leg)
 	case o.overCap() != "":
-		fmt.Fprintf(r.out, "FAIL %s: test: %s\n", p.name, o.overCap())
-		r.fail(p.name + ": test")
+		fmt.Fprintf(r.out, "FAIL %s: %s: %s\n", p.name, leg, o.overCap())
+		r.fail(p.name + ": " + leg)
 	case o.passed():
-		fmt.Fprintf(r.out, "ok %s: test (%s)\n", p.name, seconds(o.elapsed))
+		fmt.Fprintf(r.out, "ok %s: %s (%s)\n", p.name, leg, seconds(o.elapsed))
 	default:
-		fmt.Fprintf(r.out, "FAIL %s: test%s\n", p.name, o.why(r.cfg.timeout))
+		fmt.Fprintf(r.out, "FAIL %s: %s%s\n", p.name, leg, o.why(r.cfg.timeout))
 		r.printOutput(o, nil)
-		r.fail(p.name + ": test")
+		r.fail(p.name + ": " + leg)
 	}
 }
 

@@ -34,7 +34,7 @@ proto/probes/function-reserved.sketch	S108
 proto/probes/handled-duration.sketch	S108
 proto/probes/host-error.sketch	S108
 proto/probes/host-method.sketch	OK
-proto/probes/host-union.sketch	S108 S109 S109
+proto/probes/host-union.sketch	S108 S108 S109
 proto/probes/init-name.sketch	OK
 proto/probes/integer-constant.sketch	S108
 proto/probes/integer-local.sketch	S108 S108

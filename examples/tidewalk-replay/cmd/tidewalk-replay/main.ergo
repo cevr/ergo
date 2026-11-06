@@ -1,0 +1,42 @@
+// Tidewalk replay: a walker crosses a tidal flat to the high rocks while the
+// tide rises one height step every six moves. Package walk is the game, a
+// pure machine; package frame draws it; package memory supplies the
+// replays. This binary is the only place that chooses them: Live binds the
+// walk.Library contract to memory's fixed replays.
+
+import tidewalk/frame
+import tidewalk/memory
+import tidewalk/walk
+
+let Live = context { walk.Library: memory.Fixed }
+
+// play parses a replay's moves, then runs the machine over them from
+// walk.Start(), one frame per state, and prints the result.
+func play(r walk.Replay) fails walk.BadMove needs Console {
+	let moves = try walk.ParseMoves(r.Moves)
+	let n = moves.Count()
+	let mut g = walk.Start()
+	frame.Show(frame.Step{Name: r.Name, I: 0, N: n, Move: "-", Decision: "start"}, g, []walk.Event{})
+	for i, m in moves.All() {
+		let es = walk.Decide(g, m)
+		let d = walk.Step(g, m)
+		g = walk.Apply(g, d)
+		frame.Show(frame.Step{Name: r.Name, I: i + 1, N: n, Move: moves.Letter(i), Decision: walk.Word(d)}, g, es)
+	}
+	frame.Result(r.Name, g)
+}
+
+func replayAll() needs Console | walk.Library {
+	for r in walk.Library.Replays() {
+		play(r) catch {
+		case walk.BadMove as b:
+			Console.Println("rejected \(r.Name): move \(b.At) is not one of N E S W .")
+		}
+	}
+}
+
+func main() needs Console {
+	with Live {
+		replayAll()
+	}
+}

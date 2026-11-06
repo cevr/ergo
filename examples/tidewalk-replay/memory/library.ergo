@@ -1,0 +1,18 @@
+// Package memory holds the in-memory providers of the walk contracts.
+
+import tidewalk/walk
+
+// Fixed is a walk.Library of four fixed replays: a win with every shell, a
+// drowning, rejected moves and a wait, and a bad letter.
+type Fixed {}
+
+func Replays(_ Fixed) []walk.Replay {
+	return []walk.Replay{
+		// replays: begin
+		walk.Replay{Name: "shore", Moves: "NWNEEENEESSNNNE"},
+		walk.Replay{Name: "greedy", Moves: "NWNEESEENN"},
+		walk.Replay{Name: "bump", Moves: "SW.NNENEEENNE"},
+		walk.Replay{Name: "typo", Moves: "NNxE"},
+		// replays: end
+	}
+}

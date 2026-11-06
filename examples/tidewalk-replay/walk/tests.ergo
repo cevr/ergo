@@ -1,0 +1,49 @@
+// The game's tests: four examples and two properties over generated moves.
+
+func replayOf(s string) Game fails BadMove {
+	let ms = try ParseMoves(s)
+	return Play(ms)
+}
+
+func moveCount(s string) int fails BadMove {
+	let ms = try ParseMoves(s)
+	return ms.Count()
+}
+
+test ShoreCollectsEveryShell {
+	let g = try replayOf("NWNEEENEESSNNNE")
+	assert Status(g) == "won" && WalkOf(g).Shells == 3 && WalkOf(g).Turn == 15
+}
+
+test GreedyDrowns {
+	let g = try replayOf("NWNEESEENN")
+	assert Status(g) == "drowned" && WalkOf(g).Shells == 1 && WalkOf(g).Turn == 8
+}
+
+test BumpRejectsBlockedMoves {
+	let g = Start()
+	assert rejected(Step(g, South)) && rejected(Step(g, West))
+	let won = try replayOf("SW.NNENEEENNE")
+	assert Status(won) == "won" && WalkOf(won).Turn == 10
+}
+
+test TypoIsRejected {
+	let at = moveCount("NNxE") catch {
+	case BadMove as b:
+		-b.At
+	}
+	assert at == -3
+}
+
+test FinishedIgnoresEveryMove(m Move) {
+	let w = WalkOf(Start())
+	assert ignored(Step(Won{W: w}, m)) && ignored(Step(Drowned{W: w}, m))
+}
+
+test TideFollowsEveryTurn(moves []Move) {
+	let mut g = Start()
+	for m in moves {
+		g = Apply(g, Step(g, m))
+	}
+	assert WalkOf(g).Tide == WalkOf(g).Turn/6
+}
