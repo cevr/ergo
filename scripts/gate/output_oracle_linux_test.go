@@ -280,20 +280,22 @@ func runWatched(t *testing.T, h *scopeHelper) scopeReport {
 // checkPlacement checks a scopeReport of a gateOutputCase helper. On a
 // disk layout no open file in the scope may be in memory at all; on any
 // layout none may hold more than gateShmemLimit, and the scope's shmem
-// stays under it. The watch must have seen the scope, unless refused is
-// set: the gate refused before any step ran, so there was no step output
-// to place, and such a gate can end before the watch's first sample
-// (measured at load 15-38: 2 of 960 helper runs, both refusals).
+// stays under it. The watch must have seen the scope and read its shmem,
+// unless refused is set: the gate refused before any step ran, so there was
+// no step output to place, and such a gate can end before the watch's
+// first sample (measured at load 15-38: 2 of 960 helper runs, both
+// refusals), or after the watch found the scope but before it read the
+// scope's memory.stat (shmem -1: batch-8 gate-0a8e52fd-try1.log:131). The
+// other checks still hold for a refused gate.
 func checkPlacement(t *testing.T, run int, report scopeReport, diskLayout, refused bool) {
 	t.Helper()
 	t.Logf("run %d: scope %s, %d samples, shmem peak %d, open files in memory %v", run, report.scope, report.samples, report.shmem, report.memoryFiles)
-	if report.scope == "" && refused {
-		t.Logf("run %d: the gate refused before the watch's first sample", run)
-		return
-	}
 	if report.scope == "" || report.shmem < 0 {
-		t.Errorf("run %d: the watch did not see the helper's scope (scope %q, shmem %d)", run, report.scope, report.shmem)
-		return
+		if !refused {
+			t.Errorf("run %d: the watch did not see the helper's scope (scope %q, shmem %d)", run, report.scope, report.shmem)
+			return
+		}
+		t.Logf("run %d: the gate refused before the watch read the scope (scope %q, shmem %d)", run, report.scope, report.shmem)
 	}
 	if len(report.lookupErrors) > 0 {
 		t.Errorf("run %d: the watch could not look at every open file: %v", run, report.lookupErrors)
@@ -304,6 +306,74 @@ func checkPlacement(t *testing.T, run int, report scopeReport, diskLayout, refus
 	for file, size := range report.memoryFiles {
 		if diskLayout || size > gateShmemLimit {
 			t.Errorf("run %d: a process in the helper's scope had %s open in memory with %d bytes: step output was placed in memory", run, file, size)
+		}
+	}
+}
+
+// placementCaseVariable carries one case of TestCheckPlacementExemptions
+// to its helper: "refused,scope,shmem,violation", each 0 or 1 (scope 1 is
+// a scope seen, shmem 1 a shmem read, violation 1 a file in memory on a
+// disk layout).
+const placementCaseVariable = "GATE_TEST_PLACEMENT_CASE"
+
+// TestCheckPlacementCaseHelper runs checkPlacement on the case that
+// placementCaseVariable names; it passes only if checkPlacement reports
+// nothing.
+func TestCheckPlacementCaseHelper(t *testing.T) {
+	value := os.Getenv(placementCaseVariable)
+	if value == "" {
+		t.Skip("TestCheckPlacementExemptions runs it with a case")
+	}
+	var flags [4]bool
+	for i, field := range strings.Split(value, ",") {
+		flags[i] = field == "1"
+	}
+	refused, scopeSeen, shmemRead, violation := flags[0], flags[1], flags[2], flags[3]
+	report := scopeReport{shmem: -1, memoryFiles: map[string]int64{}, samples: 3}
+	if scopeSeen {
+		report.scope = "/sys/fs/cgroup/nonexistent/loop-probe-x.scope"
+	}
+	if shmemRead {
+		report.shmem = 0
+	}
+	if violation {
+		report.memoryFiles["tmpfs:/nonexistent/loop-probe-x"] = 1
+	}
+	checkPlacement(t, 1, report, true, refused)
+}
+
+// checkPlacement exempts a refused gate, and only a refused gate, from
+// seeing the scope whole: the scope not found, or found with no shmem read.
+// Every other check still holds. The property covers every combination of
+// refused, scope seen, shmem read and an output file in memory; each runs
+// in a child test process, as checkPlacement reports through its
+// testing.T.
+func TestCheckPlacementExemptions(t *testing.T) {
+	bit := func(set bool) string {
+		if set {
+			return "1"
+		}
+		return "0"
+	}
+	for _, refused := range []bool{false, true} {
+		for _, scopeSeen := range []bool{false, true} {
+			for _, shmemRead := range []bool{false, true} {
+				for _, violation := range []bool{false, true} {
+					value := strings.Join([]string{bit(refused), bit(scopeSeen), bit(shmemRead), bit(violation)}, ",")
+					seen := scopeSeen && shmemRead
+					wantPass := !violation && (seen || refused)
+					command := exec.Command(os.Args[0], "-test.run=^TestCheckPlacementCaseHelper$", "-test.count=1", "-test.v")
+					command.Env = append(os.Environ(), placementCaseVariable+"="+value)
+					output, err := command.CombinedOutput()
+					var exitErr *exec.ExitError
+					if err != nil && !errors.As(err, &exitErr) {
+						t.Fatalf("case %s: run the helper: %v", value, err)
+					}
+					if passed := err == nil; passed != wantPass {
+						t.Errorf("case refused,scope,shmem,violation=%s: checkPlacement passed=%t, want %t:\n%s", value, passed, wantPass, output)
+					}
+				}
+			}
 		}
 	}
 }

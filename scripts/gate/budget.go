@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -374,11 +375,47 @@ func (o *commandOutput) pipe(destination io.Writer) (*os.File, error) {
 	return writer, nil
 }
 
+// The bounds of the held-open check (drainPipe). A pipe still open when the
+// step has ended can be held for a short time by a sibling child of the gate
+// (another step, a ps of the RSS watch): the child is forked while the
+// step's writer is open in the gate, and it holds a copy of the writer until
+// its exec closes the copy (close-on-exec). Go forks in parallel and holds
+// syscall.ForkLock while any fork is in flight, until each child has reached
+// its exec. So the check first waits for ForkLock, up to forkSettleBound,
+// then for the end of the pipe, up to execTailBound: the exec closes the
+// copies after Go's fork returns (measured at load 24: of 2000 pipes, 137
+// held after their writer exited, 74 held after the ForkLock wait alone, 0
+// after both; the longest wait for the end was 21 ms). A process that still
+// holds the writer after both bounds is reported.
+var (
+	forkSettleBound = 5 * time.Second
+	execTailBound   = time.Second
+)
+
+// awaitForks waits until no fork of this process is in flight, or bound.
+func awaitForks(bound time.Duration) {
+	settled := make(chan struct{})
+	go func() {
+		syscall.ForkLock.RLock()
+		syscall.ForkLock.RUnlock()
+		close(settled)
+	}()
+	timer := time.NewTimer(bound)
+	defer timer.Stop()
+	select {
+	case <-settled:
+	case <-timer.C:
+	}
+}
+
 func drainPipe(reader *os.File, destination io.Writer, mu *sync.Mutex, drained chan<- pipeResult) {
 	result := pipeResult{}
 	defer func() { drained <- result }()
 	buffer := make([]byte, 32<<10)
 	stopping := false
+	// settled is set once the held-open check has waited for forks in flight
+	// and given the pipe execTailBound to end.
+	settled := false
 	for {
 		var read int
 		var err error
@@ -408,6 +445,17 @@ func drainPipe(reader *os.File, destination io.Writer, mu *sync.Mutex, drained c
 				continue
 			}
 			if stopping && pipeReadWouldBlock(err) {
+				if !settled {
+					// A sibling fork can hold the writer until its exec:
+					// wait for it, bounded, then read on until the end of
+					// the pipe or execTailBound.
+					settled = true
+					awaitForks(forkSettleBound)
+					if reader.SetReadDeadline(time.Now().Add(execTailBound)) == nil {
+						stopping = false
+						continue
+					}
+				}
 				result.heldOpen = true
 				return
 			}
