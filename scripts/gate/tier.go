@@ -280,16 +280,21 @@ func fastSteps(root string) ([]*Step, error) {
 	module := modulePath(root)
 	var steps, tests []*Step
 	for _, step := range full {
-		// The hermetic step keeps Go's test cache; every other step that
-		// is not a package's tests is the full tier's.
-		if step.Hermetic || !runsGoTest(step) || step.Name == "go test build" {
+		// Every step that is not a package's tests is the full tier's. The
+		// hermetic step is a package's tests too: its packages get a keyed
+		// step each, below. Kept, it relinked both test binaries to find
+		// Go's cached result on every run: about 20 s of a 27 s docs-edit
+		// run (measured 2026-11-06, leg-docs-3.log).
+		if !step.Hermetic && (!runsGoTest(step) || step.Name == "go test build") {
 			steps = append(steps, step)
 		}
 	}
 	for _, p := range packages {
 		relative := strings.TrimPrefix(p.importPath, module+"/")
+		// A hermetic package builds as its full-tier step builds it.
+		var env []string
 		if strings.HasPrefix(relative, hermeticTestRoot) && !slices.Contains(hostTestPackages, relative) {
-			continue
+			env = hermeticEnvironment
 		}
 		names, err := testNames(filepath.Join(root, filepath.FromSlash(p.dir)))
 		if err != nil {
@@ -314,7 +319,7 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 		selections := fastShardArgs(shard(fast, measured, n), large)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append(slices.Clone(base), selection...), pkg), ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
+			step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
