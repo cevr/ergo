@@ -36,7 +36,7 @@ The program is a module of packages (`ergo.mod`: `module tidewalk`), in the Go l
 - **Record update.** `evolveWalk` writes each next state as a copy of the walk with the changed fields: `Walk{..w, Turn: w.Turn + 1}`.
 - **Laws.** Six top-level laws state the rules: `BlockedIsRejected`, `FinishedIsFinal`, `TurnNeverFalls`, `TideNeverFalls`, `ShellsNeverFall` and `TideFollowsTurn`.
 - **Tests.** Four example tests (`ShoreCollectsEveryShell`, `GreedyDrowns`, `BumpRejectsBlockedMoves`, `TypoIsRejected`) and two property tests over generated moves (`FinishedIgnoresEveryMove`, `TideFollowsEveryTurn`), in package `walk`.
-- **A contract and a provider.** `walk.Library` is an operation type; `replayAll` needs it, and `main` supplies `memory.Fixed` with `with Live { … }`.
+- **A contract and a provider.** `walk.Library` is an operation type; `replayAll` declares `needs Console | walk.Library`, and `main` supplies `memory.Fixed` with `with Live { … }`.
 - **A typed failure.** `ParseMoves` fails with `BadMove`, which holds the position of the bad letter. A move list is parsed whole before play. `replayAll` catches the failure for each replay.
 
 ## What runs today
