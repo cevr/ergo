@@ -106,7 +106,7 @@ func startableScope(t *testing.T, slice string, budget memoryBudget) {
 	if _, err := exec.LookPath("systemd-run"); err != nil {
 		t.Skip("no systemd-run: the RSS watch tests cover this host")
 	}
-	probe := exec.Command("systemd-run", scopeArguments(slice, "", budget, []string{"true"})...)
+	probe := exec.Command("systemd-run", scopeArguments(slice, "", budget, stepCPUs(), []string{"true"})...)
 	probe.Env = scopeEnvironment("")
 	if output, err := probe.CombinedOutput(); err != nil {
 		t.Skipf("no systemd user scope here (%v: %s): the RSS watch tests cover this host", err, firstLine(output))
@@ -114,13 +114,17 @@ func startableScope(t *testing.T, slice string, budget memoryBudget) {
 }
 
 // newScopeHelper prepares a helper gate in slice that runs the named case
-// under the budget the environment sets.
+// under the budgets the environment sets.
 func newScopeHelper(t *testing.T, slice, name string, budget memoryBudget) *scopeHelper {
 	t.Helper()
 	unit := scopeUnit()
+	cpus, err := currentCPUs()
+	if err != nil {
+		t.Fatal(err)
+	}
 	h := &scopeHelper{cache: t.TempDir(), unit: unit}
-	h.command = exec.Command("systemd-run", scopeArguments(slice, unit, budget, []string{os.Args[0], "-test.run=^TestBudgetScopeHelper$", "-test.count=1"})...)
-	h.command.Env = append(scopeEnvironment(unit), "GATE_BUDGET_CASE="+name, "GATE_BUDGET_ROOT="+budgetFixture(t), "GATE_BUDGET_CACHE="+h.cache)
+	h.command = exec.Command("systemd-run", scopeArguments(slice, unit, budget, cpus, []string{os.Args[0], "-test.run=^TestBudgetScopeHelper$", "-test.count=1"})...)
+	h.command.Env = append(scopeGateEnvironment(unit, cpus), "GATE_BUDGET_CASE="+name, "GATE_BUDGET_ROOT="+budgetFixture(t), "GATE_BUDGET_CACHE="+h.cache)
 	h.command.Stdout, h.command.Stderr = &h.output, &h.output
 	return h
 }
@@ -708,8 +712,10 @@ func TestBudgetScopeHelper(t *testing.T) {
 	if name == "" {
 		t.Skip("run by the scope tests")
 	}
-	scope := os.Getenv(scopeVariable)
-	os.Unsetenv(scopeVariable)
+	scope, err := takeScope()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if name == gateOutputCase.name {
 		runOutputHelper(scope)
 		return
@@ -722,7 +728,7 @@ func TestBudgetScopeHelper(t *testing.T) {
 		fmt.Printf("oracle-exit=0\n")
 		return
 	}
-	for _, c := range append(append(budgetCases, hostCase, holdCase), gateOOMCases...) {
+	for _, c := range append(append(budgetCases, hostCase, holdCase, cpuCase, quotaCase), gateOOMCases...) {
 		if c.name == name {
 			var out bytes.Buffer
 			g := &gate{root: os.Getenv("GATE_BUDGET_ROOT"), cacheDir: os.Getenv("GATE_BUDGET_CACHE"), steps: c.steps(), scope: scope}
@@ -756,7 +762,7 @@ func TestBudgetStepDomainReadBack(t *testing.T) {
 			steps := filepath.Join(scope, stepsCgroup)
 			write(t, scope, "memory.max", c.scope)
 			write(t, steps, "memory.max", c.steps)
-			limiter := &scopeLimiter{budget: budget, dir: scope, steps: steps}
+			limiter := &scopeLimiter{budget: budget, cpus: 2, dir: scope, steps: steps}
 			watch, err := limiter.prepare("alloc", exec.Command("true"))
 			if !c.started {
 				if err == nil {
@@ -786,7 +792,7 @@ func TestBudgetStepDomainReadBack(t *testing.T) {
 func TestBudgetScopeArgumentsReserve(t *testing.T) {
 	t.Parallel()
 	budget := memoryBudget{step: 256 << 20, gate: 1 << 30}
-	arguments := strings.Join(scopeArguments(gateSlice, "u", budget, []string{"true"}), " ")
+	arguments := strings.Join(scopeArguments(gateSlice, "u", budget, 2, []string{"true"}), " ")
 	if want := "MemoryMax=" + strconv.FormatInt(budget.gate+gateReserve, 10) + " "; !strings.Contains(arguments, want) {
 		t.Errorf("systemd-run arguments %q lack %q", arguments, want)
 	}
@@ -875,8 +881,8 @@ func TestBudgetNestedHelper(t *testing.T) {
 		return
 	}
 	budget := memoryBudget{step: 256 << 20, gate: 512 << 20, host: 512 << 20}
-	command, reason := scopeProbe(budget)
-	note := enterScope(command, reason, budget)
+	command, reason := scopeProbe(budget, 2)
+	note := enterScope(command, reason, budget, 2)
 	membership, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		t.Fatal(err)

@@ -100,6 +100,14 @@ func (g *gate) collectHost(mechanism string) hostFacts {
 	add("goos", runtime.GOOS)
 	add("goarch", runtime.GOARCH)
 	add("cpus", strconv.Itoa(runtime.NumCPU()))
+	// The CPU budget sets the shards, the steps that run at once, every
+	// step's GOMAXPROCS and the host step's -parallel, so another budget
+	// can change a verdict (a timing-dependent test, a shard's selection).
+	if cpus, err := currentCPUs(); err != nil {
+		problem("the CPU budget: %v", err)
+	} else {
+		add("cpu budget", strconv.Itoa(cpus))
+	}
 	// Read afresh at each collection, so the end key sees a change; an
 	// unknown size is never a value that matches (spec Do 2).
 	if total := readPhysicalMemory(); total > 0 {

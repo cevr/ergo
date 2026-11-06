@@ -617,7 +617,11 @@ func runOracleHelper(scope string) error {
 	if err != nil {
 		return err
 	}
-	limiter, err := openScope(scope, budget)
+	cpus, err := currentCPUs()
+	if err != nil {
+		return err
+	}
+	limiter, err := openScope(scope, budget, cpus)
 	if err != nil {
 		return err
 	}
