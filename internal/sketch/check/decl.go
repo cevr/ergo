@@ -448,9 +448,9 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	pkg, err := imp.Import(path)
 	if err != nil || pkg == nil {
-		// An importer returns its *ImportError unwrapped, so a type
-		// assertion finds it; errors is not on the reviewed import list.
-		if reason, ok := err.(*ImportError); ok {
+		// An importer may wrap its *ImportError (fmt.Errorf %w,
+		// errors.Join); findImportError searches the chain.
+		if reason := findImportError(err); reason != nil {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q: %s", path, reason.Reason)
 		} else {
 			c.errorf(spec.Path, CodeUnknown, "unknown package %q", path)
@@ -591,14 +591,57 @@ func importName(element string) bool {
 
 // ImportError is an importer's refusal with a reason the checker adds to
 // its S104 "unknown package" diagnostic, such as a program with no
-// ergo.mod importing a local path (196b Q1). An importer returns it
-// unwrapped: the checker finds it by a type assertion.
+// ergo.mod importing a local path (196b Q1). An importer may return it
+// wrapped (fmt.Errorf with %w, errors.Join): findImportError searches the
+// chain.
 type ImportError struct {
 	Path   string
 	Reason string
 }
 
 func (e *ImportError) Error() string { return fmt.Sprintf("package %q: %s", e.Path, e.Reason) }
+
+// findImportError's bounds, so a custom Unwrap with a cycle ends: a path
+// from err is at most maxUnwrapDepth errors deep, and the search visits at
+// most maxUnwrapVisits errors. An error may be of a type that is not
+// comparable, so the search cannot keep a set of the errors it saw.
+const (
+	maxUnwrapDepth  = 64
+	maxUnwrapVisits = 4096
+)
+
+// findImportError is the first *ImportError in err's tree, searched depth
+// first in errors.As order through Unwrap() error and Unwrap() []error, or
+// nil. It is errors.As without the errors import, which the reviewed
+// provenance allow-list does not hold (batch-9 C2, owner default).
+func findImportError(err error) *ImportError {
+	type item struct {
+		err   error
+		depth int
+	}
+	stack := []item{{err, 0}}
+	for n := 0; len(stack) > 0 && n < maxUnwrapVisits; n++ {
+		it := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if it.depth >= maxUnwrapDepth {
+			continue
+		}
+		switch w := it.err.(type) {
+		case nil:
+		case *ImportError:
+			return w
+		case interface{ Unwrap() error }:
+			stack = append(stack, item{w.Unwrap(), it.depth + 1})
+		case interface{ Unwrap() []error }:
+			// Push in reverse, so the first error is searched first.
+			errs := w.Unwrap()
+			for i := len(errs) - 1; i >= 0; i-- {
+				stack = append(stack, item{errs[i], it.depth + 1})
+			}
+		}
+	}
+	return nil
+}
 
 // importBinds is the name an import spec binds in its file: its alias, or
 // its path's last element; "" for a malformed path.
