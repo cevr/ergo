@@ -1299,14 +1299,12 @@ func (l *lowerer) envType(b *strings.Builder) {
 }
 
 // rowElems are a row's elements with every inferred row replaced by its
-// solution and every row argument by its row; a row parameter stays. A row
-// is a set, so they are in canonical order (check.CanonSet), never in the
-// checker's intern order, which follows the order it met the files.
+// solution and every row argument by its row; a row parameter stays.
 func rowElems(r *check.Row) []check.Type {
 	var out []check.Type
 	var walk func(r *check.Row)
 	walk = func(r *check.Row) {
-		for _, e := range check.CanonElems(r) {
+		for _, e := range r.Elems() {
 			switch e := e.(type) {
 			case *check.RowVar:
 				walk(e.Solution())
@@ -1318,5 +1316,5 @@ func rowElems(r *check.Row) []check.Type {
 		}
 	}
 	walk(r)
-	return check.CanonSet(out)
+	return out
 }

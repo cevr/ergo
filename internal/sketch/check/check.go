@@ -37,13 +37,26 @@ func (d Diagnostic) String() string {
 // Check checks the parsed files of one package with the import path path.
 // It returns the package and every diagnostic, sorted by file and position.
 // A nil importer resolves the standard library only.
+//
+// The checker meets the files in their canonical order (canon.go), not in
+// the order of files, which it does not change. A diagnostic's File is the
+// index of its file in files.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
 	}
+	order := canonicalFiles(files)
+	met := make([]*syntax.File, len(order))
+	for i, k := range order {
+		met[i] = files[k]
+	}
 	c := newChecker(path, imp, prelude().scope)
-	pkg := c.run(files)
-	canonicalOrder(pkg) // canon.go
+	pkg := c.run(met)
+	// Every report has a current file (owner.go), so File is the index of
+	// a file as met: map it to the caller's.
+	for i := range c.diags {
+		c.diags[i].File = order[c.diags[i].File]
+	}
 	return pkg, c.sorted()
 }
 

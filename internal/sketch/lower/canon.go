@@ -13,37 +13,40 @@ import (
 // files and imports in the order the caller found them. Neither that order
 // nor the order in which the checker met the files is part of the program.
 //
-// Two layers keep the output free of them (pkg-lower round 6):
+// Two layers keep the output free of them:
 //
-//  1. The producer. check.Check returns every list of a Package in its
-//     canonical order (check/canon.go): a function of the sources, so a
-//     reader of p.Funcs, p.Types, p.Tests or p.Laws gets the same order by
-//     any route. TestCheckListsAreCanonical (check) proves it over fresh
-//     checks of files and import lines in other orders.
+//  1. The producer (pkg-lower round 8). check.Check meets a package's
+//     files in one canonical order, a function of their contents
+//     (check/canon.go), so all it derives is a function of the sources:
+//     its lists, the intern order of its types and so the order of every
+//     row's elements, a row value's variants and a catch's subjects, the
+//     text of every type, and its diagnostics. A reader of the check
+//     result, by any route, gets the same value for any listing of the
+//     files. TestCheckIsCanonical (packages_r8_test.go) compares a dump of
+//     the whole check result, both builds' bytes and the refusals over
+//     every order of the files of generated programs.
 //  2. The entry. newBuildLowerer converts the Unit once into a canonical
 //     value, which orders the sources by path and re-sorts each sourced
 //     package's lists by (source, offset), and every later read of a list
 //     goes through it. The lowerer holds no Unit, so after the entry no
-//     code can reach the caller's order of files or imports.
+//     code can reach the caller's order of files or imports. This layer
+//     is still needed: a Unit can list the files of one checked package
+//     in any order (permuteUnit), which layer 1 does not see.
 //
-//  3. Sets (round 7). A row's elements, a row value's variants and a
-//     catch's subjects are sets, which the checker holds in intern order,
-//     the order it met the types. The lowering enumerates a set only
-//     through its canonical view (check.CanonElems, CanonVariants,
-//     CanonCatchSubjects, CanonEntryUses: sorted by check.TypeKey), and
-//     rowElems, its one walk of a row, returns check.CanonSet order.
+// Round 7 also enumerated each set of the check result (a row's elements,
+// a row value's variants, a catch's subjects) through a view sorted by
+// check.TypeKey. Layer 1 makes those sets canonical by construction, and
+// the key was not total (round 7 M2), so round 8 removed the views and
+// the lowering reads the fields again.
 //
-// What the tests of this package prove about layers 2 and 3, and no more:
+// What the tests of this package prove about layer 2, and no more:
 // TestLoweringReadsCanonicalLists finds each direct read of a list field
-// or a set (by its go/types object) outside this file and Validate, but
-// for the named reads of a declared union's variants (setAllowed);
+// (by its go/types object) outside this file and Validate;
 // TestLoweringUnitStaysAtEntries finds each expression of a Unit type
 // outside the entry functions; TestLoweringImportsNoReflection finds an
 // import of reflect or unsafe. A helper in another package that takes a
 // check.Package is not seen by them; layer 1 is what makes its result
-// canonical (TestRawListEscapesAreCanonical). TestLoweringSetsAreCanonical
-// compares output and refusals over every order of the files that intern
-// a set's members.
+// canonical (TestRawListEscapesAreCanonical, TestCheckIsCanonical).
 //
 // The canonical order of each list kind:
 //
@@ -65,11 +68,11 @@ import (
 //   - Info.InitOrder (initOrder). It is the language's initialization
 //     order (Go's rule, check/initorder.go): a let after the lets it reads,
 //     else the earliest in declaration order. Across files that order is
-//     the order the driver presented the files in, as in Go, whose go
-//     build presents them sorted by name; the lowering must not change
-//     which independent let runs first, because a defect in one stops the
-//     others. It is a function of the checked program, not of the Unit's
-//     listing (permuteUnit keeps it).
+//     the order in which the checker met the files, their canonical order
+//     (check/canon.go), so it is a function of the sources; the lowering
+//     must not change which independent let runs first, because a defect
+//     in one stops the others (TestInitOrderIsCanonical). It is not a
+//     function of the Unit's listing (permuteUnit keeps it).
 //   - the order inside one declaration (fields, variants, parameters,
 //     witnesses): it is the declaration's own source order.
 //

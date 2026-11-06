@@ -11,10 +11,10 @@ import (
 )
 
 // Round 7 (196b): a set of the check result (a row's elements, a row
-// value's variants, a catch's subjects) has one outward enumeration, its
-// canonical view (check/canon.go). Its intern order follows the order in
-// which the checker met the files, so a lowering that reads it raw picks
-// output and refusals by discovery order.
+// value's variants, a catch's subjects) is in intern order, which follows
+// the order in which the checker met the files. Round 8 makes that order
+// canonical (check/canon.go), so output and refusals do not follow how a
+// caller listed the files. These tests stay as regressions.
 
 // The round 6 verify's probe (R6 M1): main needs A | B, and the host
 // provides only Console. Whichever of a.ergo and b.ergo the checker meets

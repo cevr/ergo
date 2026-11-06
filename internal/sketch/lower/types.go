@@ -377,10 +377,8 @@ func (l *lowerer) typeKey(t check.Type) string {
 		}
 		k = "struct{" + strings.Join(keys, "; ") + "}"
 	case *check.Union:
-		// Only a row value is an unnamed union: a set (check/canon.go).
-		vs := check.CanonVariants(u)
-		keys := make([]string, len(vs))
-		for i, v := range vs {
+		keys := make([]string, len(u.Variants))
+		for i, v := range u.Variants {
 			keys[i] = l.typeKey(v)
 		}
 		k = "union{" + strings.Join(keys, " | ") + "}"
@@ -679,13 +677,12 @@ func isInteger(t check.Type) bool {
 func (l *lowerer) isErrorValue(t check.Type, o check.FactOwner) bool {
 	if u, row := t.(*check.Union); row {
 		// A row value (D-C3): every variant is an error type.
-		vs := check.CanonVariants(u)
-		for _, v := range vs {
+		for _, v := range u.Variants {
 			if !l.isErrorValue(v, o) {
 				return false
 			}
 		}
-		return len(vs) > 0
+		return len(u.Variants) > 0
 	}
 	n, ok := t.(*check.Named)
 	return ok && l.errorType(n, o)

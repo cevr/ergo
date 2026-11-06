@@ -10,10 +10,12 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The checker hands out its lists in canonical order (canon.go): a fresh
-// check of a program's files, listed in any order and with each file's
-// import lines in any order, gives every list in the same order, by the
-// canonical key of each element.
+// The checker meets a package's files in canonical order (canon.go), so a
+// fresh check of a program's files, listed in any order and with each
+// file's import lines in any order, gives every list in the same order, by
+// the canonical key of each element, and every set (a row, a row value, a
+// catch's subjects) in the same order. Its diagnostics name the caller's
+// files.
 
 // canonSource is one generated source file.
 type canonSource struct{ path, text string }
@@ -183,9 +185,28 @@ func canonLists(t *testing.T, prog []canonPackage, r *rand.Rand, order int) map[
 			t.Fatalf("package %s: %v", cp.path, ds)
 		}
 		imp[cp.path] = p
+		inMetOrder(t, p)
 		out[cp.path] = canonKeys(p)
 	}
 	return out
+}
+
+// inMetOrder fails t unless the checker met p's files in canonical order.
+// No step after the run re-sorts a list (round 8 removed canonicalOrder):
+// each list is in the order the checker collected it, which the order of
+// the files fixes, so TestCheckListsAreCanonical compares the lists
+// themselves across listings.
+func inMetOrder(t *testing.T, p *Package) {
+	t.Helper()
+	var met []*syntax.File
+	for _, f := range p.files {
+		met = append(met, f.syntax)
+	}
+	for i, k := range canonicalFiles(met) {
+		if i != k {
+			t.Fatalf("package %s: files not met in canonical order: %v", p.Path, canonicalFiles(met))
+		}
+	}
 }
 
 // canonKeys is each list of p by kind, each element by its canonical key.
@@ -265,14 +286,10 @@ func TestCheckListsAreCanonical(t *testing.T) {
 			got := canonLists(t, prog, r, order)
 			for _, cp := range prog {
 				for _, kind := range canonKinds {
+					// InitOrder too, whole: lets of different files that
+					// do not read each other run in the order in which
+					// the checker meets the files, the canonical order.
 					w, g := want[cp.path][kind], got[cp.path][kind]
-					if kind == "InitOrder" {
-						// Lets of different files that do not read each
-						// other run in the order of the files (canon.go,
-						// kept orders): only the dependency chain and the
-						// order inside one file are the program's.
-						w, g = []string{initOrderParts(w)}, []string{initOrderParts(g)}
-					}
 					if !slices.Equal(w, g) {
 						t.Fatalf("seed %d, listing %d, package %s: %s differ:\n%s\nwant:\n%s", seed, order, cp.path, kind, strings.Join(g, "\n"), strings.Join(w, "\n"))
 					}
@@ -306,41 +323,70 @@ func setSources(n int) []string {
 	return append(files, main)
 }
 
-// setViews checks files in the order given (main last) and returns each set
-// of main's result, raw and through its canonical view, by TypeKey.
-func setViews(t *testing.T, files []string) (raw, canon map[string]string) {
+// canonOrders is every order of 0..n-1.
+func canonOrders(n int) [][]int {
+	if n == 0 {
+		return [][]int{nil}
+	}
+	var out [][]int
+	for _, p := range canonOrders(n - 1) {
+		for i := 0; i <= len(p); i++ {
+			out = append(out, append(append(slices.Clone(p[:i]), n-1), p[i:]...))
+		}
+	}
+	return out
+}
+
+// parseAll parses each source, in order.
+func parseAll(t *testing.T, srcs []string) []*syntax.File {
 	t.Helper()
-	var parsed []*syntax.File
-	for _, src := range files {
+	var out []*syntax.File
+	for _, src := range srcs {
 		f, err := syntax.Parse(src)
 		if err != nil {
 			t.Fatalf("%v\n%s", err, src)
 		}
-		parsed = append(parsed, f)
+		out = append(out, f)
 	}
-	p, ds := Check("main", parsed, nil)
+	return out
+}
+
+// listed is srcs in the order given.
+func listed(srcs []string, order []int) []string {
+	var out []string
+	for _, k := range order {
+		out = append(out, srcs[k])
+	}
+	return out
+}
+
+// mainSets checks files in the order given and returns each set of main's
+// result, element by element in the checker's order, by String().
+func mainSets(t *testing.T, files []string) map[string]string {
+	t.Helper()
+	p, ds := Check("main", parseAll(t, files), nil)
 	if len(ds) != 0 {
 		t.Fatalf("diagnostics: %v", ds)
 	}
-	keys := func(ts []Type) string {
+	text := func(ts []Type) string {
 		var out []string
 		for _, x := range ts {
-			out = append(out, TypeKey(x))
+			out = append(out, x.String())
 		}
-		return strings.Join(out, " | ")
+		return strings.Join(out, " , ")
 	}
-	raw, canon = map[string]string{}, map[string]string{}
+	sets := map[string]string{}
 	for _, f := range p.Funcs {
 		switch f.Name {
 		case "all":
-			raw["uses"], canon["uses"] = keys(f.Sig.Uses.Elems()), keys(CanonElems(f.Sig.Uses))
+			sets["uses"] = text(f.Sig.Uses.Elems())
 		case "each":
-			raw["errors"], canon["errors"] = keys(f.Sig.Errors.Elems()), keys(CanonElems(f.Sig.Errors))
+			sets["errors"] = text(f.Sig.Errors.Elems())
 		}
 	}
 	for n, m := range p.Info.Matches {
 		if _, ok := n.(*syntax.CatchExpr); ok {
-			raw["catch"], canon["catch"] = keys(m.Subjects), keys(CanonCatchSubjects(m))
+			sets["catch"] = text(m.Subjects)
 		}
 	}
 	for id, o := range p.Info.Defs {
@@ -349,59 +395,138 @@ func setViews(t *testing.T, files []string) (raw, canon map[string]string) {
 			if !ok {
 				t.Fatalf("err is %v, not a row value", v.Type)
 			}
-			raw["row value"], canon["row value"] = keys(u.Variants), keys(CanonVariants(u))
+			sets["row value"] = text(u.Variants)
+			sets["row value text"] = u.String()
 		}
 	}
-	if len(canon) != 4 {
-		t.Fatalf("found the sets %v, want uses, errors, catch and row value", canon)
+	if len(sets) != 5 {
+		t.Fatalf("found the sets %v, want uses, errors, catch and row value", sets)
 	}
-	return raw, canon
+	return sets
 }
 
-// TestCheckSetViewsAreCanonical: for every order of the files that intern
-// a set's members (main last), each set's canonical view is the same,
-// element by element; and some order changes the raw intern order, so the
-// property sees what the view removes.
-func TestCheckSetViewsAreCanonical(t *testing.T) {
+// TestCheckSetsAreCanonical: for every order of the files that intern a
+// set's members, main's among them, each set of the check result (a row's
+// elements, a catch's subjects, a row value's variants and its text) is
+// the same, element by element in the checker's own order. Round 7 sorted
+// the sets after the fact; round 8 derives them from the canonical input,
+// so there is no view: the raw fields are the order.
+func TestCheckSetsAreCanonical(t *testing.T) {
 	const n = 4
 	files := setSources(n)
 	var want map[string]string
-	moved := map[string]bool{}
-	var wantRaw map[string]string
-	var perm func(prefix, rest []int)
-	perm = func(prefix, rest []int) {
-		if len(rest) == 0 {
-			var listed []string
-			for _, k := range prefix {
-				listed = append(listed, files[k])
+	for _, order := range canonOrders(n + 1) {
+		got := mainSets(t, listed(files, order))
+		if want == nil {
+			want = got
+			continue
+		}
+		for kind, w := range want {
+			if got[kind] != w {
+				t.Fatalf("order %v: %s\n%s\nwant\n%s", order, kind, got[kind], w)
 			}
-			raw, canon := setViews(t, append(listed, files[n]))
+		}
+	}
+}
+
+// fileDiags checks srcs in the order given and returns each diagnostic
+// with the text of the caller's file it names (by its label in labels),
+// in the order Check returns them. It fails t unless they are sorted by
+// the caller's index and each position is the file's own.
+func fileDiags(t *testing.T, srcs []string, labels map[string]string) []string {
+	t.Helper()
+	files := parseAll(t, srcs)
+	_, ds := Check("main", files, nil)
+	var out []string
+	for i, d := range ds {
+		if i > 0 && ds[i-1].File > d.File {
+			t.Fatalf("diagnostics not sorted by the caller's file: %v", ds)
+		}
+		f := files[d.File]
+		line, col := f.Position(syntax.Pos(d.Offset))
+		if line != d.Line || col != d.Column {
+			t.Fatalf("%v: position %d:%d is not that of offset %d in the file it names (%d:%d)", d, d.Line, d.Column, d.Offset, line, col)
+		}
+		out = append(out, fmt.Sprintf("%s %s", labels[srcs[d.File]], d))
+	}
+	slices.Sort(out)
+	return out
+}
+
+// diagSources are files with diagnostics in several of them: an unknown
+// name, a result of the wrong type, a type declared in two files (the
+// later file as met has the diagnostic) and unused imports.
+var diagSources = []string{
+	"type A {}\nfunc a() int { missing }\n",
+	"import log\ntype B {}\nfunc b() int { \"s\" }\n",
+	"type A {}\nfunc c() int { 1 }\n",
+	"import trace\nfunc main() {}\n",
+}
+
+// TestCheckDiagnosticsNameCallerFiles: for every order of the files, Check
+// returns the same diagnostics, each naming the caller's index of the same
+// file (by its text), at the same place in it. The duplicate type is
+// reported in the same one of its two files for every order.
+func TestCheckDiagnosticsNameCallerFiles(t *testing.T) {
+	labels := map[string]string{}
+	for i, s := range diagSources {
+		labels[s] = fmt.Sprintf("f%d", i)
+	}
+	var want []string
+	for _, order := range canonOrders(len(diagSources)) {
+		got := fileDiags(t, listed(diagSources, order), labels)
+		if want == nil {
+			want = got
+			if len(want) < 4 {
+				t.Fatalf("want diagnostics in several files, got %v", want)
+			}
+			continue
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("order %v: diagnostics\n%s\nwant\n%s", order, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	}
+}
+
+// TestCheckFileKeyIsTotal: files that a partial key would tie are met in
+// one order. (1) Two valid files whose first declarations have one name
+// (overloads of Get) and which intern their error types in file order:
+// main's row is the same for both orders. (2) Two files whose texts differ
+// only in the order of their import lines (one fileKey) and which both
+// declare A: the duplicate is reported in the same file, so the full text
+// breaks the tie. (3) Two files of the same text: the caller's order of
+// the two changes nothing.
+func TestCheckFileKeyIsTotal(t *testing.T) {
+	overloads := []string{
+		"func Get(q Q0) int { 0 }\ntype Q0 {}\ntype E0 { N int }\nfunc fail0() int fails E0 { E0{N: 1} }\n",
+		"func Get(q Q1) int { 1 }\ntype Q1 {}\ntype E1 { N int }\nfunc fail1() int fails E1 { E1{N: 1} }\n",
+		"func each() int fails E0 | E1 {\n\tlet _ = try fail1()\n\tlet _ = try fail0()\n\t0\n}\nfunc rest() int { each() catch { case err: keep(err) } }\nfunc keep[T](v T) int { 1 }\nfunc all() needs Console {}\n",
+	}
+	var want map[string]string
+	for _, order := range canonOrders(len(overloads)) {
+		got := mainSets(t, listed(overloads, order))
+		if want == nil {
+			want = got
+		} else if got["errors"] != want["errors"] || got["row value"] != want["row value"] || got["catch"] != want["catch"] {
+			t.Fatalf("order %v: overload files tie: %v, want %v", order, got, want)
+		}
+	}
+	for _, srcs := range [][]string{
+		{"import log\nimport trace\ntype A {}\n", "import trace\nimport log\ntype A {}\n", "func main() {}\n"},
+		{"type A {}\n", "type A {}\n", "func main() {}\n"},
+	} {
+		labels := map[string]string{srcs[0]: "first", srcs[1]: "second", srcs[2]: "main"}
+		var want []string
+		for _, order := range canonOrders(len(srcs)) {
+			got := fileDiags(t, listed(srcs, order), labels)
 			if want == nil {
-				want, wantRaw = canon, raw
-				return
-			}
-			for kind, w := range want {
-				if canon[kind] != w {
-					t.Fatalf("order %v: %s view\n%s\nwant\n%s", prefix, kind, canon[kind], w)
+				want = got
+				if len(got) == 0 {
+					t.Fatal("want the duplicate reported")
 				}
-				if raw[kind] != wantRaw[kind] {
-					moved[kind] = true
-				}
+			} else if !slices.Equal(got, want) {
+				t.Fatalf("order %v: diagnostics\n%s\nwant\n%s", order, strings.Join(got, "\n"), strings.Join(want, "\n"))
 			}
-			return
 		}
-		for i := range rest {
-			next := append(slices.Clone(rest[:i]), rest[i+1:]...)
-			perm(append(slices.Clone(prefix), rest[i]), next)
-		}
-	}
-	perm(nil, []int{0, 1, 2, 3})
-	for kind := range want {
-		if !moved[kind] {
-			t.Errorf("no order of the files moves the raw %s; the property cannot see its order", kind)
-		}
-	}
-	if a, b := TypeKey(&Named{Obj: &TypeName{Name: "Q", Pkg: &Package{Path: "x/lib"}}}), TypeKey(&Named{Obj: &TypeName{Name: "Q", Pkg: &Package{Path: "y/lib"}}}); a == b {
-		t.Fatalf("x/lib.Q and y/lib.Q share the key %s", a)
 	}
 }

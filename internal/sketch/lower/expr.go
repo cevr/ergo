@@ -979,7 +979,7 @@ func (fc *funcCtx) simpleCatch(x *syntax.CatchExpr) bool {
 // leaves the frame under try, and is a re-panicked defect otherwise
 // (rows.md, Catch 6).
 func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, result string, partial bool) {
-	row := &check.Union{Variants: check.CanonCatchSubjects(m)}
+	row := &check.Union{Variants: m.Subjects}
 	fc.line("if " + o.err + " != nil {")
 	fc.depth++
 	fc.line("switch {")

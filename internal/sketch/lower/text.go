@@ -248,8 +248,7 @@ func (l *lowerer) instancesOf(tn *check.TypeName) []check.Type {
 					walk(e)
 				}
 			case *check.Union:
-				// A row value (check/canon.go: a set).
-				for _, v := range check.CanonVariants(u) {
+				for _, v := range u.Variants {
 					walk(v)
 				}
 			case *check.Signature:
