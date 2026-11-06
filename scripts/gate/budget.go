@@ -204,6 +204,9 @@ type stepWatch interface {
 	started(pid int)
 	// finish is called once the command has ended or failed to start.
 	finish() usage
+	// kill stops the started step whole, every process it started with
+	// it, for a stop of the gate (stop.go); finish still follows.
+	kill()
 }
 
 // usage is what a step used of its budget.
@@ -247,8 +250,15 @@ func hostExceeded(host int64) string {
 
 // runBudgeted runs command, not yet started, as the named step under the
 // step budget, and returns what it used. Every process the gate starts for
-// a step runs through it.
+// a step runs through it. A stop of the gate (stop.go) refuses a step that
+// has not started and kills one that runs; runBudgeted returns once the
+// limiter has seen the step's processes end.
 func runBudgeted(limit limiter, name string, command *exec.Cmd) (usage, error) {
+	tracked, err := gateStop.track()
+	if err != nil {
+		return usage{}, err
+	}
+	defer tracked.done()
 	output, err := captureCommandOutput(command)
 	if err != nil {
 		return usage{}, err
@@ -263,6 +273,7 @@ func runBudgeted(limit limiter, name string, command *exec.Cmd) (usage, error) {
 	}
 	if err = command.Start(); err == nil {
 		watch.started(command.Process.Pid)
+		tracked.arm(watch.kill)
 	}
 	output.closeWriters()
 	if err == nil {
@@ -483,15 +494,17 @@ func interfaceEqual(a, b any) (equal bool) {
 // recordDurations measures the slow packages (writeDurations) under the
 // memory budget, as the gate runs its steps.
 func (g *gate) recordDurations(out io.Writer) error {
-	budget, err := currentBudget()
-	if err != nil {
-		return err
+	limit := g.limit
+	if limit == nil {
+		budget, err := currentBudget()
+		if err != nil {
+			return err
+		}
+		if limit, err = g.openLimiter(budget); err != nil {
+			return err
+		}
+		defer limit.close()
 	}
-	limit, err := g.openLimiter(budget)
-	if err != nil {
-		return err
-	}
-	defer limit.close()
 	fmt.Fprintf(out, "gate: memory budget: %s\n", limit.describe())
 	return writeDurations(g.root, limit)
 }
@@ -511,7 +524,15 @@ func (g *gate) openLimiter(budget memoryBudget) (limiter, error) {
 	}
 	reason := g.scopeNote
 	if g.scope != "" {
-		scope, err := openScope(g.scope, budget)
+		cpus, err := currentCPUs()
+		if err != nil {
+			return nil, err
+		}
+		scope, err := openScope(g.scope, budget, cpus)
+		var cpuErr cpuScopeError
+		if errors.As(err, &cpuErr) {
+			return nil, fmt.Errorf("cpu budget: systemd scope %s does not enforce the CPU budget: %w", g.scope, cpuErr.err)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("memory budget: systemd scope %s could not establish gate OOM protection: %w", g.scope, err)
 		}

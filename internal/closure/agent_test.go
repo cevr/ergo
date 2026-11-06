@@ -5,6 +5,7 @@ package closure
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -14,7 +15,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // The property over changes a test asks an agent outside its process tree
@@ -65,16 +65,15 @@ func TestAgentTarget(t *testing.T) {
 	if err := json.Unmarshal(data, &steps); err != nil {
 		t.Fatal(err)
 	}
-	c, err := net.DialTimeout("unix", sock, 5*time.Second)
+	// The dial comes before the first step, so a run that ends with its
+	// results connected to the agent (startAgent's stop relies on it). The
+	// agent closes the connection when a step fails, so a wait for its
+	// answer ends with the failure, and the run deadline bounds the rest.
+	c, err := net.Dial("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	// The agent stops answering when a step fails: the deadline turns that
-	// into a failure that names the step, not a hang until the test timeout.
-	if err := c.SetDeadline(time.Now().Add(60 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
 	in := bufio.NewReader(c)
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -112,70 +111,119 @@ func TestAgentTarget(t *testing.T) {
 
 // startAgent serves one connection on a socket outside the sandbox: each
 // request is a step, made before the answer "ok".
-func startAgent(t *testing.T) (sock string, stop func() error) {
+//
+// stop ends the agent after the run and returns the number of requests it
+// answered. It waits on events, not on the clock. TestAgentTarget dials the
+// agent before its first step, so a run that wrote its results (connected
+// is true) left one connection: one the agent served already, or one still
+// in the listener's backlog that the agent accepts and serves next. Either
+// way the run's exit closed it, so the agent reads its end. Closing the
+// listener then would refuse a connection the scheduler had not yet let the
+// agent accept (a run with no request, under load). A run that did not
+// write its results may not have dialed: stop closes the listener, and an
+// agent that never accepted answered nothing.
+//
+// lateAccept makes the agent accept only once stop starts: the schedule in
+// which the run ends before the agent runs at all.
+func startAgent(t *testing.T, lateAccept bool) (sock string, stop func(connected bool) (int, error)) {
 	t.Helper()
 	sock = filepath.Join(t.TempDir(), "a")
 	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.SetDeadline(time.Now().Add(60 * time.Second))
-	done := make(chan error, 1)
-	go func() {
-		c, err := l.AcceptUnix()
-		if err != nil {
-			done <- err
-			return
-		}
-		defer c.Close()
-		var flapping sync.WaitGroup
-		var quit chan struct{}
-		sc := bufio.NewScanner(c)
-		for sc.Scan() {
-			var s agentStep
-			if err := json.Unmarshal(sc.Bytes(), &s); err != nil {
-				done <- err
-				return
-			}
-			switch s.Op {
-			case "flap":
-				quit = make(chan struct{})
-				flapping.Add(1)
-				go func(q chan struct{}) {
-					defer flapping.Done()
-					for i := 0; ; i++ {
-						select {
-						case <-q:
-							return
-						default:
-						}
-						target := s.Target
-						if i%2 == 1 {
-							target = s.Other
-						}
-						do(childOp{Op: "retarget", Path: s.Path, Target: target})
-					}
-				}(quit)
-			case "unflap":
-				close(quit)
-				flapping.Wait()
-			default:
-				if r := do(childOp{Op: s.Op, Path: s.Path, Target: s.Target}); r.Err != "" {
-					done <- fmt.Errorf("the agent's %+v: %s", s, r.Err)
-					return
-				}
-			}
-			if _, err := c.Write([]byte("ok\n")); err != nil {
-				done <- err
-				return
-			}
-		}
-		done <- sc.Err()
-	}()
-	return sock, func() error {
-		l.Close()
-		return <-done
+	t.Cleanup(func() { l.Close() }) // a test that fails before stop
+	stopping := make(chan struct{})
+	type result struct {
+		served   bool
+		answered int
+		err      error
 	}
+	done := make(chan result, 1)
+	go func() {
+		if lateAccept {
+			<-stopping
+		}
+		c, err := l.AcceptUnix()
+		l.Close() // the agent serves one connection
+		switch {
+		case errors.Is(err, net.ErrClosed):
+			done <- result{} // stop closed it: no connection came
+		case err != nil:
+			done <- result{err: err}
+		default:
+			answered, err := serveAgent(c)
+			c.Close()
+			done <- result{true, answered, err}
+		}
+	}()
+	return sock, func(connected bool) (int, error) {
+		close(stopping)
+		if !connected {
+			l.Close()
+		}
+		r := <-done
+		if connected && !r.served && r.err == nil {
+			r.err = errors.New("the target dialed the agent, and the agent served no connection")
+		}
+		return r.answered, r.err
+	}
+}
+
+// serveAgent makes the steps a connection requests, each before its answer
+// "ok", until the connection ends, and returns the number it answered. A
+// step that fails ends the connection without an answer.
+func serveAgent(c *net.UnixConn) (answered int, err error) {
+	var flapping sync.WaitGroup
+	var quit chan struct{}
+	// A connection that ends while the link flaps (a run stopped at its
+	// deadline) stops the flapping too.
+	defer func() {
+		if quit != nil {
+			close(quit)
+			flapping.Wait()
+		}
+	}()
+	sc := bufio.NewScanner(c)
+	for sc.Scan() {
+		var s agentStep
+		if err := json.Unmarshal(sc.Bytes(), &s); err != nil {
+			return answered, err
+		}
+		switch s.Op {
+		case "flap":
+			quit = make(chan struct{})
+			flapping.Add(1)
+			go func(q chan struct{}) {
+				defer flapping.Done()
+				for i := 0; ; i++ {
+					select {
+					case <-q:
+						return
+					default:
+					}
+					target := s.Target
+					if i%2 == 1 {
+						target = s.Other
+					}
+					do(childOp{Op: "retarget", Path: s.Path, Target: target})
+				}
+			}(quit)
+		case "unflap":
+			close(quit)
+			flapping.Wait()
+			quit = nil
+		default:
+			if r := do(childOp{Op: s.Op, Path: s.Path, Target: s.Target}); r.Err != "" {
+				return answered, fmt.Errorf("the agent's %+v: %s", s, r.Err)
+			}
+		}
+		if _, err := c.Write([]byte("ok\n")); err != nil {
+			return answered, err
+		}
+		answered++
+	}
+	return answered, sc.Err()
 }
 
 // agentSteps generates the steps of one run over the fixture f. The first
@@ -270,10 +318,6 @@ func agentSteps(f fixture, run int, rng *rand.Rand) []agentStep {
 //     even if the agent undid the change.
 func TestOutsideAgentChangesFailClosed(t *testing.T) {
 	needSandbox(t)
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	const seed, runs = 2026_11_04, 16
 	counts := map[string]int{}
 	for run := range runs {
@@ -289,18 +333,12 @@ func TestOutsideAgentChangesFailClosed(t *testing.T) {
 		if err := os.WriteFile(stepsFile, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		sock, stop := startAgent(t)
-		stem := filepath.Join(dir, "internal_p")
-		o, runErr := runObserved(f.root, "internal/p", f.pkg, stem, []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, nil, self, "-test.run=^TestAgentTarget$", "-test.v")
-		if err := stop(); err != nil {
-			t.Fatalf("run %d: the agent: %v", run, err)
+		o, results, answered, err := runAgentTarget(t, f, dir, stepsFile, false, "-test.v")
+		if err != nil {
+			t.Fatalf("run %d: %v", run, err)
 		}
-		if runErr != nil {
-			t.Fatalf("run %d: %v", run, runErr)
-		}
-		var results []agentRead
-		if err := readResultsInto(stem+".out", &results); err != nil {
-			t.Fatal(err)
+		if requests := len(slices.DeleteFunc(slices.Clone(steps), agentStep.reads)); answered != requests {
+			t.Fatalf("run %d: the agent answered %d requests of %d", run, answered, requests)
 		}
 		if len(results) != len(steps) {
 			t.Fatalf("run %d: %d results for %d steps", run, len(results), len(steps))
@@ -410,27 +448,74 @@ func readResultsInto(output string, into any) error {
 	return fmt.Errorf("%s has no results line", output)
 }
 
-// TestChangeAfterTheRunFailsClosed: a link the test read through is changed
-// after the test exits and before the sweep classifies the run (A2): the
-// read is named by its access-time object and fails closed. Without the
-// comparison, the access-time object would pass as it is.
-func TestChangeAfterTheRunFailsClosed(t *testing.T) {
-	needSandbox(t)
+// runAgentTarget runs TestAgentTarget as the sweep runs a package, in the
+// package directory of the fixture f, with the steps in stepsFile and an
+// agent (startAgent). It returns the run, the target's results and the
+// number of requests the agent answered. dir holds the run's files.
+func runAgentTarget(t *testing.T, f fixture, dir, stepsFile string, lateAccept bool, args ...string) (observedRun, []agentRead, int, error) {
+	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
-		t.Fatal(err)
+		return observedRun{}, nil, 0, err
 	}
+	sock, stop := startAgent(t, lateAccept)
+	stem := filepath.Join(dir, "internal_p")
+	o, runErr := runObserved(f.root, "internal/p", f.pkg, stem, []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, nil, self, append([]string{"-test.run=^TestAgentTarget$"}, args...)...)
+	var results []agentRead
+	if runErr == nil {
+		runErr = readResultsInto(stem+".out", &results)
+	}
+	// Results mean the target dialed the agent before it exited.
+	answered, agentErr := stop(runErr == nil)
+	switch {
+	case agentErr != nil && runErr != nil:
+		return o, nil, answered, fmt.Errorf("the agent: %v; the run: %w", agentErr, runErr)
+	case agentErr != nil:
+		return o, nil, answered, fmt.Errorf("the agent: %w", agentErr)
+	case runErr != nil:
+		return o, nil, answered, runErr
+	}
+	return o, results, answered, nil
+}
+
+// TestAgentServesARunThatEndedFirst: a run with no request to the agent can
+// end before the agent accepts its connection (the scheduler has not run
+// the agent yet). lateAccept forces that schedule. The agent still serves
+// the connection the run left, and the run's results count. Before, stop
+// closed the listener at once, and the agent failed with "use of closed
+// network connection" (TestOutsideAgentChangesFailClosed runs 4, 7 and 11
+// under load). Only a run with no request can take this schedule: a
+// request waits for the agent's answer, so the run cannot end first.
+func TestAgentServesARunThatEndedFirst(t *testing.T) {
+	needSandbox(t)
 	f := newFixture(t)
 	dir := t.TempDir()
 	stepsFile := filepath.Join(dir, "steps.json")
 	if err := os.WriteFile(stepsFile, []byte(`[{"Op":"open","Path":"testdata/local/a.txt"}]`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sock, stop := startAgent(t)
-	o, err := runObserved(f.root, "internal/p", f.pkg, filepath.Join(dir, "internal_p"), []string{agentVariable + "=" + sock, agentStepsVariable + "=" + stepsFile}, nil, self, "-test.run=^TestAgentTarget$")
-	if err := stop(); err != nil {
+	_, results, answered, err := runAgentTarget(t, f, dir, stepsFile, true)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if len(results) != 1 || answered != 0 {
+		t.Fatalf("want 1 result and no answered request, got %d and %d", len(results), answered)
+	}
+}
+
+// TestChangeAfterTheRunFailsClosed: a link the test read through is changed
+// after the test exits and before the sweep classifies the run (A2): the
+// read is named by its access-time object and fails closed. Without the
+// comparison, the access-time object would pass as it is.
+func TestChangeAfterTheRunFailsClosed(t *testing.T) {
+	needSandbox(t)
+	f := newFixture(t)
+	dir := t.TempDir()
+	stepsFile := filepath.Join(dir, "steps.json")
+	if err := os.WriteFile(stepsFile, []byte(`[{"Op":"open","Path":"testdata/local/a.txt"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o, _, _, err := runAgentTarget(t, f, dir, stepsFile, false)
 	if err != nil {
 		t.Fatal(err)
 	}

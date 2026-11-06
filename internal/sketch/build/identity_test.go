@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -376,7 +377,7 @@ func publishedCompilers(t *testing.T, root string) []string {
 // never see it. A private build removes the private roots unused for
 // privateLifetime and keeps younger ones.
 func TestPrivateModule(t *testing.T) {
-	root := t.TempDir()
+	root := cacheRoot(t)
 	c := Cache{Root: root}
 	var calls atomic.Int32
 	in := baseInput()
@@ -394,7 +395,7 @@ func TestPrivateModule(t *testing.T) {
 		}
 	}
 
-	m, err := c.Module(in, emitFor(in, &calls))
+	m, err := released(t)(c.Module(in, emitFor(in, &calls)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,19 +423,19 @@ func TestPrivateModule(t *testing.T) {
 		t.Fatalf("the private module's program printed %q", got)
 	}
 
-	again, err := c.Module(in, emitFor(in, &calls))
+	again, err := released(t)(c.Module(in, emitFor(in, &calls)))
 	if err != nil || !again.Reused || !again.Private || again.Dir != m.Dir || calls.Load() != 1 {
 		t.Fatalf("the same process: %+v %v after %d emissions; want its private module reused", again, err, calls.Load())
 	}
 	other := in
 	other.Compiler = "process:" + strings.Repeat("2", 64)
-	elsewhere, err := c.Module(other, emitFor(other, &calls))
+	elsewhere, err := released(t)(c.Module(other, emitFor(other, &calls)))
 	if err != nil || elsewhere.Reused || !elsewhere.Private || filepath.Dir(filepath.Dir(elsewhere.Dir)) == filepath.Dir(filepath.Dir(m.Dir)) || calls.Load() != 2 {
 		t.Fatalf("another process: %+v %v; want its own private module", elsewhere, err)
 	}
 	content := in
 	content.Compiler = "sha256:compiler-1"
-	shared, err := c.Module(content, emitFor(content, &calls))
+	shared, err := released(t)(c.Module(content, emitFor(content, &calls)))
 	if err != nil || shared.Reused || shared.Private || shared.Dir != filepath.Join(root, "modules", shared.Key) || calls.Load() != 3 {
 		t.Fatalf("a content identity: %+v %v; want a published module of its own", shared, err)
 	}
@@ -448,5 +449,44 @@ func TestPrivateModule(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// cacheRoot is a cache root for one test, checked at the test's end: every
+// module the test took from it was released. Then no descriptor of this
+// process stays open under root (an entry's shared lock or a private root's
+// lease file), and no private root under it keeps this process's lease.
+// Garbage collection is off until the check, so a module that a test drops
+// without Release keeps its descriptor open (an os.File finalizer would
+// close it during a collection) and the check sees it every time.
+func cacheRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	gc := debug.SetGCPercent(-1)
+	t.Cleanup(func() {
+		defer debug.SetGCPercent(gc)
+		if _, err := os.Stat("/proc/self/fd"); err == nil {
+			if open := openUnder(t, root); len(open) != 0 {
+				t.Errorf("the test left modules unreleased: descriptors open under the cache root: %v", open)
+			}
+		}
+		leases.Lock()
+		defer leases.Unlock()
+		for held := range leases.held {
+			if held == root || strings.HasPrefix(held, root+string(filepath.Separator)) {
+				t.Errorf("the test left modules unreleased: the private root %s keeps its lease", held)
+			}
+		}
+	})
+	return root
+}
+
+// released returns the module and error of a Module call as they are, and
+// releases the module when the test ends, on every path: a failed test
+// releases it too. The test may Release it earlier; Release is idempotent.
+func released(t *testing.T) func(Module, error) (Module, error) {
+	return func(m Module, err error) (Module, error) {
+		t.Cleanup(m.Release)
+		return m, err
 	}
 }

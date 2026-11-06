@@ -202,10 +202,13 @@ func TestMergeTierUncached(t *testing.T) {
 		}
 		before, _ := environmentVariable(stepCommandEnvironment(repository, step), "GOFLAGS")
 		after, _ := environmentVariable(stepCommandEnvironment(repository, merged), "GOFLAGS")
-		if after != "-mod=mod -count=1" {
-			t.Errorf("merge step %q gets GOFLAGS %q, want the caller's -mod=mod with -count=1 after it (inner tier %q)", step.Name, after, before)
+		// The gate's -p bound follows the caller's flags in every step
+		// (stepGOFLAGS), and the uncached default follows it.
+		bounded := stepGOFLAGS("-mod=mod", stepCPUs())
+		if after != bounded+" -count=1" {
+			t.Errorf("merge step %q gets GOFLAGS %q, want the caller's -mod=mod and the -p bound with -count=1 after them (inner tier %q)", step.Name, after, before)
 		}
-		if want := map[bool]string{false: "-mod=mod -count=1", true: "-mod=mod"}[step.Hermetic]; before != want {
+		if want := map[bool]string{false: bounded + " -count=1", true: bounded}[step.Hermetic]; before != want {
 			t.Errorf("inner step %q (hermetic %t) gets GOFLAGS %q, want %q", step.Name, step.Hermetic, before, want)
 		}
 	}
@@ -336,6 +339,8 @@ var declaredSources = map[string]string{
 	"TestSandboxModuleZipIsConstructed argv[0]":               "a probe script wrapped by the sandbox: its nsenter",
 	"moduleHost goTool":                                       "the real go of TestMain (realTools)",
 	"TestMergeTierInputContractRegression prime[0]":           "the regression step's own program, launched outside the gate to prime the host cache",
+	"TestGateStopsItsStepsOnSignal argv[0]":                   "this test binary, run as the helper gate under the RSS watch (TestGateStopHelper)",
+	"runOracleHelper os.Args[0]":                              "this test binary, re-run as a step of the output-oracle helper gate (TestBudgetScopeHelper)",
 }
 
 // scriptVariables are programs a step's script runs by a variable.

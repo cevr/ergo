@@ -58,6 +58,10 @@ func (g *CommentGroup) End() Pos { return g.List[len(g.List)-1].End() }
 
 // File is one parsed source file.
 type File struct {
+	// Name is the file's name in its package, set by a caller that read
+	// the file from a directory (its package-relative path); the parser
+	// leaves it empty. check.Check orders a package's files by it.
+	Name     string
 	Src      string
 	Decls    []Decl // imports first, in source order
 	Comments []*CommentGroup

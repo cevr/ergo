@@ -237,12 +237,12 @@ func toolQueryEnvironment() []string { return stepEnvironment() }
 
 // queryTool runs a tool in the steps' environment, in dir (the gate's own
 // directory when empty), and returns its standard output, or its combined
-// output when combined is set. The query runs in the gate's own process
-// group, so terminal signals reach it as they reach the gate. It never
+// output when combined is set. The query runs in a process group of its
+// own (runCommand), which a stop of the gate kills and waits for. It never
 // holds the gate longer than toolQueryTimeout plus WaitDelay: at the
-// deadline the tool itself is killed, and a descendant still holding the
-// output pipes is cut off WaitDelay later. Such a descendant may outlive the
-// query.
+// deadline the tool's process group is killed, and a descendant that left
+// it and still holds the output pipes is cut off WaitDelay later. Such a
+// descendant may outlive the query.
 func queryTool(dir string, combined bool, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), toolQueryTimeout)
 	defer cancel()
@@ -250,12 +250,16 @@ func queryTool(dir string, combined bool, name string, args ...string) ([]byte, 
 	command.Env = toolQueryEnvironment()
 	command.Dir = dir
 	command.WaitDelay = time.Second
+	command.Cancel = func() error {
+		killProcessGroup(command.Process.Pid)
+		return nil
+	}
 	var output []byte
 	var err error
 	if combined {
-		output, err = command.CombinedOutput()
+		output, err = runCombinedOutput(command)
 	} else {
-		output, err = command.Output()
+		output, err = runOutput(command)
 	}
 	if ctx.Err() != nil {
 		return output, fmt.Errorf("%s %s: %w after %v", name, strings.Join(args, " "), errQueryTimeout, toolQueryTimeout)

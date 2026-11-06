@@ -115,6 +115,8 @@ type funcCtx struct {
 	owner string
 	// lastPos is the position of the last //line directive written.
 	lastPos syntax.Pos
+	// lastNode is the node whose position lastPos is.
+	lastNode syntax.Node
 	// witness names the Go parameter that holds the operations of each of
 	// the function's type parameters a method set constrains (witness.go).
 	witness map[*check.TypeParam]string
@@ -141,8 +143,8 @@ func (fc *funcCtx) line(s string) {
 func (fc *funcCtx) at(n syntax.Node) {
 	fc.site = n
 	if fc.directives && n != nil && n.Pos().IsValid() {
-		fc.out.WriteString(fc.l.directive(n.Pos()))
-		fc.lastPos = n.Pos()
+		fc.out.WriteString(fc.l.directive(n))
+		fc.lastPos, fc.lastNode = n.Pos(), n
 	}
 }
 
@@ -152,12 +154,12 @@ func (fc *funcCtx) at(n syntax.Node) {
 // pos, the operation's .ergo position. The defect then names that line
 // exactly, on whatever Go line go/format puts the operation (stage C
 // round 2 review m3).
-func (fc *funcCtx) atSite(pos syntax.Pos, val string) string {
+func (fc *funcCtx) atSite(n syntax.Node, pos syntax.Pos, val string) string {
 	if !fc.directives || !pos.IsValid() {
 		return val
 	}
-	line, column := fc.l.file.Position(pos)
-	return InlineDirective(fc.l.src, line, column) + val
+	_, src, line, column := fc.l.at(n, pos)
+	return InlineDirective(src, line, column) + val
 }
 
 func (fc *funcCtx) temp(base string) string { return fc.scope.alloc(base) }

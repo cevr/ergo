@@ -5,8 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -16,28 +18,47 @@ import (
 // clone3 for an answer from a listener it had not handed over yet, so the
 // run never ended and the sweep waited until its own timeout, leaving the
 // pair behind. The guard stands in for that run with one that never ends by
-// itself (within the guard's time): an observed test that starts a child
-// and blocks. It uses only what the round-7 head had, so it runs there too,
-// where no deadline stops the run.
+// itself while the guard runs: an observed test that starts a child and
+// blocks until the guard's process ends.
 
 // stuckVariable names the scratch directory where TestStuckRunTarget writes
-// its process id and its child's; stuckHoldVariable makes it the child.
+// its process id and its child's, and marks each process of the stuck run
+// (its environment holds the entry). stuckHoldVariable makes it the child.
+// stuckWatchVariable is the guard's process id: the target and its child
+// end when that process ends, and not before, so no run of the guard leaves
+// them for good, and a process the deadline did not stop is still there
+// for the guard to see.
 const (
-	stuckVariable     = "ERGO_CLOSURE_STUCK"
-	stuckHoldVariable = "ERGO_CLOSURE_STUCK_HOLD"
-	stuckFor          = 90 * time.Second // the target ends by itself after this, so no run of the guard leaves it for good
+	stuckVariable      = "ERGO_CLOSURE_STUCK"
+	stuckHoldVariable  = "ERGO_CLOSURE_STUCK_HOLD"
+	stuckWatchVariable = "ERGO_CLOSURE_STUCK_WATCH"
 )
 
 // TestStuckRunTarget is the stuck run: it runs only as the target of
 // TestRunDeadlineStopsAStuckRun.
 func TestStuckRunTarget(t *testing.T) {
-	if os.Getenv(stuckHoldVariable) != "" {
-		time.Sleep(stuckFor)
-		return
-	}
 	dir := os.Getenv(stuckVariable)
 	if dir == "" {
 		t.Skip("the target of TestRunDeadlineStopsAStuckRun")
+	}
+	// Open the guard's pidfd first: the guard runs until the run is
+	// stopped, so the id names it now.
+	guard, err := strconv.Atoi(os.Getenv(stuckWatchVariable))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, ok, err := openProcess(guard)
+	if err != nil || !ok {
+		t.Fatalf("the guard %d: %v", guard, err)
+	}
+	hold := func() {
+		if _, err := readableWithin(fd, forever); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if os.Getenv(stuckHoldVariable) != "" {
+		hold()
+		return
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -52,9 +73,12 @@ func TestStuckRunTarget(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pids"), []byte(pids), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(stuckFor)
+	hold()
 	child.Wait()
 }
+
+// forever is a wait with no bound in readableWithin.
+const forever = 100 * 365 * 24 * time.Hour
 
 // TestRunDeadlineStopsAStuckRun: a run that does not end within the run
 // deadline is a failure that names its package, well before the deadline of
@@ -76,7 +100,7 @@ func TestRunDeadlineStopsAStuckRun(t *testing.T) {
 	}
 	t.Setenv("ERGO_CLOSURE_RUN_DEADLINE", "5s")
 	sb := sandbox{Root: f.root, Scratch: []string{scratchDir, logDir}}
-	env := testEnv(f.pkg, stuckVariable+"="+scratchDir)
+	env := testEnv(f.pkg, stuckVariable+"="+scratchDir, stuckWatchVariable+"="+strconv.Itoa(os.Getpid()))
 	output := filepath.Join(t.TempDir(), "stuck.out")
 	done := make(chan error, 1)
 	start := time.Now()
@@ -85,38 +109,99 @@ func TestRunDeadlineStopsAStuckRun(t *testing.T) {
 		// testinputs.Main start its observer and child.
 		done <- runProtected(sb, "internal/stuck", f.pkg, env, output, self, "-test.run=^TestStuckRunTarget$", "-test.testlogfile="+filepath.Join(logDir, "log"))
 	}()
+	// Only the test's own deadline bounds the waits (a hang is permanent,
+	// so -test.timeout sets the bound); see testBounds.
+	runBound, endBound := testBounds(t)
 	var runErr error
 	select {
 	case runErr = <-done:
-	case <-time.After(45 * time.Second):
-		t.Fatalf("the stuck run was not stopped within 45s (the run deadline is 5s); it ends by itself after %v", stuckFor)
+	case <-runBound:
+		t.Fatalf("the stuck run was not stopped before 8/10 of the test's deadline (the run deadline is 5s); it ends when this test process ends")
 	}
 	t.Logf("stopped after %v: %v", time.Since(start).Round(time.Millisecond), runErr)
 	if runErr == nil || !strings.Contains(runErr.Error(), "internal/stuck") || !strings.Contains(runErr.Error(), "did not end within") {
 		t.Fatalf("want a failure that names the package and the deadline; got %v", runErr)
 	}
-	data, err := os.ReadFile(filepath.Join(scratchDir, "pids"))
-	if err != nil {
-		t.Fatalf("the target did not start its child: %v", err)
+	// The run's start-up (sandbox, observer, target, child) takes a time
+	// that the host's load sets, and the deadline can stop the run at any
+	// point of it. So the test does not need the target's pids file: it
+	// finds every process of the run by the marker that each one carries in
+	// its environment (the target's child inherits it; a process forked
+	// but not yet exec'd has it too), and waits for each to end.
+	if data, err := os.ReadFile(filepath.Join(scratchDir, "pids")); err == nil {
+		t.Logf("the deadline stopped the run after the target started its child (pids %s)", data)
+	} else {
+		t.Logf("the deadline stopped the run in its start-up, before the target started its child")
 	}
-	// Each process of the run is gone: no /proc entry runs this target any
-	// more (a reused process id runs something else).
-	for _, field := range strings.Fields(string(data)) {
-		pid, err := strconv.Atoi(field)
+	for _, p := range processesWith(t, stuckVariable+"="+scratchDir) {
+		left := time.Until(endBound)
+		if endBound.IsZero() {
+			left = forever // no test deadline: -test.timeout=0 asked for no bound
+		}
+		ended, err := readableWithin(p.fd, max(left, 0))
+		syscall.Close(p.fd)
 		if err != nil {
 			t.Fatal(err)
 		}
-		gone := false
-		for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
-			cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-			stat, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-			if err != nil || !strings.Contains(string(cmdline), "TestStuckRunTarget") || strings.Contains(string(stat), ") Z ") {
-				gone = true
-				break
-			}
-		}
-		if !gone {
-			t.Errorf("process %d of the stuck run is still running", pid)
+		if !ended {
+			t.Errorf("process %d of the stuck run (%s) is still running", p.pid, p.cmdline)
 		}
 	}
+}
+
+// testBounds splits the time left before the test's deadline: a channel
+// that fires at 8/10 of it (the run must have stopped), and the time at
+// 9/10 (each process of the run must have ended); the last tenth is for the
+// report, before the testing package's own timeout panics. Without a
+// deadline (-test.timeout=0) the channel never fires and the time is zero.
+func testBounds(t *testing.T) (<-chan time.Time, time.Time) {
+	deadline, ok := t.Deadline()
+	if !ok {
+		return nil, time.Time{}
+	}
+	left := time.Until(deadline)
+	return time.After(left * 8 / 10), time.Now().Add(left * 9 / 10)
+}
+
+// process is a live process found by processesWith: fd is a pidfd of it.
+type process struct {
+	pid     int
+	fd      int
+	cmdline string
+}
+
+// processesWith returns a pidfd of each live process whose environment
+// holds entry. Each pidfd is opened before the environment is read, so it
+// names the process whose environment matched: a process id reused after
+// the pidfd was opened belongs to a process the pidfd does not name, and
+// then the pidfd reads as ended, which is true of the matched one. A zombie
+// shows an empty environment and is not returned: it has ended.
+func processesWith(t *testing.T, entry string) []process {
+	t.Helper()
+	list, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []process
+	for _, e := range list {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == os.Getpid() {
+			continue
+		}
+		fd, ok, err := openProcess(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			continue
+		}
+		environ, _ := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+		if !slices.Contains(strings.Split(string(environ), "\x00"), entry) {
+			syscall.Close(fd)
+			continue
+		}
+		cmdline, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+		found = append(found, process{pid: pid, fd: fd, cmdline: strings.ReplaceAll(string(cmdline), "\x00", " ")})
+	}
+	return found
 }

@@ -77,7 +77,7 @@ const stepsCgroup = "steps"
 // gate uses the RSS watch ("" when ERGO_GATE_MEMORY_MECHANISM forces it).
 // The whole-gate key holds its answer (mechanismFact), so a gate that may
 // replay knows the mechanism without entering the scope.
-func scopeProbe(budget memoryBudget) (command, reason string) {
+func scopeProbe(budget memoryBudget, cpus int) (command, reason string) {
 	if os.Getenv(mechanismVariable) != "" {
 		return "", ""
 	}
@@ -90,9 +90,9 @@ func scopeProbe(budget memoryBudget) (command, reason string) {
 	if err != nil {
 		return "", "no systemd-run"
 	}
-	probe := exec.Command(command, scopeArguments(gateSlice, "", budget, []string{"true"})...)
+	probe := exec.Command(command, scopeArguments(gateSlice, "", budget, cpus, []string{"true"})...)
 	probe.Env = scopeEnvironment("")
-	if output, err := probe.CombinedOutput(); err != nil {
+	if output, err := runCombinedOutput(probe); err != nil {
 		return "", fmt.Sprintf("systemd-run --user --scope failed (%v): %s", err, firstLine(output))
 	}
 	return command, ""
@@ -101,7 +101,7 @@ func scopeProbe(budget memoryBudget) (command, reason string) {
 // enterScope re-executes the gate in its systemd scope through command, the
 // answer of scopeProbe, and returns only if it does not: then it says why,
 // and the gate uses the RSS watch.
-func enterScope(command, reason string, budget memoryBudget) string {
+func enterScope(command, reason string, budget memoryBudget, cpus int) string {
 	if command == "" {
 		return reason
 	}
@@ -110,8 +110,8 @@ func enterScope(command, reason string, budget memoryBudget) string {
 		return "locate the gate executable: " + err.Error()
 	}
 	unit := scopeUnit()
-	argv := append([]string{"systemd-run"}, scopeArguments(gateSlice, unit, budget, append([]string{executable}, os.Args[1:]...))...)
-	err = syscall.Exec(command, argv, scopeEnvironment(unit))
+	argv := append([]string{"systemd-run"}, scopeArguments(gateSlice, unit, budget, cpus, append([]string{executable}, os.Args[1:]...))...)
+	err = syscall.Exec(command, argv, scopeGateEnvironment(unit, cpus))
 	return "re-execute in a systemd scope: " + err.Error()
 }
 
@@ -142,8 +142,9 @@ func scopeUnit() string {
 }
 
 // scopeArguments are systemd-run's arguments that run argv in a gate scope
-// in slice, named unit unless unit is empty.
-func scopeArguments(slice, unit string, budget memoryBudget, argv []string) []string {
+// in slice, named unit unless unit is empty, with the memory budget and the
+// CPU budget cpus (CPUQuota, cpu.max of the scope's cgroup).
+func scopeArguments(slice, unit string, budget memoryBudget, cpus int, argv []string) []string {
 	arguments := []string{"--user", "--scope", "--quiet", "--collect", "--slice=" + slice}
 	if unit != "" {
 		arguments = append(arguments, "--unit="+unit)
@@ -153,8 +154,16 @@ func scopeArguments(slice, unit string, budget memoryBudget, argv []string) []st
 		"-p", "MemoryMax="+strconv.FormatInt(scopeMemory(budget), 10),
 		"-p", "MemorySwapMax=0",
 		"-p", "OOMPolicy=continue",
+		"-p", "CPUQuota="+cpuQuota(cpus),
 		"--")
 	return append(arguments, argv...)
+}
+
+// scopeGateEnvironment is the environment of the gate re-executed in its
+// scope: scopeEnvironment naming the unit, and the CPU budget decided
+// outside the scope (scopeCPUsVariable), which takeScope reads.
+func scopeGateEnvironment(unit string, cpus int) []string {
+	return append(scopeEnvironment(unit), scopeCPUsVariable+"="+strconv.Itoa(cpus))
 }
 
 // scopeMemory is the scope's MemoryMax: the gate budget its steps share,
@@ -188,18 +197,24 @@ const cgroupRoot = "/sys/fs/cgroup"
 // scopeLimiter runs steps in cgroups of the gate's scope.
 type scopeLimiter struct {
 	budget memoryBudget
+	// cpus is the CPU budget: the scope's cpu.max, and each step's.
+	cpus int
 	// dir is the scope's cgroup, steps its child that holds every step,
 	// and slice the cgroup of the slice that holds the scope.
 	dir, steps, slice string
 	// hostNote describes the slice's bound for the budget line.
 	hostNote string
 	started  atomic.Int64
+	// withdraw withdraws the sweep of the gate's leaf from a stop of the
+	// gate (stop.go), which runs it after the steps have stopped.
+	withdraw func()
 }
 
 // openScope takes over the scope the gate runs in, checking that it is the
-// named unit and enforces the gate budget, and that a step can start in a
-// cgroup of it, and bounds the gates' slice by the host budget.
-func openScope(unit string, budget memoryBudget) (limiter, error) {
+// named unit and enforces the gate budget and the CPU budget cpus, and that
+// a step can start in a cgroup of it, and bounds the gates' slice by the
+// host budget.
+func openScope(unit string, budget memoryBudget, cpus int) (limiter, error) {
 	membership, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		return nil, err
@@ -213,11 +228,14 @@ func openScope(unit string, budget memoryBudget) (limiter, error) {
 	if filepath.Base(path) != unit+".scope" {
 		return nil, fmt.Errorf("the gate is in cgroup %q, not in its scope %s.scope", path, unit)
 	}
-	s := &scopeLimiter{budget: budget, dir: filepath.Join(cgroupRoot, path)}
+	s := &scopeLimiter{budget: budget, cpus: cpus, dir: filepath.Join(cgroupRoot, path)}
 	s.steps = filepath.Join(s.dir, stepsCgroup)
 	s.slice = filepath.Dir(s.dir)
 	if limit, err := readTrimmed(filepath.Join(s.dir, "memory.max")); err != nil || limit != strconv.FormatInt(scopeMemory(budget), 10) {
 		return nil, fmt.Errorf("the scope's memory.max is %q (%v), not the gate budget plus the gate's reserve %d", limit, err, scopeMemory(budget))
+	}
+	if err := checkCPUMax(s.dir, cpus); err != nil {
+		return nil, cpuScopeError{err}
 	}
 	if swap, err := readTrimmed(filepath.Join(s.dir, "memory.swap.max")); err == nil && swap != "0" {
 		return nil, fmt.Errorf("the scope's memory.swap.max is %q, not 0", swap)
@@ -245,6 +263,14 @@ func openScope(unit string, budget memoryBudget) (limiter, error) {
 	if err := os.WriteFile(filepath.Join(s.steps, "cgroup.subtree_control"), []byte("+memory"), 0); err != nil {
 		return nil, fmt.Errorf("enable the memory controller for each step: %w", err)
 	}
+	// Each step's cgroup has cpu.max at the CPU budget too: the scope's
+	// quota bounds the steps together, and Go's runtime reads only the
+	// cpu.max of the cgroup its process is in for GOMAXPROCS.
+	for _, dir := range []string{s.dir, s.steps} {
+		if err := os.WriteFile(filepath.Join(dir, "cgroup.subtree_control"), []byte("+cpu"), 0); err != nil {
+			return nil, cpuScopeError{fmt.Errorf("enable the cpu controller below %s: %w", dir, err)}
+		}
+	}
 	probe := exec.Command("true")
 	watch, err := s.prepare("probe", probe)
 	if err != nil {
@@ -256,7 +282,40 @@ func openScope(unit string, budget memoryBudget) (limiter, error) {
 		return nil, fmt.Errorf("start a process in a step cgroup: %w", err)
 	}
 	s.boundHost()
+	s.withdraw = gateStop.atStopSweep(func() error { return sweepLeaf(leaf) })
 	return s, nil
+}
+
+// sweepLeaf kills, for a stop of the gate, every process but the gate in
+// its leaf cgroup, until it reads none left: what the gate started outside
+// its steps and its commands' process groups (a descendant that left its
+// group, a go command's telemetry sidecar). Only the gate's own
+// descendants are born in the leaf, and none starts during a stop
+// (runCommand, runBudgeted refuse), so a leaf read empty stays empty. An
+// error says a process is left.
+func sweepLeaf(leaf string) error {
+	self := strconv.Itoa(os.Getpid())
+	var left []string
+	for range 500 {
+		content, err := os.ReadFile(filepath.Join(leaf, "cgroup.procs"))
+		if err != nil {
+			return fmt.Errorf("read the gate's leaf cgroup: %w", err)
+		}
+		left = left[:0]
+		for _, field := range strings.Fields(string(content)) {
+			pid, err := strconv.Atoi(field)
+			if field == self || err != nil || pid <= 0 || processIsZombie(pid) {
+				continue
+			}
+			left = append(left, field)
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+		if len(left) == 0 {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("processes %s stay in the gate's leaf cgroup", strings.Join(left, ", "))
 }
 
 // boundHost finds the bound of the gates' slice, which holds this gate and
@@ -282,7 +341,7 @@ func (s *scopeLimiter) boundHost() {
 		// Gates that find the slice unbound at once all set the same value.
 		set := exec.Command("systemctl", "--user", "set-property", "--runtime", name, "MemoryMax="+strconv.FormatInt(bound, 10))
 		set.Env = scopeEnvironment("")
-		if output, err := set.CombinedOutput(); err != nil {
+		if output, err := runCombinedOutput(set); err != nil {
 			s.hostNote = fmt.Sprintf("no bound across gates (systemctl --user set-property %s failed (%v): %s)", name, err, firstLine(output))
 			return
 		}
@@ -310,7 +369,7 @@ func sliceProperty() (string, error) {
 	command := exec.CommandContext(ctx, "systemctl", "--user", "show", "--property=MemoryMax", "--value", gateSlice)
 	command.Env = scopeEnvironment("")
 	command.WaitDelay = time.Second
-	output, err := command.Output()
+	output, err := runOutput(command)
 	if err != nil {
 		return "", fmt.Errorf("systemctl --user show %s: %w", gateSlice, err)
 	}
@@ -335,6 +394,10 @@ func (s *scopeLimiter) describe() string {
 	return "systemd scope " + describeBudget(s.budget) + ", " + s.hostNote
 }
 
+func (s *scopeLimiter) cpuNote() string {
+	return "systemd scope CPUQuota=" + cpuQuota(s.cpus) + ", cpu.max " + cpuMax(s.cpus) + " per step"
+}
+
 func (s *scopeLimiter) prepare(name string, command *exec.Cmd) (stepWatch, error) {
 	if err := s.checkStepDomain(); err != nil {
 		return nil, fmt.Errorf("memory budget: the gate is not outside its steps' out-of-memory domain: %w", err)
@@ -348,6 +411,7 @@ func (s *scopeLimiter) prepare(name string, command *exec.Cmd) (stepWatch, error
 		// An out-of-memory kill of one process stops every process of the
 		// step, so no part of it runs on without the rest.
 		{"memory.oom.group", "1"},
+		{"cpu.max", cpuMax(s.cpus)},
 	} {
 		if err := os.WriteFile(filepath.Join(dir, setting.file), []byte(setting.value), 0); err != nil {
 			os.Remove(dir)
@@ -386,6 +450,24 @@ func (s *scopeLimiter) checkStepDomain() error {
 	return nil
 }
 
+// checkCPUMax checks that the cgroup dir's cpu.max allows exactly cpus CPUs.
+func checkCPUMax(dir string, cpus int) error {
+	path := filepath.Join(dir, "cpu.max")
+	limit, err := readTrimmed(path)
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(limit)
+	if len(fields) == 2 && fields[0] != "max" {
+		quota, quotaErr := strconv.ParseInt(fields[0], 10, 64)
+		period, periodErr := strconv.ParseInt(fields[1], 10, 64)
+		if quotaErr == nil && periodErr == nil && period > 0 && quota == int64(cpus)*period {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is %q, not %d CPUs (%s)", path, limit, cpus, cpuMax(cpus))
+}
+
 // cgroupBound is the cgroup dir's memory.max in bytes; "max" is an error.
 func cgroupBound(dir string) (int64, error) {
 	path := filepath.Join(dir, "memory.max")
@@ -400,7 +482,11 @@ func cgroupBound(dir string) (int64, error) {
 	return bound, nil
 }
 
-func (s *scopeLimiter) close() {}
+func (s *scopeLimiter) close() {
+	if s.withdraw != nil {
+		s.withdraw()
+	}
+}
 
 // scopeStep is one step's cgroup.
 type scopeStep struct {
@@ -413,6 +499,12 @@ type scopeStep struct {
 }
 
 func (s *scopeStep) started(int) {}
+
+// kill stops every process in the step's cgroup, for a stop of the gate;
+// finish then waits until the cgroup is empty.
+func (s *scopeStep) kill() {
+	_ = os.WriteFile(filepath.Join(s.dir, "cgroup.kill"), []byte("1"), 0)
+}
 
 // finish reads the step cgroup's counters. Its own "oom" counts the times
 // the step reached its memory.max; "oom_kill" counts its processes the

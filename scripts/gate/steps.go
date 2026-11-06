@@ -11,8 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -43,13 +43,23 @@ var testTools = []string{"git", "sh"}
 // with -parallel hostTestParallel.
 var hostTestPackages = []string{"scripts/gate"}
 
-// hostTestParallel bounds the parallel tests of a host package. In
-// scripts/gate each parallel storage layout runs a gate in its own systemd
-// scope (MemoryMax 576M), so the bound is also the number of those gates
-// that run at once; Go's default, GOMAXPROCS, would scale it with the host's
-// CPUs. Measured on a 16-CPU host at a 1-minute load of 13 to 60, the
-// package took 151 s at 4, 126 s at 6 and 114 s at 8.
-const hostTestParallel = "8"
+// maxHostTestParallel bounds the parallel tests of a host package
+// (hostTestParallel): the step passes -parallel at most 8, and at most the
+// CPU budget. A test binary's default -parallel is its GOMAXPROCS, which the
+// gate holds at most at the CPU budget (stepGOMAXPROCS), so the bound can
+// lower the default only when that is above 8. No parallel test of scripts/gate
+// starts a gate in a systemd scope: the scope tests and the output-storage
+// layouts run one at a time (TestBudgetOutputStorage). The 8 dates from
+// before the CPU budget (02e1653e), when the 24 storage layouts ran as
+// parallel gates: on a 16-CPU host at a 1-minute load of 13 to 60 the
+// package took 151 s at 4, 126 s at 6 and 114 s at 8. It was not measured
+// again since.
+const maxHostTestParallel = 8
+
+// hostTestParallel is the -parallel of a host package's step.
+func hostTestParallel() string {
+	return strconv.Itoa(min(maxHostTestParallel, stepCPUs()))
+}
 
 // hermeticTestRoot holds the gate's hermetic test packages: every package
 // below it that is not a host package. Their step is the gate's one
@@ -121,7 +131,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
 		if slices.Contains(hostTestPackages, relative) {
-			add(&Step{Name: fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg)), Needs: []string{"go test build"}, Argv: []string{"go", "test", "-count=1", "-parallel", hostTestParallel, testTimeout, pkg}})
+			add(&Step{Name: fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg)), Needs: []string{"go test build"}, Argv: []string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout, pkg}})
 			continue
 		}
 		if strings.HasPrefix(relative, hermeticTestRoot) {
@@ -143,7 +153,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			total += measured[name]
 		}
 		n := int(math.Ceil(total / shardTargetSeconds))
-		n = max(1, min(n, runtime.NumCPU(), len(names)))
+		n = max(1, min(n, stepCPUs(), len(names)))
 		selections := shardArgs(shard(names, measured, n))
 		for i, selection := range selections {
 			argv := append([]string{"go", "test", testTimeout}, selection...)
@@ -289,7 +299,7 @@ func examplesStep() *Step {
 func goPackages(root string) ([]string, error) {
 	command := exec.Command("go", "list", "./...")
 	command.Dir = root
-	output, err := command.Output()
+	output, err := runOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("go list ./...: %w", err)
 	}

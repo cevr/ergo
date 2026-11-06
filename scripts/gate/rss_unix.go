@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,7 +41,6 @@ type rssWatch struct {
 
 	stop    chan struct{}
 	stopped chan struct{}
-	signals chan os.Signal
 }
 
 type rssGroup struct {
@@ -55,7 +53,6 @@ func openRSSWatch(budget memoryBudget, reason string) (limiter, error) {
 		return nil, fmt.Errorf("memory budget: no mechanism: the RSS watch cannot read process memory: %w", err)
 	}
 	w := &rssWatch{budget: budget, reason: reason, groups: map[int]*rssGroup{}, stop: make(chan struct{}), stopped: make(chan struct{})}
-	w.forwardSignals()
 	go w.sample()
 	return w, nil
 }
@@ -72,37 +69,6 @@ func (w *rssWatch) prepare(name string, command *exec.Cmd) (stepWatch, error) {
 func (w *rssWatch) close() {
 	close(w.stop)
 	<-w.stopped
-	if w.signals != nil {
-		signal.Stop(w.signals)
-		close(w.signals)
-	}
-}
-
-// forwardSignals keeps terminal signals reaching the steps, now that each
-// runs in its own process group: the gate passes SIGINT, SIGTERM and, unless
-// it was started ignoring it (nohup), SIGHUP to every running step, then
-// takes the signal's default action itself.
-func (w *rssWatch) forwardSignals() {
-	forwarded := []os.Signal{syscall.SIGINT, syscall.SIGTERM}
-	if !signal.Ignored(syscall.SIGHUP) {
-		forwarded = append(forwarded, syscall.SIGHUP)
-	}
-	w.signals = make(chan os.Signal, 1)
-	signal.Notify(w.signals, forwarded...)
-	go func() {
-		received, ok := <-w.signals
-		if !ok {
-			return
-		}
-		number := received.(syscall.Signal)
-		w.mu.Lock()
-		for pgid := range w.groups {
-			syscall.Kill(-pgid, number)
-		}
-		w.mu.Unlock()
-		signal.Reset(received)
-		syscall.Kill(os.Getpid(), number)
-	}()
 }
 
 // sample runs until close, checking the registered groups at each tick.
@@ -177,6 +143,14 @@ func (s *rssStep) started(pid int) {
 	s.watch.mu.Lock()
 	s.watch.groups[pid] = &rssGroup{}
 	s.watch.mu.Unlock()
+}
+
+// kill stops the step's process group, for a stop of the gate. The group
+// stays registered until finish, so its ID is still the step's.
+func (s *rssStep) kill() {
+	if s.pgid != 0 {
+		syscall.Kill(-s.pgid, syscall.SIGKILL)
+	}
 }
 
 func (s *rssStep) finish() usage {

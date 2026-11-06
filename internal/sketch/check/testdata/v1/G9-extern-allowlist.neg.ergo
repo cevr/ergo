@@ -1,0 +1,16 @@
+// Unit G9 (std-1, F7): a user extern binds only a package of the pure
+// allowlist (math, slices, sort, strconv, strings, unicode/utf8). Any other
+// package may reach the host, and a user extern declares no capability row;
+// so it is S109: "extern go os.Getenv reaches the host; wait for std os.Process or
+// #202". Probe q02 of the std-1 plan.
+extern go os.Getenv func Getenv(k string) string // want S109
+extern go time.Sleep func Pause(d duration) // want S109
+extern go fmt.Sprint func Show(n int) string // want S109
+extern go math/bits.Len func Len(x uint) int // want S109
+extern go strings/x.F func F(s string) string // want S109
+
+func main() needs Console {
+	Console.Println("home=" + Getenv("HOME"))
+	Pause(1ms)
+	Console.Println(Show(Len(5)) + F("x"))
+}

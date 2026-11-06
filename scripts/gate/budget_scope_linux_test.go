@@ -32,10 +32,20 @@ func testSlice(t *testing.T) string {
 	return cleanSlice(t, fmt.Sprintf("%s-test-%d.slice", strings.TrimSuffix(gateSlice, ".slice"), os.Getpid()))
 }
 
-// cleanSlice reverts and stops slice when the test ends.
+// startedSlices are the slices in which startableScope started a scope in
+// this test process. A slice in which no scope started was never created,
+// so cleanSlice leaves it alone: where no user manager is reachable (the
+// merge tier's sandbox has no user bus), systemctl could only fail.
+var startedSlices sync.Map
+
+// cleanSlice reverts and stops slice when the test ends, if a scope started
+// in it.
 func cleanSlice(t *testing.T, slice string) string {
 	t.Helper()
 	t.Cleanup(func() {
+		if _, started := startedSlices.Load(slice); !started {
+			return
+		}
 		for _, action := range []string{"revert", "stop"} {
 			command := exec.Command("systemctl", "--user", action, slice)
 			command.Env = scopeEnvironment("")
@@ -96,6 +106,8 @@ type scopeHelper struct {
 	command *exec.Cmd
 	output  bytes.Buffer
 	cache   string
+	// unit is the scope's unit name.
+	unit string
 }
 
 // startableScope skips the test where no systemd user scope can start.
@@ -104,21 +116,26 @@ func startableScope(t *testing.T, slice string, budget memoryBudget) {
 	if _, err := exec.LookPath("systemd-run"); err != nil {
 		t.Skip("no systemd-run: the RSS watch tests cover this host")
 	}
-	probe := exec.Command("systemd-run", scopeArguments(slice, "", budget, []string{"true"})...)
+	probe := exec.Command("systemd-run", scopeArguments(slice, "", budget, stepCPUs(), []string{"true"})...)
 	probe.Env = scopeEnvironment("")
 	if output, err := probe.CombinedOutput(); err != nil {
 		t.Skipf("no systemd user scope here (%v: %s): the RSS watch tests cover this host", err, firstLine(output))
 	}
+	startedSlices.Store(slice, true)
 }
 
 // newScopeHelper prepares a helper gate in slice that runs the named case
-// under the budget the environment sets.
+// under the budgets the environment sets.
 func newScopeHelper(t *testing.T, slice, name string, budget memoryBudget) *scopeHelper {
 	t.Helper()
 	unit := scopeUnit()
-	h := &scopeHelper{cache: t.TempDir()}
-	h.command = exec.Command("systemd-run", scopeArguments(slice, unit, budget, []string{os.Args[0], "-test.run=^TestBudgetScopeHelper$", "-test.count=1"})...)
-	h.command.Env = append(scopeEnvironment(unit), "GATE_BUDGET_CASE="+name, "GATE_BUDGET_ROOT="+budgetFixture(t), "GATE_BUDGET_CACHE="+h.cache)
+	cpus, err := currentCPUs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &scopeHelper{cache: t.TempDir(), unit: unit}
+	h.command = exec.Command("systemd-run", scopeArguments(slice, unit, budget, cpus, []string{os.Args[0], "-test.run=^TestBudgetScopeHelper$", "-test.count=1"})...)
+	h.command.Env = append(scopeGateEnvironment(unit, cpus), "GATE_BUDGET_CASE="+name, "GATE_BUDGET_ROOT="+budgetFixture(t), "GATE_BUDGET_CACHE="+h.cache)
 	h.command.Stdout, h.command.Stderr = &h.output, &h.output
 	return h
 }
@@ -241,21 +258,69 @@ func TestBudgetGateSurvivesStepOOM(t *testing.T) {
 	}
 }
 
-// outputLines is how many lines gateOutputCase's step prints: 1088888898
-// bytes (seqBytes), past the 64M gate budget and the gate's 512M reserve
-// together.
-const outputLines = 120_000_000
+// gateResidentLimit is the most resident memory (VmHWM) a gateOutputCase
+// helper gate may reach. The gate's own is far under it: measured 7.8M to
+// 10M on 26 helper gates (2026-11-05), most of it the test binary's code. A
+// gate that held the step's output in its memory would reach at least the
+// output's size, outputLines' twice this limit or more
+// (TestBudgetOutputCaseSize).
+const gateResidentLimit = 14 << 20
+
+// outputLines is how many lines gateOutputCase's step prints: 30888896
+// bytes (seqBytes).
+const outputLines = 4_000_000
+
+// gateShmemLimit is the most tmpfs memory (memory.stat shmem) the scope of
+// a gateOutputCase helper may hold at any sample, and the most bytes any
+// open file in memory in the scope may hold (checkPlacement). Pages of files
+// on disk are page cache, not shmem.
+const gateShmemLimit = 4 << 20
 
 // gateOutputCase is a step whose memory stays far under its 64M budget while
-// it prints 1.09 GB. The gate must hold no more for it than for any step:
-// output the gate kept in its memory would fill its scope, and the kernel
-// would stop the gate. The step declares inputs, so its pass is recorded
-// and the helper's second run replays it from the receipt.
+// it prints 31 MB. The gate must hold no more for it than for any step: its
+// resident memory must stay under gateResidentLimit (gateResident). The
+// step declares inputs, so its pass is recorded and the helper's second run
+// replays it from the receipt.
 var gateOutputCase = budgetCase{
 	name: "gate-output", step: "64M", gate: "64M", scopeOnly: true,
 	steps: func() []*Step {
 		return []*Step{{Name: "print", Argv: []string{"seq", "1", strconv.Itoa(outputLines)}, Inputs: &Inputs{Paths: []string{"src/"}}}}
 	},
+}
+
+// gateResident checks the resident memory a gateOutputCase helper gate
+// reports (runOutputHelper) against gateResidentLimit.
+func gateResident(t *testing.T, run int, text string) {
+	t.Helper()
+	_, value, ok := strings.Cut(text, "gate-resident-peak=")
+	var peak int64
+	if _, err := fmt.Sscanf(value, "%d", &peak); !ok || err != nil {
+		t.Errorf("run %d: the helper gate reported no resident peak", run)
+		return
+	}
+	if peak > gateResidentLimit {
+		t.Errorf("run %d: the gate's resident memory reached %d bytes, over %d: it held step output in its memory", run, peak, int64(gateResidentLimit))
+	}
+}
+
+// residentPeak is this process's peak resident memory (VmHWM) in bytes, or
+// -1 if /proc does not say.
+func residentPeak() int64 {
+	status, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return -1
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		if rest, ok := strings.CutPrefix(line, "VmHWM:"); ok {
+			fields := strings.Fields(rest)
+			if len(fields) == 2 && fields[1] == "kB" {
+				if kilobytes, err := strconv.ParseInt(fields[0], 10, 64); err == nil {
+					return kilobytes << 10
+				}
+			}
+		}
+	}
+	return -1
 }
 
 // seqBytes is the size of `seq 1 n`'s output.
@@ -270,8 +335,8 @@ func seqBytes(n int64) int64 {
 // TestBudgetGateSurvivesStepOutput runs gateOutputCase in a real scope, as
 // two gates one after the other on one cache: the first executes the step
 // and records it, the second replays the receipt. Each must finish
-// (gate-exit=0) and print every line in order, and no output spool or step
-// temp file may remain.
+// (gate-exit=0), print every line in order and stay under
+// gateResidentLimit, and no output spool or step temp file may remain.
 func TestBudgetGateSurvivesStepOutput(t *testing.T) {
 	if _, err := exec.LookPath("seq"); err != nil {
 		t.Skip("seq is unavailable")
@@ -295,14 +360,14 @@ func TestBudgetGateSurvivesStepOutput(t *testing.T) {
 		for name, value := range map[string]string{"GATE_BUDGET_ROOT": root, "GATE_BUDGET_CACHE": cache, "GATE_OUTPUT_RUN": strconv.Itoa(run + 1)} {
 			h.command.Env = setEnvironmentVariable(h.command.Env, name, value)
 		}
-		if err := h.command.Run(); err != nil {
-			t.Logf("scope helper exited %v", err)
-		}
+		report := runWatched(t, h)
 		code, text := h.result(t)
 		wantAll(t, text, want, fmt.Sprintf("seq-check run=%d %s", run+1, checked))
 		if code != 0 {
 			t.Errorf("run %d: gate exit %d, want 0", run+1, code)
 		}
+		gateResident(t, run+1, text)
+		checkPlacement(t, run+1, report, true, false)
 	}
 	receipts := receiptsIn(t, cache)
 	if len(receipts) != 1 {
@@ -429,7 +494,7 @@ func runOutputHelper(scope string) {
 	if len(check.partial) > 0 {
 		check.line(check.partial)
 	}
-	fmt.Printf("%sseq-check run=%s lines=%d broken=%q\ngate-exit=%d\n", check.kept.String(), os.Getenv("GATE_OUTPUT_RUN"), check.lines, check.broken, code)
+	fmt.Printf("%sseq-check run=%s lines=%d broken=%q\ngate-resident-peak=%d\ngate-exit=%d\n", check.kept.String(), os.Getenv("GATE_OUTPUT_RUN"), check.lines, check.broken, residentPeak(), code)
 }
 
 // TestBudgetHostSlice runs two gates, each under its own budgets, that
@@ -658,13 +723,23 @@ func TestBudgetScopeHelper(t *testing.T) {
 	if name == "" {
 		t.Skip("run by the scope tests")
 	}
-	scope := os.Getenv(scopeVariable)
-	os.Unsetenv(scopeVariable)
+	scope, err := takeScope()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if name == gateOutputCase.name {
 		runOutputHelper(scope)
 		return
 	}
-	for _, c := range append(append(budgetCases, hostCase, holdCase), gateOOMCases...) {
+	if name == oracleCase {
+		if err := runOracleHelper(scope); err != nil {
+			fmt.Printf("oracle: %v\noracle-exit=1\n", err)
+			return
+		}
+		fmt.Printf("oracle-exit=0\n")
+		return
+	}
+	for _, c := range append(append(budgetCases, hostCase, holdCase, cpuCase, quotaCase), gateOOMCases...) {
 		if c.name == name {
 			var out bytes.Buffer
 			g := &gate{root: os.Getenv("GATE_BUDGET_ROOT"), cacheDir: os.Getenv("GATE_BUDGET_CACHE"), steps: c.steps(), scope: scope}
@@ -698,7 +773,7 @@ func TestBudgetStepDomainReadBack(t *testing.T) {
 			steps := filepath.Join(scope, stepsCgroup)
 			write(t, scope, "memory.max", c.scope)
 			write(t, steps, "memory.max", c.steps)
-			limiter := &scopeLimiter{budget: budget, dir: scope, steps: steps}
+			limiter := &scopeLimiter{budget: budget, cpus: 2, dir: scope, steps: steps}
 			watch, err := limiter.prepare("alloc", exec.Command("true"))
 			if !c.started {
 				if err == nil {
@@ -728,7 +803,7 @@ func TestBudgetStepDomainReadBack(t *testing.T) {
 func TestBudgetScopeArgumentsReserve(t *testing.T) {
 	t.Parallel()
 	budget := memoryBudget{step: 256 << 20, gate: 1 << 30}
-	arguments := strings.Join(scopeArguments(gateSlice, "u", budget, []string{"true"}), " ")
+	arguments := strings.Join(scopeArguments(gateSlice, "u", budget, 2, []string{"true"}), " ")
 	if want := "MemoryMax=" + strconv.FormatInt(budget.gate+gateReserve, 10) + " "; !strings.Contains(arguments, want) {
 		t.Errorf("systemd-run arguments %q lack %q", arguments, want)
 	}
@@ -817,8 +892,8 @@ func TestBudgetNestedHelper(t *testing.T) {
 		return
 	}
 	budget := memoryBudget{step: 256 << 20, gate: 512 << 20, host: 512 << 20}
-	command, reason := scopeProbe(budget)
-	note := enterScope(command, reason, budget)
+	command, reason := scopeProbe(budget, 2)
+	note := enterScope(command, reason, budget, 2)
 	membership, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		t.Fatal(err)

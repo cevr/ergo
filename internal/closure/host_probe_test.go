@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The round-4 verifier's host-service probe
@@ -34,14 +33,13 @@ func TestHostServiceTarget(t *testing.T) {
 	if err != nil || !strings.Contains(string(b), "test package") {
 		t.Fatalf("read docs/tooling.md through testdata/away: %q %v", b, err)
 	}
-	c, err := net.DialTimeout("unix", sock, 5*time.Second)
+	// No clock bounds the exchange: the service closes the connection when
+	// it fails, and the run deadline bounds the rest (needSandbox).
+	c, err := net.Dial("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if err := c.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := c.Write([]byte("retarget owned fixture")); err != nil {
 		t.Fatal(err)
 	}
@@ -63,9 +61,10 @@ func TestHostServiceChangesFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l.Close()
-	if err := l.SetDeadline(time.Now().Add(20 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	// The test asks the service and waits for its answer before it exits,
+	// so the service accepts the test's connection before the run ends; a
+	// run that failed before it asked ends the wait with the listener's
+	// close.
 	done := make(chan error, 1)
 	go func() {
 		c, err := l.AcceptUnix()
@@ -74,7 +73,6 @@ func TestHostServiceChangesFailClosed(t *testing.T) {
 			return
 		}
 		defer c.Close()
-		c.SetDeadline(time.Now().Add(5 * time.Second))
 		var req [22]byte
 		if _, err = io.ReadFull(c, req[:]); err == nil {
 			next := filepath.Join(f.pkg, "testdata/next")
@@ -97,7 +95,7 @@ func TestHostServiceChangesFailClosed(t *testing.T) {
 	serviceErr := <-done
 	target, _ := os.Readlink(filepath.Join(f.pkg, "testdata/away"))
 	if serviceErr != nil || target != "in" {
-		t.Fatalf("the service did not point away at in: %v, %q", serviceErr, target)
+		t.Fatalf("the service did not point away at in: %v, %q (the run: %v)", serviceErr, target, runErr)
 	}
 	if runErr != nil {
 		t.Fatalf("want the run classified, with the change a closure violation; got %v", runErr)

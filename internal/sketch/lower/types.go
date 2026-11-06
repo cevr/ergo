@@ -319,10 +319,13 @@ func (l *lowerer) defaultKey(n *check.Named) pkgKey {
 
 // typeKey spells t for a key: deterministic, from the source alone, and
 // distinct for distinct Go types. A declared type is named by its package
-// path, name and position, a type parameter by its name and position; a
+// path, name and position, a type parameter by its name, position and
+// source file (paramFile), and every other type by its parts' keys, never
+// by its display (String), which two packages' types can share (196b); a
 // type argument that is not type-kinded is left out, as goType leaves it
-// out. It is memoized per type object, so a key is built from its
-// children's keys once.
+// out. A package-level name is unique in its package, so path, name and
+// position identify a declared type without its file. It is memoized per
+// type object, so a key is built from its children's keys once.
 func (l *lowerer) typeKey(t check.Type) string {
 	if k, ok := l.typeKeys[t]; ok {
 		return k
@@ -345,7 +348,7 @@ func (l *lowerer) typeKey(t check.Type) string {
 			k += "[" + strings.Join(keys, ", ") + "]"
 		}
 	case *check.TypeParam:
-		k = "$" + u.Name + "@" + strconv.Itoa(int(u.Pos))
+		k = "$" + u.Name + "@" + strconv.Itoa(int(u.Pos)) + l.paramFile(u)
 	case *check.Slice:
 		k = "[]" + l.typeKey(u.Elem)
 	case *check.Map:
@@ -367,7 +370,29 @@ func (l *lowerer) typeKey(t check.Type) string {
 		for _, r := range u.Results {
 			k += " " + l.typeKey(r)
 		}
+	case *check.Struct:
+		keys := make([]string, len(u.Fields))
+		for i, f := range u.Fields {
+			keys[i] = f.Name + " " + l.typeKey(f.Type)
+		}
+		k = "struct{" + strings.Join(keys, "; ") + "}"
+	case *check.Union:
+		keys := make([]string, len(u.Variants))
+		for i, v := range u.Variants {
+			keys[i] = l.typeKey(v)
+		}
+		k = "union{" + strings.Join(keys, " | ") + "}"
+	case *check.Interface:
+		keys := make([]string, len(u.Methods))
+		for i, m := range u.Methods {
+			keys[i] = m.Name + l.typeKey(m.Sig)
+		}
+		k = "interface/" + u.Set.String() + "{" + strings.Join(keys, "; ") + "}"
+	case *check.MachineType:
+		k = "machine[" + l.typeKey(u.State) + ", " + l.typeKey(u.Signal) + "]"
 	default:
+		// A row (RowVar, RowArg) and noValue have no Go type: goType and
+		// typeArgs leave them out, so no generated name is keyed by one.
 		k = "?" + t.String()
 	}
 	l.typeKeys[t] = k
@@ -471,14 +496,16 @@ func (l *lowerer) reserveDefaults(reserve func(key pkgKey, base string)) {
 			}
 		}
 	}
-	for id, o := range l.info.Defs {
-		if v, ok := o.(*check.Var); ok && l.readsFact(l.pkg, id) {
-			walk(v.Type)
+	for _, p := range l.sourcedPkgs() {
+		for id, o := range p.Info.Defs {
+			if v, ok := o.(*check.Var); ok && l.readsFact(p, id) {
+				walk(v.Type)
+			}
 		}
-	}
-	for x, t := range l.info.Types {
-		if l.readsFact(l.pkg, x) {
-			walk(t)
+		for x, t := range p.Info.Types {
+			if l.readsFact(p, x) {
+				walk(t)
+			}
 		}
 	}
 }
@@ -612,11 +639,13 @@ func exactFloat(v constant.Value) string {
 	return "(" + num.ExactString() + ".0 / " + den.ExactString() + ")"
 }
 
-// foreignOwner is the type of another, non-prelude package that declares
-// the operations of t, or nil: t itself, or the type a defined type is
-// defined over, at any depth, through a pointer too. So `type MyQ
+// foreignOwner is the type of a std package other than the prelude that
+// declares the operations of t, or nil: t itself, or the type a defined
+// type is defined over, at any depth, through a pointer too. So `type MyQ
 // queue.Queue[int]` has queue.Queue's operations, and so has
-// `*queue.Queue[int]`.
+// `*queue.Queue[int]`. An imported user package's operation type is no
+// foreign owner: it is a declaration of the program, which lowers its
+// operations as the root's (196b).
 func (l *lowerer) foreignOwner(t check.Type) *check.Named {
 	seen := map[*check.Named]bool{}
 	for t != nil {
@@ -628,7 +657,7 @@ func (l *lowerer) foreignOwner(t check.Type) *check.Named {
 			return nil
 		}
 		seen[n] = true
-		if pkg := n.Obj.Pkg; pkg != nil && pkg != l.pkg && pkg.Path != "prelude" {
+		if pkg := n.Obj.Pkg; pkg.Std() && pkg.Path != "prelude" {
 			return n
 		}
 		t = n.Defined()

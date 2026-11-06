@@ -403,7 +403,7 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 	}
 	common := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir")
 	common.Dir = root
-	source, err := common.Output()
+	source, err := runOutput(common)
 	if err != nil {
 		return sandboxPlan{}, fmt.Errorf("locate the repository's object store: %w", err)
 	}
@@ -501,7 +501,7 @@ func hostGoPaths(root string) (goPaths, error) {
 	command := exec.Command("go", "env", "-json", "GOCACHE", "GOMODCACHE", "GOROOT")
 	command.Dir = root
 	command.Env = stepEnvironment()
-	output, err := command.Output()
+	output, err := runOutput(command)
 	if err != nil {
 		return goPaths{}, fmt.Errorf("go env: %w", err)
 	}

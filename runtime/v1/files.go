@@ -76,7 +76,20 @@ type Body struct {
 	// Results are the Go result types, as written: the Ergo value results,
 	// then error when the Ergo signature has an error row.
 	Results []string
+	// Pure reports a body marked //ergo:pure that passed the reviewed
+	// rules (pureRefusal): a call of it runs no capability, starts no task
+	// and calls no unknown code, so the checker's footprint treats the call
+	// as transparent (docs/spec/stdlib.md, Pure bodies).
+	Pure bool
 }
+
+// PureMark is the directive line that marks a body pure, in the doc
+// comment of an exported top-level function.
+const PureMark = "//ergo:pure"
+
+// PureImports are the Go packages a file may import when one of its bodies
+// is marked pure: packages that compute on values and reach no host state.
+var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math"}
 
 // TypeParam is one Go type parameter of a body: its name and its
 // constraint as written (any, comparable).
@@ -110,11 +123,14 @@ func BodyOf(name string) (Body, error) {
 var sourceDecls = sync.OnceValues(func() (goDecls, error) { return parseDecls(Source) })
 
 // goDecl is one exported function, method or type of a parsed package,
-// with the local name its file gives runtime/rt.
+// with the local name its file gives runtime/rt, the import paths of its
+// file, and the package's names of functions and variables at top level.
 type goDecl struct {
-	fn  *ast.FuncDecl
-	typ *ast.TypeSpec
-	rt  string
+	fn      *ast.FuncDecl
+	typ     *ast.TypeSpec
+	rt      string
+	imports []string
+	values  map[string]bool // shared by every goDecl of one parse
 }
 
 // goDecls are the exported functions, methods and types of a package's
@@ -162,6 +178,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 		return nil, err
 	}
 	decls := goDecls{}
+	values := map[string]bool{}
 	fset := token.NewFileSet()
 	for _, name := range names {
 		if strings.HasSuffix(name, "_test.go") {
@@ -171,13 +188,17 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 		if err != nil {
 			return nil, err
 		}
-		f, err := parser.ParseFile(fset, name, data, parser.SkipObjectResolution)
+		// Comments carry the PureMark.
+		f, err := parser.ParseFile(fset, name, data, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			return nil, err
 		}
 		rt := ""
+		var imports []string
 		for _, imp := range f.Imports {
-			if p, _ := strconv.Unquote(imp.Path.Value); p == rtPath {
+			p, _ := strconv.Unquote(imp.Path.Value)
+			imports = append(imports, p)
+			if p == rtPath {
 				rt = "rt"
 				if imp.Name != nil {
 					rt = imp.Name.Name
@@ -188,20 +209,34 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
 				for _, s := range gd.Specs {
 					if ts := s.(*ast.TypeSpec); ts.Name.IsExported() {
-						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt}
+						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, values: values}
+					}
+				}
+				continue
+			}
+			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.VAR {
+				for _, s := range gd.Specs {
+					for _, n := range s.(*ast.ValueSpec).Names {
+						values[n.Name] = true
 					}
 				}
 				continue
 			}
 			fn, ok := d.(*ast.FuncDecl)
-			if !ok || !fn.Name.IsExported() {
+			if !ok {
+				continue
+			}
+			if fn.Recv == nil {
+				values[fn.Name.Name] = true
+			}
+			if !fn.Name.IsExported() {
 				continue
 			}
 			key := fn.Name.Name
 			if fn.Recv != nil && len(fn.Recv.List) == 1 {
 				key = recvName(fn.Recv.List[0].Type) + "." + key
 			}
-			decls[key] = goDecl{fn: fn, rt: rt}
+			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, values: values}
 		}
 	}
 	return decls, nil
@@ -237,7 +272,89 @@ func (d goDecls) body(name string) (Body, error) {
 	if b.TypeParams, err = d.typeParams(g.fn); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
 	}
+	if pureMarked(g.fn) {
+		if why := pureRefusal(g, b); why != "" {
+			return Body{}, fmt.Errorf("runtime/v1: %s is marked %s, but %s", name, PureMark, why)
+		}
+		b.Pure = true
+	}
 	return b, nil
+}
+
+// pureMarked reports a function whose doc comment holds the PureMark line.
+func pureMarked(fn *ast.FuncDecl) bool {
+	if fn.Doc == nil {
+		return false
+	}
+	for _, c := range fn.Doc.List {
+		if c.Text == PureMark {
+			return true
+		}
+	}
+	return false
+}
+
+// pureRefusal is why the marked body g, of shape b, may not be pure, or "".
+// The mark is a reviewed claim; these rules are its mechanical part. The
+// body is a top-level function that takes no hidden argument and no
+// function. Its file imports only PureImports, so no host package is in
+// reach. Its body names no function or variable of this package at top
+// level, so it reaches no other body and no package state; and it starts no
+// goroutine and uses no channel.
+func pureRefusal(g goDecl, b Body) string {
+	if g.fn.Recv != nil {
+		return "it is a method; only a function may be pure"
+	}
+	for _, p := range g.imports {
+		if !slices.Contains(PureImports, p) {
+			return fmt.Sprintf("its file imports %s, which is not in %v", p, PureImports)
+		}
+	}
+	if len(b.Hidden) > 0 {
+		return fmt.Sprintf("it takes the hidden %s parameter", b.Hidden[0])
+	}
+	for i, p := range b.Params {
+		if p.Func != nil {
+			return fmt.Sprintf("its parameter %d is a function, whose code is unknown", i+1)
+		}
+	}
+	why := ""
+	ast.Inspect(g.fn.Body, func(n ast.Node) bool {
+		if why != "" {
+			return false
+		}
+		switch x := n.(type) {
+		case *ast.SelectorExpr:
+			// x.Sel names a field, a method or an imported package's
+			// member, never a top-level name of this package.
+			ast.Inspect(x.X, func(n ast.Node) bool { return why == "" && pureNode(n, g.values, &why) })
+			return false
+		default:
+			return pureNode(n, g.values, &why)
+		}
+	})
+	return why
+}
+
+// pureNode sets why when n breaks the body rule of pureRefusal, and
+// reports whether to inspect n's children. An identifier that a local
+// declaration shadows is refused too: the rule is conservative.
+func pureNode(n ast.Node, values map[string]bool, why *string) bool {
+	switch x := n.(type) {
+	case *ast.Ident:
+		if values[x.Name] {
+			*why = fmt.Sprintf("its body names %s, a top-level function or variable of the package", x.Name)
+		}
+	case *ast.GoStmt:
+		*why = "its body starts a goroutine"
+	case *ast.SendStmt, *ast.SelectStmt:
+		*why = "its body uses a channel"
+	case *ast.UnaryExpr:
+		if x.Op == token.ARROW {
+			*why = "its body uses a channel"
+		}
+	}
+	return *why == ""
 }
 
 // typeParams are a function's own type parameters, or a method's: the

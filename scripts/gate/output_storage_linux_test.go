@@ -8,14 +8,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 )
 
 // The output-storage property: whatever the gate does with a step's output,
 // none of it is held in memory charged to the gate. The step is
-// gateOutputCase's: 1.09 GB of output from a step far under its budget, in a
-// real scope where the gate has its 512M reserve and no more. Every place
+// gateOutputCase's: 31 MB of output from a step far under its budget, in a
+// real scope. Every place
 // the gate writes step output is a destination: the output spool, the cache's
 // output file, and the gate's own standard output. Each is put, in turn, in
 // each storage place (on disk, on tmpfs, a link on tmpfs to disk, a link on
@@ -23,9 +24,21 @@ import (
 // to replay. On every layout the gate must finish (gate-exit) and either
 //   - pass with every line of the output, in order; or
 //   - refuse with exit 2, naming the destination, before any step runs.
-// It records a pass only where the cache's output file is on disk; with the
-// cache in memory it says it did not record, and the second run executes
-// again. Whatever the runs leave on tmpfs is small: no step output.
+// Its resident memory stays under gateResidentLimit, under half the output:
+// no step output in its heap. The test's own oracle (output_oracle_linux_test.go)
+// watches the whole helper scope, the gate and every step: its shmem stays
+// under gateShmemLimit, and no process in it has a file in memory open
+// (tmpfs, ramfs, hugetlbfs or a memfd, linked or unlinked) on a layout of
+// disks only, or one larger than gateShmemLimit on any layout. The kernel's
+// view of the real files, not the gate's own placement check, judges where
+// the output went. It records a pass only where the cache's
+// output file is on disk; with the cache in memory it says it did not
+// record, and the second run executes again. Whatever the runs leave on
+// tmpfs is small: no step output in a file in memory.
+//
+// The output is small so that the property costs little disk (2026-11-05,
+// measured): with 1.09 GB, enough to fill the gate's 512M reserve, the
+// layouts took 14.2 GB at their peak, eight at a time.
 
 // storagePlace is where a destination's directory is.
 type storagePlace int
@@ -109,6 +122,11 @@ func (l storageLayout) spoolMemoryBacked() bool {
 	return l.spool.memoryBacked()
 }
 
+// onDiskOnly reports whether every destination of the layout is on disk.
+func (l storageLayout) onDiskOnly() bool {
+	return !l.cache.memoryBacked() && !l.spoolMemoryBacked() && (l.stdout == toPipe || !l.stdout.memoryBacked())
+}
+
 func (l storageLayout) expect(run int) expected {
 	switch {
 	case l.stdout != toPipe && l.stdout.memoryBacked():
@@ -145,14 +163,34 @@ func TestBudgetOutputStorage(t *testing.T) {
 		if fixed, ok := fixedStorageCases[layout]; ok {
 			name = fixed + ":" + name
 		}
+		// The layouts run one at a time: a layout that records its pass
+		// holds the step's output on disk two or three times at its peak
+		// (the spool, the recorded output and a standard output file), and
+		// each layout that runs at once would add that again.
 		t.Run(name, func(t *testing.T) {
-			// Each layout has its own roots, cache, fixture and helper
-			// scope; the test's environment and slice are set before the
-			// layouts start and only read by them. The host step bounds
-			// how many run at once (-parallel).
-			t.Parallel()
 			checkStorageLayout(t, slice, budget, layout)
 		})
+	}
+}
+
+// storageDiskLimit is the most disk the output-storage tests may take at
+// once: a gate runs them on every run, often several gates at once on one
+// host, and on 2026-11-04 their 1.09 GB outputs filled the shared disk.
+const storageDiskLimit = 100 << 20
+
+// The output case's step prints enough that a gate that held the output in
+// its memory passes gateResidentLimit at least twice over, and little
+// enough that a layout, which holds it on disk at most three times (the
+// spool, the recorded output and a standard output file), stays under
+// storageDiskLimit.
+func TestBudgetOutputCaseSize(t *testing.T) {
+	t.Parallel()
+	size := seqBytes(outputLines)
+	if size < 2*gateResidentLimit {
+		t.Errorf("the step prints %d bytes, under twice the gate's resident limit %d", size, int64(gateResidentLimit))
+	}
+	if 3*size > storageDiskLimit {
+		t.Errorf("a storage layout holds up to %d bytes of step output on disk, over the %d limit", 3*size, storageDiskLimit)
 	}
 }
 
@@ -226,9 +264,18 @@ func (r storageRoots) at(t *testing.T, p storagePlace, name string) string {
 	return ""
 }
 
+// layoutsRunning counts the storage layouts in checkStorageLayout. The
+// disk bound (storageDiskLimit) holds for one layout at a time; a layout
+// that starts while another runs fails.
+var layoutsRunning atomic.Int32
+
 // checkStorageLayout runs the gate twice on one cache in layout and checks
 // each run against the property.
 func checkStorageLayout(t *testing.T, slice string, budget memoryBudget, layout storageLayout) {
+	if running := layoutsRunning.Add(1); running > 1 {
+		t.Errorf("%d storage layouts run at once; they must run one at a time to stay under storageDiskLimit", running)
+	}
+	defer layoutsRunning.Add(-1)
 	roots := newStorageRoots(t)
 	cache := roots.at(t, layout.cache, "cache")
 	if layout.cache == inMemory || layout.cache == onDisk {
@@ -251,13 +298,14 @@ func checkStorageLayout(t *testing.T, slice string, budget memoryBudget, layout 
 		for name, value := range map[string]string{"GATE_BUDGET_ROOT": root, "GATE_BUDGET_CACHE": cache, "GATE_OUTPUT_RUN": strconv.Itoa(run), "GATE_OUTPUT_FILE": stdout} {
 			h.command.Env = setEnvironmentVariable(h.command.Env, name, value)
 		}
-		if err := h.command.Run(); err != nil {
-			t.Logf("run %d: scope helper exited %v", run, err)
-		}
+		report := runWatched(t, h)
 		// result fails the layout when the gate did not finish: the kernel
 		// stopped it, and the output it had not printed is lost.
 		code, text := h.result(t)
+		gateResident(t, run, text)
 		want := layout.expect(run)
+		refused := want.refusal != "" && code == 2 && !strings.Contains(text, "== print:")
+		checkPlacement(t, run, report, layout.onDiskOnly(), refused)
 		if want.refusal != "" {
 			if code != 2 || !strings.Contains(text, want.refusal) || strings.Contains(text, "== print:") {
 				t.Errorf("run %d: gate exit %d; want 2, the line %q, and no step run", run, code, want.refusal)

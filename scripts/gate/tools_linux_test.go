@@ -47,7 +47,7 @@ func TestToolQueryIsBoundedByItsDeadlineAndWaitDelay(t *testing.T) {
 
 // TestGateUnderNohupIgnoresHangup runs a gate whose tool query hangs under
 // nohup and sends it SIGHUP: an ignored hangup stays ignored, so the gate
-// keeps running, as it did before the gate handled any signal.
+// keeps running, and its stop on signals (stopOnSignals) does not stop it.
 func TestGateUnderNohupIgnoresHangup(t *testing.T) {
 	if os.Getenv("GATE_HELPER") != "" {
 		t.Skip("the helper runs as a subprocess of this test")
@@ -100,6 +100,7 @@ func TestGateHelper(t *testing.T) {
 	if root == "" {
 		t.Skip("run by TestGateUnderNohupIgnoresHangup")
 	}
+	stopOnSignals()
 	g := &gate{root: root, cacheDir: t.TempDir(), steps: []*Step{{Name: "probe", Argv: []string{"true"}, Inputs: &Inputs{Tools: []string{"probe-tool"}}}}}
 	g.run(&bytes.Buffer{})
 }
