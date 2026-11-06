@@ -82,19 +82,38 @@ type funcDecl struct {
 }
 
 // declareNames gives every package-level declaration of the user package its
-// Go name before anything else is named, in source order, so a source name
-// keeps its spelling unless Go reserves it.
+// Go name before anything else is named, in source order, file by file, so
+// a source name keeps its spelling unless Go reserves it.
 func (l *lowerer) declareNames() {
 	// Package.Types includes the synthetic declarations of inline variants,
-	// immediately after their union. Merge that order with the source's
-	// other declarations before reserving any generated names.
+	// immediately after their union, file by file. Merge that order with
+	// the source's other declarations before reserving any generated names.
 	nextType := 0
-	for _, d := range l.file.Decls {
-		for nextType < len(l.pkg.Types) && l.pkg.Types[nextType].Pos < d.End() {
-			l.typeName(l.pkg.Types[nextType])
-			nextType++
+	inFile := func(tn *check.TypeName, i int) bool {
+		if tn.Decl == nil {
+			return true
 		}
-		l.guard(func() { l.declareName(d) })
+		j, ok := l.sourceOf(tn.Decl.Name)
+		return !ok || j == i
+	}
+	types := l.canon.types(l.pkg)
+	for i, s := range l.srcs {
+		if s.pkg != l.pkg {
+			continue
+		}
+		for _, d := range s.file.Decls {
+			for nextType < len(types) && inFile(types[nextType], i) && types[nextType].Pos < d.End() {
+				l.typeName(types[nextType])
+				nextType++
+			}
+			l.guard(func() {
+				defer l.leave(l.within(i))
+				l.declareName(d)
+			})
+		}
+	}
+	for ; nextType < len(types); nextType++ {
+		l.typeName(types[nextType])
 	}
 }
 
@@ -130,7 +149,7 @@ func (l *lowerer) declareName(d syntax.Decl) {
 				// One builder for each distinct set of providers a with of
 				// this context acquires, in the withs' source order.
 				for _, with := range l.withsOf(w) {
-					l.pkgName(pkgKey{"context", acquiredSet(with)}, "build"+w.Name)
+					l.pkgName(pkgKey{"context", l.acquiredSet(with)}, "build"+w.Name)
 				}
 			}
 		}
@@ -146,7 +165,9 @@ func (l *lowerer) withsOf(w *check.Context) []*check.With {
 			xs = append(xs, x)
 		}
 	}
-	sort.Slice(xs, func(i, j int) bool { return xs[i].Pos() < xs[j].Pos() })
+	// Source order: by source file, then by offset. An offset alone counts
+	// from the start of each file, so two files' operands can share one.
+	sort.Slice(xs, func(i, j int) bool { return l.sourceLess(xs[i], xs[j]) })
 	var out []*check.With
 	for _, x := range xs {
 		for with := l.info.Withs[x]; with != nil; with = with.Next {
@@ -458,17 +479,19 @@ func (l *lowerer) useType(td *typeDecl) *typeDecl {
 	return td
 }
 
-// emitType writes a type declaration once.
+// emitType writes a type declaration once: a sourced package's within its
+// file, after its //line directive (sources.go), a std package's with none.
 func (l *lowerer) emitType(td *typeDecl) {
 	if td.emitted {
 		return
 	}
 	td.emitted = true
+	defer l.leave(l.enter(td.tn.Decl.Name, td.tn.Pkg))
 	b := &l.user
-	if td.library {
+	if !l.isSourced(td.tn.Pkg) {
 		b = &l.gen
 	} else {
-		b.WriteString(l.directive(td.tn.Decl.Pos()))
+		b.WriteString(l.directiveAt(td.tn.Decl.Name, td.tn.Decl.Pos())) // an inline variant's Decl is made; its Name is in the file
 	}
 	site := syntax.Node(td.tn.Decl.Name)
 	tparams, names := l.typeParams(td.tparams, newNamer(l.names), site)
@@ -556,7 +579,7 @@ func (l *lowerer) methodsOf(tn *check.TypeName) []*check.Func {
 	byType, ok := l.methods[tn.Pkg]
 	if !ok {
 		byType = map[*check.TypeName][]*check.Func{}
-		for _, f := range tn.Pkg.Funcs {
+		for _, f := range l.canon.funcs(tn.Pkg) {
 			if fd := l.funcDecl(f); fd.method != nil {
 				byType[fd.method.tn] = append(byType[fd.method.tn], f)
 			}
@@ -794,8 +817,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
-	directives := !fd.library
-	if fd.library {
+	directives := l.isSourced(f.Pkg)
+	// A sourced package's body is lowered within its file, reading its
+	// package's Info (sources.go).
+	defer l.leave(l.enter(f.Decl.Name, f.Pkg))
+	if !directives {
 		b = &l.gen
 		// A library body with Ergo source (std log and trace) reads the
 		// facts of its own package's Info: every fact of the lowering is
@@ -954,7 +980,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 	}
 	if directives {
-		b.WriteString(l.directive(f.Decl.Pos()))
+		b.WriteString(l.directive(f.Decl))
 	}
 	b.WriteString(head.String() + " {\n")
 	fc.depth = 1
@@ -971,11 +997,17 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	b.WriteString("}\n\n")
 }
 
-// directive is the //line directive that maps the next Go line to pos in
-// the user file.
-func (l *lowerer) directive(pos syntax.Pos) string {
-	line, column := l.file.Position(pos)
-	return Directive(l.src, line, column)
+// directive is the //line directive that maps the next Go line to the
+// start of the node n, in the file that holds n (at).
+func (l *lowerer) directive(n syntax.Node) string {
+	return l.directiveAt(n, n.Pos())
+}
+
+// directiveAt is the //line directive that maps the next Go line to pos,
+// in the file that holds the node n.
+func (l *lowerer) directiveAt(n syntax.Node, pos syntax.Pos) string {
+	_, src, line, column := l.at(n, pos)
+	return Directive(src, line, column)
 }
 
 // packageLet lowers a package-level let to a Go package variable. A
@@ -1006,9 +1038,9 @@ func (l *lowerer) packageLet(d *syntax.VarDecl) {
 }
 
 // addInit records the Go code of the package initializer x for initFunc:
-// after the //line directive of at, a block of its own that runs stmts and
-// then assigns.
-func (l *lowerer) addInit(x syntax.Expr, at syntax.Pos, stmts string, assigns []string) {
+// after the //line directive of the node at, a block of its own that runs
+// stmts and then assigns.
+func (l *lowerer) addInit(x syntax.Expr, at syntax.Node, stmts string, assigns []string) {
 	var b strings.Builder
 	b.WriteString(l.directive(at))
 	b.WriteString("\t{\n" + stmts)
@@ -1024,7 +1056,7 @@ func (l *lowerer) addInit(x syntax.Expr, at syntax.Pos, stmts string, assigns []
 
 // hasInits reports whether initFunc runs any initializer.
 func (l *lowerer) hasInits() bool {
-	for _, in := range l.info.InitOrder {
+	for _, in := range l.initOrder() {
 		if _, ok := l.inits[in.Value]; ok {
 			return true
 		}
@@ -1032,11 +1064,23 @@ func (l *lowerer) hasInits() bool {
 	return len(l.machineInits) > 0
 }
 
+// initOrder is the program's package-level initializers in Go's order:
+// each sourced library's, in initialization order (sources.go), then the
+// root package's, each package's in its Info.InitOrder.
+func (l *lowerer) initOrder() []*check.Initializer {
+	var out []*check.Initializer
+	for _, p := range l.sourcedLibs() {
+		out = append(out, l.canon.initOrder(p)...)
+	}
+	return append(out, l.canon.initOrder(l.pkg)...)
+}
+
 // initFunc is the Go function that runs the package-level initializers in
-// Info.InitOrder (Go's initialization order: a let after every let it
-// refers to, directly or through functions, else in declaration order),
-// then each machine's initial value in declaration order (machine.go), or
-// "" when there is none. The entry calls it first inside v1.Main.
+// initOrder (Go's initialization order: a package after the packages it
+// imports; in a package, a let after every let it refers to, directly or
+// through functions, else in declaration order), then each machine's
+// initial value in the order it was lowered (machine.go), or "" when there
+// is none. The entry calls it first inside v1.Main.
 func (l *lowerer) initFunc() string {
 	if !l.hasInits() {
 		return ""
@@ -1044,7 +1088,7 @@ func (l *lowerer) initFunc() string {
 	name := l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	var b strings.Builder
 	b.WriteString("// " + name + " runs the package-level lets in Go's initialization order,\n// inside the program's root task.\nfunc " + name + "(" + initEnv(l) + " *" + l.env() + ") {\n")
-	for _, in := range l.info.InitOrder {
+	for _, in := range l.initOrder() {
 		b.WriteString(l.inits[in.Value])
 	}
 	for _, x := range l.machineInits {
@@ -1087,7 +1131,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	}
 	l.recordDecl(fc.owner, spec)
 	if x == nil {
-		l.user.WriteString(l.directive(id.Pos()))
+		l.user.WriteString(l.directive(id))
 		if def := fc.defaultValue(v.Type); def != "" {
 			l.user.WriteString("var " + name + " " + goType + " = " + def + "\n\n")
 		} else {
@@ -1098,15 +1142,15 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	fc.entryPoll(l.info, spec)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
-		l.user.WriteString(l.directive(id.Pos()))
+		l.user.WriteString(l.directive(id))
 		l.user.WriteString("var " + name + " " + goType + " = " + val + "\n\n")
 		return
 	}
 	if name != "_" {
-		l.user.WriteString(l.directive(id.Pos()))
+		l.user.WriteString(l.directive(id))
 		l.user.WriteString("var " + name + " " + goType + "\n\n")
 	}
-	l.addInit(x, id.Pos(), fc.out.String(), []string{name + " = " + val})
+	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
 }
 
 // packagePattern lowers a package-level let that destructures one value
@@ -1133,9 +1177,9 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	fc.frame = newFrame(t, false, framePolls(l.info, spec))
 	fc.entryPoll(l.info, spec)
 	l.recordDecl(fc.owner, spec)
-	at := spec.Pos()
+	var at syntax.Node = spec
 	if len(spec.Names) > 0 {
-		at = spec.Names[0].Pos()
+		at = spec.Names[0]
 	}
 	val := ""
 	if spec.Pattern != nil {

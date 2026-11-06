@@ -72,9 +72,6 @@ func LowerTests(u Unit) ([]File, error) {
 	if err := u.Validate(); err != nil {
 		return nil, err
 	}
-	if len(u.Files) != 1 {
-		return nil, fmt.Errorf("lower: %d files in one package; packages of several files are 196b's", len(u.Files))
-	}
 	l := newBuildLowerer(u, &testLowering{gens: map[pkgKey]bool{}, lits: map[pkgKey]bool{}})
 	code, err := l.program()
 	if err != nil {
@@ -117,7 +114,7 @@ func (l *lowerer) nameTests() {
 	for _, h := range testHelpers {
 		l.helper(h.key)
 	}
-	for _, t := range l.pkg.Tests {
+	for _, t := range l.runTests() {
 		l.testFunc(t)
 		for _, v := range t.Params {
 			l.genNamed(v.Type, map[check.Type]bool{}, func(n *check.Named) { l.genName(n) })
@@ -142,13 +139,22 @@ func (l *lowerer) testImports() []string {
 	return out
 }
 
+// runTests are the tests the test build runs: the root package's only. An
+// imported package's tests belong to that package's own test build, as Go's
+// go test runs the tests of the package it names, not of its imports.
+// They are in canonical order (canon.go), so the runner, the names and the
+// report do not depend on the order the checker met the files.
+func (l *lowerer) runTests() []*check.Test {
+	return l.canon.tests(l.pkg)
+}
+
 func (l *lowerer) testFunc(t *check.Test) string {
 	return l.pkgName(pkgKey{"test", t}, "ergoTest"+t.Name)
 }
 
 // testOf is the checked test of the declaration d.
 func (l *lowerer) testOf(d *syntax.TestDecl) *check.Test {
-	for _, t := range l.pkg.Tests {
+	for _, t := range l.runTests() {
 		if t.Decl == d {
 			return t
 		}
@@ -192,7 +198,7 @@ func (l *lowerer) testDecl(d *syntax.TestDecl) {
 	} else {
 		head += fc.resultList(nil, true)
 	}
-	l.user.WriteString(l.directive(d.Pos()))
+	l.user.WriteString(l.directive(d))
 	l.user.WriteString(head + " {\n")
 	fc.depth = 1
 	if needsFrame {
@@ -213,17 +219,18 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 		ice(s, "an assert reached the run build, which lowers no test or law body")
 	}
 	cond := fc.value(s.X)
-	text := fc.l.unit.Sources[0].Text[s.X.Pos():s.X.End()]
+	i, _, _, _ := fc.l.at(s.X, s.X.Pos())
+	text := fc.l.srcs[i].text[s.X.Pos():s.X.End()]
 	fc.line("if !(" + cond + ") {")
-	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s.Pos())) + ", " + strconv.Quote(text) + ")")
+	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + strconv.Quote(text) + ")")
 	fc.line("}")
 }
 
-// siteText is a source position as a report names it: file:line:column,
-// the file by its base name.
-func (l *lowerer) siteText(pos syntax.Pos) string {
-	line, column := l.file.Position(pos)
-	return path.Base(strings.ReplaceAll(l.src, "\\", "/")) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+// siteText is the position of the node n as a report names it:
+// file:line:column, the file, the one that holds n (at), by its base name.
+func (l *lowerer) siteText(n syntax.Node) string {
+	_, src, line, column := l.at(n, n.Pos())
+	return path.Base(strings.ReplaceAll(src, "\\", "/")) + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
@@ -260,11 +267,12 @@ func (l *lowerer) testRunner() string {
 	var b strings.Builder
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
-	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(l.pkg.Tests)) + "\n")
-	for _, t := range l.pkg.Tests {
+	tests := l.runTests()
+	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)) + "\n")
+	for _, t := range tests {
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
-		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl.Pos()))
+		name := strconv.Quote(t.Name) + ", " + strconv.Quote(l.siteText(t.Decl))
 		if len(t.Params) == 0 {
 			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")

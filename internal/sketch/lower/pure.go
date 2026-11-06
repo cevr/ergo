@@ -46,7 +46,7 @@ func (l *lowerer) pureFuncs() map[*check.Func]bool {
 	}
 	pure := map[*check.Func]bool{}
 	callees := map[*check.Func][]*check.Func{}
-	for _, f := range l.pkg.Funcs {
+	for _, f := range l.canon.funcs(l.pkg) {
 		if cs, ok := pureCandidate(l.pkg.Info, f); ok && !l.meetsHostProtocol(f) {
 			pure[f], callees[f] = true, cs
 		}
@@ -210,7 +210,7 @@ func (l *lowerer) protocolFreeName(f *check.Func, td *typeDecl, name string) str
 	for _, goName := range td.fieldName {
 		taken[goName] = true
 	}
-	for _, g := range f.Pkg.Funcs {
+	for _, g := range l.canon.funcs(f.Pkg) {
 		if g == f || len(g.Sig.Params) == 0 {
 			continue
 		}

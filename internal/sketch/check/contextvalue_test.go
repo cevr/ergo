@@ -135,7 +135,10 @@ func TestPackageValueNamedLikeContext(t *testing.T) {
 }
 
 // The duplicate rule across files: the later declaration is the one in the
-// later file, whichever kind it is (runtime-199 stage 4a r3 m4).
+// later file, whichever kind it is (runtime-199 stage 4a r3 m4). The later
+// file is the later by name (check/canon.go; pkg-lower round 9), as in
+// Go, not the later as listed, so both listings of one pair of files blame
+// the same file at the same place.
 func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 	const context = "let W = context { A: Quiet }\n"
 	for _, value := range []string{
@@ -144,32 +147,53 @@ func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 		"type W {}\n",
 	} {
 		for _, tc := range []struct {
-			name   string
-			files  [2]string
-			at     int // the file of the later declaration
-			column int
+			name  string
+			files [2]string
 		}{
-			{"value in file 0", [2]string{valueContextHeader + value, context}, 1, 5},
-			{"context in file 0", [2]string{valueContextHeader + context, value}, 1, strings.Index(value, "W") + 1},
+			{"value with the header", [2]string{valueContextHeader + value, context}},
+			{"context with the header", [2]string{valueContextHeader + context, value}},
 		} {
 			t.Run(strings.Fields(value)[1]+"/"+tc.name, func(t *testing.T) {
-				var files []*syntax.File
-				for _, src := range tc.files {
-					f, err := syntax.Parse(src + "func g" + fmt.Sprint(len(files)) + "() { with W { A.Use() } }\n")
-					if err != nil {
-						t.Fatal(err)
-					}
-					files = append(files, f)
+				var texts [2]string
+				for i, src := range tc.files {
+					texts[i] = src + "func g" + fmt.Sprint(i) + "() { with W { A.Use() } }\n"
 				}
-				_, ds := check.Check("main", files, nil)
-				var at []check.Diagnostic
-				for _, d := range ds {
-					if d.Code == "S108" && d.Message == "W is already declared in this package" {
-						at = append(at, d)
-					}
+				names := [2]string{"f0.ergo", "f1.ergo"}
+				const later = 1 // f1.ergo sorts after f0.ergo
+				decl := context
+				if !strings.Contains(texts[later], context) {
+					decl = value
 				}
-				if len(at) != 1 || at[0].File != tc.at || at[0].Line != 1 || at[0].Column != tc.column {
-					t.Fatalf("want one S108 in file %d at 1:%d, got %v in %v", tc.at, tc.column, at, ds)
+				offset := strings.Index(texts[later], decl) + strings.Index(decl, "W")
+				var first check.Diagnostic
+				for order := range 2 {
+					listed := [2]string{texts[order], texts[1-order]}
+					var files []*syntax.File
+					for i, src := range listed {
+						f, err := syntax.Parse(src)
+						if err != nil {
+							t.Fatal(err)
+						}
+						f.Name = names[i^order]
+						files = append(files, f)
+					}
+					_, ds := check.Check("main", files, nil)
+					var at []check.Diagnostic
+					for _, d := range ds {
+						if d.Code == "S108" && d.Message == "W is already declared in this package" {
+							at = append(at, d)
+						}
+					}
+					if len(at) != 1 || listed[at[0].File] != texts[later] || at[0].Offset != offset {
+						t.Fatalf("listing %d: want one S108 in the later file by name at offset %d, got %v in %v", order, offset, at, ds)
+					}
+					d := at[0]
+					d.File = 0
+					if order == 0 {
+						first = d
+					} else if d != first {
+						t.Fatalf("the two listings report %v and %v", first, d)
+					}
 				}
 			})
 		}

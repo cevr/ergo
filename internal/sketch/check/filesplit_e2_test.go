@@ -364,6 +364,10 @@ func TestRecursiveGroupsNameTheirFile(t *testing.T) {
 // The package-pattern loop temporarily selects a later duplicate context,
 // then must restore the pattern's file before declaring its next name.
 // Unit types also share the context namespace, with the later file blamed.
+// The later file is the later by name (check/canon.go; pkg-lower round 9),
+// as in Go, not the later as listed, so both listings blame the same file
+// at the same place. files[i] is named fi.ergo; want names each file by
+// its index in files.
 func TestPackageNameReportsNameTheirFile(t *testing.T) {
 	const duplicate = "W is already declared in this package"
 	const boundTwice = "W is bound twice in this pattern (rows.md, Totality 1)"
@@ -374,29 +378,27 @@ func TestPackageNameReportsNameTheirFile(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		files [2]string
-		want  [2][]report
+		want  []report
 	}{
 		{
 			"pattern-restore", [2]string{"let (W, W) = (1, 2)\n", "let W = context {}\n"},
-			[2][]report{
-				{{0, 8, duplicate}, {0, 8, boundTwice}, {1, 4, duplicate}},
-				{{1, 5, duplicate}, {1, 8, duplicate}, {1, 8, boundTwice}},
-			},
+			[]report{{0, 8, duplicate}, {0, 8, boundTwice}, {1, 4, duplicate}},
 		},
 		{
 			"unit-context", [2]string{"type W {}\n", "let W = context {}\n"},
-			[2][]report{{{1, 4, duplicate}}, {{1, 5, duplicate}}},
+			[]report{{1, 4, duplicate}},
 		},
 	} {
 		for order := range 2 {
 			t.Run(fmt.Sprintf("%s/order=%d", tc.name, order), func(t *testing.T) {
 				texts := [2]string{tc.files[order], tc.files[1-order]}
 				var files []*syntax.File
-				for _, src := range texts {
+				for i, src := range texts {
 					f, err := syntax.Parse(src)
 					if err != nil {
 						t.Fatal(err)
 					}
+					f.Name = fmt.Sprintf("f%d.ergo", i^order)
 					files = append(files, f)
 				}
 				got, ice := checkPlaced(files)
@@ -404,12 +406,26 @@ func TestPackageNameReportsNameTheirFile(t *testing.T) {
 					t.Fatal(ice)
 				}
 				var want []check.Diagnostic
-				for _, r := range tc.want[order] {
+				for _, r := range tc.want {
+					file := r.file // the file's index as listed
+					if order == 1 {
+						file = 1 - file
+					}
 					want = append(want, check.Diagnostic{
-						Code: "S108", Message: r.message, File: r.file,
+						Code: "S108", Message: r.message, File: file,
 						Offset: r.offset, Length: 1, Line: 1, Column: r.offset + 1,
 					})
 				}
+				sort.SliceStable(want, func(i, j int) bool {
+					a, b := want[i], want[j]
+					if a.File != b.File {
+						return a.File < b.File
+					}
+					if a.Offset != b.Offset {
+						return a.Offset < b.Offset
+					}
+					return a.Message < b.Message
+				})
 				if !reflect.DeepEqual(got, want) {
 					t.Fatalf("package names across files:\n got: %+v\nwant: %+v", got, want)
 				}

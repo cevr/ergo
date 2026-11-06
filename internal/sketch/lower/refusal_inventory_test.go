@@ -111,13 +111,14 @@ func main() fails Fault { return Fault{F: Map[string, int]{}} }
 // runtime199 imported-context regression, with the observed refusal returned.
 func importedContextRefusalWitness(t *testing.T) []Refusal {
 	t.Helper()
-	lib, err := syntax.Parse(`type A { Use() }
+	const libSrc = `type A { Use() }
 type Conn { n int }
 func Use(_ Conn) {}
 func Close(_ Conn) {}
 func Get() Conn { Conn{n: 1} }
 let W = context { A: Get() }
-`)
+`
+	lib, err := syntax.Parse(libSrc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +135,8 @@ let W = context { A: Get() }
 	if len(ds) != 0 {
 		t.Fatal(ds)
 	}
-	_, err = lowerPackage(Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}, false)
+	lu := Unit{Package: makers, Files: []*syntax.File{lib}, Sources: []Source{{Path: "/ergo-test/makers/lib.ergo", Text: libSrc}}}
+	_, err = lowerPackage(Unit{Package: pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}, Imports: []Unit{lu}}, false)
 	var refused *Refused
 	if !errors.As(err, &refused) || len(refused.Refusals) != 1 {
 		t.Fatalf("want one imported-context refusal, got %v", err)
