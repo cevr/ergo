@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"iter"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -32,9 +33,12 @@ import (
 // from files that other units edit (the check package's tests, the
 // fixtures and the examples) is not pinned, since a new fixture must join
 // it with no pin to keep; its parts must still cover it, each case once.
-// TestSplitsCoverTheirDomain checks both. So a dropped part, a part that
-// runs another part's cases, or a generator that draws other cases fails
-// that test.
+// TestSplitsCoverTheirDomain checks both, over the cases each part hands
+// to its run through dispatch, the path Part takes. So a dropped part, a
+// part that runs another part's cases, or a generator that draws other
+// cases fails that test; TestSplitHarness checks dispatch and Part against
+// a model of these rules. Part also fails when run does not consume each
+// of its cases once.
 //
 // Under -short a part runs the cases at positions 0, Short, 2*Short, … of
 // its share, or none when Short is 0. The seeds never change: the short
@@ -56,8 +60,10 @@ type split[C any] struct {
 	cases iter.Seq[C]
 	// key is a stable text of one case: what it checks, with its inputs.
 	key func(C) string
-	// run checks the cases of a part.
-	run func(t *testing.T, cases []C)
+	// run checks the cases of a part. It ranges over them once, to the
+	// end: Part fails a part whose run consumes fewer or more cases than
+	// the part holds.
+	run func(t *testing.T, cases iter.Seq[C])
 }
 
 // splits are the package's splits, by newSplit.
@@ -67,9 +73,11 @@ type splitEntry interface {
 	splitName() string
 	splitParts() int
 	pin() (count int, digest string, pinned bool)
-	// domain is the key of each case of the full domain, and the domain
-	// indexes each part runs in full mode.
-	domain() (keys []string, parts [][]int)
+	// keys is the key of each case of the full domain, in index order.
+	keys() []string
+	// ran is the keys of the cases that part k hands to run, through
+	// dispatch, the path Part takes.
+	ran(t *testing.T, k int, short bool) []string
 }
 
 // newSplit registers s for TestSplitsCoverTheirDomain.
@@ -84,19 +92,26 @@ func (s *split[C]) splitParts() int   { return s.parts }
 
 func (s *split[C]) pin() (int, string, bool) { return s.count, s.digest, !s.unpinned }
 
-func (s *split[C]) domain() ([]string, [][]int) {
-	cases := slices.Collect(s.cases)
-	keys := make([]string, len(cases))
-	for i, c := range cases {
-		keys[i] = s.key(c)
+func (s *split[C]) keys() []string {
+	var out []string
+	for c := range s.cases {
+		out = append(out, s.key(c))
 	}
-	parts := make([][]int, s.parts)
-	for k := range s.parts {
-		for i := range s.share(slices.Values(cases), k, false) {
-			parts[k] = append(parts[k], i)
-		}
-	}
-	return keys, parts
+	return out
+}
+
+// ran records the keys of the cases that dispatch hands to run for part
+// k, in a subtest, so a consumption error of dispatch fails the caller.
+func (s *split[C]) ran(t *testing.T, k int, short bool) []string {
+	var out []string
+	t.Run(fmt.Sprintf("part%d", k), func(t *testing.T) {
+		s.dispatch(t, k, short, func(_ *testing.T, cases iter.Seq[C]) {
+			for c := range cases {
+				out = append(out, s.key(c))
+			}
+		})
+	})
+	return out
 }
 
 // splitDigest is the pin of a list of case keys.
@@ -117,31 +132,52 @@ func (s *split[C]) Part(t *testing.T, k int) {
 	if k < 0 || k >= s.parts {
 		t.Fatalf("%s has parts 0 to %d, not %d", s.name, s.parts-1, k)
 	}
-	if testing.Short() && s.short == 0 {
+	if !s.dispatch(t, k, testing.Short(), s.run) {
 		t.Skipf("%s runs in full mode only (the gate's full tier)", s.name)
 	}
-	var cases []C
-	for _, c := range s.share(s.cases, k, testing.Short()) {
-		cases = append(cases, c)
+}
+
+// dispatch hands the cases of part k (under short its fixed subset) to
+// run, and fails t when run does not consume each of them once. It is the
+// one path from the domain to a part's checks: Part passes the split's
+// run, and TestSplitsCoverTheirDomain and TestSplitHarness pass a
+// recorder, so they see the cases that run is given. It returns false, and
+// runs nothing, for a part that skips under short.
+func (s *split[C]) dispatch(t *testing.T, k int, short bool, run func(*testing.T, iter.Seq[C])) bool {
+	if short && s.short == 0 {
+		return false
 	}
-	s.run(t, cases)
+	cases := slices.Collect(s.share(k, short))
+	consumed := 0
+	run(t, func(yield func(C) bool) {
+		for _, c := range cases {
+			consumed++
+			if !yield(c) {
+				return
+			}
+		}
+	})
+	if consumed != len(cases) {
+		t.Errorf("%s part %d: run consumed %d of the part's %d cases", s.name, k, consumed, len(cases))
+	}
+	return true
 }
 
 // share yields the cases of part k of the domain (under short its fixed
-// subset), with their domain indexes.
-func (s *split[C]) share(domain iter.Seq[C], k int, short bool) iter.Seq2[int, C] {
-	return func(yield func(int, C) bool) {
+// subset), in domain order.
+func (s *split[C]) share(k int, short bool) iter.Seq[C] {
+	return func(yield func(C) bool) {
 		// i counts the domain, j the part.
 		i, j := 0, 0
-		for c := range domain {
-			index, mine := i, i%s.parts == k
+		for c := range s.cases {
+			mine := i%s.parts == k
 			i++
 			if !mine {
 				continue
 			}
 			kept := !short || j%s.short == 0
 			j++
-			if kept && !yield(index, c) {
+			if kept && !yield(c) {
 				return
 			}
 		}
@@ -234,11 +270,102 @@ func TestSplitsCoverTheirDomain(t *testing.T) {
 	}
 }
 
+// TestSplitHarness (property): over generated domain sizes, part counts
+// and short strides, the cases that dispatch hands to run are, in full
+// mode, part k = the indexes i with i % parts == k in domain order, a
+// partition of the domain; and under short, the cases at positions 0,
+// short, 2*short, … of each part, or none when short is 0. Part itself,
+// run with a recording run, hands over the same cases in the test's own
+// mode. The model below is written from the split doc, not from share.
+func TestSplitHarness(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	type config struct{ n, parts, short int }
+	var configs []config
+	for _, n := range []int{0, 1, 2, 7, 13} {
+		for _, parts := range []int{1, 2, 3, 5} {
+			configs = append(configs, config{n, parts, 0}, config{n, parts, 1}, config{n, parts, 2})
+		}
+	}
+	for range 60 {
+		configs = append(configs, config{r.Intn(60), 1 + r.Intn(9), r.Intn(5)})
+	}
+	for _, c := range configs {
+		s := &split[int]{
+			name: "TestToy", parts: c.parts, short: c.short,
+			cases: func(yield func(int) bool) {
+				for i := range c.n {
+					if !yield(i) {
+						return
+					}
+				}
+			},
+			key: strconv.Itoa,
+		}
+		t.Run(fmt.Sprintf("n=%d,parts=%d,short=%d", c.n, c.parts, c.short), func(t *testing.T) {
+			seen := make([]int, c.n)
+			for k := range c.parts {
+				// The model: the part's indexes, then its short subset.
+				var part, short []string
+				for i := k; i < c.n; i += c.parts {
+					part = append(part, strconv.Itoa(i))
+				}
+				for j := 0; c.short > 0 && j < len(part); j += c.short {
+					short = append(short, part[j])
+				}
+				for _, mode := range []struct {
+					short bool
+					want  []string
+				}{{false, part}, {true, short}} {
+					got := s.ran(t, k, mode.short)
+					if !slices.Equal(got, mode.want) {
+						t.Errorf("part %d short=%v: ran %v, want %v", k, mode.short, got, mode.want)
+					}
+					if !mode.short {
+						for _, key := range got {
+							i, _ := strconv.Atoi(key)
+							seen[i]++
+						}
+					}
+				}
+				// Part itself, with a run that records, in this test's
+				// mode: the same cases as the model's.
+				var got []string
+				s.name = t.Name() + "/TestToy"
+				s.run = func(_ *testing.T, cases iter.Seq[int]) {
+					for i := range cases {
+						got = append(got, strconv.Itoa(i))
+					}
+				}
+				t.Run(fmt.Sprintf("TestToyPart%d", k), func(t *testing.T) { s.Part(t, k) })
+				want := part
+				if testing.Short() {
+					want = short
+				}
+				if !slices.Equal(got, want) {
+					t.Errorf("Part(t, %d) ran %v, want %v", k, got, want)
+				}
+			}
+			for i, n := range seen {
+				if n != 1 {
+					t.Errorf("case %d runs %d times in full mode", i, n)
+				}
+			}
+		})
+	}
+}
+
 // coversDomain checks that the declared parts of s run its domain, each
 // case once, and that a pinned domain is the pinned one.
 func coversDomain(t *testing.T, s splitEntry, declared []int) {
 	name := s.splitName()
-	keys, parts := s.domain()
+	keys := s.keys()
+	index := map[string]int{}
+	for i, key := range keys {
+		if j, ok := index[key]; ok {
+			t.Fatalf("%s: cases %d and %d have one key; the coverage check needs distinct keys", name, j, i)
+		}
+		index[key] = i
+	}
 	ks := slices.Clone(declared)
 	slices.Sort(ks)
 	var idx []int
@@ -247,7 +374,14 @@ func coversDomain(t *testing.T, s splitEntry, declared []int) {
 			t.Errorf("%sPart%d: %s has %d parts", name, k, name, s.splitParts())
 			continue
 		}
-		idx = append(idx, parts[k]...)
+		for _, key := range s.ran(t, k, false) {
+			i, ok := index[key]
+			if !ok {
+				t.Errorf("%sPart%d runs a case outside the domain", name, k)
+				continue
+			}
+			idx = append(idx, i)
+		}
 	}
 	slices.Sort(idx)
 	var union []string

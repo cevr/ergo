@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"iter"
 	"slices"
 	"strings"
 	"testing"
@@ -593,11 +594,11 @@ func TestCheckedImpliesLoweredPart19(t *testing.T) { checkedSplit.Part(t, 19) }
 
 // runChecked checks and lowers the pairs of cases, then builds and runs
 // the program of each case.
-func runChecked(t *testing.T, cases []checkedCase) {
+func runChecked(t *testing.T, cases iter.Seq[checkedCase]) {
 	var programs []*lowered
 	want := map[string]string{}
 	orderWant := map[string]string{}
-	for _, c := range cases {
+	for c := range cases {
 		switch c.grid {
 		case "pairs":
 			if p, w := pairSite(t, c.site); p != nil {

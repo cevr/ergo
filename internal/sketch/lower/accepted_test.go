@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"iter"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -340,14 +341,14 @@ func TestAcceptedNodesLowerFamilies(t *testing.T) {
 // runAccepted lowers the sources of one part: none panics or meets an
 // error, and each refusal is a documented one; it builds the sources that
 // lower and runs those with an oracle against it.
-func runAccepted(t *testing.T, sources []acceptedSource) {
+func runAccepted(t *testing.T, sources iter.Seq[acceptedSource]) {
 	implemented := map[string]bool{}
 	for _, f := range implementedFamilies {
 		implemented[f] = true
 	}
 	var lowerable, runnable []*lowered
 	wants := map[string]string{}
-	for _, s := range sources {
+	for s := range sources {
 		entry := s.want != ""
 		o := lowerSource(s.name, s.src, entry)
 		switch {

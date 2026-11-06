@@ -5,11 +5,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"iter"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -54,6 +56,12 @@ type corpusCandidate struct {
 	src   string
 }
 
+// corpusDomain is the corpus, read once per test process.
+var corpusDomain = sync.OnceValues(func() ([]string, error) {
+	sources, _, _, _, err := readCorpus("../check", maxCandidates)
+	return sources, err
+})
+
 // corpusSplit's domain is read from ../check's test files, which other
 // units edit, so it is not pinned; its parts cover it.
 var corpusSplit = newSplit(split[corpusCandidate]{
@@ -61,7 +69,7 @@ var corpusSplit = newSplit(split[corpusCandidate]{
 	parts:    corpusParts,
 	unpinned: true,
 	cases: func(yield func(corpusCandidate) bool) {
-		sources, _, _, _, err := readCorpus("../check", maxCandidates)
+		sources, err := corpusDomain()
 		if err != nil {
 			return // TestCheckCorpusBuildsDomain reports it; a part then builds too few programs
 		}
@@ -106,10 +114,11 @@ func TestCheckCorpusBuildsDomain(t *testing.T) {
 
 // runCorpus lowers the candidates of one part and builds its clean
 // programs.
-func runCorpus(t *testing.T, cases []corpusCandidate) {
+func runCorpus(t *testing.T, cases iter.Seq[corpusCandidate]) {
 	var programs []*lowered
-	rejected, deferred := 0, map[string]int{}
-	for _, c := range cases {
+	rejected, deferred, candidates := 0, map[string]int{}, 0
+	for c := range cases {
+		candidates++
 		src := c.src
 		o := lowerSource(fmt.Sprintf("c%d", c.index), src, false)
 		switch {
@@ -142,7 +151,7 @@ func runCorpus(t *testing.T, cases []corpusCandidate) {
 		owners = append(owners, fmt.Sprintf("%s: %d", o, n))
 	}
 	sort.Strings(owners)
-	t.Logf("candidates %d: rejected by the parser or checker %d; deferred refusals by family [%s]; built %d (every clean program of the part that lowers)", len(cases), rejected, strings.Join(owners, ", "), len(programs))
+	t.Logf("candidates %d: rejected by the parser or checker %d; deferred refusals by family [%s]; built %d (every clean program of the part that lowers)", candidates, rejected, strings.Join(owners, ", "), len(programs))
 	buildAll(t, programs, false)
 }
 

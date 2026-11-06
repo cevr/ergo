@@ -7,8 +7,10 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"iter"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -377,6 +379,10 @@ func i1AllCases() []i1Case {
 	return append(cases, i1LawCases()...)
 }
 
+// i1Domain is i1AllCases, generated once per test process: each part and
+// the coverage check range over it. No reader changes a case.
+var i1Domain = sync.OnceValue(i1AllCases)
+
 // i1Split is the I1 property in parts: each part lowers its share of the
 // generated programs, each as a subtest named by its case, and checks the
 // facts and the polls of each.
@@ -389,15 +395,15 @@ var i1Split = newSplit(split[i1Case]{
 	count:  17131,
 	digest: "d756f45fafdfa9eaefb95c07fef8d815ba873db8479902bdd45b51b081fc18d0",
 	cases: func(yield func(i1Case) bool) {
-		for _, c := range i1AllCases() {
+		for _, c := range i1Domain() {
 			if !yield(c) {
 				return
 			}
 		}
 	},
 	key: i1Key,
-	run: func(t *testing.T, cases []i1Case) {
-		for _, c := range cases {
+	run: func(t *testing.T, cases iter.Seq[i1Case]) {
+		for c := range cases {
 			t.Run(c.name, func(t *testing.T) {
 				o := i1Lower(t, c)
 				i1CheckFacts(t, o)
