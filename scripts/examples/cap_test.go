@@ -35,18 +35,37 @@ func sizePairs(seed uint64, count int) [][2]int {
 // line on stderr (TestCapFixturesWriteExactCountsWithBSDHead).
 const writer = "#!/bin/sh\n[ \"$1\" -eq 0 ] || head -c \"$1\" /dev/zero\n[ \"$2\" -eq 0 ] || head -c \"$2\" /dev/zero >&2\n"
 
-// wantOver is the verdict of writer for these sizes: "" when both are within
-// the cap; else the stream that went over first, and only it, since the
-// runner stops the group at that byte, so writer never reaches stderr once
-// stdout is over.
-func wantOver(sizes [2]int) string {
+// wantOver lists the verdicts writer may get for these sizes: none when both
+// are within the cap; else the stream that went over first, and, when the
+// other stream is over the cap too, that stream after it. The runner names
+// each stream that went over before its stop took effect, and the stop
+// cannot come before writer reaches stderr: writer's last stdout bytes are
+// in the pipe's buffer before the runner reads the byte past the cap, so the
+// first head ends and the second one starts at once, while the stop waits
+// for the runner's goroutine to run and to take live.mu
+// (TestOutputCapLateStopNamesBothStreams makes that wait certain).
+func wantOver(sizes [2]int) []string {
+	out, err := fmt.Sprintf("stdout over %d bytes", outputCap), fmt.Sprintf("stderr over %d bytes", outputCap)
 	switch {
+	case sizes[0] > outputCap && sizes[1] > outputCap:
+		return []string{out, out + "; " + err}
 	case sizes[0] > outputCap:
-		return fmt.Sprintf("stdout over %d bytes", outputCap)
+		return []string{out}
 	case sizes[1] > outputCap:
-		return fmt.Sprintf("stderr over %d bytes", outputCap)
+		return []string{err}
 	}
-	return ""
+	return nil
+}
+
+// verdictIn reports whether the verdict got (the text after "FAIL name:",
+// with its leading space) is one of want.
+func verdictIn(got string, want []string) bool {
+	for _, w := range want {
+		if got == " "+w {
+			return true
+		}
+	}
+	return false
 }
 
 // Each stream of a command holds at most outputCap bytes. A case, a recorded
@@ -79,7 +98,7 @@ func TestOutputCap(t *testing.T) {
 		cases := map[string]map[string]string{}
 		for i, sizes := range pairs {
 			files := map[string]string{"args": fmt.Sprintf("%d\n%d\n", sizes[0], sizes[1]), "expected.out": ""}
-			if wantOver(sizes) == "" {
+			if wantOver(sizes) == nil {
 				files["expected.out"] = zeros(sizes[0])
 				if sizes[1] > 0 {
 					files["expected.err"] = zeros(sizes[1])
@@ -97,11 +116,11 @@ func TestOutputCap(t *testing.T) {
 		for i, sizes := range pairs {
 			name := "sizer/" + label(i)
 			over := wantOver(sizes)
-			if over == "" && !oks[name] {
+			if over == nil && !oks[name] {
 				t.Errorf("%s %v is within the cap: want ok, got FAIL%s", name, sizes, fails[name])
 			}
-			if over != "" && fails[name] != " "+over {
-				t.Errorf("%s %v: want FAIL %s: %s, got %q (ok %t)", name, sizes, name, over, fails[name], oks[name])
+			if over != nil && !verdictIn(fails[name], over) {
+				t.Errorf("%s %v: want FAIL %s: one of %q, got %q (ok %t)", name, sizes, name, over, fails[name], oks[name])
 			}
 		}
 	})
@@ -127,15 +146,15 @@ func TestOutputCap(t *testing.T) {
 			golden := func(file string) (string, bool) { return read(t, filepath.Join(dir, "cases", label(i), file)) }
 			gotOut, _ := golden("expected.out")
 			gotErr, hasErr := golden("expected.err")
-			if over == "" {
+			if over == nil {
 				if !strings.Contains(out, "recorded "+name+"\n") || gotOut != zeros(sizes[0]) || hasErr != (sizes[1] > 0) || gotErr != zeros(sizes[1]) {
 					t.Errorf("-record %s %v is within the cap: want recorded with goldens of %v bytes; got FAIL%s, expected.out %d bytes, expected.err %d bytes (present %t)",
 						name, sizes, sizes, fails[name], len(gotOut), len(gotErr), hasErr)
 				}
 				continue
 			}
-			if fails[name] != " "+over || strings.Contains(out, "recorded "+name+"\n") {
-				t.Errorf("-record %s %v: want FAIL %s: %s and no recorded line, got %q", name, sizes, name, over, fails[name])
+			if !verdictIn(fails[name], over) || strings.Contains(out, "recorded "+name+"\n") {
+				t.Errorf("-record %s %v: want FAIL %s: one of %q and no recorded line, got %q", name, sizes, name, over, fails[name])
 			}
 			if gotOut != "keep\n" || hasErr {
 				t.Errorf("-record %s %v is over the cap and wrote a golden: expected.out %d bytes, expected.err present %t", name, sizes, len(gotOut), hasErr)
@@ -150,11 +169,11 @@ func TestOutputCap(t *testing.T) {
 		for i, sizes := range pairs {
 			name := "rec/" + label(i)
 			over := wantOver(sizes)
-			if over == "" && !oks[name] {
+			if over == nil && !oks[name] {
 				t.Errorf("-record -check %s %v against its fresh goldens: want ok, got FAIL%s", name, sizes, fails[name])
 			}
-			if over != "" && fails[name] != " "+over {
-				t.Errorf("-record -check %s %v: want FAIL %s: %s, got %q", name, sizes, name, over, fails[name])
+			if over != nil && !verdictIn(fails[name], over) {
+				t.Errorf("-record -check %s %v: want FAIL %s: one of %q, got %q", name, sizes, name, over, fails[name])
 			}
 		}
 	})
@@ -179,25 +198,17 @@ func TestOutputCap(t *testing.T) {
 			over := wantOver(sizes)
 			passed := strings.Contains(out, "ok "+name+": test (")
 			failed := strings.Contains(out, "FAIL "+name+": test")
-			if over == "" && (!passed || failed) {
-				var got []string
-				for _, line := range lines {
-					if strings.HasPrefix(line, "FAIL "+name+": test") {
-						got = append(got, line)
-					}
+			var got []string
+			for _, line := range lines {
+				if strings.HasPrefix(line, "FAIL "+name+": test") {
+					got = append(got, line)
 				}
+			}
+			if over == nil && (!passed || failed) {
 				t.Errorf("%s %v is within the cap: want ok %s: test, got %q", name, sizes, name, got)
 			}
-			if over != "" {
-				want := "FAIL " + name + ": test: " + over
-				if passed || !strings.Contains(out, want+"\n") {
-					t.Errorf("%s %v: want the line %q", name, sizes, want)
-				}
-				for _, line := range lines {
-					if strings.HasPrefix(line, "FAIL "+name+": test") && line != want {
-						t.Errorf("%s: an extra test-leg line %q", name, line)
-					}
-				}
+			if over != nil && (passed || len(got) != 1 || !verdictIn(strings.TrimPrefix(got[0], "FAIL "+name+": test:"), over)) {
+				t.Errorf("%s %v: want one line FAIL %s: test: one of %q, got %q (ok %t)", name, sizes, name, over, got, passed)
 			}
 			if !oks[name+"/basic"] {
 				t.Errorf("no ok %s/basic: the test leg must not stop the cases", name)
