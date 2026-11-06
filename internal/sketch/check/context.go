@@ -299,7 +299,7 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 			inner := c.embeddedContext(e, sum.embeds)
 			switch {
 			case inner == nil:
-				c.errorf(e.Key, CodeUnknown, "unknown context %s", exprText(e.Key))
+				c.unknownEmbedding(e)
 			case inner.Local:
 				// Its providers are built with this literal's: a local's
 				// summary joins the local's that embeds it, and a with of
@@ -347,15 +347,65 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 
 // embeddedContext is the context an embedding entry names, or nil: the
 // local context in scope that the context pass found for it (embeds,
-// scanLocals), else the package's named context.
+// scanLocals), else the package's named context, else, for a qualified
+// name, the exported named context of an imported package (196b Q9).
 func (c *checker) embeddedContext(e *syntax.ContextEntry, embeds map[*syntax.ContextEntry]*Context) *Context {
 	if w := embeds[e]; w != nil {
 		return w
 	}
-	if id, ok := e.Key.(*syntax.Ident); ok {
-		return c.pkg.Contexts[id.Name]
+	switch k := e.Key.(type) {
+	case *syntax.Ident:
+		return c.pkg.Contexts[k.Name]
+	case *syntax.SelectorExpr:
+		w, _ := c.qualifiedContext(k)
+		return w
 	}
 	return nil
+}
+
+// qualifiedContext resolves `b.W` in an embedding entry (196b Q9): b is an
+// import of the current file, and W an exported named context of its
+// package. It means what a bare embedding of a named context means, so it
+// brings W's bindings, and a replace of the embedding context may override
+// them. It marks the import used, so the embedding is its use (no S110).
+// pn is the import, or nil when b names none; w is nil when b is a broken
+// import (reported at the import) or W is no exported context of it. A
+// local of the body never hides the import here: an embedding entry names
+// a context, never a value, and the context pass, which sees no body
+// scope, resolves it the same way.
+func (c *checker) qualifiedContext(sel *syntax.SelectorExpr) (w *Context, pn *PkgName) {
+	id, ok := sel.X.(*syntax.Ident)
+	if !ok || c.cur == nil {
+		return nil, nil
+	}
+	pn, ok = c.cur.scope.names[id.Name].(*PkgName)
+	if !ok {
+		return nil, nil
+	}
+	pn.used = true
+	if pn.broken {
+		return nil, pn
+	}
+	if w := pn.Pkg.Contexts[sel.Sel.Name]; w != nil && isExported(sel.Sel.Name) {
+		return w, pn
+	}
+	return nil, pn
+}
+
+// unknownEmbedding reports the embedding entry e that names no context
+// (S104): a qualified name that is no exported context of its package
+// names the package, as a with operand's does (withArg); the embedding of
+// a broken import adds nothing (D3).
+func (c *checker) unknownEmbedding(e *syntax.ContextEntry) {
+	if sel, ok := e.Key.(*syntax.SelectorExpr); ok {
+		if _, pn := c.qualifiedContext(sel); pn != nil {
+			if !pn.broken {
+				c.errorf(sel.Sel, CodeUnknown, "%s.%s is not an exported context of package %s", pn.Name, sel.Sel.Name, pn.Pkg.Path)
+			}
+			return
+		}
+	}
+	c.errorf(e.Key, CodeUnknown, "unknown context %s", exprText(e.Key))
 }
 
 // contextDeps records, for a named context's entries, the capabilities of the

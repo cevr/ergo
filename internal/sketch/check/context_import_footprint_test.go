@@ -58,9 +58,8 @@ let W = context { Log: Quiet, Store: Mem{V: read()} }
 	if !found {
 		t.Errorf("b's Info has no Calls fact of read() in W's provider")
 	}
-	// An inline context that embeds b.W is S104 at base and here: no
-	// context literal embeds an imported context yet (state.md,
-	// Follow-ups). The forms that name b.W as a with operand are pinned.
+	// The forms that name b.W as a with operand are pinned here; a context
+	// literal that embeds b.W is TestQualifiedContextEmbed's (196b Q9).
 	src := `import b
 type Box { Peek() int }
 type Lid {}
