@@ -1,0 +1,56 @@
+// Walk is the walker's progress. Left holds one byte per cell of the level,
+// 's' where a shell is still to collect, so a step never writes to the old
+// state.
+type Walk { At Pos, Tide int, Turn int, Shells int, Left string }
+
+// A game is in play, won on the peak, or lost under the tide.
+type Game = Playing{W Walk} | Won{W Walk} | Drowned{W Walk}
+
+// Start is the game before the first move: the walker at '@', every shell
+// still to collect, the tide out.
+func Start() Game {
+	let mut at = Pos{X: 0, Y: 0}
+	let mut left = ""
+	for y in 0..len(items) {
+		for x in 0..len(items[y]) {
+			if items[y][x] == '@' {
+				at = Pos{X: x, Y: y}
+			}
+			if items[y][x] == 's' {
+				left = left + "s"
+			} else {
+				left = left + "."
+			}
+		}
+	}
+	return Playing{W: Walk{At: at, Tide: 0, Turn: 0, Shells: 0, Left: left}}
+}
+
+// WalkOf is the walk of a game in any state.
+func WalkOf(g Game) Walk {
+	match g {
+	case Playing as p:
+		return p.W
+	case Won as w:
+		return w.W
+	case Drowned as d:
+		return d.W
+	}
+}
+
+// Status names the state of a game.
+func Status(g Game) string {
+	match g {
+	case Playing:
+		return "playing"
+	case Won:
+		return "won"
+	case Drowned:
+		return "drowned"
+	}
+}
+
+// ShellLeft reports a shell still to collect on a cell.
+func ShellLeft(w Walk, p Pos) bool {
+	return w.Left[p.Y*len(ground[0])+p.X] == 's'
+}

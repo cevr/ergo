@@ -1,0 +1,19 @@
+// The rules of the game as laws over the machine.
+
+law BlockedIsRejected(w Walk, m Move) { !Blocked(target(w.At, m)) || rejected(Step(Playing{W: w}, m)) }
+
+law FinishedIsFinal(w Walk, m Move) { ignored(Step(Won{W: w}, m)) && ignored(Step(Drowned{W: w}, m)) }
+
+law TurnNeverFalls(g Game, m Move) { WalkOf(Apply(g, Step(g, m))).Turn >= WalkOf(g).Turn }
+
+law TideNeverFalls(g Game, m Move) { WalkOf(Apply(g, Step(g, m))).Tide >= WalkOf(g).Tide }
+
+law ShellsNeverFall(g Game, m Move) { WalkOf(Apply(g, Step(g, m))).Shells >= WalkOf(g).Shells }
+
+law TideFollowsTurn(moves []Move) {
+	let mut g = Start()
+	for m in moves {
+		g = Apply(g, Step(g, m))
+	}
+	WalkOf(g).Tide == WalkOf(g).Turn/6
+}

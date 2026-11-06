@@ -1,0 +1,62 @@
+// Package walk is the Tidewalk game: the level, the moves, the game state,
+// the events a move records and the machine that plays them. It is pure:
+// no function of it needs a capability.
+
+// ground is the height map: '#' is rock, a digit is the height of sand.
+// Height 3 is the peak.
+let ground = []string{
+	"###22#333",
+	"#1112#233",
+	"#0#1122##",
+	"00111#21#",
+	"#0011011#",
+	"##1000###",
+}
+
+// items marks the start ('@') and the shells ('s').
+let items = []string{
+	".........",
+	".........",
+	"......s..",
+	".s.......",
+	"......s..",
+	"..@......",
+}
+
+// Pos is a cell: x grows east, y grows south.
+type Pos { X int, Y int }
+
+// Width and Rows are the level's size in cells.
+func Width() int {
+	return len(ground[0])
+}
+
+func Rows() int {
+	return len(ground)
+}
+
+// Blocked reports a cell off the level or of rock.
+func Blocked(p Pos) bool {
+	if p.X < 0 || p.Y < 0 || p.Y >= len(ground) || p.X >= len(ground[0]) {
+		return true
+	}
+	return ground[p.Y][p.X] == '#'
+}
+
+// Height is the height of the sand of a cell that is not blocked.
+func Height(p Pos) int {
+	return int(ground[p.Y][p.X] - '0')
+}
+
+// ShellCount is the number of shells on the level.
+func ShellCount() int {
+	let mut n = 0
+	for row in items {
+		for x in 0..len(row) {
+			if row[x] == 's' {
+				n = n + 1
+			}
+		}
+	}
+	return n
+}
