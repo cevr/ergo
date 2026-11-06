@@ -23,7 +23,7 @@ func TestCachePublication(t *testing.T) {
 	base := baseInput()
 
 	t.Run("concurrent identical builders", func(t *testing.T) {
-		root := t.TempDir()
+		root := cacheRoot(t)
 		const builders = 16
 		// Every builder misses and emits before any publishes, so all but
 		// one lose the rename and must serve the winner's entry.
@@ -45,7 +45,7 @@ func TestCachePublication(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				module, err := Cache{Root: root}.Module(base, slow)
+				module, err := released(t)(Cache{Root: root}.Module(base, slow))
 				dirs[i], errs[i] = module.Dir, err
 			}()
 		}
@@ -68,7 +68,7 @@ func TestCachePublication(t *testing.T) {
 	})
 
 	t.Run("concurrent builder processes", func(t *testing.T) {
-		root := t.TempDir()
+		root := cacheRoot(t)
 		const builders = 6
 		outputs := make([][]byte, builders)
 		errs := make([]error, builders)
@@ -93,7 +93,7 @@ func TestCachePublication(t *testing.T) {
 	})
 
 	t.Run("refused input", func(t *testing.T) {
-		root := t.TempDir()
+		root := cacheRoot(t)
 		for name, mutate := range map[string]func(*Input){
 			"no source":           func(in *Input) { in.Sources = nil },
 			"relative source":     func(in *Input) { in.Sources[0].Path = "a.ergo" },
@@ -108,7 +108,7 @@ func TestCachePublication(t *testing.T) {
 			in := baseInput()
 			mutate(&in)
 			var calls atomic.Int32
-			if _, err := (Cache{Root: root}).Module(in, emitFor(in, &calls)); err == nil || calls.Load() != 0 {
+			if _, err := released(t)(Cache{Root: root}.Module(in, emitFor(in, &calls))); err == nil || calls.Load() != 0 {
 				t.Fatalf("%s: err=%v after %d emissions", name, err, calls.Load())
 			}
 		}
@@ -118,23 +118,23 @@ func TestCachePublication(t *testing.T) {
 	})
 
 	t.Run("failed emission", func(t *testing.T) {
-		root := t.TempDir()
+		root := cacheRoot(t)
 		failure := errors.New("emission failed")
-		if _, err := (Cache{Root: root}).Module(base, func() ([]File, error) { return nil, failure }); !errors.Is(err, failure) {
+		if _, err := released(t)(Cache{Root: root}.Module(base, func() ([]File, error) { return nil, failure })); !errors.Is(err, failure) {
 			t.Fatalf("err %v", err)
 		}
 		if got := append(entries(t, root, "modules"), entries(t, root, "staging")...); len(got) != 0 {
 			t.Fatalf("a failed emission left %v", got)
 		}
 		var calls atomic.Int32
-		if module, err := (Cache{Root: root}).Module(base, emitFor(base, &calls)); err != nil || module.Reused || calls.Load() != 1 {
+		if module, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, &calls))); err != nil || module.Reused || calls.Load() != 1 {
 			t.Fatalf("after a failed emission: %+v %v", module, err)
 		}
 		mustVerify(t, root, base)
 	})
 
 	t.Run("emission that cannot be staged", func(t *testing.T) {
-		root := t.TempDir()
+		root := cacheRoot(t)
 		for name, files := range map[string][]File{
 			"escaping path":         {{Path: "../main.go", Data: []byte("x")}},
 			"absolute path":         {{Path: "/main.go", Data: []byte("x")}},
@@ -143,7 +143,7 @@ func TestCachePublication(t *testing.T) {
 			"written twice":         {{Path: "main.go", Data: []byte("x")}, {Path: "main.go", Data: []byte("y")}},
 			"names the manifest":    {{Path: ManifestName, Data: []byte("{}")}},
 		} {
-			if _, err := (Cache{Root: root}).Module(base, func() ([]File, error) { return files, nil }); err == nil {
+			if _, err := released(t)(Cache{Root: root}.Module(base, func() ([]File, error) { return files, nil })); err == nil {
 				t.Fatalf("%s: published", name)
 			}
 		}
@@ -156,12 +156,12 @@ func TestCachePublication(t *testing.T) {
 		// The emitted module is complete, so it is published and reused;
 		// the action fails, writes no executable and is run again on the
 		// next build.
-		root := t.TempDir()
+		root := cacheRoot(t)
 		broken := func() ([]File, error) {
 			return []File{{Path: "go.mod", Data: []byte("module ergotest\n\ngo 1.23\n")}, {Path: "main.go", Data: []byte("package main\n\nfunc main() { undefined() }\n")}}, nil
 		}
 		for pass := range 2 {
-			module, err := Cache{Root: root}.Module(base, broken)
+			module, err := released(t)(Cache{Root: root}.Module(base, broken))
 			if err != nil || module.Reused != (pass == 1) {
 				t.Fatalf("pass %d: %+v %v", pass, module, err)
 			}
@@ -176,7 +176,7 @@ func TestCachePublication(t *testing.T) {
 	})
 
 	t.Run("publication interrupted in process", func(t *testing.T) {
-		root := t.TempDir()
+		root := cacheRoot(t)
 		interrupted := errors.New("interrupted")
 		testHookStaged = func(staging string) error {
 			if _, err := os.Stat(filepath.Join(staging, ManifestName)); err != nil {
@@ -184,7 +184,7 @@ func TestCachePublication(t *testing.T) {
 			}
 			return interrupted
 		}
-		_, err := Cache{Root: root}.Module(base, emitFor(base, nil))
+		_, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, nil)))
 		testHookStaged = nil
 		if !errors.Is(err, interrupted) {
 			t.Fatalf("err %v", err)
@@ -193,14 +193,14 @@ func TestCachePublication(t *testing.T) {
 			t.Fatalf("an interrupted publication left %v", got)
 		}
 		var calls atomic.Int32
-		if module, err := (Cache{Root: root}).Module(base, emitFor(base, &calls)); err != nil || module.Reused || calls.Load() != 1 {
+		if module, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, &calls))); err != nil || module.Reused || calls.Load() != 1 {
 			t.Fatalf("after interruption: %+v %v", module, err)
 		}
 		mustVerify(t, root, base)
 	})
 
 	t.Run("builder killed before publication", func(t *testing.T) {
-		root := t.TempDir()
+		root := cacheRoot(t)
 		out, err := helper(root, "crash").CombinedOutput()
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 3 {
@@ -214,7 +214,7 @@ func TestCachePublication(t *testing.T) {
 			t.Fatalf("a killed builder left staging %v, want its one directory", left)
 		}
 		var calls atomic.Int32
-		module, err := Cache{Root: root}.Module(base, emitFor(base, &calls))
+		module, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, &calls)))
 		if err != nil || module.Reused || calls.Load() != 1 {
 			t.Fatalf("after a killed builder: %+v %v, %d emissions", module, err, calls.Load())
 		}
@@ -225,15 +225,15 @@ func TestCachePublication(t *testing.T) {
 	})
 
 	t.Run("valid hit rewrites nothing", func(t *testing.T) {
-		root := t.TempDir()
-		published, err := Cache{Root: root}.Module(base, emitFor(base, nil))
+		root := cacheRoot(t)
+		published, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, nil)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		before := snapshot(t, published.Dir)
 		for range 3 {
 			var calls atomic.Int32
-			module, err := Cache{Root: root}.Module(base, emitFor(base, &calls))
+			module, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, &calls)))
 			if err != nil || !module.Reused || calls.Load() != 0 || module.Dir != published.Dir {
 				t.Fatalf("hit: %+v %v", module, err)
 			}
@@ -246,8 +246,8 @@ func TestCachePublication(t *testing.T) {
 	t.Run("recovery keeps a valid replacement", func(t *testing.T) {
 		// A builder saw a corrupt entry, and another replaced it with a
 		// valid one before the first moved it aside: the valid module stays.
-		root := t.TempDir()
-		published, err := Cache{Root: root}.Module(base, emitFor(base, nil))
+		root := cacheRoot(t)
+		published, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, nil)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -318,14 +318,14 @@ func TestCachePublication(t *testing.T) {
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
-				root := t.TempDir()
-				published, err := Cache{Root: root}.Module(base, emitFor(base, nil))
+				root := cacheRoot(t)
+				published, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, nil)))
 				if err != nil {
 					t.Fatal(err)
 				}
 				corrupt(t, published.Dir)
 				var calls atomic.Int32
-				module, err := Cache{Root: root}.Module(base, emitFor(base, &calls))
+				module, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, &calls)))
 				if err != nil || module.Reused || calls.Load() != 1 || module.Dir != published.Dir {
 					t.Fatalf("a corrupt entry was served: %+v %v, %d emissions", module, err, calls.Load())
 				}
@@ -334,7 +334,7 @@ func TestCachePublication(t *testing.T) {
 					t.Fatalf("recovery left staging %v", got)
 				}
 				var after atomic.Int32
-				if again, err := (Cache{Root: root}).Module(base, emitFor(base, &after)); err != nil || !again.Reused || after.Load() != 0 {
+				if again, err := released(t)(Cache{Root: root}.Module(base, emitFor(base, &after))); err != nil || !again.Reused || after.Load() != 0 {
 					t.Fatalf("the replaced entry is not reused: %+v %v", again, err)
 				}
 			})

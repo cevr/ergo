@@ -111,6 +111,20 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, err error)
 	return !exited, waitErr
 }
 
+// openProcess returns a pidfd of process pid, or ok false when no process
+// has that id. The pidfd names that one process even after its id is
+// reused.
+func openProcess(pid int) (fd int, ok bool, err error) {
+	pidfd, _, errno := syscall.Syscall(sysPidfdOpen, uintptr(pid), 0, 0)
+	switch {
+	case errno == syscall.ESRCH:
+		return -1, false, nil
+	case errno != 0:
+		return -1, false, fmt.Errorf("pidfd_open %d: %w", pid, errno)
+	}
+	return int(pidfd), true, nil
+}
+
 // readableWithin reports whether fd (a pidfd: readable once the process
 // exits) becomes readable within d.
 func readableWithin(fd int, d time.Duration) (bool, error) {

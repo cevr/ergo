@@ -20,6 +20,10 @@ func sandboxCommand(string, ...string) (*exec.Cmd, error) { return nil, errUnsup
 
 func runWithin(*exec.Cmd, time.Duration) (bool, error) { return false, errUnsupported }
 
+func openProcess(int) (int, bool, error) { return -1, false, errUnsupported }
+
+func readableWithin(int, time.Duration) (bool, error) { return false, errUnsupported }
+
 func makeSandbox(sandbox) error { return errUnsupported }
 
 func checkSandbox(sandbox) error { return errUnsupported }
