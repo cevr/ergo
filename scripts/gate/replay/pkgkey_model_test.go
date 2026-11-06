@@ -237,7 +237,7 @@ type modelAction struct {
 // replays a stale pass in the model
 // (TestPackageKeyModelChangesEachInputAlone).
 var modelActions = []modelAction{
-	{"write", inputEntry, 3, func(w *packageWorld) {
+	{"write", inputEntry, 30, func(w *packageWorld) {
 		name := modelPaths[w.rng.IntN(len(modelPaths))]
 		if w.rng.IntN(2) == 0 {
 			// One path of a class only one rule covers: what the link can
@@ -250,7 +250,7 @@ var modelActions = []modelAction{
 		}
 		w.note("write %s: %t", name, w.write(name))
 	}},
-	{"delete", inputEntry, 1, func(w *packageWorld) {
+	{"delete", inputEntry, 10, func(w *packageWorld) {
 		if files := w.files(); len(files) > 0 {
 			name := files[w.rng.IntN(len(files))]
 			if err := os.Remove(w.full(name)); err != nil {
@@ -259,15 +259,20 @@ var modelActions = []modelAction{
 			w.note("delete %s", name)
 		}
 	}},
-	{"remove tree", inputEntry, 1, func(w *packageWorld) {
+	{"remove tree", inputEntry, 10, func(w *packageWorld) {
 		// A directory on the way to a dependency, or a tree, goes away.
 		dir := []string{"x", "x/y", "docs/list", "docs/tree", "a/assets", "q"}[w.rng.IntN(6)]
+		if _, err := os.Lstat(w.full(dir)); err != nil {
+			// Absent, or below a file (x/y while x is a file).
+			w.note("remove tree %s: absent", dir)
+			return
+		}
 		if err := os.RemoveAll(w.full(dir)); err != nil {
 			w.t.Fatal(err)
 		}
 		w.note("remove tree %s", dir)
 	}},
-	{"chmod", inputEntry, 1, func(w *packageWorld) {
+	{"chmod", inputEntry, 10, func(w *packageWorld) {
 		if files := w.files(); len(files) > 0 {
 			name := files[w.rng.IntN(len(files))]
 			// The owner's executable bit is keyed, group write is not.
@@ -282,62 +287,62 @@ var modelActions = []modelAction{
 			w.note("chmod %s ^%o", name, bit)
 		}
 	}},
-	{"link", inputEntry, 2, func(w *packageWorld) { w.link() }},
-	{"write ignored", inputEntry, 1, func(w *packageWorld) {
+	{"link", inputEntry, 20, func(w *packageWorld) { w.link() }},
+	{"write ignored", inputEntry, 10, func(w *packageWorld) {
 		w.write(ignoredPath)
 		w.note("write %s (ignored)", ignoredPath)
 	}},
-	{"tool", inputHost, 1, func(w *packageWorld) {
+	{"tool", inputHost, 10, func(w *packageWorld) {
 		tool := []string{"go", "git", "sh"}[w.rng.IntN(3)]
 		w.tools[tool] = fmt.Sprintf("%s%d", tool, w.rng.IntN(3))
 		w.note("tool %s = %s", tool, w.tools[tool])
 	}},
-	{"host fact", inputHost, 1, func(w *packageWorld) {
+	{"host fact", inputHost, 10, func(w *packageWorld) {
 		fact := []string{"kernel release", "cpu budget"}[w.rng.IntN(2)]
 		w.host[fact] = fmt.Sprint(w.rng.IntN(3))
 		w.note("host %s = %s", fact, w.host[fact])
 	}},
-	{"identity", inputIdentity, 1, func(w *packageWorld) {
+	{"identity", inputIdentity, 2, func(w *packageWorld) {
 		// A package's step gets another selection.
 		name := w.names[w.rng.IntN(len(w.names))]
 		w.identity[name] = identities[w.rng.IntN(len(identities))]
 		w.note("identity %s = [%s]", name, w.identity[name])
 	}},
-	{"environment", inputEnvironment, 1, func(w *packageWorld) {
+	{"environment", inputEnvironment, 2, func(w *packageWorld) {
 		w.env = fmt.Sprintf("-p=%d", w.rng.IntN(3))
 		w.note("environment GOFLAGS = %s", w.env)
 	}},
-	{"setting", inputSetting, 1, func(w *packageWorld) {
+	{"setting", inputSetting, 2, func(w *packageWorld) {
 		w.setting = fmt.Sprintf("cache%d", w.rng.IntN(3))
 		w.note("setting = %s", w.setting)
 	}},
-	{"executable", inputExecutable, 1, func(w *packageWorld) {
+	{"executable", inputExecutable, 2, func(w *packageWorld) {
 		w.exe = fmt.Sprintf("gate%d", w.rng.IntN(3))
 		w.note("executable = %s", w.exe)
 	}},
-	{"root", inputRoot, 1, func(w *packageWorld) {
+	{"root", inputRoot, 2, func(w *packageWorld) {
 		// The same tree at another checkout path.
 		w.rootName = fmt.Sprintf("/checkout%d", w.rng.IntN(3))
 		w.note("root = %s", w.rootName)
 	}},
-	{"commit", "", 1, func(w *packageWorld) {
+	{"commit", "", 2, func(w *packageWorld) {
 		// A commit of a staged change: HEAD moves and the index changes.
 		w.head++
 		w.stage()
 		w.note("commit: head %d, index %v", w.head, w.index)
 	}},
-	{"move HEAD", inputHead, 1, func(w *packageWorld) {
+	{"move HEAD", inputHead, 2, func(w *packageWorld) {
 		// An empty commit, or a checkout of another commit of the same
 		// tree: HEAD moves, the index stays.
 		w.head++
 		w.note("HEAD moves to %d, index stays", w.head)
 	}},
-	{"stage", inputIndex, 1, func(w *packageWorld) {
+	{"stage", inputIndex, 2, func(w *packageWorld) {
 		// git add or git rm --cached: the index changes, HEAD stays.
 		w.stage()
 		w.note("stage: index %v, head stays %d", w.index, w.head)
 	}},
-	{"declare", inputDeclared, 1, func(w *packageWorld) {
+	{"declare", inputDeclared, 2, func(w *packageWorld) {
 		// b's table entry gains or loses an input that names no file.
 		b := w.packages[slices.Index(w.names, "b")]
 		extra := Allowance{"docs/absent.md", GrantFile}
@@ -348,7 +353,7 @@ var modelActions = []modelAction{
 		}
 		w.note("b declares %v", b.Declared)
 	}},
-	{"move package", inputClosure, 1, func(w *packageWorld) {
+	{"move package", inputClosure, 2, func(w *packageWorld) {
 		// n's table entry names another directory, which holds what n
 		// held (nothing); its step keeps its name.
 		i := slices.Index(w.names, "n")
@@ -356,10 +361,10 @@ var modelActions = []modelAction{
 		w.packages[i] = &Closure{Dir: dir}
 		w.note("n moves to %s", dir)
 	}},
-	{"recent run", "", 1, func(w *packageWorld) { w.recentRun() }},
-	{"fast run", "", 6, func(w *packageWorld) { w.fastRun() }},
-	{"full run", "", 2, func(w *packageWorld) { w.fullRun() }},
-	{"merge run", "", 1, func(w *packageWorld) { w.mergeRun() }},
+	{"recent run", "", 10, func(w *packageWorld) { w.recentRun() }},
+	{"fast run", "", 60, func(w *packageWorld) { w.fastRun() }},
+	{"full run", "", 20, func(w *packageWorld) { w.fullRun() }},
+	{"merge run", "", 10, func(w *packageWorld) { w.mergeRun() }},
 }
 
 func (w *packageWorld) step() {
