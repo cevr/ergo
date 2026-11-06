@@ -53,7 +53,10 @@ var stepPrograms = map[string]string{
 // need (buildCLIStep) wrote in this run. Its value is a constant relative
 // path, and Step.Env is a part of both tiers' keys (TestCLIPathIsInTheStepKey),
 // so a changed value cannot replay a pass recorded with another CLI.
-var stepEnvironmentNames = []string{"CGO_ENABLED", "ERGO_REPO_ROOT", "ERGO_TEST_CLI"}
+// ERGO_CLOSURE_SWEEP selects what a closure sweep step sweeps (sweepStep):
+// all, or one package directory; it is a selection, not a cache or flag
+// variable, and Step.Env keys it the same way.
+var stepEnvironmentNames = []string{"CGO_ENABLED", "ERGO_REPO_ROOT", "ERGO_TEST_CLI", "ERGO_CLOSURE_SWEEP"}
 
 // timeoutDuration is the DURATION operand of timeout, written literally.
 var timeoutDuration = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -95,6 +96,17 @@ const (
 	// sweepTable is the file of the sweep and of the closure table.
 	sweepTable = "internal/closure/closure_test.go"
 )
+
+// sweepOS is the GOOS whose steps the gate declares: runtime.GOOS, which a
+// test sets to another to read that OS's steps (TestClosureSweepTier).
+var sweepOS = runtime.GOOS
+
+// sweepSupported says whether the closure sweep can run here. Its sandbox
+// needs Linux user and mount namespaces; on any other OS (macOS)
+// internal/closure reports the sweep unsupported and fails it. So the gate
+// declares the sweep steps of both tiers only on Linux, as it observes a
+// fast step's reads only there (observable).
+func sweepSupported() bool { return sweepOS == "linux" }
 
 // sweepStep runs the closure sweep over selection: sweepAll, or one
 // package directory.
@@ -219,9 +231,12 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
 	// batch 9, on its default).
-	sweep := sweepStep(sweepAll)
-	sweep.Needs = []string{"go test build"}
-	add(sweep)
+	// Only where the sweep can run (sweepSupported).
+	if sweepSupported() {
+		sweep := sweepStep(sweepAll)
+		sweep.Needs = []string{"go test build"}
+		add(sweep)
+	}
 	// The one step that keeps Go's test cache (Step.Hermetic); every other
 	// step runs its go tests uncached.
 	if len(hermetic) > 0 {

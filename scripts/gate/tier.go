@@ -356,12 +356,15 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 	}
 	// The closure sweep of each package, keyed so that it runs only when
-	// what decides its verdict in the fast tier changes (sweepClosure).
+	// what decides its verdict in the fast tier changes (sweepClosure);
+	// only where the sweep can run (sweepSupported).
 	for _, p := range packages {
-		step := sweepStep(p.dir)
-		step.Name = "closure sweep ./" + p.dir + " (fast)"
-		step.Package, step.PackageProblem = sweepClosure(p.dir, problem), problem
-		tests = append(tests, step)
+		if sweepSupported() {
+			step := sweepStep(p.dir)
+			step.Name = "closure sweep ./" + p.dir + " (fast)"
+			step.Package, step.PackageProblem = sweepClosure(p.dir, problem), problem
+			tests = append(tests, step)
+		}
 	}
 	// The tests after the steps they need, in package order.
 	return append(steps, tests...), nil

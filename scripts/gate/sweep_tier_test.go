@@ -16,8 +16,26 @@ import (
 // so a checker edit's fast set keeps its CPU (TestFastTierReachOfAnEdit).
 // A sweep step is found by what it runs, so the test reads the steps as
 // the gate runs them.
+//
+// The sweep runs only on Linux (sweepSupported): on macOS internal/closure
+// fails it as unsupported, so there neither tier has a sweep step. The test
+// reads both OSes' steps on any host; it sets sweepOS, so it does not run
+// in parallel.
 func TestClosureSweepTier(t *testing.T) {
+	host := sweepOS
+	t.Cleanup(func() { sweepOS = host })
 	root := checkoutRoot(t)
+	sweepOS = "darwin"
+	for tier, declare := range map[string]func(string) ([]*Step, error){fullTier: gateSteps, fastTier: fastSteps} {
+		steps, err := declare(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := sweepsOf(steps); len(got) != 0 {
+			t.Errorf("darwin, %s tier: %d closure sweep steps; want none, as the sweep cannot run off Linux", tier, len(got))
+		}
+	}
+	sweepOS = "linux"
 	full, err := gateSteps(root)
 	if err != nil {
 		t.Fatal(err)
