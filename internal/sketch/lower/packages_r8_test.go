@@ -389,6 +389,13 @@ func canonCases() []canonCase {
 		{"r7 nested keys", r7NestedKeys, false, false, ""},
 		{"r7 escaping keys", r7EscapingKeys, false, false, ""},
 		{"r7 row value refusal", r7RowValueRefusal, false, true, ""},
+		// Two files whose first declarations have one name (overloads of
+		// Get): a key of that name alone would tie them.
+		{"first names tie", []pkgSource{
+			{"/tie/a.ergo", "func Get(q Q0) int { 0 }\ntype Q0 {}\ntype E0 { N int }\nfunc fail0() int fails E0 { E0{N: 1} }\n"},
+			{"/tie/b.ergo", "func Get(q Q1) int { 1 }\ntype Q1 {}\ntype E1 { N int }\nfunc fail1() int fails E1 { E1{N: 1} }\n"},
+			{"/tie/main.ergo", "func each() int fails E0 | E1 {\n\tlet _ = try fail1()\n\tlet _ = try fail0()\n\t0\n}\nfunc rest() int { each() catch { case err: keep(err) } }\nfunc keep[T](v T) int { 1 }\nfunc main() { let _ = rest() }\n"},
+		}, false, false, ""},
 	}
 	for seed := int64(0); seed < 3; seed++ {
 		cases = append(cases,
