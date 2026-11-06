@@ -136,9 +136,9 @@ func TestPackageValueNamedLikeContext(t *testing.T) {
 
 // The duplicate rule across files: the later declaration is the one in the
 // later file, whichever kind it is (runtime-199 stage 4a r3 m4). The later
-// file is the later in canonical order (check/canon.go: by text, as these
-// files have no imports), not the later as listed (pkg-lower round 8), so
-// both listings of one pair of files blame the same file at the same place.
+// file is the later by name (check/canon.go; pkg-lower round 9), as in
+// Go, not the later as listed, so both listings of one pair of files blame
+// the same file at the same place.
 func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 	const context = "let W = context { A: Quiet }\n"
 	for _, value := range []string{
@@ -158,10 +158,8 @@ func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 				for i, src := range tc.files {
 					texts[i] = src + "func g" + fmt.Sprint(i) + "() { with W { A.Use() } }\n"
 				}
-				later := 0
-				if texts[1] > texts[0] {
-					later = 1
-				}
+				names := [2]string{"f0.ergo", "f1.ergo"}
+				const later = 1 // f1.ergo sorts after f0.ergo
 				decl := context
 				if !strings.Contains(texts[later], context) {
 					decl = value
@@ -171,11 +169,12 @@ func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 				for order := range 2 {
 					listed := [2]string{texts[order], texts[1-order]}
 					var files []*syntax.File
-					for _, src := range listed {
+					for i, src := range listed {
 						f, err := syntax.Parse(src)
 						if err != nil {
 							t.Fatal(err)
 						}
+						f.Name = names[i^order]
 						files = append(files, f)
 					}
 					_, ds := check.Check("main", files, nil)
@@ -186,7 +185,7 @@ func TestPackageValueNamedLikeContextFiles(t *testing.T) {
 						}
 					}
 					if len(at) != 1 || listed[at[0].File] != texts[later] || at[0].Offset != offset {
-						t.Fatalf("listing %d: want one S108 in the later file (canonical order) at offset %d, got %v in %v", order, offset, at, ds)
+						t.Fatalf("listing %d: want one S108 in the later file by name at offset %d, got %v in %v", order, offset, at, ds)
 					}
 					d := at[0]
 					d.File = 0

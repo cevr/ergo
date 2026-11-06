@@ -364,10 +364,10 @@ func TestRecursiveGroupsNameTheirFile(t *testing.T) {
 // The package-pattern loop temporarily selects a later duplicate context,
 // then must restore the pattern's file before declaring its next name.
 // Unit types also share the context namespace, with the later file blamed.
-// The later file is the later in canonical order (check/canon.go: the
-// checker meets the files by their text, as these have no imports), not
-// the later as listed (pkg-lower round 8), so both listings blame the same
-// file at the same place. want names each file by its index in files.
+// The later file is the later by name (check/canon.go; pkg-lower round 9),
+// as in Go, not the later as listed, so both listings blame the same file
+// at the same place. files[i] is named fi.ergo; want names each file by
+// its index in files.
 func TestPackageNameReportsNameTheirFile(t *testing.T) {
 	const duplicate = "W is already declared in this package"
 	const boundTwice = "W is bound twice in this pattern (rows.md, Totality 1)"
@@ -381,25 +381,24 @@ func TestPackageNameReportsNameTheirFile(t *testing.T) {
 		want  []report
 	}{
 		{
-			// "let (W" sorts before "let W": the context's file is later.
 			"pattern-restore", [2]string{"let (W, W) = (1, 2)\n", "let W = context {}\n"},
 			[]report{{0, 8, duplicate}, {0, 8, boundTwice}, {1, 4, duplicate}},
 		},
 		{
-			// "type W" sorts after "let W": the unit type's file is later.
 			"unit-context", [2]string{"type W {}\n", "let W = context {}\n"},
-			[]report{{0, 5, duplicate}},
+			[]report{{1, 4, duplicate}},
 		},
 	} {
 		for order := range 2 {
 			t.Run(fmt.Sprintf("%s/order=%d", tc.name, order), func(t *testing.T) {
 				texts := [2]string{tc.files[order], tc.files[1-order]}
 				var files []*syntax.File
-				for _, src := range texts {
+				for i, src := range texts {
 					f, err := syntax.Parse(src)
 					if err != nil {
 						t.Fatal(err)
 					}
+					f.Name = fmt.Sprintf("f%d.ergo", i^order)
 					files = append(files, f)
 				}
 				got, ice := checkPlaced(files)

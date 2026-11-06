@@ -38,9 +38,10 @@ func (d Diagnostic) String() string {
 // It returns the package and every diagnostic, sorted by file and position.
 // A nil importer resolves the standard library only.
 //
-// The checker meets the files in their canonical order (canon.go), not in
-// the order of files, which it does not change. A diagnostic's File is the
-// index of its file in files.
+// The checker meets the files in their canonical order (canon.go: by
+// name, then by content), not in the order of files, which it does not
+// change. A diagnostic's File is the index of its file in files. Two
+// files with the same non-empty Name are an internal compiler error.
 func Check(path string, files []*syntax.File, imp Importer) (*Package, []Diagnostic) {
 	if imp == nil {
 		imp = Std
