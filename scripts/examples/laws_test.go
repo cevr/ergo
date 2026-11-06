@@ -31,6 +31,13 @@ func TestLawlessTypes(t *testing.T) {
 		{"type in a raw string", "let doc = `\ntype Fake {\n\tGo(),\n}\n`\n", nil},
 		{"brace in a string", "func f() string { return \"type X {\" }\ntype Y {\n\tGo(s string) string,\n}\n", []string{"2 Y"}},
 		{"two types", "type A {\n\tF(),\n}\ntype B {\n\tG(),\n\tlaw L() { true },\n}\ntype C { H() }\n", []string{"1 A", "8 C"}},
+		{"nested constraint", "type Store[T Codec[int]] { Put(v T), }\n", []string{"1 Store"}},
+		{"nested constraints, two levels", "type Cache[K Map[string, List[int]], V] {\n\tGet(k K) V,\n}\n", []string{"1 Cache"}},
+		{"constraint with parentheses", "type Runner[F func(Codec[int]) bool] {\n\tRun(f F),\n}\n", []string{"1 Runner"}},
+		{"type parameters over lines", "type Index[\n\tK Codec[int],\n\tV,\n] {\n\tAt(k K) V,\n}\n", []string{"1 Index"}},
+		{"operation with a nested constraint", "type Pool[T] {\n\tTake[K Codec[T]](k K) T,\n}\n", []string{"1 Pool"}},
+		{"nested constraint and law", "type Store[T Codec[int]] {\n\tPut(v T),\n\tlaw L() { true },\n}\n", nil},
+		{"nested record", "type Pair[T Codec[int]] { Left T, Right List[T] }\n", nil},
 	} {
 		var got []string
 		for _, l := range lawlessTypes("x.ergo", []byte(c.source)) {

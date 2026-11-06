@@ -21,16 +21,73 @@ import (
 // library: comments and string literals are blanked, then each top-level
 // "type NAME {" or "type NAME[...] {" body is split into its members. A
 // member "NAME(" or "NAME[...](" is an operation; "law NAME(" is a law.
+// Each "[...]" list is read by bracket depth, so a nested constraint
+// ("[T Codec[int]]") does not end it.
 // Fields ("Name string", "F func(int) bool") are neither.
 
-// typeHead finds a top-level type declaration whose body is a brace block.
-var typeHead = regexp.MustCompile(`(?m)^type[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\[[^\]\n]*\])?[ \t]*\{`)
+// typeName finds the start of a top-level type declaration. typeBody then
+// reads its type parameter list by bracket depth, since a constraint can
+// hold brackets and parentheses ("type Store[T Codec[int]] {").
+var typeName = regexp.MustCompile(`(?m)^type[ \t]+([A-Za-z_][A-Za-z0-9_]*)`)
 
-// operationMember and lawMember classify one member of a type body.
+// memberName finds the name at the start of a member; lawMember finds a law.
 var (
-	operationMember = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*[ \t]*(?:\[[^\]]*\])?[ \t]*\(`)
-	lawMember       = regexp.MustCompile(`^law[ \t]+[A-Za-z_]`)
+	memberName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*`)
+	lawMember  = regexp.MustCompile(`^law[ \t]+[A-Za-z_]`)
 )
+
+// isOperation reports whether a member is "NAME(" or "NAME[...](", the
+// type parameter list read by depth.
+func isOperation(member string) bool {
+	loc := memberName.FindStringIndex(member)
+	if loc == nil {
+		return false
+	}
+	i := skipBrackets([]byte(member), loc[1])
+	return i < len(member) && member[i] == '('
+}
+
+// skipBrackets skips blanks from text[i], then a balanced "[...]" list if
+// one starts there (brackets and parentheses nest inside it), then blanks
+// again, and returns the index after them. An unbalanced list returns
+// len(text).
+func skipBrackets(text []byte, i int) int {
+	i = skipBlanks(text, i)
+	if i >= len(text) || text[i] != '[' {
+		return i
+	}
+	depth := 0
+	for ; i < len(text); i++ {
+		switch text[i] {
+		case '[', '(':
+			depth++
+		case ']', ')':
+			depth--
+			if depth == 0 {
+				return skipBlanks(text, i+1)
+			}
+		}
+	}
+	return len(text)
+}
+
+func skipBlanks(text []byte, i int) int {
+	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+		i++
+	}
+	return i
+}
+
+// typeBody returns the index of the '{' that opens the body of the type
+// declaration whose name ends at text[end], or -1 when its body is not a
+// brace block (a union "=", a machine, an alias).
+func typeBody(text []byte, end int) int {
+	i := skipBrackets(text, end)
+	if i < len(text) && text[i] == '{' {
+		return i
+	}
+	return -1
+}
 
 // lawlessType is an operation type with no member law.
 type lawlessType struct {
@@ -48,15 +105,18 @@ func (l lawlessType) String() string {
 func lawlessTypes(file string, source []byte) []lawlessType {
 	text := blankCommentsAndStrings(source)
 	var found []lawlessType
-	for _, m := range typeHead.FindAllSubmatchIndex(text, -1) {
-		open := m[1] - 1
+	for _, m := range typeName.FindAllSubmatchIndex(text, -1) {
+		open := typeBody(text, m[1])
+		if open < 0 {
+			continue
+		}
 		members := typeMembers(text, open)
 		operations, laws := 0, 0
 		for _, member := range members {
 			switch {
 			case lawMember.MatchString(member):
 				laws++
-			case operationMember.MatchString(member):
+			case isOperation(member):
 				operations++
 			}
 		}
