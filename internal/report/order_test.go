@@ -33,7 +33,7 @@ func TestReportOrdersFindingsByFileThenOffset(t *testing.T) {
 				line := rng.Intn(40)
 				col := []int{0, 4}[rng.Intn(2)]
 				d.File = files[rng.Intn(len(files))]
-				d.Span = Span{Offset: line*8 + col, Length: 3, Line: line + 1, Column: col + 1}
+				d.Span = Span{Offset: line*8 + col, Length: 1 + rng.Intn(3), Line: line + 1, Column: col + 1}
 			}
 			in = append(in, d)
 		}
@@ -89,6 +89,20 @@ func TestReportOrdersFindingsByFileThenOffset(t *testing.T) {
 				t.Fatalf("seed %d: finding %+v is not located in its file", seed, key(f))
 			}
 		}
+	}
+}
+
+// Two findings at one offset of one file are ordered by span length, the
+// shorter first, before the code (docs/tooling.md, Finding order).
+func TestReportOrdersFindingsAtOneOffsetByLength(t *testing.T) {
+	snapshot := SourceSnapshot{URI: "file:///m", Files: map[string]string{"a.ergo": "let value = 1\n"}}
+	in := []Diagnostic{
+		{Code: "S104", Message: "long", File: "a.ergo", Span: Span{Offset: 4, Length: 5, Line: 1, Column: 5}},
+		{Code: "S110", Message: "short", File: "a.ergo", Span: Span{Offset: 4, Length: 2, Line: 1, Column: 5}},
+	}
+	got := NewResult("", Target, in).Report(snapshot, false).Diagnostics
+	if len(got) != 2 || got[0].Message != "short" || got[1].Message != "long" {
+		t.Fatalf("got %+v, want the length-2 finding before the length-5 one", got)
 	}
 }
 
