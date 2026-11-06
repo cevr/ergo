@@ -104,7 +104,7 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, replayed := replayWholeGate(root, "rss: test", file)
+	code, replayed := replayWholeGate(root, "rss: test", fullTier, file)
 	_ = code
 	file.Close()
 	// replayWholeGate keys every declared host program, so it computes
@@ -159,6 +159,59 @@ func TestWholeGateRunRecordsAndReplays(t *testing.T) {
 	code, out = runWhole(t, g)
 	if code != 0 || !strings.Contains(out, "gate: no whole-gate record: the checkout or the host changed during the run: written.txt (added)") {
 		t.Fatalf("exit %d; a run that wrote into the checkout recorded, or did not say why not:\n%s", code, out)
+	}
+}
+
+// TestWholeGateRecordNamesItsTier: the tier is a fact of the whole-gate
+// key. A full-tier record replays for a full-tier run, by the run itself
+// and by the replay before the scope (replayWholeGate, which keys every
+// host program as main does), and for no run of another tier; each run
+// says its tier.
+func TestWholeGateRecordNamesItsTier(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("ERGO_GATE_CACHE", cache)
+	root := fixture(t)
+	counter := filepath.Join(t.TempDir(), "count")
+	state, err := checkoutStateOf(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := &gate{root: root, cacheDir: cacheDirectory(), tier: fullTier, steps: []*Step{{Name: "counted", Argv: outsideCount(counter)}},
+		whole: &wholeGate{mechanism: "rss: test", identity: state}}
+	code, out := runWhole(t, full)
+	if code != 0 || !strings.Contains(out, "gate: tier: full\n") || !strings.Contains(out, "gate: recorded whole-gate key ") {
+		t.Fatalf("the full tier exited %d, did not name its tier or did not record:\n%s", code, out)
+	}
+	replayAs := func(tier string) (bool, string) {
+		t.Helper()
+		file, err := os.Create(filepath.Join(t.TempDir(), "log"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		_, replayed := replayWholeGate(root, "rss: test", tier, file)
+		log, err := os.ReadFile(file.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return replayed, string(log)
+	}
+	if replayed, log := replayAs("fast"); replayed {
+		t.Fatalf("the replay before the scope replayed the full tier's record for the fast tier:\n%s", log)
+	}
+	if replayed, log := replayAs(fullTier); !replayed || !strings.Contains(log, "gate: tier: full\n") || countIn(t, counter) != 1 {
+		t.Fatalf("the replay before the scope did not replay the full tier's record (replayed %t, ran %d times):\n%s", replayed, countIn(t, counter), log)
+	}
+	// A run of another tier runs its steps (and records under its own key);
+	// the full tier's record still replays for the full tier.
+	other := full.derive(full.steps, false, full.whole)
+	other.tier = "fast"
+	code, out = runWhole(t, other)
+	if code != 0 || countIn(t, counter) != 2 || strings.Contains(out, "replayed") || !strings.Contains(out, "gate: tier: fast\n") {
+		t.Fatalf("a run of another tier exited %d, ran the step %d times; it replayed the full tier's record or did not name its tier:\n%s", code, countIn(t, counter), out)
+	}
+	if code, out = runWhole(t, full); code != 0 || countIn(t, counter) != 2 || !strings.Contains(out, "gate: replayed 1 steps") {
+		t.Fatalf("the full tier exited %d, ran the step %d times; want a replay of its record:\n%s", code, countIn(t, counter), out)
 	}
 }
 

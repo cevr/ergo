@@ -30,8 +30,11 @@
 // Above the steps sits the whole-gate replay (package replay, wholegate.go).
 // One key covers every input of every step: the gate executable, the
 // checkout root, HEAD, the index, every path of the checkout, the declared
-// step environment, the gate's settings and the host fingerprint, which
-// includes every declared host program. A gate whose steps all pass records
+// step environment, the gate's settings, the run's tier (fullTier) and the
+// host fingerprint, which includes every declared host program. So a record
+// names the tier that made it, and replays only for a run of that tier; the
+// merge tier compares only with a full-tier record. A gate whose steps all
+// pass records
 // the run under that key when the key at its end equals the key at its
 // start; a later gate at the same key prints the recorded run and starts no
 // step, so the host step replays only inside a whole-gate replay. A failed
@@ -235,6 +238,11 @@ type gate struct {
 	scope, scopeNote string
 	limit            limiter
 
+	// tier names the run's tier (fullTier, mergeTierName). The whole-gate
+	// key holds it (collect), so a record names the tier that made it and
+	// replays only for a run of that tier.
+	tier string
+
 	// whole, when set, keys the whole gate: run replays a recorded pass at
 	// the key, records a passed run and withdraws the record on a failure.
 	whole *wholeGate
@@ -261,13 +269,40 @@ type wholeGate struct {
 // derive is a gate for another run of the same checkout: the merge tier's
 // inner and uncached runs share the scope, the limiter and the caches.
 func (g *gate) derive(steps []*Step, noCache bool, whole *wholeGate) *gate {
-	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, whole: whole, programs: g.programs, openSandbox: g.openSandbox}
+	return &gate{root: g.root, cacheDir: g.cacheDir, noCache: noCache, steps: steps, scope: g.scope, scopeNote: g.scopeNote, limit: g.limit, tier: g.tier, whole: whole, programs: g.programs, openSandbox: g.openSandbox}
 }
+
+// The tiers a run names (gate.tier). fullTier is the default run and
+// --no-cache: every step of the graph, every test of every package, the
+// only run that writes a whole-gate record, and so the only record --merge
+// compares with. mergeTierName is --merge's uncached run, which writes no
+// record. A tier that runs fewer tests (the planned fast tier) takes another
+// name, so its record has another key and never stands for a full run.
+const (
+	fullTier      = "full"
+	mergeTierName = "merge"
+)
+
+// tierSetting is the name of the setting that holds the tier in the
+// whole-gate key.
+const tierSetting = "gate tier"
 
 // collect collects the whole-gate facts afresh: every fingerprint again
 // (collectHost uses a fresh fingerprint cache).
 func (g *gate) collect() (*replay.Facts, error) {
-	return g.collectFacts(g.whole.mechanism)
+	return g.collectTier(g.whole.mechanism)
+}
+
+// collectTier is collectFacts with the gate's tier among the settings. Both
+// the replay before the scope (replayWholeGate) and a run's record key
+// their facts through it, so they agree on the tier.
+func (g *gate) collectTier(mechanism string) (*replay.Facts, error) {
+	facts, err := g.collectFacts(mechanism)
+	if err != nil {
+		return nil, err
+	}
+	facts.Settings = append(facts.Settings, replay.Variable{Name: tierSetting, Set: g.tier != "", Value: g.tier})
+	return facts, nil
 }
 
 func main() {
@@ -329,7 +364,7 @@ func main() {
 			if err != nil {
 				fatal(err)
 			}
-			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), os.Stdout); replayed {
+			if code, replayed := replayWholeGate(root, mechanismFact("", probed, reason), fullTier, os.Stdout); replayed {
 				exitGate(code)
 			}
 		}
@@ -355,6 +390,7 @@ func main() {
 	}
 	fmt.Println(state)
 	g.noCache = *noCache
+	g.tier = fullTier
 	if g.cacheDir != "" {
 		g.whole = &wholeGate{mechanism: mechanismFact(scope, probed, scopeNote), identity: state}
 	}
@@ -399,13 +435,14 @@ func setUp(scope, scopeNote string, declare bool) (*gate, error) {
 // replayWholeGate replays the whole-gate record of the checkout's key, if
 // one replays (replay.Store.TryReplay): the identity line, then the
 // recorded run. It reports whether it replayed, and the exit code. It runs
-// before the gate enters its scope, and starts no step.
-func replayWholeGate(root, mechanism string, out *os.File) (int, bool) {
-	g := &gate{root: root, cacheDir: cacheDirectory()}
+// before the gate enters its scope, and starts no step. It replays only a
+// record of the run's tier.
+func replayWholeGate(root, mechanism, tier string, out *os.File) (int, bool) {
+	g := &gate{root: root, cacheDir: cacheDirectory(), tier: tier}
 	if g.cacheDir == "" {
 		return 0, false
 	}
-	facts, err := g.collectFacts(mechanism)
+	facts, err := g.collectTier(mechanism)
 	if err != nil {
 		return 0, false
 	}
@@ -427,6 +464,7 @@ func replayWholeGate(root, mechanism string, out *os.File) (int, bool) {
 		return 0, false
 	}
 	fmt.Fprintln(out, state)
+	fmt.Fprintf(out, "gate: tier: %s\n", tier)
 	if err := recorded.Print(out); err != nil {
 		fmt.Fprintf(out, "gate: print the replay: %v\n", err)
 		return 2, true
@@ -504,6 +542,7 @@ func (g *gate) mergeTier(out io.Writer) int {
 		Uncached: func() ([]string, map[string]replay.Verdict) {
 			fmt.Fprintln(out, "merge: every step uncached")
 			run := g.derive(uncached, true, nil)
+			run.tier = mergeTierName
 			run.enclosure = box
 			run.run(out)
 			var names []string
@@ -661,6 +700,9 @@ func (g *gate) run(out io.Writer) int {
 	if err := g.loadFiles(); err != nil {
 		fmt.Fprintln(out, "gate:", err)
 		return 2
+	}
+	if g.tier != "" {
+		fmt.Fprintf(out, "gate: tier: %s\n", g.tier)
 	}
 	fmt.Fprintf(out, "gate: steps receive only %s\n", strings.Join(testenv.Names, " "))
 	fmt.Fprintf(out, "gate: memory budget: %s\n", g.limit.describe())
