@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -126,8 +127,44 @@ func contextFamily(shape string, n int) string {
 // (D16 as amended in rounds 18 and 20). The disjoint ladder's answer is
 // quadratic, so it is refused at every size here; the other shapes are
 // accepted.
-func TestContextBudget(t *testing.T) {
-	oc := countOps(t)
+//
+// Each shape and size is one case of a split (gate-fast T1): part k checks
+// cases k and k+14, as a top-level test of its own, so the six 8000-node
+// chains and the 2048 ladder fall in seven different parts. Under -short a
+// part keeps its first case.
+var contextBudget = NewSplit(Split[contextBudgetCase]{
+	Name: "TestContextBudget", Parts: 14, Short: 2,
+	Count: 27, Digest: "442eb1ac963b95d1623448d54c943f495b64e30e7239133fc5b3e6c46f090174",
+	Cases: SeqOf(contextBudgetCases),
+	Key: func(c contextBudgetCase) string {
+		return fmt.Sprintf("%s n=%d refused=%v\n%s", c.shape, c.n, c.refused, contextFamily(c.shape, c.n))
+	},
+	Run: runContextBudget,
+})
+
+func TestContextBudgetPart0(t *testing.T)  { contextBudget.Part(t, 0) }
+func TestContextBudgetPart1(t *testing.T)  { contextBudget.Part(t, 1) }
+func TestContextBudgetPart2(t *testing.T)  { contextBudget.Part(t, 2) }
+func TestContextBudgetPart3(t *testing.T)  { contextBudget.Part(t, 3) }
+func TestContextBudgetPart4(t *testing.T)  { contextBudget.Part(t, 4) }
+func TestContextBudgetPart5(t *testing.T)  { contextBudget.Part(t, 5) }
+func TestContextBudgetPart6(t *testing.T)  { contextBudget.Part(t, 6) }
+func TestContextBudgetPart7(t *testing.T)  { contextBudget.Part(t, 7) }
+func TestContextBudgetPart8(t *testing.T)  { contextBudget.Part(t, 8) }
+func TestContextBudgetPart9(t *testing.T)  { contextBudget.Part(t, 9) }
+func TestContextBudgetPart10(t *testing.T) { contextBudget.Part(t, 10) }
+func TestContextBudgetPart11(t *testing.T) { contextBudget.Part(t, 11) }
+func TestContextBudgetPart12(t *testing.T) { contextBudget.Part(t, 12) }
+func TestContextBudgetPart13(t *testing.T) { contextBudget.Part(t, 13) }
+
+type contextBudgetCase struct {
+	shape   string
+	n       int
+	refused bool
+}
+
+func contextBudgetCases() []contextBudgetCase {
+	var out []contextBudgetCase
 	for _, family := range []struct {
 		shape   string
 		sizes   []int
@@ -144,21 +181,30 @@ func TestContextBudget(t *testing.T) {
 		{"disjoint", []int{128, 256, 512, 2048}, true},
 	} {
 		for _, n := range family.sizes {
-			src := contextFamily(family.shape, n)
-			diags, c := checkLimited(t, src, nil)
-			m := c.contexts
-			if m == nil {
-				t.Fatalf("%s n=%d: no context meter", family.shape, n)
-			}
-			oc.bounded(t, fmt.Sprintf("%s n=%d", family.shape, n), src, c)
-			switch {
-			case len(diags) == 0 && !family.refused:
-			case len(diags) == 1 && diags[0].Code == CodeDuplicateCap && diags[0].Message == contextBudgetMessage && family.refused:
-			default:
-				t.Errorf("%s n=%d: want %s, got %v", family.shape, n, map[bool]string{false: "acceptance", true: "the budget S111"}[family.refused], diags)
-			}
-			t.Logf("%s n=%d: %d of %d steps charged (%.1f%%), %d repeatable and %d single-pass operations, %d diagnostics", family.shape, n, m.used, m.limit, 100*float64(m.used)/float64(m.limit), oc.repeat[m], oc.single[m], len(diags))
+			out = append(out, contextBudgetCase{family.shape, n, family.refused})
 		}
+	}
+	return out
+}
+
+func runContextBudget(t *testing.T, cases iter.Seq[contextBudgetCase]) {
+	oc := countOps(t)
+	for family := range cases {
+		n := family.n
+		src := contextFamily(family.shape, n)
+		diags, c := checkLimited(t, src, nil)
+		m := c.contexts
+		if m == nil {
+			t.Fatalf("%s n=%d: no context meter", family.shape, n)
+		}
+		oc.bounded(t, fmt.Sprintf("%s n=%d", family.shape, n), src, c)
+		switch {
+		case len(diags) == 0 && !family.refused:
+		case len(diags) == 1 && diags[0].Code == CodeDuplicateCap && diags[0].Message == contextBudgetMessage && family.refused:
+		default:
+			t.Errorf("%s n=%d: want %s, got %v", family.shape, n, map[bool]string{false: "acceptance", true: "the budget S111"}[family.refused], diags)
+		}
+		t.Logf("%s n=%d: %d of %d steps charged (%.1f%%), %d repeatable and %d single-pass operations, %d diagnostics", family.shape, n, m.used, m.limit, 100*float64(m.used)/float64(m.limit), oc.repeat[m], oc.single[m], len(diags))
 	}
 }
 

@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"iter"
 	"math/rand"
 	"os"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -661,29 +663,144 @@ func e1cChoices(arities []int, d int) []e1cDecl {
 	return out
 }
 
-func TestE1cCycleGenerator(t *testing.T) {
+// e1cFull is the acceptance batch: the whole two-declaration product and
+// the full three- and four-declaration sample, instead of the gate slice.
+func e1cFull() bool { return os.Getenv("ERGO_CYCLE_GEN") == "full" && !testing.Short() }
+
+// e1cCase is one program of the generator's domain, with its ordinal. Its
+// declarations are valid only while it is yielded.
+type e1cCase struct {
+	ordinal int
+	ds      []e1cDecl
+}
+
+// e1cDomain yields the section 3.2 domain in ordinal order: the gate slice,
+// or the acceptance batch when full.
+func e1cDomain(full bool) iter.Seq[e1cCase] {
+	return func(yield func(e1cCase) bool) {
+		e1cEachProgram(full, func(ordinal int, ds []e1cDecl) bool {
+			return yield(e1cCase{ordinal, ds})
+		})
+	}
+}
+
+// The domain is a split (gate-fast T1): part k checks every fourth program
+// from program k, as a top-level test of its own, dealt to four parallel
+// subtests. Under -short a part keeps every eighth program of its share.
+// TestE1cCycleGeneratorDomain checks the domain's size, finiteness and
+// slice coverage from the oracle alone. The pin is the gate slice's; the
+// acceptance batch (ERGO_CYCLE_GEN=full) runs the same parts over its own
+// domain.
+var e1cCycleGenerator = check.NewSplit(check.Split[e1cCase]{
+	Name: "TestE1cCycleGenerator", Parts: 4, Short: 8,
+	Count: 14358, Digest: "d08b4ade23f478f9eb73978e3b8e02c3b0578d623b2bbf598fdd15d7c93469ca",
+	Pinned: func() bool { return !e1cFull() },
+	Cases:  func(yield func(e1cCase) bool) { e1cDomain(e1cFull())(yield) },
+	Key: func(c e1cCase) string {
+		order := make([]int, len(c.ds))
+		for i := range order {
+			order[i] = i
+		}
+		return fmt.Sprintf("ordinal=%d\n%s", c.ordinal, e1cSource(c.ds, order, -1, false))
+	},
+	Run: runE1cCycleGenerator,
+})
+
+func TestE1cCycleGeneratorPart0(t *testing.T) { e1cCycleGenerator.Part(t, 0) }
+func TestE1cCycleGeneratorPart1(t *testing.T) { e1cCycleGenerator.Part(t, 1) }
+func TestE1cCycleGeneratorPart2(t *testing.T) { e1cCycleGenerator.Part(t, 2) }
+func TestE1cCycleGeneratorPart3(t *testing.T) { e1cCycleGenerator.Part(t, 3) }
+
+// e1cWorkers is the number of parallel subtests a part deals its programs to.
+const e1cWorkers = 4
+
+func runE1cCycleGenerator(t *testing.T, cases iter.Seq[e1cCase]) {
 	start := time.Now()
-	full := os.Getenv("ERGO_CYCLE_GEN") == "full" && !testing.Short()
-	if full {
+	if e1cFull() {
 		// Only the acceptance batch changes GC pacing; the gate slice uses
 		// the caller's policy. Restore it before any other test runs.
 		runtime.GC()
 		previousGC := debug.SetGCPercent(1000)
 		defer debug.SetGCPercent(previousGC)
 	}
-	type counts struct{ programs, filtered, calls, domain int }
-	const workers = 16
-	var results [workers]counts
-	var coverage [workers]e1cSliceCoverage
-	// Share 426 read-only alphabets, but materialize pairs only for the
-	// exhaustive one/two-declaration domain. Sampling needs only indices;
-	// retaining every three/four-declaration pair would burden each GC.
-	type choiceKey struct {
-		arities [4]int
-		n, d    int
+	var programs, calls [e1cWorkers]int
+	t.Run("domain", func(t *testing.T) {
+		for worker := range e1cWorkers {
+			t.Run(fmt.Sprint(worker), func(t *testing.T) {
+				t.Parallel()
+				position := 0
+				for c := range cases {
+					position++
+					if (position-1)%e1cWorkers != worker {
+						continue
+					}
+					groups, finite, _ := e1cOracleCase(c.ds)
+					if !finite {
+						t.Fatalf("one-level argument alphabet must be finite: program %d expands", c.ordinal)
+					}
+					programs[worker]++
+					calls[worker] += e1cProperties(t, c.ds, groups)
+				}
+			})
+		}
+	})
+	var total [2]int
+	for w := range e1cWorkers {
+		total[0] += programs[w]
+		total[1] += calls[w]
 	}
-	tables := map[choiceKey][]e1cDecl{}
-	sampledTables := map[choiceKey]e1cChoiceSet{}
+	t.Logf("P1-P7: full=%v programs=%d CheckSource-calls=%d elapsed=%s", e1cFull(), total[0], total[1], time.Since(start))
+}
+
+// TestE1cCycleGeneratorDomain: the generator's domain has the size section
+// 3.2 counts, every program of it is finite, and the gate slice keeps every
+// atom position and every R2' case kind; then the hand controls.
+func TestE1cCycleGeneratorDomain(t *testing.T) {
+	full := e1cFull()
+	var coverage e1cSliceCoverage
+	coverage.positions = map[string]bool{}
+	domain, filtered := 0, 0
+	e1cEachProgram(full, func(ordinal int, ds []e1cDecl) bool {
+		domain++
+		_, finite, kind := e1cOracleCase(ds)
+		if !finite {
+			filtered++
+			return true
+		}
+		if !full && len(ds) == 2 {
+			coverage.observe(ds, kind)
+		}
+		return true
+	})
+	if !full {
+		e1cAssertSliceCoverage(t, []e1cSliceCoverage{coverage})
+	}
+	if wantDomain := e1cExpectedDomain(full); domain != wantDomain {
+		t.Fatalf("incomplete section 3.2 domain: %d programs, want %d", domain, wantDomain)
+	}
+	if filtered != 0 {
+		t.Fatalf("one-level argument alphabet must be finite: filtered %d programs", filtered)
+	}
+	t.Run("alphabet", TestE1cCycleAlphabetComplete)
+	t.Run("oracle-controls", TestE1cCycleOracle)
+	t.Run("rule-controls", TestE1cCycleRuleExamples)
+	t.Run("repair-controls", TestE1cCycleMonotoneRepair)
+	t.Run("permutation-controls", TestE1CycleDeclarationPermutations)
+	t.Logf("full=%v domain=%d expanding-filtered=%d (plus hand controls)", full, domain, filtered)
+}
+
+type e1cChoiceKey struct {
+	arities [4]int
+	n, d    int
+}
+
+// e1cTables are the 426 read-only alphabets, built once and shared by
+// every enumeration: pairs are materialized only for the exhaustive
+// one/two-declaration domain. Sampling needs only indices; retaining every
+// three/four-declaration pair would burden each GC.
+var e1cTables = sync.OnceValues(func() (map[e1cChoiceKey][]e1cDecl, map[e1cChoiceKey]e1cChoiceSet) {
+	tables := map[e1cChoiceKey][]e1cDecl{}
+	sampledTables := map[e1cChoiceKey]e1cChoiceSet{}
 	for n := 1; n <= 4; n++ {
 		arities := make([]int, n)
 		for combo := 0; combo < [5]int{1, 3, 9, 27, 81}[n]; combo++ {
@@ -691,7 +808,7 @@ func TestE1cCycleGenerator(t *testing.T) {
 				arities[d] = rest % 3
 			}
 			for d := range n {
-				k := choiceKey{n: n, d: d}
+				k := e1cChoiceKey{n: n, d: d}
 				copy(k.arities[:], arities)
 				if n <= 2 {
 					tables[k] = e1cChoices(arities, d)
@@ -701,130 +818,97 @@ func TestE1cCycleGenerator(t *testing.T) {
 			}
 		}
 	}
+	return tables, sampledTables
+})
+
+// e1cEachProgram calls f on every program of the domain in ordinal order
+// (from 0), until f returns false. The declarations are reused between
+// calls.
+func e1cEachProgram(full bool, f func(ordinal int, ds []e1cDecl) bool) {
+	tables, sampledTables := e1cTables()
 	choicesOf := func(arities []int, d int) []e1cDecl {
-		k := choiceKey{n: len(arities), d: d}
+		k := e1cChoiceKey{n: len(arities), d: d}
 		copy(k.arities[:], arities)
 		return tables[k]
 	}
 	sampleOf := func(arities []int, d int, rng *rand.Rand) e1cDecl {
-		k := choiceKey{n: len(arities), d: d}
+		k := e1cChoiceKey{n: len(arities), d: d}
 		copy(k.arities[:], arities)
 		set := sampledTables[k]
 		return set.at(rng.Intn(set.count()))
 	}
-	t.Run("domain", func(t *testing.T) {
-		for worker := range workers {
-			t.Run(fmt.Sprint(worker), func(t *testing.T) {
-				t.Parallel()
-				coverage[worker].positions = map[string]bool{}
-				programs, filtered, calls, ordinal := 0, 0, 0, 0
-				run := func(ds []e1cDecl) {
-					ordinal++
-					if (ordinal-1)%workers != worker {
-						return
-					}
-					groups, finite, kind := e1cOracleCase(ds)
-					if !finite {
-						filtered++
-						return
-					}
-					programs++
-					calls += e1cProperties(t, ds, groups)
-					if !full && len(ds) == 2 {
-						coverage[worker].observe(ds, kind)
-					}
-				}
-				sliceRNG := rand.New(rand.NewSource(196_3))
-				for n := 1; n <= 2; n++ {
-					arities := make([]int, n)
-					var eachArity func(int)
-					eachArity = func(d int) {
-						if d < n {
-							for arities[d] = 0; arities[d] <= 2; arities[d]++ {
-								eachArity(d + 1)
-							}
-							return
-						}
-						choices := make([][]e1cDecl, n)
-						for i := range choices {
-							choices[i] = choicesOf(arities, i)
-						}
-						ds := make([]e1cDecl, n)
-						if !full && n == 2 {
-							// Stratify by arities, declaration position and every
-							// declaration choice. Pair each with a seeded partner.
-							// This covers all atoms and argument tuples at both
-							// field positions without enumerating the product.
-							for focal := range n {
-								for _, decl := range choices[focal] {
-									ds[focal] = decl
-									other := 1 - focal
-									ds[other] = choices[other][sliceRNG.Intn(len(choices[other]))]
-									run(ds)
-								}
-							}
-							return
-						}
-						var eachDecl func(int)
-						eachDecl = func(i int) {
-							if i == n {
-								run(ds)
-								return
-							}
-							for _, decl := range choices[i] {
-								ds[i] = decl
-								eachDecl(i + 1)
-							}
-						}
-						eachDecl(0)
-					}
-					eachArity(0)
-				}
-				rng := rand.New(rand.NewSource(196_2))
-				for n := 3; n <= 4; n++ {
-					for i := 0; i < e1cFullSample; i++ {
-						arities := make([]int, n)
-						for d := range arities {
-							arities[d] = rng.Intn(3)
-						}
-						ds := make([]e1cDecl, n)
-						for d := range ds {
-							ds[d] = sampleOf(arities, d, rng)
-						}
-						// Still draw the remaining programs so the four-
-						// declaration prefix is identical to the full run.
-						if full || i < e1cSliceSample {
-							run(ds)
-						}
-					}
-				}
-				results[worker] = counts{programs, filtered, calls, ordinal}
-			})
+	ordinal, stopped := 0, false
+	run := func(ds []e1cDecl) {
+		if stopped {
+			return
 		}
-	})
-	var total counts
-	for _, r := range results {
-		total.programs += r.programs
-		total.filtered += r.filtered
-		total.calls += r.calls
-		total.domain = r.domain
+		ordinal++
+		stopped = !f(ordinal-1, ds)
 	}
-	if !full {
-		e1cAssertSliceCoverage(t, coverage[:])
+	sliceRNG := rand.New(rand.NewSource(196_3))
+	for n := 1; n <= 2; n++ {
+		arities := make([]int, n)
+		var eachArity func(int)
+		eachArity = func(d int) {
+			if d < n {
+				for arities[d] = 0; arities[d] <= 2; arities[d]++ {
+					eachArity(d + 1)
+				}
+				return
+			}
+			choices := make([][]e1cDecl, n)
+			for i := range choices {
+				choices[i] = choicesOf(arities, i)
+			}
+			ds := make([]e1cDecl, n)
+			if !full && n == 2 {
+				// Stratify by arities, declaration position and every
+				// declaration choice. Pair each with a seeded partner.
+				// This covers all atoms and argument tuples at both
+				// field positions without enumerating the product.
+				for focal := range n {
+					for _, decl := range choices[focal] {
+						ds[focal] = decl
+						other := 1 - focal
+						ds[other] = choices[other][sliceRNG.Intn(len(choices[other]))]
+						run(ds)
+					}
+				}
+				return
+			}
+			var eachDecl func(int)
+			eachDecl = func(i int) {
+				if i == n {
+					run(ds)
+					return
+				}
+				for _, decl := range choices[i] {
+					ds[i] = decl
+					eachDecl(i + 1)
+				}
+			}
+			eachDecl(0)
+		}
+		eachArity(0)
 	}
-	wantDomain := e1cExpectedDomain(full)
-	if total.domain != wantDomain || total.programs+total.filtered != wantDomain {
-		t.Fatalf("incomplete section 3.2 domain: %+v, want %d", total, wantDomain)
+	rng := rand.New(rand.NewSource(196_2))
+	for n := 3; n <= 4; n++ {
+		for i := 0; i < e1cFullSample; i++ {
+			arities := make([]int, n)
+			for d := range arities {
+				arities[d] = rng.Intn(3)
+			}
+			ds := make([]e1cDecl, n)
+			for d := range ds {
+				ds[d] = sampleOf(arities, d, rng)
+			}
+			// Still draw the remaining programs so the four-
+			// declaration prefix is identical to the full run.
+			if full || i < e1cSliceSample {
+				run(ds)
+			}
+		}
 	}
-	if total.filtered != 0 {
-		t.Fatalf("one-level argument alphabet must be finite: filtered %d programs", total.filtered)
-	}
-	t.Run("alphabet", TestE1cCycleAlphabetComplete)
-	t.Run("oracle-controls", TestE1cCycleOracle)
-	t.Run("rule-controls", TestE1cCycleRuleExamples)
-	t.Run("repair-controls", TestE1cCycleMonotoneRepair)
-	t.Run("permutation-controls", TestE1CycleDeclarationPermutations)
-	t.Logf("P1-P7: full=%v domain=%d programs=%d expanding-filtered=%d CheckSource-calls=%d elapsed=%s (plus hand controls)", full, total.domain, total.programs, total.filtered, total.calls, time.Since(start))
 }
 
 func TestE1cCycleOracle(t *testing.T) {

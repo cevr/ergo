@@ -2,10 +2,13 @@ package check_test
 
 import (
 	"fmt"
+	"iter"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/sketch/check"
 )
 
 // The catch oracle of the stage C round 2 review (its test-strength
@@ -16,127 +19,164 @@ import (
 // false) directly. A partial catch that handles the whole row is a
 // redundant try, S108 at the try (review O3). It checks a fixed set of
 // 12,262 programs and fails rather than run past its time bound.
-func TestCatchOracleTwoTypes(t *testing.T) {
-	const bound = 60 * time.Second
-	start := time.Now()
-	type pat struct {
-		text string
-		ty   int // 0 E, 1 F, -1 rest
-		b    int // 0 false, 1 true, 2 any
-	}
-	var pool []pat
+//
+// The programs are a split (gate-fast T1): part k checks every fourth
+// program from program k, as a top-level test of its own, each part under
+// the time bound. Under -short a part keeps every eighth program of its
+// share.
+var catchOracleTwoTypes = check.NewSplit(check.Split[catchProgram]{
+	Name: "TestCatchOracleTwoTypes", Parts: 4, Short: 8,
+	Count: 12262, Digest: "b0f7668848c81f98cfe75d6d851b473c2e6fcb2f7ccca3b070261e1eccc78310",
+	Cases: catchPrograms,
+	Key:   func(p catchProgram) string { return fmt.Sprintf("partial=%v\n%s", p.partial, p.source()) },
+	Run:   runCatchOracle,
+})
+
+func TestCatchOracleTwoTypesPart0(t *testing.T) { catchOracleTwoTypes.Part(t, 0) }
+func TestCatchOracleTwoTypesPart1(t *testing.T) { catchOracleTwoTypes.Part(t, 1) }
+func TestCatchOracleTwoTypesPart2(t *testing.T) { catchOracleTwoTypes.Part(t, 2) }
+func TestCatchOracleTwoTypesPart3(t *testing.T) { catchOracleTwoTypes.Part(t, 3) }
+
+type catchPat struct {
+	text string
+	ty   int // 0 E, 1 F, -1 rest
+	b    int // 0 false, 1 true, 2 any
+}
+
+type catchArm []catchPat
+
+// catchProgram is one program: its arms, in a total or a partial catch.
+type catchProgram struct {
+	arms    []catchArm
+	partial bool
+}
+
+// catchPrograms yields the 12,262 programs: for each kind of catch, every
+// arm alone and before every arm, then every three single-pattern arms.
+func catchPrograms(yield func(catchProgram) bool) {
+	var pool []catchPat
 	for ty, name := range []string{"E", "F"} {
 		pool = append(pool,
-			pat{name + "{B: true}", ty, 1},
-			pat{name + "{B: false}", ty, 0},
-			pat{name + "{B: _}", ty, 2},
-			pat{name, ty, 2})
+			catchPat{name + "{B: true}", ty, 1},
+			catchPat{name + "{B: false}", ty, 0},
+			catchPat{name + "{B: _}", ty, 2},
+			catchPat{name, ty, 2})
 	}
-	rest := pat{"_", -1, 2}
-	type arm []pat
-	var singles, all []arm
+	rest := catchPat{"_", -1, 2}
+	var singles, all []catchArm
 	for _, p := range pool {
-		singles = append(singles, arm{p})
+		singles = append(singles, catchArm{p})
 	}
-	singles = append(singles, arm{rest})
+	singles = append(singles, catchArm{rest})
 	all = append(all, singles...)
 	for _, p := range pool {
 		for _, q := range pool {
-			all = append(all, arm{p, q})
+			all = append(all, catchArm{p, q})
 		}
-	}
-	run := func(t *testing.T, arms []arm, partial bool) {
-		t.Helper()
-		var b strings.Builder
-		b.WriteString("type E { B bool }\ntype F { B bool }\nfunc g() int fails E | F { 1 }\n")
-		if partial {
-			b.WriteString("func f() int fails E | F {\n\ttry g() catch {\n")
-		} else {
-			b.WriteString("func f() int {\n\tg() catch {\n")
-		}
-		const first = 6
-		for i, a := range arms {
-			var ps []string
-			for _, p := range a {
-				ps = append(ps, p.text)
-			}
-			fmt.Fprintf(&b, "\tcase %s: %d\n", strings.Join(ps, ", "), i)
-		}
-		b.WriteString("\t}\n}\n")
-		var covered [2][2]bool
-		rested := false
-		var want []string
-		for i, a := range arms {
-			for _, p := range a {
-				if rested {
-					want = append(want, fmt.Sprintf("S108:%d", first+i))
-					continue
-				}
-				if p.ty < 0 {
-					all := covered[0][0] && covered[0][1] && covered[1][0] && covered[1][1]
-					if all {
-						want = append(want, fmt.Sprintf("S108:%d", first+i))
-					}
-					rested = true
-					continue
-				}
-				useful := false
-				for v := 0; v < 2; v++ {
-					if (p.b == 2 || p.b == v) && !covered[p.ty][v] {
-						useful = true
-					}
-				}
-				if !useful {
-					want = append(want, fmt.Sprintf("S108:%d", first+i))
-					continue
-				}
-				for v := 0; v < 2; v++ {
-					if p.b == 2 || p.b == v {
-						covered[p.ty][v] = true
-					}
-				}
-			}
-		}
-		total := rested || (covered[0][0] && covered[0][1] && covered[1][0] && covered[1][1])
-		switch {
-		case !partial && !total:
-			want = append(want, "S103:5")
-		case partial && total:
-			want = append(want, "S108:5")
-		}
-		sort.Strings(want)
-		got, d := codeLines(b.String())
-		if got != strings.Join(want, " ") {
-			t.Errorf("%s\nwant [%s], got [%s] %v", b.String(), strings.Join(want, " "), got, d)
-		}
-	}
-	n := 0
-	check := func(arms []arm, partial bool) {
-		if time.Since(start) > bound {
-			t.Fatalf("over the time bound %v after %d programs", bound, n)
-		}
-		run(t, arms, partial)
-		n++
 	}
 	for _, partial := range []bool{false, true} {
 		for _, a := range all {
-			check([]arm{a}, partial)
+			if !yield(catchProgram{[]catchArm{a}, partial}) {
+				return
+			}
 			for _, c := range all {
-				check([]arm{a, c}, partial)
+				if !yield(catchProgram{[]catchArm{a, c}, partial}) {
+					return
+				}
 			}
 		}
 		for _, a := range singles {
 			for _, c := range singles {
 				for _, d := range singles {
-					check([]arm{a, c, d}, partial)
+					if !yield(catchProgram{[]catchArm{a, c, d}, partial}) {
+						return
+					}
 				}
 			}
 		}
-		if t.Failed() {
-			break
+	}
+}
+
+func (p catchProgram) source() string {
+	var b strings.Builder
+	b.WriteString("type E { B bool }\ntype F { B bool }\nfunc g() int fails E | F { 1 }\n")
+	if p.partial {
+		b.WriteString("func f() int fails E | F {\n\ttry g() catch {\n")
+	} else {
+		b.WriteString("func f() int {\n\tg() catch {\n")
+	}
+	for i, a := range p.arms {
+		var ps []string
+		for _, q := range a {
+			ps = append(ps, q.text)
+		}
+		fmt.Fprintf(&b, "\tcase %s: %d\n", strings.Join(ps, ", "), i)
+	}
+	b.WriteString("\t}\n}\n")
+	return b.String()
+}
+
+// want is the oracle's verdict, as CODE:LINE.
+func (p catchProgram) want() string {
+	const first = 6
+	var covered [2][2]bool
+	rested := false
+	var want []string
+	for i, a := range p.arms {
+		for _, q := range a {
+			if rested {
+				want = append(want, fmt.Sprintf("S108:%d", first+i))
+				continue
+			}
+			if q.ty < 0 {
+				all := covered[0][0] && covered[0][1] && covered[1][0] && covered[1][1]
+				if all {
+					want = append(want, fmt.Sprintf("S108:%d", first+i))
+				}
+				rested = true
+				continue
+			}
+			useful := false
+			for v := 0; v < 2; v++ {
+				if (q.b == 2 || q.b == v) && !covered[q.ty][v] {
+					useful = true
+				}
+			}
+			if !useful {
+				want = append(want, fmt.Sprintf("S108:%d", first+i))
+				continue
+			}
+			for v := 0; v < 2; v++ {
+				if q.b == 2 || q.b == v {
+					covered[q.ty][v] = true
+				}
+			}
 		}
 	}
-	if n != 12262 {
-		t.Fatalf("checked %d programs, want 12262", n)
+	total := rested || (covered[0][0] && covered[0][1] && covered[1][0] && covered[1][1])
+	switch {
+	case !p.partial && !total:
+		want = append(want, "S103:5")
+	case p.partial && total:
+		want = append(want, "S108:5")
+	}
+	sort.Strings(want)
+	return strings.Join(want, " ")
+}
+
+func runCatchOracle(t *testing.T, programs iter.Seq[catchProgram]) {
+	const bound = 60 * time.Second
+	start := time.Now()
+	n := 0
+	for p := range programs {
+		if time.Since(start) > bound {
+			t.Fatalf("over the time bound %v after %d programs", bound, n)
+		}
+		src := p.source()
+		got, d := codeLines(src)
+		if want := p.want(); got != want {
+			t.Errorf("%s\nwant [%s], got [%s] %v", src, want, got, d)
+		}
+		n++
 	}
 }

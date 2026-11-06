@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"iter"
 	"strings"
 	"testing"
 	"time"
@@ -216,40 +217,72 @@ func sourceNodes(t *testing.T, src string) int {
 	return count
 }
 
-func TestSelfCallWorkLinear(t *testing.T) {
-	for _, settleOnly := range []bool{false, true} {
-		for _, wc := range workCases {
-			t.Run(fmt.Sprintf("%s settle-only=%v", wc.name, settleOnly), func(t *testing.T) {
-				t.Parallel()
+// selfCallCase is one work case in one mode at one size.
+type selfCallCase struct {
+	wc         workCase
+	settleOnly bool
+	n          int
+}
+
+// Each work case in each mode at each size is a case of a split (gate-fast
+// T1): part k checks every fourth case from case k, as a top-level test of
+// its own, dealt to four parallel subtests. Under -short a part keeps
+// every fourth case of its share.
+var selfCallWorkLinear = NewSplit(Split[selfCallCase]{
+	Name: "TestSelfCallWorkLinear", Parts: 4, Short: 4, Workers: 4,
+	Count: 90, Digest: "c32edc13c2f76eca624d8f8b8f48e9ce41368bac60021125ed552a4286b48bea",
+	Cases: SeqOf(func() []selfCallCase {
+		var out []selfCallCase
+		for _, settleOnly := range []bool{false, true} {
+			for _, wc := range workCases {
 				for _, n := range []int{250, 500, 1000, 2000, 4000} {
-					src := wc.src(n)
-					nodes := sourceNodes(t, src)
-					start := time.Now()
-					c, diags := checkSettling(src, settleOnly)
-					elapsed := time.Since(start)
-					var codes []string
-					for _, d := range diags {
-						codes = append(codes, d.Code)
-					}
-					want := wc.diags
-					if wc.codes != nil {
-						want = wc.codes(n)
-					}
-					if got := strings.Join(codes, " "); got != want {
-						t.Fatalf("n = %d: want %q; got %v", n, want, diags)
-					}
-					graph := c.bodyNodes + c.bodyEdges
-					t.Logf("n = %d: %d source nodes, %d bodies, %d edges; work %d nodes (%.2f per source node); %d settling checks, %d worklist steps, %d fixpoint checks; %s",
-						n, nodes, c.bodyNodes, c.bodyEdges, c.workNodes, float64(c.workNodes)/float64(nodes), c.selfChecks, c.worklistSteps, c.convergeChecks, elapsed)
-					if c.workNodes > workFactor*nodes {
-						t.Errorf("n = %d: the body checks visited %d nodes for %d source nodes (bound %d)", n, c.workNodes, nodes, workFactor*nodes)
-					}
-					if c.worklistSteps > workFactor*graph {
-						t.Errorf("n = %d: %d worklist steps for %d bodies and %d edges (bound %d)", n, c.worklistSteps, c.bodyNodes, c.bodyEdges, workFactor*graph)
-					}
+					out = append(out, selfCallCase{wc, settleOnly, n})
 				}
-			})
+			}
 		}
+		return out
+	}),
+	Key: func(c selfCallCase) string {
+		return fmt.Sprintf("%s settle-only=%v n=%d\n%s", c.wc.name, c.settleOnly, c.n, c.wc.src(c.n))
+	},
+	Run: runSelfCallWorkLinear,
+})
+
+func TestSelfCallWorkLinearPart0(t *testing.T) { selfCallWorkLinear.Part(t, 0) }
+func TestSelfCallWorkLinearPart1(t *testing.T) { selfCallWorkLinear.Part(t, 1) }
+func TestSelfCallWorkLinearPart2(t *testing.T) { selfCallWorkLinear.Part(t, 2) }
+func TestSelfCallWorkLinearPart3(t *testing.T) { selfCallWorkLinear.Part(t, 3) }
+
+func runSelfCallWorkLinear(t *testing.T, cases iter.Seq[selfCallCase]) {
+	for sc := range cases {
+		wc, settleOnly, n := sc.wc, sc.settleOnly, sc.n
+		t.Run(fmt.Sprintf("%s settle-only=%v/n=%d", wc.name, settleOnly, n), func(t *testing.T) {
+			src := wc.src(n)
+			nodes := sourceNodes(t, src)
+			start := time.Now()
+			c, diags := checkSettling(src, settleOnly)
+			elapsed := time.Since(start)
+			var codes []string
+			for _, d := range diags {
+				codes = append(codes, d.Code)
+			}
+			want := wc.diags
+			if wc.codes != nil {
+				want = wc.codes(n)
+			}
+			if got := strings.Join(codes, " "); got != want {
+				t.Fatalf("n = %d: want %q; got %v", n, want, diags)
+			}
+			graph := c.bodyNodes + c.bodyEdges
+			t.Logf("n = %d: %d source nodes, %d bodies, %d edges; work %d nodes (%.2f per source node); %d settling checks, %d worklist steps, %d fixpoint checks; %s",
+				n, nodes, c.bodyNodes, c.bodyEdges, c.workNodes, float64(c.workNodes)/float64(nodes), c.selfChecks, c.worklistSteps, c.convergeChecks, elapsed)
+			if c.workNodes > workFactor*nodes {
+				t.Errorf("n = %d: the body checks visited %d nodes for %d source nodes (bound %d)", n, c.workNodes, nodes, workFactor*nodes)
+			}
+			if c.worklistSteps > workFactor*graph {
+				t.Errorf("n = %d: %d worklist steps for %d bodies and %d edges (bound %d)", n, c.worklistSteps, c.bodyNodes, c.bodyEdges, workFactor*graph)
+			}
+		})
 	}
 }
 

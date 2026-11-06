@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"iter"
 	"sort"
 	"strings"
 	"testing"
@@ -218,57 +219,107 @@ func lawOrders(decls []string) [][]string {
 	return out
 }
 
-func TestLawDomain(t *testing.T) {
-	tails := lawTails()
-	orders := lawOrders(lawDomainDecls)
-	programs := 0
-	verdicts := map[string]int{}
+// lawCase is one program of the domain: a prefix, a tail and an exit, in
+// one declaration order.
+type lawCase struct {
+	p     lawPrefix
+	tl    lawTail
+	ex    lawExit
+	order int
+}
+
+// lawCases is the domain: every prefix × tail × exit, each in every
+// declaration order.
+func lawCases() []lawCase {
+	var out []lawCase
+	orders := len(lawOrders(lawDomainDecls))
 	for _, p := range lawPrefixes {
-		for _, tl := range tails {
+		for _, tl := range lawTails() {
 			for _, ex := range lawExits {
-				programs++
-				name := p.name + " then " + tl.name + " as " + ex.name
-				var first []string
-				for oi, decls := range orders {
-					src, pl, rl, tll := lawProgram(decls, p, tl, ex)
-					want := lawOracle(p, tl, ex, pl, rl, tll)
-					if oi == 0 {
-						first = want
-						verdicts[strings.Join(lawCodes(want), " ")]++
-					}
-					_, diags := check.CheckSource(src)
-					have := got(diags)
-					if strings.Join(have, " ") != strings.Join(want, " ") {
-						t.Errorf("%s (order %d): want %v, got %v\n\t%s\n%s", name, oi, want, have, describe(diags), src)
-						continue
-					}
-					// The order changes the lines, never the verdict.
-					if strings.Join(lawCodes(want), " ") != strings.Join(lawCodes(first), " ") {
-						t.Errorf("%s (order %d): the oracle's codes %v differ from the written order's %v", name, oi, want, first)
-					}
-					// An exit's S108 is the law's rule; the literal's is its
-					// own result's.
-					for _, d := range diags {
-						law := strings.Contains(d.Message, "a law's body ends in a bool, not ")
-						switch {
-						case d.Code != "S108":
-						case d.Line == pl && law:
-							t.Errorf("%s (order %d): the literal's S108 is the law's rule: %s", name, oi, d)
-						case d.Line != pl && !law:
-							t.Errorf("%s (order %d): the exit's S108 is not the law's rule: %s", name, oi, d)
-						}
-					}
+				for oi := range orders {
+					out = append(out, lawCase{p, tl, ex, oi})
 				}
 			}
 		}
 	}
-	// The domain meets every verdict the oracle can give.
+	return out
+}
+
+// The domain is a split (gate-fast T1): part k checks every fourth program
+// from program k, as a top-level test of its own. Under -short a part
+// keeps every eighth program of its share. TestLawDomainVerdicts checks,
+// from the oracle alone, that the domain meets every verdict.
+var lawDomain = check.NewSplit(check.Split[lawCase]{
+	Name: "TestLawDomain", Parts: 4, Short: 8,
+	Count: 16464, Digest: "f41119d86a7eefa0a78a4bee0dbf7cc4fd0dea4f7182d588b4ac23e22a68a67a",
+	Cases: check.SeqOf(lawCases),
+	Key: func(c lawCase) string {
+		src, _, _, _ := lawProgram(lawOrders(lawDomainDecls)[c.order], c.p, c.tl, c.ex)
+		return fmt.Sprintf("%s|%s|%s|order=%d\n%s", c.p.name, c.tl.name, c.ex.name, c.order, src)
+	},
+	Run: runLawDomain,
+})
+
+func TestLawDomainPart0(t *testing.T) { lawDomain.Part(t, 0) }
+func TestLawDomainPart1(t *testing.T) { lawDomain.Part(t, 1) }
+func TestLawDomainPart2(t *testing.T) { lawDomain.Part(t, 2) }
+func TestLawDomainPart3(t *testing.T) { lawDomain.Part(t, 3) }
+
+func runLawDomain(t *testing.T, cases iter.Seq[lawCase]) {
+	orders := lawOrders(lawDomainDecls)
+	for c := range cases {
+		p, tl, ex, oi := c.p, c.tl, c.ex, c.order
+		name := p.name + " then " + tl.name + " as " + ex.name
+		// The written order's verdict, from the oracle alone.
+		_, fpl, frl, ftl := lawProgram(orders[0], p, tl, ex)
+		first := lawOracle(p, tl, ex, fpl, frl, ftl)
+		src, pl, rl, tll := lawProgram(orders[oi], p, tl, ex)
+		want := lawOracle(p, tl, ex, pl, rl, tll)
+		_, diags := check.CheckSource(src)
+		have := got(diags)
+		if strings.Join(have, " ") != strings.Join(want, " ") {
+			t.Errorf("%s (order %d): want %v, got %v\n\t%s\n%s", name, oi, want, have, describe(diags), src)
+			continue
+		}
+		// The order changes the lines, never the verdict.
+		if strings.Join(lawCodes(want), " ") != strings.Join(lawCodes(first), " ") {
+			t.Errorf("%s (order %d): the oracle's codes %v differ from the written order's %v", name, oi, want, first)
+		}
+		// An exit's S108 is the law's rule; the literal's is its
+		// own result's.
+		for _, d := range diags {
+			law := strings.Contains(d.Message, "a law's body ends in a bool, not ")
+			switch {
+			case d.Code != "S108":
+			case d.Line == pl && law:
+				t.Errorf("%s (order %d): the literal's S108 is the law's rule: %s", name, oi, d)
+			case d.Line != pl && !law:
+				t.Errorf("%s (order %d): the exit's S108 is not the law's rule: %s", name, oi, d)
+			}
+		}
+	}
+}
+
+// TestLawDomainVerdicts: the domain meets every verdict the oracle can
+// give, counted over the programs in their written order.
+func TestLawDomainVerdicts(t *testing.T) {
+	orders := lawOrders(lawDomainDecls)
+	programs := 0
+	verdicts := map[string]int{}
+	for _, c := range lawCases() {
+		if c.order != 0 {
+			continue
+		}
+		programs++
+		_, pl, rl, tll := lawProgram(orders[0], c.p, c.tl, c.ex)
+		verdicts[strings.Join(lawCodes(lawOracle(c.p, c.tl, c.ex, pl, rl, tll)), " ")]++
+	}
 	for _, v := range []string{"", "S102", "S108", "S105", "S102 S108", "S102 S105", "S108 S108", "S108 S108 S108", "S105 S108"} {
 		if verdicts[v] == 0 {
 			t.Errorf("no program has the verdict %q", v)
 		}
 	}
-	t.Logf("%d programs: %d prefixes × %d result types × %d exits, %d declaration orders each; verdicts %v", programs, len(lawPrefixes), len(tails), len(lawExits), len(orders), verdicts)
+	t.Logf("%d programs: %d prefixes × %d result types × %d exits, %d declaration orders each; verdicts %v", programs, len(lawPrefixes), len(lawTails()), len(lawExits), len(orders), verdicts)
 }
 
 // lawCodes drops the lines of CODE@LINE entries.

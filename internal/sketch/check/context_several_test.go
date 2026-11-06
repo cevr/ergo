@@ -2,6 +2,7 @@ package check_test
 
 import (
 	"fmt"
+	"iter"
 	"math/rand"
 	"sort"
 	"strings"
@@ -290,13 +291,63 @@ func severalCases(seed int64) []severalCase {
 	return cases
 }
 
-// runSeveral checks every case of a seed and returns a digest of every
-// verdict, so two runs of one seed can be compared.
-func runSeveral(t *testing.T, seed int64) string {
+// severalAt is one case of a seed's run, with its index in the run.
+type severalAt struct {
+	seed int64
+	n    int
+	sc   severalCase
+}
+
+func severalDomain(seed int64) iter.Seq[severalAt] {
+	return func(yield func(severalAt) bool) {
+		for n, sc := range severalCases(seed) {
+			if !yield(severalAt{seed, n, sc}) {
+				return
+			}
+		}
+	}
+}
+
+func severalKey(c severalAt) string {
+	flat, _ := c.sc.source(false)
+	nested, _ := c.sc.source(true)
+	return fmt.Sprintf("seed=%d case=%d\n%s\x00%s", c.seed, c.n, flat, nested)
+}
+
+// severalSample is the number of the cases whose Info is checked (A8):
+// every fifth case of a run that the reference calls clean (no charge
+// missing, so no S102).
+func severalSample(cases iter.Seq[severalAt]) int {
+	n := 0
+	for c := range cases {
+		if _, missing := c.sc.reference(); c.n%5 == 0 && missing == 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// TestSeveralOperandsAreNestingSample (A8): Info is checked over at least
+// 200 clean programs of each seed's run, counted from the reference alone;
+// the parts check Info over exactly these.
+func TestSeveralOperandsAreNestingSample(t *testing.T) {
+	for _, seed := range []int64{1, 2} {
+		if n := severalSample(severalDomain(seed)); n < 200 {
+			t.Errorf("seed %d: Info is checked over %d clean programs, want at least 200", seed, n)
+		} else {
+			t.Logf("seed %d: Info is checked over %d clean programs", seed, n)
+		}
+	}
+}
+
+// runSeveral checks the given cases of one seed's run and returns a digest
+// of every verdict, so two runs of the same cases can be compared.
+func runSeveral(t *testing.T, cases iter.Seq[severalAt]) string {
 	t.Helper()
 	var digest strings.Builder
 	failures, sampled := 0, 0
-	for n, sc := range severalCases(seed) {
+	for c := range cases {
+		n, sc := c.n, c.sc
 		flat, line := sc.source(false)
 		nested, _ := sc.source(true)
 		fpkg, fdiags := check.CheckSource(flat)
@@ -381,9 +432,12 @@ func runSeveral(t *testing.T, seed int64) string {
 	if failures > 5 {
 		t.Errorf("%d failures in all", failures)
 	}
-	// A8: Info is complete over a sample of at least 200 clean programs.
-	if sampled < 200 {
-		t.Errorf("Info checked over %d clean programs, want at least 200", sampled)
+	// A8: Info is complete over a sample of at least 200 clean programs of
+	// the run. The sample is every fifth case that the reference calls
+	// clean: each part checks Info over exactly its share of it, and
+	// TestSeveralOperandsAreNestingSample counts the whole run's.
+	if want := severalSample(cases); sampled != want {
+		t.Errorf("Info checked over %d clean programs, the reference's sample of these cases is %d", sampled, want)
 	}
 	return digest.String()
 }
@@ -406,10 +460,53 @@ func minWithPos(info *check.Info) syntax.Pos {
 // value, parenthesised); and the checker's discharges and S102 count equal
 // a reference computed from the drawn sets alone. One seed run twice gives
 // the same verdicts, and a second seed passes too.
-func TestSeveralOperandsAreNesting(t *testing.T) {
-	first := runSeveral(t, 1)
-	if again := runSeveral(t, 1); again != first {
-		t.Errorf("one seed gave two verdicts")
-	}
-	runSeveral(t, 2)
-}
+//
+// The test was one sweep of 6300 checks (gate-fast T1): seed 1, seed 1
+// again, seed 2. Each of the three is now a split of its own, so the
+// parts run as separate top-level tests; the determinism split checks
+// each of its parts twice in one test. Under -short a part keeps every
+// eighth case of its share, with the same seeds.
+var (
+	severalSeed1 = check.NewSplit(check.Split[severalAt]{
+		Name: "TestSeveralOperandsAreNestingSeed1", Parts: 4, Short: 8,
+		Count: 2100, Digest: "633073397417c8ccaf6edbdda064d3128c69d76b328feaec0ef2f156cdc9a338",
+		Cases: severalDomain(1), Key: severalKey,
+		Run: func(t *testing.T, cases iter.Seq[severalAt]) { runSeveral(t, cases) },
+	})
+	severalDeterministic = check.NewSplit(check.Split[severalAt]{
+		Name: "TestSeveralOperandsAreNestingDeterministic", Parts: 8, Short: 8,
+		Count: 2100, Digest: "633073397417c8ccaf6edbdda064d3128c69d76b328feaec0ef2f156cdc9a338",
+		Cases: severalDomain(1), Key: severalKey,
+		Run: func(t *testing.T, cases iter.Seq[severalAt]) {
+			first := runSeveral(t, cases)
+			if again := runSeveral(t, cases); again != first {
+				t.Errorf("one seed gave two verdicts")
+			}
+		},
+	})
+	severalSeed2 = check.NewSplit(check.Split[severalAt]{
+		Name: "TestSeveralOperandsAreNestingSeed2", Parts: 4, Short: 8,
+		Count: 2100, Digest: "0244a13daaafd92706838fb15d188d6c3bc8c9c6f32857a0b57e8978ade13c73",
+		Cases: severalDomain(2), Key: severalKey,
+		Run: func(t *testing.T, cases iter.Seq[severalAt]) { runSeveral(t, cases) },
+	})
+)
+
+func TestSeveralOperandsAreNestingSeed1Part0(t *testing.T) { severalSeed1.Part(t, 0) }
+func TestSeveralOperandsAreNestingSeed1Part1(t *testing.T) { severalSeed1.Part(t, 1) }
+func TestSeveralOperandsAreNestingSeed1Part2(t *testing.T) { severalSeed1.Part(t, 2) }
+func TestSeveralOperandsAreNestingSeed1Part3(t *testing.T) { severalSeed1.Part(t, 3) }
+
+func TestSeveralOperandsAreNestingDeterministicPart0(t *testing.T) { severalDeterministic.Part(t, 0) }
+func TestSeveralOperandsAreNestingDeterministicPart1(t *testing.T) { severalDeterministic.Part(t, 1) }
+func TestSeveralOperandsAreNestingDeterministicPart2(t *testing.T) { severalDeterministic.Part(t, 2) }
+func TestSeveralOperandsAreNestingDeterministicPart3(t *testing.T) { severalDeterministic.Part(t, 3) }
+func TestSeveralOperandsAreNestingDeterministicPart4(t *testing.T) { severalDeterministic.Part(t, 4) }
+func TestSeveralOperandsAreNestingDeterministicPart5(t *testing.T) { severalDeterministic.Part(t, 5) }
+func TestSeveralOperandsAreNestingDeterministicPart6(t *testing.T) { severalDeterministic.Part(t, 6) }
+func TestSeveralOperandsAreNestingDeterministicPart7(t *testing.T) { severalDeterministic.Part(t, 7) }
+
+func TestSeveralOperandsAreNestingSeed2Part0(t *testing.T) { severalSeed2.Part(t, 0) }
+func TestSeveralOperandsAreNestingSeed2Part1(t *testing.T) { severalSeed2.Part(t, 1) }
+func TestSeveralOperandsAreNestingSeed2Part2(t *testing.T) { severalSeed2.Part(t, 2) }
+func TestSeveralOperandsAreNestingSeed2Part3(t *testing.T) { severalSeed2.Part(t, 3) }
