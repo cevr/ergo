@@ -119,7 +119,7 @@ v0/sketch-eval-8/five/concurrency.go.sketch	S104 S108
 v0/sketch-eval-8/five/layers.go.sketch	S108 S108 S109 S111 S113
 v0/sketch-eval-8/five/machine-breaker.go.sketch	S104 S108 S108 S108 S108 S108 S108 S108 S108 S113
 v0/sketch-eval-8/five/recipes-retry.go.sketch	S104 S108 S108 S108 S108 S108
-v0/sketch-eval-8/loops/fetchall.go.sketch	S104 S104 S104 S104 S104 S104 S104 S108 S108
+v0/sketch-eval-8/loops/fetchall.go.sketch	S104 S104 S104 S104 S104 S104 S108 S108 S108
 v0/sketch-eval-8/loops/poller_test.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S108
 v0/sketch-eval-9/gointerop.go.sketch	S104 S109 S109 S109
 v0/sketch-eval-9/http-endpoints.go.sketch	S104 S104 S104 S104 S108 S108 S108
