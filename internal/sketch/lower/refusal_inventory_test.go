@@ -16,7 +16,8 @@ import (
 func TestRefusedFamiliesHaveWitnesses(t *testing.T) {
 	var sources []string
 	for _, dir := range []string{"../check", "."} {
-		ss, _, total, stride := checkCorpus(t, dir, 10000)
+		// The bound guards against a runaway corpus walk; a lane that adds check tests raises it in steps.
+		ss, _, total, stride := checkCorpus(t, dir, 12000)
 		if stride != 1 {
 			t.Fatalf("refusal domain was sampled in %s (%d candidates); increase its bound", dir, total)
 		}
