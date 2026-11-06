@@ -225,6 +225,45 @@ func main() fails os.Exit needs Console { with Live { try run() } }
 
 *Prior art:* Roc's basic-cli platform gives `Arg` and `Env` as platform effects, and its `main` can fail with `Exit code message`, which the platform writes and exits with; `os.Exit` takes that shape and adds the 1..125 check. Effect Platform reads the environment through a `ConfigProvider` layer and leaves argv to `@effect/cli`. Gleam's `argv` and `envoy` packages, Elixir's `System.argv/0` and `System.get_env/1`, and ReScript's Node bindings read the process directly, with no capability; Elixir's `System.get_env/1` returns `nil` for an unset key, and Gleam's `envoy.get` returns `Result(String, Nil)`. Elixir's `System.halt/1` ends the VM at once with any status; Ergo's `os.Exit` is a failure, so cleanup runs first and the status is checked.
 
+### fs
+
+Std `fs` is the host file system, read only (wave std-1, unit G4). Writes (`WriteFile`, `MkdirAll`) are a later unit, G4b.
+
+```go
+import fs
+import strings
+
+func title(path string) string needs fs.Files {
+	let text = fs.Files.ReadFile(path) catch {
+	case fs.NotFound as n:
+		return "no file \(n.Path)"
+	case fs.Denied, fs.Failed:
+		return "unreadable"
+	}
+	strings.TrimSpace(text)
+}
+
+let Live = context { fs.Files: fs.Host }
+
+func main() needs Console { with Live { Console.Println(title("doc.md")) } }
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type Files { ReadFile(path string) string, ReadDir(path string) []string, Stat(path string) Info, law ReadIsRepeatable(path string) }`, each operation `fails NotFound \| Denied \| Failed` | The capability. |
+| `type Host {}`; `func ReadFile(_ Host, …)`, `func ReadDir(_ Host, …)`, `func Stat(_ Host, …)` | The host's provider. |
+| `type Info { Name string, Size int, Dir bool }` | What `Stat` gives. |
+| `type NotFound { Path string }`; `type Denied { Path string }`; `type Failed { Path string, Reason string }` | The failures. |
+
+1. `ReadFile` is the whole text of the file at `path`. It returns `string`, not bytes: the language has no conversion from `[]byte` to `string` yet. A path is the host's; a relative path is relative to the working directory.
+2. `ReadDir` is the names of the entries of the directory at `path`, sorted by name (Go's `os.ReadDir` sorts them). `Stat` follows symbolic links; `Info.Name` is the last element of the path and `Info.Size` the size in bytes.
+3. The failures are a closed row of three. `NotFound` is a path that does not exist (Go's `fs.ErrNotExist`), `Denied` a path the process may not read (`fs.ErrPermission`), and `Failed` every other failure, with the host's `Reason` without the operation and the path, such as `is a directory` for a directory read as a file. A `catch` that lists the three is exhaustive. An uncaught one is written with its generated text and status 1, such as `error: fs.NotFound{Path:missing.md}`.
+4. The Go bodies are `v1.FSReadFile`, `v1.FSReadDir` and `v1.FSStat`, each with one `runtimeBindings` row that neither waits nor releases. They read the host, so none is pure. No body keeps a file open after it returns, so this set exposes no handle and needs no resource. The four records are the `runtime/v1` structs `v1.NotFound`, `v1.Denied`, `v1.Failed` and `v1.Info` (Types 4). The lowering binds a record by its bare name, so `runtime/v1` `TestStructHasOneStdRecord` holds that each `runtime/v1` struct is the Go type of at most one std record: a later `exec.NotFound` needs its own Go name first.
+5. A program implements `fs.Files`. No std extern returns it, so it is open, as `os.Process` is ([os](#os) 5, `check.SealedStd`). A test binds a memory provider of its own, `type Files { Docs Map[string, string], Names []string }` in a package `memory`, in the same place as `cmd/<name>/main.ergo` binds `fs.Host`: `with context { fs.Files: memory.Files{…} } { run() }` (lower `TestFSFilesMemory`).
+6. The law `ReadIsRepeatable` states that two reads of one path agree. It holds for a world with no writer: this set has none, so it holds for `fs.Host` on a quiet disk and for any memory provider.
+
+*Prior art:* Gleam's `simplifile.read(path) -> Result(String, FileError)` gives a closed enum of POSIX reasons (`Enoent`, `Eacces`, …) plus `Unknown`; Effect Platform's `FileSystem` service gives `readFileString` and a `SystemError` whose `reason` is `NotFound`, `PermissionDenied` and others, bound by `NodeContext.layer`; Elixir's `File.read/1` returns `{:ok, binary} | {:error, posix}`; Go's `os.ReadFile` and `os.ReadDir` with `errors.Is(err, fs.ErrNotExist)`; ReScript binds Node's `readFileSync` as an `external` that throws. `NotFound | Denied | Failed` is their common core: the two reasons a program acts on, and one that carries the host's text. Like Effect and Roc, and unlike Gleam, Elixir and ReScript, the file system is a capability in the row, so a test swaps it in a context.
+
 ## Testing
 
 [#209](https://github.com/cevr/ergo/issues/209). `testing.VirtualClock` provides `Clock` and `Scheduler` and jumps to the next timer when every task in the test is blocked. `T.Idle()` reports the tasks that keep a test from reaching idle. The test harness is an ordinary `context`, so production code needs no change to run on virtual time. *Prior art:* Go `testing/synctest` bubbles; Trio `MockClock(autojump_threshold=0)`; Effect `TestClock`.
