@@ -389,8 +389,13 @@ const examplesRunner = "./scripts/examples"
 // examplesRunnerInputs are the Go files of the module that the examples
 // runner links besides its own directory: for each package of the module
 // in `go list -deps` of the runner, its non-test Go files and the files it
-// embeds, as Inputs patterns.
+// embeds, as Inputs patterns. A checkout with no runner directory (a test
+// fixture module) has nothing to list: the step's own paths key it, and the
+// step, if it runs there, fails.
 func examplesRunnerInputs(root string) (paths, exclude []string, err error) {
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(examplesRunner, "./")))); os.IsNotExist(err) {
+		return nil, nil, nil
+	}
 	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", examplesRunner)
 	command.Dir = root
 	command.Env = stepEnvironment()
