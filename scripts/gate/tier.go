@@ -482,7 +482,17 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 		if i < 0 {
 			return fmt.Errorf("no fast-tier step %q", need)
 		}
-		command := exec.Command(steps[i].Argv[0], steps[i].Argv[1:]...)
+		// The build is a go build, or the staged build's reviewed sh
+		// script (stagedBuild): name each as a declared host program.
+		var command *exec.Cmd
+		switch argv := steps[i].Argv; argv[0] {
+		case "go":
+			command = exec.Command("go", argv[1:]...)
+		case "sh":
+			command = exec.Command("sh", argv[1:]...)
+		default:
+			return fmt.Errorf("%s: not a go build or a reviewed script: %q", need, argv)
+		}
 		command.Env = append(stepEnvironment(), steps[i].Env...)
 		command.Dir = root
 		command.Stdout = io.Discard
