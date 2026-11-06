@@ -408,95 +408,217 @@ func pairProgram(kinds []pairKind, started bool, ids, funcs []string) string {
 	return b.String()
 }
 
-func TestCheckedImpliesLowered(t *testing.T) {
-	kinds := pairKinds()
-	var programs []*lowered
-	want := map[string]string{}
-	for _, site := range pairSites {
-		var ids, funcs []string
-		started := false // an admitted pair starts a task
-		for _, s := range kinds {
-			for _, k := range kinds {
-				if site != "let" && site != "multi" && site != "arg" && site != "ret" && site != "field" && (s.decl != "" || k.decl != "" || s.task || k.task) {
-					continue // The original sites own refused definitions and Task type positions.
-				}
-				if s.decl != "" && k.decl != "" && s.name != k.name {
-					continue // two refused definitions are two mistakes
-				}
-				if site == "context" && k.name != "Store" {
-					continue // a context entry key is an operation type
-				}
-				if (site == "field" || site == "fieldset") && k.under == "tuple" && !k.named {
-					// `f (int, int)` in a type body is an operation
-					// (grammar.md, Parser rule 11): no record field has
-					// an unnamed tuple type.
-					continue
-				}
-				taskAt := taskTypeAt(site, s, k)
-				if taskAt != "" && (s.decl != "" || k.decl != "") {
-					continue // a refused definition and a Task type: two mistakes
-				}
-				id, code, at := pairFunc(site, s, k)
-				src := pairProgram([]pairKind{s, k}, s.task, []string{id}, []string{code})
-				o := lowerSource(id, src, true)
-				admitted := o.err == nil && len(o.diags) == 0
-				if model := pairAdmits(site, s, k) && taskAt == ""; admitted != model {
-					t.Errorf("%s: admitted %v, the assignability model says %v; diagnostics %v\n%s", id, admitted, model, o.diags, src)
-					continue
-				}
-				if !admitted {
-					if o.err != nil {
-						t.Errorf("%s: %v", id, o.err)
-						continue
-					}
-					where := at
-					if taskAt != "" {
-						where = taskAt
-					} else if s.decl != "" {
-						where = s.decl
-					} else if k.decl != "" {
-						where = k.decl
-					}
-					lines := strings.Split(src, "\n")
-					if len(o.diags) != 1 || o.diags[0].Line < 1 || o.diags[0].Line > len(lines) || !strings.Contains(lines[o.diags[0].Line-1], where) {
-						t.Errorf("%s: want one diagnostic on the line with %q, got %s\n%s", id, where, diagText(o.diags), src)
-					}
-					continue
-				}
-				switch {
-				case o.panicked != nil:
-					t.Errorf("%s: checked, lowering panicked: %v\n%s", id, o.panicked, src)
-					continue
-				case len(o.refused) > 0:
-					t.Errorf("%s: checked, lowering refused %+v\n%s", id, o.refused, src)
-					continue
-				}
-				started = started || s.task
-				ids = append(ids, id)
-				funcs = append(funcs, code)
+// pairCandidate is one pair of the grid at one site, as the generator
+// writes it: its function, the program that holds it alone, the site's
+// line for a refusal, and the line of a Task type position ("" for none).
+type pairCandidate struct {
+	s, k                      pairKind
+	id, code, at, src, taskAt string
+}
+
+// pairCandidates is every pair the grid writes at site, in the order the
+// site's program runs them.
+func pairCandidates(site string, kinds []pairKind) []pairCandidate {
+	var out []pairCandidate
+	for _, s := range kinds {
+		for _, k := range kinds {
+			if site != "let" && site != "multi" && site != "arg" && site != "ret" && site != "field" && (s.decl != "" || k.decl != "" || s.task || k.task) {
+				continue // The original sites own refused definitions and Task type positions.
 			}
+			if s.decl != "" && k.decl != "" && s.name != k.name {
+				continue // two refused definitions are two mistakes
+			}
+			if site == "context" && k.name != "Store" {
+				continue // a context entry key is an operation type
+			}
+			if (site == "field" || site == "fieldset") && k.under == "tuple" && !k.named {
+				// `f (int, int)` in a type body is an operation
+				// (grammar.md, Parser rule 11): no record field has
+				// an unnamed tuple type.
+				continue
+			}
+			taskAt := taskTypeAt(site, s, k)
+			if taskAt != "" && (s.decl != "" || k.decl != "") {
+				continue // a refused definition and a Task type: two mistakes
+			}
+			id, code, at := pairFunc(site, s, k)
+			src := pairProgram([]pairKind{s, k}, s.task, []string{id}, []string{code})
+			out = append(out, pairCandidate{s: s, k: k, id: id, code: code, at: at, src: src, taskAt: taskAt})
 		}
-		t.Logf("%s: %d admitted pairs run", site, len(ids))
-		if len(ids) == 0 {
+	}
+	return out
+}
+
+// pairSite checks and lowers each pair of site on its own, and returns the
+// program of the site's admitted pairs with the output it prints, or nil
+// when the site admits no pair.
+func pairSite(t *testing.T, site string) (*lowered, string) {
+	t.Helper()
+	kinds := pairKinds()
+	var ids, funcs []string
+	started := false // an admitted pair starts a task
+	for _, c := range pairCandidates(site, kinds) {
+		s, k, id, src := c.s, c.k, c.id, c.src
+		o := lowerSource(id, src, true)
+		admitted := o.err == nil && len(o.diags) == 0
+		if model := pairAdmits(site, s, k) && c.taskAt == ""; admitted != model {
+			t.Errorf("%s: admitted %v, the assignability model says %v; diagnostics %v\n%s", id, admitted, model, o.diags, src)
 			continue
 		}
-		var used []pairKind
-		for _, k := range kinds {
-			if k.decl == "" {
-				used = append(used, k)
+		if !admitted {
+			if o.err != nil {
+				t.Errorf("%s: %v", id, o.err)
+				continue
+			}
+			where := c.at
+			if c.taskAt != "" {
+				where = c.taskAt
+			} else if s.decl != "" {
+				where = s.decl
+			} else if k.decl != "" {
+				where = k.decl
+			}
+			lines := strings.Split(src, "\n")
+			if len(o.diags) != 1 || o.diags[0].Line < 1 || o.diags[0].Line > len(lines) || !strings.Contains(lines[o.diags[0].Line-1], where) {
+				t.Errorf("%s: want one diagnostic on the line with %q, got %s\n%s", id, where, diagText(o.diags), src)
+			}
+			continue
+		}
+		switch {
+		case o.panicked != nil:
+			t.Errorf("%s: checked, lowering panicked: %v\n%s", id, o.panicked, src)
+			continue
+		case len(o.refused) > 0:
+			t.Errorf("%s: checked, lowering refused %+v\n%s", id, o.refused, src)
+			continue
+		}
+		started = started || s.task
+		ids = append(ids, id)
+		funcs = append(funcs, c.code)
+	}
+	t.Logf("%s: %d admitted pairs run", site, len(ids))
+	if len(ids) == 0 {
+		return nil, ""
+	}
+	var used []pairKind
+	for _, k := range kinds {
+		if k.decl == "" {
+			used = append(used, k)
+		}
+	}
+	src := pairProgram(used, started, ids, funcs)
+	return mustLower(t, "pairs"+site, src), strings.Join(ids, "\n") + "\n"
+}
+
+// checkedCase is one case of TestCheckedImpliesLowered: a site of the pair
+// grid, a site of the std grid, or a kind of the operand-order axis.
+type checkedCase struct{ grid, site string }
+
+// checkedSplit is TestCheckedImpliesLowered in parts. A part checks and
+// lowers each pair of its cases on its own, then builds and runs one
+// program per case in a module of its own.
+var checkedSplit = newSplit(split[checkedCase]{
+	name:  "TestCheckedImpliesLowered",
+	parts: checkedParts,
+	// The pin: the domain of the unsplit test at f79be34b (request.md,
+	// leg 1).
+	count:  41,
+	digest: "f9ae24c771519085d8d9b01de1748625deedaa94233a06c0639be57017f5149b",
+	cases: func(yield func(checkedCase) bool) {
+		for _, site := range pairSites {
+			if !yield(checkedCase{"pairs", site}) {
+				return
 			}
 		}
-		src := pairProgram(used, started, ids, funcs)
-		programs = append(programs, mustLower(t, "pairs"+site, src))
-		want["pairs"+site] = strings.Join(ids, "\n") + "\n"
+		for _, site := range stdSites {
+			if !yield(checkedCase{"std", site}) {
+				return
+			}
+		}
+		for _, k := range orderKinds {
+			if !yield(checkedCase{"order", k.name}) {
+				return
+			}
+		}
+	},
+	key: func(c checkedCase) string {
+		var b strings.Builder
+		b.WriteString(c.grid + "/" + c.site + "\n")
+		switch c.grid {
+		case "pairs":
+			for _, p := range pairCandidates(c.site, pairKinds()) {
+				b.WriteString(p.id + " " + probeSum([]byte(p.src)) + "\n")
+			}
+		case "std":
+			for _, op := range stdOps {
+				id, code := stdFunc(op, c.site)
+				b.WriteString(id + " " + probeSum([]byte(stdProgram([]string{id}, []string{code}))) + "\n")
+			}
+		case "order":
+			for _, o := range orderCases(orderKindNamed(c.site)) {
+				b.WriteString(o.name + " " + probeSum([]byte(o.src)) + "\n")
+			}
+		}
+		return b.String()
+	},
+	run: runChecked,
+})
+
+// checkedParts: a pair site costs up to 7 s to check at load 35 (measured
+// at f79be34b). With 20 parts, parts 0 to 5 hold one of the six costly
+// first sites and one of the six cheap last sites; the other parts hold one
+// pair site and one std site or order kind.
+const checkedParts = 20
+
+func TestCheckedImpliesLoweredPart0(t *testing.T)  { checkedSplit.Part(t, 0) }
+func TestCheckedImpliesLoweredPart1(t *testing.T)  { checkedSplit.Part(t, 1) }
+func TestCheckedImpliesLoweredPart2(t *testing.T)  { checkedSplit.Part(t, 2) }
+func TestCheckedImpliesLoweredPart3(t *testing.T)  { checkedSplit.Part(t, 3) }
+func TestCheckedImpliesLoweredPart4(t *testing.T)  { checkedSplit.Part(t, 4) }
+func TestCheckedImpliesLoweredPart5(t *testing.T)  { checkedSplit.Part(t, 5) }
+func TestCheckedImpliesLoweredPart6(t *testing.T)  { checkedSplit.Part(t, 6) }
+func TestCheckedImpliesLoweredPart7(t *testing.T)  { checkedSplit.Part(t, 7) }
+func TestCheckedImpliesLoweredPart8(t *testing.T)  { checkedSplit.Part(t, 8) }
+func TestCheckedImpliesLoweredPart9(t *testing.T)  { checkedSplit.Part(t, 9) }
+func TestCheckedImpliesLoweredPart10(t *testing.T) { checkedSplit.Part(t, 10) }
+func TestCheckedImpliesLoweredPart11(t *testing.T) { checkedSplit.Part(t, 11) }
+func TestCheckedImpliesLoweredPart12(t *testing.T) { checkedSplit.Part(t, 12) }
+func TestCheckedImpliesLoweredPart13(t *testing.T) { checkedSplit.Part(t, 13) }
+func TestCheckedImpliesLoweredPart14(t *testing.T) { checkedSplit.Part(t, 14) }
+func TestCheckedImpliesLoweredPart15(t *testing.T) { checkedSplit.Part(t, 15) }
+func TestCheckedImpliesLoweredPart16(t *testing.T) { checkedSplit.Part(t, 16) }
+func TestCheckedImpliesLoweredPart17(t *testing.T) { checkedSplit.Part(t, 17) }
+func TestCheckedImpliesLoweredPart18(t *testing.T) { checkedSplit.Part(t, 18) }
+func TestCheckedImpliesLoweredPart19(t *testing.T) { checkedSplit.Part(t, 19) }
+
+// runChecked checks and lowers the pairs of cases, then builds and runs
+// the program of each case.
+func runChecked(t *testing.T, cases []checkedCase) {
+	var programs []*lowered
+	want := map[string]string{}
+	orderWant := map[string]string{}
+	for _, c := range cases {
+		switch c.grid {
+		case "pairs":
+			if p, w := pairSite(t, c.site); p != nil {
+				programs = append(programs, p)
+				want[p.name] = w
+			}
+		case "std":
+			if p, w := stdSite(t, c.site); p != nil {
+				programs = append(programs, p)
+				want[p.name] = w
+			}
+		case "order":
+			ps, ws := orderGrid(t, orderKindNamed(c.site))
+			programs = append(programs, ps...)
+			for name, w := range ws {
+				orderWant[name] = w
+			}
+		default:
+			t.Fatalf("unknown grid %q", c.grid)
+		}
 	}
-	stdPrograms, stdWant := stdGrid(t)
-	programs = append(programs, stdPrograms...)
-	for name, w := range stdWant {
-		want[name] = w
-	}
-	orderPrograms, orderWant := orderGrid(t)
-	programs = append(programs, orderPrograms...)
 	exes := buildAll(t, programs, true)
 	for _, p := range programs {
 		exe, ok := exes[p.name]
@@ -631,64 +753,59 @@ func stdProgram(ids, funcs []string) string {
 	return b.String()
 }
 
-// stdGrid checks and lowers each pair of the std grid, and returns one
-// program per site of the pairs that lower, with the output each prints.
-func stdGrid(t *testing.T) ([]*lowered, map[string]string) {
+// stdSite checks and lowers each pair of the std grid at site, and returns
+// the program of the pairs that lower with the output it prints, or nil
+// when none lowers.
+func stdSite(t *testing.T, site string) (*lowered, string) {
 	t.Helper()
-	var programs []*lowered
-	want := map[string]string{}
-	for _, site := range stdSites {
-		var ids, funcs, lines []string
-		refused, unchecked := 0, 0
-		for _, op := range stdOps {
-			id, code := stdFunc(op, site)
-			src := stdProgram([]string{id}, []string{code})
-			o := lowerSource(id, src, true)
-			if o.err != nil {
-				t.Errorf("%s: %v\n%s", id, o.err, src)
-				continue
-			}
-			checked := len(o.diags) == 0
-			if model := stdChecks(op, site); checked != model {
-				t.Errorf("%s: checked %v, the std model says %v; diagnostics %s\n%s", id, checked, model, diagText(o.diags), src)
-				continue
-			}
-			if !checked {
-				srcLines := strings.Split(src, "\n")
-				d := o.diags[0]
-				if d.Line < 1 || d.Line > len(srcLines) || !strings.Contains(srcLines[d.Line-1], op.at) {
-					t.Errorf("%s: want the first diagnostic on the line with %q, got %s\n%s", id, op.at, diagText(o.diags), src)
-				}
-				unchecked++
-				continue
-			}
-			if o.panicked != nil {
-				t.Errorf("%s: checked, lowering panicked: %v\n%s", id, o.panicked, src)
-				continue
-			}
-			if len(o.refused) > 0 {
-				for _, r := range o.refused {
-					if why := undeferred(r.Message); why != "" {
-						t.Errorf("%s: checked, lowering refused at %d:%d with %s: %q\n%s", id, r.Line, r.Column, why, r.Message, src)
-					}
-				}
-				t.Logf("%s: refused naming its owner: %s", id, o.refused[0].Message)
-				refused++
-				continue
-			}
-			ids = append(ids, id)
-			funcs = append(funcs, code)
-			lines = append(lines, fmt.Sprintf("%s %d", id, op.want))
-		}
-		t.Logf("std %s: %d pairs run, %d refused naming their owner, %d refused by the checker as the model says", site, len(ids), refused, unchecked)
-		if len(ids) == 0 {
+	var ids, funcs, lines []string
+	refused, unchecked := 0, 0
+	for _, op := range stdOps {
+		id, code := stdFunc(op, site)
+		src := stdProgram([]string{id}, []string{code})
+		o := lowerSource(id, src, true)
+		if o.err != nil {
+			t.Errorf("%s: %v\n%s", id, o.err, src)
 			continue
 		}
-		name := "std" + site
-		programs = append(programs, mustLower(t, name, stdProgram(ids, funcs)))
-		want[name] = strings.Join(lines, "\n") + "\n"
+		checked := len(o.diags) == 0
+		if model := stdChecks(op, site); checked != model {
+			t.Errorf("%s: checked %v, the std model says %v; diagnostics %s\n%s", id, checked, model, diagText(o.diags), src)
+			continue
+		}
+		if !checked {
+			srcLines := strings.Split(src, "\n")
+			d := o.diags[0]
+			if d.Line < 1 || d.Line > len(srcLines) || !strings.Contains(srcLines[d.Line-1], op.at) {
+				t.Errorf("%s: want the first diagnostic on the line with %q, got %s\n%s", id, op.at, diagText(o.diags), src)
+			}
+			unchecked++
+			continue
+		}
+		if o.panicked != nil {
+			t.Errorf("%s: checked, lowering panicked: %v\n%s", id, o.panicked, src)
+			continue
+		}
+		if len(o.refused) > 0 {
+			for _, r := range o.refused {
+				if why := undeferred(r.Message); why != "" {
+					t.Errorf("%s: checked, lowering refused at %d:%d with %s: %q\n%s", id, r.Line, r.Column, why, r.Message, src)
+				}
+			}
+			t.Logf("%s: refused naming its owner: %s", id, o.refused[0].Message)
+			refused++
+			continue
+		}
+		ids = append(ids, id)
+		funcs = append(funcs, code)
+		lines = append(lines, fmt.Sprintf("%s %d", id, op.want))
 	}
-	return programs, want
+	t.Logf("std %s: %d pairs run, %d refused naming their owner, %d refused by the checker as the model says", site, len(ids), refused, unchecked)
+	if len(ids) == 0 {
+		return nil, ""
+	}
+	name := "std" + site
+	return mustLower(t, name, stdProgram(ids, funcs)), strings.Join(lines, "\n") + "\n"
 }
 
 // The operand-order axis (stage D3b round 2 review M1): each kind of
@@ -772,14 +889,47 @@ func orderProgram(k orderKind, list string) string {
 	return b.String()
 }
 
-// orderGrid checks and lowers each case of the operand-order axis and each
-// kind's control, and returns the programs with the defect each must end
-// with.
-func orderGrid(t *testing.T) ([]*lowered, map[string]string) {
+// orderCase is one program of the operand-order axis: a case, or a kind's
+// control, with the defect it must end with.
+type orderCase struct{ name, src, defect string }
+
+// orderKindNamed is the operand-order kind of that name.
+func orderKindNamed(name string) orderKind {
+	for _, k := range orderKinds {
+		if k.name == name {
+			return k
+		}
+	}
+	panic("unknown operand-order kind: " + name)
+}
+
+// orderCases is the control of k and each case of k in each operand list
+// that takes its type.
+func orderCases(k orderKind) []orderCase {
+	out := []orderCase{{"Order" + k.name + "Alone", orderProgram(k, ""), "index out of range [0] with length 0"}}
+	for _, l := range orderLists {
+		if l.types != nil && !slices.Contains(l.types, k.typ) {
+			continue
+		}
+		out = append(out, orderCase{"Order" + k.name + l.name, orderProgram(k, l.expr), "integer divide by zero"})
+	}
+	return out
+}
+
+// orderGrid checks and lowers the control and each case of the
+// operand-order kind k, and returns the programs with the defect each must
+// end with.
+func orderGrid(t *testing.T, k orderKind) ([]*lowered, map[string]string) {
 	t.Helper()
 	var programs []*lowered
 	want := map[string]string{}
-	add := func(name, src, defect string) {
+	for _, l := range orderLists {
+		if l.types != nil && !slices.Contains(l.types, k.typ) {
+			t.Logf("Order%s%s: skipped, %s takes no operand of type %s", k.name, l.name, l.name, k.typ)
+		}
+	}
+	for _, c := range orderCases(k) {
+		name, src, defect := c.name, c.src, c.defect
 		o := lowerSource(name, src, true)
 		switch {
 		case o.err != nil:
@@ -800,17 +950,7 @@ func orderGrid(t *testing.T) ([]*lowered, map[string]string) {
 			want[name] = defect
 		}
 	}
-	for _, k := range orderKinds {
-		add("Order"+k.name+"Alone", orderProgram(k, ""), "index out of range [0] with length 0")
-		for _, l := range orderLists {
-			if l.types != nil && !slices.Contains(l.types, k.typ) {
-				t.Logf("Order%s%s: skipped, %s takes no operand of type %s", k.name, l.name, l.name, k.typ)
-				continue
-			}
-			add("Order"+k.name+l.name, orderProgram(k, l.expr), "integer divide by zero")
-		}
-	}
-	t.Logf("order: %d programs run (cases and one control per kind)", len(programs))
+	t.Logf("order %s: %d programs run (cases and the kind's control)", k.name, len(programs))
 	return programs, want
 }
 

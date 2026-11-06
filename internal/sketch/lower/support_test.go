@@ -41,6 +41,11 @@ type lowered struct {
 // declaration of a library-shaped fixture is lowered and compiled.
 func lowerSource(name, src string, entry bool) *lowered {
 	out := &lowered{name: name, src: src}
+	if entry {
+		probeLog("lower", probeSum([]byte(src)))
+	} else {
+		probeLog("lower-lib", probeSum([]byte(src)))
+	}
 	file, err := syntax.Parse(src)
 	if err != nil {
 		out.err = err
@@ -138,18 +143,24 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 	// Ergo has no unreachable-code rule, so a checked program may keep
 	// statements after a total match whose every arm returns; the vet check
 	// "unreachable" reports that source, not the lowering (state.md follow-up).
-	if out, ok := run("vet", "-unreachable=false", "./p/..."); !ok {
+	// -trimpath keeps the module's temporary directory out of the compiled
+	// runtime packages, so each buildAll module reuses the build cache's
+	// runtime instead of compiling it again (gate-fast plan section 4).
+	if out, ok := run("vet", "-trimpath", "-unreachable=false", "./p/..."); !ok {
 		report("vet", out)
 		return nil
 	}
 	if !link {
-		if out, ok := run("build", "./p/..."); !ok {
+		if out, ok := run("build", "-trimpath", "./p/..."); !ok {
 			report("build", out)
+		}
+		for _, p := range programs {
+			probeBuilt("", p.mainGo())
 		}
 		return nil
 	}
 	bin := filepath.Join(root, "bin")
-	if out, ok := run("build", "-o", bin+string(filepath.Separator), "./p/..."); !ok {
+	if out, ok := run("build", "-trimpath", "-o", bin+string(filepath.Separator), "./p/..."); !ok {
 		report("build", out)
 		return nil
 	}
@@ -160,6 +171,7 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 			exe += ".exe"
 		}
 		exes[p.name] = exe
+		probeBuilt(exe, p.mainGo())
 	}
 	return exes
 }
@@ -168,6 +180,7 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 // code.
 func runExe(t *testing.T, exe string) (string, string, int) {
 	t.Helper()
+	probeRan(exe)
 	cmd := exec.Command(exe)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

@@ -42,8 +42,58 @@ import (
 // the test says so (round 4 review T3, round 5 residual).
 // The .ergo fixtures under ../check/testdata are lowered and built by
 // TestAcceptedNodesLower.
-func TestCheckCorpusBuilds(t *testing.T) {
-	const maxCandidates = 8000
+//
+// The test runs in parts (corpusSplit): each part lowers every corpusParts-th
+// candidate and builds its clean programs in a module of its own.
+// TestCheckCorpusBuildsDomain checks the corpus reader.
+const maxCandidates = 8000
+
+// corpusCandidate is one candidate of the corpus, with its index in it.
+type corpusCandidate struct {
+	index int
+	src   string
+}
+
+// corpusSplit's domain is read from ../check's test files, which other
+// units edit, so it is not pinned; its parts cover it.
+var corpusSplit = newSplit(split[corpusCandidate]{
+	name:     "TestCheckCorpusBuilds",
+	parts:    corpusParts,
+	unpinned: true,
+	cases: func(yield func(corpusCandidate) bool) {
+		sources, _, _, _, err := readCorpus("../check", maxCandidates)
+		if err != nil {
+			return // TestCheckCorpusBuildsDomain reports it; a part then builds too few programs
+		}
+		for i, src := range sources {
+			if !yield(corpusCandidate{i, src}) {
+				return
+			}
+		}
+	},
+	key: func(c corpusCandidate) string { return fmt.Sprintf("c%d\n%s", c.index, c.src) },
+	run: runCorpus,
+})
+
+// corpusParts: building the 707 clean programs took 63 s in one go command
+// at load 40 (measured at f79be34b), so a part builds for about 6 s.
+const corpusParts = 12
+
+func TestCheckCorpusBuildsPart0(t *testing.T)  { corpusSplit.Part(t, 0) }
+func TestCheckCorpusBuildsPart1(t *testing.T)  { corpusSplit.Part(t, 1) }
+func TestCheckCorpusBuildsPart2(t *testing.T)  { corpusSplit.Part(t, 2) }
+func TestCheckCorpusBuildsPart3(t *testing.T)  { corpusSplit.Part(t, 3) }
+func TestCheckCorpusBuildsPart4(t *testing.T)  { corpusSplit.Part(t, 4) }
+func TestCheckCorpusBuildsPart5(t *testing.T)  { corpusSplit.Part(t, 5) }
+func TestCheckCorpusBuildsPart6(t *testing.T)  { corpusSplit.Part(t, 6) }
+func TestCheckCorpusBuildsPart7(t *testing.T)  { corpusSplit.Part(t, 7) }
+func TestCheckCorpusBuildsPart8(t *testing.T)  { corpusSplit.Part(t, 8) }
+func TestCheckCorpusBuildsPart9(t *testing.T)  { corpusSplit.Part(t, 9) }
+func TestCheckCorpusBuildsPart10(t *testing.T) { corpusSplit.Part(t, 10) }
+func TestCheckCorpusBuildsPart11(t *testing.T) { corpusSplit.Part(t, 11) }
+
+// TestCheckCorpusBuildsDomain: the corpus reader finds the check tests.
+func TestCheckCorpusBuildsDomain(t *testing.T) {
 	sources, files, total, k := checkCorpus(t, "../check", maxCandidates)
 	if files < 30 || len(sources) < 200 {
 		t.Fatalf("the corpus has %d candidates from %d files; the check tests moved?", len(sources), files)
@@ -51,10 +101,17 @@ func TestCheckCorpusBuilds(t *testing.T) {
 	if k > 1 {
 		t.Logf("sampled every %dth of %d candidates", k, total)
 	}
+	t.Logf("candidates %d from %d files", len(sources), files)
+}
+
+// runCorpus lowers the candidates of one part and builds its clean
+// programs.
+func runCorpus(t *testing.T, cases []corpusCandidate) {
 	var programs []*lowered
 	rejected, deferred := 0, map[string]int{}
-	for i, src := range sources {
-		o := lowerSource(fmt.Sprintf("c%d", i), src, false)
+	for _, c := range cases {
+		src := c.src
+		o := lowerSource(fmt.Sprintf("c%d", c.index), src, false)
 		switch {
 		case o.file == nil || len(o.diags) > 0:
 			rejected++
@@ -75,15 +132,17 @@ func TestCheckCorpusBuilds(t *testing.T) {
 			programs = append(programs, o)
 		}
 	}
-	if len(programs) < 100 {
-		t.Fatalf("only %d clean programs lowered; the corpus reader lost the check tests?", len(programs))
+	// The unsplit test asked for 100 clean programs of the corpus; a
+	// part holds every corpusParts-th candidate.
+	if floor := 100 / corpusParts; len(programs) < floor {
+		t.Fatalf("only %d clean programs lowered, want %d in a part; the corpus reader lost the check tests?", len(programs), floor)
 	}
 	var owners []string
 	for o, n := range deferred {
 		owners = append(owners, fmt.Sprintf("%s: %d", o, n))
 	}
 	sort.Strings(owners)
-	t.Logf("candidates %d from %d files: rejected by the parser or checker %d; deferred refusals by family [%s]; built %d (every clean program of the enumerated corpus that lowers)", len(sources), files, rejected, strings.Join(owners, ", "), len(programs))
+	t.Logf("candidates %d: rejected by the parser or checker %d; deferred refusals by family [%s]; built %d (every clean program of the part that lowers)", len(cases), rejected, strings.Join(owners, ", "), len(programs))
 	buildAll(t, programs, false)
 }
 
@@ -154,20 +213,29 @@ func (f corpusFile) candidate(i int) string {
 // candidates stay bounded by limit however many prefixes the files hold.
 func checkCorpus(t *testing.T, dir string, limit int) (out []string, files, total, k int) {
 	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	out, files, total, k, err := readCorpus(dir, limit)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return out, files, total, k
+}
+
+// readCorpus is checkCorpus, with an error.
+func readCorpus(dir string, limit int) (out []string, files, total, k int, err error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		return nil, 0, 0, 0, err
 	}
 	sort.Strings(paths)
 	var cfs []corpusFile
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
-			t.Fatal(err)
+			return nil, 0, 0, 0, err
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), p, data, parser.SkipObjectResolution)
 		if err != nil {
-			t.Fatal(err)
+			return nil, 0, 0, 0, err
 		}
 		cf := corpusFile{named: namedStrings(f)}
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -206,7 +274,7 @@ func checkCorpus(t *testing.T, dir string, limit int) (out []string, files, tota
 		}
 		index += n
 	}
-	return out, len(paths), total, k
+	return out, len(paths), total, k, nil
 }
 
 // namedStrings returns the values of the file's string consts and vars,
