@@ -23,6 +23,16 @@ A program folder holds:
 - `origin` and `record.sh`, both or neither: a port names its original program in `origin`, and `record.sh` runs that original (see "Record leg").
 - `testdata/`, if the program reads fixture files.
 
+A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in place of `main.ergo`:
+
+- `ergo.mod`: `module NAME`, the module root ([grammar](../docs/spec/grammar.md#source-files) rule 1).
+- `cmd/<program>/main.ergo`: the binary's package, named after the program folder. `cmd/` holds nothing else. The runner builds it with `ergo build <dir>/cmd/<program> -o <temp>/<program>`.
+- package folders: any other folder except `cases/` and `testdata/`. A package folder holds `.ergo` files and package folders only.
+- top-level `.ergo` files, if any: the module root's package.
+- `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh` and `testdata/`, as above.
+
+`ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for each package folder that declares a test, printing `ok <program>: test <folder>`.
+
 Nothing else. The runner checks the layout of every folder before any case runs, whatever the selection. A layout error prints `examples/<name>: <reason>` and exits 2.
 
 ## Cases

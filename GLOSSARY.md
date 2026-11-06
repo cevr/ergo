@@ -13,7 +13,11 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 ## Language
 
-**Package**: One unit of compilation, declared by `package name`, lowered to one Go package. The prototype compiles one file as the whole program.
+**Package** (implemented, 196b): One unit of checking: a folder, every `.ergo` file directly in it, in name order. The folder names the package (the last element of its import path); a file has no `package` clause. A program's packages are lowered into one Go package (196b Q5: one lowering path for std and user packages; a Go package per Ergo package waits for an edit-rebuild receipt).
+
+**Module** (implemented, 196b): The packages under one module root, named by the `module NAME` line of its `ergo.mod`. A local package's import path is the module name and its folder's path from the root, as in Go. A program imports std and its own module only.
+
+**Module root** (implemented, 196b): The folder that holds `ergo.mod`. The loader finds the nearest one at or above a program's folder; every diagnostic names its file relative to it.
 
 **Exported name** (owner decision 2026-10-27; implemented for fields and operations, 196b Q6): A package-level name, field or operation whose first character is an upper-case letter. Only exported names are visible to other packages, as in Go: another package's unexported field or operation is S104, and an operation type with an unexported operation is implemented only by its package's types. See [grammar](docs/spec/grammar.md#visibility).
 

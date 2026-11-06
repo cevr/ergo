@@ -4,12 +4,12 @@ Every `ergo` command reads one `.ef` source through one front end, `internal/ske
 
 | Command | Fate | Output and exit |
 | --- | --- | --- |
-| `check FILE [--target go]` | Runs | The check envelope as JSON; exit 0 when the source checks, 1 when it does not |
-| `diagnostics FILE [--strict] [--json] [--target go]` | Runs | One finding per line, or the diagnostic report as JSON; exit 0 when policy passes, 1 when it fails, 2 for an invalid invocation |
-| `build FILE [-o PATH] [--target go]` | Runs | Builds a native executable, `dist/NAME` by default, and prints its path; a source that does not check prints its check envelope and builds nothing |
-| `run FILE [--target go]` | Runs | Builds, then runs the program; SIGINT and SIGTERM are forwarded and the program's exit status passes through; a program that a forwarded signal ends exits 128 plus the signal number (130 for SIGINT, 143 for SIGTERM), with no message of `ergo`'s own |
+| `check FILE\|DIR [--target go]` | Runs | The check envelope as JSON; exit 0 when the source checks, 1 when it does not |
+| `diagnostics FILE\|DIR [--strict] [--json] [--target go]` | Runs | One finding per line, or the diagnostic report as JSON; exit 0 when policy passes, 1 when it fails, 2 for an invalid invocation |
+| `build FILE\|DIR [-o PATH] [-work] [--target go]` | Runs | Builds a native executable, `dist/NAME` by default (NAME is the file's name without `.ergo`, or the folder's name), and prints its path; a source that does not check prints its check envelope and builds nothing |
+| `run FILE\|DIR [--target go]` | Runs | Builds, then runs the program; SIGINT and SIGTERM are forwarded and the program's exit status passes through; a program that a forwarded signal ends exits 128 plus the signal number (130 for SIGINT, 143 for SIGTERM), with no message of `ergo`'s own |
 | `fmt FILE... [--check] [--json]`, `fmt --stdin` | Runs | Canonical formatting; files are replaced atomically |
-| `test FILE [--seed N] [-work] [--target go]` | Runs | Builds the test binary into a private temporary directory and runs it: one `ok` or `FAIL` line per test in source order, then `PASS (N tests)` and exit 0, or `FAIL (K of N tests)` and exit 1; a defect stops the run with exit 2. `--seed N` (or `--seed=N`, a decimal number) replays a property's cases; a malformed seed is an invalid invocation, exit 2, and runs nothing. Signals are forwarded as for `run` |
+| `test FILE\|DIR [--seed N] [-work] [--target go]` | Runs | Builds the test binary into a private temporary directory and runs it: one `ok` or `FAIL` line per test in source order, then `PASS (N tests)` and exit 0, or `FAIL (K of N tests)` and exit 1; a defect stops the run with exit 2. `--seed N` (or `--seed=N`, a decimal number) replays a property's cases; a malformed seed is an invalid invocation, exit 2, and runs nothing. Signals are forwarded as for `run` |
 | `edition` | Removed | `removed in v1; there is one language and no editions (#205)`, exit 1 |
 | `lint`, `lint rules`, `lint test`, `lint receipt` | Removed | `removed in v1; linting returns on the new checker (#203)`, exit 1 |
 | `inspect`, `explain`, `query`, `type`, `graph` | Removed | `removed in v1; semantic tooling returns on the new front end (#203)`, exit 1 |
@@ -22,6 +22,8 @@ Go is the only target. `--target` accepts only `go`, the default; any other valu
 ## Source admission
 
 A command locates its source once (`internal/receipt.LocateSource`): the spelling is made absolute, which applies a `..` to the spelled name, and the links of that admitted path are then resolved. Diagnostics and `//line` directives name the admitted path; the bytes come from one non-blocking open of the resolved file (`internal/source.Open`), which refuses a directory, a FIFO or any other file that is not regular, so a FIFO swapped in after a stat never blocks. A source must have the `.ef` extension. An `ergo.json` beside a source is ignored.
+
+A path that names a folder, and does not end in `.ergo`, is a package (196b U3; [grammar](spec/grammar.md#source-files) rule 1): the loader (`internal/sketchfront`, `CheckDir`) finds the nearest `ergo.mod` at or above it, reads every `.ergo` file of the folder in name order, and reads the local packages it imports, each once. Each finding then names its file relative to the module root: `lib/x.ergo:2:9: error S104: …` in text, and a `file` field in the check envelope and the report (omitted for a program of one file; additive). The build key holds a digest of each local package the program reaches, by admitted path and bytes, so an edit of an imported package builds again. `ergo test DIR` runs the tests of that package only, as `go test` does. A file path keeps its one-file meaning: such a program imports std only.
 
 ## Check envelope
 
