@@ -34,7 +34,7 @@ Out of scope for now: durable workflows.
 
 ## Prelude
 
-The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random` and `Console`. Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The same holds for a prelude function on a prelude type, which is that type's operation (196m): `Sleep` is `LiveScheduler`'s, reached as `LiveScheduler.Sleep(d)` or through a context that binds `Scheduler: LiveScheduler`. A bare `Sleep(…)` is S104 naming the dot form, and a program may declare its own Scheduler provider with its own `func Sleep(s Instant, d duration)` (checker-fixes prelude-scope S1). `check.IsPredeclared` reports the names the prelude and the universe predeclare, for tools such as bind-c. The four capabilities are ordinary interfaces bound by `context` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
+The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console` and `Ambient`. `Ambient` is the authority to choose the host, which only the entry provides ([Host packages](#host-packages)). Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The same holds for a prelude function on a prelude type, which is that type's operation (196m): `Sleep` is `LiveScheduler`'s, reached as `LiveScheduler.Sleep(d)` or through a context that binds `Scheduler: LiveScheduler`. A bare `Sleep(…)` is S104 naming the dot form, and a program may declare its own Scheduler provider with its own `func Sleep(s Instant, d duration)` (checker-fixes prelude-scope S1). `check.IsPredeclared` reports the names the prelude and the universe predeclare, for tools such as bind-c. The four capabilities are ordinary interfaces bound by `context` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
 
 ## v1 packages: task, scope, queue and slice
 
@@ -188,7 +188,17 @@ func OrderRow(o Order) html.Node {
 
 [#210](https://github.com/cevr/ergo/issues/210). `os`, `fs`, `net` and `sql` are the only standard-library code that calls Go. They are reviewed. Every blocking call has a cancel hook, or is recorded as an uninterruptible host wait that `ergo inspect` lists (G8). Each package states the Go targets it supports. File handles are resources ([resources.md](resources.md)). Through host packages and `import go`, every effect appears in a footprint ([rows.md](rows.md#footprints)).
 
-A host package has four parts, as the prelude's `Scheduler` and `LiveScheduler` do: an operation type, the capability a program names in its rows; a zero-field record `Host {}`, the host's provider; the provider's functions, with Ergo bodies; and unexported externs that bind the Go bodies in `runtime/v1` (`host.go`). A program binds the provider in a context, and the entry stays as it is: `main` provides only `Console`, so `main needs os.Process` is S109 "the host provides only Console". The context in `cmd/<name>/main.ergo` is the one place that chooses the host, and a test binds its own provider in the same place.
+A host package has five parts: an operation type, the capability a program names in its rows; a record `Host { live hostOnly }`, the host's provider, whose unexported field of a zero-field type gives the package the construction authority and keeps `Host` zero size; one constructor `func NewHost() Host needs Ambient`; the provider's functions, with Ergo bodies; and unexported externs that bind the Go bodies in `runtime/v1` (`host.go`).
+
+**Who chooses the host (host-authority H1).** Only code whose row holds the prelude's `Ambient` makes a host provider, and only the entry provides `Ambient`:
+1. Outside its package, `fs.Host` as a value, `fs.Host{}`, `let h fs.Host`, a record update of it, and a type that holds it at zero are S114 "fs.Host has an unexported field, so only package fs builds it; use fs.NewHost" (types.md, Zero values 6). A generator or codec does not build it (`check.Constructible` is false).
+2. A call of `fs.NewHost()` charges `Ambient`. Where no row holds it, the call is S102: in an exported function or `main` whose written row does not list it, in a `test`, in a package-level `let` and in a named context ("context Live requires Ambient while it is built"). In an unexported function the need is inferred and reaches its callers, up to `main`. A local context charges its `with`, and that need does not widen an inferred row ([rows.md](rows.md#composition-laws) 9).
+3. The entry provides `Console` and `Ambient`: a `main` that lists `Ambient` gets it from the host, and any other capability in `main`'s row is S109 "the host provides only Console and Ambient". `Ambient`'s one operation is unexported, so a program type does not implement it and `with context { Ambient: Fake }` is S106.
+4. Delegation stays open: a function that takes a host provider or a capability value as a parameter uses it with no row (GLOSSARY, Interface value). The caller that made it holds `Ambient`.
+5. A test cannot get `Ambient`, so it binds its own provider: tests are hermetic. An opt-in for a test that needs the live host is a later unit (H3).
+6. The prelude's `LiveScheduler` reaches the host's clock and is not under this rule yet (host-authority-sched, H2). `TestStdHostProvidersHaveAuthority` finds every std record whose function reaches a host extern and fails on one that has no construction authority or whose exported constructor does not list `Ambient`; `LiveScheduler` is its one listed exception.
+
+So `main` reads `func main() needs Console | Ambient { with context { fs.Files: fs.NewHost(), os.Process: os.NewHost() } { run() } }`. The context in `cmd/<name>/main.ergo` is the one place that chooses the host, by convention: a library may wrap the choice when its own row lists `Ambient` (`func RunLive(f func() needs Console | fs.Files) needs Console | Ambient`). A test binds its own provider in the same place (`TestHostAuthority`, `TestHostAuthorityDomain`, lower `TestHostAuthorityRuns`).
 
 ### os
 
@@ -206,22 +216,22 @@ func run() fails os.Exit needs Console | os.Process {
 	}
 }
 
-let Live = context { os.Process: os.Host }
-
-func main() fails os.Exit needs Console { with Live { try run() } }
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } { try run() }
+}
 ```
 
 | Declaration | Meaning |
 | --- | --- |
 | `type Process { Args() []string, Getenv(key string) Option[string], law GetenvIsStable(key string) }` | The capability. |
-| `type Host {}`; `func Args(_ Host) []string`; `func Getenv(_ Host, key string) Option[string]` | The host's provider. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient`; `func Args(_ Host) []string`; `func Getenv(_ Host, key string) Option[string]` | The host's provider and its one constructor ([Host packages](#host-packages)). |
 | `type Exit { Code int, Message string }` | The failure that ends `main` with status `Code`. |
 
 1. `Args` is the arguments after the program name, Go's `os.Args[1:]`.
 2. `Getenv` is `None` when `key` is unset and `Some("")` when it is set to the empty string. The law `GetenvIsStable` states `Getenv(key) == Getenv(key)`: two reads of one key agree, for any provider.
 3. `os.Exit` is a failure in the row, not a call. When it is `main`'s only reason, the entry writes `Message` and a line feed to standard error, verbatim, and exits with `Code`; `Code` must be in 1..125 ([runtime.md](runtime.md#exit-causes) 8). It never skips cleanup: every scope's exit actions run before the entry writes it. Go's `os.Exit` skips deferred calls; Ergo has no call that does.
 4. The Go bodies are `v1.OSArgs`, `v1.OSHasEnv` and `v1.OSGetenv`, each with one `runtimeBindings` row that neither waits nor releases. They read the host process, so none is pure. `os.Exit` is the `runtime/v1` struct `v1.Exit` (Types 4).
-5. A program implements `os.Process`. A std operation type is sealed only when the result of a std extern names it, as `queue.New` names `queue.Queue` and `task.Go` names the prelude's `Task` (`check.SealedStd`, S109). No std extern returns `os.Process`, so it is open, as the prelude's `Console` is: `os.Host` and a program's own type with an `Args` and a `Getenv` both convert to it, in `context { os.Process: … }` and at every other site that converts by assignability. It lowers as an interface of the program, not as a `runtime/v1` type. A test binds a memory provider in the same place as `cmd/<name>/main.ergo` binds `os.Host`: `with context { os.Process: FakeEnv{…} } { run() }` (`TestOSProcessRuns`; check `TestStdProtocolOpen`).
+5. A program implements `os.Process`. A std operation type is sealed only when the result of a std extern names it, as `queue.New` names `queue.Queue` and `task.Go` names the prelude's `Task` (`check.SealedStd`, S109). No std extern returns `os.Process`, so it is open, as the prelude's `Console` is: `os.NewHost()` and a program's own type with an `Args` and a `Getenv` both convert to it, in `context { os.Process: … }` and at every other site that converts by assignability. It lowers as an interface of the program, not as a `runtime/v1` type. A test binds a memory provider in the same place as `cmd/<name>/main.ergo` binds `os.NewHost()`: `with context { os.Process: FakeEnv{…} } { run() }` (`TestOSProcessRuns`; check `TestStdProtocolOpen`).
 
 *Prior art:* Roc's basic-cli platform gives `Arg` and `Env` as platform effects, and its `main` can fail with `Exit code message`, which the platform writes and exits with; `os.Exit` takes that shape and adds the 1..125 check. Effect Platform reads the environment through a `ConfigProvider` layer and leaves argv to `@effect/cli`. Gleam's `argv` and `envoy` packages, Elixir's `System.argv/0` and `System.get_env/1`, and ReScript's Node bindings read the process directly, with no capability; Elixir's `System.get_env/1` returns `nil` for an unset key, and Gleam's `envoy.get` returns `Result(String, Nil)`. Elixir's `System.halt/1` ends the VM at once with any status; Ergo's `os.Exit` is a failure, so cleanup runs first and the status is checked.
 
@@ -243,15 +253,15 @@ func title(path string) string needs fs.Files {
 	strings.TrimSpace(text)
 }
 
-let Live = context { fs.Files: fs.Host }
-
-func main() needs Console { with Live { Console.Println(title("doc.md")) } }
+func main() needs Console | Ambient {
+	with context { fs.Files: fs.NewHost() } { Console.Println(title("doc.md")) }
+}
 ```
 
 | Declaration | Meaning |
 | --- | --- |
 | `type Files { ReadFile(path string) string, ReadDir(path string) []string, Stat(path string) Info, law ReadIsRepeatable(path string) }`, each operation `fails NotFound \| Denied \| Failed` | The capability. |
-| `type Host {}`; `func ReadFile(_ Host, …)`, `func ReadDir(_ Host, …)`, `func Stat(_ Host, …)` | The host's provider. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient`; `func ReadFile(_ Host, …)`, `func ReadDir(_ Host, …)`, `func Stat(_ Host, …)` | The host's provider and its one constructor ([Host packages](#host-packages)). |
 | `type Info { Name string, Size int, Dir bool }` | What `Stat` gives. |
 | `type NotFound { Path string }`; `type Denied { Path string }`; `type Failed { Path string, Reason string }` | The failures. |
 
@@ -259,11 +269,11 @@ func main() needs Console { with Live { Console.Println(title("doc.md")) } }
 2. `ReadDir` is the names of the entries of the directory at `path`, sorted by name (Go's `os.ReadDir` sorts them). `Stat` follows symbolic links, as Go's `os.Stat` does (not `os.Lstat`). A link to a directory has `Dir: true`, and a link whose target is missing is `NotFound`. `Info.Name` is the last element of the path, so for a link it is the link's own name. `Info.Size` is the size in bytes of the target.
 3. The failures are a closed row of three. `NotFound` is a path that does not exist (Go's `fs.ErrNotExist`), `Denied` a path the process may not read (`fs.ErrPermission`), and `Failed` every other failure, with the host's `Reason` without the operation and the path, such as `is a directory` for a directory read as a file. A `catch` that lists the three is exhaustive. An uncaught one is written with its generated text and status 1, such as `error: fs.NotFound{Path:missing.md}`.
 4. The Go bodies are `v1.FSReadFile`, `v1.FSReadDir` and `v1.FSStat`, each with one `runtimeBindings` row that neither waits nor releases. They read the host, so none is pure. No body keeps a file open after it returns, so this set exposes no handle and needs no resource. The four records are the `runtime/v1` structs `v1.NotFound`, `v1.Denied`, `v1.Failed` and `v1.Info` (Types 4). The lowering binds a record by its bare name, so `runtime/v1` `TestStructHasOneStdRecord` holds that each `runtime/v1` struct is the Go type of at most one std record: a later `exec.NotFound` needs its own Go name first.
-5. A program implements `fs.Files`. No std extern returns it, so it is open, as `os.Process` is ([os](#os) 5, `check.SealedStd`). A test binds a memory provider of its own, `type Files { Docs Map[string, string], Names []string }` in a package `memory`, in the same place as `cmd/<name>/main.ergo` binds `fs.Host`: `with context { fs.Files: memory.Files{…} } { run() }` (lower `TestFSFilesMemory`).
-6. **Authority today.** The externs are unexported, but the value `fs.Host` is exported, and so are its functions. So today any code that holds `fs.Host` reads the disk with no `fs.Files` in its row: it can call `fs.ReadFile(fs.Host, p)`, pass `fs.Host` as an `fs.Files` value, or open its own `with context { fs.Files: fs.Host }`. The checker admits all three. The rule that only the context in `cmd/<name>/main.ergo` binds `fs.Host` is a convention, and a later checker rule will enforce it (host-authority, planned). The same holds for `os.Host`.
-7. The law `ReadIsRepeatable` states that two reads of one path agree. It holds for a world with no writer: this set has none, so it holds for `fs.Host` on a quiet disk and for any memory provider.
+5. A program implements `fs.Files`. No std extern returns it, so it is open, as `os.Process` is ([os](#os) 5, `check.SealedStd`). A test binds a memory provider of its own, `type Files { Docs Map[string, string], Names []string }` in a package `memory`, in the same place as `cmd/<name>/main.ergo` binds `fs.NewHost()`: `with context { fs.Files: memory.Files{…} } { run() }` (lower `TestFSFilesMemory`).
+6. **Authority.** The externs are unexported, and only package `fs` builds an `fs.Host`: other code gets one from `fs.NewHost()`, which needs `Ambient`, or as a parameter ([Host packages](#host-packages), host-authority H1). So code that reads the disk with no `fs.Files` in its row, by `fs.ReadFile(h, p)`, by passing `h` as an `fs.Files` value, or by its own `with context { fs.Files: h }`, either has `Ambient` in its row (or in an inferred row that reaches `main`) or was given `h` by code that has it. `fs.ReadFile(fs.Host, p)` is S114; the same call on `fs.NewHost()` in a function whose row does not hold `Ambient` is S102. The same holds for `os.Host`.
+7. The law `ReadIsRepeatable` states that two reads of one path agree. It holds for a world with no writer: this set has none, so it holds for `fs.Host` on a quiet disk and for any memory provider. A law runner (#162) cannot build `fs.Host` by a generator (`check.Constructible` is false): it builds it through `fs.NewHost()` under `Ambient`, or it skips the host provider and says so.
 
-*Prior art:* Gleam's `simplifile.read(path) -> Result(String, FileError)` gives a closed enum of POSIX reasons (`Enoent`, `Eacces`, …) plus `Unknown`; Effect Platform's `FileSystem` service gives `readFileString` and a `SystemError` whose `reason` is `NotFound`, `PermissionDenied` and others, bound by `NodeContext.layer`; Elixir's `File.read/1` returns `{:ok, binary} | {:error, posix}`; Go's `os.ReadFile` and `os.ReadDir` with `errors.Is(err, fs.ErrNotExist)`; ReScript binds Node's `readFileSync` as an `external` that throws. `NotFound | Denied | Failed` is their common core: the two reasons a program acts on, and one that carries the host's text. Like Effect and Roc, and unlike Gleam, Elixir and ReScript, the file system is a capability in the row, so a test swaps it in a context. Unlike Effect's layer and Roc's platform, Ergo does not yet keep the disk out of reach of code without the capability (rule 6).
+*Prior art:* Gleam's `simplifile.read(path) -> Result(String, FileError)` gives a closed enum of POSIX reasons (`Enoent`, `Eacces`, …) plus `Unknown`; Effect Platform's `FileSystem` service gives `readFileString` and a `SystemError` whose `reason` is `NotFound`, `PermissionDenied` and others, bound by `NodeContext.layer`; Elixir's `File.read/1` returns `{:ok, binary} | {:error, posix}`; Go's `os.ReadFile` and `os.ReadDir` with `errors.Is(err, fs.ErrNotExist)`; ReScript binds Node's `readFileSync` as an `external` that throws. `NotFound | Denied | Failed` is their common core: the two reasons a program acts on, and one that carries the host's text. Like Effect and Roc, and unlike Gleam, Elixir and ReScript, the file system is a capability in the row, so a test swaps it in a context. Like Roc's platform and unlike Effect's layer, which any module may provide locally, Ergo keeps the disk out of reach of code that neither holds `Ambient` nor was given a provider (rule 6): Pony's `AmbientAuth` and Austral's `RootCapability` are the model.
 
 ## Testing
 

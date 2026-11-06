@@ -27,9 +27,11 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Captured provider** (designed): A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.
 
-**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random` and `Console`.
+**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console` and `Ambient`.
 
-**Host package** (designed): A reviewed standard-library package, such as `os`, `fs`, `net` or `sql`, that calls Go. Only host packages and `import go` reach the host, so every effect appears in some footprint.
+**Ambient** (checked; host-authority H1): The prelude capability that is the authority to choose the host. Only the entry gives it to a `main` that lists it. Its one operation is unexported, so no program type implements it and no context binds it. A host package's `NewHost` has it in its row, and so has code that makes a host provider. Pony's `AmbientAuth` and Austral's `RootCapability` are the prior art. See [stdlib](docs/spec/stdlib.md#host-packages).
+
+**Host package** (checked for `os` and `fs`): A reviewed standard-library package, such as `os`, `fs`, `net` or `sql`, that calls Go. Only host packages and `import go` reach the host, so every effect appears in some footprint. Its host provider `Host` has construction authority, and its one constructor `NewHost` needs `Ambient`.
 
 **Error type** (checked): A named struct type that an error row names: in a package, one named by an error row of that package or of the package that declares it. Returning a value of an error type is a failure, never an ordinary result.
 
