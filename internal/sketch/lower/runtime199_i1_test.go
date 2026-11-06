@@ -7,8 +7,10 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"iter"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -210,6 +212,7 @@ type i1Case struct {
 func i1Lower(t *testing.T, c i1Case) *lowered {
 	t.Helper()
 	if c.testBuild {
+		probeLog("lower-test", probeSum([]byte(c.src)))
 		return lowerTestBuild(t, "i1", c.src)
 	}
 	return mustLower(t, "i1", c.src)
@@ -368,11 +371,96 @@ func i1NestCases() []i1Case {
 	return out
 }
 
-func TestRuntime199I1Property(t *testing.T) {
+// i1AllCases is the generated domain of the I1 property, in order.
+func i1AllCases() []i1Case {
 	// Ordinary trailing blocks and with bodies use the reviewer's grid.
 	cases := append(append(i1Cases(), i1BlockCases()...), i1RecursionCases()...)
 	cases = append(append(cases, i1EntryCases()...), i1NestCases()...)
-	cases = append(cases, i1LawCases()...)
+	return append(cases, i1LawCases()...)
+}
+
+// i1Domain is i1AllCases, generated once per test process: each part and
+// the coverage check range over it. No reader changes a case.
+var i1Domain = sync.OnceValue(i1AllCases)
+
+// i1Split is the I1 property in parts: each part lowers its share of the
+// generated programs, each as a subtest named by its case, and checks the
+// facts and the polls of each.
+var i1Split = newSplit(split[i1Case]{
+	name:  "TestRuntime199I1Property",
+	parts: i1Parts,
+	short: i1Short,
+	// The pin: the domain of the unsplit property at f79be34b
+	// (request.md, leg 1).
+	count:  17131,
+	digest: "d756f45fafdfa9eaefb95c07fef8d815ba873db8479902bdd45b51b081fc18d0",
+	cases: func(yield func(i1Case) bool) {
+		for _, c := range i1Domain() {
+			if !yield(c) {
+				return
+			}
+		}
+	},
+	key: i1Key,
+	run: func(t *testing.T, cases iter.Seq[i1Case]) {
+		for c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				o := i1Lower(t, c)
+				i1CheckFacts(t, o)
+				i1CheckPolls(t, o, c)
+			})
+		}
+	},
+})
+
+const (
+	// i1Parts: the 17 131 cases took 170 to 180 s in one test at load
+	// 30 to 46 (measured at f79be34b), so a part takes about 8 s.
+	i1Parts = 24
+	// i1Short: under -short a part checks every 50th case of its share.
+	i1Short = 50
+)
+
+// i1Key is a case's name, its source and what it asserts.
+func i1Key(c i1Case) string {
+	marker := "-"
+	if c.markerEntry != nil {
+		marker = fmt.Sprint(*c.markerEntry)
+	}
+	return fmt.Sprintf("%s\n%s\nwant %v site %v entries %v marker %s scope %v markers %d test %v",
+		c.name, c.src, c.want, c.site, c.entries, marker, c.markerScope, c.markers, c.testBuild)
+}
+
+func TestRuntime199I1PropertyPart0(t *testing.T)  { i1Split.Part(t, 0) }
+func TestRuntime199I1PropertyPart1(t *testing.T)  { i1Split.Part(t, 1) }
+func TestRuntime199I1PropertyPart2(t *testing.T)  { i1Split.Part(t, 2) }
+func TestRuntime199I1PropertyPart3(t *testing.T)  { i1Split.Part(t, 3) }
+func TestRuntime199I1PropertyPart4(t *testing.T)  { i1Split.Part(t, 4) }
+func TestRuntime199I1PropertyPart5(t *testing.T)  { i1Split.Part(t, 5) }
+func TestRuntime199I1PropertyPart6(t *testing.T)  { i1Split.Part(t, 6) }
+func TestRuntime199I1PropertyPart7(t *testing.T)  { i1Split.Part(t, 7) }
+func TestRuntime199I1PropertyPart8(t *testing.T)  { i1Split.Part(t, 8) }
+func TestRuntime199I1PropertyPart9(t *testing.T)  { i1Split.Part(t, 9) }
+func TestRuntime199I1PropertyPart10(t *testing.T) { i1Split.Part(t, 10) }
+func TestRuntime199I1PropertyPart11(t *testing.T) { i1Split.Part(t, 11) }
+func TestRuntime199I1PropertyPart12(t *testing.T) { i1Split.Part(t, 12) }
+func TestRuntime199I1PropertyPart13(t *testing.T) { i1Split.Part(t, 13) }
+func TestRuntime199I1PropertyPart14(t *testing.T) { i1Split.Part(t, 14) }
+func TestRuntime199I1PropertyPart15(t *testing.T) { i1Split.Part(t, 15) }
+func TestRuntime199I1PropertyPart16(t *testing.T) { i1Split.Part(t, 16) }
+func TestRuntime199I1PropertyPart17(t *testing.T) { i1Split.Part(t, 17) }
+func TestRuntime199I1PropertyPart18(t *testing.T) { i1Split.Part(t, 18) }
+func TestRuntime199I1PropertyPart19(t *testing.T) { i1Split.Part(t, 19) }
+func TestRuntime199I1PropertyPart20(t *testing.T) { i1Split.Part(t, 20) }
+func TestRuntime199I1PropertyPart21(t *testing.T) { i1Split.Part(t, 21) }
+func TestRuntime199I1PropertyPart22(t *testing.T) { i1Split.Part(t, 22) }
+func TestRuntime199I1PropertyPart23(t *testing.T) { i1Split.Part(t, 23) }
+
+// TestRuntime199I1PropertyDomain: the generated domain holds every frame
+// class on the ordinary and the nesting axes, and each law case in both
+// builds (the checks the unsplit property made before its cases).
+func TestRuntime199I1PropertyDomain(t *testing.T) {
+	cases := i1AllCases()
 	classes := map[string]int{}
 	for _, c := range cases {
 		classes[strings.SplitN(c.name, "/", 2)[0]]++
@@ -418,16 +506,15 @@ func TestRuntime199I1Property(t *testing.T) {
 		}
 	}
 	t.Logf("%d generated programs: %v", len(cases), classes)
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			o := i1Lower(t, c)
-			i1CheckFacts(t, o)
-			i1CheckPolls(t, o, c)
-		})
-	}
-	t.Run("runtime-primitives", i1CheckPrimitives)
-	t.Run("live", i1Live)
 }
+
+// TestRuntime199I1Primitives: the runtime's blocking primitives keep their
+// own interruption points (a subtest of the unsplit property).
+func TestRuntime199I1Primitives(t *testing.T) { i1CheckPrimitives(t) }
+
+// TestRuntime199I1Live: the live witnesses build and stop (a subtest of
+// the unsplit property).
+func TestRuntime199I1Live(t *testing.T) { i1Live(t) }
 
 // Adapted from the round 1 reviewer's zz_ext_test.go: block frames, generated
 // over the same clauses, loop forms and exits as i1Cases.
@@ -1431,6 +1518,7 @@ func i1Live(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
+			probeRan(exe)
 			out, err := exec.CommandContext(ctx, exe).CombinedOutput()
 			if ctx.Err() != nil {
 				t.Fatalf("the program did not end within 60s: the stop never reached the frame\n%s", progs[name])
