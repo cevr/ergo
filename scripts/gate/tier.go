@@ -391,7 +391,11 @@ func writeFastCPU(root string, limit limiter, packages []string) error {
 			if step.Package == nil || step.Package.Dir != dir {
 				continue
 			}
-			command := exec.Command(step.Argv[0], step.Argv[1:]...)
+			// Every package step is a go test (fastSteps).
+			if step.Argv[0] != "go" {
+				return fmt.Errorf("%s: not a go command: %q", step.Name, step.Argv)
+			}
+			command := exec.Command("go", step.Argv[1:]...)
 			command.Env = append(stepEnvironment(), step.Env...)
 			command.Dir = root
 			command.Stdout = io.Discard
