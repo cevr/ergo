@@ -294,6 +294,29 @@ func (l *loader) local(path string) (string, bool) {
 	return filepath.Join(l.root, filepath.FromSlash(rel)), true
 }
 
+// nestedModule is why the folder dir is not in the program's module: a
+// folder below the module root, dir itself or one above it, that holds its
+// own ergo.mod ends the module there, as a nested go.mod ends a Go module
+// (go.dev/ref/mod). Imports across modules are S104 in v1 (196b Q1). It is
+// empty for a folder of the module.
+func (l *loader) nestedModule(dir string) string {
+	for d := dir; d != l.root && strings.HasPrefix(d, l.root+string(filepath.Separator)); d = filepath.Dir(d) {
+		name := filepath.Join(d, ModFile)
+		info, err := l.fsys.Stat(name)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		rel := l.rel(d)
+		if data, err := l.fsys.ReadFile(name); err == nil {
+			if module, problem := parseModule(string(data)); problem == nil {
+				return fmt.Sprintf("the folder %s is module %s (%s/%s); a program imports std and its own module only", rel, module, rel, ModFile)
+			}
+		}
+		return fmt.Sprintf("the folder %s holds its own %s, so it is not in module %s; a program imports std and its own module only", rel, ModFile, l.module)
+	}
+	return ""
+}
+
 // read reads the package folder dir as the package path: its .ergo files
 // in byte order of their names, each parsed and named, and its local
 // imports. A folder with no .ergo file is no package: nil, and the reason
@@ -403,6 +426,10 @@ func (l *loader) visit(p *loadedPackage, stack []*loadedPackage) error {
 	stack = append(stack, p)
 	for _, imp := range p.imports {
 		dir, _ := l.local(imp.path)
+		if reason := l.nestedModule(dir); reason != "" {
+			l.missing[imp.path] = reason
+			continue
+		}
 		q, err := l.read(imp.path, dir)
 		if err != nil {
 			return err

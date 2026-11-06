@@ -78,6 +78,20 @@ func TestErgoPackages(t *testing.T) {
 		}
 	})
 
+	t.Run("a nested ergo.mod ends the module", func(t *testing.T) {
+		dir := filepath.Join(fixtures, "nested")
+		stdout, stderr, code := cli(t, dir, "run", "cmd/app")
+		const want = `unknown package \"app/sub/x\": the folder sub is module other (sub/ergo.mod)`
+		if code != 1 || !strings.Contains(stdout, `"code": "S104"`) || !strings.Contains(stdout, want) {
+			t.Fatalf("ergo run cmd/app: exit %d stdout %s\n%s\nwant S104 %s", code, stdout, stderr, want)
+		}
+		// Inside the nested module the same folder is its own package.
+		stdout, stderr, code = cli(t, filepath.Join(dir, "sub"), "run", "cmd/other")
+		if code != 0 || stdout != "nested x\n" {
+			t.Fatalf("ergo run sub/cmd/other: exit %d stdout %q, want nested x\n%s", code, stdout, stderr)
+		}
+	})
+
 	t.Run("a folder that is not a name needs an alias", func(t *testing.T) {
 		dir := filepath.Join(fixtures, "alias")
 		stdout, stderr, code := cli(t, dir, "run", "cmd/good")

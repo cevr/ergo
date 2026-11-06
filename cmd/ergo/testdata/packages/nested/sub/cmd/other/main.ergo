@@ -1,0 +1,5 @@
+import other/x
+
+func main() needs Console {
+	Console.Println(x.Name())
+}
