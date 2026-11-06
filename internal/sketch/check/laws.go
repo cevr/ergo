@@ -91,8 +91,9 @@ func (c *checker) collectLaws(spec *syntax.InterfaceType, tn *TypeName, fi *file
 		c.pkg.Laws = append(c.pkg.Laws, law)
 		switch {
 		case names[law.Name]:
-			// The duplicate form the declaration-order oracle reads
-			// (export_classh_test.go, duplicateName).
+			// The duplicate form the declaration-order oracle reads,
+			// keyed by its owner (export_classh_test.go, duplicateKey):
+			// a top-level law's duplicate has the same message.
 			c.errorf(d.Name, CodeType, "law %s is declared twice", law.Name)
 			continue
 		case ops[law.Name]:
