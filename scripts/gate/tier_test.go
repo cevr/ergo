@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"go/build"
 	"math"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -139,10 +141,21 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 // their full-tier step builds them; the nested modules' steps are the full
 // tier's own; no full-tier test step is left, the hermetic one included
 // (it relinks its test binaries on every run to find Go's cached result),
-// and neither is the build of every test binary, nor a need on it.
+// and neither is the build of every test binary, nor a need on it. A host
+// package (hostPackageInputs) is keyed on its declared list and runs under
+// the input observer only where the observer exists (observable, Linux);
+// elsewhere it is keyed on its closure table entry and is not observed.
 func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	root := checkoutRoot(t)
 	steps, err := fastSteps(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(root, replay.DeclaredFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := replay.ParseDeclared(source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +170,13 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			if !runsGoTest(step) || !slices.Contains(step.Argv, fastFlag) {
 				t.Errorf("%s: a package step that does not run go test -short: %q", step.Name, step.Argv)
 			}
-			if _, host := hostPackageInputs[step.Package.Dir]; host != step.ObserveInputs || host && !slices.Equal(step.Package.Declared, hostPackageInputs[step.Package.Dir]) {
-				t.Errorf("%s: observed %t; a package keyed on its declared inputs (hostPackageInputs) runs under the input observer, no other does", step.Name, step.ObserveInputs)
+			declared, host := hostPackageInputs[step.Package.Dir]
+			observed := host && observable
+			if !observed {
+				declared = table[step.Package.Dir]
+			}
+			if step.ObserveInputs != observed || !slices.Equal(step.Package.Declared, declared) {
+				t.Errorf("%s: observed %t, declared %v; on %s (observer: %t) want observed %t, declared %v: a package keyed on its declared inputs (hostPackageInputs) runs under the input observer, no other does, and without the observer a host package keeps its closure table entry", step.Name, step.ObserveInputs, step.Package.Declared, runtime.GOOS, observable, observed, declared)
 			}
 			hermetic := strings.HasPrefix(step.Package.Dir, hermeticTestRoot) && !slices.Contains(hostTestPackages, step.Package.Dir)
 			if hermetic != slices.Equal(step.Env, hermeticEnvironment) {
@@ -279,7 +297,8 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	// What a reached package costs in the fast tier: the recorded CPU of
-	// its fast steps. A package with no row cannot be budgeted.
+	// its fast steps. A package with no row cannot be budgeted, where the
+	// fast set has a budget (observable, below).
 	reach := func(file string) (dirs []string, cpu float64) {
 		for _, p := range packages {
 			if !p.closure.Covers(file) {
@@ -287,21 +306,34 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 			}
 			dirs = append(dirs, p.dir)
 			recorded, ok := fastCPU[p.importPath]
-			if !ok {
+			if !ok && observable {
 				t.Errorf("%s has no row in %s: run go run ./scripts/gate -record-durations -fast ./%s", p.dir, fastCPUFile, p.dir)
 			}
 			cpu += recorded
 		}
 		return dirs, cpu
 	}
+	// Without the input observer (observable) the host package keeps its
+	// closure table entry, the whole checkout (TestFastStepsKeyEveryTestPackage):
+	// every edit reaches it, and it runs on every fast gate there. The CPU
+	// budget is the lane host's (Linux), where the observer keys it on its
+	// declared inputs; off Linux the fast set is not budgeted.
+	var everyEdit []string
+	if !observable {
+		everyEdit = []string{"scripts/gate"}
+	}
 	docs, _ := reach("docs/tooling.md")
-	if want := []string{"internal/residue", "internal/testinputs/guard"}; !slices.Equal(docs, want) {
-		t.Errorf("a docs edit reaches %v; want %v", docs, want)
+	if want := append([]string{"internal/residue", "internal/testinputs/guard"}, everyEdit...); !slices.Equal(docs, want) {
+		t.Errorf("a docs edit reaches %v; want %v (%s, observer: %t)", docs, want, runtime.GOOS, observable)
 	}
 	check, cpu := reach("internal/sketch/check/check.go")
-	want := []string{"cmd/ergo", "internal/bindc", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard"}
+	want := append([]string{"cmd/ergo", "internal/bindc", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard"}, everyEdit...)
 	if !slices.Equal(check, want) {
-		t.Errorf("a checker edit reaches %v; want %v", check, want)
+		t.Errorf("a checker edit reaches %v; want %v (%s, observer: %t)", check, want, runtime.GOOS, observable)
+	}
+	if !observable {
+		t.Logf("%s has no input observer: the host package scripts/gate runs on every edit, and the fast set has no CPU budget here", runtime.GOOS)
+		return
 	}
 	t.Logf("the checker edit's fast set: %.1f CPU-s recorded, target %.0f, gap %.1f", cpu, fastCPUTarget, cpu-fastCPUTarget)
 	if cpu > fastCPUTarget+fastCPUKnownGap {
@@ -364,7 +396,35 @@ func TestFastTierCoversEveryListedTest(t *testing.T) {
 			}
 		}
 		if listed == 0 {
-			t.Errorf("%s: go test -list lists no test", dir)
+			// A package whose every test file is build-constrained out
+			// here (internal/testport off Linux) lists none, as it must.
+			if defined := platformTestNames(t, filepath.Join(root, filepath.FromSlash(dir))); len(defined) > 0 {
+				t.Errorf("%s: go test -list lists no test; its test files for %s/%s define %v", dir, runtime.GOOS, runtime.GOARCH, defined)
+			}
 		}
 	}
+}
+
+// platformTestNames are the test functions (testFunction, TestMain aside)
+// of the package's test files that build for this platform (go/build's
+// default context: GOOS, GOARCH, build tags and file name suffixes).
+func platformTestNames(t *testing.T, dir string) []string {
+	t.Helper()
+	p, err := build.ImportDir(dir, 0)
+	if err != nil {
+		t.Fatalf("%s: %v", dir, err)
+	}
+	var names []string
+	for _, file := range append(slices.Clone(p.TestGoFiles), p.XTestGoFiles...) {
+		content, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range testFunction.FindAllSubmatch(content, -1) {
+			if name := string(match[1]); name != "TestMain" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
