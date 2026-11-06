@@ -117,7 +117,8 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 // package and runs -short, the hermetic packages with CGO_ENABLED=0 as
 // their full-tier step builds them; the nested modules' steps are the full
 // tier's own; no full-tier test step is left, the hermetic one included
-// (it relinks its test binaries on every run to find Go's cached result).
+// (it relinks its test binaries on every run to find Go's cached result),
+// and neither is the build of every test binary, nor a need on it.
 func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -129,6 +130,9 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 	}
 	keyed := 0
 	for _, step := range steps {
+		if slices.Contains(step.Needs, fullBuildStep) {
+			t.Errorf("%s needs %q, which the fast tier does not run", step.Name, fullBuildStep)
+		}
 		switch {
 		case step.Package != nil:
 			keyed++
@@ -142,9 +146,9 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			if hermetic != slices.Equal(step.Env, hermeticEnvironment) {
 				t.Errorf("%s: environment %q; a hermetic package's step builds with %q, no other step does", step.Name, step.Env, hermeticEnvironment)
 			}
-		case step.Hermetic:
-			t.Errorf("%s: the full tier's hermetic step is in the fast tier", step.Name)
-		case step.Name == "go test build", !runsGoTest(step):
+		case step.Hermetic, step.Name == fullBuildStep:
+			t.Errorf("%s: a full-tier test step is in the fast tier", step.Name)
+		case !runsGoTest(step):
 		default:
 			t.Errorf("%s: a go test step with no package key in the fast tier: %q", step.Name, step.Argv)
 		}

@@ -36,6 +36,10 @@ import (
 // full-tier record.
 const fastTier = "fast"
 
+// fullBuildStep is the full tier's step that builds every test binary
+// before its test steps; the fast tier has none (fastSteps).
+const fullBuildStep = "go test build"
+
 // sizeCutoff is the size rule (gate-fast decision D3): a test whose
 // recorded serial wall time (durationsFile) is this long or longer is large
 // and runs only in the full tier. A test with no recorded time runs in the
@@ -284,10 +288,17 @@ func fastSteps(root string) ([]*Step, error) {
 		// hermetic step is a package's tests too: its packages get a keyed
 		// step each, below. Kept, it relinked both test binaries to find
 		// Go's cached result on every run: about 20 s of a 27 s docs-edit
-		// run (measured 2026-11-06, leg-docs-3.log).
-		if !step.Hermetic && (!runsGoTest(step) || step.Name == "go test build") {
-			steps = append(steps, step)
+		// run (measured 2026-11-06, leg-docs-3.log). The full tier's
+		// "go test build" links and starts every test binary of the module
+		// before any test step: in the fast tier a package step builds
+		// only its own test binary, and only when its key changed, so the
+		// step and the needs on it are dropped. go vet still type-checks
+		// every package and its tests.
+		if step.Hermetic || step.Name == fullBuildStep || runsGoTest(step) {
+			continue
 		}
+		step.Needs = slices.DeleteFunc(slices.Clone(step.Needs), func(need string) bool { return need == fullBuildStep })
+		steps = append(steps, step)
 	}
 	for _, p := range packages {
 		relative := strings.TrimPrefix(p.importPath, module+"/")
@@ -319,7 +330,7 @@ func fastSteps(root string) ([]*Step, error) {
 		}
 		selections := fastShardArgs(shard(fast, measured, n), large)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
+			step := &Step{Name: name, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
 			if len(selections) > 1 {
 				step.Name = fmt.Sprintf("go test %s [%d/%d] (fast)", pkg, i+1, len(selections))
 			}
