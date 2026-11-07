@@ -128,6 +128,40 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 
 *Prior art:* GHC trusts a foreign import's declared type: an import whose result is not in `IO` is pure on the author's word. Gleam's and ReScript's externals carry no effect fact, and Elixir's compiler sees a remote call as unknown code. Koka infers effects only for code it can see, and its externs state their effect in the declared type. Ergo keeps the claim on the Go body, where a reviewer reads it, and checks its mechanical part: what the file can reach.
 
+## Std laws
+
+The std states its guarantees as laws (owner, 2026-11-06; std-align S1a). The rule:
+
+1. Each operation type of each std package, the prelude included, has at least one member law. A type that no law over its own operations can observe has instead one doc-comment line `// law-exempt: <reason>`, and the reason is not empty. A type never has both. `TestStdOperationTypesHaveLaws` finds every operation type from the checked packages (`std.Packages()` and the prelude), never from a written list, and holds the rule.
+2. A family of pure functions states its algebra as top-level laws in its package (round trips, idempotence, order).
+3. A law is checked, not run, until [#162](https://github.com/cevr/ergo/issues/162) runs laws ([types.md, Laws](types.md#laws) 10), and it adds no Go to any build (Laws 11; lower `TestStdLawsAddNoGo`). Until #162, the table below names, for each law, the Go test that runs it now. A runner restates the law over the std's providers with seeded cases. `#162` stands only for a law that no Go test can run, such as a law on a type that the std provides no provider of, and its state is `checked`; a law with a Go runner is `tested`.
+4. Each law of std source has exactly one row. The Statement is the law's source text from its name to its closing brace, each run of white space made one space. `TestStdLawLedger` holds both, and that each runner is a `func Test…` that the repository declares. `TestStdLawsRun` (lower) restates every law whose runner it is as an Ergo test of the same name, and runs them with `--seed 1`, as `ergo test --seed 1` does.
+
+The exempt types and their reasons are in their doc comments: `Console` and `Ambient` have no read, `Scheduler` has no clock to observe a sleep by, and `Clock` has no monotonic meaning yet (std-align S2b).
+
+| Package | Law | Statement | Runner | State |
+| --- | --- | --- | --- | --- |
+| `fs` | `Files.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }` | `TestStdHostLawsHold` | tested |
+| `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestStdHostLawsHold` | tested |
+| `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |
+| `log` | `InnerAnnotationShadows` | `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
+| `os` | `Process.GetenvIsStable` | `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }` | `TestStdHostLawsHold` | tested |
+| `prelude` | `Random.Int63NeverNegative` | `Int63NeverNegative() { Int63() >= 0 }` | #162 | checked |
+| `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
+| `queue` | `CloseKeepsValues` | `CloseKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.Close() try q.Pop() == v }` | `TestStdLawsRun` | tested |
+| `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
+| `queue` | `Queue.CloseIsIdempotent` | `CloseIsIdempotent() { Close() Close() true }` | `TestStdLawsRun` | tested |
+| `queue` | `Queue.PushAfterCloseFails` | `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }` | `TestStdLawsRun` | tested |
+| `scope` | `ActionsRunLastFirst` | `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }` | `TestStdLawsRun` | tested |
+| `task` | `StopIsIdempotent` | `StopIsIdempotent() { let t = Go() { LiveScheduler.Sleep(1h) 0 } t.Stop() t.Stop() true }` | `TestStdLawsRun` | tested |
+| `task` | `WaitReturnsTheBlock` | `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }` | `TestStdLawsRun` | tested |
+| `timeout` | `DeadlineFirstExpires` | `DeadlineFirstExpires() { with context { Scheduler: LiveScheduler } { After(1ms) { LiveScheduler.Sleep(1h) false } catch { case Expired: true } } }` | `TestStdLawsRun` | tested |
+| `timeout` | `QuickBodyWins` | `QuickBodyWins(n int) { with context { Scheduler: LiveScheduler } { try After(1h) { n } == n } }` | `TestStdLawsRun` | tested |
+| `trace` | `InnerSpanShadows` | `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
+| `trace` | `SpanEndRestores` | `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }` | `TestStdLawsRun` | tested |
+
+*Prior art:* Haskell states class laws beside the class and runs them with QuickCheck's `prop_` functions; Elixir's `StreamData` states properties beside `test`; MoonBit ships its core with property tests; Gleam and ReScript state none in source. Ergo states each law in the std source, where a reader of the std sees it, and keeps the Go test that runs it in one ledger until #162.
+
 ## Packages by origin
 
 - **Same as Go:** `strings`, `slices`, `maps`, `cmp`, `math`, `time`, `os`, `fs`, `net`, `sql`.

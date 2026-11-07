@@ -7,3 +7,25 @@ type Expired {}
 // that the prototype gave timeout.After by name (README Gap 31). The host
 // implements it: it is an extern go binding (grammar.md, Declarations 2).
 extern go ergo.local/prototype/runtime/v1.After func After[A, E, R](d duration, f func() A fails E needs R) A fails E | Expired needs R | Scheduler
+
+// QuickBodyWins: a body that ends before its deadline gives its value, and
+// After does not fail Expired.
+law QuickBodyWins(n int) {
+	with context { Scheduler: LiveScheduler } {
+		try After(1h) { n } == n
+	}
+}
+
+// DeadlineFirstExpires: a body that is still waiting when the deadline
+// passes is stopped, and After fails Expired.
+law DeadlineFirstExpires() {
+	with context { Scheduler: LiveScheduler } {
+		After(1ms) {
+			LiveScheduler.Sleep(1h)
+			false
+		} catch {
+		case Expired:
+			true
+		}
+	}
+}

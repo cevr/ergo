@@ -22,6 +22,42 @@ type Queue[T] {
 	// like Pop and ends when the queue is closed and empty. A break stops
 	// it; the values not yet popped stay in the queue.
 	Values() Seq[T],
+
+	// CloseIsIdempotent: a second Close returns at once and never fails.
+	law CloseIsIdempotent() {
+		Close()
+		Close()
+		true
+	},
+	// PushAfterCloseFails: Push on a closed queue fails Closed at once,
+	// whatever its capacity and contents.
+	law PushAfterCloseFails(v T) {
+		Close()
+		Push(v) catch {
+		case Closed:
+			return true
+		}
+		false
+	},
+}
+
+// FirstInFirstOut: Pop gives the values in the order Push added them.
+law FirstInFirstOut(a int, b int) {
+	let q = New[int](2)
+	try q.Push(a)
+	try q.Push(b)
+	let first = try q.Pop()
+	let second = try q.Pop()
+	first == a && second == b
+}
+
+// CloseKeepsValues: Close ends admission and keeps the values in the queue
+// for Pop.
+law CloseKeepsValues(v int) {
+	let q = New[int](1)
+	try q.Push(v)
+	q.Close()
+	try q.Pop() == v
 }
 
 // New makes an open, empty queue that holds up to capacity values no Pop

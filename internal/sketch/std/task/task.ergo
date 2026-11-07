@@ -11,3 +11,22 @@
 // caller's. The block outlives the call, so its parameter is `escaping`
 // (196e): it captures no non-escaping function value.
 extern go ergo.local/prototype/runtime/v1.Go func Go[T, E, R](body escaping func() T fails E needs R) Task[T, E] needs R
+
+// WaitReturnsTheBlock: Wait gives the value of the task's block.
+law WaitReturnsTheBlock(n int) {
+	let t = Go() { n }
+	t.Wait() == n
+}
+
+// StopIsIdempotent: Stop of a running task, then a second Stop, returns
+// and never fails (the prelude's Task states it for every task; here it
+// runs on a task that Go starts and that waits).
+law StopIsIdempotent() {
+	let t = Go() {
+		LiveScheduler.Sleep(1h)
+		0
+	}
+	t.Stop()
+	t.Stop()
+	true
+}
