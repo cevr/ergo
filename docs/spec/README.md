@@ -68,7 +68,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Footprints and purity | Checked: the checker records each frame's footprint (`Info.Footprints`). The build places interruption points from it, and a pure function takes no hidden argument ([runtime](runtime.md#host-and-lowering-notes)). Showing footprints in a tool is [#203](https://github.com/cevr/ergo/issues/203) | [rows](rows.md#footprints) |
 | Named contexts `let W = context { … }` with provider literals | Checked: closed contexts (Gap 6), S111 for a repeated entry (Gap 28); runs | [rows](rows.md#context) |
 | Inline `context { … }` | Checked; runs | [rows](rows.md#context) |
-| Context embedding, `replace`, one provider for several capabilities | Checked (Gap 34); runs. A `with` or an embedding of an imported context: checked; build refused (S109 naming 196b) | [rows](rows.md#context) |
+| Context embedding, `replace`, one provider for several capabilities | Checked (Gap 34); runs. A `with` or an embedding of an imported context: checked and lowered (196b U4; `TestRunImportedContext`) | [rows](rows.md#context) |
 | Context constructors | Designed, not yet implemented; S109 naming [#37](https://github.com/cevr/ergo/issues/37) | [rows](rows.md#context) |
 | Context header `provides A needs B` | Parsed and formatted; S109 naming #196 stage b (Gap 33) | [rows](rows.md#context) |
 | `with W { block }` | Checked; runs | [rows](rows.md#with) |

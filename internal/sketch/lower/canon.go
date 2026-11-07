@@ -22,9 +22,13 @@ import (
 //     text. So all it derives is a function of the sources:
 //     its lists, the intern order of its types and so the order of every
 //     row's elements, a row value's variants and a catch's subjects, the
-//     text of every type, and its diagnostics. A reader of the check
-//     result, by any route, gets the same value for any listing of the
-//     files. TestCheckIsCanonical (packages_r8_test.go) compares a dump of
+//     text of every type, and the order and text of its diagnostics
+//     (check.sorted sorts them by the file's canonical rank, then offset,
+//     length, code and message; TestCheckDiagnosticOrderIsCanonical). A
+//     reader of the check result, by any route, gets the same value for
+//     any listing of the files, except Diagnostic.File, which stays the
+//     caller's index of the file. TestCheckIsCanonical
+//     (packages_r8_test.go) compares a dump of
 //     the whole check result, both builds' bytes and the refusals over
 //     every order of the files of generated programs.
 //  2. The entry. newBuildLowerer converts the Unit once into a canonical
@@ -57,9 +61,9 @@ import (
 //   - a sourced package's functions, types and tests: by source file in
 //     that order, then by offset (declOrder). This is declaration order in
 //     each file, which the source fixes. The checker orders the files by
-//     syntax.File.Name, then by content, then by full text
-//     (canonicalFiles); the lowering orders them by the Unit's source
-//     path, the order go build gives. Both are functions of the sources,
+//     syntax.File.Name, then by key (the text with the import lines
+//     sorted, fileKey), then by full text (canonicalFiles); the lowering
+//     orders them by the Unit's source path, the order go build gives. Both are functions of the sources,
 //     so a site that read the checker's list would still emit a function
 //     of the program, in the checker's canonical order. The two orders
 //     differ when a caller sets no syntax.File.Name or sets one that is
