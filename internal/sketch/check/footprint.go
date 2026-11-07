@@ -251,11 +251,11 @@ func (fp *footprinter) provides(n *fpNode, w *Context, hidden []*ContextEntry) {
 // package, runs except the entries of hidden, each of which w runs (batch-9
 // C4). With none hidden it joins the footprint w's package recorded for
 // w's builder, which is the node fp.context makes for a context of this
-// package. With some hidden it joins, as provides does, each entry w runs
-// that is not hidden: an embedded context by this rule again, and a
-// provider entry by its provider expression, walked with its own package's
-// facts (foreignEntry). A fact that is missing makes n opaque, which only
-// adds polls.
+// package. With some hidden it joins each entry w runs that is not hidden,
+// in the same way that provides joins them: an embedded context by this
+// rule again, and a provider entry by its provider expression, walked with
+// its own package's facts (foreignEntry). A fact that is missing makes n
+// opaque, which only adds polls.
 func (fp *footprinter) imported(n *fpNode, w *Context, hidden []*ContextEntry) {
 	p := w.pkg
 	if p == nil || p.Info == nil {
