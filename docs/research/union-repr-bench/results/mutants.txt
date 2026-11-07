@@ -1,0 +1,605 @@
+== M2-m1: stepDx returns Reject for (Closed, Retry)
+--- FAIL: TestBreakerFormsAgree (0.00s)
+    contract_test.go:67: step(Closed{0}, {}) form Dx = Reject, want Ignore
+    contract_test.go:67: step(Closed{1}, {}) form Dx = Reject, want Ignore
+    contract_test.go:67: step(Closed{2}, {}) form Dx = Reject, want Ignore
+    contract_test.go:67: step(Closed{3}, {}) form Dx = Reject, want Ignore
+--- FAIL: TestBreakerRunsAgree (0.00s)
+    contract_test.go:95: seed 1 signal 2 form Dx: Reject, want Ignore
+FAIL
+FAIL	unionreprbench	0.086s
+FAIL
+exit 1
+== M2-m2: OpenD leaves a dirty failures slot (2)
+--- FAIL: TestBreakerFormsAgree (0.00s)
+    contract_test.go:72: step(Closed{2}, {svc-a}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-a} out:}
+    contract_test.go:72: step(Closed{2}, {svc-a}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-a} out:}
+    contract_test.go:72: step(Closed{2}, {svc-b}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-b} out:}
+    contract_test.go:72: step(Closed{2}, {svc-b}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-b} out:}
+    contract_test.go:72: step(Closed{3}, {svc-a}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-a} out:}
+    contract_test.go:72: step(Closed{3}, {svc-a}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-a} out:}
+    contract_test.go:72: step(Closed{3}, {svc-b}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-b} out:}
+    contract_test.go:72: step(Closed{3}, {svc-b}): form D decision is not well formed: {tag:1 next:{tag:2 failures:2 endpoint:svc-b} out:}
+    contract_test.go:54: Open{svc-a}: form D state is not well formed: {tag:2 failures:2 endpoint:svc-a}
+--- FAIL: TestBreakerRunsAgree (0.00s)
+    contract_test.go:100: seed 1 signal 3: form D state is not well formed
+FAIL
+FAIL	unionreprbench	0.057s
+FAIL
+exit 1
+== M2-m3: cloneD shares the slice (no copy)
+--- FAIL: TestCloneFormsAgree (0.00s)
+    contract_test.go:255: a clone shares the slice of its source
+FAIL
+FAIL	unionreprbench	0.053s
+FAIL
+exit 1
+== M2-m4: nextNPD keeps NP2.B in the inactive slot of NP1
+--- FAIL: TestGCFormsAgree (0.01s)
+    contract_test.go:233: round 1 5: form D value is not well formed
+FAIL
+FAIL	unionreprbench	0.047s
+FAIL
+exit 1
+== M2-m5: form G drops the shell count of ShellCollected
+--- FAIL: TestTidewalkFormsAgree (0.00s)
+    contract_test.go:130: NWNEEENEESSNNNE: last state won {At:{X:7 Y:1} Tide:2 Turn:15 Shells:3 Left:......................................................}, form G won {At:{X:7 Y:1} Tide:2 Turn:15 Shells:0 Left:......................................................}
+FAIL
+FAIL	unionreprbench	0.041s
+FAIL
+exit 1
+== M2-m6: cutC's None keeps s in the inactive slot
+--- FAIL: TestOptionFormsAgree (0.00s)
+    contract_test.go:296: cutC("key0") is a None that is not the zero value: {v:{Before:key0 After:} ok:false}
+    contract_test.go:296: cutC("key1") is a None that is not the zero value: {v:{Before:key1 After:} ok:false}
+    contract_test.go:296: cutC("key3") is a None that is not the zero value: {v:{Before:key3 After:} ok:false}
+    contract_test.go:296: cutC("key6") is a None that is not the zero value: {v:{Before:key6 After:} ok:false}
+    contract_test.go:296: cutC("key7") is a None that is not the zero value: {v:{Before:key7 After:} ok:false}
+    contract_test.go:296: cutC("key12") is a None that is not the zero value: {v:{Before:key12 After:} ok:false}
+    contract_test.go:296: cutC("key13") is a None that is not the zero value: {v:{Before:key13 After:} ok:false}
+    contract_test.go:296: cutC("key15") is a None that is not the zero value: {v:{Before:key15 After:} ok:false}
+    contract_test.go:296: cutC("key16") is a None that is not the zero value: {v:{Before:key16 After:} ok:false}
+    contract_test.go:296: cutC("key18") is a None that is not the zero value: {v:{Before:key18 After:} ok:false}
+    contract_test.go:296: cutC("key19") is a None that is not the zero value: {v:{Before:key19 After:} ok:false}
+    contract_test.go:296: cutC("key20") is a None that is not the zero value: {v:{Before:key20 After:} ok:false}
+    contract_test.go:296: cutC("key21") is a None that is not the zero value: {v:{Before:key21 After:} ok:false}
+    contract_test.go:296: cutC("key26") is a None that is not the zero value: {v:{Before:key26 After:} ok:false}
+    contract_test.go:296: cutC("key27") is a None that is not the zero value: {v:{Before:key27 After:} ok:false}
+    contract_test.go:296: cutC("key31") is a None that is not the zero value: {v:{Before:key31 After:} ok:false}
+    contract_test.go:296: cutC("key33") is a None that is not the zero value: {v:{Before:key33 After:} ok:false}
+    contract_test.go:296: cutC("key37") is a None that is not the zero value: {v:{Before:key37 After:} ok:false}
+    contract_test.go:296: cutC("key39") is a None that is not the zero value: {v:{Before:key39 After:} ok:false}
+    contract_test.go:296: cutC("key40") is a None that is not the zero value: {v:{Before:key40 After:} ok:false}
+    contract_test.go:296: cutC("key41") is a None that is not the zero value: {v:{Before:key41 After:} ok:false}
+    contract_test.go:296: cutC("key42") is a None that is not the zero value: {v:{Before:key42 After:} ok:false}
+    contract_test.go:296: cutC("key47") is a None that is not the zero value: {v:{Before:key47 After:} ok:false}
+    contract_test.go:296: cutC("key48") is a None that is not the zero value: {v:{Before:key48 After:} ok:false}
+    contract_test.go:296: cutC("key51") is a None that is not the zero value: {v:{Before:key51 After:} ok:false}
+    contract_test.go:296: cutC("key52") is a None that is not the zero value: {v:{Before:key52 After:} ok:false}
+    contract_test.go:296: cutC("key53") is a None that is not the zero value: {v:{Before:key53 After:} ok:false}
+    contract_test.go:296: cutC("key55") is a None that is not the zero value: {v:{Before:key55 After:} ok:false}
+    contract_test.go:296: cutC("key56") is a None that is not the zero value: {v:{Before:key56 After:} ok:false}
+    contract_test.go:296: cutC("key60") is a None that is not the zero value: {v:{Before:key60 After:} ok:false}
+    contract_test.go:296: cutC("key62") is a None that is not the zero value: {v:{Before:key62 After:} ok:false}
+    contract_test.go:296: cutC("key66") is a None that is not the zero value: {v:{Before:key66 After:} ok:false}
+    contract_test.go:296: cutC("key67") is a None that is not the zero value: {v:{Before:key67 After:} ok:false}
+    contract_test.go:296: cutC("key68") is a None that is not the zero value: {v:{Before:key68 After:} ok:false}
+    contract_test.go:296: cutC("key69") is a None that is not the zero value: {v:{Before:key69 After:} ok:false}
+    contract_test.go:296: cutC("key71") is a None that is not the zero value: {v:{Before:key71 After:} ok:false}
+    contract_test.go:296: cutC("key74") is a None that is not the zero value: {v:{Before:key74 After:} ok:false}
+    contract_test.go:296: cutC("key77") is a None that is not the zero value: {v:{Before:key77 After:} ok:false}
+    contract_test.go:296: cutC("key78") is a None that is not the zero value: {v:{Before:key78 After:} ok:false}
+    contract_test.go:296: cutC("key79") is a None that is not the zero value: {v:{Before:key79 After:} ok:false}
+    contract_test.go:296: cutC("key82") is a None that is not the zero value: {v:{Before:key82 After:} ok:false}
+    contract_test.go:296: cutC("key84") is a None that is not the zero value: {v:{Before:key84 After:} ok:false}
+    contract_test.go:296: cutC("key85") is a None that is not the zero value: {v:{Before:key85 After:} ok:false}
+    contract_test.go:296: cutC("key87") is a None that is not the zero value: {v:{Before:key87 After:} ok:false}
+    contract_test.go:296: cutC("key90") is a None that is not the zero value: {v:{Before:key90 After:} ok:false}
+    contract_test.go:296: cutC("key91") is a None that is not the zero value: {v:{Before:key91 After:} ok:false}
+    contract_test.go:296: cutC("key95") is a None that is not the zero value: {v:{Before:key95 After:} ok:false}
+    contract_test.go:296: cutC("key96") is a None that is not the zero value: {v:{Before:key96 After:} ok:false}
+    contract_test.go:296: cutC("key98") is a None that is not the zero value: {v:{Before:key98 After:} ok:false}
+    contract_test.go:296: cutC("key99") is a None that is not the zero value: {v:{Before:key99 After:} ok:false}
+    contract_test.go:296: cutC("key102") is a None that is not the zero value: {v:{Before:key102 After:} ok:false}
+    contract_test.go:296: cutC("key104") is a None that is not the zero value: {v:{Before:key104 After:} ok:false}
+    contract_test.go:296: cutC("key108") is a None that is not the zero value: {v:{Before:key108 After:} ok:false}
+    contract_test.go:296: cutC("key109") is a None that is not the zero value: {v:{Before:key109 After:} ok:false}
+    contract_test.go:296: cutC("key110") is a None that is not the zero value: {v:{Before:key110 After:} ok:false}
+    contract_test.go:296: cutC("key111") is a None that is not the zero value: {v:{Before:key111 After:} ok:false}
+    contract_test.go:296: cutC("key112") is a None that is not the zero value: {v:{Before:key112 After:} ok:false}
+    contract_test.go:296: cutC("key113") is a None that is not the zero value: {v:{Before:key113 After:} ok:false}
+    contract_test.go:296: cutC("key114") is a None that is not the zero value: {v:{Before:key114 After:} ok:false}
+    contract_test.go:296: cutC("key115") is a None that is not the zero value: {v:{Before:key115 After:} ok:false}
+    contract_test.go:296: cutC("key116") is a None that is not the zero value: {v:{Before:key116 After:} ok:false}
+    contract_test.go:296: cutC("key117") is a None that is not the zero value: {v:{Before:key117 After:} ok:false}
+    contract_test.go:296: cutC("key118") is a None that is not the zero value: {v:{Before:key118 After:} ok:false}
+    contract_test.go:296: cutC("key122") is a None that is not the zero value: {v:{Before:key122 After:} ok:false}
+    contract_test.go:296: cutC("key124") is a None that is not the zero value: {v:{Before:key124 After:} ok:false}
+    contract_test.go:296: cutC("key125") is a None that is not the zero value: {v:{Before:key125 After:} ok:false}
+    contract_test.go:296: cutC("key131") is a None that is not the zero value: {v:{Before:key131 After:} ok:false}
+    contract_test.go:296: cutC("key134") is a None that is not the zero value: {v:{Before:key134 After:} ok:false}
+    contract_test.go:296: cutC("key137") is a None that is not the zero value: {v:{Before:key137 After:} ok:false}
+    contract_test.go:296: cutC("key140") is a None that is not the zero value: {v:{Before:key140 After:} ok:false}
+    contract_test.go:296: cutC("key141") is a None that is not the zero value: {v:{Before:key141 After:} ok:false}
+    contract_test.go:296: cutC("key142") is a None that is not the zero value: {v:{Before:key142 After:} ok:false}
+    contract_test.go:296: cutC("key144") is a None that is not the zero value: {v:{Before:key144 After:} ok:false}
+    contract_test.go:296: cutC("key146") is a None that is not the zero value: {v:{Before:key146 After:} ok:false}
+    contract_test.go:296: cutC("key151") is a None that is not the zero value: {v:{Before:key151 After:} ok:false}
+    contract_test.go:296: cutC("key153") is a None that is not the zero value: {v:{Before:key153 After:} ok:false}
+    contract_test.go:296: cutC("key155") is a None that is not the zero value: {v:{Before:key155 After:} ok:false}
+    contract_test.go:296: cutC("key157") is a None that is not the zero value: {v:{Before:key157 After:} ok:false}
+    contract_test.go:296: cutC("key160") is a None that is not the zero value: {v:{Before:key160 After:} ok:false}
+    contract_test.go:296: cutC("key161") is a None that is not the zero value: {v:{Before:key161 After:} ok:false}
+    contract_test.go:296: cutC("key163") is a None that is not the zero value: {v:{Before:key163 After:} ok:false}
+    contract_test.go:296: cutC("key164") is a None that is not the zero value: {v:{Before:key164 After:} ok:false}
+    contract_test.go:296: cutC("key165") is a None that is not the zero value: {v:{Before:key165 After:} ok:false}
+    contract_test.go:296: cutC("key167") is a None that is not the zero value: {v:{Before:key167 After:} ok:false}
+    contract_test.go:296: cutC("key168") is a None that is not the zero value: {v:{Before:key168 After:} ok:false}
+    contract_test.go:296: cutC("key175") is a None that is not the zero value: {v:{Before:key175 After:} ok:false}
+    contract_test.go:296: cutC("key178") is a None that is not the zero value: {v:{Before:key178 After:} ok:false}
+    contract_test.go:296: cutC("key181") is a None that is not the zero value: {v:{Before:key181 After:} ok:false}
+    contract_test.go:296: cutC("key183") is a None that is not the zero value: {v:{Before:key183 After:} ok:false}
+    contract_test.go:296: cutC("key184") is a None that is not the zero value: {v:{Before:key184 After:} ok:false}
+    contract_test.go:296: cutC("key186") is a None that is not the zero value: {v:{Before:key186 After:} ok:false}
+    contract_test.go:296: cutC("key187") is a None that is not the zero value: {v:{Before:key187 After:} ok:false}
+    contract_test.go:296: cutC("key188") is a None that is not the zero value: {v:{Before:key188 After:} ok:false}
+    contract_test.go:296: cutC("key189") is a None that is not the zero value: {v:{Before:key189 After:} ok:false}
+    contract_test.go:296: cutC("key195") is a None that is not the zero value: {v:{Before:key195 After:} ok:false}
+    contract_test.go:296: cutC("key197") is a None that is not the zero value: {v:{Before:key197 After:} ok:false}
+    contract_test.go:296: cutC("key199") is a None that is not the zero value: {v:{Before:key199 After:} ok:false}
+    contract_test.go:296: cutC("key200") is a None that is not the zero value: {v:{Before:key200 After:} ok:false}
+    contract_test.go:296: cutC("key202") is a None that is not the zero value: {v:{Before:key202 After:} ok:false}
+    contract_test.go:296: cutC("key206") is a None that is not the zero value: {v:{Before:key206 After:} ok:false}
+    contract_test.go:296: cutC("key208") is a None that is not the zero value: {v:{Before:key208 After:} ok:false}
+    contract_test.go:296: cutC("key209") is a None that is not the zero value: {v:{Before:key209 After:} ok:false}
+    contract_test.go:296: cutC("key210") is a None that is not the zero value: {v:{Before:key210 After:} ok:false}
+    contract_test.go:296: cutC("key215") is a None that is not the zero value: {v:{Before:key215 After:} ok:false}
+    contract_test.go:296: cutC("key217") is a None that is not the zero value: {v:{Before:key217 After:} ok:false}
+    contract_test.go:296: cutC("key221") is a None that is not the zero value: {v:{Before:key221 After:} ok:false}
+    contract_test.go:296: cutC("key222") is a None that is not the zero value: {v:{Before:key222 After:} ok:false}
+    contract_test.go:296: cutC("key226") is a None that is not the zero value: {v:{Before:key226 After:} ok:false}
+    contract_test.go:296: cutC("key229") is a None that is not the zero value: {v:{Before:key229 After:} ok:false}
+    contract_test.go:296: cutC("key230") is a None that is not the zero value: {v:{Before:key230 After:} ok:false}
+    contract_test.go:296: cutC("key233") is a None that is not the zero value: {v:{Before:key233 After:} ok:false}
+    contract_test.go:296: cutC("key235") is a None that is not the zero value: {v:{Before:key235 After:} ok:false}
+    contract_test.go:296: cutC("key236") is a None that is not the zero value: {v:{Before:key236 After:} ok:false}
+    contract_test.go:296: cutC("key239") is a None that is not the zero value: {v:{Before:key239 After:} ok:false}
+    contract_test.go:296: cutC("key241") is a None that is not the zero value: {v:{Before:key241 After:} ok:false}
+    contract_test.go:296: cutC("key243") is a None that is not the zero value: {v:{Before:key243 After:} ok:false}
+    contract_test.go:296: cutC("key245") is a None that is not the zero value: {v:{Before:key245 After:} ok:false}
+    contract_test.go:296: cutC("key246") is a None that is not the zero value: {v:{Before:key246 After:} ok:false}
+    contract_test.go:296: cutC("key249") is a None that is not the zero value: {v:{Before:key249 After:} ok:false}
+    contract_test.go:296: cutC("key250") is a None that is not the zero value: {v:{Before:key250 After:} ok:false}
+    contract_test.go:296: cutC("key253") is a None that is not the zero value: {v:{Before:key253 After:} ok:false}
+    contract_test.go:296: cutC("key257") is a None that is not the zero value: {v:{Before:key257 After:} ok:false}
+    contract_test.go:296: cutC("key259") is a None that is not the zero value: {v:{Before:key259 After:} ok:false}
+    contract_test.go:296: cutC("key263") is a None that is not the zero value: {v:{Before:key263 After:} ok:false}
+    contract_test.go:296: cutC("key265") is a None that is not the zero value: {v:{Before:key265 After:} ok:false}
+    contract_test.go:296: cutC("key268") is a None that is not the zero value: {v:{Before:key268 After:} ok:false}
+    contract_test.go:296: cutC("key273") is a None that is not the zero value: {v:{Before:key273 After:} ok:false}
+    contract_test.go:296: cutC("key274") is a None that is not the zero value: {v:{Before:key274 After:} ok:false}
+    contract_test.go:296: cutC("key276") is a None that is not the zero value: {v:{Before:key276 After:} ok:false}
+    contract_test.go:296: cutC("key277") is a None that is not the zero value: {v:{Before:key277 After:} ok:false}
+    contract_test.go:296: cutC("key278") is a None that is not the zero value: {v:{Before:key278 After:} ok:false}
+    contract_test.go:296: cutC("key279") is a None that is not the zero value: {v:{Before:key279 After:} ok:false}
+    contract_test.go:296: cutC("key280") is a None that is not the zero value: {v:{Before:key280 After:} ok:false}
+    contract_test.go:296: cutC("key281") is a None that is not the zero value: {v:{Before:key281 After:} ok:false}
+    contract_test.go:296: cutC("key282") is a None that is not the zero value: {v:{Before:key282 After:} ok:false}
+    contract_test.go:296: cutC("key283") is a None that is not the zero value: {v:{Before:key283 After:} ok:false}
+    contract_test.go:296: cutC("key288") is a None that is not the zero value: {v:{Before:key288 After:} ok:false}
+    contract_test.go:296: cutC("key290") is a None that is not the zero value: {v:{Before:key290 After:} ok:false}
+    contract_test.go:296: cutC("key291") is a None that is not the zero value: {v:{Before:key291 After:} ok:false}
+    contract_test.go:296: cutC("key292") is a None that is not the zero value: {v:{Before:key292 After:} ok:false}
+    contract_test.go:296: cutC("key293") is a None that is not the zero value: {v:{Before:key293 After:} ok:false}
+    contract_test.go:296: cutC("key295") is a None that is not the zero value: {v:{Before:key295 After:} ok:false}
+    contract_test.go:296: cutC("key299") is a None that is not the zero value: {v:{Before:key299 After:} ok:false}
+    contract_test.go:296: cutC("key300") is a None that is not the zero value: {v:{Before:key300 After:} ok:false}
+    contract_test.go:296: cutC("key302") is a None that is not the zero value: {v:{Before:key302 After:} ok:false}
+    contract_test.go:296: cutC("key303") is a None that is not the zero value: {v:{Before:key303 After:} ok:false}
+    contract_test.go:296: cutC("key306") is a None that is not the zero value: {v:{Before:key306 After:} ok:false}
+    contract_test.go:296: cutC("key307") is a None that is not the zero value: {v:{Before:key307 After:} ok:false}
+    contract_test.go:296: cutC("key309") is a None that is not the zero value: {v:{Before:key309 After:} ok:false}
+    contract_test.go:296: cutC("key310") is a None that is not the zero value: {v:{Before:key310 After:} ok:false}
+    contract_test.go:296: cutC("key311") is a None that is not the zero value: {v:{Before:key311 After:} ok:false}
+    contract_test.go:296: cutC("key312") is a None that is not the zero value: {v:{Before:key312 After:} ok:false}
+    contract_test.go:296: cutC("key315") is a None that is not the zero value: {v:{Before:key315 After:} ok:false}
+    contract_test.go:296: cutC("key318") is a None that is not the zero value: {v:{Before:key318 After:} ok:false}
+    contract_test.go:296: cutC("key319") is a None that is not the zero value: {v:{Before:key319 After:} ok:false}
+    contract_test.go:296: cutC("key320") is a None that is not the zero value: {v:{Before:key320 After:} ok:false}
+    contract_test.go:296: cutC("key323") is a None that is not the zero value: {v:{Before:key323 After:} ok:false}
+    contract_test.go:296: cutC("key328") is a None that is not the zero value: {v:{Before:key328 After:} ok:false}
+    contract_test.go:296: cutC("key329") is a None that is not the zero value: {v:{Before:key329 After:} ok:false}
+    contract_test.go:296: cutC("key330") is a None that is not the zero value: {v:{Before:key330 After:} ok:false}
+    contract_test.go:296: cutC("key331") is a None that is not the zero value: {v:{Before:key331 After:} ok:false}
+    contract_test.go:296: cutC("key332") is a None that is not the zero value: {v:{Before:key332 After:} ok:false}
+    contract_test.go:296: cutC("key334") is a None that is not the zero value: {v:{Before:key334 After:} ok:false}
+    contract_test.go:296: cutC("key338") is a None that is not the zero value: {v:{Before:key338 After:} ok:false}
+    contract_test.go:296: cutC("key340") is a None that is not the zero value: {v:{Before:key340 After:} ok:false}
+    contract_test.go:296: cutC("key343") is a None that is not the zero value: {v:{Before:key343 After:} ok:false}
+    contract_test.go:296: cutC("key344") is a None that is not the zero value: {v:{Before:key344 After:} ok:false}
+    contract_test.go:296: cutC("key347") is a None that is not the zero value: {v:{Before:key347 After:} ok:false}
+    contract_test.go:296: cutC("key349") is a None that is not the zero value: {v:{Before:key349 After:} ok:false}
+    contract_test.go:296: cutC("key350") is a None that is not the zero value: {v:{Before:key350 After:} ok:false}
+    contract_test.go:296: cutC("key351") is a None that is not the zero value: {v:{Before:key351 After:} ok:false}
+    contract_test.go:296: cutC("key353") is a None that is not the zero value: {v:{Before:key353 After:} ok:false}
+    contract_test.go:296: cutC("key356") is a None that is not the zero value: {v:{Before:key356 After:} ok:false}
+    contract_test.go:296: cutC("key357") is a None that is not the zero value: {v:{Before:key357 After:} ok:false}
+    contract_test.go:296: cutC("key358") is a None that is not the zero value: {v:{Before:key358 After:} ok:false}
+    contract_test.go:296: cutC("key361") is a None that is not the zero value: {v:{Before:key361 After:} ok:false}
+    contract_test.go:296: cutC("key362") is a None that is not the zero value: {v:{Before:key362 After:} ok:false}
+    contract_test.go:296: cutC("key363") is a None that is not the zero value: {v:{Before:key363 After:} ok:false}
+    contract_test.go:296: cutC("key365") is a None that is not the zero value: {v:{Before:key365 After:} ok:false}
+    contract_test.go:296: cutC("key367") is a None that is not the zero value: {v:{Before:key367 After:} ok:false}
+    contract_test.go:296: cutC("key368") is a None that is not the zero value: {v:{Before:key368 After:} ok:false}
+    contract_test.go:296: cutC("key370") is a None that is not the zero value: {v:{Before:key370 After:} ok:false}
+    contract_test.go:296: cutC("key371") is a None that is not the zero value: {v:{Before:key371 After:} ok:false}
+    contract_test.go:296: cutC("key373") is a None that is not the zero value: {v:{Before:key373 After:} ok:false}
+    contract_test.go:296: cutC("key374") is a None that is not the zero value: {v:{Before:key374 After:} ok:false}
+    contract_test.go:296: cutC("key376") is a None that is not the zero value: {v:{Before:key376 After:} ok:false}
+    contract_test.go:296: cutC("key377") is a None that is not the zero value: {v:{Before:key377 After:} ok:false}
+    contract_test.go:296: cutC("key380") is a None that is not the zero value: {v:{Before:key380 After:} ok:false}
+    contract_test.go:296: cutC("key384") is a None that is not the zero value: {v:{Before:key384 After:} ok:false}
+    contract_test.go:296: cutC("key385") is a None that is not the zero value: {v:{Before:key385 After:} ok:false}
+    contract_test.go:296: cutC("key389") is a None that is not the zero value: {v:{Before:key389 After:} ok:false}
+    contract_test.go:296: cutC("key390") is a None that is not the zero value: {v:{Before:key390 After:} ok:false}
+    contract_test.go:296: cutC("key395") is a None that is not the zero value: {v:{Before:key395 After:} ok:false}
+    contract_test.go:296: cutC("key397") is a None that is not the zero value: {v:{Before:key397 After:} ok:false}
+    contract_test.go:296: cutC("key398") is a None that is not the zero value: {v:{Before:key398 After:} ok:false}
+    contract_test.go:296: cutC("key401") is a None that is not the zero value: {v:{Before:key401 After:} ok:false}
+    contract_test.go:296: cutC("key403") is a None that is not the zero value: {v:{Before:key403 After:} ok:false}
+    contract_test.go:296: cutC("key405") is a None that is not the zero value: {v:{Before:key405 After:} ok:false}
+    contract_test.go:296: cutC("key406") is a None that is not the zero value: {v:{Before:key406 After:} ok:false}
+    contract_test.go:296: cutC("key407") is a None that is not the zero value: {v:{Before:key407 After:} ok:false}
+    contract_test.go:296: cutC("key408") is a None that is not the zero value: {v:{Before:key408 After:} ok:false}
+    contract_test.go:296: cutC("key411") is a None that is not the zero value: {v:{Before:key411 After:} ok:false}
+    contract_test.go:296: cutC("key412") is a None that is not the zero value: {v:{Before:key412 After:} ok:false}
+    contract_test.go:296: cutC("key414") is a None that is not the zero value: {v:{Before:key414 After:} ok:false}
+    contract_test.go:296: cutC("key415") is a None that is not the zero value: {v:{Before:key415 After:} ok:false}
+    contract_test.go:296: cutC("key416") is a None that is not the zero value: {v:{Before:key416 After:} ok:false}
+    contract_test.go:296: cutC("key421") is a None that is not the zero value: {v:{Before:key421 After:} ok:false}
+    contract_test.go:296: cutC("key422") is a None that is not the zero value: {v:{Before:key422 After:} ok:false}
+    contract_test.go:296: cutC("key424") is a None that is not the zero value: {v:{Before:key424 After:} ok:false}
+    contract_test.go:296: cutC("key425") is a None that is not the zero value: {v:{Before:key425 After:} ok:false}
+    contract_test.go:296: cutC("key426") is a None that is not the zero value: {v:{Before:key426 After:} ok:false}
+    contract_test.go:296: cutC("key427") is a None that is not the zero value: {v:{Before:key427 After:} ok:false}
+    contract_test.go:296: cutC("key428") is a None that is not the zero value: {v:{Before:key428 After:} ok:false}
+    contract_test.go:296: cutC("key429") is a None that is not the zero value: {v:{Before:key429 After:} ok:false}
+    contract_test.go:296: cutC("key430") is a None that is not the zero value: {v:{Before:key430 After:} ok:false}
+    contract_test.go:296: cutC("key433") is a None that is not the zero value: {v:{Before:key433 After:} ok:false}
+    contract_test.go:296: cutC("key434") is a None that is not the zero value: {v:{Before:key434 After:} ok:false}
+    contract_test.go:296: cutC("key435") is a None that is not the zero value: {v:{Before:key435 After:} ok:false}
+    contract_test.go:296: cutC("key436") is a None that is not the zero value: {v:{Before:key436 After:} ok:false}
+    contract_test.go:296: cutC("key437") is a None that is not the zero value: {v:{Before:key437 After:} ok:false}
+    contract_test.go:296: cutC("key438") is a None that is not the zero value: {v:{Before:key438 After:} ok:false}
+    contract_test.go:296: cutC("key440") is a None that is not the zero value: {v:{Before:key440 After:} ok:false}
+    contract_test.go:296: cutC("key441") is a None that is not the zero value: {v:{Before:key441 After:} ok:false}
+    contract_test.go:296: cutC("key442") is a None that is not the zero value: {v:{Before:key442 After:} ok:false}
+    contract_test.go:296: cutC("key443") is a None that is not the zero value: {v:{Before:key443 After:} ok:false}
+    contract_test.go:296: cutC("key445") is a None that is not the zero value: {v:{Before:key445 After:} ok:false}
+    contract_test.go:296: cutC("key446") is a None that is not the zero value: {v:{Before:key446 After:} ok:false}
+    contract_test.go:296: cutC("key447") is a None that is not the zero value: {v:{Before:key447 After:} ok:false}
+    contract_test.go:296: cutC("key448") is a None that is not the zero value: {v:{Before:key448 After:} ok:false}
+    contract_test.go:296: cutC("key450") is a None that is not the zero value: {v:{Before:key450 After:} ok:false}
+    contract_test.go:296: cutC("key451") is a None that is not the zero value: {v:{Before:key451 After:} ok:false}
+    contract_test.go:296: cutC("key452") is a None that is not the zero value: {v:{Before:key452 After:} ok:false}
+    contract_test.go:296: cutC("key455") is a None that is not the zero value: {v:{Before:key455 After:} ok:false}
+    contract_test.go:296: cutC("key457") is a None that is not the zero value: {v:{Before:key457 After:} ok:false}
+    contract_test.go:296: cutC("key458") is a None that is not the zero value: {v:{Before:key458 After:} ok:false}
+    contract_test.go:296: cutC("key461") is a None that is not the zero value: {v:{Before:key461 After:} ok:false}
+    contract_test.go:296: cutC("key463") is a None that is not the zero value: {v:{Before:key463 After:} ok:false}
+    contract_test.go:296: cutC("key464") is a None that is not the zero value: {v:{Before:key464 After:} ok:false}
+    contract_test.go:296: cutC("key465") is a None that is not the zero value: {v:{Before:key465 After:} ok:false}
+    contract_test.go:296: cutC("key468") is a None that is not the zero value: {v:{Before:key468 After:} ok:false}
+    contract_test.go:296: cutC("key472") is a None that is not the zero value: {v:{Before:key472 After:} ok:false}
+    contract_test.go:296: cutC("key475") is a None that is not the zero value: {v:{Before:key475 After:} ok:false}
+    contract_test.go:296: cutC("key477") is a None that is not the zero value: {v:{Before:key477 After:} ok:false}
+    contract_test.go:296: cutC("key478") is a None that is not the zero value: {v:{Before:key478 After:} ok:false}
+    contract_test.go:296: cutC("key479") is a None that is not the zero value: {v:{Before:key479 After:} ok:false}
+    contract_test.go:296: cutC("key480") is a None that is not the zero value: {v:{Before:key480 After:} ok:false}
+    contract_test.go:296: cutC("key481") is a None that is not the zero value: {v:{Before:key481 After:} ok:false}
+    contract_test.go:296: cutC("key482") is a None that is not the zero value: {v:{Before:key482 After:} ok:false}
+    contract_test.go:296: cutC("key484") is a None that is not the zero value: {v:{Before:key484 After:} ok:false}
+    contract_test.go:296: cutC("key485") is a None that is not the zero value: {v:{Before:key485 After:} ok:false}
+    contract_test.go:296: cutC("key486") is a None that is not the zero value: {v:{Before:key486 After:} ok:false}
+    contract_test.go:296: cutC("key487") is a None that is not the zero value: {v:{Before:key487 After:} ok:false}
+    contract_test.go:296: cutC("key488") is a None that is not the zero value: {v:{Before:key488 After:} ok:false}
+    contract_test.go:296: cutC("key490") is a None that is not the zero value: {v:{Before:key490 After:} ok:false}
+    contract_test.go:296: cutC("key491") is a None that is not the zero value: {v:{Before:key491 After:} ok:false}
+    contract_test.go:296: cutC("key492") is a None that is not the zero value: {v:{Before:key492 After:} ok:false}
+    contract_test.go:296: cutC("key493") is a None that is not the zero value: {v:{Before:key493 After:} ok:false}
+    contract_test.go:296: cutC("key494") is a None that is not the zero value: {v:{Before:key494 After:} ok:false}
+    contract_test.go:296: cutC("key498") is a None that is not the zero value: {v:{Before:key498 After:} ok:false}
+    contract_test.go:296: cutC("key499") is a None that is not the zero value: {v:{Before:key499 After:} ok:false}
+    contract_test.go:296: cutC("key500") is a None that is not the zero value: {v:{Before:key500 After:} ok:false}
+    contract_test.go:296: cutC("key503") is a None that is not the zero value: {v:{Before:key503 After:} ok:false}
+    contract_test.go:296: cutC("key504") is a None that is not the zero value: {v:{Before:key504 After:} ok:false}
+    contract_test.go:296: cutC("key506") is a None that is not the zero value: {v:{Before:key506 After:} ok:false}
+    contract_test.go:296: cutC("key507") is a None that is not the zero value: {v:{Before:key507 After:} ok:false}
+    contract_test.go:296: cutC("key509") is a None that is not the zero value: {v:{Before:key509 After:} ok:false}
+    contract_test.go:296: cutC("key511") is a None that is not the zero value: {v:{Before:key511 After:} ok:false}
+    contract_test.go:296: cutC("key516") is a None that is not the zero value: {v:{Before:key516 After:} ok:false}
+    contract_test.go:296: cutC("key517") is a None that is not the zero value: {v:{Before:key517 After:} ok:false}
+    contract_test.go:296: cutC("key520") is a None that is not the zero value: {v:{Before:key520 After:} ok:false}
+    contract_test.go:296: cutC("key521") is a None that is not the zero value: {v:{Before:key521 After:} ok:false}
+    contract_test.go:296: cutC("key523") is a None that is not the zero value: {v:{Before:key523 After:} ok:false}
+    contract_test.go:296: cutC("key526") is a None that is not the zero value: {v:{Before:key526 After:} ok:false}
+    contract_test.go:296: cutC("key527") is a None that is not the zero value: {v:{Before:key527 After:} ok:false}
+    contract_test.go:296: cutC("key529") is a None that is not the zero value: {v:{Before:key529 After:} ok:false}
+    contract_test.go:296: cutC("key533") is a None that is not the zero value: {v:{Before:key533 After:} ok:false}
+    contract_test.go:296: cutC("key534") is a None that is not the zero value: {v:{Before:key534 After:} ok:false}
+    contract_test.go:296: cutC("key540") is a None that is not the zero value: {v:{Before:key540 After:} ok:false}
+    contract_test.go:296: cutC("key541") is a None that is not the zero value: {v:{Before:key541 After:} ok:false}
+    contract_test.go:296: cutC("key544") is a None that is not the zero value: {v:{Before:key544 After:} ok:false}
+    contract_test.go:296: cutC("key545") is a None that is not the zero value: {v:{Before:key545 After:} ok:false}
+    contract_test.go:296: cutC("key547") is a None that is not the zero value: {v:{Before:key547 After:} ok:false}
+    contract_test.go:296: cutC("key549") is a None that is not the zero value: {v:{Before:key549 After:} ok:false}
+    contract_test.go:296: cutC("key550") is a None that is not the zero value: {v:{Before:key550 After:} ok:false}
+    contract_test.go:296: cutC("key551") is a None that is not the zero value: {v:{Before:key551 After:} ok:false}
+    contract_test.go:296: cutC("key552") is a None that is not the zero value: {v:{Before:key552 After:} ok:false}
+    contract_test.go:296: cutC("key556") is a None that is not the zero value: {v:{Before:key556 After:} ok:false}
+    contract_test.go:296: cutC("key557") is a None that is not the zero value: {v:{Before:key557 After:} ok:false}
+    contract_test.go:296: cutC("key559") is a None that is not the zero value: {v:{Before:key559 After:} ok:false}
+    contract_test.go:296: cutC("key560") is a None that is not the zero value: {v:{Before:key560 After:} ok:false}
+    contract_test.go:296: cutC("key561") is a None that is not the zero value: {v:{Before:key561 After:} ok:false}
+    contract_test.go:296: cutC("key565") is a None that is not the zero value: {v:{Before:key565 After:} ok:false}
+    contract_test.go:296: cutC("key566") is a None that is not the zero value: {v:{Before:key566 After:} ok:false}
+    contract_test.go:296: cutC("key567") is a None that is not the zero value: {v:{Before:key567 After:} ok:false}
+    contract_test.go:296: cutC("key569") is a None that is not the zero value: {v:{Before:key569 After:} ok:false}
+    contract_test.go:296: cutC("key570") is a None that is not the zero value: {v:{Before:key570 After:} ok:false}
+    contract_test.go:296: cutC("key573") is a None that is not the zero value: {v:{Before:key573 After:} ok:false}
+    contract_test.go:296: cutC("key574") is a None that is not the zero value: {v:{Before:key574 After:} ok:false}
+    contract_test.go:296: cutC("key575") is a None that is not the zero value: {v:{Before:key575 After:} ok:false}
+    contract_test.go:296: cutC("key578") is a None that is not the zero value: {v:{Before:key578 After:} ok:false}
+    contract_test.go:296: cutC("key579") is a None that is not the zero value: {v:{Before:key579 After:} ok:false}
+    contract_test.go:296: cutC("key580") is a None that is not the zero value: {v:{Before:key580 After:} ok:false}
+    contract_test.go:296: cutC("key582") is a None that is not the zero value: {v:{Before:key582 After:} ok:false}
+    contract_test.go:296: cutC("key583") is a None that is not the zero value: {v:{Before:key583 After:} ok:false}
+    contract_test.go:296: cutC("key585") is a None that is not the zero value: {v:{Before:key585 After:} ok:false}
+    contract_test.go:296: cutC("key590") is a None that is not the zero value: {v:{Before:key590 After:} ok:false}
+    contract_test.go:296: cutC("key591") is a None that is not the zero value: {v:{Before:key591 After:} ok:false}
+    contract_test.go:296: cutC("key592") is a None that is not the zero value: {v:{Before:key592 After:} ok:false}
+    contract_test.go:296: cutC("key595") is a None that is not the zero value: {v:{Before:key595 After:} ok:false}
+    contract_test.go:296: cutC("key596") is a None that is not the zero value: {v:{Before:key596 After:} ok:false}
+    contract_test.go:296: cutC("key598") is a None that is not the zero value: {v:{Before:key598 After:} ok:false}
+    contract_test.go:296: cutC("key600") is a None that is not the zero value: {v:{Before:key600 After:} ok:false}
+    contract_test.go:296: cutC("key602") is a None that is not the zero value: {v:{Before:key602 After:} ok:false}
+    contract_test.go:296: cutC("key605") is a None that is not the zero value: {v:{Before:key605 After:} ok:false}
+    contract_test.go:296: cutC("key606") is a None that is not the zero value: {v:{Before:key606 After:} ok:false}
+    contract_test.go:296: cutC("key608") is a None that is not the zero value: {v:{Before:key608 After:} ok:false}
+    contract_test.go:296: cutC("key609") is a None that is not the zero value: {v:{Before:key609 After:} ok:false}
+    contract_test.go:296: cutC("key611") is a None that is not the zero value: {v:{Before:key611 After:} ok:false}
+    contract_test.go:296: cutC("key612") is a None that is not the zero value: {v:{Before:key612 After:} ok:false}
+    contract_test.go:296: cutC("key614") is a None that is not the zero value: {v:{Before:key614 After:} ok:false}
+    contract_test.go:296: cutC("key615") is a None that is not the zero value: {v:{Before:key615 After:} ok:false}
+    contract_test.go:296: cutC("key616") is a None that is not the zero value: {v:{Before:key616 After:} ok:false}
+    contract_test.go:296: cutC("key618") is a None that is not the zero value: {v:{Before:key618 After:} ok:false}
+    contract_test.go:296: cutC("key619") is a None that is not the zero value: {v:{Before:key619 After:} ok:false}
+    contract_test.go:296: cutC("key621") is a None that is not the zero value: {v:{Before:key621 After:} ok:false}
+    contract_test.go:296: cutC("key626") is a None that is not the zero value: {v:{Before:key626 After:} ok:false}
+    contract_test.go:296: cutC("key627") is a None that is not the zero value: {v:{Before:key627 After:} ok:false}
+    contract_test.go:296: cutC("key628") is a None that is not the zero value: {v:{Before:key628 After:} ok:false}
+    contract_test.go:296: cutC("key629") is a None that is not the zero value: {v:{Before:key629 After:} ok:false}
+    contract_test.go:296: cutC("key632") is a None that is not the zero value: {v:{Before:key632 After:} ok:false}
+    contract_test.go:296: cutC("key635") is a None that is not the zero value: {v:{Before:key635 After:} ok:false}
+    contract_test.go:296: cutC("key637") is a None that is not the zero value: {v:{Before:key637 After:} ok:false}
+    contract_test.go:296: cutC("key639") is a None that is not the zero value: {v:{Before:key639 After:} ok:false}
+    contract_test.go:296: cutC("key640") is a None that is not the zero value: {v:{Before:key640 After:} ok:false}
+    contract_test.go:296: cutC("key641") is a None that is not the zero value: {v:{Before:key641 After:} ok:false}
+    contract_test.go:296: cutC("key642") is a None that is not the zero value: {v:{Before:key642 After:} ok:false}
+    contract_test.go:296: cutC("key643") is a None that is not the zero value: {v:{Before:key643 After:} ok:false}
+    contract_test.go:296: cutC("key644") is a None that is not the zero value: {v:{Before:key644 After:} ok:false}
+    contract_test.go:296: cutC("key645") is a None that is not the zero value: {v:{Before:key645 After:} ok:false}
+    contract_test.go:296: cutC("key647") is a None that is not the zero value: {v:{Before:key647 After:} ok:false}
+    contract_test.go:296: cutC("key648") is a None that is not the zero value: {v:{Before:key648 After:} ok:false}
+    contract_test.go:296: cutC("key649") is a None that is not the zero value: {v:{Before:key649 After:} ok:false}
+    contract_test.go:296: cutC("key650") is a None that is not the zero value: {v:{Before:key650 After:} ok:false}
+    contract_test.go:296: cutC("key651") is a None that is not the zero value: {v:{Before:key651 After:} ok:false}
+    contract_test.go:296: cutC("key655") is a None that is not the zero value: {v:{Before:key655 After:} ok:false}
+    contract_test.go:296: cutC("key657") is a None that is not the zero value: {v:{Before:key657 After:} ok:false}
+    contract_test.go:296: cutC("key660") is a None that is not the zero value: {v:{Before:key660 After:} ok:false}
+    contract_test.go:296: cutC("key662") is a None that is not the zero value: {v:{Before:key662 After:} ok:false}
+    contract_test.go:296: cutC("key664") is a None that is not the zero value: {v:{Before:key664 After:} ok:false}
+    contract_test.go:296: cutC("key665") is a None that is not the zero value: {v:{Before:key665 After:} ok:false}
+    contract_test.go:296: cutC("key668") is a None that is not the zero value: {v:{Before:key668 After:} ok:false}
+    contract_test.go:296: cutC("key669") is a None that is not the zero value: {v:{Before:key669 After:} ok:false}
+    contract_test.go:296: cutC("key670") is a None that is not the zero value: {v:{Before:key670 After:} ok:false}
+    contract_test.go:296: cutC("key671") is a None that is not the zero value: {v:{Before:key671 After:} ok:false}
+    contract_test.go:296: cutC("key672") is a None that is not the zero value: {v:{Before:key672 After:} ok:false}
+    contract_test.go:296: cutC("key673") is a None that is not the zero value: {v:{Before:key673 After:} ok:false}
+    contract_test.go:296: cutC("key675") is a None that is not the zero value: {v:{Before:key675 After:} ok:false}
+    contract_test.go:296: cutC("key676") is a None that is not the zero value: {v:{Before:key676 After:} ok:false}
+    contract_test.go:296: cutC("key678") is a None that is not the zero value: {v:{Before:key678 After:} ok:false}
+    contract_test.go:296: cutC("key679") is a None that is not the zero value: {v:{Before:key679 After:} ok:false}
+    contract_test.go:296: cutC("key683") is a None that is not the zero value: {v:{Before:key683 After:} ok:false}
+    contract_test.go:296: cutC("key684") is a None that is not the zero value: {v:{Before:key684 After:} ok:false}
+    contract_test.go:296: cutC("key688") is a None that is not the zero value: {v:{Before:key688 After:} ok:false}
+    contract_test.go:296: cutC("key689") is a None that is not the zero value: {v:{Before:key689 After:} ok:false}
+    contract_test.go:296: cutC("key691") is a None that is not the zero value: {v:{Before:key691 After:} ok:false}
+    contract_test.go:296: cutC("key692") is a None that is not the zero value: {v:{Before:key692 After:} ok:false}
+    contract_test.go:296: cutC("key693") is a None that is not the zero value: {v:{Before:key693 After:} ok:false}
+    contract_test.go:296: cutC("key696") is a None that is not the zero value: {v:{Before:key696 After:} ok:false}
+    contract_test.go:296: cutC("key698") is a None that is not the zero value: {v:{Before:key698 After:} ok:false}
+    contract_test.go:296: cutC("key699") is a None that is not the zero value: {v:{Before:key699 After:} ok:false}
+    contract_test.go:296: cutC("key702") is a None that is not the zero value: {v:{Before:key702 After:} ok:false}
+    contract_test.go:296: cutC("key704") is a None that is not the zero value: {v:{Before:key704 After:} ok:false}
+    contract_test.go:296: cutC("key706") is a None that is not the zero value: {v:{Before:key706 After:} ok:false}
+    contract_test.go:296: cutC("key707") is a None that is not the zero value: {v:{Before:key707 After:} ok:false}
+    contract_test.go:296: cutC("key708") is a None that is not the zero value: {v:{Before:key708 After:} ok:false}
+    contract_test.go:296: cutC("key709") is a None that is not the zero value: {v:{Before:key709 After:} ok:false}
+    contract_test.go:296: cutC("key710") is a None that is not the zero value: {v:{Before:key710 After:} ok:false}
+    contract_test.go:296: cutC("key713") is a None that is not the zero value: {v:{Before:key713 After:} ok:false}
+    contract_test.go:296: cutC("key718") is a None that is not the zero value: {v:{Before:key718 After:} ok:false}
+    contract_test.go:296: cutC("key719") is a None that is not the zero value: {v:{Before:key719 After:} ok:false}
+    contract_test.go:296: cutC("key720") is a None that is not the zero value: {v:{Before:key720 After:} ok:false}
+    contract_test.go:296: cutC("key721") is a None that is not the zero value: {v:{Before:key721 After:} ok:false}
+    contract_test.go:296: cutC("key722") is a None that is not the zero value: {v:{Before:key722 After:} ok:false}
+    contract_test.go:296: cutC("key723") is a None that is not the zero value: {v:{Before:key723 After:} ok:false}
+    contract_test.go:296: cutC("key724") is a None that is not the zero value: {v:{Before:key724 After:} ok:false}
+    contract_test.go:296: cutC("key728") is a None that is not the zero value: {v:{Before:key728 After:} ok:false}
+    contract_test.go:296: cutC("key731") is a None that is not the zero value: {v:{Before:key731 After:} ok:false}
+    contract_test.go:296: cutC("key734") is a None that is not the zero value: {v:{Before:key734 After:} ok:false}
+    contract_test.go:296: cutC("key735") is a None that is not the zero value: {v:{Before:key735 After:} ok:false}
+    contract_test.go:296: cutC("key738") is a None that is not the zero value: {v:{Before:key738 After:} ok:false}
+    contract_test.go:296: cutC("key739") is a None that is not the zero value: {v:{Before:key739 After:} ok:false}
+    contract_test.go:296: cutC("key740") is a None that is not the zero value: {v:{Before:key740 After:} ok:false}
+    contract_test.go:296: cutC("key741") is a None that is not the zero value: {v:{Before:key741 After:} ok:false}
+    contract_test.go:296: cutC("key744") is a None that is not the zero value: {v:{Before:key744 After:} ok:false}
+    contract_test.go:296: cutC("key745") is a None that is not the zero value: {v:{Before:key745 After:} ok:false}
+    contract_test.go:296: cutC("key746") is a None that is not the zero value: {v:{Before:key746 After:} ok:false}
+    contract_test.go:296: cutC("key748") is a None that is not the zero value: {v:{Before:key748 After:} ok:false}
+    contract_test.go:296: cutC("key749") is a None that is not the zero value: {v:{Before:key749 After:} ok:false}
+    contract_test.go:296: cutC("key750") is a None that is not the zero value: {v:{Before:key750 After:} ok:false}
+    contract_test.go:296: cutC("key751") is a None that is not the zero value: {v:{Before:key751 After:} ok:false}
+    contract_test.go:296: cutC("key752") is a None that is not the zero value: {v:{Before:key752 After:} ok:false}
+    contract_test.go:296: cutC("key754") is a None that is not the zero value: {v:{Before:key754 After:} ok:false}
+    contract_test.go:296: cutC("key756") is a None that is not the zero value: {v:{Before:key756 After:} ok:false}
+    contract_test.go:296: cutC("key757") is a None that is not the zero value: {v:{Before:key757 After:} ok:false}
+    contract_test.go:296: cutC("key758") is a None that is not the zero value: {v:{Before:key758 After:} ok:false}
+    contract_test.go:296: cutC("key763") is a None that is not the zero value: {v:{Before:key763 After:} ok:false}
+    contract_test.go:296: cutC("key766") is a None that is not the zero value: {v:{Before:key766 After:} ok:false}
+    contract_test.go:296: cutC("key768") is a None that is not the zero value: {v:{Before:key768 After:} ok:false}
+    contract_test.go:296: cutC("key769") is a None that is not the zero value: {v:{Before:key769 After:} ok:false}
+    contract_test.go:296: cutC("key771") is a None that is not the zero value: {v:{Before:key771 After:} ok:false}
+    contract_test.go:296: cutC("key772") is a None that is not the zero value: {v:{Before:key772 After:} ok:false}
+    contract_test.go:296: cutC("key777") is a None that is not the zero value: {v:{Before:key777 After:} ok:false}
+    contract_test.go:296: cutC("key782") is a None that is not the zero value: {v:{Before:key782 After:} ok:false}
+    contract_test.go:296: cutC("key789") is a None that is not the zero value: {v:{Before:key789 After:} ok:false}
+    contract_test.go:296: cutC("key790") is a None that is not the zero value: {v:{Before:key790 After:} ok:false}
+    contract_test.go:296: cutC("key791") is a None that is not the zero value: {v:{Before:key791 After:} ok:false}
+    contract_test.go:296: cutC("key792") is a None that is not the zero value: {v:{Before:key792 After:} ok:false}
+    contract_test.go:296: cutC("key793") is a None that is not the zero value: {v:{Before:key793 After:} ok:false}
+    contract_test.go:296: cutC("key794") is a None that is not the zero value: {v:{Before:key794 After:} ok:false}
+    contract_test.go:296: cutC("key797") is a None that is not the zero value: {v:{Before:key797 After:} ok:false}
+    contract_test.go:296: cutC("key799") is a None that is not the zero value: {v:{Before:key799 After:} ok:false}
+    contract_test.go:296: cutC("key800") is a None that is not the zero value: {v:{Before:key800 After:} ok:false}
+    contract_test.go:296: cutC("key802") is a None that is not the zero value: {v:{Before:key802 After:} ok:false}
+    contract_test.go:296: cutC("key805") is a None that is not the zero value: {v:{Before:key805 After:} ok:false}
+    contract_test.go:296: cutC("key806") is a None that is not the zero value: {v:{Before:key806 After:} ok:false}
+    contract_test.go:296: cutC("key807") is a None that is not the zero value: {v:{Before:key807 After:} ok:false}
+    contract_test.go:296: cutC("key809") is a None that is not the zero value: {v:{Before:key809 After:} ok:false}
+    contract_test.go:296: cutC("key812") is a None that is not the zero value: {v:{Before:key812 After:} ok:false}
+    contract_test.go:296: cutC("key813") is a None that is not the zero value: {v:{Before:key813 After:} ok:false}
+    contract_test.go:296: cutC("key814") is a None that is not the zero value: {v:{Before:key814 After:} ok:false}
+    contract_test.go:296: cutC("key816") is a None that is not the zero value: {v:{Before:key816 After:} ok:false}
+    contract_test.go:296: cutC("key819") is a None that is not the zero value: {v:{Before:key819 After:} ok:false}
+    contract_test.go:296: cutC("key821") is a None that is not the zero value: {v:{Before:key821 After:} ok:false}
+    contract_test.go:296: cutC("key824") is a None that is not the zero value: {v:{Before:key824 After:} ok:false}
+    contract_test.go:296: cutC("key825") is a None that is not the zero value: {v:{Before:key825 After:} ok:false}
+    contract_test.go:296: cutC("key830") is a None that is not the zero value: {v:{Before:key830 After:} ok:false}
+    contract_test.go:296: cutC("key834") is a None that is not the zero value: {v:{Before:key834 After:} ok:false}
+    contract_test.go:296: cutC("key841") is a None that is not the zero value: {v:{Before:key841 After:} ok:false}
+    contract_test.go:296: cutC("key842") is a None that is not the zero value: {v:{Before:key842 After:} ok:false}
+    contract_test.go:296: cutC("key843") is a None that is not the zero value: {v:{Before:key843 After:} ok:false}
+    contract_test.go:296: cutC("key844") is a None that is not the zero value: {v:{Before:key844 After:} ok:false}
+    contract_test.go:296: cutC("key846") is a None that is not the zero value: {v:{Before:key846 After:} ok:false}
+    contract_test.go:296: cutC("key848") is a None that is not the zero value: {v:{Before:key848 After:} ok:false}
+    contract_test.go:296: cutC("key850") is a None that is not the zero value: {v:{Before:key850 After:} ok:false}
+    contract_test.go:296: cutC("key851") is a None that is not the zero value: {v:{Before:key851 After:} ok:false}
+    contract_test.go:296: cutC("key854") is a None that is not the zero value: {v:{Before:key854 After:} ok:false}
+    contract_test.go:296: cutC("key855") is a None that is not the zero value: {v:{Before:key855 After:} ok:false}
+    contract_test.go:296: cutC("key856") is a None that is not the zero value: {v:{Before:key856 After:} ok:false}
+    contract_test.go:296: cutC("key857") is a None that is not the zero value: {v:{Before:key857 After:} ok:false}
+    contract_test.go:296: cutC("key859") is a None that is not the zero value: {v:{Before:key859 After:} ok:false}
+    contract_test.go:296: cutC("key860") is a None that is not the zero value: {v:{Before:key860 After:} ok:false}
+    contract_test.go:296: cutC("key861") is a None that is not the zero value: {v:{Before:key861 After:} ok:false}
+    contract_test.go:296: cutC("key866") is a None that is not the zero value: {v:{Before:key866 After:} ok:false}
+    contract_test.go:296: cutC("key869") is a None that is not the zero value: {v:{Before:key869 After:} ok:false}
+    contract_test.go:296: cutC("key870") is a None that is not the zero value: {v:{Before:key870 After:} ok:false}
+    contract_test.go:296: cutC("key872") is a None that is not the zero value: {v:{Before:key872 After:} ok:false}
+    contract_test.go:296: cutC("key875") is a None that is not the zero value: {v:{Before:key875 After:} ok:false}
+    contract_test.go:296: cutC("key876") is a None that is not the zero value: {v:{Before:key876 After:} ok:false}
+    contract_test.go:296: cutC("key879") is a None that is not the zero value: {v:{Before:key879 After:} ok:false}
+    contract_test.go:296: cutC("key881") is a None that is not the zero value: {v:{Before:key881 After:} ok:false}
+    contract_test.go:296: cutC("key885") is a None that is not the zero value: {v:{Before:key885 After:} ok:false}
+    contract_test.go:296: cutC("key890") is a None that is not the zero value: {v:{Before:key890 After:} ok:false}
+    contract_test.go:296: cutC("key891") is a None that is not the zero value: {v:{Before:key891 After:} ok:false}
+    contract_test.go:296: cutC("key892") is a None that is not the zero value: {v:{Before:key892 After:} ok:false}
+    contract_test.go:296: cutC("key893") is a None that is not the zero value: {v:{Before:key893 After:} ok:false}
+    contract_test.go:296: cutC("key895") is a None that is not the zero value: {v:{Before:key895 After:} ok:false}
+    contract_test.go:296: cutC("key896") is a None that is not the zero value: {v:{Before:key896 After:} ok:false}
+    contract_test.go:296: cutC("key897") is a None that is not the zero value: {v:{Before:key897 After:} ok:false}
+    contract_test.go:296: cutC("key899") is a None that is not the zero value: {v:{Before:key899 After:} ok:false}
+    contract_test.go:296: cutC("key904") is a None that is not the zero value: {v:{Before:key904 After:} ok:false}
+    contract_test.go:296: cutC("key912") is a None that is not the zero value: {v:{Before:key912 After:} ok:false}
+    contract_test.go:296: cutC("key913") is a None that is not the zero value: {v:{Before:key913 After:} ok:false}
+    contract_test.go:296: cutC("key914") is a None that is not the zero value: {v:{Before:key914 After:} ok:false}
+    contract_test.go:296: cutC("key915") is a None that is not the zero value: {v:{Before:key915 After:} ok:false}
+    contract_test.go:296: cutC("key918") is a None that is not the zero value: {v:{Before:key918 After:} ok:false}
+    contract_test.go:296: cutC("key920") is a None that is not the zero value: {v:{Before:key920 After:} ok:false}
+    contract_test.go:296: cutC("key921") is a None that is not the zero value: {v:{Before:key921 After:} ok:false}
+    contract_test.go:296: cutC("key922") is a None that is not the zero value: {v:{Before:key922 After:} ok:false}
+    contract_test.go:296: cutC("key925") is a None that is not the zero value: {v:{Before:key925 After:} ok:false}
+    contract_test.go:296: cutC("key927") is a None that is not the zero value: {v:{Before:key927 After:} ok:false}
+    contract_test.go:296: cutC("key928") is a None that is not the zero value: {v:{Before:key928 After:} ok:false}
+    contract_test.go:296: cutC("key929") is a None that is not the zero value: {v:{Before:key929 After:} ok:false}
+    contract_test.go:296: cutC("key931") is a None that is not the zero value: {v:{Before:key931 After:} ok:false}
+    contract_test.go:296: cutC("key935") is a None that is not the zero value: {v:{Before:key935 After:} ok:false}
+    contract_test.go:296: cutC("key936") is a None that is not the zero value: {v:{Before:key936 After:} ok:false}
+    contract_test.go:296: cutC("key937") is a None that is not the zero value: {v:{Before:key937 After:} ok:false}
+    contract_test.go:296: cutC("key939") is a None that is not the zero value: {v:{Before:key939 After:} ok:false}
+    contract_test.go:296: cutC("key940") is a None that is not the zero value: {v:{Before:key940 After:} ok:false}
+    contract_test.go:296: cutC("key941") is a None that is not the zero value: {v:{Before:key941 After:} ok:false}
+    contract_test.go:296: cutC("key944") is a None that is not the zero value: {v:{Before:key944 After:} ok:false}
+    contract_test.go:296: cutC("key947") is a None that is not the zero value: {v:{Before:key947 After:} ok:false}
+    contract_test.go:296: cutC("key949") is a None that is not the zero value: {v:{Before:key949 After:} ok:false}
+    contract_test.go:296: cutC("key950") is a None that is not the zero value: {v:{Before:key950 After:} ok:false}
+    contract_test.go:296: cutC("key952") is a None that is not the zero value: {v:{Before:key952 After:} ok:false}
+    contract_test.go:296: cutC("key953") is a None that is not the zero value: {v:{Before:key953 After:} ok:false}
+    contract_test.go:296: cutC("key957") is a None that is not the zero value: {v:{Before:key957 After:} ok:false}
+    contract_test.go:296: cutC("key958") is a None that is not the zero value: {v:{Before:key958 After:} ok:false}
+    contract_test.go:296: cutC("key959") is a None that is not the zero value: {v:{Before:key959 After:} ok:false}
+    contract_test.go:296: cutC("key961") is a None that is not the zero value: {v:{Before:key961 After:} ok:false}
+    contract_test.go:296: cutC("key962") is a None that is not the zero value: {v:{Before:key962 After:} ok:false}
+    contract_test.go:296: cutC("key964") is a None that is not the zero value: {v:{Before:key964 After:} ok:false}
+    contract_test.go:296: cutC("key967") is a None that is not the zero value: {v:{Before:key967 After:} ok:false}
+    contract_test.go:296: cutC("key968") is a None that is not the zero value: {v:{Before:key968 After:} ok:false}
+    contract_test.go:296: cutC("key969") is a None that is not the zero value: {v:{Before:key969 After:} ok:false}
+    contract_test.go:296: cutC("key970") is a None that is not the zero value: {v:{Before:key970 After:} ok:false}
+    contract_test.go:296: cutC("key972") is a None that is not the zero value: {v:{Before:key972 After:} ok:false}
+    contract_test.go:296: cutC("key976") is a None that is not the zero value: {v:{Before:key976 After:} ok:false}
+    contract_test.go:296: cutC("key978") is a None that is not the zero value: {v:{Before:key978 After:} ok:false}
+    contract_test.go:296: cutC("key979") is a None that is not the zero value: {v:{Before:key979 After:} ok:false}
+    contract_test.go:296: cutC("key980") is a None that is not the zero value: {v:{Before:key980 After:} ok:false}
+    contract_test.go:296: cutC("key982") is a None that is not the zero value: {v:{Before:key982 After:} ok:false}
+    contract_test.go:296: cutC("key983") is a None that is not the zero value: {v:{Before:key983 After:} ok:false}
+    contract_test.go:296: cutC("key988") is a None that is not the zero value: {v:{Before:key988 After:} ok:false}
+    contract_test.go:296: cutC("key993") is a None that is not the zero value: {v:{Before:key993 After:} ok:false}
+    contract_test.go:296: cutC("key995") is a None that is not the zero value: {v:{Before:key995 After:} ok:false}
+    contract_test.go:296: cutC("key996") is a None that is not the zero value: {v:{Before:key996 After:} ok:false}
+    contract_test.go:296: cutC("key997") is a None that is not the zero value: {v:{Before:key997 After:} ok:false}
+    contract_test.go:296: cutC("key998") is a None that is not the zero value: {v:{Before:key998 After:} ok:false}
+    contract_test.go:296: cutC("key999") is a None that is not the zero value: {v:{Before:key999 After:} ok:false}
+    contract_test.go:296: cutC("key1001") is a None that is not the zero value: {v:{Before:key1001 After:} ok:false}
+    contract_test.go:296: cutC("key1003") is a None that is not the zero value: {v:{Before:key1003 After:} ok:false}
+    contract_test.go:296: cutC("key1004") is a None that is not the zero value: {v:{Before:key1004 After:} ok:false}
+    contract_test.go:296: cutC("key1005") is a None that is not the zero value: {v:{Before:key1005 After:} ok:false}
+    contract_test.go:296: cutC("key1006") is a None that is not the zero value: {v:{Before:key1006 After:} ok:false}
+    contract_test.go:296: cutC("key1007") is a None that is not the zero value: {v:{Before:key1007 After:} ok:false}
+    contract_test.go:296: cutC("key1008") is a None that is not the zero value: {v:{Before:key1008 After:} ok:false}
+    contract_test.go:296: cutC("key1012") is a None that is not the zero value: {v:{Before:key1012 After:} ok:false}
+    contract_test.go:296: cutC("key1015") is a None that is not the zero value: {v:{Before:key1015 After:} ok:false}
+    contract_test.go:296: cutC("key1017") is a None that is not the zero value: {v:{Before:key1017 After:} ok:false}
+    contract_test.go:296: cutC("key1018") is a None that is not the zero value: {v:{Before:key1018 After:} ok:false}
+    contract_test.go:296: cutC("key1019") is a None that is not the zero value: {v:{Before:key1019 After:} ok:false}
+    contract_test.go:296: cutC("key1020") is a None that is not the zero value: {v:{Before:key1020 After:} ok:false}
+FAIL
+FAIL	unionreprbench	0.052s
+FAIL
+exit 1
+== M2-m7: the generator's form D single dispatch adds k/2, not k (regenerated)
+--- FAIL: TestDispatchFormsAgree (0.00s)
+    contract_test.go:166: U2 D: results differ from form A
+    contract_test.go:172: U4 D: results differ from form A
+    contract_test.go:178: U8 D: results differ from form A
+    contract_test.go:184: U16 D: results differ from form A
+FAIL
+FAIL	unionreprbench	0.058s
+FAIL
+exit 1
+== M2-m8: generated.go out of date with the generator (generator restored, file not regenerated)
+--- FAIL: TestGeneratedFilesCurrent (0.01s)
+    contract_test.go:22: generated.go is not what go run ./gen writes
+FAIL
+FAIL	unionreprbench	0.014s
+FAIL
+exit 1

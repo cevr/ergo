@@ -1,0 +1,17 @@
+step, describe, methods: text bytes of main.step, main.describe and the variants' methods (go tool nm -size).
+stripped: file bytes with -ldflags='-s -w'. Sections: bytes of the stripped binary's ELF sections.
+form     stripped   step describe  methods  sections
+a         1540256   1305     2024        0  .text=629809 .rodata=65154 .typelink=0 .itablink=0 .gopclntab=659981
+d         1532064   1104     1562        0  .text=629265 .rodata=63426 .typelink=0 .itablink=0 .gopclntab=659787
+e         1536160   1797     2393        0  .text=630673 .rodata=63426 .typelink=0 .itablink=0 .gopclntab=660104
+f         1548448   2375     2551      560  .text=632689 .rodata=63426 .typelink=0 .itablink=0 .gopclntab=664588
+aenum     1540256   1390      788        0  .text=628593 .rodata=65090 .typelink=0 .itablink=0 .gopclntab=658872
+b         1532064    662       88        0  .text=627153 .rodata=63522 .typelink=0 .itablink=0 .gopclntab=658618
+
+outputs (every form must print the same line as its pair):
+a      V9 2013 s8
+d      V9 2013 s8
+e      V9 2013 s8
+f      V9 2013 s8
+aenum  V0
+b      V0

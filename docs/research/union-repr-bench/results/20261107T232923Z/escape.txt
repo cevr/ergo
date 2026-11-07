@@ -1,0 +1,375 @@
+./gc.go:58:2: make([]string, 64) escapes to heap
+./gc.go:58:2: "endpoint-" + ~r0 escapes to heap
+./gc.go:53:13: make([]string, 64) escapes to heap
+./gc.go:55:24: "endpoint-" + ~r0 escapes to heap
+./breaker.go:58:12: s does not escape
+./breaker.go:64:25: Enter[unionreprbench.StateA]{...} escapes to heap
+./breaker.go:64:30: Open{...} escapes to heap
+./breaker.go:66:23: Stay[unionreprbench.StateA]{...} escapes to heap
+./breaker.go:66:30: Closed{...} escapes to heap
+./breaker.go:68:17: Ignore{} escapes to heap
+./breaker.go:73:24: Enter[unionreprbench.StateA]{...} escapes to heap
+./breaker.go:73:31: Closed{...} escapes to heap
+./breaker.go:75:23: Done[string]{...} escapes to heap
+./breaker.go:78:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:93:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:96:17: s does not escape
+./breaker.go:99:56: "Closed{" + ~r0 + "}" escapes to heap
+./breaker.go:101:31: "Open{" + v.Endpoint + "}" escapes to heap
+./breaker.go:103:8: "no variant" escapes to heap
+./breaker.go:106:20: d does not escape
+./breaker.go:109:40: "Enter{" + textStateA(v.Next) + "}" escapes to heap
+./breaker.go:111:39: "Stay{" + textStateA(v.Next) + "}" escapes to heap
+./breaker.go:117:29: "Done{" + v.Output + "}" escapes to heap
+./breaker.go:119:8: "no variant" escapes to heap
+./breaker.go:171:12: s does not escape
+./breaker.go:191:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:197:13: s does not escape
+./breaker.go:211:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:222:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:225:7: s does not escape
+./breaker.go:249:17: s does not escape
+./breaker.go:252:56: "Closed{" + ~r0 + "}" escapes to heap
+./breaker.go:254:31: "Open{" + s.endpoint + "}" escapes to heap
+./breaker.go:256:8: "no variant" escapes to heap
+./breaker.go:259:20: d does not escape
+./breaker.go:262:40: "Enter{" + textStateD(d.next) + "}" escapes to heap
+./breaker.go:264:39: "Stay{" + textStateD(d.next) + "}" escapes to heap
+./breaker.go:270:26: "Done{" + d.out + "}" escapes to heap
+./breaker.go:272:8: "no variant" escapes to heap
+./breaker.go:293:12: s does not escape
+./breaker.go:301:45: Enter[unionreprbench.StateE]{...} escapes to heap
+./breaker.go:301:68: Open{...} escapes to heap
+./breaker.go:303:42: Stay[unionreprbench.StateE]{...} escapes to heap
+./breaker.go:303:69: Closed{...} escapes to heap
+./breaker.go:305:38: Ignore{} escapes to heap
+./breaker.go:310:44: Enter[unionreprbench.StateE]{...} escapes to heap
+./breaker.go:310:71: Closed{...} escapes to heap
+./breaker.go:312:42: Done[string]{...} escapes to heap
+./breaker.go:315:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:328:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:331:17: s does not escape
+./breaker.go:334:24: s.p.(Closed) does not escape
+./breaker.go:336:24: s.p.(Open) does not escape
+./breaker.go:338:8: "no variant" escapes to heap
+./breaker.go:341:20: d does not escape
+./breaker.go:344:58: "Enter{" + textStateE(d.p.(Enter[unionreprbench.StateE]).Next) + "}" escapes to heap
+./breaker.go:346:56: "Stay{" + textStateE(d.p.(Stay[unionreprbench.StateE]).Next) + "}" escapes to heap
+./breaker.go:352:46: "Done{" + d.p.(Done[string]).Output + "}" escapes to heap
+./breaker.go:354:8: "no variant" escapes to heap
+./breaker.go:382:25: Enter[unionreprbench.StateF]{...} escapes to heap
+./breaker.go:382:30: Open{...} escapes to heap
+./breaker.go:384:23: Stay[unionreprbench.StateF]{...} escapes to heap
+./breaker.go:384:30: Closed{...} escapes to heap
+./breaker.go:386:17: Ignore{} escapes to heap
+./breaker.go:391:24: Enter[unionreprbench.StateF]{...} escapes to heap
+./breaker.go:391:31: Closed{...} escapes to heap
+./breaker.go:393:23: Done[string]{...} escapes to heap
+./breaker.go:396:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:409:8: "ergo: defect: no case of the match matched" escapes to heap
+./breaker.go:412:20: d does not escape
+./breaker.go:415:49: "Enter{" + textStateA(v.Next.(StateA)) + "}" escapes to heap
+./breaker.go:417:48: "Stay{" + textStateA(v.Next.(StateA)) + "}" escapes to heap
+./breaker.go:423:29: "Done{" + v.Output + "}" escapes to heap
+./breaker.go:425:8: "no variant" escapes to heap
+./breaker.go:432:14: &rng{...} does not escape
+./breaker.go:433:13: make([]Failure, n) escapes to heap
+./breaker.go:448:13: make([]SignalA, len(raw)) escapes to heap
+./breaker.go:451:18: Retry{} escapes to heap
+./breaker.go:453:13: f escapes to heap
+./breaker.go:460:13: make([]SignalD, len(raw)) escapes to heap
+./breaker.go:472:13: make([]SignalE, len(raw)) escapes to heap
+./breaker.go:475:39: Retry{} escapes to heap
+./breaker.go:477:36: f escapes to heap
+./breaker.go:484:13: make([]SignalF, len(raw)) escapes to heap
+./breaker.go:487:18: Retry{} escapes to heap
+./breaker.go:489:13: f escapes to heap
+./breaker.go:498:41: &rng{...} escapes to heap
+./breaker.go:500:7: r does not escape
+./clone.go:31:13: u does not escape
+./clone.go:34:13: Bag{...} escapes to heap
+./clone.go:34:30: go.shape.[]int{} escapes to heap
+./clone.go:34:30: append escapes to heap
+./clone.go:36:10: v escapes to heap
+./clone.go:38:8: "ergo: defect: no case of the match matched" escapes to heap
+./clone.go:47:22: go.shape.[]int{} escapes to heap
+./clone.go:47:22: append escapes to heap
+./clone.go:53:12: make([]int, n) escapes to heap
+./clone.go:57:12: Bag{...} escapes to heap
+./clone.go:60:7: u does not escape
+./gc.go:60:15: raw does not escape
+./gc.go:61:13: make([]NPA, len(raw)) escapes to heap
+./gc.go:64:16: NP1{...} escapes to heap
+./gc.go:66:16: NP2{...} escapes to heap
+./gc.go:72:15: raw does not escape
+./gc.go:73:13: make([]NPD, len(raw)) escapes to heap
+./gc.go:84:15: raw does not escape
+./gc.go:85:13: make([]NPE, len(raw)) escapes to heap
+./gc.go:88:23: NP1{...} escapes to heap
+./gc.go:90:23: NP2{...} escapes to heap
+./gc.go:96:15: raw does not escape
+./gc.go:97:13: make([]WPA, len(raw)) escapes to heap
+./gc.go:101:16: WP1{...} escapes to heap
+./gc.go:103:16: WP2{...} escapes to heap
+./gc.go:109:15: raw does not escape
+./gc.go:110:13: make([]WPD, len(raw)) escapes to heap
+./gc.go:122:15: raw does not escape
+./gc.go:123:13: make([]WPE, len(raw)) escapes to heap
+./gc.go:127:23: WP1{...} escapes to heap
+./gc.go:129:23: WP2{...} escapes to heap
+./gc.go:139:14: u does not escape
+./gc.go:142:13: NP2{...} escapes to heap
+./gc.go:144:13: NP1{...} escapes to heap
+./gc.go:146:8: "ergo: defect: no case of the match matched" escapes to heap
+./gc.go:157:8: "ergo: defect: no case of the match matched" escapes to heap
+./gc.go:161:14: u does not escape
+./gc.go:165:20: NP2{...} escapes to heap
+./gc.go:168:20: NP1{...} escapes to heap
+./gc.go:170:8: "ergo: defect: no case of the match matched" escapes to heap
+./gc.go:177:13: WP2{...} escapes to heap
+./gc.go:179:13: WP1{...} escapes to heap
+./gc.go:181:8: "ergo: defect: no case of the match matched" escapes to heap
+./gc.go:192:8: "ergo: defect: no case of the match matched" escapes to heap
+./gc.go:200:20: WP2{...} escapes to heap
+./gc.go:203:20: WP1{...} escapes to heap
+./gc.go:205:8: "ergo: defect: no case of the match matched" escapes to heap
+./gc.go:218:7: u does not escape
+./gc.go:230:14: u does not escape
+./gc.go:233:37: "NP1{" + ~r0 + "}" escapes to heap
+./gc.go:235:63: "NP2{" + ~r0 + "," + ~r0 + "}" escapes to heap
+./gc.go:237:8: "no variant" escapes to heap
+./gc.go:243:37: "NP1{" + ~r0 + "}" escapes to heap
+./gc.go:245:63: "NP2{" + ~r0 + "," + ~r0 + "}" escapes to heap
+./gc.go:247:8: "no variant" escapes to heap
+./gc.go:250:14: u does not escape
+./gc.go:253:21: u.p.(NP1) does not escape
+./gc.go:255:21: u.p.(NP2) does not escape
+./gc.go:257:8: "no variant" escapes to heap
+./gc.go:260:14: u does not escape
+./gc.go:263:23: "WP1{" + v.S + "}" escapes to heap
+./gc.go:265:49: "WP2{" + v.S + "," + ~r0 + "}" escapes to heap
+./gc.go:267:8: "no variant" escapes to heap
+./gc.go:270:14: u does not escape
+./gc.go:273:23: "WP1{" + u.s + "}" escapes to heap
+./gc.go:275:49: "WP2{" + u.s + "," + ~r0 + "}" escapes to heap
+./gc.go:277:8: "no variant" escapes to heap
+./gc.go:280:14: u does not escape
+./gc.go:283:21: u.p.(WP1) does not escape
+./gc.go:285:21: u.p.(WP2) does not escape
+./gc.go:287:8: "no variant" escapes to heap
+./narrow.go:40:14: u does not escape
+./narrow.go:47:8: "ergo: defect: no case of the match matched" escapes to heap
+./narrow.go:58:8: "ergo: defect: no case of the match matched" escapes to heap
+./narrow.go:69:8: "ergo: defect: no case of the match matched" escapes to heap
+./narrow.go:72:16: raw does not escape
+./narrow.go:77:18: v escapes to heap
+./narrow.go:77:14: append escapes to heap
+./narrow.go:78:14: append escapes to heap
+./narrow.go:79:15: append escapes to heap
+./narrow.go:82:18: w escapes to heap
+./narrow.go:82:14: append escapes to heap
+./narrow.go:83:14: append escapes to heap
+./narrow.go:84:15: append escapes to heap
+./option.go:50:14: sep does not escape
+./option.go:53:14: None{} escapes to heap
+./option.go:55:21: Some[unionreprbench.Halves]{...} escapes to heap
+./option.go:58:14: sep does not escape
+./option.go:69:21: map[string]int{} escapes to heap
+./option.go:70:14: make([]string, 1024) escapes to heap
+./option.go:71:14: &rng{...} does not escape
+./option.go:73:20: "key-" + ~r0 escapes to heap
+./option.go:86:24: map[string]string{} escapes to heap
+./option.go:87:14: make([]string, 1024) escapes to heap
+./option.go:88:14: &rng{...} does not escape
+./option.go:90:20: "key-" + ~r0 escapes to heap
+./option.go:92:26: "value-" + keys[i] escapes to heap
+./option.go:99:13: make([]string, 1024) escapes to heap
+./option.go:100:14: &rng{...} does not escape
+./option.go:103:48: "key" + ~r0 + "=value" + ~r0 escapes to heap
+./option.go:105:19: "key" + ~r0 escapes to heap
+./option.go:114:17: m does not escape
+./option.go:114:35: keys does not escape
+./option.go:117:19: Some[go.shape.int]{...} does not escape
+./option.go:117:19: None{} does not escape
+./option.go:127:17: m does not escape
+./option.go:127:35: keys does not escape
+./option.go:139:18: m does not escape
+./option.go:139:36: keys does not escape
+./option.go:151:20: m does not escape
+./option.go:151:41: keys does not escape
+./option.go:154:19: Some[go.shape.string]{...} does not escape
+./option.go:154:19: None{} does not escape
+./option.go:164:20: m does not escape
+./option.go:164:41: keys does not escape
+./option.go:176:21: m does not escape
+./option.go:176:42: keys does not escape
+./option.go:201:14: in does not escape
+./option.go:213:15: in does not escape
+./option.go:230:14: m does not escape
+./option.go:230:32: k does not escape
+./option.go:230:68: Some[go.shape.int]{...} escapes to heap
+./option.go:230:68: None{} escapes to heap
+./option.go:233:14: m does not escape
+./option.go:233:32: k does not escape
+./option.go:236:15: m does not escape
+./option.go:236:33: k does not escape
+./option.go:242:17: sep does not escape
+./option.go:245:17: sep does not escape
+./option.go:248:18: sep does not escape
+./option.go:263:17: in does not escape
+./option.go:275:18: in does not escape
+./option.go:287:17: m does not escape
+./option.go:287:35: keys does not escape
+./option.go:300:17: m does not escape
+./option.go:300:35: keys does not escape
+./option.go:312:18: m does not escape
+./option.go:312:36: keys does not escape
+./tidewalk.go:48:16: w does not escape
+./tidewalk.go:114:37: Playing{...} escapes to heap
+./tidewalk.go:116:21: m does not escape
+./tidewalk.go:129:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:132:21: m does not escape
+./tidewalk.go:135:16: Walked{...} escapes to heap
+./tidewalk.go:137:16: Waited{} escapes to heap
+./tidewalk.go:139:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:142:14: w does not escape
+./tidewalk.go:142:22: m does not escape
+./tidewalk.go:143:15: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:145:18: []EventA{} escapes to heap
+./tidewalk.go:148:17: []EventA{...} escapes to heap
+./tidewalk.go:148:24: Walked{...} escapes to heap
+./tidewalk.go:148:24: Waited{} escapes to heap
+./tidewalk.go:148:24: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:150:35: ShellCollected{...} escapes to heap
+./tidewalk.go:150:15: append escapes to heap
+./tidewalk.go:155:29: TideRose{...} escapes to heap
+./tidewalk.go:155:15: append escapes to heap
+./tidewalk.go:158:34: WalkerDrowned{} escapes to heap
+./tidewalk.go:158:15: append escapes to heap
+./tidewalk.go:161:32: PeakReached{} escapes to heap
+./tidewalk.go:161:15: append escapes to heap
+./tidewalk.go:166:14: g does not escape
+./tidewalk.go:166:23: m does not escape
+./tidewalk.go:171:18: []EventA{} escapes to heap
+./tidewalk.go:173:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:176:26: e does not escape
+./tidewalk.go:180:17: Playing{...} escapes to heap
+./tidewalk.go:183:17: Playing{...} escapes to heap
+./tidewalk.go:187:30: w.Left[0:k] + "." + w.Left[k + 1:] escapes to heap
+./tidewalk.go:188:17: Playing{...} escapes to heap
+./tidewalk.go:191:17: Playing{...} escapes to heap
+./tidewalk.go:193:17: Drowned{...} escapes to heap
+./tidewalk.go:195:13: Won{...} escapes to heap
+./tidewalk.go:197:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:200:23: e does not escape
+./tidewalk.go:207:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:211:25: m does not escape
+./tidewalk.go:214:21: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:215:17: Reject{} escapes to heap
+./tidewalk.go:218:28: []EventA{} does not escape
+./tidewalk.go:218:28: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:219:18: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:221:22: Enter[unionreprbench.GameA]{...} escapes to heap
+./tidewalk.go:223:16: Ignore{} escapes to heap
+./tidewalk.go:225:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:238:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:241:16: d does not escape
+./tidewalk.go:254:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:266:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:269:13: s does not escape
+./tidewalk.go:270:13: make([]MoveA, 0, len(s)) escapes to heap
+./tidewalk.go:274:27: North{} escapes to heap
+./tidewalk.go:274:16: append escapes to heap
+./tidewalk.go:276:26: East{} escapes to heap
+./tidewalk.go:276:16: append escapes to heap
+./tidewalk.go:278:27: South{} escapes to heap
+./tidewalk.go:278:16: append escapes to heap
+./tidewalk.go:280:26: West{} escapes to heap
+./tidewalk.go:280:16: append escapes to heap
+./tidewalk.go:282:26: Wait{} escapes to heap
+./tidewalk.go:282:16: append escapes to heap
+./tidewalk.go:290:12: ms does not escape
+./tidewalk.go:291:13: Playing{...} escapes to heap
+./tidewalk.go:295:35: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:295:18: append escapes to heap
+./tidewalk.go:345:7: g does not escape
+./tidewalk.go:374:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:384:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:387:14: w does not escape
+./tidewalk.go:388:15: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:390:18: []EventD{} escapes to heap
+./tidewalk.go:393:17: []EventD{...} escapes to heap
+./tidewalk.go:393:24: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:395:15: append escapes to heap
+./tidewalk.go:400:15: append escapes to heap
+./tidewalk.go:403:15: append escapes to heap
+./tidewalk.go:406:15: append escapes to heap
+./tidewalk.go:411:14: g does not escape
+./tidewalk.go:416:18: []EventD{} escapes to heap
+./tidewalk.go:418:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:432:30: w.Left[0:k] + "." + w.Left[k + 1:] escapes to heap
+./tidewalk.go:442:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:452:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:459:21: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:463:28: []EventD{} does not escape
+./tidewalk.go:463:28: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:464:18: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:470:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:481:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:484:16: d does not escape
+./tidewalk.go:497:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:509:8: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:512:13: s does not escape
+./tidewalk.go:513:13: make([]MoveB, 0, len(s)) escapes to heap
+./tidewalk.go:517:16: append escapes to heap
+./tidewalk.go:519:16: append escapes to heap
+./tidewalk.go:521:16: append escapes to heap
+./tidewalk.go:523:16: append escapes to heap
+./tidewalk.go:525:16: append escapes to heap
+./tidewalk.go:531:12: ms does not escape
+./tidewalk.go:531:40: check does not escape
+./tidewalk.go:539:35: "ergo: defect: no case of the match matched" escapes to heap
+./tidewalk.go:539:18: append escapes to heap
+./tidewalk.go:552:14: &rng{...} does not escape
+./tidewalk.go:553:11: make([]byte, n) does not escape
+./tidewalk.go:557:16: string(b) escapes to heap
+./breaker.go:240:31: any(d.out) does not escape
+./breaker.go:240:44: any(zo) does not escape
+./breaker.go:242:15: any(d.next) does not escape
+./breaker.go:242:29: any(zs) does not escape
+./breaker.go:242:41: any(d.out) does not escape
+./breaker.go:242:54: any(zo) does not escape
+./breaker.go:244:15: any(d.next) does not escape
+./breaker.go:244:29: any(zs) does not escape
+./breaker.go:240:31: any(d.out) does not escape
+./breaker.go:240:44: any(zo) does not escape
+./breaker.go:242:15: any(d.next) does not escape
+./breaker.go:242:29: any(zs) does not escape
+./breaker.go:242:41: any(d.out) does not escape
+./breaker.go:242:54: any(zo) does not escape
+./breaker.go:244:15: any(d.next) does not escape
+./breaker.go:244:29: any(zs) does not escape
+./breaker.go:235:6: any(d.out) does not escape
+./breaker.go:235:6: any(zo) does not escape
+./breaker.go:235:6: any(d.next) does not escape
+./breaker.go:235:6: any(zs) does not escape
+./breaker.go:235:6: any(d.out) does not escape
+./breaker.go:235:6: any(zo) does not escape
+./breaker.go:235:6: any(d.next) does not escape
+./breaker.go:235:6: any(zs) does not escape
+./option.go:28:17: Some[go.shape.int]{...} escapes to heap
+./option.go:30:13: None{} escapes to heap
+./option.go:26:6: Some[go.shape.int]{...} escapes to heap
+./option.go:26:6: None{} escapes to heap
+./option.go:28:17: Some[go.shape.string]{...} escapes to heap
+./option.go:30:13: None{} escapes to heap
+./option.go:26:6: Some[go.shape.string]{...} escapes to heap
+./option.go:26:6: None{} escapes to heap
+./breaker.go:235:6: any(d.out) does not escape
+./breaker.go:235:6: any(zo) does not escape
+./breaker.go:235:6: any(d.next) does not escape
+./breaker.go:235:6: any(zs) does not escape
+./breaker.go:235:6: any(d.out) does not escape
+./breaker.go:235:6: any(zo) does not escape
+./breaker.go:235:6: any(d.next) does not escape
+./breaker.go:235:6: any(zs) does not escape

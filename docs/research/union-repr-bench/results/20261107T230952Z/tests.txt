@@ -1,0 +1,11 @@
+ok  	unionreprbench	0.059s
+?   	unionreprbench/gen	[no test files]
+?   	unionreprbench/internal/gensrc	[no test files]
+?   	unionreprbench/size/a	[no test files]
+?   	unionreprbench/size/aenum	[no test files]
+?   	unionreprbench/size/b	[no test files]
+?   	unionreprbench/size/d	[no test files]
+?   	unionreprbench/size/e	[no test files]
+?   	unionreprbench/size/f	[no test files]
+?   	unionreprbench/tools/sections	[no test files]
+tests exit: 0

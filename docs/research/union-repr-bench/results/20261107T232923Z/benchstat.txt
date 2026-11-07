@@ -1,0 +1,37 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+                     │       A       │                  D                   │                   E                   │
+                     │    sec/op     │    sec/op     vs base                │    sec/op      vs base                │
+GCCycle/payload=NP-4   5809.4µ ± 17%   129.9µ ±  9%  -97.76% (p=0.000 n=10)   5502.5µ ± 12%        ~ (p=0.089 n=10)
+GCCycle/payload=WP-4    7.900m ± 36%   3.549m ± 18%  -55.08% (p=0.000 n=10)    7.074m ± 12%  -10.45% (p=0.029 n=10)
+geomean                 6.775m         678.9µ        -89.98%                   6.239m         -7.90%
+
+                     │      A       │                  D                  │                  E                   │
+                     │  heap-bytes  │  heap-bytes   vs base               │  heap-bytes   vs base                │
+GCCycle/payload=NP-4   42.13Mi ± 0%   38.34Mi ± 0%  -9.01% (p=0.000 n=10)   49.78Mi ± 0%  +18.15% (p=0.000 n=10)
+GCCycle/payload=WP-4   49.78Mi ± 0%   45.97Mi ± 0%  -7.66% (p=0.000 n=10)   57.41Mi ± 0%  +15.32% (p=0.000 n=10)
+geomean                45.80Mi        41.98Mi       -8.34%                  53.46Mi       +16.73%
+
+                     │       A        │                  D                   │                   E                   │
+                     │  heap-objects  │ heap-objects  vs base                │  heap-objects   vs base               │
+GCCycle/payload=NP-4    750317.0 ± 0%    593.0 ± 10%  -99.92% (p=0.000 n=10)    750492.0 ± 0%  +0.02% (p=0.000 n=10)
+GCCycle/payload=WP-4   1000593.0 ± 0%    598.0 ±  0%  -99.94% (p=0.000 n=10)   1000601.0 ± 0%  +0.00% (p=0.000 n=10)
+geomean                   866.5k         595.5        -99.93%                     866.6k       +0.01%
+
+                     │      A       │                  D                  │                  E                  │
+                     │     B/op     │    B/op     vs base                 │    B/op     vs base                 │
+GCCycle/payload=NP-4   0.000 ± 0%     0.000 ±  ?       ~ (p=0.211 n=10)     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+GCCycle/payload=WP-4   0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹   0.000 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                           ²               +0.00%                ²               +0.00%                ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+
+                     │      A       │                  D                  │                  E                  │
+                     │  allocs/op   │ allocs/op   vs base                 │ allocs/op   vs base                 │
+GCCycle/payload=NP-4   0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹   0.000 ± 0%       ~ (p=1.000 n=10) ¹
+GCCycle/payload=WP-4   0.000 ± 0%     0.000 ± 0%       ~ (p=1.000 n=10) ¹   0.000 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                           ²               +0.00%                ²               +0.00%                ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean

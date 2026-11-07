@@ -1,0 +1,866 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+BenchmarkBreaker/form=A-4 	52603254	        23.61 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	55333764	        23.37 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	49775476	        21.46 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	49340857	        21.78 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	60840603	        22.65 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	57295420	        21.36 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	70900731	        22.39 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	41087772	        24.64 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	64407505	        22.01 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	55466054	        21.83 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	95093620	        13.95 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	80464720	        13.94 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	89229547	        13.61 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	96380587	        13.00 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	88457764	        13.83 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	92058831	        13.78 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	87110018	        13.38 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	94518823	        12.97 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	79331611	        13.57 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	86276319	        14.01 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	90540268	        13.33 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	94417731	        14.18 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	95076351	        13.48 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	92886524	        13.18 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	93172528	        13.28 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	92435010	        13.72 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	88955022	        13.96 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	85195557	        14.24 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	83429229	        13.14 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	87064608	        14.22 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	57473476	        21.70 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	51314030	        23.16 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	44600574	        23.21 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	43625366	        28.43 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	52241172	        25.75 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	43299726	        23.76 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	54549770	        21.45 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	65202972	        21.02 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	59212970	        23.63 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	55401751	        22.18 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	43728424	        27.78 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	42726513	        28.22 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	37769712	        28.95 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	41670358	        30.20 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	38357661	        27.07 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	41814292	        29.59 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	42165709	        27.75 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	49148570	        27.02 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	42129758	        26.72 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	53060584	        27.15 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkTidewalk/form=A-4         	  259790	      5426 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  264397	      5192 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  263144	      5163 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  255036	      5626 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  230241	      4986 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  247618	      5510 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  227882	      5567 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  275071	      5796 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  206679	      5201 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  219579	      5526 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=G-4         	  247000	      4386 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  279235	      4379 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  270894	      4486 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  244928	      4460 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  320077	      4507 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  289436	      4497 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  278206	      4528 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  252800	      4263 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  328327	      4321 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  287082	      4694 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	382203955	         2.986 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	420732087	         2.841 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	424768407	         2.970 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	376781542	         3.163 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	380185612	         2.876 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	422511663	         3.003 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	420736713	         3.132 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	399451766	         3.096 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	384845361	         3.288 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=A-4         	345852267	         3.173 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	392798578	         2.547 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	442040653	         2.834 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	361642218	         2.956 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	415890351	         2.840 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	513682064	         2.939 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	384836858	         3.598 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	333822370	         3.427 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	367792507	         3.131 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	513066584	         2.690 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=D-4         	444211458	         2.730 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	368977894	         3.244 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	387931867	         2.781 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	456850588	         3.419 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	349859276	         3.226 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	345920384	         3.322 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	395116087	         3.063 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	321849250	         3.554 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	293340844	         4.066 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	293703396	         3.938 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=E-4         	394471426	         3.076 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	232343560	         4.780 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	277302835	         4.138 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	235314811	         4.319 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	273118042	         5.186 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	241831221	         4.799 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	258814893	         4.366 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	261723860	         4.425 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	259988337	         5.141 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	201307375	         5.705 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x2/form=F-4         	186175183	         5.413 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	269418896	         3.800 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	312506044	         3.659 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	361116956	         3.911 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	328897566	         3.334 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	357759673	         3.287 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	328891003	         3.093 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	379415202	         4.311 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	394768855	         3.504 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	356760591	         3.477 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=A-4         	309505686	         3.488 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	393559513	         3.139 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	437090923	         2.957 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	381292992	         3.142 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	368479479	         2.941 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	382425464	         3.227 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	397373476	         3.144 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	424079850	         2.935 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	453465040	         2.842 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	405586999	         3.020 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=D-4         	405723003	         3.192 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	375052394	         3.009 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	326622696	         3.087 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	303835834	         4.151 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	292902579	         3.452 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	328070696	         3.088 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	333558712	         3.704 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	371454670	         3.443 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	396340642	         3.316 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	313697127	         3.730 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=E-4         	341315803	         3.455 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	202892702	         5.897 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	215398796	         5.250 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	238839698	         5.161 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	227176722	         5.339 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	230857873	         5.248 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	224729808	         5.298 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	215073673	         5.149 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	236108685	         5.585 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	203703006	         5.546 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x4/form=F-4         	211288012	         5.795 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	90528445	        11.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.77 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	100000000	        11.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=A-4         	102702105	        11.03 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	100299232	        10.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	100000000	        11.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	100000000	        10.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	113734599	        10.20 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	100000000	        10.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	100000000	        10.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	121559361	        10.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	114283359	        10.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	100000000	        10.03 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=D-4         	100000000	        10.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	120493729	        10.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	100000000	        10.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	105966166	        10.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	100000000	        10.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	100000000	        10.70 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	100000000	        10.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	100000000	        10.20 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	102510938	        11.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	100000000	        11.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=E-4         	107051583	        11.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	114083425	        10.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	100000000	        11.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	100000000	        10.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	91170355	        12.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	113793075	        10.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	100000000	        10.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	126704048	         9.515 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	118088148	         9.590 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	120973539	         9.848 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x8/form=F-4         	100000000	        10.62 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	94423690	        12.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	100000000	        12.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	100000000	        11.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	98045814	        12.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	100000000	        12.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	98458402	        12.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	100000000	        12.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	86342779	        14.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	87660417	        12.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=A-4        	97901313	        12.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	100000000	        10.50 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	100000000	        10.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	100000000	        11.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	112630572	        10.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	100000000	        10.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	100000000	        10.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	123635342	        10.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	122286458	         9.893 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	100000000	        10.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=D-4        	100000000	        10.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	100000000	        10.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	100000000	        10.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	100000000	        11.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	112975953	        11.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	98115759	        10.80 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	98371113	        10.36 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	100000000	        11.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	100000000	        11.04 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	100000000	        10.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=E-4        	107279694	        10.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	91361768	        12.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	100000000	        12.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	94573515	        11.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	96415016	        11.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	93708855	        12.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	100000000	        11.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	100000000	        11.41 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	95260928	        11.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	99361064	        11.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=1x16/form=F-4        	102866690	        11.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	254788893	         4.044 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	300800304	         3.766 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	323404462	         4.021 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	277108161	         4.040 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	278726461	         4.295 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	297497787	         4.181 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	319754276	         4.283 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	270669457	         3.998 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	294869415	         4.349 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=A-4         	297086442	         4.102 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	312285890	         4.339 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	275046882	         4.751 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	279345172	         4.336 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	301652145	         4.558 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	268527362	         4.052 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	278656248	         4.545 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	263728447	         4.011 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	283804716	         4.560 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	310390443	         4.242 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=D-4         	272632045	         4.225 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        11.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        11.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        12.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	110698694	        11.36 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        11.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        11.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        11.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        10.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        11.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=Dx-4        	100000000	        11.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	197409798	         5.995 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	220311538	         5.673 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	293876599	         4.579 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	226229678	         5.084 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	258234236	         4.433 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	318579990	         4.421 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	316841908	         3.920 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	245133956	         4.111 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	288364063	         4.519 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=E-4         	258319191	         3.987 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	125964256	         9.579 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	120518484	        10.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	120026785	        10.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	119240671	        10.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	107688090	         9.784 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	112215394	         9.847 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	100000000	        10.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	110946076	        11.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	100000000	        10.71 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=3x4/form=F-4         	117700392	        10.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	73707410	        17.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	69155058	        17.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	72178927	        18.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	68280133	        16.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	67315178	        16.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	71539094	        16.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	69611996	        17.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	66870044	        17.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	74265578	        16.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=A-4         	70434633	        17.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	261747556	         4.527 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	260107851	         4.435 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	252885075	         5.004 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	261497941	         4.553 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	249031084	         4.507 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	255598872	         4.488 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	269427648	         4.494 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	251461113	         4.519 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	218878267	         5.295 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=D-4         	254745068	         4.339 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	99453535	        11.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	100000000	        11.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	103738311	        11.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	100000000	        11.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	102374017	        11.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	100000000	        11.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	100000000	        11.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	105326292	        11.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	103085661	        12.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=Dx-4        	100000000	        12.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	212382562	         5.505 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	219967872	         5.520 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	245782387	         5.466 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	241604617	         4.658 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	217808299	         4.758 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	244783345	         4.736 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	251388246	         4.801 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	250596264	         5.192 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	250476949	         4.633 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=E-4         	246303450	         4.631 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	100000000	        11.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	91570900	        12.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	100000000	        13.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	100000000	        12.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	98025076	        11.82 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	85559416	        12.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	95658493	        13.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	79289947	        12.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	84199009	        12.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDispatch/shape=6x6/form=F-4         	100225382	        12.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     220	   5350804 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     204	   5822603 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     210	   5570821 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     207	   5795810 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     223	   5320122 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     214	   5730854 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     218	   6308787 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     206	   5371972 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     184	   5876850 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     202	   5898073 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    6760	    160945 ns/op	       1 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9547	    117063 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	   10000	    118793 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9511	    139073 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	   10000	    135018 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9944	    140989 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    8872	    127281 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	   10000	    122342 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	   10000	    138485 ns/op	       1 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    8870	    122502 ns/op	       1 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     217	   5452155 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     243	   4897765 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     256	   5178965 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     223	   5180914 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     182	   5669261 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     242	   5706456 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     200	   5478528 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     234	   5433422 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     195	   5834059 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     234	   4545696 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     177	   6566721 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     170	   7444009 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     174	   7134491 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     159	   7363115 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     174	   7033580 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     158	   7667730 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     145	   7327880 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     163	   6675087 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     159	   7334508 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     186	   7216434 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     315	   3452751 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     349	   3241813 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     288	   3877361 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     361	   3547181 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     316	   3669208 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     284	   4087064 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     301	   3505641 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     298	   3859586 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     362	   3349896 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     313	   3281435 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     172	   7367779 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     168	   6917079 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     164	   7014862 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     160	   8966125 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     134	   7620583 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     150	   9569881 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     147	   6938811 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     166	   6659560 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     198	   5105997 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     169	   7838141 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	49209714	        26.69 ns/op	         0.2845 gc/Mop	         0.06471 pause-ns/op	      11 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	48628446	        25.09 ns/op	         0.2879 gc/Mop	         0.04640 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	43358785	        24.99 ns/op	         0.2998 gc/Mop	         0.04533 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	60370924	        26.09 ns/op	         0.2982 gc/Mop	         0.02403 pause-ns/op	      11 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	45392834	        24.91 ns/op	         0.3084 gc/Mop	         0.02112 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	53939815	        24.37 ns/op	         0.2781 gc/Mop	         0.01556 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	43928179	        23.97 ns/op	         0.2959 gc/Mop	         0.02159 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	52559196	        24.76 ns/op	         0.2854 gc/Mop	         0.02151 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	43581433	        26.07 ns/op	         0.2753 gc/Mop	         0.06230 pause-ns/op	      11 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=A-4         	60455666	        24.70 ns/op	         0.2812 gc/Mop	         0.01765 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	128348782	        10.66 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	132494661	         9.698 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	133312035	        11.16 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	130247308	        10.21 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	100000000	        10.33 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	134643880	         8.536 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	132189519	         9.014 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	125142318	         9.080 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	127304557	         9.542 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=D-4         	130492682	         9.189 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	49036858	        24.24 ns/op	         0.2447 gc/Mop	         0.02049 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	60778760	        26.95 ns/op	         0.2303 gc/Mop	         0.02217 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	43102660	        25.75 ns/op	         0.2320 gc/Mop	         0.02084 pause-ns/op	      11 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	48351015	        27.31 ns/op	         0.2275 gc/Mop	         0.03563 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	46636285	        24.06 ns/op	         0.2359 gc/Mop	         0.01432 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	46702959	        24.88 ns/op	         0.2355 gc/Mop	         0.02827 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	47120234	        25.61 ns/op	         0.2334 gc/Mop	         0.01549 pause-ns/op	      11 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	41116483	        28.44 ns/op	         0.2189 gc/Mop	         0.02213 pause-ns/op	      11 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	47611014	        25.35 ns/op	         0.2310 gc/Mop	         0.01635 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=NP/form=E-4         	51792291	        23.04 ns/op	         0.2317 gc/Mop	         0.01828 pause-ns/op	      12 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	37097943	        35.25 ns/op	         0.4043 gc/Mop	         0.04141 pause-ns/op	      19 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	43514673	        33.98 ns/op	         0.4137 gc/Mop	         0.03432 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	35311659	        31.98 ns/op	         0.3965 gc/Mop	         0.02379 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	33066837	        33.80 ns/op	         0.4234 gc/Mop	         0.02542 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	31201569	        37.56 ns/op	         0.4166 gc/Mop	         0.02775 pause-ns/op	      19 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	41772516	        32.59 ns/op	         0.4070 gc/Mop	         0.02795 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	39233860	        34.30 ns/op	         0.4078 gc/Mop	         0.02991 pause-ns/op	      19 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	40499426	        30.67 ns/op	         0.4198 gc/Mop	         0.02407 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	36671097	        32.86 ns/op	         0.4090 gc/Mop	         0.1904 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=A-4         	35311338	        31.39 ns/op	         0.4248 gc/Mop	         0.02737 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	126262088	         9.000 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	130633772	         8.923 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	122987023	         9.066 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	137756342	         8.763 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	133335759	         8.894 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	135095780	         8.610 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	134451399	         9.073 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	136632691	        10.00 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	122006008	         8.734 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=D-4         	130475446	         9.427 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	38956432	        30.98 ns/op	         0.3594 gc/Mop	         0.02425 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	37253532	        32.15 ns/op	         0.3490 gc/Mop	         0.02318 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	39078492	        30.30 ns/op	         0.3838 gc/Mop	         0.02178 pause-ns/op	      19 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	49207452	        31.45 ns/op	         0.3658 gc/Mop	         0.02078 pause-ns/op	      19 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	49041898	        31.75 ns/op	         0.3670 gc/Mop	         0.02443 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	39249219	        31.43 ns/op	         0.3567 gc/Mop	         0.02003 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	42947335	        30.50 ns/op	         0.3493 gc/Mop	         0.02056 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	45220682	        31.11 ns/op	         0.3538 gc/Mop	         0.02000 pause-ns/op	      19 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	42970329	        29.29 ns/op	         0.3491 gc/Mop	         0.02083 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkGCChurn/payload=WP/form=E-4         	38604716	        31.20 ns/op	         0.3626 gc/Mop	         0.02854 pause-ns/op	      20 B/op	       1 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	860270443	         1.506 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	801549956	         1.580 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	763785812	         1.523 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	781187427	         1.558 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	730636928	         1.509 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	811292152	         1.440 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	875500762	         1.457 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	804858571	         1.572 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	773566000	         1.489 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4          	834400228	         1.493 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	55803292	        20.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	58473744	        21.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	59465427	        19.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	56745062	        20.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	55564442	        21.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	52922690	        20.79 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	54998955	        19.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	52759754	        20.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	67051688	        20.75 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4          	57104936	        23.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	760166008	         1.552 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	788183520	         1.575 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	668542905	         1.556 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	657749725	         1.603 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	793679653	         1.528 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	698681428	         1.544 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	779101652	         1.578 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	717820947	         1.532 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	743388796	         1.481 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4          	715926169	         1.461 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	59092729	        19.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	63429988	        19.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	61168186	        18.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	62596858	        19.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	61564118	        20.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	63888020	        19.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	62937121	        20.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	57851733	        19.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	63265945	        20.77 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4          	63745438	        19.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	782107761	         1.581 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	696011154	         1.572 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	799039086	         1.655 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	834730759	         1.583 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	775455805	         1.732 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	628435676	         1.685 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	671727896	         1.543 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	777316030	         1.636 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	814657816	         1.568 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4          	827015377	         1.513 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	58178083	        19.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	52182522	        21.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	53925741	        20.75 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	55815357	        20.36 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	58881320	        21.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	59160351	        20.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	63607273	        21.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	63019182	        20.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	55454456	        21.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4          	56656760	        20.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	790768186	         1.442 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	749920582	         1.538 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	741419944	         1.606 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	752780455	         1.516 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	847869921	         1.519 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	757076168	         1.608 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	837765507	         1.563 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	763982084	         1.526 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	741620668	         1.508 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4         	686626886	         1.631 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	62237154	        20.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	54965324	        20.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	61950991	        22.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	57938170	        22.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	55251525	        20.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	57278354	        20.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	55935984	        21.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	56782801	        21.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	64965511	        21.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4         	56134794	        21.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	69612548	        17.94 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	71494435	        18.75 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	56496584	        17.92 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	71013156	        17.51 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	65816384	        19.74 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	62800266	        18.65 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	54781072	        20.13 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	60296740	        19.99 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	78396662	        16.81 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4          	76009346	        16.75 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	55400306	        22.62 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	56852949	        22.03 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	55351105	        20.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	54304564	        21.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	51492696	        24.12 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	55608829	        23.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	49742666	        22.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	47127466	        21.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	51985208	        21.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4          	59046321	        20.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	47086851	        23.39 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	58437708	        23.59 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	51929242	        22.16 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	47893407	        23.66 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	54820879	        23.21 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	59105791	        18.59 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	56676572	        19.46 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	63166674	        20.46 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	38180116	        27.64 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4          	65649082	        19.94 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	52902110	        26.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	50969118	        23.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	45455877	        24.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	50598085	        22.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	53214384	        24.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	44440201	        23.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	55477675	        22.79 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	48500522	        24.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	42082616	        23.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4          	54989510	        23.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	45074914	        25.95 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	51111543	        25.25 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	48131913	        24.12 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	55242949	        26.68 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	45716024	        27.03 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	56327466	        27.14 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	37036006	        30.84 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	41186126	        26.26 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	47952655	        27.29 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4          	42271267	        25.81 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	47783418	        21.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	56872180	        24.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	53958600	        21.71 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	57943479	        20.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	56713816	        21.80 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	57312878	        22.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	60474722	        20.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	52585200	        21.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	56839846	        21.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4          	59116866	        21.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	30827859	        35.24 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	33192565	        35.90 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	30609174	        34.97 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	32908656	        33.08 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	34963242	        35.28 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	34176856	        36.10 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	26396868	        38.11 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	28673132	        38.80 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	36692127	        37.03 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4         	33037010	        35.30 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	53033352	        22.41 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	51882213	        24.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	53060336	        25.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	46538911	        23.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	53850339	        24.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	49429458	        24.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	52992250	        23.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	52044792	        24.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	35503243	        28.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4         	47883192	        22.70 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	279966680	         4.443 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	304978208	         4.532 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	256666492	         4.863 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	243939548	         5.301 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	233530754	         5.334 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	258424810	         4.226 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	238639651	         4.223 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	290773592	         4.257 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	283209182	         4.154 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=A-4                     	286304781	         5.145 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	125279527	         8.609 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	138918314	         9.062 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	133338696	         7.927 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	158498125	         8.537 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	152083736	         8.032 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	167219389	         7.375 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	168929265	         7.068 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	129349137	         7.774 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	137911135	         8.066 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=D-4                     	147483268	         8.632 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	100000000	        11.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	100000000	        11.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	100000000	        11.36 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	114641208	        10.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	94671546	        11.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	100000000	        12.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	100000000	        11.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	108059732	        11.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	100000000	        11.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkNarrow/form=Ds-4                    	91408450	        11.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	162616653	         7.340 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	181122409	         6.789 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	160658545	         7.749 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	165183566	         8.609 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	159560360	         7.081 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	161878516	         7.027 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	150529968	         7.144 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	157587772	         7.507 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	126837512	         8.735 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=A-4                      	142345257	         7.735 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	260571571	         4.781 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	257679208	         4.585 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	210048802	         5.439 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	204687404	         6.422 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	185157760	         6.795 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	215825788	         4.992 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	258414883	         4.530 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	238634894	         4.933 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	234281842	         6.234 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEqual/form=D-4                      	219326992	         7.044 ns/op	       0 B/op	       0 allocs/op
+BenchmarkClone/form=A-4                      	16346546	        64.84 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	21780364	        56.82 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	21547300	        65.14 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	21294237	        74.20 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	13747146	       101.7 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	14679963	        75.73 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	14654956	        71.51 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	23241860	        59.86 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	15632484	        74.03 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=A-4                      	18747459	        69.70 ns/op	     152 B/op	       2 allocs/op
+BenchmarkClone/form=D-4                      	23055450	        54.15 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	31635042	        62.39 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	25281799	        55.90 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	28945051	        61.33 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	18006992	        67.66 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	22909819	        68.84 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	17903835	        76.41 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	20849984	        60.62 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	20919565	        52.74 ns/op	     128 B/op	       1 allocs/op
+BenchmarkClone/form=D-4                      	26187154	        60.77 ns/op	     128 B/op	       1 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	130343452	        10.20 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	100000000	        10.89 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	116169816	         9.886 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	130058709	         9.016 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	122311296	         9.923 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	124404358	         9.348 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	139692561	         9.009 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	138406371	         8.877 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	130358456	         8.924 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=A-4        	139537258	         8.736 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	143938372	         8.533 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	130119754	         8.825 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	136011661	         8.634 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	131814259	         9.136 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	117779272	         9.054 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	132195256	         9.667 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	124041937	         9.405 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	141189462	         8.720 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	136234826	         9.554 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=C-4        	124546489	         9.984 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	125956516	         8.924 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	131843174	         8.357 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	145597454	         8.718 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	134469594	        10.21 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	123443445	         9.914 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	135768958	         8.793 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	130430415	         9.121 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	130422530	         9.580 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	121076476	         9.513 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=large/form=Go-4       	130094538	         8.290 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	121141251	         9.103 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	130940580	         9.952 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	127814484	         9.515 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	127484284	        10.51 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	130003380	         9.225 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	100000000	        11.30 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	121951999	        10.17 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	100000000	        10.10 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	100000000	        11.39 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=A-4        	126581001	         9.393 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	133032637	         9.479 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	100000000	        10.78 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	122494012	         9.820 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	131411866	         9.021 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	100000000	        10.44 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	131312701	        10.32 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	100000000	        10.76 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	124857668	        10.82 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	123477655	        11.36 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=C-4        	92700148	        11.29 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	119855632	        10.07 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	122778753	        10.21 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	128589141	        10.88 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	100000000	        11.29 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	114980133	        10.30 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	100000000	        11.34 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	126985983	        10.81 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	100000000	        10.15 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	122179441	         9.489 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=small/form=Go-4       	100000000	        10.08 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	100000000	        10.42 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	130952163	         9.996 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	127084288	        11.02 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	115556828	         9.675 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	132527620	         8.645 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	99435164	        14.89 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	92305275	        13.64 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	92885546	        10.93 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	100000000	        10.79 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=A-4       	100000000	        10.09 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	120287708	         9.511 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	100000000	        10.15 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	100000000	        10.00 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	100000000	        12.01 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	131969677	         9.368 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	129953172	        11.91 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	105947836	        11.42 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	99707814	        10.12 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	128567758	         9.963 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=C-4       	126743745	         8.443 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	129530791	         8.799 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	132040300	         9.983 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	125745445	         9.296 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	120098932	         9.276 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	137776335	         9.671 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	110368881	         9.818 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	124836168	         9.889 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	145235740	         8.636 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	146221948	         8.310 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionGet/val=string/form=Go-4      	140818741	         8.273 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	84465183	        18.44 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	80150736	        18.78 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	73382452	        19.87 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	58390938	        18.36 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	58631980	        17.91 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	66088800	        17.49 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	72898455	        18.56 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	57920342	        18.18 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	83146398	        20.03 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=A-4               	66911846	        18.29 ns/op	         3.906 B/lookup	         0.4883 allocs/lookup	       3 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	123514992	        10.67 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	99434731	        12.08 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	130470254	        12.29 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	100000000	        13.51 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	95734394	        11.33 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	110933976	        11.36 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	100000000	        11.29 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	95842519	        13.08 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	100000000	        10.69 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=C-4               	100000000	        11.50 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	106179594	         9.917 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	106767150	        12.25 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	115013400	        10.92 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	120576261	        10.23 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	99569634	        11.81 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	100000000	        10.80 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	99841924	        10.56 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	100000000	        10.03 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	122513973	        10.10 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkOptionLookup/form=Go-4              	117722068	         9.672 ns/op	         0 B/lookup	         0 allocs/lookup	       0 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	44517870	        24.29 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	49231873	        24.06 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	54918066	        23.37 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	44610088	        23.03 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	54475084	        21.55 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	66651714	        22.04 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	70513009	        22.61 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	67559133	        20.66 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	55802338	        20.93 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=A-4                        	47424271	        21.19 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	143177164	         8.452 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	141740852	         8.877 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	125100211	        10.61 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	100000000	        10.06 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	150661137	         7.904 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	152755093	         8.145 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	153811864	         8.537 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	145203230	         8.479 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	139154968	         8.113 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=C-4                        	152071002	         8.527 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	145793708	         8.370 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	136695448	         8.550 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	129607560	         8.397 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	154471580	         8.280 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	151195137	         7.929 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	152860352	         7.875 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	159452582	         7.665 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	155995717	         8.944 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	124918611	         8.789 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCut/form=Go-4                       	139954275	         8.510 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	50445997	        23.61 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	54667882	        23.74 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	47100274	        23.77 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	57786009	        28.77 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	50147818	        22.76 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	61913896	        24.48 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	47553272	        26.17 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	55108158	        24.66 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	50563866	        22.54 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=A-4                     	57995274	        24.48 ns/op	        15.38 B/cut	         0.4805 allocs/cut	      15 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	83834436	        15.12 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	85038453	        16.63 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	73166511	        16.11 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	82210480	        17.49 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	62392298	        16.83 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	82237168	        15.55 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	83299932	        16.25 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	81860676	        16.37 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	85700940	        17.50 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=C-4                     	69912171	        16.07 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	122783280	         9.685 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	100000000	        11.21 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	121983469	         9.878 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	100000000	        10.68 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	125900589	         9.233 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	128626665	         8.389 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	123156010	         8.566 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	138560910	         9.891 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	133147435	         9.041 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+BenchmarkCutOut/form=Go-4                    	124025167	         9.133 ns/op	         0 B/cut	         0 allocs/cut	       0 B/op	       0 allocs/op
+PASS
+ok  	unionreprbench	1398.944s

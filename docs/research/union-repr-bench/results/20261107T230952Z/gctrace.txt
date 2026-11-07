@@ -1,0 +1,73 @@
+gc 1 @0.004s 4%: 0.019+0.67+0.015 ms clock, 0.077+0.21/0.62/0.41+0.063 ms cpu, 3->3->0 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 2 @0.008s 5%: 0.031+0.55+0.015 ms clock, 0.12+0.39/0.51/0+0.062 ms cpu, 3->3->1 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 3 @0.011s 7%: 0.065+0.85+0.012 ms clock, 0.26+0.37/0.81/0+0.050 ms cpu, 3->3->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 4 @0.015s 6%: 0.025+1.2+0.022 ms clock, 0.10+0.038/0.65/1.6+0.090 ms cpu, 3->4->2 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 5 @0.021s 5%: 0.024+0.62+0.002 ms clock, 0.097+0.16/0.56/0.75+0.008 ms cpu, 4->5->2 MB, 5 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 6 @0.024s 7%: 0.040+6.0+0.004 ms clock, 0.16+2.8/0.84/0.073+0.017 ms cpu, 5->6->3 MB, 6 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 7 @0.033s 9%: 0.13+1.7+0.67 ms clock, 0.52+0.91/0.96/0.28+2.7 ms cpu, 6->7->3 MB, 7 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 8 @0.037s 10%: 0.83+1.0+0.014 ms clock, 3.3+0.015/0.61/1.4+0.056 ms cpu, 6->7->3 MB, 8 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 9 @0.041s 10%: 0.015+0.67+0.004 ms clock, 0.063+0.046/0.47/0.95+0.016 ms cpu, 6->7->3 MB, 7 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 10 @0.043s 13%: 1.7+0.88+0.017 ms clock, 6.8+0.48/0.84/0+0.068 ms cpu, 6->7->4 MB, 7 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 11 @0.046s 13%: 0.033+0.79+0.002 ms clock, 0.13+0.67/0.76/0.005+0.011 ms cpu, 7->8->4 MB, 8 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 12 @0.047s 14%: 0.10+2.3+0.013 ms clock, 0.41+2.5/1.2/0+0.054 ms cpu, 7->9->4 MB, 8 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 13 @0.051s 15%: 0.031+2.7+0.013 ms clock, 0.12+0.92/2.6/0.084+0.055 ms cpu, 8->9->4 MB, 9 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 14 @0.054s 15%: 0.037+1.1+0.002 ms clock, 0.14+0.89/1.1/0.10+0.009 ms cpu, 8->9->4 MB, 9 MB goal, 0 MB stacks, 0 MB globals, 4 P
+# unionreprbench.test
+gc 1 @0.001s 4%: 0.026+0.28+0.016 ms clock, 0.10+0.058/0.22/0.34+0.065 ms cpu, 3->4->3 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 2 @0.003s 5%: 0.015+0.49+0.015 ms clock, 0.061+0.018/0.34/0.64+0.063 ms cpu, 6->6->6 MB, 7 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 3 @0.007s 4%: 0.017+0.35+0.025 ms clock, 0.069+0.065/0.29/0.49+0.10 ms cpu, 11->11->10 MB, 12 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 4 @0.065s 0%: 0.036+0.94+0.012 ms clock, 0.14+0.027/0.61/1.0+0.051 ms cpu, 19->20->13 MB, 20 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 5 @0.128s 0%: 0.14+4.0+0.018 ms clock, 0.56+0/2.2/0+0.072 ms cpu, 25->25->15 MB, 27 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 1 @0.000s 5%: 0.015+0.099+0.002 ms clock, 0.061+0/0.087/0.10+0.011 ms cpu, 0->0->0 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 2 @0.000s 5%: 0.014+0.077+0.002 ms clock, 0.059+0/0.045/0.11+0.008 ms cpu, 0->0->0 MB, 4 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 3 @0.001s 6%: 0.016+0.24+0.009 ms clock, 0.064+0/0.041/0.080+0.038 ms cpu, 15->15->15 MB, 15 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 4 @0.010s 1%: 0.038+0.060+0.002 ms clock, 0.15+0/0.049/0.071+0.011 ms cpu, 15->15->15 MB, 31 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 5 @0.011s 5%: 0.007+2.1+0.017 ms clock, 0.028+0.008/2.0/3.4+0.071 ms cpu, 30->31->31 MB, 31 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 6 @0.044s 3%: 0.029+6.6+0.003 ms clock, 0.11+0/3.9/12+0.012 ms cpu, 42->42->42 MB, 62 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+BenchmarkGCChurn/payload=NP/form=A-4         	gc 7 @0.051s 3%: 0.016+0.070+0.002 ms clock, 0.066+0/0.047/0.11+0.008 ms cpu, 42->42->15 MB, 84 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 8 @0.052s 3%: 0.021+0.30+0.016 ms clock, 0.087+0/0.10/0.062+0.066 ms cpu, 30->30->30 MB, 31 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 9 @0.068s 3%: 0.028+4.4+0.004 ms clock, 0.11+0/4.3/11+0.019 ms cpu, 42->42->42 MB, 61 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+ 3000000	        26.37 ns/op	         0 gc/Mop	         0 pause-ns/op	      12 B/op	       1 allocs/op
+gc 10 @0.153s 2%: 1.3+0.13+0.002 ms clock, 5.3+0/1.2/0.10+0.011 ms cpu, 77->77->15 MB, 84 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 11 @0.158s 2%: 0.022+0.11+0.017 ms clock, 0.091+0/0.007/0.14+0.068 ms cpu, 38->38->38 MB, 38 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 12 @0.169s 1%: 0.031+0.097+0.002 ms clock, 0.12+0/0.073/0.10+0.011 ms cpu, 38->38->38 MB, 76 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+BenchmarkGCChurn/payload=NP/form=D-4         	gc 13 @0.169s 2%: 0.055+1.1+0.003 ms clock, 0.22+0/0.083/0.17+0.013 ms cpu, 38->38->15 MB, 76 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 14 @0.170s 1%: 1.0+6.2+0.010 ms clock, 4.3+0/0.058/2.8+0.040 ms cpu, 38->38->38 MB, 38 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 15 @0.178s 1%: 0.021+0.20+0.002 ms clock, 0.087+0/0.069/0.099+0.008 ms cpu, 38->38->38 MB, 76 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+ 3000000	        11.49 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+gc 16 @0.213s 1%: 0.021+0.15+0.002 ms clock, 0.084+0/0.13/0.044+0.011 ms cpu, 38->38->15 MB, 76 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 17 @0.214s 2%: 0.076+4.2+0.021 ms clock, 0.30+0/4.1/0.088+0.084 ms cpu, 38->39->39 MB, 38 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 18 @0.234s 2%: 0.019+4.1+0.004 ms clock, 0.079+0/3.9/11+0.016 ms cpu, 49->49->49 MB, 79 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+BenchmarkGCChurn/payload=NP/form=E-4         	gc 19 @0.239s 2%: 0.026+0.067+0.002 ms clock, 0.10+0/0.049/0.10+0.008 ms cpu, 49->49->15 MB, 99 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 20 @0.240s 2%: 0.016+0.19+0.018 ms clock, 0.066+0/0.12/0.088+0.075 ms cpu, 38->38->38 MB, 38 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 21 @0.263s 2%: 0.030+4.6+0.002 ms clock, 0.12+0/4.1/12+0.011 ms cpu, 49->49->49 MB, 76 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+ 3000000	        23.95 ns/op	         0 gc/Mop	         0 pause-ns/op	      12 B/op	       1 allocs/op
+gc 22 @0.340s 1%: 0.025+0.085+0.003 ms clock, 0.10+0/0.078/0.13+0.012 ms cpu, 84->84->15 MB, 99 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 23 @0.343s 2%: 2.3+0.13+0.018 ms clock, 9.2+0/0.087/0.15+0.073 ms cpu, 30->30->30 MB, 31 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 24 @0.371s 2%: 0.041+10+0.004 ms clock, 0.16+0/10/14+0.017 ms cpu, 50->50->49 MB, 61 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+BenchmarkGCChurn/payload=WP/form=A-4         	gc 25 @0.386s 2%: 0.015+0.083+0.001 ms clock, 0.062+0/0.072/0.11+0.007 ms cpu, 49->49->15 MB, 99 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 26 @0.387s 2%: 0.44+0.27+0.018 ms clock, 1.7+0/0.11/0.10+0.074 ms cpu, 30->30->30 MB, 31 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 27 @0.412s 3%: 0.024+6.3+0.003 ms clock, 0.099+0/5.1/15+0.014 ms cpu, 50->50->49 MB, 61 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 28 @0.477s 3%: 0.031+9.3+0.014 ms clock, 0.12+0.032/9.3/17+0.058 ms cpu, 84->87->52 MB, 99 MB goal, 0 MB stacks, 0 MB globals, 4 P
+ 3000000	        35.57 ns/op	         0.3333 gc/Mop	         0.01515 pause-ns/op	      20 B/op	       1 allocs/op
+gc 29 @0.526s 2%: 0.023+0.12+0.003 ms clock, 0.093+0/0.092/0.12+0.012 ms cpu, 73->73->15 MB, 104 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 30 @0.530s 2%: 0.018+0.22+0.017 ms clock, 0.073+0/0.12/0.13+0.068 ms cpu, 45->45->45 MB, 46 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 31 @0.536s 3%: 0.020+4.3+0.003 ms clock, 0.083+0/3.6/11+0.013 ms cpu, 45->45->45 MB, 92 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+BenchmarkGCChurn/payload=WP/form=D-4         	gc 32 @0.541s 3%: 0.019+0.16+0.014 ms clock, 0.077+0/0.064/0.13+0.058 ms cpu, 45->45->15 MB, 92 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 33 @0.541s 3%: 0.025+0.30+0.016 ms clock, 0.10+0/0.10/0.092+0.065 ms cpu, 45->45->45 MB, 46 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 34 @0.549s 3%: 0.031+3.9+0.003 ms clock, 0.12+0/3.7/11+0.014 ms cpu, 45->45->45 MB, 92 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+ 3000000	         8.030 ns/op	         0 gc/Mop	         0 pause-ns/op	       0 B/op	       0 allocs/op
+gc 35 @0.577s 3%: 0.019+0.22+0.017 ms clock, 0.078+0/0.14/0.14+0.069 ms cpu, 46->46->15 MB, 92 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 36 @0.578s 3%: 0.034+0.21+0.046 ms clock, 0.13+0/0.12/0.12+0.18 ms cpu, 38->38->38 MB, 38 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 37 @0.603s 3%: 0.019+6.1+0.003 ms clock, 0.076+0/5.8/17+0.015 ms cpu, 58->58->57 MB, 76 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+BenchmarkGCChurn/payload=WP/form=E-4         	gc 38 @0.610s 3%: 0.024+0.091+0.002 ms clock, 0.098+0/0.066/0.12+0.010 ms cpu, 57->57->15 MB, 114 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 39 @0.611s 3%: 0.024+0.33+0.020 ms clock, 0.096+0/0.12/0.088+0.083 ms cpu, 38->38->38 MB, 38 MB goal, 0 MB stacks, 0 MB globals, 4 P
+gc 40 @0.636s 3%: 0.042+4.5+0.004 ms clock, 0.17+0/4.4/13+0.017 ms cpu, 58->58->57 MB, 76 MB goal, 0 MB stacks, 0 MB globals, 4 P (forced)
+gc 41 @0.706s 3%: 0.028+8.7+0.020 ms clock, 0.11+0.037/8.6/16+0.080 ms cpu, 97->99->58 MB, 114 MB goal, 0 MB stacks, 0 MB globals, 4 P
+ 3000000	        31.73 ns/op	         0.3333 gc/Mop	         0.01573 pause-ns/op	      20 B/op	       1 allocs/op
+PASS
+ok  	unionreprbench	0.743s

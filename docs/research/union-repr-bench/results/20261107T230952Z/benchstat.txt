@@ -1,0 +1,57 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+                            │       A       │                    D                    │                   E                   │                  F                   │                   Dx                   │                   Ds                    │
+                            │    sec/op     │    sec/op      vs base                  │   sec/op     vs base                  │   sec/op     vs base                 │    sec/op     vs base                  │    sec/op     vs base                   │
+DispatchCyclic/shape=1x16-4    7.279n ±  6%   10.215n ±  2%    +40.34% (p=0.000 n=10)   5.525n ± 6%  -24.09% (p=0.000 n=10)     6.913n ± 5%       ~ (p=0.089 n=10)
+DispatchCyclic/shape=6x6-4     5.378n ±  7%    3.352n ±  5%    -37.67% (p=0.000 n=10)                                                                                  8.313n ± 10%  +54.57% (p=0.000 n=10)
+CopyPass/bytes=16-4            1.623n ±  6%    1.550n ±  7%          ~ (p=0.073 n=10)
+CopyPass/bytes=32-4            1.591n ±  8%   17.430n ±  4%   +995.54% (p=0.000 n=10)
+CopyPass/bytes=64-4            1.686n ± 16%   20.310n ±  7%  +1104.27% (p=0.000 n=10)
+CopyPass/bytes=128-4           1.610n ±  7%   20.195n ±  6%  +1154.74% (p=0.000 n=10)
+CopyNext/bytes=16-4           18.060n ± 16%    2.570n ± 23%    -85.77% (p=0.000 n=10)
+CopyNext/bytes=32-4            22.00n ± 20%    19.32n ±  5%    -12.18% (p=0.000 n=10)
+CopyNext/bytes=64-4            27.83n ± 41%    21.97n ± 19%    -21.07% (p=0.002 n=10)
+CopyNext/bytes=128-4           53.99n ± 12%    25.68n ±  8%    -52.43% (p=0.000 n=10)
+Narrow-4                       5.335n ± 18%    8.712n ± 15%    +63.27% (p=0.000 n=10)                                                                                                                           11.525n ± 4%  +116.01% (p=0.000 n=10)
+geomean                        6.499n          9.931n          +52.80%                  5.525n       -24.09%                ¹   6.913n       -5.02%                ¹   8.313n        +54.57%                ¹    11.53n       +116.01%                ¹
+¹ benchmark set differs from baseline; geomeans may not be comparable
+
+                            │      A       │                    D                    │                   E                   │                   F                   │                  Dx                   │                  Ds                   │
+                            │     B/op     │    B/op     vs base                     │    B/op     vs base                   │    B/op     vs base                   │    B/op     vs base                   │    B/op     vs base                   │
+DispatchCyclic/shape=1x16-4   0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+DispatchCyclic/shape=6x6-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+CopyPass/bytes=16-4           0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=32-4           0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=64-4           0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=128-4          0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyNext/bytes=16-4           16.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=32-4           32.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=64-4           64.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=128-4          128.0 ± 0%       0.0 ± 0%  -100.00% (p=0.000 n=10)
+Narrow-4                      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                                                             0.000 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                  ²               ?                       ² ³               +0.00%                ⁴ ²               +0.00%                ⁴ ²               +0.00%                ⁴ ²               +0.00%                ⁴ ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ ratios must be >0 to compute geomean
+⁴ benchmark set differs from baseline; geomeans may not be comparable
+
+                            │      A       │                    D                    │                   E                   │                   F                   │                  Dx                   │                  Ds                   │
+                            │  allocs/op   │ allocs/op   vs base                     │ allocs/op   vs base                   │ allocs/op   vs base                   │ allocs/op   vs base                   │ allocs/op   vs base                   │
+DispatchCyclic/shape=1x16-4   0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+DispatchCyclic/shape=6x6-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+CopyPass/bytes=16-4           0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=32-4           0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=64-4           0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=128-4          0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyNext/bytes=16-4           1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=32-4           1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=64-4           1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=128-4          1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+Narrow-4                      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                                                             0.000 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                                  ²               ?                       ² ³               +0.00%                ⁴ ²               +0.00%                ⁴ ²               +0.00%                ⁴ ²               +0.00%                ⁴ ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ ratios must be >0 to compute geomean
+⁴ benchmark set differs from baseline; geomeans may not be comparable
