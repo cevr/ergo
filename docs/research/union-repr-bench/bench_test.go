@@ -345,6 +345,109 @@ func BenchmarkDispatch(b *testing.B) {
 	}
 }
 
+// DispatchCyclic is Dispatch with the variants in a fixed cycle (0, 1, 2,
+// …), which a branch predictor learns, against the seeded uniform order of
+// Dispatch, which it cannot.
+func BenchmarkDispatchCyclic(b *testing.B) {
+	cyclic := func(n, v int) []rawValue {
+		out := rawSingles(n, v, 99)
+		for i := range out {
+			out[i].k = i % v
+		}
+		return out
+	}
+	{
+		a, d, e, f := inputsU16(cyclic(1024, 16))
+		b.Run("shape=1x16/form=A", func(b *testing.B) {
+			s := 0
+			for i := 0; i < b.N; i++ {
+				s += dispatchU16A(a[i&1023])
+			}
+			sinkInt = s
+		})
+		b.Run("shape=1x16/form=D", func(b *testing.B) {
+			s := 0
+			for i := 0; i < b.N; i++ {
+				s += dispatchU16D(d[i&1023])
+			}
+			sinkInt = s
+		})
+		b.Run("shape=1x16/form=E", func(b *testing.B) {
+			s := 0
+			for i := 0; i < b.N; i++ {
+				s += dispatchU16E(e[i&1023])
+			}
+			sinkInt = s
+		})
+		b.Run("shape=1x16/form=F", func(b *testing.B) {
+			s := 0
+			for i := 0; i < b.N; i++ {
+				s += dispatchU16F(f[i&1023])
+			}
+			sinkInt = s
+		})
+	}
+	{
+		raw := rawPairs(1024, 6, 6, 66)
+		for i := range raw {
+			raw[i][0].k, raw[i][1].k = (i/6)%6, i%6
+		}
+		in := inputsP6x6(raw)
+		b.Run("shape=6x6/form=A", func(b *testing.B) {
+			s := 0
+			for i := 0; i < b.N; i++ {
+				p := &in[i&1023]
+				s += dispatchP6x6A(p.aA, p.bA)
+			}
+			sinkInt = s
+		})
+		b.Run("shape=6x6/form=D", func(b *testing.B) {
+			s := 0
+			for i := 0; i < b.N; i++ {
+				p := &in[i&1023]
+				s += dispatchP6x6D(p.aD, p.bD)
+			}
+			sinkInt = s
+		})
+		b.Run("shape=6x6/form=Dx", func(b *testing.B) {
+			s := 0
+			for i := 0; i < b.N; i++ {
+				p := &in[i&1023]
+				s += dispatchP6x6Dx(p.aD, p.bD)
+			}
+			sinkInt = s
+		})
+	}
+}
+
+// Enum: form B against form A for an all-empty union, the Move of
+// tidewalk (5 variants): one target(p, m) per op over seeded moves.
+
+//go:noinline
+func enumTargetA(p Pos, m MoveA) Pos { return targetA(p, m) }
+
+//go:noinline
+func enumTargetB(p Pos, m MoveB) Pos { return targetB(p, m) }
+
+func BenchmarkEnum(b *testing.B) {
+	s := randomMoves(1024, 5)
+	a, bb := movesA(s), movesB(s)
+	b.Run("shape=1x5/form=A", func(b *testing.B) {
+		p := Pos{}
+		for i := 0; i < b.N; i++ {
+			p = enumTargetA(p, a[i&1023])
+		}
+		sinkInt = p.X + p.Y
+	})
+	b.Run("shape=1x5/form=B", func(b *testing.B) {
+		p := Pos{}
+		for i := 0; i < b.N; i++ {
+			p = enumTargetB(p, bb[i&1023])
+		}
+		sinkInt = p.X + p.Y
+	})
+}
+
 // Question 4: GC. A slice of 1,000,000 union values stays live.
 // GCCycle: one op is one full runtime.GC() with the slice live (the mark
 // cost of the slice). Churn: one op replaces one element by the next value,
@@ -360,13 +463,15 @@ func BenchmarkGCCycle(b *testing.B) {
 		runtime.GC()
 		var ms runtime.MemStats
 		runtime.ReadMemStats(&ms)
-		b.ReportMetric(float64(ms.HeapObjects), "heap-objects")
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			runtime.GC()
 		}
 		b.StopTimer()
 		runtime.KeepAlive(live)
+		// After ResetTimer, which deletes reported metrics.
+		b.ReportMetric(float64(ms.HeapObjects), "heap-objects")
+		b.ReportMetric(float64(ms.HeapAlloc), "heap-bytes")
 	}
 	b.Run("payload=NP/form=A", func(b *testing.B) { cycle(b, func() any { return buildNPA(raw) }) })
 	b.Run("payload=NP/form=D", func(b *testing.B) { cycle(b, func() any { return buildNPD(raw) }) })

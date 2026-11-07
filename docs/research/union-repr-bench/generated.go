@@ -1542,7 +1542,11 @@ func inputsP6x6(raw [][2]rawValue) []pairP6x6 {
 
 // ---- Copy16: a union whose payload is 16 bytes ----
 
-type Big16 struct{ F [2]int64 }
+type Big16 struct {
+	F0 int64
+	F1 int64
+}
+
 type Small16 struct{}
 
 type Copy16A interface{ isCopy16A() }
@@ -1552,7 +1556,8 @@ func (Small16) isCopy16A() {}
 
 type Copy16D struct {
 	tag uint8
-	f   [2]int64
+	f0  int64
+	f1  int64
 }
 
 //go:noinline
@@ -1565,10 +1570,10 @@ func pass16D(u Copy16D) Copy16D { return u }
 func next16A(u Copy16A) Copy16A {
 	switch v := u.(type) {
 	case Big16:
-		v.F[0]++
+		v.F0++
 		return v
 	case Small16:
-		return Big16{F: [2]int64{1}}
+		return Big16{F0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
@@ -1577,21 +1582,27 @@ func next16A(u Copy16A) Copy16A {
 func next16D(u Copy16D) Copy16D {
 	switch u.tag {
 	case 1:
-		u.f[0]++
+		u.f0++
 		return u
 	case 2:
-		return Copy16D{tag: 1, f: [2]int64{1}}
+		return Copy16D{tag: 1, f0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
 
-func firstWord16A(u Copy16A) int64 { return u.(Big16).F[0] }
+func firstWord16A(u Copy16A) int64 { return u.(Big16).F0 }
 
-func firstWord16D(u Copy16D) int64 { return u.f[0] }
+func firstWord16D(u Copy16D) int64 { return u.f0 }
 
 // ---- Copy32: a union whose payload is 32 bytes ----
 
-type Big32 struct{ F [4]int64 }
+type Big32 struct {
+	F0 int64
+	F1 int64
+	F2 int64
+	F3 int64
+}
+
 type Small32 struct{}
 
 type Copy32A interface{ isCopy32A() }
@@ -1601,7 +1612,10 @@ func (Small32) isCopy32A() {}
 
 type Copy32D struct {
 	tag uint8
-	f   [4]int64
+	f0  int64
+	f1  int64
+	f2  int64
+	f3  int64
 }
 
 //go:noinline
@@ -1614,10 +1628,10 @@ func pass32D(u Copy32D) Copy32D { return u }
 func next32A(u Copy32A) Copy32A {
 	switch v := u.(type) {
 	case Big32:
-		v.F[0]++
+		v.F0++
 		return v
 	case Small32:
-		return Big32{F: [4]int64{1}}
+		return Big32{F0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
@@ -1626,21 +1640,31 @@ func next32A(u Copy32A) Copy32A {
 func next32D(u Copy32D) Copy32D {
 	switch u.tag {
 	case 1:
-		u.f[0]++
+		u.f0++
 		return u
 	case 2:
-		return Copy32D{tag: 1, f: [4]int64{1}}
+		return Copy32D{tag: 1, f0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
 
-func firstWord32A(u Copy32A) int64 { return u.(Big32).F[0] }
+func firstWord32A(u Copy32A) int64 { return u.(Big32).F0 }
 
-func firstWord32D(u Copy32D) int64 { return u.f[0] }
+func firstWord32D(u Copy32D) int64 { return u.f0 }
 
 // ---- Copy64: a union whose payload is 64 bytes ----
 
-type Big64 struct{ F [8]int64 }
+type Big64 struct {
+	F0 int64
+	F1 int64
+	F2 int64
+	F3 int64
+	F4 int64
+	F5 int64
+	F6 int64
+	F7 int64
+}
+
 type Small64 struct{}
 
 type Copy64A interface{ isCopy64A() }
@@ -1650,7 +1674,14 @@ func (Small64) isCopy64A() {}
 
 type Copy64D struct {
 	tag uint8
-	f   [8]int64
+	f0  int64
+	f1  int64
+	f2  int64
+	f3  int64
+	f4  int64
+	f5  int64
+	f6  int64
+	f7  int64
 }
 
 //go:noinline
@@ -1663,10 +1694,10 @@ func pass64D(u Copy64D) Copy64D { return u }
 func next64A(u Copy64A) Copy64A {
 	switch v := u.(type) {
 	case Big64:
-		v.F[0]++
+		v.F0++
 		return v
 	case Small64:
-		return Big64{F: [8]int64{1}}
+		return Big64{F0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
@@ -1675,21 +1706,39 @@ func next64A(u Copy64A) Copy64A {
 func next64D(u Copy64D) Copy64D {
 	switch u.tag {
 	case 1:
-		u.f[0]++
+		u.f0++
 		return u
 	case 2:
-		return Copy64D{tag: 1, f: [8]int64{1}}
+		return Copy64D{tag: 1, f0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
 
-func firstWord64A(u Copy64A) int64 { return u.(Big64).F[0] }
+func firstWord64A(u Copy64A) int64 { return u.(Big64).F0 }
 
-func firstWord64D(u Copy64D) int64 { return u.f[0] }
+func firstWord64D(u Copy64D) int64 { return u.f0 }
 
 // ---- Copy128: a union whose payload is 128 bytes ----
 
-type Big128 struct{ F [16]int64 }
+type Big128 struct {
+	F0  int64
+	F1  int64
+	F2  int64
+	F3  int64
+	F4  int64
+	F5  int64
+	F6  int64
+	F7  int64
+	F8  int64
+	F9  int64
+	F10 int64
+	F11 int64
+	F12 int64
+	F13 int64
+	F14 int64
+	F15 int64
+}
+
 type Small128 struct{}
 
 type Copy128A interface{ isCopy128A() }
@@ -1699,7 +1748,22 @@ func (Small128) isCopy128A() {}
 
 type Copy128D struct {
 	tag uint8
-	f   [16]int64
+	f0  int64
+	f1  int64
+	f2  int64
+	f3  int64
+	f4  int64
+	f5  int64
+	f6  int64
+	f7  int64
+	f8  int64
+	f9  int64
+	f10 int64
+	f11 int64
+	f12 int64
+	f13 int64
+	f14 int64
+	f15 int64
 }
 
 //go:noinline
@@ -1712,10 +1776,10 @@ func pass128D(u Copy128D) Copy128D { return u }
 func next128A(u Copy128A) Copy128A {
 	switch v := u.(type) {
 	case Big128:
-		v.F[0]++
+		v.F0++
 		return v
 	case Small128:
-		return Big128{F: [16]int64{1}}
+		return Big128{F0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
@@ -1724,14 +1788,14 @@ func next128A(u Copy128A) Copy128A {
 func next128D(u Copy128D) Copy128D {
 	switch u.tag {
 	case 1:
-		u.f[0]++
+		u.f0++
 		return u
 	case 2:
-		return Copy128D{tag: 1, f: [16]int64{1}}
+		return Copy128D{tag: 1, f0: 1}
 	}
 	panic("ergo: defect: no case of the match matched")
 }
 
-func firstWord128A(u Copy128A) int64 { return u.(Big128).F[0] }
+func firstWord128A(u Copy128A) int64 { return u.(Big128).F0 }
 
-func firstWord128D(u Copy128D) int64 { return u.f[0] }
+func firstWord128D(u Copy128D) int64 { return u.f0 }

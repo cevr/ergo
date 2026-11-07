@@ -46,7 +46,12 @@ go build -gcflags=-m -o /dev/null . 2>&1 | grep -E 'escapes to heap|does not esc
 # Jump tables: the dense integer switches that Go lowers to a table.
 go test -c -o "$tmp/bench.test" .
 go tool objdump -s 'dispatch(U16D|U8D|P6x6Dx|P3x4Dx|U16A|P6x6A)$' "$tmp/bench.test" |
-	grep -E '^TEXT|JMP [A-Z]+$|JMP \(|JMP [A-Z0-9]+\(' >"$out/jumptables.txt" || true
+	grep -E '^TEXT|JMP [A-Z]+$|JMP \(|JMP [A-Z0-9]+\(' | sed "s# $PWD/# ./#" >"$out/jumptables.txt" || true
+
+# Text bytes of the measured functions, per form (question 3).
+go tool nm -size "$tmp/bench.test" |
+	awk '$3=="T" && $4 ~ /^unionreprbench\.(step(A|D|Dx|E|F)|apply(A|D|E|F)|tideStep(A|G)|tideApply(A|G)|record(A|D)|evolveWalk(A|D)|play(A|G)|cut(A|C|OutA|OutC)|lookup(A|C|Go)|sum(Lookup|Cut|CutOut)(A|C|Go)|enumTarget(A|B)|clone(A|D)|narrow(A|D|Ds)|next(NP|WP)(A|D|E)|get(A|C)\[.*)$/ {print $2, $4}' |
+	sort -k2 >"$out/funcsizes.txt"
 
 # Code size (question 3).
 go build -o "$tmp/sections" ./tools/sections

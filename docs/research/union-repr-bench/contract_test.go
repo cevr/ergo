@@ -135,6 +135,13 @@ func TestTidewalkFormsAgree(t *testing.T) {
 			}
 		}
 	}
+	enumA, enumB := movesA(randomMoves(1024, 5)), movesB(randomMoves(1024, 5))
+	for i := range enumA {
+		p := Pos{X: i % 7, Y: i % 5}
+		if enumTargetA(p, enumA[i]) != enumTargetB(p, enumB[i]) {
+			t.Fatalf("move %d: target differs between forms A and B", i)
+		}
+	}
 	if enters < len(lists) {
 		t.Fatalf("the move lists enter only %d times; the domain is too small", enters)
 	}

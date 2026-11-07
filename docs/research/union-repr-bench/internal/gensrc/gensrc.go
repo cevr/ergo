@@ -197,18 +197,30 @@ var copyWords = []int{2, 4, 8, 16}
 // copies writes question 5: a union Big{F [k]int64} | Small{} in forms A
 // and D, a pass (take and return the value) and a next (narrow, change one
 // word, build a new value) for each size.
+//
+// The payload is k scalar int64 fields, as a record's fields are, and form
+// D gives each its own slot. (A first version used one [k]int64 field;
+// Go's register ABI never passes an array of more than one element in
+// registers, so that measured the array, not the union. Its run is
+// results/20261107T222547Z.)
 func copies(b *strings.Builder) {
 	for _, k := range copyWords {
 		n := k * 8
+		var fields, slots, one, oneD []string
+		for i := 0; i < k; i++ {
+			fields = append(fields, fmt.Sprintf("F%d int64", i))
+			slots = append(slots, fmt.Sprintf("f%d int64", i))
+		}
+		one, oneD = []string{"F0: 1"}, []string{"f0: 1"}
 		fmt.Fprintf(b, "// ---- Copy%d: a union whose payload is %d bytes ----\n\n", n, n)
-		fmt.Fprintf(b, "type Big%d struct{ F [%d]int64 }\ntype Small%d struct{}\n\n", n, k, n)
+		fmt.Fprintf(b, "type Big%d struct {\n\t%s\n}\n\ntype Small%d struct{}\n\n", n, strings.Join(fields, "\n\t"), n)
 		fmt.Fprintf(b, "type Copy%dA interface{ isCopy%dA() }\n\nfunc (Big%d) isCopy%dA()   {}\nfunc (Small%d) isCopy%dA() {}\n\n", n, n, n, n, n, n)
-		fmt.Fprintf(b, "type Copy%dD struct {\n\ttag uint8\n\tf   [%d]int64\n}\n\n", n, k)
+		fmt.Fprintf(b, "type Copy%dD struct {\n\ttag uint8\n\t%s\n}\n\n", n, strings.Join(slots, "\n\t"))
 		fmt.Fprintf(b, "//go:noinline\nfunc pass%dA(u Copy%dA) Copy%dA { return u }\n\n", n, n, n)
 		fmt.Fprintf(b, "//go:noinline\nfunc pass%dD(u Copy%dD) Copy%dD { return u }\n\n", n, n, n)
-		fmt.Fprintf(b, "//go:noinline\nfunc next%dA(u Copy%dA) Copy%dA {\n\tswitch v := u.(type) {\n\tcase Big%d:\n\t\tv.F[0]++\n\t\treturn v\n\tcase Small%d:\n\t\treturn Big%d{F: [%d]int64{1}}\n\t}\n\tpanic(\"ergo: defect: no case of the match matched\")\n}\n\n", n, n, n, n, n, n, k)
-		fmt.Fprintf(b, "//go:noinline\nfunc next%dD(u Copy%dD) Copy%dD {\n\tswitch u.tag {\n\tcase 1:\n\t\tu.f[0]++\n\t\treturn u\n\tcase 2:\n\t\treturn Copy%dD{tag: 1, f: [%d]int64{1}}\n\t}\n\tpanic(\"ergo: defect: no case of the match matched\")\n}\n\n", n, n, n, n, k)
-		fmt.Fprintf(b, "func firstWord%dA(u Copy%dA) int64 { return u.(Big%d).F[0] }\n\nfunc firstWord%dD(u Copy%dD) int64 { return u.f[0] }\n\n", n, n, n, n, n)
+		fmt.Fprintf(b, "//go:noinline\nfunc next%dA(u Copy%dA) Copy%dA {\n\tswitch v := u.(type) {\n\tcase Big%d:\n\t\tv.F0++\n\t\treturn v\n\tcase Small%d:\n\t\treturn Big%d{%s}\n\t}\n\tpanic(\"ergo: defect: no case of the match matched\")\n}\n\n", n, n, n, n, n, n, strings.Join(one, ", "))
+		fmt.Fprintf(b, "//go:noinline\nfunc next%dD(u Copy%dD) Copy%dD {\n\tswitch u.tag {\n\tcase 1:\n\t\tu.f0++\n\t\treturn u\n\tcase 2:\n\t\treturn Copy%dD{tag: 1, %s}\n\t}\n\tpanic(\"ergo: defect: no case of the match matched\")\n}\n\n", n, n, n, n, strings.Join(oneD, ", "))
+		fmt.Fprintf(b, "func firstWord%dA(u Copy%dA) int64 { return u.(Big%d).F0 }\n\nfunc firstWord%dD(u Copy%dD) int64 { return u.f0 }\n\n", n, n, n, n, n)
 	}
 }
 
