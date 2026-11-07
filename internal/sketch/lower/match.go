@@ -10,18 +10,25 @@ import (
 
 // Patterns (196p, 196t; check-v1 D-B3 and D-B4). A match whose arms a Go
 // type switch or expression switch cannot express (record, nested, tuple,
-// bool or binding patterns, several subjects) lowers to a Go expressionless
-// switch: each arm's condition is its patterns' tests over the subjects,
-// joined with || for several patterns, and && inside one pattern, so a
-// type assertion runs only after its test passed. The subjects are
-// evaluated once, left to right, into temporaries before any test. The
-// checker proved the match total (Info contract 3), so the default arm Go
-// needs panics with a named defect (noCase).
+// bool or binding patterns, several subjects) lowers to a decision tree of
+// nested Go switches that tests each value at most once on every path
+// (matchtree.go, M1). The subjects are evaluated once, left to right, into
+// temporaries before any test. The checker proved the match total (Info
+// contract 3), so a default branch that no row reaches panics with a named
+// defect (noCase) where Go needs one.
 //
-// Prior art: Gleam's JavaScript backend and ReScript compile a decision
-// over the subject into if chains of tag tests and field reads; OCaml's
-// matching compiler shares tests across rows (Maranget), which this
-// lowering leaves to Go's compiler.
+// A match whose tree passes its size bound, or that takes a shape the tree
+// does not model, lowers flat (flatPatternMatch): one Go expressionless
+// switch, each arm's condition its patterns' tests over the subjects,
+// joined with || for several patterns and && inside one pattern, so a type
+// assertion runs only after its test passed.
+//
+// Prior art: OCaml's and ReScript's matching compiler builds a decision
+// tree over the clause matrix and shares tests across rows (Maranget
+// 2008), with shared actions as static exceptions (Le Fessant and Maranget
+// 2001); Gleam builds a decision tree (Jacobs 2021) since v1.11; Erlang
+// and Elixir compile case to select_val jump tables (v3_kernel). This
+// lowering builds the tree; the flat form leaves sharing to Go's compiler.
 
 // patBind is a binding a pattern makes: Var takes the Go value val.
 type patBind struct {
@@ -72,6 +79,17 @@ func (fc *funcCtx) patternMatch(s syntax.Stmt, subjects []syntax.Expr, clauses [
 			vals[i] = t
 		}
 	}
+	if tree := fc.matchTree(s, vals, types, clauses); tree != nil {
+		return fc.emitMatchTree(s, tree, clauses, d)
+	}
+	return fc.flatPatternMatch(s, vals, types, clauses, d)
+}
+
+// flatPatternMatch lowers a match to one expressionless Go switch, an arm
+// per case: the lowering of a match whose tree is too large or takes a
+// shape the tree does not model (matchtree.go).
+func (fc *funcCtx) flatPatternMatch(s syntax.Stmt, vals []string, types []check.Type, clauses []*syntax.CaseClause, d dest) bool {
+	subjects := vals
 	fc.line("switch {")
 	fc.enterSwitch()
 	terminates, hasDefault := true, false
