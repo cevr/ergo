@@ -144,6 +144,16 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
+| `flag` | `DefaultWhenAbsent` | `DefaultWhenAbsent() { let v = try Parse(lawSet(), []string{}) let required = Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawRequired}, Args: []ArgSpec{}} Parse(required, []string{}) catch { case Missing as m: return m.Name == "r" && lawText.Get(v) == "d" && lawNumber.Get(v) == 0 && !lawSwitch.Get(v) case _: return false } false }` | `TestFlagLaws` | tested |
+| `flag` | `DoubleDashEndsFlags` | `DoubleDashEndsFlags(x string) { let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x})) len(rest) == 1 && rest[0] == "-"+x }` | `TestFlagLaws` | tested |
+| `flag` | `EachCommandReaches` | `EachCommandReaches(i int) { let commands = lawCommands() if i < 0 \|\| i >= len(commands) { return true } commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name }` | `TestFlagLaws` | tested |
+| `flag` | `FlagCrossesPositional` | `FlagCrossesPositional(p string, a string) { let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a}) Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p})) }` | `TestFlagLaws` | tested |
+| `flag` | `HelpNamesEveryFlag` | `HelpNamesEveryFlag(names []string) { let mut flags = []Flag{} let mut seen Map[string, bool] for name in names { match seen.Get(name) { case Some[bool]: case None: seen[name] = true flags = flags.Append(String(name, "", "u")) } } let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}}) for name in names { if !strings.Contains(help, "\n -"+name+" string\n") { return false } } true }` | `TestFlagLaws` | tested |
+| `flag` | `IndependentFlagsCommute` | `IndependentFlagsCommute(a string, n int) { let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)}) Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a})) }` | `TestFlagLaws` | tested |
+| `flag` | `LastWins` | `LastWins(a string, b string) { let v = try Parse(lawSet(), []string{"-s", a, "-s", b}) lawText.Get(v) == b }` | `TestFlagLaws` | tested |
+| `flag` | `RenderParseRoundTrip` | `RenderParseRoundTrip(args []string) { let v = Parse(lawSet(), args) catch { case _: return true } Equal(try Parse(lawSet(), Render(v)), v) }` | `TestFlagLaws` | tested |
+| `flag` | `ShortAndLongAgree` | `ShortAndLongAgree(v string) { Equal(try Parse(lawSet(), []string{"-s=" + v}), try Parse(lawSet(), []string{"--s=" + v})) }` | `TestFlagLaws` | tested |
+| `flag` | `UnknownNamesTheFlag` | `UnknownNamesTheFlag(name string) { if name == "" \|\| name == "h" \|\| name == "help" \|\| name == "s" \|\| name == "n" \|\| name == "b" \|\| strings.Contains(name, "=") \|\| strings.HasPrefix(name, "-") { return true } Parse(lawSet(), []string{"-" + name}) catch { case Unknown as u: return u.Name == name case _: return false } false }` | `TestFlagLaws` | tested |
 | `fs` | `Files.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }` | `TestStdHostLawsHold` | tested |
 | `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestStdHostLawsHold` | tested |
 | `io` | `LinesSplitInput` | `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }` | `TestIOLaws` | tested |
@@ -382,6 +392,56 @@ func main() needs Ambient {
 9. A std package may import another std package: `io` imports `strings`. The std importer checks each package once, and the std has no import cycle (`TestStdImportsAreAcyclic`).
 
 *Prior art:* Effect's `Stdio` gives `stdout` and `stderr` sinks and a `stdin` stream in one service, and `Terminal` gives `readLine` and `display`; Go writes `os.Stdout` directly and reads lines with `bufio.Scanner`, which has a 64 KiB line limit; Gleam's `gleam/io` has `print`, `println` and `print_error`, and `stdin` reading is a separate package; Elixir's `IO.puts(:stderr, …)` and `IO.stream(:stdio, :line)` keep the line feed; Roc's basic-cli gives `Stdout`, `Stderr` and `Stdin` as platform effects. Ergo takes Roc's three capabilities and Effect's guarantee that a test replaces each one.
+
+### flag
+
+Std `flag` reads a command line (std-align S1d). It follows Go's `flag` for the syntax, the names and the help layout, and Effect's `@effect/cli` for typed commands, required flags, choices, positional arguments and the closed union of failures. Two rules follow `@effect/cli` and not Go (owner, 2026-11-06, Q7): a flag may follow a positional argument until a bare `--`, and help goes to standard output with status 0. It is Ergo over `strings` and `strconv`, with no runtime body.
+
+```go
+import flag
+import io
+import os
+
+let Json = flag.Bool("json", false, "print JSON")
+let Sort = flag.Choice("sort", "date", []string{"date", "name"}, "the order")
+let Files = flag.Remaining("files", "the files")
+
+func run(args []string) fails os.Exit needs Console | io.Stdout {
+	let set = flag.Set{Name: "list", Usage: "", Flags: []flag.Flag{Json, Sort}, Args: []flag.ArgSpec{Files}}
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	Console.Println("\(Json.Get(v)) \(Sort.Get(v)) \(len(flag.Rest(v)))")
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type StringFlag`, `IntFlag`, `BoolFlag`, `ChoiceFlag` (unexported fields); `type Flag = StringFlag \| IntFlag \| BoolFlag \| ChoiceFlag` | Flag handles; only package `flag` builds one. |
+| `String(name, def, usage string) StringFlag`, `Int(name string, def int, usage string) IntFlag`, `Bool(name string, def bool, usage string) BoolFlag` | Go's constructors, in Go's argument order. |
+| `RequiredString(name, usage string) StringFlag`, `RequiredInt(name, usage string) IntFlag`, `Choice(name, def string, choices []string, usage string) ChoiceFlag` | Effect's additions: a flag with no default, and a flag whose value is one of `choices`. |
+| `type ArgSpec` (unexported fields); `Arg(name, usage string)`, `OptionalArg(name, usage string)`, `Remaining(name, usage string)` | Positional arguments: one that must be given, one that may be absent, and the rest (last). |
+| `type Set { Name string, Usage string, Flags []Flag, Args []ArgSpec }` | A command line. |
+| `func Parse(s Set, args []string) Values fails Help \| Unknown \| NeedsValue \| Invalid \| Missing \| Extra` | Reads `args`. |
+| `Get(f StringFlag, v Values) string`, `Get(f IntFlag, v Values) int`, `Get(f BoolFlag, v Values) bool`, `Get(f ChoiceFlag, v Values) string`, `Get(a ArgSpec, v Values) Option[string]`, `Rest(v Values) []string` | Typed reads, called as `f.Get(v)`. |
+| `Usage(s Set) string`, `Defaults(flags []Flag) string` | The help, and Go's `PrintDefaults` text. |
+| `type Command[C] { Name string, Usage string, Set Set, Build func(v Values) C fails … }`; `ParseCommand[C](name, usage string, commands []Command[C], args []string) C fails …`; `CommandUsage[C](name, usage string, commands []Command[C]) string` | Subcommands that parse into the program's own union `C`. |
+| `type Help { Text string }`, `Unknown { Name string }`, `NeedsValue { Name string }`, `Invalid { Name string, Text string, Reason string }`, `Missing { Name string }`, `Extra { Text string }`, `UnknownCommand { Name string, Known []string }`; `type Failure = Help \| … \| UnknownCommand` | The failures. |
+| `Describe(f Failure) string`; `Exit(f Failure, usage string) fails os.Exit needs io.Stdout` | A failure's text, and its end: `Help` prints its text to standard output and returns (status 0); any other failure fails `os.Exit{Code: 2}` with its text and `usage`, which the entry writes to standard error. |
+| `Render(v Values) []string`, `Equal(a Values, b Values) bool` | A command line that parses to `v` again, and the equality of two results. |
+
+1. **Syntax** (Go's `flag.FlagSet.Parse`). An argument is a flag when it starts with `-` and is longer than `-`. `-name` and `--name` are one flag. A value follows `=` or, for a flag that is not a switch, is the next argument, whatever it is (`-s --` gives `s` the value `--`). A switch takes only `-name` or `-name=value`, with `strconv.ParseBool`'s values. `---x`, `-=x` and `--=x` are `Invalid` with `Name` empty ("bad flag syntax"). `-` alone and the empty string are positional. An `Int` value is read by `strconv.ParseInt(s, 0, 64)`, so `0x10`, `0o17` and `1_000` are read as Go reads them. A repeated flag keeps its last value.
+2. **Position** (owner, Q7). Flags and positional arguments may interleave; a bare `--` ends the flags, and every argument after it is positional. A value that starts with `-` is given as `--name=value`. Go stops at the first positional argument; `@effect/cli` does not.
+3. **Help.** `-h`, `-help` and `--help` (also with `=value`) fail `Help` with `Usage(s)` when the set declares no flag of that name, as in Go; a set that declares `h` reads `-h` as its flag. In `ParseCommand`, a help word in place of the command name fails `Help` with `CommandUsage`. `Exit` prints `Help`'s text to standard output and returns, so `main` ends with status 0 (Q7; Go prints usage to standard error).
+4. **Order of checks.** The arguments are read in order, and the first failure ends the parse: a `Help` after a bad argument is not reached. After the flags, each required flag must be given (`Missing`), then the positional arguments go to `s.Args` in order: an `Arg` takes one or fails `Missing`, an `OptionalArg` takes one if any is left, `Remaining` takes the rest. A positional argument left over fails `Extra`.
+5. **Help text.** `Usage(s)` is `Usage of NAME:` (`Usage:` with no name), `s.Usage` on its own line when it is not empty, `Defaults(s.Flags)`, and an `Arguments:` block in declaration order (`name`, `[name]` or `name...`). `Defaults` is Go's `PrintDefaults` byte for byte for `String`, `Int` and `Bool`: sorted by name, the switch of a one-byte name on one line, a back-quoted word of the usage as the value's name, and a default that is not the zero value; a `Choice`'s value name is its choices joined by `|`, and a required flag ends with ` (required)`. The text of each failure is Go's where Go has one, with one difference: an invalid switch value reads `invalid value "x" for flag -b: parse error`, where Go writes `invalid boolean value`.
+6. **Handles.** `Get` reads by handle name. A handle whose name is not a flag of the parsed set is a defect (the panic is an index out of range; its report names the Ergo frame). Two flags of one name in a set are not refused (Go panics on "flag redefined"; known gap).
+7. **Laws** ([Std laws](#std-laws)): `RenderParseRoundTrip`, `IndependentFlagsCommute`, `LastWins`, `DoubleDashEndsFlags`, `ShortAndLongAgree`, `DefaultWhenAbsent`, `UnknownNamesTheFlag`, `HelpNamesEveryFlag`, `EachCommandReaches` and `FlagCrossesPositional` (Q7). lower `TestFlagLaws` restates them as property tests. lower `TestFlagMatchesGo` checks the parse on 3,000 seeded argument lists: against Go's `flag` where every flag comes before the first positional argument, and against a written model of Go's `parseOne` with the Q7 rule on every list.
+8. **Cost.** `Values` holds a `Map` of a union of the value kinds, so each value is boxed until a closed union of records lowers without boxing (X1). The `Set` is a value built at each call; a constant `Set` could lower `Parse` to a `switch` on the flag name (#243).
+
+*Prior art:* Go's `flag` (syntax, `PrintDefaults`, `ContinueOnError` and `ExitOnError`); Effect's `@effect/cli` (`Flag.choice`, `Options.optional`, `Args`, `Command.withSubcommands`, `ValidationError` tags, help to stdout); Gleam's `glint` and `clip` build a command from typed flags and return a `Result`; Elixir's `OptionParser.parse/2` returns `{parsed, args, invalid}` and lets switches interleave with arguments; ReScript has no standard parser. Ergo takes Go's syntax, Effect's typed failures and commands, and `OptionParser`'s and `@effect/cli`'s interleaving.
 
 ## Testing
 

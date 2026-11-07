@@ -1,0 +1,141 @@
+import strconv
+import strings
+
+// Parse reads args against s. An argument is a flag when it starts with
+// "-" and is longer than "-"; a flag is -name or --name, with its value
+// after "=" or, for a flag that is not a switch, in the next argument.
+// Flags and positional arguments may interleave; a bare "--" ends the
+// flags, and every argument after it is positional. A repeated flag keeps
+// its last value. Then each required flag must be given, and the
+// positional arguments go to the specs of s.Args in order.
+func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Invalid | Missing | Extra {
+	let mut flags Map[string, value]
+	let mut positional = []string{}
+	let mut open = true
+	let mut i = 0
+	for i < len(args) {
+		let arg = args[i]
+		i += 1
+		if !open || len(arg) < 2 || !strings.HasPrefix(arg, "-") {
+			positional = positional.Append(arg)
+			continue
+		}
+		if arg == "--" {
+			open = false
+			continue
+		}
+		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, len(arg)) } else { strings.Slice(arg, 1, len(arg)) }
+		if body == "" || strings.HasPrefix(body, "-") || strings.HasPrefix(body, "=") {
+			return Invalid{Name: "", Text: arg, Reason: "bad flag syntax"}
+		}
+		let mut name = body
+		let mut given = ""
+		let mut hasValue = false
+		let eq = strings.Index(body, "=")
+		if eq > 0 {
+			name = strings.Slice(body, 0, eq)
+			given = strings.Slice(body, eq+1, len(body))
+			hasValue = true
+		}
+		match find(s, name) {
+		case None:
+			if name == "h" || name == "help" {
+				return Help{Text: Usage(s)}
+			}
+			return Unknown{Name: name}
+		case Some[Flag] as found:
+			match found.Value {
+			case BoolFlag:
+				if hasValue {
+					let b = strconv.ParseBool(given) catch {
+					case strconv.Malformed:
+						return Invalid{Name: name, Text: given, Reason: "parse error"}
+					}
+					flags[name] = boolValue{V: b}
+				} else {
+					flags[name] = boolValue{V: true}
+				}
+			case StringFlag, IntFlag, ChoiceFlag:
+				if !hasValue {
+					if i >= len(args) {
+						return NeedsValue{Name: name}
+					}
+					given = args[i]
+					i += 1
+				}
+				flags[name] = try read(found.Value, name, given)
+			}
+		}
+	}
+	for f in s.Flags {
+		if isRequired(f) {
+			match flags.Get(nameOf(f)) {
+			case Some[value]:
+			case None:
+				return Missing{Name: nameOf(f)}
+			}
+		}
+	}
+	let mut named Map[string, string]
+	let mut rest = []string{}
+	let mut next = 0
+	for a in s.Args {
+		match a.arity {
+		case one:
+			if next >= len(positional) {
+				return Missing{Name: a.name}
+			}
+			named[a.name] = positional[next]
+			next += 1
+		case optional:
+			if next < len(positional) {
+				named[a.name] = positional[next]
+				next += 1
+			}
+		case many:
+			for next < len(positional) {
+				rest = rest.Append(positional[next])
+				next += 1
+			}
+		}
+	}
+	if next < len(positional) {
+		return Extra{Text: positional[next]}
+	}
+	Values{set: s, flags: flags, named: named, rest: rest}
+}
+
+// read is the value of a flag that takes one, from its text.
+func read(f Flag, name string, given string) value fails Invalid {
+	match f {
+	case IntFlag:
+		let n = strconv.ParseInt(given, 0, 64) catch {
+		case strconv.Malformed:
+			return Invalid{Name: name, Text: given, Reason: "parse error"}
+		case strconv.OutOfRange:
+			return Invalid{Name: name, Text: given, Reason: "value out of range"}
+		}
+		intValue{V: int(n)}
+	case ChoiceFlag as c:
+		for choice in c.choices {
+			if choice == given {
+				return textValue{V: given}
+			}
+		}
+		Invalid{Name: name, Text: given, Reason: "not one of " + strings.Join(c.choices, ", ")}
+	case StringFlag, BoolFlag:
+		textValue{V: given}
+	}
+}
+
+// isRequired reports whether f has no default.
+func isRequired(f Flag) bool {
+	match f {
+	case StringFlag as s:
+		s.required
+	case IntFlag as n:
+		n.required
+	case BoolFlag, ChoiceFlag:
+		false
+	}
+}

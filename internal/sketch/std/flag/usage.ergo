@@ -1,0 +1,156 @@
+import strconv
+import strings
+
+// Usage is the help of s: "Usage of NAME:" (or "Usage:" with no name),
+// s.Usage on its own line when it is not empty, the flags in Defaults'
+// layout, and then the positional arguments in declaration order.
+func Usage(s Set) string {
+	let mut out = if s.Name == "" { "Usage:\n" } else { "Usage of " + s.Name + ":\n" }
+	if s.Usage != "" {
+		out = out + s.Usage + "\n"
+	}
+	out = out + Defaults(s.Flags)
+	if len(s.Args) > 0 {
+		out = out + "Arguments:\n"
+		for a in s.Args {
+			out = out + "  " + argShape(a) + "\n    \t" + strings.ReplaceAll(a.usage, "\n", "\n    \t") + "\n"
+		}
+	}
+	out
+}
+
+// Defaults is Go's flag.PrintDefaults text of flags, byte for byte for
+// String, Int and Bool: one entry per flag, sorted by name, each
+// "  -name type" then the usage, on the same line after a tab for a switch
+// of a one-byte name, else on the next line after four spaces and a tab;
+// a default that is not the zero value follows as " (default …)", a text
+// quoted. A back-quoted word in the usage names the value in place of the
+// type. A Choice's type is its choices joined by "|"; a required flag ends
+// with " (required)".
+func Defaults(flags []Flag) string {
+	let mut out = ""
+	let mut last = ""
+	let mut first = true
+	for _ in flags {
+		let mut pick = ""
+		let mut found = false
+		for f in flags {
+			let name = nameOf(f)
+			if (first || name > last) && (!found || name < pick) {
+				pick = name
+				found = true
+			}
+		}
+		if !found {
+			return out
+		}
+		match findIn(flags, pick) {
+		case Some[Flag] as f:
+			out = out + entry(f.Value)
+		case None:
+		}
+		last = pick
+		first = false
+	}
+	out
+}
+
+// entry is one flag's lines of Defaults.
+func entry(f Flag) string {
+	let (shape, usage) = unquote(usageOf(f), kindOf(f))
+	let mut line = "  -" + nameOf(f)
+	if shape != "" {
+		line = line + " " + shape
+	}
+	if len(line) <= 4 {
+		line = line + "\t"
+	} else {
+		line = line + "\n    \t"
+	}
+	line + strings.ReplaceAll(usage, "\n", "\n    \t") + defaultOf(f) + "\n"
+}
+
+// unquote is Go's flag.UnquoteUsage: the first back-quoted word of usage
+// names the value, and usage loses its back quotes; with none, the value
+// is named by kind.
+func unquote(usage string, kind string) (string, string) {
+	let i = strings.Index(usage, "`")
+	if i < 0 {
+		return (kind, usage)
+	}
+	let after = strings.Slice(usage, i+1, len(usage))
+	let j = strings.Index(after, "`")
+	if j < 0 {
+		return (kind, usage)
+	}
+	let name = strings.Slice(after, 0, j)
+	(name, strings.Slice(usage, 0, i) + name + strings.Slice(after, j+1, len(after)))
+}
+
+// usageOf is f's usage text.
+func usageOf(f Flag) string {
+	match f {
+	case StringFlag as s:
+		s.usage
+	case IntFlag as n:
+		n.usage
+	case BoolFlag as b:
+		b.usage
+	case ChoiceFlag as c:
+		c.usage
+	}
+}
+
+// kindOf is the name Defaults gives f's value: Go's names for its kinds,
+// none for a switch.
+func kindOf(f Flag) string {
+	match f {
+	case StringFlag:
+		"string"
+	case IntFlag:
+		"int"
+	case BoolFlag:
+		""
+	case ChoiceFlag as c:
+		strings.Join(c.choices, "|")
+	}
+}
+
+// defaultOf is the " (default …)" text of f, empty for a zero default.
+func defaultOf(f Flag) string {
+	match f {
+	case StringFlag as s:
+		if s.required {
+			" (required)"
+		} else if s.def == "" {
+			""
+		} else {
+			" (default " + strconv.Quote(s.def) + ")"
+		}
+	case IntFlag as n:
+		if n.required {
+			" (required)"
+		} else if n.def == 0 {
+			""
+		} else {
+			" (default " + strconv.Itoa(n.def) + ")"
+		}
+	case BoolFlag as b:
+		if b.def { " (default true)" } else { "" }
+	case ChoiceFlag as c:
+		if c.def == "" { "" } else { " (default " + strconv.Quote(c.def) + ")" }
+	}
+}
+
+// argShape is how Usage writes a positional argument: name, [name] or
+// name....
+func argShape(a ArgSpec) string {
+	match a.arity {
+	case one:
+		a.name
+	case optional:
+		"[" + a.name + "]"
+	case many:
+		a.name + "..."
+	}
+}

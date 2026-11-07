@@ -1,0 +1,61 @@
+// Command is one subcommand of a program whose commands are the union C
+// (@effect/cli Command.withSubcommands): its name, its usage line, its
+// Set, and Build, which makes the program's C from the parsed Values. A
+// nested command is a Build that calls ParseCommand on Rest(v).
+type Command[C] {
+	Name  string,
+	Usage string,
+	Set   Set,
+	Build func(v Values) C fails Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand,
+}
+
+// ParseCommand reads args as a command name and that command's own
+// arguments, and returns what its Build makes. -h, -help or --help in
+// place of a name fails Help with CommandUsage; a name of no command, or
+// no name, fails UnknownCommand.
+func ParseCommand[C](name string, usage string, commands []Command[C], args []string) C fails Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
+	if len(args) == 0 {
+		return UnknownCommand{Name: "", Known: commandNames(commands)}
+	}
+	let first = args[0]
+	if first == "-h" || first == "-help" || first == "--help" {
+		return Help{Text: CommandUsage(name, usage, commands)}
+	}
+	let mut rest = []string{}
+	for i, a in args {
+		if i > 0 {
+			rest = rest.Append(a)
+		}
+	}
+	for c in commands {
+		if c.Name == first {
+			let v = try Parse(c.Set, rest)
+			return try c.Build(v)
+		}
+	}
+	UnknownCommand{Name: first, Known: commandNames(commands)}
+}
+
+// CommandUsage is the help of a program of commands: "Usage of NAME:",
+// usage on its own line when it is not empty, and then each command with
+// its usage line, in declaration order.
+func CommandUsage[C](name string, usage string, commands []Command[C]) string {
+	let mut out = if name == "" { "Usage:\n" } else { "Usage of " + name + ":\n" }
+	if usage != "" {
+		out = out + usage + "\n"
+	}
+	out = out + "Commands:\n"
+	for c in commands {
+		out = out + "  " + c.Name + "\n    \t" + c.Usage + "\n"
+	}
+	out
+}
+
+// commandNames is the names of commands, in order.
+func commandNames[C](commands []Command[C]) []string {
+	let mut out = []string{}
+	for c in commands {
+		out = out.Append(c.Name)
+	}
+	out
+}

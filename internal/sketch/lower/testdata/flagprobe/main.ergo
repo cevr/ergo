@@ -1,0 +1,63 @@
+// flagprobe is the Ergo side of TestFlagMatchesGo: it prints the help of
+// its set, a line "--cases--", and then, for each line of standard input
+// (an argument count and the arguments, split by \x1f), one canonical
+// line of what flag.Parse gives.
+
+import flag
+import io
+import strconv
+import strings
+
+let Text = flag.String("s", "def", "a `text` value")
+let Number = flag.Int("n", 3, "a number")
+let Switch = flag.Bool("b", false, "a switch")
+let Output = flag.String("o", "", "output\nfile")
+let Verbose = flag.Bool("verbose", true, "be loud")
+let Count = flag.Int("count", 0, "how many")
+let Others = flag.Remaining("rest", "the rest")
+
+func probeSet() flag.Set {
+	flag.Set{Name: "probe", Usage: "", Flags: []flag.Flag{Text, Number, Switch, Output, Verbose, Count}, Args: []flag.ArgSpec{Others}}
+}
+
+// outcome is the canonical line of one argument list.
+func outcome(args []string) string {
+	let v = flag.Parse(probeSet(), args) catch {
+	case flag.Help:
+		return "help"
+	case flag.Unknown as u:
+		return "fail unknown " + strconv.Quote(u.Name)
+	case flag.NeedsValue as n:
+		return "fail needs " + strconv.Quote(n.Name)
+	case flag.Invalid as i:
+		return "fail invalid " + strconv.Quote(i.Name)
+	case flag.Missing as m:
+		return "fail missing " + strconv.Quote(m.Name)
+	case flag.Extra as e:
+		return "fail extra " + strconv.Quote(e.Text)
+	}
+	let mut rest = ""
+	for r in flag.Rest(v) {
+		rest = rest + " " + strconv.Quote(r)
+	}
+	"ok s=" + strconv.Quote(Text.Get(v)) + " n=" + strconv.Itoa(Number.Get(v)) + " b=" + strconv.FormatBool(Switch.Get(v)) + " rest=" + rest
+}
+
+func probe() needs io.Stdout | io.Stdin {
+	io.Stdout.Print(flag.Usage(probeSet()))
+	io.Stdout.Println("--cases--")
+	for line in io.Stdin.Lines() {
+		let fields = strings.Split(line, "\x1f")
+		let mut args = []string{}
+		for i, f in fields {
+			if i > 0 {
+				args = args.Append(f)
+			}
+		}
+		io.Stdout.Println(outcome(args))
+	}
+}
+
+func main() needs Ambient {
+	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } { probe() }
+}

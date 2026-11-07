@@ -1,0 +1,144 @@
+import strconv
+import strings
+
+// The laws of flag (docs/spec/stdlib.md, Std laws), stated over one set:
+// a text -s, an integer -n, a switch -b and the remaining arguments.
+
+let lawText = String("s", "d", "a text")
+let lawNumber = Int("n", 0, "a number")
+let lawSwitch = Bool("b", false, "a switch")
+let lawRequired = RequiredString("r", "a required text")
+
+// lawSet is the set the laws parse with.
+func lawSet() Set {
+	Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawNumber, lawSwitch}, Args: []ArgSpec{Remaining("rest", "the rest")}}
+}
+
+// lawCommand is the union of the commands of EachCommandReaches.
+type lawCommand = lawList{} | lawShow{}
+
+// lawCommands are two commands that each build their own variant.
+func lawCommands() []Command[lawCommand] {
+	[]Command[lawCommand]{
+		Command[lawCommand]{Name: "list", Usage: "list", Set: lawSet(), Build: buildList},
+		Command[lawCommand]{Name: "show", Usage: "show", Set: lawSet(), Build: buildShow},
+	}
+}
+
+// buildList is the list command's Build.
+func buildList(_ Values) lawCommand { lawList }
+
+// buildShow is the show command's Build.
+func buildShow(_ Values) lawCommand { lawShow }
+
+// commandName is the name of the command that built c.
+func commandName(c lawCommand) string {
+	match c {
+	case lawList:
+		"list"
+	case lawShow:
+		"show"
+	}
+}
+
+// RenderParseRoundTrip: what parses, rendered and parsed again, gives the
+// same values.
+law RenderParseRoundTrip(args []string) {
+	let v = Parse(lawSet(), args) catch {
+	case _:
+		return true
+	}
+	Equal(try Parse(lawSet(), Render(v)), v)
+}
+
+// IndependentFlagsCommute: the order of two different flags does not
+// matter.
+law IndependentFlagsCommute(a string, n int) {
+	let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)})
+	Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a}))
+}
+
+// LastWins: of a repeated flag, the last value counts.
+law LastWins(a string, b string) {
+	let v = try Parse(lawSet(), []string{"-s", a, "-s", b})
+	lawText.Get(v) == b
+}
+
+// DoubleDashEndsFlags: after "--", an argument that looks like a flag is
+// positional.
+law DoubleDashEndsFlags(x string) {
+	let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x}))
+	len(rest) == 1 && rest[0] == "-"+x
+}
+
+// ShortAndLongAgree: -name and --name are one flag.
+law ShortAndLongAgree(v string) {
+	Equal(try Parse(lawSet(), []string{"-s=" + v}), try Parse(lawSet(), []string{"--s=" + v}))
+}
+
+// DefaultWhenAbsent: an absent flag has its default, and an absent
+// required flag fails Missing with its name.
+law DefaultWhenAbsent() {
+	let v = try Parse(lawSet(), []string{})
+	let required = Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawRequired}, Args: []ArgSpec{}}
+	Parse(required, []string{}) catch {
+	case Missing as m:
+		return m.Name == "r" && lawText.Get(v) == "d" && lawNumber.Get(v) == 0 && !lawSwitch.Get(v)
+	case _:
+		return false
+	}
+	false
+}
+
+// UnknownNamesTheFlag: a flag the set does not declare fails Unknown with
+// its name.
+law UnknownNamesTheFlag(name string) {
+	if name == "" || name == "h" || name == "help" || name == "s" || name == "n" || name == "b" || strings.Contains(name, "=") || strings.HasPrefix(name, "-") {
+		return true
+	}
+	Parse(lawSet(), []string{"-" + name}) catch {
+	case Unknown as u:
+		return u.Name == name
+	case _:
+		return false
+	}
+	false
+}
+
+// HelpNamesEveryFlag: the help has a line for each flag of the set.
+law HelpNamesEveryFlag(names []string) {
+	let mut flags = []Flag{}
+	let mut seen Map[string, bool]
+	for name in names {
+		match seen.Get(name) {
+		case Some[bool]:
+		case None:
+			seen[name] = true
+			flags = flags.Append(String(name, "", "u"))
+		}
+	}
+	let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}})
+	for name in names {
+		if !strings.Contains(help, "\n  -"+name+" string\n") {
+			return false
+		}
+	}
+	true
+}
+
+// EachCommandReaches: each command's name runs that command's Build.
+law EachCommandReaches(i int) {
+	let commands = lawCommands()
+	if i < 0 || i >= len(commands) {
+		return true
+	}
+	commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name
+}
+
+// FlagCrossesPositional: a flag before or after a positional argument
+// gives the same values (owner, 2026-11-06: flags may follow positional
+// arguments).
+law FlagCrossesPositional(p string, a string) {
+	let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a})
+	Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p}))
+}

@@ -185,6 +185,25 @@
       "behavior": "Separate provisions are separate builds with independent acquisition tables: a node is acquired again by each build, a failed build retains its one outcome and is retried only by a new explicit build, and a caller-owned borrowed resource stays open across both.",
       "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Upstream shares one MemoMap across builds so the second build reuses the first build's layer. Ergo has no shared or global memo map; explicit cross-build leases remain libraries with their own owning scope.",
       "evidence": []
+    },
+    {
+      "id": "effect.cli.options-interleaved-with-operands",
+      "status": "covered",
+      "upstream": {"file": "packages/effect/test/cli/Command.test.ts", "line": 1823, "label": "should keep variadic argument order when options are interleaved"},
+      "behavior": "A flag may follow a positional argument; the positional arguments keep their order, and a repeated switch is accepted.",
+      "limits": "Ergo's flag (std-align S1d) takes Go's syntax otherwise: a bare -- ends the flags, a value flag takes the next argument whatever it is, and a repeated value flag keeps its last value. TestFlagMatchesGo checks interleaving against a written model on 3,000 generated lists; TestFlagCommandsRun runs a subcommand with a flag after its positional argument.",
+      "evidence": [
+        {"file": "internal/sketch/lower/std_flag_test.go", "test": "TestFlagMatchesGo", "targets": ["go"]},
+        {"file": "internal/sketch/lower/std_flag_test.go", "test": "TestFlagCommandsRun", "targets": ["go"]}
+      ]
+    },
+    {
+      "id": "effect.cli.duplicate-shared-option",
+      "status": "unsupported",
+      "upstream": {"file": "packages/effect/test/cli/Errors.test.ts", "line": 50, "label": "throws DuplicateOption when shared parent and child flags reuse a name"},
+      "behavior": "A parent's shared flag and a child's flag of one name are refused with DuplicateOption when the command tree is built.",
+      "limits": "Ergo's flag has no shared parent flags: a command's Set holds its own flags, and a nested command parses Rest(v) with its own Set. Two flags of one name in one Set are not refused either (a known gap, stdlib.md flag 6).",
+      "evidence": []
     }
   ]
 }
