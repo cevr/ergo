@@ -98,7 +98,12 @@ func TestRunDeadlineStopsAStuckRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ERGO_CLOSURE_RUN_DEADLINE", "5s")
+	t.Setenv(runDeadlineVariable, "5s")
+	if os.Getenv(binaryDeadlineVariable) != "" {
+		// TestRunDeadlineFollowsTheTestDeadline: only this binary's own
+		// -test.timeout can stop the run in time.
+		t.Setenv(runDeadlineVariable, "20m")
+	}
 	sb := sandbox{Root: f.root, Scratch: []string{scratchDir, logDir}}
 	env := testEnv(f.pkg, stuckVariable+"="+scratchDir, stuckWatchVariable+"="+strconv.Itoa(os.Getpid()))
 	output := filepath.Join(t.TempDir(), "stuck.out")
@@ -116,11 +121,16 @@ func TestRunDeadlineStopsAStuckRun(t *testing.T) {
 	select {
 	case runErr = <-done:
 	case <-runBound:
-		t.Fatalf("the stuck run was not stopped before 8/10 of the test's deadline (the run deadline is 5s); it ends when this test process ends")
+		t.Fatalf("the stuck run was not stopped before 8/10 of the test's deadline (%s=%s); it ends when this test process ends", runDeadlineVariable, os.Getenv(runDeadlineVariable))
 	}
 	t.Logf("stopped after %v: %v", time.Since(start).Round(time.Millisecond), runErr)
 	if runErr == nil || !strings.Contains(runErr.Error(), "internal/stuck") || !strings.Contains(runErr.Error(), "did not end within") {
 		t.Fatalf("want a failure that names the package and the deadline; got %v", runErr)
+	}
+	// The failure lists the run's processes at the deadline, the run's
+	// reaper (this test binary) first.
+	if self := filepath.Base(self); !strings.Contains(runErr.Error(), "its processes then:\n  "+self[:min(len(self), 15)]+" (pid ") {
+		t.Fatalf("want a failure that lists the run's processes, its reaper %s first; got %v", self, runErr)
 	}
 	// The run's start-up (sandbox, observer, target, child) takes a time
 	// that the host's load sets, and the deadline can stop the run at any
@@ -146,6 +156,41 @@ func TestRunDeadlineStopsAStuckRun(t *testing.T) {
 		if !ended {
 			t.Errorf("process %d of the stuck run (%s) is still running", p.pid, p.cmdline)
 		}
+	}
+}
+
+// binaryDeadlineVariable makes TestRunDeadlineStopsAStuckRun set a run
+// deadline past its binary's -test.timeout, as the gate's sweep step had
+// it: 20 minutes in a 15 minute test (batch 9).
+const binaryDeadlineVariable = "ERGO_CLOSURE_STUCK_BINARY_DEADLINE"
+
+// stuckBinaryTimeout is the -test.timeout of the binary that
+// TestRunDeadlineFollowsTheTestDeadline runs: runReportMargin (a minute)
+// and 30 s for the run.
+const stuckBinaryTimeout = 90 * time.Second
+
+// A stuck run whose run deadline lies past the test binary's own deadline
+// is stopped by the binary's deadline (runDeadline): the stuck-run test,
+// in a binary with a -test.timeout of stuckBinaryTimeout and a run
+// deadline of 20 minutes, stops the run, names its package and processes,
+// and passes, where without the bound its run would hold until the
+// testing package's timeout panicked (the batch-9 sweep, b9-fix-gate).
+func TestRunDeadlineFollowsTheTestDeadline(t *testing.T) {
+	if os.Getenv(binaryDeadlineVariable) != "" {
+		t.Skip("runs the stuck-run test; not in itself")
+	}
+	needSandbox(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(self, "-test.run=^TestRunDeadlineStopsAStuckRun$", "-test.count=1", "-test.v", "-test.timeout="+stuckBinaryTimeout.String())
+	command.Env = append(os.Environ(), binaryDeadlineVariable+"=1")
+	start := time.Now()
+	output, err := command.CombinedOutput()
+	t.Logf("the stuck-run test with -test.timeout=%v ended after %v", stuckBinaryTimeout, time.Since(start).Round(time.Millisecond))
+	if err != nil || !strings.Contains(string(output), "--- PASS: TestRunDeadlineStopsAStuckRun") {
+		t.Fatalf("the stuck run was not stopped before its binary's deadline (%v):\n%s", err, output)
 	}
 }
 

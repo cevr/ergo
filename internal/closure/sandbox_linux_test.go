@@ -264,12 +264,12 @@ const reaperBound = 30 * time.Second
 // most reaperBound. The reaper collects every process of the run, those
 // that left the group included. Then runWithin stops every process left
 // in the group, and reaps the leader. It reports whether the deadline
-// ended the run. The leader is not reaped before the group is stopped:
-// until then its process id, which is the group's, cannot name another
-// process.
-func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, err error) {
+// ended the run and, if it did, the processes the run had then (runTree).
+// The leader is not reaped before the group is stopped: until then its
+// process id, which is the group's, cannot name another process.
+func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, left []string, err error) {
 	if err := cmd.Start(); err != nil {
-		return false, err
+		return false, nil, err
 	}
 	pid := cmd.Process.Pid
 	stop := func() {
@@ -281,10 +281,11 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, err error)
 	if errno != 0 {
 		stop()
 		cmd.Wait()
-		return false, fmt.Errorf("pidfd_open on the run: %w", errno)
+		return false, nil, fmt.Errorf("pidfd_open on the run: %w", errno)
 	}
 	exited, pollErr := readableWithin(int(pidfd), deadline)
 	if pollErr == nil && !exited {
+		left = runTree(pid)
 		syscall.Kill(pid, syscall.SIGTERM)
 		readableWithin(int(pidfd), reaperBound)
 	}
@@ -292,9 +293,68 @@ func runWithin(cmd *exec.Cmd, deadline time.Duration) (timedOut bool, err error)
 	stop()
 	waitErr := cmd.Wait()
 	if pollErr != nil {
-		return false, pollErr
+		return false, nil, pollErr
 	}
-	return !exited, waitErr
+	return !exited, left, waitErr
+}
+
+// runTree describes the run's reaper, pid, and each of its descendants,
+// one line each, parents first: "<name> (pid <n>, <state>): <command
+// line>". The reaper is a child subreaper (reaperMain), so every process
+// of the run that lost its parent is among its descendants. It reads /proc
+// once; a process that ends meanwhile is left out.
+func runTree(pid int) []string {
+	type proc struct {
+		ppid        int
+		name, state string
+	}
+	procs := map[int]proc{}
+	children := map[int][]int{}
+	entries, _ := os.ReadDir("/proc")
+	for _, entry := range entries {
+		id, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
+		if err != nil {
+			continue
+		}
+		open, end := strings.IndexByte(string(stat), '('), strings.LastIndexByte(string(stat), ')')
+		if open < 0 || end < open {
+			continue
+		}
+		fields := strings.Fields(string(stat[end+1:]))
+		if len(fields) < 2 {
+			continue
+		}
+		ppid, _ := strconv.Atoi(fields[1])
+		procs[id] = proc{ppid: ppid, name: string(stat[open+1 : end]), state: fields[0]}
+		children[ppid] = append(children[ppid], id)
+	}
+	var lines []string
+	queue := []int{pid}
+	for len(queue) > 0 && len(lines) < 64 {
+		id := queue[0]
+		queue = queue[1:]
+		p, ok := procs[id]
+		if !ok {
+			continue
+		}
+		cmdline, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", id))
+		command := strings.TrimSpace(strings.ReplaceAll(string(cmdline), "\x00", " "))
+		if len(command) > 160 {
+			command = command[:160] + "..."
+		}
+		lines = append(lines, fmt.Sprintf("%s (pid %d, %s): %s", p.name, id, p.state, command))
+		ids := children[id]
+		slices.Sort(ids)
+		queue = append(queue, ids...)
+	}
+	if len(lines) == 0 {
+		lines = []string{"none listed (the run's reaper had ended)"}
+	}
+	return lines
 }
 
 // openProcess returns a pidfd of process pid, or ok false when no process
