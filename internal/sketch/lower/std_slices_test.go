@@ -320,6 +320,19 @@ test SlicesFilterIsIdempotent(xs []int) {
 	assert slices.Equal(slices.Filter(slices.Filter(xs, even), even), slices.Filter(xs, even))
 }
 
+test SlicesFilterKeepsTheAccepted(xs []int) {
+	let even = func(x int) bool { x%2 == 0 }
+	let kept = slices.Filter(xs, even)
+	let mut i = 0
+	for x in xs {
+		if even(x) {
+			assert i < len(kept) && kept[i] == x
+			i = i + 1
+		}
+	}
+	assert i == len(kept)
+}
+
 test SlicesFoldSumMatchesLoop(xs []int) {
 	let mut sum = 0
 	for x in xs {

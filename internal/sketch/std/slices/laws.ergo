@@ -125,6 +125,23 @@ law FilterIsIdempotent(xs []int) {
 	Equal(Filter(Filter(xs, even), even), Filter(xs, even))
 }
 
+// FilterKeepsTheAccepted: Filter keeps each element that keep accepts, in
+// order, and drops each one it refuses.
+law FilterKeepsTheAccepted(xs []int) {
+	let even = func(x int) bool { x%2 == 0 }
+	let kept = Filter(xs, even)
+	let mut i = 0
+	for x in xs {
+		if even(x) {
+			if i >= len(kept) || kept[i] != x {
+				return false
+			}
+			i = i + 1
+		}
+	}
+	i == len(kept)
+}
+
 // FoldSumMatchesLoop: Fold with + is the sum a loop computes.
 law FoldSumMatchesLoop(xs []int) {
 	let mut sum = 0

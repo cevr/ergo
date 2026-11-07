@@ -183,6 +183,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `slices` | `CollectInvertsValues` | `CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }` | `TestStdSlicesLawsRun` | tested |
 | `slices` | `ContainsIffIndex` | `ContainsIffIndex(xs []int, x int) { let i = Index(xs, x) Contains(xs, x) == (i >= 0) && (i < 0 \|\| xs[i] == x) }` | `TestStdSlicesLawsRun` | tested |
 | `slices` | `FilterIsIdempotent` | `FilterIsIdempotent(xs []int) { let even = func(x int) bool { x%2 == 0 } Equal(Filter(Filter(xs, even), even), Filter(xs, even)) }` | `TestStdSlicesLawsRun` | tested |
+| `slices` | `FilterKeepsTheAccepted` | `FilterKeepsTheAccepted(xs []int) { let even = func(x int) bool { x%2 == 0 } let kept = Filter(xs, even) let mut i = 0 for x in xs { if even(x) { if i >= len(kept) \|\| kept[i] != x { return false } i = i + 1 } } i == len(kept) }` | `TestStdSlicesLawsRun` | tested |
 | `slices` | `FoldSumMatchesLoop` | `FoldSumMatchesLoop(xs []int) { let mut sum = 0 for x in xs { sum = sum + x } Fold(xs, 0, func(acc int, x int) int { acc + x }) == sum }` | `TestStdSlicesLawsRun` | tested |
 | `slices` | `MaxIsLastSorted` | `MaxIsLastSorted(xs []int) { let s = Sort(xs) if len(s) == 0 { return Max(xs) == None && Min(xs) == None } Max(xs) == Some[int]{Value: s[len(s)-1]} && Min(xs) == Some[int]{Value: s[0]} }` | `TestStdSlicesLawsRun` | tested |
 | `slices` | `ReverseTwiceIsSame` | `ReverseTwiceIsSame(xs []int) { Equal(Reverse(Reverse(xs)), xs) }` | `TestStdSlicesLawsRun` | tested |
