@@ -15,11 +15,12 @@ import (
 	"ergo.local/prototype/internal/sketch/std"
 )
 
-// allowlist is the pure allowlist as G9 decides it (std-1 plan, section 3):
-// the oracle for check.PureGoPackages, written out independently of it.
-var allowlist = []string{"math", "slices", "sort", "strconv", "strings", "unicode/utf8"}
+// allowlist is the pure allowlist as G9 decides it (std-1 plan, section 3),
+// with path/filepath from std-align S3a: the oracle for
+// check.PureGoPackages, written out independently of it.
+var allowlist = []string{"math", "path/filepath", "slices", "sort", "strconv", "strings", "unicode/utf8"}
 
-// TestPureGoPackages pins the shared list: sorted, the plan's six packages,
+// TestPureGoPackages pins the shared list: sorted, the plans' seven packages,
 // and a copy (a caller that changes it does not change the rule).
 func TestPureGoPackages(t *testing.T) {
 	got := check.PureGoPackages()
@@ -159,6 +160,22 @@ func TestExternAllowlist(t *testing.T) {
 				t.Fatalf("want the host text %q…, got %s", want, msg)
 			}
 		})
+	}
+}
+
+// TestExternAllowlistExcept (std-align S3a): path/filepath is allowed, but
+// its members that reach the host are refused as a host package is; a
+// lexical member checks clean.
+func TestExternAllowlistExcept(t *testing.T) {
+	for _, name := range []string{"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"} {
+		target := "path/filepath." + name
+		_, diags := check.CheckSource("extern go " + target + " func f(s string) string\nfunc Use() { _ = f(\"x\") }\n")
+		if len(diags) != 1 || diags[0].Code != "S109" || !strings.HasPrefix(diags[0].Message, "extern go "+target+" reaches the host") {
+			t.Errorf("%s: want one S109 with the host text, got\n\t%s", target, describe(diags))
+		}
+	}
+	if _, diags := check.CheckSource("extern go path/filepath.Clean func f(s string) string\nfunc Use() { _ = f(\"x\") }\n"); len(diags) != 0 {
+		t.Errorf("path/filepath.Clean: want clean, got\n\t%s", describe(diags))
 	}
 }
 

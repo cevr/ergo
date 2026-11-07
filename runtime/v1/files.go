@@ -88,8 +88,17 @@ type Body struct {
 const PureMark = "//ergo:pure"
 
 // PureImports are the Go packages a file may import when one of its bodies
-// is marked pure: packages that compute on values and reach no host state.
-var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math"}
+// is marked pure: packages that compute on values and reach no host state,
+// except the members PureImportsExcept names.
+var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math", "path/filepath"}
+
+// PureImportsExcept names, for a package of PureImports, its members that
+// reach host state. A marked body that names one is refused. filepath.Abs
+// reads the working directory; EvalSymlinks, Glob, Walk and WalkDir read
+// the file system. Every other member of path/filepath is lexical.
+var PureImportsExcept = map[string][]string{
+	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
+}
 
 // TypeParam is one Go type parameter of a body: its name and its
 // constraint as written (any, comparable).
@@ -130,7 +139,9 @@ type goDecl struct {
 	typ     *ast.TypeSpec
 	rt      string
 	imports []string
-	values  map[string]bool // shared by every goDecl of one parse
+	// locals are the file's import paths by the local name it gives them.
+	locals map[string]string
+	values map[string]bool // shared by every goDecl of one parse
 }
 
 // goDecls are the exported functions, methods and types of a package's
@@ -195,9 +206,15 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 		}
 		rt := ""
 		var imports []string
+		locals := map[string]string{}
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
 			imports = append(imports, p)
+			local := p[strings.LastIndex(p, "/")+1:]
+			if imp.Name != nil {
+				local = imp.Name.Name
+			}
+			locals[local] = p
 			if p == rtPath {
 				rt = "rt"
 				if imp.Name != nil {
@@ -209,7 +226,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
 				for _, s := range gd.Specs {
 					if ts := s.(*ast.TypeSpec); ts.Name.IsExported() {
-						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, values: values}
+						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, locals: locals, values: values}
 					}
 				}
 				continue
@@ -236,7 +253,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if fn.Recv != nil && len(fn.Recv.List) == 1 {
 				key = recvName(fn.Recv.List[0].Type) + "." + key
 			}
-			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, values: values}
+			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, locals: locals, values: values}
 		}
 	}
 	return decls, nil
@@ -310,6 +327,11 @@ func pureRefusal(g goDecl, b Body) string {
 			return fmt.Sprintf("its file imports %s, which is not in %v", p, PureImports)
 		}
 	}
+	for local, p := range g.locals {
+		if local == "." && len(PureImportsExcept[p]) > 0 {
+			return fmt.Sprintf("its file dot-imports %s, whose members %v reach the host", p, PureImportsExcept[p])
+		}
+	}
 	if len(b.Hidden) > 0 {
 		return fmt.Sprintf("it takes the hidden %s parameter", b.Hidden[0])
 	}
@@ -327,6 +349,10 @@ func pureRefusal(g goDecl, b Body) string {
 		case *ast.SelectorExpr:
 			// x.Sel names a field, a method or an imported package's
 			// member, never a top-level name of this package.
+			if id, ok := x.X.(*ast.Ident); ok && slices.Contains(PureImportsExcept[g.locals[id.Name]], x.Sel.Name) {
+				why = fmt.Sprintf("its body names %s.%s, which reaches the host (PureImportsExcept)", id.Name, x.Sel.Name)
+				return false
+			}
 			ast.Inspect(x.X, func(n ast.Node) bool { return why == "" && pureNode(n, g.values, &why) })
 			return false
 		default:

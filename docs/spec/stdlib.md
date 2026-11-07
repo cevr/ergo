@@ -110,6 +110,25 @@ Std `strings` and `strconv` work on text (wave std-1, unit G5a). They are pure f
 
 *Prior art:* Gleam's `gleam/string` and ReScript's `Js.String2` bind host text functions as direct externals with no wrapper; Elixir's `String` and `Integer.parse/1` (`{n, rest} | :error`) are plain BEAM calls. Ergo binds Go's `strings` and `strconv` the same way, and gives `Atoi` a typed failure in its row in place of Go's `error`.
 
+## filepath
+
+Std `filepath` works on file paths by their text alone (std-align S3a). It follows Go's `path/filepath` for its names, arguments and results, and Effect's `Path` service (`join`, `basename`, `dirname`, `extname`, `normalize`, `relative`, `isAbsolute`) for what it covers. It has no operation type and no capability: no function reads the file system or the working directory. Each export is an `extern go` of a pure `runtime/v1` body in `path.go` that calls the Go function of the same name, with one `runtimeBindings` row each that neither waits nor releases; `Split` is Ergo over two of them.
+
+| Declaration | Meaning |
+| --- | --- |
+| `Join(parts []string) string` | The non-empty parts with a separator between each pair, cleaned; `""` when every part is empty. Ergo has no variadic parameters, so the parts are one slice. |
+| `Base(path string) string`, `Dir(path string) string`, `Ext(path string) string` | The last element; the path without it, cleaned; the extension of the last element from its last dot. |
+| `Clean(path string) string`, `IsAbs(path string) bool` | Go's lexical cleaning; whether the path begins with a separator. |
+| `type Parts { Dir string, File string }`; `Split(path string) Parts` | The path cut after its last separator: `Dir + File` is the path. Go returns the two strings; Ergo returns one record. |
+| `type NotRelative { Base string, Target string }`; `Rel(base string, target string) string fails NotRelative` | A path relative to `base` that names `target`. Go's `Rel` returns an `error`; Ergo's fails `NotRelative` in its row. |
+
+1. The separator is `/`. Go's targets for Ergo are Linux and darwin, where no path has a volume name; Windows is not a target.
+2. Every body is pure ([Pure bodies](#pure-bodies)), so a call of one is transparent in a footprint, and a function that only calls `filepath` has an empty footprint. `Abs`, `EvalSymlinks`, `Glob`, `Walk` and `WalkDir` are not in this package: they read the host. `v1.PureImportsExcept` lists them, and `BodyOf` refuses a pure body that names one.
+3. `NotRelative` is the `runtime/v1` struct `v1.NotRelative` ([Types](#v1-packages-task-scope-queue-and-slice) 4). Its text is `filepath.NotRelative{Base:… Target:…}`, the generated text of a record.
+4. The laws (Std laws below) are the algebra: `Clean` is idempotent and keeps the root, `Split` rebuilds its path, `Dir` and `Base` join back, `Base` has no separator, `Ext` is the extension of `Base`, and `Join` of `base` and `Rel(base, target)` is `target`. `TestFilepathLaws` runs each over 10,000 generated paths of the segments `""`, `.`, `..`, names with and without dots, runs of separators, a multi-byte rune and an invalid byte; `TestFilepathMatchesGo` holds each body to `path/filepath` on the same paths; `TestFilepathRuns` (lower) runs each function.
+
+*Prior art:* Gleam's `filepath` package and Elixir's `Path` module are lexical and read no host state, except Elixir's `Path.expand/1`, which reads the working directory, as Go's `Abs` does; Effect's `Path` is a service, so a test can replace it, which a lexical function never needs. Ergo keeps Go's names and binds Go's functions directly, as Gleam's externals bind Erlang's `filename`.
+
 ## Pure bodies
 
 A std extern whose `runtime/v1` Go body is marked pure is transparent in footprints (wave std-1, unit G5b; [rows.md, Footprints](rows.md#footprints)). A call of it adds no capability, no task start and no opacity, so a function that calls `strings.TrimSpace` has the footprint of one that calls nothing: empty, with no entry poll. Every other extern call stays opaque.
@@ -117,14 +136,15 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 1. The mark is the directive line `//ergo:pure` in the doc comment of an exported top-level function of `runtime/v1`. `v1.BodyOf` reads it and reports `Body.Pure`; the checker's footprint (`check/footprint.go`, `runs`) reads only that fact.
 2. The mark is a reviewed claim. `BodyOf` refuses a marked body, with an error that names the rule, when:
    - it is a method;
-   - its file imports a package outside `v1.PureImports`: `strings`, `strconv`, `unicode/utf8`, `slices`, `sort`, `math`;
+   - its file imports a package outside `v1.PureImports`: `strings`, `strconv`, `unicode/utf8`, `slices`, `sort`, `math`, `path/filepath`;
+   - its body names a member of an allowed package that reaches the host, as `v1.PureImportsExcept` lists them (`filepath.Abs`, `EvalSymlinks`, `Glob`, `Walk`, `WalkDir`), or its file dot-imports such a package;
    - it takes a hidden argument (the frame, the call site, the task, the Scheduler, the reading package);
    - it takes a function, whose code is unknown;
    - its body names a top-level function or variable of `runtime/v1` (so it reaches no other body and no package state), starts a goroutine or uses a channel. A local name that shadows a top-level one is refused too.
    For a refused body `BodyOf` returns no shape, so the checker treats its call as opaque. A body that is not marked is not pure.
 3. Purity is only std's. A user `extern go strings.TrimSpace` stays opaque: its Go body is outside the reviewed set.
 4. An Ergo std function over pure externs, such as `strings.Cut`, is pure through its own footprint, which its package records.
-5. Today the marked bodies are the bodies of `strings` and `strconv` in `text.go`. `TestPureBodiesKeepTheAllowlist` reads every embedded runtime file and checks each marked body against the rules independently of `BodyOf`; `TestFootprintsPureStd` checks the footprints.
+5. Today the marked bodies are the bodies of `strings` and `strconv` in `text.go` and of `filepath` in `path.go`. `TestPureBodiesKeepTheAllowlist` reads every embedded runtime file and checks each marked body against the rules independently of `BodyOf`; `TestFootprintsPureStd` checks the footprints.
 
 *Prior art:* GHC trusts a foreign import's declared type: an import whose result is not in `IO` is pure on the author's word. Gleam's and ReScript's externals carry no effect fact, and Elixir's compiler sees a remote call as unknown code. Koka infers effects only for code it can see, and its externs state their effect in the declared type. Ergo keeps the claim on the Go body, where a reviewer reads it, and checks its mechanical part: what the file can reach.
 
@@ -141,6 +161,13 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
+| `filepath` | `BaseHasNoSeparator` | `BaseHasNoSeparator(path string) { Base(path) == "/" \|\| Split(Base(path)).Dir == "" }` | `TestFilepathLaws` | tested |
+| `filepath` | `CleanIsIdempotent` | `CleanIsIdempotent(path string) { Clean(Clean(path)) == Clean(path) }` | `TestFilepathLaws` | tested |
+| `filepath` | `CleanKeepsRoot` | `CleanKeepsRoot(path string) { IsAbs(Clean(path)) == IsAbs(path) }` | `TestFilepathLaws` | tested |
+| `filepath` | `ExtIsTheExtOfBase` | `ExtIsTheExtOfBase(path string) { if Split(path).File == "" { return true } Ext(Base(path)) == Ext(path) }` | `TestFilepathLaws` | tested |
+| `filepath` | `JoinOfDirAndBase` | `JoinOfDirAndBase(path string) { if path != "" && Split(path).File == "" { return true } Clean(Join([]string{Dir(path), Base(path)})) == Clean(path) }` | `TestFilepathLaws` | tested |
+| `filepath` | `RelThenJoin` | `RelThenJoin(base string, target string) { let r = Rel(base, target) catch { case NotRelative: return true } Clean(Join([]string{base, r})) == Clean(target) }` | `TestFilepathLaws` | tested |
+| `filepath` | `SplitRebuilds` | `SplitRebuilds(path string) { let p = Split(path) p.Dir+p.File == path && splitFile(p.File) == p.File }` | `TestFilepathLaws` | tested |
 | `fs` | `Files.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }` | `TestStdHostLawsHold` | tested |
 | `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestStdHostLawsHold` | tested |
 | `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |

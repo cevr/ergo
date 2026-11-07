@@ -1,0 +1,106 @@
+// Package filepath works on file paths by their text alone, as Go's
+// path/filepath does (docs/spec/stdlib.md, filepath; Effect's Path). Go's
+// targets for Ergo are Linux and darwin, so the separator is '/' and no
+// path has a volume name. No function reads the file system or the working
+// directory: each extern binds a runtime/v1 body (runtime/v1/path.go) that
+// is marked pure, so a call is transparent in a footprint. Split is Ergo
+// over two of them.
+
+// Join is the non-empty parts with a separator between each pair, cleaned
+// (Clean); "" when every part is empty. Ergo has no variadic parameters,
+// so the parts are one slice.
+extern go ergo.local/prototype/runtime/v1.FilepathJoin func Join(parts []string) string
+
+// Base is the last element of path, its trailing separators removed: "."
+// for an empty path, "/" for a path of separators only.
+extern go ergo.local/prototype/runtime/v1.FilepathBase func Base(path string) string
+
+// Dir is path without its last element, cleaned: "." when path has no
+// separator.
+extern go ergo.local/prototype/runtime/v1.FilepathDir func Dir(path string) string
+
+// Ext is the extension of the last element of path: the text from its
+// last dot, or "" when it has no dot.
+extern go ergo.local/prototype/runtime/v1.FilepathExt func Ext(path string) string
+
+// Clean is the shortest path that names the same file as path by lexical
+// processing: one separator in each run, no "." element, no "x/.."
+// element, no ".." at the start of a rooted path, no trailing separator
+// except in "/"; "." for an empty path.
+extern go ergo.local/prototype/runtime/v1.FilepathClean func Clean(path string) string
+
+// IsAbs reports whether path is rooted: it begins with a separator.
+extern go ergo.local/prototype/runtime/v1.FilepathIsAbs func IsAbs(path string) bool
+
+extern go ergo.local/prototype/runtime/v1.FilepathSplitDir func splitDir(path string) string
+
+extern go ergo.local/prototype/runtime/v1.FilepathSplitFile func splitFile(path string) string
+
+// Parts is a path cut after its last separator.
+type Parts { Dir string, File string }
+
+// Split cuts path after its last separator: Dir ends with the separator
+// (or is "" when path has none), and Dir + File is path.
+func Split(path string) Parts {
+	Parts{Dir: splitDir(path), File: splitFile(path)}
+}
+
+// NotRelative is the failure of Rel: target cannot be made relative to
+// base by lexical processing, because one is rooted and the other is not,
+// or because base has a ".." element that target does not match.
+type NotRelative { Base string, Target string }
+
+// Rel is a path that Join([]string{base, Rel(base, target)}) makes equal
+// to target after Clean. Both are cleaned first; Rel of two equal paths is
+// ".".
+extern go ergo.local/prototype/runtime/v1.FilepathRel func Rel(base string, target string) string fails NotRelative
+
+// CleanIsIdempotent: a clean path is its own Clean.
+law CleanIsIdempotent(path string) {
+	Clean(Clean(path)) == Clean(path)
+}
+
+// CleanKeepsRoot: Clean never roots or unroots a path.
+law CleanKeepsRoot(path string) {
+	IsAbs(Clean(path)) == IsAbs(path)
+}
+
+// SplitRebuilds: the two parts of Split are path, cut once.
+law SplitRebuilds(path string) {
+	let p = Split(path)
+	p.Dir+p.File == path && splitFile(p.File) == p.File
+}
+
+// JoinOfDirAndBase: for a path with no trailing separator, Dir and Base
+// join back to the path, cleaned.
+law JoinOfDirAndBase(path string) {
+	if path != "" && Split(path).File == "" {
+		return true
+	}
+	Clean(Join([]string{Dir(path), Base(path)})) == Clean(path)
+}
+
+// BaseHasNoSeparator: Base is one element, or the root.
+law BaseHasNoSeparator(path string) {
+	Base(path) == "/" || Split(Base(path)).Dir == ""
+}
+
+// ExtIsTheExtOfBase: for a path whose last element is not empty (no
+// trailing separator, not ""), the extension of path is the extension of
+// its Base.
+law ExtIsTheExtOfBase(path string) {
+	if Split(path).File == "" {
+		return true
+	}
+	Ext(Base(path)) == Ext(path)
+}
+
+// RelThenJoin: when Rel succeeds, joining its result to base gives target,
+// cleaned.
+law RelThenJoin(base string, target string) {
+	let r = Rel(base, target) catch {
+	case NotRelative:
+		return true
+	}
+	Clean(Join([]string{base, r})) == Clean(target)
+}
