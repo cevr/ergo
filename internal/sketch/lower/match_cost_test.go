@@ -25,9 +25,10 @@ import (
 //
 // BenchmarkMatchEmitted and BenchmarkMatchControl each have the
 // sub-benchmarks breaker (Breaker{}.Step over 1,024 seeded (state, signal)
-// pairs, all 12 combinations present), full36 and mixed (pick over 1,024
-// seeded pairs). The control of breaker builds the same Decision values,
-// so both allocate alike.
+// pairs, all 12 combinations present), breaker-fn (the step function
+// itself, without the plan's Step method around it), full36 and mixed
+// (pick over 1,024 seeded pairs). The control of breaker builds the same
+// Decision values, so both allocate alike.
 
 func treeCostSource() string {
 	return treeBreakerDecls + treeCommonTypes + treeFull36Func() + treeMixedFunc + "\nfunc main() {}\n"
@@ -236,12 +237,14 @@ func benchPick(b *testing.B, f func(A, B) string) {
 
 func BenchmarkMatchEmitted(b *testing.B) {
 	b.Run("breaker", func(b *testing.B) { benchStep(b, Breaker{}.Step) })
+	b.Run("breaker-fn", func(b *testing.B) { benchStep(b, step) })
 	b.Run("full36", func(b *testing.B) { benchPick(b, pick36) })
 	b.Run("mixed", func(b *testing.B) { benchPick(b, pickMixed) })
 }
 
 func BenchmarkMatchControl(b *testing.B) {
 	b.Run("breaker", func(b *testing.B) { benchStep(b, ctlStep) })
+	b.Run("breaker-fn", func(b *testing.B) { benchStep(b, ctlStep) })
 	b.Run("full36", func(b *testing.B) { benchPick(b, ctlPick36) })
 	b.Run("mixed", func(b *testing.B) { benchPick(b, ctlMixed) })
 }
@@ -280,7 +283,7 @@ func TestMatchCostModule(t *testing.T) {
 		t.Errorf("the contract test did not pass:\n%s", output)
 	}
 	for _, side := range []string{"Emitted", "Control"} {
-		for _, work := range []string{"breaker", "full36", "mixed"} {
+		for _, work := range []string{"breaker", "breaker-fn", "full36", "mixed"} {
 			name := "BenchmarkMatch" + side + "/" + work
 			if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(name) + `(?:-\d+)?\s+1\s+\S+ ns/op`).Match(output) {
 				t.Errorf("benchmark %s did not run one op:\n%s", name, output)
