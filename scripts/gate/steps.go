@@ -62,6 +62,58 @@ func hostTestParallel() string {
 	return strconv.Itoa(min(maxHostTestParallel, stepCPUs()))
 }
 
+// sandboxHostTests are the tests of a host package that the full tier runs
+// each in a step of its own, beside the package's step, which skips them:
+// the tests that start the merge tier's sandbox (startsSandbox in
+// scripts/gate) and start no gate in a systemd scope. Each runs alone in
+// its process (it sets the environment, so it is not parallel), and most
+// build Go programs in a cold sandbox cache, so they made up most of the
+// package's step, whose tests otherwise ran one after another: at batch-9
+// 4377b668 the package took 509 s at a CPU budget of 4 on a quiet host, of
+// which these took 300 s (TestMergeTierSandboxRegression alone 164 s), and
+// under the batch gate's load of 17 the one step passed the 15 minute
+// testTimeout (b9-fix-gate, measured). As steps of their own they run at
+// once with the package's step, within the gate's CPU budget. A test that
+// starts a gate in a systemd scope stays in the package's step, where the
+// scope tests run one at a time (maxHostTestParallel).
+// TestSandboxHostTestsAreTheSandboxTests keeps the list.
+var sandboxHostTests = map[string][]string{
+	"scripts/gate": {
+		"TestMergeTierSandboxRegression",
+		"TestMergeTierInputContractRegression",
+		"TestMergeTierSandboxConcurrent",
+		"TestMergeGateStopsOnGroupSIGTERM",
+		"TestSandboxAdmitsSymlinkRoots",
+		"TestSandboxArgvBindsAdmittedRoots",
+		"TestSandboxModuleZipIsConstructed",
+		"TestSandboxPlanOfThisHost",
+		"TestMergeTierFailsClosed",
+		"TestSandboxMasksContaminatedInputs",
+	},
+}
+
+// hostSteps declares the full tier's steps of the host package pkg: one
+// step per test of sandboxHostTests, then the package's step, which skips
+// them (shardArgs), so each test runs in exactly one step. Every step runs
+// uncached (-count=1) with -parallel hostTestParallel.
+func hostSteps(root, pkg, relative string) []*Step {
+	name := fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg))
+	var groups [][]string
+	for _, test := range sandboxHostTests[relative] {
+		groups = append(groups, []string{test})
+	}
+	selections := shardArgs(append(groups, nil))
+	var steps []*Step
+	for i, selection := range selections {
+		step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append([]string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout}, selection...), pkg)}
+		if i < len(groups) {
+			step.Name += " " + groups[i][0]
+		}
+		steps = append(steps, step)
+	}
+	return steps
+}
+
 // hermeticTestRoot holds the gate's hermetic test packages: every package
 // below it that is not a host package. Their step is the gate's one
 // exception to uncached go tests (Step.Hermetic): they replay from Go's test
@@ -85,14 +137,14 @@ var goRuntimeEnvironment = []string{"GODEBUG", "GOGC", "GOMEMLIMIT", "GOMAXPROCS
 // builds a package's test binary, runs it with a test log and fails on a
 // read of the checkout outside the package's declared closure: the check
 // that the fast tier's package keys (replay.PackageKey) cover what each
-// package's tests read. sweepVariable selects what it sweeps: sweepAll, or
-// a comma list of package directories; which packages it skips, and why,
-// is internal/closure's (the gate names none).
+// package's tests read. sweepVariable selects what it sweeps: "all", or a
+// comma list of package directories; the gate's steps each sweep one
+// package. Which packages it skips, and why, is internal/closure's (the
+// gate names none).
 const (
 	sweepTest     = "TestEveryPackageRecordsOnlyItsClosure"
 	sweepPackage  = "./internal/closure"
 	sweepVariable = "ERGO_CLOSURE_SWEEP"
-	sweepAll      = "all"
 	// sweepTable is the file of the sweep and of the closure table.
 	sweepTable = "internal/closure/closure_test.go"
 )
@@ -108,8 +160,7 @@ var sweepOS = runtime.GOOS
 // fast step's reads only there (observable).
 func sweepSupported() bool { return sweepOS == "linux" }
 
-// sweepStep runs the closure sweep over selection: sweepAll, or one
-// package directory.
+// sweepStep runs the closure sweep over selection: one package directory.
 func sweepStep(selection string) *Step {
 	return &Step{
 		Name:    "closure sweep",
@@ -191,7 +242,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
 		if slices.Contains(hostTestPackages, relative) {
-			add(&Step{Name: fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg)), Needs: []string{"go test build"}, Argv: []string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout, pkg}})
+			for _, step := range hostSteps(root, pkg, relative) {
+				add(step)
+			}
 			continue
 		}
 		if strings.HasPrefix(relative, hermeticTestRoot) {
@@ -230,12 +283,23 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
-	// batch 9, on its default).
-	// Only where the sweep can run (sweepSupported).
+	// batch 9, on its default), one package per step, as the fast tier
+	// does: as one step over every package the sweep ran about 10 minutes
+	// on a quiet host, and under the batch-9 gate's load it passed the
+	// 15 minute testTimeout (b9-fix-gate). Only where the sweep can run
+	// (sweepSupported).
 	if sweepSupported() {
-		sweep := sweepStep(sweepAll)
-		sweep.Needs = []string{"go test build"}
-		add(sweep)
+		for _, pkg := range packages {
+			dir := strings.TrimPrefix(pkg, modulePath(root)+"/")
+			// Only a package with tests is a test package of the sweep.
+			if tests, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
+				continue
+			}
+			sweep := sweepStep(dir)
+			sweep.Name = "closure sweep ./" + dir
+			sweep.Needs = []string{"go test build"}
+			add(sweep)
+		}
 	}
 	// The one step that keeps Go's test cache (Step.Hermetic); every other
 	// step runs its go tests uncached.

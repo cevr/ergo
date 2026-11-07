@@ -162,8 +162,8 @@ func TestCLIPathIsInTheStepKey(t *testing.T) {
 	}
 }
 
-// Each host package has one step that never replays (-count=1) and bounds
-// its parallel tests explicitly (-parallel hostTestParallel()): at most
+// Each step of a host package never replays (-count=1) and bounds its
+// parallel tests explicitly (-parallel hostTestParallel()): at most
 // maxHostTestParallel and the CPU budget.
 func TestHostPackagesRunOnEveryGateWithBoundedParallelism(t *testing.T) {
 	t.Parallel()
@@ -184,15 +184,19 @@ func TestHostPackagesRunOnEveryGateWithBoundedParallelism(t *testing.T) {
 				found = append(found, step)
 			}
 		}
-		if len(found) != 1 {
-			t.Fatalf("host package %s is in %d go test steps, want 1", pkg, len(found))
+		// One step, and one per test of sandboxHostTests
+		// (TestSandboxHostTestsRunInStepsOfTheirOwn).
+		if want := 1 + len(sandboxHostTests[relative]); len(found) != want {
+			t.Fatalf("host package %s is in %d go test steps, want %d", pkg, len(found), want)
 		}
-		argv := found[0].Argv
-		if !slices.Contains(argv, "-count=1") {
-			t.Errorf("step %q may replay %s: %q has no -count=1", found[0].Name, pkg, argv)
-		}
-		if i := slices.Index(argv, "-parallel"); i < 0 || i+1 >= len(argv) || argv[i+1] != parallel {
-			t.Errorf("step %q does not bound %s's parallel tests to %s: %q", found[0].Name, pkg, parallel, argv)
+		for _, step := range found {
+			argv := step.Argv
+			if !slices.Contains(argv, "-count=1") {
+				t.Errorf("step %q may replay %s: %q has no -count=1", step.Name, pkg, argv)
+			}
+			if i := slices.Index(argv, "-parallel"); i < 0 || i+1 >= len(argv) || argv[i+1] != parallel {
+				t.Errorf("step %q does not bound %s's parallel tests to %s: %q", step.Name, pkg, parallel, argv)
+			}
 		}
 	}
 }
