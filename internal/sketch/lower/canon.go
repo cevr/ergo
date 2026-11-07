@@ -62,8 +62,8 @@ import (
 //     that order, then by offset (declOrder). This is declaration order in
 //     each file, which the source fixes. The checker orders the files by
 //     syntax.File.Name, then by key (the text with the import lines
-//     sorted, fileKey), then by full text (canonicalFiles); the lowering orders them by the Unit's source
-//     path, the order go build gives. Both are functions of the sources,
+//     sorted, fileKey), then by full text (canonicalFiles); the lowering
+//     orders them by the Unit's source path, the order go build gives. Both are functions of the sources,
 //     so a site that read the checker's list would still emit a function
 //     of the program, in the checker's canonical order. The two orders
 //     differ when a caller sets no syntax.File.Name or sets one that is
