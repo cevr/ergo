@@ -394,6 +394,8 @@ var declaredSources = map[string]string{
 	"TestMergeTierInputContractRegression prime[0]":           "the regression step's own program, launched outside the gate to prime the host cache",
 	"TestGateStopsItsStepsOnSignal argv[0]":                   "this test binary, run as the helper gate under the RSS watch (TestGateStopHelper)",
 	"runOracleHelper os.Args[0]":                              "this test binary, re-run as a step of the output-oracle helper gate (TestBudgetScopeHelper)",
+	"TestCheckPlacementExemptions os.Args[0]":                 "this test binary, re-run as one placement case (TestCheckPlacementCaseHelper)",
+	"TestMergeGateStopsOnGroupSIGTERM os.Args[0]":             "this test binary, run as the helper --merge gate (TestGateStopHelper)",
 }
 
 // scriptVariables are programs a step's script runs by a variable.
