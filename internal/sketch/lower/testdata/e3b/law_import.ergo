@@ -4,13 +4,13 @@
 // name only while no build reaches the library through the law: a library
 // a build reaches reserves its names at package scope (naming.go,
 // libraryPackages), and a local avoids every package name.
-import slice
+import slices
 
 type Sized {
 	Size() int,
 
 	law Room(n int) {
-		let xs = slice.WithCapacity[int](n)
+		let xs = slices.WithCapacity[int](n)
 		len(xs) + Size() >= Size()
 	},
 }

@@ -1,6 +1,0 @@
-// Package slice makes slices (docs/spec/stdlib.md, Slices and Maps). The
-// Go body is runtime/v1's WithCapacity.
-
-// WithCapacity is an empty slice with room for n elements. It makes no
-// element; a negative n is a defect, as Go's make panics.
-extern go ergo.local/prototype/runtime/v1.WithCapacity func WithCapacity[T](n int) []T

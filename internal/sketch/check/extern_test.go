@@ -103,13 +103,13 @@ func main() needs Console {
 	_ = h
 }
 `,
-		"wrapping-literal": `import slice
+		"wrapping-literal": `import slices
 
 extern go strings.ToUpper func Upper(s string) string
 
 func main() needs Console {
 	let f = func() string { Upper("x") }
-	let g = func(n int) []int { slice.WithCapacity[int](n) }
+	let g = func(n int) []int { slices.WithCapacity[int](n) }
 	Console.Println(f())
 	_ = g
 }
@@ -158,10 +158,10 @@ func main() needs Console {
 	scope.OnExit() { Console.Println("bye") }
 }
 `,
-		"import-slice": `import slice
+		"import-slice": `import slices
 
 func main() needs Console {
-	let xs = slice.WithCapacity[int](2)
+	let xs = slices.WithCapacity[int](2)
 	Console.Println("\(len(xs))")
 }
 `,
@@ -214,7 +214,7 @@ func TestStdPathReserved(t *testing.T) {
 	if fake.Std() {
 		t.Fatal("a program package checked under the path log has std identity")
 	}
-	for _, path := range []string{"log", "trace", "queue", "scope", "slice", "task", "timeout"} {
+	for _, path := range []string{"log", "trace", "queue", "scope", "slices", "task", "timeout"} {
 		t.Run(path, func(t *testing.T) {
 			main, err := syntax.Parse("import " + path + "\n\nfunc f() int { " + path + ".Shadow() }\n")
 			if err != nil {

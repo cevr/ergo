@@ -100,6 +100,23 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvItoa":       {},
 	"StrconvAtoi":       {},
 	"StrconvQuote":      {},
+	// std slices and cmp (std-align S2a; stdlib.md, Slices and Maps):
+	// bodies that compute on their arguments and neither wait nor release.
+	// SortFunc and SortStableFunc call the program's comparator, which has
+	// an empty row (lowerer.adaptFunc), so they do not wait either.
+	"SlicesSort":           {},
+	"SlicesSortOwned":      {},
+	"SlicesSortFunc":       {},
+	"SlicesSortStableFunc": {},
+	"SlicesContains":       {},
+	"SlicesIndex":          {},
+	"SlicesReverse":        {},
+	"SlicesMax":            {},
+	"SlicesMin":            {},
+	"SlicesBinarySearch":   {},
+	"SlicesEqual":          {},
+	"CmpCompare":           {},
+	"CmpLess":              {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},

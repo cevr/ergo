@@ -14,7 +14,7 @@ import (
 
 // v1Packages are the std packages whose Go bodies are runtime/v1's
 // (docs/spec/stdlib.md, v1 packages).
-var v1Packages = []string{"log", "queue", "scope", "slice", "task", "trace"}
+var v1Packages = []string{"cmp", "log", "queue", "scope", "slices", "task", "trace"}
 
 const v1Path = "ergo.local/prototype/runtime/v1"
 
@@ -47,7 +47,7 @@ func TestEachModuleChecks(t *testing.T) {
 func TestCallsToEachFunctionCheck(t *testing.T) {
 	const program = `import task
 import scope
-import slice
+import slices
 import queue
 
 type Fault {}
@@ -75,7 +75,7 @@ func main() fails Fault | queue.Closed needs Console {
 	try produce(q)
 	let a = try q.Pop()
 	let b = try q.Pop()
-	let xs = slice.WithCapacity[int64](4)
+	let xs = slices.WithCapacity[int64](4)
 	let ys = xs.Append(a + b + v)
 	Console.Println("\(ys[0])")
 }
@@ -93,11 +93,11 @@ func main() {
 	// Each generic takes a type that is not comparable, as its Go body's
 	// T any does (matchTypeParams ties the two constraints together).
 	const notComparable = `import task
-import slice
+import slices
 import queue
 
 func main() fails queue.Closed {
-	let xs = slice.WithCapacity[[]int64](3)
+	let xs = slices.WithCapacity[[]int64](3)
 	let q = queue.New[[]int64](1)
 	try q.Push([]int64{2})
 	_ = xs
@@ -352,7 +352,8 @@ func matchTypeParams(t *testing.T, where string, ergo []*check.TypeParam, body v
 }
 
 // goConstraint is the Go constraint of an Ergo one: none is any,
-// comparable is comparable; ordered and number have no Go name here.
+// comparable is comparable, ordered is runtime/v1's ordered (the terms of
+// Go's cmp.Ordered); number has no Go name here.
 func goConstraint(c check.Type) (string, bool) {
 	if c == nil {
 		return "any", true
@@ -363,6 +364,8 @@ func goConstraint(c check.Type) (string, bool) {
 		return "", false
 	case i.Set == check.SetComparable:
 		return "comparable", true
+	case i.Set == check.SetOrdered:
+		return "ordered", true
 	case i.Set == check.SetAll:
 		return "any", true
 	}

@@ -1,0 +1,151 @@
+// Package slices works on slices (docs/spec/stdlib.md, Slices and Maps;
+// std-align S2a). It follows Go's slices package for names, argument order
+// and meaning, and Effect's Array module where Go has no function:
+// Transform (Array.map), Filter and Fold. Two rules differ from Go, each
+// for a guarantee:
+//   - a function that sorts or reverses returns a new slice and leaves its
+//     argument unchanged, because a let is immutable and aliasing is
+//     visible;
+//   - a function that Go answers with a panic or a second result returns
+//     an Option: Max and Min of an empty slice are None, and BinarySearch
+//     is Some of the index of x, or None.
+// The externs bind runtime/v1 bodies (collections.go, data.go);
+// Transform, Filter, Fold, IndexFunc, Collect, Sorted, Values, Max, Min
+// and BinarySearch are Ergo. laws.ergo states the algebra; the ledger in
+// stdlib.md names the Go test that runs each law until #162.
+
+// WithCapacity is an empty slice with room for n elements. It makes no
+// element; a negative n is a defect, as Go's make panics.
+extern go ergo.local/prototype/runtime/v1.WithCapacity func WithCapacity[T](n int) []T
+
+// Sort is a copy of xs in ascending order. A float NaN sorts first, as in
+// Go.
+extern go ergo.local/prototype/runtime/v1.SlicesSort func Sort[T ordered](xs []T) []T
+
+// SortFunc is a copy of xs sorted by compare, which returns a negative
+// number when a is before b, a positive number when a is after b, and zero
+// otherwise. compare must be a strict weak order, as Go's SortFunc needs;
+// the order of equal elements is not kept.
+extern go ergo.local/prototype/runtime/v1.SlicesSortFunc func SortFunc[T](xs []T, compare func(a T, b T) int) []T
+
+// SortStableFunc is SortFunc that keeps equal elements in their order in
+// xs.
+extern go ergo.local/prototype/runtime/v1.SlicesSortStableFunc func SortStableFunc[T](xs []T, compare func(a T, b T) int) []T
+
+// Contains reports whether x is in xs.
+extern go ergo.local/prototype/runtime/v1.SlicesContains func Contains[T comparable](xs []T, x T) bool
+
+// Index is the index of the first x in xs, or -1.
+extern go ergo.local/prototype/runtime/v1.SlicesIndex func Index[T comparable](xs []T, x T) int
+
+// IndexFunc is the index of the first element of xs that f accepts, or -1.
+func IndexFunc[T, E, R](xs []T, f func(x T) bool fails E needs R) int fails E needs R {
+	for i, x in xs {
+		if try f(x) {
+			return i
+		}
+	}
+	-1
+}
+
+// Reverse is a copy of xs in the reverse order.
+extern go ergo.local/prototype/runtime/v1.SlicesReverse func Reverse[T](xs []T) []T
+
+// Max is the largest element of xs, or None when xs is empty. A float NaN
+// in xs makes it NaN, as in Go.
+func Max[T ordered](xs []T) Option[T] {
+	if len(xs) == 0 {
+		None
+	} else {
+		Some[T]{Value: largest(xs)}
+	}
+}
+
+// Min is the smallest element of xs, or None when xs is empty.
+func Min[T ordered](xs []T) Option[T] {
+	if len(xs) == 0 {
+		None
+	} else {
+		Some[T]{Value: smallest(xs)}
+	}
+}
+
+// BinarySearch is Some of the index of x in xs, which is sorted in
+// ascending order, or None when xs has no x. Of several x, the first.
+func BinarySearch[T ordered](xs []T, x T) Option[int] {
+	let i = search(xs, x)
+	if i < 0 {
+		None
+	} else {
+		Some[int]{Value: i}
+	}
+}
+
+// Equal reports whether a and b have the same length and equal elements in
+// order.
+extern go ergo.local/prototype/runtime/v1.SlicesEqual func Equal[T comparable](a []T, b []T) bool
+
+// Collect is the values of s, in order, in a new slice.
+func Collect[T](s Seq[T]) []T {
+	let mut out = []T{}
+	for v in s {
+		out = out.Append(v)
+	}
+	out
+}
+
+// Sorted is the values of s in ascending order, in a new slice:
+// Sort(Collect(s)) with one slice, not two.
+func Sorted[T ordered](s Seq[T]) []T {
+	sortOwned(Collect(s))
+}
+
+// Values is xs as a Seq: each element, in order.
+func Values[T](xs []T) Seq[T] {
+	Seq[T](func(yield func(v T) bool) {
+		for x in xs {
+			if !yield(x) {
+				return
+			}
+		}
+	})
+}
+
+// Transform is f of each element of xs, in order: Effect's Array.map.
+// Map is the prelude's type, which no package redeclares (#196), so the
+// name is the one types.md, Generics, uses. f runs once per element, first
+// to last; its first failure ends Transform with it.
+func Transform[T, U, E, R](xs []T, f func(x T) U fails E needs R) []U fails E needs R {
+	let mut out = WithCapacity[U](len(xs))
+	for x in xs {
+		out = out.Append(try f(x))
+	}
+	out
+}
+
+// Filter is the elements of xs that keep accepts, in order (Effect
+// Array.filter).
+func Filter[T, E, R](xs []T, keep func(x T) bool fails E needs R) []T fails E needs R {
+	let mut out = []T{}
+	for x in xs {
+		if try keep(x) {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// Fold is f applied to init and each element of xs, first to last (Effect
+// Array.reduce, Gleam list.fold): Fold([a, b], z, f) is f(f(z, a), b).
+func Fold[T, A, E, R](xs []T, init A, f func(acc A, x T) A fails E needs R) A fails E needs R {
+	let mut acc = init
+	for x in xs {
+		acc = try f(acc, x)
+	}
+	acc
+}
+
+extern go ergo.local/prototype/runtime/v1.SlicesMax func largest[T ordered](xs []T) T
+extern go ergo.local/prototype/runtime/v1.SlicesMin func smallest[T ordered](xs []T) T
+extern go ergo.local/prototype/runtime/v1.SlicesBinarySearch func search[T ordered](xs []T, x T) int
+extern go ergo.local/prototype/runtime/v1.SlicesSortOwned func sortOwned[T ordered](xs []T) []T

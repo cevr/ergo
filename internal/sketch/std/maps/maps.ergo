@@ -1,0 +1,60 @@
+// Package maps reads Maps (docs/spec/stdlib.md, Slices and Maps;
+// std-align S2a). It follows Go's maps package: Keys and Values are Seqs,
+// in an unspecified order, as a for over a Map is (types.md, Loops and len
+// 1). slices.Sorted(maps.Keys(m)) gives the keys in a fixed order. It is
+// Ergo source only, with no runtime/v1 body.
+
+// Keys is the keys of m, each once, in an unspecified order.
+func Keys[K comparable, V](m Map[K, V]) Seq[K] {
+	Seq[K](func(yield func(k K) bool) {
+		for k, _ in m {
+			if !yield(k) {
+				return
+			}
+		}
+	})
+}
+
+// Values is the values of m, one per key, in an unspecified order.
+func Values[K comparable, V](m Map[K, V]) Seq[V] {
+	Seq[V](func(yield func(v V) bool) {
+		for v in m {
+			if !yield(v) {
+				return
+			}
+		}
+	})
+}
+
+// KeysVisitEachKeyOnce: Keys yields each key of m exactly once.
+law KeysVisitEachKeyOnce(m Map[string, int]) {
+	let mut seen = Map[string, bool]{}
+	for k in Keys(m) {
+		if seen.Get(k) != None || m.Get(k) == None {
+			return false
+		}
+		seen[k] = true
+	}
+	len(seen) == len(m)
+}
+
+// ValuesMatchKeys: Values yields one value per key, and their sum is the
+// sum of the values of the keys.
+law ValuesMatchKeys(m Map[string, int]) {
+	let mut total = 0
+	for k in Keys(m) {
+		match m.Get(k) {
+		case Some[int] as v:
+			total = total + v.Value
+		case None:
+			return false
+		}
+	}
+	let mut sum = 0
+	let mut n = 0
+	for v in Values(m) {
+		sum = sum + v
+		n = n + 1
+	}
+	n == len(m) && sum == total
+}

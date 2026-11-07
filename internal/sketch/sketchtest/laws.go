@@ -302,7 +302,7 @@ law Owns() { with Owned { A.Use() == 1 } }
 
 	// Alone in the program: an error type, a generic instance and a std
 	// package only a top-level law uses (spec Risk 2).
-	{"a law alone uses an error type, a generic instance and a std package", "import slice\n\n" + `type Gone {}
+	{"a law alone uses an error type, a generic instance and a std package", "import slices\n\n" + `type Gone {}
 
 type Box[T] { V T }
 
@@ -316,7 +316,7 @@ law Alone(n int, s string) {
 	case Gone:
 		n
 	}
-	let xs = slice.WithCapacity[int](n)
+	let xs = slices.WithCapacity[int](n)
 	v == n && wrap(s).V == s && len(xs) == 0
 }
 `},
