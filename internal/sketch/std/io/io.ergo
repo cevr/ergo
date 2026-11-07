@@ -1,0 +1,189 @@
+// Package io is the host process's standard streams (docs/spec/stdlib.md,
+// io): Stdout and Stderr write, and Stdin reads. It follows Effect's Stdio
+// and Terminal services and Go's os.Stdout, os.Stderr and os.Stdin. The
+// three are separate capabilities, so code that only writes errors shows
+// only io.Stderr in its row, and a test binds only what it uses. Host is
+// the host's provider of all three: it has an unexported field, so only
+// this package builds one (S114), and NewHost, its one constructor, needs
+// the prelude's Ambient, which only the entry provides. So main binds
+// `context { io.Stdout: io.NewHost(), io.Stderr: io.NewHost() }`. The
+// externs are unexported. A test binds the recording providers instead:
+// Recorder for Stdout and Stderr, Input for Stdin.
+//
+// The prelude's Console is unchanged. Console.Println and Stdout.Print
+// both write standard output with one unbuffered write each, so their
+// lines appear in program order.
+
+import strings
+
+// ReadFailed is the failure of a read of standard input. Reason is the
+// host's text for it.
+type ReadFailed { Reason string }
+
+// Stdout writes the host's standard output.
+// law-exempt: Stdout has no read operation, so no law over its own operations can observe a write; the recording provider Recorder carries the law (PrintsConcatenate).
+type Stdout {
+	// Print writes text as it is, with no line feed.
+	Print(text string),
+	// Println writes line and a line feed.
+	Println(line string),
+	// IsTerminal reports whether the stream is a terminal.
+	IsTerminal() bool,
+}
+
+// Stderr writes the host's standard error.
+// law-exempt: Stderr has no read operation, so no law over its own operations can observe a write; the recording provider Recorder carries the law (PrintsConcatenate).
+type Stderr {
+	// Print writes text as it is, with no line feed.
+	Print(text string),
+	// Println writes line and a line feed.
+	Println(line string),
+}
+
+// Stdin reads the host's standard input.
+// law-exempt: a read of the host's input takes what it reads, so two reads of one provider see different text and no law over its own operations can relate them; the memory provider Input carries the law (LinesSplitInput).
+type Stdin {
+	// ReadAll is the rest of the input, up to its end.
+	ReadAll() string fails ReadFailed,
+	// Lines is the rest of the input, one line at a time, each without its
+	// line feed. A last line with no line feed is a line; an empty input
+	// has no lines. A carriage return stays in its line. A read failure
+	// ends the program with a defect, because a Seq has no failure row:
+	// use ReadAll to handle it.
+	Lines() Seq[string],
+}
+
+// Host is the host's Stdout, Stderr and Stdin provider. Its field gives
+// this package the construction authority (types.md, Zero values 6).
+type Host { live hostOnly }
+
+// hostOnly is the zero-size type of Host's field, so Host stays zero size.
+type hostOnly {}
+
+// NewHost is the host's provider of the three streams. It needs Ambient:
+// only code whose row holds the authority to choose the host makes one.
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
+
+// Print writes text to standard output.
+func Print(_ Host, text string) { hostPrint(text) }
+
+// Println writes line and a line feed to standard output, in one write.
+func Println(_ Host, line string) { hostPrint(line + "\n") }
+
+// IsTerminal reports whether standard output is a terminal.
+func IsTerminal(_ Host) bool { hostIsTerminal() }
+
+// ReadAll is the rest of standard input.
+func ReadAll(_ Host) string fails ReadFailed { try hostReadAll() }
+
+// Lines is the rest of standard input, one line at a time.
+func Lines(_ Host) Seq[string] { hostLines() }
+
+// Errors is the host's Stderr provider. Host writes standard output, so
+// standard error has its own provider type: a function on a type names one
+// operation, and Print and Println of Stderr are not Stdout's.
+type Errors { live hostOnly }
+
+// NewErrors is the host's Stderr provider. It needs Ambient.
+func NewErrors() Errors needs Ambient { Errors{live: hostOnly} }
+
+// Print writes text to standard error.
+func Print(_ Errors, text string) { hostEprint(text) }
+
+// Println writes line and a line feed to standard error, in one write.
+func Println(_ Errors, line string) { hostEprint(line + "\n") }
+
+// Recorder is a Stdout and Stderr provider for tests: it keeps what is
+// written, in order, for Text. A Recorder is for the writes of one task at
+// a time: writes from two tasks at once are a data race.
+type Recorder { writes Map[int, string] }
+
+// NewRecorder is an empty Recorder.
+func NewRecorder() Recorder {
+	let writes Map[int, string]
+	Recorder{writes: writes}
+}
+
+// Print keeps text.
+func Print(r Recorder, text string) {
+	let mut writes = r.writes
+	writes[len(writes)] = text
+}
+
+// Println keeps line and a line feed.
+func Println(r Recorder, line string) { r.Print(line + "\n") }
+
+// IsTerminal is false: a Recorder is not a terminal.
+func IsTerminal(_ Recorder) bool { false }
+
+// Text is everything written to r, in order.
+func Text(r Recorder) string {
+	let mut out = ""
+	for i in 0..len(r.writes) {
+		match r.writes.Get(i) {
+		case Some[string] as s:
+			out = out + s.Value
+		case None:
+		}
+	}
+	out
+}
+
+// Input is a Stdin provider for tests: each read sees all of Text.
+type Input { Text string }
+
+// ReadAll is input.Text.
+func ReadAll(input Input) string fails ReadFailed { input.Text }
+
+// Lines is the lines of input.Text, each without its line feed.
+func Lines(input Input) Seq[string] {
+	let text = input.Text
+	Seq[string](func(yield func(v string) bool) {
+		let mut start = 0
+		for i in 0..len(text) {
+			if strings.Slice(text, i, i+1) == "\n" {
+				if !yield(strings.Slice(text, start, i)) {
+					return
+				}
+				start = i + 1
+			}
+		}
+		if start < len(text) {
+			yield(strings.Slice(text, start, len(text)))
+		}
+	})
+}
+
+// PrintsConcatenate: what a Recorder keeps of two writes is the two texts
+// in order.
+law PrintsConcatenate(a string, b string) {
+	let r = NewRecorder()
+	r.Print(a)
+	r.Print(b)
+	r.Text() == a+b
+}
+
+// LinesSplitInput: the lines of an input, joined by line feeds, plus the
+// final line feed if the input has one, are the input.
+law LinesSplitInput(s string) {
+	let mut joined = ""
+	let mut first = true
+	let input = Input{Text: s}
+	for line in input.Lines() {
+		if !first {
+			joined = joined + "\n"
+		}
+		joined = joined + line
+		first = false
+	}
+	if strings.HasSuffix(s, "\n") {
+		joined = joined + "\n"
+	}
+	joined == s
+}
+
+extern go ergo.local/prototype/runtime/v1.IOPrint func hostPrint(text string)
+extern go ergo.local/prototype/runtime/v1.IOEprint func hostEprint(text string)
+extern go ergo.local/prototype/runtime/v1.IOIsTerminal func hostIsTerminal() bool
+extern go ergo.local/prototype/runtime/v1.IOReadAll func hostReadAll() string fails ReadFailed
+extern go ergo.local/prototype/runtime/v1.IOLines func hostLines() Seq[string]

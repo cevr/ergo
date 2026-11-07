@@ -631,22 +631,39 @@ func prelude() preludeResult {
 func PreludeDiagnostics() []Diagnostic { return prelude().diags }
 
 // stdImporter imports the embedded standard library, checking each package
-// once per process.
+// once per process. A std package may import another (io imports strings),
+// so the lock guards only the table: each package is checked inside its own
+// sync.Once, which a nested import of another path does not hold. The std
+// has no import cycle (a cycle would wait on its own Once; TestStdImportsAreAcyclic).
 type stdImporter struct {
-	mu   sync.Mutex
-	pkgs map[string]*Package
-	errs map[string]error
+	mu      sync.Mutex
+	entries map[string]*stdEntry
+}
+
+// stdEntry is one std package, checked once.
+type stdEntry struct {
+	once sync.Once
+	pkg  *Package
+	err  error
 }
 
 // Std is the importer of the embedded standard library (internal/sketch/std).
-var Std Importer = &stdImporter{pkgs: map[string]*Package{}, errs: map[string]error{}}
+var Std Importer = &stdImporter{entries: map[string]*stdEntry{}}
 
 func (s *stdImporter) Import(path string) (*Package, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p, ok := s.pkgs[path]; ok {
-		return p, s.errs[path]
+	e := s.entries[path]
+	if e == nil {
+		e = &stdEntry{}
+		s.entries[path] = e
 	}
+	s.mu.Unlock()
+	e.once.Do(func() { e.pkg, e.err = s.load(path) })
+	return e.pkg, e.err
+}
+
+// load checks the std package at path.
+func (s *stdImporter) load(path string) (*Package, error) {
 	sources, ok := std.Package(path)
 	if !ok {
 		return nil, fmt.Errorf("no package %q", path)
@@ -666,7 +683,6 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 	if len(c.diags) > 0 {
 		err = fmt.Errorf("std package %q has diagnostics: %s", path, c.sorted()[0])
 	}
-	s.pkgs[path], s.errs[path] = pkg, err
 	return pkg, err
 }
 

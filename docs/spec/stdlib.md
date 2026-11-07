@@ -143,6 +143,8 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | --- | --- | --- | --- | --- |
 | `fs` | `Files.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }` | `TestStdHostLawsHold` | tested |
 | `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestStdHostLawsHold` | tested |
+| `io` | `LinesSplitInput` | `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }` | `TestIOLaws` | tested |
+| `io` | `PrintsConcatenate` | `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Print(b) r.Text() == a+b }` | `TestIOLaws` | tested |
 | `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |
 | `log` | `InnerAnnotationShadows` | `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
 | `os` | `Process.GetenvIsStable` | `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }` | `TestStdHostLawsHold` | tested |
@@ -314,6 +316,49 @@ func main() needs Console | Ambient {
 *Prior art:* Gleam's `simplifile.read(path) -> Result(String, FileError)` gives a closed enum of POSIX reasons (`Enoent`, `Eacces`, …) plus `Unknown`; Effect Platform's `FileSystem` service gives `readFileString` and a `SystemError` whose `reason` is `NotFound`, `PermissionDenied` and others, bound by `NodeContext.layer`; Elixir's `File.read/1` returns `{:ok, binary} | {:error, posix}`; Go's `os.ReadFile` and `os.ReadDir` with `errors.Is(err, fs.ErrNotExist)`; ReScript binds Node's `readFileSync` as an `external` that throws. `NotFound | Denied | Failed` is their common core: the two reasons a program acts on, and one that carries the host's text. Like Effect and Roc, and unlike Gleam, Elixir and ReScript, the file system is a capability in the row, so a test swaps it in a context. Like Roc's platform and unlike Effect's layer, which any module may provide locally, Ergo keeps the disk out of reach of code that neither holds `Ambient` nor was given a provider (rule 6): Pony's `AmbientAuth` and Austral's `RootCapability` are the model.
 
 *Prior art (writes):* Gleam's `simplifile.write(to:, contents:)`, Elixir's `File.write/3` (Erlang `file:write_file`), ReScript's binding of Node's `writeFileSync` and Go's `os.WriteFile(name, data, 0666)` all truncate and write the file in place, with mode 0666 less the umask for a new file: a reader can see a part, and a failure can leave a part. Go's `renameio` and Rust's `tempfile::NamedTempFile::persist` write a file in the same directory and rename it over the target, as `fs.Host` does; `renameio` also keeps the old mode only when asked. `MkdirAll` is Go's `os.MkdirAll`, Elixir's `File.mkdir_p/1` and Gleam's `simplifile.create_directory_all`. Effect Platform's `FileSystem` has `writeFileString` and `makeDirectory({ recursive: true })` in the one service; Ergo splits writes from reads, so a reader's row does not hold the authority to write.
+
+### io
+
+Std `io` is the host process's standard streams (std-align S1b; wave std-1 G3 and G3b). It follows Effect's `Stdio` and `Terminal` and Go's `os.Stdout`, `os.Stderr` and `os.Stdin`. `Stdout`, `Stderr` and `Stdin` are three capabilities, so code that only writes errors shows only `io.Stderr` in its row.
+
+```go
+import io
+
+func echo() needs io.Stdout | io.Stderr | io.Stdin {
+	io.Stderr.Println("reading")
+	for line in io.Stdin.Lines() {
+		io.Stdout.Println(line)
+	}
+}
+
+func main() needs Ambient {
+	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost() } { echo() }
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type Stdout { Print(text string), Println(line string), IsTerminal() bool }` | Standard output. |
+| `type Stderr { Print(text string), Println(line string) }` | Standard error. |
+| `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string] }` | Standard input. |
+| `type ReadFailed { Reason string }` | The failure of a read. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` and `Stdin` provider. |
+| `type Errors { live hostOnly }`; `func NewErrors() Errors needs Ambient` | The host's `Stderr` provider. |
+| `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written. |
+| `type Input { Text string }`; `ReadAll`, `Lines` | A `Stdin` provider for tests. |
+| `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)` | The laws of the recording providers ([Std laws](#std-laws)). |
+
+1. `Print` writes its text as it is; `Println` writes the line and a line feed in one write. Each write is one unbuffered `WriteString`, as `Console.Println` is, so writes of `Console` and of `io.Stdout` appear in program order.
+2. `Lines` gives each line without its line feed. A last line with no line feed is a line, an empty input has no lines, and a carriage return stays in its line, so the lines joined by line feeds, plus the final line feed if any, are the input (`LinesSplitInput`). A line has no length limit. A `Seq` has no failure row, so a read failure inside `Lines` is a defect; `ReadAll` returns it as `ReadFailed`. A `break` stops the read; the rest of the input stays unread.
+3. A read of standard input waits for the host and cannot be stopped: it is an uninterruptible host wait, as a read of a file is. Each body has one `runtimeBindings` row that neither waits nor releases.
+4. `IsTerminal` reports whether standard output is a character device (Go's `os.ModeCharDevice`).
+5. The Go bodies are `v1.IOPrint`, `v1.IOEprint`, `v1.IOIsTerminal`, `v1.IOReadAll` and `v1.IOLines` (host.go). `ReadFailed` is the `runtime/v1` struct `v1.ReadFailed` (Types 4); its name is not `Failed` because `v1.Failed` is `fs.Failed`.
+6. The capabilities are open: a program implements them, and a test binds `io.NewRecorder()` or `io.Input{Text: …}` in the same place as `main` binds the host. `Stdout`, `Stderr` and `Stdin` are exempt from the law rule, each with its reason: the first two have no read, and a read of the host's input takes what it reads.
+7. A `Recorder` keeps its writes in a `Map` that every copy shares. It is for the writes of one task at a time.
+8. A program binds `Errors` to `io.Stderr`. `Host` has `Print` and `Println` too, so `io.Stderr: io.NewHost()` checks and writes standard output; the type cannot tell the two streams apart (known gap).
+9. A std package may import another std package: `io` imports `strings`. The std importer checks each package once, and the std has no import cycle (`TestStdImportsAreAcyclic`).
+
+*Prior art:* Effect's `Stdio` gives `stdout` and `stderr` sinks and a `stdin` stream in one service, and `Terminal` gives `readLine` and `display`; Go writes `os.Stdout` directly and reads lines with `bufio.Scanner`, which has a 64 KiB line limit; Gleam's `gleam/io` has `print`, `println` and `print_error`, and `stdin` reading is a separate package; Elixir's `IO.puts(:stderr, …)` and `IO.stream(:stdio, :line)` keep the line feed; Roc's basic-cli gives `Stdout`, `Stderr` and `Stdin` as platform effects. Ergo takes Roc's three capabilities and Effect's guarantee that a test replaces each one.
 
 ## Testing
 

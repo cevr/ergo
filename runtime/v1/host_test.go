@@ -1,9 +1,11 @@
 package v1
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"go/ast"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -487,5 +489,155 @@ func TestStructHasOneStdRecord(t *testing.T) {
 	packages["fixture/exec"] = map[string]string{"exec.ergo": "type NotFound { Path string }\n"}
 	if got, want := structClashes(t, recordOwners(t, packages)), []string{"NotFound fixture/exec,fs"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("with a second NotFound: clashes %q; want %q", got, want)
+	}
+}
+
+// TestIOLinesSplit: the host's Lines (linesOf over a reader) keeps the
+// law LinesSplitInput that io.Input states: the lines joined by line
+// feeds, plus the final line feed if any, are the input, over seeded texts
+// with carriage returns, empty lines, invalid UTF-8 and lines longer than
+// a reader's buffer. A short read (one byte at a time) gives the same.
+func TestIOLinesSplit(t *testing.T) {
+	alphabet := []string{"a", "\n", "\n", "\r", "é", "\xff", " ", strings.Repeat("w", 5000)}
+	seed := uint64(1)
+	next := func(n int) int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int((seed >> 33) % uint64(n))
+	}
+	cases := []string{"", "\n", "\n\n", "a", "a\n", "a\r\n", "\r", strings.Repeat("x", 70_000)}
+	for range 3000 {
+		var b strings.Builder
+		for range next(9) {
+			b.WriteString(alphabet[next(len(alphabet))])
+		}
+		cases = append(cases, b.String())
+	}
+	for _, s := range cases {
+		for _, r := range []interface{ Read([]byte) (int, error) }{strings.NewReader(s), &oneByte{s: s}} {
+			var lines []string
+			for line := range linesOf(r) {
+				lines = append(lines, line)
+			}
+			joined := strings.Join(lines, "\n")
+			if strings.HasSuffix(s, "\n") {
+				joined += "\n"
+			}
+			if joined != s {
+				t.Fatalf("Lines of %q is %q", s, lines)
+			}
+		}
+	}
+	// A break stops the Seq.
+	n := 0
+	for range linesOf(strings.NewReader("a\nb\nc\n")) {
+		n++
+		break
+	}
+	if n != 1 {
+		t.Errorf("a break went on: %d steps", n)
+	}
+}
+
+// oneByte reads its text one byte per Read.
+type oneByte struct{ s string }
+
+func (o *oneByte) Read(p []byte) (int, error) {
+	if o.s == "" {
+		return 0, io.EOF
+	}
+	p[0] = o.s[0]
+	o.s = o.s[1:]
+	return 1, nil
+}
+
+// TestIOBodies: Print writes its text as it is to standard output, Eprint
+// to standard error, ReadAll reads all of standard input, and IsTerminal
+// is false on a pipe. Each stream is a pipe of the test.
+func TestIOBodies(t *testing.T) {
+	pipe := func() (*os.File, *os.File) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r, w
+	}
+	oldOut, oldErr, oldIn := os.Stdout, os.Stderr, os.Stdin
+	defer func() { os.Stdout, os.Stderr, os.Stdin = oldOut, oldErr, oldIn }()
+	outR, outW := pipe()
+	errR, errW := pipe()
+	inR, inW := pipe()
+	os.Stdout, os.Stderr, os.Stdin = outW, errW, inR
+	IOPrint("a")
+	IOPrint("b\n")
+	IOEprint("e")
+	terminal := IOIsTerminal()
+	if _, err := inW.WriteString("x\ny\nz"); err != nil {
+		t.Fatal(err)
+	}
+	inW.Close()
+	all, err := IOReadAll()
+	os.Stdout, os.Stderr, os.Stdin = oldOut, oldErr, oldIn
+	outW.Close()
+	errW.Close()
+	out, _ := readAllFile(outR)
+	errText, _ := readAllFile(errR)
+	if out != "ab\n" || errText != "e" || terminal || err != nil || all != "x\ny\nz" {
+		t.Errorf("stdout %q, stderr %q, terminal %v, ReadAll %q, %v", out, errText, terminal, all, err)
+	}
+	if got := (ReadFailed{Reason: "boom"}).Error(); got != "io.ReadFailed{Reason:boom}" {
+		t.Errorf("ReadFailed text %q", got)
+	}
+}
+
+// BenchmarkIOPrint: 10,000 lines through io.Host's Print body, against
+// the Go controls fmt.Fprint to os.Stdout (unbuffered, the same work) and
+// a bufio.Writer (buffered, which S4c may reach), all to /dev/null.
+func BenchmarkIOPrint(b *testing.B) {
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer null.Close()
+	old := os.Stdout
+	defer func() { os.Stdout = old }()
+	os.Stdout = null
+	const lines = 10_000
+	b.Run("ergo", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			for range lines {
+				IOPrint("a line of text\n")
+			}
+		}
+	})
+	b.Run("fmt", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			for range lines {
+				fmt.Fprint(os.Stdout, "a line of text\n")
+			}
+		}
+	})
+	b.Run("bufio", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			w := bufio.NewWriter(os.Stdout)
+			for range lines {
+				_, _ = w.WriteString("a line of text\n")
+			}
+			_ = w.Flush()
+		}
+	})
+}
+
+func readAllFile(f *os.File) (string, error) {
+	var b strings.Builder
+	buf := make([]byte, 512)
+	for {
+		n, err := f.Read(buf)
+		b.Write(buf[:n])
+		if err != nil {
+			return b.String(), nil
+		}
 	}
 }

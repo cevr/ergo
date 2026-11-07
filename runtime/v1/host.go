@@ -1,8 +1,11 @@
 package v1
 
 import (
+	"bufio"
 	"errors"
+	"io"
 	"io/fs"
+	"iter"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -275,4 +278,81 @@ func FSMkdirAll(path string) error {
 		return Failed{Path: path, Reason: fsReason(err)}
 	}
 	return fsErr(path, err)
+}
+
+// The bodies of std io (docs/spec/stdlib.md, io). Each writes or reads a
+// standard stream of the host process, so none is pure. A write is one
+// unbuffered WriteString, as Console.Println is, so writes of Console and
+// io keep program order. A read of standard input waits for the host and
+// cannot be stopped: it is an uninterruptible host wait, as a read of a
+// file is.
+
+// ReadFailed is io.ReadFailed: a read of standard input failed. It is a
+// record of a v1 package, so the lowering binds io.ReadFailed to this Go
+// type (docs/spec/stdlib.md, Types 4).
+type ReadFailed struct {
+	Reason string
+}
+
+// Error is the failure's text, its Ergo name and field.
+func (e ReadFailed) Error() string { return "io.ReadFailed{Reason:" + e.Reason + "}" }
+
+// IOPrint is the body of io.Host's Print: text on standard output, as it
+// is, in one write.
+func IOPrint(text string) {
+	_, _ = os.Stdout.WriteString(text)
+}
+
+// IOEprint is the body of io.Errors' Print: text on standard error, as it
+// is, in one write.
+func IOEprint(text string) {
+	_, _ = os.Stderr.WriteString(text)
+}
+
+// IOIsTerminal is the body of io.Host's IsTerminal: whether standard
+// output is a character device, a terminal.
+func IOIsTerminal() bool {
+	fi, err := os.Stdout.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+// IOReadAll is the body of io.Host's ReadAll: the rest of standard input.
+func IOReadAll() (string, error) {
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", ReadFailed{Reason: fsReason(err)}
+	}
+	return string(data), nil
+}
+
+// IOLines is the body of io.Host's Lines: the rest of standard input, one
+// line at a time, each without its line feed; a last line with no line
+// feed is a line. A line has no length limit (bufio.Reader, not
+// bufio.Scanner). A read failure other than the end of the input panics:
+// a Seq has no failure row, and ending it early would hide the failure.
+func IOLines() iter.Seq[string] {
+	return linesOf(os.Stdin)
+}
+
+// linesOf is the lines of r, as IOLines gives them.
+func linesOf(r io.Reader) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		br := bufio.NewReader(r)
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil && err != io.EOF {
+				panic("io.Stdin.Lines: " + err.Error())
+			}
+			if strings.HasSuffix(line, "\n") {
+				if !yield(line[:len(line)-1]) {
+					return
+				}
+			} else if line != "" && !yield(line) {
+				return
+			}
+			if err == io.EOF {
+				return
+			}
+		}
+	}
 }
