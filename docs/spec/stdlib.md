@@ -99,14 +99,17 @@ Std `strings` and `strconv` work on text (wave std-1, unit G5a). They are pure f
 
 | Package | Signatures |
 | --- | --- |
-| `strings` | `Split(s, sep string) []string`, `Join(xs []string, sep string) string`, `HasPrefix`, `HasSuffix`, `Contains(s, x string) bool`, `TrimSpace(s string) string`, `TrimPrefix`, `TrimSuffix(s, x string) string`, `Fields(s string) []string`, `Repeat(s string, n int) string`, `ToLower`, `ToUpper(s string) string`, `Index(s, sub string) int`, `Slice(s string, i int, j int) string`; `type Halves { Before string, After string }`, `func Cut(s, sep string) Option[Halves]` |
-| `strconv` | `type Malformed { Text string }`; `Itoa(n int) string`, `Atoi(s string) int fails Malformed`, `Quote(s string) string` |
+| `strings` | `Split(s, sep string) []string`, `SplitN(s, sep string, n int) []string`, `Join(xs []string, sep string) string`, `HasPrefix`, `HasSuffix`, `Contains(s, x string) bool`, `ContainsRune(s string, r rune) bool`, `EqualFold(s, t string) bool`, `TrimSpace(s string) string`, `TrimPrefix`, `TrimSuffix(s, x string) string`, `Fields(s string) []string`, `Repeat(s string, n int) string`, `ReplaceAll(s, old, repl string) string`, `ToLower`, `ToUpper(s string) string`, `Index`, `LastIndex`, `Count(s, sub string) int`, `Slice(s string, i int, j int) string`, `Lines(s string) Seq[string]`; `type Halves { Before string, After string }`, `func Cut(s, sep string) Option[Halves]` |
+| `strconv` | `type Malformed { Text string }`, `type OutOfRange { Text string }`; `Itoa(n int) string`, `Atoi(s string) int fails Malformed \| OutOfRange`, `ParseInt(s string, base int, bits int) int64 fails Malformed \| OutOfRange`, `ParseFloat(s string) float64 fails Malformed \| OutOfRange`, `ParseBool(s string) bool fails Malformed`, `FormatBool(b bool) string`, `FormatFloat(f float64, fmt byte, prec int) string`, `Quote(s string) string`, `Unquote(s string) string fails Malformed` |
+| `utf8` | `RuneCount(s string) int` |
 
 1. Lengths and indexes are bytes, as `len(s)` is. Ergo has no substring syntax yet (`s[i..j]` is an index by a `Range`, S108), so `strings.Slice(s, i, j)` is Go's `s[i:j]`. A bound outside `0..len(s)`, or an `i` after `j`, is a defect, as an index out of range is; so is a negative `n` in `Repeat`.
 2. `Cut` is Ergo over `Index` and `Slice`: `Some` of the text before and after the first `sep`, or `None` when `s` has no `sep`. A `sep` at index 0 gives an empty `Before`.
-3. `Atoi` fails `Malformed` with the text for every text Go's `strconv.Atoi` refuses, a value out of `int`'s range included. `Malformed` is the `runtime/v1` struct `v1.Malformed` (Types 4), so `case strconv.Malformed:` matches the value the body returns. Its text is `strconv.Malformed{Text:…}`, the generated text of a record.
+3. Go's one `*NumError` is two failures (std-align S1c): `Malformed` for a text the function cannot read (Go's `ErrSyntax`) and `OutOfRange` for a number that does not fit its type (Go's `ErrRange`), so a caller tells "not a number" from "too big" with a `match`. `Atoi`, `ParseInt` and `ParseFloat` fail either; `ParseBool` and `Unquote` fail `Malformed`. `ParseInt` takes Go's base rules (0 reads the prefix `0b`, `0o`, `0x` or `0` and allows `_`); a base outside 0 and 2..36, or a bit size outside 0..64, is a defect, as a negative `Repeat` count is. Both records are `runtime/v1` structs (`v1.Malformed`, `v1.OutOfRange`; Types 4), with the texts `strconv.Malformed{Text:…}` and `strconv.OutOfRange{Text:…}`.
 4. Each call is transparent in footprints: every body in `text.go` is marked pure ([Pure bodies](#pure-bodies)).
 5. `slice.SortFunc` and `SortStableFunc` are not here: a std function parameter with parameters of its own does not bind yet (`lower/std.go`, `adaptFunc`); they are follow-up G5c.
+6. `Lines` is Go 1.24's `strings.Lines`: each line keeps its line feed. It is Ergo over `Index` and `Slice`, because a pure Go body cannot import `iter`. `SplitN` with `n == 0` gives an empty slice where Go gives nil. `utf8.RuneCount` counts each byte of an invalid sequence as one rune, as Go does.
+7. The algebra of `strings`, `strconv` and `utf8` is in the [Std laws](#std-laws) ledger: split and join, count and split, cut, index, case and trim idempotence, repeat and replace lengths, lines, and the strconv round trips. Each Go-bodied law runs in runtime/v1 `TestStdTextLaws` on 10,000 seeded cases over an alphabet with separators, white space, case-changing and multi-byte runes and invalid bytes; the laws over Ergo bodies (`Cut`, `Lines`) run in lower `TestStdTextRuns2`. Two of the plan's laws are false and are stated in a true form: "ReplaceAll removes old" fails on `ReplaceAll("aabb", "ab", "")`, which is `"ab"`, so the law is `ReplaceAllLength`; "a text equals its case maps under folding" fails on `"İ"`, whose lower case `"i"` does not fold to it, so the law is `EqualFoldIsSymmetric`.
 
 *Prior art:* Gleam's `gleam/string` and ReScript's `Js.String2` bind host text functions as direct externals with no wrapper; Elixir's `String` and `Integer.parse/1` (`{n, rest} | :error`) are plain BEAM calls. Ergo binds Go's `strings` and `strconv` the same way, and gives `Atoi` a typed failure in its row in place of Go's `error`.
 
@@ -155,12 +158,32 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `queue` | `Queue.CloseIsIdempotent` | `CloseIsIdempotent() { Close() Close() true }` | `TestStdLawsRun` | tested |
 | `queue` | `Queue.PushAfterCloseFails` | `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }` | `TestStdLawsRun` | tested |
 | `scope` | `ActionsRunLastFirst` | `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }` | `TestStdLawsRun` | tested |
+| `strconv` | `AtoiInvertsItoa` | `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }` | `TestStdTextLaws` | tested |
+| `strconv` | `FormatFloatRoundTrips` | `FormatFloatRoundTrips(f float64) { if f != f { return true } try ParseFloat(FormatFloat(f, 'g', -1)) == f }` | `TestStdTextLaws` | tested |
+| `strconv` | `ItoaInvertsAtoi` | `ItoaInvertsAtoi(s string) { let n = Atoi(s) catch { case Malformed, OutOfRange: return true } try Atoi(Itoa(n)) == n }` | `TestStdTextLaws` | tested |
+| `strconv` | `ParseBoolInvertsFormat` | `ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) == b }` | `TestStdTextLaws` | tested |
+| `strconv` | `ParseIntInvertsFormat` | `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }` | `TestStdTextLaws` | tested |
+| `strconv` | `UnquoteInvertsQuote` | `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }` | `TestStdTextLaws` | tested |
+| `strings` | `CountMatchesSplit` | `CountMatchesSplit(s string, sep string) { if sep == "" { return true } Count(s, sep) == len(Split(s, sep))-1 }` | `TestStdTextLaws` | tested |
+| `strings` | `CutRebuilds` | `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }` | `TestStdTextRuns2` | tested |
+| `strings` | `EqualFoldIsSymmetric` | `EqualFoldIsSymmetric(s string, t string) { EqualFold(s, s) && EqualFold(s, t) == EqualFold(t, s) }` | `TestStdTextLaws` | tested |
+| `strings` | `FieldsHaveNoSpace` | `FieldsHaveNoSpace(s string) { for f in Fields(s) { let again = Fields(f) if len(again) != 1 \|\| Join(again, "") != f { return false } } true }` | `TestStdTextLaws` | tested |
+| `strings` | `HasPrefixOfConcat` | `HasPrefixOfConcat(p string, s string) { HasPrefix(p+s, p) && HasSuffix(p+s, s) }` | `TestStdTextLaws` | tested |
+| `strings` | `IndexFinds` | `IndexFinds(s string, sub string) { let i = Index(s, sub) let j = LastIndex(s, sub) if i < 0 { return j < 0 && !Contains(s, sub) } Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j }` | `TestStdTextLaws` | tested |
+| `strings` | `JoinInvertsSplit` | `JoinInvertsSplit(s string, sep string) { if sep == "" { return true } Join(Split(s, sep), sep) == s }` | `TestStdTextLaws` | tested |
+| `strings` | `LinesRebuild` | `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }` | `TestStdTextRuns2` | tested |
+| `strings` | `RepeatLength` | `RepeatLength(s string, n int) { if n < 0 \|\| n > 64 { return true } len(Repeat(s, n)) == n*len(s) }` | `TestStdTextLaws` | tested |
+| `strings` | `ReplaceAllLength` | `ReplaceAllLength(s string, old string, repl string) { if old == "" { return true } len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old)) }` | `TestStdTextLaws` | tested |
+| `strings` | `ToLowerIsIdempotent` | `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }` | `TestStdTextLaws` | tested |
+| `strings` | `TrimSpaceIsIdempotent` | `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }` | `TestStdTextLaws` | tested |
 | `task` | `StopIsIdempotent` | `StopIsIdempotent() { let t = Go() { LiveScheduler.Sleep(1h) 0 } t.Stop() t.Stop() true }` | `TestStdLawsRun` | tested |
 | `task` | `WaitReturnsTheBlock` | `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }` | `TestStdLawsRun` | tested |
 | `timeout` | `DeadlineFirstExpires` | `DeadlineFirstExpires() { with context { Scheduler: LiveScheduler } { After(1ms) { LiveScheduler.Sleep(1h) false } catch { case Expired: true } } }` | `TestStdLawsRun` | tested |
 | `timeout` | `QuickBodyWins` | `QuickBodyWins(n int) { with context { Scheduler: LiveScheduler } { try After(1h) { n } == n } }` | `TestStdLawsRun` | tested |
 | `trace` | `InnerSpanShadows` | `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
 | `trace` | `SpanEndRestores` | `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }` | `TestStdLawsRun` | tested |
+| `utf8` | `RuneCountAtMostLen` | `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }` | `TestStdTextLaws` | tested |
+| `utf8` | `RuneCountOfConcat` | `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }` | `TestStdTextLaws` | tested |
 
 *Prior art:* Haskell states class laws beside the class and runs them with QuickCheck's `prop_` functions; Elixir's `StreamData` states properties beside `test`; MoonBit ships its core with property tests; Gleam and ReScript state none in source. Ergo states each law in the std source, where a reader of the std sees it, and keeps the Go test that runs it in one ledger until #162.
 

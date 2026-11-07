@@ -1,16 +1,84 @@
 // Package strconv converts between text and numbers (docs/spec/stdlib.md,
 // strings and strconv). Each extern binds a runtime/v1 body
-// (runtime/v1/text.go) that calls Go's strconv package.
+// (runtime/v1/text.go) that calls Go's strconv package. Go's one error,
+// a *NumError with ErrSyntax or ErrRange, is two failures here, so a
+// caller tells "not a number" from "too big" with a match.
 
-// Malformed is the failure of Atoi: Text is not a decimal int.
+// Malformed is the failure of a text that is not in the form the function
+// reads (Go's ErrSyntax).
 type Malformed { Text string }
+
+// OutOfRange is the failure of a number that does not fit its type (Go's
+// ErrRange).
+type OutOfRange { Text string }
 
 // Itoa is n in decimal.
 extern go ergo.local/prototype/runtime/v1.StrconvItoa func Itoa(n int) string
 
 // Atoi is the decimal int in s, with an optional sign. Text that is not
-// one, or that is out of int's range, fails Malformed.
-extern go ergo.local/prototype/runtime/v1.StrconvAtoi func Atoi(s string) int fails Malformed
+// one fails Malformed; a number out of int's range fails OutOfRange.
+extern go ergo.local/prototype/runtime/v1.StrconvAtoi func Atoi(s string) int fails Malformed | OutOfRange
+
+// ParseInt is the integer in s, in base (2 to 36, or 0: the base comes
+// from the prefix, 0b, 0o, 0x or 0, and underscores may separate digits,
+// as in Go source), that fits in bits bits (0 means int's size). A base or
+// bits outside those values is a defect.
+extern go ergo.local/prototype/runtime/v1.StrconvParseInt func ParseInt(s string, base int, bits int) int64 fails Malformed | OutOfRange
+
+// ParseFloat is the float64 in s, in Go's syntax (decimal, hexadecimal,
+// "Inf", "NaN"). A number too large for float64 fails OutOfRange.
+extern go ergo.local/prototype/runtime/v1.StrconvParseFloat func ParseFloat(s string) float64 fails Malformed | OutOfRange
+
+// ParseBool is the bool in s: 1, t, T, TRUE, true, True, 0, f, F, FALSE,
+// false or False. Any other text fails Malformed.
+extern go ergo.local/prototype/runtime/v1.StrconvParseBool func ParseBool(s string) bool fails Malformed
+
+// FormatBool is "true" or "false".
+extern go ergo.local/prototype/runtime/v1.StrconvFormatBool func FormatBool(b bool) string
+
+// FormatFloat is f in the format fmt ('e', 'E', 'f', 'g', 'G', 'b', 'x'
+// or 'X') with prec digits; prec -1 is the fewest digits that read back
+// as f exactly.
+extern go ergo.local/prototype/runtime/v1.StrconvFormatFloat func FormatFloat(f float64, fmt byte, prec int) string
 
 // Quote is s as a double-quoted Go string literal, with Go escapes.
 extern go ergo.local/prototype/runtime/v1.StrconvQuote func Quote(s string) string
+
+// Unquote is the value of the Go string, rune or raw string literal s.
+// Text that is not one fails Malformed.
+extern go ergo.local/prototype/runtime/v1.StrconvUnquote func Unquote(s string) string fails Malformed
+
+// The round trips of strconv (docs/spec/stdlib.md, Std laws).
+
+// AtoiInvertsItoa: reading the decimal text of n gives n.
+law AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }
+
+// ItoaInvertsAtoi: a text Atoi reads, written back and read again, gives
+// the same number (the sign and leading zeros are normalized).
+law ItoaInvertsAtoi(s string) {
+	let n = Atoi(s) catch {
+	case Malformed, OutOfRange:
+		return true
+	}
+	try Atoi(Itoa(n)) == n
+}
+
+// UnquoteInvertsQuote: unquoting a quoted text gives the text, invalid
+// UTF-8 included.
+law UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }
+
+// ParseBoolInvertsFormat: reading the text of b gives b.
+law ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) == b }
+
+// FormatFloatRoundTrips: the shortest text of a float that is not NaN
+// reads back as the same float.
+law FormatFloatRoundTrips(f float64) {
+	if f != f {
+		return true
+	}
+	try ParseFloat(FormatFloat(f, 'g', -1)) == f
+}
+
+// ParseIntInvertsFormat: Itoa's text of n, read in base 10 at 64 bits,
+// is n.
+law ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }

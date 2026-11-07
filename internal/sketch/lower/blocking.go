@@ -100,6 +100,21 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvItoa":       {},
 	"StrconvAtoi":       {},
 	"StrconvQuote":      {},
+	// std-align S1c: the rest of Go's strings and strconv that the std
+	// takes, and utf8; pure, as above.
+	"StringsReplaceAll":   {},
+	"StringsLastIndex":    {},
+	"StringsCount":        {},
+	"StringsSplitN":       {},
+	"StringsEqualFold":    {},
+	"StringsContainsRune": {},
+	"UTF8RuneCount":       {},
+	"StrconvParseInt":     {},
+	"StrconvParseFloat":   {},
+	"StrconvParseBool":    {},
+	"StrconvFormatBool":   {},
+	"StrconvFormatFloat":  {},
+	"StrconvUnquote":      {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},
