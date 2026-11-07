@@ -670,7 +670,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		outside  []entry
 		used     map[string]bool
 		identity string
-		took     time.Duration
+		took     string
 		err      error
 	}
 	results := make([]result, len(targets))
@@ -681,9 +681,8 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := strings.ReplaceAll(dir, "/", "_")
-			start := time.Now()
-			entries, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), sem)
-			results[i].took = time.Since(start)
+			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), sem)
+			results[i].took = took
 			if err != nil {
 				results[i].err = err
 				return
@@ -697,7 +696,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 
 	for i, dir := range targets {
 		r := results[i]
-		t.Logf("%s: swept in %v (%d runs)", dir, r.took.Round(time.Millisecond), max(1, sweepShards[dir]))
+		t.Logf("%s: %s", dir, r.took)
 		if r.err != nil {
 			t.Errorf("%s: %v", dir, r.err)
 			continue
@@ -964,21 +963,25 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 // The build and each run hold a slot of sem. It returns the recorded
 // inputs of every run. The log and the output of a package run whole go to
 // stem.log and stem.out, of a run of a split package to stem.<i>.log and
-// stem.<i>.out.
-func runPackage(root, protect string, roots []string, dir, binary, stem string, sem chan struct{}) ([]entry, error) {
+// stem.<i>.out. took says how long the build and each run took once it
+// held its slot.
+func runPackage(root, protect string, roots []string, dir, binary, stem string, sem chan struct{}) (entries []entry, took string, err error) {
 	sem <- struct{}{}
-	err := buildTestBinary(root, dir, binary)
+	start := time.Now()
+	err = buildTestBinary(root, dir, binary)
+	took = "build " + time.Since(start).Round(100*time.Millisecond).String()
 	<-sem
 	if err != nil {
-		return nil, err
+		return nil, took, err
 	}
 	pkgDir := filepath.Join(root, filepath.FromSlash(dir))
 	selections, err := sweepShardArgs(pkgDir, sweepShards[dir])
 	if err != nil {
-		return nil, err
+		return nil, took, err
 	}
 	runs := make([][]entry, len(selections))
 	errs := make([]error, len(selections))
+	durations := make([]string, len(selections))
 	var wg sync.WaitGroup
 	for i, selection := range selections {
 		wg.Go(func() {
@@ -988,22 +991,24 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 			if len(selections) > 1 {
 				runStem = fmt.Sprintf("%s.%d", stem, i+1)
 			}
+			start := time.Now()
 			runs[i], errs[i] = runTests(protect, roots, dir, pkgDir, runStem, nil, binary, selection...)
+			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
 			if errs[i] != nil && len(selections) > 1 {
 				errs[i] = fmt.Errorf("run %d of %d (%s): %w", i+1, len(selections), strings.Join(selection, " "), errs[i])
 			}
 		})
 	}
 	wg.Wait()
+	took += ", runs " + strings.Join(durations, " ")
 	if err := errors.Join(errs...); err != nil {
-		return nil, err
+		return nil, took, err
 	}
-	var entries []entry
 	for _, run := range runs {
 		entries = append(entries, run...)
 	}
 	slices.SortFunc(entries, func(a, b entry) int { return cmp.Or(strings.Compare(a.path, b.path), strings.Compare(a.op, b.op)) })
-	return slices.Compact(entries), nil
+	return slices.Compact(entries), took, nil
 }
 
 // buildTestBinary builds the test binary of the package in dir. The build
