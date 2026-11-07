@@ -479,6 +479,16 @@ test FlagEachCommandReaches(i int) {
 	assert nameOf(try flag.ParseCommand("law", "", all, []string{all[k].Name})) == all[k].Name
 }
 
+// DeclaredHelpIsAFlag: a set that declares h or help reads -h and -help
+// as its flags, as Go's flag does; only an undeclared one is Help.
+test DeclaredHelpIsAFlag(v string) {
+	let h = flag.String("h", "", "a host")
+	let help = flag.Bool("help", false, "a switch")
+	let s = flag.Set{Name: "h", Usage: "", Flags: []flag.Flag{h, help}, Args: []flag.ArgSpec{}}
+	let got = try flag.Parse(s, []string{"-h", v, "--help"})
+	assert h.Get(got) == v && help.Get(got)
+}
+
 test FlagFlagCrossesPositional(p string, a string) {
 	let before = try flag.Parse(set(), []string{"p" + p, "-s=" + a})
 	assert flag.Equal(before, try flag.Parse(set(), []string{"-s=" + a, "p" + p}))
@@ -513,10 +523,11 @@ func TestFlagLaws(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["flaglaws"], "--seed", "1")
+	t.Logf("ergo test --seed 1:\n%s", stdout)
 	if code != 0 {
 		t.Errorf("exit %d\n%s\n%s", code, stdout, firstLines(stderr, 10))
 	}
-	for _, name := range want {
+	for _, name := range append(want, "DeclaredHelpIsAFlag") {
 		if !strings.Contains(stdout, "ok "+name) {
 			t.Errorf("%s did not pass:\n%s", name, stdout)
 		}
