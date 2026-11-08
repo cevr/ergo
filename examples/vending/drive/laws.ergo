@@ -1,0 +1,53 @@
+// The rules of the driver as laws: the times it writes read back, and a
+// catch-up leaves no deadline behind and never goes back in time.
+
+import vending/light
+import vending/vend
+
+// Clamp is n milliseconds folded into 0 to most milliseconds, so a law
+// over any int stays within a run of a few minutes.
+func Clamp(n int, most int) duration {
+	let m = if n < 0 { -(n % (most + 1)) } else { n % (most + 1) }
+	duration(int64(m) * int64(1ms))
+}
+
+// ShowReads: Duration reads back every time that Show writes.
+law ShowReads(n int) {
+	let d = Clamp(n, 100000000)
+	let back = Duration(Show(d)) catch {
+	case BadDuration:
+		return false
+	}
+	back == d
+}
+
+// Ordered reports whether the times of lines never go back and none is
+// after upto.
+func Ordered(lines []Line, upto duration) bool {
+	let mut last = 0s
+	for l in lines {
+		if l.At < last || l.At > upto {
+			return false
+		}
+		last = l.At
+	}
+	true
+}
+
+// CatchUpLeavesNothingDue: after a catch-up to upto, no deadline of
+// either machine is at or before upto, the lines are in time order, and
+// the time is upto. Each machine starts in a phase that has a deadline.
+law CatchUpLeavesNothingDue(credit int, since int, upto int) {
+	let start = Clamp(since, 60000)
+	let b = Both{..Fresh([]vend.Slot{}), Vend: vend.Collecting{Slots: []vend.Slot{}, Credit: credit, Until: start + vend.Wait}, Light: light.Red{Since: start}, Now: start}
+	let end = start + Clamp(upto, 600000)
+	let after, lines = CatchUp(b, end)
+	match due(after, end) {
+	case NoneDue:
+		Ordered(lines, end) && after.Now == end
+	case VendDue:
+		false
+	case LightDue:
+		false
+	}
+}

@@ -1,0 +1,72 @@
+// The rules of the crossing as laws over its machine.
+
+// ColoursFollow: from any light, every cue leads to a colour that may
+// follow it: never green to red, never red to yellow.
+law ColoursFollow(l Light, cues []Cue) {
+	let mut now = l
+	for c in cues {
+		let next = Next(now, Step(now, c))
+		if !Follows(now, next) {
+			return false
+		}
+		now = next
+	}
+	true
+}
+
+// PhasesDoNotDrift: a phase that a tick ends begins the next phase at its
+// deadline, however late the tick came.
+law PhasesDoNotDrift(l Light, at duration) {
+	match Deadline(l) {
+	case Some[duration] as d:
+		let next = Next(l, Step(l, Tick{At: at}))
+		if at < d.Value {
+			return Colour(next) == Colour(l) && SinceOf(next) == SinceOf(l)
+		}
+		SinceOf(next) == d.Value
+	case None:
+		true
+	}
+}
+
+// GreenLastsMinGreen: no cue ends a green before MinGreen, except a
+// fault.
+law GreenLastsMinGreen(since duration, asked bool, c Cue) {
+	let g = Green{Since: since, Asked: asked}
+	let next = Next(g, Step(g, c))
+	match next {
+	case Yellow as y:
+		y.Since >= since+MinGreen
+	case Green:
+		true
+	case Flashing:
+		true
+	case Red:
+		false
+	}
+}
+
+// ButtonShortensGreen: a press in green moves its end to MinGreen after
+// it began, and never later.
+law ButtonShortensGreen(since duration, at duration) {
+	let g = Green{Since: since, Asked: false}
+	let pressed = Next(g, Step(g, Button{At: at}))
+	Deadline(pressed) == Some[duration]{Value: since + MinGreen}
+}
+
+// OnlyRepairEndsFlashing: a flashing light stays flashing for every cue
+// but a repair.
+law OnlyRepairEndsFlashing(since duration, c Cue) {
+	let f = Flashing{Since: since}
+	let next = Next(f, Step(f, c))
+	match c {
+	case Repair:
+		Colour(next) == "red"
+	case Tick:
+		Colour(next) == "flashing"
+	case Button:
+		Colour(next) == "flashing"
+	case Fault:
+		Colour(next) == "flashing"
+	}
+}

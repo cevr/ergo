@@ -1,0 +1,24 @@
+1s vend: took 100c, credit 100c
+2s vend: took 25c, credit 125c
+3s vend: took 25c, credit 150c
+4s vend: sold cola from A1 for 125c, change 25c
+4500ms vend: refused: busy dropping
+6s vend: A1 dropped into the tray
+9s coins: returned washer
+10s vend: took 25c, credit 25c
+12s vend: refused B1: costs 75c, credit 25c
+20s vend: took 10c, credit 35c
+30s light: green
+35s light: green, ends early
+41s vend: took 5c, credit 40c
+42s vend: refused Z9: no such slot
+50s light: yellow
+50s vend: refunded 40c (service)
+50s vend: out of service
+54s light: red
+55s vend: refused: out of service
+58s vend: back in service
+70s light: flashing red
+80s light: ignored, still flashing
+95s light: red
+at 120s: vend idle, light red; in 190c = sales 125c + change 25c + refunds 40c + credit 0c

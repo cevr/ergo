@@ -1,0 +1,21 @@
+# A morning at the corner: a sale with change, a counterfeit, a timeout,
+# a press of the crossing button, and a fault the engineer repairs.
+1s coin dollar
+2s coin quarter
+3s coin quarter
+4s select A1
+4500ms select B1
+9s coin washer
+10s coin quarter
+12s select B1
+20s coin dime
+35s button
+41s coin nickel
+42s select Z9
+50s service
+55s coin dollar
+58s resume
+70s fault
+80s button
+95s repair
+2m end

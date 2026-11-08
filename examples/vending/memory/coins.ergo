@@ -1,0 +1,22 @@
+// Package memory keeps the coin mechanism's table in memory: a coin is
+// known by its name, as a test rig or a simulator knows it.
+
+import vending/vend
+
+// Coins is a vend.Acceptor over a table from a coin's name to its value
+// in cents.
+type Coins { values Map[string, int] }
+
+// US is the coins of the United States that the machine takes.
+func US() Coins { Coins{values: Map[string, int]{"nickel": 5, "dime": 10, "quarter": 25, "dollar": 100}} }
+
+// Value is the value of coin, or Counterfeit when the table has no such
+// coin.
+func Value(c Coins, coin string) int fails vend.Counterfeit {
+	match c.values.Get(coin) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		vend.Counterfeit{Name: coin}
+	}
+}
