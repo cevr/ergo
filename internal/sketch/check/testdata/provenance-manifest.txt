@@ -31,7 +31,7 @@ import ergo.local/prototype/runtime/v1
 # parses inside its preludeOnce.Do closure, prelude$1.
 # stdExternResultSet (extern.go, #206) parses the std sources, checks
 # nothing and returns only type names, so no node it makes reaches a pass.
-callee Parse CheckSource prelude$1 (*stdImporter).Import stdExternResultSet
+callee Parse CheckSource prelude$1 (*stdImporter).load stdExternResultSet
 
 # The checker's own functions that parse caller text, with the sites that
 # may reference them: none, so a pass cannot reach the parser through the
