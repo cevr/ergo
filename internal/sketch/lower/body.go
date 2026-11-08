@@ -848,6 +848,9 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 	if m == nil {
 		ice(s, "a match with no Matches entry")
 	}
+	if done, terminates := fc.getMatch(s, d); done {
+		return terminates // a match on m.Get(k): Go's comma-ok (getmatch.go)
+	}
 	if !fc.simpleTypeMatch(s) {
 		subjects := make([]syntax.Expr, len(s.Subjects))
 		for i, g := range s.Subjects {

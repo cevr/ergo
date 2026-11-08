@@ -60,6 +60,12 @@ func lowerPureCollections(t *testing.T, name, src string, pure bool) *lowered {
 }
 
 func TestPurePreludeEmits(t *testing.T) {
+	// lookup's match on m.Get(k) keeps its Get call, and so the Get
+	// wrapper, under the reference Get lowering (getmatch.go); the comma-ok
+	// form reads the Map with no call (TestGetMatchEmits).
+	saved := getLowering
+	defer func() { getLowering = saved }()
+	getLowering = "switch"
 	marked := lowerPureCollections(t, "e5on", e5Source, true).mainGo()
 	for name, head := range map[string]string{
 		"evens":  "func evens(n int) []int {",
