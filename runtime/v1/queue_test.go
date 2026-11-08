@@ -160,6 +160,106 @@ func TestQueuePoll(t *testing.T) {
 	})
 }
 
+// BenchmarkQueuePoll times Poll and Len beside their hand-written Go
+// control, a buffered channel: a Push then a Poll (a send, then a receive
+// in a select with a default case), a Poll of an empty queue (the same
+// select on an empty channel), and Len (len of the channel). One goroutine,
+// no contention.
+func BenchmarkQueuePoll(b *testing.B) {
+	b.Run("PushPoll/ergo", func(b *testing.B) {
+		q := New[int](1)
+		b.ReportAllocs()
+		for i := range b.N {
+			_ = q.Push(bg, i)
+			if _, ok := q.Poll(); !ok {
+				b.Fatal("Poll found no value")
+			}
+		}
+	})
+	b.Run("PushPoll/go", func(b *testing.B) {
+		ch := make(chan int, 1)
+		b.ReportAllocs()
+		for i := range b.N {
+			ch <- i
+			select {
+			case <-ch:
+			default:
+				b.Fatal("the receive found no value")
+			}
+		}
+	})
+	b.Run("PollEmpty/ergo", func(b *testing.B) {
+		q := New[int](1)
+		b.ReportAllocs()
+		for range b.N {
+			if _, ok := q.Poll(); ok {
+				b.Fatal("Poll found a value")
+			}
+		}
+	})
+	b.Run("PollEmpty/go", func(b *testing.B) {
+		ch := make(chan int, 1)
+		b.ReportAllocs()
+		for range b.N {
+			select {
+			case <-ch:
+				b.Fatal("the receive found a value")
+			default:
+			}
+		}
+	})
+	b.Run("Len/ergo", func(b *testing.B) {
+		q := New[int](4)
+		_ = q.Push(bg, 1)
+		b.ReportAllocs()
+		n := 0
+		for range b.N {
+			n += q.Len()
+		}
+		benchSink = n
+	})
+	b.Run("Len/go", func(b *testing.B) {
+		ch := make(chan int, 4)
+		ch <- 1
+		b.ReportAllocs()
+		n := 0
+		for range b.N {
+			n += len(ch)
+		}
+		benchSink = n
+	})
+}
+
+// BenchmarkQueuePushPop times a Push then a Pop on one goroutine, which
+// S3d moved into front(), beside a send and a receive on a buffered
+// channel.
+func BenchmarkQueuePushPop(b *testing.B) {
+	b.Run("ergo", func(b *testing.B) {
+		q := New[int](1)
+		b.ReportAllocs()
+		n := 0
+		for i := range b.N {
+			_ = q.Push(bg, i)
+			v, _ := q.Pop(bg)
+			n += v
+		}
+		benchSink = n
+	})
+	b.Run("go", func(b *testing.B) {
+		ch := make(chan int, 1)
+		b.ReportAllocs()
+		n := 0
+		for i := range b.N {
+			ch <- i
+			n += <-ch
+		}
+		benchSink = n
+	})
+}
+
+// benchSink keeps a benchmark's result alive.
+var benchSink int
+
 // TestQueueContract walks each rule of the queue contract (runtime.md,
 // Queues).
 func TestQueueContract(t *testing.T) {
