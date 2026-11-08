@@ -575,7 +575,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 			if _, ok := unguardedHosts[name]; ok {
 				continue
 			}
-			for _, v := range hostAuthorityViolations(pkg, tn, outside) {
+			for _, v := range hostAuthorityViolationsIn(pkgs, pkg, tn, outside) {
 				t.Errorf("%s: %s", name, v)
 			}
 		}
@@ -788,6 +788,15 @@ let Minter = mint
 func mk() int { try raise() }
 
 let Mk = mk
+`, wrapped},
+		// A type parameter: the caller picks it, and a generic function
+		// makes no value of it (TestStdHostHandOutsAcrossPackages), so
+		// Make gives no Tok; Give passes one to its constraint's operation,
+		// which the caller's type implements.
+		{"record that a generic function cannot make", tokBase + "func Make[T]() T { Make[T]() }\n", nil},
+		{"record passed to a type parameter's operation", tokBase + `type Sink { Put(t Tok) }
+
+func Give[T Sink](s T) { Give(s) }
 `, wrapped},
 		// A record met first where the caller supplies it, then where the
 		// caller gets it (batch-10 r3 T1: the walk's seen-set keeps both).
@@ -1406,8 +1415,20 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 }
 
 // hostAuthorityViolations are the ways the host provider tn of pkg breaks
-// the rule, as seen from the package outside.
+// the rule, as seen from the package outside, when pkg is the only
+// package whose exported names outside uses.
 func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *check.Package) []string {
+	return hostAuthorityViolationsIn([]*check.Package{pkg}, pkg, tn, outside)
+}
+
+// hostAuthorityViolationsIn are the ways the host provider tn of pkg
+// breaks the rule when outside may use the exported names of every
+// package of surface (pkg among them). A record tn needs may be declared
+// in another package, which hands it out (fu-ambient-ctor r4); another
+// package cannot hand out what it got under Ambient without listing
+// Ambient itself (rows: S102 at the call, in a function or a let's
+// initializer), so the exported names of surface are every way in.
+func hostAuthorityViolationsIn(surface []*check.Package, pkg *check.Package, tn *check.TypeName, outside *check.Package) []string {
 	var out []string
 	// Does another package build tn? One checker fact, check.Buildable;
 	// the kind of tn's underlying type only words the message.
@@ -1453,29 +1474,31 @@ func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *ch
 	what := func(e *check.TypeName) string {
 		return e.Pkg.Name + "." + e.Name + ", which " + pkg.Name + "." + tn.Name + " needs,"
 	}
-	got := obtained(pkg, outside)
-	for _, f := range pkg.Funcs {
-		if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
-			continue
-		}
-		for _, e := range needed(handsOut(f.Sig)) {
-			if e == tn {
-				out = append(out, pkg.Name+"."+f.Name+" returns it and does not list Ambient in its written row")
-			} else {
-				out = append(out, pkg.Name+"."+f.Name+" hands out "+what(e)+" and does not list Ambient in its written row or take a value that needs authority")
+	got := obtained(surface, outside)
+	for _, p := range surface {
+		for _, f := range p.Funcs {
+			if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
+				continue
+			}
+			for _, e := range needed(handsOut(f.Sig)) {
+				if e == tn {
+					out = append(out, p.Name+"."+f.Name+" returns it and does not list Ambient in its written row")
+				} else {
+					out = append(out, p.Name+"."+f.Name+" hands out "+what(e)+" and does not list Ambient in its written row or take a value that needs authority")
+				}
 			}
 		}
-	}
-	for _, o := range pkg.Exported() {
-		if v, ok := o.(*check.Var); ok {
-			for _, e := range needed([]check.Type{v.Type}) {
-				out = append(out, pkg.Name+"."+v.Name+" is an exported let that holds "+what(e)+" and a let has no row")
+		for _, o := range p.Exported() {
+			if v, ok := o.(*check.Var); ok {
+				for _, e := range needed([]check.Type{v.Type}) {
+					out = append(out, p.Name+"."+v.Name+" is an exported let that holds "+what(e)+" and a let has no row")
+				}
 			}
 		}
-	}
-	for _, c := range exportedContexts(pkg) {
-		for _, e := range needed(contextCaps(c)) {
-			out = append(out, pkg.Name+"."+c.Name+" is an exported context that binds a capability that hands out "+what(e)+" and a named context has no row")
+		for _, c := range exportedContexts(p) {
+			for _, e := range needed(contextCaps(c)) {
+				out = append(out, p.Name+"."+c.Name+" is an exported context that binds a capability that hands out "+what(e)+" and a named context has no row")
+			}
 		}
 	}
 	return out
@@ -1544,15 +1567,15 @@ func takesAuthority(f *check.Func, outside *check.Package, got map[*check.TypeNa
 }
 
 // obtained are the records with authority that package outside gets from
-// pkg with no authority (fu-ambient-ctor r2): the least fixed point of
-// "an exported let holds it, an exported named context binds a capability
-// that hands it out, or an exported function with no Ambient in
-// its written row, whose every parameter outside builds from literals and
-// the records already obtained, hands it out". So in `func MakeTok() Tok`
-// and `func Wrap(_ Tok) Host`, Tok is obtained and Wrap takes no authority;
-// the chain may be of any length. Only pkg's own hand-outs are asked (a
-// record of another package counts as not obtained: a known gap).
-func obtained(pkg *check.Package, outside *check.Package) map[*check.TypeName]bool {
+// the packages of surface with no authority (fu-ambient-ctor r2): the
+// least fixed point of "an exported let holds it, an exported named
+// context binds a capability that hands it out, or an exported function
+// with no Ambient in its written row, whose every parameter outside builds
+// from literals and the records already obtained, hands it out". So in
+// `func MakeTok() Tok` and `func Wrap(_ Tok) Host`, Tok is obtained and
+// Wrap takes no authority; the chain may be of any length and cross
+// packages (r4).
+func obtained(surface []*check.Package, outside *check.Package) map[*check.TypeName]bool {
 	got := map[*check.TypeName]bool{}
 	add := func(ts []check.Type) bool {
 		grew := false
@@ -1566,22 +1589,26 @@ func obtained(pkg *check.Package, outside *check.Package) map[*check.TypeName]bo
 		}
 		return grew
 	}
-	for _, o := range pkg.Exported() {
-		if v, ok := o.(*check.Var); ok {
-			add([]check.Type{v.Type})
+	for _, pkg := range surface {
+		for _, o := range pkg.Exported() {
+			if v, ok := o.(*check.Var); ok {
+				add([]check.Type{v.Type})
+			}
 		}
-	}
-	for _, c := range exportedContexts(pkg) {
-		add(contextCaps(c))
+		for _, c := range exportedContexts(pkg) {
+			add(contextCaps(c))
+		}
 	}
 	for changed := true; changed; {
 		changed = false
-		for _, f := range pkg.Funcs {
-			if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
-				continue
-			}
-			if add(handsOut(f.Sig)) {
-				changed = true
+		for _, pkg := range surface {
+			for _, f := range pkg.Funcs {
+				if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
+					continue
+				}
+				if add(handsOut(f.Sig)) {
+					changed = true
+				}
 			}
 		}
 	}
