@@ -2,6 +2,7 @@ package v1
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -262,6 +263,9 @@ func textBenches() []textBench {
 		{"FormatFloat", "StrconvFormatFloat", func() { textSink = StrconvFormatFloat(3.14159e10, 'g', -1) }, func() { textSink = strconv.FormatFloat(3.14159e10, 'g', -1, 64) }},
 		{"Unquote", "StrconvUnquote", func() { textSink, _ = StrconvUnquote(`"a\tb\u00e9"`) }, func() { textSink, _ = strconv.Unquote(`"a\tb\u00e9"`) }},
 		{"Quote", "StrconvQuote", func() { textSink = StrconvQuote("a\tb\u00e9\xff") }, func() { textSink = strconv.Quote("a\tb\u00e9\xff") }},
+		{"Compare", "StringsCompare", func() { textSink = StringsCompare(s, xs[0]) }, func() { textSink = strings.Compare(s, xs[0]) }},
+		{"PadLeft", "StringsPadLeft", func() { textSink = StringsPadLeft("alpha", 24, ' ') }, func() { textSink = fmt.Sprintf("%*s", 24, "alpha") }},
+		{"PadRight", "StringsPadRight", func() { textSink = StringsPadRight("alpha", 24, ' ') }, func() { textSink = fmt.Sprintf("%-*s", 24, "alpha") }},
 	}
 }
 
