@@ -89,6 +89,37 @@ func SlicesReverse[T any](xs []T) []T {
 //ergo:pure
 func SlicesClone[T any](xs []T) []T { return slices.Clone(xs) }
 
+// SlicesConcat is slices.Concat(a, b): a new array of at least len(a) +
+// len(b), so the result shares no array with a or b.
+//
+//ergo:pure
+func SlicesConcat[T any](a []T, b []T) []T { return slices.Concat(a, b) }
+
+// SlicesRepeat is slices.Repeat(xs, n): xs n times over, in a new array.
+// A negative n, or a length past int, panics, as Go's does: a defect.
+//
+//ergo:pure
+func SlicesRepeat[T any](xs []T, n int) []T { return slices.Repeat(xs, n) }
+
+// SlicesSlice is xs[i:j:j], the full slice expression: no room after j,
+// so an append to the result copies and never writes xs[j]. A bound out
+// of range panics: a defect, as an index out of range is.
+//
+//ergo:pure
+func SlicesSlice[T any](xs []T, i int, j int) []T { return xs[i:j:j] }
+
+// MapsClone is maps.Clone(m): a new map with the keys and values of m.
+// It is restated, as CmpCompare is, because maps is not in PureImports.
+//
+//ergo:pure
+func MapsClone[K comparable, V any](m map[K]V) map[K]V {
+	out := make(map[K]V, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 // SlicesMax is slices.Max(xs). An empty xs is a defect, Go's panic; the
 // Ergo body of slices.Max calls it only on a non-empty slice.
 //

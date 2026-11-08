@@ -177,7 +177,12 @@ func useSource(c stdMatchFunc, method bool) string {
 	if len(sig.TParams) > 0 {
 		names := make([]string, len(sig.TParams))
 		for i, tp := range sig.TParams {
+			// The constraint too: maps.GetOr's K is comparable, which a
+			// Map key needs.
 			names[i] = tp.Name
+			if tp.Constraint != nil {
+				names[i] += " " + tp.Constraint.String()
+			}
 		}
 		b.WriteString("[" + strings.Join(names, ", ") + "]")
 	}

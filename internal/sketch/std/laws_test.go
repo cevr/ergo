@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -424,9 +425,10 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 // TestStdHostLawsHold runs the member laws of the host packages against
 // their host provider, through the Go bodies that the provider's Ergo
 // functions call (os.Host's Getenv is hostHasEnv then hostGetenv; fs.Host
-// calls FSReadFile and FSMkdirAll), over seeded cases. It is the ledger's
-// runner for os.Process.GetenvIsStable, fs.Files.ReadIsRepeatable and
-// fs.Writes.MkdirAllIsIdempotent.
+// calls FSReadFile, FSMkdirAll, FSWriteFile, FSRemove and FSRename), over
+// seeded cases. It is the ledger's runner for os.Process.GetenvIsStable,
+// fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
+// fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves.
 func TestStdHostLawsHold(t *testing.T) {
 	r := rand.New(rand.NewPCG(1, 2))
 	dir := t.TempDir()
@@ -487,6 +489,68 @@ func TestStdHostLawsHold(t *testing.T) {
 				if err := v1.FSMkdirAll(p); err != nil {
 					t.Errorf("MkdirAllIsIdempotent(%q): the second MkdirAll failed: %v", p, err)
 				}
+			}
+		}},
+		// When Remove(path) succeeds, a second Remove(path) fails NotFound.
+		"fs Writes.RemoveThenNotFound": {Statement: `RemoveThenNotFound(path string) { Remove(path) catch { case NotFound, Denied, Failed: return true } Remove(path) catch { case NotFound: return true case Denied, Failed: return false } false }`, Check: func(t *testing.T) {
+			rm := filepath.Join(dir, "rm")
+			removed := 0
+			for i, p := range append([]string{"f", "d", "full", "link", "", "f/x", "d/"}, paths[6:]...) {
+				base := filepath.Join(rm, strconv.Itoa(i))
+				for _, err := range []error{os.MkdirAll(filepath.Join(base, "d"), 0o755), os.MkdirAll(filepath.Join(base, "full", "in"), 0o755), os.WriteFile(filepath.Join(base, "f"), []byte("x"), 0o644), os.Symlink("f", filepath.Join(base, "link"))} {
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				p = base + "/" + p
+				if v1.FSRemove(p) != nil {
+					continue
+				}
+				if err := v1.FSRemove(p); err != (v1.NotFound{Path: p}) {
+					t.Errorf("RemoveThenNotFound(%q): the second Remove gave %#v", p, err)
+				}
+				removed++
+			}
+			if removed < 4 {
+				t.Errorf("only %d cases reached the second Remove", removed)
+			}
+		}},
+		// When a file is at from and none at to, and Rename(from, to)
+		// succeeds, a second Rename(from, to) fails NotFound.
+		"fs Writes.RenameMoves": {Statement: `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed: return false } false }`, Check: func(t *testing.T) {
+			mv := filepath.Join(dir, "mv")
+			moved := 0
+			names := append([]string{"a", "b", "./a", "sub", "sub/a", "link", "a/", "d", "d/x"}, paths[6:]...)
+			for i := range 300 {
+				base := filepath.Join(mv, strconv.Itoa(i))
+				for _, err := range []error{os.MkdirAll(filepath.Join(base, "sub"), 0o755), os.MkdirAll(filepath.Join(base, "d"), 0o755), os.Symlink("b", filepath.Join(base, "link"))} {
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				from, to := names[r.IntN(len(names))], names[r.IntN(len(names))]
+				text := randomText(r)
+				if from == to {
+					continue
+				}
+				f, g := base+"/"+from, base+"/"+to
+				if v1.FSWriteFile(f, text) != nil {
+					continue
+				}
+				if err := v1.FSRemove(g); err != nil && err != (v1.NotFound{Path: g}) {
+					continue
+				}
+				if v1.FSRename(f, g) != nil {
+					continue
+				}
+				if err := v1.FSRename(f, g); err != (v1.NotFound{Path: f}) {
+					t.Errorf("RenameMoves(%q, %q): the second Rename gave %#v", from, to, err)
+				}
+				moved++
+			}
+			// The law is not vacuous: most cases reach the second Rename.
+			if moved < 100 {
+				t.Errorf("only %d of 300 cases reached the second Rename", moved)
 			}
 		}},
 	})

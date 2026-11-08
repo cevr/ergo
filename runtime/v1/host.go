@@ -174,26 +174,62 @@ var beforeRename func(tmp string) error
 // directory", as a directory is). The new file is made beside the file
 // the link names, so the rename replaces that file, not the link.
 func FSWriteFile(path string, text string) error {
+	return writeFile(path, text, 0, false)
+}
+
+// FSWriteFileMode is the body of fs.Host's WriteFileMode: FSWriteFile,
+// but the file at path ends with exactly the permission bits perm, also
+// when a file was there. The new file is opened with perm (the umask can
+// only narrow it), then given exactly perm before any byte is written, so
+// no reader outside perm can open it at any point.
+func FSWriteFileMode(path string, text string, perm int) error {
+	return writeFile(path, text, fs.FileMode(perm)&fs.ModePerm, true)
+}
+
+// afterCreate, when it is set, runs on the new file of writeFile just
+// after it is created, before its mode is set and before any byte is
+// written. Only tests set it, to see the mode a file is created with.
+var afterCreate func(tmp string)
+
+// writeFile writes text to path through a new file renamed over it. With
+// exact, the new file is created with perm and given exactly perm before
+// it is written; otherwise it is created with 0666 less the umask and
+// takes the mode of the file at path, if one is there.
+func writeFile(path string, text string, perm fs.FileMode, exact bool) error {
 	dest, err := followLink(path)
 	if err != nil {
 		return fsErr(path, err)
 	}
-	var mode fs.FileMode
-	keep := false
+	mode, keep := perm, exact
 	switch fi, err := os.Stat(dest); {
 	case err == nil && fi.IsDir():
 		return Failed{Path: path, Reason: "is a directory"}
-	case err == nil:
+	case err == nil && !exact:
 		mode, keep = fi.Mode().Perm(), true
-	case !errors.Is(err, fs.ErrNotExist):
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		return fsErr(path, err)
 	}
-	f, err := createSibling(dest)
+	create := fs.FileMode(0o666)
+	if exact {
+		create = perm
+	}
+	f, err := createSibling(dest, create)
 	if err != nil {
 		return fsErr(path, err)
 	}
 	tmp := f.Name()
-	err = fillSibling(f, text, mode, keep)
+	if afterCreate != nil {
+		afterCreate(tmp)
+	}
+	if exact {
+		// Before the first byte: the umask may have narrowed perm.
+		err = f.Chmod(mode)
+	}
+	if err == nil {
+		err = fillSibling(f, text, mode, keep && !exact)
+	} else {
+		_ = f.Close()
+	}
 	if err == nil && beforeRename != nil {
 		err = beforeRename(tmp)
 	}
@@ -238,11 +274,11 @@ func followLink(path string) (string, error) {
 }
 
 // createSibling creates a new file beside path, named path.tmpN for a
-// random N, with mode 0666 less the umask. It retries a name that exists.
-func createSibling(path string) (*os.File, error) {
+// random N, with mode perm less the umask. It retries a name that exists.
+func createSibling(path string, perm fs.FileMode) (*os.File, error) {
 	for i := 0; ; i++ {
 		name := path + ".tmp" + strconv.FormatUint(uint64(rand.Uint32()), 10)
-		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 		if errors.Is(err, fs.ErrExist) && i < 100 {
 			continue
 		}
@@ -279,6 +315,102 @@ func FSMkdirAll(path string) error {
 		return Failed{Path: path, Reason: fsReason(err)}
 	}
 	return fsErr(path, err)
+}
+
+// FSMkdirAllMode is the body of fs.Host's MkdirAllMode: FSMkdirAll, but
+// each directory it makes is made with perm (the umask can only narrow
+// it) and then given exactly perm. A directory that is there keeps its
+// mode. Its row is FSMkdirAll's.
+func FSMkdirAllMode(path string, perm int) error {
+	err := mkdirAllExact(path, fs.FileMode(perm)&fs.ModePerm)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		return Failed{Path: path, Reason: fsReason(err)}
+	}
+	return fsErr(path, err)
+}
+
+// mkdirAllExact makes path and each missing parent, as os.MkdirAll does,
+// and gives each directory it makes exactly perm.
+func mkdirAllExact(path string, perm fs.FileMode) error {
+	if fi, err := os.Stat(path); err == nil {
+		if fi.IsDir() {
+			return nil
+		}
+		return &fs.PathError{Op: "mkdir", Path: path, Err: syscall.ENOTDIR}
+	}
+	trimmed := strings.TrimRight(path, string(os.PathSeparator))
+	if parent := filepath.Dir(trimmed); trimmed != "" && parent != trimmed && parent != "." {
+		if err := mkdirAllExact(parent, perm); err != nil {
+			return err
+		}
+	}
+	if err := os.Mkdir(path, perm); err != nil {
+		// Another writer may have made it since the Stat.
+		if fi, serr := os.Lstat(path); serr == nil && fi.IsDir() {
+			return nil
+		}
+		return err
+	}
+	return os.Chmod(path, perm)
+}
+
+// FSAppendFile is the body of fs.Host's AppendFile: text at the end of
+// the file at path, in one write of a file opened with O_APPEND, so two
+// appends never interleave their texts on a local file system. A missing
+// file is made with mode 0666 less the umask, as Go's os.OpenFile with
+// O_CREATE makes it. The file is not synced.
+func FSAppendFile(path string, text string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return fsErr(path, err)
+	}
+	_, err = f.WriteString(text)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return fsErr(path, err)
+	}
+	return nil
+}
+
+// FSChmod is the body of fs.Host's Chmod: os.Chmod with the permission
+// bits perm. A symbolic link is followed.
+func FSChmod(path string, perm int) error {
+	if err := os.Chmod(path, fs.FileMode(perm)&fs.ModePerm); err != nil {
+		return fsErr(path, err)
+	}
+	return nil
+}
+
+// FSRename is the body of fs.Host's Rename: os.Rename. The host says only
+// that a name is missing, not which: NotFound names from when nothing is
+// at from, and to otherwise (a missing directory on the way to to). Every
+// other failure names from.
+func FSRename(from string, to string) error {
+	err := os.Rename(from, to)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		if _, lerr := os.Lstat(from); lerr == nil {
+			return NotFound{Path: to}
+		}
+		return NotFound{Path: from}
+	}
+	return fsErr(from, err)
+}
+
+// FSRemove is the body of fs.Host's Remove: os.Remove, which removes a
+// file, a symbolic link (not what it names) or an empty directory.
+func FSRemove(path string) error {
+	if err := os.Remove(path); err != nil {
+		return fsErr(path, err)
+	}
+	return nil
 }
 
 // The bodies of std io (docs/spec/stdlib.md, io). Each writes or reads a

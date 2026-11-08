@@ -18,6 +18,7 @@ import io
 import os
 import strconv
 import strings
+import time
 
 // StringFlag is the handle of a text flag.
 type StringFlag { name string, def string, usage string, required bool }
@@ -30,11 +31,15 @@ type IntFlag { name string, def int, usage string, required bool }
 // a switch never takes the next argument as its value.
 type BoolFlag { name string, def bool, usage string }
 
+// DurationFlag is the handle of a duration flag. Its value is read as Go's
+// time.ParseDuration reads it: 1h30m, 1.5s, 300ms (std-duration).
+type DurationFlag { name string, def duration, usage string }
+
 // ChoiceFlag is the handle of a text flag whose value is one of choices.
 type ChoiceFlag { name string, def string, choices []string, usage string }
 
 // Flag is any flag handle.
-type Flag = StringFlag | IntFlag | BoolFlag | ChoiceFlag
+type Flag = StringFlag | IntFlag | BoolFlag | ChoiceFlag | DurationFlag
 
 // ArgSpec is the handle of a positional argument.
 type ArgSpec { name string, usage string, arity arity }
@@ -50,7 +55,7 @@ type Set { Name string, Usage string, Flags []Flag, Args []ArgSpec }
 type Values { set Set, flags Map[string, value], named Map[string, string], rest []string }
 
 // value is a flag's parsed value.
-type value = textValue{V string} | intValue{V int} | boolValue{V bool}
+type value = textValue{V string} | intValue{V int} | boolValue{V bool} | durationValue{V duration}
 
 // String is a text flag with a default.
 func String(name string, def string, usage string) StringFlag {
@@ -75,6 +80,11 @@ func RequiredString(name string, usage string) StringFlag {
 // Missing.
 func RequiredInt(name string, usage string) IntFlag {
 	IntFlag{name: name, def: 0, usage: usage, required: true}
+}
+
+// Duration is a duration flag with a default: Go's flag.Duration.
+func Duration(name string, def duration, usage string) DurationFlag {
+	DurationFlag{name: name, def: def, usage: usage}
 }
 
 // Choice is a text flag whose value must be one of choices; def is its
@@ -155,6 +165,23 @@ func Get(f ChoiceFlag, v Values) string {
 			t.V
 		case _:
 			notInSet(f.name)
+		}
+	case None:
+		f.def
+	}
+}
+
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
+func Get(f DurationFlag, v Values) duration {
+	known(v, f)
+	match v.flags.Get(f.name) {
+	case Some[value] as found:
+		match found.Value {
+		case durationValue as d:
+			d.V
+		case _:
+			time.Times(1ns, len(notInSet(f.name)))
 		}
 	case None:
 		f.def
@@ -242,6 +269,8 @@ func sameValue(f Flag, a Values, b Values) bool {
 		x.Get(a) == x.Get(b)
 	case ChoiceFlag as c:
 		c.Get(a) == c.Get(b)
+	case DurationFlag as d:
+		d.Get(a) == d.Get(b)
 	}
 }
 
@@ -276,6 +305,8 @@ func shown(f Flag, v Values) string {
 		strconv.FormatBool(b.Get(v))
 	case ChoiceFlag as c:
 		c.Get(v)
+	case DurationFlag as d:
+		time.DurationText(d.Get(v))
 	}
 }
 
@@ -290,6 +321,8 @@ func nameOf(f Flag) string {
 		b.name
 	case ChoiceFlag as c:
 		c.name
+	case DurationFlag as d:
+		d.name
 	}
 }
 
@@ -341,6 +374,13 @@ func sameHandle(a Flag, b Flag) bool {
 	case BoolFlag as x:
 		match b {
 		case BoolFlag as y:
+			x == y
+		case _:
+			false
+		}
+	case DurationFlag as x:
+		match b {
+		case DurationFlag as y:
 			x == y
 		case _:
 			false

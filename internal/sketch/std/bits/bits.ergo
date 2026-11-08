@@ -1,0 +1,49 @@
+// Package bits counts and moves the bits of unsigned integers (docs/spec/
+// stdlib.md, math and bits; std-text-runes). It is Go's math/bits; each
+// extern binds a pure runtime/v1 body (runtime/v1/numbers.go) that calls
+// Go's function of the same name, which Go compiles to one instruction
+// (POPCNT, LZCNT, TZCNT, ROL) where the target has it.
+
+// OnesCount is the number of one bits in x.
+extern go ergo.local/prototype/runtime/v1.BitsOnesCount func OnesCount(x uint) int
+
+// OnesCount64 is the number of one bits in x.
+extern go ergo.local/prototype/runtime/v1.BitsOnesCount64 func OnesCount64(x uint64) int
+
+// LeadingZeros is the number of zero bits above the highest one bit of
+// x; 64 for 0.
+extern go ergo.local/prototype/runtime/v1.BitsLeadingZeros func LeadingZeros(x uint) int
+
+// LeadingZeros64 is LeadingZeros for a uint64.
+extern go ergo.local/prototype/runtime/v1.BitsLeadingZeros64 func LeadingZeros64(x uint64) int
+
+// TrailingZeros is the number of zero bits below the lowest one bit of
+// x; 64 for 0.
+extern go ergo.local/prototype/runtime/v1.BitsTrailingZeros func TrailingZeros(x uint) int
+
+// TrailingZeros64 is TrailingZeros for a uint64.
+extern go ergo.local/prototype/runtime/v1.BitsTrailingZeros64 func TrailingZeros64(x uint64) int
+
+// Len is the number of bits needed to write x; 0 for 0.
+extern go ergo.local/prototype/runtime/v1.BitsLen func Len(x uint) int
+
+// Len64 is Len for a uint64.
+extern go ergo.local/prototype/runtime/v1.BitsLen64 func Len64(x uint64) int
+
+// RotateLeft32 is x rotated left by k bits; a negative k rotates right.
+extern go ergo.local/prototype/runtime/v1.BitsRotateLeft32 func RotateLeft32(x uint32, k int) uint32
+
+// RotateLeft64 is x rotated left by k bits; a negative k rotates right.
+extern go ergo.local/prototype/runtime/v1.BitsRotateLeft64 func RotateLeft64(x uint64, k int) uint64
+
+// RotateLeft64Inverts: rotating right by k undoes rotating left by k.
+law RotateLeft64Inverts(x uint64, k int) { RotateLeft64(RotateLeft64(x, k), -k) == x }
+
+// RotateLeft32Inverts: the same for a uint32.
+law RotateLeft32Inverts(x uint32, k int) { RotateLeft32(RotateLeft32(x, k), -k) == x }
+
+// RotateKeepsOnes: a rotation moves bits and loses none.
+law RotateKeepsOnes(x uint64, k int) { OnesCount64(RotateLeft64(x, k)) == OnesCount64(x) }
+
+// LenAndLeadingZeros: the bits of x are its length and the zeros above it.
+law LenAndLeadingZeros(x uint64) { Len64(x)+LeadingZeros64(x) == 64 }

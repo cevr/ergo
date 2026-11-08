@@ -1,10 +1,38 @@
-// Package utf8 counts the UTF-8 sequences of text (docs/spec/stdlib.md,
-// strings and strconv). It is Go's unicode/utf8; the extern binds a
-// runtime/v1 body (runtime/v1/text.go).
+// Package utf8 reads and writes the UTF-8 sequences of text (docs/spec/
+// stdlib.md, strings and strconv). It is Go's unicode/utf8; each extern
+// binds a pure runtime/v1 body (runtime/v1/text.go).
 
 // RuneCount is the number of runes in s. Each byte of an invalid sequence
 // counts as one rune (U+FFFD), as in Go.
 extern go ergo.local/prototype/runtime/v1.UTF8RuneCount func RuneCount(s string) int
+
+// Decoded is the first rune of a text and its size in bytes: Go's two
+// results of DecodeRuneInString as one record.
+type Decoded { Rune rune, Size int }
+
+// DecodeRuneInString is the first rune of s and its size in bytes. An
+// invalid byte is (U+FFFD, 1) and an empty s is (U+FFFD, 0), as in Go, so
+// a loop that moves on by Size always ends.
+extern go ergo.local/prototype/runtime/v1.UTF8DecodeRuneInString func DecodeRuneInString(s string) Decoded
+
+// RuneText is the UTF-8 text of r, Go's string(r); a rune that is not
+// valid (a surrogate, a negative rune, one past U+10FFFF) is "\uFFFD".
+extern go ergo.local/prototype/runtime/v1.UTF8RuneText func RuneText(r rune) string
+
+// AppendRune is p with the UTF-8 bytes of r added at the end, as Go's
+// utf8.AppendRune; a rune that is not valid adds those of U+FFFD.
+extern go ergo.local/prototype/runtime/v1.UTF8AppendRune func AppendRune(p []byte, r rune) []byte
+
+// ValidString reports whether s is all valid UTF-8.
+extern go ergo.local/prototype/runtime/v1.UTF8ValidString func ValidString(s string) bool
+
+// ValidRune reports whether r can be written as UTF-8: not a surrogate,
+// not negative and at most U+10FFFF.
+extern go ergo.local/prototype/runtime/v1.UTF8ValidRune func ValidRune(r rune) bool
+
+// RuneLen is the number of bytes of the UTF-8 text of r, or -1 when r is
+// not valid.
+extern go ergo.local/prototype/runtime/v1.UTF8RuneLen func RuneLen(r rune) int
 
 // RuneCountAtMostLen: a rune takes at least one byte.
 law RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }
@@ -17,3 +45,27 @@ law RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneC
 // does not join a sequence before it, because its first byte is not a
 // continuation byte.
 law RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }
+
+// DecodeInvertsRuneText: decoding the text of a valid rune gives the rune
+// back, with its whole text as its size.
+law DecodeInvertsRuneText(r rune) {
+	if !ValidRune(r) {
+		return true
+	}
+	let d = DecodeRuneInString(RuneText(r))
+	d.Rune == r && d.Size == RuneLen(r) && d.Size == len(RuneText(r))
+}
+
+// InvalidRuneTextIsReplacement: the text of a rune that is not valid is
+// U+FFFD.
+law InvalidRuneTextIsReplacement(r rune) { ValidRune(r) || RuneText(r) == "\uFFFD" }
+
+// DecodeMovesOn: a decode of a text that is not empty takes 1 to 4 of its
+// bytes, so a loop that moves on by Size ends.
+law DecodeMovesOn(s string) {
+	let d = DecodeRuneInString(s)
+	if len(s) == 0 {
+		return d.Size == 0
+	}
+	d.Size >= 1 && d.Size <= 4 && d.Size <= len(s)
+}

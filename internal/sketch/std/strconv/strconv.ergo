@@ -15,6 +15,11 @@ type OutOfRange { Text string }
 // Itoa is n in decimal.
 extern go ergo.local/prototype/runtime/v1.StrconvItoa func Itoa(n int) string
 
+// FormatInt is n in base, 2 to 36, with the digits 0-9 and then a-z, and
+// a "-" for a negative n: Go's strconv.FormatInt. A base outside 2..36 is
+// a defect, as Go's panics.
+extern go ergo.local/prototype/runtime/v1.StrconvFormatInt func FormatInt(n int64, base int) string
+
 // Atoi is the decimal int in s, with an optional sign. Text that is not
 // one fails Malformed; a number out of int's range fails OutOfRange.
 extern go ergo.local/prototype/runtime/v1.StrconvAtoi func Atoi(s string) int fails Malformed | OutOfRange
@@ -82,3 +87,10 @@ law FormatFloatRoundTrips(f float64) {
 // ParseIntInvertsFormat: Itoa's text of n, read in base 10 at 64 bits,
 // is n.
 law ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }
+
+// ParseIntInvertsFormatInt: FormatInt's text of n in a base 2 to 36, read
+// in that base at 64 bits, is n.
+law ParseIntInvertsFormatInt(n int64, b int) {
+	let base = 2 + (b%35+35)%35
+	try ParseInt(FormatInt(n, base), base, 64) == n
+}

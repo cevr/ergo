@@ -527,6 +527,103 @@ test CmpLessIsCompareBelowZero(a string, b string) {
 	assert cmp.Less(a, b) == (cmp.Compare(a, b) < 0)
 	assert !cmp.Less(a, a)
 }
+
+test SlicesCloneCopies(xs []int) {
+	let c = slices.Clone(xs)
+	let mut d = slices.Clone(xs)
+	for i in 0..len(d) {
+		d[i] = d[i] + 1
+	}
+	assert slices.Equal(c, xs) && (len(xs) == 0 || !slices.Equal(d, xs))
+}
+
+test SlicesConcatJoins(a []int, b []int) {
+	let c = slices.Concat(a, b)
+	assert len(c) == len(a)+len(b) && slices.Equal(slices.Slice(c, 0, len(a)), a) && slices.Equal(slices.Slice(c, len(a), len(c)), b)
+}
+
+test SlicesConcatIsIsolated(a []int, b []int, x int) {
+	let mut roomy = slices.WithCapacity[int](len(a) + len(b) + 1)
+	for v in a {
+		roomy = roomy.Append(v)
+	}
+	let c = slices.Concat(roomy, b)
+	let before = slices.Clone(c)
+	let grown = roomy.Append(x)
+	assert slices.Equal(c, before) && len(grown) == len(a)+1 && slices.Equal(slices.Slice(c, len(a), len(c)), b)
+}
+
+test SlicesRepeatRepeats(xs []int, n int) {
+	let k = (n%8 + 8) % 8
+	let r = slices.Repeat(xs, k)
+	assert len(r) == len(xs)*k
+	for i, v in r {
+		assert v == xs[i%len(xs)]
+	}
+}
+
+test SlicesSliceHasNoRoom(xs []int, i int, x int) {
+	if len(xs) == 0 {
+		return
+	}
+	let j = (i%len(xs) + len(xs)) % len(xs)
+	let before = slices.Clone(xs)
+	let grown = slices.Slice(xs, 0, j).Append(x)
+	assert slices.Equal(xs, before) && slices.Equal(slices.Slice(grown, 0, j), slices.Slice(xs, 0, j)) && grown[j] == x
+}
+
+test SlicesLenAndAtReadItems(xs []int) {
+	let a = slices.Ascend(xs)
+	let items = a.Items()
+	assert a.Len() == len(items)
+	for i, v in items {
+		assert a.At(i) == v
+	}
+}
+
+test MapsCloneIsIndependent(m Map[string, int], k string) {
+	let size = len(m)
+	let had = m.Get(k)
+	let mut c = maps.Clone(m)
+	assert len(c) == size
+	for key, v in m {
+		assert c.Get(key) == Some[int]{Value: v}
+	}
+	c[k] = 7
+	assert len(m) == size && m.Get(k) == had && c.Get(k) == Some[int]{Value: 7}
+}
+
+test MapsUpdateSeesTheOldValue(m Map[string, int], k string, v int) {
+	let before = m.Get(k)
+	let mut seen Option[int] = Some[int]{Value: v + 1}
+	let out = maps.Update(maps.Clone(m), k, func(old Option[int]) int {
+		seen = old
+		v
+	})
+	let grew = if before == None { 1 } else { 0 }
+	assert seen == before && out.Get(k) == Some[int]{Value: v} && len(out) == len(m)+grew
+	// A missing key, made so: Update sees None.
+	let mut missing = maps.Clone(m)
+	missing = missing.Delete(k)
+	let mut sawNone = false
+	missing = maps.Update(missing, k, func(old Option[int]) int {
+		sawNone = old == None
+		v
+	})
+	assert sawNone && missing.Get(k) == Some[int]{Value: v}
+}
+
+test MapsGetOrDefaults(m Map[string, int], k string, def int) {
+	match m.Get(k) {
+	case Some[int] as v:
+		assert maps.GetOr(m, k, def) == v.Value
+	case None:
+		assert maps.GetOr(m, k, def) == def
+	}
+	for key, v in m {
+		assert maps.GetOr(m, key, def) == v
+	}
+}
 `
 
 // stdSlicesLawStatements is the statement of each law the probe restates,
@@ -560,6 +657,15 @@ var stdSlicesLawStatements = map[string]string{
 	"slices SortStableKeepsTies":       `SortStableKeepsTies(xs []int) { let mut tags = []tagged{} for i, x in xs { tags = tags.Append(tagged{Key: x % 3, At: i}) } let sorted = SortStableFunc(tags, byKey) let mut ok = len(sorted) == len(xs) for i in 1..len(sorted) { let a = sorted[i-1] let b = sorted[i] ok = ok && (a.Key < b.Key || a.Key == b.Key && a.At < b.At) } ok }`,
 	"slices TransformComposes":         `TransformComposes(xs []int) { let f = func(x int) int { x * 3 } let g = func(x int) int { x - 7 } Equal(Transform(Transform(xs, f), g), Transform(xs, func(x int) int { g(f(x)) })) }`,
 	"slices TransformIdentity":         `TransformIdentity(xs []int) { Equal(Transform(xs, func(x int) int { x }), xs) }`,
+	"slices CloneCopies":               `CloneCopies(xs []int) { let c = Clone(xs) let mut d = Clone(xs) for i in 0..len(d) { d[i] = d[i] + 1 } Equal(c, xs) && (len(xs) == 0 || !Equal(d, xs)) }`,
+	"slices ConcatJoins":               `ConcatJoins(a []int, b []int) { let c = Concat(a, b) len(c) == len(a)+len(b) && Equal(Slice(c, 0, len(a)), a) && Equal(Slice(c, len(a), len(c)), b) }`,
+	"slices ConcatIsIsolated":          `ConcatIsIsolated(a []int, b []int, x int) { let mut roomy = WithCapacity[int](len(a) + len(b) + 1) for v in a { roomy = roomy.Append(v) } let c = Concat(roomy, b) let before = Clone(c) let grown = roomy.Append(x) Equal(c, before) && len(grown) == len(a)+1 && Equal(Slice(c, len(a), len(c)), b) }`,
+	"slices RepeatRepeats":             `RepeatRepeats(xs []int, n int) { let k = (n%8 + 8) % 8 let r = Repeat(xs, k) let mut ok = len(r) == len(xs)*k for i, v in r { ok = ok && v == xs[i%len(xs)] } ok }`,
+	"slices SliceHasNoRoom":            `SliceHasNoRoom(xs []int, i int, x int) { if len(xs) == 0 { return true } let j = (i%len(xs) + len(xs)) % len(xs) let before = Clone(xs) let grown = Slice(xs, 0, j).Append(x) Equal(xs, before) && Equal(Slice(grown, 0, j), Slice(xs, 0, j)) && grown[j] == x }`,
+	"slices LenAndAtReadItems":         `LenAndAtReadItems(xs []int) { let a = Ascend(xs) let items = Items(a) let mut ok = Len(a) == len(items) for i, v in items { ok = ok && At(a, i) == v } ok }`,
+	"maps CloneIsIndependent":          `CloneIsIndependent(m Map[string, int], k string) { let size = len(m) let had = m.Get(k) let mut c = Clone(m) let mut same = len(c) == size for key, v in m { same = same && c.Get(key) == Some[int]{Value: v} } c[k] = 7 same && len(m) == size && m.Get(k) == had }`,
+	"maps UpdateSeesTheOldValue":       `UpdateSeesTheOldValue(m Map[string, int], k string, v int) { let before = m.Get(k) let mut seen Option[int] = Some[int]{Value: v + 1} let out = Update(Clone(m), k, func(old Option[int]) int { seen = old v }) let grew = if before == None { 1 } else { 0 } seen == before && out.Get(k) == Some[int]{Value: v} && len(out) == len(m)+grew }`,
+	"maps GetOrDefaults":               `GetOrDefaults(m Map[string, int], k string, def int) { match m.Get(k) { case Some[int] as v: GetOr(m, k, def) == v.Value case None: GetOr(m, k, def) == def } }`,
 }
 
 // TestStdSlicesLawsRun runs the probe's tests with --seed 1; lawledger.Run

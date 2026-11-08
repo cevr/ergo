@@ -1,5 +1,6 @@
 import strconv
 import strings
+import time
 
 // Parse reads args against s. An argument is a flag when it starts with
 // "-" and is longer than "-"; a flag is -name or --name, with its value
@@ -57,7 +58,7 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 				} else {
 					flags[name] = boolValue{V: true}
 				}
-			case StringFlag, IntFlag, ChoiceFlag:
+			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
 				if !hasValue {
 					if i >= len(args) {
 						return NeedsValue{Name: name}
@@ -135,7 +136,7 @@ func helpAsked(s Set, args []string) bool {
 		case Some[Flag] as found:
 			match found.Value {
 			case BoolFlag:
-			case StringFlag, IntFlag, ChoiceFlag:
+			case StringFlag, IntFlag, ChoiceFlag, DurationFlag:
 				if eq <= 0 {
 					i += 1
 				}
@@ -156,6 +157,12 @@ func read(f Flag, name string, given string) value fails Invalid {
 			return Invalid{Name: name, Text: given, Reason: "value out of range"}
 		}
 		intValue{V: int(n)}
+	case DurationFlag:
+		let d = time.ParseDuration(given) catch {
+		case time.ParseError:
+			return Invalid{Name: name, Text: given, Reason: "parse error"}
+		}
+		durationValue{V: d}
 	case ChoiceFlag as c:
 		for choice in c.choices {
 			if choice == given {
@@ -175,7 +182,7 @@ func isRequired(f Flag) bool {
 		s.required
 	case IntFlag as n:
 		n.required
-	case BoolFlag, ChoiceFlag:
+	case BoolFlag, ChoiceFlag, DurationFlag:
 		false
 	}
 }

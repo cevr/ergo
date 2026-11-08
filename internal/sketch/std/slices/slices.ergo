@@ -16,7 +16,7 @@
 //     (stdlib.md, Slices and Maps 8; std-strengths SS5).
 // The externs bind runtime/v1 bodies (collections.go, data.go);
 // Transform, Filter, Fold, IndexFunc, Collect, Sorted, Values, Max, Min,
-// Ascend, Items and BinarySearch are Ergo. laws.ergo states the algebra; the ledger in
+// Ascend, Items, Len, At and BinarySearch are Ergo. laws.ergo states the algebra; the ledger in
 // stdlib.md names the Go test that runs each law until #162.
 
 // WithCapacity is an empty slice with room for n elements. It makes no
@@ -87,7 +87,37 @@ func Ascend[T ordered](xs []T) Ascending[T] { Ascending[T]{xs: Sort(xs)} }
 // Items is the elements of a in ascending order, in a new slice: a change
 // to it does not change a, so a stays sorted. Go's slices.Clone, a pure
 // body, so Items reaches no host and Ascending is no host provider.
-func Items[T ordered](a Ascending[T]) []T { clone(a.xs) }
+func Items[T ordered](a Ascending[T]) []T { Clone(a.xs) }
+
+// Len is the number of elements of a, len(Items(a)) with no copy.
+func Len[T ordered](a Ascending[T]) int { len(a.xs) }
+
+// At is the element at index i of a, Items(a)[i] with no copy. An i
+// outside 0..Len(a)-1 is a defect, as an index out of range is.
+func At[T ordered](a Ascending[T], i int) T { a.xs[i] }
+
+// Clone is a copy of xs in a new array: Go's slices.Clone (Effect's
+// Array.copy). A write to the copy, or an Append to it, never reaches xs.
+extern go ergo.local/prototype/runtime/v1.SlicesClone func Clone[T](xs []T) []T
+
+// Concat is the elements of a, then those of b, in a new array of at least
+// len(a) + len(b): Go's slices.Concat(a, b) (Effect's Array.appendAll).
+// An Append to the result never writes a or b, and an Append to a never
+// writes the result. Ergo has no variadic parameter, so it takes two.
+extern go ergo.local/prototype/runtime/v1.SlicesConcat func Concat[T](a []T, b []T) []T
+
+// Repeat is the elements of xs, n times over, in a new array: Go's
+// slices.Repeat. Effect's Array.replicate(x, n) is Repeat([]T{x}, n). A
+// negative n, or a length that overflows int, is a defect, as Go's
+// panics.
+extern go ergo.local/prototype/runtime/v1.SlicesRepeat func Repeat[T](xs []T, n int) []T
+
+// Slice is the elements of xs from index i up to j, j excluded: Go's full
+// slice expression xs[i:j:j] (Effect's Array.slice), which shares xs's
+// array but has no room after j, so an Append to it makes a new array and
+// never writes xs[j]. A bound outside 0..len(xs), or an i after j, is a
+// defect, as for strings.Slice.
+extern go ergo.local/prototype/runtime/v1.SlicesSlice func Slice[T](xs []T, i int, j int) []T
 
 // BinarySearch is Some of the index of x in Items(a), or None when a has
 // no x. Of several x, the first. It takes an Ascending, not a []T, so an
@@ -169,4 +199,3 @@ extern go ergo.local/prototype/runtime/v1.SlicesMax func largest[T ordered](xs [
 extern go ergo.local/prototype/runtime/v1.SlicesMin func smallest[T ordered](xs []T) T
 extern go ergo.local/prototype/runtime/v1.SlicesBinarySearch func search[T ordered](xs []T, x T) int
 extern go ergo.local/prototype/runtime/v1.SlicesSortOwned func sortOwned[T ordered](xs []T) []T
-extern go ergo.local/prototype/runtime/v1.SlicesClone func clone[T](xs []T) []T

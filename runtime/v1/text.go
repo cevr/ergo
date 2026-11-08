@@ -127,6 +127,64 @@ func StringsContainsRune(s string, r rune) bool { return strings.ContainsRune(s,
 //ergo:pure
 func UTF8RuneCount(s string) int { return utf8.RuneCountInString(s) }
 
+// Decoded is utf8.Decoded, the result of DecodeRuneInString: the first
+// rune of a text and its size in bytes. It is a record of a std package,
+// so the lowering binds utf8.Decoded to this Go type (docs/spec/
+// stdlib.md, Types 4).
+type Decoded struct {
+	Rune rune
+	Size int
+}
+
+// UTF8DecodeRuneInString is utf8.DecodeRuneInString, its two results as
+// one Decoded: (RuneError, 1) for an invalid byte and (RuneError, 0) for
+// an empty text, as in Go.
+//
+//ergo:pure
+func UTF8DecodeRuneInString(s string) Decoded {
+	r, n := utf8.DecodeRuneInString(s)
+	return Decoded{Rune: r, Size: n}
+}
+
+// UTF8RuneText is Go's string(r): the UTF-8 text of r, or "\uFFFD" for a
+// rune that is not valid.
+//
+//ergo:pure
+func UTF8RuneText(r rune) string { return string(r) }
+
+// UTF8AppendRune is utf8.AppendRune.
+//
+//ergo:pure
+func UTF8AppendRune(p []byte, r rune) []byte { return utf8.AppendRune(p, r) }
+
+// UTF8ValidString is utf8.ValidString.
+//
+//ergo:pure
+func UTF8ValidString(s string) bool { return utf8.ValidString(s) }
+
+// UTF8ValidRune is utf8.ValidRune.
+//
+//ergo:pure
+func UTF8ValidRune(r rune) bool { return utf8.ValidRune(r) }
+
+// UTF8RuneLen is utf8.RuneLen: -1 for a rune that is not valid.
+//
+//ergo:pure
+func UTF8RuneLen(r rune) int { return utf8.RuneLen(r) }
+
+// StringsToValidUTF8 is strings.ToValidUTF8.
+//
+//ergo:pure
+func StringsToValidUTF8(s string, replacement string) string {
+	return strings.ToValidUTF8(s, replacement)
+}
+
+// StrconvFormatInt is strconv.FormatInt; a base outside 2..36 panics as
+// Go's does, a defect.
+//
+//ergo:pure
+func StrconvFormatInt(n int64, base int) string { return strconv.FormatInt(n, base) }
+
 // Malformed is strconv.Malformed, the failure of a text that is not in the
 // form a strconv function reads (Go's ErrSyntax). It is a record of a v1
 // package, so the lowering binds strconv.Malformed to this Go type

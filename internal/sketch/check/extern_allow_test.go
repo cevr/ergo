@@ -16,11 +16,11 @@ import (
 )
 
 // allowlist is the pure allowlist as G9 decides it (std-1 plan, section 3),
-// with path/filepath from std-align S3a: the oracle for
-// check.PureGoPackages, written out independently of it.
-var allowlist = []string{"math", "path/filepath", "slices", "sort", "strconv", "strings", "unicode/utf8"}
+// with path/filepath from std-align S3a and math/bits from std-text-runes:
+// the oracle for check.PureGoPackages, written out independently of it.
+var allowlist = []string{"math", "math/bits", "path/filepath", "slices", "sort", "strconv", "strings", "unicode/utf8"}
 
-// TestPureGoPackages pins the shared list: sorted, the plans' seven packages,
+// TestPureGoPackages pins the shared list: sorted, the plans' eight packages,
 // and a copy (a caller that changes it does not change the rule).
 func TestPureGoPackages(t *testing.T) {
 	got := check.PureGoPackages()
@@ -103,7 +103,7 @@ func externAllowPaths() []string {
 	paths = append(paths, "os", "os/exec", "io", "io/fs", "fmt", "time", "net/http",
 		"math/rand", "math/rand/v2", "crypto/rand", "runtime", "syscall", "log",
 		"sync", "sync/atomic", "path/filepath", "embed", "plugin", "reflect",
-		"math/bits", "math/cmplx", "unicode", "cmp", "text/template",
+		"math/cmplx", "unicode", "cmp", "text/template",
 		"bufio", "errors", "maps", "bytes", "context")
 	for _, p := range allowlist {
 		paths = append(paths, p+"/x", p+"x", "x"+p, p[:len(p)-1], "vendor/"+p,

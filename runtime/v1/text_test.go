@@ -218,6 +218,8 @@ type textBench struct {
 func textBenches() []textBench {
 	s := strings.Repeat("alpha,beta,gamma ", 8)
 	xs := strings.Split(s, ",")
+	buf := make([]byte, 0, 8)
+	bad := s + "\xff\xe4\xb8" + s
 	return []textBench{
 		{"Split", "StringsSplit", func() { textSink = StringsSplit(s, ",") }, func() { textSink = strings.Split(s, ",") }},
 		{"Join", "StringsJoin", func() { textSink = StringsJoin(xs, ";") }, func() { textSink = strings.Join(xs, ";") }},
@@ -240,6 +242,14 @@ func textBenches() []textBench {
 		{"EqualFold", "StringsEqualFold", func() { textSink = StringsEqualFold(s, strings.ToUpper(s)) }, func() { textSink = strings.EqualFold(s, strings.ToUpper(s)) }},
 		{"ContainsRune", "StringsContainsRune", func() { textSink = StringsContainsRune(s, 'é') }, func() { textSink = strings.ContainsRune(s, 'é') }},
 		{"RuneCount", "UTF8RuneCount", func() { textSink = UTF8RuneCount(s) }, func() { textSink = utf8.RuneCountInString(s) }},
+		{"DecodeRuneInString", "UTF8DecodeRuneInString", func() { textSink = UTF8DecodeRuneInString("世界").Size }, func() { _, textSink = utf8.DecodeRuneInString("世界") }},
+		{"RuneText", "UTF8RuneText", func() { textSink = UTF8RuneText('世') }, func() { textSink = string(rune('世')) }},
+		{"AppendRune", "UTF8AppendRune", func() { textSink = len(UTF8AppendRune(buf[:0], '世')) }, func() { textSink = len(utf8.AppendRune(buf[:0], '世')) }},
+		{"ValidString", "UTF8ValidString", func() { textSink = UTF8ValidString(s) }, func() { textSink = utf8.ValidString(s) }},
+		{"ValidRune", "UTF8ValidRune", func() { textSink = UTF8ValidRune(0xD800) }, func() { textSink = utf8.ValidRune(0xD800) }},
+		{"RuneLen", "UTF8RuneLen", func() { textSink = UTF8RuneLen('世') }, func() { textSink = utf8.RuneLen('世') }},
+		{"ToValidUTF8", "StringsToValidUTF8", func() { textSink = StringsToValidUTF8(bad, "\uFFFD") }, func() { textSink = strings.ToValidUTF8(bad, "\uFFFD") }},
+		{"FormatInt", "StrconvFormatInt", func() { textSink = StrconvFormatInt(-1234567890, 36) }, func() { textSink = strconv.FormatInt(-1234567890, 36) }},
 		{"Itoa", "StrconvItoa", func() { textSink = StrconvItoa(-1234567890) }, func() { textSink = strconv.Itoa(-1234567890) }},
 		{"Atoi", "StrconvAtoi", func() { textSink, _ = StrconvAtoi("-1234567890") }, func() { textSink, _ = strconv.Atoi("-1234567890") }},
 		{"AtoiFails", "StrconvAtoi", func() { _, textSink = StrconvAtoi("12x") }, func() { _, textSink = strconv.Atoi("12x") }},

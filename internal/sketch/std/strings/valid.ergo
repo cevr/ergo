@@ -1,0 +1,9 @@
+import utf8
+
+// ToValidUTF8IsValid: ToValidUTF8 with U+FFFD gives valid UTF-8, leaves a
+// text that is valid as it was, and replaces (never drops) the invalid
+// bytes of one that is not.
+law ToValidUTF8IsValid(s string) {
+	let v = ToValidUTF8(s, "\uFFFD")
+	utf8.ValidString(v) && (!utf8.ValidString(s) || v == s) && (utf8.ValidString(s) || Contains(v, "\uFFFD"))
+}

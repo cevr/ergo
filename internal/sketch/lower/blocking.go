@@ -129,6 +129,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesIndex":          {},
 	"SlicesReverse":        {},
 	"SlicesClone":          {},
+	"SlicesConcat":         {},
+	"SlicesRepeat":         {},
+	"SlicesSlice":          {},
+	"MapsClone":            {},
 	"SlicesMax":            {},
 	"SlicesMin":            {},
 	"SlicesBinarySearch":   {},
@@ -139,11 +143,17 @@ var runtimeBindings = map[string]runtimeBinding{
 	// host clock and the others compute, so none waits; Timeline.Wait
 	// waits on the caller's task (rt.Sleep on the manual timeline), and
 	// Advance wakes sleepers without waiting.
-	"TimeHostNow":       {},
-	"TimeFormat":        {},
-	"TimeParse":         {},
-	"TimeSub":           {},
-	"TimeSubMono":       {},
+	"TimeHostNow": {},
+	"TimeFormat":  {},
+	"TimeParse":   {},
+	"TimeSub":     {},
+	"TimeSubMono": {},
+	// std-duration: pure bodies of duration text and arithmetic.
+	"TimeParseDuration": {},
+	"TimeDurationText":  {},
+	"TimeTimes":         {},
+	"TimeDivide":        {},
+	"TimeCount":         {},
 	"NewTimeline":       {},
 	"Timeline.Read":     {},
 	"Timeline.Wait":     {wait: callerWait},
@@ -177,6 +187,39 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FilepathIsAbs": {},
 	"FilepathSplit": {},
 	"FilepathRel":   {},
+	// std utf8, strings, strconv, math and bits (std-text-runes;
+	// stdlib.md, strings and strconv, math and bits): pure bodies that
+	// neither wait nor release.
+	"UTF8DecodeRuneInString": {},
+	"UTF8RuneText":           {},
+	"UTF8AppendRune":         {},
+	"UTF8ValidString":        {},
+	"UTF8ValidRune":          {},
+	"UTF8RuneLen":            {},
+	"StringsToValidUTF8":     {},
+	"StrconvFormatInt":       {},
+	"MathAbs":                {},
+	"MathCeil":               {},
+	"MathFloor":              {},
+	"MathTrunc":              {},
+	"MathRound":              {},
+	"MathSqrt":               {},
+	"MathPow":                {},
+	"MathMod":                {},
+	"MathInf":                {},
+	"MathNaN":                {},
+	"MathIsNaN":              {},
+	"MathIsInf":              {},
+	"BitsOnesCount":          {},
+	"BitsOnesCount64":        {},
+	"BitsLeadingZeros":       {},
+	"BitsLeadingZeros64":     {},
+	"BitsTrailingZeros":      {},
+	"BitsTrailingZeros64":    {},
+	"BitsLen":                {},
+	"BitsLen64":              {},
+	"BitsRotateLeft32":       {},
+	"BitsRotateLeft64":       {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},
@@ -189,6 +232,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSStat":      {},
 	"FSWriteFile": {},
 	"FSMkdirAll":  {},
+	// fs writes with a mode, appends, renames and removes (std-fs-safe).
+	"FSWriteFileMode": {},
+	"FSMkdirAllMode":  {},
+	"FSAppendFile":    {},
+	"FSChmod":         {},
+	"FSRename":        {},
+	"FSRemove":        {},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
 	// stream of the host process. A read of standard input is an
 	// uninterruptible host wait, as a read of a file is; none releases.

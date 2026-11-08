@@ -187,8 +187,10 @@ func TestExternTargetDomain(t *testing.T) {
 	for _, tc := range []struct{ path, code, text string }{
 		{"strings", "", ""},
 		{"unicode/utf8", "", ""},
+		// std-text-runes: math/bits joined the pure allowlist.
+		{"math/bits", "", ""},
 		// G9: a standard-library package outside the pure allowlist.
-		{"math/bits", "S109", "extern go math/bits.F reaches the host"},
+		{"math/cmplx", "S109", "extern go math/cmplx.F reaches the host"},
 		{"os", "S109", "extern go os.F reaches the host; wait for std os.Process or #202"},
 		{"example.com/x", "S109", "#202"},
 		{"ergo.local/prototype/runtime/rt", "S108", "only std binds the Ergo runtime"},
