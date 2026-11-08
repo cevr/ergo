@@ -1,0 +1,163 @@
+// lru quotes prices through an LRU memo, and benchmarks the cache.
+//
+//	lru [quote [CAPACITY]]   read SKUs from standard input, one per line,
+//	                         and quote each; then print the memo's counts
+//	lru bench N              run N cache operations and print a checksum
+//
+// This binary is the only place that chooses the providers: the price
+// table and the host's standard input.
+
+import io
+import lru/cache
+import lru/catalog
+import lru/memo
+import lru/memory
+import os
+import strconv
+import strings
+
+// Prices is the demo's price list, in cents.
+let Prices = "apple 120\npear 95\nfig 7\nplum 230\nkiwi 64\n"
+
+// Usage is the text of a usage failure.
+let Usage = "usage: lru [quote [CAPACITY]] | lru bench N"
+
+// Command is what the arguments ask for.
+type Command = Quote{Capacity int} | Bench{Ops int}
+
+// Parse is the command of args, or os.Exit with the usage.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) == 0 {
+		return Quote{Capacity: 2}
+	}
+	match (args[0], len(args)) {
+	case ("quote", 1):
+		Quote{Capacity: 2}
+	case ("quote", 2):
+		Quote{Capacity: try count(args[1])}
+	case ("bench", 2):
+		Bench{Ops: try count(args[1])}
+	case (_, _):
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// count is the positive count text spells.
+func count(text string) int fails os.Exit {
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "lru: \(strconv.Quote(text)) is not a count\n\(Usage)"}
+	}
+	if n < 1 {
+		return os.Exit{Code: 2, Message: "lru: the count must be at least 1, not \(n)"}
+	}
+	n
+}
+
+// QuoteAll quotes each SKU of text through a Memo of capacity entries,
+// and prints the counts at the end.
+func QuoteAll(text string, capacity int, table memory.Table) fails os.Exit needs Console {
+	let mut m = memo.New[string, int](capacity) catch {
+	case cache.BadCapacity as b:
+		return os.Exit{Code: 2, Message: "lru: capacity \(b.Capacity)"}
+	}
+	with context { catalog.Catalog: table } {
+		for line in strings.Split(text, "\n") {
+			let sku = strings.TrimSpace(line)
+			if sku == "" {
+				continue
+			}
+			let hits = m.CountsOf().Hits
+			let price = catalog.Quote(&m, sku) catch {
+			case catalog.Unknown as u:
+				Console.Println("\(u.SKU) is not in the catalog")
+				continue
+			}
+			let from = if m.CountsOf().Hits > hits { "cache" } else { "catalog" }
+			Console.Println("\(catalog.Line(sku, price)) (\(from))")
+		}
+	}
+	let c = m.CountsOf()
+	Console.Println("hits \(c.Hits), misses \(c.Misses), held \(c.Size), lookups \(table.Lookups())")
+}
+
+// Churn runs ops Get-or-Put operations on a cache of 1024 entries over
+// 4096 keys drawn from a fixed generator, and is the sum of the values
+// the Gets found. bench/hand.go is the same loop in hand-written Go.
+func Churn(ops int) int {
+	let mut c = cache.New[int, int](1024) catch {
+	case cache.BadCapacity:
+		return -1
+	}
+	let mut x = 1
+	let mut sum = 0
+	for i in 0..ops {
+		x = (x*1103515245 + 12345) % 2147483648
+		let k = (x / 65536) % 4096
+		match c.Get(k) {
+		case Some[int] as v:
+			sum += v.Value
+		case None:
+			let _ = c.Put(k, i)
+		}
+	}
+	sum
+}
+
+// run does what the arguments ask. It is apart from main because a
+// return cannot leave main's with block (G-ex-d-10).
+func run() fails os.Exit needs Console | os.Process | io.Stdin {
+	match try Parse(os.Process.Args()) {
+	case Quote as q:
+		let table = memory.Parse(Prices) catch {
+		case memory.BadRow as b:
+			return os.Exit{Code: 1, Message: "lru: bad price row \(strconv.Quote(b.Line))"}
+		}
+		let text = io.Stdin.ReadAll() catch {
+		case io.ReadFailed as r:
+			return os.Exit{Code: 1, Message: "lru: \(r.Reason)"}
+		}
+		try QuoteAll(text, q.Capacity, table)
+	case Bench as b:
+		Console.Println("\(b.Ops) ops, sum \(Churn(b.Ops))")
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
+		try run()
+	}
+}
+
+test ParseReadsEachCommand {
+	assert try Parse([]string{}) == Quote{Capacity: 2}
+	assert try Parse([]string{"quote", "5"}) == Quote{Capacity: 5}
+	assert try Parse([]string{"bench", "10"}) == Bench{Ops: 10}
+}
+
+// exitOf is the status that Parse(args) exits with, or 0.
+func exitOf(args []string) int {
+	let _ = Parse(args) catch {
+	case os.Exit as e:
+		return e.Code
+	}
+	0
+}
+
+test ParseRefusesTheRest {
+	assert exitOf([]string{"bench"}) == 2 && exitOf([]string{"quote", "0"}) == 2
+	assert exitOf([]string{"quote", "x"}) == 2 && exitOf([]string{"go"}) == 2
+}
+
+test BenchIsDeterministic {
+	assert Churn(5000) == Churn(5000) && Churn(1) == 0
+}
+
+test QuoteAllCountsHits {
+	let out = io.NewRecorder()
+	let table = try memory.Parse(Prices)
+	with context { Console: out } {
+		try QuoteAll("apple\npear\napple\nmango\n", 1, table)
+	}
+	assert out.Text() == "apple $1.20 (catalog)\npear $0.95 (catalog)\napple $1.20 (catalog)\nmango is not in the catalog\nhits 0, misses 4, held 1, lookups 4\n"
+}

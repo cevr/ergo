@@ -1,0 +1,63 @@
+// The tree walk and the compiler: examples, and the law restated as a
+// property test (the compiler checks laws and does not run them yet,
+// #162).
+
+import slices
+import stackvm/vm
+
+test EvalWalksTheTree {
+	let e = Bin{Op: Plus, L: Square{X: Lit{N: 3}}, R: IfZero{Cond: Lit{N: 0}, Then: Neg{X: Lit{N: 2}}, Else: Lit{N: 9}}}
+	assert try Eval(e) == 7
+}
+
+test CompiledRunsOnTheVM {
+	let e = Bin{Op: Times, L: Square{X: Lit{N: 4}}, R: Bin{Op: Below, L: Lit{N: 1}, R: Lit{N: 2}}}
+	let r = try vm.Run(Compile(e), 1000)
+	assert slices.Equal(r.Stack, []int{16})
+}
+
+test DivisionByZeroFailsBoth {
+	let e = Bin{Op: Rem, L: Lit{N: 1}, R: Bin{Op: Minus, L: Lit{N: 2}, R: Lit{N: 2}}}
+	assert Agrees(e)
+	let v = Eval(e) catch {
+	case DivideByZero:
+		-1
+	}
+	assert v == -1
+}
+
+test CompiledAgreesHolds(seed int) {
+	assert Agrees(Of(seed))
+}
+
+// The generator reaches every kind of expression and both outcomes, so
+// the property is not vacuous.
+test GeneratorCoversTheLanguage {
+	let mut kinds = Map[string, bool]{}
+	for seed in 0..300 {
+		let e = Of(seed)
+		kinds[kindOf(e)] = true
+		let _ = Eval(e) catch {
+		case DivideByZero:
+			kinds["fails"] = true
+			0
+		}
+	}
+	assert len(kinds) == 6
+}
+
+// kindOf names the kind of e's root.
+func kindOf(e Expr) string {
+	match e {
+	case Lit:
+		"lit"
+	case Neg:
+		"neg"
+	case Bin:
+		"bin"
+	case IfZero:
+		"if"
+	case Square:
+		"square"
+	}
+}

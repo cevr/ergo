@@ -1,0 +1,118 @@
+// Bytecode: a program as a flat list of ints, one opcode per instruction,
+// followed by its operand when it has one. An operand is an int (Push's
+// value, or a target index), so a program is a []int, not a []byte.
+
+// BadCode is a bytecode that does not decode: an unknown opcode at At,
+// or an opcode at At whose operand is missing.
+type BadCode { At int, Code int, Reason string }
+
+// Opcode is the number of i's kind.
+func Opcode(i Instr) int {
+	match i {
+	case Push:
+		1
+	case Pop:
+		2
+	case Dup:
+		3
+	case Swap:
+		4
+	case Over:
+		5
+	case Add:
+		6
+	case Sub:
+		7
+	case Mul:
+		8
+	case Div:
+		9
+	case Mod:
+		10
+	case Less:
+		11
+	case Same:
+		12
+	case Not:
+		13
+	case Jump:
+		14
+	case JumpIf:
+		15
+	case JumpIfNot:
+		16
+	case Call:
+		17
+	case Ret:
+		18
+	case Print:
+		19
+	case Halt:
+		20
+	}
+}
+
+// Encode is the bytecode of program.
+func Encode(program []Instr) []int {
+	let mut out = []int{}
+	for i in program {
+		out = out.Append(Opcode(i))
+		match i {
+		case Push as p:
+			out = out.Append(p.N)
+		case Jump, JumpIf, JumpIfNot, Call:
+			match Target(i) {
+			case Some[int] as t:
+				out = out.Append(t.Value)
+			case None:
+			}
+		case Pop, Dup, Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same, Not, Ret, Print, Halt:
+		}
+	}
+	out
+}
+
+// Decode is the program of code.
+func Decode(code []int) []Instr fails BadCode {
+	let mut program = []Instr{}
+	let mut at = 0
+	for at < len(code) {
+		let op = code[at]
+		let plain = []Instr{Pop, Dup, Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same, Not}
+		if op >= 2 && op <= 13 {
+			program = program.Append(plain[op-2])
+			at += 1
+			continue
+		}
+		match op {
+		case 18:
+			program = program.Append(Ret)
+		case 19:
+			program = program.Append(Print)
+		case 20:
+			program = program.Append(Halt)
+		case 1, 14, 15, 16, 17:
+			if at+1 >= len(code) {
+				return BadCode{At: at, Code: op, Reason: "its operand is missing"}
+			}
+			let n = code[at+1]
+			program = program.Append(match op {
+			case 1:
+				Push{N: n}
+			case 14:
+				Jump{To: n}
+			case 15:
+				JumpIf{To: n}
+			case 16:
+				JumpIfNot{To: n}
+			case _:
+				Call{To: n}
+			})
+			at += 1
+		case _:
+			return BadCode{At: at, Code: op, Reason: "no instruction has this opcode"}
+		}
+		at += 1
+	}
+	program
+}

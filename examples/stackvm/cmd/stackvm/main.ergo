@@ -1,0 +1,157 @@
+// stackvm assembles and runs programs for a small stack machine.
+//
+//	stackvm run      assemble standard input, run it, print what it prints
+//	stackvm dis      assemble standard input, print it back in canonical form
+//	stackvm code     assemble standard input, print its bytecode
+//	stackvm bench N  run a counting loop of N rounds, print its result
+//
+// This binary is the only place that chooses the providers: the host's
+// standard input and arguments.
+
+import io
+import os
+import slices
+import stackvm/asm
+import stackvm/vm
+import strconv
+import strings
+
+// Usage is the text of a usage failure.
+let Usage = "usage: stackvm run | dis | code | bench N"
+
+// Fuel is the most instructions `run` lets a program take.
+let Fuel = 10000000
+
+// Unlimited is the fuel of the bench: more than it can take.
+let Unlimited = 4611686018427387904
+
+// Loop is the bench program: with the round count n on the stack, it
+// prints the sum of i*i%7 for i from n down to 1. hand.go runs the same
+// bytecode in a hand-written Go loop.
+let Loop = "        push 0      ; n sum\nloop:   over\n        jifnot done\n        over\n        dup\n        mul\n        push 7\n        mod\n        add\n        swap\n        push 1\n        sub\n        swap\n        jmp loop\ndone:   print\n        pop\n"
+
+// Command is what the arguments ask for.
+type Command = Exec{} | Dis{} | Code{} | Bench{Rounds int}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	match (if len(args) == 0 { "" } else { args[0] }, len(args)) {
+	case ("run", 1):
+		Exec
+	case ("dis", 1):
+		Dis
+	case ("code", 1):
+		Code
+	case ("bench", 2):
+		let n = strconv.Atoi(args[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "stackvm: \(strconv.Quote(args[1])) is not a count\n\(Usage)"}
+		}
+		Bench{Rounds: n}
+	case (_, _):
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// Assembled is the program on standard input.
+func Assembled() []vm.Instr fails os.Exit needs io.Stdin {
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "stackvm: \(r.Reason)"}
+	}
+	asm.Assemble(text) catch {
+	case asm.Bad as b:
+		return os.Exit{Code: 1, Message: "stackvm: \(asm.Explain(b))"}
+	}
+}
+
+// Execute runs program, for at most fuel instructions, and prints each value it prints, then how it
+// ended.
+func Execute(program []vm.Instr, fuel int) fails os.Exit needs Console {
+	let r = vm.Run(program, fuel) catch {
+	case vm.Trap as t:
+		return os.Exit{Code: 1, Message: "stackvm: \(vm.Describe(t))"}
+	}
+	for v in r.Printed {
+		Console.Println("\(v)")
+	}
+	let left = strings.Join(Texts(r.Stack), " ")
+	Console.Println("halted after \(r.Steps) steps; stack [\(left)]")
+}
+
+// Texts is the decimal text of each of xs.
+func Texts(xs []int) []string {
+	let mut out = []string{}
+	for x in xs {
+		out = out.Append("\(x)")
+	}
+	out
+}
+
+// BenchProgram is Loop with its round count pushed first.
+func BenchProgram(rounds int) []vm.Instr {
+	let loop = asm.Assemble(Loop) catch {
+	case asm.Bad:
+		return []vm.Instr{}
+	}
+	let mut program = []vm.Instr{vm.Push{N: rounds}}
+	for i in loop {
+		program = program.Append(vm.Retarget(i, match vm.Target(i) {
+		case Some[int] as t:
+			t.Value + 1
+		case None:
+			0
+		}))
+	}
+	program
+}
+
+// run does what the arguments ask. It is apart from main because a
+// return cannot leave main's with block (G-ex-d-10).
+func run() fails os.Exit needs Console | os.Process | io.Stdin {
+	match try Parse(os.Process.Args()) {
+	case Exec:
+		try Execute(try Assembled(), Fuel)
+	case Dis:
+		Console.Println(strings.TrimSuffix(asm.Disassemble(try Assembled()), "\n"))
+	case Code:
+		Console.Println(strings.Join(Texts(vm.Encode(try Assembled())), " "))
+	case Bench as b:
+		try Execute(BenchProgram(b.Rounds), Unlimited)
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
+		try run()
+	}
+}
+
+// exitOf is the status that Parse(args) exits with, or 0.
+func exitOf(args []string) int {
+	let _ = Parse(args) catch {
+	case os.Exit as e:
+		return e.Code
+	}
+	0
+}
+
+test ParseReadsEachCommand {
+	assert try Parse([]string{"run"}) == Exec
+	assert try Parse([]string{"bench", "4"}) == Bench{Rounds: 4}
+	assert exitOf([]string{}) == 2 && exitOf([]string{"bench", "x"}) == 2 && exitOf([]string{"dis", "x"}) == 2
+}
+
+test BenchProgramSums {
+	let r = try vm.Run(BenchProgram(10), 1000)
+	// 1 4 2 2 4 1 0 1 4 2 for i = 1..10
+	assert slices.Equal(r.Printed, []int{21})
+}
+
+test ExecutePrintsTheRun {
+	let out = io.NewRecorder()
+	with context { Console: out } {
+		try Execute(try asm.Assemble("push 2\nprint\npush 5\n"), Fuel)
+	}
+	assert out.Text() == "2\nhalted after 3 steps; stack [5]\n"
+}

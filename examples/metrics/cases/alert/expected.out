@@ -1,0 +1,10 @@
+1700000035000 ALERT mean 87.5 above 70
+1700000060000 resolved after 25000 ms
+1700000105000 ALERT mean 85.5 above 70
+1700000110000 resolved after 5000 ms
+1700000125000 ALERT mean 85.5 above 70
+1700000130000 resolved after 5000 ms
+1700000145000 muted: 2 alerts in the last 60000 ms
+1700000230000 ALERT mean 86.5 above 70
+1700000250000 resolved after 20000 ms
+alerts 4, muted 1

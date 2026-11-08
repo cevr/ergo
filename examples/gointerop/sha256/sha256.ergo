@@ -1,0 +1,125 @@
+// Package sha256 is SHA-256 (FIPS 180-4) written in Ergo, the provider of
+// checksum.Hasher. A Go program imports crypto/sha256; Ergo cannot yet
+// (`import go` is #202, G-ex-f-10), and no user extern may bind it, so
+// this package computes the digest itself.
+
+import slices
+import strings
+
+extern go strconv.FormatUint func formatUint(n uint64, base int) string
+
+// Hasher is the SHA-256 provider of checksum.Hasher.
+type Hasher {}
+
+// k is the round constants: the first 32 bits of the fractional parts of
+// the cube roots of the first 64 primes.
+let k = []uint32{
+	1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221,
+	3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580,
+	3835390401, 4022224774, 264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986,
+	2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711, 113926993, 338241895,
+	666307205, 773529912, 1294757372, 1396182291, 1695183700, 1986661051, 2177026350, 2456956037,
+	2730485921, 2820302411, 3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344,
+	430227734, 506948616, 659060556, 883997877, 958139571, 1322822218, 1537002063, 1747873779,
+	1955562222, 2024104815, 2227730452, 2361852424, 2428436474, 2756734187, 3204031479, 3329325298,
+}
+
+// initial is the first hash value: the first 32 bits of the fractional
+// parts of the square roots of the first 8 primes.
+let initial = []uint32{1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225}
+
+// Padded is the bytes of text, then 0x80, then zeros, then the bit
+// length as 8 bytes big-endian, so the length is a multiple of 64.
+func Padded(text string) []uint32 {
+	let mut out = slices.WithCapacity[uint32](len(text) + 72)
+	for i in 0..len(text) {
+		out = out.Append(uint32(text[i]))
+	}
+	out = out.Append(128)
+	for len(out)%64 != 56 {
+		out = out.Append(0)
+	}
+	let bits = uint64(len(text)) * 8
+	for shift in []uint64{56, 48, 40, 32, 24, 16, 8, 0} {
+		out = out.Append(uint32((bits >> shift) & 255))
+	}
+	out
+}
+
+// rotr is x rotated right by n bits.
+func rotr(x uint32, n uint32) uint32 { (x >> n) | (x << (32 - n)) }
+
+// Words is the SHA-256 hash of text as its eight 32-bit words.
+func Words(text string) []uint32 {
+	let msg = Padded(text)
+	let mut h = []uint32{}
+	for v in initial {
+		h = h.Append(v)
+	}
+	let mut w = []uint32{}
+	for _ in 0..64 {
+		w = w.Append(0)
+	}
+	let mut block = 0
+	for block < len(msg) {
+		for i in 0..16 {
+			let at = block + 4*i
+			w[i] = (msg[at] << 24) | (msg[at+1] << 16) | (msg[at+2] << 8) | msg[at+3]
+		}
+		for i in 16..64 {
+			let s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >> 3)
+			let s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >> 10)
+			w[i] = w[i-16] + s0 + w[i-7] + s1
+		}
+		let mut a = h[0]
+		let mut b = h[1]
+		let mut c = h[2]
+		let mut d = h[3]
+		let mut e = h[4]
+		let mut f = h[5]
+		let mut g = h[6]
+		let mut hh = h[7]
+		for i in 0..64 {
+			let s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
+			let ch = (e & f) ^ (^e & g)
+			let t1 = hh + s1 + ch + k[i] + w[i]
+			let s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
+			let maj = (a & b) ^ (a & c) ^ (b & c)
+			let t2 = s0 + maj
+			hh = g
+			g = f
+			f = e
+			e = d + t1
+			d = c
+			c = b
+			b = a
+			a = t1 + t2
+		}
+		h[0] = h[0] + a
+		h[1] = h[1] + b
+		h[2] = h[2] + c
+		h[3] = h[3] + d
+		h[4] = h[4] + e
+		h[5] = h[5] + f
+		h[6] = h[6] + g
+		h[7] = h[7] + hh
+		block += 64
+	}
+	h
+}
+
+// Hex is the lower-case hex text of words, eight digits each.
+func Hex(words []uint32) string {
+	let mut out = ""
+	for v in words {
+		let digits = formatUint(uint64(v), 16)
+		out = out + strings.Repeat("0", 8-len(digits)) + digits
+	}
+	out
+}
+
+// Sum is the SHA-256 hash of text in hex.
+func Sum(_ Hasher, text string) string { Hex(Words(text)) }
+
+// Name is the algorithm's name.
+func Name(_ Hasher) string { "sha256" }

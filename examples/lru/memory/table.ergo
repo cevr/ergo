@@ -1,0 +1,59 @@
+// Package memory holds an in-memory provider of catalog.Catalog.
+
+import lru/catalog
+import strconv
+import strings
+
+// Table is a Catalog over a fixed price list. It also counts its
+// lookups, in a Map since a provider keeps state only in a Map field
+// (G-ex-b-3), so a test sees how many lookups a Memo saved.
+type Table { prices Map[string, int], lookups Map[string, int] }
+
+// BadRow is a line of a price list that is not "SKU CENTS".
+type BadRow { Line string }
+
+// Parse is the Table of a price list: one "SKU CENTS" per line; blank
+// lines are skipped.
+func Parse(text string) Table fails BadRow {
+	let mut prices = Map[string, int]{}
+	for line in strings.Split(text, "\n") {
+		let fields = strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) != 2 {
+			return BadRow{Line: line}
+		}
+		let cents = strconv.Atoi(fields[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return BadRow{Line: line}
+		}
+		if cents < 0 {
+			return BadRow{Line: line}
+		}
+		prices[fields[0]] = cents
+	}
+	Table{prices: prices, lookups: Map[string, int]{}}
+}
+
+// Price is the listed price of sku.
+func Price(t Table, sku string) int fails catalog.Unknown {
+	let mut lookups = t.lookups
+	lookups["n"] = Lookups(t) + 1
+	match t.prices.Get(sku) {
+	case Some[int] as p:
+		p.Value
+	case None:
+		catalog.Unknown{SKU: sku}
+	}
+}
+
+// Lookups is how many times Price ran.
+func Lookups(t Table) int {
+	match t.lookups.Get("n") {
+	case Some[int] as n:
+		n.Value
+	case None:
+		0
+	}
+}

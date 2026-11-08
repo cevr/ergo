@@ -1,0 +1,174 @@
+// Package cache is a generic least-recently-used cache: a bounded map
+// that, when full, drops the entry that was used longest ago. It is the
+// Go shape of an LRU (a hash map into a doubly linked list), with the
+// list kept in an index arena, since Ergo has no pointer fields.
+
+import cmp
+import slices
+
+// none is the arena index that names no node.
+let none = -1
+
+// node is one slot of the arena. A slot in use is on the recency list:
+// prev is the more recent neighbour, next the less recent one. A free
+// slot is on the free list, linked through next.
+type node[K, V] { key K, value V, prev int, next int }
+
+// Cache holds at most capacity entries. Its fields are unexported, so
+// only this package builds one: outside cache, a Cache is always one
+// that New and the operations made.
+type Cache[K comparable, V] {
+	capacity int,
+	index    Map[K, int],
+	nodes    []node[K, V],
+	head     int,
+	tail     int,
+	free     int,
+}
+
+// Entry is a key and its value.
+type Entry[K, V] { Key K, Value V }
+
+// BadCapacity is a capacity below one.
+type BadCapacity { Capacity int }
+
+// New is an empty cache of capacity entries.
+func New[K comparable, V](capacity int) Cache[K, V] fails BadCapacity {
+	if capacity < 1 {
+		return BadCapacity{Capacity: capacity}
+	}
+	Cache[K, V]{capacity: capacity, index: Map[K, int]{}, nodes: []node[K, V]{}, head: none, tail: none, free: none}
+}
+
+// Capacity is the most entries c holds.
+func Capacity[K comparable, V](c Cache[K, V]) int { c.capacity }
+
+// Len is the number of entries in c.
+func Len[K comparable, V](c Cache[K, V]) int { len(c.index) }
+
+// Get is the value of k, and makes k the most recently used entry.
+func Get[K comparable, V](c *Cache[K, V], k K) Option[V] {
+	match c.index.Get(k) {
+	case Some[int] as at:
+		c.touch(at.Value)
+		Some{c.nodes[at.Value].value}
+	case None:
+		None
+	}
+}
+
+// Peek is the value of k, and changes no recency.
+func Peek[K comparable, V](c Cache[K, V], k K) Option[V] {
+	match c.index.Get(k) {
+	case Some[int] as at:
+		Some{c.nodes[at.Value].value}
+	case None:
+		None
+	}
+}
+
+// Put sets k to v and makes k the most recently used entry. When c was
+// full and k was not in it, Put drops the least recently used entry and
+// returns it.
+func Put[K comparable, V](c *Cache[K, V], k K, v V) Option[Entry[K, V]] {
+	match c.index.Get(k) {
+	case Some[int] as at:
+		c.nodes[at.Value].value = v
+		c.touch(at.Value)
+		return None
+	case None:
+	}
+	let mut evicted Option[Entry[K, V]] = None
+	if len(c.index) == c.capacity {
+		let old = c.nodes[c.tail]
+		c.release(c.tail)
+		c.index = c.index.Delete(old.key)
+		evicted = Some{Entry[K, V]{Key: old.key, Value: old.value}}
+	}
+	let fresh = node[K, V]{key: k, value: v, prev: none, next: none}
+	let mut at = c.free
+	if at == none {
+		at = len(c.nodes)
+		c.nodes = c.nodes.Append(fresh)
+	} else {
+		c.free = c.nodes[at].next
+		c.nodes[at] = fresh
+	}
+	c.index[k] = at
+	c.pushFront(at)
+	evicted
+}
+
+// Remove drops k from c, and reports whether it was there.
+func Remove[K comparable, V](c *Cache[K, V], k K) bool {
+	match c.index.Get(k) {
+	case Some[int] as at:
+		c.release(at.Value)
+		c.index = c.index.Delete(k)
+		true
+	case None:
+		false
+	}
+}
+
+// Entries is the entries of c, the most recently used first.
+func Entries[K comparable, V](c Cache[K, V]) []Entry[K, V] {
+	let mut out = []Entry[K, V]{}
+	let mut at = c.head
+	for at != none {
+		let n = c.nodes[at]
+		out = out.Append(Entry[K, V]{Key: n.key, Value: n.value})
+		at = n.next
+	}
+	out
+}
+
+// Sorted is the entries of c in key order: a listing that does not
+// depend on recency.
+func Sorted[K ordered, V](c Cache[K, V]) []Entry[K, V] {
+	slices.SortFunc(c.Entries(), func(a Entry[K, V], b Entry[K, V]) int { cmp.Compare(a.Key, b.Key) })
+}
+
+// touch moves the slot at to the front of the recency list.
+func touch[K comparable, V](c *Cache[K, V], at int) {
+	if c.head != at {
+		c.unlink(at)
+		c.pushFront(at)
+	}
+}
+
+// release takes the slot at off the recency list and onto the free list.
+func release[K comparable, V](c *Cache[K, V], at int) {
+	c.unlink(at)
+	c.nodes[at].prev = none
+	c.nodes[at].next = c.free
+	c.free = at
+}
+
+// unlink takes the slot at out of the recency list.
+func unlink[K comparable, V](c *Cache[K, V], at int) {
+	let n = c.nodes[at]
+	if n.prev == none {
+		c.head = n.next
+	} else {
+		c.nodes[n.prev].next = n.next
+	}
+	if n.next == none {
+		c.tail = n.prev
+	} else {
+		c.nodes[n.next].prev = n.prev
+	}
+}
+
+// pushFront puts the slot at at the head of the recency list.
+func pushFront[K comparable, V](c *Cache[K, V], at int) {
+	c.nodes[at].prev = none
+	c.nodes[at].next = c.head
+	if c.head != none {
+		c.nodes[c.head].prev = at
+	}
+	c.head = at
+	if c.tail == none {
+		c.tail = at
+	}
+}

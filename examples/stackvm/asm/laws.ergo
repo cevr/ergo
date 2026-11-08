@@ -1,0 +1,38 @@
+// The rules of the text form as laws.
+
+import stackvm/vm
+import strings
+
+// AssembleInvertsDisassemble: the text of any program assembles back to
+// it, its out-of-range targets included.
+law AssembleInvertsDisassemble(seed int, size int) {
+	let p = vm.Program(seed, size%40)
+	let back = Assemble(Disassemble(p)) catch {
+	case Bad:
+		return false
+	}
+	Same(back, p)
+}
+
+// LayoutIsIgnored: indentation, comments and blank lines change nothing:
+// the text of a program, each line indented and commented, with a blank
+// line between, assembles to the program.
+law LayoutIsIgnored(seed int, size int, note string) {
+	let p = vm.Program(seed, size%40)
+	let back = Assemble(Spread(Disassemble(p), note)) catch {
+	case Bad:
+		return false
+	}
+	Same(back, p)
+}
+
+// Spread is text with each line indented, a comment of note after it and
+// a blank line before it. A note holds no line feed.
+func Spread(text string, note string) string {
+	let flat = strings.ReplaceAll(note, "\n", " ")
+	let mut out = ""
+	for l in strings.Split(text, "\n") {
+		out = out + "\n\t " + l + " ; " + flat + "\n"
+	}
+	out
+}

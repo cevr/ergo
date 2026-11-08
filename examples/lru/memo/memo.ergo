@@ -1,0 +1,42 @@
+// Package memo remembers what a function returned, in an LRU cache, so a
+// second call with the same key does not run it again. It is sound only
+// for a function that gives one result per key; the domain that supplies
+// the function states that as a law of its operation type.
+
+import lru/cache
+
+// Memo is a cache of results and the count of its hits and misses.
+type Memo[K comparable, V] { results cache.Cache[K, V], hits int, misses int }
+
+// Counts is how a Memo has answered: from the cache (Hits) or by running
+// the function (Misses), and how many results it holds (Size).
+type Counts { Hits int, Misses int, Size int }
+
+// New is a Memo that remembers at most capacity results.
+func New[K comparable, V](capacity int) Memo[K, V] fails cache.BadCapacity {
+	Memo[K, V]{results: try cache.New[K, V](capacity), hits: 0, misses: 0}
+}
+
+// Get is the result of load(k): the remembered one, or else load's,
+// which Get remembers. A failure of load is passed on and not remembered,
+// so the next Get runs load again.
+func Get[K comparable, V, E, R](m *Memo[K, V], k K, load func(k K) V fails E needs R) V fails E needs R {
+	match m.results.Get(k) {
+	case Some[V] as v:
+		m.hits += 1
+		v.Value
+	case None:
+		m.misses += 1
+		let v = try load(k)
+		let _ = m.results.Put(k, v)
+		v
+	}
+}
+
+// Forget drops the result of k, and reports whether there was one.
+func Forget[K comparable, V](m *Memo[K, V], k K) bool { m.results.Remove(k) }
+
+// CountsOf is the counts of m.
+func CountsOf[K comparable, V](m Memo[K, V]) Counts {
+	Counts{Hits: m.hits, Misses: m.misses, Size: m.results.Len()}
+}

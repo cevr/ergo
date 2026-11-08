@@ -1,0 +1,177 @@
+// metrics aggregates timestamped samples and raises rate-limited alerts.
+//
+//	metrics report WIDTH       tumbling windows of WIDTH ms: count, sum,
+//	                           min, max, p50 and p95
+//	metrics alert THRESHOLD    alert when the mean of the last 10 s is above
+//	                           THRESHOLD, at most 2 alerts a minute
+//
+// Samples are "AT VALUE" lines on standard input, AT in Unix ms. This
+// binary is the only place that chooses the providers: the host's input
+// and arguments.
+
+import io
+import metrics/alert
+import metrics/series
+import os
+import strconv
+import strings
+import time
+
+// Usage is the text of a usage failure.
+let Usage = "usage: metrics report WIDTH | metrics alert THRESHOLD"
+
+// Policy is the alert rate: at most 2 alerts in any minute.
+let Policy = alert.Policy{Limit: 2, Window: 60000}
+
+// Smoothing is the width of the sliding window an alert reads.
+let Smoothing = int64(10000)
+
+// Command is what the arguments ask for.
+type Command = Report{Width int64} | Alert{Threshold float64}
+
+// Parse is the command of args.
+func Parse(args []string) Command fails os.Exit {
+	if len(args) != 2 {
+		return os.Exit{Code: 2, Message: Usage}
+	}
+	match args[0] {
+	case "report":
+		let w = strconv.ParseInt(args[1], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "metrics: \(strconv.Quote(args[1])) is not a width\n\(Usage)"}
+		}
+		Report{Width: w}
+	case "alert":
+		let t = strconv.ParseFloat(args[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "metrics: \(strconv.Quote(args[1])) is not a threshold\n\(Usage)"}
+		}
+		Alert{Threshold: t}
+	case _:
+		os.Exit{Code: 2, Message: Usage}
+	}
+}
+
+// Num is a value as the reports print it.
+func Num(x float64) string { strconv.FormatFloat(x, 'g', -1) }
+
+// ReportLines is a line per tumbling window of width over samples.
+func ReportLines(samples []series.Sample, width int64) []string fails series.BadWidth {
+	let mut out = []string{}
+	for b in try series.Tumbling(samples, width) {
+		let p50 = series.Percentile(b.Values, 50)
+		let p95 = series.Percentile(b.Values, 95)
+		match (p50, p95) {
+		case (Some[float64] as m, Some[float64] as h):
+			out = out.Append("\(b.Start) count \(b.Count) sum \(Num(b.Sum)) min \(Num(b.Min)) max \(Num(b.Max)) p50 \(Num(m.Value)) p95 \(Num(h.Value))")
+		case (_, _):
+		}
+	}
+	out
+}
+
+// Checks is a signal per sample: a breach when the mean of the last
+// Smoothing ms is above threshold.
+func Checks(samples []series.Sample, threshold float64) []alert.Signal {
+	let mut w = series.NewSliding(Smoothing) catch {
+	case series.BadWidth:
+		return []alert.Signal{}
+	}
+	let mut out = []alert.Signal{}
+	for s in samples {
+		w.Add(s)
+		let mean = match w.Mean() {
+		case Some[float64] as m:
+			m.Value
+		case None:
+			0.0
+		}
+		if mean > threshold {
+			out = out.Append(alert.Breach{At: s.At, Value: mean})
+		} else {
+			out = out.Append(alert.Calm{At: s.At})
+		}
+	}
+	out
+}
+
+// AlertLines is a line per alert, resolution and muted breach of the
+// samples, then the totals.
+func AlertLines(samples []series.Sample, threshold float64) []string {
+	let mut out = []string{}
+	let mut alerts = 0
+	let mut muted = 0
+	for e in alert.Drive(Policy, Checks(samples, threshold)) {
+		match e {
+		case alert.Alerted as a:
+			alerts += 1
+			out = out.Append("\(a.At) ALERT mean \(Num(a.Value)) above \(Num(threshold))")
+		case alert.Resolved as r:
+			out = out.Append("\(r.At) resolved after \(r.At - r.Since) ms")
+		case alert.Muted as m:
+			muted += 1
+			out = out.Append("\(m.At) muted: \(Policy.Limit) alerts in the last \(Policy.Window) ms")
+		case alert.Nothing:
+		}
+	}
+	out.Append("alerts \(alerts), muted \(muted)")
+}
+
+// run does what the arguments ask. It is apart from main because a
+// return cannot leave main's with block (G-ex-d-10).
+func run() fails os.Exit needs Console | os.Process | io.Stdin {
+	let cmd = try Parse(os.Process.Args())
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "metrics: \(r.Reason)"}
+	}
+	let samples = series.Parse(text) catch {
+	case series.BadSample as b:
+		return os.Exit{Code: 1, Message: "metrics: line \(b.Line) is not AT VALUE: \(strconv.Quote(b.Text))"}
+	case series.Unordered as u:
+		return os.Exit{Code: 1, Message: "metrics: line \(u.Line): \(u.At) is before \(u.After)"}
+	}
+	let lines = match cmd {
+	case Report as r:
+		ReportLines(samples, r.Width) catch {
+		case series.BadWidth as b:
+			return os.Exit{Code: 2, Message: "metrics: the width must be at least 1, not \(b.Width)"}
+		}
+	case Alert as a:
+		AlertLines(samples, a.Threshold)
+	}
+	for l in lines {
+		Console.Println(l)
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost() } {
+		try run()
+	}
+}
+
+test ParseReadsEachCommand {
+	assert try Parse([]string{"report", "1000"}) == Report{Width: 1000}
+	assert try Parse([]string{"alert", "2.5"}) == Alert{Threshold: 2.5}
+}
+
+// A live feed under a virtual clock: a value every 2 s, stamped from a
+// time.Manual, high for 8 s, low for 8 s, three times. The third incident
+// falls within the minute of the first two, so its breaches are muted.
+test VirtualClockFeed {
+	let clock = time.NewManual(1000)
+	let mut samples = []series.Sample{}
+	with context { time.Clock: clock } {
+		for _ in 0..3 {
+			for i in 0..8 {
+				let high = i < 4
+				samples = samples.Append(series.Stamp(if high { 10.0 } else { 0.0 }))
+				clock.Advance(2s)
+			}
+		}
+	}
+	let lines = AlertLines(samples, 5)
+	let last = lines[len(lines)-1]
+	assert strings.HasPrefix(last, "alerts 2, muted ") && last != "alerts 2, muted 0"
+}

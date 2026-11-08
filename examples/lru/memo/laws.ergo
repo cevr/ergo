@@ -1,0 +1,84 @@
+// The rules of a Memo as laws, stated at int keys and values with the
+// pure function Square, since a top-level law is not generic (G-ex-d-13).
+
+import lru/cache
+
+// Gone is the failure of a function that gives no result.
+type Gone { Key int }
+
+// Square is the function the laws remember.
+func Square(k int) int { k * k }
+
+// Never is a function that always fails: a Get through it can answer
+// only from the cache.
+func Never(k int) int fails Gone { Gone{Key: k} }
+
+// KeysOf is count keys over 0 to 5, drawn from seed.
+func KeysOf(seed int, count int) []int {
+	let mut x = if seed < 0 { -(seed + 1) } else { seed }
+	let mut keys = []int{}
+	for _ in 0..count {
+		x = (x*1103515245 + 12345) % 2147483648
+		keys = keys.Append((x / 65536) % 6)
+	}
+	keys
+}
+
+// Fresh is a Memo of capacity 1 to 4, from any n.
+func Fresh(n int) Memo[int, int] {
+	let m = if n < 0 { -(n + 1) } else { n }
+	New[int, int](1 + m%4) catch {
+	case cache.BadCapacity:
+		Fresh(0)
+	}
+}
+
+// Transparent: a Get through Square is Square's result, whatever the
+// Memo remembers.
+law Transparent(n int, seed int) {
+	let mut m = Fresh(n)
+	for k in KeysOf(seed, 40) {
+		if m.Get(k, Square) != Square(k) {
+			return false
+		}
+	}
+	true
+}
+
+// CountsAddUp: every Get is a hit or a miss, and the Memo holds no more
+// results than its misses or its capacity.
+law CountsAddUp(n int, seed int) {
+	let mut m = Fresh(n)
+	let keys = KeysOf(seed, 40)
+	for k in keys {
+		let _ = m.Get(k, Square)
+	}
+	let c = m.CountsOf()
+	c.Hits+c.Misses == len(keys) && c.Size <= c.Misses && c.Size <= m.results.Capacity()
+}
+
+// RemembersAfterMiss: right after a Get of k, a Get of k answers from
+// the cache, without the function.
+law RemembersAfterMiss(n int, seed int, k int) {
+	let mut m = Fresh(n)
+	for key in KeysOf(seed, 10) {
+		let _ = m.Get(key, Square)
+	}
+	let _ = m.Get(k, Square)
+	let again = m.Get(k, Never) catch {
+	case Gone:
+		return false
+	}
+	again == Square(k)
+}
+
+// FailureIsNotRemembered: a Get whose function fails remembers nothing,
+// so the next Get runs the function again.
+law FailureIsNotRemembered(n int, k int) {
+	let mut m = Fresh(n)
+	let _ = m.Get(k, Never) catch {
+	case Gone:
+		0
+	}
+	m.Get(k, Square) == Square(k) && m.CountsOf().Misses == 2 && m.CountsOf().Size == 1
+}

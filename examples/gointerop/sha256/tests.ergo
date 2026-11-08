@@ -1,0 +1,56 @@
+// SHA-256 against the FIPS 180-4 test vectors, and the checksum.Hasher
+// laws restated over the provider (the compiler checks laws and does not
+// run them yet, #162).
+
+import gointerop/checksum
+import strings
+
+// PaddingFills: the padded message is whole 64-byte blocks, holds the
+// text, the 0x80 marker and the 8-byte length, and no more than one
+// block beyond that.
+law PaddingFills(text string, n int) {
+	let t = text + strings.Repeat("a", (if n < 0 { -(n + 1) } else { n })%130)
+	let p = Padded(t)
+	len(p)%64 == 0 && len(p) >= len(t)+9 && len(p) < len(t)+9+64 && p[len(t)] == 128
+}
+
+test KnownVectors {
+	assert Sum(Hasher, "") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	assert Sum(Hasher, "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+	assert Sum(Hasher, "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+	assert Sum(Hasher, strings.Repeat("a", 1000000)) == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+}
+
+// Lengths around the block edge (55, 56, 63, 64 bytes), where the
+// padding needs one block or two; the digests are coreutils sha256sum's.
+test BlockEdges {
+	assert Sum(Hasher, strings.Repeat("a", 55)) == "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318"
+	assert Sum(Hasher, strings.Repeat("a", 56)) == "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a"
+	assert Sum(Hasher, strings.Repeat("a", 63)) == "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34"
+	assert Sum(Hasher, strings.Repeat("a", 64)) == "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb"
+}
+
+test PaddingFillsHolds(text string, n int) {
+	let t = text + strings.Repeat("a", (if n < 0 { -(n + 1) } else { n })%130)
+	let p = Padded(t)
+	assert len(p)%64 == 0 && len(p) >= len(t)+9 && len(p) < len(t)+9+64 && p[len(t)] == 128
+}
+
+test DeterministicHolds(text string) {
+	with context { checksum.Hasher: Hasher } {
+		assert checksum.Hasher.Sum(text) == checksum.Hasher.Sum(text)
+	}
+}
+
+test FixedWidthHolds(text string) {
+	with context { checksum.Hasher: Hasher } {
+		let s = checksum.Hasher.Sum(text)
+		assert len(s) == len(checksum.Hasher.Sum("")) && checksum.IsHex(s)
+	}
+}
+
+test DistinguishesHolds(text string) {
+	with context { checksum.Hasher: Hasher } {
+		assert checksum.Hasher.Sum(text) != checksum.Hasher.Sum(text+"x")
+	}
+}

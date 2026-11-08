@@ -1,0 +1,108 @@
+// The series' tests: examples, and the laws restated as property tests
+// (the compiler checks laws and does not run them yet, #162).
+
+import slices
+import time
+
+test ParseReadsSamples {
+	let s = try Parse("# t value\n1000 2.5\n\n1500 -1\n")
+	assert len(s) == 2 && s[0] == Sample{At: 1000, Value: 2.5} && s[1] == Sample{At: 1500, Value: -1}
+}
+
+// parseFailure names the failure of Parse(text), or "".
+func parseFailure(text string) string {
+	let _ = Parse(text) catch {
+	case BadSample as b:
+		return "bad \(b.Line)"
+	case Unordered as u:
+		return "unordered \(u.Line): \(u.At) after \(u.After)"
+	}
+	""
+}
+
+test ParseRefusesBadLines {
+	assert parseFailure("1000") == "bad 1" && parseFailure("x 1") == "bad 1" && parseFailure("1 y") == "bad 1"
+	assert parseFailure("2000 1\n1000 1") == "unordered 2: 1000 after 2000"
+}
+
+test StampReadsTheClock {
+	let clock = time.NewManual(1700000000)
+	with context { time.Clock: clock } {
+		let a = Stamp(1)
+		clock.Advance(1500ms)
+		let b = Stamp(2)
+		assert a.At == 1700000000000 && b.At == 1700000001500
+	}
+}
+
+test TumblingBuckets {
+	let s = []Sample{Sample{At: 0, Value: 1}, Sample{At: 999, Value: 3}, Sample{At: 1000, Value: 5}, Sample{At: 3500, Value: 7}}
+	let b = try Tumbling(s, 1000)
+	assert len(b) == 3
+	assert b[0].Start == 0 && b[0].Count == 2 && b[0].Sum == 4 && b[0].Min == 1 && b[0].Max == 3
+	assert b[1].Start == 1000 && b[2].Start == 3000 && b[2].Sum == 7
+	assert StartOf(-1, 1000) == -1000 && StartOf(-1000, 1000) == -1000
+}
+
+test SlidingDropsOld {
+	let mut w = try NewSliding(1000)
+	w.Add(Sample{At: 0, Value: 1})
+	w.Add(Sample{At: 500, Value: 2})
+	assert w.Sum() == 3 && w.Count() == 2
+	w.Add(Sample{At: 1000, Value: 4})
+	assert w.Sum() == 6 && w.Count() == 2 && w.Mean() == Some{3.0}
+}
+
+test PercentileByNearestRank {
+	let v = []float64{15, 20, 35, 40, 50}
+	assert Percentile(v, 30) == Some{20.0} && Percentile(v, 40) == Some{20.0} && Percentile(v, 50) == Some{35.0}
+	assert Percentile(v, 100) == Some{50.0} && Percentile(v, 0) == Some{15.0} && Percentile([]float64{}, 50) == None
+	assert slices.Equal(v, []float64{15, 20, 35, 40, 50})
+}
+
+test TumblingSumsEqualFoldHolds(seed int, n int) {
+	let samples = Run(seed, 40)
+	let width = WidthOf(n)
+	let buckets = try Tumbling(samples, width)
+	let mut total = 0
+	for i, b in buckets {
+		let sum, count = naiveSum(samples, len(samples), b.Start, b.Start+width)
+		assert b.Sum == sum && b.Count == count && b.Start%width == 0
+		assert i == 0 || b.Start > buckets[i-1].Start
+		total += b.Count
+	}
+	assert total == len(samples)
+}
+
+test SlidingAgreesHolds(seed int, n int) {
+	let samples = Run(seed, 120)
+	let width = WidthOf(n)
+	let mut w = try NewSliding(width)
+	for i, s in samples {
+		w.Add(s)
+		let sum, count = naiveSum(samples, i+1, s.At-width+1, s.At+1)
+		assert w.Sum() == sum && w.Count() == count
+	}
+}
+
+test PercentileIsARankHolds(seed int, p int) {
+	let mut values = []float64{}
+	for s in Run(seed, 25) {
+		values = values.Append(s.Value)
+	}
+	let q = 1 + (if p < 0 { -(p + 1) } else { p })%100
+	let v = Percentile(values, q)
+	let w = Percentile(values, if q < 100 { q + 1 } else { 100 })
+	match (v, w) {
+	case (Some[float64] as a, Some[float64] as b):
+		let mut below = 0
+		for x in values {
+			if x <= a.Value {
+				below += 1
+			}
+		}
+		assert slices.Contains(values, a.Value) && below*100 >= q*len(values) && a.Value <= b.Value
+	case (_, _):
+		assert false
+	}
+}

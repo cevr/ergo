@@ -1,0 +1,90 @@
+// Package checksum is the domain of the tool: files listed with their
+// digests, as `sha256sum` writes them, and a check of a list against the
+// texts it names. The hash itself is a contract, Hasher, that a provider
+// package supplies.
+
+import strings
+
+// Hasher computes a digest of a text, as lower-case hex.
+type Hasher {
+	Sum(text string) string,
+	Name() string,
+
+	// Deterministic: one text has one digest.
+	law Deterministic(text string) { Sum(text) == Sum(text) },
+
+	// FixedWidth: every digest has the width of the digest of "", in hex
+	// digits only.
+	law FixedWidth(text string) { len(Sum(text)) == len(Sum("")) && IsHex(Sum(text)) },
+
+	// Distinguishes: a text and the same text with one more byte have
+	// different digests. (Tested, as every law is, never proved: a
+	// collision is not ruled out, only unseen.)
+	law Distinguishes(text string) { Sum(text) != Sum(text+"x") },
+}
+
+// IsHex reports whether text is lower-case hex digits only.
+func IsHex(text string) bool {
+	for i in 0..len(text) {
+		if !strings.Contains("0123456789abcdef", strings.Slice(text, i, i+1)) {
+			return false
+		}
+	}
+	true
+}
+
+// Entry is one line of a list: a digest and the name it is the digest of.
+type Entry { Digest string, Name string }
+
+// BadLine is a line of a list that is not "DIGEST  NAME".
+type BadLine { Line int, Text string }
+
+// Line is the list line of an entry: the digest, two spaces, the name.
+func Line(e Entry) string { "\(e.Digest)  \(e.Name)" }
+
+// Parse is the entries of a list, one per line; blank lines are skipped.
+func Parse(text string) []Entry fails BadLine {
+	let mut out = []Entry{}
+	for n, l in strings.Split(text, "\n") {
+		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		let halves = strings.Cut(l, "  ")
+		match halves {
+		case Some[strings.Halves] as h:
+			if !IsHex(h.Value.Before) || h.Value.Before == "" || h.Value.After == "" {
+				return BadLine{Line: n + 1, Text: l}
+			}
+			out = out.Append(Entry{Digest: h.Value.Before, Name: h.Value.After})
+		case None:
+			return BadLine{Line: n + 1, Text: l}
+		}
+	}
+	out
+}
+
+// Verdict is the outcome of checking one entry.
+type Verdict = Matches{} | Differs{Got string} | Missing{}
+
+// Check is the verdict of e against the text of its file, if there is one.
+func Check(e Entry, text Option[string]) Verdict needs Hasher {
+	match text {
+	case Some[string] as t:
+		let got = Hasher.Sum(t.Value)
+		if got == e.Digest { Matches } else { Differs{Got: got} }
+	case None:
+		Missing
+	}
+}
+
+// Report is the line `sha256sum -c` prints for a verdict.
+func Report(e Entry, v Verdict) string {
+	match v {
+	case Matches:
+		"\(e.Name): OK"
+	case Differs:
+		"\(e.Name): FAILED"
+	case Missing:
+		"\(e.Name): FAILED open or read"
+	}
+}

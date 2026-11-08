@@ -1,0 +1,88 @@
+// The vm's tests: examples, and the laws restated as property tests
+// (the compiler checks laws and does not run them yet, #162).
+
+import slices
+
+// whyOf is the cause a run of program traps with, or None.
+func whyOf(program []Instr) Option[Cause] {
+	let _ = Run(program, 20000) catch {
+	case Trap as t:
+		return Some{t.Why}
+	}
+	None
+}
+
+test ArithmeticAndPrint {
+	let r = try Run([]Instr{Push{N: 6}, Push{N: 7}, Mul, Dup, Print, Push{N: 2}, Sub}, 100)
+	assert slices.Equal(r.Printed, []int{42}) && slices.Equal(r.Stack, []int{40}) && r.Steps == 7
+}
+
+test CountdownLoop {
+	// 3 2 1, by a loop: dup print; push 1 sub; dup jif 0
+	let p = []Instr{Push{N: 3}, Dup, Print, Push{N: 1}, Sub, Dup, JumpIf{To: 1}, Pop}
+	let r = try Run(p, 100)
+	assert slices.Equal(r.Printed, []int{3, 2, 1}) && len(r.Stack) == 0
+}
+
+test CallAndReturn {
+	let p = []Instr{Push{N: 5}, Call{To: 4}, Print, Halt, Dup, Mul, Ret}
+	let r = try Run(p, 100)
+	assert slices.Equal(r.Printed, []int{25}) && r.Steps == 7
+}
+
+test HaltStopsTheLoop {
+	let r = try Run([]Instr{Push{N: 1}, Halt, Print, Print}, 100)
+	assert len(r.Printed) == 0 && slices.Equal(r.Stack, []int{1})
+}
+
+test TrapsAreTyped {
+	assert whyOf([]Instr{Add}) == Some[Cause]{Underflow}
+	assert whyOf([]Instr{Push{N: 1}, Push{N: 0}, Mod}) == Some[Cause]{DivideByZero}
+	assert whyOf([]Instr{Jump{To: 9}}) == Some[Cause]{BadTarget{To: 9}}
+	assert whyOf([]Instr{Ret}) == Some[Cause]{NoFrame}
+	assert whyOf([]Instr{Call{To: 0}}) == Some[Cause]{TooDeep}
+	assert whyOf([]Instr{Jump{To: 0}}) == Some[Cause]{OutOfFuel}
+	assert whyOf([]Instr{Jump{To: 1}}) == None
+}
+
+// describeOf is the text of the trap of a run of program, or "".
+func describeOf(program []Instr) string {
+	let _ = Run(program, 10) catch {
+	case Trap as t:
+		return Describe(t)
+	}
+	""
+}
+
+test DescribeNamesTheCause {
+	assert describeOf([]Instr{Push{N: 1}, Jump{To: -2}}) == "trap at 1: jump to -2, outside the program"
+}
+
+test DecodeRefusesBadCode {
+	let tooShort = Decode([]int{1}) catch {
+	case BadCode as b:
+		[]Instr{Push{N: b.At}, Push{N: b.Code}}
+	}
+	assert slices.Equal(tooShort, []Instr{Push{N: 0}, Push{N: 1}})
+	let unknown = Decode([]int{3, 99}) catch {
+	case BadCode as b:
+		[]Instr{Push{N: b.At}, Push{N: b.Code}}
+	}
+	assert slices.Equal(unknown, []Instr{Push{N: 1}, Push{N: 99}})
+}
+
+test DecodeInvertsEncodeHolds(seed int, size int) {
+	let p = Program(seed, size%40)
+	assert slices.Equal(try Decode(Encode(p)), p)
+}
+
+test FuelBoundsStepsHolds(seed int, fuel int) {
+	let f = if fuel < 0 { -(fuel + 1) % 50 } else { fuel % 50 }
+	for p in [][]Instr{Program(seed, 20), Countdown(seed % 12)} {
+		assert Bounded(p, f)
+	}
+}
+
+test CountdownHalts {
+	assert (try Run(Countdown(3), 100)).Steps == 19
+}

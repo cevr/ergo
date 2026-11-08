@@ -1,0 +1,268 @@
+// Package asm is the text form of a vm program: an assembler that reads
+// it, with labels, and a disassembler that writes it back.
+//
+// A line holds an instruction, a label, a label and an instruction, or
+// nothing; ";" starts a comment. A target is a label or an instruction
+// number:
+//
+//	loop:  dup
+//	       jifnot done   ; leave when the counter is zero
+//	       push 1
+//	       sub
+//	       jmp loop
+//	done:  halt
+
+import stackvm/vm
+import strconv
+import strings
+
+// Bad is a line the assembler cannot read.
+type Bad { Line int, Text string, Why Problem }
+
+// Problem is what is wrong with a line.
+type Problem =
+	| UnknownOp{Op string}
+	| MissingOperand{Op string}
+	| ExtraOperand{Op string}
+	| NotANumber{Text string}
+	| BadLabel{Label string}
+	| Undefined{Label string}
+	| Duplicate{Label string, First int}
+
+// Mnemonic is the name of i's kind in the text form.
+func Mnemonic(i vm.Instr) string {
+	match i {
+	case vm.Push:
+		"push"
+	case vm.Pop:
+		"pop"
+	case vm.Dup:
+		"dup"
+	case vm.Swap:
+		"swap"
+	case vm.Over:
+		"over"
+	case vm.Add:
+		"add"
+	case vm.Sub:
+		"sub"
+	case vm.Mul:
+		"mul"
+	case vm.Div:
+		"div"
+	case vm.Mod:
+		"mod"
+	case vm.Less:
+		"lt"
+	case vm.Same:
+		"eq"
+	case vm.Not:
+		"not"
+	case vm.Jump:
+		"jmp"
+	case vm.JumpIf:
+		"jif"
+	case vm.JumpIfNot:
+		"jifnot"
+	case vm.Call:
+		"call"
+	case vm.Ret:
+		"ret"
+	case vm.Print:
+		"print"
+	case vm.Halt:
+		"halt"
+	}
+}
+
+// plain is the instruction of a mnemonic that takes no operand.
+func plain(op string) Option[vm.Instr] {
+	match op {
+	case "pop":
+		Some[vm.Instr]{vm.Pop}
+	case "dup":
+		Some[vm.Instr]{vm.Dup}
+	case "swap":
+		Some[vm.Instr]{vm.Swap}
+	case "over":
+		Some[vm.Instr]{vm.Over}
+	case "add":
+		Some[vm.Instr]{vm.Add}
+	case "sub":
+		Some[vm.Instr]{vm.Sub}
+	case "mul":
+		Some[vm.Instr]{vm.Mul}
+	case "div":
+		Some[vm.Instr]{vm.Div}
+	case "mod":
+		Some[vm.Instr]{vm.Mod}
+	case "lt":
+		Some[vm.Instr]{vm.Less}
+	case "eq":
+		Some[vm.Instr]{vm.Same}
+	case "not":
+		Some[vm.Instr]{vm.Not}
+	case "ret":
+		Some[vm.Instr]{vm.Ret}
+	case "print":
+		Some[vm.Instr]{vm.Print}
+	case "halt":
+		Some[vm.Instr]{vm.Halt}
+	case _:
+		None
+	}
+}
+
+// line is one instruction line before its target is resolved: the
+// instruction with target 0, and the target's text, or "".
+type line { at int, text string, instr vm.Instr, target string }
+
+// Assemble is the program of text.
+func Assemble(text string) []vm.Instr fails Bad {
+	let mut labels = Map[string, int]{}
+	let mut where = Map[string, int]{}
+	let mut lines = []line{}
+	for n, raw in strings.Split(text, "\n") {
+		let mut rest = raw
+		match strings.Cut(rest, ";") {
+		case Some[strings.Halves] as h:
+			rest = h.Value.Before
+		case None:
+		}
+		match strings.Cut(rest, ":") {
+		case Some[strings.Halves] as h:
+			let label = strings.TrimSpace(h.Value.Before)
+			if !isLabel(label) {
+				return Bad{Line: n + 1, Text: raw, Why: BadLabel{Label: label}}
+			}
+			match where.Get(label) {
+			case Some[int] as first:
+				return Bad{Line: n + 1, Text: raw, Why: Duplicate{Label: label, First: first.Value}}
+			case None:
+			}
+			labels[label] = len(lines)
+			where[label] = n + 1
+			rest = h.Value.After
+		case None:
+		}
+		let fields = strings.Fields(rest)
+		if len(fields) == 0 {
+			continue
+		}
+		let p = try parse(fields, n+1, raw)
+		lines = lines.Append(line{at: n + 1, text: raw, instr: p.instr, target: p.target})
+	}
+	let mut program = []vm.Instr{}
+	for l in lines {
+		if l.target == "" {
+			program = program.Append(l.instr)
+			continue
+		}
+		let to = try resolve(labels, l)
+		program = program.Append(vm.Retarget(l.instr, to))
+	}
+	program
+}
+
+// parsed is an instruction and its target text.
+type parsed { instr vm.Instr, target string }
+
+// parse is the instruction of the fields of line n, raw. A union is not an
+// error type (G-ex-d-2), so it fails Bad, the record, and takes the line.
+func parse(fields []string, n int, raw string) parsed fails Bad {
+	let op = fields[0]
+	match plain(op) {
+	case Some[vm.Instr] as i:
+		if len(fields) > 1 {
+			return Bad{Line: n, Text: raw, Why: ExtraOperand{Op: op}}
+		}
+		return parsed{instr: i.Value, target: ""}
+	case None:
+	}
+	let jump Option[vm.Instr] = match op {
+	case "jmp":
+		Some[vm.Instr]{vm.Jump{To: 0}}
+	case "jif":
+		Some[vm.Instr]{vm.JumpIf{To: 0}}
+	case "jifnot":
+		Some[vm.Instr]{vm.JumpIfNot{To: 0}}
+	case "call":
+		Some[vm.Instr]{vm.Call{To: 0}}
+	case _:
+		None
+	}
+	if op != "push" && jump == None {
+		return Bad{Line: n, Text: raw, Why: UnknownOp{Op: op}}
+	}
+	if len(fields) < 2 {
+		return Bad{Line: n, Text: raw, Why: MissingOperand{Op: op}}
+	}
+	if len(fields) > 2 {
+		return Bad{Line: n, Text: raw, Why: ExtraOperand{Op: op}}
+	}
+	match jump {
+	case Some[vm.Instr] as j:
+		parsed{instr: j.Value, target: fields[1]}
+	case None:
+		parsed{instr: vm.Push{N: try integer(fields[1], n, raw)}, target: ""}
+	}
+}
+
+// resolve is the instruction number of a target: a label's, or the
+// number it spells.
+func resolve(labels Map[string, int], l line) int fails Bad {
+	match labels.Get(l.target) {
+	case Some[int] as at:
+		at.Value
+	case None:
+		if isLabel(l.target) {
+			return Bad{Line: l.at, Text: l.text, Why: Undefined{Label: l.target}}
+		}
+		try integer(l.target, l.at, l.text)
+	}
+}
+
+// integer is the int text spells, on line n, raw.
+func integer(text string, n int, raw string) int fails Bad {
+	strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Bad{Line: n, Text: raw, Why: NotANumber{Text: text}}
+	}
+}
+
+// isLabel reports whether text is a label: a letter or "_", then
+// letters, digits and "_".
+func isLabel(text string) bool {
+	if text == "" {
+		return false
+	}
+	let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+	for i in 0..len(text) {
+		let c = strings.Slice(text, i, i+1)
+		if !strings.Contains(letters, c) && (i == 0 || !strings.Contains("0123456789", c)) {
+			return false
+		}
+	}
+	true
+}
+
+// Explain is the text of a Bad line.
+func Explain(b Bad) string {
+	let why = match b.Why {
+	case UnknownOp as u:
+		"no instruction is called \(strconv.Quote(u.Op))"
+	case MissingOperand as m:
+		"\(m.Op) needs an operand"
+	case ExtraOperand as e:
+		"\(e.Op) takes \(if e.Op == "push" || e.Op == "jmp" || e.Op == "jif" || e.Op == "jifnot" || e.Op == "call" { "one operand" } else { "no operand" })"
+	case NotANumber as n:
+		"\(strconv.Quote(n.Text)) is not a number"
+	case BadLabel as l:
+		"\(strconv.Quote(l.Label)) is not a label"
+	case Undefined as u:
+		"no label \(u.Label)"
+	case Duplicate as d:
+		"label \(d.Label) is already on line \(d.First)"
+	}
+	"line \(b.Line): \(why)"
+}

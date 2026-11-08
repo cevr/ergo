@@ -1,0 +1,91 @@
+// The rules of the bytecode and the loop, as laws over generated
+// programs. A generated slice holds at most three elements (G-ex-d-9),
+// so a law takes a seed and builds its program with Program.
+
+import slices
+
+// Draws is a seeded stream of numbers, for generators.
+type Draws { x int }
+
+// Seed is the stream of seed.
+func Seed(seed int) Draws { Draws{x: (if seed < 0 { -(seed + 1) } else { seed }) % 2147483648} }
+
+// Next is a draw in 0 to n-1.
+func Next(d *Draws, n int) int {
+	d.x = (d.x*1103515245 + 12345) % 2147483648
+	(d.x / 65536) % n
+}
+
+// Program is size instructions drawn from seed: every kind, with small
+// values and targets that are mostly inside the program, sometimes its
+// end and sometimes outside it.
+func Program(seed int, size int) []Instr {
+	let mut d = Seed(seed)
+	let mut out = []Instr{}
+	for _ in 0..size {
+		let to = d.Next(size+3) - 1
+		let kinds = []Instr{Pop, Dup, Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same, Not, Ret, Print, Halt}
+		let k = d.Next(20)
+		out = out.Append(match k {
+		case 0:
+			Push{N: d.Next(21) - 10}
+		case 1:
+			Jump{To: to}
+		case 2:
+			JumpIf{To: to}
+		case 3:
+			JumpIfNot{To: to}
+		case 4:
+			Call{To: to}
+		case _:
+			kinds[k-5]
+		})
+	}
+	out
+}
+
+// DecodeInvertsEncode: the bytecode of a program decodes to it.
+law DecodeInvertsEncode(seed int, size int) {
+	let p = Program(seed, size%40)
+	let back = Decode(Encode(p)) catch {
+	case BadCode:
+		return false
+	}
+	slices.Equal(back, p)
+}
+
+// FuelBoundsSteps: fuel bounds a run exactly: a run that halts within its
+// fuel takes at most that fuel and more fuel changes nothing about it,
+// and a run that runs out takes more than its fuel when given more.
+law FuelBoundsSteps(seed int, fuel int) {
+	let f = if fuel < 0 { -(fuel + 1) % 50 } else { fuel % 50 }
+	for p in [][]Instr{Program(seed, 20), Countdown(seed % 12)} {
+		if !Bounded(p, f) {
+			return false
+		}
+	}
+	true
+}
+
+// Bounded is the check of FuelBoundsSteps for one program.
+func Bounded(p []Instr, f int) bool {
+	let more = Run(p, f+1000) catch {
+	case Trap:
+		return true
+	}
+	let r = Run(p, f) catch {
+	case Trap as t:
+		return t.Why == OutOfFuel && more.Steps > f
+	}
+	r.Steps <= f && SameResult(r, more)
+}
+
+// Countdown is a loop of n rounds that halts after 5n+4 instructions.
+func Countdown(n int) []Instr {
+	[]Instr{Push{N: if n < 0 { -n } else { n }}, Dup, JumpIfNot{To: 6}, Push{N: 1}, Sub, Jump{To: 1}, Pop}
+}
+
+// SameResult reports whether a and b printed, left and took the same.
+func SameResult(a Result, b Result) bool {
+	slices.Equal(a.Printed, b.Printed) && slices.Equal(a.Stack, b.Stack) && a.Steps == b.Steps
+}
