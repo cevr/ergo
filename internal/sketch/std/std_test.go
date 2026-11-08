@@ -775,6 +775,8 @@ func handShapes(depth int) []handShape {
 			{name: "M" + s.name, decls: s.decls, typ: "Map[string, " + x + "]", exposes: s.exposes},
 			{name: "F" + s.name, decls: s.decls, typ: "func() " + x, exposes: s.exposes, fn: true},
 			{name: "T" + s.name, decls: s.decls + "type " + w + " (" + x + ", int)\n", typ: w, exposes: s.exposes},
+			// An operation type: a call of its operation returns X.
+			{name: "Q" + s.name, decls: s.decls + "type " + w + " { Get() " + x + " }\n", typ: w, exposes: s.exposes},
 		}
 		if !s.fn {
 			words = append(words,
@@ -839,15 +841,13 @@ func TestStdHostHandOuts(t *testing.T) {
 	if len(ds) != 0 {
 		t.Fatalf("outside: %v", ds)
 	}
-	const base = `type Host { C Cap }
-
-type Cap { root string }
+	const common = `type Cap { root string }
 
 type Other { x int }
 
 type Gone { Path string }
 
-func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
+func NewHost() Host needs Ambient { NewHost() }
 
 func Read(_ Host) string fails Gone { try read() }
 
@@ -855,54 +855,65 @@ func read() string fails Gone { try hostRead("x") }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
 `
+	// The ways Host needs Cap (check.Authorities): a field, a union
+	// variant (the other variant has authority), a defined tuple in a
+	// field, and the implementer of a sealed operation type.
+	hostForms := []struct{ name, decls string }{
+		{"field", "type Host { C Cap }\n"},
+		{"variant", "type Host = HA | HB\n\ntype HA { C Cap }\n\ntype HB { root string }\n"},
+		{"tuple", "type Host { P HP }\n\ntype HP (Cap, int)\n"},
+		{"sealed", "type Host { peek() int }\n\ntype Live { C Cap }\n\nfunc peek(_ Live) int { 1 }\n"},
+	}
 	shapes := handShapes(2)
-	// Per base: itself, 8 words, and their children: 8 each, 4 under F.
-	if want := 3 * (1 + 8 + 7*8 + 4); len(shapes) != want {
+	// Per base: itself, 9 words, and their children: 9 each, 5 under F.
+	if want := 3 * (1 + 9 + 8*9 + 5); len(shapes) != want {
 		t.Fatalf("generated %d shapes, want %d", len(shapes), want)
 	}
 	flagged := 0
-	for _, s := range shapes {
-		for _, m := range handModes {
-			src := base + s.decls + m.src(s.typ)
-			f, err := syntax.Parse(src)
-			if err != nil {
-				t.Fatalf("%s/%s: %v\n%s", s.name, m.name, err, src)
-			}
-			fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
-			for _, d := range ds {
-				if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
-					t.Fatalf("%s/%s: %v\n%s", s.name, m.name, ds, src)
+	for _, h := range hostForms {
+		for _, s := range shapes {
+			for _, m := range handModes {
+				src := h.decls + common + s.decls + m.src(s.typ)
+				f, err := syntax.Parse(src)
+				if err != nil {
+					t.Fatalf("%s/%s: %v\n%s", s.name, m.name, err, src)
 				}
-			}
-			var host *check.TypeName
-			for _, tn := range hostProviderTypes(fake) {
-				if tn.Name == "Host" {
-					host = tn
+				fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
+				for _, d := range ds {
+					if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+						t.Fatalf("%s/%s: %v\n%s", s.name, m.name, ds, src)
+					}
 				}
-			}
-			if host == nil {
-				t.Fatalf("%s/%s: no host provider Host", s.name, m.name)
-			}
-			// In `func Give() []func() Cap needs Ambient` the row is the
-			// result's function type's, not Give's, so Give has no row:
-			// reported (conservative: a call of the value needs Ambient).
-			guarded := m.guarded && !(m.name == "ambient" && endsInFuncType(s.typ))
-			var want []string
-			if s.exposes && !guarded {
-				want = []string{m.what + " fixture.Cap, which fixture.Host needs,"}
-				flagged++
-			}
-			got := hostAuthorityViolations(fake, host, outside)
-			ok := len(got) == len(want)
-			for i := range got {
-				ok = ok && strings.HasPrefix(got[i], want[i])
-			}
-			if !ok {
-				t.Errorf("%s/%s: the violations are %q, want one starting %q\n%s", s.name, m.name, got, want, s.decls+m.src(s.typ))
+				var host *check.TypeName
+				for _, tn := range hostProviderTypes(fake) {
+					if tn.Name == "Host" {
+						host = tn
+					}
+				}
+				if host == nil {
+					t.Fatalf("%s/%s: no host provider Host", s.name, m.name)
+				}
+				// In `func Give() []func() Cap needs Ambient` the row is the
+				// result's function type's, not Give's, so Give has no row:
+				// reported (conservative: a call of the value needs Ambient).
+				guarded := m.guarded && !(m.name == "ambient" && endsInFuncType(s.typ))
+				var want []string
+				if s.exposes && !guarded {
+					want = []string{m.what + " fixture.Cap, which fixture.Host needs,"}
+					flagged++
+				}
+				got := hostAuthorityViolations(fake, host, outside)
+				ok := len(got) == len(want)
+				for i := range got {
+					ok = ok && strings.HasPrefix(got[i], want[i])
+				}
+				if !ok {
+					t.Errorf("%s/%s/%s: the violations are %q, want one starting %q\n%s", h.name, s.name, m.name, got, want, s.decls+m.src(s.typ))
+				}
 			}
 		}
 	}
-	t.Logf("%d shapes x %d modes, %d violations", len(shapes), len(handModes), flagged)
+	t.Logf("%d host forms x %d shapes x %d modes, %d violations", len(hostForms), len(shapes), len(handModes), flagged)
 }
 
 // TestProgramPackagesHaveNoHostProvider is the host guard over program
