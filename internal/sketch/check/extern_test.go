@@ -529,6 +529,8 @@ type Mine {
 	Pop() int fails queue.Closed,
 	Close(),
 	Values() Seq[int],
+	Poll() Option[int],
+	Len() int,
 }
 
 func use(q queue.Queue[int]) { q.Close() }
