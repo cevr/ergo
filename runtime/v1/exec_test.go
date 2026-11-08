@@ -365,7 +365,11 @@ func TestExecNotFoundNamesTheProgram(t *testing.T) {
 			b.WriteString(alphabet[r.IntN(len(alphabet))])
 		}
 		if r.IntN(2) == 0 {
-			names = append(names, "ergo-law-missing-"+b.String())
+			// A name with no separator is looked up on the PATH only. With
+			// one, it is a path relative to the working directory, the
+			// package's own directory, which the test must not read
+			// (closure sweep, batch-10 gate 1).
+			names = append(names, "ergo-law-missing-"+strings.ReplaceAll(b.String(), "/", "_"))
 		} else {
 			names = append(names, "/nonexistent/loop-probe-"+b.String())
 		}
