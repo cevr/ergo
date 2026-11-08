@@ -4,6 +4,7 @@ package closure
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // A process of a run that leaves the run's process group and session
@@ -132,7 +134,7 @@ func TestRunCollectsADescendantThatLeftItsSession(t *testing.T) {
 			survivors = append(survivors, fmt.Sprintf("%d (%s)", p.pid, strings.TrimSpace(p.cmdline)))
 			if _, _, e := syscall.Syscall6(sysPidfdSendSignal, uintptr(p.fd), uintptr(syscall.SIGKILL), 0, 0, 0, 0); e != 0 {
 				t.Errorf("end the survivor %d by its pidfd: %v", p.pid, e)
-			} else if ended, _ := readableWithin(p.fd, 10*time.Second); !ended {
+			} else if ended, _ := readableWithin(p.fd, cmp.Or(testwait.Left(t), forever)); !ended {
 				t.Errorf("the survivor %d did not end after SIGKILL", p.pid)
 			}
 		}

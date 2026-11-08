@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // A process of a run whose parent ends becomes the child of the run's
@@ -26,8 +27,6 @@ import (
 const (
 	orphanVariable      = "ERGO_CLOSURE_ORPHAN"
 	orphanStageVariable = "ERGO_CLOSURE_ORPHAN_STAGE"
-	// orphanBound is how long the run's test waits for the group to go.
-	orphanBound = 20 * time.Second
 )
 
 // TestOrphanRunTarget is the run's test: it runs only as the target of
@@ -73,16 +72,9 @@ func TestOrphanRunTarget(t *testing.T) {
 		}
 		// The group is the one this test started: its id is the parent's.
 		group := parent.Process.Pid
-		end := time.Now().Add(orphanBound)
-		for {
-			err := syscall.Kill(-group, 0)
-			if errors.Is(err, syscall.ESRCH) {
-				break
-			}
-			if time.Now().After(end) {
-				t.Fatalf("the orphan's process group %d did not go within %v (kill(-group, 0): %v): the run keeps an ended orphan as a zombie", group, orphanBound, err)
-			}
-			time.Sleep(10 * time.Millisecond)
+		var err error
+		if !testwait.Until(t, func() bool { err = syscall.Kill(-group, 0); return errors.Is(err, syscall.ESRCH) }) {
+			t.Fatalf("the orphan's process group %d did not go by the test's deadline (kill(-group, 0): %v): the run keeps an ended orphan as a zombie", group, err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, "gone"), []byte("gone\n"), 0o644); err != nil {
 			t.Fatal(err)

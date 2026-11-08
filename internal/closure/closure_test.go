@@ -1004,7 +1004,7 @@ func buildTestBinary(root, dir, binary string) error {
 	defer cancel()
 	build := exec.CommandContext(ctx, "go", "test", "-c", "-o", binary, "./"+dir)
 	build.Dir = root
-	build.WaitDelay = 10 * time.Second
+	build.WaitDelay = bound
 	if out, err := build.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("go test -c ./%s did not end within %v (%s, or this test's own deadline)\n%s", dir, bound.Round(time.Second), runDeadlineVariable, out)

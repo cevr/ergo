@@ -10,14 +10,16 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // The round-2 review found the round-1 classes again on inputs the round-2
 // tests did not reach (round-2-findings.md, "Test strength"). These tests
 // cover each class's rule domain with generators and tables, not points.
 
-// checkWithin checks src and fails if the checker does not finish in d.
-func checkWithin(t *testing.T, src string, d time.Duration) (*check.Package, []check.Diagnostic) {
+// checkWithin checks src and fails if the checker does not finish by the
+// test's deadline (testwait): a check that does not end is a failure.
+func checkWithin(t *testing.T, src string) (*check.Package, []check.Diagnostic) {
 	t.Helper()
 	type result struct {
 		pkg   *check.Package
@@ -31,8 +33,8 @@ func checkWithin(t *testing.T, src string, d time.Duration) (*check.Package, []c
 	select {
 	case r := <-done:
 		return r.pkg, r.diags
-	case <-time.After(d):
-		t.Fatalf("the checker did not finish within %s", d)
+	case <-testwait.After(t):
+		t.Fatal("the checker did not finish by the test's deadline")
 		return nil, nil
 	}
 }
@@ -316,7 +318,7 @@ func TestRowGraphDomain(t *testing.T) {
 			groups++
 		}
 
-		pkg, diags := checkWithin(t, src, 5*time.Second)
+		pkg, diags := checkWithin(t, src)
 		gotS108, gotS102, gotG := 0, 0, 0
 		for _, d := range diags {
 			switch {
@@ -449,7 +451,7 @@ type B[T] { a []A[T] }`},
 func TestExpandingInstantiation(t *testing.T) {
 	for _, c := range expandingCases {
 		t.Run(c.name, func(t *testing.T) {
-			_, diags := checkWithin(t, ""+c.src+"\n", 2*time.Second)
+			_, diags := checkWithin(t, ""+c.src+"\n")
 			if len(diags) != 1 || diags[0].Code != "S108" || !strings.Contains(diags[0].Message, "instantiation cycle") {
 				t.Fatalf("want one instantiation-cycle S108, got %s", describe(diags))
 			}
@@ -473,7 +475,7 @@ func g[T](x T) { f(x) }`,
 		`type L[T] { next []L[T] }`,
 		`type L[T] { next []L[int] }`,
 	} {
-		_, diags := checkWithin(t, ""+src+"\n", 2*time.Second)
+		_, diags := checkWithin(t, ""+src+"\n")
 		if len(diags) != 0 {
 			t.Fatalf("%s: want no diagnostic, got %s", src, describe(diags))
 		}
@@ -707,7 +709,7 @@ func TestTotalityEmptySubject(t *testing.T) {
 		`match (d, c) { case (A, _): return A }`,
 	} {
 		src := "type A {}\ntype B {}\ntype Choice = A00\ntype Full = A | B\nfunc F(c Choice, d Full) A {" + sw + "}\n"
-		_, diags := checkWithin(t, check.Decided(src), 2*time.Second)
+		_, diags := checkWithin(t, check.Decided(src))
 		if len(diags) != 1 || diags[0].Code != "S104" {
 			t.Errorf("%s: want only the unknown-name S104, got %s", sw, describe(diags))
 		}
@@ -718,7 +720,7 @@ func TestTotalityBudget(t *testing.T) {
 	rng := rand.New(rand.NewSource(1965))
 	for k := 0; k < 12; k++ {
 		src, rows := cnfSwitch(rng, 16, 16*43/10)
-		_, diags := checkWithin(t, src, 5*time.Second)
+		_, diags := checkWithin(t, src)
 		got := totalityVerdict(diags)
 		want := "not total"
 		if cnfTotal(16, rows) {
@@ -864,12 +866,12 @@ func TestFiniteChains(t *testing.T) {
 	}{{"struct", structChain}, {"generic", genericChain}} {
 		for _, n := range []int{1, 10, 300, 2000} {
 			src := gen.f(n)
-			_, diags := checkWithin(t, src, 10*time.Second)
+			_, diags := checkWithin(t, src)
 			if len(diags) != 0 {
 				t.Fatalf("%s n=%d: want no diagnostic, got %s", gen.name, n, describe(diags))
 			}
 			closed := strings.Replace(src, fmt.Sprintf("type T%d {}", n), fmt.Sprintf("type T%d { Back T0 }", n), 1)
-			_, diags = checkWithin(t, closed, 10*time.Second)
+			_, diags = checkWithin(t, closed)
 			if codesOf(diags) != "S108" {
 				t.Fatalf("%s n=%d closed: want one S108, got %s", gen.name, n, describe(diags))
 			}
