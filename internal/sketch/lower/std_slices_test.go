@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
@@ -146,10 +147,15 @@ const stdSlicesOutput = "npm/c:9 github/a:5 npm/a:5 npm/b:5 github/d:1\n" +
 // (packages/effect/test/Array.test.ts at the conformance pin 460272d3)
 // that std slices covers: reverse, sort, contains, map, filter, reduce,
 // min, max and sortBy with two keys. Effect's min and max take a
-// NonEmptyArray, so an empty one is a type error there; here it is None
-// (conformance/effect-cases.json records the difference).
+// NonEmptyArray, so an empty one is a type error there; here it is None.
+// The cases that conformance/effect-cases.json records (sort, map, filter,
+// reduce) print their output after a line "== <case id>", and each is a
+// subtest named after its case id (scripts/conformance: a row's evidence
+// test runs the subtest of its case). Effect's index forms (map, filter
+// and reduce with a callback that takes the index) and its Set inputs
+// have no Ergo form: Transform, Filter and Fold take the element only.
 func TestStdSlicesEffectCases(t *testing.T) {
-	runBehaviors(t, []behavior{{name: "effectcases", src: `import slices
+	const src = `import slices
 import cmp
 import strings
 
@@ -175,16 +181,8 @@ func opt(o Option[int]) string {
 func main() needs Console {
 	// reverse (Array.test.ts:523)
 	Console.Println(ints(slices.Reverse([]int{})) + ints(slices.Reverse([]int{1})) + ints(slices.Reverse([]int{1, 2, 3})))
-	// sort (Array.test.ts:533)
-	Console.Println(ints(slices.Sort([]int{})) + ints(slices.Sort([]int{1, 3, 2})))
 	// contains (Array.test.ts:645)
 	Console.Println("\(slices.Contains([]int{1, 2, 3}, 2)) \(slices.Contains([]int{1, 2, 3}, 0))")
-	// map (Array.test.ts:834)
-	Console.Println(ints(slices.Transform([]int{1, 2, 3}, func(n int) int { n * 2 })))
-	// filter (Array.test.ts:886)
-	Console.Println(ints(slices.Filter([]int{1, 2, 3}, func(n int) bool { n % 2 == 1 })))
-	// reduce (Array.test.ts:924)
-	Console.Println(slices.Fold([]string{"a", "b", "c"}, "", func(b string, a string) string { b + a }))
 	// min and max (Array.test.ts:1052, 1057), and an empty slice
 	Console.Println(opt(slices.Min([]int{2, 1, 3})) + " " + opt(slices.Min([]int{3})) + " " + opt(slices.Max([]int{1, 2, 3})) + " " + opt(slices.Max([]int{1})) + " " + opt(slices.Max([]int{})))
 	// sortBy(byName, byAge) (Array.test.ts:1120): a stable sort by the
@@ -199,8 +197,74 @@ func main() needs Console {
 		}
 		cmp.Compare(p.B, q.B)
 	})))
+
+	// The recorded cases. sort (Array.test.ts:533): a sorted copy; the
+	// input keeps its order.
+	Console.Println("== effect.array.sort")
+	let unsorted = []int{1, 3, 2}
+	Console.Println(ints(slices.Sort([]int{})) + ints(slices.Sort(unsorted)) + ints(unsorted))
+	// map (Array.test.ts:834)
+	Console.Println("== effect.array.map")
+	Console.Println(ints(slices.Transform([]int{1, 2, 3}, func(n int) int { n * 2 })))
+	// filter (Array.test.ts:886), with a predicate on numbers and on
+	// options (Option.isSome)
+	Console.Println("== effect.array.filter")
+	Console.Println(ints(slices.Filter([]int{1, 2, 3}, func(n int) bool { n % 2 == 1 })))
+	let isSome = func(o Option[int]) bool {
+		match o {
+		case Some[int]:
+			true
+		case None:
+			false
+		}
+	}
+	let some = slices.Filter([]Option[int]{Some[int]{Value: 3}, Some[int]{Value: 2}, Some[int]{Value: 1}}, isSome)
+	let gaps = slices.Filter([]Option[int]{Some[int]{Value: 3}, None, Some[int]{Value: 1}}, isSome)
+	Console.Println(strings.Join(slices.Transform(some, opt), ",") + " " + strings.Join(slices.Transform(gaps, opt), ","))
+	// reduce (Array.test.ts:924)
+	Console.Println("== effect.array.reduce")
+	Console.Println(slices.Fold([]string{"a", "b", "c"}, "", func(b string, a string) string { b + a }))
 }
-`, stdout: "[][1][3,2,1]\n[][1,2,3]\ntrue false\n[2,4,6]\n[1,3]\nabc\n1 3 3 1 none\na1 b2 b3 c2\na1 b2 b3 c2\n"}})
+`
+	run := mustLower(t, "effectcases", src)
+	exes := buildAll(t, []*lowered{run}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExe(t, exes["effectcases"])
+	head, sections, _ := strings.Cut(stdout, "== ")
+	if want := "[][1][3,2,1]\ntrue false\n1 3 3 1 none\na1 b2 b3 c2\na1 b2 b3 c2\n"; code != 0 || head != want {
+		t.Errorf("exit %d\nstdout %q\nwant   %q\nstderr %s", code, head, want, firstLines(stderr, 10))
+	}
+	t.Run("effect.array.sort", func(t *testing.T) {
+		effectCaseSection(t, sections, "[][1,2,3][1,3,2]\n")
+	})
+	t.Run("effect.array.map", func(t *testing.T) {
+		effectCaseSection(t, sections, "[2,4,6]\n")
+	})
+	t.Run("effect.array.filter", func(t *testing.T) {
+		effectCaseSection(t, sections, "[1,3]\n3,2,1 3,1\n")
+	})
+	t.Run("effect.array.reduce", func(t *testing.T) {
+		effectCaseSection(t, sections, "abc\n")
+	})
+}
+
+// effectCaseSection checks the output section of the subtest's
+// conformance case: in sections, the lines after "== <case id>\n" up to
+// the next "== ". The subtest's name is the case id.
+func effectCaseSection(t *testing.T, sections, want string) {
+	t.Helper()
+	id := t.Name()[strings.LastIndexByte(t.Name(), '/')+1:]
+	for section := range strings.SplitSeq("== "+sections, "== ") {
+		if name, got, ok := strings.Cut(section, "\n"); ok && name == id {
+			if got != want {
+				t.Errorf("case %s: output %q, want %q", id, got, want)
+			}
+			return
+		}
+	}
+	t.Errorf("case %s: no output section in %q", id, sections)
 }
 
 // stdSlicesLawsProbe restates each law of slices, maps and cmp whose

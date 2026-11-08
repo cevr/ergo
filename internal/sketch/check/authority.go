@@ -1,6 +1,10 @@
 package check
 
-import "strings"
+import (
+	"strings"
+
+	"ergo.local/prototype/internal/sketch/std"
+)
 
 // Construction authority and member visibility across packages
 // (types.md, Zero values 6; grammar.md, Visibility 2 and 3; 196b plan Q6,
@@ -429,7 +433,12 @@ func authorityText(obj *TypeName) string {
 			continue
 		}
 		if n, ok := fn.Sig.Results[0].(*Named); ok && n.origin().Obj == obj {
-			ways = append(ways, obj.Pkg.Name+"."+fn.Name)
+			// A prelude function is in scope with no package name.
+			if obj.Pkg.Path == std.PreludePath {
+				ways = append(ways, fn.Name)
+			} else {
+				ways = append(ways, obj.Pkg.Name+"."+fn.Name)
+			}
 		}
 	}
 	switch len(ways) {

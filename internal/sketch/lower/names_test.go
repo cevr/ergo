@@ -55,7 +55,7 @@ func helper(PARAM int) int {
 	return 0
 }
 
-func main() fails Bad needs Console {
+func main() fails Bad needs Console | Ambient {
 	let LOCAL = 1
 	let got = with W {
 		Store.Get()
@@ -69,7 +69,7 @@ func main() fails Bad needs Console {
 			Store.Get()
 		}
 	})
-	let s LiveScheduler
+	let s = NewLiveScheduler()
 	s.Sleep(1ms)
 	if got + caught + viaValue + helper(2) + LOCAL == 14 {
 		Console.Println("ok")

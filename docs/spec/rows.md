@@ -102,7 +102,7 @@ Status: **checked** (#196): provider literals, closed named contexts, inline and
 let Live = context {
 	Orders:    MemoryOrders{},
 	Gateway:   FakeGateway{AuthID: "auth-7"},
-	Scheduler: LiveScheduler,
+	Scheduler: time.NewManual(0),
 }
 ```
 

@@ -391,9 +391,11 @@ var i1Split = newSplit(split[i1Case]{
 	parts: i1Parts,
 	short: i1Short,
 	// The pin: the domain of the unsplit property at f79be34b
-	// (request.md, leg 1).
+	// (request.md, leg 1), re-pinned by std-align S2b when the extern
+	// shape's LiveScheduler came from NewLiveScheduler and its written
+	// rows listed Ambient (the same 17131 cases, two source texts changed).
 	count:  17131,
-	digest: "d756f45fafdfa9eaefb95c07fef8d815ba873db8479902bdd45b51b081fc18d0",
+	digest: "69a8fbf80189fb3bb44c022de5bf2a2ad9b801e2f73bacf7b09ebc4165ecaaa6",
 	cases: func(yield func(i1Case) bool) {
 		for _, c := range i1Domain() {
 			if !yield(c) {
@@ -674,6 +676,17 @@ type i1Graph struct {
 	// The subject reaches it through a capability, and its entry is not
 	// asserted.
 	provider bool
+	// ambient: the shape makes a host provider, so a written row of its
+	// frames and of the subject that calls them lists Ambient.
+	ambient bool
+}
+
+// row is the written row of a frame that calls the shape's frames.
+func (g i1Graph) row(row string) string {
+	if g.ambient && row != "" {
+		return row + " | Ambient"
+	}
+	return row
 }
 
 func i1Fib(name, call1, call2 string) func(row, clause string) string {
@@ -761,7 +774,7 @@ func i1RecursionCases() []i1Case {
 			if !g.provider {
 				entries["subject"] = e.name == "opaque" || e.name == "scope" || g.opaque
 			}
-			src := g.decls(e.row, e.clause) + "func subject() int" + e.row + " {\n" + fmt.Sprintf(g.call, 3) + "\n}\nfunc main() {}\n"
+			src := g.decls(e.row, e.clause) + "func subject() int" + g.row(e.row) + " {\n" + fmt.Sprintf(g.call, 3) + "\n}\nfunc main() {}\n"
 			out = append(out, i1Case{name: "recursion/" + g.name + "/" + e.name, src: i1Defs + src, entries: entries, want: map[string]bool{"decl": want}})
 		}
 	}
@@ -1409,7 +1422,11 @@ func i1LivePrograms() map[string]string {
 			// with gives an empty row and no reachable capability poll.
 			e = i1Effects[2]
 		}
-		out["recursion-"+g.name] = work(g.decls(e.row, e.clause), "with Local {\n"+fmt.Sprintf(g.call, 90)+"\n}\n")
+		program := work(g.decls(e.row, e.clause), "with Local {\n"+fmt.Sprintf(g.call, 90)+"\n}\n")
+		if g.ambient {
+			program = strings.Replace(program, "func main() fails queue.Closed needs Console {", "func main() fails queue.Closed needs Console | Ambient {", 1)
+		}
+		out["recursion-"+g.name] = program
 	}
 	// Impure only by its own with: the row is empty.
 	own := i1Effects[2]

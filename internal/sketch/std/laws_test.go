@@ -41,7 +41,7 @@ type stdLawPackage struct {
 // std.Packages(), never a list written here.
 func stdLawPackages(t *testing.T) []stdLawPackage {
 	t.Helper()
-	outside, ds := check.CheckSource("let x = LiveScheduler\n")
+	outside, ds := check.CheckSource("func uses(_ LiveScheduler) {}\n")
 	if len(ds) != 0 {
 		t.Fatalf("outside: %v", ds)
 	}

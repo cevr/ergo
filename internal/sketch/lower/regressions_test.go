@@ -314,8 +314,8 @@ func main() needs Console {
 		name: "extern-swapped",
 		src: `extern go ergo.local/prototype/runtime/rt.Sleep func nap(d duration, s LiveScheduler)
 
-func main() needs Console {
-	let s LiveScheduler
+func main() needs Console | Ambient {
+	let s = NewLiveScheduler()
 	nap(1ms, s)
 	Console.Println("ok")
 }
@@ -325,8 +325,8 @@ func main() needs Console {
 		name: "extern-same-signature",
 		src: `extern go ergo.local/prototype/runtime/rt.Sleep func nap(s LiveScheduler, d duration)
 
-func main() needs Console {
-	let s LiveScheduler
+func main() needs Console | Ambient {
+	let s = NewLiveScheduler()
 	nap(s, 1ms)
 	Console.Println("ok")
 }

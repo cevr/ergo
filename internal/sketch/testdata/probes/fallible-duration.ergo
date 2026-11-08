@@ -1,7 +1,7 @@
 // want S105
 import timeout
-func main() needs Console {
-	with context { Scheduler: LiveScheduler{} } {
+func main() needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } {
 		let line = timeout.After(timeout.After(1s) { 1s }) { "ok" } catch {
 		case timeout.Expired:
 			"late"

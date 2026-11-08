@@ -40,18 +40,19 @@ func run() needs Console | Scheduler {
 	Console.Println("\(a) \(b)")
 }
 
-func main() needs Console {
-	with context { Scheduler: LiveScheduler } {
+func main() needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } {
 		run()
 	}
 }
 `, "42 -2\n")
 }
 
-// timeoutProgram has an hour's deadline whose body sleeps an hour on the
-// LiveScheduler, which its own with binds, so only the deadline's
-// Scheduler, the one the caller of run binds, decides the race.
-const timeoutProgram = `import timeout
+// timeoutProgram has an hour's deadline whose body sleeps an hour on a
+// time.Manual that no one advances, which its own with binds, so only the
+// deadline's Scheduler, the one the caller of run binds, decides the race.
+const timeoutProgram = `import time
+import timeout
 
 func slow() int needs Scheduler {
 	Scheduler.Sleep(1h)
@@ -62,7 +63,7 @@ func quick() int { 42 }
 
 func late() int needs Scheduler {
 	timeout.After(1h) {
-		with context { Scheduler: LiveScheduler } {
+		with context { Scheduler: time.NewManual(0) } {
 			slow()
 		}
 	} catch {

@@ -1,6 +1,6 @@
 // want S104
-func fail() fails LiveScheduler { return LiveScheduler }
-func main() needs Console {
+func fail() fails LiveScheduler needs Ambient { return NewLiveScheduler() }
+func main() needs Console | Ambient {
 	fail() catch {
 	case LiveScheduler:
 		Console.Println("handled")

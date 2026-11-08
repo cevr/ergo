@@ -49,17 +49,21 @@ The binary binds the contract to providers in a context. Package `memory` holds 
 ```go
 import checkout/memory
 import checkout/payments
+import time
 
-// This binary is the only place that chooses the providers.
-let Live = context { Scheduler: LiveScheduler, memory.Paying }
-let Declining = context { Live, replace payments.Payments: memory.Decliner }
+// This binary is the only place that chooses the providers. Memory binds
+// the memory providers and a time.Manual, so a test needs no host; main
+// replaces the Manual with the host's scheduler, which needs Ambient.
+let Memory = context { Scheduler: time.NewManual(0), memory.Paying }
+let Declining = context { Memory, replace payments.Payments: memory.Decliner }
 
-func main() needs Console {
-	Console.Println(with Live { payments.Purchase(100) })
+func main() needs Console | Ambient {
+	let live = context { Memory, replace Scheduler: NewLiveScheduler() }
+	Console.Println(with live { payments.Purchase(100) })
 }
 
 test ChargeSucceeds {
-	let receipt = try with Live { payments.Checkout(100) }
+	let receipt = try with Memory { payments.Checkout(100) }
 	assert receipt.Amount == 100
 }
 
@@ -68,7 +72,7 @@ test DeclineIsHandled {
 }
 ```
 
-From the signature alone you know how `Checkout` can fail and what it needs. `Purchase` catches both failures, so its own signature has no `fails`. The law `Receipted` states what every provider of `Payments` must keep. `Live` embeds the context of another package, and `Declining` keeps every provider of `Live` and replaces one, so the tests swap providers without a mock framework. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/checkout](examples/checkout/cmd/checkout/main.ergo): `ergo run` prints `paid`, and `ergo test` runs both tests.
+From the signature alone you know how `Checkout` can fail and what it needs. `Purchase` catches both failures, so its own signature has no `fails`. The law `Receipted` states what every provider of `Payments` must keep. `Memory` embeds the context of another package, and `Declining` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/checkout](examples/checkout/cmd/checkout/main.ergo): `ergo run` prints `paid`, and `ergo test` runs both tests.
 
 ## Designed, not built yet
 

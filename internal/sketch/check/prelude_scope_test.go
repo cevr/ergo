@@ -42,21 +42,20 @@ func Sleep(s Instant, d duration) {}
 
 let Quick = context { Scheduler: Instant }
 
-let Live = context { Scheduler: LiveScheduler }
-
 func nap() needs Scheduler {
 	Scheduler.Sleep(1ms)
 }
 
-func main() {
+func main() needs Ambient {
 	with Quick {
 		Scheduler.Sleep(1h)
 		nap()
 	}
+	let Live = context { Scheduler: NewLiveScheduler() }
 	with Live {
 		nap()
 	}
-	LiveScheduler.Sleep(1ms)
+	NewLiveScheduler().Sleep(1ms)
 	Instant.Sleep(1h)
 	Sleep(Instant, 1h)
 }

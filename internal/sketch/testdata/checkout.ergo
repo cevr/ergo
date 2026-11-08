@@ -50,13 +50,14 @@ func Authorize(g FakeGateway, order Order) Payment fails GatewayDown {
 	return Authorized{g.AuthID}
 }
 
+// Live binds the program's own providers; the host's Scheduler is chosen
+// in main, the one place that holds Ambient.
 let Live = context {
-	Orders:    MemoryOrders,
-	Gateway:   FakeGateway{AuthID: "auth-7"},
-	Scheduler: LiveScheduler,
+	Orders:  MemoryOrders,
+	Gateway: FakeGateway{AuthID: "auth-7"},
 }
 
-func report(id string) needs Console {
+func report(id string) needs Console | Scheduler {
 	let outcome = with Live { checkout(id) } catch { // Live lives for this call only
 	case OrderNotFound:
 		"no such order"
@@ -68,7 +69,9 @@ func report(id string) needs Console {
 	Console.Println("\(outcome)")
 }
 
-func main() needs Console {
-	report("42")
-	report("7")
+func main() needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } {
+		report("42")
+		report("7")
+	}
 }

@@ -90,7 +90,7 @@ func widths() bool {
 	return wa == -55 && b*2 == 600 && c+1 == 70001 && d/5 == 1000000000 && e-2 == 5 && wf == 144 && g+1 == 60001 && h > 3000000000 && k > 17000000000000000000 && fm == 0.3 && n*4.0 == 1.0 && o && p+"t" == "st" && q+1s == 3s && r == 'x'
 }
 
-func main() needs Console {
+func main() needs Console | Ambient {
 	let shapes = []Shape{Circle{R: 2}, Square{S: 1}, Dot}
 	Console.Println(classify(shapes[0]) + ", " + classify(shapes[1]) + ", " + classify(Circle{R: 1}))
 	Console.Println(word(0) + " " + word(2) + " " + word(limit))
@@ -128,7 +128,7 @@ func main() needs Console {
 	}
 	let inner = greeting + "!"
 	Console.Println(inner)
-	let clock LiveScheduler
+	let clock = NewLiveScheduler()
 	clock.Sleep(1ms)
 	if widths() {
 		Console.Println("widths")
