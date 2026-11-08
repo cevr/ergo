@@ -626,6 +626,15 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 	letMentions := func(item, names string) string {
 		return "fixture." + item + " is an exported let that mentions " + names + " (fixture.Host or a record it needs), and a let has no row"
 	}
+	// builds is the mint rule's violation of a function item of fixture
+	// that builds what (fu-ambient-ctor r6), and placeBuilds one of a
+	// place with no row.
+	builds := func(item, what string) string {
+		return "fixture." + item + " builds " + what + " and neither lists Ambient in its written row nor takes a parameter of a held type"
+	}
+	placeBuilds := func(item, what, place string) string {
+		return "fixture." + item + " builds " + what + " in " + place + ", which has no row"
+	}
 	noAmbient := mentions("NewHost", "fixture.Host")
 	const sealedText = "another package makes a value of it: an operation type needs an unexported operation, and each type of its package that implements it needs authority"
 	// tokBase is the laundering probe's package without its hand-out: Wrap
@@ -644,10 +653,24 @@ func NewHost() Host needs Ambient { Host{root: "/"} }
 	// reported in every tokBase row, whatever hands out the Tok: the rows
 	// of rounds 1 to 4 stay, and the hostBase rows below put Host itself
 	// in each channel.
-	wrapped := []string{mentions("Wrap", "fixture.Host")}
+	wrapped := []string{mentions("Wrap", "fixture.Host"), builds("Wrap", "fixture.Host (a literal)")}
 	const hostBase = `type Host { root string }
 
 func NewHost() Host needs Ambient { NewHost() }
+
+`
+	// hostLit is a provider whose constructor builds it under Ambient.
+	const hostLit = `type Host { root string }
+
+func NewHost() Host needs Ambient { Host{root: "/"} }
+
+`
+	// readerBase is the batch-10 r5 B1 probes' package: Host implements
+	// the open operation type Reader (Get), so a Host can leave as a
+	// Reader, which no signature walk sees.
+	const readerBase = hostLit + `type Reader { Get() string fails Gone }
+
+func Get(h Host) string fails Gone { try Read(h) }
 
 `
 	// sealedBase is a sealed operation-type provider (stdlib.md, Host
@@ -671,7 +694,7 @@ func NewHost() Host needs Ambient { Live{root: "/"} }
 		{"record with no unexported field", `type Host {}
 
 func NewHost() Host { Host }
-`, []string{"another package builds it: it needs an unexported field", noAmbient}},
+`, []string{"another package builds it: it needs an unexported field", noAmbient, builds("NewHost", "fixture.Host (a bare record)")}},
 		{"record with an unexported field", `type Host { root string }
 
 func NewHost() Host needs Ambient { Host{root: "/"} }
@@ -736,7 +759,7 @@ type Cap { root string }
 func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
 
 func NewCap() Cap { Cap{root: "/"} }
-`, []string{mentions("NewCap", "fixture.Cap")}},
+`, []string{mentions("NewCap", "fixture.Cap"), builds("NewCap", "fixture.Cap (a literal)")}},
 		// fu-ambient-ctor r2 (batch-10 verifier M1, the laundering probe):
 		// Tok has authority but MakeTok hands it out with no row, so
 		// fixture.Wrap(fixture.MakeTok()) is a Host with no Ambient. A
@@ -870,13 +893,13 @@ func Give() func() int needs Sink { Give() }
 		{"Host in a generic record instance", hostBase + "type Box[T] { V T }\n\nfunc Give() Box[Host] { Give() }\n", give},
 		{"Host from a generic operation instance", hostBase + "type Src[T] { Get() T }\n\nfunc Give() Src[Host] { Give() }\n", give},
 		{"Host from a Seq", hostBase + "func Give() Seq[Host] { Give() }\n", give},
-		{"Host from an exported let of function type", hostBase + "let Mk = func() Host { Host{root: \"/\"} }\n", []string{letMentions("Mk", "fixture.Host")}},
+		{"Host from an exported let of function type", hostBase + "let Mk = func() Host { Host{root: \"/\"} }\n", []string{letMentions("Mk", "fixture.Host"), placeBuilds("Mk", "fixture.Host (a literal)", "a let")}},
 		{"Host from a function of an unexported type in an exported let", hostBase + `type mint {}
 
 func Next(_ mint) Host { Host{root: "/"} }
 
 let Minter = mint
-`, []string{mentions("Next", "fixture.Host")}},
+`, []string{mentions("Next", "fixture.Host"), builds("Next", "fixture.Host (a literal)")}},
 		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p *Host)) {}\n", give},
 		{"Host in the inferred failure row of a function value", hostBase + `type Oops { H Host }
 
@@ -936,6 +959,29 @@ type M machine[MS, ME] { initial: Busy, step: step }
 
 func Give() M { Give() }
 `, give},
+		// fu-ambient-ctor r6 (batch-10 r5 B1): a Host hidden behind a type
+		// no signature names: an open operation type it implements, a
+		// closure that captures it, a call's argument. Only the mint rule
+		// sees these; each has a control that lists Ambient.
+		{"P1 Host as an open operation type, function result", readerBase + "func Open() Reader { Host{root: \"/\"} }\n", []string{builds("Open", "fixture.Host (a literal)")}},
+		{"P1 control: lists Ambient", readerBase + "func Open() Reader needs Ambient { Host{root: \"/\"} }\n", nil},
+		{"P2 Host as an open operation type, named context", readerBase + "let Disk = context { Reader: Host{root: \"/\"} }\n", []string{placeBuilds("Disk", "fixture.Host (a literal)", "a named context")}},
+		// An inferred row is not a written one: the mint rule, as the
+		// mention rule, reads only what the source writes (decided by
+		// "simpler, reversible"; std writes Ambient where it builds).
+		{"build under an inferred Ambient", readerBase + "func mk() Host {\n\tlet h = NewHost()\n\tHost{..h, root: \"x\"}\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
+		{"build in a closure under an inferred Ambient", readerBase + "func mk() string fails Gone {\n\tlet f = func() Host {\n\t\tlet h = NewHost()\n\t\tHost{..h, root: \"x\"}\n\t}\n\ttry Read(f())\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
+		{"generated test parameter that holds a Host", readerBase + "type Box { H Host }\n\ntest T(b Box) {\n\tassert true\n}\n", []string{placeBuilds("T", "fixture.Host (a generated parameter)", "a test")}},
+		{"let's zero value of a record that holds a Host", readerBase + "type Wrap { H Host, N int }\n\nfunc F() string fails Gone {\n\tlet w Wrap\n\ttry Read(w.H)\n}\n", []string{builds("F", "fixture.Host (a let's zero value)")}},
+		{"build in a trailing block", readerBase + "func run(f func() string fails Gone) string fails Gone { try f() }\n\nfunc F() string fails Gone {\n\ttry run() {\n\t\ttry Read(Host{root: \"/\"})\n\t}\n}\n", []string{builds("F", "fixture.Host (a literal)")}},
+		// No P2 control: a named context is closed, so a provider that
+		// needs Ambient there is S102 (rows.md, Context 4).
+		{"P3 Host as an open operation type, let", readerBase + "let Default Reader = Host{root: \"/\"}\n", []string{placeBuilds("Default", "fixture.Host (a literal)", "a let")}},
+		{"P6 closure over a Host", readerBase + "func Reading() func() string fails Gone {\n\tlet h = Host{root: \"/\"}\n\tfunc() string fails Gone { try Read(h) }\n}\n", []string{builds("Reading", "fixture.Host (a literal)")}},
+		{"P6 control: lists Ambient", readerBase + "func Reading() (func() string fails Gone) needs Ambient {\n\tlet h = Host{root: \"/\"}\n\tfunc() string fails Gone { try Read(h) }\n}\n", nil},
+		{"P7 Host as a call's argument", readerBase + "func ReadNow() string fails Gone { try Read(Host{root: \"/\"}) }\n", []string{builds("ReadNow", "fixture.Host (a literal)")}},
+		{"P7 control: lists Ambient", readerBase + "func ReadNow() string fails Gone needs Ambient { try Read(Host{root: \"/\"}) }\n", nil},
+		{"P7 control: takes a Host", readerBase + "func ReadAt(h Host, root string) string fails Gone { try Read(Host{..h, root: root}) }\n", nil},
 		// The one exemption: a parameter of Host (or of a record it needs)
 		// itself. A borrow of it, or a record holding it, is none.
 		{"parameter of Host itself", hostBase + "func Clone(h Host) Host { h }\n", nil},
@@ -1007,7 +1053,7 @@ func NewHost() Host needs Ambient { Host{} }
 		{"Map", `type Host Map[string, string]
 
 func NewHost() Host { Host{} }
-`, []string{fmt.Sprintf(strict, "Map[string, string]"), noAmbient}},
+`, []string{fmt.Sprintf(strict, "Map[string, string]"), noAmbient, builds("NewHost", "fixture.Host (a literal)")}},
 	} {
 		f, err := syntax.Parse(row.decls + reach)
 		if err != nil {
@@ -1672,7 +1718,99 @@ func hostAuthorityViolationsIn(surface []*check.Package, pkg *check.Package, tn 
 			}
 		}
 	}
+	return append(out, mintViolations(surface, held)...)
+}
+
+// mintViolations are the mint rule's violations (fu-ambient-ctor r6;
+// stdlib.md, Host packages 6): every place of a package of surface that
+// builds a value of a held type (check.Mints: a literal, a record update,
+// an omitted field's or a let's zero value, a bare record, a conversion,
+// a constant, a generated parameter) is in a function, or a closure in
+// one, whose written row lists Ambient or that takes a parameter of a held
+// type. A let, a named context, a type declaration, a test and a law have
+// no row, so any build in one is reported. One violation per declaration,
+// naming what it builds, in walk order.
+func mintViolations(surface []*check.Package, held []*check.TypeName) []string {
+	var out []string
+	for _, p := range surface {
+		type item struct {
+			place check.MintPlace
+			name  string
+		}
+		var order []item
+		built := map[item][]string{}
+		for _, m := range check.Mints(p) {
+			n, ok := m.Type.(*check.Named)
+			if !ok || !slices.Contains(held, n.Obj) || mintAllowed(m, held) {
+				continue
+			}
+			it := item{m.Place, m.Name}
+			if _, ok := built[it]; !ok {
+				order = append(order, it)
+			}
+			what := n.Obj.Pkg.Name + "." + n.Obj.Name + " (" + mintFormText[m.Form] + ")"
+			if !slices.Contains(built[it], what) {
+				built[it] = append(built[it], what)
+			}
+		}
+		for _, it := range order {
+			what := strings.Join(built[it], ", ")
+			if it.place == check.MintInFunc {
+				out = append(out, p.Name+"."+it.name+" builds "+what+" and neither lists Ambient in its written row nor takes a parameter of a held type")
+			} else {
+				out = append(out, p.Name+"."+it.name+" builds "+what+" in "+mintPlaceText[it.place]+", which has no row")
+			}
+		}
+	}
 	return out
+}
+
+// mintAllowed reports whether a mint is in a function, or a closure in
+// one, that holds the authority: its written row lists Ambient, or a
+// parameter's type is a held type.
+func mintAllowed(m check.Mint, held []*check.TypeName) bool {
+	// Only a mint in a function has frames: a let, a context, a type, a
+	// test and a law have none, so they hold no authority.
+	if len(m.Frames) == 0 {
+		return false
+	}
+	for _, f := range m.Frames {
+		if f.Sig == nil {
+			continue
+		}
+		if f.Written && rowHasAmbient(f.Sig.Uses) {
+			return true
+		}
+		for _, p := range f.Sig.Params {
+			if n, ok := p.Type.(*check.Named); ok && slices.Contains(held, n.Obj) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// mintFormText and mintPlaceText word a mint rule violation.
+var mintFormText = map[check.MintForm]string{
+	check.MintLiteral:    "a literal",
+	check.MintUpdate:     "a record update",
+	check.MintZeroField:  "an omitted field's zero value",
+	check.MintZeroLet:    "a let's zero value",
+	check.MintZeroRecord: "a bare record",
+	check.MintConversion: "a conversion",
+	check.MintConstant:   "a constant",
+	check.MintFunc:       "a function literal",
+	check.MintTuple:      "a tuple",
+	check.MintString:     "an interpolated string",
+	check.MintGenerated:  "a generated parameter",
+}
+
+var mintPlaceText = map[check.MintPlace]string{
+	check.MintInLet:     "a let",
+	check.MintInContext: "a named context",
+	check.MintInType:    "a type declaration",
+	check.MintInTest:    "a test",
+	check.MintInLaw:     "a law",
 }
 
 // takesHeld reports whether a parameter of f has a type of held (the host
@@ -1732,7 +1870,12 @@ func writesAmbient(f *check.Func) bool {
 	if f.Decl == nil || f.Decl.Type == nil || f.Decl.Type.Needs == nil {
 		return false
 	}
-	for _, e := range f.Sig.Uses.Elems() {
+	return rowHasAmbient(f.Sig.Uses)
+}
+
+// rowHasAmbient reports whether a needs row names the prelude's Ambient.
+func rowHasAmbient(r *check.Row) bool {
+	for _, e := range r.Elems() {
 		if n, ok := e.(*check.Named); ok && n.Obj.Name == "Ambient" && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" {
 			return true
 		}

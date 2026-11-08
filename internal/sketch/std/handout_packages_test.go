@@ -84,6 +84,9 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 	}{
 		{"Cap handed out with no row", "type Cap { root string }\n\nfunc NewCap() Cap { NewCap() }\n", fixture, nil, []string{reported}},
 		{"Cap handed out under Ambient", "type Cap { root string }\n\nfunc NewCap() Cap needs Ambient { NewCap() }\n", fixture, nil, nil},
+		// fu-ambient-ctor r6: the mint rule asks capkg's builds of Cap too.
+		{"Cap built with no row", "type Cap { root string }\n\nfunc NewCap() Cap { Cap{root: \"/\"} }\n", fixture, nil, []string{reported, "capkg.NewCap builds capkg.Cap (a literal) and neither lists Ambient in its written row nor takes a parameter of a held type"}},
+		{"Cap built under Ambient", "type Cap { root string }\n\nfunc NewCap() Cap needs Ambient { Cap{root: \"/\"} }\n", fixture, nil, nil},
 		{"Tok handed out with no row, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok { MakeTok() }\n", wrapFixture, wrapped, wrapped},
 		{"Tok handed out under Ambient, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok needs Ambient { MakeTok() }\n", wrapFixture, wrapped, wrapped},
 	} {
