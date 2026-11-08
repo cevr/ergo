@@ -857,12 +857,18 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 `
 	// The ways Host needs Cap (check.Authorities): a field, a union
 	// variant (the other variant has authority), a defined tuple in a
-	// field, and the implementer of a sealed operation type.
-	hostForms := []struct{ name, decls string }{
-		{"field", "type Host { C Cap }\n"},
-		{"variant", "type Host = HA | HB\n\ntype HA { C Cap }\n\ntype HB { root string }\n"},
-		{"tuple", "type Host { P HP }\n\ntype HP (Cap, int)\n"},
-		{"sealed", "type Host { peek() int }\n\ntype Live { C Cap }\n\nfunc peek(_ Live) int { 1 }\n"},
+	// field, and the implementer of a sealed operation type. A Host with
+	// an unexported field needs only its own authority: a Cap in another
+	// package's hands builds no Host, so handing one out is no violation.
+	hostForms := []struct {
+		name, decls string
+		needsCap    bool
+	}{
+		{"field", "type Host { C Cap }\n", true},
+		{"variant", "type Host = HA | HB\n\ntype HA { C Cap }\n\ntype HB { root string }\n", true},
+		{"tuple", "type Host { P HP }\n\ntype HP (Cap, int)\n", true},
+		{"sealed", "type Host { peek() int }\n\ntype Live { C Cap }\n\nfunc peek(_ Live) int { 1 }\n", true},
+		{"own-authority", "type Host { c Cap }\n", false},
 	}
 	shapes := handShapes(2)
 	// Per base: itself, 9 words, and their children: 9 each, 5 under F.
@@ -898,7 +904,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 				// reported (conservative: a call of the value needs Ambient).
 				guarded := m.guarded && !(m.name == "ambient" && endsInFuncType(s.typ))
 				var want []string
-				if s.exposes && !guarded {
+				if h.needsCap && s.exposes && !guarded {
 					want = []string{m.what + " fixture.Cap, which fixture.Host needs,"}
 					flagged++
 				}
