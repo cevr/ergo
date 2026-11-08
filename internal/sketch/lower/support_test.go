@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,6 +104,10 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 			t.Fatal(err)
 		}
 	}
+	if err := unparsedGo(programs); err != nil {
+		t.Error(err)
+		return nil
+	}
 	write("go.mod", []byte(goMod))
 	for _, f := range Runtime() {
 		write(f.Path, f.Data)
@@ -174,6 +180,19 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 		probeBuilt(exe, p.mainGo())
 	}
 	return exes
+}
+
+// unparsedGo is the parse guard of buildAll (lower-gaps, batch 11): the
+// first program whose main.go go/parser does not parse, named with its
+// Ergo source and its Go, so an unparsable emit is a lowering failure of
+// one named program, not a build error of the whole module.
+func unparsedGo(programs []*lowered) error {
+	for _, p := range programs {
+		if _, err := parser.ParseFile(token.NewFileSet(), p.name+"/main.go", p.mainGo(), parser.SkipObjectResolution); err != nil {
+			return fmt.Errorf("%s: the emitted Go does not parse (a compiler defect): %v\nsource:\n%s\nGo:\n%s", p.name, err, p.src, p.mainGo())
+		}
+	}
+	return nil
 }
 
 // runExe runs a built program and returns its stdout, stderr and exit
