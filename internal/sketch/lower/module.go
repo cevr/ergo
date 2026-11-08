@@ -223,10 +223,11 @@ type lowerer struct {
 	// noEntry lowers a package with an empty Go main instead of a call of
 	// its main: the corpus test lowers library-shaped fixtures this way.
 	noEntry bool
-	// flatMatch lowers every pattern match flat, without its decision tree
-	// (matchtree.go): the reference the match-tree property compares with.
-	// Only a test sets it.
-	flatMatch bool
+	// matchTest is the match tree's test hook (matchtree.go): it can force
+	// the flat lowering, the reference the match-tree property compares
+	// with, and it counts the column kinds the trees split on. Only a test
+	// sets it; nil otherwise.
+	matchTest *matchTreeTest
 	// tests is the test build's state (tests.go, LowerTests); nil in the
 	// run build, which lowers no test.
 	tests *testLowering

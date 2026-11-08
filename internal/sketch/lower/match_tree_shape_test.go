@@ -189,6 +189,9 @@ func treeShapeCases() []treeShapeCase {
 }
 
 func TestMatchTreeShape(t *testing.T) {
+	if matchLowering == "flat" {
+		t.Skip("matchLowering=flat: the build has no tree")
+	}
 	for _, c := range treeShapeCases() {
 		t.Run(c.name, func(t *testing.T) {
 			src := stripDirectives(mustLower(t, c.name, c.src).mainGo())

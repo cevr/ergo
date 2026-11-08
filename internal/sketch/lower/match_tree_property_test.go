@@ -23,11 +23,14 @@ import (
 // tree selects the same arm with the same bindings as the flat lowering,
 // and both select the first arm whose pattern matches, for every value.
 //
-// A seeded generator writes unions of 2 to 4 variants whose fields are
-// int ({0, 1, 2}), string ({"a", "b"}), bool, or a union of the same group
-// (one level, no recursion), and matches of 1 to 3 subjects with 2 to 8
-// arms: wildcards, binds, type tests, `as`, records with 0 to 2 written
-// fields, constants, tuples, and or-patterns of 2 alternatives that bind
+// A seeded generator writes groups of types (treeGen.group): unions of 2
+// to 4 variants, records that are not variants, and named tuples whose two
+// first elements often share a type; a field is int ({0, 1, 2}), string
+// ({"a", "b"}), bool, or an earlier type of the group with at most 64
+// values, so unions, records and tuples nest. Matches have 1 to 3 subjects
+// of these types (or bool, or int) and 2 to 8 arms: wildcards, binds, type
+// tests, `as`, record patterns with 0 to 2 written fields, tuple patterns
+// with `_` mixed in, constants, and or-patterns of 2 alternatives that bind
 // the same names, often from different columns. About half the matches end
 // with `case _`; the others end with one arm per variant (or bool value)
 // of their first subject. The checker filters them: an arm it reports
@@ -38,13 +41,19 @@ import (
 // a statement match, and a return.
 //
 // A reference model in Go walks the arms in source order. One program
-// holds every match and prints one line per (match, value); it is lowered
-// twice, with the tree and flat (lowerer.flatMatch), built once, and both
-// outputs must equal the model's. Fixed probes add a match in a loop whose
-// arms break and continue (inline in nested switches and shared), and an
-// expression match whose shared arm does not terminate.
+// holds every match and prints one line per (match, value), the values
+// written out; it is lowered twice, with the tree and flat (the test hook
+// lowerer.matchTest), built once, and both outputs must equal the model's.
+// Fixed probes add a match in a loop whose arms break and continue (inline
+// in nested switches and shared), an expression match whose shared arm
+// does not terminate, and a match the tree gives up on
+// (treeFallbackProbes). The hook's counts must show that the trees split a
+// constructor column, a constant column, a tuple and a record, and that
+// the tree gave up on the fallback probes.
 //
-// -match.seed=N runs the seed N alone; every failure names its seed.
+// -match.seed=N runs the seed N alone. A failure prints the replay
+// command, the match's Ergo source, and its lines from the model, the tree
+// and the flat program side by side.
 
 var treeSeed = flag.Uint64("match.seed", 0, "run TestMatchTreeAgrees on this seed alone")
 
@@ -52,9 +61,9 @@ var treeSeed = flag.Uint64("match.seed", 0, "run TestMatchTreeAgrees on this see
 var treeSeeds = []uint64{1, 2, 3, 4, 5, 6}
 
 const (
-	treeGroups       = 3 // groups per seed
-	treeMatches      = 3 // matches per group
-	treeSampleValues = 160
+	treeGroups       = 3   // groups per seed
+	treeMatches      = 3   // matches per group
+	treeSampleValues = 256 // plan §1.3 B: 256 seeded samples past 256 values
 )
 
 type gKind int
@@ -64,11 +73,39 @@ const (
 	gString
 	gBool
 	gUnionKind
+	gTupleKind  // a named tuple: union holds one variant, its elements
+	gRecordKind // a record that is not a variant: union holds one variant, its fields
 )
 
+// gType is a type. A tuple or a record is modelled as a union of one
+// variant named as the type, so values, patterns and the model share one
+// form; only its Ergo text differs.
 type gType struct {
 	kind  gKind
 	union *gUnion
+}
+
+// product reports a tuple or a record: a value the tree destructures
+// without a test (matchtree.go, expand).
+func (t *gType) product() bool { return t.kind == gTupleKind || t.kind == gRecordKind }
+
+// size is the number of values of t.
+func (t *gType) size() int {
+	switch t.kind {
+	case gInt:
+		return 3
+	case gString, gBool:
+		return 2
+	}
+	n := 0
+	for _, vr := range t.union.variants {
+		p := 1
+		for _, f := range vr.fields {
+			p *= f.size()
+		}
+		n += p
+	}
+	return n
 }
 
 type gUnion struct {
@@ -128,7 +165,7 @@ type gMatch struct {
 
 type gGroup struct {
 	prefix string
-	unions []*gUnion
+	types  []*gType // unions, records and tuples, in declaration order
 }
 
 type treeGen struct {
@@ -142,40 +179,81 @@ var (
 	gBoolT   = &gType{kind: gBool}
 )
 
+// group writes a group's types, each over the ones before it: 0 to 2 leaf
+// unions of basic fields; a record R0 over them; a tuple T0 over them and
+// R0, whose two first elements often share a type; the union U0, whose
+// variants may hold one of them; and a record R1 that may hold T0, R0 or
+// U0. A compound field's type has at most 64 values, so a value domain
+// stays small enough to enumerate or sample.
 func (g *treeGen) group(prefix string) *gGroup {
 	gr := &gGroup{prefix: prefix}
-	n := 1 + g.r.IntN(3)
-	for u := n - 1; u >= 0; u-- {
-		un := &gUnion{name: fmt.Sprintf("%sU%d", prefix, u)}
-		for v := 0; v < 2+g.r.IntN(3); v++ {
-			vr := &gVariant{name: fmt.Sprintf("%sV%d", un.name, v)}
-			unionField := false
-			for f := 0; f < g.r.IntN(3); f++ {
-				switch k := g.r.IntN(4); {
-				case k == 3 && u == 0 && n > 1 && !unionField:
-					vr.fields = append(vr.fields, &gType{kind: gUnionKind, union: gr.unions[g.r.IntN(len(gr.unions))]})
-					unionField = true
-				case k == 0 || k == 3:
-					vr.fields = append(vr.fields, gIntT)
-				case k == 1:
-					vr.fields = append(vr.fields, gStringT)
-				default:
-					vr.fields = append(vr.fields, gBoolT)
-				}
-			}
-			un.variants = append(un.variants, vr)
-		}
-		// unions[0] is U(n-1), …; the first union written may hold the others
-		gr.unions = append(gr.unions, un)
+	var compound []*gType
+	for u := 1; u < 1+g.r.IntN(3); u++ {
+		compound = append(compound, g.union(gr, fmt.Sprintf("%sU%d", prefix, u), nil))
 	}
+	r0 := g.productType(gr, gRecordKind, prefix+"R0", compound)
+	compound = append(compound, r0)
+	t0 := g.productType(gr, gTupleKind, prefix+"T0", compound)
+	compound = append(compound, t0)
+	u0 := g.union(gr, prefix+"U0", compound)
+	g.productType(gr, gRecordKind, prefix+"R1", []*gType{r0, t0, u0})
 	return gr
 }
 
+// field is a field type: basic, or one of compound with at most 64 values.
+func (g *treeGen) field(compound []*gType) *gType {
+	if len(compound) > 0 && g.r.IntN(5) < 2 {
+		if t := compound[g.r.IntN(len(compound))]; t.size() <= 64 {
+			return t
+		}
+	}
+	return []*gType{gIntT, gIntT, gStringT, gBoolT}[g.r.IntN(4)]
+}
+
+// union adds a union of 2 to 4 variants of 0 to 2 fields; a variant holds
+// at most one field of a compound type.
+func (g *treeGen) union(gr *gGroup, name string, compound []*gType) *gType {
+	un := &gUnion{name: name}
+	for v := 0; v < 2+g.r.IntN(3); v++ {
+		vr := &gVariant{name: fmt.Sprintf("%sV%d", name, v)}
+		for f := 0; f < g.r.IntN(3); f++ {
+			ft := g.field(compound)
+			if ft.kind == gUnionKind || ft.product() {
+				compound = nil // one compound field per variant
+			}
+			vr.fields = append(vr.fields, ft)
+		}
+		un.variants = append(un.variants, vr)
+	}
+	t := &gType{kind: gUnionKind, union: un}
+	gr.types = append(gr.types, t)
+	return t
+}
+
+// productType adds a record of 1 or 2 fields or a tuple of 2 or 3
+// elements; half the tuples repeat their first element's type.
+func (g *treeGen) productType(gr *gGroup, kind gKind, name string, compound []*gType) *gType {
+	vr := &gVariant{name: name}
+	n := 1 + g.r.IntN(2)
+	if kind == gTupleKind {
+		n++
+	}
+	for range n {
+		vr.fields = append(vr.fields, g.field(compound))
+	}
+	if kind == gTupleKind && g.r.IntN(2) == 0 {
+		vr.fields[1] = vr.fields[0]
+	}
+	t := &gType{kind: kind, union: &gUnion{name: name, variants: []*gVariant{vr}}}
+	gr.types = append(gr.types, t)
+	return t
+}
+
 func (g *treeGen) subjectType(gr *gGroup) *gType {
-	switch k := g.r.IntN(10); {
-	case k < 8:
-		return &gType{kind: gUnionKind, union: gr.unions[g.r.IntN(len(gr.unions))]}
-	case k == 8:
+	switch k := g.r.IntN(20); {
+	case k < 18:
+		return gr.types[g.r.IntN(len(gr.types))]
+	case k == 18:
 		return gBoolT
 	default:
 		return gIntT
@@ -191,6 +269,19 @@ func (g *treeGen) pat(t *gType, d int, names *[]string) *gPat {
 		return name
 	}
 	k := g.r.IntN(100)
+	if t.product() {
+		switch {
+		case k < 5 || d >= 3:
+			return &gPat{kind: pWild, t: t}
+		case k < 10 && names != nil:
+			return &gPat{kind: pBind, t: t, name: bind()}
+		case k < 14 && t.kind == gRecordKind:
+			return &gPat{kind: pTest, t: t}
+		case k < 26 && names != nil:
+			return &gPat{kind: pAs, t: t, inner: g.record(t, 0, d, names), name: bind()}
+		}
+		return g.record(t, 0, d, names)
+	}
 	if t.kind != gUnionKind {
 		switch {
 		case k < 20:
@@ -209,9 +300,9 @@ func (g *treeGen) pat(t *gType, d int, names *[]string) *gPat {
 	case k < 45 || d >= 2:
 		return &gPat{kind: pTest, t: t, variant: v}
 	case k < 55 && names != nil:
-		inner := g.record(t, v, d, names)
+		inner := &gPat{kind: pTest, t: t, variant: v}
 		if g.r.IntN(2) == 0 {
-			inner = &gPat{kind: pTest, t: t, variant: v}
+			inner = g.record(t, v, d, names)
 		}
 		return &gPat{kind: pAs, t: t, inner: inner, name: bind()}
 	}
@@ -221,10 +312,14 @@ func (g *treeGen) pat(t *gType, d int, names *[]string) *gPat {
 func (g *treeGen) record(t *gType, v, d int, names *[]string) *gPat {
 	p := &gPat{kind: pRecord, t: t, variant: v, fields: map[int]*gPat{}}
 	fs := t.union.variants[v].fields
-	for _, f := range g.r.Perm(len(fs))[:min(len(fs), g.r.IntN(3))] {
+	written := min(len(fs), g.r.IntN(3))
+	if t.kind == gTupleKind {
+		written = min(len(fs), 1+g.r.IntN(3)) // a tuple pattern writes `_` for the rest
+	}
+	for _, f := range g.r.Perm(len(fs))[:written] {
 		p.fields[f] = g.pat(fs[f], d+1, names)
 	}
-	if len(p.fields) == 0 {
+	if len(p.fields) == 0 && t.kind != gTupleKind {
 		// The checker asks for a bare type test: write case V, not V{}.
 		return &gPat{kind: pTest, t: t, variant: v}
 	}
@@ -316,19 +411,42 @@ func (g *treeGen) match(gr *gGroup, id string) *gMatch {
 	return m
 }
 
+// arm is a random arm whose every alternative tests something: an
+// irrefutable arm would make every later arm unreachable, and a lone `_`
+// is the match's one case _ (the generator adds it last, or not at all).
 func (g *treeGen) arm(m *gMatch) *gArm {
-	a := g.arm1(m)
-	if len(m.subjects) > 1 {
-		return a
-	}
-	for _, alt := range a.alts {
-		if alt[0].kind == pWild {
-			// A lone `_` is the match's one case _ (the generator adds
-			// it last, or not at all).
-			return g.arm(m)
+	for {
+		a := g.arm1(m)
+		ok := true
+		for _, alt := range a.alts {
+			ok = ok && slices.ContainsFunc(alt, (*gPat).refutable)
+		}
+		if ok {
+			return a
 		}
 	}
-	return a
+}
+
+// refutable reports a pattern that some value of its type fails.
+func (p *gPat) refutable() bool {
+	switch p.kind {
+	case pConst:
+		return true
+	case pTest:
+		return !p.t.product()
+	case pAs:
+		return p.inner.refutable()
+	case pRecord:
+		if !p.t.product() {
+			return true
+		}
+		for _, f := range p.fields {
+			if f.refutable() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (g *treeGen) arm1(m *gMatch) *gArm {
@@ -401,6 +519,13 @@ func (v gVal) ergo() string {
 		return []string{"false", "true"}[v.n]
 	}
 	vr := v.t.union.variants[v.n]
+	if v.t.kind == gTupleKind {
+		var es []string
+		for _, f := range v.fields {
+			es = append(es, f.ergo())
+		}
+		return vr.name + "((" + strings.Join(es, ", ") + "))"
+	}
 	if len(vr.fields) == 0 {
 		return vr.name
 	}
@@ -426,6 +551,9 @@ func (v gVal) show() string {
 	for _, f := range v.fields {
 		fs = append(fs, f.show())
 	}
+	if v.t.kind == gTupleKind {
+		return "(" + strings.Join(fs, ",") + ")"
+	}
 	return v.t.union.variants[v.n].name + "{" + strings.Join(fs, ",") + "}"
 }
 
@@ -440,6 +568,16 @@ func (p *gPat) ergo() string {
 	case pAs:
 		return p.inner.ergo() + " as " + p.name
 	case pRecord:
+		if p.t.kind == gTupleKind {
+			es := make([]string, len(p.t.union.variants[0].fields))
+			for k := range es {
+				es[k] = "_"
+				if f, ok := p.fields[k]; ok {
+					es[k] = f.ergo()
+				}
+			}
+			return "(" + strings.Join(es, ", ") + ")"
+		}
 		var fs []string
 		for _, f := range slices.Sorted(maps.Keys(p.fields)) {
 			fs = append(fs, fmt.Sprintf("F%d: %s", f, p.fields[f].ergo()))
@@ -491,8 +629,33 @@ func binders(alt []*gPat) map[string]*gPat {
 // groupDecls is the Ergo text of a group's types and show functions.
 func (gr *gGroup) decls() string {
 	var b strings.Builder
-	for k := len(gr.unions) - 1; k >= 0; k-- {
-		un := gr.unions[k]
+	for _, t := range gr.types {
+		un := t.union
+		switch t.kind {
+		case gTupleKind:
+			fs := un.variants[0].fields
+			var types, xs, parts []string
+			for k, ft := range fs {
+				types = append(types, ft.ergo())
+				x := fmt.Sprintf("x%d", k)
+				xs = append(xs, x)
+				parts = append(parts, showCall(&gPat{kind: pBind, t: ft}, x))
+			}
+			fmt.Fprintf(&b, "type %s (%s)\n\n", un.name, strings.Join(types, ", "))
+			fmt.Fprintf(&b, "func show%s(t %s) string {\n\tmatch t {\n\tcase (%s):\n\t\t\"(\" + %s + \")\"\n\t}\n}\n\n",
+				un.name, un.name, strings.Join(xs, ", "), strings.Join(parts, " + \",\" + "))
+			continue
+		case gRecordKind:
+			vr := un.variants[0]
+			var fs, parts []string
+			for f, ft := range vr.fields {
+				fs = append(fs, fmt.Sprintf("F%d %s", f, ft.ergo()))
+				parts = append(parts, showCall(&gPat{kind: pBind, t: ft}, fmt.Sprintf("r.F%d", f)))
+			}
+			fmt.Fprintf(&b, "type %s { %s }\n\n", vr.name, strings.Join(fs, ", "))
+			fmt.Fprintf(&b, "func show%s(r %s) string {\n\t%s + %s + \"}\"\n}\n\n", vr.name, vr.name, strconv.Quote(vr.name+"{"), strings.Join(parts, " + \",\" + "))
+			continue
+		}
 		var names []string
 		for _, vr := range un.variants {
 			var fs []string
@@ -902,23 +1065,65 @@ func probes() needs Console {
 
 const treeProbeOut = "probe|2021\nprobe|1110\nprobe|1111\nprobe|100\nprobe|1011\nprobe|aAB\nprobe|aA\n"
 
+// treeFallbackProbes is a match the tree gives up on, so the program also
+// runs the fallback to the flat lowering: patho (match_tree_shape_test.go),
+// whose tree passes the node bound, called on 24 seeded inputs (the first
+// reaches its last arm). It returns its source, with the calls in a
+// function fallbacks, and the model's output. The other causes of a
+// fallback (a type test of an interface type, a constant on an interface
+// column, an arm no leaf reaches) are shapes the checker refuses or that
+// Ergo cannot write; a union cannot hold a union (types.md, Unions 1).
+func treeFallbackProbes(r *rand.Rand) (src, want string) {
+	var b, w strings.Builder
+	b.WriteString(treePathoFunc())
+	b.WriteString("\nfunc fallbacks() needs Console {\n")
+	k := treePathoPairs
+	for n := range 24 {
+		xs := make([]bool, 2*k)
+		var args []string
+		for i := range xs {
+			xs[i] = n > 0 && r.IntN(2) == 0 // the first call reaches the last arm
+			args = append(args, strconv.FormatBool(xs[i]))
+		}
+		arm := k
+		for i := range k {
+			if xs[i] && xs[k+i] {
+				arm = i
+				break
+			}
+		}
+		fmt.Fprintf(&b, "\tConsole.Println(\"patho|\" + patho(%s))\n", strings.Join(args, ", "))
+		fmt.Fprintf(&w, "patho|arm%d\n", arm)
+	}
+	b.WriteString("}\n\n")
+	return b.String(), w.String()
+}
+
+// loweredMode is a source lowered in one mode, with the test hook it ran
+// with.
+type loweredMode struct {
+	*lowered
+	hook *matchTreeTest
+}
+
 // lowerSourceMode is lowerSource with its entry, flat or with the tree.
-func lowerSourceMode(name, src string, flat bool) *lowered {
+func lowerSourceMode(name, src string, flat bool) loweredMode {
 	out := &lowered{name: name, src: src}
+	hook := &matchTreeTest{flat: flat}
 	file, err := syntax.Parse(src)
 	if err != nil {
 		out.err = err
-		return out
+		return loweredMode{out, hook}
 	}
 	out.file = file
 	out.pkg, out.diags = check.Check("main", []*syntax.File{file}, nil)
 	if len(out.diags) > 0 {
-		return out
+		return loweredMode{out, hook}
 	}
 	func() {
 		defer func() { out.panicked = recover() }()
 		l := newLowerer(Unit{Package: out.pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}})
-		l.flatMatch = flat
+		l.matchTest = hook
 		code, err := l.program()
 		var refused *Refused
 		switch {
@@ -930,10 +1135,13 @@ func lowerSourceMode(name, src string, flat bool) *lowered {
 			out.files = []File{{Path: "go.mod", Data: []byte(goMod)}, {Path: "main.go", Data: code}}
 		}
 	}()
-	return out
+	return loweredMode{out, hook}
 }
 
 func TestMatchTreeAgrees(t *testing.T) {
+	if matchLowering == "flat" {
+		t.Skip("matchLowering=flat: the build has no tree to compare")
+	}
 	seeds := treeSeeds
 	if *treeSeed != 0 {
 		seeds = []uint64{*treeSeed}
@@ -942,6 +1150,9 @@ func TestMatchTreeAgrees(t *testing.T) {
 	src.WriteString(treeShowPrelude)
 	src.WriteString(treeProbes)
 	want.WriteString(treeProbeOut)
+	fbSrc, fbWant := treeFallbackProbes(rand.New(rand.NewPCG(seeds[0], 0x6662)))
+	src.WriteString(fbSrc)
+	want.WriteString(fbWant)
 	var runs []string
 	fns := map[string]string{} // match id to its function, for failures
 	generated, dropped, matches, regenerated := 0, 0, 0, 0
@@ -985,14 +1196,16 @@ func TestMatchTreeAgrees(t *testing.T) {
 					for _, v := range vs {
 						args = append(args, v.ergo())
 					}
-					fmt.Fprintf(&src, "\tConsole.Println(%q + %s(%s))\n", id+"|", id, strings.Join(args, ", "))
-					want.WriteString(id + "|" + line + "\n")
+					// The line names the values, so a failure shows its input.
+					in := strings.Join(args, ", ")
+					fmt.Fprintf(&src, "\tConsole.Println(%s + %s(%s))\n", strconv.Quote(id+"|"+in+" => "), id, in)
+					want.WriteString(id + "|" + in + " => " + line + "\n")
 				}
 				src.WriteString("}\n\n")
 			}
 		}
 	}
-	src.WriteString("func main() needs Console {\n\tprobes()\n")
+	src.WriteString("func main() needs Console {\n\tprobes()\n\tfallbacks()\n")
 	for _, r := range runs {
 		src.WriteString("\t" + r + "()\n")
 	}
@@ -1005,7 +1218,7 @@ func TestMatchTreeAgrees(t *testing.T) {
 
 	tree := lowerSourceMode("tree", src.String(), false)
 	flat := lowerSourceMode("flat", src.String(), true)
-	for _, o := range []*lowered{tree, flat} {
+	for _, o := range []*lowered{tree.lowered, flat.lowered} {
 		if o.err != nil || len(o.diags) > 0 || o.panicked != nil || len(o.refused) > 0 {
 			t.Fatalf("%s: err %v, diags %v, panic %v, refused %v", o.name, o.err, firstN(o.diags, 5), o.panicked, o.refused)
 		}
@@ -1021,20 +1234,37 @@ func TestMatchTreeAgrees(t *testing.T) {
 	if len(flatFlat) == 0 {
 		t.Errorf("flatMatch does not force the flat lowering")
 	}
-	exes := buildAll(t, []*lowered{tree, flat}, true)
+	// Every kind of column the tree splits on is reached: a type switch, a
+	// value switch, and the expansion of a tuple and of a record.
+	for _, k := range []string{"ctor", "const", "split tuple", "split record"} {
+		if tree.hook.splits[k] == 0 {
+			t.Errorf("no generated match makes the tree split a %s column (splits %v)", k, tree.hook.splits)
+		}
+	}
+	t.Logf("tree splits: %v", tree.hook.splits)
+	// The fallback probes make the tree give up (treeBail) and take the
+	// flat lowering.
+	if tree.hook.fallbacks["bail"] < 1 {
+		t.Errorf("the tree does not give up on the fallback probe (fallbacks %v)", tree.hook.fallbacks)
+	}
+	t.Logf("tree fallbacks: %v", tree.hook.fallbacks)
+	exes := buildAll(t, []*lowered{tree.lowered, flat.lowered}, true)
 	if exes == nil {
 		t.FailNow()
 	}
-	for _, o := range []*lowered{tree, flat} {
+	outs := map[string]string{}
+	for _, o := range []*lowered{tree.lowered, flat.lowered} {
 		stdout, stderr, code := runExe(t, exes[o.name])
+		outs[o.name] = stdout
 		if code != 0 {
 			t.Errorf("%s exited %d: %s", o.name, code, firstLines(stderr, 20))
+		}
+	}
+	for _, name := range []string{"tree", "flat"} {
+		if outs[name] == want.String() {
 			continue
 		}
-		if stdout == want.String() {
-			continue
-		}
-		got, exp := strings.Split(stdout, "\n"), strings.Split(want.String(), "\n")
+		got, exp := strings.Split(outs[name], "\n"), strings.Split(want.String(), "\n")
 		for i := range max(len(got), len(exp)) {
 			var gl, el string
 			if i < len(got) {
@@ -1043,13 +1273,46 @@ func TestMatchTreeAgrees(t *testing.T) {
 			if i < len(exp) {
 				el = exp[i]
 			}
-			if gl != el {
-				id, _, _ := strings.Cut(el, "|")
-				t.Errorf("%s: line %d is %q, the model's %q (seeds %v; the match:\n%s)", o.name, i+1, gl, el, seeds, fns[id])
-				break
+			if gl == el {
+				continue
 			}
+			id, _, _ := strings.Cut(el, "|")
+			seed := strings.TrimPrefix(strings.SplitN(id, "g", 2)[0], "s")
+			t.Errorf("%s: line %d is %q, the model's %q.\nReplay: go test -run '^TestMatchTreeAgrees$' ./internal/sketch/lower -args -match.seed=%s\nThe match:\n%s\nIts lines (model | tree | flat):\n%s",
+				name, i+1, gl, el, seed, fns[id], treeLinesOf(id, want.String(), outs["tree"], outs["flat"]))
+			break
 		}
 	}
+}
+
+// treeLinesOf puts the model's, the tree's and the flat program's lines of
+// the match id side by side.
+func treeLinesOf(id string, outs ...string) string {
+	var cols [][]string
+	for _, o := range outs {
+		var lines []string
+		for _, l := range strings.Split(o, "\n") {
+			if strings.HasPrefix(l, id+"|") {
+				lines = append(lines, strings.TrimPrefix(l, id+"|"))
+			}
+		}
+		cols = append(cols, lines)
+	}
+	var b strings.Builder
+	for i := range cols[0] {
+		row := make([]string, len(cols))
+		for k, c := range cols {
+			if i < len(c) {
+				row[k] = c[i]
+			}
+		}
+		mark := "  "
+		if row[0] != row[1] || row[0] != row[2] {
+			mark = "≠ "
+		}
+		b.WriteString(mark + strings.Join(row, " | ") + "\n")
+	}
+	return b.String()
 }
 
 // treeFlatFuncs lists the generated match functions (s…g…m…) of the

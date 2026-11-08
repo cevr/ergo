@@ -103,6 +103,46 @@ type mleaf struct {
 	binds []patBind
 }
 
+// matchTreeTest is the test hook of lowerer.matchTest: flat forces the
+// flat lowering; splits counts, per headKind, the columns that the trees of
+// the program split on (a switch for headCtor and headConst, a field
+// expansion for headSplit), with tuple and record expansions apart;
+// fallbacks counts the matches that took the flat lowering after a tree
+// build began, by cause: "bail" (treeBail) or "unreached" (an arm no leaf
+// reaches).
+type matchTreeTest struct {
+	flat      bool
+	splits    map[string]int
+	fallbacks map[string]int
+}
+
+// matchLowering, when "flat", makes every match of the build take the
+// flat lowering, the reference of the tree. Only a build for a test sets
+// it, with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.matchLowering=flat
+// (a go test of this package, or a bin/ergo), so the examples' tests and
+// the conformance corpus run under both lowerings.
+var matchLowering string
+
+// fallback records a fallback of the cause why in the test hook.
+func (fc *funcCtx) fallback(why string) {
+	if t := fc.l.matchTest; t != nil {
+		if t.fallbacks == nil {
+			t.fallbacks = map[string]int{}
+		}
+		t.fallbacks[why]++
+	}
+}
+
+// count records a split of the kind k; matchTree hands the counts of a
+// tree it keeps to the test hook.
+func (b *treeBuilder) count(k string) {
+	if b.splits == nil {
+		b.splits = map[string]int{}
+	}
+	b.splits[k]++
+}
+
 // treeBail stops a tree build; the match takes the flat lowering.
 type treeBail struct{}
 
@@ -114,6 +154,7 @@ type treeBuilder struct {
 	limit  int
 	wild   *check.Pattern
 	consts map[string]string // caseKey to the Go text of its first constant
+	splits map[string]int    // the splits of this tree, by kind (count)
 }
 
 func (b *treeBuilder) bail() { panic(treeBail{}) }
@@ -122,7 +163,7 @@ func (b *treeBuilder) bail() { panic(treeBail{}) }
 // checked types types, or returns nil when the match takes the flat
 // lowering.
 func (fc *funcCtx) matchTree(s syntax.Stmt, vals []string, types []check.Type, clauses []*syntax.CaseClause) (tree *mnode) {
-	if fc.l.flatMatch {
+	if t := fc.l.matchTest; matchLowering == "flat" || t != nil && t.flat {
 		return nil
 	}
 	b := &treeBuilder{fc: fc, site: s, wild: &check.Pattern{Kind: check.PatWildcard}, consts: map[string]string{}}
@@ -160,6 +201,7 @@ func (fc *funcCtx) matchTree(s syntax.Stmt, vals []string, types []check.Type, c
 			if _, ok := r.(treeBail); !ok {
 				panic(r)
 			}
+			fc.fallback("bail")
 			tree = nil
 		}
 	}()
@@ -172,7 +214,16 @@ func (fc *funcCtx) matchTree(s syntax.Stmt, vals []string, types []check.Type, c
 	})
 	for _, r := range reached {
 		if !r {
+			fc.fallback("unreached")
 			return nil
+		}
+	}
+	if t := fc.l.matchTest; t != nil {
+		if t.splits == nil {
+			t.splits = map[string]int{}
+		}
+		for k, n := range b.splits {
+			t.splits[k] += n
 		}
 	}
 	return tree
@@ -357,6 +408,7 @@ func (b *treeBuilder) expand(cols []mcol, rows []mrow, i int) ([]mcol, []mrow) {
 	}
 	var recordType check.Type
 	if tuple {
+		b.count("split tuple")
 		tup, ok := underlying(c.t).(*check.Tuple)
 		if !ok || len(names) > 0 {
 			ice(b.site, "a tuple pattern against %s", c.t)
@@ -372,6 +424,7 @@ func (b *treeBuilder) expand(cols []mcol, rows []mrow, i int) ([]mcol, []mrow) {
 			}
 		}
 		fields, names = b.recordColumns(recordType, c.val, names)
+		b.count("split record")
 	}
 	var out []mrow
 	for _, r := range rows {
@@ -479,6 +532,9 @@ func (b *treeBuilder) specialize(cols []mcol, rows []mrow, i int) *mnode {
 	n := &mnode{operand: c.val, typeSwitch: kind == headCtor}
 	if n.typeSwitch {
 		n.bound = fc.temp("n")
+		b.count("ctor")
+	} else {
+		b.count("const")
 	}
 	for _, key := range keys {
 		var fields []mcol
