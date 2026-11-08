@@ -124,6 +124,12 @@ func externTargetRefusal(f *Func) (string, string) {
 	if !PureGoPackage(path) {
 		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
 	}
+	// A member of an allowed package that reaches the host (filepath.Abs
+	// reads the working directory) has the same refusal as its package
+	// would; the list's one owner is v1.PureImportsExcept.
+	if _, name := f.Decl.Extern.Split(); slices.Contains(v1.PureImportsExcept[path], name) {
+		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
+	}
 	return "", ""
 }
 

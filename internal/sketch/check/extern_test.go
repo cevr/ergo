@@ -277,6 +277,14 @@ func Close(_ Mine) {}
 func Values(_ Mine) Seq[int] {
 	queue.New[int](0).Values()
 }
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
 `
 
 // sealedPrograms holds, for each operation type of std and the prelude, a
@@ -469,6 +477,22 @@ func main() {
 	use(Mine)
 }
 `,
+	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
+	// exec). exec.Script is the std's test provider of it.
+	"exec.Runner": `import exec
+
+type Mine {}
+
+func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func use(r exec.Runner) { _ = r.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 0, Stdout: "", Stderr: ""} } }
+
+func main() {
+	use(Mine)
+}
+`,
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
@@ -505,6 +529,7 @@ var openStd = map[string]bool{
 	"io.Stdout":         true,
 	"io.Stderr":         true,
 	"io.Stdin":          true,
+	"exec.Runner":       true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
@@ -602,6 +627,8 @@ type Mine {
 	Pop() int fails queue.Closed,
 	Close(),
 	Values() Seq[int],
+	Poll() Option[int],
+	Len() int,
 }
 
 func use(q queue.Queue[int]) { q.Close() }

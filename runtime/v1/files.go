@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"io/fs"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -88,8 +89,17 @@ type Body struct {
 const PureMark = "//ergo:pure"
 
 // PureImports are the Go packages a file may import when one of its bodies
-// is marked pure: packages that compute on values and reach no host state.
-var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math"}
+// is marked pure: packages that compute on values and reach no host state,
+// except the members PureImportsExcept names.
+var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math", "path/filepath"}
+
+// PureImportsExcept names, for a package of PureImports, its members that
+// reach host state. A marked body that names one is refused. filepath.Abs
+// reads the working directory; EvalSymlinks, Glob, Walk and WalkDir read
+// the file system. Every other member of path/filepath is lexical.
+var PureImportsExcept = map[string][]string{
+	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
+}
 
 // PureImportHostMembers are the Go packages, beyond PureImports, that the
 // file of a marked body may import, each with its members that read host
@@ -143,18 +153,54 @@ type goDecl struct {
 	typ     *ast.TypeSpec
 	rt      string
 	imports []string
-	values  map[string]bool // shared by every goDecl of one parse
+	// locals are the file's import paths by the local name it gives them.
+	locals map[string]string
+	values map[string]bool // shared by every goDecl of one parse
 }
 
 // goDecls are the exported functions, methods and types of a package's
 // non-test files, by name ("Go", "Queue.Push", "Closed").
 type goDecls map[string]goDecl
 
+// stdRecords is the binding table of std records (docs/spec/stdlib.md,
+// Types 4; std-align S3b): the key is a record's std package and name,
+// "fs.NotFound", and the value is the exported struct of Source that the
+// record is. The key is the package and the name, never the name alone, so
+// fs.NotFound and a later exec.NotFound bind two Go types; the values are
+// distinct, so no Go type is two records (TestStdRecordTable). A std record
+// with no row is a declaration of the program, as strings.Halves is.
+var stdRecords = map[string]string{
+	"exec.Denied":          "ExecDenied",
+	"exec.Failed":          "ExecFailed",
+	"exec.NotFound":        "ExecNotFound",
+	"exec.Result":          "ExecResult",
+	"filepath.NotRelative": "NotRelative",
+	"filepath.Parts":       "Parts",
+	"fs.Denied":            "Denied",
+	"fs.Failed":            "Failed",
+	"fs.Info":              "Info",
+	"fs.NotFound":          "NotFound",
+	"os.Exit":              "Exit",
+	"queue.Closed":         "Closed",
+	"strconv.Malformed":    "Malformed",
+	"timeout.Expired":      "Expired",
+}
+
+// StdRecord returns the name of the struct of Source that the record name
+// of the std package pkg is, and whether the binding table has one.
+func StdRecord(pkg, name string) (string, bool) {
+	goName, ok := stdRecords[pkg+"."+name]
+	return goName, ok
+}
+
+// StdRecords returns a copy of the binding table, keyed "pkg.Name".
+func StdRecords() map[string]string { return maps.Clone(stdRecords) }
+
 // StructFields returns the field names, in order, of the exported struct
-// type named name in Source. A record type declared in a v1 std package
-// that is not an operations type, such as queue.Closed, is this Go type of
-// the same name (docs/spec/stdlib.md, Types), so its fields are the
-// record's. It fails when there is no such struct type.
+// type named name in Source. A record type declared in a std package that
+// is not an operations type, such as queue.Closed, is the Go type its row
+// of the binding table names (StdRecord), so its fields are the record's.
+// It fails when there is no such struct type.
 func StructFields(name string) ([]string, error) {
 	decls, err := sourceDecls()
 	if err != nil {
@@ -208,9 +254,15 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 		}
 		rt := ""
 		var imports []string
+		locals := map[string]string{}
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
 			imports = append(imports, p)
+			local := p[strings.LastIndex(p, "/")+1:]
+			if imp.Name != nil {
+				local = imp.Name.Name
+			}
+			locals[local] = p
 			if p == rtPath {
 				rt = "rt"
 				if imp.Name != nil {
@@ -222,7 +274,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if gd, ok := d.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
 				for _, s := range gd.Specs {
 					if ts := s.(*ast.TypeSpec); ts.Name.IsExported() {
-						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, values: values}
+						decls[ts.Name.Name] = goDecl{typ: ts, rt: rt, imports: imports, locals: locals, values: values}
 					}
 				}
 				continue
@@ -249,7 +301,7 @@ func parseDecls(fsys fs.FS) (goDecls, error) {
 			if fn.Recv != nil && len(fn.Recv.List) == 1 {
 				key = recvName(fn.Recv.List[0].Type) + "." + key
 			}
-			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, values: values}
+			decls[key] = goDecl{fn: fn, rt: rt, imports: imports, locals: locals, values: values}
 		}
 	}
 	return decls, nil
@@ -324,6 +376,11 @@ func pureRefusal(g goDecl, b Body) string {
 			return fmt.Sprintf("its file imports %s, which is not in %v", p, PureImports)
 		}
 	}
+	for local, p := range g.locals {
+		if local == "." && len(PureImportsExcept[p]) > 0 {
+			return fmt.Sprintf("its file dot-imports %s, whose members %v reach the host", p, PureImportsExcept[p])
+		}
+	}
 	if len(b.Hidden) > 0 {
 		return fmt.Sprintf("it takes the hidden %s parameter", b.Hidden[0])
 	}
@@ -351,6 +408,10 @@ func pureRefusal(g goDecl, b Body) string {
 			// x.Sel names a field, a method or an imported package's
 			// member, never a top-level name of this package; x.X is
 			// walked by the same rules, nested selectors included.
+			if id, ok := x.X.(*ast.Ident); ok && slices.Contains(PureImportsExcept[g.locals[id.Name]], x.Sel.Name) {
+				why = fmt.Sprintf("its body names %s.%s, which reaches the host (PureImportsExcept)", id.Name, x.Sel.Name)
+				return false
+			}
 			ast.Inspect(x.X, visit)
 			return false
 		default:

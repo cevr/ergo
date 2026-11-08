@@ -54,7 +54,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.emitType":          "a declared type's fields and methods",
 			"lowerer.envField":          "a capability's Env field",
 			"lowerer.funcDecl":          "a declared function's Go name",
-			"lowerer.intrinsic":         "an intrinsic's declared target",
+			"funcCtx.optionReturn":      "the Value field of Some, for Get and a std body's comma-ok (S3d)",
 			"lowerer.methodReceiver":    "a declared method's receiver",
 			"lowerer.meetsHostProtocol": "a pure method's Go name against the host protocols (Q-S5-6)",
 			"lowerer.protocolFreeName":  "the Go names already taken on a pure method's type (Q-S5-6)",

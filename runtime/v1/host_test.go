@@ -4,17 +4,12 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"go/ast"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
-
-	"ergo.local/prototype/internal/sketch/std"
-	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // TestOSArgs: os.Host's Args body is the arguments after the program name,
@@ -409,86 +404,6 @@ func TestFSFailureText(t *testing.T) {
 		if got := c.err.Error(); got != c.want {
 			t.Errorf("Error() = %q; want %q", got, c.want)
 		}
-	}
-}
-
-// recordOwners maps each record name (a type with fields, or none, in
-// braces) that a std package other than the prelude declares to the
-// packages that declare it. The lowering binds a std record to the v1
-// struct of its bare name (lower/std.go runtimeType; stdlib.md, Types 4).
-func recordOwners(t *testing.T, packages map[string]map[string]string) map[string][]string {
-	t.Helper()
-	owners := map[string][]string{}
-	for path, files := range packages {
-		for name, src := range files {
-			f, err := syntax.Parse(src)
-			if err != nil {
-				t.Fatalf("%s/%s: %v", path, name, err)
-			}
-			for _, d := range f.Decls {
-				if td, ok := d.(*syntax.TypeDecl); ok {
-					if _, ok := td.Spec.(*syntax.StructType); ok {
-						owners[td.Name.Name] = append(owners[td.Name.Name], path)
-					}
-				}
-			}
-		}
-	}
-	return owners
-}
-
-// structClashes lists each exported v1 struct type that more than one std
-// record of owners would lower to.
-func structClashes(t *testing.T, owners map[string][]string) []string {
-	t.Helper()
-	decls, err := sourceDecls()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var clashes []string
-	for name, g := range decls {
-		if g.typ == nil {
-			continue
-		}
-		if _, ok := g.typ.Type.(*ast.StructType); !ok {
-			continue
-		}
-		if ps := owners[name]; len(ps) > 1 {
-			sort.Strings(ps)
-			clashes = append(clashes, name+" "+strings.Join(ps, ","))
-		}
-	}
-	sort.Strings(clashes)
-	return clashes
-}
-
-// stdPackages is every std package's sources but the prelude's.
-func stdPackages(t *testing.T) map[string]map[string]string {
-	t.Helper()
-	out := map[string]map[string]string{}
-	for _, path := range std.Packages() {
-		files, ok := std.Package(path)
-		if !ok {
-			t.Fatalf("std lists %s but does not serve it", path)
-		}
-		out[path] = files
-	}
-	return out
-}
-
-// TestStructHasOneStdRecord is the guard of the bare-name binding (plan
-// std-1 2.3): each exported struct of runtime/v1 is the Go type of at most
-// one std record, so fs.NotFound and a later exec.NotFound cannot both
-// lower to v1.NotFound. A fixture package that declares a second NotFound
-// is found.
-func TestStructHasOneStdRecord(t *testing.T) {
-	packages := stdPackages(t)
-	if clashes := structClashes(t, recordOwners(t, packages)); len(clashes) != 0 {
-		t.Errorf("v1 structs that several std records lower to: %q", clashes)
-	}
-	packages["fixture/exec"] = map[string]string{"exec.ergo": "type NotFound { Path string }\n"}
-	if got, want := structClashes(t, recordOwners(t, packages)), []string{"NotFound fixture/exec,fs"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("with a second NotFound: clashes %q; want %q", got, want)
 	}
 }
 

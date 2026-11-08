@@ -39,6 +39,12 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 				t.Errorf("%s joins children and names no runtime/v1 law test", name)
 			}
 		default:
+			if hostWaitLaws[name] {
+				// A host wait parks on a host process, not on a runtime
+				// primitive the native barrier can hold; its stop, mask and
+				// reap laws are its runtime/v1 model test.
+				continue
+			}
 			names = append(names, name)
 		}
 	}
@@ -60,6 +66,13 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // pending), TestAfterBodyFirst and TestAfterDeadlineFromScheduler (no
 // child outlives the call).
 var childWaitLaws = map[string]bool{"After": true}
+
+// hostWaitLaws are the callerWait bindings that wait for a host process
+// (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their
+// laws (a stop before the call starts nothing, a stop while the program
+// runs kills its group and returns after the reap, a masked caller runs
+// it to its end), and lower TestExecRuns stops a task that waits in one.
+var hostWaitLaws = map[string]bool{"ExecRun": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

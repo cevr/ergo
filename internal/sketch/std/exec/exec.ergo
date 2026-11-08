@@ -1,0 +1,161 @@
+// Package exec runs programs of the host (docs/spec/stdlib.md, exec;
+// Effect's ChildProcess, Go's os/exec). A Command is a value: New makes one
+// and WithEnv, WithDir and WithStdin give changed copies. Runner is the
+// capability that runs one to its end. Host is the host's provider of it:
+// it has an unexported field, so only this package builds one (S114), and
+// NewHost, its one constructor, needs the prelude's Ambient, which only
+// the entry provides. So main lists Ambient and binds
+// `context { exec.Runner: exec.NewHost() }`. A test cannot get Ambient and
+// binds a Script instead, which runs nothing and gives the Result recorded
+// for each command. The extern is unexported, so a program starts a
+// process only through a Host it was given or made under Ambient.
+
+// NotFound is the failure of a program Name that is not on the PATH, or of
+// a path Name with no file at it.
+type NotFound { Name string }
+
+// Denied is the failure of a file Name that the process may not run.
+type Denied { Name string }
+
+// Failed is any other failure to start the program Name, such as a
+// working directory that does not exist. Reason is the host's text for it.
+type Failed { Name string, Reason string }
+
+// Result is what a program that ran gives back: its exit status and all
+// it wrote to standard output and standard error. A status that is not 0
+// is a Result, not a failure, so a caller matches on it. A program that a
+// signal ended has the status 128 plus the signal's number, as a shell
+// reports it.
+type Result { Status int, Stdout string, Stderr string }
+
+// Command is one program to run: the program Name (a name looked up on
+// the PATH, or a path), its arguments after the name, the environment
+// entries set over the host process's environment, the working directory
+// ("" is the caller's) and the text its standard input reads.
+type Command {
+	Name  string,
+	Args  []string,
+	Env   Map[string, string],
+	Dir   string,
+	Stdin string,
+}
+
+// New is the command that runs name with args, in the caller's working
+// directory, with the host process's environment and an empty standard
+// input.
+func New(name string, args []string) Command {
+	Command{Name: name, Args: args, Env: Map[string, string]{}, Dir: "", Stdin: ""}
+}
+
+// WithEnv is c with the environment entry key set to value, over any entry
+// of key that c sets. c itself is unchanged: the copy has its own Env.
+func WithEnv(c Command, key string, value string) Command {
+	let mut env = Map[string, string]{}
+	for k, v in c.Env {
+		env[k] = v
+	}
+	env[key] = value
+	Command{..c, Env: env}
+}
+
+// WithDir is c run in the working directory dir.
+func WithDir(c Command, dir string) Command { Command{..c, Dir: dir} }
+
+// WithStdin is c with text as the whole of its standard input.
+func WithStdin(c Command, text string) Command { Command{..c, Stdin: text} }
+
+// Key is the text that names c's program and arguments: the name and each
+// argument, with a NUL byte before each argument. No name or argument of a
+// program holds a NUL byte (the host refuses one), so two commands have one
+// Key exactly when their names and arguments are equal.
+func Key(c Command) string {
+	let mut key = c.Name
+	for a in c.Args {
+		key = key + "\x00" + a
+	}
+	key
+}
+
+// WithEnvOverrides: a second entry of one key wins.
+law WithEnvOverrides(key string, first string, second string) {
+	let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second)
+	c.Env.Get(key) == Some[string]{Value: second}
+}
+
+// WithEnvKeepsTheOriginal: WithEnv changes a copy, never the command it is
+// given.
+law WithEnvKeepsTheOriginal(key string, first string, second string) {
+	let c = New("x", []string{}).WithEnv(key, first)
+	let d = c.WithEnv(key, second)
+	c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second}
+}
+
+// Runner runs a program to its end. A stop of the calling task ends the
+// program and every process it started in its process group, and Run
+// returns only after they are gone.
+type Runner {
+	Run(c Command) Result fails NotFound | Denied | Failed,
+
+	// NotFoundNamesTheProgram: a program that is not found is named by its
+	// failure.
+	law NotFoundNamesTheProgram(name string) {
+		Run(New(name, []string{})) catch {
+		case NotFound as n:
+			return n.Name == name
+		case Denied, Failed:
+			return true
+		}
+		true
+	},
+}
+
+// Script is a Runner for tests. It runs nothing: Run gives the Result that
+// Results holds at the command's Key, and fails NotFound when it holds
+// none. The environment, the directory and the standard input are not in
+// the Key.
+type Script { Results Map[string, Result] }
+
+// Run is the Result recorded for c, or NotFound.
+func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
+	match s.Results.Get(Key(c)) {
+	case Some[Result] as hit:
+		return hit.Value
+	case None:
+		return NotFound{Name: c.Name}
+	}
+}
+
+// ScriptReplaysRecorded: a Script gives back the Result recorded for a
+// command, whatever its status.
+law ScriptReplaysRecorded(name string, arg string, status int, out string) {
+	let c = New(name, []string{arg})
+	let mut results = Map[string, Result]{}
+	results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""}
+	let r = Script{Results: results}.Run(c) catch {
+	case NotFound, Denied, Failed:
+		return false
+	}
+	r.Status == status && r.Stdout == out && r.Stderr == ""
+}
+
+// Host is the host's Runner. Its field gives this package the construction
+// authority (types.md, Zero values 6): no other package writes exec.Host{},
+// its zero value or a record update of it.
+type Host { live hostOnly }
+
+// hostOnly is the zero-size type of Host's field, so Host stays zero size.
+type hostOnly {}
+
+// NewHost is the host's Runner. It needs Ambient: only code whose row
+// holds the authority to choose the host makes one.
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
+
+// Run runs c to its end on the host. The program starts in a process group
+// of its own; Run returns after it exits and is reaped, with all its
+// output. A stop of the calling task kills the group, waits for the reap
+// and ends the call.
+func Run(_ Host, c Command) Result fails NotFound | Denied | Failed {
+	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin)
+}
+
+extern go ergo.local/prototype/runtime/v1.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string) Result fails NotFound | Denied | Failed

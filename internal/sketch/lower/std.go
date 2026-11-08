@@ -20,15 +20,21 @@ import (
 // queue.Closed is Closed, so a lowered catch matches the runtime's failure
 // and a returned Task can Move.
 
+// stdRecord is the lowering's lookup in the binding table of std records:
+// v1.StdRecord. It is a variable only so that a test can bind fixture
+// records through rows whose Go names differ from the records' names
+// (TestStdRecordsBindTheRowsGoName); nothing else assigns it.
+var stdRecord = v1.StdRecord
+
 // runtimeType is the runtime/v1 Go type, without type arguments, that the
 // std type n lowers to, or "" when n is lowered as a declaration of the
 // program (the types of the program's own packages, the prelude's other
-// types, and a std record the runtime has no struct for, such as
-// timeout.Expired). A std
-// record the runtime declares is the runtime's struct of the same name; a
-// sealed std operation type (check.SealedStd) is a pointer to the runtime's
-// type of the same name, whose methods are its operations, and an open one
-// is a declaration of the program.
+// types, and a std record with no row in the binding table, such as
+// strings.Halves). A std record with a row is the runtime struct the row
+// names, keyed by the record's package and name (v1.StdRecord), never by
+// its name alone; a sealed std operation type (check.SealedStd) is a
+// pointer to the runtime's type of the same name, whose methods are its
+// operations, and an open one is a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
 	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
@@ -42,10 +48,14 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	}
 	switch spec := obj.Decl.Spec.(type) {
 	case *syntax.StructType:
-		if _, err := v1.StructFields(obj.Name); err != nil {
+		goName, ok := stdRecord(obj.Pkg.Path, obj.Name)
+		if !ok {
 			return ""
 		}
-		return l.rt() + "." + obj.Name
+		if _, err := v1.StructFields(goName); err != nil {
+			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
+		}
+		return l.rt() + "." + goName
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
 			if !check.SealedStd(n) {
@@ -458,6 +468,17 @@ func (fc *funcCtx) bindDeferred(body v1.Body, vals []string) {
 // stage D3b round 1 review M1: a hidden task is bound where the blocking
 // happens). Its operands are evaluated already (bindDeferred).
 func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site syntax.Node, call func(env string) string) string {
+	if commaOk(body) {
+		// Go's comma-ok (T, bool) is the prelude's Option[T] (stdlib.md,
+		// Types 5; queue.Queue's Poll): Some of the value when ok, else
+		// None, built by the helper the prelude's Get uses. The function
+		// literal is called where it is made, so Go inlines it.
+		if !isPreludeType(result, "Option") {
+			ice(site, "a std body returns (%s, bool) for the Ergo type %s", body.Results[0], result)
+		}
+		ind := strings.Repeat("\t", fc.depth)
+		return "func() " + fc.goType(result) + " {\n" + fc.optionReturn(result, ind+"\t", call(env), site) + ind + "}()"
+	}
 	if !defersCall(body) {
 		return call(env)
 	}
@@ -488,6 +509,12 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 				ind + "\t}\n" +
 				ind + "\treturn struct{}{}, nil\n"
 	})
+}
+
+// commaOk reports a std body whose Go form is (T, bool): the Go form of an
+// Option[T] result (stdResult).
+func commaOk(body v1.Body) bool {
+	return len(body.Results) == 2 && body.Results[1] == "bool"
 }
 
 // goFallible reports whether a std body's Go form returns an error: its

@@ -56,6 +56,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Queue.Pop":    {wait: callerWait},
 	"Queue.Values": {wait: callerWait},
 	"Queue.Close":  {},
+	"Queue.Poll":   {},
+	"Queue.Len":    {},
 	"Go":           {},
 	// timeout.After joins its body and deadline children, whichever ends
 	// first, as their parent (runtime.md, Timeouts).
@@ -156,6 +158,16 @@ var runtimeBindings = map[string]runtimeBinding{
 	"RandHostUint64":  {},
 	"RandHostIntN":    {},
 	"RandHostFloat64": {},
+	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
+	// neither wait nor release.
+	"FilepathJoin":  {},
+	"FilepathBase":  {},
+	"FilepathDir":   {},
+	"FilepathExt":   {},
+	"FilepathClean": {},
+	"FilepathIsAbs": {},
+	"FilepathSplit": {},
+	"FilepathRel":   {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},
@@ -176,6 +188,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"IOIsTerminal": {},
 	"IOReadAll":    {},
 	"IOLines":      {},
+	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
+	// on the caller's task. Its cancel hook is the stop of that task: the
+	// body kills the program's process group and waits for the reap
+	// before it raises the interruption.
+	"ExecRun": {wait: callerWait},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.
