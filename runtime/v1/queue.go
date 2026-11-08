@@ -12,9 +12,8 @@ import (
 // (docs/spec/runtime.md, Queues): a FIFO of T between tasks with a fixed
 // capacity. Push, Pop and Values take the caller's task as a hidden first
 // argument, which the lowering passes (gap 1 ruling; docs/spec/stdlib.md,
-// Hidden arguments): so *Queue[T] is a value of the operations interface
-// the lowering emits for queue.Queue[T], Push(t, v) fails Closed, Pop(t) T
-// fails Closed, Values(t) Seq[T] and Close(). The contract:
+// Hidden arguments); Poll, Len and Close never wait and take none. The
+// lowering calls these methods directly (stdlib.md, Types 3). The contract:
 //
 //   - New(capacity) makes an open, empty queue. capacity is how many values
 //     it holds that no Pop has taken yet; 0 makes every Push wait for the
@@ -36,9 +35,12 @@ import (
 //     Pop or Values.
 //   - Close() ends admission. It is idempotent, never waits and never
 //     fails. Values already in the queue stay for Pop and Values.
+//   - Poll() takes the value Pop would take when one can be taken now, and
+//     reports false otherwise; it never waits. Len() is the count of values
+//     in the queue, between 0 and the capacity.
 //
 // Every value that a Push delivered (the Push returned no failure) is
-// taken exactly once, by one Pop or one step of Values, in the order the
+// taken exactly once, by one Pop, Poll or step of Values, in the order the
 // values entered; a value whose Push failed is never taken. Several tasks
 // may Push, Pop and iterate one queue at once; the order in which waiting
 // Pops are served is not specified.
@@ -154,6 +156,33 @@ func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 	}
 }
 
+// Poll is q.Poll(): the front value and true when a value can be taken now,
+// else the zero value and false. It never waits, so it takes no task and is
+// no interruption point. A value is taken as Pop takes it: the oldest in the
+// buffer, or, on an empty buffer (capacity 0), the value of the oldest
+// waiting Push, which then returns success. An empty queue gives false,
+// open or closed. The lowering adapts (T, bool) to the program's Option[T]
+// (stdlib.md, Types 5). Prior art: Go's select with a default case, and
+// v, ok := <-ch; Effect's Queue.poll.
+func (q *Queue[T]) Poll() (T, bool) {
+	q.mu.Lock()
+	v, ok := q.front()
+	q.mu.Unlock()
+	return v, ok
+}
+
+// Len is q.Len(): how many values are in the queue that no Pop, Poll or
+// step of Values has taken yet. It is between 0 and the capacity; the
+// value of a Push still waiting for room is not counted, so a queue of
+// capacity 0 always has Len 0. It never waits. Prior art: Go's len(ch);
+// Effect's Queue.size, without its negative count of waiting takers.
+func (q *Queue[T]) Len() int {
+	q.mu.Lock()
+	n := len(q.buf)
+	q.mu.Unlock()
+	return n
+}
+
 // Close is q.Close().
 func (q *Queue[T]) Close() {
 	q.mu.Lock()
@@ -175,28 +204,9 @@ func (q *Queue[T]) Close() {
 func (q *Queue[T]) take(stop <-chan struct{}) (v T, ok bool) {
 	q.mu.Lock()
 	for {
-		if len(q.buf) > 0 {
-			v = q.buf[0]
-			var zero T
-			q.buf[0] = zero // the slot keeps no reference
-			q.buf = q.buf[1:]
-			if len(q.senders) > 0 {
-				// The room goes to the oldest waiting Push.
-				s := q.popSender()
-				q.buf = append(q.buf, s.v)
-				s.accepted = true
-				q.signal()
-			}
+		if v, ok = q.front(); ok {
 			q.mu.Unlock()
 			return v, true
-		}
-		if len(q.senders) > 0 {
-			// An empty buffer with a waiting Push: capacity 0, a rendezvous.
-			s := q.popSender()
-			s.accepted = true
-			q.signal()
-			q.mu.Unlock()
-			return s.v, true
 		}
 		if q.closed {
 			q.mu.Unlock()
@@ -207,6 +217,35 @@ func (q *Queue[T]) take(stop <-chan struct{}) (v T, ok bool) {
 			panic(rt.Interrupted)
 		}
 	}
+}
+
+// front removes and returns the front value without waiting: the oldest
+// value in the buffer, whose room then goes to the oldest waiting Push, or,
+// with an empty buffer (capacity 0, a rendezvous), the value of the oldest
+// waiting Push. ok is false when no value can be taken now. q.mu is held.
+func (q *Queue[T]) front() (v T, ok bool) {
+	if len(q.buf) > 0 {
+		v = q.buf[0]
+		var zero T
+		q.buf[0] = zero // the slot keeps no reference
+		q.buf = q.buf[1:]
+		if len(q.senders) > 0 {
+			// The room goes to the oldest waiting Push.
+			s := q.popSender()
+			q.buf = append(q.buf, s.v)
+			s.accepted = true
+			q.signal()
+		}
+		return v, true
+	}
+	if len(q.senders) > 0 {
+		// An empty buffer with a waiting Push: capacity 0, a rendezvous.
+		s := q.popSender()
+		s.accepted = true
+		q.signal()
+		return s.v, true
+	}
+	return v, false
 }
 
 // dropSender removes s, a Push that stopped waiting, from the line. q.mu

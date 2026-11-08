@@ -15,13 +15,15 @@ import (
 	"ergo.local/prototype/runtime/rt"
 )
 
-// The operations interface the lowering emits for queue.Queue[int]: the
-// waiting operations take the caller's task.
+// The Go methods the lowering calls for queue.Queue[int]: the waiting
+// operations take the caller's task; Poll is Option[int] as Go's comma-ok.
 var _ interface {
 	Push(*rt.Task, int) error
 	Pop(*rt.Task) (int, error)
 	Close()
 	Values(*rt.Task) iter.Seq[int]
+	Poll() (int, bool)
+	Len() int
 } = (*Queue[int])(nil)
 
 // bg is the task of the tests' plain goroutines. It is never stopped and
@@ -54,6 +56,108 @@ func pop[T any](t *testing.T, q *Queue[T]) T {
 		t.Fatalf("Pop failed with %v", err)
 	}
 	return v
+}
+
+// poll is q.Poll() with a deadline: Poll never waits (runtime.md, Queues 9),
+// so a Poll that has not returned after 10s fails the test.
+func poll[T any](t *testing.T, q *Queue[T]) (T, bool) {
+	t.Helper()
+	type result struct {
+		v  T
+		ok bool
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, ok := q.Poll()
+		done <- result{v, ok}
+	}()
+	select {
+	case r := <-done:
+		return r.v, r.ok
+	case <-time.After(10 * time.Second):
+		t.Fatal("Poll did not return after 10s: it waits")
+		var zero T
+		return zero, false
+	}
+}
+
+// TestQueuePoll walks the rules of Poll and Len (runtime.md, Queues 9 and
+// 10).
+func TestQueuePoll(t *testing.T) {
+	t.Run("empty is none, open or closed", func(t *testing.T) {
+		for _, capacity := range []int{0, 1, 3} {
+			q := New[int](capacity)
+			if v, ok := poll(t, q); ok {
+				t.Fatalf("capacity %d: Poll on an open, empty queue = %d, true", capacity, v)
+			}
+			q.Close()
+			if v, ok := poll(t, q); ok {
+				t.Fatalf("capacity %d: Poll on a closed, empty queue = %d, true", capacity, v)
+			}
+			if n := q.Len(); n != 0 {
+				t.Fatalf("capacity %d: Len of an empty queue = %d", capacity, n)
+			}
+		}
+	})
+	t.Run("takes the front, also after Close", func(t *testing.T) {
+		q := New[int](3)
+		push(t, q, 1)
+		push(t, q, 2)
+		push(t, q, 3)
+		if n := q.Len(); n != 3 {
+			t.Fatalf("Len() = %d; want 3", n)
+		}
+		if v, ok := poll(t, q); !ok || v != 1 {
+			t.Fatalf("Poll() = %d, %v; want 1, true", v, ok)
+		}
+		q.Close()
+		if v, ok := poll(t, q); !ok || v != 2 {
+			t.Fatalf("Poll() after Close = %d, %v; want 2, true", v, ok)
+		}
+		if got := pop(t, q); got != 3 {
+			t.Fatalf("Pop() = %d; want 3", got)
+		}
+		if _, ok := poll(t, q); ok || q.Len() != 0 {
+			t.Fatal("Poll on the drained queue took a value")
+		}
+	})
+	t.Run("the room goes to a waiting Push", func(t *testing.T) {
+		q := New[int](1)
+		push(t, q, 1)
+		done := make(chan error, 1)
+		go func() { done <- q.Push(bg, 2) }()
+		parked(t, q, 1)
+		if n := q.Len(); n != 1 {
+			t.Fatalf("Len() with a waiting Push = %d; want 1: its value has not entered", n)
+		}
+		if v, ok := poll(t, q); !ok || v != 1 {
+			t.Fatalf("Poll() = %d, %v; want 1, true", v, ok)
+		}
+		if err := result(t, done); err != nil {
+			t.Fatalf("the waiting Push failed with %v", err)
+		}
+		if v, ok := poll(t, q); !ok || v != 2 {
+			t.Fatalf("Poll() = %d, %v; want 2, true", v, ok)
+		}
+	})
+	t.Run("capacity 0 takes a waiting Push", func(t *testing.T) {
+		q := New[string](0)
+		done := make(chan error, 1)
+		go func() { done <- q.Push(bg, "v") }()
+		parked(t, q, 1)
+		if n := q.Len(); n != 0 {
+			t.Fatalf("Len() of a rendezvous queue = %d; want 0", n)
+		}
+		if v, ok := poll(t, q); !ok || v != "v" {
+			t.Fatalf("Poll() = %q, %v; want v, true", v, ok)
+		}
+		if err := result(t, done); err != nil {
+			t.Fatalf("the Push whose value Poll took failed with %v", err)
+		}
+		if _, ok := poll(t, q); ok {
+			t.Fatal("Poll took a second value from one Push")
+		}
+	})
 }
 
 // TestQueueContract walks each rule of the queue contract (runtime.md,
@@ -264,8 +368,10 @@ func result(t *testing.T, done <-chan error) error {
 }
 
 // TestQueueModel compares the queue with a model on random sequences of
-// operations from one goroutine. An operation that would wait is skipped:
-// the interleavings test covers waits.
+// operations from one goroutine: Push, Pop, Poll, Close, and Len before each
+// step. The model is a FIFO list, a capacity and a closed flag. An operation
+// that would wait is skipped: the interleavings test covers waits. Poll is
+// never skipped, since it never waits.
 func TestQueueModel(t *testing.T) {
 	for seed := uint64(1); seed <= 300; seed++ {
 		rng := rand.New(rand.NewPCG(seed, 1))
@@ -275,7 +381,23 @@ func TestQueueModel(t *testing.T) {
 		isClosed := false
 		next := 0
 		for step := range 40 {
-			switch rng.IntN(5) {
+			if n := q.Len(); n != len(model) || n > capacity {
+				t.Fatalf("seed %d step %d: Len() = %d; want %d (capacity %d)", seed, step, n, len(model), capacity)
+			}
+			switch rng.IntN(7) {
+			case 5, 6:
+				// Poll takes the front or is none, open or closed, and
+				// never waits.
+				v, ok := poll(t, q)
+				switch {
+				case len(model) > 0 && (!ok || v != model[0]):
+					t.Fatalf("seed %d step %d: Poll() = %d, %v; want %d, true", seed, step, v, ok, model[0])
+				case len(model) == 0 && ok:
+					t.Fatalf("seed %d step %d: Poll() on an empty queue = %d, true", seed, step, v)
+				}
+				if len(model) > 0 {
+					model = model[1:]
+				}
 			case 0, 1:
 				if isClosed {
 					if !closed(t, q.Push(bg, next)) {
@@ -320,9 +442,9 @@ func TestQueueModel(t *testing.T) {
 type item struct{ p, i int }
 
 // TestQueueInterleavings is the generated interleaving test: for each seed,
-// random capacity, producers, consumers (by Pop or by Values, some stopping
-// early) and a Close at a random point run concurrently. Every value whose
-// Push returned is taken exactly once; no value whose Push failed is
+// random capacity, producers, consumers (by Pop, by Values or by Poll, some
+// stopping early) and a Close at a random point run concurrently. Every
+// value whose Push returned is taken exactly once; no value whose Push failed is
 // ever taken; each consumer sees each producer's values in push order (FIFO),
 // and the values left after every consumer stopped come after all of them.
 func TestQueueInterleavings(t *testing.T) {
@@ -452,23 +574,24 @@ func interleave(t *testing.T, seed uint64) {
 	q := New[item](capacity)
 
 	var (
-		mu               sync.Mutex
-		accepted         = map[item]bool{}
-		rejected         = map[item]bool{}
-		taken            = make([][]item, consumers)
-		pops             atomic.Int64
-		producersDone    atomic.Int64
-		consumersDone    atomic.Int64
-		wg               sync.WaitGroup
-		yieldProducer    = make([]bool, producers)
-		consumerByValues = make([]bool, consumers)
-		consumerLimit    = make([]int, consumers)
+		mu            sync.Mutex
+		accepted      = map[item]bool{}
+		rejected      = map[item]bool{}
+		taken         = make([][]item, consumers)
+		pops          atomic.Int64
+		producersDone atomic.Int64
+		consumersDone atomic.Int64
+		wg            sync.WaitGroup
+		yieldProducer = make([]bool, producers)
+		consumerKind  = make([]int, consumers) // 0 Pop, 1 Values, 2 Poll
+		lenErr        atomic.Value
+		consumerLimit = make([]int, consumers)
 	)
 	for p := range yieldProducer {
 		yieldProducer[p] = rng.IntN(2) == 0
 	}
 	for c := range consumers {
-		consumerByValues[c] = rng.IntN(2) == 0
+		consumerKind[c] = rng.IntN(3)
 		consumerLimit[c] = -1
 		if rng.IntN(3) == 0 {
 			consumerLimit[c] = rng.IntN(perProducer + 1)
@@ -510,13 +633,36 @@ func interleave(t *testing.T, seed uint64) {
 			if consumerLimit[c] == 0 {
 				return
 			}
-			if consumerByValues[c] {
+			switch consumerKind[c] {
+			case 1:
 				for it := range q.Values(bg) {
 					if !keep(it) {
 						return
 					}
 				}
 				return
+			case 2:
+				// A poller never waits in the queue: it polls until the
+				// queue is closed and empty, and checks Len between.
+				for {
+					if n := q.Len(); n < 0 || n > capacity {
+						lenErr.CompareAndSwap(nil, fmt.Sprintf("Len() = %d with capacity %d", n, capacity))
+					}
+					it, ok := q.Poll()
+					if ok {
+						if !keep(it) {
+							return
+						}
+						continue
+					}
+					q.mu.Lock()
+					end := q.closed && len(q.buf) == 0 && len(q.senders) == 0
+					q.mu.Unlock()
+					if end {
+						return
+					}
+					runtime.Gosched()
+				}
 			}
 			for {
 				it, err := q.Pop(bg)
@@ -538,6 +684,9 @@ func interleave(t *testing.T, seed uint64) {
 		q.Close()
 	}()
 	wg.Wait()
+	if e := lenErr.Load(); e != nil {
+		t.Errorf("seed %d: %s", seed, e)
+	}
 
 	var rest []item
 	for it := range q.Values(bg) {

@@ -56,6 +56,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Queue.Pop":    {wait: callerWait},
 	"Queue.Values": {wait: callerWait},
 	"Queue.Close":  {},
+	"Queue.Poll":   {},
+	"Queue.Len":    {},
 	"Go":           {},
 	// timeout.After joins its body and deadline children, whichever ends
 	// first, as their parent (runtime.md, Timeouts).

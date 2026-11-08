@@ -22,6 +22,15 @@ type Queue[T] {
 	// like Pop and ends when the queue is closed and empty. A break stops
 	// it; the values not yet popped stay in the queue.
 	Values() Seq[T],
+	// Poll takes the value Pop would take when one is there now, and is
+	// None when there is none, open or closed. It never waits. With
+	// capacity 0 it takes the value of a waiting Push, which then
+	// succeeds.
+	Poll() Option[T],
+	// Len is how many values are in the queue that nothing has taken yet,
+	// from 0 to the capacity. The value of a Push that still waits for
+	// room is not counted. It never waits.
+	Len() int,
 
 	// CloseIsIdempotent: a second Close returns at once and never fails.
 	law CloseIsIdempotent() {
@@ -58,6 +67,39 @@ law CloseKeepsValues(v int) {
 	try q.Push(v)
 	q.Close()
 	try q.Pop() == v
+}
+
+// PollOnEmptyIsNone: Poll on an empty queue is None at once, open or
+// closed.
+law PollOnEmptyIsNone() {
+	let q = New[int](1)
+	let open = q.Poll() == None
+	q.Close()
+	open && q.Poll() == None
+}
+
+// PollTakesTheFront: Poll takes the values in the order Push added them,
+// also after Close, and is None when they are all taken.
+law PollTakesTheFront(a int, b int) {
+	let q = New[int](2)
+	try q.Push(a)
+	try q.Push(b)
+	q.Close()
+	q.Poll() == Some[int]{Value: a} && q.Poll() == Some[int]{Value: b} && q.Poll() == None
+}
+
+// LenCountsUntaken: Len is the count of values pushed and not yet taken.
+law LenCountsUntaken(xs []int) {
+	let q = New[int](len(xs))
+	for x in xs {
+		try q.Push(x)
+	}
+	let full = q.Len() == len(xs)
+	let mut drained = true
+	for x in xs {
+		drained = drained && q.Poll() == Some[int]{Value: x}
+	}
+	full && drained && q.Len() == 0
 }
 
 // New makes an open, empty queue that holds up to capacity values no Pop
