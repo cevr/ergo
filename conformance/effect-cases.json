@@ -191,7 +191,7 @@
       "status": "pending",
       "upstream": {"file": "packages/platform/node-shared/test/NodeChildProcessSpawner.test.ts", "line": 75, "label": "kills every process in a pipeline"},
       "behavior": "A stop of the caller of std exec Run ends every process of the program's pipeline, not only the program itself, before the call returns.",
-      "limits": "Pending until this branch has the evidence rule (a subtest named after the case id); the subtest exists: runtime/v1 TestExecEffectCases/effect.child-process.kills-pipeline. Ergo kills the program's process group; Effect spawns each pipeline stage and kills them by its handle. A process that leaves the group (setsid) is not killed, by design.",
+      "limits": "Pending until this branch has the evidence rule (a subtest named after the case id); the subtest exists: internal/sketch/lower/std_exec_test.go TestExecRuns/effect.child-process.kills-pipeline (an Ergo program stops a task whose exec runs the pipeline). Ergo kills the program's process group; Effect spawns each pipeline stage and kills them by its handle. A process that leaves the group (setsid) is not killed, by design.",
       "evidence": []
     }
   ]
