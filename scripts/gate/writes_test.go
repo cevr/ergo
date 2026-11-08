@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,28 +84,33 @@ func waitFor(file string) string {
 }
 
 // TestSweepFailsOnAnUndeclaredWriter: a step that writes the checkout and
-// does not say so (no Writes) runs beside a sweep, and writes bin/x, a path
-// Git ignores, while the sweep runs. The sweep fails and names the path,
-// though nothing it ran read it.
+// does not say so (no Writes) runs beside a sweep, and writes a file while
+// the sweep runs: bin/x, a path Git ignores, or a golden file in a testdata
+// directory, as a test's update mode does. The sweep fails and names the
+// path, though nothing it ran read it.
 func TestSweepFailsOnAnUndeclaredWriter(t *testing.T) {
-	root, signals := sweepFixture(t)
-	started, wrote := filepath.Join(signals, "started"), filepath.Join(signals, "wrote")
-	steps := []*Step{
-		{Name: "writer", Argv: []string{"sh", "-c", waitFor(started) + `; mkdir -p bin && echo x > bin/x && touch '` + wrote + `'`}},
-		{Name: "sweep", Sweep: "pkg", Argv: []string{"sh", "-c", `touch '` + started + `'; ` + waitFor(wrote)}},
-	}
-	code, out := runGate(t, root, t.TempDir(), steps)
-	if code != 1 {
-		t.Fatalf("exit %d, want 1\n%s", code, out)
-	}
-	for _, want := range []string{"== writer: ok", "== sweep: FAILED", "the checkout changed while the sweep ran", "bin/x"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("output lacks %q:\n%s", want, out)
-		}
-	}
-	// A change outside the checkout (the signals) is not the checkout's.
-	if strings.Contains(out, signals) {
-		t.Fatalf("the sweep names a path outside the checkout:\n%s", out)
+	for _, path := range []string{"bin/x", "internal/pkg/testdata/golden.txt"} {
+		t.Run(path, func(t *testing.T) {
+			root, signals := sweepFixture(t)
+			started, wrote := filepath.Join(signals, "started"), filepath.Join(signals, "wrote")
+			steps := []*Step{
+				{Name: "writer", Argv: []string{"sh", "-c", waitFor(started) + `; mkdir -p '` + filepath.Dir(path) + `' && echo x > '` + path + `' && touch '` + wrote + `'`}},
+				{Name: "sweep", Sweep: "pkg", Argv: []string{"sh", "-c", `touch '` + started + `'; ` + waitFor(wrote)}},
+			}
+			code, out := runGate(t, root, t.TempDir(), steps)
+			if code != 1 {
+				t.Fatalf("exit %d, want 1\n%s", code, out)
+			}
+			for _, want := range []string{"== writer: ok", "== sweep: FAILED", "the checkout changed while the sweep ran", path} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("output lacks %q:\n%s", want, out)
+				}
+			}
+			// A change outside the checkout (the signals) is not the checkout's.
+			if strings.Contains(out, signals) {
+				t.Fatalf("the sweep names a path outside the checkout:\n%s", out)
+			}
+		})
 	}
 }
 
@@ -209,6 +217,156 @@ func TestCheckoutEntriesSeeEveryChange(t *testing.T) {
 	for _, path := range changed {
 		if strings.HasPrefix(path, ".git/objects") {
 			t.Errorf("changed %v holds %s", changed, path)
+		}
+	}
+}
+
+// listingSeedOffsetVariable moves TestCheckoutEntriesSeeAnyPath's seeds:
+// with it set to n the sequences are seeds n, n+1, …, so a failing seed
+// replays alone and a check can run other sequences. The gate never sets
+// it: its runs use seeds from 0.
+const listingSeedOffsetVariable = "ERGO_LISTING_SEED_OFFSET"
+
+// listingNames are the directory names the property draws from: the names
+// a listing that skips a kind of directory would skip (testdata, bin, docs,
+// a directory the fixture's .gitignore ignores, dot names, names that start
+// with an underscore) and generated names.
+var listingNames = []string{"testdata", "bin", "docs", "runs", "vendor", ".cache", ".github", "_build", "internal", "examples", "cmd"}
+
+// TestCheckoutEntriesSeeAnyPath is a property over generated checkout
+// trees: a file added, removed or rewritten to another size, at a random
+// depth under random directory names (testdata among them), shows in
+// changedEntries between the two lists. Round 4 of b9-fix-gate found that a
+// listing that skips every testdata directory passed every other test.
+func TestCheckoutEntriesSeeAnyPath(t *testing.T) {
+	offset := 0
+	if text := os.Getenv(listingSeedOffsetVariable); text != "" {
+		n, err := strconv.Atoi(text)
+		if err != nil {
+			t.Fatalf("%s=%q: %v", listingSeedOffsetVariable, text, err)
+		}
+		offset = n
+	}
+	const sequences, steps = 20, 15
+	for seed := offset; seed < offset+sequences; seed++ {
+		random := rand.New(rand.NewPCG(uint64(seed), 0))
+		root := fixture(t)
+		var files []string
+		made := 0
+		name := func() string {
+			if random.IntN(3) == 0 {
+				return fmt.Sprintf("d%d", random.IntN(1000))
+			}
+			return listingNames[random.IntN(len(listingNames))]
+		}
+		newPath := func() string {
+			parts := make([]string, 1+random.IntN(5))
+			for i := range parts {
+				parts[i] = name()
+			}
+			// A file's name ends in .f and a directory's never does, so a
+			// path is never both; the count makes each file new.
+			made++
+			parts[len(parts)-1] += fmt.Sprintf("-%d.f", made)
+			return strings.Join(parts, "/")
+		}
+		for range 10 {
+			path := newPath()
+			write(t, root, path, "seed\n")
+			files = append(files, path)
+		}
+		var trace []string
+		for range steps {
+			before, err := checkoutEntries(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var path, action string
+			switch choice := random.IntN(3); {
+			case choice == 0:
+				path, action = newPath(), "add"
+				write(t, root, path, "added\n")
+				files = append(files, path)
+			case choice == 1 && len(files) > 1:
+				i := random.IntN(len(files))
+				path, action = files[i], "remove"
+				if err := os.Remove(filepath.Join(root, path)); err != nil {
+					t.Fatal(err)
+				}
+				files = slices.Delete(files, i, i+1)
+			default:
+				path, action = files[random.IntN(len(files))], "rewrite"
+				content, err := os.ReadFile(filepath.Join(root, path))
+				if err != nil {
+					t.Fatal(err)
+				}
+				write(t, root, path, string(content)+"more\n")
+			}
+			trace = append(trace, action+" "+path)
+			after, err := checkoutEntries(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if changed := changedEntries(before, after); !slices.Contains(changed, path) {
+				t.Fatalf("seed %d (replay: %s=%d): changed %v lacks %s after: %s", seed, listingSeedOffsetVariable, seed, changed, path, strings.Join(trace, "; "))
+			}
+		}
+	}
+}
+
+// TestCheckoutEntriesIgnoreLinkedWorktrees: in a main checkout, whose .git
+// is the common directory of every worktree, git commands run in a linked
+// worktree of the same repository write the files of .git that all
+// worktrees share: a commit takes .git/packed-refs.lock (which moves the
+// time of .git), pack-refs and gc write .git/packed-refs, setting an
+// upstream writes .git/config, and adding a worktree adds an entry under
+// .git/worktrees (which moves the time of .git). None of these is a step
+// of this checkout, so the listing does not show them (round-4 U1 of
+// b9-fix-gate). The files that are this checkout's own, its index and
+// HEAD, still show.
+func TestCheckoutEntriesIgnoreLinkedWorktrees(t *testing.T) {
+	root := fixture(t)
+	linked := filepath.Join(t.TempDir(), "linked")
+	gitIn(t, root, "branch", "upstream")
+	gitIn(t, root, "worktree", "add", "-q", "-b", "lane", linked)
+	// A packed-refs file exists in a repository that has packed once; a
+	// commit then takes its lock.
+	gitIn(t, linked, "pack-refs", "--all")
+	before, err := checkoutEntries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A directory's time moves only when the kernel's file clock ticks
+	// between two writes (a few milliseconds).
+	time.Sleep(20 * time.Millisecond)
+	gitIn(t, linked, "commit", "-q", "--allow-empty", "-m", "a lane's commit")
+	gitIn(t, linked, "pack-refs", "--all")
+	gitIn(t, linked, "gc", "-q")
+	gitIn(t, linked, "branch", "--set-upstream-to=upstream", "lane")
+	gitIn(t, linked, "worktree", "add", "-q", "-b", "second", filepath.Join(t.TempDir(), "second"))
+	after, err := checkoutEntries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed := changedEntries(before, after); len(changed) != 0 {
+		t.Fatalf("git commands in a linked worktree change the main checkout's listing: %v", changed)
+	}
+	write(t, root, ".git/index", "not an index\n")
+	write(t, root, ".git/ORIG_HEAD", "0000000000000000000000000000000000000000\n")
+	// Only .git's own time is left out: a file made and removed in another
+	// directory still moves that directory's time.
+	write(t, root, "docs/gone.md", "gone\n")
+	if err := os.Remove(filepath.Join(root, "docs/gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	again, err := checkoutEntries(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := changedEntries(after, again)
+	for _, want := range []string{".git/index", ".git/ORIG_HEAD", "docs"} {
+		if !slices.Contains(changed, want) {
+			t.Errorf("changed %v lacks %s", changed, want)
 		}
 	}
 }

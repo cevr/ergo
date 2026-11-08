@@ -120,12 +120,18 @@ type entryIdentity struct {
 // kernel's file clock (coarse, a few milliseconds) ticked between the two
 // lists; a rewrite of a file to the same size within one tick does not
 // show either. Of a .git
-// directory (a clone's, such as the merge tier's export) it keeps the
-// directory and the files directly in it, where a step's git writes the
-// index and its lock, and not its subdirectories: a commit in a linked
-// worktree of the same repository writes objects and refs there, which no
-// step of this checkout made. A path that goes while the list is made is
-// left out.
+// directory (a clone's, such as the merge tier's export, or a main
+// checkout's, which is the common directory of its linked worktrees) it
+// keeps the files directly in it, where a step's git writes the index and
+// its lock, HEAD and the like. It leaves out what git commands in a linked
+// worktree of the same repository write there, which no step of this
+// checkout made (TestCheckoutEntriesIgnoreLinkedWorktrees): the
+// subdirectories (objects, refs, logs, worktrees), the files every worktree
+// shares (sharedGitFiles), and the time of .git itself, which moves when
+// such a file or a subdirectory is added or removed. So a lock of the
+// index that a step's git takes and drops again, writing nothing, shows
+// only when a list sees the lock. A path that goes while the list is made
+// is left out.
 func checkoutEntries(root string) (map[string]entryIdentity, error) {
 	// WalkDir does not enter a root that is a link.
 	root, err := filepath.EvalSymlinks(root)
@@ -148,6 +154,9 @@ func checkoutEntries(root string) (map[string]entryIdentity, error) {
 		if strings.HasPrefix(rel, ".git/") && d.IsDir() {
 			return filepath.SkipDir
 		}
+		if sharedGitFiles[rel] {
+			return nil
+		}
 		info, err := d.Info()
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -155,13 +164,32 @@ func checkoutEntries(root string) (map[string]entryIdentity, error) {
 		if err != nil {
 			return err
 		}
-		entries[rel] = entryIdentity{mode: info.Mode(), size: info.Size(), mod: info.ModTime()}
+		identity := entryIdentity{mode: info.Mode(), size: info.Size(), mod: info.ModTime()}
+		if rel == ".git" && d.IsDir() {
+			// Its size and time move with its entries, which the list
+			// holds one by one.
+			identity.size, identity.mod = 0, time.Time{}
+		}
+		entries[rel] = identity
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return entries, nil
+}
+
+// sharedGitFiles are the files of a .git directory that every worktree of
+// the repository writes, not only the checkout's own steps, with their
+// locks (git writes the lock, then renames it onto the file or removes it):
+// packed-refs, which a commit, a branch deletion, pack-refs and gc in any
+// worktree lock or rewrite; config, which setting an upstream or adding a
+// worktree with tracking writes; and gc.pid and gc.log, which the gc that a
+// commit in any worktree may start (gc --auto) takes and leaves.
+var sharedGitFiles = map[string]bool{
+	".git/packed-refs": true, ".git/packed-refs.lock": true,
+	".git/config": true, ".git/config.lock": true,
+	".git/gc.pid": true, ".git/gc.log": true,
 }
 
 // changedEntries are the paths whose identity differs between two lists,
