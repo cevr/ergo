@@ -169,6 +169,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"RandHostUint64":  {},
 	"RandHostIntN":    {},
 	"RandHostFloat64": {},
+	// std sync (stdlib.md, Sync and STM 1): each operation of a Ref holds
+	// its mutex for one step, and an Update's or Modify's function has an
+	// empty row, so none waits on a task and none releases.
+	"NewRef":     {},
+	"Ref.Get":    {},
+	"Ref.Set":    {},
+	"Ref.Update": {},
+	"RefModify":  {},
 	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
 	// neither wait nor release.
 	"FilepathJoin":  {},

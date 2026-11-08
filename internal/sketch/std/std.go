@@ -27,6 +27,7 @@ import (
 //go:embed maps/*.ergo cmp/*.ergo
 //go:embed time/*.ergo
 //go:embed rand/*.ergo
+//go:embed sync/*.ergo
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed math/*.ergo bits/*.ergo
