@@ -185,6 +185,9 @@ func (c *checker) solveDeclKinds() {
 		if st, ok := rt.(*syntax.StarExpr); ok {
 			rt = unparen(st.X)
 		}
+		if m, ok := rt.(*syntax.MapType); ok && c.declaredMap() != nil {
+			rt = c.mapInstance(m) // the package's own Map (L6)
+		}
 		ix, ok := rt.(*syntax.IndexExpr)
 		if !ok {
 			continue

@@ -88,7 +88,12 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 				return fromType(tn.Type)
 			}
 		}
-	case *syntax.ArrayType, *syntax.MapType:
+	case *syntax.MapType:
+		if tn := c.declaredMap(); tn != nil {
+			return fromType(tn.Type) // the package's own Map (L6)
+		}
+		return litType{kind: litKeyed, expr: e, env: env}
+	case *syntax.ArrayType:
 		return litType{kind: litKeyed, expr: e, env: env}
 	}
 	return litType{}

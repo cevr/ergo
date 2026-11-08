@@ -1,8 +1,10 @@
 // Eighth round, item 3: a prelude name cannot be redeclared at any scope
-// (S108): a type, a function, a parameter, a local and a type parameter.
-// The refused binding still binds for the rest of its scope, so no other
-// diagnostic follows from it.
-type Option { Value int } // want S108
+// (S108): a function, a parameter, a local and a type parameter, and a type
+// named like a prelude constant. A package type may take a prelude type's
+// name (L6, owner q30), so `type Option` is no longer here. The refused
+// binding still binds for the rest of its scope, so no other diagnostic
+// follows from it.
+type true { Value int } // want S108
 
 func len(xs []int) int { // want S108
 	0

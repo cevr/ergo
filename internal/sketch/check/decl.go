@@ -386,12 +386,16 @@ func (c *checker) collect() {
 
 // declare enters a package-level name; a second declaration of one name is
 // S108 (a type and a function share the package's namespace). A prelude
-// name is S108 (D-D3) and still declares, so its uses add nothing.
+// name is S108 (D-D3) and still declares, so its uses add nothing, except
+// that a type may take a prelude type's name (preludeTypeName; L6).
 func (c *checker) declare(id *syntax.Ident, o Object) bool {
 	if id.Name == "_" {
 		return false
 	}
-	if c.preludeName(id) {
+	// A package type may take a prelude type's name, which it hides in this
+	// package (grammar.md, Reserved names 2; L6, owner q30).
+	_, isType := o.(*TypeName)
+	if !(isType && c.preludeTypeName(id.Name)) && c.preludeName(id) {
 		// reported; the declaration binds below
 	} else if prev, ok := c.pkg.Scope.names[id.Name]; ok {
 		what := "declared"
@@ -1132,6 +1136,10 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		}
 		return &Slice{Elem: elem}
 	case *syntax.MapType:
+		if tn := c.declaredMap(); tn != nil {
+			// The package's own Map hides the map type (L6).
+			return c.typExpr0(c.mapInstance(x), ctx)
+		}
 		k := c.typExpr(x.Key, ctx)
 		v := c.typExpr(x.Value, ctx)
 		if c.taskRefused(x.Key, k) || c.taskRefused(x.Value, v) {
@@ -2004,6 +2012,9 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 	case *syntax.ArrayType:
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
+		if c.declaredMap() != nil {
+			return collKey{}, nil, false // the package's own Map (L6)
+		}
 		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
 	default:
 		return collKey{}, nil, false
@@ -2044,6 +2055,10 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 	return n, args, ptr
 }
 
+// mapTypeName is the name `Map[K, V]` writes, for selfOwnerName's callers,
+// which read only its Name.
+var mapTypeName = &syntax.Ident{Name: "Map"}
+
 // selfOwnerName returns the type name d's first parameter writes, T, *T or
 // T[A, B], with the type arguments and whether it is a pointer; nil when
 // the first parameter writes another type or d has none.
@@ -2057,6 +2072,11 @@ func selfOwnerName(d *syntax.FuncDecl) (*syntax.Ident, []syntax.Expr, bool) {
 		rt, ptr = s.X, true
 	}
 	var args []syntax.Expr
+	if m, ok := rt.(*syntax.MapType); ok {
+		// Map[K, V] names a package type only where the package declares
+		// its own Map (L6); the caller looks the name up there.
+		return mapTypeName, []syntax.Expr{m.Key, m.Value}, ptr
+	}
 	if ix, ok := rt.(*syntax.IndexExpr); ok {
 		rt, args = ix.X, ix.Indices
 	}

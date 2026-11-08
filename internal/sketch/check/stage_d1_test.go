@@ -162,8 +162,12 @@ func TestNoShadowing(t *testing.T) {
 // resemble prelude names are ordinary.
 func TestPreludeNamesCannotBeRedeclared(t *testing.T) {
 	runD1(t, []d1Case{
-		{"type", "type Option { Value int }\nfunc f(o Option) int { o.Value }\n", []string{"S108:1"}},
-		{"variant", "type Opt = Some{V int} | Empty{}\n", []string{"S108:1"}},
+		// A package type may take a prelude type's name and hides it in
+		// its package (L6, owner q30, which reversed the eighth round's
+		// item 3 for types); every other declaration below stays refused.
+		{"type", "type Option { Value int }\nfunc f(o Option) int { o.Value }\n", nil},
+		{"variant", "type Opt = Some{V int} | Empty{}\n", nil},
+		{"function-named-like-a-type", "func Option() int { 1 }\n", []string{"S108:1"}},
 		{"function", "func len(xs []int) int { 0 }\nfunc f(xs []int) int { len(xs) }\n", []string{"S108:1"}},
 		// Sleep is a prelude operation, in no scope (prelude-scope S1):
 		// a program declares its own group of that name.

@@ -1,0 +1,15 @@
+// Only a package type may take a prelude type's name (grammar.md, Reserved
+// names 2; L6): a function, a package let, a local and a parameter of one
+// stay refused, beside the package's own Option.
+type Option { V int }
+
+func Range() int { 1 } // want S108
+
+let Seq = 2 // want S108
+
+func f(Console int) int { Console } // want S108
+
+func g() int {
+	let Option = 3 // want S108
+	Option
+}

@@ -337,6 +337,8 @@ type checker struct {
 	// pkgPatterns holds the package-level lets that bind several names
 	// from one value (a pattern, or `let q, r = e`), each checked once.
 	pkgPatterns map[*syntax.VarSpec]*pkgPattern
+	// mapInstances holds `Map[K, V]` read as the package's own Map (L6).
+	mapInstances map[*syntax.MapType]*syntax.IndexExpr
 
 	fn *funcCtx // the body being checked
 }
