@@ -50,7 +50,7 @@ go tool objdump -s 'dispatch(U16D|U8D|P6x6Dx|P3x4Dx|U16A|P6x6A)$' "$tmp/bench.te
 
 # Text bytes of the measured functions, per form (question 3).
 go tool nm -size "$tmp/bench.test" |
-	awk '$3=="T" && $4 ~ /^unionreprbench\.(step(A|D|Dx|E|F)|apply(A|D|E|F)|tideStep(A|G)|tideApply(A|G)|record(A|D)|evolveWalk(A|D)|play(A|G)|cut(A|C|OutA|OutC)|lookup(A|C|Go)|sum(Lookup|Cut|CutOut)(A|C|Go)|enumTarget(A|B)|clone(A|D)|narrow(A|D|Ds)|next(NP|WP)(A|D|E)|get(A|C)\[.*)$/ {print $2, $4}' |
+	awk '$3=="T" && $4 ~ /^unionreprbench\.(step(A|D|Dx|E|F|G|M)|apply(A|D|E|F|M)|step(C|[0-9]+)(A|D|G|M)|apply(C|[0-9]+)(A|D|G|M)|tideStep(A|G|Dall)|tideApply(A|Dall)|record(A|D)|evolveWalk(A|D|G)|play(A|G|Dall)|cut(A|C|OutA|OutC)|lookup(A|C|Go)|sum(Lookup|Cut|CutOut)(A|C|Go)|enumTarget(A|B)|clone(A|D)|narrow(A|D|Ds)|next(NP|WP)(A|D|E)|get(A|C)\[.*)$/ {print $2, $4}' |
 	sort -k2 >"$out/funcsizes.txt"
 
 # Code size (question 3).

@@ -70,6 +70,26 @@ func BenchmarkBreaker(b *testing.B) {
 		})
 		sinkStateD = s
 	})
+	b.Run("form=G", func(b *testing.B) {
+		in := signalsC(raw)
+		var s StateA = Closed{}
+		exactAllocs(b, 1, "transition", func() {
+			for i := 0; i < b.N; i++ {
+				s = applyA(s, stepG(s, in[i&1023]))
+			}
+		})
+		sinkStateA = s
+	})
+	b.Run("form=M", func(b *testing.B) {
+		in := signalsD(raw)
+		s := ClosedD(Closed{})
+		exactAllocs(b, 1, "transition", func() {
+			for i := 0; i < b.N; i++ {
+				s = applyM(s, stepM(s, in[i&1023]))
+			}
+		})
+		sinkStateD = s
+	})
 	b.Run("form=E", func(b *testing.B) {
 		in := signalsE(raw)
 		s := StateE{stateClosed, Closed{}}
@@ -89,6 +109,30 @@ func BenchmarkBreaker(b *testing.B) {
 			}
 		})
 		sinkInt = int(s.stateTag())
+	})
+}
+
+// Counter: a machine whose unions all fit rule G's bound (counter.go).
+func BenchmarkCounter(b *testing.B) {
+	raw := counterSignals(1024, 7)
+	b.Run("form=A", func(b *testing.B) {
+		in := counterSignalsA(raw)
+		var s CStateA = Idle{}
+		exactAllocs(b, 1, "transition", func() {
+			for i := 0; i < b.N; i++ {
+				s = applyCA(s, stepCA(s, in[i&1023]))
+			}
+		})
+		sinkInt = len(textCStateA(s))
+	})
+	b.Run("form=G", func(b *testing.B) {
+		s := CStateC{}
+		exactAllocs(b, 1, "transition", func() {
+			for i := 0; i < b.N; i++ {
+				s = applyCG(s, stepCG(s, raw[i&1023]))
+			}
+		})
+		sinkInt = int(s.v.N)
 	})
 }
 
@@ -113,6 +157,21 @@ func BenchmarkTidewalk(b *testing.B) {
 			}
 		})
 	})
+	b.Run("form=Dall", func(b *testing.B) {
+		var lists [][]MoveB
+		for _, s := range tideReplays {
+			lists = append(lists, movesB(s))
+		}
+		exactAllocs(b, float64(moves), "move", func() {
+			for i := 0; i < b.N; i++ {
+				for _, ms := range lists {
+					g, _ := playDall(ms, nil, nil)
+					w, _ := walkOfD(g)
+					sinkInt += len(w.Left)
+				}
+			}
+		})
+	})
 	b.Run("form=G", func(b *testing.B) {
 		var lists [][]MoveB
 		for _, s := range tideReplays {
@@ -122,7 +181,7 @@ func BenchmarkTidewalk(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				for _, ms := range lists {
 					g, _ := playG(ms, nil, nil)
-					w, _ := walkOfD(g)
+					w, _ := walkOfA(g)
 					sinkInt += len(w.Left)
 				}
 			}
@@ -505,134 +564,8 @@ func BenchmarkGCChurn(b *testing.B) {
 	b.Run("payload=WP/form=E", func(b *testing.B) { xs := buildWPE(raw); churn(b, func(i int) { xs[i] = nextWPE(xs[i]) }) })
 }
 
-// Question 5: pass (take and return) and next (narrow, change, rebuild) at
-// payloads of 16 to 128 bytes.
-
-func BenchmarkCopyPass(b *testing.B) {
-	b.Run("bytes=16/form=A", func(b *testing.B) {
-		var u Copy16A = Big16{}
-		for i := 0; i < b.N; i++ {
-			u = pass16A(u)
-		}
-		sinkInt64 = firstWord16A(u)
-	})
-	b.Run("bytes=16/form=D", func(b *testing.B) {
-		u := Copy16D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = pass16D(u)
-		}
-		sinkInt64 = firstWord16D(u)
-	})
-	b.Run("bytes=32/form=A", func(b *testing.B) {
-		var u Copy32A = Big32{}
-		for i := 0; i < b.N; i++ {
-			u = pass32A(u)
-		}
-		sinkInt64 = firstWord32A(u)
-	})
-	b.Run("bytes=32/form=D", func(b *testing.B) {
-		u := Copy32D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = pass32D(u)
-		}
-		sinkInt64 = firstWord32D(u)
-	})
-	b.Run("bytes=64/form=A", func(b *testing.B) {
-		var u Copy64A = Big64{}
-		for i := 0; i < b.N; i++ {
-			u = pass64A(u)
-		}
-		sinkInt64 = firstWord64A(u)
-	})
-	b.Run("bytes=64/form=D", func(b *testing.B) {
-		u := Copy64D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = pass64D(u)
-		}
-		sinkInt64 = firstWord64D(u)
-	})
-	b.Run("bytes=128/form=A", func(b *testing.B) {
-		var u Copy128A = Big128{}
-		for i := 0; i < b.N; i++ {
-			u = pass128A(u)
-		}
-		sinkInt64 = firstWord128A(u)
-	})
-	b.Run("bytes=128/form=D", func(b *testing.B) {
-		u := Copy128D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = pass128D(u)
-		}
-		sinkInt64 = firstWord128D(u)
-	})
-}
-
-func BenchmarkCopyNext(b *testing.B) {
-	b.Run("bytes=16/form=A", func(b *testing.B) {
-		b.ReportAllocs()
-		var u Copy16A = Big16{}
-		for i := 0; i < b.N; i++ {
-			u = next16A(u)
-		}
-		sinkInt64 = firstWord16A(u)
-	})
-	b.Run("bytes=16/form=D", func(b *testing.B) {
-		b.ReportAllocs()
-		u := Copy16D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = next16D(u)
-		}
-		sinkInt64 = firstWord16D(u)
-	})
-	b.Run("bytes=32/form=A", func(b *testing.B) {
-		b.ReportAllocs()
-		var u Copy32A = Big32{}
-		for i := 0; i < b.N; i++ {
-			u = next32A(u)
-		}
-		sinkInt64 = firstWord32A(u)
-	})
-	b.Run("bytes=32/form=D", func(b *testing.B) {
-		b.ReportAllocs()
-		u := Copy32D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = next32D(u)
-		}
-		sinkInt64 = firstWord32D(u)
-	})
-	b.Run("bytes=64/form=A", func(b *testing.B) {
-		b.ReportAllocs()
-		var u Copy64A = Big64{}
-		for i := 0; i < b.N; i++ {
-			u = next64A(u)
-		}
-		sinkInt64 = firstWord64A(u)
-	})
-	b.Run("bytes=64/form=D", func(b *testing.B) {
-		b.ReportAllocs()
-		u := Copy64D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = next64D(u)
-		}
-		sinkInt64 = firstWord64D(u)
-	})
-	b.Run("bytes=128/form=A", func(b *testing.B) {
-		b.ReportAllocs()
-		var u Copy128A = Big128{}
-		for i := 0; i < b.N; i++ {
-			u = next128A(u)
-		}
-		sinkInt64 = firstWord128A(u)
-	})
-	b.Run("bytes=128/form=D", func(b *testing.B) {
-		b.ReportAllocs()
-		u := Copy128D{tag: 1}
-		for i := 0; i < b.N; i++ {
-			u = next128D(u)
-		}
-		sinkInt64 = firstWord128D(u)
-	})
-}
+// Question 5 (CopyPass, CopyNext) is in generated_test.go, one pair per
+// size of internal/gensrc copyWords.
 
 // Question 6: narrow to a 64-byte variant and pass its record on.
 

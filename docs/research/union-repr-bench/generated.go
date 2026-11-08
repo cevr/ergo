@@ -2,6 +2,8 @@
 
 package unionreprbench
 
+import "strconv"
+
 // ---- U2: one subject of 2 variants ----
 
 type U2V0 struct{ X int }
@@ -1594,6 +1596,62 @@ func firstWord16A(u Copy16A) int64 { return u.(Big16).F0 }
 
 func firstWord16D(u Copy16D) int64 { return u.f0 }
 
+// ---- Copy24: a union whose payload is 24 bytes ----
+
+type Big24 struct {
+	F0 int64
+	F1 int64
+	F2 int64
+}
+
+type Small24 struct{}
+
+type Copy24A interface{ isCopy24A() }
+
+func (Big24) isCopy24A()   {}
+func (Small24) isCopy24A() {}
+
+type Copy24D struct {
+	tag uint8
+	f0  int64
+	f1  int64
+	f2  int64
+}
+
+//go:noinline
+func pass24A(u Copy24A) Copy24A { return u }
+
+//go:noinline
+func pass24D(u Copy24D) Copy24D { return u }
+
+//go:noinline
+func next24A(u Copy24A) Copy24A {
+	switch v := u.(type) {
+	case Big24:
+		v.F0++
+		return v
+	case Small24:
+		return Big24{F0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func next24D(u Copy24D) Copy24D {
+	switch u.tag {
+	case 1:
+		u.f0++
+		return u
+	case 2:
+		return Copy24D{tag: 1, f0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func firstWord24A(u Copy24A) int64 { return u.(Big24).F0 }
+
+func firstWord24D(u Copy24D) int64 { return u.f0 }
+
 // ---- Copy32: a union whose payload is 32 bytes ----
 
 type Big32 struct {
@@ -1651,6 +1709,132 @@ func next32D(u Copy32D) Copy32D {
 func firstWord32A(u Copy32A) int64 { return u.(Big32).F0 }
 
 func firstWord32D(u Copy32D) int64 { return u.f0 }
+
+// ---- Copy48: a union whose payload is 48 bytes ----
+
+type Big48 struct {
+	F0 int64
+	F1 int64
+	F2 int64
+	F3 int64
+	F4 int64
+	F5 int64
+}
+
+type Small48 struct{}
+
+type Copy48A interface{ isCopy48A() }
+
+func (Big48) isCopy48A()   {}
+func (Small48) isCopy48A() {}
+
+type Copy48D struct {
+	tag uint8
+	f0  int64
+	f1  int64
+	f2  int64
+	f3  int64
+	f4  int64
+	f5  int64
+}
+
+//go:noinline
+func pass48A(u Copy48A) Copy48A { return u }
+
+//go:noinline
+func pass48D(u Copy48D) Copy48D { return u }
+
+//go:noinline
+func next48A(u Copy48A) Copy48A {
+	switch v := u.(type) {
+	case Big48:
+		v.F0++
+		return v
+	case Small48:
+		return Big48{F0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func next48D(u Copy48D) Copy48D {
+	switch u.tag {
+	case 1:
+		u.f0++
+		return u
+	case 2:
+		return Copy48D{tag: 1, f0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func firstWord48A(u Copy48A) int64 { return u.(Big48).F0 }
+
+func firstWord48D(u Copy48D) int64 { return u.f0 }
+
+// ---- Copy56: a union whose payload is 56 bytes ----
+
+type Big56 struct {
+	F0 int64
+	F1 int64
+	F2 int64
+	F3 int64
+	F4 int64
+	F5 int64
+	F6 int64
+}
+
+type Small56 struct{}
+
+type Copy56A interface{ isCopy56A() }
+
+func (Big56) isCopy56A()   {}
+func (Small56) isCopy56A() {}
+
+type Copy56D struct {
+	tag uint8
+	f0  int64
+	f1  int64
+	f2  int64
+	f3  int64
+	f4  int64
+	f5  int64
+	f6  int64
+}
+
+//go:noinline
+func pass56A(u Copy56A) Copy56A { return u }
+
+//go:noinline
+func pass56D(u Copy56D) Copy56D { return u }
+
+//go:noinline
+func next56A(u Copy56A) Copy56A {
+	switch v := u.(type) {
+	case Big56:
+		v.F0++
+		return v
+	case Small56:
+		return Big56{F0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func next56D(u Copy56D) Copy56D {
+	switch u.tag {
+	case 1:
+		u.f0++
+		return u
+	case 2:
+		return Copy56D{tag: 1, f0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func firstWord56A(u Copy56A) int64 { return u.(Big56).F0 }
+
+func firstWord56D(u Copy56D) int64 { return u.f0 }
 
 // ---- Copy64: a union whose payload is 64 bytes ----
 
@@ -1717,6 +1901,78 @@ func next64D(u Copy64D) Copy64D {
 func firstWord64A(u Copy64A) int64 { return u.(Big64).F0 }
 
 func firstWord64D(u Copy64D) int64 { return u.f0 }
+
+// ---- Copy88: a union whose payload is 88 bytes ----
+
+type Big88 struct {
+	F0  int64
+	F1  int64
+	F2  int64
+	F3  int64
+	F4  int64
+	F5  int64
+	F6  int64
+	F7  int64
+	F8  int64
+	F9  int64
+	F10 int64
+}
+
+type Small88 struct{}
+
+type Copy88A interface{ isCopy88A() }
+
+func (Big88) isCopy88A()   {}
+func (Small88) isCopy88A() {}
+
+type Copy88D struct {
+	tag uint8
+	f0  int64
+	f1  int64
+	f2  int64
+	f3  int64
+	f4  int64
+	f5  int64
+	f6  int64
+	f7  int64
+	f8  int64
+	f9  int64
+	f10 int64
+}
+
+//go:noinline
+func pass88A(u Copy88A) Copy88A { return u }
+
+//go:noinline
+func pass88D(u Copy88D) Copy88D { return u }
+
+//go:noinline
+func next88A(u Copy88A) Copy88A {
+	switch v := u.(type) {
+	case Big88:
+		v.F0++
+		return v
+	case Small88:
+		return Big88{F0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func next88D(u Copy88D) Copy88D {
+	switch u.tag {
+	case 1:
+		u.f0++
+		return u
+	case 2:
+		return Copy88D{tag: 1, f0: 1}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func firstWord88A(u Copy88A) int64 { return u.(Big88).F0 }
+
+func firstWord88D(u Copy88D) int64 { return u.f0 }
 
 // ---- Copy128: a union whose payload is 128 bytes ----
 
@@ -1799,3 +2055,1250 @@ func next128D(u Copy128D) Copy128D {
 func firstWord128A(u Copy128A) int64 { return u.(Big128).F0 }
 
 func firstWord128D(u Copy128D) int64 { return u.f0 }
+
+// ---- Decision band: the form D Decision is 40 bytes ----
+
+type Out0 struct{}
+
+var theOut0 = Out0{}
+
+func (o Out0) sum() int64 {
+	t := int64(0)
+	return t
+}
+
+// Dec40D: Enter.Next and Stay.Next share the StateD slot; Done's words
+// have a slot each.
+type Dec40D struct {
+	tag  uint8
+	next StateD
+}
+
+//go:noinline
+func step40A(s StateA, sig SignalA) DecisionA[StateA, Out0] {
+	switch st := s.(type) {
+	case Closed:
+		switch e := sig.(type) {
+		case Failure:
+			if st.Failures >= 2 {
+				return Enter[StateA]{Open{e.Endpoint}}
+			}
+			return Stay[StateA]{Closed{st.Failures + 1}}
+		case Retry:
+			return Ignore{}
+		}
+	case Open:
+		switch sig.(type) {
+		case Retry:
+			return Enter[StateA]{Closed{0}}
+		case Failure:
+			return Done[Out0]{theOut0}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply40A(s StateA, d DecisionA[StateA, Out0]) StateA {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return v.Next
+	case Stay[StateA]:
+		return v.Next
+	case Ignore, Reject, Done[Out0]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text40A(d DecisionA[StateA, Out0]) string {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return "Enter{" + textStateA(v.Next) + "}"
+	case Stay[StateA]:
+		return "Stay{" + textStateA(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out0]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step40M(s StateD, sig SignalD) DecisionA[StateD, Out0] {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Enter[StateD]{OpenD(Open{sig.endpoint})}
+			}
+			return Stay[StateD]{ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Ignore{}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Enter[StateD]{ClosedD(Closed{0})}
+		case signalFailure:
+			return Done[Out0]{theOut0}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply40M(s StateD, d DecisionA[StateD, Out0]) StateD {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return v.Next
+	case Stay[StateD]:
+		return v.Next
+	case Ignore, Reject, Done[Out0]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text40M(d DecisionA[StateD, Out0]) string {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return "Enter{" + textStateD(v.Next) + "}"
+	case Stay[StateD]:
+		return "Stay{" + textStateD(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out0]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step40D(s StateD, sig SignalD) Dec40D {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Dec40D{tag: decEnter, next: OpenD(Open{sig.endpoint})}
+			}
+			return Dec40D{tag: decStay, next: ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Dec40D{tag: decIgnore}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Dec40D{tag: decEnter, next: ClosedD(Closed{0})}
+		case signalFailure:
+			return Dec40D{tag: decDone}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply40D(s StateD, d Dec40D) StateD {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next
+	case decIgnore, decReject, decDone:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text40D(d Dec40D) string {
+	switch d.tag {
+	case decEnter:
+		return "Enter{" + textStateD(d.next) + "}"
+	case decStay:
+		return "Stay{" + textStateD(d.next) + "}"
+	case decIgnore:
+		return "Ignore"
+	case decReject:
+		return "Reject"
+	case decDone:
+		return "Done{" + strconv.FormatInt(0, 10) + "}"
+	}
+	panic("no variant")
+}
+
+func (d Dec40D) wellFormed() bool {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next.wellFormed() && true
+	case decIgnore, decReject:
+		return d.next == StateD{} && true
+	case decDone:
+		return d.next == StateD{}
+	}
+	return false
+}
+
+// ---- Decision band: the form D Decision is 56 bytes ----
+
+type Out2 struct {
+	O0 int64
+	O1 int64
+}
+
+var theOut2 = Out2{1, 2}
+
+func (o Out2) sum() int64 {
+	t := int64(0)
+	t += o.O0
+	t += o.O1
+	return t
+}
+
+// Dec56D: Enter.Next and Stay.Next share the StateD slot; Done's words
+// have a slot each.
+type Dec56D struct {
+	tag  uint8
+	next StateD
+	o0   int64
+	o1   int64
+}
+
+//go:noinline
+func step56A(s StateA, sig SignalA) DecisionA[StateA, Out2] {
+	switch st := s.(type) {
+	case Closed:
+		switch e := sig.(type) {
+		case Failure:
+			if st.Failures >= 2 {
+				return Enter[StateA]{Open{e.Endpoint}}
+			}
+			return Stay[StateA]{Closed{st.Failures + 1}}
+		case Retry:
+			return Ignore{}
+		}
+	case Open:
+		switch sig.(type) {
+		case Retry:
+			return Enter[StateA]{Closed{0}}
+		case Failure:
+			return Done[Out2]{theOut2}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply56A(s StateA, d DecisionA[StateA, Out2]) StateA {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return v.Next
+	case Stay[StateA]:
+		return v.Next
+	case Ignore, Reject, Done[Out2]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text56A(d DecisionA[StateA, Out2]) string {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return "Enter{" + textStateA(v.Next) + "}"
+	case Stay[StateA]:
+		return "Stay{" + textStateA(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out2]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step56M(s StateD, sig SignalD) DecisionA[StateD, Out2] {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Enter[StateD]{OpenD(Open{sig.endpoint})}
+			}
+			return Stay[StateD]{ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Ignore{}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Enter[StateD]{ClosedD(Closed{0})}
+		case signalFailure:
+			return Done[Out2]{theOut2}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply56M(s StateD, d DecisionA[StateD, Out2]) StateD {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return v.Next
+	case Stay[StateD]:
+		return v.Next
+	case Ignore, Reject, Done[Out2]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text56M(d DecisionA[StateD, Out2]) string {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return "Enter{" + textStateD(v.Next) + "}"
+	case Stay[StateD]:
+		return "Stay{" + textStateD(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out2]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step56D(s StateD, sig SignalD) Dec56D {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Dec56D{tag: decEnter, next: OpenD(Open{sig.endpoint})}
+			}
+			return Dec56D{tag: decStay, next: ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Dec56D{tag: decIgnore}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Dec56D{tag: decEnter, next: ClosedD(Closed{0})}
+		case signalFailure:
+			return Dec56D{tag: decDone, o0: theOut2.O0, o1: theOut2.O1}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply56D(s StateD, d Dec56D) StateD {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next
+	case decIgnore, decReject, decDone:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text56D(d Dec56D) string {
+	switch d.tag {
+	case decEnter:
+		return "Enter{" + textStateD(d.next) + "}"
+	case decStay:
+		return "Stay{" + textStateD(d.next) + "}"
+	case decIgnore:
+		return "Ignore"
+	case decReject:
+		return "Reject"
+	case decDone:
+		return "Done{" + strconv.FormatInt(d.o0+d.o1, 10) + "}"
+	}
+	panic("no variant")
+}
+
+func (d Dec56D) wellFormed() bool {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next.wellFormed() && d.o0 == 0 && d.o1 == 0
+	case decIgnore, decReject:
+		return d.next == StateD{} && d.o0 == 0 && d.o1 == 0
+	case decDone:
+		return d.next == StateD{}
+	}
+	return false
+}
+
+// ---- Decision band: the form D Decision is 64 bytes ----
+
+type Out3 struct {
+	O0 int64
+	O1 int64
+	O2 int64
+}
+
+var theOut3 = Out3{1, 2, 3}
+
+func (o Out3) sum() int64 {
+	t := int64(0)
+	t += o.O0
+	t += o.O1
+	t += o.O2
+	return t
+}
+
+// Dec64D: Enter.Next and Stay.Next share the StateD slot; Done's words
+// have a slot each.
+type Dec64D struct {
+	tag  uint8
+	next StateD
+	o0   int64
+	o1   int64
+	o2   int64
+}
+
+//go:noinline
+func step64A(s StateA, sig SignalA) DecisionA[StateA, Out3] {
+	switch st := s.(type) {
+	case Closed:
+		switch e := sig.(type) {
+		case Failure:
+			if st.Failures >= 2 {
+				return Enter[StateA]{Open{e.Endpoint}}
+			}
+			return Stay[StateA]{Closed{st.Failures + 1}}
+		case Retry:
+			return Ignore{}
+		}
+	case Open:
+		switch sig.(type) {
+		case Retry:
+			return Enter[StateA]{Closed{0}}
+		case Failure:
+			return Done[Out3]{theOut3}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply64A(s StateA, d DecisionA[StateA, Out3]) StateA {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return v.Next
+	case Stay[StateA]:
+		return v.Next
+	case Ignore, Reject, Done[Out3]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text64A(d DecisionA[StateA, Out3]) string {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return "Enter{" + textStateA(v.Next) + "}"
+	case Stay[StateA]:
+		return "Stay{" + textStateA(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out3]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step64M(s StateD, sig SignalD) DecisionA[StateD, Out3] {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Enter[StateD]{OpenD(Open{sig.endpoint})}
+			}
+			return Stay[StateD]{ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Ignore{}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Enter[StateD]{ClosedD(Closed{0})}
+		case signalFailure:
+			return Done[Out3]{theOut3}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply64M(s StateD, d DecisionA[StateD, Out3]) StateD {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return v.Next
+	case Stay[StateD]:
+		return v.Next
+	case Ignore, Reject, Done[Out3]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text64M(d DecisionA[StateD, Out3]) string {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return "Enter{" + textStateD(v.Next) + "}"
+	case Stay[StateD]:
+		return "Stay{" + textStateD(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out3]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step64D(s StateD, sig SignalD) Dec64D {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Dec64D{tag: decEnter, next: OpenD(Open{sig.endpoint})}
+			}
+			return Dec64D{tag: decStay, next: ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Dec64D{tag: decIgnore}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Dec64D{tag: decEnter, next: ClosedD(Closed{0})}
+		case signalFailure:
+			return Dec64D{tag: decDone, o0: theOut3.O0, o1: theOut3.O1, o2: theOut3.O2}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply64D(s StateD, d Dec64D) StateD {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next
+	case decIgnore, decReject, decDone:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text64D(d Dec64D) string {
+	switch d.tag {
+	case decEnter:
+		return "Enter{" + textStateD(d.next) + "}"
+	case decStay:
+		return "Stay{" + textStateD(d.next) + "}"
+	case decIgnore:
+		return "Ignore"
+	case decReject:
+		return "Reject"
+	case decDone:
+		return "Done{" + strconv.FormatInt(d.o0+d.o1+d.o2, 10) + "}"
+	}
+	panic("no variant")
+}
+
+func (d Dec64D) wellFormed() bool {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next.wellFormed() && d.o0 == 0 && d.o1 == 0 && d.o2 == 0
+	case decIgnore, decReject:
+		return d.next == StateD{} && d.o0 == 0 && d.o1 == 0 && d.o2 == 0
+	case decDone:
+		return d.next == StateD{}
+	}
+	return false
+}
+
+// ---- Decision band: the form D Decision is 96 bytes ----
+
+type Out7 struct {
+	O0 int64
+	O1 int64
+	O2 int64
+	O3 int64
+	O4 int64
+	O5 int64
+	O6 int64
+}
+
+var theOut7 = Out7{1, 2, 3, 4, 5, 6, 7}
+
+func (o Out7) sum() int64 {
+	t := int64(0)
+	t += o.O0
+	t += o.O1
+	t += o.O2
+	t += o.O3
+	t += o.O4
+	t += o.O5
+	t += o.O6
+	return t
+}
+
+// Dec96D: Enter.Next and Stay.Next share the StateD slot; Done's words
+// have a slot each.
+type Dec96D struct {
+	tag  uint8
+	next StateD
+	o0   int64
+	o1   int64
+	o2   int64
+	o3   int64
+	o4   int64
+	o5   int64
+	o6   int64
+}
+
+//go:noinline
+func step96A(s StateA, sig SignalA) DecisionA[StateA, Out7] {
+	switch st := s.(type) {
+	case Closed:
+		switch e := sig.(type) {
+		case Failure:
+			if st.Failures >= 2 {
+				return Enter[StateA]{Open{e.Endpoint}}
+			}
+			return Stay[StateA]{Closed{st.Failures + 1}}
+		case Retry:
+			return Ignore{}
+		}
+	case Open:
+		switch sig.(type) {
+		case Retry:
+			return Enter[StateA]{Closed{0}}
+		case Failure:
+			return Done[Out7]{theOut7}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply96A(s StateA, d DecisionA[StateA, Out7]) StateA {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return v.Next
+	case Stay[StateA]:
+		return v.Next
+	case Ignore, Reject, Done[Out7]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text96A(d DecisionA[StateA, Out7]) string {
+	switch v := d.(type) {
+	case Enter[StateA]:
+		return "Enter{" + textStateA(v.Next) + "}"
+	case Stay[StateA]:
+		return "Stay{" + textStateA(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out7]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step96M(s StateD, sig SignalD) DecisionA[StateD, Out7] {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Enter[StateD]{OpenD(Open{sig.endpoint})}
+			}
+			return Stay[StateD]{ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Ignore{}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Enter[StateD]{ClosedD(Closed{0})}
+		case signalFailure:
+			return Done[Out7]{theOut7}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply96M(s StateD, d DecisionA[StateD, Out7]) StateD {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return v.Next
+	case Stay[StateD]:
+		return v.Next
+	case Ignore, Reject, Done[Out7]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text96M(d DecisionA[StateD, Out7]) string {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return "Enter{" + textStateD(v.Next) + "}"
+	case Stay[StateD]:
+		return "Stay{" + textStateD(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[Out7]:
+		return "Done{" + strconv.FormatInt(v.Output.sum(), 10) + "}"
+	}
+	panic("no variant")
+}
+
+//go:noinline
+func step96D(s StateD, sig SignalD) Dec96D {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Dec96D{tag: decEnter, next: OpenD(Open{sig.endpoint})}
+			}
+			return Dec96D{tag: decStay, next: ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Dec96D{tag: decIgnore}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Dec96D{tag: decEnter, next: ClosedD(Closed{0})}
+		case signalFailure:
+			return Dec96D{tag: decDone, o0: theOut7.O0, o1: theOut7.O1, o2: theOut7.O2, o3: theOut7.O3, o4: theOut7.O4, o5: theOut7.O5, o6: theOut7.O6}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func apply96D(s StateD, d Dec96D) StateD {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next
+	case decIgnore, decReject, decDone:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func text96D(d Dec96D) string {
+	switch d.tag {
+	case decEnter:
+		return "Enter{" + textStateD(d.next) + "}"
+	case decStay:
+		return "Stay{" + textStateD(d.next) + "}"
+	case decIgnore:
+		return "Ignore"
+	case decReject:
+		return "Reject"
+	case decDone:
+		return "Done{" + strconv.FormatInt(d.o0+d.o1+d.o2+d.o3+d.o4+d.o5+d.o6, 10) + "}"
+	}
+	panic("no variant")
+}
+
+func (d Dec96D) wellFormed() bool {
+	switch d.tag {
+	case decEnter, decStay:
+		return d.next.wellFormed() && d.o0 == 0 && d.o1 == 0 && d.o2 == 0 && d.o3 == 0 && d.o4 == 0 && d.o5 == 0 && d.o6 == 0
+	case decIgnore, decReject:
+		return d.next == StateD{} && d.o0 == 0 && d.o1 == 0 && d.o2 == 0 && d.o3 == 0 && d.o4 == 0 && d.o5 == 0 && d.o6 == 0
+	case decDone:
+		return d.next == StateD{}
+	}
+	return false
+}
+
+// ---- Option band: form C of Option[Word1] is 16 bytes ----
+
+type Word1 struct {
+	W0 int64
+}
+
+func words1(n int) []Word1 {
+	out := make([]Word1, n)
+	for i := range out {
+		out[i].W0 = int64(i)
+	}
+	return out
+}
+
+//go:noinline
+func optGet1A(xs []Word1, i int) OptionA[Word1] {
+	if i&1 == 0 {
+		return Some[Word1]{Value: xs[i&1023]}
+	}
+	return None{}
+}
+
+//go:noinline
+func optGet1C(xs []Word1, i int) OptionC[Word1] {
+	if i&1 == 0 {
+		return OptionC[Word1]{v: xs[i&1023], ok: true}
+	}
+	return OptionC[Word1]{}
+}
+
+func sumOpt1A(xs []Word1, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		switch o := optGet1A(xs, i).(type) {
+		case Some[Word1]:
+			t += o.Value.W0
+		case None:
+			t--
+		}
+	}
+	return t
+}
+
+func sumOpt1C(xs []Word1, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		if o := optGet1C(xs, i); o.ok {
+			t += o.v.W0
+		} else {
+			t--
+		}
+	}
+	return t
+}
+
+//go:noinline
+func optPass1A(o OptionA[Word1]) OptionA[Word1] { return o }
+
+//go:noinline
+func optPass1C(o OptionC[Word1]) OptionC[Word1] { return o }
+
+// ---- Option band: form C of Option[Word2] is 24 bytes ----
+
+type Word2 struct {
+	W0 int64
+	W1 int64
+}
+
+func words2(n int) []Word2 {
+	out := make([]Word2, n)
+	for i := range out {
+		out[i].W0 = int64(i)
+	}
+	return out
+}
+
+//go:noinline
+func optGet2A(xs []Word2, i int) OptionA[Word2] {
+	if i&1 == 0 {
+		return Some[Word2]{Value: xs[i&1023]}
+	}
+	return None{}
+}
+
+//go:noinline
+func optGet2C(xs []Word2, i int) OptionC[Word2] {
+	if i&1 == 0 {
+		return OptionC[Word2]{v: xs[i&1023], ok: true}
+	}
+	return OptionC[Word2]{}
+}
+
+func sumOpt2A(xs []Word2, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		switch o := optGet2A(xs, i).(type) {
+		case Some[Word2]:
+			t += o.Value.W0
+		case None:
+			t--
+		}
+	}
+	return t
+}
+
+func sumOpt2C(xs []Word2, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		if o := optGet2C(xs, i); o.ok {
+			t += o.v.W0
+		} else {
+			t--
+		}
+	}
+	return t
+}
+
+//go:noinline
+func optPass2A(o OptionA[Word2]) OptionA[Word2] { return o }
+
+//go:noinline
+func optPass2C(o OptionC[Word2]) OptionC[Word2] { return o }
+
+// ---- Option band: form C of Option[Word3] is 32 bytes ----
+
+type Word3 struct {
+	W0 int64
+	W1 int64
+	W2 int64
+}
+
+func words3(n int) []Word3 {
+	out := make([]Word3, n)
+	for i := range out {
+		out[i].W0 = int64(i)
+	}
+	return out
+}
+
+//go:noinline
+func optGet3A(xs []Word3, i int) OptionA[Word3] {
+	if i&1 == 0 {
+		return Some[Word3]{Value: xs[i&1023]}
+	}
+	return None{}
+}
+
+//go:noinline
+func optGet3C(xs []Word3, i int) OptionC[Word3] {
+	if i&1 == 0 {
+		return OptionC[Word3]{v: xs[i&1023], ok: true}
+	}
+	return OptionC[Word3]{}
+}
+
+func sumOpt3A(xs []Word3, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		switch o := optGet3A(xs, i).(type) {
+		case Some[Word3]:
+			t += o.Value.W0
+		case None:
+			t--
+		}
+	}
+	return t
+}
+
+func sumOpt3C(xs []Word3, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		if o := optGet3C(xs, i); o.ok {
+			t += o.v.W0
+		} else {
+			t--
+		}
+	}
+	return t
+}
+
+//go:noinline
+func optPass3A(o OptionA[Word3]) OptionA[Word3] { return o }
+
+//go:noinline
+func optPass3C(o OptionC[Word3]) OptionC[Word3] { return o }
+
+// ---- Option band: form C of Option[Word4] is 40 bytes ----
+
+type Word4 struct {
+	W0 int64
+	W1 int64
+	W2 int64
+	W3 int64
+}
+
+func words4(n int) []Word4 {
+	out := make([]Word4, n)
+	for i := range out {
+		out[i].W0 = int64(i)
+	}
+	return out
+}
+
+//go:noinline
+func optGet4A(xs []Word4, i int) OptionA[Word4] {
+	if i&1 == 0 {
+		return Some[Word4]{Value: xs[i&1023]}
+	}
+	return None{}
+}
+
+//go:noinline
+func optGet4C(xs []Word4, i int) OptionC[Word4] {
+	if i&1 == 0 {
+		return OptionC[Word4]{v: xs[i&1023], ok: true}
+	}
+	return OptionC[Word4]{}
+}
+
+func sumOpt4A(xs []Word4, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		switch o := optGet4A(xs, i).(type) {
+		case Some[Word4]:
+			t += o.Value.W0
+		case None:
+			t--
+		}
+	}
+	return t
+}
+
+func sumOpt4C(xs []Word4, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		if o := optGet4C(xs, i); o.ok {
+			t += o.v.W0
+		} else {
+			t--
+		}
+	}
+	return t
+}
+
+//go:noinline
+func optPass4A(o OptionA[Word4]) OptionA[Word4] { return o }
+
+//go:noinline
+func optPass4C(o OptionC[Word4]) OptionC[Word4] { return o }
+
+// ---- Option band: form C of Option[Word6] is 56 bytes ----
+
+type Word6 struct {
+	W0 int64
+	W1 int64
+	W2 int64
+	W3 int64
+	W4 int64
+	W5 int64
+}
+
+func words6(n int) []Word6 {
+	out := make([]Word6, n)
+	for i := range out {
+		out[i].W0 = int64(i)
+	}
+	return out
+}
+
+//go:noinline
+func optGet6A(xs []Word6, i int) OptionA[Word6] {
+	if i&1 == 0 {
+		return Some[Word6]{Value: xs[i&1023]}
+	}
+	return None{}
+}
+
+//go:noinline
+func optGet6C(xs []Word6, i int) OptionC[Word6] {
+	if i&1 == 0 {
+		return OptionC[Word6]{v: xs[i&1023], ok: true}
+	}
+	return OptionC[Word6]{}
+}
+
+func sumOpt6A(xs []Word6, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		switch o := optGet6A(xs, i).(type) {
+		case Some[Word6]:
+			t += o.Value.W0
+		case None:
+			t--
+		}
+	}
+	return t
+}
+
+func sumOpt6C(xs []Word6, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		if o := optGet6C(xs, i); o.ok {
+			t += o.v.W0
+		} else {
+			t--
+		}
+	}
+	return t
+}
+
+//go:noinline
+func optPass6A(o OptionA[Word6]) OptionA[Word6] { return o }
+
+//go:noinline
+func optPass6C(o OptionC[Word6]) OptionC[Word6] { return o }
+
+// ---- Option band: form C of Option[Word8] is 72 bytes ----
+
+type Word8 struct {
+	W0 int64
+	W1 int64
+	W2 int64
+	W3 int64
+	W4 int64
+	W5 int64
+	W6 int64
+	W7 int64
+}
+
+func words8(n int) []Word8 {
+	out := make([]Word8, n)
+	for i := range out {
+		out[i].W0 = int64(i)
+	}
+	return out
+}
+
+//go:noinline
+func optGet8A(xs []Word8, i int) OptionA[Word8] {
+	if i&1 == 0 {
+		return Some[Word8]{Value: xs[i&1023]}
+	}
+	return None{}
+}
+
+//go:noinline
+func optGet8C(xs []Word8, i int) OptionC[Word8] {
+	if i&1 == 0 {
+		return OptionC[Word8]{v: xs[i&1023], ok: true}
+	}
+	return OptionC[Word8]{}
+}
+
+func sumOpt8A(xs []Word8, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		switch o := optGet8A(xs, i).(type) {
+		case Some[Word8]:
+			t += o.Value.W0
+		case None:
+			t--
+		}
+	}
+	return t
+}
+
+func sumOpt8C(xs []Word8, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		if o := optGet8C(xs, i); o.ok {
+			t += o.v.W0
+		} else {
+			t--
+		}
+	}
+	return t
+}
+
+//go:noinline
+func optPass8A(o OptionA[Word8]) OptionA[Word8] { return o }
+
+//go:noinline
+func optPass8C(o OptionC[Word8]) OptionC[Word8] { return o }
+
+// ---- Option band: form C of Option[Word16] is 136 bytes ----
+
+type Word16 struct {
+	W0  int64
+	W1  int64
+	W2  int64
+	W3  int64
+	W4  int64
+	W5  int64
+	W6  int64
+	W7  int64
+	W8  int64
+	W9  int64
+	W10 int64
+	W11 int64
+	W12 int64
+	W13 int64
+	W14 int64
+	W15 int64
+}
+
+func words16(n int) []Word16 {
+	out := make([]Word16, n)
+	for i := range out {
+		out[i].W0 = int64(i)
+	}
+	return out
+}
+
+//go:noinline
+func optGet16A(xs []Word16, i int) OptionA[Word16] {
+	if i&1 == 0 {
+		return Some[Word16]{Value: xs[i&1023]}
+	}
+	return None{}
+}
+
+//go:noinline
+func optGet16C(xs []Word16, i int) OptionC[Word16] {
+	if i&1 == 0 {
+		return OptionC[Word16]{v: xs[i&1023], ok: true}
+	}
+	return OptionC[Word16]{}
+}
+
+func sumOpt16A(xs []Word16, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		switch o := optGet16A(xs, i).(type) {
+		case Some[Word16]:
+			t += o.Value.W0
+		case None:
+			t--
+		}
+	}
+	return t
+}
+
+func sumOpt16C(xs []Word16, n int) int64 {
+	t := int64(0)
+	for i := 0; i < n; i++ {
+		if o := optGet16C(xs, i); o.ok {
+			t += o.v.W0
+		} else {
+			t--
+		}
+	}
+	return t
+}
+
+//go:noinline
+func optPass16A(o OptionA[Word16]) OptionA[Word16] { return o }
+
+//go:noinline
+func optPass16C(o OptionC[Word16]) OptionC[Word16] { return o }

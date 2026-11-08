@@ -20,7 +20,9 @@ func fail(err error) { panic(err) }
 func Files() map[string][]byte {
 	b := dispatch()
 	copies(b)
-	out := map[string][]byte{"generated.go": gofmt(b)}
+	decisionBand(b)
+	optionBand(b)
+	out := map[string][]byte{"generated.go": gofmt(b), "generated_test.go": gofmt(generatedTest())}
 	for _, form := range []string{"a", "d", "e", "f"} {
 		out["size/"+form+"/main.go"] = gofmt(sizeProgram(form))
 	}
@@ -48,7 +50,7 @@ var products = [][2]int{{3, 4}, {6, 6}}
 
 func dispatch() *strings.Builder {
 	b := &strings.Builder{}
-	b.WriteString(header + "package unionreprbench\n\n")
+	b.WriteString(header + "package unionreprbench\n\nimport \"strconv\"\n\n")
 	for _, n := range singles {
 		u := fmt.Sprintf("U%d", n)
 		variant := func(k int) string { return fmt.Sprintf("%sV%d", u, k) }
@@ -191,8 +193,10 @@ func dispatch() *strings.Builder {
 	return b
 }
 
-// Payload sizes of question 5, in int64 words: 16, 32, 64 and 128 bytes.
-var copyWords = []int{2, 4, 8, 16}
+// Payload sizes of question 5, in int64 words: 16 to 128 bytes. Form D
+// adds the tag word, so its struct is 24, 32, 40, 56, 64, 72, 96 and 136
+// bytes (round 2 added 24, 48, 56 and 88 for the band of rule G).
+var copyWords = []int{2, 3, 4, 6, 7, 8, 11, 16}
 
 // copies writes question 5: a union Big{F [k]int64} | Small{} in forms A
 // and D, a pass (take and return the value) and a next (narrow, change one

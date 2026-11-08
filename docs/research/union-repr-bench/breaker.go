@@ -272,6 +272,109 @@ func textDecisionD(d DecisionD[StateD, string]) string {
 	panic("no variant")
 }
 
+// ---- Form M: State D boxed in an A Decision (the round-1 rule's pick) ----
+//
+// The round-1 rule put StateD (32 bytes) in D and kept
+// Decision[State, string] (56 bytes in D) in A. The round-1 verifier
+// measured it at +70% against A (round-1 findings, M2). Rule G (rule.go)
+// now keeps a union that an A union holds by value in A, so it picks form A
+// for every Breaker union.
+
+//go:noinline
+func stepM(s StateD, sig SignalD) DecisionA[StateD, string] {
+	switch s.tag {
+	case stateClosed:
+		switch sig.tag {
+		case signalFailure:
+			if s.failures >= 2 {
+				return Enter[StateD]{OpenD(Open{sig.endpoint})}
+			}
+			return Stay[StateD]{ClosedD(Closed{s.failures + 1})}
+		case signalRetry:
+			return Ignore{}
+		}
+	case stateOpen:
+		switch sig.tag {
+		case signalRetry:
+			return Enter[StateD]{ClosedD(Closed{0})}
+		case signalFailure:
+			return Done[string]{"open"}
+		}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func applyM(s StateD, d DecisionA[StateD, string]) StateD {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return v.Next
+	case Stay[StateD]:
+		return v.Next
+	case Ignore, Reject, Done[string]:
+		return s
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func textDecisionM(d DecisionA[StateD, string]) string {
+	switch v := d.(type) {
+	case Enter[StateD]:
+		return "Enter{" + textStateD(v.Next) + "}"
+	case Stay[StateD]:
+		return "Stay{" + textStateD(v.Next) + "}"
+	case Ignore:
+		return "Ignore"
+	case Reject:
+		return "Reject"
+	case Done[string]:
+		return "Done{" + v.Output + "}"
+	}
+	panic("no variant")
+}
+
+// ---- Form G: what rule G picks for Breaker (rule.go) ----
+//
+// Decision[State, string] is 56 bytes in D, above the bound, so it is A;
+// State is held by value in it (Enter.Next), so State is A too. Signal has
+// the option shape (Failure{Endpoint} | Retry{}), so it is C: 24 bytes,
+// and Retry is the zero value.
+
+type SignalC struct {
+	v  Failure
+	ok bool
+}
+
+//go:noinline
+func stepG(s StateA, sig SignalC) DecisionA[StateA, string] {
+	switch st := s.(type) {
+	case Closed:
+		if sig.ok {
+			if st.Failures >= 2 {
+				return Enter[StateA]{Open{sig.v.Endpoint}}
+			}
+			return Stay[StateA]{Closed{st.Failures + 1}}
+		}
+		return Ignore{}
+	case Open:
+		if !sig.ok {
+			return Enter[StateA]{Closed{0}}
+		}
+		return Done[string]{"open"}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func signalsC(raw []Failure) []SignalC {
+	out := make([]SignalC, len(raw))
+	for i, f := range raw {
+		if f.Endpoint != "" {
+			out[i] = SignalC{v: f, ok: true}
+		}
+	}
+	return out
+}
+
 // ---- Form E: tag + boxed payload ----
 
 type StateE struct {

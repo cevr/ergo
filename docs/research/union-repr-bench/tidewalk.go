@@ -3,8 +3,9 @@ package unionreprbench
 // A hand port of examples/tidewalk-replay/walk (machine.ergo, game.ergo,
 // events.ergo, moves.ergo, level.ergo). Form A follows the lowering's
 // output for that package (sealed interfaces; see the emitted main.go of
-// `ergo build -work`). Form G is the hybrid: Move is an enum (form B), and
-// Game, Event and Decision are flat slots (form D). Everything else (the
+// `ergo build -work`). Form Dall: Move is an enum (form B), and Game, Event
+// and Decision are flat slots (form D). Form G is what rule G (rule.go)
+// picks: Move B, Event D, Game and Decision A. Everything else (the
 // level, Walk, the slice of events, the string of shells) is the same Go in
 // both forms.
 
@@ -299,7 +300,11 @@ func playA(ms []MoveA, words []string) (GameA, []string) {
 	return g, words
 }
 
-// ---- Form G: Move is form B; Game, Event and Decision are form D ----
+// ---- Form Dall: Move is form B; Game, Event and Decision are form D ----
+//
+// Round 1 called this form G. Rule G does not pick it: Game (64 bytes) and
+// Decision[Game, string] (88 bytes) are above the D bound. Form G (the
+// rule's pick) is at the end of the file.
 
 // MoveB is an enum: every Move variant is empty.
 type MoveB uint8
@@ -453,7 +458,7 @@ func evolveD(g GameD, e EventD) GameD {
 }
 
 //go:noinline
-func tideStepG(g GameD, m MoveB) DecisionD[GameD, string] {
+func tideStepDall(g GameD, m MoveB) DecisionD[GameD, string] {
 	switch g.tag {
 	case gamePlaying:
 		if blocked(targetB(g.w.At, m)) {
@@ -471,7 +476,7 @@ func tideStepG(g GameD, m MoveB) DecisionD[GameD, string] {
 }
 
 //go:noinline
-func tideApplyG(g GameD, d DecisionD[GameD, string]) GameD {
+func tideApplyDall(g GameD, d DecisionD[GameD, string]) GameD {
 	switch d.tag {
 	case decEnter, decStay:
 		return d.next
@@ -528,17 +533,105 @@ func movesB(s string) []MoveB {
 	return out
 }
 
-func playG(ms []MoveB, words []string, check func(GameD, DecisionD[GameD, string])) (GameD, []string) {
+func playDall(ms []MoveB, words []string, check func(GameD, DecisionD[GameD, string])) (GameD, []string) {
 	g := startD()
 	for _, m := range ms {
-		d := tideStepG(g, m)
+		d := tideStepDall(g, m)
 		if check != nil {
 			check(g, d)
 		}
 		if words != nil {
 			words = append(words, tideWordD(d))
 		}
-		g = tideApplyG(g, d)
+		g = tideApplyDall(g, d)
+	}
+	return g, words
+}
+
+// ---- Form G: what rule G picks (rule.go, TestRuleGPicksBenchForms) ----
+//
+// Move is form B (all variants empty). Event is form D: tag, a Pos slot
+// and an int slot, 32 bytes, 3 fields. Game (64 bytes in D) and
+// Decision[Game, string] (88 bytes in D) are above the bound, so they stay
+// form A. Event and Move are not held in a field of an A union (an event
+// list is a slice), so the rule keeps them B and D.
+
+func decideG(g GameA, m MoveB) []EventD {
+	switch p := g.(type) {
+	case Playing:
+		return recordD(p.W, m)
+	case Won, Drowned:
+		return []EventD{}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func evolveWalkG(w Walk, e EventD) GameA {
+	switch e.tag {
+	case evWalked:
+		w.At, w.Turn = e.pos, w.Turn+1
+		return Playing{W: w}
+	case evWaited:
+		w.Turn++
+		return Playing{W: w}
+	case evShell:
+		k := e.pos.Y*len(ground[0]) + e.pos.X
+		w.Shells++
+		w.Left = w.Left[0:k] + "." + w.Left[k+1:]
+		return Playing{W: w}
+	case evTide:
+		w.Tide = e.tide
+		return Playing{W: w}
+	case evDrowned:
+		return Drowned{W: w}
+	case evPeak:
+		return Won{W: w}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+func evolveG(g GameA, e EventD) GameA {
+	switch p := g.(type) {
+	case Playing:
+		return evolveWalkG(p.W, e)
+	case Won, Drowned:
+		return g
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+//go:noinline
+func tideStepG(g GameA, m MoveB) DecisionA[GameA, string] {
+	switch p := g.(type) {
+	case Playing:
+		if blocked(targetB(p.W.At, m)) {
+			return Reject{}
+		}
+		next := g
+		for _, e := range decideG(g, m) {
+			next = evolveG(next, e)
+		}
+		return Enter[GameA]{Next: next}
+	case Won, Drowned:
+		return Ignore{}
+	}
+	panic("ergo: defect: no case of the match matched")
+}
+
+// playG applies with tideApplyA: Game and Decision are form A in form G.
+func playG(ms []MoveB, words []string, check func(EventD)) (GameA, []string) {
+	g := startA()
+	for _, m := range ms {
+		d := tideStepG(g, m)
+		if check != nil {
+			for _, e := range decideG(g, m) {
+				check(e)
+			}
+		}
+		if words != nil {
+			words = append(words, tideWordA(d))
+		}
+		g = tideApplyA(g, d)
 	}
 	return g, words
 }

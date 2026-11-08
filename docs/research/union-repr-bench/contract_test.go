@@ -2,6 +2,7 @@ package unionreprbench
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -59,6 +60,8 @@ func TestBreakerFormsAgree(t *testing.T) {
 			got := map[string]string{
 				"D":  textDecisionD(d),
 				"Dx": textDecisionD(dx),
+				"M":  textDecisionM(stepM(s.d, sd[i])),
+				"G":  textDecisionA(stepG(s.a, signalsC(raws)[i])),
 				"E":  textDecisionE(stepE(s.e, se[i])),
 				"F":  textDecisionF(stepF(s.f, sf[i])),
 			}
@@ -83,22 +86,61 @@ func TestBreakerRunsAgree(t *testing.T) {
 		raw := breakerSignals(4096, seed)
 		sa, sd, se, sf := signalsA(raw), signalsD(raw), signalsE(raw), signalsF(raw)
 		var a StateA = Closed{}
-		d, dx, e := ClosedD(Closed{}), ClosedD(Closed{}), StateE{stateClosed, Closed{}}
+		d, dx, m, e := ClosedD(Closed{}), ClosedD(Closed{}), ClosedD(Closed{}), StateE{stateClosed, Closed{}}
 		var f StateF = Closed{}
+		var g StateA = Closed{}
+		sc := signalsC(raw)
 		for i := range raw {
 			da := stepA(a, sa[i])
 			want := textDecisionA(da)
 			ddd, ddx := stepD(d, sd[i]), stepDx(dx, sd[i])
 			de, df := stepE(e, se[i]), stepF(f, sf[i])
-			for form, got := range map[string]string{"D": textDecisionD(ddd), "Dx": textDecisionD(ddx), "E": textDecisionE(de), "F": textDecisionF(df)} {
+			dm, dg := stepM(m, sd[i]), stepG(g, sc[i])
+			for form, got := range map[string]string{"D": textDecisionD(ddd), "Dx": textDecisionD(ddx), "M": textDecisionM(dm), "G": textDecisionA(dg), "E": textDecisionE(de), "F": textDecisionF(df)} {
 				if got != want {
 					t.Fatalf("seed %d signal %d form %s: %s, want %s", seed, i, form, got, want)
 				}
 			}
-			a, d, dx, e, f = applyA(a, da), applyD(d, ddd), applyD(dx, ddx), applyE(e, de), applyF(f, df)
+			a, d, dx, e, f, m, g = applyA(a, da), applyD(d, ddd), applyD(dx, ddx), applyE(e, de), applyF(f, df), applyM(m, dm), applyA(g, dg)
 			if !d.wellFormed() || !dx.wellFormed() {
 				t.Fatalf("seed %d signal %d: form D state is not well formed", seed, i)
 			}
+		}
+	}
+}
+
+// TestCounterFormsAgree: every state × signal, then seeded runs, give the
+// same decisions in forms A and G, and every form G value is well formed.
+func TestCounterFormsAgree(t *testing.T) {
+	statesA := []CStateA{Idle{}, Counting{0}, Counting{1}, Counting{300}}
+	statesD := []CStateC{{}, {ok: true}, {v: Counting{1}, ok: true}, {v: Counting{300}, ok: true}}
+	sigs := []CSignalB{cTick, cReset, cRead}
+	sigsA := counterSignalsA(sigs)
+	for i := range statesA {
+		for j := range sigs {
+			want := textCDecisionA(stepCA(statesA[i], sigsA[j]))
+			d := stepCG(statesD[i], sigs[j])
+			if got := textCDecisionD(d); got != want || !d.wellFormed() {
+				t.Fatalf("step(%s, %d) form G %s (well formed %v), want %s", textCStateA(statesA[i]), sigs[j], got, d.wellFormed(), want)
+			}
+		}
+	}
+	for _, seed := range []uint64{1, 2, 3} {
+		raw := counterSignals(4096, seed)
+		in := counterSignalsA(raw)
+		var a CStateA = Idle{}
+		g := CStateC{}
+		high := false
+		for i := range raw {
+			da, dg := stepCA(a, in[i]), stepCG(g, raw[i])
+			if textCDecisionA(da) != textCDecisionD(dg) || !dg.wellFormed() {
+				t.Fatalf("seed %d signal %d: form G %s, want %s", seed, i, textCDecisionD(dg), textCDecisionA(da))
+			}
+			a, g = applyCA(a, da), applyCG(g, dg)
+			high = high || g.v.N > 255
+		}
+		if !high {
+			t.Fatalf("seed %d: the count never passes 255; form A's static boxes hide the allocation", seed)
 		}
 	}
 }
@@ -111,7 +153,18 @@ func TestTidewalkFormsAgree(t *testing.T) {
 	enters := 0
 	for _, s := range lists {
 		ga, wa := playA(movesA(s), []string{})
-		gd, wd := playG(movesB(s), []string{}, func(g GameD, d DecisionD[GameD, string]) {
+		gg, wg := playG(movesB(s), []string{}, func(e EventD) {
+			if !e.wellFormed() {
+				t.Fatalf("%s: form G event is not well formed: %+v", s, e)
+			}
+		})
+		if !reflect.DeepEqual(wa, wg) {
+			t.Fatalf("%s: decisions %v, form G %v", s, wa, wg)
+		}
+		if wantW, wantS := walkOfA(ga); fmt.Sprint(walkOfA(gg)) != fmt.Sprint(wantW, wantS) {
+			t.Fatalf("%s: last state %s %+v, form G %v", s, wantS, wantW, fmt.Sprint(walkOfA(gg)))
+		}
+		gd, wd := playDall(movesB(s), []string{}, func(g GameD, d DecisionD[GameD, string]) {
 			if !g.wellFormed() || !d.wellFormedWith(GameD.wellFormed) {
 				t.Fatalf("%s: form D value is not well formed: %+v %+v", s, g, d)
 			}
@@ -122,12 +175,12 @@ func TestTidewalkFormsAgree(t *testing.T) {
 			}
 		})
 		if !reflect.DeepEqual(wa, wd) {
-			t.Fatalf("%s: decisions %v, form G %v", s, wa, wd)
+			t.Fatalf("%s: decisions %v, form Dall %v", s, wa, wd)
 		}
 		walkA, statusA := walkOfA(ga)
 		walkD, statusD := walkOfD(gd)
 		if walkA != walkD || statusA != statusD {
-			t.Fatalf("%s: last state %s %+v, form G %s %+v", s, statusA, walkA, statusD, walkD)
+			t.Fatalf("%s: last state %s %+v, form Dall %s %+v", s, statusA, walkA, statusD, walkD)
 		}
 		for _, w := range wa {
 			if w == "enter" {
@@ -207,20 +260,6 @@ func TestDispatchFormsAgree(t *testing.T) {
 		check("6x6 Dx", want, collect(1024, func(i int) int { return dispatchP6x6Dx(in[i].aD, in[i].bD) }))
 		check("6x6 E", want, collect(1024, func(i int) int { return dispatchP6x6E(in[i].aE, in[i].bE) }))
 		check("6x6 F", want, collect(1024, func(i int) int { return dispatchP6x6F(in[i].aF, in[i].bF) }))
-	}
-}
-
-func TestCopyFormsAgree(t *testing.T) {
-	var a16, a32, a64, a128 = Copy16A(Small16{}), Copy32A(Small32{}), Copy64A(Small64{}), Copy128A(Small128{})
-	d16, d32, d64, d128 := Copy16D{tag: 2}, Copy32D{tag: 2}, Copy64D{tag: 2}, Copy128D{tag: 2}
-	for i := 0; i < 100; i++ {
-		a16, a32, a64, a128 = pass16A(next16A(a16)), pass32A(next32A(a32)), pass64A(next64A(a64)), pass128A(next128A(a128))
-		d16, d32, d64, d128 = pass16D(next16D(d16)), pass32D(next32D(d32)), pass64D(next64D(d64)), pass128D(next128D(d128))
-	}
-	got := []int64{firstWord16D(d16), firstWord32D(d32), firstWord64D(d64), firstWord128D(d128)}
-	want := []int64{firstWord16A(a16), firstWord32A(a32), firstWord64A(a64), firstWord128A(a128)}
-	if !reflect.DeepEqual(got, want) || want[0] != 100 {
-		t.Fatalf("form D %v, form A %v", got, want)
 	}
 }
 
