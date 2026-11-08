@@ -1246,9 +1246,19 @@ func (p *parser) parseType(ctx typeCtx) Expr {
 		t.Rparen = p.want(RPAREN)
 		return t
 	}
+	if p.tok.tok == NEEDS {
+		// A parameter or field named needs: the word is reserved (K4,
+		// G-ex-d-12), as Go says "unexpected keyword range, expected name".
+		p.errorf("expected a type, found \"needs\": %s", needsKeywordText)
+		return nil
+	}
 	p.errorf("expected a type, found %s", p.found())
 	return nil
 }
+
+// needsKeywordText ends the S001 at a binder spelled needs (K4,
+// G-ex-d-12): the word is reserved.
+const needsKeywordText = "needs is a keyword (the capability row) and is not a name; choose another name"
 
 func (p *parser) parseFuncType(ctx typeCtx) *FuncType {
 	pos := p.want(FUNC)

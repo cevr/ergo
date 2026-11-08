@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -17,6 +18,21 @@ import (
 // p3Text is the P3 message (check-v1 spec add-on), quoted exactly.
 const p3Text = "an extern function is called directly; wrap it in a literal: func() { f() }"
 
+// p3Named is the P3 message that names the extern and the literal to pass
+// (K4, G-ex-f-3): "Upper is an extern and is not a value; pass
+// func(s string) string { Upper(s) } (grammar.md, Extern)".
+var p3Named = regexp.MustCompile(`^([\w.]+) is an extern and is not a value; pass func\([^{]*\)[^{]* \{ ([\w.]+)\([\w, ]*\) \} \(grammar\.md, Extern\)$`)
+
+// isP3 reports the P3 message in either form: the named form when the
+// extern's literal can be spelled, the plain text otherwise.
+func isP3(msg string) bool {
+	if msg == p3Text {
+		return true
+	}
+	m := p3Named.FindStringSubmatch(msg)
+	return m != nil && m[1] == m[2]
+}
+
 // judgeWant checks src as accept leg 2 judges a rule: exactly its
 // `// want CODE` lines, one diagnostic per code on its line, and no cascade.
 // In these programs every S108 is the P3 refusal, so each carries the P3
@@ -29,7 +45,7 @@ func judgeWant(t *testing.T, src string) []check.Diagnostic {
 		t.Errorf("want %v, got %v\n\t%s", want, have, describe(diags))
 	}
 	for _, d := range diags {
-		if d.Code == "S108" && d.Message != p3Text {
+		if d.Code == "S108" && !isP3(d.Message) {
 			t.Errorf("%s: want the P3 message", d)
 		}
 	}

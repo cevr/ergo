@@ -407,7 +407,7 @@ func contextKey(b Bad) string needs Log { Log.Say("k"); b.K }
 func contextText(b Bad) string { b.K }
 func bad() Bad { Bad{K: "k"} }
 func f() int needs Log { with bad() { 1 } }
-`, "S108", "requires {main.Log}"},
+`, "S108", "requires {Log}"},
 		{"text can fail", `type Fault {}
 type Bad { K string }
 func contextKey(b Bad) string { b.K }

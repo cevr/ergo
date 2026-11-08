@@ -85,6 +85,12 @@ type sink struct {
 	// hint is an optional body's expected type: the type a literal tail
 	// takes, never a type the branches must have (M16).
 	hint Type
+	// noValue is the tail with no value that the path missing reports
+	// ends in, while missing runs: a call that returns nothing.
+	noValue syntax.Expr
+	// joins: the branches of a value if or match, which join variants of
+	// one union to it when there is no expected type (unionJoin).
+	joins bool
 	// valued: some branch yielded a value.
 	valued bool
 	// bad: a branch's value was invalid and already reported (D3).
@@ -234,7 +240,7 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 		c.handled(&op)
 	}
 	if k.ret && op.mode == modeValue {
-		if row := c.errorValueRow(op.typ); row != nil {
+		if row := c.returnedErrorRow(op.typ); row != nil {
 			// A failure, as return e is (rows.md, Error rows 4): this path
 			// has no value.
 			c.escape(last.X, row)
@@ -256,7 +262,9 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 			// Its failures pass on from this tail (k.pass).
 			c.tail(last, NoValue)
 		}
+		k.noValue = last.X
 		k.miss(end)
+		k.noValue = nil
 		return
 	}
 	switch t := k.typ(); {
@@ -273,6 +281,14 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 		}
 		k.join = t
 	default:
+		if a, _ := c.assignability(op.typ, t); k.joins && k.want == nil && !a.ok() {
+			// Variants of one union join to it (K3; rows.md, Totality
+			// 3): the earlier branches' values go into it as variants, a
+			// conversion the lowering does not write (ConvVariant).
+			if u := c.unionJoin(t, op.typ); u != nil {
+				k.join, t = u, u
+			}
+		}
 		if !c.assign(&op, t, k.what) {
 			k.bad = true
 			return
@@ -348,7 +364,7 @@ func (c *checker) branches(x syntax.Expr, hint Type) operand {
 	// A fallible branch tail passes its failures to the expression, as a
 	// with block's does: an enclosing catch or try handles them (review O2).
 	var errs *Row
-	k := &sink{want: hint, what: "the branch's value", pass: func(op *operand) {
+	k := &sink{want: hint, joins: true, what: "the branch's value", pass: func(op *operand) {
 		errs = errs.union(c.types, op.errs)
 	}}
 	k.missing = func(end syntax.Pos) {

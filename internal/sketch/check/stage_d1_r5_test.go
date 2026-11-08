@@ -62,11 +62,11 @@ func TestOnlyTheRefusedRowIsUnknown(t *testing.T) {
 	}
 	runD1(t, cases)
 	wantMessages(t, cases[0].name, cases[0].src,
-		"main.Other is not in the caught row {main.Bang}",
-		"{main.Bang} escapes function G",
+		"Other is not in the caught row {Bang}",
+		"{Bang} escapes function G",
 		"try over a catch that handles every failure")
 	wantMessages(t, cases[1].name, cases[1].src, "try on an expression that cannot fail")
-	wantMessages(t, cases[3].name, cases[3].src, "requires main.Cap, which is not in the capability row of function G")
+	wantMessages(t, cases[3].name, cases[3].src, "requires Cap, which is not in the capability row of function G")
 }
 
 // targetDecls refuses a for its error row (line 3) and w for its
@@ -154,8 +154,8 @@ func TestUnknownRowOnTheReceivingSide(t *testing.T) {
 		}
 	}
 	// The reviewer's probes (p03, p07, p16): the known Q is named.
-	wantMessages(t, "p07", targetDecls+"func F(c bool) int { (if c { a } else { q })(1) }\n", "{main.Q} escapes function F, whose error row {} does not list it")
-	wantMessages(t, "p03", targetDecls+"func F(c bool) int fails Bang { try (if c { a } else { q })(1) }\n", "{main.Q} escapes function F, whose error row {main.Bang} does not list it")
+	wantMessages(t, "p07", targetDecls+"func F(c bool) int { (if c { a } else { q })(1) }\n", "{Q} escapes function F, whose error row {} does not list it")
+	wantMessages(t, "p03", targetDecls+"func F(c bool) int fails Bang { try (if c { a } else { q })(1) }\n", "{Q} escapes function F, whose error row {Bang} does not list it")
 	runD1(t, []d1Case{
 		{"p16-contextual", targetDecls + "func F() int { let mut g = a; g = func(n int) int { try q(n) }; g(1) }\n", []string{"S108:3", "S108:6"}},
 		{"p16-generic-try", targetDecls + "func H() int fails Q { try pick(a, q)(1) }\n", []string{"S108:3", "S108:6"}},

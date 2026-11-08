@@ -36,6 +36,43 @@ import (
 // exactly.
 const externCallOnlyText = "an extern function is called directly; wrap it in a literal: func() { f() }"
 
+// externValueText is the P3 message at an extern used as a value, an
+// argument or a let's value (K4, G-ex-f-3): it names the extern and the
+// literal to pass, its parameters and results written out, so
+// apply(strings.ToUpper, "a") reads "strings.ToUpper is an extern and is
+// not a value; pass func(s string) string { strings.ToUpper(s) }". A
+// reference it cannot spell (a generic extern, several results) keeps
+// externCallOnlyText.
+func externValueText(op operand) string {
+	sig, _ := op.typ.(*Signature)
+	name := exprText(op.expr)
+	if sig == nil || name == "this expression" || len(sig.Results) > 1 || len(sig.TParams) > 0 {
+		// A generic extern's literal would name its type parameters,
+		// which the caller instantiates: the plain P3 text.
+		return externCallOnlyText
+	}
+	var params, args []string
+	for i, p := range sig.Params {
+		n := p.Name
+		if n == "" || n == "_" {
+			n = fmt.Sprintf("p%d", i)
+		}
+		params = append(params, n+" "+p.Type.String())
+		args = append(args, n)
+	}
+	lit := "func(" + strings.Join(params, ", ") + ")"
+	if len(sig.Results) == 1 {
+		lit += " " + sig.Results[0].String()
+	}
+	if errs := sig.Errors.String(); errs != "" {
+		lit += " fails " + errs
+	}
+	if uses := sig.Uses.String(); uses != "" {
+		lit += " " + requirementKeyword + " " + uses
+	}
+	return fmt.Sprintf("%s is an extern and is not a value; pass %s { %s(%s) } (grammar.md, Extern)", name, lit, name, strings.Join(args, ", "))
+}
+
 // isExtern reports an extern go function, in any package.
 func isExtern(f *Func) bool {
 	return f != nil && f.Decl != nil && f.Decl.Extern != nil

@@ -84,6 +84,10 @@ type Var struct {
 	// mut` name, the only kind an assignment may target (D-D1). reassigned
 	// records an assignment rooted at a mut name (Q3).
 	let, mut, reassigned bool
+	// byValue is the value of a single-name `let mut` with no written
+	// type, which gave the name its type: an assignment of another variant
+	// of a union names the let to write (K3; assignStmt).
+	byValue syntax.Expr
 	// undiagnosed: a local bound to a value typing treats as invalid with no
 	// diagnostic of its own (provisional.go).
 	undiagnosed bool

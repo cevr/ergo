@@ -126,7 +126,7 @@ func TestExternCallOnlyDomain(t *testing.T) {
 					_, diags := check.CheckSource(src)
 					p3 := 0
 					for _, d := range diags {
-						if d.Message == p3Text {
+						if isP3(d.Message) {
 							p3++
 						}
 					}
@@ -134,7 +134,7 @@ func TestExternCallOnlyDomain(t *testing.T) {
 					case s.callee && p3 != 0:
 						t.Errorf("a direct call got the P3 message\n%s\n\t%s", src, describe(diags))
 					case !s.callee:
-						if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Message != p3Text ||
+						if len(diags) != 1 || diags[0].Code != "S108" || !isP3(diags[0].Message) ||
 							diags[0].Offset < start || diags[0].Offset >= end {
 							t.Errorf("want exactly one P3 S108 at bytes %d-%d\n%s\n\t%s", start, end, src, describe(diags))
 						}
@@ -142,7 +142,7 @@ func TestExternCallOnlyDomain(t *testing.T) {
 					ctlSrc, _, _ := externProgram(f, s, ctl, f.ctlDecl)
 					_, ctlDiags := check.CheckSource(ctlSrc)
 					for _, d := range ctlDiags {
-						if d.Message == p3Text {
+						if isP3(d.Message) {
 							t.Errorf("the control got the P3 message\n%s\n\t%s", ctlSrc, describe(ctlDiags))
 						}
 					}

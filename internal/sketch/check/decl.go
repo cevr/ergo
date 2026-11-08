@@ -25,7 +25,13 @@ func (c *checker) run(files []*syntax.File) *Package {
 	// package (grammar.md, Old spellings), so the name is the last element
 	// of the import path.
 	c.pkg.Name = path.Base(c.pkg.Path)
-	c.pkg.qualify = true
+	// While the package is checked, its diagnostics name its own types
+	// bare, as its source writes them (Broken, not main.Broken); another
+	// package's types keep their package name (a.Broken), which resolves
+	// through the import (K4; diagnostics.md, Type names). Once checked,
+	// the package's types print qualified for every later reader.
+	c.pkg.qualify = false
+	defer func() { c.pkg.qualify = true }()
 	// Each pass starts with no file selected: a pass selects the file of
 	// what it inspects before it reports, and one that does not reports
 	// with no file and stops at the ownership assertion (owner.go) in a
@@ -1190,6 +1196,14 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 	case *PkgName:
 		c.errorf(x, CodeType, "package %s is not a type", x.Name)
 		return invalid
+	case *Method:
+		// A member law's operation scope holds the operations (laws.go):
+		// an operation named like a type of the package hides the type
+		// there (K4, G-ex-b-13).
+		if tn, ok := c.pkg.Scope.names[x.Name].(*TypeName); ok && c.fn != nil && c.fn.law != nil && c.fn.law.Owner != nil {
+			c.errorf(x, CodeType, "%s is the operation %s.%s here, which hides the type %s in the law; rename the operation or the type (types.md, Laws)", x.Name, c.fn.law.Owner.Name, x.Name, tn.Name)
+			return invalid
+		}
 	}
 	c.errorf(x, CodeType, "%s is not a type", x.Name)
 	return invalid
@@ -1852,7 +1866,12 @@ func (c *checker) collectSelfFuncs() {
 		}
 		for _, g := range f.same {
 			c.cur = g.file
-			c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package", g.Name)
+			if g.Name == "main" {
+				// main is never a member (types.md, Methods 3).
+				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package", g.Name)
+			} else {
+				c.errorf(g.Decl.Name, CodeType, "%s is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)", g.Name)
+			}
 			g.owner, g.selfArgs, g.Ptr = nil, nil, false
 		}
 	}

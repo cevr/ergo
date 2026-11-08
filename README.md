@@ -210,7 +210,7 @@ An agent reads the same checked model as the compiler. A signature tells it what
 
 ```console
 $ ergo diagnostics pay.ergo
-pay.ergo:19:9: error S102: this call requires main.Gateway, which is not in the capability row of function pay and no with provides it
+pay.ergo:19:9: error S102: this call requires Gateway, which is not in the capability row of function pay and no with provides it
 ```
 
 One formatter gives one layout, so edits make small, stable diffs. `ergo inspect` is designed to answer questions about a definition (its failures, its needs, its calls and a machine's graph) as JSON, and MCP will serve the same model.

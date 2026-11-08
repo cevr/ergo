@@ -468,6 +468,16 @@ func (fc *funcCtx) ret(s *syntax.ReturnStmt) {
 	fc.retExpr(s.Results[0])
 }
 
+// returnsErrorType reports a value of the frame's declared result type
+// when that type is an error type: the success value, not a failure, as
+// the checker decides (check returnedErrorRow; K1, rows.md Error rows 4).
+// Identity is the types' text, which names a named type's origin and
+// arguments.
+func (fc *funcCtx) returnsErrorType(x syntax.Expr) bool {
+	r := fc.frame.result
+	return r != nil && fc.l.isErrorValue(r, fc.l.pkg.OwnerOf(x)) && fc.typeOf(x).String() == r.String()
+}
+
 // retExpr is shared by explicit return and a checked function-body tail.
 // The source expression is retained so calls and directives keep their site.
 func (fc *funcCtx) retExpr(x syntax.Expr) {
@@ -475,7 +485,7 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 	// Whether the value is a failure is decided by the returning body's
 	// own view (owners.go): a type only a test's row names is a value in
 	// a production body, in the test build too.
-	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) {
+	if !fc.fallibleExpr(x) && fc.l.isErrorValue(fc.typeOf(x), fc.l.pkg.OwnerOf(x)) && !fc.returnsErrorType(x) {
 		fc.fail(fc.value(x))
 		return
 	}

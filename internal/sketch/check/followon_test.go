@@ -69,9 +69,9 @@ func w() {
 const armLines = "\tcase H as h:\n\t\th.keep(func() { walk() })\n"
 
 const (
-	armError13 = "13:7 S108 generic type main.H needs type arguments"
-	armError12 = "12:7 S108 generic type main.H needs type arguments"
-	armError11 = "11:7 S108 generic type main.H needs type arguments"
+	armError13 = "13:7 S108 generic type H needs type arguments"
+	armError12 = "12:7 S108 generic type H needs type arguments"
+	armError11 = "11:7 S108 generic type H needs type arguments"
 )
 
 type followOnRow struct {
@@ -129,10 +129,10 @@ func main() {}
 `,
 		want: []string{
 			armError11,
-			"20:6 S103 this catch does not handle {main.G[int]}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"21:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
+			"20:6 S103 this catch does not handle {G[int]}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"21:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
 		},
-		followOn: []string{"21:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)"},
+		followOn: []string{"21:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)"},
 	},
 	{
 		name: "p2: a reader in another component misses another callee's element",
@@ -150,10 +150,10 @@ func main() {}
 `,
 		want: []string{
 			armError13,
-			"26:9 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
+			"26:9 S103 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"28:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"28:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)"},
 	},
 	{
 		name: "p3: the same through a generic reader",
@@ -171,10 +171,10 @@ func main() {}
 `,
 		want: []string{
 			armError13,
-			"26:9 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
+			"26:9 S103 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"28:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"28:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)"},
 	},
 	{
 		name: "p4: a local function literal reads the pinned row",
@@ -192,10 +192,10 @@ func main() {}
 `,
 		want: []string{
 			armError13,
-			"26:6 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
+			"26:6 S103 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"28:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"28:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"28:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)"},
 	},
 	{
 		name: "p5: a local and a package let bound to the pinned function",
@@ -233,12 +233,12 @@ func main() {}
 `,
 		want: []string{
 			armError11,
-			"24:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
-			"28:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
+			"24:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
+			"28:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
 		},
 		followOn: []string{
-			"24:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
-			"28:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
+			"24:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
+			"28:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
 		},
 	},
 	{
@@ -258,13 +258,13 @@ func main() {
 `,
 		want: []string{
 			armError13,
-			"24:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
-			"29:6 S103 this catch does not handle {main.G[int]}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"30:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
+			"24:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
+			"29:6 S103 this catch does not handle {G[int]}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"30:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
 		},
 		followOn: []string{
-			"24:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
-			"30:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
+			"24:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
+			"30:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
 		},
 	},
 	{
@@ -295,14 +295,14 @@ func main() {}
 `,
 		want: []string{
 			armError13,
-			"22:7 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"24:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
+			"22:7 S103 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"24:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)",
 			"30:2 S108 try on an expression that cannot fail (rows.md, Error rows 6)",
 			"34:2 S108 try on an expression that cannot fail (rows.md, Error rows 6)",
-			"37:7 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"38:7 S108 main.E is not in the caught row {main.Q} (rows.md, Catch 2)",
+			"37:7 S103 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"38:7 S108 E is not in the caught row {Q} (rows.md, Catch 2)",
 		},
-		followOn: []string{"24:7 S108 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)"},
+		followOn: []string{"24:7 S108 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)"},
 	},
 	{
 		// walk's S108 is kept (its capability row); Q from quit is really
@@ -342,7 +342,7 @@ func main() {}
 `,
 		want: []string{
 			"7:6 S108 walk is used as a value through the function literal at 11:10 inside its own recursive group; write its capability row: func walk() needs …",
-			"9:6 S103 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"9:6 S103 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
 		},
 	},
 	{
@@ -431,12 +431,12 @@ func main() {}
 		want: []string{
 			armError12,
 			"15:2 S108 catch on an expression that cannot fail (rows.md, Catch 1)",
-			"17:7 S108 main.Q is caught twice (rows.md, Catch 2)",
+			"17:7 S108 Q is caught twice (rows.md, Catch 2)",
 		},
 		followOn: []string{"15:2 S108 catch on an expression that cannot fail (rows.md, Catch 1)"},
 		hidden: []string{
-			"13:7 S103 this catch does not handle {main.E}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"14:7 S108 main.Q is not in the caught row {main.E} (rows.md, Catch 2)",
+			"13:7 S103 this catch does not handle {E}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"14:7 S108 Q is not in the caught row {E} (rows.md, Catch 2)",
 		},
 	},
 	{
@@ -477,11 +477,11 @@ func main() {}
 		// row and stays.
 		want: []string{
 			armError12,
-			"26:7 S108 main.Q is caught twice (rows.md, Catch 2)",
+			"26:7 S108 Q is caught twice (rows.md, Catch 2)",
 		},
 		hidden: []string{
-			"22:7 S103 this catch does not handle {main.E}; a catch without try handles every error of the row (rows.md, Catch 4)",
-			"23:7 S108 main.Q is not in the caught row {main.E} (rows.md, Catch 2)",
+			"22:7 S103 this catch does not handle {E}; a catch without try handles every error of the row (rows.md, Catch 4)",
+			"23:7 S108 Q is not in the caught row {E} (rows.md, Catch 2)",
 		},
 		unknown: []int{24},
 	},
@@ -521,8 +521,8 @@ func main() {}
 `,
 		want: []string{
 			armError12,
-			"17:7 S108 main.Q is not in the caught row {main.E} (rows.md, Catch 2)",
-			"18:7 S108 main.Q is caught twice (rows.md, Catch 2)",
+			"17:7 S108 Q is not in the caught row {E} (rows.md, Catch 2)",
+			"18:7 S108 Q is caught twice (rows.md, Catch 2)",
 		},
 	},
 	{
@@ -559,16 +559,16 @@ func outer() {
 }
 func main() {}
 `,
-		// w2 reads the refused member walk, so its row {main.E} also
+		// w2 reads the refused member walk, so its row {E} also
 		// holds invalid (stage D1 round 4): whether Q is in it is
 		// unknown, so Catch 2's row half is silent. The duplicate arm
 		// holds for every row and stays.
 		want: []string{
 			armError12,
-			"28:7 S108 main.Q is caught twice (rows.md, Catch 2)",
+			"28:7 S108 Q is caught twice (rows.md, Catch 2)",
 		},
 		hidden: []string{
-			"25:7 S108 main.Q is not in the caught row {main.E} (rows.md, Catch 2)",
+			"25:7 S108 Q is not in the caught row {E} (rows.md, Catch 2)",
 		},
 		unknown: []int{25},
 	},
@@ -660,7 +660,7 @@ func main() {}
 			"25:6 S108 catch on an expression that cannot fail (rows.md, Catch 1)",
 			"30:2 S108 try on an expression that cannot fail (rows.md, Error rows 6)",
 		},
-		hidden: []string{"24:7 S108 main.Q is not in the caught row {main.E} (rows.md, Catch 2)"},
+		hidden: []string{"24:7 S108 Q is not in the caught row {E} (rows.md, Catch 2)"},
 	},
 	{
 		// A bare generic arm on w2's row, which reads the refused member:
@@ -733,7 +733,7 @@ func main() {}
 `,
 		want: []string{
 			"7:6 S108 catch on an expression that cannot fail (rows.md, Catch 1)",
-			"8:7 S108 generic type main.H needs type arguments",
+			"8:7 S108 generic type H needs type arguments",
 			"13:16 S108 try on an expression that cannot fail (rows.md, Error rows 6)",
 		},
 		followOn: []string{
@@ -771,8 +771,8 @@ func main() {}
 `,
 		want: []string{
 			"7:6 S108 walk is used as a value through the function literal at 11:10 inside its own recursive group; write its error row: func walk() fails …",
-			"12:7 S108 main.Q is not in the caught row {main.G[int]} (rows.md, Catch 2)",
-			"19:7 S108 main.Q is not in the caught row {main.G[int]} (rows.md, Catch 2)",
+			"12:7 S108 Q is not in the caught row {G[int]} (rows.md, Catch 2)",
+			"19:7 S108 Q is not in the caught row {G[int]} (rows.md, Catch 2)",
 		},
 	},
 }
@@ -977,7 +977,7 @@ func main() {
 }
 `, []string{
 			"4:2 S108 catch on an expression that cannot fail (rows.md, Catch 1)",
-			"6:7 S108 main.Q is caught twice (rows.md, Catch 2)",
+			"6:7 S108 Q is caught twice (rows.md, Catch 2)",
 		}},
 		{"beside a type the row lacks", `type E {}
 type Q {}
@@ -990,8 +990,8 @@ func main() {
 	}
 }
 `, []string{
-			"7:7 S108 main.Q is not in the caught row {main.E} (rows.md, Catch 2)",
-			"8:7 S108 main.Q is caught twice (rows.md, Catch 2)",
+			"7:7 S108 Q is not in the caught row {E} (rows.md, Catch 2)",
+			"8:7 S108 Q is caught twice (rows.md, Catch 2)",
 		}},
 		{"in the row", `type E {}
 func f() fails E { return E }
@@ -1001,7 +1001,7 @@ func main() {
 	case E:
 	}
 }
-`, []string{"6:7 S108 main.E is caught twice (rows.md, Catch 2)"}},
+`, []string{"6:7 S108 E is caught twice (rows.md, Catch 2)"}},
 		// The round 14 review's probe r2 (mutant DUP3): the caught
 		// expression is invalid, and the duplicate is still reported.
 		{"on an invalid caught expression", `type Q {}
@@ -1013,7 +1013,7 @@ func main() {
 }
 `, []string{
 			"3:2 S104 unknown name nope",
-			"5:7 S108 main.Q is caught twice (rows.md, Catch 2)",
+			"5:7 S108 Q is caught twice (rows.md, Catch 2)",
 		}},
 	} {
 		if have := diagLines(tc.src); strings.Join(have, "\n") != strings.Join(tc.want, "\n") {
@@ -1049,13 +1049,13 @@ func y2() {
 }
 func main() {}
 `
-	wantA := []string{"S108@13:7 generic type main.H needs type arguments"}
+	wantA := []string{"S108@13:7 generic type H needs type arguments"}
 	wantB := []string{
-		"S103@6:9 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-		"S108@8:7 main.E is not in the caught row {main.G[int] | main.Q} (rows.md, Catch 2)",
+		"S103@6:9 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+		"S108@8:7 E is not in the caught row {G[int] | Q} (rows.md, Catch 2)",
 		"S108@13:2 try on an expression that cannot fail (rows.md, Error rows 6)",
-		"S103@16:7 this catch does not handle {main.Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
-		"S108@17:7 main.E is not in the caught row {main.Q} (rows.md, Catch 2)",
+		"S103@16:7 this catch does not handle {Q}; a catch without try handles every error of the row (rows.md, Catch 4)",
+		"S108@17:7 E is not in the caught row {Q} (rows.md, Catch 2)",
 	}
 	for _, aFirst := range []bool{true, false} {
 		order := []string{fileA, fileB}

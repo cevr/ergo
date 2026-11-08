@@ -356,7 +356,7 @@ func TestExternPlacementGuard(t *testing.T) {
 			_, diags := check.CheckSource(src)
 			p3 := 0
 			for _, d := range diags {
-				if d.Message == p3Text {
+				if isP3(d.Message) {
 					p3++
 				}
 			}
@@ -367,7 +367,7 @@ func TestExternPlacementGuard(t *testing.T) {
 					t.Errorf("a direct call: want no diagnostic\n%s\n\t%s", src, describe(diags))
 				}
 			case guardValue:
-				if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Message != p3Text || diags[0].Line != line {
+				if len(diags) != 1 || diags[0].Code != "S108" || !isP3(diags[0].Message) || diags[0].Line != line {
 					t.Errorf("want exactly one P3 S108 at line %d\n%s\n\t%s", line, src, describe(diags))
 				}
 			case guardType:

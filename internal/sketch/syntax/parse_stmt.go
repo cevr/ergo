@@ -222,6 +222,10 @@ func (p *parser) parsePatternCore() Expr {
 		t.Rparen = p.want(RPAREN)
 		return t
 	}
+	if p.tok.tok == NEEDS {
+		p.errorf("expected a pattern, found \"needs\": %s", needsKeywordText)
+		return nil
+	}
 	p.errorf("expected a pattern, found %s", p.found())
 	return nil
 }

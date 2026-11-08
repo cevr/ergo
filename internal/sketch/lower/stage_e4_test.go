@@ -740,7 +740,7 @@ func TestE4CheckerRefusesFirst(t *testing.T) {
 	cases := []struct {
 		name, site, code, text, src string
 	}{
-		{"user-extern-value", "calls.go funcValue", "S108", p3, `extern go strings.ToUpper func Upper(s string) string
+		{"user-extern-value", "calls.go funcValue", "S108", "Upper is an extern and is not a value; pass func(s string) string { Upper(s) }", `extern go strings.ToUpper func Upper(s string) string
 func main() needs Console { let f = Upper; Console.Println(f("x")) }
 `},
 		{"unsafe-extern", "calls.go hostPkg unsafe", "S108", "Ergo has no unsafe; unsafe stays at the FFI edge", `extern go unsafe.Sizeof func Size(x int64) uintptr

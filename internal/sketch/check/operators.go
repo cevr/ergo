@@ -334,6 +334,26 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 			return false
 		}
 	}
+	if (x.Op == syntax.MUL || x.Op == syntax.QUO) && isDuration(l.typ) && isInteger(r.typ) {
+		// #175: duration has no arithmetic with an integer yet; the
+		// conversion is the repair, not a duration literal (K4, G-ex-b-4).
+		d, n := exprText(x.X), exprText(x.Y)
+		if d == "this expression" {
+			d = "d"
+		}
+		if lit, sign, ok := signedLit(x.Y); ok {
+			n = sign + lit.Value
+		} else {
+			if n == "this expression" {
+				n = "n"
+			}
+			if !isBasic(r.typ, Int64) {
+				n = "int64(" + n + ")"
+			}
+		}
+		c.errorf(x, CodeType, "a duration is not multiplied or divided by an integer (#175); write duration(int64(%s) %s %s)", d, x.Op, n)
+		return false
+	}
 	switch ll, rl := c.isLiteral(x.X), c.isLiteral(x.Y); {
 	case ll && !rl:
 		if msg := literalMismatch(x.X, r.typ); msg != "" {
@@ -450,22 +470,22 @@ func (c *checker) shift(x *syntax.BinaryExpr, hint Type) operand {
 }
 
 // conversion checks T(x) (Go's conversion rules over the language's
-// types). A literal operand takes no expected type (D-A3): it is typed on
-// its own and then converted, so float64(1 << n) converts an int shift.
+// types). The operand takes no expected type (D-A3, types.md Operators
+// 3): it is typed on its own and then converted, so float64(1 << n)
+// converts an int shift and int64(if c { -n } else { n }) converts the int
+// the if gives, as let v = e; int64(v) does.
 func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 	if len(x.Args) != 1 || x.Trailing != nil {
 		c.errorf(x, CodeType, "a conversion to %s takes one value", t)
 		return bad(x)
 	}
-	hint := t
 	if c.isLiteral(x.Args[0]) {
-		hint = nil
 		if msg := convertedLiteralOverflow(x.Args[0], t); msg != "" {
 			c.errorf(x.Args[0], CodeType, "%s", msg)
 			return bad(x)
 		}
 	}
-	op := c.valueExpr(x.Args[0], hint)
+	op := c.valueExpr(x.Args[0], contextTyped(x.Args[0], t))
 	if op.invalid() || containsInvalid(t) || containsInvalid(op.typ) {
 		// Already reported where the invalid part came from: a refused
 		// definition adds nothing at its conversions (D3).
@@ -500,6 +520,22 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 		}
 	}
 	return operand{mode: modeValue, typ: t}
+}
+
+// contextTyped is the expected type of a conversion's operand x: t for a
+// tuple (a, b) or a composite literal without a type, which have no type
+// of their own, so T0((A, B)) builds the tuple type T0 is defined over;
+// nil for every other form, which is typed on its own (D-A3).
+func contextTyped(x syntax.Expr, t Type) Type {
+	switch x := unparen(x).(type) {
+	case *syntax.TupleExpr:
+		return t
+	case *syntax.CompositeLit:
+		if x.Type == nil {
+			return t
+		}
+	}
+	return nil
 }
 
 // convertedLiteralOverflow is the S108 message for an integer literal,

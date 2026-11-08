@@ -61,7 +61,7 @@ func Take(v Valid) bool { v.Check() }
 					column := strings.Index(line, value) + 1
 					key := [2]int{d.File, d.Line}
 					if seen[key] || d.Code != "S108" || d.Column != column || d.Length != len(value) ||
-						!strings.Contains(d.Message, "cannot use main.Box[") || !strings.Contains(d.Message, "Check") || !strings.Contains(d.Message, "Plain") {
+						!strings.Contains(d.Message, "cannot use Box[") || !strings.Contains(d.Message, "Check") || !strings.Contains(d.Message, "Plain") {
 						t.Errorf("order %v: want one S108 at file %d %d:%d length %d naming Check and Plain, got %+v", order, d.File, d.Line, column, len(value), d)
 					}
 					seen[key] = true

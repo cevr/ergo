@@ -213,9 +213,12 @@ func (c *checker) isLiteral(x syntax.Expr) bool {
 // operands checks the two operands of a binary operator or a range. A
 // literal operand takes the other operand's type (196u rule 4), so the
 // other is checked first; two literals, or two operands that are not,
-// each take hint.
+// each take hint. A composite literal of a generic type written without
+// type arguments takes them from the other operand the same way, so
+// f() == Some{Value: A} with f() an Option[T] is an Option[T] comparison
+// (types.md, Basic types 6).
 func (c *checker) operands(lx, rx syntax.Expr, hint Type) (operand, operand) {
-	switch ll, rl := c.isLiteral(lx), c.isLiteral(rx); {
+	switch ll, rl := c.isLiteral(lx) || c.bareGeneric(lx), c.isLiteral(rx) || c.bareGeneric(rx); {
 	case ll && !rl:
 		r := c.valueExpr(rx, hint)
 		return c.valueExpr(lx, typeOrNil(r)), r
@@ -224,6 +227,40 @@ func (c *checker) operands(lx, rx syntax.Expr, hint Type) (operand, operand) {
 		return l, c.valueExpr(rx, typeOrNil(l))
 	}
 	return c.valueExpr(lx, hint), c.valueExpr(rx, hint)
+}
+
+// bareGeneric reports a composite literal whose written type is a generic
+// type with no type arguments, Some{Value: A} or pkg.Some{Value: A}: it
+// takes its instance from an expected type when it has one (literalType),
+// else from its field values.
+func (c *checker) bareGeneric(x syntax.Expr) bool {
+	cl, ok := unparen(x).(*syntax.CompositeLit)
+	if !ok || cl.Base != nil || cl.Type == nil {
+		return false
+	}
+	var o Object
+	switch t := cl.Type.(type) {
+	case *syntax.Ident:
+		o = c.lookupType(t.Name, c.localTypeCtx())
+	case *syntax.SelectorExpr:
+		id, ok := t.X.(*syntax.Ident)
+		if !ok {
+			return false
+		}
+		pn, ok := c.lookupType(id.Name, nil).(*PkgName)
+		if !ok || pn.broken {
+			return false
+		}
+		o = pn.Pkg.Scope.names[t.Sel.Name]
+	default:
+		return false
+	}
+	tn, ok := o.(*TypeName)
+	if !ok {
+		return false
+	}
+	n, ok := tn.Type.(*Named)
+	return ok && n.Orig == nil && len(n.TParams) > 0
 }
 
 func typeOrNil(op operand) Type {

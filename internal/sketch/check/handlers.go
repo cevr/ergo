@@ -96,6 +96,26 @@ func (c *checker) catch(x *syntax.CatchExpr, hint Type, wantValue, partial bool)
 	return op
 }
 
+// caughtCall is the call a catch catches while it is checked, and the
+// first argument of it whose failure no try or catch handles (handled
+// leaves it to the catch: K4, G-ex-g-1).
+type caughtCall struct {
+	call *syntax.CallExpr
+	arg  syntax.Expr
+	row  *Row
+}
+
+// isArg reports whether x is one of the call's arguments, in parentheses
+// or not.
+func (k *caughtCall) isArg(x syntax.Expr) bool {
+	for _, a := range k.call.Args {
+		if unparen(a) == unparen(x) {
+			return true
+		}
+	}
+	return false
+}
+
 // catchValid is catch, and whether the catch is valid: its rest row (a
 // partial catch's errs) is then exact.
 func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial bool) (operand, bool) {
@@ -106,7 +126,29 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 	if !wantValue {
 		use = useDiscard
 	}
+	prevCaught := c.caught
+	c.caught = nil
+	if call, ok := unparen(x.X).(*syntax.CallExpr); ok {
+		c.caught = &caughtCall{call: call}
+	}
 	op := c.exprAs(x.X, hint, use)
+	caught := c.caught
+	c.caught = prevCaught
+	argOnly := false
+	if caught != nil && caught.arg != nil {
+		// A failing argument of the caught call: the catch handles the
+		// call's failures, not its arguments' (rows.md, Catch 5).
+		callee, arg := exprText(caught.call.Fun), exprText(caught.arg)
+		if a, ok := unparen(caught.arg).(*syntax.CallExpr); ok {
+			arg = exprText(a.Fun)
+		}
+		if op.invalid() || !op.errs.Empty() {
+			c.errorf(caught.arg, CodeUnhandled, "the failure %s of this expression is not handled: use try, catch or return; the catch handles the failures of %s(…), not of its argument %s(…) (rows.md, Error rows 3; Catch 5)", rowText(caught.row), callee, arg)
+		} else {
+			c.errorf(caught.arg, CodeUnhandled, "a catch handles the failures of %s(…), not of its argument %s(…); catch %s(…) first (rows.md, Catch 5)", callee, arg, arg)
+			argOnly = true
+		}
+	}
 	valid := !op.invalid()
 	// open: the row may still grow in this component (rowWaits). operandOK:
 	// the caught expression is valid, so an arm its row lacks is not a
@@ -131,7 +173,9 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 	// review M1).
 	hasValue := valid && op.mode != modeNoValue
 	if valid && row.Empty() { // an unknown row is not empty
-		c.errorf(x.X, CodeType, "catch on an expression that cannot fail (rows.md, Catch 1)")
+		if !argOnly {
+			c.errorf(x.X, CodeType, "catch on an expression that cannot fail (rows.md, Catch 1)")
+		}
 		valid = false
 	}
 	var valueType Type
