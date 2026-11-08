@@ -89,7 +89,7 @@ func TestStdRecordBindsByRow(t *testing.T) {
 	if got, ok := v1.StdRecord("fs", "NotFound"); !ok || got != "NotFound" {
 		t.Errorf("StdRecord(fs, NotFound) = %q, %v", got, ok)
 	}
-	for _, key := range [][2]string{{"fixturea", "NotFound"}, {"strings", "Halves"}, {"exec", "NotFound"}, {"queue", "NotFound"}, {"fs", "Closed"}, {"fs.NotFound", ""}, {"", "fs.NotFound"}} {
+	for _, key := range [][2]string{{"fixturea", "NotFound"}, {"strings", "Halves"}, {"filepath", "NotFound"}, {"exec", "Info"}, {"queue", "NotFound"}, {"fs", "Closed"}, {"fs.NotFound", ""}, {"", "fs.NotFound"}} {
 		if got, ok := v1.StdRecord(key[0], key[1]); ok {
 			t.Errorf("StdRecord(%q, %q) = %q; want no row", key[0], key[1], got)
 		}

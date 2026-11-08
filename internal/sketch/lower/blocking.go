@@ -123,6 +123,11 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSStat":      {},
 	"FSWriteFile": {},
 	"FSMkdirAll":  {},
+	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
+	// on the caller's task. Its cancel hook is the stop of that task: the
+	// body kills the program's process group and waits for the reap
+	// before it raises the interruption.
+	"ExecRun": {wait: callerWait},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

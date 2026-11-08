@@ -161,6 +161,10 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
+| `exec` | `Runner.NotFoundNamesTheProgram` | `NotFoundNamesTheProgram(name string) { Run(New(name, []string{})) catch { case NotFound as n: return n.Name == name case Denied, Failed: return true } true }` | `TestExecNotFoundNamesTheProgram` | tested |
+| `exec` | `ScriptReplaysRecorded` | `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" }` | `TestExecLaws` | tested |
+| `exec` | `WithEnvKeepsTheOriginal` | `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }` | `TestExecLaws` | tested |
+| `exec` | `WithEnvOverrides` | `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }` | `TestExecLaws` | tested |
 | `filepath` | `BaseHasNoSeparator` | `BaseHasNoSeparator(path string) { Base(path) == "/" \|\| Split(Base(path)).Dir == "" }` | `TestFilepathLaws` | tested |
 | `filepath` | `CleanIsIdempotent` | `CleanIsIdempotent(path string) { Clean(Clean(path)) == Clean(path) }` | `TestFilepathLaws` | tested |
 | `filepath` | `CleanKeepsRoot` | `CleanKeepsRoot(path string) { IsAbs(Clean(path)) == IsAbs(path) }` | `TestFilepathLaws` | tested |
@@ -341,6 +345,57 @@ func main() needs Console | Ambient {
 *Prior art:* Gleam's `simplifile.read(path) -> Result(String, FileError)` gives a closed enum of POSIX reasons (`Enoent`, `Eacces`, …) plus `Unknown`; Effect Platform's `FileSystem` service gives `readFileString` and a `SystemError` whose `reason` is `NotFound`, `PermissionDenied` and others, bound by `NodeContext.layer`; Elixir's `File.read/1` returns `{:ok, binary} | {:error, posix}`; Go's `os.ReadFile` and `os.ReadDir` with `errors.Is(err, fs.ErrNotExist)`; ReScript binds Node's `readFileSync` as an `external` that throws. `NotFound | Denied | Failed` is their common core: the two reasons a program acts on, and one that carries the host's text. Like Effect and Roc, and unlike Gleam, Elixir and ReScript, the file system is a capability in the row, so a test swaps it in a context. Like Roc's platform and unlike Effect's layer, which any module may provide locally, Ergo keeps the disk out of reach of code that neither holds `Ambient` nor was given a provider (rule 6): Pony's `AmbientAuth` and Austral's `RootCapability` are the model.
 
 *Prior art (writes):* Gleam's `simplifile.write(to:, contents:)`, Elixir's `File.write/3` (Erlang `file:write_file`), ReScript's binding of Node's `writeFileSync` and Go's `os.WriteFile(name, data, 0666)` all truncate and write the file in place, with mode 0666 less the umask for a new file: a reader can see a part, and a failure can leave a part. Go's `renameio` and Rust's `tempfile::NamedTempFile::persist` write a file in the same directory and rename it over the target, as `fs.Host` does; `renameio` also keeps the old mode only when asked. `MkdirAll` is Go's `os.MkdirAll`, Elixir's `File.mkdir_p/1` and Gleam's `simplifile.create_directory_all`. Effect Platform's `FileSystem` has `writeFileString` and `makeDirectory({ recursive: true })` in the one service; Ergo splits writes from reads, so a reader's row does not hold the authority to write.
+
+### exec
+
+Std `exec` runs programs of the host (std-align S3c, G8). It follows Go's `os/exec` for its names and its process model, and Effect's `ChildProcess` (`unstable/process`) for what a run gives back: the exit status and the output, with a stop of the caller that ends the child.
+
+```go
+import exec
+
+func branch() string needs exec.Runner {
+	let r = exec.Runner.Run(exec.New("git", []string{"branch", "--show-current"})) catch {
+	case exec.NotFound:
+		return "no git"
+	case exec.Denied, exec.Failed:
+		return "git did not start"
+	}
+	if r.Status != 0 {
+		return "not a repository"
+	}
+	r.Stdout
+}
+
+func main() needs Console | Ambient {
+	with context { exec.Runner: exec.NewHost() } { Console.Println(branch()) }
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type Command { Name string, Args []string, Env Map[string, string], Dir string, Stdin string }`; `func New(name string, args []string) Command`; `WithEnv(c, key, value)`, `WithDir(c, dir)`, `WithStdin(c, text)`; `func Key(c Command) string` | One program to run, and the builder of changed copies. |
+| `type Result { Status int, Stdout string, Stderr string }` | What a program that ran gives back. |
+| `type Runner { Run(c Command) Result fails NotFound \| Denied \| Failed, law NotFoundNamesTheProgram(name string) }` | The capability. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient`; `func Run(_ Host, c Command) …` | The host's provider and its one constructor ([Host packages](#host-packages)). |
+| `type Script { Results Map[string, Result] }`; `func Run(s Script, c Command) …` | The test provider: it runs nothing. |
+| `type NotFound { Name string }`; `type Denied { Name string }`; `type Failed { Name string, Reason string }` | The failures. |
+
+1. `Name` is a program on the `PATH`, or a path when it holds a `/`, as for Go's `exec.Command`. `Args` are the arguments after the name. `Env` holds entries set over the host process's environment: the program gets the host's environment with each entry of `Env` replacing or adding its key. `Dir` is the working directory, `""` for the caller's. `Stdin` is the whole of the standard input; the program reads end of file after it.
+2. `WithEnv`, `WithDir` and `WithStdin` return a copy. `WithEnv` copies `Env`, so the command it is given keeps its own entries (the laws `WithEnvOverrides` and `WithEnvKeepsTheOriginal`).
+3. A status that is not 0 is a `Result`, not a failure: a CLI matches on it. A program that a signal ended has the status 128 plus the signal's number, as a shell reports it. `Stdout` and `Stderr` hold all the program wrote, read to their end.
+4. The failures are a closed row of three, for a program that did not start. `NotFound` is a name not on the `PATH`, a path with no file at it, or the empty name (Go's `exec.ErrNotFound`, `fs.ErrNotExist`). `Denied` is a file the process may not run, a directory included, as Go's `LookPath` reports it (`fs.ErrPermission`). `Failed` is every other reason, with the host's text, such as a `Dir` that does not exist (`dir /x: no such file or directory`). An uncaught one is written with its generated text and status 1, such as `error: exec.NotFound{Name:git}`. The law `NotFoundNamesTheProgram` states that `NotFound` names the program.
+5. **The stop protocol.** The Go body is `v1.ExecRun(t *rt.Task, name, args, env, dir, stdin)`. Its `runtimeBindings` row waits on the caller's task (`callerWait`); the stop of that task is its cancel hook ([Host packages](#host-packages)):
+   - The program starts in a process group of its own (`Setpgid`), which holds it and each process it starts that does not leave the group.
+   - `Run` returns only after the program is reaped and its output is read.
+   - A stop of the calling task sends `SIGKILL` to the group, waits until the program is reaped, and ends the call with an interruption. So the caller's exit actions run after the program is gone. Inside a mask the wait is uninterruptible, and the program runs to its end.
+   - After the program exits, `Run` sends `SIGKILL` to what is left of its group, so a call leaves no process of the group running. A process left in the group that holds stdout or stderr open delays the return by at most 500 ms (Go's `WaitDelay`), and `Run` then returns the status and the output read so far. A program that must outlive the call leaves the group itself (`setsid`).
+   - The body signals only the group of the program it started, whose id is the program's pid. While a process of the group is left, the group's id is not reused; after the last one ends, the kernel could give the id to a new group before the final kill, which would then reach that group (guess: not reachable in practice, as pids are reused only after the pid counter wraps).
+   `TestExecStopModel` runs 120 generated programs (output, grandchildren that close or hold the output, exits by status and by signal, a block) with the caller stopped before the call, while the program runs, inside a mask, or never, against a model of the states `Running`, `Exited(status)` and `Killed`: the result, the output, the reap of the program and the end of every process in its group. Lower `TestExecRuns` stops a task whose program sleeps 20 s, and the stop returns at once.
+6. A program implements `exec.Runner`: no std extern returns it, so it is open (`check.SealedStd`). `exec.Script` is the std's test provider: `Run` gives the `Result` that `Results` holds at `Key(c)`, or `NotFound` (the law `ScriptReplaysRecorded`). `Key(c)` is the name and each argument with a NUL byte before each argument; no program's name or argument holds a NUL byte, so two commands have one key exactly when their names and arguments are equal. The environment, the directory and the standard input are not in the key. A test binds `with context { exec.Runner: exec.Script{Results: …} } { run() }` in the place where `main` binds `exec.NewHost()`.
+7. The four records are the `runtime/v1` structs `v1.ExecNotFound`, `v1.ExecDenied`, `v1.ExecFailed` and `v1.ExecResult`, by the binding table (Types 4), so `exec.NotFound` and `fs.NotFound` are two Go types.
+8. Speed: process start dominates a run. `BenchmarkExecRunTrue` holds `Run` of `true` to Go's `exec.CommandContext(ctx, "true").Run()`, and `BenchmarkExecRunMiB` holds a run that writes 1 MiB to a hand `bytes.Buffer` read and its `String()`. The body copies each stream once into its string, as the Go control does; no `unsafe` (std-align section 4: no measured gain over process start).
+
+*Prior art:* Go's `exec.CommandContext` kills only the process it started, by `cmd.Cancel`, and `WaitDelay` bounds the wait for output a grandchild holds; Ergo kills the whole group, as a shell's job control does. Effect's `ChildProcess` spawns in a scope that kills the process when the scope closes, and gives `exitCode` as a value, not a failure. Elixir's `System.cmd/3` returns `{output, status}` with a status that is not 0 as data, and takes `env:` and `cd:` options; Gleam's `shellout.command(run:, with:, in:, opt:)` returns `Result(String, #(Int, String))`, which makes a status that is not 0 an error; ReScript binds Node's `child_process.spawnSync`, whose result holds `status`, `signal`, `stdout` and `stderr`. Ergo returns the status as data, as Elixir and Effect do, and keeps the failures for a program that did not start.
 
 ## Testing
 
