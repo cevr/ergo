@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,7 +37,9 @@ import (
 // call: the program itself is reaped (its pid names no process: Run waited
 // for it, so no zombie of it is left either), and no process of its group
 // is left (each pid in its file names no process, not even a zombie: Run
-// waited until the host reaped them). The test sends no signal: it reads /proc, and
+// waited until the host reaped them). Each started program's group gets one
+// kill, while the program is not yet reaped (execKillHook). The test sends
+// no signal: it reads /proc, and
 // only for pids its own programs wrote.
 
 // execOutcome is the model's end state of one case.
@@ -243,11 +246,32 @@ func TestExecStopModel(t *testing.T) {
 		t.Skip("no /proc")
 	}
 	dir := t.TempDir()
+	// The kill comes before the reap: at each kill the program (the
+	// group's leader) still has its /proc entry in its own group, a
+	// process or a zombie, so the group's id is still the body's.
+	var mu sync.Mutex
+	var kills []string
+	execKillHook = func(group int) {
+		mu.Lock()
+		defer mu.Unlock()
+		if procExists(group, group) {
+			kills = append(kills, "held")
+		} else {
+			kills = append(kills, "reaped: "+procLine(group))
+		}
+	}
+	t.Cleanup(func() { execKillHook = nil })
 	r := rand.New(rand.NewPCG(7, 11))
 	seen := map[string]int{}
 	for i := range 120 {
 		c := genExecCase(r, dir, i)
+		mu.Lock()
+		kills = nil
+		mu.Unlock()
 		res, err, interrupted, took := runExecCase(t, c)
+		mu.Lock()
+		caseKills := kills
+		mu.Unlock()
 		state := c.stop
 		if c.want.killed {
 			state += "/killed"
@@ -290,8 +314,11 @@ func TestExecStopModel(t *testing.T) {
 		if procExists(pids[0], pids[0]) {
 			t.Errorf("%s\nRun returned and the program %d is not reaped", where, pids[0])
 		}
+		if len(caseKills) != 1 || caseKills[0] != "held" {
+			t.Errorf("%s\nkills of group %d: %q; want one, while the unreaped program held the group", where, pids[0], caseKills)
+		}
 		for _, pid := range pids[1:] {
-			// Run waited until the group was empty (execEndGroup), so the
+			// Run waited until the group was empty (execAwaitGroupEnd), so the
 			// check reads /proc once, at once, and a zombie fails it too.
 			if procExists(pid, pids[0]) {
 				t.Errorf("%s\nRun returned and the grandchild %d of group %d is left: %q", where, pid, pids[0], procLine(pid))
