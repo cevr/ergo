@@ -5,7 +5,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Pure functions (spec D5, the zero-overhead pure-call contract; lower-v1
@@ -177,21 +176,20 @@ func pureCandidate(info *check.Info, f *check.Func) ([]*check.Func, bool) {
 }
 
 // pureStdBody reports a std extern function whose runtime/v1 Go body
-// v1.BodyOf reports Pure: the fact the checker's footprint reads
-// (check/footprint.go, pureStd). A body BodyOf refuses is not pure here;
-// its call stops at stdBody with BodyOf's error. No prelude intrinsic
-// (Append, Get, Delete) is marked pure; if one were, its call would keep
-// the environment and stop at envExpr with an internal compiler error.
+// v1.BodyOf reports Pure: the fact the checker's footprint reads, from its
+// one owner (check.PureStd). A body BodyOf refuses is not pure here; its
+// call stops at stdBody with BodyOf's error. The prelude intrinsics
+// Append, Get and Delete are marked pure (lw-pure-prelude): their Go
+// wrappers take no environment (pureIntrinsic), so their calls pass none.
 func pureStdBody(f *check.Func) bool {
-	if f == nil || !f.Pkg.Std() || f.Decl == nil || f.Decl.Extern == nil {
-		return false
-	}
-	path, name := f.Decl.Extern.Split()
-	if path != runtimeImport {
-		return false
-	}
-	body, err := v1.BodyOf(name)
-	return err == nil && body.Pure
+	return f != nil && f.Decl != nil && check.PureStd(f)
+}
+
+// pureIntrinsic reports a prelude intrinsic whose Go wrapper the lowering
+// writes (intrinsic) and whose runtime/v1 body is pure: the wrapper is a
+// pure function, with no environment parameter, and its body reads none.
+func (l *lowerer) pureIntrinsic(f *check.Func) bool {
+	return pureStdBody(f) && l.intrinsic(f) != nil
 }
 
 // Host protocols (Q-S5-6). Go joins an interface by the method set, so the

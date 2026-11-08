@@ -214,7 +214,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 		}{
 			{name: "pure"},
 			{name: "own-with", body: "with Local { Probe.Tick() }\n", caps: 1},
-			{name: "host", body: "let xs = []int{}; let _ = xs.Append(1)\n", opaque: true},
+			{name: "host", body: "let _ = hostTrim(\"\")\n", opaque: true},
 			{name: "scope", body: "let t = task.Go() { 1 }; t.Stop()\n", opaque: true, tasks: true},
 		} {
 			t.Run(frame.name+"/"+effect.name, func(t *testing.T) {

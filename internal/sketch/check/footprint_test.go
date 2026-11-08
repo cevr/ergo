@@ -16,12 +16,12 @@ import (
 // counts where the literal runs, never where it is written.
 func TestFootprints(t *testing.T) {
 	src := `import task
+extern go strings.TrimSpace func hostTrim(s string) string
 type Probe { Tick() }
 type Silent {}
 func Tick(_ Silent) {}
 func loud() Silent {
-	let xs = []int{}
-	let _ = xs.Append(1)
+	let _ = hostTrim("")
 	Silent
 }
 let Local = context { Probe: Silent }
@@ -60,7 +60,7 @@ func starts() {
 	let t = task.Go() { pure(1) }
 	t.Stop()
 }
-func host(xs []int) []int { xs.Append(1) }
+func host(s string) string { hostTrim(s) }
 func seqLoop(s Seq[int]) int {
 	let mut n = 0
 	for v in s {

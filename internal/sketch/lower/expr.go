@@ -220,8 +220,15 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	return ""
 }
 
-// expr lowers x.
+// expr lowers x; in a statement header, a composite literal value is
+// parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
+	o := fc.exprOf(x)
+	o.val = fc.guardHeader(o.val)
+	return o
+}
+
+func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	if v, ok := fc.l.info.Values[x]; ok {
 		return operand{val: fc.constant(fc.typeOf(x), v, x)}
 	}
@@ -461,8 +468,13 @@ func (fc *funcCtx) binary(x *syntax.BinaryExpr) string {
 
 // binaryOf is the Go expression of the binary operator of x applied to the
 // lowered operands parts, x.X's and x.Y's: the one spelling of an operator
-// that binary and a failed assert's report (assertCompare) share.
+// that binary and a failed assert's report (assertCompare) share. == and !=
+// of an equatable but not comparable type lower to structural equality
+// (equal.go).
 func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
+	if (x.Op == syntax.EQL || x.Op == syntax.NEQ) && needsEqual(fc.equalType(x)) {
+		return fc.equalOp(x, parts) // structural equality (equal.go)
+	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
 }
 

@@ -120,6 +120,9 @@ type funcCtx struct {
 	// witness names the Go parameter that holds the operations of each of
 	// the function's type parameters a method set constrains (witness.go).
 	witness map[*check.TypeParam]string
+	// header counts the statement headers being lowered (header.go): inside
+	// one, a composite literal of the TypeName form is parenthesized.
+	header int
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -582,13 +585,13 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 		if s.Cond == nil {
 			fc.line("for {")
 		} else {
-			fc.line("for " + fc.value(s.Cond) + " {")
+			fc.line("for " + fc.headerValue(s.Cond) + " {")
 			breaks = true
 		}
 	} else {
 		fc.line("for {")
 		fc.depth++
-		cond := fc.value(s.Cond)
+		cond := fc.headerValue(s.Cond)
 		fc.line("if !(" + cond + ") {")
 		fc.line("\tbreak")
 		fc.line("}")
@@ -621,7 +624,7 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 	if l == nil {
 		ice(s, "a for-in with no Loops entry")
 	}
-	x := fc.value(s.X)
+	x := fc.headerValue(s.X)
 	if l.Domain == check.LoopRange || l.Domain == check.LoopSeq {
 		x = fc.spill(x)
 	}
@@ -845,6 +848,9 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 	if m == nil {
 		ice(s, "a match with no Matches entry")
 	}
+	if done, terminates := fc.getMatch(s, d); done {
+		return terminates // a match on m.Get(k): Go's comma-ok (getmatch.go)
+	}
 	if !fc.simpleTypeMatch(s) {
 		subjects := make([]syntax.Expr, len(s.Subjects))
 		for i, g := range s.Subjects {
@@ -852,7 +858,7 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		return fc.patternMatch(s, subjects, s.Clauses, d)
 	}
-	subject := fc.value(s.Subjects[0].X)
+	subject := fc.headerValue(s.Subjects[0].X)
 	type arm struct {
 		types []string
 		as    *check.Var
@@ -947,7 +953,7 @@ func (fc *funcCtx) valueMatch(s *syntax.SwitchStmt, d dest) bool {
 	if s.Tag == nil {
 		ice(s, "a match with no subject; the checker refuses it as undecided syntax")
 	}
-	tag := fc.value(s.Tag)
+	tag := fc.headerValue(s.Tag)
 	fc.line("switch " + tag + " {")
 	fc.enterSwitch()
 	terminates, hasDefault := true, false

@@ -728,6 +728,62 @@ func comparableSeen(t Type, seen map[Type]bool) bool {
 	return false
 }
 
+// Comparable reports Go's comparability of t (comparable): what a map key,
+// a comparable constraint and Go's own == take.
+func Comparable(t Type) bool { return comparable(t) }
+
+// Equatable reports whether == and != apply to values of t (types.md,
+// Operators 1; eq-structural). Every comparable type is equatable, and so
+// is a slice of an equatable element, a Map whose values are equatable
+// (its keys are comparable already), and a record, tuple or union whose
+// fields, elements and variants are equatable: their equality is
+// structural, element by element, and the lowering generates it where Go
+// has none. A function, an operation type's value and a row value are not
+// equatable, as they are not comparable.
+func Equatable(t Type) bool { return equatableSeen(t, map[Type]bool{}) }
+
+func equatableSeen(t Type, seen map[Type]bool) bool {
+	switch u := under(t).(type) {
+	case *Slice:
+		return equatableSeen(u.Elem, seen)
+	case *Map:
+		return equatableSeen(u.Elem, seen)
+	case *Struct:
+		if seen[t] {
+			return true
+		}
+		seen[t] = true
+		for _, f := range u.Fields {
+			if !equatableSeen(f.Type, seen) {
+				return false
+			}
+		}
+		return true
+	case *Tuple:
+		for _, e := range u.Types {
+			if !equatableSeen(e, seen) {
+				return false
+			}
+		}
+		return true
+	case *Union:
+		if isRowValue(t) {
+			return false
+		}
+		if seen[t] {
+			return true
+		}
+		seen[t] = true
+		for _, v := range u.Variants {
+			if !equatableSeen(v, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	return comparable(t)
+}
+
 // typeSet is the predeclared type set a type parameter's constraint names
 // (comparable, ordered or number), SetAll for any other type or
 // constraint.

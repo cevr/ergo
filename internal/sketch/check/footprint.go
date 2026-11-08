@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -603,11 +604,14 @@ var pureStdAlso func(*Func) bool
 // reviewed purity fact (v1.Body.Pure; docs/spec/stdlib.md, Pure bodies). A
 // user extern is never pure: its Go body is outside the reviewed set.
 func pureStd(f *Func) bool {
-	if f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.std {
+	if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.std {
 		return false
 	}
 	if pureStdAlso != nil && pureStdAlso(f) {
 		return true
+	}
+	if pureCollections == "off" && preludeCollection(f) {
+		return false
 	}
 	path, name := f.Decl.Extern.Split()
 	if path != runtimeModule+"/v1" {
@@ -615,6 +619,45 @@ func pureStd(f *Func) bool {
 	}
 	body, err := v1.BodyOf(name)
 	return err == nil && body.Pure
+}
+
+// PureStd reports a std extern whose runtime/v1 Go body is marked pure: the
+// one fact the footprint and the lowering's pure functions both read
+// (lower, pureStdBody).
+func PureStd(f *Func) bool { return pureStd(f) }
+
+// pureCollections, when "off", counts the prelude's Append, Get and Delete
+// as opaque calls again, as before lw-pure-prelude: the reference lowering,
+// in which a function that calls them takes the environment and polls its
+// task. A whole build selects it with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/check.pureCollections=off,
+// and a test with SetPureCollectionsForTest.
+var pureCollections string
+
+// preludeCollection reports the prelude's Append, Get or Delete.
+func preludeCollection(f *Func) bool {
+	if f.Pkg == nil || f.Pkg.Path != std.PreludePath {
+		return false
+	}
+	switch f.Name {
+	case "Append", "Get", "Delete":
+		return true
+	}
+	return false
+}
+
+// SetPureCollectionsForTest sets whether the prelude's Append, Get and
+// Delete are pure (pureCollections) until restore runs, for the property
+// that compares lw-pure-prelude's lowering with the reference. It is
+// process-wide: a caller runs it outside t.Parallel. The compiler never
+// calls it.
+func SetPureCollectionsForTest(pure bool) (restore func()) {
+	saved := pureCollections
+	pureCollections = ""
+	if !pure {
+		pureCollections = "off"
+	}
+	return func() { pureCollections = saved }
 }
 
 // solve joins every node's footprint with those of the nodes it reaches, by

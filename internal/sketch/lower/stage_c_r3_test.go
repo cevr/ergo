@@ -21,8 +21,6 @@ func eq[T comparable](a T, b T) bool { a == b }
 	for _, tc := range []struct{ name, src string }{
 		{"row-tuple", `func f() int { g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }`},
 		{"row-generic", `func f() int { g() catch { case err: if eq(err, err) { 1 } else { 0 } } }`},
-		{"row-assigned-union", "func f() int {\n\tg() catch {\n\tcase err:\n\t\tlet v V = err\n\t\tif v == v { 1 } else { 0 }\n\t}\n}"},
-		{"declared-union", "func same(a V, b V) bool { a == b }\nfunc f() int { if same(E{N: []int{1}}, F) { 1 } else { 0 } }"},
 		// A row value never compares, even over a comparable error type.
 		{"row-comparable", "type K { N int }\nfunc gk() int fails K { K{N: 1} }\nfunc f() int { gk() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }"},
 	} {
@@ -34,6 +32,21 @@ func eq[T comparable](a T, b T) bool { a == b }
 			}
 		})
 	}
+	// eq-structural: a union with a slice variant is equatable, so == on a
+	// value of V, assigned from a row value or declared, compares by
+	// structure and never panics as Go's interface == would.
+	wantRun(t, decls+`func f() int {
+	g() catch {
+	case err:
+		let v V = err
+		if v == v { 1 } else { 0 }
+	}
+}
+func same(a V, b V) bool { a == b }
+func main() needs Console {
+	Console.Println("\(f()) \(same(E{N: []int{1}}, F)) \(same(E{N: []int{1}}, E{N: []int{1}})) \(same(F, F))")
+}
+`, "1 false true true\n")
 	wantRun(t, `type C { N int }
 type F {}
 type U = C | F

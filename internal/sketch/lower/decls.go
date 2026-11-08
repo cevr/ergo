@@ -605,7 +605,7 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	fd := &funcDecl{fn: f, library: f.Pkg != l.pkg}
 	l.funcs[f] = fd
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
-	fd.pure = l.isPure(f)
+	fd.pure = l.isPure(f) || l.pureIntrinsic(f)
 	if f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil {
 		fd.extern = strings.Trim(f.Decl.Extern.Target.Value, "\"`")
 	}
@@ -726,7 +726,7 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		return func(_ *funcCtx, params []string) string {
 			return "\treturn " + l.rt() + ".Delete(" + params[0] + ", " + params[1] + ")\n"
 		}
-	case f.Name == "Get" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isPreludeType(s.Results[0], "Option"):
+	case preludeGet(f):
 		return func(fc *funcCtx, params []string) string {
 			return fc.optionReturn(s.Results[0], "\t", params[0]+"["+params[1]+"]", fc.site)
 		}

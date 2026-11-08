@@ -166,6 +166,9 @@ func (l *lowerer) nameAll() {
 	l.reserveDefaults(func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "default " + key.obj.(string), base})
 	})
+	l.reserveEquals(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
+		generated = append(generated, entry{key, "equal " + key.obj.(string), equalBase(t)})
+	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}
