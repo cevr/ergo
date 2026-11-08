@@ -237,8 +237,30 @@ func runDeadline() (time.Duration, error) {
 // environment env and its output in output. It returns a refusal when the
 // sandbox cannot be built or verified (the binary did not run), a
 // violation when the binary failed and reports a write the sandbox
-// refused, and the binary's own error otherwise.
+// refused, and the binary's own error otherwise. The run's bound is
+// runDeadline.
 func runProtected(sb sandbox, pkg, dir string, env []string, output string, binary string, args ...string) error {
+	deadline, err := runDeadline()
+	if err != nil {
+		return err
+	}
+	return runProtectedWithin(sb, pkg, dir, env, output, deadline, binary, args...)
+}
+
+// runTestTimeout is the -test.timeout of a test binary whose run is
+// stopped after run: the run less a quarter of it, at most 30 s, the time
+// the binary needs to start and to report its timeout. A test that derives
+// a bound from t.Deadline (a native go test it starts, for one) then fails
+// within the run, naming the stuck test, before the sweep stops the run,
+// which names only the package. With the fixed 45 minutes the sweep gave
+// every run, a hang in a native harness of internal/sketch/lower held the
+// run until its 20 minute stop and named no test (fu-lower-flake M1).
+func runTestTimeout(run time.Duration) time.Duration {
+	return run - min(run/4, 30*time.Second)
+}
+
+// runProtectedWithin is runProtected with the run's bound, deadline.
+func runProtectedWithin(sb sandbox, pkg, dir string, env []string, output string, deadline time.Duration, binary string, args ...string) error {
 	spec, err := json.Marshal(sb)
 	if err != nil {
 		return err
@@ -255,11 +277,6 @@ func runProtected(sb sandbox, pkg, dir string, env []string, output string, bina
 	cmd.Dir = dir
 	cmd.Env = append(env, sandboxVariable+"="+string(spec))
 	cmd.Stdout, cmd.Stderr = file, file
-	deadline, err := runDeadline()
-	if err != nil {
-		file.Close()
-		return err
-	}
 	timedOut, left, runErr := runWithin(cmd, deadline)
 	file.Close()
 	if timedOut {
@@ -300,22 +317,33 @@ func runProtected(sb sandbox, pkg, dir string, env []string, output string, bina
 var failureLine = regexp.MustCompile(`^\s*(--- FAIL: |panic: |running tests:|\S+_test\.go:\d+: )`)
 
 // failureLines are the output's failure lines and the line after each, in
-// order, at most 40 of them, each cut to 300 bytes. The tail of a long
-// failure shows only its last lines (at fu-lower-flake, the lowered Go
-// that a native test's message prints last); these name the failing test
-// and its message first, wherever they are in the output.
+// order, at most 40 of them, each cut to 300 bytes; after "running tests:"
+// they are every running test it lists, one a line indented a tab past
+// it, so a timeout names the stuck subtest, not only its top test. The tail of a
+// long failure shows only its last lines (at fu-lower-flake, the lowered
+// Go that a native test's message prints last); these name the failing
+// test and its message first, wherever they are in the output.
 func failureLines(out []byte) string {
 	const most, width = 40, 300
 	lines := strings.Split(string(out), "\n")
 	var kept []string
-	next := -1
+	// listed is the prefix of a running test's line after "running tests:":
+	// that line's indent (a native test's output is nested) and a tab.
+	next, listed := -1, ""
 	for i, line := range lines {
 		hit := failureLine.MatchString(line)
-		if !hit && i != next {
+		running := listed != "" && strings.HasPrefix(line, listed)
+		if !running {
+			listed = ""
+		}
+		if !hit && i != next && !running {
 			continue
 		}
 		if hit {
 			next = i + 1
+			if strings.TrimSpace(line) == "running tests:" {
+				listed = line[:len(line)-len(strings.TrimLeft(line, " \t"))] + "\t"
+			}
 		}
 		if len(kept) == most {
 			kept = append(kept, "  ... (more failure lines in the output)")

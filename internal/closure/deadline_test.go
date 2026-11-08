@@ -194,6 +194,55 @@ func TestRunDeadlineFollowsTheTestDeadline(t *testing.T) {
 	}
 }
 
+// deadlineTargetVariable makes TestRunDeadlineTarget print its deadline.
+const deadlineTargetVariable = "ERGO_CLOSURE_DEADLINE_TARGET"
+
+// TestRunDeadlineTarget prints its test deadline in Unix nanoseconds, or
+// "none". It runs only as the target of TestRunTestDeadlineFitsTheRun.
+func TestRunDeadlineTarget(t *testing.T) {
+	if os.Getenv(deadlineTargetVariable) == "" {
+		t.Skip("the target of TestRunTestDeadlineFitsTheRun")
+	}
+	if end, ok := t.Deadline(); ok {
+		fmt.Printf("deadline %d\n", end.UnixNano())
+	} else {
+		fmt.Println("deadline none")
+	}
+}
+
+// TestRunTestDeadlineFitsTheRun: a swept run's test deadline is no later
+// than the sweep's stop of the run (runTestTimeout), so a bound a test
+// derives from t.Deadline fires, and names its test, before the sweep
+// stops the run and names only the package (fu-lower-flake M1).
+func TestRunTestDeadlineFitsTheRun(t *testing.T) {
+	needSandbox(t) // a run deadline of 60 s
+	f := newFixture(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runDeadline()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stem := filepath.Join(t.TempDir(), "internal_p")
+	start := time.Now()
+	if _, err := runTests(f.root, []string{f.root}, "internal/p", f.pkg, stem, []string{deadlineTargetVariable + "=1"}, self, "-test.run=^TestRunDeadlineTarget$"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := os.ReadFile(stem + ".out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nanos int64
+	if _, err := fmt.Sscanf(string(out), "deadline %d", &nanos); err != nil {
+		t.Fatalf("the target printed no deadline (%v):\n%s", err, out)
+	}
+	if stop := start.Add(run); time.Unix(0, nanos).After(stop) {
+		t.Errorf("the run's test deadline %v is after the sweep stops the run (%v after it began)", time.Unix(0, nanos).Sub(start).Round(time.Second), run)
+	}
+}
+
 // testBounds splits the time left before the test's deadline: a channel
 // that fires at 8/10 of it (the run must have stopped), and the time at
 // 9/10 (each process of the run must have ended); the last tenth is for the

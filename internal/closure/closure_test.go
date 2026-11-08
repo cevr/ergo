@@ -1071,7 +1071,12 @@ func runObserved(protect, pkg, pkgDir, stem string, extra []string, classify fun
 	defer s.remove()
 	log := filepath.Join(s.log, "test.log")
 	identityFile := filepath.Join(s.log, "identity.json")
-	args = append([]string{"-test.paniconexit0", "-test.timeout=45m", "-test.testlogfile=" + log}, args...)
+	// The binary's own deadline ends inside the run's (runTestTimeout).
+	deadline, err := runDeadline()
+	if err != nil {
+		return fail(err)
+	}
+	args = append([]string{"-test.paniconexit0", "-test.timeout=" + runTestTimeout(deadline).String(), "-test.testlogfile=" + log}, args...)
 	// The observer of the test binary (testinputs.Main) records the
 	// identity of each access at access time (testinputs.IdentityVariable).
 	// A package the observer cannot observe gets no identity file to write.
@@ -1085,7 +1090,7 @@ func runObserved(protect, pkg, pkgDir, stem string, extra []string, classify fun
 	for _, k := range declaredKernelWrites[pkg] {
 		sb.Kernel = append(sb.Kernel, k.point)
 	}
-	if err := runProtected(sb, pkg, pkgDir, env, stem+".out", binary, args...); err != nil {
+	if err := runProtectedWithin(sb, pkg, pkgDir, env, stem+".out", deadline, binary, args...); err != nil {
 		return fail(err)
 	}
 	data, err := os.ReadFile(log)

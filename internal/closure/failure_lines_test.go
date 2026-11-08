@@ -67,8 +67,9 @@ func TestFailedRunNamesItsFailure(t *testing.T) {
 	}
 }
 
-// TestFailureLines: each failure line and the line after it, in order;
-// lines of a passing test and of a dump are not.
+// TestFailureLines: each failure line and the line after it, in order,
+// and every running test a timeout lists; lines of a passing test and of
+// a dump are not.
 func TestFailureLines(t *testing.T) {
 	out := strings.Join([]string{
 		"=== RUN   TestA",
@@ -78,19 +79,24 @@ func TestFailureLines(t *testing.T) {
 		"        b_test.go:9: native: exit status 1",
 		"            the first line of the native output",
 		"            the second line, dropped",
-		"panic: test timed out after 30s",
-		"running tests:",
-		"\tTestC (30s)",
-		"goroutine 1 [chan receive]:",
+		// A native test's timeout, nested in its parent's message.
+		"            panic: test timed out after 30s",
+		"            \trunning tests:",
+		"            \t\tTestC (30s)",
+		"            \t\tTestC/leaf (30s)",
+		"            ",
+		"            goroutine 1 [chan receive]:",
+		"            \t\tthe stuck frame, dropped",
 	}, "\n")
 	want := strings.Join([]string{
 		"  --- FAIL: TestB (1.00s)",
 		"      --- FAIL: TestB/sub (1.00s)",
 		"          b_test.go:9: native: exit status 1",
 		"              the first line of the native output",
-		"  panic: test timed out after 30s",
-		"  running tests:",
-		"  \tTestC (30s)",
+		"              panic: test timed out after 30s",
+		"              \trunning tests:",
+		"              \t\tTestC (30s)",
+		"              \t\tTestC/leaf (30s)",
 	}, "\n")
 	if got := failureLines([]byte(out)); got != want {
 		t.Errorf("failureLines:\n%s\nwant:\n%s", got, want)
