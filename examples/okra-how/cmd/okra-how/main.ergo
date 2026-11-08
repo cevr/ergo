@@ -18,8 +18,9 @@ type Cmd = How{Topic Option[string]}
 // topicArg is how's one positional argument, the topic of a guide.
 let topicArg = flag.OptionalArg("topic", "the topic of the guide to print; none prints the contents")
 
-// commands are okra's commands, each parsed into a Cmd. When SS4 lands, a
-// Build may also fail with the program's own error.
+// commands are okra's commands, each parsed into a Cmd. A Build that fails
+// with a program error of its own is a flag.Command[Cmd, E]; how's Build
+// fails only as Parse does, so its E is left out and empty.
 let commands = []flag.Command[Cmd]{
 	flag.Command[Cmd]{
 		Name:  "how",
