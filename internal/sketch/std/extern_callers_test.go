@@ -30,7 +30,6 @@ var notHostExterns = map[string]string{
 	"trace.contextBound":    "reads the running task's context",
 	"trace.contextValue":    "reads the running task's context",
 	"queue.New":             "makes a queue",
-	"rand.withCapacity":     "makes a slice",
 	"rand.newStream":        "makes the seeded stream, which reads no host state",
 	"scope.OnExit":          "registers an exit action of the program",
 	"slices.WithCapacity":   "makes a slice",
