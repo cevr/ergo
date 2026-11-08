@@ -464,6 +464,9 @@ func (fc *funcCtx) binary(x *syntax.BinaryExpr) string {
 		return fc.rangeValue(x)
 	}
 	parts := fc.operands([]syntax.Expr{x.X, x.Y}, false)
+	if (x.Op == syntax.EQL || x.Op == syntax.NEQ) && needsEqual(fc.equalType(x)) {
+		return fc.equalOp(x, parts) // structural equality (equal.go)
+	}
 	return "(" + parts[0] + " " + op + " " + parts[1] + ")"
 }
 

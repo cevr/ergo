@@ -50,10 +50,11 @@ type pairKind struct {
 	// row is the function's rows as one set: bit 0 is the failure Fault,
 	// bit 1 the capability Console (clause 5 widens both halves alike).
 	row uint
-	// comparable: the kind takes == (types.md, Operators 1: structural; a
-	// slice, Map, function or operation type never compares, and a record,
-	// tuple or union only when every part does).
-	comparable bool
+	// equatable: the kind takes == (types.md, Operators 1: structural; a
+	// function or operation type never compares, a slice or Map compares
+	// when its elements do (eq-structural), and a record, tuple or union
+	// only when every part does).
+	equatable bool
 	// decl declares a refused defined type: every use of the kind meets
 	// that one diagnostic.
 	decl string
@@ -122,13 +123,13 @@ func pairKinds() []pairKind {
 	get := func(v string) string { return v + ".Get() == 1" }
 	length := func(v string) string { return "len(" + v + ") == 1" }
 	return []pairKind{
-		{name: "Int", ty: "int", pre: let("int", "1"), ok: func(v string) string { return v + " == 1" }, under: "int", named: true, comparable: true},
-		{name: "DInt", ty: "DInt", pre: let("DInt", "DInt(1)"), ok: get, under: "int", named: true, impl: true, comparable: true},
-		{name: "Slice", ty: "[]int", pre: let("[]int", "[]int{1}"), ok: length, under: "[]int"},
-		{name: "DS", ty: "DS", pre: let("DS", "DS{1}"), ok: get, under: "[]int", named: true, impl: true},
-		{name: "GS", ty: "GS[int]", pre: let("GS[int]", "GS[int]{1}"), ok: length, under: "[]int", named: true},
-		{name: "Map", ty: "Map[string, int]", pre: let("Map[string, int]", `Map[string, int]{"a": 1}`), ok: length, under: "map"},
-		{name: "DMap", ty: "DMap", pre: let("DMap", `DMap{"a": 1}`), ok: length, under: "map", named: true},
+		{name: "Int", ty: "int", pre: let("int", "1"), ok: func(v string) string { return v + " == 1" }, under: "int", named: true, equatable: true},
+		{name: "DInt", ty: "DInt", pre: let("DInt", "DInt(1)"), ok: get, under: "int", named: true, impl: true, equatable: true},
+		{name: "Slice", ty: "[]int", pre: let("[]int", "[]int{1}"), ok: length, under: "[]int", equatable: true},
+		{name: "DS", ty: "DS", pre: let("DS", "DS{1}"), ok: get, under: "[]int", named: true, impl: true, equatable: true},
+		{name: "GS", ty: "GS[int]", pre: let("GS[int]", "GS[int]{1}"), ok: length, under: "[]int", named: true, equatable: true},
+		{name: "Map", ty: "Map[string, int]", pre: let("Map[string, int]", `Map[string, int]{"a": 1}`), ok: length, under: "map", equatable: true},
+		{name: "DMap", ty: "DMap", pre: let("DMap", `DMap{"a": 1}`), ok: length, under: "map", named: true, equatable: true},
 		{name: "Func", ty: "func() int", pre: let("func() int", "one"), ok: func(v string) string { return v + "() == 1" }, under: "func", function: true},
 		{name: "DF", ty: "DF", pre: let("DF", "one"), ok: func(v string) string { return v + "() == 1" }, under: "func", named: true, function: true},
 		{name: "FE", ty: "func() int fails Fault", pre: let("func() int fails Fault", "work"), ok: func(v string) string { return "callRow(" + v + ") == 1" }, under: "func-fails", function: true, row: 1},
@@ -136,31 +137,31 @@ func pairKinds() []pairKind {
 		{name: "FN", ty: "func() int needs Console", pre: let("func() int needs Console", "cons"), ok: func(v string) string { return v + "() == 1" }, under: "func-needs", function: true, row: 2},
 		{name: "DFN", ty: "DFN", pre: let("DFN", "cons"), ok: func(v string) string { return v + "() == 1" }, under: "func-needs", named: true, function: true, row: 2},
 		{name: "FEN", ty: "func() int fails Fault needs Console", pre: let("func() int fails Fault needs Console", "consFail"), ok: func(v string) string { return "callRowN(" + v + ") == 1" }, under: "func-fails-needs", function: true, row: 3},
-		{name: "Tuple", ty: "(int, int)", pre: let("(int, int)", "(1, 2)"), under: "tuple", comparable: true},
-		{name: "DP", ty: "DP", pre: let("DP", "(1, 2)"), under: "tuple", named: true, comparable: true},
+		{name: "Tuple", ty: "(int, int)", pre: let("(int, int)", "(1, 2)"), under: "tuple", equatable: true},
+		{name: "DP", ty: "DP", pre: let("DP", "(1, 2)"), under: "tuple", named: true, equatable: true},
 		{name: "TS", ty: "TS", pre: let("TS", "(Mem{N: 1}, 2)"), under: "tuple-store", named: true},
-		{name: "Mem", ty: "Mem", pre: let("Mem", "Mem{N: 1}"), ok: func(v string) string { return v + ".N == 1" }, under: "Mem", named: true, impl: true, member: true, comparable: true},
-		{name: "DMem", ty: "DMem", pre: let("DMem", "DMem{N: 1}"), ok: get, under: "Mem", named: true, impl: true, comparable: true},
-		{name: "Pair", ty: "Pair[int, int]", pre: let("Pair[int, int]", "Pair[int, int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".First == 1" }, under: "Pair", named: true, comparable: true},
-		{name: "DPair", ty: "DPair", pre: let("DPair", "DPair{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true, comparable: true},
+		{name: "Mem", ty: "Mem", pre: let("Mem", "Mem{N: 1}"), ok: func(v string) string { return v + ".N == 1" }, under: "Mem", named: true, impl: true, member: true, equatable: true},
+		{name: "DMem", ty: "DMem", pre: let("DMem", "DMem{N: 1}"), ok: get, under: "Mem", named: true, impl: true, equatable: true},
+		{name: "Pair", ty: "Pair[int, int]", pre: let("Pair[int, int]", "Pair[int, int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".First == 1" }, under: "Pair", named: true, equatable: true},
+		{name: "DPair", ty: "DPair", pre: let("DPair", "DPair{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true, equatable: true},
 		{name: "PS", ty: "PS", pre: let("PS", "PS{First: Mem{N: 1}, Second: 2}"), ok: func(v string) string { return v + ".First.Get() == 1" }, under: "Pair-store", named: true},
 		{name: "Store", ty: "Store", pre: let("Store", "Mem{N: 1}"), ok: get, under: "ops", named: true, ops: true, impl: true},
 		{name: "Gen", ty: "Gen[int]", pre: let("Gen[int]", "Mem{N: 1}"), ok: get, under: "ops", named: true, ops: true, impl: true},
-		{name: "U", ty: "U", pre: let("U", "Mem{N: 1}"), under: "U", named: true, union: true, comparable: true},
-		{name: "Opt", ty: "Option[int]", pre: let("Option[int]", "Some{1}"), ok: func(v string) string { return v + " != None" }, under: "Option", named: true, union: true, comparable: true},
-		{name: "Some", ty: "Some[int]", pre: let("Some[int]", "Some{1}"), under: "Some", named: true, optionMember: true, comparable: true},
-		{name: "DSome", ty: "DSome", pre: let("DSome", "DSome{1}"), under: "Some", named: true, comparable: true},
-		{name: "None", ty: "None", pre: let("None", "None"), under: "None", named: true, optionMember: true, comparable: true},
-		{name: "DNone", ty: "DNone", pre: let("DNone", "DNone{}"), under: "None", named: true, comparable: true},
-		{name: "NT", ty: "NT", pre: let("NT", "((1, 2), 3)"), under: "nested-tuple", named: true, comparable: true},
-		{name: "NT2", ty: "NT2", pre: let("NT2", "((1, 2), 3)"), under: "nested-tuple", named: true, comparable: true},
-		{name: "DGS", ty: "DGS", pre: let("DGS", "DGS{1}"), ok: length, under: "[]int", named: true},
-		{name: "DDS", ty: "DDS", pre: let("DDS", "DDS{1}"), ok: length, under: "[]int", named: true},
-		{name: "DInts", ty: "[]DInt", pre: let("[]DInt", "[]DInt{DInt(1)}"), ok: length, under: "[]DInt"},
+		{name: "U", ty: "U", pre: let("U", "Mem{N: 1}"), under: "U", named: true, union: true, equatable: true},
+		{name: "Opt", ty: "Option[int]", pre: let("Option[int]", "Some{1}"), ok: func(v string) string { return v + " != None" }, under: "Option", named: true, union: true, equatable: true},
+		{name: "Some", ty: "Some[int]", pre: let("Some[int]", "Some{1}"), under: "Some", named: true, optionMember: true, equatable: true},
+		{name: "DSome", ty: "DSome", pre: let("DSome", "DSome{1}"), under: "Some", named: true, equatable: true},
+		{name: "None", ty: "None", pre: let("None", "None"), under: "None", named: true, optionMember: true, equatable: true},
+		{name: "DNone", ty: "DNone", pre: let("DNone", "DNone{}"), under: "None", named: true, equatable: true},
+		{name: "NT", ty: "NT", pre: let("NT", "((1, 2), 3)"), under: "nested-tuple", named: true, equatable: true},
+		{name: "NT2", ty: "NT2", pre: let("NT2", "((1, 2), 3)"), under: "nested-tuple", named: true, equatable: true},
+		{name: "DGS", ty: "DGS", pre: let("DGS", "DGS{1}"), ok: length, under: "[]int", named: true, equatable: true},
+		{name: "DDS", ty: "DDS", pre: let("DDS", "DDS{1}"), ok: length, under: "[]int", named: true, equatable: true},
+		{name: "DInts", ty: "[]DInt", pre: let("[]DInt", "[]DInt{DInt(1)}"), ok: length, under: "[]DInt", equatable: true},
 		{name: "Stores", ty: "[]Store", pre: let("[]Store", "[]Store{Mem{N: 1}}"), ok: length, under: "[]Store"},
 		{name: "StoreMap", ty: "Map[string, Store]", pre: let("Map[string, Store]", `Map[string, Store]{"a": Mem{N: 1}}`), ok: length, under: "map-store"},
 		{name: "DSM", ty: "DSM", pre: let("DSM", `DSM{"a": Mem{N: 1}}`), ok: length, under: "map-store", named: true},
-		{name: "PP", ty: "PP[int]", pre: let("PP[int]", "PP[int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true, comparable: true},
+		{name: "PP", ty: "PP[int]", pre: let("PP[int]", "PP[int]{First: 1, Second: 2}"), ok: func(v string) string { return v + ".Second == 2" }, under: "Pair", named: true, equatable: true},
 		{name: "DStore", ty: "DStore", pre: via("DStore", "Store", "Mem{N: 1}"), decl: "type DStore Store"},
 		{name: "DGen", ty: "DGen", pre: via("DGen", "Gen[int]", "Mem{N: 1}"), decl: "type DGen Gen[int]"},
 		{name: "DU", ty: "DU", pre: via("DU", "U", "Mem{N: 1}"), decl: "type DU U"},
@@ -216,7 +217,7 @@ func pairAdmits(site string, s, t pairKind) bool {
 	case "pointer", "nested":
 		return s.ty == t.ty
 	case "eq", "neq":
-		return s.comparable && t.comparable && (admits(s, t) || admits(t, s))
+		return s.equatable && t.equatable && (admits(s, t) || admits(t, s))
 	}
 	return admits(s, t)
 }
@@ -355,7 +356,7 @@ func pairFunc(site string, s, t pairKind) (id, code, at string) {
 			body = fmt.Sprintf("let (item, _) (%s, int) = (src, 0)", t.ty)
 			value, at = "item", "= (src, 0)"
 		case "eq", "neq":
-			// Every value of the grid is 1-like, so two comparable values
+			// Every value of the grid is 1-like, so two equatable values
 			// are equal, except None against Some{1}.
 			setup += "\n" + t.pre("dst")
 			op, holds := "==", (s.name == "None") == (t.name == "None")

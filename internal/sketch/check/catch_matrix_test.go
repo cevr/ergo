@@ -182,16 +182,19 @@ func TestTryCoversACaughtExpression(t *testing.T) {
 
 // Comparability is structural (stage C round 2 review M1, M2): a union
 // compares only when every variant does, a row value and an operation
-// type's value never do, and every route reads the one rule: ==, a tuple,
-// a record field, a comparable constraint and a map key.
+// type's value never do, and every route reads the one rule: a tuple, a
+// record field, a comparable constraint and a map key. == reads
+// equatability, which adds slices and Maps (eq-structural).
 func TestComparabilityIsStructural(t *testing.T) {
 	const decls = "type E { N []int }\ntype F {}\ntype V = E | F\ntype C { N int }\ntype U = C | F\ntype Svc { Do() int }\nfunc g() int fails E { 1 }\nfunc eq[T comparable](a T, b T) bool { a == b }\n"
 	for _, tc := range []struct{ name, src, want string }{
 		{"row-tuple", "func f() int {\n\tg() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } }\n}", "S108:10"},
 		{"row-generic", "func f() int {\n\tg() catch { case err: if eq(err, err) { 1 } else { 0 } }\n}", "S108:10"},
-		{"row-assigned-union", "func f() int {\n\tg() catch {\n\tcase err:\n\t\tlet v V = err\n\t\tif v == v { 1 } else { 0 }\n\t}\n}", "S108:13"},
-		{"union-variant", "func same(a V, b V) bool { a == b }", "S108:9"},
-		{"union-record-field", "type H { X V }\nfunc same(a H, b H) bool { a == b }", "S108:10"},
+		// eq-structural: V's variant E holds a slice, so V is equatable
+		// (structural ==) but not comparable (no constraint, no Map key).
+		{"row-assigned-union", "func f() int {\n\tg() catch {\n\tcase err:\n\t\tlet v V = err\n\t\tif v == v { 1 } else { 0 }\n\t}\n}", ""},
+		{"union-variant", "func same(a V, b V) bool { a == b }", ""},
+		{"union-record-field", "type H { X V }\nfunc same(a H, b H) bool { a == b }", ""},
 		{"union-generic", "func same(a V, b V) bool { eq(a, b) }", "S108:9"},
 		{"union-map-key", "func f() int { let m = Map[V, int]{}; len(m) }", "S108:9"},
 		{"operation-type", "func same(a Svc, b Svc) bool { a == b }", "S108:9"},
