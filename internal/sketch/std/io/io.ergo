@@ -23,6 +23,7 @@
 // lines appear in program order.
 
 import strings
+import sync
 
 // ReadFailed is the failure of a read of standard input. Reason is the
 // host's text for it.
@@ -106,20 +107,18 @@ func Eprint(_ Errors, text string) { hostEprint(text) }
 func Eprintln(_ Errors, line string) { hostEprint(line + "\n") }
 
 // Recorder is a Stdout and Stderr provider for tests: it keeps what is
-// written to both, in order, for Text. A Recorder is for the writes of one
-// task at a time: writes from two tasks at once are a data race.
-type Recorder { writes Map[int, string] }
+// written to both, in order, for Text. Its writes are in a sync.Ref, so
+// every copy of a Recorder (the one a context binds, the one the test
+// reads) keeps the same writes, and tasks may write to one Recorder at
+// once: each write is kept whole, in the order the writes took the Ref.
+type Recorder { writes sync.Ref[[]string] }
 
 // NewRecorder is an empty Recorder.
-func NewRecorder() Recorder {
-	let writes Map[int, string]
-	Recorder{writes: writes}
-}
+func NewRecorder() Recorder { Recorder{writes: sync.NewRef[[]string]([]string{})} }
 
 // Print keeps text.
 func Print(r Recorder, text string) {
-	let mut writes = r.writes
-	writes[len(writes)] = text
+	r.writes.Update(func(writes []string) []string { writes.Append(text) })
 }
 
 // Println keeps line and a line feed.
@@ -135,17 +134,7 @@ func Eprintln(r Recorder, line string) { r.Print(line + "\n") }
 func IsTerminal(_ Recorder) bool { false }
 
 // Text is everything written to r, in order.
-func Text(r Recorder) string {
-	let mut out = ""
-	for i in 0..len(r.writes) {
-		match r.writes.Get(i) {
-		case Some[string] as s:
-			out = out + s.Value
-		case None:
-		}
-	}
-	out
-}
+func Text(r Recorder) string { strings.Join(r.writes.Get(), "") }
 
 // Input is a Stdin provider for tests: each read sees all of Text.
 type Input { Text string }

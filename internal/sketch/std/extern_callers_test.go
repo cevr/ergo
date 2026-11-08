@@ -36,6 +36,8 @@ var notHostExterns = map[string]string{
 	"slices.SortFunc":       "calls the program's comparison",
 	"slices.SortStableFunc": "calls the program's comparison",
 	"slices.sortOwned":      "sorts a slice the call owns",
+	"sync.NewRef":           "makes a Ref",
+	"sync.Modify":           "changes a Ref of the program with the program's function",
 	"task.Go":               "starts a task of the program",
 	"time.newTimeline":      "makes the manual timeline, which reads no host clock",
 	"timeout.After":         "races the body against the bound Scheduler, which is the program's",
