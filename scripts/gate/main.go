@@ -158,6 +158,14 @@ type Step struct {
 	// is not the swept package's closure, so the package steps' checks
 	// and the fast CPU record pass it by.
 	Sweep string
+	// Writes names the checkout paths, relative to the root, that the step
+	// writes: bin/ergo for the CLI's build. A closure sweep fails on a
+	// change of the checkout while it runs, so in every tier no sweep step
+	// starts before every step that writes has ended (sweepsAfterWriters),
+	// and each sweep fails on any change of the checkout during its run,
+	// whoever made it (sweepCheckout): a step that writes and does not say
+	// so fails the sweeps it overlaps, on every run.
+	Writes []string
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -721,6 +729,11 @@ func (g *gate) run(out io.Writer) int {
 			}
 		}
 	}
+	after, err := sweepsAfterWriters(g.steps, index)
+	if err != nil {
+		fmt.Fprintln(out, "gate:", err)
+		return 2
+	}
 	// The limiter comes before any process the gate starts and does not wait
 	// for: in its systemd scope it moves the gate to a leaf cgroup and then
 	// enables controllers for the scope's children, which the kernel refuses
@@ -842,8 +855,16 @@ func (g *gate) run(out io.Writer) int {
 					return
 				}
 			}
+			// Only order: a writer that failed still ended its writes.
+			for _, j := range after[i] {
+				<-done[j]
+			}
 			slots <- struct{}{}
-			results[i] = g.execute(step)
+			if step.Sweep != "" {
+				results[i] = g.sweepCheckout(step)
+			} else {
+				results[i] = g.execute(step)
+			}
 			<-slots
 		}()
 	}
