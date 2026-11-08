@@ -670,6 +670,19 @@ func (s *stdImporter) Import(path string) (*Package, error) {
 	return pkg, err
 }
 
+// StdFixture checks files as the std package at path, as Std checks an
+// embedded one, with Std for its imports: the package is std, so its
+// externs may bind runtime/v1 and its records follow the std binding table.
+// It serves tests of std bindings that need a std package the embedded
+// library does not have (lower's TestStdRecordsKeyedByPackage). The
+// compiler never calls it, and no Ergo source can reach it.
+func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
+	c := newChecker(path, Std, prelude().scope)
+	c.pkg.std = true
+	pkg := c.run(files)
+	return pkg, c.sorted()
+}
+
 func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
