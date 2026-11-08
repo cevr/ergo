@@ -1,0 +1,169 @@
+// Package game is the play of an adventure: the commands a player types,
+// the game as a machine that each command steps, and what the player is
+// told. It is pure but for Run, which reads and writes the console.
+
+import adventure/world
+import strings
+
+// Game is a game in play: the world, the room you are in, where each item
+// is, and the moves you have made.
+type Game { World world.World, At string, Items []world.Place, Moves int }
+
+// Ending is how a game ends: on the goal, or when the player stops.
+type Ending = Won{Moves int} | Stopped{Moves int, At string}
+
+// Signal is what the game reads: a line the player typed, or the end of
+// the input.
+type Signal = Said{Line string} | Ended{}
+
+// The failures of a command: each changes nothing, and is told.
+
+// NoExit is a way out that the room does not have.
+type NoExit { Way world.Dir }
+
+// Barred is an exit whose key you do not carry; Text says why.
+type Barred { Way world.Dir, Key string, Text string }
+
+// NotHere is an item that is not in the room.
+type NotHere { Item string }
+
+// NotCarried is an item you do not carry.
+type NotCarried { Item string }
+
+// New is the game at the start of w.
+func New(w world.World) Game { Game{World: w, At: w.Start, Items: w.Items, Moves: 0} }
+
+// State is the machine's state: exploring, or asking whether you really
+// mean to quit. Each holds the game.
+type State = Exploring{G Game} | Asking{G Game}
+
+// GameOf is the game that s holds.
+func GameOf(s State) Game {
+	match s {
+	case Exploring as e:
+		e.G
+	case Asking as a:
+		a.G
+	}
+}
+
+// Play is the adventure as a machine: it starts at the castle's gate and
+// moves by Step until the goal, a quit, or the end of the input.
+type Play machine[State, Signal] {
+	initial: Exploring{G: New(world.Castle())},
+	step:    Step,
+}
+
+// Step is the machine's transition. Exploring, a move Enters the next
+// room, or is Done with Won on the goal; a take or a drop Stays with the
+// item moved; look, inventory, help and a blank line Stay as they are,
+// since only the output changes; quit Enters Asking. Asking, yes is Done
+// with Stopped and any other line Enters Exploring again. The end of the
+// input is Done with Stopped in either state.
+func Step(s State, sig Signal) Decision[State, Ending] fails Unknown | Missing | NoWay | NoExit | Barred | NotHere | NotCarried {
+	let g = GameOf(s)
+	match (s, sig) {
+	case (_, Ended):
+		Done[Ending]{Output: Stopped{Moves: g.Moves, At: g.At}}
+	case (Asking, Said as said):
+		if IsYes(said.Line) {
+			return Done[Ending]{Output: Stopped{Moves: g.Moves, At: g.At}}
+		}
+		Enter[State]{Next: Exploring{G: g}}
+	case (Exploring, Said as said):
+		try explore(g, try Parse(said.Line))
+	}
+}
+
+// IsYes reports whether line answers yes: y or yes, in any case.
+func IsYes(line string) bool {
+	let word = strings.ToLower(strings.TrimSpace(line))
+	word == "y" || word == "yes"
+}
+
+func explore(g Game, c Command) Decision[State, Ending] fails NoExit | Barred | NotHere | NotCarried {
+	match c {
+	case Go as m:
+		let next = try Moved(g, m.Way)
+		if next.At == g.World.Goal {
+			return Done[Ending]{Output: Won{Moves: next.Moves}}
+		}
+		Enter[State]{Next: Exploring{G: next}}
+	case Take as t:
+		if Where(g, t.Item) != g.At {
+			return NotHere{Item: t.Item}
+		}
+		Stay[State]{Next: Exploring{G: Placed(g, t.Item, world.Carried)}}
+	case Drop as d:
+		if Where(g, d.Item) != world.Carried {
+			return NotCarried{Item: d.Item}
+		}
+		Stay[State]{Next: Exploring{G: Placed(g, d.Item, g.At)}}
+	case Quit:
+		Enter[State]{Next: Asking{G: g}}
+	case Look, Inventory, Help, Blank:
+		Stay[State]{Next: Exploring{G: g}}
+	}
+}
+
+// Moved is g after a move way: in the next room, one move on.
+func Moved(g Game, way world.Dir) Game fails NoExit | Barred {
+	match world.ExitOf(g.World, g.At, way) {
+	case Some[world.Exit] as e:
+		let exit = e.Value
+		if exit.Key != "" && Where(g, exit.Key) != world.Carried {
+			return Barred{Way: way, Key: exit.Key, Text: exit.Barred}
+		}
+		Game{..g, At: exit.To, Moves: g.Moves + 1}
+	case None:
+		NoExit{Way: way}
+	}
+}
+
+// Where is the place of item: a room, world.Carried, or "" when the world
+// has no such item.
+func Where(g Game, item string) string {
+	for p in g.Items {
+		if p.Item == item {
+			return p.At
+		}
+	}
+	""
+}
+
+// Placed is g with item at, in a new slice of places: a Game is a value.
+func Placed(g Game, item string, at string) Game {
+	let mut items = []world.Place{}
+	for p in g.Items {
+		items = items.Append(if p.Item == item { world.Place{Item: item, At: at} } else { p })
+	}
+	Game{..g, Items: items}
+}
+
+// ItemsAt is the items at a place, in the world's order.
+func ItemsAt(g Game, at string) []string {
+	let mut out = []string{}
+	for p in g.Items {
+		if p.At == at {
+			out = out.Append(p.Item)
+		}
+	}
+	out
+}
+
+// Next is the state after the decision d in s (G-ex-b-12: no prelude
+// function applies a decision).
+func Next(s State, d Decision[State, Ending]) State {
+	match d {
+	case Enter[State] as e:
+		e.Next
+	case Stay[State] as st:
+		st.Next
+	case Ignore:
+		s
+	case Reject:
+		s
+	case Done[Ending]:
+		s
+	}
+}

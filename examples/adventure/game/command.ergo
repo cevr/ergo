@@ -1,0 +1,96 @@
+import adventure/world
+import strings
+
+// Command is a line the player types.
+type Command = Go{Way world.Dir} | Take{Item string} | Drop{Item string} | Look{} | Inventory{} | Help{} | Quit{} | Blank{}
+
+// Unknown is a first word that names no command.
+type Unknown { Word string }
+
+// Missing is a command with nothing after it that needs a word: go, take
+// or drop.
+type Missing { Verb string }
+
+// NoWay is a word after go that names no direction.
+type NoWay { Word string }
+
+// Parse reads a line: a verb and its word, in any case, with a bare
+// direction (north, n) meaning go there. A blank line is Blank.
+func Parse(line string) Command fails Unknown | Missing | NoWay {
+	let words = strings.Fields(strings.ToLower(line))
+	if len(words) == 0 {
+		return Blank
+	}
+	let verb = words[0]
+	let object = strings.Join(rest(words), " ")
+	match world.ParseDir(verb) {
+	case Some[world.Dir] as d:
+		return Go{Way: d.Value}
+	case None:
+	}
+	match verb {
+	case "go", "walk":
+		if object == "" {
+			return Missing{Verb: verb}
+		}
+		match world.ParseDir(object) {
+		case Some[world.Dir] as d:
+			Go{Way: d.Value}
+		case None:
+			NoWay{Word: object}
+		}
+	case "take", "get":
+		Take{Item: try named(verb, object)}
+	case "drop":
+		Drop{Item: try named(verb, object)}
+	case "look", "l":
+		Look
+	case "inventory", "i":
+		Inventory
+	case "help", "?":
+		Help
+	case "quit", "q":
+		Quit
+	case _:
+		Unknown{Word: verb}
+	}
+}
+
+func named(verb string, object string) string fails Missing {
+	if object == "" {
+		return Missing{Verb: verb}
+	}
+	object
+}
+
+func rest(xs []string) []string {
+	let mut out = []string{}
+	for i, x in xs {
+		if i > 0 {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// Text is c as the line Parse reads back to c.
+func Text(c Command) string {
+	match c {
+	case Go as g:
+		"go " + world.DirName(g.Way)
+	case Take as t:
+		"take " + t.Item
+	case Drop as d:
+		"drop " + d.Item
+	case Look:
+		"look"
+	case Inventory:
+		"inventory"
+	case Help:
+		"help"
+	case Quit:
+		"quit"
+	case Blank:
+		""
+	}
+}

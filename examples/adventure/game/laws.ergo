@@ -1,0 +1,157 @@
+// The rules of play as laws over generated scripts.
+
+import adventure/world
+import strings
+
+// Items is the item names a script uses: the castle's three and one it
+// does not have.
+let Items = []string{"bread", "lamp", "key", "sword"}
+
+// CommandOf is one command, by n: a move, a take, a drop, look,
+// inventory, help or a blank line.
+func CommandOf(n int) Command {
+	let m = ((n % 17) + 17) % 17
+	if m < 6 {
+		return Go{Way: world.DirOf(m)}
+	}
+	if m < 10 {
+		return Take{Item: Items[m-6]}
+	}
+	if m < 14 {
+		return Drop{Item: Items[m-10]}
+	}
+	match m {
+	case 14:
+		Look
+	case 15:
+		Inventory
+	case _:
+		Help
+	}
+}
+
+// ScriptOf is a script of commands, one per base-17 digit of n: a
+// generated slice holds at most three elements (G-ex-d-9), and an int
+// holds fifteen digits.
+func ScriptOf(n int) []Command {
+	let mut out = []Command{}
+	let mut k = if n < 0 { -(n + 1) } else { n }
+	for k > 0 {
+		out = out.Append(CommandOf(k % 17))
+		k = k / 17
+	}
+	out
+}
+
+// Played is the state after the lines of script from the start, each line
+// that fails changing nothing, up to the end of the game.
+func Played(script []Command) State {
+	let mut s = Start()
+	for c in script {
+		let d = Step(s, Said{Line: Text(c)}) catch {
+		case Unknown, Missing, NoWay, NoExit, Barred, NotHere, NotCarried:
+			Reject
+		}
+		match d {
+		case Done[Ending]:
+			return s
+		case Enter[State], Stay[State], Ignore, Reject:
+		}
+		s = Next(s, d)
+	}
+	s
+}
+
+// ParseInvertsText: a command's text, in any case, reads back to it.
+law ParseInvertsText(n int) {
+	let c = CommandOf(n)
+	let a = Parse(Text(c)) catch {
+	case Unknown, Missing, NoWay:
+		return false
+	}
+	let b = Parse(strings.ToUpper(Text(c))) catch {
+	case Unknown, Missing, NoWay:
+		return false
+	}
+	a == c && b == c
+}
+
+// ItemsAreKept: play moves items and never makes or loses one: each of
+// the world's items is in one place, a room or carried.
+law ItemsAreKept(n int) {
+	Kept(GameOf(Played(ScriptOf(n))))
+}
+
+// Kept reports whether g has each of its world's items once, in the
+// world's order, each in a room or carried.
+func Kept(g Game) bool {
+	if len(g.Items) != len(g.World.Items) {
+		return false
+	}
+	for i, p in g.Items {
+		let inRoom = world.RoomOf(g.World, p.At) != None
+		if p.Item != g.World.Items[i].Item || !(inRoom || p.At == world.Carried) {
+			return false
+		}
+	}
+	true
+}
+
+// GoingBackReturns: a move that is allowed can be undone by the opposite
+// move, to the room you left, one move later.
+law GoingBackReturns(n int, way int) {
+	let g = GameOf(Played(ScriptOf(n)))
+	let d = world.DirOf(way)
+	let there = Moved(g, d) catch {
+	case NoExit, Barred:
+		return true
+	}
+	let back = Moved(there, world.Opposite(d)) catch {
+	case NoExit, Barred:
+		return false
+	}
+	back.At == g.At && back.Moves == g.Moves+2
+}
+
+// BarredIsTheKey: a move is barred exactly when its exit has a key you do
+// not carry.
+law BarredIsTheKey(n int, way int) {
+	let g = GameOf(Played(ScriptOf(n)))
+	let d = world.DirOf(way)
+	match world.ExitOf(g.World, g.At, d) {
+	case Some[world.Exit] as e:
+		let locked = e.Value.Key != "" && Where(g, e.Value.Key) != world.Carried
+		let barred = IsBarred(g, d)
+		locked == barred
+	case None:
+		true
+	}
+}
+
+// IsBarred reports whether the move way from g fails Barred.
+func IsBarred(g Game, way world.Dir) bool {
+	let _ = Moved(g, way) catch {
+	case Barred:
+		return true
+	case NoExit:
+		return false
+	}
+	false
+}
+
+// EndIsStopped: the end of the input is Done with where you are and the
+// moves you made, in either state.
+law EndIsStopped(n int, asking bool) {
+	let g = GameOf(Played(ScriptOf(n)))
+	let s State = if asking { Asking{G: g} } else { Exploring{G: g} }
+	let d = Step(s, Ended) catch {
+	case Unknown, Missing, NoWay, NoExit, Barred, NotHere, NotCarried:
+		return false
+	}
+	match d {
+	case Done[Ending] as done:
+		done.Output == Stopped{Moves: g.Moves, At: g.At}
+	case Enter[State], Stay[State], Ignore, Reject:
+		false
+	}
+}

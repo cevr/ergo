@@ -1,0 +1,15 @@
+The Castle. Type help for the commands.
+== gate ==
+You stand at the castle gate. The road behind you is gone.
+Exits: north.
+go DIR (or north, n, south, s, east, e, west, w, up, u, down, d)
+take ITEM, drop ITEM, look, inventory (i), help, quit
+== hall ==
+A cold hall. Doors lead east and west, and the gate is south.
+You see: bread.
+Exits: south, east, west.
+Really quit? (y/n)
+Then carry on.
+You carry nothing.
+Really quit? (y/n)
+You stopped in the hall after 1 move.

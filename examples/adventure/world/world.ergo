@@ -1,0 +1,103 @@
+// Package world is the map of an adventure: rooms, the exits between
+// them, where each item starts, and the item an exit asks you to carry.
+// It is pure.
+
+import strings
+
+// Dir is a way out of a room.
+type Dir = North{} | South{} | East{} | West{} | Up{} | Down{}
+
+// Dirs is every direction, in the order a room lists its exits.
+let Dirs = []Dir{North, South, East, West, Up, Down}
+
+// DirName is the word for d.
+func DirName(d Dir) string {
+	match d {
+	case North:
+		"north"
+	case South:
+		"south"
+	case East:
+		"east"
+	case West:
+		"west"
+	case Up:
+		"up"
+	case Down:
+		"down"
+	}
+}
+
+// Opposite is the way back.
+func Opposite(d Dir) Dir {
+	match d {
+	case North:
+		South
+	case South:
+		North
+	case East:
+		West
+	case West:
+		East
+	case Up:
+		Down
+	case Down:
+		Up
+	}
+}
+
+// ParseDir reads a direction, by its word or its first letter.
+func ParseDir(word string) Option[Dir] {
+	for d in Dirs {
+		let name = DirName(d)
+		if word == name || word == strings.Slice(name, 0, 1) {
+			return Some[Dir]{Value: d}
+		}
+	}
+	None
+}
+
+// Room is a place: its name and what you see there.
+type Room { Name string, Text string }
+
+// Exit is a way from one room to another. Key is the item you must carry
+// to pass, or "" for none; Barred is what you are told without it.
+type Exit { From string, Way Dir, To string, Key string, Barred string }
+
+// Place is where an item is: a room's name, or Carried.
+type Place { Item string, At string }
+
+// Carried is the place of an item you carry.
+let Carried = "you"
+
+// World is a map: its rooms and exits, where you and each item start,
+// and the room that ends the game.
+type World { Rooms []Room, Exits []Exit, Items []Place, Start string, Goal string }
+
+// RoomOf is the room named name.
+func RoomOf(w World, name string) Option[Room] {
+	for r in w.Rooms {
+		if r.Name == name {
+			return Some[Room]{Value: r}
+		}
+	}
+	None
+}
+
+// ExitOf is the exit from room that goes way.
+func ExitOf(w World, room string, way Dir) Option[Exit] {
+	for e in w.Exits {
+		if e.From == room && e.Way == way {
+			return Some[Exit]{Value: e}
+		}
+	}
+	None
+}
+
+// Both is the exit from a to b going way and its way back, with one key.
+func Both(a string, way Dir, b string, key string, barred string) []Exit {
+	[]Exit{
+		Exit{From: a, Way: way, To: b, Key: key, Barred: barred},
+		Exit{From: b, Way: Opposite(way), To: a, Key: key, Barred: barred},
+	}
+}

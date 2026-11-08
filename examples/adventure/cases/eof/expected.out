@@ -1,0 +1,14 @@
+The Castle. Type help for the commands.
+== gate ==
+You stand at the castle gate. The road behind you is gone.
+Exits: north.
+== hall ==
+A cold hall. Doors lead east and west, and the gate is south.
+You see: bread.
+Exits: south, east, west.
+== kitchen ==
+An old kitchen. Stairs go down into the dark.
+You see: lamp.
+Exits: west, down.
+Taken: lamp.
+You stopped in the kitchen after 2 moves.

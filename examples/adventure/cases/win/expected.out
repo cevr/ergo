@@ -1,0 +1,41 @@
+The Castle. Type help for the commands.
+== gate ==
+You stand at the castle gate. The road behind you is gone.
+Exits: north.
+== gate ==
+You stand at the castle gate. The road behind you is gone.
+Exits: north.
+== hall ==
+A cold hall. Doors lead east and west, and the gate is south.
+You see: bread.
+Exits: south, east, west.
+Taken: bread.
+The tower door is locked.
+== kitchen ==
+An old kitchen. Stairs go down into the dark.
+You see: lamp.
+Exits: west, down.
+It is too dark to go down without a light.
+Taken: lamp.
+== cellar ==
+A damp cellar, lit by your lamp.
+You see: key.
+Exits: up.
+Taken: key.
+You carry: bread, lamp, key.
+Dropped: bread.
+== kitchen ==
+An old kitchen. Stairs go down into the dark.
+Exits: west, down.
+I do not know the word "fly".
+"nowhere" is not a direction.
+Take what?
+There is no sword here.
+You do not carry the bread.
+== hall ==
+A cold hall. Doors lead east and west, and the gate is south.
+Exits: south, east, west.
+== tower ==
+The foot of the tower. A stair winds up.
+Exits: east, up.
+You stand on the roof. You won in 7 moves.
