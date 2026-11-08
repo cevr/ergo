@@ -12,7 +12,7 @@ import (
 )
 
 // emittedBench measures emitted Go in process, as docs/receipts/lower-v1.md
-// does: it lowers src (a program whose main needs Console, so the emitted
+// does: it lowers src (a program whose main uses Console, so the emitted
 // package declares Env), writes it as package p/NAME of a fresh module
 // with the Go test file that benchGo returns for the emitted main.go, and
 // compiles that test binary once. Each name in benches is then a
