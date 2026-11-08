@@ -11,7 +11,7 @@ import (
 
 // K3 (M8): without an expected type, the branches of an if or match that
 // are variants of one union (or that union) join to the union (rows.md,
-// Tail results 3); branches of one variant keep the variant.
+// Totality 3); branches of one variant keep the variant.
 
 // letType checks src and returns the type of its local x, or the
 // diagnostics when it does not check.

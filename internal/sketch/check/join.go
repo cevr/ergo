@@ -2,7 +2,7 @@ package check
 
 import "ergo.local/prototype/internal/sketch/syntax"
 
-// Branch join (K3; rows.md, Tail results 3). Without an expected type the
+// Branch join (K3; rows.md, Totality 3). Without an expected type the
 // branches of an if or match have one type, the first branch's, unless they
 // are variants of one union: then the expression has that union's type.
 // Open and Closed join to State; Some[int] and None join to Option[int];
@@ -61,7 +61,7 @@ func (c *checker) typedByValue(target syntax.Expr, op *operand, t Type) bool {
 	if value == "this expression" {
 		value = "…"
 	}
-	c.errorf(op.expr, CodeType, "%s is typed %s by its value; write let mut %s %s = %s (rows.md, Tail results 3)", id.Name, c.localTypeText(t), id.Name, c.localTypeText(u), value)
+	c.errorf(op.expr, CodeType, "%s is typed %s by its value; write let mut %s %s = %s (rows.md, Totality 3)", id.Name, c.localTypeText(t), id.Name, c.localTypeText(u), value)
 	op.mode = modeInvalid
 	return true
 }
