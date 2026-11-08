@@ -12,14 +12,16 @@ Labels: **measured** (a number from a run in [`union-repr-bench/results/`](union
 | --- | --- | --- | --- |
 | A | Sealed interface, a struct per variant (today) | Stays: the fallback, and the exported Go view | Baseline |
 | B | Enum: all variants empty, `type U uint8` | **Go** | Dispatch −72% (5 variants); step text −52% |
-| C | Option shape: `struct{ v T; ok bool }` | **Go** (X1) | 0.49 → 0 allocations per lookup when the Option leaves the function; Cut −62% |
-| D | Flat typed slots: `struct{ tag uint8; slots }` | **Go** when the struct is at most 32 bytes and 4 fields; else no-go for now | Breaker 0.63 → 0 allocations per transition, −38%; above 32 bytes a pass-through costs +16 to +19 ns |
+| C | Option shape: `struct{ v T; ok bool }` | **Go** (X1) when the struct is at most 32 bytes (`Option[int]`, `Option[string]`); no-go for now above it (`strings.Cut`'s 40-byte `Option[Halves]`) | 0.38–0.5 → 0 allocations per lookup when the Option leaves the function (−75% to −84%); above 32 bytes a pass-through costs +15 to +19 ns |
+| D | Flat typed slots: `struct{ tag uint8; slots }` | **Go** when the struct is at most 32 bytes and 4 fields and no A union holds it; else no-go for now | Counter machine 1.56 → 0 allocations per transition, −89%; above 32 bytes a pass-through costs +16 to +19 ns |
 | Dx | D, two subjects as one combined-index switch | **No-go** (R4 dropped) | Slower than nested D in every case: +178% (3×4), 2.6× nested D (6×6) |
 | E | Tag + boxed payload `struct{ tag uint8; p any }` | **No-go** | Keeps every allocation; step text +38% |
 | F | Interface + tag method | **No-go** | Breaker +25%; small dispatch +52% to +57%; step text +82% |
-| G | Hybrid by a fixed shape rule (B, C, D, else A) | **Go** (the rule R1 to R3 build) | The sum of B, C and D |
+| G | Hybrid by a fixed shape rule (`RuleG`: B, C, D, else A) | **Go** (the rule R1 to R3 build) | Measured with the forms the rule picks: Counter −89%, tidewalk not slower (~) with −22% allocations, Breaker: see question 1 |
 
 The gain of a tagged form is the allocation, not the dispatch (measured): Go's type switch is already a compare or a jump table, and an integer switch beats it by 20% or more only on enums and on nested two-subject matches.
+
+Round 2 (measured): a C or D struct above 32 bytes gains −49% to −84% when it is built and matched at once (a machine's `Decision`, an Option returned and matched), and loses 15 to 19 ns per call when it is carried unchanged. A rule by shape alone cannot tell the two uses apart, so the rule keeps the 32-byte bound, and R3b studies a bound by use.
 
 ## Method
 
@@ -34,6 +36,7 @@ The gain of a tagged form is the allocation, not the dispatch (measured): Go's t
 | 2 | `results/20261107T230952Z` | `CopyPass`, `CopyNext` (scalar fields), `Narrow`, `DispatchCyclic` |
 | 3 | `results/20261107T232835Z` | `Enum` (form B) |
 | 4 | `results/20261107T232923Z` | `GCCycle` with heap objects and bytes |
+| 5 | `results/20261108T004432Z` | Round 2: `Breaker` (forms G and M added), `Counter`, `Tidewalk` (forms Dall and G), `DecisionBand`, `OptionSize`, `OptionPass`, `CopyPass` and `CopyNext` at 16 to 128 bytes. Load 6.0 to 28.5 (1-minute average); `gate.lock` held until a server restart at about 00:52Z, after which the run went on without it (the lock's `flock` process ended with the shell) |
 
 Every measured function is `//go:noinline`, so each form pays one call, as a lowered Ergo function does when Go does not inline it. The Option functions are not marked, because inlining decides whether form A allocates (question 10).
 
@@ -52,10 +55,25 @@ Breaker (the pure step of `check/testdata/fixtures/positive/machine-step-total.e
 | Benchmark (3 replays, 38 moves) | Form | µs/op | vs A | allocs per move | B per move |
 | --- | --- | --- | --- | --- | --- |
 | Tidewalk | A | 5.468 ± 6% | | 4.421 | 142.7 |
-| Tidewalk | G (Move as B; Game, Event, Decision as D) | 4.473 ± 3% | −18.2% (p=0.000) | 1.316 | 56.4 |
+| Tidewalk | Dall (round 1 called it G: Move as B; Game, Event, Decision as D) | 4.473 ± 3% | −18.2% (p=0.000) | 1.316 | 56.4 |
 
 - In form A an `Enter{Open{e}}` boxes twice (the `Open` into `State`, the `Enter` into `Decision`), a `Stay{Closed{n}}` once: Go keeps a static copy of the integers 0 to 255 (`runtime.staticuint64s`), so `Closed{n}` with a small `n` does not allocate (measured: `escape.txt` shows the box; the allocation count shows it is not taken). An empty variant (`Ignore{}`) never allocates (measured).
-- Tidewalk G keeps 1.316 allocations per move: the `[]Event` slice that `Decide` returns and the shell string (inferred: both are in A too, and they are the whole of G's count).
+- Tidewalk Dall (round 1 called it G) keeps 1.316 allocations per move: the `[]Event` slice that `Decide` returns and the shell string (inferred: both are in A too, and they are the whole of Dall's count).
+
+**Round 2: the forms rule G picks** (run 5; load 6 to 28, so the absolute times are higher than in run 1; compare within a row). Form M is the round-1 rule's pick for Breaker (State D boxed in an A Decision); form G is `RuleG`'s pick (the table under "The rule (G)"); form Dall puts every union of tidewalk in D.
+
+| Benchmark | A | Form | Time vs A | allocs per transition or move | B per transition or move |
+| --- | --- | --- | --- | --- | --- |
+| Breaker | 34.15 ns ± 14% | D (all D) | −50.8% (p=0.000) | 0.630 → 0 | 10.08 → 0 |
+| Breaker | | M (round-1 rule) | +20.3% (p=0.009) | 0.630 → 0.504 | 10.08 → 16.13 |
+| Breaker | | G (`RuleG`: State A, Signal C, Decision A) | **+30.3% (p=0.000)**, see below | 0.630 (same) | 10.08 (same) |
+| Counter | 51.11 ns ± 13% | G (State C, Signal B, Decision D) | **−89.2%** (p=0.000) | 1.564 → 0 | 19.36 → 0 |
+| Tidewalk | 8.256 µs ± 16% | G (Move B, Event D, Game A, Decision A) | ~ (−5%, p=0.796) | 4.421 → 3.447 (−22%) | 142.7 → 151.2 (+6%) |
+| Tidewalk | | Dall (round 1's G) | −32.5% (p=0.001) | 4.421 → 1.316 | 142.7 → 56.4 |
+
+- Form M reproduces the round-1 verifier's probe (+70% there, +20% here at a higher A time): the 32-byte D state in the Enter box makes a 32-byte box where A made a 16-byte box (inferred from the B per transition: 16.13 against 10.08), and `Closed{n}` no longer uses Go's static boxes. Rule G's step 7 removes form M.
+- Breaker G differs from A only in `Signal`: a 24-byte C struct in place of an interface. Its text is smaller (`stepG` 424 bytes, `stepA` 542; `funcsizes.txt`) and it keeps A's allocations. Its +30% is measured in one run whose load rose from 13 to 28 during the run; E and F, which run beside it, also moved (+18%, +12%) against run 1 (~, +25%). The cause is not known. **Open:** a re-run of `Breaker` alone on a quiet host decides whether Signal C is a loss; if it is, the rule must keep a C union that is only passed in (never built in the loop) in A, or the C verdict narrows. Until then the Breaker row does not support a gain for G, and R3's check uses Counter (question 1 does not claim a Breaker gain for rule G).
+- Tidewalk G removes 0.97 allocations per move (the `Walked` and `ShellCollected` boxes) but adds bytes, because an `EventD` slice element is 32 bytes where A stores a 16-byte interface. Time is not changed within the noise. By §2.5 (1) this is at the edge: about one allocation per move removed, no time gained.
 
 ## 2. Dispatch time
 
@@ -111,7 +129,7 @@ Text of the measured functions in the benchmark binary (`funcsizes.txt`, bytes):
 | Enum `target` | 216 | B 134 | −38% |
 | Option `lookup` + its caller | 137 + 314 = 451 | C 89 + 217 = 306 | −32% |
 | Option `cut` + its caller | 231 + 305 = 536 | C 298 + 280 = 578 | +7.8% |
-| Tidewalk `record`, `evolveWalk`, `tideStep`, `tideApply`, `play` | 5,181 | G 5,827 | +12.5% (G's `play` also takes the contract test's check hook, so part of this is the harness; inferred) |
+| Tidewalk `record`, `evolveWalk`, `tideStep`, `tideApply`, `play` | 5,181 | Dall 5,827 | +12.5% (Dall's `play` also takes the contract test's check hook, so part of this is the harness; inferred) |
 | `narrow` (64-byte variant) | 198 | D 425; Ds 155 | +115%; −22% |
 
 A struct above 32 bytes is copied through memory (question 5), so its functions grow: tidewalk's `Game` (64 bytes in D) is the case above (+12.5%), and `tideApply` alone grows from 229 to 486 bytes.
@@ -157,7 +175,35 @@ A union `Big{F0 … Fk-1 int64} | Small{}`, payloads of 16 to 128 bytes. `CopyPa
 - Run 1 used one `[k]int64` field: then even the 24-byte D value paid 20.7 ns per pass (+1275%), because an array of two elements is never SSA (measured). Slots must be scalar fields.
 - A never pays this: it passes two words. It pays an allocation for every new value instead.
 
-**Threshold.** D values of at most 32 bytes and 4 Go fields (the tag counts as one field) gain in every measurement. Above it the result depends on use: building values gains (−12% to −52% here, −38% for Breaker's 56-byte `Decision`, −18% for tidewalk), passing a carried value unchanged loses 16 to 19 ns, and code grows (question 3). So the rule for D is the SSA limit: at most 32 bytes and 4 fields. The 33 to 128 byte band is a follow-up measurement on real programs (R3b), because the machine's `Decision` is in it.
+Round 2 (run 5) repeats the table at more sizes. The D struct is the payload plus 8 bytes.
+
+| Payload | D struct | A pass ns | D pass | A next ns | D next (allocs 1 → 0) |
+| --- | --- | --- | --- | --- | --- |
+| 16 B | 24 B, 3 fields | 1.611 ± 8% | +19.1% (+0.3 ns) | 22.24 ± 30% | −89.9% |
+| 24 B | 32 B, 4 fields | 1.816 ± 6% | −7.8% | 30.97 ± 14% | −92.5% |
+| 32 B | 40 B, 5 fields | 1.544 ± 2% | +1002% | 31.64 ± 17% | −40.4% |
+| 48 B | 56 B, 7 fields | 1.548 ± 14% | +1096% | 37.35 ± 20% | −46.0% |
+| 56 B | 64 B, 8 fields | 1.637 ± 4% | +1011% | 35.63 ± 9% | −41.3% |
+| 64 B | 72 B, 9 fields | 2.066 ± 9% | +869% | 39.77 ± 12% | −45.5% |
+| 88 B | 96 B, 12 fields | 1.931 ± 11% | +370% | 48.27 ± 19% | −68.7% |
+| 128 B | 136 B, 17 fields | 1.689 ± 12% | +1177% | 53.31 ± 7% | −53.9% |
+
+p = 0.000 for every row. The step is between 32 and 40 bytes, at Go's limit. The cause is visible in the code (measured: `go tool objdump` of `pass32D`): the callee stores the arguments with 1- and 8-byte moves and copies the result with 16-byte `MOVUPS` loads over those stores, which the CPU cannot forward (a store-to-load forwarding stall; the stall itself is inferred, not counted with performance counters).
+
+### 5b. The band of 40 to 96 bytes on a machine step
+
+`DecisionBand` is Breaker's step and apply with a `Done` that carries 0, 2, 3 or 7 `int64` words, so the D Decision is 40, 56, 64 or 96 bytes (run 5). D: every union D; M: State D boxed in an A Decision.
+
+| D Decision | A ns (allocs per transition) | D | M |
+| --- | --- | --- | --- |
+| 40 B | 31.30 ± 16% (0.630) | −66.6% (0) | −16.5% (p=0.005; 0.504) |
+| 56 B | 37.27 ± 17% (0.889) | −57.6% (0) | ~ (p=0.063; 0.763) |
+| 64 B | 31.36 ± 23% (0.889) | −55.9% (0) | ~ (p=0.853; 0.763) |
+| 96 B | 35.01 ± 33% (0.889) | −49.0% (0) | −7.6% (p=0.035; 0.763) |
+
+p = 0.000 where none is given.
+
+**Threshold.** C and D values of at most 32 bytes and 4 Go fields (the tag counts as one field) gain wherever a value is built (question 5 next, question 1, question 10) and cost at most 0.3 ns on a pass. Above 32 bytes the result depends on use: a value built and consumed at once gains at every size measured (D Decision −49% to −67%, C Option −72% to −85%), and a value carried unchanged through a call loses 15 to 19 ns per call (pass rows, question 10's pass rows). A shape rule cannot see the use, and a loss of 10× on a carried state breaks NORTH_STAR pillar 7 for programs that carry a large state. So the rule keeps the SSA limit for C and D (decided by measurement). A bound by use (a result that the caller matches at once and never stores or passes on) is R3b.
 
 ## 6. Narrowing cost
 
@@ -234,6 +280,20 @@ p = 0.000 where none is given.
 - Std `Cut` is not inlined (measured: `escape.txt`, "Some[Halves]{...} escapes to heap" in `cutA`), so every `Some[Halves]` allocates 32 bytes in form A.
 - C still trails Go's three results through a non-inlined call (16.3 against 9.5 ns): the 40-byte `OptionC[Halves]` is above the SSA limit (question 5) and goes through memory (inferred). Inlined, C equals Go.
 
+**Round 2: C at several payload sizes** (run 5). `Option[Word k]` with k `int64` words; the C struct is 8k + 8 bytes. Get: a non-inlined function returns the Option (half `Some`, half `None`) and the caller matches it at once. Pass: a non-inlined function takes the Option and returns it unchanged, in a loop that carries it.
+
+| C struct | A get ns (allocs per get) | C get (allocs 0) | A pass ns | C pass |
+| --- | --- | --- | --- | --- |
+| 16 B | 8.427 ± 6% (0.375) | −75.4% | 1.550 ± 4% | +17.6% (+0.3 ns) |
+| 24 B | 12.40 ± 11% (0.5) | −83.9% | 1.855 ± 9% | −14.9% |
+| 32 B | 11.86 ± 6% (0.5) | −83.8% | 1.593 ± 4% | +22.1% (+0.35 ns) |
+| 40 B | 16.61 ± 8% (0.5) | −71.9% | 2.017 ± 8% | +743% |
+| 56 B | 21.87 ± 12% (0.5) | −73.4% | 1.631 ± 4% | +1009% |
+| 72 B | 25.43 ± 21% (0.5) | −72.3% | 1.940 ± 17% | +885% |
+| 136 B | 36.06 ± 12% (0.5) | −84.5% | 1.671 ± 11% | +1147% |
+
+p = 0.000 for every row. At 16 bytes A allocates 0.375 per get, not 0.5: a `Some` whose word is 0 to 255 uses Go's static boxes (inferred). C behaves as D does (question 5): the bound is the same 32 bytes, so the round-1 claim "C for any T" is withdrawn. `strings.Cut`'s `Option[Halves]` (40 bytes) stays A under the rule, and R3b decides it with the bound by use.
+
 ## Verdicts by the criterion (plan §2.5)
 
 Criterion: go when (1) the form removes at least one allocation per operation or cuts dispatch time by 20% or more, (2) the text of the benchmark programs grows by 10% or less, (3) no guarantee is lost, and (4) the change fits behind one `unionRepr` seam.
@@ -241,23 +301,51 @@ Criterion: go when (1) the form removes at least one allocation per operation or
 | Form | (1) | (2) | (3) | (4) | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | B | dispatch −72% (no allocation to remove: empty variants never allocate in A) | step −52%, `.text` −1,440 B | `==` on a byte; the text and test printers switch on the tag; no slot, so no invariant | yes | **Go** |
-| C | 0.49 → 0 allocations per lookup through a call, Cut 0.48 → 0; −32% to −62% | lookup path −32%, Cut path +7.8% | None is the zero value (checked, mutant m6) | yes | **Go** |
-| D ≤ 32 B, ≤ 4 fields | Breaker 0.63 → 0 per transition (−38%); churn 1 → 0 (−61%, −73%); 6×6 dispatch −74% | Breaker step + apply −15%; 20-variant step −15% | equality and map keys by the zero-slot invariant (property, mutants m2, m4); clone per slot (fewer allocations) | yes | **Go** |
-| D > 32 B | removes allocations (tidewalk −70%, Copy −100%) | tidewalk +12.5%, `narrow` +115% | as above | yes | **No-go for now** (R3b measures the band) |
+| C ≤ 32 B | 0.38–0.5 → 0 allocations per get through a call (−75% to −84%, run 5); lookup of `Option[int]` −38% (run 1) | lookup path −32% | None is the zero value (checked, mutant m6) | yes | **Go** |
+| C > 32 B | removes the allocation (−72% to −85% on a get, Cut −62%) | Cut path +7.8% | as above | yes | **No-go for now**: a carried value costs +743% to +1147% on a pass; R3b |
+| D ≤ 32 B, ≤ 4 fields, not held by an A union | Counter machine 1.56 → 0 per transition (−89%, run 5); churn 1 → 0 (−61%, −73%); 6×6 dispatch −74% | 20-variant step −15%, GC churn −44% | equality and map keys by the zero-slot invariant (property, mutants m2, m4); clone per slot (fewer allocations) | yes | **Go** |
+| D > 32 B | removes allocations (Decision band −49% to −67%, tidewalk Dall −70% allocations) | tidewalk Dall +12.5%, `narrow` +115% | as above | yes | **No-go for now**: a carried value costs +370% to +1177% on a pass; R3b |
+| D held in an A union (form M) | 0.63 → 0.50 allocations per transition, but +20% (run 5) and +70% (round-1 probe) | — | — | — | **No-go**: rule step 7 |
 | Dx | none: +178% (3×4), +55% cyclic 6×6 against A, and slower than nested D everywhere | — | — | — | **No-go** |
 | E | none removed (same allocations, +40% bytes) | step +38% | — | — | **No-go** |
 | F | none removed; Breaker +25% | step +82% | — | — | **No-go** |
-| G | as B, C and D | as B, C and D | as B, C and D | yes | **Go**: the rule below |
+| G (`RuleG`) | measured with its own forms (run 5): Counter −89% (1.56 → 0); tidewalk −22% allocations, time ~; Breaker +30% (open, see question 1) | as B, C and D | as B, C and D; every outcome builds (`TestRuleGBuilds`) | yes | **Go**, with the Breaker re-run open |
 
-**The rule (G).** Per union, by its shape, in one function the seam owns:
+**The rule (G), revised in round 2.** One function, `RuleG` in [`rule.go`](union-repr-bench/rule.go), chooses the form of every union of a program (a generic union per instance). The steps, in order:
 
-1. All variants empty → B.
-2. Exactly one variant with fields and one empty variant → C (any `T`; measured gains at 40 bytes for `Option[Halves]`).
-3. Otherwise, when the union is not recursive, no variant is an error type, and the D struct (a `uint8` tag plus one scalar slot per field, a slot shared by fields of the same Go type across variants) is at most 32 bytes and 4 fields → D.
-4. Otherwise → A.
-5. At an exported Go boundary (none exists yet), the Go view is A, converted at the edge.
+1. A variant is an error type → A. A row value is a Go `error`, and `ConvRow` and `catch` test it by type (`err.(U)`); a struct or a `uint8` has no `Error` method, so Go rejects the test (measured: `impossible type assertion`).
+2. The union reaches itself through any field: directly, through a record, through another union, through a generic instance, or through a slice → A. Go rejects a struct that contains itself (measured: `invalid recursive type`); the interface box breaks the cycle, as Swift's `indirect` and OCaml's blocks do. A slice breaks the cycle in Go too, but the rule keeps every recursive union in A (decided by "prefer the simpler, reversible option").
+3. All variants empty → B.
+4. Exactly two variants, one with fields and one empty → C.
+5. Otherwise → D.
+6. The C or D struct must be one that Go keeps in registers (`ssa.CanSSA`: at most 32 bytes, at most 4 fields at each struct level, no array) → else A. This applies to C and D alike (question 5b).
+7. A C or D union that an A union holds by value (in a variant field, directly or through a record) → A. A slice element is not held by value. Reason (measured): a D state boxed in an A Decision is slower than all-A (Breaker form M, question 1).
+8. Steps 6 and 7 repeat until no union changes, because a union that becomes A changes the size of the unions that hold it. A union only moves to A, so the loop ends.
+9. At an exported Go boundary (none exists yet), the Go view is A, converted at the edge.
 
-The rule leaves the machine's `Decision[S, O]` in form A when `S` is a D-form state (56 bytes for Breaker), although Breaker measured −38% with it in D. Raising the limit for such transient results is R3b's question; the simple rule is the safe first step (decided by "prefer the simpler, reversible option" and NORTH_STAR pillar 7, "never slower than today").
+Round 1's rule applied the recursion and error checks only to D (steps 1 and 2 came after B and C), had no bound on C and no step 7. The round-1 verifier showed that it picks C for `List = Cons{ Head int, Tail List } | Nil{}` (invalid Go) and a mixed form for Breaker that is +70% against A. Both are now checks in the module (below).
+
+**What the rule picks on the measured programs** (`TestRuleGPicksBenchForms` checks that each `form=G` benchmark uses these Go types):
+
+| Program | Union | Form | Step |
+| --- | --- | --- | --- |
+| Breaker | `State` (D would be 32 B) | A | 7: held by `Decision` |
+| Breaker | `Signal` (`Failure{Endpoint} \| Retry`) | C, 24 B | 4 |
+| Breaker | `Decision[State, string]` (D would be 56 B) | A | 6 |
+| Counter | `State` (`Idle \| Counting{N}`) | C, 16 B | 4 |
+| Counter | `Signal` (`Tick \| Reset \| Read`) | B | 3 |
+| Counter | `Decision[State, int]` | D, 32 B | 5 |
+| Tidewalk | `Move` | B | 3 |
+| Tidewalk | `Event` | D, 32 B | 5 |
+| Tidewalk | `Game` (D would be 64 B), `Decision[Game, string]` (88 B) | A | 6 |
+
+**The rule's contract** (`rule_test.go`, measured green at the head):
+
+- `TestRuleGBuilds`: 14 fixed programs (recursive, mutually recursive, recursive through a record, through a generic instance and through a slice; error-type unions of B, C and D shape; Breaker, Counter, tidewalk; options; a D inside a D; a B inside an A; a cascade through a record; a zero-size record slot; a 32-byte struct with 5 fields) and 80 seeded programs of 3 to 6 unions with references between them. Each union is written as Go in the form the rule picks, with a constructor per variant, a match that reads every field, and `err.(U)` for error unions; the program passes `go vet` and `go build`. `go/types` then checks that every C and D struct has the size the rule computed and passes `CanSSA`, and that no A variant holds a C or D union by value. Every step of the rule is the outcome of at least one union.
+- `TestRuleGFixtures`: the form and the step of each union of the fixed programs.
+- `TestRound1RuleDoesNotBuild`: the round-1 rule's Go fails to build on the list, the mutual pair, the record and generic cycles (`invalid recursive type`) and the error unions (`impossible type assertion`). The round-1 verifier's probe is the list fixture.
+- `TestRuleGPicksBenchForms`: the Go types of the Breaker, Counter and tidewalk `form=G` functions (by reflection) are the forms `RuleG` picks, with the same sizes.
+- 15 mutants of `rule.go`, one per step and helper, each red ([`results/mutants-r2.txt`](union-repr-bench/results/mutants-r2.txt)).
 
 ## Prior art
 
@@ -278,16 +366,16 @@ Optimizations the others use that Ergo's rule matches: constant constructors as 
 
 | Unit | What | Depends on | Red check sketch |
 | --- | --- | --- | --- |
-| R1 repr-seam + X1 | The `unionRepr` seam (one function chooses B, C, D or A by the rule; every place in question 9 reads it), and form C for the option shape by the rule, not by name. Types.md Unions 6 becomes per-shape. | M1 (the tree emits a tag switch on a C column), batch-9 lane C merged (`decls.go`) | (a) A shape test: `ergo build -work` of a program with `m.Get(k)` returned through a function and of `strings.Cut` emits no `isOption` interface; red at base. (b) The M1 property with a repr switch: a `match` over form C selects the same arm and bindings as form A for every value. (c) `testing.AllocsPerRun` of a lookup through a non-inlined function: 0.5 at base, 0 at head. (d) A None is the zero value (property). |
+| R1 repr-seam + X1 | The `unionRepr` seam: a port of `RuleG` (all steps, with the same layout code and `CanSSA` bound) over the checker's union graph, read by every place in question 9; form C for the option shape by the rule, not by name. Types.md Unions 6 becomes per-shape. The reference lowering (A for every union) stays selectable by a test hook (owner rule 2026-11-08). | M1 (the tree emits a tag switch on a C column), batch-9 lane C merged (`decls.go`) | (a) A shape test: `ergo build -work` of a program with `m.Get(k)` (`Option[int]`, 16 bytes) returned through a function emits no `isOption` interface; red at base. `strings.Cut` keeps A (40 bytes). (b) The port of `TestRuleGBuilds`: every union of the corpus, a recursive `List = Cons{ Head int, Tail List } \| Nil{}`, a mutual pair, a cycle through a generic instance and an error-type `NotFound{} \| Bad{ Msg string }` lower through `ergo build`; the recursive and error unions stay A, and the output builds and vets. (c) The M1 property with the repr hook: a `match` over form C selects the same arm and bindings as form A for every value. (d) `testing.AllocsPerRun` of a lookup through a non-inlined function: 0.5 at base, 0 at head. (e) None is the zero value (property). |
 | R2 enum-repr | Form B for all-empty unions | R1 | Shape test: tidewalk's `Move` lowers to `uint8` constants (red at base); the M1 property over enums; the `ergo test` printer still prints `North`; `==` and map keys agree with base output on the corpus. |
-| R3 flat-repr | Form D under the rule (≤ 32 bytes, ≤ 4 fields, non-recursive, no error-type variant), with the zero-slot invariant as a property | R2 | (a) Breaker's step: 0.63 allocations per transition at base, 0 at head (`AllocsPerRun`). (b) A generated property: for generated values, `==` on head output equals `==` on base output, and every value's inactive slots are zero (a generated `wellFormed` per union in test builds). (c) Text and test printers print the same as base on the corpus. |
-| R3b flat-band (research) | Measure the 33 to 128 byte band on real programs after R3: Breaker and tidewalk `Decision`, tidewalk `Game`; decide whether transient results (a function's result consumed by a match) may use D above 32 bytes | R3 | Benchmarks of the lowered examples at R3's head with the limit at 32 and at 64 bytes; go only by §2.5. |
+| R3 flat-repr | Form D under the rule (steps 5 to 8: ≤ 32 bytes, ≤ 4 fields, not recursive, no error-type variant, not held by value in an A union), with the zero-slot invariant as a property | R2 | (a) The Counter machine (`union-repr-bench/counter.go` as an Ergo fixture): 1.56 allocations per transition at base, 0 at head (`AllocsPerRun`). Breaker keeps form A for State and Decision under the rule, so its count stays 0.63 at head (a check that it does not change). (b) A generated property: for generated values, `==` on head output equals `==` on base output, and every value's inactive slots are zero (a generated `wellFormed` per union in test builds). (c) Text and test printers print the same as base on the corpus, under both lowerings. |
+| R3b repr-by-use (research) | A bound by use above 32 bytes: a result that the caller matches at once and never stores, passes on or captures (a machine's `Decision`, `strings.Cut`'s Option) may use C or D up to 96 bytes; a carried value may not. Measured motive: Decision band −49% to −67%, Option get −72% to −85%, pass +370% to +1177% | R3 | Benchmarks of the lowered Breaker, tidewalk and Cut at R3's head with and without the use rule; go only by §2.5 and no carried-value row slower than A. |
 | R4 product-dispatch | **Dropped**: the combined-index switch is slower than nested switches in every measured case (question 2) | — | — |
 | R5 repr-clone | The task-boundary clone plan per form (Gap 45), when that rule lands: D clones slots, A switches | R3, #211 | A clone of a value with a slice slot shares no storage (mutate the source, the clone is unchanged); allocations 2 → 1 for a `Bag`. |
 
 ## Limits
 
-- One host, shared, under load 2.3 to 7.7; numbers with a wide interval (`± 15%` and more) are flagged in the tables. Absolute times will differ on another CPU; the allocation counts and code sizes do not depend on the host (inferred).
+- One host, shared, under load 2.3 to 7.7 (runs 1 to 4) and 6 to 28.5 (run 5); numbers with a wide interval (`± 15%` and more) are flagged in the tables. Run 5's Breaker G row (+30%) needs a re-run on a quiet host. Absolute times will differ on another CPU; the allocation counts and code sizes do not depend on the host (inferred).
 - The benchmarks are hand-written Go of each form, not the lowering's output; the forms' code follows what the lowering emits today (form A) and what a tagged lowering would emit (the others). The follow-up units measure the real lowering.
 - The cause of the 16 to 19 ns pass cost above the SSA limit is inferred, not measured with performance counters.
 - The random-order dispatch rows show mostly mispredicted branches; real programs see more regular input, as the cyclic rows show, and there the one-subject integer switch lost to the type switch.

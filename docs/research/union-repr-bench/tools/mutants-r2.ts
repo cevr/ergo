@@ -1,5 +1,6 @@
 // Mutants of rule.go (round 2). Each must turn a rule test red.
-// Usage: bun /tmp/opencode/m2r2/mutants.ts <module dir>
+// Usage (GOCACHE set to a private dir): bun tools/mutants-r2.ts <a scratch copy of the module>
+// It rewrites rule.go in that copy per mutant and restores it at the end.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -36,13 +37,10 @@ for (const [name, from, to] of mutants) {
   writeFileSync(file, orig.replace(from, to));
   const p = Bun.spawnSync(
     [
-      "systemd-run", "--user", "--wait", "--pipe", "--collect", "--same-dir", "-q",
-      "-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "-p", "Nice=10", "-p", "CPUWeight=20",
-      `--setenv=PATH=${env.PATH}`, `--setenv=HOME=${env.HOME}`,
-      "env", `GOCACHE=${env.GOCACHE}`, "GOMEMLIMIT=6GiB", "GOMAXPROCS=4",
-      "timeout", "300", "go", "test", "-count=1", "-run", "Rule|Round1", ".",
+      "timeout", "--kill-after=10s", "300",
+      "go", "test", "-p", "2", "-timeout", "280s", "-count=1", "-run", "Rule|Round1", ".",
     ],
-    { cwd: dir, env },
+    { cwd: dir, env: { ...env, GOMEMLIMIT: "6GiB", GOMAXPROCS: "2" } },
   );
   const out = p.stdout.toString() + p.stderr.toString();
   const failed = out.split("\n").filter((l) => l.startsWith("--- FAIL")).map((l) => l.split(" ")[2]);
