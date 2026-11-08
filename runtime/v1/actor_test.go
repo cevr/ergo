@@ -221,6 +221,8 @@ type driver struct {
 	mu       sync.Mutex
 	outs     []int
 	fail     string
+	fires    int
+	looping  bool // the fire bound ended the trace
 }
 
 func (dr *driver) failf(format string, args ...any) {
@@ -256,8 +258,33 @@ func (dr *driver) idle() {
 	}
 }
 
+// maxFires bounds the timer fires of one case. A timer of delay 0 whose
+// firing opens an entry of delay 0 again fires forever at one virtual
+// instant (a machine's own livelock, not the runner's): past the bound the
+// driver ends the trace and stops the actor inside that loop. A positive
+// delay moves the clock, and a trace ends by time 41, so only a zero-delay
+// loop reaches the bound.
+const maxFires = 64
+
+// due reports whether the armed timer fires before at (before or at it
+// when inclusive) within the fire bound; past the bound it marks the case
+// looping.
+func (dr *driver) due(at int, inclusive bool) bool {
+	r := dr.r
+	if !r.armed || r.ended || dr.fail != "" || r.deadline > at || !inclusive && r.deadline == at {
+		return false
+	}
+	if dr.fires == maxFires {
+		dr.looping = true
+		r.seen["a stop inside a zero-delay timer loop"] = true
+		return false
+	}
+	return true
+}
+
 // fireTimer releases the live timer at its deadline.
 func (dr *driver) fireTimer() {
+	dr.fires++
 	r := dr.r
 	r.now = r.deadline
 	r.armed = false
@@ -421,8 +448,11 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 			seen["refused after the end"] = true
 			continue
 		}
-		for r.armed && !r.ended && r.deadline < o.at {
+		for dr.due(o.at, false) {
 			dr.fireTimer()
+		}
+		if dr.looping {
+			break
 		}
 		if r.ended {
 			continue
@@ -444,7 +474,7 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 			break
 		}
 	}
-	for !r.ended && !stopped && r.armed && r.deadline <= c.end && dr.fail == "" {
+	for !stopped && dr.due(c.end, true) {
 		dr.fireTimer()
 	}
 	if got := dr.a.State(task); got != r.s && dr.fail == "" {
@@ -470,6 +500,18 @@ func runActorCase(c actorCase, seen map[string]bool) string {
 	return dr.fail
 }
 
+// zeroDelayLoop is case 112 of seed 1, the first case of every seed: the
+// Emit opens an entry of n 3 at time 0, whose timer (delay n%3 = 0)
+// re-enters with the same n, so it fires forever at time 0. The driver hung
+// in it until the fire bound.
+var zeroDelayLoop = actorCase{
+	m: tmachine{table: [][]tcell{{{kind: "enter", delta: 1}, {kind: "emit"}}},
+		timers: []ttimer{{has: true, x: -1}}, init: tstate{0, 2}},
+	capacity: 2,
+	ops:      []op{{at: 0, kind: "ask", e: tsig{1, 1}}, {at: 0, kind: "tie", e: tsig{0, 2}}},
+	end:      5,
+}
+
 // TestActorModelAgreesWithTimedFold is the acceptance property of the
 // runner (rule 10): over generated step tables, timers whose delay reads
 // the state, and traces of Asks, Sends, signals at a timer's deadline and
@@ -490,7 +532,7 @@ func TestActorModelAgreesWithTimedFold(t *testing.T) {
 	seen := map[string]bool{}
 	want := []string{"a timer fired", "a stay keeps the timer", "a stale timer dropped", "a timer fired after a signal at its deadline",
 		"a signal at its timer's deadline", "an emit", "done", "a failure to its asker", "a failure ends the actor", "an asked reject",
-		"a stop", "refused after the end"}
+		"a stop", "refused after the end", "a stop inside a zero-delay timer loop"}
 	missing := func() string {
 		for _, w := range want {
 			if !seen[w] {
@@ -501,9 +543,10 @@ func TestActorModelAgreesWithTimedFold(t *testing.T) {
 	}
 	n := 0
 	for ; n < 200 || missing() != "" && n < 5000; n++ {
-		c := genActorCase(r)
-		dbg := time.AfterFunc(3*time.Second, func() { fmt.Printf("HUNG case %d\nmachine %+v\ncapacity %d, trace %+v, end %d\n", n, c.m, c.capacity, c.ops, c.end) })
-		defer dbg.Stop()
+		c := zeroDelayLoop
+		if n > 0 {
+			c = genActorCase(r)
+		}
 		if diff := runActorCase(c, seen); diff != "" {
 			t.Fatalf("seed %d, case %d: %s\nmachine %+v\ncapacity %d, trace %+v, end %d", seed, n, diff, c.m, c.capacity, c.ops, c.end)
 		}
