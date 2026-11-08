@@ -7,9 +7,10 @@ import "testing"
 // lower and run. An Append to a Slice of a slice does not write the
 // slice; an Append to a slice with room does not change a Concat made
 // from it; a write to a Clone does not reach its source. Update upserts
-// through a callback that sees the old value, Some or None, changes the
-// Map it is given and returns it; a failing callback ends Update with its
-// failure, through Update's row, and leaves the Map as it was.
+// through a callback that sees the old value, Some or None, and returns
+// the new Map (the value rule leaves the one it is given unchanged); a
+// failing callback ends Update with its failure, through Update's row, and
+// leaves the Map as it was.
 func TestStdSlicesMoreRuns(t *testing.T) {
 	runBehaviors(t, []behavior{
 		{name: "slicesmore", src: stdSlicesMoreProgram, stdout: stdSlicesMoreOutput},
