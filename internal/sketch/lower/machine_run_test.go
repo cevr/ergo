@@ -383,14 +383,20 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 	machineOf := func(x, y int) (string, runState) {
 		switch inputs {
 		case 1:
-			return fmt.Sprintf("machines.Start(M{}, %d)", x), runState{init.v, x + init.n}
+			return fmt.Sprintf("machines.Start(im, %d)", x), runState{init.v, x + init.n}
 		case 2:
-			return fmt.Sprintf("machines.Start(M{}, (%d, %d))", x, y), runState{init.v, x - y + init.n}
+			return fmt.Sprintf("machines.Start(im, (%d, %d))", x, y), runState{init.v, x - y + init.n}
 		}
 		return "M{}", init
 	}
 	m0, s0 := machineOf(r.Intn(9)-4, r.Intn(9)-4)
-	fmt.Fprintf(&b, "func main() needs Console {\n\tConsole.Println(show(machines.Initial(%s)))\n", m0)
+	fmt.Fprintf(&b, "func main() needs Console {\n")
+	if inputs > 0 {
+		// One InputMachine value starts every run, each from its own input.
+		input := map[int]string{1: "int", 2: "(int, int)"}[inputs]
+		fmt.Fprintf(&b, "\tlet im InputMachine[%s, St, Sig, int, Boom%s] = M{}\n", input, strings.ReplaceAll(helperRow, " needs ", ", "))
+	}
+	fmt.Fprintf(&b, "\tConsole.Println(show(machines.Initial(%s)))\n", m0)
 	if needs {
 		b.WriteString("\twith context { Probe: Quiet } {\n")
 	}
