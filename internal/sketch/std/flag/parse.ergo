@@ -7,8 +7,13 @@ import strings
 // Flags and positional arguments may interleave; a bare "--" ends the
 // flags, and every argument after it is positional. A repeated flag keeps
 // its last value. Then each required flag must be given, and the
-// positional arguments go to the specs of s.Args in order.
+// positional arguments go to the specs of s.Args in order. A request for
+// help wins over every other failure, wherever it stands before "--", as
+// in @effect/cli (helpAsked).
 func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Invalid | Missing | Extra {
+	if helpAsked(s, args) {
+		return Help{Text: Usage(s)}
+	}
 	let mut flags Map[string, value]
 	let mut positional = []string{}
 	let mut open = true
@@ -39,9 +44,6 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 		}
 		match find(s, name) {
 		case None:
-			if name == "h" || name == "help" {
-				return Help{Text: Usage(s)}
-			}
 			return Unknown{Name: name}
 		case Some[Flag] as found:
 			match found.Value {
@@ -103,6 +105,44 @@ func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Inva
 		return Extra{Text: positional[next]}
 	}
 	Values{set: s, flags: flags, named: named, rest: rest}
+}
+
+// helpAsked reports whether args ask for help: -h, -help or --help (or
+// -h=x), when s does not declare that name, as a flag before "--" and not
+// as the value of a flag. It reads the arguments as Parse does, but does
+// not stop at a failure, so help wins over an Unknown, Invalid or other
+// failure before or after it (@effect/cli Command.runWith reads its
+// global --help from every argument before it reports a parse error).
+func helpAsked(s Set, args []string) bool {
+	let mut i = 0
+	for i < len(args) {
+		let arg = args[i]
+		i += 1
+		if arg == "--" {
+			return false
+		}
+		if len(arg) < 2 || !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		let body = if strings.HasPrefix(arg, "--") { strings.Slice(arg, 2, len(arg)) } else { strings.Slice(arg, 1, len(arg)) }
+		let eq = strings.Index(body, "=")
+		let name = if eq > 0 { strings.Slice(body, 0, eq) } else { body }
+		match find(s, name) {
+		case None:
+			if name == "h" || name == "help" {
+				return true
+			}
+		case Some[Flag] as found:
+			match found.Value {
+			case BoolFlag:
+			case StringFlag, IntFlag, ChoiceFlag:
+				if eq <= 0 {
+					i += 1
+				}
+			}
+		}
+	}
+	false
 }
 
 // read is the value of a flag that takes one, from its text.

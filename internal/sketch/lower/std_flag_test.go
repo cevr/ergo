@@ -3,17 +3,15 @@ package lower
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"math/rand/v2"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 // std flag (std-align S1d; docs/spec/stdlib.md, flag). The reference model
@@ -42,6 +40,18 @@ func flagLists(n int) [][]string {
 		for i := range list {
 			list[i] = flagAlphabet[r.IntN(len(flagAlphabet))]
 		}
+		out = append(out, list)
+	}
+	// Help with a failure before or after it (owner Q7, @effect/cli: help
+	// wins): a random list with a help token put in at a random place.
+	helps := []string{"-h", "-help", "--help", "-h=1"}
+	for range n / 6 {
+		list := make([]string, 1+r.IntN(7))
+		for i := range list {
+			list[i] = flagAlphabet[r.IntN(len(flagAlphabet))]
+		}
+		at := r.IntN(len(list) + 1)
+		list = append(list[:at], append([]string{helps[r.IntN(len(helps))]}, list[at:]...)...)
 		out = append(out, list)
 	}
 	return out
@@ -102,9 +112,52 @@ func goFlagOutcome(args []string) string {
 	}
 }
 
+// modelHelp is @effect/cli's help rule over the probe set: an undeclared
+// -h or -help (also --help, -h=x) anywhere before "--", and not the value
+// of a flag that takes one, asks for help, whatever else the list holds
+// (Command.runWith takes its global --help from every argument before it
+// reports a parse error).
+func modelHelp(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return false
+		}
+		if len(a) < 2 || a[0] != '-' {
+			continue
+		}
+		name := strings.TrimPrefix(a[1:], "-")
+		if a[1] != '-' {
+			name = a[1:]
+		}
+		eq := strings.IndexByte(name, '=')
+		if eq > 0 {
+			name = name[:eq]
+		}
+		kind, ok := flagKinds[name]
+		switch {
+		case !ok && (name == "h" || name == "help"):
+			return true
+		case ok && kind != 'b' && eq <= 0:
+			i++
+		}
+	}
+	return false
+}
+
 // flagModel is Go's FlagSet.parseOne loop over the probe set. With
-// interleave, a positional argument does not end the flags; only "--" does.
+// interleave, it is the owner's Q7 model (@effect/cli): a positional
+// argument does not end the flags, only "--" does, and a request for help
+// wins over every other failure (modelHelp).
 func flagModel(args []string, interleave bool) string {
+	if interleave && modelHelp(args) {
+		return "help"
+	}
+	return flagLoop(args, interleave)
+}
+
+// flagLoop is Go's parseOne loop: a failure ends it at once, help too.
+func flagLoop(args []string, interleave bool) string {
 	s, n, b := "def", int64(3), false
 	var rest []string
 	open := true
@@ -217,7 +270,7 @@ func flagProbe(t *testing.T, lists [][]string) (string, []string) {
 func TestFlagMatchesGo(t *testing.T) {
 	lists := flagLists(3000)
 	help, got := flagProbe(t, lists)
-	same, helps, interleaved := 0, 0, 0
+	same, helps, interleaved, helpOverFailure := 0, 0, 0, 0
 	for i, l := range lists {
 		goSays, stop, model := goFlagOutcome(l), flagModel(l, false), flagModel(l, true)
 		if stop != goSays {
@@ -236,11 +289,14 @@ func TestFlagMatchesGo(t *testing.T) {
 		}
 		if model == "help" {
 			helps++
+			if strings.HasPrefix(flagLoop(l, true), "fail") {
+				helpOverFailure++
+			}
 		}
 	}
-	t.Logf("%d lists: %d where Go's flag and the owner's rule agree, %d where a flag follows a positional, %d help", len(lists), same, interleaved, helps)
-	if same < 1000 || interleaved < 300 || helps < 100 {
-		t.Errorf("the generator misses the domain: %d same, %d interleaved, %d help", same, interleaved, helps)
+	t.Logf("%d lists: %d where Go's flag and the owner's rule agree, %d where they differ (a flag after a positional, or help over a failure), %d help, %d of them help over a failure", len(lists), same, interleaved, helps, helpOverFailure)
+	if same < 1000 || interleaved < 300 || helps < 100 || helpOverFailure < 100 {
+		t.Errorf("the generator misses the domain: %d same, %d differ, %d help, %d help over a failure", same, interleaved, helps, helpOverFailure)
 	}
 	fs, _, _, _ := goFlagSet()
 	var defaults strings.Builder
@@ -333,6 +389,16 @@ func main() fails os.Exit needs Console | Ambient {
 		{[]string{"path", "--", "-x"}, "path -x false\n", "", 0},
 		{[]string{"-h"}, top, "", 0},
 		{[]string{"list", "--help"}, list, "", 0},
+		// Help wins over a failure before or after it (owner Q7, @effect/cli).
+		{[]string{"-zz", "--help"}, top, "", 0},
+		{[]string{"nope", "-h"}, top, "", 0},
+		{[]string{"list", "-zz", "--help"}, list, "", 0},
+		{[]string{"list", "-sort", "size", "--help"}, list, "", 0},
+		{[]string{"list", "--help", "-zz"}, list, "", 0},
+		{[]string{"list", "-json=maybe", "-h=1"}, list, "", 0},
+		// Not help: after "--", or the value of a flag.
+		{[]string{"list", "--", "--help"}, "", "unexpected argument: --help\n" + top, 2},
+		{[]string{"list", "-registry", "--help"}, "list false date --help\n", "", 0},
 		{[]string{"nope"}, "", "unknown command \"nope\"; commands: path, list\n" + top, 2},
 		{[]string{}, "", "missing command; commands: path, list\n" + top, 2},
 		{[]string{"list", "-n"}, "", "flag provided but not defined: -n\n" + top, 2},
@@ -344,6 +410,55 @@ func main() fails os.Exit needs Console | Ambient {
 		stdout, stderr, code := runExeInput(t, exes["flagcmd"], "", c.args...)
 		if stdout != c.stdout || stderr != c.stderr || code != c.code {
 			t.Errorf("%q: exit %d (want %d)\nstdout %q\nwant   %q\nstderr %q\nwant   %q", c.args, code, c.code, stdout, c.stdout, stderr, c.stderr)
+		}
+	}
+}
+
+// TestFlagForeignHandle (S1d round 2, M3; spec: "A handle that is not in
+// the parsed Set is a defect"): reading Values with a handle of another
+// set, or with a handle of another kind or another default under the name
+// of one of the set's flags, ends the program with a defect (status 2 and
+// a runtime report), whether or not the flag was given. The set's own
+// handle reads its value.
+func TestFlagForeignHandle(t *testing.T) {
+	const program = `import flag
+import os
+
+let Json = flag.Bool("json", false, "print JSON")
+
+func main() needs Console | Ambient {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	let given = if args[1] == "given" { []string{"-json"} } else { []string{} }
+	let v = flag.Parse(flag.Set{Name: "p", Usage: "", Flags: []flag.Flag{Json}, Args: []flag.ArgSpec{}}, given) catch {
+	case _:
+		return
+	}
+	if args[0] == "own" {
+		Console.Println("json=\(Json.Get(v))")
+	} else if args[0] == "kind" {
+		Console.Println("wrongkind=\(flag.Int("json", 7, "").Get(v))")
+	} else if args[0] == "default" {
+		Console.Println("wrongdefault=\(flag.Bool("json", true, "print JSON").Get(v))")
+	} else if args[0] == "set" {
+		Console.Println("other=\(flag.String("other", "x", "").Get(v))")
+	}
+}
+`
+	exes := buildAll(t, []*lowered{mustLower(t, "flagforeign", program)}, true)
+	if exes == nil {
+		return
+	}
+	for _, given := range []string{"absent", "given"} {
+		want := map[string]string{"absent": "json=false\n", "given": "json=true\n"}[given]
+		if stdout, stderr, code := runExeInput(t, exes["flagforeign"], "", "own", given); code != 0 || stdout != want {
+			t.Errorf("own handle, flag %s: exit %d, stdout %q, stderr %q", given, code, stdout, stderr)
+		}
+		for _, foreign := range []string{"kind", "default", "set"} {
+			stdout, stderr, code := runExeInput(t, exes["flagforeign"], "", foreign, given)
+			// notInSet's defect is an index out of range (stdlib.md flag 6).
+			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "panic: runtime error: index out of range") {
+				t.Errorf("%s handle, flag %s: exit %d (want 2), stdout %q, stderr %q", foreign, given, code, stdout, firstLines(stderr, 5))
+			}
 		}
 	}
 }
@@ -397,15 +512,56 @@ func nameOf(c Cmd) string {
 	}
 }
 
+let First = flag.Arg("first", "the first")
+let Second = flag.OptionalArg("second", "the second")
+
+func argsSet() flag.Set {
+	flag.Set{Name: "law", Usage: "", Flags: []flag.Flag{S, N, B}, Args: []flag.ArgSpec{First, Second, flag.Remaining("rest", "the rest")}}
+}
+
+func text(o Option[string]) string {
+	match o {
+	case Some[string] as s:
+		"some " + s.Value
+	case None:
+		"none"
+	}
+}
+
+// reads is every read of a Values of argsSet, through the handles: the
+// round trip's oracle, independent of Render and Equal.
+func reads(v flag.Values) []string {
+	[]string{S.Get(v), strconv.Itoa(N.Get(v)), strconv.FormatBool(B.Get(v)), text(First.Get(v)), text(Second.Get(v)), strings.Join(flag.Rest(v), "\x00"), strconv.Itoa(len(flag.Rest(v)))}
+}
+
 test FlagRenderParseRoundTrip(picks []int, words []string) {
 	let args = pick(picks, words)
-	let v = flag.Parse(set(), args) catch {
+	let v = flag.Parse(argsSet(), args) catch {
 	case _:
 		return
 	}
-	let again = try flag.Parse(set(), flag.Render(v))
+	let again = try flag.Parse(argsSet(), flag.Render(v))
+	let want = reads(v)
+	let got = reads(again)
+	for i, w in want {
+		assert got[i] == w
+	}
 	assert flag.Equal(again, v)
 	assert flag.Equal(v, again)
+}
+
+// EqualSeesEachRead: two results that differ in one flag, one argument or
+// the rest are not Equal.
+test EqualSeesEachRead(a string, n int) {
+	let base = try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n), "p", "q", "r"})
+	assert flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n), "p", "q", "r"}))
+	assert !flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a + "x", "-n=" + strconv.Itoa(n), "p", "q", "r"}))
+	assert !flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n + 1), "p", "q", "r"}))
+	assert !flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n), "-b", "p", "q", "r"}))
+	assert !flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n), "p2", "q", "r"}))
+	assert !flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n), "p", "q2", "r"}))
+	assert !flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n), "p", "q", "r", "t"}))
+	assert !flag.Equal(base, try flag.Parse(argsSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n), "p"}))
 }
 
 test FlagIndependentFlagsCommute(a string, n int) {
@@ -527,7 +683,7 @@ func TestFlagLaws(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit %d\n%s\n%s", code, stdout, firstLines(stderr, 10))
 	}
-	for _, name := range append(want, "DeclaredHelpIsAFlag") {
+	for _, name := range append(want, "DeclaredHelpIsAFlag", "EqualSeesEachRead") {
 		if !strings.Contains(stdout, "ok "+name) {
 			t.Errorf("%s did not pass:\n%s", name, stdout)
 		}
@@ -540,31 +696,11 @@ var flagBenchArgs = []string{"-a", "alpha", "-b=beta", "--c", "gamma", "-d=delta
 	"-x", "-y=false", "--z", "-a", "again", "-i=7", "-d", "last", "-x=true"}
 
 // BenchmarkFlagParse: Ergo's flag.Parse against Go's flag (NewFlagSet, the
-// 10 definitions and Parse), on the same 20 arguments. The Ergo program
-// runs b.N parses in one process; the time of a run with 0 parses (process
-// start and the build of the set) is subtracted.
+// 10 definitions and Parse), on the same 20 arguments. Both run in one
+// test binary of the emitted package (emittedBench), so each side reports
+// ns/op, B/op and allocs/op of its own parses, in process.
 func BenchmarkFlagParse(b *testing.B) {
-	b.Run("go", func(b *testing.B) {
-		b.ReportAllocs()
-		for range b.N {
-			fs := flag.NewFlagSet("bench", flag.ContinueOnError)
-			for _, n := range []string{"a", "b", "c", "d"} {
-				fs.String(n, "", "text")
-			}
-			for _, n := range []string{"i", "j", "k"} {
-				fs.Int(n, 0, "int")
-			}
-			for _, n := range []string{"x", "y", "z"} {
-				fs.Bool(n, false, "switch")
-			}
-			if err := fs.Parse(flagBenchArgs); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
 	const program = `import flag
-import os
-import strconv
 
 func set() flag.Set {
 	flag.Set{Name: "bench", Usage: "", Flags: []flag.Flag{
@@ -574,49 +710,54 @@ func set() flag.Set {
 	}, Args: []flag.ArgSpec{}}
 }
 
-func main() fails strconv.Malformed | strconv.OutOfRange | flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra needs Ambient {
-	let all = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	let n = try strconv.Atoi(all[0])
-	let mut args = []string{}
-	for i, a in all {
-		if i > 0 {
-			args = args.Append(a)
+func ParseOnce(args []string) bool {
+	let s = set()
+	flag.Parse(s, args) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+func main() needs Console {
+	Console.Println("\(ParseOnce([]string{"-a", "x"}))")
+}
+`
+	emittedBench(b, "flagbench", program, func(mainGo string) string {
+		return `package main
+
+import (
+	"flag"
+	"testing"
+)
+
+var benchArgs = ` + fmt.Sprintf("%#v", flagBenchArgs) + `
+
+func BenchmarkErgo(b *testing.B) {
+	for range b.N {
+		if !` + emittedCall(mainGo, "ParseOnce", "benchArgs") + ` {
+			b.Fatal("the parse failed")
 		}
 	}
-	for _ in 0..n {
-		let s = set()
-		try flag.Parse(s, args)
+}
+
+func BenchmarkGo(b *testing.B) {
+	for range b.N {
+		fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+		for _, n := range []string{"a", "b", "c", "d"} {
+			fs.String(n, "", "text")
+		}
+		for _, n := range []string{"i", "j", "k"} {
+			fs.Int(n, 0, "int")
+		}
+		for _, n := range []string{"x", "y", "z"} {
+			fs.Bool(n, false, "switch")
+		}
+		if err := fs.Parse(benchArgs); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 `
-	dir := b.TempDir()
-	cli := filepath.Join(dir, "ergo")
-	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", cli, filepath.Join(moduleRoot, "cmd", "ergo")).CombinedOutput(); err != nil {
-		b.Fatalf("build the ergo CLI: %v\n%s", err, out)
-	}
-	src := filepath.Join(dir, "main.ergo")
-	if err := os.WriteFile(src, []byte(program), 0o600); err != nil {
-		b.Fatal(err)
-	}
-	exe := filepath.Join(dir, "flagbench")
-	build := exec.Command(cli, "build", src, "-o", exe)
-	build.Dir = dir
-	if out, err := build.CombinedOutput(); err != nil {
-		b.Fatalf("ergo build: %v\n%s", err, out)
-	}
-	b.Run("ergo", func(b *testing.B) {
-		run := func(n int) time.Duration {
-			start := time.Now()
-			if out, err := exec.Command(exe, append([]string{strconv.Itoa(n)}, flagBenchArgs...)...).CombinedOutput(); err != nil {
-				b.Fatalf("%v\n%s", err, out)
-			}
-			return time.Since(start)
-		}
-		b.StopTimer()
-		base := run(0)
-		b.StartTimer()
-		total := run(b.N)
-		b.StopTimer()
-		b.ReportMetric(float64(total-base)/float64(b.N), "net-ns/op")
-	})
+	}, "Ergo", "Go")
 }

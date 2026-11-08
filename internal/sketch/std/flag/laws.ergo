@@ -41,14 +41,30 @@ func commandName(c lawCommand) string {
 	}
 }
 
+let lawFirst = Arg("first", "the first")
+let lawSecond = OptionalArg("second", "the second")
+
+// lawArgsSet is lawSet with a required and an optional positional argument
+// before the remaining ones.
+func lawArgsSet() Set {
+	Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawNumber, lawSwitch}, Args: []ArgSpec{lawFirst, lawSecond, Remaining("rest", "the rest")}}
+}
+
+// sameReads reports whether a and b give the same value to each read of
+// lawArgsSet: each flag's Get, each argument's Get and Rest. It reads
+// through the handles, not through Render or Equal.
+func sameReads(a Values, b Values) bool {
+	lawText.Get(a) == lawText.Get(b) && lawNumber.Get(a) == lawNumber.Get(b) && lawSwitch.Get(a) == lawSwitch.Get(b) && sameArg(lawFirst.Get(a), lawFirst.Get(b)) && sameArg(lawSecond.Get(a), lawSecond.Get(b)) && sameStrings(Rest(a), Rest(b))
+}
+
 // RenderParseRoundTrip: what parses, rendered and parsed again, gives the
-// same values.
+// same value to every read.
 law RenderParseRoundTrip(args []string) {
-	let v = Parse(lawSet(), args) catch {
+	let v = Parse(lawArgsSet(), args) catch {
 	case _:
 		return true
 	}
-	Equal(try Parse(lawSet(), Render(v)), v)
+	sameReads(try Parse(lawArgsSet(), Render(v)), v)
 }
 
 // IndependentFlagsCommute: the order of two different flags does not

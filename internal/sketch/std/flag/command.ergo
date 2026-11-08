@@ -10,17 +10,16 @@ type Command[C] {
 }
 
 // ParseCommand reads args as a command name and that command's own
-// arguments, and returns what its Build makes. -h, -help or --help in
-// place of a name fails Help with CommandUsage; a name of no command, or
-// no name, fails UnknownCommand.
+// arguments, and returns what its Build makes; Parse of the command's Set
+// reads its help. When the first argument names no command, -h, -help or
+// --help anywhere before "--" fails Help with CommandUsage, as
+// @effect/cli's help wins over a parse error; otherwise a name of no
+// command, or no name, fails UnknownCommand.
 func ParseCommand[C](name string, usage string, commands []Command[C], args []string) C fails Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
 	if len(args) == 0 {
 		return UnknownCommand{Name: "", Known: commandNames(commands)}
 	}
 	let first = args[0]
-	if first == "-h" || first == "-help" || first == "--help" {
-		return Help{Text: CommandUsage(name, usage, commands)}
-	}
 	let mut rest = []string{}
 	for i, a in args {
 		if i > 0 {
@@ -32,6 +31,9 @@ func ParseCommand[C](name string, usage string, commands []Command[C], args []st
 			let v = try Parse(c.Set, rest)
 			return try c.Build(v)
 		}
+	}
+	if helpAsked(Set{Name: name, Usage: usage, Flags: []Flag{}, Args: []ArgSpec{}}, args) {
+		return Help{Text: CommandUsage(name, usage, commands)}
 	}
 	UnknownCommand{Name: first, Known: commandNames(commands)}
 }

@@ -93,8 +93,10 @@ func OptionalArg(name string, usage string) ArgSpec { ArgSpec{name: name, usage:
 // stands last.
 func Remaining(name string, usage string) ArgSpec { ArgSpec{name: name, usage: usage, arity: many} }
 
-// Get is the value of f: the last one given, or its default.
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
 func Get(f StringFlag, v Values) string {
+	known(v, f)
 	match v.flags.Get(f.name) {
 	case Some[value] as found:
 		match found.Value {
@@ -104,13 +106,14 @@ func Get(f StringFlag, v Values) string {
 			notInSet(f.name)
 		}
 	case None:
-		known(v, f.name)
 		f.def
 	}
 }
 
-// Get is the value of f: the last one given, or its default.
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
 func Get(f IntFlag, v Values) int {
+	known(v, f)
 	match v.flags.Get(f.name) {
 	case Some[value] as found:
 		match found.Value {
@@ -120,13 +123,14 @@ func Get(f IntFlag, v Values) int {
 			len(notInSet(f.name))
 		}
 	case None:
-		known(v, f.name)
 		f.def
 	}
 }
 
-// Get is the value of f: the last one given, or its default.
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
 func Get(f BoolFlag, v Values) bool {
+	known(v, f)
 	match v.flags.Get(f.name) {
 	case Some[value] as found:
 		match found.Value {
@@ -136,13 +140,14 @@ func Get(f BoolFlag, v Values) bool {
 			notInSet(f.name) == ""
 		}
 	case None:
-		known(v, f.name)
 		f.def
 	}
 }
 
-// Get is the value of f: the last one given, or its default.
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
 func Get(f ChoiceFlag, v Values) string {
+	known(v, f)
 	match v.flags.Get(f.name) {
 	case Some[value] as found:
 		match found.Value {
@@ -152,7 +157,6 @@ func Get(f ChoiceFlag, v Values) string {
 			notInSet(f.name)
 		}
 	case None:
-		known(v, f.name)
 		f.def
 	}
 }
@@ -193,11 +197,29 @@ func Render(v Values) []string {
 	out
 }
 
-// Equal reports whether a and b hold the same value for each flag and the
-// same positional arguments.
+// Equal reports whether a and b have sets with the same flags and
+// argument specs, and hold the same value for each flag and the same
+// positional arguments. It reads each value with its handle's Get, not
+// through Render.
 func Equal(a Values, b Values) bool {
-	let x = Render(a)
-	let y = Render(b)
+	if len(a.set.Flags) != len(b.set.Flags) || len(a.set.Args) != len(b.set.Args) {
+		return false
+	}
+	for i, f in a.set.Flags {
+		if !sameHandle(f, b.set.Flags[i]) || !sameValue(f, a, b) {
+			return false
+		}
+	}
+	for i, spec in a.set.Args {
+		if spec.name != b.set.Args[i].name || !sameArg(spec.Get(a), b.set.Args[i].Get(b)) {
+			return false
+		}
+	}
+	sameStrings(a.rest, b.rest)
+}
+
+// sameStrings reports whether x and y hold the same texts in order.
+func sameStrings(x []string, y []string) bool {
 	if len(x) != len(y) {
 		return false
 	}
@@ -207,6 +229,40 @@ func Equal(a Values, b Values) bool {
 		}
 	}
 	true
+}
+
+// sameValue reports whether a and b hold one value for f.
+func sameValue(f Flag, a Values, b Values) bool {
+	match f {
+	case StringFlag as s:
+		s.Get(a) == s.Get(b)
+	case IntFlag as n:
+		n.Get(a) == n.Get(b)
+	case BoolFlag as x:
+		x.Get(a) == x.Get(b)
+	case ChoiceFlag as c:
+		c.Get(a) == c.Get(b)
+	}
+}
+
+// sameArg reports whether two reads of a positional argument agree.
+func sameArg(x Option[string], y Option[string]) bool {
+	match x {
+	case Some[string] as p:
+		match y {
+		case Some[string] as q:
+			p.Value == q.Value
+		case None:
+			false
+		}
+	case None:
+		match y {
+		case Some[string]:
+			false
+		case None:
+			true
+		}
+	}
 }
 
 // shown is the text of f's value in v, as Render writes it.
@@ -250,13 +306,52 @@ func findIn(flags []Flag, name string) Option[Flag] {
 	None
 }
 
-// known holds that name is a flag of v's set: a handle of another set is a
-// defect.
-func known(v Values, name string) {
-	match find(v.set, name) {
-	case Some[Flag]:
+// known holds that f is a flag of v's set: the set's flag of f's name is
+// f, of the same kind with the same default. A handle of another set, or
+// of another kind under the name of one of the set's flags, is a defect.
+func known(v Values, f Flag) {
+	match find(v.set, nameOf(f)) {
+	case Some[Flag] as found:
+		if !sameHandle(found.Value, f) {
+			notInSet(nameOf(f))
+		}
 	case None:
-		notInSet(name)
+		notInSet(nameOf(f))
+	}
+}
+
+// sameHandle reports whether a and b are one handle: the same kind, name,
+// default, usage and, for a Choice, choices.
+func sameHandle(a Flag, b Flag) bool {
+	match a {
+	case StringFlag as x:
+		match b {
+		case StringFlag as y:
+			x == y
+		case _:
+			false
+		}
+	case IntFlag as x:
+		match b {
+		case IntFlag as y:
+			x == y
+		case _:
+			false
+		}
+	case BoolFlag as x:
+		match b {
+		case BoolFlag as y:
+			x == y
+		case _:
+			false
+		}
+	case ChoiceFlag as x:
+		match b {
+		case ChoiceFlag as y:
+			x.name == y.name && x.def == y.def && x.usage == y.usage && sameStrings(x.choices, y.choices)
+		case _:
+			false
+		}
 	}
 }
 
