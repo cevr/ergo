@@ -1,0 +1,28 @@
+form address: *street(any) city(letters) zip(digits) [lower]
+  street = "1"
+  street = "12"
+  street = "12 "
+shift: *street(any) city(letters) zip(digits) [shift]
+  street = "12 E"
+  street = "12 El"
+  street = "12 Elm"
+focus city
+shift: street(any) *city(letters) zip(digits) [shift]
+  city = "O"
+  city = "Os"
+  city = "Osl"
+  city = "Oslo"
+  greyed: key 9
+submit city "Oslo"
+focus zip
+  zip = "0"
+  zip = "01"
+  zip = "012"
+  zip = "0123"
+  zip = "01234"
+  greyed: key 5
+submit zip "01234"
+? line 26: unknown word bogus: bogus line
+? line 27: soon is not a number: wait soon
+input ended
+closed street="12 Elm" city="Oslo" zip="01234"

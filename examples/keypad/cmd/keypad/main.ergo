@@ -1,0 +1,25 @@
+// keypad is an on-screen keyboard for a form of several fields, driven by
+// a script on standard input. Package keypad is the board, a pure
+// machine with the shift mode as a machine inside it; package script reads
+// the script and tells what the board does; package memory holds the
+// forms. This binary is the only place that chooses them: Live binds
+// keypad.Forms to memory's fixed forms, and io to the host.
+
+import io
+import keypad/keypad
+import keypad/memory
+import keypad/script
+import os
+
+let Live = context { keypad.Forms: memory.Fixed }
+
+func main() fails os.Exit needs Console | Ambient {
+	let status = with Live {
+		with context { io.Stdin: io.NewHost() } {
+			script.Run()
+		}
+	}
+	if status != 0 {
+		return os.Exit{Code: status, Message: "keypad: the form did not open"}
+	}
+}

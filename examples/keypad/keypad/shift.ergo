@@ -1,0 +1,64 @@
+// The shift mode is a machine of its own, held in a field of the board
+// and stepped by the board's step: the region pattern (M56), until Ergo
+// has regions.
+
+// Mode is the case of the next letter. ShiftOnce makes one letter upper
+// case; Caps makes every letter upper case until Shift.
+type Mode = Lower{} | ShiftOnce{At duration} | Caps{}
+
+// Tap is what the shift mode sees: a Shift at a time, or a typed key.
+type Tap = ShiftTap{At duration} | Typed{}
+
+// CapsWindow is how soon a second Shift must follow the first to lock the
+// case: a second Shift within it turns ShiftOnce into Caps.
+let CapsWindow = 1s
+
+// ShiftStep is the shift mode's transition. A Shift in Lower shifts the
+// next letter; a second Shift within CapsWindow locks Caps, a later one
+// goes back to Lower; a Shift in Caps ends it. A typed key ends ShiftOnce
+// and leaves Lower and Caps as they are.
+func ShiftStep(m Mode, t Tap) Decision[Mode, Mode] {
+	match t {
+	case ShiftTap as s:
+		match m {
+		case Lower:
+			Enter[Mode]{Next: ShiftOnce{At: s.At}}
+		case ShiftOnce as o:
+			if s.At >= o.At && s.At-o.At <= CapsWindow {
+				Enter[Mode]{Next: Caps}
+			} else {
+				Enter[Mode]{Next: Lower}
+			}
+		case Caps:
+			Enter[Mode]{Next: Lower}
+		}
+	case Typed:
+		match m {
+		case Lower:
+			Ignore
+		case ShiftOnce:
+			Enter[Mode]{Next: Lower}
+		case Caps:
+			Ignore
+		}
+	}
+}
+
+// Shifter is the shift mode as a machine. It never ends: its output type
+// is Mode only because a Decision names one.
+type Shifter machine[Mode, Tap] {
+	initial: Lower,
+	step:    ShiftStep,
+}
+
+// Upper reports whether m types the next letter in upper case.
+func Upper(m Mode) bool {
+	match m {
+	case Lower:
+		false
+	case ShiftOnce:
+		true
+	case Caps:
+		true
+	}
+}

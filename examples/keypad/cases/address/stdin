@@ -1,0 +1,27 @@
+form address
+key 1
+key 2
+space
+shift
+key e
+key l
+key m
+focus city
+shift
+key o
+key s
+key l
+key o
+key 9
+return
+focus zip
+key 0
+key 1
+key 2
+wait 5000
+key 3
+key 4
+key 5
+return
+bogus line
+wait soon

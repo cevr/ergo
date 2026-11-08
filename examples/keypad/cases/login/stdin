@@ -1,0 +1,49 @@
+form login
+# one Shift: only the next letter is upper case
+shift
+key a
+key d
+key a
+# a digit is greyed in a letters field
+key 7
+back
+key m
+return
+focus pin
+key 1
+key 2
+key x
+return
+key 3
+key 4
+key 5
+return
+# two Shifts within a second lock Caps; a later one ends it
+focus note
+shift
+wait 400
+shift
+key o
+key k
+space
+wait 2000
+shift
+key é
+key ß
+back
+back
+back
+back
+back
+back
+remove note
+remove note
+focus nowhere
+add zip digits 5 5
+add zip digits 5 5
+add bad any 3 2
+remove name
+remove pin
+remove zip
+close
+key z

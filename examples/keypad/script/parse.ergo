@@ -1,0 +1,105 @@
+// Package script drives the keypad from a script of lines, one signal
+// per line, as a screen would send them, and tells what the board does.
+
+import keypad/keypad
+import strconv
+import strings
+
+// Line is a line of a script: a key press, another signal, the clock
+// moving on, or nothing.
+type Line = Press{Key keypad.Key} | Other{Signal keypad.Signal} | Wait{For duration} | Blank{}
+
+// BadLine is a line the script cannot read.
+type BadLine { Text string, Why string }
+
+// Parse reads one line:
+//
+//	key C            the character key C (one character)
+//	space            the space bar
+//	back | shift | return
+//	wait MS          the clock moves on MS milliseconds
+//	focus ID | remove ID | close
+//	add ID LAYOUT MIN MAX   LAYOUT is digits, letters or any
+//
+// A blank line or a line that starts with # is Blank.
+func Parse(line string) Line fails BadLine {
+	let text = strings.TrimSpace(line)
+	let words = strings.Fields(text)
+	if len(words) == 0 || strings.HasPrefix(text, "#") {
+		return Blank
+	}
+	let w = words[0]
+	match w {
+	case "key":
+		if len(words) != 2 {
+			return BadLine{Text: text, Why: "key takes one character"}
+		}
+		Press{Key: keypad.Char{Cap: words[1]}}
+	case "space":
+		Press{Key: keypad.Char{Cap: " "}}
+	case "back":
+		Press{Key: keypad.Backspace}
+	case "shift":
+		Press{Key: keypad.Shift}
+	case "return":
+		Press{Key: keypad.Return}
+	case "wait":
+		Wait{For: try millis(text, words)}
+	case "focus":
+		Other{Signal: keypad.Focus{ID: try one(text, words)}}
+	case "remove":
+		Other{Signal: keypad.Remove{ID: try one(text, words)}}
+	case "close":
+		Other{Signal: keypad.Close}
+	case "add":
+		if len(words) != 5 {
+			return BadLine{Text: text, Why: "add takes ID LAYOUT MIN MAX"}
+		}
+		let layout = try layoutOf(text, words[2])
+		let min = try intOf(text, words[3])
+		let max = try intOf(text, words[4])
+		Other{Signal: keypad.Add{Spec: keypad.Spec{ID: words[1], Layout: layout, Min: min, Max: max}}}
+	case _:
+		BadLine{Text: text, Why: "unknown word \(w)"}
+	}
+}
+
+func one(text string, words []string) string fails BadLine {
+	if len(words) != 2 {
+		return BadLine{Text: text, Why: "\(words[0]) takes one ID"}
+	}
+	words[1]
+}
+
+func intOf(text string, word string) int fails BadLine {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return BadLine{Text: text, Why: "\(word) is not a number"}
+	case strconv.OutOfRange:
+		return BadLine{Text: text, Why: "\(word) is out of range"}
+	}
+}
+
+func millis(text string, words []string) duration fails BadLine {
+	if len(words) != 2 {
+		return BadLine{Text: text, Why: "wait takes milliseconds"}
+	}
+	let n = try intOf(text, words[1])
+	if n < 0 || n > 86400000 {
+		return BadLine{Text: text, Why: "wait takes 0 to 86400000 milliseconds"}
+	}
+	duration(int64(n) * 1000000)
+}
+
+func layoutOf(text string, word string) keypad.Layout fails BadLine {
+	match word {
+	case "digits":
+		keypad.Digits
+	case "letters":
+		keypad.Letters
+	case "any":
+		keypad.AnyText
+	case _:
+		BadLine{Text: text, Why: "layout \(word) is not digits, letters or any"}
+	}
+}

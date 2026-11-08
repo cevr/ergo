@@ -1,0 +1,17 @@
+// Fixed keeps the keypad.Forms laws. ergo test does not run the laws of
+// an operation type of another package against this package's providers
+// yet (V1 follow-up), so these two tests call the laws' functions.
+
+import keypad/keypad
+
+test FixedFormsOpen {
+	with context { keypad.Forms: Fixed } {
+		assert keypad.EveryFormOpens()
+	}
+}
+
+test FixedUnlistedIsNoSuchForm(name string) {
+	with context { keypad.Forms: Fixed } {
+		assert keypad.UnlistedIsNoSuchForm(name)
+	}
+}

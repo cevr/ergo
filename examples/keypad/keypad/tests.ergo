@@ -1,0 +1,82 @@
+// The board's one test is a run of the machine; ergo test runs the laws
+// of laws.ergo itself (#162).
+
+import machines
+import strings
+
+// told is what the board tells over the signals from p, read from the
+// outbox after each step, and the outcome of machines.From over the same
+// signals. machines.From keeps only the last state, so without Emit (q28)
+// the outputs of the earlier steps are read one step at a time.
+func told(p Pad, signals []Signal) []string {
+	let mut at = p
+	let mut out = []string{}
+	for s in signals {
+		let d = Tried(at, s)
+		at = machines.Next(at, d)
+		match d {
+		case Done[Output] as done:
+			out = out.Append(said(done.Output))
+			return out
+		case Enter[Pad]:
+			out = outbox(out, at)
+		case Stay[Pad]:
+			out = outbox(out, at)
+		case Ignore:
+			out = out.Append("ignore")
+		case Reject:
+			out = out.Append("reject")
+		}
+	}
+	out
+}
+
+// outbox is out and then the output that p holds, if any. Only a state
+// that Enter or Stay committed holds a new output: Ignore and Reject keep
+// the earlier state, whose Out is the earlier step's.
+func outbox(out []string, p Pad) []string {
+	match BoardOf(p).Out {
+	case Some[Output] as o:
+		out.Append(said(o.Value))
+	case None:
+		out
+	}
+}
+
+func said(o Output) string {
+	match o {
+	case Published as p:
+		p.ID + "=" + p.Text
+	case Submitted as s:
+		"submit " + s.ID + "=" + s.Text
+	case Closed as c:
+		"closed " + Texts(Board{Fields: c.Fields, Focus: "", Mode: Lower, Out: None})
+	}
+}
+
+test CodeFormRun {
+	let form = []Spec{Spec{ID: "code", Layout: Digits, Min: 2, Max: 3}}
+	let keys = []Signal{
+		Pressed{Key: Char{Cap: "4"}, At: 0s},
+		Pressed{Key: Return, At: 0s},
+		Pressed{Key: Char{Cap: "2"}, At: 0s},
+		Pressed{Key: Char{Cap: "9"}, At: 0s},
+		Pressed{Key: Char{Cap: "1"}, At: 0s},
+		Pressed{Key: Backspace, At: 0s},
+		Pressed{Key: Return, At: 0s},
+		Remove{ID: "code"},
+		Close,
+	}
+	let start = try Open(form)
+	assert strings.Join(told(start, keys), ",") == "code=4,reject,code=42,code=429,ignore,code=42,submit code=42,reject,closed code=42"
+	// The machine takes no input yet (V4): a run of a form starts From the
+	// board that Open makes. A refusal is a failure of Step, which ends a
+	// run, so this run leaves out the two refused signals.
+	let accepted = []Signal{keys[0], keys[2], keys[3], keys[4], keys[5], keys[6], keys[8]}
+	match try machines.From(Keypad{}, start, accepted) {
+	case machines.Finished[Pad, Output] as f:
+		assert said(f.Output) == "closed code=42"
+	case machines.Running[Pad]:
+		assert false
+	}
+}
