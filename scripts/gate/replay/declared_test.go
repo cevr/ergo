@@ -27,6 +27,9 @@ var declared = map[string][]allowance{
 		{"internal/sketch", listing, "walks"},
 		{"examples/x/*", files, "copies"},
 	},
+	"scripts/conformance": {
+		{".git", members, "git ls-files"},
+	},
 }
 `
 
@@ -48,6 +51,7 @@ func TestParseDeclared(t *testing.T) {
 		},
 		"internal/testinputs":   {{"internal/testinputs/a.go", GrantFile}, {"internal/testinputs/b.go", GrantFile}},
 		"internal/sketch/lower": {{"cmd/ergo", GrantProgram}, {"internal/sketch", GrantListing}, {"examples/x/*", GrantFiles}},
+		"scripts/conformance":   {{".git", GrantMembers}},
 	}
 	if len(table) != len(want) {
 		t.Fatalf("table has %d packages, want %d: %v", len(table), len(want), table)
