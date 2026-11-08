@@ -102,6 +102,13 @@ func (g *treeGen) catchGroup(prefix string) (*gGroup, *gType) {
 		}
 		un.variants = append(un.variants, vr)
 	}
+	if g.r.IntN(3) == 0 {
+		// Two error types of two fields of one type: two names to swap
+		// between them (catchBinds).
+		ft := g.field(leaf)
+		un.variants[0].fields = []*gType{ft, ft}
+		un.variants[1].fields = []*gType{ft, ft}
+	}
 	u := &gType{kind: gUnionKind, union: un}
 	gr.types = append(gr.types, u)
 	return gr, u
@@ -664,6 +671,20 @@ func TestCatchTreeAgrees(t *testing.T) {
 	}
 	if partial == 0 || partial == len(catches) {
 		t.Errorf("%d of %d catches are partial: the generator must write both kinds", partial, len(catches))
+	}
+	// Or-patterns over two error types that bind one name, and two names
+	// swapped, are kept by the checker.
+	orBinds := map[int]int{}
+	for _, c := range catches {
+		for _, a := range c.arms {
+			if len(a.alts) == 2 && len(a.names) > 0 && a.alts[0][0].variant != a.alts[1][0].variant {
+				orBinds[len(a.names)]++
+			}
+		}
+	}
+	t.Logf("or-patterns over two error types, by names bound: %v", orBinds)
+	if orBinds[1] == 0 || orBinds[2] == 0 {
+		t.Errorf("no kept or-pattern binds one name (%d) or two swapped names (%d) across two error types", orBinds[1], orBinds[2])
 	}
 
 	tree := lowerSourceMode("tree", src.String(), false)
