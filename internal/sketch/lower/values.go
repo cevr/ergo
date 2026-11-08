@@ -1357,7 +1357,7 @@ func (l *lowerer) cloneFunc(t check.Type, site syntax.Node) (string, []*check.Ty
 
 // reserveClones gives, in the naming pass, the key and preferred name of
 // every copy function the lowering can emit: one for each type of an
-// expression of the build that needs one, and each such type it reaches
+// expression of the build that may be copied, and each such type it reaches
 // through its elements and fields. Reserving one the lowering does not
 // emit only renames a local.
 func (l *lowerer) reserveClones(pkgs []*check.Package, reserve func(key pkgKey, t check.Type)) {
