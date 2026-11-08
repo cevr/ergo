@@ -1,17 +1,22 @@
 // Package slices works on slices (docs/spec/stdlib.md, Slices and Maps;
 // std-align S2a). It follows Go's slices package for names, argument order
 // and meaning, and Effect's Array module where Go has no function:
-// Transform (Array.map), Filter and Fold. Two rules differ from Go, each
+// Transform (Array.map), Filter and Fold. Three rules differ from Go, each
 // for a guarantee:
 //   - a function that sorts or reverses returns a new slice and leaves its
 //     argument unchanged, because a let is immutable and aliasing is
 //     visible;
 //   - a function that Go answers with a panic or a second result returns
 //     an Option: Max and Min of an empty slice are None, and BinarySearch
-//     is Some of the index of x, or None.
+//     is Some of the index of x, or None;
+//   - BinarySearch takes an Ascending[T], a slice that only Ascend builds,
+//     not Go's []T. Go's slices.BinarySearch(x []E, target E) (int, bool)
+//     needs a sorted x and says so in prose; an unsorted x gives a wrong
+//     answer with no diagnostic. Here an unsorted slice is a check error
+//     (stdlib.md, Slices and Maps 8; std-strengths SS5).
 // The externs bind runtime/v1 bodies (collections.go, data.go);
-// Transform, Filter, Fold, IndexFunc, Collect, Sorted, Values, Max, Min
-// and BinarySearch are Ergo. laws.ergo states the algebra; the ledger in
+// Transform, Filter, Fold, IndexFunc, Collect, Sorted, Values, Max, Min,
+// Ascend, Items and BinarySearch are Ergo. laws.ergo states the algebra; the ledger in
 // stdlib.md names the Go test that runs each law until #162.
 
 // WithCapacity is an empty slice with room for n elements. It makes no
@@ -70,10 +75,30 @@ func Min[T ordered](xs []T) Option[T] {
 	}
 }
 
-// BinarySearch is Some of the index of x in xs, which is sorted in
-// ascending order, or None when xs has no x. Of several x, the first.
-func BinarySearch[T ordered](xs []T, x T) Option[int] {
-	let i = search(xs, x)
+// Ascending is a slice in ascending order. Its field is unexported, so
+// only this package builds one (types.md, Zero values 6): Ascend is the
+// one way in, and a value of the type is sorted by construction. Its zero
+// value, which only this package can write, is the empty slice.
+type Ascending[T ordered] { xs []T }
+
+// Ascend is a sorted copy of xs, as Sort is; xs is unchanged.
+func Ascend[T ordered](xs []T) Ascending[T] { Ascending[T]{xs: Sort(xs)} }
+
+// Items is the elements of a in ascending order, in a new slice: a change
+// to it does not change a, so a stays sorted.
+func Items[T ordered](a Ascending[T]) []T {
+	let mut out = WithCapacity[T](len(a.xs))
+	for x in a.xs {
+		out = out.Append(x)
+	}
+	out
+}
+
+// BinarySearch is Some of the index of x in Items(a), or None when a has
+// no x. Of several x, the first. It takes an Ascending, not a []T, so an
+// unsorted slice is a check error, not a wrong answer.
+func BinarySearch[T ordered](a Ascending[T], x T) Option[int] {
+	let i = search(a.xs, x)
 	if i < 0 {
 		None
 	} else {

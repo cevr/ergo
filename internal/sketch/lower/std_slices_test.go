@@ -50,7 +50,7 @@ func opt(o Option[int]) string {
 
 func top[T ordered](xs []T) Option[T] { slices.Max(slices.Sort(xs)) }
 
-func where[T ordered](xs []T, x T) Option[int] { slices.BinarySearch(slices.Sort(xs), x) }
+func where[T ordered](xs []T, x T) Option[int] { slices.BinarySearch(slices.Ascend(xs), x) }
 
 func halve(x int) int fails TooBig {
 	if x > 100 {
@@ -87,7 +87,7 @@ func main() needs Console {
 	Console.Println("\(slices.Contains(xs, 8)) \(slices.Contains(xs, 7)) \(slices.Index(xs, 2)) \(slices.Index(xs, 7))")
 	Console.Println("\(slices.IndexFunc(xs, func(x int) bool { x > 6 })) \(slices.IndexFunc(xs, func(x int) bool { x > 60 }))")
 	Console.Println(opt(slices.Max(xs)) + " " + opt(slices.Min(xs)) + " " + opt(slices.Max([]int{})) + " " + opt(slices.Min([]int{})))
-	Console.Println(opt(slices.BinarySearch(slices.Sort(xs), 2)) + " " + opt(slices.BinarySearch(slices.Sort(xs), 3)))
+	Console.Println(opt(slices.BinarySearch(slices.Ascend(xs), 2)) + " " + opt(slices.Ascend(xs).BinarySearch(3)) + " " + ints(slices.Ascend(xs).Items()))
 	Console.Println("\(slices.Equal(xs, []int{5, 2, 8, 2, 9, 1})) \(slices.Equal(xs, slices.Sort(xs)))")
 	Console.Println(ints(slices.Collect(slices.Values(xs))))
 	Console.Println("\(slices.Fold(xs, 0, func(acc int, x int) int { acc + x }))")
@@ -132,7 +132,7 @@ const stdSlicesOutput = "npm/c:9 github/a:5 npm/a:5 npm/b:5 github/d:1\n" +
 	"true false 1 -1\n" +
 	"2 -1\n" +
 	"9 1 none none\n" +
-	"1 none\n" +
+	"1 none 1,2,2,5,8,9\n" +
 	"true false\n" +
 	"5,2,8,2,9,1\n" +
 	"27\n" +
@@ -350,10 +350,41 @@ test SlicesMaxIsLastSorted(xs []int) {
 	assert slices.Max(xs) == Some[int]{Value: s[len(s) - 1]} && slices.Min(xs) == Some[int]{Value: s[0]}
 }
 
+test SlicesAscendOrders(xs []int) { assert isSorted(slices.Items(slices.Ascend(xs))) }
+
+test SlicesAscendPermutes(xs []int) {
+	let items = slices.Items(slices.Ascend(xs))
+	assert len(items) == len(xs)
+	for x in xs {
+		assert count(items, x) == count(xs, x)
+	}
+}
+
+test SlicesAscendLeavesItsArgument(xs []int) {
+	let before = slices.Transform(xs, func(x int) int { x })
+	let a = slices.Ascend(xs)
+	assert len(a.Items()) == len(xs) && slices.Equal(xs, before)
+}
+
+test SlicesItemsIsACopy(xs []int) {
+	let a = slices.Ascend(xs)
+	let mut changed = a.Items()
+	for i in 0..len(changed) {
+		changed[i] = len(changed) - i
+	}
+	assert slices.Equal(a.Items(), slices.Sort(xs))
+	let mut first = a.Items()
+	if len(first) > 0 {
+		first[0] = first[len(first) - 1] + 1
+		assert slices.Equal(a.Items(), slices.Sort(xs)) && isSorted(a.Items())
+	}
+}
+
 test SlicesBinarySearchFindsTheFirst(xs []int, x int) {
-	let s = slices.Sort(xs)
+	let a = slices.Ascend(xs)
+	let s = a.Items()
 	for y in s.Append(x) {
-		match slices.BinarySearch(s, y) {
+		match slices.BinarySearch(a, y) {
 		case Some[int] as found:
 			assert s[found.Value] == y && (found.Value == 0 || s[found.Value - 1] < y)
 		case None:
@@ -430,6 +461,57 @@ test MapsValuesMatchKeys(m Map[string, int]) {
 	assert n == len(m) && sum == total
 }
 
+// stops is how often s calls a yield that returns false at its k-th call.
+func stops(s Seq[int], k int) int {
+	let mut calls = 0
+	s(func(v int) bool {
+		calls = calls + 1
+		calls < k
+	})
+	calls
+}
+
+// stopsKeys is stops for a Seq of keys.
+func stopsKeys(s Seq[string], k int) int {
+	let mut calls = 0
+	s(func(key string) bool {
+		calls = calls + 1
+		calls < k
+	})
+	calls
+}
+
+// least is the smaller of a and b.
+func least(a int, b int) int {
+	if a < b {
+		a
+	} else {
+		b
+	}
+}
+
+test SlicesValuesStops(xs []int) {
+	let s = slices.Values(xs)
+	for k in 1..len(xs)+2 {
+		assert stops(s, k) == least(k, len(xs))
+	}
+	assert stops(slices.Values([]int{}), 1) == 0
+}
+
+test MapsKeysStops(m Map[string, int]) {
+	let s = maps.Keys(m)
+	for k in 1..len(m)+2 {
+		assert stopsKeys(s, k) == least(k, len(m))
+	}
+}
+
+test MapsValuesStops(m Map[string, int]) {
+	let s = maps.Values(m)
+	for k in 1..len(m)+2 {
+		assert stops(s, k) == least(k, len(m))
+	}
+}
+
 test CmpCompareIsAntisymmetric(a int, b int) {
 	assert cmp.Compare(a, b) == -cmp.Compare(b, a)
 	assert cmp.Compare(a, a) == 0
@@ -455,8 +537,15 @@ var stdSlicesLawStatements = map[string]string{
 	"cmp CompareIsTransitive":          `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
 	"cmp LessIsCompareBelowZero":       `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }`,
 	"maps KeysVisitEachKeyOnce":        `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None || m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }`,
+	"maps KeysStops":                   `KeysStops(m Map[string, int]) { let s = Keys(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(key string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
+	"maps ValuesStops":                 `ValuesStops(m Map[string, int]) { let s = Values(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
+	"slices ValuesStops":               `ValuesStops(xs []int) { let s = Values(xs) let n = len(xs) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	"maps ValuesMatchKeys":             `ValuesMatchKeys(m Map[string, int]) { let mut total = 0 for k in Keys(m) { match m.Get(k) { case Some[int] as v: total = total + v.Value case None: return false } } let mut sum = 0 let mut n = 0 for v in Values(m) { sum = sum + v n = n + 1 } n == len(m) && sum == total }`,
-	"slices BinarySearchFindsTheFirst": `BinarySearchFindsTheFirst(xs []int, x int) { let s = Sort(xs) match BinarySearch(s, x) { case Some[int] as found: s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x) case None: !Contains(s, x) } }`,
+	"slices AscendLeavesItsArgument":   `AscendLeavesItsArgument(xs []int) { let before = Transform(xs, func(x int) int { x }) let a = Ascend(xs) len(Items(a)) == len(xs) && Equal(xs, before) }`,
+	"slices AscendOrders":              `AscendOrders(xs []int) { isSorted(Items(Ascend(xs))) }`,
+	"slices AscendPermutes":            `AscendPermutes(xs []int) { let items = Items(Ascend(xs)) let mut same = len(items) == len(xs) for x in xs { same = same && count(items, x) == count(xs, x) } same }`,
+	"slices ItemsIsACopy":              `ItemsIsACopy(xs []int) { let a = Ascend(xs) let mut changed = Items(a) for i in 0..len(changed) { changed[i] = len(changed) - i } Equal(Items(a), Sort(xs)) }`,
+	"slices BinarySearchFindsTheFirst": `BinarySearchFindsTheFirst(xs []int, x int) { let a = Ascend(xs) let s = Items(a) match BinarySearch(a, x) { case Some[int] as found: s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x) case None: !Contains(s, x) } }`,
 	"slices CollectInvertsValues":      `CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }`,
 	"slices ContainsIffIndex":          `ContainsIffIndex(xs []int, x int) { let i = Index(xs, x) Contains(xs, x) == (i >= 0) && (i < 0 || xs[i] == x) }`,
 	"slices FilterIsIdempotent":        `FilterIsIdempotent(xs []int) { let even = func(x int) bool { x%2 == 0 } Equal(Filter(Filter(xs, even), even), Filter(xs, even)) }`,

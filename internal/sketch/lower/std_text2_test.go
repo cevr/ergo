@@ -147,6 +147,21 @@ test StringsLinesRebuild(s string, t string) {
 	}
 }
 
+test StringsLinesStops(s string, t string) {
+	for text in []string{s, s + "\n" + t, "\n" + s + "\n\n" + t + "\n", "", "\n", "a\r\nb\xff"} {
+		let lines = strings.Lines(text)
+		let n = strings.Count(text, "\n") + last(text)
+		for k in 1..n+2 {
+			let mut calls = 0
+			lines(func(line string) bool {
+				calls = calls + 1
+				calls < k
+			})
+			assert calls == k || k > n && calls == n
+		}
+	}
+}
+
 // last is 1 when text ends in a line with no line feed.
 func last(text string) int {
 	if strings.HasSuffix(text, "\n") || text == "" {
@@ -184,6 +199,7 @@ func last(text string) int {
 	lawledger.Run(t, lawsPassed(t, map[string]string{
 		"strings CutRebuilds":  `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }`,
 		"strings LinesRebuild": `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }`,
+		"strings LinesStops":   `LinesStops(s string) { let lines = Lines(s) let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	}, func(key string) string {
 		return "Strings" + strings.TrimPrefix(key, "strings ")
 	}, laws, stdout))

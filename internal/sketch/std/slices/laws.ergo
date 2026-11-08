@@ -93,11 +93,44 @@ law MaxIsLastSorted(xs []int) {
 	Max(xs) == Some[int]{Value: s[len(s)-1]} && Min(xs) == Some[int]{Value: s[0]}
 }
 
-// BinarySearchFindsTheFirst: in a sorted slice, BinarySearch finds the
-// first x, or None when there is no x.
+// AscendOrders: the items of Ascend(xs) are in ascending order.
+law AscendOrders(xs []int) { isSorted(Items(Ascend(xs))) }
+
+// AscendPermutes: the items of Ascend(xs) are the elements of xs, each as
+// often.
+law AscendPermutes(xs []int) {
+	let items = Items(Ascend(xs))
+	let mut same = len(items) == len(xs)
+	for x in xs {
+		same = same && count(items, x) == count(xs, x)
+	}
+	same
+}
+
+// AscendLeavesItsArgument: Ascend copies; xs is unchanged.
+law AscendLeavesItsArgument(xs []int) {
+	let before = Transform(xs, func(x int) int { x })
+	let a = Ascend(xs)
+	len(Items(a)) == len(xs) && Equal(xs, before)
+}
+
+// ItemsIsACopy: a change to the slice Items returns does not change the
+// Ascending, so it stays sorted: its items are still Sort(xs).
+law ItemsIsACopy(xs []int) {
+	let a = Ascend(xs)
+	let mut changed = Items(a)
+	for i in 0..len(changed) {
+		changed[i] = len(changed) - i
+	}
+	Equal(Items(a), Sort(xs))
+}
+
+// BinarySearchFindsTheFirst: in an Ascending, BinarySearch finds the first
+// x, or None when there is no x.
 law BinarySearchFindsTheFirst(xs []int, x int) {
-	let s = Sort(xs)
-	match BinarySearch(s, x) {
+	let a = Ascend(xs)
+	let s = Items(a)
+	match BinarySearch(a, x) {
 	case Some[int] as found:
 		s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x)
 	case None:
@@ -107,6 +140,25 @@ law BinarySearchFindsTheFirst(xs []int, x int) {
 
 // CollectInvertsValues: Collect(Values(xs)) is xs.
 law CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }
+
+// ValuesStops: Values is a Seq that stops (stdlib.md, Std laws 5): for
+// each k from 1 to len(xs)+1, a yield that returns false at its k-th call
+// is called min(k, len(xs)) times.
+law ValuesStops(xs []int) {
+	let s = Values(xs)
+	let n = len(xs)
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
 
 // TransformIdentity: Transform with the identity is xs.
 law TransformIdentity(xs []int) { Equal(Transform(xs, func(x int) int { x }), xs) }

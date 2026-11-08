@@ -201,6 +201,30 @@ law LinesRebuild(s string) {
 	joined == s
 }
 
+// LinesStops: Lines is a Seq that stops (stdlib.md, Std laws 5): with n
+// the count of lines a yield that always returns true gets, for each k
+// from 1 to n+1, a yield that returns false at its k-th call is called
+// min(k, n) times.
+law LinesStops(s string) {
+	let lines = Lines(s)
+	let mut n = 0
+	lines(func(line string) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		lines(func(line string) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
 // EqualFoldIsSymmetric: folding equality is reflexive and symmetric. (A
 // text and its case maps are not always equal under folding: ToLower of
 // "İ" is "i", which does not fold to "İ".)

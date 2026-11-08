@@ -1,0 +1,40 @@
+import slices
+
+// slices.Ascend is the one way to build a slices.Ascending
+// (std-strengths SS5; stdlib.md, Slices and Maps 8; types.md, Zero values 6).
+
+type Mine slices.Ascending[int]
+
+func unsorted() Option[int] {
+	slices.BinarySearch([]int{3, 1, 2}, 1) // want S108
+}
+
+func literal() slices.Ascending[int] {
+	slices.Ascending[int]{} // want S114
+}
+
+func zero() int {
+	let a slices.Ascending[int] // want S114
+	len(a.Items())
+}
+
+func defined() Mine {
+	Mine{} // want S114
+}
+
+test Generated(a slices.Ascending[int]) { // want S108
+	assert len(a.Items()) >= 0
+}
+
+// The ways in that build no unsorted value check clean: Ascend, a copy, a
+// conversion to a defined type (no new value), and BinarySearch on the
+// result.
+func sorted(xs []int) Option[int] {
+	let a = slices.Ascend(xs)
+	let b = a
+	let m = Mine(b)
+	let back = slices.Ascending[int](m)
+	slices.BinarySearch(back, 1)
+}
+
+func main() {}

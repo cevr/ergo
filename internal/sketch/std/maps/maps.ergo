@@ -58,3 +58,39 @@ law ValuesMatchKeys(m Map[string, int]) {
 	}
 	n == len(m) && sum == total
 }
+
+// KeysStops: Keys is a Seq that stops (stdlib.md, Std laws 5): for each k
+// from 1 to len(m)+1, a yield that returns false at its k-th call is
+// called min(k, len(m)) times.
+law KeysStops(m Map[string, int]) {
+	let s = Keys(m)
+	let n = len(m)
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(key string) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
+// ValuesStops: Values is a Seq that stops, as Keys is.
+law ValuesStops(m Map[string, int]) {
+	let s = Values(m)
+	let n = len(m)
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}

@@ -208,6 +208,30 @@ test IoLinesSplitInput(s string, t string) {
 	assert joined("\xff\n\xfe") == "\xff\n\xfe"
 }
 
+// lineCount is the count of lines of s: its line feeds, and one more for
+// a last line with no line feed.
+func lineCount(s string) int {
+	if s == "" || strings.HasSuffix(s, "\n") {
+		return strings.Count(s, "\n")
+	}
+	strings.Count(s, "\n") + 1
+}
+
+test IoInputLinesStops(s string, t string) {
+	for text in []string{s, s + "\n" + t, "\n" + s + "\r\n\n" + t + "\n", "", "\n", "\xff\n\xfe"} {
+		let lines = io.Input{Text: text}.Lines()
+		let n = lineCount(text)
+		for k in 1..n+2 {
+			let mut calls = 0
+			lines(func(line string) bool {
+				calls = calls + 1
+				calls < k
+			})
+			assert calls == k || k > n && calls == n
+		}
+	}
+}
+
 test IoInputReadAll(s string) {
 	assert try io.Input{Text: s}.ReadAll() == s
 }
@@ -221,6 +245,7 @@ test IoInputReadAll(s string) {
 		t.Errorf("exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
 	lawledger.Run(t, lawsPassed(t, map[string]string{
+		"io InputLinesStops":   `InputLinesStops(s string) { let lines = Input{Text: s}.Lines() let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 		"io LinesSplitInput":   `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }`,
 		"io PrintsConcatenate": `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Eprint(b) r.Print(b) r.Text() == a+b+b }`,
 	}, func(key string) string {
