@@ -627,9 +627,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 		ice(arg, "a with operand with neither a context nor a context binding (With.Contexts, With.Value)")
 	}
 	// A named context of an imported user package is built as the root's
-	// are (196b U4): the unit sources it. One of a package with no source
-	// (std declares none) is a compiler defect.
-	if w.Contexts[0].Lit == nil && fc.l.unsourced(w.Contexts[0]) {
+	// are (196b U4): the unit sources it. One of a std package is built as
+	// a std body is (stdContext). One of neither is a compiler defect.
+	if w.Contexts[0].Lit == nil && !fc.l.declaredContext(w.Contexts[0]) {
 		ice(arg, "a with of the context %s, which no source file of the program declares", w.Contexts[0].Name)
 	}
 	// The with lifetime owner (resources.md, Context ownership; runtime.md,
@@ -760,13 +760,23 @@ func (l *lowerer) context(w *check.Context, site syntax.Node) {
 // environment, where the checker charged its needs (With.Acquired).
 func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	w := with.Contexts[0]
-	if w.Decl == nil || l.unsourced(w) {
+	if !l.declaredContext(w) {
 		ice(site, "a builder of the context %s, which no source file of the program declares", w.Name)
 	}
 	l.localContext(w, site)
-	fc := newFuncCtx(l, newNamer(l.names), true)
+	// A std context's builder is a std body (lower-gaps G2, batch 11): it
+	// goes into the generated part with no //line directive and no row in
+	// the declaration table, and it reads its own package's Info.
+	std := l.stdContext(w)
+	fc := newFuncCtx(l, newNamer(l.names), !std)
 	fc.owner = w.Name
-	l.recordDecl(w.Name, w.Decl)
+	if std {
+		saved := l.info
+		l.info = w.Package().Info
+		defer func() { l.info = saved }()
+	} else {
+		l.recordDecl(w.Name, w.Decl)
+	}
 	// A builder has no loop and calls no capability (a named context is
 	// closed); its frame reads the context's footprint all the same.
 	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
@@ -780,8 +790,12 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	}
 	fc.entryPoll(l.info, w.Decl)
 	fc.buildProviders(with, fc.env, outer, ws)
-	l.user.WriteString(l.directive(w.Decl))
-	l.user.WriteString("func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n")
+	decl := "func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n"
+	if std {
+		l.gen.WriteString(decl)
+		return
+	}
+	l.user.WriteString(l.directive(w.Decl) + decl)
 }
 
 // localContext checks that every named context w embeds, at any depth, has
@@ -796,7 +810,7 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 			return
 		}
 		visited[v] = true
-		if v.Lit == nil && (v.Decl == nil || l.unsourced(v)) {
+		if v.Lit == nil && !l.declaredContext(v) {
 			ice(site, "an embedded context %s, which no source file of the program declares", v.Name)
 		}
 		for _, e := range v.Entries {
@@ -830,8 +844,24 @@ func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 		}
 	}
 	lexical(with.Contexts[0])
+	// The package of each entry, by the context that holds it: an entry of
+	// a std context is lowered as a std body is (buildProvider).
+	pkgs := map[*check.ContextEntry]*check.Package{}
+	var owners func(*check.Context)
+	owners = func(w *check.Context) {
+		for _, e := range w.Entries {
+			if _, ok := pkgs[e]; ok {
+				continue
+			}
+			pkgs[e] = w.Package()
+			if e.Embedded != nil {
+				owners(e.Embedded)
+			}
+		}
+	}
+	owners(with.Contexts[0])
 	for _, a := range with.Acquired {
-		fc.buildProvider(a, target, outer, ws, local[a.Entry])
+		fc.buildProvider(a, target, outer, ws, local[a.Entry], pkgs[a.Entry])
 	}
 }
 
@@ -839,9 +869,18 @@ func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 // expression is lowered within its own file and its package's Info: an
 // entry of an imported context (196b U4) reads the facts of the package
 // that declares it, as every declaration of that package does (sources.go).
-func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string, local bool) {
+// An entry of a std context, pkg std, reads its std package's Info and
+// writes no //line directive and no call identity, as a std body does
+// (lower-gaps G2, batch 11).
+func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string, local bool, pkg *check.Package) {
 	e := a.Entry
 	defer fc.l.leave(fc.l.enter(e.Provider, nil))
+	if pkg != nil && pkg.Std() {
+		fc.l.info = pkg.Info // leave restores it
+		saved := fc.directives
+		fc.directives = false
+		defer func() { fc.directives = saved }()
+	}
 	fc.at(e.Provider)
 	saved := fc.env
 	fc.env = target
@@ -874,6 +913,20 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 		fc.line(target + "." + fc.l.envField(cap.Obj) + " = " + fc.convert(conv, val, e.Provider))
 	}
 	return val
+}
+
+// declaredContext reports a named context the lowering can build: one that
+// a source file of the program declares, or one a std package declares
+// (stdContext). Any other is a compiler defect at its with.
+func (l *lowerer) declaredContext(w *check.Context) bool {
+	return w.Decl != nil && (l.stdContext(w) || !l.unsourced(w))
+}
+
+// stdContext reports a named context of a std package. Its builder is a
+// std body: no source file of the program holds it, so it has no //line
+// directive and reads its package's Info (emitContext).
+func (l *lowerer) stdContext(w *check.Context) bool {
+	return w.Lit == nil && w.Package().Std() && l.unsourced(w)
 }
 
 // unsourced reports a named context that no source file of the program

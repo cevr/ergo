@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"maps"
 	"slices"
 	"sort"
 
@@ -91,6 +92,23 @@ func (l *lowerer) nameAll() {
 				l.declareName(d)
 			}
 		})
+	}
+	// A std package's named contexts have no source in the program; the
+	// builders of those a with of the program names are std bodies,
+	// named here by package, then context name (lower-gaps G2, batch 11).
+	for _, p := range libs {
+		if !p.Std() {
+			continue
+		}
+		for _, name := range slices.Sorted(maps.Keys(p.Contexts)) {
+			w := p.Contexts[name]
+			if !l.stdContext(w) {
+				continue
+			}
+			for _, with := range l.withsOf(w) {
+				l.pkgName(pkgKey{"context", l.acquiredSet(with)}, "build"+w.Name)
+			}
+		}
 	}
 	type entry = generatedEntry
 	var generated []entry
