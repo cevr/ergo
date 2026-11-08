@@ -380,9 +380,16 @@ func producerSmokeDigest(t *testing.T, path string) string {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
+// producerSmokeInstall installs source at target as a hard link: the same
+// bytes under a second name, with no file written by this process. A
+// written copy left this process's write descriptor open on the file it
+// then executed, and a sibling subtest's fork in that window inherited
+// it until its own exec, so the exec failed with ETXTBSY (Go issue 22315;
+// batch-10 gate 1). Every source is a `go build` output, written by a
+// child process that has exited.
 func producerSmokeInstall(t *testing.T, source, target string) {
 	t.Helper()
-	if err := os.WriteFile(target, smokeRead(t, source), 0o755); err != nil {
+	if err := os.Link(source, target); err != nil {
 		t.Fatal(err)
 	}
 }
