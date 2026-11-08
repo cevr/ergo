@@ -71,7 +71,7 @@ func TestContextResidue(t *testing.T) { contextResidue.run(t) }
 // A match no row covers fails, and so does a row that covers no match.
 func (r residue) run(t *testing.T) {
 	t.Helper()
-	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("git rev-parse: %v", err)
 	}
@@ -80,7 +80,7 @@ func (r residue) run(t *testing.T) {
 
 	args := append([]string{"-c", "core.quotePath=false", "grep", "-n", "-I"}, r.grepArgs()...)
 	args = append(args, "--", ".", ":(exclude)internal/residue/"+r.allowlist)
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	cmd.Dir = repo
 	out, err := cmd.Output()
 	if err != nil {

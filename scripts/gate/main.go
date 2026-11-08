@@ -619,7 +619,7 @@ func fatal(err error) {
 }
 
 func repositoryRoot() (string, error) {
-	executable, err := runOutput(exec.Command("git", "rev-parse", "--show-toplevel"))
+	executable, err := runOutput(exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel"))
 	if err != nil {
 		return "", fmt.Errorf("locate repository root: %w", err)
 	}
@@ -650,7 +650,7 @@ func (s checkoutState) String() string {
 
 func checkoutStateOf(root string) (checkoutState, error) {
 	git := func(args ...string) (string, error) {
-		command := exec.Command("git", args...)
+		command := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 		command.Dir = root
 		output, err := runOutput(command)
 		if err != nil {
@@ -1515,7 +1515,7 @@ func (g *gate) installed(dir string) string {
 }
 
 func (g *gate) git(args ...string) ([]byte, error) {
-	command := exec.Command("git", args...)
+	command := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	command.Dir = g.root
 	output, err := runOutput(command)
 	if err != nil {

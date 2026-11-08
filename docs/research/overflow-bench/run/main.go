@@ -185,12 +185,12 @@ func tail(s string, n int) string {
 func writeEnv(path string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "date: %s\n", time.Now().UTC().Format(time.RFC3339))
-	if head, err := command("git", "rev-parse", "HEAD"); err == nil {
+	if head, err := command("git", "--no-optional-locks", "rev-parse", "HEAD"); err == nil {
 		fmt.Fprintf(&b, "head: %s", head)
 	}
 	// The result directories are excluded: the run's own directory is
 	// untracked while it runs.
-	if dirty, err := command("git", "status", "--porcelain", "--", "docs/research/overflow-bench",
+	if dirty, err := command("git", "--no-optional-locks", "status", "--porcelain", "--", "docs/research/overflow-bench",
 		":(exclude)docs/research/overflow-bench/results"); err == nil {
 		fmt.Fprintf(&b, "package clean (results excluded): %v\n", len(bytes.TrimSpace(dirty)) == 0)
 		if s := strings.TrimSpace(string(dirty)); s != "" {

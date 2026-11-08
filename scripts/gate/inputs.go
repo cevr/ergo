@@ -276,7 +276,7 @@ func sandboxPrograms() []string {
 // hostGit runs git on the host with no configuration but the repository's
 // own: no system or global file, no HOME.
 func hostGit(dir string, args ...string) ([]byte, error) {
-	command := exec.Command("git", args...)
+	command := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	command.Dir = dir
 	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/nonexistent", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "LC_ALL=C"}
 	var stderr bytes.Buffer

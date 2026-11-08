@@ -115,10 +115,12 @@ const marker="baseline"
 func main(){json.NewEncoder(os.Stdout).Encode(map[string]any{"marker":marker,"producer":producer.Current()})}
 `
 		smokeWrite(t, fixture, "main.go", host)
-		gitIdentity := []string{"-c", "user.name=Ergo fixture", "-c", "user.email=fixture@invalid"}
-		producerSmokeRun(t, fixture, "git", "init", "-q")
-		producerSmokeRun(t, fixture, "git", append(gitIdentity, "add", ".")...)
-		producerSmokeRun(t, fixture, "git", append(gitIdentity, "commit", "-qm", "test: retain producer fixture baseline")...)
+		git := func(args ...string) {
+			producerSmokeRun(t, fixture, "git", append([]string{"--no-optional-locks", "-c", "user.name=Ergo fixture", "-c", "user.email=fixture@invalid"}, args...)...)
+		}
+		git("init", "-q")
+		git("add", ".")
+		git("commit", "-qm", "test: retain producer fixture baseline")
 		var identities []map[string]any
 		for _, marker := range []string{"dirty-A", "dirty-B"} {
 			smokeWrite(t, fixture, "main.go", strings.Replace(host, "baseline", marker, 1))

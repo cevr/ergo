@@ -106,12 +106,12 @@ func TestResidueCandidatesCover(t *testing.T) {
 // git grep must have selected each of them. A host whose git grep reads the
 // selection differently fails here, whatever its regex engine.
 func TestResidueGrepMissesNothing(t *testing.T) {
-	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("git rev-parse: %v", err)
 	}
 	repo := strings.TrimSpace(string(root))
-	ls := exec.Command("git", "ls-files", "-z")
+	ls := exec.Command("git", "--no-optional-locks", "ls-files", "-z")
 	ls.Dir = repo
 	list, err := ls.Output()
 	if err != nil {
@@ -119,7 +119,7 @@ func TestResidueGrepMissesNothing(t *testing.T) {
 	}
 	for name, r := range residues {
 		args := append([]string{"-c", "core.quotePath=false", "grep", "-n", "-I"}, r.grepArgs()...)
-		cmd := exec.Command("git", append(args, "--", ".")...)
+		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, append(args, "--", ".")...)...)
 		cmd.Dir = repo
 		out, err := cmd.Output()
 		if err != nil {

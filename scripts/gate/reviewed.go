@@ -30,7 +30,7 @@ func (s *reviewedScript) command(arguments ...string) []string {
 var (
 	bytecodeScript = &reviewedScript{
 		name: "no tracked python bytecode",
-		text: `tracked=$(git ls-files '*.pyc'); if [ -n "$tracked" ]; then echo "tracked Python bytecode (git rm it; __pycache__/ is ignored):"; echo "$tracked"; exit 1; fi`,
+		text: `tracked=$(git --no-optional-locks ls-files '*.pyc'); if [ -n "$tracked" ]; then echo "tracked Python bytecode (git rm it; __pycache__/ is ignored):"; echo "$tracked"; exit 1; fi`,
 	}
 	gofmtScript = &reviewedScript{
 		name: "gofmt",
