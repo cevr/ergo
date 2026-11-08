@@ -170,6 +170,58 @@ func TestTasksLaws(t *testing.T) {
 		return xs, 1 + (k%4+4)%4
 	}
 	lawledger.Run(t, map[string]lawledger.Law{
+		"tasks EarliestWins": {Statement: `EarliestWins(ds []int) { let c = testing.NewVirtualClock(0) with context { Scheduler: c, time.Clock: c } { let mut blocks = []func() int needs Scheduler{} let mut best = 0 let mut sleeps = []int{} for d in ds.Append(0) { let i = len(sleeps) let s = 1 + (d%5+5)%5 sleeps = sleeps.Append(s) if s < sleeps[best] { best = i } blocks = blocks.Append(func() int needs Scheduler { Scheduler.Sleep(duration(int64(s))) i }) } let start = time.Clock.Now() let won = Race(blocks) won == best && time.Clock.Now().Sub(start) == duration(int64(sleeps[best])) } }`, Check: func(t *testing.T) {
+			r := rand.New(rand.NewPCG(1, 25))
+			for range 200 {
+				ds, _ := draw(r)
+				ds = append(ds, 0)
+				sleeps := make([]int, len(ds))
+				best := 0
+				for i, d := range ds {
+					sleeps[i] = 1 + (d%5+5)%5
+					if sleeps[i] < sleeps[best] {
+						best = i
+					}
+				}
+				root := rt.Root("law")
+				line := NewVirtualTimeline(root, 0, 0)
+				won, err := TasksRace(Site("law"), root, len(ds), func(ct *rt.Task, i int) (int, error) {
+					line.Wait(ct, time.Duration(sleeps[i]))
+					return i, nil
+				})
+				if err != nil || won != best || line.Read().Mono != int64(sleeps[best]) {
+					t.Fatalf("Race of sleeps %v = %d at %d, %v; want %d", sleeps, won, line.Read().Mono, err, best)
+				}
+			}
+		}},
+		"tasks LosersStopped": {Statement: `LosersStopped(n int) { let c = testing.NewVirtualClock(0) let cleaned = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let won = Race([]func() int needs Scheduler{ func() int needs Scheduler { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } Scheduler.Sleep(1h) 0 }, func() int needs Scheduler { n }, }) won == n && cleaned.Get() == 1 } }`, Check: func(t *testing.T) {
+			r := rand.New(rand.NewPCG(1, 26))
+			for range 200 {
+				n := r.Int()
+				root := rt.Root("law")
+				line := NewVirtualTimeline(root, 0, 0)
+				var cleaned sync.Mutex
+				count := 0
+				won, err := TasksRace(Site("law"), root, 2, func(ct *rt.Task, i int) (int, error) {
+					if i == 1 {
+						return n, nil
+					}
+					defer func() {
+						cleaned.Lock()
+						count++
+						cleaned.Unlock()
+					}()
+					line.Wait(ct, time.Hour)
+					return 0, nil
+				})
+				cleaned.Lock()
+				c := count
+				cleaned.Unlock()
+				if err != nil || won != n || c != 1 {
+					t.Fatalf("Race = %d, %v with %d cleanups; want %d and 1", won, err, c, n)
+				}
+			}
+		}},
 		"tasks TransformEqualsLoop": {Statement: `TransformEqualsLoop(xs []int, k int) { let got = Transform(xs, limitOf(k), func(x int) int { x*3 - 1 }) let mut ok = len(got) == len(xs) for i in 0..len(xs) { ok = ok && got[i] == xs[i]*3-1 } ok }`, Check: func(t *testing.T) {
 			r := rand.New(rand.NewPCG(1, 22))
 			for range 200 {
@@ -346,6 +398,74 @@ func BenchmarkTasksTransformHandGo(b *testing.B) {
 		if first != nil {
 			b.Fatal(first)
 		}
+	}
+}
+
+// TestRaceModel is the model check of tasks.Race (the red acceptance
+// check of batch-12 C4). 300 generated races of 1 to 6 blocks on a
+// VirtualClock: block i sleeps 1 to 4 s (so ties come often), then gives
+// its value or fails, and counts its exit action. The model: the shortest
+// sleep wins, the lowest index on a tie; Race gives the winner's value or
+// fails with its failure, returns at the winner's instant (the losers are
+// stopped, not waited out), and every block's exit action has run when it
+// returns. A failing seed prints the race.
+func TestRaceModel(t *testing.T) {
+	before := runtime.NumGoroutine()
+	for seed := uint64(0); seed < 300; seed++ {
+		r := rand.New(rand.NewPCG(seed, 41))
+		n := 1 + r.IntN(6)
+		sleep, fails := make([]int64, n), make([]bool, n)
+		win := 0
+		for i := range n {
+			sleep[i], fails[i] = 1+r.Int64N(4), r.IntN(3) == 0
+			if sleep[i] < sleep[win] {
+				win = i
+			}
+		}
+		want := fmt.Sprintf("value %d at %d, %d exits", win*10, sleep[win], n)
+		if fails[win] {
+			want = fmt.Sprintf("failure %d at %d, %d exits", win, sleep[win], n)
+		}
+		root := rt.Root("race")
+		line := NewVirtualTimeline(root, 0, 0)
+		var mu sync.Mutex
+		exits := 0
+		v, err := TasksRace(Site("race"), root, n, func(ct *rt.Task, i int) (int, error) {
+			defer func() {
+				mu.Lock()
+				exits++
+				mu.Unlock()
+			}()
+			line.Wait(ct, time.Duration(sleep[i])*time.Second)
+			if fails[i] {
+				return 0, elemFailed{i}
+			}
+			return i * 10, nil
+		})
+		at := line.Read().Mono / int64(time.Second)
+		got := fmt.Sprintf("value %d at %d, %d exits", v, at, exits)
+		if f, ok := err.(elemFailed); ok {
+			got = fmt.Sprintf("failure %d at %d, %d exits", f.i, at, exits)
+		} else if err != nil {
+			got = fmt.Sprintf("error %v", err)
+		}
+		if got != want {
+			t.Fatalf("seed %d: sleeps %v, fails %v: Race gave %s; want %s", seed, sleep, fails, got, want)
+		}
+	}
+	waitFor(t, "goroutines to end", func() bool { return runtime.NumGoroutine() <= before })
+}
+
+// TestRaceNoBlocksDefect: Race of no blocks is a defect of the caller,
+// which would otherwise wait for ever.
+func TestRaceNoBlocksDefect(t *testing.T) {
+	p := func() (p any) {
+		defer func() { p = recover() }()
+		_, _ = TasksRace(Site("defect"), rt.Root("defect"), 0, func(*rt.Task, int) (int, error) { return 0, nil })
+		return nil
+	}()
+	if fmt.Sprint(p) != "tasks.Race: no blocks to race" {
+		t.Fatalf("recovered %v", p)
 	}
 }
 

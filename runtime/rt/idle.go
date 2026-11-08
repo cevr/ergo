@@ -272,8 +272,15 @@ func (v *Virtual) sleep(t *Task, d time.Duration) error {
 		m.unpark()
 		return nil
 	case <-stop:
-		tm.Stop()
 		m.unpark()
+		// A deadline that came at the same instant as the stop has passed:
+		// the sleep is done, so a tie in tasks.Race keeps its order.
+		select {
+		case <-tm.c:
+			return nil
+		default:
+		}
+		tm.Stop()
 		return Interrupted
 	}
 }

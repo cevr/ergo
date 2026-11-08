@@ -541,6 +541,31 @@ func TasksTransform[A, B any](span Site, t *rt.Task, xs []A, limit int, f func(*
 	panic("unreachable")
 }
 
+// TasksRace is the body of tasks.Race over n blocks (docs/spec/stdlib.md,
+// Tasks): f(i) runs block i, each on a child task of t, and the first to
+// end decides; the rest are stopped and drained before it returns
+// (rt.RaceSpan). span and t are the hidden site and task arguments; f
+// receives the child's task. Race of no blocks is a defect of the caller:
+// it would never end. Prior art: Effect.raceAll; Go's select over result
+// channels and a cancel of the losers.
+func TasksRace[T any](span Site, t *rt.Task, n int, f func(*rt.Task, int) (T, error)) (T, error) {
+	if n < 1 {
+		panic("tasks.Race: no blocks to race")
+	}
+	v, err := rt.RaceSpan(t, string(span), n, func(ct *rt.Task, i int) (T, error) {
+		return guarded(ct, func(ct *rt.Task) (T, error) { return f(ct, i) })
+	})
+	if err == nil {
+		return v, nil
+	}
+	if f, ok := rt.Failure(err); ok {
+		var zero T
+		return zero, f
+	}
+	raise(err)
+	panic("unreachable")
+}
+
 // deadlines is the rt.Scheduler of one After call: each timer it arms is a
 // child of t that sleeps on the program's Scheduler.
 type deadlines struct {

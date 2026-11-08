@@ -96,6 +96,8 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"deadlines.NewTimer -> Go": "guarded",
 		// tasks.Transform's children, one per call of f.
 		"TasksTransform -> MapSpan": "guarded",
+		// tasks.Race's children, one per block.
+		"TasksRace -> RaceSpan": "guarded",
 	}
 	isRT := func(f *types.Func) bool {
 		return f.Pkg() != nil && strings.HasSuffix(f.Pkg().Path(), "/runtime/rt")

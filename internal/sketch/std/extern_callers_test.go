@@ -37,6 +37,7 @@ var notHostExterns = map[string]string{
 	"sync.Modify":           "changes a Ref of the program with the program's function",
 	"task.Go":               "starts a task of the program",
 	"tasks.Transform":       "starts tasks of the program over its own function",
+	"tasks.race":            "starts a task of the program per block",
 	"testing.newLine":       "makes the virtual timeline, which reads no host clock",
 	"time.newTimeline":      "makes the manual timeline, which reads no host clock",
 	"timeout.After":         "races the body against the bound Scheduler, which is the program's",

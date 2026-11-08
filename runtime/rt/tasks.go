@@ -104,6 +104,108 @@ func MapSpan[A, B any](t *Task, span string, xs []A, limit int, f func(*Task, A)
 	return out, nil
 }
 
+// RaceSpan is tasks.Race (docs/spec/stdlib.md, Tasks): it calls f(i) for
+// each i in 0..n-1, each call on a child task of t started under span, and
+// the first call to end decides. n is at least 1 (the caller checks it).
+//
+//   - RaceSpan waits for whichever call ends first, then stops every other
+//     call and drains all of them before it returns.
+//   - The winner is the call that ended first. A call that ended with its
+//     own exit before the stop reached it (it did not end by the
+//     interruption) ended at the same instant: on a VirtualClock no time
+//     passes between them. Among those the lowest index wins, so a tie goes
+//     to the earliest block.
+//   - The winner's exit is the result: its value, or its typed failure.
+//     The losers' typed failures are dropped (laws R3, R6); their defects
+//     are kept after the winner's exit.
+//   - A stop of t, before or while RaceSpan waits, stops and drains every
+//     call; the exit is their defects with an interruption.
+//
+// Prior art: Effect's Effect.raceAll (the first to complete; the rest are
+// interrupted and awaited); Go's select over result channels with a cancel
+// of the losers' context; Elixir's Task.yield_many with Task.shutdown.
+func RaceSpan[B any](t *Task, span string, n int, f func(*Task, int) (B, error)) (v B, err error) {
+	if t.Stopped() {
+		return v, Interrupted
+	}
+	var (
+		c     Cause
+		hs    = make([]*Handle[B], 0, n) // the children, all joined before return
+		own   = make([]bool, n)          // call i returned its own exit, vals[i] and errs[i]
+		vals  = make([]B, n)
+		errs  = make([]error, n)
+		e     = &ends{}
+		floor int
+		win   = -1
+	)
+	if t.trace != nil {
+		floor = t.traceDepth()
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			c.recovered(t, p, false, floor)
+		}
+		m := t.Mask()
+		for i, h := range hs {
+			if i != win {
+				h.task.Interrupt()
+			}
+		}
+		for _, h := range hs {
+			h.join(t)
+		}
+		// The winner is the lowest index that ended with its own exit; the
+		// call seen first is one of them, unless a stop of t ended it.
+		if win >= 0 {
+			for i := range own {
+				if own[i] {
+					win = i
+					break
+				}
+			}
+		}
+		for i, h := range hs {
+			if h.task.trace != nil {
+				h.task.childEvent(TraceObserve, t, i == win)
+			}
+			switch {
+			case i == win && own[i]:
+				// Its own exit: a stop that reached it after f returned
+				// (a tie) does not change it.
+				c.Add(errs[i])
+				v = vals[i]
+			case i == win:
+				c.Add(h.err)
+				v = h.value
+			default:
+				c.Add(defectsOf(h.err))
+			}
+		}
+		m.Unmask()
+		t.settle(&c, nil)
+		if err = c.Err(); err != nil {
+			var zero B
+			v = zero
+		}
+	}()
+	for i := range n {
+		hs = append(hs, spawn(t, span, false, func(ct *Task) (B, error) {
+			// A call that panics keeps own[i] false: its defect stays in
+			// its handle's exit.
+			defer e.end(t, i)
+			v, err := f(ct, i)
+			own[i], vals[i], errs[i] = err == nil || !OnlyInterruption(err), v, err
+			return v, err
+		}))
+	}
+	first, ok := e.next(t, t.Done())
+	if !ok {
+		return v, nil // stopped: the deferred drain settles the exit
+	}
+	win = first
+	return v, nil
+}
+
 // ends is the line of children of a MapSpan whose call of f has returned,
 // in the order they returned. The parent waits on it.
 type ends struct {

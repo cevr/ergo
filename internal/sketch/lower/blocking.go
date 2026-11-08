@@ -73,6 +73,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	// tasks.Transform joins its children, whichever ends first, as their
 	// parent (stdlib.md, Tasks; rt.MapSpan).
 	"TasksTransform": {wait: childWait},
+	// tasks.Race joins every block's task, the first to end deciding.
+	"TasksRace": {wait: childWait},
 	// The with lifetime owner's scope (with, withClose; resources.md, Context
 	// ownership). None waits, and none is a release route: the release a
 	// with registers is the call of a checked Close, which masks itself
