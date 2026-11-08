@@ -3,8 +3,7 @@
 // targets for Ergo are Linux and darwin, so the separator is '/' and no
 // path has a volume name. No function reads the file system or the working
 // directory: each extern binds a runtime/v1 body (runtime/v1/path.go) that
-// is marked pure, so a call is transparent in a footprint. Split is Ergo
-// over two of them.
+// is marked pure, so a call is transparent in a footprint.
 
 // Join is the non-empty parts with a separator between each pair, cleaned
 // (Clean); "" when every part is empty. Ergo has no variadic parameters,
@@ -32,18 +31,17 @@ extern go ergo.local/prototype/runtime/v1.FilepathClean func Clean(path string) 
 // IsAbs reports whether path is rooted: it begins with a separator.
 extern go ergo.local/prototype/runtime/v1.FilepathIsAbs func IsAbs(path string) bool
 
-extern go ergo.local/prototype/runtime/v1.FilepathSplitDir func splitDir(path string) string
-
-extern go ergo.local/prototype/runtime/v1.FilepathSplitFile func splitFile(path string) string
+// hasSuffix is strings.HasSuffix, for the laws: a std package imports no
+// other std package, so it binds the pure body of strings directly.
+extern go ergo.local/prototype/runtime/v1.StringsHasSuffix func hasSuffix(s string, suffix string) bool
 
 // Parts is a path cut after its last separator.
 type Parts { Dir string, File string }
 
 // Split cuts path after its last separator: Dir ends with the separator
-// (or is "" when path has none), and Dir + File is path.
-func Split(path string) Parts {
-	Parts{Dir: splitDir(path), File: splitFile(path)}
-}
+// (or is "" when path has none), and Dir + File is path. It scans path
+// once, as Go's filepath.Split does.
+extern go ergo.local/prototype/runtime/v1.FilepathSplit func Split(path string) Parts
 
 // NotRelative is the failure of Rel: target cannot be made relative to
 // base by lexical processing, because one is rooted and the other is not,
@@ -68,7 +66,7 @@ law CleanKeepsRoot(path string) {
 // SplitRebuilds: the two parts of Split are path, cut once.
 law SplitRebuilds(path string) {
 	let p = Split(path)
-	p.Dir+p.File == path && splitFile(p.File) == p.File
+	p.Dir+p.File == path && Split(p.File).File == p.File
 }
 
 // JoinOfDirAndBase: for a path with no trailing separator, Dir and Base
@@ -83,6 +81,11 @@ law JoinOfDirAndBase(path string) {
 // BaseHasNoSeparator: Base is one element, or the root.
 law BaseHasNoSeparator(path string) {
 	Base(path) == "/" || Split(Base(path)).Dir == ""
+}
+
+// ExtIsSuffixOfBase: the extension of path ends its Base.
+law ExtIsSuffixOfBase(path string) {
+	hasSuffix(Base(path), Ext(path))
 }
 
 // ExtIsTheExtOfBase: for a path whose last element is not empty (no
