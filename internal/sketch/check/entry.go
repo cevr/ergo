@@ -383,7 +383,9 @@ func (c *checker) checkMachine(tn *TypeName) {
 	if spec.Initial == nil || spec.Step == nil {
 		c.errorf(tn.Decl.Name, CodeType, "machine %s declares both initial and step (runtime.md, Machines and actors 1)", tn.Name)
 	}
-	if spec.Initial != nil {
+	if start := machineStart(c.pkg, spec); start != nil {
+		c.checkMachineStart(tn, start, spec.Initial.(*syntax.Ident), state, signal, valid)
+	} else if spec.Initial != nil {
 		t := &target{name: "the initial value of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
 		prev := c.fn
 		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
@@ -442,6 +444,65 @@ func (c *checker) checkMachine(tn *TypeName) {
 	if spec.After != nil {
 		c.checkMachineAfter(tn, spec.After, state, signal)
 	}
+}
+
+// machineStart is the function a machine declaration's initial names, when
+// it names one: such a machine starts from the function of an input (V4,
+// owner decision O3b), since no function is a value of the state union.
+func machineStart(pkg *Package, spec *syntax.MachineType) *Func {
+	id, ok := spec.Initial.(*syntax.Ident)
+	if !ok || pkg == nil {
+		return nil
+	}
+	f, _ := pkg.Scope.names[id.Name].(*Func)
+	return f
+}
+
+// checkMachineStart checks a machine's `initial: start`: start is a package
+// function `func(i I) S`, one input and no rows, so that a run computes
+// the first state from the input it is given (runtime.md, Machines and
+// actors 10).
+func (c *checker) checkMachineStart(tn *TypeName, f *Func, id *syntax.Ident, state, signal Type, valid bool) {
+	f.called = true
+	c.pkg.Info.Uses[id] = f
+	if isExtern(f) {
+		c.errorf(id, CodeType, "%s", externCallOnlyText)
+		return
+	}
+	if !valid || f.Sig == nil {
+		return
+	}
+	sig := f.Sig
+	if machineInput(sig, state, c) == nil {
+		c.errorf(id, CodeType, "the start %s of machine %s must have the type func(…) %s: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)", id.Name, tn.Name, state)
+		return
+	}
+	// Its rows: the value must be assignable to the same function type with
+	// empty rows; an inferred row is solved later, so assignment checks it.
+	want := &Signature{Params: sig.Params, Results: sig.Results, Errors: newRow(), Uses: newRow()}
+	t := &target{name: "the start of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
+	prev := c.fn
+	c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
+	op := c.valueExpr(id, want)
+	c.assign(&op, want, "machine "+tn.Name+"'s start")
+	c.fn = prev
+}
+
+// machineInput is the input type of a machine whose start function has the
+// signature sig: its one parameter's type, or the tuple of its parameters'
+// types. It is nil when sig is not a start of the state type S.
+func machineInput(sig *Signature, state Type, c *checker) Type {
+	if sig == nil || len(sig.TParams) > 0 || len(sig.Params) == 0 || len(sig.Results) != 1 || !c.identical(sig.Results[0], state) {
+		return nil
+	}
+	if len(sig.Params) == 1 {
+		return sig.Params[0].Type
+	}
+	tup := &Tuple{Types: make([]Type, len(sig.Params))}
+	for i, p := range sig.Params {
+		tup.Types[i] = p.Type
+	}
+	return tup
 }
 
 // checkMachineAfter checks a machine's `after: g` entry: g names a package
@@ -590,7 +651,25 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 	if uses == nil {
 		uses = newRow()
 	}
+	if start := machineStart(n.Obj.Pkg, spec); start != nil {
+		// A machine with an input is an InputMachine (V4); a start of the
+		// wrong shape was reported by checkMachineStart.
+		im := preludeType("InputMachine")
+		input := machineInput(start.Sig, m.State, c)
+		if im == nil || input == nil || isExtern(start) {
+			return nil, nil
+		}
+		return c.instantiate(im, []Type{input, m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}}), f
+	}
 	return c.instantiate(machine, []Type{m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}}), f
+}
+
+// isPreludeMachineValue reports whether t is an instance of the prelude's
+// Machine or InputMachine: the types a machine declaration's value
+// converts to.
+func isPreludeMachineValue(t Type) bool {
+	n, ok := t.(*Named)
+	return ok && (isPreludeMachine(t) || preludeType("InputMachine") != nil && n.origin() == preludeType("InputMachine"))
 }
 
 // checkEntry checks main (rows.md, Capability rows 4; README Gaps 4 and 5):

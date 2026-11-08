@@ -283,14 +283,28 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) runProgram {
 		}
 		b.WriteString("\t}\n}\n\n")
 	}
+	// The initial state is a value, or (V4) the function start of an input
+	// of one int or of two: init.n is then the start's offset.
 	init := runState{r.Intn(ns), r.Intn(9) - 4}
-	fmt.Fprintf(&b, "type M machine[St, Sig] {\n\tinitial: S%d{n: %d},\n\tstep:    step,\n%s}\n\n", init.v, init.n, after)
+	inputs := r.Intn(3)
+	seen[fmt.Sprintf("a machine with %d inputs", inputs)] = true
+	initial := fmt.Sprintf("S%d{n: %d}", init.v, init.n)
+	machineType := "Machine[St, Sig, int, Boom" + strings.ReplaceAll(helperRow, " needs ", ", ") + "]"
+	switch inputs {
+	case 1:
+		fmt.Fprintf(&b, "func start(x int) St { S%d{n: x + %d} }\n\n", init.v, init.n)
+		initial = "start"
+	case 2:
+		fmt.Fprintf(&b, "func start(x int, y int) St { S%d{n: x - y + %d} }\n\n", init.v, init.n)
+		initial = "start"
+	}
+	fmt.Fprintf(&b, "type M machine[St, Sig] {\n\tinitial: %s,\n\tstep:    step,\n%s}\n\n", initial, after)
 	b.WriteString("func show(s St) string {\n\tmatch s {\n")
 	for i := range ns {
 		fmt.Fprintf(&b, "\tcase S%d as a:\n\t\t\"S%d \\(a.n)\"\n", i, i)
 	}
 	b.WriteString("\t}\n}\n\n")
-	b.WriteString(strings.ReplaceAll(`func ints(xs []int) string {
+	b.WriteString(strings.ReplaceAll(strings.ReplaceAll(`func ints(xs []int) string {
 	let mut t = "["
 	for i, x in xs {
 		if i > 0 {
@@ -318,8 +332,8 @@ func told(o machines.Outcome[St, int], before []int) string {
 	}
 }
 
-func run(signals []Sig) string NEEDS {
-	let o = machines.Run(M{}, signals) catch {
+func run(m MT, signals []Sig) string NEEDS {
+	let o = machines.Run(m, signals) catch {
 	case machines.Rejected as r:
 		return "rejected \(r.At)"
 	case Boom:
@@ -328,8 +342,8 @@ func run(signals []Sig) string NEEDS {
 	told(o, []int{})
 }
 
-func from(s St, signals []Sig, first int, before []int) string NEEDS {
-	let o = machines.From(M{}, s, signals) catch {
+func from(m MT, s St, signals []Sig, first int, before []int) string NEEDS {
+	let o = machines.From(m, s, signals) catch {
 	case machines.Rejected as r:
 		return "rejected \(r.At + first)"
 	case Boom:
@@ -338,8 +352,8 @@ func from(s St, signals []Sig, first int, before []int) string NEEDS {
 	told(o, before)
 }
 
-func split(a []Sig, b []Sig) string NEEDS {
-	let o = machines.Run(M{}, a) catch {
+func split(m MT, a []Sig, b []Sig) string NEEDS {
+	let o = machines.Run(m, a) catch {
 	case machines.Rejected:
 		return "-"
 	case Boom:
@@ -347,14 +361,14 @@ func split(a []Sig, b []Sig) string NEEDS {
 	}
 	match o {
 	case machines.Running[St, int] as r:
-		from(r.State, b, len(a), r.Emitted)
+		from(m, r.State, b, len(a), r.Emitted)
 	case machines.Finished[St, int]:
 		"-"
 	}
 }
 
-func timed(trace []machines.Timed[Sig], end int) string NEEDS {
-	let o = machines.RunTimed(M{}, trace, duration(int64(end))) catch {
+func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
+	let o = machines.RunTimed(m, trace, duration(int64(end))) catch {
 	case machines.Rejected as r:
 		return "rejected \(r.At)"
 	case Boom:
@@ -363,13 +377,26 @@ func timed(trace []machines.Timed[Sig], end int) string NEEDS {
 	told(o, []int{})
 }
 
-`, " NEEDS", helperRow))
-	b.WriteString("func main() needs Console {\n\tConsole.Println(show(machines.Initial(M{})))\n")
+`, " NEEDS", helperRow), " MT", " "+machineType))
+	// machineOf is the machine value a run of an input starts from, and
+	// startOf the reference's first state for it (V4).
+	machineOf := func(x, y int) (string, runState) {
+		switch inputs {
+		case 1:
+			return fmt.Sprintf("machines.Start(M{}, %d)", x), runState{init.v, x + init.n}
+		case 2:
+			return fmt.Sprintf("machines.Start(M{}, (%d, %d))", x, y), runState{init.v, x - y + init.n}
+		}
+		return "M{}", init
+	}
+	m0, s0 := machineOf(r.Intn(9)-4, r.Intn(9)-4)
+	fmt.Fprintf(&b, "func main() needs Console {\n\tConsole.Println(show(machines.Initial(%s)))\n", m0)
 	if needs {
 		b.WriteString("\twith context { Probe: Quiet } {\n")
 	}
-	want := []string{init.text()}
+	want := []string{s0.text()}
 	for l := range 4 {
+		mv, init := machineOf(r.Intn(9)-4, r.Intn(9)-4)
 		n := r.Intn(9)
 		signals := make([]runSignal, n)
 		trace := make([]timedSignal, n)
@@ -392,8 +419,8 @@ func timed(trace []machines.Timed[Sig], end int) string NEEDS {
 		}
 		end := at + r.Intn(8)
 		h := n / 2
-		fmt.Fprintf(&b, "\tlet xs%d = []Sig{%s}\n\tConsole.Println(run(xs%d))\n\tConsole.Println(split(xs%d[0:%d], xs%d[%d:%d]))\n", l, strings.Join(lit, ", "), l, l, h, l, h, n)
-		fmt.Fprintf(&b, "\tConsole.Println(timed([]machines.Timed[Sig]{%s}, %d))\n", strings.Join(tlit, ", "), end)
+		fmt.Fprintf(&b, "\tlet m%d = %s\n\tlet xs%d = []Sig{%s}\n\tConsole.Println(run(m%d, xs%d))\n\tConsole.Println(split(m%d, xs%d[0:%d], xs%d[%d:%d]))\n", l, mv, l, strings.Join(lit, ", "), l, l, l, l, h, l, h, n)
+		fmt.Fprintf(&b, "\tConsole.Println(timed(m%d, []machines.Timed[Sig]{%s}, %d))\n", l, strings.Join(tlit, ", "), end)
 		whole, _, _, _ := foldRun(table, init, signals, 0, nil)
 		want = append(want, whole)
 		if _, at, running, out := foldRun(table, init, signals[:h], 0, nil); running {
@@ -446,7 +473,8 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	// until they do, 16 at least and 128 at most.
 	ends := []string{"running", "finished", "rejected", "boom", "-", "emitted"}
 	cases := []string{"timer fired after a stay", "a stale timer came due", "signal at its timer's deadline", "timer just before a signal", "timer rejected",
-		"timer fired in an entry opened by first", "timer fired in an entry opened by enter", "timer fired in an entry opened by emit", "a timer of an entry a late signal opened fired"}
+		"timer fired in an entry opened by first", "timer fired in an entry opened by enter", "timer fired in an entry opened by emit", "a timer of an entry a late signal opened fired",
+		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs"}
 	missing := func() string {
 		seen["a timer of an entry a late signal opened fired"] = seen["timer fired in an entry opened by enter late"] || seen["timer fired in an entry opened by emit late"]
 		for _, k := range ends {
@@ -639,6 +667,42 @@ func step(s St, e Sig) Decision[St, int] { Ignore }
 	} {
 		var got []string
 		for _, d := range lowerSource("machineafter", head+c.timer+machine, true).diags {
+			got = append(got, d.String())
+		}
+		if len(got) != 1 || !strings.Contains(got[0], c.want) {
+			t.Errorf("%s: diagnostics %q, want one with %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestMachineStartRefusals: a machine's initial may name a start function
+// of its input (V4): one with no parameters or another result, or with a
+// row, is refused, and an InputMachine is not a Machine. Diagnostic rows:
+// they alone catch a checker that admits such a start, which no program
+// that builds can show.
+func TestMachineStartRefusals(t *testing.T) {
+	head := `type St = A{n int}
+type Sig = Go
+type Go {}
+
+func step(s St, e Sig) Decision[St, int] { Ignore }
+
+type M machine[St, Sig] {
+	initial: start,
+	step:    step,
+}
+
+`
+	for _, c := range []struct{ name, rest, want string }{
+		{"none", "func start() St { A{n: 1} }\n\nfunc main() {}\n",
+			"S108 the start start of machine M must have the type func(…) main.St: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)"},
+		{"row", "func start(n int) St {\n\tConsole.Println(\"x\")\n\tA{n: n}\n}\n\nfunc main() {}\n",
+			"S108 cannot use func(int) main.St needs Console as func(int) main.St in machine M's start: its capability row {Console} is wider than {}"},
+		{"machine", "func start(n int) St { A{n: n} }\n\nfunc main() {\n\tlet _ Machine[St, Sig, int] = M{}\n}\n",
+			"its initial is a function of an input, so it is an InputMachine[int, …]; machines.Start(value, input) gives a Machine"},
+	} {
+		var got []string
+		for _, d := range lowerSource("machinestart", head+c.rest, true).diags {
 			got = append(got, d.String())
 		}
 		if len(got) != 1 || !strings.Contains(got[0], c.want) {

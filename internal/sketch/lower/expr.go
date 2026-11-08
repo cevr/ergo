@@ -223,7 +223,13 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		if step == nil {
 			ice(site, "a machine conversion with no step")
 		}
-		return fc.goType(conv.To) + "{Initial: " + val + ".Initial(), Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + "}"
+		first := "Initial: " + val + ".Initial()"
+		if start := conv.Table["Start"]; start != nil {
+			// A machine with an input (V4): its start function's value. The
+			// plan value is not read; it has zero size and no effect.
+			first = "Start: " + fc.machineStart(start, site)
+		}
+		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""

@@ -146,6 +146,17 @@ type Machine[S, E, O, F, R] {
 	After func(s S) Option[Timeout[E]],
 }
 
+// InputMachine is a machine whose initial state is a function of an input
+// I (V4; owner decision O3b): a machine declaration whose initial names a
+// function `func(i I) S` converts to it, as one with an initial value
+// converts to Machine. std machines.Start gives the Machine that starts
+// from Start(input).
+type InputMachine[I, S, E, O, F, R] {
+	Start func(input I) S,
+	Step func(s S, e E) Decision[S, O] fails F needs R,
+	After func(s S) Option[Timeout[E]],
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {
