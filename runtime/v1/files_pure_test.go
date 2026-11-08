@@ -69,6 +69,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		"StringsRepeat", "StringsToLower", "StringsToUpper", "StringsIndex",
 		"StringsContains", "StringsSlice", "StrconvItoa", "StrconvAtoi", "StrconvQuote",
 		"TimeFormat", "TimeParse", "TimeSub", "TimeSubMono",
+		"Append", "Get", "Delete", // the prelude's collection intrinsics (lw-pure-prelude)
 	} {
 		if !slices.Contains(marked, name) {
 			t.Errorf("the std text body %s is not marked %s", name, PureMark)

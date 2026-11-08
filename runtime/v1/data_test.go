@@ -25,6 +25,18 @@ func TestWithCapacity(t *testing.T) {
 	}
 }
 
+// TestGet: Get is Go's comma-ok read, the zero value and false for a
+// missing key.
+func TestGet(t *testing.T) {
+	m := map[string]int{"a": 1}
+	if v, ok := Get(m, "a"); v != 1 || !ok {
+		t.Fatalf("Get(a) = %v, %v; want 1, true", v, ok)
+	}
+	if v, ok := Get(m, "b"); v != 0 || ok {
+		t.Fatalf("Get(b) = %v, %v; want 0, false", v, ok)
+	}
+}
+
 // TestDelete: Delete removes the key from the Map itself and returns it.
 func TestDelete(t *testing.T) {
 	m := map[string]int{"a": 1, "b": 2}

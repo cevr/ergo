@@ -50,7 +50,7 @@ var i1Clauses = []i1Clause{
 	{name: "recursive", prefix: "ping(2)\n", needs: true, impure: true, site: "Probe.Mark()\n"},
 	{name: "own-with", prefix: "with Local {\nProbe.Tick()\n}\n", impure: true, site: "with Local {\nProbe.Mark()\n}\n", provider: true},
 	{name: "unknown-value", prefix: "cb()\n", param: "cb escaping func()", impure: true},
-	{name: "host", prefix: "let xs = []int{}\nlet _ = xs.Append(1)\n", impure: true, provider: true},
+	{name: "host", prefix: "let _ = hostTrim(\"\")\n", impure: true, provider: true},
 	{name: "task-start", prefix: "let t0 = task.Go() { 1 }\nt0.Stop()\n", impure: true, provider: true},
 }
 
@@ -102,6 +102,7 @@ var i1Variants = []i1Variant{
 }
 
 const i1Defs = `import task
+extern go strings.TrimSpace func hostTrim(s string) string
 type Probe {
 	Tick(),
 	Mark(),
@@ -393,9 +394,11 @@ var i1Split = newSplit(split[i1Case]{
 	// The pin: the domain of the unsplit property at f79be34b
 	// (request.md, leg 1), re-pinned by std-align S2b when the extern
 	// shape's LiveScheduler came from NewLiveScheduler and its written
-	// rows listed Ambient (the same 17131 cases, two source texts changed).
+	// rows listed Ambient (the same 17131 cases, two source texts changed),
+	// and by lw-pure-prelude when the host effect became a user extern call,
+	// hostTrim, because the prelude's Append is pure (the same cases).
 	count:  17131,
-	digest: "69a8fbf80189fb3bb44c022de5bf2a2ad9b801e2f73bacf7b09ebc4165ecaaa6",
+	digest: "7970797a438e67e3ab93dfea7b27af42c996b5bd29ca9a2481fbbc33ca2e710a",
 	cases: func(yield func(i1Case) bool) {
 		for _, c := range i1Domain() {
 			if !yield(c) {
@@ -627,7 +630,7 @@ var i1EntryEffects = []struct {
 }{
 	{name: "pure"},
 	{name: "capability", body: "with Local { Probe.Tick() }\n"},
-	{name: "opaque", body: "let xs = []int{}\nlet _ = xs.Append(1)\n", entry: true},
+	{name: "opaque", body: "let _ = hostTrim(\"\")\n", entry: true},
 	{name: "scope", body: "let t0 = task.Go() { 1 }\nt0.Stop()\n", entry: true, scope: true},
 }
 
@@ -751,7 +754,7 @@ var i1Effects = []struct{ name, row, clause string }{
 	{name: "pure"},
 	{name: "capability", row: " needs Probe", clause: "if n < 0 { Probe.Tick() }\n"},
 	{name: "own-with", clause: "if n < 0 { with Local { Probe.Tick() } }\n"},
-	{name: "opaque", clause: "if n < 0 { let xs = []int{}; let _ = xs.Append(1) }\n"},
+	{name: "opaque", clause: "if n < 0 { let _ = hostTrim(\"\") }\n"},
 	{name: "scope", clause: "if n < 0 { let t0 = task.Go() { 1 }; t0.Stop() }\n"},
 }
 
@@ -1263,6 +1266,7 @@ func i1CheckPrimitives(t *testing.T) {
 
 const i1LiveDefs = `import queue
 import task
+extern go strings.TrimSpace func hostTrim(s string) string
 type Probe {
 	Tick(),
 }

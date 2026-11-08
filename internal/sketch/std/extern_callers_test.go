@@ -22,9 +22,6 @@ import (
 // that no host provider's function reaches, so a host body cannot hide
 // here.
 var notHostExterns = map[string]string{
-	"prelude.Append":        "appends to a slice of the program",
-	"prelude.Get":           "reads a Map of the program",
-	"prelude.Delete":        "changes a Map of the program",
 	"log.contextBound":      "reads the running task's context",
 	"log.contextValue":      "reads the running task's context",
 	"trace.contextBound":    "reads the running task's context",

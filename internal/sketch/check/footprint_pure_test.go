@@ -39,7 +39,7 @@ func loops(s string, n int) string {
 }
 func makes() []int { slices.WithCapacity[int](4) }
 func userTrim(s string) string { hostTrim(s) }
-`
+` + preludeCollectionFuncs
 	file, err := syntax.Parse(src)
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +68,11 @@ func userTrim(s string) string { hostTrim(s) }
 		"loops":    "pure",
 		"makes":    "opaque",
 		"userTrim": "opaque",
+		// lw-pure-prelude: the prelude's Append, Get and Delete are marked
+		// pure in runtime/v1 (data.go).
+		"appends": "pure",
+		"gets":    "pure",
+		"deletes": "pure",
 	}
 	for name, w := range want {
 		if got := show(fps[name]); got != w {
@@ -81,5 +86,64 @@ func userTrim(s string) string { hostTrim(s) }
 	}
 	if fps["loops"].EntryPoll {
 		t.Error("loops polls at entry; pure recursion never polls")
+	}
+	for _, name := range []string{"appends", "gets", "deletes"} {
+		if fps[name].EntryPoll {
+			t.Errorf("%s polls at entry; a pure call adds no interruption point", name)
+		}
+	}
+}
+
+// preludeCollectionFuncs call only the prelude's Append, Get and Delete,
+// with loops and arithmetic (lw-pure-prelude).
+const preludeCollectionFuncs = `func appends(n int) []int {
+	let mut out = []int{}
+	for i in 0..n {
+		if i % 2 == 0 {
+			out = out.Append(i)
+		}
+	}
+	out
+}
+func gets(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some[int] as s:
+		s.Value
+	case None:
+		0
+	}
+}
+func deletes(m Map[string, int], k string) Map[string, int] { m.Delete(k) }
+`
+
+// TestFootprintsPurePreludeOff: with the reference switch off
+// (SetPureCollectionsForTest(false)), a call of the prelude's Append, Get
+// or Delete is opaque again, as it was before lw-pure-prelude, so the
+// reference lowering polls and takes the environment.
+func TestFootprintsPurePreludeOff(t *testing.T) {
+	for _, pure := range []bool{false, true} {
+		restore := check.SetPureCollectionsForTest(pure)
+		file, err := syntax.Parse(preludeCollectionFuncs)
+		if err != nil {
+			restore()
+			t.Fatal(err)
+		}
+		pkg, diags := check.Check("main", []*syntax.File{file}, nil)
+		restore()
+		if len(diags) > 0 {
+			t.Fatalf("diagnostics: %v", diags)
+		}
+		want := "opaque"
+		if pure {
+			want = "pure"
+		}
+		for _, f := range pkg.Funcs {
+			if f.Decl == nil || f.Decl.Body == nil {
+				continue
+			}
+			if got := show(pkg.Info.Footprints[f.Decl]); got != want {
+				t.Errorf("pure collections %v: func %s footprint %q, want %q", pure, f.Name, got, want)
+			}
+		}
 	}
 }
