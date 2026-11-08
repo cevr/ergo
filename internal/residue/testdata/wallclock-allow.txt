@@ -1,0 +1,18 @@
+# The tests that TestTestsCompareNoWallClock admits: each compares a measured
+# duration with another measured duration or with a constant duration under
+# 10 s (wallClockFloor). A row is `path<TAB>function<TAB>reason`; a row that
+# admits no comparison fails the test. A reason that names a follow-up marks a
+# comparison that a loaded host can still turn; the follow-up removes the row.
+
+# a lower bound: load only makes the measured time longer, so it cannot fail the check
+runtime/v1/runtime_test.go	TestSleep	a lower bound (Sleep waits at least d); load only lengthens the sleep
+
+# opt-in timing, off in the gate (ERGO_TIMING=1 only)
+internal/sketch/check/domain_test.go	TestTotalityPermutations	the timing branch runs only with ERGO_TIMING=1, never in the gate
+internal/sketch/check/domain_test.go	TestTotalityBudget	the timing branch runs only with ERGO_TIMING=1, never in the gate
+
+# load can turn these; each is a named follow-up of fu-gate-flakes (audit.md)
+internal/sketch/check/review_test.go	TestTotalityCost	follow-up FU-wallclock-totality-cost: bound solver steps, not 500 ms of wall time
+runtime/ergo/http_transport_test.go	TestHTTPTransportRejectsMalformedAndStalledBodiesWithoutHandling	follow-up FU-wallclock-http-stall: bound by the read timeout's event, not 2 s
+scripts/examples/cap_test.go	TestOutputCapStopsTheGroupAtOnce	follow-up FU-wallclock-examples-cap: 5 s against a 20 s -timeout; widen to 15 s
+scripts/examples/cap_test.go	TestAStreamHolderOutsideTheGroupDoesNotHoldTheRunner	follow-up FU-wallclock-examples-cap: 3 s against a 4 s holder; a longer holder ended by the test
