@@ -120,6 +120,18 @@ var PureUnlisted = []string{
 	"html", "maps", "math/big", "math/cmplx", "path", "regexp", "regexp/syntax",
 }
 
+// PureErrorFuncs names, for each package of PureImports with any, its
+// exported functions whose last result is Go's error (lane G, G4). A user
+// extern of one must declare fails go.Error, and a user extern of any other
+// function must not (check, externErrorRefusal). The checker does not read
+// Go's sources; TestPureErrorFuncs holds this table to the Go toolchain's
+// own declarations, so a package that joins PureImports joins here too.
+var PureErrorFuncs = map[string][]string{
+	"encoding/hex":  {"AppendDecode", "Decode", "DecodeString"},
+	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Localize", "Match", "Rel", "Walk", "WalkDir"},
+	"strconv":       {"Atoi", "ParseBool", "ParseComplex", "ParseFloat", "ParseInt", "ParseUint", "QuotedPrefix", "Unquote", "UnquoteChar"},
+}
+
 // PureImportHostMembers are the Go packages, beyond PureImports, that the
 // file of a marked body may import, each with its members that read host
 // state: the marked body may not name one, as a package member or as a

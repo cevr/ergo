@@ -37,6 +37,10 @@ var stdRecord = v1.StdRecord
 // operations, and an open one is a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
+	if check.IsGoError(n) {
+		// The predeclared go.Error, a user extern's failure (G4).
+		return l.rt() + ".GoError"
+	}
 	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
 		return "" // a user package's type is a declaration of the program
 	}

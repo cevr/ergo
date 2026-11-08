@@ -53,6 +53,14 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		if result {
 			v = fc.temp("v")
 		}
+		if fallible {
+			e := fc.temp("err")
+			fc.hostFallible(x, c, v, e, text)
+			if !failsHere(c) {
+				ice(x, "a user extern that fails go.Error with an empty row at its call")
+			}
+			return operand{val: v, err: e}
+		}
 		fc.line(fc.hostStmt(x, c, v, text))
 		return operand{val: v}
 	}
@@ -131,7 +139,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	case check.CallFunc:
 		fd := fc.l.useFunc(c.Func, x)
 		if userExtern(c.Func) {
-			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, false
+			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible
 		}
 		if body, name, ok := fc.l.stdBody(fd); ok {
 			if c.Recv != nil {
@@ -234,8 +242,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 }
 
 // userExtern reports an extern declared outside std (C26, 196x): the
-// checker admits one only with a signature of basic types, no
-// rows, no type parameters and at most one result, and with a target in
+// checker admits one only with a signature of basic types, no needs row,
+// no fails row but go.Error (G4), no type parameters and at most one
+// result, and with a target in
 // Go's standard library (check/extern.go).
 func userExtern(f *check.Func) bool {
 	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std()
@@ -337,6 +346,18 @@ func (fc *funcCtx) hostValue(f *check.Func, sig *check.Signature, site syntax.No
 		ind := strings.Repeat("\t", fc.depth)
 		text := fc.hostTarget(site, f) + "(" + strings.Join(args, ", ") + ")"
 		body = ind + "if false { defer " + text + " }\n"
+		if sig.Fallible {
+			// A target that fails go.Error (G4): hostFallible's binding,
+			// with the error returned as the value's failure.
+			e := fc.scope.alloc("err")
+			body += ind + "var " + e + " error\n"
+			if len(sig.Results) == 0 {
+				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+			}
+			r := fc.scope.alloc("r")
+			body += ind + "var " + r + " " + fc.goType(sig.Results[0]) + "\n" + ind + r + ", " + e + " = " + text + "\n"
+			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+		}
 		if len(sig.Results) == 0 {
 			return params, fc.valueResults(nil), body + ind + text + "\n" + ind + "return struct{}{}, nil\n"
 		}
@@ -414,6 +435,27 @@ func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) s
 		ice(x, "a result of the user extern %s with no variable", c.Func.Name)
 	}
 	return "var " + v + " " + fc.goType(c.Func.Sig.Results[0]) + " = " + text
+}
+
+// hostFallible writes the call x of a user extern that fails go.Error (G4;
+// decision O14), whose Go target's last result is error: hostStmt's call
+// check, then the call, its result bound to v at the Ergo result's Go type
+// and its error to e, typed error, so a target whose results differ is go
+// build's error at the call's line. A non-nil error becomes
+// go.Error{Text: err.Error()} (v1.GoErrorOf). The partial value a Go
+// function returns with an error (strconv's limit on a range error) is
+// dropped: the caller reads v only when e is nil, as an Ergo failure has
+// no value.
+func (fc *funcCtx) hostFallible(x *syntax.CallExpr, c *check.Call, v, e, text string) {
+	fc.line("if false { defer " + text + " }")
+	fc.line("var " + e + " error")
+	if v == "" {
+		fc.line(e + " = " + text)
+	} else {
+		fc.line("var " + v + " " + fc.goType(c.Func.Sig.Results[0]))
+		fc.line(v + ", " + e + " = " + text)
+	}
+	fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
 }
 
 // hostPkg is the name in main.go of the Go package path that a user

@@ -553,11 +553,13 @@ func universe() *Scope {
 		}
 		// go.Foreign (a capability) and go.Error (an error type) are
 		// predeclared for extern go bindings (grammar.md, Declarations 3).
+		// go.Error { Text string } is the failure of a user extern whose Go
+		// target returns an error: Text is the error's Error() (G4, O14).
 		goPkg := &Package{Path: "go", Name: "go", Scope: newScope(nil), qualify: true}
 		foreign := &TypeName{Name: "Foreign", Pkg: goPkg, id: newID()}
 		foreign.Type = &Named{Obj: foreign, under: &Interface{}, state: 2, foreign: true}
 		goErr := &TypeName{Name: "Error", Pkg: goPkg, id: newID()}
-		goErr.Type = &Named{Obj: goErr, under: &Struct{Fields: []*Field{{Name: "Message", Type: Typ[String]}}}, state: 2}
+		goErr.Type = &Named{Obj: goErr, under: &Struct{Fields: []*Field{{Name: "Text", Type: Typ[String]}}}, state: 2}
 		goPkg.Scope.insert("Foreign", foreign)
 		goPkg.Scope.insert("Error", goErr)
 		universeOnce.goPkg = goPkg

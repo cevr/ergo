@@ -116,7 +116,11 @@ func (c *checker) checkExterns() {
 			continue
 		}
 		if part := c.externOutsideDomain(f); part != "" {
-			c.errorf(f.Decl, CodeOutside, "%s of the extern %s is #202's (Go imports); it is not checked yet: a user extern takes and returns predeclared basic types only, and callbacks over them, with no type parameter and no rows", part, f.Name)
+			c.errorf(f.Decl, CodeOutside, "%s of the extern %s is #202's (Go imports); it is not checked yet: a user extern takes and returns predeclared basic types only, and callbacks over them, with no type parameter, no needs row and no fails row but go.Error", part, f.Name)
+			continue
+		}
+		if msg := externErrorRefusal(f); msg != "" {
+			c.errorf(f.Decl, CodeType, "%s", msg)
 		}
 	}
 }
@@ -228,7 +232,8 @@ func unlistedText(path, target string) string {
 // externOutsideDomain names the first part of f's signature outside the
 // C26 domain, or "": a type parameter, a parameter that is neither a
 // predeclared basic type nor a callback (externCallback, G1), a result
-// that is not basic, more than one result, a fails row or a needs row.
+// that is not basic, more than one result, a fails row other than go.Error
+// (G4) or a needs row.
 // Basic types lower to the identical Go type, so only a callback needs an
 // adapter.
 func (c *checker) externOutsideDomain(f *Func) string {
@@ -251,18 +256,47 @@ func (c *checker) externOutsideDomain(f *Func) string {
 	case len(sig.Results) == 1 && !externBasic(sig.Results[0]):
 		return fmt.Sprintf("the result of type %s", sig.Results[0])
 	}
-	if d.Type.Results != nil {
-		for _, r := range d.Type.Results.List {
-			if _, ok := r.Type.(*syntax.ErrorRow); ok {
-				return "the fails row"
-			}
-		}
-	}
-	if sig.Fallible || !c.types.resolve(sig.Errors).Empty() {
+	if errs := c.types.resolve(sig.Errors); sig.Fallible && !externGoErrorRow(errs) || !sig.Fallible && !errs.Empty() {
 		return "the fails row"
 	}
 	if d.Type.Needs != nil || !c.types.resolve(sig.Uses).Empty() {
 		return "the needs row"
+	}
+	return ""
+}
+
+// externGoErrorRow reports the one fails row a user extern may write (G4,
+// decision O14): exactly go.Error. Its Go target's last result is error,
+// and the lowering turns a non-nil error into go.Error{Text: err.Error()}.
+func externGoErrorRow(errs *Row) bool {
+	elems := errs.Elems()
+	if len(elems) != 1 {
+		return false
+	}
+	n, ok := elems[0].(*Named)
+	return ok && IsGoError(n)
+}
+
+// IsGoError reports the predeclared go.Error.
+func IsGoError(n *Named) bool {
+	return n != nil && n.Obj != nil && n.Obj.Pkg == universeOnce.goPkg && n.Obj.Name == "Error"
+}
+
+// externErrorRefusal is the refusal of a user extern whose fails row does
+// not match its Go target (G4), or "": a target whose last result is error
+// (v1.PureErrorFuncs) must declare fails go.Error, and a target with no
+// error result must not. The checker does not read Go's sources (D-E5):
+// the table is runtime/v1's, held to Go's own declarations by
+// TestPureErrorFuncs. A name the table lacks returns no error; a name Go
+// lacks is go build's error.
+func externErrorRefusal(f *Func) string {
+	path, name := f.Decl.Extern.Split()
+	returnsError := slices.Contains(v1.PureErrorFuncs[path], name)
+	switch {
+	case returnsError && !f.Sig.Fallible:
+		return fmt.Sprintf("extern go %s returns an error; declare it in the row: fails go.Error", f.Decl.Extern.Target.Value)
+	case !returnsError && f.Sig.Fallible:
+		return fmt.Sprintf("extern go %s returns no error; a user extern fails go.Error only when its Go function's last result is error", f.Decl.Extern.Target.Value)
 	}
 	return ""
 }

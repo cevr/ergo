@@ -233,6 +233,26 @@ func (l *lowerer) typeName(tn *check.TypeName) string {
 	return td.name
 }
 
+// goErrorDecl is the declaration of the predeclared go.Error (G4), which no
+// package declares: the runtime's record v1.GoError, never emitted, whose
+// one field Text keeps its name.
+func (l *lowerer) goErrorDecl(tn *check.TypeName, named *check.Named, site syntax.Node) *typeDecl {
+	if td := l.types[tn]; td != nil {
+		return td
+	}
+	st, ok := named.Underlying().(*check.Struct)
+	if !ok {
+		ice(site, "go.Error is not a record")
+	}
+	td := &typeDecl{tn: tn, named: named, name: l.rt() + ".GoError", kind: kindRecord, fields: st.Fields,
+		fieldName: map[string]string{}, errorType: true, library: true, emitted: true}
+	for _, f := range st.Fields {
+		td.fieldName[f.Name] = f.Name
+	}
+	l.types[tn] = td
+	return td
+}
+
 // typeDecl is the lowered declaration of tn, its structure read from the
 // declaring package's Info: a record's fields and an operation type's
 // operations are Defs of its declaring names, a union's variants its
@@ -241,6 +261,9 @@ func (l *lowerer) typeName(tn *check.TypeName) string {
 // use, at its own site: the naming pass reads types under quiet, and the
 // lowering must still report that refusal, not a name the pass missed.
 func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
+	if named, ok := tn.Type.(*check.Named); ok && check.IsGoError(named) {
+		return l.goErrorDecl(tn, named, site)
+	}
 	l.typeName(tn)
 	td := l.types[tn]
 	if td.refused != nil {
