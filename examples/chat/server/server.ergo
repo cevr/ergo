@@ -1,0 +1,185 @@
+// Package server runs a chat room over connections: one task per client
+// reads its lines and sends them to the room as signals, through one
+// queue; the room's task steps the room and writes each event to every
+// member. The connection is the contract the server needs; package memory
+// provides one for tests and for the binary (std has no network,
+// G-ex-c-7).
+
+import chat/room
+import queue
+import task
+import time
+
+// Conn is a client's connection, line by line.
+type Conn {
+	// Read is the next line the client sent, or Hangup when the client
+	// is gone or the server closed the connection.
+	Read() string fails Hangup,
+	// Write sends line to the client. A write to a gone client is lost.
+	Write(line string),
+	// Close ends the connection: the client's next Read hangs up.
+	Close(),
+
+	// HangupIsFinal: after Close, Read hangs up, and hangs up again.
+	law HangupIsFinal() {
+		Close()
+		let _ = Read() catch {
+		case Hangup:
+			let _ = Read() catch {
+			case Hangup:
+				return true
+			}
+			return false
+		}
+		false
+	},
+}
+
+// Hangup is the end of a connection.
+type Hangup {}
+
+// Envelope is a signal, the connection of the client that sent it, so
+// the room can answer a refusal to that client alone, and the client's
+// number. A connection is an operation type's value, which has no ==, so
+// the host tells clients apart by Client: a client whose join was refused
+// cannot speak under the name it asked for.
+type Envelope { Signal room.Signal, Conn Conn, Client int }
+
+// Serve runs the room for conns until every client hangs up, and is the
+// room's last state. Each outcome of a signal, an event or a refusal, is
+// also pushed to log, one line per signal, so an observer can follow the
+// room in order.
+func Serve(conns []Conn, log queue.Queue[string]) room.State fails queue.Closed needs time.Clock {
+	let inbox = queue.New[Envelope](16)
+	let hub = task.Go() { host(inbox, log) }
+	try serveAll(conns, 0, inbox)
+	inbox.Close()
+	try hub.Wait()
+}
+
+// serveAll runs a client task for each of conns from i, and waits for
+// them. A slice cannot hold tasks (G-ex-b-17), so each frame owns one.
+func serveAll(conns []Conn, i int, inbox queue.Queue[Envelope]) fails queue.Closed {
+	if i == len(conns) {
+		return
+	}
+	let c = conns[i]
+	let t = task.Go() { try client(c, i, inbox) }
+	try serveAll(conns, i+1, inbox)
+	try t.Wait()
+}
+
+// client reads a name, then lines, from c and sends them to the room. A
+// line "/quit" leaves, "/shut" closes the room; a hang-up leaves.
+func client(c Conn, id int, inbox queue.Queue[Envelope]) fails queue.Closed {
+	c.Write("name?")
+	let name = c.Read() catch {
+	case Hangup:
+		return
+	}
+	try inbox.Push(Envelope{Signal: room.Join{Name: name}, Conn: c, Client: id})
+	for {
+		let line = c.Read() catch {
+		case Hangup:
+			try inbox.Push(Envelope{Signal: room.Leave{Name: name}, Conn: c, Client: id})
+			return
+		}
+		match line {
+		case "/quit":
+			try inbox.Push(Envelope{Signal: room.Leave{Name: name}, Conn: c, Client: id})
+			return
+		case "/shut":
+			try inbox.Push(Envelope{Signal: room.Shut{By: name}, Conn: c, Client: id})
+		case _:
+			try inbox.Push(Envelope{Signal: room.Say{From: name, Text: line}, Conn: c, Client: id})
+		}
+	}
+}
+
+// host is the room's task: it takes each envelope in turn, decides it,
+// writes its events to every member and to log, or its refusal to the
+// sender and to log: one line per signal. A closed room keeps its
+// clients, which are told "! the room is closed" until they hang up: a
+// client task blocked in Read cannot also wait for the room to close (no
+// select, G-ex-e-9). It ends when inbox is closed and empty, with the
+// room's state.
+func host(inbox queue.Queue[Envelope], log queue.Queue[string]) room.State fails queue.Closed needs time.Clock {
+	let mut s = room.Start()
+	let mut members = Map[string, Conn]{}
+	let mut owners = Map[string, int]{}
+	for env in inbox.Values() {
+		if !owns(owners, env) {
+			try refuse(env.Conn, log, "! you are not \(speaker(env.Signal))")
+			continue
+		}
+		let events = room.Decide(s, env.Signal, time.Clock.Now()) catch {
+		case room.NameTaken as n:
+			try refuse(env.Conn, log, "! the name \(n.Name) is taken")
+			continue
+		case room.NotMember as n:
+			try refuse(env.Conn, log, "! \(n.Name) is not in the room")
+			continue
+		case room.RoomClosed:
+			try refuse(env.Conn, log, "! the room is closed")
+			continue
+		}
+		for e in events {
+			s = room.Evolve(s, e)
+			match e {
+			case room.Joined as j:
+				members[j.Name] = env.Conn
+				owners[j.Name] = env.Client
+			case room.Left as l:
+				members = members.Delete(l.Name)
+				owners = owners.Delete(l.Name)
+				env.Conn.Close()
+			case room.Said:
+			case room.Closed:
+			}
+			let line = room.Render(e)
+			for c in members {
+				c.Write(line)
+			}
+			try log.Push(line)
+		}
+	}
+	s
+}
+
+// speaker is the name that sig speaks for.
+func speaker(sig room.Signal) string {
+	match sig {
+	case room.Join as j:
+		j.Name
+	case room.Leave as l:
+		l.Name
+	case room.Say as y:
+		y.From
+	case room.Shut as x:
+		x.By
+	}
+}
+
+// owns reports whether env's client may speak for its signal's name: a
+// join may ask for any name, and every other signal must come from the
+// client that joined under the name, or name no member (the room then
+// refuses it as NotMember).
+func owns(owners Map[string, int], env Envelope) bool {
+	match env.Signal {
+	case room.Join:
+		true
+	case _:
+		match owners.Get(speaker(env.Signal)) {
+		case Some[int] as o:
+			o.Value == env.Client
+		case None:
+			true
+		}
+	}
+}
+
+// refuse writes line to c and to log.
+func refuse(c Conn, log queue.Queue[string], line string) fails queue.Closed {
+	c.Write(line)
+	try log.Push(line)
+}

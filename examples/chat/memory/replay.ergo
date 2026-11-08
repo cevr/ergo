@@ -1,0 +1,99 @@
+// Replay runs a scripted session: one memory connection and one client
+// task per client of the script, a server over them, and a driver that
+// takes one step at a time and waits for the room's answer to it, so a
+// session's log is the same on every run.
+
+import chat/server
+import queue
+import task
+import time
+
+// Step is a step of a script: a client sends a line (its first line is
+// its name), the clock moves on, or a client hangs up.
+type Step = Speak{Client string, Line string} | Tick{By duration} | HangUp{Client string}
+
+// Session is what a replay saw: the room's log, one line per signal,
+// and the lines each client was sent, by client, in the order the
+// clients first spoke.
+type Session { Log []string, Clients []string, Received [][]string }
+
+// Replay runs steps on a server whose clock is clock, then hangs up every
+// client still connected, in order.
+func Replay(steps []Step, clock time.Manual) Session fails queue.Closed {
+	let mut names = []string{}
+	let mut conns = []Conn{}
+	for s in steps {
+		match s {
+		case Speak as sp:
+			if indexOf(names, sp.Client) < 0 {
+				names = names.Append(sp.Client)
+				conns = conns.Append(New(256))
+			}
+		case Tick:
+		case HangUp:
+		}
+	}
+	let mut served = []server.Conn{}
+	for c in conns {
+		served = served.Append(c)
+	}
+	let log = queue.New[string](256)
+	let mut seen = []string{}
+	let mut hung = []bool{}
+	let mut named = []bool{}
+	for _ in names {
+		hung = hung.Append(false)
+		named = named.Append(false)
+	}
+	with context { time.Clock: clock } {
+		let t = task.Go() { try server.Serve(served, log) }
+		for s in steps {
+			match s {
+			case Speak as sp:
+				let k = indexOf(names, sp.Client)
+				conns[k].Send(sp.Line) catch {
+				case server.Hangup:
+					seen = seen.Append("(\(sp.Client) has hung up)")
+					continue
+				}
+				seen = seen.Append(try log.Pop())
+				// After its name, a "/quit" ends the client's task.
+				if sp.Line == "/quit" && named[k] {
+					hung[k] = true
+				}
+				named[k] = true
+			case Tick as tk:
+				clock.Advance(tk.By)
+			case HangUp as h:
+				let k = indexOf(names, h.Client)
+				if k >= 0 && !hung[k] {
+					conns[k].Hang()
+					hung[k] = true
+					seen = seen.Append(try log.Pop())
+				}
+			}
+		}
+		for k, c in conns {
+			if !hung[k] {
+				c.Hang()
+				seen = seen.Append(try log.Pop())
+			}
+		}
+		let _ = try t.Wait()
+	}
+	let mut received = [][]string{}
+	for c in conns {
+		received = received.Append(c.Received())
+	}
+	Session{Log: seen, Clients: names, Received: received}
+}
+
+// indexOf is the index of name in names, or -1.
+func indexOf(names []string, name string) int {
+	for i, n in names {
+		if n == name {
+			return i
+		}
+	}
+	-1
+}

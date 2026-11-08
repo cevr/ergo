@@ -1,0 +1,111 @@
+// chat replays a chat session from a script on standard input: a server
+// with one task per client, over memory connections (std has no network,
+// G-ex-c-7), on a manual clock that starts at midnight. A script line is
+// "CLIENT> LINE" (the client sends LINE; its first line is its name),
+// "+SECONDS" (the clock moves on) or "CLIENT!" (the client hangs up).
+// chat prints the room's log, one line per signal, then how many lines
+// each client was sent. This binary is the only place that chooses the
+// connections and the clock.
+
+import chat/memory
+import io
+import os
+import queue
+import strconv
+import strings
+import time
+
+// BadLine is a script line that is none of the three forms.
+type BadLine { Number int, Text string }
+
+// parseScript reads the script's lines into steps.
+func parseScript(lines Seq[string]) []memory.Step fails BadLine {
+	let mut steps = []memory.Step{}
+	let mut at = 0
+	for line in lines {
+		at += 1
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		steps = steps.Append(try parseLine(at, line))
+	}
+	steps
+}
+
+// parseLine reads one script line.
+func parseLine(at int, line string) memory.Step fails BadLine {
+	if strings.HasPrefix(line, "+") {
+		let secs = strconv.Atoi(line[1:]) catch {
+		case strconv.Malformed:
+			return BadLine{Number: at, Text: line}
+		case strconv.OutOfRange:
+			return BadLine{Number: at, Text: line}
+		}
+		// duration has no arithmetic with integers (G-ex-b-4): a second
+		// count converts through int64 nanoseconds.
+		return memory.Tick{By: duration(int64(secs) * 1000000000)}
+	}
+	if strings.HasSuffix(line, "!") && !strings.Contains(line, " ") {
+		return memory.HangUp{Client: strings.TrimSuffix(line, "!")}
+	}
+	match strings.Cut(line, "> ") {
+	case Some[strings.Halves] as h:
+		if h.Value.Before == "" {
+			return BadLine{Number: at, Text: line}
+		}
+		memory.Speak{Client: h.Value.Before, Line: h.Value.After}
+	case None:
+		BadLine{Number: at, Text: line}
+	}
+}
+
+// run replays the script on standard input and prints what it saw.
+func run() fails os.Exit needs io.Stdin | io.Stdout {
+	let steps = parseScript(io.Stdin.Lines()) catch {
+	case BadLine as b:
+		return os.Exit{Code: 2, Message: "chat: line \(b.Number): want CLIENT> LINE, +SECONDS or CLIENT!, not \(strconv.Quote(b.Text))"}
+	}
+	let s = memory.Replay(steps, time.NewManual(0)) catch {
+	case queue.Closed:
+		return os.Exit{Code: 1, Message: "chat: the room's log closed early"}
+	}
+	for l in s.Log {
+		io.Stdout.Println(l)
+	}
+	io.Stdout.Println("--")
+	for i, name in s.Clients {
+		io.Stdout.Println("\(name) was sent \(len(s.Received[i])) lines")
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { io.Stdin: io.NewHost(), io.Stdout: io.NewHost() } {
+		try run()
+	}
+}
+
+// ran is the output of run over input, with a failure written as "exit
+// CODE: MESSAGE".
+func ran(input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: input}, io.Stdout: out } {
+		run() catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test ReplaysAScript {
+	assert ran("a> ada\nb> bob\n+90\na> hi\nb!\n") == "* ada joined\n* bob joined\n[00:01:30] ada: hi\n* bob left\n* ada left\n--\na was sent 5 lines\nb was sent 3 lines\n"
+}
+
+test BadLinesExitTwo {
+	assert ran("a> ada\nhello\n") == "exit 2: chat: line 2: want CLIENT> LINE, +SECONDS or CLIENT!, not \"hello\"\n"
+	assert ran("+soon\n") == "exit 2: chat: line 1: want CLIENT> LINE, +SECONDS or CLIENT!, not \"+soon\"\n"
+}
+
+test EmptyScriptIsEmptyLog {
+	assert ran("") == "--\n"
+}

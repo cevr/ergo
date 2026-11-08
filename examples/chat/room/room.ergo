@@ -1,0 +1,157 @@
+// Package room is the domain of the chat: who is in the room, what they
+// said, and the rules of joining, leaving, speaking and closing. It is
+// pure and event-sourced: Decide checks a signal against the state and
+// records its events; Evolve folds an event into the state and decides
+// nothing.
+
+import time
+
+// Signal is what a client asks of the room.
+type Signal = Join{Name string} | Leave{Name string} | Say{From string, Text string} | Shut{By string}
+
+// Event is what happened in the room, in the past tense.
+type Event = Joined{Name string} | Left{Name string} | Said{From string, Text string, At time.Time} | Closed{By string}
+
+// State is the room: open with its members in the order they joined, or
+// closed. A machine's state is a union (G-ex-c-16).
+type State = Open{Members []string} | Shutdown{}
+
+// The failures of Decide.
+
+// NameTaken is a join under the name of a member.
+type NameTaken { Name string }
+
+// NotMember is a leave, a say or a shut by a name that is not a member.
+type NotMember { Name string }
+
+// RoomClosed is any signal after the room is closed.
+type RoomClosed {}
+
+// Start is the room before anyone joins: open and empty.
+func Start() State { Open{Members: []string{}} }
+
+// Decide is the events of sig in s at the time now.
+func Decide(s State, sig Signal, now time.Time) []Event fails NameTaken | NotMember | RoomClosed {
+	match s {
+	case Shutdown:
+		RoomClosed
+	case Open as o:
+		match sig {
+		case Join as j:
+			if has(o.Members, j.Name) {
+				return NameTaken{Name: j.Name}
+			}
+			[]Event{Joined{Name: j.Name}}
+		case Leave as l:
+			try member(o, l.Name)
+			[]Event{Left{Name: l.Name}}
+		case Say as y:
+			try member(o, y.From)
+			[]Event{Said{From: y.From, Text: y.Text, At: now}}
+		case Shut as x:
+			try member(o, x.By)
+			[]Event{Closed{By: x.By}}
+		}
+	}
+}
+
+// member fails with NotMember unless name is a member of o.
+func member(o Open, name string) fails NotMember {
+	if !has(o.Members, name) {
+		return NotMember{Name: name}
+	}
+}
+
+// Evolve is s after the event e.
+func Evolve(s State, e Event) State {
+	match s {
+	case Shutdown:
+		s
+	case Open as o:
+		match e {
+		case Joined as j:
+			Open{Members: adding(o.Members, j.Name)}
+		case Left as l:
+			Open{Members: removing(o.Members, l.Name)}
+		case Said:
+			s
+		case Closed:
+			Shutdown
+		}
+	}
+}
+
+// Step is the room as a machine's transition: the events of sig folded
+// into s. A step cannot also give its events (G-ex-a-9), so the server
+// calls Decide and Evolve itself.
+func Step(s State, sig Signal) Decision[State, []Event] fails NameTaken | NotMember | RoomClosed {
+	let mut next = s
+	for e in try Decide(s, sig, time.Unix(0, 0)) {
+		next = Evolve(next, e)
+	}
+	Enter[State]{Next: next}
+}
+
+// Room is the chat room as a machine.
+type Room machine[State, Signal] {
+	initial: Start(),
+	step:    Step,
+}
+
+// Members is the members of s, in the order they joined.
+func Members(s State) []string {
+	match s {
+	case Open as o:
+		let mut out = []string{}
+		for n in o.Members {
+			out = out.Append(n)
+		}
+		out
+	case Shutdown:
+		[]string{}
+	}
+}
+
+// has reports whether names holds name.
+func has(names []string, name string) bool {
+	for n in names {
+		if n == name {
+			return true
+		}
+	}
+	false
+}
+
+// adding is names and then name, in a new slice.
+func adding(names []string, name string) []string {
+	let mut out = []string{}
+	for n in names {
+		out = out.Append(n)
+	}
+	out.Append(name)
+}
+
+// removing is names less name, in a new slice.
+func removing(names []string, name string) []string {
+	let mut out = []string{}
+	for n in names {
+		if n != name {
+			out = out.Append(n)
+		}
+	}
+	out
+}
+
+// Render is the line that every member reads for e.
+func Render(e Event) string {
+	match e {
+	case Joined as j:
+		"* \(j.Name) joined"
+	case Left as l:
+		"* \(l.Name) left"
+	case Said as s:
+		"[\(s.At.Format(time.Custom{Text: "15:04:05"}))] \(s.From): \(s.Text)"
+	case Closed as c:
+		"* \(c.By) closed the room"
+	}
+}
