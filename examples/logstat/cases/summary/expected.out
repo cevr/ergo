@@ -1,0 +1,12 @@
+requests  10 (3 bad lines)
+from      2026-11-08T09:59:59Z
+to        2026-11-08T10:00:09Z
+bytes     6829
+status    2xx 7  3xx 1  4xx 1  5xx 1
+seconds   mean 0.316525  p50 0.050  p90 0.300  p99 2.500
+top 5 by path
+  4  /api/users
+  1  /
+  1  /api/orders
+  1  /api/orders/42
+  1  /health

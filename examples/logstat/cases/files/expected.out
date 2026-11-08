@@ -1,0 +1,9 @@
+requests  3 (1 bad line)
+from      2026-11-08T10:00:00Z
+to        2026-11-08T10:01:00Z
+bytes     30
+status    2xx 2  5xx 1
+seconds   mean 0.176666  p50 0.020  p90 0.500  p99 0.500
+top 2 by status
+  2  200
+  1  500

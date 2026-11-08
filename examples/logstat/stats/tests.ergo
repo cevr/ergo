@@ -1,0 +1,113 @@
+// The arithmetic's tests, and its laws restated as property tests
+// (#162 runs laws).
+
+import slices
+
+func at(xs []int, p int) int {
+	match Percentile(slices.Ascend(xs), p) {
+	case Some as v:
+		v.Value
+	case None:
+		-1
+	}
+}
+
+test NearestRank {
+	let xs = []int{15, 20, 35, 40, 50}
+	assert at(xs, 0) == 15
+	assert at(xs, 5) == 15
+	assert at(xs, 30) == 20
+	assert at(xs, 40) == 20
+	assert at(xs, 50) == 35
+	assert at(xs, 100) == 50
+	assert at(xs, 250) == 50
+	assert at([]int{}, 50) == -1
+	assert at([]int{7}, 99) == 7
+}
+
+test PercentilesKeepTheirOrder {
+	let qs = Percentiles(slices.Ascend([]int{9, 1, 5, 3, 7, 2, 8, 4, 6, 10}), []int{50, 90, 99})
+	assert len(qs) == 3
+	assert qs[0] == Quantile{P: 50, Value: 5}
+	assert qs[1] == Quantile{P: 90, Value: 9}
+	assert qs[2] == Quantile{P: 99, Value: 10}
+}
+
+test MeanRoundsDown {
+	assert Mean([]int{1, 2}) == Some[int]{Value: 1}
+	assert Mean([]int{}) == None
+}
+
+test RankBreaksTiesByKey {
+	let ranked = Rank(Tally([]string{"b", "a", "c", "b", "a", "d", "b"}), 3)
+	assert len(ranked) == 3
+	assert ranked[0] == Count{Key: "b", N: 3}
+	assert ranked[1] == Count{Key: "a", N: 2}
+	assert ranked[2] == Count{Key: "c", N: 1}
+	assert len(Rank(Tally([]string{}), 5)) == 0
+	assert len(Rank(Tally([]string{"x"}), 0)) == 0
+}
+
+// keys is small keys from ns, so that they repeat.
+func keys(ns []int) []string {
+	let names = []string{"a", "b", "c", "d", "e", "f"}
+	let mut out = []string{}
+	for n in ns {
+		out = out.Append(names[(if n < 0 { -(n + 1) } else { n })%len(names)])
+	}
+	out
+}
+
+test PercentileIsASampleValueHolds(xs []int, p int) {
+	match Percentile(slices.Ascend(xs), p) {
+	case Some as v:
+		assert slices.Contains(xs, v.Value)
+	case None:
+		assert len(xs) == 0
+	}
+}
+
+test PercentileIsMonotoneHolds(xs []int, p int, q int) {
+	let lo = (if p < 0 { -(p + 1) } else { p }) % 101
+	let hi = lo + (if q < 0 { -(q + 1) } else { q })%(101-lo)
+	let qs = Percentiles(slices.Ascend(xs), []int{lo, hi})
+	assert len(qs) == 0 || qs[0].Value <= qs[1].Value
+}
+
+test PercentileCoversHolds(xs []int, p int) {
+	let pc = (if p < 0 { -(p + 1) } else { p }) % 101
+	for want in []int{pc, 100} {
+		match Percentile(slices.Ascend(xs), want) {
+		case Some as v:
+			let mut at = 0
+			for x in xs {
+				if x <= v.Value {
+					at += 1
+				}
+			}
+			assert at*100 >= want*len(xs)
+			assert want < 100 || slices.Max(xs) == Some{Value: v.Value}
+		case None:
+			assert len(xs) == 0
+		}
+	}
+}
+
+test RankKeepsEveryKeyHolds(ns []int) {
+	let ks = keys(ns)
+	let ranked = Rank(Tally(ks), -1)
+	assert Total(ranked) == len(ks)
+	assert len(ranked) == len(Seen(ks))
+}
+
+test RankIsOrderedHolds(ns []int, top int) {
+	let ks = keys(ns)
+	let t = (if top < 0 { -(top + 1) } else { top })%8 - 1
+	let all = Rank(Tally(ks), -1)
+	let ranked = Rank(Tally(ks), t)
+	assert t < 0 || len(ranked) <= t
+	for i in 0..len(ranked) {
+		assert ranked[i] == all[i]
+		assert i == 0 || ByCountThenKey(ranked[i-1], ranked[i]) < 0
+	}
+}

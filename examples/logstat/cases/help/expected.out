@@ -1,0 +1,13 @@
+Usage of logstat:
+logstat sums up web server access logs.
+  -by key
+    	count the top keys by key (default "path")
+  -json
+    	write the summary as one line of JSON
+  -strict
+    	exit with status 1 when a line cannot be read
+  -top n
+    	list the n most frequent keys (default 5)
+Arguments:
+  file...
+    	the logs to read; none reads standard input

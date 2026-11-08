@@ -1,0 +1,55 @@
+// Package stats counts, ranks and takes percentiles: the arithmetic of
+// a report, with no log in it.
+
+import slices
+
+// Quantile is the value at percentile P of a sample.
+type Quantile { P int, Value int }
+
+// Percentiles is the nearest-rank percentile of the sample for each of
+// ps: the smallest value that at least p percent of the sample is at or
+// below. p is clamped to 0..100, and percentile 0 is the smallest
+// value. An empty sample has none. The sample is an Ascending, so it is
+// sorted by its type, not by a comment.
+func Percentiles(sample slices.Ascending[int], ps []int) []Quantile {
+	// Items is a copy of the sample, so it is taken once (gap G-ex-a-12).
+	let xs = slices.Items(sample)
+	let mut out = []Quantile{}
+	if len(xs) == 0 {
+		return out
+	}
+	for p in ps {
+		let q = if p < 0 { 0 } else if p > 100 { 100 } else { p }
+		out = out.Append(Quantile{P: p, Value: xs[rank(q, len(xs))]})
+	}
+	out
+}
+
+// rank is the index of the nearest-rank percentile p of n sorted values:
+// ceil(p * n / 100) - 1, and 0 for p = 0.
+func rank(p int, n int) int {
+	let r = (p*n + 99) / 100
+	if r < 1 { 0 } else { r - 1 }
+}
+
+// Percentile is the one percentile p of the sample, if it has values.
+func Percentile(sample slices.Ascending[int], p int) Option[int] {
+	let qs = Percentiles(sample, []int{p})
+	if len(qs) == 0 {
+		return None
+	}
+	Some{Value: qs[0].Value}
+}
+
+// Mean is the sum of xs over their count, rounded down, if there are
+// any.
+func Mean(xs []int) Option[int] {
+	if len(xs) == 0 {
+		return None
+	}
+	let mut sum = 0
+	for x in xs {
+		sum += x
+	}
+	Some{Value: sum / len(xs)}
+}

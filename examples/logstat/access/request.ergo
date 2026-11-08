@@ -1,0 +1,78 @@
+// Package access is the domain of a web server's access log: one
+// Request per line, in the combined format cut to the fields logstat
+// reads, with the time the request took at the end:
+//
+//	203.0.113.9 - - [08/Nov/2026:10:00:00 +0000] "GET /a?b=1 HTTP/1.1" 200 512 0.123
+//
+// Parse reads a line and fails with the column of the first field it
+// cannot read; Format writes a Request back as a line.
+
+import strings
+import time
+
+// Request is one line of the log.
+type Request {
+	Addr   string,
+	At     time.Time,
+	Method string,
+	Target string,
+	Proto  string,
+	Status int,
+	Bytes  int,
+	Micros int,
+}
+
+// Class is the class of a status code, by its first digit.
+type Class = Informational | Success | Redirection | ClientError | ServerError | Unknown
+
+type Informational {}
+type Success {}
+type Redirection {}
+type ClientError {}
+type ServerError {}
+type Unknown {}
+
+// Classes are the classes in the order a report lists them.
+let Classes = []Class{Informational, Success, Redirection, ClientError, ServerError, Unknown}
+
+// ClassOf is the class of status.
+func ClassOf(status int) Class {
+	match status / 100 {
+	case 1:
+		Informational
+	case 2:
+		Success
+	case 3:
+		Redirection
+	case 4:
+		ClientError
+	case 5:
+		ServerError
+	case _:
+		Unknown
+	}
+}
+
+// ClassName is the name a report gives c.
+func ClassName(c Class) string {
+	match c {
+	case Informational:
+		"1xx"
+	case Success:
+		"2xx"
+	case Redirection:
+		"3xx"
+	case ClientError:
+		"4xx"
+	case ServerError:
+		"5xx"
+	case Unknown:
+		"other"
+	}
+}
+
+// Path is the target of r without its query.
+func Path(r Request) string {
+	let q = strings.Index(r.Target, "?")
+	if q < 0 { r.Target } else { strings.Slice(r.Target, 0, q) }
+}

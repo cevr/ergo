@@ -1,0 +1,68 @@
+// The rules of a report as laws.
+
+import logstat/access
+import logstat/stats
+import strconv
+
+// QuoteReadsBack: a JSON string of ASCII text reads back as the text
+// (Go's strconv.Unquote reads JSON's escapes).
+law QuoteReadsBack(s string) {
+	if !ASCII(s) {
+		return true
+	}
+	let back = strconv.Unquote(Quote(s)) catch {
+	case strconv.Malformed:
+		return false
+	}
+	back == s
+}
+
+// QuoteIsSafe: a JSON string holds no control character and no <, >
+// or &, and every quote in it is escaped.
+law QuoteIsSafe(s string) { Safe(Quote(s)) }
+
+// KeyNameReadsBack: the name of a key reads back as the key.
+law KeyNameReadsBack(k Key) {
+	match KeyNamed(KeyName(k)) {
+	case Some as back:
+		KeyName(back.Value) == KeyName(k)
+	case None:
+		false
+	}
+}
+
+// EveryRequestIsCounted: the status classes and the top counts with no
+// limit each add up to the number of requests.
+law EveryRequestIsCounted(reqs []access.Request, k Key) {
+	let s = Summarize(reqs, 0, k, -1)
+	stats.Total(s.Classes) == s.Requests && stats.Total(s.Top) == s.Requests
+}
+
+// ASCII reports whether every byte of s is below 128.
+func ASCII(s string) bool {
+	for i in 0..len(s) {
+		if s[i] >= 128 {
+			return false
+		}
+	}
+	true
+}
+
+// Safe reports whether q, a quoted string, holds no control byte, no
+// <, > or &, and no quote but the first and last that a backslash does
+// not escape.
+func Safe(q string) bool {
+	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+		return false
+	}
+	let mut i = 1
+	for i < len(q)-1 {
+		let c = q[i]
+		if c < 32 || c == '<' || c == '>' || c == '&' || c == '"' {
+			return false
+		}
+		i += if c == '\\' { 2 } else { 1 }
+	}
+	// a backslash before the last quote steps past it
+	i == len(q)-1
+}

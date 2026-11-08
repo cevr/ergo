@@ -1,0 +1,119 @@
+// The report's tests: a summary in each style, an empty log, and the
+// laws restated as property tests (#162 runs laws).
+
+import logstat/access
+import logstat/stats
+import rand
+import strconv
+import strings
+
+let lines = []string{
+	"203.0.113.9 - - [08/Nov/2026:10:00:00 +0000] \"GET /api/users?id=7 HTTP/1.1\" 200 512 0.120",
+	"203.0.113.9 - - [08/Nov/2026:10:00:05 +0000] \"GET /api/users HTTP/1.1\" 200 1024 0.080",
+	"198.51.100.7 - - [08/Nov/2026:09:59:58 +0000] \"POST /api/orders HTTP/1.1\" 201 64 0.300",
+	"198.51.100.7 - - [08/Nov/2026:10:01:00 +0000] \"GET /<script> HTTP/1.1\" 404 - 0.002",
+	"10.0.0.1 - - [08/Nov/2026:10:02:00 +0000] \"GET / HTTP/1.1\" 503 - 1.5",
+}
+
+func requests() []access.Request {
+	let mut out = []access.Request{}
+	for l in lines {
+		let r = access.Parse(l) catch {
+		case _:
+			continue
+		}
+		out = out.Append(r)
+	}
+	out
+}
+
+test TextSummary {
+	let s = Summarize(requests(), 2, ByPath, 2)
+	assert Text(s) == "requests  5 (2 bad lines)\nfrom      2026-11-08T09:59:58Z\nto        2026-11-08T10:02:00Z\nbytes     1600\nstatus    2xx 3  4xx 1  5xx 1\nseconds   mean 0.400400  p50 0.120  p90 1.500  p99 1.500\ntop 2 by path\n  2  /api/users\n  1  /\n"
+}
+
+test JSONSummary {
+	let s = Summarize(requests(), 0, ByAddr, 1)
+	assert Encode(s) == "{\"requests\":5,\"bad\":0,\"bytes\":1600,\"from\":\"2026-11-08T09:59:58Z\",\"to\":\"2026-11-08T10:02:00Z\",\"status\":{\"2xx\":3,\"4xx\":1,\"5xx\":1},\"micros\":{\"mean\":400400,\"p50\":120000,\"p90\":1500000,\"p99\":1500000},\"by\":\"addr\",\"top\":[{\"key\":\"198.51.100.7\",\"count\":2}]}\n"
+	assert Write(JSON, Summarize(requests(), 0, ByPath, -1)) == Encode(Summarize(requests(), 0, ByPath, -1))
+}
+
+test EmptyLog {
+	let s = Summarize([]access.Request{}, 3, ByStatus, 5)
+	assert Text(s) == "requests  0 (3 bad lines)\nbytes     0\n"
+	assert Encode(s) == "{\"requests\":0,\"bad\":3,\"bytes\":0,\"from\":null,\"to\":null,\"status\":{},\"micros\":{},\"by\":\"status\",\"top\":[]}\n"
+}
+
+test KeysCount {
+	let rs = requests()
+	assert Summarize(rs, 0, ByStatus, 1).Top[0] == stats.Count{Key: "200", N: 2}
+	assert Summarize(rs, 0, ByMethod, 1).Top[0] == stats.Count{Key: "GET", N: 4}
+	assert Summarize(rs, 0, ByPath, 5).Top[3] == stats.Count{Key: "/api/orders", N: 1}
+	match KeyNamed("host") {
+	case Some:
+		assert false
+	case None:
+	}
+}
+
+test QuoteEscapesAsGo {
+	assert Quote("a\"b\\c") == "\"a\\\"b\\\\c\""
+	assert Quote("<a&b>") == "\"\\u003ca\\u0026b\\u003e\""
+	assert Quote("\n\t\r\x01\x1f é") == "\"\\n\\t\\r\\u0001\\u001f é\""
+}
+
+// ascii is the bytes of s below 128.
+func ascii(s string) string {
+	let mut parts = []string{}
+	for i in 0..len(s) {
+		if s[i] < 128 {
+			parts = parts.Append(strings.Slice(s, i, i+1))
+		}
+	}
+	strings.Join(parts, "")
+}
+
+test QuoteReadsBackHolds(s string) {
+	let a = ascii(s)
+	for t in []string{a, a + "\"\\<>&\n\x00\x7f", "\x01" + a} {
+		if ASCII(t) {
+			let back = strconv.Unquote(Quote(t)) catch {
+			case strconv.Malformed:
+				assert false
+				""
+			}
+			assert back == t
+		}
+	}
+}
+
+test QuoteIsSafeHolds(s string) {
+	assert Safe(Quote(s))
+	assert Safe(Quote(s + "\"\\"))
+	assert Safe(Quote("<\x00>&" + s))
+}
+
+test KeyNameReadsBackHolds {
+	for name in Keys {
+		match KeyNamed(name) {
+		case Some as k:
+			assert KeyName(k.Value) == name
+		case None:
+			assert false
+		}
+	}
+}
+
+test EveryRequestIsCountedHolds(seed int, n int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut rs = []access.Request{}
+		for _ in 0..(if n < 0 { -(n + 1) } else { n })%40 {
+			rs = rs.Append(access.Gen())
+		}
+		for k in []Key{ByPath, ByAddr, ByStatus, ByMethod} {
+			let s = Summarize(rs, 0, k, -1)
+			assert stats.Total(s.Classes) == len(rs)
+			assert stats.Total(s.Top) == len(rs)
+		}
+	}
+}

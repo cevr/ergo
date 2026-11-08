@@ -1,0 +1,60 @@
+// The generators build requests and lines from Random, for the property
+// tests that restate the laws. A test binds Random to rand.Seeded(seed),
+// so a failing case replays from its seed.
+
+import strings
+import time
+
+let addrs = []string{"203.0.113.9", "198.51.100.7", "::1", "10.0.0.1", "-"}
+let methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD"}
+let targets = []string{"/", "/api/users", "/api/users?id=7", "/a\"b", "/back\\slash", "/static/app.js?v=2&x=%20", "/api/orders/42"}
+let protos = []string{"HTTP/1.0", "HTTP/1.1", "HTTP/2.0"}
+let statuses = []int{100, 200, 200, 201, 204, 301, 304, 400, 404, 404, 418, 500, 503, 999}
+
+func pick(xs []string) string needs Random { xs[Random.IntN(len(xs))] }
+
+// Gen is a Valid request.
+func Gen() Request needs Random {
+	Request{
+		Addr:   pick(addrs),
+		At:     time.Unix(int64(1700000000+Random.IntN(100000000)), 0),
+		Method: pick(methods),
+		Target: pick(targets),
+		Proto:  pick(protos),
+		Status: statuses[Random.IntN(len(statuses))],
+		Bytes:  if Random.IntN(4) == 0 { 0 } else { Random.IntN(1000000) },
+		Micros: micros(),
+	}
+}
+
+// micros is a time taken: whole milliseconds, any microseconds, or
+// whole seconds.
+func micros() int needs Random {
+	match Random.IntN(3) {
+	case 0:
+		Random.IntN(5000) * 1000
+	case 1:
+		Random.IntN(10000000)
+	case _:
+		Random.IntN(100) * 1000000
+	}
+}
+
+// noise is what Damaged puts in place of a byte.
+let noise = []string{"", " ", "  ", "\"", "[", "]", "\\", "x", "-", ".", "9"}
+
+// Damaged is the line of r with the byte at index i replaced by noise
+// pick j, and cut after index cut when cut picks so: a line that may
+// not parse.
+func Damaged(r Request, i int, j int, cut int) string {
+	let line = Format(r)
+	let at = natural(i) % len(line)
+	let damaged = strings.Slice(line, 0, at) + noise[natural(j)%len(noise)] + strings.Slice(line, at+1, len(line))
+	if natural(cut)%3 != 0 {
+		return damaged
+	}
+	strings.Slice(damaged, 0, natural(cut)%(len(damaged)+1))
+}
+
+// natural is n, or -(n+1) when n is negative: never negative.
+func natural(n int) int { if n < 0 { -(n + 1) } else { n } }
