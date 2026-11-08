@@ -23,12 +23,12 @@ import (
 // runtimeType is the runtime/v1 Go type, without type arguments, that the
 // std type n lowers to, or "" when n is lowered as a declaration of the
 // program (the types of the program's own packages, the prelude's other
-// types, and a std record the runtime has no struct for, such as
-// timeout.Expired). A std
-// record the runtime declares is the runtime's struct of the same name; a
-// sealed std operation type (check.SealedStd) is a pointer to the runtime's
-// type of the same name, whose methods are its operations, and an open one
-// is a declaration of the program.
+// types, and a std record with no row in the binding table, such as
+// strings.Halves). A std record with a row is the runtime struct the row
+// names, keyed by the record's package and name (v1.StdRecord), never by
+// its name alone; a sealed std operation type (check.SealedStd) is a
+// pointer to the runtime's type of the same name, whose methods are its
+// operations, and an open one is a declaration of the program.
 func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	obj := n.Obj
 	if obj.Pkg == nil || !obj.Pkg.Std() || obj.Decl == nil {
@@ -42,10 +42,14 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	}
 	switch spec := obj.Decl.Spec.(type) {
 	case *syntax.StructType:
-		if _, err := v1.StructFields(obj.Name); err != nil {
+		goName, ok := v1.StdRecord(obj.Pkg.Path, obj.Name)
+		if !ok {
 			return ""
 		}
-		return l.rt() + "." + obj.Name
+		if _, err := v1.StructFields(goName); err != nil {
+			ice(site, "the std record %s.%s binds v1.%s: %v", obj.Pkg.Path, obj.Name, goName, err)
+		}
+		return l.rt() + "." + goName
 	case *syntax.InterfaceType:
 		if len(spec.Union) == 0 {
 			if !check.SealedStd(n) {

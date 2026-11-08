@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"io/fs"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -148,11 +149,40 @@ type goDecl struct {
 // non-test files, by name ("Go", "Queue.Push", "Closed").
 type goDecls map[string]goDecl
 
+// stdRecords is the binding table of std records (docs/spec/stdlib.md,
+// Types 4; std-align S3b): the key is a record's std package and name,
+// "fs.NotFound", and the value is the exported struct of Source that the
+// record is. The key is the package and the name, never the name alone, so
+// fs.NotFound and a later exec.NotFound bind two Go types; the values are
+// distinct, so no Go type is two records (TestStdRecordTable). A std record
+// with no row is a declaration of the program, as strings.Halves is.
+var stdRecords = map[string]string{
+	"filepath.NotRelative": "NotRelative",
+	"fs.Denied":            "Denied",
+	"fs.Failed":            "Failed",
+	"fs.Info":              "Info",
+	"fs.NotFound":          "NotFound",
+	"os.Exit":              "Exit",
+	"queue.Closed":         "Closed",
+	"strconv.Malformed":    "Malformed",
+	"timeout.Expired":      "Expired",
+}
+
+// StdRecord returns the name of the struct of Source that the record name
+// of the std package pkg is, and whether the binding table has one.
+func StdRecord(pkg, name string) (string, bool) {
+	goName, ok := stdRecords[pkg+"."+name]
+	return goName, ok
+}
+
+// StdRecords returns a copy of the binding table, keyed "pkg.Name".
+func StdRecords() map[string]string { return maps.Clone(stdRecords) }
+
 // StructFields returns the field names, in order, of the exported struct
-// type named name in Source. A record type declared in a v1 std package
-// that is not an operations type, such as queue.Closed, is this Go type of
-// the same name (docs/spec/stdlib.md, Types), so its fields are the
-// record's. It fails when there is no such struct type.
+// type named name in Source. A record type declared in a std package that
+// is not an operations type, such as queue.Closed, is the Go type its row
+// of the binding table names (StdRecord), so its fields are the record's.
+// It fails when there is no such struct type.
 func StructFields(name string) ([]string, error) {
 	decls, err := sourceDecls()
 	if err != nil {
