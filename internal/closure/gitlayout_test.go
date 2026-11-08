@@ -9,8 +9,10 @@ import (
 // read-only git command (git --no-optional-locks ls-files, rev-parse) at the
 // module root, by checkout layout. Measured at batch-9 c863b89b: the
 // worktree's entry from the full tier, the clone's from the merge tier's
-// export (scripts/conformance, gate-merge.log), with the refs a clone whose
-// HEAD names a branch reads too.
+// export (scripts/conformance, gate-merge.log). The last row's refs
+// (packed-refs, refs/heads/main) are inferred, not measured: what a clone
+// whose HEAD names a branch would read (the round-3 verifier's branch clone
+// did not read them).
 var gitLayouts = map[string][]entry{
 	"worktree": {{"open", ".git"}, {"stat", ".git"}},
 	"clone": {
