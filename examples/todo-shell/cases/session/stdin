@@ -1,0 +1,25 @@
+help
+add buy milk
+add call the bank
+note trip
+pack the tent
+  check the tyres
+.
+list
+done 2
+done 9
+undo x
+frobnicate
+
+drop 1
+add
+list
+clear
+n
+undo 1
+clear
+yes
+list
+add water the plants
+quit
+add never read

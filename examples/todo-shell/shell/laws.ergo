@@ -1,0 +1,106 @@
+// The rules of the shell as laws over its machine.
+
+import strings
+import todoshell/todo
+
+// Tried is Step(m, s), or Reject when the line fails: what the shell does
+// with a line, as Run's turn decides it.
+func Tried(m Mode, s Signal) Decision[Mode, todo.List] {
+	Step(m, s) catch {
+	case Unknown:
+		Reject
+	case BadNumber:
+		Reject
+	case MissingText:
+		Reject
+	case todo.NoSuchItem:
+		Reject
+	}
+}
+
+// Word names a decision.
+func Word(d Decision[Mode, todo.List]) string {
+	match d {
+	case Enter[Mode]:
+		"enter"
+	case Stay[Mode]:
+		"stay"
+	case Ignore:
+		"ignore"
+	case Reject:
+		"reject"
+	case Done[todo.List]:
+		"done"
+	}
+}
+
+// BlankIsIgnored: a line of spaces does nothing in Listing.
+law BlankIsIgnored(texts []string, n int) {
+	let blank = strings.Repeat(" ", if n < 0 { 0 } else { n % 8 })
+	Word(Tried(Listing{L: todo.Of(texts)}, Typed{Line: blank})) == "ignore"
+}
+
+// QuitIsDone: quit is Done with the list as it is.
+law QuitIsDone(texts []string) {
+	let l = todo.Of(texts)
+	match Tried(Listing{L: l}, Typed{Line: "quit"}) {
+	case Done[todo.List] as d:
+		todo.Equal(d.Output, l)
+	case Enter[Mode]:
+		false
+	case Stay[Mode]:
+		false
+	case Ignore:
+		false
+	case Reject:
+		false
+	}
+}
+
+// EndIsDone: the end of the input is Done with the list, in every mode.
+law EndIsDone(texts []string, title string) {
+	let l = todo.Of(texts)
+	for m in []Mode{Listing{L: l}, Composing{L: l, Title: title, Lines: []string{}}, Confirming{L: l}} {
+		match Tried(m, Ended) {
+		case Done[todo.List] as d:
+			if !todo.Equal(d.Output, l) {
+				return false
+			}
+		case Enter[Mode]:
+			return false
+		case Stay[Mode]:
+			return false
+		case Ignore:
+			return false
+		case Reject:
+			return false
+		}
+	}
+	true
+}
+
+// ClearAsksFirst: clear changes no item; it waits in Confirming, and any
+// answer but yes gives the list back.
+law ClearAsksFirst(texts []string, answer string) {
+	let l = todo.Of(texts)
+	let asked = Next(Listing{L: l}, Tried(Listing{L: l}, Typed{Line: "clear"}))
+	let after = ListOf(Next(asked, Tried(asked, Typed{Line: answer})))
+	match ParseAnswer(answer) {
+	case Yes:
+		after.Count() == 0
+	case No:
+		Prompt(asked) == "y/n> " && todo.Equal(after, l)
+	}
+}
+
+// NoteLinesKeepTheList: while composing, a line is kept for the note and
+// changes no item, until the line "." adds one item.
+law NoteLinesKeepTheList(texts []string, title string, line string) {
+	let l = todo.Of(texts)
+	let composing = Composing{L: l, Title: title, Lines: []string{}}
+	let next = Next(composing, Tried(composing, Typed{Line: line}))
+	if strings.TrimSpace(line) == "." {
+		return ListOf(next).Count() == l.Count()+1 && Prompt(next) == "todo> "
+	}
+	Prompt(next) == "note| " && todo.Equal(ListOf(next), l)
+}

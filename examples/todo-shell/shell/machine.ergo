@@ -1,0 +1,86 @@
+import todoshell/todo
+
+// Signal is what the shell reads: a typed line, or the end of the input.
+type Signal = Typed{Line string} | Ended{}
+
+// Step is the machine's transition: on a line, the events Decide records,
+// folded into the mode by Apply; at the end of the input, Done with the
+// list, in any mode.
+func Step(m Mode, s Signal) Decision[Mode, todo.List] fails Unknown | BadNumber | MissingText | todo.NoSuchItem {
+	match s {
+	case Typed as t:
+		Apply(m, try Decide(m, t.Line))
+	case Ended:
+		Done[todo.List]{Output: ListOf(m)}
+	}
+}
+
+// Shell is the todo shell as a machine: it starts at Start() and moves by
+// Step, one signal at a time, until quit or the end of the input is Done
+// with the list.
+type Shell machine[Mode, Signal] {
+	initial: Start(),
+	step:    Step,
+}
+
+// Apply is the decision of the events es in m: no event is Ignore; a
+// quit is Done with the list; a list or a help is Stay, since only the
+// output changes; any other events Enter the mode that Evolve reaches.
+func Apply(m Mode, es []Event) Decision[Mode, todo.List] {
+	if len(es) == 0 {
+		return Ignore
+	}
+	let mut next = m
+	let mut moved = false
+	for e in es {
+		match e {
+		case Quitted:
+			return Done[todo.List]{Output: ListOf(m)}
+		case Shown:
+		case Helped:
+		case Added:
+			moved = true
+		case Completed:
+			moved = true
+		case Reopened:
+			moved = true
+		case Dropped:
+			moved = true
+		case NoteOpened:
+			moved = true
+		case NoteLineKept:
+			moved = true
+		case NoteSaved:
+			moved = true
+		case ClearAsked:
+			moved = true
+		case Cleared:
+			moved = true
+		case ClearKept:
+			moved = true
+		}
+		next = Evolve(next, e)
+	}
+	if moved {
+		Enter[Mode]{Next: next}
+	} else {
+		Stay[Mode]{Next: next}
+	}
+}
+
+// Next is the mode after the decision d in m: Enter and Stay take their
+// Next; Ignore, Reject and Done keep m.
+func Next(m Mode, d Decision[Mode, todo.List]) Mode {
+	match d {
+	case Enter[Mode] as e:
+		e.Next
+	case Stay[Mode] as s:
+		s.Next
+	case Ignore:
+		m
+	case Reject:
+		m
+	case Done[todo.List]:
+		m
+	}
+}

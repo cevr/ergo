@@ -1,0 +1,39 @@
+// Package shell is the todo shell's line protocol: its modes, the commands
+// each mode reads, the machine that moves between modes, and Run, which
+// reads lines from io.Stdin and answers on Console. Everything but Run is
+// pure.
+
+import todoshell/todo
+
+// Mode is what the shell is doing. Listing reads commands. Composing
+// reads the lines of a note until a line ".". Confirming waits for the
+// answer to "clear?". Each mode holds the list, so no mode loses it.
+type Mode = Listing{L todo.List} | Composing{L todo.List, Title string, Lines []string} | Confirming{L todo.List}
+
+// Start is the first mode: listing, with an empty list.
+func Start() Mode { Listing{L: todo.Empty()} }
+
+// ListOf is the list that m holds.
+func ListOf(m Mode) todo.List {
+	match m {
+	case Listing as s:
+		s.L
+	case Composing as c:
+		c.L
+	case Confirming as c:
+		c.L
+	}
+}
+
+// Prompt is the text the shell shows before it reads a line in m, on a
+// terminal.
+func Prompt(m Mode) string {
+	match m {
+	case Listing:
+		"todo> "
+	case Composing:
+		"note| "
+	case Confirming:
+		"y/n> "
+	}
+}

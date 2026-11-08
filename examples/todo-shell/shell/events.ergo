@@ -1,0 +1,125 @@
+import strings
+import todoshell/todo
+
+// Event is what a line did, in the past tense. Decide records the events
+// of a line; Evolve folds one into the mode; Say tells it.
+type Event = Added{At int, Text string} | Completed{At int, Text string} | Reopened{At int, Text string} | Dropped{At int, Text string} | Shown{} | Helped{} | NoteOpened{Title string} | NoteLineKept{Text string} | NoteSaved{At int, Title string, Lines int} | ClearAsked{Count int} | Cleared{Count int} | ClearKept{Count int} | Quitted{}
+
+// Decide is the events of line in mode m. It is pure: it reads the line
+// with the mode's own parser and checks each number against the list. A
+// blank line has no events.
+func Decide(m Mode, line string) []Event fails Unknown | BadNumber | MissingText | todo.NoSuchItem {
+	match m {
+	case Listing as s:
+		let c = try ParseCommand(line)
+		try decideCommand(s.L, c)
+	case Composing as c:
+		match ParseNote(line) {
+		case Line as t:
+			[]Event{NoteLineKept{Text: t.Text}}
+		case End:
+			[]Event{NoteSaved{At: c.L.Count() + 1, Title: c.Title, Lines: len(c.Lines)}}
+		}
+	case Confirming as c:
+		match ParseAnswer(line) {
+		case Yes:
+			[]Event{Cleared{Count: c.L.Count()}}
+		case No:
+			[]Event{ClearKept{Count: c.L.Count()}}
+		}
+	}
+}
+
+// decideCommand is the events of the command c on the list l.
+func decideCommand(l todo.List, c Command) []Event fails todo.NoSuchItem {
+	match c {
+	case Add as a:
+		[]Event{Added{At: l.Count() + 1, Text: a.Text}}
+	case Complete as d:
+		[]Event{Completed{At: d.At, Text: (try l.At(d.At)).Text}}
+	case Reopen as r:
+		[]Event{Reopened{At: r.At, Text: (try l.At(r.At)).Text}}
+	case Drop as d:
+		[]Event{Dropped{At: d.At, Text: (try l.At(d.At)).Text}}
+	case Show:
+		[]Event{Shown}
+	case Note as n:
+		[]Event{NoteOpened{Title: n.Title}}
+	case Clear:
+		[]Event{ClearAsked{Count: l.Count()}}
+	case Help:
+		[]Event{Helped}
+	case Quit:
+		[]Event{Quitted}
+	case Blank:
+		[]Event{}
+	}
+}
+
+// appended is lines and then line, in a new slice: Append may share the
+// array of lines (check-v1 Q2), and a mode is a value, so an earlier mode
+// keeps its own lines.
+func appended(lines []string, line string) []string {
+	let mut out = []string{}
+	for l in lines {
+		out = out.Append(l)
+	}
+	out.Append(line)
+}
+
+// Evolve is m after the event e. It decides nothing: Decide checked every
+// number, so an item that Evolve does not find leaves m as it is.
+func Evolve(m Mode, e Event) Mode {
+	let l = ListOf(m)
+	match e {
+	case Added as a:
+		Listing{L: l.Add(a.Text)}
+	case Completed as d:
+		Listing{L: l.Complete(d.At) catch {
+		case todo.NoSuchItem:
+			l
+		}}
+	case Reopened as r:
+		Listing{L: l.Reopen(r.At) catch {
+		case todo.NoSuchItem:
+			l
+		}}
+	case Dropped as d:
+		Listing{L: l.Drop(d.At) catch {
+		case todo.NoSuchItem:
+			l
+		}}
+	case Shown:
+		m
+	case Helped:
+		m
+	case NoteOpened as n:
+		Composing{L: l, Title: n.Title, Lines: []string{}}
+	case NoteLineKept as k:
+		match m {
+		case Composing as c:
+			Composing{L: c.L, Title: c.Title, Lines: appended(c.Lines, k.Text)}
+		case Listing:
+			m
+		case Confirming:
+			m
+		}
+	case NoteSaved:
+		match m {
+		case Composing as c:
+			Listing{L: l.AddNote(c.Title, strings.Join(c.Lines, "\n"))}
+		case Listing:
+			m
+		case Confirming:
+			m
+		}
+	case ClearAsked:
+		Confirming{L: l}
+	case Cleared:
+		Listing{L: todo.Empty()}
+	case ClearKept:
+		Listing{L: l}
+	case Quitted:
+		m
+	}
+}
