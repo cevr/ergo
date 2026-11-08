@@ -928,7 +928,7 @@ func Give() M { Give() }
 		{"parameter of a borrow of Host", hostBase + "func Peek(h *Host) int { 1 }\n", []string{mentions("Peek", "fixture.Host")}},
 		{"parameter of a record holding Host", hostBase + "type Box { H Host }\n\nfunc Unbox(b Box) Host { b.H }\n", []string{mentions("Unbox", "fixture.Host")}},
 		// batch-10 r4 M1: a sealed operation-type provider handed out in an
-		// Option, a slice, a callback, a needs row, a let or a failure.
+		// Option, a slice, a callback, a let, a failure or a needs row.
 		{"sealed Host in an Option", sealedBase + "func Give() Option[Host] { Give() }\n", sealedGive},
 		{"sealed Host in a slice", sealedBase + "func Give() []Host { Give() }\n", sealedGive},
 		{"sealed Host passed to a callback", sealedBase + "func Give(f func(h Host)) {}\n", sealedGive},
