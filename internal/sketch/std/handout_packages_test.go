@@ -56,19 +56,40 @@ func read() string fails Gone { try hostRead("x") }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
 `
+	// The laundering probe across packages: capkg hands out a Tok, and
+	// fixture.Wrap builds a Host from one.
+	const wrapFixture = `import capkg
+
+type Host { root string }
+
+func Wrap(t capkg.Tok) Host { Wrap(t) }
+
+func NewHost() Host needs Ambient { NewHost() }
+
+type Gone { Path string }
+
+func Read(_ Host) string fails Gone { try read() }
+
+func read() string fails Gone { try hostRead("x") }
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
+`
 	const reported = "capkg.NewCap hands out capkg.Cap, which fixture.Host needs, and does not list Ambient in its written row or take a value that needs authority"
+	wrapped := []string{"fixture.Wrap returns it and does not list Ambient in its written row"}
 	for _, row := range []struct {
-		name, capSrc string
-		alone, all   []string // the violations with surface fixture, and capkg too
+		name, capSrc, fixture string
+		alone, all            []string // the violations with surface fixture, and capkg too
 	}{
-		{"Cap handed out with no row", "type Cap { root string }\n\nfunc NewCap() Cap { NewCap() }\n", nil, []string{reported}},
-		{"Cap handed out under Ambient", "type Cap { root string }\n\nfunc NewCap() Cap needs Ambient { NewCap() }\n", nil, nil},
+		{"Cap handed out with no row", "type Cap { root string }\n\nfunc NewCap() Cap { NewCap() }\n", fixture, nil, []string{reported}},
+		{"Cap handed out under Ambient", "type Cap { root string }\n\nfunc NewCap() Cap needs Ambient { NewCap() }\n", fixture, nil, nil},
+		{"Tok handed out with no row, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok { MakeTok() }\n", wrapFixture, nil, wrapped},
+		{"Tok handed out under Ambient, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok needs Ambient { MakeTok() }\n", wrapFixture, nil, nil},
 	} {
 		capkg, ds := checkPkg("capkg", row.capSrc, nil)
 		if len(ds) != 0 {
 			t.Fatalf("%s: capkg: %v", row.name, ds)
 		}
-		fake, ds := checkPkg("fixture", fixture, pkgImporter{"capkg": capkg})
+		fake, ds := checkPkg("fixture", row.fixture, pkgImporter{"capkg": capkg})
 		for _, d := range ds {
 			if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
 				t.Fatalf("%s: fixture: %v", row.name, ds)
