@@ -1,0 +1,10 @@
+unexpected argument: b.md
+Usage of mdhtml:
+mdhtml converts Markdown to HTML.
+  -highlight
+    	mark Go's keywords in code blocks of language go
+  -title title
+    	wrap the HTML in a page with this title
+Arguments:
+  [file]
+    	the Markdown file to read; none reads standard input

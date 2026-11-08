@@ -1,0 +1,18 @@
+<h1>mdhtml <em>notes</em></h1>
+<p>A paragraph with <strong>strong</strong>, <em>em</em>, <code>a &lt; b</code> and a
+<a href="https://go.dev/doc?a=1&amp;b=2">link</a> on two lines.</p>
+<p>Escaped: *not em*, [not a link], and a lone * star.</p>
+<ul><li>first</li><li>second, <em>with</em> <code>code</code> and a lazy line</li><li>a new list, another marker</li></ul>
+<ol start="3"><li>three</li><li>four</li></ol>
+<ul><li>a bullet ends the numbered list</li></ul>
+<pre><code class="language-go">func main() {
+	if x &lt; 1 {
+		return
+	}
+}</code></pre>
+<hr>
+<h2><a href="#">bad</a>) link</h2>
+<h6>six</h6>
+<p>####### seven is text</p>
+<pre><code>an unclosed fence
+runs to the end</code></pre>

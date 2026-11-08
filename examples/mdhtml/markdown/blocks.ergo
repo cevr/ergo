@@ -1,0 +1,199 @@
+import strings
+
+// Block is a block of the document.
+type Block =
+	| Head{Level int, Text string}
+	| Para{Text string}
+	| List{Ordered bool, Start int, Items []string}
+	| Code{Info string, Text string}
+	| HRule
+
+type HRule {}
+
+// Mode is what the reader is in the middle of. Each mode holds the
+// blocks closed so far, so no mode loses them: a machine's decision has
+// no output of its own until Done (gap G-ex-a-9).
+type Mode =
+	| Idle{Doc []Block}
+	| InPara{Doc []Block, Lines []string}
+	| InList{Doc []Block, Ordered bool, Start int, Items []string}
+	| InCode{Doc []Block, Info string, Lines []string}
+
+// Signal is what the reader reads: a line, or the end of the source.
+type Signal = Got{Raw string} | End{}
+
+// Blocks reads the lines of a document into its blocks: it starts Idle
+// and moves by Step, one line at a time, until the end is Done with the
+// blocks.
+type Blocks machine[Mode, Signal] {
+	initial: Idle{Doc: []Block{}},
+	step:    Step,
+}
+
+// Step is the reader's transition. In code every line but a bare fence
+// is kept as it is. Elsewhere a blank line closes the open block, a
+// plain line continues a paragraph or the last list item, an item of
+// the other kind of list closes the list, and a heading, a rule or a
+// fence closes the open block and is read as from Idle. The end is Done
+// with every block, the open one closed: an unclosed fence runs to the
+// end, as in CommonMark.
+func Step(m Mode, s Signal) Decision[Mode, []Block] {
+	match s {
+	case End:
+		Done[[]Block]{Output: Closed(m)}
+	case Got as g:
+		let line = Classify(g.Raw)
+		match m {
+		case Idle as i:
+			fromIdle(i.Doc, line)
+		case InCode as c:
+			match line {
+			case Fence as f:
+				if f.Info == "" {
+					return Enter[Mode]{Next: Idle{Doc: Closed(m)}}
+				}
+				Stay[Mode]{Next: InCode{..c, Lines: appended(c.Lines, g.Raw)}}
+			case Blank, Heading, Bullet, Numbered, Rule, Plain:
+				Stay[Mode]{Next: InCode{..c, Lines: appended(c.Lines, g.Raw)}}
+			}
+		case InPara as p:
+			match line {
+			case Plain as t:
+				Stay[Mode]{Next: InPara{..p, Lines: appended(p.Lines, t.Text)}}
+			case Blank:
+				Enter[Mode]{Next: Idle{Doc: Closed(m)}}
+			case Heading, Bullet, Numbered, Fence, Rule:
+				moved(Closed(m), line)
+			}
+		case InList as l:
+			match line {
+			case Bullet as b:
+				if l.Ordered {
+					return moved(Closed(m), line)
+				}
+				Stay[Mode]{Next: InList{..l, Items: appended(l.Items, b.Text)}}
+			case Numbered as n:
+				if !l.Ordered {
+					return moved(Closed(m), line)
+				}
+				Stay[Mode]{Next: InList{..l, Items: appended(l.Items, n.Text)}}
+			case Plain as t:
+				Stay[Mode]{Next: InList{..l, Items: continued(l.Items, t.Text)}}
+			case Blank:
+				Enter[Mode]{Next: Idle{Doc: Closed(m)}}
+			case Heading, Fence, Rule:
+				moved(Closed(m), line)
+			}
+		}
+	}
+}
+
+// fromIdle is the decision on line with no block open and the blocks
+// doc closed.
+func fromIdle(doc []Block, line Line) Decision[Mode, []Block] {
+	match line {
+	case Blank:
+		Ignore
+	case Heading as h:
+		Stay[Mode]{Next: Idle{Doc: plus(doc, Head{Level: h.Level, Text: h.Text})}}
+	case Rule:
+		Stay[Mode]{Next: Idle{Doc: plus(doc, HRule)}}
+	case Plain as t:
+		Enter[Mode]{Next: InPara{Doc: doc, Lines: []string{t.Text}}}
+	case Bullet as b:
+		Enter[Mode]{Next: InList{Doc: doc, Ordered: false, Start: 1, Items: []string{b.Text}}}
+	case Numbered as n:
+		Enter[Mode]{Next: InList{Doc: doc, Ordered: true, Start: n.N, Items: []string{n.Text}}}
+	case Fence as f:
+		Enter[Mode]{Next: InCode{Doc: doc, Info: f.Info, Lines: []string{}}}
+	}
+}
+
+// moved is fromIdle after a block closed: the mode changed, so the
+// decision is Enter.
+func moved(doc []Block, line Line) Decision[Mode, []Block] {
+	Enter[Mode]{Next: Next(Idle{Doc: doc}, fromIdle(doc, line))}
+}
+
+// Next is the mode after the decision d in m.
+func Next(m Mode, d Decision[Mode, []Block]) Mode {
+	match d {
+	case Enter[Mode] as e:
+		e.Next
+	case Stay[Mode] as s:
+		s.Next
+	case Ignore, Reject, Done[[]Block]:
+		m
+	}
+}
+
+// Closed is the blocks of m, with its open block closed.
+func Closed(m Mode) []Block {
+	match m {
+	case Idle as i:
+		i.Doc
+	case InPara as p:
+		plus(p.Doc, Para{Text: strings.Join(p.Lines, "\n")})
+	case InList as l:
+		plus(l.Doc, List{Ordered: l.Ordered, Start: l.Start, Items: l.Items})
+	case InCode as c:
+		plus(c.Doc, Code{Info: c.Info, Text: strings.Join(c.Lines, "\n")})
+	}
+}
+
+// Read is the blocks of lines: the machine Blocks run to its end.
+func Read(lines []string) []Block {
+	let mut m Mode = Idle{Doc: []Block{}}
+	for line in lines {
+		m = Next(m, Step(m, Got{Raw: line}))
+	}
+	match Step(m, End) {
+	case Done[[]Block] as d:
+		d.Output
+	case Enter[Mode], Stay[Mode], Ignore, Reject:
+		Closed(m)
+	}
+}
+
+// Lines is the lines of text, without their line feeds; a final line
+// feed ends the last line and makes no empty one.
+func Lines(text string) []string {
+	let parts = strings.Split(text, "\n")
+	if len(parts) > 0 && parts[len(parts)-1] == "" {
+		let mut out = []string{}
+		for i in 0..len(parts)-1 {
+			out = out.Append(parts[i])
+		}
+		return out
+	}
+	parts
+}
+
+// plus is doc and then b, in a new slice: a mode is a value, and Append
+// may share the array of an earlier mode's blocks (check-v1 Q2).
+func plus(doc []Block, b Block) []Block {
+	let mut out = []Block{}
+	for x in doc {
+		out = out.Append(x)
+	}
+	out.Append(b)
+}
+
+// appended is lines and then line, in a new slice, for the same reason.
+func appended(lines []string, line string) []string {
+	let mut out = []string{}
+	for l in lines {
+		out = out.Append(l)
+	}
+	out.Append(line)
+}
+
+// continued is items with text added to the last item, after a space: a
+// lazy continuation line.
+func continued(items []string, text string) []string {
+	let mut out = []string{}
+	for i, it in items {
+		out = out.Append(if i == len(items)-1 { it + " " + text } else { it })
+	}
+	out
+}

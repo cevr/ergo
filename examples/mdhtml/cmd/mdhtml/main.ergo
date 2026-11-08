@@ -1,0 +1,121 @@
+// mdhtml converts a subset of Markdown to HTML: it reads a file, or
+// standard input, and writes the HTML on standard output. -title wraps
+// it in a whole page; -highlight marks Go's keywords in go code blocks.
+// Package markdown is the reader and package html the tree it writes.
+// This binary is the only place that chooses the providers: the host's
+// streams, files and arguments, and the Highlighter.
+
+import flag
+import fs
+import io
+import mdhtml/html
+import mdhtml/markdown
+import os
+
+let titleFlag = flag.String("title", "", "wrap the HTML in a page with this `title`")
+let highlightFlag = flag.Bool("highlight", false, "mark Go's keywords in code blocks of language go")
+let fileArg = flag.OptionalArg("file", "the Markdown file to read; none reads standard input")
+
+let set = flag.Set{
+	Name:  "mdhtml",
+	Usage: "mdhtml converts Markdown to HTML.",
+	Flags: []flag.Flag{titleFlag, highlightFlag},
+	Args:  []flag.ArgSpec{fileArg},
+}
+
+// source is the Markdown text: the file, or standard input.
+func source(file Option[string]) string fails os.Exit needs fs.Files | io.Stdin {
+	match file {
+	case Some as f:
+		fs.Files.ReadFile(f.Value) catch {
+		case fs.NotFound as n:
+			return os.Exit{Code: 1, Message: "mdhtml: no file \(n.Path)"}
+		case fs.Denied as d:
+			return os.Exit{Code: 1, Message: "mdhtml: cannot read \(d.Path): permission denied"}
+		case fs.Failed as e:
+			return os.Exit{Code: 1, Message: "mdhtml: cannot read \(e.Path): \(e.Reason)"}
+		}
+	case None:
+		io.Stdin.ReadAll() catch {
+		case io.ReadFailed as r:
+			return os.Exit{Code: 1, Message: "mdhtml: cannot read standard input: \(r.Reason)"}
+		}
+	}
+}
+
+// page is body in a whole HTML page with title.
+func page(title string, body string) string {
+	"<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n" + html.Render(html.El("title", []html.Node{html.Text{S: title}})) + "\n</head>\n<body>\n" + body + "</body>\n</html>\n"
+}
+
+// highlighter is the Highlighter that -highlight chooses.
+func highlighter(on bool) markdown.Highlighter {
+	if on { markdown.Keywords{Lang: "go", Words: markdown.GoKeywords} } else { markdown.NoColor }
+}
+
+func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | fs.Files {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	let text = try source(fileArg.Get(v))
+	let body = with context { markdown.Highlighter: highlighter(highlightFlag.Get(v)) } {
+		markdown.Render(text)
+	}
+	let title = titleFlag.Get(v)
+	io.Stdout.Print(if title == "" { body } else { page(title, body) })
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost(), fs.Files: fs.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run over scripted input, a Recorder and a Disk of one
+// file, with no host.
+
+// disk is a Files provider of one file, notes.md.
+type disk {}
+
+func ReadFile(_ disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	if path != "notes.md" {
+		return fs.NotFound{Path: path}
+	}
+	"# Notes\n\n- *a*\n"
+}
+
+func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{"notes.md"} }
+
+func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false}
+}
+
+func ran(args []string, input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, fs.Files: disk } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test ReadsStandardInput {
+	assert ran([]string{}, "hi *there*\n") == "<p>hi <em>there</em></p>\n"
+}
+
+test ReadsTheFile {
+	assert ran([]string{"notes.md"}, "not read") == "<h1>Notes</h1>\n<ul><li><em>a</em></li></ul>\n"
+	assert ran([]string{"gone.md"}, "") == "exit 1: mdhtml: no file gone.md\n"
+}
+
+test TitleMakesAPage {
+	assert ran([]string{"-title", "A & B"}, "x\n") == "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>A &amp; B</title>\n</head>\n<body>\n<p>x</p>\n</body>\n</html>\n"
+}
+
+test HighlightChoosesKeywords {
+	assert ran([]string{"-highlight"}, "```go\nif x\n```\n") == "<pre><code class=\"language-go\"><span class=\"kw\">if</span> x</code></pre>\n"
+}

@@ -1,0 +1,129 @@
+// Package html builds HTML as a tree of nodes and writes it. Escaping is
+// decided by type: a Text node is escaped when it is written, and only
+// this package builds an element, so an attribute value or a link is
+// escaped too. A link takes a Url, which only Href builds, so a link
+// never runs a script.
+
+import strings
+
+// Node is a part of a document: an element with its children, or text.
+type Node = Element{tag string, attrs []Attr, children []Node} | Text{S string}
+
+// Attr is an attribute of an element.
+type Attr { Name string, Value string }
+
+// Url is a link target that is safe to follow: only Href builds one.
+type Url { href string }
+
+// El is the element tag with children and no attributes.
+func El(tag string, children []Node) Node { Element{tag: tag, attrs: []Attr{}, children: children} }
+
+// ElAttrs is the element tag with attrs and children. An attribute
+// named href or src is dropped: a link is made by A, with a Url.
+func ElAttrs(tag string, attrs []Attr, children []Node) Node {
+	let mut kept = []Attr{}
+	for a in attrs {
+		if a.Name != "href" && a.Name != "src" {
+			kept = kept.Append(a)
+		}
+	}
+	Element{tag: tag, attrs: kept, children: children}
+}
+
+// A is a link to u.
+func A(u Url, children []Node) Node {
+	Element{tag: "a", attrs: []Attr{Attr{Name: "href", Value: u.href}}, children: children}
+}
+
+// Href is the Url of raw: raw, trimmed, when it is relative or its
+// scheme is http, https or mailto; else "#", so a javascript: or data:
+// link goes nowhere.
+func Href(raw string) Url {
+	let s = strings.TrimSpace(raw)
+	let colon = strings.Index(s, ":")
+	if colon < 0 {
+		return Url{href: s}
+	}
+	let slash = strings.Index(s, "/")
+	if slash >= 0 && slash < colon {
+		// a path whose segment holds a colon, such as a/b:c, is relative
+		return Url{href: s}
+	}
+	let scheme = strings.ToLower(strings.Slice(s, 0, colon))
+	if scheme == "http" || scheme == "https" || scheme == "mailto" {
+		return Url{href: s}
+	}
+	Url{href: "#"}
+}
+
+// HrefOf is the text of u.
+func HrefOf(u Url) string { u.href }
+
+// Void elements have no end tag.
+let void = []string{"br", "hr", "img"}
+
+// Render is the HTML text of n.
+func Render(n Node) string {
+	match n {
+	case Text as t:
+		Escape(t.S)
+	case Element as e:
+		let mut parts = []string{"<", e.tag}
+		for a in e.attrs {
+			parts = parts.Append(" " + a.Name + "=\"" + Escape(a.Value) + "\"")
+		}
+		parts = parts.Append(">")
+		for v in void {
+			if v == e.tag {
+				return strings.Join(parts, "")
+			}
+		}
+		for c in e.children {
+			parts = parts.Append(Render(c))
+		}
+		parts = parts.Append("</" + e.tag + ">")
+		strings.Join(parts, "")
+	}
+}
+
+// RenderAll is the HTML text of ns, one after the other.
+func RenderAll(ns []Node) string {
+	let mut parts = []string{}
+	for n in ns {
+		parts = parts.Append(Render(n))
+	}
+	strings.Join(parts, "")
+}
+
+// TextOf is the text of n with its markup removed: what a reader sees.
+func TextOf(n Node) string {
+	match n {
+	case Text as t:
+		t.S
+	case Element as e:
+		let mut parts = []string{}
+		for c in e.children {
+			parts = parts.Append(TextOf(c))
+		}
+		strings.Join(parts, "")
+	}
+}
+
+// Escape is s with &, <, >, " and ' written as character references, so
+// it stands for itself in text and in an attribute value.
+func Escape(s string) string {
+	let a = strings.ReplaceAll(s, "&", "&amp;")
+	let b = strings.ReplaceAll(a, "<", "&lt;")
+	let c = strings.ReplaceAll(b, ">", "&gt;")
+	let d = strings.ReplaceAll(c, "\"", "&quot;")
+	strings.ReplaceAll(d, "'", "&#39;")
+}
+
+// Unescape is the text that Escape wrote as s.
+func Unescape(s string) string {
+	let a = strings.ReplaceAll(s, "&#39;", "'")
+	let b = strings.ReplaceAll(a, "&quot;", "\"")
+	let c = strings.ReplaceAll(b, "&gt;", ">")
+	let d = strings.ReplaceAll(c, "&lt;", "<")
+	strings.ReplaceAll(d, "&amp;", "&")
+}

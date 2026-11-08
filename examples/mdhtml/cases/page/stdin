@@ -1,0 +1,9 @@
+Code in two languages:
+
+```go
+for i := range xs { go f(i) }
+```
+
+```sh
+for f in *.md; do mdhtml "$f"; done
+```

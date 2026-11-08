@@ -1,0 +1,148 @@
+// The reader's tests: golden documents, each rule of the machine, the
+// inline spans, the Highlighters, and the laws restated as property tests
+// (#162 runs laws). The property tests build documents from a pool of
+// lines that reach every kind of line.
+
+import mdhtml/html
+import strings
+
+let plain = context { Highlighter: NoColor }
+let colored = context { Highlighter: Keywords{Lang: "go", Words: GoKeywords} }
+
+test GoldenDocument {
+	let src = "# Title *one*\n\nSome **bold** and `code`,\nand a [link](https://go.dev).\n\n- one\n- two\n  continued\n\n3. three\n4. four\n\n```go\nfunc main() {\n\tif x < 1 {}\n}\n```\n---\n## End\n"
+	let want = "<h1>Title <em>one</em></h1>\n<p>Some <strong>bold</strong> and <code>code</code>,\nand a <a href=\"https://go.dev\">link</a>.</p>\n<ul><li>one</li><li>two continued</li></ul>\n<ol start=\"3\"><li>three</li><li>four</li></ol>\n<pre><code class=\"language-go\">func main() {\n\tif x &lt; 1 {}\n}</code></pre>\n<hr>\n<h2>End</h2>\n"
+	assert with plain { Render(src) } == want
+}
+
+test KeywordsMarkOnlyTheirLanguage {
+	let src = "```go\nfor x := range xs {}\n```\n```sh\nfor x in y\n```\n"
+	assert with colored { Render(src) } == "<pre><code class=\"language-go\"><span class=\"kw\">for</span> x := <span class=\"kw\">range</span> xs {}</code></pre>\n<pre><code class=\"language-sh\">for x in y</code></pre>\n"
+}
+
+test BlocksCloseEachOther {
+	assert with plain { Render("para\n# head\n- item\n1. num\n```\ncode\n") } == "<p>para</p>\n<h1>head</h1>\n<ul><li>item</li></ul>\n<ol><li>num</li></ol>\n<pre><code>code</code></pre>\n"
+	assert with plain { Render("a\n***\nb") } == "<p>a</p>\n<hr>\n<p>b</p>\n"
+	assert with plain { Render("") } == ""
+	assert with plain { Render("\n\n") } == ""
+}
+
+test LinesThatAreNotWhatTheyLookLike {
+	assert with plain { Render("#nospace\n-nospace\n1.5 is a number\n####### seven") } == "<p>#nospace\n-nospace\n1.5 is a number\n####### seven</p>\n"
+	assert with plain { Render("#\n```\n# not a head\n```go\n```") } == "<h1></h1>\n<pre><code># not a head\n```go</code></pre>\n"
+}
+
+// inline is the HTML of the line s.
+func inline(s string) string { html.RenderAll(Inline(s)) }
+
+test InlineSpans {
+	assert inline("a *b* c") == "a <em>b</em> c"
+	assert inline("__x__ and _y_") == "<strong>x</strong> and <em>y</em>"
+	assert inline("**a *b* c**") == "<strong>a <em>b</em> c</strong>"
+	assert inline("*a **b** c*") == "<em>a </em><em>b</em><em> c</em>"
+	assert inline("`a *b* <c>`") == "<code>a *b* &lt;c&gt;</code>"
+	assert inline("[*go*](https://go.dev)") == "<a href=\"https://go.dev\"><em>go</em></a>"
+	assert inline("[x](javascript:alert(1))") == "<a href=\"#\">x</a>)"
+	assert inline("2 * 3 * 4") == "2 <em> 3 </em> 4"
+	assert inline("** x") == "** x"
+	assert inline("\\*not\\* \\`code\\`") == "*not* `code`"
+	assert inline("a < b & c") == "a &lt; b &amp; c"
+	assert inline("[open") == "[open"
+}
+
+// pool is lines of every kind, for the property tests.
+let pool = []string{"", "text", "more *em* text", "# head", "### sub", "- a", "* b", "1. one", "2. two", "```", "```go", "---", "  indented", "\\*x\\*", "[l](u)"}
+
+// doc is the lines that ns pick from pool.
+func doc(ns []int) []string {
+	let mut out = []string{}
+	for n in ns {
+		let k = if n < 0 { -(n + 1) } else { n }
+		out = out.Append(pool[k%len(pool)])
+	}
+	out
+}
+
+test EndIsDoneHolds(ns []int) {
+	let m = After(doc(ns))
+	match Step(m, End) {
+	case Done[[]Block] as d:
+		assert SameBlocks(d.Output, Closed(m))
+	case Enter[Mode], Stay[Mode], Ignore, Reject:
+		assert false
+	}
+}
+
+test BlankSeparatesHolds(xs []int, ys []int) {
+	let a = doc(xs)
+	let b = doc(ys)
+	if IsCode(After(a)) {
+		return
+	}
+	let mut both = []string{}
+	for l in a {
+		both = both.Append(l)
+	}
+	both = both.Append("")
+	for l in b {
+		both = both.Append(l)
+	}
+	let mut parts = []Block{}
+	for x in Read(a) {
+		parts = parts.Append(x)
+	}
+	for x in Read(b) {
+		parts = parts.Append(x)
+	}
+	assert SameBlocks(Read(both), parts)
+}
+
+test FenceKeepsLinesHolds(ns []int, extra string) {
+	let mut lines = doc(ns)
+	lines = lines.Append(extra)
+	let mut src = []string{"```"}
+	for l in lines {
+		if strings.TrimSpace(l) == "```" {
+			return
+		}
+		src = src.Append(l)
+	}
+	src = src.Append("```")
+	assert SameBlocks(Read(src), []Block{Code{Info: "", Text: strings.Join(lines, "\n")}})
+}
+
+test PlainTextStaysTextHolds(s string) {
+	let mut kept = []string{}
+	for i in 0..len(s) {
+		if !isMarker(s[i]) {
+			kept = kept.Append(strings.Slice(s, i, i+1))
+		}
+	}
+	let t = strings.Join(kept, "")
+	let ns = Inline(t)
+	if t == "" {
+		assert len(ns) == 0
+	} else {
+		assert len(ns) == 1 && html.RenderAll(ns) == html.Escape(t)
+	}
+}
+
+test EscapedMarkersAreTextHolds(s string, ns []int) {
+	let mut src = []string{}
+	let text = s + strings.Join(doc(ns), "")
+	for i in 0..len(text) {
+		let c = strings.Slice(text, i, i+1)
+		src = src.Append(if isMarker(text[i]) { "\\" + c } else { c })
+	}
+	let out = Inline(strings.Join(src, ""))
+	assert TextOfAll(out) == text
+	assert !strings.Contains(html.RenderAll(out), "<")
+}
+
+test KeepsTheTextHolds(code string, ns []int) {
+	let text = code + strings.Join(doc(ns), " func for ")
+	for info in []string{"go", "sh", ""} {
+		assert with plain { TextOfAll(Highlighter.Highlight(info, text)) } == text
+		assert with colored { TextOfAll(Highlighter.Highlight(info, text)) } == text
+	}
+}
