@@ -46,6 +46,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		}
 		return operand{val: "len(" + fc.value(x.Args[0]) + ")"}
 	}
+	if check.IsUnreachable(c) {
+		return fc.unreachableValue(x)
+	}
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
 	if hostCalled(c) {

@@ -560,6 +560,10 @@ func (fc *funcCtx) discard(x syntax.Expr) {
 			}
 		}
 	}
+	if call := fc.unreachableCall(x); call != nil {
+		fc.unreachableStmt(call)
+		return
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := fc.l.info.Calls[call]; c != nil && c.Kind != check.CallWith && c.Kind != check.CallConversion && c.Kind != check.CallLen && !(fc.tries > 0 && fc.fallibleExpr(call)) {
 			if text := fc.callStmt(call); text != "" {

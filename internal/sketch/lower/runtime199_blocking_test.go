@@ -193,6 +193,8 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"RegisterCalls": true, "TextBool": true, "TextDuration": true,
 		"TextInt": true, "TextUint": true, "TextFloat": true, "TextList": true,
 		"Main": true, "Println": true, "End": true,
+		// Unreachable's defect (defect.go): a panic value, no wait.
+		"UnreachableAt": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -81,6 +81,9 @@ func (c *checker) callOf(x *syntax.CallExpr, hint Type) operand {
 		if len(sig.TParams) > 0 {
 			return c.callGeneric(x, sig, nil, fun)
 		}
+		if isUnreachable(fun.fn) {
+			return c.unreachable(x, sig, fun, hint)
+		}
 		return c.callSig(x, sig, fun)
 	case modeValue, modeConst:
 		// A constant is a value too: `1()` and `K()` are S108, never an
@@ -1129,6 +1132,56 @@ func opForm(f *Func) string {
 	return names[0] + "." + f.Name + "(" + strings.Join(names[1:], ", ") + ")"
 }
 
+// isUnreachable reports the prelude's Unreachable (owner q29, 2026-11-08).
+func isUnreachable(f *Func) bool {
+	return f != nil && f.Name == "Unreachable" && f.Pkg != nil && f.Pkg.Path == std.PreludePath
+}
+
+// IsUnreachable reports a call of the prelude's Unreachable, which the
+// lowering writes as a panic at its site, never as a call of its Go body.
+func IsUnreachable(c *Call) bool { return c != nil && c.Kind == CallFunc && isUnreachable(c.Func) }
+
+// unreachableCall reports whether x is a call of the prelude's
+// Unreachable, before it is checked: its callee is a bare name that
+// resolves to it here (a local of that name is refused by D-D3 and still
+// binds, so it is not the prelude's).
+func (c *checker) unreachableCall(x syntax.Expr) bool {
+	call, ok := unparen(x).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	id, ok := unparen(call.Fun).(*syntax.Ident)
+	if !ok {
+		return false
+	}
+	f, ok := c.lookup(id.Name).(*Func)
+	return ok && isUnreachable(f)
+}
+
+// unreachable checks Unreachable(reason) (owner q29). Its result is the
+// bottom type: the call has the type its position expects, hint, so it
+// checks in any position that expects a value. In statement position it
+// has no value. As the last statement of a body or branch it yields
+// nothing and joins any type, as return does (yieldExpr). A position that
+// expects no type, `let x = Unreachable("…")`, has no type to give it and
+// is S108: the type is written there. It raises a defect, so its row is
+// empty: never a typed failure.
+func (c *checker) unreachable(x *syntax.CallExpr, sig *Signature, fun operand, hint Type) operand {
+	use := c.useOf(x)
+	op := c.callSig(x, sig, fun)
+	if op.invalid() {
+		return op
+	}
+	switch {
+	case use == useDiscard:
+		return operand{mode: modeNoValue, typ: NoValue}
+	case hint != nil && hint != NoValue && !containsInvalid(hint):
+		return operand{mode: modeValue, typ: hint}
+	}
+	c.errorf(x, CodeType, "Unreachable(…) takes the type its position expects, and nothing here expects one; write the type, as in let x T = Unreachable(\"why\") (owner q29)")
+	return bad(x)
+}
+
 // builtin checks a call of len, the one built-in function (#196, fourth
 // round, item 2): its argument is a slice, a Map or a string, and its value
 // an int; the length of a constant string is a constant.
@@ -1181,7 +1234,7 @@ var removedBuiltins = map[string]string{
 	"println": "write Console.Println(\"…\")",
 	"min":     "write if a < b { a } else { b }",
 	"max":     "write if a > b { a } else { b }",
-	"panic":   "a failure is a value: declare it with fails and return it",
+	"panic":   "a failure is a value: declare it with fails and return it; for a path that cannot run, write Unreachable(\"why\")",
 	"recover": "a failure is a value: handle it with catch",
 	"complex": "Ergo has no complex built-ins",
 	"real":    "Ergo has no complex built-ins",
