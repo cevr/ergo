@@ -1,0 +1,188 @@
+// Package propagate is the fast solver: constraint propagation and
+// search, after Norvig. Each cell keeps the set of digits it may still
+// hold, as bits 1 to 9 of an int. Placing a digit removes it from the
+// cell's peers (a cell left with one digit places it), and a unit with
+// one place left for a digit places it there. When propagation stops,
+// search tries each digit of the cell with the fewest, on a copy, and
+// backtracks on a contradiction, which is a typed failure.
+
+import sudoku/board
+
+// Solver is the propagating solver.
+type Solver {}
+
+// Contradiction is a cell with no digit left, or a digit with no place
+// left in a unit: the choices made so far have no solution.
+type Contradiction {}
+
+// all is the set of every digit, bits 1 to 9.
+let all = 1022
+
+// state is the digits each of the 81 cells may still hold.
+type state { cand []int }
+
+// unitsOf is, for each cell, the indexes into board.Units of its three
+// units.
+let unitsOf = cellUnits()
+
+// cellUnits builds unitsOf.
+func cellUnits() [][]int {
+	let mut out = [][]int{}
+	for i in 0..81 {
+		let mut us = []int{}
+		for k, u in board.Units {
+			for j in u {
+				if j == i {
+					us = us.Append(k)
+				}
+			}
+		}
+		out = out.Append(us)
+	}
+	out
+}
+
+// Solve is the first solution of puzzle in the order of the search:
+// lowest digit first, at the cell with the fewest digits left, the
+// lowest such cell first.
+func Solve(_ Solver, puzzle board.Grid) board.Grid fails board.Unsolvable {
+	let unsolvable = board.Unsolvable{Givens: puzzle.Filled()}
+	let mut cand = []int{}
+	for _ in 0..81 {
+		cand = cand.Append(all)
+	}
+	let mut s = state{cand: cand}
+	for i in 0..81 {
+		let v = puzzle.At(i)
+		if v != 0 {
+			s.assign(i, v) catch {
+			case Contradiction:
+				return unsolvable
+			}
+		}
+	}
+	let solved = search(s) catch {
+	case Contradiction:
+		return unsolvable
+	}
+	let mut cells = []int{}
+	for c in solved.cand {
+		cells = cells.Append(lowest(c))
+	}
+	// OfCells cannot fail on 81 digits, but a failure cannot be stated
+	// impossible (G-ex-a-3).
+	board.OfCells(cells) catch {
+	case board.BadLength:
+		return unsolvable
+	case board.BadCell:
+		return unsolvable
+	}
+}
+
+// assign leaves cell i with the digit d alone.
+func assign(s *state, i int, d int) fails Contradiction {
+	let others = s.cand[i] &^ (1 << d)
+	for e in 1..10 {
+		if others&(1<<e) != 0 {
+			try s.eliminate(i, e)
+		}
+	}
+}
+
+// eliminate removes d from cell i and propagates.
+func eliminate(s *state, i int, d int) fails Contradiction {
+	let bit = 1 << d
+	if s.cand[i]&bit == 0 {
+		return
+	}
+	s.cand[i] = s.cand[i] &^ bit
+	let left = s.cand[i]
+	if left == 0 {
+		return Contradiction
+	}
+	if count(left) == 1 {
+		let only = lowest(left)
+		for p in board.Peers[i] {
+			try s.eliminate(p, only)
+		}
+	}
+	for k in unitsOf[i] {
+		let mut places = 0
+		let mut at = -1
+		for j in board.Units[k] {
+			if s.cand[j]&bit != 0 {
+				places += 1
+				at = j
+			}
+		}
+		if places == 0 {
+			return Contradiction
+		}
+		if places == 1 && count(s.cand[at]) > 1 {
+			try s.assign(at, d)
+		}
+	}
+}
+
+// search is a state with one digit per cell, reached from s, or
+// Contradiction.
+func search(s state) state fails Contradiction {
+	let mut best = -1
+	let mut fewest = 10
+	for i, c in s.cand {
+		let n = count(c)
+		if n > 1 && n < fewest {
+			best = i
+			fewest = n
+		}
+	}
+	if best < 0 {
+		return s
+	}
+	for d in 1..10 {
+		if s.cand[best]&(1<<d) != 0 {
+			let mut t = s.copied()
+			t.assign(best, d) catch {
+			case Contradiction:
+				continue
+			}
+			let found = search(t) catch {
+			case Contradiction:
+				continue
+			}
+			return found
+		}
+	}
+	Contradiction
+}
+
+// copied is s in a new state that shares nothing with it.
+func copied(s state) state {
+	let mut cand = []int{}
+	for c in s.cand {
+		cand = cand.Append(c)
+	}
+	state{cand: cand}
+}
+
+// count is the number of digits in the set c. There is no math/bits
+// (G-ex-e-8), so it counts the bits one by one.
+func count(c int) int {
+	let mut n = 0
+	let mut x = c
+	for x != 0 {
+		x = x & (x - 1)
+		n += 1
+	}
+	n
+}
+
+// lowest is the lowest digit of the set c, or 0 when it is empty.
+func lowest(c int) int {
+	for d in 1..10 {
+		if c&(1<<d) != 0 {
+			return d
+		}
+	}
+	0
+}

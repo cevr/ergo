@@ -1,0 +1,58 @@
+// Package naive is the reference solver: plain backtracking, cell by
+// cell in order, digit by digit from 1, with no propagation. It is short
+// enough to read as the definition of the first solution, and slow on
+// hard puzzles; package propagate is the solver to run.
+
+import sudoku/board
+
+// Solver is the backtracking solver.
+type Solver {}
+
+// Solve is the first solution of puzzle in the order of cells and
+// digits.
+func Solve(_ Solver, puzzle board.Grid) board.Grid fails board.Unsolvable {
+	if !board.Consistent(puzzle) {
+		return board.Unsolvable{Givens: puzzle.Filled()}
+	}
+	let mut cells = puzzle.Cells()
+	if !fill(&cells, 0) {
+		return board.Unsolvable{Givens: puzzle.Filled()}
+	}
+	board.OfCells(cells) catch {
+	case board.BadLength:
+		return board.Unsolvable{Givens: puzzle.Filled()}
+	case board.BadCell:
+		return board.Unsolvable{Givens: puzzle.Filled()}
+	}
+}
+
+// fill fills the empty cells of cells from i on, and reports whether it
+// could. On false, cells is as it was.
+func fill(cells *[]int, i int) bool {
+	if i == 81 {
+		return true
+	}
+	if (*cells)[i] != 0 {
+		return fill(cells, i+1)
+	}
+	for d in 1..10 {
+		if allowed(*cells, i, d) {
+			(*cells)[i] = d
+			if fill(cells, i+1) {
+				return true
+			}
+		}
+	}
+	(*cells)[i] = 0
+	false
+}
+
+// allowed reports whether no peer of cell i holds d.
+func allowed(cells []int, i int, d int) bool {
+	for p in board.Peers[i] {
+		if cells[p] == d {
+			return false
+		}
+	}
+	true
+}

@@ -1,0 +1,67 @@
+// The fast solver's tests: known hard puzzles, the Solver laws restated
+// as property tests and its own law (laws are checked, not run, #162).
+
+import sudoku/board
+import sudoku/naive
+import strings
+
+// solved is the line of the solution of the puzzle text, or
+// "unsolvable".
+func solved(text string) string fails board.BadLength | board.BadCell {
+	let s = Solver.Solve(try board.Parse(text)) catch {
+	case board.Unsolvable:
+		return "unsolvable"
+	}
+	board.Line(s)
+}
+
+// The solutions agree with a hand-written Go solver and the published
+// ones (Norvig's grid 2, Inkala's 2012 puzzle, AI Escargot).
+test SolvesHardPuzzles {
+	assert try solved("4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2.....1.4......") == "417369825632158947958724316825437169791586432346912758289643571573291684164875293"
+	assert try solved("8..........36......7..9.2...5...7.......457.....1...3...1....68..85...1..9....4..") == "812753649943682175675491283154237896369845721287169534521974368438526917796318452"
+	assert try solved("1....7.9..3..2...8..96..5....53..9...1..8...26....4...3......1..4......7..7...3..") == "162857493534129678789643521475312986913586742628794135356478219241935867897261354"
+}
+
+test UnsolvablePuzzles {
+	// Two 1s in the first row.
+	assert try solved("11"+strings.Repeat(".", 79)) == "unsolvable"
+	// Consistent but unsolvable: cell 0's row holds 2 to 9 and its
+	// column holds 1, so no digit is left for it.
+	assert try solved(".234567891"+strings.Repeat(".", 71)) == "unsolvable"
+}
+
+// blanksOf is a number of blanks from any n: 0 to 59.
+func blanksOf(n int) int { if n < 0 { -(n + 1) % 60 } else { n % 60 } }
+
+test SolutionSolvesHolds(seed int, n int) {
+	assert board.SolutionSolvesHolds(Solver, board.Puzzle(seed, blanksOf(n)))
+	assert board.SolutionSolvesHolds(Solver, board.Puzzle(seed, 64))
+}
+
+test DeterministicHolds(seed int, n int) {
+	assert board.DeterministicHolds(Solver, board.Puzzle(seed, 64))
+	assert board.DeterministicHolds(Solver, board.Puzzle(seed, blanksOf(n)))
+}
+
+test SolvedIsFixedHolds(seed int, n int) {
+	assert board.SolvedIsFixedHolds(Solver, board.Puzzle(seed, blanksOf(n)))
+}
+
+test InconsistentIsUnsolvableHolds(seed int, n int) {
+	assert board.InconsistentIsUnsolvableHolds(Solver, board.Broken(seed, blanksOf(n)+1))
+}
+
+test AgreesWithNaiveHolds(seed int, n int, broken bool) {
+	let p = if broken { board.Broken(seed, blanksOf(n)+1) } else { board.Puzzle(seed, blanksOf(n)) }
+	assert board.Solvable(Solver, p) == board.Solvable(naive.Solver, p)
+}
+
+// On puzzles with few blanks the solution is the sample itself, so both
+// solvers give it.
+test BothFindTheSample(seed int) {
+	let p = board.Puzzle(seed, 20)
+	let a = try Solver.Solve(p)
+	let b = try naive.Solver.Solve(p)
+	assert board.Solves(a, p) && board.Solves(b, p)
+}

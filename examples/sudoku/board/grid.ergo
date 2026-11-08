@@ -1,0 +1,131 @@
+// Package board is the domain of the sudoku solver: a grid of 81 cells,
+// the rules a solution keeps, and the contract of a solver. It is pure.
+// Cells are numbered 0 to 80, row by row; a cell holds 0 when it is
+// empty, else a digit from 1 to 9.
+
+import strings
+
+// Grid is the 81 cells of a sudoku. Its field is unexported, so only this
+// package builds one, through Parse and With: outside board, a Grid
+// always has 81 cells of 0 to 9. Ergo has no fixed arrays (G-ex-e-7), so
+// the cells are a slice.
+type Grid { cells []int }
+
+// The failures of Parse.
+
+// BadLength is a text with fewer or more than 81 cells.
+type BadLength { Cells int }
+
+// BadCell is a byte that is not a digit, "." or "0".
+type BadCell { At int, Text string }
+
+// Parse reads text as a grid: 81 cells, each a digit 1 to 9, or "." or
+// "0" for an empty cell. Spaces, line feeds and "|", "-", "+" between
+// cells are layout and are skipped.
+func Parse(text string) Grid fails BadLength | BadCell {
+	let mut cells = []int{}
+	for i in 0..len(text) {
+		let c = text[i]
+		if c >= '1' && c <= '9' {
+			cells = cells.Append(int(c - '0'))
+		} else if c == '.' || c == '0' {
+			cells = cells.Append(0)
+		} else if !strings.ContainsRune(" \t\r\n|-+", rune(c)) {
+			return BadCell{At: i, Text: text[i : i+1]}
+		}
+	}
+	if len(cells) != 81 {
+		return BadLength{Cells: len(cells)}
+	}
+	Grid{cells: cells}
+}
+
+// At is the value of cell i, 0 to 80: 0 when it is empty.
+func At(g Grid, i int) int { g.cells[i] }
+
+// With is g with cell i set to v, a digit 1 to 9 or 0 to empty it, in a
+// new grid.
+func With(g Grid, i int, v int) Grid {
+	let mut cells = []int{}
+	for k, c in g.cells {
+		cells = cells.Append(if k == i { v } else { c })
+	}
+	Grid{cells: cells}
+}
+
+// OfCells is the grid of 81 values, each 0 to 9. A solver of another
+// package builds its answer so; it fails with BadLength or BadCell as
+// Parse does when cells are not 81 values from 0 to 9.
+func OfCells(cells []int) Grid fails BadLength | BadCell {
+	if len(cells) != 81 {
+		return BadLength{Cells: len(cells)}
+	}
+	let mut out = []int{}
+	for i, c in cells {
+		if c < 0 || c > 9 {
+			return BadCell{At: i, Text: "\(c)"}
+		}
+		out = out.Append(c)
+	}
+	Grid{cells: out}
+}
+
+// Cells is the 81 values of g, in a new slice.
+func Cells(g Grid) []int {
+	let mut out = []int{}
+	for c in g.cells {
+		out = out.Append(c)
+	}
+	out
+}
+
+// Filled is the number of cells of g that hold a digit.
+func Filled(g Grid) int {
+	let mut n = 0
+	for c in g.cells {
+		if c != 0 {
+			n += 1
+		}
+	}
+	n
+}
+
+// Equal reports whether a and b hold the same cells. A Grid holds a
+// slice, so it has no == (G-ex-d-5).
+func Equal(a Grid, b Grid) bool {
+	for i, c in a.cells {
+		if c != b.cells[i] {
+			return false
+		}
+	}
+	true
+}
+
+// Line is g in 81 bytes, "." for an empty cell: the form Parse reads.
+func Line(g Grid) string {
+	let mut out = ""
+	for c in g.cells {
+		out = out + if c == 0 { "." } else { "\(c)" }
+	}
+	out
+}
+
+// Picture is g as 11 lines of text, with a rule between boxes.
+func Picture(g Grid) []string {
+	let mut out = []string{}
+	for r in 0..9 {
+		if r == 3 || r == 6 {
+			out = out.Append("------+-------+------")
+		}
+		let mut line = ""
+		for c in 0..9 {
+			if c == 3 || c == 6 {
+				line = line + "| "
+			}
+			let v = g.cells[r*9+c]
+			line = line + (if v == 0 { "." } else { "\(v)" }) + if c == 8 { "" } else { " " }
+		}
+		out = out.Append(line)
+	}
+	out
+}

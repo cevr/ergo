@@ -1,0 +1,138 @@
+// The rules: the 27 units of a grid, the peers of a cell, and what a
+// solution of a puzzle keeps. The contract of a solver states them as
+// laws.
+
+// Units is the 27 units of a grid, each the 9 cells of a row, a column
+// or a box, in that order.
+let Units = units()
+
+// Peers is, for each cell, the 20 other cells that share a unit with it.
+let Peers = peers()
+
+// units builds Units.
+func units() [][]int {
+	let mut out = [][]int{}
+	for r in 0..9 {
+		let mut row = []int{}
+		for c in 0..9 {
+			row = row.Append(r*9 + c)
+		}
+		out = out.Append(row)
+	}
+	for c in 0..9 {
+		let mut col = []int{}
+		for r in 0..9 {
+			col = col.Append(r*9 + c)
+		}
+		out = out.Append(col)
+	}
+	for b in 0..9 {
+		let mut box = []int{}
+		for k in 0..9 {
+			box = box.Append((b/3*3+k/3)*9 + b%3*3 + k%3)
+		}
+		out = out.Append(box)
+	}
+	out
+}
+
+// peers builds Peers.
+func peers() [][]int {
+	let mut out = [][]int{}
+	for i in 0..81 {
+		let mut ps = []int{}
+		for j in 0..81 {
+			if j != i && (j/9 == i/9 || j%9 == i%9 || (j/27 == i/27 && j%9/3 == i%9/3)) {
+				ps = ps.Append(j)
+			}
+		}
+		out = out.Append(ps)
+	}
+	out
+}
+
+// Consistent reports whether no unit of g holds a digit twice.
+func Consistent(g Grid) bool {
+	for u in Units {
+		let mut seen = 0
+		for i in u {
+			let v = g.cells[i]
+			if v != 0 {
+				let bit = 1 << v
+				if seen&bit != 0 {
+					return false
+				}
+				seen = seen | bit
+			}
+		}
+	}
+	true
+}
+
+// Solves reports whether s is a solution of puzzle: s is full and
+// consistent, and keeps every given digit of puzzle.
+func Solves(s Grid, puzzle Grid) bool {
+	if s.Filled() != 81 || !Consistent(s) {
+		return false
+	}
+	for i, v in puzzle.cells {
+		if v != 0 && s.cells[i] != v {
+			return false
+		}
+	}
+	true
+}
+
+// Unsolvable is a puzzle with no solution.
+type Unsolvable { Givens int }
+
+// Solver solves a puzzle.
+type Solver {
+	// Solve is a solution of puzzle, the first in the order of the
+	// solver's search, or Unsolvable.
+	Solve(puzzle Grid) Grid fails Unsolvable,
+
+	// SolutionSolves: a solution keeps the rules and the givens.
+	law SolutionSolves(puzzle Grid) {
+		let s = Solve(puzzle) catch {
+		case Unsolvable:
+			return true
+		}
+		Solves(s, puzzle)
+	},
+
+	// Deterministic: a puzzle solved twice gives one solution.
+	law Deterministic(puzzle Grid) {
+		let a = Solve(puzzle) catch {
+		case Unsolvable:
+			return true
+		}
+		let b = Solve(puzzle) catch {
+		case Unsolvable:
+			return false
+		}
+		Equal(a, b)
+	},
+
+	// SolvedIsFixed: a solved grid is its own solution.
+	law SolvedIsFixed(puzzle Grid) {
+		let s = Solve(puzzle) catch {
+		case Unsolvable:
+			return true
+		}
+		Equal(try Solve(s), s)
+	},
+
+	// InconsistentIsUnsolvable: a puzzle with a digit twice in a unit has
+	// no solution.
+	law InconsistentIsUnsolvable(puzzle Grid) {
+		if Consistent(puzzle) {
+			return true
+		}
+		let _ = Solve(puzzle) catch {
+		case Unsolvable:
+			return true
+		}
+		false
+	},
+}

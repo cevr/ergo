@@ -1,0 +1,103 @@
+// Samples: puzzles made from a seed, for the laws. A property test
+// cannot choose its generator (G-ex-d-4), so a test takes an int and
+// makes its puzzle here.
+
+// base is a solved grid.
+let base = "534678912672195348198342567859761423426853791713924856961537284287419635345286179"
+
+// source is a 64-bit linear congruential generator.
+type source { state uint64 }
+
+// next is a number in 0..n-1. n is above 0.
+func next(g *source, n int) int {
+	g.state = g.state*6364136223846793005 + 1442695040888963407
+	int((g.state >> 33) % uint64(n))
+}
+
+// Solution is a solved grid of seed: base with its digits relabelled,
+// its bands and stacks swapped, and rows and columns swapped within
+// them. Each step keeps a grid solved.
+func Solution(seed int) Grid {
+	let mut g = source{state: uint64(seed)*2654435761 + 1}
+	let mut label = []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	for k in 0..9 {
+		let a = 1 + k
+		let b = 1 + g.next(9)
+		let t = label[a]
+		label[a] = label[b]
+		label[b] = t
+	}
+	let rows = g.order()
+	let cols = g.order()
+	let mut cells = []int{}
+	for r in 0..9 {
+		for c in 0..9 {
+			let i = rows[r]*9 + cols[c]
+			cells = cells.Append(label[int(base[i]-'0')])
+		}
+	}
+	Grid{cells: cells}
+}
+
+// order is a permutation of 0..8 that keeps each band of three together:
+// the bands in some order, and the lines of each band in some order.
+func order(g *source) []int {
+	let bands = g.three()
+	let mut out = []int{}
+	for b in bands {
+		for l in g.three() {
+			out = out.Append(b*3 + l)
+		}
+	}
+	out
+}
+
+// three is a permutation of 0, 1, 2.
+func three(g *source) []int {
+	match g.next(6) {
+	case 0:
+		[]int{0, 1, 2}
+	case 1:
+		[]int{0, 2, 1}
+	case 2:
+		[]int{1, 0, 2}
+	case 3:
+		[]int{1, 2, 0}
+	case 4:
+		[]int{2, 0, 1}
+	case _:
+		[]int{2, 1, 0}
+	}
+}
+
+// Puzzle is Solution(seed) with blanks cells emptied, chosen by seed: a
+// puzzle that has a solution, perhaps several. blanks is 0 to 81.
+func Puzzle(seed int, blanks int) Grid {
+	let mut g = source{state: uint64(seed)*40503 + 7}
+	let mut p = Solution(seed)
+	let mut emptied = 0
+	for emptied < blanks {
+		let i = g.next(81)
+		if p.cells[i] != 0 {
+			p = p.With(i, 0)
+			emptied += 1
+		}
+	}
+	p
+}
+
+// Broken is Puzzle(seed, blanks) with one empty cell given the digit of
+// a peer, so a unit holds a digit twice. blanks is 1 to 80.
+func Broken(seed int, blanks int) Grid {
+	let p = Puzzle(seed, blanks)
+	for i in 0..81 {
+		if p.cells[i] == 0 {
+			for j in Peers[i] {
+				if p.cells[j] != 0 {
+					return p.With(i, p.cells[j])
+				}
+			}
+		}
+	}
+	p
+}
