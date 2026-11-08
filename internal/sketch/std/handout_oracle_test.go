@@ -55,6 +55,7 @@ const (
 	oRowBox        // Rw<n>[elem], with `type Rw<n>[E] { F func() int fails E }`: elem, a record, is a row argument
 	oMachine       // a machine over the unions elems[0] (state), elems[1] (signal)
 	oBox           // a generic record Box<n>[T] { f T } at the argument elem
+	oPhantom       // a generic record Ph<n>[T] { n int } at the argument elem, which its body does not hold
 	oHost          // the provider; impls are a sealed one's implementers
 )
 
@@ -76,6 +77,7 @@ type oField struct {
 }
 
 type oSig struct {
+	tparams         []*oType // a declaration's type parameters' constraints, operation types
 	params, results []*oType
 	fails           []*oType // records
 	needs           []*oType // operation types
@@ -104,7 +106,7 @@ func oMentions(t *oType, out map[string]bool) {
 		for _, f := range t.fields {
 			oMentions(f.t, out)
 		}
-	case oSlice, oMap, oMapKey, oOption, oSeq, oRowBox, oBox:
+	case oSlice, oMap, oMapKey, oOption, oSeq, oRowBox, oBox, oPhantom:
 		oMentions(t.elem, out)
 	case oFunc, oOps:
 		oSigMentions(t.sig, out)
@@ -125,7 +127,7 @@ func oMentions(t *oType, out map[string]bool) {
 }
 
 func oSigMentions(s *oSig, out map[string]bool) {
-	for _, ts := range [][]*oType{s.params, s.results, s.fails, s.needs} {
+	for _, ts := range [][]*oType{s.tparams, s.params, s.results, s.fails, s.needs} {
 		for _, x := range ts {
 			oMentions(x, out)
 		}
@@ -222,7 +224,7 @@ func keyable(x *oType) bool {
 // oWords are the constructors wrap picks from.
 var oWords = []string{"slice", "map", "map-key", "option", "seq", "open", "hidden", "shown", "union", "tuple",
 	"func-result", "func-param", "func-failure", "func-needs", "func-needs-source",
-	"ops-result", "ops-param", "ops-failure", "twin", "row-arg", "machine-state", "machine-signal", "box"}
+	"ops-result", "ops-param", "ops-failure", "twin", "row-arg", "machine-state", "machine-signal", "box", "phantom"}
 
 // wrap puts x in one random constructor; the hit names it.
 func (g *oGen) wrap(x *oType) *oType {
@@ -282,6 +284,8 @@ func (g *oGen) wrap(x *oType) *oType {
 		return &oType{kind: oMachine, name: g.fresh("Mc"), elems: []*oType{state, signal}}
 	case "box":
 		return &oType{kind: oBox, name: g.fresh("Box"), elem: x}
+	case "phantom":
+		return &oType{kind: oPhantom, name: g.fresh("Ph"), elem: x}
 	}
 	// twin: x where the caller supplies it (F's parameter), then where it
 	// gets it (Y), in one record (batch-10 r3 T1).
@@ -324,11 +328,13 @@ func (g *oGen) param(x *oType) *oType {
 	return x
 }
 
+// oChannels are the ways item names a shape in an exported item.
+var oChannels = []string{"result", "results", "failure", "param", "needs", "needs-source", "constraint", "let", "context-result", "context-param"}
+
 // item hands out s (a shape over a target) through a random channel, with
 // the parameters ps.
 func (g *oGen) item(s *oType, ps []*oType) {
-	chans := []string{"result", "results", "failure", "param", "needs", "needs-source", "let", "context-result", "context-param"}
-	c := chans[g.r.IntN(len(chans))]
+	c := oChannels[g.r.IntN(len(oChannels))]
 	g.hits["channel "+c]++
 	sig := &oSig{params: ps, ambient: g.r.IntN(4) == 0}
 	switch c {
@@ -345,6 +351,11 @@ func (g *oGen) item(s *oType, ps []*oType) {
 		sig.needs = []*oType{g.ops(&oSig{params: []*oType{s}})}
 	case "needs-source":
 		sig.needs = []*oType{g.ops(&oSig{results: []*oType{s}})}
+	case "constraint":
+		// A type parameter that no parameter uses: only its constraint
+		// names s.
+		sig.tparams = []*oType{g.ops(&oSig{params: []*oType{s}})}
+		sig.results = []*oType{{kind: oInt}}
 	case "let":
 		g.items = append(g.items, oItem{kind: "let", name: g.fresh("Given"), t: s})
 		return
@@ -389,10 +400,14 @@ func (g *oGen) text(t *oType) string {
 			g.decls.WriteString("type " + t.name + "[E] { F func() int fails E }\n\n")
 		}
 		return t.name + "[" + g.text(t.elem) + "]"
-	case oBox:
+	case oBox, oPhantom:
 		if !g.done[t] {
 			g.done[t] = true
-			g.decls.WriteString("type " + t.name + "[T] { f T }\n\n")
+			body := "f T"
+			if t.kind == oPhantom {
+				body = "n int"
+			}
+			g.decls.WriteString("type " + t.name + "[T] { " + body + " }\n\n")
 		}
 		return t.name + "[" + g.text(t.elem) + "]"
 	}
@@ -480,11 +495,19 @@ func (g *oGen) source(hostDecl string) string {
 	for i, it := range g.items {
 		switch it.kind {
 		case "func":
-			var args []string
+			var args, tps, tas []string
 			for j := range it.sig.params {
 				args = append(args, fmt.Sprintf("p%d", j))
 			}
-			fmt.Fprintf(&b, "func %s%s { %s(%s) }\n\n", it.name, g.sigText(it.sig), it.name, strings.Join(args, ", "))
+			for j, c := range it.sig.tparams {
+				tps = append(tps, fmt.Sprintf("T%d %s", j, g.text(c)))
+				tas = append(tas, fmt.Sprintf("T%d", j))
+			}
+			brackets, inst := "", ""
+			if len(tps) > 0 {
+				brackets, inst = "["+strings.Join(tps, ", ")+"]", "["+strings.Join(tas, ", ")+"]"
+			}
+			fmt.Fprintf(&b, "func %s%s%s { %s%s(%s) }\n\n", it.name, brackets, g.sigText(it.sig), it.name, inst, strings.Join(args, ", "))
 		case "let":
 			low := strings.ToLower(it.name)
 			fmt.Fprintf(&b, "let %s %s = %s()\n\nfunc %s() %s { %s() }\n\n", it.name, g.text(it.t), low, low, g.text(it.t), low)
@@ -642,7 +665,7 @@ func TestStdHostGuardAgreesWithOracle(t *testing.T) {
 				miss = append(miss, "word "+w)
 			}
 		}
-		for _, c := range []string{"result", "results", "failure", "param", "needs", "needs-source", "let", "context-result", "context-param"} {
+		for _, c := range oChannels {
 			if hits["channel "+c] == 0 {
 				miss = append(miss, "channel "+c)
 			}

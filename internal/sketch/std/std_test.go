@@ -873,6 +873,8 @@ func mk() int { try raise() }
 let Mk = mk
 `, []string{letMentions("Mk", "fixture.Host")}},
 		{"Host passed to a type parameter's operation", hostBase + "type Sink { Put(h Host) }\n\nfunc Give[T Sink](s T) { Give(s) }\n", give},
+		{"Host as a phantom type argument", hostBase + "type Ph[T] { n int }\n\nfunc Give() Ph[Host] { Give() }\n", give},
+		{"Host in the constraint of a type parameter no parameter uses", hostBase + "type Sink { Put(h Host) }\n\nfunc Give[T Sink]() int { 1 }\n", give},
 		{"generic function that names no Host", hostBase + "func Make[T]() T { Make[T]() }\n", nil},
 		{"Host met at a supplied position before a received one", hostBase + `type W { X Host }
 
