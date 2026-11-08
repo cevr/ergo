@@ -177,8 +177,8 @@ func TestEvidenceTestMustNameItsCase(t *testing.T) {
 		"outside": "func TestCase(t *testing.T) {\n}\n\nfunc TestElse(t *testing.T) {\n" + runs(first) + "}\n",
 		"text":    "func TestCase(t *testing.T) {\n\t// t.Run(" + strconv.Quote(first) + "\n\tt.Log(" + strconv.Quote(first) + ")\n}\n",
 	} {
+		// Serial: the subtests share the fixture's Git index.
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			writeFiles(t, root, map[string]string{"alpha/case_" + name + "_test.go": "package alpha\n\nimport \"testing\"\n\n" + body})
 			fixtureGit(t, root, "add", "alpha/case_"+name+"_test.go")
 			bad := copyMapping(value)
