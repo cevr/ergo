@@ -76,7 +76,7 @@ func TestPackageNeverWritesUnderHome(t *testing.T) {
 		"GOCACHE="+goEnv["GOCACHE"], "GOMODCACHE="+goEnv["GOMODCACHE"], "GOPATH="+goEnv["GOPATH"], "GOENV="+goEnv["GOENV"])
 	child := exec.Command(os.Args[0], "-test.count=1", "-test.v", "-test.skip=^TestPackageNeverWritesUnderHome$")
 	child.Env = env
-	stdout, stderr, code := runSmokeCommand(t, 10*processDeadline, child)
+	stdout, stderr, code := runSmokeCommand(t, child)
 	passed := regexp.MustCompile(`(?m)^--- PASS: `).FindAll(stdout, -1)
 	failed := regexp.MustCompile(`(?m)^--- FAIL: \S+`).FindAll(stdout, -1)
 	switch {
@@ -187,7 +187,7 @@ func cachedCLI(t *testing.T, binary, directory, xdg string, args ...string) (str
 	command := exec.Command(binary, args...)
 	command.Dir = directory
 	command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg)
-	stdout, stderr, code := runSmokeCommand(t, processDeadline, command)
+	stdout, stderr, code := runSmokeCommand(t, command)
 	return string(stdout), string(stderr), code
 }
 
@@ -293,7 +293,7 @@ func TestBuildWorkMapsASymlinkedSource(t *testing.T) {
 			command := exec.Command(binary, "build", c.spelling, "-o", output, "-work")
 			command.Dir = c.dir
 			command.Env = append(append(os.Environ(), "XDG_CACHE_HOME="+xdg), c.env...)
-			stdout, stderr, code := runSmokeCommand(t, processDeadline, command)
+			stdout, stderr, code := runSmokeCommand(t, command)
 			if code != 0 {
 				t.Fatalf("build: exit %d %s\n%s", code, stdout, stderr)
 			}

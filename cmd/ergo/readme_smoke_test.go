@@ -370,7 +370,7 @@ func TestReadmeSmoke(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "pay.ergo"), []byte(readmeSmokeS102Source), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, dir, "", "diagnostics", "pay.ergo")
+		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", "diagnostics", "pay.ergo")
 		if code == 0 {
 			t.Fatalf("ergo diagnostics pay.ergo exited 0\n%s", stdout)
 		}
@@ -397,7 +397,7 @@ func TestReadmeSmoke(t *testing.T) {
 			commands++
 			args := strings.Fields(command[1])
 			verbs[args[0]] = true
-			stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, workspace, "", args...)
+			stdout, stderr, code := runSmokeCLI(t, binary, workspace, "", args...)
 			if code != 0 {
 				t.Errorf("ergo %s: exit %d\n%s%s", command[1], code, stdout, stderr)
 				continue

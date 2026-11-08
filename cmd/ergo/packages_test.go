@@ -7,12 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
-
-// packagesDeadline bounds one CLI process of TestErgoPackages: a loader
-// that does not stop at an import cycle fails here, never hangs the run.
-const packagesDeadline = 60 * time.Second
 
 // TestErgoPackages is the acceptance check of 196b U3 (pkg-load): source
 // on disk becomes a program of packages through `ergo check|build|run|
@@ -27,7 +22,7 @@ func TestErgoPackages(t *testing.T) {
 	fixtures := filepath.Join(workspace, "cmd", "ergo", "testdata", "packages")
 	cli := func(t *testing.T, dir string, args ...string) (string, string, int) {
 		t.Helper()
-		stdout, stderr, code := runSmokeCLI(t, packagesDeadline, binary, dir, "", args...)
+		stdout, stderr, code := runSmokeCLI(t, binary, dir, "", args...)
 		return string(stdout), string(stderr), code
 	}
 
@@ -163,7 +158,7 @@ func TestErgoPackages(t *testing.T) {
 		}
 		command := exec.Command("go", "run", "./scripts/examples", "-ergo", binary, "tidewalk-replay")
 		command.Dir = root
-		stdout, stderr, code := runSmokeCommand(t, 5*time.Minute, command)
+		stdout, stderr, code := runSmokeCommand(t, command)
 		if code != 0 || !strings.Contains(string(stdout), "ok tidewalk-replay/basic") {
 			t.Fatalf("scripts/examples tidewalk-replay: exit %d\n%s\n%s", code, stdout, stderr)
 		}

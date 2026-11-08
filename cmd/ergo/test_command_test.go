@@ -17,7 +17,7 @@ func testRunCLI(t *testing.T, binary, directory, xdg, tmp string, args ...string
 	command := exec.Command(binary, args...)
 	command.Dir = directory
 	command.Env = append(os.Environ(), "XDG_CACHE_HOME="+xdg, "TMPDIR="+tmp)
-	stdout, stderr, code := runSmokeCommand(t, processDeadline, command)
+	stdout, stderr, code := runSmokeCommand(t, command)
 	return string(stdout), string(stderr), code
 }
 
