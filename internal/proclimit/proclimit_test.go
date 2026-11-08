@@ -86,6 +86,11 @@ func readScore(t *testing.T) int {
 func setScore(t *testing.T, n int) {
 	t.Helper()
 	fd, err := syscall.Open("/proc/self/oom_score_adj", syscall.O_WRONLY|syscall.O_CLOEXEC, 0)
+	if err == syscall.EROFS {
+		// The closure sweep mounts everything read-only, /proc too; there
+		// no score can be set, and proclimit leaves it as it is.
+		t.Skip("/proc is read-only here")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
