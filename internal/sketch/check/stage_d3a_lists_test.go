@@ -87,8 +87,8 @@ func TestRefusedListElementKeepsSiblings(t *testing.T) {
 // missing capability or an unhandled error it names is still reported.
 func TestRefusedListElementKeepsEvidence(t *testing.T) {
 	for _, tc := range []struct{ name, src, want, code string }{
-		{"needs-caller-misses-log", "func g() int needs DStore | Log { Log.Put() }\nfunc main() { _ = g() }\n", "main.Log", check.CodeMissingCap},
-		{"fails-caller-misses-c", "func g() int fails DStore | C { 1 }\nfunc main() { _ = g() }\n", "main.C", check.CodeUnhandled},
+		{"needs-caller-misses-log", "func g() int needs DStore | Log { Log.Put() }\nfunc main() { _ = g() }\n", "Log", check.CodeMissingCap},
+		{"fails-caller-misses-c", "func g() int fails DStore | C { 1 }\nfunc main() { _ = g() }\n", "C", check.CodeUnhandled},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, d := check.CheckSource(listsSource(tc.src))

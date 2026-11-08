@@ -107,7 +107,7 @@ func main() needs Console {
 	}
 	Console.Println("\(v)")
 }
-`, "S108", "main.E1 is caught twice"},
+`, "S108", "E1 is caught twice"},
 	},
 	ruleGenericValue: {
 		{"func zero[T comparable]() int { 0 }\nfunc main() needs Console {\n\tlet f = zero\n\tConsole.Println(\"\\(f())\")\n}\n", "S108", "the generic function zero is only called or instantiated"},

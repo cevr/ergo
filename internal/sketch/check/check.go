@@ -80,6 +80,8 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
+	// caught is the call a catch being checked catches (handlers.go).
+	caught   *caughtCall
 	pkg      *Package
 	imp      Importer
 	universe *Scope // the universe and the prelude

@@ -18,20 +18,20 @@ func TestRowTextInMessages(t *testing.T) {
 			src: "type Log { Put() }\ntype Store { Get() int }\n" +
 				"func k() int needs Log | Store { Log.Put()\n\tStore.Get() }\n" +
 				"func f() int needs Log | Store {\n\tlet h func() int needs Log = k\n\th()\n}\nfunc main() {}\n",
-			want: "its capability row {main.Log | main.Store} is wider than {main.Log}",
+			want: "its capability row {Log | Store} is wider than {Log}",
 		},
 		{
 			name: "function type text",
 			src: "type Log { Put() }\ntype Store { Get() int }\n" +
 				"func k() int needs Log | Store { Log.Put()\n\tStore.Get() }\n" +
 				"func f() int needs Log | Store {\n\tlet h int = k\n\th\n}\nfunc main() {}\n",
-			want: "func() int needs main.Log | main.Store",
+			want: "func() int needs Log | Store",
 		},
 		{
 			name: "error row as a set",
 			src: "type A {}\ntype B {}\ntype C {}\nfunc g() fails A | B { return A }\n" +
 				"func f() int fails C {\n\tlet x = g() catch {\n\tcase C:\n\t\t1\n\t}\n\tx\n}\nfunc main() {}\n",
-			want: "{main.A | main.B}",
+			want: "{A | B}",
 		},
 	} {
 		_, diags := check.CheckSource(tc.src)

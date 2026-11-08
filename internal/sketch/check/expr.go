@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"go/constant"
 	"regexp"
 	"strings"
@@ -112,7 +113,11 @@ func (c *checker) handled(op *operand) {
 	// Only the known part is evidence of a failure; an unknown row also
 	// makes the target's inferred row unknown, so nothing cascades from
 	// the failure it may hold (Row.unknown).
-	if known := op.errs.known(c.types); !known.Empty() {
+	if known := op.errs.known(c.types); !known.Empty() && c.caught != nil && c.caught.arg == nil && c.silent == 0 && c.caught.isArg(op.expr) {
+		// An argument of the call a catch catches: the catch reports it
+		// once, knowing whether the call itself can fail (K4, G-ex-g-1).
+		c.caught.arg, c.caught.row = op.expr, known
+	} else if !known.Empty() {
 		c.errorf(op.expr, CodeUnhandled, "the failure %s of this expression is not handled: use try, catch or return (rows.md, Error rows 3)", rowText(known))
 	}
 	if op.errs.unknown(c.types) {
@@ -161,7 +166,7 @@ func (c *checker) needValue(op *operand) {
 	case modeBuiltin:
 		c.errorf(op.expr, CodeType, "%s is only called", exprText(op.expr))
 	case modeExtern:
-		c.errorf(op.expr, CodeType, "%s", externCallOnlyText)
+		c.errorf(op.expr, CodeType, "%s", externValueText(*op))
 	case modeGeneric:
 		if ea, ok := op.obj.(*explicitArgs); ok {
 			sig := op.typ.(*Signature)
@@ -1182,8 +1187,74 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s; the prelude function %s is on %s exactly; a defined type reaches it after assignment: let %s %s = %s; then %s.%s(…)", base.typ, x.Sel.Name, x.Sel.Name, u, raw, c.localTypeText(u), exprText(x.X), raw, x.Sel.Name)
 		return bad(x)
 	}
+	if hint := c.noMethodHint(t, x, called); hint != "" {
+		c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s; %s", base.typ, x.Sel.Name, hint)
+		if id, ok := unparen(x.X).(*syntax.Ident); ok {
+			// The call the hint names may write the value (a *T first
+			// parameter): no S110 "never reassigned" follows (K4, G-ex-f-5).
+			if v, ok := c.lookup(id.Name).(*Var); ok && v.mut {
+				v.reassigned = true
+			}
+		}
+		return bad(x)
+	}
 	c.errorf(x.Sel, CodeUnknown, "%s has no field or method %s", base.typ, x.Sel.Name)
 	return bad(x)
+}
+
+// noMethodHint names the rule a dot call x.f(…) misses when the package
+// declares a function f on x's type that rule 1 of types.md Methods does
+// not reach (K4, G-ex-e-2, G-ex-f-5), with the plain call to write: f's
+// first parameter is an operation type, whose values reach only their
+// operations; or it is one instance of a generic type, where a dot call
+// needs the type's parameters. It is "" when no such function exists.
+func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) string {
+	n, ok := t.(*Named)
+	if !ok || !called || n.Obj == nil || n.Obj.Pkg == nil {
+		return ""
+	}
+	recv := exprText(x.X)
+	if recv == "this expression" {
+		recv = "x"
+	}
+	for _, f := range n.Obj.Pkg.Funcs {
+		if f.Name != x.Sel.Name || f.Sig == nil || len(f.Sig.Params) == 0 || (f.Pkg != c.pkg && !isExported(f.Name)) {
+			continue
+		}
+		first := f.Sig.Params[0].Type
+		ptr := ""
+		if p, ok := first.(*Pointer); ok {
+			first, ptr = p.Elem, "&"
+		}
+		fn, ok := first.(*Named)
+		if !ok || fn.origin() != n.origin() {
+			continue
+		}
+		rest := ""
+		if len(f.Sig.Params) > 1 {
+			rest = ", …"
+		}
+		switch {
+		case asInterface(n) != nil && c.identical(fn, n):
+			return fmt.Sprintf("%s is an operation type, so a dot call on its value reaches only its operations, and %s is a function on it: call %s(%s%s) (types.md, Methods 1)", c.localTypeText(n), f.Name, f.Name, recv, rest)
+		case n.Orig != nil && c.identical(fn, n):
+			star := ""
+			if ptr != "" {
+				star = "*"
+			}
+			var tps []string
+			for _, tp := range n.Orig.TParams {
+				tps = append(tps, tp.Name)
+			}
+			list := strings.Join(tps, ", ")
+			param := f.Sig.Params[0].Name
+			if param == "" || param == "_" {
+				param = "x"
+			}
+			return fmt.Sprintf("%s takes %s%s, one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: write func %s[%s](%s %s%s[%s]), or call %s(%s%s%s) (types.md, Methods 1)", f.Name, star, c.localTypeText(fn), f.Name, list, param, star, n.Obj.Name, list, f.Name, ptr, recv, rest)
+		}
+	}
+	return ""
 }
 
 // selfCall checks x.f where f is a package function on x's type (196m): it
@@ -1355,6 +1426,13 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 		return bad(x)
 	}
 	t := base.typ
+	if r, ok := unparen(x.Indices[0]).(*syntax.BinaryExpr); ok && r.Op == syntax.DOTDOT && (isSliceType(t) || isString(t)) {
+		// words[0..n]: one diagnostic at the index, and no mismatch of the
+		// element type where the part was meant (K4, cron's ParseTable).
+		c.orphanValues(x.Indices, mark)
+		c.errorf(x.Indices[0], CodeType, "%s is indexed by an integer, not a range: Ergo has no sub-slice expression; build the part with a loop over the range", c.localTypeText(base.typ))
+		return bad(x)
+	}
 	switch u := under(t).(type) {
 	case *Pointer:
 		// Go indexes through a pointer to an array only; Ergo has no
@@ -1390,6 +1468,12 @@ func (c *checker) index(x *syntax.IndexExpr, hint Type) operand {
 	c.errorf(x, CodeType, "cannot index %s", base.typ)
 	c.orphanValues(x.Indices, mark)
 	return bad(x)
+}
+
+// isSliceType reports a slice type, named or not.
+func isSliceType(t Type) bool {
+	_, ok := under(t).(*Slice)
+	return ok
 }
 
 // intIndex checks an index or a slice bound: an integer, where a literal

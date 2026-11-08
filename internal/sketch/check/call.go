@@ -1007,6 +1007,20 @@ func (c *checker) yieldingBlock(b *syntax.BlockStmt, list []syntax.Stmt, results
 			if need {
 				k.missing = func(end syntax.Pos) {
 					missed = true
+					var call *syntax.CallExpr
+					if k.noValue != nil {
+						call, _ = unparen(k.noValue).(*syntax.CallExpr)
+					}
+					if call != nil {
+						// The path ends in a call of a function with no
+						// result: name it, not a value to add (K4, G-ex-b-11).
+						name := exprText(call.Fun)
+						if name == "this expression" {
+							name = "this call"
+						}
+						c.errorf(call, CodeMissingRet, "%s returns nothing, and the block's value is used: use the block as a statement, without let _ = (rows.md, Totality 3)", name)
+						return
+					}
 					c.errorIn(b, end, end+1, CodeMissingRet, "this path can reach the end of the block without a value, and the block's value is used: end it with an expression, return or an else (rows.md, Totality 3)")
 				}
 			}

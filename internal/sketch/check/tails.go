@@ -85,6 +85,9 @@ type sink struct {
 	// hint is an optional body's expected type: the type a literal tail
 	// takes, never a type the branches must have (M16).
 	hint Type
+	// noValue is the tail with no value that the path missing reports
+	// ends in, while missing runs: a call that returns nothing.
+	noValue syntax.Expr
 	// joins: the branches of a value if or match, which join variants of
 	// one union to it when there is no expected type (unionJoin).
 	joins bool
@@ -259,7 +262,9 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 			// Its failures pass on from this tail (k.pass).
 			c.tail(last, NoValue)
 		}
+		k.noValue = last.X
 		k.miss(end)
+		k.noValue = nil
 		return
 	}
 	switch t := k.typ(); {
@@ -277,7 +282,7 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 		k.join = t
 	default:
 		if a, _ := c.assignability(op.typ, t); k.joins && k.want == nil && !a.ok() {
-			// Variants of one union join to it (K3; rows.md, Tail results
+			// Variants of one union join to it (K3; rows.md, Totality
 			// 3): the earlier branches' values go into it as variants, a
 			// conversion the lowering does not write (ConvVariant).
 			if u := c.unionJoin(t, op.typ); u != nil {

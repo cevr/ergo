@@ -105,7 +105,7 @@ func TestTupleReturnRepairChecks(t *testing.T) {
 	} {
 		src := prefix + "func f() (Store, int) { " + body + " }\n"
 		_, d := check.CheckSource(src)
-		if len(d) != 1 || d[0].Code != check.CodeType || !strings.HasPrefix(d[0].Message, "cannot use (main.Mem, int) as (main.Store, int) in ") || strings.Contains(d[0].Message, "write ") {
+		if len(d) != 1 || d[0].Code != check.CodeType || !strings.HasPrefix(d[0].Message, "cannot use (Mem, int) as (Store, int) in ") || strings.Contains(d[0].Message, "write ") {
 			t.Errorf("%q: want one S108 with no repair, got %s", body, describe(d))
 		}
 	}

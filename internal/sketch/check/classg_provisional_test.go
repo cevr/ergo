@@ -106,7 +106,7 @@ var provisionalRows = []struct {
 			"func keep[T, F](g H[T], f F) {}\n" +
 			"func walk() {\n\tCap.M()\n\tw() catch {\n\tcase G[int]:\n\tcase H as h:\n\t\th.keep(func() { walk() })\n\t}\n}\n" +
 			"func w() { try load(); walk() }\nfunc main() {}\n",
-		want: []string{"10:7 S108 generic type main.H needs type arguments"},
+		want: []string{"10:7 S108 generic type H needs type arguments"},
 	},
 	// The same with a use of walk that stays: the S108 names that use.
 	{
@@ -117,7 +117,7 @@ var provisionalRows = []struct {
 			"func w() { try load(); walk() }\nfunc main() {}\n",
 		want: []string{
 			"6:6 S108 walk is used as a value at 13:10 inside its own recursive group; write its capability row: func walk() needs …",
-			"10:7 S108 generic type main.H needs type arguments",
+			"10:7 S108 generic type H needs type arguments",
 		},
 	},
 	// The arm catches a row from outside the component (b5): the row is
@@ -149,7 +149,7 @@ func outer() {
 }
 func main() {}
 `,
-		want: []string{"11:7 S108 generic type main.H needs type arguments"},
+		want: []string{"11:7 S108 generic type H needs type arguments"},
 	},
 	// The arm catches a member's row (b4): the pin keeps the use and the
 	// S108 is dropped. walk's row stays pinned, so outer's Catch 2 on E
@@ -185,8 +185,8 @@ func outer() {
 func main() {}
 `,
 		want: []string{
-			"11:7 S108 generic type main.H needs type arguments",
-			"22:7 S108 main.E is not in the caught row {main.G[int]} (rows.md, Catch 2)",
+			"11:7 S108 generic type H needs type arguments",
+			"22:7 S108 E is not in the caught row {G[int]} (rows.md, Catch 2)",
 		},
 	},
 	// A local bound to a refused member is a callee whose frame the

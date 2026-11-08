@@ -21,8 +21,8 @@ func Close(_ Res) needs Log { Log.Say("closed") }
 let W = context { A: Res }
 `
 	const (
-		inferred = "the release of main.Res when this with ends requires main.Log, which is not in the inferred capability row of function g and no outer with provides it; a release runs outside the with and widens no inferred row, so write the row of function g (resources.md, Context ownership)"
-		written  = "the release of main.Res when this with ends requires main.Log, which is not in the capability row of function g and no outer with provides it; a release runs outside the with (resources.md, Context ownership)"
+		inferred = "the release of Res when this with ends requires Log, which is not in the inferred capability row of function g and no outer with provides it; a release runs outside the with and widens no inferred row, so write the row of function g (resources.md, Context ownership)"
+		written  = "the release of Res when this with ends requires Log, which is not in the capability row of function g and no outer with provides it; a release runs outside the with (resources.md, Context ownership)"
 	)
 	operands := []struct{ name, setup, op string }{
 		{"named", "", "W"},

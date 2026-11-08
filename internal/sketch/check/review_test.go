@@ -531,7 +531,7 @@ func TestTotalityCost(t *testing.T) {
 	if got := codesOf(diags); got != "S103 S108 S108" {
 		t.Fatalf("even cycle: want S103 S108 S108, got %s", describe(diags))
 	}
-	if !strings.Contains(diags[0].Message, "(main.A, main.B, main.A, main.B") && !strings.Contains(diags[0].Message, "(main.B, main.A, main.B, main.A") {
+	if !strings.Contains(diags[0].Message, "(A, B, A, B") && !strings.Contains(diags[0].Message, "(B, A, B, A") {
 		t.Fatalf("even cycle: want an alternating witness, got %s", diags[0].Message)
 	}
 }

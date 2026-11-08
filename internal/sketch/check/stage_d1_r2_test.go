@@ -2,11 +2,17 @@ package check_test
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
+
+// preludeMessage is D-D3's message, which names the prelude declaration
+// when the name alone does not say it (K4): "Task is a prelude name (the
+// prelude type Task[T, E]), which cannot be redeclared".
+var preludeMessage = regexp.MustCompile(`is a prelude name( \(the [^)]*\))?, which cannot be redeclared`)
 
 // runD1Prelude is runD1, and every S108 must be D-D3's message: another
 // S108 at the same line (a type-pattern or "compare with if" message) is
@@ -17,7 +23,7 @@ func runD1Prelude(t *testing.T, cases []d1Case) {
 	for _, tc := range cases {
 		_, d := check.CheckSource(strings.TrimPrefix(tc.src, "\n"))
 		for _, x := range d {
-			if x.Code == check.CodeType && !strings.Contains(x.Message, "is a prelude name, which cannot be redeclared") {
+			if x.Code == check.CodeType && !preludeMessage.MatchString(x.Message) {
 				t.Errorf("%s: want D-D3's message, got %s", tc.name, describe(d))
 			}
 		}

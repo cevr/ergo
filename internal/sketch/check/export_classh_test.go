@@ -495,6 +495,9 @@ func duplicatesOf(keys []string, rejected bool) []string {
 // declaration the package keeps, so its position, and what follows from
 // the kept declaration, depend on the order by definition.
 func duplicateName(msg string) (string, bool) {
+	// A duplicate function names the first-parameter rule after the fact
+	// (K4; types.md, Methods 3).
+	msg, _, _ = strings.Cut(msg, "; functions share a name only when")
 	for _, suffix := range []string{" is already declared in this package", " is already declared as a type in this package"} {
 		if name, ok := strings.CutSuffix(msg, suffix); ok {
 			return name, true

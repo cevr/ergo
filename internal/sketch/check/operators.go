@@ -334,6 +334,26 @@ func (c *checker) matchTypes(x *syntax.BinaryExpr, l, r *operand) bool {
 			return false
 		}
 	}
+	if (x.Op == syntax.MUL || x.Op == syntax.QUO) && isDuration(l.typ) && isInteger(r.typ) {
+		// #175: duration has no arithmetic with an integer yet; the
+		// conversion is the repair, not a duration literal (K4, G-ex-b-4).
+		d, n := exprText(x.X), exprText(x.Y)
+		if d == "this expression" {
+			d = "d"
+		}
+		if lit, sign, ok := signedLit(x.Y); ok {
+			n = sign + lit.Value
+		} else {
+			if n == "this expression" {
+				n = "n"
+			}
+			if !isBasic(r.typ, Int64) {
+				n = "int64(" + n + ")"
+			}
+		}
+		c.errorf(x, CodeType, "a duration is not multiplied or divided by an integer (#175); write duration(int64(%s) %s %s)", d, x.Op, n)
+		return false
+	}
 	switch ll, rl := c.isLiteral(x.X), c.isLiteral(x.Y); {
 	case ll && !rl:
 		if msg := literalMismatch(x.X, r.typ); msg != "" {

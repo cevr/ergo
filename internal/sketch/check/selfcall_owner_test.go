@@ -20,7 +20,7 @@ func main() {
 	let t = T{n: 1}
 	_ = show(t)
 }
-`, []edgeWant{{"S106", "main.T has no method show", 5}}},
+`, []edgeWant{{"S106", "T has no method show", 5}}},
 		{"an extra type parameter the signature does not use", `
 type Box[T] { v T }
 type Show { show() string }

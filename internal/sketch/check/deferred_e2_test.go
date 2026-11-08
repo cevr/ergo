@@ -33,7 +33,7 @@ func TestDeferredReportsNameTheirFile(t *testing.T) {
 				"type R {}\nfunc Show[T, T](r R) int { 1 }\n",
 			},
 			[]report{
-				{0, "[R]", 1, "main.R does not satisfy main.I: main.R.Show has a type parameter of its own, T; an operation takes none"},
+				{0, "[R]", 1, "R does not satisfy I: R.Show has a type parameter of its own, T; an operation takes none"},
 				{1, "T](r", 0, "type parameter T is declared twice"},
 			},
 		},

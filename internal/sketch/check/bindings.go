@@ -1,6 +1,10 @@
 package check
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"strings"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Bindings (check-v1 stage D1; #196, 196v amended and the eighth round):
 //
@@ -98,9 +102,44 @@ func (c *checker) preludeName(id *syntax.Ident) bool {
 	if !c.isPreludeName(id.Name) {
 		return false
 	}
-	c.errorf(id, CodeType, "%s is a prelude name, which cannot be redeclared; choose another name (#196, eighth round, item 3)", id.Name)
+	c.errorf(id, CodeType, "%s is a prelude name%s, which cannot be redeclared; choose another name (#196, eighth round, item 3)", id.Name, c.preludeDeclText(id.Name))
 	c.refuseBinder(id.Pos())
 	return true
+}
+
+// preludeDeclText names the declaration above the package that holds name,
+// " (the prelude type Task[T, E])", so the message says which declaration
+// takes it, which no file of the program shows (K4, G-ex-c-11); "" for a
+// basic type or a constant, whose name says it all.
+func (c *checker) preludeDeclText(name string) string {
+	for sc := c.pkg.Scope.parent; sc != nil; sc = sc.parent {
+		o, ok := sc.names[name]
+		if !ok {
+			continue
+		}
+		switch o := o.(type) {
+		case *TypeName:
+			switch t := o.Type.(type) {
+			case *Named:
+				text := t.Obj.Name
+				if len(t.TParams) > 0 {
+					var tps []string
+					for _, tp := range t.TParams {
+						tps = append(tps, tp.Name)
+					}
+					text += "[" + strings.Join(tps, ", ") + "]"
+				}
+				return " (the prelude type " + text + ")"
+			case *Interface:
+				return " (the predeclared constraint " + name + ")"
+			}
+		case *Func:
+			return " (the prelude function " + name + ")"
+		}
+		// A basic type or a constant (string, true) names itself.
+		return ""
+	}
+	return ""
 }
 
 // shadowed reports a local binder that reuses a name bound in an enclosing

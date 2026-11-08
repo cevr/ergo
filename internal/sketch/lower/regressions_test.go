@@ -392,7 +392,7 @@ func main() needs Console {
 	}
 }
 `,
-		code: "S108", line: 15, column: 7, message: "main.A is caught twice (rows.md, Catch 2)",
+		code: "S108", line: 15, column: 7, message: "A is caught twice (rows.md, Catch 2)",
 	}, {
 		name: "type-cases",
 		src: `type A { n int }
