@@ -107,6 +107,54 @@
       "evidence": []
     },
     {
+      "id": "effect.random.next-in-unit",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 8, "label": "next - generates a number between 0 inclusive and 1 exclusive"},
+      "behavior": "A draw of the next random number is at least 0 and below 1.",
+      "limits": "Ergo's name is Random.Float64 (std-align S2c), after Go's math/rand/v2. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) draws 1000 numbers from the host provider rand.NewHost() and 1000 from rand.Seeded(8), where Effect draws one from its default provider. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.random.next-boolean-seed",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 25, "label": "nextBoolean - is deterministic with the same seed"},
+      "behavior": "Three random booleans drawn under one seed are the same three booleans when the same seed is drawn again.",
+      "limits": "Ergo's Random has no Boolean draw, as Go's math/rand/v2 has none; the program draws Effect's nextBoolean, Random.Float64() > 0.5. Ergo's seed is a uint64 (rand.Seeded(25)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the booleans equal to the reference model, Go's r.Float64() > 0.5 on rand.New(rand.NewPCG(25, v1.RandSeedHi)). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.random.shuffle-copy",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 175, "label": "shuffle - returns a shuffled copy of all values"},
+      "behavior": "Shuffling 1, 2, 3, 4, 5 gives the same values in some order, and the input keeps its order.",
+      "limits": "Ergo's rand.Shuffle (std-align S2c) returns a new slice, as Effect's shuffle does. Ergo slices have no reference identity to compare, so Effect's notStrictEqual has no port; the subtest checks that the input is unchanged. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) checks it under rand.Seeded(175) and sorts the output with slices.Sort. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.random.shuffle-seed",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 185, "label": "shuffle - is deterministic with the same seed"},
+      "behavior": "Shuffling 1, 2, 3, 4, 5 under one seed gives the same order when the same seed is used again.",
+      "limits": "Ergo's seed is a uint64 (rand.Seeded(185)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the order equal to the reference model, Go's r.Shuffle on rand.New(rand.NewPCG(185, v1.RandSeedHi)). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.random.choice-empty",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 209, "label": "choice - fails with NoSuchElementError for an empty iterable"},
+      "behavior": "A random choice from an empty collection has no element to give.",
+      "limits": "Difference: Effect's choice fails with NoSuchElementError; Ergo's rand.Choice (std-align S2c) returns Option, and an empty slice gives None, with no failure in its row, as Ergo's slices.Min does. The caller must match None, so the empty case is still handled. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) checks the None, and that the choice draws nothing from the stream. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.random.choice-seed",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 217, "label": "choice - is deterministic with the same seed"},
+      "behavior": "Three random choices from 1, 2, 3, 4, 5 under one seed are the same three values when the same seed is used again.",
+      "limits": "Ergo's seed is a uint64 (rand.Seeded(217)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the values equal to the reference model, Go's r.IntN(5) on rand.New(rand.NewPCG(217, v1.RandSeedHi)). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
       "id": "effect.semaphore.cancelled-permit",
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Semaphore.test.ts", "line": 308, "label": "withPermits interruption does not leak permits"},
