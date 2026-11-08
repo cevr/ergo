@@ -1,5 +1,8 @@
-// Open question Q2 (recommended): an assignment's target is rooted at a
-// `let mut` name, also through fields and indexes.
+// Q2: an assignment's target is rooted at a `let mut` name, also through
+// fields and indexes. Owner q26 (2026-11-08; types.md, Bindings): a slice
+// and a Map are values, so `let mut ys = xs` and `let mut n = m` are
+// copies, and the writes below change ys and n alone, never the caller's
+// xs and m (lower TestValueRuleProbes, P4argument).
 type Order { Total int }
 
 func bump(o Order, xs []int, m Map[string, int]) int {

@@ -89,16 +89,18 @@ type Range[T ordered] { Start T, End T }
 // is an operation of the slice or Map type, not a name in a package's
 // scope, as MoonBit's fn Array::push is called xs.push(x).
 
-// Append is xs with x added at the end. Like Go's append, the result may
-// share xs's array (aliasing follows Go in v1, check-v1 Q2).
+// Append is xs with x added at the end. xs is unchanged: a slice is a
+// value (owner q26; types.md, Bindings), and the lowering appends in place
+// only for xs = xs.Append(x) or a dead xs.
 extern go ergo.local/prototype/runtime/v1.Append func Append[T](xs []T, x T) []T
 
 // Get is the value of k in m, Some{v}, or None when m has no key k: a Map
 // read may miss, so it returns an Option.
 extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K, V], k K) Option[V]
 
-// Delete is m without the key k. It changes m itself, as Go's delete does,
-// and returns it (m = m.Delete(k)).
+// Delete is m without the key k. m is unchanged: a Map is a value (owner
+// q26), and the lowering deletes in place only for m = m.Delete(k) or a
+// dead m.
 extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
 
 // Seq is an iterator: it calls yield with each value in turn and stops
