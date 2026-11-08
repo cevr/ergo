@@ -292,6 +292,22 @@ func main() {
 	use(Mine)
 }
 `,
+	// std time (S2b): NewManual's extern returns the Timeline.
+	"time.Timeline": `import time
+
+type Mine {}
+
+func Read(_ Mine) time.Reading { time.Reading{Sec: 0, Nsec: 0, Mono: 0} }
+func Wait(_ Mine, d duration) {}
+func Advance(_ Mine, d duration) {}
+func Sleepers(_ Mine) int { 0 }
+
+func use(l time.Timeline) { _ = l.Sleepers() }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Task": `type Fault {}
 type Mine {}
 
@@ -324,11 +340,14 @@ func pass(m Mine) {
 	use(m)
 }
 `,
-	"prelude.Clock": `type Mine {}
+	// std time (S2b): the prelude's Clock moved here, with Now() time.Time.
+	"time.Clock": `import time
 
-func Now(_ Mine) int64 { 0 }
+type Mine {}
 
-func use(c Clock) { _ = c.Now() }
+func Now(_ Mine) time.Time { time.Unix(0, 0) }
+
+func use(c time.Clock) { _ = c.Now() }
 
 func main() {
 	use(Mine)
@@ -419,7 +438,7 @@ var unexportedStd = map[string]string{
 var openStd = map[string]bool{
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
-	"prelude.Clock":     true,
+	"time.Clock":        true,
 	"prelude.Random":    true,
 	"os.Process":        true,
 	"fs.Files":          true,

@@ -53,6 +53,11 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			}
 			return "*" + l.rt() + "." + obj.Name
 		}
+		// A closed union of std records, such as time.Layout: a
+		// declaration of the program, as the prelude's Option is. Its
+		// variants are std records, each the runtime's struct or a
+		// declaration of the program by the rule above.
+		return ""
 	}
 	// Every std type is a record or an operation type
 	// (TestStdTypesHaveRuntimeForms).

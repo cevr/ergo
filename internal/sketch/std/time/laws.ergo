@@ -1,0 +1,36 @@
+// The algebra of instants (std-align S2b). The ledger in
+// docs/spec/stdlib.md names the Go test that runs each law until #162.
+
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int64, lo int64, hi int64) int64 {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
+// anyYear is n moved into the seconds RFC 3339 writes: the first second
+// of year 1 to the last second of year 9999.
+func anyYear(n int64) int64 { within(n, -62135596800, 253402300799) }
+
+// FormatParseRoundTrip: Parse reads back the instant Format writes in
+// RFC3339Nano, for every second of years 1 to 9999 and every nanosecond.
+law FormatParseRoundTrip(sec int64, nsec int64) {
+	let t = Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch {
+	case ParseError:
+		return false
+	}
+	back.Equal(t) && back == t
+}
+
+// SubAddInverse: t.Add(d).Sub(t) is d, for a d that keeps t.Add(d) in
+// range.
+law SubAddInverse(sec int64, nsec int64, n int64) {
+	let t = Unix(anyYear(sec), nsec)
+	let d = duration(within(n, -4000000000000000000, 4000000000000000000))
+	t.Add(d).Sub(t) == d
+}

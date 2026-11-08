@@ -196,7 +196,7 @@ type Orders {
 
    This keeps decision #102: a capability is an ordinary interface bound by `context`, and only the ambient binding is second-class. The checker implements both roles (README Gap 29), and the lowering runs both. *Prior art:* Effect separates a service's tag, the requirement, from a service value; Scala 3 capture checking treats capabilities apart from their types.
 4. A capability method's signature carries its error row. A capability or interface method writes no capability row (S108), because a provider's requirements are captured at construction (README Gap 17).
-5. The prelude capabilities `Console`, `Clock`, `Scheduler` and `Random` are ordinary interfaces bound by `context` (decision #102). The prelude (`internal/sketch/std/prelude.ergo`) declares them with the methods the fixtures and the corpus call, provisionally until [#209](https://github.com/cevr/ergo/issues/209) fixes their method sets.
+5. The prelude capabilities `Console`, `Scheduler` and `Random`, and std `time.Clock`, are ordinary interfaces bound by `context` (decision #102). The prelude (`internal/sketch/std/prelude.ergo`) declares its three with the methods the fixtures and the corpus call, provisionally until [#209](https://github.com/cevr/ergo/issues/209) fixes their method sets. `Clock` was a prelude capability whose `Now` returned an `int64` with no unit; it is `time.Clock` with `Now() time.Time` since std-align S2b, because the prelude cannot name a std type ([stdlib.md, time](stdlib.md#time)).
 6. An interface is also a generic constraint, with Go's method-set rules.
 
 ## Methods
@@ -326,7 +326,7 @@ Status: **declared** in the embedded prelude (`internal/sketch/std/prelude.ergo`
 - `Range[T] { Start T, End T }`, the value of `a..b`, and `Seq[T]`, an iterator ([Loops and len](#loops-and-len)).
 - `Task[T, E]`, a resource ([runtime.md](runtime.md#tasks)).
 - `Decision[S, O]` with `Enter`, `Stay`, `Ignore`, `Reject` and `Done` ([runtime.md](runtime.md#machines-and-actors)).
-- The capabilities `Clock`, `Scheduler`, `Random` and `Console`.
+- The capabilities `Scheduler`, `Random` and `Console` (`Clock` is `time.Clock`).
 
 ## Laws
 

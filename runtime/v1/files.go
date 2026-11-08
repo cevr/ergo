@@ -91,6 +91,19 @@ const PureMark = "//ergo:pure"
 // is marked pure: packages that compute on values and reach no host state.
 var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math"}
 
+// PureImportHostMembers are the Go packages, beyond PureImports, that the
+// file of a marked body may import, each with its members that read host
+// state: the marked body may not name one, as a package member or as a
+// method (std-align S2b). Go's time computes on instants and durations,
+// but these read the host's clock, arm its timers or read its zone: Parse
+// reads the local zone for a zone abbreviation, so a pure body parses with
+// ParseInLocation and UTC. They stay out of PureImports, which is also the
+// list a user extern may bind (check, G9): a user extern binds a whole
+// package, so no member could be refused there.
+var PureImportHostMembers = map[string][]string{
+	"time": {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"},
+}
+
 // TypeParam is one Go type parameter of a body: its name and its
 // constraint as written (any, comparable).
 type TypeParam struct {
@@ -297,8 +310,9 @@ func pureMarked(fn *ast.FuncDecl) bool {
 // pureRefusal is why the marked body g, of shape b, may not be pure, or "".
 // The mark is a reviewed claim; these rules are its mechanical part. The
 // body is a top-level function that takes no hidden argument and no
-// function. Its file imports only PureImports, so no host package is in
-// reach. Its body names no function or variable of this package at top
+// function. Its file imports only PureImports and the packages of
+// PureImportHostMembers, and the body names none of those packages'
+// host-reading members, so no host state is in reach. Its body names no function or variable of this package at top
 // level, so it reaches no other body and no package state; and it starts no
 // goroutine and uses no channel.
 func pureRefusal(g goDecl, b Body) string {
@@ -306,7 +320,7 @@ func pureRefusal(g goDecl, b Body) string {
 		return "it is a method; only a function may be pure"
 	}
 	for _, p := range g.imports {
-		if !slices.Contains(PureImports, p) {
+		if _, guarded := PureImportHostMembers[p]; !slices.Contains(PureImports, p) && !guarded {
 			return fmt.Sprintf("its file imports %s, which is not in %v", p, PureImports)
 		}
 	}
@@ -318,21 +332,32 @@ func pureRefusal(g goDecl, b Body) string {
 			return fmt.Sprintf("its parameter %d is a function, whose code is unknown", i+1)
 		}
 	}
+	var host []string
+	for _, p := range g.imports {
+		host = append(host, PureImportHostMembers[p]...)
+	}
 	why := ""
-	ast.Inspect(g.fn.Body, func(n ast.Node) bool {
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
 		if why != "" {
 			return false
 		}
 		switch x := n.(type) {
 		case *ast.SelectorExpr:
+			if slices.Contains(host, x.Sel.Name) {
+				why = fmt.Sprintf("its body names %s, which reads host state (PureImportHostMembers)", x.Sel.Name)
+				return false
+			}
 			// x.Sel names a field, a method or an imported package's
-			// member, never a top-level name of this package.
-			ast.Inspect(x.X, func(n ast.Node) bool { return why == "" && pureNode(n, g.values, &why) })
+			// member, never a top-level name of this package; x.X is
+			// walked by the same rules, nested selectors included.
+			ast.Inspect(x.X, visit)
 			return false
 		default:
 			return pureNode(n, g.values, &why)
 		}
-	})
+	}
+	ast.Inspect(g.fn.Body, visit)
 	return why
 }
 

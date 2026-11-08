@@ -1,0 +1,96 @@
+// Clock reads the current time (Effect Clock, Go time.Now). It was the
+// prelude's Clock, whose Now returned an int64 with no unit; the prelude
+// cannot name a std type, so Clock moved here with Now() Time (std-align
+// S2b, owner question 1).
+type Clock {
+	Now() Time,
+
+	// NowNeverFalls: a later read is never before an earlier one. It holds
+	// because a clock's Time carries a monotonic reading, and Before
+	// compares by it.
+	law NowNeverFalls() {
+		let first = Now()
+		let second = Now()
+		!second.Before(first)
+	},
+}
+
+// Since is the time passed since t, by the Clock in the context:
+// Clock.Now().Sub(t).
+func Since(t Time) duration needs Clock { Clock.Now().Sub(t) }
+
+// Host is the host's Clock provider. Its field gives this package the
+// construction authority, so only NewHost makes one.
+type Host { live hostOnly }
+
+// hostOnly is the zero-size type of Host's field.
+type hostOnly {}
+
+// NewHost is the host's Clock provider. It needs Ambient: only code whose
+// row holds the authority to choose the host makes one (docs/spec/
+// stdlib.md, Host packages).
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
+
+// Now is one read of the host's clock, with its monotonic reading.
+func Now(_ Host) Time {
+	let r = hostNow()
+	read(r.Sec, r.Nsec, r.Mono)
+}
+
+extern go ergo.local/prototype/runtime/v1.TimeHostNow func hostNow() Reading
+
+// Manual is a test provider of both Clock and Scheduler (Effect TestClock,
+// Go testing/synctest): its time moves only when Advance moves it, and a
+// Sleep returns when Advance reaches its deadline. Every copy of a Manual
+// shares one timeline. Bind one value for both capabilities:
+// `let m = time.NewManual(t0)` then `context { time.Clock: m, Scheduler: m }`.
+type Manual { line Timeline }
+
+// Timeline is the state a Manual shares between its copies. Only NewManual
+// makes one.
+type Timeline {
+	// Read is the time now.
+	Read() Reading,
+	// Wait suspends the calling task until the time is d past the time it
+	// began; d of zero or less returns at once. A stop of the task ends it.
+	Wait(d duration),
+	// Advance moves the time forward by d and wakes each sleeper whose
+	// deadline it reaches, in deadline order. A negative d is a defect.
+	Advance(d duration),
+	// Sleepers is the number of tasks in Wait.
+	Sleepers() int,
+
+	// AdvanceMovesRead: Advance(d) moves the monotonic reading by d, for a
+	// d of zero or more.
+	law AdvanceMovesRead(n int64) {
+		let d = duration(within(n, 0, 1099511627775))
+		let before = Read()
+		Advance(d)
+		Read().Mono-before.Mono == int64(d)
+	},
+}
+
+// NewManual is a Manual whose time is sec seconds after January 1, 1970
+// UTC, with no sleepers. It takes the Unix seconds, not a Time: a function
+// whose first parameter is a Time never reaches the host's state
+// (TestStdHostProvidersHaveAuthority), and a Manual's timeline is state.
+func NewManual(sec int64) Manual { Manual{line: newTimeline(sec, 0)} }
+
+// Now is the Manual's time. Its monotonic reading is the time Advance has
+// moved it since NewManual.
+func Now(m Manual) Time {
+	let r = m.line.Read()
+	read(r.Sec, r.Nsec, r.Mono)
+}
+
+// Sleep suspends the calling task until Advance moves the time d past now.
+func Sleep(m Manual, d duration) { m.line.Wait(d) }
+
+// Advance moves the time forward by d, waking each sleeper whose deadline
+// it reaches. A negative d is a defect: time never falls.
+func Advance(m Manual, d duration) { m.line.Advance(d) }
+
+// Sleepers is the number of tasks asleep on m.
+func Sleepers(m Manual) int { m.line.Sleepers() }
+
+extern go ergo.local/prototype/runtime/v1.NewTimeline func newTimeline(sec int64, nsec int64) Timeline

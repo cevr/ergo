@@ -117,6 +117,20 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesEqual":          {},
 	"CmpCompare":           {},
 	"CmpLess":              {},
+	// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
+	// host clock and the others compute, so none waits; Timeline.Wait
+	// waits on the caller's task (rt.Sleep on the manual timeline), and
+	// Advance wakes sleepers without waiting.
+	"TimeHostNow":       {},
+	"TimeFormat":        {},
+	"TimeParse":         {},
+	"TimeSub":           {},
+	"TimeSubMono":       {},
+	"NewTimeline":       {},
+	"Timeline.Read":     {},
+	"Timeline.Wait":     {wait: callerWait},
+	"Timeline.Advance":  {},
+	"Timeline.Sleepers": {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},

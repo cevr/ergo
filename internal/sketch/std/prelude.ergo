@@ -1,8 +1,10 @@
 // The prelude of the language (docs/spec/stdlib.md, Prelude). It is
 // ordinary Ergo source, checked by internal/sketch/check like any other
 // package; its exported names are in scope in every package without an
-// import. The operation sets of the four capabilities are provisional: they
-// hold only what the fixtures and the v0 corpus call (#209).
+// import. The operation sets of the capabilities are provisional: they
+// hold only what the fixtures and the v0 corpus call (#209). Clock is in
+// std time (time.Clock), because its Now returns a time.Time, which the
+// prelude cannot name (std-align S2b).
 
 // Console writes lines to the host's standard output. Println writes one
 // line; several values are one interpolated string, "\(a) \(b)".
@@ -22,7 +24,7 @@ type Ambient {
 }
 
 // Scheduler suspends the calling task.
-// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the law SleepAdvancesNow needs a Clock beside it and goes on the time.Manual pair (std-align S2b).
+// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the sleep laws are on time.Manual, which provides Scheduler and time.Clock together (TestManualClockModel).
 type Scheduler {
 	Sleep(d duration),
 }
@@ -33,12 +35,6 @@ type LiveScheduler {}
 
 // Sleep suspends the calling task for d on the host's clock.
 extern go ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d duration)
-
-// Clock reads the current time.
-// law-exempt: Now has no unit and no monotonic meaning yet, and a wall clock can fall, so NowNeverFalls is false for a live provider; std-align S2b gives Now a monotonic meaning and adds the law.
-type Clock {
-	Now() int64,
-}
 
 // Random draws random numbers.
 type Random {

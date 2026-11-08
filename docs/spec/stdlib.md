@@ -34,7 +34,7 @@ Out of scope for now: durable workflows.
 
 ## Prelude
 
-The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console` and `Ambient`. `Ambient` is the authority to choose the host, which only the entry provides ([Host packages](#host-packages)). Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The same holds for a prelude function on a prelude type, which is that type's operation (196m): `Sleep` is `LiveScheduler`'s, reached as `LiveScheduler.Sleep(d)` or through a context that binds `Scheduler: LiveScheduler`. A bare `Sleep(…)` is S104 naming the dot form, and a program may declare its own Scheduler provider with its own `func Sleep(s Instant, d duration)` (checker-fixes prelude-scope S1). `check.IsPredeclared` reports the names the prelude and the universe predeclare, for tools such as bind-c. The four capabilities are ordinary interfaces bound by `context` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
+The prelude is in scope in every package without an import: `Option`, `Range`, `Seq`, `Task`, `Decision`, `Scheduler`, `Random`, `Console` and `Ambient` (`Clock` is `time.Clock` since std-align S2b; [time](#time)). `Ambient` is the authority to choose the host, which only the entry provides ([Host packages](#host-packages)). Its functions on slice and Map types, `Append`, `Get` and `Delete` (below, Slices and Maps), are in no scope: they are reached only by the dot form, `xs.Append(x)`, so a package may declare its own function of the same name (check-v1 D-D6, D-D8). The same holds for a prelude function on a prelude type, which is that type's operation (196m): `Sleep` is `LiveScheduler`'s, reached as `LiveScheduler.Sleep(d)` or through a context that binds `Scheduler: LiveScheduler`. A bare `Sleep(…)` is S104 naming the dot form, and a program may declare its own Scheduler provider with its own `func Sleep(s Instant, d duration)` (checker-fixes prelude-scope S1). `check.IsPredeclared` reports the names the prelude and the universe predeclare, for tools such as bind-c. The capabilities are ordinary interfaces bound by `context` (decision #102), so a test replaces any of them ([#209](https://github.com/cevr/ergo/issues/209)).
 
 ## v1 packages: task, scope, queue and slice
 
@@ -131,6 +131,31 @@ Std `slices`, `maps` and `cmp` (std-align S2a) follow Go's packages of the same 
 
 *Prior art:* Go's `slices`, `maps` and `cmp`, whose names these keep; Effect's `Array.map`, `filter`, `reduce`, `sort` with an `Order`, `findFirst` and `head` returning `Option`; Gleam's `gleam/list` (`map`, `filter`, `fold`, `sort` with a comparator, `first` returning `Result`) binds Erlang's `lists:sort` as an external, as `slices.Sort` binds Go's; Elixir's `Enum.map`, `Enum.sort_by` (stable) and `Enum.max` (raises on empty, unlike `Max` here); ReScript's `Belt.Array` returns new arrays and `option` for a missing element.
 
+## time
+
+Std `time` (std-align S2b) follows Go's `time` package for names and meaning, and Effect's `Clock` and `TestClock` for the capability and the test provider. `TestTimeRuns` (lower) runs each function; the laws are in `time/clock.ergo` and `time/laws.ergo`, with their rows in [Std laws](#std-laws).
+
+| Name | Signature | Go body |
+| --- | --- | --- |
+| `Time` | record with unexported fields: Unix seconds, nanoseconds, and a monotonic reading when a clock made it | none |
+| `Unix`, `UnixSeconds`, `Nanosecond` | `Unix(sec int64, nsec int64) Time` (nsec carried into the seconds, as Go's); `UnixSeconds(t Time) int64` (Go's `t.Unix()`); `Nanosecond(t Time) int64` | Ergo |
+| `Add`, `Sub`, `Before`, `After`, `Equal` | `Add(t Time, d duration) Time`; `Sub(t Time, u Time) duration` (saturated, as Go's); `Before`, `After`, `Equal(t Time, u Time) bool` | Ergo over `TimeSub`, `TimeSubMono` |
+| `Layout` | `RFC3339 \| RFC3339Nano \| DateTime \| DateOnly \| TimeOnly \| Custom{Text}`; `LayoutText(l Layout) string` | Ergo |
+| `Format`, `Parse` | `Format(t Time, layout Layout) string`; `Parse(layout Layout, value string) Time fails ParseError` | `TimeFormat`, `TimeParse` (timetext.go) |
+| `Clock` | `Clock { Now() Time }` with the law `NowNeverFalls`; `Since(t Time) duration needs Clock` | none |
+| `Host` | the host's `Clock`: `NewHost() Host needs Ambient`; `Now(_ Host) Time` | `TimeHostNow` (time.go) |
+| `Manual` | a test `Clock` and `Scheduler`: `NewManual(sec int64) Manual`; `Now`, `Sleep(m Manual, d duration)`, `Advance(m Manual, d duration)`, `Sleepers(m Manual) int` | `Timeline` over `rt.Virtual` (time.go) |
+
+1. **Clock moved.** The prelude's `Clock { Now() int64 }` had no unit and no law. The prelude cannot name a std type, so `Clock` is `time.Clock` with `Now() time.Time` (owner question 1, its fallback). `Scheduler` and `LiveScheduler` stay in the prelude.
+2. **Monotonic reading.** A Time that a clock read carries a monotonic reading, as Go's does. `Sub`, `Before`, `After` and `Equal` use it when both times have one, so `NowNeverFalls` holds on the host when the wall clock is set back. `Format` and `Parse` use the wall reading only. `==` compares the monotonic reading too, as Go's `==` does: compare instants with `Equal`.
+3. **UTC only.** `Format` writes in UTC, and `Parse` reads a zone abbreviation against UTC (`time.ParseInLocation` with `time.UTC`). Neither reads the host's zone, so their bodies are pure ([Pure bodies](#pure-bodies)), and the text of a program does not depend on the host.
+4. **Layouts are a union.** A std package has no package-level `let` that the lowering can emit yet, so the named layouts are the variants of `Layout`, and `Custom{Text}` holds any other Go layout. A `match` over a Layout covers every layout.
+5. **ParseError.** `Parse` fails `ParseError { Layout, Value, Message }`, with Go's message. It is not named `Malformed`: the lowering keys a std record's Go type by its bare name, so a `time.Malformed` would be `strconv.Malformed`'s Go type (std-keys S3b).
+6. **Manual.** Its time moves only by `Advance`; a `Sleep` returns when `Advance` reaches its deadline, and a stop of the sleeping task ends the sleep and removes it. Copies of a Manual share one timeline. Bind one value for both capabilities: `context { time.Clock: m, Scheduler: m }`. `NewManual` takes Unix seconds, not a Time, because a function whose first parameter is a Time must not reach state (`TestStdHostProvidersHaveAuthority`). `TestManualClockModel` (runtime/v1) checks it against a reference model over 500 seeds.
+7. **Laws and runners.** `TestStdTimeLawsRun` (lower) restates `FormatParseRoundTrip`, `SubAddInverse` and `Timeline.AdvanceMovesRead` as Ergo property tests. `TestTimeLaws` (runtime/v1) runs `NowNeverFalls` on the host clock and checks the round trip over 10,000 seconds of years 1 to 9999 against Go's own `time`. A sleep law (`SleepAdvancesNow`) needs a task beside the Manual, and a std package cannot import `task` yet (a std-to-std import deadlocks the checker), so `TestManualClockModel` holds it.
+
+*Prior art:* Go's `time` (monotonic readings in `time.Time`, `testing/synctest`'s fake clock); Effect's `Clock` service and `TestClock.adjust`; Gleam's `gleam/time` keeps instants as seconds and nanoseconds in UTC and formats RFC 3339 only; Elixir's `DateTime` is UTC-first and its `System.monotonic_time` is separate from wall time; ReScript binds JavaScript's `Date`.
+
 ## Pure bodies
 
 A std extern whose `runtime/v1` Go body is marked pure is transparent in footprints (wave std-1, unit G5b; [rows.md, Footprints](rows.md#footprints)). A call of it adds no capability, no task start and no opacity, so a function that calls `strings.TrimSpace` has the footprint of one that calls nothing: empty, with no entry poll. Every other extern call stays opaque.
@@ -138,7 +163,8 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 1. The mark is the directive line `//ergo:pure` in the doc comment of an exported top-level function of `runtime/v1`. `v1.BodyOf` reads it and reports `Body.Pure`; the checker's footprint (`check/footprint.go`, `runs`) reads only that fact.
 2. The mark is a reviewed claim. `BodyOf` refuses a marked body, with an error that names the rule, when:
    - it is a method;
-   - its file imports a package outside `v1.PureImports`: `strings`, `strconv`, `unicode/utf8`, `slices`, `sort`, `math`;
+   - its file imports a package outside `v1.PureImports` (`strings`, `strconv`, `unicode/utf8`, `slices`, `sort`, `math`) and outside `v1.PureImportHostMembers` (`time`, std-align S2b);
+   - its body names a member of a `PureImportHostMembers` package that reads host state, as a package member or a method of that name: for `time`, `Now`, `Since`, `Until`, `Sleep`, `After`, `AfterFunc`, `Tick`, `NewTicker`, `NewTimer`, `Local`, `LoadLocation` and `Parse` (which reads the local zone for an abbreviation). `time` is not in `PureImports`, which is also the user extern list (G9): a user extern binds a whole package, so it could bind `time.Now`;
    - it takes a hidden argument (the frame, the call site, the task, the Scheduler, the reading package);
    - it takes a function, whose code is unknown;
    - its body names a top-level function or variable of `runtime/v1` (so it reaches no other body and no package state), starts a goroutine or uses a channel. A local name that shadows a top-level one is refused too.
@@ -158,7 +184,7 @@ The std states its guarantees as laws (owner, 2026-11-06; std-align S1a). The ru
 3. A law is checked, not run, until [#162](https://github.com/cevr/ergo/issues/162) runs laws ([types.md, Laws](types.md#laws) 10), and it adds no Go to any build (Laws 11; lower `TestStdLawsAddNoGo`). Until #162, the table below names, for each law, the Go test that runs it now. A runner restates the law over the std's providers with seeded cases. `#162` stands only for a law that no Go test can run, such as a law on a type that the std provides no provider of, and its state is `checked`; a law with a Go runner is `tested`.
 4. Each law of std source has exactly one row. The Statement is the law's source text from its name to its closing brace, each run of white space made one space. `TestStdLawLedger` holds both, and that each runner is a `func Test…` that the repository declares. `TestStdLawsRun` (lower) restates every law whose runner it is as an Ergo test of the same name, and runs them with `--seed 1`, as `ergo test --seed 1` does.
 
-The exempt types and their reasons are in their doc comments: `Console` and `Ambient` have no read, `Scheduler` has no clock to observe a sleep by, and `Clock` has no monotonic meaning yet (std-align S2b).
+The exempt types and their reasons are in their doc comments: `Console` and `Ambient` have no read, and `Scheduler` has no clock to observe a sleep by. `Clock` moved to std `time` with `Now() time.Time` and the law `NowNeverFalls` (std-align S2b).
 
 | Package | Law | Statement | Runner | State |
 | --- | --- | --- | --- | --- |
@@ -196,6 +222,10 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `slices` | `TransformIdentity` | `TransformIdentity(xs []int) { Equal(Transform(xs, func(x int) int { x }), xs) }` | `TestStdSlicesLawsRun` | tested |
 | `task` | `StopIsIdempotent` | `StopIsIdempotent() { let t = Go() { LiveScheduler.Sleep(1h) 0 } t.Stop() t.Stop() true }` | `TestStdLawsRun` | tested |
 | `task` | `WaitReturnsTheBlock` | `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }` | `TestStdLawsRun` | tested |
+| `time` | `Clock.NowNeverFalls` | `NowNeverFalls() { let first = Now() let second = Now() !second.Before(first) }` | `TestTimeLaws` | tested |
+| `time` | `FormatParseRoundTrip` | `FormatParseRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch { case ParseError: return false } back.Equal(t) && back == t }` | `TestStdTimeLawsRun` | tested |
+| `time` | `SubAddInverse` | `SubAddInverse(sec int64, nsec int64, n int64) { let t = Unix(anyYear(sec), nsec) let d = duration(within(n, -4000000000000000000, 4000000000000000000)) t.Add(d).Sub(t) == d }` | `TestStdTimeLawsRun` | tested |
+| `time` | `Timeline.AdvanceMovesRead` | `AdvanceMovesRead(n int64) { let d = duration(within(n, 0, 1099511627775)) let before = Read() Advance(d) Read().Mono - before.Mono == int64(d) }` | `TestStdTimeLawsRun` | tested |
 | `timeout` | `DeadlineFirstExpires` | `DeadlineFirstExpires() { with context { Scheduler: LiveScheduler } { After(1ms) { LiveScheduler.Sleep(1h) false } catch { case Expired: true } } }` | `TestStdLawsRun` | tested |
 | `timeout` | `QuickBodyWins` | `QuickBodyWins(n int) { with context { Scheduler: LiveScheduler } { try After(1h) { n } == n } }` | `TestStdLawsRun` | tested |
 | `trace` | `InnerSpanShadows` | `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |

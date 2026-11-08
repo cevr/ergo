@@ -582,7 +582,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 		}
 	}
 	slices.Sort(found)
-	if want := []string{"fs.Host", "os.Host", "prelude.LiveScheduler"}; !slices.Equal(found, want) {
+	if want := []string{"fs.Host", "os.Host", "prelude.LiveScheduler", "time.Host"}; !slices.Equal(found, want) {
 		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
 	}
 	for name, unit := range unguardedHosts {

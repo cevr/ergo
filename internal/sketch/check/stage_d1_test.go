@@ -169,7 +169,7 @@ func TestPreludeNamesCannotBeRedeclared(t *testing.T) {
 		// a program declares its own group of that name.
 		{"same-named-functions", "type A {}\ntype B {}\nfunc Sleep(a A) {}\nfunc Sleep(b B) {}\n", nil},
 		{"package-let", "let Console = 1\n", []string{"S108:1"}},
-		{"context", "type Store { Get() int }\ntype Mem {}\nfunc Get(m Mem) int { 1 }\nlet Clock = context { Store: Mem }\nfunc f() int { with Clock { Store.Get() } }\n", []string{"S108:4"}},
+		{"context", "type Store { Get() int }\ntype Mem {}\nfunc Get(m Mem) int { 1 }\nlet Random = context { Store: Mem }\nfunc f() int { with Random { Store.Get() } }\n", []string{"S108:4"}},
 		{"import-alias", "import string timeout\nfunc f() string.Expired { string.Expired }\nfunc g(n string.Expired) {}\n", []string{"S108:1"}},
 		{"function-type-parameter", "func g[int](x int) int { x }\n", []string{"S108:1"}},
 		{"type-type-parameter", "type Box[bool] { V bool }\n", []string{"S108:1"}},
