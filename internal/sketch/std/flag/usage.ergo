@@ -1,5 +1,6 @@
 import strconv
 import strings
+import time
 
 // Usage is the help of s: "Usage of NAME:" (or "Usage:" with no name),
 // s.Usage on its own line when it is not empty, the flags in Defaults'
@@ -98,6 +99,8 @@ func usageOf(f Flag) string {
 		b.usage
 	case ChoiceFlag as c:
 		c.usage
+	case DurationFlag as d:
+		d.usage
 	}
 }
 
@@ -113,6 +116,8 @@ func kindOf(f Flag) string {
 		""
 	case ChoiceFlag as c:
 		strings.Join(c.choices, "|")
+	case DurationFlag:
+		"duration"
 	}
 }
 
@@ -139,6 +144,8 @@ func defaultOf(f Flag) string {
 		if b.def { " (default true)" } else { "" }
 	case ChoiceFlag as c:
 		if c.def == "" { "" } else { " (default " + strconv.Quote(c.def) + ")" }
+	case DurationFlag as d:
+		if d.def == 0ns { "" } else { " (default " + time.DurationText(d.def) + ")" }
 	}
 }
 

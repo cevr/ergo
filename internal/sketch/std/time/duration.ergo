@@ -1,0 +1,69 @@
+// Durations as text and numbers (docs/spec/stdlib.md, time 8;
+// std-duration). The language's duration type takes +, -, ordering and
+// ==; these functions give the rest of Go's Duration: its text, its
+// parse, a product and a quotient by an int, and a count of whole units.
+// Each binds a pure runtime/v1 body (timetext.go).
+
+// ParseDuration is the duration s writes, by Go's time.ParseDuration: an
+// optional sign, then one or more decimal numbers, each with an optional
+// fraction and a unit (ns, us, µs, μs, ms, s, m, h), such as "1h30m",
+// "-1.5s" or "300ms"; "0" needs no unit. Any other text, or a duration
+// past the range, fails ParseError with an empty Layout, s as Value and
+// Go's message.
+extern go ergo.local/prototype/runtime/v1.TimeParseDuration func ParseDuration(s string) duration fails ParseError
+
+// DurationText is d as Go's Duration.String writes it: "1h2m3.5s",
+// "1.5ms", "0s". ParseDuration reads it back to d.
+extern go ergo.local/prototype/runtime/v1.TimeDurationText func DurationText(d duration) string
+
+// Times is d n times over. A product past the range of a duration is the
+// largest duration of its sign, where Go's d * time.Duration(n) wraps
+// (Effect's Duration.times is unbounded).
+extern go ergo.local/prototype/runtime/v1.TimeTimes func Times(d duration, n int) duration
+
+// Divide is d / n, toward zero, as Go's d / time.Duration(n). The one
+// quotient past the range, the smallest duration over -1, is the largest
+// duration; an n of 0 is a defect, as Go's division panics.
+extern go ergo.local/prototype/runtime/v1.TimeDivide func Divide(d duration, n int) duration
+
+// Count is how many whole units d holds, toward zero: Go's
+// int(d / unit), so Count(d, 1ms) is d.Milliseconds(). A unit of 0ns is a
+// defect.
+extern go ergo.local/prototype/runtime/v1.TimeCount func Count(d duration, unit duration) int
+
+// DurationTextRoundTrips: ParseDuration reads DurationText's text of d
+// back to d.
+law DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) == d }
+
+// DivideInvertsTimes: dividing a product by its factor gives the duration
+// back when the product is in range (d is at most 2^63/10^6 and n at most
+// 1000 apart from 0).
+law DivideInvertsTimes(d duration, n int) {
+	let small = Divide(d, 1000000)
+	let k = n % 1000
+	if k == 0 {
+		return true
+	}
+	Divide(Times(small, k), k) == small
+}
+
+// TimesKeepsTheSign: a product is zero when a factor is, and otherwise has
+// the sign of its factors, also past the range, where a wrapped product
+// would not.
+law TimesKeepsTheSign(d duration, n int) {
+	let p = Times(d, n)
+	if d == 0ns || n == 0 {
+		return p == 0ns
+	}
+	(p > 0ns) == ((d > 0ns) == (n > 0))
+}
+
+// CountIsWholeUnits: for d and a unit above zero, Count units fit in d and
+// one more does not.
+law CountIsWholeUnits(d duration, unit duration) {
+	if d < 0ns || unit <= 0ns {
+		return true
+	}
+	let c = Count(d, unit)
+	Times(unit, c) <= d && d-Times(unit, c) < unit
+}

@@ -143,11 +143,17 @@ var runtimeBindings = map[string]runtimeBinding{
 	// host clock and the others compute, so none waits; Timeline.Wait
 	// waits on the caller's task (rt.Sleep on the manual timeline), and
 	// Advance wakes sleepers without waiting.
-	"TimeHostNow":       {},
-	"TimeFormat":        {},
-	"TimeParse":         {},
-	"TimeSub":           {},
-	"TimeSubMono":       {},
+	"TimeHostNow": {},
+	"TimeFormat":  {},
+	"TimeParse":   {},
+	"TimeSub":     {},
+	"TimeSubMono": {},
+	// std-duration: pure bodies of duration text and arithmetic.
+	"TimeParseDuration": {},
+	"TimeDurationText":  {},
+	"TimeTimes":         {},
+	"TimeDivide":        {},
+	"TimeCount":         {},
 	"NewTimeline":       {},
 	"Timeline.Read":     {},
 	"Timeline.Wait":     {wait: callerWait},

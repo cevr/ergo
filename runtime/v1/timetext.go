@@ -66,3 +66,66 @@ func TimeSubMono(a int64, b int64) time.Duration {
 	}
 	return d
 }
+
+// TimeParseDuration is Go's time.ParseDuration: a sign, then one or more
+// decimal numbers, each with an optional fraction and a unit (ns, us, µs,
+// μs, ms, s, m, h), or "0". An error is ParseError with no layout, the
+// text as Value and Go's message.
+//
+//ergo:pure
+func TimeParseDuration(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, ParseError{Value: s, Message: err.Error()}
+	}
+	return d, nil
+}
+
+// TimeDurationText is Go's Duration.String: "1h2m3.5s", "1.5ms", "0s".
+//
+//ergo:pure
+func TimeDurationText(d time.Duration) string { return d.String() }
+
+// TimeTimes is d * n, saturated at the range of a duration where Go's
+// d * time.Duration(n) wraps: a product too large is the largest duration
+// of its sign, as Go's Time.Sub saturates.
+//
+//ergo:pure
+func TimeTimes(d time.Duration, n int) time.Duration {
+	if d == 0 || n == 0 {
+		return 0
+	}
+	p := d * time.Duration(n)
+	if p/time.Duration(n) == d && !(n == -1 && d == time.Duration(-1<<63)) && (p < 0) == ((d < 0) != (n < 0)) {
+		return p
+	}
+	if (d < 0) != (n < 0) {
+		return time.Duration(-1 << 63)
+	}
+	return time.Duration(1<<63 - 1)
+}
+
+// TimeDivide is d / n, toward zero, as Go's d / time.Duration(n); the one
+// quotient that overflows, the smallest duration over -1, is the largest
+// duration, where Go's wraps. An n of 0 panics, a defect, as in Go.
+//
+//ergo:pure
+func TimeDivide(d time.Duration, n int) time.Duration {
+	if n == -1 && d == time.Duration(-1<<63) {
+		return time.Duration(1<<63 - 1)
+	}
+	return d / time.Duration(n)
+}
+
+// TimeCount is how many whole units d holds, toward zero: Go's
+// int(d / unit), as d.Milliseconds() is int64(d / time.Millisecond). The
+// quotient that overflows saturates as TimeDivide's does; a unit of 0
+// panics, a defect.
+//
+//ergo:pure
+func TimeCount(d time.Duration, unit time.Duration) int {
+	if unit == -1 && d == time.Duration(-1<<63) {
+		return 1<<63 - 1
+	}
+	return int(d / unit)
+}
