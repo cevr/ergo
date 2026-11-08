@@ -1,0 +1,53 @@
+// The reference engine's tests: examples, and the Engine laws restated
+// as property tests (laws are checked, not run, #162).
+
+import regex/engine
+import regex/syntax
+
+// matches reports whether backtrack matches the tree n on text.
+func matches(n syntax.Node, text string) bool { Compile(Engine, n).Matches(text) }
+
+test MatchesByDefinition {
+	let abc = try syntax.Parse("a(b|c)*d")
+	assert matches(abc, "ad") && matches(abc, "abccbd") && !matches(abc, "abc")
+	assert matches(try syntax.Parse("(a*)*"), "aaaa")
+	assert !matches(try syntax.Parse("(a*)*b"), "aaaa")
+	assert matches(try syntax.Parse("(a|ab)(c|bcd)"), "abcd")
+	// No lazy repeats: x+? is (x+)?.
+	assert matches(try syntax.Parse("x+?"), "") && !matches(try syntax.Parse("x+"), "")
+	assert matches(try syntax.Parse("(x+)?"), "")
+}
+
+test LiteralMatchesItselfHolds(text string) {
+	assert engine.LiteralMatchesItselfHolds(Engine, text)
+}
+
+test StarMatchesEmptyHolds(seed int) {
+	for k in 0..20 {
+		assert engine.StarMatchesEmptyHolds(Engine, seed*20+k)
+	}
+}
+
+test AltIsEitherHolds(seed int, other int) {
+	for k in 0..20 {
+		assert engine.AltIsEitherHolds(Engine, seed*20+k, other+k)
+	}
+}
+
+test PlusIsOneThenStarHolds(seed int) {
+	for k in 0..20 {
+		assert engine.PlusIsOneThenStarHolds(Engine, seed*20+k)
+	}
+}
+
+test SearchFindsInsideHolds(seed int, before string, after string) {
+	for k in 0..20 {
+		assert engine.SearchFindsInsideHolds(Engine, seed*20+k, before, after)
+	}
+}
+
+test RepeatableHolds(seed int, other string) {
+	for k in 0..20 {
+		assert engine.RepeatableHolds(Engine, seed*20+k, other)
+	}
+}

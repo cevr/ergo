@@ -1,0 +1,48 @@
+// Load's tests run over fs.Files providers of the test, with no host file
+// system.
+
+import csvreport/memory
+import csvreport/report
+import fs
+
+// locked is an fs.Files where "locked.csv" is denied and "dir" is a
+// directory; any other path is a memory.Disk's.
+type locked { disk memory.Disk }
+
+func ReadFile(l locked, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	if path == "locked.csv" {
+		return fs.Denied{Path: path}
+	}
+	if path == "dir" {
+		return fs.Failed{Path: path, Reason: "is a directory"}
+	}
+	try l.disk.ReadFile(path)
+}
+
+func ReadDir(l locked, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(l locked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try l.disk.Stat(path) }
+
+// outcome is the shelf's read of name, as "text: T", "missing" or
+// "unreadable: R".
+func outcome(s memory.Shelf, name string) string {
+	let text = s.Read(name) catch {
+	case report.Missing:
+		return "missing"
+	case report.Unreadable as u:
+		return "unreadable: " + u.Reason
+	}
+	"text: " + text
+}
+
+test LoadKeepsWhatItCanRead {
+	let host = locked{disk: memory.Disk{Files: []memory.File{memory.File{Path: "a.csv", Text: "x\n"}}}}
+	with context { fs.Files: host } {
+		let s = Load([]string{"a.csv", "locked.csv", "gone.csv", "dir"})
+		assert outcome(s, "a.csv") == "text: x\n"
+		assert outcome(s, "locked.csv") == "unreadable: permission denied"
+		assert outcome(s, "gone.csv") == "missing"
+		assert outcome(s, "dir") == "unreadable: is a directory"
+		assert outcome(s, "never.csv") == "missing"
+	}
+}

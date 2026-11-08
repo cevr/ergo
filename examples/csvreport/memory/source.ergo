@@ -1,0 +1,55 @@
+// Package memory holds sales files in memory: Shelf provides
+// report.Source, and Disk provides fs.Files for tests. Std fs has no
+// in-memory Files (G-ex-f-12), so Disk is written here.
+
+import csvreport/report
+import fs
+
+// Entry is a file of a Shelf: its text, or the reason it cannot be read.
+type Entry = Readable{Name string, Text string} | Broken{Name string, Reason string}
+
+// Shelf is a report.Source of fixed entries. A name with no entry is
+// report.Missing.
+type Shelf { Entries []Entry }
+
+// Read is the text of the first entry named name.
+func Read(s Shelf, name string) string fails report.Missing | report.Unreadable {
+	for e in s.Entries {
+		match e {
+		case Readable as r:
+			if r.Name == name {
+				return r.Text
+			}
+		case Broken as b:
+			if b.Name == name {
+				return report.Unreadable{Name: name, Reason: b.Reason}
+			}
+		}
+	}
+	report.Missing{Name: name}
+}
+
+// File is one file of a Disk: its path and its text.
+type File { Path string, Text string }
+
+// Disk is an fs.Files provider of fixed files and no directories.
+type Disk { Files []File }
+
+// ReadFile is the text of the first file at path.
+func ReadFile(d Disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	for f in d.Files {
+		if f.Path == path {
+			return f.Text
+		}
+	}
+	fs.NotFound{Path: path}
+}
+
+// ReadDir fails fs.NotFound: a Disk has no directories.
+func ReadDir(d Disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+// Stat describes the file at path.
+func Stat(d Disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	let text = try d.ReadFile(path)
+	fs.Info{Name: path, Size: len(text), Dir: false}
+}

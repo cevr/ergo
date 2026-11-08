@@ -1,0 +1,2 @@
+regex: want one pattern, have 0
+usage: regex [-c] [-x] [-r] PATTERN

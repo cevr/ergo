@@ -1,0 +1,15 @@
+// The rules of the board as laws over its functions.
+
+// SampleIsSolved: every sampled solution keeps the rules.
+law SampleIsSolved(seed int) { Solves(Solution(seed), Solution(seed)) }
+
+// LineRoundTrip: a grid's line parses back to the grid.
+law LineRoundTrip(seed int, blanks int) {
+	let p = Puzzle(seed, if blanks < 0 { 0 } else { blanks % 82 })
+	Equal(try Parse(Line(p)), p)
+}
+
+// BrokenIsInconsistent: a broken puzzle holds a digit twice in a unit.
+law BrokenIsInconsistent(seed int, blanks int) {
+	!Consistent(Broken(seed, 1+(if blanks < 0 { -(blanks + 1) } else { blanks })%80))
+}

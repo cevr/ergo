@@ -1,0 +1,111 @@
+// The rules of the room as laws over Decide and Evolve.
+
+import time
+
+// RoomOf is the room after each of names joins in turn; a name that is
+// taken is skipped.
+func RoomOf(names []string) State {
+	let mut s = Start()
+	for n in names {
+		s = Apply(s, Join{Name: n}) catch {
+		case NameTaken:
+			s
+		case NotMember:
+			s
+		case RoomClosed:
+			s
+		}
+	}
+	s
+}
+
+// Apply is s after the events of sig at time zero.
+func Apply(s State, sig Signal) State fails NameTaken | NotMember | RoomClosed {
+	let mut next = s
+	for e in try Decide(s, sig, time.Unix(0, 0)) {
+		next = Evolve(next, e)
+	}
+	next
+}
+
+// SameNames reports whether a and b hold the same names in order.
+func SameNames(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, n in a {
+		if n != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// JoinAppendsOrRefuses: a join adds the name at the end, or fails with
+// NameTaken exactly when the name is a member.
+law JoinAppendsOrRefuses(names []string, name string) {
+	let s = RoomOf(names)
+	let taken = has(Members(s), name)
+	let after = Apply(s, Join{Name: name}) catch {
+	case NameTaken:
+		return taken
+	case NotMember:
+		return false
+	case RoomClosed:
+		return false
+	}
+	!taken && SameNames(Members(after), adding(Members(s), name))
+}
+
+// SayNeedsMember: a say fails with NotMember exactly when its sender is
+// not a member, and changes no member when it succeeds.
+law SayNeedsMember(names []string, from string, text string) {
+	let s = RoomOf(names)
+	let after = Apply(s, Say{From: from, Text: text}) catch {
+	case NotMember:
+		return !has(Members(s), from)
+	case NameTaken:
+		return false
+	case RoomClosed:
+		return false
+	}
+	has(Members(s), from) && SameNames(Members(after), Members(s))
+}
+
+// LeaveUndoesJoin: a new name that joins and leaves gives the room back.
+law LeaveUndoesJoin(names []string, name string) {
+	let s = RoomOf(names)
+	if has(Members(s), name) {
+		return true
+	}
+	let back = Apply(try Apply(s, Join{Name: name}), Leave{Name: name}) catch {
+	case NotMember:
+		return false
+	case NameTaken:
+		return false
+	case RoomClosed:
+		return false
+	}
+	SameNames(Members(back), Members(s))
+}
+
+// ClosedRefusesAll: after a member shuts the room, every signal fails
+// with RoomClosed.
+law ClosedRefusesAll(names []string, name string, text string) {
+	if len(names) == 0 {
+		return true
+	}
+	let shut = try Apply(RoomOf(names), Shut{By: names[0]})
+	for sig in []Signal{Join{Name: name}, Leave{Name: names[0]}, Say{From: names[0], Text: text}, Shut{By: names[0]}} {
+		let _ = Apply(shut, sig) catch {
+		case RoomClosed:
+			continue
+		case NameTaken:
+			return false
+		case NotMember:
+			return false
+		}
+		return false
+	}
+	len(Members(shut)) == 0
+}

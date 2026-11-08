@@ -1,0 +1,34 @@
+// The rules of the format as laws over ReadAll and Format.
+
+import strings
+
+// RoundTrip: rows with at least one field each format to a text that
+// reads back to the same rows.
+law RoundTrip(rows [][]string) {
+	let kept = NonEmpty(Spiced(rows))
+	Same(FieldsOf(try ReadAll(Format(kept))), kept)
+}
+
+// LinesCount: each row starts on the line after the last line of the
+// row before it.
+law LinesCount(rows [][]string) {
+	let kept = NonEmpty(Spiced(rows))
+	let back = try ReadAll(Format(kept))
+	let mut line = 1
+	for r in back {
+		if r.Line != line {
+			return false
+		}
+		line = line + 1
+		for f in r.Fields {
+			line = line + strings.Count(f, "\n")
+		}
+	}
+	true
+}
+
+// FormatIsStable: formatting what was read gives the text again.
+law FormatIsStable(rows [][]string) {
+	let text = Format(NonEmpty(Spiced(rows)))
+	Format(FieldsOf(try ReadAll(text))) == text
+}

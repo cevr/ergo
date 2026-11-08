@@ -1,0 +1,18 @@
+// The NFA's own law: it agrees with the reference engine.
+
+import regex/backtrack
+import regex/syntax
+
+// AgreesWithBacktrack: on every sampled pattern and text, the NFA and
+// the backtracking engine give the same answer.
+law AgreesWithBacktrack(seed int, text string) {
+	let p = syntax.Sample(seed)
+	Compile(Engine, p).Matches(text) == backtrack.Compile(backtrack.Engine, p).Matches(text)
+}
+
+// ProgramIsLinear: a program has at most one instruction per node of
+// its pattern, and Accept.
+law ProgramIsLinear(seed int) {
+	let p = syntax.Sample(seed)
+	Build(p).Len() <= syntax.Size(p)+1
+}

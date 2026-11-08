@@ -1,0 +1,29 @@
+// The reference solver's tests: an easy puzzle, and the Solver laws
+// restated as property tests (laws are checked, not run, #162). Hard
+// puzzles are left out: plain backtracking takes seconds on them.
+
+import sudoku/board
+
+test SolvesEasy {
+	let p = try board.Parse("003020600900305001001806400008102900700000008006708200002609500800203009005010300")
+	assert board.Line(try Solver.Solve(p)) == "483921657967345821251876493548132976729564138136798245372689514814253769695417382"
+}
+
+// blanksOf is a number of blanks from any n: 0 to 59.
+func blanksOf(n int) int { if n < 0 { -(n + 1) % 60 } else { n % 60 } }
+
+test SolutionSolvesHolds(seed int, n int) {
+	assert board.SolutionSolvesHolds(Solver, board.Puzzle(seed, blanksOf(n)))
+}
+
+test DeterministicHolds(seed int, n int) {
+	assert board.DeterministicHolds(Solver, board.Puzzle(seed, blanksOf(n)))
+}
+
+test SolvedIsFixedHolds(seed int, n int) {
+	assert board.SolvedIsFixedHolds(Solver, board.Puzzle(seed, blanksOf(n)))
+}
+
+test InconsistentIsUnsolvableHolds(seed int, n int) {
+	assert board.InconsistentIsUnsolvableHolds(Solver, board.Broken(seed, blanksOf(n)+1))
+}

@@ -1,0 +1,137 @@
+// sudoku reads puzzles from standard input, one per line (81 cells, "."
+// or "0" for an empty cell, layout bytes skipped), and prints each
+// solution as a line of 81 digits, or as a picture with -p. -r runs the
+// reference solver in place of the propagating one. A puzzle with no
+// solution prints "unsolvable" and the status is 1; a line that is not a
+// puzzle stops the program with status 2. This binary is the only place
+// that chooses the solver and the host's streams.
+
+import io
+import os
+import sudoku/board
+import sudoku/naive
+import sudoku/propagate
+
+// Fast binds the propagating solver; Reference binds the backtracking
+// one.
+let Fast = context { board.Solver: propagate.Solver }
+let Reference = context { board.Solver: naive.Solver }
+
+// Options is a command line of sudoku.
+type Options { Picture bool, UseReference bool }
+
+// usage is the message of a usage error.
+let usage = "usage: sudoku [-p] [-r] < puzzles"
+
+// parseArgs reads the flags. It fails with the exit of a usage error.
+func parseArgs(args []string) Options fails os.Exit {
+	let mut o = Options{Picture: false, UseReference: false}
+	for a in args {
+		match a {
+		case "-p":
+			o.Picture = true
+		case "-r":
+			o.UseReference = true
+		case _:
+			return os.Exit{Code: 2, Message: "sudoku: unknown argument \(a)\n\(usage)"}
+		}
+	}
+	o
+}
+
+// solveAll solves each puzzle line of standard input with the Solver of
+// the context, and prints each answer.
+func solveAll(o Options) fails os.Exit needs board.Solver | io.Stdin | io.Stdout {
+	let mut lineNo = 0
+	let mut unsolvable = 0
+	for line in io.Stdin.Lines() {
+		lineNo += 1
+		let puzzle = board.Parse(line) catch {
+		case board.BadLength as b:
+			return os.Exit{Code: 2, Message: "sudoku: line \(lineNo): \(b.Cells) cells, not 81"}
+		case board.BadCell as c:
+			return os.Exit{Code: 2, Message: "sudoku: line \(lineNo): \(c.Text) at byte \(c.At) is not a cell"}
+		}
+		let solution = board.Solver.Solve(puzzle) catch {
+		case board.Unsolvable as u:
+			unsolvable += 1
+			io.Stdout.Println("unsolvable (\(u.Givens) givens)")
+			continue
+		}
+		if o.Picture {
+			if lineNo > 1 {
+				io.Stdout.Println("")
+			}
+			for l in board.Picture(solution) {
+				io.Stdout.Println(l)
+			}
+		} else {
+			io.Stdout.Println(board.Line(solution))
+		}
+	}
+	if unsolvable > 0 {
+		return os.Exit{Code: 1, Message: "sudoku: \(unsolvable) of \(lineNo) puzzles have no solution"}
+	}
+}
+
+// run is sudoku on args.
+func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
+	let o = try parseArgs(args)
+	if o.UseReference {
+		with Reference {
+			try solveAll(o)
+		}
+	} else {
+		with Fast {
+			try solveAll(o)
+		}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// ran is the output of run on args over input, with a failure written
+// as "exit CODE: MESSAGE".
+func ran(args []string, input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: input}, io.Stdout: out } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+let easy = "003020600900305001001806400008102900700000008006708200002609500800203009005010300"
+let easySolution = "483921657967345821251876493548132976729564138136798245372689514814253769695417382"
+
+test SolvesEachLine {
+	assert ran([]string{}, easy+"\n"+easy+"\n") == easySolution+"\n"+easySolution+"\n"
+	assert ran([]string{"-r"}, easy+"\n") == easySolution+"\n"
+}
+
+test PicturesSolutions {
+	let text = ran([]string{"-p"}, easy+"\n")
+	assert text == "4 8 3 | 9 2 1 | 6 5 7\n9 6 7 | 3 4 5 | 8 2 1\n2 5 1 | 8 7 6 | 4 9 3\n------+-------+------\n5 4 8 | 1 3 2 | 9 7 6\n7 2 9 | 5 6 4 | 1 3 8\n1 3 6 | 7 9 8 | 2 4 5\n------+-------+------\n3 7 2 | 6 8 9 | 5 1 4\n8 1 4 | 2 5 3 | 7 6 9\n6 9 5 | 4 1 7 | 3 8 2\n"
+}
+
+test FailuresExit {
+	assert ran([]string{}, "11"+easy[2:]+"\n"+easy+"\n") == "unsolvable (34 givens)\n"+easySolution+"\nexit 1: sudoku: 1 of 2 puzzles have no solution\n"
+	assert ran([]string{}, "123\n") == "exit 2: sudoku: line 1: 3 cells, not 81\n"
+	assert ran([]string{}, "x"+easy+"\n") == "exit 2: sudoku: line 1: x at byte 0 is not a cell\n"
+	assert ran([]string{"-q"}, "") == "exit 2: sudoku: unknown argument -q\nusage: sudoku [-p] [-r] < puzzles\n"
+}
+
+// SolversAgree: on any sampled puzzle, both solvers print a solution or
+// both print unsolvable.
+test SolversAgree(seed int, n int) {
+	let p = board.Line(board.Puzzle(seed, if n < 0 { -(n + 1) % 50 } else { n % 50 }))
+	let fast = ran([]string{}, p+"\n")
+	let slow = ran([]string{"-r"}, p+"\n")
+	assert (fast == "unsolvable") == (slow == "unsolvable") && len(fast) == 82 && len(slow) == 82
+}

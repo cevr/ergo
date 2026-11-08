@@ -1,0 +1,149 @@
+// Package csv reads and writes comma-separated values (RFC 4180, as Go's
+// encoding/csv reads them): fields separated by commas, rows by line
+// feeds or CR LF, a field in double quotes may hold commas, line feeds
+// and quotes written twice. An empty line is no row. Std has no csv
+// package and a program cannot import Go's (G-ex-e-10), so this is it.
+
+// Row is a row of fields and the line it starts on, from 1.
+type Row { Fields []string, Line int }
+
+// Item is what Rows gives: a row, or the error that ends the text. A
+// Seq has no failure row (std-strengths I3), so the error is a value.
+type Item = Parsed{Row Row} | Malformed{Line int, Column int, Reason string}
+
+// mode is where the reader is in a field.
+type mode = FieldStart{} | Plain{} | Quoted{} | QuoteSeen{}
+
+// Rows is the rows of text, one at a time; a Malformed item ends it.
+func Rows(text string) Seq[Item] {
+	Seq[Item](func(yield func(v Item) bool) {
+		// The type is written: a let takes its first variant's type (G-ex-b-16).
+		let mut m mode = FieldStart
+		let mut fields = []string{}
+		let mut field = ""
+		// from is the start of the run of bytes not yet added to field.
+		let mut from = 0
+		let mut line = 1
+		let mut rowLine = 1
+		let mut column = 1
+		let mut i = 0
+		for i < len(text) {
+			let c = text[i]
+			// A line feed, or a CR before one, ends the row outside quotes.
+			let outside = match m {
+			case Quoted:
+				false
+			case _:
+				true
+			}
+			let crlf = outside && c == '\r' && i+1 < len(text) && text[i+1] == '\n'
+			let end = outside && (c == '\n' || crlf)
+			match m {
+			case FieldStart:
+				if c == '"' {
+					m = Quoted
+					from = i + 1
+				} else if c == ',' {
+					fields = fields.Append("")
+				} else if end {
+					if len(fields) > 0 {
+						fields = fields.Append("")
+						if !yield(Parsed{Row: Row{Fields: fields, Line: rowLine}}) {
+							return
+						}
+					}
+					fields = []string{}
+				} else {
+					m = Plain
+					from = i
+				}
+			case Plain:
+				if c == ',' || end {
+					fields = fields.Append(text[from:i])
+					m = FieldStart
+					if end {
+						if !yield(Parsed{Row: Row{Fields: fields, Line: rowLine}}) {
+							return
+						}
+						fields = []string{}
+					}
+				} else if c == '"' {
+					yield(Malformed{Line: line, Column: column, Reason: "bare \" in a field"})
+					return
+				}
+			case Quoted:
+				if c == '"' {
+					field = field + text[from:i]
+					m = QuoteSeen
+				} else if c == '\n' {
+					line += 1
+					column = 0
+				}
+			case QuoteSeen:
+				if c == '"' {
+					// A quote written twice is one quote.
+					field = field + "\""
+					from = i + 1
+					m = Quoted
+				} else if c == ',' || end {
+					fields = fields.Append(field)
+					field = ""
+					m = FieldStart
+					if end {
+						if !yield(Parsed{Row: Row{Fields: fields, Line: rowLine}}) {
+							return
+						}
+						fields = []string{}
+					}
+				} else {
+					yield(Malformed{Line: line, Column: column, Reason: "extraneous byte after a closing \""})
+					return
+				}
+			}
+			if crlf {
+				i += 1
+			}
+			i += 1
+			column += 1
+			if end {
+				line += 1
+				column = 1
+				match m {
+				case FieldStart:
+					rowLine = line
+				case _:
+				}
+			}
+		}
+		// The end of the text ends the last row.
+		match m {
+		case Quoted:
+			yield(Malformed{Line: rowLine, Column: 0, Reason: "a quoted field is not closed"})
+		case Plain:
+			yield(Parsed{Row: Row{Fields: fields.Append(text[from:]), Line: rowLine}})
+		case QuoteSeen:
+			yield(Parsed{Row: Row{Fields: fields.Append(field), Line: rowLine}})
+		case FieldStart:
+			if len(fields) > 0 {
+				yield(Parsed{Row: Row{Fields: fields.Append(""), Line: rowLine}})
+			}
+		}
+	})
+}
+
+// BadCSV is the error that ends a text: its line and column, from 1.
+type BadCSV { Line int, Column int, Reason string }
+
+// ReadAll is every row of text, or the error that ends it.
+func ReadAll(text string) []Row fails BadCSV {
+	let mut out = []Row{}
+	for item in Rows(text) {
+		match item {
+		case Parsed as p:
+			out = out.Append(p.Row)
+		case Malformed as m:
+			return BadCSV{Line: m.Line, Column: m.Column, Reason: m.Reason}
+		}
+	}
+	out
+}

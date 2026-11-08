@@ -1,0 +1,110 @@
+// Samples: trees and texts made from a seed, for the laws. A property
+// test cannot choose its generator (G-ex-d-4), so a test takes an int
+// and makes its tree from it here, the same tree for the same seed.
+
+import strings
+
+// alphabet is the bytes of sampled texts and literals: two letters and a
+// byte that the syntax must escape.
+let alphabet = "ab*"
+
+// source is a pseudo-random number source: a 64-bit linear congruential
+// generator (Knuth's MMIX constants).
+type source { state uint64 }
+
+// next is a number in 0..n-1. n is above 0.
+func next(g *source, n int) int {
+	g.state = g.state*6364136223846793005 + 1442695040888963407
+	int((g.state >> 33) % uint64(n))
+}
+
+// seeded is the source of seed.
+func seeded(seed int) source { source{state: uint64(seed) * 2654435761} }
+
+// Sample is a tree of seed, at most four levels deep. Each of its Cat
+// nodes has two or three parts, so it prints and parses back to itself.
+func Sample(seed int) Node {
+	let mut g = seeded(seed)
+	g.tree(4)
+}
+
+// tree is a tree of at most depth levels.
+func tree(g *source, depth int) Node {
+	if depth <= 1 {
+		return g.leaf()
+	}
+	match g.next(10) {
+	case 0:
+		Cat{Parts: g.parts(depth - 1)}
+	case 1:
+		Cat{Parts: g.parts(depth - 1)}
+	case 2:
+		Alt{Left: g.tree(depth - 1), Right: g.tree(depth - 1)}
+	case 3:
+		Star{Of: g.tree(depth - 1)}
+	case 4:
+		Plus{Of: g.tree(depth - 1)}
+	case 5:
+		Quest{Of: g.tree(depth - 1)}
+	case 6:
+		Empty
+	case _:
+		g.leaf()
+	}
+}
+
+// parts is two or three trees of at most depth levels.
+func parts(g *source, depth int) []Node {
+	let mut out = []Node{g.tree(depth), g.tree(depth)}
+	if g.next(2) == 0 {
+		out = out.Append(g.tree(depth))
+	}
+	out
+}
+
+// leaf is a tree of one node: a literal of the alphabet, Any, or a class.
+func leaf(g *source) Node {
+	match g.next(7) {
+	case 0:
+		Lit{C: alphabet[0]}
+	case 1:
+		Lit{C: alphabet[1]}
+	case 2:
+		Lit{C: alphabet[2]}
+	case 3:
+		Any
+	case 4:
+		Class{Spans: []Span{Span{Lo: alphabet[0], Hi: alphabet[1]}}, Negated: false}
+	case 5:
+		Class{Spans: []Span{Span{Lo: alphabet[0], Hi: alphabet[0]}}, Negated: true}
+	case _:
+		Class{Spans: []Span{Span{Lo: alphabet[2], Hi: alphabet[2]}, Span{Lo: alphabet[1], Hi: alphabet[1]}}, Negated: false}
+	}
+}
+
+// Scramble is text with the bytes of a generated string (a b z space A Z
+// 0 9 _, G-ex-d-4) turned into the bytes the syntax gives a meaning:
+// ( ) * | [ ] \ . ^. A generated string holds none of them, so a property
+// test over patterns scrambles its string first.
+func Scramble(text string) string {
+	let from = "abz AZ09_"
+	let to = "()*|[]\\.^"
+	let mut out = ""
+	for i in 0..len(text) {
+		let k = strings.Index(from, text[i:i+1])
+		out = out + if k < 0 { text[i : i+1] } else { to[k : k+1] }
+	}
+	out
+}
+
+// SampleText is a text of seed over the alphabet, of 0 to 7 bytes.
+func SampleText(seed int) string {
+	let mut g = seeded(seed + 7919)
+	let n = g.next(8)
+	let mut out = ""
+	for _ in 0..n {
+		let i = g.next(len(alphabet))
+		out = out + alphabet[i:i+1]
+	}
+	out
+}

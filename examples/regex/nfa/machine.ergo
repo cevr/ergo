@@ -1,0 +1,144 @@
+// The simulation: a machine whose state is the set of instructions the
+// program could be at, and whose signals are the bytes of the text and
+// its end.
+
+import regex/engine
+import regex/syntax
+
+// Signal is what the machine reads: a byte of the text, or its end.
+type Signal = Read{C byte} | End{}
+
+// Scan is the machine's state: the program, and the set of instructions
+// it could be at, each one that reads a byte or Accept. A machine's state
+// is a union (G-ex-c-16), so Scan is a union of one variant.
+type Scan = Live{P Program, At []int}
+
+// Start is the state before the first byte of a text.
+func Start(p Program) Scan { Live{P: p, At: closure(p, []int{p.start})} }
+
+// Step is the machine's transition. On a byte, it moves every
+// instruction that reads it, and is Done with false when none does: no
+// later byte can bring a match back. At the end, it is Done with whether
+// the set holds Accept.
+func Step(s Scan, sig Signal) Decision[Scan, bool] {
+	match s {
+	case Live as l:
+		match sig {
+		case Read as r:
+			let next = advance(l.P, l.At, r.C)
+			if len(next) == 0 {
+				return Done[bool]{Output: false}
+			}
+			Enter[Scan]{Next: Live{P: l.P, At: next}}
+		case End:
+			Done[bool]{Output: accepts(l.P, l.At)}
+		}
+	}
+}
+
+// Simulation is the NFA as a machine: it starts at the empty pattern's
+// program; Matches starts it at its own.
+type Simulation machine[Scan, Signal] {
+	initial: Start(Build(syntax.Empty)),
+	step:    Step,
+}
+
+// advance is the set after the byte c: the closure of the next
+// instruction of each instruction of at that reads c.
+func advance(p Program, at []int, c byte) []int {
+	let mut next = []int{}
+	for pc in at {
+		match p.insts[pc] {
+		case Byte as b:
+			if b.C == c {
+				next = next.Append(b.Next)
+			}
+		case AnyByte as a:
+			next = next.Append(a.Next)
+		case Set as s:
+			if s.Class.Has(c) {
+				next = next.Append(s.Next)
+			}
+		case Split:
+		case Accept:
+		}
+	}
+	closure(p, next)
+}
+
+// accepts reports whether at holds Accept.
+func accepts(p Program, at []int) bool {
+	for pc in at {
+		match p.insts[pc] {
+		case Accept:
+			return true
+		case _:
+		}
+	}
+	false
+}
+
+// visit is a set of instructions while a closure is built: the members,
+// in the order they were found, and a mark for each instruction.
+type visit { members []int, marked []bool }
+
+// closure is the set of instructions that the instructions of from reach
+// through Split, each once, keeping only the ones that read or Accept.
+func closure(p Program, from []int) []int {
+	let mut marked = []bool{}
+	for _ in 0..len(p.insts) {
+		marked = marked.Append(false)
+	}
+	let mut v = visit{members: []int{}, marked: marked}
+	for pc in from {
+		v.include(p, pc)
+	}
+	v.members
+}
+
+// include adds pc and what it reaches to v.
+func include(v *visit, p Program, pc int) {
+	if v.marked[pc] {
+		return
+	}
+	v.marked[pc] = true
+	match p.insts[pc] {
+	case Split as s:
+		v.include(p, s.X)
+		v.include(p, s.Y)
+	case _:
+		v.members = v.members.Append(pc)
+	}
+}
+
+// Engine is the NFA engine.
+type Engine {}
+
+// Compile is the Matcher of pattern: its program, run by the machine.
+func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Compiled{program: Build(pattern)} }
+
+// Compiled is a pattern's program.
+type Compiled { program Program }
+
+// Matches runs the machine on text, one signal per byte and then End.
+func Matches(c Compiled, text string) bool {
+	let mut s = Start(c.program)
+	for i in 0..len(text) {
+		match Step(s, Read{C: text[i]}) {
+		case Enter[Scan] as e:
+			s = e.Next
+		case Stay[Scan] as st:
+			s = st.Next
+		case Done[bool] as d:
+			return d.Output
+		case Ignore:
+		case Reject:
+		}
+	}
+	match Step(s, End) {
+	case Done[bool] as d:
+		d.Output
+	case _:
+		false
+	}
+}

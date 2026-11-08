@@ -1,0 +1,59 @@
+// The laws of Solver as checks over a provider value, for the providers'
+// property tests. A member law is not run (#162) and cannot be called, so
+// each check restates its law's body (G-ex-c-5).
+
+// SolutionSolvesHolds is law SolutionSolves for s.
+func SolutionSolvesHolds(s Solver, puzzle Grid) bool {
+	let solved = s.Solve(puzzle) catch {
+	case Unsolvable:
+		return true
+	}
+	Solves(solved, puzzle)
+}
+
+// DeterministicHolds is law Deterministic for s.
+func DeterministicHolds(s Solver, puzzle Grid) bool {
+	let a = s.Solve(puzzle) catch {
+	case Unsolvable:
+		return true
+	}
+	let b = s.Solve(puzzle) catch {
+	case Unsolvable:
+		return false
+	}
+	Equal(a, b)
+}
+
+// SolvedIsFixedHolds is law SolvedIsFixed for s.
+func SolvedIsFixedHolds(s Solver, puzzle Grid) bool {
+	let solved = s.Solve(puzzle) catch {
+	case Unsolvable:
+		return true
+	}
+	let again = s.Solve(solved) catch {
+	case Unsolvable:
+		return false
+	}
+	Equal(again, solved)
+}
+
+// InconsistentIsUnsolvableHolds is law InconsistentIsUnsolvable for s.
+func InconsistentIsUnsolvableHolds(s Solver, puzzle Grid) bool {
+	if Consistent(puzzle) {
+		return true
+	}
+	let _ = s.Solve(puzzle) catch {
+	case Unsolvable:
+		return true
+	}
+	false
+}
+
+// Solvable reports whether s solves puzzle.
+func Solvable(s Solver, puzzle Grid) bool {
+	let _ = s.Solve(puzzle) catch {
+	case Unsolvable:
+		return false
+	}
+	true
+}

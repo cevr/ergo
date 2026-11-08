@@ -1,0 +1,67 @@
+// Package memory is a server.Conn in memory: two queues, one per
+// direction. The server's side reads and writes it through the Conn
+// operations; the client's side, a test or the binary's driver, sends
+// lines, takes what it was sent, and hangs up.
+
+import chat/server
+import queue
+
+// Conn is a connection in memory. Its queues are shared by every copy,
+// so the server and the client hold the same connection.
+type Conn { inbound queue.Queue[string], outbound queue.Queue[string] }
+
+// New is a connection whose directions each hold up to capacity lines.
+// A write to a full connection waits for the client to take a line, as a
+// full socket buffer does; the queue has no unbounded form.
+func New(capacity int) Conn { Conn{inbound: queue.New[string](capacity), outbound: queue.New[string](capacity)} }
+
+// Read is the next line the client sent, or Hangup once the client hung
+// up, or the server closed the connection, and every sent line is read.
+func Read(c Conn) string fails server.Hangup {
+	c.inbound.Pop() catch {
+	case queue.Closed:
+		return server.Hangup
+	}
+}
+
+// Write sends line to the client; a write after the client is gone is
+// lost.
+func Write(c Conn, line string) {
+	c.outbound.Push(line) catch {
+	case queue.Closed:
+	}
+}
+
+// Close ends the server's side: the next Read after the sent lines hangs
+// up.
+func Close(c Conn) { c.inbound.Close() }
+
+// Send is the client sending line. It fails with Hangup when the
+// connection is closed.
+func Send(c Conn, line string) fails server.Hangup {
+	c.inbound.Push(line) catch {
+	case queue.Closed:
+		return server.Hangup
+	}
+}
+
+// Hang is the client hanging up: the server reads what it sent, then
+// Hangup, and later writes are lost.
+func Hang(c Conn) {
+	c.inbound.Close()
+	c.outbound.Close()
+}
+
+// Received is every line the server wrote to c that the client has not
+// taken yet, in order. It never waits.
+func Received(c Conn) []string {
+	let mut out = []string{}
+	for {
+		match c.outbound.Poll() {
+		case Some[string] as l:
+			out = out.Append(l.Value)
+		case None:
+			return out
+		}
+	}
+}

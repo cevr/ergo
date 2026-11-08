@@ -1,0 +1,53 @@
+// The source of a sales file, and the report over it.
+
+import csvreport/csv
+
+// Missing is a name that the source has no file for.
+type Missing { Name string }
+
+// Unreadable is a file that the source has but cannot read.
+type Unreadable { Name string, Reason string }
+
+// Source is where sales files come from.
+type Source {
+	// Read is the text of the file name.
+	Read(name string) string fails Missing | Unreadable,
+
+	// ReadIsRepeatable: two reads of one name give one text, or both fail.
+	law ReadIsRepeatable(name string) {
+		let a = Read(name) catch {
+		case Missing:
+			return true
+		case Unreadable:
+			return true
+		}
+		let b = Read(name) catch {
+		case Missing:
+			return false
+		case Unreadable:
+			return false
+		}
+		a == b
+	},
+}
+
+// Report is the table of the sales in the file name that every one of
+// keeps keeps, grouped under k.
+func Report(name string, keeps []Keep, k Key) []string fails Missing | Unreadable | csv.BadCSV | MissingColumn | ShortRow | BadNumber needs Source {
+	let text = try Source.Read(name)
+	let mut sales = try Load(text)
+	for keep in keeps {
+		sales = Filter(sales, keep)
+	}
+	Table(sales, k)
+}
+
+// Rows is the CSV rows of sales, with a header first: the inverse of
+// Load for sales whose price is not negative.
+func Rows(sales []Sale) [][]string {
+	let mut out = [][]string{[]string{"region", "product", "units", "price"}}
+	for s in sales {
+		out = out.Append([]string{s.Region, s.Product, "\(s.Units)", Money(s.Cents)})
+	}
+	out
+}

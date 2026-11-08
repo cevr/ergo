@@ -1,0 +1,28 @@
+// Package files reads sales files from the file system. A provider of
+// report.Source cannot need a capability that the contract's operation
+// does not write (rows.md, Context 2), so Load reads the named files once,
+// at the start, into a memory.Shelf, as okra-how's files package does.
+
+import csvreport/memory
+import fs
+
+// Load is a shelf of the files at names. A file that does not exist is
+// left out, so the shelf reads it as report.Missing; a file that exists
+// and cannot be read is a Broken entry with the host's reason.
+func Load(names []string) memory.Shelf needs fs.Files {
+	let mut entries = []memory.Entry{}
+	for name in names {
+		let text = fs.Files.ReadFile(name) catch {
+		case fs.NotFound:
+			continue
+		case fs.Denied:
+			entries = entries.Append(memory.Broken{Name: name, Reason: "permission denied"})
+			continue
+		case fs.Failed as f:
+			entries = entries.Append(memory.Broken{Name: name, Reason: f.Reason})
+			continue
+		}
+		entries = entries.Append(memory.Readable{Name: name, Text: text})
+	}
+	memory.Shelf{Entries: entries}
+}

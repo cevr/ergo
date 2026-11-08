@@ -1,0 +1,78 @@
+// The board's tests: examples, and the laws restated as property tests
+// (laws are checked, not run, #162).
+
+let easy = "003020600900305001001806400008102900700000008006708200002609500800203009005010300"
+
+test ParsesLayout {
+	let g = try Parse("53..7.... 6..195... .98....6.\n8...6...3 4..8.3..1 7...2...6\n.6....28. ...419..5 ....8..79")
+	assert g.Filled() == 30 && g.At(0) == 5 && g.At(80) == 9
+	assert Line(g) == "53..7....6..195....98....6.8...6...34..8.3..17...2...6.6....28....419..5....8..79"
+}
+
+// failure is the message of Parse(text), or "ok".
+func failure(text string) string {
+	let _ = Parse(text) catch {
+	case BadLength as b:
+		return "length \(b.Cells)"
+	case BadCell as c:
+		return "cell \(c.Text) at \(c.At)"
+	}
+	"ok"
+}
+
+test ParseFailures {
+	assert failure("123") == "length 3"
+	assert failure(easy+"1") == "length 82"
+	assert failure("x"+easy) == "cell x at 0"
+	assert failure(easy) == "ok"
+}
+
+test PictureHasRules {
+	let lines = Picture(try Parse(easy))
+	assert len(lines) == 11
+	assert lines[0] == ". . 3 | . 2 . | 6 . ."
+	assert lines[3] == "------+-------+------"
+}
+
+test UnitsAndPeers {
+	assert len(Units) == 27 && len(Peers) == 81
+	for u in Units {
+		assert len(u) == 9
+	}
+	for ps in Peers {
+		assert len(ps) == 20
+	}
+	assert Units[18][4] == 10 && Units[26][8] == 80
+}
+
+test ConsistentFindsTwice {
+	assert Consistent(try Parse(easy))
+	assert !Consistent((try Parse(easy)).With(0, 3))
+	assert !Consistent((try Parse(easy)).With(1, 9))
+	assert !Consistent((try Parse(easy)).With(10, 3))
+}
+
+test SolvesNeedsGivens {
+	let s = Solution(1)
+	assert Solves(s, s) && Solves(s, Puzzle(1, 50))
+	assert !Solves(Puzzle(1, 1), Puzzle(1, 1))
+	assert !Solves(s, Solution(2))
+}
+
+test SampleIsSolvedHolds(seed int) {
+	assert Solves(Solution(seed), Solution(seed))
+}
+
+test LineRoundTripHolds(seed int, blanks int) {
+	let p = Puzzle(seed, if blanks < 0 { 0 } else { blanks % 82 })
+	assert Equal(try Parse(Line(p)), p)
+}
+
+test BrokenIsInconsistentHolds(seed int, blanks int) {
+	assert !Consistent(Broken(seed, 1+(if blanks < 0 { -(blanks + 1) } else { blanks })%80))
+}
+
+test SamplesVary {
+	assert !Equal(Solution(1), Solution(2)) && !Equal(Solution(2), Solution(3))
+	assert Puzzle(4, 30).Filled() == 51
+}

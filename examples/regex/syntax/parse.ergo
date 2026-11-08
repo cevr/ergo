@@ -1,0 +1,223 @@
+// The parser: a pattern's text to its tree, by recursive descent.
+//
+//	alt    = cat { "|" cat }
+//	cat    = { repeat }
+//	repeat = atom { "*" | "+" | "?" }
+//	atom   = "(" alt ")" | "." | "[" ["^"] item { item } "]" | "\" byte | byte
+//	item   = byte [ "-" byte ]
+//
+// Inside a class and outside it, "\" takes the next byte as it is. A
+// group is not a node: (ab) is the Cat of a and b.
+
+// The failures of Parse. Each names the offset of the byte it is about.
+// SyntaxError gathers them, so one function can describe a caught row:
+// a row has no name (G-ex-c-14), but a union of its types takes it.
+type SyntaxError = Unclosed | Unopened | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange
+
+// Unclosed is a "(" with no ")".
+type Unclosed { At int }
+
+// Unopened is a ")" with no "(".
+type Unopened { At int }
+
+// NothingToRepeat is a "*", "+" or "?" with no atom before it. Op is
+// the operator's text: a byte has no conversion to text (G-ex-d-1), so
+// the parser slices it out of the pattern.
+type NothingToRepeat { At int, Op string }
+
+// TrailingEscape is a "\" at the end of the pattern.
+type TrailingEscape { At int }
+
+// UnclosedClass is a "[" with no "]".
+type UnclosedClass { At int }
+
+// BadRange is a span whose low byte is above its high byte, as in [z-a].
+// Text is the span as written.
+type BadRange { At int, Text string }
+
+// parser is a pattern's text and the offset of the next byte to read.
+type parser { src string, at int }
+
+// Parse is the tree of the pattern text.
+func Parse(text string) Node fails Unclosed | Unopened | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+	let mut p = parser{src: text, at: 0}
+	let n = try p.alternation()
+	if p.at < len(text) {
+		// alternation stops only at the end or at a ")".
+		return Unopened{At: p.at}
+	}
+	n
+}
+
+// more reports whether p has a byte left to read.
+func more(p *parser) bool { p.at < len(p.src) }
+
+// peek is the next byte of p. p has one.
+func peek(p *parser) byte { p.src[p.at] }
+
+// alternation reads cat { "|" cat }, left to right.
+func alternation(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+	let mut n = try p.concatenation()
+	for p.more() && p.peek() == '|' {
+		p.at += 1
+		let right = try p.concatenation()
+		n = Alt{Left: n, Right: right}
+	}
+	n
+}
+
+// concatenation reads repeats up to a "|", a ")" or the end. None is
+// Empty, one is itself.
+func concatenation(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+	let mut parts = []Node{}
+	for p.more() && p.peek() != '|' && p.peek() != ')' {
+		parts = parts.Append(try p.repetition())
+	}
+	if len(parts) == 0 {
+		return Empty
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	Cat{Parts: parts}
+}
+
+// repetition reads an atom and the "*", "+" and "?" after it.
+func repetition(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+	let mut n = try p.atom()
+	for p.more() {
+		match p.peek() {
+		case '*':
+			n = Star{Of: n}
+		case '+':
+			n = Plus{Of: n}
+		case '?':
+			n = Quest{Of: n}
+		case _:
+			return n
+		}
+		p.at += 1
+	}
+	n
+}
+
+// atom reads one atom. The caller has seen a byte that is not "|" or ")".
+func atom(p *parser) Node fails Unclosed | NothingToRepeat | TrailingEscape | UnclosedClass | BadRange {
+	let start = p.at
+	let c = p.peek()
+	p.at += 1
+	match c {
+	case '(':
+		let inner = try p.alternation()
+		if !p.more() {
+			return Unclosed{At: start}
+		}
+		p.at += 1
+		inner
+	case '.':
+		Any
+	case '[':
+		try p.class(start)
+	case '\\':
+		Lit{C: try p.escaped(start)}
+	case '*':
+		NothingToRepeat{At: start, Op: p.src[start:p.at]}
+	case '+':
+		NothingToRepeat{At: start, Op: p.src[start:p.at]}
+	case '?':
+		NothingToRepeat{At: start, Op: p.src[start:p.at]}
+	case _:
+		Lit{C: c}
+	}
+}
+
+// escaped is the byte after a "\" at start.
+func escaped(p *parser, start int) byte fails TrailingEscape {
+	if !p.more() {
+		return TrailingEscape{At: start}
+	}
+	let c = p.peek()
+	p.at += 1
+	c
+}
+
+// class reads a class after its "[" at start, up to its "]". The first
+// "]" ends it: a class has at least one item only when it is written so,
+// and [] is an empty class, which matches no byte.
+func class(p *parser, start int) Node fails UnclosedClass | TrailingEscape | BadRange {
+	let mut negated = false
+	if p.more() && p.peek() == '^' {
+		negated = true
+		p.at += 1
+	}
+	let mut spans = []Span{}
+	for {
+		if !p.more() {
+			return UnclosedClass{At: start}
+		}
+		if p.peek() == ']' {
+			p.at += 1
+			return Class{Spans: spans, Negated: negated}
+		}
+		let at = p.at
+		let lo = try p.classByte(start)
+		let mut hi = lo
+		if p.at+1 < len(p.src) && p.peek() == '-' && p.src[p.at+1] != ']' {
+			p.at += 1
+			hi = try p.classByte(start)
+		}
+		if lo > hi {
+			return BadRange{At: at, Text: p.src[at:p.at]}
+		}
+		spans = spans.Append(Span{Lo: lo, Hi: hi})
+	}
+}
+
+// classByte reads one byte of a class, "\" taking the next as it is.
+func classByte(p *parser, start int) byte fails UnclosedClass | TrailingEscape {
+	if !p.more() {
+		return UnclosedClass{At: start}
+	}
+	let c = p.peek()
+	p.at += 1
+	if c == '\\' {
+		return try p.escaped(p.at - 1)
+	}
+	c
+}
+
+// Offset is the offset in the pattern that a failure of Parse names.
+func Offset(e SyntaxError) int {
+	match e {
+	case Unclosed as u:
+		u.At
+	case Unopened as u:
+		u.At
+	case NothingToRepeat as n:
+		n.At
+	case TrailingEscape as t:
+		t.At
+	case UnclosedClass as u:
+		u.At
+	case BadRange as b:
+		b.At
+	}
+}
+
+// Describe is the message of a failure of Parse.
+func Describe(e SyntaxError) string {
+	match e {
+	case Unclosed as u:
+		"missing ) for the ( at \(u.At)"
+	case Unopened as u:
+		"unexpected ) at \(u.At)"
+	case NothingToRepeat as n:
+		"nothing to repeat before \(n.Op) at \(n.At)"
+	case TrailingEscape as t:
+		"trailing \\ at \(t.At)"
+	case UnclosedClass as u:
+		"missing ] for the [ at \(u.At)"
+	case BadRange as b:
+		"bad range \(b.Text) at \(b.At)"
+	}
+}

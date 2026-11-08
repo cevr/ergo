@@ -1,0 +1,127 @@
+// The report's tests: examples, and the laws restated as property tests
+// (laws are checked, not run, #162).
+
+import csvreport/csv
+
+let file = "Region,Product,Units,Price,Note\nnorth,tea,3,2.50,\nsouth,tea,1,2.5,\"late, paid\"\nnorth,cake,2,4,\n"
+
+test LoadsAnyColumnOrder {
+	let sales = try Load("price,units,product,region\n1.05,2,tea,east\n")
+	assert len(sales) == 1 && sales[0] == Sale{Region: "east", Product: "tea", Units: 2, Cents: 105}
+}
+
+test TablesGroupAndTotal {
+	let sales = try Load(file)
+	let lines = Table(sales, ByRegion)
+	assert len(lines) == 4
+	assert lines[0] == "region   sales    units       revenue"
+	assert lines[1] == "north        2        5         15.50"
+	assert lines[2] == "south        1        1          2.50"
+	assert lines[3] == "total        3        6         18.00"
+	// Keys pad to the widest of the column name and the keys: "product", 7.
+	let north = Table(Filter(sales, InRegion{Name: "north"}), ByProduct)
+	assert north[0] == "product   sales    units       revenue"
+	assert north[1] == "cake          1        2          8.00"
+	assert north[2] == "tea           1        3          7.50"
+}
+
+// failure is the message of Load(text), or "ok".
+func failure(text string) string {
+	let _ = Load(text) catch {
+	case csv.BadCSV as b:
+		return "csv \(b.Line):\(b.Column)"
+	case MissingColumn as m:
+		return "missing \(m.Name)"
+	case ShortRow as s:
+		return "short \(s.Line) \(s.Have) of \(s.Want)"
+	case BadNumber as n:
+		return "bad \(n.Column) \(n.Text) at \(n.Line)"
+	}
+	"ok"
+}
+
+test LoadFailures {
+	assert failure("") == "missing region"
+	assert failure("region,product,units\n") == "missing price"
+	assert failure("region,product,units,price\nn,t,1\n") == "short 2 3 of 4"
+	assert failure("region,product,units,price\nn,t,x,1\n") == "bad units x at 2"
+	assert failure("region,product,units,price\nn,t,1,1.234\n") == "bad price 1.234 at 2"
+	assert failure("region,product,units,price\nn,t,1,\"1\n") == "csv 2:0"
+	assert failure(file) == "ok"
+}
+
+test MoneyReads {
+	assert (try ParseCents("12")) == 1200 && (try ParseCents("12.5")) == 1250 && (try ParseCents("0.07")) == 7
+	assert Money(1234) == "12.34" && Money(-5) == "-0.05" && Money(100) == "1.00"
+}
+
+test TotalIsFoldHolds(sales []Sale) {
+	let t = Total(sales)
+	let mut units = 0
+	let mut revenue = int64(0)
+	for s in sales {
+		units += s.Units
+		revenue += int64(s.Units) * s.Cents
+	}
+	assert t.Sales == len(sales) && t.Units == units && t.Revenue == revenue
+}
+
+test GroupsSumToTotalHolds(sales []Sale, byProduct bool) {
+	let groups = Group(sales, if byProduct { ByProduct } else { ByRegion })
+	let t = Total(sales)
+	let mut n = 0
+	let mut units = 0
+	let mut revenue = int64(0)
+	for i, g in groups {
+		n += g.Sales
+		units += g.Units
+		revenue += g.Revenue
+		if i > 0 {
+			assert groups[i-1].Key < g.Key
+		}
+	}
+	assert n == t.Sales && units == t.Units && revenue == t.Revenue
+}
+
+// Generated sales rarely share a region, so the groups are also checked
+// over sales with three regions.
+test GroupsMerge(units []int) {
+	let mut sales = []Sale{}
+	for i, u in units {
+		sales = sales.Append(Sale{Region: if i%2 == 0 { "a" } else { "b" }, Product: "p", Units: u, Cents: 10})
+		sales = sales.Append(Sale{Region: "a", Product: "q", Units: 1, Cents: 1})
+	}
+	let groups = Group(sales, ByRegion)
+	let mut revenue = int64(0)
+	for g in groups {
+		revenue += g.Revenue
+	}
+	assert revenue == Total(sales).Revenue && len(groups) == (if len(units) == 0 { 0 } else if len(units) == 1 { 1 } else { 2 })
+}
+
+test FilterKeepsOnlyHolds(sales []Sale, units int) {
+	let k = AtLeast{Units: units}
+	let kept = Filter(sales, k)
+	let mut j = 0
+	for s in sales {
+		if Kept(k, s) {
+			assert j < len(kept) && kept[j] == s
+			j += 1
+		}
+	}
+	assert j == len(kept)
+}
+
+test LoadReadsRowsHolds(sales []Sale) {
+	let ps = Priced(sales)
+	let back = try Load(csv.Format(Rows(ps)))
+	assert len(back) == len(ps)
+	for i, s in ps {
+		assert back[i] == s
+	}
+}
+
+test MoneyRoundTripHolds(cents int64) {
+	let c = if cents < 0 { -(cents % 1000000000) } else { cents % 1000000000 }
+	assert try ParseCents(Money(c)) == c
+}

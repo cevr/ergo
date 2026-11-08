@@ -1,0 +1,15 @@
+* ada joined
+* bob joined
+[00:00:00] ada: hello bob
+[00:01:15] bob: hi ada
+! the name ada is taken
+! you are not ada
+* bob left
+* ada closed the room
+! the room is closed
+! the room is closed
+! you are not ada
+--
+a was sent 8 lines
+b was sent 4 lines
+c was sent 3 lines

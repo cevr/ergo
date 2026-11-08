@@ -1,0 +1,103 @@
+// The room's tests: examples, and the laws restated as property tests
+// (laws are checked, not run, #162).
+
+import time
+
+test JoinSayLeave {
+	let s = try Apply(try Apply(Start(), Join{Name: "ada"}), Join{Name: "bob"})
+	assert SameNames(Members(s), []string{"ada", "bob"})
+	let es = try Decide(s, Say{From: "bob", Text: "hi"}, time.Unix(3723, 0))
+	assert len(es) == 1 && Render(es[0]) == "[01:02:03] bob: hi"
+	assert SameNames(Members(try Apply(s, Leave{Name: "ada"})), []string{"bob"})
+}
+
+// refusal is the name of the failure of sig in s, or "ok".
+func refusal(s State, sig Signal) string {
+	let _ = Apply(s, sig) catch {
+	case NameTaken as n:
+		return "taken \(n.Name)"
+	case NotMember as n:
+		return "not member \(n.Name)"
+	case RoomClosed:
+		return "closed"
+	}
+	"ok"
+}
+
+test RefusalsAreTyped {
+	let s = RoomOf([]string{"ada"})
+	assert refusal(s, Join{Name: "ada"}) == "taken ada"
+	assert refusal(s, Say{From: "eve", Text: "x"}) == "not member eve"
+	assert refusal(s, Shut{By: "eve"}) == "not member eve"
+	assert refusal(try Apply(s, Shut{By: "ada"}), Join{Name: "bob"}) == "closed"
+}
+
+test RendersEveryEvent {
+	assert Render(Joined{Name: "ada"}) == "* ada joined"
+	assert Render(Left{Name: "ada"}) == "* ada left"
+	assert Render(Closed{By: "ada"}) == "* ada closed the room"
+}
+
+test StepEntersTheFold {
+	match try Step(Start(), Join{Name: "ada"}) {
+	case Enter[State] as e:
+		assert SameNames(Members(e.Next), []string{"ada"})
+	case _:
+		assert false
+	}
+}
+
+test JoinAppendsOrRefusesHolds(names []string, name string) {
+	let s = RoomOf(names)
+	let taken = has(Members(s), name)
+	let after = Apply(s, Join{Name: name}) catch {
+	case NameTaken:
+		assert taken
+		return
+	case NotMember:
+		assert false
+		return
+	case RoomClosed:
+		assert false
+		return
+	}
+	assert !taken && SameNames(Members(after), adding(Members(s), name))
+}
+
+test SayNeedsMemberHolds(names []string, n int, text string) {
+	let s = RoomOf(names)
+	// from is a member half the time: a name of names, or a new one.
+	let from = if len(names) > 0 && n%2 == 0 { names[(if n < 0 { -n } else { n })%len(names)] } else { "stranger" }
+	let after = Apply(s, Say{From: from, Text: text}) catch {
+	case NotMember:
+		assert !has(Members(s), from)
+		return
+	case NameTaken:
+		assert false
+		return
+	case RoomClosed:
+		assert false
+		return
+	}
+	assert has(Members(s), from) && SameNames(Members(after), Members(s))
+}
+
+test LeaveUndoesJoinHolds(names []string, name string) {
+	let s = RoomOf(names)
+	if has(Members(s), name) {
+		return
+	}
+	let back = try Apply(try Apply(s, Join{Name: name}), Leave{Name: name})
+	assert SameNames(Members(back), Members(s))
+}
+
+test ClosedRefusesAllHolds(names []string, name string, text string) {
+	if len(names) == 0 {
+		return
+	}
+	let shut = try Apply(RoomOf(names), Shut{By: names[0]})
+	assert len(Members(shut)) == 0
+	for sig in []Signal{Join{Name: name}, Leave{Name: names[0]}, Say{From: names[0], Text: text}, Shut{By: names[0]}} {
+		assert refusal(shut, sig) == "closed"
+	}
+}

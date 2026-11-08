@@ -1,0 +1,104 @@
+// The memory connection's tests, and the server's: sessions replayed over
+// memory connections with a time.Manual clock, so no test sleeps or
+// touches the host. Laws are checked, not run (#162), so the Conn law is
+// restated as a test.
+
+import chat/server
+import queue
+import time
+
+test HangupIsFinalHolds(lines []string) {
+	let c = New(8)
+	for l in lines {
+		c.Send(l) catch {
+		case server.Hangup:
+			assert false
+		}
+	}
+	c.Close()
+	// The lines sent before the close are read first.
+	for l in lines {
+		assert (try c.Read()) == l
+	}
+	let mut hangups = 0
+	for _ in 0..2 {
+		let _ = c.Read() catch {
+		case server.Hangup:
+			hangups += 1
+			continue
+		}
+	}
+	assert hangups == 2
+}
+
+// replay is the session of steps, on a clock that starts at midnight.
+func replay(steps []Step) Session fails queue.Closed { try Replay(steps, time.NewManual(0)) }
+
+// same reports whether a and b hold the same lines in order.
+func same(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, l in a {
+		if l != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+test SessionIsLogged {
+	let s = try replay([]Step{
+		Speak{Client: "a", Line: "ada"},
+		Speak{Client: "b", Line: "bob"},
+		Speak{Client: "a", Line: "hello"},
+		Tick{By: 65s},
+		Speak{Client: "b", Line: "hi ada"},
+		Speak{Client: "b", Line: "/quit"},
+		Speak{Client: "a", Line: "bye"},
+	})
+	assert same(s.Log, []string{"* ada joined", "* bob joined", "[00:00:00] ada: hello", "[00:01:05] bob: hi ada", "* bob left", "[00:01:05] ada: bye", "* ada left"})
+	// Each client is asked its name, then reads what happened while it
+	// was in the room.
+	assert same(s.Received[0], []string{"name?", "* ada joined", "* bob joined", "[00:00:00] ada: hello", "[00:01:05] bob: hi ada", "* bob left", "[00:01:05] ada: bye"})
+	assert same(s.Received[1], []string{"name?", "* bob joined", "[00:00:00] ada: hello", "[00:01:05] bob: hi ada"})
+}
+
+test RefusalsGoToTheSender {
+	let s = try replay([]Step{
+		Speak{Client: "a", Line: "ada"},
+		Speak{Client: "e", Line: "ada"},
+		Speak{Client: "e", Line: "I am ada"},
+		Speak{Client: "a", Line: "/shut"},
+		Speak{Client: "a", Line: "anyone?"},
+		HangUp{Client: "e"},
+	})
+	assert same(s.Log, []string{"* ada joined", "! the name ada is taken", "! you are not ada", "* ada closed the room", "! the room is closed", "! you are not ada", "! the room is closed"})
+	assert same(s.Received[1], []string{"name?", "! the name ada is taken", "! you are not ada"})
+}
+
+test SpeakingAfterQuitIsHungUp {
+	let s = try replay([]Step{Speak{Client: "a", Line: "ada"}, Speak{Client: "a", Line: "/quit"}, Speak{Client: "a", Line: "late"}})
+	assert same(s.Log, []string{"* ada joined", "* ada left", "(a has hung up)"})
+}
+
+// Many clients: each joins, says one line, and hangs up; the log has
+// every line, in the order of the script.
+test ManyClients(n int) {
+	let count = if n < 0 { -(n + 1) % 12 } else { n % 12 }
+	let mut steps = []Step{}
+	let mut want = []string{}
+	for i in 0..count {
+		steps = steps.Append(Speak{Client: "c\(i)", Line: "user\(i)"})
+		want = want.Append("* user\(i) joined")
+	}
+	for i in 0..count {
+		steps = steps.Append(Speak{Client: "c\(i)", Line: "line \(i)"})
+		want = want.Append("[00:00:00] user\(i): line \(i)")
+	}
+	for i in 0..count {
+		want = want.Append("* user\(i) left")
+	}
+	let s = try replay(steps)
+	assert same(s.Log, want)
+}
