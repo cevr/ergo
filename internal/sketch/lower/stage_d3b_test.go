@@ -442,13 +442,13 @@ func main() needs Console {
 `, "go true -42 -8 18446744073709551615\n1.5 0.1 1e+06 1.5s\ntab\t\"q\" \\(x) -42\n23\na b 1 c d\ngo\n")
 }
 
-// TestErgoRunSliceWithCapacity: slice.WithCapacity calls its runtime/v1
+// TestErgoRunSliceWithCapacity: slices.WithCapacity calls its runtime/v1
 // body, which has no hidden argument (Rule 6).
 func TestErgoRunSliceWithCapacity(t *testing.T) {
-	wantRun(t, `import slice
+	wantRun(t, `import slices
 
 func main() needs Console {
-	let mut xs = slice.WithCapacity[int](4)
+	let mut xs = slices.WithCapacity[int](4)
 	xs = xs.Append(7)
 	xs = xs.Append(8)
 	Console.Println("\(len(xs)) \(xs[1])")

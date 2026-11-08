@@ -12,12 +12,12 @@ import (
 // calls strings.TrimSpace has the footprint of one that calls nothing, an
 // Ergo std function over pure externs (strings.Cut) is pure too, and a
 // capability the function calls stays in its footprint. A std extern whose
-// body is not marked (slice.WithCapacity) and a user extern of the same Go
+// body is not marked (slices.WithCapacity) and a user extern of the same Go
 // function stay opaque: purity is a reviewed fact of std only.
 func TestFootprintsPureStd(t *testing.T) {
 	src := `import strings
 import strconv
-import slice
+import slices
 type Env { Get(key string) string }
 extern go strings.TrimSpace func hostTrim(s string) string
 func nothing(s string) string { s }
@@ -37,7 +37,7 @@ func loops(s string, n int) string {
 	}
 	loops(strings.TrimSpace(s), n - 1)
 }
-func makes() []int { slice.WithCapacity[int](4) }
+func makes() []int { slices.WithCapacity[int](4) }
 func userTrim(s string) string { hostTrim(s) }
 `
 	file, err := syntax.Parse(src)

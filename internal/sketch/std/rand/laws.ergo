@@ -1,0 +1,74 @@
+// The laws of seeded draws (std-align S2c). The ledger in
+// docs/spec/stdlib.md names the Go test that runs each law until #162.
+
+// within is n moved into lo..hi, so a law covers every n.
+func within(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let r = n % span
+	if r < 0 {
+		lo + (r + span)
+	} else {
+		lo + r
+	}
+}
+
+// isPermutation reports whether p holds each of 0..n-1 once.
+func isPermutation(p []int, n int) bool {
+	if len(p) != n {
+		return false
+	}
+	let mut seen = Map[int, bool]{}
+	for x in p {
+		if x < 0 || x >= n || seen.Get(x) != None {
+			return false
+		}
+		seen[x] = true
+	}
+	true
+}
+
+// tally is the number of times each value is in xs.
+func tally(xs []int) Map[int, int] {
+	let mut m = Map[int, int]{}
+	for x in xs {
+		match m.Get(x) {
+		case Some[int] as c:
+			m[x] = c.Value + 1
+		case None:
+			m[x] = 1
+		}
+	}
+	m
+}
+
+// SeedReplays: two providers of one seed draw one stream, call for call.
+law SeedReplays(seed uint64, n int) {
+	let a = Seeded(seed)
+	let b = Seeded(seed)
+	let k = within(n, 1, 1000000)
+	a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64()
+}
+
+// PermPermutes: Perm(n) holds each of 0..n-1 once.
+law PermPermutes(seed uint64, n int) {
+	let size = within(n, 0, 200)
+	let p = with context { Random: Seeded(seed) } { Perm(size) }
+	isPermutation(p, size)
+}
+
+// ShufflePermutes: Shuffle(xs) holds the values of xs, each as many times
+// as xs does, and leaves xs.
+law ShufflePermutes(seed uint64, xs []int) {
+	let mut kept = []int{}
+	for x in xs {
+		kept = kept.Append(x)
+	}
+	let before = tally(xs)
+	let s = with context { Random: Seeded(seed) } { Shuffle(xs) }
+	let after = tally(s)
+	let mut same = len(s) == len(xs) && len(after) == len(before)
+	for i, x in xs {
+		same = same && after.Get(x) == before.Get(x) && kept[i] == x
+	}
+	same
+}

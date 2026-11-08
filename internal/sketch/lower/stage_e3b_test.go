@@ -187,8 +187,8 @@ var lawFacts = []lawFact{
 		law:   "law L() { with context { Store9: Mem9 } { run9() { Store9.Get9() } } == 9 }"},
 	// A library only a law uses; the erasure property blanks the import
 	// with the law.
-	{name: "library-import", canary: "WithCapacity", imports: "import slice\n\n",
-		law: "law L(n int) {\n\t\tlet xs = slice.WithCapacity[int](n)\n\t\tlen(xs) == 0\n\t}"},
+	{name: "library-import", canary: "WithCapacity", imports: "import slices\n\n",
+		law: "law L(n int) {\n\t\tlet xs = slices.WithCapacity[int](n)\n\t\tlen(xs) == 0\n\t}"},
 	// A tuple type only a law uses, holding a record whose default holds a
 	// Map: a build that walks the tuple reserves the default's name.
 	{name: "tuple", canary: "ergoDefaultReg12",

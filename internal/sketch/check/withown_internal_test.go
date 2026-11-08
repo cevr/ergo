@@ -120,7 +120,7 @@ func TestContextOwnershipNoExternTrust(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{std.PreludePath + ".Delete", std.PreludePath + ".Append", "queue.New", "slice.WithCapacity"} {
+	for _, name := range []string{std.PreludePath + ".Delete", std.PreludePath + ".Append", "queue.New", "slices.WithCapacity"} {
 		if !names[name] {
 			t.Fatalf("extern list misses %s; listed %d externs", name, len(externs))
 		}

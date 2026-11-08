@@ -2,7 +2,7 @@
 // alone uses an error type, a generic instance and a std package, so a
 // build that read the law would declare them (spec Risk 2). The test build
 // runs the tests and no law; the run build runs main only.
-import slice
+import slices
 
 type Gone {}
 
@@ -25,7 +25,7 @@ law Alone(n int, s string) {
 	case Gone:
 		n
 	}
-	let xs = slice.WithCapacity[int](n)
+	let xs = slices.WithCapacity[int](n)
 	v == n && wrap(s).V == s && len(xs) == 0
 }
 

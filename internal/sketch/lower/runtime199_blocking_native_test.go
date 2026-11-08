@@ -120,6 +120,14 @@ func blockingNative(t *testing.T, name, route string) {
 	case "seq Queue.Values":
 		maker = "func maker(q queue.Queue[int]) Seq[int] { q.Values() }"
 		param, body = "s Seq[int]", "for v in s { return v }; 0"
+	case "direct Timeline.Wait":
+		// time.Manual's Sleep waits on its Timeline (std-align S2b); the
+		// copied NewTimeline uses the probe's clock, so the harness parks
+		// and readies it as it does Sleep's.
+		param, body = "_ queue.Queue[int]", "let m = time.NewManual(0); m.Sleep(1h); 7"
+	case "value Timeline.Wait":
+		maker = "func maker(_ queue.Queue[int]) func(duration) { let m = time.NewManual(0); func(d duration) { m.Sleep(d) } }"
+		param, body = "f func(duration)", "f(1h); 7"
 	default:
 		t.Fatalf("new primitive route %s %s needs its native source and readiness law", route, name)
 	}
@@ -131,7 +139,11 @@ func blockingNative(t *testing.T, name, route string) {
 	default:
 		child = "try subject(q)"
 	}
-	src := "import queue\nimport task\n" + maker + "\nfunc subject(" + param + ") int fails queue.Closed { " + body + " }\n" +
+	imports := "import queue\nimport task\n"
+	if strings.HasPrefix(name, "Timeline.") {
+		imports += "import time\n"
+	}
+	src := imports + maker + "\nfunc subject(" + param + ") int fails queue.Closed { " + body + " }\n" +
 		"func launch(q queue.Queue[int]) Task[int, queue.Closed] { task.Go() { " + child + " } }\nfunc main() {}\n"
 	o := mustLower(t, "blocking", src)
 	if maker != "" && !envParams(t, o.mainGo())["maker"] {
@@ -180,6 +192,10 @@ func blockingNative(t *testing.T, name, route string) {
 			} {
 				data = replace(data, op.sig, op.sig+"\n\tdefer BlockingEnter("+fmt.Sprintf("%q", op.name)+", BlockingOwner(t))()")
 			}
+		case "ergo/runtime/v1/time.go":
+			from := "func (l *Timeline) Wait(t *rt.Task, d time.Duration) {"
+			data = replace(data, from, from+"\n\tdefer BlockingEnter(\"Timeline.Wait\", t)()")
+			data = replace(data, "return &Timeline{v: rt.NewVirtual(start), start: start}", "return &Timeline{v: rt.BlockingClock, start: start}")
 		case "ergo/runtime/rt/clock.go":
 			data = replace(data, "return liveTimer{time.NewTimer(d)}", "return BlockingClock.NewTimer(d)")
 		case "ergo/runtime/rt/handle.go":
@@ -375,7 +391,7 @@ func parked(t *testing.T, q *ergo.Queue[int], clock *rt.Virtual) {
  t.Helper()
  await(t, func() bool {
   switch primitive {
-  case "Sleep": return clock.Pending() == 1
+  case "Sleep", "Timeline.Wait": return clock.Pending() == 1
   case "Task.Wait": return clock.Pending() == 1 && handleParked("Wait")
   case "Task.Stop": return clock.Pending() == 1 && handleParked("Stop")
   default: return ergo.BlockingParked(q) == 1
@@ -435,7 +451,7 @@ func drive(t *testing.T, phase string, masked, moved bool) {
  if actual := receive(t, entered); actual != waiter { t.Fatal("binding received another task") }
  ready := func() {
   switch primitive {
-  case "Sleep", "Task.Wait", "Task.Stop": clock.Advance(time.Hour)
+  case "Sleep", "Timeline.Wait", "Task.Wait", "Task.Stop": clock.Advance(time.Hour)
   case "Queue.Push": if v, err := q.Pop(control); err != nil || v != 99 { panic("lost original queue value") }
   default: if err := q.Push(control, 7); err != nil { panic(err) }
   }

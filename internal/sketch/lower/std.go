@@ -53,9 +53,11 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			}
 			return "*" + l.rt() + "." + obj.Name
 		}
-		// A std union, such as flag.Failure, is a declaration of the
-		// program, as the prelude's Option is: its variants are records
-		// the runtime has no struct for (std-align S1d).
+		// A closed union of std records, such as flag.Failure (std-align
+		// S1d) or time.Layout (S2b): a declaration of the program, as the
+		// prelude's Option is. Its variants are std records, each the
+		// runtime's struct or a declaration of the program by the rule
+		// above.
 		return ""
 	}
 	// Every std type is a record, a union or an operation type
@@ -609,6 +611,41 @@ func (fc *funcCtx) bindFunc(fv string) string {
 	return fc.spill(fv)
 }
 
+// adaptPlainFunc adapts fv, an Ergo function value of the uniform shape
+// (typeCtx.funcType), to shape, a Go function parameter of a std body that
+// has parameters of its own and one result, such as the comparator
+// func(a T, b T) int of slices.SortFunc (std-align S2a; the G5c gap). The
+// Ergo parameter's type has an empty row, and fv's row is a subset of it,
+// so fv never fails and needs no capability: the adapter calls fv with the
+// caller's environment, captured here, and drops its error, which a
+// checked value with no error row never returns. A defect in fv is a Go
+// panic, which unwinds through the Go body as through any call. fv is
+// bound once, here, as adaptFunc binds it.
+func (fc *funcCtx) adaptPlainFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
+	switch {
+	case len(shape.Hidden) != 0:
+		ice(site, "a std function parameter with parameters takes the hidden argument %s", shape.Hidden[0])
+	case len(shape.Params) != len(sig.Params):
+		ice(site, "a std function parameter has %d Go parameters for %d Ergo parameters", len(shape.Params), len(sig.Params))
+	case len(shape.Results) != 1 || shape.Results[0] == "error" || len(sig.Results) != 1:
+		ice(site, "a std function parameter with parameters returns %v for %d Ergo results", shape.Results, len(sig.Results))
+	case len(rowElems(sig.Errors)) != 0 || len(rowElems(sig.Uses)) != 0:
+		ice(site, "a std function parameter with parameters takes a function value with a row")
+	}
+	fv = fc.bindFunc(fv)
+	return fc.envClosure(capturedEnv, "e", site, func(env string) (params []string, results, body string) {
+		args := []string{env}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		ind := strings.Repeat("\t", fc.depth+1)
+		r := fc.scope.alloc("r")
+		return params, " " + fc.goType(sig.Results[0]), ind + r + ", _ := " + fv + "(" + strings.Join(args, ", ") + ")\n" + ind + "return " + r + "\n"
+	})
+}
+
 // adaptFunc adapts fv, an Ergo function value of the uniform shape
 // (typeCtx.funcType), to shape, a function parameter of a std body: its
 // hidden task runs fv on a copy of the environment that holds that task
@@ -618,8 +655,11 @@ func (fc *funcCtx) bindFunc(fv string) string {
 // later (a task.Go body runs on its own task), and a later assignment to
 // the variable fv names must not change the function it runs.
 func (fc *funcCtx) adaptFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
-	if len(shape.Params) != 0 || len(sig.Params) != 0 || len(sig.Results) > 1 {
-		ice(site, "a std function parameter with parameters of its own")
+	if len(shape.Params) != 0 || len(sig.Params) != 0 {
+		return fc.adaptPlainFunc(fv, shape, sig, site)
+	}
+	if len(sig.Results) > 1 {
+		ice(site, "a std function parameter's block with %d results", len(sig.Results))
 	}
 	fv = fc.bindFunc(fv)
 	binding := capturedEnv

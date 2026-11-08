@@ -1,0 +1,26 @@
+// Package cmp compares ordered values (docs/spec/stdlib.md, Slices and
+// Maps; std-align S2a). It follows Go's cmp package (Effect's Order for an
+// ordered type): Compare is a total order on every ordered type, floats
+// included, in which a NaN is less than every other value and equal to a
+// NaN. The externs bind runtime/v1 bodies (collections.go).
+
+// Compare is -1 when a is before b, +1 when a is after b, and 0 otherwise.
+extern go ergo.local/prototype/runtime/v1.CmpCompare func Compare[T ordered](a T, b T) int
+
+// Less reports whether a is before b in Compare's order.
+extern go ergo.local/prototype/runtime/v1.CmpLess func Less[T ordered](a T, b T) bool
+
+// CompareIsAntisymmetric: swapping the arguments negates the result.
+law CompareIsAntisymmetric(a int, b int) { Compare(a, b) == -Compare(b, a) }
+
+// CompareIsTransitive: a before or equal to b, and b before or equal to c,
+// gives a before or equal to c.
+law CompareIsTransitive(a int, b int, c int) {
+	if Compare(a, b) <= 0 && Compare(b, c) <= 0 {
+		return Compare(a, c) <= 0
+	}
+	true
+}
+
+// LessIsCompareBelowZero: Less is Compare's -1.
+law LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }

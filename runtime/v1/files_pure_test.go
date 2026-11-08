@@ -48,7 +48,8 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 				continue
 			}
 			for _, imp := range f.Imports {
-				if p, _ := strconv.Unquote(imp.Path.Value); !slices.Contains(PureImports, p) {
+				p, _ := strconv.Unquote(imp.Path.Value)
+				if _, guarded := PureImportHostMembers[p]; !slices.Contains(PureImports, p) && !guarded {
 					t.Errorf("%s: pure %s, but the file imports %s", name, fn.Name.Name, p)
 				}
 			}
@@ -67,6 +68,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 		"StringsTrimSpace", "StringsTrimPrefix", "StringsTrimSuffix", "StringsFields",
 		"StringsRepeat", "StringsToLower", "StringsToUpper", "StringsIndex",
 		"StringsContains", "StringsSlice", "StrconvItoa", "StrconvAtoi", "StrconvQuote",
+		"TimeFormat", "TimeParse", "TimeSub", "TimeSubMono",
 	} {
 		if !slices.Contains(marked, name) {
 			t.Errorf("the std text body %s is not marked %s", name, PureMark)
@@ -138,11 +140,36 @@ func Sends(c chan int) { c <- 1 }
 //ergo:pure
 func Receives(c chan int) int { return <-c }
 `
-	decls, err := parseDecls(fstest.MapFS{"host.go": {Data: []byte(host)}, "text.go": {Data: []byte(text)}})
+	// A file that imports time (PureImportHostMembers): a body that
+	// computes is pure; one that reads the clock, a timer or the zone is
+	// refused, by a package member or a method of that name.
+	clock := `package v1
+
+import "time"
+
+//ergo:pure
+func Fmt(sec int64) string { return time.Unix(sec, 0).UTC().Format(time.RFC3339) }
+
+//ergo:pure
+func Clock() int64 { return time.Now().Unix() }
+
+//ergo:pure
+func Zoned(sec int64) string { return time.Unix(sec, 0).Local().String() }
+
+//ergo:pure
+func Zone() *time.Location { return time.Local }
+
+//ergo:pure
+func Abbrev(s string) int64 { t, _ := time.Parse("MST", s); return t.Unix() }
+
+//ergo:pure
+func Waits() { time.Sleep(1) }
+`
+	decls, err := parseDecls(fstest.MapFS{"host.go": {Data: []byte(host)}, "text.go": {Data: []byte(text)}, "clock.go": {Data: []byte(clock)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"Trim", "Wrap"} {
+	for _, name := range []string{"Trim", "Wrap", "Fmt"} {
 		if b, err := decls.body(name); err != nil || !b.Pure {
 			t.Errorf("%s: %+v, %v; want Pure", name, b, err)
 		}
@@ -161,6 +188,15 @@ func Receives(c chan int) int { return <-c }
 		"Spawns":   "goroutine",
 		"Sends":    "channel",
 		"Receives": "channel",
+		"Clock":    "names Now",
+		"Zoned":    "names Local",
+		"Zone":     "names Local",
+		"Abbrev":   "names Parse",
+		"Waits":    "names Sleep",
+	}
+	// time stays out of the user extern list (check, G9).
+	if slices.Contains(PureImports, "time") {
+		t.Error("PureImports lists time; a user extern would bind time.Now")
 	}
 	for name, msg := range bad {
 		_, err := decls.body(name)

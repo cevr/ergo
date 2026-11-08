@@ -164,7 +164,7 @@ func TestRefusedBinderLetY(t *testing.T) {
 // at the binder and at a read, apart from one S108 at the binder.
 func TestRefusedBinderPackageLet(t *testing.T) {
 	for _, form := range []string{"let (@) = 1", "let P{X: @} = P{X: 1}", "let @ = 1"} {
-		for _, name := range []string{"Console", "Clock", "int", "len"} {
+		for _, name := range []string{"Console", "Random", "int", "len"} {
 			prog := "type P { X int }\n" + form + "\nfunc host() int {\n\t@ + 1\n}\n"
 			src := strings.ReplaceAll(prog, "@", name)
 			fresh := strings.ReplaceAll(prog, "@", "q")

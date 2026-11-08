@@ -23,7 +23,7 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"Go": {TypeParams: anyT, Hidden: []Hidden{Frame, CallSite}, Params: []Param{{Type: "func(*rt.Task) (T, error)", Func: task}}, Results: []string{"*Task[T]"}},
 		// scope.OnExit: the caller's frame takes the block.
 		"OnExit": {Hidden: []Hidden{Frame}, Params: []Param{{Type: "func()", Func: &Body{}}}},
-		// queue.New and slice.WithCapacity take no hidden argument.
+		// queue.New and slices.WithCapacity take no hidden argument.
 		"New":          {TypeParams: anyT, Params: []Param{{Type: "int"}}, Results: []string{"*Queue[T]"}},
 		"WithCapacity": {TypeParams: anyT, Params: []Param{{Type: "int"}}, Results: []string{"[]T"}},
 		// The operations of queue.Queue: the caller's task where they wait.

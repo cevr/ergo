@@ -115,6 +115,47 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvFormatBool":   {},
 	"StrconvFormatFloat":  {},
 	"StrconvUnquote":      {},
+	// std slices and cmp (std-align S2a; stdlib.md, Slices and Maps):
+	// bodies that compute on their arguments and neither wait nor release.
+	// SortFunc and SortStableFunc call the program's comparator, which has
+	// an empty row (lowerer.adaptFunc), so they do not wait either.
+	"SlicesSort":           {},
+	"SlicesSortOwned":      {},
+	"SlicesSortFunc":       {},
+	"SlicesSortStableFunc": {},
+	"SlicesContains":       {},
+	"SlicesIndex":          {},
+	"SlicesReverse":        {},
+	"SlicesMax":            {},
+	"SlicesMin":            {},
+	"SlicesBinarySearch":   {},
+	"SlicesEqual":          {},
+	"CmpCompare":           {},
+	"CmpLess":              {},
+	// std time (std-align S2b; stdlib.md, time): TimeHostNow reads the
+	// host clock and the others compute, so none waits; Timeline.Wait
+	// waits on the caller's task (rt.Sleep on the manual timeline), and
+	// Advance wakes sleepers without waiting.
+	"TimeHostNow":       {},
+	"TimeFormat":        {},
+	"TimeParse":         {},
+	"TimeSub":           {},
+	"TimeSubMono":       {},
+	"NewTimeline":       {},
+	"Timeline.Read":     {},
+	"Timeline.Wait":     {wait: callerWait},
+	"Timeline.Advance":  {},
+	"Timeline.Sleepers": {},
+	// std rand (std-align S2c; stdlib.md, rand): each draw takes the
+	// source's lock for one step of the PCG, or reads Go's global
+	// generator, and none waits on a task.
+	"NewStream":       {},
+	"Stream.Uint64":   {},
+	"Stream.IntN":     {},
+	"Stream.Float64":  {},
+	"RandHostUint64":  {},
+	"RandHostIntN":    {},
+	"RandHostFloat64": {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},

@@ -1,0 +1,76 @@
+// The providers of Random: a seeded one for tests and replays, and the
+// host's (std-align S2c).
+
+// Stream is the state of a PCG provider: Go's *rand.Rand over a PCG
+// source, behind a lock, so tasks that share one provider draw from one
+// stream. Only Seeded makes one.
+type Stream {
+	// Uint64 is 64 random bits.
+	Uint64() uint64,
+	// IntN is in 0..n-1. An n of zero or less is a defect.
+	IntN(n int) int,
+	// Float64 is in [0, 1).
+	Float64() float64,
+
+	// IntNInRange: a draw of IntN(n) is in 0..n-1, for each n above zero.
+	law IntNInRange(n int) {
+		if n <= 0 {
+			return true
+		}
+		let x = IntN(n)
+		x >= 0 && x < n
+	},
+}
+
+// PCG is a deterministic Random provider: the stream of Go's
+// rand.New(rand.NewPCG(seed, v1.RandSeedHi)) for its seed, call for call
+// (runtime/v1/rand.go). It
+// needs no Ambient, because it reads no host state: a test or a replay
+// binds it, `context { Random: rand.Seeded(7) }`. Every copy of a PCG
+// shares one stream: `let b = a` draws on from where a is, and never
+// replays it. Two PCGs of one seed replay one stream (SeedReplays).
+type PCG { src Stream }
+
+// Seeded is the PCG provider of seed.
+func Seeded(seed uint64) PCG { PCG{src: newStream(seed)} }
+
+// Uint64 is the next 64 bits of p's stream.
+func Uint64(p PCG) uint64 { p.src.Uint64() }
+
+// IntN is the next draw of p's stream in 0..n-1, as Go's r.IntN(n). An n
+// of zero or less is a defect, as Go's IntN panics.
+func IntN(p PCG, n int) int { p.src.IntN(n) }
+
+// Float64 is the next draw of p's stream in [0, 1), as Go's r.Float64().
+func Float64(p PCG) float64 { p.src.Float64() }
+
+extern go ergo.local/prototype/runtime/v1.NewStream func newStream(seed uint64) Stream
+
+// Host is the host's Random provider: Go's global math/rand/v2 functions,
+// seeded by the runtime (ChaCha8 per thread), with no stream to replay.
+// Its field gives this package the construction authority, so only
+// NewHost makes one.
+type Host { live hostOnly }
+
+// hostOnly is the zero-size type of Host's field.
+type hostOnly {}
+
+// NewHost is the host's Random provider. It needs Ambient: only code whose
+// row holds the authority to choose the host makes one (docs/spec/
+// stdlib.md, Host packages).
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
+
+// Uint64 is 64 random bits from the host (Go's rand.Uint64).
+func Uint64(_ Host) uint64 { hostUint64() }
+
+// IntN is a random int in 0..n-1 from the host (Go's rand.IntN). An n of
+// zero or less is a defect.
+func IntN(_ Host, n int) int { hostIntN(n) }
+
+// Float64 is a random float64 in [0, 1) from the host (Go's
+// rand.Float64).
+func Float64(_ Host) float64 { hostFloat64() }
+
+extern go ergo.local/prototype/runtime/v1.RandHostUint64 func hostUint64() uint64
+extern go ergo.local/prototype/runtime/v1.RandHostIntN func hostIntN(n int) int
+extern go ergo.local/prototype/runtime/v1.RandHostFloat64 func hostFloat64() float64

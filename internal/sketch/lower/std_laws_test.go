@@ -311,7 +311,7 @@ func TestStdLawsAddNoGo(t *testing.T) {
 	if got != string(want) {
 		t.Errorf("the Go of a program that imports the std packages with laws changed:\n%s", lineDiff(string(want), got))
 	}
-	for _, law := range []string{"FirstInFirstOut", "CloseKeepsValues", "CloseIsIdempotent", "PushAfterCloseFails", "WaitReturnsTheBlock", "StopIsIdempotent", "QuickBodyWins", "DeadlineFirstExpires", "ActionsRunLastFirst", "InnerSpanShadows", "SpanEndRestores", "InnerAnnotationShadows", "AnnotationEndRestores", "Int63NeverNegative"} {
+	for _, law := range []string{"FirstInFirstOut", "CloseKeepsValues", "CloseIsIdempotent", "PushAfterCloseFails", "WaitReturnsTheBlock", "StopIsIdempotent", "QuickBodyWins", "DeadlineFirstExpires", "ActionsRunLastFirst", "InnerSpanShadows", "SpanEndRestores", "InnerAnnotationShadows", "AnnotationEndRestores", "IntNInRange", "Float64InUnit"} {
 		if strings.Contains(got, law) {
 			t.Errorf("the Go names the law %s", law)
 		}

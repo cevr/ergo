@@ -1,14 +1,15 @@
 package v1
 
-// The bodies of the std package slice and of the prelude's slice and Map
-// functions (docs/spec/stdlib.md, Slices and Maps). A slice is a Go slice
+// The bodies of slices.WithCapacity and of the prelude's slice and Map
+// functions (docs/spec/stdlib.md, Slices and Maps); the rest of std slices
+// is in collections.go. A slice is a Go slice
 // and a Map a Go map; aliasing follows Go in v1 (check-v1 Q2; #222 and
 // #197 own the change). The prelude's Get returns Option[V], a type the
 // lowering emits in each program, so its body is lowered at the call, not
 // here.
 
-// WithCapacity is slice.WithCapacity[T](n): an empty slice with room for n
-// elements. It fabricates no element (parse-v1 ruling 7 withdrew
+// WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
+// n elements. It fabricates no element (parse-v1 ruling 7 withdrew
 // slice.Repeat). A negative n is a defect, Go's own makeslice panic.
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 

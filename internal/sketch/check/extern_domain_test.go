@@ -23,7 +23,7 @@ type externForm struct {
 }
 
 // externForms is every reference form of the call-only rule's domain. Std
-// exports no non-generic extern (task.Go, queue.New, slice.WithCapacity,
+// exports no non-generic extern (task.Go, queue.New, slices.WithCapacity,
 // timeout.After and scope.OnExit are generic; log's and trace's externs are
 // unexported), so the qualified non-generic form has no row. The prelude's
 // one extern, Sleep, is an operation of LiveScheduler and in no scope
@@ -41,9 +41,9 @@ var externForms = []externForm{
 		ctlDecl: "func mk[T](n int) queue.Queue[T] { queue.New[T](n) }\n", ctlRef: "mk[int]",
 	},
 	{
-		name: "slice-explicit", imports: "import slice\n",
-		ref: "slice.WithCapacity[int]", typ: "func(int) []int", args: "(1)",
-		ctlDecl: "func wc[T](n int) []T { slice.WithCapacity[T](n) }\n", ctlRef: "wc[int]",
+		name: "slice-explicit", imports: "import slices\n",
+		ref: "slices.WithCapacity[int]", typ: "func(int) []int", args: "(1)",
+		ctlDecl: "func wc[T](n int) []T { slices.WithCapacity[T](n) }\n", ctlRef: "wc[int]",
 	},
 	{
 		name: "queue-inferred", imports: "import queue\n",

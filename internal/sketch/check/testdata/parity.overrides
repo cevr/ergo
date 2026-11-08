@@ -23,7 +23,7 @@ probes/predeclared-local.ergo S108
 probes/predeclared-panic.ergo clean
 probes/prelude-locals.ergo S108
 probes/same-local-as-cap.ergo S108
-probes/sleep-timeout.ergo S108
+probes/sleep-timeout.ergo clean
 probes/timeout-capability.ergo clean
 probes/timeout-statement-last.ergo clean
 probes/user-type-shadow.ergo S108

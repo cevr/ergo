@@ -103,13 +103,13 @@ func main() needs Console {
 	_ = h
 }
 `,
-		"wrapping-literal": `import slice
+		"wrapping-literal": `import slices
 
 extern go strings.ToUpper func Upper(s string) string
 
 func main() needs Console {
 	let f = func() string { Upper("x") }
-	let g = func(n int) []int { slice.WithCapacity[int](n) }
+	let g = func(n int) []int { slices.WithCapacity[int](n) }
 	Console.Println(f())
 	_ = g
 }
@@ -158,10 +158,10 @@ func main() needs Console {
 	scope.OnExit() { Console.Println("bye") }
 }
 `,
-		"import-slice": `import slice
+		"import-slice": `import slices
 
 func main() needs Console {
-	let xs = slice.WithCapacity[int](2)
+	let xs = slices.WithCapacity[int](2)
 	Console.Println("\(len(xs))")
 }
 `,
@@ -214,7 +214,7 @@ func TestStdPathReserved(t *testing.T) {
 	if fake.Std() {
 		t.Fatal("a program package checked under the path log has std identity")
 	}
-	for _, path := range []string{"log", "trace", "queue", "scope", "slice", "task", "timeout"} {
+	for _, path := range []string{"log", "trace", "queue", "scope", "slices", "task", "timeout"} {
 		t.Run(path, func(t *testing.T) {
 			main, err := syntax.Parse("import " + path + "\n\nfunc f() int { " + path + ".Shadow() }\n")
 			if err != nil {
@@ -292,6 +292,37 @@ func main() {
 	use(Mine)
 }
 `,
+	// std time (S2b): NewManual's extern returns the Timeline.
+	"time.Timeline": `import time
+
+type Mine {}
+
+func Read(_ Mine) time.Reading { time.Reading{Sec: 0, Nsec: 0, Mono: 0} }
+func Wait(_ Mine, d duration) {}
+func Advance(_ Mine, d duration) {}
+func Sleepers(_ Mine) int { 0 }
+
+func use(l time.Timeline) { _ = l.Sleepers() }
+
+func main() {
+	use(Mine)
+}
+`,
+	// std rand (S2c): Seeded's extern returns the Stream.
+	"rand.Stream": `import rand
+
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(s rand.Stream) { _ = s.Uint64() }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Task": `type Fault {}
 type Mine {}
 
@@ -324,11 +355,14 @@ func pass(m Mine) {
 	use(m)
 }
 `,
-	"prelude.Clock": `type Mine {}
+	// std time (S2b): the prelude's Clock moved here, with Now() time.Time.
+	"time.Clock": `import time
 
-func Now(_ Mine) int64 { 0 }
+type Mine {}
 
-func use(c Clock) { _ = c.Now() }
+func Now(_ Mine) time.Time { time.Unix(0, 0) }
+
+func use(c time.Clock) { _ = c.Now() }
 
 func main() {
 	use(Mine)
@@ -336,9 +370,11 @@ func main() {
 `,
 	"prelude.Random": `type Mine {}
 
-func Int63(_ Mine) int64 { 0 }
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
 
-func use(r Random) { _ = r.Int63() }
+func use(r Random) { _ = r.IntN(1) }
 
 func main() {
 	use(Mine)
@@ -461,7 +497,7 @@ var unexportedStd = map[string]string{
 var openStd = map[string]bool{
 	"prelude.Console":   true,
 	"prelude.Scheduler": true,
-	"prelude.Clock":     true,
+	"time.Clock":        true,
 	"prelude.Random":    true,
 	"os.Process":        true,
 	"fs.Files":          true,

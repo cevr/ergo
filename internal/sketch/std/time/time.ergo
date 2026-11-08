@@ -1,0 +1,162 @@
+// Package time is instants, the clock that reads them and a manual clock
+// for tests (docs/spec/stdlib.md, time; std-align S2b). It follows Go's
+// time package for names and meaning (Time, Unix, Sub, Add, Before, After,
+// Equal, Format, Parse, Since, the named layouts) and Effect's Clock and
+// TestClock for the capability and the test provider. Rules that differ
+// from Go, each for a guarantee:
+//   - every instant is in UTC: Format and Parse never read the host's
+//     zone, so a program's text does not depend on the host;
+//   - Parse fails ParseError, a record in the row, not an error value;
+//   - a layout is a Layout, a closed union of Go's named layouts and
+//     Custom, so a match covers every layout (a std package has no
+//     package-level let yet: a follow-up of std-align S2b);
+//   - Clock is a capability: code that reads the time shows Clock in its
+//     row, and a test binds Manual in its place.
+// Duration is the language's duration type (1500ms, 2h).
+
+// Time is an instant: Unix seconds, nanoseconds in 0..999,999,999, and,
+// when a clock read it, a monotonic reading in nanoseconds. Its fields are
+// unexported, so only this package builds one (S114): Unix, Parse, Add
+// and a clock's Now. Sub, Before, After and Equal use the monotonic
+// readings when both times have one, as Go's time.Time does, so the time
+// a clock measures never falls when the wall clock is set back. Format
+// and Parse use the wall reading only. Two times are the same instant when
+// Equal says so; == also compares the monotonic reading, as in Go.
+type Time { sec int64, nsec int64, mono int64, hasMono bool }
+
+// ParseError is the failure of Parse: Value does not match Layout. Message
+// is Go's text of the error.
+type ParseError { Layout string, Value string, Message string }
+
+// Reading is one read of a clock: Unix seconds, nanoseconds and a
+// monotonic reading in nanoseconds. A clock provider gives one; Now makes
+// it a Time. It carries no authority: a Time is made only in this package.
+type Reading { Sec int64, Nsec int64, Mono int64 }
+
+// Layout is how Format writes a Time and Parse reads one: one of Go's
+// named layouts, or Custom with a layout in Go's reference-time form
+// ("Jan 2 15:04"). Each named layout is the Go constant of its name; a
+// match over Layout covers every one.
+type RFC3339 {}
+type RFC3339Nano {}
+type DateTime {}
+type DateOnly {}
+type TimeOnly {}
+type Custom { Text string }
+type Layout = RFC3339 | RFC3339Nano | DateTime | DateOnly | TimeOnly | Custom
+
+// LayoutText is the Go layout text of l.
+func LayoutText(l Layout) string {
+	match l {
+	case RFC3339:
+		"2006-01-02T15:04:05Z07:00"
+	case RFC3339Nano:
+		"2006-01-02T15:04:05.999999999Z07:00"
+	case DateTime:
+		"2006-01-02 15:04:05"
+	case DateOnly:
+		"2006-01-02"
+	case TimeOnly:
+		"15:04:05"
+	case Custom as c:
+		c.Text
+	}
+}
+
+// Unix is the instant sec seconds and nsec nanoseconds after January 1,
+// 1970 UTC, with no monotonic reading. nsec may be outside 0..999,999,999;
+// Unix carries it into the seconds, as Go's time.Unix does.
+func Unix(sec int64, nsec int64) Time {
+	let mut s = sec
+	let mut n = nsec
+	if n < 0 || n >= 1000000000 {
+		let carry = n / 1000000000
+		s = s + carry
+		n = n - carry*1000000000
+		if n < 0 {
+			n = n + 1000000000
+			s = s - 1
+		}
+	}
+	Time{sec: s, nsec: n, mono: 0, hasMono: false}
+}
+
+// UnixSeconds is the Unix seconds of t (Go's t.Unix()).
+func UnixSeconds(t Time) int64 { t.sec }
+
+// Nanosecond is the nanoseconds of t within its second, 0..999,999,999.
+func Nanosecond(t Time) int64 { t.nsec }
+
+// read is the Time of a clock's reading: sec, nsec and mono. It takes the
+// parts, not the Reading: a function whose first parameter is a std record
+// that the runtime declares would lower to a method of the runtime's Go
+// type, which the program cannot declare.
+func read(sec int64, nsec int64, mono int64) Time {
+	Time{sec: sec, nsec: nsec, mono: mono, hasMono: true}
+}
+
+// Add is t plus d. The monotonic reading moves by d too; when that would
+// overflow, Add drops it, as Go does.
+func Add(t Time, d duration) Time {
+	let ns = int64(d)
+	let mut s = t.sec + ns/1000000000
+	let mut n = t.nsec + ns%1000000000
+	if n >= 1000000000 {
+		s = s + 1
+		n = n - 1000000000
+	} else if n < 0 {
+		s = s - 1
+		n = n + 1000000000
+	}
+	let mono = t.mono + ns
+	let keep = t.hasMono && (ns < 0) == (mono < t.mono)
+	Time{sec: s, nsec: n, mono: mono, hasMono: keep}
+}
+
+// Sub is the duration t - u. A result past the range of a duration is the
+// largest or smallest duration, as in Go.
+func Sub(t Time, u Time) duration {
+	if t.hasMono && u.hasMono {
+		subMono(t.mono, u.mono)
+	} else {
+		subWall(t.sec, t.nsec, u.sec, u.nsec)
+	}
+}
+
+// Before reports whether t is before u.
+func Before(t Time, u Time) bool {
+	if t.hasMono && u.hasMono {
+		t.mono < u.mono
+	} else {
+		t.sec < u.sec || t.sec == u.sec && t.nsec < u.nsec
+	}
+}
+
+// After reports whether t is after u.
+func After(t Time, u Time) bool { Before(u, t) }
+
+// Equal reports whether t and u are the same instant.
+func Equal(t Time, u Time) bool {
+	if t.hasMono && u.hasMono {
+		t.mono == u.mono
+	} else {
+		t.sec == u.sec && t.nsec == u.nsec
+	}
+}
+
+// Format is t's text in UTC by layout, as Go's t.UTC().Format(layout).
+func Format(t Time, layout Layout) string { format(t.sec, t.nsec, LayoutText(layout)) }
+
+// Parse is the instant value writes in layout, as Go's time.Parse, with no
+// monotonic reading. A value with a zone offset is that instant; Format
+// writes it in UTC. A zone abbreviation (MST) is read against UTC, never
+// the host's zone, so Parse reads no host state.
+func Parse(layout Layout, value string) Time fails ParseError {
+	let r = try parse(LayoutText(layout), value)
+	Time{sec: r.Sec, nsec: r.Nsec, mono: 0, hasMono: false}
+}
+
+extern go ergo.local/prototype/runtime/v1.TimeFormat func format(sec int64, nsec int64, layout string) string
+extern go ergo.local/prototype/runtime/v1.TimeParse func parse(layout string, value string) Reading fails ParseError
+extern go ergo.local/prototype/runtime/v1.TimeSub func subWall(sec int64, nsec int64, usec int64, unsec int64) duration
+extern go ergo.local/prototype/runtime/v1.TimeSubMono func subMono(a int64, b int64) duration
