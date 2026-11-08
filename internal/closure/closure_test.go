@@ -2,7 +2,10 @@ package closure
 
 import (
 	"bytes"
+	"cmp"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -10,12 +13,14 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/testinputs"
 	"ergo.local/prototype/internal/testinputs/testenv"
@@ -643,16 +648,21 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 	for _, dir := range skipped {
 		t.Logf("%s: not swept: %s", dir, unsweepable[dir])
 	}
-	if selection == "all" {
-		for dir := range declared {
-			if _, ok := closures[dir]; !ok {
-				t.Errorf("declared package %s is not a test package of the module", dir)
-			}
+	// The table's packages are checked on every selection: the gate's full
+	// tier sweeps one package per step (scripts/gate, sweepStep).
+	for dir := range declared {
+		if _, ok := closures[dir]; !ok {
+			t.Errorf("declared package %s is not a test package of the module", dir)
 		}
-		for dir := range declaredKernelWrites {
-			if _, ok := closures[dir]; !ok {
-				t.Errorf("the package %s of a declared kernel write is not a test package of the module", dir)
-			}
+	}
+	for dir := range declaredKernelWrites {
+		if _, ok := closures[dir]; !ok {
+			t.Errorf("the package %s of a declared kernel write is not a test package of the module", dir)
+		}
+	}
+	for dir := range sweepShards {
+		if _, ok := closures[dir]; !ok {
+			t.Errorf("sweepShards names %s, which is not a test package of the module", dir)
 		}
 	}
 
@@ -660,6 +670,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		outside  []entry
 		used     map[string]bool
 		identity string
+		took     string
 		err      error
 	}
 	results := make([]result, len(targets))
@@ -669,10 +680,9 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
 			name := strings.ReplaceAll(dir, "/", "_")
-			entries, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name))
+			entries, took, err := runPackage(root, protect, roots, dir, filepath.Join(binaries, name+".test"), filepath.Join(work, name), sem)
+			results[i].took = took
 			if err != nil {
 				results[i].err = err
 				return
@@ -686,6 +696,7 @@ func TestEveryPackageRecordsOnlyItsClosure(t *testing.T) {
 
 	for i, dir := range targets {
 		r := results[i]
+		t.Logf("%s: %s", dir, r.took)
 		if r.err != nil {
 			t.Errorf("%s: %v", dir, r.err)
 			continue
@@ -797,6 +808,57 @@ func TestSweepTargets(t *testing.T) {
 	}
 }
 
+// A split package runs every top-level test in exactly one run, a test the
+// name scan missed in the last; an unsplit one runs whole; a package with
+// fewer tests than runs is an error.
+func TestSweepShardArgs(t *testing.T) {
+	dir := t.TempDir()
+	tests := []string{"TestA", "TestB", "TestC", "TestD", "TestE", "TestF_1", "TestG"}
+	var source strings.Builder
+	source.WriteString("package p\n\nimport \"testing\"\n\nfunc TestMain(m *testing.M) {}\n")
+	for _, name := range tests {
+		fmt.Fprintf(&source, "\nfunc %s(t *testing.T) {}\n", name)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "p_test.go"), []byte(source.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// TestMissed stands for a test the scan does not find (one declared
+	// in a way the pattern does not match).
+	all := append(slices.Clone(tests), "TestMain", "TestMissed")
+	if args, err := sweepShardArgs(dir, 1); err != nil || len(args) != 1 || args[0] != nil {
+		t.Fatalf("one run: %q, %v; want one run with no flags", args, err)
+	}
+	for _, n := range []int{2, 3, 7} {
+		args, err := sweepShardArgs(dir, n)
+		if err != nil || len(args) != n {
+			t.Fatalf("%d runs: %q, %v", n, args, err)
+		}
+		for _, name := range all {
+			runs := 0
+			for _, flags := range args {
+				if len(flags) != 1 {
+					t.Fatalf("%d runs: run flags %q; want one -test.run or -test.skip", n, flags)
+				}
+				flag, pattern, _ := strings.Cut(flags[0], "=")
+				matched := regexp.MustCompile(pattern).MatchString(name)
+				if (flag == "-test.run") == matched {
+					runs++
+				}
+			}
+			want := 1
+			if name == "TestMain" {
+				want = runs // the test binary runs TestMain itself, never by -test.run
+			}
+			if runs != want {
+				t.Errorf("%d runs: %s runs in %d of them, want 1 (%q)", n, name, runs, args)
+			}
+		}
+	}
+	if _, err := sweepShardArgs(dir, len(tests)+1); err == nil {
+		t.Errorf("%d runs of %d tests: no error", len(tests)+1, len(tests))
+	}
+}
+
 // identityCounts counts the entries that fail closed on identity: those that
 // met a change during the run, those whose object changed after it, and those
 // with no identity. opRaced starts with opChanged, so it is tested first.
@@ -897,14 +959,145 @@ func modulePackages(t *testing.T, root string) (map[string]closure, []string) {
 
 // runPackage builds the test binary of the package in dir (outside the
 // sandbox, which leaves the checkout writable for the go command) and
-// runs it (runTests). The log and the output go to stem.log and stem.out.
-func runPackage(root, protect string, roots []string, dir, binary, stem string) ([]entry, error) {
-	build := exec.Command("go", "test", "-c", "-o", binary, "./"+dir)
-	build.Dir = root
-	if out, err := build.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("go test -c: %v\n%s", err, out)
+// runs it (runTests), in the runs sweepShardArgs splits it into, at once.
+// The build and each run hold a slot of sem. It returns the recorded
+// inputs of every run. The log and the output of a package run whole go to
+// stem.log and stem.out, of a run of a split package to stem.<i>.log and
+// stem.<i>.out. took says how long the build and each run took once it
+// held its slot.
+func runPackage(root, protect string, roots []string, dir, binary, stem string, sem chan struct{}) (entries []entry, took string, err error) {
+	sem <- struct{}{}
+	start := time.Now()
+	err = buildTestBinary(root, dir, binary)
+	took = "build " + time.Since(start).Round(100*time.Millisecond).String()
+	<-sem
+	if err != nil {
+		return nil, took, err
 	}
-	return runTests(protect, roots, dir, filepath.Join(root, filepath.FromSlash(dir)), stem, nil, binary)
+	pkgDir := filepath.Join(root, filepath.FromSlash(dir))
+	selections, err := sweepShardArgs(pkgDir, sweepShards[dir])
+	if err != nil {
+		return nil, took, err
+	}
+	runs := make([][]entry, len(selections))
+	errs := make([]error, len(selections))
+	durations := make([]string, len(selections))
+	var wg sync.WaitGroup
+	for i, selection := range selections {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			runStem := stem
+			if len(selections) > 1 {
+				runStem = fmt.Sprintf("%s.%d", stem, i+1)
+			}
+			start := time.Now()
+			runs[i], errs[i] = runTests(protect, roots, dir, pkgDir, runStem, nil, binary, selection...)
+			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
+			if errs[i] != nil && len(selections) > 1 {
+				errs[i] = fmt.Errorf("run %d of %d (%s): %w", i+1, len(selections), strings.Join(selection, " "), errs[i])
+			}
+		})
+	}
+	wg.Wait()
+	took += ", runs " + strings.Join(durations, " ")
+	if err := errors.Join(errs...); err != nil {
+		return nil, took, err
+	}
+	for _, run := range runs {
+		entries = append(entries, run...)
+	}
+	slices.SortFunc(entries, func(a, b entry) int { return cmp.Or(strings.Compare(a.path, b.path), strings.Compare(a.op, b.op)) })
+	return slices.Compact(entries), took, nil
+}
+
+// buildTestBinary builds the test binary of the package in dir. The build
+// has a run's bound (runDeadline), so a build that does not end fails with
+// its package named.
+func buildTestBinary(root, dir, binary string) error {
+	bound, err := runDeadline()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+	build := exec.CommandContext(ctx, "go", "test", "-c", "-o", binary, "./"+dir)
+	build.Dir = root
+	build.WaitDelay = 10 * time.Second
+	if out, err := build.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("go test -c ./%s did not end within %v (%s, or this test's own deadline)\n%s", dir, bound.Round(time.Second), runDeadlineVariable, out)
+		}
+		return fmt.Errorf("go test -c: %v\n%s", err, out)
+	}
+	return nil
+}
+
+// sweepShards are the packages whose test binary the sweep runs as several
+// runs at once, by package directory, with the count of runs: the gate
+// shards the same packages (scripts/gate, slowPackages), whose tests run one
+// at a time. Swept as one run, internal/sketch/lower took 458 s on a quiet
+// host at batch-9 4377b668 (328 tests, two parallel), and internal/sketch/check
+// 103 s (b9-fix-gate, measured); under the batch-9 gate's load the sweep
+// passed its 15 minute test timeout. Each run records its own inputs, and
+// the sweep checks the package's closure on the union of them, so every
+// declared entry still needs a recorded access in some run.
+var sweepShards = map[string]int{
+	"internal/sketch/lower": 4,
+}
+
+// testFunction finds the top-level tests of a test file.
+var testFunction = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(`)
+
+// sweepShardArgs returns the test binary flags of each run of the package
+// in pkgDir split into n runs (n < 2: one run, no flags). The package's
+// top-level tests, by name, are dealt round-robin into n groups; each run
+// but the last runs its group (-test.run), and the last skips every name
+// the others run (-test.skip), so a test the name scan missed still runs,
+// and every test runs in exactly one run.
+func sweepShardArgs(pkgDir string, n int) ([][]string, error) {
+	if n < 2 {
+		return [][]string{nil}, nil
+	}
+	files, err := filepath.Glob(filepath.Join(pkgDir, "*_test.go"))
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, name := range files {
+		content, err := os.ReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range testFunction.FindAllSubmatch(content, -1) {
+			if test := string(match[1]); test != "TestMain" {
+				names = append(names, test)
+			}
+		}
+	}
+	slices.Sort(names)
+	names = slices.Compact(names)
+	if len(names) < n {
+		return nil, fmt.Errorf("%s has %d tests, fewer than its %d sweep runs (sweepShards)", pkgDir, len(names), n)
+	}
+	groups := make([][]string, n)
+	for i, name := range names {
+		groups[i%n] = append(groups[i%n], name)
+	}
+	exact := func(names []string) string {
+		quoted := make([]string, len(names))
+		for i, name := range names {
+			quoted[i] = regexp.QuoteMeta(name)
+		}
+		return "^(" + strings.Join(quoted, "|") + ")$"
+	}
+	var args [][]string
+	var assigned []string
+	for _, group := range groups[:n-1] {
+		args = append(args, []string{"-test.run=" + exact(group)})
+		assigned = append(assigned, group...)
+	}
+	return append(args, []string{"-test.skip=" + exact(assigned)}), nil
 }
 
 // sweepEnvironment is the environment a cached test may receive.

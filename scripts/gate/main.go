@@ -153,7 +153,7 @@ type Step struct {
 	// package key does not cover (readsOutsideKey).
 	ObserveInputs bool
 	// Sweep, on a step of the closure sweep (sweepStep), names what it
-	// sweeps: "all", or the directory of the one package it sweeps. A
+	// sweeps: the directory of the one package it sweeps. A
 	// fast sweep step has a Package key of its own (sweepClosure), which
 	// is not the swept package's closure, so the package steps' checks
 	// and the fast CPU record pass it by.

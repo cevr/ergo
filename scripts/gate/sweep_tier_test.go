@@ -9,8 +9,9 @@ import (
 
 // The closure sweep runs in a tier (closure-tier, batch 9; gate-tier round
 // 1: "in the fast tier whenever any package's closure table changes, and
-// always in the full tier"). The full tier has one step that sweeps every
-// package. In the fast tier an edit of the closure table reaches the sweep
+// always in the full tier"). The full tier sweeps every test package, one
+// package per step, so no step holds the whole sweep (b9-fix-gate). In the
+// fast tier an edit of the closure table reaches the sweep
 // of every package, an edit of one package's test file reaches that
 // package's sweep alone, and an edit of a non-test Go file reaches none,
 // so a checker edit's fast set keeps its CPU (TestFastTierReachOfAnEdit).
@@ -40,14 +41,29 @@ func TestClosureSweepTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sweepsOf(full); len(got) != 1 || got[0].selection != "all" {
-		t.Errorf("full tier: closure sweep steps %v; want one that sweeps every package (all)", got)
-	}
-	fast, err := fastSteps(root)
+	packages, _, err := testPackages(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	packages, _, err := testPackages(root)
+	// The full tier sweeps every test package, one package per step
+	// (b9-fix-gate: one step over all of them passed the 15 minute test
+	// timeout under load).
+	var fullDirs, wantDirs []string
+	for _, s := range sweepsOf(full) {
+		if s.selection == "all" || strings.Contains(s.selection, ",") {
+			t.Errorf("full tier: %s sweeps %q, not one package", s.step.Name, s.selection)
+		}
+		fullDirs = append(fullDirs, s.selection)
+	}
+	for _, p := range packages {
+		wantDirs = append(wantDirs, p.dir)
+	}
+	slices.Sort(fullDirs)
+	slices.Sort(wantDirs)
+	if !slices.Equal(fullDirs, wantDirs) || len(fullDirs) < 30 {
+		t.Errorf("full tier: closure sweep steps of %v; want one of each test package %v", fullDirs, wantDirs)
+	}
+	fast, err := fastSteps(root)
 	if err != nil {
 		t.Fatal(err)
 	}

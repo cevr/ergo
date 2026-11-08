@@ -161,19 +161,58 @@ func (v violation) Error() string {
 
 // runDeadlineVariable bounds each run of a test binary in the sandbox (a
 // Go duration; 20 minutes by default). A run that has not ended by then is
-// a failure that names its package, and its process group is stopped, so a
-// run that hangs (an observed child stuck in its start, for example) leaves
-// no process behind.
+// a failure that names its package and the processes the run still had,
+// and its process group is stopped, so a run that hangs (an observed child
+// stuck in its start, for example) leaves no process behind.
 const runDeadlineVariable = "ERGO_CLOSURE_RUN_DEADLINE"
 
-func runDeadline() (time.Duration, error) {
-	value := os.Getenv(runDeadlineVariable)
-	if value == "" {
-		return 20 * time.Minute, nil
+// runReportMargin is the time a run's deadline leaves before this test
+// binary's own deadline (binaryDeadline): reaperBound (30 s, on Linux) for
+// the run's reaper to collect the run, and 30 s for the test to report
+// every package's verdict before the testing package's timeout panics.
+const runReportMargin = time.Minute
+
+// processStart is when this test binary started, before the testing
+// package started its -test.timeout alarm.
+var processStart = time.Now()
+
+// binaryDeadline is when this test binary's -test.timeout ends, or false
+// when it has none. It counts from processStart, so it is no later than
+// the testing package's alarm.
+func binaryDeadline() (time.Time, bool) {
+	f := flag.Lookup("test.timeout")
+	if f == nil {
+		return time.Time{}, false
 	}
-	d, err := time.ParseDuration(value)
-	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("%s=%q: want a positive duration", runDeadlineVariable, value)
+	getter, ok := f.Value.(flag.Getter)
+	if !ok {
+		return time.Time{}, false
+	}
+	timeout, ok := getter.Get().(time.Duration)
+	if !ok || timeout <= 0 {
+		return time.Time{}, false
+	}
+	return processStart.Add(timeout), true
+}
+
+// runDeadline is the bound of one run that starts now: runDeadlineVariable
+// (20 minutes by default), and never past runReportMargin before this test
+// binary's own deadline. The sweep's step runs with the gate's 15 minute
+// test timeout: at batch 9 a swept run that did not end held the sweep
+// until that timeout panicked, which named no package and reported no
+// verdict (b9-fix-gate). A run started with less time left than the margin
+// gets a second, so it fails at once with its package named.
+func runDeadline() (time.Duration, error) {
+	d := 20 * time.Minute
+	if value := os.Getenv(runDeadlineVariable); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 {
+			return 0, fmt.Errorf("%s=%q: want a positive duration", runDeadlineVariable, value)
+		}
+		d = parsed
+	}
+	if end, ok := binaryDeadline(); ok {
+		d = max(min(d, time.Until(end)-runReportMargin), time.Second)
 	}
 	return d, nil
 }
@@ -205,10 +244,10 @@ func runProtected(sb sandbox, pkg, dir string, env []string, output string, bina
 		file.Close()
 		return err
 	}
-	timedOut, runErr := runWithin(cmd, deadline)
+	timedOut, left, runErr := runWithin(cmd, deadline)
 	file.Close()
 	if timedOut {
-		return fmt.Errorf("%s: the run did not end within %v (%s), so the sweep stopped its process group; output %s", pkg, deadline, runDeadlineVariable, output)
+		return fmt.Errorf("%s: the run did not end within %v (%s, or this test's own deadline), so the sweep stopped it; its processes then:\n  %s\noutput %s", pkg, deadline.Round(time.Second), runDeadlineVariable, strings.Join(left, "\n  "), output)
 	}
 	if runErr == nil {
 		return nil

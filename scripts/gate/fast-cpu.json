@@ -8,5 +8,6 @@
   "ergo.local/prototype/internal/sketch/std": 0.4,
   "ergo.local/prototype/internal/sketch/syntax": 2.5,
   "ergo.local/prototype/internal/sketchfront": 3,
-  "ergo.local/prototype/internal/testinputs/guard": 0.5
+  "ergo.local/prototype/internal/testinputs/guard": 0.5,
+  "ergo.local/prototype/scripts/examples": 1.9
 }
