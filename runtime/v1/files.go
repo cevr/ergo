@@ -91,7 +91,7 @@ const PureMark = "//ergo:pure"
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
 // except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math", "path/filepath"}
+var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math", "math/bits", "path/filepath"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs
@@ -187,6 +187,7 @@ var stdRecords = map[string]string{
 	"strconv.OutOfRange":   "OutOfRange",
 	"time.ParseError":      "ParseError",
 	"time.Reading":         "Reading",
+	"utf8.Decoded":         "Decoded",
 	"timeout.Expired":      "Expired",
 }
 

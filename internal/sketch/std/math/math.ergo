@@ -1,0 +1,76 @@
+// Package math is Go's math for float64 (docs/spec/stdlib.md, math and
+// bits; std-text-runes). Each extern binds a pure runtime/v1 body
+// (runtime/v1/numbers.go) that calls Go's function of the same name, so a
+// call compiles to Go's own call, an instruction for Floor, Ceil, Trunc,
+// Sqrt and Abs on amd64 and arm64. Go's constants are functions here
+// (MaxInt64()): a std package let has no Go name in a build yet.
+
+// Abs is the absolute value of f; Abs(±Inf) is +Inf and Abs(NaN) is NaN.
+extern go ergo.local/prototype/runtime/v1.MathAbs func Abs(f float64) float64
+
+// Ceil is the least integer value at least f.
+extern go ergo.local/prototype/runtime/v1.MathCeil func Ceil(f float64) float64
+
+// Floor is the greatest integer value at most f.
+extern go ergo.local/prototype/runtime/v1.MathFloor func Floor(f float64) float64
+
+// Trunc is the integer value of f, toward zero.
+extern go ergo.local/prototype/runtime/v1.MathTrunc func Trunc(f float64) float64
+
+// Round is the nearest integer to f, half away from zero.
+extern go ergo.local/prototype/runtime/v1.MathRound func Round(f float64) float64
+
+// Sqrt is the square root of f; Sqrt of a negative f is NaN, as in Go.
+extern go ergo.local/prototype/runtime/v1.MathSqrt func Sqrt(f float64) float64
+
+// Pow is x to the power y, with Go's special cases.
+extern go ergo.local/prototype/runtime/v1.MathPow func Pow(x float64, y float64) float64
+
+// Mod is the remainder of x / y, with the sign of x, as Go's math.Mod.
+extern go ergo.local/prototype/runtime/v1.MathMod func Mod(x float64, y float64) float64
+
+// Inf is +Inf when sign is 0 or more, and -Inf otherwise.
+extern go ergo.local/prototype/runtime/v1.MathInf func Inf(sign int) float64
+
+// NaN is the IEEE 754 not-a-number value.
+extern go ergo.local/prototype/runtime/v1.MathNaN func NaN() float64
+
+// IsNaN reports whether f is a not-a-number value.
+extern go ergo.local/prototype/runtime/v1.MathIsNaN func IsNaN(f float64) bool
+
+// IsInf reports whether f is an infinity: +Inf when sign is more than 0,
+// -Inf when it is less, and either when it is 0.
+extern go ergo.local/prototype/runtime/v1.MathIsInf func IsInf(f float64, sign int) bool
+
+// MaxInt64 is the largest int64, Go's math.MaxInt64.
+func MaxInt64() int64 { 9223372036854775807 }
+
+// MinInt64 is the smallest int64, Go's math.MinInt64.
+func MinInt64() int64 { -9223372036854775807 - 1 }
+
+// MaxInt is the largest int, Go's math.MaxInt: Ergo's targets have 64-bit
+// ints.
+func MaxInt() int { 9223372036854775807 }
+
+// MinInt is the smallest int, Go's math.MinInt.
+func MinInt() int { -9223372036854775807 - 1 }
+
+// FloorCeilBracket: a finite f lies between its Floor and its Ceil, which
+// are at most 1 apart.
+law FloorCeilBracket(f float64) {
+	if IsNaN(f) || IsInf(f, 0) {
+		return true
+	}
+	Floor(f) <= f && f <= Ceil(f) && Ceil(f)-Floor(f) <= 1.0
+}
+
+// TruncTowardZero: Trunc never moves away from zero, and is idempotent.
+law TruncTowardZero(f float64) {
+	if IsNaN(f) {
+		return true
+	}
+	Abs(Trunc(f)) <= Abs(f) && Trunc(Trunc(f)) == Trunc(f)
+}
+
+// AbsIsNonNegative: Abs is never below zero.
+law AbsIsNonNegative(f float64) { IsNaN(f) || Abs(f) >= 0.0 }

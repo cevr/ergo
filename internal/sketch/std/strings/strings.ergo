@@ -70,6 +70,11 @@ extern go ergo.local/prototype/runtime/v1.StringsEqualFold func EqualFold(s stri
 // ContainsRune reports whether the UTF-8 encoding of r is in s.
 extern go ergo.local/prototype/runtime/v1.StringsContainsRune func ContainsRune(s string, r rune) bool
 
+// ToValidUTF8 is s with each run of invalid UTF-8 bytes replaced by
+// replacement, as Go's strings.ToValidUTF8: a run is replaced once, and
+// an empty replacement drops it.
+extern go ergo.local/prototype/runtime/v1.StringsToValidUTF8 func ToValidUTF8(s string, replacement string) string
+
 // Halves is the text before and after a separator.
 type Halves { Before string, After string }
 

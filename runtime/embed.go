@@ -26,7 +26,7 @@ import (
 //go:embed v1/collections.go
 //go:embed v1/time.go v1/timetext.go
 //go:embed v1/rand.go
-//go:embed v1/path.go
+//go:embed v1/path.go v1/numbers.go
 //go:embed v1/exec.go v1/exec_exit_kqueue.go v1/exec_exit_linux.go
 var sources embed.FS
 
@@ -50,7 +50,7 @@ var packages = map[string]pkg{
 		files: []string{"cause.go", "clock.go", "doc.go", "handle.go", "regions.go", "run.go", "scope.go", "task.go", "timeout.go", "trace.go", "values.go"},
 	},
 	"runtime/v1": {
-		files:   []string{"collections.go", "context.go", "data.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "host.go", "path.go", "queue.go", "rand.go", "runtime.go", "task.go", "text.go", "time.go", "timetext.go"},
+		files:   []string{"collections.go", "context.go", "data.go", "exec.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exit.go", "host.go", "numbers.go", "path.go", "queue.go", "rand.go", "runtime.go", "task.go", "text.go", "time.go", "timetext.go"},
 		imports: []string{"runtime/rt"},
 	},
 }
