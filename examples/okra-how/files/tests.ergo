@@ -1,19 +1,19 @@
-// Read's tests run over a memory.Disk, so no test touches the host's file
-// system.
+// Read's tests run over a std fstest.Memory (memory.Disk), so no test touches
+// the host's file system.
 
 import fs
 import okra/how
 import okra/memory
 import slices
 
-let okra = memory.Disk{Files: []memory.File{
+let okra = []memory.File{
 	memory.File{Path: "g/topics", Text: "schedule\n\nrepo\n"},
 	memory.File{Path: "g/schedule/SKILL.md", Text: "schedule guide"},
 	memory.File{Path: "g/repo/SKILL.md", Text: "repo guide"},
-}}
+}
 
 test ReadKeepsTheOrderOfTheContents {
-	with context { fs.Files: okra } {
+	with context { fs.Files: try memory.Disk(okra) } {
 		let shelf = try Read("g")
 		assert slices.Equal(shelf.Names(), []string{"schedule", "repo"})
 		assert try shelf.Guide("repo") == "repo guide"
@@ -21,10 +21,10 @@ test ReadKeepsTheOrderOfTheContents {
 	}
 }
 
-// reason is the failure of Read("g") over d, as "NAME: REASON", or "read"
-// when Read succeeds.
-func reason(d memory.Disk) string {
-	with context { fs.Files: d } {
+// reason is the failure of Read("g") over a disk of files, as "NAME:
+// REASON", or "read" when Read succeeds.
+func reason(files []memory.File) string fails fs.NotFound | fs.Denied | fs.Failed {
+	with context { fs.Files: try memory.Disk(files) } {
 		readOver()
 	}
 }
@@ -38,8 +38,7 @@ func readOver() string needs fs.Files {
 }
 
 test AMissingGuideNamesItsTopic {
-	let broken = memory.Disk{Files: []memory.File{memory.File{Path: "g/topics", Text: "repo\n"}}}
-	assert reason(broken) == "repo: no file g/repo/SKILL.md"
-	assert reason(memory.Disk{Files: []memory.File{}}) == "topics: no file g/topics"
-	assert reason(okra) == "read"
+	assert try reason([]memory.File{memory.File{Path: "g/topics", Text: "repo\n"}}) == "repo: no file g/repo/SKILL.md"
+	assert try reason([]memory.File{}) == "topics: no file g/topics"
+	assert try reason(okra) == "read"
 }

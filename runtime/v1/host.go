@@ -85,12 +85,13 @@ type Failed struct {
 // Error is the failure's text, as NotFound's is.
 func (e Failed) Error() string { return "fs.Failed{Path:" + e.Path + " Reason:" + e.Reason + "}" }
 
-// Info is fs.Info: the last element of a path, its size in bytes, and
-// whether it is a directory.
+// Info is fs.Info: the last element of a path, its size in bytes,
+// whether it is a directory, and its permission bits.
 type Info struct {
 	Name string
 	Size int
 	Dir  bool
+	Perm int
 }
 
 // fsErr is the std fs failure of err, a failure of an operation at path:
@@ -152,7 +153,7 @@ func FSStat(path string) (Info, error) {
 	if err != nil {
 		return Info{}, fsErr(path, err)
 	}
-	return Info{Name: fi.Name(), Size: int(fi.Size()), Dir: fi.IsDir()}, nil
+	return Info{Name: fi.Name(), Size: int(fi.Size()), Dir: fi.IsDir(), Perm: int(fi.Mode().Perm())}, nil
 }
 
 // beforeRename, when it is set, runs on the complete, closed new file of

@@ -20,7 +20,7 @@ import (
 
 //go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 //go:embed os/*.ergo
-//go:embed fs/*.ergo
+//go:embed fs/*.ergo fstest/*.ergo
 //go:embed io/*.ergo
 //go:embed utf8/*.ergo
 //go:embed flag/*.ergo
