@@ -464,8 +464,9 @@ func makeSandbox(sb sandbox) error {
 const cgroup2SuperMagic = 0x63677270
 
 // checkScratch is S2's rule for the scratch directories, before any is
-// mounted: each is a physical, absolute directory, empty (fresh), outside
-// the checkout and not an ancestor of it, and none lies in another.
+// mounted: each is a physical, absolute directory, empty (fresh) unless
+// the sandbox names it shared, outside the checkout and not an ancestor of
+// it, and none lies in another.
 func checkScratch(sb sandbox) error {
 	if !filepath.IsAbs(sb.Root) || filepath.Clean(sb.Root) != sb.Root {
 		return fmt.Errorf("the checkout %q is not a clean absolute path", sb.Root)
@@ -499,7 +500,7 @@ func checkScratch(sb sandbox) error {
 		if err != nil {
 			return fmt.Errorf("the scratch directory: %w", err)
 		}
-		if len(entries) != 0 {
+		if len(entries) != 0 && !slices.Contains(sb.Shared, dir) {
 			return fmt.Errorf("the scratch directory %s is not empty (%s): the sweep makes it fresh for each run", dir, entries[0].Name())
 		}
 	}

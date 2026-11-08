@@ -959,6 +959,33 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 		return nil, took, err
 	}
 	plan := planRuns(names, costs, sweepRunBudget)
+	entries, durations, err := runPlan(protect, roots, dir, pkgDir, stem, binary, plan, sem, nil)
+	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
+	return entries, took, err
+}
+
+// runPlan runs the planned runs of one package's test binary, each in its
+// own sandbox, as many at once as sem holds, the heaviest first, with extra
+// in their environment, and returns the union of their recorded inputs and
+// each run's wall time, in plan order.
+//
+// The runs share one Go build cache (sharedCache), made empty for the
+// package and removed after its last run: each run's other scratch
+// directories stay its own. Each run had its own empty GOCACHE until gl-
+// sweep-cache, so each one built again what the tests build (the lowering's
+// native tests build every program with the runtime): 9 runs of
+// internal/sketch/lower took 1546 CPU-s where 4 took 1277 (fu-sweep-deadline,
+// measured). A build that a run takes from the cache reads none of what the
+// build read: those reads are in the log of the run of this package that
+// made the entry, so the union of the runs, which the closure checks, has
+// them still. A cache that another package's runs filled would hide them
+// (TestSharedCacheKeepsEachPackagesInputs).
+func runPlan(protect string, roots []string, dir, pkgDir, stem, binary string, plan []sweepRun, sem chan struct{}, extra []string) ([]entry, []string, error) {
+	cache, err := newSharedCache()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer removeTree(cache)
 	runs := make([][]entry, len(plan))
 	errs := make([]error, len(plan))
 	durations := make([]string, len(plan))
@@ -975,21 +1002,21 @@ func runPackage(root, protect string, roots []string, dir, binary, stem string, 
 				runStem = fmt.Sprintf("%s.%d", stem, i+1)
 			}
 			start := time.Now()
-			runs[i], errs[i] = runTests(protect, roots, dir, pkgDir, runStem, nil, binary, run.args...)
+			runs[i], errs[i] = runTestsWith(protect, roots, dir, pkgDir, runStem, cache, extra, binary, run.args...)
 			durations[i] = time.Since(start).Round(100 * time.Millisecond).String()
 			errs[i] = runFailure(i, len(plan), run, errs[i])
 		})
 	}
 	wg.Wait()
-	took += fmt.Sprintf(", %d runs of at most %.0fs of recorded test time (%.0fs in all): %s", len(plan), sweepRunBudget, planCost(plan), strings.Join(durations, " "))
 	if err := errors.Join(errs...); err != nil {
-		return nil, took, err
+		return nil, durations, err
 	}
+	var entries []entry
 	for _, run := range runs {
 		entries = append(entries, run...)
 	}
 	slices.SortFunc(entries, func(a, b entry) int { return cmp.Or(strings.Compare(a.path, b.path), strings.Compare(a.op, b.op)) })
-	return slices.Compact(entries), took, nil
+	return slices.Compact(entries), durations, nil
 }
 
 // buildTestBinary builds the test binary of the package in dir. The build
@@ -1032,12 +1059,19 @@ func sweepEnvironment() []string { return testenv.Environment(os.Environ()) }
 // removal, such a path would name an absent place in scratch, which is no
 // input, and the read would be classified by nothing.
 func runTests(protect string, roots []string, pkg, pkgDir, stem string, extra []string, binary string, args ...string) ([]entry, error) {
+	return runTestsWith(protect, roots, pkg, pkgDir, stem, "", extra, binary, args...)
+}
+
+// runTestsWith is runTests with cache, when not empty, as the run's
+// GOCACHE: a directory the runs of one package share (runPlan), writable in
+// the run's sandbox as its scratch directories are.
+func runTestsWith(protect string, roots []string, pkg, pkgDir, stem, cache string, extra []string, binary string, args ...string) ([]entry, error) {
 	var entries []entry
 	classify := func(run observedRun) (err error) {
 		entries, err = run.entries(roots)
 		return err
 	}
-	if _, err := runObserved(protect, pkg, pkgDir, stem, extra, classify, binary, args...); err != nil {
+	if _, err := runObserved(protect, pkg, pkgDir, stem, cache, extra, classify, binary, args...); err != nil {
 		return nil, err
 	}
 	return entries, nil
@@ -1060,9 +1094,9 @@ func (o observedRun) entries(roots []string) ([]entry, error) {
 	return entries, nil
 }
 
-// runObserved is runTests up to the classification. classify, if not nil,
-// runs while the run's scratch directories still exist.
-func runObserved(protect, pkg, pkgDir, stem string, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
+// runObserved is runTestsWith up to the classification. classify, if not
+// nil, runs while the run's scratch directories still exist.
+func runObserved(protect, pkg, pkgDir, stem, cache string, extra []string, classify func(observedRun) error, binary string, args ...string) (observedRun, error) {
 	fail := func(err error) (observedRun, error) { return observedRun{}, err }
 	s, err := newScratch()
 	if err != nil {
@@ -1085,8 +1119,16 @@ func runObserved(protect, pkg, pkgDir, stem string, extra []string, classify fun
 	if !unobserved {
 		vars = append(vars, testinputs.IdentityVariable+"="+identityFile)
 	}
-	env := withEnv(sweepEnvironment(), append(append(vars, s.env()...), extra...)...)
-	sb := sandbox{Root: protect, Scratch: s.dirs()}
+	scratchEnv, scratchDirs := s.env(), s.dirs()
+	if cache != "" {
+		scratchEnv = withEnv(scratchEnv, "GOCACHE="+cache)
+		scratchDirs = append(scratchDirs, cache)
+	}
+	env := withEnv(sweepEnvironment(), append(append(vars, scratchEnv...), extra...)...)
+	sb := sandbox{Root: protect, Scratch: scratchDirs}
+	if cache != "" {
+		sb.Shared = []string{cache}
+	}
 	for _, k := range declaredKernelWrites[pkg] {
 		sb.Kernel = append(sb.Kernel, k.point)
 	}
@@ -1117,7 +1159,7 @@ func runObserved(protect, pkg, pkgDir, stem string, extra []string, classify fun
 			return fail(err)
 		}
 	}
-	writable := append(append([]string{"/dev/shm"}, s.dirs()...), sb.Kernel...)
+	writable := append(append([]string{"/dev/shm"}, scratchDirs...), sb.Kernel...)
 	run := observedRun{pkgDir: pkgDir, stem: stem, log: data, id: newAccessIdentity(id, writable)}
 	if classify != nil {
 		if err := classify(run); err != nil {
