@@ -7,18 +7,19 @@ import (
 
 // The facts each build reads (check/owners.go; Test mode rule 1). The run
 // build reads the program's facts only; the test build reads the tests'
-// facts as well. Another package's facts are always its program's: its
+// and the laws' facts as well (#162 law-run-1). Another package's facts are always its program's: its
 // tests are not part of this one. So every package-wide scan of the
 // checker's facts goes through readsFact or errorType, and a test adds
 // nothing to the run build: no Error method, no text helper, no adapter,
 // default, context builder or library name, and no read of a variable.
 
 // buildView is the owner whose view of this package's facts the build
-// lowers: the test build lowers the test bodies, which see the program's
-// facts and their own; the run build lowers the program's bodies only.
+// lowers: the test build lowers the test and law bodies (ViewTestBuild),
+// which see the program's facts and their own; the run build lowers the
+// program's bodies only.
 func (l *lowerer) buildView() check.FactOwner {
 	if l.tests != nil {
-		return check.OwnerTest
+		return check.ViewTestBuild
 	}
 	return check.OwnerProduction
 }

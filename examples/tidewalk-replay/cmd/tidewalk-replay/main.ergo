@@ -4,6 +4,7 @@
 // replays. This binary is the only place that chooses them: Live binds the
 // walk.Library contract to memory's fixed replays.
 
+import machines
 import tidewalk/frame
 import tidewalk/memory
 import tidewalk/walk
@@ -20,7 +21,7 @@ func play(r walk.Replay) fails walk.BadMove needs Console {
 	for i, m in moves.All() {
 		let es = walk.Decide(g, m)
 		let d = walk.Step(g, m)
-		g = walk.Apply(g, d)
+		g = machines.Next(g, d)
 		frame.Show(frame.Step{Name: r.Name, I: i + 1, N: n, Move: moves.Letter(i), Decision: walk.Word(d)}, g, es)
 	}
 	frame.Result(r.Name, g)

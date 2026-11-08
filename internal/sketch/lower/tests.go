@@ -64,6 +64,10 @@ const testDepth = 4
 type testLowering struct {
 	gens map[pkgKey]bool // generator functions emitted
 	lits map[pkgKey]bool // argument literal functions emitted (literal.go)
+	// law is the law whose body is being lowered, nil outside one: a bare
+	// operation call in it (CallLawOp) calls its operation type's
+	// capability, which the run binds to the provider under test.
+	law *check.Law
 }
 
 // LowerTests lowers the checked unit to the Go module of its test binary:
@@ -85,7 +89,7 @@ func LowerTests(u Unit) ([]File, error) {
 // name, in the order the naming pass reserves them.
 var testHelpers = []struct{ key, base string }{
 	{"fmt", "fmt"}, {"os", "os"}, {"sort", "sort"}, {"strconv", "strconv"}, {"strings", "strings"},
-	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"AssertDiff", "ergoAssertDiff"},
+	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"AssertDiff", "ergoAssertDiff"}, {"Refuted", "ergoRefuted"},
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"}, {"Edges", "ergoEdges"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
@@ -121,11 +125,28 @@ func (l *lowerer) nameTests() {
 			l.pkgName(key, base)
 		})
 	}
+	reserveGen := func(t check.Type) {
+		l.genNamed(t, map[check.Type]bool{}, func(n *check.Named) { l.genName(n) })
+		reserveLit(t)
+	}
+	for _, law := range l.runLaws() {
+		l.lawFunc(law)
+		if law.Unrun != "" {
+			continue
+		}
+		for _, v := range law.Params {
+			reserveGen(v.Type)
+		}
+		for _, p := range l.canon.lawProviders(law) {
+			if p.Unrun == "" {
+				reserveGen(p.Type)
+			}
+		}
+	}
 	for _, t := range l.runTests() {
 		l.testFunc(t)
 		for _, v := range t.Params {
-			l.genNamed(v.Type, map[check.Type]bool{}, func(n *check.Named) { l.genName(n) })
-			reserveLit(v.Type)
+			reserveGen(v.Type)
 		}
 		// The literal functions of the operands a failed assert shows.
 		syntax.Inspect(t.Decl, func(n syntax.Node) bool {
@@ -164,6 +185,82 @@ func (l *lowerer) runTests() []*check.Test {
 
 func (l *lowerer) testFunc(t *check.Test) string {
 	return l.pkgName(pkgKey{"test", t}, "ergoTest"+t.Name)
+}
+
+// runLaws are the laws the test build lowers: the root package's, top-level
+// and member, in canonical order, as runTests are its tests (Laws). A law
+// that does not run (Law.Unrun) is reported as skipped and has no body in
+// the build.
+func (l *lowerer) runLaws() []*check.Law {
+	return l.canon.laws(l.pkg)
+}
+
+// lawTitle is the name a law's report uses: Name at top level, Type.Name
+// for a member law.
+func lawTitle(law *check.Law) string {
+	if law.Owner != nil {
+		return law.Owner.Name + "." + law.Name
+	}
+	return law.Name
+}
+
+func (l *lowerer) lawFunc(law *check.Law) string {
+	base := "ergoLaw" + law.Name
+	if law.Owner != nil {
+		base = "ergoLaw" + law.Owner.Name + law.Name
+	}
+	return l.pkgName(pkgKey{"law", law}, base)
+}
+
+// lawDecl lowers a law that runs to a Go function of its body in the test
+// build (Laws): `func ergoLawName(env *Env, params...) (bool, error)`. Its
+// result is the law's tail, or a returned value; what escapes it is its
+// error. A member law's bare operation calls read the capability of its
+// operation type from env, which the run binds to the provider under test.
+func (l *lowerer) lawDecl(law *check.Law) {
+	d := law.Decl
+	l.tests.law = law
+	defer func() { l.tests.law = nil }()
+	l.bodies++
+	scope := newNamer(l.names)
+	fc := newFuncCtx(l, scope, true)
+	fc.site = d
+	fc.owner = "law " + lawTitle(law)
+	l.recordDecl(fc.owner, d)
+	fc.env = scope.alloc("env")
+	parts := []string{fc.env + " *" + l.env()}
+	result := check.Type(check.Typ[check.Bool])
+	fc.frame = newFrame(result, true, framePolls(l.info, d))
+	fc.frame.law = true
+	for _, v := range law.Params {
+		if v.Name == "_" {
+			parts = append(parts, scope.alloc("_p")+" "+fc.goType(v.Type))
+			continue
+		}
+		n := scope.alloc(v.Name)
+		fc.locals[v] = n
+		parts = append(parts, n+" "+fc.goType(v.Type))
+	}
+	head := "func " + l.lawFunc(law) + "(" + strings.Join(parts, ", ") + ")"
+	frameErr := ""
+	needsFrame := l.bodyNeedsFrame(d.Body.List)
+	if needsFrame {
+		frameErr = scope.alloc("err")
+		head += fc.namedResults(result, frameErr)
+	} else {
+		head += fc.resultList(result, true)
+	}
+	fc.depth = 1
+	if needsFrame {
+		fc.site = d
+		fc.openFrame(frameErr)
+	}
+	fc.entryPoll(l.info, d)
+	fc.body(d.Body.List)
+	l.user.WriteString(l.directive(d))
+	l.user.WriteString(head + " {\n")
+	l.user.WriteString(fc.out.String())
+	l.user.WriteString("}\n\n")
 }
 
 // testOf is the checked test of the declaration d.
@@ -388,6 +485,11 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	}
 	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")
 	b.WriteString("\t})\n}\n\n")
+	for _, law := range l.runLaws() {
+		if law.Unrun == "" {
+			l.lawDecl(law)
+		}
+	}
 	b.WriteString(l.testRunner())
 	b.WriteString(l.harness())
 }
@@ -409,7 +511,21 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
 	tests := l.runTests()
-	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)) + "\n")
+	runs := 0
+	for _, law := range l.runLaws() {
+		switch {
+		case law.Unrun != "":
+		case law.Owner == nil:
+			runs++
+		default:
+			for _, p := range law.Providers {
+				if p.Unrun == "" {
+					runs++
+				}
+			}
+		}
+	}
+	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)+runs) + "\n")
 	for _, t := range tests {
 		// The case runner takes the test's name, and its declaration's
 		// site, which a typed failure that escapes the body names.
@@ -454,12 +570,104 @@ func (l *lowerer) testRunner() string {
 		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", t.Name, testCases)) + ")\n")
 		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
 	}
+	for _, law := range l.runLaws() {
+		l.lawRuns(&b, law, scope, env, seed, failed)
+	}
 	b.WriteString("\tif " + failed + " > 0 {\n")
 	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests)\\n\", " + failed + ", " + total + ")\n")
 	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
 	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests)\\n\", " + total + ")\n")
 	b.WriteString("\treturn nil\n}\n\n")
 	return b.String()
+}
+
+// lawRuns writes the runs of one law into the runner b (Laws): a skip line
+// when it does not run, else one run of testCases cases for a top-level
+// law, and one per provider for a member law. Each run draws from its own
+// stream, named by the law and the provider, so adding a law or a provider
+// changes no other run's cases. A case binds the provider, converted to
+// the law's operation type, in a copy of the runner's environment, draws
+// the parameters, and calls the law's function: a false result refutes it
+// ($Refuted), and an escaping failure or a failed assert fails it as a
+// test's case does.
+func (l *lowerer) lawRuns(b *strings.Builder, law *check.Law, scope *namer, env, seed, failed string) {
+	fmtPkg, run, conv := l.helper("fmt"), l.helper("Case"), l.helper("strconv")
+	title := lawTitle(law)
+	if law.Unrun != "" {
+		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
+		return
+	}
+	type target struct {
+		label string // the report's name of the run
+		p     *check.LawProvider
+	}
+	var targets []target
+	if law.Owner == nil {
+		targets = []target{{label: "law " + title}}
+	} else {
+		for _, p := range l.canon.lawProviders(law) {
+			label := "law " + title + " for " + p.Type.Obj.Name
+			if p.Unrun != "" {
+				b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+p.Unrun) + ")\n")
+				continue
+			}
+			targets = append(targets, target{label: label, p: &p})
+		}
+	}
+	at := strconv.Quote(l.siteText(law.Decl))
+	if law.Owner == nil && len(law.Params) == 0 {
+		// A top-level law with no parameters draws nothing: it runs once,
+		// as an example test does.
+		label := "law " + title
+		e, held, err := scope.alloc("e"), scope.alloc("held"), scope.alloc("err")
+		body := e + " := *" + env + "; " + held + ", " + err + " := " + l.lawFunc(law) + "(&" + e + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+		b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", nil, func() error { " + body + " }) {\n")
+		b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label) + ")\n")
+		b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
+		return
+	}
+	for _, tg := range targets {
+		inner := newNamer(scope)
+		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
+		name := strconv.Quote(tg.label) + ", " + at
+		b.WriteString("\t{\n")
+		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(tg.label) + ")\n")
+		b.WriteString("\t\t" + ok + " := true\n")
+		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
+		sep := ": "
+		var bind []string
+		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
+		if tg.p != nil {
+			pv := inner.alloc("provider")
+			b.WriteString("\t\t\t" + pv + " := " + l.genExpr(tg.p.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+			shown = append(shown, strconv.Quote(sep+"provider = "), l.litExpr(tg.p.Type, pv, law.Decl))
+			sep = ", "
+			fc := newFuncCtx(l, inner, false)
+			fc.site = law.Decl
+			own := law.Owner.Type.(*check.Named)
+			bind = append(bind, e+"."+l.envField(own.Obj)+" = "+fc.convert(tg.p.Conv, pv, law.Decl))
+		}
+		args := []string{"&" + e}
+		for _, v := range law.Params {
+			base := v.Name
+			if base == "_" {
+				base = "arg"
+			}
+			a := inner.alloc(base)
+			b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+			args = append(args, a)
+			shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(v.Type, a, law.Decl))
+			sep = ", "
+		}
+		body := e + " := *" + env + "; " + strings.Join(append(bind, ""), "; ") +
+			held + ", " + err + " := " + l.lawFunc(law) + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
+		b.WriteString("\t\t\t" + ok + " = " + run + "(" + taskOf(env) + ", " + name + ", func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body + " })\n")
+		b.WriteString("\t\t}\n")
+		b.WriteString("\t\tif " + ok + " {\n\t\t\t" + fmtPkg + ".Println(" + strconv.Quote(fmt.Sprintf("ok %s (%d cases)", tg.label, testCases)) + ")\n")
+		b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+	}
 }
 
 // harness is the test build's fixed Go: the assert, the case runner, the
@@ -490,11 +698,21 @@ func (l *lowerer) harness() string {
 }
 
 const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
-type $Assertion struct{ at, text string }
+// A refuted law is one too: its what is "law refuted", not "assert failed".
+type $Assertion struct{ at, text, what string }
 
-func (a $Assertion) String() string { return "assert failed at " + a.at + ": " + a.text }
+func (a $Assertion) String() string {
+	what := a.what
+	if what == "" {
+		what = "assert failed"
+	}
+	return what + " at " + a.at + ": " + a.text
+}
 
-func $AssertFail(at, text string) { panic($Assertion{at, text}) }
+func $AssertFail(at, text string) { panic($Assertion{at: at, text: text}) }
+
+// $Refuted ends a law's case whose law, declared at at, is false.
+func $Refuted(at string) { panic($Assertion{at: at, text: "the law is false", what: "law refuted"}) }
 
 // $AssertDiff is the line diff of a failed comparison of two strings, when
 // they differ and either holds more than one line: a line feed, then each line of the

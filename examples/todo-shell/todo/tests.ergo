@@ -1,6 +1,5 @@
-// The list's tests: examples, and the laws restated as property tests
-// over generated texts and numbers. The compiler checks laws and does not
-// run them yet (#162); until it does, these tests run them.
+// The list's tests: examples and one property. ergo test runs the laws of
+// laws.ergo itself (#162).
 
 test AddKeepsOrder {
 	let l = Of([]string{"milk", "eggs"}).Add("bread")
@@ -24,51 +23,6 @@ test NoItemZero {
 		Item{Text: "missing \(n.At) of \(n.Count)", Note: "", Done: false}
 	}
 	assert at.Text == "missing 0 of 1"
-}
-
-// pick is a number of an item of a list of texts, from any n, so a
-// property test names an item in every case. texts is not empty.
-func pick(texts []string, n int) int {
-	let m = if n < 0 { -(n + 1) } else { n }
-	1 + m%len(texts)
-}
-
-test AddCountsOneHolds(texts []string, text string) {
-	let l = Of(texts).Add(text)
-	let last = try l.At(l.Count())
-	assert l.Count() == len(texts)+1 && last.Text == text && !last.Done
-}
-
-test CompleteIsIdempotentHolds(texts []string, n int) {
-	if len(texts) == 0 {
-		return
-	}
-	let at = pick(texts, n)
-	let once = try Of(texts).Complete(at)
-	assert Equal(once, try once.Complete(at))
-}
-
-test ReopenUndoesCompleteHolds(texts []string, n int) {
-	if len(texts) == 0 {
-		return
-	}
-	let at = pick(texts, n)
-	let l = Of(texts)
-	assert Equal(try (try l.Complete(at)).Reopen(at), l)
-}
-
-test DropRemovesOneHolds(texts []string, n int) {
-	if len(texts) == 0 {
-		return
-	}
-	let at = pick(texts, n)
-	let mut kept = []string{}
-	for i, t in texts {
-		if i+1 != at {
-			kept = kept.Append(t)
-		}
-	}
-	assert Equal(try Of(texts).Drop(at), Of(kept))
 }
 
 // countIn is the Count that Drop(at) of l fails with, or -1 when it

@@ -80,6 +80,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		c.checkBodies,
 		c.checkTests,
 		c.checkLaws,
+		c.planLaws,
 		c.checkTypeDecls,
 		c.checkContexts,
 		c.checkContextCycles,

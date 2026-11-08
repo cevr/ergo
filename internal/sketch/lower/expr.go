@@ -215,6 +215,21 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		// The row value holds one of the union's error variants, which
 		// implement its sealed interface (D-C3).
 		return val + ".(" + fc.goType(conv.To) + ")"
+	case check.ConvMachine:
+		// A machine's value is a Machine of its plan's initial value and
+		// its step function (README Gap 46; machine.go). The plan value has
+		// zero size, so evaluating it for Initial costs nothing.
+		step := conv.Table["Step"]
+		if step == nil {
+			ice(site, "a machine conversion with no step")
+		}
+		first := "Initial: " + val + ".Initial()"
+		if start := conv.Table["Start"]; start != nil {
+			// A machine with an input (V4): its start function's value. The
+			// plan value is not read; it has zero size and no effect.
+			first = "Start: " + fc.machineStart(start, site)
+		}
+		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""

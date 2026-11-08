@@ -145,6 +145,20 @@ func (l *lowerer) nameAll() {
 				}
 			}
 		}
+		if l.tests != nil && p == l.pkg {
+			// A law's run converts each provider into its operation type
+			// (tests.go, lawRuns).
+			for _, law := range l.runLaws() {
+				if law.Unrun != "" {
+					continue
+				}
+				for _, lp := range law.Providers {
+					if lp.Unrun == "" {
+						convs = append(convs, lp.Conv)
+					}
+				}
+			}
+		}
 		for _, c := range convs {
 			key, base, ok := l.adapterName(c)
 			if !ok {

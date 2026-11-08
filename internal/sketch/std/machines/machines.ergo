@@ -1,0 +1,226 @@
+// Package machines runs a machine as a pure fold over its signals
+// (docs/spec/runtime.md, Machines and actors 2, 8 and 9). A machine
+// declaration's value is a prelude Machine[S, E, O, F, R] (README Gap 46),
+// so machines.Run(Shell{}, signals) takes any machine: the step's output O, error
+// row F and capability row R come from its step. The fold is ordinary
+// Ergo code: a loop that calls the step once per signal. RunTimed is the
+// fold over signals at times on a virtual clock, with the states' timers
+// (the machine's after entry); it is the reference of the live runner, the
+// actor library (#57).
+//
+// Effect: @effect/experimental Machine; XState's pure transition and
+// interpret, and its after transitions; Erlang gen_statem and its
+// state_timeout. Go control: a for over the signals that calls the step
+// function.
+
+// Finished is a run that the step ended with Done: the state the step saw
+// last, Done's output, and the outputs of the run's Emits before it, in
+// order.
+type Finished[S, O] {
+	State S,
+	Output O,
+	Emitted []O,
+}
+
+// Running is a run that used every signal with no Done: the machine's
+// state after the last one, and the outputs of the run's Emits, in order.
+type Running[S, O] {
+	State S,
+	Emitted []O,
+}
+
+// Outcome is how a run ended.
+type Outcome[S, O] = Finished[S, O] | Running[S, O]
+
+// Rejected is the failure of a run whose step answered Reject to a signal:
+// At is the index of the rejected signal, and the state is the one before
+// it.
+type Rejected { At int }
+
+// Timed is a signal from outside the machine at the time At of a timed run
+// (RunTimed): At counts from the run's start on its virtual clock.
+type Timed[E] {
+	At duration,
+	Signal E,
+}
+
+// Next is the state after the decision d in s: Enter, Stay and Emit take
+// their Next; Ignore, Reject and Done keep s.
+func Next[S, O](s S, d Decision[S, O]) S {
+	match d {
+	case Enter[S] as e:
+		e.Next
+	case Stay[S] as st:
+		st.Next
+	case Emit[S, O] as em:
+		em.Next
+	case Ignore:
+		s
+	case Reject:
+		s
+	case Done[O]:
+		s
+	}
+}
+
+// Start is the machine m started with input: its initial state is
+// m.Start(input), computed for this call, and its step and timers are m's
+// (runtime.md, Machines and actors 10). Run(Start(m, input), signals) runs
+// a machine with an input.
+func Start[I, S, E, O, F, R](m InputMachine[I, S, E, O, F, R], input I) Machine[S, E, O, F, R] {
+	Machine[S, E, O, F, R]{Initial: m.Start(input), Step: m.Step, After: m.After}
+}
+
+// Initial is m's initial state.
+func Initial[S, E, O, F, R](m Machine[S, E, O, F, R]) S { m.Initial }
+
+// Run steps m from its initial state over signals, in order, one at a
+// time: it ends at the first Done (Finished) or after the last signal
+// (Running), and fails Rejected at the first Reject. Each Emit's output is
+// kept, in order. A failure of the step ends the run with that failure.
+// Run has no clock: m's timers never fire (RunTimed runs them).
+func Run[S, E, O, F, R](m Machine[S, E, O, F, R], signals []E) Outcome[S, O] fails Rejected | F needs R {
+	try From(m, m.Initial, signals)
+}
+
+// From is Run from the state s instead of m's initial state: Run(m, a ++ b)
+// is From(m, s, b) when Run(m, a) is Running with state s, its outputs
+// before From's.
+func From[S, E, O, F, R](m Machine[S, E, O, F, R], s S, signals []E) Outcome[S, O] fails Rejected | F needs R {
+	let mut at = s
+	let mut out = []O{}
+	for i, e in signals {
+		let d = try m.Step(at, e)
+		match d {
+		case Done[O] as done:
+			return Finished[S, O]{State: at, Output: done.Output, Emitted: out}
+		case Reject:
+			return Rejected{At: i}
+		case Emit[S, O] as em:
+			out = out.Append(em.Output)
+		case Enter[S]:
+		case Stay[S]:
+		case Ignore:
+		}
+		at = Next(at, d)
+	}
+	Running[S, O]{State: at, Emitted: out}
+}
+
+// armed is a timer the run armed: it gives Signal at At to the entry
+// numbered Epoch.
+type armed[E] {
+	At duration,
+	Epoch int,
+	Signal E,
+}
+
+// arm adds the timer of the entry epoch, which opened in s at now, to
+// timers: none when m.After(s) is None.
+func arm[S, E, O, F, R](timers []armed[E], m Machine[S, E, O, F, R], s S, now duration, epoch int) []armed[E] {
+	match m.After(s) {
+	case Some[Timeout[E]] as t:
+		timers.Append(armed[E]{At: now + t.Value.In, Epoch: epoch, Signal: t.Value.Signal})
+	case None:
+		timers
+	}
+}
+
+// due is the index of the earliest timer in timers that fires before the
+// time limit (at or before it when closed), or -1; of two at one time, the
+// one armed first.
+func due[E](timers []armed[E], limit duration, closed bool) int {
+	let mut k = -1
+	for i, t in timers {
+		if t.At < limit || closed && t.At == limit {
+			if k < 0 || t.At < timers[k].At {
+				k = i
+			}
+		}
+	}
+	k
+}
+
+// without is timers with its k-th timer taken out.
+func without[E](timers []armed[E], k int) []armed[E] {
+	let mut rest = []armed[E]{}
+	for i, t in timers {
+		if i != k {
+			rest = rest.Append(t)
+		}
+	}
+	rest
+}
+
+// RunTimed steps m from its initial state over trace on a virtual clock
+// that starts at 0 and ends at end, as the live runner does (runtime.md,
+// Machines and actors 9). Each signal of trace comes at its At (never
+// before the clock's time: the clock does not go back). Each entry has
+// the timer m.After of its state, armed when the entry opens (the first
+// state at 0, an Enter or an Emit at the time of its signal): it gives its
+// Signal In after that. A Stay keeps the entry and its timer; an entry
+// that ends takes its timer with it: a timer of an ended entry is dropped,
+// never stepped. A timer fires before a signal that comes later than it
+// and after one that comes at the same time; after the last signal, every
+// timer due by end fires. A Reject of a timer's signal keeps the state,
+// as Ignore: no one asked. The run ends as Run's does, with Rejected's At
+// the index of the rejected signal in trace.
+func RunTimed[S, E, O, F, R](m Machine[S, E, O, F, R], trace []Timed[E], end duration) Outcome[S, O] fails Rejected | F needs R {
+	let mut at = m.Initial
+	let mut out = []O{}
+	let mut now = 0s
+	let mut epoch = 0
+	let mut timers = arm([]armed[E]{}, m, at, now, epoch)
+	let mut i = 0
+	for {
+		let closed = i >= len(trace)
+		let mut limit = end
+		if !closed {
+			limit = trace[i].At
+		}
+		let k = due(timers, limit, closed)
+		if k < 0 && closed {
+			break
+		}
+		let timer = k >= 0
+		let ev = if timer {
+			timers[k]
+		} else {
+			armed[E]{At: trace[i].At, Epoch: epoch, Signal: trace[i].Signal}
+		}
+		if timer {
+			timers = without(timers, k)
+			if ev.Epoch != epoch {
+				// The timer's entry ended: it is dropped (rule 6).
+				continue
+			}
+		} else {
+			i = i + 1
+		}
+		if ev.At > now {
+			now = ev.At
+		}
+		let d = try m.Step(at, ev.Signal)
+		match d {
+		case Done[O] as done:
+			return Finished[S, O]{State: at, Output: done.Output, Emitted: out}
+		case Reject:
+			if !timer {
+				return Rejected{At: i - 1}
+			}
+		case Emit[S, O] as em:
+			out = out.Append(em.Output)
+			at = em.Next
+			epoch = epoch + 1
+			timers = arm(timers, m, at, now, epoch)
+		case Enter[S] as en:
+			at = en.Next
+			epoch = epoch + 1
+			timers = arm(timers, m, at, now, epoch)
+		case Stay[S] as st:
+			at = st.Next
+		case Ignore:
+		}
+	}
+	Running[S, O]{State: at, Emitted: out}
+}

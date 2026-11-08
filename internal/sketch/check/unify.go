@@ -30,6 +30,8 @@ package check
 //     values are assigned by implementation;
 //   - a named union unifies with one of its variants, as a variant is
 //     assignable to its union (types.md, Unions);
+//   - the prelude Machine unifies with a machine declaration's value
+//     through the Machine that value converts to (README Gap 46);
 //   - row parameters bind by the row-union rule of unifyRow, never fail,
 //     and apply to rows only;
 //   - a result-position parameter matched against a function with no
@@ -209,6 +211,13 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 				}
 				return false
 			}
+		}
+	}
+	// A machine declaration's value matches the prelude Machine (or InputMachine) of its
+	// state, signal and step, as it is assignable to it (README Gap 46).
+	if mode&unifyExact == 0 && isPreludeMachineValue(x) {
+		if view, _ := in.c.machineValue(y); view != nil {
+			y = view
 		}
 	}
 	// Interface inference (inexact and assign modes).

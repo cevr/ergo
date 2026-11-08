@@ -71,7 +71,15 @@ A defect is not a failed assert. The runner prints the test's `FAIL` line, `FAIL
 
 ## Laws
 
-A law is checked and is not run: `ergo test` does not run laws yet ([#162](https://github.com/cevr/ergo/issues/162)). A law does not change what `ergo test` prints. The [support table](spec/support.md) lists what each build lowers.
+`ergo test` runs every law of the package after its tests ([#162](https://github.com/cevr/ergo/issues/162) law-run-1; [types.md](spec/types.md#laws) rule 10). A top-level law runs as a property does, over 100 generated cases. A member law runs once against each provider of its operation type that the package declares, with a generated provider value per case, and a helper that `needs` the type runs against that provider:
+
+```text
+ok law Store.PutCountsOne for Tally (100 cases)
+FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: 3}, n = -9): law refuted at main.ergo:4:2: the law is false
+skip law Box.Keeps: its parameter v has no generator: T is not a generatable type
+```
+
+A law that cannot run prints a `skip` line with the reason and is not counted. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test. `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
 
 ## Example programs
 

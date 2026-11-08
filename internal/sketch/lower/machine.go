@@ -41,8 +41,10 @@ import (
 //
 // Initial and Step are Go methods of X, so they never collide with a
 // package function: a function on a machine never lowers to a Go method
-// (methodReceiver takes records only). There is no runner: a provider, the
-// actor library (#57, #101), interprets the plan.
+// (methodReceiver takes records only). The plan has no runner of its own:
+// a value X{} converts to the prelude Machine (ConvMachine, expr.go
+// convert: Initial from the plan, Step the step function's value), which
+// std machines folds, and the actor library (#57, #101) will run.
 //
 // Prior art: XState separates the machine definition from its interpreter;
 // Erlang's gen_statem keeps the callbacks apart from the process that runs
@@ -51,8 +53,9 @@ import (
 // machineDecl is the checked structure of a machine declaration.
 type machineDecl struct {
 	state, signal check.Type
-	initial       syntax.Expr
+	initial       syntax.Expr // nil for a machine with an input
 	step          *check.Func
+	start         *check.Func // the start function of a machine with an input
 }
 
 // machineOf reads a machine declaration's checked facts: its state and
@@ -73,7 +76,15 @@ func (l *lowerer) machineOf(tn *check.TypeName, named *check.Named, spec *syntax
 	if !ok || step.Decl == nil || step.Decl.Body == nil || len(step.Sig.Params) != 2 || len(step.Sig.Results) != 1 {
 		ice(id, "the step %s of machine %s is not a package function from its state and signal to a Decision", id.Name, tn.Name)
 	}
-	return &machineDecl{state: m.State, signal: m.Signal, initial: spec.Initial, step: step}
+	md := &machineDecl{state: m.State, signal: m.Signal, initial: spec.Initial, step: step}
+	if iid, ok := spec.Initial.(*syntax.Ident); ok {
+		if start, ok := tn.Pkg.Info.Uses[iid].(*check.Func); ok {
+			// A machine with an input (V4): no initial value to compute at
+			// start; a run calls the start function with its input.
+			md.initial, md.start = nil, start
+		}
+	}
+	return md
 }
 
 // machinePlan writes the plan of the machine td and records its initial
@@ -88,8 +99,10 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 	result := tc.goType(m.step.Sig.Results[0])
 
 	b.WriteString("type " + td.name + " struct{}\n\n")
-	b.WriteString("var " + initial + " " + state + "\n\n")
-	b.WriteString("func (" + td.name + ") Initial() " + state + " { return " + initial + " }\n\n")
+	if m.start == nil {
+		b.WriteString("var " + initial + " " + state + "\n\n")
+		b.WriteString("func (" + td.name + ") Initial() " + state + " { return " + initial + " }\n\n")
+	}
 	// The Step waits for the step's body: the body may come later in the
 	// source, and the plan's purity is a fact of that body.
 	l.queue(td.tn.Decl.Name, func() {
@@ -118,7 +131,9 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		}
 		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + fd.name + "(" + env + ", " + s + ", " + e + ")\n}\n\n")
 	})
-	l.machineInit(td, initial)
+	if m.start == nil {
+		l.machineInit(td, initial)
+	}
 }
 
 // machinePure reports a step whose plan takes no environment: no error
@@ -135,6 +150,61 @@ func machinePure(step *check.Func, fd *funcDecl, site syntax.Node) bool {
 		ice(site, "the step %s has a non-empty footprint and its lowered body reads no environment", step.Name)
 	}
 	return !fd.fallible && len(rowElems(step.Sig.Uses)) == 0 && !fd.readsEnv
+}
+
+// machineAfter is the After of a machine value's Machine (ConvMachine): the
+// value of the machine's after function, or, when it has none, a function
+// that gives every state None (no timer).
+func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string {
+	if after := conv.Table["After"]; after != nil {
+		return fc.funcValue(after, after.Sig, site, nil)
+	}
+	var sig *check.Signature
+	if n, ok := conv.To.(*check.Named); ok {
+		if st, ok := n.Underlying().(*check.Struct); ok {
+			for _, f := range st.Fields {
+				if f.Name == "After" {
+					sig, _ = f.Type.(*check.Signature)
+				}
+			}
+		}
+	}
+	if sig == nil || len(sig.Params) != 1 || len(sig.Results) != 1 {
+		ice(site, "the prelude Machine has no After func(S) Option[Timeout[E]]")
+	}
+	_, none := optionVariants(sig.Results[0], site)
+	return fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {
+		ind := strings.Repeat("\t", fc.depth+1)
+		return []string{"_ " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
+			ind + "return " + fc.goType(none) + "{}, nil\n"
+	})
+}
+
+// machineStart is the Start of a machine value's InputMachine (V4): the
+// start function's value when it has one parameter, else a function of the
+// tuple of its parameters that calls it with the tuple's elements.
+func (fc *funcCtx) machineStart(start *check.Func, site syntax.Node) string {
+	g := fc.funcValue(start, start.Sig, site, nil)
+	sig := start.Sig
+	if len(sig.Params) == 1 {
+		return g
+	}
+	types := make([]check.Type, len(sig.Params))
+	for i, p := range sig.Params {
+		types[i] = p.Type
+	}
+	inType := fc.goType(&check.Tuple{Types: types})
+	results := fc.valueResults(sig.Results[0])
+	gv, in := fc.scope.alloc("start"), fc.scope.alloc("in")
+	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
+		args := []string{env}
+		for i := range sig.Params {
+			args = append(args, in+"."+tupleField(i))
+		}
+		ind := strings.Repeat("\t", fc.depth+1)
+		return []string{in + " " + inType}, results,
+			ind + gv + " := " + g + "\n" + ind + "return " + gv + "(" + strings.Join(args, ", ") + ")\n"
+	})
 }
 
 // namesIdent reports whether the Go text src names the identifier id as a
