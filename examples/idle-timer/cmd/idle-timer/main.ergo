@@ -1,0 +1,26 @@
+// idle-timer is a shared screen that ends a session nobody uses any more.
+// It runs a script of timed touches on a virtual clock and shows what the
+// kiosk does. Package kiosk is the machine, whose timers the runner owns;
+// package script reads the script and runs it with machines.RunTimed;
+// package memory holds the kiosks' policies. This binary is the only place
+// that chooses them: Live binds kiosk.Policies to memory's fixed
+// policies, and io to the host.
+
+import idletimer/kiosk
+import idletimer/memory
+import idletimer/script
+import io
+import os
+
+let Live = context { kiosk.Policies: memory.Fixed }
+
+func main() fails os.Exit needs Console | Ambient {
+	let status = with Live {
+		with context { io.Stdin: io.NewHost() } {
+			script.Run()
+		}
+	}
+	if status != 0 {
+		return os.Exit{Code: status, Message: "idle-timer: the script did not run"}
+	}
+}

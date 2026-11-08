@@ -1,0 +1,20 @@
+// Package memory holds the in-memory providers of the kiosk contracts.
+
+import idletimer/kiosk
+
+// Fixed is a kiosk.Policies of two fixed kiosks: the lobby, with the
+// standard waits, and the library, which waits longer.
+type Fixed {}
+
+func Names(_ Fixed) []string { []string{"lobby", "library"} }
+
+func Policy(_ Fixed, name string) kiosk.Policy fails kiosk.NoSuchKiosk {
+	match name {
+	case "lobby":
+		kiosk.Standard()
+	case "library":
+		kiosk.Policy{StartWait: 45s, ScreenWait: 90s, AssistFactor: 3, PromptFor: 15s, TapWindow: 600ms, AdminFor: 60s}
+	case _:
+		kiosk.NoSuchKiosk{Name: name}
+	}
+}

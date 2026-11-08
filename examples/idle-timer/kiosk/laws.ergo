@@ -1,0 +1,132 @@
+// The rules of the kiosk as laws over its machine, run on a virtual clock
+// by machines.RunTimed: the runner's timers fire at their deadlines, and a
+// timer of an ended entry is dropped. Machines carry no laws yet (M55),
+// so they stand at top level. Each law draws its times from integers, so
+// that they fall near the deadlines.
+
+import machines
+
+// Run is the kiosk with the Standard policy over trace, until end: its
+// last state and what it told. Step never rejects, so the run never fails
+// Rejected; a run that did would show as Suspended with no events.
+type Run { Last Kiosk, Told []Event }
+
+func run(trace []machines.Timed[Signal], end duration) Run {
+	let m = machines.Start(Idler{}, Standard())
+	let o = machines.RunTimed(m, trace, end) catch {
+	case machines.Rejected:
+		return Run{Last: Suspended{P: Standard()}, Told: []Event{}}
+	}
+	match o {
+	case machines.Running[Kiosk, Event] as r:
+		Run{Last: r.State, Told: r.Emitted}
+	case machines.Finished[Kiosk, Event] as f:
+		Run{Last: f.State, Told: f.Emitted}
+	}
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+func ms(n int) duration { duration(int64(n) * 1000000) }
+
+func at(t duration, s Signal) machines.Timed[Signal] { machines.Timed[Signal]{At: t, Signal: s} }
+
+// Count is how many of es are the event the word names.
+func Count(es []Event, word string) int {
+	let mut n = 0
+	for e in es {
+		let w = match e {
+		case Began:
+			"began"
+		case Abandoned:
+			"abandoned"
+		case Ended:
+			"ended"
+		case AdminOpened:
+			"admin opened"
+		case AdminClosed:
+			"admin closed"
+		}
+		if w == word {
+			n = n + 1
+		}
+	}
+	n
+}
+
+// NoAbandonBeforeIdle: a session that begins with a touch at 0 and sees
+// nothing more is abandoned exactly when the home screen's wait and the
+// prompt have both passed: 30s and then 10s.
+law NoAbandonBeforeIdle(n int) {
+	let end = ms(38000 + pick(n, 4000))
+	let r = run([]machines.Timed[Signal]{at(0s, Touch)}, end)
+	(Count(r.Told, "abandoned") == 1) == (end >= 40s)
+}
+
+// ActivityDelays: while each touch follows the last within the wait, the
+// session is never prompted or abandoned: each touch re-enters Waiting,
+// which restarts its timer.
+law ActivityDelays(gaps []int) {
+	let mut t = 0s
+	let mut trace = []machines.Timed[Signal]{at(0s, Touch)}
+	for g in gaps {
+		t = t + ms(pick(g, 30000))
+		trace = trace.Append(at(t, Touch))
+	}
+	let r = run(trace, t+ms(29999))
+	Count(r.Told, "abandoned") == 0 && Name(r.Last) == "waiting"
+}
+
+// StayKeepsDeadline: the prompt's ticks count down the seconds it shows,
+// and never move its deadline: with k ticks, the prompt shows 10 - k
+// seconds just before 40s and is abandoned at 40s.
+law StayKeepsDeadline(n int) {
+	let k = pick(n, 10)
+	let mut trace = []machines.Timed[Signal]{at(0s, Touch)}
+	for i in 0..k {
+		trace = trace.Append(at(ms(30500+1000*i), Tick))
+	}
+	let before = run(trace, ms(39999))
+	let after = run(trace, 40s)
+	Name(before.Last) == "prompt \(10 - k)" && Count(after.Told, "abandoned") == 1
+}
+
+// AssistWaitsLonger: with the assist mode on, the home screen waits twice
+// as long before the prompt: 60s.
+law AssistWaitsLonger(n int) {
+	let end = ms(59000 + pick(n, 2000))
+	let r = run([]machines.Timed[Signal]{at(0s, Touch), at(0s, Assist{On: true})}, end)
+	(Name(r.Last) == "prompt 10") == (end >= 60s)
+}
+
+// ContinueKeepsTheSession: a touch on the prompt goes back to the session
+// and its wait starts again, so the prompt's old deadline passes with no
+// abandon.
+law ContinueKeepsTheSession(n int) {
+	let touch = ms(30000 + pick(n, 10000))
+	let r = run([]machines.Timed[Signal]{at(0s, Touch), at(touch, Touch)}, touch+ms(29999))
+	Count(r.Told, "abandoned") == 0 && Name(r.Last) == "waiting"
+}
+
+// AdminNeedsFiveQuickTaps: corner taps open the admin screen exactly when
+// five come in a row, each within the tap window (600ms) of the one
+// before; a slower tap starts the count again.
+law AdminNeedsFiveQuickTaps(gaps []int) {
+	let mut t = 1s
+	let mut trace = []machines.Timed[Signal]{at(0s, Touch), at(t, CornerTap)}
+	let mut count = 1
+	let mut opened = false
+	for i, g in gaps {
+		if i < 12 {
+			let gap = pick(g, 1200)
+			t = t + ms(gap)
+			trace = trace.Append(at(t, CornerTap))
+			count = if gap <= 600 { count + 1 } else { 1 }
+			if count >= 5 {
+				opened = true
+			}
+		}
+	}
+	let r = run(trace, t)
+	(Count(r.Told, "admin opened") == 1) == opened
+}

@@ -1,0 +1,48 @@
+// Policies is the contract of a store of kiosk policies: the operation
+// type a program supplies in its context (package memory holds fixed
+// ones).
+type Policies {
+	Names() []string,
+	Policy(kiosk string) Policy fails NoSuchKiosk,
+
+	// Every policy a store names passes Check: a store never hands out a
+	// policy whose timer would fire at once.
+	law EveryPolicyChecks() { EveryPolicyChecks() },
+
+	// A name the store does not list is NoSuchKiosk.
+	law UnlistedIsNoSuchKiosk(name string) { UnlistedIsNoSuchKiosk(name) },
+}
+
+// NoSuchKiosk is a kiosk name that a store does not hold.
+type NoSuchKiosk { Name string }
+
+// EveryPolicyChecks is the law EveryPolicyChecks as a function: ergo test
+// does not run a law of an imported operation type against another
+// package's provider yet (G-ma-2), so package memory's test calls it.
+func EveryPolicyChecks() bool needs Policies {
+	for n in Policies.Names() {
+		let p = Policies.Policy(n) catch {
+		case NoSuchKiosk:
+			return false
+		}
+		let _ = Check(p) catch {
+		case BadPolicy:
+			return false
+		}
+	}
+	true
+}
+
+// UnlistedIsNoSuchKiosk is the law UnlistedIsNoSuchKiosk as a function.
+func UnlistedIsNoSuchKiosk(name string) bool needs Policies {
+	for n in Policies.Names() {
+		if n == name {
+			return true
+		}
+	}
+	let _ = Policies.Policy(name) catch {
+	case NoSuchKiosk:
+		return true
+	}
+	false
+}

@@ -1,0 +1,38 @@
+@0 suspended
+@0 ! began
+@0 waiting
+@80000 prompt 10
+@81000 prompt 9
+@82000 prompt 8
+@83000 prompt 7
+@84000 waiting
+@120000 prompt 10
+@121000 prompt 9
+@122000 prompt 8
+@123000 prompt 7
+@124000 prompt 6
+@125000 prompt 5
+@126000 prompt 4
+@127000 prompt 3
+@128000 prompt 2
+@129000 prompt 1
+@130000 ! abandoned
+@130000 suspended
+@150000 ! began
+@150000 waiting
+@151000 tapping 1
+@151400 tapping 2
+@151800 tapping 3
+@152200 tapping 4
+@152600 ! admin opened
+@152600 admin
+@160000 ! admin closed
+@160000 suspended
+@161000 ! began
+@161000 waiting
+@221000 prompt 10
+@222000 prompt 9
+@223000 prompt 8
+@224000 prompt 7
+@225000 ! ended
+@225000 suspended
