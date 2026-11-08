@@ -2,9 +2,10 @@ package lower
 
 import (
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // Queue.Poll is the first std operation whose Ergo result is the prelude's
@@ -166,29 +167,20 @@ test QueueLenCountsUntaken(xs []int) {
 }
 `
 
-// TestQueuePollLaws runs the probe with --seed 1, and holds that it
-// restates exactly the ledger's laws whose runner is this test.
+// queuePollLawStatements is the statement of each law the probe restates,
+// the law's source text as the ledger writes it, by ledger key;
+// lawledger.Run holds it equal to the ledger (fu-ledger-runner).
+var queuePollLawStatements = map[string]string{
+	"queue LenCountsUntaken":  `LenCountsUntaken(xs []int) { let q = New[int](len(xs)) for x in xs { try q.Push(x) } let full = q.Len() == len(xs) let mut drained = true for x in xs { drained = drained && q.Poll() == Some[int]{Value: x} } full && drained && q.Len() == 0 }`,
+	"queue PollOnEmptyIsNone": `PollOnEmptyIsNone() { let q = New[int](1) let open = q.Poll() == None q.Close() open && q.Poll() == None }`,
+	"queue PollTakesTheFront": `PollTakesTheFront(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) q.Close() q.Poll() == Some[int]{Value: a} && q.Poll() == Some[int]{Value: b} && q.Poll() == None }`,
+}
+
+// TestQueuePollLaws runs the probe with --seed 1; lawledger.Run holds that
+// it restates exactly the ledger's laws whose runner is this test, each
+// with the row's statement, and that each passed.
 func TestQueuePollLaws(t *testing.T) {
-	want := ledgerLawsOf(t, "TestQueuePollLaws")
-	var got []string
-	for _, m := range regexp.MustCompile(`(?m)^test (\w+)\(`).FindAllStringSubmatch(queuePollLawsProbe, -1) {
-		got = append(got, m[1])
-	}
-	slices.Sort(got)
-	if len(want) == 0 || !slices.Equal(got, want) {
-		t.Fatalf("the probe restates %v; the ledger runs %v in TestQueuePollLaws", got, want)
-	}
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "queuepolllaws", queuePollLawsProbe)}, true)
-	if exes == nil {
-		return
-	}
-	stdout, stderr, code := runExeArgs(t, exes["queuepolllaws"], "--seed", "1")
-	if code != 0 {
-		t.Fatalf("the queue Poll law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
-	}
-	for _, name := range want {
-		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(100 cases\))?$`).MatchString(stdout) {
-			t.Errorf("no ok line for %s:\n%s", name, stdout)
-		}
+	if laws := lawProbe(t, "queuepolllaws", queuePollLawsProbe, queuePollLawStatements); laws != nil {
+		lawledger.Run(t, laws)
 	}
 }

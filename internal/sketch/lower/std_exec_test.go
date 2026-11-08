@@ -1,13 +1,12 @@
 package lower
 
 import (
-	"os"
-	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // TestExecRuns: std exec (stdlib.md, exec) runs a program through the
@@ -118,57 +117,33 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 }
 `
 
-// ledgerLawsOf is the probe test names (stdLawsTestName) of the Std laws
-// rows of docs/spec/stdlib.md whose runner is runner, sorted.
-func ledgerLawsOf(t *testing.T, runner string) []string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "spec", "stdlib.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	in := false
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "## ") {
-			in = line == "## Std laws"
-			continue
-		}
-		if !in || !strings.HasPrefix(line, "| `") {
-			continue
-		}
-		cells := strings.Split(line, " | ")
-		if len(cells) < 5 || strings.Trim(cells[3], "`") != runner {
-			continue
-		}
-		names = append(names, stdLawsTestName(strings.Trim(cells[0], "|` "), strings.Trim(cells[1], "`")))
-	}
-	slices.Sort(names)
-	return names
+// execLawStatements is the statement of each law the probe restates, the
+// law's source text as the ledger writes it, by ledger key; lawledger.Run
+// holds it equal to the ledger (fu-ledger-runner).
+var execLawStatements = map[string]string{
+	"exec ScriptReplaysRecorded":   `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" }`,
+	"exec WithEnvKeepsTheOriginal": `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
+	"exec WithEnvOverrides":        `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
 }
 
-// TestExecLaws runs the probe with --seed 1, and holds that it restates
-// exactly the ledger's laws whose runner is this test.
+// TestExecLaws runs the probe with --seed 1; lawledger.Run holds that it
+// restates exactly the ledger's laws whose runner is this test, each with
+// the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
+// is the probe's own test of the Script provider, not a ledger row.
 func TestExecLaws(t *testing.T) {
-	want := ledgerLawsOf(t, "TestExecLaws")
-	var got []string
-	for _, m := range regexp.MustCompile(`(?m)^test (Exec\w+)\(`).FindAllStringSubmatch(execLawsProbe, -1) {
-		got = append(got, m[1])
-	}
-	slices.Sort(got)
-	if len(want) == 0 || !slices.Equal(got, want) {
-		t.Fatalf("the probe restates %v; the ledger runs %v in TestExecLaws", got, want)
-	}
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "execlaws", execLawsProbe)}, true)
 	if exes == nil {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["execlaws"], "--seed", "1")
 	if code != 0 {
-		t.Fatalf("the exec law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
+		t.Errorf("the exec law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	for _, name := range append(want, "ScriptNotFoundNamesTheProgram") {
-		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(100 cases\))?$`).MatchString(stdout) {
-			t.Errorf("no ok line for %s:\n%s", name, stdout)
-		}
+	if !regexp.MustCompile(`(?m)^ok ScriptNotFoundNamesTheProgram( \(\d+ cases\))?$`).MatchString(stdout) {
+		t.Errorf("no ok line for ScriptNotFoundNamesTheProgram:\n%s", stdout)
 	}
+	lawledger.Run(t, lawsPassed(t, execLawStatements, func(key string) string {
+		pkg, law, _ := strings.Cut(key, " ")
+		return stdLawsTestName(pkg, law)
+	}, execLawsProbe, stdout, "ScriptNotFoundNamesTheProgram"))
 }

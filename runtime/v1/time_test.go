@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -204,21 +205,26 @@ func timeFromBodies(r Reading) time.Time { return time.Unix(r.Sec, r.Nsec) }
 // years 1 to 9999 and every nanosecond (10,000 seeded cases plus the
 // edges); SubAddInverse; and Sub's saturation, against Go's time.Time.
 func TestTimeLaws(t *testing.T) {
-	// NowNeverFalls: host readings, compared by Mono as Before does.
-	prev := TimeHostNow()
-	for range 10_000 {
-		next := TimeHostNow()
-		if next.Mono < prev.Mono {
-			t.Fatalf("NowNeverFalls: host Mono fell from %d to %d", prev.Mono, next.Mono)
-		}
-		prev = next
-	}
-	line := NewTimeline(5, 0)
-	a := line.Read()
-	line.Advance(7)
-	if b := line.Read(); b.Mono < a.Mono || b.Mono-a.Mono != 7 {
-		t.Fatalf("NowNeverFalls/AdvanceMovesRead: %+v then %+v", a, b)
-	}
+	// NowNeverFalls: host readings, compared by Mono as Before does; it
+	// is the one ledger row whose runner this test is (fu-ledger-runner).
+	lawledger.Run(t, map[string]lawledger.Law{
+		"time Clock.NowNeverFalls": {Statement: `NowNeverFalls() { let first = Now() let second = Now() !second.Before(first) }`, Check: func(t *testing.T) {
+			prev := TimeHostNow()
+			for range 10_000 {
+				next := TimeHostNow()
+				if next.Mono < prev.Mono {
+					t.Fatalf("NowNeverFalls: host Mono fell from %d to %d", prev.Mono, next.Mono)
+				}
+				prev = next
+			}
+			line := NewTimeline(5, 0)
+			a := line.Read()
+			line.Advance(7)
+			if b := line.Read(); b.Mono < a.Mono || b.Mono-a.Mono != 7 {
+				t.Fatalf("NowNeverFalls/AdvanceMovesRead: %+v then %+v", a, b)
+			}
+		}},
+	})
 
 	r := rand.New(rand.NewPCG(1, 2))
 	const first, last = -62135596800, 253402300799

@@ -1,12 +1,9 @@
 package lower
 
 import (
-	"os"
-	"path/filepath"
-	"regexp"
-	"slices"
-	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // TestStdSlicesRuns (std-align S2a): each function of std slices, maps and
@@ -386,57 +383,37 @@ test CmpLessIsCompareBelowZero(a string, b string) {
 }
 `
 
-// TestStdSlicesLawsRun runs the probe's tests with --seed 1, and holds that
-// the probe restates exactly the ledger's laws whose runner is this test.
-func TestStdSlicesLawsRun(t *testing.T) {
-	want := ledgerRunnerLaws(t, "TestStdSlicesLawsRun")
-	var got []string
-	for _, m := range regexp.MustCompile(`(?m)^test (\w+)\(`).FindAllStringSubmatch(stdSlicesLawsProbe, -1) {
-		got = append(got, m[1])
-	}
-	slices.Sort(want)
-	slices.Sort(got)
-	if len(want) == 0 || !slices.Equal(got, want) {
-		t.Fatalf("the probe restates %v; the ledger runs %v in TestStdSlicesLawsRun", got, want)
-	}
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdslices", stdSlicesLawsProbe)}, true)
-	if exes == nil {
-		return
-	}
-	stdout, stderr, code := runExeArgs(t, exes["stdslices"], "--seed", "1")
-	if code != 0 {
-		t.Fatalf("the slices law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
-	}
-	for _, name := range want {
-		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(100 cases\))?$`).MatchString(stdout) {
-			t.Errorf("no ok line for %s:\n%s", name, stdout)
-		}
-	}
+// stdSlicesLawStatements is the statement of each law the probe restates,
+// the law's source text as the ledger writes it, by ledger key;
+// lawledger.Run holds it equal to the ledger (fu-ledger-runner).
+var stdSlicesLawStatements = map[string]string{
+	"cmp CompareIsAntisymmetric":       `CompareIsAntisymmetric(a int, b int) { Compare(a, b) == -Compare(b, a) }`,
+	"cmp CompareIsTransitive":          `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
+	"cmp LessIsCompareBelowZero":       `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }`,
+	"maps KeysVisitEachKeyOnce":        `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None || m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }`,
+	"maps ValuesMatchKeys":             `ValuesMatchKeys(m Map[string, int]) { let mut total = 0 for k in Keys(m) { match m.Get(k) { case Some[int] as v: total = total + v.Value case None: return false } } let mut sum = 0 let mut n = 0 for v in Values(m) { sum = sum + v n = n + 1 } n == len(m) && sum == total }`,
+	"slices BinarySearchFindsTheFirst": `BinarySearchFindsTheFirst(xs []int, x int) { let s = Sort(xs) match BinarySearch(s, x) { case Some[int] as found: s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x) case None: !Contains(s, x) } }`,
+	"slices CollectInvertsValues":      `CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }`,
+	"slices ContainsIffIndex":          `ContainsIffIndex(xs []int, x int) { let i = Index(xs, x) Contains(xs, x) == (i >= 0) && (i < 0 || xs[i] == x) }`,
+	"slices FilterIsIdempotent":        `FilterIsIdempotent(xs []int) { let even = func(x int) bool { x%2 == 0 } Equal(Filter(Filter(xs, even), even), Filter(xs, even)) }`,
+	"slices FilterKeepsTheAccepted":    `FilterKeepsTheAccepted(xs []int) { let even = func(x int) bool { x%2 == 0 } let kept = Filter(xs, even) let mut i = 0 for x in xs { if even(x) { if i >= len(kept) || kept[i] != x { return false } i = i + 1 } } i == len(kept) }`,
+	"slices FoldSumMatchesLoop":        `FoldSumMatchesLoop(xs []int) { let mut sum = 0 for x in xs { sum = sum + x } Fold(xs, 0, func(acc int, x int) int { acc + x }) == sum }`,
+	"slices MaxIsLastSorted":           `MaxIsLastSorted(xs []int) { let s = Sort(xs) if len(s) == 0 { return Max(xs) == None && Min(xs) == None } Max(xs) == Some[int]{Value: s[len(s)-1]} && Min(xs) == Some[int]{Value: s[0]} }`,
+	"slices ReverseTwiceIsSame":        `ReverseTwiceIsSame(xs []int) { Equal(Reverse(Reverse(xs)), xs) }`,
+	"slices SortIsIdempotent":          `SortIsIdempotent(xs []int) { Equal(Sort(Sort(xs)), Sort(xs)) }`,
+	"slices SortLeavesItsArgument":     `SortLeavesItsArgument(xs []int) { let before = Transform(xs, func(x int) int { x }) let sorted = Sort(xs) len(sorted) == len(xs) && Equal(xs, before) }`,
+	"slices SortOrders":                `SortOrders(xs []int) { isSorted(Sort(xs)) }`,
+	"slices SortPermutes":              `SortPermutes(xs []int) { let sorted = Sort(xs) let mut same = len(sorted) == len(xs) for x in xs { same = same && count(sorted, x) == count(xs, x) } same }`,
+	"slices SortStableKeepsTies":       `SortStableKeepsTies(xs []int) { let mut tags = []tagged{} for i, x in xs { tags = tags.Append(tagged{Key: x % 3, At: i}) } let sorted = SortStableFunc(tags, byKey) let mut ok = len(sorted) == len(xs) for i in 1..len(sorted) { let a = sorted[i-1] let b = sorted[i] ok = ok && (a.Key < b.Key || a.Key == b.Key && a.At < b.At) } ok }`,
+	"slices TransformComposes":         `TransformComposes(xs []int) { let f = func(x int) int { x * 3 } let g = func(x int) int { x - 7 } Equal(Transform(Transform(xs, f), g), Transform(xs, func(x int) int { g(f(x)) })) }`,
+	"slices TransformIdentity":         `TransformIdentity(xs []int) { Equal(Transform(xs, func(x int) int { x }), xs) }`,
 }
 
-// ledgerRunnerLaws are the probe test names of the Std laws rows of
-// stdlib.md whose runner is runner.
-func ledgerRunnerLaws(t *testing.T, runner string) []string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "spec", "stdlib.md"))
-	if err != nil {
-		t.Fatal(err)
+// TestStdSlicesLawsRun runs the probe's tests with --seed 1; lawledger.Run
+// holds that the probe restates exactly the ledger's laws whose runner is
+// this test, each with the row's statement, and that each passed.
+func TestStdSlicesLawsRun(t *testing.T) {
+	if laws := lawProbe(t, "stdslices", stdSlicesLawsProbe, stdSlicesLawStatements); laws != nil {
+		lawledger.Run(t, laws)
 	}
-	var want []string
-	in := false
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "## ") {
-			in = line == "## Std laws"
-			continue
-		}
-		if !in || !strings.HasPrefix(line, "| `") {
-			continue
-		}
-		cells := strings.Split(line, " | ")
-		if len(cells) < 5 || strings.Trim(cells[3], "`") != runner {
-			continue
-		}
-		want = append(want, stdLawsTestName(strings.Trim(cells[0], "|` "), strings.Trim(cells[1], "`")))
-	}
-	return want
 }

@@ -239,6 +239,28 @@ func lawsPassed(t *testing.T, statements map[string]string, testName func(key st
 	return laws
 }
 
+// lawProbe builds the law probe as the test build name, runs its tests
+// with --seed 1, and returns its laws for the runner's lawledger.Run: the
+// probe's test of each ledger key is named by stdLawsTestName, and
+// statements is each law's restatement by key (fu-ledger-runner; the
+// runners of S2 and S3 moved onto it at the batch-10 merge). It returns
+// nil when the probe did not build.
+func lawProbe(t *testing.T, name, probe string, statements map[string]string) map[string]lawledger.Law {
+	t.Helper()
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, name, probe)}, true)
+	if exes == nil {
+		return nil
+	}
+	stdout, stderr, code := runExeArgs(t, exes[name], "--seed", "1")
+	if code != 0 {
+		t.Errorf("the law tests of %s failed: exit %d\n%s\n%s", name, code, stdout, firstLines(stderr, 20))
+	}
+	return lawsPassed(t, statements, func(key string) string {
+		pkg, law, _ := strings.Cut(key, " ")
+		return stdLawsTestName(pkg, law)
+	}, probe, stdout)
+}
+
 // TestStdLawsRun runs the probe's tests; lawledger.Run holds that the
 // probe restates exactly the ledger's laws whose runner is this test, each
 // with the row's statement, and that each passed.

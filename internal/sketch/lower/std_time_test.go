@@ -1,9 +1,9 @@
 package lower
 
 import (
-	"regexp"
-	"slices"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // TestTimeRuns (std-align S2b): std time lowers and runs. time.Since on a
@@ -152,31 +152,21 @@ test TimeTimelineAdvanceMovesRead(n int64) {
 }
 `
 
-// TestStdTimeLawsRun runs the time probe's tests with --seed 1, and holds
-// that the probe restates exactly the ledger's laws whose runner is this
-// test.
+// stdTimeLawStatements is the statement of each law the probe restates,
+// the law's source text as the ledger writes it, by ledger key;
+// lawledger.Run holds it equal to the ledger (fu-ledger-runner).
+var stdTimeLawStatements = map[string]string{
+	"time FormatParseRoundTrip":      `FormatParseRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch { case ParseError: return false } back.Equal(t) && back == t }`,
+	"time SubAddInverse":             `SubAddInverse(sec int64, nsec int64, n int64) { let t = Unix(anyYear(sec), nsec) let d = duration(within(n, -4000000000000000000, 4000000000000000000)) t.Add(d).Sub(t) == d }`,
+	"time Timeline.AdvanceMovesRead": `AdvanceMovesRead(n int64) { let d = duration(within(n, 0, 1099511627775)) let before = Read() Advance(d) Read().Mono-before.Mono == int64(d) }`,
+}
+
+// TestStdTimeLawsRun runs the time probe's tests with --seed 1;
+// lawledger.Run holds that the probe restates exactly the ledger's laws
+// whose runner is this test, each with the row's statement, and that each
+// passed.
 func TestStdTimeLawsRun(t *testing.T) {
-	want := ledgerRunnerLaws(t, "TestStdTimeLawsRun")
-	var got []string
-	for _, m := range regexp.MustCompile(`(?m)^test (\w+)\(`).FindAllStringSubmatch(stdTimeLawsProbe, -1) {
-		got = append(got, m[1])
-	}
-	slices.Sort(want)
-	slices.Sort(got)
-	if len(want) == 0 || !slices.Equal(got, want) {
-		t.Fatalf("the probe restates %v; the ledger runs %v in TestStdTimeLawsRun", got, want)
-	}
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdtime", stdTimeLawsProbe)}, true)
-	if exes == nil {
-		return
-	}
-	stdout, stderr, code := runExeArgs(t, exes["stdtime"], "--seed", "1")
-	if code != 0 {
-		t.Fatalf("the time law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
-	}
-	for _, name := range want {
-		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(100 cases\))?$`).MatchString(stdout) {
-			t.Errorf("no ok line for %s:\n%s", name, stdout)
-		}
+	if laws := lawProbe(t, "stdtime", stdTimeLawsProbe, stdTimeLawStatements); laws != nil {
+		lawledger.Run(t, laws)
 	}
 }

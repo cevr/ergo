@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // The Go runners of std rand (std-align S2c; docs/spec/stdlib.md, rand).
@@ -62,22 +64,34 @@ func TestRandLaws(t *testing.T) {
 	}
 	ns = append(ns, 1<<62, int(^uint(0)>>1))
 	src := NewStream(9)
-	for _, n := range ns {
-		if x := src.IntN(n); x < 0 || x >= n {
-			t.Fatalf("Stream.IntNInRange: IntN(%d) = %d", n, x)
-		}
-		if x := RandHostIntN(n); x < 0 || x >= n {
-			t.Fatalf("Random.IntNInRange on the host: IntN(%d) = %d", n, x)
-		}
-	}
-	for range 10_000 {
-		if f := src.Float64(); f < 0 || f >= 1 {
-			t.Fatalf("Float64InUnit: Stream.Float64() = %v", f)
-		}
-		if f := RandHostFloat64(); f < 0 || f >= 1 {
-			t.Fatalf("Float64InUnit: host Float64() = %v", f)
-		}
-	}
+	intN := `IntNInRange(n int) { if n <= 0 { return true } let x = IntN(n) x >= 0 && x < n }`
+	lawledger.Run(t, map[string]lawledger.Law{
+		// The prelude's Random laws, on the host provider.
+		"prelude Random.IntNInRange": {Statement: intN, Check: func(t *testing.T) {
+			for _, n := range ns {
+				if x := RandHostIntN(n); x < 0 || x >= n {
+					t.Fatalf("Random.IntNInRange on the host: IntN(%d) = %d", n, x)
+				}
+			}
+		}},
+		"prelude Random.Float64InUnit": {Statement: `Float64InUnit() { let f = Float64() f >= 0.0 && f < 1.0 }`, Check: func(t *testing.T) {
+			for range 10_000 {
+				if f := src.Float64(); f < 0 || f >= 1 {
+					t.Fatalf("Float64InUnit: Stream.Float64() = %v", f)
+				}
+				if f := RandHostFloat64(); f < 0 || f >= 1 {
+					t.Fatalf("Float64InUnit: host Float64() = %v", f)
+				}
+			}
+		}},
+		"rand Stream.IntNInRange": {Statement: intN, Check: func(t *testing.T) {
+			for _, n := range ns {
+				if x := src.IntN(n); x < 0 || x >= n {
+					t.Fatalf("Stream.IntNInRange: IntN(%d) = %d", n, x)
+				}
+			}
+		}},
+	})
 }
 
 // TestRandIntNNotPositiveIsADefect: IntN of zero or less panics on a

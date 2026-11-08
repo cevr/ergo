@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -369,20 +370,24 @@ func TestExecNotFoundNamesTheProgram(t *testing.T) {
 			names = append(names, "/nonexistent/loop-probe-"+b.String())
 		}
 	}
-	notFound := 0
-	for _, name := range names {
-		_, err := ExecRun(task, name, nil, nil, "", "")
-		var nf ExecNotFound
-		if errors.As(err, &nf) {
-			notFound++
-			if nf.Name != name {
-				t.Errorf("NotFoundNamesTheProgram(%q): the failure names %q", name, nf.Name)
+	lawledger.Run(t, map[string]lawledger.Law{
+		"exec Runner.NotFoundNamesTheProgram": {Statement: `NotFoundNamesTheProgram(name string) { Run(New(name, []string{})) catch { case NotFound as n: return n.Name == name case Denied, Failed: return true } true }`, Check: func(t *testing.T) {
+			notFound := 0
+			for _, name := range names {
+				_, err := ExecRun(task, name, nil, nil, "", "")
+				var nf ExecNotFound
+				if errors.As(err, &nf) {
+					notFound++
+					if nf.Name != name {
+						t.Errorf("NotFoundNamesTheProgram(%q): the failure names %q", name, nf.Name)
+					}
+				}
 			}
-		}
-	}
-	if notFound < len(names)-3 {
-		t.Errorf("only %d of %d missing names failed NotFound", notFound, len(names))
-	}
+			if notFound < len(names)-3 {
+				t.Errorf("only %d of %d missing names failed NotFound", notFound, len(names))
+			}
+		}},
+	})
 }
 
 // BenchmarkExecRunTrue is Run("true") against its Go control,

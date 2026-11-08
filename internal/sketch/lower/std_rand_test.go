@@ -2,12 +2,12 @@ package lower
 
 import (
 	"math/rand/v2"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/lawledger"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -190,31 +190,21 @@ test RandShufflePermutes(seed uint64, xs []int) {
 }
 `
 
-// TestStdRandLawsRun runs the rand probe's tests with --seed 1, and holds
-// that the probe restates exactly the ledger's laws whose runner is this
-// test.
+// stdRandLawStatements is the statement of each law the probe restates,
+// the law's source text as the ledger writes it, by ledger key;
+// lawledger.Run holds it equal to the ledger (fu-ledger-runner).
+var stdRandLawStatements = map[string]string{
+	"rand PermPermutes":    `PermPermutes(seed uint64, n int) { let size = within(n, 0, 200) let p = with context { Random: Seeded(seed) } { Perm(size) } isPermutation(p, size) }`,
+	"rand SeedReplays":     `SeedReplays(seed uint64, n int) { let a = Seeded(seed) let b = Seeded(seed) let k = within(n, 1, 1000000) a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64() }`,
+	"rand ShufflePermutes": `ShufflePermutes(seed uint64, xs []int) { let mut kept = []int{} for x in xs { kept = kept.Append(x) } let before = tally(xs) let s = with context { Random: Seeded(seed) } { Shuffle(xs) } let after = tally(s) let mut same = len(s) == len(xs) && len(after) == len(before) for i, x in xs { same = same && after.Get(x) == before.Get(x) && kept[i] == x } same }`,
+}
+
+// TestStdRandLawsRun runs the rand probe's tests with --seed 1;
+// lawledger.Run holds that the probe restates exactly the ledger's laws
+// whose runner is this test, each with the row's statement, and that each
+// passed.
 func TestStdRandLawsRun(t *testing.T) {
-	want := ledgerRunnerLaws(t, "TestStdRandLawsRun")
-	var got []string
-	for _, m := range regexp.MustCompile(`(?m)^test (\w+)\(`).FindAllStringSubmatch(stdRandLawsProbe, -1) {
-		got = append(got, m[1])
-	}
-	slices.Sort(want)
-	slices.Sort(got)
-	if len(want) == 0 || !slices.Equal(got, want) {
-		t.Fatalf("the probe restates %v; the ledger runs %v in TestStdRandLawsRun", got, want)
-	}
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdrand", stdRandLawsProbe)}, true)
-	if exes == nil {
-		return
-	}
-	stdout, stderr, code := runExeArgs(t, exes["stdrand"], "--seed", "1")
-	if code != 0 {
-		t.Fatalf("the rand law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
-	}
-	for _, name := range want {
-		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(100 cases\))?$`).MatchString(stdout) {
-			t.Errorf("no ok line for %s:\n%s", name, stdout)
-		}
+	if laws := lawProbe(t, "stdrand", stdRandLawsProbe, stdRandLawStatements); laws != nil {
+		lawledger.Run(t, laws)
 	}
 }
