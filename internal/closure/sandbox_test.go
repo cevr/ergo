@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -289,7 +290,46 @@ func runProtected(sb sandbox, pkg, dir string, env []string, output string, bina
 	if len(tail) > 4000 {
 		tail = tail[len(tail)-4000:]
 	}
-	return fmt.Errorf("the tests failed (%v), so the inputs they record are incomplete; output %s ends:\n%s", runErr, output, tail)
+	return fmt.Errorf("the tests failed (%v), so the inputs they record are incomplete; its failure lines:\n%s\noutput %s ends:\n%s", runErr, failureLines(out), output, tail)
+}
+
+// failureLine is a line of go test output that names a failure: a test's
+// --- FAIL line, a panic (a -test.timeout panic, with the running tests
+// after it), or a t.Error or t.Fatal message, file:line first, which
+// carries the seed of a property's failing case.
+var failureLine = regexp.MustCompile(`^\s*(--- FAIL: |panic: |running tests:|\S+_test\.go:\d+: )`)
+
+// failureLines are the output's failure lines and the line after each, in
+// order, at most 40 of them, each cut to 300 bytes. The tail of a long
+// failure shows only its last lines (at fu-lower-flake, the lowered Go
+// that a native test's message prints last); these name the failing test
+// and its message first, wherever they are in the output.
+func failureLines(out []byte) string {
+	const most, width = 40, 300
+	lines := strings.Split(string(out), "\n")
+	var kept []string
+	next := -1
+	for i, line := range lines {
+		hit := failureLine.MatchString(line)
+		if !hit && i != next {
+			continue
+		}
+		if hit {
+			next = i + 1
+		}
+		if len(kept) == most {
+			kept = append(kept, "  ... (more failure lines in the output)")
+			break
+		}
+		if len(line) > width {
+			line = line[:width] + " ..."
+		}
+		kept = append(kept, "  "+line)
+	}
+	if len(kept) == 0 {
+		return "  (none: the output names no failing test)"
+	}
+	return strings.Join(kept, "\n")
 }
 
 // scratch is the writable part of one run: a base directory made fresh

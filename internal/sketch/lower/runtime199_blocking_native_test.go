@@ -220,11 +220,7 @@ func blockingNative(t *testing.T, name, route string) {
 	write("ergo/runtime/v1/blocking_probe.go", []byte(blockingProbe))
 	native := strings.NewReplacer("PRIMITIVE", fmt.Sprintf("%q", name), "SUBJECT_ARG", arg).Replace(blockingNativeTest)
 	write("blocking_test.go", []byte(native))
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=30s", "-v", ".")
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
+	output, err := nativeGoTest(t, dir)
 	if err != nil {
 		t.Fatalf("native %s: %v\n%s\nErgo:\n%s\nGo:\n%s", name, err, output, src, o.mainGo())
 	}
@@ -314,14 +310,53 @@ func deliveredNative(t *testing.T, src string) {
 	}
 	write("ergo/runtime/v1/delivered_probe.go", []byte("package v1\nimport \"ergo.local/prototype/runtime/rt\"\nvar DeliveredHook func(*rt.Task)\n"))
 	write("delivered_test.go", []byte(deliveredNativeTest))
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=30s", "-v", ".")
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
+	output, err := nativeGoTest(t, dir)
 	if err != nil {
 		t.Fatalf("native delivered witness: %v\n%s\nErgo:\n%s\nGo:\n%s", err, output, src, stripDirectives(o.mainGo()))
 	}
+}
+
+// TestNativeHarnessesHaveNoWallBound: the native harnesses wait for events
+// only. A wall-clock bound in them (time.After, a deadline from time.Now)
+// failed a correct run on a descheduled host
+// (fu-lower-flake); a hang is the native binary's -timeout, which
+// nativeGoTest derives from this binary's deadline.
+func TestNativeHarnessesHaveNoWallBound(t *testing.T) {
+	for name, text := range map[string]string{"blocking": blockingNativeTest, "delivered": deliveredNativeTest} {
+		for _, bound := range []string{"time.After(", "time.Now()", "time.NewTimer(", "time.Since("} {
+			if strings.Contains(text, bound) {
+				t.Errorf("the %s native harness holds the wall-clock bound %s", name, bound)
+			}
+		}
+	}
+}
+
+// nativeGoTest runs go test -v on the native module in dir. Its only time
+// bound is this test binary's own deadline: the native binary's -timeout
+// ends a minute before it, so a native hang panics there, naming the
+// subtest and every goroutine's stack, and the command's context ends
+// 30 s before it, after the native binary had its chance to report.
+//
+// A fixed wall-clock bound (40 s for compile and run, 30 s for the run)
+// failed a correct program when the host descheduled the run: the gate
+// runs niced under the host's load, and the go command compiles the
+// copied runtime into the sweep's fresh cache (fu-lower-flake).
+func nativeGoTest(t *testing.T, dir string) ([]byte, error) {
+	t.Helper()
+	ctx, timeout := context.Background(), "0"
+	if end, ok := t.Deadline(); ok {
+		left := (time.Until(end) - time.Minute).Truncate(time.Second)
+		if left < time.Second { // -timeout=0s would be no bound at all
+			t.Fatalf("less than a minute of this test binary's deadline is left for a native go test")
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, end.Add(-30*time.Second))
+		defer cancel()
+		timeout = left.String()
+	}
+	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout="+timeout, "-v", ".")
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
 }
 
 const deliveredNativeTest = `package main
@@ -384,13 +419,17 @@ func attempt(f func() (int, error)) (o outcome) {
  defer func() { o.panicValue = recover() }()
  o.value, o.err = f(); return
 }
+// receive and await wait for an event with no wall-clock bound: a fixed
+// bound failed correct runs on a descheduled host (fu-lower-flake). A
+// primitive that never completes, drains or parks hangs here until this
+// binary's -timeout, whose panic names the subtest and shows each
+// goroutine's stack, this wait's line among them.
 func receive[T any](t *testing.T, ch <-chan T) T {
- t.Helper()
- select { case v := <-ch: return v; case <-time.After(3*time.Second): t.Fatal("primitive did not complete or drain"); var zero T; return zero }
+ t.Helper(); return <-ch
 }
 func await(t *testing.T, test func() bool) {
- t.Helper(); limit := time.Now().Add(3*time.Second)
- for !test() { if time.Now().After(limit) { t.Fatal("primitive never reached its parking point") }; runtime.Gosched() }
+ t.Helper()
+ for !test() { runtime.Gosched() }
 }
 func handleParked(method string) bool {
  buf := make([]byte, 1<<18)
