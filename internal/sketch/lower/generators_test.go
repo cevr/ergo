@@ -11,6 +11,7 @@ import (
 // generated value holds one class a codec treats apart. A wide generator
 // refutes every one of them within 100 cases.
 const generatorProbes = `import strings
+import utf8
 
 func noControl(s string) bool {
 	for i in 0..len(s) {
@@ -75,7 +76,7 @@ test NoUint8Wrap(n uint8) {
 }
 
 test SmallStrings(s string) {
-	assert len(s) <= 5
+	assert utf8.RuneCount(s) <= 5
 }
 `
 
