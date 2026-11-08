@@ -188,14 +188,11 @@
     },
     {
       "id": "effect.cli.options-interleaved-with-operands",
-      "status": "covered",
+      "status": "pending",
       "upstream": {"file": "packages/effect/test/cli/Command.test.ts", "line": 1823, "label": "should keep variadic argument order when options are interleaved"},
       "behavior": "A flag may follow a positional argument; the positional arguments keep their order, and a repeated switch is accepted.",
-      "limits": "Ergo's flag (std-align S1d) takes Go's syntax otherwise: a bare -- ends the flags, a value flag takes the next argument whatever it is, and a repeated value flag keeps its last value. TestFlagMatchesGo checks interleaving against a written model on 3,000 generated lists; TestFlagCommandsRun runs a subcommand with a flag after its positional argument.",
-      "evidence": [
-        {"file": "internal/sketch/lower/std_flag_test.go", "test": "TestFlagMatchesGo", "targets": ["go"]},
-        {"file": "internal/sketch/lower/std_flag_test.go", "test": "TestFlagCommandsRun", "targets": ["go"]}
-      ]
+      "limits": "Ergo's flag (std-align S1d) takes Go's syntax otherwise: a bare -- ends the flags, a value flag takes the next argument whatever it is, and a repeated value flag keeps its last value. The v1 tests internal/sketch/lower TestFlagMatchesGo (interleaving against a written model on 3,000 generated lists) and TestFlagCommandsRun (a flag after a subcommand's positional argument) assert it; the case stays pending until the mapping's own tests admit evidence in the committed mapping (scripts/conformance TestCommittedMappingClaimsNoEvidence).",
+      "evidence": []
     },
     {
       "id": "effect.cli.duplicate-shared-option",
