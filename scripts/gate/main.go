@@ -367,8 +367,10 @@ func main() {
 	// creation mask; the gate fixes it rather than inheriting a caller's.
 	setCreationMask()
 	// The gate's own git commands run concurrently with steps, and git
-	// status otherwise takes the index lock to refresh stat data.
-	os.Setenv("GIT_OPTIONAL_LOCKS", "0")
+	// status otherwise takes the index lock to refresh stat data. Steps
+	// receive only testenv's variables, so keyedEnvironment sets it for
+	// them (gitOptionalLocks).
+	os.Setenv(gitOptionalLocks, "0")
 	if *list {
 		root, err := repositoryRoot()
 		if err != nil {
@@ -1115,11 +1117,24 @@ func (g *gate) toolDigest(step *Step) string {
 	return hex.EncodeToString(digest.Sum(nil))[:16]
 }
 
+// gitOptionalLocks is git's variable that, at 0, keeps a read-only command
+// from taking optional locks. The gate's own process sets it (main), and
+// every step runs with it at 0 whatever the caller sets (keyedEnvironment):
+// a step receives only testenv's variables, so before b9-fix-gate round 3
+// the gate's setting never reached one. In a clone, such as the merge
+// tier's export, .git is a directory inside the checkout, and a `git status`
+// in a step (one that a test runs, or the go command's VCS stamp of a main
+// package: go build, go list ./...) wrote .git/index.lock and .git/index
+// there, which the closure sweeps of other packages observed as a change
+// of the checkout during their run.
+const gitOptionalLocks = "GIT_OPTIONAL_LOCKS"
+
 // keyedEnvironment is the environment the whole-gate key holds
 // (declaredEnvironment): the caller's variables that testenv names, and no
 // other, as Bazel's strict action environment passes only declared
-// variables, with the gate's collector target and the soft memory limit
-// below the step budget (stepSoftLimit) unless the caller sets them, and
+// variables, with gitOptionalLocks at 0, with the gate's collector target
+// and the soft memory limit below the step budget (stepSoftLimit) unless
+// the caller sets them, and
 // GOMAXPROCS and the go command's -p at most the CPU budget
 // (stepGOMAXPROCS, stepGOFLAGS). A
 // variable outside the list cannot reach a step, so the key, which holds
@@ -1142,6 +1157,7 @@ func keyedEnvironment() []string {
 	if _, set := os.LookupEnv("GOMEMLIMIT"); !set {
 		environment = append(environment, "GOMEMLIMIT="+stepSoftLimit())
 	}
+	environment = setEnvironmentVariable(environment, gitOptionalLocks, "0")
 	cpus := stepCPUs()
 	environment = setEnvironmentVariable(environment, "GOFLAGS", stepGOFLAGS(os.Getenv("GOFLAGS"), cpus))
 	return setEnvironmentVariable(environment, "GOMAXPROCS", stepGOMAXPROCS(os.Getenv("GOMAXPROCS"), cpus))
