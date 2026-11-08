@@ -1,0 +1,65 @@
+import strings
+
+// Cmd is a command line of okra keys.
+type Cmd = SetKey{Provider string, Key Option[string], Stdin bool} | ListKeys{} | GetKey{Provider string} | RemoveKey{Provider string} | Nothing{}
+
+// Usage is a command line the parser refuses: the help of the command it
+// names, for standard output, and the reason.
+type Usage { Help string, Reason string }
+
+// Parse reads the arguments after the program's name: "keys", a
+// subcommand, its flags and its arguments. "keys" alone does nothing, as
+// the original's root command does.
+func Parse(args []string) Cmd fails Usage {
+	if len(args) == 0 || args[0] != "keys" {
+		return Usage{Help: Help(""), Reason: "Missing subcommand: want okra keys"}
+	}
+	if len(args) == 1 {
+		return Nothing
+	}
+	let sub = args[1]
+	let mut stdin = false
+	let mut words = []string{}
+	for i, a in args {
+		if i < 2 {
+			continue
+		}
+		if a == "--stdin" && sub == "set" {
+			stdin = true
+		} else if strings.HasPrefix(a, "-") {
+			return Usage{Help: Help(sub), Reason: "Unrecognized flag: \(a) in command okra keys \(sub)"}
+		} else {
+			words = words.Append(a)
+		}
+	}
+	match sub {
+	case "set":
+		let provider = try needed(sub, words, 2)
+		let key Option[string] = if len(words) > 1 { Some[string]{Value: words[1]} } else { None }
+		SetKey{Provider: provider, Key: key, Stdin: stdin}
+	case "list":
+		let _ = try needed(sub, words, 0)
+		ListKeys
+	case "get":
+		GetKey{Provider: try needed(sub, words, 1)}
+	case "rm":
+		RemoveKey{Provider: try needed(sub, words, 1)}
+	case _:
+		Usage{Help: Help(""), Reason: "Unknown subcommand \"\(sub)\" for \"okra keys\""}
+	}
+}
+
+// needed is the first word of a command that takes up to most words,
+// the first of them required when most is not 0.
+func needed(sub string, words []string, most int) string fails Usage {
+	if len(words) > most {
+		return Usage{Help: Help(sub), Reason: "Unexpected positional argument: \"\(words[most])\""}
+	}
+	if most == 0 {
+		return ""
+	}
+	if len(words) == 0 {
+		return Usage{Help: Help(sub), Reason: "Missing required argument: provider"}
+	}
+	words[0]
+}

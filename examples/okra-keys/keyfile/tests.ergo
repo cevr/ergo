@@ -1,0 +1,61 @@
+// The codec's tests: texts written by the original (okra v0.13.0), and
+// the laws restated as property tests (#162 runs laws; until then these
+// do).
+
+import okrakeys/keys
+
+func names(text string) string {
+	match Decode(text) {
+	case Some[keys.Keys] as k:
+		let mut out = ""
+		for e in k.Value.Entries() {
+			out = out + e.Name + "=" + e.Secret + ";"
+		}
+		out
+	case None:
+		"none"
+	}
+}
+
+test DecodesWhatJSONParseReads {
+	assert names(" {\"q\\u00e9\":\"v\\n\\\"1\" , \"b\":\"tab\\there\", \"b\":\"again\\ud83d\\ude00x\"} ") == "qé=v\n\"1;b=again😀x;"
+	assert names("{}") == "" && names("{\"9\":\"n\",\"a\":\"x\",\"1\":\"m\"}") == "1=m;9=n;a=x;"
+	assert names("not json") == "none" && names("{\"a\":\"x\",\"b\":1}") == "none" && names("[\"a\"]") == "none"
+	assert names("{\"a\":\"x\"} x") == "none" && names("{\"a\":\"x\",}") == "none" && names("{\"a\":\"\n\"}") == "none"
+}
+
+test EncodesAsJSONStringify {
+	let k = keys.Empty().Set("qé", "v\n\"1234567890").Set("b", "tab\there").Set("c", "\u0001\u001f/\\")
+	assert Encode(k) == "{\"qé\":\"v\\n\\\"1234567890\",\"b\":\"tab\\there\",\"c\":\"\\u0001\\u001f/\\\\\"}"
+}
+
+test DecodeInvertsEncodeHolds(names []string, secrets []string) {
+	let k = Spiced(names, secrets)
+	match Decode(Encode(k)) {
+	case Some[keys.Keys] as back:
+		assert keys.Same(back.Value, k)
+	case None:
+		assert false
+	}
+}
+
+test EncodeEscapesEveryControlHolds(names []string, secrets []string) {
+	let text = Encode(Spiced(names, secrets))
+	for i in 0..len(text) {
+		assert text[i] >= 32
+	}
+}
+
+test LastValueFirstPlaceHolds(name string, other string, a string, b string) {
+	if name == other {
+		return
+	}
+	let n = Quote(Spice(name))
+	let text = "{" + n + ":" + Quote(Spice(a)) + "," + Quote(Spice(other)) + ":\"o\"," + n + ":" + Quote(Spice(b)) + "}"
+	match Decode(text) {
+	case Some[keys.Keys] as k:
+		assert keys.Same(k.Value, keys.Empty().Set(Spice(name), Spice(b)).Set(Spice(other), "o"))
+	case None:
+		assert false
+	}
+}

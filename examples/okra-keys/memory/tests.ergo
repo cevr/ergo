@@ -1,0 +1,14 @@
+// Vault's tests: it keeps keys.Store's law (#162 runs member laws against
+// every provider; until then this does).
+
+import okrakeys/keys
+
+test LoadSeesSaveHolds(names []string, secrets []string) {
+	let v = New(keys.Empty())
+	let mut k = keys.Empty()
+	for i, name in names {
+		k = k.Set(name, if i < len(secrets) { secrets[i] } else { "s" })
+	}
+	let _ = try v.Save(k)
+	assert keys.Same(try v.Load(), k)
+}

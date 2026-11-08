@@ -1,0 +1,19 @@
+DESCRIPTION
+  Store an API key for a provider
+
+USAGE
+  okra keys set [flags] <provider> [<key>]
+
+ARGUMENTS
+  provider string    Provider name, e.g. openai
+  key string         API key value (omit and use --stdin to avoid shell history) (optional)
+
+FLAGS
+  --stdin    Read the key from stdin instead of an argument
+
+GLOBAL FLAGS
+  --help, -h                                                          Show help information
+  --version, -v                                                       Show version information
+  --wizard                                                            Start wizard mode for a command
+  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
+  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)

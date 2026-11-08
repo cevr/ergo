@@ -1,0 +1,86 @@
+// The rules of the stored keys and the mask as laws.
+
+import strings
+
+// KeysOf is the keys with each of names, through Digits, set in order to
+// "v" and its name.
+func KeysOf(names []string) Keys {
+	let mut k = Empty()
+	for n in names {
+		k = k.Set(Digits(n), "v"+n)
+	}
+	k
+}
+
+// Digits maps most of the runes a generated string holds onto digits, so
+// that generated names are often array indexes: a generated string draws
+// from a fixed alphabet with only two digits (G-ex-d-4).
+func Digits(s string) string {
+	let mut out = s
+	for pair in []string{"a1", "b2", "z3", "A4", "Z5", " 6", "_7", "-8"} {
+		out = strings.ReplaceAll(out, strings.Slice(pair, 0, 1), strings.Slice(pair, 1, 2))
+	}
+	out
+}
+
+// SetThenLookup: a set key is the key that Lookup finds.
+law SetThenLookup(names []string, raw string, secret string) {
+	let name = Digits(raw)
+	KeysOf(names).Set(name, secret).Lookup(name) == (Some[string]{Value: secret})
+}
+
+// SetKeepsOthers: a set changes no other provider's key, and adds at
+// most one entry.
+law SetKeepsOthers(names []string, raw string, secret string) {
+	let name = Digits(raw)
+	let k = KeysOf(names)
+	let after = k.Set(name, secret)
+	for e in k.Entries() {
+		if e.Name != name && after.Lookup(e.Name) != (Some[string]{Value: e.Secret}) {
+			return false
+		}
+	}
+	let added = if k.Lookup(name) == None { 1 } else { 0 }
+	len(after.Entries()) == len(k.Entries())+added
+}
+
+// RemoveUndoesSet: removing a name that was not stored, after setting it,
+// gives the keys back, in their order.
+law RemoveUndoesSet(names []string, raw string, secret string) {
+	let name = Digits(raw)
+	let k = KeysOf(names)
+	if k.Lookup(name) != None {
+		return true
+	}
+	Same(k.Set(name, secret).Remove(name), k)
+}
+
+// IndexNamesComeFirst: the entries are in a JavaScript object's order:
+// the array indexes first, by value, then the other names.
+law IndexNamesComeFirst(names []string) {
+	InObjectOrder(KeysOf(names))
+}
+
+// InObjectOrder reports whether k's entries have every index before
+// every other name, the indexes ascending.
+func InObjectOrder(k Keys) bool {
+	let es = k.Entries()
+	for i in 1..len(es) {
+		let a = es[i-1].Name
+		let b = es[i].Name
+		if IsIndex(b) && (!IsIndex(a) || indexOf(a) >= indexOf(b)) {
+			return false
+		}
+	}
+	true
+}
+
+// MaskRevealsLittle: a secret of more than eight bytes shows only its
+// first five and last four; a shorter one shows a bullet per byte.
+law MaskRevealsLittle(secret string, pad int) {
+	let s = secret + strings.Repeat("x", ((pad%12)+12)%12)
+	if len(s) <= 8 {
+		return Mask(s) == strings.Repeat("•", len(s))
+	}
+	Mask(s) == strings.Slice(s, 0, 5)+"…"+strings.Slice(s, len(s)-4, len(s))
+}

@@ -1,0 +1,68 @@
+// Package files is the host's provider of keys.Store: the file
+// .okra/keys.json under the home directory, read and written through the
+// fs.Files and fs.Writes it holds.
+
+import filepath
+import fs
+import okrakeys/keyfile
+import okrakeys/keys
+
+// Home is the key store under a home directory: None when HOME is not
+// set. Its fields are unexported, so only New builds one.
+type Home { files fs.Files, writes fs.Writes, home Option[string] }
+
+// New is the store under home, read through files and written through
+// writes.
+func New(files fs.Files, writes fs.Writes, home Option[string]) Home {
+	Home{files: files, writes: writes, home: home}
+}
+
+// path is the store's file, as Node's path.join writes it.
+func path(h Home) string fails keys.StoreFailed {
+	match h.home {
+	case Some[string] as d:
+		filepath.Join([]string{d.Value, ".okra", "keys.json"})
+	case None:
+		keys.StoreFailed{Message: "HOME environment variable is not set"}
+	}
+}
+
+// Load is the stored keys. A missing or unreadable file, or one that is
+// not a JSON object of strings, is no keys, as the original reads it.
+func Load(h Home) keys.Keys fails keys.StoreFailed {
+	let file = try h.path()
+	let text = h.files.ReadFile(file) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return keys.Empty()
+	}
+	match keyfile.Decode(text) {
+	case Some[keys.Keys] as k:
+		k.Value
+	case None:
+		keys.Empty()
+	}
+}
+
+// Save writes k, with the directory made first, and is the path it
+// wrote. The original then makes the file 0600; std fs has no chmod
+// (G-ex-d-15), so the file has the mode WriteFile gives a new file, 0666
+// less the umask, or keeps the mode it had.
+func Save(h Home, k keys.Keys) string fails keys.StoreFailed {
+	let file = try h.path()
+	let dir = filepath.Dir(file)
+	h.writes.MkdirAll(dir) catch {
+	case fs.Denied:
+		return keys.StoreFailed{Message: "Cannot create \(dir): permission denied"}
+	case fs.Failed as f:
+		return keys.StoreFailed{Message: "Cannot create \(dir): \(f.Reason)"}
+	}
+	h.writes.WriteFile(file, keyfile.Encode(k)+"\n") catch {
+	case fs.NotFound:
+		return keys.StoreFailed{Message: "Cannot write \(file): no such file or directory"}
+	case fs.Denied:
+		return keys.StoreFailed{Message: "Cannot write \(file): permission denied"}
+	case fs.Failed as f:
+		return keys.StoreFailed{Message: "Cannot write \(file): \(f.Reason)"}
+	}
+	file
+}

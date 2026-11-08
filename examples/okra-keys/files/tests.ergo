@@ -1,0 +1,79 @@
+// Home's tests run it over a file system held in a Map, with no host: it
+// keeps keys.Store's law, reads what the original writes, and treats a
+// file that is not an object of strings as no keys.
+
+import fs
+import okrakeys/keys
+
+// disk is an fs.Files and fs.Writes of paths to texts. Its Map is shared
+// by every copy, so a write is seen by the next read (G-ex-b-3).
+type disk { texts Map[string, string] }
+
+func ReadFile(d disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match d.texts.Get(path) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		fs.NotFound{Path: path}
+	}
+}
+
+func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func WriteFile(d disk, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
+	if path == "/locked/.okra/keys.json" {
+		return fs.Denied{Path: path}
+	}
+	let mut texts = d.texts
+	texts[path] = text
+}
+
+func MkdirAll(_ disk, path string) fails fs.Denied | fs.Failed {}
+
+func home(d disk, dir string) Home { New(d, d, Some[string]{Value: dir}) }
+
+test SavesWhereTheOriginalDoes {
+	let d = disk{texts: Map[string, string]{}}
+	let h = home(d, ".")
+	assert try h.Save(keys.Empty().Set("openai", "sk-1").Set("10", "n")) == ".okra/keys.json"
+	assert d.texts.Get(".okra/keys.json") == Some[string]{Value: "{\"10\":\"n\",\"openai\":\"sk-1\"}\n"}
+	assert try home(d, "/home/u/").Save(keys.Empty()) == "/home/u/.okra/keys.json"
+}
+
+func failure(h Home) string {
+	let _ = h.Save(keys.Empty()) catch {
+	case keys.StoreFailed as s:
+		return s.Message
+	}
+	let _ = h.Load() catch {
+	case keys.StoreFailed as s:
+		return s.Message
+	}
+	"ok"
+}
+
+test FailuresNameThePath {
+	let d = disk{texts: Map[string, string]{}}
+	assert failure(New(d, d, None)) == "HOME environment variable is not set"
+	assert failure(home(d, "/locked")) == "Cannot write /locked/.okra/keys.json: permission denied"
+}
+
+test BadFilesAreEmpty {
+	let mut texts = Map[string, string]{}
+	texts["h/.okra/keys.json"] = "{\"a\":1}"
+	let h = home(disk{texts: texts}, "h")
+	assert len((try h.Load()).Entries()) == 0
+	assert len((try home(disk{texts: Map[string, string]{}}, "none").Load()).Entries()) == 0
+}
+
+test LoadSeesSaveHolds(names []string, secrets []string) {
+	let h = home(disk{texts: Map[string, string]{}}, "/h")
+	let mut k = keys.Empty()
+	for i, name in names {
+		k = k.Set(name, if i < len(secrets) { secrets[i] } else { "s" })
+	}
+	let _ = try h.Save(k)
+	assert keys.Same(try h.Load(), k)
+}

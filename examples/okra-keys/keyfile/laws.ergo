@@ -1,0 +1,62 @@
+// The rules of the key file's text as laws.
+
+import okrakeys/keys
+import strings
+
+// Spice maps the bytes a generated string can hold onto the bytes the
+// codec escapes: a generated string never holds a quote, a backslash or
+// a control byte other than a line feed (G-ex-d-4).
+func Spice(s string) string {
+	strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "z", "\u0001"), "_", "\""), "-", "\\"), "A", "\t")
+}
+
+// Spiced is keys with each name and secret spiced, in order.
+func Spiced(names []string, secrets []string) keys.Keys {
+	let mut k = keys.Empty()
+	for i, n in names {
+		let secret = if i < len(secrets) { secrets[i] } else { n }
+		k = k.Set(Spice(n), Spice(secret))
+	}
+	k
+}
+
+// DecodeInvertsEncode: the text Encode writes decodes to the same keys,
+// in the same order.
+law DecodeInvertsEncode(names []string, secrets []string) {
+	let k = Spiced(names, secrets)
+	match Decode(Encode(k)) {
+	case Some[keys.Keys] as back:
+		keys.Same(back.Value, k)
+	case None:
+		false
+	}
+}
+
+// EncodeEscapesEveryControl: the text Encode writes has no control byte,
+// so it is one line.
+law EncodeEscapesEveryControl(names []string, secrets []string) {
+	let text = Encode(Spiced(names, secrets))
+	for i in 0..len(text) {
+		if text[i] < 32 {
+			return false
+		}
+	}
+	true
+}
+
+// LastValueFirstPlace: a name given twice keeps its first place and its
+// last value, as JSON.parse reads it.
+law LastValueFirstPlace(name string, other string, a string, b string) {
+	if name == other {
+		return true
+	}
+	let n = Quote(Spice(name))
+	let text = "{" + n + ":" + Quote(Spice(a)) + "," + Quote(Spice(other)) + ":\"o\"," + n + ":" + Quote(Spice(b)) + "}"
+	match Decode(text) {
+	case Some[keys.Keys] as k:
+		let want = keys.Empty().Set(Spice(name), Spice(b)).Set(Spice(other), "o")
+		keys.Same(k.Value, want)
+	case None:
+		false
+	}
+}

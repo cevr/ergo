@@ -1,0 +1,107 @@
+// okra-keys is a port of okra's `okra keys`: it stores, lists, checks
+// and removes the API keys in ~/.okra/keys.json, and never prints a key.
+// Package keys is the domain and the commands, keyfile the file's JSON,
+// files the store on the host, memory a store for tests. This binary is
+// the only place that chooses the providers: the host's process, file
+// system and standard streams.
+
+import fs
+import io
+import okrakeys/files
+import okrakeys/keys
+import okrakeys/memory
+import os
+import strings
+
+func main() fails os.Exit needs Ambient {
+	let host = io.NewHost()
+	let disk = fs.NewHost()
+	let process = os.NewHost()
+	with context { os.Process: process, io.Stdin: host, io.Stdout: host, io.Stderr: io.NewErrors(), keys.Store: files.New(disk, disk, process.Getenv("HOME")) } {
+		try run(os.Process.Args())
+	}
+}
+
+// run is Run with each failure the original's "[CODE] message" on
+// standard error and status 1; a usage error prints the command's help on
+// standard output first. The catch names every failure, with no case _.
+func run(args []string) fails os.Exit needs keys.Store | os.Process | io.Stdin | io.Stdout | io.Stderr {
+	keys.Run(args) catch {
+	case keys.Usage as u:
+		io.Stdout.Print(u.Help)
+		return os.Exit{Code: 1, Message: "\nERROR\n  " + u.Reason}
+	case keys.NotFound as n:
+		return os.Exit{Code: 1, Message: "[NOT_FOUND] " + n.Message}
+	case keys.InvalidInput as i:
+		return os.Exit{Code: 1, Message: "[INVALID_INPUT] " + i.Message}
+	case keys.StoreFailed as s:
+		return os.Exit{Code: 1, Message: "[STORE_FAILED] " + s.Message}
+	}
+}
+
+// The tests run run over a memory.Vault, a process of their own and an
+// io.Recorder for both streams, with no host.
+
+// proc is an os.Process with an environment of its own.
+type proc { env Map[string, string] }
+
+func Args(_ proc) []string { []string{} }
+
+func Getenv(p proc, key string) Option[string] { p.env.Get(key) }
+
+// ran is the transcript of run on args over v, with standard input text
+// and the environment env: both streams, then "exit CODE" on a failure.
+func ran(v memory.Vault, env Map[string, string], input string, args []string) string {
+	let out = io.NewRecorder()
+	with context { keys.Store: v, os.Process: proc{env: env}, io.Stdin: io.Input{Text: input}, io.Stdout: out, io.Stderr: out } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println(e.Message)
+			out.Println("exit \(e.Code)")
+		}
+	}
+	out.Text()
+}
+
+func cmd(line string) []string { strings.Fields(line) }
+
+let none = Map[string, string]{}
+
+test ASessionKeepsItsKeys {
+	let v = memory.New(keys.Empty())
+	assert ran(v, none, "", cmd("keys list")) == "No keys stored. Add one with `okra keys set <provider> <key>`.\n"
+	assert ran(v, none, "", cmd("keys set openai sk-test-abcdefghij1234")) == "Saved \"openai\" key to .okra/keys.json\n"
+	assert ran(v, none, "  piped-1234567\n", cmd("keys set 10 --stdin")) == "Saved \"10\" key to .okra/keys.json\n"
+	assert ran(v, none, "", cmd("keys list")) == "10\nopenai\n"
+	assert ran(v, none, "", cmd("keys get 10")) == "piped…4567 (stored)\n"
+	assert ran(v, none, "", cmd("keys rm openai")) == "Removed \"openai\" key.\n"
+	assert ran(v, none, "", cmd("keys get openai")) == "[NOT_FOUND] No key for \"openai\". Set OPENAI_API_KEY or run `okra keys set openai`.\nexit 1\n"
+}
+
+test TheEnvironmentWins {
+	let v = memory.New(keys.Empty().Set("openai", "sk-stored-0000000"))
+	let mut env = Map[string, string]{}
+	env["OPENAI_API_KEY"] = "sk-env-value-9999"
+	assert ran(v, env, "", cmd("keys get openai")) == "sk-en…9999 (env OPENAI_API_KEY)\n"
+	env["OPENAI_API_KEY"] = ""
+	assert ran(v, env, "", cmd("keys get openai")) == "sk-st…0000 (stored)\n"
+}
+
+test FailuresHaveTheirCode {
+	let v = memory.New(keys.Empty())
+	assert ran(v, none, "", cmd("keys set p")) == "[INVALID_INPUT] No key provided. Pass it as an argument or pipe it with --stdin.\nexit 1\n"
+	assert ran(v, none, " \n", cmd("keys set p --stdin")) == "[INVALID_INPUT] Key is empty\nexit 1\n"
+	assert ran(v, none, "", cmd("keys rm p")) == "[NOT_FOUND] No stored key for \"p\".\nexit 1\n"
+	assert strings.HasSuffix(ran(v, none, "", cmd("keys get")), "\n\nERROR\n  Missing required argument: provider\nexit 1\n")
+}
+
+// SetThenGetShowsTheMask: after a set, get shows the key's mask and its
+// source, and list names it.
+test SetThenGetShowsTheMask(name string, secret string) {
+	let n = "p" + strings.Join(strings.Fields(name), "")
+	let s = "k" + strings.Join(strings.Fields(secret), "") + "-0123456789"
+	let v = memory.New(keys.Empty())
+	assert ran(v, none, "", []string{"keys", "set", n, s}) == "Saved \"\(n)\" key to .okra/keys.json\n"
+	assert ran(v, none, "", []string{"keys", "get", n}) == keys.Mask(s)+" (stored)\n"
+	assert strings.Contains("\n"+ran(v, none, "", cmd("keys list")), "\n"+n+"\n")
+}

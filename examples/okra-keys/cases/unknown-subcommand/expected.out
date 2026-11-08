@@ -1,0 +1,18 @@
+DESCRIPTION
+  Manage stored API keys in ~/.okra/keys.json
+
+USAGE
+  okra keys <subcommand> [flags]
+
+GLOBAL FLAGS
+  --help, -h                                                          Show help information
+  --version, -v                                                       Show version information
+  --wizard                                                            Start wizard mode for a command
+  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)
+  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)
+
+SUBCOMMANDS
+  set     Store an API key for a provider
+  list    List provider names that have a stored key
+  get     Show whether a provider's key is set (masked), and its source
+  rm      Remove a stored API key
