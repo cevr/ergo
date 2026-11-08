@@ -212,10 +212,10 @@ var stdLawsStatements = map[string]string{
 	"queue Queue.CloseIsIdempotent":   `CloseIsIdempotent() { Close() Close() true }`,
 	"queue Queue.PushAfterCloseFails": `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }`,
 	"scope ActionsRunLastFirst":       `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
-	"task StopIsIdempotent":           `StopIsIdempotent() { let t = Go() { LiveScheduler.Sleep(1h) 0 } t.Stop() t.Stop() true }`,
+	"task StopIsIdempotent":           `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
 	"task WaitReturnsTheBlock":        `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
-	"timeout DeadlineFirstExpires":    `DeadlineFirstExpires() { with context { Scheduler: LiveScheduler } { After(1ms) { LiveScheduler.Sleep(1h) false } catch { case Expired: true } } }`,
-	"timeout QuickBodyWins":           `QuickBodyWins(n int) { with context { Scheduler: LiveScheduler } { try After(1h) { n } == n } }`,
+	"timeout DeadlineFirstExpires":    `DeadlineFirstExpires() { let m = time.NewManual(0) with context { Scheduler: m } { After(1ms) { for m.Sleepers() == 0 { } m.Advance(1ms) Scheduler.Sleep(1h) false } catch { case Expired: true } } }`,
+	"timeout QuickBodyWins":           `QuickBodyWins(n int) { with context { Scheduler: time.NewManual(0) } { try After(1h) { n } == n } }`,
 	"trace InnerSpanShadows":          `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
 	"trace SpanEndRestores":           `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
 }
