@@ -276,12 +276,29 @@ func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]
 }
 
 // narrow converts val of type t to to: a type assertion out of a union or
-// operation type, which the tests before it proved.
+// operation type, which the tests before it proved. A declared union is an
+// interface that a row value (a Go error) does not implement statically,
+// so `case U as u:` of a union that names a row (rows.md, Catch 9) asserts
+// too; another interface takes val as it is.
 func (fc *funcCtx) narrow(val string, t, to check.Type) string {
-	if !fc.isInterface(t) || fc.isInterface(to) || fc.goType(to) == fc.goType(t) {
+	if !fc.isInterface(t) || fc.goType(to) == fc.goType(t) {
+		return val
+	}
+	if fc.isInterface(to) && !declaredUnion(to) {
 		return val
 	}
 	return val + ".(" + fc.goType(to) + ")"
+}
+
+// declaredUnion reports a named union type: its Go form is the sealed
+// interface its variants implement.
+func declaredUnion(t check.Type) bool {
+	n, ok := t.(*check.Named)
+	if !ok {
+		return false
+	}
+	_, ok = n.Underlying().(*check.Union)
+	return ok
 }
 
 // tupleField is the Go field name of a tuple's i-th element.
