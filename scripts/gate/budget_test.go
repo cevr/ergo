@@ -557,6 +557,173 @@ func (outputThroughputWatch) kill() {}
 
 func (outputThroughputWatch) finish() usage { return usage{} }
 
+// chunkRecorder records each write of a drain: its size, and the start of
+// the slice it was given. A map key holds each start, so a buffer that a
+// drain allocates per chunk stays alive and cannot reuse an earlier address.
+type chunkRecorder struct {
+	output bytes.Buffer
+	sizes  []int
+	starts map[*byte]bool
+}
+
+func (w *chunkRecorder) Write(content []byte) (int, error) {
+	if len(content) > 0 {
+		if w.starts == nil {
+			w.starts = map[*byte]bool{}
+		}
+		w.starts[&content[0]] = true
+	}
+	w.sizes = append(w.sizes, len(content))
+	return w.output.Write(content)
+}
+
+// The drain's cost per byte, counted, not timed: os/exec's own copy
+// (io.Copy) reads into one 32K buffer and writes each read on, and so does
+// drainPipe. A drain with a smaller buffer makes more reads per MB; a drain
+// that copies each chunk gives the destination a new slice per chunk. A
+// regular file returns full reads, so the counts do not depend on the
+// scheduler. This replaces a wall-clock ratio against os/exec's copy, which
+// failed at a load of 19 (batch-10 gate 8: 82 ms against 15.8 ms) while
+// the two drains made the same number of writes per 50 MB (measured
+// 2026-11-08: a median of 10695 against 10511, one run 10 to 60 ms on
+// either side). The wall-clock comparison is BenchmarkOutputDrain.
+func TestDrainPipeMovesOutputInFullBuffersWithoutCopies(t *testing.T) {
+	const bufferBytes = 32 << 10
+	const fullChunks = 32
+	payload := make([]byte, fullChunks*bufferBytes+100)
+	for i := range payload {
+		payload[i] = byte(i*7 + i/251)
+	}
+	path := filepath.Join(t.TempDir(), "output")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	var recorder chunkRecorder
+	var mu sync.Mutex
+	drained := make(chan pipeResult, 1)
+	drainPipe(file, &recorder, &mu, drained)
+	if result := <-drained; !result.eof || result.heldOpen || result.err != nil {
+		t.Fatalf("drain result %+v, want EOF without held-open or error", result)
+	}
+	if !bytes.Equal(recorder.output.Bytes(), payload) {
+		t.Fatalf("drained %d bytes that differ from the %d written", recorder.output.Len(), len(payload))
+	}
+	if want := fullChunks + 1; len(recorder.sizes) > want {
+		t.Fatalf("drain wrote %d bytes in %d writes, want at most %d: reads of less than %d bytes (sizes %v)", len(payload), len(recorder.sizes), want, bufferBytes, recorder.sizes)
+	}
+	if len(recorder.starts) != 1 {
+		t.Fatalf("drain wrote from %d distinct buffers, want 1: it copies each chunk", len(recorder.starts))
+	}
+}
+
+// The same count through runBudgeted's whole output path, a pipe from a
+// real step: every chunk comes from one buffer, so the step's output is
+// never copied on its way to the destination. stdout and stderr share one
+// destination, so they share one pipe and one drain.
+func TestRunBudgetedDrainsOutputThroughOneBuffer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	const outputBytes = 8 << 20
+	var recorder chunkRecorder
+	command := exec.Command("head", "-c", strconv.Itoa(outputBytes), "/dev/zero")
+	command.Stdout = &recorder
+	command.Stderr = &recorder
+	if _, err := runBudgeted(outputThroughputLimiter{}, "output-throughput", command); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.output.Len() != outputBytes {
+		t.Fatalf("captured %d bytes, want %d", recorder.output.Len(), outputBytes)
+	}
+	if len(recorder.starts) != 1 {
+		t.Fatalf("runBudgeted wrote %d bytes from %d distinct buffers in %d writes, want 1 buffer", outputBytes, len(recorder.starts), len(recorder.sizes))
+	}
+	for _, size := range recorder.sizes {
+		if size > 32<<10 {
+			t.Fatalf("a write of %d bytes, over the 32K drain buffer: output was gathered and copied", size)
+		}
+	}
+}
+
+// drainsWaitingForIO counts the goroutines parked in the runtime poller
+// inside drainPipe.
+func drainsWaitingForIO() int {
+	buffer := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buffer, true)
+		if n < len(buffer) {
+			buffer = buffer[:n]
+			break
+		}
+		buffer = make([]byte, 2*len(buffer))
+	}
+	waiting := 0
+	for _, goroutine := range strings.Split(string(buffer), "\n\n") {
+		header, _, _ := strings.Cut(goroutine, "\n")
+		if strings.Contains(header, "[IO wait") && strings.Contains(goroutine, ".drainPipe(") {
+			waiting++
+		}
+	}
+	return waiting
+}
+
+// The drain waits for output in Go's poller and wakes when the pipe has
+// data, not on a timer: the drain that polled every 5 ms (before 33fd0355)
+// moved one pipe's worth of output per tick, 163 times slower than os/exec's
+// copy (measured 2026-11-06). The state of the drain's goroutine shows it:
+// a poller wait is "IO wait"; a timer drain sleeps and never reaches it.
+func TestDrainPipeWaitsInThePoller(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the output pipe requires Unix process groups")
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	if err := makePipeReaderNonblocking(reader); err != nil {
+		t.Skipf("nonblocking pipe reader is unsupported: %v", err)
+	}
+	before := drainsWaitingForIO()
+	var recorder chunkRecorder
+	var mu sync.Mutex
+	drained := make(chan pipeResult, 1)
+	go drainPipe(reader, &recorder, &mu, drained)
+	// The bound is for a slow host to schedule the goroutine; the test ends
+	// as soon as the goroutine parks.
+	deadline := time.Now().Add(10 * time.Second)
+	for drainsWaitingForIO() <= before {
+		if time.Now().After(deadline) {
+			stack := make([]byte, 1<<20)
+			t.Logf("goroutines:\n%s", stack[:runtime.Stack(stack, true)])
+			_ = writer.Close()
+			<-drained
+			t.Fatal("the drain of an empty pipe did not park in the poller (IO wait) within 10 s: it waits on a timer")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	payload := []byte("output after the wait\n")
+	if _, err := writer.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if result := <-drained; !result.eof || result.err != nil {
+		t.Fatalf("drain result %+v, want EOF", result)
+	}
+	if got := recorder.output.String(); got != string(payload) {
+		t.Fatalf("drained %q, want %q", got, payload)
+	}
+}
+
 type outputCounter struct{ bytes int64 }
 
 func (w *outputCounter) Write(content []byte) (int, error) {
@@ -564,60 +731,33 @@ func (w *outputCounter) Write(content []byte) (int, error) {
 	return len(content), nil
 }
 
-// The gate drains a step's output as fast as os/exec's own copy does: its
-// readers wait in Go's poller and wake when the pipe has data, not on a
-// timer. The drain that polled every 5 ms (before 33fd0355) moved one pipe's
-// worth of output per tick. The bound is relative, so the host's load does
-// not decide it: in the same run, the same program writes the same output
-// through os/exec's copy (a pipe, a goroutine and a 32K buffer, as
-// runBudgeted's), alternating with runBudgeted, and the fastest of each
-// kind is compared. A fixed 1.5 s limit failed under load (follow-up of
-// closure-flake, 2026-11-05).
-func TestRunBudgetedOutputThroughput(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the output pipe requires Unix process groups")
-	}
-
+// BenchmarkOutputDrain is the wall-clock comparison of runBudgeted's drain
+// with os/exec's copy, for a quiet host. Run both and compare ns/op.
+func BenchmarkOutputDrain(b *testing.B) {
 	const outputBytes = 50 << 20
-	// Measured 2026-11-06 at a load of about 28: a 5 ms timer drain took
-	// 163 times os/exec's copy (4.29 s against 26 ms), and the poller drain
-	// 0.9 times; under CPUQuota=2% the poller drain took 0.7 to 1.3 times.
-	const ratio = 4
-	run := func(budgeted bool) time.Duration {
-		t.Helper()
-		var output outputCounter
-		command := exec.Command("head", "-c", strconv.Itoa(outputBytes), "/dev/zero")
-		command.Stdout = &output
-		command.Stderr = &output
-		started := time.Now()
-		var err error
+	for _, budgeted := range []bool{false, true} {
+		name := "os-exec"
 		if budgeted {
-			_, err = runBudgeted(outputThroughputLimiter{}, "output-throughput", command)
-		} else {
-			err = command.Run()
+			name = "runBudgeted"
 		}
-		elapsed := time.Since(started)
-		if err != nil {
-			t.Fatalf("budgeted %t: %v", budgeted, err)
-		}
-		if output.bytes != outputBytes {
-			t.Fatalf("budgeted %t: captured %d bytes, want %d", budgeted, output.bytes, outputBytes)
-		}
-		return elapsed
-	}
-	var fastestCopy, fastestBudgeted time.Duration
-	for trial := range 3 {
-		copied, budgeted := run(false), run(true)
-		if trial == 0 || copied < fastestCopy {
-			fastestCopy = copied
-		}
-		if trial == 0 || budgeted < fastestBudgeted {
-			fastestBudgeted = budgeted
-		}
-	}
-	t.Logf("50 MB: fastest runBudgeted %s, fastest os/exec copy %s", fastestBudgeted, fastestCopy)
-	if fastestBudgeted > ratio*fastestCopy {
-		t.Fatalf("runBudgeted drained 50 MB in %s at best, over %d times os/exec's copy (%s at best)", fastestBudgeted, ratio, fastestCopy)
+		b.Run(name, func(b *testing.B) {
+			b.SetBytes(outputBytes)
+			for b.Loop() {
+				var output outputCounter
+				command := exec.Command("head", "-c", strconv.Itoa(outputBytes), "/dev/zero")
+				command.Stdout = &output
+				command.Stderr = &output
+				var err error
+				if budgeted {
+					_, err = runBudgeted(outputThroughputLimiter{}, "output-throughput", command)
+				} else {
+					err = command.Run()
+				}
+				if err != nil || output.bytes != outputBytes {
+					b.Fatalf("captured %d bytes: %v", output.bytes, err)
+				}
+			}
+		})
 	}
 }
 
