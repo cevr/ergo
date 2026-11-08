@@ -925,6 +925,14 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.locals[params[i]] = n
 		return n
 	}
+	// A function with owned parameters lowers its body under a name of its
+	// own and keeps f's name for a wrapper that copies them (values.go, V5).
+	bodyName, wrapHead, wrapParams := fd.name, "", ""
+	var typeArgs, args []string
+	owned := fd.method == nil && fd.extern == "" && len(l.ownedParams(f)) > 0
+	if owned {
+		bodyName = l.pkgName(ownedKey(f), f.Name+"Owned")
+	}
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
@@ -945,7 +953,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	} else {
 		list, tps := l.typeParams(own, scope, site)
 		fc.params = tps
-		head.WriteString("func " + fd.name + list + "(")
+		head.WriteString("func " + bodyName + list + "(")
+		wrapHead = "func " + fd.name + list + "("
+		for _, tp := range own {
+			typeArgs = append(typeArgs, tps[tp])
+		}
 	}
 	// Every impure function takes the environment first, which carries the
 	// running task (stage D3b, Rule 1). A pure function takes none, and its
@@ -955,6 +967,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	if !fd.pure {
 		fc.env = scope.alloc("env")
 		parts = append(parts, fc.env+" *"+l.env())
+		args = append(args, fc.env)
 	}
 	fc.frame = newFrame(nil, fd.fallible, false)
 	if fd.extern == "" && f.Decl.Body != nil {
@@ -970,6 +983,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		}
 		fc.frame.dest = scope.alloc("dest")
 		parts = append(parts, fc.frame.dest+" *"+l.rt()+".Scope")
+		args = append(args, fc.frame.dest)
 	}
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
@@ -979,6 +993,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		}
 		fc.witness[tp] = scope.alloc("w" + tp.Name)
 		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		args = append(args, fc.witness[tp])
 	}
 	for i, p := range f.Sig.Params {
 		if fd.method != nil && i == 0 {
@@ -986,8 +1001,10 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		}
 		paramNames[i] = name(i)
 		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
+		args = append(args, paramNames[i])
 	}
 	head.WriteString(strings.Join(parts, ", ") + ")")
+	wrapParams = strings.Join(parts, ", ") + ")"
 	if len(f.Sig.Results) > 1 {
 		unreachable(site, ruleOneResult, "the function %s has %d results", f.Name, len(f.Sig.Results))
 	}
@@ -1011,13 +1028,15 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	// Task by return opens its frame scope first (stage D3b, Rule 2).
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List)
+	results := ""
 	switch {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
-		head.WriteString(fc.namedResults(fc.frame.result, frameErr))
+		results = fc.namedResults(fc.frame.result, frameErr)
 	default:
-		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
+		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
+	head.WriteString(results)
 	// The declaration is written whole after its body is lowered: a body
 	// can emit a declaration of its own into the generated part (an
 	// operations conversion's adapter, a text or a match helper), which
@@ -1039,6 +1058,11 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	})
 	fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
+	if owned {
+		// The wrapper stands in the generated part, before the first
+		// //line directive: a defect names no Ergo frame for it.
+		l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, site))
+	}
 }
 
 // directive is the //line directive that maps the next Go line to the

@@ -85,6 +85,7 @@ func (l *lowerer) nameAll() {
 			l.pkgName(pkgKey{"func", f}, f.Name)
 		}
 	}
+	l.reserveOwned(append([]*check.Package{l.pkg}, libs...)) // values.go, V5
 	// A sourced library's lets, which the program lowers, used or not
 	// (sources.go), and the builders of its named contexts, one for each
 	// set of providers a with of the program acquires (196b U4), in its
