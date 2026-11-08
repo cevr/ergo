@@ -67,20 +67,3 @@ func Apply(m Mode, es []Event) Decision[Mode, todo.List] {
 		Stay[Mode]{Next: next}
 	}
 }
-
-// Next is the mode after the decision d in m: Enter and Stay take their
-// Next; Ignore, Reject and Done keep m.
-func Next(m Mode, d Decision[Mode, todo.List]) Mode {
-	match d {
-	case Enter[Mode] as e:
-		e.Next
-	case Stay[Mode] as s:
-		s.Next
-	case Ignore:
-		m
-	case Reject:
-		m
-	case Done[todo.List]:
-		m
-	}
-}

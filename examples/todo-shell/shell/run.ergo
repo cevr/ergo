@@ -1,4 +1,5 @@
 import io
+import machines
 import todoshell/todo
 
 // Run is the shell: it reads lines from io.Stdin and answers each on
@@ -19,7 +20,7 @@ func Run() todo.List needs Console | io.Stdin | io.Stdout {
 		case Ignore:
 		case Reject:
 		}
-		m = Next(m, d)
+		m = machines.Next(m, d)
 		prompt(m)
 	}
 	// The end of the input is Step(m, Ended): Done with the list.
@@ -52,7 +53,7 @@ func turn(m Mode, line string) Decision[Mode, todo.List] needs Console {
 		return Reject
 	}
 	let d = Apply(m, es)
-	let next = Next(m, d)
+	let next = machines.Next(m, d)
 	for e in es {
 		for said in Say(next, e) {
 			Console.Println(said)
