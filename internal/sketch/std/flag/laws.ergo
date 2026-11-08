@@ -17,7 +17,9 @@ func lawSet() Set {
 // lawCommand is the union of the commands of EachCommandReaches.
 type lawCommand = lawList{} | lawShow{}
 
-// lawCommands are two commands that each build their own variant.
+// lawCommands are two commands that each build their own variant. Their
+// Build fails nothing of its own, so the row E is left out (types.md,
+// Generics 7).
 func lawCommands() []Command[lawCommand] {
 	[]Command[lawCommand]{
 		Command[lawCommand]{Name: "list", Usage: "list", Set: lawSet(), Build: buildList},
@@ -149,6 +151,28 @@ law EachCommandReaches(i int) {
 		return true
 	}
 	commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name
+}
+
+// lawRefused is the own failure of BuildFailureReaches's command.
+type lawRefused { Text string }
+
+// buildRefuse is a Build that fails with its own failure, carrying the
+// value of -s.
+func buildRefuse(v Values) lawCommand fails lawRefused {
+	return lawRefused{Text: lawText.Get(v)}
+}
+
+// BuildFailureReaches: a Build's own failure reaches the caller of
+// ParseCommand as it is, with its value.
+law BuildFailureReaches(text string) {
+	let commands = []Command[lawCommand, lawRefused]{Command[lawCommand, lawRefused]{Name: "refuse", Usage: "refuse", Set: lawSet(), Build: buildRefuse}}
+	ParseCommand("law", "", commands, []string{"refuse", "-s=" + text}) catch {
+	case lawRefused as r:
+		return r.Text == text
+	case _:
+		return false
+	}
+	false
 }
 
 // FlagCrossesPositional: a flag before or after a positional argument
