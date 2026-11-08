@@ -746,6 +746,38 @@ func BenchmarkIOPrint(b *testing.B) {
 	})
 }
 
+// BenchmarkIOLines: 10,000 lines through the shared reader's lines (one
+// lock per line), against the Go control, a bufio.Reader's ReadString
+// loop with no lock.
+func BenchmarkIOLines(b *testing.B) {
+	text := strings.Repeat("a line of text\n", 10_000)
+	b.Run("ergo", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			n := 0
+			for range newLineReader(strings.NewReader(text)).lines() {
+				n++
+			}
+		}
+	})
+	b.Run("bufio", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			br := bufio.NewReader(strings.NewReader(text))
+			n := 0
+			for {
+				line, err := br.ReadString('\n')
+				if line != "" {
+					n++
+				}
+				if err != nil {
+					break
+				}
+			}
+		}
+	})
+}
+
 func readAllFile(f *os.File) (string, error) {
 	var b strings.Builder
 	buf := make([]byte, 512)
