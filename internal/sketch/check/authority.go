@@ -302,58 +302,79 @@ func Authorities(t Type, from *Package) []*TypeName {
 // gets out of a value of t (fu-ambient-ctor): t itself, a field it may
 // read (every field of a record without authority, the exported fields of
 // one with authority), a tuple element, a slice or Map element or key, a
-// union variant, a borrow's element, the result of a function value or of
-// an operation of an operation-type value, at any depth.
+// union variant, a borrow's element, at any depth; and through a function
+// value or an operation of an operation-type value, every way a call gives
+// its caller a value (fu-ambient-ctor r3): a result, a failure it catches,
+// and what the call passes to a function the caller supplies. A caller
+// supplies a value of each parameter, so the walk goes into a parameter
+// with the polarity turned: a function the caller supplies is given its
+// parameters' values (so `func(f func(v Tok))` exposes Tok), and its
+// results and failures are the caller's own. A record found where the
+// caller supplies the value is not exposed; a function inside it still
+// receives what the callee passes it.
 func Exposes(t Type, from *Package) []*TypeName {
 	var out []*TypeName
-	seen := map[Type]bool{}
-	var walk func(Type)
-	walk = func(t Type) {
-		if t == nil || seen[t] {
+	type key struct {
+		t   Type
+		out bool
+	}
+	seen := map[key]bool{}
+	var walk func(t Type, gets bool)
+	// call walks a signature: a caller that gets sig's value (gets) is
+	// given its results and failures and supplies its parameters.
+	call := func(sig *Signature, gets bool) {
+		for _, r := range sig.Results {
+			walk(r, gets)
+		}
+		for _, e := range sig.Errors.Elems() {
+			walk(e, gets)
+		}
+		for _, p := range sig.Params {
+			walk(p.Type, !gets)
+		}
+	}
+	walk = func(t Type, gets bool) {
+		if t == nil || seen[key{t, gets}] {
 			return
 		}
-		seen[t] = true
+		seen[key{t, gets}] = true
 		switch u := under(t).(type) {
 		case *Struct:
 			auth := hasAuthority(u, from)
-			if auth {
+			if auth && gets {
 				out = appendAuthority(out, u.obj)
 			}
 			for _, f := range u.Fields {
 				if !auth || isExported(f.Name) {
-					walk(f.Type)
+					walk(f.Type, gets)
 				}
 			}
 		case *Tuple:
 			for _, e := range u.Types {
-				walk(e)
+				walk(e, gets)
 			}
 		case *Union:
 			for _, v := range u.Variants {
-				walk(v)
+				walk(v, gets)
 			}
 		case *Pointer:
-			walk(u.Elem)
+			walk(u.Elem, gets)
 		case *Slice:
-			walk(u.Elem)
+			walk(u.Elem, gets)
 		case *Map:
-			walk(u.Key)
-			walk(u.Elem)
+			walk(u.Key, gets)
+			walk(u.Elem, gets)
 		case *Signature:
-			for _, r := range u.Results {
-				walk(r)
-			}
+			call(u, gets)
 		case *Interface:
 			for _, m := range u.Methods {
 				if m.Sig != nil {
-					for _, r := range m.Sig.Results {
-						walk(r)
-					}
+					call(m.Sig, gets)
 				}
 			}
 		}
 	}
-	walk(t)
+	walk(t, true)
 	return out
 }
 
