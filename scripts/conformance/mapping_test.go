@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -54,7 +55,7 @@ func rejectMapping(t *testing.T, value map[string]any) {
 
 func rejectMappingAt(t *testing.T, value map[string]any, root string) {
 	t.Helper()
-	if tests, err := validateMapping(value, root); err == nil {
+	if tests, _, err := validateMapping(value, root); err == nil {
 		t.Fatalf("mapping accepted with evidence %v", tests)
 	}
 }
@@ -63,20 +64,46 @@ func evidence(file, test string) any {
 	return map[string]any{"file": file, "test": test, "targets": []any{"go"}}
 }
 
-// evidenceFixture is the committed mapping with its first two cases backed
+// pendingMapping is a copy of the committed mapping in which every case
+// that claims evidence is pending with none, so a fixture repository that
+// lacks the real evidence tests can hold it.
+func pendingMapping(t *testing.T) map[string]any {
+	t.Helper()
+	value := copyMapping(committedMapping(t))
+	for _, item := range value["cases"].([]any) {
+		if c := item.(map[string]any); len(c["evidence"].([]any)) > 0 {
+			c["status"], c["evidence"] = "pending", []any{}
+		}
+	}
+	return value
+}
+
+// caseID is the id of the mapping's case at index.
+func caseID(value map[string]any, index int) string {
+	return mappingCase(value, index)["id"].(string)
+}
+
+// runs is a subtest call that names case id.
+func runs(id string) string {
+	return "\tt.Run(" + strconv.Quote(id) + ", func(t *testing.T) {})\n"
+}
+
+// evidenceFixture is the pending mapping with its first two cases backed
 // by evidence tests in two packages of a temporary Git repository, every
-// file tracked. One test is named twice, by both cases.
+// file tracked. One test is named twice, by both cases, and runs a subtest
+// for each.
 func evidenceFixture(t *testing.T) (map[string]any, string) {
 	t.Helper()
 	root := t.TempDir()
+	value := pendingMapping(t)
+	first, second := caseID(value, 0), caseID(value, 1)
 	writeFiles(t, root, map[string]string{
-		"alpha/one_test.go":   "package alpha\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {}\n\nfunc TestTwo(t *testing.T) {\n}\n",
-		"alpha/one.go":        "package alpha\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {}\n",
-		"beta/deep/x_test.go": "package deep\n\nimport \"testing\"\n\nfunc TestThree(t *testing.T) {}\n",
+		"alpha/one_test.go":   "package alpha\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n" + runs(first) + runs(second) + "}\n\nfunc TestTwo(t *testing.T) {\n" + runs(first) + "}\n",
+		"alpha/one.go":        "package alpha\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n" + runs(first) + "}\n",
+		"beta/deep/x_test.go": "package deep\n\nimport \"testing\"\n\nfunc TestThree(t *testing.T) {\n" + runs(second) + "}\n",
 	})
 	fixtureGit(t, root, "init", "-q")
 	fixtureGit(t, root, "add", ".")
-	value := copyMapping(committedMapping(t))
 	mappingCase(value, 0)["status"] = "covered"
 	mappingCase(value, 0)["evidence"] = []any{evidence("alpha/one_test.go", "TestTwo"), evidence("alpha/one_test.go", "TestOne")}
 	mappingCase(value, 1)["status"] = "difference"
@@ -89,39 +116,173 @@ func evidenceFixture(t *testing.T) (map[string]any, string) {
 func TestUntrackedEvidenceFails(t *testing.T) {
 	t.Parallel()
 	value, root := evidenceFixture(t)
-	writeFiles(t, root, map[string]string{"alpha/extra_test.go": "package alpha\n\nimport \"testing\"\n\nfunc TestExtra(t *testing.T) {}\n"})
+	writeFiles(t, root, map[string]string{"alpha/extra_test.go": "package alpha\n\nimport \"testing\"\n\nfunc TestExtra(t *testing.T) {\n" + runs(caseID(value, 0)) + "}\n"})
 	mappingCase(value, 0)["evidence"] = append(mappingCase(value, 0)["evidence"].([]any), evidence("alpha/extra_test.go", "TestExtra"))
-	if _, err := validateMapping(value, root); err == nil || !strings.Contains(err.Error(), "evidence file is not tracked") {
+	if _, _, err := validateMapping(value, root); err == nil || !strings.Contains(err.Error(), "evidence file is not tracked") {
 		t.Fatalf("untracked evidence: err = %v, want the not-tracked refusal", err)
 	}
 	fixtureGit(t, root, "add", "alpha/extra_test.go")
-	if _, err := validateMapping(value, root); err != nil {
+	if _, _, err := validateMapping(value, root); err != nil {
 		t.Fatalf("tracked evidence refused: %v", err)
 	}
 	outside := t.TempDir()
-	writeFiles(t, outside, map[string]string{"alpha/one_test.go": "package alpha\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {}\n\nfunc TestTwo(t *testing.T) {\n}\n"})
-	backed := copyMapping(committedMapping(t))
+	backed := pendingMapping(t)
+	writeFiles(t, outside, map[string]string{"alpha/one_test.go": "package alpha\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n" + runs(caseID(backed, 0)) + "}\n"})
 	mappingCase(backed, 0)["status"] = "covered"
 	mappingCase(backed, 0)["evidence"] = []any{evidence("alpha/one_test.go", "TestOne")}
 	rejectMappingAt(t, backed, outside)
 }
 
-// The committed mapping claims no evidence: the earlier compiler's evidence
-// tests were deleted with it (#205), so no case is covered or a difference.
-func TestCommittedMappingClaimsNoEvidence(t *testing.T) {
+// committedClaims are the cases the committed mapping proves by a v1 test,
+// each by its test's subtest of the case's name (fu-conf-pending: the rows
+// std-align S1c and S1d added). The earlier compiler's evidence tests were
+// deleted with it (#205), so its cases stay pending.
+var committedClaims = []string{
+	"./internal/sketch/lower TestFlagMatchesGo effect.cli.options-interleaved-with-operands",
+	"./internal/sketch/lower TestStdTextRuns2 effect.number.parse",
+	"./internal/sketch/lower TestStdTextRuns2 effect.string.lines-with-separators",
+	"./internal/sketch/lower TestStdTextRuns2 effect.string.replace-all",
+}
+
+// The committed mapping is valid at the repository, and its claims are
+// committedClaims: each a covered or difference case, each test's body
+// naming the case's subtest.
+func TestCommittedMappingClaims(t *testing.T) {
 	t.Parallel()
 	value := committedMapping(t)
-	tests, err := validateMapping(value, repoRoot(t))
+	_, claims, err := validateMapping(value, repoRoot(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tests) != 0 {
-		t.Fatalf("evidence tests = %v, want none", tests)
+	var got []string
+	for _, claim := range claims {
+		got = append(got, claim.test.pkg+" "+claim.test.name+" "+claim.caseID)
 	}
-	for _, item := range value["cases"].([]any) {
-		if status := item.(map[string]any)["status"]; status != "pending" && status != "unsupported" {
-			t.Errorf("case %v is %v without evidence", item.(map[string]any)["id"], status)
+	if !slices.Equal(got, committedClaims) {
+		t.Fatalf("claims = %q, want %q", got, committedClaims)
+	}
+}
+
+// An evidence test proves its case only in a subtest named after the case:
+// a test whose body runs no subtest of that name is refused, also when
+// the name is another case's, when the call is in another function of the
+// file, or when the id is only in a comment or a log line.
+func TestEvidenceTestMustNameItsCase(t *testing.T) {
+	t.Parallel()
+	value, root := evidenceFixture(t)
+	first, second := caseID(value, 0), caseID(value, 1)
+	for name, body := range map[string]string{
+		"none":    "func TestCase(t *testing.T) {\n}\n",
+		"other":   "func TestCase(t *testing.T) {\n" + runs(second) + "}\n",
+		"outside": "func TestCase(t *testing.T) {\n}\n\nfunc TestElse(t *testing.T) {\n" + runs(first) + "}\n",
+		"text":    "func TestCase(t *testing.T) {\n\t// t.Run(" + strconv.Quote(first) + "\n\tt.Log(" + strconv.Quote(first) + ")\n}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			writeFiles(t, root, map[string]string{"alpha/case_" + name + "_test.go": "package alpha\n\nimport \"testing\"\n\n" + body})
+			fixtureGit(t, root, "add", "alpha/case_"+name+"_test.go")
+			bad := copyMapping(value)
+			mappingCase(bad, 0)["evidence"] = []any{evidence("alpha/case_"+name+"_test.go", "TestCase")}
+			if _, _, err := validateMapping(bad, root); err == nil || !strings.Contains(err.Error(), "runs no subtest") {
+				t.Fatalf("err = %v, want the no-subtest refusal", err)
+			}
+		})
+	}
+	_, claims, err := validateMapping(value, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []evidenceClaim{
+		{evidenceTest{"./alpha", "TestOne"}, first}, {evidenceTest{"./alpha", "TestOne"}, second},
+		{evidenceTest{"./alpha", "TestTwo"}, first}, {evidenceTest{"./beta/deep", "TestThree"}, second},
+	}
+	slices.SortFunc(want, func(a, b evidenceClaim) int {
+		if a.test != b.test {
+			return strings.Compare(a.test.pkg+" "+a.test.name, b.test.pkg+" "+b.test.name)
 		}
+		return strings.Compare(a.caseID, b.caseID)
+	})
+	if !slices.Equal(claims, want) {
+		t.Fatalf("claims = %v, want %v", claims, want)
+	}
+}
+
+// checkClaimsRan passes a package's claims only when go test -json reports
+// each claim's subtest as passed: a skipped, failed or absent subtest, or
+// one of another test, fails; claims of other packages are not its.
+func TestClaimsMustRunAndPass(t *testing.T) {
+	t.Parallel()
+	claim := evidenceClaim{evidenceTest{"./alpha", "TestOne"}, "effect.a"}
+	elsewhere := evidenceClaim{evidenceTest{"./beta", "TestOne"}, "effect.b"}
+	event := func(action, test string) string {
+		return `{"Action":"` + action + `","Test":"` + test + `","Output":"` + action + ` ` + test + `\n"}` + "\n"
+	}
+	for _, c := range []struct {
+		name, events string
+		ok           bool
+	}{
+		{"pass", event("run", "TestOne/effect.a") + event("output", "TestOne/effect.a") + event("pass", "TestOne/effect.a") + event("pass", "TestOne"), true},
+		{"skip", event("run", "TestOne/effect.a") + event("skip", "TestOne/effect.a") + event("pass", "TestOne"), false},
+		{"fail", event("run", "TestOne/effect.a") + event("fail", "TestOne/effect.a") + event("fail", "TestOne"), false},
+		{"absent", event("run", "TestOne") + event("pass", "TestOne"), false},
+		{"another test", event("pass", "TestTwo/effect.a") + event("pass", "TestOne"), false},
+		{"not json", "PASS\n", false},
+	} {
+		var out strings.Builder
+		err := checkClaimsRan(strings.NewReader(c.events), "./alpha", []evidenceClaim{claim, elsewhere}, &out)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok %t", c.name, err, c.ok)
+		}
+		if c.name == "pass" && out.String() != "output TestOne/effect.a\n" {
+			t.Errorf("output text = %q", out.String())
+		}
+	}
+}
+
+// check --run runs each evidence test with go test -json in a real module
+// and fails a claim whose subtest the test names but never runs (it is in
+// a branch not taken) or skips; with every claim run and passed, it
+// passes.
+func TestCheckRunNeedsTheCaseSubtestToPass(t *testing.T) {
+	t.Parallel()
+	value := pendingMapping(t)
+	first := caseID(value, 0)
+	for _, c := range []struct {
+		name, body string
+		ok         bool
+	}{
+		{"runs", "\tt.Run(" + strconv.Quote(first) + ", func(t *testing.T) {})\n", true},
+		{"never", "\tif len(t.Name()) == 0 {\n\t\tt.Run(" + strconv.Quote(first) + ", func(t *testing.T) {})\n\t}\n", false},
+		{"skips", "\tt.Run(" + strconv.Quote(first) + ", func(t *testing.T) { t.Skip(\"later\") })\n", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			writeFiles(t, root, map[string]string{
+				"go.mod":                 "module fixture\n\ngo 1.22\n",
+				"alpha/evidence_test.go": "package alpha\n\nimport \"testing\"\n\nfunc TestEvidence(t *testing.T) {\n" + c.body + "}\n",
+			})
+			fixtureGit(t, root, "init", "-q")
+			fixtureGit(t, root, "add", ".")
+			backed := copyMapping(value)
+			mappingCase(backed, 0)["status"] = "covered"
+			mappingCase(backed, 0)["evidence"] = []any{evidence("alpha/evidence_test.go", "TestEvidence")}
+			encoded, err := json.Marshal(backed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mapping := filepath.Join(t.TempDir(), "effect-cases.json")
+			if err := os.WriteFile(mapping, encoded, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			code, stdout, stderr := runCLI(t, root, hermeticGitEnv("GOFLAGS=", "GOWORK=off"), "check", "--mapping", mapping, "--run")
+			if (code == 0) != c.ok {
+				t.Fatalf("exit %d, want ok %t\nstdout %s\nstderr %s", code, c.ok, stdout, stderr)
+			}
+			if !c.ok {
+				assertContains(t, stderr, "evidence subtests of ./alpha did not run and pass: TestEvidence/"+first)
+			}
+		})
 	}
 }
 
@@ -130,7 +291,7 @@ func TestCommittedMappingClaimsNoEvidence(t *testing.T) {
 func TestEvidenceInAnyPackageRunsPerPackage(t *testing.T) {
 	t.Parallel()
 	value, root := evidenceFixture(t)
-	tests, err := validateMapping(value, root)
+	tests, _, err := validateMapping(value, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,8 +301,8 @@ func TestEvidenceInAnyPackageRunsPerPackage(t *testing.T) {
 	}
 	commands := evidenceCommands(tests)
 	wantCommands := [][]string{
-		{"go", "test", "./alpha", "-run", "^(TestOne|TestTwo)$", "-count=1"},
-		{"go", "test", "./beta/deep", "-run", "^(TestThree)$", "-count=1"},
+		{"go", "test", "-json", "./alpha", "-run", "^(TestOne|TestTwo)$", "-count=1"},
+		{"go", "test", "-json", "./beta/deep", "-run", "^(TestThree)$", "-count=1"},
 	}
 	if !slices.EqualFunc(commands, wantCommands, slices.Equal[[]string]) {
 		t.Fatalf("commands = %v, want %v", commands, wantCommands)
@@ -255,24 +416,26 @@ func TestBehaviorLimitsAndClosedSchemaAreRequired(t *testing.T) {
 
 func TestMissingOrUnexecutableGoIsAStructuredCLIRefusal(t *testing.T) {
 	t.Parallel()
-	// The committed mapping names no evidence, so --run runs nothing and
-	// needs no Go.
-	code, stdout, stderr := runCLI(t, repoRoot(t), hermeticGitEnv("PATH="+t.TempDir()), "check", "--run")
+	write := func(value map[string]any) string {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mapping := filepath.Join(t.TempDir(), "effect-cases.json")
+		if err := os.WriteFile(mapping, encoded, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return mapping
+	}
+	// A mapping that names no evidence runs nothing with --run and needs
+	// no Go (and no git).
+	code, stdout, stderr := runCLI(t, repoRoot(t), hermeticGitEnv("PATH="+t.TempDir()), "check", "--mapping", write(pendingMapping(t)), "--run")
 	if code != 0 || !strings.Contains(stdout, "; 0 Go evidence tests") {
 		t.Fatalf("check --run without evidence: exit %d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	// A mapping that names a test of this package needs Go to run it.
-	backed := copyMapping(committedMapping(t))
-	mappingCase(backed, 0)["status"] = "covered"
-	mappingCase(backed, 0)["evidence"] = []any{evidence("scripts/conformance/mapping_test.go", "TestPinAndDuplicateIDsFail")}
-	encoded, err := json.Marshal(backed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mapping := filepath.Join(t.TempDir(), "effect-cases.json")
-	if err := os.WriteFile(mapping, encoded, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// The committed mapping names evidence tests, so it needs Go to run
+	// them.
+	mapping := filepath.Join(repoRoot(t), mappingRelative)
 	// Evidence admission runs git, so PATH keeps git and loses only go.
 	git, err := exec.LookPath("git")
 	if err != nil {

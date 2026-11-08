@@ -188,11 +188,11 @@
     },
     {
       "id": "effect.cli.options-interleaved-with-operands",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/cli/Command.test.ts", "line": 1823, "label": "should keep variadic argument order when options are interleaved"},
       "behavior": "A flag may follow a positional argument; the positional arguments keep their order, and a repeated switch is accepted.",
-      "limits": "Ergo's flag (std-align S1d) takes Go's syntax otherwise: a bare -- ends the flags, a value flag takes the next argument whatever it is, and a repeated value flag keeps its last value. The v1 tests internal/sketch/lower TestFlagMatchesGo (interleaving against a written model on 3,000 generated lists) and TestFlagCommandsRun (a flag after a subcommand's positional argument) assert it; the case stays pending until the mapping's own tests admit evidence in the committed mapping (scripts/conformance TestCommittedMappingClaimsNoEvidence).",
-      "evidence": []
+      "limits": "Ergo's flag (std-align S1d) takes Go's syntax otherwise: a bare -- ends the flags, a value flag takes the next argument whatever it is, and a repeated value flag keeps its last value. TestFlagMatchesGo's subtest of this case parses three interleaved lists with repeated switches; the test also checks interleaving against a written model on 3,000 generated lists, and TestFlagCommandsRun checks a flag after a subcommand's positional argument.",
+      "evidence": [{"file": "internal/sketch/lower/std_flag_test.go", "test": "TestFlagMatchesGo", "targets": ["go"]}]
     },
     {
       "id": "effect.cli.duplicate-shared-option",
@@ -204,27 +204,27 @@
     },
     {
       "id": "effect.string.lines-with-separators",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/String.test.ts", "line": 554, "label": "linesWithSeparators"},
       "behavior": "The lines of a text keep their line feed (and a carriage return before it); a last line with no line feed is a line; an empty text has no lines.",
-      "limits": "Ergo's strings.Lines (std-align S1c) is Go's strings.Lines, which matches linesWithSeparators; Effect's linesIterator, which drops the separators, has no Ergo function. The v1 test internal/sketch/lower TestStdTextRuns2 runs the upstream inputs and the law StringsLinesRebuild; the case stays pending until the mapping's own tests admit evidence in the committed mapping (scripts/conformance TestCommittedMappingClaimsNoEvidence).",
-      "evidence": []
+      "limits": "Ergo's strings.Lines (std-align S1c) is Go's strings.Lines, which matches linesWithSeparators; Effect's linesIterator, which drops the separators, has no Ergo function. TestStdTextRuns2's subtest of this case checks the upstream inputs; the test also runs the law StringsLinesRebuild.",
+      "evidence": [{"file": "internal/sketch/lower/std_text2_test.go", "test": "TestStdTextRuns2", "targets": ["go"]}]
     },
     {
       "id": "effect.string.replace-all",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/String.test.ts", "line": 454, "label": "replaceAll"},
       "behavior": "Every occurrence of a text is replaced.",
-      "limits": "Ergo's strings.ReplaceAll is Go's and takes a text, not a regular expression (Effect's second case). The v1 test internal/sketch/lower TestStdTextRuns2 runs the upstream input and the law ReplaceAllLength runs in runtime/v1 TestStdTextLaws; the case stays pending until the committed mapping admits evidence (scripts/conformance TestCommittedMappingClaimsNoEvidence).",
-      "evidence": []
+      "limits": "Ergo's strings.ReplaceAll is Go's and takes a text, not a regular expression (Effect's second case). TestStdTextRuns2's subtest of this case checks the upstream input; the law ReplaceAllLength runs in runtime/v1 TestStdTextLaws.",
+      "evidence": [{"file": "internal/sketch/lower/std_text2_test.go", "test": "TestStdTextRuns2", "targets": ["go"]}]
     },
     {
       "id": "effect.number.parse",
-      "status": "unsupported",
+      "status": "difference",
       "upstream": {"file": "packages/effect/test/Number.test.ts", "line": 430, "label": "parse"},
       "behavior": "A numeric text parses to a number; NaN and the infinities parse as literals; an empty, blank or non-numeric text gives none.",
-      "limits": "Different by design (std-align S1c): Ergo's strconv.ParseFloat is Go's. It does not trim spaces (\" 42 \" fails Malformed, Effect gives 42), and it fails with a typed Malformed or OutOfRange where Effect returns an Option with no reason. \"42\", \"3.14\", \"NaN\", \"Infinity\", \"-Infinity\", \"\", \"   \" and \"not a number\" agree. The v1 test internal/sketch/lower TestStdTextRuns2 runs every upstream input.",
-      "evidence": []
+      "limits": "Different by design (std-align S1c): Ergo's strconv.ParseFloat is Go's. It does not trim spaces (\" 42 \" fails Malformed, Effect gives 42), and it fails with a typed Malformed or OutOfRange where Effect returns an Option with no reason. \"42\", \"3.14\", \"NaN\", \"Infinity\", \"-Infinity\", \"\", \"   \" and \"not a number\" agree. TestStdTextRuns2's subtest of this case checks every upstream input.",
+      "evidence": [{"file": "internal/sketch/lower/std_text2_test.go", "test": "TestStdTextRuns2", "targets": ["go"]}]
     }
   ]
 }

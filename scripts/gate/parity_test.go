@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,8 @@ import (
 //     through a child process (grep), under testinputs.Main;
 //   - scripts/conformance and internal/testinputs, copied from this
 //     checkout, and conformance/effect-cases.json with one evidence pointer
-//     to evidence/evidence_test.go, which is tracked or not (the index).
+//     to evidence/evidence_test.go, which is tracked or not (the index);
+//     the real mapping's own claims are dropped (fixtureMapping).
 type parityFixture struct {
 	root string
 	// good and bad are the times of the two source versions.
@@ -87,26 +89,20 @@ func newParityFixture(t *testing.T) *parityFixture {
 		copyGoFiles(directory)
 	}
 	// The real mapping, with its first case covered by the fixture's
-	// evidence test.
+	// evidence test. The fixture holds none of the real evidence tests, so
+	// every real claim is dropped: its case is pending with no evidence.
 	content, err := os.ReadFile(filepath.Join(repository, "conformance", "effect-cases.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.UseNumber()
-	var mapping map[string]any
-	if err := decoder.Decode(&mapping); err != nil {
-		t.Fatal(err)
-	}
-	first := mapping["cases"].([]any)[0].(map[string]any)
-	first["status"] = "difference"
-	first["evidence"] = []any{map[string]any{"file": parityEvidence, "test": "TestEvidence", "targets": []any{"go"}}}
+	mapping := fixtureMapping(t, content)
 	encoded, err := json.MarshalIndent(mapping, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
+	firstID := mapping["cases"].([]any)[0].(map[string]any)["id"].(string)
 	write(t, root, "conformance/effect-cases.json", string(encoded)+"\n")
-	write(t, root, parityEvidence, "package evidence\n\nimport \"testing\"\n\nfunc TestEvidence(t *testing.T) {\n}\n")
+	write(t, root, parityEvidence, "package evidence\n\nimport \"testing\"\n\nfunc TestEvidence(t *testing.T) {\n\tt.Run("+strconv.Quote(firstID)+", func(t *testing.T) {})\n}\n")
 	write(t, root, provenanceManifest, "")
 	write(t, root, "internal/probe/probe_test.go", `package probe
 
@@ -173,6 +169,28 @@ func TestControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	return f
+}
+
+// fixtureMapping is the mapping content with every case that claims
+// evidence made pending with none, and its first case a difference proved
+// by the fixture's evidence test.
+func fixtureMapping(t *testing.T, content []byte) map[string]any {
+	t.Helper()
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.UseNumber()
+	var mapping map[string]any
+	if err := decoder.Decode(&mapping); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range mapping["cases"].([]any) {
+		if c := item.(map[string]any); len(c["evidence"].([]any)) > 0 {
+			c["status"], c["evidence"] = "pending", []any{}
+		}
+	}
+	first := mapping["cases"].([]any)[0].(map[string]any)
+	first["status"] = "difference"
+	first["evidence"] = []any{map[string]any{"file": parityEvidence, "test": "TestEvidence", "targets": []any{"go"}}}
+	return mapping
 }
 
 func (f *parityFixture) setSource(t *testing.T, good bool) {

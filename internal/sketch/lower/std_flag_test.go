@@ -269,7 +269,25 @@ func flagProbe(t *testing.T, lists [][]string) (string, []string) {
 // PrintDefaults byte for byte.
 func TestFlagMatchesGo(t *testing.T) {
 	lists := flagLists(3000)
-	help, got := flagProbe(t, lists)
+	// The upstream case effect.cli.options-interleaved-with-operands
+	// (conformance/effect-cases.json; Command.test.ts:1823): flags among
+	// the positional arguments, a switch repeated; the positional
+	// arguments keep their order. They run in the same probe build.
+	upstream := [][]string{{"a", "-b", "b", "-b", "c"}, {"x", "-s", "v", "y", "-n", "5", "z"}, {"-b", "one", "-b=false", "two", "-b"}}
+	help, all := flagProbe(t, append(slices.Clone(lists), upstream...))
+	got, gotInterleaved := all[:len(lists)], all[len(lists):]
+	t.Run("effect.cli.options-interleaved-with-operands", func(t *testing.T) {
+		want := []string{
+			flagOutcome("def", 3, true, []string{"a", "b", "c"}),
+			flagOutcome("v", 5, false, []string{"x", "y", "z"}),
+			flagOutcome("def", 3, true, []string{"one", "two"}),
+		}
+		for i, l := range upstream {
+			if gotInterleaved[i] != want[i] {
+				t.Errorf("flag.Parse(%q) = %s, want %s", l, gotInterleaved[i], want[i])
+			}
+		}
+	})
 	same, helps, interleaved, helpOverFailure := 0, 0, 0, 0
 	for i, l := range lists {
 		goSays, stop, model := goFlagOutcome(l), flagModel(l, false), flagModel(l, true)
