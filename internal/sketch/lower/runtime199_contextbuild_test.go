@@ -308,7 +308,6 @@ func (d *contextDAG) call(exit string) string {
 
 const contextBuildPrelude = `type Fault {}
 func boom() fails Fault { return Fault }
-let Live = context { Scheduler: LiveScheduler }
 `
 
 // contextProgram is one generated program: its DAGs and the exits main runs,
@@ -331,7 +330,7 @@ func (p *contextProgram) src() string {
 			b.WriteString(d.function(exit))
 		}
 	}
-	b.WriteString("func main() fails queue.Closed needs Console {\n\twith Live {\n")
+	b.WriteString("func main() fails queue.Closed needs Console | Ambient {\n\twith context { Scheduler: NewLiveScheduler() } {\n")
 	for _, d := range p.dags {
 		for _, exit := range p.exits {
 			b.WriteString(d.call(exit))

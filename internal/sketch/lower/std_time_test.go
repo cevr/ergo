@@ -66,8 +66,9 @@ func main() fails time.ParseError needs Console | Ambient {
 	let sleeper = with context { time.Clock: clock, Scheduler: clock } {
 		task.Go() { nap(2s) }
 	}
+	let live = NewLiveScheduler()
 	for clock.Sleepers() == 0 {
-		LiveScheduler.Sleep(1ms)
+		live.Sleep(1ms)
 	}
 	clock.Advance(1999ms)
 	Console.Println("\(clock.Sleepers())")

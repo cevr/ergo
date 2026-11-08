@@ -30,8 +30,19 @@ type Scheduler {
 }
 
 // LiveScheduler is the host's Scheduler provider: Sleep below is its
-// operation, because its first parameter is a LiveScheduler (196m).
-type LiveScheduler {}
+// operation, because its first parameter is a LiveScheduler (196m). It
+// sleeps on the host's clock, so it is a host provider (docs/spec/
+// stdlib.md, Host packages): its field gives the prelude the construction
+// authority, and only NewLiveScheduler makes one (std-align S2b).
+type LiveScheduler { live liveOnly }
+
+// liveOnly is the zero-size type of LiveScheduler's field.
+type liveOnly {}
+
+// NewLiveScheduler is the host's Scheduler provider. It needs Ambient: only
+// code whose row holds the authority to choose the host makes one. A test
+// binds time.Manual instead.
+func NewLiveScheduler() LiveScheduler needs Ambient { LiveScheduler{live: liveOnly} }
 
 // Sleep suspends the calling task for d on the host's clock.
 extern go ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d duration)

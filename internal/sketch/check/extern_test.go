@@ -139,8 +139,8 @@ func main() needs Console {
 		// by the conversion's adapter, not a value use.
 		"live-scheduler": `func wait(s Scheduler) { s.Sleep(1s) }
 
-func main() {
-	wait(LiveScheduler)
+func main() needs Ambient {
+	wait(NewLiveScheduler())
 }
 `,
 		// C27: lower-v1 3b-std landed task, scope, slice and queue; each

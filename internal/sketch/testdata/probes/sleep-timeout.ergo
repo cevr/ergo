@@ -22,11 +22,10 @@ func block() string needs Scheduler {
 	return "woke"
 }
 
-let Clock = context {
-	Scheduler: LiveScheduler,
-}
-
-func main() needs Console {
+func main() needs Console | Ambient {
+	let Clock = context {
+		Scheduler: NewLiveScheduler(),
+	}
 	let first = with Clock { nap() } catch {
 	case timeout.Expired:
 		"timed out"

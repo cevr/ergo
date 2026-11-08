@@ -277,7 +277,7 @@ func TestReadmeSmoke(t *testing.T) {
 		// Anchors in the opening program: charge in its first go block
 		// (payments.ergo), entry and last in its second (the binary).
 		const charge = "timeout.Expired needs Payments | Scheduler {"
-		const entry = "func main() needs Console {\n"
+		const entry = "func main() needs Console | Ambient {\n"
 		const last = "\tassert with Declining { payments.Purchase(100) } == \"declined\"\n}\n```\n"
 		if !strings.Contains(readme, "```go\n") || strings.Count(readme, charge) != 1 || strings.Count(readme, entry) != 1 || strings.Count(readme, last) != 1 {
 			t.Fatal("the mutant anchors are not in README.md once each; update them with the first snippet")
@@ -291,7 +291,7 @@ func TestReadmeSmoke(t *testing.T) {
 			{"uses clause", uses(readme), "README go block 1: line 27, column 70: S001"},
 			// The comma spelling of the row is refused at its first comma (196n).
 			{"comma row", strings.Replace(readme, charge, "timeout.Expired needs Payments, Scheduler {", 1), "README go block 1: line 27, column 84: S001 a capability row separates its names with |"},
-			{"deferred Close", strings.Replace(readme, entry, entry+"\tscope.OnExit() { receipt.Close() }\n", 1), "README go block 2: line 9: a resource releases itself"},
+			{"deferred Close", strings.Replace(readme, entry, entry+"\tscope.OnExit() { receipt.Close() }\n", 1), "README go block 2: line 12: a resource releases itself"},
 			// The reviewer's round-2 cases (round-2-receipts).
 			{"indented tilde marker before a go block with uses", readme + "\n    ~~~text\n\n```go\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},
 			{"indented closer inside a go block, uses after it", readme + "\n```go\nfunc okay() {\n\twork()\n}\n    ```\nfunc bad() uses Console {\n\twork()\n}\n```\n", fence},

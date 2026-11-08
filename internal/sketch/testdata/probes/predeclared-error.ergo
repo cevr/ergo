@@ -1,8 +1,8 @@
 // want S109
 import timeout
-func main() needs Console {
+func main() needs Console | Ambient {
 	let error = "shadow"
-	let x = with context { Scheduler: LiveScheduler{} } {
+	let x = with context { Scheduler: NewLiveScheduler() } {
 		timeout.After(1s) { "ok" }
 	} catch {
 	case timeout.Expired:

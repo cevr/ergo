@@ -10,8 +10,8 @@ func again() string       { return with W { Store.Get() } }
 let W = context {
 	Store: Holder{Value: with context { Factory: Build{} } { Factory.Get() }},
 }
-func main() needs Console {
-	let value = with context { Scheduler: LiveScheduler{} } {
+func main() needs Console | Ambient {
+	let value = with context { Scheduler: NewLiveScheduler() } {
 		timeout.After(1ms) { with W { Store.Get() } }
 	} catch {
 	case timeout.Expired:

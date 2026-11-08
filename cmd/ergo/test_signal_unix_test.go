@@ -11,12 +11,16 @@ import (
 )
 
 // sketchSleepingTest passes one test, which prints its ok line, and then
-// sleeps for a minute in the next.
+// runs in the next until the signal ends it. A test cannot hold Ambient, so
+// it cannot sleep on the host's clock, and a sleep on a time.Manual that no
+// one advances leaves no goroutine to run, which Go's runtime reports as a
+// deadlock: the test loops instead, and each pass is an interruption point.
 const sketchSleepingTest = `test First { assert true }
 
 test Sleeps {
-	with context { Scheduler: LiveScheduler } {
-		Scheduler.Sleep(60s)
+	let mut n = 0
+	for {
+		n = n + 1
 	}
 }
 `

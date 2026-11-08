@@ -1,3 +1,4 @@
+import time
 import timeout
 
 type OrderNotFound { ID string }
@@ -31,7 +32,7 @@ func Charge(g FakeGateway, order Order) string fails GatewayDown {
 let Live = context {
 	Orders:    MemoryOrders,
 	Gateway:   FakeGateway{AuthID: "auth-7"},
-	Scheduler: LiveScheduler,
+	Scheduler: time.NewManual(0),
 }
 
 func checkout(id string) string fails OrderNotFound | GatewayDown | timeout.Expired needs Orders | Gateway | Scheduler {

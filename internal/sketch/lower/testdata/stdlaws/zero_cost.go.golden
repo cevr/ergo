@@ -11,7 +11,7 @@ import (
 
 func main() {
 	ergo.Main(func(t *rt.Task) error {
-		env := &Env{task: t, Console: hostConsole{}}
+		env := &Env{task: t, Console: hostConsole{}, Ambient: hostConsole{}}
 		return main_1(env)
 	})
 }
@@ -21,10 +21,13 @@ type hostConsole struct{}
 
 func (hostConsole) Println(_ *rt.Task, line string) { ergo.Console{}.Println(line) }
 
+func (hostConsole) ambient(_ *rt.Task) {}
+
 type Env struct {
 	task      *rt.Task
 	Console   Console
 	Scheduler Scheduler
+	Ambient   Ambient
 }
 
 // opsLiveSchedulerAsScheduler provides Scheduler through the functions of LiveScheduler (an operations conversion).
@@ -91,11 +94,20 @@ func Annotation(env *Env, key string) Option[string] {
 	}
 }
 
+func NewLiveScheduler(env *Env) LiveScheduler {
+	return LiveScheduler{live: liveOnly{}}
+}
+
 type LiveScheduler struct {
+	live liveOnly
 }
 
 func (s LiveScheduler) Sleep(env *Env, d time.Duration) {
 	ergo.Sleep(env.task, d)
+}
+
+type Ambient interface {
+	ambient(*rt.Task)
 }
 
 type span struct {
@@ -115,6 +127,9 @@ type Some[T any] struct {
 
 func (Some[_]) isOption() {}
 func (None) isOption()    {}
+
+type liveOnly struct {
+}
 
 // ergoDecl is one source declaration and its lines (#230).
 type ergoDecl = struct {
@@ -152,7 +167,8 @@ var ergoCalls = [...]ergoCall{
 	{Func: "run", Callee: "Console.Println", File: "/ergo-test/main.ergo", Line: 18, Column: 4},
 	{Func: "run", Callee: "trace.Current", File: "/ergo-test/main.ergo", Line: 18, Column: 28},
 	{Func: "run", Callee: "log.Annotation", File: "/ergo-test/main.ergo", Line: 18, Column: 55},
-	{Func: "main", Callee: "run", File: "/ergo-test/main.ergo", Line: 24, Column: 50},
+	{Func: "main", Callee: "NewLiveScheduler", File: "/ergo-test/main.ergo", Line: 24, Column: 28},
+	{Func: "main", Callee: "run", File: "/ergo-test/main.ergo", Line: 24, Column: 55},
 }
 
 func init() {
@@ -273,14 +289,15 @@ func main_1(env *Env) error {
 		/*line /ergo-test/main.ergo:24:2*/env_1 := *env
 		/*line /ergo-test/main.ergo:24:2*/_ = env_1
 //line /ergo-test/main.ergo:24:28
-		(&env_1).Scheduler = &opsLiveSchedulerAsScheduler{v: LiveScheduler{}}
-//line /ergo-test/main.ergo:24:46
-//line /ergo-test/main.ergo:24:50
+		v := NewLiveScheduler(env)
+		/*line /ergo-test/main.ergo:24:28*/(&env_1).Scheduler = &opsLiveSchedulerAsScheduler{v: v}
+//line /ergo-test/main.ergo:24:51
+//line /ergo-test/main.ergo:24:55
 		err := run((&env_1))
-//line /ergo-test/main.ergo:24:46
+//line /ergo-test/main.ergo:24:51
 		if err != nil {
-			/*line /ergo-test/main.ergo:24:46*/return err
-		/*line /ergo-test/main.ergo:24:46*/}
-	/*line /ergo-test/main.ergo:24:46*/}
-	/*line /ergo-test/main.ergo:24:46*/return nil
-/*line /ergo-test/main.ergo:24:46*/}
+			/*line /ergo-test/main.ergo:24:51*/return err
+		/*line /ergo-test/main.ergo:24:51*/}
+	/*line /ergo-test/main.ergo:24:51*/}
+	/*line /ergo-test/main.ergo:24:51*/return nil
+/*line /ergo-test/main.ergo:24:51*/}

@@ -1,10 +1,11 @@
 // out: ok
+import time
 import timeout
 type Store { Get() string }
 type Holder { Value string }
 func Get(h Holder) string { return h.Value }
 func build() string {
-	return with context { Scheduler: LiveScheduler } {
+	return with context { Scheduler: time.NewManual(0) } {
 		timeout.After(1s) { "ok" }
 	} catch {
 	case timeout.Expired:

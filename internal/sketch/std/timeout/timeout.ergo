@@ -1,3 +1,5 @@
+import time
+
 // Expired is the failure of a body that did not finish before its deadline.
 type Expired {}
 
@@ -8,20 +10,29 @@ type Expired {}
 // implements it: it is an extern go binding (grammar.md, Declarations 2).
 extern go ergo.local/prototype/runtime/v1.After func After[A, E, R](d duration, f func() A fails E needs R) A fails E | Expired needs R | Scheduler
 
+// The laws bind a time.Manual as the Scheduler: a law cannot hold Ambient,
+// so it binds no host provider, and the deadline passes only when the law
+// advances the Manual.
+
 // QuickBodyWins: a body that ends before its deadline gives its value, and
 // After does not fail Expired.
 law QuickBodyWins(n int) {
-	with context { Scheduler: LiveScheduler } {
+	with context { Scheduler: time.NewManual(0) } {
 		try After(1h) { n } == n
 	}
 }
 
 // DeadlineFirstExpires: a body that is still waiting when the deadline
-// passes is stopped, and After fails Expired.
+// passes is stopped, and After fails Expired. The body waits until the
+// deadline's sleep is armed, then moves the time past it.
 law DeadlineFirstExpires() {
-	with context { Scheduler: LiveScheduler } {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
 		After(1ms) {
-			LiveScheduler.Sleep(1h)
+			for m.Sleepers() == 0 {
+			}
+			m.Advance(1ms)
+			Scheduler.Sleep(1h)
 			false
 		} catch {
 		case Expired:

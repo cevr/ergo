@@ -89,7 +89,7 @@ func blockingNative(t *testing.T, name, route string) {
 	t.Helper()
 	param, arg := "q queue.Queue[int]", "q"
 	var body, maker string
-	child := "let s LiveScheduler; s.Sleep(1h); 7"
+	child := "let s = NewLiveScheduler(); s.Sleep(1h); 7"
 	switch route + " " + name {
 	case "direct Sleep":
 		param, body = "_ queue.Queue[int]", child
@@ -106,7 +106,7 @@ func blockingNative(t *testing.T, name, route string) {
 		param, arg = "h Task[int, queue.Closed]", "h"
 		body = "h.Stop(); 0"
 	case "value Sleep":
-		maker = "func maker(_ queue.Queue[int]) func(duration) { func(d duration) { let s LiveScheduler; s.Sleep(d) } }"
+		maker = "func maker(_ queue.Queue[int]) func(duration) { let s = NewLiveScheduler(); func(d duration) { s.Sleep(d) } }"
 		param, body = "f func(duration)", "f(1h); 7"
 	case "value Queue.Push":
 		maker = "func maker(q queue.Queue[int]) func(int) fails queue.Closed { q.Push }"

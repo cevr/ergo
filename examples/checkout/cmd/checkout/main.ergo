@@ -1,16 +1,20 @@
 import checkout/memory
 import checkout/payments
+import time
 
-// This binary is the only place that chooses the providers.
-let Live = context { Scheduler: LiveScheduler, memory.Paying }
-let Declining = context { Live, replace payments.Payments: memory.Decliner }
+// This binary is the only place that chooses the providers. Memory binds
+// the memory providers and a time.Manual, so a test needs no host; main
+// replaces the Manual with the host's scheduler, which needs Ambient.
+let Memory = context { Scheduler: time.NewManual(0), memory.Paying }
+let Declining = context { Memory, replace payments.Payments: memory.Decliner }
 
-func main() needs Console {
-	Console.Println(with Live { payments.Purchase(100) })
+func main() needs Console | Ambient {
+	let live = context { Memory, replace Scheduler: NewLiveScheduler() }
+	Console.Println(with live { payments.Purchase(100) })
 }
 
 test ChargeSucceeds {
-	let receipt = try with Live { payments.Checkout(100) }
+	let receipt = try with Memory { payments.Checkout(100) }
 	assert receipt.Amount == 100
 }
 
