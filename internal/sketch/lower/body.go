@@ -609,7 +609,7 @@ func (fc *funcCtx) forStmt(s *syntax.ForStmt) bool {
 }
 
 // rangeStmt lowers a for-in over the domain the checker recorded
-// (Info.Loops, D-D4). A slice and a Map are Go's range; a Range[T] counts
+// (Info.Loops, D-D4). A slice, a Map and a string are Go's range; a Range[T] counts
 // from Start up to End, End excluded, evaluated once; a Seq[T] is Go's
 // range over func: the Seq keeps the uniform function shape of every Ergo
 // function value (funcType), so the loop adapts it to iter.Seq[T]'s
@@ -637,7 +637,8 @@ func (fc *funcCtx) rangeStmt(s *syntax.RangeStmt) bool {
 		elem = fc.temp("v")
 	}
 	switch l.Domain {
-	case check.LoopSlice, check.LoopMap:
+	case check.LoopSlice, check.LoopMap, check.LoopString:
+		// A string is Go's range over its runes, at byte offsets (L4).
 		switch {
 		case pos == "_" && elem == "_":
 			fc.line("for range " + x + " {")
