@@ -23,7 +23,23 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 8, "label": "sleep - does not require passage of wall time"},
       "behavior": "Advancing test program time admits an already-forked sleeper and allows its join without waiting for the requested wall-clock delay.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Ergo tests explicit TestClock/TestScheduler providers and an admitted but unstarted fork at 36000000 milliseconds (10 hours), under a 15-second watchdog per target; they do not assert all TestClock adjustment/precision behavior.",
+      "limits": "Ergo's TestClock is std time's Manual (std-align S2b), which provides Scheduler and time.Clock. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) starts a task that sleeps 10 hours on a Manual, advances the Manual 11 hours, and waits for the task; the Go test bounds the run to 30 seconds of wall time. Effect's adjust also runs the woken fibers before it returns; Advance wakes the sleepers, and the program reads the task's result with Wait. The program waits until the task is asleep (Sleepers) before it advances. The case lost its earlier evidence with the .ef compiler (#205). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.test-clock.delays-until-adjusted",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 18, "label": "sleep - delays effects until time is adjusted"},
+      "behavior": "A sleeper of 10 hours is still asleep after the test clock moves 9 hours, and it ends after the clock moves 11 hours more.",
+      "limits": "On std time's Manual (std-align S2b). Effect polls the fiber; Ergo reads Sleepers (1 after 9 hours) and then waits for the task, and Sleepers is 0 after it ends. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.test-clock.multiple-sleeps",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 31, "label": "sleep - handles multiple sleeps"},
+      "behavior": "Two sleepers of 3 hours and 1 hour wake in deadline order: after the clock moves 1 hour only the shorter one has run, and after 4 hours more both have.",
+      "limits": "On std time's Manual (std-align S2b). Effect's sleepers append to one shared string; Ergo's tasks return their parts, and the program joins them in the order the tasks end. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
       "evidence": []
     },
     {
