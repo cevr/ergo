@@ -1068,15 +1068,79 @@ const treeProbeOut = "probe|2021\nprobe|1110\nprobe|1111\nprobe|100\nprobe|1011\
 // treeFallbackProbes is a match the tree gives up on, so the program also
 // runs the fallback to the flat lowering: patho (match_tree_shape_test.go),
 // whose tree passes the node bound, called on 24 seeded inputs (the first
-// reaches its last arm). It returns its source, with the calls in a
-// function fallbacks, and the model's output. The other causes of a
+// reaches its last arm); big, a match the bound must not stop; and ord and
+// ordU, record patterns that name fields out of declaration order. It
+// returns their source, with the calls in a function fallbacks, and the
+// expected output. The other causes of a
 // fallback (a type test of an interface type, a constant on an interface
 // column, an arm no leaf reaches) are shapes the checker refuses or that
 // Ergo cannot write; a union cannot hold a union (types.md, Unions 1).
 func treeFallbackProbes(r *rand.Rand) (src, want string) {
 	var b, w strings.Builder
 	b.WriteString(treePathoFunc())
+	// big is a match whose tree has about 80 nodes: over the floor 64 of
+	// the node bound, under 4 × its 144 pattern nodes, so it keeps the tree
+	// only when patternSize counts.
+	b.WriteString(treeCommonTypes + "\nfunc big(a A, b B, c int) string {\n\tmatch (a, b, c) {\n")
+	for i := range 6 {
+		for j := range 6 {
+			fmt.Fprintf(&b, "\tcase (A%d, B%d, %d):\n\t\t\"%d.%d\"\n", i, j, (i+j)%3, i, j)
+		}
+	}
+	b.WriteString("\tcase _:\n\t\t\"_\"\n\t}\n}\n")
+	// ord and ordU name a record's fields against its declaration order
+	// across rows (F1, then F0), on a record and on a variant: the columns
+	// keep the declaration order.
+	b.WriteString(`
+type ROrd { F0 int, F1 int }
+type VOrd { F0 int, F1 int }
+type WOrd {}
+type UOrd = VOrd | WOrd
+
+func ord(r ROrd) string {
+	match r {
+	case ROrd{F1: 0}:
+		"a"
+	case ROrd{F0: 0}:
+		"b"
+	case _:
+		"c"
+	}
+}
+
+func ordU(u UOrd) string {
+	match u {
+	case VOrd{F1: 0}:
+		"a"
+	case VOrd{F0: 0}:
+		"b"
+	case _:
+		"c"
+	}
+}
+`)
 	b.WriteString("\nfunc fallbacks() needs Console {\n")
+	b.WriteString("\tConsole.Println(\"ord|\" + ord(ROrd{0, 1}) + ord(ROrd{1, 0}) + ord(ROrd{1, 1}) + ord(ROrd{0, 0}))\n")
+	b.WriteString("\tConsole.Println(\"ord|\" + ordU(VOrd{0, 1}) + ordU(VOrd{1, 0}) + ordU(VOrd{1, 1}) + ordU(VOrd{0, 0}) + ordU(WOrd))\n")
+	w.WriteString("ord|baca\nord|bacac\n")
+	for range 16 {
+		i, j, k := r.IntN(6), r.IntN(6), r.IntN(3)
+		c := k == (i+j)%3
+		bv := fmt.Sprintf("B%d", j)
+		if j == 2 {
+			bv = `B2{"s"}`
+		}
+		av := fmt.Sprintf("A%d", i)
+		if i == 2 {
+			av = "A2{1}"
+		}
+		fmt.Fprintf(&b, "\tConsole.Println(\"big|\" + big(%s, %s, %d))\n", av, bv, k)
+		if c {
+			fmt.Fprintf(&w, "big|%d.%d\n", i, j)
+		} else {
+			w.WriteString("big|_\n")
+		}
+	}
 	k := treePathoPairs
 	for n := range 24 {
 		xs := make([]bool, 2*k)
@@ -1244,8 +1308,9 @@ func TestMatchTreeAgrees(t *testing.T) {
 	t.Logf("tree splits: %v", tree.hook.splits)
 	// The fallback probes make the tree give up (treeBail) and take the
 	// flat lowering.
-	if tree.hook.fallbacks["bail"] < 1 {
-		t.Errorf("the tree does not give up on the fallback probe (fallbacks %v)", tree.hook.fallbacks)
+	// patho only: big keeps its tree, and so does every generated match.
+	if tree.hook.fallbacks["bail"] != 1 || tree.hook.fallbacks["unreached"] != 0 {
+		t.Errorf("the tree gives up on %v, not on patho alone", tree.hook.fallbacks)
 	}
 	t.Logf("tree fallbacks: %v", tree.hook.fallbacks)
 	exes := buildAll(t, []*lowered{tree.lowered, flat.lowered}, true)
