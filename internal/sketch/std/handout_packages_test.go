@@ -23,12 +23,12 @@ func (m pkgImporter) Import(path string) (*check.Package, error) {
 // gap (r4): a record a host provider needs may be declared in another
 // package, which hands it out. The guard asks the exported names of every
 // package of its surface (TestStdHostProvidersHaveAuthority passes every
-// std package), so capkg.NewCap with no row is reported for fixture.Host;
-// with only fixture as the surface it is not (the gap before r4). Another
-// package cannot hand out what it got under Ambient without listing
-// Ambient (S102 at the call), and a generic function cannot make a value of
-// its type parameter (no zero value, no literal), so the exported names of
-// the surface are every way in.
+// std package), so capkg.NewCap with no row, which mentions capkg.Cap, is
+// reported for fixture.Host; with only fixture as the surface it is not
+// (the gap before r4). Another package cannot hand out what it got under
+// Ambient without listing Ambient (S102 at the call), and a generic
+// function cannot make a value of its type parameter (no zero value, no
+// literal), so the exported names of the surface are every way in.
 func TestStdHostHandOutsAcrossPackages(t *testing.T) {
 	outside, ds := check.CheckSource("let x = 1\n")
 	if len(ds) != 0 {
@@ -74,16 +74,18 @@ func read() string fails Gone { try hostRead("x") }
 
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
 `
-	const reported = "capkg.NewCap hands out capkg.Cap, which fixture.Host needs, and does not list Ambient in its written row or take a value that needs authority"
-	wrapped := []string{"fixture.Wrap returns it and does not list Ambient in its written row"}
+	const reported = "capkg.NewCap mentions capkg.Cap (fixture.Host or a record it needs) and neither lists Ambient in its written row nor takes a parameter of one"
+	// Wrap mentions Host and takes no Host, so the r5 rule reports it
+	// whatever capkg does with Tok, with either surface.
+	wrapped := []string{"fixture.Wrap mentions fixture.Host (fixture.Host or a record it needs) and neither lists Ambient in its written row nor takes a parameter of one"}
 	for _, row := range []struct {
 		name, capSrc, fixture string
 		alone, all            []string // the violations with surface fixture, and capkg too
 	}{
 		{"Cap handed out with no row", "type Cap { root string }\n\nfunc NewCap() Cap { NewCap() }\n", fixture, nil, []string{reported}},
 		{"Cap handed out under Ambient", "type Cap { root string }\n\nfunc NewCap() Cap needs Ambient { NewCap() }\n", fixture, nil, nil},
-		{"Tok handed out with no row, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok { MakeTok() }\n", wrapFixture, nil, wrapped},
-		{"Tok handed out under Ambient, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok needs Ambient { MakeTok() }\n", wrapFixture, nil, nil},
+		{"Tok handed out with no row, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok { MakeTok() }\n", wrapFixture, wrapped, wrapped},
+		{"Tok handed out under Ambient, Host built from it", "type Tok { v int }\n\nfunc MakeTok() Tok needs Ambient { MakeTok() }\n", wrapFixture, wrapped, wrapped},
 	} {
 		capkg, ds := checkPkg("capkg", row.capSrc, nil)
 		if len(ds) != 0 {

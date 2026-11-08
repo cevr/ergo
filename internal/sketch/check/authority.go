@@ -154,16 +154,6 @@ func Constructible(t Type, from *Package) bool {
 // authority record is not Constructible but is Buildable. The host guard
 // (stdlib.md, Host packages) reads Buildable.
 func Buildable(t Type, from *Package) bool {
-	return BuildableGiven(t, from, nil)
-}
-
-// BuildableGiven is Buildable when package from also holds a value of each
-// record in given, which it got from an exported function of the record's
-// package (fu-ambient-ctor r2): a record with authority in from counts as
-// built when it is in given. With given empty it is Buildable. The host
-// guard calls it with the records a package hands out without authority,
-// so a parameter of such a record is no authority.
-func BuildableGiven(t Type, from *Package, given map[*TypeName]bool) bool {
 	// The nodes reachable from t, each once, and their children.
 	idx := map[Type]int{}
 	var nodes []Type
@@ -218,7 +208,7 @@ func BuildableGiven(t Type, from *Package, given map[*TypeName]bool) bool {
 			switch u := under(n).(type) {
 			case *Struct:
 				if hasAuthority(u, from) {
-					v = given[u.obj]
+					v = false
 					break
 				}
 				for _, j := range kids[i] {
@@ -298,137 +288,135 @@ func Authorities(t Type, from *Package) []*TypeName {
 	return out
 }
 
-// Exposes are the records with authority in from whose values package from
-// gets out of a value of t (fu-ambient-ctor): t itself, a field it may
-// read (every field of a record without authority, the exported fields of
-// one with authority), a tuple element, a slice or Map element or key, a
-// union variant, a borrow's element, at any depth; and through a function
-// value or an operation of an operation-type value, every way a call gives
-// its caller a value (fu-ambient-ctor r3, r4): a result, a failure it
-// catches, what the call passes to a function the caller supplies, and
-// what it passes to an operation of a capability of its needs row (the
-// caller binds that capability to a provider of its own). A caller supplies a
-// value of each parameter and a provider of each capability of the needs
-// row, so the walk goes into them with the polarity turned: a function the
-// caller supplies is given its parameters' values (so `func(f func(v Tok))`
-// and `func() needs Sink` with `type Sink { Put(t Tok) }` expose Tok), and
-// its results and failures are the caller's own. A record found where the
-// caller supplies the value is not exposed; a function inside it still
-// receives what the callee passes it.
+// Mentions are the declared types that t mentions, seen from package from
+// (fu-ambient-ctor r5): t's own declaration and, at any depth, the
+// declarations of every type t is made of. The walk takes every part of
+// every kind of Type and asks no question about who may read, build or
+// receive it: every field of a record, hidden or not; an instance's type
+// arguments and its substituted body; every tuple element and union
+// variant; a borrow's, a slice's and a Map's key and element; a
+// signature's type parameters' constraints, parameters, results, failure
+// row and needs row; an operation type's operations and, when it is
+// sealed for from (sealedOwner), each type of its package that may
+// implement it (implementers), since a value of it is a value of one of
+// them; a machine's state and signal; a type parameter's constraint; a row
+// argument's row and an inferred row's solution.
 //
-// The walk is one switch over every kind of Type (exposer.walk), with no
-// default case: TestExposesWalkNamesEveryKind fails when a kind or a part
-// of one is added and the walk does not name it.
-func Exposes(t Type, from *Package) []*TypeName {
-	e := &exposer{from: from, seen: map[polarType]bool{}}
-	e.walk(t, true)
-	return e.out
+// The std host guard reads it (stdlib.md, Host packages 6): an exported
+// name of a std package whose type mentions a host provider, or a record
+// the provider needs, lists Ambient. Four rounds of a precise hand-out
+// analysis (what another package can obtain) each found one more channel,
+// so the guard over-reports instead: a mention is enough.
+//
+// The walk is one switch over every kind of Type (mentioner.walk), with
+// no default case: TestMentionsWalkNamesEveryKind fails when a kind, or a
+// field of one, is added and the walk does not name it.
+func Mentions(t Type, from *Package) []*TypeName {
+	m := &mentioner{from: from, seen: map[Type]bool{}}
+	m.walk(t)
+	return m.out
 }
 
-// exposer is Exposes's walk: out holds the records found so far, and seen
-// the (type, polarity) pairs walked, so a type met where the caller
-// supplies it is still walked where the caller gets it.
-type exposer struct {
+// mentioner is Mentions's walk: out holds the declarations found so far,
+// in walk order, and seen the types walked.
+type mentioner struct {
 	from *Package
 	out  []*TypeName
-	seen map[polarType]bool
+	seen map[Type]bool
 }
 
-// polarType is a type at a position: gets when the caller gets a value of
-// it, else the caller supplies one.
-type polarType struct {
-	t    Type
-	gets bool
+// name adds a declaration to out.
+func (m *mentioner) name(obj *TypeName) {
+	if obj != nil {
+		m.out = appendAuthority(m.out, obj)
+	}
 }
 
-// walk visits t at polarity gets. Each case names one kind of Type and
-// says why its parts are walked, or why it has none.
-func (e *exposer) walk(t Type, gets bool) {
-	if t == nil || e.seen[polarType{t, gets}] {
+// walk visits t. Each case names one kind of Type and walks every part of
+// it that holds a type, or says why it has none.
+func (m *mentioner) walk(t Type) {
+	if t == nil || m.seen[t] {
 		return
 	}
-	e.seen[polarType{t, gets}] = true
+	m.seen[t] = true
 	switch u := t.(type) {
 	case *Basic:
-		// A basic value holds no record.
+		// A basic type is made of no other type.
 	case *noValue:
 		// No value.
 	case *Named:
-		// A declared type is its body; an instance's body has its type
-		// arguments substituted (Option[Tok], Seq[Tok], Task[T, E]).
-		e.walk(u.underlying(), gets)
-	case *Struct:
-		auth := hasAuthority(u, e.from)
-		if auth && gets {
-			e.out = appendAuthority(e.out, u.obj)
+		// The declaration, its type arguments (a phantom one too) and its
+		// body, with the arguments substituted in an instance.
+		m.name(u.origin().Obj)
+		for _, a := range u.TArgs {
+			m.walk(a)
 		}
+		m.walk(u.underlying())
+	case *Struct:
+		// Every field, hidden or not: a caller may fill a hidden field
+		// through a constructor of the record's package.
+		m.name(u.obj)
 		for _, f := range u.Fields {
-			if !auth || isExported(f.Name) {
-				e.walk(f.Type, gets)
-			}
+			m.walk(f.Type)
 		}
 	case *Tuple:
 		for _, x := range u.Types {
-			e.walk(x, gets)
+			m.walk(x)
 		}
 	case *Union:
 		for _, v := range u.Variants {
-			e.walk(v, gets)
+			m.walk(v)
 		}
 	case *Pointer:
-		e.walk(u.Elem, gets)
+		m.walk(u.Elem)
 	case *Slice:
-		e.walk(u.Elem, gets)
+		m.walk(u.Elem)
 	case *Map:
-		e.walk(u.Key, gets)
-		e.walk(u.Elem, gets)
+		m.walk(u.Key)
+		m.walk(u.Elem)
 	case *Signature:
-		e.call(u, gets)
+		for _, p := range u.TParams {
+			m.walk(p)
+		}
+		for _, p := range u.Params {
+			m.walk(p.Type)
+		}
+		for _, r := range u.Results {
+			m.walk(r)
+		}
+		m.row(u.Errors)
+		m.row(u.Uses)
 	case *Interface:
-		// An operation type's value: a call of each operation. A
-		// predeclared constraint (Set) has no operation and no value.
-		for _, m := range u.Methods {
-			if m.Sig != nil {
-				e.call(m.Sig, gets)
+		// Each operation; and a value of a sealed operation type is a
+		// value of a type of its package that implements it.
+		m.name(u.obj)
+		for _, x := range u.Methods {
+			if x.Sig != nil {
+				m.walk(x.Sig)
+			}
+		}
+		if owner := sealedOwner(u, m.from); owner != nil {
+			for _, c := range implementers(u, owner) {
+				m.walk(c)
 			}
 		}
 	case *MachineType:
-		// A machine value's states are its own; its signals are sent to
-		// it, so their senders supply them.
-		e.walk(u.State, gets)
-		e.walk(u.Signal, !gets)
+		m.walk(u.State)
+		m.walk(u.Signal)
 	case *TypeParam:
-		// The caller picks the type argument, so a value of it comes from
-		// the caller; what reaches the caller is what its constraint's
-		// operations are called with.
-		e.walk(u.Constraint, gets)
+		m.walk(u.Constraint)
 	case *RowArg:
-		e.row(u.Row, gets)
+		m.row(u.Row)
 	case *RowVar:
 		// An unexported function's inferred row, as its solution.
-		e.row(u.Solution(), gets)
+		m.row(u.Solution())
 	}
 }
 
-// call walks a signature: a caller that gets sig's value (gets) is given
-// its results and the records of its failure row, and supplies its
-// parameters and a provider of each capability of its needs row. A type
-// parameter is bound by the call, so TParams adds no position.
-func (e *exposer) call(sig *Signature, gets bool) {
-	for _, r := range sig.Results {
-		e.walk(r, gets)
-	}
-	e.row(sig.Errors, gets)
-	for _, p := range sig.Params {
-		e.walk(p.Type, !gets)
-	}
-	e.row(sig.Uses, !gets)
-}
-
-// row walks each element of a row at polarity gets.
-func (e *exposer) row(r *Row, gets bool) {
+// row walks each element of a row.
+func (m *mentioner) row(r *Row) {
 	for _, x := range r.Elems() {
-		e.walk(x, gets)
+		m.walk(x)
 	}
 }
 

@@ -540,11 +540,11 @@ var unguardedHosts = map[string]string{}
 // body is not a pure runtime/v1 body, or its body names such a function
 // of its package (at any depth).
 // Every host provider has construction authority, so no other package
-// builds one, and each exported function of its package that hands out T,
-// or a record T needs (check.Authorities), at any depth of its result
-// (check.Exposes), lists Ambient in its written row or takes a value that
-// needs authority; no exported let holds one (fu-ambient-ctor;
-// TestStdHostHandOuts). Whether another package builds T
+// builds one, and each exported function of every std package whose
+// signature mentions T or a record T needs (check.Authorities), at any
+// depth (check.Mentions), lists Ambient in its written row or takes a
+// parameter of one of them; no exported let or named context mentions one
+// (fu-ambient-ctor r5; TestStdHostHandOuts). Whether another package builds T
 // is one checker fact, check.Buildable (fu-constructible): a basic type,
 // a slice and a Map always (a literal, an empty literal or the zero value
 // holds no element that needs authority); a union when some variant is
@@ -617,7 +617,16 @@ func read() string fails Gone { try hostRead("x") }
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
 `
 	const strict = "another package builds it from a literal or its zero value: a defined type over %s holds no authority; it needs a record with an unexported field, or a union of such records"
-	noAmbient := "fixture.NewHost returns it and does not list Ambient in its written row"
+	// mentions is the violation of an exported function item of fixture
+	// whose signature mentions names (fu-ambient-ctor r5), and letMentions
+	// an exported let's.
+	mentions := func(item, names string) string {
+		return "fixture." + item + " mentions " + names + " (fixture.Host or a record it needs) and neither lists Ambient in its written row nor takes a parameter of one"
+	}
+	letMentions := func(item, names string) string {
+		return "fixture." + item + " is an exported let that mentions " + names + " (fixture.Host or a record it needs), and a let has no row"
+	}
+	noAmbient := mentions("NewHost", "fixture.Host")
 	const sealedText = "another package makes a value of it: an operation type needs an unexported operation, and each type of its package that implements it needs authority"
 	// tokBase is the laundering probe's package without its hand-out: Wrap
 	// builds a Host from a Tok, so Wrap is reported exactly when another
@@ -631,7 +640,30 @@ func Wrap(_ Tok) Host { Host{root: "/"} }
 func NewHost() Host needs Ambient { Host{root: "/"} }
 
 `
-	wrapped := []string{"fixture.Wrap returns it and does not list Ambient in its written row"}
+	// Under the r5 rule Wrap mentions Host and takes no Host, so it is
+	// reported in every tokBase row, whatever hands out the Tok: the rows
+	// of rounds 1 to 4 stay, and the hostBase rows below put Host itself
+	// in each channel.
+	wrapped := []string{mentions("Wrap", "fixture.Host")}
+	const hostBase = `type Host { root string }
+
+func NewHost() Host needs Ambient { NewHost() }
+
+`
+	// sealedBase is a sealed operation-type provider (stdlib.md, Host
+	// packages 6 allows one): its value is a Live, so a mention of Host
+	// mentions Live too (batch-10 r4 M1).
+	const sealedBase = `type Host { peek() int }
+
+type Live { root string }
+
+func peek(_ Live) int { 1 }
+
+func NewHost() Host needs Ambient { Live{root: "/"} }
+
+`
+	give := []string{mentions("Give", "fixture.Host")}
+	sealedGive := []string{mentions("Give", "fixture.Host, fixture.Live")}
 	for _, row := range []struct {
 		kind, decls string
 		want        []string
@@ -704,7 +736,7 @@ type Cap { root string }
 func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
 
 func NewCap() Cap { Cap{root: "/"} }
-`, []string{"fixture.NewCap hands out fixture.Cap, which fixture.Host needs, and does not list Ambient in its written row or take a value that needs authority"}},
+`, []string{mentions("NewCap", "fixture.Cap")}},
 		// fu-ambient-ctor r2 (batch-10 verifier M1, the laundering probe):
 		// Tok has authority but MakeTok hands it out with no row, so
 		// fixture.Wrap(fixture.MakeTok()) is a Host with no Ambient. A
@@ -718,7 +750,7 @@ func MakeTok() Tok { Tok{v: 1} }
 func Wrap(_ Tok) Host { Host{root: "/"} }
 
 func NewHost() Host needs Ambient { Host{root: "/"} }
-`, []string{"fixture.Wrap returns it and does not list Ambient in its written row"}},
+`, wrapped},
 		// fu-ambient-ctor r3 (batch-10 r2 verifier M1): the same Tok handed
 		// out as a failure. Another package writes
 		// fixture.Wrap(fixture.MakeTok() catch { case fixture.Tok as t: t }).
@@ -731,7 +763,7 @@ func MakeTok() int fails Tok { return Tok{v: 1} }
 func Wrap(_ Tok) Host { Host{root: "/"} }
 
 func NewHost() Host needs Ambient { Host{root: "/"} }
-`, []string{"fixture.Wrap returns it and does not list Ambient in its written row"}},
+`, wrapped},
 		// The same Tok from a with of an exported named context.
 		{"record built from a parameter that an exported context hands out", `type Host { root string }
 
@@ -748,8 +780,9 @@ let Minting = context { Toks: Mint{n: 1} }
 func Wrap(_ Tok) Host { Host{root: "/"} }
 
 func NewHost() Host needs Ambient { Host{root: "/"} }
-`, []string{"fixture.Wrap returns it and does not list Ambient in its written row"}},
-		// Control: MakeTok lists Ambient, so Wrap's caller had authority.
+`, wrapped},
+		// Was a control (MakeTok lists Ambient, so Wrap's caller had
+		// authority); the r5 rule asks no such question and reports Wrap.
 		{"record built from a parameter whose constructor needs Ambient", `type Host { root string }
 
 type Tok { v int }
@@ -759,18 +792,19 @@ func MakeTok() Tok needs Ambient { Tok{v: 1} }
 func Wrap(_ Tok) Host { Host{root: "/"} }
 
 func NewHost() Host needs Ambient { Host{root: "/"} }
-`, nil},
+`, wrapped},
 		// fu-ambient-ctor r4 (batch-10 r3 verifier M1): a needs row. The
 		// caller binds its own Sink, so Put receives the Tok Give passes.
 		{"record built from a parameter that a function passes to its needs row", tokBase + `type Sink { Put(t Tok) }
 
 func Give() needs Sink { Sink.Put(Tok{v: 1}) }
 `, wrapped},
-		// Control: the caller's Src gives Take a Tok; Take gives none.
+		// Was a control (the caller's Src gives Take a Tok); Wrap is
+		// reported under the r5 rule.
 		{"record that a needs row gives the function, not its caller", tokBase + `type Src { Get() Tok }
 
 func Take() needs Src { Take() }
-`, nil},
+`, wrapped},
 		// A needs row of a handed-out function value. (An operation
 		// writes no needs row: S108, types.md Capabilities 4.)
 		{"record that a function value passes to its needs row", tokBase + `type Sink { Put(t Tok) }
@@ -807,7 +841,7 @@ let Mk = mk
 		// makes no value of it (TestStdHostHandOutsAcrossPackages), so
 		// Make gives no Tok; Give passes one to its constraint's operation,
 		// which the caller's type implements.
-		{"record that a generic function cannot make", tokBase + "func Make[T]() T { Make[T]() }\n", nil},
+		{"record that a generic function cannot make", tokBase + "func Make[T]() T { Make[T]() }\n", wrapped},
 		{"record passed to a type parameter's operation", tokBase + `type Sink { Put(t Tok) }
 
 func Give[T Sink](s T) { Give(s) }
@@ -820,6 +854,116 @@ type Pair { F func(a W), Y W }
 
 func Give() Pair { Give() }
 `, wrapped},
+		// fu-ambient-ctor r5: Host itself in each channel of rounds 1 to 4.
+		{"Host passed to a needs row", hostBase + `type Sink { Put(h Host) }
+
+func Give() needs Sink { Give() }
+`, give},
+		{"Host from a needs row's provider", hostBase + `type Src { Get() Host }
+
+func Give() needs Src { Give() }
+`, give},
+		{"Host passed to a function value's needs row", hostBase + `type Sink { Put(h Host) }
+
+func Give() func() int needs Sink { Give() }
+`, give},
+		{"Host in a generic record instance", hostBase + "type Box[T] { V T }\n\nfunc Give() Box[Host] { Give() }\n", give},
+		{"Host from a generic operation instance", hostBase + "type Src[T] { Get() T }\n\nfunc Give() Src[Host] { Give() }\n", give},
+		{"Host from a Seq", hostBase + "func Give() Seq[Host] { Give() }\n", give},
+		{"Host from an exported let of function type", hostBase + "let Mk = func() Host { Host{root: \"/\"} }\n", []string{letMentions("Mk", "fixture.Host")}},
+		{"Host from a function of an unexported type in an exported let", hostBase + `type mint {}
+
+func Next(_ mint) Host { Host{root: "/"} }
+
+let Minter = mint
+`, []string{mentions("Next", "fixture.Host")}},
+		{"Host passed by borrow to a function the caller supplies", hostBase + "func Give(f func(p *Host)) {}\n", give},
+		{"Host in the inferred failure row of a function value", hostBase + `type Oops { H Host }
+
+func raise() int fails Oops { try raise() }
+
+func mk() int { try raise() }
+
+let Mk = mk
+`, []string{letMentions("Mk", "fixture.Host")}},
+		{"Host passed to a type parameter's operation", hostBase + "type Sink { Put(h Host) }\n\nfunc Give[T Sink](s T) { Give(s) }\n", give},
+		{"Host as a phantom type argument", hostBase + "type Ph[T] { n int }\n\nfunc Give() Ph[Host] { Give() }\n", give},
+		{"Host in the constraint of a type parameter no parameter uses", hostBase + "type Sink { Put(h Host) }\n\nfunc Give[T Sink]() int { 1 }\n", give},
+		{"generic function that names no Host", hostBase + "func Make[T]() T { Make[T]() }\n", nil},
+		{"Host met at a supplied position before a received one", hostBase + `type W { X Host }
+
+type Pair { F func(a W), Y W }
+
+func Give() Pair { Give() }
+`, give},
+		{"Host in a failure's field", hostBase + "type Oops { H Host }\n\nfunc Give() int fails Oops { Give() }\n", give},
+		{"Host in a Task's failure row argument", hostBase + "type Oops { H Host }\n\nfunc Give() Task[int, Oops] { Give() }\n", give},
+		{"Host in a generic record's row argument", hostBase + "type Oops { H Host }\n\ntype Rw[E] { F func() int fails E }\n\nfunc Give() Rw[Oops] { Give() }\n", give},
+		{"Host as a Map key", hostBase + "func Give() Map[Host, int] { Give() }\n", give},
+		{"Host in a machine's state", hostBase + `type Idle { H Host }
+
+type Busy {}
+
+type MS = Idle | Busy
+
+type Go {}
+
+type Stop {}
+
+type ME = Go | Stop
+
+func step(s MS, e ME) Decision[MS, int] { Ignore }
+
+type M machine[MS, ME] { initial: Busy, step: step }
+
+func Give() M { Give() }
+`, give},
+		{"Host in a machine's signal", hostBase + `type Busy {}
+
+type Idle {}
+
+type MS = Idle | Busy
+
+type Go { H Host }
+
+type Stop {}
+
+type ME = Go | Stop
+
+func step(s MS, e ME) Decision[MS, int] { Ignore }
+
+type M machine[MS, ME] { initial: Busy, step: step }
+
+func Give() M { Give() }
+`, give},
+		// The one exemption: a parameter of Host (or of a record it needs)
+		// itself. A borrow of it, or a record holding it, is none.
+		{"parameter of Host itself", hostBase + "func Clone(h Host) Host { h }\n", nil},
+		{"parameter of a borrow of Host", hostBase + "func Peek(h *Host) int { 1 }\n", []string{mentions("Peek", "fixture.Host")}},
+		{"parameter of a record holding Host", hostBase + "type Box { H Host }\n\nfunc Unbox(b Box) Host { b.H }\n", []string{mentions("Unbox", "fixture.Host")}},
+		// batch-10 r4 M1: a sealed operation-type provider handed out in an
+		// Option, a slice, a callback, a let, a failure or a needs row.
+		{"sealed Host in an Option", sealedBase + "func Give() Option[Host] { Give() }\n", sealedGive},
+		{"sealed Host in a slice", sealedBase + "func Give() []Host { Give() }\n", sealedGive},
+		{"sealed Host passed to a callback", sealedBase + "func Give(f func(h Host)) {}\n", sealedGive},
+		{"sealed Host passed to a needs row", sealedBase + "type Sink { Put(h Host) }\n\nfunc Give() needs Sink { Give() }\n", sealedGive},
+		{"sealed Host in an exported let", sealedBase + "let Given []Host = given()\n\nfunc given() []Host { given() }\n", []string{letMentions("Given", "fixture.Host, fixture.Live")}},
+		{"sealed Host in a failure", sealedBase + "type Oops { H Host }\n\nfunc Give() int fails Oops { Give() }\n", sealedGive},
+		// batch-10 r4 M2: a hidden field of a generic record filled through
+		// its generic constructor, at a supplied position. With Tok and
+		// Wrap (the verifier's probe), and with Host itself.
+		{"Tok in a generic record's hidden field, supplied", tokBase + `type Box[T] { f T }
+
+func NewBox[T](f T) Box[T] { Box[T]{f: f} }
+
+func Run(b Box[func(t Tok)]) { Run(b) }
+`, wrapped},
+		{"Host in a generic record's hidden field, supplied", hostBase + `type Box[T] { f T }
+
+func NewBox[T](f T) Box[T] { Box[T]{f: f} }
+
+func Run(b Box[func(h Host)]) { Run(b) }
+`, []string{mentions("Run", "fixture.Host")}},
 		// fu-hostguard2: an operation type is judged by check.Buildable
 		// too. A sealed one is built only through its package's
 		// implementers, so a sealed Host whose implementer has authority
@@ -889,19 +1033,19 @@ func NewHost() Host { Host{} }
 }
 
 // handShape is a result type built from a base by a word of constructors
-// (TestStdHostHandOuts), with whether a value of it hands out Cap.
+// (TestStdHostHandOuts); base is the type it is built over.
 type handShape struct {
 	name, decls string
 	typ         string
-	exposes     bool
+	base        string
 	fn          bool // a function type: no record field holds it
 }
 
 // handShapes are the words of at most depth constructors over Cap (the
-// record that fixture.Host needs), Other (a record with authority that
-// Host does not need) and int. The model: a value hands out Cap when the
-// base is Cap and no constructor is P (a record whose field holding it is
-// unexported, so another package cannot read it).
+// record that fixture.Host needs), Host itself, Other (a record with
+// authority that Host does not need) and int. The model of the r5 rule: a
+// shape mentions its base whatever the constructors, P (a record whose
+// field holding it is unexported) included.
 func handShapes(depth int) []handShape {
 	var out []handShape
 	var grow func(s handShape, n int)
@@ -913,122 +1057,123 @@ func handShapes(depth int) []handShape {
 		w := fmt.Sprintf("W%d", n)
 		x := s.typ
 		words := []handShape{
-			{name: "S" + s.name, decls: s.decls, typ: "[]" + x, exposes: s.exposes},
-			{name: "M" + s.name, decls: s.decls, typ: "Map[string, " + x + "]", exposes: s.exposes},
-			{name: "F" + s.name, decls: s.decls, typ: "func() " + x, exposes: s.exposes, fn: true},
-			{name: "T" + s.name, decls: s.decls + "type " + w + " (" + x + ", int)\n", typ: w, exposes: s.exposes},
+			{name: "S" + s.name, decls: s.decls, typ: "[]" + x, base: s.base},
+			{name: "M" + s.name, decls: s.decls, typ: "Map[string, " + x + "]", base: s.base},
+			{name: "F" + s.name, decls: s.decls, typ: "func() " + x, base: s.base, fn: true},
+			{name: "T" + s.name, decls: s.decls + "type " + w + " (" + x + ", int)\n", typ: w, base: s.base},
 			// An operation type: a call of its operation returns X.
-			{name: "Q" + s.name, decls: s.decls + "type " + w + " { Get() " + x + " }\n", typ: w, exposes: s.exposes},
+			{name: "Q" + s.name, decls: s.decls + "type " + w + " { Get() " + x + " }\n", typ: w, base: s.base},
 		}
 		if !s.fn {
 			words = append(words,
-				handShape{name: "H" + s.name, decls: s.decls + "type " + w + " { X " + x + " }\n", typ: w, exposes: s.exposes},
-				handShape{name: "P" + s.name, decls: s.decls + "type " + w + " { x " + x + ", N int }\n", typ: w},
-				handShape{name: "U" + s.name, decls: s.decls + "type " + w + " = " + w + "A | " + w + "B\ntype " + w + "A { X " + x + " }\ntype " + w + "B {}\n", typ: w, exposes: s.exposes},
-				handShape{name: "O" + s.name, decls: s.decls, typ: "Option[" + x + "]", exposes: s.exposes},
+				handShape{name: "H" + s.name, decls: s.decls + "type " + w + " { X " + x + " }\n", typ: w, base: s.base},
+				handShape{name: "P" + s.name, decls: s.decls + "type " + w + " { x " + x + ", N int }\n", typ: w, base: s.base},
+				handShape{name: "U" + s.name, decls: s.decls + "type " + w + " = " + w + "A | " + w + "B\ntype " + w + "A { X " + x + " }\ntype " + w + "B {}\n", typ: w, base: s.base},
+				handShape{name: "O" + s.name, decls: s.decls, typ: "Option[" + x + "]", base: s.base},
 			)
 		}
 		for _, word := range words {
 			grow(word, n+1)
 		}
 	}
-	for _, b := range []handShape{{name: "Cap", typ: "Cap", exposes: true}, {name: "Other", typ: "Other"}, {name: "int", typ: "int"}} {
+	for _, b := range []string{"Cap", "Host", "Other", "int"} {
+		b := handShape{name: b, typ: b, base: b}
 		grow(b, 0)
 	}
 	return out
 }
 
-// handModes are the ways package fixture hands out a value of R: an
-// exported function with no row, with Ambient, with a parameter that needs
-// authority (a Host), with an open parameter, a function that passes R to
+// handModes are the ways package fixture names R in an exported item: an
+// exported function with no row, with Ambient, with a parameter of Host
+// (the one exemption), with an open parameter, a function that passes R to
 // its caller's function, an exported let, and with a parameter of a record
 // with authority that the package hands out with no row or under Ambient
 // (fu-ambient-ctor r2), and through a failure, a function the caller
 // supplies, a result's function or operation, and an exported named
-// context (fu-ambient-ctor r3). Every body calls itself, so
-// no value is built: only the signature is judged.
+// context (fu-ambient-ctor r3), a needs row and its source (r4), and a
+// plain parameter. Every body calls itself, so no value is built: only the
+// signature is judged. Under the r5 rule every mode but the guarded ones
+// is reported when R mentions a held type: no mode is a control.
 var handModes = []struct {
 	name    string
 	src     func(r string) string
-	guarded bool   // a caller needs authority: no violation
+	guarded bool   // Ambient in the row, or a parameter of Host: no violation
 	what    string // the violation's subject
+	also    string // a first violation's subject, before what: the context's provider function
 }{
-	{"plain", func(r string) string { return "func Give() " + r + " { Give() }\n" }, false, "fixture.Give hands out"},
-	{"ambient", func(r string) string { return "func Give() " + r + " needs Ambient { Give() }\n" }, true, "fixture.Give hands out"},
-	{"authority-param", func(r string) string { return "func Give(h Host) " + r + " { Give(h) }\n" }, true, ""},
-	{"open-param", func(r string) string { return "func Give(n int) " + r + " { Give(n) }\n" }, false, "fixture.Give hands out"},
-	{"callback", func(r string) string { return "func Give(f func(v " + r + ")) {}\n" }, false, "fixture.Give hands out"},
-	{"let", func(r string) string { return "let Given " + r + " = given()\n\nfunc given() " + r + " { given() }\n" }, false, "fixture.Given is an exported let that holds"},
+	{"plain", func(r string) string { return "func Give() " + r + " { Give() }\n" }, false, "fixture.Give mentions", ""},
+	{"ambient", func(r string) string { return "func Give() " + r + " needs Ambient { Give() }\n" }, true, "fixture.Give mentions", ""},
+	{"authority-param", func(r string) string { return "func Give(h Host) " + r + " { Give(h) }\n" }, true, "", ""},
+	{"open-param", func(r string) string { return "func Give(n int) " + r + " { Give(n) }\n" }, false, "fixture.Give mentions", ""},
+	{"callback", func(r string) string { return "func Give(f func(v " + r + ")) {}\n" }, false, "fixture.Give mentions", ""},
+	{"let", func(r string) string { return "let Given " + r + " = given()\n\nfunc given() " + r + " { given() }\n" }, false, "fixture.Given is an exported let that mentions", ""},
 	// fu-ambient-ctor r2: a parameter of a record with authority that the
 	// package hands out with no row is no authority (the laundering probe);
 	// the same parameter is when its hand-out needs Ambient.
 	{"laundered-param", func(r string) string {
 		return "type Tok { v int }\n\nfunc MakeTok() Tok { MakeTok() }\n\nfunc Give(t Tok) " + r + " { Give(t) }\n"
-	}, false, "fixture.Give hands out"},
+	}, false, "fixture.Give mentions", ""},
 	{"let-param", func(r string) string {
 		return "type Tok { v int }\n\nlet Given Tok = tok()\n\nfunc tok() Tok { tok() }\n\nfunc Give(t Tok) " + r + " { Give(t) }\n"
-	}, false, "fixture.Give hands out"},
+	}, false, "fixture.Give mentions", ""},
 	{"ambient-param", func(r string) string {
 		return "type Tok { v int }\n\nfunc MakeTok() Tok needs Ambient { MakeTok() }\n\nfunc Give(t Tok) " + r + " { Give(t) }\n"
-	}, true, ""},
+	}, false, "fixture.Give mentions", ""},
 	// fu-ambient-ctor r3 (batch-10 r2 verifier M1): every other way a call
 	// gives its caller a value. A failure type is a named record (types.md,
 	// Error types 1), so R is the exported field of one: the caller
 	// catches it and reads the field.
 	{"failure", func(r string) string {
 		return "type GiveFail { X " + r + " }\n\nfunc Give() int fails GiveFail { Give() }\n"
-	}, false, "fixture.Give hands out"},
+	}, false, "fixture.Give mentions", ""},
 	{"failure-ambient", func(r string) string {
 		return "type GiveFail { X " + r + " }\n\nfunc Give() int fails GiveFail needs Ambient { Give() }\n"
-	}, true, ""},
+	}, true, "", ""},
 	// Give calls f with a function that calls the caller's h with an R.
-	{"callback-deep", func(r string) string { return "func Give(f func(g func(h func(v " + r + ")))) {}\n" }, false, "fixture.Give hands out"},
+	{"callback-deep", func(r string) string { return "func Give(f func(g func(h func(v " + r + ")))) {}\n" }, false, "fixture.Give mentions", ""},
 	// Give calls f with a function that fails with R.
 	{"callback-failure", func(r string) string {
 		return "type GiveFail { X " + r + " }\n\nfunc Give(f func(g func() int fails GiveFail)) {}\n"
-	}, false, "fixture.Give hands out"},
+	}, false, "fixture.Give mentions", ""},
 	// The result is a function that calls the caller's f with an R.
-	{"result-callback", func(r string) string { return "func Give() func(f func(v " + r + ")) { Give() }\n" }, false, "fixture.Give hands out"},
+	{"result-callback", func(r string) string { return "func Give() func(f func(v " + r + ")) { Give() }\n" }, false, "fixture.Give mentions", ""},
 	// The result is an operation-type value whose operation fails with R,
 	// or calls the caller's f with an R.
 	{"operation-failure", func(r string) string {
 		return "type GiveFail { X " + r + " }\n\ntype GiveSrc { Get() int fails GiveFail }\n\nfunc Give() GiveSrc { Give() }\n"
-	}, false, "fixture.Give hands out"},
+	}, false, "fixture.Give mentions", ""},
 	{"operation-callback", func(r string) string {
 		return "type GiveSink { Put(f func(v " + r + ")) }\n\nfunc Give() GiveSink { Give() }\n"
-	}, false, "fixture.Give hands out"},
+	}, false, "fixture.Give mentions", ""},
 	// A with of an exported named context binds GiveSrc; GiveSrc.Get()
 	// gives an R, and a named context needs no authority (rows.md,
 	// Context 4). The same through an embedded unexported context.
 	{"context", func(r string) string {
 		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int }\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet Given = context { GiveSrc: GiveImpl{n: 1} }\n"
-	}, false, "fixture.Given is an exported context that binds a capability that hands out"},
+	}, false, "fixture.Given is an exported context that mentions", "fixture.Get mentions"},
 	{"context-embedded", func(r string) string {
 		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int }\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet given = context { GiveSrc: GiveImpl{n: 1} }\n\nlet Given = context { given }\n"
-	}, false, "fixture.Given is an exported context that binds a capability that hands out"},
+	}, false, "fixture.Given is an exported context that mentions", "fixture.Get mentions"},
 	// fu-ambient-ctor r4 (batch-10 r3 verifier M1): the caller binds the
 	// capability of Give's needs row: its Put receives the R.
 	{"needs", func(r string) string {
 		return "type GiveSink { Put(v " + r + ") }\n\nfunc Give() needs GiveSink { Give() }\n"
-	}, false, "fixture.Give hands out"},
+	}, false, "fixture.Give mentions", ""},
 	{"needs-ambient", func(r string) string {
 		return "type GiveSink { Put(v " + r + ") }\n\nfunc Give() needs GiveSink | Ambient { Give() }\n"
-	}, true, ""},
+	}, true, "", ""},
 	// The record holds R where the caller supplies it (F's parameter)
 	// before it holds it where the caller gets it (Y): batch-10 r3 T1.
 	{"supplied-first", func(r string) string {
 		return "type GiveW { X " + r + " }\n\ntype GivePair { F func(a GiveW), Y GiveW }\n\nfunc Give() GivePair { Give() }\n"
-	}, false, "fixture.Give hands out"},
-	// Controls (handNever): the caller supplies the R, as its provider's
-	// result or as an argument, so Give hands out none.
+	}, false, "fixture.Give mentions", ""},
+	// Controls until r4 (the caller supplies the R, as its provider's
+	// result or as an argument); the r5 rule reports a mention here too.
 	{"needs-source", func(r string) string {
 		return "type GiveSrc { Get() " + r + " }\n\nfunc Give() needs GiveSrc { Give() }\n"
-	}, false, ""},
-	{"param", func(r string) string { return "func Give(x " + r + ") { Give(x) }\n" }, false, ""},
+	}, false, "fixture.Give mentions", ""},
+	{"param", func(r string) string { return "func Give(x " + r + ") { Give(x) }\n" }, false, "fixture.Give mentions", ""},
 }
-
-// handNever are the modes that give the caller no R, whatever its shape.
-var handNever = map[string]bool{"needs-source": true, "param": true}
 
 // endsInFuncType reports whether the type text ends in a function type
 // at its top level, as `[]func() Cap` and `func() Map[string, Cap]` do and
@@ -1046,11 +1191,11 @@ func endsInFuncType(typ string) bool {
 // TestStdHostHandOuts is fu-ambient-ctor's guard: a host provider that
 // holds Cap by value, `type Host { C Cap }` with `type Cap { root string }`,
 // is built by any package that gets a Cap. So the guard asks every exported
-// function and let of the provider's package that hands out a Cap, at any
-// depth of its result, to need authority. Before, it asked only the
-// functions whose result is Host itself, so `func NewCap() Cap` with no row
-// passed. For each generated result shape and each mode, the violations
-// are the model's.
+// function, let and named context of the provider's package that mentions
+// Host or Cap, at any depth of its type, to list Ambient or take a Host or
+// a Cap (fu-ambient-ctor r5). For each generated shape and each mode, the
+// violations are the model's: a mode that is not guarded is reported when
+// the shape's base is Host, or Cap and the form needs Cap.
 func TestStdHostHandOuts(t *testing.T) {
 	outside, ds := check.CheckSource("let x = 1\n")
 	if len(ds) != 0 {
@@ -1075,19 +1220,22 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 	// field, and the implementer of a sealed operation type. A Host with
 	// an unexported field needs only its own authority: a Cap in another
 	// package's hands builds no Host, so handing one out is no violation.
+	// hosts is what a mention of Host names of the held types (Host and
+	// what it needs, in walk order): a variant Host needs HB too.
 	hostForms := []struct {
 		name, decls string
 		needsCap    bool
+		hosts       string
 	}{
-		{"field", "type Host { C Cap }\n", true},
-		{"variant", "type Host = HA | HB\n\ntype HA { C Cap }\n\ntype HB { root string }\n", true},
-		{"tuple", "type Host { P HP }\n\ntype HP (Cap, int)\n", true},
-		{"sealed", "type Host { peek() int }\n\ntype Live { C Cap }\n\nfunc peek(_ Live) int { 1 }\n", true},
-		{"own-authority", "type Host { c Cap }\n", false},
+		{"field", "type Host { C Cap }\n", true, "fixture.Host, fixture.Cap"},
+		{"variant", "type Host = HA | HB\n\ntype HA { C Cap }\n\ntype HB { root string }\n", true, "fixture.Host, fixture.Cap, fixture.HB"},
+		{"tuple", "type Host { P HP }\n\ntype HP (Cap, int)\n", true, "fixture.Host, fixture.Cap"},
+		{"sealed", "type Host { peek() int }\n\ntype Live { C Cap }\n\nfunc peek(_ Live) int { 1 }\n", true, "fixture.Host, fixture.Cap"},
+		{"own-authority", "type Host { c Cap }\n", false, "fixture.Host"},
 	}
 	shapes := handShapes(2)
 	// Per base: itself, 9 words, and their children: 9 each, 5 under F.
-	if want := 3 * (1 + 9 + 8*9 + 5); len(shapes) != want {
+	if want := 4 * (1 + 9 + 8*9 + 5); len(shapes) != want {
 		t.Fatalf("generated %d shapes, want %d", len(shapes), want)
 	}
 	flagged := 0
@@ -1118,9 +1266,21 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 				// result's function type's, not Give's, so Give has no row:
 				// reported (conservative: a call of the value needs Ambient).
 				guarded := m.guarded && !(m.name == "ambient" && endsInFuncType(s.typ))
+				// A parameter of a held type itself is the exemption.
+				guarded = guarded || m.name == "param" && (s.typ == "Host" || s.typ == "Cap" && h.needsCap)
+				names := ""
+				switch {
+				case s.base == "Host":
+					names = h.hosts
+				case s.base == "Cap" && h.needsCap:
+					names = "fixture.Cap"
+				}
 				var want []string
-				if h.needsCap && s.exposes && !guarded && !handNever[m.name] {
-					want = []string{m.what + " fixture.Cap, which fixture.Host needs,"}
+				if names != "" && !guarded {
+					if m.also != "" {
+						want = append(want, m.also+" "+names+" (")
+					}
+					want = append(want, m.what+" "+names+" (")
 					flagged++
 				}
 				got := hostAuthorityViolations(fake, host, outside)
@@ -1150,8 +1310,11 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 // (fu-ambient-ctor r3: a failure is a hand-out too), or to an operation of
 // its needs row (r4: the caller binds that capability). The functions are declared
 // from Wrap down to Make1, so one pass over them in source order does not
-// reach Wrap. The model: Wrap is reported exactly when no link needs
-// Ambient.
+// reach Wrap. The model until r4: Wrap is reported exactly when no link
+// needs Ambient. The r5 rule asks no chain question: Wrap mentions Host
+// and its parameter is not a Host, so it is reported in every chain, and
+// no Make<i> is (T<i> is neither Host nor a record Host needs). The
+// chains stay as a check that no link's form changes that.
 func TestStdHostHandOutChains(t *testing.T) {
 	outside, ds := check.CheckSource("let x = 1\n")
 	if len(ds) != 0 {
@@ -1228,10 +1391,8 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 			p, decl := param(wrapForm, k)
 			b.WriteString(decl)
 			b.WriteString("func Wrap(x " + p + ") Host { Wrap(x) }\n\n")
-			free := true
 			for i := k; i >= 1; i-- {
 				l := c[i-1]
-				free = free && !l.ambient
 				row := ""
 				if l.ambient {
 					row = " needs Ambient"
@@ -1281,11 +1442,8 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 			if host == nil {
 				t.Fatalf("no host provider Host\n%s", src)
 			}
-			var want []string
-			if free {
-				want = []string{"fixture.Wrap returns it and does not list Ambient in its written row"}
-				flagged++
-			}
+			want := []string{"fixture.Wrap mentions fixture.Host (fixture.Host or a record it needs) and neither lists Ambient in its written row nor takes a parameter of one"}
+			flagged++
 			if got := hostAuthorityViolations(fake, host, outside); !slices.Equal(got, want) {
 				t.Errorf("the violations are %q, want %q\n%s", got, want, b.String())
 			}
@@ -1462,79 +1620,79 @@ func hostAuthorityViolationsIn(surface []*check.Package, pkg *check.Package, tn 
 			out = append(out, "another package builds it: it needs an unexported field")
 		}
 	}
-	// Who hands out what tn needs (fu-ambient-ctor)? The records another
-	// package needs to build tn are check.Authorities; an exported
-	// function that hands out a value of one (check.Exposes of its
-	// results, its failures, and what it passes to a function the caller
-	// supplies: handsOut) lists Ambient or takes a value that needs
-	// authority itself, and no exported let holds one and no exported
-	// named context binds a capability that hands one out.
-	need := check.Authorities(tn.Type, outside)
-	needed := func(ts []check.Type) []*check.TypeName {
-		var hit []*check.TypeName
+	// Who mentions tn or what it needs (fu-ambient-ctor r5)? Held is tn and
+	// the records another package needs to build it (check.Authorities).
+	// An exported function whose signature mentions one (check.Mentions:
+	// every part of every type, hidden fields, type arguments, rows and a
+	// sealed operation type's implementers included) lists Ambient in its
+	// written row, unless a parameter's type is one of held: its caller
+	// holds the authority already (`Clone(h Host) Host`). An exported let
+	// or named context has no row, so it mentions none. The rule
+	// over-reports on purpose: it asks no question about what a caller
+	// can obtain, which four rounds of a precise rule each got wrong.
+	held := []*check.TypeName{tn}
+	for _, e := range check.Authorities(tn.Type, outside) {
+		if !slices.Contains(held, e) {
+			held = append(held, e)
+		}
+	}
+	mentioned := func(ts []check.Type) string {
+		var hit []string
 		for _, t := range ts {
-			// tn itself, whatever its kind (an authority record or not).
-			if n, ok := t.(*check.Named); ok && n.Obj == tn && !slices.Contains(hit, tn) {
-				hit = append(hit, tn)
-			}
-			for _, e := range check.Exposes(t, outside) {
-				if slices.Contains(need, e) && !slices.Contains(hit, e) {
-					hit = append(hit, e)
+			for _, e := range check.Mentions(t, outside) {
+				if name := e.Pkg.Name + "." + e.Name; slices.Contains(held, e) && !slices.Contains(hit, name) {
+					hit = append(hit, name)
 				}
 			}
 		}
-		return hit
+		if len(hit) == 0 {
+			return ""
+		}
+		return strings.Join(hit, ", ") + " (" + pkg.Name + "." + tn.Name + " or a record it needs)"
 	}
-	what := func(e *check.TypeName) string {
-		return e.Pkg.Name + "." + e.Name + ", which " + pkg.Name + "." + tn.Name + " needs,"
-	}
-	got := obtained(surface, outside)
 	for _, p := range surface {
 		for _, f := range p.Funcs {
-			if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
+			if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesHeld(f, held) {
 				continue
 			}
-			for _, e := range needed(handsOut(f.Sig)) {
-				if e == tn {
-					out = append(out, p.Name+"."+f.Name+" returns it and does not list Ambient in its written row")
-				} else {
-					out = append(out, p.Name+"."+f.Name+" hands out "+what(e)+" and does not list Ambient in its written row or take a value that needs authority")
-				}
+			if m := mentioned([]check.Type{f.Sig}); m != "" {
+				out = append(out, p.Name+"."+f.Name+" mentions "+m+" and neither lists Ambient in its written row nor takes a parameter of one")
 			}
 		}
 		for _, o := range p.Exported() {
 			if v, ok := o.(*check.Var); ok {
-				for _, e := range needed([]check.Type{v.Type}) {
-					out = append(out, p.Name+"."+v.Name+" is an exported let that holds "+what(e)+" and a let has no row")
+				if m := mentioned([]check.Type{v.Type}); m != "" {
+					out = append(out, p.Name+"."+v.Name+" is an exported let that mentions "+m+", and a let has no row")
 				}
 			}
 		}
 		for _, c := range exportedContexts(p) {
-			for _, e := range needed(contextCaps(c)) {
-				out = append(out, p.Name+"."+c.Name+" is an exported context that binds a capability that hands out "+what(e)+" and a named context has no row")
+			if m := mentioned(contextCaps(c)); m != "" {
+				out = append(out, p.Name+"."+c.Name+" is an exported context that mentions "+m+", and a named context has no row")
 			}
 		}
 	}
 	return out
 }
 
-// handsOut are the types whose check.Exposes are what a call of a function
-// of sig gives its caller: sig itself, which check.Exposes walks as a
-// function value (its results, each record of its failure row, which the
-// caller catches, and what it passes to each function the caller
-// supplies, at any depth; fu-ambient-ctor r3), and its results, listed as
-// well so a result of the host provider's own type is seen whatever its
-// kind. A failure needs no such listing: it is a named record (types.md,
-// Error types 1), so check.Exposes finds it when it has authority, and
-// check.Buildable reports a host provider that is a record without.
-func handsOut(sig *check.Signature) []check.Type {
-	return append(slices.Clone(sig.Results), sig)
+// takesHeld reports whether a parameter of f has a type of held (the host
+// provider or a record it needs, an instance of one included): the
+// caller holds that authority already. The one exemption of the rule; a
+// borrow, a wrapper or any other type that another package cannot build
+// is no exemption.
+func takesHeld(f *check.Func, held []*check.TypeName) bool {
+	for _, p := range f.Sig.Params {
+		if n, ok := p.Type.(*check.Named); ok && slices.Contains(held, n.Obj) {
+			return true
+		}
+	}
+	return false
 }
 
 // exportedContexts are pkg's exported named contexts, by name. A with of
 // one in another package binds each capability of its entries and of the
 // contexts it embeds, so the with body gets what that capability's
-// operations give (check.Exposes of the capability type). A named context
+// operations give (check.Mentions of the capability type). A named context
 // is closed (rows.md, Context 4): a provider that needs Ambient is S102,
 // so no with of it needs authority (fu-ambient-ctor r3).
 func exportedContexts(pkg *check.Package) []*check.Context {
@@ -1566,67 +1724,6 @@ func contextCaps(c *check.Context) []check.Type {
 	}
 	walk(c)
 	return out
-}
-
-// takesAuthority reports whether a caller of f needs authority already: a
-// parameter of a type that outside cannot build, even with the records
-// pkg hands out without authority (got, from obtained).
-func takesAuthority(f *check.Func, outside *check.Package, got map[*check.TypeName]bool) bool {
-	for _, p := range f.Sig.Params {
-		if !check.BuildableGiven(p.Type, outside, got) {
-			return true
-		}
-	}
-	return false
-}
-
-// obtained are the records with authority that package outside gets from
-// the packages of surface with no authority (fu-ambient-ctor r2): the
-// least fixed point of "an exported let holds it, an exported named
-// context binds a capability that hands it out, or an exported function
-// with no Ambient in its written row, whose every parameter outside builds
-// from literals and the records already obtained, hands it out". So in
-// `func MakeTok() Tok` and `func Wrap(_ Tok) Host`, Tok is obtained and
-// Wrap takes no authority; the chain may be of any length and cross
-// packages (r4).
-func obtained(surface []*check.Package, outside *check.Package) map[*check.TypeName]bool {
-	got := map[*check.TypeName]bool{}
-	add := func(ts []check.Type) bool {
-		grew := false
-		for _, t := range ts {
-			for _, e := range check.Exposes(t, outside) {
-				if !got[e] {
-					got[e] = true
-					grew = true
-				}
-			}
-		}
-		return grew
-	}
-	for _, pkg := range surface {
-		for _, o := range pkg.Exported() {
-			if v, ok := o.(*check.Var); ok {
-				add([]check.Type{v.Type})
-			}
-		}
-		for _, c := range exportedContexts(pkg) {
-			add(contextCaps(c))
-		}
-	}
-	for changed := true; changed; {
-		changed = false
-		for _, pkg := range surface {
-			for _, f := range pkg.Funcs {
-				if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
-					continue
-				}
-				if add(handsOut(f.Sig)) {
-					changed = true
-				}
-			}
-		}
-	}
-	return got
 }
 
 // writesAmbient reports whether f's written row names the prelude's
