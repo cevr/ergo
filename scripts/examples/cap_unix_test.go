@@ -51,7 +51,7 @@ func TestOutputCapLateStopNamesBothStreams(t *testing.T) {
 	defer func() { testHookStarted = nil }()
 	n := outputCap + 1
 	script := fmt.Sprintf("head -c %d /dev/zero\nhead -c %d /dev/zero >&2\necho written >\"$1\"\n", n, n)
-	o, err := l.execute([]string{"sh", "-c", script, "sh", written}, dir, os.Environ(), "", 0)
+	o, err := l.execute([]string{"sh", "-c", script, "sh", written}, dir, os.Environ(), "", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

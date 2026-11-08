@@ -20,7 +20,7 @@ func runExeInput(t *testing.T, exe, stdin string, args ...string) (string, strin
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runProgram(t, cmd)
 	code := 0
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

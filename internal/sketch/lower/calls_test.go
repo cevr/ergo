@@ -160,7 +160,7 @@ func TestCallIdentity(t *testing.T) {
 	var stdout bytes.Buffer
 	cmd := exec.Command(exe)
 	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
+	if err := runProgram(t, cmd); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if got := stdout.String(); got != "A\nA\nfour\n" {

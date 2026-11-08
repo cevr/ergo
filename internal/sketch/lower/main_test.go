@@ -9,10 +9,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/testinputs"
 )
 
@@ -48,6 +50,12 @@ func TestMain(m *testing.M) {
 	// overrides Go variables with t.Setenv.
 	testCLI.environment = os.Environ()
 	testCLI.given = os.Getenv(cliVariable)
+	// A program that a test runs through `ergo run` gets the memory limit
+	// of the programs runProgram runs: ergo run sets one only when
+	// ERGO_PROGRAM_MEMORY does (docs/tooling.md, "Test memory").
+	if _, ok := os.LookupEnv(proclimit.Variable); !ok {
+		os.Setenv(proclimit.Variable, strconv.FormatUint(proclimit.DefaultLimit, 10))
+	}
 	code := testinputs.Main(m)
 	if testCLI.dir != "" {
 		_ = os.RemoveAll(testCLI.dir)
