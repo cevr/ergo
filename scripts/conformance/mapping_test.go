@@ -174,7 +174,7 @@ func TestEvidenceTestMustNameItsCase(t *testing.T) {
 	for name, body := range map[string]string{
 		"none":    "func TestCase(t *testing.T) {\n}\n",
 		"other":   "func TestCase(t *testing.T) {\n" + runs(second) + "}\n",
-		"outside": "func TestCase(t *testing.T) {\n}\n\nfunc TestElse(t *testing.T) {\n" + runs(first) + "}\n",
+		"outside": "func TestElse(t *testing.T) {\n" + runs(first) + "}\n\nfunc TestCase(t *testing.T) {\n}\n",
 		"text":    "func TestCase(t *testing.T) {\n\t// t.Run(" + strconv.Quote(first) + "\n\tt.Log(" + strconv.Quote(first) + ")\n}\n",
 	} {
 		// Serial: the subtests share the fixture's Git index.
