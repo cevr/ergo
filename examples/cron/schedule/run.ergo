@@ -1,0 +1,54 @@
+import time
+
+// Job is one line of a table: a name and when it fires.
+type Job { Name string, When Expr }
+
+// Firing is a job that fired: the minute it was due, and the minute the
+// clock read when it fired.
+type Firing { Job string, Due Instant, Woke Instant }
+
+// MinuteOf is the minute of the time t, rounded down.
+func MinuteOf(t time.Time) Instant {
+	let s = time.UnixSeconds(t)
+	// The if is bound first: a conversion gives its type to the branches of
+	// an if inside it (G-ex-b-1).
+	let m = if s >= 0 { s / 60 } else { (s - 59) / 60 }
+	Instant(m)
+}
+
+// Run fires the jobs on the clock of its context until the minute until:
+// it sleeps on the Scheduler to the next minute that a job is due, then
+// calls fire for each job due then, in table order. The first minute it
+// considers is the one after the clock's minute when it starts.
+func Run[R](jobs []Job, until Instant, fire func(f Firing) needs R) needs time.Clock | Scheduler | R {
+	let mut cursor = MinuteOf(time.Clock.Now())
+	for {
+		let mut due = until + 1
+		for j in jobs {
+			match Next(j.When, cursor) {
+			case Some[Instant] as n:
+				if n.Value < due {
+					due = n.Value
+				}
+			case None:
+			}
+		}
+		if due > until {
+			return
+		}
+		let wait = int64(due)*60 - time.UnixSeconds(time.Clock.Now())
+		if wait > 0 {
+			Scheduler.Sleep(duration(wait * 1000000000))
+		}
+		let woke = MinuteOf(time.Clock.Now())
+		// Bound first: a literal in an if header loses its parentheses in Go
+		// (G-ex-c-2).
+		let now = Some[Instant]{Value: due}
+		for j in jobs {
+			if Next(j.When, cursor) == now {
+				fire(Firing{Job: j.Name, Due: due, Woke: woke})
+			}
+		}
+		cursor = due
+	}
+}

@@ -1,0 +1,74 @@
+// The rules of the site generator as laws over its domain.
+
+import strings
+
+// EscapingIsTotal: every text has an escape that holds no markup, and the
+// escape reads back to the text.
+law EscapingIsTotal(s string) {
+	let text = Spice(s)
+	Inert(Escape(text)) && Unescape(Escape(text)) == text
+}
+
+// VariablesAreEscaped: {{ v }} prints the escape of v's text, and
+// {{ raw v }} prints the text as it is.
+law VariablesAreEscaped(s string) {
+	let text = Spice(s)
+	Outcome("{{ v }}|{{ raw v }}", ScopeOf(text, []string{})) == Escape(text)+"|"+text
+}
+
+// RenderingIsDeterministic: one template over one scope renders one text,
+// or fails one failure, every time. A record's fields are a Map, whose
+// order a for over it does not fix, so no rendering may depend on it.
+law RenderingIsDeterministic(s string, items []string) {
+	let source = "{{ for x in xs }}[{{ x }}]{{ end }}{{ r.a }}{{ raw r }}" + Spice(s)
+	let scope = ScopeOf(Spice(s), items)
+	Outcome(source, scope) == Outcome(source, scope)
+}
+
+// Spice is s with the bytes of the property generator's alphabet that
+// HTML reads as text turned into markup: a is <, b is >, z is &, _ is "
+// and - is '. The generator draws from a fixed alphabet with none of them
+// (G-ex-d-4).
+func Spice(s string) string {
+	let a = strings.ReplaceAll(s, "a", "<")
+	let b = strings.ReplaceAll(a, "b", ">")
+	let z = strings.ReplaceAll(b, "z", "&")
+	let q = strings.ReplaceAll(z, "_", "\"")
+	strings.ReplaceAll(q, "-", "'")
+}
+
+// ScopeOf is the scope of the laws: v is text, xs the items, and r a
+// record of four fields, a to d.
+func ScopeOf(text string, items []string) Scope {
+	let mut xs = []Value{}
+	for it in items {
+		xs = xs.Append(Text{S: it})
+	}
+	let r = Map[string, Value]{"a": Text{S: text}, "b": Text{S: "2"}, "c": Text{S: "3"}, "d": Text{S: "4"}}
+	Top{Vars: Map[string, Value]{"v": Text{S: text}, "xs": List{Items: xs}, "r": Record{Fields: r}}}
+}
+
+// Outcome is the text of source rendered over scope with no includes, or
+// the name of the failure that parsing or rendering it fails with.
+func Outcome(source string, scope Scope) string {
+	let t = Parse("law", source) catch {
+	case Unclosed:
+		return "Unclosed"
+	case Stray:
+		return "Stray"
+	case BadTag:
+		return "BadTag"
+	}
+	Render(Library{Templates: Map[string, Template]{}}, t, scope) catch {
+	case Unbound:
+		"Unbound"
+	case NotAList:
+		"NotAList"
+	case NotText:
+		"NotText"
+	case MissingTemplate:
+		"MissingTemplate"
+	case IncludeCycle:
+		"IncludeCycle"
+	}
+}

@@ -1,0 +1,66 @@
+// Package screen draws a game as text: a frame of the board with a
+// border, and the line under it. It is pure.
+
+import snake/game
+import strings
+
+// Clear moves an ANSI terminal's cursor to the top left and clears the
+// screen, so the next frame draws over the last.
+let Clear = "\u001b[H\u001b[2J"
+
+// Frame is the lines that show m: the title's help, or the board with a
+// border, the snake (@ its head, o its body), the food (*), and a status
+// line.
+func Frame(m game.Mode) []string {
+	match m {
+	case game.Title as t:
+		[]string{"snake on \(t.Width)x\(t.Height): b begins, w a s d turn, p pauses, q quits"}
+	case game.Playing as p:
+		board(p.W, "score \(p.W.Score)")
+	case game.Paused as p:
+		board(p.W, "score \(p.W.Score), paused")
+	case game.Over as o:
+		board(o.W, "game over: "+why(o.Why)+", score \(o.W.Score)")
+	}
+}
+
+// board is the border, the rows of w, and status.
+func board(w game.World, status string) []string {
+	let edge = "+" + strings.Repeat("-", w.Width) + "+"
+	let mut out = []string{edge}
+	for y in 0..w.Height {
+		let mut line = "|"
+		for x in 0..w.Width {
+			line = line + cell(w, game.Point{X: x, Y: y})
+		}
+		out = out.Append(line + "|")
+	}
+	out = out.Append(edge)
+	out.Append(status)
+}
+
+// cell is the character of p in w.
+func cell(w game.World, p game.Point) string {
+	if w.Body[0] == p {
+		return "@"
+	}
+	if game.Holds(w.Body, p) {
+		return "o"
+	}
+	if w.Food == p {
+		return "*"
+	}
+	" "
+}
+
+// why is the words of c.
+func why(c game.Cause) string {
+	match c {
+	case game.Wall:
+		"hit the wall"
+	case game.Bitten:
+		"bit itself"
+	case game.Filled:
+		"filled the board"
+	}
+}

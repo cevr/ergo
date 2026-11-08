@@ -1,0 +1,189 @@
+import strconv
+import strings
+
+// Field is the values one field of an expression matches, one bit per
+// value. Star is whether the field is * or */s, one part with no list:
+// the day of the month and the day of the week must both match when one
+// of them is a Star, and either may match when neither is (Vixie cron).
+type Field { Bits uint64, Star bool }
+
+// Expr is a cron expression: minute, hour, day of the month, month and
+// day of the week.
+type Expr { Minute Field, Hour Field, Dom Field, Month Field, Dow Field }
+
+// Bounds is the values a field can take, and the names of its values
+// when it has names (months and weekdays).
+type Bounds { Name string, Min int, Max int, Names []string }
+
+// Fields are the five fields' bounds, in order.
+let Fields = []Bounds{
+	Bounds{Name: "minute", Min: 0, Max: 59, Names: []string{}},
+	Bounds{Name: "hour", Min: 0, Max: 23, Names: []string{}},
+	Bounds{Name: "day of month", Min: 1, Max: 31, Names: []string{}},
+	Bounds{Name: "month", Min: 1, Max: 12, Names: MonthNames},
+	Bounds{Name: "day of week", Min: 0, Max: 6, Names: DayNames},
+}
+
+// The failures of Parse. Each names the field and the text it refuses.
+
+// FieldCount is an expression of other than five fields.
+type FieldCount { Got int }
+
+// BadValue is a value that is neither a number nor a name of its field.
+type BadValue { Field string, Text string }
+
+// OutOfRange is a number outside its field's bounds.
+type OutOfRange { Field string, Value int, Min int, Max int }
+
+// BadStep is a step that is not a whole number above zero.
+type BadStep { Field string, Text string }
+
+// BadRange is a range whose end comes before its start.
+type BadRange { Field string, From int, To int }
+
+// Parse reads text as an expression: five fields separated by spaces, or
+// one of the macros @yearly (@annually), @monthly, @weekly, @daily
+// (@midnight) and @hourly. A field is a list of parts separated by
+// commas; a part is *, a value, or a range a-b, each with an optional
+// step /s. A value is a number or, in the month and weekday fields, a
+// name of three letters in any case. The weekday 7 is Sunday, as 0 is.
+func Parse(text string) Expr fails FieldCount | BadValue | OutOfRange | BadStep | BadRange {
+	let words = strings.Fields(macro(strings.TrimSpace(text)))
+	if len(words) != 5 {
+		return FieldCount{Got: len(words)}
+	}
+	Expr{
+		Minute: try field(Fields[0], words[0]),
+		Hour:   try field(Fields[1], words[1]),
+		Dom:    try field(Fields[2], words[2]),
+		Month:  try field(Fields[3], words[3]),
+		Dow:    try field(Fields[4], words[4]),
+	}
+}
+
+// macro is the five fields that a macro stands for, or text.
+func macro(text string) string {
+	match strings.ToLower(text) {
+	case "@yearly", "@annually":
+		"0 0 1 1 *"
+	case "@monthly":
+		"0 0 1 * *"
+	case "@weekly":
+		"0 0 * * 0"
+	case "@daily", "@midnight":
+		"0 0 * * *"
+	case "@hourly":
+		"0 * * * *"
+	case _:
+		text
+	}
+}
+
+// field reads one field's text within b.
+func field(b Bounds, text string) Field fails BadValue | OutOfRange | BadStep | BadRange {
+	let mut bits uint64 = 0
+	for part in strings.Split(text, ",") {
+		let mut base = part
+		let mut step = 1
+		match strings.Cut(part, "/") {
+		case Some[strings.Halves] as h:
+			base = h.Value.Before
+			step = strconv.Atoi(h.Value.After) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return BadStep{Field: b.Name, Text: part}
+			}
+			if step < 1 {
+				return BadStep{Field: b.Name, Text: part}
+			}
+		case None:
+		}
+		let mut from = b.Min
+		let mut to = b.Max
+		if base != "*" {
+			match strings.Cut(base, "-") {
+			case Some[strings.Halves] as r:
+				from = try value(b, r.Value.Before)
+				to = try value(b, r.Value.After)
+			case None:
+				from = try value(b, base)
+				to = if step > 1 { b.Max } else { from }
+			}
+		}
+		if to < from {
+			return BadRange{Field: b.Name, From: from, To: to}
+		}
+		for v in from..to+1 {
+			if (v-from)%step == 0 {
+				bits = bits | bit(if b.Name == "day of week" && v == 7 { 0 } else { v })
+			}
+		}
+	}
+	Field{Bits: bits, Star: !strings.Contains(text, ",") && strings.HasPrefix(text, "*")}
+}
+
+// value reads one value of b: a number, or a name of b's values.
+func value(b Bounds, text string) int fails BadValue | OutOfRange {
+	for i, name in b.Names {
+		if strings.EqualFold(text, name) {
+			return b.Min + i
+		}
+	}
+	let n = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadValue{Field: b.Name, Text: text}
+	}
+	let max = if b.Name == "day of week" { 7 } else { b.Max }
+	if n < b.Min || n > max {
+		return OutOfRange{Field: b.Name, Value: n, Min: b.Min, Max: max}
+	}
+	n
+}
+
+// bit is the bit of the value v.
+func bit(v int) uint64 { uint64(1) << uint64(v) }
+
+// Has reports whether f matches v.
+func Has(f Field, v int64) bool { f.Bits&bit(int(v)) != 0 }
+
+// Format is the text of e: each field as * when it was written from *
+// and matches all its values, as */s when it was written from * with a
+// step, and otherwise as a list of values and ranges. Parse reads it back
+// to e.
+func Format(e Expr) string {
+	let fields = []Field{e.Minute, e.Hour, e.Dom, e.Month, e.Dow}
+	let mut out = []string{}
+	for i, f in fields {
+		out = out.Append(formatField(Fields[i], f))
+	}
+	strings.Join(out, " ")
+}
+
+// formatField is the text of f within b.
+func formatField(b Bounds, f Field) string {
+	let mut values = []int{}
+	for v in b.Min..b.Max+1 {
+		if f.Bits&bit(v) != 0 {
+			values = values.Append(v)
+		}
+	}
+	if f.Star {
+		if len(values) == b.Max-b.Min+1 {
+			return "*"
+		}
+		if len(values) >= 2 {
+			return "*/\(values[1] - values[0])"
+		}
+		return "*/\(b.Max - b.Min + 1)"
+	}
+	let mut parts = []string{}
+	let mut i = 0
+	for i < len(values) {
+		let mut j = i
+		for j+1 < len(values) && values[j+1] == values[j]+1 {
+			j = j + 1
+		}
+		parts = parts.Append(if j > i { "\(values[i])-\(values[j])" } else { "\(values[i])" })
+		i = j + 1
+	}
+	strings.Join(parts, ",")
+}

@@ -1,0 +1,34 @@
+// Package virtual holds a clock that time.Clock and Scheduler both read:
+// a Sleep moves its time forward at once, by the time slept. A run of a
+// day of jobs takes no time, and every firing is on time.
+
+import time
+
+// Clock is a virtual clock. Its time is held in a Map that every copy
+// shares, so a Sleep through the Scheduler is seen by time.Clock's Now
+// (G-ex-b-3: a provider keeps state only in a Map). It is for one task.
+type Clock { seconds Map[int, int64] }
+
+// NewClock is a clock that reads the Unix second sec.
+func NewClock(sec int64) Clock { Clock{seconds: Map[int, int64]{0: sec}} }
+
+// Now is the clock's time.
+func Now(c Clock) time.Time {
+	match c.seconds.Get(0) {
+	case Some[int64] as s:
+		time.Unix(s.Value, 0)
+	case None:
+		time.Unix(0, 0)
+	}
+}
+
+// Sleep moves the clock forward by d, rounded down to a second; a d of
+// zero or less does not move it.
+func Sleep(c Clock, d duration) {
+	let secs = int64(d) / 1000000000
+	if secs <= 0 {
+		return
+	}
+	let mut m = c.seconds
+	m[0] = time.UnixSeconds(c.Now()) + secs
+}

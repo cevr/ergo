@@ -1,0 +1,73 @@
+// Read and Write run over a memory.Disk, so no test touches the host's
+// file system.
+
+import fs
+import slices
+import ssg/memory
+import ssg/site
+
+let disk = memory.NewDisk(Map[string, string]{
+	"s/content/index.md":     "home",
+	"s/content/posts/b.md":   "b",
+	"s/content/posts/a.md":   "a",
+	"s/content/notes.txt":    "skipped",
+	"s/templates/page.html":  "{{ raw body }}",
+	"s/templates/readme.txt": "skipped",
+})
+
+test ReadWalksEveryFolder {
+	with context { fs.Files: disk } {
+		let src = try Read("s")
+		assert slices.Equal(src.Pages(), []string{"index.md", "posts/a.md", "posts/b.md"})
+		assert slices.Equal(src.TemplateNames(), []string{"page"})
+		assert try src.ReadPage("posts/b.md") == "b"
+	}
+}
+
+// unreadable is the path that Read("s") over d fails on, or "read".
+func unreadable(d memory.Disk) string {
+	with context { fs.Files: d } {
+		readS()
+	}
+}
+
+// readS is the failure of Read("s"), or "read". A return cannot leave a
+// with block (G-ex-d-10), so the catch is in a function of its own.
+func readS() string needs fs.Files {
+	let _ = Read("s") catch {
+	case site.Unreadable as u:
+		return u.Path + ": " + u.Reason
+	}
+	"read"
+}
+
+test MissingFoldersAreUnreadable {
+	assert unreadable(memory.NewDisk(Map[string, string]{"s/content/a.md": "a"})) == "s/templates: no such folder"
+	assert unreadable(memory.NewDisk(Map[string, string]{})) == "s/content: no such folder"
+}
+
+test WriteMakesFolders {
+	let out = memory.NewDisk(Map[string, string]{})
+	with context { fs.Writes: out } {
+		let wrote = try Write("public", []site.Output{site.Output{Path: "index.html", Text: "i"}, site.Output{Path: "posts/a.html", Text: "a"}})
+		assert slices.Equal(wrote, []string{"public/index.html", "public/posts/a.html"})
+	}
+	assert try out.ReadFile("public/posts/a.html") == "a"
+}
+
+test WriteOverAFileFails {
+	let out = memory.NewDisk(Map[string, string]{"public": "a file"})
+	let reason = with context { fs.Writes: out } {
+		writeX()
+	}
+	assert reason == "public: not a directory"
+}
+
+// writeX is the failure of writing x.html under public, or "wrote".
+func writeX() string needs fs.Writes {
+	let _ = Write("public", []site.Output{site.Output{Path: "x.html", Text: "x"}}) catch {
+	case Unwritable as u:
+		return u.Path + ": " + u.Reason
+	}
+	"wrote"
+}

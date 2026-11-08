@@ -1,0 +1,38 @@
+import strings
+
+// Escape is s as HTML text: each of & < > " and ' is its entity, and every
+// other byte is kept. It is total: every string has an escape, and the
+// escape holds none of the five bytes except the & of an entity.
+func Escape(s string) string {
+	let a = strings.ReplaceAll(s, "&", "&amp;")
+	let b = strings.ReplaceAll(a, "<", "&lt;")
+	let c = strings.ReplaceAll(b, ">", "&gt;")
+	let d = strings.ReplaceAll(c, "\"", "&quot;")
+	strings.ReplaceAll(d, "'", "&#39;")
+}
+
+// Unescape is the text that Escape wrote as s: each of the five entities
+// back to its byte, &amp; last, so "&amp;lt;" is "&lt;".
+func Unescape(s string) string {
+	let a = strings.ReplaceAll(s, "&#39;", "'")
+	let b = strings.ReplaceAll(a, "&quot;", "\"")
+	let c = strings.ReplaceAll(b, "&gt;", ">")
+	let d = strings.ReplaceAll(c, "&lt;", "<")
+	strings.ReplaceAll(d, "&amp;", "&")
+}
+
+// Inert reports whether s holds no byte that HTML reads as markup: no <,
+// >, " or ', and each & starts one of Escape's entities.
+func Inert(s string) bool {
+	if strings.Contains(s, "<") || strings.Contains(s, ">") || strings.Contains(s, "\"") || strings.Contains(s, "'") {
+		return false
+	}
+	let parts = strings.Split(s, "&")
+	for i in 1..len(parts) {
+		let p = parts[i]
+		if !(strings.HasPrefix(p, "amp;") || strings.HasPrefix(p, "lt;") || strings.HasPrefix(p, "gt;") || strings.HasPrefix(p, "quot;") || strings.HasPrefix(p, "#39;")) {
+			return false
+		}
+	}
+	true
+}

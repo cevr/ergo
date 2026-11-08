@@ -1,0 +1,92 @@
+import strings
+
+// Page is one content file: its path under the content folder, its front
+// matter, and its body.
+type Page { Path string, Meta Map[string, string], Body string }
+
+// BadFrontMatter is a line of front matter that is not "key: value".
+type BadFrontMatter { Path string, Line int, Text string }
+
+// ParsePage reads text as the page at path. Front matter is a first line
+// "---", lines "key: value", and a line "---"; the body is the rest. A
+// page with no first line "---" has no front matter.
+func ParsePage(path string, text string) Page fails BadFrontMatter {
+	let lines = strings.Split(text, "\n")
+	let mut meta = Map[string, string]{}
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return Page{Path: path, Meta: meta, Body: text}
+	}
+	for i in 1..len(lines) {
+		let line = strings.TrimSpace(lines[i])
+		if line == "---" {
+			let mut rest = []string{}
+			for j in i+1..len(lines) {
+				rest = rest.Append(lines[j])
+			}
+			return Page{Path: path, Meta: meta, Body: strings.Join(rest, "\n")}
+		}
+		match strings.Cut(line, ":") {
+		case Some[strings.Halves] as h:
+			meta[strings.TrimSpace(h.Value.Before)] = strings.TrimSpace(h.Value.After)
+		case None:
+			return BadFrontMatter{Path: path, Line: i + 1, Text: line}
+		}
+	}
+	BadFrontMatter{Path: path, Line: len(lines), Text: "no closing ---"}
+}
+
+// Markup is body as HTML: blocks are separated by blank lines; a block
+// that starts "# " or "## " is a heading, a block of lines that each start
+// "- " is a list, and any other block is a paragraph. Every text is
+// escaped, so a body cannot write markup.
+func Markup(body string) string {
+	let mut out = []string{}
+	for block in blocks(body) {
+		if strings.HasPrefix(block[0], "## ") {
+			out = out.Append("<h2>" + Escape(strings.TrimPrefix(block[0], "## ")) + "</h2>")
+		} else if strings.HasPrefix(block[0], "# ") {
+			out = out.Append("<h1>" + Escape(strings.TrimPrefix(block[0], "# ")) + "</h1>")
+		} else if allItems(block) {
+			let mut items = []string{}
+			for l in block {
+				items = items.Append("<li>" + Escape(strings.TrimPrefix(l, "- ")) + "</li>")
+			}
+			out = out.Append("<ul>" + strings.Join(items, "") + "</ul>")
+		} else {
+			out = out.Append("<p>" + Escape(strings.Join(block, " ")) + "</p>")
+		}
+	}
+	strings.Join(out, "\n")
+}
+
+// blocks is the runs of lines of body that are not blank, each line
+// trimmed.
+func blocks(body string) [][]string {
+	let mut out = [][]string{}
+	let mut cur = []string{}
+	for raw in strings.Split(body, "\n") {
+		let line = strings.TrimSpace(raw)
+		if line == "" {
+			if len(cur) > 0 {
+				out = out.Append(cur)
+				cur = []string{}
+			}
+		} else {
+			cur = cur.Append(line)
+		}
+	}
+	if len(cur) > 0 {
+		out = out.Append(cur)
+	}
+	out
+}
+
+// allItems reports whether every line of block starts "- ".
+func allItems(block []string) bool {
+	for l in block {
+		if !strings.HasPrefix(l, "- ") {
+			return false
+		}
+	}
+	true
+}

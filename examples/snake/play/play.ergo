@@ -1,0 +1,146 @@
+// Package play drives a game of snake from standard input and draws it
+// on standard output. Script reads one line per tick, so a game replays
+// from a file; Live ticks on the Scheduler and reads keys in a task of
+// its own beside the ticks.
+
+import io
+import queue
+import snake/game
+import snake/screen
+import strings
+import task
+
+// Keys is the signals of the keys of line, in order: b begins, w a s d
+// turn up, left, down and right, p pauses or resumes, q quits. Any other
+// byte is no signal.
+func Keys(line string) []game.Signal {
+	let mut out = []game.Signal{}
+	for i in 0..len(line) {
+		let c = line[i]
+		if c == 'b' {
+			out = out.Append(game.Begin)
+		} else if c == 'w' {
+			out = out.Append(game.Turn{To: game.Up})
+		} else if c == 'a' {
+			out = out.Append(game.Turn{To: game.Left})
+		} else if c == 's' {
+			out = out.Append(game.Turn{To: game.Down})
+		} else if c == 'd' {
+			out = out.Append(game.Turn{To: game.Right})
+		} else if c == 'p' {
+			out = out.Append(game.Pause)
+		} else if c == 'q' {
+			out = out.Append(game.Quit)
+		}
+	}
+	out
+}
+
+// Turned is the mode after the signals of one tick from m, then the tick
+// itself, and whether one of them quit the game. A signal after Quit is
+// not read.
+func Turned(m game.Mode, signals []game.Signal) (game.Mode, bool) needs Random {
+	let mut at = m
+	for s in signals.Append(game.Tick) {
+		let d = game.Step(at, s)
+		match d {
+		case Done[int]:
+			return (at, true)
+		case Enter[game.Mode], Stay[game.Mode], Ignore, Reject:
+		}
+		at = game.Next(at, d)
+	}
+	(at, false)
+}
+
+// Script plays from m, one tick per line of standard input: the line's
+// keys, then a tick, then the frame. It stops at the end of the input, at
+// q, or when the game is over, and returns the last mode.
+func Script(m game.Mode) game.Mode needs io.Stdin | io.Stdout | Random {
+	let mut at = m
+	draw(at)
+	for line in io.Stdin.Lines() {
+		let next, quit = Turned(at, Keys(line))
+		at = next
+		if quit {
+			io.Stdout.Println("quit, score \(game.ScoreOf(at))")
+			return at
+		}
+		draw(at)
+		match at {
+		case game.Over:
+			return at
+		case game.Title, game.Playing, game.Paused:
+		}
+	}
+	at
+}
+
+// Live plays a game from its start on a board of w by h, one tick each
+// period on the Scheduler. A task reads the keys of each line of standard
+// input into a queue, and each tick takes every key waiting. It returns
+// the last mode when the game is over or quit.
+//
+// A read of standard input cannot be stopped (stdlib.md, io 3): when the
+// game ends first, Live returns only after the reader's next line or the
+// end of the input (G-ex-g-3).
+func Live(w int, h int, period duration) game.Mode needs io.Stdin | io.Stdout | Random | Scheduler {
+	let keys = queue.New[game.Signal](64)
+	let reader = task.Go() {
+		read(keys)
+	}
+	let mut at = game.Next(game.Title{Width: w, Height: h}, game.Step(game.Title{Width: w, Height: h}, game.Begin))
+	draw(at)
+	for {
+		Scheduler.Sleep(period)
+		let mut waiting = []game.Signal{}
+		for {
+			match keys.Poll() {
+			case Some[game.Signal] as s:
+				waiting = waiting.Append(s.Value)
+			case None:
+				break
+			}
+		}
+		let next, quit = Turned(at, waiting)
+		at = next
+		if quit {
+			io.Stdout.Println("quit, score \(game.ScoreOf(at))")
+			break
+		}
+		draw(at)
+		match at {
+		case game.Over:
+			break
+		case game.Title, game.Playing, game.Paused:
+		}
+	}
+	keys.Close()
+	reader.Stop()
+	at
+}
+
+// read pushes the keys of each line of standard input into keys, until
+// the end of the input or until keys is closed, and then closes it.
+func read(keys queue.Queue[game.Signal]) needs io.Stdin {
+	for line in io.Stdin.Lines() {
+		for s in Keys(line) {
+			keys.Push(s) catch {
+			case queue.Closed:
+				return
+			}
+		}
+	}
+	keys.Close()
+}
+
+// draw writes the frame of m: over the last frame on a terminal, after it
+// otherwise.
+func draw(m game.Mode) needs io.Stdout {
+	let text = strings.Join(screen.Frame(m), "\n")
+	if io.Stdout.IsTerminal() {
+		io.Stdout.Print(screen.Clear + text + "\n")
+	} else {
+		io.Stdout.Println(text)
+	}
+}

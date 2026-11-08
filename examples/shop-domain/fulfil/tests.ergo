@@ -1,0 +1,86 @@
+// The saga's stories, on the desk over the memory store, and its law as
+// a property test. A law can bind a context, but a law in package fulfil
+// that binds memory.New() would make the domain import its provider, so
+// EveryOrderSettles is a test only.
+
+import shop/memory
+import shop/order
+
+let tea = order.Line{Sku: "tea", Qty: 2, Price: 150}
+
+func place(id string) order.Command {
+	order.Place{Order: id, Customer: "ana", Lines: []order.Line{tea}}
+}
+
+// shipped reports whether the outcomes record a shipment.
+func shipped(outcomes []Outcome) bool {
+	for o in outcomes {
+		match o {
+		case Recorded as r:
+			for e in r.Events {
+				match e {
+				case order.Shipped:
+					return true
+				case order.Placed, order.ItemAdded, order.PaymentTaken, order.Cancelled:
+				}
+			}
+		case Refused:
+		}
+	}
+	false
+}
+
+test APaidOrderShipsAtOnce {
+	with context { order.Orders: memory.New() } {
+		let d, _ = Submit(Open(), place("a"))
+		assert len(d.Running) == 1
+		let d2, outcomes = Submit(d, order.Pay{Order: "a", Amount: 300})
+		assert len(outcomes) == 2 && shipped(outcomes)
+		assert len(d2.Running) == 0
+		assert order.Orders.Current("a") == order.Sent{S: order.Summary{Customer: "ana", Total: 300, Items: 2}}
+	}
+}
+
+test AnUnpaidOrderIsCancelledAtItsDeadline {
+	with context { order.Orders: memory.New() } {
+		let d, _ = Submit(Open(), place("a"))
+		let d2, early = Advance(d, PayWithin-1)
+		assert len(early) == 0 && len(d2.Running) == 1
+		let d3, late = Advance(d2, 1)
+		assert len(late) == 1 && len(d3.Running) == 0
+		assert order.Orders.Current("a") == order.Void{S: order.Summary{Customer: "ana", Total: 300, Items: 2}, Reason: "unpaid after 30 minutes"}
+	}
+}
+
+test ACancelledOrderEndsItsSaga {
+	with context { order.Orders: memory.New() } {
+		let d, _ = Submit(Open(), place("a"))
+		let d2, _ = Submit(d, order.Cancel{Order: "a", Reason: "changed mind"})
+		assert len(d2.Running) == 0
+		let _, later = Advance(d2, PayWithin)
+		assert len(later) == 0
+	}
+}
+
+// EveryOrderSettles: run a drawn script a minute per command, then let
+// every deadline pass. No order is left open or paid: each is shipped,
+// cancelled, or never placed.
+test EveryOrderSettlesHolds(seed int) {
+	with context { order.Orders: memory.New() } {
+		let mut d = Open()
+		for c in order.Script(seed, 40) {
+			let next, _ = Submit(d, c)
+			let later, _ = Advance(next, 1)
+			d = later
+		}
+		let last, _ = Advance(d, PayWithin)
+		assert len(last.Running) == 0
+		for id in []string{"a", "b"} {
+			match order.Orders.Current(id) {
+			case order.Open, order.Paid:
+				assert false
+			case order.Absent, order.Sent, order.Void:
+			}
+		}
+	}
+}

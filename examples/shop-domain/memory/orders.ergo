@@ -1,0 +1,51 @@
+// Package memory holds an in-memory provider of order.Orders: an event
+// log per order and a snapshot of each order's state, so a command is
+// decided without replaying the order's history.
+
+import shop/order
+
+// Log is the store. A provider keeps state only in a Map field, which
+// every copy of the Log shares (G-ex-b-3): the two maps are its cells.
+type Log { streams Map[string, []order.Event], states Map[string, order.State] }
+
+// New is an empty store.
+func New() Log {
+	Log{streams: Map[string, []order.Event]{}, states: Map[string, order.State]{}}
+}
+
+func History(l Log, id string) []order.Event {
+	match l.streams.Get(id) {
+	case Some[[]order.Event] as s:
+		s.Value
+	case None:
+		[]order.Event{}
+	}
+}
+
+func Current(l Log, id string) order.State {
+	match l.states.Get(id) {
+	case Some[order.State] as s:
+		s.Value
+	case None:
+		order.Absent
+	}
+}
+
+// Send decides c against the snapshot, then appends the events to the
+// order's stream and evolves the snapshot by each of them.
+func Send(l Log, c order.Command) []order.Event fails order.UnknownOrder | order.AlreadyPlaced | order.InvalidLine | order.WrongAmount | order.NotAllowed {
+	let id = order.OrderOf(c)
+	let s = l.Current(id)
+	let events = try order.Decide(s, c)
+	let mut stream = l.History(id)
+	let mut next = s
+	for e in events {
+		stream = stream.Append(e)
+		next = order.Evolve(next, e)
+	}
+	let mut streams = l.streams
+	let mut states = l.states
+	streams[id] = stream
+	states[id] = next
+	events
+}

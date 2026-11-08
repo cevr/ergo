@@ -1,0 +1,48 @@
+import strings
+
+// BadLine is a line of a table that is not a job: its number, from 1, its
+// text, and why.
+type BadLine { Line int, Text string, Reason string }
+
+// ParseTable reads a table of jobs, one per line: an expression (five
+// fields or a macro), then the job's name, the rest of the line. A blank
+// line, and a line that starts with #, is no job.
+func ParseTable(text string) []Job fails BadLine {
+	let mut jobs = []Job{}
+	for i, raw in strings.Split(text, "\n") {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let words = strings.Fields(line)
+		let n = if strings.HasPrefix(line, "@") { 1 } else { 5 }
+		if len(words) <= n {
+			return BadLine{Line: i + 1, Text: line, Reason: "no job name after the expression"}
+		}
+		let expr = joined(words, 0, n)
+		let e = Parse(expr) catch {
+		case FieldCount as f:
+			return BadLine{Line: i + 1, Text: line, Reason: "\(f.Got) fields, not 5"}
+		case BadValue as b:
+			return BadLine{Line: i + 1, Text: line, Reason: "\(b.Field): no value \(b.Text)"}
+		case OutOfRange as o:
+			return BadLine{Line: i + 1, Text: line, Reason: "\(o.Field): \(o.Value) is not in \(o.Min)-\(o.Max)"}
+		case BadStep as s:
+			return BadLine{Line: i + 1, Text: line, Reason: "\(s.Field): bad step \(s.Text)"}
+		case BadRange as r:
+			return BadLine{Line: i + 1, Text: line, Reason: "\(r.Field): range \(r.From)-\(r.To) ends before it starts"}
+		}
+		jobs = jobs.Append(Job{Name: joined(words, n, len(words)), When: e})
+	}
+	jobs
+}
+
+// joined is words i to j, less j, joined by spaces: a slice has no
+// subslice (G-ex-f-1).
+func joined(words []string, i int, j int) string {
+	let mut out = []string{}
+	for k in i..j {
+		out = out.Append(words[k])
+	}
+	strings.Join(out, " ")
+}

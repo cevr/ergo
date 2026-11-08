@@ -1,0 +1,123 @@
+// Mode is what the game is doing. Title waits for Begin; Playing moves
+// on each Tick; Paused waits for Pause again; Over shows the end until
+// Quit.
+type Mode = Title{Width int, Height int} | Playing{W World} | Paused{W World} | Over{W World, Why Cause}
+
+// Signal is what the game reads: the start, a tick of the clock, a turn,
+// a pause (which also resumes) or quit.
+type Signal = Begin{} | Tick{} | Turn{To Dir} | Pause{} | Quit{}
+
+// Snake is the game as a machine: it starts at the title of a 10 by 8
+// board and moves by Step until Quit is Done with the score.
+type Snake machine[Mode, Signal] {
+	initial: Title{Width: 10, Height: 8},
+	step:    Step,
+}
+
+// Start is the world at the start of a game on a board of w by h cells:
+// a snake of three cells in the middle row, heading right, and food
+// drawn from Random.
+func Start(w int, h int) World needs Random {
+	let y = h / 2
+	let body = []Point{Point{X: 2, Y: y}, Point{X: 1, Y: y}, Point{X: 0, Y: y}}
+	let food = match PlaceFood(w, h, body) {
+	case Some[Point] as p:
+		p.Value
+	case None:
+		Point{X: w - 1, Y: 0}
+	}
+	World{Width: w, Height: h, Body: body, Heading: Right, Moved: Right, Food: food, Score: 0}
+}
+
+// Step is the machine's transition. Quit is Done with the score in every
+// mode. A turn back the way the snake last moved is Reject; a turn the
+// way it already heads is Ignore. Over ignores everything but Quit.
+func Step(m Mode, s Signal) Decision[Mode, int] needs Random {
+	match (m, s) {
+	case (_, Quit):
+		Done[int]{Output: ScoreOf(m)}
+	case (Title as t, Begin):
+		Enter[Mode]{Next: Playing{W: Start(t.Width, t.Height)}}
+	case (Title, _):
+		Ignore
+	case (Playing as p, Tick):
+		Enter[Mode]{Next: Advance(p.W)}
+	case (Playing as p, Turn as t):
+		if Opposite(t.To, p.W.Moved) {
+			return Reject
+		}
+		if Same(t.To, p.W.Heading) {
+			return Ignore
+		}
+		Enter[Mode]{Next: Playing{W: World{..p.W, Heading: t.To}}}
+	case (Playing as p, Pause):
+		Enter[Mode]{Next: Paused{W: p.W}}
+	case (Playing, Begin):
+		Ignore
+	case (Paused as p, Pause):
+		Enter[Mode]{Next: Playing{W: p.W}}
+	case (Paused, Turn):
+		Reject
+	case (Paused, _):
+		Ignore
+	case (Over, _):
+		Ignore
+	}
+}
+
+// Advance is the mode after one tick of w: the head moves one cell the
+// way it heads. Off the board is Over by Wall; onto the body (but the
+// tail, which moves away) is Over by Bitten. Onto the food the snake
+// grows by one, scores one, and new food is drawn; with no free cell left
+// the game is Over by Filled.
+func Advance(w World) Mode needs Random {
+	let head = Toward(w.Body[0], w.Heading)
+	if !Inside(head, w.Width, w.Height) {
+		return Over{W: w, Why: Wall}
+	}
+	let eats = head == w.Food
+	let body = Moved(w.Body, head, eats)
+	if Bites(body) {
+		return Over{W: w, Why: Bitten}
+	}
+	let next = World{..w, Body: body, Moved: w.Heading, Score: if eats { w.Score + 1 } else { w.Score }}
+	if !eats {
+		return Playing{W: next}
+	}
+	match PlaceFood(w.Width, w.Height, body) {
+	case Some[Point] as p:
+		Playing{W: World{..next, Food: p.Value}}
+	case None:
+		Over{W: next, Why: Filled}
+	}
+}
+
+// ScoreOf is the score of the game in m.
+func ScoreOf(m Mode) int {
+	match m {
+	case Title:
+		0
+	case Playing as p:
+		p.W.Score
+	case Paused as p:
+		p.W.Score
+	case Over as o:
+		o.W.Score
+	}
+}
+
+// Next is the mode after the decision d in m.
+func Next(m Mode, d Decision[Mode, int]) Mode {
+	match d {
+	case Enter[Mode] as e:
+		e.Next
+	case Stay[Mode] as s:
+		s.Next
+	case Ignore:
+		m
+	case Reject:
+		m
+	case Done[int]:
+		m
+	}
+}

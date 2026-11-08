@@ -1,0 +1,7 @@
+# The jobs of a small server, in UTC.
+*/20 9-17 * * mon-fri   poll the feed
+30 12 * * *             lunch reminder
+0 0 * * *               rotate the logs
+0 3 1 * *               bill the month
+@weekly                 back up the disk
+0 9 13 * FRI            Friday the 13th, or any 13th, or any Friday

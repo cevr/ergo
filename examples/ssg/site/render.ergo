@@ -1,0 +1,165 @@
+import strings
+
+// Value is what a template variable holds: text, a record of named
+// values, or a list.
+type Value = Text{S string} | Record{Fields Map[string, Value]} | List{Items []Value}
+
+// Scope is the variables a template sees: the page's, then each for's
+// loop variable over them. A Bound hides an outer name; nothing is ever
+// changed in place, so a loop body cannot leak a name.
+type Scope = Top{Vars Map[string, Value]} | Bound{Name string, V Value, Outer Scope}
+
+// Library is the templates an include can name, by name.
+type Library { Templates Map[string, Template] }
+
+// The failures of Render. Each names the template and the line of its tag.
+
+// Unbound is a variable that the scope does not hold.
+type Unbound { Template string, Line int, Name string }
+
+// NotAList is the subject of a for that is not a list.
+type NotAList { Template string, Line int, Name string }
+
+// NotText is a variable printed by {{ }} that holds a list or a record.
+type NotText { Template string, Line int, Name string }
+
+// MissingTemplate is an include of a name that the library has no
+// template of.
+type MissingTemplate { Template string, Line int, Name string }
+
+// IncludeCycle is an include that reaches a template being rendered.
+// Chain is the templates from the first to the one included again.
+type IncludeCycle { Chain []string }
+
+// Render is t over scope, with lib for its includes.
+func Render(lib Library, t Template, scope Scope) string fails Unbound | NotAList | NotText | MissingTemplate | IncludeCycle {
+	try nodes(lib, []string{t.Name}, t.Nodes, scope)
+}
+
+// nodes renders ns of the template at the end of chain, the includes
+// that led to it.
+func nodes(lib Library, chain []string, ns []Node, scope Scope) string fails Unbound | NotAList | NotText | MissingTemplate | IncludeCycle {
+	let name = chain[len(chain)-1]
+	let mut parts = []string{}
+	for n in ns {
+		match n {
+		case Lit as l:
+			parts = parts.Append(l.Text)
+		case Var as v:
+			let text = try textOf(name, v.Line, v.Path, try lookup(name, v.Line, scope, v.Path))
+			parts = parts.Append(if v.Raw { text } else { Escape(text) })
+		case Each as e:
+			match try lookup(name, e.Line, scope, e.Over) {
+			case List as l:
+				for item in l.Items {
+					parts = parts.Append(try nodes(lib, chain, e.Body, Bound{Name: e.Name, V: item, Outer: scope}))
+				}
+			case Text:
+				return NotAList{Template: name, Line: e.Line, Name: strings.Join(e.Over, ".")}
+			case Record:
+				return NotAList{Template: name, Line: e.Line, Name: strings.Join(e.Over, ".")}
+			}
+		case When as w:
+			// An if of a name the scope does not hold hides its body, so a
+			// layout can test a field that only some pages have. The catch is
+			// on lookup itself: a catch does not reach a failing argument of a
+			// call (rows.md, Catch 5; G-ex-g-1).
+			let found = lookup(name, w.Line, scope, w.Path) catch {
+			case Unbound:
+				Text{S: ""}
+			}
+			if truthy(found) {
+				parts = parts.Append(try nodes(lib, chain, w.Body, scope))
+			}
+		case Include as inc:
+			for c in chain {
+				if c == inc.Name {
+					return IncludeCycle{Chain: chain.Append(inc.Name)}
+				}
+			}
+			let t = match lib.Templates.Get(inc.Name) {
+			case Some[Template] as found:
+				found.Value
+			case None:
+				return MissingTemplate{Template: name, Line: inc.Line, Name: inc.Name}
+			}
+			parts = parts.Append(try nodes(lib, extend(chain, inc.Name), t.Nodes, scope))
+		}
+	}
+	strings.Join(parts, "")
+}
+
+// extend is chain and then name, in a new slice: Append may share the
+// array of chain with a sibling include (G-ex-d-14).
+func extend(chain []string, name string) []string {
+	let mut out = []string{}
+	for c in chain {
+		out = out.Append(c)
+	}
+	out.Append(name)
+}
+
+// lookup is the value at path in scope: its first name in the innermost
+// binding, then each later name as a field of a record.
+func lookup(template string, line int, scope Scope, path []string) Value fails Unbound {
+	let mut v = try find(template, line, scope, path[0])
+	for i in 1..len(path) {
+		match v {
+		case Record as r:
+			match r.Fields.Get(path[i]) {
+			case Some[Value] as f:
+				v = f.Value
+			case None:
+				return Unbound{Template: template, Line: line, Name: strings.Join(path, ".")}
+			}
+		case Text:
+			return Unbound{Template: template, Line: line, Name: strings.Join(path, ".")}
+		case List:
+			return Unbound{Template: template, Line: line, Name: strings.Join(path, ".")}
+		}
+	}
+	v
+}
+
+// find is the value of name in scope.
+func find(template string, line int, scope Scope, name string) Value fails Unbound {
+	match scope {
+	case Bound as b:
+		if b.Name == name {
+			return b.V
+		}
+		try find(template, line, b.Outer, name)
+	case Top as t:
+		match t.Vars.Get(name) {
+		case Some[Value] as v:
+			v.Value
+		case None:
+			Unbound{Template: template, Line: line, Name: name}
+		}
+	}
+}
+
+// textOf is the text of v, which {{ }} prints.
+func textOf(template string, line int, path []string, v Value) string fails NotText {
+	match v {
+	case Text as t:
+		t.S
+	case Record:
+		NotText{Template: template, Line: line, Name: strings.Join(path, ".")}
+	case List:
+		NotText{Template: template, Line: line, Name: strings.Join(path, ".")}
+	}
+}
+
+// truthy reports whether an if shows its body for v: text that is not
+// empty, a list that is not empty, and every record.
+func truthy(v Value) bool {
+	match v {
+	case Text as t:
+		t.S != ""
+	case List as l:
+		len(l.Items) > 0
+	case Record:
+		true
+	}
+}

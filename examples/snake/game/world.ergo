@@ -1,0 +1,114 @@
+// Package game is the domain of snake: the board, the snake, its food
+// and the machine that moves them one signal at a time. It is pure but
+// for the food: a new food cell is drawn from Random, so a seeded Random
+// replays a game exactly.
+
+// Point is a cell of the board: X from 0 at the left, Y from 0 at the top.
+type Point { X int, Y int }
+
+// Dir is a direction the snake can head.
+type Dir = Up{} | Down{} | Left{} | Right{}
+
+// World is one moment of a game. Body is the snake, head first. Heading
+// is where the next tick moves the head; Moved is where the last tick
+// moved it, so two turns between two ticks cannot reverse the snake into
+// its own neck.
+type World { Width int, Height int, Body []Point, Heading Dir, Moved Dir, Food Point, Score int }
+
+// Cause is why a game ended: the head left the board, the head met the
+// body, or the snake fills the board.
+type Cause = Wall{} | Bitten{} | Filled{}
+
+// Toward is the cell next to p in the direction d.
+func Toward(p Point, d Dir) Point {
+	match d {
+	case Up:
+		Point{X: p.X, Y: p.Y - 1}
+	case Down:
+		Point{X: p.X, Y: p.Y + 1}
+	case Left:
+		Point{X: p.X - 1, Y: p.Y}
+	case Right:
+		Point{X: p.X + 1, Y: p.Y}
+	}
+}
+
+// Opposite reports whether a and b point opposite ways.
+func Opposite(a Dir, b Dir) bool {
+	match (a, b) {
+	case (Up, Down), (Down, Up), (Left, Right), (Right, Left):
+		true
+	case (_, _):
+		false
+	}
+}
+
+// Same reports whether a and b are one direction.
+func Same(a Dir, b Dir) bool {
+	match (a, b) {
+	case (Up, Up), (Down, Down), (Left, Left), (Right, Right):
+		true
+	case (_, _):
+		false
+	}
+}
+
+// Inside reports whether p is a cell of a board of w by h cells.
+func Inside(p Point, w int, h int) bool { p.X >= 0 && p.Y >= 0 && p.X < w && p.Y < h }
+
+// Holds reports whether body has a segment at p.
+func Holds(body []Point, p Point) bool {
+	for b in body {
+		if b == p {
+			return true
+		}
+	}
+	false
+}
+
+// Free is every cell of a board of w by h cells that body does not hold,
+// row by row from the top left.
+func Free(w int, h int, body []Point) []Point {
+	let mut out = []Point{}
+	for y in 0..h {
+		for x in 0..w {
+			let p = Point{X: x, Y: y}
+			if !Holds(body, p) {
+				out = out.Append(p)
+			}
+		}
+	}
+	out
+}
+
+// PlaceFood is a free cell of the board drawn from Random, or None when
+// the snake fills the board.
+func PlaceFood(w int, h int, body []Point) Option[Point] needs Random {
+	let free = Free(w, h, body)
+	if len(free) == 0 {
+		return None
+	}
+	Some[Point]{Value: free[Random.IntN(len(free))]}
+}
+
+// Moved is body with its head at head: the head first, then every
+// segment, less the last unless grow.
+func Moved(body []Point, head Point, grow bool) []Point {
+	let mut out = []Point{head}
+	let keep = if grow { len(body) } else { len(body) - 1 }
+	for i in 0..keep {
+		out = out.Append(body[i])
+	}
+	out
+}
+
+// Bites reports whether the head of body is on another of its segments.
+// It indexes from 1: a slice has no subslice form (G-ex-f-1).
+func Bites(body []Point) bool {
+	for i in 1..len(body) {
+		if body[i] == body[0] {
+			return true
+		}
+	}
+	false
+}

@@ -1,0 +1,49 @@
+// snake is the snake game on a terminal. By default it reads one line of
+// keys per tick from standard input, so a game replays from a file; with
+// -live it ticks every -tick milliseconds on the host's clock and reads
+// keys as they come, a line at a time. The food is drawn from a Random
+// seeded with -seed, so one seed and one input play one game. This binary
+// is the only place that chooses the providers: the host's standard
+// streams, clock and arguments, and the seeded Random.
+
+import flag
+import snake/game
+import io
+import os
+import rand
+import snake/play
+
+let seedFlag = flag.Int("seed", 1, "the seed of the food")
+let liveFlag = flag.Bool("live", false, "tick on the clock and read keys as they come")
+let tickFlag = flag.Int("tick", 150, "the `milliseconds` of a tick with -live")
+let widthFlag = flag.Int("width", 10, "the board's width in cells")
+let heightFlag = flag.Int("height", 8, "the board's height in cells")
+let set = flag.Set{Name: "snake", Usage: "keys: b begins, w a s d turn, p pauses, q quits", Flags: []flag.Flag{seedFlag, liveFlag, tickFlag, widthFlag, heightFlag}, Args: []flag.ArgSpec{}}
+
+// run plays one game on args and prints its score.
+func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | Scheduler {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	let w = widthFlag.Get(v)
+	let h = heightFlag.Get(v)
+	if w < 4 || h < 2 || w > 60 || h > 30 {
+		return os.Exit{Code: 2, Message: "snake: the board is 4 to 60 cells wide and 2 to 30 high"}
+	}
+	with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+		let last = if liveFlag.Get(v) {
+			play.Live(w, h, duration(int64(tickFlag.Get(v))*1000000))
+		} else {
+			play.Script(game.Title{Width: w, Height: h})
+		}
+		io.Stdout.Println("final score \(game.ScoreOf(last))")
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost(), io.Stdout: io.NewHost(), Scheduler: NewLiveScheduler() } {
+		try run(os.Process.Args())
+	}
+}
