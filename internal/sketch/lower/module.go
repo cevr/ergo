@@ -164,7 +164,7 @@ type lowerer struct {
 	libs     []*check.Package         // the libraries the program reaches (libraries)
 	libsDone bool
 	stdSrc   map[syntax.Node]stdFile // each node of a reached std package's files (locate)
-	initPkgs []*check.Package // the sourced libraries in initialization order
+	initPkgs []*check.Package        // the sourced libraries in initialization order
 
 	names    *namer // the Go package scope
 	pkgNames map[pkgKey]string
