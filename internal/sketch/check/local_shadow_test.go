@@ -38,6 +38,7 @@ func TestLocalShadowsPackageType(t *testing.T) {
 		// pattern stays a type test.
 		{"package-let", "let rec = rec{n: 1}\n", []string{"S108@12:5"}},
 		{"package-let-pattern", "let (rec, x) = (rec{n: 1}, 2)\n\nfunc f() int { x }\n", nil},
+		{"package-let-pattern-test", "let (rec, x) = (5, 2)\n\nfunc f() int { x }\n", []string{"S108@12:6"}},
 		// `error` is a universe type and no prelude name: a let of it still
 		// tests the type.
 		{"universe-error", "func f() int {\n\tlet error = 1\n\t0\n}\n", []string{"S108@13:6"}},
