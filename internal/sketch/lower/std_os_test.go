@@ -212,7 +212,7 @@ func runWithEnv(t *testing.T, exe string, env []string, args ...string) (string,
 	cmd.Env = append(cmd.Env, env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runProgram(t, cmd)
 	code := 0
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

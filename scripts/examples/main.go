@@ -5,8 +5,9 @@
 //
 //	go run ./scripts/examples [flags] [PROGRAM...]
 //
-// It imports the standard library and, for the law check (laws.go), the
-// checker's front end: the gate needs only Go and Git.
+// It imports the standard library, internal/proclimit for the memory limit
+// of the programs it runs, and, for the law check (laws.go), the checker's
+// front end: the gate needs only Go and Git.
 package main
 
 import (
@@ -23,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ergo.local/prototype/internal/proclimit"
 )
 
 func main() {
@@ -66,6 +69,10 @@ type config struct {
 	check   bool
 	lawless bool
 	names   []string
+	// memory is the limit of each built program a case runs: ERGO_PROGRAM_MEMORY,
+	// 2 GiB by default (internal/proclimit; docs/tooling.md, "Test memory").
+	// `ergo test` reads the same variable for the test binaries it runs.
+	memory uint64
 }
 
 type program struct {
@@ -181,6 +188,11 @@ func parseFlags(args []string, stderr io.Writer) (*config, error) {
 	if cfg.timeout <= 0 {
 		return nil, usageError("-timeout must be positive")
 	}
+	memory, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
+	if err != nil {
+		return nil, usageError(err.Error())
+	}
+	cfg.memory = memory
 	root, err := filepath.Abs(cfg.root)
 	if err != nil {
 		return nil, err
@@ -605,7 +617,7 @@ func (r *runner) finish() int {
 // tool runs a compiler command from the root with the runner's environment
 // and empty input, in its own process group.
 func (r *runner) tool(timeout time.Duration, args ...string) (outcome, error) {
-	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout)
+	return r.live.execute(append([]string{r.cfg.ergo}, args...), r.cfg.root, os.Environ(), "", timeout, 0)
 }
 
 // toolFailed prints the failure of a compiler leg (fmt or build) and counts
@@ -691,7 +703,7 @@ func (r *runner) recordProgram(p *program) {
 		// stayed within the cap and ended by itself: execCase fails a case
 		// whose command could not start, and output over the cap, a timeout
 		// or a signal records nothing.
-		o, ok := r.execCase(p, c, command)
+		o, ok := r.execCase(p, c, command, 0)
 		if !ok {
 			continue
 		}
@@ -748,8 +760,9 @@ func writeGoldens(dir string, o outcome) error {
 // execCase runs one case's setup.sh and command in a fresh empty directory.
 // It prints a FAIL line and returns false when the case could not run: its
 // directory, its setup.sh or its command could not start, or setup.sh failed.
-// So an outcome it returns is always of a command that started.
-func (r *runner) execCase(p *program, c *testCase, command []string) (outcome, bool) {
+// So an outcome it returns is always of a command that started. The command
+// runs under the memory limit memory (0: none).
+func (r *runner) execCase(p *program, c *testCase, command []string, memory uint64) (outcome, bool) {
 	work, err := r.live.makeDir("", "ergo-case-")
 	if err != nil {
 		fmt.Fprintf(r.out, "FAIL %s/%s: make its directory: %v\n", p.name, c.name, err)
@@ -763,7 +776,7 @@ func (r *runner) execCase(p *program, c *testCase, command []string) (outcome, b
 	}
 	env = append(env, c.env...)
 	if c.setup {
-		o, err := r.live.execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, work, env, "", r.cfg.timeout)
+		o, err := r.live.execute([]string{"sh", filepath.Join(c.dir, "setup.sh"), c.dir}, work, env, "", r.cfg.timeout, 0)
 		if err != nil || !o.passed() {
 			what := fmt.Sprintf("setup.sh exit %d", o.status)
 			switch {
@@ -782,7 +795,7 @@ func (r *runner) execCase(p *program, c *testCase, command []string) (outcome, b
 			return outcome{}, false
 		}
 	}
-	o, err := r.live.execute(append(slices.Clone(command), c.args...), work, env, c.stdin, r.cfg.timeout)
+	o, err := r.live.execute(append(slices.Clone(command), c.args...), work, env, c.stdin, r.cfg.timeout, memory)
 	if err != nil {
 		fmt.Fprintf(r.out, "FAIL %s/%s: could not start: %v\n", p.name, c.name, err)
 		r.fail(p.name + "/" + c.name)
@@ -792,13 +805,25 @@ func (r *runner) execCase(p *program, c *testCase, command []string) (outcome, b
 }
 
 // runCase runs one case and compares its streams and status with the goldens.
+// budgeted marks the built program, which also runs under the memory limit;
+// a port's original (record.sh) runs under neither.
 func (r *runner) runCase(p *program, c *testCase, command []string, budgeted bool) {
-	o, ok := r.execCase(p, c, command)
+	var memory uint64
+	if budgeted {
+		memory = r.cfg.memory
+	}
+	o, ok := r.execCase(p, c, command, memory)
 	if !ok {
 		return
 	}
 	r.cases++
 	label := p.name + "/" + c.name
+	if o.limited {
+		fmt.Fprintf(r.out, "FAIL %s: program %s exceeded its memory limit of %s (set %s to change it, 0 for none)\n",
+			label, command[0], proclimit.Format(memory), proclimit.Variable)
+		r.fail(label)
+		return
+	}
 	// Output over the cap replaces every other verdict and prints no diff:
 	// a diff of a near-miss of 1 MiB is the dump the cap exists to stop.
 	if over := o.overCap(); over != "" {
@@ -884,6 +909,9 @@ type outcome struct {
 	signal   string
 	timedOut bool
 	elapsed  time.Duration
+	// limited is a command that failed under a memory limit and whose stderr
+	// holds the Go runtime's out-of-memory report.
+	limited bool
 }
 
 func (o outcome) passed() bool {
@@ -931,7 +959,9 @@ const streamDelay = time.Second
 // It returns an error, and no outcome, when the command could not start: its
 // stdin cannot be opened, its pipes cannot be made, the run is stopping, or
 // the command cannot be started.
-func (l *live) execute(argv []string, dir string, env []string, stdin string, timeout time.Duration) (outcome, error) {
+// A memory limit that is not 0 bounds the command and makes it the first
+// process the kernel's out-of-memory killer stops (proclimit.Start).
+func (l *live) execute(argv []string, dir string, env []string, stdin string, timeout time.Duration, memory uint64) (outcome, error) {
 	input, err := os.Open(os.DevNull)
 	if stdin != "" {
 		input, err = os.Open(stdin)
@@ -957,7 +987,7 @@ func (l *live) execute(argv []string, dir string, env []string, stdin string, ti
 	command.Stdin, command.Stdout, command.Stderr = input, outWrite, errWrite
 	ownGroup(command)
 	started := time.Now()
-	err = l.start(command)
+	err = l.start(command, memory)
 	// The command holds its own copies of the write ends. The runner's go
 	// now, or no reader would ever see the end of a stream.
 	outWrite.Close()
@@ -1016,5 +1046,6 @@ wait:
 	if o.status < 0 {
 		o.signal = signalName(command.ProcessState)
 	}
+	o.limited = memory > 0 && o.status > 0 && bytes.Contains(o.stderr, []byte(proclimit.OutOfMemory))
 	return o, nil
 }

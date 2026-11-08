@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,9 +35,12 @@ func TestSourceAnchorsReachTheGoBinary(t *testing.T) {
 	if out, err := child.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
-	out, err := exec.Command(program).Output()
-	if err != nil || string(out) != source+"|7\n" {
-		t.Fatalf("program reports %q (%v), want %q", out, err, source+"|7\n")
+	run := exec.Command(program)
+	var out bytes.Buffer
+	run.Stdout = &out
+	err := runProgram(t, run)
+	if err != nil || out.String() != source+"|7\n" {
+		t.Fatalf("program reports %q (%v), want %q", out.String(), err, source+"|7\n")
 	}
 	if got := Directive(source, 7, 3); got != "//line "+source+":7:3\n" {
 		t.Fatalf("directive with a column %q", got)

@@ -643,12 +643,12 @@ func TestExecuteReportsAStartFailureAsAnError(t *testing.T) {
 		{"the run is stopping", stopping, []string{"sh", "-c", "exit 0"}, ""},
 	}
 	for _, row := range rows {
-		o, err := row.live.execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second)
+		o, err := row.live.execute(row.argv, dir, os.Environ(), row.stdin, 10*time.Second, 0)
 		if err == nil {
 			t.Errorf("%s: no error; outcome %+v", row.what, o)
 		}
 	}
-	if o, err := newLive().execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second); err != nil || o.status != 4 {
+	if o, err := newLive().execute([]string{"sh", "-c", "exit 4"}, dir, os.Environ(), "", 10*time.Second, 0); err != nil || o.status != 4 {
 		t.Errorf("a command that ran: status %d, error %v; want status 4 and no error", o.status, err)
 	}
 }

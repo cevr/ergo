@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"go/ast"
@@ -1536,7 +1537,11 @@ func i1Live(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
 			probeRan(exe)
-			out, err := exec.CommandContext(ctx, exe).CombinedOutput()
+			run := exec.CommandContext(ctx, exe)
+			var combined bytes.Buffer
+			run.Stdout, run.Stderr = &combined, &combined
+			err := runProgram(t, run)
+			out := combined.Bytes()
 			if ctx.Err() != nil {
 				t.Fatalf("the program did not end within 60s: the stop never reached the frame\n%s", progs[name])
 			}

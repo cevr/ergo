@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/sketch/build"
@@ -34,11 +35,18 @@ func runCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	// A program `ergo run` starts has a memory limit only when
+	// ERGO_PROGRAM_MEMORY sets one (a test that runs `ergo run` sets it), and
+	// keeps the terminal as its stderr.
+	limit, err := proclimit.Limit(os.Environ(), 0)
+	if err != nil {
+		return err
+	}
 	child := exec.Command(output.Path())
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	child.Stdin = os.Stdin
-	return runEntryProcess(child)
+	return runEntryProcess(child, limit, nil)
 }
 
 // buildSource checks the source and builds it to its output: -o, or
@@ -124,11 +132,15 @@ func locateArtifact(path string) (receipt.Location, error) {
 // failure. A program that a forwarded signal ended exits 128 plus the
 // signal number, as a shell reports it (130 for SIGINT, 143 for SIGTERM),
 // which is also the interruption status of docs/spec/runtime.md rule 6.
-func runEntryProcess(child *exec.Cmd) error {
+// The program runs under proclimit's memory limit (0: none) and
+// oom_score_adj; when watch saw the Go runtime report that the limit
+// stopped the program, `ergo` adds one line that names the program and the
+// limit.
+func runEntryProcess(child *exec.Cmd, limit uint64, watch *proclimit.Watcher) error {
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
-	if err := child.Start(); err != nil {
+	if err := proclimit.Start(child, limit); err != nil {
 		return err
 	}
 	done := make(chan error, 1)
@@ -147,6 +159,12 @@ func runEntryProcess(child *exec.Cmd) error {
 				return err
 			}
 			if exited.ExitCode() > 0 {
+				if watch != nil {
+					var limited *proclimit.LimitError
+					if errors.As(proclimit.Check(child.Path, limit, err, watch.Stderr()), &limited) {
+						return exitStatusError{code: exited.ExitCode(), message: "ergo: " + limited.Error()}
+					}
+				}
 				return exitStatusError{code: exited.ExitCode(), handled: true}
 			}
 			if number, ok := signalOf(exited); ok && forwarded[number] {

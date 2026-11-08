@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/internal/proclimit"
 )
 
 // live is what one run owns and must undo on every exit path it controls:
@@ -34,13 +36,15 @@ var errStopping = errors.New("the runner is stopping")
 
 // start starts command, the leader of its own process group, and registers
 // the group in the same critical section.
-func (l *live) start(command *exec.Cmd) error {
+func (l *live) start(command *exec.Cmd, memory uint64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed {
 		return errStopping
 	}
-	if err := command.Start(); err != nil {
+	// Every command, a compiler leg too, is the first process the kernel's
+	// out-of-memory killer stops; memory (0: none) bounds a built program.
+	if err := proclimit.Start(command, memory); err != nil {
 		return err
 	}
 	l.groups[command.Process] = true

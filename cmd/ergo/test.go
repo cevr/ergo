@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
@@ -68,11 +69,19 @@ func testCommand(args []string) error {
 	if opts.seed != "" {
 		childArgs = append(childArgs, "--seed", opts.seed)
 	}
+	// The test binary runs under a memory limit, 2 GiB unless
+	// ERGO_PROGRAM_MEMORY sets another, and its stderr passes through a
+	// watcher, so a test that grows without bound stops early and `ergo`
+	// says which limit stopped it (docs/tooling.md, "Test memory").
+	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
+	if err != nil {
+		return err
+	}
 	child := exec.Command(binary, childArgs...)
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	child.Stdin = os.Stdin
-	return runEntryProcess(child)
+	return runEntryProcess(child, limit, proclimit.Watch(child))
 }
 
 // validSeed reports whether s is a seed the test binary reads: a decimal
