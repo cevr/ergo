@@ -20,27 +20,27 @@
     },
     {
       "id": "effect.test-clock.admitted-fork",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 8, "label": "sleep - does not require passage of wall time"},
       "behavior": "Advancing test program time admits an already-forked sleeper and allows its join without waiting for the requested wall-clock delay.",
-      "limits": "Ergo's TestClock is std time's Manual (std-align S2b), which provides Scheduler and time.Clock. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) starts a task that sleeps 10 hours on a Manual, advances the Manual 11 hours, and waits for the task; the Go test bounds the run to 30 seconds of wall time. Effect's adjust also runs the woken fibers before it returns; Advance wakes the sleepers, and the program reads the task's result with Wait. The program waits until the task is asleep (Sleepers) before it advances. The case lost its earlier evidence with the .ef compiler (#205). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's TestClock is std time's Manual (std-align S2b), which provides Scheduler and time.Clock. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) starts a task that sleeps 10 hours on a Manual, advances the Manual 11 hours, and waits for the task; the Go test bounds the run to 30 seconds of wall time. Effect's adjust also runs the woken fibers before it returns; Advance wakes the sleepers, and the program reads the task's result with Wait. The program waits until the task is asleep (Sleepers) before it advances. The case lost its earlier evidence with the .ef compiler (#205).",
+      "evidence": [{"file": "internal/sketch/lower/std_time_test.go", "test": "TestTimeEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.test-clock.delays-until-adjusted",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 18, "label": "sleep - delays effects until time is adjusted"},
       "behavior": "A sleeper of 10 hours is still asleep after the test clock moves 9 hours, and it ends after the clock moves 11 hours more.",
-      "limits": "On std time's Manual (std-align S2b). Effect polls the fiber; Ergo reads Sleepers (1 after 9 hours) and then waits for the task, and Sleepers is 0 after it ends. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "On std time's Manual (std-align S2b). Effect polls the fiber; Ergo reads Sleepers (1 after 9 hours) and then waits for the task, and Sleepers is 0 after it ends. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it.",
+      "evidence": [{"file": "internal/sketch/lower/std_time_test.go", "test": "TestTimeEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.test-clock.multiple-sleeps",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 31, "label": "sleep - handles multiple sleeps"},
       "behavior": "Two sleepers of 3 hours and 1 hour wake in deadline order: after the clock moves 1 hour only the shorter one has run, and after 4 hours more both have.",
-      "limits": "On std time's Manual (std-align S2b). Effect's sleepers append to one shared string; Ergo's tasks return their parts, and the program joins them in the order the tasks end. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "On std time's Manual (std-align S2b). Effect's sleepers append to one shared string; Ergo's tasks return their parts, and the program joins them in the order the tasks end. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it.",
+      "evidence": [{"file": "internal/sketch/lower/std_time_test.go", "test": "TestTimeEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.timeout.typed-error-policy",
@@ -76,83 +76,83 @@
     },
     {
       "id": "effect.array.sort",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 533, "label": "sort"},
       "behavior": "Sorting by the natural order of numbers gives a new sorted array; an empty array gives an empty one.",
-      "limits": "Ergo's slices.Sort (std-align S2a) is Go's slices.Sort over a copy: it returns a new slice, and the input keeps its order, as Effect's sort does. Ergo has no Set, so the upstream Set inputs have no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the array inputs. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's slices.Sort (std-align S2a) is Go's slices.Sort over a copy: it returns a new slice, and the input keeps its order, as Effect's sort does. Ergo has no Set, so the upstream Set inputs have no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the array inputs.",
+      "evidence": [{"file": "internal/sketch/lower/std_slices_test.go", "test": "TestStdSlicesEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.array.map",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 834, "label": "map"},
       "behavior": "Mapping a function over an array gives the array of its results, in order.",
-      "limits": "Ergo's name is slices.Transform (std-align S2a; Map is the prelude's map type), and its callback takes the element only, so Effect's second case, whose callback takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's name is slices.Transform (std-align S2a; Map is the prelude's map type), and its callback takes the element only, so Effect's second case, whose callback takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case.",
+      "evidence": [{"file": "internal/sketch/lower/std_slices_test.go", "test": "TestStdSlicesEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.array.filter",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 886, "label": "filter"},
       "behavior": "Filtering keeps the elements the predicate accepts, in order: odd numbers of [1, 2, 3], and the present options of a list of options.",
-      "limits": "Ergo's slices.Filter (std-align S2a) takes a predicate of the element only, so Effect's last case, whose predicate takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the other three cases. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's slices.Filter (std-align S2a) takes a predicate of the element only, so Effect's last case, whose predicate takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the other three cases.",
+      "evidence": [{"file": "internal/sketch/lower/std_slices_test.go", "test": "TestStdSlicesEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.array.reduce",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 924, "label": "reduce"},
       "behavior": "Reducing from an initial value applies the function left to right: the strings a, b and c reduce to abc.",
-      "limits": "Ergo's name is slices.Fold (std-align S2a), and its function takes the accumulator and the element only, so Effect's second case, whose function takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's name is slices.Fold (std-align S2a), and its function takes the accumulator and the element only, so Effect's second case, whose function takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case.",
+      "evidence": [{"file": "internal/sketch/lower/std_slices_test.go", "test": "TestStdSlicesEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.random.next-in-unit",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 8, "label": "next - generates a number between 0 inclusive and 1 exclusive"},
       "behavior": "A draw of the next random number is at least 0 and below 1.",
-      "limits": "Ergo's name is Random.Float64 (std-align S2c), after Go's math/rand/v2. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) draws 1000 numbers from the host provider rand.NewHost() and 1000 from rand.Seeded(8), where Effect draws one from its default provider. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's name is Random.Float64 (std-align S2c), after Go's math/rand/v2. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) draws 1000 numbers from the host provider rand.NewHost() and 1000 from rand.Seeded(8), where Effect draws one from its default provider.",
+      "evidence": [{"file": "internal/sketch/lower/std_rand_test.go", "test": "TestRandEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.random.next-boolean-seed",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 25, "label": "nextBoolean - is deterministic with the same seed"},
       "behavior": "Three random booleans drawn under one seed are the same three booleans when the same seed is drawn again.",
-      "limits": "Ergo's Random has no Boolean draw, as Go's math/rand/v2 has none; the program draws Effect's nextBoolean, Random.Float64() > 0.5. Ergo's seed is a uint64 (rand.Seeded(25)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the booleans equal to the reference model, Go's r.Float64() > 0.5 on rand.New(rand.NewPCG(25, v1.RandSeedHi)). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's Random has no Boolean draw, as Go's math/rand/v2 has none; the program draws Effect's nextBoolean, Random.Float64() > 0.5. Ergo's seed is a uint64 (rand.Seeded(25)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the booleans equal to the reference model, Go's r.Float64() > 0.5 on rand.New(rand.NewPCG(25, v1.RandSeedHi)).",
+      "evidence": [{"file": "internal/sketch/lower/std_rand_test.go", "test": "TestRandEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.random.shuffle-copy",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 175, "label": "shuffle - returns a shuffled copy of all values"},
       "behavior": "Shuffling 1, 2, 3, 4, 5 gives the same values in some order, and the input keeps its order.",
-      "limits": "Ergo's rand.Shuffle (std-align S2c) returns a new slice, as Effect's shuffle does. Ergo slices have no reference identity to compare, so Effect's notStrictEqual has no port; the subtest checks that the input is unchanged. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) checks it under rand.Seeded(175) and sorts the output with slices.Sort. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's rand.Shuffle (std-align S2c) returns a new slice, as Effect's shuffle does. Ergo slices have no reference identity to compare, so Effect's notStrictEqual has no port; the subtest checks that the input is unchanged. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) checks it under rand.Seeded(175) and sorts the output with slices.Sort.",
+      "evidence": [{"file": "internal/sketch/lower/std_rand_test.go", "test": "TestRandEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.random.shuffle-seed",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 185, "label": "shuffle - is deterministic with the same seed"},
       "behavior": "Shuffling 1, 2, 3, 4, 5 under one seed gives the same order when the same seed is used again.",
-      "limits": "Ergo's seed is a uint64 (rand.Seeded(185)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the order equal to the reference model, Go's r.Shuffle on rand.New(rand.NewPCG(185, v1.RandSeedHi)). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's seed is a uint64 (rand.Seeded(185)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the order equal to the reference model, Go's r.Shuffle on rand.New(rand.NewPCG(185, v1.RandSeedHi)).",
+      "evidence": [{"file": "internal/sketch/lower/std_rand_test.go", "test": "TestRandEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.random.choice-empty",
-      "status": "pending",
+      "status": "difference",
       "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 209, "label": "choice - fails with NoSuchElementError for an empty iterable"},
       "behavior": "A random choice from an empty collection has no element to give.",
-      "limits": "Difference: Effect's choice fails with NoSuchElementError; Ergo's rand.Choice (std-align S2c) returns Option, and an empty slice gives None, with no failure in its row, as Ergo's slices.Min does. The caller must match None, so the empty case is still handled. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) checks the None, and that the choice draws nothing from the stream. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Difference: Effect's choice fails with NoSuchElementError; Ergo's rand.Choice (std-align S2c) returns Option, and an empty slice gives None, with no failure in its row, as Ergo's slices.Min does. The caller must match None, so the empty case is still handled. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) checks the None, and that the choice draws nothing from the stream.",
+      "evidence": [{"file": "internal/sketch/lower/std_rand_test.go", "test": "TestRandEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.random.choice-seed",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Random.test.ts", "line": 217, "label": "choice - is deterministic with the same seed"},
       "behavior": "Three random choices from 1, 2, 3, 4, 5 under one seed are the same three values when the same seed is used again.",
-      "limits": "Ergo's seed is a uint64 (rand.Seeded(217)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the values equal to the reference model, Go's r.IntN(5) on rand.New(rand.NewPCG(217, v1.RandSeedHi)). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
-      "evidence": []
+      "limits": "Ergo's seed is a uint64 (rand.Seeded(217)), not a string. TestRandEffectCases's subtest of this case (internal/sketch/lower/std_rand_test.go) also holds the values equal to the reference model, Go's r.IntN(5) on rand.New(rand.NewPCG(217, v1.RandSeedHi)).",
+      "evidence": [{"file": "internal/sketch/lower/std_rand_test.go", "test": "TestRandEffectCases", "targets": ["go"]}]
     },
     {
       "id": "effect.semaphore.cancelled-permit",
@@ -332,19 +332,19 @@
     },
     {
       "id": "effect.child-process.kills-pipeline",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/platform/node-shared/test/NodeChildProcessSpawner.test.ts", "line": 75, "label": "kills every process in a pipeline"},
       "behavior": "A stop of the caller of std exec Run ends every process of the program's pipeline, not only the program itself, before the call returns.",
-      "limits": "Pending until this branch has the evidence rule (a subtest named after the case id); the subtest exists: internal/sketch/lower/std_exec_test.go TestExecRuns/effect.child-process.kills-pipeline (an Ergo program stops a task whose exec runs the pipeline). Ergo kills the program's process group; Effect spawns each pipeline stage and kills them by its handle. A process that leaves the group (setsid) is not killed, by design.",
-      "evidence": []
+      "limits": "The subtest TestExecRuns/effect.child-process.kills-pipeline runs an Ergo program that stops a task whose exec runs the pipeline. Ergo kills the program's process group; Effect spawns each pipeline stage and kills them by its handle. A process that leaves the group (setsid) is not killed, by design.",
+      "evidence": [{"file": "internal/sketch/lower/std_exec_test.go", "test": "TestExecRuns", "targets": ["go"]}]
     },
     {
       "id": "effect.queue.poll-option",
-      "status": "pending",
+      "status": "covered",
       "upstream": {"file": "packages/effect/test/Queue.test.ts", "line": 525, "label": "poll returns Option for non-blocking take"},
       "behavior": "std queue Poll takes the front value without waiting: None on an empty queue, Some of the front value otherwise.",
-      "limits": "Pending until this branch has the evidence rule (a subtest named after the case id); the subtest exists: internal/sketch/lower/std_queue_poll_test.go TestQueuePollRuns/effect.queue.poll-option (an Ergo program polls an empty queue, pushes, and polls the front). Ergo's Poll also takes the value of a Push that waits on a capacity-0 queue, and gives None on a closed, empty queue: None does not tell an open queue from a closed one.",
-      "evidence": []
+      "limits": "The subtest TestQueuePollRuns/effect.queue.poll-option runs an Ergo program that polls an empty queue, pushes, and polls the front. Ergo's Poll also takes the value of a Push that waits on a capacity-0 queue, and gives None on a closed, empty queue: None does not tell an open queue from a closed one.",
+      "evidence": [{"file": "internal/sketch/lower/std_queue_poll_test.go", "test": "TestQueuePollRuns", "targets": ["go"]}]
     }
   ]
 }

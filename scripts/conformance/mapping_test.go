@@ -135,15 +135,30 @@ func TestUntrackedEvidenceFails(t *testing.T) {
 
 // committedClaims are the cases the committed mapping proves by a v1 test,
 // each by its test's subtest of the case's name (fu-conf-pending: the rows
-// std-align S1c and S1d added; batch 10: S3a's filepath case). The earlier
-// compiler's evidence tests were deleted with it (#205), so its cases stay
-// pending.
+// std-align S1c and S1d added; batch 10: S3a's filepath case, and the
+// round-2 rows of S2a-S2c and S3c). The earlier compiler's evidence tests
+// were deleted with it (#205), so its cases stay pending.
 var committedClaims = []string{
+	"./internal/sketch/lower TestExecRuns effect.child-process.kills-pipeline",
 	"./internal/sketch/lower TestFilepathRuns effect.path.join-posix",
 	"./internal/sketch/lower TestFlagMatchesGo effect.cli.options-interleaved-with-operands",
+	"./internal/sketch/lower TestQueuePollRuns effect.queue.poll-option",
+	"./internal/sketch/lower TestRandEffectCases effect.random.choice-empty",
+	"./internal/sketch/lower TestRandEffectCases effect.random.choice-seed",
+	"./internal/sketch/lower TestRandEffectCases effect.random.next-boolean-seed",
+	"./internal/sketch/lower TestRandEffectCases effect.random.next-in-unit",
+	"./internal/sketch/lower TestRandEffectCases effect.random.shuffle-copy",
+	"./internal/sketch/lower TestRandEffectCases effect.random.shuffle-seed",
+	"./internal/sketch/lower TestStdSlicesEffectCases effect.array.filter",
+	"./internal/sketch/lower TestStdSlicesEffectCases effect.array.map",
+	"./internal/sketch/lower TestStdSlicesEffectCases effect.array.reduce",
+	"./internal/sketch/lower TestStdSlicesEffectCases effect.array.sort",
 	"./internal/sketch/lower TestStdTextRuns2 effect.number.parse",
 	"./internal/sketch/lower TestStdTextRuns2 effect.string.lines-with-separators",
 	"./internal/sketch/lower TestStdTextRuns2 effect.string.replace-all",
+	"./internal/sketch/lower TestTimeEffectCases effect.test-clock.admitted-fork",
+	"./internal/sketch/lower TestTimeEffectCases effect.test-clock.delays-until-adjusted",
+	"./internal/sketch/lower TestTimeEffectCases effect.test-clock.multiple-sleeps",
 }
 
 // The committed mapping is valid at the repository, and its claims are
@@ -376,7 +391,12 @@ func TestReferenceOnlyCasesCannotBeCalledCoveredWithoutEvidence(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 			bad := copyMapping(value)
-			mappingCase(bad, 4)["status"] = status
+			// Case 5 is a pending case with no evidence (cases 2-4 are
+			// covered since batch 10's S2b rows).
+			if ev, _ := mappingCase(bad, 5)["evidence"].([]any); len(ev) != 0 {
+				t.Fatalf("case 5 %v has evidence; pick a case with none", mappingCase(bad, 5)["id"])
+			}
+			mappingCase(bad, 5)["status"] = status
 			rejectMapping(t, bad)
 		})
 	}
