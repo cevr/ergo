@@ -59,6 +59,31 @@ func VerifierForge() int {
 	}
 }
 
+// TestIsAmbientIsThePrelude pins S106's test of Ambient (fu-ambient-ctor
+// r7): the prelude's Ambient, not another prelude capability, and not a
+// type of another package named Ambient (S108 refuses that name in a
+// program, so the fixture is checked for its type only).
+func TestIsAmbientIsThePrelude(t *testing.T) {
+	if !isAmbient(preludeType("Ambient")) {
+		t.Error("isAmbient(prelude.Ambient) = false")
+	}
+	if isAmbient(preludeType("Console")) {
+		t.Error("isAmbient(prelude.Console) = true")
+	}
+	f, err := syntax.Parse("type Ambient {\n\tMark(),\n}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, _ := Check("fixture", []*syntax.File{f}, nil)
+	tn, ok := pkg.Scope.names["Ambient"].(*TypeName)
+	if !ok {
+		t.Fatal("fixture declares no Ambient")
+	}
+	if isAmbient(tn.Type) {
+		t.Error("isAmbient(fixture.Ambient) = true")
+	}
+}
+
 // TestMintFormNamesEveryKind is the totality guard of Mints
 // (fu-ambient-ctor r6). It reads the syntax package's source: every type
 // with an exprNode method is a kind of expression and every type with a

@@ -117,6 +117,18 @@ func Rebind(a Ambient) int {
 	with c { g() }
 }
 `, []string{ambientEntryText}},
+		// Control of S106's Ambient test: another prelude capability is
+		// bound as before (a program cannot declare its own Ambient: S108,
+		// a prelude name; TestIsAmbientIsThePrelude's).
+		{"N5d control: a prelude capability other than Ambient", `
+type Quiet {}
+
+func Println(_ Quiet, line string) {}
+
+func main() needs Console {
+	with context { Console: Quiet } { Console.Println("x") }
+}
+`, nil},
 		{"N6 a test makes a host", `
 test ReadsHost {
 	let got = with context { fs.Files: fs.NewHost() } { inner("/nonexistent/loop-probe-x") } // want S102
