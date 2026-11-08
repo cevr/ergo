@@ -130,8 +130,8 @@ func (s getShape) arms(ind string) string {
 	default:
 		some = head + "\n" + ind + "\t" + val + " * 3 + 1\n"
 	}
-	nhead := map[string]string{"none": "case None:", "noneAs": "case None as n:", "wild": "case _:", "option": "case Option[int]:", "bind": "case o:"}[s.none]
-	bound := map[string]string{"noneAs": "n", "bind": "o"}[s.none]
+	nhead := map[string]string{"none": "case None:", "noneAs": "case None as n:", "wild": "case _:", "option": "case Option[int]:", "bind": "case opt:"}[s.none]
+	bound := map[string]string{"noneAs": "n", "bind": "opt"}[s.none]
 	switch {
 	case loop && bound != "":
 		none = nhead + "\n" + ind + "\tif " + bound + " == None {\n" + ind + "\t\ttotal = total + 100\n" + ind + "\t}\n" + ind + "\tcontinue\n"
