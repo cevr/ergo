@@ -106,7 +106,7 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 // needs statements of its own is evaluated in the else branch of the
 // previous condition, never before it.
 func (fc *funcCtx) ifYield(s *syntax.IfStmt, d dest) bool {
-	cond := fc.value(s.Cond)
+	cond := fc.headerValue(s.Cond)
 	fc.line("if " + cond + " {")
 	fc.depth++
 	then := fc.yieldList(s.Body.List, d)

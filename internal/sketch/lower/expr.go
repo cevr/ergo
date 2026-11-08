@@ -220,8 +220,15 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	return ""
 }
 
-// expr lowers x.
+// expr lowers x; in a statement header, a composite literal value is
+// parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
+	o := fc.exprOf(x)
+	o.val = fc.guardHeader(o.val)
+	return o
+}
+
+func (fc *funcCtx) exprOf(x syntax.Expr) operand {
 	if v, ok := fc.l.info.Values[x]; ok {
 		return operand{val: fc.constant(fc.typeOf(x), v, x)}
 	}
