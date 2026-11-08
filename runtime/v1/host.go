@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -303,7 +304,7 @@ func IOPrint(text string) {
 	_, _ = os.Stdout.WriteString(text)
 }
 
-// IOEprint is the body of io.Errors' Print: text on standard error, as it
+// IOEprint is the body of io.Errors' Eprint: text on standard error, as it
 // is, in one write.
 func IOEprint(text string) {
 	_, _ = os.Stderr.WriteString(text)
@@ -316,13 +317,10 @@ func IOIsTerminal() bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// IOReadAll is the body of io.Host's ReadAll: the rest of standard input.
+// IOReadAll is the body of io.Host's ReadAll: the rest of standard input,
+// from where the last read stopped.
 func IOReadAll() (string, error) {
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		return "", ReadFailed{Reason: fsReason(err)}
-	}
-	return string(data), nil
+	return stdinReader().readAll()
 }
 
 // IOLines is the body of io.Host's Lines: the rest of standard input, one
@@ -330,16 +328,67 @@ func IOReadAll() (string, error) {
 // feed is a line. A line has no length limit (bufio.Reader, not
 // bufio.Scanner). A read failure other than the end of the input panics:
 // a Seq has no failure row, and ending it early would hide the failure.
+// A break leaves the rest of the input in the shared reader for the next
+// read.
 func IOLines() iter.Seq[string] {
-	return linesOf(os.Stdin)
+	return stdinReader().lines()
 }
 
-// linesOf is the lines of r, as IOLines gives them.
-func linesOf(r io.Reader) iter.Seq[string] {
+// lineReader is one buffered reader that every read of its input goes
+// through, so a read starts where the one before it stopped: the bytes
+// that the buffer read ahead stay for the next read. Its lock makes each
+// read whole when two tasks read at once.
+type lineReader struct {
+	mu sync.Mutex
+	br *bufio.Reader
+}
+
+func newLineReader(r io.Reader) *lineReader {
+	return &lineReader{br: bufio.NewReader(r)}
+}
+
+// stdin is the process's one lineReader over os.Stdin, and stdinFile the
+// os.Stdin it reads. A Go test that sets os.Stdin to a new file gets a new
+// reader; a program never sets it.
+var (
+	stdinMu   sync.Mutex
+	stdin     *lineReader
+	stdinFile *os.File
+)
+
+// stdinReader is the shared reader of standard input.
+func stdinReader() *lineReader {
+	stdinMu.Lock()
+	defer stdinMu.Unlock()
+	if stdin == nil || stdinFile != os.Stdin {
+		stdin, stdinFile = newLineReader(os.Stdin), os.Stdin
+	}
+	return stdin
+}
+
+// readAll is the rest of the input.
+func (l *lineReader) readAll() (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	data, err := io.ReadAll(l.br)
+	if err != nil {
+		return "", ReadFailed{Reason: fsReason(err)}
+	}
+	return string(data), nil
+}
+
+// readLine is the next line with its line feed, if it has one.
+func (l *lineReader) readLine() (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.br.ReadString('\n')
+}
+
+// lines is the rest of the input, as IOLines gives it.
+func (l *lineReader) lines() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		br := bufio.NewReader(r)
 		for {
-			line, err := br.ReadString('\n')
+			line, err := l.readLine()
 			if err != nil && err != io.EOF {
 				panic("io.Stdin.Lines: " + err.Error())
 			}
