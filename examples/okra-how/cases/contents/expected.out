@@ -1,0 +1,11 @@
+okra — AI agent orchestration toolkit
+
+Topics:
+  schedule  AI agent task scheduler via macOS launchd.
+  counsel   Route a prompt to the opposite local coding agent.
+  repo      Multi-registry source code cache manager CLI.
+  skills    Manage AI agent skills installed in $SKILLS_DIR (defaults to ~/Developer/personal/dotfiles/skills).
+  image     Generate images from text prompts with GPT Image 2.5 Flare or Sunburst.
+  keys      Manage stored API keys for okra (the shared ~/.okra/keys.json secret store).
+
+Run `okra how <topic>` for the full guide.

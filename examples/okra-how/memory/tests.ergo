@@ -1,0 +1,47 @@
+// Shelf keeps the how.Library laws. The compiler checks laws and does not
+// run them yet (#162); until it does, these tests run each law's check
+// against a Shelf.
+
+import okra/how
+import slices
+
+let guides = Shelf{Entries: []Entry{Entry{Name: "repo", Text: "---\ndescription: Fetch code.\n---\nrepo body"}, Entry{Name: "keys", Text: "keys body"}}}
+
+test ShelfNamesEachTopicOnce {
+	with context { how.Library: guides } {
+		assert how.NamedOnce(how.Library.Names())
+		assert slices.Equal(how.Library.Names(), []string{"repo", "keys"})
+	}
+}
+
+test ShelfGuideIsRepeatable(name string) {
+	with context { how.Library: guides } {
+		for n in []string{"repo", "keys", name} {
+			let first = how.Library.Guide(n) catch {
+			case how.Unreadable:
+				"unreadable"
+			}
+			let second = how.Library.Guide(n) catch {
+			case how.Unreadable:
+				"unreadable"
+			}
+			assert first == second
+		}
+	}
+}
+
+test ShelfLoadsACatalogue {
+	with context { how.Library: guides } {
+		let c = try how.Load()
+		let t = try c.Find("repo")
+		assert t.Summary == "Fetch code." && t.Body == "repo body"
+	}
+}
+
+test MissingGuideIsUnreadable {
+	let text = guides.Guide("nosuch") catch {
+	case how.Unreadable as u:
+		u.Name
+	}
+	assert text == "nosuch"
+}
