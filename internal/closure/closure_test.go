@@ -175,10 +175,15 @@ var declared = map[string][]allowance{
 		// git reads the repository's metadata. In a worktree .git is a file
 		// that names a git directory outside the checkout; in a clone (the
 		// merge tier's export, scripts/gate exportCommit) .git is that
-		// directory, and git reads HEAD, config, commondir, the index and
-		// the refs and objects below it at depths that follow the refs'
-		// layout, so only a subtree gives both layouts one verdict
-		// (TestGitMetadataVerdictIsTheLayoutsOwn).
+		// directory, and git reads HEAD, config, commondir and the index in
+		// it and stats objects and refs: one level below .git, measured in
+		// the merge tier's detached export (no deeper read was measured in
+		// any layout; b9-fix-gate round-3 findings). The grants have no
+		// kind for a directory with its direct entries, and .git with
+		// .git/* fails the unused-entry rule in a worktree, so a subtree is
+		// the narrowest grant that gives both layouts one verdict
+		// (TestGitMetadataVerdictIsTheLayoutsOwn; follow-up: an entries
+		// grant, round-3 findings O2).
 		{".git", subtree, "the mapping asks git whether evidence is tracked (git ls-files reads .git, a file in a worktree and the repository's metadata directory in a clone)"},
 		{"internal/sketch/lower/*_test.go", files, "the mapping parses each evidence test file to find the subtest of its case (fu-conf-pending); every evidence file is a test of the lowering today"},
 	},
