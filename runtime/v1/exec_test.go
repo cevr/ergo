@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -34,8 +35,8 @@ import (
 // caller stopped before the call starts nothing. The invariants, after each
 // call: the program itself is reaped (its pid names no process: Run waited
 // for it, so no zombie of it is left either), and no process of its group
-// runs (each pid in its file names no process, or a zombie that the host
-// reaps, which runs no code). The test sends no signal: it reads /proc, and
+// is left (each pid in its file names no process, not even a zombie: Run
+// waited until the host reaped them). The test sends no signal: it reads /proc, and
 // only for pids its own programs wrote.
 
 // execOutcome is the model's end state of one case.
@@ -183,49 +184,32 @@ func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupt
 	}
 }
 
-// procAlive reports whether pid names a process of the group pgid that
-// runs: one with an entry in /proc whose state is not Z (a zombie runs no
-// code) and whose process group is pgid. The generated programs never
-// leave their group, so a pid in another group is a new process that the
-// host gave a freed pid (this host's pids wrap at 4194304), not one of
-// ours.
-func procAlive(pid, pgid int) bool {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return false
-	}
-	// After the parenthesized command name: state, ppid, pgrp.
-	s := string(data)
-	i := strings.LastIndexByte(s, ')')
-	if i < 0 {
-		// An empty read: /proc gives no text for a process that is being
-		// torn down (measured: the entry is gone at the next read).
-		return false
-	}
-	f := strings.Fields(s[i+1:])
-	return len(f) >= 3 && f[0] != "Z" && f[2] == strconv.Itoa(pgid)
-}
-
 // procLine is the stat line of pid, for a failure message.
 func procLine(pid int) string {
 	data, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	return strings.TrimSpace(string(data))
 }
 
-// procExists reports whether pid has an entry in /proc, a zombie included,
-// in the group pgid (see procAlive for a pid in another group).
+// procExists reports whether pid names a process of the group pgid: one
+// with an entry in /proc, a zombie or a process the kernel is ending
+// included. An entry that gives no text (the kernel is tearing the
+// process down) exists: the round-1 test read it as gone, and then saw
+// the same process run 22µs later. The generated programs never leave
+// their group, so a pid in another group is a new process that the host
+// gave a freed pid (this host's pids wrap at 4194304), not one of ours.
 func procExists(pid, pgid int) bool {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
+	// After the parenthesized command name: state, ppid, pgrp.
 	s := string(data)
 	i := strings.LastIndexByte(s, ')')
-	if i < 0 {
-		return false // an empty read: the entry is being torn down (procAlive)
+	if err != nil || i < 0 {
+		return true
 	}
 	f := strings.Fields(s[i+1:])
-	return len(f) >= 3 && f[2] == strconv.Itoa(pgid)
+	return len(f) < 3 || f[2] == strconv.Itoa(pgid)
 }
 
 // readPids is the pids a program wrote to its pid file, the program's own
@@ -307,16 +291,10 @@ func TestExecStopModel(t *testing.T) {
 			t.Errorf("%s\nRun returned and the program %d is not reaped", where, pids[0])
 		}
 		for _, pid := range pids[1:] {
-			// Run sent the group SIGKILL before it returned, and a process
-			// with a pending SIGKILL never runs its own code again; the
-			// host takes a moment to end it, so the check waits up to 2s.
-			start := time.Now()
-			gone := start.Add(2 * time.Second)
-			for procAlive(pid, pids[0]) && time.Now().Before(gone) {
-				time.Sleep(time.Millisecond)
-			}
-			if procAlive(pid, pids[0]) {
-				t.Errorf("%s\nRun returned and the grandchild %d of group %d still runs %v later: %s", where, pid, pids[0], time.Since(start), procLine(pid))
+			// Run waited until the group was empty (execEndGroup), so the
+			// check reads /proc once, at once, and a zombie fails it too.
+			if procExists(pid, pids[0]) {
+				t.Errorf("%s\nRun returned and the grandchild %d of group %d is left: %q", where, pid, pids[0], procLine(pid))
 			}
 		}
 	}

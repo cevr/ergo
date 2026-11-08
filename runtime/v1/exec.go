@@ -31,8 +31,10 @@ import (
 //     of the group, and the caller's exit actions run after the child is
 //     gone. Inside a masked region the task's Done is nil, so the wait is
 //     uninterruptible (I2) and the program runs to its end.
-//   - When the program exits, Run kills what is left of its group, so a
-//     call leaves no process of the group in either case. When a process
+//   - When the program exits, Run kills what is left of its group. In
+//     either case Run then waits until the host has ended and reaped each
+//     process of the group (execEndGroup, at most execReapWait), so a call
+//     leaves no process of the group, not even a zombie. When a process
 //     left in the group holds stdout or stderr open, Run reads the output
 //     for at most execWaitDelay after the exit, then closes it and returns
 //     the program's status with the output read so far. A program that
@@ -131,6 +133,7 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 		// exists while one of them is unreaped.
 		_ = syscall.Kill(-group, syscall.SIGKILL)
 		<-done
+		execEndGroup(group)
 		panic(rt.Interrupted)
 	}
 	_ = err // the status is in cmd.ProcessState; ErrWaitDelay and *ExitError carry nothing more
@@ -140,8 +143,34 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 	// in the instant since the reap, the kernel gave the program's pid to
 	// a new process that made itself a group leader (guess: unreachable in
 	// practice, since pids are reused only after the counter wraps).
-	_ = syscall.Kill(-group, syscall.SIGKILL)
+	execEndGroup(group)
 	return ExecResult{Status: execStatus(cmd.ProcessState), Stdout: stdout.String(), Stderr: stderr.String()}, nil
+}
+
+// execReapWait bounds how long Run waits, after it kills the group, for the
+// host to end and reap the processes that were left in it.
+const execReapWait = 500 * time.Millisecond
+
+// execEndGroup kills each process left in the group and waits until the
+// group is empty. SIGKILL only marks a process: the kernel ends it later,
+// and its new parent (the host's reaper, as the program that started it
+// is reaped) then reaps it. A process exists, and keeps the group's id,
+// until it is reaped, so kill(-group, 0) fails with ESRCH exactly when no
+// process of the group is left, zombies included (measured on Linux: a
+// SIGKILLed grandchild was still in the run state 22µs after a kill that
+// did not wait). The wait is bounded by execReapWait for a host whose
+// reaper is slow or a process the kernel cannot end at once (one in an
+// uninterruptible wait); each such process has SIGKILL pending and runs
+// no code of its own again. When the group is already empty, the first
+// kill fails with ESRCH and the call does not wait.
+func execEndGroup(group int) {
+	if syscall.Kill(-group, syscall.SIGKILL) != nil {
+		return // ESRCH: no process of the group is left
+	}
+	deadline := time.Now().Add(execReapWait)
+	for pause := 20 * time.Microsecond; syscall.Kill(-group, 0) == nil && time.Now().Before(deadline); pause = min(2*pause, 2*time.Millisecond) {
+		time.Sleep(pause)
+	}
 }
 
 // execStatus is the exit status of a program that ended: its exit code, or
