@@ -762,6 +762,8 @@ func Push(_ Mine, v int) fails queue.Closed {}
 func Pop(_ Mine) int fails queue.Closed { 0 }
 func Close(_ Mine) {}
 func Values(_ Mine) Seq[int] { queue.New[int](0).Values() }
+func Poll(_ Mine) Option[int] { None }
+func Len(_ Mine) int { 0 }
 func use(q queue.Queue[int]) { q.Close() }
 func main() needs Console {
 	use(Mine)

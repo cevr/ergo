@@ -277,6 +277,14 @@ func Close(_ Mine) {}
 func Values(_ Mine) Seq[int] {
 	queue.New[int](0).Values()
 }
+
+func Poll(_ Mine) Option[int] {
+	None
+}
+
+func Len(_ Mine) int {
+	0
+}
 `
 
 // sealedPrograms holds, for each operation type of std and the prelude, a
