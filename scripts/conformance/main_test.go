@@ -70,7 +70,7 @@ func hermeticGitEnv(extra ...string) []string {
 
 func fixtureGit(t *testing.T, repository string, args ...string) string {
 	t.Helper()
-	command := exec.Command("git", append(append(slices.Clone(fixtureGitConfig), "-C", repository), args...)...)
+	command := exec.Command("git", append([]string{"--no-optional-locks", "-C", repository}, append(slices.Clone(fixtureGitConfig), args...)...)...)
 	command.Env = hermeticGitEnv()
 	output, err := command.Output()
 	if err != nil {

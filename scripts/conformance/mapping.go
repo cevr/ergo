@@ -253,7 +253,7 @@ func validateMapping(mapping map[string]any, root string) ([]evidenceTest, []evi
 // requireTracked refuses a repository-relative file that Git does not track
 // in root, so an untracked local test cannot stand as evidence.
 func requireTracked(root, file string) error {
-	command := exec.Command("git", "-C", root, "ls-files", "--error-unmatch", "--", file)
+	command := exec.Command("git", "--no-optional-locks", "-C", root, "ls-files", "--error-unmatch", "--", file)
 	if output, err := command.CombinedOutput(); err != nil {
 		if message := strings.TrimSpace(string(output)); message != "" {
 			return errors.New(message)

@@ -37,6 +37,10 @@ var Names = []string{
 	"GOTELEMETRYDIR", "GOTMPDIR", "GOTOOLCHAIN", "GOVCS", "GOWORK",
 	// The Go runtime's, which every Go program reads at startup.
 	"GODEBUG", "GOGC", "GOMAXPROCS", "GOMEMLIMIT", "GOTRACEBACK",
+	// git's switch that keeps a read-only command from taking optional
+	// locks, so `git status`, and the go command's VCS stamp that runs it,
+	// do not write .git/index.lock and .git/index; the gate sets it to 0.
+	"GIT_OPTIONAL_LOCKS",
 	ToolDigest,
 }
 

@@ -26,7 +26,7 @@ import (
 // gitIn runs git in a fixture repository.
 func gitIn(t *testing.T, root string, args ...string) string {
 	t.Helper()
-	command := exec.Command("git", append([]string{"-c", "user.name=gate", "-c", "user.email=gate@invalid", "-c", "commit.gpgsign=false"}, args...)...)
+	command := exec.Command("git", append([]string{"--no-optional-locks", "-c", "user.name=gate", "-c", "user.email=gate@invalid", "-c", "commit.gpgsign=false"}, args...)...)
 	command.Dir = root
 	output, err := command.CombinedOutput()
 	if err != nil {
