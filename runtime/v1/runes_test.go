@@ -235,7 +235,7 @@ var runesLaws = map[string]func(r *rand.Rand) (bool, any){
 	"strings ToValidUTF8IsValid": func(r *rand.Rand) (bool, any) {
 		s := runeText(r)
 		v := StringsToValidUTF8(s, "\uFFFD")
-		return UTF8ValidString(v) && (!UTF8ValidString(s) || v == s), s
+		return UTF8ValidString(v) && (!UTF8ValidString(s) || v == s) && (UTF8ValidString(s) || StringsContains(v, "\uFFFD")), s
 	},
 	"strconv ParseIntInvertsFormatInt": func(r *rand.Rand) (bool, any) {
 		n, b := int64(r.Uint64()), int(r.Int64())
@@ -283,7 +283,7 @@ var runesLawStatements = map[string]string{
 	"utf8 DecodeInvertsRuneText":        `DecodeInvertsRuneText(r rune) { if !ValidRune(r) { return true } let d = DecodeRuneInString(RuneText(r)) d.Rune == r && d.Size == RuneLen(r) && d.Size == len(RuneText(r)) }`,
 	"utf8 InvalidRuneTextIsReplacement": `InvalidRuneTextIsReplacement(r rune) { ValidRune(r) || RuneText(r) == "\uFFFD" }`,
 	"utf8 DecodeMovesOn":                `DecodeMovesOn(s string) { let d = DecodeRuneInString(s) if len(s) == 0 { return d.Size == 0 } d.Size >= 1 && d.Size <= 4 && d.Size <= len(s) }`,
-	"strings ToValidUTF8IsValid":        `ToValidUTF8IsValid(s string) { let v = ToValidUTF8(s, "\uFFFD") utf8.ValidString(v) && (!utf8.ValidString(s) || v == s) }`,
+	"strings ToValidUTF8IsValid":        `ToValidUTF8IsValid(s string) { let v = ToValidUTF8(s, "\uFFFD") utf8.ValidString(v) && (!utf8.ValidString(s) || v == s) && (utf8.ValidString(s) || Contains(v, "\uFFFD")) }`,
 	"strconv ParseIntInvertsFormatInt":  `ParseIntInvertsFormatInt(n int64, b int) { let base = 2 + (b%35+35)%35 try ParseInt(FormatInt(n, base), base, 64) == n }`,
 	"math FloorCeilBracket":             `FloorCeilBracket(f float64) { if IsNaN(f) || IsInf(f, 0) { return true } Floor(f) <= f && f <= Ceil(f) && Ceil(f)-Floor(f) <= 1.0 }`,
 	"math TruncTowardZero":              `TruncTowardZero(f float64) { if IsNaN(f) { return true } Abs(Trunc(f)) <= Abs(f) && Trunc(Trunc(f)) == Trunc(f) }`,
