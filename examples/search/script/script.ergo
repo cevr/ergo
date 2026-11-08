@@ -1,0 +1,107 @@
+// Package script runs the search over a script of timed lines on a
+// virtual clock, and shows what it does, millisecond by millisecond.
+
+import io
+import machines
+import search/search
+import strconv
+import strings
+
+// BadLine is a line the script cannot read.
+type BadLine { Line int, Why string }
+
+// Script is a read script: the signals at their times, and the time the
+// run ends.
+type Script { Trace []machines.Timed[search.Signal], End duration }
+
+// Read reads the lines of a script. Each line is `@MS WORD …`: MS is the
+// time in milliseconds from the start, never earlier than the line
+// before, and WORD is key TEXT, clear, choose N, back or checkout. The
+// line `@MS end` ends the run at MS, and must be the last. A blank line
+// or a line that starts with # is skipped.
+func Read(lines []string) Script fails BadLine {
+	let mut trace = []machines.Timed[search.Signal]{}
+	let mut last = 0s
+	for i, line in lines {
+		let n = i + 1
+		let text = strings.TrimSpace(line)
+		let words = strings.Fields(text)
+		if len(words) == 0 || strings.HasPrefix(text, "#") {
+			continue
+		}
+		if len(words) < 2 || !strings.HasPrefix(words[0], "@") {
+			return BadLine{Line: n, Why: "a line is @MS WORD"}
+		}
+		let t = try millis(n, strings.TrimPrefix(words[0], "@"))
+		if t < last {
+			return BadLine{Line: n, Why: "the time goes back"}
+		}
+		last = t
+		if words[1] == "end" {
+			return Script{Trace: trace, End: t}
+		}
+		let s = try signalOf(n, words)
+		trace = trace.Append(machines.Timed[search.Signal]{At: t, Signal: s})
+	}
+	BadLine{Line: len(lines) + 1, Why: "the script has no @MS end line"}
+}
+
+func millis(n int, word string) duration fails BadLine {
+	let v = try count(n, word)
+	if v < 0 || v > 86400000 {
+		return BadLine{Line: n, Why: "a time is 0 to 86400000 milliseconds"}
+	}
+	duration(int64(v) * 1000000)
+}
+
+func count(n int, word string) int fails BadLine {
+	strconv.Atoi(word) catch {
+	case strconv.Malformed:
+		return BadLine{Line: n, Why: "\(word) is not a number"}
+	case strconv.OutOfRange:
+		return BadLine{Line: n, Why: "\(word) is out of range"}
+	}
+}
+
+func signalOf(n int, words []string) search.Signal fails BadLine {
+	let arg = if len(words) > 2 { words[2] } else { "" }
+	match words[1] {
+	case "key":
+		if arg == "" {
+			return BadLine{Line: n, Why: "key takes the text it types"}
+		}
+		search.Key{Text: arg}
+	case "clear":
+		search.Clear
+	case "choose":
+		search.Choose{Hit: try count(n, arg)}
+	case "back":
+		search.Back
+	case "checkout":
+		search.Checkout
+	case _:
+		BadLine{Line: n, Why: "unknown word \(words[1])"}
+	}
+}
+
+// Run reads the script from io.Stdin, runs the search with an empty cart
+// (the machine's input) and the Typical costs, and shows its timeline.
+// It returns the exit status: 0, or 1 when the script is refused.
+func Run() int needs Console | io.Stdin | search.Catalog | search.Cart {
+	let mut lines = []string{}
+	for line in io.Stdin.Lines() {
+		lines = lines.Append(line)
+	}
+	let s = Read(lines) catch {
+	case BadLine as b:
+		Console.Println("? line \(b.Line): \(b.Why)")
+		return 1
+	}
+	let m = machines.Start(search.Finder{}, []search.Item{})
+	Console.Println("@0 \(search.Name(m.Initial))")
+	let r = search.Drive(m, s.Trace, s.End, search.Typical)
+	for l in r.Lines {
+		Console.Println(l)
+	}
+	0
+}

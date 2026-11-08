@@ -291,7 +291,7 @@ func Name(s Search) string {
 	case Searching as q:
 		"searching \"\(q.Query)\""
 	case Showing as w:
-		"showing \"\(w.Query)\": \(Names(w.Hits))"
+		if len(w.Hits) == 0 { "showing \"\(w.Query)\": no hits" } else { "showing \"\(w.Query)\": \(Names(w.Hits))" }
 	case Adding as a:
 		"adding \(a.Item.Name)"
 	case Problem as p:

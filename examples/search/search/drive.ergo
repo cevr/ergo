@@ -243,11 +243,16 @@ func Drive(m Machine[Search, Signal, Output, NoSuchHit], trace []machines.Timed[
 	Report{..r, Last: s}
 }
 
+// Hits is a count of hits in words.
+func Hits(n int) string {
+	if n == 1 { "1 hit" } else { "\(n) hits" }
+}
+
 // Said is the text of an output.
 func Said(o Output) string {
 	match o {
 	case Shown as w:
-		"shown \"\(w.Query)\": \(w.Count) hits"
+		"shown \"\(w.Query)\": \(Hits(w.Count))"
 	case Put as p:
 		"put \(p.Name) in the cart"
 	case Order as ord:

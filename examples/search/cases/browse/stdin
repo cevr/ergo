@@ -1,0 +1,14 @@
+# two keys within the pause: one search of "pe", from 350, shown at 750
+@0 key p
+@100 key e
+@1000 choose 2
+# Pear is put in the cart 100ms later; hit 9 is not on the screen
+@1200 choose 9
+@1300 clear
+@1400 key a
+# "a" is searched from 1650; the key at 1700 stops that search, and
+# "ap" is searched from 1950, shown at 2350
+@1700 key p
+@2500 choose 1
+@2700 checkout
+@3000 end

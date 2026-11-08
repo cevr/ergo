@@ -21,31 +21,70 @@ type Catalog {
 
 	// Every hit is an item of the catalogue whose name holds the query,
 	// in any case.
-	law FindIsSubset(query string) {
-		let hits = Find(query) catch {
-		case IndexDown:
-			return true
-		}
-		for h in hits {
-			if !Matches(h, query) || !holds(All(), h) {
-				return false
-			}
-		}
-		true
-	},
+	law FindIsSubset(n int, k int) { FindIsSubset(n, k) },
 
-	// A search answers the same for the same query.
-	law FindIsStable(query string) {
-		let a = Find(query) catch {
-		case IndexDown:
-			return true
-		}
-		let b = Find(query) catch {
-		case IndexDown:
+	// The hits keep the order of the catalogue. (A provider has no state
+	// (M23), so the same query always has the same answer; this is the
+	// stability a law can break.)
+	law FindIsStable(n int, k int) { FindIsStable(n, k) },
+}
+
+// Probe is a query the laws draw from the catalogue: one or two letters
+// of the name of an item, so that it has hits.
+func Probe(all []Item, n int, k int) string {
+	if len(all) == 0 {
+		return "x"
+	}
+	let name = all[pick(n, len(all))].Name
+	if len(name) < 2 {
+		return name
+	}
+	let at = pick(k, len(name)-1)
+	if k%2 == 0 { name[at : at+1] } else { name[at : at+2] }
+}
+
+func pick(n int, count int) int { ((n % count) + count) % count }
+
+// FindIsSubset is the law FindIsSubset of the Catalog in the context, as
+// a function: ergo test does not run a law of an operation type against a
+// provider of another package (G-ma-2), so memory's tests call this.
+func FindIsSubset(n int, k int) bool needs Catalog {
+	let all = Catalog.All()
+	let query = Probe(all, n, k)
+	let hits = Catalog.Find(query) catch {
+	case IndexDown:
+		return true
+	}
+	for h in hits {
+		if !Matches(h, query) || !holds(all, h) {
 			return false
 		}
-		Names(a) == Names(b)
-	},
+	}
+	true
+}
+
+// FindIsStable is the law FindIsStable as a function: each hit comes
+// later in the catalogue than the hit before it.
+func FindIsStable(n int, k int) bool needs Catalog {
+	let all = Catalog.All()
+	let hits = Catalog.Find(Probe(all, n, k)) catch {
+	case IndexDown:
+		return true
+	}
+	let mut from = 0
+	for h in hits {
+		let mut found = -1
+		for i, x in all {
+			if found < 0 && i >= from && x.Name == h.Name {
+				found = i
+			}
+		}
+		if found < 0 {
+			return false
+		}
+		from = found + 1
+	}
+	true
 }
 
 // Cart is the contract of the cart the search adds to. A cart is a value
@@ -56,13 +95,17 @@ type Cart {
 
 	// An add puts the item at the end, or is CartFull exactly when the cart
 	// holds Room items or more.
-	law AddAddsOne(have []Item, item Item) {
-		let after = Add(have, item) catch {
-		case CartFull:
-			return len(have) >= Room()
-		}
-		len(have) < Room() && len(after) == len(have)+1 && after[len(have)].Name == item.Name && Names(have) == Names(without(after, len(have)))
-	},
+	law AddAddsOne(have []Item, item Item) { AddAddsOne(have, item) },
+}
+
+// AddAddsOne is the law AddAddsOne of the Cart in the context, as a
+// function (G-ma-2).
+func AddAddsOne(have []Item, item Item) bool needs Cart {
+	let after = Cart.Add(have, item) catch {
+	case CartFull:
+		return len(have) >= Cart.Room()
+	}
+	len(have) < Cart.Room() && len(after) == len(have)+1 && after[len(have)].Name == item.Name && Names(have) == Names(without(after, len(have)))
 }
 
 // Matches reports whether the name of it holds the query, in any case.

@@ -1,0 +1,14 @@
+# the basket holds three items: the fourth add fails, and back shows the
+# hits again
+@0 key ea
+@1000 choose 1
+@1200 choose 2
+@1400 choose 3
+@1600 choose 4
+@1800 back
+# a query over 12 letters: the memory index is down for it
+@1900 clear
+@2000 key watermelonpie
+@2800 back
+@2900 checkout
+@3000 end
