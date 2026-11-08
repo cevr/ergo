@@ -1,0 +1,84 @@
+// The rules of the report as laws over its functions.
+
+import csvreport/csv
+
+// Priced is sales with every price made not negative and every region
+// and product spiced and trimmed of nothing: the sales a file can hold.
+func Priced(sales []Sale) []Sale {
+	let mut out = []Sale{}
+	for s in sales {
+		out = out.Append(Sale{..s, Region: csv.Spice(s.Region), Cents: if s.Cents < 0 { -(s.Cents % 1000000) } else { s.Cents % 1000000 }})
+	}
+	out
+}
+
+// TotalIsFold: the total counts every sale once, and its revenue is the
+// sum of units times price, as a loop computes it.
+law TotalIsFold(sales []Sale) {
+	let t = Total(sales)
+	let mut units = 0
+	let mut revenue = int64(0)
+	for s in sales {
+		units += s.Units
+		revenue += int64(s.Units) * s.Cents
+	}
+	t.Sales == len(sales) && t.Units == units && t.Revenue == revenue
+}
+
+// GroupsSumToTotal: the groups, under either key, add up to the total,
+// and each key has one group.
+law GroupsSumToTotal(sales []Sale, byProduct bool) {
+	let groups = Group(sales, if byProduct { ByProduct } else { ByRegion })
+	let t = Total(sales)
+	let mut n = 0
+	let mut units = 0
+	let mut revenue = int64(0)
+	for i, g in groups {
+		n += g.Sales
+		units += g.Units
+		revenue += g.Revenue
+		if i > 0 && groups[i-1].Key >= g.Key {
+			return false
+		}
+	}
+	n == t.Sales && units == t.Units && revenue == t.Revenue
+}
+
+// FilterKeepsOnly: a filter keeps exactly the sales its Keep keeps, in
+// order.
+law FilterKeepsOnly(sales []Sale, units int) {
+	let k = AtLeast{Units: units}
+	let kept = Filter(sales, k)
+	let mut j = 0
+	for s in sales {
+		if Kept(k, s) {
+			if j >= len(kept) || kept[j] != s {
+				return false
+			}
+			j += 1
+		}
+	}
+	j == len(kept)
+}
+
+// LoadReadsRows: sales written as CSV load back as the same sales.
+law LoadReadsRows(sales []Sale) {
+	let ps = Priced(sales)
+	let back = try Load(csv.Format(Rows(ps)))
+	if len(back) != len(ps) {
+		return false
+	}
+	for i, s in ps {
+		if back[i] != s {
+			return false
+		}
+	}
+	true
+}
+
+// MoneyRoundTrip: an amount of cents that is not negative reads back
+// from its text.
+law MoneyRoundTrip(cents int64) {
+	let c = if cents < 0 { -(cents % 1000000000) } else { cents % 1000000000 }
+	try ParseCents(Money(c)) == c
+}

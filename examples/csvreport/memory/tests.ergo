@@ -1,0 +1,42 @@
+// Shelf's tests, and report.Source's law restated over it (laws are
+// checked, not run, #162).
+
+import csvreport/report
+
+// outcome is Read(s, name) as "text: T", "missing" or "unreadable: R".
+func outcome(s Shelf, name string) string {
+	let text = Read(s, name) catch {
+	case report.Missing:
+		return "missing"
+	case report.Unreadable as u:
+		return "unreadable: " + u.Reason
+	}
+	"text: " + text
+}
+
+test ReadFindsTheFirstEntry {
+	let s = Shelf{Entries: []Entry{
+		Readable{Name: "a.csv", Text: "one"},
+		Broken{Name: "b.csv", Reason: "permission denied"},
+		Readable{Name: "a.csv", Text: "two"},
+	}}
+	assert outcome(s, "a.csv") == "text: one"
+	assert outcome(s, "b.csv") == "unreadable: permission denied"
+	assert outcome(s, "c.csv") == "missing"
+}
+
+test ReadIsRepeatableHolds(names []string, texts []string, name string) {
+	let mut entries = []Entry{}
+	for i, n in names {
+		if i < len(texts) {
+			entries = entries.Append(Readable{Name: n, Text: texts[i]})
+		} else {
+			entries = entries.Append(Broken{Name: n, Reason: "r"})
+		}
+	}
+	let s = Shelf{Entries: entries}
+	assert outcome(s, name) == outcome(s, name)
+	if len(names) > 0 {
+		assert outcome(s, names[0]) == outcome(s, names[0])
+	}
+}

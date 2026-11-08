@@ -1,0 +1,113 @@
+// Filtering, grouping and the report's text.
+
+import cmp
+import slices
+import strings
+
+// Keep is which sales a report counts.
+type Keep = Every{} | InRegion{Name string} | AtLeast{Units int}
+
+// Kept reports whether k keeps s.
+func Kept(k Keep, s Sale) bool {
+	match k {
+	case Every:
+		true
+	case InRegion as r:
+		s.Region == r.Name
+	case AtLeast as a:
+		s.Units >= a.Units
+	}
+}
+
+// Key is what a report groups sales by.
+type Key = ByRegion{} | ByProduct{}
+
+// KeyOf is the group of s under k.
+func KeyOf(k Key, s Sale) string {
+	match k {
+	case ByRegion:
+		s.Region
+	case ByProduct:
+		s.Product
+	}
+}
+
+// Summary is a group of sales: how many, how many units, and their
+// revenue in cents.
+type Summary { Key string, Sales int, Units int, Revenue int64 }
+
+// Revenue is the cents that s brought: units times price.
+func Revenue(s Sale) int64 { int64(s.Units) * s.Cents }
+
+// add is t with s counted.
+func add(t Summary, s Sale) Summary {
+	Summary{..t, Sales: t.Sales + 1, Units: t.Units + s.Units, Revenue: t.Revenue + Revenue(s)}
+}
+
+// Total is the summary of every sale, under the key "total".
+func Total(sales []Sale) Summary {
+	slices.Fold(sales, Summary{Key: "total", Sales: 0, Units: 0, Revenue: 0}, add)
+}
+
+// Group is a summary per key of sales under k, in key order.
+func Group(sales []Sale, k Key) []Summary {
+	let mut by = Map[string, Summary]{}
+	for s in sales {
+		let key = KeyOf(k, s)
+		let t = match by.Get(key) {
+		case Some[Summary] as found:
+			found.Value
+		case None:
+			Summary{Key: key, Sales: 0, Units: 0, Revenue: 0}
+		}
+		by[key] = add(t, s)
+	}
+	let mut out = []Summary{}
+	for _, t in by {
+		out = out.Append(t)
+	}
+	slices.SortFunc(out, func(a Summary, b Summary) int { cmp.Compare(a.Key, b.Key) })
+}
+
+// Filter is the sales that k keeps, in order.
+func Filter(sales []Sale, k Keep) []Sale { slices.Filter(sales, func(s Sale) bool { Kept(k, s) }) }
+
+// Table is the report of sales under k: a line per group, then the
+// total, in aligned columns.
+func Table(sales []Sale, k Key) []string {
+	let groups = Group(sales, k)
+	let name = match k {
+	case ByRegion:
+		"region"
+	case ByProduct:
+		"product"
+	}
+	let mut width = len(name)
+	for g in groups {
+		if len(g.Key) > width {
+			width = len(g.Key)
+		}
+	}
+	let mut out = []string{line(name, "sales", "units", "revenue", width)}
+	for g in groups {
+		out = out.Append(line(g.Key, "\(g.Sales)", "\(g.Units)", Money(g.Revenue), width))
+	}
+	let t = Total(sales)
+	out.Append(line("total", "\(t.Sales)", "\(t.Units)", Money(t.Revenue), width))
+}
+
+// line is one line of the table: the key padded to width, and three
+// columns right-aligned in 6, 7 and 12 bytes. Std has no fmt padding
+// (G-ex-e-11), so pad pads.
+func line(key string, sales string, units string, revenue string, width int) string {
+	pad(key, width, false) + "  " + pad(sales, 6, true) + "  " + pad(units, 7, true) + "  " + pad(revenue, 12, true)
+}
+
+// pad is s with spaces to n bytes, before it when right is true.
+func pad(s string, n int, right bool) string {
+	if len(s) >= n {
+		return s
+	}
+	let spaces = strings.Repeat(" ", n-len(s))
+	if right { spaces + s } else { s + spaces }
+}

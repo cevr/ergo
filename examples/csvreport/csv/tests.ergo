@@ -1,0 +1,79 @@
+// The format's tests: examples from RFC 4180 and Go's encoding/csv, and
+// the laws restated as property tests (laws are checked, not run, #162).
+
+import strings
+
+// read is the rows of text as fields, or the error as one field.
+func read(text string) [][]string {
+	FieldsOf(ReadAll(text) catch {
+	case BadCSV as b:
+		return [][]string{[]string{"error \(b.Line):\(b.Column) \(b.Reason)"}}
+	})
+}
+
+test ReadsPlainAndQuoted {
+	assert Same(read("a,b,c\n1,2,3\n"), [][]string{[]string{"a", "b", "c"}, []string{"1", "2", "3"}})
+	assert Same(read("\"a,b\",\"say \"\"hi\"\"\",\"two\nlines\"\n"), [][]string{[]string{"a,b", "say \"hi\"", "two\nlines"}})
+	assert Same(read("x,y\r\nz,\r\n"), [][]string{[]string{"x", "y"}, []string{"z", ""}})
+	assert Same(read("no final line feed"), [][]string{[]string{"no final line feed"}})
+	assert Same(read(",\n\n\n,,\n"), [][]string{[]string{"", ""}, []string{"", "", ""}})
+	assert Same(read(""), [][]string{})
+	assert Same(read("\"\"\n"), [][]string{[]string{""}})
+}
+
+test ErrorsHaveLines {
+	assert Same(read("a,b\nc,d\"e\n"), [][]string{[]string{"error 2:4 bare \" in a field"}})
+	assert Same(read("a,\"b\"c\n"), [][]string{[]string{"error 1:6 extraneous byte after a closing \""}})
+	assert Same(read("ok\n\"open\nstill open"), [][]string{[]string{"error 2:0 a quoted field is not closed"}})
+}
+
+test RowsKnowTheirLines {
+	let rows = try ReadAll("a\n\"b\nc\"\n\nd\n")
+	assert len(rows) == 3 && rows[0].Line == 1 && rows[1].Line == 2 && rows[2].Line == 5
+}
+
+test RowsStopEarly {
+	let mut n = 0
+	for item in Rows("a\nb\nc\n") {
+		match item {
+		case Parsed:
+			n += 1
+		case Malformed:
+		}
+		if n == 2 {
+			break
+		}
+	}
+	assert n == 2
+}
+
+test FormatQuotesWhatNeedsIt {
+	assert Format([][]string{[]string{"a", "b,c", "d\"e", " f", ""}, []string{""}}) == "a,\"b,c\",\"d\"\"e\",\" f\",\n\"\"\n"
+}
+
+test SpiceReachesTheSpecialBytes {
+	assert Spice("abzAZx") == ",\"\n\r\r\nx"
+}
+
+test RoundTripHolds(rows [][]string) {
+	let kept = NonEmpty(Spiced(rows))
+	assert Same(FieldsOf(try ReadAll(Format(kept))), kept)
+}
+
+test LinesCountHolds(rows [][]string) {
+	let kept = NonEmpty(Spiced(rows))
+	let back = try ReadAll(Format(kept))
+	let mut line = 1
+	for r in back {
+		assert r.Line == line
+		line += 1
+		for f in r.Fields {
+			line += strings.Count(f, "\n")
+		}
+	}
+}
+
+test FormatIsStableHolds(rows [][]string) {
+	let text = Format(NonEmpty(Spiced(rows)))
+	assert Format(FieldsOf(try ReadAll(text))) == text
+}
