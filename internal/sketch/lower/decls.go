@@ -995,10 +995,15 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 	default:
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
 	}
+	// The declaration is written whole after its body is lowered: a body
+	// can emit a declaration of its own into the generated part (an
+	// operations conversion's adapter, a text or a match helper), which
+	// must stand before this one, never inside it. A std body is written
+	// into that same part (lower-gaps G1, batch 11).
+	directive := ""
 	if directives {
-		b.WriteString(l.directive(f.Decl))
+		directive = l.directive(f.Decl)
 	}
-	b.WriteString(head.String() + " {\n")
 	fc.depth = 1
 	fc.closeBody(f, site, func() {
 		if needsFrame {
@@ -1009,8 +1014,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		fc.body(f.Decl.Body.List)
 	})
 	fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
-	b.WriteString(fc.out.String())
-	b.WriteString("}\n\n")
+	b.WriteString(directive + head.String() + " {\n" + fc.out.String() + "}\n\n")
 }
 
 // directive is the //line directive that maps the next Go line to the
