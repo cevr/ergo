@@ -114,7 +114,7 @@ var filepathLawStatements = map[string]string{
 	"filepath BaseHasNoSeparator": `BaseHasNoSeparator(path string) { Base(path) == "/" || Split(Base(path)).Dir == "" }`,
 	"filepath CleanIsIdempotent":  `CleanIsIdempotent(path string) { Clean(Clean(path)) == Clean(path) }`,
 	"filepath CleanKeepsRoot":     `CleanKeepsRoot(path string) { IsAbs(Clean(path)) == IsAbs(path) }`,
-	"filepath ExtIsSuffixOfBase":  `ExtIsSuffixOfBase(path string) { hasSuffix(Base(path), Ext(path)) }`,
+	"filepath ExtIsSuffixOfBase":  `ExtIsSuffixOfBase(path string) { strings.HasSuffix(Base(path), Ext(path)) }`,
 	"filepath ExtIsTheExtOfBase":  `ExtIsTheExtOfBase(path string) { if Split(path).File == "" { return true } Ext(Base(path)) == Ext(path) }`,
 	"filepath JoinOfDirAndBase":   `JoinOfDirAndBase(path string) { if path != "" && Split(path).File == "" { return true } Clean(Join([]string{Dir(path), Base(path)})) == Clean(path) }`,
 	"filepath RelThenJoin":        `RelThenJoin(base string, target string) { let r = Rel(base, target) catch { case NotRelative: return true } Clean(Join([]string{base, r})) == Clean(target) }`,

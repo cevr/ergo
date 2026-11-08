@@ -8,8 +8,9 @@
 //     zone, so a program's text does not depend on the host;
 //   - Parse fails ParseError, a record in the row, not an error value;
 //   - a layout is a Layout, a closed union of Go's named layouts and
-//     Custom, so a match covers every layout (a std package has no
-//     package-level let yet: a follow-up of std-align S2b);
+//     Custom, so a match covers every layout and a named layout cannot
+//     be misspelled; the union is the design, where Go's layouts are
+//     strings;
 //   - Clock is a capability: code that reads the time shows Clock in its
 //     row, and a test binds Manual in its place.
 // Duration is the language's duration type (1500ms, 2h).

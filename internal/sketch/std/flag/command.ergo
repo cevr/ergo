@@ -1,21 +1,25 @@
 // Command is one subcommand of a program whose commands are the union C
 // (@effect/cli Command.withSubcommands): its name, its usage line, its
-// Set, and Build, which makes the program's C from the parsed Values. A
-// nested command is a Build that calls ParseCommand on Rest(v).
-type Command[C] {
+// Set, and Build, which makes the program's C from the parsed Values.
+// Build may fail with the program's own failures E as well as the flag
+// failures (a port that is not a number, a path that does not exist): E
+// is a row parameter, empty when Build fails only as Parse does. A nested
+// command is a Build that calls ParseCommand on Rest(v).
+type Command[C, E] {
 	Name  string,
 	Usage string,
 	Set   Set,
-	Build func(v Values) C fails Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand,
+	Build func(v Values) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand,
 }
 
 // ParseCommand reads args as a command name and that command's own
 // arguments, and returns what its Build makes; Parse of the command's Set
-// reads its help. When the first argument names no command, -h, -help or
-// --help anywhere before "--" fails Help with CommandUsage, as
-// @effect/cli's help wins over a parse error; otherwise a name of no
-// command, or no name, fails UnknownCommand.
-func ParseCommand[C](name string, usage string, commands []Command[C], args []string) C fails Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
+// reads its help. A failure of Build reaches the caller as it is, in E.
+// When the first argument names no command, -h, -help or --help anywhere
+// before "--" fails Help with CommandUsage, as @effect/cli's help wins
+// over a parse error; otherwise a name of no command, or no name, fails
+// UnknownCommand.
+func ParseCommand[C, E](name string, usage string, commands []Command[C, E], args []string) C fails E | Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand {
 	if len(args) == 0 {
 		return UnknownCommand{Name: "", Known: commandNames(commands)}
 	}
@@ -41,7 +45,7 @@ func ParseCommand[C](name string, usage string, commands []Command[C], args []st
 // CommandUsage is the help of a program of commands: "Usage of NAME:",
 // usage on its own line when it is not empty, and then each command with
 // its usage line, in declaration order.
-func CommandUsage[C](name string, usage string, commands []Command[C]) string {
+func CommandUsage[C, E](name string, usage string, commands []Command[C, E]) string {
 	let mut out = if name == "" { "Usage:\n" } else { "Usage of " + name + ":\n" }
 	if usage != "" {
 		out = out + usage + "\n"
@@ -54,7 +58,7 @@ func CommandUsage[C](name string, usage string, commands []Command[C]) string {
 }
 
 // commandNames is the names of commands, in order.
-func commandNames[C](commands []Command[C]) []string {
+func commandNames[C, E](commands []Command[C, E]) []string {
 	let mut out = []string{}
 	for c in commands {
 		out = out.Append(c.Name)

@@ -142,13 +142,17 @@ test ExecWithEnvKeepsTheOriginal(key string, first string, second string) {
 }
 
 test ExecScriptReplaysRecorded(name string, arg string, status int, out string) {
-	let c = exec.New(name, []string{arg})
+	let c = exec.New(name, []string{arg, arg})
+	let joined = exec.New(name, []string{arg + "," + arg})
 	let mut results = Map[string, exec.Result]{}
 	results[exec.Key(c)] = exec.Result{Status: status, Stdout: out, Stderr: ""}
+	results[exec.Key(joined)] = exec.Result{Status: status + 1, Stdout: out, Stderr: ""}
 	let r = try exec.Script{Results: results}.Run(c)
+	let s = try exec.Script{Results: results}.Run(joined)
 	assert r.Status == status
 	assert r.Stdout == out
 	assert r.Stderr == ""
+	assert s.Status == status+1
 }
 
 test ScriptNotFoundNamesTheProgram(name string, other string) {
@@ -170,7 +174,7 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 // law's source text as the ledger writes it, by ledger key; lawledger.Run
 // holds it equal to the ledger (fu-ledger-runner).
 var execLawStatements = map[string]string{
-	"exec ScriptReplaysRecorded":   `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" }`,
+	"exec ScriptReplaysRecorded":   `ScriptReplaysRecorded(name string, arg string, status int, out string) { let c = New(name, []string{arg, arg}) let joined = New(name, []string{arg + "," + arg}) let mut results = Map[string, Result]{} results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""} results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""} let r = Script{Results: results}.Run(c) catch { case NotFound, Denied, Failed: return false } let s = Script{Results: results}.Run(joined) catch { case NotFound, Denied, Failed: return false } r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1 }`,
 	"exec WithEnvKeepsTheOriginal": `WithEnvKeepsTheOriginal(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first) let d = c.WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: first} && d.Env.Get(key) == Some[string]{Value: second} }`,
 	"exec WithEnvOverrides":        `WithEnvOverrides(key string, first string, second string) { let c = New("x", []string{}).WithEnv(key, first).WithEnv(key, second) c.Env.Get(key) == Some[string]{Value: second} }`,
 }

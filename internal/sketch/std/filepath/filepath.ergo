@@ -5,6 +5,8 @@
 // directory: each extern binds a runtime/v1 body (runtime/v1/path.go) that
 // is marked pure, so a call is transparent in a footprint.
 
+import strings
+
 // Join is the non-empty parts with a separator between each pair, cleaned
 // (Clean); "" when every part is empty. Ergo has no variadic parameters,
 // so the parts are one slice.
@@ -30,10 +32,6 @@ extern go ergo.local/prototype/runtime/v1.FilepathClean func Clean(path string) 
 
 // IsAbs reports whether path is rooted: it begins with a separator.
 extern go ergo.local/prototype/runtime/v1.FilepathIsAbs func IsAbs(path string) bool
-
-// hasSuffix is strings.HasSuffix, for the laws: a std package imports no
-// other std package, so it binds the pure body of strings directly.
-extern go ergo.local/prototype/runtime/v1.StringsHasSuffix func hasSuffix(s string, suffix string) bool
 
 // Parts is a path cut after its last separator.
 type Parts { Dir string, File string }
@@ -85,7 +83,7 @@ law BaseHasNoSeparator(path string) {
 
 // ExtIsSuffixOfBase: the extension of path ends its Base.
 law ExtIsSuffixOfBase(path string) {
-	hasSuffix(Base(path), Ext(path))
+	strings.HasSuffix(Base(path), Ext(path))
 }
 
 // ExtIsTheExtOfBase: for a path whose last element is not empty (no

@@ -208,7 +208,9 @@ const stdTimeOutput = "1.5s\n" +
 // law Timeline.AdvanceMovesRead reads the Timeline through the Manual that
 // holds it: Now's monotonic part is Read's Mono, so Sub of two Nows is the
 // difference of the two Reads.
-const stdTimeLawsProbe = `import time
+const stdTimeLawsProbe = `import queue
+import task
+import time
 
 func within(n int64, lo int64, hi int64) int64 {
 	let span = hi - lo + 1
@@ -245,12 +247,31 @@ test TimeTimelineAdvanceMovesRead(n int64) {
 	m.Advance(d)
 	assert m.Now().Sub(before) == d
 }
+
+test TaskSleepAdvancesNow(n int64) {
+	let m = time.NewManual(0)
+	let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775)
+	let woke = queue.New[duration](1)
+	let t = with context { Scheduler: m, time.Clock: m } {
+		task.Go() {
+			let before = time.Clock.Now()
+			Scheduler.Sleep(d)
+			try woke.Push(time.Clock.Now().Sub(before))
+		}
+	}
+	for m.Sleepers() == 0 && woke.Len() == 0 {
+	}
+	m.Advance(d)
+	try t.Wait()
+	assert try woke.Pop() >= d
+}
 `
 
 // stdTimeLawStatements is the statement of each law the probe restates,
 // the law's source text as the ledger writes it, by ledger key;
 // lawledger.Run holds it equal to the ledger (fu-ledger-runner).
 var stdTimeLawStatements = map[string]string{
+	"task SleepAdvancesNow":          `SleepAdvancesNow(n int64) { let m = time.NewManual(0) let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775) let woke = queue.New[duration](1) let t = with context { Scheduler: m, time.Clock: m } { Go() { let before = time.Clock.Now() Scheduler.Sleep(d) try woke.Push(time.Clock.Now().Sub(before)) } } for m.Sleepers() == 0 && woke.Len() == 0 { } m.Advance(d) try t.Wait() try woke.Pop() >= d }`,
 	"time FormatParseRoundTrip":      `FormatParseRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch { case ParseError: return false } back.Equal(t) && back == t }`,
 	"time SubAddInverse":             `SubAddInverse(sec int64, nsec int64, n int64) { let t = Unix(anyYear(sec), nsec) let d = duration(within(n, -4000000000000000000, 4000000000000000000)) t.Add(d).Sub(t) == d }`,
 	"time Timeline.AdvanceMovesRead": `AdvanceMovesRead(n int64) { let d = duration(within(n, 0, 1099511627775)) let before = Read() Advance(d) Read().Mono-before.Mono == int64(d) }`,
