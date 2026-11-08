@@ -278,7 +278,9 @@ func TestBuildableBorrow(t *testing.T) {
 
 // TestBuildableInOwnPackage: authority binds only other packages.
 func TestBuildableInOwnPackage(t *testing.T) {
-	f, err := syntax.Parse(buildLib + "type H { x Auth }\nfunc probe(_ H) {}\n")
+	// H has an unexported field; R is sealed and has no implementer, and
+	// lib may declare one, so both are built in lib (fu-hostguard2).
+	f, err := syntax.Parse(buildLib + "type H { x Auth }\ntype R { inner() int }\nfunc probe(_ H, _ R) {}\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +288,14 @@ func TestBuildableInOwnPackage(t *testing.T) {
 	if len(ds) != 0 {
 		t.Fatal(ds)
 	}
-	if !check.Buildable(probeType(t, lib), lib) {
-		t.Error("lib's own record with an unexported field is not Buildable in lib")
+	for _, f := range lib.Funcs {
+		if f.Name != "probe" {
+			continue
+		}
+		for _, p := range f.Sig.Params {
+			if !check.Buildable(p.Type, lib) {
+				t.Errorf("lib's own %s is not Buildable in lib", p.Type)
+			}
+		}
 	}
 }
