@@ -1,0 +1,197 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+                        │       A       │                     D                     │                  Dx                   │                   G                    │                   M                    │                   E                    │                   F                    │                  Dall                  │                     C                     │
+                        │    sec/op     │    sec/op      vs base                    │   sec/op     vs base                  │    sec/op     vs base                  │    sec/op     vs base                  │    sec/op     vs base                  │    sec/op     vs base                  │    sec/op     vs base                  │    sec/op      vs base                    │
+Breaker-4                  34.15n ± 14%    16.82n ± 11%    -50.75% (p=0.000 n=10)     18.13n ± 8%  -46.90% (p=0.000 n=10)     44.49n ± 15%  +30.30% (p=0.000 n=10)     41.07n ± 20%  +20.28% (p=0.009 n=10)     40.46n ± 14%  +18.51% (p=0.011 n=10)     38.08n ± 16%  +11.52% (p=0.023 n=10)
+Counter-4                 51.110n ± 13%                                                                                       5.522n ±  8%  -89.19% (p=0.000 n=10)
+Tidewalk-4                 8.256µ ± 16%                                                                                       7.843µ ± 10%        ~ (p=0.796 n=10)                                                                                                                                5.577µ ± 13%  -32.46% (p=0.001 n=10)
+CopyPass/bytes=16-4        1.611n ±  8%    1.919n ±  6%    +19.08% (p=0.000 n=10)
+CopyPass/bytes=24-4        1.816n ±  6%    1.675n ±  5%     -7.76% (p=0.000 n=10)
+CopyPass/bytes=32-4        1.544n ±  2%   17.010n ±  5%  +1001.68% (p=0.000 n=10)
+CopyPass/bytes=48-4        1.548n ± 14%   18.520n ±  2%  +1096.38% (p=0.000 n=10)
+CopyPass/bytes=56-4        1.637n ±  4%   18.180n ±  5%  +1010.91% (p=0.000 n=10)
+CopyPass/bytes=64-4        2.066n ±  9%   20.010n ±  9%   +868.54% (p=0.000 n=10)
+CopyPass/bytes=88-4        1.931n ± 11%    9.074n ±  7%   +370.01% (p=0.000 n=10)
+CopyPass/bytes=128-4       1.689n ± 12%   21.565n ±  9%  +1176.79% (p=0.000 n=10)
+CopyNext/bytes=16-4       22.240n ± 30%    2.240n ±  7%    -89.93% (p=0.000 n=10)
+CopyNext/bytes=24-4       30.965n ± 14%    2.320n ± 13%    -92.51% (p=0.000 n=10)
+CopyNext/bytes=32-4        31.64n ± 17%    18.87n ±  8%    -40.37% (p=0.000 n=10)
+CopyNext/bytes=48-4        37.35n ± 20%    20.16n ±  6%    -46.03% (p=0.000 n=10)
+CopyNext/bytes=56-4        35.63n ±  9%    20.91n ±  6%    -41.34% (p=0.000 n=10)
+CopyNext/bytes=64-4        39.77n ± 12%    21.67n ±  7%    -45.52% (p=0.000 n=10)
+CopyNext/bytes=88-4        48.27n ± 19%    15.11n ±  3%    -68.71% (p=0.000 n=10)
+CopyNext/bytes=128-4       53.31n ±  7%    24.59n ±  3%    -53.88% (p=0.000 n=10)
+DecisionBand/bytes=40-4    31.30n ± 16%    10.47n ±  9%    -66.55% (p=0.000 n=10)                                                                                      26.15n ± 10%  -16.47% (p=0.005 n=10)
+DecisionBand/bytes=56-4    37.27n ± 17%    15.81n ±  7%    -57.58% (p=0.000 n=10)                                                                                      33.23n ± 20%        ~ (p=0.063 n=10)
+DecisionBand/bytes=64-4    31.36n ± 23%    13.82n ± 10%    -55.94% (p=0.000 n=10)                                                                                      33.43n ± 20%        ~ (p=0.853 n=10)
+DecisionBand/bytes=96-4    35.01n ± 33%    17.84n ±  3%    -49.03% (p=0.000 n=10)                                                                                      32.34n ±  7%   -7.63% (p=0.035 n=10)
+OptionSize/bytes=16-4      8.427n ±  6%                                                                                                                                                                                                                                                                                                     2.077n ± 15%    -75.35% (p=0.000 n=10)
+OptionSize/bytes=24-4     12.400n ± 11%                                                                                                                                                                                                                                                                                                     1.998n ±  8%    -83.89% (p=0.000 n=10)
+OptionSize/bytes=32-4     11.855n ±  6%                                                                                                                                                                                                                                                                                                     1.916n ± 11%    -83.84% (p=0.000 n=10)
+OptionSize/bytes=40-4     16.610n ±  8%                                                                                                                                                                                                                                                                                                     4.673n ±  9%    -71.87% (p=0.000 n=10)
+OptionSize/bytes=56-4     21.865n ± 12%                                                                                                                                                                                                                                                                                                     5.824n ±  3%    -73.37% (p=0.000 n=10)
+OptionSize/bytes=72-4     25.425n ± 21%                                                                                                                                                                                                                                                                                                     7.049n ±  5%    -72.28% (p=0.000 n=10)
+OptionSize/bytes=136-4    36.055n ± 12%                                                                                                                                                                                                                                                                                                     5.572n ±  5%    -84.54% (p=0.000 n=10)
+OptionPass/bytes=16-4      1.550n ±  4%                                                                                                                                                                                                                                                                                                     1.824n ± 12%    +17.61% (p=0.000 n=10)
+OptionPass/bytes=24-4      1.855n ±  9%                                                                                                                                                                                                                                                                                                     1.579n ±  5%    -14.93% (p=0.000 n=10)
+OptionPass/bytes=32-4      1.593n ±  4%                                                                                                                                                                                                                                                                                                     1.945n ±  8%    +22.10% (p=0.000 n=10)
+OptionPass/bytes=40-4      2.017n ±  8%                                                                                                                                                                                                                                                                                                    16.995n ±  3%   +742.80% (p=0.000 n=10)
+OptionPass/bytes=56-4      1.631n ±  4%                                                                                                                                                                                                                                                                                                    18.080n ± 10%  +1008.86% (p=0.000 n=10)
+OptionPass/bytes=72-4      1.940n ± 17%                                                                                                                                                                                                                                                                                                    19.115n ±  4%   +885.06% (p=0.000 n=10)
+OptionPass/bytes=136-4     1.671n ± 11%                                                                                                                                                                                                                                                                                                    20.845n ± 11%  +1147.46% (p=0.000 n=10)
+geomean                    10.60n          11.43n           +2.39%                ¹   18.13n       -46.90%                ¹   124.4n        -48.86%                ¹   32.91n         -2.47%                ¹   40.46n        +18.51%                ¹   38.08n        +11.52%                ¹   5.577µ        -32.46%                ¹    4.983n           -8.48%                ¹
+¹ benchmark set differs from baseline; geomeans may not be comparable
+
+                        │      A       │                      D                      │                     Dx                      │                      G                      │                   M                    │                   E                    │                   F                   │
+                        │ B/transition │ B/transition  vs base                       │ B/transition  vs base                       │ B/transition  vs base                       │ B/transition  vs base                  │ B/transition  vs base                  │ B/transition  vs base                 │
+Breaker-4                   10.08 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)            0.00 ± 0%  -100.00% (p=0.000 n=10)           10.08 ± 0%         ~ (p=1.000 n=10) ¹         16.13 ± 0%  +60.02% (p=0.000 n=10)       14.11 ± 0%  +39.98% (p=0.000 n=10)       10.08 ± 0%       ~ (p=1.000 n=10) ¹
+Counter-4                   19.36 ± 0%                                                                                                  0.00 ± 0%  -100.00% (p=0.000 n=10)
+DecisionBand/bytes=40-4     10.08 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                       16.13 ± 0%  +60.02% (p=0.000 n=10)
+DecisionBand/bytes=56-4     14.22 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                       20.27 ± 0%  +42.55% (p=0.000 n=10)
+DecisionBand/bytes=64-4     16.29 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                       22.34 ± 0%  +37.14% (p=0.000 n=10)
+DecisionBand/bytes=96-4     26.64 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                       32.69 ± 0%  +22.71% (p=0.000 n=10)
+geomean                     15.16                      ?                       ² ³ ⁴                 ?                       ² ³ ⁴                 ?                       ² ³ ⁴     20.76       +43.77%                ²     14.11       +39.98%                ²     10.08       +0.00%                ²
+¹ all samples are equal
+² benchmark set differs from baseline; geomeans may not be comparable
+³ summaries must be >0 to compute geomean
+⁴ ratios must be >0 to compute geomean
+
+                        │         A         │                        D                         │                        Dx                        │                        G                         │                      M                      │                     E                      │                     F                      │
+                        │ allocs/transition │ allocs/transition  vs base                       │ allocs/transition  vs base                       │ allocs/transition  vs base                       │ allocs/transition  vs base                  │ allocs/transition  vs base                 │ allocs/transition  vs base                 │
+Breaker-4                       629.9m ± 0%           0.0m ± 0%  -100.00% (p=0.000 n=10)                 0.0m ± 0%  -100.00% (p=0.000 n=10)               629.9m ± 0%         ~ (p=1.000 n=10) ¹             503.9m ± 0%  -20.00% (p=0.000 n=10)           629.9m ± 0%       ~ (p=1.000 n=10) ¹         629.9m ± 0%       ~ (p=1.000 n=10) ¹
+Counter-4                        1.564 ± 0%                                                                                                                0.000 ± 0%  -100.00% (p=0.000 n=10)
+DecisionBand/bytes=40-4         629.9m ± 0%           0.0m ± 0%  -100.00% (p=0.000 n=10)                                                                                                                     503.9m ± 0%  -20.00% (p=0.000 n=10)
+DecisionBand/bytes=56-4         888.7m ± 0%           0.0m ± 0%  -100.00% (p=0.000 n=10)                                                                                                                     762.7m ± 0%  -14.18% (p=0.000 n=10)
+DecisionBand/bytes=64-4         888.7m ± 0%           0.0m ± 0%  -100.00% (p=0.000 n=10)                                                                                                                     762.7m ± 0%  -14.18% (p=0.000 n=10)
+DecisionBand/bytes=96-4         888.7m ± 0%           0.0m ± 0%  -100.00% (p=0.000 n=10)                                                                                                                     762.7m ± 0%  -14.18% (p=0.000 n=10)
+geomean                         870.6m                           ?                       ² ³ ⁴                      ?                       ² ³ ⁴                      ?                       ² ³ ⁴         646.2m       -16.56%                ²         629.9m       +0.00%                ²         629.9m       +0.00%                ²
+¹ all samples are equal
+² benchmark set differs from baseline; geomeans may not be comparable
+³ summaries must be >0 to compute geomean
+⁴ ratios must be >0 to compute geomean
+
+                        │       A        │                     D                     │                    Dx                    │                      G                      │                  M                   │                  E                   │                  F                  │                  Dall                  │                     C                     │
+                        │      B/op      │    B/op     vs base                       │   B/op     vs base                       │     B/op      vs base                       │    B/op     vs base                  │    B/op     vs base                  │    B/op     vs base                 │     B/op      vs base                  │    B/op     vs base                       │
+Breaker-4                   10.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)         0.00 ± 0%  -100.00% (p=0.000 n=10)           10.00 ± 0%         ~ (p=1.000 n=10) ¹       16.00 ± 0%  +60.00% (p=0.000 n=10)     14.00 ± 0%  +40.00% (p=0.000 n=10)     10.00 ± 0%       ~ (p=1.000 n=10) ¹
+Counter-4                   19.00 ± 0%                                                                                               0.00 ± 0%  -100.00% (p=0.000 n=10)
+Tidewalk-4                5.297Ki ± 0%                                                                                            5.609Ki ± 0%    +5.90% (p=0.000 n=10)                                                                                                                             2.094Ki ± 0%  -60.47% (p=0.000 n=10)
+CopyPass/bytes=16-4         0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=24-4         0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=32-4         0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=48-4         0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=56-4         0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=64-4         0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=88-4         0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=128-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyNext/bytes=16-4         16.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=24-4         24.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=32-4         32.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=48-4         48.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=56-4         64.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=64-4         64.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=88-4         96.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=128-4        128.0 ± 0%       0.0 ± 0%  -100.00% (p=0.000 n=10)
+DecisionBand/bytes=40-4     10.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                  16.00 ± 0%  +60.00% (p=0.000 n=10)
+DecisionBand/bytes=56-4     14.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                  20.00 ± 0%  +42.86% (p=0.000 n=10)
+DecisionBand/bytes=64-4     16.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                  22.00 ± 0%  +37.50% (p=0.000 n=10)
+DecisionBand/bytes=96-4     26.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                                                                  32.00 ± 0%  +23.08% (p=0.000 n=10)
+OptionSize/bytes=16-4       3.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=24-4       8.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=32-4       12.00 ± 0%                                                                                                                                                                                                                                                                                                        0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=40-4       16.00 ± 0%                                                                                                                                                                                                                                                                                                        0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=56-4       24.00 ± 0%                                                                                                                                                                                                                                                                                                        0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=72-4       32.00 ± 0%                                                                                                                                                                                                                                                                                                        0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=136-4      64.00 ± 0%                                                                                                                                                                                                                                                                                                        0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionPass/bytes=16-4       0.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionPass/bytes=24-4       0.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionPass/bytes=32-4       0.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionPass/bytes=40-4       0.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionPass/bytes=56-4       0.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionPass/bytes=72-4       0.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionPass/bytes=136-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+geomean                                ²               ?                       ³ ² ⁴              ?                       ³ ² ⁴                 ?                       ³ ² ⁴   20.48       +43.99%                ³   14.00       +40.00%                ³   10.00       +0.00%                ³   2.094Ki       -60.47%                ³               ?                       ³ ² ⁴
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ benchmark set differs from baseline; geomeans may not be comparable
+⁴ ratios must be >0 to compute geomean
+
+                        │       A       │                     D                     │                  Dx                   │                     G                      │                   M                   │                   E                   │                   F                   │                 Dall                 │                   C                   │
+                        │   allocs/op   │ allocs/op   vs base                       │ allocs/op   vs base                   │  allocs/op   vs base                       │ allocs/op   vs base                   │ allocs/op   vs base                   │ allocs/op   vs base                   │ allocs/op   vs base                  │ allocs/op   vs base                   │
+Breaker-4                  0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%       ~ (p=1.000 n=10) ¹      0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Counter-4                  1.000 ± 0%                                                                                          0.000 ± 0%  -100.00% (p=0.000 n=10)
+Tidewalk-4                168.00 ± 0%                                                                                         131.00 ± 0%   -22.02% (p=0.000 n=10)                                                                                                                                 50.00 ± 0%  -70.24% (p=0.000 n=10)
+CopyPass/bytes=16-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=24-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=32-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=48-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=56-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=64-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=88-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=128-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyNext/bytes=16-4        1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=24-4        1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=32-4        1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=48-4        1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=56-4        1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=64-4        1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=88-4        1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=128-4       1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+DecisionBand/bytes=40-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                            0.000 ± 0%       ~ (p=1.000 n=10) ¹
+DecisionBand/bytes=56-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                            0.000 ± 0%       ~ (p=1.000 n=10) ¹
+DecisionBand/bytes=64-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                            0.000 ± 0%       ~ (p=1.000 n=10) ¹
+DecisionBand/bytes=96-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                            0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionSize/bytes=16-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionSize/bytes=24-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionSize/bytes=32-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionSize/bytes=40-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionSize/bytes=56-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionSize/bytes=72-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionSize/bytes=136-4     0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionPass/bytes=16-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionPass/bytes=24-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionPass/bytes=32-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionPass/bytes=40-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionPass/bytes=56-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionPass/bytes=72-4      0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionPass/bytes=136-4     0.000 ± 0%                                                                                                                                                                                                                                                                                                     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                               ²               ?                       ³ ² ⁴               +0.00%                ³ ²                ?                       ³ ² ⁴               +0.00%                ³ ²               +0.00%                ³ ²               +0.00%                ³ ²   50.00       -70.24%                ³               +0.00%                ³ ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ benchmark set differs from baseline; geomeans may not be comparable
+⁴ ratios must be >0 to compute geomean
+
+           │      A      │                 G                  │                Dall                │
+           │   B/move    │   B/move     vs base               │   B/move    vs base                │
+Tidewalk-4   142.70 ± 0%   151.20 ± 0%  +5.96% (p=0.000 n=10)   56.42 ± 0%  -60.46% (p=0.000 n=10)
+
+           │      A      │                  G                  │                Dall                 │
+           │ allocs/move │ allocs/move  vs base                │ allocs/move  vs base                │
+Tidewalk-4    4.421 ± 0%    3.447 ± 0%  -22.03% (p=0.000 n=10)    1.316 ± 0%  -70.23% (p=0.000 n=10)
+
+                       │     A      │                    C                    │
+                       │   B/get    │   B/get     vs base                     │
+OptionSize/bytes=16-4    3.000 ± 0%   0.000 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=24-4    8.000 ± 0%   0.000 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=32-4    12.00 ± 0%    0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=40-4    16.00 ± 0%    0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=56-4    24.00 ± 0%    0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=72-4    32.00 ± 0%    0.00 ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=136-4   64.00 ± 0%    0.00 ± 0%  -100.00% (p=0.000 n=10)
+geomean                  15.62                    ?                       ¹ ²
+¹ summaries must be >0 to compute geomean
+² ratios must be >0 to compute geomean
+
+                       │      A      │                    C                    │
+                       │ allocs/get  │ allocs/get  vs base                     │
+OptionSize/bytes=16-4    375.0m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=24-4    500.0m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=32-4    500.0m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=40-4    500.0m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=56-4    500.0m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=72-4    500.0m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)
+OptionSize/bytes=136-4   500.0m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)
+geomean                  479.9m                    ?                       ¹ ²
+¹ summaries must be >0 to compute geomean
+² ratios must be >0 to compute geomean
