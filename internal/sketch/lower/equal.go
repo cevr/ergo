@@ -102,7 +102,7 @@ func equalBase(t check.Type) string {
 	return "ergoEqual"
 }
 
-// equalFunc is the equality function of t, a type that needs one, and the
+// equalFunc is the equality function of t (needsEqual holds), and the
 // type parameters of the enclosing declaration that t mentions, which the
 // function takes as its own. It is emitted once, at its first use; the
 // name is taken before the body is written, so a recursive type's
