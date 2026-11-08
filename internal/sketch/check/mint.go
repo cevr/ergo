@@ -285,10 +285,10 @@ func (m *minter) zeroFields(x *syntax.CompositeLit, t Type, where at) {
 }
 
 // zeroMade are the types whose values the zero value of t makes: t itself
-// when it is a defined type, and what its record fields and tuple elements
-// hold by value, at any depth. A slice, a Map, a borrow and a function are
-// empty or absent at zero, and a union and an operation type have no zero
-// value (types.md, Zero values).
+// when it is a defined type, and what its record fields hold by value, at
+// any depth. A slice, a Map, a borrow and a function are empty or absent
+// at zero, and a union, an operation type and a tuple have no zero value
+// (types.md, Zero values; a let of a record holding a tuple is S108).
 func zeroMade(t Type) []Type {
 	var out []Type
 	seen := map[Type]bool{}
@@ -309,10 +309,6 @@ func zeroMade(t Type) []Type {
 		case *Struct:
 			for _, f := range u.Fields {
 				walk(f.Type)
-			}
-		case *Tuple:
-			for _, e := range u.Types {
-				walk(e)
 			}
 		}
 	}

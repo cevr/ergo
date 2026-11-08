@@ -956,6 +956,10 @@ func Give() M { Give() }
 		// mention rule, reads only what the source writes (decided by
 		// "simpler, reversible"; std writes Ambient where it builds).
 		{"build under an inferred Ambient", readerBase + "func mk() Host {\n\tlet h = NewHost()\n\tHost{..h, root: \"x\"}\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
+		{"build in a closure under an inferred Ambient", readerBase + "func mk() string fails Gone {\n\tlet f = func() Host {\n\t\tlet h = NewHost()\n\t\tHost{..h, root: \"x\"}\n\t}\n\ttry Read(f())\n}\n", []string{builds("mk", "fixture.Host (a record update)")}},
+		{"generated test parameter that holds a Host", readerBase + "type Box { H Host }\n\ntest T(b Box) {\n\tassert true\n}\n", []string{placeBuilds("T", "fixture.Host (a generated parameter)", "a test")}},
+		{"let's zero value of a record that holds a Host", readerBase + "type Wrap { H Host, N int }\n\nfunc F() string fails Gone {\n\tlet w Wrap\n\ttry Read(w.H)\n}\n", []string{builds("F", "fixture.Host (a let's zero value)")}},
+		{"build in a trailing block", readerBase + "func run(f func() string fails Gone) string fails Gone { try f() }\n\nfunc F() string fails Gone {\n\ttry run() {\n\t\ttry Read(Host{root: \"/\"})\n\t}\n}\n", []string{builds("F", "fixture.Host (a literal)")}},
 		// No P2 control: a named context is closed, so a provider that
 		// needs Ambient there is S102 (rows.md, Context 4).
 		{"P3 Host as an open operation type, let", readerBase + "let Default Reader = Host{root: \"/\"}\n", []string{placeBuilds("Default", "fixture.Host (a literal)", "a let")}},
@@ -1751,7 +1755,9 @@ func mintViolations(surface []*check.Package, held []*check.TypeName) []string {
 // one, that holds the authority: its written row lists Ambient, or a
 // parameter's type is a held type.
 func mintAllowed(m check.Mint, held []*check.TypeName) bool {
-	if m.Place != check.MintInFunc {
+	// Only a mint in a function has frames: a let, a context, a type, a
+	// test and a law have none, so they hold no authority.
+	if len(m.Frames) == 0 {
 		return false
 	}
 	for _, f := range m.Frames {

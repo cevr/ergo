@@ -192,6 +192,8 @@ func Get(_ H) int { 1 }
 		{"conversion", "func f(h H) H { H(h) }\n", []string{"conversion fixture.H @func f [F]"}},
 		{"constant", "func f() N { 3 }\n", []string{"constant fixture.N @func f [F]"}},
 		{"constant expression", "func f() N { -3 }\n", []string{"constant fixture.N @func f [F]"}},
+		{"constant pattern is no mint", "func f(n N) int {\n\tmatch n {\n\tcase 3: 1\n\tcase _: 0\n\t}\n}\n", nil},
+		{"callee expression", "func pick(h H) func() int { func() int { Get(h) } }\n\nfunc f() int { pick(H{root: \"/\"})() }\n", []string{"func func() int @func pick [F]", "literal fixture.H @func f [F]"}},
 		{"constant name", "type Flag bool\n\nfunc f() Flag { true }\n", []string{"constant fixture.Flag @func f [F]"}},
 		{"if branch", "func f(b bool) int {\n\tif b { Get(H{root: \"/\"}) } else { 0 }\n}\n", []string{"literal fixture.H @func f [F]"}},
 		{"match arm", "func f(w W) int {\n\tmatch w {\n\tcase W{X: _, Y: y}: Get(H{root: \"/\"}) + y\n\t}\n}\n", []string{"literal fixture.H @func f [F]"}},
@@ -241,6 +243,13 @@ func Get(_ H) int { 1 }
 		}
 		var got []string
 		for _, m := range Mints(pkg) {
+			// Every frame carries its signature: the guard reads its
+			// parameters and its row.
+			for _, fr := range m.Frames {
+				if fr.Sig == nil {
+					t.Errorf("%s: a frame of %s has no signature", row.name, mintText(m))
+				}
+			}
 			if slices.Contains(held, m.Type.String()) || strings.Contains(m.Type.String(), "fixture.H") || m.Form == MintString {
 				got = append(got, mintText(m))
 			}
