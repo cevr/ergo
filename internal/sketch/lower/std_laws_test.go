@@ -4,10 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // The std laws (docs/spec/stdlib.md, Std laws; std-align S1a) are checked,
@@ -189,51 +190,71 @@ func stdLawsTestName(pkg, law string) string {
 	return strings.ToUpper(pkg[:1]) + pkg[1:] + strings.ReplaceAll(law, ".", "")
 }
 
-// TestStdLawsRun runs the probe's tests, and holds that the probe restates
-// exactly the ledger's laws whose runner is this test.
+// stdLawsStatements is the statement of each law the probe restates, the
+// law's source text as the ledger writes it, by ledger key. lawledger.Run
+// holds it equal to the ledger, so a law changed in source fails here
+// until its restatement in the probe is changed with it.
+var stdLawsStatements = map[string]string{
+	"log AnnotationEndRestores":       `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }`,
+	"log InnerAnnotationShadows":      `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }`,
+	"prelude Task.StopIsIdempotent":   `StopIsIdempotent() { Stop() Stop() true }`,
+	"queue CloseKeepsValues":          `CloseKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.Close() try q.Pop() == v }`,
+	"queue FirstInFirstOut":           `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }`,
+	"queue Queue.CloseIsIdempotent":   `CloseIsIdempotent() { Close() Close() true }`,
+	"queue Queue.PushAfterCloseFails": `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }`,
+	"scope ActionsRunLastFirst":       `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
+	"task StopIsIdempotent":           `StopIsIdempotent() { let t = Go() { LiveScheduler.Sleep(1h) 0 } t.Stop() t.Stop() true }`,
+	"task WaitReturnsTheBlock":        `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,
+	"timeout DeadlineFirstExpires":    `DeadlineFirstExpires() { with context { Scheduler: LiveScheduler } { After(1ms) { LiveScheduler.Sleep(1h) false } catch { case Expired: true } } }`,
+	"timeout QuickBodyWins":           `QuickBodyWins(n int) { with context { Scheduler: LiveScheduler } { try After(1h) { n } == n } }`,
+	"trace InnerSpanShadows":          `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }`,
+	"trace SpanEndRestores":           `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }`,
+}
+
+// lawsPassed is the lawledger checks of a test build's run: the law of
+// each key passes when stdout has the ok line of its probe test, named by
+// testName. Every test of the probe is a law's, or one of extra: any other
+// probe test fails t.
+func lawsPassed(t *testing.T, statements map[string]string, testName func(key string) string, probe, stdout string, extra ...string) map[string]lawledger.Law {
+	t.Helper()
+	laws := map[string]lawledger.Law{}
+	named := map[string]bool{}
+	for _, name := range extra {
+		named[name] = true
+	}
+	for key, statement := range statements {
+		name := testName(key)
+		named[name] = true
+		laws[key] = lawledger.Law{Statement: statement, Check: func(t *testing.T) {
+			if !regexp.MustCompile(`(?m)^ok ` + name + `( \(\d+ cases\))?$`).MatchString(stdout) {
+				t.Errorf("no ok line for %s:\n%s", name, stdout)
+			}
+		}}
+	}
+	for _, m := range regexp.MustCompile(`(?m)^test (\w+)`).FindAllStringSubmatch(probe, -1) {
+		if !named[m[1]] {
+			t.Errorf("the probe test %s restates no law of this runner and is not one of its extra tests %v", m[1], extra)
+		}
+	}
+	return laws
+}
+
+// TestStdLawsRun runs the probe's tests; lawledger.Run holds that the
+// probe restates exactly the ledger's laws whose runner is this test, each
+// with the row's statement, and that each passed.
 func TestStdLawsRun(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "spec", "stdlib.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var want []string
-	in := false
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "## ") {
-			in = line == "## Std laws"
-			continue
-		}
-		if !in || !strings.HasPrefix(line, "| `") {
-			continue
-		}
-		cells := strings.Split(line, " | ")
-		if len(cells) < 5 || strings.Trim(cells[3], "`") != "TestStdLawsRun" {
-			continue
-		}
-		want = append(want, stdLawsTestName(strings.Trim(cells[0], "|` "), strings.Trim(cells[1], "`")))
-	}
-	var got []string
-	for _, m := range regexp.MustCompile(`(?m)^test (\w+)\(`).FindAllStringSubmatch(stdLawsProbe, -1) {
-		got = append(got, m[1])
-	}
-	slices.Sort(want)
-	slices.Sort(got)
-	if len(want) == 0 || !slices.Equal(got, want) {
-		t.Fatalf("the probe restates %v; the ledger runs %v in TestStdLawsRun", got, want)
-	}
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdlaws", stdLawsProbe)}, true)
 	if exes == nil {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["stdlaws"], "--seed", "1")
 	if code != 0 {
-		t.Fatalf("the std law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
+		t.Errorf("the std law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	for _, name := range want {
-		if !regexp.MustCompile(`(?m)^ok ` + name + `( \(100 cases\))?$`).MatchString(stdout) {
-			t.Errorf("no ok line for %s:\n%s", name, stdout)
-		}
-	}
+	lawledger.Run(t, lawsPassed(t, stdLawsStatements, func(key string) string {
+		pkg, law, _ := strings.Cut(key, " ")
+		return stdLawsTestName(pkg, law)
+	}, stdLawsProbe, stdout))
 }
 
 // stdLawsZeroCost is a program that calls every std package with a law in

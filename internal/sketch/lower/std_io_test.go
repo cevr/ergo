@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // runExeInput runs a built program with stdin and args, and returns its
@@ -215,7 +217,13 @@ test IoInputReadAll(s string) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["iolaws"], "--seed", "1")
-	if code != 0 || !strings.Contains(stdout, "ok IoPrintsConcatenate (100 cases)") || !strings.Contains(stdout, "ok IoLinesSplitInput (100 cases)") {
+	if code != 0 {
 		t.Errorf("exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
+	lawledger.Run(t, lawsPassed(t, map[string]string{
+		"io LinesSplitInput":   `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }`,
+		"io PrintsConcatenate": `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Eprint(b) r.Print(b) r.Text() == a+b+b }`,
+	}, func(key string) string {
+		return "Io" + strings.TrimPrefix(key, "io ")
+	}, probe, stdout, "IoInputReadAll"))
 }

@@ -3,6 +3,8 @@ package lower
 import (
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // TestStdTextRuns2 (std-align S1c; stdlib.md, strings and strconv): each
@@ -176,9 +178,15 @@ func last(text string) int {
 		caseOutput(t, sections, "42\n3.14\nmalformed\nNaN\n+Inf\n-Inf\nmalformed\nmalformed\nmalformed\n")
 	})
 	stdout, stderr, code = runExeArgs(t, exes["text2laws"], "--seed", "1")
-	if code != 0 || !strings.Contains(stdout, "ok StringsCutRebuilds (100 cases)") || !strings.Contains(stdout, "ok StringsLinesRebuild (100 cases)") {
+	if code != 0 {
 		t.Errorf("the laws: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 10))
 	}
+	lawledger.Run(t, lawsPassed(t, map[string]string{
+		"strings CutRebuilds":  `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }`,
+		"strings LinesRebuild": `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }`,
+	}, func(key string) string {
+		return "Strings" + strings.TrimPrefix(key, "strings ")
+	}, laws, stdout))
 }
 
 // caseOutput checks the output section of the subtest's conformance case:

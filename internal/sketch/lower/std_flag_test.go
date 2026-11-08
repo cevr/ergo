@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // std flag (std-align S1d; docs/spec/stdlib.md, flag). The reference model
@@ -688,29 +690,28 @@ test FlagFlagCrossesPositional(p string, a string) {
 }
 `
 
+// flagLawStatements is the statement of each law flagLawTests restates, the
+// law's source text as the ledger writes it, by ledger key. lawledger.Run
+// holds it equal to the ledger, so a law changed in source fails here
+// until its restatement is changed with it.
+var flagLawStatements = map[string]string{
+	"flag DefaultWhenAbsent":       `DefaultWhenAbsent() { let v = try Parse(lawSet(), []string{}) let required = Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawRequired}, Args: []ArgSpec{}} Parse(required, []string{}) catch { case Missing as m: return m.Name == "r" && lawText.Get(v) == "d" && lawNumber.Get(v) == 0 && !lawSwitch.Get(v) case _: return false } false }`,
+	"flag DoubleDashEndsFlags":     `DoubleDashEndsFlags(x string) { let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x})) len(rest) == 1 && rest[0] == "-"+x }`,
+	"flag EachCommandReaches":      `EachCommandReaches(i int) { let commands = lawCommands() if i < 0 || i >= len(commands) { return true } commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name }`,
+	"flag FlagCrossesPositional":   `FlagCrossesPositional(p string, a string) { let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a}) Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p})) }`,
+	"flag HelpNamesEveryFlag":      `HelpNamesEveryFlag(names []string) { let mut flags = []Flag{} let mut seen Map[string, bool] for name in names { match seen.Get(name) { case Some[bool]: case None: seen[name] = true flags = flags.Append(String(name, "", "u")) } } let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}}) for name in names { if !strings.Contains(help, "\n  -"+name+" string\n") { return false } } true }`,
+	"flag IndependentFlagsCommute": `IndependentFlagsCommute(a string, n int) { let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)}) Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a})) }`,
+	"flag LastWins":                `LastWins(a string, b string) { let v = try Parse(lawSet(), []string{"-s", a, "-s", b}) lawText.Get(v) == b }`,
+	"flag RenderParseRoundTrip":    `RenderParseRoundTrip(args []string) { let v = Parse(lawArgsSet(), args) catch { case _: return true } sameReads(try Parse(lawArgsSet(), Render(v)), v) }`,
+	"flag ShortAndLongAgree":       `ShortAndLongAgree(v string) { Equal(try Parse(lawSet(), []string{"-s=" + v}), try Parse(lawSet(), []string{"--s=" + v})) }`,
+	"flag UnknownNamesTheFlag":     `UnknownNamesTheFlag(name string) { if name == "" || name == "h" || name == "help" || name == "s" || name == "n" || name == "b" || strings.Contains(name, "=") || strings.HasPrefix(name, "-") { return true } Parse(lawSet(), []string{"-" + name}) catch { case Unknown as u: return u.Name == name case _: return false } false }`,
+}
+
 // TestFlagLaws runs each law of std flag as an Ergo property test with
-// --seed 1, and holds that it restates exactly the ledger rows whose
-// runner is this test.
+// --seed 1; lawledger.Run holds that it restates exactly the ledger rows
+// whose runner is this test, each with the row's statement, and that each
+// passed.
 func TestFlagLaws(t *testing.T) {
-	data, err := os.ReadFile("../../../docs/spec/stdlib.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var want, got []string
-	for _, line := range strings.Split(string(data), "\n") {
-		cells := strings.Split(line, " | ")
-		if len(cells) >= 5 && strings.Trim(cells[3], "`") == "TestFlagLaws" {
-			want = append(want, "Flag"+strings.Trim(cells[1], "`"))
-		}
-	}
-	for _, m := range regexp.MustCompile(`(?m)^test (Flag\w+)`).FindAllStringSubmatch(flagLawTests, -1) {
-		got = append(got, m[1])
-	}
-	slices.Sort(want)
-	slices.Sort(got)
-	if !slices.Equal(got, want) {
-		t.Errorf("the restated laws are %v; the ledger runs %v here", got, want)
-	}
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "flaglaws", flagLawTests)}, true)
 	if exes == nil {
 		return
@@ -720,11 +721,15 @@ func TestFlagLaws(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit %d\n%s\n%s", code, stdout, firstLines(stderr, 10))
 	}
-	for _, name := range append(want, "DeclaredHelpIsAFlag", "EqualSeesEachRead") {
+	extra := []string{"DeclaredHelpIsAFlag", "EqualSeesEachRead"}
+	for _, name := range extra {
 		if !strings.Contains(stdout, "ok "+name) {
 			t.Errorf("%s did not pass:\n%s", name, stdout)
 		}
 	}
+	lawledger.Run(t, lawsPassed(t, flagLawStatements, func(key string) string {
+		return "Flag" + strings.TrimPrefix(key, "flag ")
+	}, flagLawTests, stdout, extra...))
 }
 
 // flagBenchArgs is BenchmarkFlagParse's command line: 20 arguments over a

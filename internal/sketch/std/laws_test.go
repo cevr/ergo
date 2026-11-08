@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -213,83 +214,14 @@ type Both {
 	}
 }
 
-// ledgerRow is one row of the Std laws table.
-type ledgerRow struct {
-	pkg, law, statement, runner, state string
-	line                               int
-}
-
-// stdlibDoc is the spec file that holds the ledger.
-const stdlibDoc = "../../../docs/spec/stdlib.md"
-
-// readLedger parses the table of the "## Std laws" section of stdlib.md.
-func readLedger(t *testing.T) []ledgerRow {
+// readLedger is the Std laws table of stdlib.md (lawledger.Read).
+func readLedger(t *testing.T) []lawledger.Row {
 	t.Helper()
-	data, err := os.ReadFile(stdlibDoc)
+	rows, err := lawledger.Read()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rows []ledgerRow
-	in, header := false, false
-	for i, line := range strings.Split(string(data), "\n") {
-		switch {
-		case strings.HasPrefix(line, "## "):
-			in = line == "## Std laws"
-			continue
-		case !in || !strings.HasPrefix(line, "|"):
-			continue
-		}
-		cells := splitRow(line)
-		if !header {
-			header = true
-			if !slices.Equal(cells, []string{"Package", "Law", "Statement", "Runner", "State"}) {
-				t.Fatalf("stdlib.md:%d: the Std laws table header is %q", i+1, cells)
-			}
-			continue
-		}
-		if strings.HasPrefix(cells[0], "---") {
-			continue
-		}
-		if len(cells) != 5 {
-			t.Errorf("stdlib.md:%d: a ledger row has %d cells, want 5: %q", i+1, len(cells), line)
-			continue
-		}
-		rows = append(rows, ledgerRow{pkg: unquote(cells[0]), law: unquote(cells[1]), statement: unquote(cells[2]), runner: unquote(cells[3]), state: cells[4], line: i + 1})
-	}
-	if !header {
-		t.Fatal("stdlib.md has no Std laws table")
-	}
 	return rows
-}
-
-// splitRow splits a Markdown table row at each unescaped |, and unescapes
-// \| in each cell.
-func splitRow(line string) []string {
-	line = strings.TrimSpace(line)
-	line = strings.TrimPrefix(line, "|")
-	line = strings.TrimSuffix(line, "|")
-	var cells []string
-	var cur strings.Builder
-	for i := 0; i < len(line); i++ {
-		switch {
-		case line[i] == '\\' && i+1 < len(line) && line[i+1] == '|':
-			cur.WriteByte('|')
-			i++
-		case line[i] == '|':
-			cells = append(cells, strings.TrimSpace(cur.String()))
-			cur.Reset()
-		default:
-			cur.WriteByte(line[i])
-		}
-	}
-	return append(cells, strings.TrimSpace(cur.String()))
-}
-
-func unquote(cell string) string {
-	if len(cell) >= 2 && cell[0] == '`' && cell[len(cell)-1] == '`' {
-		return cell[1 : len(cell)-1]
-	}
-	return cell
 }
 
 var spaces = regexp.MustCompile(`\s+`)
@@ -344,35 +276,41 @@ func sourceLaws(t *testing.T, pkgs []stdLawPackage) map[string]string {
 
 // TestStdLawLedger: each law of std source has exactly one ledger row, each
 // row names a law of std source, the row's statement is the law's source
-// text, its runner is a Go test that the repository declares (or #162 for a
-// law no Go test can run yet), and its state follows from the runner.
+// text, its runner is a Go test that the repository declares and that runs
+// its laws through lawledger.Run (or #162 for a law no Go test can run
+// yet), and its state follows from the runner. lawledger.Run then holds,
+// when the runner runs, that it restates each of its rows' laws with the
+// row's statement and runs it.
 func TestStdLawLedger(t *testing.T) {
 	laws := sourceLaws(t, stdLawPackages(t))
 	tests := repoTests(t)
 	rows := map[string]bool{}
 	for _, r := range readLedger(t) {
-		key := r.pkg + " " + r.law
+		key := r.Key()
 		if rows[key] {
-			t.Errorf("stdlib.md:%d: law %s has a second row", r.line, key)
+			t.Errorf("stdlib.md:%d: law %s has a second row", r.Line, key)
 		}
 		rows[key] = true
 		statement, ok := laws[key]
 		if !ok {
-			t.Errorf("stdlib.md:%d: row %s names no law of std source", r.line, key)
+			t.Errorf("stdlib.md:%d: row %s names no law of std source", r.Line, key)
 			continue
 		}
-		if r.statement != statement {
-			t.Errorf("stdlib.md:%d: the statement of %s is\n\t%s\nthe source says\n\t%s", r.line, key, r.statement, statement)
+		if r.Statement != statement {
+			t.Errorf("stdlib.md:%d: the statement of %s is\n\t%s\nthe source says\n\t%s", r.Line, key, r.Statement, statement)
 		}
+		runsLaws, declared := tests[r.Runner]
 		switch {
-		case r.runner == "#162":
-			if r.state != "checked" {
-				t.Errorf("stdlib.md:%d: %s has no Go runner, so its state is checked, not %q", r.line, key, r.state)
+		case r.Runner == "#162":
+			if r.State != "checked" {
+				t.Errorf("stdlib.md:%d: %s has no Go runner, so its state is checked, not %q", r.Line, key, r.State)
 			}
-		case !tests[r.runner]:
-			t.Errorf("stdlib.md:%d: the runner %s of %s is no func Test… of the repository", r.line, r.runner, key)
-		case r.state != "tested":
-			t.Errorf("stdlib.md:%d: %s runs in %s, so its state is tested, not %q", r.line, key, r.runner, r.state)
+		case !declared:
+			t.Errorf("stdlib.md:%d: the runner %s of %s is no func Test… of the repository", r.Line, r.Runner, key)
+		case !runsLaws:
+			t.Errorf("stdlib.md:%d: the runner %s of %s does not call lawledger.Run, so nothing holds that it runs the law", r.Line, r.Runner, key)
+		case r.State != "tested":
+			t.Errorf("stdlib.md:%d: %s runs in %s, so its state is tested, not %q", r.Line, key, r.Runner, r.State)
 		}
 	}
 	for key := range laws {
@@ -383,7 +321,8 @@ func TestStdLawLedger(t *testing.T) {
 }
 
 // repoTests are the names of the top-level func Test… declarations of the
-// repository's _test.go files, testdata left out.
+// repository's _test.go files, testdata left out, each with whether its
+// body calls lawledger.Run.
 func repoTests(t *testing.T) map[string]bool {
 	t.Helper()
 	root, err := filepath.Abs("../../..")
@@ -414,7 +353,7 @@ func repoTests(t *testing.T) map[string]bool {
 		}
 		for _, decl := range f.Decls {
 			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
-				out[fn.Name.Name] = true
+				out[fn.Name.Name] = out[fn.Name.Name] || callsLedgerRun(fn)
 			}
 		}
 		return nil
@@ -422,10 +361,64 @@ func repoTests(t *testing.T) map[string]bool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out["TestStdLawLedger"] {
+	if _, ok := out["TestStdLawLedger"]; !ok {
 		t.Fatal("the scan missed this test; it reads no test file")
 	}
+	if !out["TestStdHostLawsHold"] {
+		t.Fatal("the scan sees no call of lawledger.Run in TestStdHostLawsHold, which makes one")
+	}
 	return out
+}
+
+// TestCallsLedgerRun: a runner is a test whose own body calls
+// lawledger.Run with its own t; a test that calls nothing, another Run,
+// or lawledger.Run with another t is not.
+func TestCallsLedgerRun(t *testing.T) {
+	const src = `package p
+
+func TestRunner(t *testing.T) { lawledger.Run(t, laws) }
+func TestNested(t *testing.T) { t.Run("x", func(t *testing.T) {}); if ok { lawledger.Run(t, map[string]lawledger.Law{}) } }
+func TestLawless(t *testing.T) { check(t) }
+func TestOtherRun(t *testing.T) { t.Run("lawledger", nil) }
+func TestOtherT(t *testing.T) { lawledger.Run(other, laws) }
+func TestNoParam() { lawledger.Run(t, laws) }
+`
+	f, err := parser.ParseFile(token.NewFileSet(), "p_test.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"TestRunner": true, "TestNested": true, "TestLawless": false, "TestOtherRun": false, "TestOtherT": false, "TestNoParam": false}
+	for _, decl := range f.Decls {
+		fn := decl.(*ast.FuncDecl)
+		if got := callsLedgerRun(fn); got != want[fn.Name.Name] {
+			t.Errorf("callsLedgerRun(%s) = %v, want %v", fn.Name.Name, got, want[fn.Name.Name])
+		}
+	}
+}
+
+// callsLedgerRun reports whether fn's body calls lawledger.Run with fn's
+// own t as its first argument.
+func callsLedgerRun(fn *ast.FuncDecl) bool {
+	if fn.Body == nil || fn.Type.Params == nil || len(fn.Type.Params.List) != 1 || len(fn.Type.Params.List[0].Names) != 1 {
+		return false
+	}
+	param := fn.Type.Params.List[0].Names[0].Name
+	found := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || found {
+			return !found
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Run" || len(call.Args) != 2 {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		arg, isIdent := call.Args[0].(*ast.Ident)
+		found = ok && pkg.Name == "lawledger" && isIdent && arg.Name == param
+		return !found
+	})
+	return found
 }
 
 // TestStdHostLawsHold runs the member laws of the host packages against
@@ -437,8 +430,6 @@ func repoTests(t *testing.T) map[string]bool {
 func TestStdHostLawsHold(t *testing.T) {
 	r := rand.New(rand.NewPCG(1, 2))
 	dir := t.TempDir()
-	// GetenvIsStable(key): Getenv(key) == Getenv(key), set keys, empty
-	// values and unset keys alike.
 	getenv := func(key string) (string, bool) {
 		if v1.OSHasEnv(key) {
 			return v1.OSGetenv(key), true
@@ -451,15 +442,6 @@ func TestStdHostLawsHold(t *testing.T) {
 	for range 200 {
 		keys = append(keys, randomText(r))
 	}
-	for _, key := range keys {
-		v, ok := getenv(key)
-		w, ok2 := getenv(key)
-		if v != w || ok != ok2 {
-			t.Errorf("GetenvIsStable(%q): %q,%v then %q,%v", key, v, ok, w, ok2)
-		}
-	}
-	// ReadIsRepeatable(path): with no writer, two reads agree in value and
-	// in failure.
 	if err := os.WriteFile(filepath.Join(dir, "doc"), []byte("one\ntwo"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -473,25 +455,41 @@ func TestStdHostLawsHold(t *testing.T) {
 	for range 50 {
 		paths = append(paths, randomText(r))
 	}
-	for _, p := range paths {
-		p = filepath.Join(dir, p)
-		a, errA := v1.FSReadFile(p)
-		b, errB := v1.FSReadFile(p)
-		if a != b || !sameFailure(errA, errB) {
-			t.Errorf("ReadIsRepeatable(%q): %q, %v then %q, %v", p, a, errA, b, errB)
-		}
-	}
-	// MkdirAllIsIdempotent(path): when MkdirAll(path) succeeds, a second
-	// MkdirAll(path) succeeds.
-	for _, p := range append([]string{"a/b/c", "sub", "doc", "doc/x", ""}, paths[6:]...) {
-		p = filepath.Join(dir, "mk", p)
-		if err := v1.FSMkdirAll(p); err != nil {
-			continue
-		}
-		if err := v1.FSMkdirAll(p); err != nil {
-			t.Errorf("MkdirAllIsIdempotent(%q): the second MkdirAll failed: %v", p, err)
-		}
-	}
+	lawledger.Run(t, map[string]lawledger.Law{
+		// Set keys, empty values and unset keys alike.
+		"os Process.GetenvIsStable": {Statement: `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }`, Check: func(t *testing.T) {
+			for _, key := range keys {
+				v, ok := getenv(key)
+				w, ok2 := getenv(key)
+				if v != w || ok != ok2 {
+					t.Errorf("GetenvIsStable(%q): %q,%v then %q,%v", key, v, ok, w, ok2)
+				}
+			}
+		}},
+		// With no writer, two reads agree in value and in failure.
+		"fs Files.ReadIsRepeatable": {Statement: `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }`, Check: func(t *testing.T) {
+			for _, p := range paths {
+				p = filepath.Join(dir, p)
+				a, errA := v1.FSReadFile(p)
+				b, errB := v1.FSReadFile(p)
+				if a != b || !sameFailure(errA, errB) {
+					t.Errorf("ReadIsRepeatable(%q): %q, %v then %q, %v", p, a, errA, b, errB)
+				}
+			}
+		}},
+		// When MkdirAll(path) succeeds, a second MkdirAll(path) succeeds.
+		"fs Writes.MkdirAllIsIdempotent": {Statement: `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }`, Check: func(t *testing.T) {
+			for _, p := range append([]string{"a/b/c", "sub", "doc", "doc/x", ""}, paths[6:]...) {
+				p = filepath.Join(dir, "mk", p)
+				if err := v1.FSMkdirAll(p); err != nil {
+					continue
+				}
+				if err := v1.FSMkdirAll(p); err != nil {
+					t.Errorf("MkdirAllIsIdempotent(%q): the second MkdirAll failed: %v", p, err)
+				}
+			}
+		}},
+	})
 }
 
 // sameFailure reports whether two results of a body fail alike: both

@@ -7,12 +7,13 @@ import (
 	"go/token"
 	"math"
 	"math/rand/v2"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"ergo.local/prototype/internal/lawledger"
 )
 
 // textAlphabet is the generator's alphabet: separators, white space of
@@ -174,6 +175,32 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 		got, err := StrconvParseInt(StrconvItoa(n), 10, 64)
 		return err == nil && got == int64(n), n
 	},
+}
+
+// textLawStatements is the statement each textLaws entry restates, the
+// law's source text as the ledger writes it; lawledger.Run holds it equal
+// to the ledger, so a law changed in source fails here until its
+// restatement above is changed with it.
+var textLawStatements = map[string]string{
+	"strconv AtoiInvertsItoa":        `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }`,
+	"strconv FormatFloatRoundTrips":  `FormatFloatRoundTrips(f float64) { if f != f { return true } try ParseFloat(FormatFloat(f, 'g', -1)) == f }`,
+	"strconv ItoaInvertsAtoi":        `ItoaInvertsAtoi(s string) { let n = Atoi(s) catch { case Malformed, OutOfRange: return true } try Atoi(Itoa(n)) == n }`,
+	"strconv ParseBoolInvertsFormat": `ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) == b }`,
+	"strconv ParseIntInvertsFormat":  `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }`,
+	"strconv UnquoteInvertsQuote":    `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }`,
+	"strings CountMatchesSplit":      `CountMatchesSplit(s string, sep string) { if sep == "" { return true } Count(s, sep) == len(Split(s, sep))-1 }`,
+	"strings EqualFoldIsSymmetric":   `EqualFoldIsSymmetric(s string, t string) { EqualFold(s, s) && EqualFold(s, t) == EqualFold(t, s) }`,
+	"strings FieldsHaveNoSpace":      `FieldsHaveNoSpace(s string) { for f in Fields(s) { let again = Fields(f) if len(again) != 1 || Join(again, "") != f { return false } } true }`,
+	"strings HasPrefixOfConcat":      `HasPrefixOfConcat(p string, s string) { HasPrefix(p+s, p) && HasSuffix(p+s, s) }`,
+	"strings IndexFinds":             `IndexFinds(s string, sub string) { let i = Index(s, sub) let j = LastIndex(s, sub) if i < 0 { return j < 0 && !Contains(s, sub) } if sub == "" { return i == 0 && j == len(s) } Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j && LastIndex(Slice(s, 0, i+len(sub)-1), sub) < 0 && Index(Slice(s, j+1, len(s)), sub) < 0 }`,
+	"strings JoinInvertsSplit":       `JoinInvertsSplit(s string, sep string) { if sep == "" { return true } Join(Split(s, sep), sep) == s }`,
+	"strings RepeatLength":           `RepeatLength(s string, n int) { if n < 0 || n > 64 { return true } len(Repeat(s, n)) == n*len(s) }`,
+	"strings ReplaceAllLength":       `ReplaceAllLength(s string, old string, repl string) { if old == "" { return true } len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old)) }`,
+	"strings ToLowerIsIdempotent":    `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }`,
+	"strings TrimSpaceIsIdempotent":  `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }`,
+	"utf8 RuneCountAddsRune":         `RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }`,
+	"utf8 RuneCountAtMostLen":        `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }`,
+	"utf8 RuneCountOfConcat":         `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }`,
 }
 
 // textSink keeps benchmark results alive.
@@ -342,38 +369,23 @@ func BenchmarkText(b *testing.B) {
 	}
 }
 
-// TestStdTextLaws runs each law of textLaws on 10,000 seeded cases, and
-// holds that textLaws restates exactly the ledger rows whose runner is
-// this test.
+// TestStdTextLaws runs each law of textLaws on 10,000 seeded cases;
+// lawledger.Run holds that textLaws restates exactly the ledger rows whose
+// runner is this test, each with the row's statement.
 func TestStdTextLaws(t *testing.T) {
-	data, err := os.ReadFile("../../docs/spec/stdlib.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var want, got []string
-	for _, line := range strings.Split(string(data), "\n") {
-		cells := strings.Split(line, " | ")
-		if len(cells) >= 5 && strings.Trim(cells[3], "`") == "TestStdTextLaws" {
-			want = append(want, strings.Trim(cells[0], "|` ")+" "+strings.Trim(cells[1], "`"))
-		}
-	}
-	for name := range textLaws {
-		got = append(got, name)
-	}
-	slices.Sort(want)
-	slices.Sort(got)
-	if !slices.Equal(got, want) {
-		t.Errorf("the Go restatements are %v; the ledger runs %v here", got, want)
-	}
-	for _, name := range got {
-		r := rand.New(rand.NewPCG(1, uint64(len(name))))
-		for i := range 10_000 {
-			if ok, c := textLaws[name](r); !ok {
-				t.Errorf("%s fails on case %d: %#v", name, i, c)
-				break
+	laws := map[string]lawledger.Law{}
+	for name, holds := range textLaws {
+		laws[name] = lawledger.Law{Statement: textLawStatements[name], Check: func(t *testing.T) {
+			r := rand.New(rand.NewPCG(1, uint64(len(name))))
+			for i := range 10_000 {
+				if ok, c := holds(r); !ok {
+					t.Errorf("%s fails on case %d: %#v", name, i, c)
+					break
+				}
 			}
-		}
+		}}
 	}
+	lawledger.Run(t, laws)
 }
 
 // TestStrconvFailures: each parse fails Malformed for a text it cannot
