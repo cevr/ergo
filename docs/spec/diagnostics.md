@@ -163,7 +163,7 @@ The checker does not restrict `main`'s capability row; the build refuses what th
 | A function value whose rows are wider than the function type's, such as a fallible function where an infallible type is expected | `fallible-function-value` |
 | A context literal outside `with` | `context-literal-outside-with` |
 | An interface or capability method writes a capability row | `interface-method-needs` |
-| `return`, `break` or `continue` crosses a `with` block or a block argument (an `else` block is a branch of its `if`, not a barrier) | `return-in-with-block`; `TestElseBranchJumps` |
+| `break` or `continue` crosses a `with` block, or `return`, `break` or `continue` crosses a block argument (an `else` block is a branch of its `if`, not a barrier; a `return` may leave a `with` block) | `break-in-with-block`; `TestElseBranchJumps`; positive `return-in-with-block`, `TestErgoRunReturnInWith` |
 | An error type declares a method named `Error` | `error-method-on-error-type` |
 | A named context whose build can reach itself: a `with` of the context in its providers, through a function, a method or a capability provider that enters it, or an embedding; entries of one named context whose providers use each other's capabilities, so none can be built first | `context-cycle`, `probes/cyclic-context.ergo`, `probes/context-method-cycle.ergo`; checker review tests (M14) |
 | A machine's state or signal type is not a union; its initial value is not a value of the state type; its step is not a function from the state and signal types to `Decision[S, O]` | runtime.md, Machines and actors 1 |

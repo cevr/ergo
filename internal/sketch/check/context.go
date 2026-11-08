@@ -46,7 +46,7 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		frames = append(frames, f)
 	}
 	done := c.openScope()
-	c.fn.branches = append(c.fn.branches, branch{kind: brBarrier})
+	c.fn.branches = append(c.fn.branches, branch{kind: brWith})
 	var errs *Row
 	// The with's expected type is the yielded expression's, as a hint: the
 	// block's own result stays its last expression's type (M16).

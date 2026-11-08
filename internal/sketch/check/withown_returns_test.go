@@ -59,6 +59,9 @@ var ownReturnSlots = []ownReturnSlot{
 	{"InterpolatedString.Exprs", "int", "0", `"value \(EXPR)"`},
 }
 
+// A with block is no frame and no barrier for return (grammar.md,
+// Statements 5; L3): its return is the function's, as with no boundary. A
+// block argument (CallExpr) still refuses one.
 var ownReturnBoundaries = map[string]string{
 	"none":     "STMT",
 	"FuncLit":  "let _ = func() Conn fails Fault { STMT; Conn{n: 2} }",
@@ -140,9 +143,9 @@ func TestContextOwnershipReturnPositions(t *testing.T) {
 									t.Fatalf("frame sees %d returns, want %d\n%s", returns, want, src)
 								}
 							}
-							if boundary == "with" || boundary == "CallExpr" {
+							if boundary == "CallExpr" {
 								if len(ds) == 0 {
-									t.Fatal("return crossed a with boundary without S108")
+									t.Fatal("return crossed a block argument without S108")
 								}
 								for _, d := range ds {
 									if d.Code != "S108" || !strings.Contains(d.Message, "return cannot leave") {
@@ -155,7 +158,7 @@ func TestContextOwnershipReturnPositions(t *testing.T) {
 								t.Fatalf("invalid generated source: %v\n%s", ds, src)
 							}
 							fresh := pkg.providerFresh
-							want := !borrowed || boundary != "none"
+							want := !borrowed || boundary != "none" && boundary != "with"
 							found := false
 							for _, f := range pkg.Funcs {
 								if f.Name == "get" {

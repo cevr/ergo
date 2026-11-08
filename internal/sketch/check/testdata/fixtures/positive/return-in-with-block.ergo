@@ -1,0 +1,49 @@
+type Fault {}
+
+type Store { Get() int }
+type Mem { N int }
+func Get(m Mem) int { m.N }
+
+func risky(n int) int fails Fault {
+	if n < 0 {
+		return Fault
+	}
+	n
+}
+
+// A return inside a with block leaves the function after the with's
+// providers are released (grammar.md, Statements 5).
+func first(xs []int) int {
+	with context { Store: Mem{N: 10} } {
+		for x in xs {
+			if x > 0 {
+				return x + Store.Get()
+			}
+		}
+		0
+	}
+}
+
+// A catch arm's return inside a with, and a with in value position.
+func caught(n int) int fails Fault {
+	let v = with context { Store: Mem{N: 1} } {
+		let r = risky(n) catch {
+		case Fault:
+			return Store.Get()
+		}
+		if r > 9 {
+			return try risky(r - 10)
+		}
+		r
+	}
+	v + 1
+}
+
+func main() needs Console {
+	Console.Println("\(first([]int{-1, 3}))")
+	let n = caught(-1) catch {
+	case Fault:
+		0
+	}
+	Console.Println("\(n)")
+}
