@@ -177,7 +177,11 @@ func main() needs Console {
 }
 
 // TestValueRuleProbes runs every probe: each prints what value semantics
-// says.
+// says. They are the smallest repros of the map-alias bug, one per path,
+// each red at f719e9f1. They build and run because the bug is Go's map
+// and slice sharing at run time, which no in-process check of the emitted
+// text observes; the generated programs of TestValueRuleAgrees cover the
+// paths in combination.
 func TestValueRuleProbes(t *testing.T) {
 	var programs []*lowered
 	for _, p := range valueProbes {

@@ -74,7 +74,10 @@ func main() needs Console {
 // literal, a call whose result is fresh, a local dead after the bind) and
 // writes in place (m[k] = v, out = out.Append(x), m = m.Delete(k), a
 // field's Append); a parameter bound to a let mut and a read kept while
-// the root is written later are copied.
+// the root is written later are copied. It reads the emitted Go only: the
+// copies' meaning is TestValueRuleAgrees'; this guards the mutant that
+// copies everywhere, which every run-based check passes (the zero-allocation
+// claim of BenchmarkValueRule rests on it).
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
@@ -89,18 +92,13 @@ func TestValueRuleElides(t *testing.T) {
 	if body := goFunc(t, code, "main_1"); strings.Contains(body, "Clone") {
 		t.Errorf("main copies build's fresh result:\n%s", body)
 	}
-	exes := buildAll(t, []*lowered{p}, true)
-	if exes == nil {
-		t.Fatal("does not build")
-	}
-	if out, stderr, code := runExe(t, exes["velide"]); out != "4 0 3 5 5\n" || code != 0 {
-		t.Errorf("got %q, exit %d\n%s", out, code, stderr)
-	}
 }
 
 // TestValueRuleRace: the probes that send a value to two tasks and capture
 // a written let mut in a task, built with -race, report no race and print
 // the values (map-alias P6: a DATA RACE in 3 of 3 runs before the rule).
+// Only Go's race detector, in a built binary, observes the race; it guards
+// the elide-closure mutant on the task path.
 func TestValueRuleRace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-race build")
