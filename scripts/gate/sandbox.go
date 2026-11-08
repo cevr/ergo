@@ -401,7 +401,7 @@ func (g *gate) sandboxPlanFor(steps []*Step) (sandboxPlan, error) {
 	if err != nil {
 		return sandboxPlan{}, err
 	}
-	common := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	common := exec.Command("git", "--no-optional-locks", "rev-parse", "--path-format=absolute", "--git-common-dir")
 	common.Dir = root
 	source, err := runOutput(common)
 	if err != nil {

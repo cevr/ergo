@@ -142,7 +142,7 @@ func TestCheckoutIdentitySeesIgnoredSubmoduleChanges(t *testing.T) {
 	module := fixture(t)
 	git := func(args ...string) {
 		t.Helper()
-		command := exec.Command("git", append([]string{"-c", "user.name=gate", "-c", "user.email=gate@invalid", "-c", "commit.gpgsign=false", "-c", "protocol.file.allow=always"}, args...)...)
+		command := exec.Command("git", append([]string{"--no-optional-locks", "-c", "user.name=gate", "-c", "user.email=gate@invalid", "-c", "commit.gpgsign=false", "-c", "protocol.file.allow=always"}, args...)...)
 		command.Dir = root
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)

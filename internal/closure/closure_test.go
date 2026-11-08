@@ -164,7 +164,14 @@ var declared = map[string][]allowance{
 	"scripts/conformance": {
 		{"conformance/effect-cases.json", file, "the mapping reads the Effect case list"},
 		{"conformance/upstream/foldkit-d21db423", subtree, "the mapping walks the pinned foldkit evidence at every depth (follow-up: outside this unit's Owns)"},
-		{".git", file, "the mapping asks git whether evidence is tracked (follow-up: outside this unit's Owns)"},
+		// git reads the repository's metadata. In a worktree .git is a file
+		// that names a git directory outside the checkout; in a clone (the
+		// merge tier's export, scripts/gate exportCommit) .git is that
+		// directory, and git reads HEAD, config, commondir, the index and
+		// the refs and objects below it at depths that follow the refs'
+		// layout, so only a subtree gives both layouts one verdict
+		// (TestGitMetadataVerdictIsTheLayoutsOwn).
+		{".git", subtree, "the mapping asks git whether evidence is tracked (git ls-files reads .git, a file in a worktree and the repository's metadata directory in a clone)"},
 	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},

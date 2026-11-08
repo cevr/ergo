@@ -23,7 +23,7 @@ func fixture(t *testing.T) string {
 	root := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		command := exec.Command("git", append([]string{"-c", "user.name=gate", "-c", "user.email=gate@invalid", "-c", "commit.gpgsign=false"}, args...)...)
+		command := exec.Command("git", append([]string{"--no-optional-locks", "-c", "user.name=gate", "-c", "user.email=gate@invalid", "-c", "commit.gpgsign=false"}, args...)...)
 		command.Dir = root
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)
@@ -485,7 +485,7 @@ func TestCheckoutIdentityNamesHeadTreeAndCleanliness(t *testing.T) {
 	root := fixture(t)
 	git := func(args ...string) string {
 		t.Helper()
-		command := exec.Command("git", args...)
+		command := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 		command.Dir = root
 		output, err := command.Output()
 		if err != nil {
@@ -558,7 +558,7 @@ func TestHistoryReadingStepsNeverReplay(t *testing.T) {
 	root := fixture(t)
 	git := func(args ...string) string {
 		t.Helper()
-		command := exec.Command("git", args...)
+		command := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 		command.Dir = root
 		output, err := command.CombinedOutput()
 		if err != nil {

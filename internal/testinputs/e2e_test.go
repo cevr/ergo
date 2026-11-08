@@ -928,7 +928,7 @@ func (f *fixture) backdateTree(t *testing.T, rel string, date time.Time) {
 
 func (f *fixture) git(t *testing.T, args ...string) {
 	t.Helper()
-	command := exec.Command("git", args...)
+	command := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	command.Dir = f.root
 	command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=fixture@example.invalid")

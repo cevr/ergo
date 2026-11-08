@@ -29,7 +29,7 @@ type gitResult struct {
 
 // gitProcess runs git in a repository; it fails only when git cannot run.
 func gitProcess(repository string, stdin []byte, args ...string) (gitResult, error) {
-	command := exec.Command("git", append([]string{"-C", repository}, args...)...)
+	command := exec.Command("git", append([]string{"--no-optional-locks", "-C", repository}, args...)...)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	if stdin != nil {
