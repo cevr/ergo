@@ -1,0 +1,32 @@
+// The line protocol's tests: Answer with each Optimizer, and Run over a
+// scripted input with a Recorder, with no host.
+
+import calc/opt
+import io
+
+// answer is Answer(src) with the Optimizer o, or "failed".
+func answer(src string) string needs opt.Optimizer {
+	Answer(src) catch {
+	case _:
+		"failed"
+	}
+}
+
+test AnswerUsesTheOptimizer {
+	with context { opt.Optimizer: opt.Keep } {
+		assert answer("2 * 3 + x0") == "failed"
+		assert answer("let y = 2 in y * 3") == "let y = 2 in y * 3 = 6 : int"
+	}
+	with context { opt.Optimizer: opt.Folder } {
+		assert answer("let y = 2 in y * 3") == "6 = 6 : int"
+	}
+}
+
+test RunSkipsBlanksAndComments {
+	let out = io.NewRecorder()
+	let tally = with context { io.Stdin: io.Input{Text: "\n# note\n1\n2 +\n"}, io.Stdout: out, io.Stderr: out, opt.Optimizer: opt.Keep } {
+		Run()
+	}
+	assert tally == Tally{Lines: 2, Failed: 1}
+	assert out.Text() == "1 = 1 : int\nline 4: col 4: want an operand, got the end\n"
+}

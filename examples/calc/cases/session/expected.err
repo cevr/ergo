@@ -1,0 +1,8 @@
+line 9: division by zero in 1 / 0
+line 11: false is bool, not int
+line 12: x is not bound
+line 13: col 7: want ")", got the end
+line 14: col 3: no token starts with $
+line 15: col 1: 99999999999999999999 does not fit an int
+line 16: col 5: want a variable name, got "then"
+calc: 7 of 14 expressions failed

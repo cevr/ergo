@@ -1,0 +1,7 @@
+invalid value "maybe" for flag -fold: parse error
+Usage of calc:
+calc runs expressions, one per line of standard input, and prints each with its value and type.
+  -e expression
+    	run the expression in place of standard input
+  -fold
+    	fold constants before an expression runs, and print the folded expression

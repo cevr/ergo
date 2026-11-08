@@ -1,0 +1,97 @@
+// The syntax tests: examples of each rule, each failure with its column,
+// and the laws restated as property tests over generated expressions.
+// The compiler checks laws and does not run them yet (#162).
+
+import calc/ast
+import rand
+
+// text is src parsed and printed again, or the failure as a line.
+func text(src string) string {
+	let e = Parse(src) catch {
+	case BadChar as b:
+		return "bad char \(b.Char) at \(b.At)"
+	case Unexpected as u:
+		return "want \(u.Want), got \(u.Got) at \(u.At)"
+	case TooBig as t:
+		return "too big \(t.Text) at \(t.At)"
+	}
+	ast.Print(e)
+}
+
+test PrecedenceAndAssociativity {
+	assert text("1 + 2 * 3") == "1 + 2 * 3"
+	assert text("(1 + 2) * 3") == "(1 + 2) * 3"
+	assert text("1 - (2 - 3)") == "1 - (2 - 3)"
+	assert text("(1 - 2) - 3") == "1 - 2 - 3"
+	assert text("a < b == c && d || e") == "a < b == c && d || e"
+	assert text("!(a && b)") == "!(a && b)"
+	assert text("((((x))))") == "x"
+}
+
+test MinusBeforeANumber {
+	assert try Parse("-5") == ast.Num{V: -5}
+	assert try Parse("- 5") == ast.Neg{X: ast.Num{V: 5}}
+	assert try Parse("1 -5") == ast.Bin{Op: ast.Sub, L: ast.Num{V: 1}, R: ast.Num{V: 5}}
+	assert try Parse("1 - -5") == ast.Bin{Op: ast.Sub, L: ast.Num{V: 1}, R: ast.Num{V: -5}}
+	assert try Parse("-9223372036854775808") == ast.Num{V: -9223372036854775808}
+	assert text("--5") == "- -5"
+	assert text("-(-x)") == "--x"
+}
+
+test IfAndLetReachRight {
+	assert text("let x = 1 in x + 1") == "let x = 1 in x + 1"
+	assert text("1 + (if c then 2 else 3)") == "1 + (if c then 2 else 3)"
+	assert text("1 + if c then 2 else 3 * 4") == "1 + (if c then 2 else 3 * 4)"
+	assert text("if a then let y = 2 in y else 0") == "if a then let y = 2 in y else 0"
+}
+
+test FailuresNameTheColumn {
+	assert text("1 + ") == "want an operand, got the end at 5"
+	assert text("(1 + 2") == "want \")\", got the end at 7"
+	assert text("1 2") == "want an operator or the end, got \"2\" at 3"
+	assert text("let 3 = 1 in 2") == "want a variable name, got \"3\" at 5"
+	assert text("let if = 1 in 2") == "want a variable name, got \"if\" at 5"
+	assert text("if a else b") == "want \"then\", got \"else\" at 6"
+	assert text("2 $ 3") == "bad char $ at 3"
+	assert text("x + é") == "bad char é at 5"
+	assert text("99999999999999999999") == "too big 99999999999999999999 at 1"
+	assert text("then") == "want an operand, got \"then\" at 1"
+}
+
+// roundTrips reports whether e reads back from its text.
+func roundTrips(e ast.Expr) bool {
+	let back = Parse(ast.Print(e)) catch {
+	case BadChar, Unexpected, TooBig:
+		return false
+	}
+	back == e
+}
+
+test RoundTripHolds(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for _ in 0..5 {
+			let e = ast.GenAny(5)
+			assert roundTrips(e)
+		}
+	}
+}
+
+test RoundTripHoldsForTypedExpressions(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let e = ast.Gen(5, ast.AnyType(), ast.Top)
+		assert roundTrips(e)
+	}
+}
+
+test ColumnsIncreaseHolds(src string) {
+	let toks = Lex(src) catch {
+	case BadChar:
+		return
+	}
+	let mut last = 0
+	for t in toks {
+		assert At(t) > last
+		last = At(t)
+	}
+	assert last == len(src)+1
+}

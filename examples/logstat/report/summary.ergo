@@ -1,0 +1,140 @@
+// Package report sums up requests and writes the summary as text or as
+// JSON. Summarize is pure; the binary reads the lines.
+
+import logstat/access
+import logstat/stats
+import slices
+import time
+
+// Key is what the top counts are of.
+type Key = ByPath | ByAddr | ByStatus | ByMethod
+
+type ByPath {}
+type ByAddr {}
+type ByStatus {}
+type ByMethod {}
+
+// Keys are the names of the keys, as the -by flag spells them.
+let Keys = []string{"path", "addr", "status", "method"}
+
+// KeyNamed is the Key of the name, if it is one of Keys.
+func KeyNamed(name string) Option[Key] {
+	match name {
+	case "path":
+		Some[Key]{Value: ByPath}
+	case "addr":
+		Some[Key]{Value: ByAddr}
+	case "status":
+		Some[Key]{Value: ByStatus}
+	case "method":
+		Some[Key]{Value: ByMethod}
+	case _:
+		None
+	}
+}
+
+// KeyName is the name of k, which KeyNamed reads back.
+func KeyName(k Key) string {
+	match k {
+	case ByPath:
+		"path"
+	case ByAddr:
+		"addr"
+	case ByStatus:
+		"status"
+	case ByMethod:
+		"method"
+	}
+}
+
+// KeyOf is the key of r that k counts by.
+func KeyOf(k Key, r access.Request) string {
+	match k {
+	case ByPath:
+		access.Path(r)
+	case ByAddr:
+		r.Addr
+	case ByStatus:
+		"\(r.Status)"
+	case ByMethod:
+		r.Method
+	}
+}
+
+// Span is the first and the last time of the requests.
+type Span { First time.Time, Last time.Time }
+
+// Summary is what a report says of a log.
+type Summary {
+	Requests int,
+	Bad      int,
+	Bytes    int,
+	Span     Option[Span],
+	Classes  []stats.Count,
+	By       string,
+	Top      []stats.Count,
+	Mean     Option[int],
+	Latency  []stats.Quantile,
+}
+
+// Points are the percentiles of the time taken that a summary gives.
+let Points = []int{50, 90, 99}
+
+// Summarize is the summary of reqs, read from a log that also had bad
+// lines that did not parse: the top counts by by, at most top of them.
+func Summarize(reqs []access.Request, bad int, by Key, top int) Summary {
+	let mut keys = []string{}
+	let mut classes = []string{}
+	let mut micros = []int{}
+	let mut bytes = 0
+	for r in reqs {
+		keys = keys.Append(KeyOf(by, r))
+		classes = classes.Append(access.ClassName(access.ClassOf(r.Status)))
+		micros = micros.Append(r.Micros)
+		bytes += r.Bytes
+	}
+	Summary{
+		Requests: len(reqs),
+		Bad:      bad,
+		Bytes:    bytes,
+		Span:     span(reqs),
+		Classes:  inClassOrder(stats.Tally(classes)),
+		By:       KeyName(by),
+		Top:      stats.Rank(stats.Tally(keys), top),
+		Mean:     stats.Mean(micros),
+		Latency:  stats.Percentiles(slices.Ascend(micros), Points),
+	}
+}
+
+// span is the first and last time of reqs, if there are any.
+func span(reqs []access.Request) Option[Span] {
+	if len(reqs) == 0 {
+		return None
+	}
+	let mut first = reqs[0].At
+	let mut last = reqs[0].At
+	for r in reqs {
+		if time.Before(r.At, first) {
+			first = r.At
+		}
+		if time.After(r.At, last) {
+			last = r.At
+		}
+	}
+	Some{Value: Span{First: first, Last: last}}
+}
+
+// inClassOrder is the counts of each class in m, in the order of
+// access.Classes, without the classes not seen.
+func inClassOrder(m Map[string, int]) []stats.Count {
+	let mut out = []stats.Count{}
+	for c in access.Classes {
+		let name = access.ClassName(c)
+		match m.Get(name) {
+		case Some as n:
+			out = out.Append(stats.Count{Key: name, N: n.Value})
+		case None:
+		}
+	}
+	out
+}

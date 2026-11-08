@@ -1,0 +1,83 @@
+// calc runs expressions of a small language of ints and bools, one per
+// line of standard input, and prints each with its value and its type.
+// -fold folds constants first; -e runs one expression from the command
+// line. Package ast is the language; syntax reads it, typing checks it,
+// eval runs it, opt folds it, and repl is the line protocol. This binary
+// is the only place that chooses the providers: the host's streams and
+// arguments, the input, and the Optimizer.
+
+import calc/opt
+import calc/repl
+import flag
+import io
+import os
+
+let foldFlag = flag.Bool("fold", false, "fold constants before an expression runs, and print the folded expression")
+let exprFlag = flag.String("e", "", "run the `expression` in place of standard input")
+
+let set = flag.Set{
+	Name:  "calc",
+	Usage: "calc runs expressions, one per line of standard input, and prints each with its value and type.",
+	Flags: []flag.Flag{foldFlag, exprFlag},
+	Args:  []flag.ArgSpec{},
+}
+
+// optimizer is the Optimizer that -fold chooses.
+func optimizer(fold bool) opt.Optimizer {
+	if fold { opt.Folder } else { opt.Keep }
+}
+
+// run is calc on args, with the host's input or the -e expression. A
+// failed line makes the status 1, after every line has run.
+func run(args []string, host io.Stdin) fails os.Exit needs io.Stdout | io.Stderr {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	let src = exprFlag.Get(v)
+	let input io.Stdin = if src == "" { host } else { io.Input{Text: src} }
+	let tally = with context { io.Stdin: input, opt.Optimizer: optimizer(foldFlag.Get(v)) } {
+		repl.Run()
+	}
+	if tally.Failed > 0 {
+		return os.Exit{Code: 1, Message: "calc: \(tally.Failed) of \(tally.Lines) expressions failed"}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+		try run(os.Process.Args(), io.NewHost())
+	}
+}
+
+// The tests run run with scripted input and a Recorder, with no host.
+
+// ran is the output of run on args and the input script, with its exit
+// as a last line.
+func ran(args []string, script string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stderr: out } {
+		run(args, io.Input{Text: script}) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test LinesRunInOrder {
+	assert ran([]string{}, "1 + 2 * 3\n\n# a comment\nlet x = 4 in x < 5\n") == "1 + 2 * 3 = 7 : int\nlet x = 4 in x < 5 = true : bool\n"
+}
+
+test FoldPrintsTheFoldedExpression {
+	assert ran([]string{"-fold"}, "let x = 4 in x * y\nlet y = 2 in y * y + 1\n") == "line 1: y is not bound\n5 = 5 : int\nexit 1: calc: 1 of 2 expressions failed\n"
+}
+
+test ExpressionFlagReplacesInput {
+	assert ran([]string{"-e", "(1 + 2) * 3"}, "this is not read\n") == "(1 + 2) * 3 = 9 : int\n"
+}
+
+test FailuresAreToldAndCounted {
+	assert ran([]string{}, "1 +\n1 / 0\ntrue + 1\n2\n") == "line 1: col 4: want an operand, got the end\nline 2: division by zero in 1 / 0\nline 3: true is bool, not int\n2 = 2 : int\nexit 1: calc: 3 of 4 expressions failed\n"
+}

@@ -1,0 +1,123 @@
+// The optimizer's tests: examples of each rule, the parts it must keep,
+// and the laws restated as property tests over generated expressions,
+// for both providers of Optimizer (#162 runs laws).
+
+import calc/ast
+import calc/eval
+import calc/syntax
+import calc/typing
+import rand
+
+// folded is src folded, as text.
+func folded(src string) string {
+	let e = syntax.Parse(src) catch {
+	case syntax.BadChar, syntax.Unexpected, syntax.TooBig:
+		return "syntax"
+	}
+	ast.Print(Fold(e))
+}
+
+test FoldsConstants {
+	assert folded("1 + 2 * 3") == "7"
+	assert folded("1 < 2 && !false") == "true"
+	assert folded("if 1 == 1 then x else y") == "x"
+	assert folded("let x = 2 in x * x + y") == "4 + y"
+	assert folded("- 5") == "-5"
+	assert folded("-(-x)") == "x"
+	assert folded("!!b") == "b"
+}
+
+test FoldsIdentities {
+	assert folded("x + 0") == "x"
+	assert folded("0 + x * 1") == "x"
+	assert folded("x - 0") == "x"
+	assert folded("true && b") == "b"
+	assert folded("b && true") == "b"
+	assert folded("false || b") == "b"
+	assert folded("b || false") == "b"
+	assert folded("false && b") == "false"
+	assert folded("true || b") == "true"
+}
+
+test KeepsWhatCanFail {
+	assert folded("0 * (1 / 0)") == "0 * (1 / 0)"
+	assert folded("x * 0") == "x * 0"
+	assert folded("b && false") == "b && false"
+	assert folded("b || true") == "b || true"
+	assert folded("0 - x") == "0 - x"
+	assert folded("let y = 1 / 0 in 3") == "let y = 1 / 0 in 3"
+}
+
+test ShadowingHidesAConstant {
+	assert folded("let x = 1 in let x = y in x + 1") == "let x = y in x + 1"
+	assert folded("let x = 1 in (let x = y in x) + x") == "(let x = y in x) + 1"
+}
+
+// keepsType reports whether the Optimizer keeps the law KeepsTheType on
+// e, and keepsMeaning the law PreservesMeaning.
+func keepsType(e ast.Expr) bool needs Optimizer {
+	let t = typing.Check(e) catch {
+	case typing.Mismatch, typing.Unbound:
+		return true
+	}
+	let u = typing.Check(Optimizer.Optimize(e)) catch {
+	case typing.Mismatch, typing.Unbound:
+		return false
+	}
+	t == u
+}
+
+func keepsMeaning(e ast.Expr) bool needs Optimizer {
+	let _ = typing.Check(e) catch {
+	case typing.Mismatch, typing.Unbound:
+		return true
+	}
+	eval.Run(Optimizer.Optimize(e)) == eval.Run(e)
+}
+
+// folding and keeping bind each provider of Optimizer.
+let folding = context { Optimizer: Folder }
+let keeping = context { Optimizer: Keep }
+
+test FolderKeepsTheType(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) }, folding {
+		for _ in 0..5 {
+			assert keepsType(ast.Gen(5, ast.AnyType(), ast.Top))
+		}
+	}
+}
+
+test FolderPreservesMeaning(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) }, folding {
+		for _ in 0..5 {
+			assert keepsMeaning(ast.Gen(5, ast.AnyType(), ast.Top))
+		}
+	}
+}
+
+test KeepKeepsTheLaws(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) }, keeping {
+		let e = ast.Gen(5, ast.AnyType(), ast.Top)
+		assert keepsType(e) && keepsMeaning(e)
+	}
+}
+
+test FoldIsIdempotentHolds(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for _ in 0..5 {
+			let e = ast.GenAny(5)
+			assert Fold(Fold(e)) == Fold(e)
+			let typed = ast.Gen(5, ast.AnyType(), ast.Top)
+			assert Fold(Fold(typed)) == Fold(typed)
+		}
+	}
+}
+
+test FoldNeverGrowsHolds(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for _ in 0..5 {
+			let e = ast.GenAny(5)
+			assert ast.Size(Fold(e)) <= ast.Size(e)
+		}
+	}
+}

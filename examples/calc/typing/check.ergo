@@ -1,0 +1,71 @@
+// Package typing is calc's type checker. Check gives an expression its
+// type or names the first place where a type is wrong. A checked
+// expression does not get stuck when it runs (law Sound).
+
+import calc/ast
+
+// Mismatch is an operand In whose type is Got where Want is needed.
+type Mismatch { In string, Want ast.Type, Got ast.Type }
+
+// Unbound is a variable that no let binds.
+type Unbound { Name string }
+
+// Check is the type of e, which has no free variables.
+func Check(e ast.Expr) ast.Type fails Mismatch | Unbound { try In(e, ast.Top) }
+
+// In is the type of e with the variables of s.
+func In(e ast.Expr, s ast.Scope) ast.Type fails Mismatch | Unbound {
+	match e {
+	case ast.Num:
+		ast.IntT
+	case ast.BoolLit:
+		ast.BoolT
+	case ast.Var as v:
+		match ast.Lookup(s, v.Name) {
+		case Some as t:
+			t.Value
+		case None:
+			Unbound{Name: v.Name}
+		}
+	case ast.Neg as n:
+		try want(n.X, ast.IntT, s)
+		ast.IntT
+	case ast.Not as n:
+		try want(n.X, ast.BoolT, s)
+		ast.BoolT
+	case ast.Bin as b:
+		match b.Op {
+		case ast.Add, ast.Sub, ast.Mul, ast.Div, ast.Mod:
+			try want(b.L, ast.IntT, s)
+			try want(b.R, ast.IntT, s)
+			ast.IntT
+		case ast.Lt:
+			try want(b.L, ast.IntT, s)
+			try want(b.R, ast.IntT, s)
+			ast.BoolT
+		case ast.Eq:
+			try want(b.R, try In(b.L, s), s)
+			ast.BoolT
+		case ast.And, ast.Or:
+			try want(b.L, ast.BoolT, s)
+			try want(b.R, ast.BoolT, s)
+			ast.BoolT
+		}
+	case ast.If as i:
+		try want(i.Cond, ast.BoolT, s)
+		let t = try In(i.Then, s)
+		try want(i.Else, t, s)
+		t
+	case ast.Let as l:
+		let t = try In(l.Val, s)
+		try In(l.Body, ast.Bound{Name: l.Name, T: t, Outer: s})
+	}
+}
+
+// want checks that e has type t.
+func want(e ast.Expr, t ast.Type, s ast.Scope) fails Mismatch | Unbound {
+	let got = try In(e, s)
+	if got != t {
+		return Mismatch{In: ast.Print(e), Want: t, Got: got}
+	}
+}

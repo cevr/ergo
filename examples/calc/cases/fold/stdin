@@ -1,0 +1,6 @@
+let x = 6 in let y = x * 7 in if y < 50 then y else 0
+let k = 10 in k * k - n
+let n = 3 in n * 1 + 0 + (2 - 2) * n
+true && (false || 4 < 5)
+1 / (2 - 2)
+0 * (1 / 0)

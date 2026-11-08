@@ -1,0 +1,107 @@
+import strings
+
+// Print is d as canonical text: the root's entries, then each table
+// after a blank line, each entry as key = value, strings in double
+// quotes, and arrays as [a, b]. Comments are not kept.
+func Print(d Doc) string {
+	let mut out = []string{}
+	for e in d.Root.Entries {
+		out = out.Append(PrintEntry(e))
+	}
+	for t in d.Tables {
+		if len(out) > 0 {
+			out = out.Append("")
+		}
+		out = out.Append(if t.Many { "[[" + t.Name + "]]" } else { "[" + t.Name + "]" })
+		for e in t.Entries {
+			out = out.Append(PrintEntry(e))
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	strings.Join(out, "\n") + "\n"
+}
+
+// PrintEntry is e as key = value.
+func PrintEntry(e Entry) string { e.Key + " = " + PrintValue(e.Value) }
+
+// PrintValue is v as TOML text.
+func PrintValue(v Value) string {
+	match v {
+	case Str as s:
+		Quote(s.S)
+	case Int as n:
+		"\(n.N)"
+	case Bool as b:
+		if b.B { "true" } else { "false" }
+	case Arr as a:
+		let mut parts = []string{}
+		for it in a.Items {
+			parts = parts.Append(PrintValue(it.Value))
+		}
+		"[" + strings.Join(parts, ", ") + "]"
+	}
+}
+
+// Quote is s as a basic string.
+func Quote(s string) string {
+	let a = strings.ReplaceAll(s, "\\", "\\\\")
+	let b = strings.ReplaceAll(a, "\"", "\\\"")
+	let c = strings.ReplaceAll(b, "\n", "\\n")
+	let d = strings.ReplaceAll(c, "\t", "\\t")
+	"\"" + strings.ReplaceAll(d, "\r", "\\r") + "\""
+}
+
+// Same reports whether a and b are the same value, wherever they were
+// read.
+func Same(a Value, b Value) bool {
+	match (a, b) {
+	case (Str as x, Str as y):
+		x.S == y.S
+	case (Int as x, Int as y):
+		x.N == y.N
+	case (Bool as x, Bool as y):
+		x.B == y.B
+	case (Arr as x, Arr as y):
+		if len(x.Items) != len(y.Items) {
+			return false
+		}
+		for i, it in x.Items {
+			if !Same(it.Value, y.Items[i].Value) {
+				return false
+			}
+		}
+		true
+	case (_, _):
+		false
+	}
+}
+
+// SameTable reports whether a and b have the same name, form and
+// entries in order, wherever they were read.
+func SameTable(a Table, b Table) bool {
+	if a.Name != b.Name || a.Many != b.Many || len(a.Entries) != len(b.Entries) {
+		return false
+	}
+	for i, e in a.Entries {
+		if e.Key != b.Entries[i].Key || !Same(e.Value, b.Entries[i].Value) {
+			return false
+		}
+	}
+	true
+}
+
+// SameDoc reports whether a and b are the same document, wherever their
+// parts were read.
+func SameDoc(a Doc, b Doc) bool {
+	if !SameTable(a.Root, b.Root) || len(a.Tables) != len(b.Tables) {
+		return false
+	}
+	for i, t in a.Tables {
+		if !SameTable(t, b.Tables[i]) {
+			return false
+		}
+	}
+	true
+}

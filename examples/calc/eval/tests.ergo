@@ -1,0 +1,66 @@
+// The evaluator's tests: values, wrapping, short-circuits and each
+// failure by name.
+
+import calc/ast
+
+// num and bin build trees for the tests.
+func num(n int) ast.Expr { ast.Num{V: n} }
+
+func bin(op ast.Op, l ast.Expr, r ast.Expr) ast.Expr { ast.Bin{Op: op, L: l, R: r} }
+
+// result is the value of e as text, or its failure.
+func result(e ast.Expr) string {
+	let v = Eval(e) catch {
+	case DivByZero as d:
+		return "division by zero in \(d.Where)"
+	case Stuck as s:
+		return "stuck: \(s.Reason)"
+	case Unset as u:
+		return "unset \(u.Name)"
+	}
+	Show(v)
+}
+
+test Arithmetic {
+	assert result(bin(ast.Add, num(1), bin(ast.Mul, num(2), num(3)))) == "7"
+	assert result(bin(ast.Div, num(-7), num(2))) == "-3"
+	assert result(bin(ast.Mod, num(-7), num(2))) == "-1"
+	assert result(ast.Neg{X: num(5)}) == "-5"
+}
+
+test IntWraps {
+	let max = num(9223372036854775807)
+	let min = num(-9223372036854775808)
+	assert result(bin(ast.Add, max, num(1))) == "-9223372036854775808"
+	assert result(ast.Neg{X: min}) == "-9223372036854775808"
+	assert result(bin(ast.Div, min, num(-1))) == "-9223372036854775808"
+	assert result(bin(ast.Mod, min, num(-1))) == "0"
+}
+
+test DivisionByZeroNamesItsExpression {
+	assert result(bin(ast.Add, num(1), bin(ast.Div, num(4), bin(ast.Sub, num(2), num(2))))) == "division by zero in 4 / (2 - 2)"
+	assert result(bin(ast.Mod, num(1), num(0))) == "division by zero in 1 % 0"
+	assert result(bin(ast.Mul, num(0), bin(ast.Div, num(1), num(0)))) == "division by zero in 1 / 0"
+}
+
+test ShortCircuits {
+	let boom = bin(ast.Eq, bin(ast.Div, num(1), num(0)), num(1))
+	assert result(bin(ast.And, ast.BoolLit{V: false}, boom)) == "false"
+	assert result(bin(ast.Or, ast.BoolLit{V: true}, boom)) == "true"
+	assert result(ast.If{Cond: ast.BoolLit{V: true}, Then: num(1), Else: boom}) == "1"
+	assert result(bin(ast.And, ast.BoolLit{V: true}, boom)) == "division by zero in 1 / 0"
+}
+
+test LetShadows {
+	let e = ast.Let{Name: "x", Val: num(1), Body: ast.Let{Name: "x", Val: bin(ast.Add, ast.Var{Name: "x"}, num(1)), Body: ast.Var{Name: "x"}}}
+	assert result(e) == "2"
+	assert result(ast.Var{Name: "y"}) == "unset y"
+}
+
+test WrongTypesAreStuck {
+	assert result(bin(ast.Add, num(1), ast.BoolLit{V: true})) == "stuck: + on an int and a bool"
+	assert result(ast.Not{X: num(1)}) == "stuck: a bool is needed, not an int"
+	assert result(bin(ast.Lt, ast.BoolLit{V: true}, ast.BoolLit{V: false})) == "stuck: < needs int operands"
+	assert Run(bin(ast.Div, num(1), num(0))) == Failed{Kind: "division by zero"}
+	assert Run(num(3)) == Ok{V: IntV{N: 3}}
+}

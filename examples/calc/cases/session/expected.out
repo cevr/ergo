@@ -1,0 +1,7 @@
+1 + 2 * 3 = 7 : int
+(1 + 2) * 3 = 9 : int
+-9223372036854775808 - 1 = 9223372036854775807 : int
+7 / 2 == 3 && 7 % 2 == 1 = true : bool
+let x = 6 in let y = x * 7 in if y < 50 then y else 0 = 42 : int
+let b = true in !b || 1 < 2 = true : bool
+false && 1 / 0 == 0 = false : bool

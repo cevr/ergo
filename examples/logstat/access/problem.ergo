@@ -1,0 +1,37 @@
+import strconv
+
+// Problem is any failure of Parse. A catch arm `case err:` of Parse's
+// row is a Problem, so one function tells them all.
+type Problem = Missing | BadNumber | BadTime | BadRequest | Trailing
+
+// ColumnOf is the column that p names.
+func ColumnOf(p Problem) int {
+	match p {
+	case Missing as m:
+		m.Column
+	case BadNumber as b:
+		b.Column
+	case BadTime as t:
+		t.Column
+	case BadRequest as q:
+		q.Column
+	case Trailing as t:
+		t.Column
+	}
+}
+
+// Describe is what is wrong, for a reader.
+func Describe(p Problem) string {
+	match p {
+	case Missing as m:
+		"want \(m.Want)"
+	case BadNumber as b:
+		"the \(b.Field) \(strconv.Quote(b.Text)) is not a number"
+	case BadTime as t:
+		"the time \(strconv.Quote(t.Text)) is not in the layout \(Layout.Text)"
+	case BadRequest as q:
+		"the request \(strconv.Quote(q.Text)) is not a method, a target and a protocol"
+	case Trailing as t:
+		"unexpected \(strconv.Quote(t.Text)) after the time taken"
+	}
+}

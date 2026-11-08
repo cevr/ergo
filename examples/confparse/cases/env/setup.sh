@@ -1,0 +1,24 @@
+printf '%s\n' \
+  '# the edge proxy' \
+  'name = "edge"' \
+  '' \
+  '[listen]' \
+  'host = "0.0.0.0"   # every interface' \
+  'port = 8_443' \
+  '' \
+  '[log]' \
+  "level = 'warn'" \
+  '' \
+  '[[upstream]]' \
+  'name = "eu-1"' \
+  'addr = "10.0.0.1:9000"' \
+  'weight = 5' \
+  '' \
+  '[[upstream]]' \
+  'name = "eu-2"' \
+  'addr = "10.0.0.2:9000"' \
+  '' \
+  '[[upstream]]' \
+  'name = "spare"' \
+  'addr = "10.0.9.9:9000"' \
+  'backup = true' > proxy.toml

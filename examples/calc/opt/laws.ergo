@@ -1,0 +1,11 @@
+// The rules of Fold as laws. The laws that every Optimizer keeps are
+// members of the type, in fold.ergo.
+
+import calc/ast
+
+// FoldIsIdempotent: folding a folded expression changes nothing.
+law FoldIsIdempotent(e ast.Expr) { Fold(Fold(e)) == Fold(e) }
+
+// FoldNeverGrows: a folded expression has at most the nodes of the
+// expression.
+law FoldNeverGrows(e ast.Expr) { ast.Size(Fold(e)) <= ast.Size(e) }

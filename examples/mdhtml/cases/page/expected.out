@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tom &amp; Jerry&#39;s &lt;notes&gt;</title>
+</head>
+<body>
+<p>Code in two languages:</p>
+<pre><code class="language-go"><span class="kw">for</span> i := <span class="kw">range</span> xs { <span class="kw">go</span> f(i) }</code></pre>
+<pre><code class="language-sh">for f in *.md; do mdhtml &quot;$f&quot;; done</code></pre>
+</body>
+</html>

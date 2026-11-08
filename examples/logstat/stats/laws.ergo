@@ -1,0 +1,77 @@
+// The rules of the arithmetic as laws.
+
+import slices
+
+// PercentileIsASampleValue: a percentile of a sample is one of its
+// values.
+law PercentileIsASampleValue(xs []int, p int) {
+	match Percentile(slices.Ascend(xs), p) {
+	case Some as v:
+		slices.Contains(xs, v.Value)
+	case None:
+		len(xs) == 0
+	}
+}
+
+// PercentileIsMonotone: a higher percentile is never a smaller value.
+law PercentileIsMonotone(xs []int, p int, q int) {
+	if p > q {
+		return true
+	}
+	let qs = Percentiles(slices.Ascend(xs), []int{p, q})
+	len(qs) == 0 || qs[0].Value <= qs[1].Value
+}
+
+// PercentileCovers: at least p percent of the sample is at or below
+// percentile p, and percentile 100 is the largest value.
+law PercentileCovers(xs []int, p int) {
+	if p < 0 || p > 100 {
+		return true
+	}
+	match Percentile(slices.Ascend(xs), p) {
+	case Some as v:
+		let mut at = 0
+		for x in xs {
+			if x <= v.Value {
+				at += 1
+			}
+		}
+		at*100 >= p*len(xs) && (p < 100 || slices.Max(xs) == Some{Value: v.Value})
+	case None:
+		true
+	}
+}
+
+// RankKeepsEveryKey: ranked with no limit, the counts sum to the number
+// of keys, one count for each distinct key.
+law RankKeepsEveryKey(keys []string) {
+	let ranked = Rank(Tally(keys), -1)
+	Total(ranked) == len(keys) && len(ranked) == len(Seen(keys))
+}
+
+// RankIsOrdered: ranked counts are most first, ties by key, and are the
+// first top of all the ranked counts.
+law RankIsOrdered(keys []string, top int) {
+	let all = Rank(Tally(keys), -1)
+	let ranked = Rank(Tally(keys), top)
+	if top >= 0 && len(ranked) > top {
+		return false
+	}
+	for i in 0..len(ranked) {
+		if ranked[i] != all[i] || (i > 0 && ByCountThenKey(ranked[i-1], ranked[i]) >= 0) {
+			return false
+		}
+	}
+	true
+}
+
+// Seen is the distinct keys, each once, in the order first seen.
+func Seen(keys []string) []string {
+	let mut out = []string{}
+	for k in keys {
+		if !slices.Contains(out, k) {
+			out = out.Append(k)
+		}
+	}
+	out
+}

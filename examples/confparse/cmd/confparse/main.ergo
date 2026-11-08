@@ -1,0 +1,232 @@
+// confparse reads the configuration of a reverse proxy. `confparse
+// check FILE` decodes it, with the CONFPARSE_ variables over the file,
+// and prints what it says; `confparse get FILE KEY` prints one value as
+// it is written; `confparse fmt FILE` prints the file in canonical form.
+// A wrong file is told as FILE:LINE:COLUMN: what is wrong, and a wrong
+// variable as FILE: $NAME: what is wrong. Package toml reads the text
+// and config decodes it. This binary is the only place that chooses the
+// providers: the host's streams, files, arguments and environment.
+
+import confparse/config
+import confparse/toml
+import flag
+import fs
+import io
+import os
+import strconv
+import strings
+
+// Cmd is a command of confparse.
+type Cmd = Check{File string} | Get{File string, Key string} | Fmt{File string}
+
+let fileArg = flag.Arg("file", "the configuration file")
+let keyArg = flag.Arg("key", "the key: name, table.key, or upstream.N.key for the Nth upstream from 0")
+
+func set(name string, args []flag.ArgSpec) flag.Set {
+	flag.Set{Name: "confparse " + name, Usage: "", Flags: []flag.Flag{}, Args: args}
+}
+
+let commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{Name: "check", Usage: "decode the file, with the CONFPARSE_ variables over it, and print it", Set: set("check", []flag.ArgSpec{fileArg}), Build: buildCheck},
+	flag.Command[Cmd]{Name: "get", Usage: "print the value of one key as the file writes it", Set: set("get", []flag.ArgSpec{fileArg, keyArg}), Build: buildGet},
+	flag.Command[Cmd]{Name: "fmt", Usage: "print the file in canonical form", Set: set("fmt", []flag.ArgSpec{fileArg}), Build: buildFmt},
+}
+
+let usage = "confparse reads the configuration of a reverse proxy."
+
+// arg is the value of the required argument a. Parse fails Missing when
+// it is absent, so None does not come; Build says Missing all the same,
+// with no invented value.
+func arg(a flag.ArgSpec, name string, v flag.Values) string fails flag.Missing {
+	match a.Get(v) {
+	case Some as s:
+		s.Value
+	case None:
+		flag.Missing{Name: name}
+	}
+}
+
+func buildCheck(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	Check{File: try arg(fileArg, "file", v)}
+}
+
+func buildGet(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	Get{File: try arg(fileArg, "file", v), Key: try arg(keyArg, "key", v)}
+}
+
+func buildFmt(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	Fmt{File: try arg(fileArg, "file", v)}
+}
+
+// load is the document in file.
+func load(file string) toml.Doc fails os.Exit needs fs.Files {
+	let text = fs.Files.ReadFile(file) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "confparse: no file \(file)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "confparse: cannot read \(file): permission denied"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "confparse: cannot read \(file): \(e.Reason)"}
+	}
+	toml.Parse(text) catch {
+	case err:
+		let p = toml.PosOf(err)
+		return os.Exit{Code: 1, Message: "\(file):\(p.Line):\(p.Column): \(toml.Describe(err))"}
+	}
+}
+
+// environ is the CONFPARSE_ variables that are set.
+func environ() Map[string, string] needs os.Process {
+	let mut env Map[string, string] = Map[string, string]{}
+	for name in config.Overridable {
+		match os.Process.Getenv(name) {
+		case Some as v:
+			env[name] = v.Value
+		case None:
+		}
+	}
+	env
+}
+
+// Show is c as lines for a reader.
+func Show(c config.Config) string {
+	let mut lines = []string{"\(c.Name): listen \(c.Listen.Host):\(c.Listen.Port), log \(config.LevelName(c.Log))"}
+	for u in c.Upstreams {
+		lines = lines.Append("upstream \(u.Name) \(u.Addr) weight \(u.Weight)" + if u.Backup { " backup" } else { "" })
+	}
+	strings.Join(lines, "\n")
+}
+
+// Value is the value at the dotted key in d.
+func Value(d toml.Doc, key string) Option[toml.Value] {
+	let parts = strings.Split(key, ".")
+	let found (Option[toml.Table], string) = match len(parts) {
+	case 1:
+		(Some[toml.Table]{Value: d.Root}, parts[0])
+	case 2:
+		let ts = toml.Named(d, parts[0])
+		(if len(ts) == 1 && !ts[0].Many { Some[toml.Table]{Value: ts[0]} } else { None }, parts[1])
+	case 3:
+		let ts = toml.Named(d, parts[0])
+		let n = strconv.Atoi(parts[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			-1
+		}
+		(if n >= 0 && n < len(ts) && ts[n].Many { Some[toml.Table]{Value: ts[n]} } else { None }, parts[2])
+	case _:
+		(None, "")
+	}
+	let (table, name) = found
+	match table {
+	case Some as t:
+		match toml.Lookup(t.Value, name) {
+		case Some as e:
+			Some{Value: e.Value.Value}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files | os.Process {
+	let cmd = flag.ParseCommand("confparse", usage, commands, args) catch {
+	case err:
+		try flag.Exit(err, flag.CommandUsage("confparse", usage, commands))
+		return
+	}
+	match cmd {
+	case Check as c:
+		let doc = try load(c.File)
+		let cfg = config.Decode(doc, environ()) catch {
+		case err:
+			return os.Exit{Code: 1, Message: config.Place(c.File, config.Where(err)) + ": " + config.Describe(err)}
+		}
+		io.Stdout.Println(Show(cfg))
+	case Get as g:
+		let doc = try load(g.File)
+		match Value(doc, g.Key) {
+		case Some as v:
+			io.Stdout.Println(toml.PrintValue(v.Value))
+		case None:
+			return os.Exit{Code: 1, Message: "confparse: \(g.File) has no key \(g.Key)"}
+		}
+	case Fmt as f:
+		io.Stdout.Print(toml.Print(try load(f.File)))
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run over a Files provider of three files, a Process
+// provider with set variables and a Recorder, with no host.
+
+type disk {}
+
+func ReadFile(_ disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match path {
+	case "ok.toml":
+		"name = \"edge\"\n[listen]\nport = 8080\n[[upstream]]\nname = \"a\"\naddr = \"h:1\"\nbackup = true\n"
+	case "typo.toml":
+		"name = \"edge\"\n[listen]\nprot = 8080\n"
+	case "broken.toml":
+		"name = \"edge\n"
+	case _:
+		fs.NotFound{Path: path}
+	}
+}
+
+func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+
+func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false}
+}
+
+// proc is a Process with the variables of env and no arguments.
+type proc { env Map[string, string] }
+
+func Args(_ proc) []string { []string{} }
+
+func Getenv(p proc, key string) Option[string] { p.env.Get(key) }
+
+func ran(args []string, env Map[string, string]) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk, os.Process: proc{env: env} } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+func none() Map[string, string] { Map[string, string]{} }
+
+test CheckPrintsTheConfiguration {
+	assert ran([]string{"check", "ok.toml"}, none()) == "edge: listen 127.0.0.1:8080, log info\nupstream a h:1 weight 1 backup\n"
+	assert ran([]string{"check", "ok.toml"}, Map[string, string]{"CONFPARSE_LISTEN_HOST": "::", "OTHER": "x"}) == "edge: listen :::8080, log info\nupstream a h:1 weight 1 backup\n"
+}
+
+test CheckTellsWhereItIsWrong {
+	assert ran([]string{"check", "typo.toml"}, none()) == "exit 1: typo.toml:3:1: unknown key prot in [listen]\n"
+	assert ran([]string{"check", "broken.toml"}, none()) == "exit 1: broken.toml:1:8: the string is not closed on its line\n"
+	assert ran([]string{"check", "ok.toml"}, Map[string, string]{"CONFPARSE_LOG_LEVEL": "loud"}) == "exit 1: ok.toml: $CONFPARSE_LOG_LEVEL: level = \"loud\" is not one of debug, info, warn, error\n"
+	assert ran([]string{"check", "gone.toml"}, none()) == "exit 1: confparse: no file gone.toml\n"
+}
+
+test GetPrintsOneValue {
+	assert ran([]string{"get", "ok.toml", "name"}, none()) == "\"edge\"\n"
+	assert ran([]string{"get", "ok.toml", "listen.port"}, none()) == "8080\n"
+	assert ran([]string{"get", "ok.toml", "upstream.0.backup"}, none()) == "true\n"
+	assert ran([]string{"get", "ok.toml", "upstream.1.name"}, none()) == "exit 1: confparse: ok.toml has no key upstream.1.name\n"
+	assert ran([]string{"get", "ok.toml", "upstream.name"}, none()) == "exit 1: confparse: ok.toml has no key upstream.name\n"
+}
+
+test FmtPrintsCanonically {
+	assert ran([]string{"fmt", "ok.toml"}, none()) == "name = \"edge\"\n\n[listen]\nport = 8080\n\n[[upstream]]\nname = \"a\"\naddr = \"h:1\"\nbackup = true\n"
+}

@@ -1,0 +1,167 @@
+// logstat sums up web server access logs: it reads the files it is
+// given, or standard input, and writes how many requests there were,
+// their status classes, the percentiles of the time they took and the
+// top paths (or addresses, statuses or methods). A line it cannot read
+// is told on standard error with its file, line and column, and the
+// rest is still read. Package access is the log's domain, stats the
+// arithmetic and report the summary. This binary is the only place that
+// chooses the providers: the host's streams, files and arguments.
+
+import flag
+import fs
+import io
+import logstat/access
+import logstat/report
+import os
+
+let jsonFlag = flag.Bool("json", false, "write the summary as one line of JSON")
+let topFlag = flag.Int("top", 5, "list the `n` most frequent keys")
+let byFlag = flag.Choice("by", "path", report.Keys, "count the top keys by `key`")
+let strictFlag = flag.Bool("strict", false, "exit with status 1 when a line cannot be read")
+let filesArg = flag.Remaining("file", "the logs to read; none reads standard input")
+
+let set = flag.Set{
+	Name:  "logstat",
+	Usage: "logstat sums up web server access logs.",
+	Flags: []flag.Flag{jsonFlag, topFlag, byFlag, strictFlag},
+	Args:  []flag.ArgSpec{filesArg},
+}
+
+// Batch is what reading one log gave: its requests, and how many of its
+// lines could not be read.
+type Batch { Requests []access.Request, Bad int }
+
+// read reads the log on io.Stdin, which is named name in what it tells.
+func read(name string) Batch needs io.Stdin | io.Stderr {
+	let mut reqs = []access.Request{}
+	let mut bad = 0
+	let mut n = 0
+	for line in io.Stdin.Lines() {
+		n += 1
+		if line == "" {
+			continue
+		}
+		let r = access.Parse(line) catch {
+		case err:
+			bad += 1
+			io.Stderr.Eprintln("\(name):\(n):\(access.ColumnOf(err)): \(access.Describe(err))")
+			continue
+		}
+		reqs = reqs.Append(r)
+	}
+	Batch{Requests: reqs, Bad: bad}
+}
+
+// readFile reads the log in the file path.
+func readFile(path string) Batch fails os.Exit needs fs.Files | io.Stderr {
+	let text = fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "logstat: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "logstat: cannot read \(path): permission denied"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "logstat: cannot read \(path): \(e.Reason)"}
+	}
+	with context { io.Stdin: io.Input{Text: text} } {
+		read(path)
+	}
+}
+
+// key is the report.Key that the -by value names. The flag admits only
+// report.Keys, so None cannot happen, and Ergo cannot say so (gap
+// G-ex-a-3): it counts by path.
+func key(name string) report.Key {
+	match report.KeyNamed(name) {
+	case Some as k:
+		k.Value
+	case None:
+		report.ByPath
+	}
+}
+
+func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin | fs.Files {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	let files = flag.Rest(v)
+	let mut reqs = []access.Request{}
+	let mut bad = 0
+	let batches = if len(files) == 0 { []Batch{read("stdin")} } else { try readAll(files) }
+	for b in batches {
+		for r in b.Requests {
+			reqs = reqs.Append(r)
+		}
+		bad += b.Bad
+	}
+	let style report.Style = if jsonFlag.Get(v) { report.JSON } else { report.Plain }
+	io.Stdout.Print(report.Write(style, report.Summarize(reqs, bad, key(byFlag.Get(v)), topFlag.Get(v))))
+	if strictFlag.Get(v) && bad > 0 {
+		return os.Exit{Code: 1, Message: "logstat: " + report.BadLines(bad)}
+	}
+}
+
+func readAll(files []string) []Batch fails os.Exit needs fs.Files | io.Stderr {
+	let mut out = []Batch{}
+	for f in files {
+		out = out.Append(try readFile(f))
+	}
+	out
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost(), fs.Files: fs.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run over scripted input, a Recorder and a Files
+// provider of two logs, with no host.
+
+type disk {}
+
+func ReadFile(_ disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match path {
+	case "a.log":
+		"10.0.0.1 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 10 0.010\n"
+	case "b.log":
+		"10.0.0.2 - - [08/Nov/2026:10:00:01 +0000] \"GET /x HTTP/1.1\" 500 - 0.500\nnot a line\n"
+	case "secret.log":
+		fs.Denied{Path: path}
+	case _:
+		fs.NotFound{Path: path}
+	}
+}
+
+func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{"a.log", "b.log"} }
+
+func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false}
+}
+
+func ran(args []string, input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stderr: out, io.Stdin: io.Input{Text: input}, fs.Files: disk } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test ReadsStandardInput {
+	let log = "1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET /a HTTP/1.1\" 200 5 0.250\n\n1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET /a\" 200 5 0.250\n"
+	assert ran([]string{"-json", "-top", "1"}, log) == "stdin:3:43: the request \"GET /a\" is not a method, a target and a protocol\n{\"requests\":1,\"bad\":1,\"bytes\":5,\"from\":\"2026-11-08T10:00:00Z\",\"to\":\"2026-11-08T10:00:00Z\",\"status\":{\"2xx\":1},\"micros\":{\"mean\":250000,\"p50\":250000,\"p90\":250000,\"p99\":250000},\"by\":\"path\",\"top\":[{\"key\":\"/a\",\"count\":1}]}\n"
+}
+
+test ReadsEachFile {
+	assert ran([]string{"-by", "status", "-strict", "a.log", "b.log"}, "not read") == "b.log:2:11: want the time in [ ]\nrequests  2 (1 bad line)\nfrom      2026-11-08T10:00:00Z\nto        2026-11-08T10:00:01Z\nbytes     10\nstatus    2xx 1  5xx 1\nseconds   mean 0.255  p50 0.010  p90 0.500  p99 0.500\ntop 2 by status\n  1  200\n  1  500\nexit 1: logstat: 1 bad line\n"
+	assert ran([]string{"a.log", "gone.log"}, "") == "exit 1: logstat: no file gone.log\n"
+	assert ran([]string{"secret.log"}, "") == "exit 1: logstat: cannot read secret.log: permission denied\n"
+}
+
+test RefusesABadKey {
+	assert ran([]string{"-by", "host"}, "") != ""
+}

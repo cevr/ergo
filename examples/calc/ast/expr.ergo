@@ -1,0 +1,166 @@
+// Package ast is the calc language: its expressions, their types, and
+// the text of an expression. Every other package works on these values.
+// It is pure, except the generators in gen.ergo, which draw on Random.
+
+// Expr is an expression of calc. The tree has no positions: two
+// expressions are equal when they have the same shape, so a law can
+// compare a parsed tree with the tree it was printed from.
+type Expr =
+	| Num{V int}
+	| BoolLit{V bool}
+	| Var{Name string}
+	| Neg{X Expr}
+	| Not{X Expr}
+	| Bin{Op Op, L Expr, R Expr}
+	| If{Cond Expr, Then Expr, Else Expr}
+	| Let{Name string, Val Expr, Body Expr}
+
+// Op is a binary operator.
+type Op = Add | Sub | Mul | Div | Mod | Lt | Eq | And | Or
+
+type Add {}
+type Sub {}
+type Mul {}
+type Div {}
+type Mod {}
+type Lt {}
+type Eq {}
+type And {}
+type Or {}
+
+// Type is the type of an expression.
+type Type = IntT | BoolT
+
+type IntT {}
+type BoolT {}
+
+// TypeName is the name of t, as the user writes it.
+func TypeName(t Type) string {
+	match t {
+	case IntT:
+		"int"
+	case BoolT:
+		"bool"
+	}
+}
+
+// Symbol is the text of op.
+func Symbol(op Op) string {
+	match op {
+	case Add:
+		"+"
+	case Sub:
+		"-"
+	case Mul:
+		"*"
+	case Div:
+		"/"
+	case Mod:
+		"%"
+	case Lt:
+		"<"
+	case Eq:
+		"=="
+	case And:
+		"&&"
+	case Or:
+		"||"
+	}
+}
+
+// Prec is the binding power of op, from 1 (loosest) to 5. Every binary
+// operator is left-associative.
+func Prec(op Op) int {
+	match op {
+	case Or:
+		1
+	case And:
+		2
+	case Lt, Eq:
+		3
+	case Add, Sub:
+		4
+	case Mul, Div, Mod:
+		5
+	}
+}
+
+// Keywords are the words that are not variable names.
+let Keywords = []string{"if", "then", "else", "let", "in", "true", "false"}
+
+// IsName reports whether s is a variable name: a letter or _, then
+// letters, digits or _, and not a keyword.
+func IsName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..len(s) {
+		let c = s[i]
+		let ok = IsLetter(c) || (i > 0 && IsDigit(c))
+		if !ok {
+			return false
+		}
+	}
+	for k in Keywords {
+		if k == s {
+			return false
+		}
+	}
+	true
+}
+
+// IsDigit reports whether c is an ASCII digit.
+func IsDigit(c byte) bool { c >= '0' && c <= '9' }
+
+// IsLetter reports whether c is an ASCII letter or _.
+func IsLetter(c byte) bool { (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' }
+
+// Valid reports whether every name in e is a variable name, so that the
+// text of e reads back as e.
+func Valid(e Expr) bool {
+	match e {
+	case Num, BoolLit:
+		true
+	case Var as v:
+		IsName(v.Name)
+	case Neg as n:
+		Valid(n.X)
+	case Not as n:
+		Valid(n.X)
+	case Bin as b:
+		Valid(b.L) && Valid(b.R)
+	case If as i:
+		Valid(i.Cond) && Valid(i.Then) && Valid(i.Else)
+	case Let as l:
+		IsName(l.Name) && Valid(l.Val) && Valid(l.Body)
+	}
+}
+
+// Size is the number of nodes of e.
+func Size(e Expr) int {
+	match e {
+	case Num, BoolLit, Var:
+		1
+	case Neg as n:
+		1 + Size(n.X)
+	case Not as n:
+		1 + Size(n.X)
+	case Bin as b:
+		1 + Size(b.L) + Size(b.R)
+	case If as i:
+		1 + Size(i.Cond) + Size(i.Then) + Size(i.Else)
+	case Let as l:
+		1 + Size(l.Val) + Size(l.Body)
+	}
+}
+
+// IsLiteral reports whether e is a number or a boolean: a value that
+// cannot fail.
+func IsLiteral(e Expr) bool {
+	match e {
+	case Num, BoolLit:
+		true
+	case Var, Neg, Not, Bin, If, Let:
+		false
+	}
+}

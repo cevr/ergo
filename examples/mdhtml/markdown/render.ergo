@@ -1,0 +1,105 @@
+import mdhtml/html
+import strings
+
+// Highlighter writes the text of a code block. Whatever it marks up, a
+// reader sees the code as it was written.
+type Highlighter {
+	Highlight(info string, code string) []html.Node,
+
+	law KeepsTheText(info string, code string) { TextOfAll(Highlight(info, code)) == code },
+}
+
+// NoColor is the Highlighter that writes the code as text.
+type NoColor {}
+
+func Highlight(_ NoColor, info string, code string) []html.Node { []html.Node{html.Text{S: code}} }
+
+// Keywords is the Highlighter that marks each of Words in a block of
+// language Lang as <span class="kw">, and writes other blocks as text.
+type Keywords { Lang string, Words []string }
+
+func Highlight(k Keywords, info string, code string) []html.Node {
+	if info != k.Lang {
+		return []html.Node{html.Text{S: code}}
+	}
+	let mut out = []html.Node{}
+	let mut i = 0
+	for i < len(code) {
+		let start = i
+		let word = isWordByte(code[i])
+		for i < len(code) && isWordByte(code[i]) == word {
+			i += 1
+		}
+		let piece = strings.Slice(code, start, i)
+		if word && has(k.Words, piece) {
+			out = out.Append(html.ElAttrs("span", []html.Attr{html.Attr{Name: "class", Value: "kw"}}, []html.Node{html.Text{S: piece}}))
+		} else {
+			out = out.Append(html.Text{S: piece})
+		}
+	}
+	out
+}
+
+func isWordByte(c byte) bool {
+	(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+func has(xs []string, x string) bool {
+	for s in xs {
+		if s == x {
+			return true
+		}
+	}
+	false
+}
+
+// GoKeywords are Go's keywords, for a Keywords of language go.
+let GoKeywords = []string{"break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"}
+
+// TextOfAll is the text of ns, one after the other.
+func TextOfAll(ns []html.Node) string {
+	let mut parts = []string{}
+	for n in ns {
+		parts = parts.Append(html.TextOf(n))
+	}
+	strings.Join(parts, "")
+}
+
+// Node is the HTML of b.
+func Node(b Block) html.Node needs Highlighter {
+	match b {
+	case Head as h:
+		html.El("h\(h.Level)", Inline(h.Text))
+	case Para as p:
+		html.El("p", Inline(p.Text))
+	case List as l:
+		let mut items = []html.Node{}
+		for it in l.Items {
+			items = items.Append(html.El("li", Inline(it)))
+		}
+		if !l.Ordered {
+			return html.El("ul", items)
+		}
+		if l.Start == 1 {
+			return html.El("ol", items)
+		}
+		html.ElAttrs("ol", []html.Attr{html.Attr{Name: "start", Value: "\(l.Start)"}}, items)
+	case Code as c:
+		let attrs = if c.Info == "" { []html.Attr{} } else { []html.Attr{html.Attr{Name: "class", Value: "language-" + c.Info}} }
+		html.El("pre", []html.Node{html.ElAttrs("code", attrs, Highlighter.Highlight(c.Info, c.Text))})
+	case HRule:
+		html.El("hr", []html.Node{})
+	}
+}
+
+// Render is the HTML of the Markdown text, one block per line.
+func Render(text string) string needs Highlighter {
+	let mut parts = []string{}
+	for b in Read(Lines(text)) {
+		parts = parts.Append(html.Render(Node(b)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	strings.Join(parts, "\n") + "\n"
+}

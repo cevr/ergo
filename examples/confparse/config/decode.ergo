@@ -1,0 +1,277 @@
+import confparse/toml
+import strconv
+import strings
+
+// Origin is where a value came from: a place in the file, or an
+// environment variable.
+type Origin = InFile | InEnv
+
+type InFile { At toml.Pos }
+type InEnv { Name string }
+
+// The failures of Decode.
+
+// MissingKey is a key that must be written and is not; At is the
+// table's header, or the start of the file when the table is not there.
+type MissingKey { At toml.Pos, Table string, Key string }
+
+// WrongType is a value of another kind than its key takes.
+type WrongType { From Origin, Key string, Want string, Got string }
+
+// OutOfRange is an integer outside the range its key takes.
+type OutOfRange { From Origin, Key string, N int, Min int, Max int }
+
+// UnknownKey is a key that its table does not have ("" is the root):
+// a misspelling, most often.
+type UnknownKey { At toml.Pos, Table string, Key string }
+
+// UnknownTable is a header the configuration does not have, or has in
+// the other form: Header is as written, [name] or [[name]].
+type UnknownTable { At toml.Pos, Header string }
+
+// BadChoice is a string that is not one of the names its key takes.
+type BadChoice { From Origin, Key string, Got string, Choices []string }
+
+// Clash is a second upstream with the name of an earlier one.
+type Clash { At toml.Pos, Name string, First toml.Pos }
+
+// Prefix starts the name of every environment variable that overrides a
+// key: CONFPARSE_LISTEN_PORT overrides port in [listen].
+let Prefix = "CONFPARSE_"
+
+// EnvName is the variable that overrides key in table ("" is the root).
+func EnvName(table string, key string) string {
+	if table == "" { Prefix + strings.ToUpper(key) } else { Prefix + strings.ToUpper(table) + "_" + strings.ToUpper(key) }
+}
+
+// Overridable are the variables Decode reads: the root and single
+// tables' keys, not the upstreams'.
+let Overridable = []string{"CONFPARSE_NAME", "CONFPARSE_LISTEN_HOST", "CONFPARSE_LISTEN_PORT", "CONFPARSE_LOG_LEVEL"}
+
+// Found is what a key has: a value of the file, a variable's text, or
+// nothing.
+type Found = FromFile | FromEnv | Absent
+
+type FromFile { Value toml.Value, At toml.Pos }
+type FromEnv { Name string, Text string }
+type Absent {}
+
+// Source is one table to decode: its name, the table if the file has
+// it, and the variables, empty when its keys cannot be overridden.
+type Source { name string, table Option[toml.Table], env Map[string, string] }
+
+func start() toml.Pos { toml.Pos{Line: 1, Column: 1} }
+
+// find is what src has for key: the variable first, then the file.
+func find(src Source, key string) Found {
+	let name = EnvName(src.name, key)
+	match src.env.Get(name) {
+	case Some as v:
+		return FromEnv{Name: name, Text: v.Value}
+	case None:
+	}
+	match src.table {
+	case Some as t:
+		match toml.Lookup(t.Value, key) {
+		case Some as e:
+			FromFile{Value: e.Value.Value, At: e.Value.At}
+		case None:
+			Absent
+		}
+	case None:
+		Absent
+	}
+}
+
+// tableAt is where a MissingKey of src points: the table's header, or
+// the start of the file. A function that builds the MissingKey would be
+// simpler, but `return missing(src, key)` is refused (gap G-ex-a-15).
+func tableAt(src Source) toml.Pos {
+	match src.table {
+	case Some as t:
+		t.Value.At
+	case None:
+		start()
+	}
+}
+
+// text is the string of key in src, or def when it is not there and def
+// is a value.
+func text(src Source, key string, def Option[string]) string fails MissingKey | WrongType {
+	match find(src, key) {
+	case FromEnv as e:
+		e.Text
+	case FromFile as f:
+		match f.Value {
+		case toml.Str as s:
+			s.S
+		case toml.Int, toml.Bool, toml.Arr:
+			WrongType{From: InFile{At: f.At}, Key: key, Want: "a string", Got: toml.Kind(f.Value)}
+		}
+	case Absent:
+		match def {
+		case Some as d:
+			d.Value
+		case None:
+			MissingKey{At: tableAt(src), Table: src.name, Key: key}
+		}
+	}
+}
+
+// whole is the integer of key in src, in min..max, or def when it is not
+// there and def is a value.
+func whole(src Source, key string, min int, max int, def Option[int]) int fails MissingKey | WrongType | OutOfRange {
+	let found (int, Origin) = match find(src, key) {
+	case FromEnv as e:
+		let n = strconv.Atoi(e.Text) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return WrongType{From: InEnv{Name: e.Name}, Key: key, Want: "an integer", Got: strconv.Quote(e.Text)}
+		}
+		(n, InEnv{Name: e.Name})
+	case FromFile as f:
+		match f.Value {
+		case toml.Int as i:
+			(i.N, InFile{At: f.At})
+		case toml.Str, toml.Bool, toml.Arr:
+			return WrongType{From: InFile{At: f.At}, Key: key, Want: "an integer", Got: toml.Kind(f.Value)}
+		}
+	case Absent:
+		match def {
+		case Some as d:
+			return d.Value
+		case None:
+			return MissingKey{At: tableAt(src), Table: src.name, Key: key}
+		}
+	}
+	let (n, from) = found
+	if n < min || n > max {
+		return OutOfRange{From: from, Key: key, N: n, Min: min, Max: max}
+	}
+	n
+}
+
+// truth is the boolean of key in src, or def when it is not there.
+func truth(src Source, key string, def bool) bool fails WrongType {
+	match find(src, key) {
+	case FromEnv as e:
+		strconv.ParseBool(e.Text) catch {
+		case strconv.Malformed:
+			return WrongType{From: InEnv{Name: e.Name}, Key: key, Want: "a boolean", Got: strconv.Quote(e.Text)}
+		}
+	case FromFile as f:
+		match f.Value {
+		case toml.Bool as b:
+			b.B
+		case toml.Str, toml.Int, toml.Arr:
+			WrongType{From: InFile{At: f.At}, Key: key, Want: "a boolean", Got: toml.Kind(f.Value)}
+		}
+	case Absent:
+		def
+	}
+}
+
+// level is the Level of key in src, Info when it is not there.
+func level(src Source, key string) Level fails WrongType | BadChoice {
+	let name = text(src, key, Some{Value: "info"}) catch {
+	case WrongType as w:
+		return w
+	case MissingKey:
+		return Info
+	}
+	match LevelNamed(name) {
+	case Some as l:
+		l.Value
+	case None:
+		let from Origin = match find(src, key) {
+		case FromEnv as e:
+			InEnv{Name: e.Name}
+		case FromFile as f:
+			InFile{At: f.At}
+		case Absent:
+			InFile{At: start()}
+		}
+		BadChoice{From: from, Key: key, Got: name, Choices: Levels}
+	}
+}
+
+// known fails when t has a key that is not one of keys.
+func known(t toml.Table, keys []string) fails UnknownKey {
+	for e in t.Entries {
+		if !has(keys, e.Key) {
+			return UnknownKey{At: e.KeyAt, Table: t.Name, Key: e.Key}
+		}
+	}
+}
+
+func has(xs []string, x string) bool {
+	for s in xs {
+		if s == x {
+			return true
+		}
+	}
+	false
+}
+
+// single is the table [name] of d, if d has it.
+func single(d toml.Doc, name string) Option[toml.Table] {
+	let ts = toml.Named(d, name)
+	if len(ts) == 0 {
+		return None
+	}
+	Some{Value: ts[0]}
+}
+
+// Decode is the configuration of d, with the variables of env, which
+// win over the file.
+func Decode(d toml.Doc, env Map[string, string]) Config fails MissingKey | WrongType | OutOfRange | UnknownKey | UnknownTable | BadChoice | Clash {
+	try known(d.Root, []string{"name"})
+	for t in d.Tables {
+		let header = if t.Many { "[[" + t.Name + "]]" } else { "[" + t.Name + "]" }
+		let many = match t.Name {
+		case "listen", "log":
+			false
+		case "upstream":
+			true
+		case _:
+			return UnknownTable{At: t.At, Header: header}
+		}
+		if t.Many != many {
+			return UnknownTable{At: t.At, Header: header}
+		}
+	}
+	let root = Source{name: "", table: Some{Value: d.Root}, env: env}
+	let name = try text(root, "name", None)
+	let listenT = single(d, "listen")
+	let logT = single(d, "log")
+	for t in []Option[toml.Table]{listenT, logT} {
+		match t {
+		case Some as table:
+			try known(table.Value, if table.Value.Name == "listen" { []string{"host", "port"} } else { []string{"level"} })
+		case None:
+		}
+	}
+	let listen = Source{name: "listen", table: listenT, env: env}
+	let host = try text(listen, "host", Some{Value: "127.0.0.1"})
+	let port = try whole(listen, "port", 1, 65535, None)
+	let log = try level(Source{name: "log", table: logT, env: env}, "level")
+	let mut ups = []Upstream{}
+	let mut seen = []toml.Table{}
+	for t in toml.Named(d, "upstream") {
+		try known(t, []string{"name", "addr", "weight", "backup"})
+		let src = Source{name: "upstream", table: Some{Value: t}, env: Map[string, string]{}}
+		let u = Upstream{
+			Name:   try text(src, "name", None),
+			Addr:   try text(src, "addr", None),
+			Weight: try whole(src, "weight", 1, 100, Some{Value: 1}),
+			Backup: try truth(src, "backup", false),
+		}
+		for i, old in ups {
+			if old.Name == u.Name {
+				return Clash{At: t.At, Name: u.Name, First: seen[i].At}
+			}
+		}
+		ups = ups.Append(u)
+		seen = seen.Append(t)
+	}
+	Config{Name: name, Listen: Listen{Host: host, Port: port}, Log: log, Upstreams: ups}
+}

@@ -1,0 +1,63 @@
+// The rules of the tree's text as laws.
+
+import strings
+
+// EscapeRoundTrip: Unescape reads back what Escape wrote.
+law EscapeRoundTrip(s string) { Unescape(Escape(s)) == s }
+
+// EscapeHasNoMarkup: escaped text starts no tag and ends no attribute.
+law EscapeHasNoMarkup(s string) {
+	let e = Escape(s)
+	!strings.Contains(e, "<") && !strings.Contains(e, ">") && !strings.Contains(e, "\"") && !strings.Contains(e, "'")
+}
+
+// TextSurvivesRendering: the text of a node, rendered and unescaped
+// without its tags, is the node's text; markup never eats text.
+law TextSurvivesRendering(words []string) {
+	let mut kids = []Node{}
+	for w in words {
+		kids = kids.Append(El("em", []Node{Text{S: w}}))
+	}
+	let n = El("p", kids)
+	Unescape(stripTags(Render(n))) == TextOf(n)
+}
+
+// HrefIsSafe: a Url never names a scheme other than http, https and
+// mailto.
+law HrefIsSafe(raw string) { SafeScheme(HrefOf(Href(raw))) }
+
+// SafeScheme reports whether href is relative or has the scheme http,
+// https or mailto.
+func SafeScheme(href string) bool {
+	let colon = strings.Index(href, ":")
+	if colon < 0 {
+		return true
+	}
+	let slash = strings.Index(href, "/")
+	if slash >= 0 && slash < colon {
+		return true
+	}
+	let scheme = strings.ToLower(strings.Slice(href, 0, colon))
+	scheme == "http" || scheme == "https" || scheme == "mailto"
+}
+
+// stripTags is html with every <…> removed. Rendered text holds no < or
+// > of its own, since Escape wrote them as references.
+func stripTags(html string) string {
+	let mut parts = []string{}
+	let mut i = 0
+	for i < len(html) {
+		let lt = strings.Index(strings.Slice(html, i, len(html)), "<")
+		if lt < 0 {
+			parts = parts.Append(strings.Slice(html, i, len(html)))
+			return strings.Join(parts, "")
+		}
+		parts = parts.Append(strings.Slice(html, i, i+lt))
+		let gt = strings.Index(strings.Slice(html, i+lt, len(html)), ">")
+		if gt < 0 {
+			return strings.Join(parts, "")
+		}
+		i = i + lt + gt + 1
+	}
+	strings.Join(parts, "")
+}

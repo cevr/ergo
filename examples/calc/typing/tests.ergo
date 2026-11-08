@@ -1,0 +1,74 @@
+// The checker's tests, and the law Sound restated as a property test
+// over generated well-typed expressions (#162 runs laws).
+
+import calc/ast
+import calc/eval
+import calc/syntax
+import rand
+
+// typeOf is the type of src as a line: its name, or the failure.
+func typeOf(src string) string {
+	let e = syntax.Parse(src) catch {
+	case syntax.BadChar, syntax.Unexpected, syntax.TooBig:
+		return "syntax"
+	}
+	let t = Check(e) catch {
+	case Mismatch as m:
+		return "\(m.In) is \(ast.TypeName(m.Got)), not \(ast.TypeName(m.Want))"
+	case Unbound as u:
+		return "unbound \(u.Name)"
+	}
+	ast.TypeName(t)
+}
+
+test TypesOfExamples {
+	assert typeOf("1 + 2 * 3") == "int"
+	assert typeOf("1 < 2 && true") == "bool"
+	assert typeOf("let x = 1 in let x = x < 2 in !x") == "bool"
+	assert typeOf("if true then 1 else 2") == "int"
+	assert typeOf("true == false") == "bool"
+}
+
+test MismatchesNameTheOperand {
+	assert typeOf("1 + true") == "true is bool, not int"
+	assert typeOf("if 1 then 2 else 3") == "1 is int, not bool"
+	assert typeOf("if true then 1 else false") == "false is bool, not int"
+	assert typeOf("1 == true") == "true is bool, not int"
+	assert typeOf("!(1 + 2)") == "1 + 2 is int, not bool"
+	assert typeOf("x + 1") == "unbound x"
+	assert typeOf("(let x = 1 in x) + x") == "unbound x"
+}
+
+// sound reports whether e keeps the law Sound.
+func sound(e ast.Expr) bool {
+	let t = Check(e) catch {
+	case Mismatch, Unbound:
+		return true
+	}
+	let v = eval.Eval(e) catch {
+	case eval.DivByZero:
+		return true
+	case eval.Stuck, eval.Unset:
+		return false
+	}
+	eval.TypeOf(v) == t
+}
+
+test SoundHolds(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for _ in 0..5 {
+			let t = ast.AnyType()
+			let e = ast.Gen(5, t, ast.Top)
+			assert try Check(e) == t
+			assert sound(e)
+		}
+	}
+}
+
+test SoundHoldsForAnyExpression(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for _ in 0..5 {
+			assert sound(ast.GenAny(4))
+		}
+	}
+}

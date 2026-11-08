@@ -1,0 +1,103 @@
+import logstat/stats
+import strings
+import time
+
+// Encode is s as one line of JSON, with the fields in a fixed order, as
+// Go's encoding/json writes a struct. Ergo has no JSON encoder (gap
+// G-ex-a-14), so each value is written here.
+func Encode(s Summary) string {
+	let mut fields = []string{
+		field("requests", "\(s.Requests)"),
+		field("bad", "\(s.Bad)"),
+		field("bytes", "\(s.Bytes)"),
+	}
+	match s.Span {
+	case Some as sp:
+		fields = fields.Append(field("from", Quote(time.Format(sp.Value.First, time.RFC3339))))
+		fields = fields.Append(field("to", Quote(time.Format(sp.Value.Last, time.RFC3339))))
+	case None:
+		fields = fields.Append(field("from", "null"))
+		fields = fields.Append(field("to", "null"))
+	}
+	fields = fields.Append(field("status", object(s.Classes)))
+	let mut latency = []string{}
+	match s.Mean {
+	case Some as m:
+		latency = latency.Append(field("mean", "\(m.Value)"))
+	case None:
+	}
+	for q in s.Latency {
+		latency = latency.Append(field("p\(q.P)", "\(q.Value)"))
+	}
+	fields = fields.Append(field("micros", "{"+strings.Join(latency, ",")+"}"))
+	fields = fields.Append(field("by", Quote(s.By)))
+	let mut top = []string{}
+	for c in s.Top {
+		top = top.Append("{" + field("key", Quote(c.Key)) + "," + field("count", "\(c.N)") + "}")
+	}
+	fields = fields.Append(field("top", "["+strings.Join(top, ",")+"]"))
+	"{" + strings.Join(fields, ",") + "}\n"
+}
+
+func field(name string, value string) string { Quote(name) + ":" + value }
+
+// object is counts as a JSON object of key and count, in their order.
+func object(counts []stats.Count) string {
+	let mut parts = []string{}
+	for c in counts {
+		parts = parts.Append(field(c.Key, "\(c.N)"))
+	}
+	"{" + strings.Join(parts, ",") + "}"
+}
+
+let hex = "0123456789abcdef"
+
+// Quote is s as a JSON string, as Go's encoding/json writes it: a quote
+// and a backslash are escaped, the control characters are \n, \r, \t or
+// \u00XX, and <, > and & are \u003c, \u003e and \u0026, so the text is
+// safe inside HTML. Bytes from 128 are written as they are: invalid
+// UTF-8 is not replaced, as Go replaces it (no rune decoder, gap
+// G-ex-a-1).
+func Quote(s string) string {
+	let mut parts = []string{"\""}
+	let mut from = 0
+	for i in 0..len(s) {
+		let c = s[i]
+		let esc = escaped(c)
+		if esc != "" {
+			parts = parts.Append(strings.Slice(s, from, i))
+			parts = parts.Append(esc)
+			from = i + 1
+		}
+	}
+	parts = parts.Append(strings.Slice(s, from, len(s)))
+	parts = parts.Append("\"")
+	strings.Join(parts, "")
+}
+
+// escaped is the escape of the byte c, or "" when c stands for itself.
+func escaped(c byte) string {
+	match c {
+	case '"':
+		"\\\""
+	case '\\':
+		"\\\\"
+	case '\n':
+		"\\n"
+	case '\r':
+		"\\r"
+	case '\t':
+		"\\t"
+	case '<', '>', '&':
+		unicode(c)
+	case _:
+		if c < 32 { unicode(c) } else { "" }
+	}
+}
+
+// unicode is c as \u00XX.
+func unicode(c byte) string {
+	let hi = int(c) / 16
+	let lo = int(c) % 16
+	"\\u00" + strings.Slice(hex, hi, hi+1) + strings.Slice(hex, lo, lo+1)
+}

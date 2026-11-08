@@ -1,0 +1,67 @@
+import logstat/access
+import strings
+import time
+
+// Style is how a summary is written.
+type Style = Plain | JSON
+
+type Plain {}
+type JSON {}
+
+// Write is s in style.
+func Write(style Style, s Summary) string {
+	match style {
+	case Plain:
+		Text(s)
+	case JSON:
+		Encode(s)
+	}
+}
+
+// Text is s as aligned lines for a reader.
+func Text(s Summary) string {
+	let mut lines = []string{}
+	lines = lines.Append(row("requests", "\(s.Requests)"+if s.Bad == 0 { "" } else { " (" + BadLines(s.Bad) + ")" }))
+	match s.Span {
+	case Some as sp:
+		lines = lines.Append(row("from", time.Format(sp.Value.First, time.RFC3339)))
+		lines = lines.Append(row("to", time.Format(sp.Value.Last, time.RFC3339)))
+	case None:
+	}
+	lines = lines.Append(row("bytes", "\(s.Bytes)"))
+	let mut classes = []string{}
+	for c in s.Classes {
+		classes = classes.Append("\(c.Key) \(c.N)")
+	}
+	if len(classes) > 0 {
+		lines = lines.Append(row("status", strings.Join(classes, "  ")))
+	}
+	match s.Mean {
+	case Some as m:
+		let mut parts = []string{"mean " + access.Seconds(m.Value)}
+		for q in s.Latency {
+			parts = parts.Append("p\(q.P) " + access.Seconds(q.Value))
+		}
+		lines = lines.Append(row("seconds", strings.Join(parts, "  ")))
+	case None:
+	}
+	if len(s.Top) > 0 {
+		lines = lines.Append("top \(len(s.Top)) by \(s.By)")
+		let width = len("\(s.Top[0].N)")
+		for c in s.Top {
+			let n = "\(c.N)"
+			lines = lines.Append("  " + strings.Repeat(" ", width-len(n)) + n + "  " + c.Key)
+		}
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// BadLines is "1 bad line" or "n bad lines".
+func BadLines(n int) string {
+	if n == 1 { "1 bad line" } else { "\(n) bad lines" }
+}
+
+// row is a label and its value, the values lined up.
+func row(label string, value string) string {
+	label + strings.Repeat(" ", 10-len(label)) + value
+}

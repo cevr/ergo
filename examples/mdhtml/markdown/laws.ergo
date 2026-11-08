@@ -1,0 +1,130 @@
+// The rules of the reader as laws over its machine and its inline text.
+
+import mdhtml/html
+import slices
+import strings
+
+// After is the mode of the machine after lines.
+func After(lines []string) Mode {
+	let mut m Mode = Idle{Doc: []Block{}}
+	for line in lines {
+		m = Next(m, Step(m, Got{Raw: line}))
+	}
+	m
+}
+
+// IsCode reports whether m is inside a fence.
+func IsCode(m Mode) bool {
+	match m {
+	case InCode:
+		true
+	case Idle, InPara, InList:
+		false
+	}
+}
+
+// SameBlocks reports whether a and b are the same blocks in order.
+func SameBlocks(a []Block, b []Block) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if !sameBlock(x, b[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func sameBlock(a Block, b Block) bool {
+	match (a, b) {
+	case (List as x, List as y):
+		x.Ordered == y.Ordered && x.Start == y.Start && slices.Equal(x.Items, y.Items)
+	case (Head as x, Head as y):
+		x == y
+	case (Para as x, Para as y):
+		x == y
+	case (Code as x, Code as y):
+		x == y
+	case (HRule, HRule):
+		true
+	case (_, _):
+		false
+	}
+}
+
+// EndIsDone: the end of the source is Done with the blocks closed so far
+// and the open one, in every mode.
+law EndIsDone(lines []string) {
+	let m = After(lines)
+	match Step(m, End) {
+	case Done[[]Block] as d:
+		SameBlocks(d.Output, Closed(m))
+	case Enter[Mode], Stay[Mode], Ignore, Reject:
+		false
+	}
+}
+
+// BlankSeparates: outside a fence, a blank line between two texts makes
+// the blocks of the first and then the blocks of the second.
+law BlankSeparates(a []string, b []string) {
+	if IsCode(After(a)) {
+		return true
+	}
+	let mut both = []string{}
+	for l in a {
+		both = both.Append(l)
+	}
+	both = both.Append("")
+	for l in b {
+		both = both.Append(l)
+	}
+	let mut parts = []Block{}
+	for x in Read(a) {
+		parts = parts.Append(x)
+	}
+	for x in Read(b) {
+		parts = parts.Append(x)
+	}
+	SameBlocks(Read(both), parts)
+}
+
+// FenceKeepsLines: the lines inside a fence are the code, as they are,
+// when none of them is a bare fence.
+law FenceKeepsLines(lines []string) {
+	let mut doc = []string{"```"}
+	for l in lines {
+		if strings.TrimSpace(l) == "```" {
+			return true
+		}
+		doc = doc.Append(l)
+	}
+	doc = doc.Append("```")
+	SameBlocks(Read(doc), []Block{Code{Info: "", Text: strings.Join(lines, "\n")}})
+}
+
+// PlainTextStaysText: text with no marker is one text node of itself.
+law PlainTextStaysText(s string) {
+	for i in 0..len(s) {
+		if isMarker(s[i]) {
+			return true
+		}
+	}
+	let ns = Inline(s)
+	if s == "" {
+		return len(ns) == 0
+	}
+	len(ns) == 1 && html.RenderAll(ns) == html.Escape(s)
+}
+
+// EscapedMarkersAreText: a backslash before each marker keeps it as
+// text, so no span starts.
+law EscapedMarkersAreText(s string) {
+	let mut parts = []string{}
+	for i in 0..len(s) {
+		let c = strings.Slice(s, i, i+1)
+		parts = parts.Append(if isMarker(s[i]) { "\\" + c } else { c })
+	}
+	let ns = Inline(strings.Join(parts, ""))
+	TextOfAll(ns) == s && !strings.Contains(html.RenderAll(ns), "<")
+}

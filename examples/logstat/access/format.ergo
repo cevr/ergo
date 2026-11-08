@@ -1,0 +1,34 @@
+import strings
+import time
+
+// Format is the line of r, which Parse reads back as r when r is Valid.
+// The time is written in UTC: a time.Time keeps no zone (gap G-ex-a-11).
+func Format(r Request) string {
+	let req = escape(r.Method + " " + r.Target + " " + r.Proto)
+	let size = if r.Bytes == 0 { "-" } else { "\(r.Bytes)" }
+	"\(r.Addr) - - [\(time.Format(r.At, Layout))] \"\(req)\" \(r.Status) \(size) \(Seconds(r.Micros))"
+}
+
+// Seconds is micros as seconds, with three decimals, or six when the
+// last three are not zero.
+func Seconds(micros int) string {
+	let frac = "\(1000000 + micros%1000000)"
+	let six = strings.Slice(frac, 1, 7)
+	let digits = if strings.HasSuffix(six, "000") { strings.Slice(six, 0, 3) } else { six }
+	"\(micros / 1000000).\(digits)"
+}
+
+// escape is s with a backslash before each quote and backslash.
+func escape(s string) string {
+	strings.ReplaceAll(strings.ReplaceAll(s, "\\", "\\\\"), "\"", "\\\"")
+}
+
+// Valid reports whether Format writes r as a line that Parse reads back
+// as r: the address, method, target and protocol hold no space and are
+// not empty, the status has three digits, and the numbers are not
+// negative and not too long to read.
+func Valid(r Request) bool {
+	plain(r.Addr) && plain(r.Method) && plain(r.Target) && plain(r.Proto) && r.Status >= 100 && r.Status <= 999 && r.Bytes >= 0 && r.Bytes < 1000000000000000000 && r.Micros >= 0 && r.Micros < 1000000000*1000000
+}
+
+func plain(s string) bool { s != "" && !strings.Contains(s, " ") && !strings.Contains(s, "\n") }

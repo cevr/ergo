@@ -1,0 +1,4 @@
+line 2: n is not bound
+line 5: division by zero in 1 / 0
+line 6: division by zero in 1 / 0
+calc: 3 of 6 expressions failed

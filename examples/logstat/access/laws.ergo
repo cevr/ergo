@@ -1,0 +1,41 @@
+// The rules of the log's lines as laws.
+
+import time
+
+// Same reports whether a and b are the same request at the same instant.
+func Same(a Request, b Request) bool {
+	a.Addr == b.Addr && time.Equal(a.At, b.At) && a.Method == b.Method && a.Target == b.Target && a.Proto == b.Proto && a.Status == b.Status && a.Bytes == b.Bytes && a.Micros == b.Micros
+}
+
+// FormatParses: the line Format writes of a Valid request reads back as
+// the request.
+law FormatParses(r Request) {
+	if !Valid(r) {
+		return true
+	}
+	let back = Parse(Format(r)) catch {
+	case Missing, BadNumber, BadTime, BadRequest, Trailing:
+		return false
+	}
+	Same(back, r)
+}
+
+// ColumnIsInTheLine: a line that does not parse fails at a column of
+// the line, or just after its end.
+law ColumnIsInTheLine(line string) {
+	let c = Column(line)
+	c == 0 || InLine(c, line)
+}
+
+// InLine reports whether column is a column of line or the one after it.
+func InLine(column int, line string) bool { column >= 1 && column <= len(line)+1 }
+
+// Column is the column a failure of Parse of line names, or 0 when the
+// line parses.
+func Column(line string) int {
+	let _ = Parse(line) catch {
+	case err:
+		return ColumnOf(err)
+	}
+	0
+}

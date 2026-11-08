@@ -1,0 +1,54 @@
+// The generators build documents from Random, for the property tests
+// that restate the laws. A test binds Random to rand.Seeded(seed), so a
+// failing case replays from its seed.
+
+let keys = []string{"a", "b", "name", "port", "x-y", "k_1", "9"}
+let names = []string{"server", "log", "a.b", "db-1"}
+let texts = []string{"", "plain", "with \"quotes\"", "back\\slash", "line\nfeed", "tab\there", "# not a comment", "[not] = a table", "héllo", "cr\r"}
+let ints = []int{0, 1, -1, 42, 1000000, 9223372036854775807, -9223372036854775808}
+
+func at0() Pos { Pos{Line: 0, Column: 0} }
+
+// GenValue is a value, with arrays nested at most depth deep.
+func GenValue(depth int) Value needs Random {
+	match Random.IntN(if depth > 0 { 4 } else { 3 }) {
+	case 0:
+		Str{S: texts[Random.IntN(len(texts))]}
+	case 1:
+		Int{N: ints[Random.IntN(len(ints))]}
+	case 2:
+		Bool{B: Random.IntN(2) == 0}
+	case _:
+		let mut items = []Item{}
+		for _ in 0..Random.IntN(4) {
+			items = items.Append(Item{Value: GenValue(depth - 1), At: at0()})
+		}
+		Arr{Items: items}
+	}
+}
+
+// GenTable is a table named name with distinct keys.
+func GenTable(name string, many bool) Table needs Random {
+	let mut entries = []Entry{}
+	for k in keys {
+		if Random.IntN(2) == 0 {
+			entries = entries.Append(Entry{Key: k, KeyAt: at0(), Value: GenValue(2), At: at0()})
+		}
+	}
+	Table{Name: name, Many: many, At: at0(), Entries: entries}
+}
+
+// Gen is a document: a root, at most one [name] of each name, and some
+// [[upstream]] elements.
+func Gen() Doc needs Random {
+	let mut tables = []Table{}
+	for n in names {
+		if Random.IntN(2) == 0 {
+			tables = tables.Append(GenTable(n, false))
+		}
+	}
+	for _ in 0..Random.IntN(3) {
+		tables = tables.Append(GenTable("upstream", true))
+	}
+	Doc{Root: GenTable("", false), Tables: tables}
+}

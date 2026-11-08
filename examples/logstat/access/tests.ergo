@@ -1,0 +1,88 @@
+// The reader's tests: lines of each kind, each failure with its column,
+// and the laws restated as property tests over generated requests
+// (#162 runs laws).
+
+import rand
+import time
+
+let sample = "203.0.113.9 - - [08/Nov/2026:10:00:00 +0200] \"GET /api/users?id=7 HTTP/1.1\" 200 512 0.123"
+
+test ReadsALine {
+	let r = try Parse(sample)
+	assert r.Addr == "203.0.113.9"
+	assert time.Format(r.At, time.RFC3339) == "2026-11-08T08:00:00Z"
+	assert r.Method == "GET" && r.Target == "/api/users?id=7" && r.Proto == "HTTP/1.1"
+	assert r.Status == 200 && r.Bytes == 512 && r.Micros == 123000
+	assert Path(r) == "/api/users"
+}
+
+test ReadsDashesEscapesAndSpaces {
+	let r = try Parse("::1 - bob  [01/Jan/2026:00:00:00 +0000]  \"POST /a\\\"b HTTP/2.0\" 404 - 2")
+	assert r.Target == "/a\"b" && r.Bytes == 0 && r.Micros == 2000000
+	assert Format(r) == "::1 - - [01/Jan/2026:00:00:00 +0000] \"POST /a\\\"b HTTP/2.0\" 404 - 2.000"
+}
+
+test SecondsAreExact {
+	assert Seconds(0) == "0.000"
+	assert Seconds(123000) == "0.123"
+	assert Seconds(1000001) == "1.000001"
+	assert Seconds(61500000) == "61.500"
+}
+
+test FailuresNameTheirColumn {
+	assert Column("") == 1
+	assert Column("1.2.3.4") == 8
+	assert Column("1.2.3.4 - - 08/Nov/2026") == 13
+	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000") == 40
+	assert Column("1.2.3.4 - - [8 Nov 2026] \"GET / HTTP/1.1\" 200 1 0.1") == 14
+	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET /\" 200 1 0.1") == 43
+	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 2x0 1 0.1") == 59
+	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 1 .5") == 65
+	assert Column("1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 1 0.5 extra") == 69
+}
+
+test FailuresAreTyped {
+	let line = "1.2.3.4 - - [08/Nov/2026:10:00:00 +0000] \"GET / HTTP/1.1\" 200 12345678901234567890 0.1"
+	let _ = Parse(line) catch {
+	case BadNumber as b:
+		assert b.Field == "size" && b.Column == 63 && b.Text == "12345678901234567890"
+		return
+	case Missing, BadTime, BadRequest, Trailing:
+		assert false
+		return
+	}
+	assert false
+}
+
+test Classes {
+	assert ClassName(ClassOf(200)) == "2xx"
+	assert ClassName(ClassOf(304)) == "3xx"
+	assert ClassName(ClassOf(499)) == "4xx"
+	assert ClassName(ClassOf(503)) == "5xx"
+	assert ClassName(ClassOf(102)) == "1xx"
+	assert ClassName(ClassOf(999)) == "other"
+}
+
+test FormatParsesHolds(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for _ in 0..20 {
+			let r = Gen()
+			assert Valid(r)
+			let back = try Parse(Format(r))
+			assert Same(back, r)
+		}
+	}
+}
+
+test ColumnIsInTheLineHolds(seed int, i int, j int, cut int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let line = Damaged(Gen(), i, j, cut)
+		let c = Column(line)
+		assert c == 0 || InLine(c, line)
+	}
+}
+
+test ColumnIsInTheLineOfAnyText(line string) {
+	let c = Column(line)
+	assert c == 0 || InLine(c, line)
+}

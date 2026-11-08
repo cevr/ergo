@@ -1,0 +1,82 @@
+// Package config is the configuration of a reverse proxy, decoded from a
+// toml.Doc into typed records, with environment overrides. Its failures
+// say where the wrong value came from: a line and column of the file, or
+// an environment variable.
+//
+//	name = "edge"
+//
+//	[listen]
+//	host = "0.0.0.0"   # default 127.0.0.1
+//	port = 8080        # 1 to 65535
+//
+//	[log]
+//	level = "info"     # debug, info, warn or error; default info
+//
+//	[[upstream]]
+//	name = "a"
+//	addr = "10.0.0.1:9000"
+//	weight = 5         # 1 to 100; default 1
+//	backup = false     # default false
+
+// Config is the whole configuration.
+type Config { Name string, Listen Listen, Log Level, Upstreams []Upstream }
+
+// Listen is where the proxy listens.
+type Listen { Host string, Port int }
+
+// Level is how much the proxy logs.
+type Level = Debug | Info | Warn | Error
+
+type Debug {}
+type Info {}
+type Warn {}
+type Error {}
+
+// Levels are the names of the levels, in order.
+let Levels = []string{"debug", "info", "warn", "error"}
+
+// LevelName is the name of l, which LevelNamed reads back.
+func LevelName(l Level) string {
+	match l {
+	case Debug:
+		"debug"
+	case Info:
+		"info"
+	case Warn:
+		"warn"
+	case Error:
+		"error"
+	}
+}
+
+// LevelNamed is the level of the name, if it names one.
+func LevelNamed(name string) Option[Level] {
+	match name {
+	case "debug":
+		Some[Level]{Value: Debug}
+	case "info":
+		Some[Level]{Value: Info}
+	case "warn":
+		Some[Level]{Value: Warn}
+	case "error":
+		Some[Level]{Value: Error}
+	case _:
+		None
+	}
+}
+
+// Upstream is a server the proxy sends requests to.
+type Upstream { Name string, Addr string, Weight int, Backup bool }
+
+// Same reports whether a and b are the same configuration.
+func Same(a Config, b Config) bool {
+	if a.Name != b.Name || a.Listen != b.Listen || LevelName(a.Log) != LevelName(b.Log) || len(a.Upstreams) != len(b.Upstreams) {
+		return false
+	}
+	for i, u in a.Upstreams {
+		if u != b.Upstreams[i] {
+			return false
+		}
+	}
+	true
+}

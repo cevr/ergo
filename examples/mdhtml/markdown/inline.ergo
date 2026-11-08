@@ -1,0 +1,111 @@
+import mdhtml/html
+import strings
+
+// Inline is the nodes of the text of a line: a code span `x`, a link
+// [text](url), strong emphasis **x** or __x__, emphasis *x* or _x_, a
+// backslash before a marker, which keeps the marker as text, and text.
+// A marker with no closer, or with nothing between, is text. Emphasis
+// does not hold its own marker: *a **b** c* is three emphases, "a ",
+// "b" and " c".
+func Inline(s string) []html.Node {
+	let mut out = []html.Node{}
+	let mut text = []string{}
+	let mut i = 0
+	for i < len(s) {
+		let c = s[i]
+		if c == '\\' && i+1 < len(s) && isMarker(s[i+1]) {
+			text = text.Append(strings.Slice(s, i+1, i+2))
+			i += 2
+			continue
+		}
+		let span = spanAt(s, i)
+		match span {
+		case Some as sp:
+			out = flush(out, text)
+			text = []string{}
+			out = out.Append(sp.Value.Node)
+			i = sp.Value.End
+		case None:
+			text = text.Append(strings.Slice(s, i, i+1))
+			i += 1
+		}
+	}
+	flush(out, text)
+}
+
+// Span is a node that the text from some index up to End makes.
+type Span { Node html.Node, End int }
+
+// spanAt is the span that starts at index i of s, if a span starts
+// there.
+func spanAt(s string, i int) Option[Span] {
+	let c = s[i]
+	if c == '`' {
+		let j = indexFrom(s, "`", i+1)
+		if j > i+1 {
+			return Some{Value: Span{Node: html.El("code", []html.Node{html.Text{S: strings.Slice(s, i+1, j)}}), End: j + 1}}
+		}
+		return None
+	}
+	if c == '[' {
+		let close = indexFrom(s, "](", i+1)
+		if close < 0 {
+			return None
+		}
+		let end = indexFrom(s, ")", close+2)
+		if end < 0 {
+			return None
+		}
+		let label = strings.Slice(s, i+1, close)
+		let url = html.Href(strings.Slice(s, close+2, end))
+		return Some{Value: Span{Node: html.A(url, Inline(label)), End: end + 1}}
+	}
+	if c == '*' || c == '_' {
+		let marker = strings.Slice(s, i, i+1)
+		let double = marker + marker
+		if strings.HasPrefix(strings.Slice(s, i, len(s)), double) {
+			let j = indexFrom(s, double, i+2)
+			if j > i+2 {
+				return Some{Value: Span{Node: html.El("strong", Inline(strings.Slice(s, i+2, j))), End: j + 2}}
+			}
+		}
+		let j = indexFrom(s, marker, i+1)
+		if j > i+1 {
+			return Some{Value: Span{Node: html.El("em", Inline(strings.Slice(s, i+1, j))), End: j + 1}}
+		}
+	}
+	None
+}
+
+// indexFrom is the index of the first sub in s at or after from, or -1.
+func indexFrom(s string, sub string, from int) int {
+	if from > len(s) {
+		return -1
+	}
+	let k = strings.Index(strings.Slice(s, from, len(s)), sub)
+	if k < 0 {
+		return -1
+	}
+	from + k
+}
+
+// flush is out and then the text gathered, as one text node.
+func flush(out []html.Node, text []string) []html.Node {
+	if len(text) == 0 {
+		return out
+	}
+	out.Append(html.Text{S: strings.Join(text, "")})
+}
+
+// Markers are the characters that start a span, and a backslash.
+let Markers = "`*_[]()\\"
+
+// isMarker reports whether c is one of Markers.
+func isMarker(c byte) bool {
+	for i in 0..len(Markers) {
+		if Markers[i] == c {
+			return true
+		}
+	}
+	false
+}

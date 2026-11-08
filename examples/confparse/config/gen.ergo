@@ -1,0 +1,28 @@
+// Gen builds configurations from Random, for the property tests that
+// restate the laws.
+
+let hosts = []string{"127.0.0.1", "0.0.0.0", "::", "proxy.local", "with \"quote\"", ""}
+let ports = []int{1, 80, 443, 8080, 65535}
+let names = []string{"a", "b", "eu-1", "us_2", "back\\up", "x y"}
+
+// Gen is a Valid configuration.
+func Gen() Config needs Random {
+	let mut ups = []Upstream{}
+	for n in names {
+		if Random.IntN(3) == 0 {
+			ups = ups.Append(Upstream{
+				Name:   n,
+				Addr:   "10.0.0.\(Random.IntN(256)):\(ports[Random.IntN(len(ports))])",
+				Weight: 1 + Random.IntN(100),
+				Backup: Random.IntN(2) == 0,
+			})
+		}
+	}
+	let levels = []Level{Debug, Info, Warn, Error}
+	Config{
+		Name:      names[Random.IntN(len(names))],
+		Listen:    Listen{Host: hosts[Random.IntN(len(hosts))], Port: ports[Random.IntN(len(ports))]},
+		Log:       levels[Random.IntN(len(levels))],
+		Upstreams: ups,
+	}
+}

@@ -1,0 +1,45 @@
+// Scope is the variables in scope, innermost first, each with its type.
+// It is a list of values, so an inner scope never changes an outer one.
+type Scope = Top | Bound{Name string, T Type, Outer Scope}
+
+type Top {}
+
+// Lookup is the type of the innermost variable name in s.
+func Lookup(s Scope, name string) Option[Type] {
+	let mut at = s
+	for {
+		match at {
+		case Top:
+			return None
+		case Bound as b:
+			if b.Name == name {
+				return Some{Value: b.T}
+			}
+			at = b.Outer
+		}
+	}
+}
+
+// NamesOf is the names in s whose innermost binding has type t, innermost
+// first.
+func NamesOf(s Scope, t Type) []string {
+	let mut out = []string{}
+	let mut seen = Map[string, bool]{}
+	let mut at = s
+	for {
+		match at {
+		case Top:
+			return out
+		case Bound as b:
+			match seen.Get(b.Name) {
+			case Some:
+			case None:
+				seen[b.Name] = true
+				if b.T == t {
+					out = out.Append(b.Name)
+				}
+			}
+			at = b.Outer
+		}
+	}
+}

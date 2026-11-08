@@ -1,0 +1,55 @@
+import cmp
+import slices
+
+// Count is how many times a key was seen.
+type Count { Key string, N int }
+
+// Tally is how many times each of keys is in keys.
+func Tally(keys []string) Map[string, int] {
+	let mut m Map[string, int] = Map[string, int]{}
+	for k in keys {
+		// m[k] += 1 reads the Map, and a read may miss (gap G-ex-a-13).
+		match m.Get(k) {
+		case Some as n:
+			m[k] = n.Value + 1
+		case None:
+			m[k] = 1
+		}
+	}
+	m
+}
+
+// Rank is the counts of m, most first and then by key, at most top of
+// them; a top below zero keeps them all.
+func Rank(m Map[string, int], top int) []Count {
+	let mut all = []Count{}
+	for k, n in m {
+		all = all.Append(Count{Key: k, N: n})
+	}
+	let sorted = slices.SortFunc(all, ByCountThenKey)
+	if top < 0 || top >= len(sorted) {
+		return sorted
+	}
+	let mut out = []Count{}
+	for i in 0..top {
+		out = out.Append(sorted[i])
+	}
+	out
+}
+
+// ByCountThenKey orders counts most first, and equal counts by key.
+func ByCountThenKey(a Count, b Count) int {
+	if a.N != b.N {
+		return cmp.Compare(b.N, a.N)
+	}
+	cmp.Compare(a.Key, b.Key)
+}
+
+// Total is the sum of the counts.
+func Total(cs []Count) int {
+	let mut n = 0
+	for c in cs {
+		n += c.N
+	}
+	n
+}

@@ -1,0 +1,4 @@
+stdin:9:17: want the time in [ ]
+stdin:11:18: the time "08/Nov/2026 10:00:08" is not in the layout 02/Jan/2006:15:04:05 -0700
+stdin:13:80: the time taken "0.1234567" is not a number
+logstat: 3 bad lines
