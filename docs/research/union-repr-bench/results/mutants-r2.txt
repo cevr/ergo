@@ -4,7 +4,7 @@ r3 no bound on C: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
 r4 no hold step: RED exit 1 TestRuleGFixtures, TestRuleGBuilds, TestRuleGPicksBenchForms
 r5 no trailing zero-size pad: RED exit 1 TestRuleGBuilds
 r6 no field alignment: RED exit 1 TestRuleGBuilds
-r7 slots never shared: RED exit 1 ./rule.go:347:11: declared and not used: t
+r7 slots never shared: RED exit 1 TestRuleGFixtures, TestRuleGPicksBenchForms
 r8 recursion ignores slices: RED exit 1 TestRuleGFixtures
 r9 hold ignores records: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
 r10 hold by any form: RED exit 1 TestRuleGFixtures, TestRuleGPicksBenchForms
