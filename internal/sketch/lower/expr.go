@@ -223,7 +223,7 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		if step == nil {
 			ice(site, "a machine conversion with no step")
 		}
-		return fc.goType(conv.To) + "{Initial: " + val + ".Initial(), Step: " + fc.funcValue(step, step.Sig, site, nil) + "}"
+		return fc.goType(conv.To) + "{Initial: " + val + ".Initial(), Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""

@@ -292,7 +292,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			o, f, r := view.TArgs[2], view.TArgs[3].(*RowArg), view.TArgs[4].(*RowArg)
 			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s and capability row %s", step.Name, o, rowText(f.Row), rowText(r.Row))
 		}
-		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: map[string]*Func{"Step": step}}}, ""
+		table := map[string]*Func{"Step": step}
+		if after := c.machineAfter(v); after != nil {
+			table["After"] = after // else every state has no timer
+		}
+		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
 	}
 	if it := asInterface(t); it != nil {
 		if _, isTuple := under(v).(*Tuple); isTuple {

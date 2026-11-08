@@ -26,6 +26,8 @@ func Word(d Decision[Mode, todo.List]) string {
 		"enter"
 	case Stay[Mode]:
 		"stay"
+	case Emit[Mode, todo.List]:
+		"emit"
 	case Ignore:
 		"ignore"
 	case Reject:
@@ -51,6 +53,8 @@ law QuitIsDone(texts []string) {
 		false
 	case Stay[Mode]:
 		false
+	case Emit[Mode, todo.List]:
+		false
 	case Ignore:
 		false
 	case Reject:
@@ -70,6 +74,8 @@ law EndIsDone(texts []string, title string) {
 		case Enter[Mode]:
 			return false
 		case Stay[Mode]:
+			return false
+		case Emit[Mode, todo.List]:
 			return false
 		case Ignore:
 			return false

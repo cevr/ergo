@@ -139,6 +139,34 @@ func machinePure(step *check.Func, fd *funcDecl, site syntax.Node) bool {
 	return !fd.fallible && len(rowElems(step.Sig.Uses)) == 0 && !fd.readsEnv
 }
 
+// machineAfter is the After of a machine value's Machine (ConvMachine): the
+// value of the machine's after function, or, when it has none, a function
+// that gives every state None (no timer).
+func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string {
+	if after := conv.Table["After"]; after != nil {
+		return fc.funcValue(after, after.Sig, site, nil)
+	}
+	var sig *check.Signature
+	if n, ok := conv.To.(*check.Named); ok {
+		if st, ok := n.Underlying().(*check.Struct); ok {
+			for _, f := range st.Fields {
+				if f.Name == "After" {
+					sig, _ = f.Type.(*check.Signature)
+				}
+			}
+		}
+	}
+	if sig == nil || len(sig.Params) != 1 || len(sig.Results) != 1 {
+		ice(site, "the prelude Machine has no After func(S) Option[Timeout[E]]")
+	}
+	_, none := optionVariants(sig.Results[0], site)
+	return fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {
+		ind := strings.Repeat("\t", fc.depth+1)
+		return []string{"_ " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
+			ind + "return " + fc.goType(none) + "{}, nil\n"
+	})
+}
+
 // namesIdent reports whether the Go text src names the identifier id as a
 // token: a string, a comment or a longer name that holds id does not count.
 func namesIdent(src, id string) bool {

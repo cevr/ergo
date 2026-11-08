@@ -439,6 +439,104 @@ func (c *checker) checkMachine(tn *TypeName) {
 	if bad {
 		c.errorf(id, CodeType, "the step %s of machine %s must have the type %s, with any error and capability rows (runtime.md, Machines and actors 1)", id.Name, tn.Name, want)
 	}
+	if spec.After != nil {
+		c.checkMachineAfter(tn, spec.After, state, signal)
+	}
+}
+
+// checkMachineAfter checks a machine's `after: g` entry: g names a package
+// function from the state to Option[Timeout[E]] with no rows, which the
+// runner calls after each commit that opens an entry (runtime.md, Machines
+// and actors 9). It returns g, or nil when the entry is refused.
+func (c *checker) checkMachineAfter(tn *TypeName, x syntax.Expr, state, signal Type) *Func {
+	want := "func(" + state.String() + ") Option[Timeout[" + signal.String() + "]]"
+	id, ok := x.(*syntax.Ident)
+	if !ok {
+		c.errorf(x, CodeType, "a machine's after names a function of this package of the type %s (runtime.md, Machines and actors 9)", want)
+		return nil
+	}
+	f, ok := c.pkg.Scope.names[id.Name].(*Func)
+	if !ok {
+		if c.pkg.Scope.names[id.Name] == nil {
+			c.errorf(id, CodeUnknown, "unknown function %s", id.Name)
+		} else {
+			c.errorf(id, CodeType, "%s is not a function; a machine's after names a function (runtime.md, Machines and actors 9)", id.Name)
+		}
+		return nil
+	}
+	f.called = true
+	c.pkg.Info.Uses[id] = f
+	if isExtern(f) {
+		c.errorf(id, CodeType, "%s", externCallOnlyText)
+		return nil
+	}
+	if f.Sig == nil {
+		return nil
+	}
+	if !c.machineAfterShape(f.Sig, state, signal) {
+		c.errorf(id, CodeType, "the after %s of machine %s must have the type %s, with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)", id.Name, tn.Name, want)
+		return nil
+	}
+	// Its rows: the value must be assignable to the Machine's After, whose
+	// rows are empty; an inferred row is solved later, so assignment
+	// checks it (rows.md, Error rows).
+	machine := preludeType("Machine")
+	if machine == nil {
+		return nil
+	}
+	view := c.instantiate(machine, []Type{state, signal, state, &RowArg{Row: newRow()}, &RowArg{Row: newRow()}})
+	st, _ := view.Underlying().(*Struct)
+	if st == nil {
+		return nil
+	}
+	field, _ := st.field("After")
+	if field == nil {
+		return nil
+	}
+	t := &target{name: "the after of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
+	prev := c.fn
+	c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
+	op := c.valueExpr(x, field.Type)
+	ok = c.assign(&op, field.Type, "machine "+tn.Name+"'s after")
+	c.fn = prev
+	if !ok {
+		return nil
+	}
+	return f
+}
+
+// machineAfterShape reports whether sig is func(S) Option[Timeout[E]] with
+// no type parameters; its rows are checked where it is assigned.
+func (c *checker) machineAfterShape(sig *Signature, state, signal Type) bool {
+	option, timeout := preludeType("Option"), preludeType("Timeout")
+	if option == nil || timeout == nil || len(sig.TParams) > 0 || len(sig.Params) != 1 || len(sig.Results) != 1 {
+		return false
+	}
+	want := c.instantiate(option, []Type{c.instantiate(timeout, []Type{signal})})
+	return c.identical(sig.Params[0].Type, state) && c.identical(sig.Results[0], want)
+}
+
+// machineAfter is the after function of the machine declaration t, or nil
+// when it has none or it is refused (checkMachineAfter reports that).
+func (c *checker) machineAfter(t Type) *Func {
+	n, ok := t.(*Named)
+	if !ok || n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
+		return nil
+	}
+	m, ok := n.Underlying().(*MachineType)
+	spec, ok2 := n.Obj.Decl.Spec.(*syntax.MachineType)
+	if !ok || !ok2 {
+		return nil
+	}
+	id, ok := spec.After.(*syntax.Ident)
+	if !ok {
+		return nil
+	}
+	f, ok := n.Obj.Pkg.Scope.names[id.Name].(*Func)
+	if !ok || f.Sig == nil || isExtern(f) || !c.machineAfterShape(f.Sig, m.State, m.Signal) {
+		return nil
+	}
+	return f
 }
 
 // isPreludeMachine reports whether t is an instance of the prelude's
