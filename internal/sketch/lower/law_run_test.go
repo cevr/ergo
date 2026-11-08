@@ -19,14 +19,17 @@ import (
 // and the seed.
 
 // lawRunB13 is the b13 repro of the examples wave with a provider: the law
-// calls a helper that needs its own operation type.
+// calls a helper that needs its own operation type. The law relates two
+// reads, not a write and a read: under the value rule (owner q26) a
+// provider's write to its own Map is not seen by the next call, and a
+// provider whose state is a sync.Ref has no generator, so a write law has
+// no generated provider to run against (batch-12 integration, V1 x value
+// rule).
 const lawRunB13 = `type Store {
-	Put(n int),
 	Count() int,
+	Doubled() int,
 	law PutCountsOne(n int) {
-		let before = twice()
-		Put(n)
-		twice() == before + 2
+		twice() + n == Doubled() + n
 	},
 }
 
@@ -34,25 +37,15 @@ func twice() int needs Store { Store.Count() * 2 }
 
 type Tally { counts Map[string, int] }
 
-func Put(t Tally, n int) {
-	let mut w = t
-	w.counts["n"] = t.Count() + 1
-}
+func Count(t Tally) int { len(t.counts) }
 
-func Count(t Tally) int {
-	match t.counts.Get("n") {
-	case Some as s:
-		s.Value
-	case None:
-		0
-	}
-}
+func Doubled(t Tally) int { 2 * len(t.counts) }
 
 type Stuck { at int }
 
-func Put(_ Stuck, n int) {}
-
 func Count(s Stuck) int { s.at }
+
+func Doubled(s Stuck) int { 2*s.at + 1 }
 
 func main() needs Console {
 	Console.Println("x")

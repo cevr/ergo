@@ -604,7 +604,7 @@ func main() {
 	for _, d := range lowerSource("machineconv", src, true).diags {
 		got = append(got, d.String())
 	}
-	want := "cannot use main.M as Machine[main.St, main.Sig, string, , ] in let _: its step step gives a Machine with output int, error row {main.Boom} and capability row {}"
+	want := "cannot use M as Machine[St, Sig, string, , ] in let _: its step step gives a Machine with output int, error row {Boom} and capability row {}"
 	if len(got) != 1 || !strings.Contains(got[0], want) {
 		t.Errorf("diagnostics %q, want one with %q and the machine's own Machine", got, want)
 	}
@@ -653,8 +653,8 @@ func main() {
 		got = append(got, d.String())
 	}
 	want := []string{
-		"29:10: S102 this call requires main.Probe, which is not in the capability row of function main and no with provides it",
-		"29:10: S105 the failure {main.Boom} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)",
+		"29:10: S102 this call requires Probe, which is not in the capability row of function main and no with provides it",
+		"29:10: S105 the failure {Boom} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("diagnostics:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -678,9 +678,9 @@ func step(s St, e Sig) Decision[St, int] { Ignore }
 	machine := "type M machine[St, Sig] {\n\tinitial: A,\n\tstep:    step,\n\tafter:   timer,\n}\n\nfunc main() {}\n"
 	for _, c := range []struct{ name, timer, want string }{
 		{"signal", "func timer(e Sig) Option[Timeout[Sig]] { None }\n\n",
-			"S108 the after timer of machine M must have the type func(main.St) Option[Timeout[main.Sig]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)"},
+			"S108 the after timer of machine M must have the type func(St) Option[Timeout[Sig]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)"},
 		{"row", "func timer(s St) Option[Timeout[Sig]] {\n\tConsole.Println(\"x\")\n\tNone\n}\n\n",
-			"S108 cannot use func(main.St) Option[Timeout[main.Sig]] needs Console as func(main.St) Option[Timeout[main.Sig]] in machine M's after: its capability row {Console} is wider than {}"},
+			"S108 cannot use func(St) Option[Timeout[Sig]] needs Console as func(St) Option[Timeout[Sig]] in machine M's after: its capability row {Console} is wider than {}"},
 		{"unknown", "", "S104 unknown function timer"},
 	} {
 		var got []string
@@ -713,9 +713,9 @@ type M machine[St, Sig] {
 `
 	for _, c := range []struct{ name, rest, want string }{
 		{"none", "func start() St { A{n: 1} }\n\nfunc main() {}\n",
-			"S108 the start start of machine M must have the type func(…) main.St: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)"},
+			"S108 the start start of machine M must have the type func(…) St: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)"},
 		{"row", "func start(n int) St {\n\tConsole.Println(\"x\")\n\tA{n: n}\n}\n\nfunc main() {}\n",
-			"S108 cannot use func(int) main.St needs Console as func(int) main.St in machine M's start: its capability row {Console} is wider than {}"},
+			"S108 cannot use func(int) St needs Console as func(int) St in machine M's start: its capability row {Console} is wider than {}"},
 		{"machine", "func start(n int) St { A{n: n} }\n\nfunc main() {\n\tlet _ Machine[St, Sig, int] = M{}\n}\n",
 			"its initial is a function of an input, so it is an InputMachine[int, …]; machines.Start(value, input) gives a Machine"},
 	} {
