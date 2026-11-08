@@ -678,6 +678,31 @@ func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
 
 func NewCap() Cap { Cap{root: "/"} }
 `, []string{"fixture.NewCap hands out fixture.Cap, which fixture.Host needs, and does not list Ambient in its written row or take a value that needs authority"}},
+		// fu-ambient-ctor r2 (batch-10 verifier M1, the laundering probe):
+		// Tok has authority but MakeTok hands it out with no row, so
+		// fixture.Wrap(fixture.MakeTok()) is a Host with no Ambient. A
+		// parameter is authority only when no free hand-out gives it.
+		{"record built from a parameter that a free constructor hands out", `type Host { root string }
+
+type Tok { v int }
+
+func MakeTok() Tok { Tok{v: 1} }
+
+func Wrap(_ Tok) Host { Host{root: "/"} }
+
+func NewHost() Host needs Ambient { Host{root: "/"} }
+`, []string{"fixture.Wrap returns it and does not list Ambient in its written row"}},
+		// Control: MakeTok lists Ambient, so Wrap's caller had authority.
+		{"record built from a parameter whose constructor needs Ambient", `type Host { root string }
+
+type Tok { v int }
+
+func MakeTok() Tok needs Ambient { Tok{v: 1} }
+
+func Wrap(_ Tok) Host { Host{root: "/"} }
+
+func NewHost() Host needs Ambient { Host{root: "/"} }
+`, nil},
 		// fu-hostguard2: an operation type is judged by check.Buildable
 		// too. A sealed one is built only through its package's
 		// implementers, so a sealed Host whose implementer has authority
@@ -799,7 +824,9 @@ func handShapes(depth int) []handShape {
 // handModes are the ways package fixture hands out a value of R: an
 // exported function with no row, with Ambient, with a parameter that needs
 // authority (a Host), with an open parameter, a function that passes R to
-// its caller's function, and an exported let. Every body calls itself, so
+// its caller's function, an exported let, and with a parameter of a record
+// with authority that the package hands out with no row or under Ambient
+// (fu-ambient-ctor r2). Every body calls itself, so
 // no value is built: only the signature is judged.
 var handModes = []struct {
 	name    string
@@ -813,6 +840,18 @@ var handModes = []struct {
 	{"open-param", func(r string) string { return "func Give(n int) " + r + " { Give(n) }\n" }, false, "fixture.Give hands out"},
 	{"callback", func(r string) string { return "func Give(f func(v " + r + ")) {}\n" }, false, "fixture.Give hands out"},
 	{"let", func(r string) string { return "let Given " + r + " = given()\n\nfunc given() " + r + " { given() }\n" }, false, "fixture.Given is an exported let that holds"},
+	// fu-ambient-ctor r2: a parameter of a record with authority that the
+	// package hands out with no row is no authority (the laundering probe);
+	// the same parameter is when its hand-out needs Ambient.
+	{"laundered-param", func(r string) string {
+		return "type Tok { v int }\n\nfunc MakeTok() Tok { MakeTok() }\n\nfunc Give(t Tok) " + r + " { Give(t) }\n"
+	}, false, "fixture.Give hands out"},
+	{"let-param", func(r string) string {
+		return "type Tok { v int }\n\nlet Given Tok = tok()\n\nfunc tok() Tok { tok() }\n\nfunc Give(t Tok) " + r + " { Give(t) }\n"
+	}, false, "fixture.Give hands out"},
+	{"ambient-param", func(r string) string {
+		return "type Tok { v int }\n\nfunc MakeTok() Tok needs Ambient { MakeTok() }\n\nfunc Give(t Tok) " + r + " { Give(t) }\n"
+	}, true, ""},
 }
 
 // endsInFuncType reports whether the type text ends in a function type
@@ -920,6 +959,136 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 		}
 	}
 	t.Logf("%d host forms x %d shapes x %d modes, %d violations", len(hostForms), len(shapes), len(handModes), flagged)
+}
+
+// TestStdHostHandOutChains is fu-ambient-ctor r2's guard (batch-10
+// verifier M1): a parameter is authority only when another package cannot
+// obtain its value without authority, through any chain of the package's
+// exported functions. Each case is a chain of records with authority
+// T1..Tk (k = 1..3): Make1() T1, Make<i>(_ P) T<i> for a parameter P over
+// T<i-1>, and Wrap(_ P) Host, where Host has an unexported field and
+// NewHost needs Ambient. P is T<i-1> itself, a record with an exported
+// field of it, or a union whose other variant holds a record that is
+// never handed out. Each Make may need Ambient. The functions are declared
+// from Wrap down to Make1, so one pass over them in source order does not
+// reach Wrap. The model: Wrap is reported exactly when no link needs
+// Ambient.
+func TestStdHostHandOutChains(t *testing.T) {
+	outside, ds := check.CheckSource("let x = 1\n")
+	if len(ds) != 0 {
+		t.Fatalf("outside: %v", ds)
+	}
+	const common = `type Host { root string }
+
+type Other { x int }
+
+type Gone { Path string }
+
+func NewHost() Host needs Ambient { NewHost() }
+
+func Read(_ Host) string fails Gone { try read() }
+
+func read() string fails Gone { try hostRead("x") }
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
+`
+	// param is the parameter type over T<i> and its declarations.
+	wraps := []string{"direct", "box", "union"}
+	param := func(w string, i int) (string, string) {
+		ti := fmt.Sprintf("T%d", i)
+		switch w {
+		case "box":
+			b := fmt.Sprintf("B%d", i)
+			return b, "type " + b + " { T " + ti + " }\n\n"
+		case "union":
+			u := fmt.Sprintf("U%d", i)
+			return u, "type " + u + " = " + u + "A | " + u + "B\n\ntype " + u + "A { T " + ti + " }\n\ntype " + u + "B { O Other }\n\n"
+		}
+		return ti, ""
+	}
+	type link struct {
+		ambient bool
+		wrap    string // the parameter's form over the record before it
+	}
+	var chains [][]link
+	var grow func(c []link, depth int)
+	grow = func(c []link, depth int) {
+		if len(c) == depth {
+			chains = append(chains, slices.Clone(c))
+			return
+		}
+		for _, amb := range []bool{false, true} {
+			ws := wraps
+			if len(c) == 0 {
+				ws = []string{""} // Make1 takes no parameter
+			}
+			for _, w := range ws {
+				grow(append(c, link{amb, w}), depth)
+			}
+		}
+	}
+	for depth := 1; depth <= 3; depth++ {
+		grow(nil, depth)
+	}
+	if want := 2 + 2*6 + 2*6*6; len(chains) != want {
+		t.Fatalf("generated %d chains, want %d", len(chains), want)
+	}
+	flagged := 0
+	for _, c := range chains {
+		for _, wrapForm := range wraps {
+			var b strings.Builder
+			k := len(c)
+			p, decl := param(wrapForm, k)
+			b.WriteString(decl)
+			b.WriteString("func Wrap(x " + p + ") Host { Wrap(x) }\n\n")
+			free := true
+			for i := k; i >= 1; i-- {
+				l := c[i-1]
+				free = free && !l.ambient
+				row := ""
+				if l.ambient {
+					row = " needs Ambient"
+				}
+				fmt.Fprintf(&b, "type T%d { v int }\n\n", i)
+				if i == 1 {
+					fmt.Fprintf(&b, "func Make1() T1%s { Make1() }\n\n", row)
+					continue
+				}
+				p, decl := param(l.wrap, i-1)
+				b.WriteString(decl)
+				fmt.Fprintf(&b, "func Make%d(x %s) T%d%s { Make%d(x) }\n\n", i, p, i, row, i)
+			}
+			src := b.String() + common
+			f, err := syntax.Parse(src)
+			if err != nil {
+				t.Fatalf("%v\n%s", err, src)
+			}
+			fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
+			for _, d := range ds {
+				if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+					t.Fatalf("%v\n%s", ds, src)
+				}
+			}
+			var host *check.TypeName
+			for _, tn := range hostProviderTypes(fake) {
+				if tn.Name == "Host" {
+					host = tn
+				}
+			}
+			if host == nil {
+				t.Fatalf("no host provider Host\n%s", src)
+			}
+			var want []string
+			if free {
+				want = []string{"fixture.Wrap returns it and does not list Ambient in its written row"}
+				flagged++
+			}
+			if got := hostAuthorityViolations(fake, host, outside); !slices.Equal(got, want) {
+				t.Errorf("the violations are %q, want %q\n%s", got, want, b.String())
+			}
+		}
+	}
+	t.Logf("%d chains x %d Wrap parameters, %d violations", len(chains), len(wraps), flagged)
 }
 
 // TestProgramPackagesHaveNoHostProvider is the host guard over program
@@ -1103,8 +1272,9 @@ func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *ch
 	what := func(e *check.TypeName) string {
 		return e.Pkg.Name + "." + e.Name + ", which " + pkg.Name + "." + tn.Name + " needs,"
 	}
+	got := obtained(pkg, outside)
 	for _, f := range pkg.Funcs {
-		if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside) {
+		if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
 			continue
 		}
 		for _, e := range needed(handsOut(f.Sig)) {
@@ -1145,14 +1315,56 @@ func handsOut(sig *check.Signature) []check.Type {
 }
 
 // takesAuthority reports whether a caller of f needs authority already: a
-// parameter of a type that outside cannot build.
-func takesAuthority(f *check.Func, outside *check.Package) bool {
+// parameter of a type that outside cannot build, even with the records
+// pkg hands out without authority (got, from obtained).
+func takesAuthority(f *check.Func, outside *check.Package, got map[*check.TypeName]bool) bool {
 	for _, p := range f.Sig.Params {
-		if !check.Buildable(p.Type, outside) {
+		if !check.BuildableGiven(p.Type, outside, got) {
 			return true
 		}
 	}
 	return false
+}
+
+// obtained are the records with authority that package outside gets from
+// pkg with no authority (fu-ambient-ctor r2): the least fixed point of
+// "an exported let holds it, or an exported function with no Ambient in
+// its written row, whose every parameter outside builds from literals and
+// the records already obtained, hands it out". So in `func MakeTok() Tok`
+// and `func Wrap(_ Tok) Host`, Tok is obtained and Wrap takes no authority;
+// the chain may be of any length. Only pkg's own hand-outs are asked (a
+// record of another package counts as not obtained: a known gap).
+func obtained(pkg *check.Package, outside *check.Package) map[*check.TypeName]bool {
+	got := map[*check.TypeName]bool{}
+	add := func(ts []check.Type) bool {
+		grew := false
+		for _, t := range ts {
+			for _, e := range check.Exposes(t, outside) {
+				if !got[e] {
+					got[e] = true
+					grew = true
+				}
+			}
+		}
+		return grew
+	}
+	for _, o := range pkg.Exported() {
+		if v, ok := o.(*check.Var); ok {
+			add([]check.Type{v.Type})
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, f := range pkg.Funcs {
+			if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside, got) {
+				continue
+			}
+			if add(handsOut(f.Sig)) {
+				changed = true
+			}
+		}
+	}
+	return got
 }
 
 // writesAmbient reports whether f's written row names the prelude's
