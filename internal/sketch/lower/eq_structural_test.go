@@ -3,6 +3,7 @@ package lower
 import (
 	"flag"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -39,28 +40,29 @@ func main() needs Console {
 	Console.Println("\(a == b) \(a != c) \(a == c) \(p == q) \(p == r) \((a, 1) == (b, 1)) \((a, 1) == (c, 1))")
 	Console.Println("\(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{1}})) \(same(Box[int]{}, Box[int]{Items: []int{}})) \(same(Box[int]{Items: []int{1}}, Box[int]{Items: []int{2}}))")
 	Console.Println("\(Branch{Items: []Value{Leaf{N: 2}}, Tags: Map[string, int]{}} == c) \(c != Branch{Tags: Map[string, int]{}}) \(Leaf{N: 2} == c)")
+	Console.Println("\(Map[string, int]{"a": 0} == Map[string, int]{"b": 0}) \(Map[string, int]{"a": 1} == Map[string, int]{"a": 1}) \([]int{} == []int{0})")
 }
-`, "true true false true false true false\ntrue true false\ntrue true false\n")
+`, "true true false true false true false\ntrue true false\ntrue true false\nfalse true false\n")
 }
 
 // TestStructuralEqualityRefusals: comparability is still Go's where a Map
 // key, a comparable constraint or a type set reads it, and a function and a
 // row value have no equality.
 func TestStructuralEqualityRefusals(t *testing.T) {
-	for name, src := range map[string]string{
-		"map-key":    eqDecls + "func f(m Map[Value, int]) int { len(m) }\n",
-		"constraint": eqDecls + "func eq[T comparable](a T, b T) bool { a == b }\nfunc f(a Value) bool { eq(a, a) }\n",
-		"function":   "func f(g func() int) bool { g == g }\n",
-		"row-value":  "type E { N []int }\nfunc g() int fails E { E{N: []int{1}} }\nfunc f() bool { g() catch { case err: err == err } }\n",
+	for name, tc := range map[string]struct{ src, want string }{
+		"map-key":    {eqDecls + "func f(m Map[Value, int]) int { len(m) }\n", "map key type main.Value is not comparable"},
+		"constraint": {eqDecls + "func eq[T comparable](a T, b T) bool { a == b }\nfunc f(a Value) bool { eq(a, a) }\n", "main.Value is not comparable"},
+		"function":   {"func f(g escaping func() int) bool { g == g }\n", "func() int values cannot be compared with =="},
+		"row-value":  {"type E { N []int }\ntype F {}\nfunc g() int fails E | F { 1 }\nfunc f() int { g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }\n", "(main.E | main.F, int) values cannot be compared with =="},
 	} {
 		t.Run(name, func(t *testing.T) {
-			o := lowerSource("refuse"+name, src+"\nfunc main() {}\n", true)
+			o := lowerSource("refuse"+name, tc.src+"\nfunc main() {}\n", true)
 			found := false
 			for _, d := range o.diags {
-				found = found || d.Code == "S108"
+				found = found || d.Code == "S108" && strings.Contains(d.Message, tc.want)
 			}
 			if !found {
-				t.Fatalf("want S108; got %v (err %v)\n%s", o.diags, o.err, src)
+				t.Fatalf("want S108 %q; got %v (err %v)\n%s", tc.want, o.diags, o.err, tc.src)
 			}
 		})
 	}
@@ -148,6 +150,18 @@ func (g *eqGen) mutate(v *eqValue) {
 			}
 		})
 		delete(n.tags, keys[0])
+	case k == 5 && len(n.tags) > 0:
+		// The same size, a key renamed: b lacks a's key, whose value
+		// Go's zero read of b would match when it is 0.
+		keys := slices.Sorted(maps.Keys(n.tags))
+		key := keys[0]
+		for _, c := range keys {
+			if n.tags[c] == 0 {
+				key = c
+			}
+		}
+		n.tags["z"+key] = n.tags[key]
+		delete(n.tags, key)
 	default:
 		*n = eqValue{leaf: true, n: 9}
 	}
