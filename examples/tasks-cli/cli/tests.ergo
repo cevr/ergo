@@ -1,0 +1,79 @@
+// Run's tests drive the command line over a memory.Board, an io.Input and
+// an io.Recorder, with no host. The laws are restated (#162).
+
+import io
+import os
+import strings
+import tasks/memory
+import tasks/tasks
+
+// ran is the output of Run on args with input on standard input, over
+// board, and "exit CODE: MESSAGE" when it fails.
+func ran(board memory.Board, input string, args []string) string {
+	let out = io.NewRecorder()
+	with context { tasks.Board: board, io.Stdout: out, io.Stdin: io.Input{Text: input} } {
+		Run(args) catch {
+		case os.Exit as e:
+			out.Print("exit \(e.Code): " + e.Message + "\n")
+		}
+	}
+	out.Text()
+}
+
+test ASession {
+	let b = memory.NewBoard()
+	assert ran(b, "", []string{"list"}) == "no tasks\n"
+	assert ran(b, "", []string{"create", "write", "the", "spec"}) == "created #1   medium  open    write the spec\n"
+	assert ran(b, "", []string{"create", "--priority", "urgent", "fix the build"}) == "created #2   urgent  open    fix the build\n"
+	assert ran(b, "", []string{"create", "-priority=low", "-json", "say \"hi\""}) == "{\"id\":3,\"title\":\"say \\\"hi\\\"\",\"priority\":\"low\",\"state\":\"open\"}\n"
+	assert ran(b, "", []string{"list"}) == "#2   urgent  open    fix the build\n#1   medium  open    write the spec\n#3   low     open    say \"hi\"\n"
+	assert ran(b, "", []string{"list", "--min", "medium", "--json"}) == "[{\"id\":2,\"title\":\"fix the build\",\"priority\":\"urgent\",\"state\":\"open\"},{\"id\":1,\"title\":\"write the spec\",\"priority\":\"medium\",\"state\":\"open\"}]\n"
+}
+
+test CloseAsksFirst {
+	let b = memory.NewBoard()
+	let _ = ran(b, "", []string{"create", "a"})
+	let _ = ran(b, "", []string{"create", "b"})
+	assert ran(b, "n\n", []string{"close", "1"}) == "close #1 a? [y/N] exit 1: tasks-cli: task 1 is still open\n"
+	assert ran(b, "", []string{"close", "1"}) == "close #1 a? [y/N] exit 1: tasks-cli: task 1 is still open\n"
+	assert ran(b, " Yes \n", []string{"close", "1"}) == "close #1 a? [y/N] closed #1   medium  closed  a\n"
+	assert ran(b, "", []string{"close", "--yes", "2"}) == "closed #2   medium  closed  b\n"
+	assert ran(b, "", []string{"list", "--state", "closed"}) == "#1   medium  closed  a\n#2   medium  closed  b\n"
+}
+
+test EachFailureHasItsExit {
+	let b = memory.NewBoard()
+	let _ = ran(b, "", []string{"create", "a"})
+	let _ = ran(b, "", []string{"close", "--yes", "1"})
+	assert ran(b, "", []string{"close", "--yes", "1"}) == "exit 1: tasks-cli: task 1 is closed already\n"
+	assert ran(b, "y\n", []string{"close", "9"}) == "exit 1: tasks-cli: no task 9\n"
+	assert strings.HasPrefix(ran(b, "", []string{"close", "x"}), "exit 2: invalid value \"x\" for flag -id: not a task number\n")
+	assert strings.HasPrefix(ran(b, "", []string{"create"}), "exit 2: ")
+	assert strings.HasPrefix(ran(b, "", []string{"list", "--min", "soon"}), "exit 2: ")
+	assert strings.HasPrefix(ran(b, "", []string{"archive"}), "exit 2: ")
+	assert strings.HasPrefix(ran(b, "", []string{"-h"}), "Usage of tasks-cli:\n")
+}
+
+test CompletionScripts {
+	let b = memory.NewBoard()
+	let bash = ran(b, "", []string{"completion", "bash"})
+	assert strings.Contains(bash, "compgen -W \"list create close completion\"")
+	assert strings.Contains(bash, "\tlist) COMPREPLY=($(compgen -W \"--state --min --json\" -- \"$cur\")) ;;\n")
+	assert strings.HasPrefix(ran(b, "", []string{"completion", "zsh"}), "#compdef tasks-cli\n")
+	assert strings.Contains(ran(b, "", []string{"completion", "fish"}), "complete -c tasks-cli -n '__fish_seen_subcommand_from close' -l yes\n")
+	assert strings.HasPrefix(ran(b, "", []string{"completion", "tcsh"}), "exit 2: invalid value \"tcsh\" for flag -shell")
+}
+
+test CompletionsMatchTheParserHolds {
+	assert CompletionsMatchTheParserHolds()
+}
+
+test ArgsRoundTripHolds(c Cmd) {
+	let s = Sane(c)
+	assert try Parse(Args(s)) == s
+}
+
+test QuoteIsOneJSONStringHolds(s string) {
+	assert QuoteIsOneJSONStringHolds(s)
+	assert QuoteIsOneJSONStringHolds(s + "\"\\\n\t")
+}

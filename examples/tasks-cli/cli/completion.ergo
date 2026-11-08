@@ -1,0 +1,67 @@
+import strings
+
+// Spec is what a completion offers after a command: its flags.
+type Spec { Name string, Usage string, Flags []string }
+
+// Specs restates each command's flags. std flag keeps a flag's name in a
+// private field and writes no completions (G-ex-c-13), so the names are
+// written twice; the law CompletionsMatchTheParser holds them to Commands.
+let Specs = []Spec{
+	Spec{Name: "list", Usage: "list tasks, the most urgent first", Flags: []string{"state", "min", "json"}},
+	Spec{Name: "create", Usage: "create a task", Flags: []string{"priority", "json"}},
+	Spec{Name: "close", Usage: "close a task, after asking", Flags: []string{"yes", "json"}},
+	Spec{Name: "completion", Usage: "print the completion script of a shell", Flags: []string{}},
+}
+
+// Script is the completion script of shell for the program tasks-cli.
+func Script(shell Shell) string {
+	match shell {
+	case Bash:
+		bash()
+	case Zsh:
+		"#compdef tasks-cli\nautoload -U +X bashcompinit && bashcompinit\n" + bash()
+	case Fish:
+		fish()
+	}
+}
+
+// bash is the bash script: the commands first, then each command's flags.
+func bash() string {
+	let mut out = "_tasks() {\n\tlocal cur=${COMP_WORDS[COMP_CWORD]}\n\tif [ \"$COMP_CWORD\" -eq 1 ]; then\n\t\tCOMPREPLY=($(compgen -W \"" + strings.Join(names(), " ") + "\" -- \"$cur\"))\n\t\treturn\n\tfi\n\tcase ${COMP_WORDS[1]} in\n"
+	for s in Specs {
+		out = out + "\t" + s.Name + ") COMPREPLY=($(compgen -W \"" + strings.Join(dashed(s.Flags), " ") + "\" -- \"$cur\")) ;;\n"
+	}
+	out + "\tesac\n}\ncomplete -F _tasks tasks-cli\n"
+}
+
+// fish is the fish script: a line per command and a line per flag.
+func fish() string {
+	let mut out = "complete -c tasks-cli -f\n"
+	for s in Specs {
+		out = out + "complete -c tasks-cli -n __fish_use_subcommand -a " + s.Name + " -d '" + s.Usage + "'\n"
+	}
+	for s in Specs {
+		for f in s.Flags {
+			out = out + "complete -c tasks-cli -n '__fish_seen_subcommand_from " + s.Name + "' -l " + f + "\n"
+		}
+	}
+	out
+}
+
+// names is the name of each command.
+func names() []string {
+	let mut out = []string{}
+	for s in Specs {
+		out = out.Append(s.Name)
+	}
+	out
+}
+
+// dashed is each flag name with "--" before it.
+func dashed(flags []string) []string {
+	let mut out = []string{}
+	for f in flags {
+		out = out.Append("--" + f)
+	}
+	out
+}

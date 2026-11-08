@@ -1,0 +1,46 @@
+import fs
+import slices
+
+// Disk is an fs.Files and fs.Writes provider of one flat directory of
+// files in a map, so a test reads and writes files with no host disk. Its
+// map is shared by every copy.
+type Disk { files Map[string, string] }
+
+// NewDisk is a Disk with no files.
+func NewDisk() Disk {
+	let files Map[string, string]
+	Disk{files: files}
+}
+
+// ReadFile is the text of the file at path.
+func ReadFile(d Disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match d.files.Get(path) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		fs.NotFound{Path: path}
+	}
+}
+
+// ReadDir is the names of the files, sorted: the Disk has one directory.
+func ReadDir(d Disk, _ string) []string fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut names = []string{}
+	for p, _ in d.files {
+		names = names.Append(p)
+	}
+	slices.Sort(names)
+}
+
+// Stat describes the file at path.
+func Stat(d Disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: len(try d.ReadFile(path)), Dir: false}
+}
+
+// WriteFile makes the file at path hold text.
+func WriteFile(d Disk, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut files = d.files
+	files[path] = text
+}
+
+// MkdirAll does nothing: the Disk has one directory.
+func MkdirAll(_ Disk, _ string) fails fs.Denied | fs.Failed {}

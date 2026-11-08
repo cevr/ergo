@@ -1,0 +1,73 @@
+// Package file holds Board, the tasks.Board in a text file, one item per
+// line: ID, state, priority and the quoted title, between tabs.
+//
+//	1	open	high	"write the spec"
+
+import strconv
+import strings
+import tasks/tasks
+
+// Corrupt is a line that is not an item: its number, from 1, and its text.
+type Corrupt { Line int, Text string }
+
+// Encode is the line of t, with no line feed: the title is quoted by
+// strconv.Quote, so a tab or a line feed in it stays on the line.
+func Encode(t tasks.Item) string {
+	"\(t.ID)\t" + tasks.StateName(t.State) + "\t" + tasks.PriorityName(t.Priority) + "\t" + strconv.Quote(t.Title)
+}
+
+// Decode is the item of text, line n of a file. Its ID must be n.
+func Decode(text string, n int) tasks.Item fails Corrupt {
+	let bad = Corrupt{Line: n, Text: text}
+	let fields = strings.SplitN(text, "\t", 4)
+	if len(fields) != 4 {
+		return bad
+	}
+	let id = strconv.Atoi(fields[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return bad
+	}
+	let state tasks.State = match fields[1] {
+	case "open":
+		tasks.Open
+	case "closed":
+		tasks.Closed
+	case _:
+		return bad
+	}
+	let priority = match tasks.PriorityNamed(fields[2]) {
+	case Some[tasks.Priority] as p:
+		p.Value
+	case None:
+		return bad
+	}
+	let title = strconv.Unquote(fields[3]) catch {
+	case strconv.Malformed:
+		return bad
+	}
+	if id != n {
+		return bad
+	}
+	tasks.Item{ID: id, Title: title, Priority: priority, State: state}
+}
+
+// DecodeAll is the items of a file's text, one per line.
+func DecodeAll(text string) []tasks.Item fails Corrupt {
+	let mut out = []tasks.Item{}
+	for line in strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+		if line != "" || len(out) > 0 {
+			out = out.Append(try Decode(line, len(out)+1))
+		}
+	}
+	out
+}
+
+// EncodeAll is the text of a file of items, each line ending in a line
+// feed.
+func EncodeAll(items []tasks.Item) string {
+	let mut out = ""
+	for t in items {
+		out = out + Encode(t) + "\n"
+	}
+	out
+}

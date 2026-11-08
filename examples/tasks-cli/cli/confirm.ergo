@@ -1,0 +1,16 @@
+import io
+import strings
+
+// Confirm asks question on standard output and reads one line of standard
+// input: "y" or "yes", in any case, is yes; anything else, or the end of
+// input, is no, as a [y/N] prompt reads. io.Stdin cannot say whether it
+// is a terminal (G-ex-c-12), so a piped "y" answers it too, and --yes is
+// the way to skip it.
+func Confirm(question string) bool needs io.Stdout | io.Stdin {
+	io.Stdout.Print(question + " [y/N] ")
+	for line in io.Stdin.Lines() {
+		let answer = strings.ToLower(strings.TrimSpace(line))
+		return answer == "y" || answer == "yes"
+	}
+	false
+}

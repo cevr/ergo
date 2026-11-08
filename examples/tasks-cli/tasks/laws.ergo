@@ -1,0 +1,69 @@
+// The rules of a listing as laws over View.
+
+// ViewShowsWhatMatches: a listing holds each task that matches it, once,
+// and no other.
+law ViewShowsWhatMatches(tasks []Item, which Which, min Priority) { ViewShowsWhatMatchesHolds(tasks, which, min) }
+
+// ViewIsOrdered: a listing puts the more urgent task first, and the
+// earlier one first within a priority.
+law ViewIsOrdered(tasks []Item, which Which, min Priority) {
+	let shown = View(Numbered(tasks), which, min)
+	for i, t in shown {
+		if i > 0 && Before(shown[i-1], t) >= 0 {
+			return false
+		}
+	}
+	true
+}
+
+// ViewShowsWhatMatchesHolds checks ViewShowsWhatMatches.
+func ViewShowsWhatMatchesHolds(tasks []Item, which Which, min Priority) bool {
+	let numbered = Numbered(tasks)
+	let shown = View(numbered, which, min)
+	let mut matching = 0
+	for t in numbered {
+		let mut seen = 0
+		for s in shown {
+			if s.ID == t.ID {
+				seen = seen + 1
+			}
+		}
+		let want = if matches(t, which, min) { 1 } else { 0 }
+		if seen != want {
+			return false
+		}
+		matching = matching + want
+	}
+	len(shown) == matching
+}
+
+// matches is the rule of a listing, written apart from Shows so the law
+// checks it: which names the states shown, and min the least priority.
+func matches(t Item, which Which, min Priority) bool {
+	let state = match (which, t.State) {
+	case (Every, Open), (Every, Closed), (OpenOnly, Open), (ClosedOnly, Closed):
+		true
+	case (OpenOnly, Closed), (ClosedOnly, Open):
+		false
+	}
+	let mut atLeast = false
+	for p in Priorities {
+		if p == min {
+			atLeast = true
+		}
+		if p == t.Priority {
+			return state && atLeast
+		}
+	}
+	false
+}
+
+// Numbered is tasks with the IDs 1, 2, … in order, as a Board numbers
+// them, so a generated list has distinct IDs.
+func Numbered(tasks []Item) []Item {
+	let mut out = []Item{}
+	for i, t in tasks {
+		out = out.Append(Item{..t, ID: i + 1})
+	}
+	out
+}

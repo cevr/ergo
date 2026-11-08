@@ -1,0 +1,63 @@
+import strings
+import tasks/tasks
+
+// Line is the text line of t: its number, priority, state and title in
+// columns.
+func Line(t tasks.Item) string {
+	pad("#\(t.ID)", 5) + pad(tasks.PriorityName(t.Priority), 8) + pad(tasks.StateName(t.State), 8) + t.Title
+}
+
+// Lines is the text of a listing: a line per item, or "no tasks".
+func Lines(items []tasks.Item) string {
+	if len(items) == 0 {
+		return "no tasks\n"
+	}
+	let mut out = ""
+	for t in items {
+		out = out + Line(t) + "\n"
+	}
+	out
+}
+
+// JSON is the JSON object of t, on one line.
+func JSON(t tasks.Item) string {
+	"{\"id\":\(t.ID),\"title\":" + Quote(t.Title) + ",\"priority\":\"" + tasks.PriorityName(t.Priority) + "\",\"state\":\"" + tasks.StateName(t.State) + "\"}"
+}
+
+// JSONList is the JSON array of items, on one line.
+func JSONList(items []tasks.Item) string {
+	let mut parts = []string{}
+	for t in items {
+		parts = parts.Append(JSON(t))
+	}
+	"[" + strings.Join(parts, ",") + "]"
+}
+
+// Quote is s as a JSON string. Ergo has no std json (G-ex-c-7) and no
+// byte to string (G-ex-c-9), so each byte that JSON escapes is written by
+// hand and every other byte is copied as a slice of s.
+func Quote(s string) string {
+	let hex = "0123456789abcdef"
+	let mut out = "\""
+	for i in 0..len(s) {
+		let c = s[i]
+		if c == '"' {
+			out = out + "\\\""
+		} else if c == '\\' {
+			out = out + "\\\\"
+		} else if c < 32 {
+			out = out + "\\u00" + strings.Slice(hex, int(c)/16, int(c)/16+1) + strings.Slice(hex, int(c)%16, int(c)%16+1)
+		} else {
+			out = out + strings.Slice(s, i, i+1)
+		}
+	}
+	out + "\""
+}
+
+// pad is text with spaces after it to width, and one space at least.
+func pad(text string, width int) string {
+	if len(text) >= width {
+		return text + " "
+	}
+	text + strings.Repeat(" ", width-len(text))
+}

@@ -1,0 +1,52 @@
+// Package memory holds Board, the in-memory tasks.Board, and Disk, an
+// in-memory file system for the file Board's tests.
+
+import tasks/tasks
+
+// Board is a tasks.Board in memory: the items by ID. Its map is shared by
+// every copy, so a Board bound in a context keeps its items from one call
+// to the next. NewBoard makes one.
+type Board { items Map[int, tasks.Item] }
+
+// NewBoard is an empty Board.
+func NewBoard() Board {
+	let items Map[int, tasks.Item]
+	Board{items: items}
+}
+
+// Create adds an open item of title and p, with the next ID.
+func Create(b Board, title string, p tasks.Priority) tasks.Item fails tasks.Broken {
+	let t = tasks.Item{ID: len(b.items) + 1, Title: title, Priority: p, State: tasks.Open}
+	let mut items = b.items
+	items[t.ID] = t
+	t
+}
+
+// Close closes the open item id.
+func Close(b Board, id int) tasks.Item fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken {
+	match b.items.Get(id) {
+	case Some[tasks.Item] as found:
+		if !tasks.IsOpen(found.Value) {
+			return tasks.AlreadyClosed{ID: id}
+		}
+		let closed = tasks.Item{..found.Value, State: tasks.Closed}
+		let mut items = b.items
+		items[id] = closed
+		closed
+	case None:
+		tasks.NotFound{ID: id}
+	}
+}
+
+// All is every item, by ID.
+func All(b Board) []tasks.Item fails tasks.Broken {
+	let mut out = []tasks.Item{}
+	for id in 1..len(b.items)+1 {
+		match b.items.Get(id) {
+		case Some[tasks.Item] as t:
+			out = out.Append(t.Value)
+		case None:
+		}
+	}
+	out
+}
