@@ -1,0 +1,69 @@
+// The rules of the box as laws. Each law draws its box from a seed, so it
+// quantifies over every box Spawn can make.
+
+import rand
+
+// within maps any n into lo..hi, both included.
+func within(n int, lo int, hi int) int {
+	let span = hi - lo + 1
+	let m = n % span
+	lo + (if m < 0 { m + span } else { m })
+}
+
+// Sample is a box from a seed and any numbers: a side of 3 to 24, up to
+// 40 particles, a loss of 0 to 2. It never fails, because the numbers
+// are mapped into range first.
+func Sample(seed uint64, size int, n int, loss int) World {
+	let width = within(size, MinSide, 24)
+	let height = within(size/7, MinSide, 12)
+	let count = within(n, 0, 40)
+	with context { Random: rand.Seeded(seed) } {
+		Spawn(width, height, if count > width*height { width * height } else { count }, within(loss, 0, 2)) catch {
+		case BadSize, BadLoss, TooMany:
+			Blank()
+		}
+	}
+}
+
+// EnergyNeverRises: a step never adds energy. Walls may take some away.
+law EnergyNeverRises(seed uint64, size int, n int, loss int) {
+	let w = Sample(seed, size, n, loss)
+	let next, _ = Step(w)
+	Energy(next) <= Energy(w)
+}
+
+// ElasticKeepsEnergy: with no loss at the walls, a run of steps keeps the
+// energy exactly: a bounce turns a velocity and a meeting passes it on.
+law ElasticKeepsEnergy(seed uint64, size int, n int, steps int) {
+	let w = Sample(seed, size, n, 0)
+	let after, _ = Run(w, within(steps, 0, 50))
+	Energy(after) == Energy(w)
+}
+
+// StaysInTheBox: every particle is in a cell after every step.
+law StaysInTheBox(seed uint64, size int, n int, loss int, steps int) {
+	let mut w = Sample(seed, size, n, loss)
+	for _ in 0..within(steps, 0, 50) {
+		let next, _ = Step(w)
+		if !Inside(next) {
+			return false
+		}
+		w = next
+	}
+	true
+}
+
+// SeedReplays: one seed makes one run, step for step.
+law SeedReplays(seed uint64, size int, n int, loss int, steps int) {
+	let k = within(steps, 0, 50)
+	let a, ta = Run(Sample(seed, size, n, loss), k)
+	let b, tb = Run(Sample(seed, size, n, loss), k)
+	Same(a, b) && ta == tb
+}
+
+// StepCountsOne: a step adds one to the tick and keeps every particle.
+law StepCountsOne(seed uint64, size int, n int, loss int) {
+	let w = Sample(seed, size, n, loss)
+	let next, _ = Step(w)
+	next.Tick() == w.Tick()+1 && next.Count() == w.Count()
+}

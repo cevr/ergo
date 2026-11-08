@@ -1,0 +1,67 @@
++------------------------+
+|   oo    o              |
+|            o           |
+|                        |
+| o                      |
+|                        |
+|       oo        o  oo  |
+|             o          |
+|                      o |
++------------------------+
+frame 1 running: step 2, energy 41, bounces 4, meetings 0
++------------------------+
+|                        |
+|      o                 |
+|              o     o   |
+|     o oo               |
+|                   o    |
+|       o          oo    |
+|   o     o              |
+|                        |
++------------------------+
+frame 2 running: step 5, energy 41, bounces 13, meetings 0
++------------------------+
+|                        |
+|o          o    o   o   |
+|         2           o  |
+|        o               |
+|                        |
+|       o   o   o        |
+|          o             |
+|                        |
++------------------------+
+frame 3 running: step 8, energy 41, bounces 20, meetings 2
++------------------------+
+|                 o      |
+|    o         oo        |
+|         o   o          |
+|         o          o   |
+|                        |
+|       o     o          |
+|            o           |
+|        o               |
++------------------------+
+frame 4 running: step 10, energy 41, bounces 25, meetings 2
++------------------------+
+|                        |
+|        o o             |
+|                        |
+|           o   o        |
+|           o            |
+|       o  o          o  |
+|      o  o         oo   |
+|                        |
++------------------------+
+frame 5 running: step 13, energy 41, bounces 30, meetings 3
++------------------------+
+|         o        o  o  |
+|                o       |
+|                        |
+|                   o    |
+|                        |
+|   o   2o           o   |
+|     o                  |
+|        o               |
++------------------------+
+frame 6 running: step 16, energy 41, bounces 36, meetings 6
+6 frames, 16 steps, energy 41 to 41

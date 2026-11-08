@@ -1,0 +1,47 @@
+// Tape keeps the sim.Screen law, and Clock moves only when it sleeps.
+
+import particles/sim
+import particles/world
+
+test TapeKeepsFramesInOrder {
+	let t = NewTape()
+	let copy = t
+	t.Show(sim.Frame{N: 1, Phase: "running", G: sim.Fresh(world.Blank())})
+	copy.Show(sim.Frame{N: 2, Phase: "paused", G: sim.Fresh(world.Blank())})
+	let fs = t.Frames()
+	assert len(fs) == 2 && fs[0].N == 1 && fs[1].Phase == "paused"
+}
+
+// The law holds for a Tape in any state: k frames shown first.
+test ShowCountsOneHolds(n int, phase string, k int) {
+	let s sim.Screen = NewTape()
+	for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {
+		s.Show(sim.Frame{N: i, Phase: phase, G: sim.Fresh(world.Blank())})
+	}
+	let before = s.Shown()
+	s.Show(sim.Frame{N: n, Phase: phase, G: sim.Fresh(world.Blank())})
+	assert s.Shown() == before+1
+}
+
+test ClockIsLateEveryThirdSleep {
+	let c = NewClock(0)
+	let start = c.Now()
+	c.Sleep(40ms)
+	c.Sleep(40ms)
+	assert c.Now().Sub(start) == 80ms
+	c.Sleep(40ms)
+	assert c.Now().Sub(start) == 130ms
+	c.Sleep(40ms)
+	assert c.Now().Sub(start) == 170ms
+}
+
+test ClockNeverFalls(ms int) {
+	let c = NewClock(0)
+	// The clamp is a let of its own: int64(if …) gives int64 to the
+	// branches (gaps G-ex-b-1).
+	let clamped = if ms < 0 { -(ms % 1000) } else { ms % 1000 }
+	let d = duration(int64(clamped) * int64(1ms))
+	let before = c.Now()
+	c.Sleep(d)
+	assert !c.Now().Before(before) && c.Now().Sub(before) >= d
+}

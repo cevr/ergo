@@ -1,0 +1,58 @@
+// Package render draws the box as text: a frame of the box with one
+// character per cell, and a line of numbers under it. It is pure.
+
+import particles/sim
+import particles/world
+import strings
+
+// Cell is the character of a cell that holds n particles: a space for
+// none, o for one, the count for two to nine, and # for more.
+func Cell(n int) string {
+	match n {
+	case 0:
+		" "
+	case 1:
+		"o"
+	case _:
+		if n <= 9 { "\(n)" } else { "#" }
+	}
+}
+
+// Box is the lines that draw w: a border of + - |, and each cell's
+// character inside it, row by row.
+func Box(w world.World) []string {
+	let mut counts = Map[int, int]{}
+	for p in w.Particles() {
+		let cell = p.Y*w.Width() + p.X
+		let n = match counts.Get(cell) {
+		case Some[int] as c:
+			c.Value
+		case None:
+			0
+		}
+		counts[cell] = n + 1
+	}
+	let edge = "+" + strings.Repeat("-", w.Width()) + "+"
+	let mut out = []string{edge}
+	for y in 0..w.Height() {
+		let mut row = "|"
+		for x in 0..w.Width() {
+			let n = match counts.Get(y*w.Width() + x) {
+			case Some[int] as c:
+				c.Value
+			case None:
+				0
+			}
+			row = row + Cell(n)
+		}
+		out = out.Append(row + "|")
+	}
+	out.Append(edge)
+}
+
+// Status is the line under a frame: its number, the phase, the steps,
+// the energy and the events so far.
+func Status(f sim.Frame) string {
+	let g = f.G
+	"frame \(f.N) \(f.Phase): step \(g.Steps), energy \(world.Energy(g.W)), bounces \(g.T.Bounces), meetings \(g.T.Meetings)"
+}

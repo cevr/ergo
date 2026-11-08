@@ -1,0 +1,127 @@
+// Package world is the particle box: particles on a grid of cells that
+// move by whole cells each step, bounce off the four walls and trade
+// velocities when they meet. It is pure, except Spawn, which draws the
+// first particles from Random. Every number is an int, so a run is exact
+// and a seed replays it on every host.
+
+// Particle is one particle: its number, its cell and its velocity in
+// cells per step.
+type Particle { ID int, X int, Y int, VX int, VY int }
+
+// World is the box at one tick. Its fields are unexported, so only this
+// package builds one, through Spawn and Step: outside world, every World
+// keeps its particles inside the box.
+type World { width int, height int, loss int, tick int, ps []Particle }
+
+// The failures of a box that cannot be made.
+
+// BadSize is a box smaller than MinSide or larger than MaxSide on a side.
+type BadSize { Width int, Height int }
+
+// BadLoss is a negative loss: a wall would add speed.
+type BadLoss { Loss int }
+
+// TooMany is more particles than the box has cells.
+type TooMany { Count int, Cells int }
+
+// MinSide is the smallest side of a box: one more than MaxSpeed, so a
+// particle that bounces lands inside.
+let MinSide = MaxSpeed + 1
+
+// MaxSide is the largest side of a box.
+let MaxSide = 200
+
+// MaxSpeed is the largest speed of a spawned particle, per axis.
+let MaxSpeed = 2
+
+// Width is the number of columns of w.
+func Width(w World) int { w.width }
+
+// Height is the number of rows of w.
+func Height(w World) int { w.height }
+
+// Tick is the number of steps that made w.
+func Tick(w World) int { w.tick }
+
+// Loss is the speed a particle loses at each wall.
+func Loss(w World) int { w.loss }
+
+// Count is the number of particles of w.
+func Count(w World) int { len(w.ps) }
+
+// Particles is the particles of w by ID, in a new slice.
+func Particles(w World) []Particle {
+	let mut out = []Particle{}
+	for p in w.ps {
+		out = out.Append(p)
+	}
+	out
+}
+
+// Empty is a box with no particles.
+func Empty(width int, height int, loss int) World fails BadSize | BadLoss {
+	if width < MinSide || height < MinSide || width > MaxSide || height > MaxSide {
+		return BadSize{Width: width, Height: height}
+	}
+	if loss < 0 {
+		return BadLoss{Loss: loss}
+	}
+	World{width: width, height: height, loss: loss, tick: 0, ps: []Particle{}}
+}
+
+// Blank is the smallest box, with no particles: a value that needs no
+// numbers, for a machine's first state.
+func Blank() World {
+	World{width: MinSide, height: MinSide, loss: 0, tick: 0, ps: []Particle{}}
+}
+
+// Spawn is a box of n particles, each in a cell and with a velocity that
+// Random draws, in ID order: x, y, vx, vy. Two particles may share a cell.
+func Spawn(width int, height int, n int, loss int) World fails BadSize | BadLoss | TooMany needs Random {
+	let empty = try Empty(width, height, loss)
+	if n < 0 || n > width*height {
+		return TooMany{Count: n, Cells: width * height}
+	}
+	let mut ps = []Particle{}
+	for id in 0..n {
+		let x = Random.IntN(width)
+		let y = Random.IntN(height)
+		let vx = Random.IntN(2*MaxSpeed+1) - MaxSpeed
+		let vy = Random.IntN(2*MaxSpeed+1) - MaxSpeed
+		ps = ps.Append(Particle{ID: id, X: x, Y: y, VX: vx, VY: vy})
+	}
+	World{..empty, ps: ps}
+}
+
+// Energy is twice the kinetic energy of w, with every mass 1: the sum of
+// vx² + vy². It is an int, so a law compares it exactly.
+func Energy(w World) int {
+	let mut e = 0
+	for p in w.ps {
+		e = e + p.VX*p.VX + p.VY*p.VY
+	}
+	e
+}
+
+// Inside reports whether every particle of w is in a cell of the box.
+func Inside(w World) bool {
+	for p in w.ps {
+		if p.X < 0 || p.X >= w.width || p.Y < 0 || p.Y >= w.height {
+			return false
+		}
+	}
+	true
+}
+
+// Same reports whether a and b are the same box with the same particles.
+func Same(a World, b World) bool {
+	if a.width != b.width || a.height != b.height || a.loss != b.loss || a.tick != b.tick || len(a.ps) != len(b.ps) {
+		return false
+	}
+	for i, p in a.ps {
+		if p != b.ps[i] {
+			return false
+		}
+	}
+	true
+}

@@ -1,0 +1,113 @@
+// Package sim runs the box as a game: a machine of two phases that the
+// player drives, and a fixed-step loop that advances the box by whole
+// steps of game time, whatever time each frame takes. The machine is
+// pure; the loop needs a Scheduler, a time.Clock and a Screen.
+
+import particles/world
+
+// Game is the box and what happened to it since it was loaded: the steps
+// and the count of their events.
+type Game { W world.World, Steps int, T world.Tally }
+
+// Phase is what the game is doing: running steps the box on each tick,
+// paused keeps it as it is.
+type Phase = Running{G Game} | Paused{G Game}
+
+// Input is what drives the machine: a tick of game time, a key of the
+// player, or a box to load.
+type Input = Tick{} | Pause{} | Resume{} | Quit{} | Load{W world.World}
+
+// Fresh is the game of a box just loaded.
+func Fresh(w world.World) Game { Game{W: w, Steps: 0, T: world.Tally{Bounces: 0, Meetings: 0}} }
+
+// Start is the first phase: paused on a blank box, until a Load.
+func Start() Phase { Paused{G: Fresh(world.Blank())} }
+
+// GameOf is the game that p holds.
+func GameOf(p Phase) Game {
+	match p {
+	case Running as r:
+		r.G
+	case Paused as s:
+		s.G
+	}
+}
+
+// Name is the word for p that the screen shows.
+func Name(p Phase) string {
+	match p {
+	case Running:
+		"running"
+	case Paused:
+		"paused"
+	}
+}
+
+// Advance is g one step later.
+func Advance(g Game) Game {
+	let next, events = world.Step(g.W)
+	Game{W: next, Steps: g.Steps + 1, T: g.T.Add(events)}
+}
+
+// Step is the machine's transition. A tick steps a running box and
+// stays; a paused box ignores it. Pause and Resume enter the other phase,
+// and are ignored in their own. Quit is Done with the game, in either
+// phase. Load enters Running with a fresh game of the new box.
+func Step(p Phase, i Input) Decision[Phase, Game] {
+	match (p, i) {
+	case (Running as r, Tick):
+		Stay[Phase]{Next: Running{G: Advance(r.G)}}
+	case (Paused, Tick):
+		Ignore
+	case (Running as r, Pause):
+		Enter[Phase]{Next: Paused{G: r.G}}
+	case (Paused, Pause):
+		Ignore
+	case (Paused as s, Resume):
+		Enter[Phase]{Next: Running{G: s.G}}
+	case (Running, Resume):
+		Ignore
+	case (_, Quit):
+		Done[Game]{Output: GameOf(p)}
+	case (_, Load as l):
+		Enter[Phase]{Next: Running{G: Fresh(l.W)}}
+	}
+}
+
+// Sim is the game as a machine.
+type Sim machine[Phase, Input] {
+	initial: Start(),
+	step:    Step,
+}
+
+// Next is the phase after the decision d in p: Enter and Stay take
+// their Next; Ignore, Reject and Done keep p.
+func Next(p Phase, d Decision[Phase, Game]) Phase {
+	match d {
+	case Enter[Phase] as e:
+		e.Next
+	case Stay[Phase] as s:
+		s.Next
+	case Ignore:
+		p
+	case Reject:
+		p
+	case Done[Game]:
+		p
+	}
+}
+
+// Key is the input of a key the player types: p, r and q, or None for
+// any other key.
+func Key(k string) Option[Input] {
+	match k {
+	case "p":
+		Some[Input]{Value: Pause}
+	case "r":
+		Some[Input]{Value: Resume}
+	case "q":
+		Some[Input]{Value: Quit}
+	case _:
+		None
+	}
+}

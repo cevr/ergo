@@ -1,0 +1,124 @@
+// The box's tests: worked steps, and the laws restated as property tests.
+// The compiler checks laws and does not run them yet (#162); until it
+// does, these tests run them.
+
+import rand
+
+// one is a box of the particles ps, with no loss.
+func one(width int, height int, ps []Particle) World {
+	World{width: width, height: height, loss: 0, tick: 0, ps: ps}
+}
+
+test MoveByVelocity {
+	let next, events = Step(one(5, 5, []Particle{Particle{ID: 0, X: 1, Y: 1, VX: 2, VY: 1}}))
+	let p = next.Particles()[0]
+	assert p.X == 3 && p.Y == 2 && len(events) == 0 && next.Tick() == 1
+}
+
+test BounceOffTheEastWall {
+	let next, events = Step(one(5, 3, []Particle{Particle{ID: 7, X: 4, Y: 1, VX: 2, VY: 0}}))
+	let p = next.Particles()[0]
+	assert p.X == 2 && p.VX == -2
+	assert len(events) == 1
+	match events[0] {
+	case Bounced as b:
+		assert b.ID == 7 && WallName(b.Side) == "east"
+	case Met:
+		assert false
+	}
+}
+
+test BounceInTheCorner {
+	let _, events = Step(one(3, 3, []Particle{Particle{ID: 1, X: 0, Y: 0, VX: -1, VY: -2}}))
+	assert len(events) == 2
+}
+
+test LossSlowsAtTheWall {
+	let w = World{width: 4, height: 4, loss: 1, tick: 0, ps: []Particle{Particle{ID: 0, X: 0, Y: 2, VX: -2, VY: 0}}}
+	let next, _ = Step(w)
+	assert next.Particles()[0].VX == 1 && Energy(next) == 1
+}
+
+test MeetingPassesVelocities {
+	let w = one(6, 3, []Particle{Particle{ID: 0, X: 1, Y: 1, VX: 1, VY: 0}, Particle{ID: 1, X: 3, Y: 1, VX: -1, VY: 0}})
+	let next, events = Step(w)
+	let ps = next.Particles()
+	assert ps[0].X == 2 && ps[1].X == 2
+	assert ps[0].VX == -1 && ps[1].VX == 1
+	assert len(events) == 1 && Energy(next) == Energy(w)
+}
+
+test ThreeInACellRotate {
+	let w = one(5, 5, []Particle{Particle{ID: 0, X: 2, Y: 1, VX: 0, VY: 1}, Particle{ID: 1, X: 1, Y: 2, VX: 1, VY: 0}, Particle{ID: 2, X: 3, Y: 2, VX: -1, VY: 0}})
+	let next, events = Step(w)
+	let ps = next.Particles()
+	assert ps[0].VX == -1 && ps[1].VY == 1 && ps[2].VX == 1
+	match events[0] {
+	case Met as m:
+		assert len(m.IDs) == 3 && m.X == 2 && m.Y == 2
+	case Bounced:
+		assert false
+	}
+}
+
+// refusal is the failure of Spawn(width, height, n, loss), told, or
+// "made" when it makes a box.
+func refusal(width int, height int, n int, loss int) string {
+	let _ = with context { Random: rand.Seeded(1) } { Spawn(width, height, n, loss) } catch {
+	case BadSize as b:
+		return "size \(b.Width)x\(b.Height)"
+	case BadLoss as b:
+		return "loss \(b.Loss)"
+	case TooMany as t:
+		return "\(t.Count) in \(t.Cells)"
+	}
+	"made"
+}
+
+test SpawnRefusesBadBoxes {
+	assert refusal(2, 9, 1, 0) == "size 2x9"
+	assert refusal(9, 201, 1, 0) == "size 9x201"
+	assert refusal(5, 5, 1, -1) == "loss -1"
+	assert refusal(3, 3, 10, 0) == "10 in 9"
+	assert refusal(3, 3, 9, 0) == "made"
+}
+
+test EnergyNeverRisesHolds(seed uint64, size int, n int, loss int) {
+	let w = Sample(seed, size, n, loss)
+	let next, _ = Step(w)
+	assert Energy(next) <= Energy(w)
+}
+
+test ElasticKeepsEnergyHolds(seed uint64, size int, n int, steps int) {
+	let w = Sample(seed, size, n, 0)
+	let after, _ = Run(w, within(steps, 0, 50))
+	assert Energy(after) == Energy(w)
+}
+
+test StaysInTheBoxHolds(seed uint64, size int, n int, loss int, steps int) {
+	let mut w = Sample(seed, size, n, loss)
+	for _ in 0..within(steps, 0, 50) {
+		let next, _ = Step(w)
+		assert Inside(next)
+		w = next
+	}
+}
+
+test SeedReplaysHolds(seed uint64, size int, n int, loss int, steps int) {
+	let k = within(steps, 0, 50)
+	let a, ta = Run(Sample(seed, size, n, loss), k)
+	let b, tb = Run(Sample(seed, size, n, loss), k)
+	assert Same(a, b) && ta == tb
+}
+
+test StepCountsOneHolds(seed uint64, size int, n int, loss int) {
+	let w = Sample(seed, size, n, loss)
+	let next, _ = Step(w)
+	assert next.Tick() == w.Tick()+1 && next.Count() == w.Count()
+}
+
+// Every box Sample makes has particles to move, for most seeds: the laws
+// above are not vacuous.
+test SamplesAreNotEmpty(seed uint64) {
+	assert Sample(seed, 20, 30, 0).Count() == 30
+}
