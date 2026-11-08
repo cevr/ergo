@@ -450,22 +450,22 @@ func (c *checker) shift(x *syntax.BinaryExpr, hint Type) operand {
 }
 
 // conversion checks T(x) (Go's conversion rules over the language's
-// types). A literal operand takes no expected type (D-A3): it is typed on
-// its own and then converted, so float64(1 << n) converts an int shift.
+// types). The operand takes no expected type (D-A3, types.md Operators
+// 3): it is typed on its own and then converted, so float64(1 << n)
+// converts an int shift and int64(if c { -n } else { n }) converts the int
+// the if gives, as let v = e; int64(v) does.
 func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 	if len(x.Args) != 1 || x.Trailing != nil {
 		c.errorf(x, CodeType, "a conversion to %s takes one value", t)
 		return bad(x)
 	}
-	hint := t
 	if c.isLiteral(x.Args[0]) {
-		hint = nil
 		if msg := convertedLiteralOverflow(x.Args[0], t); msg != "" {
 			c.errorf(x.Args[0], CodeType, "%s", msg)
 			return bad(x)
 		}
 	}
-	op := c.valueExpr(x.Args[0], hint)
+	op := c.valueExpr(x.Args[0], nil)
 	if op.invalid() || containsInvalid(t) || containsInvalid(op.typ) {
 		// Already reported where the invalid part came from: a refused
 		// definition adds nothing at its conversions (D3).
