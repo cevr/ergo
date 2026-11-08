@@ -114,8 +114,12 @@ type entryIdentity struct {
 
 // checkoutEntries lists every path of the checkout below root, files Git
 // ignores included, with its identity (os.Lstat: links are not followed).
-// A directory's modification time changes when an entry is added to it or
-// removed, so a file made and removed during a sweep shows too. Of a .git
+// A path added or removed shows as its own entry. A directory's
+// modification time also moves when an entry is added to it or removed, so
+// a file made and removed during a sweep shows too, but only when the
+// kernel's file clock (coarse, a few milliseconds) ticked between the two
+// lists; a rewrite of a file to the same size within one tick does not
+// show either. Of a .git
 // directory (a clone's, such as the merge tier's export) it keeps the
 // directory and the files directly in it, where a step's git writes the
 // index and its lock, and not its subdirectories: a commit in a linked

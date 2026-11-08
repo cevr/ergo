@@ -198,7 +198,10 @@ func TestCheckoutEntriesSeeEveryChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed := changedEntries(before, after)
-	for _, want := range []string{".", ".git", ".git/index.lock", "bin", "bin/x", "gone.txt", "keep.txt", "mode.sh"} {
+	// Not "." or ".git": a directory's time moves only when the clock
+	// ticked between the lists (head-all run of round 4: the kernel's
+	// coarse clock gave both lists one time); its new entries show.
+	for _, want := range []string{".git/index.lock", "bin", "bin/x", "gone.txt", "keep.txt", "mode.sh"} {
 		if !slices.Contains(changed, want) {
 			t.Errorf("changed %v lacks %s", changed, want)
 		}
