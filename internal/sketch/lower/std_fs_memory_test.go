@@ -454,7 +454,8 @@ func fsLawLine(r *rand.Rand, path, text, fileMode func() string) string {
 
 // runFSProgram runs the built fsMemoryProgram in dir with the provider
 // name and the operation lines on its standard input, in a process group
-// of its own that is killed when it ends or after a minute.
+// of its own that is killed when it ends or after a minute, under the test
+// kit's memory limit (runProgram, internal/proclimit).
 func runFSProgram(t *testing.T, exe, dir, provider string, ops []string) []string {
 	t.Helper()
 	probeRan(exe)
@@ -467,7 +468,7 @@ func runFSProgram(t *testing.T, exe, dir, provider string, ops []string) []strin
 	cmd.Stdin = strings.NewReader(provider + "\n" + strings.Join(ops, "\n") + "\n")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runProgram(t, cmd) // under the test kit's memory limit (proclimit)
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}

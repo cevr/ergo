@@ -120,7 +120,7 @@ func TestTimeCivilMatchesGo(t *testing.T) {
 	cmd.Stdin = strings.NewReader(strings.Join(cases, "\n") + "\n")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runProgram(t, cmd) // under the test kit's memory limit (proclimit)
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}

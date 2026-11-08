@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/proclimit"
 )
 
 // machine-run (V2; runtime.md, Machines and actors 2 and 8): std machines
@@ -30,9 +31,9 @@ type runCell struct {
 	delta  int    // added to the next state's n (enter, stay)
 }
 
-// runProgram is a generated machine, its signal lists and the lines its
+// machineProgram is a generated machine, its signal lists and the lines its
 // program must print, which the reference fold below computes.
-type runProgram struct {
+type machineProgram struct {
 	name, src string
 	want      []string
 }
@@ -189,7 +190,7 @@ func foldTimed(table [][]runCell, timers []runTimer, s runState, trace []timedSi
 // generated signal list, the run over the list, the run over its first
 // half and then, when that is Running, from its state over the second
 // half, and the timed run of the list at generated times.
-func genRunProgram(r *rand.Rand, k int, seen map[string]bool) runProgram {
+func genRunProgram(r *rand.Rand, k int, seen map[string]bool) machineProgram {
 	ns, ne := r.Intn(3)+1, r.Intn(3)+1
 	table := make([][]runCell, ns)
 	for i := range table {
@@ -441,7 +442,7 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("}\n")
-	return runProgram{name: fmt.Sprintf("machinerun_%02d", k), src: b.String(), want: want}
+	return machineProgram{name: fmt.Sprintf("machinerun_%02d", k), src: b.String(), want: want}
 }
 
 // TestMachineRunAgreesWithFold is the acceptance property: over generated
@@ -471,7 +472,7 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 		seed = n
 	}
 	r := rand.New(rand.NewSource(seed))
-	var progs []runProgram
+	var progs []machineProgram
 	var builds []*lowered
 	kinds, seen := map[string]bool{}, map[string]bool{}
 	// The generated runs must reach every way a run ends, an Emit's
@@ -515,7 +516,7 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 		return
 	}
 	for _, p := range progs {
-		stdout, stderr, code, ended := runBounded(t, exes[p.name])
+		stdout, stderr, code, ended := runMachineBounded(t, exes[p.name])
 		if !ended {
 			t.Fatalf("seed %d, %s: still running after %s, stopped: a run that never ends (a timer cascade?)\nsource:\n%s", seed, p.name, programBound, p.src)
 		}
@@ -525,30 +526,37 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	}
 }
 
-// programBound is how long runBounded lets a generated program run. Each
+// programBound is how long runMachineBounded lets a generated program run. Each
 // one ends in milliseconds; the bound is a guard, not a timing claim.
 const programBound = 30 * time.Second
 
-// runBounded runs a generated program in a process group of its own and
+// runMachineBounded runs a generated program in a process group of its own and
 // stops the group after programBound, reporting whether the program ended
 // by itself. A wrong runner (a mutant whose timer never moves the clock)
 // loops forever and may grow without limit: on 2026-11-08 one such
 // program, orphaned when go test's timeout ended the test, took 46.7 GB.
-func runBounded(t *testing.T, exe string) (stdout, stderr string, code int, ended bool) {
+// Its memory is bounded as every program a test starts is
+// (internal/proclimit: the test kit's limit and the highest
+// oom_score_adj); the process group stays, so the stop reaches the whole
+// tree the program started.
+func runMachineBounded(t *testing.T, exe string) (stdout, stderr string, code int, ended bool) {
 	t.Helper()
 	probeRan(exe)
+	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command(exe)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
-	if err := cmd.Start(); err != nil {
+	if err := proclimit.Start(cmd, limit); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	stopGroup := func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	t.Cleanup(stopGroup) // a Fatal elsewhere never leaves the group behind
-	var err error
 	select {
 	case err = <-done:
 		ended = true
@@ -556,6 +564,10 @@ func runBounded(t *testing.T, exe string) (stdout, stderr string, code int, ende
 		stopGroup()
 		<-done
 		return out.String(), errOut.String(), -1, false
+	}
+	var limited *proclimit.LimitError
+	if errors.As(proclimit.Check(exe, limit, err, errOut.Bytes()), &limited) {
+		t.Fatal(limited)
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
