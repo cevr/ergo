@@ -157,7 +157,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `fs` | `Files.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }` | `TestStdHostLawsHold` | tested |
 | `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestStdHostLawsHold` | tested |
 | `io` | `LinesSplitInput` | `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }` | `TestIOLaws` | tested |
-| `io` | `PrintsConcatenate` | `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Print(b) r.Text() == a+b }` | `TestIOLaws` | tested |
+| `io` | `PrintsConcatenate` | `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Eprint(b) r.Print(b) r.Text() == a+b+b }` | `TestIOLaws` | tested |
 | `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |
 | `log` | `InnerAnnotationShadows` | `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
 | `os` | `Process.GetenvIsStable` | `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }` | `TestStdHostLawsHold` | tested |
@@ -358,7 +358,7 @@ Std `io` is the host process's standard streams (std-align S1b; wave std-1 G3 an
 import io
 
 func echo() needs io.Stdout | io.Stderr | io.Stdin {
-	io.Stderr.Println("reading")
+	io.Stderr.Eprintln("reading")
 	for line in io.Stdin.Lines() {
 		io.Stdout.Println(line)
 	}
@@ -372,23 +372,23 @@ func main() needs Ambient {
 | Declaration | Meaning |
 | --- | --- |
 | `type Stdout { Print(text string), Println(line string), IsTerminal() bool }` | Standard output. |
-| `type Stderr { Print(text string), Println(line string) }` | Standard error. |
+| `type Stderr { Eprint(text string), Eprintln(line string) }` | Standard error. |
 | `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string] }` | Standard input. |
 | `type ReadFailed { Reason string }` | The failure of a read. |
 | `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` and `Stdin` provider. |
 | `type Errors { live hostOnly }`; `func NewErrors() Errors needs Ambient` | The host's `Stderr` provider. |
-| `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written. |
+| `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `Eprint`, `Eprintln`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written to both, in order. |
 | `type Input { Text string }`; `ReadAll`, `Lines` | A `Stdin` provider for tests. |
 | `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)` | The laws of the recording providers ([Std laws](#std-laws)). |
 
-1. `Print` writes its text as it is; `Println` writes the line and a line feed in one write. Each write is one unbuffered `WriteString`, as `Console.Println` is, so writes of `Console` and of `io.Stdout` appear in program order.
-2. `Lines` gives each line without its line feed. A last line with no line feed is a line, an empty input has no lines, and a carriage return stays in its line, so the lines joined by line feeds, plus the final line feed if any, are the input (`LinesSplitInput`). A line has no length limit. A `Seq` has no failure row, so a read failure inside `Lines` is a defect; `ReadAll` returns it as `ReadFailed`. A `break` stops the read; the rest of the input stays unread.
+1. `Print` and `Eprint` write their text as it is; `Println` and `Eprintln` write the line and a line feed in one write. Each write is one unbuffered `WriteString`, as `Console.Println` is, so writes of `Console` and of `io.Stdout` appear in program order.
+2. `Lines` gives each line without its line feed. A last line with no line feed is a line, an empty input has no lines, and a carriage return stays in its line, so the lines joined by line feeds, plus the final line feed if any, are the input (`LinesSplitInput`). A line has no length limit. A `Seq` has no failure row, so a read failure inside `Lines` is a defect; `ReadAll` returns it as `ReadFailed`. A `break` stops the read; the rest of the input stays unread. Every `Stdin` operation of `Host` reads through one buffered reader of the process, so the next `Lines` or `ReadAll` starts at the line after the break (`TestIOStdinRest`, `TestIOStdinShared`).
 3. A read of standard input waits for the host and cannot be stopped: it is an uninterruptible host wait, as a read of a file is. Each body has one `runtimeBindings` row that neither waits nor releases.
 4. `IsTerminal` reports whether standard output is a character device (Go's `os.ModeCharDevice`).
 5. The Go bodies are `v1.IOPrint`, `v1.IOEprint`, `v1.IOIsTerminal`, `v1.IOReadAll` and `v1.IOLines` (host.go). `ReadFailed` is the `runtime/v1` struct `v1.ReadFailed` (Types 4); its name is not `Failed` because `v1.Failed` is `fs.Failed`.
 6. The capabilities are open: a program implements them, and a test binds `io.NewRecorder()` or `io.Input{Text: …}` in the same place as `main` binds the host. `Stdout`, `Stderr` and `Stdin` are exempt from the law rule, each with its reason: the first two have no read, and a read of the host's input takes what it reads.
 7. A `Recorder` keeps its writes in a `Map` that every copy shares. It is for the writes of one task at a time.
-8. A program binds `Errors` to `io.Stderr`. `Host` has `Print` and `Println` too, so `io.Stderr: io.NewHost()` checks and writes standard output; the type cannot tell the two streams apart (known gap).
+8. `Stderr`'s operations are `Eprint` and `Eprintln`, names that `Stdout` does not have, so a `Stdout` provider is not a `Stderr` provider and the reverse: `io.Stderr: io.NewHost()` and `io.Stdout: io.NewErrors()` are check errors at the binding (`TestIOStreamsAreDistinct`). A program binds `Errors` to `io.Stderr`. The names follow Rust's `eprint!` and `eprintln!` and Gleam's `print_error`.
 9. A std package may import another std package: `io` imports `strings`. The std importer checks each package once, and the std has no import cycle (`TestStdImportsAreAcyclic`).
 
 *Prior art:* Effect's `Stdio` gives `stdout` and `stderr` sinks and a `stdin` stream in one service, and `Terminal` gives `readLine` and `display`; Go writes `os.Stdout` directly and reads lines with `bufio.Scanner`, which has a 64 KiB line limit; Gleam's `gleam/io` has `print`, `println` and `print_error`, and `stdin` reading is a separate package; Elixir's `IO.puts(:stderr, …)` and `IO.stream(:stdio, :line)` keep the line feed; Roc's basic-cli gives `Stdout`, `Stderr` and `Stdin` as platform effects. Ergo takes Roc's three capabilities and Effect's guarantee that a test replaces each one.

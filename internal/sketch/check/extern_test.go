@@ -411,10 +411,10 @@ func main() {
 
 type Mine {}
 
-func Print(_ Mine, text string) {}
-func Println(_ Mine, line string) {}
+func Eprint(_ Mine, text string) {}
+func Eprintln(_ Mine, line string) {}
 
-func use(e io.Stderr) { e.Println("x") }
+func use(e io.Stderr) { e.Eprintln("x") }
 
 func main() {
 	use(Mine)
