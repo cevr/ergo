@@ -1,0 +1,58 @@
+import slices
+
+// Source is the contract of a site's files: the operation type a program
+// supplies in its context. Package files reads one from a folder; package
+// memory holds fixed ones for tests.
+type Source {
+	// Pages is the path of each page under the content folder, sorted.
+	Pages() []string,
+	// ReadPage is the whole text of the page at path.
+	ReadPage(path string) string fails Unreadable,
+	// TemplateNames is the name of each template, sorted.
+	TemplateNames() []string,
+	// ReadTemplate is the whole text of the template name.
+	ReadTemplate(name string) string fails Unreadable,
+
+	// The pages come sorted, so a build visits them in one order on every
+	// host, whatever order its directory listing has.
+	law PagesAreSorted() { Sorted(Pages()) && Sorted(TemplateNames()) },
+
+	// Every listed page reads.
+	law ListedPagesRead() {
+		for p in Pages() {
+			let _ = ReadPage(p) catch {
+			case Unreadable:
+				return false
+			}
+		}
+		true
+	},
+
+	// With no writer, two reads of one page agree.
+	law PageIsRepeatable(path string) {
+		let first = ReadPage(path) catch {
+		case Unreadable:
+			return true
+		}
+		let second = ReadPage(path) catch {
+		case Unreadable:
+			return false
+		}
+		first == second
+	},
+}
+
+// Unreadable is a file that the source lists and cannot read. Reason is
+// the source's text for it.
+type Unreadable { Path string, Reason string }
+
+// Sorted reports whether names are in ascending order with no two equal:
+// the PagesAreSorted law, as a function a provider's test calls.
+func Sorted(names []string) bool {
+	for i in 1..len(names) {
+		if names[i-1] >= names[i] {
+			return false
+		}
+	}
+	slices.Equal(names, slices.Sort(names))
+}

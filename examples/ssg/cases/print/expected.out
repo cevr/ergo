@@ -1,0 +1,37 @@
+== about.html
+<!doctype html>
+<title>About</title>
+<nav><a href="/about.html">About</a> <a href="/index.html">Notes from the workbench</a> <a href="/posts/first.html">A first post</a> </nav>
+
+<main>
+<h1>About</h1>
+<p>I write &lt;small&gt; programs &amp; keep notes.</p>
+</main>
+
+== index.html
+<!doctype html>
+<title>Notes from the workbench</title>
+<nav><a href="/about.html">About</a> <a href="/index.html">Notes from the workbench</a> <a href="/posts/first.html">A first post</a> </nav>
+
+<main>
+<p>Things I built, and what broke.</p>
+<ul>
+<li><a href="/about.html">About</a></li>
+<li><a href="/index.html">Notes from the workbench</a></li>
+<li><a href="/posts/first.html">A first post</a></li>
+</ul>
+</main>
+
+== posts/first.html
+<!doctype html>
+<title>A first post</title>
+<nav><a href="/about.html">About</a> <a href="/index.html">Notes from the workbench</a> <a href="/posts/first.html">A first post</a> </nav>
+
+<main>
+<h1>A first post</h1>
+<p>The generator reads front matter, then renders the body.</p>
+<h2>What it does</h2>
+<ul><li>walks the content folder</li><li>renders each page through its layout</li><li>escapes every variable</li></ul>
+</main>
+<footer>tags: ergo</footer>
+

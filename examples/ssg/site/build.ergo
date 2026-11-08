@@ -1,0 +1,88 @@
+import strings
+
+// Output is one file the build writes: its path under the output folder
+// and its text.
+type Output { Path string, Text string }
+
+// Build renders every page of the Source in its context through its
+// layout: the template that its front matter names as layout, or "page".
+// A page whose front matter says draft: true is left out. Each page sees
+// title, url, body (its markup, which {{ raw body }} prints), meta (its
+// front matter, a record) and pages (every page as a record of title and
+// url, in path order).
+func Build() []Output fails Unreadable | BadFrontMatter | Unclosed | Stray | BadTag | Unbound | NotAList | NotText | MissingTemplate | IncludeCycle needs Source {
+	let lib = try library()
+	let mut pages = []Page{}
+	// draft is bound first: a literal in an if header loses its parentheses in Go (G-ex-c-2).
+	let draft = Some[string]{Value: "true"}
+	for path in Source.Pages() {
+		let p = try ParsePage(path, try Source.ReadPage(path))
+		if p.Meta.Get("draft") != draft {
+			pages = pages.Append(p)
+		}
+	}
+	let mut index = []Value{}
+	for p in pages {
+		index = index.Append(Record{Fields: Map[string, Value]{"title": Text{S: TitleOf(p)}, "url": Text{S: URLOf(p.Path)}}})
+	}
+	let mut out = []Output{}
+	for p in pages {
+		let layout = match p.Meta.Get("layout") {
+		case Some[string] as l:
+			l.Value
+		case None:
+			"page"
+		}
+		let t = match lib.Templates.Get(layout) {
+		case Some[Template] as found:
+			found.Value
+		case None:
+			return MissingTemplate{Template: p.Path, Line: 0, Name: layout}
+		}
+		let text = try Render(lib, t, Top{Vars: varsOf(p, index)})
+		out = out.Append(Output{Path: URLOf(p.Path), Text: text})
+	}
+	out
+}
+
+// library parses every template of the Source.
+func library() Library fails Unreadable | Unclosed | Stray | BadTag needs Source {
+	let mut ts = Map[string, Template]{}
+	for name in Source.TemplateNames() {
+		ts[name] = try Parse(name, try Source.ReadTemplate(name))
+	}
+	Library{Templates: ts}
+}
+
+// varsOf is the variables of page p, with index as pages.
+func varsOf(p Page, index []Value) Map[string, Value] {
+	let mut meta = Map[string, Value]{}
+	for k, v in p.Meta {
+		meta[k] = Text{S: v}
+	}
+	Map[string, Value]{
+		"title": Text{S: TitleOf(p)},
+		"url":   Text{S: URLOf(p.Path)},
+		"body":  Text{S: Markup(p.Body)},
+		"meta":  Record{Fields: meta},
+		"pages": List{Items: index},
+	}
+}
+
+// TitleOf is the title in p's front matter, or its path.
+func TitleOf(p Page) string {
+	match p.Meta.Get("title") {
+	case Some[string] as t:
+		t.Value
+	case None:
+		p.Path
+	}
+}
+
+// URLOf is the output path of the page at path: its .md is .html.
+func URLOf(path string) string {
+	if strings.HasSuffix(path, ".md") {
+		return strings.TrimSuffix(path, ".md") + ".html"
+	}
+	path + ".html"
+}

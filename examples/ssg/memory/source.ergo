@@ -1,0 +1,40 @@
+// Package memory holds the in-memory providers: Source, the site's files
+// held in memory, and Disk, a file system for tests.
+
+import slices
+import ssg/site
+
+// Source is a site.Source held in memory: Content holds each page by its
+// path, and Layouts each template by its name. Package files reads one
+// from a folder; a test writes one.
+type Source { Content Map[string, string], Layouts Map[string, string] }
+
+// Pages is the path of each page, sorted.
+func Pages(s Source) []string { keys(s.Content) }
+
+// ReadPage is the text of the page at path.
+func ReadPage(s Source, path string) string fails site.Unreadable { try read(s.Content, path) }
+
+// TemplateNames is the name of each template, sorted.
+func TemplateNames(s Source) []string { keys(s.Layouts) }
+
+// ReadTemplate is the text of the template name.
+func ReadTemplate(s Source, name string) string fails site.Unreadable { try read(s.Layouts, name) }
+
+func read(m Map[string, string], key string) string fails site.Unreadable {
+	match m.Get(key) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		site.Unreadable{Path: key, Reason: "no such file"}
+	}
+}
+
+// keys is the keys of m, sorted: a for over a Map has no order.
+func keys(m Map[string, string]) []string {
+	let mut out = []string{}
+	for k, _ in m {
+		out = out.Append(k)
+	}
+	slices.Sort(out)
+}

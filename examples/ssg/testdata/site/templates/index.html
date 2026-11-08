@@ -1,0 +1,6 @@
+{{ include head }}<main>
+{{ raw body }}
+<ul>
+{{ for p in pages }}<li><a href="/{{ p.url }}">{{ p.title }}</a></li>
+{{ end }}</ul>
+</main>

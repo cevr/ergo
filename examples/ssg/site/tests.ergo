@@ -1,0 +1,206 @@
+// The domain's tests: examples of each form and failure, a whole build
+// over a fixed Source, and the laws restated as property tests. The
+// compiler checks laws and does not run them yet (#162); until it does,
+// these tests run them.
+
+import slices
+import strings
+
+// render is source rendered over the vars, with the templates lib.
+func render(lib Map[string, string], source string, vars Map[string, Value]) string fails Unclosed | Stray | BadTag | Unbound | NotAList | NotText | MissingTemplate | IncludeCycle {
+	let mut ts = Map[string, Template]{}
+	for name, text in lib {
+		ts[name] = try Parse(name, text)
+	}
+	try Render(Library{Templates: ts}, try Parse("main", source), Top{Vars: vars})
+}
+
+let noLib = Map[string, string]{}
+
+test VariablesAndLoops {
+	let vars = Map[string, Value]{
+		"title": Text{S: "Tom & Jerry"},
+		"tags":  List{Items: []Value{Text{S: "a"}, Text{S: "<b>"}}},
+		"page":  Record{Fields: Map[string, Value]{"url": Text{S: "x.html"}}},
+	}
+	let out = try render(noLib, "<h1>{{ title }}</h1>{{ for t in tags }}<i>{{ t }}</i>{{ end }}<a href=\"{{ page.url }}\">", vars)
+	assert out == "<h1>Tom &amp; Jerry</h1><i>a</i><i>&lt;b&gt;</i><a href=\"x.html\">"
+}
+
+test IfShowsItsBodyForText {
+	let vars = Map[string, Value]{"a": Text{S: "yes"}, "b": Text{S: ""}, "c": List{Items: []Value{}}}
+	assert try render(noLib, "{{ if a }}A{{ end }}{{ if b }}B{{ end }}{{ if c }}C{{ end }}{{ if missing.x }}M{{ end }}", vars) == "A"
+}
+
+test LoopVariableHidesAndEnds {
+	let vars = Map[string, Value]{"x": Text{S: "out"}, "xs": List{Items: []Value{Text{S: "in"}}}}
+	assert try render(noLib, "{{ x }}{{ for x in xs }}{{ x }}{{ end }}{{ x }}", vars) == "outinout"
+}
+
+test IncludesNest {
+	let lib = Map[string, string]{"head": "<head>{{ include title }}</head>", "title": "<title>{{ t }}</title>"}
+	assert try render(lib, "{{ include head }}", Map[string, Value]{"t": Text{S: "T"}}) == "<head><title>T</title></head>"
+}
+
+// failure is the failure of render, as its name and the line it names,
+// or "ok".
+func failure(lib Map[string, string], source string) string {
+	let vars = Map[string, Value]{"t": Text{S: "T"}, "xs": List{Items: []Value{}}}
+	let _ = render(lib, source, vars) catch {
+	case Unclosed as u:
+		return "Unclosed \(u.Template):\(u.Line) \(u.Tag)"
+	case Stray as s:
+		return "Stray \(s.Template):\(s.Line)"
+	case BadTag as b:
+		return "BadTag \(b.Template):\(b.Line) \(b.Text)"
+	case Unbound as u:
+		return "Unbound \(u.Template):\(u.Line) \(u.Name)"
+	case NotAList as n:
+		return "NotAList \(n.Template):\(n.Line) \(n.Name)"
+	case NotText as n:
+		return "NotText \(n.Template):\(n.Line) \(n.Name)"
+	case MissingTemplate as m:
+		return "MissingTemplate \(m.Template):\(m.Line) \(m.Name)"
+	case IncludeCycle as c:
+		return "IncludeCycle " + strings.Join(c.Chain, " > ")
+	}
+	"ok"
+}
+
+test FailuresNameTheirLine {
+	assert failure(noLib, "a\n{{ for x in xs }}\nb") == "Unclosed main:2 for"
+	assert failure(noLib, "a\n\nb {{ t") == "Unclosed main:3 {{"
+	assert failure(noLib, "{{ t }}\n{{ end }}") == "Stray main:2"
+	assert failure(noLib, "{{ for x xs }}{{ end }}") == "BadTag main:1 for x xs"
+	assert failure(noLib, "{{ }}") == "BadTag main:1 "
+	assert failure(noLib, "\n{{ nope }}") == "Unbound main:2 nope"
+	assert failure(noLib, "{{ for x in t }}{{ end }}") == "NotAList main:1 t"
+	assert failure(noLib, "{{ xs }}") == "NotText main:1 xs"
+	assert failure(noLib, "{{ t.title }}") == "Unbound main:1 t.title"
+	assert failure(noLib, "{{ include nav }}") == "MissingTemplate main:1 nav"
+}
+
+test IncludeCycleNamesTheChain {
+	let lib = Map[string, string]{"a": "{{ include b }}", "b": "{{ include a }}"}
+	assert failure(lib, "{{ include a }}") == "IncludeCycle main > a > b > a"
+	assert failure(Map[string, string]{"self": "{{ include self }}"}, "x{{ include self }}") == "IncludeCycle main > self > self"
+}
+
+test FrontMatterIsRead {
+	let p = try ParsePage("a.md", "---\ntitle: Hello: world\nlayout: post\n---\n# Hi\n")
+	assert TitleOf(p) == "Hello: world" && p.Meta.Get("layout") == (Some[string]{Value: "post"}) && p.Body == "# Hi\n"
+	let plain = try ParsePage("b.md", "no front matter")
+	assert TitleOf(plain) == "b.md" && plain.Body == "no front matter"
+}
+
+// badLine is the line ParsePage refuses in text, or 0.
+func badLine(text string) int {
+	let _ = ParsePage("x.md", text) catch {
+	case BadFrontMatter as b:
+		return b.Line
+	}
+	0
+}
+
+test BadFrontMatterNamesTheLine {
+	assert badLine("---\ntitle: a\noops\n---\n") == 3
+	assert badLine("---\ntitle: a\n") == 3
+	assert badLine("---\ntitle: a\n---\n") == 0
+}
+
+test MarkupEscapesAndBlocks {
+	assert Markup("# A & B\n\none\ntwo <x>\n\n- i\n- j\n\n## End") == "<h1>A &amp; B</h1>\n<p>one two &lt;x&gt;</p>\n<ul><li>i</li><li>j</li></ul>\n<h2>End</h2>"
+}
+
+// files is a Source of fixed pages and templates, sorted by path.
+type files { pages Map[string, string], templates Map[string, string] }
+
+func Pages(f files) []string { sortedKeys(f.pages) }
+
+func ReadPage(f files, path string) string fails Unreadable { try read(f.pages, path) }
+
+func TemplateNames(f files) []string { sortedKeys(f.templates) }
+
+func ReadTemplate(f files, name string) string fails Unreadable { try read(f.templates, name) }
+
+func read(m Map[string, string], key string) string fails Unreadable {
+	match m.Get(key) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		Unreadable{Path: key, Reason: "no such file"}
+	}
+}
+
+func sortedKeys(m Map[string, string]) []string {
+	let mut out = []string{}
+	for k, _ in m {
+		out = out.Append(k)
+	}
+	slices.Sort(out)
+}
+
+let blog = files{
+	pages: Map[string, string]{
+		"index.md":       "---\ntitle: Home\nlayout: index\n---\nWelcome.",
+		"posts/first.md": "---\ntitle: First <post>\n---\n# First\n\nHello.",
+		"posts/draft.md": "---\ndraft: true\n---\nnot yet",
+	},
+	templates: Map[string, string]{
+		"page":  "{{ include head }}{{ raw body }}",
+		"index": "{{ include head }}{{ for p in pages }}<a href=\"{{ p.url }}\">{{ p.title }}</a>{{ end }}",
+		"head":  "<title>{{ title }}</title>\n",
+	},
+}
+
+test BuildRendersEveryPageThroughItsLayout {
+	let out = with context { Source: blog } {
+		try Build()
+	}
+	assert len(out) == 2
+	assert out[0].Path == "index.html" && out[0].Text == "<title>Home</title>\n<a href=\"index.html\">Home</a><a href=\"posts/first.html\">First &lt;post&gt;</a>"
+	assert out[1].Path == "posts/first.html" && out[1].Text == "<title>First &lt;post&gt;</title>\n<h1>First</h1>\n<p>Hello.</p>"
+}
+
+test FilesKeepTheSourceLaws(path string) {
+	assert Sorted(blog.Pages()) && Sorted(blog.TemplateNames())
+	for p in blog.Pages() {
+		let _ = try blog.ReadPage(p)
+	}
+	for q in []string{"index.md", path} {
+		let first = blog.ReadPage(q) catch {
+		case Unreadable:
+			"unreadable"
+		}
+		let second = blog.ReadPage(q) catch {
+		case Unreadable:
+			"unreadable"
+		}
+		assert first == second
+	}
+}
+
+test EscapingIsTotalHolds(s string) {
+	let text = Spice(s)
+	assert Inert(Escape(text))
+	assert Unescape(Escape(text)) == text
+}
+
+test SpiceReachesEveryMarkupByte {
+	assert Spice("abz_-") == "<>&\"'"
+	assert !Inert("<") && !Inert("a & b") && Inert("&lt;&amp;") && Inert("")
+}
+
+test VariablesAreEscapedHolds(s string) {
+	let text = Spice(s)
+	assert Outcome("{{ v }}|{{ raw v }}", ScopeOf(text, []string{})) == Escape(text)+"|"+text
+}
+
+test RenderingIsDeterministicHolds(s string, items []string) {
+	let source = "{{ for x in xs }}[{{ x }}]{{ end }}{{ r.a }}{{ raw r }}" + Spice(s)
+	let scope = ScopeOf(Spice(s), items)
+	let first = Outcome(source, scope)
+	for _ in 0..4 {
+		assert Outcome(source, scope) == first
+	}
+}

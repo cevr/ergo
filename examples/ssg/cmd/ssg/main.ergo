@@ -1,0 +1,148 @@
+// ssg is a static site generator: it reads the pages under SITE/content
+// and the templates under SITE/templates, renders each page through its
+// layout, and writes the pages under -out, or prints them with -print.
+// Package site is the domain; package files reads and writes folders.
+// This binary is the only place that chooses the providers: the host's
+// file system, standard output and arguments.
+
+import flag
+import fs
+import io
+import os
+import ssg/files
+import ssg/memory
+import ssg/site
+import strings
+
+let outFlag = flag.String("out", "public", "the `folder` to write the pages to")
+let printFlag = flag.Bool("print", false, "print each page instead of writing it")
+let siteArg = flag.Arg("site", "the folder that holds content/ and templates/")
+let set = flag.Set{Name: "ssg", Usage: "", Flags: []flag.Flag{outFlag, printFlag}, Args: []flag.ArgSpec{siteArg}}
+
+// run is ssg on args. Every failure of the build is caught by name, with
+// no case _, and ends the program with status 1 and one line that names
+// the file and the line. Each arm spells its os.Exit: `return f()` of a
+// function that makes the failure is refused (G-ex-a-15).
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	let root = match siteArg.Get(v) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		"."
+	}
+	let src = files.Read(root) catch {
+	case site.Unreadable as u:
+		return os.Exit{Code: 1, Message: "ssg: " + "cannot read \(u.Path): \(u.Reason)"}
+	}
+	let outputs = with context { site.Source: src } { site.Build() } catch {
+	case site.Unreadable as u:
+		return os.Exit{Code: 1, Message: "ssg: " + "cannot read \(u.Path): \(u.Reason)"}
+	case site.BadFrontMatter as b:
+		return os.Exit{Code: 1, Message: "ssg: " + "content/\(b.Path):\(b.Line): bad front matter: \(b.Text)"}
+	case site.Unclosed as u:
+		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(u.Template).html:\(u.Line): unclosed \(u.Tag)"}
+	case site.Stray as s:
+		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(s.Template).html:\(s.Line): end with no for or if"}
+	case site.BadTag as b:
+		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(b.Template).html:\(b.Line): bad tag {{ \(b.Text) }}"}
+	case site.Unbound as u:
+		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(u.Template).html:\(u.Line): no variable \(u.Name)"}
+	case site.NotAList as n:
+		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(n.Template).html:\(n.Line): \(n.Name) is not a list"}
+	case site.NotText as n:
+		return os.Exit{Code: 1, Message: "ssg: " + "templates/\(n.Template).html:\(n.Line): \(n.Name) is not text"}
+	case site.MissingTemplate as m:
+		return os.Exit{Code: 1, Message: "ssg: " + "\(m.Template):\(m.Line): no template \(m.Name)"}
+	case site.IncludeCycle as c:
+		return os.Exit{Code: 1, Message: "ssg: " + "include cycle: " + strings.Join(c.Chain, " > ")}
+	}
+	if printFlag.Get(v) {
+		for o in outputs {
+			io.Stdout.Println("== " + o.Path)
+			io.Stdout.Println(o.Text)
+		}
+		return
+	}
+	let wrote = files.Write(outFlag.Get(v), outputs) catch {
+	case files.Unwritable as u:
+		return os.Exit{Code: 1, Message: "ssg: " + "cannot write \(u.Path): \(u.Reason)"}
+	}
+	for path in wrote {
+		io.Stdout.Println("wrote " + path)
+	}
+	io.Stdout.Println("\(len(wrote)) pages")
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run over a memory.Disk and an io.Recorder, with no host.
+
+let blog = Map[string, string]{
+	"s/content/index.md":       "---\ntitle: Home\nlayout: index\n---\nWelcome.",
+	"s/content/posts/hello.md": "---\ntitle: Hello & welcome\n---\n# Hello\n\nFirst post.",
+	"s/templates/index.html":   "{{ include head }}{{ for p in pages }}<a href=\"{{ p.url }}\">{{ p.title }}</a>\n{{ end }}",
+	"s/templates/page.html":    "{{ include head }}{{ raw body }}\n",
+	"s/templates/head.html":    "<title>{{ title }}</title>\n",
+}
+
+// ran is the output of run on args over the files, with a failure
+// printed as "exit CODE: MESSAGE", and the disk after it.
+func ran(files Map[string, string], args []string) (string, memory.Disk) {
+	let out = io.NewRecorder()
+	let disk = memory.NewDisk(files)
+	with context { io.Stdout: out, fs.Files: disk, fs.Writes: disk } {
+		run(args) catch {
+		case os.Exit as e:
+			io.Stdout.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	(out.Text(), disk)
+}
+
+test PrintRendersEveryPage {
+	let text, _ = ran(blog, []string{"-print", "s"})
+	assert text == "== index.html\n<title>Home</title>\n<a href=\"index.html\">Home</a>\n<a href=\"posts/hello.html\">Hello &amp; welcome</a>\n\n== posts/hello.html\n<title>Hello &amp; welcome</title>\n<h1>Hello</h1>\n<p>First post.</p>\n\n"
+}
+
+test WriteWritesUnderOut {
+	let text, disk = ran(blog, []string{"-out", "site", "s"})
+	assert text == "wrote site/index.html\nwrote site/posts/hello.html\n2 pages\n"
+	assert try disk.ReadFile("site/posts/hello.html") == "<title>Hello &amp; welcome</title>\n<h1>Hello</h1>\n<p>First post.</p>\n"
+}
+
+// broken is blog with the file at path holding text.
+func broken(path string, text string) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for k, v in blog {
+		out[k] = v
+	}
+	out[path] = text
+	out
+}
+
+test FailuresNameTheFile {
+	let a, _ = ran(broken("s/templates/head.html", "<title>\n{{ for x in pages }}"), []string{"s"})
+	assert a == "exit 1: ssg: templates/head.html:2: unclosed for\n"
+	let b, _ = ran(broken("s/templates/head.html", "{{ include page }}"), []string{"s"})
+	assert b == "exit 1: ssg: include cycle: index > head > page > head\n"
+	let c, _ = ran(broken("s/content/posts/hello.md", "---\ntitle\n---\n"), []string{"s"})
+	assert c == "exit 1: ssg: content/posts/hello.md:2: bad front matter: title\n"
+	let d, _ = ran(broken("s/content/x.md", "---\nlayout: post\n---\n"), []string{"s"})
+	assert d == "exit 1: ssg: x.md:0: no template post\n"
+	let e, _ = ran(blog, []string{"nowhere"})
+	assert e == "exit 1: ssg: cannot read nowhere/content: no such folder\n"
+}
+
+test UsageErrorsExitTwo {
+	let text, _ = ran(blog, []string{})
+	assert strings.HasPrefix(text, "exit 2: missing required flag or argument: site\n")
+}

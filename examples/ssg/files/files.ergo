@@ -1,0 +1,108 @@
+// Package files reads a site from a folder and writes the built pages to
+// another. A provider of site.Source cannot need a capability that the
+// contract's operations do not write (rows.md, Context 2), so Read reads
+// every file once, at the start, into a memory.Source.
+
+import fs
+import ssg/memory
+import ssg/site
+import strings
+
+// Read is the site in the folder root: each .md file under root/content,
+// at any depth, by its path under content; and each .html file of
+// root/templates, by its name without .html. A file that cannot be read
+// fails site.Unreadable with its path.
+func Read(root string) memory.Source fails site.Unreadable needs fs.Files {
+	let mut pages = Map[string, string]{}
+	for rel in try walk(root+"/content", "") {
+		if strings.HasSuffix(rel, ".md") {
+			pages[rel] = try text(root + "/content/" + rel)
+		}
+	}
+	let mut layouts = Map[string, string]{}
+	for name in try names(root + "/templates") {
+		if strings.HasSuffix(name, ".html") {
+			layouts[strings.TrimSuffix(name, ".html")] = try text(root + "/templates/" + name)
+		}
+	}
+	memory.Source{Content: pages, Layouts: layouts}
+}
+
+// walk is the path under base of each file below dir, which is base/rel,
+// in name order, a folder's files where its name sorts.
+func walk(base string, rel string) []string fails site.Unreadable needs fs.Files {
+	let dir = if rel == "" { base } else { base + "/" + rel }
+	let mut out = []string{}
+	for name in try names(dir) {
+		let sub = if rel == "" { name } else { rel + "/" + name }
+		let info = fs.Files.Stat(dir + "/" + name) catch {
+		case fs.NotFound:
+			return site.Unreadable{Path: dir + "/" + name, Reason: "no such file"}
+		case fs.Denied:
+			return site.Unreadable{Path: dir + "/" + name, Reason: "permission denied"}
+		case fs.Failed as f:
+			return site.Unreadable{Path: dir + "/" + name, Reason: f.Reason}
+		}
+		if info.Dir {
+			for p in try walk(base, sub) {
+				out = out.Append(p)
+			}
+		} else {
+			out = out.Append(sub)
+		}
+	}
+	out
+}
+
+// names is the entries of the folder dir.
+func names(dir string) []string fails site.Unreadable needs fs.Files {
+	fs.Files.ReadDir(dir) catch {
+	case fs.NotFound:
+		return site.Unreadable{Path: dir, Reason: "no such folder"}
+	case fs.Denied:
+		return site.Unreadable{Path: dir, Reason: "permission denied"}
+	case fs.Failed as f:
+		return site.Unreadable{Path: dir, Reason: f.Reason}
+	}
+}
+
+// text is the whole file at path.
+func text(path string) string fails site.Unreadable needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return site.Unreadable{Path: path, Reason: "no such file"}
+	case fs.Denied:
+		return site.Unreadable{Path: path, Reason: "permission denied"}
+	case fs.Failed as f:
+		return site.Unreadable{Path: path, Reason: f.Reason}
+	}
+}
+
+// Unwritable is an output file that cannot be written.
+type Unwritable { Path string, Reason string }
+
+// Write writes each output under the folder out, making the folders on
+// the way, and returns the path of each file it wrote, in order.
+func Write(out string, outputs []site.Output) []string fails Unwritable needs fs.Writes {
+	let mut wrote = []string{}
+	for o in outputs {
+		let path = out + "/" + o.Path
+		let dir = strings.Slice(path, 0, strings.LastIndex(path, "/"))
+		fs.Writes.MkdirAll(dir) catch {
+		case fs.Denied:
+			return Unwritable{Path: dir, Reason: "permission denied"}
+		case fs.Failed as f:
+			return Unwritable{Path: dir, Reason: f.Reason}
+		}
+		fs.Writes.WriteFile(path, o.Text) catch {
+		case fs.NotFound:
+			return Unwritable{Path: path, Reason: "no such folder"}
+		case fs.Denied:
+			return Unwritable{Path: path, Reason: "permission denied"}
+		case fs.Failed as f:
+			return Unwritable{Path: path, Reason: f.Reason}
+		}
+		wrote = wrote.Append(path)
+	}
+	wrote
+}

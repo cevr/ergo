@@ -1,0 +1,9 @@
+missing required flag or argument: site
+Usage of ssg:
+  -out folder
+    	the folder to write the pages to (default "public")
+  -print
+    	print each page instead of writing it
+Arguments:
+  site
+    	the folder that holds content/ and templates/

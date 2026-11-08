@@ -1,0 +1,123 @@
+// Package site is the domain of the static site generator: pages with
+// front matter, a small template language, and the build that renders
+// every page of a Source through its layout. It is pure except Build:
+// Source is the one contract it needs from its host.
+
+import strings
+
+// Template is a parsed template: its name and its nodes.
+type Template { Name string, Nodes []Node }
+
+// Node is one piece of a template. Lit is text as it is written. Var is
+// {{ a.b }} (escaped) or {{ raw a.b }} (as it is). Each is {{ for x in
+// a.b }} … {{ end }}, When is {{ if a.b }} … {{ end }}, and Include is
+// {{ include name }}. Line is the line of the tag, from 1.
+type Node = Lit{Text string} | Var{Path []string, Raw bool, Line int} | Each{Name string, Over []string, Body []Node, Line int} | When{Path []string, Body []Node, Line int} | Include{Name string, Line int}
+
+// The failures of Parse.
+
+// Unclosed is a tag with no closing "}}", or a for or an if with no end.
+type Unclosed { Template string, Line int, Tag string }
+
+// Stray is an end with no for or if open.
+type Stray { Template string, Line int }
+
+// BadTag is a tag that is none of the forms of Node.
+type BadTag { Template string, Line int, Text string }
+
+// token is a piece of the template text: text between tags, or the words
+// of one tag.
+type token = Chunk{Text string} | Tag{Words []string, Line int}
+
+// Parse reads text as the template name.
+func Parse(name string, text string) Template fails Unclosed | Stray | BadTag {
+	let toks = try tokens(name, text)
+	let nodes, _ = try block(name, toks, 0, "", 0)
+	Template{Name: name, Nodes: nodes}
+}
+
+// tokens splits text at its tags.
+func tokens(name string, text string) []token fails Unclosed {
+	let mut out = []token{}
+	let mut rest = text
+	let mut line = 1
+	for {
+		let open = strings.Index(rest, "{{")
+		if open < 0 {
+			if rest != "" {
+				out = out.Append(Chunk{Text: rest})
+			}
+			return out
+		}
+		let before = strings.Slice(rest, 0, open)
+		if before != "" {
+			out = out.Append(Chunk{Text: before})
+		}
+		line = line + strings.Count(before, "\n")
+		let after = strings.Slice(rest, open+2, len(rest))
+		let close = strings.Index(after, "}}")
+		if close < 0 {
+			return Unclosed{Template: name, Line: line, Tag: "{{"}
+		}
+		let inner = strings.Slice(after, 0, close)
+		out = out.Append(Tag{Words: strings.Fields(inner), Line: line})
+		line = line + strings.Count(inner, "\n")
+		rest = strings.Slice(after, close+2, len(after))
+	}
+	out
+}
+
+// block reads the nodes of toks from at, up to the end of the template
+// when opener is "", or up to the end tag of the for or if opener on line
+// opened. It returns the nodes and the index after the last token read.
+func block(name string, toks []token, at int, opener string, opened int) ([]Node, int) fails Unclosed | Stray | BadTag {
+	let mut nodes = []Node{}
+	let mut i = at
+	for i < len(toks) {
+		match toks[i] {
+		case Chunk as c:
+			nodes = nodes.Append(Lit{Text: c.Text})
+			i = i + 1
+		case Tag as t:
+			let w = t.Words
+			if len(w) == 1 && w[0] == "end" {
+				if opener == "" {
+					return Stray{Template: name, Line: t.Line}
+				}
+				return (nodes, i + 1)
+			}
+			if len(w) == 4 && w[0] == "for" && w[2] == "in" {
+				let body, next = try block(name, toks, i+1, "for", t.Line)
+				nodes = nodes.Append(Each{Name: w[1], Over: strings.Split(w[3], "."), Body: body, Line: t.Line})
+				i = next
+			} else if len(w) == 2 && w[0] == "if" {
+				let body, next = try block(name, toks, i+1, "if", t.Line)
+				nodes = nodes.Append(When{Path: strings.Split(w[1], "."), Body: body, Line: t.Line})
+				i = next
+			} else if len(w) == 2 && w[0] == "include" {
+				nodes = nodes.Append(Include{Name: w[1], Line: t.Line})
+				i = i + 1
+			} else if len(w) == 2 && w[0] == "raw" {
+				nodes = nodes.Append(Var{Path: strings.Split(w[1], "."), Raw: true, Line: t.Line})
+				i = i + 1
+			} else if len(w) == 1 && reserved(w[0]) {
+				return BadTag{Template: name, Line: t.Line, Text: strings.Join(w, " ")}
+			} else if len(w) == 1 {
+				nodes = nodes.Append(Var{Path: strings.Split(w[0], "."), Raw: false, Line: t.Line})
+				i = i + 1
+			} else {
+				return BadTag{Template: name, Line: t.Line, Text: strings.Join(w, " ")}
+			}
+		}
+	}
+	if opener != "" {
+		return Unclosed{Template: name, Line: opened, Tag: opener}
+	}
+	(nodes, i)
+}
+
+// reserved reports whether word is a keyword of the tags, which names no
+// variable.
+func reserved(word string) bool {
+	word == "for" || word == "if" || word == "include" || word == "raw" || word == "in"
+}
