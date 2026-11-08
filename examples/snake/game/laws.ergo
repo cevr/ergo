@@ -1,0 +1,238 @@
+// The rules of snake as laws over its machine. Each law plays a game of
+// 300 signals drawn from a seeded Random on a board of 5 by 4 cells, small
+// enough that games end by Wall, by Bitten and by Filled. A generated
+// slice holds at most three elements (G-ex-d-9), so the signals come from
+// the seed, not from the generator.
+
+import rand
+import strings
+
+// StaysOnTheBoard: every cell of the snake is on the board, in every mode
+// of every game. The law states the bounds itself, not through Inside,
+// which the game uses to find the wall.
+law StaysOnTheBoard(seed int) {
+	for m in Replay(seed) {
+		for p in BodyOf(m) {
+			if p.X < 0 || p.Y < 0 || p.X >= 5 || p.Y >= 4 {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// FoodIsNeverOnTheSnake: while a game is on, the food is on a free cell.
+law FoodIsNeverOnTheSnake(seed int) {
+	for m in Replay(seed) {
+		match m {
+		case Playing as p:
+			if Holds(p.W.Body, p.W.Food) {
+				return false
+			}
+		case Paused as p:
+			if Holds(p.W.Body, p.W.Food) {
+				return false
+			}
+		case Title, Over:
+		}
+	}
+	true
+}
+
+// GrowsOnlyByEating: from one playing world to the next, the snake is
+// one cell longer exactly when the score is one more, and otherwise
+// keeps its length and score.
+law GrowsOnlyByEating(seed int) {
+	let modes = Replay(seed)
+	for i in 1..len(modes) {
+		match (modes[i-1], modes[i]) {
+		case (Playing as a, Playing as b):
+			let grew = len(b.W.Body) - len(a.W.Body)
+			let scored = b.W.Score - a.W.Score
+			if grew != scored || grew < 0 || grew > 1 {
+				return false
+			}
+		case (_, _):
+		}
+	}
+	true
+}
+
+// NeverIntoTheNeck: however the turns come between two ticks, no tick
+// moves the head onto the cell right behind it.
+law NeverIntoTheNeck(seed int) {
+	for m in Replay(seed) {
+		match m {
+		case Playing as p:
+			if Toward(p.W.Body[0], p.W.Heading) == p.W.Body[1] {
+				return false
+			}
+		case Title, Paused, Over:
+		}
+	}
+	true
+}
+
+// OverIsFinal: a game that is over ignores every signal but Quit, which
+// is Done with its score.
+law OverIsFinal(seed int, score int) {
+	let w = World{Width: 5, Height: 4, Body: []Point{Point{X: 0, Y: 0}}, Heading: Left, Moved: Left, Food: Point{X: 4, Y: 3}, Score: score}
+	let over = Over{W: w, Why: Wall}
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		AnswersOnlyQuit(over, score)
+	}
+}
+
+// AnswersOnlyQuit reports whether m ignores every signal but Quit, and
+// Quit is Done with score. It is a function of its own because a return
+// cannot leave a with block (G-ex-d-10).
+func AnswersOnlyQuit(m Mode, score int) bool needs Random {
+	for s in []Signal{Begin, Tick, Turn{To: Up}, Pause} {
+		if Word(Step(m, s)) != "ignore" {
+			return false
+		}
+	}
+	match Step(m, Quit) {
+	case Done[int] as d:
+		d.Output == score
+	case Enter[Mode], Stay[Mode], Ignore, Reject:
+		false
+	}
+}
+
+// SeedReplays: one seed plays one game: the same modes, signal by signal.
+law SeedReplays(seed int) { Keys(Replay(seed)) == Keys(Replay(seed)) }
+
+// Replay is the modes of a game of 300 signals drawn from Random seeded
+// with seed, on a board of 5 by 4 cells: the mode after each signal.
+func Replay(seed int) []Mode {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let signals = Signals(300)
+		Play(Title{Width: 5, Height: 4}, signals)
+	}
+}
+
+// Signals is n signals drawn from Random: ticks four times in ten, each
+// turn once in ten, a pause once in ten and a begin once in ten.
+func Signals(n int) []Signal needs Random {
+	let mut out = []Signal{}
+	for _ in 0..n {
+		let s Signal = match Random.IntN(10) {
+		case 4:
+			Turn{To: Up}
+		case 5:
+			Turn{To: Down}
+		case 6:
+			Turn{To: Left}
+		case 7:
+			Turn{To: Right}
+		case 8:
+			Pause
+		case 9:
+			Begin
+		case _:
+			Tick
+		}
+		out = out.Append(s)
+	}
+	out
+}
+
+// Play is the mode after each of signals, from m.
+func Play(m Mode, signals []Signal) []Mode needs Random {
+	let mut out = []Mode{}
+	let mut at = m
+	for s in signals {
+		at = Next(at, Step(at, s))
+		out = out.Append(at)
+	}
+	out
+}
+
+// BodyOf is the snake of m, or no cell at the title.
+func BodyOf(m Mode) []Point {
+	match m {
+	case Title:
+		[]Point{}
+	case Playing as p:
+		p.W.Body
+	case Paused as p:
+		p.W.Body
+	case Over as o:
+		o.W.Body
+	}
+}
+
+// Word names a decision.
+func Word(d Decision[Mode, int]) string {
+	match d {
+	case Enter[Mode]:
+		"enter"
+	case Stay[Mode]:
+		"stay"
+	case Ignore:
+		"ignore"
+	case Reject:
+		"reject"
+	case Done[int]:
+		"done"
+	}
+}
+
+// Keys is a text of each mode that differs where two modes differ: a
+// mode holds slices, so it has no == (G-ex-d-5).
+func Keys(modes []Mode) string {
+	let mut out = []string{}
+	for m in modes {
+		out = out.Append(Key(m))
+	}
+	strings.Join(out, ";")
+}
+
+// Key is the text of one mode.
+func Key(m Mode) string {
+	match m {
+	case Title as t:
+		"title \(t.Width)x\(t.Height)"
+	case Playing as p:
+		"playing " + worldKey(p.W)
+	case Paused as p:
+		"paused " + worldKey(p.W)
+	case Over as o:
+		"over " + causeName(o.Why) + " " + worldKey(o.W)
+	}
+}
+
+func worldKey(w World) string {
+	let mut cells = []string{}
+	for p in w.Body {
+		cells = cells.Append("\(p.X),\(p.Y)")
+	}
+	"\(w.Score) food \(w.Food.X),\(w.Food.Y) body " + strings.Join(cells, " ") + " " + dirName(w.Heading) + dirName(w.Moved)
+}
+
+// dirName is the letter of d.
+func dirName(d Dir) string {
+	match d {
+	case Up:
+		"U"
+	case Down:
+		"D"
+	case Left:
+		"L"
+	case Right:
+		"R"
+	}
+}
+
+// causeName is the word of c.
+func causeName(c Cause) string {
+	match c {
+	case Wall:
+		"wall"
+	case Bitten:
+		"bitten"
+	case Filled:
+		"filled"
+	}
+}

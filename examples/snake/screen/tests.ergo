@@ -1,0 +1,10 @@
+import snake/game
+import strings
+
+test AFrameShowsTheBoard {
+	let w = game.World{Width: 4, Height: 2, Body: []game.Point{game.Point{X: 1, Y: 0}, game.Point{X: 0, Y: 0}}, Heading: game.Right, Moved: game.Right, Food: game.Point{X: 3, Y: 1}, Score: 2}
+	assert strings.Join(Frame(game.Playing{W: w}), "\n") == "+----+\n|o@  |\n|   *|\n+----+\nscore 2"
+	assert Frame(game.Paused{W: w})[4] == "score 2, paused"
+	assert Frame(game.Over{W: w, Why: game.Bitten})[4] == "game over: bit itself, score 2"
+	assert len(Frame(game.Title{Width: 4, Height: 2})) == 1
+}

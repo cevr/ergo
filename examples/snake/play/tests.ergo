@@ -1,0 +1,64 @@
+// The drivers' tests run over an io.Input and an io.Recorder, with a
+// seeded Random and, for Live, a Scheduler that never waits: no host.
+
+import io
+import rand
+import snake/game
+import strings
+
+test KeysAreSignals {
+	let ks = Keys("bwxq")
+	let word = with context { Random: rand.Seeded(1) } {
+		game.Word(game.Step(game.Title{Width: 6, Height: 4}, ks[2]))
+	}
+	assert len(ks) == 3 && word == "done"
+}
+
+// scripted is the transcript of Script over the input on a board of 6 by
+// 4 with the seed, and its last mode.
+func scripted(input string, seed int) (string, game.Mode) {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: input}, io.Stdout: out, Random: rand.Seeded(uint64(seed)) } {
+		let last = Script(game.Title{Width: 6, Height: 4})
+		(out.Text(), last)
+	}
+}
+
+// A whole game: begin, turn down and left onto the food, up, a pause of
+// two ticks, then right into the wall.
+test AScriptedGameEndsAtTheWall {
+	let text, last = scripted("b\ns\na\nw\n\nd\np\n\np\n\n\n\nnot read\n", 2)
+	assert game.ScoreOf(last) == 1
+	assert game.Key(last) == "over wall 1 food 4,0 body 5,1 4,1 3,1 2,1 RR"
+	assert strings.HasSuffix(text, "+------+\n|    * |\n|  ooo@|\n|      |\n|      |\n+------+\ngame over: hit the wall, score 1\n")
+	assert strings.Count(text, "score 1, paused") == 2
+}
+
+test QuitEndsAtOnce {
+	let text, last = scripted("b\nq\nb\n", 2)
+	assert strings.HasSuffix(text, "score 0\nquit, score 0\n") && game.Key(last) != "title 6x4"
+}
+
+test EndOfInputLeavesTheGame {
+	let _, last = scripted("b\n", 2)
+	match last {
+	case game.Playing:
+	case game.Title, game.Paused, game.Over:
+		assert false
+	}
+}
+
+// instant is a Scheduler whose Sleep returns at once, so Live ticks as
+// fast as it runs.
+type instant {}
+
+func Sleep(_ instant, _ duration) {}
+
+test LiveRunsIntoTheWallWithNoKeys {
+	let out = io.NewRecorder()
+	let last = with context { io.Stdin: io.Input{Text: ""}, io.Stdout: out, Random: rand.Seeded(2), Scheduler: instant } {
+		Live(6, 4, 1ms)
+	}
+	assert game.Key(last) == "over wall 0 food 2,3 body 5,2 4,2 3,2 RR"
+	assert strings.Count(out.Text(), "+------+\n") == 2*5
+}
