@@ -17,7 +17,7 @@ func main() needs Console {
 }
 
 // run> 42
-// test> FAIL Wrong: assert failed at main.ergo:8:2: double(2) == 5
+// test> FAIL Wrong: assert failed at main.ergo:8:2: double(2) == 5: left 4, right 5
 // test> ok Right
 // test> FAIL (1 of 2 tests)
 // test exit 1
