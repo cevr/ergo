@@ -159,6 +159,18 @@ func (v violation) Error() string {
 	return fmt.Sprintf("closure violation: %s writes outside its scratch directories, which the sweep makes read-only (write to t.TempDir instead):\n  %s", v.pkg, strings.Join(v.lines, "\n  "))
 }
 
+// runTimeout is a run that did not end within its deadline (runDeadline):
+// the sweep stopped it. left are the run's processes at the deadline.
+type runTimeout struct {
+	pkg, output string
+	deadline    time.Duration
+	left        []string
+}
+
+func (r runTimeout) Error() string {
+	return fmt.Sprintf("%s: the run did not end within %v (%s, or this test's own deadline), so the sweep stopped it; its processes then:\n  %s\noutput %s", r.pkg, r.deadline.Round(time.Second), runDeadlineVariable, strings.Join(r.left, "\n  "), r.output)
+}
+
 // runDeadlineVariable bounds each run of a test binary in the sandbox (a
 // Go duration; 20 minutes by default). A run that has not ended by then is
 // a failure that names its package and the processes the run still had,
@@ -197,11 +209,14 @@ func binaryDeadline() (time.Time, bool) {
 
 // runDeadline is the bound of one run that starts now: runDeadlineVariable
 // (20 minutes by default), and never past runReportMargin before this test
-// binary's own deadline. The sweep's step runs with the gate's 15 minute
-// test timeout: at batch 9 a swept run that did not end held the sweep
-// until that timeout panicked, which named no package and reported no
-// verdict (b9-fix-gate). A run started with less time left than the margin
-// gets a second, so it fails at once with its package named.
+// binary's own deadline. At batch 9 a swept run that did not end held the
+// sweep until the step's test timeout panicked, which named no package and
+// reported no verdict (b9-fix-gate). A run started with less time left than
+// the margin gets a second, so it fails at once with its package named. A
+// run holds at most sweepRunBudget of recorded test time (planRuns), so it
+// ends well within the 20 minutes; the gate gives the sweep step a test
+// timeout long enough for every run of a package in turn (scripts/gate,
+// sweepTimeout), so the binary's deadline bounds only a sweep that hangs.
 func runDeadline() (time.Duration, error) {
 	d := 20 * time.Minute
 	if value := os.Getenv(runDeadlineVariable); value != "" {
@@ -247,7 +262,7 @@ func runProtected(sb sandbox, pkg, dir string, env []string, output string, bina
 	timedOut, left, runErr := runWithin(cmd, deadline)
 	file.Close()
 	if timedOut {
-		return fmt.Errorf("%s: the run did not end within %v (%s, or this test's own deadline), so the sweep stopped it; its processes then:\n  %s\noutput %s", pkg, deadline.Round(time.Second), runDeadlineVariable, strings.Join(left, "\n  "), output)
+		return runTimeout{pkg: pkg, output: output, deadline: deadline, left: left}
 	}
 	if runErr == nil {
 		return nil

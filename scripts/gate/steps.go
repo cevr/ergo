@@ -160,11 +160,23 @@ var sweepOS = runtime.GOOS
 // fast step's reads only there (observable).
 func sweepSupported() bool { return sweepOS == "linux" }
 
+// sweepTimeout is the test timeout of a closure sweep step. The sweep runs
+// a package's test binary in runs of at most a set recorded test time each
+// (internal/closure, planRuns), so many at a time as its jobs allow and the
+// rest in turn, and stops a run that passes its own deadline (20 minutes,
+// ERGO_CLOSURE_RUN_DEADLINE) with its package and slowest tests named. The
+// step's timeout must outlast every run of the package in turn: with the
+// gate's 15 minute testTimeout the binary's deadline cut each run of
+// internal/sketch/lower at 13m58s, which the four runs, at once on the
+// step's share of the batch-10 merge tier, reached (841 s; fu-sweep-
+// deadline). It is a safety net for a sweep that hangs, as testTimeout is.
+const sweepTimeout = "-timeout=45m"
+
 // sweepStep runs the closure sweep over selection: one package directory.
 func sweepStep(selection string) *Step {
 	return &Step{
 		Name:    "closure sweep",
-		Argv:    []string{"go", "test", testTimeout, "-run", "^" + sweepTest + "$", sweepPackage},
+		Argv:    []string{"go", "test", sweepTimeout, "-run", "^" + sweepTest + "$", sweepPackage},
 		Env:     []string{sweepVariable + "=" + selection},
 		ToolEnv: testTools,
 		Sweep:   selection,
@@ -274,13 +286,20 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		}
 		n := int(math.Ceil(total / shardTargetSeconds))
 		n = max(1, min(n, stepCPUs(), len(names)))
-		selections := shardArgs(shard(names, measured, n))
+		groups := shard(names, measured, n)
+		selections, weights := shardArgs(groups), shardWeights(groups, measured)
 		for i, selection := range selections {
 			argv := append([]string{"go", "test", testTimeout}, selection...)
-			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools})
+			add(&Step{Name: fmt.Sprintf("go test %s [%d/%d]", shortPackage(root, pkg), i+1, len(selections)), Needs: needs, Argv: append(argv, pkg), Env: env, ToolEnv: testTools, Weight: weights[i]})
 		}
 	}
-	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools})
+	others := 0.0
+	for _, pkg := range unsharded {
+		for _, seconds := range durations[pkg] {
+			others += seconds
+		}
+	}
+	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools, Weight: others})
 	// The full tier sweeps every package's closure on every run (gate-tier
 	// round 1 and plan G2: "always in the full tier"; owner question 3 of
 	// batch 9, on its default), one package per step, as the fast tier
@@ -298,6 +317,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			sweep := sweepStep(dir)
 			sweep.Name = "closure sweep ./" + dir
 			sweep.Needs = []string{"go test build"}
+			sweep.Weight = sweepWeight(durations, pkg)
 			add(sweep)
 		}
 	}
@@ -565,6 +585,45 @@ func authoredExamples(root string) ([]string, error) {
 		return nil, fmt.Errorf("authored example selection is empty: %s", list)
 	}
 	return examples, nil
+}
+
+// shardWeights are the recorded seconds of each shard that shardArgs and
+// fastShardArgs make of groups, in their order: they skip an empty group
+// before the last, and the last shard runs the last group.
+func shardWeights(groups [][]string, measured map[string]float64) []float64 {
+	var weights []float64
+	for i, group := range groups {
+		if len(group) == 0 && i < len(groups)-1 {
+			continue
+		}
+		weights = append(weights, recordedSeconds(group, measured))
+	}
+	return weights
+}
+
+// recordedSeconds is the recorded time of the tests names.
+func recordedSeconds(names []string, measured map[string]float64) float64 {
+	total := 0.0
+	for _, name := range names {
+		total += measured[name]
+	}
+	return total
+}
+
+// sweepWeightFactor is a closure sweep's expected time over its package's
+// recorded test time (Step.Weight): the sweep runs every test observed,
+// with a cold GOCACHE per run. internal/sketch/lower recorded 368 s and its
+// sweep took 1472 CPU-s in the batch-10 merge tier (try9), a factor of 4.
+const sweepWeightFactor = 4
+
+// sweepWeight is the expected seconds of the closure sweep of the package
+// importPath, or 0 when durations.json has no row for it.
+func sweepWeight(durations map[string]map[string]float64, importPath string) float64 {
+	total := 0.0
+	for _, seconds := range durations[importPath] {
+		total += seconds
+	}
+	return sweepWeightFactor * total
 }
 
 // slowPackages are sharded by the gate over their recorded durations.
