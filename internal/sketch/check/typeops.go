@@ -229,6 +229,7 @@ const (
 	assignOperations              // 3: into an operation type the value implements
 	assignUnion                   // 4: a variant or a row value into its union
 	assignSignature               // 5: a function value into a function type with wider rows
+	assignMachine                 // 6: a machine declaration's value into the prelude Machine
 )
 
 // assignment is the result of assignability: the clause that admitted the
@@ -263,7 +264,11 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //  4. a variant or a row value into a union: ConvVariant or ConvRow;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
-//     Go shape, spec D5).
+//     Go shape, spec D5);
+//  6. a machine declaration's value into the prelude Machine instance of
+//     its state, signal and step: ConvMachine (README Gap 46). It is tried
+//     after clause 2, since neither side is an operation type, a union or
+//     a function type.
 //
 // Prior art: go/types operand.assignableTo has clauses 1 to 3 in this
 // order; cmd/compile typecheck.assignOp returns the lowering op (OCONVNOP,
@@ -279,6 +284,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	}
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
+	}
+	if view, step := c.machineValue(v); view != nil && isPreludeMachine(t) {
+		// A machine declaration's value is a Machine of its state, signal
+		// and step (README Gap 46): ConvMachine.
+		if !c.identical(view, t) {
+			o, f, r := view.TArgs[2], view.TArgs[3].(*RowArg), view.TArgs[4].(*RowArg)
+			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s and capability row %s", step.Name, o, rowText(f.Row), rowText(r.Row))
+		}
+		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: map[string]*Func{"Step": step}}}, ""
 	}
 	if it := asInterface(t); it != nil {
 		if _, isTuple := under(v).(*Tuple); isTuple {

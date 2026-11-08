@@ -1,0 +1,62 @@
+// The laws of machines run over tally, a machine built from parts whose
+// step reaches every Decision variant by the signal's value.
+
+// tallyStep: a signal e moves the count s by its rest modulo 5: 0 enters
+// s + e, 1 stays at s + 1, 2 is ignored, 3 is rejected, 4 is done with s.
+func tallyStep(s int, e int) Decision[int, int] {
+	match ((e % 5) + 5) % 5 {
+	case 0:
+		Enter[int]{Next: s + e}
+	case 1:
+		Stay[int]{Next: s + 1}
+	case 2:
+		Ignore
+	case 3:
+		Reject
+	case _:
+		Done[int]{Output: s}
+	}
+}
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep} }
+
+// told is the text of a run of tally from s over signals, whose first
+// signal has the index first in the whole run.
+func told(s int, signals []int, first int) string {
+	let o = From(tally(), s, signals) catch {
+	case Rejected as r:
+		return "rejected \(r.At + first)"
+	}
+	match o {
+	case Finished[int, int] as f:
+		"finished \(f.State) \(f.Output)"
+	case Running[int] as r:
+		"running \(r.State)"
+	}
+}
+
+// RunSplits: a run over a ++ b is the run over b from the state after a,
+// when the run over a used every signal (Running).
+law RunSplits(a []int, b []int) {
+	let mut whole = a
+	for e in b {
+		whole = whole.Append(e)
+	}
+	let first = Run(tally(), a) catch {
+	case Rejected:
+		return true
+	}
+	match first {
+	case Running[int] as r:
+		told(0, whole, 0) == told(r.State, b, len(a))
+	case Finished[int, int]:
+		true
+	}
+}
+
+// NextTakesItsState: Enter and Stay give their Next; Ignore, Reject and
+// Done keep the state.
+law NextTakesItsState(s int, n int) {
+	Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n &&
+		Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s
+}

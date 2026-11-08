@@ -120,6 +120,17 @@ type Reject {}
 type Done[O] { Output O }
 type Decision[S, O] = Enter[S] | Stay[S] | Ignore | Reject | Done[O]
 
+// Machine is a machine as a value: its initial state and its step, with
+// the step's output O, error row F and capability row R (README Gap 46).
+// A value of a machine declaration `type X machine[S, E]` converts to
+// Machine[S, E, O, F, R], with O, F and R read from its step's signature,
+// so a function over any machine names them (std machines.Run). A Machine
+// is also an ordinary record: a test may build one from parts.
+type Machine[S, E, O, F, R] {
+	Initial S,
+	Step func(s S, e E) Decision[S, O] fails F needs R,
+}
+
 // Task is a started task: task.Go() { … } yields one
 // (docs/spec/runtime.md, Tasks). E is an error row.
 type Task[T, E] {

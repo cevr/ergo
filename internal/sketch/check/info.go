@@ -517,6 +517,10 @@ const (
 	ConvOperations
 	// ConvRow puts an error row's value into a union.
 	ConvRow
+	// ConvMachine puts a machine declaration's value into the prelude's
+	// Machine[S, E, O, F, R] (README Gap 46): Table["Step"] is the
+	// machine's step function.
+	ConvMachine
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value

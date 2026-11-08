@@ -41,8 +41,10 @@ import (
 //
 // Initial and Step are Go methods of X, so they never collide with a
 // package function: a function on a machine never lowers to a Go method
-// (methodReceiver takes records only). There is no runner: a provider, the
-// actor library (#57, #101), interprets the plan.
+// (methodReceiver takes records only). The plan has no runner of its own:
+// a value X{} converts to the prelude Machine (ConvMachine, expr.go
+// convert: Initial from the plan, Step the step function's value), which
+// std machines folds, and the actor library (#57, #101) will run.
 //
 // Prior art: XState separates the machine definition from its interpreter;
 // Erlang's gen_statem keeps the callbacks apart from the process that runs

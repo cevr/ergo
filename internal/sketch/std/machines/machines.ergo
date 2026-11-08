@@ -1,0 +1,77 @@
+// Package machines runs a machine as a pure fold over its signals
+// (docs/spec/runtime.md, Machines and actors 2 and 8). A machine
+// declaration's value is a prelude Machine[S, E, O, F, R] (README Gap 46),
+// so machines.Run(Shell{}, signals) takes any machine: the step's output O, error
+// row F and capability row R come from its step. The fold is ordinary
+// Ergo code: a loop that calls the step once per signal. The live runner,
+// with an inbox, timers and work, is the actor library (#57).
+//
+// Effect: @effect/experimental Machine; XState's pure transition and
+// interpret; Erlang gen_statem. Go control: a for over the signals that
+// calls the step function.
+
+// Finished is a run that the step ended with Done: the state the step saw
+// last and Done's output.
+type Finished[S, O] {
+	State S,
+	Output O,
+}
+
+// Running is a run that used every signal with no Done: the machine's
+// state after the last one.
+type Running[S] { State S }
+
+// Outcome is how a run ended.
+type Outcome[S, O] = Finished[S, O] | Running[S]
+
+// Rejected is the failure of a run whose step answered Reject: At is the
+// index of the rejected signal, and the state is the one before it.
+type Rejected { At int }
+
+// Next is the state after the decision d in s: Enter and Stay take their
+// Next; Ignore, Reject and Done keep s.
+func Next[S, O](s S, d Decision[S, O]) S {
+	match d {
+	case Enter[S] as e:
+		e.Next
+	case Stay[S] as st:
+		st.Next
+	case Ignore:
+		s
+	case Reject:
+		s
+	case Done[O]:
+		s
+	}
+}
+
+// Initial is m's initial state.
+func Initial[S, E, O, F, R](m Machine[S, E, O, F, R]) S { m.Initial }
+
+// Run steps m from its initial state over signals, in order, one at a
+// time: it ends at the first Done (Finished) or after the last signal
+// (Running), and fails Rejected at the first Reject. A failure of the step
+// ends the run with that failure.
+func Run[S, E, O, F, R](m Machine[S, E, O, F, R], signals []E) Outcome[S, O] fails Rejected | F needs R {
+	try From(m, m.Initial, signals)
+}
+
+// From is Run from the state s instead of m's initial state: Run(m, a ++ b)
+// is From(m, s, b) when Run(m, a) is Running with state s.
+func From[S, E, O, F, R](m Machine[S, E, O, F, R], s S, signals []E) Outcome[S, O] fails Rejected | F needs R {
+	let mut at = s
+	for i, e in signals {
+		let d = try m.Step(at, e)
+		match d {
+		case Done[O] as done:
+			return Finished[S, O]{State: at, Output: done.Output}
+		case Reject:
+			return Rejected{At: i}
+		case Enter[S]:
+		case Stay[S]:
+		case Ignore:
+		}
+		at = Next(at, d)
+	}
+	Running[S]{State: at}
+}

@@ -441,6 +441,60 @@ func (c *checker) checkMachine(tn *TypeName) {
 	}
 }
 
+// isPreludeMachine reports whether t is an instance of the prelude's
+// Machine.
+func isPreludeMachine(t Type) bool {
+	n, ok := t.(*Named)
+	m := preludeType("Machine")
+	return ok && m != nil && n.origin() == m
+}
+
+// machineValue is the prelude Machine[S, E, O, F, R] that a value of the
+// machine declaration t converts to (README Gap 46), with the machine's
+// step: O is the step's output, F its error row and R its capability row.
+// It is nil when t is not a machine declaration, or when its step is not
+// a function of the checked shape (checkMachine reports that).
+func (c *checker) machineValue(t Type) (*Named, *Func) {
+	n, ok := t.(*Named)
+	if !ok || n.Obj == nil || n.Obj.Decl == nil {
+		return nil, nil
+	}
+	m, ok := n.Underlying().(*MachineType)
+	if !ok {
+		return nil, nil
+	}
+	spec, ok := n.Obj.Decl.Spec.(*syntax.MachineType)
+	if !ok || spec.Step == nil || n.Obj.Pkg == nil {
+		return nil, nil
+	}
+	id, ok := spec.Step.(*syntax.Ident)
+	if !ok {
+		return nil, nil
+	}
+	f, ok := n.Obj.Pkg.Scope.names[id.Name].(*Func)
+	machine, decision := preludeType("Machine"), preludeType("Decision")
+	if !ok || f.Sig == nil || machine == nil || decision == nil || isExtern(f) {
+		return nil, nil
+	}
+	sig := f.Sig
+	if len(sig.TParams) > 0 || len(sig.Params) != 2 || len(sig.Results) != 1 ||
+		!c.identical(sig.Params[0].Type, m.State) || !c.identical(sig.Params[1].Type, m.Signal) {
+		return nil, nil
+	}
+	r, ok := sig.Results[0].(*Named)
+	if !ok || r.origin() != decision || len(r.TArgs) != 2 || !c.identical(r.TArgs[0], m.State) {
+		return nil, nil
+	}
+	errs, uses := sig.Errors, sig.Uses
+	if errs == nil {
+		errs = newRow()
+	}
+	if uses == nil {
+		uses = newRow()
+	}
+	return c.instantiate(machine, []Type{m.State, m.Signal, r.TArgs[1], &RowArg{Row: errs}, &RowArg{Row: uses}}), f
+}
+
 // checkEntry checks main (rows.md, Capability rows 4; README Gaps 4 and 5):
 // no parameters, no type parameters, and no value result; an error row is
 // allowed. Its capability row is not restricted at check time (Q4). A call
