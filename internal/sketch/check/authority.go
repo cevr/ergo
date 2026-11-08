@@ -300,78 +300,132 @@ func Authorities(t Type, from *Package) []*TypeName {
 // one with authority), a tuple element, a slice or Map element or key, a
 // union variant, a borrow's element, at any depth; and through a function
 // value or an operation of an operation-type value, every way a call gives
-// its caller a value (fu-ambient-ctor r3): a result, a failure it catches,
-// and what the call passes to a function the caller supplies. A caller
-// supplies a value of each parameter, so the walk goes into a parameter
-// with the polarity turned: a function the caller supplies is given its
-// parameters' values (so `func(f func(v Tok))` exposes Tok), and its
-// results and failures are the caller's own. A record found where the
+// its caller a value (fu-ambient-ctor r3, r4): a result, a failure it
+// catches, what the call passes to a function the caller supplies, and
+// what it passes to an operation of a capability of its needs row, which
+// the caller binds to a provider of its own (a with). A caller supplies a
+// value of each parameter and a provider of each capability of the needs
+// row, so the walk goes into them with the polarity turned: a function the
+// caller supplies is given its parameters' values (so `func(f func(v Tok))`
+// and `func() needs Sink` with `type Sink { Put(t Tok) }` expose Tok), and
+// its results and failures are the caller's own. A record found where the
 // caller supplies the value is not exposed; a function inside it still
 // receives what the callee passes it.
+//
+// The walk is one switch over every kind of Type (exposer.walk), with no
+// default case: TestExposesWalkNamesEveryKind fails when a kind or a part
+// of one is added and the walk does not name it.
 func Exposes(t Type, from *Package) []*TypeName {
-	var out []*TypeName
-	type key struct {
-		t   Type
-		out bool
+	e := &exposer{from: from, seen: map[polarType]bool{}}
+	e.walk(t, true)
+	return e.out
+}
+
+// exposer is Exposes's walk: out holds the records found so far, and seen
+// the (type, polarity) pairs walked, so a type met where the caller
+// supplies it is still walked where the caller gets it.
+type exposer struct {
+	from *Package
+	out  []*TypeName
+	seen map[polarType]bool
+}
+
+// polarType is a type at a position: gets when the caller gets a value of
+// it, else the caller supplies one.
+type polarType struct {
+	t    Type
+	gets bool
+}
+
+// walk visits t at polarity gets. Each case names one kind of Type and
+// says why its parts are walked, or why it has none.
+func (e *exposer) walk(t Type, gets bool) {
+	if t == nil || e.seen[polarType{t, gets}] {
+		return
 	}
-	seen := map[key]bool{}
-	var walk func(t Type, gets bool)
-	// call walks a signature: a caller that gets sig's value (gets) is
-	// given its results and failures and supplies its parameters.
-	call := func(sig *Signature, gets bool) {
-		for _, r := range sig.Results {
-			walk(r, gets)
+	e.seen[polarType{t, gets}] = true
+	switch u := t.(type) {
+	case *Basic:
+		// A basic value holds no record.
+	case *noValue:
+		// No value.
+	case *Named:
+		// A declared type is its body; an instance's body has its type
+		// arguments substituted (Option[Tok], Seq[Tok], Task[T, E]).
+		e.walk(u.underlying(), gets)
+	case *Struct:
+		auth := hasAuthority(u, e.from)
+		if auth && gets {
+			e.out = appendAuthority(e.out, u.obj)
 		}
-		for _, e := range sig.Errors.Elems() {
-			walk(e, gets)
+		for _, f := range u.Fields {
+			if !auth || isExported(f.Name) {
+				e.walk(f.Type, gets)
+			}
 		}
-		for _, p := range sig.Params {
-			walk(p.Type, !gets)
+	case *Tuple:
+		for _, x := range u.Types {
+			e.walk(x, gets)
 		}
+	case *Union:
+		for _, v := range u.Variants {
+			e.walk(v, gets)
+		}
+	case *Pointer:
+		e.walk(u.Elem, gets)
+	case *Slice:
+		e.walk(u.Elem, gets)
+	case *Map:
+		e.walk(u.Key, gets)
+		e.walk(u.Elem, gets)
+	case *Signature:
+		e.call(u, gets)
+	case *Interface:
+		// An operation type's value: a call of each operation. A
+		// predeclared constraint (Set) has no operation and no value.
+		for _, m := range u.Methods {
+			if m.Sig != nil {
+				e.call(m.Sig, gets)
+			}
+		}
+	case *MachineType:
+		// A machine value's states are its own; its signals are sent to
+		// it, so their senders supply them.
+		e.walk(u.State, gets)
+		e.walk(u.Signal, !gets)
+	case *TypeParam:
+		// The caller picks the type argument, so a value of it comes from
+		// the caller; what reaches the caller is what its constraint's
+		// operations are called with.
+		e.walk(u.Constraint, gets)
+	case *RowArg:
+		e.row(u.Row, gets)
+	case *RowVar:
+		// An unexported function's inferred row, as its solution.
+		e.row(u.Solution(), gets)
 	}
-	walk = func(t Type, gets bool) {
-		if t == nil || seen[key{t, gets}] {
-			return
-		}
-		seen[key{t, gets}] = true
-		switch u := under(t).(type) {
-		case *Struct:
-			auth := hasAuthority(u, from)
-			if auth && gets {
-				out = appendAuthority(out, u.obj)
-			}
-			for _, f := range u.Fields {
-				if !auth || isExported(f.Name) {
-					walk(f.Type, gets)
-				}
-			}
-		case *Tuple:
-			for _, e := range u.Types {
-				walk(e, gets)
-			}
-		case *Union:
-			for _, v := range u.Variants {
-				walk(v, gets)
-			}
-		case *Pointer:
-			walk(u.Elem, gets)
-		case *Slice:
-			walk(u.Elem, gets)
-		case *Map:
-			walk(u.Key, gets)
-			walk(u.Elem, gets)
-		case *Signature:
-			call(u, gets)
-		case *Interface:
-			for _, m := range u.Methods {
-				if m.Sig != nil {
-					call(m.Sig, gets)
-				}
-			}
-		}
+}
+
+// call walks a signature: a caller that gets sig's value (gets) is given
+// its results and the records of its failure row, and supplies its
+// parameters and a provider of each capability of its needs row. A type
+// parameter is bound by the call, so TParams adds no position.
+func (e *exposer) call(sig *Signature, gets bool) {
+	for _, r := range sig.Results {
+		e.walk(r, gets)
 	}
-	walk(t, true)
-	return out
+	e.row(sig.Errors, gets)
+	for _, p := range sig.Params {
+		e.walk(p.Type, !gets)
+	}
+	e.row(sig.Uses, !gets)
+}
+
+// row walks each element of a row at polarity gets.
+func (e *exposer) row(r *Row, gets bool) {
+	for _, x := range r.Elems() {
+		e.walk(x, gets)
+	}
 }
 
 func appendAuthority(out []*TypeName, obj *TypeName) []*TypeName {
