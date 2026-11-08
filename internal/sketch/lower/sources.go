@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -144,6 +145,54 @@ func (l *lowerer) at(n syntax.Node, pos syntax.Pos) (src int, path string, line,
 	}
 	line, column = l.srcs[i].file.Position(pos)
 	return i, l.srcs[i].path, line, column
+}
+
+// stdFile is one embedded file of a std package: the file, and the path a
+// location names, the file's place in the repository's std tree
+// (std/flag/parse.ergo; the prelude's std/prelude.ergo).
+type stdFile struct {
+	file *syntax.File
+	path string
+}
+
+// locate is the location of pos in the file that holds the node n, a
+// source of the program (at) or an embedded file of a std package the
+// program reaches: its path, and pos's line and column there. A std body
+// is lowered with no directive and has no entry in the call tables, so
+// only a location a std body writes as text (a match's no-case defect, a
+// call's site) goes through it. A node that no file holds, of the program
+// or of std, is a compiler defect (G1, batch 11).
+func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, column int) {
+	if _, ok := l.sourceOf(n); ok {
+		_, path, line, column = l.at(n, pos)
+		return path, line, column
+	}
+	if l.stdSrc == nil {
+		l.stdSrc = map[syntax.Node]stdFile{}
+		for _, p := range l.libraries() {
+			if !p.Std() {
+				continue
+			}
+			for _, f := range p.Files() {
+				sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
+				if p.Path == std.PreludePath {
+					sf.path = "std/" + f.Name
+				}
+				syntax.Inspect(f, func(m syntax.Node) bool {
+					if m != nil {
+						l.stdSrc[m] = sf
+					}
+					return true
+				})
+			}
+		}
+	}
+	sf, ok := l.stdSrc[n]
+	if !ok || n == nil {
+		ice(n, "a location of a node that no source file holds")
+	}
+	line, column = sf.file.Position(pos)
+	return sf.path, line, column
 }
 
 // eachDecl runs f on each top-level declaration of p's files, in file

@@ -593,6 +593,7 @@ func prelude() preludeResult {
 			if err != nil {
 				panic("check: the prelude does not parse: " + err.Error())
 			}
+			f.Name = name // the embedded name, which the lowering reports (Files)
 			files = append(files, f)
 		}
 		c := newChecker(std.PreludePath, nil, u)
@@ -674,6 +675,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 		if err != nil {
 			return nil, fmt.Errorf("std package %q does not parse: %v", path, err)
 		}
+		f.Name = name // the embedded name, which the lowering reports (Files)
 		files = append(files, f)
 	}
 	c := newChecker(path, s, prelude().scope)

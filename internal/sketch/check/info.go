@@ -122,6 +122,18 @@ type Package struct {
 // so the lowering keys std's namespaces on it, not on a path string.
 func (p *Package) Std() bool { return p != nil && p.std }
 
+// Files is the package's source files in the order the checker met them.
+// A std package's files carry their embedded file name (syntax.File.Name),
+// so a reader can name the file that holds any node of the package: the
+// lowering locates a std body's nodes through them (lower/sources.go).
+func (p *Package) Files() []*syntax.File {
+	out := make([]*syntax.File, len(p.files))
+	for i, f := range p.files {
+		out[i] = f.syntax
+	}
+	return out
+}
+
 // collKey names a prelude function on a slice (isMap false) or a Map.
 type collKey struct {
 	name  string

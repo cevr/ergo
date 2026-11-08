@@ -99,7 +99,7 @@ import (
 type canonical struct {
 	srcs    []srcFile
 	sourced map[*check.Package]bool
-	nodeSrc map[syntax.Node]int // each node's source file; nil for one file
+	nodeSrc map[syntax.Node]int // each node of the program's sources: its source file
 	lists   map[*check.Package]*declLists
 }
 
@@ -117,16 +117,17 @@ func canonicalize(u Unit) *canonical {
 	for _, s := range c.srcs {
 		c.sourced[s.pkg] = true
 	}
-	if len(c.srcs) > 1 {
-		c.nodeSrc = map[syntax.Node]int{}
-		for i, s := range c.srcs {
-			syntax.Inspect(s.file, func(m syntax.Node) bool {
-				if m != nil {
-					c.nodeSrc[m] = i
-				}
-				return true
-			})
-		}
+	// Every program, of one file or several: a std body's nodes are in no
+	// source of the program, and a program of one file must not claim
+	// them (G1, batch 11: it named a line of the user's file for them).
+	c.nodeSrc = map[syntax.Node]int{}
+	for i, s := range c.srcs {
+		syntax.Inspect(s.file, func(m syntax.Node) bool {
+			if m != nil {
+				c.nodeSrc[m] = i
+			}
+			return true
+		})
 	}
 	// Each list is ordered by its declaration's name: an inline variant's
 	// TypeDecl is synthetic (check/shapes.go), and no source holds it.
@@ -192,12 +193,9 @@ func sources(u Unit) []srcFile {
 	return srcs
 }
 
-// sourceOf is the index of the source file that holds n. A program of one
-// file holds every node it meets there.
+// sourceOf is the index of the source file of the program that holds n. A
+// node of a std body is in none (sources.go, stdFile locates it).
 func (c *canonical) sourceOf(n syntax.Node) (int, bool) {
-	if len(c.srcs) == 1 {
-		return 0, true
-	}
 	if n == nil {
 		return 0, false
 	}
