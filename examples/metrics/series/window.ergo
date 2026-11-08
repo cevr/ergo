@@ -1,0 +1,100 @@
+// Windows over samples.
+
+import slices
+
+// BadWidth is a window width below one millisecond.
+type BadWidth { Width int64 }
+
+// Bucket is the samples of one tumbling window [Start, Start+width).
+type Bucket { Start int64, Count int, Sum float64, Min float64, Max float64, Values []float64 }
+
+// StartOf is the start of the tumbling window of width that holds at.
+func StartOf(at int64, width int64) int64 {
+	let r = at % width
+	if r < 0 { at - r - width } else { at - r }
+}
+
+// Tumbling is the non-empty tumbling windows of width over samples, in
+// time order. samples are in time order.
+func Tumbling(samples []Sample, width int64) []Bucket fails BadWidth {
+	if width < 1 {
+		return BadWidth{Width: width}
+	}
+	let mut out = []Bucket{}
+	for s in samples {
+		let start = StartOf(s.At, width)
+		if len(out) > 0 && out[len(out)-1].Start == start {
+			let i = len(out) - 1
+			out[i].Count += 1
+			out[i].Sum += s.Value
+			if s.Value < out[i].Min {
+				out[i].Min = s.Value
+			}
+			if s.Value > out[i].Max {
+				out[i].Max = s.Value
+			}
+			out[i].Values = out[i].Values.Append(s.Value)
+		} else {
+			out = out.Append(Bucket{Start: start, Count: 1, Sum: s.Value, Min: s.Value, Max: s.Value, Values: []float64{s.Value}})
+		}
+	}
+	out
+}
+
+// Sliding is the samples of the last width milliseconds: after Add of a
+// sample at t, it holds the samples added with At in (t-width, t]. Its
+// sum is kept as samples come and go, so Add is amortized O(1).
+type Sliding { width int64, samples []Sample, head int, sum float64 }
+
+// NewSliding is an empty sliding window of width.
+func NewSliding(width int64) Sliding fails BadWidth {
+	if width < 1 {
+		return BadWidth{Width: width}
+	}
+	Sliding{width: width, samples: []Sample{}, head: 0, sum: 0}
+}
+
+// Add puts s in w and drops the samples that fall out of it. Samples are
+// added in time order.
+func Add(w *Sliding, s Sample) {
+	w.samples = w.samples.Append(s)
+	w.sum += s.Value
+	for w.samples[w.head].At <= s.At-w.width {
+		w.sum -= w.samples[w.head].Value
+		w.head += 1
+	}
+	// No slice of a slice (G-ex-f-1): the dead prefix is dropped by a
+	// copy once it is half the slice.
+	if w.head > 32 && w.head*2 > len(w.samples) {
+		let mut live = slices.WithCapacity[Sample](len(w.samples) - w.head)
+		for i in w.head..len(w.samples) {
+			live = live.Append(w.samples[i])
+		}
+		w.samples = live
+		w.head = 0
+	}
+}
+
+// Count is the number of samples in w.
+func Count(w Sliding) int { len(w.samples) - w.head }
+
+// Sum is the sum of the samples in w.
+func Sum(w Sliding) float64 { w.sum }
+
+// Mean is the mean of the samples in w, or None when it is empty.
+func Mean(w Sliding) Option[float64] {
+	if w.Count() == 0 { None } else { Some{w.sum / float64(w.Count())} }
+}
+
+// Percentile is the p-th percentile of values by the nearest rank: the
+// smallest value with at least p percent of the values at or below it.
+// p is clamped to 1..100. None when values is empty.
+func Percentile(values []float64, p int) Option[float64] {
+	if len(values) == 0 {
+		return None
+	}
+	let q = if p < 1 { 1 } else if p > 100 { 100 } else { p }
+	let sorted = slices.Sort(values)
+	let rank = (q*len(sorted) + 99) / 100
+	Some{sorted[rank-1]}
+}

@@ -1,0 +1,92 @@
+// The limiter's rules as laws over generated signal runs.
+
+// Signals is count checks drawn from seed: times that step 0 to 20000 ms,
+// each a breach or calm, breaches more often, so the rate is often spent.
+func Signals(seed int, count int) []Signal {
+	let mut x = (if seed < 0 { -(seed + 1) } else { seed }) % 2147483648
+	let mut at = int64(0)
+	let mut out = []Signal{}
+	for i in 0..count {
+		x = (x*1103515245 + 12345) % 2147483648
+		at += int64((x / 65536) % 20001)
+		if (x/8)%3 == 0 {
+			out = out.Append(Calm{At: at})
+		} else {
+			out = out.Append(Breach{At: at, Value: float64(i)})
+		}
+	}
+	out
+}
+
+// PolicyOf is a policy from any l and w: a limit of 1 to 4 alerts in a
+// window of 1 to 120 seconds.
+func PolicyOf(l int, w int) Policy {
+	let limit = 1 + (if l < 0 { -(l + 1) } else { l })%4
+	let seconds = 1 + (if w < 0 { -(w + 1) } else { w })%120
+	Policy{Limit: limit, Window: int64(seconds) * 1000}
+}
+
+// WithinRate reports whether no window of p.Window milliseconds holds
+// more than p.Limit of times: for each time t, the times in (t-Window, t].
+func WithinRate(times []int64, p Policy) bool {
+	for t in times {
+		let mut n = 0
+		for u in times {
+			if u > t-p.Window && u <= t {
+				n += 1
+			}
+		}
+		if n > p.Limit {
+			return false
+		}
+	}
+	true
+}
+
+// NeverExceedsRate: whatever the checks, the alerts keep the policy's
+// rate.
+law NeverExceedsRate(seed int, l int, w int) {
+	let p = PolicyOf(l, w)
+	WithinRate(AlertTimes(Drive(p, Signals(seed, 80))), p)
+}
+
+// BreachesAreAccounted: every breach alerts, is muted, or falls inside
+// an incident that is already firing; every calm check resolves an
+// incident or does nothing; and each resolution names the alert that
+// opened its incident.
+law BreachesAreAccounted(seed int, l int, w int) {
+	let signals = Signals(seed, 80)
+	let events = Drive(PolicyOf(l, w), signals)
+	let mut firing = false
+	let mut since = int64(0)
+	for i, e in events {
+		match (signals[i], e) {
+		case (Breach, Alerted as a):
+			if firing {
+				return false
+			}
+			firing = true
+			since = a.At
+		case (Breach, Muted):
+			if firing {
+				return false
+			}
+		case (Breach, Nothing):
+			if !firing {
+				return false
+			}
+		case (Calm, Resolved as r):
+			if !firing || r.Since != since {
+				return false
+			}
+			firing = false
+		case (Calm, Nothing):
+			if firing {
+				return false
+			}
+		case (_, _):
+			return false
+		}
+	}
+	true
+}

@@ -1,0 +1,53 @@
+// Package series is the data of the aggregator: timestamped samples,
+// tumbling and sliding windows over them, and percentiles. Time is Unix
+// milliseconds; a sample stamped by the program reads it from time.Clock,
+// so a test drives it with a time.Manual.
+
+import strconv
+import strings
+import time
+
+// Sample is a value observed at At, in Unix milliseconds.
+type Sample { At int64, Value float64 }
+
+// BadSample is a line of input that is not "AT VALUE".
+type BadSample { Line int, Text string }
+
+// Unordered is a sample older than the one before it.
+type Unordered { Line int, At int64, After int64 }
+
+// Parse is the samples of text, one "AT VALUE" per line, in time order;
+// blank lines and lines starting with # are skipped.
+func Parse(text string) []Sample fails BadSample | Unordered {
+	let mut out = []Sample{}
+	for n, l in strings.Split(text, "\n") {
+		let fields = strings.Fields(l)
+		if len(fields) == 0 || strings.HasPrefix(fields[0], "#") {
+			continue
+		}
+		if len(fields) != 2 {
+			return BadSample{Line: n + 1, Text: l}
+		}
+		let at = strconv.ParseInt(fields[0], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return BadSample{Line: n + 1, Text: l}
+		}
+		let v = strconv.ParseFloat(fields[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return BadSample{Line: n + 1, Text: l}
+		}
+		if len(out) > 0 && at < out[len(out)-1].At {
+			return Unordered{Line: n + 1, At: at, After: out[len(out)-1].At}
+		}
+		out = out.Append(Sample{At: at, Value: v})
+	}
+	out
+}
+
+// Millis is t in Unix milliseconds.
+func Millis(t time.Time) int64 { time.UnixSeconds(t)*1000 + time.Nanosecond(t)/1000000 }
+
+// Stamp is a sample of value at the clock's now.
+func Stamp(value float64) Sample needs time.Clock {
+	Sample{At: Millis(time.Clock.Now()), Value: value}
+}

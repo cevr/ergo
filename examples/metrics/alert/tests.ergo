@@ -1,0 +1,82 @@
+// The limiter's tests: examples, and the laws restated as property tests
+// (the compiler checks laws and does not run them yet, #162).
+
+import slices
+
+// words names each event.
+func words(events []Event) []string {
+	let mut out = []string{}
+	for e in events {
+		out = out.Append(match e {
+		case Alerted as a:
+			"alert \(a.At)"
+		case Resolved as r:
+			"resolved \(r.At)"
+		case Muted as m:
+			"muted \(m.At)"
+		case Nothing:
+			"-"
+		})
+	}
+	out
+}
+
+test IncidentOpensAndResolves {
+	let p = Policy{Limit: 2, Window: 60000}
+	let got = words(Drive(p, []Signal{Breach{At: 0, Value: 9}, Breach{At: 10, Value: 9}, Calm{At: 20}, Calm{At: 30}}))
+	assert slices.Equal(got, []string{"alert 0", "-", "resolved 20", "-"})
+}
+
+test RateMutesTheThird {
+	let p = Policy{Limit: 2, Window: 60000}
+	let flap = []Signal{Breach{At: 0, Value: 1}, Calm{At: 1}, Breach{At: 2, Value: 1}, Calm{At: 3}, Breach{At: 4, Value: 1}, Calm{At: 5}, Breach{At: 60001, Value: 1}}
+	let got = words(Drive(p, flap))
+	assert slices.Equal(got, []string{"alert 0", "resolved 1", "alert 2", "resolved 3", "muted 4", "-", "alert 60001"})
+}
+
+test NeverExceedsRateHolds(seed int, l int, w int) {
+	let p = PolicyOf(l, w)
+	assert WithinRate(AlertTimes(Drive(p, Signals(seed, 80))), p)
+}
+
+// The generated runs spend the rate and mute, so the property is not
+// vacuous.
+test GeneratedRunsMute {
+	let mut muted = 0
+	for seed in 0..50 {
+		for e in Drive(PolicyOf(0, 59), Signals(seed, 80)) {
+			match e {
+			case Muted:
+				muted += 1
+			case Alerted, Resolved, Nothing:
+			}
+		}
+	}
+	assert muted > 50
+}
+
+test BreachesAreAccountedHolds(seed int, l int, w int) {
+	let signals = Signals(seed, 80)
+	let events = Drive(PolicyOf(l, w), signals)
+	let mut firing = false
+	let mut since = int64(0)
+	for i, e in events {
+		match (signals[i], e) {
+		case (Breach, Alerted as a):
+			assert !firing
+			firing = true
+			since = a.At
+		case (Breach, Muted):
+			assert !firing
+		case (Breach, Nothing):
+			assert firing
+		case (Calm, Resolved as r):
+			assert firing && r.Since == since
+			firing = false
+		case (Calm, Nothing):
+			assert !firing
+		case (_, _):
+			assert false
+		}
+	}
+}
