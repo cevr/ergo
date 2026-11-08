@@ -30,6 +30,19 @@ func main() needs Console {
 	Console.Println("\(differs(m, "a", "1")) \(differs(m, "a", "2"))")
 }
 `, "false true\n")
+	// Repro c2e (stackvm): the same header in an if in value position, the
+	// value of a let.
+	wantRun(t, `func label(m Map[int, bool], n int) string {
+	let l = if m.Get(n) == (Some[bool]{Value: true}) { "L" } else { "-" }
+	l
+}
+
+func main() needs Console {
+	let mut m Map[int, bool]
+	m[1] = true
+	Console.Println("\(label(m, 1))\(label(m, 2))")
+}
+`, "L-\n")
 }
 
 var headerSeed = flag.Uint64("header.seed", 0, "run TestHeaderLiteralAgrees on this seed alone")
