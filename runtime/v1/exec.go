@@ -109,7 +109,11 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 			cmd.Env = append(cmd.Env, k+"="+env[k]) // a later entry wins (os/exec)
 		}
 	}
-	cmd.Stdin = strings.NewReader(stdin)
+	if stdin != "" {
+		// An empty input is the null device, which reads end of file at
+		// once: os/exec then needs no pipe and no copying goroutine.
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	cmd.WaitDelay = execWaitDelay

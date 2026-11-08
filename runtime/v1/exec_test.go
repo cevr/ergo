@@ -183,23 +183,49 @@ func runExecCase(t *testing.T, c execCase) (res ExecResult, err error, interrupt
 	}
 }
 
-// procAlive reports whether pid names a process that runs: one with an
-// entry in /proc whose state is not Z (a zombie runs no code).
-func procAlive(pid int) bool {
+// procAlive reports whether pid names a process of the group pgid that
+// runs: one with an entry in /proc whose state is not Z (a zombie runs no
+// code) and whose process group is pgid. The generated programs never
+// leave their group, so a pid in another group is a new process that the
+// host gave a freed pid (this host's pids wrap at 4194304), not one of
+// ours.
+func procAlive(pid, pgid int) bool {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return false
 	}
-	// The state follows the parenthesized command name.
+	// After the parenthesized command name: state, ppid, pgrp.
 	s := string(data)
 	i := strings.LastIndexByte(s, ')')
-	return i < 0 || i+2 >= len(s) || s[i+2] != 'Z'
+	if i < 0 {
+		// An empty read: /proc gives no text for a process that is being
+		// torn down (measured: the entry is gone at the next read).
+		return false
+	}
+	f := strings.Fields(s[i+1:])
+	return len(f) >= 3 && f[0] != "Z" && f[2] == strconv.Itoa(pgid)
 }
 
-// procExists reports whether pid has any entry in /proc, a zombie included.
-func procExists(pid int) bool {
-	_, err := os.Stat("/proc/" + strconv.Itoa(pid))
-	return err == nil
+// procLine is the stat line of pid, for a failure message.
+func procLine(pid int) string {
+	data, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	return strings.TrimSpace(string(data))
+}
+
+// procExists reports whether pid has an entry in /proc, a zombie included,
+// in the group pgid (see procAlive for a pid in another group).
+func procExists(pid, pgid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	s := string(data)
+	i := strings.LastIndexByte(s, ')')
+	if i < 0 {
+		return false // an empty read: the entry is being torn down (procAlive)
+	}
+	f := strings.Fields(s[i+1:])
+	return len(f) >= 3 && f[2] == strconv.Itoa(pgid)
 }
 
 // readPids is the pids a program wrote to its pid file, the program's own
@@ -277,19 +303,20 @@ func TestExecStopModel(t *testing.T) {
 			t.Errorf("%s\nthe program wrote no pid", where)
 			continue
 		}
-		if procExists(pids[0]) {
+		if procExists(pids[0], pids[0]) {
 			t.Errorf("%s\nRun returned and the program %d is not reaped", where, pids[0])
 		}
 		for _, pid := range pids[1:] {
 			// Run sent the group SIGKILL before it returned, and a process
 			// with a pending SIGKILL never runs its own code again; the
 			// host takes a moment to end it, so the check waits up to 2s.
-			gone := time.Now().Add(2 * time.Second)
-			for procAlive(pid) && time.Now().Before(gone) {
+			start := time.Now()
+			gone := start.Add(2 * time.Second)
+			for procAlive(pid, pids[0]) && time.Now().Before(gone) {
 				time.Sleep(time.Millisecond)
 			}
-			if procAlive(pid) {
-				t.Errorf("%s\nRun returned and the grandchild %d still runs 2s later", where, pid)
+			if procAlive(pid, pids[0]) {
+				t.Errorf("%s\nRun returned and the grandchild %d of group %d still runs %v later: %s", where, pid, pids[0], time.Since(start), procLine(pid))
 			}
 		}
 	}
@@ -381,7 +408,8 @@ func TestExecNotFoundNamesTheProgram(t *testing.T) {
 }
 
 // BenchmarkExecRunTrue is Run("true") against its Go control,
-// exec.CommandContext(ctx, "true").Run(): process start dominates both.
+// exec.CommandContext(ctx, "true") with stdout and stderr read into
+// buffers and made strings, the same work: process start dominates both.
 func BenchmarkExecRunTrue(b *testing.B) {
 	b.Run("ergo", func(b *testing.B) {
 		task := rt.Root("exec bench")
@@ -396,9 +424,13 @@ func BenchmarkExecRunTrue(b *testing.B) {
 		ctx := context.Background()
 		b.ReportAllocs()
 		for b.Loop() {
-			if err := exec.CommandContext(ctx, "true").Run(); err != nil {
+			var out, errOut bytes.Buffer
+			cmd := exec.CommandContext(ctx, "true")
+			cmd.Stdout, cmd.Stderr = &out, &errOut
+			if err := cmd.Run(); err != nil {
 				b.Fatal(err)
 			}
+			sinkString = out.String() + errOut.String()
 		}
 	})
 }
