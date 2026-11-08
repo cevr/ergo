@@ -216,7 +216,7 @@ func BenchmarkQueuePoll(b *testing.B) {
 		for range b.N {
 			n += q.Len()
 		}
-		benchSink = n
+		queueBenchSink = n
 	})
 	b.Run("Len/go", func(b *testing.B) {
 		ch := make(chan int, 4)
@@ -226,7 +226,7 @@ func BenchmarkQueuePoll(b *testing.B) {
 		for range b.N {
 			n += len(ch)
 		}
-		benchSink = n
+		queueBenchSink = n
 	})
 }
 
@@ -243,7 +243,7 @@ func BenchmarkQueuePushPop(b *testing.B) {
 			v, _ := q.Pop(bg)
 			n += v
 		}
-		benchSink = n
+		queueBenchSink = n
 	})
 	b.Run("go", func(b *testing.B) {
 		ch := make(chan int, 1)
@@ -253,12 +253,12 @@ func BenchmarkQueuePushPop(b *testing.B) {
 			ch <- i
 			n += <-ch
 		}
-		benchSink = n
+		queueBenchSink = n
 	})
 }
 
-// benchSink keeps a benchmark's result alive.
-var benchSink int
+// queueBenchSink keeps a benchmark's result alive.
+var queueBenchSink int
 
 // TestQueueContract walks each rule of the queue contract (runtime.md,
 // Queues).

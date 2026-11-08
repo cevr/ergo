@@ -35,8 +35,7 @@ func genPath(r *rand.Rand) string {
 	return b.String()
 }
 
-// lawCases is the number of generated cases per law.
-const lawCases = 10_000
+// lawCases (collections_test.go) is the number of generated cases per law.
 
 // TestFilepathLaws runs each law of std filepath (stdlib.md, Std laws)
 // over the Go bodies its Ergo functions call, with 10,000 seeded paths per

@@ -45,14 +45,14 @@ func genInts(r *rand.Rand) []int {
 	return xs
 }
 
-var textAlphabet = []string{"", "a", "b", "ab", "é", "日本", "\xff", "\x00", "B", "a\xffb"}
+var collectionsAlphabet = []string{"", "a", "b", "ab", "é", "日本", "\xff", "\x00", "B", "a\xffb"}
 
 // genStrings draws a slice of strings from a small alphabet that holds
 // multi-byte UTF-8 and invalid bytes.
 func genStrings(r *rand.Rand) []string {
 	xs := make([]string, r.IntN(12))
 	for i := range xs {
-		xs[i] = textAlphabet[r.IntN(len(textAlphabet))] + textAlphabet[r.IntN(len(textAlphabet))]
+		xs[i] = collectionsAlphabet[r.IntN(len(collectionsAlphabet))] + collectionsAlphabet[r.IntN(len(collectionsAlphabet))]
 	}
 	return xs
 }
@@ -203,8 +203,8 @@ func TestStdCmpMatchesGo(t *testing.T) {
 			}
 		}
 	}
-	for _, a := range textAlphabet {
-		for _, b := range textAlphabet {
+	for _, a := range collectionsAlphabet {
+		for _, b := range collectionsAlphabet {
 			if CmpCompare(a, b) != cmp.Compare(a, b) || CmpLess(a, b) != cmp.Less(a, b) {
 				t.Errorf("Compare(%q, %q) differs from Go's", a, b)
 			}
