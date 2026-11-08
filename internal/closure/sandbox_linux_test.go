@@ -358,12 +358,16 @@ func runTree(pid int) []string {
 }
 
 // openProcess returns a pidfd of process pid, or ok false when no process
-// has that id. The pidfd names that one process even after its id is
-// reused.
+// has that id: none has it (ESRCH), or a thread that leads no process has
+// it (EINVAL; a listed process ended and a thread took its id, batch-10
+// gate). The pidfd names that one process even after its id is reused.
 func openProcess(pid int) (fd int, ok bool, err error) {
+	if pid <= 0 {
+		return -1, false, fmt.Errorf("pidfd_open %d: no process id", pid)
+	}
 	pidfd, _, errno := syscall.Syscall(sysPidfdOpen, uintptr(pid), 0, 0)
 	switch {
-	case errno == syscall.ESRCH:
+	case errno == syscall.ESRCH, errno == syscall.EINVAL:
 		return -1, false, nil
 	case errno != 0:
 		return -1, false, fmt.Errorf("pidfd_open %d: %w", pid, errno)
