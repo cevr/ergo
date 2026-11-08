@@ -176,7 +176,7 @@ type Rd { Get() int }
 func Get(_ H) int { 1 }
 
 `
-	held := []string{"fixture.H", "fixture.U", "fixture.N", "fixture.W", "fixture.S", "func() int"}
+	held := []string{"fixture.H", "fixture.U", "fixture.N", "fixture.W", "fixture.S", "fixture.Flag", "func() int"}
 	for _, row := range []struct {
 		name, src string
 		want      []string
@@ -192,6 +192,10 @@ func Get(_ H) int { 1 }
 		{"conversion", "func f(h H) H { H(h) }\n", []string{"conversion fixture.H @func f [F]"}},
 		{"constant", "func f() N { 3 }\n", []string{"constant fixture.N @func f [F]"}},
 		{"constant expression", "func f() N { -3 }\n", []string{"constant fixture.N @func f [F]"}},
+		{"constant name", "type Flag bool\n\nfunc f() Flag { true }\n", []string{"constant fixture.Flag @func f [F]"}},
+		{"if branch", "func f(b bool) int {\n\tif b { Get(H{root: \"/\"}) } else { 0 }\n}\n", []string{"literal fixture.H @func f [F]"}},
+		{"match arm", "func f(w W) int {\n\tmatch w {\n\tcase W{X: _, Y: y}: Get(H{root: \"/\"}) + y\n\t}\n}\n", []string{"literal fixture.H @func f [F]"}},
+		{"catch arm", "type Oops {}\n\nfunc g() int fails Oops { 1 }\n\nfunc f() int {\n\tg() catch {\n\tcase Oops:\n\t\tGet(H{root: \"/\"})\n\t}\n}\n", []string{"literal fixture.H @func f [F]"}},
 		{"variable is no mint", "func f(u U) U { u }\n", nil},
 		{"field read is no mint", "type Z { Q U }\n\nfunc f(z Z) U { z.Q }\n", nil},
 		{"call is no mint", "func g() H needs Ambient { H{root: \"/\"} }\n\nfunc f() H needs Ambient { g() }\n", []string{"literal fixture.H @func g [Fw]"}},
