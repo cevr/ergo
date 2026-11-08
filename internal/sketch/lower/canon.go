@@ -85,8 +85,8 @@ import (
 //   - the order inside one declaration (fields, variants, parameters,
 //     witnesses): it is the declaration's own source order.
 //
-// Laws are never read: no build lowers one (decls.go). Package.Laws is
-// guarded with the other lists, so a future read goes through here.
+// Laws are read by the test build only (tests.go, Laws): Package.Laws and
+// each law's providers are in canonical order here, as the tests are.
 //
 // Prior art: go build gives the compiler a package's files sorted by name,
 // and cmd/compile sorts what it emits by symbol (types.CompareSyms), never
@@ -108,6 +108,7 @@ type declLists struct {
 	funcs []*check.Func
 	types []*check.TypeName
 	tests []*check.Test
+	laws  []*check.Law
 }
 
 // canonicalize converts u, which Validate admits, to its canonical form.
@@ -150,6 +151,12 @@ func canonicalize(u Unit) *canonical {
 				return nil
 			}
 			return t.Decl.Name
+		})
+		d.laws = declOrder(c, p.Laws, func(l *check.Law) syntax.Node {
+			if l.Decl == nil {
+				return nil
+			}
+			return l.Decl.Name
 		})
 		c.lists[p] = d
 	}
@@ -257,6 +264,25 @@ func (c *canonical) tests(p *check.Package) []*check.Test {
 		return d.tests
 	}
 	return p.Tests
+}
+
+// laws are p's laws, top-level and member, in canonical order.
+func (c *canonical) laws(p *check.Package) []*check.Law {
+	if d := c.lists[p]; d != nil {
+		return d.laws
+	}
+	return p.Laws
+}
+
+// lawProviders are law's providers in canonical order: by the source file
+// and offset of each provider's declaration name.
+func (c *canonical) lawProviders(law *check.Law) []check.LawProvider {
+	return declOrder(c, law.Providers, func(p check.LawProvider) syntax.Node {
+		if p.Type.Obj.Decl == nil {
+			return nil
+		}
+		return p.Type.Obj.Decl.Name
+	})
 }
 
 // initOrder is p's package-level initializers in the checker's

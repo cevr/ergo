@@ -393,9 +393,14 @@ var i1Split = newSplit(split[i1Case]{
 	// The pin: the domain of the unsplit property at f79be34b
 	// (request.md, leg 1), re-pinned by std-align S2b when the extern
 	// shape's LiveScheduler came from NewLiveScheduler and its written
-	// rows listed Ambient (the same 17131 cases, two source texts changed).
-	count:  17131,
-	digest: "69a8fbf80189fb3bb44c022de5bf2a2ad9b801e2f73bacf7b09ebc4165ecaaa6",
+	// rows listed Ambient (the same 17131 cases, two source texts changed),
+	// and re-pinned by #162 law-run-1 when the law body joined the frame
+	// catalog (i1FrameKinds "top-law"): the 17131 cases unchanged plus 1516
+	// cases of that frame (209 top-law/, 1303 nest-top-law/, 4
+	// entry-top-law/). Without that frame kind the domain is the old pin
+	// exactly.
+	count:  18647,
+	digest: "77b3ccaefa36e131e08fdde6d22b9c8877a6f79cdc5770cbb1610780fd47c601",
 	cases: func(yield func(i1Case) bool) {
 		for _, c := range i1Domain() {
 			if !yield(c) {
@@ -417,7 +422,8 @@ var i1Split = newSplit(split[i1Case]{
 
 const (
 	// i1Parts: the 17 131 cases took 170 to 180 s in one test at load
-	// 30 to 46 (measured at f79be34b), so a part takes about 8 s.
+	// 30 to 46 (measured at f79be34b), so a part takes about 8 s; the
+	// 18 647 of #162 about 9 s.
 	i1Parts = 24
 	// i1Short: under -short a part checks every 50th case of its share.
 	i1Short = 50
@@ -477,8 +483,10 @@ func TestRuntime199I1PropertyDomain(t *testing.T) {
 			t.Errorf("no generated case of the frame class %s", class)
 		}
 	}
-	// Each law case is lowered in both builds (types.md, Laws 11: neither
-	// build includes a law).
+	// Each law case is lowered in both builds: a member law of a type with
+	// no provider, which neither build runs (types.md, Laws), so neither
+	// holds its loops. The top-law frame class covers a law the test
+	// build runs.
 	lawBuilds := map[bool]int{}
 	for _, c := range cases {
 		if strings.HasPrefix(c.name, "law/") {
@@ -882,15 +890,23 @@ func i1CheckPolls(t *testing.T, o *lowered, c i1Case) {
 	if c.testBuild {
 		f.Decls = i1UserDecls(f.Decls)
 	}
+	// The test build lowers a top-level law, which runs once or over
+	// generated values (types.md, Laws; #162 law-run-1); a member law runs
+	// per provider, and no generated program declares one. The run build
+	// lowers no law.
+	topLaws := map[*syntax.LawDecl]bool{}
+	for _, d := range o.file.Decls {
+		if law, ok := d.(*syntax.LawDecl); ok {
+			topLaws[law] = true
+		}
+	}
 	source := 0
 	syntax.Inspect(o.file, func(n syntax.Node) bool {
-		switch n.(type) {
+		switch n := n.(type) {
 		case *syntax.ForStmt, *syntax.RangeStmt:
 			source++
 		case *syntax.LawDecl:
-			// Neither build lowers a law (types.md, Laws 11), so its loops
-			// have no Go loop.
-			return false
+			return c.testBuild && topLaws[n]
 		}
 		return true
 	})

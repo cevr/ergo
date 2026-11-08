@@ -1,7 +1,7 @@
 // law-top sweep program: top-level laws beside tests and main. One law
-// alone uses an error type, a generic instance and a std package, so a
-// build that read the law would declare them (spec Risk 2). The test build
-// runs the tests and no law; the run build runs main only.
+// alone uses an error type, a generic instance and a std package: the run
+// build declares none of them (spec Risk 2), and the test build does. It
+// runs the tests, then the laws; the run build runs main only.
 import slices
 
 type Gone {}
@@ -25,7 +25,7 @@ law Alone(n int, s string) {
 	case Gone:
 		n
 	}
-	let xs = slices.WithCapacity[int](n)
+	let xs = slices.WithCapacity[int](len(s))
 	v == n && wrap(s).V == s && len(xs) == 0
 }
 
@@ -44,5 +44,7 @@ func main() needs Console {
 // run> 42
 // test> ok Doubles
 // test> ok DoubleEven (100 cases)
-// test> PASS (2 tests)
+// test> ok law DoubleIsSum (100 cases)
+// test> ok law Alone (100 cases)
+// test> PASS (4 tests)
 // test exit 0

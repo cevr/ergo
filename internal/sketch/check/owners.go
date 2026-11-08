@@ -13,8 +13,8 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //   - OwnerTest: a test body, with the function literals in it. Only test
 //     bodies see its facts, and only the test build reads them.
 //   - OwnerLaw: a law body (stage E3b), with the function literals in it.
-//     Only law bodies see its facts, and neither build reads them: laws are
-//     checked, not run (spec D-E4; #162 runs them).
+//     Only law bodies see its facts, and only the test build reads them:
+//     ergo test runs laws (#162 law-run-1), and the run build has none.
 //
 // So a test changes neither the verdict on the rest of the program nor its
 // run Go: a struct type that only a test's error row names is an error type
@@ -32,8 +32,8 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //
 // The owners are a closed set that later stages extend additively. A build
 // reads the facts its view sees (lower/owners.go): the run build's view is
-// OwnerProduction and the test build's OwnerTest, so no build view sees
-// OwnerLaw, and a law adds nothing to either build by construction.
+// OwnerProduction and the test build's ViewTestBuild, so a law adds
+// nothing to the run build by construction.
 //
 // Prior art: Go keeps a package's _test.go files out of its build, so no
 // test declaration reaches the program's binary; Rust compiles #[cfg(test)]
@@ -50,12 +50,18 @@ const (
 	OwnerTest
 	// OwnerLaw owns the facts of law bodies (stage E3b).
 	OwnerLaw
+	// ViewTestBuild owns no fact: it is the test build's view, which
+	// lowers the program, its tests and its laws (#162 law-run-1), so it
+	// sees the facts of all three owners. No body has it as its owner, so
+	// a test body still never sees a law's facts, nor a law a test's.
+	ViewTestBuild
 )
 
 // Sees reports whether a body of owner o sees a fact of owner f: every body
-// sees the program's facts, and a body sees its own owner's.
+// sees the program's facts, and a body sees its own owner's. The test
+// build's view sees the tests' and the laws' as well.
 func (o FactOwner) Sees(f FactOwner) bool {
-	return f == OwnerProduction || f == o
+	return f == OwnerProduction || f == o || (o == ViewTestBuild && (f == OwnerTest || f == OwnerLaw))
 }
 
 // IsErrorType reports whether n, a struct type, is an error type in a body

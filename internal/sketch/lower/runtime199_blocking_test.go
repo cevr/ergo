@@ -40,6 +40,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"funcCtx.poll":          "the interruption point (Check)",
 			"funcCtx.envClosure":    "a task callback's Env copy",
 			"lowerer.testRunner":    "a test case's task, which the case's Capture classifies its unwinding against (E3a M3)",
+			"lowerer.lawRuns":       "a law case's task, which the case's Capture classifies its unwinding against (#162)",
 		}},
 		{"memberName", map[string]string{
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
