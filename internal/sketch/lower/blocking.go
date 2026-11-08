@@ -152,6 +152,8 @@ var runtimeBindings = map[string]runtimeBinding{
 	"CSVReadAll": {},
 	"CSVPrefix":  {},
 	"CSVFormat":  {},
+	// std machines (fs2): the defect of a timer that is not positive.
+	"MachineTimerNotPositiveAt": {},
 	// std-duration: pure bodies of duration text and arithmetic.
 	"TimeParseDuration": {},
 	"TimeDurationText":  {},

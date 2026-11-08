@@ -28,6 +28,7 @@ package v1
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -84,6 +85,42 @@ func TextFloat(f float64, bits int) string { return strconv.FormatFloat(f, 'g', 
 
 // TextDuration is a duration's text, as Go writes a time.Duration: 1.5s.
 func TextDuration(d time.Duration) string { return d.String() }
+
+// MachineTimerDefect is the defect of a machine whose after function armed
+// a timer with an In that is not positive (docs/spec/runtime.md, Machines
+// and actors 9; fs2). Such a timer fires at its entry's instant, so a state
+// whose timer re-enters it never lets time pass. Go's time.NewTicker panics
+// on a non-positive period for the same reason.
+// Machine and State are empty for a Machine built from parts, which has no
+// name; At is then the run's time when the timer was armed.
+type MachineTimerDefect struct {
+	Machine string
+	State   string
+	At      time.Duration
+	In      time.Duration
+}
+
+// String is the defect's text, which the entry's report writes after
+// "panic: ".
+func (d *MachineTimerDefect) String() string {
+	const why = ", which is not positive; a timer waits a positive duration"
+	if d.Machine == "" {
+		return "a Machine built from parts: the timer armed at " + TextDuration(d.At) + " has In " + TextDuration(d.In) + why
+	}
+	return "machine " + d.Machine + ": the timer of state " + d.State + " has In " + TextDuration(d.In) + why
+}
+
+// MachineTimerNotPositive is the defect of machine's timer armed in state s
+// with In in. The state's text is its Go type's name and fields, as
+// fmt's %+v writes them: Idle{n:1}.
+func MachineTimerNotPositive[S any](machine string, s S, in time.Duration) *MachineTimerDefect {
+	v := any(s)
+	name := ""
+	if t := reflect.TypeOf(v); t != nil {
+		name = t.Name()
+	}
+	return &MachineTimerDefect{Machine: machine, State: name + fmt.Sprintf("%+v", v), In: in}
+}
 
 // TextList is a list's text from its elements' texts: [a b c].
 func TextList(elems []string) string { return "[" + strings.Join(elems, " ") + "]" }
