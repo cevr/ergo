@@ -105,6 +105,19 @@ func TestErgoRunRunesLoop(t *testing.T) {
 	}
 }
 
+// TestRunesLoopLowersToGoRange: each form is Go's range over the string
+// itself, with no []rune or []byte conversion, which would allocate (or,
+// for bytes, change the meaning).
+func TestRunesLoopLowersToGoRange(t *testing.T) {
+	for _, form := range []string{"for r in s {\n\t\tn += int(r)\n\t}", "for i, r in s {\n\t\tn += i + int(r)\n\t}", "for i, _ in s {\n\t\tn += i\n\t}"} {
+		src := "func f(s string) int {\n\tlet mut n = 0\n\t" + form + "\n\tn\n}\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(f(\"ab\"))\")\n}\n"
+		gosrc := mustLower(t, "runes", src).mainGo()
+		if strings.Contains(gosrc, "[]rune(") || strings.Contains(gosrc, "[]byte(") || !strings.Contains(gosrc, "range s") {
+			t.Fatalf("%s lowers to more than Go's range over the string:\n%s", form, gosrc)
+		}
+	}
+}
+
 // TestErgoRunRunesLoopControl: break, continue and return inside a for
 // over a string, and a defined string type, behave as over a slice.
 func TestErgoRunRunesLoopControl(t *testing.T) {
