@@ -201,13 +201,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSWriteFile": {},
 	"FSMkdirAll":  {},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
-	// stream of the host process. A read of standard input is an
-	// uninterruptible host wait, as a read of a file is; none releases.
+	// stream of the host process; none releases. A read of standard input
+	// waits on the caller's task (batch-12 C3, decision O15): a stop of that
+	// task ends the wait, and the line read after it stays for the next read.
 	"IOPrint":      {},
 	"IOEprint":     {},
 	"IOIsTerminal": {},
-	"IOReadAll":    {},
-	"IOLines":      {},
+	"IOReadAll":    {wait: callerWait},
+	"IOLines":      {wait: callerWait},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap

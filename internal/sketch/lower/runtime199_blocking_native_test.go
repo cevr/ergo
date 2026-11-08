@@ -78,7 +78,13 @@ var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true}
 // laws (a stop before the call starts nothing, a stop while the program
 // runs kills its group and returns after the reap, a masked caller runs
 // it to its end), and lower TestExecRuns stops a task that waits in one.
-var hostWaitLaws = map[string]bool{"ExecRun": true}
+// The reads of standard input wait for the host's input (batch-12 C3):
+// runtime/v1/stdin_stop_test.go TestIOStdinStopModel states their laws (a
+// stop ends the wait, each line is taken once and in order, the line read
+// after a stop stays for the next read); a masked caller's Done is nil, so
+// its read runs to its end; lower TestStdinStopRuns stops a task that waits
+// in Lines.
+var hostWaitLaws = map[string]bool{"ExecRun": true, "IOReadAll": true, "IOLines": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

@@ -21,6 +21,12 @@ This file is the dated log of the owner's decisions for Ergo, newest first. A de
 
   Prior art: ReScript makes pipe-first syntax and uncurries by default, so neither costs a call; Elixir's `|>` is a macro and `with` chains the happy path; Gleam's `use` replaces callbacks with plain lines; Roc and MoonBit derive equality, hashing and codecs in the compiler; Koka's evidence passing turns a tail-resumptive handler into a direct call, as Ergo's environment of capabilities does; Elm, with no derivation, writes JSON decoders by hand, the shape this rule avoids.
 
+## Decided by principle, 2026-11-08
+
+- **A stop ends a read of standard input (batch 12, O15; the owner may overrule).** This reverses stdlib.md io rule 3 ("a read of standard input … cannot be stopped"). A task that waits in `io.Stdin.Lines()` or `ReadAll()` of the host provider ends its wait when it is stopped, and raises the interruption. No input is lost. One read of the process's input runs at a time, on a goroutine of its own. The line that it lands after the stop stays for the next read, and a `ReadAll` that a stop ends puts back what it read. The examples-wave program g3 showed the cost of the old rule: a reader stopped while the input stayed open (`sleep 3 |`) kept `Stop` waiting until the input closed, 3.0 s (measured). With the change it waits 3 ms (measured).
+
+  Rule: [stdlib.md, io](spec/stdlib.md#io) 3. Principles: structured concurrency (a stop reaches every wait of the task); correctness first (each line is taken once and in order: `TestIOStdinStopModel`). Prior art: Go's reader goroutine with a `select` on its channel and `ctx.Done()`, the hand-Go control; Effect's `Terminal.readInput`, a stream that interruption ends; Tokio's `stdin`, a blocking read on a thread whose result waits for the next read.
+
 ## Owner direction, 2026-11-06
 
 - **The standard library is Effect's guarantees with Go's names (2026-11-06).** Owner: "the rule should be that we match effect's standard library and what it does with Go conventions as well as we can to kind of get the best of both worlds. So with like our domain modeling and all these kinds of things that we do - the standard library should make full use of the laws and all the things that make ergo ergonomic, gives it strong guarantees." And: "our goal is faster than hand-optimized code where our compiler gives it space, otherwise just as fast". Decided:
