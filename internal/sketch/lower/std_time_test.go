@@ -240,6 +240,50 @@ test TimeSubAddInverse(sec int64, nsec int64, n int64) {
 	assert t.Add(d).Sub(t) == d
 }
 
+func anyMonth(n int64) time.Month {
+	match time.MonthOf(int(within(n, 1, 12))) {
+	case Some[time.Month] as m:
+		m.Value
+	case None:
+		time.January
+	}
+}
+
+test TimeDateRoundTrip(sec int64, nsec int64) {
+	let t = time.Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let c = t.Calendar()
+	assert time.Date(c.Year, c.Month, c.Day, c.Hour, c.Minute, c.Second, c.Nanosecond) == t
+}
+
+test TimeWeekdayStep(sec int64) {
+	let t = time.Unix(anyYear(sec), 0)
+	assert time.WeekdayNumber(t.Add(24h).Calendar().Weekday) == (time.WeekdayNumber(t.Calendar().Weekday)+1)%7
+}
+
+test TimeDateNormalises(year int64, month int64, day int64, hour int64) {
+	let y = int(within(year, 1, 9999))
+	let m = anyMonth(month)
+	let d = within(day, -400, 400)
+	let h = within(hour, -100, 100)
+	assert time.Date(y, m, int(d), int(h), 0, 0, 0).Equal(time.Date(y, m, 1, 0, 0, 0, 0).Add(duration(((d-1)*24 + h) * 3600000000000)))
+}
+
+test TimeYearDayCounts(sec int64) {
+	let t = time.Unix(anyYear(sec), 0)
+	let c = t.Calendar()
+	let first = time.Date(c.Year, time.January, 1, 0, 0, 0, 0)
+	assert c.YearDay == time.Count(time.Date(c.Year, c.Month, c.Day, 0, 0, 0, 0).Sub(first), 24h)+1
+}
+
+test TimeMonthOfInvertsNumber(n int) {
+	match time.MonthOf(n) {
+	case Some[time.Month] as m:
+		assert time.MonthNumber(m.Value) == n
+	case None:
+		assert n < 1 || n > 12
+	}
+}
+
 test TimeTimelineAdvanceMovesRead(n int64) {
 	let m = time.NewManual(0)
 	let d = duration(within(n, 0, 1099511627775))
@@ -273,6 +317,11 @@ test TaskSleepAdvancesNow(n int64) {
 var stdTimeLawStatements = map[string]string{
 	"task SleepAdvancesNow":          `SleepAdvancesNow(n int64) { let m = time.NewManual(0) let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775) let woke = queue.New[duration](1) let t = with context { Scheduler: m, time.Clock: m } { Go() { let before = time.Clock.Now() Scheduler.Sleep(d) try woke.Push(time.Clock.Now().Sub(before)) } } for m.Sleepers() == 0 && woke.Len() == 0 { } m.Advance(d) try t.Wait() try woke.Pop() >= d }`,
 	"time FormatParseRoundTrip":      `FormatParseRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let back = Parse(RFC3339Nano, t.Format(RFC3339Nano)) catch { case ParseError: return false } back.Equal(t) && back == t }`,
+	"time DateRoundTrip":             `DateRoundTrip(sec int64, nsec int64) { let t = Unix(anyYear(sec), within(nsec, 0, 999999999)) let c = t.Calendar() Date(c.Year, c.Month, c.Day, c.Hour, c.Minute, c.Second, c.Nanosecond) == t }`,
+	"time WeekdayStep":               `WeekdayStep(sec int64) { let t = Unix(anyYear(sec), 0) WeekdayNumber(t.Add(24h).Calendar().Weekday) == (WeekdayNumber(t.Calendar().Weekday)+1)%7 }`,
+	"time DateNormalises":            `DateNormalises(year int64, month int64, day int64, hour int64) { let y = int(within(year, 1, 9999)) let m = anyMonth(month) let d = within(day, -400, 400) let h = within(hour, -100, 100) Date(y, m, int(d), int(h), 0, 0, 0).Equal(Date(y, m, 1, 0, 0, 0, 0).Add(duration(((d-1)*24 + h) * 3600000000000))) }`,
+	"time YearDayCounts":             `YearDayCounts(sec int64) { let t = Unix(anyYear(sec), 0) let c = t.Calendar() let first = Date(c.Year, January, 1, 0, 0, 0, 0) c.YearDay == Count(Date(c.Year, c.Month, c.Day, 0, 0, 0, 0).Sub(first), 24h)+1 }`,
+	"time MonthOfInvertsNumber":      `MonthOfInvertsNumber(n int) { match MonthOf(n) { case Some[Month] as m: MonthNumber(m.Value) == n case None: n < 1 || n > 12 } }`,
 	"time SubAddInverse":             `SubAddInverse(sec int64, nsec int64, n int64) { let t = Unix(anyYear(sec), nsec) let d = duration(within(n, -4000000000000000000, 4000000000000000000)) t.Add(d).Sub(t) == d }`,
 	"time Timeline.AdvanceMovesRead": `AdvanceMovesRead(n int64) { let d = duration(within(n, 0, 1099511627775)) let before = Read() Advance(d) Read().Mono-before.Mono == int64(d) }`,
 }
