@@ -392,7 +392,7 @@ func main() {
 }
 `,
 	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
-	// exec): a test provides it, as exec.Script does.
+	// exec). exec.Script is the std's test provider of it.
 	"exec.Runner": `import exec
 
 type Mine {}
