@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // fakePS puts a ps on PATH that prints the given lines, then prints nothing
@@ -58,7 +60,7 @@ func TestWaitForProcessGroupKeepsZombieLeaderWithThreads(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("the wait did not end once the group was gone")
 	}
 
@@ -79,28 +81,29 @@ func TestGroupProcessZombieLeaderOfRealPS(t *testing.T) {
 		t.Skip("needs python3 to end a leader thread alone")
 	}
 	// The leader thread exits by the exit system call while a second
-	// thread sleeps.
-	script := `import ctypes, platform, threading, time
-threading.Thread(target=time.sleep, args=(5,)).start()
-time.sleep(0.1)
+	// thread waits for the end of its input, which the test holds open
+	// (start returns once the thread runs).
+	script := `import ctypes, platform, sys, threading
+threading.Thread(target=sys.stdin.read).start()
 ctypes.CDLL(None).syscall({"x86_64": 60, "aarch64": 93}[platform.machine()], 0)`
 	command := exec.Command(python, "-c", script)
+	input, err := command.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = command.Process.Kill(); _ = command.Wait() })
+	t.Cleanup(func() { _ = input.Close(); _ = command.Process.Kill(); _ = command.Wait() })
 	pid := command.Process.Pid
-	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-		if !time.Now().Before(deadline) {
-			t.Fatal("the leader thread never became a zombie")
-		}
+	if !testwait.Until(t, func() bool {
 		status, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status"))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(status), "State:\tZ") {
-			break
-		}
+		return strings.Contains(string(status), "State:\tZ")
+	}) {
+		t.Fatal("the leader thread never became a zombie")
 	}
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
@@ -186,16 +189,14 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 	// A tracked ps can run before its kill is armed (Start returns after
 	// exec); the stop under test is the one that finds it armed. Untracked,
 	// it is never armed, and the stop below shows that.
-	// The wait is loadBound, not 1 s: a stop that came before the arm on a
-	// loaded host found no kill and failed a tracked ps (fu-gate-flakes).
-	for deadline := time.Now().Add(loadBound); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+	// The wait ends at the arm, or at the test's deadline: a stop that
+	// came before the arm on a loaded host found no kill and failed a
+	// tracked ps (fu-gate-flakes).
+	testwait.Until(t, func() bool {
 		gateStop.mu.Lock()
-		armed := len(gateStop.kills)
-		gateStop.mu.Unlock()
-		if armed > 0 {
-			break
-		}
-	}
+		defer gateStop.mu.Unlock()
+		return len(gateStop.kills) > 0
+	})
 	stopped := make(chan struct{})
 	go func() {
 		gateStop.stop(syscall.SIGTERM)
@@ -203,7 +204,7 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 	}()
 	select {
 	case <-stopped:
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("the stop did not end: it did not kill the sampler's ps")
 	}
 	if _, err := os.Stat(filepath.Join("/proc", pid)); err == nil {
@@ -214,8 +215,8 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 		if err == nil {
 			t.Error("the sampler's ps ran to its end during a stop, want it killed")
 		}
-	case <-time.After(loadBound):
-		t.Errorf("the sampler's ps still ran %v after the stop ended: the stop did not track it", loadBound)
+	case <-testwait.After(t):
+		t.Error("the sampler's ps still ran at the test's deadline after the stop ended: the stop did not track it")
 	}
 
 	// A stop waits for a finish's ps in flight and does not kill it: the
@@ -237,9 +238,7 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 		gateStop.stop(syscall.SIGTERM)
 		close(stopped)
 	}()
-	for !gateStop.stopping() {
-		time.Sleep(time.Millisecond)
-	}
+	testwait.Until(t, gateStop.stopping)
 	step.done()
 	select {
 	case <-stopped:
@@ -254,12 +253,12 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 		if err != nil {
 			t.Errorf("the finish's ps during a stop: %v, want it to run to its end", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("the finish's ps did not end once released")
 	}
 	select {
 	case <-stopped:
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("the stop did not end after the finish's ps ended")
 	}
 }
@@ -268,16 +267,19 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 // run's pid.
 func awaitPS(t *testing.T, record string, n int) string {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+	pid := ""
+	if !testwait.Until(t, func() bool {
 		recorded, err := os.ReadFile(record)
 		if err != nil {
 			t.Fatal(err)
 		}
 		lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
 		if len(lines) >= n {
-			return strings.Fields(lines[n-1])[0]
+			pid = strings.Fields(lines[n-1])[0]
 		}
+		return pid != ""
+	}) {
+		t.Fatalf("ps did not start its run %d", n)
 	}
-	t.Fatalf("ps did not start its run %d", n)
-	return ""
+	return pid
 }

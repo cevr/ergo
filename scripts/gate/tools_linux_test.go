@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // Tool queries on Linux, where setsid(1) exists. A query runs in the gate's
@@ -28,8 +30,8 @@ func TestToolQueryIsBoundedByItsDeadlineAndWaitDelay(t *testing.T) {
 	pids := filepath.Join(t.TempDir(), "pids")
 	killRecorded(t, pids)
 	cases := map[string]string{
-		"forks a holder and hangs":                  "sleep 30 &\necho $! >> " + pids + "\nwait\n",
-		"forks a holder in a new session and hangs": "setsid sh -c 'echo $$ >> " + pids + "; exec sleep 30' &\nsleep 30 &\necho $! >> " + pids + "\nwait\n",
+		"forks a holder and hangs":                  "sleep " + outlive(t) + " &\necho $! >> " + pids + "\nwait\n",
+		"forks a holder in a new session and hangs": "setsid sh -c 'echo $$ >> " + pids + "; exec sleep " + outlive(t) + "' &\nsleep " + outlive(t) + " &\necho $! >> " + pids + "\nwait\n",
 	}
 	if _, err := exec.LookPath("setsid"); err != nil {
 		delete(cases, "forks a holder in a new session and hangs")
@@ -58,7 +60,7 @@ func TestGateUnderNohupIgnoresHangup(t *testing.T) {
 	pids := filepath.Join(t.TempDir(), "pids")
 	killRecorded(t, pids)
 	bin := t.TempDir()
-	executable(t, bin, "probe-tool", "#!/bin/sh\necho $$ >> "+pids+"\nexec sleep 30\n")
+	executable(t, bin, "probe-tool", "#!/bin/sh\necho $$ >> "+pids+"\nexec sleep "+outlive(t)+"\n")
 	helper := exec.Command("nohup", os.Args[0], "-test.run=^TestGateHelper$", "-test.count=1")
 	helper.Env = append(os.Environ(), "GATE_HELPER="+t.TempDir(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var output bytes.Buffer
@@ -72,13 +74,9 @@ func TestGateUnderNohupIgnoresHangup(t *testing.T) {
 		helper.Process.Kill()
 		<-exited
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for len(recordedPids(t, pids)) == 0 {
-		if time.Now().After(deadline) {
-			stop()
-			t.Fatalf("the helper's query never started:\n%s", output.String())
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !testwait.Until(t, func() bool { return len(recordedPids(t, pids)) > 0 }) {
+		stop()
+		t.Fatalf("the helper's query never started:\n%s", output.String())
 	}
 	if err := helper.Process.Signal(syscall.SIGHUP); err != nil {
 		t.Fatal(err)

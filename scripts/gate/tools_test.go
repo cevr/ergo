@@ -74,7 +74,7 @@ var testScratch string
 
 // probeSource is a small executable standing in for a tool. It prints a
 // version that never changes. Beside a file <self>.hang it first sleeps for
-// 30 s, as a tool that never answers. Asked --exec-path, as git is, it
+// the duration the file holds, as a tool that never answers. Asked --exec-path, as git is, it
 // prints the content of <self>.exec-path. self is its file with symlinks
 // resolved: tests run it through a link on PATH, and os.Executable names the
 // link on darwin (measured on darwin/arm64), the file on Linux.
@@ -97,8 +97,9 @@ func main() {
 	if err != nil {
 		os.Exit(2)
 	}
-	if _, err := os.Stat(self + ".hang"); err == nil {
-		time.Sleep(30 * time.Second)
+	if hang, err := os.ReadFile(self + ".hang"); err == nil {
+		d, _ := time.ParseDuration(string(hang))
+		time.Sleep(d)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--build" {
 		fmt.Println(build)
@@ -417,7 +418,7 @@ func TestToolFingerprintOfAHungToolNeverRepeats(t *testing.T) {
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	tool := probe(t, filepath.Join(t.TempDir(), "probe-tool"))
-	write(t, filepath.Dir(tool), "probe-tool.hang", "")
+	write(t, filepath.Dir(tool), "probe-tool.hang", outlive(t)+"s")
 	link(t, bin, "probe-tool", tool)
 	assertHungToolUnlocated(t)
 }
@@ -430,20 +431,14 @@ func shortQueryTimeout(t *testing.T) {
 	t.Cleanup(func() { toolQueryTimeout = previous })
 }
 
-// hungToolBound is how long a fingerprint of the hung probe tool may take.
-const hungToolBound = 20 * time.Second
-
-// assertHungToolUnlocated fingerprints probe-tool twice: each must return
-// in well under the tool's 30 s hang, be unlocated and differ. The bound is
-// 20 s, not the 5 s it was: a query that waited for the hang takes 30 s,
-// and a loaded gate host must not fail one that did not (fu-gate-flakes).
+// assertHungToolUnlocated fingerprints probe-tool twice: each must return,
+// be unlocated and differ. The tool hangs past the test's deadline
+// (outlive), so a query that waited for the hang never returns within the
+// test, and no bound on the query's speed is needed: 5 s and 20 s were
+// verdicts of the host's load (fu-gate-flakes, fu-time-limits).
 func assertHungToolUnlocated(t *testing.T) {
 	t.Helper()
-	start := time.Now()
 	first := fingerprint(t, "probe-tool")
-	if elapsed := time.Since(start); elapsed > hungToolBound {
-		t.Fatalf("a hung tool held its fingerprint for %v", elapsed)
-	}
 	if !strings.Contains(first, "unlocated") || fingerprint(t, "probe-tool") == first {
 		t.Fatalf("a hung tool repeated its fingerprint: %q", first)
 	}
