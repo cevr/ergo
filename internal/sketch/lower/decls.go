@@ -728,15 +728,25 @@ func (l *lowerer) intrinsic(f *check.Func) func(fc *funcCtx, params []string) st
 		}
 	case f.Name == "Get" && len(s.TParams) == 2 && isMapOf(s.Params[0].Type, s.TParams[0], s.TParams[1]) && s.Params[1].Type == s.TParams[0] && isPreludeType(s.Results[0], "Option"):
 		return func(fc *funcCtx, params []string) string {
-			some, none := optionVariants(s.Results[0], fc.site)
-			v := fc.scope.alloc("v")
-			return "\tif " + v + ", ok := " + params[0] + "[" + params[1] + "]; ok {\n" +
-				"\t\treturn " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}\n" +
-				"\t}\n" +
-				"\treturn " + fc.goType(none) + "{}\n"
+			return fc.optionReturn(s.Results[0], "\t", params[0]+"["+params[1]+"]", fc.site)
 		}
 	}
 	return nil
+}
+
+// optionReturn is the Go statements, each indented by ind, that return the
+// Option instance t of a Go comma-ok expression commaOk (a Map read, or the
+// call of a std operation whose Go form returns (T, bool)): Some of the
+// value when ok, else None. It is the one place Go's comma-ok becomes the
+// program's Option, for the prelude's Get and for std operations (stdResult),
+// so a change of Option's Go form (plan X1) changes both.
+func (fc *funcCtx) optionReturn(t check.Type, ind, commaOk string, site syntax.Node) string {
+	some, none := optionVariants(t, site)
+	v, ok := fc.scope.alloc("v"), fc.scope.alloc("ok")
+	return ind + "if " + v + ", " + ok + " := " + commaOk + "; " + ok + " {\n" +
+		ind + "\treturn " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}\n" +
+		ind + "}\n" +
+		ind + "return " + fc.goType(none) + "{}\n"
 }
 
 // optionVariants are the Some and None variants of an Option instance.

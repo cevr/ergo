@@ -462,6 +462,17 @@ func (fc *funcCtx) bindDeferred(body v1.Body, vals []string) {
 // stage D3b round 1 review M1: a hidden task is bound where the blocking
 // happens). Its operands are evaluated already (bindDeferred).
 func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site syntax.Node, call func(env string) string) string {
+	if commaOk(body) {
+		// Go's comma-ok (T, bool) is the prelude's Option[T] (stdlib.md,
+		// Types 5; queue.Queue's Poll): Some of the value when ok, else
+		// None, built by the helper the prelude's Get uses. The function
+		// literal is called where it is made, so Go inlines it.
+		if !isPreludeType(result, "Option") {
+			ice(site, "a std body returns (%s, bool) for the Ergo type %s", body.Results[0], result)
+		}
+		ind := strings.Repeat("\t", fc.depth)
+		return "func() " + fc.goType(result) + " {\n" + fc.optionReturn(result, ind+"\t", call(env), site) + ind + "}()"
+	}
 	if !defersCall(body) {
 		return call(env)
 	}
@@ -492,6 +503,12 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 				ind + "\t}\n" +
 				ind + "\treturn struct{}{}, nil\n"
 	})
+}
+
+// commaOk reports a std body whose Go form is (T, bool): the Go form of an
+// Option[T] result (stdResult).
+func commaOk(body v1.Body) bool {
+	return len(body.Results) == 2 && body.Results[1] == "bool"
 }
 
 // goFallible reports whether a std body's Go form returns an error: its

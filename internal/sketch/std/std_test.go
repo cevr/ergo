@@ -401,6 +401,17 @@ func matchSig(t *testing.T, where string, sig *check.Signature, body v1.Body) {
 			}
 		}
 	}
+	// An Option[T] result of an operation is Go's comma-ok (T, bool), which
+	// the lowering adapts to Some or None (stdlib.md, Types 5).
+	if len(sig.Results) == 1 && !sig.Fallible {
+		if n, ok := sig.Results[0].(*check.Named); ok && n.Obj.Pkg != nil && n.Obj.Pkg.Path == "prelude" && n.Obj.Name == "Option" && len(n.TArgs) == 1 {
+			g, ok := goType(n.TArgs[0])
+			if !ok || len(body.Results) != 2 || body.Results[0] != g || body.Results[1] != "bool" {
+				t.Errorf("%s: an Option[%s] result needs the Go results (%s, bool), got %v", where, n.TArgs[0], g, body.Results)
+			}
+			return
+		}
+	}
 	want := len(sig.Results)
 	if sig.Fallible {
 		want++
