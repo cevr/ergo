@@ -1,0 +1,197 @@
+// Quiz is the picker's state. Calculating is a passing state: it only
+// decides which question comes next, or that the results show. Settle
+// leaves it at once, before any signal sees it, so the step never waits
+// in it (M48: Ergo has no eventless transition; this is the pattern).
+type Quiz = Calculating{Set Set, Next int, Answers []Answer} | Asking{Set Set, Question int, Answers []Answer} | Showing{Set Set, Answers []Answer}
+
+// Settled is a state that a signal may see: a question or the results.
+// Asking and Showing are variants of both unions, so the type says that a
+// settled state is never Calculating.
+type Settled = Asking | Showing
+
+// Signal is what the user does: pick a choice of the question, go back to
+// the question before, pick an item of the results, or start again.
+type Signal = Choose{Choice int} | Back{} | Pick{Item int} | Restart{}
+
+// Picked is the quiz's output: the item picked and the answers that led to
+// it, as their labels.
+type Picked { Name string, Answers []string }
+
+// The refusals of a signal. Each leaves the quiz as it is.
+
+// NoSuchChoice is a Choose of a number the question does not offer.
+type NoSuchChoice { Choice int, Count int }
+
+// NoMatch is a Choose of a choice that keeps no item that is left.
+type NoMatch { Label string }
+
+// NothingToUndo is a Back before any answer.
+type NothingToUndo {}
+
+// NoQuestion is a Choose while the results show.
+type NoQuestion {}
+
+// NotShowing is a Pick while a question is asked.
+type NotShowing {}
+
+// NoSuchItem is a Pick of a number the results do not show.
+type NoSuchItem { Item int, Count int }
+
+// Settle runs the eventless steps of q until it is settled: from
+// Calculating it skips each question that cannot narrow what is left,
+// asks the first one that can, and shows the results when no question is
+// left or at most one item is. Each skip moves Next on, so it ends after
+// at most one step per question.
+func Settle(q Quiz) Settled {
+	match q {
+	case Calculating as c:
+		let left = Left(c.Set, c.Answers)
+		let mut at = c.Next
+		for at < len(c.Set.Questions) && len(left) > 1 {
+			if Narrows(c.Set.Questions[at], left) {
+				return Asking{Set: c.Set, Question: at, Answers: c.Answers}
+			}
+			at = at + 1
+		}
+		Showing{Set: c.Set, Answers: c.Answers}
+	case Asking as a:
+		a
+	case Showing as s:
+		s
+	}
+}
+
+// AsQuiz is s as a Quiz.
+func AsQuiz(s Settled) Quiz {
+	match s {
+	case Asking as a:
+		a
+	case Showing as w:
+		w
+	}
+}
+
+// Begin is the first settled state of a quiz over set: the machine's
+// start function, so the set is the machine's input (V4), and a program
+// runs a set with machines.Run(machines.Start(Picker{}, set), signals).
+// Its first state is settled too: a set whose first question cannot
+// narrow starts at a later one.
+func Begin(set Set) Quiz { AsQuiz(Settle(Calculating{Set: set, Next: 0, Answers: []Answer{}})) }
+
+// SetOf is the set of q.
+func SetOf(q Quiz) Set {
+	match q {
+	case Calculating as c:
+		c.Set
+	case Asking as a:
+		a.Set
+	case Showing as s:
+		s.Set
+	}
+}
+
+// AnswersOf is the answers given in q, the first first: the history that
+// Back walks.
+func AnswersOf(q Quiz) []Answer {
+	match q {
+	case Calculating as c:
+		c.Answers
+	case Asking as a:
+		a.Answers
+	case Showing as s:
+		s.Answers
+	}
+}
+
+// LeftOf is the items left in q.
+func LeftOf(q Quiz) []Item { Left(SetOf(q), AnswersOf(q)) }
+
+// enter is the decision to enter the state that c settles to.
+func enter(c Calculating) Decision[Quiz, Picked] { Enter[Quiz]{Next: AsQuiz(Settle(c))} }
+
+// Step is the picker's transition, on the settled state of q. Choose
+// answers the question and calculates the next one; its guards are tried
+// in order: the choice exists, then it keeps an item. Back removes the
+// last answer and asks its question again. Pick ends the quiz with an item
+// of the results. Restart forgets every answer.
+func Step(q Quiz, s Signal) Decision[Quiz, Picked] fails NoSuchChoice | NoMatch | NothingToUndo | NoQuestion | NotShowing | NoSuchItem {
+	let set = SetOf(q)
+	let answers = AnswersOf(q)
+	match s {
+	case Restart:
+		enter(Calculating{Set: set, Next: 0, Answers: []Answer{}})
+	case Back:
+		if len(answers) == 0 {
+			return NothingToUndo
+		}
+		let last = answers[len(answers)-1]
+		enter(Calculating{Set: set, Next: last.Question, Answers: without(answers, len(answers)-1)})
+	case Choose as c:
+		match Settle(q) {
+		case Asking as a:
+			let choices = set.Questions[a.Question].Choices
+			if c.Choice < 1 || c.Choice > len(choices) {
+				return NoSuchChoice{Choice: c.Choice, Count: len(choices)}
+			}
+			let choice = choices[c.Choice-1]
+			if Kept(choice, LeftOf(a)) == 0 {
+				return NoMatch{Label: choice.Label}
+			}
+			enter(Calculating{Set: set, Next: a.Question + 1, Answers: appended(answers, Answer{Question: a.Question, Choice: c.Choice - 1})})
+		case Showing:
+			NoQuestion
+		}
+	case Pick as p:
+		match Settle(q) {
+		case Showing as w:
+			let left = LeftOf(w)
+			if p.Item < 1 || p.Item > len(left) {
+				return NoSuchItem{Item: p.Item, Count: len(left)}
+			}
+			Done[Picked]{Output: Picked{Name: left[p.Item-1].Name, Answers: Labels(set, answers)}}
+		case Asking:
+			NotShowing
+		}
+	}
+}
+
+// Labels is the label of each answer.
+func Labels(set Set, answers []Answer) []string {
+	let mut out = []string{}
+	for a in answers {
+		match ChoiceOf(set, a) {
+		case Some[Choice] as c:
+			out = out.Append(c.Value.Label)
+		case None:
+		}
+	}
+	out
+}
+
+// Picker is the guided picker as a machine: its input is a question set,
+// it starts at Begin(set) and moves by Step until a Pick.
+type Picker machine[Quiz, Signal] {
+	initial: Begin,
+	step:    Step,
+}
+
+// without is xs without the element at i, in a new slice.
+func without[T](xs []T, i int) []T {
+	let mut out = []T{}
+	for j, x in xs {
+		if j != i {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// appended is xs and then x, in a new slice: Append may share the array
+// of xs (check-v1 Q2), and an earlier state keeps its own.
+func appended[T](xs []T, x T) []T {
+	let mut out = []T{}
+	for y in xs {
+		out = out.Append(y)
+	}
+	out.Append(x)
+}

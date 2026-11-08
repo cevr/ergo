@@ -1,0 +1,28 @@
+// quiz is a guided picker: questions narrow a catalogue down to the items
+// that fit every answer, and the user picks one. Package quiz is the
+// picker, a pure machine whose input is the question set; package script
+// plays it from standard input; package memory holds the sets. This
+// binary is the only place that chooses them: Live binds quiz.Sets to
+// memory's shelf, and io to the host.
+
+import io
+import os
+import quiz/memory
+import quiz/quiz
+import quiz/script
+
+let Live = context { quiz.Sets: memory.Shelf }
+
+func main() fails os.Exit needs Console | Ambient {
+	let status = with Live {
+		with context { io.Stdin: io.NewHost() } {
+			script.Run()
+		}
+	}
+	if status == 1 {
+		return os.Exit{Code: 1, Message: "quiz: the set did not open"}
+	}
+	if status != 0 {
+		return os.Exit{Code: status, Message: "quiz: nothing was picked"}
+	}
+}
