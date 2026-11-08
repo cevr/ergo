@@ -430,13 +430,18 @@ func shortQueryTimeout(t *testing.T) {
 	t.Cleanup(func() { toolQueryTimeout = previous })
 }
 
+// hungToolBound is how long a fingerprint of the hung probe tool may take.
+const hungToolBound = 20 * time.Second
+
 // assertHungToolUnlocated fingerprints probe-tool twice: each must return
-// in well under the tool's 30 s hang, be unlocated and differ.
+// in well under the tool's 30 s hang, be unlocated and differ. The bound is
+// 20 s, not the 5 s it was: a query that waited for the hang takes 30 s,
+// and a loaded gate host must not fail one that did not (fu-gate-flakes).
 func assertHungToolUnlocated(t *testing.T) {
 	t.Helper()
 	start := time.Now()
 	first := fingerprint(t, "probe-tool")
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
+	if elapsed := time.Since(start); elapsed > hungToolBound {
 		t.Fatalf("a hung tool held its fingerprint for %v", elapsed)
 	}
 	if !strings.Contains(first, "unlocated") || fingerprint(t, "probe-tool") == first {

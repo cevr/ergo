@@ -28,8 +28,10 @@ const (
 	reapStageVariable = "ERGO_CLOSURE_REAP_STAGE"
 	// reapHelperCode is the helper's exit status, which must reach Wait.
 	reapHelperCode = 7
-	// reapCallBound is how long reapEnded may take.
-	reapCallBound = 5 * time.Second
+	// reapCallBound is how long reapEnded may take. A reapEnded that
+	// blocks on the running child blocks until the stage closes its input,
+	// so any bound tells it apart; 30 s and not 5 s, for a loaded host.
+	reapCallBound = 30 * time.Second
 	// reapChecked is printed when every check ran, so a skip cannot pass.
 	reapChecked = "reap-probe: every check ran"
 )

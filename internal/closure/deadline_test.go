@@ -215,38 +215,106 @@ type process struct {
 	cmdline string
 }
 
-// processesWith returns a pidfd of each live process whose environment
-// holds entry. Each pidfd is opened before the environment is read, so it
-// names the process whose environment matched: a process id reused after
-// the pidfd was opened belongs to a process the pidfd does not name, and
-// then the pidfd reads as ended, which is true of the matched one. A zombie
-// shows an empty environment and is not returned: it has ended.
+// processesWith returns a pidfd of each running process whose environment
+// holds entry (procSource.with on the host's /proc).
 func processesWith(t *testing.T, entry string) []process {
 	t.Helper()
-	list, err := os.ReadDir("/proc")
+	found, err := hostProcesses.with(entry)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return found
+}
+
+// procSource is what processesWith reads: list gives the process ids of a
+// listing, open gives a pidfd of an id (openProcess), and read gives a file
+// of /proc/<id> ("environ", "cmdline"). A test injects a listing that races.
+type procSource struct {
+	list func() ([]int, error)
+	open func(pid int) (fd int, ok bool, err error)
+	read func(pid int, name string) []byte
+}
+
+// hostProcesses is the host's /proc.
+var hostProcesses = procSource{
+	list: func() ([]int, error) {
+		entries, err := os.ReadDir("/proc")
+		var pids []int
+		for _, e := range entries {
+			if pid, err := strconv.Atoi(e.Name()); err == nil {
+				pids = append(pids, pid)
+			}
+		}
+		return pids, err
+	},
+	open: openProcess,
+	read: func(pid int, name string) []byte {
+		data, _ := os.ReadFile(fmt.Sprintf("/proc/%d/%s", pid, name))
+		return data
+	},
+}
+
+// identityTries bounds how often identify opens one listed id again after
+// the process it opened ended during the read.
+const identityTries = 3
+
+// with returns a pidfd of each running process of the listing (this
+// process left out) whose environment holds entry.
+func (s procSource) with(entry string) ([]process, error) {
+	pids, err := s.list()
+	if err != nil {
+		return nil, err
+	}
 	var found []process
-	for _, e := range list {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil || pid == os.Getpid() {
+	for _, pid := range pids {
+		if pid == os.Getpid() {
 			continue
 		}
-		fd, ok, err := openProcess(pid)
+		p, ok, err := s.identify(pid, entry)
 		if err != nil {
-			t.Fatal(err)
+			for _, p := range found {
+				syscall.Close(p.fd)
+			}
+			return nil, err
 		}
-		if !ok {
-			continue
+		if ok {
+			found = append(found, p)
 		}
-		environ, _ := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
-		if !slices.Contains(strings.Split(string(environ), "\x00"), entry) {
+	}
+	return found, nil
+}
+
+// identify opens a pidfd of pid first and then reads the environment of
+// pid. The listing is older than the open: the listed process can have
+// ended and its id can name another process or a thread by now (pidfd_open
+// fails with ESRCH or EINVAL, and openProcess reports no process). The read
+// goes by the id, not by the pidfd, so it describes the pidfd's process
+// only when that process still runs after the read: then the id was its
+// own for the whole read. When the pidfd reads as ended, a successor can
+// hold the id, and identify opens the id again. A process that ended
+// (a zombie too) is not returned: it does not run.
+func (s procSource) identify(pid int, entry string) (process, bool, error) {
+	for range identityTries {
+		fd, ok, err := s.open(pid)
+		if err != nil || !ok {
+			return process{}, false, err
+		}
+		environ := s.read(pid, "environ")
+		cmdline := s.read(pid, "cmdline")
+		ended, err := readableWithin(fd, 0)
+		if err != nil {
+			syscall.Close(fd)
+			return process{}, false, err
+		}
+		if ended {
 			syscall.Close(fd)
 			continue
 		}
-		cmdline, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-		found = append(found, process{pid: pid, fd: fd, cmdline: strings.ReplaceAll(string(cmdline), "\x00", " ")})
+		if !slices.Contains(strings.Split(string(environ), "\x00"), entry) {
+			syscall.Close(fd)
+			return process{}, false, nil
+		}
+		return process{pid: pid, fd: fd, cmdline: strings.ReplaceAll(string(cmdline), "\x00", " ")}, true, nil
 	}
-	return found
+	return process{}, false, nil
 }
