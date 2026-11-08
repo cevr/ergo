@@ -536,6 +536,10 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 		if isInvalid(pt) {
 			continue
 		}
+		if isAmbient(cap) {
+			c.errorf(e.Value, CodeProvider, "%s", ambientEntryText)
+			continue
+		}
 		// The provider goes into the capability by assignability (types.md,
 		// Assignability), whose conversion holds its operations' functions
 		// (196m); the lowering reads it and never re-derives it.

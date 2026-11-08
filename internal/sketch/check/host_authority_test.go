@@ -40,6 +40,9 @@ func readWith(h fs.Host) string {
 const (
 	fsAuthority = "fs.Host has an unexported field, so only package fs builds it; use fs.NewHost"
 	osAuthority = "os.Host has an unexported field, so only package os builds it; use os.NewHost"
+	// ambientEntryText is the S106 of a context entry for Ambient
+	// (fu-ambient-ctor r7).
+	ambientEntryText = "no context binds Ambient: its one provider is the program entry, for a main that lists it (stdlib.md, Host packages 3)"
 )
 
 // needsAmbient is the S102 text of a call of NewHost in a site whose row
@@ -95,7 +98,25 @@ func ambient(_ Fake) {}
 func main() needs Console {
 	with context { Ambient: Fake } { Console.Println("x") } // want S106
 }
-`, []string{"main.Fake cannot provide Ambient: ambient is an unexported operation of prelude.Ambient, so only a type of package prelude implements it (rows.md, Context 2)"}},
+`, []string{ambientEntryText}},
+		// fu-ambient-ctor r7 (batch-10 r6 B1): a value of Ambient does not
+		// become a provider either, in a with or a named context. Before,
+		// `with context { Ambient: a }` checked clean.
+		{"N5b an Ambient parameter bound in a with", `
+func g() int needs Ambient { 1 }
+
+func Rebind(a Ambient) int {
+	with context { Ambient: a } { g() } // want S106
+}
+`, []string{ambientEntryText}},
+		{"N5c an Ambient parameter bound in a local context", `
+func g() int needs Ambient { 1 }
+
+func Rebind(a Ambient) int {
+	let c = context { Ambient: a } // want S106
+	with c { g() }
+}
+`, []string{ambientEntryText}},
 		{"N6 a test makes a host", `
 test ReadsHost {
 	let got = with context { fs.Files: fs.NewHost() } { inner("/nonexistent/loop-probe-x") } // want S102

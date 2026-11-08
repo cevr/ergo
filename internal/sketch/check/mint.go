@@ -47,6 +47,10 @@ const (
 	// MintGenerated is a value a test or a law generates for a parameter:
 	// each declaration the parameter's type is made of (Mentions).
 	MintGenerated
+	// MintExtern is the result of a call of a generic extern at its type
+	// arguments: each declaration the result's type is made of (Mentions).
+	// A non-generic extern is asked at its declaration (the std guard).
+	MintExtern
 )
 
 // MintPlace is the kind of declaration a mint is in.
@@ -235,6 +239,13 @@ func (m *minter) expr(x syntax.Expr, where at) bool {
 		m.walk(x.Body, m.inside(where, x, x.Type != nil && x.Type.Needs != nil))
 		return false
 	case *syntax.CallExpr:
+		// A generic extern has no Ergo body to ask: its result, at the
+		// call's type arguments, is made here (`zero[Host]()`).
+		if c := m.pkg.Info.Calls[x]; c != nil && isExtern(c.Func) && len(c.TypeArgs) > 0 {
+			for _, tn := range Mentions(t, m.pkg) {
+				m.add(MintExtern, tn.Type, x, where)
+			}
+		}
 		if form != MintConversion {
 			m.walk(x.Fun, where)
 		}
@@ -242,9 +253,13 @@ func (m *minter) expr(x syntax.Expr, where at) bool {
 			m.walk(a, where)
 		}
 		if x.Trailing != nil {
-			if sig := m.pkg.Info.Literals[x.Trailing]; sig != nil {
-				m.add(MintFunc, sig, x.Trailing, where)
+			sig := m.pkg.Info.Literals[x.Trailing]
+			if sig == nil {
+				// A with's block runs in place, in the function's frame.
+				m.walk(x.Trailing, where)
+				return false
 			}
+			m.add(MintFunc, sig, x.Trailing, where)
 			m.walk(x.Trailing, m.inside(where, x.Trailing, false))
 		}
 		return false
