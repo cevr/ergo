@@ -6,6 +6,7 @@
 
 // Console writes lines to the host's standard output. Println writes one
 // line; several values are one interpolated string, "\(a) \(b)".
+// law-exempt: Console has no read operation, so no law over its own operations can observe a write; the recording provider of std io carries the law (PrintsConcatenate).
 type Console {
 	Println(line string),
 }
@@ -15,11 +16,13 @@ type Console {
 // it. Its one operation is unexported, so no program type implements it
 // and no context binds it. A host package's NewHost has it in its row:
 // code that makes a host provider shows Ambient in its row too.
+// law-exempt: its one operation is unexported and returns nothing, so no law can call or observe it; the authority rule is checked by TestStdHostProvidersHaveAuthority instead.
 type Ambient {
 	ambient(),
 }
 
 // Scheduler suspends the calling task.
+// law-exempt: Sleep returns nothing, and a law over Scheduler alone sees no clock, so it cannot observe a sleep; the law SleepAdvancesNow needs a Clock beside it and goes on the time.Manual pair (std-align S2b).
 type Scheduler {
 	Sleep(d duration),
 }
@@ -32,6 +35,7 @@ type LiveScheduler {}
 extern go ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d duration)
 
 // Clock reads the current time.
+// law-exempt: Now has no unit and no monotonic meaning yet, and a wall clock can fall, so NowNeverFalls is false for a live provider; std-align S2b gives Now a monotonic meaning and adds the law.
 type Clock {
 	Now() int64,
 }
@@ -39,6 +43,10 @@ type Clock {
 // Random draws random numbers.
 type Random {
 	Int63() int64,
+
+	// Int63NeverNegative: each draw is in 0..2^63-1, as Go's
+	// math/rand Int63 is.
+	law Int63NeverNegative() { Int63() >= 0 },
 }
 
 // Option is a value that may be absent (#99).
@@ -92,4 +100,12 @@ type Decision[S, O] = Enter[S] | Stay[S] | Ignore | Reject | Done[O]
 type Task[T, E] {
 	Wait() T fails E,
 	Stop(),
+
+	// StopIsIdempotent: a second Stop returns, never fails and changes
+	// nothing.
+	law StopIsIdempotent() {
+		Stop()
+		Stop()
+		true
+	},
 }

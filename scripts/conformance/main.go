@@ -5,13 +5,15 @@
 //	go run ./scripts/conformance foldkit [SOURCE] (--capture | --check | --self-check) [--root DIR]
 //
 // check validates the selected Effect behavior mapping and its evidence tests
-// and, with --run, executes those tests. foldkit verifies the committed
+// and, with --run, executes those tests and requires the subtest of each
+// case they claim to run and pass. foldkit verifies the committed
 // Foldkit snapshot offline (--self-check), verifies it against a read-only
 // pinned Foldkit checkout (--check), or captures it from one into an empty
 // root (--capture).
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -105,20 +107,26 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	tests, err := validateMapping(mapping, root)
+	tests, claims, err := validateMapping(mapping, root)
 	if err != nil {
 		return fail(err)
 	}
 	if *runEvidence {
 		for _, argv := range evidenceCommands(tests) {
 			command := exec.Command(argv[0], argv[1:]...)
-			command.Dir, command.Stdout, command.Stderr = root, stdout, stderr
-			if err := command.Run(); err != nil {
-				var exit *exec.ExitError
-				if errors.As(err, &exit) {
-					return exit.ExitCode()
-				}
-				return fail(fmt.Errorf("cannot execute Go evidence runner: %v", err))
+			var events bytes.Buffer
+			command.Dir, command.Stdout, command.Stderr = root, &events, stderr
+			runErr := command.Run()
+			var exit *exec.ExitError
+			if runErr != nil && !errors.As(runErr, &exit) {
+				return fail(fmt.Errorf("cannot execute Go evidence runner: %v", runErr))
+			}
+			claimErr := checkClaimsRan(&events, argv[3], claims, stdout)
+			if exit != nil {
+				return exit.ExitCode()
+			}
+			if claimErr != nil {
+				return fail(claimErr)
 			}
 		}
 	}

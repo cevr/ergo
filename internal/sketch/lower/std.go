@@ -53,8 +53,12 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 			}
 			return "*" + l.rt() + "." + obj.Name
 		}
+		// A std union, such as flag.Failure, is a declaration of the
+		// program, as the prelude's Option is: its variants are records
+		// the runtime has no struct for (std-align S1d).
+		return ""
 	}
-	// Every std type is a record or an operation type
+	// Every std type is a record, a union or an operation type
 	// (TestStdTypesHaveRuntimeForms).
 	ice(site, "the std type %s.%s is neither a record nor an operation type", obj.Pkg.Path, obj.Name)
 	return ""

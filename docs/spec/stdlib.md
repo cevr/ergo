@@ -99,14 +99,17 @@ Std `strings` and `strconv` work on text (wave std-1, unit G5a). They are pure f
 
 | Package | Signatures |
 | --- | --- |
-| `strings` | `Split(s, sep string) []string`, `Join(xs []string, sep string) string`, `HasPrefix`, `HasSuffix`, `Contains(s, x string) bool`, `TrimSpace(s string) string`, `TrimPrefix`, `TrimSuffix(s, x string) string`, `Fields(s string) []string`, `Repeat(s string, n int) string`, `ToLower`, `ToUpper(s string) string`, `Index(s, sub string) int`, `Slice(s string, i int, j int) string`; `type Halves { Before string, After string }`, `func Cut(s, sep string) Option[Halves]` |
-| `strconv` | `type Malformed { Text string }`; `Itoa(n int) string`, `Atoi(s string) int fails Malformed`, `Quote(s string) string` |
+| `strings` | `Split(s, sep string) []string`, `SplitN(s, sep string, n int) []string`, `Join(xs []string, sep string) string`, `HasPrefix`, `HasSuffix`, `Contains(s, x string) bool`, `ContainsRune(s string, r rune) bool`, `EqualFold(s, t string) bool`, `TrimSpace(s string) string`, `TrimPrefix`, `TrimSuffix(s, x string) string`, `Fields(s string) []string`, `Repeat(s string, n int) string`, `ReplaceAll(s, old, repl string) string`, `ToLower`, `ToUpper(s string) string`, `Index`, `LastIndex`, `Count(s, sub string) int`, `Slice(s string, i int, j int) string`, `Lines(s string) Seq[string]`; `type Halves { Before string, After string }`, `func Cut(s, sep string) Option[Halves]` |
+| `strconv` | `type Malformed { Text string }`, `type OutOfRange { Text string }`; `Itoa(n int) string`, `Atoi(s string) int fails Malformed \| OutOfRange`, `ParseInt(s string, base int, bits int) int64 fails Malformed \| OutOfRange`, `ParseFloat(s string) float64 fails Malformed \| OutOfRange`, `ParseBool(s string) bool fails Malformed`, `FormatBool(b bool) string`, `FormatFloat(f float64, fmt byte, prec int) string`, `Quote(s string) string`, `Unquote(s string) string fails Malformed` |
+| `utf8` | `RuneCount(s string) int` |
 
 1. Lengths and indexes are bytes, as `len(s)` is. Ergo has no substring syntax yet (`s[i..j]` is an index by a `Range`, S108), so `strings.Slice(s, i, j)` is Go's `s[i:j]`. A bound outside `0..len(s)`, or an `i` after `j`, is a defect, as an index out of range is; so is a negative `n` in `Repeat`.
 2. `Cut` is Ergo over `Index` and `Slice`: `Some` of the text before and after the first `sep`, or `None` when `s` has no `sep`. A `sep` at index 0 gives an empty `Before`.
-3. `Atoi` fails `Malformed` with the text for every text Go's `strconv.Atoi` refuses, a value out of `int`'s range included. `Malformed` is the `runtime/v1` struct `v1.Malformed` (Types 4), so `case strconv.Malformed:` matches the value the body returns. Its text is `strconv.Malformed{Text:…}`, the generated text of a record.
+3. Go's one `*NumError` is two failures (std-align S1c): `Malformed` for a text the function cannot read (Go's `ErrSyntax`) and `OutOfRange` for a number that does not fit its type (Go's `ErrRange`), so a caller tells "not a number" from "too big" with a `match`. `Atoi`, `ParseInt` and `ParseFloat` fail either; `ParseBool` and `Unquote` fail `Malformed`. `ParseInt` takes Go's base rules (0 reads the prefix `0b`, `0o`, `0x` or `0` and allows `_`); a base outside 0 and 2..36, or a bit size outside 0..64, is a defect, as a negative `Repeat` count is. Both records are `runtime/v1` structs (`v1.Malformed`, `v1.OutOfRange`; Types 4), with the texts `strconv.Malformed{Text:…}` and `strconv.OutOfRange{Text:…}`.
 4. Each call is transparent in footprints: every body in `text.go` is marked pure ([Pure bodies](#pure-bodies)).
 5. `slice.SortFunc` and `SortStableFunc` are not here: a std function parameter with parameters of its own does not bind yet (`lower/std.go`, `adaptFunc`); they are follow-up G5c.
+6. `Lines` is Go 1.24's `strings.Lines`: each line keeps its line feed. It is Ergo over `Index` and `Slice`, because a pure Go body cannot import `iter`. `SplitN` with `n == 0` gives an empty slice where Go gives nil. `utf8.RuneCount` counts each byte of an invalid sequence as one rune, as Go does.
+7. The algebra of `strings`, `strconv` and `utf8` is in the [Std laws](#std-laws) ledger: split and join, count and split, cut, index, case and trim idempotence, repeat and replace lengths, lines, and the strconv round trips. Each Go-bodied law runs in runtime/v1 `TestStdTextLaws` on 10,000 seeded cases over an alphabet with separators, white space, case-changing and multi-byte runes and invalid bytes; the laws over Ergo bodies (`Cut`, `Lines`) run in lower `TestStdTextRuns2`. Two of the plan's laws are false and are stated in a true form: "ReplaceAll removes old" fails on `ReplaceAll("aabb", "ab", "")`, which is `"ab"`, so the law is `ReplaceAllLength`; "a text equals its case maps under folding" fails on `"İ"`, whose lower case `"i"` does not fold to it, so the law is `EqualFoldIsSymmetric`.
 
 *Prior art:* Gleam's `gleam/string` and ReScript's `Js.String2` bind host text functions as direct externals with no wrapper; Elixir's `String` and `Integer.parse/1` (`{n, rest} | :error`) are plain BEAM calls. Ergo binds Go's `strings` and `strconv` the same way, and gives `Atoi` a typed failure in its row in place of Go's `error`.
 
@@ -127,6 +130,73 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 5. Today the marked bodies are the bodies of `strings` and `strconv` in `text.go`. `TestPureBodiesKeepTheAllowlist` reads every embedded runtime file and checks each marked body against the rules independently of `BodyOf`; `TestFootprintsPureStd` checks the footprints.
 
 *Prior art:* GHC trusts a foreign import's declared type: an import whose result is not in `IO` is pure on the author's word. Gleam's and ReScript's externals carry no effect fact, and Elixir's compiler sees a remote call as unknown code. Koka infers effects only for code it can see, and its externs state their effect in the declared type. Ergo keeps the claim on the Go body, where a reviewer reads it, and checks its mechanical part: what the file can reach.
+
+## Std laws
+
+The std states its guarantees as laws (owner, 2026-11-06; std-align S1a). The rule:
+
+1. Each operation type of each std package, the prelude included, has at least one member law. A type that no law over its own operations can observe has instead one doc-comment line `// law-exempt: <reason>`, and the reason is not empty. A type never has both. `TestStdOperationTypesHaveLaws` finds every operation type from the checked packages (`std.Packages()` and the prelude), never from a written list, and holds the rule.
+2. A family of pure functions states its algebra as top-level laws in its package (round trips, idempotence, order).
+3. A law is checked, not run, until [#162](https://github.com/cevr/ergo/issues/162) runs laws ([types.md, Laws](types.md#laws) 10), and it adds no Go to any build (Laws 11; lower `TestStdLawsAddNoGo`). Until #162, the table below names, for each law, the Go test that runs it now. A runner restates the law over the std's providers with seeded cases. `#162` stands only for a law that no Go test can run, such as a law on a type that the std provides no provider of, and its state is `checked`; a law with a Go runner is `tested`.
+4. Each law of std source has exactly one row. The Statement is the law's source text from its name to its closing brace, each run of white space made one space. `TestStdLawLedger` holds both, and that each runner is a `func Test…` that the repository declares and that runs its laws through `lawledger.Run` (`internal/lawledger`). A runner gives `lawledger.Run` each law it restates, with the statement it restates and the check that runs it. `lawledger.Run` holds that the runner restates exactly the rows that name it, each with the row's statement (so a law changed in source and here fails its runner until its restatement changes too), and runs each law as a subtest named after its key (`queue.CloseKeepsValues`). `TestStdLawsRun` (lower) restates every law whose runner it is as an Ergo test of the same name, and runs them with `--seed 1`, as `ergo test --seed 1` does.
+
+The exempt types and their reasons are in their doc comments: `Console` and `Ambient` have no read, `Scheduler` has no clock to observe a sleep by, and `Clock` has no monotonic meaning yet (std-align S2b).
+
+| Package | Law | Statement | Runner | State |
+| --- | --- | --- | --- | --- |
+| `flag` | `DefaultWhenAbsent` | `DefaultWhenAbsent() { let v = try Parse(lawSet(), []string{}) let required = Set{Name: "law", Usage: "", Flags: []Flag{lawText, lawRequired}, Args: []ArgSpec{}} Parse(required, []string{}) catch { case Missing as m: return m.Name == "r" && lawText.Get(v) == "d" && lawNumber.Get(v) == 0 && !lawSwitch.Get(v) case _: return false } false }` | `TestFlagLaws` | tested |
+| `flag` | `DoubleDashEndsFlags` | `DoubleDashEndsFlags(x string) { let rest = Rest(try Parse(lawSet(), []string{"--", "-" + x})) len(rest) == 1 && rest[0] == "-"+x }` | `TestFlagLaws` | tested |
+| `flag` | `EachCommandReaches` | `EachCommandReaches(i int) { let commands = lawCommands() if i < 0 \|\| i >= len(commands) { return true } commandName(try ParseCommand("law", "", commands, []string{commands[i].Name})) == commands[i].Name }` | `TestFlagLaws` | tested |
+| `flag` | `FlagCrossesPositional` | `FlagCrossesPositional(p string, a string) { let before = try Parse(lawSet(), []string{"p" + p, "-s=" + a}) Equal(before, try Parse(lawSet(), []string{"-s=" + a, "p" + p})) }` | `TestFlagLaws` | tested |
+| `flag` | `HelpNamesEveryFlag` | `HelpNamesEveryFlag(names []string) { let mut flags = []Flag{} let mut seen Map[string, bool] for name in names { match seen.Get(name) { case Some[bool]: case None: seen[name] = true flags = flags.Append(String(name, "", "u")) } } let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}}) for name in names { if !strings.Contains(help, "\n -"+name+" string\n") { return false } } true }` | `TestFlagLaws` | tested |
+| `flag` | `IndependentFlagsCommute` | `IndependentFlagsCommute(a string, n int) { let first = try Parse(lawSet(), []string{"-s=" + a, "-n=" + strconv.Itoa(n)}) Equal(first, try Parse(lawSet(), []string{"-n=" + strconv.Itoa(n), "-s=" + a})) }` | `TestFlagLaws` | tested |
+| `flag` | `LastWins` | `LastWins(a string, b string) { let v = try Parse(lawSet(), []string{"-s", a, "-s", b}) lawText.Get(v) == b }` | `TestFlagLaws` | tested |
+| `flag` | `RenderParseRoundTrip` | `RenderParseRoundTrip(args []string) { let v = Parse(lawArgsSet(), args) catch { case _: return true } sameReads(try Parse(lawArgsSet(), Render(v)), v) }` | `TestFlagLaws` | tested |
+| `flag` | `ShortAndLongAgree` | `ShortAndLongAgree(v string) { Equal(try Parse(lawSet(), []string{"-s=" + v}), try Parse(lawSet(), []string{"--s=" + v})) }` | `TestFlagLaws` | tested |
+| `flag` | `UnknownNamesTheFlag` | `UnknownNamesTheFlag(name string) { if name == "" \|\| name == "h" \|\| name == "help" \|\| name == "s" \|\| name == "n" \|\| name == "b" \|\| strings.Contains(name, "=") \|\| strings.HasPrefix(name, "-") { return true } Parse(lawSet(), []string{"-" + name}) catch { case Unknown as u: return u.Name == name case _: return false } false }` | `TestFlagLaws` | tested |
+| `fs` | `Files.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }` | `TestStdHostLawsHold` | tested |
+| `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestStdHostLawsHold` | tested |
+| `io` | `LinesSplitInput` | `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }` | `TestIOLaws` | tested |
+| `io` | `PrintsConcatenate` | `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Eprint(b) r.Print(b) r.Text() == a+b+b }` | `TestIOLaws` | tested |
+| `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |
+| `log` | `InnerAnnotationShadows` | `InnerAnnotationShadows(key string, outer string, inner string) { with Annotate(key, outer) { with Annotate(key, inner) { Annotation(key) == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
+| `os` | `Process.GetenvIsStable` | `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }` | `TestStdHostLawsHold` | tested |
+| `prelude` | `Random.Int63NeverNegative` | `Int63NeverNegative() { Int63() >= 0 }` | #162 | checked |
+| `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
+| `queue` | `CloseKeepsValues` | `CloseKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.Close() try q.Pop() == v }` | `TestStdLawsRun` | tested |
+| `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
+| `queue` | `Queue.CloseIsIdempotent` | `CloseIsIdempotent() { Close() Close() true }` | `TestStdLawsRun` | tested |
+| `queue` | `Queue.PushAfterCloseFails` | `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }` | `TestStdLawsRun` | tested |
+| `scope` | `ActionsRunLastFirst` | `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }` | `TestStdLawsRun` | tested |
+| `strconv` | `AtoiInvertsItoa` | `AtoiInvertsItoa(n int) { try Atoi(Itoa(n)) == n }` | `TestStdTextLaws` | tested |
+| `strconv` | `FormatFloatRoundTrips` | `FormatFloatRoundTrips(f float64) { if f != f { return true } try ParseFloat(FormatFloat(f, 'g', -1)) == f }` | `TestStdTextLaws` | tested |
+| `strconv` | `ItoaInvertsAtoi` | `ItoaInvertsAtoi(s string) { let n = Atoi(s) catch { case Malformed, OutOfRange: return true } try Atoi(Itoa(n)) == n }` | `TestStdTextLaws` | tested |
+| `strconv` | `ParseBoolInvertsFormat` | `ParseBoolInvertsFormat(b bool) { try ParseBool(FormatBool(b)) == b }` | `TestStdTextLaws` | tested |
+| `strconv` | `ParseIntInvertsFormat` | `ParseIntInvertsFormat(n int) { try ParseInt(Itoa(n), 10, 64) == int64(n) }` | `TestStdTextLaws` | tested |
+| `strconv` | `UnquoteInvertsQuote` | `UnquoteInvertsQuote(s string) { try Unquote(Quote(s)) == s }` | `TestStdTextLaws` | tested |
+| `strings` | `CountMatchesSplit` | `CountMatchesSplit(s string, sep string) { if sep == "" { return true } Count(s, sep) == len(Split(s, sep))-1 }` | `TestStdTextLaws` | tested |
+| `strings` | `CutRebuilds` | `CutRebuilds(s string, sep string) { match Cut(s, sep) { case Some[Halves] as h: h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before) case None: !Contains(s, sep) } }` | `TestStdTextRuns2` | tested |
+| `strings` | `EqualFoldIsSymmetric` | `EqualFoldIsSymmetric(s string, t string) { EqualFold(s, s) && EqualFold(s, t) == EqualFold(t, s) }` | `TestStdTextLaws` | tested |
+| `strings` | `FieldsHaveNoSpace` | `FieldsHaveNoSpace(s string) { for f in Fields(s) { let again = Fields(f) if len(again) != 1 \|\| Join(again, "") != f { return false } } true }` | `TestStdTextLaws` | tested |
+| `strings` | `HasPrefixOfConcat` | `HasPrefixOfConcat(p string, s string) { HasPrefix(p+s, p) && HasSuffix(p+s, s) }` | `TestStdTextLaws` | tested |
+| `strings` | `IndexFinds` | `IndexFinds(s string, sub string) { let i = Index(s, sub) let j = LastIndex(s, sub) if i < 0 { return j < 0 && !Contains(s, sub) } if sub == "" { return i == 0 && j == len(s) } Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j && LastIndex(Slice(s, 0, i+len(sub)-1), sub) < 0 && Index(Slice(s, j+1, len(s)), sub) < 0 }` | `TestStdTextLaws` | tested |
+| `strings` | `JoinInvertsSplit` | `JoinInvertsSplit(s string, sep string) { if sep == "" { return true } Join(Split(s, sep), sep) == s }` | `TestStdTextLaws` | tested |
+| `strings` | `LinesRebuild` | `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }` | `TestStdTextRuns2` | tested |
+| `strings` | `RepeatLength` | `RepeatLength(s string, n int) { if n < 0 \|\| n > 64 { return true } len(Repeat(s, n)) == n*len(s) }` | `TestStdTextLaws` | tested |
+| `strings` | `ReplaceAllLength` | `ReplaceAllLength(s string, old string, repl string) { if old == "" { return true } len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old)) }` | `TestStdTextLaws` | tested |
+| `strings` | `ToLowerIsIdempotent` | `ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }` | `TestStdTextLaws` | tested |
+| `strings` | `TrimSpaceIsIdempotent` | `TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }` | `TestStdTextLaws` | tested |
+| `task` | `StopIsIdempotent` | `StopIsIdempotent() { let t = Go() { LiveScheduler.Sleep(1h) 0 } t.Stop() t.Stop() true }` | `TestStdLawsRun` | tested |
+| `task` | `WaitReturnsTheBlock` | `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }` | `TestStdLawsRun` | tested |
+| `timeout` | `DeadlineFirstExpires` | `DeadlineFirstExpires() { with context { Scheduler: LiveScheduler } { After(1ms) { LiveScheduler.Sleep(1h) false } catch { case Expired: true } } }` | `TestStdLawsRun` | tested |
+| `timeout` | `QuickBodyWins` | `QuickBodyWins(n int) { with context { Scheduler: LiveScheduler } { try After(1h) { n } == n } }` | `TestStdLawsRun` | tested |
+| `trace` | `InnerSpanShadows` | `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
+| `trace` | `SpanEndRestores` | `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }` | `TestStdLawsRun` | tested |
+| `utf8` | `RuneCountAddsRune` | `RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }` | `TestStdTextLaws` | tested |
+| `utf8` | `RuneCountAtMostLen` | `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }` | `TestStdTextLaws` | tested |
+| `utf8` | `RuneCountOfConcat` | `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }` | `TestStdTextLaws` | tested |
+
+*Prior art:* Haskell states class laws beside the class and runs them with QuickCheck's `prop_` functions; Elixir's `StreamData` states properties beside `test`; MoonBit ships its core with property tests; Gleam and ReScript state none in source. Ergo states each law in the std source, where a reader of the std sees it, and keeps the Go test that runs it in one ledger until #162.
 
 ## Packages by origin
 
@@ -280,6 +350,99 @@ func main() needs Console | Ambient {
 *Prior art:* Gleam's `simplifile.read(path) -> Result(String, FileError)` gives a closed enum of POSIX reasons (`Enoent`, `Eacces`, …) plus `Unknown`; Effect Platform's `FileSystem` service gives `readFileString` and a `SystemError` whose `reason` is `NotFound`, `PermissionDenied` and others, bound by `NodeContext.layer`; Elixir's `File.read/1` returns `{:ok, binary} | {:error, posix}`; Go's `os.ReadFile` and `os.ReadDir` with `errors.Is(err, fs.ErrNotExist)`; ReScript binds Node's `readFileSync` as an `external` that throws. `NotFound | Denied | Failed` is their common core: the two reasons a program acts on, and one that carries the host's text. Like Effect and Roc, and unlike Gleam, Elixir and ReScript, the file system is a capability in the row, so a test swaps it in a context. Like Roc's platform and unlike Effect's layer, which any module may provide locally, Ergo keeps the disk out of reach of code that neither holds `Ambient` nor was given a provider (rule 6): Pony's `AmbientAuth` and Austral's `RootCapability` are the model.
 
 *Prior art (writes):* Gleam's `simplifile.write(to:, contents:)`, Elixir's `File.write/3` (Erlang `file:write_file`), ReScript's binding of Node's `writeFileSync` and Go's `os.WriteFile(name, data, 0666)` all truncate and write the file in place, with mode 0666 less the umask for a new file: a reader can see a part, and a failure can leave a part. Go's `renameio` and Rust's `tempfile::NamedTempFile::persist` write a file in the same directory and rename it over the target, as `fs.Host` does; `renameio` also keeps the old mode only when asked. `MkdirAll` is Go's `os.MkdirAll`, Elixir's `File.mkdir_p/1` and Gleam's `simplifile.create_directory_all`. Effect Platform's `FileSystem` has `writeFileString` and `makeDirectory({ recursive: true })` in the one service; Ergo splits writes from reads, so a reader's row does not hold the authority to write.
+
+### io
+
+Std `io` is the host process's standard streams (std-align S1b; wave std-1 G3 and G3b). It follows Effect's `Stdio` and `Terminal` and Go's `os.Stdout`, `os.Stderr` and `os.Stdin`. `Stdout`, `Stderr` and `Stdin` are three capabilities, so code that only writes errors shows only `io.Stderr` in its row.
+
+```go
+import io
+
+func echo() needs io.Stdout | io.Stderr | io.Stdin {
+	io.Stderr.Eprintln("reading")
+	for line in io.Stdin.Lines() {
+		io.Stdout.Println(line)
+	}
+}
+
+func main() needs Ambient {
+	with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors(), io.Stdin: io.NewHost() } { echo() }
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type Stdout { Print(text string), Println(line string), IsTerminal() bool }` | Standard output. |
+| `type Stderr { Eprint(text string), Eprintln(line string) }` | Standard error. |
+| `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string] }` | Standard input. |
+| `type ReadFailed { Reason string }` | The failure of a read. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` and `Stdin` provider. |
+| `type Errors { live hostOnly }`; `func NewErrors() Errors needs Ambient` | The host's `Stderr` provider. |
+| `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `Eprint`, `Eprintln`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written to both, in order. |
+| `type Input { Text string }`; `ReadAll`, `Lines` | A `Stdin` provider for tests. |
+| `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)` | The laws of the recording providers ([Std laws](#std-laws)). |
+
+1. `Print` and `Eprint` write their text as it is; `Println` and `Eprintln` write the line and a line feed in one write. Each write is one unbuffered `WriteString`, as `Console.Println` is, so writes of `Console` and of `io.Stdout` appear in program order.
+2. `Lines` gives each line without its line feed. A last line with no line feed is a line, an empty input has no lines, and a carriage return stays in its line, so the lines joined by line feeds, plus the final line feed if any, are the input (`LinesSplitInput`). A line has no length limit. A `Seq` has no failure row, so a read failure inside `Lines` is a defect; `ReadAll` returns it as `ReadFailed`. A `break` stops the read; the rest of the input stays unread. Every `Stdin` operation of `Host` reads through one buffered reader of the process, so the next `Lines` or `ReadAll` starts at the line after the break (`TestIOStdinRest`, `TestIOStdinShared`).
+3. A read of standard input waits for the host and cannot be stopped: it is an uninterruptible host wait, as a read of a file is. Each body has one `runtimeBindings` row that neither waits nor releases.
+4. `IsTerminal` reports whether standard output is a character device (Go's `os.ModeCharDevice`).
+5. The Go bodies are `v1.IOPrint`, `v1.IOEprint`, `v1.IOIsTerminal`, `v1.IOReadAll` and `v1.IOLines` (host.go). `ReadFailed` is the `runtime/v1` struct `v1.ReadFailed` (Types 4); its name is not `Failed` because `v1.Failed` is `fs.Failed`.
+6. The capabilities are open: a program implements them, and a test binds `io.NewRecorder()` or `io.Input{Text: …}` in the same place as `main` binds the host. `Stdout`, `Stderr` and `Stdin` are exempt from the law rule, each with its reason: the first two have no read, and a read of the host's input takes what it reads.
+7. A `Recorder` keeps its writes in a `Map` that every copy shares. It is for the writes of one task at a time.
+8. `Stderr`'s operations are `Eprint` and `Eprintln`, names that `Stdout` does not have, so a `Stdout` provider is not a `Stderr` provider and the reverse: `io.Stderr: io.NewHost()` and `io.Stdout: io.NewErrors()` are check errors at the binding (`TestIOStreamsAreDistinct`). A program binds `Errors` to `io.Stderr`. The names follow Rust's `eprint!` and `eprintln!` and Gleam's `print_error`.
+9. A std package may import another std package: `io` imports `strings`. The std importer checks each package once, and the std has no import cycle (`TestStdImportsAreAcyclic`).
+
+*Prior art:* Effect's `Stdio` gives `stdout` and `stderr` sinks and a `stdin` stream in one service, and `Terminal` gives `readLine` and `display`; Go writes `os.Stdout` directly and reads lines with `bufio.Scanner`, which has a 64 KiB line limit; Gleam's `gleam/io` has `print`, `println` and `print_error`, and `stdin` reading is a separate package; Elixir's `IO.puts(:stderr, …)` and `IO.stream(:stdio, :line)` keep the line feed; Roc's basic-cli gives `Stdout`, `Stderr` and `Stdin` as platform effects. Ergo takes Roc's three capabilities and Effect's guarantee that a test replaces each one.
+
+### flag
+
+Std `flag` reads a command line (std-align S1d). It follows Go's `flag` for the syntax, the names and the help layout, and Effect's `@effect/cli` for typed commands, required flags, choices, positional arguments and the closed union of failures. Two rules follow `@effect/cli` and not Go (owner, 2026-11-06, Q7): a flag may follow a positional argument until a bare `--`, and help goes to standard output with status 0. It is Ergo over `strings` and `strconv`, with no runtime body.
+
+```go
+import flag
+import io
+import os
+
+let Json = flag.Bool("json", false, "print JSON")
+let Sort = flag.Choice("sort", "date", []string{"date", "name"}, "the order")
+let Files = flag.Remaining("files", "the files")
+
+func run(args []string) fails os.Exit needs Console | io.Stdout {
+	let set = flag.Set{Name: "list", Usage: "", Flags: []flag.Flag{Json, Sort}, Args: []flag.ArgSpec{Files}}
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return
+	}
+	Console.Println("\(Json.Get(v)) \(Sort.Get(v)) \(len(flag.Rest(v)))")
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type StringFlag`, `IntFlag`, `BoolFlag`, `ChoiceFlag` (unexported fields); `type Flag = StringFlag \| IntFlag \| BoolFlag \| ChoiceFlag` | Flag handles; only package `flag` builds one. |
+| `String(name, def, usage string) StringFlag`, `Int(name string, def int, usage string) IntFlag`, `Bool(name string, def bool, usage string) BoolFlag` | Go's constructors, in Go's argument order. |
+| `RequiredString(name, usage string) StringFlag`, `RequiredInt(name, usage string) IntFlag`, `Choice(name, def string, choices []string, usage string) ChoiceFlag` | Effect's additions: a flag with no default, and a flag whose value is one of `choices`. |
+| `type ArgSpec` (unexported fields); `Arg(name, usage string)`, `OptionalArg(name, usage string)`, `Remaining(name, usage string)` | Positional arguments: one that must be given, one that may be absent, and the rest (last). |
+| `type Set { Name string, Usage string, Flags []Flag, Args []ArgSpec }` | A command line. |
+| `func Parse(s Set, args []string) Values fails Help \| Unknown \| NeedsValue \| Invalid \| Missing \| Extra` | Reads `args`. |
+| `Get(f StringFlag, v Values) string`, `Get(f IntFlag, v Values) int`, `Get(f BoolFlag, v Values) bool`, `Get(f ChoiceFlag, v Values) string`, `Get(a ArgSpec, v Values) Option[string]`, `Rest(v Values) []string` | Typed reads, called as `f.Get(v)`. |
+| `Usage(s Set) string`, `Defaults(flags []Flag) string` | The help, and Go's `PrintDefaults` text. |
+| `type Command[C] { Name string, Usage string, Set Set, Build func(v Values) C fails … }`; `ParseCommand[C](name, usage string, commands []Command[C], args []string) C fails …`; `CommandUsage[C](name, usage string, commands []Command[C]) string` | Subcommands that parse into the program's own union `C`. |
+| `type Help { Text string }`, `Unknown { Name string }`, `NeedsValue { Name string }`, `Invalid { Name string, Text string, Reason string }`, `Missing { Name string }`, `Extra { Text string }`, `UnknownCommand { Name string, Known []string }`; `type Failure = Help \| … \| UnknownCommand` | The failures. |
+| `Describe(f Failure) string`; `Exit(f Failure, usage string) fails os.Exit needs io.Stdout` | A failure's text, and its end: `Help` prints its text to standard output and returns (status 0); any other failure fails `os.Exit{Code: 2}` with its text and `usage`, which the entry writes to standard error. |
+| `Render(v Values) []string`, `Equal(a Values, b Values) bool` | A command line that parses to `v` again, and the equality of two results: the same flags and argument specs, and the same value for each read (`Equal` reads each value with its handle, not through `Render`). |
+
+1. **Syntax** (Go's `flag.FlagSet.Parse`). An argument is a flag when it starts with `-` and is longer than `-`. `-name` and `--name` are one flag. A value follows `=` or, for a flag that is not a switch, is the next argument, whatever it is (`-s --` gives `s` the value `--`). A switch takes only `-name` or `-name=value`, with `strconv.ParseBool`'s values. `---x`, `-=x` and `--=x` are `Invalid` with `Name` empty ("bad flag syntax"). `-` alone and the empty string are positional. An `Int` value is read by `strconv.ParseInt(s, 0, 64)`, so `0x10`, `0o17` and `1_000` are read as Go reads them. A repeated flag keeps its last value.
+2. **Position** (owner, Q7). Flags and positional arguments may interleave; a bare `--` ends the flags, and every argument after it is positional. A value that starts with `-` is given as `--name=value`. Go stops at the first positional argument; `@effect/cli` does not.
+3. **Help.** `-h`, `-help` and `--help` (also with `=value`) fail `Help` with `Usage(s)` when the set declares no flag of that name, as in Go; a set that declares `h` reads `-h` as its flag. Help wins over every other failure (Q7, as `@effect/cli`'s `Command.runWith` reads its global `--help` from every argument before it reports a parse error): a help word anywhere before `--`, and not the value of a flag that takes one, fails `Help`, whatever comes before or after it (`-zz --help` is help). In `ParseCommand`, when the first argument names no command, a help word anywhere before `--` fails `Help` with `CommandUsage`; after a command name, the command's `Parse` reads it. `Exit` prints `Help`'s text to standard output and returns, so `main` ends with status 0 (Q7; Go prints usage to standard error).
+4. **Order of checks.** First help (3). Then the arguments are read in order, and the first failure ends the parse. After the flags, each required flag must be given (`Missing`), then the positional arguments go to `s.Args` in order: an `Arg` takes one or fails `Missing`, an `OptionalArg` takes one if any is left, `Remaining` takes the rest. A positional argument left over fails `Extra`.
+5. **Help text.** `Usage(s)` is `Usage of NAME:` (`Usage:` with no name), `s.Usage` on its own line when it is not empty, `Defaults(s.Flags)`, and an `Arguments:` block in declaration order (`name`, `[name]` or `name...`). `Defaults` is Go's `PrintDefaults` byte for byte for `String`, `Int` and `Bool`: sorted by name, the switch of a one-byte name on one line, a back-quoted word of the usage as the value's name, and a default that is not the zero value; a `Choice`'s value name is its choices joined by `|`, and a required flag ends with ` (required)`. The text of each failure is Go's where Go has one, with one difference: an invalid switch value reads `invalid value "x" for flag -b: parse error`, where Go writes `invalid boolean value`.
+6. **Handles.** `Get` reads by handle name, and first checks that the handle is the set's flag of that name: the same kind, default, usage and choices. A handle of another set, or of another kind or default under the name of one of the set's flags, is a defect, whether the flag was given or not (the panic is an index out of range; its report names the Ergo frame; `TestFlagForeignHandle`). Two flags of one name in a set are not refused (Go panics on "flag redefined"; known gap).
+7. **Laws** ([Std laws](#std-laws)): `RenderParseRoundTrip`, `IndependentFlagsCommute`, `LastWins`, `DoubleDashEndsFlags`, `ShortAndLongAgree`, `DefaultWhenAbsent`, `UnknownNamesTheFlag`, `HelpNamesEveryFlag`, `EachCommandReaches` and `FlagCrossesPositional` (Q7). lower `TestFlagLaws` restates them as property tests. lower `TestFlagMatchesGo` checks the parse on 3,500 seeded argument lists (500 of them with a help word put in among other tokens): against Go's `flag` where every flag comes before the first positional argument and no help follows a failure, and against a written model of Go's `parseOne` with the Q7 rules (interleaving, and `@effect/cli`'s help precedence) on every list. `RenderParseRoundTrip` compares every read (each flag's `Get`, an `Arg`, an `OptionalArg` and `Rest`) of the result and of its re-parse, not `Equal`.
+8. **Cost.** `Values` holds a `Map` of a union of the value kinds, so each value is boxed until a closed union of records lowers without boxing (X1). The `Set` is a value built at each call; a constant `Set` could lower `Parse` to a `switch` on the flag name (#243).
+
+*Prior art:* Go's `flag` (syntax, `PrintDefaults`, `ContinueOnError` and `ExitOnError`); Effect's `@effect/cli` (`Flag.choice`, `Options.optional`, `Args`, `Command.withSubcommands`, `ValidationError` tags, help to stdout); Gleam's `glint` and `clip` build a command from typed flags and return a `Result`; Elixir's `OptionParser.parse/2` returns `{parsed, args, invalid}` and lets switches interleave with arguments; ReScript has no standard parser. Ergo takes Go's syntax, Effect's typed failures and commands, and `OptionParser`'s and `@effect/cli`'s interleaving.
 
 ## Testing
 

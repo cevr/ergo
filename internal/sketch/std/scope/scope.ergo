@@ -8,3 +8,15 @@
 // its variables when it runs. It is called directly, never as a value (an
 // extern function is call-only).
 extern go ergo.local/prototype/runtime/v1.OnExit func OnExit[R](body func() needs R) needs R
+
+// ActionsRunLastFirst: the actions of one function run when it returns,
+// last registered first, each once.
+law ActionsRunLastFirst() {
+	let mut order = ""
+	let f = func() {
+		OnExit() { order = order + "a" }
+		OnExit() { order = order + "b" }
+	}
+	f()
+	order == "ba"
+}

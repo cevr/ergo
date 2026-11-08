@@ -28,6 +28,8 @@ func atoi(s string) string {
 	let n = strconv.Atoi(s) catch {
 	case strconv.Malformed as m:
 		return "malformed \(m.Text)"
+	case strconv.OutOfRange as o:
+		return "out of range \(o.Text)"
 	}
 	"int \(n)"
 }
@@ -59,7 +61,7 @@ func main() needs Console {
 `, stdout: "[a|b||c]\n4\nx-y-z\ntrue false\ntrue false\n[pad]\n1.2\ndoc\n[one|two|three]\nababab\nmixed\nMIXED\n4 -1\ntrue false\nworld\n<key|value>\n<|: b>\nnone\n-42\nint 123\nmalformed x\n\"say \\\"hi\\\"\\n\"\n"},
 		{name: "atoiUncaught", src: `import strconv
 
-func main() fails strconv.Malformed needs Console {
+func main() fails strconv.Malformed | strconv.OutOfRange needs Console {
 	let n = try strconv.Atoi("12x")
 	Console.Println("\(n)")
 }

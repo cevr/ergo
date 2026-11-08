@@ -24,9 +24,9 @@ go run ./scripts/conformance check --run
 ./scripts/gate.sh
 ```
 
-Evidence may be any Go test in a `*_test.go` file that Git tracks in the repository; an untracked test file is refused. The gate's mapping step keys on the directories of the evidence tests that the mapping names.
+Evidence may be any Go test in a `*_test.go` file that Git tracks in the repository; an untracked test file is refused. The test proves its case in a subtest named after the case id: its body calls `t.Run("<case id>", ...)` with the id as a string literal, and `check` refuses a test whose body has no such call. `check --run` runs the evidence tests with `go test -json` and fails unless each claimed subtest (`<Test>/<case id>`) ran and passed, so a subtest that is skipped or sits in a branch not taken does not count. The gate's mapping step runs `check` without `--run`; the evidence tests run with the other Go tests.
 
-**Since [#205](https://github.com/cevr/ergo/issues/205), no case has evidence.** The evidence tests of the 17 `covered` and `difference` cases were in the retired compiler, so each of those cases is now `pending` with no evidence; its limits keep the earlier text after "Earlier limits:", and the [retirement record](receipts/retire-ef.md#conformance-cases-without-evidence) lists them. A case returns to `covered` or `difference` when a v1 test asserts it. The next three paragraphs record what the removed evidence asserted.
+**Since [#205](https://github.com/cevr/ergo/issues/205), the earlier cases have no evidence.** The evidence tests of the 17 `covered` and `difference` cases were in the retired compiler, so each of those cases is now `pending` with no evidence; its limits keep the earlier text after "Earlier limits:", and the [retirement record](receipts/retire-ef.md#conformance-cases-without-evidence) lists them. A case returns to `covered` or `difference` when a v1 test asserts it. The std cases `effect.cli.options-interleaved-with-operands`, `effect.string.lines-with-separators` and `effect.string.replace-all` are `covered`, and `effect.number.parse` is a `difference`, each by a subtest in `internal/sketch/lower`. The next three paragraphs record what the removed evidence asserted.
 
 To move the pin:
 

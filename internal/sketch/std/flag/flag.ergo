@@ -1,0 +1,433 @@
+// Package flag reads a command line (docs/spec/stdlib.md, flag). It takes
+// Go's flag syntax and names (String, Int, Bool, "-name=value", "-name
+// value", "--name", "--" ends the flags, the last of a repeated flag wins,
+// Usage in PrintDefaults' layout) and Effect's typed commands
+// (@effect/cli: Choice, required flags, positional arguments,
+// subcommands that parse into the program's own union, a closed union of
+// failures). As in @effect/cli (owner, 2026-11-06), flags may follow
+// positional arguments until a bare "--", and -h, -help and --help print
+// the help to standard output and end with status 0; a usage error goes
+// to standard error with status 2.
+//
+// A flag's kind is its handle's type, so a read needs no assertion: Get of
+// an IntFlag is an int. Each handle has unexported fields, so only this
+// package builds one. The package is Ergo over strings and strconv: no
+// runtime body and no compiler rule.
+
+import io
+import os
+import strconv
+import strings
+
+// StringFlag is the handle of a text flag.
+type StringFlag { name string, def string, usage string, required bool }
+
+// IntFlag is the handle of an integer flag. Its value is read as Go's
+// strconv.ParseInt(s, 0, 64) reads it: 0x10, 0o17, 0b1 and 1_000 too.
+type IntFlag { name string, def int, usage string, required bool }
+
+// BoolFlag is the handle of a switch: -name is true, -name=false is false;
+// a switch never takes the next argument as its value.
+type BoolFlag { name string, def bool, usage string }
+
+// ChoiceFlag is the handle of a text flag whose value is one of choices.
+type ChoiceFlag { name string, def string, choices []string, usage string }
+
+// Flag is any flag handle.
+type Flag = StringFlag | IntFlag | BoolFlag | ChoiceFlag
+
+// ArgSpec is the handle of a positional argument.
+type ArgSpec { name string, usage string, arity arity }
+
+// arity is how many positional arguments a spec takes.
+type arity = one{} | optional{} | many{}
+
+// Set is a command line's flags and positional arguments. Name and Usage
+// head its help.
+type Set { Name string, Usage string, Flags []Flag, Args []ArgSpec }
+
+// Values is the result of a Parse: read it with each handle's Get.
+type Values { set Set, flags Map[string, value], named Map[string, string], rest []string }
+
+// value is a flag's parsed value.
+type value = textValue{V string} | intValue{V int} | boolValue{V bool}
+
+// String is a text flag with a default.
+func String(name string, def string, usage string) StringFlag {
+	StringFlag{name: name, def: def, usage: usage, required: false}
+}
+
+// Int is an integer flag with a default.
+func Int(name string, def int, usage string) IntFlag {
+	IntFlag{name: name, def: def, usage: usage, required: false}
+}
+
+// Bool is a switch with a default.
+func Bool(name string, def bool, usage string) BoolFlag { BoolFlag{name: name, def: def, usage: usage} }
+
+// RequiredString is a text flag with no default: a Parse without it fails
+// Missing.
+func RequiredString(name string, usage string) StringFlag {
+	StringFlag{name: name, def: "", usage: usage, required: true}
+}
+
+// RequiredInt is an integer flag with no default: a Parse without it fails
+// Missing.
+func RequiredInt(name string, usage string) IntFlag {
+	IntFlag{name: name, def: 0, usage: usage, required: true}
+}
+
+// Choice is a text flag whose value must be one of choices; def is its
+// value when it is absent.
+func Choice(name string, def string, choices []string, usage string) ChoiceFlag {
+	ChoiceFlag{name: name, def: def, choices: choices, usage: usage}
+}
+
+// Arg is a positional argument that must be given.
+func Arg(name string, usage string) ArgSpec { ArgSpec{name: name, usage: usage, arity: one} }
+
+// OptionalArg is a positional argument that may be absent.
+func OptionalArg(name string, usage string) ArgSpec { ArgSpec{name: name, usage: usage, arity: optional} }
+
+// Remaining takes every positional argument the specs before it leave. It
+// stands last.
+func Remaining(name string, usage string) ArgSpec { ArgSpec{name: name, usage: usage, arity: many} }
+
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
+func Get(f StringFlag, v Values) string {
+	known(v, f)
+	match v.flags.Get(f.name) {
+	case Some[value] as found:
+		match found.Value {
+		case textValue as t:
+			t.V
+		case _:
+			notInSet(f.name)
+		}
+	case None:
+		f.def
+	}
+}
+
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
+func Get(f IntFlag, v Values) int {
+	known(v, f)
+	match v.flags.Get(f.name) {
+	case Some[value] as found:
+		match found.Value {
+		case intValue as n:
+			n.V
+		case _:
+			len(notInSet(f.name))
+		}
+	case None:
+		f.def
+	}
+}
+
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
+func Get(f BoolFlag, v Values) bool {
+	known(v, f)
+	match v.flags.Get(f.name) {
+	case Some[value] as found:
+		match found.Value {
+		case boolValue as b:
+			b.V
+		case _:
+			notInSet(f.name) == ""
+		}
+	case None:
+		f.def
+	}
+}
+
+// Get is the value of f: the last one given, or its default. A handle
+// that is not a flag of v's set is a defect.
+func Get(f ChoiceFlag, v Values) string {
+	known(v, f)
+	match v.flags.Get(f.name) {
+	case Some[value] as found:
+		match found.Value {
+		case textValue as t:
+			t.V
+		case _:
+			notInSet(f.name)
+		}
+	case None:
+		f.def
+	}
+}
+
+// Get is the positional argument of a, or None when an optional one is
+// absent.
+func Get(a ArgSpec, v Values) Option[string] {
+	match v.named.Get(a.name) {
+	case Some[string] as found:
+		found
+	case None:
+		None
+	}
+}
+
+// Rest is the positional arguments that the Remaining spec took.
+func Rest(v Values) []string { v.rest }
+
+// Render is a command line that parses to v again: each flag of v's set as
+// -name=value in declaration order, then "--", then the positional
+// arguments.
+func Render(v Values) []string {
+	let mut out = []string{}
+	for f in v.set.Flags {
+		out = out.Append("-" + nameOf(f) + "=" + shown(f, v))
+	}
+	out = out.Append("--")
+	for a in v.set.Args {
+		match a.Get(v) {
+		case Some[string] as found:
+			out = out.Append(found.Value)
+		case None:
+		}
+	}
+	for r in v.rest {
+		out = out.Append(r)
+	}
+	out
+}
+
+// Equal reports whether a and b have sets with the same flags and
+// argument specs, and hold the same value for each flag and the same
+// positional arguments. It reads each value with its handle's Get, not
+// through Render.
+func Equal(a Values, b Values) bool {
+	if len(a.set.Flags) != len(b.set.Flags) || len(a.set.Args) != len(b.set.Args) {
+		return false
+	}
+	for i, f in a.set.Flags {
+		if !sameHandle(f, b.set.Flags[i]) || !sameValue(f, a, b) {
+			return false
+		}
+	}
+	for i, spec in a.set.Args {
+		if spec.name != b.set.Args[i].name || !sameArg(spec.Get(a), b.set.Args[i].Get(b)) {
+			return false
+		}
+	}
+	sameStrings(a.rest, b.rest)
+}
+
+// sameStrings reports whether x and y hold the same texts in order.
+func sameStrings(x []string, y []string) bool {
+	if len(x) != len(y) {
+		return false
+	}
+	for i, s in x {
+		if s != y[i] {
+			return false
+		}
+	}
+	true
+}
+
+// sameValue reports whether a and b hold one value for f.
+func sameValue(f Flag, a Values, b Values) bool {
+	match f {
+	case StringFlag as s:
+		s.Get(a) == s.Get(b)
+	case IntFlag as n:
+		n.Get(a) == n.Get(b)
+	case BoolFlag as x:
+		x.Get(a) == x.Get(b)
+	case ChoiceFlag as c:
+		c.Get(a) == c.Get(b)
+	}
+}
+
+// sameArg reports whether two reads of a positional argument agree.
+func sameArg(x Option[string], y Option[string]) bool {
+	match x {
+	case Some[string] as p:
+		match y {
+		case Some[string] as q:
+			p.Value == q.Value
+		case None:
+			false
+		}
+	case None:
+		match y {
+		case Some[string]:
+			false
+		case None:
+			true
+		}
+	}
+}
+
+// shown is the text of f's value in v, as Render writes it.
+func shown(f Flag, v Values) string {
+	match f {
+	case StringFlag as s:
+		s.Get(v)
+	case IntFlag as n:
+		strconv.Itoa(n.Get(v))
+	case BoolFlag as b:
+		strconv.FormatBool(b.Get(v))
+	case ChoiceFlag as c:
+		c.Get(v)
+	}
+}
+
+// nameOf is f's name.
+func nameOf(f Flag) string {
+	match f {
+	case StringFlag as s:
+		s.name
+	case IntFlag as n:
+		n.name
+	case BoolFlag as b:
+		b.name
+	case ChoiceFlag as c:
+		c.name
+	}
+}
+
+// find is the flag of s named name.
+func find(s Set, name string) Option[Flag] { findIn(s.Flags, name) }
+
+// findIn is the flag of flags named name.
+func findIn(flags []Flag, name string) Option[Flag] {
+	for f in flags {
+		if nameOf(f) == name {
+			return Some[Flag]{Value: f}
+		}
+	}
+	None
+}
+
+// known holds that f is a flag of v's set: the set's flag of f's name is
+// f, of the same kind with the same default. A handle of another set, or
+// of another kind under the name of one of the set's flags, is a defect.
+func known(v Values, f Flag) {
+	match find(v.set, nameOf(f)) {
+	case Some[Flag] as found:
+		if !sameHandle(found.Value, f) {
+			notInSet(nameOf(f))
+		}
+	case None:
+		notInSet(nameOf(f))
+	}
+}
+
+// sameHandle reports whether a and b are one handle: the same kind, name,
+// default, usage and, for a Choice, choices.
+func sameHandle(a Flag, b Flag) bool {
+	match a {
+	case StringFlag as x:
+		match b {
+		case StringFlag as y:
+			x == y
+		case _:
+			false
+		}
+	case IntFlag as x:
+		match b {
+		case IntFlag as y:
+			x == y
+		case _:
+			false
+		}
+	case BoolFlag as x:
+		match b {
+		case BoolFlag as y:
+			x == y
+		case _:
+			false
+		}
+	case ChoiceFlag as x:
+		match b {
+		case ChoiceFlag as y:
+			x.name == y.name && x.def == y.def && x.usage == y.usage && sameStrings(x.choices, y.choices)
+		case _:
+			false
+		}
+	}
+}
+
+// notInSet ends the program with a defect: a handle read from Values of a
+// Set that does not hold it, or holds another kind under its name.
+func notInSet(name string) string {
+	let reason = []string{"flag -" + name + " is not a flag of the parsed set"}
+	reason[len(reason)]
+}
+
+// The failures of a command line. Each one's text is Describe's.
+
+// Help is a request for help (-h, -help or --help, when the set does not
+// declare h or help): Text is the help. Exit prints it to standard output.
+type Help { Text string }
+
+// Unknown is a flag the set does not declare.
+type Unknown { Name string }
+
+// NeedsValue is a flag with no value: it was the last argument.
+type NeedsValue { Name string }
+
+// Invalid is a value the flag cannot take, or an argument that is not a
+// flag's syntax (Name is empty then, and Text is the argument).
+type Invalid { Name string, Text string, Reason string }
+
+// Missing is a required flag or positional argument that is absent.
+type Missing { Name string }
+
+// Extra is a positional argument that no spec takes.
+type Extra { Text string }
+
+// UnknownCommand is a first argument that names no command of Known.
+type UnknownCommand { Name string, Known []string }
+
+// Failure is every failure of Parse and ParseCommand.
+type Failure = Help | Unknown | NeedsValue | Invalid | Missing | Extra | UnknownCommand
+
+// Describe is the text of f, Go's where Go's flag has one.
+func Describe(f Failure) string {
+	match f {
+	case Help:
+		"flag: help requested"
+	case Unknown as u:
+		"flag provided but not defined: -" + u.Name
+	case NeedsValue as n:
+		"flag needs an argument: -" + n.Name
+	case Invalid as i:
+		if i.Name == "" {
+			"bad flag syntax: " + i.Text
+		} else {
+			"invalid value " + strconv.Quote(i.Text) + " for flag -" + i.Name + ": " + i.Reason
+		}
+	case Missing as m:
+		"missing required flag or argument: " + m.Name
+	case Extra as e:
+		"unexpected argument: " + e.Text
+	case UnknownCommand as c:
+		if c.Name == "" {
+			"missing command; commands: " + strings.Join(c.Known, ", ")
+		} else {
+			"unknown command " + strconv.Quote(c.Name) + "; commands: " + strings.Join(c.Known, ", ")
+		}
+	}
+}
+
+// Exit ends a command line's failure as Go's flag.ExitOnError and
+// @effect/cli do: Help prints its text to standard output and returns, so
+// main ends with status 0; any other failure fails os.Exit with status 2,
+// whose message, Describe's text and then usage, the entry writes to
+// standard error.
+func Exit(f Failure, usage string) fails os.Exit needs io.Stdout {
+	match f {
+	case Help as h:
+		io.Stdout.Print(h.Text)
+	case _:
+		return os.Exit{Code: 2, Message: Describe(f) + "\n" + strings.TrimSuffix(usage, "\n")}
+	}
+}

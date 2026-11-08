@@ -35,6 +35,26 @@ func Annotation(key string) Option[string] {
 	}
 }
 
+// InnerAnnotationShadows: inside an inner annotation of a key, Annotation
+// of that key is the inner text.
+law InnerAnnotationShadows(key string, outer string, inner string) {
+	with Annotate(key, outer) {
+		with Annotate(key, inner) {
+			Annotation(key) == Some[string]{Value: inner}
+		}
+	}
+}
+
+// AnnotationEndRestores: when an annotation's block ends, Annotation of
+// its key is what it was before the block.
+law AnnotationEndRestores(key string, text string) {
+	let before = Annotation(key)
+	with Annotate(key, text) {
+		Annotation(key)
+	}
+	Annotation(key) == before
+}
+
 // The task's context values (runtime/v1, context.go). Each Go body takes
 // the running task and this package as hidden arguments (stdlib.md,
 // Hidden arguments). Lowering supplies the package, so keys need no prefix.

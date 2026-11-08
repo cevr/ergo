@@ -32,6 +32,26 @@ func Current() Option[string] {
 	}
 }
 
+// InnerSpanShadows: inside an inner span, Current is the inner span's
+// name.
+law InnerSpanShadows(outer string, inner string) {
+	with Span(outer) {
+		with Span(inner) {
+			Current() == Some[string]{Value: inner}
+		}
+	}
+}
+
+// SpanEndRestores: when a span's block ends, Current is what it was
+// before the block.
+law SpanEndRestores(name string) {
+	let before = Current()
+	with Span(name) {
+		Current()
+	}
+	Current() == before
+}
+
 // The task's context values (runtime/v1, context.go). Each Go body takes
 // the running task and this package as hidden arguments (stdlib.md,
 // Hidden arguments). Lowering supplies the package, so keys need no prefix.

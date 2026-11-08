@@ -47,6 +47,29 @@ extern go ergo.local/prototype/runtime/v1.StringsContains func Contains(s string
 // an i after j, is a defect, as an index out of range is.
 extern go ergo.local/prototype/runtime/v1.StringsSlice func Slice(s string, i int, j int) string
 
+// ReplaceAll is s with each non-overlapping old, from the left, replaced
+// by repl. An empty old matches at the start of s and after each UTF-8
+// sequence, as in Go.
+extern go ergo.local/prototype/runtime/v1.StringsReplaceAll func ReplaceAll(s string, old string, repl string) string
+
+// LastIndex is the byte index of the last sub in s, or -1.
+extern go ergo.local/prototype/runtime/v1.StringsLastIndex func LastIndex(s string, sub string) int
+
+// Count is the number of non-overlapping sub in s. An empty sub counts
+// one more than the UTF-8 sequences of s, as in Go.
+extern go ergo.local/prototype/runtime/v1.StringsCount func Count(s string, sub string) int
+
+// SplitN is Split with at most n parts: the last part is the rest of s.
+// n == 0 gives no parts, and a negative n gives all parts, as in Go.
+extern go ergo.local/prototype/runtime/v1.StringsSplitN func SplitN(s string, sep string, n int) []string
+
+// EqualFold reports whether s and t are equal under simple Unicode case
+// folding.
+extern go ergo.local/prototype/runtime/v1.StringsEqualFold func EqualFold(s string, t string) bool
+
+// ContainsRune reports whether the UTF-8 encoding of r is in s.
+extern go ergo.local/prototype/runtime/v1.StringsContainsRune func ContainsRune(s string, r rune) bool
+
 // Halves is the text before and after a separator.
 type Halves { Before string, After string }
 
@@ -57,6 +80,128 @@ func Cut(s string, sep string) Option[Halves] {
 	if i < 0 {
 		None
 	} else {
-		Some[Halves]{Value: Halves{Before: Slice(s, 0, i), After: Slice(s, i + len(sep), len(s))}}
+		Some[Halves]{Value: Halves{Before: Slice(s, 0, i), After: Slice(s, i+len(sep), len(s))}}
 	}
 }
+
+// Lines is the lines of s, each with its line feed; a last line with no
+// line feed is a line, and an empty s has no lines. It is Go 1.24's
+// strings.Lines, written in Ergo over Index and Slice, because a pure Go
+// body cannot import iter.
+func Lines(s string) Seq[string] {
+	Seq[string](func(yield func(v string) bool) {
+		let mut rest = s
+		for _ in 0..len(s) {
+			if rest == "" {
+				return
+			}
+			let i = Index(rest, "\n")
+			if i < 0 {
+				yield(rest)
+				return
+			}
+			if !yield(Slice(rest, 0, i+1)) {
+				return
+			}
+			rest = Slice(rest, i+1, len(rest))
+		}
+	})
+}
+
+// The algebra of strings (docs/spec/stdlib.md, Std laws). Each law holds
+// for every string, invalid UTF-8 included.
+
+// JoinInvertsSplit: joining the parts of a split by its separator gives
+// the text back.
+law JoinInvertsSplit(s string, sep string) {
+	if sep == "" {
+		return true
+	}
+	Join(Split(s, sep), sep) == s
+}
+
+// CountMatchesSplit: a text with n separators splits into n+1 parts.
+law CountMatchesSplit(s string, sep string) {
+	if sep == "" {
+		return true
+	}
+	Count(s, sep) == len(Split(s, sep))-1
+}
+
+// CutRebuilds: the halves of a cut and the separator are the text; a text
+// with no cut has no separator.
+law CutRebuilds(s string, sep string) {
+	match Cut(s, sep) {
+	case Some[Halves] as h:
+		h.Value.Before+sep+h.Value.After == s && Index(h.Value.Before+sep, sep) == len(h.Value.Before)
+	case None:
+		!Contains(s, sep)
+	}
+}
+
+// TrimSpaceIsIdempotent: trimming twice is trimming once.
+law TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }
+
+// ToLowerIsIdempotent: lower case twice is lower case once.
+law ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }
+
+// IndexFinds: Index points at the first sub, and LastIndex points at the
+// last one: no sub ends before the first's end, and none starts after the
+// last's start; -1 means s has no sub. The empty sub is at 0 and len(s).
+law IndexFinds(s string, sub string) {
+	let i = Index(s, sub)
+	let j = LastIndex(s, sub)
+	if i < 0 {
+		return j < 0 && !Contains(s, sub)
+	}
+	if sub == "" {
+		return i == 0 && j == len(s)
+	}
+	Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j && LastIndex(Slice(s, 0, i+len(sub)-1), sub) < 0 && Index(Slice(s, j+1, len(s)), sub) < 0
+}
+
+// HasPrefixOfConcat: p is a prefix of p+s.
+law HasPrefixOfConcat(p string, s string) { HasPrefix(p+s, p) && HasSuffix(p+s, s) }
+
+// RepeatLength: n copies of s are n times as long as s.
+law RepeatLength(s string, n int) {
+	if n < 0 || n > 64 {
+		return true
+	}
+	len(Repeat(s, n)) == n*len(s)
+}
+
+// FieldsHaveNoSpace: each field is a non-empty run with no white space.
+law FieldsHaveNoSpace(s string) {
+	for f in Fields(s) {
+		let again = Fields(f)
+		if len(again) != 1 || Join(again, "") != f {
+			return false
+		}
+	}
+	true
+}
+
+// ReplaceAllLength: each of the Count(s, old) replacements changes the
+// length by len(repl) - len(old). (The plan's ReplaceAllRemoves is false:
+// ReplaceAll("aabb", "ab", "") is "ab".)
+law ReplaceAllLength(s string, old string, repl string) {
+	if old == "" {
+		return true
+	}
+	len(ReplaceAll(s, old, repl)) == len(s)+Count(s, old)*(len(repl)-len(old))
+}
+
+// LinesRebuild: the lines of s, joined, are s.
+law LinesRebuild(s string) {
+	let mut joined = ""
+	for line in Lines(s) {
+		joined = joined + line
+	}
+	joined == s
+}
+
+// EqualFoldIsSymmetric: folding equality is reflexive and symmetric. (A
+// text and its case maps are not always equal under folding: ToLower of
+// "İ" is "i", which does not fold to "İ".)
+law EqualFoldIsSymmetric(s string, t string) { EqualFold(s, s) && EqualFold(s, t) == EqualFold(t, s) }

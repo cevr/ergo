@@ -1,9 +1,11 @@
 package v1
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"go/ast"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -487,5 +489,303 @@ func TestStructHasOneStdRecord(t *testing.T) {
 	packages["fixture/exec"] = map[string]string{"exec.ergo": "type NotFound { Path string }\n"}
 	if got, want := structClashes(t, recordOwners(t, packages)), []string{"NotFound fixture/exec,fs"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("with a second NotFound: clashes %q; want %q", got, want)
+	}
+}
+
+// TestIOLinesSplit: the host's Lines (a lineReader over a reader) keeps the
+// law LinesSplitInput that io.Input states: the lines joined by line
+// feeds, plus the final line feed if any, are the input, over seeded texts
+// with carriage returns, empty lines, invalid UTF-8 and lines longer than
+// a reader's buffer. A short read (one byte at a time) gives the same.
+func TestIOLinesSplit(t *testing.T) {
+	alphabet := []string{"a", "\n", "\n", "\r", "é", "\xff", " ", strings.Repeat("w", 5000)}
+	seed := uint64(1)
+	next := func(n int) int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int((seed >> 33) % uint64(n))
+	}
+	cases := []string{"", "\n", "\n\n", "a", "a\n", "a\r\n", "\r", strings.Repeat("x", 70_000)}
+	for range 3000 {
+		var b strings.Builder
+		for range next(9) {
+			b.WriteString(alphabet[next(len(alphabet))])
+		}
+		cases = append(cases, b.String())
+	}
+	for _, s := range cases {
+		for _, r := range []interface{ Read([]byte) (int, error) }{strings.NewReader(s), &oneByte{s: s}} {
+			var lines []string
+			for line := range newLineReader(r).lines() {
+				lines = append(lines, line)
+			}
+			joined := strings.Join(lines, "\n")
+			if strings.HasSuffix(s, "\n") {
+				joined += "\n"
+			}
+			if joined != s {
+				t.Fatalf("Lines of %q is %q", s, lines)
+			}
+		}
+	}
+	// A break stops the Seq.
+	n := 0
+	for range newLineReader(strings.NewReader("a\nb\nc\n")).lines() {
+		n++
+		break
+	}
+	if n != 1 {
+		t.Errorf("a break went on: %d steps", n)
+	}
+}
+
+// TestIOStdinConcurrent: tasks that read one lineReader at once each get
+// whole lines, and together every line exactly once (run with -race: the
+// reader's lock is what makes the reads safe).
+func TestIOStdinConcurrent(t *testing.T) {
+	var in strings.Builder
+	const n = 2000
+	for i := range n {
+		fmt.Fprintf(&in, "line %d\n", i)
+	}
+	l := newLineReader(strings.NewReader(in.String()))
+	got := make([][]string, 4)
+	done := make(chan int)
+	for g := range got {
+		go func() {
+			for line := range l.lines() {
+				got[g] = append(got[g], line)
+			}
+			done <- g
+		}()
+	}
+	for range got {
+		<-done
+	}
+	seen := map[string]bool{}
+	for _, lines := range got {
+		for _, line := range lines {
+			if seen[line] || !strings.HasPrefix(line, "line ") {
+				t.Fatalf("line %q read twice or torn", line)
+			}
+			seen[line] = true
+		}
+	}
+	if len(seen) != n {
+		t.Errorf("%d lines read; want %d", len(seen), n)
+	}
+}
+
+// TestIOStdinShared (S1b round 2, M2): every Stdin read of the host goes
+// through one reader, so no read loses what another read ahead. For
+// seeded inputs and seeded plans, a sequence of IOLines loops (each with a
+// break after k lines) and IOReadAll calls, over a pipe on os.Stdin, gives
+// back exactly the input, in order. The inputs have and lack a final line
+// feed and hold carriage returns, invalid UTF-8 and lines longer than the
+// reader's 4096-byte buffer.
+func TestIOStdinShared(t *testing.T) {
+	alphabet := []string{"a", "\n", "\n", "\r", "é", "\xff", "b c", strings.Repeat("w", 5000)}
+	seed := uint64(7)
+	next := func(n int) int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int((seed >> 33) % uint64(n))
+	}
+	oldIn := os.Stdin
+	defer func() { os.Stdin = oldIn }()
+	for c := range 400 {
+		var b strings.Builder
+		for range next(12) {
+			b.WriteString(alphabet[next(len(alphabet))])
+		}
+		s := b.String()
+		if c == 0 {
+			s = "a\nb\nc\n"
+		}
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			_, _ = w.WriteString(s)
+			w.Close()
+		}()
+		os.Stdin = r
+		var got strings.Builder
+		var plan []string
+		for step := 0; step < 4 && got.Len() < len(s); step++ {
+			if next(3) == 0 {
+				all, err := IOReadAll()
+				if err != nil {
+					t.Fatal(err)
+				}
+				plan = append(plan, "ReadAll")
+				got.WriteString(all)
+				continue
+			}
+			k := next(4)
+			plan = append(plan, fmt.Sprintf("Lines break after %d", k))
+			if k == 0 {
+				// A loop whose body breaks at once has taken one line.
+				k = 1
+			}
+			n := 0
+			for line := range IOLines() {
+				rest := s[got.Len():]
+				if strings.HasPrefix(rest, line+"\n") {
+					got.WriteString(line + "\n")
+				} else {
+					got.WriteString(line)
+				}
+				n++
+				if n == k {
+					break
+				}
+			}
+		}
+		all, err := IOReadAll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, "ReadAll")
+		got.WriteString(all)
+		r.Close()
+		if got.String() != s {
+			t.Fatalf("input %q, plan %q: the reads gave %q", s, plan, got.String())
+		}
+	}
+}
+
+// oneByte reads its text one byte per Read.
+type oneByte struct{ s string }
+
+func (o *oneByte) Read(p []byte) (int, error) {
+	if o.s == "" {
+		return 0, io.EOF
+	}
+	p[0] = o.s[0]
+	o.s = o.s[1:]
+	return 1, nil
+}
+
+// TestIOBodies: Print writes its text as it is to standard output, Eprint
+// to standard error, ReadAll reads all of standard input, and IsTerminal
+// is false on a pipe. Each stream is a pipe of the test.
+func TestIOBodies(t *testing.T) {
+	pipe := func() (*os.File, *os.File) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r, w
+	}
+	oldOut, oldErr, oldIn := os.Stdout, os.Stderr, os.Stdin
+	defer func() { os.Stdout, os.Stderr, os.Stdin = oldOut, oldErr, oldIn }()
+	outR, outW := pipe()
+	errR, errW := pipe()
+	inR, inW := pipe()
+	os.Stdout, os.Stderr, os.Stdin = outW, errW, inR
+	IOPrint("a")
+	IOPrint("b\n")
+	IOEprint("e")
+	terminal := IOIsTerminal()
+	if _, err := inW.WriteString("x\ny\nz"); err != nil {
+		t.Fatal(err)
+	}
+	inW.Close()
+	all, err := IOReadAll()
+	os.Stdout, os.Stderr, os.Stdin = oldOut, oldErr, oldIn
+	outW.Close()
+	errW.Close()
+	out, _ := readAllFile(outR)
+	errText, _ := readAllFile(errR)
+	if out != "ab\n" || errText != "e" || terminal || err != nil || all != "x\ny\nz" {
+		t.Errorf("stdout %q, stderr %q, terminal %v, ReadAll %q, %v", out, errText, terminal, all, err)
+	}
+	if got := (ReadFailed{Reason: "boom"}).Error(); got != "io.ReadFailed{Reason:boom}" {
+		t.Errorf("ReadFailed text %q", got)
+	}
+}
+
+// BenchmarkIOPrint: 10,000 lines through io.Host's Print body, against
+// the Go controls fmt.Fprint to os.Stdout (unbuffered, the same work) and
+// a bufio.Writer (buffered, which S4c may reach), all to /dev/null.
+func BenchmarkIOPrint(b *testing.B) {
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer null.Close()
+	old := os.Stdout
+	defer func() { os.Stdout = old }()
+	os.Stdout = null
+	const lines = 10_000
+	b.Run("ergo", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			for range lines {
+				IOPrint("a line of text\n")
+			}
+		}
+	})
+	b.Run("fmt", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			for range lines {
+				fmt.Fprint(os.Stdout, "a line of text\n")
+			}
+		}
+	})
+	b.Run("bufio", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			w := bufio.NewWriter(os.Stdout)
+			for range lines {
+				_, _ = w.WriteString("a line of text\n")
+			}
+			_ = w.Flush()
+		}
+	})
+}
+
+// BenchmarkIOLines: 10,000 lines through the shared reader's lines (one
+// lock per line), against the Go control, a bufio.Reader's ReadString
+// loop with no lock.
+func BenchmarkIOLines(b *testing.B) {
+	text := strings.Repeat("a line of text\n", 10_000)
+	b.Run("ergo", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			n := 0
+			for range newLineReader(strings.NewReader(text)).lines() {
+				n++
+			}
+		}
+	})
+	b.Run("bufio", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			br := bufio.NewReader(strings.NewReader(text))
+			n := 0
+			for {
+				line, err := br.ReadString('\n')
+				if line != "" {
+					n++
+				}
+				if err != nil {
+					break
+				}
+			}
+		}
+	})
+}
+
+func readAllFile(f *os.File) (string, error) {
+	var b strings.Builder
+	buf := make([]byte, 512)
+	for {
+		n, err := f.Read(buf)
+		b.Write(buf[:n])
+		if err != nil {
+			return b.String(), nil
+		}
 	}
 }

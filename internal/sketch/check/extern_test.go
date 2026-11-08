@@ -391,6 +391,48 @@ func main() {
 	use(Mine)
 }
 `,
+	// std io (std-align S1b): open, as no std extern's result names them
+	// (stdlib.md, io 6).
+	"io.Stdout": `import io
+
+type Mine {}
+
+func Print(_ Mine, text string) {}
+func Println(_ Mine, line string) {}
+func IsTerminal(_ Mine) bool { false }
+
+func use(o io.Stdout) { o.Print("x") }
+
+func main() {
+	use(Mine)
+}
+`,
+	"io.Stderr": `import io
+
+type Mine {}
+
+func Eprint(_ Mine, text string) {}
+func Eprintln(_ Mine, line string) {}
+
+func use(e io.Stderr) { e.Eprintln("x") }
+
+func main() {
+	use(Mine)
+}
+`,
+	"io.Stdin": `import io
+
+type Mine {}
+
+func ReadAll(_ Mine) string fails io.ReadFailed { "" }
+func Lines(_ Mine) Seq[string] { io.Input{Text: ""}.Lines() }
+
+func use(i io.Stdin) { _ = i.ReadAll() catch { case io.ReadFailed: "" } }
+
+func main() {
+	use(Mine)
+}
+`,
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
@@ -424,6 +466,9 @@ var openStd = map[string]bool{
 	"os.Process":        true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
+	"io.Stdout":         true,
+	"io.Stderr":         true,
+	"io.Stdin":          true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type

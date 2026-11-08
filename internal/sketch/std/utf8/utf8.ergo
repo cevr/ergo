@@ -1,0 +1,19 @@
+// Package utf8 counts the UTF-8 sequences of text (docs/spec/stdlib.md,
+// strings and strconv). It is Go's unicode/utf8; the extern binds a
+// runtime/v1 body (runtime/v1/text.go).
+
+// RuneCount is the number of runes in s. Each byte of an invalid sequence
+// counts as one rune (U+FFFD), as in Go.
+extern go ergo.local/prototype/runtime/v1.UTF8RuneCount func RuneCount(s string) int
+
+// RuneCountAtMostLen: a rune takes at least one byte.
+law RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }
+
+// RuneCountOfConcat: joining two texts never adds runes; it may join a
+// split sequence into one.
+law RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }
+
+// RuneCountAddsRune: a valid rune added at the end is one more rune; it
+// does not join a sequence before it, because its first byte is not a
+// continuation byte.
+law RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }

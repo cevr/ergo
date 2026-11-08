@@ -100,6 +100,21 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvItoa":       {},
 	"StrconvAtoi":       {},
 	"StrconvQuote":      {},
+	// std-align S1c: the rest of Go's strings and strconv that the std
+	// takes, and utf8; pure, as above.
+	"StringsReplaceAll":   {},
+	"StringsLastIndex":    {},
+	"StringsCount":        {},
+	"StringsSplitN":       {},
+	"StringsEqualFold":    {},
+	"StringsContainsRune": {},
+	"UTF8RuneCount":       {},
+	"StrconvParseInt":     {},
+	"StrconvParseFloat":   {},
+	"StrconvParseBool":    {},
+	"StrconvFormatBool":   {},
+	"StrconvFormatFloat":  {},
+	"StrconvUnquote":      {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},
@@ -112,6 +127,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSStat":      {},
 	"FSWriteFile": {},
 	"FSMkdirAll":  {},
+	// std io (S1b; stdlib.md, io): bodies that write or read a standard
+	// stream of the host process. A read of standard input is an
+	// uninterruptible host wait, as a read of a file is; none releases.
+	"IOPrint":      {},
+	"IOEprint":     {},
+	"IOIsTerminal": {},
+	"IOReadAll":    {},
+	"IOLines":      {},
 }
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.

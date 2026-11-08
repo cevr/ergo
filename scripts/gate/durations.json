@@ -1474,7 +1474,7 @@
   },
   "ergo.local/prototype/scripts/conformance": {
     "TestBehaviorLimitsAndClosedSchemaAreRequired": 0,
-    "TestCommittedMappingClaimsNoEvidence": 0,
+    "TestCommittedMappingClaims": 0,
     "TestEncodingMatchesPythonJSON": 0,
     "TestEvidenceInAnyPackageRunsPerPackage": 0.04,
     "TestFoldkitFailedCaptureRemovesUnpublishedSnapshotAndStage": 0.06,

@@ -40,7 +40,7 @@ func shout(s string) string { strings.ToUpper(strings.TrimSpace(s)) + "!" }
 
 func parse(s string) int {
 	let n = strconv.Atoi(s) catch {
-	case strconv.Malformed:
+	case strconv.Malformed, strconv.OutOfRange:
 		return -1
 	}
 	n

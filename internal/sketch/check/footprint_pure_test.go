@@ -29,7 +29,7 @@ func cuts(s string) bool {
 	case None: false
 	}
 }
-func parses(s string) int fails strconv.Malformed { try strconv.Atoi(s) }
+func parses(s string) int fails strconv.Malformed | strconv.OutOfRange { try strconv.Atoi(s) }
 func reads(key string) string needs Env { strings.TrimSpace(Env.Get(key)) }
 func loops(s string, n int) string {
 	if n == 0 {

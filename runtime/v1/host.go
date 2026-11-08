@@ -1,13 +1,17 @@
 package v1
 
 import (
+	"bufio"
 	"errors"
+	"io"
 	"io/fs"
+	"iter"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -275,4 +279,129 @@ func FSMkdirAll(path string) error {
 		return Failed{Path: path, Reason: fsReason(err)}
 	}
 	return fsErr(path, err)
+}
+
+// The bodies of std io (docs/spec/stdlib.md, io). Each writes or reads a
+// standard stream of the host process, so none is pure. A write is one
+// unbuffered WriteString, as Console.Println is, so writes of Console and
+// io keep program order. A read of standard input waits for the host and
+// cannot be stopped: it is an uninterruptible host wait, as a read of a
+// file is.
+
+// ReadFailed is io.ReadFailed: a read of standard input failed. It is a
+// record of a v1 package, so the lowering binds io.ReadFailed to this Go
+// type (docs/spec/stdlib.md, Types 4).
+type ReadFailed struct {
+	Reason string
+}
+
+// Error is the failure's text, its Ergo name and field.
+func (e ReadFailed) Error() string { return "io.ReadFailed{Reason:" + e.Reason + "}" }
+
+// IOPrint is the body of io.Host's Print: text on standard output, as it
+// is, in one write.
+func IOPrint(text string) {
+	_, _ = os.Stdout.WriteString(text)
+}
+
+// IOEprint is the body of io.Errors' Eprint: text on standard error, as it
+// is, in one write.
+func IOEprint(text string) {
+	_, _ = os.Stderr.WriteString(text)
+}
+
+// IOIsTerminal is the body of io.Host's IsTerminal: whether standard
+// output is a character device, a terminal.
+func IOIsTerminal() bool {
+	fi, err := os.Stdout.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+// IOReadAll is the body of io.Host's ReadAll: the rest of standard input,
+// from where the last read stopped.
+func IOReadAll() (string, error) {
+	return stdinReader().readAll()
+}
+
+// IOLines is the body of io.Host's Lines: the rest of standard input, one
+// line at a time, each without its line feed; a last line with no line
+// feed is a line. A line has no length limit (bufio.Reader, not
+// bufio.Scanner). A read failure other than the end of the input panics:
+// a Seq has no failure row, and ending it early would hide the failure.
+// A break leaves the rest of the input in the shared reader for the next
+// read.
+func IOLines() iter.Seq[string] {
+	return stdinReader().lines()
+}
+
+// lineReader is one buffered reader that every read of its input goes
+// through, so a read starts where the one before it stopped: the bytes
+// that the buffer read ahead stay for the next read. Its lock makes each
+// read whole when two tasks read at once.
+type lineReader struct {
+	mu sync.Mutex
+	br *bufio.Reader
+}
+
+func newLineReader(r io.Reader) *lineReader {
+	return &lineReader{br: bufio.NewReader(r)}
+}
+
+// stdin is the process's one lineReader over os.Stdin, and stdinFile the
+// os.Stdin it reads. A Go test that sets os.Stdin to a new file gets a new
+// reader; a program never sets it.
+var (
+	stdinMu   sync.Mutex
+	stdin     *lineReader
+	stdinFile *os.File
+)
+
+// stdinReader is the shared reader of standard input.
+func stdinReader() *lineReader {
+	stdinMu.Lock()
+	defer stdinMu.Unlock()
+	if stdin == nil || stdinFile != os.Stdin {
+		stdin, stdinFile = newLineReader(os.Stdin), os.Stdin
+	}
+	return stdin
+}
+
+// readAll is the rest of the input.
+func (l *lineReader) readAll() (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	data, err := io.ReadAll(l.br)
+	if err != nil {
+		return "", ReadFailed{Reason: fsReason(err)}
+	}
+	return string(data), nil
+}
+
+// readLine is the next line with its line feed, if it has one.
+func (l *lineReader) readLine() (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.br.ReadString('\n')
+}
+
+// lines is the rest of the input, as IOLines gives it.
+func (l *lineReader) lines() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for {
+			line, err := l.readLine()
+			if err != nil && err != io.EOF {
+				panic("io.Stdin.Lines: " + err.Error())
+			}
+			if strings.HasSuffix(line, "\n") {
+				if !yield(line[:len(line)-1]) {
+					return
+				}
+			} else if line != "" && !yield(line) {
+				return
+			}
+			if err == io.EOF {
+				return
+			}
+		}
+	}
 }
