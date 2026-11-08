@@ -1,0 +1,60 @@
+// Package toml reads and writes a subset of TOML: comments, [table] and
+// [[array of tables]] headers, key = value lines, and values that are
+// basic and literal strings, integers, booleans and one-line arrays.
+// Every key and value keeps the position it was read at, so a reader of
+// the document can say where a wrong value is.
+
+// Pos is a position in the text: a line and a byte column, both from 1.
+type Pos { Line int, Column int }
+
+// Value is a value of the document.
+type Value = Str{S string} | Int{N int} | Bool{B bool} | Arr{Items []Item}
+
+// Item is an element of an array and where it was read.
+type Item { Value Value, At Pos }
+
+// Entry is a key = value line.
+type Entry { Key string, KeyAt Pos, Value Value, At Pos }
+
+// Table is the entries under a header, or before the first header when
+// its Name is "". Many marks an element of an array of tables, [[name]].
+type Table { Name string, Many bool, At Pos, Entries []Entry }
+
+// Doc is a document: its root table, then each table in the order of
+// its header.
+type Doc { Root Table, Tables []Table }
+
+// Lookup is the entry key of t, if t has one.
+func Lookup(t Table, key string) Option[Entry] {
+	for e in t.Entries {
+		if e.Key == key {
+			return Some{Value: e}
+		}
+	}
+	None
+}
+
+// Named is the tables of d named name, in order.
+func Named(d Doc, name string) []Table {
+	let mut out = []Table{}
+	for t in d.Tables {
+		if t.Name == name {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+// Kind is the name of the kind of v, for a message.
+func Kind(v Value) string {
+	match v {
+	case Str:
+		"a string"
+	case Int:
+		"an integer"
+	case Bool:
+		"a boolean"
+	case Arr:
+		"an array"
+	}
+}

@@ -1,0 +1,102 @@
+// The reader's tests: each form, each failure with its position, and
+// the laws restated as property tests (#162 runs laws).
+
+import rand
+import strings
+
+let sample = "# a service\nname = \"edge\"  # its name\ntags = ['a', \"b\\tc\", [1, -2_000], true,]\n\n[listen]\nport = 8_080\n\n[[upstream]]\naddr = 'x'\n[[upstream]]\naddr = \"y\"\r\n"
+
+test ReadsEachForm {
+	let d = try Parse(sample)
+	assert len(d.Root.Entries) == 2
+	assert d.Root.Entries[0].Key == "name" && Same(d.Root.Entries[0].Value, Str{S: "edge"})
+	assert d.Root.Entries[1].At == Pos{Line: 3, Column: 8}
+	assert Same(d.Root.Entries[1].Value, Arr{Items: []Item{
+		Item{Value: Str{S: "a"}, At: Pos{Line: 0, Column: 0}},
+		Item{Value: Str{S: "b\tc"}, At: Pos{Line: 0, Column: 0}},
+		Item{Value: Arr{Items: []Item{Item{Value: Int{N: 1}, At: Pos{Line: 0, Column: 0}}, Item{Value: Int{N: -2000}, At: Pos{Line: 0, Column: 0}}}}, At: Pos{Line: 0, Column: 0}},
+		Item{Value: Bool{B: true}, At: Pos{Line: 0, Column: 0}},
+	}})
+	assert len(d.Tables) == 3
+	assert d.Tables[0].Name == "listen" && !d.Tables[0].Many && d.Tables[0].At == Pos{Line: 5, Column: 1}
+	assert len(Named(d, "upstream")) == 2
+	assert Same(Named(d, "upstream")[1].Entries[0].Value, Str{S: "y"})
+}
+
+test PrintsCanonically {
+	let d = try Parse(sample)
+	assert Print(d) == "name = \"edge\"\ntags = [\"a\", \"b\\tc\", [1, -2000], true]\n\n[listen]\nport = 8080\n\n[[upstream]]\naddr = \"x\"\n\n[[upstream]]\naddr = \"y\"\n"
+	assert Print(try Parse("")) == ""
+	assert Print(try Parse("[only]\n")) == "[only]\n"
+}
+
+// where is the position and the text of the failure of Parse of text,
+// or "ok".
+func where(text string) string {
+	let _ = Parse(text) catch {
+	case err:
+		let p = PosOf(err)
+		return "\(p.Line):\(p.Column): \(Describe(err))"
+	}
+	"ok"
+}
+
+test FailuresNameTheirPlace {
+	assert where("a = ") == "1:5: want a value, got the end of the line"
+	assert where("a 1") == "1:3: want =, got \"1\""
+	assert where("= 1") == "1:1: want a key, got \"=\""
+	assert where("a = 1 2") == "1:7: want a comment or the end of the line, got \"2\""
+	assert where("\n\na = \"open") == "3:5: the string is not closed on its line"
+	assert where("a = 'open") == "1:5: the string is not closed on its line"
+	assert where("a = [1, 2") == "1:5: the array is not closed on its line"
+	assert where("a = [1 2]") == "1:8: want , or ], got \"2\""
+	assert where("[table") == "1:1: the header is not closed on its line"
+	assert where("[[t]") == "1:4: want ]], got \"]\""
+	assert where("a = \"x\\q\"") == "1:7: \\q is not an escape: use \\\" \\\\ \\n \\t or \\r"
+	assert where("a = 99999999999999999999") == "1:5: 99999999999999999999 does not fit a 64-bit integer"
+	assert where("a = 1__0") == "1:7: want a digit, got \"_\""
+	assert where("a = 10_") == "1:8: want a digit, got the end of the line"
+	assert where("a = yes") == "1:5: want a value, got \"y\""
+	assert where("a = 1\nb = 2\na = 3") == "3:1: a is already written at line 1"
+	assert where("[t]\n[t]") == "2:1: t is already written at line 1"
+	assert where("[[t]]\n[t]") == "2:1: t is already written at line 1"
+	assert where("[[t]]\n[[t]]\na = 1\n[[t]]\na = 1") == "ok"
+}
+
+test PrintParsesHolds(seed int) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let d = Gen()
+		assert Printable(d)
+		let back = try Parse(Print(d))
+		assert SameDoc(back, d)
+	}
+}
+
+test PrintIsCanonicalHolds(seed int, text string) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		for t in []string{Print(Gen()), text, "a = " + text, "[x]\nk = [" + text + "]"} {
+			let d = Parse(t) catch {
+			case _:
+				continue
+			}
+			let once = Print(d)
+			let again = try Parse(once)
+			assert Print(again) == once
+		}
+	}
+}
+
+test ProblemPointsIntoTheTextHolds(seed int, cut int, text string) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let printed = Print(Gen())
+		let k = if cut < 0 { -(cut + 1) } else { cut }
+		let broken = strings.Slice(printed, 0, k%(len(printed)+1)) + text
+		for t in []string{broken, text, printed + printed} {
+			let _ = Parse(t) catch {
+			case err:
+				assert Points(err, t)
+				continue
+			}
+		}
+	}
+}

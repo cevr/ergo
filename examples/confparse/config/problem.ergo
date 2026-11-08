@@ -1,0 +1,69 @@
+import strconv
+import strings
+
+// Problem is any failure of Decode.
+type Problem = MissingKey | WrongType | OutOfRange | UnknownKey | UnknownTable | BadChoice | Clash
+
+// Where is where p comes from.
+func Where(p Problem) Origin {
+	match p {
+	case MissingKey as m:
+		InFile{At: m.At}
+	case WrongType as w:
+		w.From
+	case OutOfRange as o:
+		o.From
+	case UnknownKey as u:
+		InFile{At: u.At}
+	case UnknownTable as u:
+		InFile{At: u.At}
+	case BadChoice as b:
+		b.From
+	case Clash as c:
+		InFile{At: c.At}
+	}
+}
+
+// Describe is what is wrong, for a reader.
+func Describe(p Problem) string {
+	match p {
+	case MissingKey as m:
+		if m.Table == "" { "\(m.Key) is required" } else { "\(m.Key) is required in [\(m.Table)]" }
+	case WrongType as w:
+		"\(w.Key) must be \(w.Want), not \(w.Got)"
+	case OutOfRange as o:
+		"\(o.Key) = \(o.N) is not in \(o.Min)..\(o.Max)"
+	case UnknownKey as u:
+		if u.Table == "" { "unknown key \(u.Key)" } else { "unknown key \(u.Key) in [\(u.Table)]" }
+	case UnknownTable as u:
+		"unknown table \(u.Header)"
+	case BadChoice as b:
+		"\(b.Key) = \(strconv.Quote(b.Got)) is not one of \(strings.Join(b.Choices, ", "))"
+	case Clash as c:
+		"upstream \(strconv.Quote(c.Name)) is already defined at line \(c.First.Line)"
+	}
+}
+
+// Place is the prefix of a message about origin o in file: file:line:col,
+// or file: $NAME.
+func Place(file string, o Origin) string {
+	match o {
+	case InFile as f:
+		"\(file):\(f.At.Line):\(f.At.Column)"
+	case InEnv as e:
+		"\(file): $\(e.Name)"
+	}
+}
+
+// PosIn reports whether the place of o in the text is a line of text
+// and a column of it, or the one after its end; a variable is always
+// a place.
+func PosIn(o Origin, text string) bool {
+	match o {
+	case InFile as f:
+		let lines = strings.Split(text, "\n")
+		f.At.Line >= 1 && f.At.Line <= len(lines) && f.At.Column >= 1 && f.At.Column <= len(lines[f.At.Line-1])+1
+	case InEnv:
+		true
+	}
+}

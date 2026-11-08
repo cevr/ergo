@@ -1,0 +1,293 @@
+import strconv
+import strings
+
+// The failures of Parse, each with the position it names.
+
+// Unexpected is a character where the grammar wants another thing.
+type Unexpected { At Pos, Want string, Got string }
+
+// Unterminated is a string, an array or a header with no end on its
+// line; At is where it starts.
+type Unterminated { At Pos, What string }
+
+// BadEscape is a backslash sequence a basic string does not have.
+type BadEscape { At Pos, Seq string }
+
+// TooBig is an integer that does not fit an int.
+type TooBig { At Pos, Text string }
+
+// Duplicate is a key written twice in one table, or a table header
+// written twice; First is where it was first written.
+type Duplicate { At Pos, Key string, First Pos }
+
+// cursor is one line, its number and the index of the next byte. Parse
+// owns it, and each rule takes it by borrow and moves it on.
+type cursor { text string, line int, pos int }
+
+func at(c *cursor) Pos { Pos{Line: c.line, Column: c.pos + 1} }
+
+func done(c *cursor) bool { c.pos >= len(c.text) }
+
+func blanks(c *cursor) {
+	for !done(c) && (c.text[c.pos] == ' ' || c.text[c.pos] == '\t') {
+		c.pos += 1
+	}
+}
+
+// got is the next character for a message, or "the end of the line".
+func got(c *cursor) string {
+	if done(c) { "the end of the line" } else { strconv.Quote(strings.Slice(c.text, c.pos, c.pos+1)) }
+}
+
+// Parse is the document of text.
+func Parse(text string) Doc fails Unexpected | Unterminated | BadEscape | TooBig | Duplicate {
+	let mut tables = []Table{}
+	let mut cur = Table{Name: "", Many: false, At: Pos{Line: 1, Column: 1}, Entries: []Entry{}}
+	for i, raw in strings.Split(text, "\n") {
+		let mut c = cursor{text: strings.TrimSuffix(raw, "\r"), line: i + 1, pos: 0}
+		blanks(&c)
+		if done(&c) || c.text[c.pos] == '#' {
+			continue
+		}
+		if c.text[c.pos] == '[' {
+			let t = try header(&c)
+			try lineEnd(&c)
+			try fresh(cur, tables, t)
+			tables = tables.Append(cur)
+			cur = t
+			continue
+		}
+		let e = try entry(&c)
+		try lineEnd(&c)
+		match Lookup(cur, e.Key) {
+		case Some as first:
+			return Duplicate{At: e.KeyAt, Key: e.Key, First: first.Value.KeyAt}
+		case None:
+		}
+		cur = Table{..cur, Entries: cur.Entries.Append(e)}
+	}
+	tables = tables.Append(cur)
+	let mut rest = []Table{}
+	for i, t in tables {
+		if i > 0 {
+			rest = rest.Append(t)
+		}
+	}
+	Doc{Root: tables[0], Tables: rest}
+}
+
+// fresh fails when the header t names a table already written: a [name]
+// written before in any form, or a [[name]] after a [name].
+func fresh(cur Table, tables []Table, t Table) fails Duplicate {
+	for old in tables.Append(cur) {
+		if old.Name != "" && old.Name == t.Name && (!old.Many || !t.Many) {
+			return Duplicate{At: t.At, Key: t.Name, First: old.At}
+		}
+	}
+}
+
+// lineEnd reads blanks and a comment to the end of the line.
+func lineEnd(c *cursor) fails Unexpected {
+	blanks(c)
+	if !done(c) && c.text[c.pos] != '#' {
+		return Unexpected{At: at(c), Want: "a comment or the end of the line", Got: got(c)}
+	}
+}
+
+// header reads [name] or [[name]].
+func header(c *cursor) Table fails Unexpected | Unterminated {
+	let start = at(c)
+	c.pos += 1
+	let many = !done(c) && c.text[c.pos] == '['
+	if many {
+		c.pos += 1
+	}
+	blanks(c)
+	let name = try key(c, true)
+	blanks(c)
+	let close = if many { "]]" } else { "]" }
+	if !strings.HasPrefix(strings.Slice(c.text, c.pos, len(c.text)), close) {
+		if done(c) {
+			return Unterminated{At: start, What: "the header"}
+		}
+		return Unexpected{At: at(c), Want: close, Got: got(c)}
+	}
+	c.pos += len(close)
+	Table{Name: name, Many: many, At: start, Entries: []Entry{}}
+}
+
+func isKeyByte(b byte) bool {
+	(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
+}
+
+// key reads a bare key; a table name may also hold dots.
+func key(c *cursor, dots bool) string fails Unexpected {
+	let start = c.pos
+	for !done(c) && (isKeyByte(c.text[c.pos]) || (dots && c.text[c.pos] == '.')) {
+		c.pos += 1
+	}
+	if c.pos == start {
+		return Unexpected{At: at(c), Want: "a key", Got: got(c)}
+	}
+	strings.Slice(c.text, start, c.pos)
+}
+
+// entry reads key = value.
+func entry(c *cursor) Entry fails Unexpected | Unterminated | BadEscape | TooBig {
+	let keyAt = at(c)
+	let k = try key(c, false)
+	blanks(c)
+	if done(c) || c.text[c.pos] != '=' {
+		return Unexpected{At: at(c), Want: "=", Got: got(c)}
+	}
+	c.pos += 1
+	blanks(c)
+	let valueAt = at(c)
+	let v = try value(c)
+	Entry{Key: k, KeyAt: keyAt, Value: v, At: valueAt}
+}
+
+// value reads a string, an integer, a boolean or an array.
+func value(c *cursor) Value fails Unexpected | Unterminated | BadEscape | TooBig {
+	if done(c) {
+		return Unexpected{At: at(c), Want: "a value", Got: got(c)}
+	}
+	let b = c.text[c.pos]
+	if b == '"' {
+		return Str{S: try basic(c)}
+	}
+	if b == '\'' {
+		return Str{S: try literal(c)}
+	}
+	if b == '[' {
+		return try array(c)
+	}
+	if b == '+' || b == '-' || (b >= '0' && b <= '9') {
+		return Int{N: try integer(c)}
+	}
+	let rest = strings.Slice(c.text, c.pos, len(c.text))
+	for word in []string{"true", "false"} {
+		if strings.HasPrefix(rest, word) && (len(rest) == len(word) || !isKeyByte(rest[len(word)])) {
+			c.pos += len(word)
+			return Bool{B: word == "true"}
+		}
+	}
+	Unexpected{At: at(c), Want: "a value", Got: got(c)}
+}
+
+// basic reads "…" with the escapes \" \\ \n \t and \r.
+func basic(c *cursor) string fails Unterminated | BadEscape {
+	let start = at(c)
+	c.pos += 1
+	let mut parts = []string{}
+	let mut from = c.pos
+	for !done(c) && c.text[c.pos] != '"' {
+		if c.text[c.pos] == '\\' {
+			parts = parts.Append(strings.Slice(c.text, from, c.pos))
+			if c.pos+1 >= len(c.text) {
+				return Unterminated{At: start, What: "the string"}
+			}
+			let esc = strings.Slice(c.text, c.pos, c.pos+2)
+			match esc {
+			case "\\\"":
+				parts = parts.Append("\"")
+			case "\\\\":
+				parts = parts.Append("\\")
+			case "\\n":
+				parts = parts.Append("\n")
+			case "\\t":
+				parts = parts.Append("\t")
+			case "\\r":
+				parts = parts.Append("\r")
+			case _:
+				return BadEscape{At: at(c), Seq: esc}
+			}
+			c.pos += 2
+			from = c.pos
+			continue
+		}
+		c.pos += 1
+	}
+	if done(c) {
+		return Unterminated{At: start, What: "the string"}
+	}
+	parts = parts.Append(strings.Slice(c.text, from, c.pos))
+	c.pos += 1
+	strings.Join(parts, "")
+}
+
+// literal reads '…', which has no escapes.
+func literal(c *cursor) string fails Unterminated {
+	let start = at(c)
+	c.pos += 1
+	let from = c.pos
+	for !done(c) && c.text[c.pos] != '\'' {
+		c.pos += 1
+	}
+	if done(c) {
+		return Unterminated{At: start, What: "the string"}
+	}
+	c.pos += 1
+	strings.Slice(c.text, from, c.pos-1)
+}
+
+// integer reads a decimal integer with an optional sign; an underscore
+// may stand between two digits.
+func integer(c *cursor) int fails Unexpected | TooBig {
+	let start = at(c)
+	let from = c.pos
+	if c.text[c.pos] == '+' || c.text[c.pos] == '-' {
+		c.pos += 1
+	}
+	let mut digits = []string{}
+	let mut last byte = '_'
+	for !done(c) && ((c.text[c.pos] >= '0' && c.text[c.pos] <= '9') || c.text[c.pos] == '_') {
+		let b = c.text[c.pos]
+		if b == '_' && (last < '0' || last > '9') {
+			return Unexpected{At: at(c), Want: "a digit", Got: got(c)}
+		}
+		if b != '_' {
+			digits = digits.Append(strings.Slice(c.text, c.pos, c.pos+1))
+		}
+		last = b
+		c.pos += 1
+	}
+	if len(digits) == 0 || last == '_' {
+		return Unexpected{At: at(c), Want: "a digit", Got: got(c)}
+	}
+	let sign = if c.text[from] == '-' { "-" } else { "" }
+	let text = strings.Slice(c.text, from, c.pos)
+	strconv.Atoi(sign + strings.Join(digits, "")) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return TooBig{At: start, Text: text}
+	}
+}
+
+// array reads [v, v, …] on one line; a comma may follow the last value.
+func array(c *cursor) Value fails Unexpected | Unterminated | BadEscape | TooBig {
+	let start = at(c)
+	c.pos += 1
+	let mut items = []Item{}
+	for {
+		blanks(c)
+		if done(c) {
+			return Unterminated{At: start, What: "the array"}
+		}
+		if c.text[c.pos] == ']' {
+			c.pos += 1
+			return Arr{Items: items}
+		}
+		let itemAt = at(c)
+		let v = try value(c)
+		items = items.Append(Item{Value: v, At: itemAt})
+		blanks(c)
+		if done(c) {
+			return Unterminated{At: start, What: "the array"}
+		}
+		if c.text[c.pos] == ',' {
+			c.pos += 1
+		} else if c.text[c.pos] != ']' {
+			return Unexpected{At: at(c), Want: ", or ]", Got: got(c)}
+		}
+	}
+}

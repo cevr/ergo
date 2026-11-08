@@ -1,0 +1,35 @@
+// Problem is any failure of Parse. A catch arm `case err:` of Parse's
+// row is a Problem, so one function tells them all.
+type Problem = Unexpected | Unterminated | BadEscape | TooBig | Duplicate
+
+// PosOf is the position that p names.
+func PosOf(p Problem) Pos {
+	match p {
+	case Unexpected as u:
+		u.At
+	case Unterminated as u:
+		u.At
+	case BadEscape as b:
+		b.At
+	case TooBig as t:
+		t.At
+	case Duplicate as d:
+		d.At
+	}
+}
+
+// Describe is what is wrong, for a reader.
+func Describe(p Problem) string {
+	match p {
+	case Unexpected as u:
+		"want \(u.Want), got \(u.Got)"
+	case Unterminated as u:
+		"\(u.What) is not closed on its line"
+	case BadEscape as b:
+		"\(b.Seq) is not an escape: use \\\" \\\\ \\n \\t or \\r"
+	case TooBig as t:
+		"\(t.Text) does not fit a 64-bit integer"
+	case Duplicate as d:
+		"\(d.Key) is already written at line \(d.First.Line)"
+	}
+}

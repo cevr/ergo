@@ -1,0 +1,10 @@
+missing required flag or argument: key
+Usage of confparse:
+confparse reads the configuration of a reverse proxy.
+Commands:
+  check
+    	decode the file, with the CONFPARSE_ variables over it, and print it
+  get
+    	print the value of one key as the file writes it
+  fmt
+    	print the file in canonical form

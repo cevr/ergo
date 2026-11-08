@@ -1,0 +1,47 @@
+import confparse/toml
+
+// Encode is c as a document that Decode reads back as c when c is Valid.
+func Encode(c Config) toml.Doc {
+	let mut tables = []toml.Table{
+		table("listen", false, []toml.Entry{entry("host", toml.Str{S: c.Listen.Host}), entry("port", toml.Int{N: c.Listen.Port})}),
+		table("log", false, []toml.Entry{entry("level", toml.Str{S: LevelName(c.Log)})}),
+	}
+	for u in c.Upstreams {
+		tables = tables.Append(table("upstream", true, []toml.Entry{
+			entry("name", toml.Str{S: u.Name}),
+			entry("addr", toml.Str{S: u.Addr}),
+			entry("weight", toml.Int{N: u.Weight}),
+			entry("backup", toml.Bool{B: u.Backup}),
+		}))
+	}
+	toml.Doc{Root: table("", false, []toml.Entry{entry("name", toml.Str{S: c.Name})}), Tables: tables}
+}
+
+func nowhere() toml.Pos { toml.Pos{Line: 0, Column: 0} }
+
+func entry(key string, v toml.Value) toml.Entry {
+	toml.Entry{Key: key, KeyAt: nowhere(), Value: v, At: nowhere()}
+}
+
+func table(name string, many bool, entries []toml.Entry) toml.Table {
+	toml.Table{Name: name, Many: many, At: nowhere(), Entries: entries}
+}
+
+// Valid reports whether Decode takes c: the port in 1..65535, each
+// weight in 1..100, and the upstreams' names distinct.
+func Valid(c Config) bool {
+	if c.Listen.Port < 1 || c.Listen.Port > 65535 {
+		return false
+	}
+	for i, u in c.Upstreams {
+		if u.Weight < 1 || u.Weight > 100 {
+			return false
+		}
+		for j in 0..i {
+			if c.Upstreams[j].Name == u.Name {
+				return false
+			}
+		}
+	}
+	true
+}

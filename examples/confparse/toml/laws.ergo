@@ -1,0 +1,106 @@
+// The rules of the reader and the printer as laws.
+
+import strings
+
+// PrintParses: the text Print writes of a document reads back as the
+// document, when its keys and names are ones Parse reads and are
+// distinct.
+law PrintParses(d Doc) {
+	if !Printable(d) {
+		return true
+	}
+	let back = Parse(Print(d)) catch {
+	case _:
+		return false
+	}
+	SameDoc(back, d)
+}
+
+// PrintIsCanonical: printing what Parse read of printed text gives the
+// same text.
+law PrintIsCanonical(text string) {
+	let d = Parse(text) catch {
+	case _:
+		return true
+	}
+	let once = Print(d)
+	let again = Parse(once) catch {
+	case _:
+		return false
+	}
+	Print(again) == once
+}
+
+// ProblemPointsIntoTheText: a failure names a line of the text and a
+// column of that line, or the one after its end; a duplicate names its
+// first place before it.
+law ProblemPointsIntoTheText(text string) {
+	let _ = Parse(text) catch {
+	case err:
+		return Points(err, text)
+	}
+	true
+}
+
+// Points reports whether the position of p is in text, and a
+// duplicate's first place is before it.
+func Points(p Problem, text string) bool {
+	let lines = strings.Split(text, "\n")
+	let pos = PosOf(p)
+	if pos.Line < 1 || pos.Line > len(lines) || pos.Column < 1 || pos.Column > len(lines[pos.Line-1])+1 {
+		return false
+	}
+	match p {
+	case Duplicate as d:
+		d.First.Line < d.At.Line
+	case Unexpected, Unterminated, BadEscape, TooBig:
+		true
+	}
+}
+
+// Printable reports whether Parse reads Print(d) back: every key and
+// table name is one Parse reads, a table's keys are distinct, a [name]
+// is written once and never also as [[name]], and the root is first.
+func Printable(d Doc) bool {
+	if d.Root.Name != "" || d.Root.Many || !distinctKeys(d.Root) {
+		return false
+	}
+	for i, t in d.Tables {
+		if !isName(t.Name, true) || !distinctKeys(t) {
+			return false
+		}
+		for j in 0..i {
+			let u = d.Tables[j]
+			if u.Name == t.Name && (!u.Many || !t.Many) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func distinctKeys(t Table) bool {
+	for i, e in t.Entries {
+		if !isName(e.Key, false) {
+			return false
+		}
+		for j in 0..i {
+			if t.Entries[j].Key == e.Key {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func isName(s string, dots bool) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..len(s) {
+		if !isKeyByte(s[i]) && !(dots && s[i] == '.') {
+			return false
+		}
+	}
+	true
+}

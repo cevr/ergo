@@ -1,0 +1,46 @@
+// The rules of decoding as laws.
+
+import confparse/toml
+
+// DecodeInvertsEncode: a Valid configuration, encoded, printed and read
+// back, decodes as itself.
+law DecodeInvertsEncode(c Config) {
+	if !Valid(c) {
+		return true
+	}
+	let d = toml.Parse(toml.Print(Encode(c))) catch {
+	case _:
+		return false
+	}
+	let back = Decode(d, Map[string, string]{}) catch {
+	case _:
+		return false
+	}
+	Same(back, c)
+}
+
+// EnvWins: a variable overrides the file's value of its key.
+law EnvWins(c Config, port int) {
+	if !Valid(c) || port < 1 || port > 65535 {
+		return true
+	}
+	let back = Decode(Encode(c), Map[string, string]{"CONFPARSE_LISTEN_PORT": "\(port)"}) catch {
+	case _:
+		return false
+	}
+	back.Listen.Port == port && Same(back, Config{..c, Listen: Listen{..c.Listen, Port: port}})
+}
+
+// FailuresPointIntoTheText: when text parses and does not decode, the
+// failure's place is in the text.
+law FailuresPointIntoTheText(text string) {
+	let d = toml.Parse(text) catch {
+	case _:
+		return true
+	}
+	let _ = Decode(d, Map[string, string]{}) catch {
+	case err:
+		return PosIn(Where(err), text)
+	}
+	true
+}
