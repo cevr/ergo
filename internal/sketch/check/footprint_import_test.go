@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
+	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // importedFootprintImporter serves package lib and the standard library.
@@ -217,6 +219,133 @@ func showFootprint(fp check.Footprint) string {
 // entries inside the chain. Before, an imported embedded context made the
 // footprint opaque.
 func TestEmbeddedImportedContextFootprint(t *testing.T) {
+	footprintProperty(t, contextFootprints)
+}
+
+// contextFootprints are the footprints the generated contexts reach:
+// empty, C0 only, opaque only, both, and Tasks with and without C0 (a task
+// start is also opaque: task.Go is a host function, and a provider uses
+// its Task through an operation, t.Stop()). No context footprint has Tasks
+// without opaque, even once a std body that starts a task is pure: a Task
+// leaves its function only by return (runtime.md, Tasks 3), so a provider,
+// whose result is its provider type, uses each Task it starts through an
+// operation, and an operation call is opaque. Tasks without opaque is a
+// function frame's footprint (TestFootprintsPureTaskBody).
+var contextFootprints = []string{
+	"caps=[] tasks=false opaque=false", "caps=[C0] tasks=false opaque=false",
+	"caps=[] tasks=false opaque=true", "caps=[C0] tasks=false opaque=true",
+	"caps=[] tasks=true opaque=true", "caps=[C0] tasks=true opaque=true",
+}
+
+// TestEmbeddedImportedContextFootprintPureTask (fu-pure-task) is the same
+// property with task's std externs counted as pure (the test seam
+// SetPureStdForTest): the Spawn provider's task.Go takes runs' pure-std
+// path, which no std body reaches yet, in the same-package walk and in the
+// imported provider-by-provider walk. Tasks must survive that path; opaque
+// comes from t.Stop().
+func TestEmbeddedImportedContextFootprintPureTask(t *testing.T) {
+	defer pureTaskSeam(t)()
+	footprintProperty(t, contextFootprints)
+}
+
+// pureTaskSeam opens the seam that counts task's std externs as pure and
+// returns its restore. Every std package is checked first, so none records
+// a footprint under the seam.
+func pureTaskSeam(t *testing.T) (restore func()) {
+	t.Helper()
+	for _, path := range std.Packages() {
+		if _, err := check.Std.Import(path); err != nil {
+			t.Fatalf("check.Std.Import(%q): %v", path, err)
+		}
+	}
+	return check.SetPureStdForTest("task")
+}
+
+// TestFootprintsPureTaskBody (fu-pure-task): a frame that runs a pure std
+// body whose result holds a Task has Tasks and is not opaque, as runs says
+// (footprint.go, pureStd), directly, through a function of its package and
+// through an imported function's recorded footprint. Std has no such body
+// yet, so the seam makes task.Go one; when std gets a real one, the
+// tripwire below names it and the case runs without the seam.
+func TestFootprintsPureTaskBody(t *testing.T) {
+	if bodies := stdPureTaskBodies(t); len(bodies) > 0 {
+		t.Errorf("std has pure bodies whose result holds a Task, %v: call one in this test without the seam, and keep the seam case", bodies)
+	}
+	defer pureTaskSeam(t)()
+	const lib = "import task\n\ntype Fault {}\n\nfunc Start() Task[int, Fault] { task.Go() { 1 } }\n\nfunc Again() Task[int, Fault] { Start() }\n\nfunc Stops() int {\n\tlet t = task.Go() { 1 }\n\tt.Stop()\n\t0\n}\n"
+	pkg := checkFootprintPackage(t, "lib", lib, nil)
+	main := checkFootprintPackage(t, "main", "import lib\n\nfunc Later() Task[int, lib.Fault] { lib.Start() }\n", importedFootprintImporter{pkg})
+	for _, c := range []struct {
+		pkg        *check.Package
+		name, want string
+	}{
+		{pkg, "Start", "caps=[] tasks=true opaque=false"},
+		{pkg, "Again", "caps=[] tasks=true opaque=false"},
+		{main, "Later", "caps=[] tasks=true opaque=false"},
+		{pkg, "Stops", "caps=[] tasks=true opaque=true"},
+	} {
+		var got string
+		for _, f := range c.pkg.Funcs {
+			if f.Name == c.name {
+				got = showFootprint(c.pkg.Info.Footprints[f.Decl])
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: footprint %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// checkFootprintPackage checks src as the package path, with no diagnostic.
+func checkFootprintPackage(t *testing.T, path, src string, imp check.Importer) *check.Package {
+	t.Helper()
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatalf("parse %s: %v\n%s", path, err, src)
+	}
+	pkg, ds := check.Check(path, []*syntax.File{f}, imp)
+	if len(ds) != 0 {
+		t.Fatalf("check %s: %v\n%s", path, ds, src)
+	}
+	return pkg
+}
+
+// stdPureTaskBodies are the std externs whose runtime/v1 body is pure and
+// whose result holds a Task.
+func stdPureTaskBodies(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	for _, path := range std.Packages() {
+		pkg, err := check.Std.Import(path)
+		if err != nil {
+			t.Fatalf("check.Std.Import(%q): %v", path, err)
+		}
+		for _, f := range pkg.Funcs {
+			if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil {
+				continue
+			}
+			target, name := f.Decl.Extern.Split()
+			if target != "ergo.local/prototype/runtime/v1" {
+				continue
+			}
+			if b, err := v1.BodyOf(name); err != nil || !b.Pure {
+				continue
+			}
+			for _, r := range f.Sig.Results {
+				if strings.Contains(r.String(), "Task[") {
+					out = append(out, path+"."+f.Name)
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+// footprintProperty runs the generated cases of
+// TestEmbeddedImportedContextFootprint and asks for each footprint of want.
+func footprintProperty(t *testing.T, want []string) {
+	t.Helper()
 	r := rand.New(rand.NewSource(9))
 	decls := footprintDecls()
 	kinds, hiddenKinds := map[string]bool{}, map[int]bool{}
@@ -233,16 +362,9 @@ func TestEmbeddedImportedContextFootprint(t *testing.T) {
 			hiddenKinds[k] = true
 		}
 	}
-	// The cases reach each footprint: empty, C0 only, opaque only, both,
-	// and Tasks with and without C0 (a task start is also opaque: task.Go
-	// is a host function).
-	for _, want := range []string{
-		"caps=[] tasks=false opaque=false", "caps=[C0] tasks=false opaque=false",
-		"caps=[] tasks=false opaque=true", "caps=[C0] tasks=false opaque=true",
-		"caps=[] tasks=true opaque=true", "caps=[C0] tasks=true opaque=true",
-	} {
-		if !kinds[want] {
-			t.Errorf("no case has the footprint %s; have %v", want, kinds)
+	for _, w := range want {
+		if !kinds[w] {
+			t.Errorf("no case has the footprint %s; have %v", w, kinds)
 		}
 	}
 	// Each provider kind sits in a chain whose entry X hides, so the

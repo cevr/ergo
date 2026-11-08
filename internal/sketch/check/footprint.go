@@ -592,12 +592,22 @@ func (fp *footprinter) runs(n *fpNode, f *Func, taskResult bool) {
 	}
 }
 
+// pureStdAlso is a test seam, nil outside tests (export_test.go,
+// SetPureStdForTest): it counts more std externs as pure, so the footprint
+// property reaches the path of runs that a pure std body whose result holds
+// a Task takes (tasks without opaque), before std has such a body
+// (fu-pure-task). It only widens pureStd over std externs.
+var pureStdAlso func(*Func) bool
+
 // pureStd reports a std extern whose runtime/v1 Go body carries the
 // reviewed purity fact (v1.Body.Pure; docs/spec/stdlib.md, Pure bodies). A
 // user extern is never pure: its Go body is outside the reviewed set.
 func pureStd(f *Func) bool {
 	if f.Decl.Extern == nil || f.Pkg == nil || !f.Pkg.std {
 		return false
+	}
+	if pureStdAlso != nil && pureStdAlso(f) {
+		return true
 	}
 	path, name := f.Decl.Extern.Split()
 	if path != runtimeModule+"/v1" {

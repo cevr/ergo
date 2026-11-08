@@ -156,3 +156,11 @@ func SelfSettleOnly() (restore func()) {
 	selfSettleOnly = true
 	return func() { selfSettleOnly = false }
 }
+
+// SetPureStdForTest counts every extern of the std package path as pure
+// in the footprint (pureStdAlso; fu-pure-task) until restore runs. A std
+// package imported before the call keeps the footprints it recorded.
+func SetPureStdForTest(path string) (restore func()) {
+	pureStdAlso = func(f *Func) bool { return f.Pkg.Path == path }
+	return func() { pureStdAlso = nil }
+}
