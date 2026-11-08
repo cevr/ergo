@@ -16,11 +16,13 @@ import (
 )
 
 // allowlist is the pure allowlist as G9 decides it (std-1 plan, section 3),
-// with path/filepath from std-align S3a and math/bits from std-text-runes:
-// the oracle for check.PureGoPackages, written out independently of it.
-var allowlist = []string{"math", "math/bits", "path/filepath", "slices", "sort", "strconv", "strings", "unicode/utf8"}
+// with path/filepath from std-align S3a, math/bits from std-text-runes and
+// unicode and unicode/utf16 from G2 (lane G), and crypto/sha256,
+// encoding/base64, encoding/hex and hash/crc32 from G3: the oracle for
+// check.PureGoPackages, written out independently of it.
+var allowlist = []string{"crypto/sha256", "encoding/base64", "encoding/hex", "hash/crc32", "math", "math/bits", "path/filepath", "slices", "sort", "strconv", "strings", "unicode", "unicode/utf16", "unicode/utf8"}
 
-// TestPureGoPackages pins the shared list: sorted, the plans' eight packages,
+// TestPureGoPackages pins the shared list: sorted, the plans' fourteen packages,
 // and a copy (a caller that changes it does not change the rule).
 func TestPureGoPackages(t *testing.T) {
 	got := check.PureGoPackages()
@@ -118,7 +120,8 @@ func externAllowPaths() []string {
 // in the pure allowlist checks clean; any other package is exactly one
 // S109 at the declaration. Among those, a module path (a dot in its first
 // element) keeps its #202 text and every other path gets the host text,
-// which names the target and the std route.
+// which names the target and the std route, except a pure package not
+// listed yet (pureUnlisted, G2), which gets the unlisted text.
 func TestExternAllowlist(t *testing.T) {
 	for _, path := range externAllowPaths() {
 		target := "F"
@@ -152,6 +155,13 @@ func TestExternAllowlist(t *testing.T) {
 			if strings.Contains(first, ".") {
 				if !strings.Contains(msg, "#202") || strings.Contains(msg, "reaches the host") {
 					t.Fatalf("a module path keeps its #202 text: %s", msg)
+				}
+				return
+			}
+			if slices.Contains(pureUnlisted, path) {
+				want := "extern go " + target + ": " + path + " is not on the pure allowlist ("
+				if !strings.HasPrefix(msg, want) || strings.Contains(msg, "reaches the host") {
+					t.Fatalf("want the unlisted text %q…, got %s", want, msg)
 				}
 				return
 			}

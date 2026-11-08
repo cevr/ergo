@@ -21,20 +21,29 @@ type R { N() }
 `
 
 // TestExternSignatureDomain is A5.1 of check-v1 stage E4 (C26): a user
-// extern's signature takes and returns predeclared basic types only, with
-// no type parameter and no rows. Oracle: clean iff every part is in the
+// extern's signature takes and returns predeclared basic types only, and
+// (G1) takes row-free callbacks over them, with no type parameter and no
+// rows. Oracle: clean iff every part is in the
 // domain, and then a call is clean too; otherwise exactly one S109 naming
 // #202 at the declaration.
 func TestExternSignatureDomain(t *testing.T) {
 	basic := []string{"bool", "string", "int", "int8", "int16", "int32", "int64",
 		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
 		"float32", "float64", "complex64", "complex128", "duration"}
-	other := []string{"Length", "[]int", "Map[string, int]", "Rec", "U", "func(int) int", "Op", "Option[int]"}
+	other := []string{"Length", "[]int", "Map[string, int]", "Rec", "U", "Op", "Option[int]",
+		// G1: a callback outside the domain: a non-basic part, two
+		// results, a nested callback, a row.
+		"func([]int) int", "func(int) Rec", "func(int) (int, int)", "func(func(int) int) int",
+		"func(int) int fails E", "func(int) int needs R"}
+	// G1: a callback over basic types with no rows is in the domain as a
+	// parameter (externCallback), not as a result.
+	callbacks := []string{"func(int) int", "func(r rune) bool", "func(string)", "func()"}
 	type part struct {
-		ty     string
-		in     bool
-		result bool // only in the result position (a tuple)
-		param  bool // only in the parameter position (a borrow, types.md Borrows 1)
+		ty       string
+		in       bool
+		result   bool // only in the result position (a tuple)
+		param    bool // only in the parameter position (a borrow, types.md Borrows 1)
+		callback bool // in the domain in the parameter position only
 	}
 	var parts []part
 	for _, ty := range basic {
@@ -42,6 +51,9 @@ func TestExternSignatureDomain(t *testing.T) {
 	}
 	for _, ty := range other {
 		parts = append(parts, part{ty: ty})
+	}
+	for _, ty := range callbacks {
+		parts = append(parts, part{ty: ty, callback: true})
 	}
 	parts = append(parts, part{ty: "(int, int)", result: true}, part{ty: "*Rec", param: true})
 	line := strings.Count(externDomainDecls, "\n") + 1
@@ -63,7 +75,7 @@ func TestExternSignatureDomain(t *testing.T) {
 						}
 					}
 					decl := fmt.Sprintf("extern go strings.F func f%s%s%s\n", tparams, sig, row)
-					clean := p.in && row == "" && !generic
+					clean := (p.in || p.callback && !atResult) && row == "" && !generic
 					src := externDomainDecls + decl
 					if clean {
 						src += use
@@ -190,7 +202,10 @@ func TestExternTargetDomain(t *testing.T) {
 		// std-text-runes: math/bits joined the pure allowlist.
 		{"math/bits", "", ""},
 		// G9: a standard-library package outside the pure allowlist.
-		{"math/cmplx", "S109", "extern go math/cmplx.F reaches the host"},
+		// G2: a pure package not listed yet says so.
+		{"math/cmplx", "S109", "extern go math/cmplx.F: math/cmplx is not on the pure allowlist ("},
+		{"unicode", "", ""},
+		{"unicode/utf16", "", ""},
 		{"os", "S109", "extern go os.F reaches the host; wait for std os.Process or #202"},
 		{"example.com/x", "S109", "#202"},
 		{"ergo.local/prototype/runtime/rt", "S108", "only std binds the Ergo runtime"},

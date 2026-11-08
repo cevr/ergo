@@ -417,8 +417,10 @@ func (c *checker) checkMachine(tn *TypeName) {
 	}
 	f.called = true
 	c.pkg.Info.Uses[id] = f
-	if isExtern(f) {
-		// A step is a function value; an extern is call-only (P3).
+	if isExtern(f) && !externValue(f) {
+		// A step is a function value; a call-only extern is refused (P3).
+		// An extern value (G1) is checked as a step like any function; its
+		// basic-typed signature is never a step's.
 		c.errorf(id, CodeType, "%s", externCallOnlyText)
 		return
 	}

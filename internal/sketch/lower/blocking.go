@@ -220,6 +220,17 @@ var runtimeBindings = map[string]runtimeBinding{
 	"BitsLen64":              {},
 	"BitsRotateLeft32":       {},
 	"BitsRotateLeft64":       {},
+	// std hex, base64, sha256 and crc32 (G3 std-digest; stdlib.md,
+	// encodings and digests): pure bodies that neither wait nor release.
+	"HexEncode":       {},
+	"HexDecode":       {},
+	"Base64StdEncode": {},
+	"Base64URLEncode": {},
+	"Base64StdDecode": {},
+	"Base64URLDecode": {},
+	"Sha256Sum":       {},
+	"Crc32Checksum":   {},
+	"Crc32Update":     {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},

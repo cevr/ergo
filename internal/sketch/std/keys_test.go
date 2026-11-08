@@ -76,7 +76,9 @@ func TestStdRecordTable(t *testing.T) {
 		}
 	}
 	for _, name := range errorStructs(t) {
-		if _, ok := owner[name]; !ok {
+		// GoError is the predeclared go.Error (G4), which no std package
+		// declares; the lowering binds it by name (lower, goErrorDecl).
+		if _, ok := owner[name]; !ok && name != "GoError" {
 			t.Errorf("v1.%s has an Error method, so a body can fail with it, but no row of the binding table names it", name)
 		}
 	}

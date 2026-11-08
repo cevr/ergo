@@ -195,6 +195,9 @@ func TestRuntime199BlockingOwner(t *testing.T) {
 		"Main": true, "Println": true, "End": true,
 		// Unreachable's defect (defect.go): a panic value, no wait.
 		"UnreachableAt": true,
+		// G4: a user extern's error turned into go.Error; it neither
+		// waits nor releases.
+		"GoErrorOf": true,
 	}
 	call := regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9_]*)\(`)
 	methods := map[string]bool{}

@@ -56,6 +56,14 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		if result {
 			v = fc.temp("v")
 		}
+		if fallible {
+			e := fc.temp("err")
+			fc.hostFallible(x, c, v, e, text)
+			if !failsHere(c) {
+				ice(x, "a user extern that fails go.Error with an empty row at its call")
+			}
+			return operand{val: v, err: e}
+		}
 		fc.line(fc.hostStmt(x, c, v, text))
 		return operand{val: v}
 	}
@@ -134,7 +142,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 	case check.CallFunc:
 		fd := fc.l.useFunc(c.Func, x)
 		if userExtern(c.Func) {
-			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, false
+			return fc.hostCall(x, c, args), len(c.Func.Sig.Results) > 0, c.Func.Sig.Fallible
 		}
 		if body, name, ok := fc.l.stdBody(fd); ok {
 			if c.Recv != nil {
@@ -238,8 +246,9 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 }
 
 // userExtern reports an extern declared outside std (C26, 196x): the
-// checker admits one only with a signature of basic types, no
-// rows, no type parameters and at most one result, and with a target in
+// checker admits one only with a signature of basic types, no needs row,
+// no fails row but go.Error (G4), no type parameters and at most one
+// result, and with a target in
 // Go's standard library (check/extern.go).
 func userExtern(f *check.Func) bool {
 	return f != nil && f.Decl != nil && f.Decl.Extern != nil && f.Decl.Extern.Target != nil && !f.Pkg.Std()
@@ -259,14 +268,142 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 		ice(x, "a call of the user extern %s outside its checked domain", f.Name)
 	}
 	vals := fc.callArgs(args, x)
+	for i, p := range f.Sig.Params {
+		if cb, ok := p.Type.(*check.Signature); ok {
+			// The adapter is bound once, so hostStmt's check and the call
+			// share it rather than each writing the literal.
+			vals[i] = fc.spill(fc.hostCallback(fc.bindFunc(vals[i]), cb, x))
+		}
+	}
 	return fc.hostTarget(x, f) + "(" + strings.Join(vals, ", ") + ")"
 }
 
 // hostTarget is the Go expression that names the target of the user
 // extern f: the imported package's name and the target's name.
-func (fc *funcCtx) hostTarget(x *syntax.CallExpr, f *check.Func) string {
+func (fc *funcCtx) hostTarget(site syntax.Node, f *check.Func) string {
 	path, name := f.Decl.Extern.Split()
-	return fc.l.hostPkg(path, x) + "." + name
+	return fc.l.hostPkg(path, site) + "." + name
+}
+
+// hostCallback adapts fv, an Ergo function value of the uniform shape
+// (typeCtx.funcType), to the plain Go function a user extern's callback
+// parameter takes (G1; check.externCallback): func(params) result, with
+// basic types only. The adapter calls fv with the environment of the code
+// that calls the extern, captured here, so the callback runs on its
+// caller's task: its interruption points poll that task, and a stop
+// unwinds through the Go target as a panic does. The callback type has no
+// rows, so fv returns no failure, and the adapter drops its error, which
+// is nil. The caller binds fv once (bindFunc, or a parameter's name), so
+// the adapter calls the value as it was where the call was made.
+func (fc *funcCtx) hostCallback(fv string, sig *check.Signature, site syntax.Node) string {
+	if len(sig.Results) > 1 || len(rowElems(sig.Errors)) != 0 || len(rowElems(sig.Uses)) != 0 {
+		ice(site, "a user extern callback outside its checked domain")
+	}
+	return fc.envClosure(capturedEnv, "e", site, func(env string) (params []string, results, body string) {
+		args := []string{env}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		ind := strings.Repeat("\t", fc.depth+1)
+		call := fv + "(" + strings.Join(args, ", ") + ")"
+		if len(sig.Results) == 0 {
+			return params, "", ind + "_, _ = " + call + "\n"
+		}
+		r := fc.scope.alloc("r")
+		return params, " " + fc.goType(sig.Results[0]), ind + r + ", _ := " + call + "\n" + ind + "return " + r + "\n"
+	})
+}
+
+// hostValue lowers the user extern f used as a value (G1): a literal of the
+// uniform shape (typeCtx.funcType) that calls the Go target, as hostCall
+// and hostStmt write a direct call: the `if false { defer … }` check that
+// the target is called, and the result bound at its Ergo type. A callback
+// parameter is adapted with the environment the value is called with.
+func (fc *funcCtx) hostValue(f *check.Func, sig *check.Signature, site syntax.Node) string {
+	if len(sig.TParams) > 0 || len(sig.Results) > 1 || sig.ResultIsTask() {
+		ice(site, "the user extern %s used as a value outside its checked domain", f.Name)
+	}
+	callbacks := false
+	for _, p := range sig.Params {
+		if _, ok := p.Type.(*check.Signature); ok {
+			callbacks = true
+		}
+	}
+	envParam := "_"
+	if callbacks {
+		envParam = "e"
+	}
+	return fc.envClosure(callerEnv, envParam, site, func(env string) (params []string, results, body string) {
+		fc.depth++
+		defer func() { fc.depth-- }()
+		var args []string
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			if cb, ok := p.Type.(*check.Signature); ok {
+				name = fc.hostCallback(name, cb, site)
+			}
+			args = append(args, name)
+		}
+		ind := strings.Repeat("\t", fc.depth)
+		text := fc.hostTarget(site, f) + "(" + strings.Join(args, ", ") + ")"
+		body = ind + "if false { defer " + text + " }\n"
+		if sig.Fallible {
+			// A target that fails go.Error (G4): hostFallible's binding,
+			// with the error returned as the value's failure.
+			e := fc.scope.alloc("err")
+			body += ind + "var " + e + " error\n"
+			if len(sig.Results) == 0 {
+				return params, fc.valueResults(nil), body + ind + e + " = " + text + "\n" + ind + "return struct{}{}, " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+			}
+			r := fc.scope.alloc("r")
+			body += ind + "var " + r + " " + fc.goType(sig.Results[0]) + "\n" + ind + r + ", " + e + " = " + text + "\n"
+			return params, fc.valueResults(sig.Results[0]), body + ind + "return " + r + ", " + fc.l.rt() + ".GoErrorOf(" + e + ")\n"
+		}
+		if len(sig.Results) == 0 {
+			return params, fc.valueResults(nil), body + ind + text + "\n" + ind + "return struct{}{}, nil\n"
+		}
+		r := fc.scope.alloc("r")
+		return params, fc.valueResults(sig.Results[0]), body + ind + "var " + r + " " + fc.goType(sig.Results[0]) + " = " + text + "\n" + ind + "return " + r + ", nil\n"
+	})
+}
+
+// stdValue lowers the std extern f, whose runtime/v1 body is body, used as
+// a value (G1): a literal of the uniform shape that calls the body. The
+// checker admits only a body with no hidden argument, no function
+// parameter, no type parameter and no deferred Seq (check.externValue), so
+// the call reads no environment and is made exactly as a direct call's.
+func (fc *funcCtx) stdValue(f *check.Func, body v1.Body, name string, sig *check.Signature, site syntax.Node) string {
+	if len(body.Hidden) > 0 || len(body.TypeParams) > 0 || defersCall(body) || len(sig.Results) > 1 || len(body.Params) != len(sig.Params) {
+		ice(site, "the std extern %s used as a value, whose body the checker does not admit as one", f.Name)
+	}
+	for _, p := range body.Params {
+		if p.Func != nil {
+			ice(site, "the std extern %s used as a value takes a function", f.Name)
+		}
+	}
+	envParam := "_"
+	return fc.envClosure(callerEnv, envParam, site, func(_ string) (params []string, results, text string) {
+		fc.depth++
+		defer func() { fc.depth-- }()
+		var vals []string
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			vals = append(vals, name)
+		}
+		var result check.Type
+		if len(sig.Results) == 1 {
+			result = sig.Results[0]
+		}
+		call := fc.stdResult(body, result, "", site, func(env string) string {
+			return fc.runtimeCall(name, body, "", "", vals, env, nil, nil, site)
+		})
+		ind := strings.Repeat("\t", fc.depth)
+		return params, fc.valueResults(result), uniformBody(ind, call, goValue(body), result != nil, goFallible(body))
+	})
 }
 
 // hostCalled reports a call of a user extern (hostCall).
@@ -302,6 +439,27 @@ func (fc *funcCtx) hostStmt(x *syntax.CallExpr, c *check.Call, v, text string) s
 		ice(x, "a result of the user extern %s with no variable", c.Func.Name)
 	}
 	return "var " + v + " " + fc.goType(c.Func.Sig.Results[0]) + " = " + text
+}
+
+// hostFallible writes the call x of a user extern that fails go.Error (G4;
+// decision O14), whose Go target's last result is error: hostStmt's call
+// check, then the call, its result bound to v at the Ergo result's Go type
+// and its error to e, typed error, so a target whose results differ is go
+// build's error at the call's line. A non-nil error becomes
+// go.Error{Text: err.Error()} (v1.GoErrorOf). The partial value a Go
+// function returns with an error (strconv's limit on a range error) is
+// dropped: the caller reads v only when e is nil, as an Ergo failure has
+// no value.
+func (fc *funcCtx) hostFallible(x *syntax.CallExpr, c *check.Call, v, e, text string) {
+	fc.line("if false { defer " + text + " }")
+	fc.line("var " + e + " error")
+	if v == "" {
+		fc.line(e + " = " + text)
+	} else {
+		fc.line("var " + v + " " + fc.goType(c.Func.Sig.Results[0]))
+		fc.line(v + ", " + e + " = " + text)
+	}
+	fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
 }
 
 // hostPkg is the name in main.go of the Go package path that a user
@@ -448,16 +606,21 @@ func (fc *funcCtx) envExpr(site syntax.Node) string {
 // so every type-kinded parameter must appear in a parameter type.
 func (fc *funcCtx) funcValue(f *check.Func, t check.Type, site syntax.Node, inst *check.Instance) string {
 	fd := fc.l.useFunc(f, site)
-	// An extern with no Go function of its own (a user extern's target, a
-	// std body of runtime/v1) is only called (P3). A prelude intrinsic is a
-	// Go function, which an operation table reaches when the extern
-	// satisfies an operation (196m: Sleep makes LiveScheduler a Scheduler).
-	if _, _, std := fc.l.stdBody(fd); std || userExtern(f) {
-		ice(site, "the extern function %s used as a value, which the checker refuses (P3: an extern is called directly)", f.Name)
-	}
 	sig, ok := t.(*check.Signature)
 	if !ok {
 		ice(site, "the function %s used as a value has no function type", f.Name)
+	}
+	// An extern with no Go function of its own (a user extern's target, a
+	// std body of runtime/v1) is a value through a literal of the uniform
+	// shape that calls it (G1; the checker admits only externs whose call
+	// needs no hidden argument, check.externValue). A prelude intrinsic is
+	// a Go function, which an operation table reaches when the extern
+	// satisfies an operation (196m: Sleep makes LiveScheduler a Scheduler).
+	if userExtern(f) {
+		return fc.hostValue(f, sig, site)
+	}
+	if body, name, std := fc.l.stdBody(fd); std {
+		return fc.stdValue(f, body, name, sig, site)
 	}
 	if inst == nil {
 		for _, tp := range f.Sig.TParams {

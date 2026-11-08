@@ -166,6 +166,13 @@ func (c *checker) needValue(op *operand) {
 	case modeBuiltin:
 		c.errorf(op.expr, CodeType, "%s is only called", exprText(op.expr))
 	case modeExtern:
+		// G1: an extern whose Go body has no hidden argument is a function
+		// value; the lowering wraps it in the uniform shape. Any other
+		// names the literal to pass (K4).
+		if externValue(op.fn) {
+			op.mode = modeValue
+			return
+		}
 		c.errorf(op.expr, CodeType, "%s", externValueText(*op))
 	case modeGeneric:
 		if ea, ok := op.obj.(*explicitArgs); ok {

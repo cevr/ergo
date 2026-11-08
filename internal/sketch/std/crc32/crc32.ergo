@@ -1,0 +1,19 @@
+// Package crc32 computes the CRC-32 checksum of text with the IEEE
+// polynomial (docs/spec/stdlib.md, encodings and digests; G3 std-digest).
+// It is Go's hash/crc32 with IEEETable over Ergo's strings, which hold
+// bytes (types.md, Strings 1). Each extern binds a pure runtime/v1 body
+// (runtime/v1/digest.go).
+
+// Checksum is the IEEE CRC-32 of the bytes of s, as Go's ChecksumIEEE.
+extern go ergo.local/prototype/runtime/v1.Crc32Checksum func Checksum(s string) uint32
+
+// Update is the checksum crc carried over the bytes of s, as Go's Update
+// with IEEETable: a checksum of a text read in parts.
+extern go ergo.local/prototype/runtime/v1.Crc32Update func Update(crc uint32, s string) uint32
+
+// UpdateChains: the checksum of a, carried over b, is the checksum of a +
+// b.
+law UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a + b) }
+
+// UpdateFromZero: carrying the zero checksum over s is the checksum of s.
+law UpdateFromZero(s string) { Update(0, s) == Checksum(s) }

@@ -91,7 +91,7 @@ const PureMark = "//ergo:pure"
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
 // except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math", "math/bits", "path/filepath"}
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs
@@ -99,6 +99,37 @@ var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort
 // the file system. Every other member of path/filepath is lexical.
 var PureImportsExcept = map[string][]string{
 	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
+}
+
+// PureUnlisted are Go standard-library packages, outside PureImports, whose
+// functions of basic types read only their arguments: no host state, no
+// package state a caller can see, no unknown code (lane G, G2). Nothing
+// trusts this list. It only words the checker's refusal of a user extern of
+// one: "not on the pure allowlist yet", not "reaches the host" (check,
+// externTargetRefusal). A package joins PureImports by a reviewed move out
+// of this list; any package in neither list may reach the host. Left out on
+// review: net/url (reads GODEBUG), net/netip (a global intern table),
+// hash/maphash (a random seed), container/heap and crypto/hmac (they call
+// a caller's code), errors (calls an argument's methods) and encoding/json
+// (reflection and a caller's marshal methods).
+var PureUnlisted = []string{
+	"bytes", "cmp", "container/list", "container/ring",
+	"crypto/md5", "crypto/sha1", "crypto/sha512", "crypto/subtle",
+	"encoding/ascii85", "encoding/base32",
+	"hash/adler32", "hash/crc64", "hash/fnv",
+	"html", "maps", "math/big", "math/cmplx", "path", "regexp", "regexp/syntax",
+}
+
+// PureErrorFuncs names, for each package of PureImports with any, its
+// exported functions whose last result is Go's error (lane G, G4). A user
+// extern of one must declare fails go.Error, and a user extern of any other
+// function must not (check, externErrorRefusal). The checker does not read
+// Go's sources; TestPureErrorFuncs holds this table to the Go toolchain's
+// own declarations, so a package that joins PureImports joins here too.
+var PureErrorFuncs = map[string][]string{
+	"encoding/hex":  {"AppendDecode", "Decode", "DecodeString"},
+	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Localize", "Match", "Rel", "Walk", "WalkDir"},
+	"strconv":       {"Atoi", "ParseBool", "ParseComplex", "ParseFloat", "ParseInt", "ParseUint", "QuotedPrefix", "Unquote", "UnquoteChar"},
 }
 
 // PureImportHostMembers are the Go packages, beyond PureImports, that the
@@ -170,6 +201,7 @@ type goDecls map[string]goDecl
 // distinct, so no Go type is two records (TestStdRecordTable). A std record
 // with no row is a declaration of the program, as strings.Halves is.
 var stdRecords = map[string]string{
+	"base64.Malformed":     "Base64Malformed",
 	"exec.Denied":          "ExecDenied",
 	"exec.Failed":          "ExecFailed",
 	"exec.NotFound":        "ExecNotFound",
@@ -180,6 +212,7 @@ var stdRecords = map[string]string{
 	"fs.Failed":            "Failed",
 	"fs.Info":              "Info",
 	"fs.NotFound":          "NotFound",
+	"hex.Malformed":        "HexMalformed",
 	"io.ReadFailed":        "ReadFailed",
 	"os.Exit":              "Exit",
 	"queue.Closed":         "Closed",

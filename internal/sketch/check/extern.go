@@ -16,10 +16,11 @@ import (
 // written signature and does not resolve the Go target (D-E5): go build
 // does.
 //
-// An extern function is call-only (P3; lower-v1 Q2). Any use of it other
-// than a direct call is S108 with externCallOnlyText, at the reference:
-// ident, qualified and explicit give it modeExtern, which only callOf
-// accepts and needValue refuses. Two positions name a function without an
+// An extern function was call-only (P3; lower-v1 Q2). Since G1 an extern
+// that externValue admits is also a function value; any other use of any
+// other extern is S108 with externValueText (K4), at the reference: ident,
+// qualified and explicit give it modeExtern, which callOf accepts and
+// needValue refuses unless externValue admits it. Two positions name a function without an
 // operand, a machine's step (entry.go) and a context constructor entry
 // (context.go); each reports the same S108 for an extern. A4's guard
 // (extern_guard_test.go) places every Expr field of the syntax package. The
@@ -36,13 +37,12 @@ import (
 // exactly.
 const externCallOnlyText = "an extern function is called directly; wrap it in a literal: func() { f() }"
 
-// externValueText is the P3 message at an extern used as a value, an
-// argument or a let's value (K4, G-ex-f-3): it names the extern and the
-// literal to pass, its parameters and results written out, so
-// apply(strings.ToUpper, "a") reads "strings.ToUpper is an extern and is
-// not a value; pass func(s string) string { strings.ToUpper(s) }". A
-// reference it cannot spell (a generic extern, several results) keeps
-// externCallOnlyText.
+// externValueText is the P3 message at a call-only extern (one externValue
+// refuses) used as a value, an argument or a let's value (K4, G-ex-f-3): it
+// names the extern and the literal to pass, its parameters and results
+// written out, such as "f is an extern and is not a value; pass
+// func(s string) string { f(s) }". A reference it cannot spell (a generic
+// extern, several results) keeps externCallOnlyText.
 func externValueText(op operand) string {
 	sig, _ := op.typ.(*Signature)
 	name := exprText(op.expr)
@@ -78,8 +78,45 @@ func isExtern(f *Func) bool {
 	return f != nil && f.Decl != nil && f.Decl.Extern != nil
 }
 
+// externValue reports whether a reference to the extern f may be a function
+// value (G1, gx-extern-values): Gleam's @external and ReScript's external
+// are values, and Go passes strings.ToUpper as one. A user extern always
+// may: its signature is in the C26 domain, so the lowering wraps its Go
+// target in the uniform function shape, and a callback parameter in an
+// adapter. A std extern may when its runtime/v1 body takes no hidden
+// argument (no frame, call site, task or scheduler: the call-only reason of
+// P3, so scope.OnExit still runs in its source frame), no function and no
+// type parameter, and does not return a deferred Seq. A generic extern and
+// a prelude intrinsic stay call-only (externCallOnlyText).
+func externValue(f *Func) bool {
+	if !isExtern(f) || f.Sig == nil || len(f.Sig.TParams) > 0 {
+		return false
+	}
+	if !f.Pkg.Std() {
+		return true
+	}
+	if f.Pkg.Path == std.PreludePath {
+		return false
+	}
+	path, name := f.Decl.Extern.Split()
+	if path != runtimeModule+"/v1" {
+		return false
+	}
+	body, err := v1.BodyOf(name)
+	if err != nil || len(body.Hidden) > 0 || len(body.TypeParams) > 0 {
+		return false
+	}
+	for _, p := range body.Params {
+		if p.Func != nil {
+			return false
+		}
+	}
+	return !(len(body.Results) == 1 && strings.HasPrefix(body.Results[0], "iter.Seq["))
+}
+
 // externRef is the operand of a reference to the extern f: call-only
-// (modeExtern), so only callOf accepts it.
+// (modeExtern), so callOf accepts it and needValue makes it a value only
+// when externValue admits it.
 func externRef(f *Func, sig *Signature) operand {
 	return operand{mode: modeExtern, typ: sig, fn: f}
 }
@@ -115,7 +152,11 @@ func (c *checker) checkExterns() {
 			continue
 		}
 		if part := c.externOutsideDomain(f); part != "" {
-			c.errorf(f.Decl, CodeOutside, "%s of the extern %s is #202's (Go imports); it is not checked yet: a user extern takes and returns predeclared basic types only, with no type parameter and no rows", part, f.Name)
+			c.errorf(f.Decl, CodeOutside, "%s of the extern %s is #202's (Go imports); it is not checked yet: a user extern takes and returns predeclared basic types only, and callbacks over them, with no type parameter, no needs row and no fails row but go.Error", part, f.Name)
+			continue
+		}
+		if msg := externErrorRefusal(f); msg != "" {
+			c.errorf(f.Decl, CodeType, "%s", msg)
 		}
 	}
 }
@@ -144,8 +185,9 @@ func (c *checker) checkExternParams() {
 // reach the host. A missing function there is go build's error (D-E5).
 // The Ergo runtime and Go's unsafe are S108 whatever the signature. A path
 // whose first element has a dot is a module outside Go's standard library
-// (Go's own rule for module paths) and keeps its #202 text; any other path
-// outside the allowlist may reach the host and is S109 (hostText).
+// (Go's own rule for module paths) and keeps its #202 text; a pure package
+// not listed yet (v1.PureUnlisted, G2) is S109 with unlistedText; any other
+// path outside the allowlist may reach the host and is S109 (hostText).
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
@@ -157,6 +199,9 @@ func externTargetRefusal(f *Func) (string, string) {
 	first, _, _ := strings.Cut(path, "/")
 	if strings.Contains(first, ".") {
 		return fmt.Sprintf("the Go package %s of the extern %s is #202's (Go imports); it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
+	}
+	if slices.Contains(v1.PureUnlisted, path) {
+		return unlistedText(path, f.Decl.Extern.Target.Value), CodeOutside
 	}
 	if !PureGoPackage(path) {
 		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
@@ -212,10 +257,20 @@ func hostText(path, target string) string {
 	return fmt.Sprintf("extern go %s reaches the host; wait for %s or #202 (a user extern binds only the pure Go packages %s)", target, route, strings.Join(PureGoPackages(), ", "))
 }
 
+// unlistedText is the S109 of a user extern whose Go package reads only its
+// arguments but is not in the pure allowlist yet (G2, v1.PureUnlisted). It
+// says "not listed", not "reaches the host": the package is pure, and the
+// list grows by review.
+func unlistedText(path, target string) string {
+	return fmt.Sprintf("extern go %s: %s is not on the pure allowlist (%s) yet; a user extern binds only those (#202)", target, path, strings.Join(PureGoPackages(), ", "))
+}
+
 // externOutsideDomain names the first part of f's signature outside the
-// C26 domain, or "": a type parameter, a parameter or a result that is not
-// a predeclared basic type, more than one result, a fails row or a needs
-// row. Those types lower to the identical Go type, so the call needs no
+// C26 domain, or "": a type parameter, a parameter that is neither a
+// predeclared basic type nor a callback (externCallback, G1), a result
+// that is not basic, more than one result, a fails row other than go.Error
+// (G4) or a needs row.
+// Basic types lower to the identical Go type, so only a callback needs an
 // adapter.
 func (c *checker) externOutsideDomain(f *Func) string {
 	d, sig := f.Decl, f.Sig
@@ -223,7 +278,7 @@ func (c *checker) externOutsideDomain(f *Func) string {
 		return "the type parameter " + sig.TParams[0].Name
 	}
 	for i, p := range sig.Params {
-		if !externBasic(p.Type) {
+		if !externBasic(p.Type) && !c.externCallback(p.Type) {
 			name := p.Name
 			if name == "" || name == "_" {
 				name = fmt.Sprint(i + 1)
@@ -237,20 +292,73 @@ func (c *checker) externOutsideDomain(f *Func) string {
 	case len(sig.Results) == 1 && !externBasic(sig.Results[0]):
 		return fmt.Sprintf("the result of type %s", sig.Results[0])
 	}
-	if d.Type.Results != nil {
-		for _, r := range d.Type.Results.List {
-			if _, ok := r.Type.(*syntax.ErrorRow); ok {
-				return "the fails row"
-			}
-		}
-	}
-	if sig.Fallible || !c.types.resolve(sig.Errors).Empty() {
+	if errs := c.types.resolve(sig.Errors); sig.Fallible && !externGoErrorRow(errs) || !sig.Fallible && !errs.Empty() {
 		return "the fails row"
 	}
 	if d.Type.Needs != nil || !c.types.resolve(sig.Uses).Empty() {
 		return "the needs row"
 	}
 	return ""
+}
+
+// externGoErrorRow reports the one fails row a user extern may write (G4,
+// decision O14): exactly go.Error. Its Go target's last result is error,
+// and the lowering turns a non-nil error into go.Error{Text: err.Error()}.
+func externGoErrorRow(errs *Row) bool {
+	elems := errs.Elems()
+	if len(elems) != 1 {
+		return false
+	}
+	n, ok := elems[0].(*Named)
+	return ok && IsGoError(n)
+}
+
+// IsGoError reports the predeclared go.Error.
+func IsGoError(n *Named) bool {
+	return n != nil && n.Obj != nil && n.Obj.Pkg == universeOnce.goPkg && n.Obj.Name == "Error"
+}
+
+// externErrorRefusal is the refusal of a user extern whose fails row does
+// not match its Go target (G4), or "": a target whose last result is error
+// (v1.PureErrorFuncs) must declare fails go.Error, and a target with no
+// error result must not. The checker does not read Go's sources (D-E5):
+// the table is runtime/v1's, held to Go's own declarations by
+// TestPureErrorFuncs. A name the table lacks returns no error; a name Go
+// lacks is go build's error.
+func externErrorRefusal(f *Func) string {
+	path, name := f.Decl.Extern.Split()
+	returnsError := slices.Contains(v1.PureErrorFuncs[path], name)
+	switch {
+	case returnsError && !f.Sig.Fallible:
+		return fmt.Sprintf("extern go %s returns an error; declare it in the row: fails go.Error", f.Decl.Extern.Target.Value)
+	case !returnsError && f.Sig.Fallible:
+		return fmt.Sprintf("extern go %s returns no error; a user extern fails go.Error only when its Go function's last result is error", f.Decl.Extern.Target.Value)
+	}
+	return ""
+}
+
+// externCallback reports a parameter type a user extern may take besides a
+// basic type (G1): an unnamed function type whose parameters are basic,
+// with at most one basic result and no rows, as strings.Map's
+// func(rune) rune. The lowering passes an adapter that calls the Ergo
+// function value with the caller's environment (lower, hostCallback), so
+// the callback polls its caller's task. A callback with a needs or fails
+// row would run a capability or a failure through Go code that cannot
+// carry it, so it stays #202's.
+func (c *checker) externCallback(t Type) bool {
+	s, ok := t.(*Signature)
+	if !ok || len(s.TParams) > 0 || len(s.Results) > 1 {
+		return false
+	}
+	for _, p := range s.Params {
+		if !externBasic(p.Type) {
+			return false
+		}
+	}
+	if len(s.Results) == 1 && !externBasic(s.Results[0]) {
+		return false
+	}
+	return !s.Fallible && c.types.resolve(s.Errors).Empty() && c.types.resolve(s.Uses).Empty()
 }
 
 // externBasic reports a predeclared basic type (types.go, the Basic kinds

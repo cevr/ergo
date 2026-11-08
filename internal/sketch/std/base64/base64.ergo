@@ -1,0 +1,65 @@
+// Package base64 writes and reads text in base64 (docs/spec/stdlib.md,
+// encodings and digests; G3 std-digest). It is Go's encoding/base64 with
+// padding, over Ergo's strings, which hold bytes (types.md, Strings 1);
+// Effect's Encoding.encodeBase64 and encodeBase64Url. The alphabet is a
+// union, so a function over it matches each one, where Go has two
+// *Encoding values and Effect two function names. Each extern binds a
+// pure runtime/v1 body (runtime/v1/digest.go).
+
+// StdEncoding is the standard alphabet of RFC 4648, with + and /.
+type StdEncoding {}
+
+// URLEncoding is the URL- and file-name-safe alphabet of RFC 4648, with -
+// and _.
+type URLEncoding {}
+
+// Encoding is an alphabet: StdEncoding or URLEncoding, each padded with =.
+type Encoding = StdEncoding | URLEncoding
+
+// Malformed is the failure of a text that is not base64 in its alphabet:
+// Offset is the index of the first byte that breaks it (Go's
+// CorruptInputError).
+type Malformed { Offset int }
+
+// Encode is the base64 text of the bytes of s in the alphabet e, padded
+// to a multiple of four with =, as Go's EncodeToString.
+func Encode(e Encoding, s string) string {
+	match e {
+	case StdEncoding:
+		encodeStd(s)
+	case URLEncoding:
+		encodeURL(s)
+	}
+}
+
+// Decode is the bytes that the base64 text s writes in the alphabet e. A
+// text that is not one, unpadded included, fails Malformed; Go's decoder
+// skips CR and LF, and so does this one.
+func Decode(e Encoding, s string) string fails Malformed {
+	match e {
+	case StdEncoding:
+		try decodeStd(s)
+	case URLEncoding:
+		try decodeURL(s)
+	}
+}
+
+extern go ergo.local/prototype/runtime/v1.Base64StdEncode func encodeStd(s string) string
+
+extern go ergo.local/prototype/runtime/v1.Base64URLEncode func encodeURL(s string) string
+
+extern go ergo.local/prototype/runtime/v1.Base64StdDecode func decodeStd(s string) string fails Malformed
+
+extern go ergo.local/prototype/runtime/v1.Base64URLDecode func decodeURL(s string) string fails Malformed
+
+// DecodeInvertsEncode: decoding an encoding gives the bytes back, in
+// either alphabet.
+law DecodeInvertsEncode(s string) {
+	let std = try Decode(StdEncoding, Encode(StdEncoding, s))
+	let url = try Decode(URLEncoding, Encode(URLEncoding, s))
+	std == s && url == s
+}
+
+// EncodedLength: every three bytes, and a last part of one or two, are
+// four characters.
+law EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }

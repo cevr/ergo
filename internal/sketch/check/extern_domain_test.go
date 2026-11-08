@@ -20,20 +20,29 @@ type externForm struct {
 	args    string // the arguments of a direct call
 	ctlDecl string // the control's declaration
 	ctlRef  string // the control reference
+	// value marks a form that is a function value since G1 (externValue):
+	// in every slot it gets the control's diagnostics, never P3.
+	value bool
 }
 
-// externForms is every reference form of the call-only rule's domain. Std
-// exports no non-generic extern (task.Go, queue.New, slices.WithCapacity,
-// timeout.After and scope.OnExit are generic; log's and trace's externs are
-// unexported), so the qualified non-generic form has no row. The prelude's
-// one extern, Sleep, is an operation of LiveScheduler and in no scope
-// (prelude-scope S1): only the dot form reaches it, and its value form is
-// the S104 of every operation, so the prelude has no row either.
+// externForms is every reference form of the call-only rule's domain. Since
+// G1 a user extern and a std extern whose body takes no hidden argument
+// (strings.ToUpper) are values; the generic std externs (task.Go,
+// queue.New, slices.WithCapacity, timeout.After, scope.OnExit) stay
+// call-only. The prelude's one extern, Sleep, is an operation of
+// LiveScheduler and in no scope (prelude-scope S1): only the dot form
+// reaches it, and its value form is the S104 of every operation, so the
+// prelude has no row.
 var externForms = []externForm{
 	{
 		name: "user", decl: "extern go strings.ToUpper func Upper(s string) string\n",
 		ref: "Upper", typ: "func(string) string", args: `("x")`,
-		ctlDecl: "func upper(s string) string { s }\n", ctlRef: "upper",
+		ctlDecl: "func upper(s string) string { s }\n", ctlRef: "upper", value: true,
+	},
+	{
+		name: "std-value", imports: "import strings\n",
+		ref: "strings.ToUpper", typ: "func(string) string", args: `("x")`,
+		ctlDecl: "func upper(s string) string { strings.TrimSpace(s) }\n", ctlRef: "upper", value: true,
 	},
 	{
 		name: "queue-explicit", imports: "import queue\n",
@@ -107,12 +116,23 @@ func externProgram(f externForm, s externSlot, ref, decl string) (string, int, i
 	return src, start, end
 }
 
+// codesAndLines is the codes and lines of diags, in order, each line less
+// the lines of the program's declaration (decl).
+func codesAndLines(diags []check.Diagnostic, decl int) string {
+	var b strings.Builder
+	for _, d := range diags {
+		fmt.Fprintf(&b, "%s@%d ", d.Code, d.Line-decl)
+	}
+	return b.String()
+}
+
 // TestExternCallOnlyDomain is A3 of check-v1 stage E4: every reference form
 // of an extern, in zero, one and two pairs of parentheses, in every slot,
 // against a control of the same signature. The oracle is independent of the
-// checker: outside a callee slot an extern reference is exactly one
-// diagnostic, S108 with the P3 message, at the reference; in a callee slot
-// the rule says nothing; a control never gets the P3 message.
+// checker: outside a callee slot a call-only extern reference is exactly
+// one diagnostic, S108 with the P3 message, at the reference, and a value
+// form (G1) gets its control's diagnostics; in a callee slot the rule says
+// nothing; a control never gets the P3 message.
 func TestExternCallOnlyDomain(t *testing.T) {
 	for _, f := range externForms {
 		for parens := 0; parens <= 2; parens++ {
@@ -130,17 +150,23 @@ func TestExternCallOnlyDomain(t *testing.T) {
 							p3++
 						}
 					}
+					ctlSrc, _, _ := externProgram(f, s, ctl, f.ctlDecl)
+					_, ctlDiags := check.CheckSource(ctlSrc)
 					switch {
 					case s.callee && p3 != 0:
 						t.Errorf("a direct call got the P3 message\n%s\n\t%s", src, describe(diags))
+					case f.value:
+						// A value form is the control's twin: the same
+						// codes on the same lines, and no P3.
+						if p3 != 0 || codesAndLines(diags, strings.Count(f.decl, "\n")) != codesAndLines(ctlDiags, strings.Count(f.ctlDecl, "\n")) {
+							t.Errorf("an extern value is not checked as its control\n%s\n\t%s\ncontrol:\n%s\n\t%s", src, describe(diags), ctlSrc, describe(ctlDiags))
+						}
 					case !s.callee:
 						if len(diags) != 1 || diags[0].Code != "S108" || !isP3(diags[0].Message) ||
 							diags[0].Offset < start || diags[0].Offset >= end {
 							t.Errorf("want exactly one P3 S108 at bytes %d-%d\n%s\n\t%s", start, end, src, describe(diags))
 						}
 					}
-					ctlSrc, _, _ := externProgram(f, s, ctl, f.ctlDecl)
-					_, ctlDiags := check.CheckSource(ctlSrc)
 					for _, d := range ctlDiags {
 						if isP3(d.Message) {
 							t.Errorf("the control got the P3 message\n%s\n\t%s", ctlSrc, describe(ctlDiags))

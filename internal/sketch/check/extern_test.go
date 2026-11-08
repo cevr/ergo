@@ -74,20 +74,13 @@ func main() {
 	_ = mk
 }
 `,
-		// probe slots, verbatim: a user extern in a let, a field and an
-		// element; a parenthesised callee is a direct call; "abc".Upper is
-		// a method lookup, not the extern. c and d are never used: their
-		// S110 is the probe's own, not a cascade (a has no type, so it has
-		// none).
+		// probe slots: "abc".Upper is a method lookup, not the extern. (The
+		// probe's value slots, S108 before G1, are TestExternCallOnlyDomain's
+		// property now.)
 		"user-extern-slots": `extern go strings.ToUpper func Upper(s string) string
 
-type Box { F func(string) string }
-
 func main() needs Console {
-	let a = Upper // want S108
 	let b = (Upper)("x")
-	let c = Box{F: Upper} // want S108 S110
-	let d = []func(string) string{Upper} // want S108 S110
 	let e = "abc".Upper // want S104
 	let g = "abc".Upper() // want S104
 	Console.Println(b)
