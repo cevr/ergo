@@ -22,8 +22,11 @@ import (
 // statement on a model with value semantics (every bind copies) and writes
 // the line the program must print.
 //
-//   - The shared program uses every path. Lowered with the rule, it prints
-//     the model's lines.
+//   - The shared program uses every path, owned parameters (V5) included:
+//     a rebinding x = upM(x, k), in a loop and on a field, an argument
+//     that stays live, and a rebinding whose callback reads the binding.
+//     Lowered with the rule and with the copying lowering "copy" (the rule
+//     without owned parameters), both print the model's lines.
 //   - The unshared program writes only through let mut roots bound from
 //     literals and reads them only to print, so no write is shared. Lowered
 //     with the rule and with the reference (valueLowering "alias"), both
@@ -160,6 +163,37 @@ func freshM(k int) Map[int, int] {
 	let mut m = Map[int, int]{}
 	m[k] = k * 2
 	m
+}
+
+// upM, upS and upF own their first parameter (values.go, V5): a caller
+// passes it unshared, and a rebinding x = upM(x, k) hands it over.
+func upM(m Map[int, int], k int) Map[int, int] {
+	let mut c = m
+	c[k] = k + 100
+	c
+}
+
+func upS(s []int, v int) []int {
+	let mut c = s
+	c = c.Append(v)
+	c[0] = v
+	c
+}
+
+// upF calls f after it writes: f's capture of the caller's binding sees
+// the old value.
+func upF(m Map[int, int], k int, f func() int) Map[int, int] {
+	let mut c = m
+	c[k] = k + 200
+	c[k + 1] = f()
+	c
+}
+
+// peekM reads m after it writes its copy: m is not owned.
+func peekM(m Map[int, int], k int) int {
+	let mut c = m
+	c[k] = k + 300
+	dm(c) + dm(m)
 }
 
 func apply(f func(k int)) {
@@ -388,6 +422,20 @@ func (g *valueGen) stmt() {
 				fmt.Fprintf(&g.want, "%d\n", dmModel(c))
 			}
 			g.reached["argument"] = true
+			// An owned parameter's argument stays live: it is copied,
+			// and the binding prints unchanged. peekM reads its
+			// parameter after its write, so it owns nothing.
+			key = g.r.IntN(9)
+			up := maps.Clone(b.val.m)
+			up[key] = key + 100
+			g.line(fmt.Sprintf("Console.Println(\"\\(dm(upM(%s, %d)))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(up))
+			g.print(b.name, b.kind, b.val.digest(b.kind))
+			peek := maps.Clone(b.val.m)
+			peek[key] = key + 300
+			g.line(fmt.Sprintf("Console.Println(\"\\(peekM(%s, %d))\")", b.name, key))
+			fmt.Fprintf(&g.want, "%d\n", dmModel(peek)+dmModel(b.val.m))
+			g.reached["own live"] = true
 		}
 		if g.shared && b.kind == kSlice {
 			v := g.r.IntN(9)
@@ -488,7 +536,32 @@ func (g *valueGen) write() {
 	v := g.r.IntN(9)
 	switch b.kind {
 	case kMap:
-		switch g.r.IntN(4) {
+		switch g.r.IntN(7) {
+		case 4:
+			// A rebinding hands the old value to an owned parameter.
+			key := g.r.IntN(9)
+			g.line(fmt.Sprintf("%s = upM(%s, %d)", b.name, b.name, key))
+			b.val.m[key] = key + 100
+			g.reached["own rebind"] = true
+		case 5:
+			key := g.r.IntN(9)
+			g.line(fmt.Sprintf("for i in 0..3 {\n\t\t%s = upM(%s, i + %d)\n\t}", b.name, b.name, key))
+			for i := range 3 {
+				b.val.m[i+key] = i + key + 100
+			}
+			g.reached["own loop"] = true
+		case 6:
+			if !g.shared {
+				return // the reference shares upF's write with the capture
+			}
+			// The callback reads the binding the call rebinds: it is
+			// not handed over, so the callback sees the old value.
+			key := g.r.IntN(9)
+			g.line(fmt.Sprintf("%s = upF(%s, %d, func() int { dm(%s) })", b.name, b.name, key, b.name))
+			old := dmModel(b.val.m)
+			b.val.m[key] = key + 200
+			b.val.m[key+1] = old
+			g.reached["own capture"] = true
 		case 0:
 			key := g.r.IntN(9)
 			g.line(fmt.Sprintf("%s[%d] = %d", b.name, key, v))
@@ -512,7 +585,12 @@ func (g *valueGen) write() {
 			g.reached["source "+how], g.reached["reassign"] = true, true
 		}
 	case kSlice:
-		switch g.r.IntN(3) {
+		switch g.r.IntN(4) {
+		case 3:
+			g.line(fmt.Sprintf("%s = upS(%s, %d)", b.name, b.name, v))
+			b.val.s = append(b.val.s, v)
+			b.val.s[0] = v
+			g.reached["own slice"] = true
 		case 0:
 			i := g.r.IntN(len(b.val.s))
 			g.line(fmt.Sprintf("%s[%d] = %d", b.name, i, v))
@@ -531,7 +609,12 @@ func (g *valueGen) write() {
 			g.reached["source "+how], g.reached["reassign"] = true, true
 		}
 	case kBox:
-		switch g.r.IntN(3) {
+		switch g.r.IntN(4) {
+		case 3:
+			key := g.r.IntN(9)
+			g.line(fmt.Sprintf("%s.M = upM(%s.M, %d)", b.name, b.name, key))
+			b.val.m[key] = key + 100
+			g.reached["own field"] = true
 		case 0:
 			key := g.r.IntN(9)
 			g.line(fmt.Sprintf("%s.M[%d] = %d", b.name, key, v))
@@ -589,14 +672,18 @@ func valueProgram(seed uint64, shared bool, reached map[string]bool) (src, want 
 	return valuePrelude + "func main() needs Console {\n" + body + "}\n", g.want.String()
 }
 
-// lowerValueMode lowers src with the value rule or with the reference.
-func lowerValueMode(t *testing.T, name, src string, rule bool) *lowered {
+// lowerValueMode lowers src with the value rule or with the reference
+// "alias"; a mode names another value lowering ("copy": the rule without
+// owned parameters).
+func lowerValueMode(t *testing.T, name, src string, rule bool, mode ...string) *lowered {
 	t.Helper()
 	saved := valueLowering
 	defer func() { valueLowering = saved }()
 	valueLowering = ""
 	if !rule {
 		valueLowering = "alias"
+	} else if len(mode) > 0 {
+		valueLowering = mode[0]
 	}
 	return mustLower(t, name, src)
 }
@@ -620,6 +707,9 @@ func TestValueRuleAgrees(t *testing.T) {
 		name := fmt.Sprintf("vr%dshared", seed)
 		programs = append(programs, lowerValueMode(t, name, src, true))
 		runs = append(runs, run{seed, src, want, name})
+		// The copying lowering, the reference of owned parameters.
+		programs = append(programs, lowerValueMode(t, name+"copy", src, true, "copy"))
+		runs = append(runs, run{seed, src, want, name + "copy"})
 		usrc, uwant := valueProgram(seed, false, reached)
 		for _, rule := range []bool{true, false} {
 			name := fmt.Sprintf("vr%dunshared%v", seed, rule)
@@ -661,4 +751,5 @@ var valuePaths = []string{
 	"argument", "pure", "closure", "task", "loop kept", "literal write",
 	"write map", "delete in place", "write loop", "write slice", "append in place",
 	"write field map", "write field slice", "append field", "write element",
+	"own rebind", "own loop", "own capture", "own slice", "own field", "own live",
 }
