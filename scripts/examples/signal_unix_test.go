@@ -10,7 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // SIGINT, SIGTERM or SIGHUP to the runner while a case runs: the runner stops
@@ -29,14 +30,14 @@ func TestASignalStopsTheRun(t *testing.T) {
 			t.Parallel()
 			f := newFixture(t)
 			ticks := filepath.Join(t.TempDir(), "ticks")
-			f.program("waiter", "#!/bin/sh\n"+ticker(`"$TICKS"`)+"sleep 20\n", "slow\n",
+			f.program("waiter", "#!/bin/sh\n"+ticker(`"$TICKS"`)+caseSleep, "slow\n",
 				map[string]map[string]string{"basic": {"env": "TICKS=" + ticks + "\n", "expected.out": ""}}, nil)
 			temp := t.TempDir()
-			runner := exec.Command(os.Args[0], "-root", f.root, "-ergo", f.ergo, "-timeout", "25s", "waiter")
+			runner := exec.Command(os.Args[0], "-root", f.root, "-ergo", f.ergo, "-timeout", caseTimeout(t), "waiter")
 			runner.Env = append(os.Environ(), asRunner+"=1", "TMPDIR="+temp)
 			var stdout, stderr bytes.Buffer
 			runner.Stdout, runner.Stderr = &stdout, &stderr
-			runner.WaitDelay = 5 * time.Second
+			testwait.WaitDelay(t, runner)
 			if err := runner.Start(); err != nil {
 				t.Fatal(err)
 			}
@@ -53,21 +54,16 @@ func TestASignalStopsTheRun(t *testing.T) {
 					<-exited
 				}
 			})
-			for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
-				if info, err := os.Stat(ticks); err == nil && info.Size() > 0 {
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatalf("the case never ticked")
-				}
+			if !testwait.Until(t, func() bool { info, err := os.Stat(ticks); return err == nil && info.Size() > 0 }) {
+				t.Fatalf("the case never ticked")
 			}
 			if err := runner.Process.Signal(row.signal); err != nil {
 				t.Fatal(err)
 			}
 			select {
 			case <-exited:
-			case <-time.After(15 * time.Second):
-				t.Fatalf("the runner did not end 15 s after %s", row.name)
+			case <-testwait.After(t):
+				t.Fatalf("the runner did not end by the test's deadline after %s", row.name)
 			}
 			if code, want := runner.ProcessState.ExitCode(), 128+int(row.signal); code != want {
 				t.Errorf("after %s the runner exited %d (%s), want %d\n%s%s", row.name, code, runner.ProcessState, want, stdout.String(), stderr.String())

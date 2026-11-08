@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/testinputs"
+	"ergo.local/prototype/internal/testwait"
 )
 
 // The tests run the runner in this process over fixture roots in
@@ -31,15 +32,35 @@ func TestMain(m *testing.M) {
 	os.Exit(testinputs.Main(m))
 }
 
+// caseLife is how long a fixture's process that the runner must stop lives
+// by itself (a ticker, a sleeping leader, a stream holder): a run that took
+// as long ended by the case, not by the runner. It is the fixtures' own end,
+// an event, and no bound of the runner's speed.
+const caseLife = 60 * time.Second
+
 // ticker is a fixture's shell lines that start a background loop in the
 // process group: it appends a line to file (a shell word) every 50 ms, and
-// it ends by itself 60 s after it started, so a runner that failed to stop
-// the group cannot leak it for long. Then they wait, at most 10 s, until the
-// loop ticked once. Every detection window of these tests is well inside
-// the 60 s.
+// it ends by itself caseLife after it started, so a runner that failed to stop
+// the group cannot leak it for long. Then they wait until the loop ticked
+// once, an event (a 10 s bound could pass a loaded host by; fu-time-limits).
+// Every detection window of these tests is well inside the 60 s.
 func ticker(file string) string {
-	return `( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> ` + file + `; sleep 0.05; done ) &` + "\n" +
-		`end=$(( $(date +%s) + 10 )); until [ -s ` + file + ` ] || [ "$(date +%s)" -ge "$end" ]; do sleep 0.01; done` + "\n"
+	return `( end=$(( $(date +%s) + ` + fmt.Sprint(int(caseLife/time.Second)) + ` )); while [ "$(date +%s)" -lt "$end" ]; do echo tick >> ` + file + `; sleep 0.05; done ) &` + "\n" +
+		`until [ -s ` + file + ` ]; do sleep 0.01; done` + "\n"
+}
+
+// caseSleep is a fixture's line that sleeps caseLife.
+var caseSleep = fmt.Sprintf("sleep %d\n", int(caseLife/time.Second))
+
+// caseTimeout is the runner's -timeout for a case that ends by itself: the
+// test's own time left (testwait.Left), so only a hang meets it; a year
+// when the test has no deadline, as the runner needs a positive one.
+func caseTimeout(t *testing.T) string {
+	t.Helper()
+	if left := testwait.Left(t); left > 0 {
+		return left.String()
+	}
+	return "8760h"
 }
 
 type fixture struct {
@@ -301,7 +322,7 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	ticks := t.TempDir()
-	f.program("sleeper", "#!/bin/sh\n"+ticker(`"$TICKS"`)+"sleep 30\n", "slow\n", map[string]map[string]string{
+	f.program("sleeper", "#!/bin/sh\n"+ticker(`"$TICKS"`)+caseSleep, "slow\n", map[string]map[string]string{
 		"slow": {"env": "TICKS=" + filepath.Join(ticks, "slow") + "\n", "expected.out": ""},
 	}, nil)
 	f.program("leaver", "#!/bin/sh\n"+ticker(`"$TICKS"`)+"echo done\n", "slow\n", map[string]map[string]string{
@@ -309,8 +330,8 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 	}, nil)
 	started := time.Now()
 	code, out := f.run("-timeout", "1s", "sleeper")
-	if took := time.Since(started); took > 15*time.Second {
-		t.Fatalf("a 1s timeout took %s", took)
+	if took := time.Since(started); took >= caseLife {
+		t.Fatalf("a 1s timeout took %s: the case ended by itself", took)
 	}
 	_, fails := verdicts(out)
 	if code != 1 || !strings.Contains(fails["sleeper/slow"], "timed out after 1s") {
@@ -320,8 +341,8 @@ func TestCaseProcessGroupIsStopped(t *testing.T) {
 		t.Fatal("the timed-out case's background child still runs")
 	}
 	started = time.Now()
-	code, out = f.run("-timeout", "20s", "leaver")
-	if took := time.Since(started); code != 0 || took > 10*time.Second {
+	code, out = f.run("-timeout", caseTimeout(t), "leaver")
+	if took := time.Since(started); code != 0 || took >= caseLife {
 		t.Fatalf("a case that left a child holding stdout: exit %d after %s\n%s", code, took, out)
 	}
 	if grows(t, filepath.Join(ticks, "quick")) {
