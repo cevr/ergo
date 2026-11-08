@@ -1,0 +1,256 @@
+// Drive is the runner of the search machine, written by hand until Ergo
+// has a live runner with state-owned work (MU3, MU4; M45). It runs on a
+// virtual clock and keeps the runner contract by hand:
+//
+//   - one signal at a time, a step and its commit before the next;
+//   - an entry opens at the first state, an Enter and an Emit; it arms the
+//     state's timer and starts the state's work; a Stay keeps both;
+//   - when an entry ends, its timer is dropped and its work stopped (a job
+//     still running never answers);
+//   - every job result carries the epoch of the entry that started it,
+//     and a result of an ended entry is dropped, never stepped. A job that
+//     ended at the very instant its entry ended has put its result in the
+//     inbox already; only the epoch stops it (M46);
+//   - at one instant, an outside signal goes first, then the timer, then
+//     a job's result.
+//
+// A job calls the provider when it starts, and its result arrives Costs
+// later.
+
+import machines
+
+// Costs is how long each kind of job takes on the virtual clock.
+type Costs { Find duration, Add duration }
+
+// pending is a job's result on its way: it arrives at Due.
+type pending { Due duration, Epoch int, Result Signal }
+
+// clock is the timer of the open entry.
+type clock { Due duration, Signal Signal }
+
+// Seen is a show of hits: the query and the names of its hits.
+type Seen { Query string, Hits string }
+
+// Report is what a drive did: the last state, the outputs, each show of
+// hits, the order if the user checked out, and the counts the laws read:
+// searches started, the most jobs running at once, results dropped as
+// stale, and results of an ended entry that reached the step (which must
+// stay 0). Lines is the timeline.
+type Report {
+	Last       Search,
+	Told       []Output,
+	Seen       []Seen,
+	Order      Option[[]Item],
+	Searches   int,
+	MostAtOnce int,
+	Dropped    int,
+	Late       int,
+	Lines      []string,
+}
+
+func ms(d duration) string { "@\(int64(d) / 1000000)" }
+
+// begin is the work of the entry of s that opens at now, as a pending
+// result: the job calls its provider now.
+func begin(s Search, now duration, epoch int, costs Costs) Option[pending] needs Catalog | Cart {
+	match Work(s) {
+	case Some[Job] as j:
+		match j.Value {
+		case FindJob as f:
+			let hits = Catalog.Find(f.Query) catch {
+			case IndexDown:
+				return Some[pending]{Value: pending{Due: now + costs.Find, Epoch: epoch, Result: IndexFailed}}
+			}
+			Some[pending]{Value: pending{Due: now + costs.Find, Epoch: epoch, Result: Found{Hits: hits}}}
+		case AddJob as a:
+			let cart = Cart.Add(a.Cart, a.Item) catch {
+			case CartFull:
+				return Some[pending]{Value: pending{Due: now + costs.Add, Epoch: epoch, Result: Full}}
+			}
+			Some[pending]{Value: pending{Due: now + costs.Add, Epoch: epoch, Result: Added{Cart: cart}}}
+		}
+	case None:
+		None
+	}
+}
+
+// stopped is the jobs that still answer after the entry ends at now: the
+// ones that have finished (their result is in the inbox). A job still
+// running is stopped and never answers.
+func stopped(jobs []pending, now duration) []pending {
+	let mut out = []pending{}
+	for p in jobs {
+		if p.Due <= now {
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+func running(jobs []pending, now duration) int {
+	let mut n = 0
+	for p in jobs {
+		if p.Due > now {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func earliest(jobs []pending) int {
+	let mut k = -1
+	for i, p in jobs {
+		if k < 0 || p.Due < jobs[k].Due {
+			k = i
+		}
+	}
+	k
+}
+
+func arm(m Machine[Search, Signal, Output, NoSuchHit], s Search, now duration) Option[clock] {
+	match m.After(s) {
+	case Some[Timeout[Signal]] as t:
+		Some[clock]{Value: clock{Due: now + t.Value.In, Signal: t.Value.Signal}}
+	case None:
+		None
+	}
+}
+
+// Drive runs m over the outside signals of trace until end.
+func Drive(m Machine[Search, Signal, Output, NoSuchHit], trace []machines.Timed[Signal], end duration, costs Costs) Report needs Catalog | Cart {
+	let mut r = Report{Last: m.Initial, Told: []Output{}, Seen: []Seen{}, Order: None, Searches: 0, MostAtOnce: 0, Dropped: 0, Late: 0, Lines: []string{}}
+	let mut s = m.Initial
+	let mut now = 0s
+	let mut epoch = 0
+	let mut timer = arm(m, s, now)
+	let mut jobs = []pending{}
+	let mut i = 0
+	for {
+		// The next event: the next outside signal, the timer or the
+		// earliest result, in that order at one instant.
+		let mut kind = -1
+		let mut t = 0s
+		if i < len(trace) {
+			kind = 0
+			t = if trace[i].At > now { trace[i].At } else { now }
+		}
+		match timer {
+		case Some[clock] as c:
+			if kind < 0 || c.Value.Due < t {
+				kind = 1
+				t = c.Value.Due
+			}
+		case None:
+		}
+		let k = earliest(jobs)
+		if k >= 0 && (kind < 0 || jobs[k].Due < t) {
+			kind = 2
+			t = jobs[k].Due
+		}
+		if kind < 0 || t > end {
+			break
+		}
+		now = t
+		let mut sig Signal = Clear
+		if kind == 0 {
+			sig = trace[i].Signal
+			i = i + 1
+		} else if kind == 1 {
+			match timer {
+			case Some[clock] as c:
+				sig = c.Value.Signal
+			case None:
+			}
+			timer = None
+		} else {
+			let p = jobs[k]
+			jobs = without(jobs, k)
+			if p.Epoch != epoch {
+				r = Report{..r, Dropped: r.Dropped + 1, Lines: r.Lines.Append("\(ms(now)) - dropped a result of an ended entry")}
+				continue
+			}
+			// The probe of rule 6: a result of an ended entry that gets
+			// past the drop above is counted here. The law NoStaleHits
+			// holds Late at 0.
+			if p.Epoch != epoch {
+				r = Report{..r, Late: r.Late + 1}
+			}
+			sig = p.Result
+		}
+		let d = m.Step(s, sig) catch {
+		case NoSuchHit as n:
+			r = Report{..r, Lines: r.Lines.Append("\(ms(now)) ? no hit \(n.Hit): \(n.Count) shown")}
+			Reject
+		}
+		let mut opens = false
+		match d {
+		case Done[Output] as done:
+			match done.Output {
+			case Order as o:
+				r = Report{..r, Order: Some[[]Item]{Value: o.Items}, Lines: r.Lines.Append("\(ms(now)) ! order: \(Names(o.Items))")}
+			case Shown:
+			case Put:
+			}
+			break
+		case Emit[Search, Output] as e:
+			r = Report{..r, Told: r.Told.Append(e.Output), Lines: r.Lines.Append("\(ms(now)) ! \(Said(e.Output))")}
+			match e.Output {
+			case Shown as w:
+				r = Report{..r, Seen: r.Seen.Append(Seen{Query: w.Query, Hits: Names(HitsOf(e.Next))})}
+			case Put:
+			case Order:
+			}
+			s = e.Next
+			opens = true
+		case Enter[Search] as e:
+			s = e.Next
+			opens = true
+		case Stay[Search] as st:
+			s = st.Next
+		case Ignore:
+		case Reject:
+		}
+		if opens {
+			epoch = epoch + 1
+			jobs = stopped(jobs, now)
+			timer = arm(m, s, now)
+			match begin(s, now, epoch, costs) {
+			case Some[pending] as p:
+				jobs = jobs.Append(p.Value)
+				match p.Value.Result {
+				case Found:
+					r = Report{..r, Searches: r.Searches + 1}
+				case IndexFailed:
+					r = Report{..r, Searches: r.Searches + 1}
+				case Added:
+				case Full:
+				case Key:
+				case Clear:
+				case Choose:
+				case Back:
+				case Checkout:
+				case Paused:
+				}
+			case None:
+			}
+			let n = running(jobs, now)
+			if n > r.MostAtOnce {
+				r = Report{..r, MostAtOnce: n}
+			}
+			r = Report{..r, Lines: r.Lines.Append("\(ms(now)) \(Name(s))")}
+		}
+	}
+	Report{..r, Last: s}
+}
+
+// Said is the text of an output.
+func Said(o Output) string {
+	match o {
+	case Shown as w:
+		"shown \"\(w.Query)\": \(w.Count) hits"
+	case Put as p:
+		"put \(p.Name) in the cart"
+	case Order as ord:
+		"order: \(Names(ord.Items))"
+	}
+}
