@@ -228,23 +228,28 @@ func main() fails Bad | Gen[int] | Gen2[int] needs Console {
 	}, {
 		name: "sharedonce",
 		// A named context is closed, so its provider cannot print; the provider
-		// holds a slice instead, and Store's write is visible through Reader
-		// only when both keys hold one evaluated value.
-		src: `type Store { Bump() }
+		// holds a queue instead, a shared handle, and Store's push is visible
+		// through Reader only when both keys hold one evaluated value. (A
+		// slice is a value since value-rule: a write through a copy is never
+		// seen, so it cannot carry the state.)
+		src: `import queue
+
+type Store { Bump() }
 
 type Reader { Read() int }
 
-type Both { s []int }
+type Both { q queue.Queue[int] }
 
 func Bump(b Both) {
-	let mut s = b.s
-	s[0] = s[0] + 1
+	b.q.Push(1) catch {
+	case queue.Closed:
+	}
 }
 
-func Read(b Both) int { return b.s[0] }
+func Read(b Both) int { return b.q.Len() }
 
 let Shared = context {
-	Store, Reader: Both{s: []int{0}},
+	Store, Reader: Both{q: queue.New[int](1)},
 }
 
 func main() needs Console {

@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -281,7 +282,8 @@ func (g *orderGen) caseBody() (string, func(*interp) int) {
 }
 
 // placeState is the interpreter's model of a case's places: Go variables,
-// a pointer and slices, so aliasing is real.
+// a pointer and slices, so a place fixed before a move is real; a move of
+// a slice copies it, as the value rule does.
 type placeState struct {
 	b1, b2 box
 	p      *box
@@ -336,15 +338,18 @@ func (g *orderGen) placeStmts(out *strings.Builder) func(*interp) *placeState {
 			stmt, apply = "p = &b2", func(s *placeState) { s.p = &s.b2 }
 			mut["p"], mut["b2"] = true, true
 		case moveXs:
-			stmt, apply = "xs = ys", func(s *placeState) { s.xs = s.ys }
+			// A slice is a value (value-rule): xs takes a copy of ys, and a
+			// write through the place fixed before the move reaches the
+			// array xs held.
+			stmt, apply = "xs = ys", func(s *placeState) { s.xs = slices.Clone(s.ys) }
 			mut["xs"] = true
 		case moveBs:
-			stmt, apply = "bs = cs", func(s *placeState) { s.bs = s.cs }
+			stmt, apply = "bs = cs", func(s *placeState) { s.bs = slices.Clone(s.cs) }
 			mut["bs"] = true
 		case moveB1:
 			stmt, apply = "b1 = Box{A: 40, B: 50}", func(s *placeState) { s.b1 = box{40, 50} }
 		case moveWs:
-			stmt, apply = "ws = vs", func(s *placeState) { s.ws = s.vs }
+			stmt, apply = "ws = vs", func(s *placeState) { s.ws = slices.Clone(s.vs) }
 			mut["ws"] = true
 		}
 		eval := func(in *interp, s *placeState) int {
