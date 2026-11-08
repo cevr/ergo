@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -95,19 +96,28 @@ var sandboxHostTests = map[string][]string{
 // hostSteps declares the full tier's steps of the host package pkg: one
 // step per test of sandboxHostTests, then the package's step, which skips
 // them (shardArgs), so each test runs in exactly one step. Every step runs
-// uncached (-count=1) with -parallel hostTestParallel.
-func hostSteps(root, pkg, relative string) []*Step {
+// uncached (-count=1) with -parallel hostTestParallel. A step weighs its
+// tests' recorded time (measured, the package's rows): the package's step
+// the rows that no sandbox test's step holds.
+func hostSteps(root, pkg, relative string, measured map[string]float64) []*Step {
 	name := fmt.Sprintf("go test %s (host, every run)", shortPackage(root, pkg))
 	var groups [][]string
 	for _, test := range sandboxHostTests[relative] {
 		groups = append(groups, []string{test})
 	}
+	rest := []string{}
+	for test := range measured {
+		if !slices.Contains(sandboxHostTests[relative], test) {
+			rest = append(rest, test)
+		}
+	}
 	selections := shardArgs(append(groups, nil))
 	var steps []*Step
 	for i, selection := range selections {
-		step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append([]string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout}, selection...), pkg)}
+		step := &Step{Name: name, Needs: []string{"go test build"}, Argv: append(append([]string{"go", "test", "-count=1", "-parallel", hostTestParallel(), testTimeout}, selection...), pkg), Weight: recordedSeconds(rest, measured)}
 		if i < len(groups) {
 			step.Name += " " + groups[i][0]
+			step.Weight = recordedSeconds(groups[i], measured)
 		}
 		steps = append(steps, step)
 	}
@@ -254,7 +264,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
 		if slices.Contains(hostTestPackages, relative) {
-			for _, step := range hostSteps(root, pkg, relative) {
+			for _, step := range hostSteps(root, pkg, relative, durations[pkg]) {
 				add(step)
 			}
 			continue
@@ -295,9 +305,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 	others := 0.0
 	for _, pkg := range unsharded {
-		for _, seconds := range durations[pkg] {
-			others += seconds
-		}
+		others += packageSeconds(durations[pkg])
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, unsharded...), ToolEnv: testTools, Weight: others})
 	// The full tier sweeps every package's closure on every run (gate-tier
@@ -324,7 +332,11 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// The one step that keeps Go's test cache (Step.Hermetic); every other
 	// step runs its go tests uncached.
 	if len(hermetic) > 0 {
-		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment, Hermetic: true})
+		weight := 0.0
+		for _, pkg := range hermetic {
+			weight += packageSeconds(durations[pkg])
+		}
+		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeout}, hermetic...), Env: hermeticEnvironment, Hermetic: true, Weight: weight})
 	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
@@ -601,14 +613,24 @@ func shardWeights(groups [][]string, measured map[string]float64) []float64 {
 	return weights
 }
 
-// recordedSeconds is the recorded time of the tests names.
+// recordedSeconds is the recorded time of the tests names, or 0 when their
+// package has no row (measured is nil), which the slot pool reads as
+// unrecordedWeight. A recorded total under minRecordedWeight counts as it,
+// so a package of quick tests is not taken for one with no record.
 func recordedSeconds(names []string, measured map[string]float64) float64 {
+	if measured == nil {
+		return 0
+	}
 	total := 0.0
 	for _, name := range names {
 		total += measured[name]
 	}
-	return total
+	return max(total, minRecordedWeight)
 }
+
+// minRecordedWeight is the least weight of a recorded step: the resolution
+// of durations.json (writeDurations rounds to a hundredth of a second).
+const minRecordedWeight = 0.01
 
 // sweepWeightFactor is a closure sweep's expected time over its package's
 // recorded test time (Step.Weight): the sweep runs every test observed,
@@ -617,13 +639,23 @@ func recordedSeconds(names []string, measured map[string]float64) float64 {
 const sweepWeightFactor = 4
 
 // sweepWeight is the expected seconds of the closure sweep of the package
-// importPath, or 0 when durations.json has no row for it.
+// importPath, or 0 (unrecordedWeight) when durations.json has no row for
+// it. A host package's sweep weighs 0 too: the sweep does not run its tests
+// (internal/closure's unsweepable: they start bwrap), so their recorded
+// time, hundreds of seconds for scripts/gate, does not predict the step.
 func sweepWeight(durations map[string]map[string]float64, importPath string) float64 {
-	total := 0.0
-	for _, seconds := range durations[importPath] {
-		total += seconds
+	for _, host := range hostTestPackages {
+		if strings.HasSuffix(importPath, "/"+host) {
+			return 0
+		}
 	}
-	return sweepWeightFactor * total
+	return sweepWeightFactor * packageSeconds(durations[importPath])
+}
+
+// packageSeconds is the recorded time of every test of a package's rows
+// (recordedSeconds).
+func packageSeconds(measured map[string]float64) float64 {
+	return recordedSeconds(slices.Collect(maps.Keys(measured)), measured)
 }
 
 // slowPackages are sharded by the gate over their recorded durations.
