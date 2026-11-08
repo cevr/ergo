@@ -139,10 +139,11 @@ func Constructible(t Type, from *Package) bool {
 //   - a basic type is built from a literal, a slice or a Map from an empty
 //     literal whatever its element (it holds none), and a function value
 //     from a literal of from;
-//   - an operation type, a type parameter and every other type count as
-//     built: from may declare a type that implements an open operation
-//     type, and a sealed one is decided by its implementers (not yet: a
-//     sealed operation type reads as built, fu-hostguard2).
+//   - an open operation type is built: from declares a type that
+//     implements it; a sealed one (an unexported operation of another
+//     package, sealedBy) is built when one of its implementers is, and
+//     only its owner's types implement it (implementers; fu-hostguard2);
+//   - a type parameter and every other type count as built.
 //
 // Constructible is a different fact: whether a generator may build t from
 // its parts with no hidden field anywhere, so an empty slice of an
@@ -153,6 +154,7 @@ func Buildable(t Type, from *Package) bool {
 	idx := map[Type]int{}
 	var nodes []Type
 	var kids [][]int
+	sealed := map[int]bool{}
 	var visit func(Type) int
 	visit = func(t Type) int {
 		if i, ok := idx[t]; ok {
@@ -176,6 +178,11 @@ func Buildable(t Type, from *Package) bool {
 			cs = u.Variants
 		case *Pointer:
 			cs = []Type{u.Elem}
+		case *Interface:
+			if owner := sealedOwner(u, from); owner != nil {
+				sealed[i] = true
+				cs = implementers(u, owner)
+			}
 		}
 		for _, c := range cs {
 			j := visit(c)
@@ -212,6 +219,13 @@ func Buildable(t Type, from *Package) bool {
 				for _, j := range kids[i] {
 					v = v || val[j]
 				}
+			case *Interface:
+				if sealed[i] {
+					v = false
+					for _, j := range kids[i] {
+						v = v || val[j]
+					}
+				}
 			}
 			if v {
 				val[i] = true
@@ -220,6 +234,61 @@ func Buildable(t Type, from *Package) bool {
 		}
 	}
 	return val[0]
+}
+
+// sealedOwner is the package whose types alone implement it, seen from
+// from: the package of an unexported operation of it declared in another
+// package (sealedBy), or nil when from may implement it.
+func sealedOwner(it *Interface, from *Package) *Package {
+	for _, m := range it.Methods {
+		if m.pkg != nil && m.pkg != from {
+			return m.pkg
+		}
+	}
+	return nil
+}
+
+// implementers are the types of owner that may implement it: each a
+// declared type of owner, not an operation type, with a function of owner
+// for every operation of it whose first parameter is the type or a borrow
+// of it. It may hold more types than implement it (signatures are not
+// compared), never fewer: a value of a sealed operation type is a value of
+// one of its owner's types (sealedBy), and a method is a function of the
+// type's package (types.md, Methods 1). So Buildable over it errs only
+// towards built.
+func implementers(it *Interface, owner *Package) []Type {
+	var out []Type
+	for _, tn := range owner.Types {
+		n, ok := tn.Type.(*Named)
+		if !ok || asInterface(n) != nil {
+			continue
+		}
+		all := true
+		for _, m := range it.Methods {
+			found := false
+			for _, f := range owner.Funcs {
+				if f.Name != m.Name || f.Sig == nil || len(f.Sig.Params) == 0 {
+					continue
+				}
+				p := f.Sig.Params[0].Type
+				if b, ok := p.(*Pointer); ok {
+					p = b.Elem
+				}
+				if pn, ok := p.(*Named); ok && pn.origin().Obj == tn {
+					found = true
+					break
+				}
+			}
+			if !found {
+				all = false
+				break
+			}
+		}
+		if all {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // qualifiedName is a declaration's name as another package writes it.

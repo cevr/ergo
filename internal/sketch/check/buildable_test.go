@@ -92,8 +92,19 @@ func buildShapes(depth int) []buildShape {
 				buildShape{name: "V" + in.name, decls: in.decls + "type " + w + " = " + w + "A | " + w + "B\ntype " + w + "A { X " + x("") + " }\ntype " + w + "B {}\n",
 					typ: func(q string) string { return q + w }, model: true, union: true,
 					wit: func(q string) string { return q + w + "B" }},
+				// A sealed operation type whose one implementer holds X.
+				buildShape{name: "O" + in.name, decls: in.decls + "type " + w + " { inner() int }\ntype " + w + "I { X " + x("") + " }\nfunc inner(_ " + w + "I) int { 1 }\n",
+					typ: func(q string) string { return q + w }, model: in.model, union: true,
+					wit: func(q string) string { return q + w + "I{X: " + in.wit(q) + "}" }},
 			)
 		}
+		// An open operation type: main implements it.
+		words = append(words, buildShape{name: "Q" + in.name, decls: in.decls + "type " + w + " { Outer() " + x("") + " }\n",
+			typ: func(q string) string { return q + w }, model: true, union: true,
+			wit: func(q string) string { return "Mine" + w },
+			witDecls: func(q string) string {
+				return in.witDecls(q) + "type Mine" + w + " {}\nfunc Outer(_ Mine" + w + ") " + x(q) + " { never" + w + "() }\nfunc never" + w + "() " + x(q) + " { never" + w + "() }\n"
+			}})
 		if !in.union {
 			words = append(words, buildShape{name: "D" + in.name, decls: in.decls + "type " + w + " " + x("") + "\n", typ: func(q string) string { return q + w }, model: in.model,
 				wit: func(q string) string { return q + w + "(" + in.wit(q) + ")" }})
@@ -153,9 +164,10 @@ func probeType(t *testing.T, pkg *check.Package) check.Type {
 // value of the shape is refused (a zero value is a way to build).
 func TestBuildableShapes(t *testing.T) {
 	shapes := buildShapes(2)
-	// Per base: itself, 10 words of one constructor, and their children:
-	// 10 each, but 9 under a union (no D) and 6 under F (no H, P, U, V).
-	if want := 3 * (1 + 10 + 7*10 + 2*9 + 6); len(shapes) != want {
+	// Per base: itself, 12 words of one constructor, and their children:
+	// 12 each, but 11 under a union or an operation type (U, V, O, Q: no
+	// D) and 7 under F (no H, P, U, V, O).
+	if want := 3 * (1 + 12 + 7*12 + 4*11 + 7); len(shapes) != want {
 		t.Fatalf("generated %d shapes, want %d", len(shapes), want)
 	}
 	built := 0
@@ -211,6 +223,36 @@ func TestBuildableRecursive(t *testing.T) {
 				typ = "lib.L"
 			}
 			pkg, ds := buildableIn(t, c.decls, "func probe(_ "+typ+") {}\n")
+			if len(ds) != 0 {
+				t.Fatalf("probe: %v", ds)
+			}
+			if got := check.Buildable(probeType(t, pkg), pkg); got != c.want {
+				t.Errorf("Buildable = %v, want %v\n%s", got, c.want, c.decls)
+			}
+		})
+	}
+}
+
+// TestBuildableSealed (fu-hostguard2): a sealed operation type of lib is
+// built from main when one of lib's types that implement it is; an open
+// one always (main implements it).
+func TestBuildableSealed(t *testing.T) {
+	for _, c := range []struct {
+		name, decls string
+		want        bool
+	}{
+		{"no-implementer", "type R { inner() int }\n", false},
+		{"implementer-with-authority", "type R { inner() int }\ntype A { root string }\nfunc inner(_ A) int { 1 }\n", false},
+		{"open-implementer", "type R { inner() int }\ntype A { N int }\nfunc inner(_ A) int { 1 }\n", true},
+		{"borrow-implementer", "type R { inner() int }\ntype A {}\nfunc inner(_ *A) int { 1 }\n", true},
+		{"one-of-two-open", "type R { inner() int, Outer() int }\ntype A { root string }\ntype B { N int }\nfunc inner(_ A) int { 1 }\nfunc Outer(_ A) int { 2 }\nfunc inner(_ B) int { 1 }\nfunc Outer(_ B) int { 2 }\n", true},
+		{"open-type-lacks-an-operation", "type R { inner() int, Outer() int }\ntype A { root string }\ntype B { N int }\nfunc inner(_ A) int { 1 }\nfunc Outer(_ A) int { 2 }\nfunc inner(_ B) int { 1 }\n", false},
+		{"generic-implementer", "type R { inner() int }\ntype G[T] { X T }\nfunc inner[T](_ G[T]) int { 1 }\n", true},
+		{"union-implementer-with-authority", "type R { inner() int }\ntype U = A | B\ntype A { root string }\ntype B { x int }\nfunc inner(_ U) int { 1 }\n", false},
+		{"open", "type R { Outer() int }\n", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pkg, ds := buildableIn(t, c.decls, "func probe(_ lib.R) {}\n")
 			if len(ds) != 0 {
 				t.Fatalf("probe: %v", ds)
 			}

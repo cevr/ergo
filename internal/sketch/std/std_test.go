@@ -534,9 +534,10 @@ var unguardedHosts = map[string]string{
 // (a variant value is a value of the union, and a union has no zero
 // value, types.md Unions 3); a record when it has no unexported field and
 // each field is, so an exported []Cap field of authority records lets
-// another package build it from an empty slice. An operation type counts
-// as built, so a sealed operation type is reported too; no std provider
-// is one today.
+// another package build it from an empty slice. An open operation type is
+// built (another package implements it); a sealed one when a type of its
+// package that implements it is (fu-hostguard2). Program packages have
+// their own guard, TestProgramPackagesHaveNoHostProvider.
 //
 // So a later host package (io, clock) follows the rule, or this test
 // names it. The set found today is pinned, and a fixture table with one
@@ -600,6 +601,7 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 `
 	const strict = "another package builds it from a literal or its zero value: a defined type over %s holds no authority; it needs a record with an unexported field, or a union of such records"
 	noAmbient := "fixture.NewHost returns it and does not list Ambient in its written row"
+	const sealedText = "another package makes a value of it: an operation type needs an unexported operation, and each type of its package that implements it needs authority"
 	for _, row := range []struct {
 		kind, decls string
 		want        []string
@@ -662,6 +664,34 @@ type Cap { root string }
 
 func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
 `, nil},
+		// fu-hostguard2: an operation type is judged by check.Buildable
+		// too. A sealed one is built only through its package's
+		// implementers, so a sealed Host whose implementer has authority
+		// passes (before, every operation type was reported).
+		{"sealed operation type whose implementer has authority", `type Host { peek() int }
+
+type Live { root string }
+
+func peek(_ Live) int { 1 }
+
+func NewHost() Host needs Ambient { Live{root: "/"} }
+`, nil},
+		{"sealed operation type with an open implementer", `type Host { peek() int }
+
+type Live { Root string }
+
+func peek(_ Live) int { 1 }
+
+func NewHost() Host needs Ambient { Live{Root: "/"} }
+`, []string{sealedText}},
+		{"open operation type", `type Host { Peek() int }
+
+type Live { root string }
+
+func Peek(_ Live) int { 1 }
+
+func NewHost() Host needs Ambient { Live{root: "/"} }
+`, []string{sealedText}},
 		{"basic", `type Host int
 
 func NewHost() Host needs Ambient { 0 }
@@ -702,6 +732,84 @@ func NewHost() Host { Host{} }
 	}
 }
 
+// TestProgramPackagesHaveNoHostProvider is the host guard over program
+// packages (fu-hostguard2). A program package binds no Go that reaches the
+// host: an extern of runtime/v1 is S108 and one outside the pure allowlist
+// is S109 (check, externTargetRefusal). So a program package the checker
+// accepts has no host provider of its own, by the same walk as std's; it
+// reaches the host only through a std provider it is given or holds, and
+// that provider's construction authority is std's (a program record
+// holding fs.Host is not Buildable outside fs). Each row is a program
+// package: either the checker refuses it with the named code, or it
+// checks clean and the walk finds no host provider.
+func TestProgramPackagesHaveNoHostProvider(t *testing.T) {
+	outside, ds := check.CheckSource("let x = 1\n")
+	if len(ds) != 0 {
+		t.Fatalf("outside: %v", ds)
+	}
+	for _, row := range []struct {
+		name, src string
+		refused   string // the refusal's text, or "" for a clean package
+	}{
+		// The walk before fu-hostguard2 counted any non-runtime extern as
+		// reaching the host, so this reported Name.
+		{"pure allowlist extern", `type Name string
+
+func Up(n Name) string { up(string(n)) }
+
+extern go strings.ToUpper func up(s string) string
+`, ""},
+		{"host Go extern", `type Env {}
+
+func Get(_ Env) string { getenv("HOME") }
+
+extern go os.Getenv func getenv(k string) string
+`, "reaches the host"},
+		{"runtime extern", `type Disk {}
+
+func Read(_ Disk) string { hostRead("x") }
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string
+`, "only std binds the Ergo runtime"},
+		{"record holding a std host provider", `import fs
+
+type Disk { H fs.Host }
+
+func Read(d Disk) string {
+	let t = fs.ReadFile(d.H, "/nonexistent/loop-probe-x") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "fail"
+	}
+	t
+}
+`, ""},
+	} {
+		f, err := syntax.Parse(row.src)
+		if err != nil {
+			t.Fatalf("%s: %v", row.name, err)
+		}
+		app, ds := check.Check("app", []*syntax.File{f}, nil)
+		if row.refused != "" {
+			if len(ds) == 0 || !strings.Contains(ds[0].Message, row.refused) {
+				t.Errorf("%s: diagnostics %v, want one saying %q", row.name, ds, row.refused)
+			}
+			continue
+		}
+		if len(ds) != 0 {
+			t.Errorf("%s: diagnostics %v, want none", row.name, ds)
+			continue
+		}
+		if hosts := hostProviderTypes(app); len(hosts) != 0 {
+			t.Errorf("%s: a checked program package has host providers %v", row.name, hosts)
+		}
+		for _, tn := range app.Types {
+			if tn.Name == "Disk" && check.Buildable(tn.Type, outside) {
+				t.Errorf("%s: another package builds Disk, which holds fs.Host", row.name)
+			}
+		}
+	}
+}
+
 // hostProviderTypes are pkg's host providers, in source order.
 func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 	// reaches: an extern with an impure body, or a function whose body
@@ -709,9 +817,16 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 	reaches := map[*check.Func]bool{}
 	for _, f := range pkg.Funcs {
 		if f.Decl != nil && f.Decl.Extern != nil {
+			// A runtime/v1 body reaches unless it is pure; any other Go
+			// package unless it is in the pure allowlist (G9), which a
+			// program package's extern binds (fu-hostguard2).
 			target, name := f.Decl.Extern.Split()
-			body, err := v1.BodyOf(name)
-			reaches[f] = target != v1Path || err != nil || !body.Pure
+			if target == v1Path {
+				body, err := v1.BodyOf(name)
+				reaches[f] = err != nil || !body.Pure
+			} else {
+				reaches[f] = !check.PureGoPackage(target)
+			}
 		}
 	}
 	for changed := true; changed; {
@@ -767,6 +882,8 @@ func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *ch
 					out = append(out, "another package builds it: variant "+v.String()+" needs an unexported field")
 				}
 			}
+		case *check.Interface:
+			out = append(out, "another package makes a value of it: an operation type needs an unexported operation, and each type of its package that implements it needs authority")
 		default:
 			out = append(out, "another package builds it: it needs an unexported field")
 		}
