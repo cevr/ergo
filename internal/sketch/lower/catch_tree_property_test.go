@@ -64,7 +64,7 @@ var catchSeeds = []uint64{1, 2, 3, 4, 5, 6}
 
 const (
 	catchGroups  = 3 // groups per seed
-	catchCatches = 3 // catches per group
+	catchCatches = 4 // catches per group
 )
 
 // cCatch is a generated catch: a match on its group's error union (its one
@@ -130,7 +130,7 @@ func catchRow(u *gType) string {
 // catch generates a catch over the group's union u.
 func (g *treeGen) catch(gr *gGroup, u *gType, id string) *cCatch {
 	c := &cCatch{gMatch: &gMatch{id: id, subjects: []*gType{u}, dest: g.r.IntN(3)}, group: gr, u: u}
-	for range 1 + g.r.IntN(6) {
+	for range 2 + g.r.IntN(6) {
 		c.arms = append(c.arms, g.catchArm(u))
 	}
 	switch g.r.IntN(5) { // 3 and 4 add nothing: most such catches are partial
@@ -165,6 +165,11 @@ func (g *treeGen) catchArm(u *gType) *gArm {
 			p := g.pat(u, 0, &a.names)
 			if p.kind == pWild || p.kind == pBind {
 				continue
+			}
+			if p.kind == pTest && g.r.IntN(2) == 0 {
+				// A catch of type tests alone is a Go type switch, not a
+				// tree: test the fields more often.
+				p = g.record(u, p.variant, 0, &a.names)
 			}
 			a.alts = [][]*gPat{{p}}
 			return a
