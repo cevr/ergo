@@ -43,7 +43,9 @@ func TestForDomains(t *testing.T) {
 // refused domain or second binding still binds, so nothing cascades.
 func TestForRefusals(t *testing.T) {
 	runD1(t, []d1Case{
-		{"string", "func f(s string) int {\n\tlet mut n = 0\n\tfor c in s {\n\t\tn += c\n\t}\n\tn\n}\n", []string{"S108:3"}},
+		// A string is a domain since L4: its element is a rune, so adding
+		// it to an int is the one diagnostic, at the use.
+		{"string", "func f(s string) int {\n\tlet mut n = 0\n\tfor c in s {\n\t\tn += c\n\t}\n\tn\n}\n", []string{"S108:4"}},
 		{"int", "func f() int {\n\tlet mut n = 0\n\tfor x in 5 {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
 		{"pointer", "func f(p *[]int) int {\n\tlet mut n = 0\n\tfor x in p {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
 		{"bool", "func f() int {\n\tlet mut n = 0\n\tfor x in true {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
