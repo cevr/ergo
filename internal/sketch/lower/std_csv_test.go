@@ -92,6 +92,23 @@ test CsvFormatIsStable(rows [][]string) {
 	assert csv.Format(back) == text
 }
 
+test CsvRowsStops(s string) {
+	let rows = csv.Rows(spice(s))
+	let mut n = 0
+	rows(func(r csv.Row) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		rows(func(r csv.Row) bool {
+			calls = calls + 1
+			calls < k
+		})
+		assert calls == (if k < n { k } else { n })
+	}
+}
+
 test CsvRowsKeepTheRecordsBefore(rows [][]string) {
 	let kept = sample(rows)
 	let mut parsed = [][]string{}
@@ -140,6 +157,7 @@ var stdCSVLawStatements = map[string]string{
 	"csv LinesCount":               `LinesCount(rows [][]string) { let kept = sample(rows) let mut lines = len(kept) for fields in kept { for f in fields { lines = lines + strings.Count(f, "\n") } } strings.Count(Format(kept), "\n") == lines }`,
 	"csv RoundTrip":                `RoundTrip(rows [][]string) { let kept = sample(rows) let back = ReadAll(Format(kept)) catch { case ParseError: return false } same(back, kept) }`,
 	"csv RowsFollowReadAll":        `RowsFollowReadAll(text string) { let t = spice(text) let mut parsed = [][]string{} let mut ends = 0 let mut last = ParseError{Line: 0, Column: 0, Reason: "", Message: ""} for r in Rows(t) { match r { case Parsed as p: if ends > 0 { return false } parsed = parsed.Append(p.Fields) case Malformed as m: ends = ends + 1 last = m.Error } } let all = ReadAll(t) catch { case ParseError as e: return ends == 1 && last == e } ends == 0 && same(parsed, all) }`,
+	"csv RowsStops":                `RowsStops(s string) { let rows = Rows(spice(s)) let mut n = 0 rows(func(r Row) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 rows(func(r Row) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	"csv RowsKeepTheRecordsBefore": `RowsKeepTheRecordsBefore(rows [][]string) { let kept = sample(rows) let mut parsed = [][]string{} let mut ends = 0 for r in Rows(Format(kept) + "x\"y\n") { match r { case Parsed as p: parsed = parsed.Append(p.Fields) case Malformed: ends = ends + 1 } } ends == 1 && same(parsed, kept) }`,
 }
 

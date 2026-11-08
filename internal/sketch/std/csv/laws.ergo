@@ -82,6 +82,30 @@ law FormatIsStable(rows [][]string) {
 	Format(back) == text
 }
 
+// RowsStops: Rows is a Seq that stops (stdlib.md, Std laws 5): with n the
+// count of rows a yield that always returns true gets, for each k from 1
+// to n+1, a yield that returns false at its k-th call is called min(k, n)
+// times.
+law RowsStops(s string) {
+	let rows = Rows(spice(s))
+	let mut n = 0
+	rows(func(r Row) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		rows(func(r Row) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
 // RowsKeepTheRecordsBefore: rows that read, then a bare quote in a field
 // that is not quoted, are the rows as Parsed, then one Malformed.
 law RowsKeepTheRecordsBefore(rows [][]string) {
