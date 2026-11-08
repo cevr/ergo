@@ -180,9 +180,13 @@ var stdRecords = map[string]string{
 	"fs.Failed":            "Failed",
 	"fs.Info":              "Info",
 	"fs.NotFound":          "NotFound",
+	"io.ReadFailed":        "ReadFailed",
 	"os.Exit":              "Exit",
 	"queue.Closed":         "Closed",
 	"strconv.Malformed":    "Malformed",
+	"strconv.OutOfRange":   "OutOfRange",
+	"time.ParseError":      "ParseError",
+	"time.Reading":         "Reading",
 	"timeout.Expired":      "Expired",
 }
 
