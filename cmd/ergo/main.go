@@ -95,17 +95,29 @@ type fileOptions struct {
 	// seed is test's --seed, a decimal uint64; empty when not given.
 	seed string
 	file string
+	// args are run's program arguments: every word after the source, as
+	// go run passes them, less one "--" right after the source.
+	args []string
 }
 
 // parseFileOptions reads the options of command. --strict and --json belong
 // to diagnostics, -o to build, -work to build and test, and --seed N (or
 // --seed=N) to test; any other option is unknown. A target other than Go is
-// the EF110 refusal.
+// the EF110 refusal. For run, the options stand before the source, and the
+// words after it are the program's arguments (`ergo run FILE|DIR [--]
+// ARGS...`, as `go run`).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target}
 	var positional []string
 	seeded := false
 	for i := 0; i < len(args); i++ {
+		if command == "run" && len(positional) == 1 {
+			opts.args = args[i:]
+			if opts.args[0] == "--" {
+				opts.args = opts.args[1:]
+			}
+			break
+		}
 		if value, ok := strings.CutPrefix(args[i], "--seed="); ok {
 			opts.seed, seeded = value, true
 			continue

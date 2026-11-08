@@ -381,7 +381,7 @@ func TestBuildWorkNamesTheCachedModule(t *testing.T) {
 		t.Fatalf("build without -work: exit %d stderr %q", code, stderr)
 	}
 	for _, command := range []string{"run", "check", "diagnostics"} {
-		stdout, stderr, code := cachedCLI(t, binary, root, xdg, command, "main.ergo", "-work")
+		stdout, stderr, code := cachedCLI(t, binary, root, xdg, command, "-work", "main.ergo")
 		if code == 0 || stdout != "" || !strings.Contains(stderr, "-work is only supported by build") {
 			t.Fatalf("ergo %s -work: exit %d stdout %q stderr %q", command, code, stdout, stderr)
 		}

@@ -106,7 +106,7 @@ func TestTestCommand(t *testing.T) {
 		}
 	}
 	for _, command := range []string{"build", "run", "check"} {
-		if _, stderr, code := run(command, replay, "--seed", "1"); code == 0 || !strings.Contains(stderr, "--seed is only supported by test") {
+		if _, stderr, code := run(command, "--seed", "1", replay); code == 0 || !strings.Contains(stderr, "--seed is only supported by test") {
 			t.Fatalf("ergo %s --seed: exit %d stderr %q", command, code, stderr)
 		}
 	}

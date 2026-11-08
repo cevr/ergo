@@ -50,7 +50,7 @@ var commands = []cliCommand{
 	{name: "check", usage: "check FILE|DIR [--target go]", run: checkCommand},
 	{name: "diagnostics", usage: "diagnostics FILE|DIR [--strict] [--json] [--target go]", help: diagnosticsHelp, run: diagnosticsCommand},
 	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--target go]", run: buildCommand},
-	{name: "run", usage: "run FILE|DIR [--target go]", run: runCommand},
+	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},
 	{name: "fmt", usage: "fmt FILE... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
 	{name: "test", usage: "test FILE|DIR [--seed N] [-work] [--target go]", run: testCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
