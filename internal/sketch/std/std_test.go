@@ -993,7 +993,7 @@ var handModes = []struct {
 		return "type GiveSrc { Get() " + r + " }\n\ntype GiveImpl { n int }\n\nfunc Get(_ GiveImpl) " + r + " { Get(GiveImpl{n: 1}) }\n\nlet given = context { GiveSrc: GiveImpl{n: 1} }\n\nlet Given = context { given }\n"
 	}, false, "fixture.Given is an exported context that binds a capability that hands out"},
 	// fu-ambient-ctor r4 (batch-10 r3 verifier M1): the caller binds the
-	// capability of Give's needs row, so its Put receives the R.
+	// capability of Give's needs row: its Put receives the R.
 	{"needs", func(r string) string {
 		return "type GiveSink { Put(v " + r + ") }\n\nfunc Give() needs GiveSink { Give() }\n"
 	}, false, "fixture.Give hands out"},

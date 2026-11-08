@@ -302,8 +302,8 @@ func Authorities(t Type, from *Package) []*TypeName {
 // value or an operation of an operation-type value, every way a call gives
 // its caller a value (fu-ambient-ctor r3, r4): a result, a failure it
 // catches, what the call passes to a function the caller supplies, and
-// what it passes to an operation of a capability of its needs row, which
-// the caller binds to a provider of its own (a with). A caller supplies a
+// what it passes to an operation of a capability of its needs row (the
+// caller binds that capability to a provider of its own). A caller supplies a
 // value of each parameter and a provider of each capability of the needs
 // row, so the walk goes into them with the polarity turned: a function the
 // caller supplies is given its parameters' values (so `func(f func(v Tok))`
