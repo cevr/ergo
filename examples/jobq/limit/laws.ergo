@@ -1,0 +1,86 @@
+// The limiter's laws, over a bucket asked at times made from a list of
+// numbers: each n is a gap of 0 to 999ms after the time before.
+
+// Times is the times of ns: a running sum of gaps of 0 to 999ms.
+func Times(ns []int) []duration {
+	let mut out = []duration{}
+	let mut at = 0s
+	for n in ns {
+		let gap = if n < 0 { -(n % 1000) } else { n % 1000 }
+		at = at + duration(int64(gap)*int64(1ms))
+		out = out.Append(at)
+	}
+	out
+}
+
+// Taken is the times at which a take at each time of ts succeeded, from a
+// full bucket of burst tokens gaining one each every.
+func Taken(burst int, every duration, ts []duration) []duration {
+	let mut b = Full(burst, every, 0s)
+	let mut out = []duration{}
+	for t in ts {
+		match Take(b, t) {
+		case Some[Bucket] as next:
+			b = next.Value
+			out = out.Append(t)
+		case None:
+		}
+	}
+	out
+}
+
+// shape is a burst of 1 to 5 and an every of 50ms to 500ms from b and e.
+func shape(b int, e int) (int, duration) {
+	let burst = if b < 0 { -(b % 5) } else { b % 5 }
+	let every = if e < 0 { -(e % 10) } else { e % 10 }
+	(burst + 1, duration(int64(every+1) * int64(50ms)))
+}
+
+// RateHolds: in any window from one success to another, the successes
+// are at most Burst, and one more for each token that can arrive in the
+// window: one for each whole Every, and one for the window's edge.
+law RateHolds(b int, e int, ns []int) {
+	let burst, every = shape(b, e)
+	let got = Taken(burst, every, Times(ns))
+	for i, a in got {
+		for j in i..len(got) {
+			let window = int64(got[j]-a) / int64(every)
+			if int64(j-i+1) > int64(burst)+window+1 {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// NeverOverBurst: a bucket never holds more than Burst tokens.
+law NeverOverBurst(b int, e int, ns []int) {
+	let burst, every = shape(b, e)
+	let mut k = Full(burst, every, 0s)
+	for t in Times(ns) {
+		if Tokens(k, t) > burst {
+			return false
+		}
+		match Take(k, t) {
+		case Some[Bucket] as next:
+			k = next.Value
+		case None:
+		}
+	}
+	true
+}
+
+// NextAtHasAToken: at the time NextAt names, a take succeeds.
+law NextAtHasAToken(b int, e int, ns []int) {
+	let burst, every = shape(b, e)
+	let mut k = Full(burst, every, 0s)
+	for t in Times(ns) {
+		match Take(k, NextAt(k, t)) {
+		case Some[Bucket] as next:
+			k = next.Value
+		case None:
+			return false
+		}
+	}
+	true
+}

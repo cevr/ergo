@@ -1,0 +1,5 @@
+backup: done after 1 tries
+thumbnails: done after 2 tries
+mail: done after 3 tries
+invoice: gave up after 1 tries: invoice is malformed
+sync: gave up after 3 tries: try 3 of sync timed out; no tries left

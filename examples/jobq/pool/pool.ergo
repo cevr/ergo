@@ -1,0 +1,105 @@
+// Package pool runs a job queue on real tasks, as a Go program would: a
+// queue of jobs, Workers worker tasks that pop from it, a pacer task that
+// puts a token in a queue each Every (a buffered channel of Burst tokens,
+// as Go's time.Tick limiter), and a queue of reports. A worker takes a
+// token before each try, sleeps the try's time on the Scheduler, asks the
+// jobs.Worker for the result, and on a transient failure sleeps its
+// backoff and tries again. The job's life is the same jobs.Life machine
+// that sched runs.
+
+import jobq/jobs
+import jobq/sched
+import queue
+import slices
+import task
+
+// Report is how one job ended, and on which worker.
+type Report { ID int, Worker int, Out jobs.Outcome }
+
+// token is one start the pacer allows.
+type token {}
+
+// pace puts a token in tokens each every, until it is stopped or the
+// queue closes. Its first burst is already in the queue.
+func pace(tokens queue.Queue[token], every duration) needs Scheduler {
+	for {
+		if every > 0s {
+			Scheduler.Sleep(every)
+		}
+		tokens.Push(token) catch {
+		case queue.Closed:
+			return
+		}
+	}
+}
+
+// work runs jobs from js until the queue is closed and empty, and pushes
+// a report of each.
+func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | Scheduler {
+	for j in js.Values() {
+		let mut phase = jobs.Fresh(0s)
+		let mut now = 0s
+		for {
+			let _ = try tokens.Pop()
+			phase = jobs.Next(phase, jobs.Step(phase, jobs.Start{At: now, Takes: j.Takes}))
+			Scheduler.Sleep(j.Takes)
+			now = now + j.Takes
+			let n = match phase {
+			case jobs.Running as r:
+				r.N
+			case jobs.Queued as q:
+				q.N
+			}
+			match jobs.Step(phase, jobs.Finish{At: now, R: jobs.Worker.Do(j, n), P: p}) {
+			case Done[jobs.Outcome] as d:
+				try out.Push(Report{ID: j.ID, Worker: w, Out: d.Output})
+				break
+			case Enter[jobs.Phase] as e:
+				phase = e.Next
+				let wait = jobs.Backoff(p, n)
+				Scheduler.Sleep(wait)
+				now = now + wait
+			case Stay[jobs.Phase], Ignore, Reject:
+				try out.Push(Report{ID: j.ID, Worker: w, Out: jobs.GaveUp{N: n, At: now, Why: "the queue sent a wrong signal"}})
+				break
+			}
+		}
+	}
+}
+
+// crew starts workers from w to n, each a task, and waits for all of
+// them. A Task cannot live in a slice in v1 (runtime.md, Tasks 3), so a
+// crew of n is n nested frames, each owning one task (gaps G-ex-b-17).
+func crew(w int, n int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | Scheduler {
+	if w > n {
+		return
+	}
+	let t = task.Go() { work(w, js, tokens, out, p) }
+	try crew(w+1, n, js, tokens, out, p)
+	try t.Wait()
+}
+
+// Run runs js under c and is the report of each job, by ID.
+func Run(c sched.Config, js []jobs.Job) []Report fails queue.Closed needs jobs.Worker | Scheduler {
+	let workers = if c.Workers < 1 { 1 } else { c.Workers }
+	let burst = if c.Burst < 1 { 1 } else { c.Burst }
+	let q = queue.New[jobs.Job](len(js))
+	let tokens = queue.New[token](burst)
+	let out = queue.New[Report](len(js))
+	for _ in 0..burst {
+		try tokens.Push(token)
+	}
+	for j in js {
+		try q.Push(j)
+	}
+	q.Close()
+	let pacer = task.Go() { pace(tokens, c.Every) }
+	try crew(1, workers, q, tokens, out, c.Policy)
+	pacer.Stop()
+	out.Close()
+	let mut got = []Report{}
+	for r in out.Values() {
+		got = got.Append(r)
+	}
+	slices.SortFunc(got, func(a Report, b Report) int { a.ID - b.ID })
+}

@@ -1,0 +1,59 @@
+// The limiter's tests: a burst and its refill worked by hand, and the
+// laws restated as property tests (#162).
+
+test ABurstThenOneEach {
+	let got = Taken(2, 100ms, []duration{0s, 0s, 0s, 50ms, 100ms, 150ms, 200ms, 450ms, 450ms, 450ms})
+	// by 450ms the bucket is full again: two more
+	assert len(got) == 6
+	assert got[0] == 0s && got[1] == 0s && got[2] == 100ms && got[3] == 200ms && got[4] == 450ms && got[5] == 450ms
+}
+
+test NextAtWaitsForTheToken {
+	let mut b = Full(1, 100ms, 0s)
+	match Take(b, 0s) {
+	case Some[Bucket] as next:
+		b = next.Value
+	case None:
+		assert false
+	}
+	assert NextAt(b, 30ms) == 100ms
+	assert NextAt(b, 130ms) == 130ms
+	assert NextAt(Full(1, 0s, 0s), 5s) == 5s
+}
+
+test RateHoldsHolds(b int, e int, ns []int) {
+	let burst, every = shape(b, e)
+	let got = Taken(burst, every, Times(ns))
+	for i, a in got {
+		for j in i..len(got) {
+			let window = int64(got[j]-a) / int64(every)
+			assert int64(j-i+1) <= int64(burst)+window+1
+		}
+	}
+}
+
+test NeverOverBurstHolds(b int, e int, ns []int) {
+	let burst, every = shape(b, e)
+	let mut k = Full(burst, every, 0s)
+	for t in Times(ns) {
+		assert Tokens(k, t) <= burst
+		match Take(k, t) {
+		case Some[Bucket] as next:
+			k = next.Value
+		case None:
+		}
+	}
+}
+
+test NextAtHasATokenHolds(b int, e int, ns []int) {
+	let burst, every = shape(b, e)
+	let mut k = Full(burst, every, 0s)
+	for t in Times(ns) {
+		match Take(k, NextAt(k, t)) {
+		case Some[Bucket] as next:
+			k = next.Value
+		case None:
+			assert false
+		}
+	}
+}

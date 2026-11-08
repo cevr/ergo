@@ -1,0 +1,173 @@
+// The queue's laws, over a run of generated jobs on the scripted worker:
+// no job is lost, at most Workers run at once, starts keep to the rate,
+// and a retry waits its backoff.
+
+import jobq/jobs
+
+// Load is the jobs of ns: each n gives a job of 0 to 500ms that fails 0
+// to 3 times, and one in seven fails for good after that.
+func Load(ns []int) []jobs.Job {
+	let mut out = []jobs.Job{}
+	for i, n in ns {
+		let k = if n < 0 { -(n % 1000003) } else { n % 1000003 }
+		out = out.Append(jobs.Job{ID: i + 1, Name: "job\(i + 1)", Takes: duration(int64(k%501) * int64(1ms)), Flaky: k % 4, Fatal: k%7 == 0})
+	}
+	out
+}
+
+// Shape is a Config of 1 to 4 workers, 1 to 4 attempts, a backoff of
+// 50ms to 400ms, and a rate of a burst of 1 to 3 and one each 0 to 200ms,
+// from c.
+func Shape(c int) Config {
+	let k = if c < 0 { -(c % 1000003) } else { c % 1000003 }
+	Config{Workers: 1 + k%4, Policy: jobs.Policy{Attempts: 1 + k/4%4, Base: 50ms, Max: 400ms}, Burst: 1 + k/16%3, Every: duration(int64(k/48%5) * int64(50ms))}
+}
+
+// Ran is the events of a run of Load(ns) under Shape(c) on the script.
+func Ran(c int, ns []int) []Event {
+	with context { jobs.Worker: jobs.Script } { Run(Shape(c), Load(ns)) }
+}
+
+// Ends is how many terminal events (Succeeded or GaveUp) each job ID of
+// es has, by ID.
+func Ends(es []Event) Map[int, int] {
+	let mut ends = Map[int, int]{}
+	for e in es {
+		match e {
+		case Succeeded as s:
+			ends[s.ID] = 1 + count(ends, s.ID)
+		case GaveUp as g:
+			ends[g.ID] = 1 + count(ends, g.ID)
+		case Started:
+		case Retrying:
+		}
+	}
+	ends
+}
+
+// count is m[k], or 0.
+func count(m Map[int, int], k int) int {
+	match m.Get(k) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		0
+	}
+}
+
+// NoJobLost: every job ends exactly once, as a success or a give-up.
+law NoJobLost(c int, ns []int) {
+	let ends = Ends(Ran(c, ns))
+	for i in 1..len(ns)+1 {
+		if count(ends, i) != 1 {
+			return false
+		}
+	}
+	len(ends) == len(ns)
+}
+
+// InFlight is the most jobs running at once in es, or -1 when a worker
+// outside 1 to n starts a job or starts one while it runs another.
+func InFlight(es []Event, n int) int {
+	let mut on = Map[int, int]{}
+	let mut most = 0
+	for e in es {
+		match e {
+		case Started as s:
+			if s.Worker < 1 || s.Worker > n || count(on, s.Worker) != 0 {
+				return -1
+			}
+			on[s.Worker] = s.ID
+			if len(on) > most {
+				most = len(on)
+			}
+		case Succeeded as s:
+			on = drop(on, s.ID)
+		case GaveUp as g:
+			on = drop(on, g.ID)
+		case Retrying as r:
+			on = drop(on, r.ID)
+		}
+	}
+	most
+}
+
+// drop is m without the worker that runs id.
+func drop(m Map[int, int], id int) Map[int, int] {
+	let mut out = Map[int, int]{}
+	for w, j in m {
+		if j != id {
+			out[w] = j
+		}
+	}
+	out
+}
+
+// AtMostNInFlight: no more than Workers jobs run at once, and a worker
+// runs one job at a time.
+law AtMostNInFlight(c int, ns []int) {
+	let n = InFlight(Ran(c, ns), Shape(c).Workers)
+	n >= 0 && n <= Shape(c).Workers
+}
+
+// Starts is the times of the Started events of es.
+func Starts(es []Event) []duration {
+	let mut out = []duration{}
+	for e in es {
+		match e {
+		case Started as s:
+			out = out.Append(s.At)
+		case Succeeded:
+		case GaveUp:
+		case Retrying:
+		}
+	}
+	out
+}
+
+// StartsKeepTheRate: in any window from one start to another, the starts
+// are at most Burst, and one more for each token that can arrive in it
+// (limit.RateHolds).
+law StartsKeepTheRate(c int, ns []int) {
+	let s = Shape(c)
+	if s.Every <= 0s {
+		return true
+	}
+	let got = Starts(Ran(c, ns))
+	for i, a in got {
+		for j in i..len(got) {
+			if int64(j-i+1) > int64(s.Burst)+int64(got[j]-a)/int64(s.Every)+1 {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// RetriesWait: a job's next try starts no sooner than the Until of its
+// Retrying, and the times of the events never go back.
+law RetriesWait(c int, ns []int) {
+	let mut until = Map[int, duration]{}
+	let mut last = 0s
+	for e in Ran(c, ns) {
+		if AtOf(e) < last {
+			return false
+		}
+		last = AtOf(e)
+		match e {
+		case Retrying as r:
+			until[r.ID] = r.Until
+		case Started as s:
+			match until.Get(s.ID) {
+			case Some[duration] as u:
+				if s.At < u.Value {
+					return false
+				}
+			case None:
+			}
+		case Succeeded:
+		case GaveUp:
+		}
+	}
+	true
+}

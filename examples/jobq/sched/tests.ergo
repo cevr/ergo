@@ -1,0 +1,105 @@
+// The queue's tests: a run worked by hand, and the laws restated as
+// property tests (#162).
+
+import jobq/jobs
+
+// lines is the text of each event, one line each.
+func lines(es []Event) []string {
+	let mut out = []string{}
+	for e in es {
+		out = out.Append(match e {
+		case Started as s:
+			"\(s.At) start \(s.ID) try \(s.N) on \(s.Worker)"
+		case Succeeded as s:
+			"\(s.At) done \(s.ID)"
+		case Retrying as r:
+			"\(r.At) retry \(r.ID) at \(r.Until)"
+		case GaveUp as g:
+			"\(g.At) gave up \(g.ID): \(g.Why)"
+		})
+	}
+	out
+}
+
+test ARunWorkedByHand {
+	// two workers, three tries, one start each 100ms after a burst of 2
+	let c = Config{Workers: 2, Policy: jobs.Policy{Attempts: 3, Base: 100ms, Max: 1s}, Burst: 2, Every: 100ms}
+	let js = []jobs.Job{jobs.Job{ID: 1, Name: "a", Takes: 300ms, Flaky: 0, Fatal: false}, jobs.Job{ID: 2, Name: "b", Takes: 50ms, Flaky: 1, Fatal: false}, jobs.Job{ID: 3, Name: "c", Takes: 50ms, Flaky: 0, Fatal: true}}
+	let got = lines(with context { jobs.Worker: jobs.Script } { Run(c, js) })
+	assert len(got) == 8
+	assert got[0] == "0s start 1 try 1 on 1"
+	assert got[1] == "0s start 2 try 1 on 2"
+	assert got[2] == "50ms retry 2 at 150ms"
+	assert got[3] == "100ms start 3 try 1 on 2"
+	assert got[4] == "150ms gave up 3: c is malformed"
+	assert got[5] == "200ms start 2 try 2 on 2"
+	assert got[6] == "250ms done 2"
+	assert got[7] == "300ms done 1"
+}
+
+test NoJobLostHolds(c int, ns []int) {
+	let ends = Ends(Ran(c, ns))
+	for i in 1..len(ns)+1 {
+		assert count(ends, i) == 1
+	}
+	assert len(ends) == len(ns)
+}
+
+test AtMostNInFlightHolds(c int, ns []int) {
+	let n = InFlight(Ran(c, ns), Shape(c).Workers)
+	assert n >= 0 && n <= Shape(c).Workers
+}
+
+test StartsKeepTheRateHolds(c int, ns []int) {
+	let s = Shape(c)
+	if s.Every <= 0s {
+		return
+	}
+	let got = Starts(Ran(c, ns))
+	for i, a in got {
+		for j in i..len(got) {
+			assert int64(j-i+1) <= int64(s.Burst)+int64(got[j]-a)/int64(s.Every)+1
+		}
+	}
+}
+
+test RetriesWaitHolds(c int, ns []int) {
+	let mut until = Map[int, duration]{}
+	let mut last = 0s
+	for e in Ran(c, ns) {
+		assert AtOf(e) >= last
+		last = AtOf(e)
+		match e {
+		case Retrying as r:
+			until[r.ID] = r.Until
+		case Started as s:
+			match until.Get(s.ID) {
+			case Some[duration] as u:
+				assert s.At >= u.Value
+			case None:
+			}
+		case Succeeded:
+		case GaveUp:
+		}
+	}
+}
+
+// The laws are not vacuous: a run of ten jobs on two workers retries,
+// gives up and keeps both workers busy.
+test TheLoadIsMixed {
+	let es = Ran(5, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+	let mut retries = 0
+	let mut gaveUp = 0
+	for e in es {
+		match e {
+		case Retrying:
+			retries = retries + 1
+		case GaveUp:
+			gaveUp = gaveUp + 1
+		case Started:
+		case Succeeded:
+		}
+	}
+	assert retries > 0 && gaveUp > 0
+	assert InFlight(es, Shape(5).Workers) == Shape(5).Workers
+}

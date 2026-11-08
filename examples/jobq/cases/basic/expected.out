@@ -1,0 +1,27 @@
+0s	worker 1 starts backup, try 1
+0s	worker 2 starts thumbnails, try 1
+120ms	thumbnails failed try 1; again at 220ms
+120ms	worker 2 starts mail, try 1
+180ms	mail failed try 1; again at 280ms
+200ms	worker 2 starts report, try 1
+400ms	backup is done
+400ms	worker 1 starts invoice, try 1
+450ms	report is done
+450ms	worker 2 starts sync, try 1
+480ms	invoice gave up: invoice is malformed
+480ms	sync failed try 1; again at 580ms
+500ms	worker 1 starts index, try 1
+600ms	worker 2 starts thumbnails, try 2
+700ms	index failed try 1; again at 800ms
+700ms	worker 1 starts mail, try 2
+720ms	thumbnails is done
+760ms	mail failed try 2; again at 960ms
+800ms	worker 1 starts sync, try 2
+830ms	sync failed try 2; again at 1.03s
+900ms	worker 1 starts index, try 2
+1s	worker 2 starts mail, try 3
+1.06s	mail is done
+1.1s	index is done
+1.1s	worker 1 starts sync, try 3
+1.13s	sync gave up: try 3 of sync timed out; no tries left
+7 jobs: 5 done, 2 gave up, 6 retries; all over at 1.13s; at most 2 at once

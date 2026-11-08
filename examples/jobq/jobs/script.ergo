@@ -1,0 +1,6 @@
+// Script is the Worker of the demo: a try ends as the job's script says
+// (Scripted), at once. It is pure, so a queue run on it replays exactly.
+type Script {}
+
+// Do is the result of try n of j by its script.
+func Do(_ Script, j Job, n int) Result { Scripted(j, n) }

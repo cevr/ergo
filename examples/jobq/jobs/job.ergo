@@ -1,0 +1,56 @@
+// Package jobs is what a job queue runs: a job, the result of one try of
+// it, the retry policy with its backoff, and the life of one job as a
+// machine. It is pure; the work itself is the contract Worker, which a
+// provider keeps.
+
+// Job is one piece of work. Takes is how long one try runs. A job of the
+// demo is scripted: it fails Flaky times with a transient failure, then
+// succeeds, unless Fatal, when its next try fails for good.
+type Job { ID int, Name string, Takes duration, Flaky int, Fatal bool }
+
+// Result is how one try of a job ended.
+type Result = Ok{} | Transient{Reason string} | Fatal{Reason string}
+
+// Policy is how a queue retries: at most Attempts tries of a job, and
+// before try n+1 a wait of Base doubled n-1 times, never more than Max.
+type Policy { Attempts int, Base duration, Max duration }
+
+// Backoff is the wait after the failed try n (n from 1) under p:
+// Base, 2 Base, 4 Base, …, capped at Max. A Base of zero or less waits
+// nothing.
+func Backoff(p Policy, n int) duration {
+	if p.Base <= 0s {
+		return 0s
+	}
+	let mut d = p.Base
+	for _ in 1..n {
+		if d >= p.Max {
+			return p.Max
+		}
+		d = d + d
+	}
+	if d > p.Max { p.Max } else { d }
+}
+
+// Scripted is the result of try n (from 1) of j's script.
+func Scripted(j Job, n int) Result {
+	if n <= j.Flaky {
+		return Transient{Reason: "try \(n) of \(j.Name) timed out"}
+	}
+	if j.Fatal {
+		return Fatal{Reason: "\(j.Name) is malformed"}
+	}
+	Ok
+}
+
+// Worker is the contract of the thing that does a job: one try of it.
+type Worker {
+	Do(j Job, n int) Result,
+
+	// IsRepeatable: a try gives the same result each time it is asked
+	// for; a worker whose result depends on hidden state cannot be
+	// tested by replay.
+	law IsRepeatable(j Job, n int) {
+		Do(j, n) == Do(j, n)
+	},
+}

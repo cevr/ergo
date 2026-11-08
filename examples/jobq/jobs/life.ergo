@@ -1,0 +1,51 @@
+// Phase is where one job is in its life: waiting in the queue until
+// Ready for its try N, or running try N until Ends.
+type Phase = Queued{N int, Ready duration} | Running{N int, Ends duration}
+
+// Signal is what reaches a job: a worker starts it, or its try ends with
+// a result. A Finish carries the policy, so the step knows whether to
+// retry.
+type Signal = Start{At duration, Takes duration} | Finish{At duration, R Result, P Policy}
+
+// Outcome is how a job's life ended.
+type Outcome = Succeeded{N int, At duration} | GaveUp{N int, At duration, Why string}
+
+// Fresh is a job just queued at the time at, for its first try.
+func Fresh(at duration) Phase { Queued{N: 1, Ready: at} }
+
+// Step is the job's transition. A start before the job is ready, a start
+// of a running job and a finish of a queued one are refused: the queue
+// that sends them is wrong. A transient failure queues the next try after
+// its backoff, until the attempts run out.
+func Step(p Phase, s Signal) Decision[Phase, Outcome] {
+	match (p, s) {
+	case (Queued as q, Start as st):
+		if st.At < q.Ready { Reject } else { Enter[Phase]{Next: Running{N: q.N, Ends: st.At + st.Takes}} }
+	case (Running, Start):
+		Reject
+	case (Queued, Finish):
+		Reject
+	case (Running as r, Finish as f):
+		if f.At < r.Ends {
+			return Reject
+		}
+		match f.R {
+		case Ok:
+			Done[Outcome]{Output: Succeeded{N: r.N, At: f.At}}
+		case Fatal as e:
+			Done[Outcome]{Output: GaveUp{N: r.N, At: f.At, Why: e.Reason}}
+		case Transient as t:
+			if r.N >= f.P.Attempts {
+				Done[Outcome]{Output: GaveUp{N: r.N, At: f.At, Why: "\(t.Reason); no tries left"}}
+			} else {
+				Enter[Phase]{Next: Queued{N: r.N + 1, Ready: f.At + Backoff(f.P, r.N)}}
+			}
+		}
+	}
+}
+
+// Life is a job's life as a machine.
+type Life machine[Phase, Signal] {
+	initial: Fresh(0s),
+	step:    Step,
+}

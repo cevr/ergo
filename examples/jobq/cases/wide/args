@@ -1,0 +1,8 @@
+-workers
+4
+-burst
+1
+-every-ms
+50
+-attempts
+5
