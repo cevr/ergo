@@ -89,7 +89,7 @@ func f(b bool) int {
 	}
 	fl()
 }`, nil},
-	{"return in an else block inside a with block", `
+	{"return in an else block inside a with block leaves the function (L3)", `
 func f(b bool) int {
 	with W {
 		if b {
@@ -99,8 +99,8 @@ func f(b bool) int {
 		}
 	}
 	1
-}`, []string{"11:S108"}},
-	{"return in an else block of an if inside a with block", `
+}`, nil},
+	{"return in an else block of an if inside a with block leaves the function (L3)", `
 func f(b bool, c bool) int {
 	with W {
 		if b {
@@ -112,7 +112,7 @@ func f(b bool, c bool) int {
 		}
 	}
 	1
-}`, []string{"12:S108"}},
+}`, nil},
 	{"return in an else block of a trailing block", `
 func f(b bool) int {
 	use() {
