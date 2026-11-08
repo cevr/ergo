@@ -1,0 +1,61 @@
+// The journal's laws: what it writes, it reads back.
+
+import ledger/ledger
+
+// Written is the journal text of the accounts of ledger.Bank and the
+// transfers of ts that the Book takes, and the Book they make.
+func Written(ts []ledger.Transfer) (string, ledger.Book) {
+	let mut text = OpenLine("alice", 0) + OpenLine("bob", -500) + OpenLine("carol", 0)
+	let mut b = ledger.Bank()
+	for t in ts {
+		let next, _ = ledger.Apply(b, t) catch {
+		case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds:
+			continue
+		}
+		if ledger.Count(next) != ledger.Count(b) {
+			text = text + PostLine(t)
+		}
+		b = next
+	}
+	(text, b)
+}
+
+// Agree reports whether a and b have the same accounts, balances and
+// count of transfers.
+func Agree(a ledger.Book, b ledger.Book) bool {
+	let ids = ledger.IDs(a)
+	if len(ids) != len(ledger.IDs(b)) || ledger.Count(a) != ledger.Count(b) {
+		return false
+	}
+	for id in ids {
+		let x = ledger.Balance(a, id) catch {
+		case ledger.UnknownAccount:
+			return false
+		}
+		let y = ledger.Balance(b, id) catch {
+		case ledger.UnknownAccount:
+			return false
+		}
+		if x != y {
+			return false
+		}
+	}
+	true
+}
+
+// ReplayRebuilds: the journal of a day replays to the Book of the day.
+law ReplayRebuilds(ns []int) {
+	let text, b = Written(ledger.Day(ns))
+	Agree(try Replay(text), b)
+}
+
+// AnyWordKeeps: a key or an account of any text, tabs and line feeds
+// too, reads back as it was written.
+law AnyWordKeeps(id string, key string) {
+	if id == "" || id == ledger.World {
+		return true
+	}
+	let text = OpenLine(id, 0) + PostLine(ledger.Transfer{Key: key, From: ledger.World, To: id, Amount: 7})
+	let b = try Replay(text)
+	try ledger.Balance(b, id) == 7
+}

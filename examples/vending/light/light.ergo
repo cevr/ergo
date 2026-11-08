@@ -1,0 +1,156 @@
+// Package light is a traffic light at a crossing with a button for
+// people on foot. Cars get red, green and yellow in turn; a press of the
+// button ends a green early, but never before MinGreen. A fault makes the
+// light flash red until a repair. Every phase ends at a time computed from
+// when it began, never from when a tick came, so the phases do not drift.
+// It is pure: the clock reaches it only as the time of each cue.
+
+// Light is the colour the cars see and the time it began.
+type Light = Red{Since duration} | Green{Since duration, Asked bool} | Yellow{Since duration} | Flashing{Since duration}
+
+// Cue is what reaches the light: the clock, the button, a fault and a
+// repair, each at a time since the light was switched on.
+type Cue = Tick{At duration} | Button{At duration} | Fault{At duration} | Repair{At duration}
+
+// The length of each phase.
+let RedFor = 30s
+let MinGreen = 20s
+let MaxGreen = 60s
+let YellowFor = 4s
+
+// Start is the light switched on: red.
+func Start() Light { Red{Since: 0s} }
+
+// Colour is the word for l.
+func Colour(l Light) string {
+	match l {
+	case Red:
+		"red"
+	case Green:
+		"green"
+	case Yellow:
+		"yellow"
+	case Flashing:
+		"flashing"
+	}
+}
+
+// SinceOf is the time l began.
+func SinceOf(l Light) duration {
+	match l {
+	case Red as r:
+		r.Since
+	case Green as g:
+		g.Since
+	case Yellow as y:
+		y.Since
+	case Flashing as f:
+		f.Since
+	}
+}
+
+// Deadline is the time l ends by itself: a green ends at MinGreen once
+// the button asked, else at MaxGreen. A flashing light waits for a
+// repair.
+func Deadline(l Light) Option[duration] {
+	match l {
+	case Red as r:
+		Some[duration]{Value: r.Since + RedFor}
+	case Green as g:
+		Some[duration]{Value: g.Since + (if g.Asked { MinGreen } else { MaxGreen })}
+	case Yellow as y:
+		Some[duration]{Value: y.Since + YellowFor}
+	case Flashing:
+		None
+	}
+}
+
+// after is the light that follows l when its phase ends at the time end.
+func after(l Light, end duration) Light {
+	match l {
+	case Red:
+		Green{Since: end, Asked: false}
+	case Green:
+		Yellow{Since: end}
+	case Yellow:
+		Red{Since: end}
+	case Flashing:
+		l
+	}
+}
+
+// Step is the light's transition. A tick at or after the deadline enters
+// the next phase, which begins at the deadline. A press in green asks for
+// an early end; a press in another phase, or a second press, is ignored.
+// A fault flashes from any phase; only a repair ends it, at red.
+func Step(l Light, c Cue) Decision[Light, string] {
+	match (l, c) {
+	case (Flashing, Repair as r):
+		Enter[Light]{Next: Red{Since: r.At}}
+	case (Flashing, _):
+		Ignore
+	case (_, Fault as f):
+		Enter[Light]{Next: Flashing{Since: f.At}}
+	case (_, Repair):
+		Ignore
+	case (Green as g, Button):
+		if g.Asked { Ignore } else { Stay[Light]{Next: Green{..g, Asked: true}} }
+	case (_, Button):
+		Ignore
+	case (_, Tick as t):
+		match Deadline(l) {
+		case Some[duration] as d:
+			if t.At >= d.Value { Enter[Light]{Next: after(l, d.Value)} } else { Ignore }
+		case None:
+			Ignore
+		}
+	}
+}
+
+// Crossing is the light as a machine.
+type Crossing machine[Light, Cue] {
+	initial: Start(),
+	step:    Step,
+}
+
+// Next is the light after the decision d in l.
+func Next(l Light, d Decision[Light, string]) Light {
+	match d {
+	case Enter[Light] as e:
+		e.Next
+	case Stay[Light] as s:
+		s.Next
+	case Ignore:
+		l
+	case Reject:
+		l
+	case Done[string]:
+		l
+	}
+}
+
+// Follows reports whether the colour b may come right after a: the cycle
+// red, green, yellow, red, and flashing in and out of any colour, out
+// only to red.
+func Follows(a Light, b Light) bool {
+	match (a, b) {
+	case (Red, Green):
+		true
+	case (Green, Yellow):
+		true
+	case (Yellow, Red):
+		true
+	case (Flashing, Red):
+		true
+	case (_, Flashing):
+		true
+	case (Red, Red):
+		true
+	case (Green, Green):
+		true
+	case (Yellow, Yellow):
+		true
+	case (_, _):
+		false
+	}
+}

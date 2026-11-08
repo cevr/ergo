@@ -1,0 +1,48 @@
+// Package memory keeps things in memory: a ledger.Store whose Book lives
+// as long as the program, and Disk, a file system for tests.
+
+import ledger/ledger
+
+// Store is a ledger.Store over one Book in memory. Copies of a Store
+// share it. A provider can change only a Map (gaps G-ex-b-3), so the Book
+// is the one value of a Map with the one key 0: a reference cell.
+type Store { cell Map[int, ledger.Book] }
+
+// New is a Store with an empty Book.
+func New() Store { Store{cell: Map[int, ledger.Book]{0: ledger.Empty()}} }
+
+// book is the Book of s.
+func book(s Store) ledger.Book {
+	match s.cell.Get(0) {
+	case Some[ledger.Book] as b:
+		b.Value
+	case None:
+		ledger.Empty()
+	}
+}
+
+// keep makes b the Book of s.
+func keep(s Store, b ledger.Book) {
+	let mut cell = s.cell
+	cell[0] = b
+}
+
+// Open opens the account id with its floor.
+func Open(s Store, id string, floor int64) fails ledger.AccountExists | ledger.BadFloor | ledger.Unavailable {
+	keep(s, try ledger.Open(book(s), id, floor))
+}
+
+// Post posts t.
+func Post(s Store, t ledger.Transfer) ledger.Receipt fails ledger.KeyReused | ledger.BadAmount | ledger.SameAccount | ledger.UnknownAccount | ledger.InsufficientFunds | ledger.Unavailable {
+	let next, r = try ledger.Apply(book(s), t)
+	keep(s, next)
+	r
+}
+
+// Balance is the balance of id.
+func Balance(s Store, id string) int64 fails ledger.UnknownAccount | ledger.Unavailable {
+	try ledger.Balance(book(s), id)
+}
+
+// Accounts is the accounts, World first and then by name.
+func Accounts(s Store) []string fails ledger.Unavailable { ledger.IDs(book(s)) }

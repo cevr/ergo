@@ -1,0 +1,18 @@
+Usage of particles:
+particles moves particles in a box and shows each frame.
+  -frames int
+    	the number of frames to show (default 6)
+  -height int
+    	the rows of the box (default 8)
+  -keys keys
+    	the keys of each frame: p pauses, r resumes, q quits
+  -live
+    	pace the frames on the host's clock
+  -loss int
+    	the speed a particle loses at a wall
+  -n int
+    	the number of particles (default 12)
+  -seed seed
+    	the seed of the first particles (default 7)
+  -width int
+    	the columns of the box (default 24)

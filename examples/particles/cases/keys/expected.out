@@ -1,0 +1,64 @@
++------------------------------+
+|   o  o                  o    |
+|                     o    o   |
+|          o o  ooo     o      |
+|               o      o       |
+|      o            o    o o  2|
+|                       o      |
++------------------------------+
+frame 1 running: step 2, energy 49, bounces 8, meetings 1
++------------------------------+
+|   o  o                  o    |
+|                     o    o   |
+|          o o  ooo     o      |
+|               o      o       |
+|      o            o    o o  2|
+|                       o      |
++------------------------------+
+frame 2 paused: step 2, energy 49, bounces 8, meetings 1
++------------------------------+
+|   o  o                  o    |
+|                     o    o   |
+|          o o  ooo     o      |
+|               o      o       |
+|      o            o    o o  2|
+|                       o      |
++------------------------------+
+frame 3 paused: step 2, energy 49, bounces 8, meetings 1
++------------------------------+
+|   o  o                  o    |
+|                     o    o   |
+|          o o  ooo     o      |
+|               o      o       |
+|      o            o    o o  2|
+|                       o      |
++------------------------------+
+frame 4 paused: step 2, energy 49, bounces 8, meetings 1
++------------------------------+
+|   o                 o   o  o |
+|           o       oo   oo   o|
+|            2                 |
+|                              |
+|  o   o                 oo   2|
+|             o         o      |
++------------------------------+
+frame 5 running: step 5, energy 33, bounces 16, meetings 4
++------------------------------+
+|o                        o    |
+|     o           o    o   o3o |
+|         o  o                 |
+|                              |
+|     oo         o     ooo   oo|
+|                              |
++------------------------------+
+frame 6 running: step 8, energy 18, bounces 27, meetings 8
++------------------------------+
+|o                        o    |
+|     o           o    o   o3o |
+|         o  o                 |
+|                              |
+|     oo         o     ooo   oo|
+|                              |
++------------------------------+
+frame 7 quit: step 8, energy 18, bounces 27, meetings 8
+7 frames, 8 steps, energy 65 to 18

@@ -1,0 +1,9 @@
+# A night's batch: name, how long one try runs in ms, how many tries fail
+# for a moment before it works, and "fatal" for a job that cannot work.
+backup 400
+thumbnails 120 1
+mail 60 2
+report 250
+invoice 80 0 fatal
+sync 30 5
+index 200 1

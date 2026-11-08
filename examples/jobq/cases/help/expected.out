@@ -1,0 +1,16 @@
+Usage of jobq:
+jobq runs jobs from standard input, one per line: NAME MS [FLAKY] [fatal].
+  -attempts int
+    	how many times a job is tried (default 3)
+  -backoff-ms ms
+    	the wait in ms after a first failed try; it doubles after each (default 100)
+  -burst int
+    	how many jobs may start at once (default 2)
+  -every-ms ms
+    	the ms between starts after a burst; 0 for no limit (default 100)
+  -live
+    	run the jobs on real tasks on the host's clock
+  -max-ms ms
+    	the longest wait in ms between tries (default 1000)
+  -workers int
+    	how many jobs run at once (default 2)

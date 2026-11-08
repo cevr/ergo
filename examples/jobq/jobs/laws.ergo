@@ -1,0 +1,119 @@
+// The rules of retry as laws over Backoff and the Life machine.
+
+// Small is p with its numbers folded into a small range: 1 to 6 attempts,
+// a base of 0 to 500ms and a cap of the base to 8 bases, so a law over any
+// Policy stays meaningful.
+func Small(p Policy) Policy {
+	let a = if p.Attempts < 0 { -(p.Attempts % 6) } else { p.Attempts % 6 }
+	let b = int64(p.Base) % int64(500ms)
+	let pos = if b < 0 { -b } else { b }
+	let base = duration(pos)
+	let m = int64(p.Max) % 8
+	let k = if m < 0 { -m } else { m }
+	Policy{Attempts: a + 1, Base: base, Max: duration(int64(base) * (k + 1))}
+}
+
+// BackoffGrows: each wait is at least the one before it.
+law BackoffGrows(p Policy, n int) {
+	let q = Small(p)
+	let k = if n < 0 { -(n % 20) } else { n % 20 }
+	Backoff(q, k+1) <= Backoff(q, k+2)
+}
+
+// BackoffIsCapped: no wait is longer than Max, and the first is Base
+// (or Max when Base is above it).
+law BackoffIsCapped(p Policy, n int) {
+	let q = Small(p)
+	let k = if n < 0 { -(n % 20) } else { n % 20 }
+	Backoff(q, k+1) <= q.Max && Backoff(q, 1) == (if q.Base > q.Max { q.Max } else { q.Base })
+}
+
+// Lived is the outcome of a job whose every try ends with results[n-1]
+// (the last result again after the list), started as soon as it is ready,
+// each try taking takes, and the number of tries.
+func Lived(p Policy, results []Result, takes duration) (Outcome, int) {
+	let mut phase = Fresh(0s)
+	let mut tries = 0
+	for {
+		match phase {
+		case Queued as q:
+			phase = Next(phase, Step(phase, Start{At: q.Ready, Takes: takes}))
+			tries = tries + 1
+		case Running as r:
+			let res Result = if len(results) == 0 { Ok } else if r.N <= len(results) { results[r.N-1] } else { results[len(results)-1] }
+			match Step(phase, Finish{At: r.Ends, R: res, P: p}) {
+			case Done[Outcome] as d:
+				return (d.Output, tries)
+			case Enter[Phase] as e:
+				phase = e.Next
+			case Stay[Phase] as s:
+				phase = s.Next
+			case Ignore:
+				return (GaveUp{N: r.N, At: r.Ends, Why: "ignored"}, tries)
+			case Reject:
+				return (GaveUp{N: r.N, At: r.Ends, Why: "rejected"}, tries)
+			}
+		}
+	}
+}
+
+// Next is the phase after d in p.
+func Next(p Phase, d Decision[Phase, Outcome]) Phase {
+	match d {
+	case Enter[Phase] as e:
+		e.Next
+	case Stay[Phase] as s:
+		s.Next
+	case Ignore:
+		p
+	case Reject:
+		p
+	case Done[Outcome]:
+		p
+	}
+}
+
+// RetriesEnd: a job that always fails for a moment is tried exactly
+// Attempts times and then given up.
+law RetriesEnd(p Policy) {
+	let q = Small(p)
+	let out, tries = Lived(q, []Result{Transient{Reason: "busy"}}, 1s)
+	match out {
+	case GaveUp:
+		tries == q.Attempts
+	case Succeeded:
+		false
+	}
+}
+
+// FatalIsFinal: a fatal failure is never retried.
+law FatalIsFinal(p Policy) {
+	let out, tries = Lived(Small(p), []Result{Fatal{Reason: "bad"}}, 1s)
+	match out {
+	case GaveUp:
+		tries == 1
+	case Succeeded:
+		false
+	}
+}
+
+// RetryWaitsItsBackoff: a try after a failure starts no sooner than the
+// failure plus its backoff.
+law RetryWaitsItsBackoff(p Policy, at int) {
+	let q = Small(p)
+	let ms = if at < 0 { -(at % 1000) } else { at % 1000 }
+	let end = duration(int64(ms) * int64(1ms))
+	let r = Running{N: 1, Ends: end}
+	match Step(r, Finish{At: end, R: Transient{Reason: "busy"}, P: q}) {
+	case Enter[Phase] as e:
+		Step(e.Next, Start{At: end + Backoff(q, 1) - 1ns, Takes: 1s}) == Reject || Backoff(q, 1) == 0s
+	case Done[Outcome]:
+		q.Attempts == 1
+	case Stay[Phase]:
+		false
+	case Ignore:
+		false
+	case Reject:
+		false
+	}
+}

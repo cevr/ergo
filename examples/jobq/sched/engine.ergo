@@ -1,0 +1,260 @@
+// Package sched runs a job queue on a virtual clock: a fixed number of
+// workers take jobs in the order they became ready, each start takes a
+// token from the rate limiter, and a failed try waits its backoff before
+// it queues again. Time moves only from one event to the next, so a run
+// of a thousand jobs over an hour of virtual time takes milliseconds, and
+// a run replays exactly. It is pure, except that each try's result comes
+// from the jobs.Worker contract.
+
+import jobq/jobs
+import jobq/limit
+
+// Config is a queue's shape: its workers, its retry policy and its rate,
+// Burst starts at once and then one each Every.
+type Config { Workers int, Policy jobs.Policy, Burst int, Every duration }
+
+// Event is what happened in a run, at a time on the virtual clock.
+type Event = Started{At duration, ID int, N int, Worker int} | Succeeded{At duration, ID int, N int} | Retrying{At duration, ID int, N int, Until duration} | GaveUp{At duration, ID int, N int, Why string}
+
+// State is a job's place in a run: alive in its life machine, on a
+// worker when it runs (worker 0 when not), or over.
+type State = Live{P jobs.Phase, Worker int} | Over{O jobs.Outcome}
+
+// Entry is one job of a run and its state.
+type Entry { Job jobs.Job, S State }
+
+// AtOf is the time of e.
+func AtOf(e Event) duration {
+	match e {
+	case Started as s:
+		s.At
+	case Succeeded as s:
+		s.At
+	case Retrying as r:
+		r.At
+	case GaveUp as g:
+		g.At
+	}
+}
+
+// busy reports whether worker w runs a job of es.
+func busy(es []Entry, w int) bool {
+	for e in es {
+		match e.S {
+		case Live as l:
+			if l.Worker == w {
+				return true
+			}
+		case Over:
+		}
+	}
+	false
+}
+
+// free is the lowest worker of 1 to n that runs nothing, or 0.
+func free(es []Entry, n int) int {
+	for w in 1..n+1 {
+		if !busy(es, w) {
+			return w
+		}
+	}
+	0
+}
+
+// ready is the place in es of the queued job that has waited longest at
+// now (the lowest Ready, then the lowest place), or -1.
+func ready(es []Entry, now duration) int {
+	let mut best = -1
+	let mut at = now
+	for i, e in es {
+		match e.S {
+		case Live as l:
+			match l.P {
+			case jobs.Queued as q:
+				if q.Ready <= now && (best < 0 || q.Ready < at) {
+					best = i
+					at = q.Ready
+				}
+			case jobs.Running:
+			}
+		case Over:
+		}
+	}
+	best
+}
+
+// replaced is es with the entry at i replaced by e, in a new slice.
+func replaced(es []Entry, i int, e Entry) []Entry {
+	let mut out = []Entry{}
+	for k, old in es {
+		out = out.Append(if k == i { e } else { old })
+	}
+	out
+}
+
+// finish ends every try of es that ends at or before now, in the order of
+// es, and is the entries after and the events.
+func finish(es []Entry, now duration, p jobs.Policy) ([]Entry, []Event) needs jobs.Worker {
+	let mut out = es
+	let mut log = []Event{}
+	for i, e in es {
+		match e.S {
+		case Over:
+		case Live as l:
+			match l.P {
+			case jobs.Queued:
+			case jobs.Running as r:
+				if r.Ends <= now {
+					let res = jobs.Worker.Do(e.Job, r.N)
+					match jobs.Step(l.P, jobs.Finish{At: now, R: res, P: p}) {
+					case Done[jobs.Outcome] as d:
+						out = replaced(out, i, Entry{..e, S: Over{O: d.Output}})
+						log = log.Append(ended(e.Job.ID, d.Output))
+					case Enter[jobs.Phase] as n:
+						out = replaced(out, i, Entry{..e, S: Live{P: n.Next, Worker: 0}})
+						log = log.Append(Retrying{At: now, ID: e.Job.ID, N: r.N, Until: readyOf(n.Next)})
+					case Stay[jobs.Phase]:
+					case Ignore:
+					case Reject:
+					}
+				}
+			}
+		}
+	}
+	(out, log)
+}
+
+// ended is the event of a job's outcome.
+func ended(id int, o jobs.Outcome) Event {
+	match o {
+	case jobs.Succeeded as s:
+		Succeeded{At: s.At, ID: id, N: s.N}
+	case jobs.GaveUp as g:
+		GaveUp{At: g.At, ID: id, N: g.N, Why: g.Why}
+	}
+}
+
+// readyOf is the time a phase is ready to start.
+func readyOf(p jobs.Phase) duration {
+	match p {
+	case jobs.Queued as q:
+		q.Ready
+	case jobs.Running as r:
+		r.Ends
+	}
+}
+
+// start puts ready jobs of es on free workers at now while the bucket has
+// tokens, and is the entries, the bucket and the events.
+func start(es []Entry, now duration, workers int, b limit.Bucket) ([]Entry, limit.Bucket, []Event) {
+	let mut out = es
+	let mut bucket = b
+	let mut log = []Event{}
+	for {
+		let w = free(out, workers)
+		let i = ready(out, now)
+		if w == 0 || i < 0 {
+			break
+		}
+		let taken = match limit.Take(bucket, now) {
+		case Some[limit.Bucket] as t:
+			t.Value
+		case None:
+			break
+		}
+		bucket = taken
+		let e = out[i]
+		match e.S {
+		case Live as l:
+			match jobs.Step(l.P, jobs.Start{At: now, Takes: e.Job.Takes}) {
+			case Enter[jobs.Phase] as n:
+				out = replaced(out, i, Entry{..e, S: Live{P: n.Next, Worker: w}})
+				log = log.Append(Started{At: now, ID: e.Job.ID, N: tryOf(n.Next), Worker: w})
+			case Stay[jobs.Phase], Ignore, Reject, Done[jobs.Outcome]:
+				break
+			}
+		case Over:
+			break
+		}
+	}
+	(out, bucket, log)
+}
+
+// tryOf is the try a phase is at.
+func tryOf(p jobs.Phase) int {
+	match p {
+	case jobs.Queued as q:
+		q.N
+	case jobs.Running as r:
+		r.N
+	}
+}
+
+// next is the time of the next event after now: the first try to end,
+// the first job to become ready, or, when a job is ready and a worker is
+// free but the bucket is empty, the bucket's next token. None when every
+// job is over.
+func next(es []Entry, now duration, workers int, b limit.Bucket) Option[duration] {
+	let mut best Option[duration] = None
+	for e in es {
+		match e.S {
+		case Over:
+		case Live as l:
+			match l.P {
+			case jobs.Running as r:
+				// a try of no time ends now, in the next round
+				if r.Ends >= now {
+					best = earlier(best, r.Ends)
+				}
+			case jobs.Queued as q:
+				let t = if q.Ready > now { q.Ready } else if free(es, workers) > 0 { limit.NextAt(b, now) } else { now }
+				if t > now {
+					best = earlier(best, t)
+				}
+			}
+		}
+	}
+	best
+}
+
+// earlier is the earlier of o and t.
+func earlier(o Option[duration], t duration) Option[duration] {
+	match o {
+	case Some[duration] as s:
+		if s.Value <= t { o } else { Some[duration]{Value: t} }
+	case None:
+		Some[duration]{Value: t}
+	}
+}
+
+// Run is the events of a run of js under c, from time 0, until every job
+// is over.
+func Run(c Config, js []jobs.Job) []Event needs jobs.Worker {
+	let mut es = []Entry{}
+	for j in js {
+		es = es.Append(Entry{Job: j, S: Live{P: jobs.Fresh(0s), Worker: 0}})
+	}
+	let workers = if c.Workers < 1 { 1 } else { c.Workers }
+	let mut bucket = limit.Full(c.Burst, c.Every, 0s)
+	let mut now = 0s
+	let mut log = []Event{}
+	for {
+		let done, ends = finish(es, now, c.Policy)
+		let started, b, starts = start(done, now, workers, bucket)
+		es = started
+		bucket = b
+		for e in ends {
+			log = log.Append(e)
+		}
+		for e in starts {
+			log = log.Append(e)
+		}
+		match next(es, now, workers, bucket) {
+		case Some[duration] as t:
+			now = t.Value
+		case None:
+			break
+		}
+	}
+	log
+}

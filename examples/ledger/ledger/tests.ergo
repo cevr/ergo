@@ -1,0 +1,95 @@
+// The Book's tests: a day worked by hand, each refusal, and the laws
+// restated as property tests (#162).
+
+import slices
+
+// refusal is the name of the failure of t in b, or "posted".
+func refusal(b Book, t Transfer) string {
+	let _, _ = Apply(b, t) catch {
+	case KeyReused as k:
+		return "key \(k.Key) was \(k.Was.Amount) from \(k.Was.From)"
+	case BadAmount as a:
+		return "bad amount \(a.Amount)"
+	case SameAccount as s:
+		return "same account \(s.ID)"
+	case UnknownAccount as u:
+		return "unknown \(u.ID)"
+	case InsufficientFunds as f:
+		return "\(f.ID) has \(f.Balance), needs \(f.Amount), floor \(f.Floor)"
+	}
+	"posted"
+}
+
+test ADayWorkedByHand {
+	let b = Posted(Bank(), []Transfer{Transfer{Key: "d1", From: World, To: "alice", Amount: 300}, Transfer{Key: "p1", From: "alice", To: "bob", Amount: 120}, Transfer{Key: "p2", From: "bob", To: "carol", Amount: 500}, Transfer{Key: "p1", From: "alice", To: "bob", Amount: 120}})
+	assert try Balance(b, "alice") == 180
+	assert try Balance(b, "bob") == -380
+	assert try Balance(b, "carol") == 500
+	assert try Balance(b, World) == -300
+	assert Count(b) == 3 && Total(b) == 0
+	assert slices.Equal(IDs(b), []string{"world", "alice", "bob", "carol"})
+}
+
+test RefusalsSayWhy {
+	let b = Posted(Bank(), []Transfer{Transfer{Key: "d1", From: World, To: "alice", Amount: 100}})
+	assert refusal(b, Transfer{Key: "d1", From: World, To: "alice", Amount: 99}) == "key d1 was 100 from world"
+	assert refusal(b, Transfer{Key: "x", From: "alice", To: "bob", Amount: 0}) == "bad amount 0"
+	assert refusal(b, Transfer{Key: "x", From: "alice", To: "alice", Amount: 5}) == "same account alice"
+	assert refusal(b, Transfer{Key: "x", From: "alice", To: "dave", Amount: 5}) == "unknown dave"
+	assert refusal(b, Transfer{Key: "x", From: "alice", To: "bob", Amount: 101}) == "alice has 100, needs 101, floor 0"
+	assert refusal(b, Transfer{Key: "x", From: "bob", To: "carol", Amount: 501}) == "bob has 0, needs 501, floor -500"
+	assert refusal(b, Transfer{Key: "d1", From: World, To: "alice", Amount: 100}) == "posted"
+}
+
+test OpenRefuses {
+	let _ = Open(Bank(), "alice", 0) catch {
+	case AccountExists as e:
+		assert e.ID == "alice"
+		return
+	case BadFloor:
+		assert false
+		return
+	}
+	assert false
+}
+
+test BalancesHold(ns []int) {
+	assert Total(Posted(Bank(), Day(ns))) == 0
+}
+
+test ApplyIsIdempotentHolds(ns []int, m int) {
+	let b = Posted(Bank(), Day(ns))
+	let t = Day([]int{m})[0]
+	let once, first = Apply(b, t) catch {
+	case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds:
+		return
+	}
+	let twice, again = try Apply(once, t)
+	assert again == first && Count(twice) == Count(once)
+	let was = try Balance(once, t.From)
+	assert try Balance(twice, t.From) == was
+}
+
+test FloorsHoldHolds(ns []int) {
+	let b = Posted(Bank(), Day(ns))
+	for id in IDs(b) {
+		let low = try floor(b, id)
+		assert try Balance(b, id) >= low
+	}
+}
+
+test ApplyLeavesItsArgumentHolds(ns []int, m int) {
+	let b = Posted(Bank(), Day(ns))
+	let t = Day([]int{m})[0]
+	let before = Count(b)
+	let from = Balance(b, t.From) catch {
+	case UnknownAccount:
+		return
+	}
+	let _, _ = Apply(b, t) catch {
+	case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds:
+		return
+	}
+	assert Count(b) == before
+	assert try Balance(b, t.From) == from
+}

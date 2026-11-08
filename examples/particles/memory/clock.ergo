@@ -1,0 +1,30 @@
+// Package memory holds the in-memory providers of the game's contracts:
+// a clock that moves only when the game sleeps, and a tape of the frames
+// shown. Tests and the default run use them, so a run is the same on
+// every host.
+
+import time
+
+// Clock is a Scheduler and a time.Clock over one time.Manual: a Sleep
+// moves the time on by the sleep and a jitter, at once, so the loop never
+// waits for a host timer. The jitter is a quarter of the sleep on every
+// third sleep, as a frame that runs late does, so the fixed-step loop has
+// time left over to carry.
+type Clock { m time.Manual, start time.Time }
+
+// NewClock is a Clock at sec Unix seconds.
+func NewClock(sec int64) Clock {
+	let m = time.NewManual(sec)
+	Clock{m: m, start: m.Now()}
+}
+
+// Sleep moves c's time on by d, and by a quarter of d more on every
+// third sleep.
+func Sleep(c Clock, d duration) {
+	let slept = int64(c.m.Now().Sub(c.start))
+	let late = if int64(d) > 0 && (slept/int64(d))%3 == 2 { duration(int64(d) / 4) } else { 0s }
+	c.m.Advance(d + late)
+}
+
+// Now is c's time.
+func Now(c Clock) time.Time { c.m.Now() }

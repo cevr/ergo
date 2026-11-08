@@ -1,0 +1,69 @@
+// Package file keeps a ledger in a text file: a journal of every account
+// opened and every transfer posted, one per line, in order. The Book is
+// the journal replayed, so the file is the whole truth and the balances
+// are never written down.
+
+import ledger/ledger
+import strconv
+import strings
+
+// Corrupt is a journal line that does not read back.
+type Corrupt { Line int, Reason string }
+
+// OpenLine is the journal line of an account opened.
+func OpenLine(id string, floor int64) string {
+	"open\t\(strconv.Quote(id))\t\(floor)\n"
+}
+
+// PostLine is the journal line of a transfer posted.
+func PostLine(t ledger.Transfer) string {
+	"post\t\(strconv.Quote(t.Key))\t\(strconv.Quote(t.From))\t\(strconv.Quote(t.To))\t\(t.Amount)\n"
+}
+
+// word is the quoted word w, read.
+func word(n int, w string) string fails Corrupt {
+	strconv.Unquote(w) catch {
+	case strconv.Malformed:
+		return Corrupt{Line: n, Reason: "\(w) is not a quoted word"}
+	}
+}
+
+// amount is the amount w, read.
+func amount(n int, w string) int64 fails Corrupt {
+	strconv.ParseInt(w, 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Corrupt{Line: n, Reason: "\(w) is not an amount"}
+	}
+}
+
+// Replay is the Book that the journal text records. Each line must apply:
+// a line the Book refuses means the file was changed by hand.
+func Replay(text string) ledger.Book fails Corrupt {
+	let mut b = ledger.Empty()
+	for i, line in strings.Split(text, "\n") {
+		if line == "" {
+			continue
+		}
+		let n = i + 1
+		let w = strings.Split(line, "\t")
+		match (w[0], len(w)) {
+		case ("open", 3):
+			let id = try word(n, w[1])
+			let floor = try amount(n, w[2])
+			b = ledger.Open(b, id, floor) catch {
+			case ledger.AccountExists, ledger.BadFloor:
+				return Corrupt{Line: n, Reason: "the account \(id) does not open"}
+			}
+		case ("post", 5):
+			let t = ledger.Transfer{Key: try word(n, w[1]), From: try word(n, w[2]), To: try word(n, w[3]), Amount: try amount(n, w[4])}
+			let next, _ = ledger.Apply(b, t) catch {
+			case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds:
+				return Corrupt{Line: n, Reason: "the transfer \(t.Key) does not post"}
+			}
+			b = next
+		case _:
+			return Corrupt{Line: n, Reason: "not an open or a post line"}
+		}
+	}
+	b
+}

@@ -1,0 +1,45 @@
+// Screen keeps the sim.Screen law, and clears only a terminal.
+
+import io
+import particles/sim
+import particles/world
+import strings
+
+// frame is a frame of a blank box.
+func frame(n int) sim.Frame { sim.Frame{N: n, Phase: "running", G: sim.Fresh(world.Blank())} }
+
+test WritesTheBoxAndItsStatus {
+	let out = io.NewRecorder()
+	let s = New(out)
+	s.Show(frame(1))
+	assert out.Text() == "+---+\n|   |\n|   |\n|   |\n+---+\nframe 1 running: step 0, energy 0, bounces 0, meetings 0\n"
+	assert s.Shown() == 1
+}
+
+// terminal is a Stdout that is a terminal, writing to a Recorder.
+type terminal { out io.Recorder }
+
+func Print(t terminal, text string) { t.out.Print(text) }
+
+func Println(t terminal, line string) { t.out.Println(line) }
+
+func IsTerminal(_ terminal) bool { true }
+
+test ClearsATerminal {
+	let out = io.NewRecorder()
+	let s = New(terminal{out: out})
+	s.Show(frame(1))
+	s.Show(frame(2))
+	assert strings.Count(out.Text(), "\x1b[2J") == 2
+}
+
+// The law holds for a Screen in any state: k frames shown first.
+test ShowCountsOneHolds(n int, phase string, k int) {
+	let s sim.Screen = New(io.NewRecorder())
+	for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {
+		s.Show(frame(i))
+	}
+	let before = s.Shown()
+	s.Show(sim.Frame{N: n, Phase: phase, G: sim.Fresh(world.Blank())})
+	assert s.Shown() == before+1
+}

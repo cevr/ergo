@@ -1,0 +1,231 @@
+// jobq runs a list of jobs through a queue with workers, retries with
+// backoff, and a rate limiter. By default it runs them on a virtual clock
+// (package sched) and prints the timeline, which is the same on every
+// host; with -live it runs them on real tasks (package pool) on the
+// host's clock and prints how each job ended. Package jobs is the job,
+// its retry policy and its life machine, limit the token bucket. This
+// binary is the only place that chooses the providers: the scripted
+// worker, and the host's scheduler for -live.
+
+import flag
+import io
+import jobq/jobs
+import jobq/memory
+import jobq/pool
+import jobq/sched
+import os
+import queue
+import strconv
+import strings
+
+let Workers = flag.Int("workers", 2, "how many jobs run at once")
+let Attempts = flag.Int("attempts", 3, "how many times a job is tried")
+let BackoffMs = flag.Int("backoff-ms", 100, "the wait in `ms` after a first failed try; it doubles after each")
+let MaxMs = flag.Int("max-ms", 1000, "the longest wait in `ms` between tries")
+let Burst = flag.Int("burst", 2, "how many jobs may start at once")
+let EveryMs = flag.Int("every-ms", 100, "the `ms` between starts after a burst; 0 for no limit")
+let Live = flag.Bool("live", false, "run the jobs on real tasks on the host's clock")
+
+// Set is the command line's flags.
+func Set() flag.Set {
+	flag.Set{Name: "jobq", Usage: "jobq runs jobs from standard input, one per line: NAME MS [FLAKY] [fatal].", Flags: []flag.Flag{Workers, Attempts, BackoffMs, MaxMs, Burst, EveryMs, Live}, Args: []flag.ArgSpec{}}
+}
+
+// Options is the command line, read.
+type Options { C sched.Config, Live bool }
+
+// ms is n milliseconds.
+func ms(n int) duration { duration(int64(n) * int64(1ms)) }
+
+// read is the options of args, None after help, or the end of the
+// program.
+func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
+	let set = Set()
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return None
+	}
+	if Workers.Get(v) < 1 || Attempts.Get(v) < 1 || Burst.Get(v) < 1 || BackoffMs.Get(v) < 0 || EveryMs.Get(v) < 0 || MaxMs.Get(v) < BackoffMs.Get(v) {
+		return os.Exit{Code: 2, Message: "jobq: -workers, -attempts and -burst are at least 1, the times are not negative, and -max-ms is at least -backoff-ms"}
+	}
+	let c = sched.Config{Workers: Workers.Get(v), Policy: jobs.Policy{Attempts: Attempts.Get(v), Base: ms(BackoffMs.Get(v)), Max: ms(MaxMs.Get(v))}, Burst: Burst.Get(v), Every: ms(EveryMs.Get(v))}
+	Some[Options]{Value: Options{C: c, Live: Live.Get(v)}}
+}
+
+// BadJob is a line of input that is not a job.
+type BadJob { Line int, Text string }
+
+// Parse is the jobs of text: NAME MS [FLAKY] [fatal] on each line, where
+// FLAKY is how many tries fail before it works. A blank line and a line
+// from # on are skipped.
+func Parse(text string) []jobs.Job fails BadJob {
+	let mut out = []jobs.Job{}
+	for i, raw in strings.Split(text, "\n") {
+		let line = match strings.Cut(raw, "#") {
+		case Some[strings.Halves] as h:
+			h.Value.Before
+		case None:
+			raw
+		}
+		let w = strings.Fields(line)
+		if len(w) == 0 {
+			continue
+		}
+		let bad = BadJob{Line: i + 1, Text: strings.TrimSpace(raw)}
+		if len(w) < 2 || len(w) > 4 {
+			return bad
+		}
+		let takes = strconv.Atoi(w[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return bad
+		}
+		let flaky = if len(w) > 2 {
+			strconv.Atoi(w[2]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return bad
+			}
+		} else {
+			0
+		}
+		let fatal = len(w) == 4
+		if takes < 0 || flaky < 0 || (fatal && w[3] != "fatal") {
+			return bad
+		}
+		out = out.Append(jobs.Job{ID: len(out) + 1, Name: w[0], Takes: ms(takes), Flaky: flaky, Fatal: fatal})
+	}
+	out
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost(), jobs.Worker: jobs.Script, Scheduler: NewLiveScheduler() } { try run(os.Process.Args()) }
+}
+
+// run is the program after main binds its providers. The Scheduler paces
+// only a -live run: the host's in main, one whose sleeps end at once in
+// the tests.
+func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | jobs.Worker | Scheduler {
+	let o = match try read(args) {
+	case Some[Options] as s:
+		s.Value
+	case None:
+		return
+	}
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as r:
+		return os.Exit{Code: 1, Message: "jobq: \(r.Reason)"}
+	}
+	let js = Parse(text) catch {
+	case BadJob as b:
+		return os.Exit{Code: 2, Message: "jobq: line \(b.Line): \(b.Text) is not NAME MS [FLAKY] [fatal]"}
+	}
+	if o.Live {
+		let rs = pool.Run(o.C, js) catch {
+		case queue.Closed:
+			return os.Exit{Code: 1, Message: "jobq: a queue closed early"}
+		}
+		for l in Reports(js, rs) {
+			io.Stdout.Println(l)
+		}
+		return
+	}
+	for l in Timeline(js, sched.Run(o.C, js)) {
+		io.Stdout.Println(l)
+	}
+}
+
+// name is the name of the job id of js.
+func name(js []jobs.Job, id int) string {
+	if id >= 1 && id <= len(js) { js[id-1].Name } else { "#\(id)" }
+}
+
+// Timeline is the lines of a virtual run: each event, then a summary.
+func Timeline(js []jobs.Job, es []sched.Event) []string {
+	let mut out = []string{}
+	let mut done = 0
+	let mut gave = 0
+	let mut retries = 0
+	let mut last = 0s
+	for e in es {
+		last = sched.AtOf(e)
+		out = out.Append(match e {
+		case sched.Started as s:
+			"\(s.At)\tworker \(s.Worker) starts \(name(js, s.ID)), try \(s.N)"
+		case sched.Succeeded as s:
+			done = done + 1
+			"\(s.At)\t\(name(js, s.ID)) is done"
+		case sched.Retrying as r:
+			retries = retries + 1
+			"\(r.At)\t\(name(js, r.ID)) failed try \(r.N); again at \(r.Until)"
+		case sched.GaveUp as g:
+			gave = gave + 1
+			"\(g.At)\t\(name(js, g.ID)) gave up: \(g.Why)"
+		})
+	}
+	out.Append("\(len(js)) jobs: \(done) done, \(gave) gave up, \(retries) retries; all over at \(last); at most \(sched.InFlight(es, len(js)+1)) at once")
+}
+
+// Reports is the lines of a live run, by job: how each ended. The worker
+// and the time depend on the host, so they are left out.
+func Reports(js []jobs.Job, rs []pool.Report) []string {
+	let mut out = []string{}
+	for r in rs {
+		out = out.Append(match r.Out {
+		case jobs.Succeeded as s:
+			"\(name(js, r.ID)): done after \(s.N) tries"
+		case jobs.GaveUp as g:
+			"\(name(js, r.ID)): gave up after \(g.N) tries: \(g.Why)"
+		})
+	}
+	out
+}
+
+// session is the output of a run of args on input, as main runs it, with
+// sleeps that end at once, or the exit it ends with.
+func session(args []string, input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, jobs.Worker: jobs.Script, Scheduler: memory.Instant } { run(args) } catch {
+	case os.Exit as e:
+		return out.Text() + "exit \(e.Code): \(e.Message)"
+	}
+	out.Text()
+}
+
+let Three = "a 300\nb 50 1\nc 50 0 fatal\n"
+
+test VirtualTimeline {
+	assert session([]string{}, Three) == "0s\tworker 1 starts a, try 1\n0s\tworker 2 starts b, try 1\n50ms\tb failed try 1; again at 150ms\n100ms\tworker 2 starts c, try 1\n150ms\tc gave up: c is malformed\n200ms\tworker 2 starts b, try 2\n250ms\tb is done\n300ms\ta is done\n3 jobs: 2 done, 1 gave up, 1 retries; all over at 300ms; at most 2 at once\n"
+}
+
+test LiveReports {
+	assert session([]string{"-live"}, Three) == "a: done after 1 tries\nb: done after 2 tries\nc: gave up after 1 tries: c is malformed\n"
+}
+
+test RefusalsExit {
+	assert session([]string{}, "a\n") == "exit 2: jobq: line 1: a is not NAME MS [FLAKY] [fatal]"
+	assert session([]string{}, "a 5 1 fatall\n") == "exit 2: jobq: line 1: a 5 1 fatall is not NAME MS [FLAKY] [fatal]"
+	assert session([]string{"-workers", "0"}, "") == "exit 2: jobq: -workers, -attempts and -burst are at least 1, the times are not negative, and -max-ms is at least -backoff-ms"
+	assert session([]string{"-h"}, "") == flag.Usage(Set())
+}
+
+// The virtual run and the live run agree on how every job ends.
+test LiveAgreesWithVirtual(ns []int) {
+	let mut input = ""
+	for i, n in ns {
+		let k = if n < 0 { -(n % 1000) } else { n % 1000 }
+		input = input + "j\(i) \(k % 300) \(k % 4)\(if k%7 == 0 { " fatal" } else { "" })\n"
+	}
+	let live = session([]string{"-live", "-workers", "3"}, input)
+	let virtual = session([]string{"-workers", "3"}, input)
+	for l in strings.Split(live, "\n") {
+		if l == "" {
+			continue
+		}
+		let name = strings.Fields(l)[0]
+		let job = strings.TrimSuffix(name, ":")
+		let says = strings.TrimPrefix(l, name+" ")
+		let virtualSays = if strings.HasPrefix(says, "done") { "\t\(job) is done" } else { "\t\(job) gave up" }
+		assert strings.Contains(virtual, virtualSays)
+	}
+	assert len(strings.Split(live, "\n")) == len(ns)+1
+}

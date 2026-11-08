@@ -1,0 +1,141 @@
+// particles is a small particle game in a text box: particles move by
+// whole cells, bounce off the walls and pass their velocities on when they
+// meet. Package world is the box, package sim the machine and the
+// fixed-step loop, package render the text, package term the screen and
+// package memory the clock that runs without a host timer. This binary is
+// the only place that chooses the providers: the seeded Random, the
+// memory clock (or the host's, with -live) and the terminal screen.
+
+import flag
+import io
+import os
+import particles/memory
+import particles/sim
+import particles/term
+import particles/world
+import rand
+import time
+
+let Seed = flag.Int("seed", 7, "the `seed` of the first particles")
+let Count = flag.Int("n", 12, "the number of particles")
+let Width = flag.Int("width", 24, "the columns of the box")
+let Height = flag.Int("height", 8, "the rows of the box")
+let Loss = flag.Int("loss", 0, "the speed a particle loses at a wall")
+let Frames = flag.Int("frames", 6, "the number of frames to show")
+let Keys = flag.String("keys", "", "the `keys` of each frame: p pauses, r resumes, q quits")
+let Live = flag.Bool("live", false, "pace the frames on the host's clock")
+
+// Options is the command line, read.
+type Options { Seed int, Count int, Width int, Height int, Loss int, Frames int, Keys string, Live bool }
+
+// Set is the command line's flags.
+func Set() flag.Set {
+	flag.Set{Name: "particles", Usage: "particles moves particles in a box and shows each frame.", Flags: []flag.Flag{Seed, Count, Width, Height, Loss, Frames, Keys, Live}, Args: []flag.ArgSpec{}}
+}
+
+// Paced is the timing of a frame: 50ms, and a step of the box per 20ms of
+// game time, so a frame has two or three steps.
+let Paced = sim.Pace{Frame: 50ms, Dt: 20ms}
+
+// read is the options of args, None after help, or the end of the
+// program: help prints the usage, and any other failure exits 2 with it.
+// Help is None, not a failure: os.Exit takes a status of 1 to 125, so a
+// status of 0 is a return from main.
+func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
+	let set = Set()
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, flag.Usage(set))
+		return None
+	}
+	Some[Options]{Value: Options{Seed: Seed.Get(v), Count: Count.Get(v), Width: Width.Get(v), Height: Height.Get(v), Loss: Loss.Get(v), Frames: Frames.Get(v), Keys: Keys.Get(v), Live: Live.Get(v)}}
+}
+
+// spawn is the box of o, or the end of the program with the reason.
+func spawn(o Options) world.World fails os.Exit {
+	with context { Random: rand.Seeded(uint64(o.Seed)) } { world.Spawn(o.Width, o.Height, o.Count, o.Loss) } catch {
+	case world.BadSize as b:
+		return os.Exit{Code: 2, Message: "particles: a box of \(b.Width)x\(b.Height) is outside \(world.MinSide)..\(world.MaxSide) on a side"}
+	case world.BadLoss as b:
+		return os.Exit{Code: 2, Message: "particles: a loss of \(b.Loss) would add speed"}
+	case world.TooMany as t:
+		return os.Exit{Code: 2, Message: "particles: \(t.Count) particles do not fit in \(t.Cells) cells"}
+	}
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } { try run() }
+}
+
+// run is the program after main binds the host's process and standard
+// output. A return cannot leave a with block, so this is a function of its
+// own: help returns early.
+func run() fails os.Exit needs Console | Ambient | os.Process | io.Stdout {
+	let o = match try read(os.Process.Args()) {
+	case Some[Options] as s:
+		s.Value
+	case None:
+		return
+	}
+	let w = try spawn(o)
+	let screen = term.New(io.NewHost())
+	let g = if o.Live {
+		with context { Scheduler: NewLiveScheduler(), time.Clock: time.NewHost(), sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+	} else {
+		let c = memory.NewClock(0)
+		with context { Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+	}
+	Console.Println(Summary(screen.Shown(), w, g))
+}
+
+// Summary is the last line: the frames shown, the steps and the energy
+// before and after.
+func Summary(frames int, w world.World, g sim.Game) string {
+	"\(frames) frames, \(g.Steps) steps, energy \(world.Energy(w)) to \(world.Energy(g.W))"
+}
+
+// session is the output of a game of args on the memory clock and a
+// recorded screen, as main runs it, or the exit it ends with.
+func session(args []string) string {
+	let out = io.NewRecorder()
+	// A try inside a with block leaves the function, so the game is a
+	// function of its own, and its failure is caught here (rows.md, Error
+	// rows 4).
+	let text = with context { io.Stdout: out } { game(args, out) } catch {
+	case os.Exit as e:
+		return out.Text() + "exit \(e.Code): \(e.Message)"
+	}
+	out.Text() + text
+}
+
+// game is the summary of a game of args, shown on out.
+func game(args []string, out io.Stdout) string fails os.Exit needs io.Stdout {
+	let o = match try read(args) {
+	case Some[Options] as s:
+		s.Value
+	case None:
+		return "help"
+	}
+	let w = try spawn(o)
+	let screen = term.New(out)
+	let c = memory.NewClock(0)
+	let g = with context { Scheduler: c, time.Clock: c, sim.Screen: screen } { sim.Play(w, o.Keys, o.Frames, Paced) }
+	Summary(screen.Shown(), w, g)
+}
+
+test ScriptedRun {
+	let text = session([]string{"-seed", "42", "-n", "3", "-width", "6", "-height", "3", "-frames", "3", "-keys", ".q"})
+	assert text == "+------+\n|o     |\n|     o|\n|    o |\n+------+\nframe 1 running: step 2, energy 8, bounces 2, meetings 0\n+------+\n|o     |\n|     o|\n|    o |\n+------+\nframe 2 quit: step 2, energy 8, bounces 2, meetings 0\n2 frames, 2 steps, energy 8 to 8"
+}
+
+test RunsAreReplayed(seed int) {
+	let args = []string{"-seed", "\(seed)", "-frames", "4", "-loss", "1"}
+	assert session(args) == session(args)
+}
+
+test RefusalsExit {
+	assert session([]string{"-width", "2"}) == "exit 2: particles: a box of 2x8 is outside 3..200 on a side"
+	assert session([]string{"-n", "200", "-width", "4", "-height", "4"}) == "exit 2: particles: 200 particles do not fit in 16 cells"
+	assert session([]string{"-loss", "-1"}) == "exit 2: particles: a loss of -1 would add speed"
+	assert session([]string{"-h"}) == flag.Usage(Set())+"help"
+}

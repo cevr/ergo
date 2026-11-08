@@ -1,0 +1,144 @@
+// The game's tests: a scripted game, and the laws restated as property
+// tests. The compiler checks laws and does not run them yet (#162); until
+// it does, these tests run them.
+
+import particles/world
+import time
+
+// played is a game of box(seed, 8) played with keys for frames frames on
+// a clock with a late frame every third frame, and the frames shown.
+func played(seed uint64, keys string, frames int) (Game, []Frame) {
+	let m = time.NewManual(0)
+	let screen = tape{frames: Map[int, Frame]{}}
+	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: screen } {
+		Play(box(seed, 8), keys, frames, Pace{Frame: 50ms, Dt: 20ms})
+	}
+	(g, screen.All())
+}
+
+// tape is a Screen that keeps its frames, for the tests of this package
+// (package memory has the Tape of the program; it imports sim).
+type tape { frames Map[int, Frame] }
+
+func Show(t tape, f Frame) {
+	let mut frames = t.frames
+	frames[len(frames)] = f
+}
+
+func Shown(t tape) int { len(t.frames) }
+
+func All(t tape) []Frame {
+	let mut out = []Frame{}
+	for i in 0..len(t.frames) {
+		match t.frames.Get(i) {
+		case Some[Frame] as f:
+			out = out.Append(f.Value)
+		case None:
+		}
+	}
+	out
+}
+
+// phases is the phase of each frame, one letter each: r running, p
+// paused, q quit.
+func phases(fs []Frame) string {
+	let mut out = ""
+	for f in fs {
+		out = out + (match f.Phase {
+		case "running":
+			"r"
+		case "paused":
+			"p"
+		case _:
+			"q"
+		})
+	}
+	out
+}
+
+test ScriptedGame {
+	let g, fs = played(3, ".p..r.q..", 9)
+	assert phases(fs) == "rppprrq"
+	// Frame 1 runs, 2 to 4 are paused, 5 and 6 run: 50ms per frame, a quarter
+	// more on every third, and a step per 20ms owed.
+	assert fs[0].G.Steps == 2 && fs[1].G.Steps == 2 && fs[3].G.Steps == 2 && fs[4].G.Steps > 2
+	assert g.Steps == fs[5].G.Steps && g.Steps > 2
+	assert world.Energy(g.W) == world.Energy(box(3, 8))
+}
+
+test FramesRunOut {
+	let g, fs = played(5, "", 4)
+	assert len(fs) == 4 && phases(fs) == "rrrr"
+	assert g.Steps == 10
+}
+
+test QuitFirst {
+	let g, fs = played(5, "q", 4)
+	assert len(fs) == 1 && fs[0].Phase == "quit" && g.Steps == 0
+}
+
+test KeysAreRead {
+	assert Word(Step(Start(), Tick)) == "ignore"
+	match Key("x") {
+	case Some[Input]:
+		assert false
+	case None:
+	}
+}
+
+test PausedIgnoresTicksHolds(seed uint64, n int) {
+	assert Word(Step(Paused{G: Fresh(box(seed, n))}, Tick)) == "ignore"
+}
+
+test RunningTicksStayHolds(seed uint64, n int) {
+	let d = Step(Running{G: Fresh(box(seed, n))}, Tick)
+	assert Word(d) == "stay"
+	assert GameOf(Next(Start(), d)).Steps == 1
+}
+
+test QuitIsDoneHolds(seed uint64, n int) {
+	let g = Advance(Fresh(box(seed, n)))
+	for p in []Phase{Running{G: g}, Paused{G: g}} {
+		match Step(p, Quit) {
+		case Done[Game] as d:
+			assert world.Same(d.Output.W, g.W) && d.Output.Steps == 1
+		case Enter[Phase]:
+			assert false
+		case Stay[Phase]:
+			assert false
+		case Ignore:
+			assert false
+		case Reject:
+			assert false
+		}
+	}
+}
+
+test PauseResumeRoundTripsHolds(seed uint64, n int) {
+	let g = Advance(Fresh(box(seed, n)))
+	let paused = Next(Running{G: g}, Step(Running{G: g}, Pause))
+	let back = Next(paused, Step(paused, Resume))
+	assert Name(paused) == "paused" && Name(back) == "running" && world.Same(GameOf(back).W, g.W)
+}
+
+test StepsFollowTheClockHolds(seed uint64, n int, frames int) {
+	let m = time.NewManual(0)
+	let k = if frames < 0 { -(frames % 20) } else { frames % 20 }
+	let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: blind{n: Map[string, int]{}} } {
+		Play(box(seed, n), "", k, Pace{Frame: 50ms, Dt: 20ms})
+	}
+	assert g.Steps == int(int64(m.Now().Sub(time.Unix(0, 0)))/int64(20ms))
+}
+
+// The law holds for each Screen of this package in any state: k frames
+// shown first.
+test ShowCountsOneHolds(n int, phase string, k int) {
+	for s in []Screen{tape{frames: Map[int, Frame]{}}, blind{n: Map[string, int]{}}} {
+		for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {
+			s.Show(Frame{N: i, Phase: phase, G: Fresh(world.Blank())})
+		}
+		let before = s.Shown()
+		s.Show(Frame{N: n, Phase: phase, G: Fresh(world.Blank())})
+		assert s.Shown() == before+1
+	}
+}

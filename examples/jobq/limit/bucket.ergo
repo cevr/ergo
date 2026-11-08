@@ -1,0 +1,57 @@
+// Package limit is a token-bucket rate limiter on a clock it is given:
+// a bucket holds at most Burst tokens, gains one each Every, and each
+// start takes one. It is pure: the time is an argument, so a virtual
+// clock tests it exactly.
+
+// Bucket is a limiter's state: its shape, the tokens it holds, and the
+// time it last gained one.
+type Bucket { Burst int, Every duration, tokens int, since duration }
+
+// Full is a bucket with burst tokens at the time at, gaining one each
+// every. A burst below one is one, and an every of zero or less means no
+// limit.
+func Full(burst int, every duration, at duration) Bucket {
+	let b = if burst < 1 { 1 } else { burst }
+	Bucket{Burst: b, Every: every, tokens: b, since: at}
+}
+
+// Refill is b at the time now: one more token for each whole Every since
+// it last gained one, up to Burst. A time before since changes nothing.
+func Refill(b Bucket, now duration) Bucket {
+	if b.Every <= 0s || now <= b.since {
+		return b
+	}
+	let gained = int64(now-b.since) / int64(b.Every)
+	if gained == 0 {
+		return b
+	}
+	let room = int64(b.Burst - b.tokens)
+	if gained >= room {
+		return Bucket{..b, tokens: b.Burst, since: now}
+	}
+	Bucket{..b, tokens: b.tokens + int(gained), since: b.since + duration(gained*int64(b.Every))}
+}
+
+// Take is b after one token is taken at now, or None when it has none.
+func Take(b Bucket, now duration) Option[Bucket] {
+	if b.Every <= 0s {
+		return Some[Bucket]{Value: b}
+	}
+	let r = Refill(b, now)
+	if r.tokens == 0 {
+		return None
+	}
+	Some[Bucket]{Value: Bucket{..r, tokens: r.tokens - 1}}
+}
+
+// NextAt is the first time at or after now when b has a token.
+func NextAt(b Bucket, now duration) duration {
+	let r = Refill(b, now)
+	if r.Every <= 0s || r.tokens > 0 {
+		return now
+	}
+	r.since + r.Every
+}
+
+// Tokens is the tokens b holds at now.
+func Tokens(b Bucket, now duration) int { Refill(b, now).tokens }

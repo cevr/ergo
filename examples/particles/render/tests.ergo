@@ -1,0 +1,38 @@
+// The renderer's tests: a box drawn cell by cell.
+
+import particles/sim
+import particles/world
+import rand
+import strings
+
+test CellsCount {
+	assert Cell(0) == " " && Cell(1) == "o" && Cell(2) == "2" && Cell(9) == "9" && Cell(10) == "#"
+}
+
+test BlankBox {
+	assert strings.Join(Box(world.Blank()), "\n") == "+---+\n|   |\n|   |\n|   |\n+---+"
+}
+
+test EveryParticleIsDrawn(seed uint64, n int) {
+	let count = if n < 0 { -(n % 30) } else { n % 30 }
+	let w = with context { Random: rand.Seeded(seed) } { world.Spawn(10, 4, count, 0) } catch {
+	case world.BadSize, world.BadLoss, world.TooMany:
+		world.Blank()
+	}
+	let lines = Box(w)
+	assert len(lines) == w.Height()+2
+	let mut drawn = 0
+	for line in lines {
+		assert len(line) == w.Width()+2
+		drawn = drawn + strings.Count(line, "o")
+		for k in 2..10 {
+			drawn = drawn + k*strings.Count(line, "\(k)")
+		}
+	}
+	assert drawn == w.Count()
+}
+
+test StatusLine {
+	let f = sim.Frame{N: 3, Phase: "paused", G: sim.Fresh(world.Blank())}
+	assert Status(f) == "frame 3 paused: step 0, energy 0, bounces 0, meetings 0"
+}

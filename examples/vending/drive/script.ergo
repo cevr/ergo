@@ -1,0 +1,144 @@
+// Package drive runs the vending machine and the crossing light side by
+// side on one clock, from a script of timed lines. It is the only place
+// where time passes: it delivers each line at its time, and before it,
+// a Tick to each machine at each deadline the machine has, in time order.
+// It is pure, except that coins go through the vend.Acceptor contract.
+
+import strconv
+import strings
+
+// Item is one line of a script, read: what happens, and when.
+type Item = CoinIn{At duration, Coin string} | Key{At duration, Slot string} | CancelKey{At duration} | ServiceKey{At duration} | ResumeKey{At duration} | Press{At duration} | Break{At duration} | Fix{At duration} | End{At duration}
+
+// BadLine is a script line that does not read.
+type BadLine { Line int, Text string, Reason string }
+
+// ItemAt is the time of i.
+func ItemAt(i Item) duration {
+	match i {
+	case CoinIn as c:
+		c.At
+	case Key as k:
+		k.At
+	case CancelKey as c:
+		c.At
+	case ServiceKey as s:
+		s.At
+	case ResumeKey as r:
+		r.At
+	case Press as p:
+		p.At
+	case Break as b:
+		b.At
+	case Fix as f:
+		f.At
+	case End as e:
+		e.At
+	}
+}
+
+// ParseScript reads text, one item per line: a time, a word and its
+// argument, as "12s coin quarter", "40s select A1" or "95s button". A
+// blank line and a line from # on are skipped. Times never go back.
+func ParseScript(text string) []Item fails BadLine {
+	let mut out = []Item{}
+	let mut last = 0s
+	for n, raw in strings.Split(text, "\n") {
+		let line = strings.TrimSpace(match strings.Cut(raw, "#") {
+		case Some[strings.Halves] as h:
+			h.Value.Before
+		case None:
+			raw
+		})
+		if line == "" {
+			continue
+		}
+		let words = strings.Fields(line)
+		let at = Duration(words[0]) catch {
+		case BadDuration as b:
+			return BadLine{Line: n + 1, Text: raw, Reason: "\(b.Text) is not a time such as 12s or 1500ms"}
+		}
+		if at < last {
+			return BadLine{Line: n + 1, Text: raw, Reason: "the time goes back"}
+		}
+		last = at
+		out = out.Append(try item(n+1, raw, at, words))
+	}
+	out
+}
+
+// item is the item of the words of a line at the time at.
+func item(n int, raw string, at duration, words []string) Item fails BadLine {
+	let verb = if len(words) > 1 { words[1] } else { "" }
+	let arg = if len(words) > 2 { words[2] } else { "" }
+	let want = match verb {
+	case "coin":
+		2
+	case "select":
+		2
+	case _:
+		1
+	}
+	if len(words) != want+1 {
+		return BadLine{Line: n, Text: raw, Reason: "\(verb) takes \(want - 1) word after it"}
+	}
+	match verb {
+	case "coin":
+		CoinIn{At: at, Coin: arg}
+	case "select":
+		Key{At: at, Slot: arg}
+	case "cancel":
+		CancelKey{At: at}
+	case "service":
+		ServiceKey{At: at}
+	case "resume":
+		ResumeKey{At: at}
+	case "button":
+		Press{At: at}
+	case "fault":
+		Break{At: at}
+	case "repair":
+		Fix{At: at}
+	case "end":
+		End{At: at}
+	case _:
+		BadLine{Line: n, Text: raw, Reason: "no word \(verb)"}
+	}
+}
+
+// BadDuration is a text that is not a duration.
+type BadDuration { Text string }
+
+// Duration reads a whole number of ms, s, m or h, as "1500ms" or "2m".
+// The std has no time.ParseDuration yet, so the program reads its own
+// (gaps G-ex-b-9).
+func Duration(text string) duration fails BadDuration {
+	for unit in []string{"ms", "s", "m", "h"} {
+		if !strings.HasSuffix(text, unit) {
+			continue
+		}
+		let digits = strings.TrimSuffix(text, unit)
+		if unit == "s" && strings.HasSuffix(digits, "m") {
+			continue
+		}
+		let n = strconv.Atoi(digits) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return BadDuration{Text: text}
+		}
+		if n < 0 || strings.HasPrefix(digits, "+") {
+			return BadDuration{Text: text}
+		}
+		let per = match unit {
+		case "ms":
+			1ms
+		case "s":
+			1s
+		case "m":
+			1m
+		case _:
+			1h
+		}
+		return duration(int64(n) * int64(per))
+	}
+	BadDuration{Text: text}
+}

@@ -1,0 +1,1 @@
+jobq: -workers, -attempts and -burst are at least 1, the times are not negative, and -max-ms is at least -backoff-ms

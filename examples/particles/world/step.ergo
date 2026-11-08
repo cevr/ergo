@@ -1,0 +1,139 @@
+// Wall is a side of the box.
+type Wall = West{} | East{} | North{} | South{}
+
+// Event is what a step did, besides moving every particle.
+type Event = Bounced{ID int, Side Wall} | Met{IDs []int, X int, Y int}
+
+// WallName is the name of a side.
+func WallName(s Wall) string {
+	match s {
+	case West:
+		"west"
+	case East:
+		"east"
+	case North:
+		"north"
+	case South:
+		"south"
+	}
+}
+
+// axis is one coordinate after one step: the position, the velocity and
+// whether it hit the low or the high wall.
+type axis { At int, V int, Low bool, High bool }
+
+// move moves at by v on an axis of size cells, and reflects it off a
+// wall: a particle that would leave at the low side comes back as far as
+// it went past the wall, with its velocity turned and loss less speed.
+// MaxSpeed is below every size, so one reflection is enough.
+func move(at int, v int, size int, loss int) axis {
+	let next = at + v
+	if next < 0 {
+		return axis{At: -next, V: slower(-v, loss), Low: true, High: false}
+	}
+	if next >= size {
+		return axis{At: 2*(size-1) - next, V: slower(-v, loss), Low: false, High: true}
+	}
+	axis{At: next, V: v, Low: false, High: false}
+}
+
+// slower is v with its speed less loss, never below zero, in v's
+// direction.
+func slower(v int, loss int) int {
+	if v > 0 {
+		return if v > loss { v - loss } else { 0 }
+	}
+	if v < 0 {
+		return if -v > loss { v + loss } else { 0 }
+	}
+	0
+}
+
+// Step is w one tick later, and what happened: every particle moves by its
+// velocity and bounces off the walls (Bounced, one event per wall hit);
+// then the particles that share a cell pass their velocities round, the
+// first to the second, the last to the first (Met). Passing velocities
+// round keeps each one, so a meeting changes no energy; only a wall with
+// loss takes energy away.
+func Step(w World) (World, []Event) {
+	let mut events = []Event{}
+	let mut moved = []Particle{}
+	for p in w.ps {
+		let x = move(p.X, p.VX, w.width, w.loss)
+		let y = move(p.Y, p.VY, w.height, w.loss)
+		if x.Low {
+			events = events.Append(Bounced{ID: p.ID, Side: West})
+		}
+		if x.High {
+			events = events.Append(Bounced{ID: p.ID, Side: East})
+		}
+		if y.Low {
+			events = events.Append(Bounced{ID: p.ID, Side: North})
+		}
+		if y.High {
+			events = events.Append(Bounced{ID: p.ID, Side: South})
+		}
+		moved = moved.Append(Particle{ID: p.ID, X: x.At, Y: y.At, VX: x.V, VY: y.V})
+	}
+	// The groups of particles by cell, in the order of their first
+	// particle's ID, so a step never depends on a Map's order.
+	let mut groupOf = Map[int, int]{}
+	let mut groups = [][]int{}
+	for i, p in moved {
+		let cell = p.Y*w.width + p.X
+		match groupOf.Get(cell) {
+		case Some[int] as g:
+			groups[g.Value] = groups[g.Value].Append(i)
+		case None:
+			groupOf[cell] = len(groups)
+			groups = groups.Append([]int{i})
+		}
+	}
+	for g in groups {
+		if len(g) < 2 {
+			continue
+		}
+		let last = moved[g[len(g)-1]]
+		let mut vx = last.VX
+		let mut vy = last.VY
+		let mut ids = []int{}
+		for i in g {
+			let p = moved[i]
+			moved[i] = Particle{..p, VX: vx, VY: vy}
+			vx = p.VX
+			vy = p.VY
+			ids = ids.Append(p.ID)
+		}
+		events = events.Append(Met{IDs: ids, X: moved[g[0]].X, Y: moved[g[0]].Y})
+	}
+	(World{..w, tick: w.tick + 1, ps: moved}, events)
+}
+
+// Run is w after n steps, and the count of each kind of event.
+func Run(w World, n int) (World, Tally) {
+	let mut now = w
+	let mut t = Tally{Bounces: 0, Meetings: 0}
+	for _ in 0..n {
+		let next, events = Step(now)
+		now = next
+		t = t.Add(events)
+	}
+	(now, t)
+}
+
+// Tally counts the events of some steps.
+type Tally { Bounces int, Meetings int }
+
+// Add is t with the events es counted.
+func Add(t Tally, es []Event) Tally {
+	let mut out = t
+	for e in es {
+		match e {
+		case Bounced:
+			out = Tally{..out, Bounces: out.Bounces + 1}
+		case Met:
+			out = Tally{..out, Meetings: out.Meetings + 1}
+		}
+	}
+	out
+}

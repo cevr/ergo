@@ -1,0 +1,115 @@
+// The driver's tests: the script reader, a whole run worked by hand, and
+// the laws restated as property tests (#162).
+
+import vending/light
+import vending/vend
+
+// Table is a coin mechanism for the tests: a coin is worth its value in
+// the table, and any other coin is counterfeit.
+type Table { values Map[string, int] }
+
+// Value is the value of coin in t.
+func Value(t Table, coin string) int fails vend.Counterfeit {
+	match t.values.Get(coin) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		vend.Counterfeit{Name: coin}
+	}
+}
+
+// coins is a table of a quarter and a dollar.
+func coins() Table { Table{values: Map[string, int]{"quarter": 25, "dollar": 100}} }
+
+// reason is the reason a script does not read, or "ok".
+func reason(text string) string {
+	let _ = ParseScript(text) catch {
+	case BadLine as b:
+		return "line \(b.Line): \(b.Reason)"
+	}
+	"ok"
+}
+
+test ReadsAScript {
+	let items = try ParseScript("# a sale\n1s coin dollar\n\n2500ms coin quarter  # late\n3s select A1\n1m end\n")
+	assert len(items) == 4
+	assert ItemAt(items[1]) == 2500ms && ItemAt(items[3]) == 60s
+	match items[2] {
+	case Key as k:
+		assert k.Slot == "A1"
+	case CoinIn, CancelKey, ServiceKey, ResumeKey, Press, Break, Fix, End:
+		assert false
+	}
+}
+
+test RefusesBadLines {
+	assert reason("1s coin") == "line 1: coin takes 1 word after it"
+	assert reason("2s button\n1s button") == "line 2: the time goes back"
+	assert reason("soon button") == "line 1: soon is not a time such as 12s or 1500ms"
+	assert reason("1s dance") == "line 1: no word dance"
+	assert reason("-1s button") == "line 1: -1s is not a time such as 12s or 1500ms"
+	assert reason("1m30s button") == "line 1: 1m30s is not a time such as 12s or 1500ms"
+}
+
+test ShowsTimes {
+	assert Show(12s) == "12s" && Show(1500ms) == "1500ms" && Show(0s) == "0s" && Show(2m) == "120s"
+}
+
+// script is the lines of text run from both machines switched on, with
+// coins, and the summary at the end.
+func script(text string) []string fails BadLine {
+	let items = try ParseScript(text)
+	let shelf = []vend.Slot{vend.Slot{Name: "A1", Item: "cola", Price: 125, Count: 1}}
+	let end, lines = with context { vend.Acceptor: coins() } { Run(Fresh(shelf), items) }
+	let mut out = []string{}
+	for l in lines {
+		out = out.Append(Text(l))
+	}
+	out.Append(Summary(end))
+}
+
+test ARunWorkedByHand {
+	let out = try script("1s coin dollar\n2s coin button\n5s coin quarter\n6s select A1\n7s select A1\n10s coin quarter\n35s button\n50s end\n60s button")
+	assert len(out) == 12
+	assert out[0] == "1s vend: took 100c, credit 100c"
+	assert out[1] == "2s coins: returned button"
+	assert out[2] == "5s vend: took 25c, credit 125c"
+	assert out[3] == "6s vend: sold cola from A1 for 125c, change 0c"
+	assert out[4] == "7s vend: refused: busy dropping"
+	assert out[5] == "8s vend: A1 dropped into the tray"
+	assert out[6] == "10s vend: took 25c, credit 25c"
+	assert out[7] == "30s light: green"
+	assert out[8] == "35s light: green, ends early"
+	assert out[9] == "40s vend: refunded 25c (timeout)"
+	assert out[10] == "50s light: yellow"
+	assert out[11] == "at 50s: vend idle, light yellow; in 150c = sales 125c + change 0c + refunds 25c + credit 0c"
+}
+
+test FaultFlashesUntilRepaired {
+	let out = try script("10s fault\n40s button\n45s repair\n75s end")
+	assert out[0] == "10s light: flashing red"
+	assert out[1] == "40s light: ignored, still flashing"
+	assert out[2] == "45s light: red"
+	assert out[3] == "75s light: green"
+	assert out[4] == "at 75s: vend idle, light green; in 0c = sales 0c + change 0c + refunds 0c + credit 0c"
+}
+
+test ShowReadsHolds(n int) {
+	let d = Clamp(n, 100000000)
+	assert try Duration(Show(d)) == d
+}
+
+test CatchUpLeavesNothingDueHolds(credit int, since int, upto int) {
+	let start = Clamp(since, 60000)
+	let b = Both{..Fresh([]vend.Slot{}), Vend: vend.Collecting{Slots: []vend.Slot{}, Credit: credit, Until: start + vend.Wait}, Light: light.Red{Since: start}, Now: start}
+	let end = start + Clamp(upto, 600000)
+	let after, lines = CatchUp(b, end)
+	assert Ordered(lines, end) && after.Now == end
+	match due(after, end) {
+	case NoneDue:
+	case VendDue:
+		assert false
+	case LightDue:
+		assert false
+	}
+}

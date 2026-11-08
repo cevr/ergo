@@ -1,0 +1,73 @@
+import particles/world
+import strings
+import time
+
+// Frame is what the screen shows after one frame of the loop: its number,
+// the phase's name and the game.
+type Frame { N int, Phase string, G Game }
+
+// Screen is where the frames go. Shown is how many frames it has shown,
+// so a law can see a Show.
+type Screen {
+	Show(f Frame),
+	Shown() int,
+
+	// ShowCountsOne: each Show is one more frame shown.
+	law ShowCountsOne(n int, phase string) {
+		let before = Shown()
+		Show(Frame{N: n, Phase: phase, G: Fresh(world.Blank())})
+		Shown() == before+1
+	},
+}
+
+// Pace is the timing of the loop: a frame lasts Frame on the Scheduler,
+// and the box steps once for each Dt of game time the Clock shows,
+// carrying what is left over to the next frame.
+type Pace { Frame duration, Dt duration }
+
+// Play loads w and runs the loop for at most frames frames. The keys are
+// the player's input, one character per frame ("." for none). Each frame
+// sleeps for one Frame, reads the clock, applies the frame's key, then
+// ticks the machine once for each whole Dt that passed, and shows the
+// frame. It returns the game when the player quits or the frames run
+// out.
+func Play(w world.World, keys string, frames int, pace Pace) Game needs Scheduler | time.Clock | Screen {
+	let mut phase = Next(Start(), Step(Start(), Load{W: w}))
+	let mut owed = 0s
+	let mut last = time.Clock.Now()
+	for n in 0..frames {
+		Scheduler.Sleep(pace.Frame)
+		let now = time.Clock.Now()
+		owed = owed + now.Sub(last)
+		last = now
+		match keyAt(keys, n) {
+		case Some[Input] as k:
+			let d = Step(phase, k.Value)
+			match d {
+			case Done[Game] as q:
+				Screen.Show(Frame{N: n + 1, Phase: "quit", G: q.Output})
+				return q.Output
+			case Enter[Phase]:
+			case Stay[Phase]:
+			case Ignore:
+			case Reject:
+			}
+			phase = Next(phase, d)
+		case None:
+		}
+		for owed >= pace.Dt {
+			owed = owed - pace.Dt
+			phase = Next(phase, Step(phase, Tick))
+		}
+		Screen.Show(Frame{N: n + 1, Phase: Name(phase), G: GameOf(phase)})
+	}
+	GameOf(phase)
+}
+
+// keyAt is the input of the key of frame n, or None past the end of keys.
+func keyAt(keys string, n int) Option[Input] {
+	if n >= len(keys) {
+		return None
+	}
+	Key(strings.Slice(keys, n, n+1))
+}
