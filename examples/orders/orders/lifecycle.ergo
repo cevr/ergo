@@ -1,0 +1,89 @@
+// Status is where an order is in its lifecycle.
+type Status = Placed{} | Paid{} | Shipped{} | Cancelled{}
+
+// Event is what a customer or the warehouse does to an order.
+type Event = Pay{} | Ship{} | Cancel{}
+
+// Conflict is an event that the order's status does not allow.
+type Conflict { ID string, Status string, Event string }
+
+// Step is the lifecycle: a placed order is paid or cancelled; a paid one
+// is shipped or cancelled; a second payment is ignored; a shipped or a
+// cancelled order takes no event. The match names every pair, so a new
+// status or event stops the build until its row is written.
+func Step(s Status, e Event) Decision[Status, Status] {
+	match (s, e) {
+	case (Placed, Pay):
+		Enter[Status]{Next: Paid}
+	case (Placed, Cancel):
+		Enter[Status]{Next: Cancelled}
+	case (Placed, Ship):
+		Reject
+	case (Paid, Pay):
+		Ignore
+	case (Paid, Ship):
+		Enter[Status]{Next: Shipped}
+	case (Paid, Cancel):
+		Enter[Status]{Next: Cancelled}
+	case (Shipped, Pay), (Shipped, Ship), (Shipped, Cancel):
+		Reject
+	case (Cancelled, Pay), (Cancelled, Ship), (Cancelled, Cancel):
+		Reject
+	}
+}
+
+// Lifecycle is the lifecycle of one order as a machine.
+type Lifecycle machine[Status, Event] {
+	initial: Placed,
+	step:    Step,
+}
+
+// Name is the wire name of s.
+func Name(s Status) string {
+	match s {
+	case Placed:
+		"placed"
+	case Paid:
+		"paid"
+	case Shipped:
+		"shipped"
+	case Cancelled:
+		"cancelled"
+	}
+}
+
+// EventName is the wire name of e, the last element of its path.
+func EventName(e Event) string {
+	match e {
+	case Pay:
+		"pay"
+	case Ship:
+		"ship"
+	case Cancel:
+		"cancel"
+	}
+}
+
+// EventNamed is the event of a wire name.
+func EventNamed(name string) Option[Event] {
+	match name {
+	case "pay":
+		Some[Event]{Value: Pay}
+	case "ship":
+		Some[Event]{Value: Ship}
+	case "cancel":
+		Some[Event]{Value: Cancel}
+	case _:
+		None
+	}
+}
+
+// Final reports whether s takes no event.
+func Final(s Status) bool {
+	match s {
+	case Shipped, Cancelled:
+		true
+	case Placed, Paid:
+		false
+	}
+}

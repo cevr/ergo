@@ -1,0 +1,55 @@
+// The checks of Book's laws, one function per law, over the Book in the
+// caller's context. Laws are checked and not run yet (#162), and a member
+// law cannot call a function that needs its own type, so a provider's
+// tests call these (as kvstore's kv/checks.ergo does).
+
+// FindAfterAddHolds checks the law FindAfterAdd on a Book with no order
+// of o's ID.
+func FindAfterAddHolds(o Order) bool fails Taken | NotFound needs Book {
+	try Book.Add(o)
+	Same(try Book.Find(o.ID), o)
+}
+
+// AddTwiceIsTakenHolds checks the law AddTwiceIsTaken.
+func AddTwiceIsTakenHolds(o Order, other Order) bool fails Taken | NotFound needs Book {
+	try Book.Add(o)
+	let second = Order{..other, ID: o.ID}
+	Book.Add(second) catch {
+	case Taken as t:
+		return t.ID == o.ID && Same(try Book.Find(o.ID), o)
+	}
+	false
+}
+
+// ReplaceKeepsTheCountHolds checks the law ReplaceKeepsTheCount.
+func ReplaceKeepsTheCountHolds(o Order, status Status) bool fails Taken | NotFound needs Book {
+	Book.Replace(o) catch {
+	case NotFound:
+		try Book.Add(o)
+		let before = Book.Count()
+		let changed = Order{..o, Status: status}
+		try Book.Replace(changed)
+		return Book.Count() == before && Same(try Book.Find(o.ID), changed)
+	}
+	false
+}
+
+// AllInAddOrderHolds checks the law AllInAddOrder.
+func AllInAddOrderHolds(orders []Order) bool fails Taken needs Book {
+	let mut ids = []string{}
+	for i, o in orders {
+		let id = "ord-\(i + 1)"
+		try Book.Add(Order{..o, ID: id})
+		ids = ids.Append(id)
+	}
+	let all = Book.All()
+	if len(all) != len(ids) || Book.Count() != len(ids) {
+		return false
+	}
+	for i, o in all {
+		if o.ID != ids[i] {
+			return false
+		}
+	}
+	true
+}

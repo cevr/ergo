@@ -1,0 +1,88 @@
+// The rules of the wire format as laws over ReadRequest and Serve.
+
+import io
+import orders/api
+import orders/orders
+import strings
+
+// RequestRoundTrip: a request a client writes is read back as it was:
+// its method, path, headers and body. Sane makes a generated request one
+// that HTTP can carry.
+law RequestRoundTrip(r api.Request) {
+	let s = Sane(r)
+	let back, end = try ReadRequest(WriteRequest(s), 0)
+	SameRequest(back, s) && end == len(WriteRequest(s))
+}
+
+// PipelinedRequestsAreAnsweredInOrder: for any Book, n requests sent back
+// to back are n responses, and the connection serves them all.
+law PipelinedRequestsAreAnsweredInOrder(book orders.Book, paths []string) {
+	PipelinedHolds(book, paths)
+}
+
+// ContentLengthIsTheBody: a written response says the length of its body.
+law ContentLengthIsTheBody(status int, body string) {
+	strings.HasSuffix(WriteResponse(api.Response{Status: status, Headers: []api.Header{}, Body: body}), "Content-Length: \(len(body))\r\n\r\n"+body)
+}
+
+// PipelinedHolds checks PipelinedRequestsAreAnsweredInOrder: GETs of
+// paths, each made a path, written back to back, are answered with one
+// status line each.
+func PipelinedHolds(book orders.Book, paths []string) bool {
+	let mut text = ""
+	for p in paths {
+		text = text + WriteRequest(api.Request{Method: "GET", Path: "/" + token(p), Headers: []api.Header{}, Body: ""})
+	}
+	let out = io.NewRecorder()
+	let served = with context { orders.Book: book, io.Stdout: out } { Serve(text) }
+	served == len(paths) && strings.Count(out.Text(), "HTTP/1.1 ") == len(paths)
+}
+
+// Sane is r made carriable: a method and a path of one token, and
+// header names and values with no line end, ':' or space at either end.
+func Sane(r api.Request) api.Request {
+	let mut headers = []api.Header{}
+	for h in r.Headers {
+		let name = token(h.Name)
+		if !strings.EqualFold(name, "Content-Length") {
+			headers = headers.Append(api.Header{Name: name, Value: strings.TrimSpace(oneLine(h.Value))})
+		}
+	}
+	api.Request{Method: "M" + token(r.Method), Path: "/" + token(r.Path), Headers: headers, Body: r.Body}
+}
+
+// token is text with every byte that is not a letter, a digit or '-'
+// removed, and "x" before it.
+func token(text string) string {
+	let mut out = "x"
+	for i in 0..len(text) {
+		let c = text[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' {
+			out = out + strings.Slice(text, i, i+1)
+		}
+	}
+	out
+}
+
+// oneLine is text with its line ends replaced by spaces.
+func oneLine(text string) string { strings.ReplaceAll(strings.ReplaceAll(text, "\r", " "), "\n", " ") }
+
+// SameRequest reports whether a and b are the same request.
+func SameRequest(a api.Request, b api.Request) bool {
+	if a.Method != b.Method || a.Path != b.Path || a.Body != b.Body {
+		return false
+	}
+	let mut want = b.Headers
+	if b.Body != "" {
+		want = want.Append(api.Header{Name: "Content-Length", Value: "\(len(b.Body))"})
+	}
+	if len(a.Headers) != len(want) {
+		return false
+	}
+	for i, h in a.Headers {
+		if h != want[i] {
+			return false
+		}
+	}
+	true
+}

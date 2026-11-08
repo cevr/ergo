@@ -1,0 +1,57 @@
+import strconv
+
+// Equal reports whether a and b are the same value: the same kind, and
+// the same items, members (in order) and texts. A Value holds slices, so
+// == does not compare it.
+func Equal(a Value, b Value) bool {
+	match (a, b) {
+	case (Null, Null):
+		true
+	case (Bool as x, Bool as y):
+		x.V == y.V
+	case (Number as x, Number as y):
+		x.Text == y.Text
+	case (Str as x, Str as y):
+		x.V == y.V
+	case (Arr as x, Arr as y):
+		if len(x.Items) != len(y.Items) {
+			return false
+		}
+		for i, item in x.Items {
+			if !Equal(item, y.Items[i]) {
+				return false
+			}
+		}
+		true
+	case (Obj as x, Obj as y):
+		if len(x.Fields) != len(y.Fields) {
+			return false
+		}
+		for i, f in x.Fields {
+			if f.Name != y.Fields[i].Name || !Equal(f.Value, y.Fields[i].Value) {
+				return false
+			}
+		}
+		true
+	case (_, _):
+		false
+	}
+}
+
+// Member is the value of the first member of o named name.
+func Member(o Obj, name string) Option[Value] {
+	for f in o.Fields {
+		if f.Name == name {
+			return Some[Value]{Value: f.Value}
+		}
+	}
+	None
+}
+
+// Int is the text of a Number as an int, when it is an integer that fits.
+func Int(n Number) Option[int] {
+	Some[int]{Value: strconv.Atoi(n.Text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return None
+	}}
+}
