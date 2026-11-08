@@ -60,6 +60,8 @@ func TestConversionOperandHasNoExpectedType(t *testing.T) {
 		"func f(n int) int64 { int64(if n < 0 { -n } else { n }) }\n",
 		"func f(n int) int8 { int8(if n < 0 { 200 } else { n }) }\n",
 		"type Celsius float64\nfunc f(n int, x float64) Celsius { Celsius(match n {\ncase 0:\n\tx\ncase _:\n\t1\n}) }\n",
+		// A tuple has no type of its own: it takes the conversion's.
+		"type U = A{} | B{}\ntype T0 (U, U)\nfunc f() T0 { T0((A, B)) }\n",
 	} {
 		if _, d := check.CheckSource(src); len(d) > 0 {
 			t.Errorf("want no diagnostics, got %s\n%s", describe(d), src)

@@ -465,7 +465,7 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 			return bad(x)
 		}
 	}
-	op := c.valueExpr(x.Args[0], nil)
+	op := c.valueExpr(x.Args[0], contextTyped(x.Args[0], t))
 	if op.invalid() || containsInvalid(t) || containsInvalid(op.typ) {
 		// Already reported where the invalid part came from: a refused
 		// definition adds nothing at its conversions (D3).
@@ -500,6 +500,22 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 		}
 	}
 	return operand{mode: modeValue, typ: t}
+}
+
+// contextTyped is the expected type of a conversion's operand x: t for a
+// tuple (a, b) or a composite literal without a type, which have no type
+// of their own, so T0((A, B)) builds the tuple type T0 is defined over;
+// nil for every other form, which is typed on its own (D-A3).
+func contextTyped(x syntax.Expr, t Type) Type {
+	switch x := unparen(x).(type) {
+	case *syntax.TupleExpr:
+		return t
+	case *syntax.CompositeLit:
+		if x.Type == nil {
+			return t
+		}
+	}
+	return nil
 }
 
 // convertedLiteralOverflow is the S108 message for an integer literal,
