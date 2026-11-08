@@ -534,20 +534,39 @@ func reads(v flag.Values) []string {
 	[]string{S.Get(v), strconv.Itoa(N.Get(v)), strconv.FormatBool(B.Get(v)), text(First.Get(v)), text(Second.Get(v)), strings.Join(flag.Rest(v), "\x00"), strconv.Itoa(len(flag.Rest(v)))}
 }
 
-test FlagRenderParseRoundTrip(picks []int, words []string) {
-	let args = pick(picks, words)
-	let v = flag.Parse(argsSet(), args) catch {
+// roundTrips holds the law for one parsed v: every read of the re-parse
+// of Render(v) is the read of v.
+func roundTrips(v flag.Values) bool {
+	let again = flag.Parse(argsSet(), flag.Render(v)) catch {
 	case _:
-		return
+		return false
 	}
-	let again = try flag.Parse(argsSet(), flag.Render(v))
 	let want = reads(v)
 	let got = reads(again)
 	for i, w in want {
-		assert got[i] == w
+		if got[i] != w {
+			return false
+		}
 	}
-	assert flag.Equal(again, v)
-	assert flag.Equal(v, again)
+	flag.Equal(again, v) && flag.Equal(v, again)
+}
+
+test FlagRenderParseRoundTrip(picks []int, words []string, s string, n int, b bool, first string, rest []string) {
+	// Generated values in a command line that parses, so every case
+	// reaches the law: the reads are the values given.
+	let mut args = []string{"-s=" + s, "-n=" + strconv.Itoa(n), "-b=" + strconv.FormatBool(b), "--", first}
+	for r in rest {
+		args = args.Append(r)
+	}
+	let v = try flag.Parse(argsSet(), args)
+	assert S.Get(v) == s && N.Get(v) == n && B.Get(v) == b && text(First.Get(v)) == "some " + first
+	assert roundTrips(v)
+	// Lists drawn from the flag alphabet: those that parse.
+	let picked = flag.Parse(argsSet(), pick(picks, words)) catch {
+	case _:
+		return
+	}
+	assert roundTrips(picked)
 }
 
 // EqualSeesEachRead: two results that differ in one flag, one argument or
