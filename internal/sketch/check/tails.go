@@ -204,6 +204,12 @@ func (c *checker) yieldStmt(s syntax.Stmt, k *sink, end syntax.Pos) {
 
 // yieldExpr checks a body's last expression statement against k.
 func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
+	if c.unreachableCall(last.X) {
+		// Unreachable leaves the branch with a defect: no value, and it
+		// joins any type, as return does (owner q29). No tail is recorded.
+		c.exprStmt(last)
+		return
+	}
 	use := useValue
 	switch {
 	case k.discard:

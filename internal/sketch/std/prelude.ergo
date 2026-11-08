@@ -101,6 +101,16 @@ extern go ergo.local/prototype/runtime/v1.Get func Get[K comparable, V](m Map[K,
 // and returns it (m = m.Delete(k)).
 extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m Map[K, V], k K) Map[K, V]
 
+// Unreachable states that a path cannot run (owner q29, 2026-11-08). When
+// it runs anyway, it raises a defect that holds reason and the call's
+// source position: never a typed failure, so it is in no row and no catch
+// handles it (docs/spec/runtime.md, Exit causes 3). Its result is the
+// bottom type: the checker gives the call the type its position expects (a
+// typed let, an argument, a return, a branch of a value if or match), and
+// as the last statement of a body or branch it yields no value and joins
+// any type, as return does (docs/spec/types.md, Unreachable).
+extern go ergo.local/prototype/runtime/v1.Unreachable func Unreachable(reason string)
+
 // Seq is an iterator: it calls yield with each value in turn and stops
 // when yield returns false. `for v in s` runs the loop body as yield, and a
 // break makes yield return false. Seq is a function type, so it carries no

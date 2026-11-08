@@ -50,6 +50,11 @@ func (fc *funcCtx) yieldStmt(s syntax.Stmt, d dest) bool {
 	switch s := s.(type) {
 	case *syntax.ExprStmt:
 		fc.at(s)
+		if call := fc.unreachableCall(s.X); call != nil {
+			// A defect leaves the branch: no value, as a return (defect.go).
+			fc.unreachableStmt(call)
+			return true
+		}
 		switch {
 		case d.kind == destReturn && d.block:
 			fc.retTail(s.X)
