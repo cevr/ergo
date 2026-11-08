@@ -154,25 +154,103 @@ func (m OutOfRange) Error() string { return "strconv.OutOfRange{Text:" + m.Text 
 //ergo:pure
 func StrconvItoa(n int) string { return strconv.Itoa(n) }
 
+// The base-10 reads of Atoi and ParseInt are written out here, as
+// strconv.ParseInt reads base 10 (an optional sign, then digits; the
+// first digit that overflows ends the read, so a bad byte after it is not
+// seen),
+// so a failure costs one allocation, the typed failure, and not
+// strconv's *NumError and its copy of s as well. TestStrconvBase10MatchesGo
+// holds them equal to strconv on generated texts and every bit size. A pure
+// body names no other function of this package, so the two loops are
+// separate copies.
+
 // StrconvAtoi is strconv.Atoi: OutOfRange for a number out of int's
 // range, Malformed for any other text it refuses.
 //
 //ergo:pure
 func StrconvAtoi(s string) (int, error) {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		if ne, ok := err.(*strconv.NumError); ok && ne.Err == strconv.ErrRange {
-			return 0, OutOfRange{Text: s}
-		}
+	i, neg := 0, false
+	if s != "" && (s[0] == '+' || s[0] == '-') {
+		neg, i = s[0] == '-', 1
+	}
+	if i == len(s) {
 		return 0, Malformed{Text: s}
 	}
-	return n, nil
+	const cutoff = ^uint64(0)/10 + 1
+	const maxVal = 1<<strconv.IntSize - 1
+	var n uint64
+	for ; i < len(s); i++ {
+		d := s[i] - '0'
+		if d > 9 {
+			return 0, Malformed{Text: s}
+		}
+		if n >= cutoff {
+			return 0, OutOfRange{Text: s}
+		}
+		n *= 10
+		n1 := n + uint64(d)
+		if n1 < n || n1 > maxVal {
+			return 0, OutOfRange{Text: s}
+		}
+		n = n1
+	}
+	const limit = uint64(1) << (strconv.IntSize - 1)
+	if !neg && n >= limit || neg && n > limit {
+		return 0, OutOfRange{Text: s}
+	}
+	if neg {
+		return int(-n), nil
+	}
+	return int(n), nil
 }
 
 // StrconvParseInt is strconv.ParseInt.
 //
 //ergo:pure
 func StrconvParseInt(s string, base int, bits int) (int64, error) {
+	if base == 10 && 0 <= bits && bits <= 64 {
+		if bits == 0 {
+			bits = strconv.IntSize
+		}
+		i, neg := 0, false
+		if s != "" && (s[0] == '+' || s[0] == '-') {
+			neg, i = s[0] == '-', 1
+		}
+		if i == len(s) {
+			return 0, Malformed{Text: s}
+		}
+		const cutoff = ^uint64(0)/10 + 1
+		maxVal := uint64(1)<<uint(bits-1)<<1 - 1
+		var n uint64
+		for ; i < len(s); i++ {
+			d := s[i] - '0'
+			if d > 9 {
+				return 0, Malformed{Text: s}
+			}
+			// An overflow ends the read at maxVal, as strconv.ParseUint
+			// does; the sign check below then decides, as ParseInt's does
+			// (so "-9" at 1 bit is -1, as in Go).
+			if n >= cutoff {
+				n = maxVal
+				break
+			}
+			n *= 10
+			n1 := n + uint64(d)
+			if n1 < n || n1 > maxVal {
+				n = maxVal
+				break
+			}
+			n = n1
+		}
+		limit := uint64(1) << uint(bits-1)
+		if !neg && n >= limit || neg && n > limit {
+			return 0, OutOfRange{Text: s}
+		}
+		if neg {
+			return -int64(n), nil
+		}
+		return int64(n), nil
+	}
 	n, err := strconv.ParseInt(s, base, bits)
 	if err != nil {
 		ne, ok := err.(*strconv.NumError)

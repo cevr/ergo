@@ -89,9 +89,25 @@ func main() needs Console {
 	Console.Println(atoi("x"))
 	Console.Println(atoi("99999999999999999999"))
 	Console.Println(strconv.FormatFloat(1.5, 'e', 2))
+	// The upstream cases of conformance/effect-cases.json at 460272d3:
+	// String.test.ts:454 replaceAll, :554 linesWithSeparators, and
+	// Number.test.ts:430 parse (Ergo differs: no trimming, a typed failure).
+	Console.Println(strings.ReplaceAll("ababb", "b", "c"))
+	for text in []string{"hello\nworld\n", "a\r\nb\r\n", "hello", ""} {
+		let mut parts = []string{}
+		for line in strings.Lines(text) {
+			parts = parts.Append(strconv.Quote(line))
+		}
+		Console.Println("[\(strings.Join(parts, " "))]")
+	}
+	for text in []string{"42", "3.14", " 42 ", "NaN", "Infinity", "-Infinity", "", "   ", "not a number"} {
+		Console.Println(float(text))
+	}
 }
 `
-	const want = "a+b+c\n3 -1\n3 5\na|b,c,d\n0\ntrue false\ntrue false\n<one>true\n<two>true\n<three>false\n5 1\nint 16\nint 1000\nmalformed x\ntoo big 99999999999999999999\n2.5\ntoo big\nmalformed\ntrue\nmalformed\n[a\tb]\nmalformed\n12\nmalformed\nout of range\n1.50e+00\n"
+	const want = "a+b+c\n3 -1\n3 5\na|b,c,d\n0\ntrue false\ntrue false\n<one>true\n<two>true\n<three>false\n5 1\nint 16\nint 1000\nmalformed x\ntoo big 99999999999999999999\n2.5\ntoo big\nmalformed\ntrue\nmalformed\n[a\tb]\nmalformed\n12\nmalformed\nout of range\n1.50e+00\n" +
+		"acacc\n" + `["hello\n" "world\n"]` + "\n" + `["a\r\n" "b\r\n"]` + "\n" + `["hello"]` + "\n[]\n" +
+		"42\n3.14\nmalformed\nNaN\n+Inf\n-Inf\nmalformed\nmalformed\nmalformed\n"
 	const laws = `import strings
 
 test StringsCutRebuilds(s string, sep string) {
@@ -146,4 +162,80 @@ func last(text string) int {
 	if code != 0 || !strings.Contains(stdout, "ok StringsCutRebuilds (100 cases)") || !strings.Contains(stdout, "ok StringsLinesRebuild (100 cases)") {
 		t.Errorf("the laws: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 10))
 	}
+}
+
+// BenchmarkTextErgoBodies (std-align S1c): the Ergo bodies strings.Cut and
+// strings.Lines, emitted and measured in process, against Go's
+// strings.Cut and strings.Lines on the same inputs. Cut is expected one
+// allocation more than Go until X1 (its Option[Halves] result).
+func BenchmarkTextErgoBodies(b *testing.B) {
+	const src = `import strings
+
+func CutBefore(s string, sep string) int {
+	match strings.Cut(s, sep) {
+	case Some[strings.Halves] as h:
+		len(h.Value.Before) + len(h.Value.After)
+	case None:
+		-1
+	}
+}
+
+func LinesLength(s string) int {
+	let mut n = 0
+	for line in strings.Lines(s) {
+		n = n + len(line)
+	}
+	n
+}
+
+func main() needs Console {
+	Console.Println("\(CutBefore("a=b", "=")) \(LinesLength("a\nb"))")
+}
+`
+	emittedBench(b, "textbodies", src, func(mainGo string) string {
+		return `package main
+
+import (
+	"strings"
+	"testing"
+)
+
+var cutText = strings.Repeat("alpha,beta,gamma ", 4) + "key=value"
+var linesText = strings.Repeat("a line of text\n", 64) + "last"
+var sink int
+
+func BenchmarkCutErgo(b *testing.B) {
+	for range b.N {
+		sink = ` + emittedCall(mainGo, "CutBefore", `cutText, "="`) + `
+	}
+}
+
+func BenchmarkCutGo(b *testing.B) {
+	for range b.N {
+		before, after, found := strings.Cut(cutText, "=")
+		if found {
+			sink = len(before) + len(after)
+		} else {
+			sink = -1
+		}
+	}
+}
+
+func BenchmarkLinesErgo(b *testing.B) {
+	for range b.N {
+		sink = ` + emittedCall(mainGo, "LinesLength", "linesText") + `
+	}
+}
+
+func BenchmarkLinesGo(b *testing.B) {
+	for range b.N {
+		n := 0
+		for line := range strings.Lines(linesText) {
+			n += len(line)
+		}
+		sink = n
+	}
+}
+`
+	}, "CutErgo", "CutGo", "LinesErgo", "LinesGo")
 }

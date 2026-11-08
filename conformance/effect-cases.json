@@ -201,6 +201,30 @@
       "behavior": "A parent's shared flag and a child's flag of one name are refused with DuplicateOption when the command tree is built.",
       "limits": "Ergo's flag has no shared parent flags: a command's Set holds its own flags, and a nested command parses Rest(v) with its own Set. Two flags of one name in one Set are not refused either (a known gap, stdlib.md flag 6).",
       "evidence": []
+    },
+    {
+      "id": "effect.string.lines-with-separators",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/String.test.ts", "line": 554, "label": "linesWithSeparators"},
+      "behavior": "The lines of a text keep their line feed (and a carriage return before it); a last line with no line feed is a line; an empty text has no lines.",
+      "limits": "Ergo's strings.Lines (std-align S1c) is Go's strings.Lines, which matches linesWithSeparators; Effect's linesIterator, which drops the separators, has no Ergo function. The v1 test internal/sketch/lower TestStdTextRuns2 runs the upstream inputs and the law StringsLinesRebuild; the case stays pending until the mapping's own tests admit evidence in the committed mapping (scripts/conformance TestCommittedMappingClaimsNoEvidence).",
+      "evidence": []
+    },
+    {
+      "id": "effect.string.replace-all",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/String.test.ts", "line": 454, "label": "replaceAll"},
+      "behavior": "Every occurrence of a text is replaced.",
+      "limits": "Ergo's strings.ReplaceAll is Go's and takes a text, not a regular expression (Effect's second case). The v1 test internal/sketch/lower TestStdTextRuns2 runs the upstream input and the law ReplaceAllLength runs in runtime/v1 TestStdTextLaws; the case stays pending until the committed mapping admits evidence (scripts/conformance TestCommittedMappingClaimsNoEvidence).",
+      "evidence": []
+    },
+    {
+      "id": "effect.number.parse",
+      "status": "unsupported",
+      "upstream": {"file": "packages/effect/test/Number.test.ts", "line": 430, "label": "parse"},
+      "behavior": "A numeric text parses to a number; NaN and the infinities parse as literals; an empty, blank or non-numeric text gives none.",
+      "limits": "Different by design (std-align S1c): Ergo's strconv.ParseFloat is Go's. It does not trim spaces (\" 42 \" fails Malformed, Effect gives 42), and it fails with a typed Malformed or OutOfRange where Effect returns an Option with no reason. \"42\", \"3.14\", \"NaN\", \"Infinity\", \"-Infinity\", \"\", \"   \" and \"not a number\" agree. The v1 test internal/sketch/lower TestStdTextRuns2 runs every upstream input.",
+      "evidence": []
     }
   ]
 }

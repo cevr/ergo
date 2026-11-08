@@ -2,6 +2,9 @@ package v1
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -88,7 +91,11 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 		if i < 0 {
 			return j < 0 && !StringsContains(s, sub), []string{s, sub}
 		}
-		return StringsSlice(s, i, i+len(sub)) == sub && StringsSlice(s, j, j+len(sub)) == sub && i <= j, []string{s, sub}
+		if sub == "" {
+			return i == 0 && j == len(s), []string{s, sub}
+		}
+		return StringsSlice(s, i, i+len(sub)) == sub && StringsSlice(s, j, j+len(sub)) == sub && i <= j &&
+			StringsLastIndex(StringsSlice(s, 0, i+len(sub)-1), sub) < 0 && StringsIndex(StringsSlice(s, j+1, len(s)), sub) < 0, []string{s, sub}
 	},
 	"strings HasPrefixOfConcat": func(r *rand.Rand) (bool, any) {
 		p, s := randomString(r), randomString(r)
@@ -123,6 +130,10 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 	"utf8 RuneCountOfConcat": func(r *rand.Rand) (bool, any) {
 		a, b := randomString(r), randomString(r)
 		return UTF8RuneCount(a+b) <= UTF8RuneCount(a)+UTF8RuneCount(b), []string{a, b}
+	},
+	"utf8 RuneCountAddsRune": func(r *rand.Rand) (bool, any) {
+		s := randomString(r)
+		return UTF8RuneCount(s+"é") == UTF8RuneCount(s)+1, s
 	},
 	"strconv AtoiInvertsItoa": func(r *rand.Rand) (bool, any) {
 		n := int(r.Int64()) >> r.IntN(64)
@@ -168,26 +179,154 @@ var textLaws = map[string]func(r *rand.Rand) (bool, any){
 // textSink keeps benchmark results alive.
 var textSink any
 
-// BenchmarkText: each new body against the Go function it wraps, same
-// inputs (std-align S1c). Parity is the target: the bodies are one-line
-// wrappers that Go inlines, and the parse bodies map Go's error once.
-func BenchmarkText(b *testing.B) {
+// textBench is one BenchmarkText case: the text.go body it measures, and
+// a call of it and of the Go function it stands for, on the same inputs.
+type textBench struct {
+	name, body string
+	ergo, ctl  func()
+}
+
+// textBenches is every BenchmarkText case. TestTextBodiesHaveBenchmarks
+// holds that each //ergo:pure body of text.go has one.
+func textBenches() []textBench {
 	s := strings.Repeat("alpha,beta,gamma ", 8)
-	for _, c := range []struct {
-		name      string
-		ergo, ctl func()
-	}{
-		{"ReplaceAll", func() { textSink = StringsReplaceAll(s, ",", ";") }, func() { textSink = strings.ReplaceAll(s, ",", ";") }},
-		{"Count", func() { textSink = StringsCount(s, "a") }, func() { textSink = strings.Count(s, "a") }},
-		{"LastIndex", func() { textSink = StringsLastIndex(s, "beta") }, func() { textSink = strings.LastIndex(s, "beta") }},
-		{"SplitN", func() { textSink = StringsSplitN(s, ",", 4) }, func() { textSink = strings.SplitN(s, ",", 4) }},
-		{"EqualFold", func() { textSink = StringsEqualFold(s, strings.ToUpper(s)) }, func() { textSink = strings.EqualFold(s, strings.ToUpper(s)) }},
-		{"ParseInt", func() { textSink, _ = StrconvParseInt("-1234567890", 10, 64) }, func() { textSink, _ = strconv.ParseInt("-1234567890", 10, 64) }},
-		{"ParseIntFails", func() { _, textSink = StrconvParseInt("12x", 10, 64) }, func() { _, textSink = strconv.ParseInt("12x", 10, 64) }},
-		{"ParseFloat", func() { textSink, _ = StrconvParseFloat("3.14159e10") }, func() { textSink, _ = strconv.ParseFloat("3.14159e10", 64) }},
-		{"Unquote", func() { textSink, _ = StrconvUnquote(`"a\tb\u00e9"`) }, func() { textSink, _ = strconv.Unquote(`"a\tb\u00e9"`) }},
-		{"RuneCount", func() { textSink = UTF8RuneCount(s) }, func() { textSink = utf8.RuneCountInString(s) }},
-	} {
+	xs := strings.Split(s, ",")
+	return []textBench{
+		{"Split", "StringsSplit", func() { textSink = StringsSplit(s, ",") }, func() { textSink = strings.Split(s, ",") }},
+		{"Join", "StringsJoin", func() { textSink = StringsJoin(xs, ";") }, func() { textSink = strings.Join(xs, ";") }},
+		{"HasPrefix", "StringsHasPrefix", func() { textSink = StringsHasPrefix(s, "alpha,") }, func() { textSink = strings.HasPrefix(s, "alpha,") }},
+		{"HasSuffix", "StringsHasSuffix", func() { textSink = StringsHasSuffix(s, "gamma ") }, func() { textSink = strings.HasSuffix(s, "gamma ") }},
+		{"TrimSpace", "StringsTrimSpace", func() { textSink = StringsTrimSpace(s) }, func() { textSink = strings.TrimSpace(s) }},
+		{"TrimPrefix", "StringsTrimPrefix", func() { textSink = StringsTrimPrefix(s, "alpha,") }, func() { textSink = strings.TrimPrefix(s, "alpha,") }},
+		{"TrimSuffix", "StringsTrimSuffix", func() { textSink = StringsTrimSuffix(s, "gamma ") }, func() { textSink = strings.TrimSuffix(s, "gamma ") }},
+		{"Fields", "StringsFields", func() { textSink = StringsFields(s) }, func() { textSink = strings.Fields(s) }},
+		{"Repeat", "StringsRepeat", func() { textSink = StringsRepeat("ab", 64) }, func() { textSink = strings.Repeat("ab", 64) }},
+		{"ToLower", "StringsToLower", func() { textSink = StringsToLower("ALPHA,Beta") }, func() { textSink = strings.ToLower("ALPHA,Beta") }},
+		{"ToUpper", "StringsToUpper", func() { textSink = StringsToUpper(s) }, func() { textSink = strings.ToUpper(s) }},
+		{"Index", "StringsIndex", func() { textSink = StringsIndex(s, "gamma alpha") }, func() { textSink = strings.Index(s, "gamma alpha") }},
+		{"Contains", "StringsContains", func() { textSink = StringsContains(s, "delta") }, func() { textSink = strings.Contains(s, "delta") }},
+		{"Slice", "StringsSlice", func() { textSink = StringsSlice(s, 6, 10) }, func() { textSink = s[6:10] }},
+		{"ReplaceAll", "StringsReplaceAll", func() { textSink = StringsReplaceAll(s, ",", ";") }, func() { textSink = strings.ReplaceAll(s, ",", ";") }},
+		{"Count", "StringsCount", func() { textSink = StringsCount(s, "a") }, func() { textSink = strings.Count(s, "a") }},
+		{"LastIndex", "StringsLastIndex", func() { textSink = StringsLastIndex(s, "beta") }, func() { textSink = strings.LastIndex(s, "beta") }},
+		{"SplitN", "StringsSplitN", func() { textSink = StringsSplitN(s, ",", 4) }, func() { textSink = strings.SplitN(s, ",", 4) }},
+		{"EqualFold", "StringsEqualFold", func() { textSink = StringsEqualFold(s, strings.ToUpper(s)) }, func() { textSink = strings.EqualFold(s, strings.ToUpper(s)) }},
+		{"ContainsRune", "StringsContainsRune", func() { textSink = StringsContainsRune(s, 'é') }, func() { textSink = strings.ContainsRune(s, 'é') }},
+		{"RuneCount", "UTF8RuneCount", func() { textSink = UTF8RuneCount(s) }, func() { textSink = utf8.RuneCountInString(s) }},
+		{"Itoa", "StrconvItoa", func() { textSink = StrconvItoa(-1234567890) }, func() { textSink = strconv.Itoa(-1234567890) }},
+		{"Atoi", "StrconvAtoi", func() { textSink, _ = StrconvAtoi("-1234567890") }, func() { textSink, _ = strconv.Atoi("-1234567890") }},
+		{"AtoiFails", "StrconvAtoi", func() { _, textSink = StrconvAtoi("12x") }, func() { _, textSink = strconv.Atoi("12x") }},
+		{"ParseInt", "StrconvParseInt", func() { textSink, _ = StrconvParseInt("-1234567890", 10, 64) }, func() { textSink, _ = strconv.ParseInt("-1234567890", 10, 64) }},
+		{"ParseIntFails", "StrconvParseInt", func() { _, textSink = StrconvParseInt("12x", 10, 64) }, func() { _, textSink = strconv.ParseInt("12x", 10, 64) }},
+		{"ParseIntHex", "StrconvParseInt", func() { textSink, _ = StrconvParseInt("0x1f2e3d", 0, 64) }, func() { textSink, _ = strconv.ParseInt("0x1f2e3d", 0, 64) }},
+		{"ParseFloat", "StrconvParseFloat", func() { textSink, _ = StrconvParseFloat("3.14159e10") }, func() { textSink, _ = strconv.ParseFloat("3.14159e10", 64) }},
+		{"ParseBool", "StrconvParseBool", func() { textSink, _ = StrconvParseBool("false") }, func() { textSink, _ = strconv.ParseBool("false") }},
+		{"FormatBool", "StrconvFormatBool", func() { textSink = StrconvFormatBool(true) }, func() { textSink = strconv.FormatBool(true) }},
+		{"FormatFloat", "StrconvFormatFloat", func() { textSink = StrconvFormatFloat(3.14159e10, 'g', -1) }, func() { textSink = strconv.FormatFloat(3.14159e10, 'g', -1, 64) }},
+		{"Unquote", "StrconvUnquote", func() { textSink, _ = StrconvUnquote(`"a\tb\u00e9"`) }, func() { textSink, _ = strconv.Unquote(`"a\tb\u00e9"`) }},
+		{"Quote", "StrconvQuote", func() { textSink = StrconvQuote("a\tb\u00e9\xff") }, func() { textSink = strconv.Quote("a\tb\u00e9\xff") }},
+	}
+}
+
+// TestStrconvBase10MatchesGo: the base-10 reads that Atoi and ParseInt
+// write out give strconv's value and class (ErrSyntax is Malformed,
+// ErrRange is OutOfRange) on 200,000 seeded number-like texts at every
+// bit size 0 to 64, and on the edges of each size (the largest and
+// smallest values, one past them, with signs, leading zeros and a bad
+// byte after an overflow).
+func TestStrconvBase10MatchesGo(t *testing.T) {
+	class := func(err error) string {
+		var m Malformed
+		var o OutOfRange
+		var ne *strconv.NumError
+		switch {
+		case err == nil:
+			return "ok"
+		case errors.As(err, &m):
+			return "malformed " + m.Text
+		case errors.As(err, &o):
+			return "range " + o.Text
+		case errors.As(err, &ne) && ne.Err == strconv.ErrSyntax:
+			return "malformed " + ne.Num
+		case errors.As(err, &ne) && ne.Err == strconv.ErrRange:
+			return "range " + ne.Num
+		}
+		return "other " + err.Error()
+	}
+	check := func(s string, bits int) {
+		n, err := StrconvParseInt(s, 10, bits)
+		m, gerr := strconv.ParseInt(s, 10, bits)
+		if class(err) != class(gerr) || err == nil && n != m {
+			t.Fatalf("ParseInt(%q, 10, %d) = %d, %s; Go %d, %s", s, bits, n, class(err), m, class(gerr))
+		}
+		if bits == 0 {
+			a, err := StrconvAtoi(s)
+			g, gerr := strconv.Atoi(s)
+			if class(err) != class(gerr) || err == nil && a != g {
+				t.Fatalf("Atoi(%q) = %d, %s; Go %d, %s", s, a, class(err), g, class(gerr))
+			}
+		}
+	}
+	var edges []string
+	for bits := 1; bits <= 64; bits++ {
+		hi := uint64(1)<<uint(bits-1) - 1
+		lo := uint64(1) << uint(bits-1)
+		for _, v := range []uint64{hi, hi + 1, lo, lo + 1, 1<<uint(bits) - 1} {
+			d := strconv.FormatUint(v, 10)
+			edges = append(edges, d, "-"+d, "+"+d, "00"+d, d+"0", d+"x", d+"0x", "-"+d+"9")
+		}
+	}
+	edges = append(edges, "", "+", "-", "+-1", "--1", "1_0", " 1", "1 ", "0", "-0", "18446744073709551616", "99999999999999999999x", "x99999999999999999999", "٣")
+	for _, s := range edges {
+		for bits := 0; bits <= 64; bits++ {
+			check(s, bits)
+		}
+	}
+	digits := []string{"0", "1", "5", "9", "9", "8", "7", "+", "-", "x", "_", " ", "é"}
+	r := rand.New(rand.NewPCG(3, 10))
+	for range 200_000 {
+		var b strings.Builder
+		for range r.IntN(24) {
+			b.WriteString(digits[r.IntN(len(digits))])
+		}
+		check(b.String(), r.IntN(65))
+	}
+}
+
+// TestTextBodiesHaveBenchmarks: every //ergo:pure body that text.go
+// declares (read with go/parser, not from a list) has a BenchmarkText
+// case against its Go control.
+func TestTextBodiesHaveBenchmarks(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "text.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	benched := map[string]bool{}
+	for _, c := range textBenches() {
+		benched[c.body] = true
+	}
+	n := 0
+	for _, d := range file.Decls {
+		f, ok := d.(*ast.FuncDecl)
+		if !ok || f.Doc == nil || !slices.ContainsFunc(f.Doc.List, func(c *ast.Comment) bool { return c.Text == "//ergo:pure" }) {
+			continue
+		}
+		n++
+		if !benched[f.Name.Name] {
+			t.Errorf("%s is an //ergo:pure body of text.go with no BenchmarkText case", f.Name.Name)
+		}
+	}
+	if n < 30 {
+		t.Errorf("found %d pure bodies in text.go; the directive scan is broken", n)
+	}
+}
+
+// BenchmarkText: each body of text.go against the Go function it stands
+// for, same inputs (std-align S1c). Parity is the target: most bodies are
+// one-line wrappers that Go inlines; the base-10 parses read the digits
+// themselves, so their failure path saves strconv's *NumError.
+func BenchmarkText(b *testing.B) {
+	for _, c := range textBenches() {
 		b.Run(c.name+"/ergo", func(b *testing.B) {
 			b.ReportAllocs()
 			for range b.N {

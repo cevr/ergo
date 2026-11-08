@@ -145,15 +145,19 @@ law TrimSpaceIsIdempotent(s string) { TrimSpace(TrimSpace(s)) == TrimSpace(s) }
 // ToLowerIsIdempotent: lower case twice is lower case once.
 law ToLowerIsIdempotent(s string) { ToLower(ToLower(s)) == ToLower(s) }
 
-// IndexFinds: Index points at sub, and LastIndex points at the last one;
-// -1 means s has no sub.
+// IndexFinds: Index points at the first sub, and LastIndex points at the
+// last one: no sub ends before the first's end, and none starts after the
+// last's start; -1 means s has no sub. The empty sub is at 0 and len(s).
 law IndexFinds(s string, sub string) {
 	let i = Index(s, sub)
 	let j = LastIndex(s, sub)
 	if i < 0 {
 		return j < 0 && !Contains(s, sub)
 	}
-	Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j
+	if sub == "" {
+		return i == 0 && j == len(s)
+	}
+	Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j && LastIndex(Slice(s, 0, i+len(sub)-1), sub) < 0 && Index(Slice(s, j+1, len(s)), sub) < 0
 }
 
 // HasPrefixOfConcat: p is a prefix of p+s.
