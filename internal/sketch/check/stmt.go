@@ -263,10 +263,12 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 	mut := d.Mut.IsValid()
 	// declare binds one let name: immutable, or mut under `let mut`
 	// (D-D1).
-	declare := func(n *syntax.Ident, t Type) {
-		if v := c.declareLocal(n, t); v != nil {
+	declare := func(n *syntax.Ident, t Type) *Var {
+		v := c.declareLocal(n, t)
+		if v != nil {
 			v.let, v.mut = true, mut
 		}
+		return v
 	}
 	for _, spec := range d.Specs {
 		if lit := localContextLit(spec); lit != nil {
@@ -319,7 +321,9 @@ func (c *checker) varDecl(d *syntax.VarDecl) {
 				}
 			}
 			for i, n := range spec.Names {
-				declare(n, types[i])
+				if v := declare(n, types[i]); v != nil && mut && declared == nil {
+					v.byValue = spec.Values[i]
+				}
 			}
 		case len(spec.Values) == 1:
 			types := c.multiValue(spec.Values[0], len(spec.Names))
@@ -410,6 +414,9 @@ func (c *checker) assignStmt(s *syntax.AssignStmt) {
 		}
 		op := c.valueExpr(r, hint)
 		if lop.invalid() {
+			return
+		}
+		if c.typedByValue(l, &op, lop.typ) {
 			return
 		}
 		c.assign(&op, lop.typ, "assignment")

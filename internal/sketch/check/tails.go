@@ -85,6 +85,9 @@ type sink struct {
 	// hint is an optional body's expected type: the type a literal tail
 	// takes, never a type the branches must have (M16).
 	hint Type
+	// joins: the branches of a value if or match, which join variants of
+	// one union to it when there is no expected type (unionJoin).
+	joins bool
 	// valued: some branch yielded a value.
 	valued bool
 	// bad: a branch's value was invalid and already reported (D3).
@@ -273,6 +276,14 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 		}
 		k.join = t
 	default:
+		if a, _ := c.assignability(op.typ, t); k.joins && k.want == nil && !a.ok() {
+			// Variants of one union join to it (K3; rows.md, Tail results
+			// 3): the earlier branches' values go into it as variants, a
+			// conversion the lowering does not write (ConvVariant).
+			if u := c.unionJoin(t, op.typ); u != nil {
+				k.join, t = u, u
+			}
+		}
 		if !c.assign(&op, t, k.what) {
 			k.bad = true
 			return
@@ -348,7 +359,7 @@ func (c *checker) branches(x syntax.Expr, hint Type) operand {
 	// A fallible branch tail passes its failures to the expression, as a
 	// with block's does: an enclosing catch or try handles them (review O2).
 	var errs *Row
-	k := &sink{want: hint, what: "the branch's value", pass: func(op *operand) {
+	k := &sink{want: hint, joins: true, what: "the branch's value", pass: func(op *operand) {
 		errs = errs.union(c.types, op.errs)
 	}}
 	k.missing = func(end syntax.Pos) {
