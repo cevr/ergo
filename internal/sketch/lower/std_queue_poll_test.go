@@ -28,7 +28,8 @@ func show(o Option[int]) needs Console {
 	}
 }
 
-func main() fails queue.Closed needs Console {
+func main() fails queue.Closed needs Console | Ambient {
+	let clock = NewLiveScheduler()
 	let q = queue.New[int](2)
 	show(q.Poll())
 	try q.Push(1)
@@ -46,7 +47,7 @@ func main() fails queue.Closed needs Console {
 	let mut got = r.Poll()
 	for _ in 0..5000 {
 		if got == None {
-			LiveScheduler.Sleep(1ms)
+			clock.Sleep(1ms)
 			got = r.Poll()
 		}
 	}

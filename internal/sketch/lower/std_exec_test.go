@@ -46,14 +46,14 @@ func show(c exec.Command) needs Console | exec.Runner {
 	Console.Println("[\(r.Stdout)|\(r.Stderr)|\(r.Status)]")
 }
 
-func run() needs Console | exec.Runner {
+func run(clock LiveScheduler) needs Console | exec.Runner {
 	show(exec.New("sh", []string{"-c", "echo a; echo b >&2; exit 3"}))
 	show(exec.New("sh", []string{"-c", "printf '%s %s' \"$ERGO_X\" \"$(cat)\""}).WithEnv("ERGO_X", "env").WithStdin("in"))
 	show(exec.New("pwd", []string{}).WithDir("/"))
 	show(exec.New("ergo-exec-missing-7f3a", []string{}))
 	show(exec.New("true", []string{}).WithDir("/nonexistent/loop-probe-x"))
 	let t = task.Go() { show(exec.New("sh", []string{"-c", "sleep 20; echo late"})) }
-	LiveScheduler.Sleep(100ms)
+	clock.Sleep(100ms)
 	t.Stop()
 	Console.Println("stopped")
 	let p = task.Go() { show(exec.New("sh", []string{"-c", "(sleep 20 & echo $! >> PIDFILE; wait) | (sleep 20 & echo $! >> PIDFILE; wait) & while [ $(wc -l < PIDFILE) -lt 2 ]; do sleep 0.01; done; echo $$ >> PIDFILE; wait; echo late"})) }
@@ -63,7 +63,7 @@ func run() needs Console | exec.Runner {
 }
 
 func main() needs Console | Ambient {
-	with context { exec.Runner: exec.NewHost() } { run() }
+	with context { exec.Runner: exec.NewHost() } { run(NewLiveScheduler()) }
 	let mut results = Map[string, exec.Result]{}
 	let c = exec.New("git", []string{"status"})
 	results[exec.Key(c)] = exec.Result{Status: 1, Stdout: "recorded", Stderr: ""}
