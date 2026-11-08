@@ -1,0 +1,79 @@
+// The domain's tests: Parse's examples, and its laws restated as property
+// tests (the compiler checks laws and does not run them yet, #162). The
+// Store laws run in the tests of each provider, in memory and file.
+
+import strings
+
+// parsed is the command of line, or the text of its failure.
+func parsed(line string) string {
+	match Parse(line) catch {
+	case Unknown as u:
+		return "unknown " + u.Word
+	case Usage as u:
+		return "usage " + u.Want
+	} {
+	case Put as p:
+		"put [\(p.Key)] [\(p.Value)]"
+	case Get as g:
+		"get [\(g.Key)]"
+	case Delete as d:
+		"del [\(d.Key)]"
+	case Keys:
+		"keys"
+	case Dump:
+		"dump"
+	case Compact:
+		"compact"
+	case Blank:
+		"blank"
+	}
+}
+
+test ParseReadsEachCommand {
+	assert parsed("put name Ada Lovelace ") == "put [name] [Ada Lovelace]"
+	assert parsed("  put   k   two  words") == "put [k] [two  words]"
+	assert parsed("put k") == "put [k] []"
+	assert parsed("get k") == "get [k]"
+	assert parsed("del k") == "del [k]"
+	assert parsed("keys") == "keys"
+	assert parsed("dump") == "dump"
+	assert parsed("compact") == "compact"
+	assert parsed(" \t ") == "blank"
+}
+
+test ParseRefusesBadLines {
+	assert parsed("fly away") == "unknown fly"
+	assert parsed("PUT k v") == "unknown PUT"
+	assert parsed("put") == "usage put KEY VALUE"
+	assert parsed("get") == "usage get KEY"
+	assert parsed("get a b") == "usage get KEY"
+	assert parsed("keys now") == "usage keys"
+}
+
+test PickNamesAPutKey(keys []string, n int) {
+	if len(keys) == 0 {
+		assert Pick(keys, n) == "never put"
+		return
+	}
+	assert Has(keys, Pick(keys, n))
+}
+
+test SortedMeansStrictlyAscending {
+	assert Sorted([]string{}) && Sorted([]string{"a"}) && Sorted([]string{"a", "b"})
+	assert !Sorted([]string{"b", "a"}) && !Sorted([]string{"a", "a"})
+}
+
+test PutReadsTheRestHolds(key string, value string) {
+	if !isWord(key) || strings.TrimSpace(value) != value {
+		return
+	}
+	assert try Parse("put "+key+" "+value) == Put{Key: key, Value: value}
+}
+
+test KeyCommandsTakeOneWordHolds(key string) {
+	if !isWord(key) {
+		return
+	}
+	assert try Parse("get "+key) == Get{Key: key}
+	assert try Parse(" del  "+key) == Delete{Key: key}
+}

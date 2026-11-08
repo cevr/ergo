@@ -1,0 +1,175 @@
+// Log keeps the kv.Store laws: each test runs one of kv's checks on a new
+// Log over a memory.Disk, the same checks package memory runs on a Table.
+// The laws of laws.ergo are restated as property tests: the compiler
+// checks laws and does not run them yet (#162).
+
+import kvstore/kv
+import kvstore/memory
+import strings
+
+// fresh is a Log in the directory db of a new memory.Disk.
+func fresh() Log fails kv.Broken {
+	let disk = memory.NewDisk()
+	try Open("db", disk, disk)
+}
+
+test LogGetAfterPut(key string, value string) {
+	with context { kv.Store: try fresh() } {
+		assert try kv.GetAfterPutHolds(key, value)
+	}
+}
+
+test LogPutOverwrites(key string, first string, second string) {
+	with context { kv.Store: try fresh() } {
+		assert try kv.PutOverwritesHolds(key, first, second)
+	}
+}
+
+test LogDeleteRemoves(key string, value string) {
+	with context { kv.Store: try fresh() } {
+		assert try kv.DeleteRemovesHolds(key, value)
+	}
+}
+
+test LogPutKeepsOthers(key string, other string, a string, b string) {
+	with context { kv.Store: try fresh() } {
+		assert try kv.PutKeepsOthersHolds(key, other, a, b)
+	}
+}
+
+test LogKeysAreSortedAndDistinct(keys []string) {
+	with context { kv.Store: try fresh() } {
+		assert try kv.KeysAreSortedAndDistinctHolds(keys)
+	}
+}
+
+test LogCompactKeepsContents(puts []string, drops []int) {
+	with context { kv.Store: try fresh() } {
+		assert try kv.CompactKeepsContentsHolds(puts, drops)
+	}
+}
+
+test RoundTripHolds(key string, value string) {
+	let set = Set{Key: key, Value: value}
+	let unset = Unset{Key: key}
+	assert try Decode(1, Encode(set)) == set
+	assert try Decode(2, Encode(unset)) == unset
+}
+
+test OneLineHolds(key string, value string) {
+	assert !hasLineFeed(Encode(Set{Key: key, Value: value}))
+}
+
+test CompactedReplaysTheSameHolds(puts []string, drops []int) {
+	let entries = try Replay(logOf(puts, drops))
+	assert sameMaps(try Replay(Compacted(entries)), entries)
+}
+
+test FailedWriteKeepsTheStoreHolds(puts []string, key string, value string) {
+	let disk = memory.NewDisk()
+	let before = with context { kv.Store: try Open("db", disk, disk) } {
+		for k in puts {
+			try kv.Store.Put(k, "v "+k)
+		}
+		try kv.Snapshot()
+	}
+	with context { kv.Store: try Open("db", disk, memory.FullOf(disk)) } {
+		let reason = failure(key, value)
+		assert reason == "db/kv.log: no space left on device"
+		assert kv.Equal(try kv.Snapshot(), before)
+	}
+}
+
+// failure is the reason Put(key, value) fails with, or "put".
+func failure(key string, value string) string needs kv.Store {
+	kv.Store.Put(key, value) catch {
+	case kv.Broken as b:
+		return b.Reason
+	}
+	"put"
+}
+
+// The log's own form: a put, an overwrite and a delete are three lines,
+// and a compaction leaves one.
+test TheLogIsOneLinePerChange {
+	let disk = memory.NewDisk()
+	let log = try Open("db", disk, disk)
+	with context { kv.Store: log } {
+		try kv.Store.Put("name", "Ada Lovelace")
+		try kv.Store.Put("lang", "Ergo")
+		try kv.Store.Put("lang", "Go\tand\nErgo")
+		try kv.Store.Delete("name")
+		assert try disk.ReadFile(log.Path()) == "put\t\"name\"\t\"Ada Lovelace\"\nput\t\"lang\"\t\"Ergo\"\nput\t\"lang\"\t\"Go\\tand\\nErgo\"\ndel\t\"name\"\n"
+		try kv.Store.Compact()
+		assert try disk.ReadFile(log.Path()) == "put\t\"lang\"\t\"Go\\tand\\nErgo\"\n"
+		assert try kv.Store.Get("lang") == "Go\tand\nErgo"
+	}
+}
+
+// A line that is not a record is a broken store, which names the line.
+test ACorruptLineIsBroken {
+	let disk = memory.NewDisk()
+	try disk.MkdirAll("db")
+	try disk.WriteFile("db/kv.log", "put\t\"a\"\t\"1\"\nput \"b\" 2\n")
+	with context { kv.Store: try Open("db", disk, disk) } {
+		let reason = kv.Store.Keys() catch {
+		case kv.Broken as b:
+			[]string{b.Reason}
+		}
+		assert strings.Join(reason, ",") == "db/kv.log:2: not a record: put \"b\" 2"
+	}
+}
+
+// Step is one generated change of a store: a put or a delete of one of
+// four keys, or a compaction.
+type Step = PutStep{Key int, Value string} | DeleteStep{Key int} | CompactStep{}
+
+// keyOf is one of four keys, so generated steps meet the same keys.
+func keyOf(n int) string { "k\(if n < 0 { -(n + 1) % 4 } else { n % 4 })" }
+
+// script runs steps on the Store in the context and is what each step
+// answers, then every entry: "ok", "missing" or the value.
+func script(steps []Step) []string fails kv.Broken needs kv.Store {
+	let mut out = []string{}
+	for s in steps {
+		match s {
+		case PutStep as p:
+			try kv.Store.Put(keyOf(p.Key), p.Value)
+			out = out.Append("ok")
+		case DeleteStep as d:
+			try kv.Store.Delete(keyOf(d.Key)) catch {
+			case kv.Missing:
+				out = out.Append("missing")
+				continue
+			}
+			out = out.Append("deleted")
+		case CompactStep:
+			try kv.Store.Compact()
+			out = out.Append("compacted")
+		}
+	}
+	for e in try kv.Snapshot() {
+		out = out.Append(e.Key + "=" + e.Value)
+	}
+	out
+}
+
+// The two stores agree: any script of puts, deletes and compactions
+// answers the same on a Log as on a memory.Table, the model.
+test LogAgreesWithTable(steps []Step) {
+	let model = with context { kv.Store: memory.New() } { try script(steps) }
+	let got = with context { kv.Store: try fresh() } { try script(steps) }
+	assert kv.Same(got, model)
+}
+
+// A second Log over the same disk reads what the first wrote: the store
+// is the file, not the value.
+test TheLogIsTheFile {
+	let disk = memory.NewDisk()
+	with context { kv.Store: try Open("db", disk, disk) } {
+		try kv.Store.Put("k", "v")
+	}
+	with context { kv.Store: try Open("db", disk, disk) } {
+		assert try kv.Store.Get("k") == "v"
+	}
+}

@@ -1,0 +1,70 @@
+import strings
+
+// Command is one line of a session: a word, then its arguments.
+type Command = Put{Key string, Value string} | Get{Key string} | Delete{Key string} | Keys{} | Dump{} | Compact{} | Blank{}
+
+// Unknown is a first word that names no command.
+type Unknown { Word string }
+
+// Usage is a command with the wrong arguments. Want is how the command
+// is written.
+type Usage { Word string, Want string }
+
+// Parse reads line as a command: its first word, then the rest. A key is
+// one word; the value of put is the rest of the line after the key,
+// trimmed, with the spaces inside it. A blank line is Blank.
+func Parse(line string) Command fails Unknown | Usage {
+	let text = strings.TrimSpace(line)
+	let word, rest = split(text)
+	match word {
+	case "":
+		Blank
+	case "put":
+		let key, value = split(rest)
+		if key == "" {
+			return Usage{Word: word, Want: "put KEY VALUE"}
+		}
+		Put{Key: key, Value: value}
+	case "get":
+		Get{Key: try one(word, rest)}
+	case "del":
+		Delete{Key: try one(word, rest)}
+	case "keys":
+		try none(word, rest)
+		Keys
+	case "dump":
+		try none(word, rest)
+		Dump
+	case "compact":
+		try none(word, rest)
+		Compact
+	case _:
+		Unknown{Word: word}
+	}
+}
+
+// split is the first word of text and the rest after it, trimmed, or
+// text and "" when it has no space.
+func split(text string) (string, string) {
+	match strings.Cut(text, " ") {
+	case Some[strings.Halves] as h:
+		(h.Value.Before, strings.TrimSpace(h.Value.After))
+	case None:
+		(text, "")
+	}
+}
+
+// one is rest when it is one word.
+func one(word string, rest string) string fails Usage {
+	if rest == "" || strings.Contains(rest, " ") {
+		return Usage{Word: word, Want: word + " KEY"}
+	}
+	rest
+}
+
+// none fails Usage when rest is not empty.
+func none(word string, rest string) fails Usage {
+	if rest != "" {
+		return Usage{Word: word, Want: word}
+	}
+}

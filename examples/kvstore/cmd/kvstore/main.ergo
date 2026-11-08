@@ -1,0 +1,144 @@
+// kvstore is a key-value store on the command line. It answers one
+// command from its arguments, or a session of commands from standard
+// input, one per line: put KEY VALUE, get KEY, del KEY, keys, dump and
+// compact. -store chooses the store: file (the default) keeps the entries
+// in DIR/kv.log, and memory keeps them for one run. This binary is the
+// only place that chooses the providers: the store, the host's file
+// system and its standard streams.
+
+import flag
+import fs
+import io
+import kvstore/file
+import kvstore/kv
+import kvstore/memory
+import os
+import slices
+
+let storeFlag = flag.Choice("store", "file", []string{"file", "memory"}, "where the entries live")
+let dirFlag = flag.String("dir", "data", "the `directory` of the file store")
+let commandArgs = flag.Remaining("command", "one command; none reads commands from standard input")
+
+let set = flag.Set{Name: "kvstore", Usage: "", Flags: []flag.Flag{storeFlag, dirFlag}, Args: []flag.ArgSpec{commandArgs}}
+
+// Memory binds the memory store.
+let Memory = context { kv.Store: memory.New() }
+
+// run is kvstore on args, with the file system files and writes for the
+// file store. A broken store ends it with status 1.
+func run(args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, "usage: kvstore [-store file|memory] [-dir DIR] [COMMAND...]")
+		return
+	}
+	let command = flag.Rest(v)
+	// A Choice is read as a string, so the match needs a case _ although
+	// the set has two choices (Limits found: a choice is not a union).
+	match storeFlag.Get(v) {
+	case "memory":
+		with Memory {
+			try serve(command)
+		}
+	case _:
+		let log = file.Open(dirFlag.Get(v), files, writes) catch {
+		case kv.Broken as b:
+			return broken(b)
+		}
+		with context { kv.Store: log } {
+			try serve(command)
+		}
+	}
+}
+
+// serve answers command, or each line of standard input when command is
+// empty, from the Store in the context.
+func serve(command []string) fails os.Exit needs kv.Store | io.Stdout | io.Stdin {
+	if len(command) == 0 {
+		kv.Session() catch {
+		case kv.Broken as b:
+			return broken(b)
+		}
+		return
+	}
+	kv.One(command) catch {
+	case kv.Broken as b:
+		return broken(b)
+	}
+}
+
+// broken ends a run on a broken store with status 1. A function whose
+// result is an error type cannot return a value of it, so broken fails
+// with the os.Exit, and a caller writes return broken(b) (gap G-ex-c-3).
+func broken(b kv.Broken) fails os.Exit { os.Exit{Code: 1, Message: "kvstore: the store is broken: " + b.Reason} }
+
+func main() fails os.Exit needs Ambient {
+	let host = fs.NewHost()
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+		try run(os.Process.Args(), host, host)
+	}
+}
+
+// The tests run run over a memory.Disk and an io.Recorder, with no host.
+
+// ran is run on args with input as standard input, over disk, with a
+// failure printed as "exit CODE: MESSAGE".
+func ran(out io.Recorder, disk memory.Disk, input string, args []string) {
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: input} } {
+		run(args, disk, disk) catch {
+		case os.Exit as e:
+			io.Stdout.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+}
+
+test TheFileStoreKeepsItsEntries {
+	let out = io.NewRecorder()
+	let disk = memory.NewDisk()
+	ran(out, disk, "", []string{"-dir", "db", "put", "greeting", "hello, world"})
+	ran(out, disk, "", []string{"-dir", "db", "get", "greeting"})
+	ran(out, disk, "", []string{"get", "-dir", "db", "nosuch"})
+	assert out.Text() == "ok\nhello, world\nmissing nosuch\n"
+}
+
+test TheMemoryStoreLastsOneRun {
+	let out = io.NewRecorder()
+	let disk = memory.NewDisk()
+	ran(out, disk, "put a 1\nget a\n", []string{"-store", "memory"})
+	ran(out, disk, "get a\n", []string{"-store", "memory"})
+	assert out.Text() == "ok\n1\nmissing a\n"
+	assert slices.Equal(try disk.ReadDir("."), []string{})
+}
+
+test ASessionAnswersEachLine {
+	let out = io.NewRecorder()
+	ran(out, memory.NewDisk(), "put b 2\nput a 1 and more\n\nkeys\ndel b\ndel b\nfly\nget\ndump\ncompact\n", []string{"-store", "memory"})
+	assert out.Text() == "ok\nok\na\nb\ndeleted b\nmissing b\n? unknown command fly; commands: put get del keys dump compact\n? usage: get KEY\na=\"1 and more\"\ncompacted\n"
+}
+
+test ABrokenLogEndsTheRun {
+	let out = io.NewRecorder()
+	let disk = memory.NewDisk()
+	try disk.MkdirAll("data")
+	try disk.WriteFile("data/kv.log", "garbage\n")
+	ran(out, disk, "", []string{"keys"})
+	assert out.Text() == "exit 1: kvstore: the store is broken: data/kv.log:1: not a record: garbage\n"
+}
+
+test AFullDiskEndsTheRun {
+	let out = io.NewRecorder()
+	let disk = memory.NewDisk()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: ""} } {
+		run([]string{"put", "a", "1"}, disk, memory.FullOf(disk)) catch {
+		case os.Exit as e:
+			io.Stdout.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	assert out.Text() == "exit 1: kvstore: the store is broken: data: no space left on device\n"
+}
+
+test AnUnknownStoreIsAUsageError {
+	let out = io.NewRecorder()
+	ran(out, memory.NewDisk(), "", []string{"-store", "s3"})
+	assert out.Text() == "exit 2: invalid value \"s3\" for flag -store: not one of file, memory\nusage: kvstore [-store file|memory] [-dir DIR] [COMMAND...]\n"
+}

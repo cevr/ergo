@@ -1,0 +1,71 @@
+import io
+import strconv
+import strings
+
+// Exec runs c on the Store and is the lines that answer it. A key that
+// holds no value is an answer, not a failure: a session goes on after it.
+// Only a broken store ends the session.
+func Exec(c Command) []string fails Broken needs Store {
+	match c {
+	case Put as p:
+		try Store.Put(p.Key, p.Value)
+		[]string{"ok"}
+	case Get as g:
+		[]string{try Store.Get(g.Key) catch {
+		case Missing as m:
+			return []string{"missing " + m.Key}
+		}}
+	case Delete as d:
+		try Store.Delete(d.Key) catch {
+		case Missing as m:
+			return []string{"missing " + m.Key}
+		}
+		[]string{"deleted " + d.Key}
+	case Keys:
+		let keys = try Store.Keys()
+		if len(keys) == 0 {
+			return []string{"no keys"}
+		}
+		keys
+	case Dump:
+		let mut out = []string{}
+		for e in try Snapshot() {
+			out = out.Append(e.Key + "=" + strconv.Quote(e.Value))
+		}
+		out
+	case Compact:
+		try Store.Compact()
+		[]string{"compacted"}
+	case Blank:
+		[]string{}
+	}
+}
+
+// Answer is the lines that answer one line of a session: Exec's, or the
+// text of a line that Parse refuses.
+func Answer(line string) []string fails Broken needs Store {
+	let c = Parse(line) catch {
+	case Unknown as u:
+		return []string{"? unknown command " + u.Word + "; commands: put get del keys dump compact"}
+	case Usage as u:
+		return []string{"? usage: " + u.Want}
+	}
+	try Exec(c)
+}
+
+// Session answers each line of standard input on standard output, until
+// the input ends. A broken store ends it.
+func Session() fails Broken needs Store | io.Stdin | io.Stdout {
+	for line in io.Stdin.Lines() {
+		for out in try Answer(line) {
+			io.Stdout.Println(out)
+		}
+	}
+}
+
+// One answers the command line args, joined by spaces, as one line.
+func One(args []string) fails Broken needs Store | io.Stdout {
+	for out in try Answer(strings.Join(args, " ")) {
+		io.Stdout.Println(out)
+	}
+}
