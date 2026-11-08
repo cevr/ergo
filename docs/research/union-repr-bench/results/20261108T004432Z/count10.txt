@@ -1,0 +1,846 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+BenchmarkBreaker/form=A-4 	58966281	        29.01 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	44338426	        29.84 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	47931132	        33.92 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	54598600	        29.94 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	39007374	        41.55 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	47072941	        36.73 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	38507934	        29.47 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	42462656	        38.63 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	40228564	        35.39 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=A-4 	35683143	        34.37 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	62926688	        17.12 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	68208810	        16.25 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	80369059	        16.51 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	65855060	        17.37 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	68546905	        18.37 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	65165798	        18.94 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	65352813	        15.79 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	78121795	        16.46 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	74327608	        18.70 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=D-4 	77098951	        16.28 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	62292422	        17.34 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	61705623	        17.76 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	80993700	        16.92 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	70528204	        16.27 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	64179913	        19.28 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	61518150	        19.35 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	61386213	        19.88 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	63918330	        16.65 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	71603734	        19.30 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=Dx-4         	65587303	        18.50 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	28702664	        62.90 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	43115688	        38.61 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	27602966	        45.37 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	47609310	        40.38 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	31832959	        44.04 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	25928205	        51.21 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	29030839	        48.23 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	40105575	        43.67 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	36576612	        44.94 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=G-4          	38140353	        42.48 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	32091614	        49.34 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	41628548	        41.65 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	31518712	        36.17 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	34753954	        40.29 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	34309185	        64.62 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	31928422	        40.49 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	22403078	        49.45 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	35750930	        43.60 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	38611249	        36.27 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=M-4          	44207019	        29.81 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	44892637	        32.37 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	39829971	        36.68 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	37522780	        42.01 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	41010788	        40.35 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	26413532	        41.00 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	26213850	        39.00 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	31786242	        40.58 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	34637000	        35.14 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	24763850	        46.08 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=E-4          	23713213	        46.27 ns/op	        14.11 B/transition	         0.6299 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	33364653	        37.72 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	32971675	        35.02 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	32202589	        38.44 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	35701346	        37.20 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	35179119	        48.28 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	23449350	        44.27 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	41901297	        42.60 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	34086854	        40.70 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	33434637	        36.44 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkBreaker/form=F-4          	32959867	        31.32 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkCounter/form=A-4          	24126499	        57.66 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	24789554	        44.14 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	30950149	        47.10 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	30733048	        46.88 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	23186437	        57.03 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	21878083	        50.37 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	23073505	        51.85 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	24136576	        71.22 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	28371828	        47.02 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=A-4          	22446604	        53.30 ns/op	        19.36 B/transition	         1.564 allocs/transition	      19 B/op	       1 allocs/op
+BenchmarkCounter/form=G-4          	266882914	         5.526 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	194439093	         5.758 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	210927585	         5.212 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	225894675	         5.439 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	234449739	         5.299 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	209331654	         5.719 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	284140485	         5.948 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	245572084	         6.257 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	221279392	         5.425 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkCounter/form=G-4          	223198777	         5.519 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkTidewalk/form=A-4         	  142537	      8167 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  190111	      6933 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  134623	      7732 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  179332	      7690 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  178744	      9661 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  130779	      8495 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  129066	      8345 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  172068	      8437 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  142088	      9548 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=A-4         	  145371	      7268 ns/op	       142.7 B/move	         4.421 allocs/move	    5424 B/op	     168 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  211400	      4794 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  208501	      5586 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  277286	      5742 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  160674	      8742 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  205634	      5610 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  226177	      5573 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  277262	      5580 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  237339	      5280 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  251538	      5498 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=Dall-4      	  252070	      4867 ns/op	        56.42 B/move	         1.316 allocs/move	    2144 B/op	      50 allocs/op
+BenchmarkTidewalk/form=G-4         	  204750	      5518 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  203521	      7414 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  195393	      7790 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  191457	      7895 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  147942	      7322 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  147306	      7699 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  142166	      9089 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  191100	      8596 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  158256	      8570 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkTidewalk/form=G-4         	  153601	      8475 ns/op	       151.2 B/move	         3.447 allocs/move	    5744 B/op	     131 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	746014690	         1.736 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	647009402	         1.618 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	743443704	         1.743 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	836178796	         1.668 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	689630709	         1.586 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	769651694	         1.574 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	703948993	         1.703 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	743694949	         1.605 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	752052949	         1.554 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=A-4         	776413966	         1.526 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	549434163	         1.899 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	757302472	         1.841 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	633091736	         1.938 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	635934010	         1.947 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	506121973	         1.976 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	577326583	         1.893 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	628486874	         2.119 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	521810277	         2.028 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	609399702	         1.900 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=16/form=D-4         	714068157	         1.699 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	784923076	         1.845 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	702182569	         1.702 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	643253079	         1.952 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	651900032	         1.807 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	628317644	         1.799 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	759047816	         1.652 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	586734243	         1.832 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	635271583	         1.848 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	685468851	         1.825 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=A-4         	747269719	         1.727 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	634857406	         1.662 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	746115261	         1.695 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	733859000	         1.568 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	753801045	         1.675 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	655049040	         1.593 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	744560011	         1.627 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	827669024	         1.681 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	725338675	         1.682 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	693791749	         1.675 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=24/form=D-4         	778957996	         1.682 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	805143260	         1.524 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	756984988	         1.557 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	722634973	         1.556 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	744525868	         1.514 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	692482522	         1.559 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	785417370	         1.542 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	697900574	         1.521 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	760085362	         1.546 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	815833633	         1.459 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=A-4         	881259705	         1.557 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	77702371	        16.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	62712903	        17.16 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	66831382	        16.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	59818480	        17.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	64869643	        16.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	76058529	        16.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	74579325	        17.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	73160626	        16.50 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	67171080	        17.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=32/form=D-4         	72180494	        18.16 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	667393116	         1.546 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	663058753	         1.829 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	821016404	         1.650 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	718802462	         1.487 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	778533056	         1.470 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	830671215	         1.519 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	850632751	         1.500 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	751915904	         1.550 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	766996894	         1.589 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=A-4         	747934228	         1.771 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	65616098	        18.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	54004510	        18.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	72273495	        18.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	66071380	        18.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	65556822	        18.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	71899659	        18.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	69945876	        18.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	62821376	        19.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	58447422	        18.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=48/form=D-4         	62504599	        18.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	784268236	         1.678 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	690880125	         1.655 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	631632555	         1.685 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	732895944	         1.570 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	761000210	         1.618 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	751353068	         1.688 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	694689193	         1.665 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	738713722	         1.578 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	695178166	         1.553 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=A-4         	766480597	         1.584 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	67180570	        18.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	65028986	        18.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	61466772	        17.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	53416639	        18.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	72789469	        16.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	73665285	        17.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	72152640	        17.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	64465422	        19.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	70112906	        18.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=56/form=D-4         	69523470	        19.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	616014092	         1.880 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	527148028	         2.745 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	496160900	         2.245 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	634679751	         2.082 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	655586786	         2.187 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	535818934	         2.039 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	668921683	         2.199 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	574979532	         1.927 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	570549300	         2.046 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=A-4         	613681023	         2.050 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	61074354	        19.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	59364182	        20.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	65757153	        19.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	60431386	        18.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	67771783	        18.19 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	53792427	        21.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	64096468	        24.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	68745176	        20.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	59223883	        19.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=64/form=D-4         	62753986	        21.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	599705307	         1.913 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	586602998	         1.974 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	739128027	         1.992 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	611388160	         1.902 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	675796291	         1.723 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	548904768	         2.043 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	528902716	         2.111 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	749189666	         1.641 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	776289718	         1.948 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=A-4         	777633432	         1.888 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	127660491	         8.519 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	147079908	         8.422 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	140938446	         9.202 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	140780637	         8.948 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	137644953	         8.422 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	144749150	         9.199 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	100000000	        10.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	137095113	         9.262 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	135698773	         9.241 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=88/form=D-4         	131014340	         8.444 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	673291563	         1.506 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	736904937	         1.701 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	627925021	         1.677 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	668935990	         1.632 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	718834897	         1.894 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	731948694	         1.669 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	657080209	         2.087 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	685148301	         1.899 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	676801360	         1.632 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=A-4        	758078142	         1.755 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	56238390	        20.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	59121238	        19.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	56943032	        19.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	53813002	        24.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	58487620	        21.75 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	51441744	        21.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	64085635	        19.71 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	61866964	        21.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	46539915	        23.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyPass/bytes=128/form=D-4        	59399229	        21.97 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	52228552	        25.49 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	38000391	        29.00 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	52046488	        20.22 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	54991227	        22.00 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	58773159	        22.44 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	58540028	        21.90 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	55263205	        21.47 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	50891826	        30.69 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	79164816	        22.04 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=A-4         	54232057	        24.84 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	513986697	         2.267 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	717664152	         2.156 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	534243524	         2.074 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	580017009	         2.003 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	636565513	         2.376 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	598842198	         2.212 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	538672222	         2.162 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	517232731	         2.287 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	464290814	         2.290 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=16/form=D-4         	520029483	         2.337 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	32034216	        34.40 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	42724563	        31.62 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	41743360	        30.31 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	46154538	        28.61 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	46776398	        34.94 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	33951256	        33.31 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	31712060	        42.62 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	49341058	        26.96 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	48270783	        23.76 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=A-4         	49092451	        26.49 ns/op	      24 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	466607574	         2.620 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	491882025	         2.663 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	562620962	         2.281 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	496164826	         2.276 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	461385387	         2.313 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	568526031	         2.213 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	644992249	         2.623 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	482519143	         2.327 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	570917731	         2.239 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=24/form=D-4         	493951562	         2.382 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	41707401	        30.81 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	50323764	        29.13 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	69471673	        37.04 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	46975959	        37.44 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	54247497	        29.14 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	29904090	        36.88 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	39373790	        32.46 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	42920718	        26.10 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	44548142	        34.93 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=A-4         	37589806	        29.91 ns/op	      32 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	67885014	        18.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	56871813	        18.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	66477025	        18.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	63198550	        18.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	55975639	        18.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	58324063	        18.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	50723974	        22.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	68112729	        20.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	62875705	        19.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=32/form=D-4         	59911527	        20.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	23224867	        46.85 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	32086234	        37.59 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	31651384	        37.10 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	33731989	        38.64 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	24127600	        44.71 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	34721696	        33.74 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	36299812	        35.42 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	33761871	        33.72 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	52410777	        40.24 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=A-4         	35419548	        34.23 ns/op	      48 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	65349674	        19.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	62176345	        21.41 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	53452143	        21.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	70424274	        19.97 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	50007441	        20.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	61707144	        20.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	57435084	        19.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	56493336	        20.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	63805665	        18.36 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=48/form=D-4         	71881888	        18.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	31039875	        38.97 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	33042916	        37.00 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	37509483	        35.02 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	27248760	        40.12 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	31782834	        35.70 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	30558660	        38.32 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	39990417	        35.57 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	40707350	        33.84 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	42912494	        32.66 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=A-4         	36731900	        35.08 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	59819318	        20.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	57871548	        20.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	53284304	        23.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	53698873	        20.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	60692902	        21.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	46983511	        22.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	59197210	        21.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	57309789	        19.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	62580741	        20.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=56/form=D-4         	61115563	        20.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	27047629	        39.43 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	41323938	        41.54 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	31972279	        40.12 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	33373881	        37.92 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	39216891	        42.67 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	27638292	        44.40 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	30212607	        35.01 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	39553558	        40.52 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	39612794	        31.89 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=A-4         	30091501	        38.47 ns/op	      64 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	56850499	        20.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	62070764	        21.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	48623264	        21.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	49264282	        25.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	60721906	        22.48 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	57233140	        21.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	55838743	        21.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	65703612	        21.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	56521964	        20.19 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=64/form=D-4         	54577910	        21.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	20767542	        57.21 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	22091181	        57.55 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	27309424	        43.03 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	25590313	        39.61 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	24068720	        44.24 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	30308862	        52.96 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	19832499	        50.80 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	32077112	        45.74 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	26579416	        44.86 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=A-4         	20240338	        62.22 ns/op	      96 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	76369407	        14.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	69306517	        15.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	69284835	        14.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	82284517	        15.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	67973008	        15.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	89544594	        15.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	76936027	        13.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	87274034	        14.59 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	82897837	        15.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=88/form=D-4         	80282041	        15.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	30319614	        57.01 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	23123552	        49.50 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	25800771	        51.23 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	23755833	        53.76 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	26596160	        50.47 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	29572797	        53.51 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	17213191	        58.28 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	20129438	        54.52 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	27194196	        48.37 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=A-4        	20229116	        53.11 ns/op	     128 B/op	       1 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	45411085	        24.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	51360093	        25.01 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	40914630	        24.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	45598226	        24.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	48012699	        24.50 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	55688115	        24.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	51083516	        25.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	49590268	        25.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	47780307	        24.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyNext/bytes=128/form=D-4        	48608912	        25.12 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	35780022	        33.53 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	46702903	        33.94 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	40470601	        35.76 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	38136433	        30.08 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	36678300	        32.53 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	43984117	        35.46 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	41342487	        26.18 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	46330180	        27.83 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	45504710	        28.08 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=A-4     	40064098	        26.02 ns/op	        10.08 B/transition	         0.6299 allocs/transition	      10 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	124122042	        10.22 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	100000000	        11.48 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	100000000	        10.63 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	100000000	        10.59 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	116096793	         8.808 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	124932231	        10.44 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	100000000	        10.50 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	121135287	         9.813 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	122632573	         9.484 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=D-4     	125436318	        10.62 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	44490595	        23.66 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	45236658	        29.64 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	41684623	        27.84 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	42487123	        26.22 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	56048454	        27.62 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	58913776	        27.23 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	41349806	        24.44 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	49871649	        26.08 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	48870657	        24.37 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=40/form=M-4     	52149379	        23.60 ns/op	        16.13 B/transition	         0.5039 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	37415649	        30.77 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	36157346	        31.02 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	34046876	        30.54 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	37178318	        33.00 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	49712367	        42.45 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	38414364	        42.73 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	27685621	        37.06 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	30698690	        42.88 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	31710900	        37.48 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=A-4     	24209317	        43.09 ns/op	        14.22 B/transition	         0.8887 allocs/transition	      14 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	72286414	        16.09 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	70362247	        16.13 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	91853089	        16.19 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	89922604	        14.63 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	77446795	        14.66 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	81412690	        14.32 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	71651959	        15.53 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	68392423	        17.16 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	62742508	        16.90 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=D-4     	75233198	        15.45 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	35347838	        34.32 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	36493483	        38.64 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	30638103	        34.74 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	37124738	        34.71 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	43991630	        35.34 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	41423564	        32.14 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	42171624	        30.45 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	43650133	        28.76 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	52333981	        26.43 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=56/form=M-4     	48108231	        26.51 ns/op	        20.27 B/transition	         0.7627 allocs/transition	      20 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	35734219	        30.55 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	40892575	        38.68 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	27448538	        40.45 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	37321548	        32.97 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	42497948	        27.28 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	42257516	        30.12 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	41813149	        29.75 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	34715036	        32.16 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	43017813	        34.13 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=A-4     	46821427	        28.11 ns/op	        16.29 B/transition	         0.8887 allocs/transition	      16 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	75975318	        13.72 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	76795566	        14.61 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	100000000	        13.36 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	92960697	        13.46 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	90671030	        13.63 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	98136596	        12.63 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	83949980	        15.15 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	86816778	        13.91 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	98151456	        14.39 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=D-4     	85045330	        15.18 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	38090802	        40.56 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	27366535	        40.26 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	37143399	        37.20 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	30150476	        35.31 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	44609155	        36.06 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	36262220	        31.55 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	39953343	        27.89 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	35814891	        29.25 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	51651429	        28.70 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=64/form=M-4     	38526685	        26.47 ns/op	        22.34 B/transition	         0.7627 allocs/transition	      22 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	36253485	        31.95 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	31631205	        36.55 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	21929797	        46.47 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	18483027	        54.13 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	34838348	        35.20 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	35150791	        34.82 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	48224473	        32.71 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	35670692	        35.55 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	32702023	        33.08 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=A-4     	37184478	        33.38 ns/op	        26.64 B/transition	         0.8887 allocs/transition	      26 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	72733328	        17.30 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	65568735	        17.97 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	63454249	        17.34 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	63443658	        18.52 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	61794248	        17.69 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	72030007	        18.17 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	61590736	        18.05 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	58102820	        17.87 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	67697678	        17.82 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=D-4     	67707878	        17.25 ns/op	         0 B/transition	         0 allocs/transition	       0 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	40119086	        30.12 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	39763447	        34.67 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	50629150	        30.42 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	38322216	        33.68 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	48331532	        32.36 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	48820872	        30.24 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	31767748	        38.50 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	49367775	        32.32 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	40970586	        28.49 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkDecisionBand/bytes=96/form=M-4     	47985913	        33.98 ns/op	        32.69 B/transition	         0.7627 allocs/transition	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	148360033	         8.567 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	166656409	         8.180 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	157943401	         8.711 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	140927824	         8.898 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	136782362	         8.313 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	143554736	         8.541 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	151724922	         9.678 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	159312439	         7.967 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	154440796	         8.182 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=A-4       	144706288	         7.779 ns/op	         3.000 B/get	         0.3750 allocs/get	       3 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	656647135	         1.766 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	614711559	         1.822 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	595696618	         2.057 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	553208284	         1.892 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	544486831	         2.106 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	665227339	         2.097 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	628778242	         2.162 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	650716442	         2.212 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	720748924	         2.243 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=16/form=C-4       	650624641	         1.687 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	115120852	        11.06 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	104208548	        12.64 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	90124651	        11.51 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	100000000	        11.58 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	108343095	        11.13 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	100000000	        15.05 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	97621707	        12.93 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	92595292	        13.74 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	89198254	        13.00 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=A-4       	86945414	        12.16 ns/op	         8.000 B/get	         0.5000 allocs/get	       8 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	764446957	         1.933 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	551481703	         2.006 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	594713593	         2.163 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	534420345	         2.056 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	507310131	         2.124 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	592904094	         2.423 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	568334848	         1.817 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	724036624	         1.930 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	587399938	         1.977 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=24/form=C-4       	642553743	         1.990 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	102167150	        11.77 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	105241118	        12.04 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	100000000	        11.59 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	90775977	        11.46 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	91535714	        13.44 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	90695564	        12.56 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	85056115	        12.19 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	87602916	        11.44 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	100000000	        11.94 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=A-4       	102805057	        11.43 ns/op	        12.00 B/get	         0.5000 allocs/get	      12 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	740987754	         1.993 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	752580528	         1.716 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	613711762	         1.955 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	640664205	         1.747 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	576939321	         2.045 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	619796654	         1.769 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	676819545	         2.119 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	594606399	         2.121 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	635721186	         1.618 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=32/form=C-4       	630641353	         1.877 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	77617178	        17.26 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	78079412	        16.75 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	63770690	        16.67 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	82314304	        16.69 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	93217755	        15.84 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	72364489	        14.96 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	74321596	        15.94 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	74439013	        15.36 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	60936477	        16.84 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=A-4       	73280295	        16.55 ns/op	        16.00 B/get	         0.5000 allocs/get	      16 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	251300373	         4.516 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	259630075	         4.705 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	250649491	         4.534 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	256510965	         5.108 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	249523788	         5.874 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	259967054	         4.925 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	242364370	         4.637 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	259550325	         4.667 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	246861471	         4.574 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=40/form=C-4       	256643407	         4.679 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	57008983	        25.07 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	56002494	        21.78 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	52667331	        21.95 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	64912092	        22.59 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	63139570	        20.56 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	62470592	        20.70 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	70104403	        20.71 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	67639975	        24.58 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	48540423	        23.67 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=A-4       	58780548	        21.57 ns/op	        24.00 B/get	         0.5000 allocs/get	      24 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	206999863	         6.100 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	221389976	         5.719 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	204538638	         5.723 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	204736554	         5.943 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	191420336	         5.921 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	200081010	         5.621 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	216448844	         5.859 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	205184670	         5.983 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	213821919	         5.742 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=56/form=C-4       	200688848	         5.788 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	64487829	        25.82 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	54848110	        25.03 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	61561656	        31.25 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	51522600	        21.16 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	48236151	        30.78 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	62561296	        23.78 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	41725604	        27.51 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	56764346	        24.00 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	53301310	        24.86 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=A-4       	59574272	        25.85 ns/op	        32.00 B/get	         0.5000 allocs/get	      32 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	164155945	         6.747 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	171992415	         7.040 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	177657061	         7.392 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	171622152	         7.058 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	178560759	         7.374 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	166486478	         7.102 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	170845362	         7.249 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	173163408	         6.968 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	169981311	         6.852 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=72/form=C-4       	167718556	         6.923 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	28282262	        36.08 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	37838419	        40.41 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	36242682	        36.78 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	32969889	        36.03 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	25819584	        49.95 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	38053219	        36.74 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	45645172	        28.42 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	45704036	        33.61 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	40873790	        34.71 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=A-4      	32445405	        35.82 ns/op	        64.00 B/get	         0.5000 allocs/get	      64 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	228505257	         5.398 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	226955722	         5.592 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	205252696	         5.106 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	223866001	         5.612 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	220720340	         5.464 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	206456442	         6.223 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	217027575	         5.405 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	199078296	         5.553 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	210384934	         5.868 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionSize/bytes=136/form=C-4      	194332215	         5.710 ns/op	         0 B/get	         0 allocs/get	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	842752946	         1.563 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	836745925	         1.585 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	773577061	         1.524 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	776694172	         1.482 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	798645236	         1.450 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	789309061	         1.508 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	728183374	         1.601 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	649197967	         1.637 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	788353510	         1.588 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=A-4       	716512228	         1.538 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	653919514	         1.822 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	613360092	         1.670 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	638086092	         1.605 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	711216105	         1.667 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	627033232	         2.047 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	760806952	         1.696 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	659432884	         1.850 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	634263752	         1.890 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	651845661	         1.825 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=16/form=C-4       	503236822	         2.034 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	610827046	         1.800 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	615000093	         1.647 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	641890581	         1.688 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	756067903	         1.897 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	729412788	         1.793 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	645111804	         2.037 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	709128148	         1.964 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	723857029	         1.914 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	709751496	         1.986 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=A-4       	581351232	         1.814 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	671201677	         1.618 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	703985942	         1.647 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	755833665	         1.559 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	787915042	         1.605 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	748975774	         1.593 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	756523048	         1.564 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	772282342	         1.494 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	844149128	         1.457 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	838135506	         1.561 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=24/form=C-4       	722640748	         1.757 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	772229330	         1.587 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	764886073	         1.544 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	844497650	         1.492 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	696037564	         1.615 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	718536571	         1.525 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	673535935	         1.598 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	768829838	         1.637 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	795525408	         1.660 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	676031607	         1.544 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=A-4       	756935024	         1.602 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	707981388	         1.777 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	580030797	         2.015 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	667219447	         1.910 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	643428812	         2.044 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	592788214	         1.979 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	645277401	         1.898 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	581774731	         2.042 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	557859494	         2.052 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	640185708	         1.784 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=32/form=C-4       	704420084	         1.873 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	571348470	         2.065 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	648635966	         1.720 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	511677800	         2.117 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	656491507	         2.139 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	804595774	         1.846 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	534421840	         2.005 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	624449270	         1.987 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	590478004	         1.948 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	526604853	         2.028 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=A-4       	591665727	         2.037 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	70000327	        17.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	73848475	        16.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	60991287	        17.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	75553656	        16.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	71990805	        19.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	66685714	        17.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	77956894	        16.77 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	66614844	        16.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	73492408	        16.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=40/form=C-4       	68524450	        17.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	705860827	         1.494 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	709720256	         1.699 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	767291781	         1.575 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	744596989	         1.606 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	666319221	         1.562 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	757015737	         1.665 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	656384659	         1.638 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	607557572	         1.725 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	644713844	         1.623 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=A-4       	766443210	         1.685 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	69789868	        17.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	68411760	        17.62 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	53860788	        18.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	57996908	        17.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	58231412	        17.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	67771497	        20.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	63112632	        18.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	71924684	        18.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	70306422	        17.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=56/form=C-4       	65141337	        19.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	601432844	         1.966 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	682781379	         1.827 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	656266791	         1.579 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	672976652	         2.023 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	484834429	         2.076 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	539987496	         2.119 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	696367308	         1.603 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	657794577	         2.189 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	570695650	         1.816 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=A-4       	693479059	         1.915 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	55501705	        18.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	57359780	        19.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	58736894	        18.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	73251405	        18.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	59745321	        18.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	64623859	        19.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	53729640	        19.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	67127838	        19.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	55872676	        19.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=72/form=C-4       	61454744	        19.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	724770213	         1.567 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	710634351	         1.653 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	729164311	         1.670 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	708484872	         1.672 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	666456920	         1.848 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	645661243	         1.714 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	741899470	         1.986 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	717051350	         1.657 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	723701173	         1.635 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=A-4      	787787734	         1.728 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	55910974	        20.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	58232680	        20.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	61343562	        23.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	59296028	        20.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	65303971	        20.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	57431976	        20.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	55522303	        24.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	62349081	        20.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	50325486	        21.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkOptionPass/bytes=136/form=C-4      	48698798	        20.57 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	unionreprbench	1305.341s

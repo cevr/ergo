@@ -1,0 +1,17 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+                 │      A       │                  B                  │
+                 │    sec/op    │   sec/op     vs base                │
+Enum/shape=1x5-4   11.350n ± 5%   3.178n ± 5%  -72.00% (p=0.000 n=10)
+
+                 │     A      │               B                │
+                 │    B/op    │    B/op     vs base            │
+Enum/shape=1x5-4   0.000 ± 0%   0.000 ± 0%  ~ (p=1.000 n=10) ¹
+¹ all samples are equal
+
+                 │     A      │               B                │
+                 │ allocs/op  │ allocs/op   vs base            │
+Enum/shape=1x5-4   0.000 ± 0%   0.000 ± 0%  ~ (p=1.000 n=10) ¹
+¹ all samples are equal

@@ -1,0 +1,16 @@
+r1 no recursion step: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
+r2 no error step: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
+r3 no bound on C: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
+r4 no hold step: RED exit 1 TestRuleGFixtures, TestRuleGBuilds, TestRuleGPicksBenchForms
+r5 no trailing zero-size pad: RED exit 1 TestRuleGBuilds
+r6 no field alignment: RED exit 1 TestRuleGBuilds
+r7 slots never shared: RED exit 1 TestRuleGFixtures, TestRuleGPicksBenchForms
+r8 recursion ignores slices: RED exit 1 TestRuleGFixtures
+r9 hold ignores records: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
+r10 hold by any form: RED exit 1 TestRuleGFixtures, TestRuleGPicksBenchForms
+r11 option shape any two variants: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
+r12 five fields allowed: RED exit 1 TestRuleGFixtures, TestRuleGBuilds
+r13 40-byte bound: RED exit 1 TestRuleGFixtures, TestRuleGPicksBenchForms
+r14 no layout cycle guard: RED exit 1 fatal error: stack overflow
+r15 one pass only: RED exit 1 TestRuleGFixtures, TestRuleGBuilds, TestRuleGPicksBenchForms
+survived: 0

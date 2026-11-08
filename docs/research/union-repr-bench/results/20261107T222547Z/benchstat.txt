@@ -1,0 +1,188 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+                       │       A       │                     D                     │                   Dx                    │                    E                    │                    F                     │                   G                   │                   Ds                    │                    C                    │                   Go                   │
+                       │    sec/op     │    sec/op      vs base                    │    sec/op     vs base                   │    sec/op      vs base                  │    sec/op      vs base                   │   sec/op     vs base                  │    sec/op     vs base                   │    sec/op      vs base                  │    sec/op     vs base                  │
+Breaker-4                 22.20n ±  6%    13.70n ±  5%    -38.31% (p=0.000 n=10)      13.60n ± 5%   -38.74% (p=0.000 n=10)      23.18n ± 11%        ~ (p=0.481 n=10)      27.77n ±  7%   +25.07% (p=0.000 n=10)
+Tidewalk-4                5.468µ ±  6%                                                                                                                                                                              4.473µ ± 3%  -18.20% (p=0.000 n=10)
+Dispatch/shape=1x2-4      3.050n ±  6%    2.889n ± 19%          ~ (p=0.143 n=10)                                                3.283n ± 20%   +7.66% (p=0.035 n=10)      4.790n ± 13%   +57.06% (p=0.000 n=10)
+Dispatch/shape=1x4-4      3.496n ± 12%    3.080n ±  5%    -11.91% (p=0.000 n=10)                                                3.447n ± 10%        ~ (p=0.247 n=10)      5.319n ±  9%   +52.13% (p=0.000 n=10)
+Dispatch/shape=1x8-4      11.50n ±  4%    10.42n ±  4%     -9.39% (p=0.000 n=10)                                                10.68n ±  4%   -7.13% (p=0.000 n=10)      10.20n ± 11%   -11.35% (p=0.003 n=10)
+Dispatch/shape=1x16-4     12.41n ±  3%    10.41n ±  6%    -16.12% (p=0.000 n=10)                                                10.89n ±  5%  -12.25% (p=0.000 n=10)      11.90n ±  3%    -4.07% (p=0.014 n=10)
+Dispatch/shape=3x4-4      4.073n ±  5%    4.338n ±  7%     +6.49% (p=0.029 n=10)     11.335n ± 4%  +178.30% (p=0.000 n=10)      4.476n ± 27%   +9.89% (p=0.035 n=10)     10.505n ±  7%  +157.92% (p=0.000 n=10)
+Dispatch/shape=6x6-4     17.150n ±  3%    4.513n ± 11%    -73.69% (p=0.000 n=10)     11.530n ± 5%   -32.77% (p=0.000 n=10)      4.779n ± 15%  -72.13% (p=0.000 n=10)     12.580n ±  5%   -26.65% (p=0.000 n=10)
+GCCycle/payload=NP-4     5763.3µ ±  7%    131.1µ ±  9%    -97.72% (p=0.000 n=10)                                               5442.8µ ± 10%        ~ (p=0.052 n=10)
+GCCycle/payload=WP-4      7.272m ±  8%    3.526m ± 10%    -51.51% (p=0.000 n=10)                                                7.191m ± 25%        ~ (p=0.796 n=10)
+GCChurn/payload=NP-4     24.950n ±  5%    9.620n ± 11%    -61.44% (p=0.000 n=10)                                               25.480n ±  7%        ~ (p=0.631 n=10)
+GCChurn/payload=WP-4     33.330n ±  6%    8.961n ±  5%    -73.11% (p=0.000 n=10)                                               31.155n ±  3%   -6.53% (p=0.003 n=10)
+CopyPass/bytes=16-4       1.507n ±  4%   20.735n ±  4%  +1275.46% (p=0.000 n=10)
+CopyPass/bytes=32-4       1.548n ±  4%   19.695n ±  4%  +1172.29% (p=0.000 n=10)
+CopyPass/bytes=64-4       1.582n ±  7%   20.555n ±  6%  +1199.30% (p=0.000 n=10)
+CopyPass/bytes=128-4      1.532n ±  5%   21.360n ±  5%  +1294.26% (p=0.000 n=10)
+CopyNext/bytes=16-4       18.29n ±  9%    21.98n ±  6%    +20.11% (p=0.000 n=10)
+CopyNext/bytes=32-4       22.68n ± 14%    23.89n ±  5%     +5.33% (p=0.043 n=10)
+CopyNext/bytes=64-4       26.47n ±  5%    21.69n ±  4%    -18.08% (p=0.000 n=10)
+CopyNext/bytes=128-4      35.60n ±  7%    24.23n ±  6%    -31.94% (p=0.000 n=10)
+Narrow-4                  4.487n ± 18%    8.049n ±  8%    +79.36% (p=0.000 n=10)                                                                                                                                                                            11.470n ± 4%  +155.60% (p=0.000 n=10)
+Equal-4                   7.423n ± 16%    5.216n ± 30%    -29.74% (p=0.000 n=10)
+Clone-4                   70.61n ± 15%    61.05n ± 13%          ~ (p=0.063 n=10)
+OptionGet/val=large-4     9.182n ± 11%                                                                                                                                                                                                                                                                 9.095n ±  6%        ~ (p=0.353 n=10)     9.022n ± 10%        ~ (p=0.325 n=10)
+OptionGet/val=small-4     10.03n ± 13%                                                                                                                                                                                                                                                                 10.60n ± 11%        ~ (p=0.393 n=10)     10.26n ± 10%        ~ (p=0.247 n=10)
+OptionGet/val=string-4   10.605n ± 29%                                                                                                                                                                                                                                                                10.060n ± 18%        ~ (p=0.436 n=10)     9.286n ± 11%  -12.44% (p=0.002 n=10)
+OptionLookup-4            18.40n ±  8%                                                                                                                                                                                                                                                                 11.43n ± 14%  -37.88% (p=0.000 n=10)     10.40n ± 14%  -43.51% (p=0.000 n=10)
+Cut-4                    22.325n ±  8%                                                                                                                                                                                                                                                                 8.503n ± 18%  -61.91% (p=0.000 n=10)     8.383n ±  6%  -62.45% (p=0.000 n=10)
+CutOut-4                 24.125n ±  8%                                                                                                                                                                                                                                                                16.310n ±  7%  -32.39% (p=0.000 n=10)     9.459n ± 13%  -60.79% (p=0.000 n=10)
+geomean                   31.26n          32.01n           +5.21%                ¹    12.11n         +4.65%                ¹    106.6n        -11.95%                ¹    10.18n         +25.15%                ¹   4.473µ       -18.20%                ¹    11.47n       +155.60%                ¹    10.74n        -26.40%                ¹   9.441n        -35.32%                ¹
+¹ benchmark set differs from baseline; geomeans may not be comparable
+
+          │      A       │                   D                   │                  Dx                   │                  E                   │                F                 │
+          │ B/transition │ B/transition  vs base                 │ B/transition  vs base                 │ B/transition  vs base                │ B/transition  vs base            │
+Breaker-4     10.08 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)      0.00 ± 0%  -100.00% (p=0.000 n=10)     14.11 ± 0%  +39.98% (p=0.000 n=10)     10.08 ± 0%  ~ (p=1.000 n=10) ¹
+¹ all samples are equal
+
+          │         A         │                     D                      │                     Dx                     │                   E                   │                   F                   │
+          │ allocs/transition │ allocs/transition  vs base                 │ allocs/transition  vs base                 │ allocs/transition  vs base            │ allocs/transition  vs base            │
+Breaker-4         629.9m ± 0%           0.0m ± 0%  -100.00% (p=0.000 n=10)           0.0m ± 0%  -100.00% (p=0.000 n=10)         629.9m ± 0%  ~ (p=1.000 n=10) ¹         629.9m ± 0%  ~ (p=1.000 n=10) ¹
+¹ all samples are equal
+
+                       │       A        │                     D                     │                    Dx                     │                   E                    │                   F                   │                   G                    │                  Ds                   │                     C                     │                    Go                     │
+                       │      B/op      │    B/op     vs base                       │    B/op     vs base                       │    B/op     vs base                    │    B/op     vs base                   │     B/op      vs base                  │    B/op     vs base                   │    B/op     vs base                       │    B/op     vs base                       │
+Breaker-4                  10.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)          0.00 ± 0%  -100.00% (p=0.000 n=10)         14.00 ± 0%  +40.00% (p=0.000 n=10)       10.00 ± 0%       ~ (p=1.000 n=10) ¹
+Tidewalk-4               5.297Ki ± 0%                                                                                                                                                                              2.094Ki ± 0%  -60.47% (p=0.000 n=10)
+Dispatch/shape=1x2-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                   0.000 ± 0%        ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=1x4-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                   0.000 ± 0%        ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=1x8-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                   0.000 ± 0%        ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=1x16-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                   0.000 ± 0%        ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=3x4-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%        ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=6x6-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%        ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+GCCycle/payload=NP-4       0.000 ± 0%     0.000 ±  ?         ~ (p=0.211 n=10)                                                     0.000 ± 0%        ~ (p=1.000 n=10) ¹
+GCCycle/payload=WP-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                   0.000 ± 0%        ~ (p=1.000 n=10) ¹
+GCChurn/payload=NP-4       12.00 ± 8%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                     12.00 ± 8%        ~ (p=1.000 n=10)
+GCChurn/payload=WP-4       20.00 ± 5%      0.00 ± 0%  -100.00% (p=0.000 n=10)                                                     20.00 ± 5%        ~ (p=1.000 n=10)
+CopyPass/bytes=16-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=32-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=64-4        0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=128-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyNext/bytes=16-4        16.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=32-4        32.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=64-4        64.00 ± 0%      0.00 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=128-4       128.0 ± 0%       0.0 ± 0%  -100.00% (p=0.000 n=10)
+Narrow-4                   0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                                                                                                             0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Equal-4                    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+Clone-4                    152.0 ± 0%     128.0 ± 0%   -15.79% (p=0.000 n=10)
+OptionGet/val=large-4      0.000 ± 0%                                                                                                                                                                                                                                                               0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionGet/val=small-4      0.000 ± 0%                                                                                                                                                                                                                                                               0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionGet/val=string-4     0.000 ± 0%                                                                                                                                                                                                                                                               0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionLookup-4             3.000 ± 0%                                                                                                                                                                                                                                                               0.000 ± 0%  -100.00% (p=0.000 n=10)         0.000 ± 0%  -100.00% (p=0.000 n=10)
+Cut-4                      15.00 ± 0%                                                                                                                                                                                                                                                                0.00 ± 0%  -100.00% (p=0.000 n=10)          0.00 ± 0%  -100.00% (p=0.000 n=10)
+CutOut-4                   15.00 ± 0%                                                                                                                                                                                                                                                                0.00 ± 0%  -100.00% (p=0.000 n=10)          0.00 ± 0%  -100.00% (p=0.000 n=10)
+geomean                               ²               ?                       ³ ² ⁴               ?                       ³ ² ⁴                +3.11%                ³ ²               +0.00%                ³ ²   2.094Ki       -60.47%                ³               +0.00%                ³ ²               ?                       ³ ² ⁴               ?                       ³ ² ⁴
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ benchmark set differs from baseline; geomeans may not be comparable
+⁴ ratios must be >0 to compute geomean
+
+                       │       A       │                     D                     │                  Dx                   │                   E                   │                   F                   │                  G                   │                  Ds                   │                   C                   │                  Go                   │
+                       │   allocs/op   │ allocs/op   vs base                       │ allocs/op   vs base                   │ allocs/op   vs base                   │ allocs/op   vs base                   │ allocs/op   vs base                  │ allocs/op   vs base                   │ allocs/op   vs base                   │ allocs/op   vs base                   │
+Breaker-4                 0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Tidewalk-4               168.00 ± 0%                                                                                                                                                                         50.00 ± 0%  -70.24% (p=0.000 n=10)
+Dispatch/shape=1x2-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                               0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=1x4-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                               0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=1x8-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                               0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=1x16-4     0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                               0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=3x4-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Dispatch/shape=6x6-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹       0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+GCCycle/payload=NP-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                               0.000 ± 0%       ~ (p=1.000 n=10) ¹
+GCCycle/payload=WP-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                               0.000 ± 0%       ~ (p=1.000 n=10) ¹
+GCChurn/payload=NP-4      1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)                                                 1.000 ± 0%       ~ (p=1.000 n=10) ¹
+GCChurn/payload=WP-4      1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)                                                 1.000 ± 0%       ~ (p=1.000 n=10) ¹
+CopyPass/bytes=16-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=32-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=64-4       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyPass/bytes=128-4      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+CopyNext/bytes=16-4       1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=32-4       1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=64-4       1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+CopyNext/bytes=128-4      1.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)
+Narrow-4                  0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹                                                                                                                                                                      0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Equal-4                   0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+Clone-4                   2.000 ± 0%     1.000 ± 0%   -50.00% (p=0.000 n=10)
+OptionGet/val=large-4     0.000 ± 0%                                                                                                                                                                                                                                                        0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionGet/val=small-4     0.000 ± 0%                                                                                                                                                                                                                                                        0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionGet/val=string-4    0.000 ± 0%                                                                                                                                                                                                                                                        0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+OptionLookup-4            0.000 ± 0%                                                                                                                                                                                                                                                        0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+Cut-4                     0.000 ± 0%                                                                                                                                                                                                                                                        0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+CutOut-4                  0.000 ± 0%                                                                                                                                                                                                                                                        0.000 ± 0%       ~ (p=1.000 n=10) ¹     0.000 ± 0%       ~ (p=1.000 n=10) ¹
+geomean                              ²               ?                       ³ ² ⁴               +0.00%                ³ ²               +0.00%                ³ ²               +0.00%                ³ ²   50.00       -70.24%                ³               +0.00%                ³ ²               +0.00%                ³ ²               +0.00%                ³ ²
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ benchmark set differs from baseline; geomeans may not be comparable
+⁴ ratios must be >0 to compute geomean
+
+           │      A      │                 G                  │
+           │   B/move    │   B/move    vs base                │
+Tidewalk-4   142.70 ± 0%   56.42 ± 0%  -60.46% (p=0.000 n=10)
+
+           │      A      │                  G                  │
+           │ allocs/move │ allocs/move  vs base                │
+Tidewalk-4    4.421 ± 0%    1.316 ± 0%  -70.23% (p=0.000 n=10)
+
+                     │      A      │                   D                    │                  E                  │
+                     │   gc/Mop    │  gc/Mop    vs base                     │   gc/Mop     vs base                │
+GCChurn/payload=NP-4   286.6m ± 5%   0.0m ± 0%  -100.00% (p=0.000 n=10)       231.8m ± 2%  -19.12% (p=0.000 n=10)
+GCChurn/payload=WP-4   411.3m ± 3%   0.0m ± 0%  -100.00% (p=0.000 n=10)       358.0m ± 2%  -12.96% (p=0.000 n=10)
+geomean                343.4m                   ?                       ¹ ²   288.1m       -16.09%
+¹ summaries must be >0 to compute geomean
+² ratios must be >0 to compute geomean
+
+                     │        A        │                   E                    │
+                     │  pause-sec/op   │  pause-sec/op   vs base                │
+GCChurn/payload=NP-4   0.02281n ± 173%   0.02066n ± 37%        ~ (p=0.123 n=10)
+GCChurn/payload=WP-4   0.02785n ±  49%   0.02131n ± 15%  -23.50% (p=0.002 n=10)
+geomean                0.02520n          0.02098n        -16.75%
+
+                     │      D       │
+                     │ pause-ns/op  │
+GCChurn/payload=NP-4   0.000 ± 0%
+GCChurn/payload=WP-4   0.000 ± 0%
+geomean                           ¹
+¹ summaries must be >0 to compute geomean
+
+                       │      A       │                    C                    │                   Go                    │
+                       │   B/lookup   │  B/lookup   vs base                     │  B/lookup   vs base                     │
+OptionGet/val=large-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionGet/val=small-4    0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionGet/val=string-4   0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=10) ¹     0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionLookup-4           3.906 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=10)       0.000 ± 0%  -100.00% (p=0.000 n=10)
+geomean                             ²               ?                       ² ³               ?                       ² ³
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ ratios must be >0 to compute geomean
+
+                       │       A       │                     C                      │                     Go                     │
+                       │ allocs/lookup │ allocs/lookup  vs base                     │ allocs/lookup  vs base                     │
+OptionGet/val=large-4     0.000 ± 0%        0.000 ± 0%         ~ (p=1.000 n=10) ¹        0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionGet/val=small-4     0.000 ± 0%        0.000 ± 0%         ~ (p=1.000 n=10) ¹        0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionGet/val=string-4    0.000 ± 0%        0.000 ± 0%         ~ (p=1.000 n=10) ¹        0.000 ± 0%         ~ (p=1.000 n=10) ¹
+OptionLookup-4           488.3m ± 0%         0.0m ± 0%  -100.00% (p=0.000 n=10)           0.0m ± 0%  -100.00% (p=0.000 n=10)
+geomean                              ²                  ?                       ² ³                  ?                       ² ³
+¹ all samples are equal
+² summaries must be >0 to compute geomean
+³ ratios must be >0 to compute geomean
+
+         │     A      │                   C                    │                   Go                   │
+         │   B/cut    │   B/cut    vs base                     │   B/cut    vs base                     │
+Cut-4      15.38 ± 0%   0.00 ± 0%  -100.00% (p=0.000 n=10)       0.00 ± 0%  -100.00% (p=0.000 n=10)
+CutOut-4   15.38 ± 0%   0.00 ± 0%  -100.00% (p=0.000 n=10)       0.00 ± 0%  -100.00% (p=0.000 n=10)
+geomean    15.38                   ?                       ¹ ²              ?                       ¹ ²
+¹ summaries must be >0 to compute geomean
+² ratios must be >0 to compute geomean
+
+         │      A      │                    C                    │                   Go                    │
+         │ allocs/cut  │ allocs/cut  vs base                     │ allocs/cut  vs base                     │
+Cut-4      480.5m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)        0.0m ± 0%  -100.00% (p=0.000 n=10)
+CutOut-4   480.5m ± 0%    0.0m ± 0%  -100.00% (p=0.000 n=10)        0.0m ± 0%  -100.00% (p=0.000 n=10)
+geomean    480.5m                    ?                       ¹ ²               ?                       ¹ ²
+¹ summaries must be >0 to compute geomean
+² ratios must be >0 to compute geomean

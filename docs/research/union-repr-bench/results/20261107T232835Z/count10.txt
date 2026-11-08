@@ -1,0 +1,26 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+BenchmarkEnum/shape=1x5/form=A-4         	96628268	        11.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	100000000	        10.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	100000000	        11.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	94442863	        11.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	112520576	        11.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	100000000	        10.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	100000000	        11.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	109170823	        11.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	90757999	        11.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=A-4         	89007274	        11.59 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	306474982	         3.303 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	383591653	         3.300 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	379458776	         3.183 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	368605389	         3.283 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	381416679	         3.004 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	376635818	         3.176 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	395957607	         3.016 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	456936951	         3.180 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	393919306	         3.134 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEnum/shape=1x5/form=B-4         	363114622	         3.013 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	unionreprbench	29.418s

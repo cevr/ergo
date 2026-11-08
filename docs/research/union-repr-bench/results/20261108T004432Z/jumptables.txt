@@ -1,0 +1,18 @@
+TEXT unionreprbench.dispatchU8D(SB) ./generated.go
+  generated.go:253	0x5a69f1		ff24c8			JMP 0(AX)(CX*8)				
+TEXT unionreprbench.dispatchU16A(SB) ./generated.go
+  generated.go:408	0x5a8b39		ff24ca			JMP 0(DX)(CX*8)				
+TEXT unionreprbench.dispatchU16D(SB) ./generated.go
+  generated.go:452	0x5a8dd1		ff24c8			JMP 0(AX)(CX*8)				
+TEXT unionreprbench.dispatchP3x4Dx(SB) ./generated.go
+  generated.go:760	0x5aced1		ff24c8			JMP 0(AX)(CX*8)				
+TEXT unionreprbench.dispatchP6x6A(SB) ./generated.go
+  generated.go:973	0x5ae2dc		ff24d6			JMP 0(SI)(DX*8)				
+  generated.go:1035	0x5ae30a		ff24d0			JMP 0(AX)(DX*8)				
+  generated.go:975	0x5ae447		ff24d0			JMP 0(AX)(DX*8)				
+  generated.go:1005	0x5ae565		ff24d0			JMP 0(AX)(DX*8)				
+  generated.go:1050	0x5ae689		ff24d0			JMP 0(AX)(DX*8)				
+  generated.go:1020	0x5ae7c4		ff24d0			JMP 0(AX)(DX*8)				
+  generated.go:990	0x5ae8f1		ff24d0			JMP 0(AX)(DX*8)				
+TEXT unionreprbench.dispatchP6x6Dx(SB) ./generated.go
+  generated.go:1177	0x5aef58		ff24c8			JMP 0(AX)(CX*8)				

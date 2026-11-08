@@ -1,0 +1,66 @@
+goos: linux
+goarch: amd64
+pkg: unionreprbench
+cpu: AMD EPYC 9554P 64-Core Processor               
+BenchmarkGCCycle/payload=NP/form=A-4         	     201	   5786402 ns/op	  44173696 heap-bytes	    750303 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     174	   5832451 ns/op	  44175816 heap-bytes	    750314 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     220	   5774663 ns/op	  44176040 heap-bytes	    750316 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     100	  10096008 ns/op	  44176152 heap-bytes	    750317 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     210	   6819155 ns/op	  44176152 heap-bytes	    750317 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     212	   5486356 ns/op	  44176152 heap-bytes	    750317 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     229	   5948048 ns/op	  44176264 heap-bytes	    750318 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     186	   5773717 ns/op	  44176264 heap-bytes	    750318 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     192	   6410433 ns/op	  44176264 heap-bytes	    750318 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=A-4         	     193	   5350177 ns/op	  44176264 heap-bytes	    750318 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	   10923	    129572 ns/op	  40173728 heap-bytes	       429.0 heap-objects	       1 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9777	    183589 ns/op	  40191120 heap-bytes	       534.0 heap-objects	       1 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    7485	    140392 ns/op	  40195824 heap-bytes	       576.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9934	    140709 ns/op	  40191344 heap-bytes	       536.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    8608	    119029 ns/op	  40199184 heap-bytes	       606.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	   10000	    125966 ns/op	  40200752 heap-bytes	       620.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9102	    134751 ns/op	  40198512 heap-bytes	       600.0 heap-objects	       1 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9122	    117205 ns/op	  40200976 heap-bytes	       622.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    9842	    117940 ns/op	  40200864 heap-bytes	       621.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=D-4         	    8536	    130166 ns/op	  40196944 heap-bytes	       586.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     228	   6174807 ns/op	  52193560 heap-bytes	    750482 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     218	   4959814 ns/op	  52195664 heap-bytes	    750492 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     241	   5330803 ns/op	  52195664 heap-bytes	    750492 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     208	   5940749 ns/op	  52195664 heap-bytes	    750492 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     234	   5538450 ns/op	  52195664 heap-bytes	    750492 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     200	   5387469 ns/op	  52195664 heap-bytes	    750492 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     224	   4983333 ns/op	  52195664 heap-bytes	    750492 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     253	   5466543 ns/op	  52195664 heap-bytes	    750492 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     201	   6681979 ns/op	  52195776 heap-bytes	    750493 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=NP/form=E-4         	     184	   5643006 ns/op	  52195888 heap-bytes	    750494 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     158	   7853697 ns/op	  52198664 heap-bytes	   1000584 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     205	   7287242 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     165	   7169722 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     166	   7906700 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     152	   7893771 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     100	  10904896 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     160	   9358200 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     146	   8830749 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     100	  10771272 ns/op	  52200656 heap-bytes	   1000593 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=A-4         	     162	   7097197 ns/op	  52200880 heap-bytes	   1000595 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     338	   3063435 ns/op	  48199576 heap-bytes	       588.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     319	   4111489 ns/op	  48201568 heap-bytes	       597.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     300	   3564401 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     334	   3533754 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     361	   3170317 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     344	   3988669 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     278	   3661520 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     320	   3872424 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     393	   2863907 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=D-4         	     451	   2903722 ns/op	  48201680 heap-bytes	       598.0 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     195	   6859160 ns/op	  60194712 heap-bytes	   1000591 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     154	   6643378 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     183	   6834369 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     198	   7637612 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     150	   7926710 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     141	   7895588 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     181	   8416619 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     169	   7002306 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     193	   7146587 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+BenchmarkGCCycle/payload=WP/form=E-4         	     177	   6495799 ns/op	  60196816 heap-bytes	   1000601 heap-objects	       0 B/op	       0 allocs/op
+PASS
+ok  	unionreprbench	111.054s
