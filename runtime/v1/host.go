@@ -287,9 +287,9 @@ func FSMkdirAll(path string) error {
 // The bodies of std io (docs/spec/stdlib.md, io). Each writes or reads a
 // standard stream of the host process, so none is pure. A write is one
 // unbuffered WriteString, as Console.Println is, so writes of Console and
-// io keep program order. A read of standard input waits for the host and
-// cannot be stopped: it is an uninterruptible host wait, as a read of a
-// file is.
+// io keep program order. A read of standard input waits for the host on
+// the caller's task, and a stop of that task ends the wait (io 3; batch-12
+// C3); a read of a file is still an uninterruptible host wait.
 
 // ReadFailed is io.ReadFailed: a read of standard input failed. It is a
 // record of a v1 package, so the lowering binds io.ReadFailed to this Go
