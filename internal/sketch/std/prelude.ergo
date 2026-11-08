@@ -103,8 +103,9 @@ extern go ergo.local/prototype/runtime/v1.Delete func Delete[K comparable, V](m 
 
 // Seq is an iterator: it calls yield with each value in turn and stops
 // when yield returns false. `for v in s` runs the loop body as yield, and a
-// break makes yield return false. Law: a Seq never calls yield again after
-// yield returns false. Any function of this shape is a Seq by conversion,
+// break makes yield return false. Seq is a function type, so it carries no
+// member law: each std producer of a Seq states that it stops as a law of
+// its own, <Producer>Stops (docs/spec/stdlib.md, Std laws 5). Any function of this shape is a Seq by conversion,
 // Seq[T](f). A Seq value lowers to the one Go shape of every Ergo function
 // value (spec D5); the for adapts it to Go's range over func at the loop,
 // and a std binding that returns Go's iter.Seq[T] adapts at the call.

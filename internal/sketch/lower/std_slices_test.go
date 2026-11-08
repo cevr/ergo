@@ -430,6 +430,57 @@ test MapsValuesMatchKeys(m Map[string, int]) {
 	assert n == len(m) && sum == total
 }
 
+// stops is how often s calls a yield that returns false at its k-th call.
+func stops(s Seq[int], k int) int {
+	let mut calls = 0
+	s(func(v int) bool {
+		calls = calls + 1
+		calls < k
+	})
+	calls
+}
+
+// stopsKeys is stops for a Seq of keys.
+func stopsKeys(s Seq[string], k int) int {
+	let mut calls = 0
+	s(func(key string) bool {
+		calls = calls + 1
+		calls < k
+	})
+	calls
+}
+
+// least is the smaller of a and b.
+func least(a int, b int) int {
+	if a < b {
+		a
+	} else {
+		b
+	}
+}
+
+test SlicesValuesStops(xs []int) {
+	let s = slices.Values(xs)
+	for k in 1..len(xs)+2 {
+		assert stops(s, k) == least(k, len(xs))
+	}
+	assert stops(slices.Values([]int{}), 1) == 0
+}
+
+test MapsKeysStops(m Map[string, int]) {
+	let s = maps.Keys(m)
+	for k in 1..len(m)+2 {
+		assert stopsKeys(s, k) == least(k, len(m))
+	}
+}
+
+test MapsValuesStops(m Map[string, int]) {
+	let s = maps.Values(m)
+	for k in 1..len(m)+2 {
+		assert stops(s, k) == least(k, len(m))
+	}
+}
+
 test CmpCompareIsAntisymmetric(a int, b int) {
 	assert cmp.Compare(a, b) == -cmp.Compare(b, a)
 	assert cmp.Compare(a, a) == 0
@@ -455,6 +506,9 @@ var stdSlicesLawStatements = map[string]string{
 	"cmp CompareIsTransitive":          `CompareIsTransitive(a int, b int, c int) { if Compare(a, b) <= 0 && Compare(b, c) <= 0 { return Compare(a, c) <= 0 } true }`,
 	"cmp LessIsCompareBelowZero":       `LessIsCompareBelowZero(a string, b string) { Less(a, b) == (Compare(a, b) < 0) }`,
 	"maps KeysVisitEachKeyOnce":        `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None || m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }`,
+	"maps KeysStops":                   `KeysStops(m Map[string, int]) { let s = Keys(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(key string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
+	"maps ValuesStops":                 `ValuesStops(m Map[string, int]) { let s = Values(m) let n = len(m) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
+	"slices ValuesStops":               `ValuesStops(xs []int) { let s = Values(xs) let n = len(xs) for k in 1..n+2 { let mut calls = 0 s(func(v int) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 	"maps ValuesMatchKeys":             `ValuesMatchKeys(m Map[string, int]) { let mut total = 0 for k in Keys(m) { match m.Get(k) { case Some[int] as v: total = total + v.Value case None: return false } } let mut sum = 0 let mut n = 0 for v in Values(m) { sum = sum + v n = n + 1 } n == len(m) && sum == total }`,
 	"slices BinarySearchFindsTheFirst": `BinarySearchFindsTheFirst(xs []int, x int) { let s = Sort(xs) match BinarySearch(s, x) { case Some[int] as found: s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x) case None: !Contains(s, x) } }`,
 	"slices CollectInvertsValues":      `CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }`,

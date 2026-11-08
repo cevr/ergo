@@ -61,6 +61,7 @@ type Stdin {
 	// read, and the next read starts at the line after. A read failure
 	// ends the program with a defect, because a Seq has no failure row:
 	// use ReadAll to handle it.
+	// seq-exempt: Stdin is law-exempt (a read of the host takes what it reads), so no law over its own operations can drive Lines twice; Input's Lines carries the stop law (InputLinesStops).
 	Lines() Seq[string],
 }
 
@@ -88,6 +89,7 @@ func IsTerminal(_ Host) bool { hostIsTerminal() }
 func ReadAll(_ Host) string fails ReadFailed { try hostReadAll() }
 
 // Lines is the rest of standard input, one line at a time.
+// seq-exempt: it reads the host's standard input, which a law cannot generate or read twice; TestIOStdinRest (lower) holds a break on the host, and Input's Lines carries the stop law (InputLinesStops).
 func Lines(_ Host) Seq[string] { hostLines() }
 
 // Errors is the host's Stderr provider. It has no Print, so it is not a
@@ -197,6 +199,30 @@ law LinesSplitInput(s string) {
 		joined = joined + "\n"
 	}
 	joined == s
+}
+
+// InputLinesStops: Input's Lines is a Seq that stops (stdlib.md, Std laws
+// 5): with n the count of lines a yield that always returns true gets, for
+// each k from 1 to n+1, a yield that returns false at its k-th call is
+// called min(k, n) times.
+law InputLinesStops(s string) {
+	let lines = Input{Text: s}.Lines()
+	let mut n = 0
+	lines(func(line string) bool {
+		n = n + 1
+		true
+	})
+	for k in 1..n+2 {
+		let mut calls = 0
+		lines(func(line string) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
 }
 
 extern go ergo.local/prototype/runtime/v1.IOPrint func hostPrint(text string)

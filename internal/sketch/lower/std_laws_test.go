@@ -80,6 +80,36 @@ test QueueQueuePushAfterCloseFails(v int, cap int) {
 	assert failed
 }
 
+test QueueQueueValuesStops(xs []int, extra int) {
+	let n = len(xs)
+	for k in 1..n+2 {
+		let q = queue.New[int](n + small(extra))
+		for x in xs {
+			try q.Push(x)
+		}
+		q.Close()
+		let mut calls = 0
+		let s = q.Values()
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		let taken = if k < n { k } else { n }
+		assert calls == taken && q.Len() == n - taken
+		for i in taken..n {
+			assert q.Poll() == Some[int]{Value: xs[i]}
+		}
+		assert q.Poll() == None
+	}
+	let empty = queue.New[int](0)
+	empty.Close()
+	let mut none = 0
+	for _ in empty.Values() {
+		none = none + 1
+	}
+	assert none == 0 && empty.Len() == 0
+}
+
 test QueueFirstInFirstOut(a int, b int) {
 	let q = queue.New[int](2)
 	try q.Push(a)
@@ -211,6 +241,7 @@ var stdLawsStatements = map[string]string{
 	"queue FirstInFirstOut":           `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }`,
 	"queue Queue.CloseIsIdempotent":   `CloseIsIdempotent() { Close() Close() true }`,
 	"queue Queue.PushAfterCloseFails": `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }`,
+	"queue Queue.ValuesStops":         `ValuesStops(k int) { if k < 1 { return true } Close() let n = Len() let mut calls = 0 let s = Values() s(func(v T) bool { calls = calls + 1 calls < k }) let taken = if k < n { k } else { n } calls == taken && Len() == n-taken }`,
 	"scope ActionsRunLastFirst":       `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }`,
 	"task StopIsIdempotent":           `StopIsIdempotent() { let t = with context { Scheduler: time.NewManual(0) } { Go() { Scheduler.Sleep(1h) 0 } } t.Stop() t.Stop() true }`,
 	"task WaitReturnsTheBlock":        `WaitReturnsTheBlock(n int) { let t = Go() { n } t.Wait() == n }`,

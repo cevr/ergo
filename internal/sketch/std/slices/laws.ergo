@@ -108,6 +108,25 @@ law BinarySearchFindsTheFirst(xs []int, x int) {
 // CollectInvertsValues: Collect(Values(xs)) is xs.
 law CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }
 
+// ValuesStops: Values is a Seq that stops (stdlib.md, Std laws 5): for
+// each k from 1 to len(xs)+1, a yield that returns false at its k-th call
+// is called min(k, len(xs)) times.
+law ValuesStops(xs []int) {
+	let s = Values(xs)
+	let n = len(xs)
+	for k in 1..n+2 {
+		let mut calls = 0
+		s(func(v int) bool {
+			calls = calls + 1
+			calls < k
+		})
+		if calls != (if k < n { k } else { n }) {
+			return false
+		}
+	}
+	true
+}
+
 // TransformIdentity: Transform with the identity is xs.
 law TransformIdentity(xs []int) { Equal(Transform(xs, func(x int) int { x }), xs) }
 

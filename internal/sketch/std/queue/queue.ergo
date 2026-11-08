@@ -48,6 +48,25 @@ type Queue[T] {
 		}
 		false
 	},
+	// ValuesStops: Values is a Seq that stops (stdlib.md, Std laws 5). On
+	// the closed queue, with n values in it, a yield that returns false at
+	// its k-th call (k of 1 or more) is called min(k, n) times, and the
+	// values it did not take stay in the queue: Len() is n - min(k, n).
+	law ValuesStops(k int) {
+		if k < 1 {
+			return true
+		}
+		Close()
+		let n = Len()
+		let mut calls = 0
+		let s = Values()
+		s(func(v T) bool {
+			calls = calls + 1
+			calls < k
+		})
+		let taken = if k < n { k } else { n }
+		calls == taken && Len() == n-taken
+	},
 }
 
 // FirstInFirstOut: Pop gives the values in the order Push added them.
