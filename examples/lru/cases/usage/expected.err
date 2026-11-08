@@ -1,0 +1,1 @@
+usage: lru [quote [CAPACITY]] | lru bench N

@@ -1,0 +1,129 @@
+// A reference model of a cache, for the law ModelAgrees: the entries in
+// a plain slice, newest first, with every operation a linear scan. It is
+// slow and obviously right; the Cache is fast and must agree with it.
+
+// Op is one operation of a run against a cache.
+type Op = PutOp{Key int, Value int} | GetOp{Key int} | RemoveOp{Key int}
+
+// Outcome is what an operation returns.
+type Outcome = Got{Value Option[int]} | Stored{Evicted Option[Entry[int, int]]} | Removed{Was bool}
+
+// Model is a cache of capacity entries, newest first.
+type Model { capacity int, entries []Entry[int, int] }
+
+// Ops is count operations drawn from seed, over the keys 0 to 7, so a
+// run hits, misses, overwrites and evicts.
+func Ops(seed int, count int) []Op {
+	let mut x = if seed < 0 { -(seed + 1) } else { seed }
+	let mut ops = []Op{}
+	for i in 0..count {
+		x = (x*1103515245 + 12345) % 2147483648
+		let key = (x / 65536) % 8
+		match (x / 8) % 4 {
+		case 0, 1:
+			ops = ops.Append(PutOp{Key: key, Value: i})
+		case 2:
+			ops = ops.Append(GetOp{Key: key})
+		case _:
+			ops = ops.Append(RemoveOp{Key: key})
+		}
+	}
+	ops
+}
+
+// Apply runs op on c.
+func Apply(c *Cache[int, int], op Op) Outcome {
+	match op {
+	case PutOp as p:
+		Stored{Evicted: c.Put(p.Key, p.Value)}
+	case GetOp as g:
+		Got{Value: c.Get(g.Key)}
+	case RemoveOp as r:
+		Removed{Was: c.Remove(r.Key)}
+	}
+}
+
+// Step runs op on m: the model after it, and its outcome.
+func Step(m Model, op Op) (Model, Outcome) {
+	match op {
+	case PutOp as p:
+		let rest = m.without(p.Key)
+		let mut out = []Entry[int, int]{Entry[int, int]{Key: p.Key, Value: p.Value}}
+		let mut evicted Option[Entry[int, int]] = None
+		for i, e in rest {
+			if i+1 < m.capacity {
+				out = out.Append(e)
+			} else {
+				evicted = Some{e}
+			}
+		}
+		if len(rest) < len(m.entries) {
+			evicted = None
+		}
+		(Model{..m, entries: out}, Stored{Evicted: evicted})
+	case GetOp as g:
+		let mut found Option[int] = None
+		for e in m.entries {
+			if e.Key == g.Key {
+				found = Some{e.Value}
+			}
+		}
+		match found {
+		case Some[int] as v:
+			let mut out = []Entry[int, int]{Entry[int, int]{Key: g.Key, Value: v.Value}}
+			for e in m.without(g.Key) {
+				out = out.Append(e)
+			}
+			(Model{..m, entries: out}, Got{Value: found})
+		case None:
+			(m, Got{Value: found})
+		}
+	case RemoveOp as r:
+		let rest = m.without(r.Key)
+		(Model{..m, entries: rest}, Removed{Was: len(rest) < len(m.entries)})
+	}
+}
+
+// without is the entries of m, less the one of key.
+func without(m Model, key int) []Entry[int, int] {
+	let mut out = []Entry[int, int]{}
+	for e in m.entries {
+		if e.Key != key {
+			out = out.Append(e)
+		}
+	}
+	out
+}
+
+// SameEntries reports whether a and b hold the same entries in order.
+func SameEntries(a []Entry[int, int], b []Entry[int, int]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, e in a {
+		if e != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// ModelAgrees: over a run of operations drawn from seed, the cache gives
+// each outcome the model gives, and holds the model's entries in order.
+law ModelAgrees(n int, seed int) {
+	let size = SizeOf(n)
+	let mut c = New[int, int](size) catch {
+	case BadCapacity:
+		return false
+	}
+	let mut m = Model{capacity: size, entries: []Entry[int, int]{}}
+	for op in Ops(seed, 60) {
+		let got = Apply(&c, op)
+		let next, want = m.Step(op)
+		m = next
+		if got != want || !SameEntries(c.Entries(), m.entries) {
+			return false
+		}
+	}
+	true
+}

@@ -1,0 +1,84 @@
+// The Memo's tests: examples, and the laws restated as property tests
+// (the compiler checks laws and does not run them yet, #162).
+
+import lru/cache
+import strings
+
+test SecondGetIsAHit {
+	let mut m = try New[string, int](2)
+	let length = func(s string) int { len(s) }
+	assert m.Get("ergo", length) == 4 && m.Get("ergo", length) == 4
+	assert m.CountsOf() == Counts{Hits: 1, Misses: 1, Size: 1}
+}
+
+test EvictedResultIsLoadedAgain {
+	let mut m = try New[string, string](1)
+	// strings.ToUpper is an extern, which is not a value (G-ex-f-3).
+	let upper = func(s string) string { strings.ToUpper(s) }
+	let _ = m.Get("a", upper)
+	let _ = m.Get("b", upper)
+	assert m.Get("a", upper) == "A"
+	assert m.CountsOf() == Counts{Hits: 0, Misses: 3, Size: 1}
+}
+
+test ForgetDropsOne {
+	let mut m = try New[int, int](3)
+	let _ = m.Get(2, Square)
+	assert m.Forget(2) && !m.Forget(2)
+	assert m.CountsOf().Size == 0
+}
+
+test FailureIsPassedOn {
+	let mut m = try New[int, int](3)
+	let got = m.Get(7, Never) catch {
+	case Gone as g:
+		-g.Key
+	}
+	assert got == -7
+}
+
+test TransparentHolds(n int, seed int) {
+	let mut m = Fresh(n)
+	for k in KeysOf(seed, 40) {
+		assert m.Get(k, Square) == Square(k)
+	}
+}
+
+test CountsAddUpHolds(n int, seed int) {
+	let mut m = Fresh(n)
+	let keys = KeysOf(seed, 40)
+	for k in keys {
+		let _ = m.Get(k, Square)
+	}
+	let c = m.CountsOf()
+	assert c.Hits+c.Misses == len(keys)
+	assert c.Size <= c.Misses && c.Size <= m.results.Capacity()
+}
+
+test RemembersAfterMissHolds(n int, seed int, k int) {
+	let mut m = Fresh(n)
+	for key in KeysOf(seed, 10) {
+		let _ = m.Get(key, Square)
+	}
+	let _ = m.Get(k, Square)
+	assert try m.Get(k, Never) == Square(k)
+}
+
+test FailureIsNotRememberedHolds(n int, k int) {
+	let mut m = Fresh(n)
+	let _ = m.Get(k, Never) catch {
+	case Gone:
+		0
+	}
+	assert m.Get(k, Square) == Square(k)
+	assert m.CountsOf().Misses == 2 && m.CountsOf().Size == 1
+}
+
+// A capacity below one is refused by the cache, through the Memo.
+test NoRoomIsRefused {
+	let _ = New[int, int](0) catch {
+	case cache.BadCapacity:
+		return
+	}
+	assert false
+}

@@ -1,0 +1,81 @@
+// Table keeps the catalog.Catalog laws; the tests restate them over its
+// provider (the compiler checks laws and does not run them yet, #162),
+// and show what a Memo in front of it saves.
+
+import lru/catalog
+import lru/memo
+
+// list is a Table of three SKUs.
+func list() Table {
+	Parse("apple 120\npear 95\n\nfig 7\n") catch {
+	case BadRow:
+		Table{prices: Map[string, int]{}, lookups: Map[string, int]{}}
+	}
+}
+
+// skuOf is one of the listed SKUs or an unlisted one, from any n.
+func skuOf(n int, text string) string {
+	let skus = []string{"apple", "pear", "fig", text}
+	skus[(if n < 0 { -(n + 1) } else { n })%len(skus)]
+}
+
+test StableHolds(n int, text string) {
+	let sku = skuOf(n, text)
+	with context { catalog.Catalog: list() } {
+		let first = catalog.Catalog.Price(sku) catch {
+		case catalog.Unknown:
+			-1
+		}
+		let second = catalog.Catalog.Price(sku) catch {
+		case catalog.Unknown:
+			-1
+		}
+		assert first == second
+	}
+}
+
+test NotNegativeHolds(n int, text string) {
+	let sku = skuOf(n, text)
+	with context { catalog.Catalog: list() } {
+		let p = catalog.Catalog.Price(sku) catch {
+		case catalog.Unknown:
+			0
+		}
+		assert p >= 0
+	}
+}
+
+test ParseRefusesABadRow {
+	let at = Parse("apple 120\npear ninety\n") catch {
+	case BadRow as b:
+		Table{prices: Map[string, int]{b.Line: 0}, lookups: Map[string, int]{}}
+	}
+	assert at.prices.Get("pear ninety") == Some{0}
+}
+
+test MemoSavesLookups {
+	let t = list()
+	let mut m = try memo.New[string, int](2)
+	with context { catalog.Catalog: t } {
+		for sku in []string{"apple", "apple", "pear", "apple", "fig", "pear"} {
+			let _ = try catalog.Quote(&m, sku)
+		}
+	}
+	assert t.Lookups() == 4
+	assert m.CountsOf() == memo.Counts{Hits: 2, Misses: 4, Size: 2}
+}
+
+test UnknownIsLookedUpEachTime {
+	let t = list()
+	let mut m = try memo.New[string, int](2)
+	with context { catalog.Catalog: t } {
+		for _ in 0..3 {
+			let p = catalog.Quote(&m, "kiwi") catch {
+			case catalog.Unknown:
+				-1
+			}
+			assert p == -1
+		}
+	}
+	assert t.Lookups() == 3
+}

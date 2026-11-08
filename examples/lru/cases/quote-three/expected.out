@@ -1,0 +1,8 @@
+apple $1.20 (catalog)
+pear $0.95 (catalog)
+apple $1.20 (cache)
+fig $0.07 (catalog)
+pear $0.95 (cache)
+mango is not in the catalog
+apple $1.20 (cache)
+hits 3, misses 4, held 3, lookups 4
