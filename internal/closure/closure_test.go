@@ -115,8 +115,16 @@ var declared = map[string][]allowance{
 			// on are its inputs already; these are the rest, at the depths
 			// the walk reads them.
 			{"internal/sketch", listing, "TestNoStageERefusal (C43) walks the compiler's code below internal/sketch"},
+			{"docs/spec/stdlib.md", file, "the std law runners pass their laws to lawledger.Run, which reads the Std laws ledger to hold each restatement to its row (fu-ledger-runner)"},
 		},
 	),
+	"internal/sketch/std": declare(
+		[]allowance{{"docs/spec/stdlib.md", file, "TestStdLawLedger and the host law runner read the Std laws ledger (std-align S1a, fu-ledger-runner)"}},
+		glob("internal/sketch/lower/*_test.go", "TestStdLawLedger reads the test files of the runner packages (runnerPackages) to find each ledger runner and whether it calls lawledger.Run"),
+	),
+	"runtime/v1": {
+		{"docs/spec/stdlib.md", file, "the std law runners of the Go bodies pass their laws to lawledger.Run, which reads the Std laws ledger (fu-ledger-runner)"},
+	},
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),
 		glob("internal/sketch/testdata/*/*.ergo", "decidedInputs parses every source of the shared corpus one directory down"),
@@ -165,6 +173,7 @@ var declared = map[string][]allowance{
 		{"conformance/effect-cases.json", file, "the mapping reads the Effect case list"},
 		{"conformance/upstream/foldkit-d21db423", subtree, "the mapping walks the pinned foldkit evidence at every depth (follow-up: outside this unit's Owns)"},
 		{".git", file, "the mapping asks git whether evidence is tracked (follow-up: outside this unit's Owns)"},
+		{"internal/sketch/lower/*_test.go", files, "the mapping parses each evidence test file to find the subtest of its case (fu-conf-pending); every evidence file is a test of the lowering today"},
 	},
 	"scripts/examples": {
 		{"examples", subtree, "TestRepoExamplesHoldTheirLaws loads every program folder of the repository's examples/ (loadExamples lists it and walks each program, packages and cmd/ included), so an added or changed example reruns it"},
