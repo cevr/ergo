@@ -6,6 +6,20 @@ import (
 	"ergo.local/prototype/internal/sketch/std"
 )
 
+// ambientEntryText is the S106 of a context entry for the prelude's
+// Ambient (fu-ambient-ctor r7; stdlib.md, Host packages 3): Ambient has
+// one provider, the program entry, so no context binds it, in any package,
+// the prelude and std included. A value of Ambient (a parameter, say)
+// cannot become a provider either: the mint rule's "a call is no build"
+// holds only while Ambient has one source.
+const ambientEntryText = "no context binds Ambient: its one provider is the program entry, for a main that lists it (stdlib.md, Host packages 3)"
+
+// isAmbient reports whether t is the prelude's Ambient.
+func isAmbient(t Type) bool {
+	n, ok := t.(*Named)
+	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "Ambient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == std.PreludePath
+}
+
 // Construction authority and member visibility across packages
 // (types.md, Zero values 6; grammar.md, Visibility 2 and 3; 196b plan Q6,
 // Q7). A record with an unexported field is built only by its package:

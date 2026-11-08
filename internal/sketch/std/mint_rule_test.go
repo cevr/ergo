@@ -66,6 +66,10 @@ var mintPlaces = []mintPlace{
 	{"closure that lists Ambient", "func Item() (func() (@T) needs Ambient) {\n\tfunc() (@T) needs Ambient {\n\t\t@PRE\n\t\t@E\n\t}\n}\n", true, true, false},
 	{"closure in a function that takes a Host", "func Item(h Host) (func() (@T)) {\n\tfunc() (@T) {\n\t\t@PRE\n\t\t@E\n\t}\n}\n", true, true, false},
 	{"let", "let Item @T = @E\n", false, false, false},
+	// fu-ambient-ctor r7 (batch-10 r6 T1): a context literal in a function
+	// is judged by the function's row.
+	{"context literal in a function", "func Item() int {\n\t@PRE\n\twith context { Reader: @E } { 1 }\n}\n", false, true, true},
+	{"context literal in a function that lists Ambient", "func Item() int needs Ambient {\n\t@PRE\n\twith context { Reader: @E } { 1 }\n}\n", true, true, true},
 	{"named context", "let Item = context { Reader: @E }\n", false, false, true},
 	{"test", "test Item {\n\t@PRE\n\tassert keep(@E)\n}\n", false, true, false},
 	{"law", "law Item() { keep(@E) }\n", false, false, false},

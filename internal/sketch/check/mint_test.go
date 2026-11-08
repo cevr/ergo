@@ -11,8 +11,78 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/std"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
+
+// TestPreludeBindsNoAmbient is the batch-10 r6 B1 probe (fu-ambient-ctor
+// r7): the prelude may implement its own sealed Ambient, and bound such a
+// value in a context to call a function that needs Ambient with no
+// Ambient in its own row. The mint rule's "a call is no build" holds only
+// while Ambient has one source, the program entry, so a context entry for
+// Ambient is S106 in every package, the prelude included. The prelude is
+// checked here with one more file, as prelude() checks the embedded one.
+func TestPreludeBindsNoAmbient(t *testing.T) {
+	const forge = `type verifierAmbient {}
+
+func ambient(_ verifierAmbient) {}
+
+func verifierNeeds() int needs Ambient { 1 }
+
+func VerifierForge() int {
+	with context { Ambient: verifierAmbient } { verifierNeeds() }
+}
+`
+	var files []*syntax.File
+	for _, name := range sortedKeys(std.Prelude()) {
+		f, err := syntax.Parse(std.Prelude()[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	f, err := syntax.Parse(forge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "zz_forge.ergo"
+	files = append(files, f)
+	c := newChecker(std.PreludePath, nil, universe())
+	c.pkg.std = true
+	c.run(files)
+	var got []string
+	for _, d := range c.sorted() {
+		got = append(got, d.Code+" "+d.Message)
+	}
+	if want := []string{CodeProvider + " " + ambientEntryText}; !slices.Equal(got, want) {
+		t.Errorf("the prelude with the forge: diagnostics %q, want %q", got, want)
+	}
+}
+
+// TestIsAmbientIsThePrelude pins S106's test of Ambient (fu-ambient-ctor
+// r7): the prelude's Ambient, not another prelude capability, and not a
+// type of another package named Ambient (S108 refuses that name in a
+// program, so the fixture is checked for its type only).
+func TestIsAmbientIsThePrelude(t *testing.T) {
+	if !isAmbient(preludeType("Ambient")) {
+		t.Error("isAmbient(prelude.Ambient) = false")
+	}
+	if isAmbient(preludeType("Console")) {
+		t.Error("isAmbient(prelude.Console) = true")
+	}
+	f, err := syntax.Parse("type Ambient {\n\tMark(),\n}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, _ := Check("fixture", []*syntax.File{f}, nil)
+	tn, ok := pkg.Scope.names["Ambient"].(*TypeName)
+	if !ok {
+		t.Fatal("fixture declares no Ambient")
+	}
+	if isAmbient(tn.Type) {
+		t.Error("isAmbient(fixture.Ambient) = true")
+	}
+}
 
 // TestMintFormNamesEveryKind is the totality guard of Mints
 // (fu-ambient-ctor r6). It reads the syntax package's source: every type
@@ -150,7 +220,7 @@ func mintText(m Mint) string {
 var mintFormNames = map[MintForm]string{
 	MintLiteral: "literal", MintUpdate: "update", MintZeroField: "zero-field", MintZeroLet: "zero-let",
 	MintZeroRecord: "bare", MintConversion: "conversion", MintConstant: "constant", MintFunc: "func",
-	MintTuple: "tuple", MintString: "string", MintGenerated: "generated",
+	MintTuple: "tuple", MintString: "string", MintGenerated: "generated", MintExtern: "extern",
 }
 
 var mintPlaceNames = map[MintPlace]string{
@@ -195,6 +265,9 @@ func Get(_ H) int { 1 }
 		{"constant pattern is no mint", "func f(n N) int {\n\tmatch n {\n\tcase 3: 1\n\tcase _: 0\n\t}\n}\n", nil},
 		{"callee expression", "func pick(h H) func() int { func() int { Get(h) } }\n\nfunc f() int { pick(H{root: \"/\"})() }\n", []string{"func func() int @func pick [F]", "literal fixture.H @func f [F]"}},
 		{"constant name", "type Flag bool\n\nfunc f() Flag { true }\n", []string{"constant fixture.Flag @func f [F]"}},
+		{"context literal in a function, with block in its frame", "func f() int {\n\twith context { Rd: H{root: \"/\"} } { Get(H{root: \"x\"}) }\n}\n", []string{"literal fixture.H @func f [F]", "literal fixture.H @func f [F]"}},
+		{"generic extern's result", "extern go ergo.local/prototype/runtime/v1.WithCapacity func zero[T](n int) []T\n\nfunc f() []H { zero[H](1) }\n", []string{"extern fixture.H @func f [F]"}},
+		{"non-generic extern's result is asked at its declaration", "extern go ergo.local/prototype/runtime/v1.FSReadFile func mk() H\n\nfunc f() H { mk() }\n", nil},
 		{"if branch", "func f(b bool) int {\n\tif b { Get(H{root: \"/\"}) } else { 0 }\n}\n", []string{"literal fixture.H @func f [F]"}},
 		{"match arm", "func f(w W) int {\n\tmatch w {\n\tcase W{X: _, Y: y}: Get(H{root: \"/\"}) + y\n\t}\n}\n", []string{"literal fixture.H @func f [F]"}},
 		{"catch arm", "type Oops {}\n\nfunc g() int fails Oops { 1 }\n\nfunc f() int {\n\tg() catch {\n\tcase Oops:\n\t\tGet(H{root: \"/\"})\n\t}\n}\n", []string{"literal fixture.H @func f [F]"}},
@@ -233,7 +306,7 @@ func Get(_ H) int { 1 }
 		pkg, ds := Check("fixture", []*syntax.File{f}, nil)
 		var real []Diagnostic
 		for _, d := range ds {
-			if d.Code != CodeUnused {
+			if d.Code != CodeUnused && !strings.Contains(d.Message, "only std binds the Ergo runtime") {
 				real = append(real, d)
 			}
 		}

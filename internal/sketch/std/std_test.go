@@ -603,6 +603,43 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 			t.Errorf("unguardedHosts lists %s (%s), which is not a host provider", name, unit)
 		}
 	}
+	// Ambient has one source, the program entry (fu-ambient-ctor r7): no
+	// std type implements it and no std context binds it. The fixture rows
+	// check the walk: the batch-10 r6 forge's implementer, and contexts
+	// that bind a value of Ambient (S106 since r7, still reported here).
+	var ambient *check.TypeName
+	for _, tn := range prelude.Types {
+		if tn.Name == "Ambient" {
+			ambient = tn
+		}
+	}
+	if ambient == nil {
+		t.Fatal("no Ambient in the prelude")
+	}
+	for _, v := range ambientSources(pkgs, ambient) {
+		t.Errorf("%s", v)
+	}
+	for _, row := range []struct {
+		kind, src string
+		want      []string
+	}{
+		{"implementer", "type Fake {}\n\nfunc ambient(_ Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
+		{"implementer by borrow", "type Fake { n int }\n\nfunc ambient(_ *Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
+		{"a function of another name", "type Fake {}\n\nfunc other(_ Fake) {}\n", nil},
+		{"unexported named context", "type Fake {}\n\nfunc ambient(_ Fake) {}\n\nlet c = context { Ambient: Fake }\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry", "fixture.c is a named context that binds Ambient"}},
+		{"named context of another capability", "let C = context { Scheduler: LiveScheduler }\n", nil},
+		{"named context", "type Fake {}\n\nfunc ambient(_ Fake) {}\n\nlet C = context { Ambient: Fake }\n", []string{"fixture.C is a named context that binds Ambient", "fixture.Fake implements Ambient, whose one provider is the program entry"}},
+		{"context literal in a with", "func g() int needs Ambient { 1 }\n\nfunc Rebind(a Ambient) int {\n\twith context { Ambient: a } { g() }\n}\n", []string{"fixture: a context literal binds Ambient"}},
+	} {
+		f, err := syntax.Parse(row.src)
+		if err != nil {
+			t.Fatalf("%s: %v", row.kind, err)
+		}
+		fake, _ := check.Check("fixture", []*syntax.File{f}, nil)
+		if got := ambientSources([]*check.Package{fake}, ambient); !slices.Equal(got, row.want) {
+			t.Errorf("Ambient source %s: %q, want %q", row.kind, got, row.want)
+		}
+	}
 
 	// One fixture package per kind of Host's underlying type. Each is
 	// std-shaped: Host reaches the host through a helper declared after
@@ -974,6 +1011,14 @@ func Give() M { Give() }
 		{"generated test parameter that holds a Host", readerBase + "type Box { H Host }\n\ntest T(b Box) {\n\tassert true\n}\n", []string{placeBuilds("T", "fixture.Host (a generated parameter)", "a test")}},
 		{"let's zero value of a record that holds a Host", readerBase + "type Wrap { H Host, N int }\n\nfunc F() string fails Gone {\n\tlet w Wrap\n\ttry Read(w.H)\n}\n", []string{builds("F", "fixture.Host (a let's zero value)")}},
 		{"build in a trailing block", readerBase + "func run(f func() string fails Gone) string fails Gone { try f() }\n\nfunc F() string fails Gone {\n\ttry run() {\n\t\ttry Read(Host{root: \"/\"})\n\t}\n}\n", []string{builds("F", "fixture.Host (a literal)")}},
+		// fu-ambient-ctor r7 (batch-10 r6 Unproven E1, E3): an extern has
+		// no Ergo body to ask. One whose signature mentions Host lists
+		// Ambient; a generic extern's result at Host is a build at the call.
+		{"E1 extern whose result is Host", readerBase + "extern go ergo.local/prototype/runtime/v1.FSReadFile func mk() Host\n\nfunc Open() Reader { mk() }\n", []string{"fixture.mk is an extern that mentions fixture.Host (fixture.Host or a record it needs) and neither lists Ambient in its written row nor takes a parameter of one"}},
+		{"E1 extern whose failure holds a Host", readerBase + "type Oops { H Host }\n\nextern go ergo.local/prototype/runtime/v1.FSReadFile func mk() int fails Oops\n", []string{"fixture.mk is an extern that mentions fixture.Host (fixture.Host or a record it needs) and neither lists Ambient in its written row nor takes a parameter of one"}},
+		{"E1 control: the extern lists Ambient", readerBase + "extern go ergo.local/prototype/runtime/v1.FSReadFile func mk() Host needs Ambient\n\nfunc Open() Reader needs Ambient { mk() }\n", nil},
+		{"E3 generic extern's result at Host", readerBase + "extern go ergo.local/prototype/runtime/v1.WithCapacity func zero[T](n int) []T\n\nfunc Open() Reader { zero[Host](1)[0] }\n", []string{builds("Open", "fixture.Host (a generic extern's result)")}},
+		{"E3 control: the call lists Ambient", readerBase + "extern go ergo.local/prototype/runtime/v1.WithCapacity func zero[T](n int) []T\n\nfunc Open() Reader needs Ambient { zero[Host](1)[0] }\n", nil},
 		// No P2 control: a named context is closed, so a provider that
 		// needs Ambient there is S102 (rows.md, Context 4).
 		{"P3 Host as an open operation type, let", readerBase + "let Default Reader = Host{root: \"/\"}\n", []string{placeBuilds("Default", "fixture.Host (a literal)", "a let")}},
@@ -1718,7 +1763,87 @@ func hostAuthorityViolationsIn(surface []*check.Package, pkg *check.Package, tn 
 			}
 		}
 	}
+	// An extern has no Ergo body for the mint rule to ask (fu-ambient-ctor
+	// r7, batch-10 r6 Unproven E1): one whose signature mentions a held
+	// type lists Ambient in its written row, or takes a held parameter. A
+	// generic extern's result is asked at each call (check.MintExtern).
+	for _, p := range surface {
+		for _, f := range p.Funcs {
+			if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil || writesAmbient(f) || takesHeld(f, held) {
+				continue
+			}
+			if m := mentioned([]check.Type{f.Sig}); m != "" {
+				out = append(out, p.Name+"."+f.Name+" is an extern that mentions "+m+" and neither lists Ambient in its written row nor takes a parameter of one")
+			}
+		}
+	}
 	return append(out, mintViolations(surface, held)...)
+}
+
+// ambientSources are the ways a package of pkgs provides the prelude's
+// Ambient other than the program entry (fu-ambient-ctor r7, batch-10 r6
+// B1): a type with a function for each operation of Ambient, whose first
+// parameter is the type or a borrow of it (it implements Ambient where
+// Ambient's package allows it: the prelude), and a context, named or
+// in a with, that binds Ambient (the checker refuses that too, S106). The
+// mint rule's "a call is no build" holds only while Ambient has one
+// source, so each is a violation.
+func ambientSources(pkgs []*check.Package, ambient *check.TypeName) []string {
+	var out []string
+	it, _ := ambient.Type.(*check.Named).Underlying().(*check.Interface)
+	isAmbient := func(t check.Type) bool {
+		n, ok := t.(*check.Named)
+		return ok && n.Obj == ambient
+	}
+	for _, p := range pkgs {
+		for _, tn := range p.Types {
+			if _, ok := tn.Type.(*check.Named).Underlying().(*check.Interface); ok || it == nil || len(it.Methods) == 0 {
+				continue
+			}
+			all := true
+			for _, m := range it.Methods {
+				found := false
+				for _, f := range p.Funcs {
+					if f.Name != m.Name || f.Sig == nil || len(f.Sig.Params) == 0 {
+						continue
+					}
+					t := f.Sig.Params[0].Type
+					if b, ok := t.(*check.Pointer); ok {
+						t = b.Elem
+					}
+					if n, ok := t.(*check.Named); ok && n.Obj == tn {
+						found = true
+					}
+				}
+				all = all && found
+			}
+			if all {
+				out = append(out, p.Name+"."+tn.Name+" implements Ambient, whose one provider is the program entry")
+			}
+		}
+		binds := func(c *check.Context) bool {
+			return slices.ContainsFunc(contextCaps(c), isAmbient)
+		}
+		for _, c := range exportedContexts(p) {
+			if binds(c) {
+				out = append(out, p.Name+"."+c.Name+" is a named context that binds Ambient")
+			}
+		}
+		for name, c := range p.Contexts {
+			if !isExportedName(name) && binds(c) {
+				out = append(out, p.Name+"."+name+" is a named context that binds Ambient")
+			}
+		}
+		for _, w := range p.Info.Withs {
+			for _, c := range w.Contexts {
+				if c != nil && c.Lit != nil && binds(c) {
+					out = append(out, p.Name+": a context literal binds Ambient")
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // mintViolations are the mint rule's violations (fu-ambient-ctor r6;
@@ -1803,6 +1928,7 @@ var mintFormText = map[check.MintForm]string{
 	check.MintTuple:      "a tuple",
 	check.MintString:     "an interpolated string",
 	check.MintGenerated:  "a generated parameter",
+	check.MintExtern:     "a generic extern's result",
 }
 
 var mintPlaceText = map[check.MintPlace]string{
