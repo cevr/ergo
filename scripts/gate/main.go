@@ -166,6 +166,11 @@ type Step struct {
 	// whoever made it (sweepCheckout): a step that writes and does not say
 	// so fails the sweeps it overlaps, on every run.
 	Writes []string
+	// Weight is the step's expected seconds from the recorded test times
+	// (durations.json; stepWeights), or 0 when the gate has none. A freed
+	// slot goes to the heaviest waiting step (slotPool). It orders the
+	// steps only: no key holds it.
+	Weight float64
 }
 
 // Inputs declares everything a cached step's result depends on.
@@ -861,7 +866,7 @@ func (g *gate) run(out io.Writer) int {
 			for _, j := range after[i] {
 				<-done[j]
 			}
-			slots.acquire(first[i])
+			slots.acquireWeighted(first[i], step.Weight)
 			if step.Sweep != "" {
 				results[i] = g.sweepCheckout(step)
 			} else {

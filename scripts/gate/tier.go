@@ -342,9 +342,10 @@ func fastSteps(root string) ([]*Step, error) {
 			}
 			n = max(1, min(int(math.Ceil(total/shardTargetSeconds)), stepCPUs(), len(fast)))
 		}
-		selections := fastShardArgs(shard(fast, measured, n), large)
+		groups := shard(fast, measured, n)
+		selections, weights := fastShardArgs(groups, large), shardWeights(groups, measured)
 		for i, selection := range selections {
-			step := &Step{Name: name, Needs: needs, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem}
+			step := &Step{Name: name, Needs: needs, Argv: append(append(slices.Clone(base), selection...), pkg), Env: env, ToolEnv: testTools, Package: p.closure, PackageProblem: problem, Weight: weights[i]}
 			// A key from a declared list holds only while the input
 			// observer checks the reads (testPackages).
 			_, step.ObserveInputs = hostPackageInputs[p.dir]
@@ -363,6 +364,7 @@ func fastSteps(root string) ([]*Step, error) {
 			step := sweepStep(p.dir)
 			step.Name = "closure sweep ./" + p.dir + " (fast)"
 			step.Package, step.PackageProblem = sweepClosure(p.dir, problem), problem
+			step.Weight = sweepWeight(durations, p.importPath)
 			tests = append(tests, step)
 		}
 	}

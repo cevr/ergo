@@ -1,6 +1,8 @@
 package main
 
 import (
+	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -57,6 +59,166 @@ func TestSlotPoolServesWritersFirst(t *testing.T) {
 	pool.acquire(false)
 	if f, r := pool.waiting(); f != 0 || r != 0 || pool.free != 0 {
 		t.Fatalf("after the run: waiting %d, %d, free %d", f, r, pool.free)
+	}
+}
+
+// TestSlotPoolServesTheHeaviestFirst: with every slot taken, a freed slot
+// goes to the writers' queue first, then to the heaviest waiting step; a
+// step with no weight counts as the heaviest, and steps of equal weight
+// go in the order they came.
+func TestSlotPoolServesTheHeaviestFirst(t *testing.T) {
+	pool := newSlotPool(1)
+	pool.acquire(false)
+	order := make(chan string, 8)
+	queued := 0
+	start := func(name string, first bool, weight float64) {
+		go func() {
+			pool.acquireWeighted(first, weight)
+			order <- name
+			pool.release()
+		}()
+		queued++
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			if f, r := pool.waiting(); f+r == queued {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s did not queue", name)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	start("light", false, 5)
+	start("heavy", false, 50)
+	start("unknown", false, 0)
+	start("mid", false, 20)
+	start("mid2", false, 20)
+	start("writer", true, 1)
+	pool.release()
+	var got []string
+	for range queued {
+		got = append(got, <-order)
+	}
+	if want := []string{"writer", "unknown", "heavy", "mid", "mid2", "light"}; !slices.Equal(got, want) {
+		t.Fatalf("slots went to %v, want %v", got, want)
+	}
+}
+
+// TestLongestStepTakesTheFirstFreedSlot: in a gate of one slot, seven steps
+// queue at once, the heaviest declared last. One of them takes the free
+// slot; the others then run heaviest first, where a queue in arrival order
+// runs them in the order the scheduler started their goroutines.
+func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
+	root := fixture(t)
+	t.Setenv(cpuVariable, "1")
+	order := filepath.Join(t.TempDir(), "order")
+	var steps []*Step
+	for i, name := range []string{"s1", "s2", "s3", "s4", "s5", "s6", "heavy"} {
+		weight := float64(i + 1)
+		if name == "heavy" {
+			weight = 100
+		}
+		steps = append(steps, &Step{Name: name, Weight: weight, Argv: []string{"sh", "-c", `sleep 0.2; echo ` + name + ` >> '` + order + `'`}})
+	}
+	code, out := runGate(t, root, t.TempDir(), steps)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	content, err := os.ReadFile(order)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := strings.Fields(string(content))
+	if len(ran) != 7 {
+		t.Fatalf("the steps ran %v; want seven", ran)
+	}
+	// After the step that found the slot free, the queue is served
+	// heaviest first.
+	var want []string
+	for _, name := range []string{"heavy", "s6", "s5", "s4", "s3", "s2", "s1"} {
+		if name != ran[0] {
+			want = append(want, name)
+		}
+	}
+	if !slices.Equal(ran[1:], want) {
+		t.Fatalf("the steps ran in the order %v; want %s, then %v", ran, ran[0], want)
+	}
+}
+
+// TestStepsWeighTheirRecordedTime: in the full tier each sharded test step
+// weighs the recorded time of its tests, the other packages' step theirs,
+// a closure sweep sweepWeightFactor times its package's, and the closure
+// sweep of internal/sketch/lower is the heaviest step after the writers,
+// so it takes the first slot the writers free (batch-10: it started at
+// 381 s of the merge tier and was its longest step). Every sweep step has
+// the sweep's test timeout.
+func TestStepsWeighTheirRecordedTime(t *testing.T) {
+	host := sweepOS
+	t.Cleanup(func() { sweepOS = host })
+	sweepOS = "linux"
+	root := checkoutRoot(t)
+	steps, err := gateSteps(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	durations, err := readDurations(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := modulePath(root)
+	lower := module + "/internal/sketch/lower"
+	total := func(pkg string) float64 {
+		return recordedSeconds(slices.Collect(maps.Keys(durations[pkg])), durations[pkg])
+	}
+	index := map[string]int{}
+	for i, step := range steps {
+		index[step.Name] = i
+	}
+	writers := writerPath(steps, index)
+	var heaviest *Step
+	shards := map[string]float64{}
+	for i, step := range steps {
+		if step.Sweep != "" {
+			if want := sweepWeightFactor * total(module+"/"+step.Sweep); math.Abs(step.Weight-want) > 1e-6 {
+				t.Errorf("%s weighs %v, want %v", step.Name, step.Weight, want)
+			}
+			if !slices.Contains(step.Argv, sweepTimeout) {
+				t.Errorf("%s: argv %q lacks %s", step.Name, step.Argv, sweepTimeout)
+			}
+		}
+		if pkg := step.Argv[len(step.Argv)-1]; strings.HasPrefix(step.Name, "go test ./") && strings.Contains(step.Name, "/") && strings.Contains(step.Name, "[") {
+			shards[pkg] += step.Weight
+		}
+		if !writers[i] && step.Weight > 0 && (heaviest == nil || step.Weight > heaviest.Weight) {
+			heaviest = step
+		}
+	}
+	if heaviest == nil || heaviest.Name != "closure sweep ./internal/sketch/lower" {
+		t.Errorf("the heaviest step after the writers is %v; want the closure sweep of internal/sketch/lower", heaviest)
+	}
+	if len(shards) == 0 {
+		t.Fatal("no sharded test step")
+	}
+	for pkg, weight := range shards {
+		names, err := testNames(filepath.Join(root, strings.TrimPrefix(pkg, module+"/")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := recordedSeconds(names, durations[pkg]); math.Abs(weight-want) > 1e-6 {
+			t.Errorf("the shards of %s weigh %v in all; want its tests' recorded %v", pkg, weight, want)
+		}
+	}
+	if shards[lower] == 0 {
+		t.Errorf("the shards of %s have no weight", lower)
+	}
+	others := steps[index["go test (other packages)"]]
+	want := 0.0
+	for _, pkg := range others.Argv[3:] {
+		want += total(pkg)
+	}
+	if want == 0 || math.Abs(others.Weight-want) > 1e-6 {
+		t.Errorf("go test (other packages) weighs %v; want %v", others.Weight, want)
 	}
 }
 

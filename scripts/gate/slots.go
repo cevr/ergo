@@ -1,29 +1,49 @@
 package main
 
-import "sync"
+import (
+	"math"
+	"sync"
+)
 
 // slotPool hands out the gate's step slots: at most its size at once. A
-// step that waits for a slot waits in one of two queues, each served in
-// the order the steps came: a freed slot goes to the first step of the
-// writers' queue, and only when that queue is empty to the first of the
-// others. The writers' queue holds every step that writes the checkout and
-// every step such a step needs (writerPath). The closure sweeps start only
-// after every writer has ended (sweepsAfterWriters), so a writer that
-// waited behind unrelated steps made every sweep wait too: in the batch-9
-// full tier, build bin/ergo ran at 204.6 s and the first sweep at 270.5 s.
+// step that waits for a slot waits in one of two queues: a freed slot goes
+// to the writers' queue, and only when that queue is empty to the others.
+// The writers' queue holds every step that writes the checkout and every
+// step such a step needs (writerPath). The closure sweeps start only after
+// every writer has ended (sweepsAfterWriters), so a writer that waited
+// behind unrelated steps made every sweep wait too: in the batch-9 full
+// tier, build bin/ergo ran at 204.6 s and the first sweep at 270.5 s.
+//
+// In each queue the heaviest waiting step goes first (Step.Weight, its
+// expected seconds), and steps of equal weight in the order they came:
+// longest processing time first, so the longest step does not start last
+// and become the gate's tail. In the batch-10 merge tier the closure sweep
+// of internal/sketch/lower, the longest step (841 s), started at 381 s,
+// behind steps of seconds (fu-sweep-deadline). A step with no weight (0)
+// counts as the heaviest: the gate has no record of how long it takes.
 type slotPool struct {
 	mu     sync.Mutex
 	free   int
-	queues [2][]chan struct{}
+	queues [2][]waiter
+}
+
+// waiter is a step that waits for a slot: ready closes when it gets one.
+type waiter struct {
+	ready  chan struct{}
+	weight float64
 }
 
 func newSlotPool(size int) *slotPool {
 	return &slotPool{free: size}
 }
 
-// acquire returns when the caller holds a slot; first puts it in the
-// writers' queue.
-func (p *slotPool) acquire(first bool) {
+// acquire is acquireWeighted for a step with no weight.
+func (p *slotPool) acquire(first bool) { p.acquireWeighted(first, 0) }
+
+// acquireWeighted returns when the caller holds a slot; first puts it in
+// the writers' queue, and weight (expected seconds, 0 unknown) orders it in
+// its queue.
+func (p *slotPool) acquireWeighted(first bool, weight float64) {
 	p.mu.Lock()
 	if p.free > 0 {
 		p.free--
@@ -34,8 +54,11 @@ func (p *slotPool) acquire(first bool) {
 	if first {
 		queue = 0
 	}
+	if weight <= 0 {
+		weight = math.Inf(1)
+	}
 	ready := make(chan struct{})
-	p.queues[queue] = append(p.queues[queue], ready)
+	p.queues[queue] = append(p.queues[queue], waiter{ready, weight})
 	p.mu.Unlock()
 	<-ready
 }
@@ -46,12 +69,25 @@ func (p *slotPool) release() {
 	defer p.mu.Unlock()
 	for i, queue := range p.queues {
 		if len(queue) > 0 {
-			p.queues[i] = queue[1:]
-			close(queue[0])
+			next := heaviest(queue)
+			close(queue[next].ready)
+			p.queues[i] = append(queue[:next:next], queue[next+1:]...)
 			return
 		}
 	}
 	p.free++
+}
+
+// heaviest is the index of the waiter with the most weight, the first of
+// them on a tie.
+func heaviest(queue []waiter) int {
+	best := 0
+	for i, w := range queue {
+		if w.weight > queue[best].weight {
+			best = i
+		}
+	}
+	return best
 }
 
 // waiting is the number of steps in each queue, for tests.
