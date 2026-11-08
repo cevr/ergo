@@ -193,6 +193,8 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 			want := sweepWeightFactor * total(module+"/"+step.Sweep)
 			if slices.Contains(hostTestPackages, step.Sweep) {
 				want = 0
+			} else if step.Weight <= 0 {
+				t.Errorf("%s weighs nothing, as a step with no record", step.Name)
 			}
 			if math.Abs(step.Weight-want) > 1e-6 {
 				t.Errorf("%s weighs %v, want %v", step.Name, step.Weight, want)
