@@ -31,6 +31,8 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 			"Engine has no field or method Holds; Engine is an operation type, so a dot call on its value reaches only its operations, and Holds is a function on it: call Holds(e, …)"},
 		{"dot-instance", "type Box[T] { v T }\nfunc Twice(b *Box[int]) { b.v = b.v * 2 }\nfunc main() needs Console {\n\tlet mut b = Box[int]{v: 1}\n\tb.Twice()\n\tConsole.Println(\"\\(b.v)\")\n}\n",
 			"Twice takes *Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: write func Twice[T](b *Box[T]), or call Twice(&b)"},
+		{"extern-value-with-a-row", "import strconv\nfunc apply(f func(s string) int fails strconv.Malformed | strconv.OutOfRange, s string) int fails strconv.Malformed | strconv.OutOfRange { try f(s) }\nfunc n() int fails strconv.Malformed | strconv.OutOfRange { try apply(strconv.Atoi, \"1\") }\n",
+			"strconv.Atoi is an extern and is not a value; pass func(s string) int fails strconv.Malformed | strconv.OutOfRange { strconv.Atoi(s) }"},
 		{"duplicate-function", "type Engine {}\ntype Program { n int }\nfunc Compile(s string) Program { Program{n: 1} }\nfunc Compile(_ Engine, s string) Program { Program{n: 2} }\n",
 			"Compile is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)"},
 		{"law-hides-type", "type Item { N int }\ntype Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }\n",
@@ -196,5 +198,42 @@ func TestDiagnosticTypeNamesResolve(t *testing.T) {
 	}
 	if messages < 200 {
 		t.Errorf("only %d messages; the generator misses faults", messages)
+	}
+}
+
+// TestDotCallHintAcrossPackages: a dot call on another package's type
+// names that package's function through the package, offers no rewrite
+// of a declaration the caller does not own, and never names an
+// unexported function the caller cannot call.
+func TestDotCallHintAcrossPackages(t *testing.T) {
+	const lib = "type Box[T] { V T }\nfunc Twice(b *Box[int]) { b.V = b.V * 2 }\nfunc half(b Box[int]) int { b.V / 2 }\nfunc Half(b Box[int]) int { half(b) }\n"
+	lf, err := syntax.Parse(lib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ds := check.Check("a", []*syntax.File{lf}, nil)
+	if len(ds) > 0 {
+		t.Fatalf("library: %s", describe(ds))
+	}
+	for _, tc := range []struct{ name, body, want, not string }{
+		{"exported", "let mut b = a.Box[int]{V: 1}\n\tb.Twice()\n\tb.V", "Twice takes *a.Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: call a.Twice(&b)", "write func"},
+		{"unexported", "let b = a.Box[int]{V: 1}\n\tb.half()", "a.Box[int] has no field or method half", "half takes"},
+	} {
+		src := "import a\nfunc f() int {\n\t" + tc.body + "\n}\n"
+		mf, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, md := check.Check("main", []*syntax.File{mf}, namesImporter{a})
+		found := false
+		for _, d := range md {
+			found = found || strings.Contains(d.Message, tc.want)
+			if strings.Contains(d.Message, tc.not) {
+				t.Errorf("%s: %q holds %q", tc.name, d.Message, tc.not)
+			}
+		}
+		if !found {
+			t.Errorf("%s: want a message holding %q, got %s", tc.name, tc.want, describe(md))
+		}
 	}
 }

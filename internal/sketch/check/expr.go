@@ -1234,9 +1234,15 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 		if len(f.Sig.Params) > 1 {
 			rest = ", …"
 		}
+		// Another package's function is called through its package, and
+		// only its own package can rewrite it.
+		callee, foreign := f.Name, f.Pkg != c.pkg
+		if foreign {
+			callee = f.Pkg.Name + "." + f.Name
+		}
 		switch {
 		case asInterface(n) != nil && c.identical(fn, n):
-			return fmt.Sprintf("%s is an operation type, so a dot call on its value reaches only its operations, and %s is a function on it: call %s(%s%s) (types.md, Methods 1)", c.localTypeText(n), f.Name, f.Name, recv, rest)
+			return fmt.Sprintf("%s is an operation type, so a dot call on its value reaches only its operations, and %s is a function on it: call %s(%s%s) (types.md, Methods 1)", c.localTypeText(n), callee, callee, recv, rest)
 		case n.Orig != nil && c.identical(fn, n):
 			star := ""
 			if ptr != "" {
@@ -1250,6 +1256,9 @@ func (c *checker) noMethodHint(t Type, x *syntax.SelectorExpr, called bool) stri
 			param := f.Sig.Params[0].Name
 			if param == "" || param == "_" {
 				param = "x"
+			}
+			if foreign {
+				return fmt.Sprintf("%s takes %s%s, one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: call %s(%s%s%s) (types.md, Methods 1)", callee, star, c.localTypeText(fn), callee, ptr, recv, rest)
 			}
 			return fmt.Sprintf("%s takes %s%s, one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: write func %s[%s](%s %s%s[%s]), or call %s(%s%s%s) (types.md, Methods 1)", f.Name, star, c.localTypeText(fn), f.Name, list, param, star, n.Obj.Name, list, f.Name, ptr, recv, rest)
 		}
