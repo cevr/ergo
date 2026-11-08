@@ -35,6 +35,16 @@ func TestPackageTypeHidesPreludeType(t *testing.T) {
 		// Map[K, V] names the package's Map, in a type and a literal, and a
 		// function whose first parameter is it is a function on that type.
 		{"map", "type Map[K, V] { keys []K, vals []V }\n\nfunc size[K, V](m Map[K, V]) int { len(m.keys) }\n\nfunc f() int {\n\tlet m = Map[string, int]{keys: []string{\"a\"}, vals: []int{1}}\n\tm.size()\n}\n", nil},
+		// A function on the package's Map binds its parameters by position
+		// as on any generic type (kinds): E is the row of Run, so Bad is an
+		// error type.
+		{"map-method-kinds", "type Map[K, E] { k K }\n\ntype Bad {}\n\nfunc Run[K, E](m Map[K, E]) int fails E { 1 }\n\nfunc f(m Map[int, Bad]) int fails Bad { m.Run() }\n", nil},
+		// A Map literal is a record literal: its keys are field names, so a
+		// local of a field's name is not read by it.
+		{"map-literal-fields", "type Map[K, V] { keys []K, vals []V }\n\nfunc f() int {\n\tlet keys = 1\n\tlet m = Map[string, int]{keys: []string{\"a\"}, vals: []int{1}}\n\tlen(m.vals)\n}\n", []string{"S110@4:6"}},
+		// The reference walk reads the literal's keys as fields too, so
+		// the package let keys, which reads m, makes no cycle with m.
+		{"map-literal-keys-in-the-walk", "type Map[K, V] { keys []K }\n\nlet keys = m.keys\n\nlet m = Map[string, int]{keys: []string{\"a\"}}\n\nfunc f() int { len(keys) }\n", nil},
 		{"map-not-generic", "type Map { n int }\n\nfunc f(m Map) int { m.n }\n\nfunc g(m Map[string, int]) {}\n", []string{"S108@5:10"}},
 		// Two declarations of one name are a duplicate as before.
 		{"twice", "type Option { V int }\ntype Option { W int }\n", []string{"S108@2:6"}},

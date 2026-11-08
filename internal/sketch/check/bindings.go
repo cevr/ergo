@@ -54,6 +54,15 @@ func (c *checker) declaredMap() *TypeName {
 	return tn
 }
 
+// mapAsDeclared is mapInstance where the package declares its own Map,
+// and nil where `Map[K, V]` is the map type (typeWalker.maps).
+func (c *checker) mapAsDeclared(x *syntax.MapType) syntax.Expr {
+	if c.declaredMap() == nil {
+		return nil
+	}
+	return c.mapInstance(x)
+}
+
 // mapInstance is `Map[K, V]` as the instance of the package's own Map
 // (declaredMap) that it spells there: the parser reads the name as the map
 // type (Parser rule 8). One node stands for each MapType, so every pass

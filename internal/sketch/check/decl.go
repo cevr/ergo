@@ -1605,6 +1605,9 @@ type typeWalker struct {
 	// index, when set, may take over an index expression (returning true)
 	// before the default walk.
 	index func(ix *syntax.IndexExpr) bool
+	// maps, when set, reads `Map[K, V]` as the package's own Map
+	// (checker.mapAsDeclared; L6), nil where the form is the map type.
+	maps func(m *syntax.MapType) syntax.Expr
 }
 
 func (w typeWalker) walk(x syntax.Node, k Kind) {
@@ -1638,6 +1641,12 @@ func (w typeWalker) walk(x syntax.Node, k Kind) {
 	case *syntax.ArrayType:
 		w.walk(x.Elt, KindType)
 	case *syntax.MapType:
+		if w.maps != nil {
+			if ix := w.maps(x); ix != nil {
+				w.walk(ix, k)
+				return
+			}
+		}
 		w.walk(x.Key, KindType)
 		w.walk(x.Value, KindType)
 	case *syntax.StarExpr:
@@ -1892,7 +1901,7 @@ func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstra
 		}
 		return false
 	}
-	typeWalker{slots: c.slotKinds, index: conflicted, f: func(id *syntax.Ident, k Kind) {
+	typeWalker{slots: c.slotKinds, index: conflicted, maps: c.mapAsDeclared, f: func(id *syntax.Ident, k Kind) {
 		tp := ctx.params[id.Name]
 		if tp == nil || !free[tp] || tp.conflict {
 			return
@@ -2012,9 +2021,6 @@ func (c *checker) collOwner(f *Func) (collKey, []syntax.Expr, bool) {
 	case *syntax.ArrayType:
 		args = []syntax.Expr{t.Elt}
 	case *syntax.MapType:
-		if c.declaredMap() != nil {
-			return collKey{}, nil, false // the package's own Map (L6)
-		}
 		args, key.isMap = []syntax.Expr{t.Key, t.Value}, true
 	default:
 		return collKey{}, nil, false
