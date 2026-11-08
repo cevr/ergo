@@ -1,0 +1,55 @@
+// The text form's tests: examples, and the laws restated as property
+// tests (the compiler checks laws and does not run them yet, #162).
+
+import slices
+import stackvm/vm
+
+// Countdown prints 3, 2, 1.
+let Countdown = "        push 3   ; the counter\nloop:   dup\n        print\n        push 1\n        sub\n        dup\n        jif loop\n        pop\n"
+
+test AssemblesLabels {
+	let p = try Assemble(Countdown)
+	assert Same(p, []vm.Instr{vm.Push{N: 3}, vm.Dup, vm.Print, vm.Push{N: 1}, vm.Sub, vm.Dup, vm.JumpIf{To: 1}, vm.Pop})
+	assert slices.Equal((try vm.Run(p, 100)).Printed, []int{3, 2, 1})
+}
+
+test LabelMayStandAlone {
+	let p = try Assemble("start:\n  push 1\n  jmp end\n  push 2\nend:\n")
+	assert Same(p, []vm.Instr{vm.Push{N: 1}, vm.Jump{To: 3}, vm.Push{N: 2}})
+}
+
+test DisassembleNamesTargets {
+	let text = Disassemble([]vm.Instr{vm.Push{N: 3}, vm.Dup, vm.JumpIf{To: 1}, vm.Call{To: 9}, vm.Jump{To: 5}})
+	assert text == "       push 3\nL1:    dup\n       jif L1\n       call 9\n       jmp L5\nL5:\n"
+}
+
+// problem is the explanation of the failure of Assemble(text), or "".
+func problem(text string) string {
+	let _ = Assemble(text) catch {
+	case Bad as b:
+		return Explain(b)
+	}
+	""
+}
+
+test BadLinesAreExplained {
+	assert problem("push") == "line 1: push needs an operand"
+	assert problem("add 1") == "line 1: add takes no operand"
+	assert problem("jmp a b") == "line 1: jmp takes one operand"
+	assert problem("\n  fly 3") == "line 2: no instruction is called \"fly\""
+	assert problem("push x1") == "line 1: \"x1\" is not a number"
+	assert problem("jmp nowhere") == "line 1: no label nowhere"
+	assert problem("a:\na: halt") == "line 2: label a is already on line 1"
+	assert problem("1a: halt") == "line 1: \"1a\" is not a label"
+	assert problem("; only a comment\n\n") == ""
+}
+
+test AssembleInvertsDisassembleHolds(seed int, size int) {
+	let p = vm.Program(seed, size%40)
+	assert Same(try Assemble(Disassemble(p)), p)
+}
+
+test LayoutIsIgnoredHolds(seed int, size int, note string) {
+	let p = vm.Program(seed, size%40)
+	assert Same(try Assemble(Spread(Disassemble(p), note)), p)
+}

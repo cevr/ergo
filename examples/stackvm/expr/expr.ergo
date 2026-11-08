@@ -1,0 +1,132 @@
+// Package expr is a small language of integer expressions with two ways
+// to run it: Eval walks the tree, and Compile makes a vm program. The
+// tree walk is the reference: the law CompiledAgrees holds the compiler
+// and the vm to it.
+
+import stackvm/vm
+
+// Expr is an integer expression.
+type Expr =
+	| Lit{N int}
+	| Neg{X Expr}
+	| Bin{Op Op, L Expr, R Expr}
+	| IfZero{Cond Expr, Then Expr, Else Expr}
+	| Square{X Expr}
+
+// Op is a binary operator. Less and Equal give 1 or 0.
+type Op = Plus{} | Minus{} | Times{} | Quot{} | Rem{} | Below{} | Equal{}
+
+// DivideByZero is a Quot or Rem whose right side is zero.
+type DivideByZero {}
+
+// Eval is the value of e, by walking the tree.
+func Eval(e Expr) int fails DivideByZero {
+	match e {
+	case Lit as l:
+		l.N
+	case Neg as n:
+		let x = try Eval(n.X)
+		0 - x
+	case Bin as b:
+		let l = try Eval(b.L)
+		let r = try Eval(b.R)
+		match b.Op {
+		case Plus:
+			l + r
+		case Minus:
+			l - r
+		case Times:
+			l * r
+		case Quot:
+			if r == 0 {
+				return DivideByZero
+			}
+			l / r
+		case Rem:
+			if r == 0 {
+				return DivideByZero
+			}
+			l % r
+		case Below:
+			if l < r { 1 } else { 0 }
+		case Equal:
+			if l == r { 1 } else { 0 }
+		}
+	case IfZero as i:
+		if try Eval(i.Cond) == 0 {
+			try Eval(i.Then)
+		} else {
+			try Eval(i.Else)
+		}
+	case Square as s:
+		let x = try Eval(s.X)
+		x * x
+	}
+}
+
+// builder is a program being compiled.
+type builder { code []vm.Instr }
+
+// Compile is a vm program that leaves the value of e on the stack and
+// halts. A Square calls a subroutine after the Halt.
+func Compile(e Expr) []vm.Instr {
+	let mut b = builder{code: []vm.Instr{}}
+	emit(&b, e)
+	b.code = b.code.Append(vm.Halt)
+	let square = len(b.code)
+	b.code = b.code.Append(vm.Dup)
+	b.code = b.code.Append(vm.Mul)
+	b.code = b.code.Append(vm.Ret)
+	for n, i in b.code {
+		match i {
+		case vm.Call:
+			b.code[n] = vm.Call{To: square}
+		case vm.Push, vm.Pop, vm.Dup, vm.Swap, vm.Over, vm.Add, vm.Sub, vm.Mul, vm.Div, vm.Mod, vm.Less, vm.Same, vm.Not, vm.Jump, vm.JumpIf, vm.JumpIfNot, vm.Ret, vm.Print, vm.Halt:
+		}
+	}
+	b.code
+}
+
+// emit adds the code of e to b. A Call's target is set by Compile.
+func emit(b *builder, e Expr) {
+	match e {
+	case Lit as l:
+		b.code = b.code.Append(vm.Push{N: l.N})
+	case Neg as n:
+		b.code = b.code.Append(vm.Push{N: 0})
+		emit(b, n.X)
+		b.code = b.code.Append(vm.Sub)
+	case Bin as o:
+		emit(b, o.L)
+		emit(b, o.R)
+		b.code = b.code.Append(match o.Op {
+		case Plus:
+			vm.Add
+		case Minus:
+			vm.Sub
+		case Times:
+			vm.Mul
+		case Quot:
+			vm.Div
+		case Rem:
+			vm.Mod
+		case Below:
+			vm.Less
+		case Equal:
+			vm.Same
+		})
+	case IfZero as i:
+		emit(b, i.Cond)
+		let toElse = len(b.code)
+		b.code = b.code.Append(vm.JumpIf{To: 0})
+		emit(b, i.Then)
+		let toEnd = len(b.code)
+		b.code = b.code.Append(vm.Jump{To: 0})
+		b.code[toElse] = vm.JumpIf{To: len(b.code)}
+		emit(b, i.Else)
+		b.code[toEnd] = vm.Jump{To: len(b.code)}
+	case Square as s:
+		emit(b, s.X)
+		b.code = b.code.Append(vm.Call{To: 0})
+	}
+}

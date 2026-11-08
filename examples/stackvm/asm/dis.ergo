@@ -1,0 +1,67 @@
+// The disassembler.
+
+import slices
+import stackvm/vm
+
+// Disassemble is the text of program: one instruction per line, a label
+// "L<n>:" before each instruction n that a jump or call targets, and a
+// last line "L<n>:" when a target is the end. A target outside the
+// program is written as its number, so the text assembles back to
+// program whatever its targets.
+func Disassemble(program []vm.Instr) string {
+	let mut targets = Map[int, bool]{}
+	for i in program {
+		match vm.Target(i) {
+		case Some[int] as t:
+			if t.Value >= 0 && t.Value <= len(program) {
+				targets[t.Value] = true
+			}
+		case None:
+		}
+	}
+	let mut out = ""
+	for n, i in program {
+		let label = if marked(targets, n) { "L\(n):" } else { "" }
+		out = out + pad(label, 7) + text(i, targets) + "\n"
+	}
+	if marked(targets, len(program)) {
+		out = out + "L\(len(program)):\n"
+	}
+	out
+}
+
+// text is the line of one instruction.
+func text(i vm.Instr, targets Map[int, bool]) string {
+	match i {
+	case vm.Push as p:
+		"push \(p.N)"
+	case vm.Jump, vm.JumpIf, vm.JumpIfNot, vm.Call:
+		let to = match vm.Target(i) {
+		case Some[int] as t:
+			t.Value
+		case None:
+			0
+		}
+		let name = if marked(targets, to) { "L\(to)" } else { "\(to)" }
+		"\(Mnemonic(i)) \(name)"
+	case vm.Pop, vm.Dup, vm.Swap, vm.Over, vm.Add, vm.Sub, vm.Mul, vm.Div, vm.Mod, vm.Less, vm.Same, vm.Not, vm.Ret, vm.Print, vm.Halt:
+		Mnemonic(i)
+	}
+}
+
+// marked reports whether n is a target. The comparison is in a function
+// because `(Some{true})` in an if expression's header loses its
+// parentheses in Go (G-ex-c-2).
+func marked(targets Map[int, bool], n int) bool { targets.Get(n) == Some{true} }
+
+// pad is s with spaces after it up to width bytes.
+func pad(s string, width int) string {
+	let mut out = s
+	for len(out) < width {
+		out = out + " "
+	}
+	out
+}
+
+// Same reports whether a and b are the same program.
+func Same(a []vm.Instr, b []vm.Instr) bool { slices.Equal(a, b) }

@@ -1,0 +1,29 @@
+; Print fib(n) for n = 0 to 15, by the doubly recursive definition.
+        push 0          ; n
+next:   dup
+        call fib
+        print
+        push 1
+        add
+        dup
+        push 16
+        lt
+        jif next
+        pop
+        halt
+
+; fib: n -> fib(n)
+fib:    dup
+        push 2
+        lt
+        jif base        ; n < 2: fib(n) = n
+        dup
+        push 1
+        sub
+        call fib        ; n fib(n-1)
+        swap
+        push 2
+        sub
+        call fib        ; fib(n-1) fib(n-2)
+        add
+base:   ret

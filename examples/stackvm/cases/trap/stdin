@@ -1,0 +1,4 @@
+push 1
+loop: push 0
+      div
+      jmp loop

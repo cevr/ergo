@@ -1,0 +1,58 @@
+// Package vm is a bytecode stack machine: its instruction set, the
+// encoding of a program as bytecode, and the dispatch loop that runs it.
+
+// Instr is one instruction. A target is an instruction index.
+type Instr =
+	| Push{N int}
+	| Pop{}
+	| Dup{}
+	| Swap{}
+	| Over{}
+	| Add{}
+	| Sub{}
+	| Mul{}
+	| Div{}
+	| Mod{}
+	| Less{}
+	| Same{}
+	| Not{}
+	| Jump{To int}
+	| JumpIf{To int}
+	| JumpIfNot{To int}
+	| Call{To int}
+	| Ret{}
+	| Print{}
+	| Halt{}
+
+// Target is the instruction index that i jumps or calls to, if any.
+func Target(i Instr) Option[int] {
+	match i {
+	case Jump as j:
+		Some{j.To}
+	case JumpIf as j:
+		Some{j.To}
+	case JumpIfNot as j:
+		Some{j.To}
+	case Call as c:
+		Some{c.To}
+	case Push, Pop, Dup, Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same, Not, Ret, Print, Halt:
+		None
+	}
+}
+
+// Retarget is i with its target moved to to; an instruction with no
+// target is i.
+func Retarget(i Instr, to int) Instr {
+	match i {
+	case Jump:
+		Jump{To: to}
+	case JumpIf:
+		JumpIf{To: to}
+	case JumpIfNot:
+		JumpIfNot{To: to}
+	case Call:
+		Call{To: to}
+	case Push, Pop, Dup, Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same, Not, Ret, Print, Halt:
+		i
+	}
+}

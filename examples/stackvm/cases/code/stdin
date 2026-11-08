@@ -1,0 +1,17 @@
+        push 3000000
+        push 0      ; n sum
+loop:   over
+        jifnot done
+        over
+        dup
+        mul
+        push 7
+        mod
+        add
+        swap
+        push 1
+        sub
+        swap
+        jmp loop
+done:   print
+        pop

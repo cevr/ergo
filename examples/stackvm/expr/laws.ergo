@@ -1,0 +1,51 @@
+// The compiler and the vm agree with the tree walk.
+
+import slices
+import stackvm/vm
+
+// Gen is an expression of at most depth levels, drawn from d. Literals
+// are small, so a Quot or Rem by zero happens often.
+func Gen(d *vm.Draws, depth int) Expr {
+	let k = if depth <= 0 { 0 } else { d.Next(8) }
+	match k {
+	case 0, 1:
+		Lit{N: d.Next(9) - 3}
+	case 2:
+		Neg{X: Gen(d, depth-1)}
+	case 3:
+		IfZero{Cond: Gen(d, depth-1), Then: Gen(d, depth-1), Else: Gen(d, depth-1)}
+	case 4:
+		Square{X: Gen(d, depth-1)}
+	case _:
+		let ops = []Op{Plus, Minus, Times, Quot, Rem, Below, Equal}
+		Bin{Op: ops[d.Next(len(ops))], L: Gen(d, depth-1), R: Gen(d, depth-1)}
+	}
+}
+
+// Of is an expression drawn from seed, at most 5 levels deep.
+func Of(seed int) Expr {
+	let mut d = vm.Seed(seed)
+	Gen(&d, 5)
+}
+
+// Agrees reports whether running the compiled e gives what Eval gives:
+// the stack holds exactly its value, or both divide by zero.
+func Agrees(e Expr) bool {
+	let want = Eval(e) catch {
+	case DivideByZero:
+		let _ = vm.Run(Compile(e), 100000) catch {
+		case vm.Trap as t:
+			return t.Why == vm.DivideByZero
+		}
+		return false
+	}
+	let got = vm.Run(Compile(e), 100000) catch {
+	case vm.Trap:
+		return false
+	}
+	slices.Equal(got.Stack, []int{want}) && len(got.Printed) == 0
+}
+
+// CompiledAgrees: a compiled expression computes what the tree walk
+// computes, and fails where it fails.
+law CompiledAgrees(seed int) { Agrees(Of(seed)) }

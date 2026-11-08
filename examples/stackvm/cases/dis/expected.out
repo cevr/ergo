@@ -1,0 +1,26 @@
+       push 0
+L1:    dup
+       call L12
+       print
+       push 1
+       add
+       dup
+       push 16
+       lt
+       jif L1
+       pop
+       halt
+L12:   dup
+       push 2
+       lt
+       jif L25
+       dup
+       push 1
+       sub
+       call L12
+       swap
+       push 2
+       sub
+       call L12
+       add
+L25:   ret
