@@ -9,7 +9,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // Round-2 review probe: a sender cancelled before it sends is refused.
@@ -46,11 +47,11 @@ func TestMatchedAgentCallbackObservesStop(t *testing.T) {
 	}()
 	<-holding
 	var forced atomic.Bool
-	watchdog := time.AfterFunc(5*time.Second, func() { forced.Store(true); close(gate) })
+	stopWatchdog := testwait.AfterFunc(t, func() { forced.Store(true); close(gate) })
 	if err := a.stop(); err != nil {
 		t.Errorf("stop: %v", err)
 	}
-	watchdog.Stop()
+	stopWatchdog()
 	if forced.Load() {
 		t.Error("matched stop needed an external gate release")
 	}

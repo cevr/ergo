@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -56,12 +57,8 @@ func replyTo[M any](a Address[M]) (Reply[int, Never], chan outcome[int, Never]) 
 
 func waitQueued[M any](t *testing.T, a Address[M], n int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for len(a.c.mailbox) != n {
-		if time.Now().After(deadline) {
-			t.Fatalf("mailbox holds %d, want %d", len(a.c.mailbox), n)
-		}
-		time.Sleep(time.Millisecond)
+	if !testwait.Until(t, func() bool { return len(a.c.mailbox) == n }) {
+		t.Fatalf("mailbox holds %d, want %d", len(a.c.mailbox), n)
 	}
 }
 
