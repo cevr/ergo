@@ -16,7 +16,8 @@ import (
 //   - twoop: `with Mine, n.Q { both() }`; n is named only by the second
 //     operand of the with (round 2 M1).
 //   - examples/checkout without Declining and the tests: main names the
-//     memory package only in `let Live = context { …, memory.Paying }`.
+//     memory package only in `let Memory = context { …, memory.Paying }`,
+//     and main reaches Memory through its local context `live`.
 func TestErgoRunContextOnlyPackage(t *testing.T) {
 	binary := buildTestCLI(t)
 	workspace := smokeWorkspace(t, "cmd/ergo/testdata/ctxreach", readmeSmokeProgram)
@@ -41,14 +42,22 @@ func TestErgoRunContextOnlyPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(data)
-	const declining = "let Declining = context { Live, replace payments.Payments: memory.Decliner }\n"
+	const declining = "let Declining = context { Memory, replace payments.Payments: memory.Decliner }\n"
 	tests := strings.Index(src, "\ntest ChargeSucceeds")
 	if strings.Count(src, declining) != 1 || tests < 0 {
 		t.Fatal("examples/checkout/cmd/checkout/main.ergo no longer holds Declining and its tests; update this repro")
 	}
 	src = strings.Replace(src[:tests+1], declining, "", 1)
-	if strings.Contains(src, "memory.Decliner") || !strings.Contains(src, "memory.Paying") {
-		t.Fatalf("the repro still names memory outside Live:\n%s", src)
+	// The cut main names the memory package only inside the context Memory,
+	// which main reaches through the local context `live` (Memory embedded,
+	// memory.Paying embedded in Memory: two embeddings deep).
+	for _, line := range strings.Split(src, "\n") {
+		if strings.Contains(line, "memory.") && !strings.HasPrefix(line, "let Memory = context {") {
+			t.Fatalf("the repro names memory outside the context Memory: %q\n%s", line, src)
+		}
+	}
+	if !strings.Contains(src, "memory.Paying") || !strings.Contains(src, "context { Memory,") {
+		t.Fatalf("the repro no longer reaches memory.Paying through Memory:\n%s", src)
 	}
 	if err := os.WriteFile(mainPath, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
