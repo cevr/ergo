@@ -90,6 +90,8 @@ const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--strict] [--json] [-
 
 // fileOptions are the options of a command that reads one source.
 type fileOptions struct {
+	// command is the command word the options belong to.
+	command            string
 	target, output     string
 	strict, json, work bool
 	// seed is test's --seed, a decimal uint64; empty when not given.
@@ -107,7 +109,7 @@ type fileOptions struct {
 // words after it are the program's arguments (`ergo run FILE|DIR [--]
 // ARGS...`, as `go run`).
 func parseFileOptions(command string, args []string) (fileOptions, error) {
-	opts := fileOptions{target: report.Target}
+	opts := fileOptions{target: report.Target, command: command}
 	var positional []string
 	seeded := false
 	for i := 0; i < len(args); i++ {
@@ -157,8 +159,8 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("source file required")
 	case opts.strict && command != "diagnostics":
 		return opts, fmt.Errorf("--strict is only supported by diagnostics")
-	case opts.json && command != "diagnostics":
-		return opts, fmt.Errorf("--json is only supported by diagnostics")
+	case opts.json && command != "diagnostics" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--json is only supported by diagnostics, run and test")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
 	case opts.work && command != "build" && command != "test":
@@ -263,6 +265,23 @@ func loadFolder(path, target string) (loaded, error) {
 		analysis: analysis,
 		result:   analysis.Result(analysis.Text(), target),
 	}, nil
+}
+
+// refuseUnchecked reports a source that does not check and returns the
+// "check failed" error; that refusal acquires the producer identity to
+// print its facts. build, and run and test with --json, print the check
+// envelope on stdout; run and test print one `file:line:col: error CODE:
+// message` line per finding on stderr, as diagnostics prints them.
+func refuseUnchecked(l loaded, opts fileOptions) error {
+	if err := l.result.Qualify(producer.Current()); err != nil {
+		return err
+	}
+	if opts.json || opts.command == "build" {
+		_ = printJSON(l.result.CheckEnvelope())
+	} else {
+		_ = l.result.Report(l.snapshot, false).WriteText(os.Stderr, l.source.String())
+	}
+	return fmt.Errorf("check failed")
 }
 
 // checkCommand prints the check envelope; exit 1 when the source does not

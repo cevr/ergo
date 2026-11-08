@@ -190,7 +190,7 @@ func TestBuildAndRunRefuseASourceThatDoesNotCheck(t *testing.T) {
 	binary := buildTestCLI(t)
 	root := smokeDir(t)
 	smokeWrite(t, root, "bad.ergo", sketchMissingNeeds)
-	for _, args := range [][]string{{"run", "bad.ergo"}, {"build", "bad.ergo"}, {"build", "bad.ergo", "-o", "out/bad"}} {
+	for _, args := range [][]string{{"run", "--json", "bad.ergo"}, {"build", "bad.ergo"}, {"build", "bad.ergo", "-o", "out/bad"}} {
 		stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, root, "", args...)
 		envelope := smokeJSON(t, stdout)
 		if code != 1 || envelope["checked"] != false || string(stderr) != "check failed\n" {

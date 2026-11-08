@@ -10,13 +10,14 @@ import (
 	"strings"
 	"syscall"
 
-	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-const runHelp = "usage: ergo run [--target go] FILE|DIR [--] [ARGS...]\n" +
+const runHelp = "usage: ergo run [--json] [--target go] FILE|DIR [--] [ARGS...]\n" +
+	"A source that does not check prints one file:line:col: error CODE: message line per finding on stderr\n" +
+	"(the check envelope on stdout with --json), builds nothing and exits 1.\n" +
 	"Builds the program into a private temporary directory and runs it with ARGS, as go run does:\n" +
 	"every word after FILE|DIR is the program's (a -- right after it is dropped), so ergo's options come first.\n" +
 	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n"
@@ -75,11 +76,7 @@ func buildSource(opts fileOptions, place func(name, output string) string) (rece
 		return receipt.Location{}, err
 	}
 	if !l.result.Checked {
-		if err := l.result.Qualify(producer.Current()); err != nil {
-			return receipt.Location{}, err
-		}
-		_ = printJSON(l.result.CheckEnvelope())
-		return receipt.Location{}, fmt.Errorf("check failed")
+		return receipt.Location{}, refuseUnchecked(l, opts)
 	}
 	output, err := locateArtifact(place(l.name, opts.output))
 	if err != nil {

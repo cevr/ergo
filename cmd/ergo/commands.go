@@ -52,7 +52,7 @@ var commands = []cliCommand{
 	{name: "build", usage: "build FILE|DIR [-o PATH] [-work] [--target go]", run: buildCommand},
 	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},
 	{name: "fmt", usage: "fmt FILE... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
-	{name: "test", usage: "test FILE|DIR [--seed N] [-work] [--target go]", run: testCommand},
+	{name: "test", usage: "test FILE|DIR [--seed N] [-work] [--json] [--target go]", run: testCommand},
 	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
 	{name: "lint", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
 	{name: "lint rules", fate: removed, reason: "linting returns on the new checker", ticket: ticketTooling},
