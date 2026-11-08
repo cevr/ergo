@@ -283,7 +283,7 @@ func TestTheClosureTableParses(t *testing.T) {
 
 // What a one-line edit reaches in the fast tier (gate-fast acceptance legs
 // 2 and 3, the deterministic part): a docs edit only the packages that read
-// every file; an edit of the checker's source the eight packages that build
+// every file; an edit of the checker's source the nine packages that build
 // on it and those two. The fast set of the checker edit is measured
 // against a pinned CPU budget: the recorded CPU of the reached packages'
 // fast steps (fastCPUFile), which bounds the wall from below at a CPU
@@ -329,7 +329,9 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 		t.Errorf("a docs edit reaches %v; want %v (%s, observer: %t)", docs, want, runtime.GOOS, observable)
 	}
 	check, cpu := reach("internal/sketch/check/check.go")
-	want := append([]string{"cmd/ergo", "internal/bindc", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard"}, everyEdit...)
+	// scripts/examples builds on the checker since d3-lawcheck-model
+	// (batch 9): its examples runner imports the checker.
+	want := append([]string{"cmd/ergo", "internal/bindc", "internal/migrate196", "internal/residue", "internal/sketch/check", "internal/sketch/lower", "internal/sketch/std", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "scripts/examples"}, everyEdit...)
 	if !slices.Equal(check, want) {
 		t.Errorf("a checker edit reaches %v; want %v (%s, observer: %t)", check, want, runtime.GOOS, observable)
 	}
