@@ -35,7 +35,8 @@ import (
 //     `FAIL (K of N tests)` and exit status 1.
 //
 // An assert lowers to `if !(cond) { ergoAssertFail(pos, text) }`, which
-// panics with the failed assert. The frames the panic crosses (a with
+// panics with the failed assert; a comparison whose operands have literals
+// binds each operand once and adds them to the text (assertCompare). The frames the panic crosses (a with
 // scope, an exit action, a task boundary) record it as a defect of the
 // exit they carry on, beside whatever else ended them. The case reads that
 // exit through the runtime (v1.Capture), never a record of what happened
@@ -84,9 +85,9 @@ func LowerTests(u Unit) ([]File, error) {
 // name, in the order the naming pass reserves them.
 var testHelpers = []struct{ key, base string }{
 	{"fmt", "fmt"}, {"os", "os"}, {"sort", "sort"}, {"strconv", "strconv"}, {"strings", "strings"},
-	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"},
+	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"AssertDiff", "ergoAssertDiff"},
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
-	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"},
+	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"}, {"Edges", "ergoEdges"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
@@ -114,15 +115,28 @@ func (l *lowerer) nameTests() {
 	for _, h := range testHelpers {
 		l.helper(h.key)
 	}
+	reserveLit := func(t check.Type) {
+		l.litTypes(t, map[string]bool{}, func(t check.Type) {
+			key, base, _ := l.litKey(t)
+			l.pkgName(key, base)
+		})
+	}
 	for _, t := range l.runTests() {
 		l.testFunc(t)
 		for _, v := range t.Params {
 			l.genNamed(v.Type, map[check.Type]bool{}, func(n *check.Named) { l.genName(n) })
-			l.litTypes(v.Type, map[string]bool{}, func(t check.Type) {
-				key, base, _ := l.litKey(t)
-				l.pkgName(key, base)
-			})
+			reserveLit(v.Type)
 		}
+		// The literal functions of the operands a failed assert shows.
+		syntax.Inspect(t.Decl, func(n syntax.Node) bool {
+			if a, ok := n.(*syntax.AssertStmt); ok {
+				if _, lt, rt, shown := l.assertShown(a.X); shown {
+					reserveLit(lt)
+					reserveLit(rt)
+				}
+			}
+			return true
+		})
 	}
 }
 
@@ -218,12 +232,138 @@ func (fc *funcCtx) assert(s *syntax.AssertStmt) {
 	if fc.l.tests == nil {
 		ice(s, "an assert reached the run build, which lowers no test or law body")
 	}
-	cond := fc.value(s.X)
 	i, _, _, _ := fc.l.at(s.X, s.X.Pos())
-	text := fc.l.srcs[i].text[s.X.Pos():s.X.End()]
+	text := strconv.Quote(fc.l.srcs[i].text[s.X.Pos():s.X.End()])
+	var cond string
+	if x, lt, rt, ok := fc.l.assertShown(s.X); ok {
+		cond, text = fc.assertCompare(x, lt, rt, text)
+	} else {
+		cond = fc.value(s.X)
+	}
 	fc.line("if !(" + cond + ") {")
-	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + strconv.Quote(text) + ")")
+	fc.line("\t" + fc.l.helper("AssertFail") + "(" + strconv.Quote(fc.l.siteText(s)) + ", " + text + ")")
 	fc.line("}")
+}
+
+// assertCompare lowers the comparison x of an assert whose operands the
+// report shows (assertShown): each operand is evaluated once, left to right,
+// into a temporary (a constant stays inline), the comparison is binaryOf of
+// those, and the failure text is the source text, then `: left L, right R`,
+// each operand an Ergo literal of its type (literal.go, the property
+// printer). Two strings, either of more than one line, add a line diff
+// ($AssertDiff). The text is built only when the assert fails.
+func (fc *funcCtx) assertCompare(x *syntax.BinaryExpr, lt, rt check.Type, text string) (cond, failure string) {
+	operands := []syntax.Expr{x.X, x.Y}
+	parts := fc.operands(operands, false)
+	for k, e := range operands {
+		if !fc.isConst(e) {
+			parts[k] = fc.spill(parts[k])
+		}
+	}
+	l := fc.l
+	failure = text + " + " + strconv.Quote(": left ") + " + " + l.litExpr(lt, parts[0], x) + " + " + strconv.Quote(", right ") + " + " + l.litExpr(rt, parts[1], x)
+	if isStringLike(lt) && isStringLike(rt) {
+		failure += " + " + l.helper("AssertDiff") + "(string(" + parts[0] + "), string(" + parts[1] + "))"
+	}
+	return fc.binaryOf(x, parts), failure
+}
+
+// isStringLike reports string or a defined type over it.
+func isStringLike(t check.Type) bool {
+	if n, ok := t.(*check.Named); ok {
+		t = n.Underlying()
+	}
+	return isBasic(t, check.String)
+}
+
+// assertShown reports whether a failed assert of x shows its operands: x is
+// a comparison (==, !=, <, <=, >, >=), not of two constants, whose operand
+// types both have an argument literal (printable). It returns the
+// comparison and the operand types. The naming pass (nameTests) and the
+// lowering (assert) ask it the same question.
+func (l *lowerer) assertShown(x syntax.Expr) (*syntax.BinaryExpr, check.Type, check.Type, bool) {
+	b, ok := unparen(x).(*syntax.BinaryExpr)
+	if !ok {
+		return nil, nil, nil, false
+	}
+	switch b.Op.String() {
+	case "==", "!=", "<", "<=", ">", ">=":
+	default:
+		return nil, nil, nil, false
+	}
+	_, lc := l.info.Values[b.X]
+	_, rc := l.info.Values[b.Y]
+	lt, lok := l.typedExpr(b.X)
+	rt, rok := l.typedExpr(b.Y)
+	if (lc && rc) || !lok || !rok || !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
+		return nil, nil, nil, false
+	}
+	return b, lt, rt, true
+}
+
+// typedExpr is x's checked type, through parentheses.
+func (l *lowerer) typedExpr(x syntax.Expr) (check.Type, bool) {
+	for {
+		if t, ok := l.info.Types[x]; ok {
+			return t, true
+		}
+		p, isParen := x.(*syntax.ParenExpr)
+		if !isParen {
+			return nil, false
+		}
+		x = p.X
+	}
+}
+
+// printable reports a type that has an argument literal (litExpr): a basic
+// type; a slice, Map or tuple of printable types; or a record, union or
+// defined type of the package under test over printable types. A type of
+// another package, of std or of the prelude, an operation type, a function,
+// a borrow and a machine have none here, so their asserts show only the
+// source text, as before.
+func (l *lowerer) printable(t check.Type, seen map[*check.Named]bool) bool {
+	switch u := t.(type) {
+	case *check.Basic:
+		return true
+	case *check.Slice:
+		return l.printable(u.Elem, seen)
+	case *check.Map:
+		return l.printable(u.Key, seen) && l.printable(u.Elem, seen)
+	case *check.Tuple:
+		for _, e := range u.Types {
+			if !l.printable(e, seen) {
+				return false
+			}
+		}
+		return true
+	case *check.Named:
+		if seen[u] {
+			return true
+		}
+		seen[u] = true
+		if u.Obj.Pkg != l.pkg {
+			return false
+		}
+		switch under := u.Underlying().(type) {
+		case *check.Struct:
+			for _, f := range under.Fields {
+				if !l.printable(f.Type, seen) {
+					return false
+				}
+			}
+			return true
+		case *check.Union:
+			for _, v := range under.Variants {
+				if !l.printable(v, seen) {
+					return false
+				}
+			}
+			return true
+		case *check.Basic, *check.Slice, *check.Map, *check.Tuple:
+			return l.printable(under, seen)
+		}
+	}
+	return false
 }
 
 // siteText is the position of the node n as a report names it:
@@ -285,11 +425,15 @@ func (l *lowerer) testRunner() string {
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(t.Name) + ")\n")
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+		// The case's size grows with its number (QuickCheck's sized):
+		// case i draws collections of up to i/4 elements at the top.
+		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
 		args := []string{env}
 		conv := l.helper("strconv")
-		// The case's report: its number, the seed and each argument as an
-		// Ergo literal of its type (literal.go), written only when it fails.
-		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)"}
+		// The case's report: its number, the seed, the size and each
+		// argument as an Ergo literal of its type (literal.go), written
+		// only when it fails.
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		for k, v := range t.Params {
 			base := v.Name
 			if base == "_" {
@@ -322,7 +466,7 @@ func (l *lowerer) testRunner() string {
 // it uses is a reserved helper or one of the two runtime imports ($Runtime,
 // $Task); its locals name nothing else.
 func (l *lowerer) harness() string {
-	names := map[string]string{"Runtime": l.rt(), "Task": l.taskPkg()}
+	names := map[string]string{"Runtime": l.rt(), "Task": l.taskPkg(), "Depth": strconv.Itoa(testDepth)}
 	for _, h := range testHelpers {
 		names[h.key] = l.helper(h.key)
 	}
@@ -350,6 +494,52 @@ type $Assertion struct{ at, text string }
 func (a $Assertion) String() string { return "assert failed at " + a.at + ": " + a.text }
 
 func $AssertFail(at, text string) { panic($Assertion{at, text}) }
+
+// $AssertDiff is the line diff of a failed comparison of two strings, when
+// they differ and either holds more than one line: a line feed, then each line of the
+// longest common subsequence of their lines as "  " + line, a line only the
+// left holds as "- " + line and one only the right holds as "+ " + line.
+// One-line strings need none: the two literals show them.
+func $AssertDiff(a, b string) string {
+	if a == b || (!$strings.Contains(a, "\n") && !$strings.Contains(b, "\n")) {
+		return ""
+	}
+	x, y := $strings.Split(a, "\n"), $strings.Split(b, "\n")
+	// lcs[i][j] is the length of the longest common subsequence of x[i:]
+	// and y[j:].
+	lcs := make([][]int, len(x)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(y)+1)
+	}
+	for i := len(x) - 1; i >= 0; i-- {
+		for j := len(y) - 1; j >= 0; j-- {
+			if x[i] == y[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else if lcs[i+1][j] >= lcs[i][j+1] {
+				lcs[i][j] = lcs[i+1][j]
+			} else {
+				lcs[i][j] = lcs[i][j+1]
+			}
+		}
+	}
+	var out $strings.Builder
+	out.WriteString("\n--- left\n+++ right")
+	i, j := 0, 0
+	for i < len(x) || j < len(y) {
+		switch {
+		case i < len(x) && j < len(y) && x[i] == y[j]:
+			out.WriteString("\n  " + x[i])
+			i, j = i+1, j+1
+		case j == len(y) || (i < len(x) && lcs[i+1][j] >= lcs[i][j+1]):
+			out.WriteString("\n- " + x[i])
+			i++
+		default:
+			out.WriteString("\n+ " + y[j])
+			j++
+		}
+	}
+	return out.String()
+}
 
 // $Case runs one case of the test name, declared at at, on the task t. A
 // typed failure that escapes the body fails it: it prints a FAIL line that
@@ -424,8 +614,13 @@ func $Where(args func() string) string {
 }
 
 // $Rand draws a property's arguments: splitmix64, so a seed replays every
-// case.
-type $Rand struct{ s uint64 }
+// case. size is the case's size, set by the runner before each case: case
+// i of 100 has size i/4, so collections grow with the run (QuickCheck's
+// sized).
+type $Rand struct {
+	s    uint64
+	size int
+}
 
 // $NewRand is the generator of the test name under seed: each property
 // draws its own stream, so adding a test changes no other test's cases.
@@ -449,11 +644,23 @@ func (r *$Rand) intn(n int) int { return int(r.next() % uint64(n)) }
 
 func (r *$Rand) bool() bool { return r.next()&1 == 0 }
 
-// i64 is a small value half the time, so a property meets zero, one and
-// both signs, and any 64 bits otherwise; a narrower type wraps it.
+// $Edges are the integers where code breaks: zero, one and minus one, and
+// the bounds of each Go integer width. A narrower type wraps an int64, so
+// each width meets its own bounds (127 and -128 for int8, 255 and 256 for
+// uint8, …).
+var $Edges = []int64{0, 1, -1, 127, -128, 128, -129, 255, 256, 32767, -32768, 65535, 65536, 2147483647, -2147483648, 4294967295, 4294967296, 9223372036854775807, -9223372036854775808}
+
+// i64 is biased to small values and edges: 40% in -10..10, 15% an edge
+// ($Edges), 15% in -999999..999999 and 30% any 64 bits; a narrower type
+// wraps it.
 func (r *$Rand) i64() int64 {
-	if r.bool() {
+	switch k := r.intn(20); {
+	case k < 8:
 		return int64(r.intn(21)) - 10
+	case k < 11:
+		return $Edges[r.intn(len($Edges))]
+	case k < 14:
+		return int64(r.intn(1999999)) - 999999
 	}
 	return int64(r.next())
 }
@@ -468,19 +675,63 @@ func (r *$Rand) f64() float64 {
 
 var $Runes = []rune("abz AZ09_-é世\n")
 
+// str is a string biased to short ones: half the time 0..5 units, else
+// 0..size. Each unit is drawn from a class a codec treats apart, so every
+// class appears in a run: half the time a rune of $Runes, else a quote, a
+// backslash, a control byte (0x00..0x1F), DEL, a byte that is not UTF-8
+// (a lone continuation byte 0x80..0xBF, or 0xFE or 0xFF), an astral rune
+// (U+10000..U+10FFFF), another BMP rune (no surrogate) or printable ASCII.
 func (r *$Rand) str() string {
-	b := make([]rune, r.intn(6))
-	for i := range b {
-		b[i] = $Runes[r.intn(len($Runes))]
+	n := r.intn(6)
+	if r.bool() {
+		n = r.intn(r.size + 1)
+	}
+	b := make([]byte, 0, n*4)
+	for i := 0; i < n; i++ {
+		switch r.intn(16) {
+		case 8:
+			b = append(b, '"')
+		case 9:
+			b = append(b, '\\')
+		case 10:
+			b = append(b, byte(r.intn(0x20)))
+		case 11:
+			b = append(b, 0x7f)
+		case 12:
+			if k := r.intn(0x42); k < 0x40 {
+				b = append(b, byte(0x80+k))
+			} else {
+				b = append(b, byte(0xFE+k-0x40))
+			}
+		case 13:
+			b = append(b, string(rune(0x10000+r.intn(0x100000)))...)
+		case 14:
+			b = append(b, string(rune(0x80+r.intn(0xD800-0x80)))...)
+		case 15:
+			b = append(b, byte(0x20+r.intn(0x5F)))
+		default:
+			b = append(b, string($Runes[r.intn(len($Runes))])...)
+		}
 	}
 	return string(b)
+}
+
+// limit is the largest collection length at depth d: the case's size at
+// the top ($Depth), halved at each level below it, so nested collections
+// stay small.
+func (r *$Rand) limit(d int) int {
+	n := r.size
+	for k := d; k < $Depth && n > 0; k++ {
+		n /= 2
+	}
+	return n
 }
 
 func $GenSlice[T any](r *$Rand, d int, elem func(*$Rand, int) T) []T {
 	if d <= 0 {
 		return []T{}
 	}
-	xs := make([]T, r.intn(4))
+	xs := make([]T, r.intn(r.limit(d)+1))
 	for i := range xs {
 		xs[i] = elem(r, d-1)
 	}
@@ -492,7 +743,7 @@ func $GenMap[K comparable, V any](r *$Rand, d int, key func(*$Rand, int) K, val 
 	if d <= 0 {
 		return m
 	}
-	for n := r.intn(4); n > 0; n-- {
+	for n := r.intn(r.limit(d) + 1); n > 0; n-- {
 		m[key(r, d-1)] = val(r, d-1)
 	}
 	return m

@@ -46,10 +46,10 @@ ok DeclineIsHandled
 PASS (2 tests)
 ```
 
-A property prints its case count, `ok DoubleIsEven (100 cases)`. A failed assert prints its position and its text. A refuted property also prints the case number, the seed and each argument as an Ergo literal of its type, so the case can be pasted into a test:
+A property prints its case count, `ok DoubleIsEven (100 cases)`. A failed assert prints its position and its text, and a failed comparison also prints its two operands as Ergo literals (`left`, `right`; a line diff for two multi-line strings). A refuted property also prints the case number, the seed, the size (the case number over four, which bounds generated collections and strings; [runtime](spec/runtime.md#tests), Tests 6) and each argument as an Ergo literal of its type, so the case can be pasted into a test:
 
 ```text
-FAIL DoubleIsSmall (case 3 of 100, seed 1: n = -6039945012424161084): assert failed at tests.ergo:12:2: double(n) < 10
+FAIL DoubleIsSmall (case 3 of 100, seed 1, size 0: n = -6039945012424161084): assert failed at tests.ergo:12:2: double(n) < 10: left 6366854048861229448, right 10
 FAIL (1 of 3 tests)
 ```
 

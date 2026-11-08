@@ -456,8 +456,14 @@ func (fc *funcCtx) binary(x *syntax.BinaryExpr) string {
 	if op == ".." {
 		return fc.rangeValue(x)
 	}
-	parts := fc.operands([]syntax.Expr{x.X, x.Y}, false)
-	return "(" + parts[0] + " " + op + " " + parts[1] + ")"
+	return fc.binaryOf(x, fc.operands([]syntax.Expr{x.X, x.Y}, false))
+}
+
+// binaryOf is the Go expression of the binary operator of x applied to the
+// lowered operands parts, x.X's and x.Y's: the one spelling of an operator
+// that binary and a failed assert's report (assertCompare) share.
+func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
+	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
 }
 
 // rangeValue lowers a..b, which the checker types as the prelude's

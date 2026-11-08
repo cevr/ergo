@@ -42,12 +42,12 @@ var runnerOutcomes = map[string]runnerOutcome{
 	"fail":        {src: "test T{i} {{ try bad() }}", line: "FAIL T{i}: a failure escaped the test at main.ergo:", prefix: true, failed: true},
 	"defect":      {src: "test T{i} {{ assert at([]int{{}}, {i}) == 0 }}", line: "FAIL T{i}: a defect, which stops the run", failed: true, defect: true},
 	"ppass":       {src: "test T{i}(v int) {{ assert v == v }}", line: "ok T{i} (100 cases)"},
-	"pfail":       {src: "test T{i}(v int, s string) {{ assert v != v }}", line: "FAIL T{i} (case 1 of 100, seed 1: v = ", prefix: true, failed: true},
+	"pfail":       {src: "test T{i}(v int, s string) {{ assert v != v }}", line: "FAIL T{i} (case 1 of 100, seed 1, size 0: v = ", prefix: true, failed: true},
 	"withAssert":  {src: "test T{i} {{\n\twith Live {{\n\t\tassert {i} > {i}\n\t}}\n}}", line: "FAIL T{i}: assert failed at main.ergo:", prefix: true, failed: true},
 	"withFail":    {src: "test T{i} {{\n\twith Live {{\n\t\ttry bad()\n\t}}\n}}", line: "FAIL T{i}: a failure escaped the test at main.ergo:", prefix: true, failed: true},
 	"withDefect":  {src: "test T{i} {{\n\twith Live {{\n\t\tassert at([]int{{}}, {i}) == 0\n\t}}\n}}", line: "FAIL T{i}: a defect, which stops the run", failed: true, defect: true},
 	"exitDefect":  {src: "test T{i} {{\n\tscope.OnExit() {{\n\t\tassert at([]int{{}}, {i}) == 0\n\t}}\n\tassert false\n}}", line: "FAIL T{i}: a defect, which stops the run", failed: true, defect: true},
-	"propertyRow": {src: "test T{i}(n int) {{\n\tif n == n {{\n\t\ttry bad()\n\t}}\n}}", line: "FAIL T{i} (case 1 of 100, seed 1: n = ", prefix: true, failed: true},
+	"propertyRow": {src: "test T{i}(n int) {{\n\tif n == n {{\n\t\ttry bad()\n\t}}\n}}", line: "FAIL T{i} (case 1 of 100, seed 1, size 0: n = ", prefix: true, failed: true},
 }
 
 const runnerPrelude = "import scope\nimport time\n\ntype Bad {}\n\nfunc bad() fails Bad { Bad }\n\nfunc at(xs []int, i int) int { xs[i] }\n\nlet Live = context { Scheduler: time.NewManual(0) }\n\nfunc cleanup() {\n\tscope.OnExit() {}\n}\n\nfunc main() needs Console { Console.Println(\"MAIN-MUST-NOT-RUN\") }\n"
@@ -307,7 +307,7 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	if exes == nil {
 		return
 	}
-	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \(case 1 of 100, seed (\d+): v = (.*)\): assert failed at main\.ergo:\d+:\d+: false$`)
+	line := regexp.MustCompile(`(?m)^FAIL K(\w+) \(case 1 of 100, seed (\d+), size 0: v = (.*)\): assert failed at main\.ergo:\d+:\d+: false$`)
 	texts := make([]map[string]string, seeds+1)
 	for s := 1; s <= seeds; s++ {
 		stdout, stderr, code := runExeArgs(t, exes["first"], "--seed", strconv.Itoa(s))
@@ -352,7 +352,7 @@ func TestArgumentTextRoundTrips(t *testing.T) {
 	for s := 1; s <= seeds; s++ {
 		stdout, _, _ := runExeArgs(t, exes["second"+strconv.Itoa(s)], "--seed", strconv.Itoa(s))
 		for _, k := range literalKinds {
-			if !strings.Contains(stdout, "FAIL K"+k.name+" (case 1 of 100, seed "+strconv.Itoa(s)+": ") {
+			if !strings.Contains(stdout, "FAIL K"+k.name+" (case 1 of 100, seed "+strconv.Itoa(s)+", size 0: ") {
 				t.Errorf("seed %d: %s: the literal %s did not give the value it was printed from", s, k.name, texts[s][k.name])
 			}
 		}

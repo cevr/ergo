@@ -84,10 +84,10 @@ func main() needs Console {
 }
 
 // run> ok
-// test> FAIL InWith: assert failed at main.ergo:29:3: Store.Get() == "no"
+// test> FAIL InWith: assert failed at main.ergo:29:3: Store.Get() == "no": left "ok", right "no"
 // test> FAIL InLiteral: assert failed at main.ergo:37:2: check(3)
-// test> FAIL InLoop: assert failed at main.ergo:42:3: x < 3
-// test> FAIL InMatch: assert failed at main.ergo:52:3: n == 3
+// test> FAIL InLoop: assert failed at main.ergo:42:3: x < 3: left 3, right 3
+// test> FAIL InMatch: assert failed at main.ergo:52:3: n == 3: left 2, right 3
 // test> FAIL InCatch: assert failed at main.ergo:59:3: false
 // test> FAIL InBlock: assert failed at main.ergo:69:3: 1 == 2
 // test> ok Passes

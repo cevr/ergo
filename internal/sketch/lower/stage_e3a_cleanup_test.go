@@ -214,9 +214,9 @@ func TestCaseOutcomeProperty(t *testing.T) {
 			// The FAIL line names the first assert that failed: the body's,
 			// which ran before the exit action.
 			switch {
-			case b.name == "assert" && !strings.HasSuffix(got[0], ": one() == 2"):
+			case b.name == "assert" && !strings.HasSuffix(got[0], ": one() == 2: left 1, right 2"):
 				fail("the FAIL line must name the body's assert")
-			case b.name != "assert" && cl.name == "assert" && !strings.HasSuffix(got[0], ": one() == 3"):
+			case b.name != "assert" && cl.name == "assert" && !strings.HasSuffix(got[0], ": one() == 3: left 1, right 3"):
 				fail("the FAIL line must name the exit action's assert")
 			}
 			if strings.Contains(stderr, "panic: ") {

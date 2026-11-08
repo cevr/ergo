@@ -10,17 +10,27 @@ import (
 	"strings"
 	"syscall"
 
-	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
+const runHelp = "usage: ergo run [--json] [--target go] FILE|DIR [--] [ARGS...]\n" +
+	"A source that does not check prints one file:line:col: error CODE: message line per finding on stderr\n" +
+	"(the check envelope on stdout with --json), builds nothing and exits 1.\n" +
+	"Builds the program into a private temporary directory and runs it with ARGS, as go run does:\n" +
+	"every word after FILE|DIR is the program's (a -- right after it is dropped), so ergo's options come first.\n" +
+	"The program's exit status passes through; SIGINT and SIGTERM are forwarded (130 and 143 when they end it).\n"
+
 // buildCommand builds a native executable and prints its path. With -work
 // it also prints WORK=DIR on stderr, DIR being the generated Go module in
 // the emission cache that the executable was linked from.
 func buildCommand(args []string) error {
-	output, err := buildSource("build", args)
+	opts, err := parseFileOptions("build", args)
+	if err != nil {
+		return err
+	}
+	output, err := buildSource(opts, outputPath)
 	if err != nil {
 		return err
 	}
@@ -28,44 +38,47 @@ func buildCommand(args []string) error {
 	return nil
 }
 
-// runCommand builds a native executable and runs it as a child.
+// runCommand builds a native executable into a private temporary
+// directory, never dist/ or the working directory, and runs it as a child
+// with the program arguments; the directory is removed when the child ends.
 func runCommand(args []string) error {
-	output, err := buildSource("run", args)
+	opts, err := parseFileOptions("run", args)
 	if err != nil {
 		return err
 	}
-	child := exec.Command(output.Path())
+	dir, err := os.MkdirTemp("", "ergo-run-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	output, err := buildSource(opts, func(name, _ string) string { return filepath.Join(dir, name) })
+	if err != nil {
+		return err
+	}
+	child := exec.Command(output.Path(), opts.args...)
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	child.Stdin = os.Stdin
 	return runEntryProcess(child)
 }
 
-// buildSource checks the source and builds it to its output: -o, or
-// dist/NAME for a source NAME.ergo. A source that does not check prints its
-// check envelope and builds nothing; that refusal acquires the producer
-// identity to print its facts. The generated Go module comes from the
-// emission cache (internal/sketch/build), whose key includes the producer
-// identity (build.CompilerIdentity), acquired once, when the cache first
-// needs the key. A process-scoped identity builds the module privately and
-// never publishes it.
-func buildSource(command string, args []string) (receipt.Location, error) {
-	opts, err := parseFileOptions(command, args)
-	if err != nil {
-		return receipt.Location{}, err
-	}
+// buildSource checks the source and builds it to the output that place
+// names for the executable's name and -o. A source that does not check
+// prints its check envelope and builds nothing; that refusal acquires the
+// producer identity to print its facts. The generated Go module comes from
+// the emission cache (internal/sketch/build), whose key includes the
+// producer identity (build.CompilerIdentity), acquired once, when the cache
+// first needs the key. A process-scoped identity builds the module
+// privately and never publishes it.
+func buildSource(opts fileOptions, place func(name, output string) string) (receipt.Location, error) {
 	l, err := load(opts.file, opts.target)
 	if err != nil {
 		return receipt.Location{}, err
 	}
 	if !l.result.Checked {
-		if err := l.result.Qualify(producer.Current()); err != nil {
-			return receipt.Location{}, err
-		}
-		_ = printJSON(l.result.CheckEnvelope())
-		return receipt.Location{}, fmt.Errorf("check failed")
+		return receipt.Location{}, refuseUnchecked(l, opts)
 	}
-	output, err := locateArtifact(outputPath(l.name, opts.output))
+	output, err := locateArtifact(place(l.name, opts.output))
 	if err != nil {
 		return receipt.Location{}, err
 	}

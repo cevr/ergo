@@ -26,7 +26,7 @@ func main() needs Console {
 }
 
 // run> 42
-// test> FAIL InTask: assert failed at main.ergo:11:3: twice(2) == 5
+// test> FAIL InTask: assert failed at main.ergo:11:3: twice(2) == 5: left 4, right 5
 // test> ok TaskPasses
 // test> FAIL (1 of 2 tests)
 // test exit 1

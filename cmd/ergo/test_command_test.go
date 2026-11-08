@@ -83,7 +83,7 @@ func TestTestCommand(t *testing.T) {
 	replay := write("replay.ergo", "test Residue(value int) { assert value % 7 != 3 }\n")
 	seeded, _, code := run("test", replay, "--seed", "7")
 	again, _, code2 := run("test", replay, "--seed=7")
-	if code != 1 || code2 != 1 || !regexp.MustCompile(`(?m)^FAIL Residue \(case \d+ of 100, seed 7: value = -?\d+\)`).MatchString(seeded) || seeded != again {
+	if code != 1 || code2 != 1 || !regexp.MustCompile(`(?m)^FAIL Residue \(case \d+ of 100, seed 7, size \d+: value = -?\d+\)`).MatchString(seeded) || seeded != again {
 		t.Fatalf("--seed 7: exit %d %q; --seed=7: exit %d %q", code, seeded, code2, again)
 	}
 	// Usage errors: exit 2, nothing on stdout, nothing run.
@@ -95,7 +95,7 @@ func TestTestCommand(t *testing.T) {
 		{[]string{"test", replay, "--seed=-1"}, "--seed takes a decimal number"},
 		{[]string{"test", replay, "--seed"}, "--seed requires a value"},
 		{[]string{"test", replay, "-o", "out"}, "-o is only supported by build"},
-		{[]string{"test", replay, "--json"}, "--json is only supported by diagnostics"},
+		{[]string{"test", replay, "--strict"}, "--strict is only supported by diagnostics"},
 		{[]string{"test", replay, replay}, "incorrect arguments for test"},
 		{[]string{"test", filepath.Join(root, "replay.txt")}, "source file must have .ergo extension"},
 		{[]string{"test"}, "source file required"},
@@ -106,15 +106,20 @@ func TestTestCommand(t *testing.T) {
 		}
 	}
 	for _, command := range []string{"build", "run", "check"} {
-		if _, stderr, code := run(command, replay, "--seed", "1"); code == 0 || !strings.Contains(stderr, "--seed is only supported by test") {
+		if _, stderr, code := run(command, "--seed", "1", replay); code == 0 || !strings.Contains(stderr, "--seed is only supported by test") {
 			t.Fatalf("ergo %s --seed: exit %d stderr %q", command, code, stderr)
 		}
 	}
-	// A source that does not check: its envelope, exit 1, no PASS line.
+	// A source that does not check: its findings as text on stderr (the
+	// envelope with --json), exit 1, no PASS line.
 	invalid := write("invalid.ergo", "test Bad { assert 1 }\n")
 	stdout, stderr, code = run("test", invalid)
-	if code != 1 || !strings.Contains(stdout, `"S108"`) || strings.Contains(stdout, "PASS") || !strings.Contains(stderr, "check failed") {
+	if code != 1 || stdout != "" || !regexp.MustCompile(`(?m)^\S*invalid\.ergo:1:\d+: error S108: .+\ncheck failed\n\z`).MatchString(stderr) {
 		t.Fatalf("an invalid file: exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	stdout, stderr, code = run("test", "--json", invalid)
+	if code != 1 || !strings.Contains(stdout, `"S108"`) || strings.Contains(stdout, "PASS") || stderr != "check failed\n" {
+		t.Fatalf("an invalid file with --json: exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
 }
 

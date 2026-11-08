@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
 )
@@ -34,11 +33,7 @@ func testCommand(args []string) error {
 		return err
 	}
 	if !l.result.Checked {
-		if err := l.result.Qualify(producer.Current()); err != nil {
-			return err
-		}
-		_ = printJSON(l.result.CheckEnvelope())
-		return fmt.Errorf("check failed")
+		return refuseUnchecked(l, opts)
 	}
 	dir, err := os.MkdirTemp("", "ergo-test-")
 	if err != nil {

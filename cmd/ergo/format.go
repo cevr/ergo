@@ -31,7 +31,9 @@ const fmtHelp = "usage: ergo fmt FILE... [--check] [--json]\n" +
 	"  --stdin  format source from stdin and write only formatted source to stdout\n" +
 	"  --json   emit a structured file report (file mode only)\n" +
 	"  -h, --help\n\n" +
-	"FILE names may follow -- when they begin with an option-like prefix.\n\n" +
+	"FILE names may follow -- when they begin with an option-like prefix.\n" +
+	"A FILE that names a folder stands for every .ergo file in it and in the folders below it\n" +
+	"(not testdata, nor a folder whose name starts with . or _).\n\n" +
 	"Exit codes:\n" +
 	"  0  formatting succeeded (or --check found no changes)\n" +
 	"  1  --check found differences\n" +
@@ -197,6 +199,18 @@ func formatCommand(args []string) error {
 	if opts.stdin {
 		return formatStdin()
 	}
+	if err := expandFormatFolders(&opts); err != nil {
+		if opts.json {
+			report := newFormatReport(opts)
+			report.Success = false
+			report.Failures = append(report.Failures, formatFailureReport{Code: "EFMT_INVOCATION", Message: err.Error()})
+			if printErr := printJSON(report); printErr != nil {
+				return exitStatusError{code: 2, message: printErr.Error()}
+			}
+			return exitStatusError{code: 2, handled: true}
+		}
+		return exitStatusError{code: 2, message: err.Error()}
+	}
 
 	report, err := formatFiles(opts)
 	if opts.json {
@@ -218,6 +232,51 @@ func formatCommand(args []string) error {
 	if opts.check && reportHasChanges(report) {
 		return exitStatusError{code: 1, handled: true}
 	}
+	return nil
+}
+
+// expandFormatFolders replaces each operand that names a folder
+// (isPackageFolder: not a .ergo path) with the .ergo files in it and in the
+// folders below it, in lexical order, as gofmt walks a directory. A folder
+// whose name starts with "." or "_", or is testdata, is skipped, as the go
+// command skips it; a symbolic link is not followed. A folder with no .ergo
+// file is an invocation error, and so is an expansion past the file limit.
+func expandFormatFolders(opts *fmtOptions) error {
+	var files []string
+	for _, operand := range opts.files {
+		if !isPackageFolder(operand) {
+			files = append(files, operand)
+			continue
+		}
+		found := 0
+		err := filepath.WalkDir(operand, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			name := entry.Name()
+			if entry.IsDir() {
+				if path != operand && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if filepath.Ext(name) == sourceExtension && entry.Type().IsRegular() {
+				files = append(files, path)
+				found++
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if found == 0 {
+			return fmt.Errorf("folder %s holds no %s file", operand, sourceExtension)
+		}
+	}
+	if len(files) > maxFormatFiles {
+		return fmt.Errorf("format request exceeds %d-file limit", maxFormatFiles)
+	}
+	opts.files = files
 	return nil
 }
 
