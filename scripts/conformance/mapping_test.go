@@ -135,9 +135,11 @@ func TestUntrackedEvidenceFails(t *testing.T) {
 
 // committedClaims are the cases the committed mapping proves by a v1 test,
 // each by its test's subtest of the case's name (fu-conf-pending: the rows
-// std-align S1c and S1d added). The earlier compiler's evidence tests were
-// deleted with it (#205), so its cases stay pending.
+// std-align S1c and S1d added; batch 10: S3a's filepath case). The earlier
+// compiler's evidence tests were deleted with it (#205), so its cases stay
+// pending.
 var committedClaims = []string{
+	"./internal/sketch/lower TestFilepathRuns effect.path.join-posix",
 	"./internal/sketch/lower TestFlagMatchesGo effect.cli.options-interleaved-with-operands",
 	"./internal/sketch/lower TestStdTextRuns2 effect.number.parse",
 	"./internal/sketch/lower TestStdTextRuns2 effect.string.lines-with-separators",

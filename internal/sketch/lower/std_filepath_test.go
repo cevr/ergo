@@ -47,8 +47,18 @@ func all(p string, q string) string fails filepath.NotRelative {
 // calls its runtime/v1 body (Split's returns v1.Parts) and prints one
 // line. Rel fails filepath.NotRelative: a catch arm takes it with both
 // paths, and main's uncaught NotRelative is written with its text and
-// status 1. A package-level let may call it.
+// status 1. A package-level let may call it. Its subtest
+// effect.path.join-posix is the evidence of that conformance case
+// (Effect's DenoPath.test.ts "runs the demo program").
 func TestFilepathRuns(t *testing.T) {
+	t.Run("effect.path.join-posix", func(t *testing.T) {
+		runBehaviors(t, []behavior{{name: "joinPosix", src: `import filepath
+
+func main() needs Console {
+	Console.Println(filepath.Join([]string{"tmp", "file.txt"}))
+}
+`, stdout: "tmp/file.txt\n"}})
+	})
 	runBehaviors(t, []behavior{
 		{name: "filepath", src: `import filepath
 

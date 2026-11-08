@@ -225,6 +225,14 @@
       "behavior": "A numeric text parses to a number; NaN and the infinities parse as literals; an empty, blank or non-numeric text gives none.",
       "limits": "Different by design (std-align S1c): Ergo's strconv.ParseFloat is Go's. It does not trim spaces (\" 42 \" fails Malformed, Effect gives 42), and it fails with a typed Malformed or OutOfRange where Effect returns an Option with no reason. \"42\", \"3.14\", \"NaN\", \"Infinity\", \"-Infinity\", \"\", \"   \" and \"not a number\" agree. TestStdTextRuns2's subtest of this case checks every upstream input.",
       "evidence": [{"file": "internal/sketch/lower/std_text2_test.go", "test": "TestStdTextRuns2", "targets": ["go"]}]
+    },
+    {
+      "id": "effect.path.join-posix",
+      "status": "covered",
+      "upstream": {"file": "packages/platform/deno/test/DenoPath.test.ts", "line": 6, "label": "runs the demo program"},
+      "behavior": "Joining the parts tmp and file.txt gives the path tmp/file.txt.",
+      "limits": "Ergo's filepath.Join is Go's path/filepath.Join over one slice of parts (Ergo has no variadic parameters), and it is a pure function, not an operation of a Path service, so no layer is bound. The separator is / (Linux and darwin are the targets; std-align S3a). TestFilepathRuns's subtest of this case checks the upstream input; the laws of filepath run in runtime/v1 TestFilepathLaws.",
+      "evidence": [{"file": "internal/sketch/lower/std_filepath_test.go", "test": "TestFilepathRuns", "targets": ["go"]}]
     }
   ]
 }
