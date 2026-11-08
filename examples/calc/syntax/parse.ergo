@@ -1,0 +1,215 @@
+import calc/ast
+import strconv
+
+// Unexpected is a token where the grammar wants another.
+type Unexpected { At int, Want string, Got string }
+
+// TooBig is a number that does not fit an int.
+type TooBig { At int, Text string }
+
+// parser is the tokens and the position of the next one. Parse owns it,
+// and each rule takes it by borrow and moves it on.
+type parser { toks []Token, pos int }
+
+// Parse is the expression of src. The whole text must be one
+// expression.
+func Parse(src string) ast.Expr fails BadChar | Unexpected | TooBig {
+	let mut p = parser{toks: try Lex(src), pos: 0}
+	let e = try parseExpr(&p)
+	match peek(&p) {
+	case EndTok:
+		e
+	case IntTok, NameTok, SymTok:
+		Unexpected{At: At(peek(&p)), Want: "an operator or the end", Got: Describe(peek(&p))}
+	}
+}
+
+func peek(p *parser) Token { p.toks[p.pos] }
+
+// next is the token at the position, and moves past it. EndTok is never
+// passed, so the position stays inside the tokens.
+func next(p *parser) Token {
+	let t = p.toks[p.pos]
+	match t {
+	case EndTok:
+	case IntTok, NameTok, SymTok:
+		p.pos += 1
+	}
+	t
+}
+
+// isSym reports whether t is the symbol s.
+func isSym(t Token, s string) bool {
+	match t {
+	case SymTok as y:
+		y.Sym == s
+	case IntTok, NameTok, EndTok:
+		false
+	}
+}
+
+// isWord reports whether t is the name w.
+func isWord(t Token, w string) bool {
+	match t {
+	case NameTok as n:
+		n.Name == w
+	case IntTok, SymTok, EndTok:
+		false
+	}
+}
+
+// expect moves past the symbol or keyword want, or fails.
+func expect(p *parser, want string) fails Unexpected {
+	let t = peek(p)
+	if isSym(t, want) || isWord(t, want) {
+		let _ = next(p)
+		return
+	}
+	Unexpected{At: At(t), Want: "\"\(want)\"", Got: Describe(t)}
+}
+
+// parseExpr reads an expression: binary operators of any precedence.
+func parseExpr(p *parser) ast.Expr fails Unexpected | TooBig { try parseBinary(p, 1) }
+
+// opOf is the binary operator that t spells.
+func opOf(t Token) Option[ast.Op] {
+	match t {
+	case SymTok as s:
+		match s.Sym {
+		case "+":
+			Some{Value: ast.Add}
+		case "-":
+			Some{Value: ast.Sub}
+		case "*":
+			Some{Value: ast.Mul}
+		case "/":
+			Some{Value: ast.Div}
+		case "%":
+			Some{Value: ast.Mod}
+		case "<":
+			Some{Value: ast.Lt}
+		case "==":
+			Some{Value: ast.Eq}
+		case "&&":
+			Some{Value: ast.And}
+		case "||":
+			Some{Value: ast.Or}
+		case _:
+			None
+		}
+	case IntTok, NameTok, EndTok:
+		None
+	}
+}
+
+// parseBinary reads operands joined by operators that bind at least min,
+// left to right: precedence climbing.
+func parseBinary(p *parser, min int) ast.Expr fails Unexpected | TooBig {
+	let mut left = try parseUnary(p)
+	for {
+		match opOf(peek(p)) {
+		case None:
+			return left
+		case Some as o:
+			let prec = ast.Prec(o.Value)
+			if prec < min {
+				return left
+			}
+			let _ = next(p)
+			let right = try parseBinary(p, prec+1)
+			left = ast.Bin{Op: o.Value, L: left, R: right}
+		}
+	}
+}
+
+// parseUnary reads - and ! before an operand. A minus right before a
+// number, with no space, is part of the number: -5 is a literal, - 5 the
+// negation of 5.
+func parseUnary(p *parser) ast.Expr fails Unexpected | TooBig {
+	let t = peek(p)
+	if isSym(t, "-") {
+		let _ = next(p)
+		match peek(p) {
+		case IntTok as n:
+			if n.At == At(t)+1 {
+				let _ = next(p)
+				return ast.Num{V: try intOf("-"+n.Text, At(t))}
+			}
+		case NameTok, SymTok, EndTok:
+		}
+		return ast.Neg{X: try parseUnary(p)}
+	}
+	if isSym(t, "!") {
+		let _ = next(p)
+		return ast.Not{X: try parseUnary(p)}
+	}
+	try parseAtom(p)
+}
+
+// intOf is the int that text spells.
+func intOf(text string, at int) int fails TooBig {
+	strconv.Atoi(text) catch {
+	case strconv.OutOfRange:
+		return TooBig{At: at, Text: text}
+	case strconv.Malformed:
+		// Lex makes a number of digits only, so Atoi cannot find it
+		// malformed; the row has it, so the catch names it.
+		return TooBig{At: at, Text: text}
+	}
+}
+
+// parseAtom reads a number, a name, true or false, an if, a let, or an
+// expression in parentheses.
+func parseAtom(p *parser) ast.Expr fails Unexpected | TooBig {
+	let t = next(p)
+	match t {
+	case IntTok as n:
+		ast.Num{V: try intOf(n.Text, n.At)}
+	case NameTok as n:
+		match n.Name {
+		case "true":
+			ast.BoolLit{V: true}
+		case "false":
+			ast.BoolLit{V: false}
+		case "if":
+			let c = try parseExpr(p)
+			try expect(p, "then")
+			let th = try parseExpr(p)
+			try expect(p, "else")
+			ast.If{Cond: c, Then: th, Else: try parseExpr(p)}
+		case "let":
+			let name = next(p)
+			let v = try nameOf(name)
+			try expect(p, "=")
+			let val = try parseExpr(p)
+			try expect(p, "in")
+			ast.Let{Name: v, Val: val, Body: try parseExpr(p)}
+		case "then", "else", "in":
+			Unexpected{At: n.At, Want: "an operand", Got: Describe(t)}
+		case _:
+			ast.Var{Name: n.Name}
+		}
+	case SymTok as s:
+		if s.Sym != "(" {
+			return Unexpected{At: s.At, Want: "an operand", Got: Describe(t)}
+		}
+		let inner = try parseExpr(p)
+		try expect(p, ")")
+		inner
+	case EndTok as e:
+		Unexpected{At: e.At, Want: "an operand", Got: Describe(t)}
+	}
+}
+
+// nameOf is the variable name that t spells.
+func nameOf(t Token) string fails Unexpected {
+	match t {
+	case NameTok as n:
+		if !ast.IsName(n.Name) {
+			return Unexpected{At: n.At, Want: "a variable name", Got: Describe(t)}
+		}
+		n.Name
+	case IntTok, SymTok, EndTok:
+		Unexpected{At: At(t), Want: "a variable name", Got: Describe(t)}
+	}
+}

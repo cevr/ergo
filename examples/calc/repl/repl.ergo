@@ -1,0 +1,78 @@
+// Package repl is calc's line protocol: each line of standard input is
+// an expression, and each answer a line of standard output, or of
+// standard error when the line fails. Answer is pure but for the
+// Optimizer it is given; Run is the only function that reads and writes.
+
+import calc/ast
+import calc/eval
+import calc/opt
+import calc/syntax
+import calc/typing
+import io
+import strings
+
+// Answer is the line for the expression src: the expression the
+// Optimizer makes of it, its value and its type. The expression is
+// checked before it is optimized, so an optimizer sees only well-typed
+// expressions, which its laws are about.
+func Answer(src string) string fails syntax.BadChar | syntax.Unexpected | syntax.TooBig | typing.Mismatch | typing.Unbound | eval.DivByZero | eval.Stuck | eval.Unset needs opt.Optimizer {
+	let e = try syntax.Parse(src)
+	let t = try typing.Check(e)
+	let o = opt.Optimizer.Optimize(e)
+	let v = try eval.Eval(o)
+	"\(ast.Print(o)) = \(eval.Show(v)) : \(ast.TypeName(t))"
+}
+
+// Tally is how many expressions Run read, and how many failed.
+type Tally { Lines int, Failed int }
+
+// Run answers each line of io.Stdin. A blank line and a line that
+// starts with # are skipped. A failure is told on io.Stderr with its line
+// number, and the next line is read.
+func Run() Tally needs io.Stdin | io.Stdout | io.Stderr | opt.Optimizer {
+	let mut n = 0
+	let mut lines = 0
+	let mut failed = 0
+	for line in io.Stdin.Lines() {
+		n += 1
+		let src = strings.TrimSpace(line)
+		if src == "" || strings.HasPrefix(src, "#") {
+			continue
+		}
+		lines += 1
+		let problem = turn(src)
+		if problem != "" {
+			failed += 1
+			io.Stderr.Eprintln("line \(n): \(problem)")
+		}
+	}
+	Tally{Lines: lines, Failed: failed}
+}
+
+// turn answers src on io.Stdout, and is "" then; or it is the text of
+// the failure. Each failure is named, with no case _. A Stuck or an
+// Unset cannot follow a Check that passed (law typing.Sound), but the
+// row of Answer holds them, and the language has no way to say so
+// (gap G-ex-a-3): they are told as internal failures.
+func turn(src string) string needs io.Stdout | opt.Optimizer {
+	let text = Answer(src) catch {
+	case syntax.BadChar as b:
+		return "col \(b.At): no token starts with \(b.Char)"
+	case syntax.Unexpected as u:
+		return "col \(u.At): want \(u.Want), got \(u.Got)"
+	case syntax.TooBig as t:
+		return "col \(t.At): \(t.Text) does not fit an int"
+	case typing.Mismatch as m:
+		return "\(m.In) is \(ast.TypeName(m.Got)), not \(ast.TypeName(m.Want))"
+	case typing.Unbound as u:
+		return "\(u.Name) is not bound"
+	case eval.DivByZero as d:
+		return "division by zero in \(d.Where)"
+	case eval.Stuck as s:
+		return "internal: stuck: \(s.Reason)"
+	case eval.Unset as u:
+		return "internal: unset \(u.Name)"
+	}
+	io.Stdout.Println(text)
+	""
+}

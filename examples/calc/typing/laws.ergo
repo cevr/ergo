@@ -1,0 +1,20 @@
+// The rule that ties the checker to the evaluator.
+
+import calc/ast
+import calc/eval
+
+// Sound: a well-typed expression does not get stuck. It ends in a value
+// of its type, or in a division by zero, which no type rules out.
+law Sound(e ast.Expr) {
+	let t = Check(e) catch {
+	case Mismatch, Unbound:
+		return true
+	}
+	let v = eval.Eval(e) catch {
+	case eval.DivByZero:
+		return true
+	case eval.Stuck, eval.Unset:
+		return false
+	}
+	eval.TypeOf(v) == t
+}

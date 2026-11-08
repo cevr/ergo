@@ -1,0 +1,118 @@
+// Package syntax reads the text of calc into an ast.Expr: Lex cuts it
+// into tokens and Parse builds the tree by precedence climbing. Each
+// failure names the column where it is, from 1.
+
+import calc/ast
+import strings
+
+// Token is a word of the source and its column.
+type Token = IntTok{Text string, At int} | NameTok{Name string, At int} | SymTok{Sym string, At int} | EndTok{At int}
+
+// BadChar is a character that starts no token.
+type BadChar { At int, Char string }
+
+// symbols are the tokens of two characters, then of one.
+let pairs = []string{"==", "&&", "||"}
+let singles = []string{"+", "-", "*", "/", "%", "<", "!", "(", ")", "="}
+
+// Lex is the tokens of src, ended by EndTok. Spaces and tabs separate
+// tokens. A number is a run of digits; a minus before it is a token of
+// its own, which Parse joins to it.
+func Lex(src string) []Token fails BadChar {
+	let mut toks = []Token{}
+	let mut i = 0
+	for i < len(src) {
+		let c = src[i]
+		if c == ' ' || c == '\t' {
+			i += 1
+			continue
+		}
+		let start = i
+		if ast.IsDigit(c) {
+			for i < len(src) && ast.IsDigit(src[i]) {
+				i += 1
+			}
+			toks = toks.Append(IntTok{Text: strings.Slice(src, start, i), At: start + 1})
+			continue
+		}
+		if ast.IsLetter(c) {
+			for i < len(src) && (ast.IsLetter(src[i]) || ast.IsDigit(src[i])) {
+				i += 1
+			}
+			toks = toks.Append(NameTok{Name: strings.Slice(src, start, i), At: start + 1})
+			continue
+		}
+		let sym = symbolAt(src, i)
+		if sym == "" {
+			return BadChar{At: start + 1, Char: charAt(src, i)}
+		}
+		toks = toks.Append(SymTok{Sym: sym, At: start + 1})
+		i += len(sym)
+	}
+	toks.Append(EndTok{At: len(src) + 1})
+}
+
+// symbolAt is the symbol that starts at byte i of src, or "".
+func symbolAt(src string, i int) string {
+	if i+2 <= len(src) {
+		let two = strings.Slice(src, i, i+2)
+		if slicesHas(pairs, two) {
+			return two
+		}
+	}
+	let one = strings.Slice(src, i, i+1)
+	if slicesHas(singles, one) {
+		return one
+	}
+	""
+}
+
+// slicesHas reports whether xs holds x.
+func slicesHas(xs []string, x string) bool {
+	for s in xs {
+		if s == x {
+			return true
+		}
+	}
+	false
+}
+
+// charAt is the character that starts at byte i of src: its first byte
+// and the continuation bytes of UTF-8 after it. The std has no rune
+// decoder (gap G-ex-a-1), so this reads the bytes itself: a continuation
+// byte is 0b10xxxxxx, from 128 up to 191 (decimal, gap G-ex-a-2).
+func charAt(src string, i int) string {
+	let mut j = i + 1
+	for j < len(src) && src[j] >= 128 && src[j] < 192 {
+		j += 1
+	}
+	strings.Slice(src, i, j)
+}
+
+// At is the column of t.
+func At(t Token) int {
+	match t {
+	case IntTok as n:
+		n.At
+	case NameTok as n:
+		n.At
+	case SymTok as s:
+		s.At
+	case EndTok as e:
+		e.At
+	}
+}
+
+// Describe is how an error names t.
+func Describe(t Token) string {
+	match t {
+	case IntTok as n:
+		"\"\(n.Text)\""
+	case NameTok as n:
+		"\"\(n.Name)\""
+	case SymTok as s:
+		"\"\(s.Sym)\""
+	case EndTok:
+		"the end"
+	}
+}

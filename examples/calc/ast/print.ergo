@@ -1,0 +1,58 @@
+// Print is the text of e, with the fewest parentheses that read back as
+// e: a binary operand is in parentheses when it binds looser than its
+// operator, a right operand also when it binds as tightly, and an if or
+// a let in parentheses when it is an operand. A negation of a number
+// keeps a space after the minus, because "-5" is the number -5.
+func Print(e Expr) string {
+	match e {
+	case Num as n:
+		"\(n.V)"
+	case BoolLit as b:
+		if b.V { "true" } else { "false" }
+	case Var as v:
+		v.Name
+	case Neg as n:
+		match n.X {
+		case Num as k:
+			"- \(k.V)"
+		case BoolLit, Var, Neg, Not, Bin, If, Let:
+			"-" + operand(n.X, unary)
+		}
+	case Not as n:
+		"!" + operand(n.X, unary)
+	case Bin as b:
+		operand(b.L, Prec(b.Op)) + " " + Symbol(b.Op) + " " + operand(b.R, Prec(b.Op)+1)
+	case If as i:
+		"if " + Print(i.Cond) + " then " + Print(i.Then) + " else " + Print(i.Else)
+	case Let as l:
+		"let " + l.Name + " = " + Print(l.Val) + " in " + Print(l.Body)
+	}
+}
+
+// unary is the binding power of - and !; atom that of a literal, a name
+// or an expression in parentheses.
+let unary = 6
+let atom = 7
+
+// level is how tightly e binds: an if or a let 0, so it is in
+// parentheses wherever it is an operand.
+func level(e Expr) int {
+	match e {
+	case Num, BoolLit, Var:
+		atom
+	case Neg, Not:
+		unary
+	case Bin as b:
+		Prec(b.Op)
+	case If, Let:
+		0
+	}
+}
+
+// operand is the text of e where it must bind at least min.
+func operand(e Expr, min int) string {
+	if level(e) < min {
+		return "(" + Print(e) + ")"
+	}
+	Print(e)
+}

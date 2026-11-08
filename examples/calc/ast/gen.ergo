@@ -1,0 +1,126 @@
+// The generators build expressions from Random, for the property tests
+// that restate the laws: Gen builds a well-typed expression, GenAny any
+// expression of valid names. A test binds Random to rand.Seeded(seed), so
+// a failing case replays from its seed.
+
+// Names are the variable names that the generators use.
+let Names = []string{"a", "b", "x", "y", "z"}
+
+let arith = []Op{Add, Sub, Mul, Div, Mod}
+let logic = []Op{And, Or}
+let every = []Op{Add, Sub, Mul, Div, Mod, Lt, Eq, And, Or}
+
+// Number is a number for a literal: mostly small, with 0 and 1 often (the
+// identities and division by zero) and the extremes of int (overflow).
+func Number() int needs Random {
+	match Random.IntN(10) {
+	case 0, 4:
+		0
+	case 1:
+		1
+	case 2:
+		-9223372036854775808
+	case 3:
+		9223372036854775807
+	case _:
+		Random.IntN(41) - 20
+	}
+}
+
+// AnyType is int or bool.
+func AnyType() Type needs Random {
+	if Random.IntN(2) == 0 { IntT } else { BoolT }
+}
+
+// Gen is a well-typed expression of type t over the variables of s, of
+// depth at most depth.
+func Gen(depth int, t Type, s Scope) Expr needs Random {
+	if depth <= 0 {
+		return leaf(t, s)
+	}
+	let d = depth - 1
+	match t {
+	case IntT:
+		match Random.IntN(9) {
+		case 0:
+			leaf(t, s)
+		case 1:
+			Neg{X: Gen(d, IntT, s)}
+		case 2, 3:
+			Bin{Op: arith[Random.IntN(len(arith))], L: Gen(d, IntT, s), R: Gen(d, IntT, s)}
+		case 4, 8:
+			// An operand that is a leaf reaches the identities (x + 0,
+			// x * 1) and a division by zero more often.
+			Bin{Op: arith[Random.IntN(len(arith))], L: Gen(d, IntT, s), R: leaf(IntT, s)}
+		case 5:
+			If{Cond: Gen(d, BoolT, s), Then: Gen(d, IntT, s), Else: Gen(d, IntT, s)}
+		case _:
+			genLet(d, t, s)
+		}
+	case BoolT:
+		match Random.IntN(8) {
+		case 0:
+			leaf(t, s)
+		case 1:
+			Not{X: Gen(d, BoolT, s)}
+		case 2:
+			Bin{Op: Lt, L: Gen(d, IntT, s), R: Gen(d, IntT, s)}
+		case 3:
+			let u = AnyType()
+			Bin{Op: Eq, L: Gen(d, u, s), R: Gen(d, u, s)}
+		case 4:
+			Bin{Op: logic[Random.IntN(len(logic))], L: Gen(d, BoolT, s), R: Gen(d, BoolT, s)}
+		case 5:
+			If{Cond: Gen(d, BoolT, s), Then: Gen(d, BoolT, s), Else: Gen(d, BoolT, s)}
+		case _:
+			genLet(d, t, s)
+		}
+	}
+}
+
+// genLet is a let of a new or shadowing variable, whose body has type t.
+func genLet(d int, t Type, s Scope) Expr needs Random {
+	let name = Names[Random.IntN(len(Names))]
+	let u = AnyType()
+	let val = Gen(d, u, s)
+	Let{Name: name, Val: val, Body: Gen(d, t, Bound{Name: name, T: u, Outer: s})}
+}
+
+// leaf is a literal of t, or a variable of s of type t.
+func leaf(t Type, s Scope) Expr needs Random {
+	let names = NamesOf(s, t)
+	if len(names) > 0 && Random.IntN(3) > 0 {
+		return Var{Name: names[Random.IntN(len(names))]}
+	}
+	match t {
+	case IntT:
+		Num{V: Number()}
+	case BoolT:
+		BoolLit{V: Random.IntN(2) == 0}
+	}
+}
+
+// GenAny is an expression of depth at most depth whose names are Names:
+// any shape, typed or not, free variables included.
+func GenAny(depth int) Expr needs Random {
+	let d = depth - 1
+	let pick = if depth <= 0 { Random.IntN(3) } else { Random.IntN(9) }
+	match pick {
+	case 0:
+		Num{V: Number()}
+	case 1:
+		BoolLit{V: Random.IntN(2) == 0}
+	case 2:
+		Var{Name: Names[Random.IntN(len(Names))]}
+	case 3:
+		Neg{X: GenAny(d)}
+	case 4:
+		Not{X: GenAny(d)}
+	case 5, 6:
+		Bin{Op: every[Random.IntN(len(every))], L: GenAny(d), R: GenAny(d)}
+	case 7:
+		If{Cond: GenAny(d), Then: GenAny(d), Else: GenAny(d)}
+	case _:
+		Let{Name: Names[Random.IntN(len(Names))], Val: GenAny(d), Body: GenAny(d)}
+	}
+}

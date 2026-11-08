@@ -1,0 +1,86 @@
+// The tests of the tree: its text, its scopes, and the generators that
+// the other packages' property tests draw from.
+
+import rand
+
+test PrintParenthesizesOnlyWhereNeeded {
+	let x = Var{Name: "x"}
+	let one = Num{V: 1}
+	assert Print(Bin{Op: Sub, L: Bin{Op: Sub, L: x, R: one}, R: one}) == "x - 1 - 1"
+	assert Print(Bin{Op: Sub, L: x, R: Bin{Op: Sub, L: one, R: one}}) == "x - (1 - 1)"
+	assert Print(Bin{Op: Mul, L: Bin{Op: Add, L: x, R: one}, R: x}) == "(x + 1) * x"
+	assert Print(Neg{X: Num{V: 5}}) == "- 5"
+	assert Print(Neg{X: Num{V: -5}}) == "- -5"
+	assert Print(Neg{X: Bin{Op: Add, L: x, R: one}}) == "-(x + 1)"
+	assert Print(Not{X: Not{X: BoolLit{V: true}}}) == "!!true"
+	assert Print(Bin{Op: Add, L: Let{Name: "y", Val: one, Body: x}, R: one}) == "(let y = 1 in x) + 1"
+}
+
+test ScopesShadow {
+	let s = Bound{Name: "x", T: BoolT, Outer: Bound{Name: "y", T: IntT, Outer: Bound{Name: "x", T: IntT, Outer: Top}}}
+	assert Lookup(s, "x") == Some[Type]{Value: BoolT}
+	assert Lookup(s, "z") == None
+	let ints = NamesOf(s, IntT)
+	assert len(ints) == 1 && ints[0] == "y"
+}
+
+test NamesAreNotKeywords {
+	assert IsName("x1") && IsName("_") && !IsName("1x") && !IsName("let") && !IsName("") && !IsName("a-b")
+}
+
+// shapes counts, over seeds 1 to n, the generated expressions of size at
+// least 10, and the ones of each root shape.
+func shapes(n int, typed bool) Map[string, int] {
+	let mut seen = Map[string, int]{}
+	for seed in 1..n+1 {
+		with context { Random: rand.Seeded(uint64(seed)) } {
+			let e = if typed { Gen(5, AnyType(), Top) } else { GenAny(5) }
+			let name = shape(e)
+			seen[name] = count(seen, name) + 1
+			if Size(e) >= 10 {
+				seen["big"] = count(seen, "big") + 1
+			}
+		}
+	}
+	seen
+}
+
+func count(m Map[string, int], k string) int {
+	match m.Get(k) {
+	case Some as n:
+		n.Value
+	case None:
+		0
+	}
+}
+
+func shape(e Expr) string {
+	match e {
+	case Num:
+		"num"
+	case BoolLit:
+		"bool"
+	case Var:
+		"var"
+	case Neg:
+		"neg"
+	case Not:
+		"not"
+	case Bin:
+		"bin"
+	case If:
+		"if"
+	case Let:
+		"let"
+	}
+}
+
+test GeneratorsReachEveryShape {
+	for typed in []bool{true, false} {
+		let seen = shapes(300, typed)
+		for name in []string{"num", "bool", "neg", "not", "bin", "if", "let", "big"} {
+			assert count(seen, name) > 0
+		}
+		assert count(seen, "big") > 50
+	}
+}

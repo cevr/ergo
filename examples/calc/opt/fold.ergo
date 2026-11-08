@@ -1,0 +1,182 @@
+// Package opt rewrites an expression into a smaller one with the same
+// meaning. Optimizer is its contract, with the laws every provider keeps;
+// Folder folds constants and Keep changes nothing.
+
+import calc/ast
+import calc/eval
+import calc/typing
+
+// Optimizer rewrites an expression. A rewrite of a well-typed expression
+// has its type and its meaning: the same value, or the same kind of
+// failure. A division by zero stays a division by zero, so 0 * (1 / 0)
+// does not become 0.
+type Optimizer {
+	Optimize(e ast.Expr) ast.Expr,
+
+	law PreservesMeaning(e ast.Expr) {
+		let _ = typing.Check(e) catch {
+		case typing.Mismatch, typing.Unbound:
+			return true
+		}
+		eval.Run(Optimize(e)) == eval.Run(e)
+	},
+
+	law KeepsTheType(e ast.Expr) {
+		let t = typing.Check(e) catch {
+		case typing.Mismatch, typing.Unbound:
+			return true
+		}
+		let u = typing.Check(Optimize(e)) catch {
+		case typing.Mismatch, typing.Unbound:
+			return false
+		}
+		t == u
+	},
+}
+
+// Folder is the Optimizer that folds constants.
+type Folder {}
+
+func Optimize(_ Folder, e ast.Expr) ast.Expr { Fold(e) }
+
+// Keep is the Optimizer that changes nothing.
+type Keep {}
+
+func Optimize(_ Keep, e ast.Expr) ast.Expr { e }
+
+// Consts is what the folder knows of the variables in scope, innermost
+// first: the literal a let bound, or None for a let of a value it does
+// not know, which hides an outer one of the name.
+type Consts = Nothing | Known{Name string, Lit Option[ast.Expr], Outer Consts}
+
+type Nothing {}
+
+// Fold is e with its constants folded, bottom up, in one pass:
+// operators on literals, the identities x + 0, x - 0, x * 1, true && x,
+// x && true, false || x and x || false, the absorbing false && x and
+// true || x, double negation, an if on a literal, and a let of a literal,
+// whose value replaces the variable. It never removes a part that can
+// fail: x * 0 stays, and so does a division by a literal zero.
+func Fold(e ast.Expr) ast.Expr { fold(e, Nothing) }
+
+func fold(e ast.Expr, k Consts) ast.Expr {
+	match e {
+	case ast.Num, ast.BoolLit:
+		e
+	case ast.Var as v:
+		match known(k, v.Name) {
+		case Some as lit:
+			lit.Value
+		case None:
+			e
+		}
+	case ast.Neg as n:
+		let x = fold(n.X, k)
+		match x {
+		case ast.Num as m:
+			ast.Num{V: -m.V}
+		case ast.Neg as inner:
+			inner.X
+		case ast.BoolLit, ast.Var, ast.Not, ast.Bin, ast.If, ast.Let:
+			ast.Neg{X: x}
+		}
+	case ast.Not as n:
+		let x = fold(n.X, k)
+		match x {
+		case ast.BoolLit as b:
+			ast.BoolLit{V: !b.V}
+		case ast.Not as inner:
+			inner.X
+		case ast.Num, ast.Var, ast.Neg, ast.Bin, ast.If, ast.Let:
+			ast.Not{X: x}
+		}
+	case ast.Bin as b:
+		foldBin(b.Op, fold(b.L, k), fold(b.R, k))
+	case ast.If as i:
+		let c = fold(i.Cond, k)
+		match c {
+		case ast.BoolLit as lit:
+			if lit.V { fold(i.Then, k) } else { fold(i.Else, k) }
+		case ast.Num, ast.Var, ast.Neg, ast.Not, ast.Bin, ast.If, ast.Let:
+			ast.If{Cond: c, Then: fold(i.Then, k), Else: fold(i.Else, k)}
+		}
+	case ast.Let as l:
+		let v = fold(l.Val, k)
+		if ast.IsLiteral(v) {
+			return fold(l.Body, Known{Name: l.Name, Lit: Some{Value: v}, Outer: k})
+		}
+		ast.Let{Name: l.Name, Val: v, Body: fold(l.Body, Known{Name: l.Name, Lit: None, Outer: k})}
+	}
+}
+
+// foldBin is the operator op on the folded operands l and r.
+func foldBin(op ast.Op, l ast.Expr, r ast.Expr) ast.Expr {
+	match (op, l, r) {
+	case (ast.And, ast.BoolLit{V: true}, _), (ast.Or, ast.BoolLit{V: false}, _):
+		r
+	case (ast.And, ast.BoolLit{V: false}, _), (ast.Or, ast.BoolLit{V: true}, _):
+		l
+	case (ast.And, _, ast.BoolLit{V: true}), (ast.Or, _, ast.BoolLit{V: false}):
+		l
+	case (ast.Add, _, ast.Num{V: 0}), (ast.Sub, _, ast.Num{V: 0}), (ast.Mul, _, ast.Num{V: 1}):
+		l
+	case (ast.Add, ast.Num{V: 0}, _), (ast.Mul, ast.Num{V: 1}, _):
+		r
+	case _:
+		constant(op, l, r)
+	}
+}
+
+// constant is op on l and r folded to a literal when both are literals
+// and the operation does not fail; else the operation as it is.
+func constant(op ast.Op, l ast.Expr, r ast.Expr) ast.Expr {
+	let keep = ast.Bin{Op: op, L: l, R: r}
+	match (valueOf(l), valueOf(r)) {
+	case (Some[eval.Value] as a, Some[eval.Value] as b):
+		let v = eval.Apply(op, a.Value, b.Value) catch {
+		case eval.DivByZero, eval.Stuck:
+			return keep
+		}
+		literal(v)
+	case (_, _):
+		keep
+	}
+}
+
+// valueOf is the value of a literal.
+func valueOf(e ast.Expr) Option[eval.Value] {
+	match e {
+	case ast.Num as n:
+		Some{Value: eval.IntV{N: n.V}}
+	case ast.BoolLit as b:
+		Some{Value: eval.BoolV{B: b.V}}
+	case ast.Var, ast.Neg, ast.Not, ast.Bin, ast.If, ast.Let:
+		None
+	}
+}
+
+// literal is the literal of v.
+func literal(v eval.Value) ast.Expr {
+	match v {
+	case eval.IntV as i:
+		ast.Num{V: i.N}
+	case eval.BoolV as b:
+		ast.BoolLit{V: b.B}
+	}
+}
+
+// known is the literal the innermost let of name bound, if k knows it.
+func known(k Consts, name string) Option[ast.Expr] {
+	let mut at = k
+	for {
+		match at {
+		case Nothing:
+			return None
+		case Known as c:
+			if c.Name == name {
+				return c.Lit
+			}
+			at = c.Outer
+		}
+	}
+}

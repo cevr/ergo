@@ -1,0 +1,33 @@
+// The rules of calc's text as laws.
+
+import calc/ast
+
+// RoundTrip: the text of an expression reads back as the expression,
+// when its names are variable names.
+law RoundTrip(e ast.Expr) {
+	if !ast.Valid(e) {
+		return true
+	}
+	let back = Parse(ast.Print(e)) catch {
+	case BadChar, Unexpected, TooBig:
+		return false
+	}
+	back == e
+}
+
+// ColumnsIncrease: the tokens of a text stand in order, each after the
+// one before it, and the end after them all.
+law ColumnsIncrease(src string) {
+	let toks = Lex(src) catch {
+	case BadChar:
+		return true
+	}
+	let mut last = 0
+	for t in toks {
+		if At(t) <= last {
+			return false
+		}
+		last = At(t)
+	}
+	last == len(src)+1
+}

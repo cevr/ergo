@@ -1,0 +1,188 @@
+// Package eval runs an expression to its value. An int wraps on
+// overflow, as Go's int64 does; a division or remainder by zero fails
+// DivByZero. Eval runs any expression, checked or not: a value of the
+// wrong type is Stuck, which the type checker rules out (law
+// typing.Sound).
+
+import calc/ast
+
+// Value is the value of an expression.
+type Value = IntV{N int} | BoolV{B bool}
+
+// DivByZero is a division or remainder by zero, in the expression Where.
+type DivByZero { Where string }
+
+// Stuck is an operation on a value of the wrong type.
+type Stuck { Reason string }
+
+// Unset is a variable with no value.
+type Unset { Name string }
+
+// Env is the values of the variables, innermost first.
+type Env = Empty | Def{Name string, V Value, Outer Env}
+
+type Empty {}
+
+// Show is the text of v.
+func Show(v Value) string {
+	match v {
+	case IntV as i:
+		"\(i.N)"
+	case BoolV as b:
+		if b.B { "true" } else { "false" }
+	}
+}
+
+// TypeOf is the type of v.
+func TypeOf(v Value) ast.Type {
+	match v {
+	case IntV:
+		ast.IntT
+	case BoolV:
+		ast.BoolT
+	}
+}
+
+// Eval is the value of e, which has no free variables.
+func Eval(e ast.Expr) Value fails DivByZero | Stuck | Unset { try In(e, Empty) }
+
+// In is the value of e with the variables of env.
+func In(e ast.Expr, env Env) Value fails DivByZero | Stuck | Unset {
+	match e {
+	case ast.Num as n:
+		IntV{N: n.V}
+	case ast.BoolLit as b:
+		BoolV{B: b.V}
+	case ast.Var as v:
+		try lookup(env, v.Name)
+	case ast.Neg as n:
+		IntV{N: -(try intIn(n.X, env))}
+	case ast.Not as n:
+		BoolV{B: !(try boolIn(n.X, env))}
+	case ast.Bin as b:
+		match b.Op {
+		case ast.And:
+			if !(try boolIn(b.L, env)) {
+				return BoolV{B: false}
+			}
+			BoolV{B: try boolIn(b.R, env)}
+		case ast.Or:
+			if try boolIn(b.L, env) {
+				return BoolV{B: true}
+			}
+			BoolV{B: try boolIn(b.R, env)}
+		case ast.Add, ast.Sub, ast.Mul, ast.Div, ast.Mod, ast.Lt, ast.Eq:
+			let l = try In(b.L, env)
+			let r = try In(b.R, env)
+			try Apply(b.Op, l, r) catch {
+			case DivByZero:
+				return DivByZero{Where: ast.Print(e)}
+			}
+		}
+	case ast.If as i:
+		if try boolIn(i.Cond, env) {
+			try In(i.Then, env)
+		} else {
+			try In(i.Else, env)
+		}
+	case ast.Let as l:
+		let v = try In(l.Val, env)
+		try In(l.Body, Def{Name: l.Name, V: v, Outer: env})
+	}
+}
+
+// Apply is op on the values l and r, for an operator that evaluates both
+// operands. The optimizer folds constants with it, so a folded constant
+// is the value Eval gives. A DivByZero from Apply has an empty Where.
+func Apply(op ast.Op, l Value, r Value) Value fails DivByZero | Stuck {
+	match (l, r) {
+	case (IntV as a, IntV as b):
+		match op {
+		case ast.Add:
+			IntV{N: a.N + b.N}
+		case ast.Sub:
+			IntV{N: a.N - b.N}
+		case ast.Mul:
+			IntV{N: a.N * b.N}
+		case ast.Div:
+			if b.N == 0 {
+				return DivByZero{Where: ""}
+			}
+			IntV{N: a.N / b.N}
+		case ast.Mod:
+			if b.N == 0 {
+				return DivByZero{Where: ""}
+			}
+			IntV{N: a.N % b.N}
+		case ast.Lt:
+			BoolV{B: a.N < b.N}
+		case ast.Eq:
+			BoolV{B: a.N == b.N}
+		case ast.And, ast.Or:
+			Stuck{Reason: ast.Symbol(op) + " needs bool operands"}
+		}
+	case (BoolV as a, BoolV as b):
+		match op {
+		case ast.Eq:
+			BoolV{B: a.B == b.B}
+		case ast.And:
+			BoolV{B: a.B && b.B}
+		case ast.Or:
+			BoolV{B: a.B || b.B}
+		case ast.Add, ast.Sub, ast.Mul, ast.Div, ast.Mod, ast.Lt:
+			Stuck{Reason: ast.Symbol(op) + " needs int operands"}
+		}
+	case (IntV, BoolV), (BoolV, IntV):
+		Stuck{Reason: ast.Symbol(op) + " on an int and a bool"}
+	}
+}
+
+func intIn(e ast.Expr, env Env) int fails DivByZero | Stuck | Unset {
+	match try In(e, env) {
+	case IntV as i:
+		i.N
+	case BoolV:
+		Stuck{Reason: "an int is needed, not a bool"}
+	}
+}
+
+func boolIn(e ast.Expr, env Env) bool fails DivByZero | Stuck | Unset {
+	match try In(e, env) {
+	case BoolV as b:
+		b.B
+	case IntV:
+		Stuck{Reason: "a bool is needed, not an int"}
+	}
+}
+
+func lookup(env Env, name string) Value fails Unset {
+	let mut at = env
+	for {
+		match at {
+		case Empty:
+			return Unset{Name: name}
+		case Def as d:
+			if d.Name == name {
+				return d.V
+			}
+			at = d.Outer
+		}
+	}
+}
+
+// Outcome is how an evaluation ends, with the kind of a failure but not
+// where it happened: two expressions with one meaning have one Outcome.
+type Outcome = Ok{V Value} | Failed{Kind string}
+
+// Run is the Outcome of Eval(e).
+func Run(e ast.Expr) Outcome {
+	let v = Eval(e) catch {
+	case DivByZero:
+		return Failed{Kind: "division by zero"}
+	case Stuck:
+		return Failed{Kind: "stuck"}
+	case Unset:
+		return Failed{Kind: "unset"}
+	}
+	Ok{V: v}
+}
