@@ -50,7 +50,7 @@ var runnerOutcomes = map[string]runnerOutcome{
 	"propertyRow": {src: "test T{i}(n int) {{\n\tif n == n {{\n\t\ttry bad()\n\t}}\n}}", line: "FAIL T{i} (case 1 of 100, seed 1: n = ", prefix: true, failed: true},
 }
 
-const runnerPrelude = "import scope\n\ntype Bad {}\n\nfunc bad() fails Bad { Bad }\n\nfunc at(xs []int, i int) int { xs[i] }\n\nlet Live = context { Scheduler: LiveScheduler }\n\nfunc cleanup() {\n\tscope.OnExit() {}\n}\n\nfunc main() needs Console { Console.Println(\"MAIN-MUST-NOT-RUN\") }\n"
+const runnerPrelude = "import scope\nimport time\n\ntype Bad {}\n\nfunc bad() fails Bad { Bad }\n\nfunc at(xs []int, i int) int { xs[i] }\n\nlet Live = context { Scheduler: time.NewManual(0) }\n\nfunc cleanup() {\n\tscope.OnExit() {}\n}\n\nfunc main() needs Console { Console.Println(\"MAIN-MUST-NOT-RUN\") }\n"
 
 // runnerModel is the rule: each test runs once in source order; a pass
 // prints ok; a failed assert, a typed failure or a refuted property fails

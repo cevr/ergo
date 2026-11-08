@@ -2,10 +2,10 @@
 import timeout
 type Fault {}
 func fail() fails Fault { return Fault }
-func main() needs Console {
-	with context { Scheduler: LiveScheduler } {
+func main() needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } {
 		timeout.After(1s) {
-			with context { Scheduler: LiveScheduler } {
+			with context { Scheduler: NewLiveScheduler() } {
 				try timeout.After(1s) {
 					try fail()
 					Console.Println("wrong")

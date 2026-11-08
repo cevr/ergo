@@ -48,8 +48,8 @@ func show(id string) needs Console | Store | Net | Scheduler {
 	Console.Println(v)
 }
 
-func main() needs Console {
-	with context { Store: MemStore, Scheduler: LiveScheduler } {
+func main() needs Console | Ambient {
+	with context { Store: MemStore, Scheduler: NewLiveScheduler() } {
 		with context { Net: OkNet } {
 			show("1")
 			show("2")

@@ -20,12 +20,8 @@ const sketchWaitSource = `func wait() needs Console | Scheduler {
 	Scheduler.Sleep(60s)
 }
 
-let Host = context {
-	Scheduler: LiveScheduler,
-}
-
-func main() needs Console {
-	with Host { wait() }
+func main() needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } { wait() }
 }
 `
 

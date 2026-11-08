@@ -30,7 +30,7 @@ var i1CallRules = map[check.CallKind][]i1CallRule{
 		{name: "known-pure", behavior: "transparent-pure", src: "func leaf(n int) int { n }\nfunc subject(n int) int { leaf(n) }", graph: "self"},
 		{name: "known-capability", behavior: "transparent-capability", src: "func leaf(n int) int needs Probe { Probe.Tick(); n }\nfunc subject(n int) int needs Probe { leaf(n) }", graph: "self"},
 		{name: "host", behavior: "opaque", src: "func subject(n int) int { let xs = []int{}; let _ = xs.Append(n); n }", graph: "host", generated: i1OpaqueGraph("host", "let xs = []int{}; let _ = xs.Append(n)")},
-		{name: "extern", behavior: "opaque", src: "func subject(n int) int { let s LiveScheduler; s.Sleep(0s); n }", graph: "extern", generated: i1OpaqueGraph("extern", "let s LiveScheduler; s.Sleep(0s)")},
+		{name: "extern", behavior: "opaque", src: "func subject(n int) int { let s = NewLiveScheduler(); s.Sleep(0s); n }", graph: "extern", generated: i1OpaqueGraph("extern", "let s = NewLiveScheduler(); s.Sleep(0s)")},
 	},
 	check.CallOp: {
 		{name: "operation-value", behavior: "opaque", src: "type Shape { Area(n int) int }\nfunc subject(s Shape, n int) int { s.Area(n) }", graph: "op-value", generated: &i1Graph{
@@ -77,7 +77,13 @@ var i1SeqRule = i1CallRule{
 }
 
 func i1OpaqueGraph(name, effect string) *i1Graph {
-	return &i1Graph{name: name, opaque: true, frames: []string{"left"}, call: "left(%d)", decls: func(row, clause string) string {
+	// The extern effect makes the host's LiveScheduler, which needs Ambient
+	// (std-align S2b), so a written row of its frames lists Ambient too.
+	ambient := name == "extern"
+	return &i1Graph{name: name, opaque: true, ambient: ambient, frames: []string{"left"}, call: "left(%d)", decls: func(row, clause string) string {
+		if ambient && row != "" {
+			row += " | Ambient"
+		}
 		defs := ""
 		if name == "context-reentry" {
 			defs = "func makeSilent() Silent { let xs = []int{}; let _ = xs.Append(1); Silent }\nlet Loud = context { Probe: makeSilent() }\n"

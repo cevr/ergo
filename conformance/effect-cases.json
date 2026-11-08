@@ -23,7 +23,23 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 8, "label": "sleep - does not require passage of wall time"},
       "behavior": "Advancing test program time admits an already-forked sleeper and allows its join without waiting for the requested wall-clock delay.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Ergo tests explicit TestClock/TestScheduler providers and an admitted but unstarted fork at 36000000 milliseconds (10 hours), under a 15-second watchdog per target; they do not assert all TestClock adjustment/precision behavior.",
+      "limits": "Ergo's TestClock is std time's Manual (std-align S2b), which provides Scheduler and time.Clock. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) starts a task that sleeps 10 hours on a Manual, advances the Manual 11 hours, and waits for the task; the Go test bounds the run to 30 seconds of wall time. Effect's adjust also runs the woken fibers before it returns; Advance wakes the sleepers, and the program reads the task's result with Wait. The program waits until the task is asleep (Sleepers) before it advances. The case lost its earlier evidence with the .ef compiler (#205). The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.test-clock.delays-until-adjusted",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 18, "label": "sleep - delays effects until time is adjusted"},
+      "behavior": "A sleeper of 10 hours is still asleep after the test clock moves 9 hours, and it ends after the clock moves 11 hours more.",
+      "limits": "On std time's Manual (std-align S2b). Effect polls the fiber; Ergo reads Sleepers (1 after 9 hours) and then waits for the task, and Sleepers is 0 after it ends. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.test-clock.multiple-sleeps",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 31, "label": "sleep - handles multiple sleeps"},
+      "behavior": "Two sleepers of 3 hours and 1 hour wake in deadline order: after the clock moves 1 hour only the shorter one has run, and after 4 hours more both have.",
+      "limits": "On std time's Manual (std-align S2b). Effect's sleepers append to one shared string; Ergo's tasks return their parts, and the program joins them in the order the tasks end. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) checks it. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
       "evidence": []
     },
     {
@@ -56,6 +72,38 @@
       "upstream": {"file": "packages/effect/test/Ref.test.ts", "line": 30, "label": "get returns the current value"},
       "behavior": "A Ref read returns its current stored value.",
       "limits": "Generic mutable payload ownership and callback purity admission remain required; native cells alone are not source-level conformance.",
+      "evidence": []
+    },
+    {
+      "id": "effect.array.sort",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 533, "label": "sort"},
+      "behavior": "Sorting by the natural order of numbers gives a new sorted array; an empty array gives an empty one.",
+      "limits": "Ergo's slices.Sort (std-align S2a) is Go's slices.Sort over a copy: it returns a new slice, and the input keeps its order, as Effect's sort does. Ergo has no Set, so the upstream Set inputs have no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the array inputs. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.array.map",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 834, "label": "map"},
+      "behavior": "Mapping a function over an array gives the array of its results, in order.",
+      "limits": "Ergo's name is slices.Transform (std-align S2a; Map is the prelude's map type), and its callback takes the element only, so Effect's second case, whose callback takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.array.filter",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 886, "label": "filter"},
+      "behavior": "Filtering keeps the elements the predicate accepts, in order: odd numbers of [1, 2, 3], and the present options of a list of options.",
+      "limits": "Ergo's slices.Filter (std-align S2a) takes a predicate of the element only, so Effect's last case, whose predicate takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the other three cases. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.array.reduce",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 924, "label": "reduce"},
+      "behavior": "Reducing from an initial value applies the function left to right: the strings a, b and c reduce to abc.",
+      "limits": "Ergo's name is slices.Fold (std-align S2a), and its function takes the accumulator and the element only, so Effect's second case, whose function takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
       "evidence": []
     },
     {

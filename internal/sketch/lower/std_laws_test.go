@@ -23,6 +23,7 @@ import (
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
 import task
+import time
 import timeout
 import scope
 import trace
@@ -38,9 +39,11 @@ func small(n int) int {
 }
 
 test PreludeTaskStopIsIdempotent(n int) {
-	let waiting = task.Go() {
-		LiveScheduler.Sleep(1h)
-		n
+	let waiting = with context { Scheduler: time.NewManual(0) } {
+		task.Go() {
+			Scheduler.Sleep(1h)
+			n
+		}
 	}
 	waiting.Stop()
 	waiting.Stop()
@@ -108,9 +111,11 @@ test TaskWaitReturnsTheBlock(n int) {
 }
 
 test TaskStopIsIdempotent() {
-	let t = task.Go() {
-		LiveScheduler.Sleep(1h)
-		0
+	let t = with context { Scheduler: time.NewManual(0) } {
+		task.Go() {
+			Scheduler.Sleep(1h)
+			0
+		}
 	}
 	t.Stop()
 	t.Stop()
@@ -118,16 +123,20 @@ test TaskStopIsIdempotent() {
 }
 
 test TimeoutQuickBodyWins(n int) {
-	let v = with context { Scheduler: LiveScheduler } {
+	let v = with context { Scheduler: time.NewManual(0) } {
 		try timeout.After(1h) { n }
 	}
 	assert v == n
 }
 
 test TimeoutDeadlineFirstExpires() {
-	let expired = with context { Scheduler: LiveScheduler } {
+	let m = time.NewManual(0)
+	let expired = with context { Scheduler: m } {
 		timeout.After(1ms) {
-			LiveScheduler.Sleep(1h)
+			for m.Sleepers() == 0 {
+			}
+			m.Advance(1ms)
+			Scheduler.Sleep(1h)
 			false
 		} catch {
 		case timeout.Expired:
@@ -262,8 +271,8 @@ func run() fails queue.Closed | timeout.Expired needs Console | Scheduler {
 	}
 }
 
-func main() fails queue.Closed | timeout.Expired needs Console {
-	with context { Scheduler: LiveScheduler } { try run() }
+func main() fails queue.Closed | timeout.Expired needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } { try run() }
 }
 `
 

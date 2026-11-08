@@ -16,9 +16,10 @@ Tag: `default`. It is an original program, not a port. Its golden is written by 
 - **Failures and services in the signature.** `Checkout` says that it can fail with `Declined` or `timeout.Expired`, and that it needs `Payments` and `Scheduler`. A caller that does not handle both failures, or that does not supply both services, does not compile.
 - **An operation type with a law.** `Payments` declares the `Charge` operation and the law `Receipted`: a charge that succeeds returns a receipt with an ID, for the amount charged. A provider that receipts another amount breaks it. The compiler checks laws and does not run them yet (#162), so `memory/tests.ergo` runs the law's check, `payments.Receipted`, against `Gateway` and `Decliner`. A provider is a type with a function of the same name whose first parameter is that type (196m).
 - **A timeout.** `timeout.After(2s) { … }` runs its block as a child task, and stops it at two seconds with `timeout.Expired`. It reads the clock from the `Scheduler` service, so a context chooses the clock.
-- **Contexts across packages.** `Live` binds `Scheduler` to the host scheduler and embeds `memory.Paying`, a context of another package (196b). `Declining` embeds `Live` and replaces only `payments.Payments`, with `memory.Decliner`.
+- **Contexts across packages.** `Memory` binds `Scheduler` to a `time.Manual` and embeds `memory.Paying`, a context of another package (196b). `Declining` embeds `Memory` and replaces only `payments.Payments`, with `memory.Decliner`.
+- **Who chooses the host.** `main` lists `Ambient`, the authority to choose the host, so only `main` makes the host's scheduler: its local context `live` embeds `Memory` and replaces `Scheduler` with `NewLiveScheduler()`. A test cannot hold `Ambient`, so it runs on the `Manual`.
 - **A total `catch`.** `Purchase` catches `Declined` and `timeout.Expired`, so it fails with nothing, and its signature has no `fails`.
-- **Tests.** `ChargeSucceeds` runs `Checkout` in `Live`. `DeclineIsHandled` runs `Purchase` in `Declining`, with no mock framework.
+- **Tests.** `ChargeSucceeds` runs `Checkout` in `Memory`. `DeclineIsHandled` runs `Purchase` in `Declining`, with no mock framework.
 
 ## Run it
 

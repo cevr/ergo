@@ -3,6 +3,8 @@
 // runtime/v1's Go; its hidden arguments, the caller's frame scope and the
 // call's site, are docs/spec/stdlib.md's Hidden arguments.
 
+import time
+
 // Go starts body as a child task of the calling task and returns at once:
 // the block runs later (parse-v1 ruling 5). The calling function owns the
 // Task until a Wait, a Stop or a direct return; when it returns without
@@ -20,11 +22,15 @@ law WaitReturnsTheBlock(n int) {
 
 // StopIsIdempotent: Stop of a running task, then a second Stop, returns
 // and never fails (the prelude's Task states it for every task; here it
-// runs on a task that Go starts and that waits).
+// runs on a task that Go starts and that waits). The task sleeps on a
+// time.Manual that no one advances, so it waits until the Stop; a law
+// cannot hold Ambient, so it binds no host provider.
 law StopIsIdempotent() {
-	let t = Go() {
-		LiveScheduler.Sleep(1h)
-		0
+	let t = with context { Scheduler: time.NewManual(0) } {
+		Go() {
+			Scheduler.Sleep(1h)
+			0
+		}
 	}
 	t.Stop()
 	t.Stop()

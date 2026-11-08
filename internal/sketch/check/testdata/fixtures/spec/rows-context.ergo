@@ -1,3 +1,5 @@
+import time
+
 type OrderNotFound { ID string }
 type GatewayDown {}
 
@@ -29,6 +31,6 @@ func Charge(g FakeGateway, order Order) string fails GatewayDown {
 let Live = context {
 	Orders:    MemoryOrders,
 	Gateway:   FakeGateway{AuthID: "auth-7"},
-	Scheduler: LiveScheduler,
+	Scheduler: time.NewManual(0),
 }
 func main() {}

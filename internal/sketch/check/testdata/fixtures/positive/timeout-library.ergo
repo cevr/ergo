@@ -10,8 +10,8 @@ func nap() string fails timeout.Expired needs Scheduler {
 	return v
 }
 
-func main() needs Console {
-	let v = with context { Scheduler: LiveScheduler } { nap() } catch {
+func main() needs Console | Ambient {
+	let v = with context { Scheduler: NewLiveScheduler() } { nap() } catch {
 	case timeout.Expired:
 		"timed out"
 	}

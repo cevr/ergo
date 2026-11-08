@@ -28,7 +28,8 @@ import (
 // stop before the call, at release entry and during the release; nested
 // mask depth; a release defect with another cause; and the unmasked twins.
 // Test-only seams sit at the private v1 release boundary, at Sleep and at
-// Queue.Close; a Virtual clock replaces Live. No settling sleep is needed.
+// Queue.Close; a Virtual clock replaces the live clock of NewLiveScheduler.
+// No settling sleep is needed.
 func TestRuntime199MaskProperty(t *testing.T) {
 	routes := map[releaseRoute][]string{}
 	for name, binding := range runtimeBindings {
@@ -231,10 +232,8 @@ func Finish(c Conn) needs Scheduler {
 	}
 }
 
-let Live = context { Scheduler: LiveScheduler }
-
 func viaDot(fail bool, signal queue.Queue[int]) {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.Close()
 		c.Close()
@@ -242,7 +241,7 @@ func viaDot(fail bool, signal queue.Queue[int]) {
 }
 
 func twinFinish(fail bool, signal queue.Queue[int]) {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.Close()
 		c.Finish()
@@ -263,7 +262,7 @@ func fail(exit int) fails Fault needs Scheduler {
 }
 
 func frame(exit int, nested bool, releaseFail bool) fails Fault {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		scope.OnExit() {
 			Scheduler.Sleep(6h)
 		}
@@ -299,13 +298,12 @@ var maskPrograms = []maskProgram{
 	{
 		name: "operations",
 		extra: `
-type Plain { Fail bool }
+type Plain { Fail bool, Live LiveScheduler }
 type Other { Fail bool }
 type Releaser { Close() }
 
 func Close(p Plain) {
-	let s LiveScheduler
-	s.Sleep(2h)
+	p.Live.Sleep(2h)
 	if p.Fail {
 		let xs = []int{}
 		let _ = xs[0]
@@ -321,20 +319,20 @@ func Close(o Other, n int) needs Scheduler {
 }
 
 func viaOp(fail bool, signal queue.Queue[int]) {
-	let r Releaser = Plain{Fail: fail}
+	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
 	signal.Close()
 	r.Close()
 }
 
 func viaMethodValue(fail bool, signal queue.Queue[int]) {
-	let r Releaser = Plain{Fail: fail}
+	let r Releaser = Plain{Fail: fail, Live: NewLiveScheduler()}
 	let f = r.Close
 	signal.Close()
 	f()
 }
 
 func twinOperand(fail bool, signal queue.Queue[int]) {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		let o = Other{Fail: fail}
 		signal.Close()
 		o.Close(0)
@@ -353,7 +351,7 @@ func twinOperand(fail bool, signal queue.Queue[int]) {
 		name: "single",
 		extra: `
 func viaPlain(fail bool, signal queue.Queue[int]) {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		signal.Close()
 		Close(c)
@@ -361,7 +359,7 @@ func viaPlain(fail bool, signal queue.Queue[int]) {
 }
 
 func viaValue(fail bool, signal queue.Queue[int]) {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		let c = Conn{Fail: fail}
 		let f = Close
 		signal.Close()
@@ -390,7 +388,7 @@ func Close[T](b Box[T]) needs Scheduler {
 }
 
 func viaGeneric(fail bool, signal queue.Queue[int]) {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		let b = Box[string]{Fail: fail, V: "x"}
 		signal.Close()
 		b.Close()
@@ -415,7 +413,7 @@ func Close(h *Held) needs Scheduler {
 }
 
 func viaPointer(fail bool, signal queue.Queue[int]) {
-	with Live {
+	with context { Scheduler: NewLiveScheduler() } {
 		let mut h = Held{Fail: fail}
 		let p = &h
 		signal.Close()

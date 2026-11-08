@@ -40,6 +40,8 @@ func readWith(h fs.Host) string {
 const (
 	fsAuthority = "fs.Host has an unexported field, so only package fs builds it; use fs.NewHost"
 	osAuthority = "os.Host has an unexported field, so only package os builds it; use os.NewHost"
+	// The prelude's constructor is in scope with no package name.
+	liveAuthority = "prelude.LiveScheduler has an unexported field, so only package prelude builds it; use NewLiveScheduler"
 )
 
 // needsAmbient is the S102 text of a call of NewHost in a site whose row
@@ -170,6 +172,61 @@ func Zero() fs.Host {
 	b.V
 }
 `, []string{"let b of type Box[fs.Host] needs a value: its zero value builds a new value of fs.Host, and " + fsAuthority + " (types.md, Zero values 6)"}},
+		// LiveScheduler sleeps on the host's clock, so it is a host
+		// provider under the same rule (std-align S2b M1). N16 is the
+		// batch-10 verifier's probe, which ran with no Ambient.
+		{"N16 LiveScheduler as a value with no Ambient", `
+func nap() needs Console {
+	LiveScheduler.Sleep(1ms) // want S114
+	Console.Println("slept on the host with no Ambient")
+}
+
+func main() needs Console {
+	nap()
+}
+`, []string{liveAuthority}},
+		{"N17 NewLiveScheduler reaches a main without Ambient", `
+func nap() {
+	with context { Scheduler: NewLiveScheduler() } { Scheduler.Sleep(1ms) }
+}
+
+func main() needs Console {
+	nap() // want S102
+	Console.Println("slept")
+}
+`, []string{needsAmbient("function main")}},
+		{"N18 a test, a named context and a zero value of LiveScheduler", `
+test Naps {
+	with context { Scheduler: NewLiveScheduler() } { Scheduler.Sleep(1ms) } // want S102
+	assert true
+}
+
+let Live = context { Scheduler: NewLiveScheduler() } // want S102
+
+func Zero() {
+	let s LiveScheduler // want S114
+	s.Sleep(1ms)
+}
+
+func Lit() LiveScheduler { LiveScheduler{} } // want S114
+`, []string{
+			needsAmbient("test Naps"),
+			"context Live requires Ambient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)",
+			"let s of type LiveScheduler needs a value: its zero value builds a new value of prelude.LiveScheduler, and " + liveAuthority + " (types.md, Zero values 6)",
+			"a literal of LiveScheduler builds a new value: " + liveAuthority,
+		}},
+		{"P5 main binds the live scheduler", `
+func nap() needs Console | Scheduler {
+	Scheduler.Sleep(1ms)
+	Console.Println("slept")
+}
+
+func main() needs Console | Ambient {
+	with context { Scheduler: NewLiveScheduler() } { nap() }
+	let s = NewLiveScheduler()
+	s.Sleep(1ms)
+}
+`, nil},
 		{"P1 main binds both hosts", `
 func main() needs Console | Ambient {
 	with context { fs.Files: fs.NewHost(), os.Process: os.NewHost() } { run() }

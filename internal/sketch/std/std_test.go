@@ -517,10 +517,10 @@ func baseName(goType string) string {
 }
 
 // unguardedHosts are the host providers that do not follow the rule yet,
-// each with the unit that moves it under the rule. H2 empties the set.
-var unguardedHosts = map[string]string{
-	"prelude.LiveScheduler": "host-authority-sched (H2)",
-}
+// each with the unit that moves it under the rule. It is empty since
+// std-align S2b put the prelude's LiveScheduler under the rule; a later
+// provider that cannot follow it yet is named here with its unit.
+var unguardedHosts = map[string]string{}
 
 // TestStdHostProvidersHaveAuthority is host-authority H1's structural
 // guard (stdlib.md, Host packages): a std defined type T, whatever its
@@ -547,7 +547,7 @@ var unguardedHosts = map[string]string{
 // names it. The set found today is pinned, and a fixture table with one
 // provider per kind checks the walk and the rule.
 func TestStdHostProvidersHaveAuthority(t *testing.T) {
-	outside, ds := check.CheckSource("let x = LiveScheduler\n")
+	outside, ds := check.CheckSource("func uses(_ LiveScheduler) {}\n")
 	if len(ds) != 0 {
 		t.Fatalf("outside: %v", ds)
 	}
