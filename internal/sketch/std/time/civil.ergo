@@ -1,0 +1,208 @@
+// The calendar of an instant, in UTC as every Time is (stdlib.md, time
+// 7): Go's t.Date, t.Clock, t.Weekday and t.YearDay as one record, and
+// Go's time.Date. Month and Weekday are unions, so a match over them is
+// total; Go's are integers. The arithmetic is the proleptic Gregorian
+// calendar of Go's time package (Howard Hinnant's days-from-civil), in
+// Ergo with no host call.
+
+// Month is a month of the year.
+type Month = January{} | February{} | March{} | April{} | May{} | June{} | July{} | August{} | September{} | October{} | November{} | December{}
+
+// Weekday is a day of the week. Go numbers them from Sunday, 0.
+type Weekday = Sunday{} | Monday{} | Tuesday{} | Wednesday{} | Thursday{} | Friday{} | Saturday{}
+
+// Civil is the calendar of an instant in UTC: its date, its time of day,
+// its weekday and its day of the year, 1 to 366.
+type Civil { Year int, Month Month, Day int, Hour int, Minute int, Second int, Nanosecond int, Weekday Weekday, YearDay int }
+
+// MonthNumber is the number of m, January 1 to December 12.
+func MonthNumber(m Month) int {
+	match m {
+	case January:
+		1
+	case February:
+		2
+	case March:
+		3
+	case April:
+		4
+	case May:
+		5
+	case June:
+		6
+	case July:
+		7
+	case August:
+		8
+	case September:
+		9
+	case October:
+		10
+	case November:
+		11
+	case December:
+		12
+	}
+}
+
+// MonthOf is the month numbered n, or None when n is not 1 to 12.
+func MonthOf(n int) Option[Month] {
+	if n < 1 || n > 12 {
+		return None
+	}
+	Some[Month]{Value: months()[n-1]}
+}
+
+// WeekdayNumber is the number of w as Go's time.Weekday: Sunday 0 to
+// Saturday 6.
+func WeekdayNumber(w Weekday) int {
+	match w {
+	case Sunday:
+		0
+	case Monday:
+		1
+	case Tuesday:
+		2
+	case Wednesday:
+		3
+	case Thursday:
+		4
+	case Friday:
+		5
+	case Saturday:
+		6
+	}
+}
+
+// Calendar is the calendar of t in UTC, as Go's t.UTC().Date(), Clock(),
+// Nanosecond(), Weekday() and YearDay() give it.
+func Calendar(t Time) Civil {
+	let days = floorDiv(t.sec, 86400)
+	let clock = t.sec - days*86400
+	let date = civilFromDays(days)
+	let first = daysFromCivil(date.year, 1, 1)
+	Civil{
+		Year:       int(date.year),
+		Month:      months()[int(date.month)-1],
+		Day:        int(date.day),
+		Hour:       int(clock / 3600),
+		Minute:     int(clock % 3600 / 60),
+		Second:     int(clock % 60),
+		Nanosecond: int(t.nsec),
+		Weekday:    weekdays()[int(floorMod(days+4, 7))],
+		YearDay:    int(days-first) + 1,
+	}
+}
+
+// Date is the instant of the date and time of day in UTC, as Go's
+// time.Date(year, month, day, hour, min, sec, nsec, time.UTC): a field
+// outside its range carries into the next larger one, so day 0 is the last
+// day of the month before, hour 24 the next day and nsec -1 the
+// nanosecond before. It has no monotonic reading.
+func Date(year int, month Month, day int, hour int, min int, sec int, nsec int) Time {
+	let s = int64(sec) + floorDiv(int64(nsec), 1000000000)
+	let ns = floorMod(int64(nsec), 1000000000)
+	let mi = int64(min) + floorDiv(s, 60)
+	let h = int64(hour) + floorDiv(mi, 60)
+	let d = int64(day) + floorDiv(h, 24)
+	let days = daysFromCivil(int64(year), int64(MonthNumber(month)), 1) + d - 1
+	Unix(days*86400+floorMod(h, 24)*3600+floorMod(mi, 60)*60+floorMod(s, 60), ns)
+}
+
+// months are the months in order.
+func months() []Month {
+	[]Month{January, February, March, April, May, June, July, August, September, October, November, December}
+}
+
+// weekdays are the weekdays in Go's order, Sunday first.
+func weekdays() []Weekday { []Weekday{Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday} }
+
+// floorDiv is a / b rounded down, for b > 0.
+func floorDiv(a int64, b int64) int64 {
+	let q = a / b
+	if a%b < 0 {
+		q - 1
+	} else {
+		q
+	}
+}
+
+// floorMod is a - floorDiv(a, b)*b, in 0..b-1 for b > 0.
+func floorMod(a int64, b int64) int64 { a - floorDiv(a, b)*b }
+
+// ymd is a proleptic Gregorian date.
+type ymd { year int64, month int64, day int64 }
+
+// daysFromCivil is the count of days from 1970-01-01 to y-m-d, for m in
+// 1..12 and any d (Hinnant, days_from_civil).
+func daysFromCivil(y int64, m int64, d int64) int64 {
+	let yy = if m <= 2 { y - 1 } else { y }
+	let era = floorDiv(yy, 400)
+	let yoe = yy - era*400
+	let mp = if m > 2 { m - 3 } else { m + 9 }
+	let doy = (153*mp+2)/5 + d - 1
+	let doe = yoe*365 + yoe/4 - yoe/100 + doy
+	era*146097 + doe - 719468
+}
+
+// civilFromDays is the date days after 1970-01-01 (Hinnant,
+// civil_from_days).
+func civilFromDays(days int64) ymd {
+	let z = days + 719468
+	let era = floorDiv(z, 146097)
+	let doe = z - era*146097
+	let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365
+	let doy = doe - (365*yoe + yoe/4 - yoe/100)
+	let mp = (5*doy + 2) / 153
+	let d = doy - (153*mp+2)/5 + 1
+	let m = if mp < 10 { mp + 3 } else { mp - 9 }
+	let y = yoe + era*400
+	ymd{year: if m <= 2 { y + 1 } else { y }, month: m, day: d}
+}
+
+// anyMonth is the month n names when moved into 1..12.
+func anyMonth(n int64) Month { months()[int(within(n, 0, 11))] }
+
+// DateRoundTrip: Date of an instant's own calendar is the instant, for
+// every second of years 1 to 9999 and every nanosecond.
+law DateRoundTrip(sec int64, nsec int64) {
+	let t = Unix(anyYear(sec), within(nsec, 0, 999999999))
+	let c = t.Calendar()
+	Date(c.Year, c.Month, c.Day, c.Hour, c.Minute, c.Second, c.Nanosecond) == t
+}
+
+// WeekdayStep: a day later is the next weekday, Saturday then Sunday.
+law WeekdayStep(sec int64) {
+	let t = Unix(anyYear(sec), 0)
+	WeekdayNumber(t.Add(24h).Calendar().Weekday) == (WeekdayNumber(t.Calendar().Weekday)+1)%7
+}
+
+// DateNormalises: a day and an hour out of range carry as whole days and
+// hours from the first of the month, so day 0 is the day before the first.
+law DateNormalises(year int64, month int64, day int64, hour int64) {
+	let y = int(within(year, 1, 9999))
+	let m = anyMonth(month)
+	let d = within(day, -400, 400)
+	let h = within(hour, -100, 100)
+	Date(y, m, int(d), int(h), 0, 0, 0).Equal(Date(y, m, 1, 0, 0, 0, 0).Add(duration(((d-1)*24 + h) * 3600000000000)))
+}
+
+// YearDayCounts: the day of the year is the count of days since January 1,
+// plus one.
+law YearDayCounts(sec int64) {
+	let t = Unix(anyYear(sec), 0)
+	let c = t.Calendar()
+	let first = Date(c.Year, January, 1, 0, 0, 0, 0)
+	c.YearDay == Count(Date(c.Year, c.Month, c.Day, 0, 0, 0, 0).Sub(first), 24h)+1
+}
+
+// MonthOfInvertsNumber: MonthOf(n) is the month whose number is n, and
+// None outside 1..12.
+law MonthOfInvertsNumber(n int) {
+	match MonthOf(n) {
+	case Some[Month] as m:
+		MonthNumber(m.Value) == n
+	case None:
+		n < 1 || n > 12
+	}
+}

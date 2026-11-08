@@ -20,7 +20,7 @@ import (
 
 //go:embed prelude.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
 //go:embed os/*.ergo
-//go:embed fs/*.ergo
+//go:embed fs/*.ergo fstest/*.ergo
 //go:embed io/*.ergo
 //go:embed utf8/*.ergo
 //go:embed flag/*.ergo
@@ -33,6 +33,7 @@ import (
 //go:embed math/*.ergo bits/*.ergo
 //go:embed hex/*.ergo base64/*.ergo sha256/*.ergo crc32/*.ergo
 //go:embed machines/*.ergo
+//go:embed csv/*.ergo
 var sources embed.FS
 
 // PreludePath is the package path of the prelude. No import names it: its

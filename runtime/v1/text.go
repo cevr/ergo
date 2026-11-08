@@ -179,6 +179,37 @@ func StringsToValidUTF8(s string, replacement string) string {
 	return strings.ToValidUTF8(s, replacement)
 }
 
+// StringsCompare is strings.Compare.
+//
+//ergo:pure
+func StringsCompare(a string, b string) int { return strings.Compare(a, b) }
+
+// StringsPadLeft is s after copies of pad, width runes in all, as
+// fmt.Sprintf("%*s", width, s) pads with spaces: fmt counts the runes of s
+// with utf8.RuneCountInString, so an invalid byte is one rune. A pad that
+// is not a valid rune is written U+FFFD, as Go's string(r).
+//
+//ergo:pure
+func StringsPadLeft(s string, width int, pad rune) string {
+	n := utf8.RuneCountInString(s)
+	if n >= width {
+		return s
+	}
+	return strings.Repeat(string(pad), width-n) + s
+}
+
+// StringsPadRight is StringsPadLeft with the pad after s, as
+// fmt.Sprintf("%-*s", width, s).
+//
+//ergo:pure
+func StringsPadRight(s string, width int, pad rune) string {
+	n := utf8.RuneCountInString(s)
+	if n >= width {
+		return s
+	}
+	return s + strings.Repeat(string(pad), width-n)
+}
+
 // StrconvFormatInt is strconv.FormatInt; a base outside 2..36 panics as
 // Go's does, a defect.
 //

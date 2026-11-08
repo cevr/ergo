@@ -1,0 +1,35 @@
+import utf8
+
+// Compare is 0 when a == b, -1 when a sorts before b and +1 when after, by
+// bytes, as Go's strings.Compare.
+extern go ergo.local/prototype/runtime/v1.StringsCompare func Compare(a string, b string) int
+
+// PadLeft is s with copies of pad before it, so that it is width runes
+// wide; s as it is when it is that wide already. Width counts runes, as
+// Go's fmt width does: PadLeft(s, 8, ' ') is fmt.Sprintf("%8s", s). An
+// invalid byte of s counts as one rune, and a pad that is not a valid rune
+// is U+FFFD, as RuneText gives it.
+extern go ergo.local/prototype/runtime/v1.StringsPadLeft func PadLeft(s string, width int, pad rune) string
+
+// PadRight is PadLeft with the pad after s: PadRight(s, 8, ' ') is
+// fmt.Sprintf("%-8s", s).
+extern go ergo.local/prototype/runtime/v1.StringsPadRight func PadRight(s string, width int, pad rune) string
+
+// PadWidth: a padded text is width runes wide, or as wide as s when s is
+// wider.
+law PadWidth(s string, w int, r rune) {
+	let width = w % 64
+	let n = utf8.RuneCount(s)
+	let want = if width > n { width } else { n }
+	utf8.RuneCount(PadLeft(s, width, r)) == want && utf8.RuneCount(PadRight(s, width, r)) == want
+}
+
+// PadKeepsText: PadLeft ends with s and PadRight starts with it.
+law PadKeepsText(s string, w int, r rune) {
+	let width = w % 64
+	HasSuffix(PadLeft(s, width, r), s) && HasPrefix(PadRight(s, width, r), s)
+}
+
+// CompareIsAntisymmetric: Compare(a, b) is -Compare(b, a), and 0 only for
+// equal texts.
+law CompareIsAntisymmetric(a string, b string) { Compare(a, b) == -Compare(b, a) && (Compare(a, b) == 0) == (a == b) }

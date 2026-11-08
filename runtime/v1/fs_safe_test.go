@@ -296,8 +296,8 @@ func TestFSWritesModel(t *testing.T) {
 					got = err
 					if !there {
 						want = NotFound{Path: path}
-					} else if info != (Info{Name: name, Size: len(m.text)}) {
-						fail("Stat(%s) = %#v; the model holds %d bytes", name, info, len(m.text))
+					} else if info != (Info{Name: name, Size: len(m.text), Perm: int(m.mode)}) {
+						fail("Stat(%s) = %#v; the model holds %d bytes, mode %o", name, info, len(m.text), m.mode)
 					}
 				}
 				if got != want {

@@ -11,7 +11,7 @@ The program is a module of packages (`ergo.mod`: `module okra`), in the Go layou
 | folder | what it holds |
 | --- | --- |
 | `how/` | The domain. `topic.ergo` (`Topic` and `Parse`, which reads a guide's front matter line by line through `io.Input`'s `Lines`), `catalogue.ergo` (`Catalogue`, `Load`, `Of`, `Find`, `Subtopics`), `answer.ergo` (`Request` and the text the command prints), `library.ergo` (`Library`, the contract it needs, with its laws), `laws.ergo` and `tests.ergo`. No function needs a capability except `Load`, which needs `Library`. |
-| `memory/` | `Shelf`, the in-memory provider of `how.Library`, and `Disk`, an in-memory provider of `fs.Files` for tests. |
+| `memory/` | `Shelf`, the in-memory provider of `how.Library`, and `Disk`, which puts test files in a std `fstest.Memory`, the in-memory provider of `fs.Files`. |
 | `files/` | `Read`, which reads a shelf from a directory through `fs.Files`. |
 | `cmd/okra-how/` | The binary. `main.ergo` reads the command line with std `flag`, binds the host's `fs.Files`, `io.Stdout` and `os.Process`, and is the only place that chooses a provider. |
 | `testdata/guides/` | okra's guides, `NAME/SKILL.md`, byte for byte at the commit `origin` names, and `topics`, the order of the contents. |
@@ -24,7 +24,7 @@ The program is a module of packages (`ergo.mod`: `module okra`), in the Go layou
 - **A command line as a union.** `parse` is `flag.ParseCommand` over one `flag.Command[Cmd]` named `how`, whose `Build` makes the program's own `Cmd` from the parsed values (`Build` fails nothing of the program's own, so the row `E` of `flag.Command[C, E]` is left out and empty); `topicArg` is a `flag.OptionalArg`, so `Get` gives an `Option[string]`. `parse` fails `flag.Failure`'s closed union, which `flag.Exit` ends: help on standard output with status 0, a usage error on standard error with status 2.
 - **Unions and `match`.** `how.Request = Contents{} | Guide{Name string}` is what the command asks; `Answer` matches it exhaustively.
 - **Laws as properties.** Top-level laws in `how/laws.ergo` state the rules: `FindsEveryTopic`, `MissNamesTheContents`, `FrontMatterIsRemoved` and `FirstSentenceIsAPrefix`. `Parse` joins the lines after the front matter back into the body, which `io`'s law `LinesSplitInput` allows.
-- **Providers chosen once.** A provider of `how.Library` cannot need a capability that the contract's operations do not write (rows.md, Context 2), so `files.Read` reads every guide at the start into a `memory.Shelf`, under `fs.Files`. `main` binds the host's file system; the tests bind a `memory.Disk` and an `io.Recorder`, with no host.
+- **Providers chosen once.** A provider of `how.Library` cannot need a capability that the contract's operations do not write (rows.md, Context 2), so `files.Read` reads every guide at the start into a `memory.Shelf`, under `fs.Files`. `main` binds the host's file system; the tests bind a std `fstest.Memory` made by `memory.Disk` and an `io.Recorder`, with no host.
 
 ## Run it
 
