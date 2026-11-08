@@ -586,7 +586,7 @@ func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 			}
 			return
 		}
-		if row := c.errorValueRow(op.typ); row != nil && op.mode == modeValue {
+		if row := c.returnedErrorRow(op.typ); row != nil && op.mode == modeValue {
 			c.escape(s.Results[0], row)
 			return
 		}
@@ -696,6 +696,22 @@ func (c *checker) errorValueRow(t Type) *Row {
 		return c.types.row(t)
 	}
 	return nil
+}
+
+// returnedErrorRow is errorValueRow for a value a function body returns
+// or yields: nil when the function's declared result is that error type,
+// so the value is the success value, as a constructor
+// func missing(k string) Missing { Missing{Key: k} } returns it (K1;
+// rows.md, Error rows 4). In any other body an error value is a failure.
+func (c *checker) returnedErrorRow(t Type) *Row {
+	row := c.errorValueRow(t)
+	if row == nil || c.fn == nil || c.fn.t == nil || c.fn.t.law {
+		return row
+	}
+	if r := c.fn.t.results; len(r) == 1 && c.errorValueRow(r[0]) != nil && c.identical(t, r[0]) {
+		return nil
+	}
+	return row
 }
 
 // isErrorValue reports whether t is an error type in the body being

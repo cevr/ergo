@@ -240,7 +240,7 @@ func (c *checker) yieldExpr(last *syntax.ExprStmt, k *sink, end syntax.Pos) {
 		c.handled(&op)
 	}
 	if k.ret && op.mode == modeValue {
-		if row := c.errorValueRow(op.typ); row != nil {
+		if row := c.returnedErrorRow(op.typ); row != nil {
 			// A failure, as return e is (rows.md, Error rows 4): this path
 			// has no value.
 			c.escape(last.X, row)

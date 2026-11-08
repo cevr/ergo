@@ -27,11 +27,13 @@ func pay(id string) string fails OrderNotFound | GatewayDown needs Orders | Gate
 4. **Escapes.** A failure escapes to the enclosing failure target in exactly these ways:
    - `try e`, which escapes `e`'s whole row;
    - `return e` where `e` is fallible, which passes `e`'s success and its failures through;
-   - `return v` where `v` is a value of an error type;
+   - `return v` where `v` is a value of an error type, or `v` as a function body's tail, unless the function's declared result is that error type (below);
    - the unhandled rest of a partial `try e catch { … }`.
 
+   A function's declared result type is its contract. When it is an error type `E`, a tail or `return` of an `E` value is the function's success value, so `func missing(k string) Missing { Missing{Key: k} }` is a constructor and `E` is not added to its row. In every other function an error value at a tail or `return` is a failure, whatever produces it: a literal, a call's value (`return missing(k)`), a local (`let m = missing(k); return m`) or a catch binding (K1, owner question q27 answered as "returns a value"; `TestErrorValueRuleTable`). *Prior art:* Gleam, ReScript and Rust have no implicit failure: an error value is a value and a failure is `Error(e)` or `Err(e)`, which the declared `Result` type decides; Swift needs `throw e`. Ergo keeps the implicit failure and lets the declared result decide where it would be ambiguous.
+
    The failure target is the innermost enclosing function or function literal. A trailing block is a function literal ([grammar.md](grammar.md#expressions)), so the block of `timeout.After` is a failure target, as every trailing block is (README Gap 31). A `with` block is part of a construct, not a function literal, so it is not a failure target: a `try` inside it escapes to the enclosing function.
-5. **Upper bound (S101).** Every error type that can escape a function must be in its declared row. A function with no row lets nothing escape. Returning a value of an error type from a function with no row is therefore S101 (fixture `error-as-value`).
+5. **Upper bound (S101).** Every error type that can escape a function must be in its declared row. A function with no row lets nothing escape. Returning a value of an error type from a function with no row is therefore S101 (fixture `error-as-value`), unless the function's declared result is that error type (rule 4).
 6. **Value of `try`.** `try e` has `e`'s success value, or no value when `e` has none. `try` on an expression that cannot fail is an error (S108), and so is `try` over a catch that handles the whole row with nothing inside it that propagates ([Catch](#catch) rule 5).
 7. **Lowering.** `try f()` becomes `v, err := f(…); if err != nil { return zero, err }`. Error types implement Go's `error`; the row is checked and erased. *Prior art:* Borgo's tuple path for `?`; XGo's inline `expr?`; Rust's `?`; Gleam has no operator and uses `use` with `result.try`.
 

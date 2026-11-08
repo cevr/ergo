@@ -243,7 +243,7 @@ func NewStore() Store  { return Mem{} } // Mem implements Store
 Status: **checked** (#196).
 
 1. A type named in any error row is an error type. It must be a named struct type, of this package or of an imported one such as `timeout.Expired` (S104). Inside a package, a struct type is an error type when an error row of that package, or of the package that declares the type, names it; a struct type that no such row names is an ordinary value type. A test's error rows make an error type only inside the tests ([grammar.md](grammar.md#declarations) 11; 196l, check-v1 stage E3a): a struct type that only a test's row names is an ordinary value type in every other body, so the test changes neither their verdicts nor the run build, which gives the type no `Error` method and no text helper; the test build reads the test's rows as well. Another package reads only the rows of the program that declares the type, never its tests.
-2. An error type is not an ordinary value: returning a value of an error type is a failure ([rows.md](rows.md#error-rows); fixture `error-as-value`, S101).
+2. An error type is not an ordinary value: returning a value of an error type is a failure ([rows.md](rows.md#error-rows); fixture `error-as-value`, S101), except from a function whose declared result is that error type, which returns it as its value ([rows.md](rows.md#error-rows) 4, K1).
 3. Error rows are sets of independent struct types, not one declared sum per function. *Prior art:* Gleam returns one declared `Result` error type per function; OCaml polymorphic variants and Koka effect rows are open sets; Ergo's rows are closed sets of nominal types with no open tail in v0.
 
 ## Operators

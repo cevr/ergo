@@ -31,13 +31,13 @@ func step(s S, e E) Decision[S, int] { return Ignore }`},
 let v = helper()
 func helper() string { return C.Use() }`},
 	{"M3", "error-row-package-var", "S101", `type Fault {}
-func Identity(v Fault) Fault { return v }
+func Identity(v Fault) int { return v }
 let _ = func() fails Fault { return Fault }`},
 	{"M3", "generic-row-body-order", "S101", `type Fault[T] { Value T }
-func Identity(v Fault[int]) Fault[int] { return v }
+func Identity(v Fault[int]) int { return v }
 func F()                               { _ = func() fails Fault[int] { return Fault[int]{1} } }`},
 	{"M3", "local-error-row", "S101", `type Fault {}
-func Identity(v Fault) Fault { return v }
+func Identity(v Fault) int { return v }
 func F()                     { _ = func() fails Fault { return Fault } }`},
 	{"M4", "error-union-rethrow", "S108", `type A {}
 type B {}
