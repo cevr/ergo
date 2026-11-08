@@ -63,6 +63,15 @@ func main() needs Console {
 	{"int32", `extern go unicode/utf8.RuneLen func RuneLen(r int32) int
 func main() needs Console { Console.Println("\(RuneLen(65)) \(RuneLen(19990))") }
 `, "1 3\n"},
+	// G2 (lane G): unicode and unicode/utf16 joined the pure allowlist.
+	{"unicode", `extern go unicode.ToUpper func Up(r rune) rune
+extern go unicode.IsSpace func IsSpace(r rune) bool
+extern go unicode/utf16.IsSurrogate func IsSurrogate(r rune) bool
+extern go unicode/utf16.DecodeRune func DecodeRune(a rune, b rune) rune
+func main() needs Console {
+	Console.Println("\(Up(97)) \(IsSpace(32)) \(IsSurrogate(55357)) \(DecodeRune(55357, 56832))")
+}
+`, "65 true true 128512\n"},
 	{"complex128", `extern go strconv.FormatComplex func FormatComplex(c complex128, f uint8, prec int, size int) string
 func main() needs Console {
 	let c complex128 = complex128(5)
@@ -169,8 +178,10 @@ func TestE4HostTargetsRefused(t *testing.T) {
 				t.Fatalf("want %d diagnostics and no Go, got %v and %d files", r.externs, o.diags, len(o.files))
 			}
 			for _, d := range o.diags {
-				if d.Code != "S109" || !strings.Contains(d.Message, "reaches the host") {
-					t.Errorf("want an S109 naming the host, got %s", d)
+				// G2: cmp reads only its arguments, so its S109 says it is
+				// not listed yet rather than that it reaches the host.
+				if d.Code != "S109" || !strings.Contains(d.Message, "reaches the host") && !strings.Contains(d.Message, "is not on the pure allowlist") {
+					t.Errorf("want an S109 naming the host or the allowlist, got %s", d)
 				}
 			}
 		})

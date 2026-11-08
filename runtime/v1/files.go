@@ -91,7 +91,7 @@ const PureMark = "//ergo:pure"
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
 // except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort", "math", "math/bits", "path/filepath"}
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs
@@ -99,6 +99,25 @@ var PureImports = []string{"strings", "strconv", "unicode/utf8", "slices", "sort
 // the file system. Every other member of path/filepath is lexical.
 var PureImportsExcept = map[string][]string{
 	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
+}
+
+// PureUnlisted are Go standard-library packages, outside PureImports, whose
+// functions of basic types read only their arguments: no host state, no
+// package state a caller can see, no unknown code (lane G, G2). Nothing
+// trusts this list. It only words the checker's refusal of a user extern of
+// one: "not on the pure allowlist yet", not "reaches the host" (check,
+// externTargetRefusal). A package joins PureImports by a reviewed move out
+// of this list; any package in neither list may reach the host. Left out on
+// review: net/url (reads GODEBUG), net/netip (a global intern table),
+// hash/maphash (a random seed), container/heap and crypto/hmac (they call
+// a caller's code), errors (calls an argument's methods) and encoding/json
+// (reflection and a caller's marshal methods).
+var PureUnlisted = []string{
+	"bytes", "cmp", "container/list", "container/ring",
+	"crypto/md5", "crypto/sha1", "crypto/sha256", "crypto/sha512", "crypto/subtle",
+	"encoding/ascii85", "encoding/base32", "encoding/base64", "encoding/hex",
+	"hash/adler32", "hash/crc32", "hash/crc64", "hash/fnv",
+	"html", "maps", "math/big", "math/cmplx", "path", "regexp", "regexp/syntax",
 }
 
 // PureImportHostMembers are the Go packages, beyond PureImports, that the

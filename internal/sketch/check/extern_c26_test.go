@@ -190,7 +190,10 @@ func TestExternTargetDomain(t *testing.T) {
 		// std-text-runes: math/bits joined the pure allowlist.
 		{"math/bits", "", ""},
 		// G9: a standard-library package outside the pure allowlist.
-		{"math/cmplx", "S109", "extern go math/cmplx.F reaches the host"},
+		// G2: a pure package not listed yet says so.
+		{"math/cmplx", "S109", "extern go math/cmplx.F: math/cmplx is not on the pure allowlist ("},
+		{"unicode", "", ""},
+		{"unicode/utf16", "", ""},
 		{"os", "S109", "extern go os.F reaches the host; wait for std os.Process or #202"},
 		{"example.com/x", "S109", "#202"},
 		{"ergo.local/prototype/runtime/rt", "S108", "only std binds the Ergo runtime"},

@@ -234,7 +234,7 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 1. The mark is the directive line `//ergo:pure` in the doc comment of an exported top-level function of `runtime/v1`. `v1.BodyOf` reads it and reports `Body.Pure`; the checker's footprint (`check/footprint.go`, `runs`) reads only that fact.
 2. The mark is a reviewed claim. `BodyOf` refuses a marked body, with an error that names the rule, when:
    - it is a method;
-   - its file imports a package outside `v1.PureImports` (`strings`, `strconv`, `unicode/utf8`, `slices`, `sort`, `math`, `math/bits`, `path/filepath`) and outside `v1.PureImportHostMembers` (`time`, std-align S2b);
+   - its file imports a package outside `v1.PureImports` (`strings`, `strconv`, `unicode`, `unicode/utf8`, `unicode/utf16`, `slices`, `sort`, `math`, `math/bits`, `path/filepath`) and outside `v1.PureImportHostMembers` (`time`, std-align S2b);
    - its body names a member of a `PureImportHostMembers` package that reads host state, as a package member or a method of that name: for `time`, `Now`, `Since`, `Until`, `Sleep`, `After`, `AfterFunc`, `Tick`, `NewTicker`, `NewTimer`, `Local`, `LoadLocation` and `Parse` (which reads the local zone for an abbreviation). `time` is not in `PureImports`, which is also the user extern list (G9): a user extern binds a whole package, so it could bind `time.Now`;
    - its body names a member of an allowed package that reaches the host, as `v1.PureImportsExcept` lists them (`filepath.Abs`, `EvalSymlinks`, `Glob`, `Walk`, `WalkDir`), or its file dot-imports such a package;
    - it takes a hidden argument (the frame, the call site, the task, the Scheduler, the reading package);

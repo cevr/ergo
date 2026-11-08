@@ -107,8 +107,9 @@ func (c *checker) checkExternParams() {
 // reach the host. A missing function there is go build's error (D-E5).
 // The Ergo runtime and Go's unsafe are S108 whatever the signature. A path
 // whose first element has a dot is a module outside Go's standard library
-// (Go's own rule for module paths) and keeps its #202 text; any other path
-// outside the allowlist may reach the host and is S109 (hostText).
+// (Go's own rule for module paths) and keeps its #202 text; a pure package
+// not listed yet (v1.PureUnlisted, G2) is S109 with unlistedText; any other
+// path outside the allowlist may reach the host and is S109 (hostText).
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
@@ -120,6 +121,9 @@ func externTargetRefusal(f *Func) (string, string) {
 	first, _, _ := strings.Cut(path, "/")
 	if strings.Contains(first, ".") {
 		return fmt.Sprintf("the Go package %s of the extern %s is #202's (Go imports); it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
+	}
+	if slices.Contains(v1.PureUnlisted, path) {
+		return unlistedText(path, f.Decl.Extern.Target.Value), CodeOutside
 	}
 	if !PureGoPackage(path) {
 		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
@@ -173,6 +177,14 @@ func hostText(path, target string) string {
 		route = "std os.Process"
 	}
 	return fmt.Sprintf("extern go %s reaches the host; wait for %s or #202 (a user extern binds only the pure Go packages %s)", target, route, strings.Join(PureGoPackages(), ", "))
+}
+
+// unlistedText is the S109 of a user extern whose Go package reads only its
+// arguments but is not in the pure allowlist yet (G2, v1.PureUnlisted). It
+// says "not listed", not "reaches the host": the package is pure, and the
+// list grows by review.
+func unlistedText(path, target string) string {
+	return fmt.Sprintf("extern go %s: %s is not on the pure allowlist (%s) yet; a user extern binds only those (#202)", target, path, strings.Join(PureGoPackages(), ", "))
 }
 
 // externOutsideDomain names the first part of f's signature outside the
