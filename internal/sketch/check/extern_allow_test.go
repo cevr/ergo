@@ -17,11 +17,12 @@ import (
 
 // allowlist is the pure allowlist as G9 decides it (std-1 plan, section 3),
 // with path/filepath from std-align S3a, math/bits from std-text-runes and
-// unicode and unicode/utf16 from G2 (lane G): the oracle for
+// unicode and unicode/utf16 from G2 (lane G), and crypto/sha256,
+// encoding/base64, encoding/hex and hash/crc32 from G3: the oracle for
 // check.PureGoPackages, written out independently of it.
-var allowlist = []string{"math", "math/bits", "path/filepath", "slices", "sort", "strconv", "strings", "unicode", "unicode/utf16", "unicode/utf8"}
+var allowlist = []string{"crypto/sha256", "encoding/base64", "encoding/hex", "hash/crc32", "math", "math/bits", "path/filepath", "slices", "sort", "strconv", "strings", "unicode", "unicode/utf16", "unicode/utf8"}
 
-// TestPureGoPackages pins the shared list: sorted, the plans' ten packages,
+// TestPureGoPackages pins the shared list: sorted, the plans' fourteen packages,
 // and a copy (a caller that changes it does not change the rule).
 func TestPureGoPackages(t *testing.T) {
 	got := check.PureGoPackages()

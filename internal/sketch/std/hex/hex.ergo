@@ -1,0 +1,27 @@
+// Package hex writes and reads text as hexadecimal digits (docs/spec/
+// stdlib.md, encodings and digests; G3 std-digest). It is Go's
+// encoding/hex over Ergo's strings, which hold bytes (types.md, Strings
+// 1), so no byte-slice type is needed; Effect's Encoding.encodeHex and
+// decodeHex. Each extern binds a pure runtime/v1 body (runtime/v1/
+// digest.go).
+
+// Malformed is the failure of a text that is not hexadecimal: Offset is
+// the index of the first byte that is not a hex digit, or the length of
+// the text when every byte is one and the length is odd (Go's
+// InvalidByteError and ErrLength).
+type Malformed { Offset int }
+
+// Encode is the lower-case hexadecimal text of the bytes of s, two digits
+// a byte, as Go's hex.EncodeToString.
+extern go ergo.local/prototype/runtime/v1.HexEncode func Encode(s string) string
+
+// Decode is the bytes that the hexadecimal text s writes; upper- and
+// lower-case digits both read. A text that is not one fails Malformed.
+extern go ergo.local/prototype/runtime/v1.HexDecode func Decode(s string) string fails Malformed
+
+// DecodeInvertsEncode: decoding an encoding gives the bytes back, for any
+// bytes, valid UTF-8 or not.
+law DecodeInvertsEncode(s string) { try Decode(Encode(s)) == s }
+
+// EncodeDoublesLength: each byte is two digits.
+law EncodeDoublesLength(s string) { len(Encode(s)) == 2 * len(s) }

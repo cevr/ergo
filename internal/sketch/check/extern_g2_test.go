@@ -19,9 +19,9 @@ import (
 // written out independently of v1.PureUnlisted (the oracle for it).
 var pureUnlisted = []string{
 	"bytes", "cmp", "container/list", "container/ring",
-	"crypto/md5", "crypto/sha1", "crypto/sha256", "crypto/sha512", "crypto/subtle",
-	"encoding/ascii85", "encoding/base32", "encoding/base64", "encoding/hex",
-	"hash/adler32", "hash/crc32", "hash/crc64", "hash/fnv",
+	"crypto/md5", "crypto/sha1", "crypto/sha512", "crypto/subtle",
+	"encoding/ascii85", "encoding/base32",
+	"hash/adler32", "hash/crc64", "hash/fnv",
 	"html", "maps", "math/big", "math/cmplx", "path", "regexp", "regexp/syntax",
 }
 
@@ -113,7 +113,7 @@ func TestPureUnlistedList(t *testing.T) {
 // TestExternUnlistedText pins the whole unlisted message once (f-11).
 func TestExternUnlistedText(t *testing.T) {
 	_, diags := check.CheckSource("extern go math/cmplx.Abs func Abs(x complex128) float64\n")
-	const want = "extern go math/cmplx.Abs: math/cmplx is not on the pure allowlist (math, math/bits, path/filepath, slices, sort, strconv, strings, unicode, unicode/utf16, unicode/utf8) yet; a user extern binds only those (#202)"
+	const want = "extern go math/cmplx.Abs: math/cmplx is not on the pure allowlist (crypto/sha256, encoding/base64, encoding/hex, hash/crc32, math, math/bits, path/filepath, slices, sort, strconv, strings, unicode, unicode/utf16, unicode/utf8) yet; a user extern binds only those (#202)"
 	if len(diags) != 1 || diags[0].Code != "S109" || diags[0].Message != want {
 		t.Fatalf("want one S109 %q, got\n\t%s", want, describe(diags))
 	}

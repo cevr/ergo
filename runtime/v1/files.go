@@ -91,7 +91,7 @@ const PureMark = "//ergo:pure"
 // PureImports are the Go packages a file may import when one of its bodies
 // is marked pure: packages that compute on values and reach no host state,
 // except the members PureImportsExcept names.
-var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath"}
+var PureImports = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32"}
 
 // PureImportsExcept names, for a package of PureImports, its members that
 // reach host state. A marked body that names one is refused. filepath.Abs
@@ -114,9 +114,9 @@ var PureImportsExcept = map[string][]string{
 // (reflection and a caller's marshal methods).
 var PureUnlisted = []string{
 	"bytes", "cmp", "container/list", "container/ring",
-	"crypto/md5", "crypto/sha1", "crypto/sha256", "crypto/sha512", "crypto/subtle",
-	"encoding/ascii85", "encoding/base32", "encoding/base64", "encoding/hex",
-	"hash/adler32", "hash/crc32", "hash/crc64", "hash/fnv",
+	"crypto/md5", "crypto/sha1", "crypto/sha512", "crypto/subtle",
+	"encoding/ascii85", "encoding/base32",
+	"hash/adler32", "hash/crc64", "hash/fnv",
 	"html", "maps", "math/big", "math/cmplx", "path", "regexp", "regexp/syntax",
 }
 
@@ -189,6 +189,7 @@ type goDecls map[string]goDecl
 // distinct, so no Go type is two records (TestStdRecordTable). A std record
 // with no row is a declaration of the program, as strings.Halves is.
 var stdRecords = map[string]string{
+	"base64.Malformed":     "Base64Malformed",
 	"exec.Denied":          "ExecDenied",
 	"exec.Failed":          "ExecFailed",
 	"exec.NotFound":        "ExecNotFound",
@@ -199,6 +200,7 @@ var stdRecords = map[string]string{
 	"fs.Failed":            "Failed",
 	"fs.Info":              "Info",
 	"fs.NotFound":          "NotFound",
+	"hex.Malformed":        "HexMalformed",
 	"io.ReadFailed":        "ReadFailed",
 	"os.Exit":              "Exit",
 	"queue.Closed":         "Closed",
