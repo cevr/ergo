@@ -70,7 +70,7 @@ var negativeSpans = map[string][2]string{
 	"provider-missing-method":            {"S106", "Mem"},
 	"provider-wider-row":                 {"S106", "Mem"},
 	"recursive-struct":                   {"S108", "Node"},
-	"return-in-with-block":               {"S108", "return \"x\""},
+	"break-in-with-block":                {"S108", "break"},
 	"return-mismatch":                    {"S108", "true"},
 	"timeout-is-a-library-function":      {"S101", "timeout.After(1s) { \"ok\" }"},
 	"try-infallible":                     {"S108", "try word()"},

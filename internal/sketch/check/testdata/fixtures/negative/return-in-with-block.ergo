@@ -1,8 +1,0 @@
-func f() string {
-	with context {} { return "x" } // want S108
-	return "after"
-}
-
-func main() needs Console {
-	Console.Println("\(f())")
-}

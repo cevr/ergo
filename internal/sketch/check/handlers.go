@@ -239,7 +239,11 @@ func (c *checker) catchValid(x *syntax.CatchExpr, hint Type, wantValue, partial 
 				continue
 			}
 			binds := it.binds
-			if it.t != nil && !unreachable && cs.judge(it, row, valid && !unknown) && it.whole {
+			judge := cs.judge
+			if it.variants != nil {
+				judge = cs.judgeUnion
+			}
+			if it.t != nil && !unreachable && judge(it, row, valid && !unknown) && it.whole {
 				// A type test of a type outside the row is refused: it
 				// declares its placeholder (rows.md, Catch 7).
 				core, _ := asParts(it.te)
@@ -355,7 +359,10 @@ type catchItem struct {
 	t      Type          // the error type, nil when it did not resolve
 	row    solverRow     // its matrix row; nil after a reported pattern
 	whole  bool          // a type test: it covers t
-	binds  []patBinding  // its names, `as` included
+	// variants: a type test of a union that names a row covers each
+	// variant of t the caught row holds (judgeUnion).
+	variants []Type
+	binds    []patBinding // its names, `as` included
 	// placeholders: the names a skipped pattern writes, bound in its arm
 	// with no type so a read there resolves to them, as the reference
 	// walk does, and adds no diagnostic (D3; stage C round 6 fuzz).
@@ -438,6 +445,12 @@ func (cs *catchSpace) resolve(arm *syntax.CatchArm, te syntax.Expr, row *Row, op
 	} else if t := c.catchType(core, row, open, evidence); t != nil {
 		p = c.pattern(core, &Pattern{Kind: PatTypeTest, Type: t})
 		it.t, it.row, it.whole = t, solverRow{}, true
+		if n, isNamed := t.(*Named); isNamed && isUnion(n) {
+			// A test of a union that names a row handles each of its
+			// variants the row holds, and binds the union (rows.md,
+			// Catch 9).
+			it.variants = rowMembers(n)
+		}
 	} else {
 		// A refused or unknown type, already reported: the arm proves
 		// nothing, so no totality verdict follows, as for a record pattern.
@@ -534,6 +547,52 @@ func (cs *catchSpace) judge(it catchItem, row *Row, valid bool) (refused bool) {
 	if valid && !row.has(c.types, it.t) {
 		c.errorf(it.te, CodeType, "%s is not in the caught row %s (rows.md, Catch 2)", it.t, rowText(row))
 		return true
+	}
+	return false
+}
+
+// judgeUnion judges a type test of a union U that names a row (rows.md,
+// Catch 9): it handles each variant of U that the caught row holds, as a
+// test of that variant would. At least one variant must be in the row
+// (S108, as for any type the row lacks), and a test whose variants the
+// arms before it all handle is caught twice. Variants the row lacks are
+// ignored: the error value is never one of them.
+func (cs *catchSpace) judgeUnion(it catchItem, row *Row, valid bool) (refused bool) {
+	c := cs.c
+	var in []Type
+	for _, v := range it.variants {
+		if row.has(c.types, v) {
+			in = append(in, v)
+		}
+	}
+	if len(in) == 0 {
+		if valid {
+			c.errorf(it.te, CodeType, "%s has no variant in the caught row %s (rows.md, Catch 2)", it.t, rowText(row))
+			return true
+		}
+		return false
+	}
+	useful := false
+	for _, v := range in {
+		id := c.types.id(v)
+		c.types.charge(1)
+		if cs.over() {
+			useful = true
+			continue
+		}
+		m := cs.matrix(id)
+		if u, ok := cs.solver.caseUseful(m.rows, solverRow{}); !ok || u {
+			useful = true
+			before := len(m.rows.rows)
+			m.rows.addRow(solverRow{})
+			if len(m.rows.rows) > before {
+				m.origin = append(m.origin, it.te)
+			}
+		}
+		cs.wholeSeen[id] = true
+	}
+	if !useful {
+		c.errorf(it.te, CodeType, "%s is caught twice: the arms before it handle each of its variants in the row (rows.md, Catch 2)", it.t)
 	}
 	return false
 }

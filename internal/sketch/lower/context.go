@@ -20,10 +20,11 @@ import (
 // and text come from the protocol's functions, called on that one value.
 // Scope.OpenContext opens the region on the scope of the code at the with
 // (frameScope: the frame or the innermost owning with), so the frame's End
-// restores it on a typed failure that returns, a defect or a stop, the
-// innermost region first; Context.End restores it at the block's normal
-// end. A break, continue or return cannot leave a with block (check/
-// stmt.go), so these are every exit. A task started inside the block takes
+// restores it on a return that leaves the block (grammar.md, Statements
+// 5), a typed failure that returns, a defect or a stop, the innermost
+// region first; Context.End restores it at the block's normal end. A
+// break or continue cannot leave a with block (check/stmt.go), so these
+// are every exit. A task started inside the block takes
 // the running task's immutable values at its start (rt.Task.WithValue), so
 // it keeps them after the region ends, and siblings never see each other's
 // later bindings. The region owns no task: tasks started in the block

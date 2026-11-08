@@ -37,7 +37,8 @@ type litType struct {
 
 // A typeEnv resolves the names of a written type: the file (imports), the
 // type parameters in scope, which come first (decl.go lookupType), and in a
-// body its local scopes, which shadow declarations (a local is not a type).
+// body its local scopes, whose row bindings shadow declarations (a local
+// value hides no type there; types.md, Scope 1).
 // The walk reads its own scopes (bodyEnv), typing its own (typingEnv), so
 // both read a literal's kind by the one rule (litTypeOf, elemOf).
 type typeEnv struct {
@@ -87,7 +88,12 @@ func (c *checker) litTypeOf(e syntax.Expr, env *typeEnv) litType {
 				return fromType(tn.Type)
 			}
 		}
-	case *syntax.ArrayType, *syntax.MapType:
+	case *syntax.MapType:
+		if tn := c.declaredMap(); tn != nil {
+			return fromType(tn.Type) // the package's own Map (L6)
+		}
+		return litType{kind: litKeyed, expr: e, env: env}
+	case *syntax.ArrayType:
 		return litType{kind: litKeyed, expr: e, env: env}
 	}
 	return litType{}
@@ -188,7 +194,9 @@ func (c *checker) typingEnv() *typeEnv {
 	if c.fn != nil && c.fn.scope != nil {
 		sc := c.fn.scope
 		env.local = func(name string) bool {
-			_, at := scopeLookupPast(sc, name) // a type position (P2)
+			// A type position (P2), which sees through a local value to
+			// a package type (types.md, Scope 1; lookupType).
+			_, at := scopeLookupType(sc, name)
 			return at != nil && at != c.pkg.Scope && !c.abovePackage(at)
 		}
 	}

@@ -25,6 +25,9 @@
 # generic std externs (queue.New) and .pos passes Upper and strings.TrimSpace
 # as values; the source rules take the same change when the orchestrator
 # syncs them.
+# L6 (batch 12, owner q30): D3-prelude-names.neg refuses `type true` in place
+# of `type Option`, which a package may now declare; the source rule takes the
+# same change when the orchestrator syncs it.
 42d3415f36e25b15e3ec1c5d5f7db162c013549fea5e6d7134e4c23b24aa8bb4  A1-literal-context.neg.ergo
 e1e6669a8bb9c6c8ff7f6c2a43489acf828265cf1ba29bb60017c058c7a37b37  A1-literal-context.pos.ergo
 dbbdafd0840737ec447f29252d036748a640ed4ddbd1ce5699d20b85e7689627  A2-default-and-operands.neg.ergo
@@ -75,7 +78,7 @@ d708eaa92b5d03ddbb5937fd6137432fd3a1c015466c1268e1b077803dccac92  C6-break-in-ma
 9ec4c71110181ed82d82ac8bbcadd355031206cec27cb29bed639cfede412aaa  D10-mut-reassigned.pos.ergo
 f92d94b3d10c121112dc59a7b977c1fce4500acf8ff6336e41286e7ba783d463  D2-no-shadowing.neg.ergo
 053d81eac6d13ae29d0feeca9a773d62511db354e619879a1b68f520089a2a4b  D2-no-shadowing.pos.ergo
-f3f00a80f76f57dd4fd638764bdf219e98c129276f863e62138ad304598755d6  D3-prelude-names.neg.ergo
+d41c76d1cf11702dd18d27988905673a7154c8167d57a7a49705a22289b9d0eb  D3-prelude-names.neg.ergo
 2b298eb2fad0dcf8938bb44802949786decfdb4e7c468eb1d20782a59d784476  D3-prelude-names.pos.ergo
 0dc1d6ee7be696da557e307d787bd9e096304c693055a1684f787dcc97e95431  D4-one-for.neg.ergo
 438730621f7ac589e0fd10e5a64f8c438cb80b8fc4f8807fc498ba974249e4e5  D4-one-for.pos.ergo

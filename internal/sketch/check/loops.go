@@ -130,14 +130,15 @@ func (c *checker) loopDomain(s *syntax.RangeStmt, x operand) *Loop {
 	case *Basic:
 		switch {
 		case isString(u):
-			c.errorf(s.X, CodeType, "a for does not iterate a string in v1: count its bytes with for i in 0..len(s)")
+			// A string's runes, at their byte offsets, as Go's range (L4).
+			return &Loop{Domain: LoopString, Elem: Typ[Int32], Pos: Typ[Int]} // rune is int32
 		case isInteger(u):
 			c.errorf(s.X, CodeType, "%s is not iterable: count with for i in 0..n", x.typ)
 		default:
-			c.errorf(s.X, CodeType, "cannot loop over %s: a for takes a slice, a Map, a Range or a Seq", x.typ)
+			c.errorf(s.X, CodeType, "cannot loop over %s: a for takes a slice, a Map, a string, a Range or a Seq", x.typ)
 		}
 	default:
-		c.errorf(s.X, CodeType, "cannot loop over %s: a for takes a slice, a Map, a Range or a Seq", x.typ)
+		c.errorf(s.X, CodeType, "cannot loop over %s: a for takes a slice, a Map, a string, a Range or a Seq", x.typ)
 	}
 	return &Loop{}
 }

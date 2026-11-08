@@ -307,20 +307,106 @@ func (s *scanner) identifier(start int) {
 	s.offset = end
 }
 
+// digits scans decimal digits and digit separators from i; separator
+// placement is checked on the whole literal (badSeparator).
 func digits(src string, i int) int {
-	for i < len(src) && '0' <= src[i] && src[i] <= '9' {
+	for i < len(src) && ('0' <= src[i] && src[i] <= '9' || src[i] == '_') {
 		i++
 	}
 	return i
 }
 
+// bases names the integer literal prefixes (grammar.md, Literals 1).
+var bases = map[byte]struct {
+	base int
+	name string
+}{'x': {16, "hexadecimal"}, 'X': {16, "hexadecimal"}, 'o': {8, "octal"}, 'O': {8, "octal"}, 'b': {2, "binary"}, 'B': {2, "binary"}}
+
+// digitValue is the value of the digit c, or 99 when c is no digit.
+func digitValue(c byte) int {
+	switch {
+	case '0' <= c && c <= '9':
+		return int(c - '0')
+	case 'a' <= c && c <= 'f':
+		return int(c-'a') + 10
+	case 'A' <= c && c <= 'F':
+		return int(c-'A') + 10
+	}
+	return 99
+}
+
+// badSeparator is the offset in lit of the first `_` that does not stand
+// between two digits of base, or right after a base prefix (Go's rule), or
+// -1 when every separator is placed well.
+func badSeparator(lit string, base int, prefixed bool) int {
+	digit := func(i int) bool { return i >= 0 && i < len(lit) && digitValue(lit[i]) < base }
+	for i := 0; i < len(lit); i++ {
+		if lit[i] != '_' {
+			continue
+		}
+		if !(digit(i-1) || prefixed && i == 2) || !digit(i+1) {
+			return i
+		}
+	}
+	return -1
+}
+
+// prefixed scans an integer literal with a base prefix: 0x1F, 0o600,
+// 0b1010, with separators (0xFF_FF). A digit outside the base, a literal
+// with no digits and a hexadecimal float are S001.
+func (s *scanner) prefixed(start int) {
+	src := s.src
+	b := bases[src[start+1]]
+	end := start + 2
+	for end < len(src) {
+		r, size := utf8.DecodeRuneInString(src[end:])
+		if !identRune(r, false) {
+			break
+		}
+		end += size
+	}
+	lit := src[start:end]
+	if b.base == 16 && (strings.ContainsAny(lit[2:], "pP") || end < len(src) && src[end] == '.' && !strings.HasPrefix(src[end:], "..")) {
+		s.fail(start, end-start, "hexadecimal float literals are not part of the language; write a decimal float")
+		return
+	}
+	seen := false
+	for i := 2; i < len(lit); i++ {
+		if lit[i] == '_' {
+			continue
+		}
+		if digitValue(lit[i]) >= b.base {
+			r, _ := utf8.DecodeRuneInString(lit[i:])
+			s.fail(start, end-start, "invalid digit %q in the %s literal %s", r, b.name, lit)
+			return
+		}
+		seen = true
+	}
+	if !seen {
+		s.fail(start, end-start, "the %s literal %s has no digits", b.name, lit)
+		return
+	}
+	if badSeparator(lit, b.base, true) >= 0 {
+		s.fail(start, end-start, "'_' must separate successive digits in %s", lit)
+		return
+	}
+	s.emit(INT, start, end, lit)
+	s.offset = end
+}
+
 // number scans a decimal integer, a decimal float (Go's forms: 1.5, 1.,
-// .5, 1e9, 2.5e-3) or a duration. `1..n` is the integer 1 and the range
-// operator, never the float `1.`. The other numeric forms of #81
-// (hexadecimal, octal, binary, separators) and imaginary literals stay
-// errors.
+// .5, 1e9, 2.5e-3) or a duration, each with Go's digit separators
+// (1_000), and hands an integer with a base prefix (0x, 0o, 0b) to
+// prefixed. `1..n` is the integer 1 and the range operator, never the
+// float `1.`. Imaginary literals and hexadecimal floats stay errors.
 func (s *scanner) number(start int) {
 	src := s.src
+	if src[start] == '0' && start+1 < len(src) {
+		if _, ok := bases[src[start+1]]; ok {
+			s.prefixed(start)
+			return
+		}
+	}
 	end := digits(src, start)
 	float := false
 	if end < len(src) && src[end] == '.' && !(end+1 < len(src) && src[end+1] == '.') {
@@ -336,6 +422,10 @@ func (s *scanner) number(start int) {
 			float = true
 			end = after
 		}
+	}
+	if badSeparator(src[start:end], 10, false) >= 0 {
+		s.fail(start, end-start, "'_' must separate successive digits in %s", src[start:end])
+		return
 	}
 	suffixEnd := end
 	for suffixEnd < len(src) {
@@ -361,10 +451,6 @@ func (s *scanner) number(start int) {
 	case !float && durationUnits[suffix]:
 		s.emit(DURATION, start, suffixEnd, src[start:suffixEnd])
 		s.offset = suffixEnd
-	case !float && src[start:end] == "0" && strings.ContainsAny(suffix[:1], "xXbBoO"):
-		s.fail(start, suffixEnd-start, "hexadecimal, octal and binary literals are not part of v0 (#81)")
-	case suffix[0] == '_':
-		s.fail(start, suffixEnd-start, "digit separators are not part of v0 (#81)")
 	default:
 		s.fail(start, suffixEnd-start, "unknown number suffix %q", suffix)
 	}

@@ -43,7 +43,9 @@ func TestForDomains(t *testing.T) {
 // refused domain or second binding still binds, so nothing cascades.
 func TestForRefusals(t *testing.T) {
 	runD1(t, []d1Case{
-		{"string", "func f(s string) int {\n\tlet mut n = 0\n\tfor c in s {\n\t\tn += c\n\t}\n\tn\n}\n", []string{"S108:3"}},
+		// A string is a domain since L4: its element is a rune, so adding
+		// it to an int is the one diagnostic, at the use.
+		{"string", "func f(s string) int {\n\tlet mut n = 0\n\tfor c in s {\n\t\tn += c\n\t}\n\tn\n}\n", []string{"S108:4"}},
 		{"int", "func f() int {\n\tlet mut n = 0\n\tfor x in 5 {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
 		{"pointer", "func f(p *[]int) int {\n\tlet mut n = 0\n\tfor x in p {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
 		{"bool", "func f() int {\n\tlet mut n = 0\n\tfor x in true {\n\t\tn += x\n\t}\n\tn\n}\n", []string{"S108:3"}},
@@ -64,10 +66,10 @@ func TestForRefusals(t *testing.T) {
 // the one D-D3 diagnostic, never S110 as well.
 func TestForRefusalMessages(t *testing.T) {
 	cases := []struct{ name, src, want string }{
-		{"string", "func f(s string) int {\n\tlet mut n = 0\n\tfor c in s {\n\t\tn += c\n\t}\n\tn\n}\n", "S108:3:a for does not iterate a string in v1: count its bytes with for i in 0..len(s)"},
+		{"float", "func f(s float64) int {\n\tlet mut n = 0\n\tfor c in s {\n\t\tn += c\n\t}\n\tn\n}\n", "S108:3:cannot loop over float64: a for takes a slice, a Map, a string, a Range or a Seq"},
 		{"int", "func f() int {\n\tlet mut n = 0\n\tfor x in 5 {\n\t\tn += x\n\t}\n\tn\n}\n", "S108:3:int is not iterable: count with for i in 0..n"},
 		{"pointer", "func f(p *[]int) int {\n\tlet mut n = 0\n\tfor x in p {\n\t\tn += x\n\t}\n\tn\n}\n", "S108:3:a for does not iterate through a pointer: write for x in *p"},
-		{"two-bindings-over-string", "func f(s string) int {\n\tlet mut n = 0\n\tfor i, b in s {\n\t\tn += i + b\n\t}\n\tn\n}\n", "S108:3:a for does not iterate a string in v1: count its bytes with for i in 0..len(s)"},
+		{"two-bindings-over-float", "func f(s float64) int {\n\tlet mut n = 0\n\tfor i, b in s {\n\t\tn += i + b\n\t}\n\tn\n}\n", "S108:3:cannot loop over float64: a for takes a slice, a Map, a string, a Range or a Seq"},
 		{"two-bindings-over-int", "func f() int {\n\tlet mut n = 0\n\tfor i, b in 5 {\n\t\tn += i + b\n\t}\n\tn\n}\n", "S108:3:int is not iterable: count with for i in 0..n"},
 		{"prelude-value-binder-unread", "func f(xs []int) {\n\tfor Some in xs {\n\t}\n}\n", "S108:2:Some is a prelude name (the prelude type Some[T]), which cannot be redeclared; choose another name (#196, eighth round, item 3)"},
 		{"prelude-function-binder-unread", "func f(xs []int) {\n\tfor len in xs {\n\t}\n}\n", "S108:2:len is a prelude name, which cannot be redeclared; choose another name (#196, eighth round, item 3)"},
@@ -125,8 +127,10 @@ func TestForSingleNameBinders(t *testing.T) {
 		})
 	}
 	runD1(t, []d1Case{
-		// A type name is a type test, irrefutable over its own type.
-		{"type-test", decls + "func f(ts []T) int {\n\tlet mut n = 0\n\tfor T in ts {\n\t\tn += 1\n\t}\n\tn\n}\n", nil},
+		// A package type's name binds, as in Go (types.md, Scope 1; L5):
+		// the loop variable is read, and an unread one is S110.
+		{"type-name", decls + "func f(ts []T) int {\n\tlet mut n = 0\n\tfor T in ts {\n\t\tlet _ = T\n\t\tn += 1\n\t}\n\tn\n}\n", nil},
+		{"type-name-unread", decls + "func f(ts []T) int {\n\tlet mut n = 0\n\tfor T in ts {\n\t\tn += 1\n\t}\n\tn\n}\n", []string{"S110:6"}},
 		// A package function's name binds (D-D2's package-name exception).
 		{"function-name", decls + "func f(xs []int) int {\n\tlet mut n = 0\n\tfor h in xs {\n\t\tn += h\n\t}\n\tn\n}\n", nil},
 	})

@@ -41,27 +41,38 @@ func (c *checker) undecided(n syntax.Node, what string) operand {
 // package-level let patterns) and the reference walk (refWalker.patternTests), so the
 // two give the identifier one meaning (fuzz-17d6). o is the object the name
 // resolves to where the pattern stands, prelude whether the name is a
-// prelude name, and letFor whether the pattern is a let's or a for's. In a
-// let or a for, a prelude name binds (D-D3 refuses the binder and it still
-// binds). Otherwise a constant, a type or a capability of the row tests the
-// value, and the name keeps that meaning even when the test is refused. Any
-// other name binds.
-func patternNameTests(o Object, prelude, letFor bool) bool {
+// prelude name, letFor whether the pattern is a let's or a for's, and local
+// whether that let or for is in a body. In a let or a for, a prelude name
+// binds (D-D3 refuses the binder and it still binds), and in a body so does
+// the name of a package type: the local hides the type in value and
+// pattern positions for its scope, as in Go (types.md, Scope 1; L5).
+// Otherwise a constant, a type or a capability of the row tests the value,
+// and the name keeps that meaning even when the test is refused. Any other
+// name binds.
+func patternNameTests(o Object, prelude, letFor, local bool) bool {
 	if letFor && prelude {
 		return false
 	}
-	switch o.(type) {
-	case *Const, *TypeName, *capBinding:
+	switch o := o.(type) {
+	case *TypeName:
+		return !letFor || !local || !packageType(o)
+	case *Const, *capBinding:
 		return true
 	}
 	return false
 }
 
+// packageType reports a type a package declares, not one of the universe
+// (`error`, which is no prelude name, keeps its test).
+func packageType(tn *TypeName) bool {
+	return tn.Pkg != nil && universe().names[tn.Name] != Object(tn)
+}
+
 // patternTests is patternNameTests for a name at the point c checks. A
 // refused binder is invisible to it: the name classifies as it would
 // without the binder (P2, lookupPast).
-func (c *checker) patternTests(name string, letFor bool) bool {
-	return patternNameTests(c.lookupPast(name), c.isPreludeName(name), letFor)
+func (c *checker) patternTests(name string, letFor, local bool) bool {
+	return patternNameTests(c.lookupPast(name), c.isPreludeName(name), letFor, local)
 }
 
 // patternNames returns the names a pattern binds, in source order: a name
@@ -126,6 +137,7 @@ func (c *checker) irrefutable(p syntax.Expr, t Type, what string, own map[*synta
 	r.sp.written = 1 + patternSize(p)
 	r.bindings = true
 	r.letFor = true
+	r.local = own == nil // a package-level let names its own bindings
 	r.own = own
 	r.begin()
 	if isInvalid(t) {

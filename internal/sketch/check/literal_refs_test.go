@@ -27,11 +27,11 @@ import (
 // CompositeLit and KeyValueExpr in lawScopeDomain.
 //
 // The domain's written types name package declarations. Each program also
-// runs after a refused binder of the name its type is written with
-// (`let Rec = v`: a refused type test, whose placeholder hides the type
-// from a read only). A type position sees through a refused binder (rows.md
-// Totality 6; fuzz-863c's `type y{}` and `let y = 1; y[0]{{t} }`), so the
-// oracle is the same with it as without it.
+// runs after a local of the name its type is written with (`let Rec = v`,
+// which binds since L5 and was a refused type test before). A type
+// position sees through a local value as through a refused binder
+// (types.md Scope 1; rows.md Totality 6; fuzz-863c's `type y{}` and `let y
+// = 1; y[0]{{t} }`), so the oracle is the same with it as without it.
 
 // litWalk is a literal's kind as the walk reads it (reflits.go litKind).
 type litWalk int

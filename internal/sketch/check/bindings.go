@@ -32,6 +32,58 @@ func (c *checker) isPreludeName(name string) bool {
 	return predeclaredAbove(name, c.pkg.Scope.parent)
 }
 
+// preludeTypeName reports a prelude name that names a type: a type of the
+// universe or the prelude, or `Map`, which the syntax spells (Parser rule
+// 8). A package-level type declaration may take one and hides it inside
+// its package, as Go's package scope hides the universe (grammar.md,
+// Reserved names 2; L6, owner q30, which reversed the eighth round's item
+// 3 for package types). Every other declaration of a prelude name, a
+// local's included, stays D-D3's S108.
+func (c *checker) preludeTypeName(name string) bool {
+	if !c.isPreludeName(name) {
+		return false
+	}
+	if predeclaredNames[name] {
+		return true
+	}
+	o, _ := c.pkg.Scope.parent.lookup(name)
+	_, ok := o.(*TypeName)
+	return ok
+}
+
+// declaredMap is the package's own type named Map, if it declares one
+// (preludeTypeName): there `Map[K, V]` names that type, not the map type.
+func (c *checker) declaredMap() *TypeName {
+	tn, _ := c.pkg.Scope.names["Map"].(*TypeName)
+	return tn
+}
+
+// mapAsDeclared is mapInstance where the package declares its own Map,
+// and nil where `Map[K, V]` is the map type (typeWalker.maps).
+func (c *checker) mapAsDeclared(x *syntax.MapType) syntax.Expr {
+	if c.declaredMap() == nil {
+		return nil
+	}
+	return c.mapInstance(x)
+}
+
+// mapInstance is `Map[K, V]` as the instance of the package's own Map
+// (declaredMap) that it spells there: the parser reads the name as the map
+// type (Parser rule 8). One node stands for each MapType, so every pass
+// that resolves it records the same name.
+func (c *checker) mapInstance(x *syntax.MapType) *syntax.IndexExpr {
+	if ix, ok := c.mapInstances[x]; ok {
+		return ix
+	}
+	name := made(c, &syntax.Ident{NamePos: x.Map, Name: "Map"}, syntax.Node(x))
+	ix := made(c, &syntax.IndexExpr{X: name, Lbrack: x.Lbrack, Indices: []syntax.Expr{x.Key, x.Value}, Rbrack: x.Rbrack}, syntax.Node(x))
+	if c.mapInstances == nil {
+		c.mapInstances = map[*syntax.MapType]*syntax.IndexExpr{}
+	}
+	c.mapInstances[x] = ix
+	return ix
+}
+
 // paramBinder applies the binder rules of a declared function's parameter
 // list, an extern's included (D-D3 "parameter"): a name the list already
 // holds is S108 and binds nothing; a prelude name is S108 and still binds.
@@ -218,6 +270,29 @@ func scopeLookupPast(s *Scope, name string) (Object, *Scope) {
 		}
 	}
 	return nil, nil
+}
+
+// scopeLookupType is scopeLookupPast for a type position: it also sees
+// through a local value binder to the type of its name in an outer scope
+// (types.md, Scope 1; L5). A name only a local binds resolves to that
+// local, so the position reports it as no type.
+func scopeLookupType(s *Scope, name string) (Object, *Scope) {
+	var local Object
+	var localAt *Scope
+	for sc := s; sc != nil; sc = sc.parent {
+		o, ok := sc.names[name]
+		if !ok || isRefusedBinder(o) {
+			continue
+		}
+		if v, isVar := o.(*Var); isVar && !v.pkg {
+			if local == nil {
+				local, localAt = o, sc
+			}
+			continue
+		}
+		return o, sc
+	}
+	return local, localAt
 }
 
 // lookupPast is lookup outside a value position: it sees through refused

@@ -1,0 +1,16 @@
+func f(xs []int) int {
+	let mut n = 0
+	for x in xs {
+		with context {} {
+			if x < 0 {
+				break // want S108
+			}
+		}
+		n = n + x
+	}
+	n
+}
+
+func main() needs Console {
+	Console.Println("\(f([]int{1, 2}))")
+}

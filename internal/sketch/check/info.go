@@ -574,7 +574,7 @@ type Match struct {
 }
 
 // LoopDomain is what a for-in iterates (D-D4): a slice, a Map, a prelude
-// Range[T] over an integer T, or a prelude Seq[T].
+// Range[T] over an integer T, a prelude Seq[T], or a string's runes (L4).
 type LoopDomain int
 
 const (
@@ -582,6 +582,10 @@ const (
 	LoopMap
 	LoopRange
 	LoopSeq
+	// LoopString iterates a string's runes as Go's range does: the
+	// position is the byte offset of the rune's first byte, an invalid
+	// byte is U+FFFD of width one.
+	LoopString
 )
 
 // Loop is one for-in.

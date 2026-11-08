@@ -40,9 +40,10 @@ func TestRefusedBinderCases(t *testing.T) {
 		name, src string
 		want      []string
 	}{
-		// A refused let test (the placeholder) is not seen by a later
-		// pattern: `case tn:` is the type test it is without the let.
-		{"sequential", "type tn {}\n\nfunc host(v int) {\n\tlet (tn) = v\n\tmatch v {\n\tcase tn:\n\t\tlet _ = 0\n\t}\n}\n", []string{"S108@4:7", "S108@6:7"}},
+		// A let named like a type binds (types.md, Scope 1; L5), so a
+		// later `case tn:` names the local in pattern position: a binder
+		// that D-D2 refuses, unread.
+		{"sequential", "type tn {}\n\nfunc host(v int) {\n\tlet (tn) = v\n\tmatch v {\n\tcase tn:\n\t\tlet _ = 0\n\t}\n}\n", []string{"S108@6:7", "S110@6:7"}},
 		// A refused type test in a catch arm declares the placeholder, so
 		// the arm's read adds nothing (rows.md, Catch 7).
 		{"catch-int", "type E {}\n\nfunc n(v int) int fails E { v }\n\nfunc host(v int) int {\n\tn(v) catch {\n\tcase int:\n\t\tint\n\t}\n}\n", []string{"S103@6:7", "S108@7:7"}},
@@ -65,7 +66,9 @@ func TestRefusedBinderCases(t *testing.T) {
 		// A placeholder does not leak into the next arm, nor out of a for
 		// body: there tr is the type again, and a read of it is S108.
 		{"sibling-arm", "type tr { A int }\n\nfunc host(v int) int {\n\tmatch v {\n\tcase tr:\n\t\tlet _ = tr\n\tcase _:\n\t\tlet _ = tr\n\t}\n\t0\n}\n", []string{"S108@5:7", "S108@8:11"}},
-		{"for-body", "type tr { A int }\n\nfunc host(xs []int) int {\n\tfor x in xs {\n\t\tlet tr = x\n\t\tlet _ = tr\n\t}\n\tlet _ = tr\n\t0\n}\n", []string{"S108@5:7", "S108@8:10"}},
+		// A local named like a type does not leak out of a for body
+		// either: after it, tr is the type again (types.md, Scope 1).
+		{"for-body", "type tr { A int }\n\nfunc host(xs []int) int {\n\tfor x in xs {\n\t\tlet tr = x\n\t\tlet _ = tr\n\t}\n\tlet _ = tr\n\t0\n}\n", []string{"S108@8:10"}},
 		// Catch 7's same-names rule still fires beside a refused test.
 		{"catch-several", "type E {}\n\ntype Bang {}\n\nfunc n(v int) int fails E | Bang { v }\n\nfunc host(v int) int {\n\tn(v) catch {\n\tcase int, Bang as b:\n\t\tlet _ = int\n\t\t0\n\tcase _:\n\t\t1\n\t}\n}\n", []string{"S108@9:20", "S108@9:7"}},
 		// A D-D3 binder keeps D-D3 in a value position, and a type position
@@ -75,7 +78,10 @@ func TestRefusedBinderCases(t *testing.T) {
 		{"dd3-param-type", "func host(int int) int {\n\tlet fl = func(x int) int { x }\n\tfl(int)\n}\n", []string{"S108@1:11"}},
 		{"dd3-package-type", "let int = 1\n\nfunc host(x int) int {\n\tx + int\n}\n", []string{"S108@1:5"}},
 		// A placeholder is not a binding a later binder shadows.
-		{"placeholder-no-shadow", "type tr { A int }\n\nfunc host(v int, b bool) int {\n\tlet tr = v\n\tif b {\n\t\tlet fl = func(tr int) int { tr }\n\t\tlet _ = fl(1)\n\t}\n\t0\n}\n", []string{"S108@4:6"}},
+		{"placeholder-no-shadow", "type tr { A int }\n\nfunc host(v int, b bool) int {\n\tmatch v {\n\tcase tr:\n\t\tif b {\n\t\t\tlet fl = func(tr int) int { tr }\n\t\t\tlet _ = fl(1)\n\t\t}\n\tcase _:\n\t\tlet _ = 1\n\t}\n\t0\n}\n", []string{"S108@5:7"}},
+		// A local named like a type is a binding, so an inner binder of
+		// its name is D-D2's S108 (types.md, Scope 1; L5).
+		{"type-named-local-shadowed", "type tr { A int }\n\nfunc host(v int, b bool) int {\n\tlet tr = v\n\tif b {\n\t\tlet fl = func(tr int) int { tr }\n\t\tlet _ = fl(1)\n\t}\n\ttr\n}\n", []string{"S108@6:17"}},
 		// A refused binder in a block is not a declaration a later binder
 		// of the same block repeats: `let f` gets no "already declared".
 		{"same-block-after-refused", "func f() {}\n\nfunc host(v int) int {\n\tmatch v {\n\tcase f:\n\t\tlet f = 2\n\t\tf\n\t}\n}\n", []string{"S108@5:7"}},
@@ -111,8 +117,8 @@ func TestRefusedBinderMeaning(t *testing.T) {
 		info, walk      string
 		codes           []string
 	}{
-		// A placeholder's name in a nested let is the type test again.
-		{"placeholder/let", "\tlet tr = v\n\tif b {\n\t\tlet tr = v\n\t\tlet _ = 0\n\t}\n", "tr", "names", "names", []string{"S108"}},
+		// A placeholder's name in a nested match is the type test again.
+		{"placeholder/match", "\tmatch v {\n\tcase tr:\n\t\tif b {\n\t\t\tmatch v {\n\t\t\tcase tr:\n\t\t\t\tlet _ = 0\n\t\t\tcase _:\n\t\t\t\tlet _ = 1\n\t\t\t}\n\t\t}\n\tcase _:\n\t\tlet _ = 1\n\t}\n", "tr", "names", "names", []string{"S108"}},
 		// A D-D3 binder's name in a later case is the type test again.
 		{"dd3/case-int", "\tlet int = v\n\tmatch v {\n\tcase int:\n\t\tlet _ = 0\n\t}\n", "int", "names", "names", nil},
 		{"dd3/case-Console", "\tlet (Console) = v\n\tmatch v {\n\tcase Console:\n\t\tlet _ = 0\n\tcase _:\n\t\tlet _ = 1\n\t}\n", "Console", "names", "names", []string{"S108"}},
@@ -138,12 +144,15 @@ func TestRefusedBinderMeaning(t *testing.T) {
 }
 
 // TestRefusedBinderLetY is fuzz-863c's let-y: the literal's type y is the
-// package type, as without the let (P2), so its diagnostics are those of
-// the program without the let, plus the let's own; the walk reaches t (P3).
+// package type, as without the let (a type position sees through the
+// local, types.md Scope 1; it was a refused binder before L5), so its
+// diagnostics are those of the program without the let, plus the let's
+// own (now S110: no value position reads the local); the walk reaches t
+// (P3).
 func TestRefusedBinderLetY(t *testing.T) {
 	src := "type y{}\nfunc t(){let y = 1; y[0]{{t} }}\n"
 	bare := "type y{}\nfunc t(){let _ = 1; y[0]{{t} }}\n"
-	want := append([]string{"S108@2:14"}, rbCodes(bare)...)
+	want := append([]string{"S110@2:14"}, rbCodes(bare)...)
 	sort.Strings(want)
 	if got := rbCodes(src); strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("want %v, got %v", want, got)

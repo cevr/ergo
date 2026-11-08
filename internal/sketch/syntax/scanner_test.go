@@ -91,17 +91,37 @@ func TestSemicolonInsertion(t *testing.T) {
 }
 
 // TestNumberForms: decimal floats are literals (`1..n` is a range, never
-// the float `1.`); the other #81 forms and imaginary literals stay S001
-// with a message that names them.
+// the float `1.`); hexadecimal, octal and binary integers and digit
+// separators are literals with Go's rules (grammar.md, Literals 1);
+// imaginary literals, hexadecimal floats, a digit outside the base and a
+// misplaced separator stay S001 with a message that names them.
 func TestNumberForms(t *testing.T) {
 	for src, want := range map[string]string{
-		"0x1F":  "hexadecimal",
-		"0b1":   "hexadecimal, octal and binary",
-		"1_000": "separators",
-		"5kg":   `unknown number suffix "kg"`,
-		"0.A":   `unknown number suffix "A"`,
-		"2i":    "imaginary",
-		"2.5i":  "imaginary",
+		"5kg":     `unknown number suffix "kg"`,
+		"0.A":     `unknown number suffix "A"`,
+		"2i":      "imaginary",
+		"2.5i":    "imaginary",
+		"0x1i":    "invalid digit 'i' in the hexadecimal literal",
+		"0x1p4":   "hexadecimal float",
+		"0x1.8":   "hexadecimal float",
+		"0xff.A":  "hexadecimal float",
+		"0x":      "the hexadecimal literal 0x has no digits",
+		"0b_":     "the binary literal 0b_ has no digits",
+		"0b102":   "invalid digit '2' in the binary literal 0b102",
+		"0o8":     "invalid digit '8' in the octal literal",
+		"0xG":     "invalid digit 'G'",
+		"0x10ms":  "invalid digit 'm'",
+		"0x1é":    "invalid digit 'é'",
+		"1__000":  "'_' must separate successive digits in 1__000",
+		"1_":      "'_' must separate successive digits",
+		"1_.5":    "'_' must separate successive digits",
+		"1._5":    "'_' must separate successive digits",
+		"1e_5":    "'_' must separate successive digits",
+		"1_e5":    "'_' must separate successive digits",
+		"0x1__F":  "'_' must separate successive digits in 0x1__F",
+		"0xF_":    "'_' must separate successive digits",
+		"0b1_2":   "invalid digit '2'",
+		"1_000kg": `unknown number suffix "kg"`,
 	} {
 		s := scan(src)
 		if s.err == nil || !strings.Contains(s.err.Message, want) {
@@ -116,6 +136,17 @@ func TestNumberForms(t *testing.T) {
 		"1..9":   {INT, DOTDOT, INT, SEMICOLON, EOF},
 		"1.5..2": {FLOAT, DOTDOT, INT, SEMICOLON, EOF},
 		"500ms":  {DURATION, SEMICOLON, EOF},
+		// Go's integer forms and separators (L1).
+		"0x1F":           {INT, SEMICOLON, EOF},
+		"0X_1f":          {INT, SEMICOLON, EOF},
+		"0o600 0O7":      {INT, INT, SEMICOLON, EOF},
+		"0b1010 0B1":     {INT, INT, SEMICOLON, EOF},
+		"1_000 0_7":      {INT, INT, SEMICOLON, EOF},
+		"1_000.000_5":    {FLOAT, SEMICOLON, EOF},
+		"1e1_0":          {FLOAT, SEMICOLON, EOF},
+		"1_500ms":        {DURATION, SEMICOLON, EOF},
+		"0x1..0xF":       {INT, DOTDOT, INT, SEMICOLON, EOF},
+		"0b1 + 0o7*0x_A": {INT, ADD, INT, MUL, INT, SEMICOLON, EOF},
 	} {
 		s := scan(src)
 		if s.err != nil {

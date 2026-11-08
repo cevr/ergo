@@ -1,0 +1,25 @@
+// A for over a string walks its runes at their byte offsets, as Go's range
+// does (types.md, Loops 1; L4).
+type Name string
+
+func width(s string) int {
+	let mut last = 0
+	for i, r in s {
+		if r > 127 {
+			last = i
+		}
+	}
+	last
+}
+
+func count(n Name) int {
+	let mut k = 0
+	for _ in n {
+		k += 1
+	}
+	k
+}
+
+func main() needs Console {
+	Console.Println("\(width("aé世")) \(count(Name("Жx")))")
+}

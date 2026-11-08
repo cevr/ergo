@@ -1,0 +1,38 @@
+import slices
+
+// A package type may take a prelude type's name, and hides the prelude's
+// inside this package (grammar.md, Reserved names 2; L6, owner q30).
+type Option[T] = Present[T]{ V T } | Absent{}
+type Map[K, V] { keys []K, vals []V }
+type Range { lo int, hi int }
+
+func size[K, V](m Map[K, V]) int { len(m.keys) }
+
+func pick(o Option[int]) int {
+	match o {
+	case Present[int]{V: v}:
+		v
+	case Absent:
+		0
+	}
+}
+
+// std's results and a range literal keep the prelude's types.
+func biggest(xs []int) int {
+	let mut s = 0
+	for i in 0..len(xs) {
+		s += i
+	}
+	match slices.Max(xs) {
+	case Some[int]{Value: v}:
+		v + s
+	case None:
+		s
+	}
+}
+
+func main() needs Console {
+	let m = Map[string, int]{keys: []string{"a"}, vals: []int{1}}
+	let r = Range{lo: 1, hi: 4}
+	Console.Println("\(m.size()) \(pick(Present[int]{V: 7})) \(r.hi - r.lo) \(biggest([]int{2, 3}))")
+}

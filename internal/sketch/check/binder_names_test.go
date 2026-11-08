@@ -32,9 +32,10 @@ const (
 	// name (D-D2, diagnostics.md); a prelude name is S108 at the binder,
 	// which still binds (D-D3).
 	plainBinder binderKind = iota
-	// A let's or a for's pattern name (rows.md Totality 6, types.md
-	// Statements 3): a known type or constant is a pattern; a function or
-	// context name binds (D-D2); a prelude name binds with D-D3's S108.
+	// A let's or a for's pattern name in a body (rows.md Totality 6,
+	// types.md Scope 1): a constant is a pattern; a package type, function
+	// or context name binds (D-D2; L5); a prelude name binds with D-D3's
+	// S108.
 	letForPattern
 	// A match pattern name (rows.md Totality 1): a type or constant is that
 	// pattern; a function name is S108 and binds a placeholder; any other
@@ -208,7 +209,7 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 		// No type, constant, value or function of the name is in scope.
 		return binds()
 	}
-	if c == badType && k != plainBinder {
+	if c == badType && k != plainBinder && k != letForPattern {
 		// The name still names the refused type, and the test of it is
 		// refused silently: D3, no cascade (the seed's class).
 		return names()
@@ -223,10 +224,10 @@ func binderRule(k binderKind, c nameClass) binderVerdict {
 		switch {
 		case c.prelude():
 			return binds("S108") // D-D3: a prelude type or constant there is a binder
-		case c == packageType:
-			return names("S108") // Totality 6: a known type tests; tn is not int
 		}
-		return binds() // Totality 6: binds over a package function or value
+		// Totality 6: binds over a package function, value or type, a
+		// refused one included (types.md, Scope 1; L5).
+		return binds()
 	case matchPattern:
 		switch c {
 		case packageType, preludeType, preludeRecord:

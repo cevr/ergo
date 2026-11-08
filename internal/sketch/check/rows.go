@@ -948,7 +948,11 @@ type branchKind int
 const (
 	brLoop branchKind = iota
 	brSwitch
-	brBarrier // a with or trailing block: nothing crosses it
+	brBarrier // a trailing block or a provider expression: nothing crosses it
+	// brWith is a with block: a return crosses it and leaves the function
+	// after the with's providers are released (grammar.md, Statements 5);
+	// break and continue do not.
+	brWith
 )
 
 type branch struct {

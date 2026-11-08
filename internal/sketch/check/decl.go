@@ -124,6 +124,9 @@ func (c *checker) collectBodyErrorRows() {
 					if n := c.errorRowHead(x); n != nil {
 						c.addErrorType(n, c.pkg.OwnerOf(er), x)
 					}
+					for _, n := range c.namedRowHeads(x) {
+						c.addErrorType(n, c.pkg.OwnerOf(er), x)
+					}
 				}
 			}
 			return true
@@ -145,6 +148,53 @@ func (c *checker) errorRowHead(x syntax.Expr) *Named {
 		return nil
 	}
 	return n.origin()
+}
+
+// namedRowHeads returns the origin variants of the union an error-row
+// element names by its head, when that union names a row (namedRow): a
+// union of this package by its declaration's variant names, before any
+// type resolves; one of another package by its resolved variants, each an
+// error type there. Any other element gives nil.
+func (c *checker) namedRowHeads(x syntax.Expr) []*Named {
+	if ix, ok := x.(*syntax.IndexExpr); ok {
+		x = ix.X
+	}
+	tn, n := c.namedHead(x)
+	if n == nil || tn.Decl == nil {
+		return nil
+	}
+	it, ok := tn.Decl.Spec.(*syntax.InterfaceType)
+	if !ok || len(it.Union) == 0 {
+		return nil
+	}
+	var out []*Named
+	if p := n.Obj.Pkg; p != c.pkg {
+		u, ok := n.underlying().(*Union)
+		if !ok || p == nil {
+			return nil
+		}
+		for _, v := range u.Variants {
+			vn, ok := v.(*Named)
+			if !ok || !p.IsErrorType(vn, OwnerProduction) {
+				return nil
+			}
+			out = append(out, vn.origin())
+		}
+		return out
+	}
+	for _, v := range it.Union {
+		var name syntax.Expr = v
+		switch v := v.(type) {
+		case *syntax.VariantSpec:
+			name = v.Name
+		case *syntax.IndexExpr:
+			name = v.X
+		}
+		if _, vn := c.namedHead(name); vn != nil {
+			out = append(out, vn.origin())
+		}
+	}
+	return out
 }
 
 // namedHead returns the declared type a name or a qualified name denotes,
@@ -296,7 +346,7 @@ func (c *checker) collect() {
 	// binds, read with every type declared (a type name in it tests the
 	// type, D-B3 rule 1, by the let rule: a prelude name binds, refused by
 	// D-D3, P5); checkPkgVar types them all from the one value.
-	letTests := func(name string) bool { return c.patternTests(name, true) }
+	letTests := func(name string) bool { return c.patternTests(name, true, false) }
 	for _, p := range patterns {
 		c.cur = p.file
 		group := &pkgPattern{spec: p.spec}
@@ -342,12 +392,16 @@ func (c *checker) collect() {
 
 // declare enters a package-level name; a second declaration of one name is
 // S108 (a type and a function share the package's namespace). A prelude
-// name is S108 (D-D3) and still declares, so its uses add nothing.
+// name is S108 (D-D3) and still declares, so its uses add nothing, except
+// that a type may take a prelude type's name (preludeTypeName; L6).
 func (c *checker) declare(id *syntax.Ident, o Object) bool {
 	if id.Name == "_" {
 		return false
 	}
-	if c.preludeName(id) {
+	// A package type may take a prelude type's name, which it hides in this
+	// package (grammar.md, Reserved names 2; L6, owner q30).
+	_, isType := o.(*TypeName)
+	if !(isType && c.preludeTypeName(id.Name)) && c.preludeName(id) {
 		// reported; the declaration binds below
 	} else if prev, ok := c.pkg.Scope.names[id.Name]; ok {
 		what := "declared"
@@ -1026,8 +1080,10 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 		scope = ctx.scope
 	}
 	// A type position sees through a refused binder: it was refused as a
-	// value binding, so the name keeps its meaning here (P2).
-	if o, at := scopeLookupPast(scope, name); o != nil {
+	// value binding, so the name keeps its meaning here (P2). It sees
+	// through a local too, which hides a package type only in value and
+	// pattern positions (types.md, Scope 1; L5): `let point point = …`.
+	if o, at := scopeLookupType(scope, name); o != nil {
 		// A refused import of a prelude name still binds (D-D3; lookup).
 		if imp := c.shadowImport(name, at, c.cur); imp != nil {
 			return imp
@@ -1086,6 +1142,10 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 		}
 		return &Slice{Elem: elem}
 	case *syntax.MapType:
+		if tn := c.declaredMap(); tn != nil {
+			// The package's own Map hides the map type (L6).
+			return c.typExpr0(c.mapInstance(x), ctx)
+		}
 		k := c.typExpr(x.Key, ctx)
 		v := c.typExpr(x.Value, ctx)
 		if c.taskRefused(x.Key, k) || c.taskRefused(x.Value, v) {
@@ -1394,20 +1454,72 @@ func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 		if t == nil {
 			t = invalid
 		}
-		row = row.with(c.types, t)
+		for _, e := range rowMembers(t) {
+			row = row.with(c.types, e)
+		}
 	}
 	return row
 }
 
 // rowArg resolves a written row argument of a generic type or function: one
-// element, as a row of one. A refused element gives nil, so the instance is
-// invalid, as an invalid type argument makes it.
+// element, as a row of one, or a named row, as the row of its variants. A
+// refused element gives nil, so the instance is invalid, as an invalid type
+// argument makes it.
 func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
 	t := c.rowElem(x, kind, ctx)
 	if t == nil {
 		return nil
 	}
-	return &RowArg{Row: newRow().with(c.types, t)}
+	row := newRow()
+	for _, e := range rowMembers(t) {
+		row = row.with(c.types, e)
+	}
+	return &RowArg{Row: row}
+}
+
+// rowMembers is the row a resolved row element t means: the variants of a
+// union that names a row (types.md, Error types 4), else t alone. rowElem
+// admits a union only when it names a row.
+func rowMembers(t Type) []Type {
+	if n, ok := t.(*Named); ok {
+		if u, ok := n.underlying().(*Union); ok {
+			return u.Variants
+		}
+	}
+	return []Type{t}
+}
+
+// namedRow reports whether t, written at x in an error row, is a union, and
+// then the variants it names (types.md, Error types 4): a row is a set of
+// error types, so a union of error types names the set of its variants. A
+// union of this package names a row, and its variants become error types
+// as if the row listed them. A union of another package, std's included,
+// names a row only when each of its variants is an error type of that
+// package; otherwise it is S104 at x and vs is nil. A union's variants are
+// records of its own package (Unions 1), so a named row never gathers
+// another package's failures.
+func (c *checker) namedRow(x syntax.Expr, t Type) (vs []Type, isRow bool) {
+	n, ok := t.(*Named)
+	if !ok {
+		return nil, false
+	}
+	u, ok := n.underlying().(*Union)
+	if !ok {
+		return nil, false
+	}
+	if u.Bad {
+		return nil, true // a variant is reported already
+	}
+	if p := n.origin().Obj.Pkg; p != c.pkg {
+		for _, v := range u.Variants {
+			vn, ok := v.(*Named)
+			if !ok || p == nil || !p.IsErrorType(vn, OwnerProduction) {
+				c.errorf(x, CodeUnknown, "%s is not an error type: a union of another package names a row only when each variant is an error type there, and %s is not (types.md, Error types 4)", t, v)
+				return nil, true
+			}
+		}
+	}
+	return u.Variants, true
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
@@ -1454,8 +1566,17 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 			c.errorf(x, CodeType, "generic type %s needs type arguments", n)
 			return nil
 		}
+		if vs, isRow := c.namedRow(x, t); isRow {
+			if vs == nil {
+				return nil
+			}
+			for _, v := range vs {
+				c.addErrorType(v.(*Named), c.pkg.OwnerOf(x), x)
+			}
+			return t
+		}
 		if !isStructNamed(t) {
-			c.errorf(x, CodeUnknown, "%s is not an error type: an error type is a named struct type (types.md, Error types 1)", t)
+			c.errorf(x, CodeUnknown, "%s is not an error type: an error type is a named struct type, or a union of error types that names a row (types.md, Error types 1)", t)
 			return nil
 		}
 		// The row's own owner, not the body being checked: a declaration
@@ -1498,6 +1619,9 @@ type typeWalker struct {
 	// index, when set, may take over an index expression (returning true)
 	// before the default walk.
 	index func(ix *syntax.IndexExpr) bool
+	// maps, when set, reads `Map[K, V]` as the package's own Map
+	// (checker.mapAsDeclared; L6), nil where the form is the map type.
+	maps func(m *syntax.MapType) syntax.Expr
 }
 
 func (w typeWalker) walk(x syntax.Node, k Kind) {
@@ -1531,6 +1655,12 @@ func (w typeWalker) walk(x syntax.Node, k Kind) {
 	case *syntax.ArrayType:
 		w.walk(x.Elt, KindType)
 	case *syntax.MapType:
+		if w.maps != nil {
+			if ix := w.maps(x); ix != nil {
+				w.walk(ix, k)
+				return
+			}
+		}
 		w.walk(x.Key, KindType)
 		w.walk(x.Value, KindType)
 	case *syntax.StarExpr:
@@ -1785,7 +1915,7 @@ func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstra
 		}
 		return false
 	}
-	typeWalker{slots: c.slotKinds, index: conflicted, f: func(id *syntax.Ident, k Kind) {
+	typeWalker{slots: c.slotKinds, index: conflicted, maps: c.mapAsDeclared, f: func(id *syntax.Ident, k Kind) {
 		tp := ctx.params[id.Name]
 		if tp == nil || !free[tp] || tp.conflict {
 			return
@@ -1950,6 +2080,10 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 	return n, args, ptr
 }
 
+// mapTypeName is the name `Map[K, V]` writes, for selfOwnerName's callers,
+// which read only its Name.
+var mapTypeName = &syntax.Ident{Name: "Map"}
+
 // selfOwnerName returns the type name d's first parameter writes, T, *T or
 // T[A, B], with the type arguments and whether it is a pointer; nil when
 // the first parameter writes another type or d has none.
@@ -1963,6 +2097,11 @@ func selfOwnerName(d *syntax.FuncDecl) (*syntax.Ident, []syntax.Expr, bool) {
 		rt, ptr = s.X, true
 	}
 	var args []syntax.Expr
+	if m, ok := rt.(*syntax.MapType); ok {
+		// Map[K, V] names a package type only where the package declares
+		// its own Map (L6); the caller looks the name up there.
+		return mapTypeName, []syntax.Expr{m.Key, m.Value}, ptr
+	}
 	if ix, ok := rt.(*syntax.IndexExpr); ok {
 		rt, args = ix.X, ix.Indices
 	}

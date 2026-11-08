@@ -143,7 +143,7 @@ func (c *checker) solveDeclKinds() {
 			i, ok := index[id.Name]
 			return kindVar{tn, i}, ok
 		}
-		var w typeWalker
+		w := typeWalker{maps: c.mapAsDeclared}
 		w.f = func(id *syntax.Ident, k Kind) {
 			if i, ok := index[id.Name]; ok {
 				observe(kindVar{tn, i}, k)
@@ -185,6 +185,9 @@ func (c *checker) solveDeclKinds() {
 		if st, ok := rt.(*syntax.StarExpr); ok {
 			rt = unparen(st.X)
 		}
+		if m, ok := rt.(*syntax.MapType); ok && c.declaredMap() != nil {
+			rt = c.mapInstance(m) // the package's own Map (L6)
+		}
 		ix, ok := rt.(*syntax.IndexExpr)
 		if !ok {
 			continue
@@ -216,7 +219,7 @@ func (c *checker) solveDeclKinds() {
 			}
 			return kindVar{htn, i}, true
 		}
-		var w typeWalker
+		w := typeWalker{maps: c.mapAsDeclared}
 		w.f = func(id *syntax.Ident, k Kind) {
 			if v, ok := self(id); ok {
 				observe(v, k)

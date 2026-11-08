@@ -254,7 +254,7 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 // prelude name is a binder that D-D3 refuses, binding with the value's
 // type (declareLocal); any other name binds (patternNameTests).
 func (c *checker) namePattern(id *syntax.Ident) bool {
-	return c.patternTests(id.Name, true)
+	return c.patternTests(id.Name, true, true)
 }
 
 // varDecl checks a local var declaration. A var of a type with no zero
@@ -528,13 +528,13 @@ func (c *checker) assignable0(x syntax.Expr, op *operand) {
 
 // returnStmt checks return: a fallible value passes its success and its
 // failures through; a value of an error type is a failure; return cannot
-// leave a with block or a trailing block (rows.md, Error rows 4;
-// grammar.md, Statements 5).
+// leave a trailing block, and leaves a with block after its providers are
+// released (rows.md, Error rows 4; grammar.md, Statements 5).
 func (c *checker) returnStmt(s *syntax.ReturnStmt) {
 	t := c.fn.t
 	for _, b := range c.fn.branches {
 		if b.kind == brBarrier {
-			c.errorf(s, CodeType, "return cannot leave a with block or a block argument; the block yields its last expression (grammar.md, Statements 5)")
+			c.errorf(s, CodeType, "return cannot leave a block argument; the block yields its last expression (grammar.md, Statements 5)")
 			for _, r := range s.Results {
 				c.expr(r, nil)
 			}
@@ -740,7 +740,7 @@ func (c *checker) branchStmt(s *syntax.BranchStmt) {
 	crossed := false
 	for i := len(c.fn.branches) - 1; i >= 0; i-- {
 		b := c.fn.branches[i]
-		if b.kind == brBarrier {
+		if b.kind == brBarrier || b.kind == brWith {
 			crossed = true
 			continue
 		}
