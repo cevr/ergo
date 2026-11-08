@@ -120,7 +120,8 @@ func (m *member) unpark() {
 
 // waking locks the clock of w, a waiter, and clears its parked flag when
 // its wait ends on src. The caller makes the event visible, then unlocks.
-// It returns nil when w is nil or no member.
+// It returns nil when w is nil or no member. A nil src ends no wait: an
+// empty slot of on is nil too.
 func (w *Task) waking(src any) *member {
 	if w == nil {
 		return nil
@@ -130,10 +131,22 @@ func (w *Task) waking(src any) *member {
 		return nil
 	}
 	m.v.mu.Lock()
-	if m.parked && (src == stopSource{} && m.stop || src != stopSource{} && (m.on[0] == src || m.on[1] == src)) {
+	if m.parked && waitEndsOn(m, src) {
 		m.release()
 	}
 	return m
+}
+
+// waitEndsOn reports whether src's event ends m's parked wait.
+func waitEndsOn(m *member, src any) bool {
+	switch src {
+	case nil:
+		return false
+	case stopSource{}:
+		return m.stop
+	default:
+		return m.on[0] == src || m.on[1] == src
+	}
 }
 
 // unlock ends a waking. It is nil-safe.
