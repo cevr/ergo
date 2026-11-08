@@ -1,0 +1,117 @@
+// The rules of the order as laws, at int nodes (a top-level law has no
+// type parameters).
+
+import slices
+
+// Downhill is edges with each edge pointing from the higher node to the
+// lower, and none from a node to itself: a graph with no cycle. A node is
+// higher by its remainder mod 3 and then by value, so an edge goes to a
+// larger node as often as to a smaller one, and the order of the ready
+// nodes alone does not put each node after its needs.
+func Downhill(edges []Edge[int]) []Edge[int] {
+	let mut out = []Edge[int]{}
+	for e in edges {
+		if higher(e.From, e.To) {
+			out = out.Append(e)
+		} else if higher(e.To, e.From) {
+			out = out.Append(Edge[int]{From: e.To, To: e.From})
+		}
+	}
+	out
+}
+
+func higher(a int, b int) bool {
+	let ra = ((a % 3) + 3) % 3
+	let rb = ((b % 3) + 3) % 3
+	if ra != rb {
+		return ra > rb
+	}
+	a > b
+}
+
+// OrderRespectsEdges: in the order of a graph with no cycle, every node
+// comes after each node it needs.
+law OrderRespectsEdges(nodes []int, edges []Edge[int]) {
+	let g = Of(nodes, Downhill(edges))
+	let order = try Order(g)
+	for e in g.Edges() {
+		if slices.Index(order, e.To) > slices.Index(order, e.From) {
+			return false
+		}
+	}
+	true
+}
+
+// OrderHasEveryNodeOnce: the order is a permutation of the nodes.
+law OrderHasEveryNodeOnce(nodes []int, edges []Edge[int]) {
+	let g = Of(nodes, Downhill(edges))
+	slices.Equal(slices.Sort(try Order(g)), g.Nodes())
+}
+
+// OrderIsDeterministic: the order does not depend on the order the nodes
+// and edges were given in.
+law OrderIsDeterministic(nodes []int, edges []Edge[int]) {
+	let down = Downhill(edges)
+	let a = try Order(Of(nodes, down))
+	let b = try Order(Of(slices.Reverse(nodes), slices.Reverse(down)))
+	slices.Equal(a, b)
+}
+
+// CycleIsAClosedWalk: when a graph has no order, its cycle starts and
+// ends at one node and each step is an edge.
+law CycleIsAClosedWalk(nodes []int, edges []Edge[int]) {
+	let g = Of(nodes, Crowded(edges))
+	let _ = Order(g) catch {
+	case Cycle[int] as c:
+		return IsClosedWalk(g, c.Path)
+	}
+	true
+}
+
+// IsClosedWalk reports whether path has two nodes or more, starts and
+// ends at one node, and each step is an edge of g.
+func IsClosedWalk[N ordered](g Graph[N], path []N) bool {
+	if len(path) < 2 || path[0] != path[len(path)-1] {
+		return false
+	}
+	for i in 1..len(path) {
+		if !slices.Contains(g.Needs(path[i-1]), path[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// PathFollowsEdges: a path that Path finds starts at a, ends at b and
+// steps along edges.
+law PathFollowsEdges(edges []Edge[int], a int, b int) {
+	let g = Of([]int{Few(a), Few(b)}, Crowded(edges))
+	match g.Path(Few(a), Few(b)) {
+	case Some[[]int] as p:
+		let path = p.Value
+		if path[0] != Few(a) || path[len(path)-1] != Few(b) {
+			return false
+		}
+		for i in 1..len(path) {
+			if !slices.Contains(g.Needs(path[i-1]), path[i]) {
+				return false
+			}
+		}
+		true
+	case None:
+		Few(a) != Few(b)
+	}
+}
+
+// Crowded is edges among the nodes 0 to 3, so that generated graphs have
+// cycles and paths of more than one step.
+func Crowded(edges []Edge[int]) []Edge[int] {
+	let mut out = []Edge[int]{}
+	for x in edges {
+		out = out.Append(Edge[int]{From: Few(x.From), To: Few(x.To)})
+	}
+	out
+}
+
+// Few is n's remainder mod 4, from 0 to 3.
+func Few(n int) int { ((n % 4) + 4) % 4 }

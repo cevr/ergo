@@ -1,0 +1,12 @@
+{"type": "object",
+ "properties": {
+   "name": {"type": "string", "minLength": 1},
+   "age": {"type": "integer", "minimum": 0, "maximum": 150},
+   "role": {"type": "string", "enum": ["admin", "user"]},
+   "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+   "home": {"type": "object",
+            "properties": {"city": {"type": "string"}, "zip": {"type": "string"}},
+            "required": ["city"]}
+ },
+ "required": ["name", "age"],
+ "additionalProperties": false}

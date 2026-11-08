@@ -1,0 +1,208 @@
+// Package manifest reads a deps manifest: the project's own needs and the
+// registry of releases, one line at a time, by a machine whose state is
+// the block being read. It is pure.
+//
+//	# a comment
+//	project app
+//	  needs web ^2.1
+//	  needs log >=1.2 <2
+//
+//	package web 2.3.1
+//	  needs log ^1.4
+//
+// A needs line belongs to the project or package line above it, and is
+// indented. A blank line or a comment changes nothing.
+
+import deps/resolve
+import deps/semver
+import strings
+
+// Manifest is a project's name, its own needs, and the releases it may
+// choose from, in the order the manifest lists them.
+type Manifest { Project string, Root []resolve.Requirement, Releases []resolve.Release }
+
+// BadLine is a line the manifest cannot read; No counts from 1.
+type BadLine { No int, Text string, Reason string }
+
+// Block is what the reader is inside: nothing yet, the project, or a
+// package release. Each holds the manifest read so far.
+type Block = Top{M Manifest} | InProject{M Manifest} | InRelease{M Manifest}
+
+// Signal is a line of the manifest, or its end.
+type Signal = Line{No int, Text string} | End{}
+
+// Reader reads a manifest one line at a time.
+type Reader machine[Block, Signal] {
+	initial: Start(),
+	step:    Step,
+}
+
+// Start is the first block: nothing read yet. Ergo has no accessor for a
+// machine's initial value or runner yet (#57), so Read starts here and
+// calls Step itself.
+func Start() Block {
+	Top{M: Manifest{Project: "", Root: []resolve.Requirement{}, Releases: []resolve.Release{}}}
+}
+
+// ManifestOf is the manifest that b holds.
+func ManifestOf(b Block) Manifest {
+	match b {
+	case Top as t:
+		t.M
+	case InProject as p:
+		p.M
+	case InRelease as r:
+		r.M
+	}
+}
+
+// Step reads one line in block b. A project or package line Enters its
+// block; a needs line Stays in its block with one more need; a blank line
+// or a comment is Ignored; the end is Done with the manifest, and a
+// manifest with no project line fails.
+func Step(b Block, s Signal) Decision[Block, Manifest] fails BadLine {
+	match s {
+	case End:
+		let m = ManifestOf(b)
+		if m.Project == "" {
+			return BadLine{No: 0, Text: "", Reason: "the manifest has no project line"}
+		}
+		Done[Manifest]{Output: m}
+	case Line as l:
+		try line(b, l)
+	}
+}
+
+func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
+	let text = strings.TrimSpace(stripComment(l.Text))
+	if text == "" {
+		return Ignore
+	}
+	let words = strings.Fields(text)
+	let indented = strings.HasPrefix(l.Text, " ") || strings.HasPrefix(l.Text, "\t")
+	let m = ManifestOf(b)
+	match (words[0], indented) {
+	case ("project", false):
+		if len(words) != 2 {
+			return BadLine{No: l.No, Text: l.Text, Reason: "write project NAME"}
+		}
+		if m.Project != "" {
+			return BadLine{No: l.No, Text: l.Text, Reason: "a second project line"}
+		}
+		Enter[Block]{Next: InProject{M: Manifest{..m, Project: words[1]}}}
+	case ("package", false):
+		if len(words) != 3 {
+			return BadLine{No: l.No, Text: l.Text, Reason: "write package NAME VERSION"}
+		}
+		let v = semver.ParseVersion(words[2]) catch {
+		case semver.BadVersion:
+			return BadLine{No: l.No, Text: l.Text, Reason: "\(words[2]) is not a version"}
+		}
+		for r in m.Releases {
+			if r.Name == words[1] && r.V == v {
+				return BadLine{No: l.No, Text: l.Text, Reason: "\(words[1]) \(semver.Format(v)) is listed twice"}
+			}
+		}
+		let release = resolve.Release{Name: words[1], V: v, Needs: []resolve.Requirement{}}
+		Enter[Block]{Next: InRelease{M: Manifest{..m, Releases: appended(m.Releases, release)}}}
+	case ("needs", true):
+		if len(words) < 2 {
+			return BadLine{No: l.No, Text: l.Text, Reason: "write needs NAME [CONSTRAINT]"}
+		}
+		let want = semver.ParseConstraint(strings.Join(rest(rest(words)), " ")) catch {
+		case semver.BadConstraint as c:
+			return BadLine{No: l.No, Text: l.Text, Reason: c.Reason}
+		}
+		let r = resolve.Requirement{Name: words[1], Want: want}
+		match b {
+		case Top:
+			BadLine{No: l.No, Text: l.Text, Reason: "a needs line belongs under a project or package line"}
+		case InProject:
+			Stay[Block]{Next: InProject{M: Manifest{..m, Root: appendedNeed(m.Root, r)}}}
+		case InRelease:
+			Stay[Block]{Next: InRelease{M: withNeed(m, r)}}
+		}
+	case (_, true):
+		BadLine{No: l.No, Text: l.Text, Reason: "an indented line is a needs line"}
+	case (_, false):
+		BadLine{No: l.No, Text: l.Text, Reason: "unknown line; want project, package or an indented needs"}
+	}
+}
+
+// stripComment is text up to a #.
+func stripComment(text string) string {
+	match strings.Cut(text, "#") {
+	case Some[strings.Halves] as h:
+		h.Value.Before
+	case None:
+		text
+	}
+}
+
+func rest(xs []string) []string {
+	let mut out = []string{}
+	for i, x in xs {
+		if i > 0 {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// appended is rs and then r, in a new slice: a Block is a value, so an
+// earlier block keeps its own releases.
+func appended(rs []resolve.Release, r resolve.Release) []resolve.Release {
+	let mut out = []resolve.Release{}
+	for x in rs {
+		out = out.Append(x)
+	}
+	out.Append(r)
+}
+
+func appendedNeed(rs []resolve.Requirement, r resolve.Requirement) []resolve.Requirement {
+	let mut out = []resolve.Requirement{}
+	for x in rs {
+		out = out.Append(x)
+	}
+	out.Append(r)
+}
+
+// withNeed is m with r added to the needs of its last release.
+func withNeed(m Manifest, r resolve.Requirement) Manifest {
+	let mut rs = []resolve.Release{}
+	for i, x in m.Releases {
+		rs = rs.Append(if i == len(m.Releases)-1 { resolve.Release{..x, Needs: appendedNeed(x.Needs, r)} } else { x })
+	}
+	Manifest{..m, Releases: rs}
+}
+
+// Read runs the Reader over text, line by line, and then its end.
+func Read(text string) Manifest fails BadLine {
+	let mut b = Start()
+	let mut no = 0
+	for l in strings.Lines(text) {
+		no = no + 1
+		match try Step(b, Line{No: no, Text: l}) {
+		case Enter[Block] as e:
+			b = e.Next
+		case Stay[Block] as s:
+			b = s.Next
+		case Ignore:
+		case Reject:
+		case Done[Manifest] as d:
+			return d.Output
+		}
+	}
+	match try Step(b, End) {
+	case Done[Manifest] as d:
+		d.Output
+	case Enter[Block]:
+		ManifestOf(b)
+	case Stay[Block]:
+		ManifestOf(b)
+	case Ignore:
+		ManifestOf(b)
+	case Reject:
+		ManifestOf(b)
+	}
+}

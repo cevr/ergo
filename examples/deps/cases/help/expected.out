@@ -1,0 +1,6 @@
+Usage of deps why:
+  -f file
+    	read the manifest from file (default "deps.txt")
+Arguments:
+  package
+    	the package to explain

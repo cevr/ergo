@@ -1,0 +1,88 @@
+// The domain's tests: examples of the order, the parser and the help, and
+// the laws restated as property tests (#162 runs laws; until then these
+// do).
+
+import strings
+
+func order(k Keys) string {
+	let mut names = []string{}
+	for e in k.Entries() {
+		names = names.Append(e.Name)
+	}
+	strings.Join(names, " ")
+}
+
+test ObjectOrderPutsIndexesFirst {
+	let mut k = Empty()
+	for n in []string{"openai", "10", "zeta", "7", "07", "4294967295", "4294967294", "10"} {
+		k = k.Set(n, "v")
+	}
+	assert order(k) == "7 10 4294967294 openai zeta 07 4294967295"
+	assert IsIndex("0") && !IsIndex("00") && !IsIndex("-1") && !IsIndex("1.5") && !IsIndex("")
+}
+
+func refusal(args []string) string {
+	let _ = Parse(args) catch {
+	case Usage as u:
+		return strings.Split(u.Help, "\n")[1] + " | " + u.Reason
+	}
+	"ok"
+}
+
+test ParseNamesEachRefusal {
+	assert refusal([]string{"keys", "bogus"}) == "  Manage stored API keys in ~/.okra/keys.json | Unknown subcommand \"bogus\" for \"okra keys\""
+	assert refusal([]string{"keys", "get"}) == "  Show whether a provider's key is set (masked), and its source | Missing required argument: provider"
+	assert refusal([]string{"keys", "set", "a", "b", "c"}) == "  Store an API key for a provider | Unexpected positional argument: \"c\""
+	assert refusal([]string{"keys", "list", "--stdin"}) == "  List provider names that have a stored key | Unrecognized flag: --stdin in command okra keys list"
+	assert refusal([]string{"keys", "set", "--stdin", "p"}) == "ok"
+}
+
+test ParseReadsEachCommand {
+	assert try Parse([]string{"keys"}) == Nothing
+	assert try Parse([]string{"keys", "set", "p", "--stdin", "x"}) == SetKey{Provider: "p", Key: Some[string]{Value: "x"}, Stdin: true}
+	assert try Parse([]string{"keys", "rm", "p"}) == RemoveKey{Provider: "p"}
+}
+
+test EnvVarNamesTheOverride {
+	assert EnvVar("openai") == "OPENAI_API_KEY" && EnvVar("my-co") == "OKRA_KEY_MY-CO"
+}
+
+test SetThenLookupHolds(names []string, raw string, secret string) {
+	let name = Digits(raw)
+	assert KeysOf(names).Set(name, secret).Lookup(name) == Some[string]{Value: secret}
+}
+
+test SetKeepsOthersHolds(names []string, raw string, secret string) {
+	let name = Digits(raw)
+	let k = KeysOf(names)
+	let after = k.Set(name, secret)
+	for e in k.Entries() {
+		if e.Name != name {
+			assert after.Lookup(e.Name) == Some[string]{Value: e.Secret}
+		}
+	}
+	let added = if k.Lookup(name) == None { 1 } else { 0 }
+	assert len(after.Entries()) == len(k.Entries())+added
+}
+
+test RemoveUndoesSetHolds(names []string, raw string, secret string) {
+	let name = Digits(raw)
+	let k = KeysOf(names)
+	if k.Lookup(name) != None {
+		return
+	}
+	assert Same(k.Set(name, secret).Remove(name), k)
+}
+
+test IndexNamesComeFirstHolds(names []string) {
+	assert InObjectOrder(KeysOf(names))
+}
+
+test MaskRevealsLittleHolds(secret string, pad int) {
+	let s = secret + strings.Repeat("x", ((pad%12)+12)%12)
+	if len(s) <= 8 {
+		assert Mask(s) == strings.Repeat("•", len(s))
+		return
+	}
+	assert Mask(s) == strings.Slice(s, 0, 5)+"…"+strings.Slice(s, len(s)-4, len(s))
+}

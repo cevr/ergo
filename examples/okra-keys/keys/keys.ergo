@@ -1,0 +1,97 @@
+// Package keys is the domain of okra keys: the stored key of each
+// provider, the Store contract that keeps them, the masked preview, and
+// the commands. It is pure but for Run, which needs its Store, the
+// process and the standard streams.
+
+import slices
+import strconv
+
+// Entry is a provider's stored key.
+type Entry { Name string, Secret string }
+
+// Keys is the stored keys, in the order of a JavaScript object, which is
+// the order the original writes them in: the names that are array indexes
+// ("0", "10") first, by value, then the others in the order they were
+// first set. Its field is unexported, so only Empty, Set and Remove make
+// one, and the order always holds.
+type Keys { entries []Entry }
+
+// Empty is no keys.
+func Empty() Keys { Keys{entries: []Entry{}} }
+
+// Entries is every stored key, in order.
+func Entries(k Keys) []Entry { k.entries }
+
+// Set is k with name's key secret: in its place when name is stored, else
+// in the place the object order gives it.
+func Set(k Keys, name string, secret string) Keys {
+	let mut out = []Entry{}
+	let mut placed = false
+	for e in k.entries {
+		if e.Name == name {
+			out = out.Append(Entry{Name: name, Secret: secret})
+			placed = true
+		} else {
+			if !placed && IsIndex(name) && (!IsIndex(e.Name) || indexOf(e.Name) > indexOf(name)) {
+				out = out.Append(Entry{Name: name, Secret: secret})
+				placed = true
+			}
+			out = out.Append(e)
+		}
+	}
+	if !placed {
+		out = out.Append(Entry{Name: name, Secret: secret})
+	}
+	Keys{entries: out}
+}
+
+// Remove is k without name's key.
+func Remove(k Keys, name string) Keys {
+	let mut out = []Entry{}
+	for e in k.entries {
+		if e.Name != name {
+			out = out.Append(e)
+		}
+	}
+	Keys{entries: out}
+}
+
+// Lookup is name's stored key.
+func Lookup(k Keys, name string) Option[string] {
+	for e in k.entries {
+		if e.Name == name {
+			return Some[string]{Value: e.Secret}
+		}
+	}
+	None
+}
+
+// Names is every stored name, sorted.
+func Names(k Keys) []string {
+	let mut names = []string{}
+	for e in k.entries {
+		names = names.Append(e.Name)
+	}
+	slices.Sort(names)
+}
+
+// IsIndex reports whether name is an array index of JavaScript: 0, or a
+// decimal with no leading zero, below 2^32 - 1.
+func IsIndex(name string) bool {
+	if name == "" || len(name) > 10 || (len(name) > 1 && name[0] == '0') {
+		return false
+	}
+	for i in 0..len(name) {
+		if name[i] < '0' || name[i] > '9' {
+			return false
+		}
+	}
+	indexOf(name) < 4294967295
+}
+
+func indexOf(name string) int {
+	strconv.Atoi(name) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		-1
+	}
+}

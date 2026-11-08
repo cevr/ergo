@@ -1,0 +1,233 @@
+import jsonv/json
+import strconv
+import strings
+import utf8
+
+// Violation is one way a value breaks a schema. Path names the value from
+// the root $: $.name, $.tags[2], $["a key"].
+type Violation = WrongKind{Path string, Want string, Got string} | MissingMember{Path string, Name string} | ExtraMember{Path string, Name string} | NotInEnum{Path string, Text string} | TooShort{Path string, Min int, Got int} | NotInteger{Path string, Got string} | BelowMinimum{Path string, Min float64, Got string} | AboveMaximum{Path string, Max float64, Got string} | TooFewItems{Path string, Min int, Got int}
+
+// Invalid is the failure of Check: every violation, in document order.
+type Invalid { Violations []Violation }
+
+// Check is nothing when v keeps s, and Invalid with every violation when
+// it does not.
+func Check(s Schema, v json.Value) fails Invalid {
+	let found = Validate(s, v)
+	if len(found) > 0 {
+		return Invalid{Violations: found}
+	}
+}
+
+// Validate is every violation of s by v, in document order: an object's
+// members in the order of its properties, then the members it may not
+// have, then the required members it lacks.
+func Validate(s Schema, v json.Value) []Violation {
+	let mut w = report{found: []Violation{}}
+	validate(&w, s, v, "$")
+	w.found
+}
+
+type report { found []Violation }
+
+func add(w *report, x Violation) { w.found = w.found.Append(x) }
+
+func validate(w *report, s Schema, v json.Value, path string) {
+	match s {
+	case Anything:
+	case IsNull:
+		match v {
+		case json.Null:
+		case _:
+			add(w, WrongKind{Path: path, Want: "null", Got: json.Kind(v)})
+		}
+	case IsBool:
+		match v {
+		case json.Bool:
+		case _:
+			add(w, WrongKind{Path: path, Want: "boolean", Got: json.Kind(v)})
+		}
+	case IsString as str:
+		match v {
+		case json.Text as t:
+			if len(str.Enum) > 0 && !has(str.Enum, t.V) {
+				add(w, NotInEnum{Path: path, Text: t.V})
+			}
+			let n = utf8.RuneCount(t.V)
+			if n < str.MinLength {
+				add(w, TooShort{Path: path, Min: str.MinLength, Got: n})
+			}
+		case _:
+			add(w, WrongKind{Path: path, Want: "string", Got: json.Kind(v)})
+		}
+	case IsNumber as num:
+		match v {
+		case json.Number as n:
+			if num.Integer && !isInteger(n.Text) {
+				add(w, NotInteger{Path: path, Got: n.Text})
+			}
+			let f = valueOf(n.Text)
+			match num.Min {
+			case Some[float64] as min:
+				if f < min.Value {
+					add(w, BelowMinimum{Path: path, Min: min.Value, Got: n.Text})
+				}
+			case None:
+			}
+			match num.Max {
+			case Some[float64] as max:
+				if f > max.Value {
+					add(w, AboveMaximum{Path: path, Max: max.Value, Got: n.Text})
+				}
+			case None:
+			}
+		case _:
+			add(w, WrongKind{Path: path, Want: if num.Integer { "integer" } else { "number" }, Got: json.Kind(v)})
+		}
+	case IsArray as arr:
+		match v {
+		case json.Array as a:
+			if len(a.Items) < arr.MinItems {
+				add(w, TooFewItems{Path: path, Min: arr.MinItems, Got: len(a.Items)})
+			}
+			for i, item in a.Items {
+				validate(w, arr.Items, item, "\(path)[\(i)]")
+			}
+		case _:
+			add(w, WrongKind{Path: path, Want: "array", Got: json.Kind(v)})
+		}
+	case IsObject as obj:
+		match v {
+		case json.Object as o:
+			for p in obj.Props {
+				match o.Get(p.Name) {
+				case Some[json.Value] as m:
+					validate(w, p.S, m.Value, Member(path, p.Name))
+				case None:
+				}
+			}
+			if obj.Closed {
+				let mut seen = []string{}
+				for m in o.Members {
+					if indexOf(obj.Props, m.Key) < 0 && !has(seen, m.Key) {
+						add(w, ExtraMember{Path: path, Name: m.Key})
+						seen = seen.Append(m.Key)
+					}
+				}
+			}
+			for r in obj.Required {
+				match o.Get(r) {
+				case Some[json.Value]:
+				case None:
+					add(w, MissingMember{Path: path, Name: r})
+				}
+			}
+		case _:
+			add(w, WrongKind{Path: path, Want: "object", Got: json.Kind(v)})
+		}
+	}
+}
+
+// Member is the path of the member name of the object at path: .name
+// when name is a word, else ["name"].
+func Member(path string, name string) string {
+	if isWord(name) {
+		return path + "." + name
+	}
+	path + "[" + json.Quoted(name) + "]"
+}
+
+func isWord(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i in 0..len(name) {
+		let c = name[i]
+		let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+		if !letter && (i == 0 || c < '0' || c > '9') {
+			return false
+		}
+	}
+	true
+}
+
+// PathOf is the path of x.
+func PathOf(x Violation) string {
+	match x {
+	case WrongKind as e:
+		e.Path
+	case MissingMember as e:
+		e.Path
+	case ExtraMember as e:
+		e.Path
+	case NotInEnum as e:
+		e.Path
+	case TooShort as e:
+		e.Path
+	case NotInteger as e:
+		e.Path
+	case BelowMinimum as e:
+		e.Path
+	case AboveMaximum as e:
+		e.Path
+	case TooFewItems as e:
+		e.Path
+	}
+}
+
+// Describe is the text of x, with its path first.
+func Describe(x Violation) string {
+	match x {
+	case WrongKind as e:
+		"\(e.Path): want \(article(e.Want)), got \(article(e.Got))"
+	case MissingMember as e:
+		"\(e.Path): missing member \(json.Quoted(e.Name))"
+	case ExtraMember as e:
+		"\(e.Path): member \(json.Quoted(e.Name)) is not allowed"
+	case NotInEnum as e:
+		"\(e.Path): \(json.Quoted(e.Text)) is not one of the allowed values"
+	case TooShort as e:
+		"\(e.Path): want at least \(e.Min) characters, got \(e.Got)"
+	case NotInteger as e:
+		"\(e.Path): want an integer, got \(e.Got)"
+	case BelowMinimum as e:
+		"\(e.Path): \(e.Got) is less than the minimum \(formatFloat(e.Min))"
+	case AboveMaximum as e:
+		"\(e.Path): \(e.Got) is more than the maximum \(formatFloat(e.Max))"
+	case TooFewItems as e:
+		"\(e.Path): want at least \(e.Min) items, got \(e.Got)"
+	}
+}
+
+func article(kind string) string {
+	if kind == "array" || kind == "object" || kind == "integer" {
+		return "an " + kind
+	}
+	if kind == "null" {
+		return "null"
+	}
+	"a " + kind
+}
+
+// isInteger reports whether the number text has no fraction: 3, 3.0 and
+// 3e2 are integers, as JSON Schema counts them.
+func isInteger(text string) bool {
+	let f = valueOf(text)
+	f == trunc(f)
+}
+
+// valueOf is the number text as a float64; past the range of float64 it
+// is the largest float64 of its sign.
+func valueOf(text string) float64 {
+	strconv.ParseFloat(text) catch {
+	case strconv.Malformed:
+		0.0
+	case strconv.OutOfRange:
+		if strings.HasPrefix(text, "-") { -1.7976931348623157e308 } else { 1.7976931348623157e308 }
+	}
+}
+
+// formatFloat is the shortest text of f that reads back as f.
+func formatFloat(f float64) string { strconv.FormatFloat(f, 'g', -1) }
+
+extern go math.Trunc func trunc(f float64) float64

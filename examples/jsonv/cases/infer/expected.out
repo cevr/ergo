@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "age": {
+      "type": "integer"
+    },
+    "role": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "home": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string"
+        },
+        "zip": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "city",
+        "zip"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "name",
+    "age",
+    "role",
+    "tags",
+    "home"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,83 @@
+// Package json is a JSON codec written by hand: a scanner and a
+// recursive-descent parser into the union Value, and two printers, compact
+// and indented. It is pure: no function needs a capability. RFC 8259 is
+// the grammar; jq 1.7 is the model of the indented layout.
+
+// Value is one JSON value. A number keeps its text as the source wrote it,
+// so 2.50 prints as 2.50 and an integer of any size keeps every digit, as
+// Go's json.Number and jq 1.7 keep it. An object keeps its members in
+// source order, and a key may repeat, as RFC 8259 allows; Get finds the
+// last.
+type Value = Null{} | Bool{V bool} | Number{Text string} | Text{V string} | Array{Items []Value} | Object{Members []Member}
+
+// Member is one key and its value in an object.
+type Member { Key string, V Value }
+
+// Kind is the name of v's kind, as a schema writes it: null, boolean,
+// number, string, array or object.
+func Kind(v Value) string {
+	match v {
+	case Null:
+		"null"
+	case Bool:
+		"boolean"
+	case Number:
+		"number"
+	case Text:
+		"string"
+	case Array:
+		"array"
+	case Object:
+		"object"
+	}
+}
+
+// Get is the value of the last member of o named key.
+func Get(o Object, key string) Option[Value] {
+	let mut found Option[Value] = None
+	for m in o.Members {
+		if m.Key == key {
+			found = Some[Value]{Value: m.V}
+		}
+	}
+	found
+}
+
+// Equal reports whether a and b are the same value: the same kind, the
+// same text of a number, the same items in order, the same members in
+// order. Value holds slices, so == does not compare it.
+func Equal(a Value, b Value) bool {
+	match (a, b) {
+	case (Null, Null):
+		true
+	case (Bool as x, Bool as y):
+		x.V == y.V
+	case (Number as x, Number as y):
+		x.Text == y.Text
+	case (Text as x, Text as y):
+		x.V == y.V
+	case (Array as x, Array as y):
+		if len(x.Items) != len(y.Items) {
+			return false
+		}
+		for i, item in x.Items {
+			if !Equal(item, y.Items[i]) {
+				return false
+			}
+		}
+		true
+	case (Object as x, Object as y):
+		if len(x.Members) != len(y.Members) {
+			return false
+		}
+		for i, m in x.Members {
+			let n = y.Members[i]
+			if m.Key != n.Key || !Equal(m.V, n.V) {
+				return false
+			}
+		}
+		true
+	case _:
+		false
+	}
+}

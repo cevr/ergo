@@ -1,0 +1,423 @@
+import strconv
+import strings
+
+// The failures of Parse. Each holds At, the byte offset in the text where
+// the parser stopped; Locate turns it into a line and a column.
+
+// Unexpected is a byte, or the end of the text, where the grammar wants
+// something else. Found names it as Describe prints it.
+type Unexpected { At int, Found string, Want string }
+
+// BadEscape is a backslash escape in a string that JSON does not have,
+// or a \u escape that is not four hex digits or a whole surrogate pair.
+type BadEscape { At int, Text string }
+
+// BadNumber is a number that breaks the grammar: a leading zero, a dot or
+// an exponent with no digits after it.
+type BadNumber { At int, Text string }
+
+// ControlInString is a byte below 0x20 inside a string: JSON writes it as
+// an escape.
+type ControlInString { At int }
+
+// InvalidUTF8 is a byte inside a string that does not start a valid UTF-8
+// sequence.
+type InvalidUTF8 { At int }
+
+// TooDeep is an array or object nested more than Limit levels deep.
+type TooDeep { At int, Limit int }
+
+// SyntaxError is every failure of Parse, for Describe and Offset.
+type SyntaxError = Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep
+
+// MaxDepth is how deep arrays and objects may nest.
+let MaxDepth = 1000
+
+// scanner is the parser's cursor: the text and the offset of the next
+// byte, and how many arrays and objects are open.
+type scanner { text string, pos int, depth int }
+
+// Parse reads text as exactly one JSON value, with white space around it.
+func Parse(text string) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+	let mut s = scanner{text: text, pos: 0, depth: 0}
+	skipSpace(&s)
+	let v = try value(&s)
+	skipSpace(&s)
+	if s.pos < len(text) {
+		return Unexpected{At: s.pos, Found: found(&s), Want: "the end of the text"}
+	}
+	v
+}
+
+// Offset is where err stopped, in bytes from the start of the text.
+func Offset(err SyntaxError) int {
+	match err {
+	case Unexpected as e:
+		e.At
+	case BadEscape as e:
+		e.At
+	case BadNumber as e:
+		e.At
+	case ControlInString as e:
+		e.At
+	case InvalidUTF8 as e:
+		e.At
+	case TooDeep as e:
+		e.At
+	}
+}
+
+// Describe is the text of err, without its position.
+func Describe(err SyntaxError) string {
+	match err {
+	case Unexpected as e:
+		"unexpected \(e.Found), want \(e.Want)"
+	case BadEscape as e:
+		"bad escape \(strconv.Quote(e.Text)) in a string"
+	case BadNumber as e:
+		"bad number \(strconv.Quote(e.Text))"
+	case ControlInString:
+		"a control character in a string; write it as an escape"
+	case InvalidUTF8:
+		"invalid UTF-8 in a string"
+	case TooDeep as e:
+		"arrays and objects nest deeper than \(e.Limit)"
+	}
+}
+
+// Position is a line and a column of a text, both from 1; the column
+// counts bytes.
+type Position { Line int, Col int }
+
+// Locate is the position of the byte at offset in text.
+func Locate(text string, offset int) Position {
+	let mut line = 1
+	let mut col = 1
+	for i in 0..offset {
+		if i >= len(text) {
+			break
+		}
+		if text[i] == '\n' {
+			line = line + 1
+			col = 1
+		} else {
+			col = col + 1
+		}
+	}
+	Position{Line: line, Col: col}
+}
+
+// peek is the next byte, or 0 at the end.
+func peek(s *scanner) byte {
+	if s.pos >= len(s.text) {
+		return 0
+	}
+	s.text[s.pos]
+}
+
+// found names the next byte, or the end, for Unexpected.
+func found(s *scanner) string {
+	if s.pos >= len(s.text) {
+		return "end of input"
+	}
+	strconv.Quote(strings.Slice(s.text, s.pos, s.pos+1))
+}
+
+func skipSpace(s *scanner) {
+	for s.pos < len(s.text) {
+		let c = s.text[s.pos]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return
+		}
+		s.pos = s.pos + 1
+	}
+}
+
+// value reads one value at the cursor; white space before it is skipped.
+func value(s *scanner) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+	match peek(s) {
+	case '{':
+		try object(s)
+	case '[':
+		try array(s)
+	case '"':
+		Text{V: try str(s)}
+	case 't':
+		try word(s, "true", Bool{V: true})
+	case 'f':
+		try word(s, "false", Bool{V: false})
+	case 'n':
+		try word(s, "null", Null)
+	case _:
+		let c = peek(s)
+		if c == '-' || (c >= '0' && c <= '9') {
+			return try numeral(s)
+		}
+		Unexpected{At: s.pos, Found: found(s), Want: "a value"}
+	}
+}
+
+// word reads the literal w, whose value is v.
+func word(s *scanner, w string, v Value) Value fails Unexpected {
+	if !strings.HasPrefix(strings.Slice(s.text, s.pos, len(s.text)), w) {
+		return Unexpected{At: s.pos, Found: found(s), Want: "a value"}
+	}
+	s.pos = s.pos + len(w)
+	v
+}
+
+// open counts one more open array or object.
+func open(s *scanner) fails TooDeep {
+	if s.depth >= MaxDepth {
+		return TooDeep{At: s.pos, Limit: MaxDepth}
+	}
+	s.depth = s.depth + 1
+	s.pos = s.pos + 1
+}
+
+func array(s *scanner) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+	try open(s)
+	let mut items = []Value{}
+	skipSpace(s)
+	if peek(s) == ']' {
+		s.pos = s.pos + 1
+		s.depth = s.depth - 1
+		return Array{Items: items}
+	}
+	for {
+		skipSpace(s)
+		items = items.Append(try value(s))
+		skipSpace(s)
+		match peek(s) {
+		case ',':
+			s.pos = s.pos + 1
+		case ']':
+			s.pos = s.pos + 1
+			s.depth = s.depth - 1
+			return Array{Items: items}
+		case _:
+			return Unexpected{At: s.pos, Found: found(s), Want: "a comma or ]"}
+		}
+	}
+}
+
+func object(s *scanner) Value fails Unexpected | BadEscape | BadNumber | ControlInString | InvalidUTF8 | TooDeep {
+	try open(s)
+	let mut members = []Member{}
+	skipSpace(s)
+	if peek(s) == '}' {
+		s.pos = s.pos + 1
+		s.depth = s.depth - 1
+		return Object{Members: members}
+	}
+	for {
+		skipSpace(s)
+		if peek(s) != '"' {
+			return Unexpected{At: s.pos, Found: found(s), Want: "a string key"}
+		}
+		let key = try str(s)
+		skipSpace(s)
+		if peek(s) != ':' {
+			return Unexpected{At: s.pos, Found: found(s), Want: "a colon"}
+		}
+		s.pos = s.pos + 1
+		skipSpace(s)
+		members = members.Append(Member{Key: key, V: try value(s)})
+		skipSpace(s)
+		match peek(s) {
+		case ',':
+			s.pos = s.pos + 1
+		case '}':
+			s.pos = s.pos + 1
+			s.depth = s.depth - 1
+			return Object{Members: members}
+		case _:
+			return Unexpected{At: s.pos, Found: found(s), Want: "a comma or }"}
+		}
+	}
+}
+
+func isDigit(c byte) bool { c >= '0' && c <= '9' }
+
+// digits moves past a run of digits and reports how many there were.
+func digits(s *scanner) int {
+	let start = s.pos
+	for s.pos < len(s.text) && isDigit(s.text[s.pos]) {
+		s.pos = s.pos + 1
+	}
+	s.pos - start
+}
+
+// numeral reads -?(0|[1-9][0-9]*)(.[0-9]+)?([eE][+-]?[0-9]+)? and keeps
+// its text.
+func numeral(s *scanner) Value fails BadNumber {
+	let start = s.pos
+	if peek(s) == '-' {
+		s.pos = s.pos + 1
+	}
+	let lead = peek(s)
+	let n = digits(s)
+	if n == 0 || (lead == '0' && n > 1) {
+		return BadNumber{At: start, Text: strings.Slice(s.text, start, s.pos)}
+	}
+	if peek(s) == '.' {
+		s.pos = s.pos + 1
+		if digits(s) == 0 {
+			return BadNumber{At: start, Text: strings.Slice(s.text, start, s.pos)}
+		}
+	}
+	if peek(s) == 'e' || peek(s) == 'E' {
+		s.pos = s.pos + 1
+		if peek(s) == '+' || peek(s) == '-' {
+			s.pos = s.pos + 1
+		}
+		if digits(s) == 0 {
+			return BadNumber{At: start, Text: strings.Slice(s.text, start, s.pos)}
+		}
+	}
+	Number{Text: strings.Slice(s.text, start, s.pos)}
+}
+
+// str reads a string at the cursor, which is at its opening quote, and
+// decodes its escapes. A run of plain bytes is taken as one slice.
+func str(s *scanner) string fails Unexpected | BadEscape | ControlInString | InvalidUTF8 {
+	s.pos = s.pos + 1
+	let mut parts = []string{}
+	let mut run = s.pos
+	for {
+		if s.pos >= len(s.text) {
+			return Unexpected{At: s.pos, Found: "end of input", Want: "a closing quote"}
+		}
+		let c = s.text[s.pos]
+		if c == '"' {
+			parts = parts.Append(strings.Slice(s.text, run, s.pos))
+			s.pos = s.pos + 1
+			return strings.Join(parts, "")
+		}
+		if c < 32 {
+			return ControlInString{At: s.pos}
+		}
+		if c == '\\' {
+			parts = parts.Append(strings.Slice(s.text, run, s.pos))
+			parts = parts.Append(try escape(s))
+			run = s.pos
+		} else if c < 128 {
+			s.pos = s.pos + 1
+		} else {
+			let n = leadLength(c)
+			if n == 0 || s.pos+n > len(s.text) || !validUTF8(strings.Slice(s.text, s.pos, s.pos+n)) {
+				return InvalidUTF8{At: s.pos}
+			}
+			s.pos = s.pos + n
+		}
+	}
+}
+
+// leadLength is the length of the UTF-8 sequence that the byte c starts,
+// or 0 when c starts none.
+func leadLength(c byte) int {
+	if c >= 194 && c <= 223 {
+		return 2
+	}
+	if c >= 224 && c <= 239 {
+		return 3
+	}
+	if c >= 240 && c <= 244 {
+		return 4
+	}
+	0
+}
+
+// escape reads one escape at the cursor, at its backslash, and is the
+// text it stands for.
+func escape(s *scanner) string fails BadEscape {
+	let at = s.pos
+	if s.pos+1 >= len(s.text) {
+		return BadEscape{At: at, Text: "\\"}
+	}
+	let c = s.text[s.pos+1]
+	s.pos = s.pos + 2
+	match c {
+	case '"':
+		"\""
+	case '\\':
+		"\\"
+	case '/':
+		"/"
+	case 'b':
+		"\b"
+	case 'f':
+		"\f"
+	case 'n':
+		"\n"
+	case 'r':
+		"\r"
+	case 't':
+		"\t"
+	case 'u':
+		let hi = try hex4(s, at)
+		if hi < 55296 || hi > 57343 {
+			return runeText(hi)
+		}
+		// A high surrogate needs a low one after it: \uD83D\uDE00 is one
+		// code point. A lone surrogate is no character (jq refuses it too).
+		if hi > 56319 || !strings.HasPrefix(strings.Slice(s.text, s.pos, len(s.text)), "\\u") {
+			return BadEscape{At: at, Text: strings.Slice(s.text, at, s.pos)}
+		}
+		s.pos = s.pos + 2
+		let lo = try hex4(s, at)
+		if lo < 56320 || lo > 57343 {
+			return BadEscape{At: at, Text: strings.Slice(s.text, at, s.pos)}
+		}
+		runeText(65536 + (hi-55296)*1024 + (lo - 56320))
+	case _:
+		BadEscape{At: at, Text: strings.Slice(s.text, at, s.pos)}
+	}
+}
+
+// hex4 reads four hex digits at the cursor. at is where the escape began.
+func hex4(s *scanner, at int) int fails BadEscape {
+	if s.pos+4 > len(s.text) {
+		return BadEscape{At: at, Text: strings.Slice(s.text, at, len(s.text))}
+	}
+	let mut n = 0
+	for i in 0..4 {
+		let d = hexDigit(s.text[s.pos+i])
+		if d < 0 {
+			return BadEscape{At: at, Text: strings.Slice(s.text, at, s.pos+4)}
+		}
+		n = n*16 + d
+	}
+	s.pos = s.pos + 4
+	n
+}
+
+// hexDigit is the value of the hex digit c, or -1.
+func hexDigit(c byte) int {
+	if c >= '0' && c <= '9' {
+		return int(c - '0')
+	}
+	if c >= 'a' && c <= 'f' {
+		return int(c-'a') + 10
+	}
+	if c >= 'A' && c <= 'F' {
+		return int(c-'A') + 10
+	}
+	-1
+}
+
+// runeText is the UTF-8 text of the code point cp. Ergo has no conversion
+// from a rune to its text (gap G-ex-d-1), so this spells cp as a Go
+// escape \UXXXXXXXX and unquotes it.
+func runeText(cp int) string {
+	let digits = formatInt(int64(cp), 16)
+	let quoted = "\"\\U" + strings.Repeat("0", 8-len(digits)) + digits + "\""
+	strconv.Unquote(quoted) catch {
+	case strconv.Malformed:
+		"\ufffd"
+	}
+}
+
+extern go strconv.FormatInt func formatInt(n int64, base int) string
+
+extern go unicode/utf8.ValidString func validUTF8(s string) bool

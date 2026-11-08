@@ -1,0 +1,8 @@
+jsonv: bob.json: $.name: want at least 1 characters, got 0
+jsonv: bob.json: $.age: want an integer, got 36.5
+jsonv: bob.json: $.role: "root" is not one of the allowed values
+jsonv: bob.json: $.tags[0]: want a string, got a number
+jsonv: bob.json: $.tags[2]: want a string, got null
+jsonv: bob.json: $.home.zip: want a string, got a number
+jsonv: bob.json: $.home: missing member "city"
+jsonv: bob.json: $: member "a b" is not allowed

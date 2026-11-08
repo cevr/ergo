@@ -1,0 +1,93 @@
+import io
+import os
+import strings
+
+// NotFound is a provider with no key, or no stored key to remove.
+type NotFound { Message string }
+
+// InvalidInput is a key that is empty, missing or unreadable.
+type InvalidInput { Message string }
+
+// envVars is the environment variable that overrides each known
+// provider's stored key.
+let envVars = Map[string, string]{"openai": "OPENAI_API_KEY"}
+
+// EnvVar is the variable that overrides provider's stored key: a known
+// provider's, or OKRA_KEY_ and the name in upper case.
+func EnvVar(provider string) string {
+	match envVars.Get(provider) {
+	case Some[string] as v:
+		v.Value
+	case None:
+		"OKRA_KEY_" + strings.ToUpper(provider)
+	}
+}
+
+// Run is okra keys on args: confirmations go to standard error, list and
+// get print to standard output. A key is never printed, only its Mask.
+func Run(args []string) fails Usage | NotFound | InvalidInput | StoreFailed needs Store | os.Process | io.Stdin | io.Stdout | io.Stderr {
+	match try Parse(args) {
+	case Nothing:
+	case SetKey as s:
+		let raw = try keyOf(s)
+		let trimmed = strings.TrimSpace(raw)
+		if trimmed == "" {
+			return InvalidInput{Message: "Key is empty"}
+		}
+		let k = try Store.Load()
+		let file = try Store.Save(k.Set(s.Provider, trimmed))
+		io.Stderr.Eprintln("Saved \"\(s.Provider)\" key to \(file)")
+	case ListKeys:
+		let names = (try Store.Load()).Names()
+		if len(names) == 0 {
+			io.Stderr.Eprintln("No keys stored. Add one with `okra keys set <provider> <key>`.")
+			return
+		}
+		io.Stdout.Println(strings.Join(names, "\n"))
+	case GetKey as g:
+		let v = EnvVar(g.Provider)
+		match os.Process.Getenv(v) {
+		case Some[string] as e:
+			if e.Value != "" {
+				io.Stdout.Println("\(Mask(e.Value)) (env \(v))")
+				return
+			}
+		case None:
+		}
+		match (try Store.Load()).Lookup(g.Provider) {
+		case Some[string] as stored:
+			if stored.Value != "" {
+				io.Stdout.Println("\(Mask(stored.Value)) (stored)")
+				return
+			}
+		case None:
+		}
+		NotFound{Message: "No key for \"\(g.Provider)\". Set \(v) or run `okra keys set \(g.Provider)`."}
+	case RemoveKey as r:
+		let k = try Store.Load()
+		match k.Lookup(r.Provider) {
+		case Some[string]:
+			let _ = try Store.Save(k.Remove(r.Provider))
+			io.Stderr.Eprintln("Removed \"\(r.Provider)\" key.")
+		case None:
+			NotFound{Message: "No stored key for \"\(r.Provider)\"."}
+		}
+	}
+}
+
+// keyOf is the key of a set: standard input with --stdin, else the
+// argument.
+func keyOf(s SetKey) string fails InvalidInput needs io.Stdin {
+	if s.Stdin {
+		return io.Stdin.ReadAll() catch {
+		case io.ReadFailed:
+			return InvalidInput{Message: "Failed to read stdin"}
+		}
+	}
+	match s.Key {
+	case Some[string] as k:
+		k.Value
+	case None:
+		InvalidInput{Message: "No key provided. Pass it as an argument or pipe it with --stdin."}
+	}
+}

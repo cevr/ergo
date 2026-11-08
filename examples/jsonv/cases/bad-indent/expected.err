@@ -1,0 +1,2 @@
+jsonv: -indent 9: want 0 to 8 spaces
+usage: jsonv fmt [-indent n | -tab] [file] | jsonv min [file] | jsonv check schema [file] | jsonv infer [file]

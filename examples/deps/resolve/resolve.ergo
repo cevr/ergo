@@ -1,0 +1,264 @@
+import deps/graph
+import deps/semver
+import maps
+import slices
+
+// Pin is the version chosen for a package.
+type Pin { Name string, V semver.Version }
+
+// Plan is a resolution: a pin per package, in an order where each comes
+// after the packages it needs, and the graph of needs among them.
+type Plan { Pins []Pin, Needs graph.Graph[string] }
+
+// Want is one constraint on a package and who wrote it: the project
+// ("") or a pinned release.
+type Want { By string, Want semver.Constraint }
+
+// NoVersion is a package that no version of keeps every want on it, at
+// the first dead end of the search where that is so.
+type NoVersion { Name string, Wants []Want }
+
+// NoPlan is a search that tried every version of every package and found
+// no choice that keeps every want, with no single package to blame: each
+// dead end was a mix of choices.
+type NoPlan {}
+
+// Circular is pins that need each other in a ring; the first and the last
+// are the same.
+type Circular { Path []Pin }
+
+// TooHard is a search that gave up after Steps choices.
+type TooHard { Steps int }
+
+// MaxSteps bounds the choices the search makes.
+let MaxSteps = 10000
+
+// Clash is a package and the wants on it that no version keeps.
+type Clash { Name string, Wants []Want }
+
+// search is the state of one Resolve: the choices made so far, and the
+// first clash it met.
+type search { steps int, clash Option[Clash] }
+
+// Resolve chooses a version of each package the root needs, and of each
+// package those need, and so on, so that every want holds. It is a
+// depth-first search: it takes the wanted packages by name, tries each
+// one's versions newest first, and steps back when a choice breaks a want
+// on a package chosen before. So the plan is the one with the newest
+// versions in name order, and it does not depend on the order of the
+// registry.
+func Resolve(root []Requirement) Plan fails NoVersion | NoPlan | TooHard | Circular | UnknownPackage | UnknownVersion needs Index {
+	let mut s = search{steps: 0, clash: None}
+	match try solve(&s, root, Map[string, semver.Version]{}) {
+	case Some[Map[string, semver.Version]] as pins:
+		try plan(pins.Value)
+	case None:
+		match s.clash {
+		case Some[Clash] as c:
+			NoVersion{Name: c.Value.Name, Wants: c.Value.Wants}
+		case None:
+			NoPlan
+		}
+	}
+}
+
+// solve extends pins until every wanted package is pinned, or is None
+// when no extension keeps every want.
+func solve(s *search, root []Requirement, pins Map[string, semver.Version]) Option[Map[string, semver.Version]] fails TooHard | UnknownPackage | UnknownVersion needs Index {
+	s.steps = s.steps + 1
+	if s.steps > MaxSteps {
+		return TooHard{Steps: MaxSteps}
+	}
+	let wants = try gather(root, pins)
+	let names = slices.Sorted(maps.Keys(wants))
+	for name in names {
+		match pins.Get(name) {
+		case Some[semver.Version] as v:
+			if !keepsAll(wantsOf(wants, name), v.Value) {
+				try note(s, name, wantsOf(wants, name))
+				return None
+			}
+		case None:
+		}
+	}
+	for name in names {
+		match pins.Get(name) {
+		case Some[semver.Version]:
+		case None:
+			let ws = wantsOf(wants, name)
+			let mut kept = false
+			for v in try Index.Versions(name) {
+				if keepsAll(ws, v) {
+					kept = true
+					match try solve(s, root, pinned(pins, name, v)) {
+					case Some[Map[string, semver.Version]] as done:
+						return done
+					case None:
+					}
+				}
+			}
+			if !kept {
+				try note(s, name, ws)
+			}
+			return None
+		}
+	}
+	Some[Map[string, semver.Version]]{Value: pins}
+}
+
+// note keeps the clash of name and wants, when it is the first and no
+// version of name keeps every want.
+func note(s *search, name string, wants []Want) fails UnknownPackage needs Index {
+	match s.clash {
+	case Some[Clash]:
+		return
+	case None:
+	}
+	for v in try Index.Versions(name) {
+		if keepsAll(wants, v) {
+			return
+		}
+	}
+	s.clash = Some[Clash]{Value: Clash{Name: name, Wants: wants}}
+}
+
+// pinned is pins with name at v, in a new Map: a Map is shared, and each
+// step of the search keeps its own pins.
+func pinned(pins Map[string, semver.Version], name string, v semver.Version) Map[string, semver.Version] {
+	let mut out = Map[string, semver.Version]{}
+	for k, x in pins {
+		out[k] = x
+	}
+	out[name] = v
+	out
+}
+
+// gather is every want on each package that the root and the pinned
+// releases reach write, by package name.
+func gather(root []Requirement, pins Map[string, semver.Version]) Map[string, []Want] fails UnknownPackage | UnknownVersion needs Index {
+	let mut wants = Map[string, []Want]{}
+	let mut queue = []string{}
+	for r in root {
+		wants[r.Name] = wantsOf(wants, r.Name).Append(Want{By: "", Want: r.Want})
+		queue = queue.Append(r.Name)
+	}
+	let mut done = []string{}
+	for len(queue) > 0 {
+		let name = queue[0]
+		queue = without(queue, 0)
+		if slices.Contains(done, name) {
+			continue
+		}
+		done = done.Append(name)
+		match pins.Get(name) {
+		case Some[semver.Version] as v:
+			for r in try Index.Needs(name, v.Value) {
+				wants[r.Name] = wantsOf(wants, r.Name).Append(Want{By: name + " " + semver.Format(v.Value), Want: r.Want})
+				queue = queue.Append(r.Name)
+			}
+		case None:
+		}
+	}
+	wants
+}
+
+func wantsOf(wants Map[string, []Want], name string) []Want {
+	match wants.Get(name) {
+	case Some[[]Want] as w:
+		copiedWants(w.Value)
+	case None:
+		[]Want{}
+	}
+}
+
+// copiedWants is a new slice of ws: Append may share the array of a slice
+// that a Map holds.
+func copiedWants(ws []Want) []Want {
+	let mut out = []Want{}
+	for w in ws {
+		out = out.Append(w)
+	}
+	out
+}
+
+func without(xs []string, i int) []string {
+	let mut out = []string{}
+	for j, x in xs {
+		if j != i {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func keepsAll(wants []Want, v semver.Version) bool {
+	for w in wants {
+		if !semver.Satisfies(w.Want, v) {
+			return false
+		}
+	}
+	true
+}
+
+// plan orders pins by their needs, or fails Circular.
+func plan(pins Map[string, semver.Version]) Plan fails Circular | UnknownPackage | UnknownVersion needs Index {
+	let mut g = graph.Empty[string]()
+	for name in slices.Sorted(maps.Keys(pins)) {
+		g = g.Add(name)
+		for r in try Index.Needs(name, versionOf(pins, name)) {
+			g = g.Link(name, r.Name)
+		}
+	}
+	let order = graph.Order(g) catch {
+	case graph.Cycle[string] as c:
+		return Circular{Path: pinsOf(pins, c.Path)}
+	}
+	Plan{Pins: pinsOf(pins, order), Needs: g}
+}
+
+func versionOf(pins Map[string, semver.Version], name string) semver.Version {
+	match pins.Get(name) {
+	case Some[semver.Version] as v:
+		v.Value
+	case None:
+		semver.Version{Major: 0, Minor: 0, Patch: 0}
+	}
+}
+
+func pinsOf(pins Map[string, semver.Version], names []string) []Pin {
+	let mut out = []Pin{}
+	for n in names {
+		out = out.Append(Pin{Name: n, V: versionOf(pins, n)})
+	}
+	out
+}
+
+// Why is the shortest chain of needs from a package the project needs
+// directly to name, or None when the plan does not reach it.
+func Why(p Plan, root []Requirement, name string) Option[[]Pin] {
+	let mut best Option[[]string] = None
+	for r in root {
+		match p.Needs.Path(r.Name, name) {
+		case Some[[]string] as path:
+			match best {
+			case Some[[]string] as b:
+				if len(path.Value) < len(b.Value) {
+					best = path
+				}
+			case None:
+				best = path
+			}
+		case None:
+		}
+	}
+	match best {
+	case Some[[]string] as b:
+		let mut pins = Map[string, semver.Version]{}
+		for pin in p.Pins {
+			pins[pin.Name] = pin.V
+		}
+		Some[[]Pin]{Value: pinsOf(pins, b.Value)}
+	case None:
+		None
+	}
+}

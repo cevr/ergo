@@ -1,0 +1,8 @@
+jsonv: <stdin>: $.name: want at least 1 characters, got 0
+jsonv: <stdin>: $.age: want an integer, got 36.5
+jsonv: <stdin>: $.role: "root" is not one of the allowed values
+jsonv: <stdin>: $.tags[0]: want a string, got a number
+jsonv: <stdin>: $.tags[2]: want a string, got null
+jsonv: <stdin>: $.home.zip: want a string, got a number
+jsonv: <stdin>: $.home: missing member "city"
+jsonv: <stdin>: $: member "a b" is not allowed

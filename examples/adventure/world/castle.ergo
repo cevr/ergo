@@ -1,0 +1,38 @@
+// Castle is the adventure the binary plays: find the lamp, take the key
+// from the dark cellar, unlock the tower and climb to the roof.
+func Castle() World {
+	let mut exits = []Exit{}
+	for e in Both("gate", North, "hall", "", "") {
+		exits = exits.Append(e)
+	}
+	for e in Both("hall", East, "kitchen", "", "") {
+		exits = exits.Append(e)
+	}
+	for e in Both("kitchen", Down, "cellar", "lamp", "It is too dark to go down without a light.") {
+		exits = exits.Append(e)
+	}
+	for e in Both("hall", West, "tower", "key", "The tower door is locked.") {
+		exits = exits.Append(e)
+	}
+	for e in Both("tower", Up, "roof", "", "") {
+		exits = exits.Append(e)
+	}
+	World{
+		Rooms: []Room{
+			Room{Name: "gate", Text: "You stand at the castle gate. The road behind you is gone."},
+			Room{Name: "hall", Text: "A cold hall. Doors lead east and west, and the gate is south."},
+			Room{Name: "kitchen", Text: "An old kitchen. Stairs go down into the dark."},
+			Room{Name: "cellar", Text: "A damp cellar, lit by your lamp."},
+			Room{Name: "tower", Text: "The foot of the tower. A stair winds up."},
+			Room{Name: "roof", Text: "The tower roof. The whole valley lies below you."},
+		},
+		Exits: exits,
+		Items: []Place{
+			Place{Item: "bread", At: "hall"},
+			Place{Item: "lamp", At: "kitchen"},
+			Place{Item: "key", At: "cellar"},
+		},
+		Start: "gate",
+		Goal:  "roof",
+	}
+}

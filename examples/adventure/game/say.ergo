@@ -1,0 +1,121 @@
+import adventure/world
+import strings
+
+// Intro is the first line of a game.
+let Intro = "The Castle. Type help for the commands."
+
+// HelpText is the answer to help.
+let HelpText = []string{
+	"go DIR (or north, n, south, s, east, e, west, w, up, u, down, d)",
+	"take ITEM, drop ITEM, look, inventory (i), help, quit",
+}
+
+// Describe is what you see in g's room: its name, its text, the items in
+// it and its exits.
+func Describe(g Game) []string {
+	let mut lines = []string{}
+	match world.RoomOf(g.World, g.At) {
+	case Some[world.Room] as r:
+		lines = lines.Append("== " + r.Value.Name + " ==")
+		lines = lines.Append(r.Value.Text)
+	case None:
+		lines = lines.Append("== " + g.At + " ==")
+	}
+	let items = ItemsAt(g, g.At)
+	if len(items) > 0 {
+		lines = lines.Append("You see: " + strings.Join(items, ", ") + ".")
+	}
+	let mut ways = []string{}
+	for d in world.Dirs {
+		match world.ExitOf(g.World, g.At, d) {
+		case Some[world.Exit]:
+			ways = ways.Append(world.DirName(d))
+		case None:
+		}
+	}
+	lines.Append("Exits: " + strings.Join(ways, ", ") + ".")
+}
+
+// Carrying is the answer to inventory.
+func Carrying(g Game) string {
+	let items = ItemsAt(g, world.Carried)
+	if len(items) == 0 {
+		return "You carry nothing."
+	}
+	"You carry: " + strings.Join(items, ", ") + "."
+}
+
+// EndText is the last line of a game.
+func EndText(e Ending) string {
+	match e {
+	case Won as w:
+		"You stand on the roof. You won in \(moves(w.Moves))."
+	case Stopped as s:
+		"You stopped in the \(s.At) after \(moves(s.Moves))."
+	}
+}
+
+func moves(n int) string { if n == 1 { "1 move" } else { "\(n) moves" } }
+
+// Failure is what a failed command tells: it steps s by line again and
+// names each failure. A function cannot take "a failure of Step" as its
+// parameter, since a row has no name and a union of error types is not a
+// row (G-ex-d-2), so Run's catch hands over the state and the line.
+func Failure(s State, line string) string {
+	let _ = Step(s, Said{Line: line}) catch {
+	case Unknown as u:
+		return "I do not know the word \"\(u.Word)\"."
+	case Missing as m:
+		return strings.ToUpper(strings.Slice(m.Verb, 0, 1)) + strings.Slice(m.Verb, 1, len(m.Verb)) + " what?"
+	case NoWay as n:
+		return "\"\(n.Word)\" is not a direction."
+	case NoExit as n:
+		return "You cannot go \(world.DirName(n.Way)) from here."
+	case Barred as b:
+		return b.Text
+	case NotHere as n:
+		return "There is no \(n.Item) here."
+	case NotCarried as n:
+		return "You do not carry the \(n.Item)."
+	}
+	""
+}
+
+// Say is what the player is told after line moved s by d.
+func Say(s State, line string, d Decision[State, Ending]) []string {
+	match d {
+	case Done[Ending] as done:
+		[]string{EndText(done.Output)}
+	case Enter[State] as e:
+		match (s, e.Next) {
+		case (_, Asking):
+			[]string{"Really quit? (y/n)"}
+		case (Asking, Exploring):
+			[]string{"Then carry on."}
+		case (Exploring, Exploring as x):
+			Describe(x.G)
+		}
+	case Stay[State] as st:
+		let g = GameOf(st.Next)
+		let c = Parse(line) catch {
+		case Unknown, Missing, NoWay:
+			Blank
+		}
+		match c {
+		case Take as t:
+			[]string{"Taken: \(t.Item)."}
+		case Drop as dr:
+			[]string{"Dropped: \(dr.Item)."}
+		case Look:
+			Describe(g)
+		case Inventory:
+			[]string{Carrying(g)}
+		case Help:
+			HelpText
+		case Go, Quit, Blank:
+			[]string{}
+		}
+	case Ignore, Reject:
+		[]string{}
+	}
+}

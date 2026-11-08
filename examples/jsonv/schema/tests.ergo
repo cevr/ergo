@@ -1,0 +1,123 @@
+// The schema's tests: examples, and the laws restated as property tests
+// (#162 runs laws; until then these do).
+
+import jsonv/json
+import strings
+
+func parsed(text string) json.Value {
+	json.Parse(text) catch {
+	case err:
+		json.Text{V: "unparsed: " + json.Describe(err)}
+	}
+}
+
+func schemaOf(text string) Schema fails BadSchema { try FromJSON(parsed(text)) }
+
+// report is the violations of value by schema, one per line.
+func reportOf(schema string, value string) string fails BadSchema {
+	let mut lines = []string{}
+	for x in Validate(try schemaOf(schema), parsed(value)) {
+		lines = lines.Append(Describe(x))
+	}
+	strings.Join(lines, "\n")
+}
+
+// failureOf is the BadSchema of text as "PATH: REASON", or "ok".
+func failureOf(text string) string {
+	let _ = schemaOf(text) catch {
+	case BadSchema as b:
+		return b.Path + ": " + b.Reason
+	}
+	"ok"
+}
+
+let person = "{\"type\": \"object\", \"properties\": {\"name\": {\"type\": \"string\", \"minLength\": 1}, \"age\": {\"type\": \"integer\", \"minimum\": 0, \"maximum\": 150}, \"role\": {\"type\": \"string\", \"enum\": [\"admin\", \"user\"]}, \"tags\": {\"type\": \"array\", \"items\": {\"type\": \"string\"}, \"minItems\": 1}}, \"required\": [\"name\", \"age\"], \"additionalProperties\": false}"
+
+test ValidPersonHasNoViolation {
+	assert (try reportOf(person, "{\"name\": \"Ada\", \"age\": 36, \"tags\": [\"math\"]}")) == ""
+}
+
+test EveryViolationIsNamed {
+	let got = try reportOf(person, "{\"name\": \"\", \"age\": 36.5, \"role\": \"root\", \"tags\": [1, \"x\", null], \"a b\": 1, \"a b\": 2}")
+	assert got == "$.name: want at least 1 characters, got 0\n$.age: want an integer, got 36.5\n$.role: \"root\" is not one of the allowed values\n$.tags[0]: want a string, got a number\n$.tags[2]: want a string, got null\n$: member \"a b\" is not allowed"
+}
+
+test MissingAndBounds {
+	let got = try reportOf(person, "{\"age\": 151, \"tags\": []}")
+	assert got == "$.age: 151 is more than the maximum 150\n$.tags: want at least 1 items, got 0\n$: missing member \"name\""
+	assert (try reportOf(person, "{\"name\": \"x\", \"age\": -1}")) == "$.age: -1 is less than the minimum 0"
+	assert (try reportOf(person, "[]")) == "$: want an object, got an array"
+}
+
+test IntegersAsJSONSchemaCountsThem {
+	let s = try schemaOf("{\"type\": \"integer\"}")
+	assert len(Validate(s, parsed("3.0"))) == 0 && len(Validate(s, parsed("3e2"))) == 0
+	assert len(Validate(s, parsed("1e400"))) == 0 && len(Validate(s, parsed("0.5"))) == 1
+}
+
+test BadSchemasNameTheirPath {
+	assert failureOf("false") == "$: false accepts no value; this language has no such schema"
+	assert failureOf("[]") == "$: want an object or true, got an array"
+	assert failureOf("{\"type\": \"date\"}") == "$.type: unknown type \"date\""
+	assert failureOf("{\"type\": 1}") == "$.type: want a string"
+	assert failureOf("{\"minimum\": 1}") == "$: want a member \"type\""
+	assert failureOf("{\"type\": \"string\", \"minimum\": 1}") == "$.minimum: not a keyword of this type"
+	assert failureOf("{\"type\": \"array\", \"items\": {\"type\": \"object\", \"properties\": {\"a b\": {\"type\": \"x\"}}}}") == "$.items.properties[\"a b\"].type: unknown type \"x\""
+	assert failureOf("{\"type\": \"object\", \"required\": [\"a\", 2]}") == "$.required[1]: want a string"
+	assert failureOf("{\"type\": \"string\", \"minLength\": -1}") == "$.minLength: want a whole number"
+	assert failureOf("{\"type\": \"object\", \"properties\": {\"a\": true, \"a\": {}}}") == "$.properties.a: the property is named twice"
+	assert failureOf(person) == "ok" && failureOf("{}") == "ok" && failureOf("true") == "ok"
+}
+
+test InferIsNarrow {
+	let s = Infer(parsed("{\"id\": 7, \"tags\": [\"a\", \"b\"], \"score\": [1, 2.5], \"any\": [1, \"x\"], \"id\": 8}"))
+	assert json.Compact(ToJSON(s)) == "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"score\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},\"any\":{\"type\":\"array\"}},\"required\":[\"id\",\"tags\",\"score\",\"any\"],\"additionalProperties\":false}"
+}
+
+test JoinOfObjectsKeepsCommonRequired {
+	let s = Join(Infer(parsed("{\"a\": 1, \"b\": true}")), Infer(parsed("{\"a\": 2.5, \"c\": null}")))
+	assert json.Compact(ToJSON(s)) == "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":\"number\"},\"b\":{\"type\":\"boolean\"},\"c\":{\"type\":\"null\"}},\"required\":[\"a\"],\"additionalProperties\":false}"
+}
+
+test BoundsRoundTrip(min float64, n int) {
+	let count = if n < 0 { -(n + 1) } else { n }
+	let s = IsArray{Items: IsNumber{Integer: false, Min: Some[float64]{Value: min}, Max: None}, MinItems: count}
+	assert Equal(try FromJSON(ToJSON(s)), s)
+}
+
+test AnythingAcceptsAllHolds(v json.Value) {
+	assert len(Validate(Anything, v)) == 0
+}
+
+test InferredAcceptsHolds(v json.Value) {
+	let w = json.Lawful(v)
+	assert len(Validate(Infer(w), w)) == 0
+}
+
+test JoinAcceptsBothHolds(a json.Value, b json.Value) {
+	let x = json.Lawful(a)
+	let y = json.Lawful(b)
+	let s = Join(Infer(x), Infer(y))
+	assert len(Validate(s, x)) == 0 && len(Validate(s, y)) == 0
+}
+
+test SchemaRoundTripsHolds(v json.Value) {
+	let s = Infer(json.Lawful(v))
+	assert Equal(try FromJSON(ToJSON(s)), s)
+}
+
+test OtherKindsAreRejectedHolds(a json.Value, b json.Value) {
+	let x = json.Lawful(a)
+	let y = json.Lawful(b)
+	if json.Kind(x) == json.Kind(y) {
+		return
+	}
+	let found = Validate(Infer(x), y)
+	assert len(found) == 1 && PathOf(found[0]) == "$"
+}
+
+test PathsAreRootedHolds(a json.Value, b json.Value) {
+	for x in Validate(Infer(json.Lawful(a)), json.Lawful(b)) {
+		assert strings.HasPrefix(PathOf(x), "$")
+	}
+}

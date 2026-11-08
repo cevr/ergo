@@ -1,0 +1,26 @@
+// Package memory holds the in-memory provider of app.Documents.
+
+import jsonv/app
+
+// Doc is one document on a shelf.
+type Doc { Name string, Text string }
+
+// Shelf is an app.Documents of documents held in memory. "-" is a
+// document like any other.
+type Shelf { Docs []Doc }
+
+// Read is the text of the last document named name.
+func Read(s Shelf, name string) string fails app.NoDocument {
+	let mut found Option[string] = None
+	for d in s.Docs {
+		if d.Name == name {
+			found = Some[string]{Value: d.Text}
+		}
+	}
+	match found {
+	case Some[string] as t:
+		t.Value
+	case None:
+		app.NoDocument{Name: name}
+	}
+}

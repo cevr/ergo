@@ -1,0 +1,13 @@
+{
+    "name": "Ada Lovelace",
+    "age": 36,
+    "role": "admin",
+    "tags": [
+        "math",
+        "engines"
+    ],
+    "home": {
+        "city": "London",
+        "zip": "W1"
+    }
+}

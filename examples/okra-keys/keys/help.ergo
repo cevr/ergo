@@ -1,0 +1,57 @@
+import strings
+
+// The help texts of the original's command-line library (effect/cli),
+// byte for byte: the original prints a command's help on standard output
+// before a usage error.
+
+let globalFlags = strings.Join([]string{
+	"GLOBAL FLAGS",
+	"  --help, -h                                                          Show help information",
+	"  --version, -v                                                       Show version information",
+	"  --wizard                                                            Start wizard mode for a command",
+	"  --completions <bash|zsh|fish|sh>                                    Print shell completion script (choices: bash, zsh, fish, sh)",
+	"  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>    Sets the minimum log level (choices: all, trace, debug, info, warn, warning, error, fatal, none)",
+}, "\n")
+
+let providerArg = "ARGUMENTS\n  provider string    Provider name, e.g. openai"
+
+// Help is the help of a command, by its name: "" is keys itself.
+func Help(command string) string {
+	let parts = match command {
+	case "set":
+		[]string{
+			description("Store an API key for a provider"),
+			usage("okra keys set [flags] <provider> [<key>]"),
+			"ARGUMENTS\n  provider string    Provider name, e.g. openai\n  key string         API key value (omit and use --stdin to avoid shell history) (optional)",
+			"FLAGS\n  --stdin    Read the key from stdin instead of an argument",
+		}
+	case "list":
+		[]string{description("List provider names that have a stored key"), usage("okra keys list [flags]")}
+	case "get":
+		[]string{description("Show whether a provider's key is set (masked), and its source"), usage("okra keys get [flags] <provider>"), providerArg}
+	case "rm":
+		[]string{description("Remove a stored API key"), usage("okra keys rm [flags] <provider>"), providerArg}
+	case _:
+		[]string{
+			description("Manage stored API keys in ~/.okra/keys.json"),
+			usage("okra keys <subcommand> [flags]"),
+		}
+	}
+	let mut all = parts.Append(globalFlags)
+	if command == "" {
+		all = all.Append(subcommands)
+	}
+	strings.Join(all, "\n\n") + "\n"
+}
+
+let subcommands = strings.Join([]string{
+	"SUBCOMMANDS",
+	"  set     Store an API key for a provider",
+	"  list    List provider names that have a stored key",
+	"  get     Show whether a provider's key is set (masked), and its source",
+	"  rm      Remove a stored API key",
+}, "\n")
+
+func description(text string) string { "DESCRIPTION\n  " + text }
+
+func usage(text string) string { "USAGE\n  " + text }

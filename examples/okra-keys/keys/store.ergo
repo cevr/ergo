@@ -1,0 +1,56 @@
+import strings
+
+// StoreFailed is a key store that cannot be found, read back or written:
+// HOME is not set, or the directory or the file cannot be written.
+type StoreFailed { Message string }
+
+// Store keeps the keys between runs.
+type Store {
+	// Load is the stored keys: none when there is no store yet, or when
+	// what is there is not a JSON object of strings.
+	Load() Keys fails StoreFailed,
+	// Save replaces the stored keys with k, and is the path it wrote.
+	Save(k Keys) string fails StoreFailed,
+
+	// LoadSeesSave: after a Save, Load is the keys saved, in their order.
+	law LoadSeesSave(names []string, secrets []string) {
+		let mut k = Empty()
+		for i, name in names {
+			k = k.Set(name, if i < len(secrets) { secrets[i] } else { "s" })
+		}
+		let _ = Save(k) catch {
+		case StoreFailed:
+			return true
+		}
+		let back = Load() catch {
+		case StoreFailed:
+			return false
+		}
+		Same(back, k)
+	},
+}
+
+// Same reports whether a and b hold the same keys in the same order. Keys
+// holds a slice, so it has no == (G-ex-d-5).
+func Same(a Keys, b Keys) bool {
+	if len(a.entries) != len(b.entries) {
+		return false
+	}
+	for i, e in a.entries {
+		if e != b.entries[i] {
+			return false
+		}
+	}
+	true
+}
+
+// Mask is a preview of secret that reveals nothing: its first five and
+// last four bytes around an ellipsis, or a bullet per byte when it has
+// eight or fewer. The original counts UTF-16 units; for an ASCII secret
+// the two agree.
+func Mask(secret string) string {
+	if len(secret) <= 8 {
+		return strings.Repeat("•", len(secret))
+	}
+	strings.Slice(secret, 0, 5) + "…" + strings.Slice(secret, len(secret)-4, len(secret))
+}

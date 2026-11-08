@@ -1,0 +1,34 @@
+// The rules of the map as laws.
+
+import strings
+
+// DirOf is one of the six directions, by n.
+func DirOf(n int) Dir { Dirs[((n%6)+6)%6] }
+
+// OppositeIsAnInvolution: the way back is another way, and its way back
+// is the way you came.
+law OppositeIsAnInvolution(n int) {
+	let d = DirOf(n)
+	Opposite(d) != d && Opposite(Opposite(d)) == d
+}
+
+// ParseDirReadsDirName: a direction's word and its first letter read back
+// to it.
+law ParseDirReadsDirName(n int) {
+	let d = DirOf(n)
+	let back = Some[Dir]{Value: d}
+	ParseDir(DirName(d)) == back && ParseDir(strings.Slice(DirName(d), 0, 1)) == back
+}
+
+// EveryExitHasAWayBack: in the castle, each exit has an exit back by the
+// opposite way, with the same key.
+law EveryExitHasAWayBack(n int) {
+	let w = Castle()
+	let e = w.Exits[((n%len(w.Exits))+len(w.Exits))%len(w.Exits)]
+	match ExitOf(w, e.To, Opposite(e.Way)) {
+	case Some[Exit] as back:
+		back.Value.To == e.From && back.Value.Key == e.Key
+	case None:
+		false
+	}
+}

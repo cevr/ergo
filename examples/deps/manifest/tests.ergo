@@ -1,0 +1,70 @@
+// The manifest's tests: examples of each line, and the laws restated as
+// property tests (#162 runs laws; until then these do).
+
+import deps/resolve
+import strings
+
+func failure(text string) string {
+	let _ = Read(text) catch {
+	case BadLine as b:
+		return "\(b.No): \(b.Reason)"
+	}
+	"ok"
+}
+
+test ReadsBlocks {
+	let m = try Read("# x\nproject app\n  needs web ^2.1\n  needs log >=1.2   <2\n\npackage web 2.3.1\n\tneeds log ^1.4 # why\npackage log 1.5.3\n")
+	assert m.Project == "app" && len(m.Root) == 2 && m.Root[1].Want.Text == ">=1.2 <2"
+	assert len(m.Releases) == 2 && len(m.Releases[0].Needs) == 1 && len(m.Releases[1].Needs) == 0
+	assert Format(m) == "project app\n  needs web ^2.1\n  needs log >=1.2 <2\n\npackage web 2.3.1\n  needs log ^1.4\n\npackage log 1.5.3\n"
+}
+
+test BadLinesNameTheirNumber {
+	assert failure("project app\nneeds web\n") == "2: unknown line; want project, package or an indented needs"
+	assert failure("  needs web\nproject app\n") == "1: a needs line belongs under a project or package line"
+	assert failure("project app\n  depends web\n") == "2: an indented line is a needs line"
+	assert failure("project app\npackage web two\n") == "2: two is not a version"
+	assert failure("project app\npackage web 1.0\npackage web 1.0.0\n") == "3: web 1.0.0 is listed twice"
+	assert failure("project app\n  needs web ^x\n") == "2: ^x names no version"
+	assert failure("project app\nproject b\n") == "2: a second project line"
+	assert failure("package web 1.0\n") == "0: the manifest has no project line"
+	assert failure("project a b\n") == "1: write project NAME"
+}
+
+test StepUsesEveryDecision {
+	let top = Start()
+	match try Step(top, Line{No: 1, Text: "# only a comment"}) {
+	case Ignore:
+	case _:
+		assert false
+	}
+	let inProject = match try Step(top, Line{No: 1, Text: "project app"}) {
+	case Enter[Block] as e:
+		e.Next
+	case _:
+		top
+	}
+	match try Step(inProject, Line{No: 2, Text: "  needs web"}) {
+	case Stay[Block] as s:
+		assert len(ManifestOf(s.Next).Root) == 1
+	case _:
+		assert false
+	}
+	match try Step(inProject, End) {
+	case Done[Manifest] as d:
+		assert d.Output.Project == "app"
+	case _:
+		assert false
+	}
+}
+
+test ReadInvertsFormatHolds(entries []resolve.Entry, root []resolve.Need) {
+	let m = Generated(entries, root)
+	assert Same(try Read(Format(m)), m)
+}
+
+test NoiseChangesNothingHolds(entries []resolve.Entry, root []resolve.Need) {
+	let text = Format(Generated(entries, root))
+	let noisy = "# deps manifest\n\n" + strings.ReplaceAll(text, "\n", "  # note\n\n")
+	assert Format(try Read(noisy)) == text
+}

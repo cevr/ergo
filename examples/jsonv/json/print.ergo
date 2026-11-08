@@ -1,0 +1,160 @@
+import strconv
+import strings
+
+// writer collects the parts of a printed value; Join makes the text once,
+// at the end, so printing is linear in the output.
+type writer { parts []string }
+
+func put(w *writer, s string) { w.parts = w.parts.Append(s) }
+
+// Compact is v with no white space: jq -c's layout.
+func Compact(v Value) string {
+	let mut w = writer{parts: []string{}}
+	compact(&w, v)
+	strings.Join(w.parts, "")
+}
+
+// Indent is v with one member or item per line, each level indented by
+// one more indent, and an empty array or object as [] or {}: jq's layout
+// with indent "  ". The text has no final line feed.
+func Indent(v Value, indent string) string {
+	let mut w = writer{parts: []string{}}
+	pretty(&w, v, indent, "\n")
+	strings.Join(w.parts, "")
+}
+
+func compact(w *writer, v Value) {
+	match v {
+	case Array as a:
+		put(w, "[")
+		for i, item in a.Items {
+			if i > 0 {
+				put(w, ",")
+			}
+			compact(w, item)
+		}
+		put(w, "]")
+	case Object as o:
+		put(w, "{")
+		for i, m in o.Members {
+			if i > 0 {
+				put(w, ",")
+			}
+			quote(w, m.Key)
+			put(w, ":")
+			compact(w, m.V)
+		}
+		put(w, "}")
+	case _:
+		scalar(w, v)
+	}
+}
+
+// pretty prints v; newline is a line feed and the indent of the level v
+// is at.
+func pretty(w *writer, v Value, indent string, newline string) {
+	let inner = newline + indent
+	match v {
+	case Array as a:
+		if len(a.Items) == 0 {
+			put(w, "[]")
+			return
+		}
+		put(w, "[")
+		for i, item in a.Items {
+			put(w, if i > 0 { "," + inner } else { inner })
+			pretty(w, item, indent, inner)
+		}
+		put(w, newline+"]")
+	case Object as o:
+		if len(o.Members) == 0 {
+			put(w, "{}")
+			return
+		}
+		put(w, "{")
+		for i, m in o.Members {
+			put(w, if i > 0 { "," + inner } else { inner })
+			quote(w, m.Key)
+			put(w, ": ")
+			pretty(w, m.V, indent, inner)
+		}
+		put(w, newline+"}")
+	case _:
+		scalar(w, v)
+	}
+}
+
+func scalar(w *writer, v Value) {
+	match v {
+	case Null:
+		put(w, "null")
+	case Bool as b:
+		put(w, if b.V { "true" } else { "false" })
+	case Number as n:
+		put(w, n.Text)
+	case Text as t:
+		quote(w, t.V)
+	case Array:
+		compact(w, v)
+	case Object:
+		compact(w, v)
+	}
+}
+
+// quote writes s as a JSON string, as jq writes it: ", \ and the bytes
+// below 0x20 and 0x7f are escaped, with \b, \f, \n, \r and \t where JSON
+// has them; any other byte is written as it is. Invalid UTF-8 is written
+// as U+FFFD, as Go's encoding/json writes it.
+func quote(w *writer, raw string) {
+	let s = toValidUTF8(raw, "\ufffd")
+	put(w, "\"")
+	let mut run = 0
+	for i in 0..len(s) {
+		let e = escapeOf(s[i])
+		if e != "" {
+			put(w, strings.Slice(s, run, i))
+			put(w, e)
+			run = i + 1
+		}
+	}
+	put(w, strings.Slice(s, run, len(s)))
+	put(w, "\"")
+}
+
+// escapeOf is the escape of the byte c, or "" when c is written as it is.
+func escapeOf(c byte) string {
+	match c {
+	case '"':
+		"\\\""
+	case '\\':
+		"\\\\"
+	case '\b':
+		"\\b"
+	case '\f':
+		"\\f"
+	case '\n':
+		"\\n"
+	case '\r':
+		"\\r"
+	case '\t':
+		"\\t"
+	case _:
+		if c < 32 || c == 127 {
+			let h = formatInt(int64(c), 16)
+			return "\\u00" + strings.Repeat("0", 2-len(h)) + h
+		}
+		""
+	}
+}
+
+// Quoted is s as a JSON string literal.
+func Quoted(s string) string {
+	let mut w = writer{parts: []string{}}
+	quote(&w, s)
+	strings.Join(w.parts, "")
+}
+
+// FormatNumber is the JSON text of an integer.
+func FormatNumber(n int) Value { Number{Text: strconv.Itoa(n)} }
+
+extern go strings.ToValidUTF8 func toValidUTF8(s string, replacement string) string

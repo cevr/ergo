@@ -1,0 +1,86 @@
+// Versions' and constraints' tests: examples, and the laws restated as
+// property tests (#162 runs laws; until then these do).
+
+func ver(text string) Version {
+	ParseVersion(text) catch {
+	case BadVersion:
+		Version{Major: -1, Minor: -1, Patch: -1}
+	}
+}
+
+func allows(c string, v string) bool {
+	let k = ParseConstraint(c) catch {
+	case BadConstraint:
+		return false
+	}
+	Satisfies(k, ver(v))
+}
+
+func refusal(text string) string {
+	let _ = ParseConstraint(text) catch {
+	case BadConstraint as b:
+		return b.Reason
+	}
+	"ok"
+}
+
+test ParsesVersions {
+	assert Format(ver("1")) == "1.0.0" && Format(ver("1.2")) == "1.2.0" && Format(ver("10.20.30")) == "10.20.30"
+	assert ver("01.2.3").Major == -1 && ver("1.2.3.4").Major == -1 && ver("1..2").Major == -1 && ver("v1").Major == -1 && ver("-1").Major == -1
+}
+
+test BoundsAsCargoReadsThem {
+	assert allows("^1.2.3", "1.9.0") && !allows("^1.2.3", "2.0.0") && !allows("^1.2.3", "1.2.2")
+	assert allows("^0.2.3", "0.2.9") && !allows("^0.2.3", "0.3.0")
+	assert allows("^0.0.3", "0.0.3") && !allows("^0.0.3", "0.0.4")
+	assert allows("~1.2.3", "1.2.9") && !allows("~1.2.3", "1.3.0")
+	assert allows(">=1.2 <2", "1.9.9") && !allows(">=1.2 <2", "2.0.0") && !allows(">=1.2 <2", "1.1.9")
+	assert allows("1.2", "1.2.0") && !allows("=1.2", "1.2.1") && allows(">1", "1.0.1") && allows("<=1", "1.0.0")
+	assert allows("*", "0.0.0") && allows("", "9.9.9")
+}
+
+test BadConstraintsNameTheirWord {
+	assert refusal(">=1.x") == ">=1.x names no version"
+	assert refusal("^1 <2 !3") == "!3 names no version"
+	assert refusal(" >=1   <2 ") == "ok"
+}
+
+test FormatRoundTripsHolds(v Version) {
+	let w = Small(v)
+	assert Compare(try ParseVersion(Format(w)), w) == 0
+}
+
+test CompareIsAntisymmetricHolds(a Version, b Version) {
+	assert Compare(Small(a), Small(b)) == -Compare(Small(b), Small(a))
+}
+
+test CompareIsTransitiveHolds(a Version, b Version, c Version) {
+	let x = Small(a)
+	let y = Small(b)
+	let z = Small(c)
+	if Compare(x, y) <= 0 && Compare(y, z) <= 0 {
+		assert Compare(x, z) <= 0
+	}
+}
+
+test CaretKeepsTheLeadingPartHolds(v Version, w Version) {
+	let x = Small(v)
+	let y = Small(w)
+	if Holds(Caret{V: x}, y) {
+		let same = if x.Major > 0 { y.Major == x.Major } else if x.Minor > 0 { y.Major == 0 && y.Minor == x.Minor } else { Compare(x, y) == 0 }
+		assert same && Compare(y, x) >= 0
+	}
+}
+
+test AndIsBothHolds(a Version, b Version, v Version) {
+	let x = Constraint{Bounds: []Bound{Caret{V: Small(a)}}, Text: "^" + Format(Small(a))}
+	let y = Constraint{Bounds: []Bound{Below{V: Small(b)}}, Text: "<" + Format(Small(b))}
+	let w = Small(v)
+	assert Satisfies(And(x, y), w) == (Satisfies(x, w) && Satisfies(y, w))
+}
+
+test TextRoundTripsHolds(a Version, b Version, v Version) {
+	let c = try ParseConstraint(">=" + Format(Small(a)) + " ~" + Format(Small(b)))
+	let again = try ParseConstraint(c.Text)
+	assert Satisfies(again, Small(v)) == Satisfies(c, Small(v))
+}

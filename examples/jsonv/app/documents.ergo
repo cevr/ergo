@@ -1,0 +1,29 @@
+// Package app is jsonv's commands: the command line, the documents they
+// read, and Run, which answers a command line on standard output. It
+// declares Documents, the contract of a store of documents; package
+// files reads them from the host, package memory holds them for tests.
+
+// Documents is a store of JSON texts by name. The name "-" is standard
+// input.
+type Documents {
+	Read(name string) string fails NoDocument | Unreadable,
+
+	// ReadIsRepeatable: with no writer, two reads of one name agree; so a
+	// provider reads standard input once and keeps it.
+	law ReadIsRepeatable(name string) {
+		let first = Read(name) catch {
+		case NoDocument:
+			return true
+		case Unreadable:
+			return true
+		}
+		try Read(name) == first
+	},
+}
+
+// NoDocument is a name that the store does not hold.
+type NoDocument { Name string }
+
+// Unreadable is a name that the store holds and cannot read. Reason is
+// the store's text for it.
+type Unreadable { Name string, Reason string }

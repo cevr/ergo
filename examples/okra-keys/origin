@@ -1,0 +1,1 @@
+okra keys, from github.com/cevr/okra at 976dd24 (okra v0.13.0): src/keys/commands/index.ts, src/keys/errors.ts, src/shared/keystore.ts (KeyStoreService.layer, maskSecret, PROVIDER_ENV_VARS) and the [CODE] message report in src/main.ts. The help texts are effect/cli's, as okra v0.13.0 prints them.

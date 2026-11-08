@@ -1,0 +1,82 @@
+import flag
+import strings
+
+// Cmd is a command line of jsonv.
+type Cmd = Format{Doc string, Indent string} | Minify{Doc string} | Validate{Schema string, Doc string} | Infer{Doc string}
+
+// BadIndent is an -indent that is not 0 to 8 spaces.
+type BadIndent { N int }
+
+let indentFlag = flag.Int("indent", 2, "indent each level by `n` spaces, 0 to 8")
+
+let tabFlag = flag.Bool("tab", false, "indent each level by a tab")
+
+let docArg = flag.OptionalArg("file", "the JSON document; none or - reads standard input")
+
+let schemaArg = flag.Arg("schema", "the schema document")
+
+// Usage is the help that follows a usage error.
+let Usage = "usage: jsonv fmt [-indent n | -tab] [file] | jsonv min [file] | jsonv check schema [file] | jsonv infer [file]"
+
+let commands = []flag.Command[Cmd, BadIndent]{
+	flag.Command[Cmd, BadIndent]{
+		Name:  "fmt",
+		Usage: "print the document indented, one member or item per line",
+		Set:   flag.Set{Name: "jsonv fmt", Usage: "", Flags: []flag.Flag{indentFlag, tabFlag}, Args: []flag.ArgSpec{docArg}},
+		Build: buildFormat,
+	},
+	flag.Command[Cmd, BadIndent]{
+		Name:  "min",
+		Usage: "print the document on one line, with no white space",
+		Set:   flag.Set{Name: "jsonv min", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{docArg}},
+		Build: func(v flag.Values) Cmd { Minify{Doc: docOf(v)} },
+	},
+	flag.Command[Cmd, BadIndent]{
+		Name:  "check",
+		Usage: "check the document against the schema and name every violation",
+		Set:   flag.Set{Name: "jsonv check", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{schemaArg, docArg}},
+		Build: buildValidate,
+	},
+	flag.Command[Cmd, BadIndent]{
+		Name:  "infer",
+		Usage: "print the narrowest schema that the document keeps",
+		Set:   flag.Set{Name: "jsonv infer", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{docArg}},
+		Build: func(v flag.Values) Cmd { Infer{Doc: docOf(v)} },
+	},
+}
+
+// Parse reads args as a jsonv command line.
+func Parse(args []string) Cmd fails BadIndent | flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	try flag.ParseCommand("jsonv", "", commands, args)
+}
+
+func buildFormat(v flag.Values) Cmd fails BadIndent {
+	if tabFlag.Get(v) {
+		return Format{Doc: docOf(v), Indent: "\t"}
+	}
+	let n = indentFlag.Get(v)
+	if n < 0 || n > 8 {
+		return BadIndent{N: n}
+	}
+	Format{Doc: docOf(v), Indent: strings.Repeat(" ", n)}
+}
+
+func buildValidate(v flag.Values) Cmd {
+	let schema = match schemaArg.Get(v) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+	Validate{Schema: schema, Doc: docOf(v)}
+}
+
+// docOf is the document argument, or "-".
+func docOf(v flag.Values) string {
+	match docArg.Get(v) {
+	case Some[string] as d:
+		d.Value
+	case None:
+		"-"
+	}
+}

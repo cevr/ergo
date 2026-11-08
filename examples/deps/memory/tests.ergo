@@ -1,0 +1,33 @@
+// Registry's tests: it keeps resolve.Index's laws and resolves as Table
+// does (#162 runs member laws against every provider; until then these
+// do).
+
+import deps/resolve
+import deps/semver
+
+test KeepsTheIndexLaws(entries []resolve.Entry, n int) {
+	let r = Of(resolve.TableOf(entries).Releases)
+	let name = resolve.NameOf(n)
+	let vs = r.Versions(name) catch {
+	case resolve.UnknownPackage:
+		return
+	}
+	for i in 1..len(vs) {
+		assert semver.Compare(vs[i-1], vs[i]) > 0
+	}
+	for x in vs {
+		let _ = try r.Needs(name, x)
+	}
+}
+
+test ResolvesAsTable(entries []resolve.Entry, root []resolve.Need) {
+	let t = resolve.TableOf(entries)
+	let rq = resolve.RootOf(root)
+	let a = with context { resolve.Index: t } {
+		resolve.Outcome(rq)
+	}
+	let b = with context { resolve.Index: Of(t.Releases) } {
+		resolve.Outcome(rq)
+	}
+	assert a == b
+}
