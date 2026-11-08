@@ -1,0 +1,140 @@
+// The rules of cron as laws, checked against a brute-force reference.
+// Each law draws an expression and a minute from a Random seeded with its
+// seed: a generated string is at most five runes of a fixed alphabet
+// (G-ex-d-4), which never spells a cron field.
+
+import rand
+import strconv
+import strings
+
+// NextIsAfter: the next firing is after the minute asked about.
+law NextIsAfter(seed int) {
+	let e, t = Drawn(seed)
+	match Next(e, t) {
+	case Some[Instant] as n:
+		n.Value > t
+	case None:
+		true
+	}
+}
+
+// NextFires: the expression fires at its next firing.
+law NextFires(seed int) {
+	let e, t = Drawn(seed)
+	match Next(e, t) {
+	case Some[Instant] as n:
+		Matches(e, n.Value)
+	case None:
+		true
+	}
+}
+
+// NextIsTheSmallest: no minute between t and the next firing fires. The
+// reference scans every minute of Window after t: it finds the next
+// firing when that is within the window, and nothing when it is not.
+law NextIsTheSmallest(seed int) {
+	let e, t = Drawn(seed)
+	let found = Brute(e, t, Window)
+	match Next(e, t) {
+	case Some[Instant] as n:
+		if n.Value-t <= Window {
+			return found == n
+		}
+		found == None
+	case None:
+		found == None
+	}
+}
+
+// FormatParseRoundTrip: the text of an expression parses to it.
+law FormatParseRoundTrip(seed int) {
+	let e, _ = Drawn(seed)
+	let back = Parse(Format(e)) catch {
+	case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+		return false
+	}
+	back == e
+}
+
+// CivilRoundTrip: a minute's calendar reading names the minute again, its
+// day is a day of its month, and the next day is the next weekday.
+law CivilRoundTrip(n int) {
+	let t = Instant(int64(n) % 100000000)
+	let c = CivilOf(t)
+	let d = CivilOf(t + 1440)
+	InstantOf(c) == t && c.Day >= 1 && c.Day <= MonthDays(c.Year, c.Month) && d.Weekday == (c.Weekday+1)%7
+}
+
+// Window is the minutes the reference scans: 40 days.
+let Window Instant = 57600
+
+// Brute is the first minute after t, within window minutes, at which e
+// fires: every minute in turn, with no skipping.
+func Brute(e Expr, t Instant, window Instant) Option[Instant] {
+	for at in t+1..t+window+1 {
+		if Matches(e, at) {
+			return Some[Instant]{Value: at}
+		}
+	}
+	None
+}
+
+// Drawn is an expression and a minute from 1970 to 2100 drawn from a
+// Random seeded with seed. Two fields in three are * so that most
+// expressions fire within the window.
+func Drawn(seed int) (Expr, Instant) {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let text = DrawText()
+		let e = Parse(text) catch {
+		case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+			Expr{Minute: Field{Bits: 1, Star: false}, Hour: Field{Bits: 1, Star: false}, Dom: Field{Bits: 2, Star: false}, Month: Field{Bits: 2, Star: false}, Dow: Field{Bits: 1, Star: false}}
+		}
+		(e, Instant(int64(Random.IntN(68000000))))
+	}
+}
+
+// DrawText is the text of an expression drawn from Random, one field at a
+// time.
+func DrawText() string needs Random {
+	let mut fields = []string{}
+	for b in Fields {
+		fields = fields.Append(drawField(b))
+	}
+	strings.Join(fields, " ")
+}
+
+// drawField is a field of b: *, a value, a range, a step of *, a step of
+// a range, or a list of two parts. A value is a name one time in four
+// when b has names.
+func drawField(b Bounds) string needs Random {
+	let span = b.Max - b.Min + 1
+	match Random.IntN(9) {
+	case 0:
+		drawValue(b)
+	case 1:
+		let a = b.Min + Random.IntN(span)
+		let z = a + Random.IntN(b.Max-a+1)
+		"\(a)-\(z)"
+	case 2:
+		"*/\(1 + Random.IntN(span))"
+	case 3:
+		let a = b.Min + Random.IntN(span)
+		let z = a + Random.IntN(b.Max-a+1)
+		"\(a)-\(z)/\(1 + Random.IntN(span))"
+	case 4:
+		drawValue(b) + "," + drawValue(b)
+	case 5:
+		"*/\(1 + Random.IntN(span))," + drawValue(b)
+	case _:
+		"*"
+	}
+}
+
+// drawValue is one value of b, as a number or as its name.
+func drawValue(b Bounds) string needs Random {
+	let i = Random.IntN(b.Max - b.Min + 1)
+	if len(b.Names) > 0 && Random.IntN(4) == 0 {
+		return strings.ToUpper(b.Names[i])
+	}
+	strconv.Itoa(b.Min + i)
+}

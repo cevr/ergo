@@ -1,0 +1,67 @@
+// Package schedule is the domain of cron: an expression of five fields,
+// its parser and printer, the next minute it fires after a given one, and
+// Run, which fires a table of jobs on a clock. Everything but Run is pure.
+//
+// Times are whole minutes in UTC. std time has no calendar fields (no
+// year, month, day or weekday of a Time; G-ex-g-4), so this file has its
+// own: an Instant is minutes since 1970-01-01 00:00 UTC, and Civil is its
+// calendar reading, by the proleptic Gregorian calendar.
+
+// Instant is a minute: the number of minutes since 1970-01-01 00:00 UTC.
+type Instant int64
+
+// Civil is the calendar reading of an Instant. Month is 1 to 12, Day 1 to
+// 31, Hour 0 to 23, Minute 0 to 59, and Weekday 0 (Sunday) to 6.
+type Civil { Year int64, Month int64, Day int64, Hour int64, Minute int64, Weekday int64 }
+
+// days is the number of days from 1970-01-01 to the date y-m-d (Howard
+// Hinnant's days_from_civil).
+func days(y int64, m int64, d int64) int64 {
+	let yy = if m <= 2 { y - 1 } else { y }
+	let era = if yy >= 0 { yy / 400 } else { (yy - 399) / 400 }
+	let yoe = yy - era*400
+	let mp = if m > 2 { m - 3 } else { m + 9 }
+	let doy = (153*mp+2)/5 + d - 1
+	let doe = yoe*365 + yoe/4 - yoe/100 + doy
+	era*146097 + doe - 719468
+}
+
+// CivilOf is the calendar reading of t (Hinnant's civil_from_days).
+func CivilOf(t Instant) Civil {
+	let n = int64(t)
+	let mins = if n >= 0 { n % 1440 } else { (n%1440 + 1440) % 1440 }
+	let z = (n-mins)/1440 + 719468
+	let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 }
+	let doe = z - era*146097
+	let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365
+	let doy = doe - (365*yoe + yoe/4 - yoe/100)
+	let mp = (5*doy + 2) / 153
+	let d = doy - (153*mp+2)/5 + 1
+	let m = if mp < 10 { mp + 3 } else { mp - 9 }
+	let y = if m <= 2 { yoe + era*400 + 1 } else { yoe + era*400 }
+	let dayNumber = (n - mins) / 1440
+	let wd = if dayNumber >= -4 { (dayNumber + 4) % 7 } else { ((dayNumber+4)%7 + 7) % 7 }
+	Civil{Year: y, Month: m, Day: d, Hour: mins / 60, Minute: mins % 60, Weekday: wd}
+}
+
+// InstantOf is the minute that c reads, from its year, month, day, hour
+// and minute; Weekday is not read.
+func InstantOf(c Civil) Instant { Instant(days(c.Year, c.Month, c.Day)*1440 + c.Hour*60 + c.Minute) }
+
+// MonthDays is the number of days of month m of year y.
+func MonthDays(y int64, m int64) int64 { days(y+m/12, m%12+1, 1) - days(y, m, 1) }
+
+// Text is t as "2006-01-02 15:04 Mon".
+func Text(t Instant) string {
+	let c = CivilOf(t)
+	"\(c.Year)-\(two(c.Month))-\(two(c.Day)) \(two(c.Hour)):\(two(c.Minute)) " + DayNames[c.Weekday]
+}
+
+// two is n in two digits.
+func two(n int64) string { if n < 10 { "0\(n)" } else { "\(n)" } }
+
+// DayNames are the names of the weekdays, from Sunday.
+let DayNames = []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+
+// MonthNames are the names of the months, from January.
+let MonthNames = []string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}

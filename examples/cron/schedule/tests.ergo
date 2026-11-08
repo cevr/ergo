@@ -1,0 +1,194 @@
+// The schedule's tests: the calendar, examples of next firings and of
+// each parse failure, a run on a virtual clock, and the laws restated as
+// property tests. The compiler checks laws and does not run them yet
+// (#162); until it does, these tests run them.
+
+import cron/virtual
+import strings
+import time
+
+// at is the minute of the text "2006-01-02 15:04".
+func at(text string) Instant fails time.ParseError {
+	MinuteOf(try time.Parse(time.Custom{Text: "2006-01-02 15:04"}, text))
+}
+
+test TheCalendarMatchesStdTime {
+	assert CivilOf(0).Weekday == 4 && Text(0) == "1970-01-01 00:00 Thu"
+	let t = try at("2026-11-08 12:00")
+	assert Text(t) == "2026-11-08 12:00 Sun"
+	assert Text(try at("2028-02-29 23:59")) == "2028-02-29 23:59 Tue"
+	assert MonthDays(2028, 2) == 29 && MonthDays(2100, 2) == 28 && MonthDays(2000, 2) == 29 && MonthDays(2026, 12) == 31
+}
+
+// next is the text of the first firing of the expression after the
+// minute, or "never", or the parse failure's name.
+func next(expr string, after string) string {
+	let e = Parse(expr) catch {
+	case FieldCount, BadValue, OutOfRange, BadStep, BadRange:
+		return "bad"
+	}
+	let t = at(after) catch {
+	case time.ParseError:
+		return "bad time"
+	}
+	match Next(e, t) {
+	case Some[Instant] as n:
+		Text(n.Value)
+	case None:
+		"never"
+	}
+}
+
+test NextFirings {
+	assert next("*/15 9-17 * * MON-FRI", "2026-11-08 12:00") == "2026-11-09 09:00 Mon"
+	assert next("*/15 9-17 * * mon-fri", "2026-11-09 17:45") == "2026-11-10 09:00 Tue"
+	assert next("0 0 29 2 *", "2026-11-08 12:00") == "2028-02-29 00:00 Tue"
+	assert next("0 0 30 2 *", "2026-11-08 12:00") == "never"
+	assert next("@hourly", "2026-11-08 12:00") == "2026-11-08 13:00 Sun"
+	assert next("@yearly", "2026-12-31 23:59") == "2027-01-01 00:00 Fri"
+	assert next("59 23 31 12 *", "2026-12-31 23:59") == "2027-12-31 23:59 Fri"
+	assert next("0 0 * * 7", "2026-11-08 12:00") == "2026-11-15 00:00 Sun"
+}
+
+// Day of month or day of week: either matches when neither is *; both
+// must when one is (Vixie cron).
+test DayFieldsCombine {
+	assert next("0 12 10 * FRI", "2026-11-08 12:00") == "2026-11-10 12:00 Tue"
+	assert next("0 12 */10 * FRI", "2026-11-08 12:00") == "2026-12-11 12:00 Fri"
+}
+
+// failure is the failure of parsing expr, as its name and fields.
+func failure(expr string) string {
+	let _ = Parse(expr) catch {
+	case FieldCount as f:
+		return "FieldCount \(f.Got)"
+	case BadValue as b:
+		return "BadValue " + b.Field + " " + b.Text
+	case OutOfRange as o:
+		return "OutOfRange " + o.Field + " \(o.Value) \(o.Min)-\(o.Max)"
+	case BadStep as s:
+		return "BadStep " + s.Field + " " + s.Text
+	case BadRange as r:
+		return "BadRange " + r.Field + " \(r.From)-\(r.To)"
+	}
+	"ok"
+}
+
+test ParseFailuresNameTheField {
+	assert failure("* * *") == "FieldCount 3"
+	assert failure("") == "FieldCount 0"
+	assert failure("60 * * * *") == "OutOfRange minute 60 0-59"
+	assert failure("* * 0 * *") == "OutOfRange day of month 0 1-31"
+	assert failure("* * * * 8") == "OutOfRange day of week 8 0-7"
+	assert failure("* * * FOO *") == "BadValue month FOO"
+	assert failure("1,,2 * * * *") == "BadValue minute "
+	assert failure("*/0 * * * *") == "BadStep minute */0"
+	assert failure("*/x * * * *") == "BadStep minute */x"
+	assert failure("* 5-1 * * *") == "BadRange hour 5-1"
+	assert failure("0 9 * jan-dec sun-sat") == "ok"
+}
+
+test FormatIsCanonical {
+	assert Format(try Parse("*/15 9-17,20 * JAN-MAR,dec 1-5")) == "*/15 9-17,20 * 1-3,12 1-5"
+	assert Format(try Parse("@weekly")) == "0 0 * * 0"
+	assert Format(try Parse("0 0 * * 7")) == "0 0 * * 0"
+	assert Format(try Parse("5/20 * * * *")) == "5,25,45 * * * *"
+}
+
+test NextIsAfterHolds(seed int) {
+	let e, t = Drawn(seed)
+	match Next(e, t) {
+	case Some[Instant] as n:
+		assert n.Value > t
+	case None:
+	}
+}
+
+test NextFiresHolds(seed int) {
+	let e, t = Drawn(seed)
+	match Next(e, t) {
+	case Some[Instant] as n:
+		assert Matches(e, n.Value)
+	case None:
+	}
+}
+
+test NextIsTheSmallestHolds(seed int) {
+	let e, t = Drawn(seed)
+	let found = Brute(e, t, Window)
+	match Next(e, t) {
+	case Some[Instant] as n:
+		if n.Value-t <= Window {
+			assert found == n
+		} else {
+			assert found == None
+		}
+	case None:
+		assert found == None
+	}
+}
+
+test FormatParseRoundTripHolds(seed int) {
+	let e, _ = Drawn(seed)
+	assert try Parse(Format(e)) == e
+}
+
+test CivilRoundTripHolds(n int) {
+	let t = Instant(int64(n) % 100000000)
+	let c = CivilOf(t)
+	assert InstantOf(c) == t
+	assert c.Day >= 1 && c.Day <= MonthDays(c.Year, c.Month)
+	assert CivilOf(t+1440).Weekday == (c.Weekday+1)%7
+}
+
+// The drawn expressions fire within the window most of the time, so the
+// reference checks Next on most cases, and some never fire in it.
+test DrawnExpressionsFireInTheWindow {
+	let mut within = 0
+	for seed in 0..200 {
+		let e, t = Drawn(seed)
+		match Brute(e, t, Window) {
+		case Some[Instant]:
+			within = within + 1
+		case None:
+		}
+	}
+	assert within >= 120 && within < 200
+}
+
+test ATableHasJobsCommentsAndBlanks {
+	let jobs = try ParseTable("# nightly\n0 3 * * * backup the disk\n\n@hourly  rotate logs\n")
+	assert len(jobs) == 2 && jobs[0].Name == "backup the disk" && jobs[1].Name == "rotate logs"
+	assert Format(jobs[1].When) == "0 * * * *"
+}
+
+// badLine is the line and reason that ParseTable refuses in text.
+func badLine(text string) string {
+	let _ = ParseTable(text) catch {
+	case BadLine as b:
+		return "\(b.Line): " + b.Reason
+	}
+	"ok"
+}
+
+test ABadLineNamesItsNumber {
+	assert badLine("0 3 * * * a\n0 3 * *\n") == "2: no job name after the expression"
+	assert badLine("\n\n61 3 * * * a\n") == "3: minute: 61 is not in 0-59"
+	assert badLine("@weekly\n") == "1: no job name after the expression"
+	assert badLine("@often job\n") == "1: 1 fields, not 5"
+}
+
+// Run comes last: it loops on Next, so a Next that does not move hangs it,
+// and the laws above report that first.
+test RunFiresOnTimeOnAVirtualClock {
+	let start = try at("2026-11-08 12:00")
+	let jobs = []Job{Job{Name: "a", When: try Parse("*/20 * * * *")}, Job{Name: "b", When: try Parse("30,40 12 * * *")}}
+	let clock = virtual.NewClock(int64(start) * 60)
+	let mut log = []string{}
+	with context { time.Clock: clock, Scheduler: clock } {
+		Run(jobs, start+60, func(f Firing) {
+			log = log.Append(f.Job + " " + Text(f.Due) + " woke " + Text(f.Woke))
+		})
+	}
+	assert strings.Join(log, "\n") == "a 2026-11-08 12:20 Sun woke 2026-11-08 12:20 Sun\nb 2026-11-08 12:30 Sun woke 2026-11-08 12:30 Sun\na 2026-11-08 12:40 Sun woke 2026-11-08 12:40 Sun\nb 2026-11-08 12:40 Sun woke 2026-11-08 12:40 Sun\na 2026-11-08 13:00 Sun woke 2026-11-08 13:00 Sun"
+}

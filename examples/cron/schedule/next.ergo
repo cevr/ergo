@@ -1,0 +1,62 @@
+// Matches reports whether e fires at the minute t.
+func Matches(e Expr, t Instant) bool {
+	let c = CivilOf(t)
+	Has(e.Minute, c.Minute) && Has(e.Hour, c.Hour) && Has(e.Month, c.Month) && dayMatches(e, c)
+}
+
+// dayMatches reports whether the day of c matches e: both day fields when
+// one is a Star, either when neither is.
+func dayMatches(e Expr, c Civil) bool {
+	if e.Dom.Star || e.Dow.Star {
+		return Has(e.Dom, c.Day) && Has(e.Dow, c.Weekday)
+	}
+	Has(e.Dom, c.Day) || Has(e.Dow, c.Weekday)
+}
+
+// Horizon is how many years Next looks ahead: a 29th of February that is
+// a given weekday comes back within 28 years, so an expression that does
+// not fire within the horizon never fires (0 0 30 2 *).
+let Horizon int64 = 28
+
+// Next is the first minute after t at which e fires, or None when e never
+// fires. It skips a whole month, day or hour that cannot match, so it
+// steps at most a few thousand times a year.
+func Next(e Expr, t Instant) Option[Instant] {
+	let limit = CivilOf(t).Year + Horizon
+	let mut at = t + 1
+	for {
+		let c = CivilOf(at)
+		if c.Year > limit {
+			return None
+		}
+		if !Has(e.Month, c.Month) {
+			at = InstantOf(Civil{Year: c.Year + c.Month/12, Month: c.Month%12 + 1, Day: 1, Hour: 0, Minute: 0, Weekday: 0})
+		} else if !dayMatches(e, c) {
+			at = InstantOf(Civil{..c, Hour: 0, Minute: 0}) + 1440
+		} else if !Has(e.Hour, c.Hour) {
+			at = InstantOf(Civil{..c, Minute: 0}) + 60
+		} else if !Has(e.Minute, c.Minute) {
+			at = at + 1
+		} else {
+			return Some[Instant]{Value: at}
+		}
+	}
+	None
+}
+
+// Upcoming is the first n minutes after t at which e fires, fewer when e
+// stops firing within the horizon.
+func Upcoming(e Expr, t Instant, n int) []Instant {
+	let mut out = []Instant{}
+	let mut at = t
+	for len(out) < n {
+		match Next(e, at) {
+		case Some[Instant] as next:
+			out = out.Append(next.Value)
+			at = next.Value
+		case None:
+			return out
+		}
+	}
+	out
+}

@@ -1,0 +1,185 @@
+// cron reads cron expressions. `cron next EXPR` prints the next times an
+// expression fires; `cron run TABLE` fires the jobs of a table file and
+// prints each firing, on a virtual clock that jumps from one firing to
+// the next, or with -live on the host's clock. Package schedule is the
+// domain; package virtual is the virtual clock. This binary is the only
+// place that chooses the providers: the host's clock, file system,
+// standard output and arguments.
+
+import cron/schedule
+import cron/virtual
+import flag
+import fs
+import io
+import os
+import time
+
+// Cmd is a command of cron.
+type Cmd = NextCmd{Expr string, From string, Count int} | RunCmd{Table string, From string, Until string, Live bool}
+
+let exprArg = flag.Arg("expr", "the expression, quoted: \"*/5 * * * *\"")
+let tableArg = flag.Arg("table", "the table file: an expression and a job name on each line")
+let fromFlag = flag.String("from", "now", "the `minute` to start after, as 2006-01-02 15:04 in UTC")
+let untilFlag = flag.String("until", "", "the last `minute` to fire, as 2006-01-02 15:04 in UTC (default a day after -from)")
+let countFlag = flag.Int("n", 5, "how many times to print")
+let liveFlag = flag.Bool("live", false, "fire on the host's clock, waiting for each minute")
+
+let commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{
+		Name:  "next",
+		Usage: "print the next times an expression fires",
+		Set:   flag.Set{Name: "cron next", Usage: "", Flags: []flag.Flag{fromFlag, countFlag}, Args: []flag.ArgSpec{exprArg}},
+		Build: func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+			NextCmd{Expr: argOf(exprArg, v), From: fromFlag.Get(v), Count: countFlag.Get(v)}
+		},
+	},
+	flag.Command[Cmd]{
+		Name:  "run",
+		Usage: "fire the jobs of a table and print each firing",
+		Set:   flag.Set{Name: "cron run", Usage: "", Flags: []flag.Flag{fromFlag, untilFlag, liveFlag}, Args: []flag.ArgSpec{tableArg}},
+		Build: func(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+			RunCmd{Table: argOf(tableArg, v), From: fromFlag.Get(v), Until: untilFlag.Get(v), Live: liveFlag.Get(v)}
+		},
+	},
+}
+
+// argOf is the value of a required argument, which Parse has checked.
+func argOf(a flag.ArgSpec, v flag.Values) string {
+	match a.Get(v) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+}
+
+let usage = "usage: cron next EXPR [-from MINUTE] [-n N] | cron run TABLE [-from MINUTE] [-until MINUTE] [-live]"
+
+// minute is the text as a minute, or the clock's minute for "now".
+func minute(text string) schedule.Instant fails os.Exit needs time.Clock {
+	if text == "now" {
+		return schedule.MinuteOf(time.Clock.Now())
+	}
+	let t = time.Parse(time.Custom{Text: "2006-01-02 15:04"}, text) catch {
+	case time.ParseError:
+		return os.Exit{Code: 2, Message: "cron: bad minute \"\(text)\": write 2006-01-02 15:04"}
+	}
+	schedule.MinuteOf(t)
+}
+
+// run is cron on args.
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files | time.Clock | Scheduler {
+	let c = flag.ParseCommand("cron", "", commands, args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	match c {
+	case NextCmd as n:
+		let e = schedule.Parse(n.Expr) catch {
+		case schedule.FieldCount as f:
+			return os.Exit{Code: 1, Message: "cron: \(f.Got) fields, not 5"}
+		case schedule.BadValue as b:
+			return os.Exit{Code: 1, Message: "cron: \(b.Field): no value \(b.Text)"}
+		case schedule.OutOfRange as o:
+			return os.Exit{Code: 1, Message: "cron: \(o.Field): \(o.Value) is not in \(o.Min)-\(o.Max)"}
+		case schedule.BadStep as s:
+			return os.Exit{Code: 1, Message: "cron: \(s.Field): bad step \(s.Text)"}
+		case schedule.BadRange as r:
+			return os.Exit{Code: 1, Message: "cron: \(r.Field): range \(r.From)-\(r.To) ends before it starts"}
+		}
+		let from = try minute(n.From)
+		io.Stdout.Println(schedule.Format(e))
+		let times = schedule.Upcoming(e, from, n.Count)
+		for t in times {
+			io.Stdout.Println(schedule.Text(t))
+		}
+		if len(times) < n.Count {
+			io.Stdout.Println("(no more firings within \(schedule.Horizon) years)")
+		}
+	case RunCmd as r:
+		let text = fs.Files.ReadFile(r.Table) catch {
+		case fs.NotFound:
+			return os.Exit{Code: 1, Message: "cron: no file \(r.Table)"}
+		case fs.Denied:
+			return os.Exit{Code: 1, Message: "cron: cannot read \(r.Table): permission denied"}
+		case fs.Failed as f:
+			return os.Exit{Code: 1, Message: "cron: cannot read \(r.Table): \(f.Reason)"}
+		}
+		let jobs = schedule.ParseTable(text) catch {
+		case schedule.BadLine as b:
+			return os.Exit{Code: 1, Message: "cron: \(r.Table):\(b.Line): \(b.Reason)"}
+		}
+		let from = try minute(r.From)
+		let until = if r.Until == "" { from + 1440 } else { try minute(r.Until) }
+		let print = func(f schedule.Firing) needs io.Stdout {
+			io.Stdout.Println(schedule.Text(f.Due) + "  " + f.Job)
+		}
+		if r.Live {
+			schedule.Run(jobs, until, print)
+		} else {
+			let clock = virtual.NewClock(int64(from) * 60)
+			with context { time.Clock: clock, Scheduler: clock } {
+				schedule.Run(jobs, until, print)
+			}
+		}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = time.NewHost()
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost(), time.Clock: host, Scheduler: NewLiveScheduler() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run on a virtual clock, with an io.Recorder and a table
+// in memory: no host.
+
+// table is an fs.Files of one file, "jobs". std fs has no memory
+// provider (G-ex-f-12), so the test writes the three operations.
+type table { text string }
+
+func ReadFile(t table, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	if path != "jobs" {
+		return fs.NotFound{Path: path}
+	}
+	t.text
+}
+
+func ReadDir(_ table, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(t table, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: len(try t.ReadFile(path)), Dir: false}
+}
+
+// ran is the output of run on args over the table text, with the clock at
+// 2026-11-08 12:00 UTC, and a failure printed as "exit CODE: MESSAGE".
+func ran(text string, args []string) string {
+	let out = io.NewRecorder()
+	let clock = virtual.NewClock(1794139200)
+	with context { io.Stdout: out, fs.Files: table{text: text}, time.Clock: clock, Scheduler: clock } {
+		run(args) catch {
+		case os.Exit as e:
+			io.Stdout.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test NextPrintsTheFormAndTheTimes {
+	assert ran("", []string{"next", "-n", "2", "0 9 * * mon"}) == "0 9 * * 1\n2026-11-09 09:00 Mon\n2026-11-16 09:00 Mon\n"
+	assert ran("", []string{"next", "@yearly", "-from", "2026-12-31 23:59", "-n", "1"}) == "0 0 1 1 *\n2027-01-01 00:00 Fri\n"
+}
+
+test RunFiresADayOfJobs {
+	let out = ran("0 */6 * * * sync\n30 12 * * * lunch\n", []string{"run", "jobs"})
+	assert out == "2026-11-08 12:30 Sun  lunch\n2026-11-08 18:00 Sun  sync\n2026-11-09 00:00 Mon  sync\n2026-11-09 06:00 Mon  sync\n2026-11-09 12:00 Mon  sync\n"
+}
+
+test FailuresExit {
+	assert ran("", []string{"next", "* * *"}) == "exit 1: cron: 3 fields, not 5\n"
+	assert ran("", []string{"next", "* * * * *", "-from", "noon"}) == "exit 2: cron: bad minute \"noon\": write 2006-01-02 15:04\n"
+	assert ran("ok\n", []string{"run", "jobs"}) == "exit 1: cron: jobs:1: no job name after the expression\n"
+	assert ran("", []string{"run", "nofile"}) == "exit 1: cron: no file nofile\n"
+}
