@@ -153,21 +153,26 @@ type Input { Text string }
 // ReadAll is input.Text.
 func ReadAll(input Input) string fails ReadFailed { input.Text }
 
-// Lines is the lines of input.Text, each without its line feed.
+// Lines is the lines of input.Text, each without its line feed. It finds
+// each line feed with one strings.Index on the rest of the text, as
+// strings.Lines does: one scan per line, not a compare per byte.
 func Lines(input Input) Seq[string] {
 	let text = input.Text
 	Seq[string](func(yield func(v string) bool) {
-		let mut start = 0
-		for i in 0..len(text) {
-			if strings.Slice(text, i, i+1) == "\n" {
-				if !yield(strings.Slice(text, start, i)) {
-					return
-				}
-				start = i + 1
+		let mut rest = text
+		for _ in 0..len(text) {
+			if rest == "" {
+				return
 			}
-		}
-		if start < len(text) {
-			yield(strings.Slice(text, start, len(text)))
+			let i = strings.Index(rest, "\n")
+			if i < 0 {
+				yield(rest)
+				return
+			}
+			if !yield(strings.Slice(rest, 0, i)) {
+				return
+			}
+			rest = strings.Slice(rest, i+1, len(rest))
 		}
 	})
 }
