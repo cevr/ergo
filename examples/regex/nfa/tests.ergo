@@ -1,0 +1,103 @@
+// The NFA's tests: examples, the Engine laws and its own laws restated
+// as property tests (laws are checked, not run, #162). A property gets
+// 100 cases, so the seeded ones loop over 20 patterns per case.
+
+import regex/backtrack
+import regex/engine
+import regex/syntax
+import strings
+
+// matches reports whether the NFA matches pattern, parsed, on text.
+func matches(pattern string, text string) bool fails syntax.Unclosed | syntax.Unopened | syntax.NothingToRepeat | syntax.TrailingEscape | syntax.UnclosedClass | syntax.BadRange {
+	Compile(Engine, try syntax.Parse(pattern)).Matches(text)
+}
+
+test MatchesWholeTexts {
+	assert try matches("a(b|c)*d", "abcbd")
+	assert !(try matches("a(b|c)*d", "abcb"))
+	assert try matches("[^0-9]+x?", "abx")
+	assert !(try matches("[^0-9]+", "a1"))
+	assert try matches("", "")
+	assert !(try matches("", "a"))
+	assert try matches("(a*)*", "aaa")
+	assert try matches("a.c", "a\nc")
+	assert try matches("[]|x", "x")
+	assert !(try matches("[]", ""))
+}
+
+// A pattern that makes a backtracker take exponential time runs in
+// linear time here: (a?)^n a^n on a^n, with n = 40.
+test PathologicalPatternIsLinear {
+	let n = 40
+	let pattern = strings.Repeat("a?", n) + strings.Repeat("a", n)
+	assert try matches(pattern, strings.Repeat("a", n))
+	assert !(try matches(pattern, strings.Repeat("a", n-1)))
+}
+
+test ProgramsAreSmall {
+	let p = Build(try syntax.Parse("a(b|c)*d"))
+	assert p.Len() == 7
+}
+
+test AgreesWithBacktrackHolds(seed int) {
+	for k in 0..20 {
+		let s = seed*20 + k
+		let p = syntax.Sample(s)
+		for t in []string{syntax.SampleText(s), syntax.SampleText(s + 1), syntax.SampleText(s * 3), ""} {
+			assert Compile(Engine, p).Matches(t) == backtrack.Compile(backtrack.Engine, p).Matches(t)
+		}
+	}
+}
+
+// The samples are not vacuous: some patterns match their texts and some
+// do not, so AgreesWithBacktrack compares both answers.
+test SamplesMatchSometimes {
+	let mut yes = 0
+	for s in 0..400 {
+		if Compile(Engine, syntax.Sample(s)).Matches(syntax.SampleText(s)) {
+			yes += 1
+		}
+	}
+	assert yes >= 40 && yes <= 360
+}
+
+test ProgramIsLinearHolds(seed int) {
+	for k in 0..20 {
+		let p = syntax.Sample(seed*20 + k)
+		assert Build(p).Len() <= syntax.Size(p)+1
+	}
+}
+
+test LiteralMatchesItselfHolds(text string) {
+	assert engine.LiteralMatchesItselfHolds(Engine, text)
+}
+
+test StarMatchesEmptyHolds(seed int) {
+	for k in 0..20 {
+		assert engine.StarMatchesEmptyHolds(Engine, seed*20+k)
+	}
+}
+
+test AltIsEitherHolds(seed int, other int) {
+	for k in 0..20 {
+		assert engine.AltIsEitherHolds(Engine, seed*20+k, other+k)
+	}
+}
+
+test PlusIsOneThenStarHolds(seed int) {
+	for k in 0..20 {
+		assert engine.PlusIsOneThenStarHolds(Engine, seed*20+k)
+	}
+}
+
+test SearchFindsInsideHolds(seed int, before string, after string) {
+	for k in 0..20 {
+		assert engine.SearchFindsInsideHolds(Engine, seed*20+k, before, after)
+	}
+}
+
+test RepeatableHolds(seed int, other string) {
+	for k in 0..20 {
+		assert engine.RepeatableHolds(Engine, seed*20+k, other)
+	}
+}

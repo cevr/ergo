@@ -1,0 +1,132 @@
+// The printer: a tree to a pattern's text that parses back to it.
+
+// Print is the text of n. Parse(Print(n)) is n for every n whose Cat
+// nodes have two parts or more, which is every tree that Parse returns
+// (law RoundTrip). A part of a Cat that is a Cat, an Alt or Empty, the
+// right side of an Alt that is an Alt, and the operand of a repeat that
+// is a Cat, an Alt or Empty is put in parentheses.
+func Print(n Node) string {
+	match n {
+	case Empty:
+		""
+	case Lit as l:
+		litText(l.C)
+	case Any:
+		"."
+	case Class as k:
+		classText(k)
+	case Cat as c:
+		let mut out = ""
+		for p in c.Parts {
+			out = out + catPart(p)
+		}
+		out
+	case Alt as a:
+		match a.Right {
+		case Alt:
+			Print(a.Left) + "|(" + Print(a.Right) + ")"
+		case _:
+			Print(a.Left) + "|" + Print(a.Right)
+		}
+	case Star as s:
+		operand(s.Of) + "*"
+	case Plus as p:
+		operand(p.Of) + "+"
+	case Quest as q:
+		operand(q.Of) + "?"
+	}
+}
+
+// catPart is the text of p as a part of a Cat.
+func catPart(p Node) string {
+	match p {
+	case Cat:
+		"(" + Print(p) + ")"
+	case Alt:
+		"(" + Print(p) + ")"
+	case Empty:
+		"()"
+	case _:
+		Print(p)
+	}
+}
+
+// operand is the text of n as the operand of "*", "+" or "?".
+func operand(n Node) string {
+	match n {
+	case Lit:
+		Print(n)
+	case Any:
+		Print(n)
+	case Class:
+		Print(n)
+	case Star:
+		Print(n)
+	case Plus:
+		Print(n)
+	case Quest:
+		Print(n)
+	case Empty:
+		"()"
+	case Cat:
+		"(" + Print(n) + ")"
+	case Alt:
+		"(" + Print(n) + ")"
+	}
+}
+
+// metas are the bytes that a literal outside a class escapes.
+let metas = "\\.*+?|()["
+
+// classMetas are the bytes that a class escapes.
+let classMetas = "\\]^-"
+
+// litText is the text of the literal byte c.
+func litText(c byte) string {
+	if contains(metas, c) {
+		"\\" + ByteText(c)
+	} else {
+		ByteText(c)
+	}
+}
+
+// classText is the text of the class k.
+func classText(k Class) string {
+	let mut out = if k.Negated { "[^" } else { "[" }
+	for s in k.Spans {
+		out = out + classItem(s.Lo)
+		if s.Hi != s.Lo {
+			out = out + "-" + classItem(s.Hi)
+		}
+	}
+	out + "]"
+}
+
+// classItem is the text of the byte c inside a class.
+func classItem(c byte) string {
+	if contains(classMetas, c) {
+		"\\" + ByteText(c)
+	} else {
+		ByteText(c)
+	}
+}
+
+// contains reports whether the text s holds the byte c.
+func contains(s string, c byte) bool {
+	for i in 0..len(s) {
+		if s[i] == c {
+			return true
+		}
+	}
+	false
+}
+
+// ByteText is the one-byte text of c. A byte has no conversion to text
+// (G-ex-d-1), so it is sliced out of a table of all 256 bytes.
+func ByteText(c byte) string {
+	let i = int(c)
+	everyByte[i : i+1]
+}
+
+// everyByte is the 256 bytes in order.
+let everyByte = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff"

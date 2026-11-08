@@ -1,0 +1,34 @@
+// The rules of the syntax as laws over Parse and Print.
+
+// RoundTrip: a sampled tree prints to a text that parses back to it.
+law RoundTrip(seed int) {
+	let n = Sample(seed)
+	Equal(try Parse(Print(n)), n)
+}
+
+// ParsedIsCanonical: whatever text parses, its tree prints to a text
+// that parses back to the same tree.
+law ParsedIsCanonical(text string) {
+	let n = Parse(text) catch {
+	case _:
+		return true
+	}
+	Equal(try Parse(Print(n)), n)
+}
+
+// LiteralRoundTrip: the literal of any text, metas included, prints and
+// parses back to itself.
+law LiteralRoundTrip(text string) {
+	let n = Literal(text)
+	Equal(try Parse(Print(n)), n)
+}
+
+// FailureIsInside: a failure of Parse names an offset inside the text.
+law FailureIsInside(text string) {
+	let _ = Parse(text) catch {
+	case err:
+		let at = Offset(err)
+		return 0 <= at && at < len(text)
+	}
+	true
+}

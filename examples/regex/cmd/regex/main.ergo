@@ -1,0 +1,147 @@
+// regex prints the lines of standard input that match a pattern, as
+// grep -E does for the syntax of package syntax: literals, ., classes,
+// *, +, ?, | and groups. -x matches whole lines, -c prints the count of
+// matching lines, and -r runs the reference engine in place of the NFA.
+// The status is 0 when a line matches, 1 when none does, 2 on a usage or
+// pattern error. This binary is the only place that chooses the engine
+// and the host's streams.
+
+import io
+import os
+import regex/backtrack
+import regex/engine
+import regex/nfa
+import regex/syntax
+
+// Fast binds the NFA engine; Reference binds the backtracking one.
+let Fast = context { engine.Engine: nfa.Engine }
+let Reference = context { engine.Engine: backtrack.Engine }
+
+// Options is a command line of regex.
+type Options { Pattern string, Mode engine.Mode, Count bool, UseReference bool }
+
+// BadUsage is a command line that is not [-c] [-x] [-r] PATTERN.
+type BadUsage { Reason string }
+
+// usage is the line that follows a usage error.
+let usage = "usage: regex [-c] [-x] [-r] PATTERN"
+
+// parseArgs reads args: flags first, then one pattern. "--" ends the
+// flags.
+func parseArgs(args []string) Options fails BadUsage {
+	let mut o = Options{Pattern: "", Mode: engine.Inside, Count: false, UseReference: false}
+	let mut rest = []string{}
+	let mut flags = true
+	for a in args {
+		if flags && a == "--" {
+			flags = false
+		} else if flags && a == "-c" {
+			o.Count = true
+		} else if flags && a == "-x" {
+			o.Mode = engine.Whole
+		} else if flags && a == "-r" {
+			o.UseReference = true
+		} else if flags && len(a) > 1 && a[0] == '-' {
+			return BadUsage{Reason: "unknown flag " + a}
+		} else {
+			rest = rest.Append(a)
+		}
+	}
+	if len(rest) != 1 {
+		return BadUsage{Reason: "want one pattern, have \(len(rest))"}
+	}
+	Options{..o, Pattern: rest[0]}
+}
+
+// grep runs o's pattern over standard input with the Engine of the
+// context. It fails with status 1 when no line matches.
+func grep(o Options, pattern syntax.Node) fails os.Exit needs engine.Engine | io.Stdin | io.Stdout {
+	let mut n = 0
+	for line in engine.Grep(pattern, o.Mode, io.Stdin.Lines()) {
+		n += 1
+		if !o.Count {
+			io.Stdout.Println(line)
+		}
+	}
+	if o.Count {
+		io.Stdout.Println("\(n)")
+	}
+	if n == 0 {
+		return os.Exit{Code: 1, Message: "regex: no line matches"}
+	}
+}
+
+// run is regex on args.
+func run(args []string) fails os.Exit needs io.Stdin | io.Stdout {
+	let o = parseArgs(args) catch {
+	case BadUsage as b:
+		return os.Exit{Code: 2, Message: "regex: \(b.Reason)\n\(usage)"}
+	}
+	let pattern = syntax.Parse(o.Pattern) catch {
+	case err:
+		return os.Exit{Code: 2, Message: "regex: \(syntax.Describe(err)) in \(o.Pattern)"}
+	}
+	if o.UseReference {
+		with Reference {
+			try grep(o, pattern)
+		}
+	} else {
+		with Fast {
+			try grep(o, pattern)
+		}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdin: io.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run over an io.Input and an io.Recorder, with no host.
+
+// ran is the output of run on args over input, with a failure written
+// as "exit CODE: MESSAGE".
+func ran(args []string, input string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: input}, io.Stdout: out } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+let poem = "the cat sat\non the mat\nwith a hat\nand a bat\n"
+
+test PrintsMatchingLines {
+	assert ran([]string{"[cm]at"}, poem) == "the cat sat\non the mat\n"
+	assert ran([]string{"-r", "[cm]at"}, poem) == "the cat sat\non the mat\n"
+}
+
+test CountsAndWholeLines {
+	assert ran([]string{"-c", "a.$"}, "a.$\nb\n") == "1\n"
+	assert ran([]string{"-c", "z"}, poem) == "0\nexit 1: regex: no line matches\n"
+	assert ran([]string{"-c", "at"}, poem) == "4\n"
+	assert ran([]string{"-x", "-c", "(on|and) .*"}, poem) == "2\n"
+}
+
+test FailuresExit {
+	assert ran([]string{"dog"}, poem) == "exit 1: regex: no line matches\n"
+	assert ran([]string{"a(b"}, poem) == "exit 2: regex: missing ) for the ( at 1 in a(b\n"
+	assert ran([]string{}, poem) == "exit 2: regex: want one pattern, have 0\nusage: regex [-c] [-x] [-r] PATTERN\n"
+	assert ran([]string{"-v", "a"}, poem) == "exit 2: regex: unknown flag -v\nusage: regex [-c] [-x] [-r] PATTERN\n"
+	assert ran([]string{"--", "-v"}, "a-v\n") == "a-v\n"
+}
+
+// EnginesAgree: on any pattern text and lines, both engines print the
+// same.
+test EnginesAgree(pattern string, lines []string) {
+	let mut input = ""
+	for l in lines {
+		input = input + l + "\n"
+	}
+	assert ran([]string{pattern}, input) == ran([]string{"-r", pattern}, input)
+	assert ran([]string{"-x", pattern}, input) == ran([]string{"-x", "-r", pattern}, input)
+}

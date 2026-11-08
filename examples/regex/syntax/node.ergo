@@ -1,0 +1,124 @@
+// Package syntax is the regular expression as a tree: the Node union, its
+// parser and its printer. It is pure. A pattern matches a whole text of
+// bytes; Search makes a pattern that matches anywhere in a text.
+
+// Node is a regular expression. Empty matches the empty text. Lit matches
+// one byte, Any every byte, and Class each byte in its spans, or each byte
+// outside them when Negated. Cat matches its parts one after another; Alt
+// matches Left or Right. Star repeats Of zero or more times, Plus one or
+// more, and Quest zero times or once.
+type Node = Empty{} | Lit{C byte} | Any{} | Class{Spans []Span, Negated bool} | Cat{Parts []Node} | Alt{Left Node, Right Node} | Star{Of Node} | Plus{Of Node} | Quest{Of Node}
+
+// Span is the bytes from Lo to Hi, both included.
+type Span { Lo byte, Hi byte }
+
+// Has reports whether c is a byte that the class c matches.
+func Has(k Class, c byte) bool {
+	let mut inside = false
+	for s in k.Spans {
+		if s.Lo <= c && c <= s.Hi {
+			inside = true
+		}
+	}
+	inside != k.Negated
+}
+
+// Literal is the pattern that matches text and nothing else.
+func Literal(text string) Node {
+	if len(text) == 0 {
+		return Empty
+	}
+	if len(text) == 1 {
+		return Lit{C: text[0]}
+	}
+	let mut parts = []Node{}
+	for i in 0..len(text) {
+		parts = parts.Append(Lit{C: text[i]})
+	}
+	Cat{Parts: parts}
+}
+
+// Search is the pattern that matches every text that holds a match of n:
+// .*n.* in the syntax.
+func Search(n Node) Node { Cat{Parts: []Node{Star{Of: Any}, n, Star{Of: Any}}} }
+
+// Equal reports whether a and b are the same tree. A Node holds slices,
+// so it has no == (G-ex-d-5).
+func Equal(a Node, b Node) bool {
+	match (a, b) {
+	case (Empty, Empty):
+		true
+	case (Lit as x, Lit as y):
+		x.C == y.C
+	case (Any, Any):
+		true
+	case (Class as x, Class as y):
+		x.Negated == y.Negated && sameSpans(x.Spans, y.Spans)
+	case (Cat as x, Cat as y):
+		sameNodes(x.Parts, y.Parts)
+	case (Alt as x, Alt as y):
+		Equal(x.Left, y.Left) && Equal(x.Right, y.Right)
+	case (Star as x, Star as y):
+		Equal(x.Of, y.Of)
+	case (Plus as x, Plus as y):
+		Equal(x.Of, y.Of)
+	case (Quest as x, Quest as y):
+		Equal(x.Of, y.Of)
+	case (_, _):
+		false
+	}
+}
+
+// sameSpans reports whether a and b hold the same spans in order.
+func sameSpans(a []Span, b []Span) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, s in a {
+		if s != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+// sameNodes reports whether a and b hold equal trees in order.
+func sameNodes(a []Node, b []Node) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, n in a {
+		if !Equal(n, b[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// Size is the number of nodes of n.
+func Size(n Node) int {
+	match n {
+	case Empty:
+		1
+	case Lit:
+		1
+	case Any:
+		1
+	case Class:
+		1
+	case Cat as c:
+		let mut total = 1
+		for p in c.Parts {
+			total += Size(p)
+		}
+		total
+	case Alt as a:
+		1 + Size(a.Left) + Size(a.Right)
+	case Star as s:
+		1 + Size(s.Of)
+	case Plus as p:
+		1 + Size(p.Of)
+	case Quest as q:
+		1 + Size(q.Of)
+	}
+}

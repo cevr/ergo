@@ -1,0 +1,62 @@
+// Package backtrack is the reference engine: a matcher that walks the
+// tree with continuations and tries each choice in turn. It is short
+// enough to read as the definition of a match, and it takes time
+// exponential in the text on patterns such as (a*)*b; package nfa is the
+// engine to run.
+
+import regex/engine
+import regex/syntax
+
+// Engine is the backtracking engine. It compiles nothing: its Matcher
+// keeps the tree.
+type Engine {}
+
+// Compile is the Matcher of pattern.
+func Compile(_ Engine, pattern syntax.Node) engine.Matcher { Tree{pattern: pattern} }
+
+// Tree is a pattern that backtrack matches by walking it.
+type Tree { pattern syntax.Node }
+
+// Matches reports whether t's pattern matches the whole text.
+func Matches(t Tree, text string) bool {
+	run(t.pattern, text, 0, func(j int) bool { j == len(text) })
+}
+
+// run reports whether n matches text from i to some j for which k(j)
+// holds.
+func run(n syntax.Node, text string, i int, k func(j int) bool) bool {
+	match n {
+	case syntax.Empty:
+		k(i)
+	case syntax.Lit as l:
+		i < len(text) && text[i] == l.C && k(i+1)
+	case syntax.Any:
+		i < len(text) && k(i+1)
+	case syntax.Class as c:
+		i < len(text) && c.Has(text[i]) && k(i+1)
+	case syntax.Cat as c:
+		sequence(c.Parts, 0, text, i, k)
+	case syntax.Alt as a:
+		run(a.Left, text, i, k) || run(a.Right, text, i, k)
+	case syntax.Star as s:
+		star(s.Of, text, i, k)
+	case syntax.Plus as p:
+		run(p.Of, text, i, func(j int) bool { star(p.Of, text, j, k) })
+	case syntax.Quest as q:
+		run(q.Of, text, i, k) || k(i)
+	}
+}
+
+// sequence matches parts[at:] one after another from i.
+func sequence(parts []syntax.Node, at int, text string, i int, k func(j int) bool) bool {
+	if at == len(parts) {
+		return k(i)
+	}
+	run(parts[at], text, i, func(j int) bool { sequence(parts, at+1, text, j, k) })
+}
+
+// star matches of zero or more times from i, greedily. A repeat that
+// matches the empty text ends the loop, so (a*)* stops.
+func star(of syntax.Node, text string, i int, k func(j int) bool) bool {
+	run(of, text, i, func(j int) bool { j > i && star(of, text, j, k) }) || k(i)
+}

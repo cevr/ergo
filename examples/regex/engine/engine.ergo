@@ -1,0 +1,81 @@
+// Package engine is the contract of a regular expression engine, with the
+// laws that every engine keeps, and grep's rules over it. Package
+// backtrack is the reference engine, package nfa the fast one; a binary
+// chooses one in its context.
+
+import regex/syntax
+
+// Engine compiles a pattern into a Matcher, once, as Go's regexp.Compile
+// does; the Matcher then tests each text.
+type Engine {
+	Compile(pattern syntax.Node) Matcher,
+
+	// LiteralMatchesItself: the literal of a text matches that text.
+	law LiteralMatchesItself(text string) { Compile(syntax.Literal(text)).Matches(text) },
+
+	// StarMatchesEmpty: a starred pattern matches the empty text.
+	law StarMatchesEmpty(seed int) { Compile(syntax.Star{Of: syntax.Sample(seed)}).Matches("") },
+
+	// AltIsEither: an Alt matches a text when either side matches it.
+	law AltIsEither(seed int, other int) {
+		let a = syntax.Sample(seed)
+		let b = syntax.Sample(other)
+		let t = syntax.SampleText(seed + other)
+		Compile(syntax.Alt{Left: a, Right: b}).Matches(t) == (Compile(a).Matches(t) || Compile(b).Matches(t))
+	},
+
+	// PlusIsOneThenStar: p+ matches what pp* matches.
+	law PlusIsOneThenStar(seed int) {
+		let p = syntax.Sample(seed)
+		let t = syntax.SampleText(seed)
+		Compile(syntax.Plus{Of: p}).Matches(t) == Compile(syntax.Cat{Parts: []syntax.Node{p, syntax.Star{Of: p}}}).Matches(t)
+	},
+
+	// SearchFindsInside: a text that holds a match of p is found by p's
+	// search.
+	law SearchFindsInside(seed int, before string, after string) {
+		let p = syntax.Sample(seed)
+		let t = syntax.SampleText(seed)
+		!Compile(p).Matches(t) || Compile(syntax.Search(p)).Matches(before+t+after)
+	},
+}
+
+// Matcher is a compiled pattern.
+type Matcher {
+	// Matches reports whether the pattern matches the whole text.
+	Matches(text string) bool,
+
+	// Repeatable: a Matcher keeps no state between texts.
+	law Repeatable(text string, other string) {
+		let first = Matches(text)
+		let _ = Matches(other)
+		Matches(text) == first
+	},
+}
+
+// Mode is how grep tests a line: Whole matches the whole line, Inside
+// matches anywhere in it.
+type Mode = Whole{} | Inside{}
+
+// Selecting is the pattern that grep tests each line against in mode m.
+func Selecting(pattern syntax.Node, m Mode) syntax.Node {
+	match m {
+	case Whole:
+		pattern
+	case Inside:
+		syntax.Search(pattern)
+	}
+}
+
+// Grep is the lines that pattern selects in mode m, in order, compiled
+// once by the Engine in the context.
+func Grep(pattern syntax.Node, m Mode, lines Seq[string]) Seq[string] needs Engine {
+	let matcher = Engine.Compile(Selecting(pattern, m))
+	Seq[string](func(yield func(v string) bool) {
+		for line in lines {
+			if matcher.Matches(line) && !yield(line) {
+				return
+			}
+		}
+	})
+}
