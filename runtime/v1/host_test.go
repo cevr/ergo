@@ -253,11 +253,28 @@ func TestFSWriteFileFailedRename(t *testing.T) {
 // mode, and the link stays; a link to a missing name makes that file; a
 // link to a directory is Failed "is a directory" and stays; a ".." in a
 // link's text is the host's to resolve after a linked directory, not
-// cleaned away; a loop of links is Failed.
+// cleaned away; a loop of links is Failed. The cases run under a strict
+// and a conventional umask: the kept mode is the file's, whatever the
+// process umask is (fu-umask).
 func TestFSWriteFileFollowsLinks(t *testing.T) {
+	for _, mask := range []int{0o077, 0o022} {
+		t.Run(fmt.Sprintf("umask%03o", mask), func(t *testing.T) {
+			saved := setUmask(mask)
+			defer setUmask(saved)
+			fsWriteFileFollowsLinks(t)
+		})
+	}
+}
+
+func fsWriteFileFollowsLinks(t *testing.T) {
 	dir := t.TempDir()
 	at := func(name string) string { return filepath.Join(dir, name) }
 	if err := os.WriteFile(at("file"), []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	// WriteFile's mode is filtered by the umask; the kept-mode check
+	// below needs the file to have exactly 0640.
+	if err := os.Chmod(at("file"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(at("real/sub"), 0o755); err != nil {
