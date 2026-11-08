@@ -612,6 +612,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 		{"implementer", "type Fake {}\n\nfunc ambient(_ Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
 		{"implementer by borrow", "type Fake { n int }\n\nfunc ambient(_ *Fake) {}\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry"}},
 		{"a function of another name", "type Fake {}\n\nfunc other(_ Fake) {}\n", nil},
+		{"unexported named context", "type Fake {}\n\nfunc ambient(_ Fake) {}\n\nlet c = context { Ambient: Fake }\n", []string{"fixture.Fake implements Ambient, whose one provider is the program entry", "fixture.c is a named context that binds Ambient"}},
 		{"named context of another capability", "let C = context { Scheduler: LiveScheduler }\n", nil},
 		{"named context", "type Fake {}\n\nfunc ambient(_ Fake) {}\n\nlet C = context { Ambient: Fake }\n", []string{"fixture.C is a named context that binds Ambient", "fixture.Fake implements Ambient, whose one provider is the program entry"}},
 		{"context literal in a with", "func g() int needs Ambient { 1 }\n\nfunc Rebind(a Ambient) int {\n\twith context { Ambient: a } { g() }\n}\n", []string{"fixture: a context literal binds Ambient"}},
