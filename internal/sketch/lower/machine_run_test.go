@@ -1,13 +1,18 @@
 package lower
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/lawledger"
 )
@@ -476,11 +481,55 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 		return
 	}
 	for _, p := range progs {
-		stdout, stderr, code := runExe(t, exes[p.name])
+		stdout, stderr, code, ended := runBounded(t, exes[p.name])
+		if !ended {
+			t.Fatalf("seed %d, %s: still running after %s, stopped: a run that never ends (a timer cascade?)\nsource:\n%s", seed, p.name, programBound, p.src)
+		}
 		if got := lines(stdout); code != 0 || !slices.Equal(got, p.want) {
 			t.Errorf("seed %d, %s: exit %d\nstdout:\n%s\nwant:\n%s\nstderr:\n%s\nsource:\n%s", seed, p.name, code, stdout, strings.Join(p.want, "\n"), firstLines(stderr, 8), p.src)
 		}
 	}
+}
+
+// programBound is how long runBounded lets a generated program run. Each
+// one ends in milliseconds; the bound is a guard, not a timing claim.
+const programBound = 30 * time.Second
+
+// runBounded runs a generated program in a process group of its own and
+// stops the group after programBound, reporting whether the program ended
+// by itself. A wrong runner (a mutant whose timer never moves the clock)
+// loops forever and may grow without limit: on 2026-11-08 one such
+// program, orphaned when go test's timeout ended the test, took 46.7 GB.
+func runBounded(t *testing.T, exe string) (stdout, stderr string, code int, ended bool) {
+	t.Helper()
+	probeRan(exe)
+	cmd := exec.Command(exe)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	stopGroup := func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	t.Cleanup(stopGroup) // a Fatal elsewhere never leaves the group behind
+	var err error
+	select {
+	case err = <-done:
+		ended = true
+	case <-time.After(programBound):
+		stopGroup()
+		<-done
+		return out.String(), errOut.String(), -1, false
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		code = exit.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return out.String(), errOut.String(), code, ended
 }
 
 // TestMachineValueConverts: a machine declaration's value is assignable to
