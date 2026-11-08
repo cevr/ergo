@@ -25,13 +25,15 @@ import (
 //
 // A seeded generator writes groups of types (treeGen.group): unions of 2
 // to 4 variants, records that are not variants, and named tuples whose two
-// first elements often share a type; a field is int ({0, 1, 2}), string
-// ({"a", "b"}), bool, or an earlier type of the group with at most 64
-// values, so unions, records and tuples nest. Matches have 1 to 3 subjects
-// of these types (or bool, or int) and 2 to 8 arms: wildcards, binds, type
-// tests, `as`, record patterns with 0 to 2 written fields, tuple patterns
-// with `_` mixed in, constants, and or-patterns of 2 alternatives that bind
-// the same names, often from different columns. About half the matches end
+// first elements, and whose two last, often share a type; a field is int
+// ({0, 1, 2}), string ({"a", "b"}), bool, or an earlier type of the group
+// with at most 64 values, so unions, records and tuples nest. Matches have
+// 1 to 3 subjects of these types (or bool, or int; a third of them repeat
+// a subject's type) and 2 to 8 arms: wildcards, binds, type tests, `as`,
+// record patterns with 0 to 2 written fields, tuple patterns with `_`
+// mixed in, constants, and or-patterns of 2 alternatives that bind the
+// same names, often from different columns, sometimes two same-typed names
+// swapped between the alternatives. About half the matches end
 // with `case _`; the others end with one arm per variant (or bool value)
 // of their first subject. The checker filters them: an arm it reports
 // unreachable (S108) is dropped, a match it reports not total (S103) is
@@ -51,7 +53,8 @@ import (
 // constructor column, a constant column, a tuple and a record, and that
 // the tree gave up on the fallback probes.
 //
-// -match.seed=N runs the seed N alone. A failure prints the replay
+// -match.seed=N runs the seed N alone, and checks the drop rate of the
+// fixed set only. A failure prints the replay
 // command, the match's Ergo source, and its lines from the model, the tree
 // and the flat program side by side.
 
@@ -244,6 +247,11 @@ func (g *treeGen) productType(gr *gGroup, kind gKind, name string, compound []*g
 	if kind == gTupleKind && g.r.IntN(2) == 0 {
 		vr.fields[1] = vr.fields[0]
 	}
+	if kind == gTupleKind && n == 3 && g.r.IntN(2) == 0 {
+		// Elements 1 and 2 share a type too, so a swap of the two later
+		// columns is visible (verifier mutant V3b).
+		vr.fields[2] = vr.fields[1]
+	}
 	t := &gType{kind: kind, union: &gUnion{name: name, variants: []*gVariant{vr}}}
 	gr.types = append(gr.types, t)
 	return t
@@ -372,6 +380,11 @@ func (g *treeGen) match(gr *gGroup, id string) *gMatch {
 	for range 1 + g.r.IntN(3) {
 		m.subjects = append(m.subjects, g.subjectType(gr))
 	}
+	if n := len(m.subjects); n > 1 && g.r.IntN(3) == 0 {
+		// Two subjects of one type, so an or-pattern can bind two
+		// same-typed names (arm1).
+		m.subjects[n-1] = m.subjects[g.r.IntN(n-1)]
+	}
 	for range 2 + g.r.IntN(7) {
 		m.arms = append(m.arms, g.arm(m))
 	}
@@ -476,7 +489,23 @@ func (g *treeGen) arm1(m *gMatch) *gArm {
 		}
 	}
 	j := same[g.r.IntN(len(same))]
-	switch k := g.r.IntN(3); {
+	other := slices.DeleteFunc(slices.Clone(same), func(x int) bool { return x == i })
+	switch k := g.r.IntN(4); {
+	case k == 3 && len(other) > 0:
+		// Two same-typed names, swapped between the alternatives: a
+		// shared leaf that gives a name the other's value is visible
+		// (verifier mutant V9).
+		j = other[g.r.IntN(len(other))]
+		mk := func(name string) *gPat { return &gPat{kind: pBind, t: t, name: name} }
+		if t.kind == gUnionKind {
+			v := g.r.IntN(len(t.union.variants))
+			mk = func(name string) *gPat {
+				return &gPat{kind: pAs, t: t, name: name, inner: &gPat{kind: pTest, t: t, variant: v}}
+			}
+		}
+		alts[0][i], alts[0][j] = mk("b0"), mk("b1")
+		alts[1][i], alts[1][j] = mk("b1"), mk("b0")
+		a.names = []string{"b0", "b1"}
 	case k == 1:
 		alts[0][i] = &gPat{kind: pBind, t: t, name: "b0"}
 		alts[1][j] = &gPat{kind: pBind, t: t, name: "b0"}
@@ -1276,7 +1305,9 @@ func TestMatchTreeAgrees(t *testing.T) {
 	src.WriteString("}\n")
 	rate := float64(dropped) / float64(generated)
 	t.Logf("seeds %v: %d matches (%d generated again: not total, or under 2 arms), %d of %d generated arms dropped by the checker (%.0f%%), %d lines", seeds, matches, regenerated, dropped, generated, 100*rate, strings.Count(want.String(), "\n"))
-	if rate > 0.5 {
+	// The drop rate is a property of the fixed set; one seed alone can
+	// pass 50% (a replay with -match.seed checks the outputs only).
+	if rate > 0.5 && *treeSeed == 0 {
 		t.Errorf("drop rate %.0f%% is over 50%%: a generator defect", 100*rate)
 	}
 
