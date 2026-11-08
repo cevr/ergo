@@ -125,6 +125,103 @@ func Constructible(t Type, from *Package) bool {
 	return ok(t)
 }
 
+// Buildable reports whether package from can make a value of t with no
+// authority: from literals, empty literals, zero values, conversions and
+// function values of its own, never with a value that a function of
+// another package returns (fu-constructible). It is the least fixed point
+// of these rules over t's structure:
+//   - a record whose body has authority in from (hasAuthority) is never
+//     built; any other record is built when each of its fields is (an
+//     omitted field is a zero value, and a zero value is buildable only
+//     where a literal is);
+//   - a tuple is built when each element is, a union when one variant is
+//     (a variant value is a value of the union), a borrow when its element is;
+//   - a basic type is built from a literal, a slice or a Map from an empty
+//     literal whatever its element (it holds none), and a function value
+//     from a literal of from;
+//   - an operation type, a type parameter and every other type count as
+//     built: from may declare a type that implements an open operation
+//     type, and a sealed one is decided by its implementers (not yet: a
+//     sealed operation type reads as built, fu-hostguard2).
+//
+// Constructible is a different fact: whether a generator may build t from
+// its parts with no hidden field anywhere, so an empty slice of an
+// authority record is not Constructible but is Buildable. The host guard
+// (stdlib.md, Host packages) reads Buildable.
+func Buildable(t Type, from *Package) bool {
+	// The nodes reachable from t, each once, and their children.
+	idx := map[Type]int{}
+	var nodes []Type
+	var kids [][]int
+	var visit func(Type) int
+	visit = func(t Type) int {
+		if i, ok := idx[t]; ok {
+			return i
+		}
+		i := len(nodes)
+		idx[t] = i
+		nodes = append(nodes, t)
+		kids = append(kids, nil)
+		var cs []Type
+		switch u := under(t).(type) {
+		case *Struct:
+			if !hasAuthority(u, from) {
+				for _, f := range u.Fields {
+					cs = append(cs, f.Type)
+				}
+			}
+		case *Tuple:
+			cs = u.Types
+		case *Union:
+			cs = u.Variants
+		case *Pointer:
+			cs = []Type{u.Elem}
+		}
+		for _, c := range cs {
+			j := visit(c)
+			kids[i] = append(kids[i], j)
+		}
+		return i
+	}
+	visit(t)
+	// Kleene iteration from all false: each step is monotone, so it stops
+	// at the least fixed point (a value is built in finitely many steps).
+	val := make([]bool, len(nodes))
+	for changed := true; changed; {
+		changed = false
+		for i, n := range nodes {
+			if val[i] {
+				continue
+			}
+			v := true
+			switch u := under(n).(type) {
+			case *Struct:
+				if hasAuthority(u, from) {
+					v = false
+					break
+				}
+				for _, j := range kids[i] {
+					v = v && val[j]
+				}
+			case *Tuple, *Pointer:
+				for _, j := range kids[i] {
+					v = v && val[j]
+				}
+			case *Union:
+				v = false
+				for _, j := range kids[i] {
+					v = v || val[j]
+				}
+			}
+			if v {
+				val[i] = true
+				changed = true
+			}
+		}
+	}
+	return val[0]
+}
+
 // qualifiedName is a declaration's name as another package writes it.
 func qualifiedName(obj *TypeName) string {
 	if obj.Pkg == nil {

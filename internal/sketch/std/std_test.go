@@ -528,17 +528,15 @@ var unguardedHosts = map[string]string{
 // Every host provider has construction authority, so no other package
 // builds one, and each exported function of its package whose result is
 // T lists Ambient in its written row. Whether another package builds T
-// is the checker's fact, by the kind of T's underlying type
-// (fu-hostguard):
-//   - a basic type, a slice or a Map: always, from a literal, an empty
-//     literal or its zero value (a slice or Map is empty at zero, so it
-//     holds no element that needs authority; authority.go, zeroAuthority);
-//   - a union: when some variant is check.Constructible, since a variant
-//     value is a value of the union, and a union has no zero value
-//     (types.md, Unions 3);
-//   - a record, and every other kind: check.Constructible. An operation
-//     type is constructible by that fact, so a sealed operation type is
-//     reported too; no std provider is one today.
+// is one checker fact, check.Buildable (fu-constructible): a basic type,
+// a slice and a Map always (a literal, an empty literal or the zero value
+// holds no element that needs authority); a union when some variant is
+// (a variant value is a value of the union, and a union has no zero
+// value, types.md Unions 3); a record when it has no unexported field and
+// each field is, so an exported []Cap field of authority records lets
+// another package build it from an empty slice. An operation type counts
+// as built, so a sealed operation type is reported too; no std provider
+// is one today.
 //
 // So a later host package (io, clock) follows the rule, or this test
 // names it. The set found today is pinned, and a fixture table with one
@@ -632,6 +630,38 @@ type Remote { Addr string }
 
 func NewHost() Host needs Ambient { Local{root: "/"} }
 `, []string{"another package builds it: variant fixture.Remote needs an unexported field"}},
+		// fu-constructible (b9 D2 r2 verify, On base P4): an exported field
+		// of authority records inside a slice or Map, in a record or in a
+		// variant, is built empty by another package. check.Constructible
+		// is false for each, so the guard read it as authority.
+		{"record with an exported slice of records with authority", `type Host { Caps []Cap }
+
+type Cap { root string }
+
+func NewHost() Host needs Ambient { Host{Caps: []Cap{}} }
+`, []string{"another package builds it: it needs an unexported field"}},
+		{"record with an exported Map of records with authority", `type Host { Caps Map[string, Cap] }
+
+type Cap { root string }
+
+func NewHost() Host needs Ambient { Host{Caps: Map[string, Cap]{}} }
+`, []string{"another package builds it: it needs an unexported field"}},
+		{"union with a variant holding an exported slice of records with authority", `type Host = Local | Remote
+
+type Local { root string }
+
+type Remote { Caps []Local }
+
+func NewHost() Host needs Ambient { Local{root: "/"} }
+`, []string{"another package builds it: variant fixture.Remote needs an unexported field"}},
+		// Control: an exported field of a record with authority, held by
+		// value, is not built by another package.
+		{"record with an exported field of a record with authority", `type Host { C Cap }
+
+type Cap { root string }
+
+func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
+`, nil},
 		{"basic", `type Host int
 
 func NewHost() Host needs Ambient { 0 }
@@ -725,19 +755,19 @@ func hostProviderTypes(pkg *check.Package) []*check.TypeName {
 // the rule, as seen from the package outside.
 func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *check.Package) []string {
 	var out []string
-	// Does another package build tn? The rule by kind is in the doc of
-	// TestStdHostProvidersHaveAuthority.
-	switch under := tn.Type.(*check.Named).Underlying().(type) {
-	case *check.Basic, *check.Slice, *check.Map:
-		out = append(out, "another package builds it from a literal or its zero value: a defined type over "+under.String()+" holds no authority; it needs a record with an unexported field, or a union of such records")
-	case *check.Union:
-		for _, v := range under.Variants {
-			if check.Constructible(v, outside) {
-				out = append(out, "another package builds it: variant "+v.String()+" needs an unexported field")
+	// Does another package build tn? One checker fact, check.Buildable;
+	// the kind of tn's underlying type only words the message.
+	if check.Buildable(tn.Type, outside) {
+		switch under := tn.Type.(*check.Named).Underlying().(type) {
+		case *check.Basic, *check.Slice, *check.Map:
+			out = append(out, "another package builds it from a literal or its zero value: a defined type over "+under.String()+" holds no authority; it needs a record with an unexported field, or a union of such records")
+		case *check.Union:
+			for _, v := range under.Variants {
+				if check.Buildable(v, outside) {
+					out = append(out, "another package builds it: variant "+v.String()+" needs an unexported field")
+				}
 			}
-		}
-	default:
-		if check.Constructible(tn.Type, outside) {
+		default:
 			out = append(out, "another package builds it: it needs an unexported field")
 		}
 	}
