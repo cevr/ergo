@@ -1,0 +1,14 @@
+// A frame's bytes, and the frame law restated (#162).
+
+import tui/picker
+
+test AFrameOfEachMode {
+	let v = picker.View{Items: []string{"Gleam", "Elm"}, Filter: "", Cursor: 1}
+	assert Frame(picker.Browsing{View: v}) == "\x1b[H\x1b[2J/ filter  up/down move  enter pick  q quit\r\n  Gleam\r\n\x1b[7m> Elm\x1b[0m\r\n"
+	assert Frame(picker.Filtering{View: picker.View{..v, Filter: "x", Cursor: 0}}) == "\x1b[H\x1b[2Jfilter: x_\r\n  (no match)\r\n"
+	assert Header(picker.Browsing{View: picker.View{..v, Filter: "el"}}) == "/ filter  up/down move  enter pick  q quit  [el]"
+}
+
+test OneLineIsMarkedHolds(m picker.Mode) {
+	assert OneLineIsMarkedHolds(m)
+}

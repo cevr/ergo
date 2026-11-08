@@ -1,0 +1,84 @@
+// The rules of the picker as laws over Step and Run.
+
+import strings
+import tui/keys
+
+// CursorStaysOnTheList: after any keys, the cursor is on a visible item,
+// or at 0 when none is visible.
+law CursorStaysOnTheList(items []string, ks []keys.Key) { CursorStaysOnTheListHolds(items, ks) }
+
+// VisibleIsTheMatches: the visible items are the items that hold the
+// filter, in any case, in their order.
+law VisibleIsTheMatches(items []string, filter string) { VisibleIsTheMatchesHolds(items, filter) }
+
+// TypeThenDeleteIsNoChange: in Filtering, a typed character and then a
+// Backspace leave the filter as it was.
+law TypeThenDeleteIsNoChange(items []string, filter string, c string) { TypeThenDeleteIsNoChangeHolds(items, filter, c) }
+
+// APickIsVisible: what a run picks is an item visible in its last mode.
+law APickIsVisible(items []string, ks []keys.Key) { APickIsVisibleHolds(items, ks) }
+
+// InterruptCancels: Ctrl-C ends the picker with no item, in every mode.
+law InterruptCancels(m Mode) {
+	match Step(m, keys.Interrupt) {
+	case Done[Choice] as d:
+		d.Output == Cancelled
+	case Enter[Mode], Stay[Mode], Ignore, Reject:
+		false
+	}
+}
+
+// CursorStaysOnTheListHolds checks CursorStaysOnTheList.
+func CursorStaysOnTheListHolds(items []string, ks []keys.Key) bool {
+	for m in Run(Start(items), ks).Frames {
+		let v = ViewOf(m)
+		let n = len(Visible(v))
+		if v.Cursor < 0 || (n == 0 && v.Cursor != 0) || (n > 0 && v.Cursor >= n) {
+			return false
+		}
+	}
+	true
+}
+
+// VisibleIsTheMatchesHolds checks VisibleIsTheMatches, written apart from
+// Visible: it walks the items and the visible list side by side.
+func VisibleIsTheMatchesHolds(items []string, filter string) bool {
+	let shown = Visible(View{Items: items, Filter: filter, Cursor: 0})
+	let mut at = 0
+	for item in items {
+		if strings.Contains(strings.ToLower(item), strings.ToLower(filter)) {
+			if at >= len(shown) || shown[at] != item {
+				return false
+			}
+			at = at + 1
+		}
+	}
+	at == len(shown)
+}
+
+// TypeThenDeleteIsNoChangeHolds checks TypeThenDeleteIsNoChange for a c
+// of one printable ASCII character.
+func TypeThenDeleteIsNoChangeHolds(items []string, filter string, c string) bool {
+	let letter = if len(c) == 0 || c[0] < 32 || c[0] >= 127 { "a" } else { strings.Slice(c, 0, 1) }
+	let start = Filtering{View: View{Items: items, Filter: filter, Cursor: 0}}
+	let o = Run(start, []keys.Key{keys.Char{Text: letter}, keys.Backspace})
+	ViewOf(Last(o)).Filter == filter
+}
+
+// APickIsVisibleHolds checks APickIsVisible.
+func APickIsVisibleHolds(items []string, ks []keys.Key) bool {
+	let o = Run(Start(items), ks)
+	match o.Choice {
+	case Some[Choice] as c:
+		match c.Value {
+		case Picked as p:
+			let v = ViewOf(Last(o))
+			let shown = Visible(v)
+			v.Cursor < len(shown) && shown[v.Cursor] == p.Item
+		case Cancelled:
+			true
+		}
+	case None:
+		true
+	}
+}

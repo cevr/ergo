@@ -1,0 +1,105 @@
+// Package keys reads the bytes a terminal sends for each key, as a
+// terminal in raw mode sends them: arrows as ANSI escape sequences, Return
+// as a carriage return, Backspace as DEL.
+
+import strings
+
+// Key is one key a person pressed.
+type Key = Up{} | Down{} | Return{} | Backspace{} | Escape{} | Interrupt{} | Char{Text string}
+
+let esc = "\x1b"
+
+// Decode is the keys of text, in order. An arrow is ESC [ A or ESC [ B; an
+// ESC that no '[' follows is Escape; CR or LF is Return (Enter); DEL or BS is
+// Backspace; Ctrl-C is Interrupt; a printable character, one UTF-8
+// sequence, is a Char. Any other control byte, and any other escape
+// sequence of three bytes, is skipped.
+func Decode(text string) []Key {
+	let mut out = []Key{}
+	let mut i = 0
+	for i < len(text) {
+		let c = text[i]
+		if c == 27 {
+			if i+2 < len(text) && text[i+1] == '[' {
+				let final = text[i+2]
+				if final == 'A' {
+					out = out.Append(Up)
+				} else if final == 'B' {
+					out = out.Append(Down)
+				}
+				i = i + 3
+			} else {
+				out = out.Append(Escape)
+				i = i + 1
+			}
+			continue
+		}
+		if c == '\r' || c == '\n' {
+			out = out.Append(Return)
+		} else if c == 127 || c == 8 {
+			out = out.Append(Backspace)
+		} else if c == 3 {
+			out = out.Append(Interrupt)
+		} else if c >= 32 {
+			let n = width(c)
+			let end = if i+n > len(text) { len(text) } else { i + n }
+			out = out.Append(Char{Text: strings.Slice(text, i, end)})
+			i = end
+			continue
+		}
+		i = i + 1
+	}
+	out
+}
+
+// width is the length of the UTF-8 sequence that starts with c.
+func width(c byte) int {
+	if c >= 240 {
+		return 4
+	}
+	if c >= 224 {
+		return 3
+	}
+	if c >= 192 {
+		return 2
+	}
+	1
+}
+
+// Encode is the bytes a terminal sends for k.
+func Encode(k Key) string {
+	match k {
+	case Up:
+		esc + "[A"
+	case Down:
+		esc + "[B"
+	case Return:
+		"\r"
+	case Backspace:
+		"\x7f"
+	case Escape:
+		esc
+	case Interrupt:
+		"\x03"
+	case Char as c:
+		c.Text
+	}
+}
+
+// Script is the bytes of keys, one after another: a scripted session.
+func Script(keys []Key) string {
+	let mut out = ""
+	for k in keys {
+		out = out + Encode(k)
+	}
+	out
+}
+
+// Typed is a Char for each byte of text, which must be printable ASCII.
+func Typed(text string) []Key {
+	let mut out = []Key{}
+	for i in 0..len(text) {
+		out = out.Append(Char{Text: strings.Slice(text, i, i+1)})
+	}
+	out
+}

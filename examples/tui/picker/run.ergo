@@ -1,0 +1,34 @@
+import tui/keys
+
+// Outcome is a run of the picker over keys: each mode it showed, the
+// first one included, how many keys it rejected, and the choice, or None
+// when the keys ran out first.
+type Outcome { Frames []Mode, Rejected int, Choice Option[Choice] }
+
+// Run steps m by each key until the picker is Done. The machine has no
+// runner yet (runtime.md: no runner until #57/#101), so Run is the runner
+// and handles all five decisions.
+func Run(m Mode, ks []keys.Key) Outcome {
+	let mut now = m
+	let mut frames = []Mode{m}
+	let mut rejected = 0
+	for k in ks {
+		match Step(now, k) {
+		case Enter[Mode] as e:
+			now = e.Next
+			frames = frames.Append(now)
+		case Stay[Mode] as s:
+			now = s.Next
+			frames = frames.Append(now)
+		case Ignore:
+		case Reject:
+			rejected = rejected + 1
+		case Done[Choice] as d:
+			return Outcome{Frames: frames, Rejected: rejected, Choice: Some[Choice]{Value: d.Output}}
+		}
+	}
+	Outcome{Frames: frames, Rejected: rejected, Choice: None}
+}
+
+// Last is the last mode of o.
+func Last(o Outcome) Mode { o.Frames[len(o.Frames)-1] }

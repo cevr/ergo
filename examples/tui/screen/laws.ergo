@@ -1,0 +1,29 @@
+// The rules of a frame as laws over Frame.
+
+import strings
+import tui/picker
+
+// OneLineIsMarked: a frame marks exactly one line, the item under the
+// cursor, when an item is visible, and none otherwise; and it has one
+// line per visible item after its header.
+law OneLineIsMarked(m picker.Mode) { OneLineIsMarkedHolds(m) }
+
+// OneLineIsMarkedHolds checks OneLineIsMarked on m with its cursor put on
+// the list, as the picker keeps it.
+func OneLineIsMarkedHolds(m picker.Mode) bool {
+	let v = picker.ViewOf(m)
+	let shown = picker.Visible(v)
+	let cursor = if len(shown) == 0 { 0 } else { (if v.Cursor < 0 { -(v.Cursor + 1) } else { v.Cursor }) % len(shown) }
+	let placed picker.Mode = match m {
+	case picker.Browsing:
+		picker.Browsing{View: picker.View{..v, Cursor: cursor}}
+	case picker.Filtering:
+		picker.Filtering{View: picker.View{..v, Cursor: cursor}}
+	}
+	let frame = Frame(placed)
+	let lines = strings.Split(strings.TrimSuffix(frame, "\r\n"), "\r\n")
+	if len(shown) == 0 {
+		return strings.Count(frame, reverse) == 0 && len(lines) == 2
+	}
+	strings.Count(frame, reverse) == 1 && lines[cursor+1] == Marked(shown[cursor]) && len(lines) == len(shown)+1
+}
