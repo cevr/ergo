@@ -1271,14 +1271,21 @@ func (c *checker) constraint(x syntax.Expr, ctx *typeCtx) Type {
 
 // instantiateExprs instantiates a generic type with written type arguments.
 // A row-kinded parameter takes an error type, a capability or a row
-// parameter, as a row of one element.
+// parameter, as a row of one element. The trailing row parameters may be
+// left out, and each left out stands for the empty row (types.md,
+// Generics 7): Command[Cmd] is Command[Cmd, E] with E empty. A type
+// parameter, or a row parameter that a written argument follows, is never
+// left out.
 func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node, ctx *typeCtx) Type {
 	c.resolveNamed(n)
-	if len(args) != len(n.TParams) {
+	if len(args) > len(n.TParams) || len(args) < len(n.TParams) && !trailingRows(n.TParams[len(args):]) {
 		c.errorf(at, CodeType, "%s takes %d type arguments, not %d", n.Obj.Name, len(n.TParams), len(args))
 		return invalid
 	}
-	targs := make([]Type, len(args))
+	targs := make([]Type, len(n.TParams))
+	for i := len(args); i < len(n.TParams); i++ {
+		targs[i] = &RowArg{Row: newRow()}
+	}
 	for i, a := range args {
 		tp := n.TParams[i]
 		if tp.Kind != KindType {
@@ -1309,6 +1316,18 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		}
 	}
 	return inst
+}
+
+// trailingRows reports whether every parameter of left, the parameters
+// after the written type arguments, ranges over rows, so that each may be
+// left out as the empty row.
+func trailingRows(left []*TypeParam) bool {
+	for _, tp := range left {
+		if tp.Kind == KindType {
+			return false
+		}
+	}
+	return true
 }
 
 // instantiate returns the instance of a generic named type. Its body is
