@@ -44,14 +44,17 @@ func TestTraceOffAddsNoAllocs(t *testing.T) {
 // TestTraceHookKeepsTaskSize pins the layout the off path relies on: the
 // tracer pointer fits in the word freed by moving shielded beside stopped, so
 // a started task stays in its allocation size class (Handle[struct{}] 176 B).
+// The auto-clock member pointer (idle.go) took the two words a region
+// spill slice gave up for a pointer, so Task is 128 B and
+// Handle[struct{}] is 168 B, in the same 176 B class.
 func TestTraceHookKeepsTaskSize(t *testing.T) {
 	if unsafe.Sizeof(uintptr(0)) != 8 {
 		t.Skip("the pinned sizes are for 64-bit targets")
 	}
-	if got := unsafe.Sizeof(Task{}); got != 136 {
-		t.Errorf("Task is %d bytes; want 136", got)
+	if got := unsafe.Sizeof(Task{}); got != 128 {
+		t.Errorf("Task is %d bytes; want 128", got)
 	}
-	if got := unsafe.Sizeof(Handle[struct{}]{}); got != 176 {
-		t.Errorf("Handle[struct{}] is %d bytes; want 176", got)
+	if got := unsafe.Sizeof(Handle[struct{}]{}); got != 168 {
+		t.Errorf("Handle[struct{}] is %d bytes; want 168", got)
 	}
 }

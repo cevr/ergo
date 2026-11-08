@@ -39,14 +39,17 @@ type regionStack struct {
 	top    region                // kind of the innermost entry, or interruptible when empty
 	inline [inlineRegions]region // with top, one 8-byte word
 	n      int                   // depth; deeper entries spill to more, with no limit
-	more   []region
+	// more is a pointer, one word, not a slice: a spill past seven regions
+	// is rare, and the two words it saves keep a Task with its auto-clock
+	// member (idle.go) in its size class.
+	more *[]region
 }
 
 func (s *regionStack) at(i int) region {
 	if i < inlineRegions {
 		return s.inline[i]
 	}
-	return s.more[i-inlineRegions]
+	return (*s.more)[i-inlineRegions]
 }
 
 // push opens a region and returns its index, the depth to truncate to when it
@@ -56,7 +59,10 @@ func (s *regionStack) push(r region) int {
 	if i < inlineRegions {
 		s.inline[i] = r
 	} else {
-		s.more = append(s.more[:i-inlineRegions], r)
+		if s.more == nil {
+			s.more = new([]region)
+		}
+		*s.more = append((*s.more)[:i-inlineRegions], r)
 	}
 	s.n++
 	s.top = r
@@ -66,8 +72,8 @@ func (s *regionStack) push(r region) int {
 // truncate closes every region at index n and above.
 func (s *regionStack) truncate(n int) {
 	s.n = n
-	if len(s.more) > 0 {
-		s.more = s.more[:max(n-inlineRegions, 0)]
+	if s.more != nil && len(*s.more) > 0 {
+		*s.more = (*s.more)[:max(n-inlineRegions, 0)]
 	}
 	s.top = interruptible
 	if n > 0 {

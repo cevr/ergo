@@ -532,7 +532,11 @@ func (ds deadlines) NewTimer(d time.Duration) rt.Timer {
 		return guarded(ct, func(ct *rt.Task) (struct{}, error) {
 			defer func() {
 				if !ct.Stopped() {
+					// The race's caller may be parked on this deadline in
+					// an auto clock's domain (rt idle.go).
+					w := rt.Waking(ds.t, dl)
 					close(dl.fired)
+					w.Done()
 				}
 			}()
 			ds.s.Sleep(ct, d)
@@ -549,8 +553,12 @@ type deadline struct {
 	fired chan time.Time
 }
 
-// C delivers when the deadline passes.
+// C delivers when the deadline passes: it closes.
 func (dl *deadline) C() <-chan time.Time { return dl.fired }
+
+// WakesItsWaiter marks a deadline as an rt.WakeSource: its fire wakes the
+// race's caller through rt.Waking, so the caller may park on it.
+func (dl *deadline) WakesItsWaiter() {}
 
 // Stop stops and drains the deadline child, so no child of After outlives
 // it, and reports whether the deadline had not passed. A defect of the

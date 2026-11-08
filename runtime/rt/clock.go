@@ -47,6 +47,11 @@ type Virtual struct {
 	now    time.Time
 	seq    uint64
 	timers []*virtualTimer // sorted by (when, seq)
+	// An auto clock (idle.go) also moves when every live member of its
+	// domain is parked; steps counts those moves.
+	auto         bool
+	live, parked int
+	steps        int
 }
 
 type virtualTimer struct {
@@ -54,6 +59,7 @@ type virtualTimer struct {
 	when time.Time
 	seq  uint64
 	c    chan time.Time
+	task *Task // the sleeper of an auto clock's Sleep, nil otherwise
 }
 
 // NewVirtual returns a virtual clock that reads start.
@@ -119,7 +125,7 @@ func (v *Virtual) Advance(d time.Duration) {
 		t := v.timers[0]
 		v.timers = v.timers[1:]
 		v.now = t.when
-		t.c <- t.when
+		v.fire(t)
 	}
 	v.now = target
 	v.armed.Broadcast()
@@ -147,6 +153,9 @@ func (v *Virtual) AwaitTimers(n int) {
 func Sleep(t *Task, s Scheduler, d time.Duration) error {
 	if t.Stopped() {
 		return Interrupted
+	}
+	if v, ok := s.(*Virtual); ok && v.auto {
+		return v.sleep(t, d)
 	}
 	timer := s.NewTimer(d)
 	select {

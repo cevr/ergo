@@ -31,6 +31,9 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 		}
 		switch binding.wait {
 		case noWait:
+		case memberTask:
+			// It records the caller as a member of an auto clock and never
+			// parks; runtime/v1 TestVirtualClockModel states its laws.
 		case childWait:
 			// A child join parks on no primitive of its own: its stop, mask
 			// and drain laws are the runtime/v1 tests of its body, which
@@ -304,7 +307,7 @@ func deliveredNative(t *testing.T, src string) {
 		if f.Path == "ergo/runtime/v1/queue.go" {
 			// Pop and Values each take through this line; the seam must
 			// reach both, so a drift fails here.
-			from := "v, ok := q.take(t.Done())"
+			from := "v, ok := q.take(t, t.Done())"
 			if n := strings.Count(string(data), from); n != 2 {
 				t.Fatalf("delivery seam %q occurs %d times, want 2 (Pop, Values)", from, n)
 			}

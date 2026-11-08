@@ -68,6 +68,9 @@ type Queue[T any] struct {
 	// parked counts the Pushes and Pops parked in wait, which a change
 	// wakes.
 	parked int
+	// domain holds the parked waiters that are members of an auto clock's
+	// domain (rt idle.go), which a signal unparks before it wakes them.
+	domain []*rt.Task
 }
 
 // Closed is queue.Closed, the typed failure of Push on a closed queue and
@@ -115,7 +118,7 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 	q.signal() // with capacity 0, a waiting Pop takes v straight away
 	stop := t.Done()
 	for !s.accepted && !s.rejected {
-		if !q.wait(stop) && !s.accepted && !s.rejected {
+		if !q.wait(t, stop) && !s.accepted && !s.rejected {
 			// Stopped first: v leaves the line and never enters the queue.
 			q.dropSender(s)
 			q.mu.Unlock()
@@ -135,7 +138,7 @@ func (q *Queue[T]) Push(t *rt.Task, v T) error {
 // t is stopped before it begins or while it waits.
 func (q *Queue[T]) Pop(t *rt.Task) (T, error) {
 	t.Check()
-	v, ok := q.take(t.Done())
+	v, ok := q.take(t, t.Done())
 	if !ok {
 		return v, Closed{}
 	}
@@ -148,7 +151,7 @@ func (q *Queue[T]) Values(t *rt.Task) iter.Seq[T] {
 	return func(yield func(T) bool) {
 		for {
 			t.Check()
-			v, ok := q.take(t.Done())
+			v, ok := q.take(t, t.Done())
 			if !ok || !yield(v) {
 				return
 			}
@@ -201,7 +204,7 @@ func (q *Queue[T]) Close() {
 // take removes the front value, waiting while the queue is open and empty;
 // ok is false on a closed, empty queue. When stop closes while it waits,
 // it raises rt.Interrupted, having taken nothing.
-func (q *Queue[T]) take(stop <-chan struct{}) (v T, ok bool) {
+func (q *Queue[T]) take(t *rt.Task, stop <-chan struct{}) (v T, ok bool) {
 	q.mu.Lock()
 	for {
 		if v, ok = q.front(); ok {
@@ -212,7 +215,7 @@ func (q *Queue[T]) take(stop <-chan struct{}) (v T, ok bool) {
 			q.mu.Unlock()
 			return v, false
 		}
-		if !q.wait(stop) {
+		if !q.wait(t, stop) {
 			q.mu.Unlock()
 			panic(rt.Interrupted)
 		}
@@ -273,12 +276,21 @@ func (q *Queue[T]) popSender() *sender[T] {
 // it again. It reports false when stop woke it; a nil stop (a masked task,
 // I2) never does. A Push whose value entered at the same moment keeps its
 // success; a Pop that stopped takes nothing, and the values stay queued.
-func (q *Queue[T]) wait(stop <-chan struct{}) bool {
+func (q *Queue[T]) wait(t *rt.Task, stop <-chan struct{}) bool {
 	if q.wake == nil {
 		q.wake = make(chan struct{})
 	}
 	ch := q.wake
 	q.parked++
+	// In an auto clock's domain the waiter parks under q.mu, so the next
+	// signal, which also runs under q.mu, unparks it before it wakes it
+	// (rt idle.go). ready is nil: the waiter has just seen that it must
+	// wait, and no change can come while q.mu is held.
+	var p rt.Parked
+	if t.InDomain() {
+		p = rt.Park(t, q, stop, nil)
+		q.domain = append(q.domain, t)
+	}
 	q.mu.Unlock()
 	woke := true
 	select {
@@ -288,13 +300,32 @@ func (q *Queue[T]) wait(stop <-chan struct{}) bool {
 	}
 	q.mu.Lock()
 	q.parked--
+	if t.InDomain() {
+		p.Unpark()
+		q.dropDomain(t)
+	}
 	return woke
 }
 
-// signal wakes every waiter, which looks again. q.mu is held.
+// signal wakes every waiter, which looks again. q.mu is held. A waiter of
+// an auto clock's domain is unparked first (rt.Waking), so no window shows
+// it parked while it can run.
 func (q *Queue[T]) signal() {
 	if q.wake != nil {
+		for _, w := range q.domain {
+			rt.Waking(w, q).Done()
+		}
 		close(q.wake)
 		q.wake = nil
+	}
+}
+
+// dropDomain removes t from the domain waiters. q.mu is held.
+func (q *Queue[T]) dropDomain(t *rt.Task) {
+	for i, w := range q.domain {
+		if w == t {
+			q.domain = append(q.domain[:i], q.domain[i+1:]...)
+			return
+		}
 	}
 }

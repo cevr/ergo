@@ -26,6 +26,10 @@ const (
 	// children's exits and the parent's stop end its wait, and the
 	// runtime/v1 laws of After (timeout_test.go) are its native property.
 	childWait
+	// memberTask is the hidden *rt.Task of the invocation environment, which
+	// the body makes the first member of an auto clock's domain
+	// (testing.NewVirtualClock); the body never waits on it.
+	memberTask
 )
 
 type runtimeBinding struct {
@@ -45,7 +49,7 @@ type runtimeBinding struct {
 // takesCaller reports a binding whose Go body receives the invocation's
 // task as its hidden CallerTask argument.
 func (b runtimeBinding) takesCaller() bool {
-	return b.wait == callerWait || b.wait == childWait || b.release == callerRelease || b.reads
+	return b.wait == callerWait || b.wait == childWait || b.wait == memberTask || b.release == callerRelease || b.reads
 }
 
 var runtimeBindings = map[string]runtimeBinding{
@@ -149,6 +153,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Timeline.Wait":     {wait: callerWait},
 	"Timeline.Advance":  {},
 	"Timeline.Sleepers": {},
+	// std testing (stdlib.md, Testing): NewVirtualTimeline makes the
+	// calling task the first member of the clock's domain and returns; its
+	// Wait is Timeline.Wait's.
+	"NewVirtualTimeline": {wait: memberTask},
 	// std rand (std-align S2c; stdlib.md, rand): each draw takes the
 	// source's lock for one step of the PCG, or reads Go's global
 	// generator, and none waits on a task.
