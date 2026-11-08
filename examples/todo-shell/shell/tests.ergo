@@ -1,0 +1,117 @@
+// The shell's tests drive Run with a scripted io.Input and record what it
+// writes with an io.Recorder, with no host. The laws are restated as
+// property tests: the compiler checks laws and does not run them yet
+// (#162).
+
+import io
+import strings
+import todoshell/todo
+
+// session is the transcript of Run over the input script, and the list
+// it returns.
+func session(script string) (string, todo.List) {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: script}, Console: out, io.Stdout: out } {
+		let l = Run()
+		(out.Text(), l)
+	}
+}
+
+test ScriptedSession {
+	let text, l = session("add milk\nnote trip\ntent\n.\ndone 1\nlist\nquit\nadd unread\n")
+	assert text == "todo shell: type help for the commands\nadded 1: milk\nnote \"trip\": type its lines, then a line .\nadded 2: trip (1 note lines)\ndone 1: milk\n1. [x] milk\n2. [ ] trip\n     | tent\n1 open of 2\n"
+	assert l.Count() == 2 && l.Open() == 1
+}
+
+test FailuresAreToldAndChangeNothing {
+	let text, l = session("done 1\nundo one\nfly\nadd\nnote\n")
+	assert text == "todo shell: type help for the commands\n? no item 1: the list has 0\n? undo needs an item number, not \"one\"\n? unknown command fly; type help\n? add needs a text\n? note needs a text\n"
+	assert l.Count() == 0
+}
+
+test EndOfInputReturnsTheList {
+	let _, l = session("add a\nadd b\nclear\n")
+	assert l.Count() == 2
+}
+
+test ClearNeedsYes {
+	let _, kept = session("add a\nclear\nno\n")
+	let _, cleared = session("add a\nclear\n Yes \n")
+	assert kept.Count() == 1 && cleared.Count() == 0
+}
+
+// terminal is a Stdout provider that is a terminal, so Run shows its
+// prompts; it keeps what is written in a Recorder.
+type terminal { out io.Recorder }
+
+func Print(t terminal, text string) { t.out.Print(text) }
+
+func Println(t terminal, line string) { t.out.Println(line) }
+
+func IsTerminal(_ terminal) bool { true }
+
+test PromptsFollowTheMode {
+	let out = io.NewRecorder()
+	with context { io.Stdin: io.Input{Text: "note n\nline\n.\nclear\ny\n"}, Console: out, io.Stdout: terminal{out: out} } {
+		let _ = Run()
+	}
+	let prompts = strings.Count(out.Text(), "todo> ")
+	assert prompts == 3 && strings.Count(out.Text(), "note| ") == 2 && strings.Count(out.Text(), "y/n> ") == 1
+}
+
+test BlankIsIgnoredHolds(texts []string, n int) {
+	let blank = strings.Repeat(" ", if n < 0 { 0 } else { n % 8 })
+	assert Word(Tried(Listing{L: todo.Of(texts)}, Typed{Line: blank})) == "ignore"
+}
+
+test QuitIsDoneHolds(texts []string) {
+	let l = todo.Of(texts)
+	assert doneWith(Tried(Listing{L: l}, Typed{Line: "quit"}), l)
+}
+
+test EndIsDoneHolds(texts []string, title string) {
+	let l = todo.Of(texts)
+	for m in []Mode{Listing{L: l}, Composing{L: l, Title: title, Lines: []string{}}, Confirming{L: l}} {
+		assert doneWith(Tried(m, Ended), l)
+	}
+}
+
+// doneWith reports whether d is Done with a list equal to l.
+func doneWith(d Decision[Mode, todo.List], l todo.List) bool {
+	match d {
+	case Done[todo.List] as x:
+		todo.Equal(x.Output, l)
+	case Enter[Mode]:
+		false
+	case Stay[Mode]:
+		false
+	case Ignore:
+		false
+	case Reject:
+		false
+	}
+}
+
+test ClearAsksFirstHolds(texts []string, answer string) {
+	let l = todo.Of(texts)
+	let asked = Next(Listing{L: l}, Tried(Listing{L: l}, Typed{Line: "clear"}))
+	let after = ListOf(Next(asked, Tried(asked, Typed{Line: answer})))
+	assert Prompt(asked) == "y/n> "
+	match ParseAnswer(answer) {
+	case Yes:
+		assert after.Count() == 0
+	case No:
+		assert todo.Equal(after, l)
+	}
+}
+
+test NoteLinesKeepTheListHolds(texts []string, title string, line string) {
+	let l = todo.Of(texts)
+	let composing = Composing{L: l, Title: title, Lines: []string{}}
+	let next = Next(composing, Tried(composing, Typed{Line: line}))
+	if strings.TrimSpace(line) == "." {
+		assert ListOf(next).Count() == l.Count()+1 && Prompt(next) == "todo> "
+	} else {
+		assert Prompt(next) == "note| " && todo.Equal(ListOf(next), l)
+	}
+}

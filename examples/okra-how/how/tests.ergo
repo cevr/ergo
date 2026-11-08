@@ -1,0 +1,128 @@
+// The domain's tests: examples of okra's own guides, and the laws as
+// property tests over generated names and texts. The compiler checks laws
+// and does not run them yet (#162); until it does, these tests run them.
+
+import strings
+
+let repoDoc = "---\nname: repo\ndescription: Fetch source code. Use when exploring repos.\n---\n\n# repo\n\nFetch and explore.\n"
+
+test ParseStripsFrontMatter {
+	let t = Parse("repo", repoDoc)
+	assert t.Name == "repo" && t.Summary == "Fetch source code." && t.Body == "# repo\n\nFetch and explore."
+}
+
+test ParseReadsCarriageReturns {
+	let t = Parse("keys", "---\r\ndescription: Manage keys!  More.\r\n---\r\n# keys\r\n")
+	assert t.Summary == "Manage keys!" && t.Body == "# keys"
+}
+
+test ParseKeepsADocWithoutFrontMatter {
+	let t = Parse("plain", "\n# plain\n---\nno front matter\n")
+	assert t.Summary == "" && t.Body == "# plain\n---\nno front matter"
+}
+
+test ParseNeedsAClosingLine {
+	let t = Parse("open", "---\ndescription: never closed.\n")
+	assert t.Summary == "" && t.Body == "---\ndescription: never closed."
+}
+
+// The front matter holds at least one line, so "---" twice is no front
+// matter; and what follows "---" on the closing line starts the body. Both
+// bodies are what okra's pattern /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
+// leaves, trimmed.
+test ParseFollowsOkrasPattern {
+	assert Parse("x", "---\n---\nbody").Body == "---\n---\nbody"
+	assert Parse("x", "---\ndescription: a.\n----extra\nbody").Body == "-extra\nbody"
+}
+
+test SummaryWithoutAStopIsTheDescription {
+	assert FirstSentence("v1.2 release notes") == "v1.2 release notes"
+	assert FirstSentence("Ends here.") == "Ends here."
+	assert FirstSentence("Ask? Then tell.") == "Ask?"
+}
+
+func catalogue() Catalogue fails Duplicate {
+	try Of([]Topic{
+		Parse("schedule", "---\ndescription: Schedule tasks. Via launchd.\n---\nschedule body"),
+		Parse("repo", repoDoc),
+		Parse("repo-fetch", "---\ndescription: Fetch one repo.\n---\nfetch body"),
+	})
+}
+
+test TableMatchesOkra {
+	let c = try catalogue()
+	let want = "okra — AI agent orchestration toolkit\n\nTopics:\n  schedule    Schedule tasks.\n  repo        Fetch source code.\n  repo-fetch  Fetch one repo.\n\nRun `okra how <topic>` for the full guide."
+	assert try Answer(c, Contents) == want
+}
+
+test GuideNamesItsSubtopics {
+	let c = try catalogue()
+	assert try Answer(c, Guide{Name: "repo"}) == "# repo\n\nFetch and explore.\n\nSubtopics: repo-fetch — run `okra how <subtopic>` for details."
+	assert try Answer(c, Guide{Name: "repo-fetch"}) == "fetch body"
+}
+
+test UnknownTopicIsNotFound {
+	let c = try catalogue()
+	let text = Answer(c, Guide{Name: "nosuch"}) catch {
+	case NotFound as n:
+		Message(n)
+	}
+	assert text == "Unknown topic 'nosuch'. Available topics: schedule, repo, repo-fetch"
+}
+
+// duplicateOf is the name that Of refuses as a Duplicate in a catalogue of
+// names, or None when Of builds it.
+func duplicateOf(names []string) Option[string] {
+	let _ = Of(topicsNamed(names)) catch {
+	case Duplicate as d:
+		return Some[string]{Value: d.Name}
+	}
+	None
+}
+
+// missNames reports whether c fails NotFound for name, naming it and
+// exactly known.
+func missNames(c Catalogue, name string, known []string) bool {
+	let _ = c.Find(name) catch {
+	case NotFound as n:
+		return n.Name == name && sameNames(n.Known, known)
+	}
+	false
+}
+
+test DuplicateIsRefused {
+	assert duplicateOf([]string{"a", "b", "a"}) == Some[string]{Value: "a"}
+	assert duplicateOf([]string{"a", "b"}) == None
+}
+
+test FindsEveryTopicHolds(names []string) {
+	if !distinct(names) {
+		assert duplicateOf(names) != None
+		return
+	}
+	let c = try Of(topicsNamed(names))
+	for name in names {
+		let t = try c.Find(name)
+		assert t.Name == name && t.Body == "body of "+name
+	}
+}
+
+test MissNamesTheContentsHolds(names []string, name string) {
+	if !distinct(names) || has(names, name) {
+		return
+	}
+	let c = try Of(topicsNamed(names))
+	assert missNames(c, name, names)
+}
+
+test FrontMatterIsRemovedHolds(description string, body string) {
+	if strings.Contains(description, "\n") || strings.Contains(description, "\r") {
+		return
+	}
+	let t = Parse("t", "---\nname: t\ndescription: "+description+"\n---\n"+body)
+	assert t.Body == strings.TrimSpace(body) && t.Summary == FirstSentence(strings.TrimSpace(description))
+}
+
+test FirstSentenceIsAPrefixHolds(text string) {
+	assert strings.HasPrefix(strings.TrimSpace(text), FirstSentence(text))
+}

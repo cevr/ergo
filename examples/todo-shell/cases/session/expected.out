@@ -1,0 +1,39 @@
+todo shell: type help for the commands
+add TEXT     add an item
+note TITLE   add an item with a note: type its lines, then a line .
+done N       mark item N done
+undo N       mark item N open again
+drop N       remove item N
+list         show the items
+clear        remove every item, after a yes
+help         show this help
+quit         leave
+added 1: buy milk
+added 2: call the bank
+note "trip": type its lines, then a line .
+added 3: trip (2 note lines)
+1. [ ] buy milk
+2. [ ] call the bank
+3. [ ] trip
+     | pack the tent
+     |   check the tyres
+3 open of 3
+done 2: call the bank
+? no item 9: the list has 3
+? undo needs an item number, not "x"
+? unknown command frobnicate; type help
+dropped 1: buy milk
+? add needs a text
+1. [x] call the bank
+2. [ ] trip
+     | pack the tent
+     |   check the tyres
+1 open of 2
+clear 2 items? (y/n)
+kept 2 items
+reopened 1: call the bank
+clear 2 items? (y/n)
+cleared 2 items
+no items
+added 1: water the plants
+bye: 1 open of 1

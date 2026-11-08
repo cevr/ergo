@@ -1,0 +1,100 @@
+import strconv
+import strings
+
+// Command is a line that Listing reads: a word and its argument.
+type Command = Add{Text string} | Complete{At int} | Reopen{At int} | Drop{At int} | Show{} | Note{Title string} | Clear{} | Help{} | Quit{} | Blank{}
+
+// NoteInput is a line that Composing reads: a line of the note, or the
+// end of the note, a line ".".
+type NoteInput = Line{Text string} | End{}
+
+// Answer is a line that Confirming reads: "y" or "yes" is Yes, any other
+// line No.
+type Answer = Yes{} | No{}
+
+// The failures of a command line in Listing.
+
+// Unknown is a first word that names no command.
+type Unknown { Word string }
+
+// BadNumber is the argument of done, undo or drop that is not a number.
+type BadNumber { Command string, Text string }
+
+// MissingText is add or note with nothing after it.
+type MissingText { Command string }
+
+// ParseCommand reads line as a command: its first word, then the rest of
+// the line, trimmed. A blank line is Blank.
+func ParseCommand(line string) Command fails Unknown | BadNumber | MissingText {
+	let text = strings.TrimSpace(line)
+	let mut word = text
+	let mut rest = ""
+	match strings.Cut(text, " ") {
+	case Some[strings.Halves] as h:
+		word = h.Value.Before
+		rest = strings.TrimSpace(h.Value.After)
+	case None:
+	}
+	match word {
+	case "":
+		Blank
+	case "add":
+		Add{Text: try needText(word, rest)}
+	case "note":
+		Note{Title: try needText(word, rest)}
+	case "done":
+		Complete{At: try numberOf(word, rest)}
+	case "undo":
+		Reopen{At: try numberOf(word, rest)}
+	case "drop":
+		Drop{At: try numberOf(word, rest)}
+	case "list":
+		Show
+	case "clear":
+		Clear
+	case "help":
+		Help
+	case "quit":
+		Quit
+	case _:
+		Unknown{Word: word}
+	}
+}
+
+// needText is rest, or MissingText when it is empty.
+func needText(command string, rest string) string fails MissingText {
+	if rest == "" {
+		return MissingText{Command: command}
+	}
+	rest
+}
+
+// numberOf is rest as a decimal number.
+func numberOf(command string, rest string) int fails BadNumber {
+	strconv.Atoi(rest) catch {
+	case strconv.Malformed:
+		return BadNumber{Command: command, Text: rest}
+	case strconv.OutOfRange:
+		return BadNumber{Command: command, Text: rest}
+	}
+}
+
+// ParseNote reads line in Composing: "." ends the note, and any other
+// line, as it is, is a line of it.
+func ParseNote(line string) NoteInput {
+	if strings.TrimSpace(line) == "." {
+		End
+	} else {
+		Line{Text: line}
+	}
+}
+
+// ParseAnswer reads line in Confirming.
+func ParseAnswer(line string) Answer {
+	let a = strings.ToLower(strings.TrimSpace(line))
+	if a == "y" || a == "yes" {
+		Yes
+	} else {
+		No
+	}
+}

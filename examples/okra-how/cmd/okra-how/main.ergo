@@ -1,0 +1,197 @@
+// okra-how is a port of `okra how` (okra's src/how): it prints the table
+// of contents of okra's guides, or one guide. Package how is the domain;
+// package files reads the guides from a directory into a memory.Shelf.
+// This binary is the only place that chooses the providers: the host's
+// file system, standard output and arguments, and the shelf it reads.
+
+import flag
+import fs
+import io
+import okra/files
+import okra/how
+import okra/memory
+import os
+
+// Cmd is a command of okra. This port has one, how.
+type Cmd = How{Topic Option[string]}
+
+// topicArg is how's one positional argument, the topic of a guide.
+let topicArg = flag.OptionalArg("topic", "the topic of the guide to print; none prints the contents")
+
+// commands are okra's commands, each parsed into a Cmd. When SS4 lands, a
+// Build may also fail with the program's own error.
+let commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{
+		Name:  "how",
+		Usage: "print the contents of okra's guides, or the guide of one topic",
+		Set:   flag.Set{Name: "okra how", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{topicArg}},
+		Build: buildHow,
+	},
+}
+
+// buildHow is the how command of its parsed values.
+func buildHow(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	How{Topic: topicArg.Get(v)}
+}
+
+// parse reads args as okra's command line: "how", then an optional topic.
+func parse(args []string) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	try flag.ParseCommand("okra", "", commands, args)
+}
+
+// request is what a command asks of the domain.
+func request(c Cmd) how.Request {
+	match c {
+	case How as h:
+		match h.Topic {
+		case Some[string] as name:
+			how.Guide{Name: name.Value}
+		case None:
+			how.Contents
+		}
+	}
+}
+
+// answer reads the shelf in dir and answers c from its catalogue.
+func answer(dir string, c Cmd) string fails how.NotFound | how.Unreadable | how.Duplicate needs fs.Files {
+	let shelf = try files.Read(dir)
+	with context { how.Library: shelf } {
+		let catalogue = try how.Load()
+		try how.Answer(catalogue, request(c))
+	}
+}
+
+// usage is the help that follows a usage error.
+let usage = "usage: okra how [<topic>]"
+
+// run is okra on args. flag.Exit ends a command line's failure: help on
+// standard output with status 0, a usage error with status 2, as Go's
+// flag does. Each failure of the domain ends it as okra's does:
+// "[CODE] message" on standard error, with status 1. The domain's catch
+// names every failure, with no case _, so a new failure of answer stops
+// the build until run handles it.
+func run(dir string, args []string) fails os.Exit needs io.Stdout | fs.Files {
+	let c = parse(args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	let text = answer(dir, c) catch {
+	case how.NotFound as n:
+		return os.Exit{Code: 1, Message: "[NOT_FOUND] " + how.Message(n)}
+	case how.Unreadable as u:
+		return os.Exit{Code: 1, Message: "[UNREADABLE] cannot read the guide of " + u.Name + ": " + u.Reason}
+	case how.Duplicate as d:
+		return os.Exit{Code: 1, Message: "[DUPLICATE] the topic " + d.Name + " is listed twice"}
+	}
+	io.Stdout.Println(text)
+}
+
+// guides is the directory of the guides: $OKRA_GUIDES, or guides in the
+// working directory.
+func guides() string needs os.Process {
+	match os.Process.Getenv("OKRA_GUIDES") {
+	case Some[string] as dir:
+		dir.Value
+	case None:
+		"guides"
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(guides(), os.Process.Args())
+	}
+}
+
+// The tests run run over a memory.Disk and an io.Recorder, with no host.
+
+let disk = memory.Disk{Files: []memory.File{
+	memory.File{Path: "g/topics", Text: "repo\nrepo-fetch\n"},
+	memory.File{Path: "g/repo/SKILL.md", Text: "---\nname: repo\ndescription: Fetch code. Use often.\n---\n\n# repo\n"},
+	memory.File{Path: "g/repo-fetch/SKILL.md", Text: "---\ndescription: Fetch one repo.\n---\n# fetch\n"},
+}}
+
+// ran is run on args over the shelf in g, with a failure printed as
+// "exit CODE: MESSAGE".
+func ran(args []string) needs io.Stdout | fs.Files {
+	run("g", args) catch {
+	case os.Exit as e:
+		io.Stdout.Println("exit \(e.Code): \(e.Message)")
+	}
+}
+
+test ContentsListEveryTopic {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk } {
+		ran([]string{"how"})
+	}
+	assert out.Text() == "okra — AI agent orchestration toolkit\n\nTopics:\n  repo        Fetch code.\n  repo-fetch  Fetch one repo.\n\nRun `okra how <topic>` for the full guide.\n"
+}
+
+test GuideNamesItsSubtopics {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk } {
+		ran([]string{"how", "repo"})
+	}
+	assert out.Text() == "# repo\n\nSubtopics: repo-fetch — run `okra how <subtopic>` for details.\n"
+}
+
+test UnknownTopicExitsOne {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk } {
+		ran([]string{"how", "nosuch"})
+	}
+	assert out.Text() == "exit 1: [NOT_FOUND] Unknown topic 'nosuch'. Available topics: repo, repo-fetch\n"
+}
+
+test MissingGuideExitsOne {
+	let out = io.NewRecorder()
+	let broken = memory.Disk{Files: []memory.File{memory.File{Path: "g/topics", Text: "keys\n"}}}
+	with context { io.Stdout: out, fs.Files: broken } {
+		ran([]string{"how", "keys"})
+	}
+	assert out.Text() == "exit 1: [UNREADABLE] cannot read the guide of keys: no file g/keys/SKILL.md\n"
+}
+
+test TwiceListedTopicExitsOne {
+	let out = io.NewRecorder()
+	let twice = memory.Disk{Files: []memory.File{memory.File{Path: "g/topics", Text: "keys\nkeys\n"}, memory.File{Path: "g/keys/SKILL.md", Text: "k"}}}
+	with context { io.Stdout: out, fs.Files: twice } {
+		ran([]string{"how"})
+	}
+	assert out.Text() == "exit 1: [DUPLICATE] the topic keys is listed twice\n"
+}
+
+test UsageErrorsExitTwo {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk } {
+		ran([]string{})
+		ran([]string{"nosuch"})
+		ran([]string{"how", "a", "b"})
+	}
+	assert out.Text() == "exit 2: missing command; commands: how\nusage: okra how [<topic>]\nexit 2: unknown command \"nosuch\"; commands: how\nusage: okra how [<topic>]\nexit 2: unexpected argument: b\nusage: okra how [<topic>]\n"
+}
+
+// HelpPrintsUsage: -h prints how's help to standard output, and run ends
+// with no failure, so the program's status is 0.
+test HelpPrintsUsage {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk } {
+		ran([]string{"how", "-h"})
+	}
+	assert out.Text() == "Usage of okra how:\nArguments:\n  [topic]\n    \tthe topic of the guide to print; none prints the contents\n"
+}
+
+// ParseReadsAnyTopic: a command line of how, "--" and a topic asks for
+// that topic's guide, whatever its text. Before "--", a text that starts
+// with "-" is a flag (@effect/cli's rule, std flag).
+test ParseReadsAnyTopic(topic string) {
+	let c = try parse([]string{"how", "--", topic})
+	match request(c) {
+	case how.Guide as g:
+		assert g.Name == topic
+	case how.Contents:
+		assert false
+	}
+}

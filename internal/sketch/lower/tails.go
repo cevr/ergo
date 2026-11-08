@@ -202,9 +202,17 @@ func (fc *funcCtx) tailFallible(s syntax.Stmt) bool {
 // total: it panics with a named defect, never yields a zero value (check-v1
 // ruling, 2026-10-30). Only a value Go can hold and Ergo cannot write, such
 // as a nil interface, reaches it.
+//
+// A match of the program names its line and column, which the defect's
+// Ergo frames place in a file; a match of a std body, whose frames are
+// not the program's, names its std file too (G1, batch 11).
 func (fc *funcCtx) noCase(n syntax.Node) {
-	_, _, line, col := fc.l.at(n, n.Pos())
-	fc.line("\tpanic(" + strconv.Quote("ergo: defect: no case of the match at "+strconv.Itoa(line)+":"+strconv.Itoa(col)+" matched") + ")")
+	path, line, col := fc.l.locate(n, n.Pos())
+	at := strconv.Itoa(line) + ":" + strconv.Itoa(col)
+	if _, ok := fc.l.sourceOf(n); !ok {
+		at = path + ":" + at
+	}
+	fc.line("\tpanic(" + strconv.Quote("ergo: defect: no case of the match at "+at+" matched") + ")")
 }
 
 // blockBody writes a trailing block's body as its literal's frame: the block

@@ -1,0 +1,66 @@
+import strings
+import todoshell/todo
+
+// HelpText is the shell's help, one line per command.
+let HelpText = []string{
+	"add TEXT     add an item",
+	"note TITLE   add an item with a note: type its lines, then a line .",
+	"done N       mark item N done",
+	"undo N       mark item N open again",
+	"drop N       remove item N",
+	"list         show the items",
+	"clear        remove every item, after a yes",
+	"help         show this help",
+	"quit         leave",
+}
+
+// Say is the lines that tell the event e, which led to the mode m.
+func Say(m Mode, e Event) []string {
+	match e {
+	case Added as a:
+		[]string{"added \(a.At): \(a.Text)"}
+	case Completed as d:
+		[]string{"done \(d.At): \(d.Text)"}
+	case Reopened as r:
+		[]string{"reopened \(r.At): \(r.Text)"}
+	case Dropped as d:
+		[]string{"dropped \(d.At): \(d.Text)"}
+	case Shown:
+		Table(ListOf(m))
+	case Helped:
+		HelpText
+	case NoteOpened as n:
+		[]string{"note \"\(n.Title)\": type its lines, then a line ."}
+	case NoteLineKept:
+		[]string{}
+	case NoteSaved as s:
+		[]string{"added \(s.At): \(s.Title) (\(s.Lines) note lines)"}
+	case ClearAsked as c:
+		[]string{"clear \(c.Count) items? (y/n)"}
+	case Cleared as c:
+		[]string{"cleared \(c.Count) items"}
+	case ClearKept as c:
+		[]string{"kept \(c.Count) items"}
+	case Quitted:
+		[]string{}
+	}
+}
+
+// Table is the lines that show l: each item with its number and a box,
+// [x] when it is done, and its note's lines under it.
+func Table(l todo.List) []string {
+	if l.Count() == 0 {
+		return []string{"no items"}
+	}
+	let mut out = []string{}
+	for i, it in l.Items() {
+		let box = if it.Done { "[x]" } else { "[ ]" }
+		out = out.Append("\(i + 1). \(box) \(it.Text)")
+		if it.Note != "" {
+			for line in strings.Split(it.Note, "\n") {
+				out = out.Append("     | " + line)
+			}
+		}
+	}
+	out.Append("\(l.Open()) open of \(l.Count())")
+}

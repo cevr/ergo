@@ -1,0 +1,62 @@
+import io
+import todoshell/todo
+
+// Run is the shell: it reads lines from io.Stdin and answers each on
+// Console, until quit or the end of the input, and returns the list. On a
+// terminal it shows the mode's prompt before each line. A line the mode
+// cannot read is told and changes nothing.
+func Run() todo.List needs Console | io.Stdin | io.Stdout {
+	let mut m = Start()
+	Console.Println("todo shell: type help for the commands")
+	prompt(m)
+	for line in io.Stdin.Lines() {
+		let d = turn(m, line)
+		match d {
+		case Done[todo.List] as done:
+			return done.Output
+		case Enter[Mode]:
+		case Stay[Mode]:
+		case Ignore:
+		case Reject:
+		}
+		m = Next(m, d)
+		prompt(m)
+	}
+	// The end of the input is Step(m, Ended): Done with the list.
+	ListOf(m)
+}
+
+// prompt shows m's prompt when standard output is a terminal.
+func prompt(m Mode) needs io.Stdout {
+	if io.Stdout.IsTerminal() {
+		io.Stdout.Print(Prompt(m))
+	}
+}
+
+// turn is the decision of line in m, after it tells the line's events on
+// Console. Each failure of Decide is told by name, with no case _, and is
+// Reject: the mode stays as it is.
+func turn(m Mode, line string) Decision[Mode, todo.List] needs Console {
+	let es = Decide(m, line) catch {
+	case Unknown as u:
+		Console.Println("? unknown command \(u.Word); type help")
+		return Reject
+	case BadNumber as b:
+		Console.Println("? \(b.Command) needs an item number, not \"\(b.Text)\"")
+		return Reject
+	case MissingText as t:
+		Console.Println("? \(t.Command) needs a text")
+		return Reject
+	case todo.NoSuchItem as n:
+		Console.Println("? no item \(n.At): the list has \(n.Count)")
+		return Reject
+	}
+	let d = Apply(m, es)
+	let next = Next(m, d)
+	for e in es {
+		for said in Say(next, e) {
+			Console.Println(said)
+		}
+	}
+	d
+}

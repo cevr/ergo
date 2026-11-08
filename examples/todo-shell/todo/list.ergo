@@ -1,0 +1,110 @@
+// Package todo is the domain of the todo shell: a list of items, each
+// open or done, and the operations on it. It is pure: no function needs a
+// capability. Items are numbered from 1, in the order they were added.
+
+// Item is one thing to do. Note is its note, empty when it has none.
+type Item { Text string, Note string, Done bool }
+
+// List is the items of a todo list. Its field is unexported, so only this
+// package builds one, through Empty and the operations: outside todo, a
+// List is always one that the operations made.
+type List { items []Item }
+
+// NoSuchItem is a number that names no item of a list of Count items.
+type NoSuchItem { At int, Count int }
+
+// Empty is the list with no items.
+func Empty() List { List{items: []Item{}} }
+
+// Of is the list of texts, each an open item with no note, in order.
+func Of(texts []string) List {
+	let mut l = Empty()
+	for t in texts {
+		l = l.Add(t)
+	}
+	l
+}
+
+// Add is l with an open item of text at the end.
+func Add(l List, text string) List { l.AddNote(text, "") }
+
+// AddNote is l with an open item of text and note at the end.
+func AddNote(l List, text string, note string) List {
+	let mut items = []Item{}
+	for it in l.items {
+		items = items.Append(it)
+	}
+	List{items: items.Append(Item{Text: text, Note: note, Done: false})}
+}
+
+// Complete is l with item at done. An item already done stays done.
+func Complete(l List, at int) List fails NoSuchItem { try l.mark(at, true) }
+
+// Reopen is l with item at open again.
+func Reopen(l List, at int) List fails NoSuchItem { try l.mark(at, false) }
+
+// mark is l with the item at set to done.
+func mark(l List, at int, done bool) List fails NoSuchItem {
+	let _ = try l.At(at)
+	let mut items = []Item{}
+	for i, it in l.items {
+		items = items.Append(if i+1 == at { Item{..it, Done: done} } else { it })
+	}
+	List{items: items}
+}
+
+// Drop is l without item at; the items after it move up one number.
+func Drop(l List, at int) List fails NoSuchItem {
+	let _ = try l.At(at)
+	let mut items = []Item{}
+	for i, it in l.items {
+		if i+1 != at {
+			items = items.Append(it)
+		}
+	}
+	List{items: items}
+}
+
+// At is the item at, from 1.
+func At(l List, at int) Item fails NoSuchItem {
+	if at < 1 || at > len(l.items) {
+		return NoSuchItem{At: at, Count: len(l.items)}
+	}
+	l.items[at-1]
+}
+
+// Items is the items of l, in order, in a new slice.
+func Items(l List) []Item {
+	let mut out = []Item{}
+	for it in l.items {
+		out = out.Append(it)
+	}
+	out
+}
+
+// Count is the number of items of l.
+func Count(l List) int { len(l.items) }
+
+// Open is the number of items of l that are not done.
+func Open(l List) int {
+	let mut n = 0
+	for it in l.items {
+		if !it.Done {
+			n = n + 1
+		}
+	}
+	n
+}
+
+// Equal reports whether a and b hold the same items in order.
+func Equal(a List, b List) bool {
+	if len(a.items) != len(b.items) {
+		return false
+	}
+	for i, it in a.items {
+		if it != b.items[i] {
+			return false
+		}
+	}
+	true
+}
