@@ -170,6 +170,7 @@ type goDecls map[string]goDecl
 // distinct, so no Go type is two records (TestStdRecordTable). A std record
 // with no row is a declaration of the program, as strings.Halves is.
 var stdRecords = map[string]string{
+	"actor.Stopped":        "ActorStopped",
 	"exec.Denied":          "ExecDenied",
 	"exec.Failed":          "ExecFailed",
 	"exec.NotFound":        "ExecNotFound",
