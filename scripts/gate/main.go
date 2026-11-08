@@ -842,8 +842,10 @@ func (g *gate) run(out io.Writer) int {
 	for i := range done {
 		done[i] = make(chan struct{})
 	}
-	// At most the CPU budget of steps run at once.
-	slots := make(chan struct{}, cpus)
+	// At most the CPU budget of steps run at once; the writers and what
+	// they need take a freed slot first (slotPool).
+	slots := newSlotPool(cpus)
+	first := writerPath(g.steps, index)
 	for i, step := range g.steps {
 		go func() {
 			defer close(done[i])
@@ -859,13 +861,13 @@ func (g *gate) run(out io.Writer) int {
 			for _, j := range after[i] {
 				<-done[j]
 			}
-			slots <- struct{}{}
+			slots.acquire(first[i])
 			if step.Sweep != "" {
 				results[i] = g.sweepCheckout(step)
 			} else {
 				results[i] = g.execute(step)
 			}
-			<-slots
+			slots.release()
 		}()
 	}
 
