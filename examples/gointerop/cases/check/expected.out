@@ -1,0 +1,3 @@
+a.txt: OK
+b.txt: FAILED
+gone.txt: FAILED open or read

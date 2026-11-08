@@ -1,0 +1,114 @@
+// Package stats summarizes a list of numbers. Ergo's std has no math
+// package, so the square root, logarithm and exponential are Go's own
+// math functions, bound by user externs: math is on the pure allowlist,
+// and these take and return float64 only, the one shape an extern may
+// have.
+
+import strconv
+import strings
+
+extern go math.Sqrt func sqrt(x float64) float64
+extern go math.Log func log(x float64) float64
+extern go math.Exp func exp(x float64) float64
+extern go math.Abs func abs(x float64) float64
+
+// Std strings has no TrimRight; Go's is one extern away.
+extern go strings.TrimRight func trimRight(s string, cutset string) string
+
+// Empty is a summary of no numbers.
+type Empty {}
+
+// NotANumber is a field of the input that is not a number.
+type NotANumber { Line int, Text string }
+
+// TooLarge is a number that does not fit a float64.
+type TooLarge { Line int, Text string }
+
+// Summary is what Summarize finds. GeoMean is None when a number is not
+// positive.
+type Summary { Count int, Min float64, Max float64, Mean float64, StdDev float64, GeoMean Option[float64] }
+
+// Read is the numbers of text: whitespace-separated, each read by Go's
+// strconv.ParseFloat, whose two errors arrive as two typed failures.
+func Read(text string) []float64 fails NotANumber | TooLarge {
+	let mut out = []float64{}
+	for n, l in strings.Split(text, "\n") {
+		for field in strings.Fields(l) {
+			let v = strconv.ParseFloat(field) catch {
+			case strconv.Malformed:
+				return NotANumber{Line: n + 1, Text: field}
+			case strconv.OutOfRange:
+				return TooLarge{Line: n + 1, Text: field}
+			}
+			out = out.Append(v)
+		}
+	}
+	out
+}
+
+// Summarize is the summary of xs: the population standard deviation, by
+// Welford's update, which keeps its precision on large values.
+func Summarize(xs []float64) Summary fails Empty {
+	if len(xs) == 0 {
+		return Empty
+	}
+	let mut lo = xs[0]
+	let mut hi = xs[0]
+	let mut mean = 0.0
+	let mut m2 = 0.0
+	let mut logs = 0.0
+	let mut positive = true
+	for i, x in xs {
+		if x < lo {
+			lo = x
+		}
+		if x > hi {
+			hi = x
+		}
+		let delta = x - mean
+		mean = mean + delta/float64(i+1)
+		m2 = m2 + delta*(x-mean)
+		if x > 0 {
+			logs = logs + log(x)
+		} else {
+			positive = false
+		}
+	}
+	let n = float64(len(xs))
+	let geo Option[float64] = if positive { Some{exp(logs / n)} } else { None }
+	Summary{Count: len(xs), Min: lo, Max: hi, Mean: mean, StdDev: sqrt(m2 / n), GeoMean: geo}
+}
+
+// Near reports whether a and b agree to a relative 1e-9.
+func Near(a float64, b float64) bool {
+	abs(a-b) <= 1e-9*(1+abs(a)+abs(b))
+}
+
+// Text is a number as the summary prints it: up to 6 decimals, no
+// trailing zeros.
+func Text(x float64) string {
+	let s = strconv.FormatFloat(x, 'f', 6)
+	if !strings.Contains(s, ".") {
+		return s
+	}
+	let trimmed = trimRight(s, "0")
+	strings.TrimSuffix(trimmed, ".")
+}
+
+// Lines is the report of s.
+func Lines(s Summary) []string {
+	let geo = match s.GeoMean {
+	case Some[float64] as g:
+		Text(g.Value)
+	case None:
+		"none (a number is not positive)"
+	}
+	[]string{
+		"count   \(s.Count)",
+		"min     \(Text(s.Min))",
+		"max     \(Text(s.Max))",
+		"mean    \(Text(s.Mean))",
+		"stddev  \(Text(s.StdDev))",
+		"geomean \(geo)",
+	}
+}
