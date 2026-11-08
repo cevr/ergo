@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -276,7 +275,7 @@ func sourceLaws(t *testing.T, pkgs []stdLawPackage) map[string]string {
 
 // TestStdLawLedger: each law of std source has exactly one ledger row, each
 // row names a law of std source, the row's statement is the law's source
-// text, its runner is a Go test that the repository declares and that runs
+// text, its runner is a Go test that a runner package declares and that runs
 // its laws through lawledger.Run (or #162 for a law no Go test can run
 // yet), and its state follows from the runner. lawledger.Run then holds,
 // when the runner runs, that it restates each of its rows' laws with the
@@ -306,7 +305,7 @@ func TestStdLawLedger(t *testing.T) {
 				t.Errorf("stdlib.md:%d: %s has no Go runner, so its state is checked, not %q", r.Line, key, r.State)
 			}
 		case !declared:
-			t.Errorf("stdlib.md:%d: the runner %s of %s is no func Test… of the repository", r.Line, r.Runner, key)
+			t.Errorf("stdlib.md:%d: the runner %s of %s is no func Test… of the runner packages %v", r.Line, r.Runner, key, runnerPackages)
 		case !runsLaws:
 			t.Errorf("stdlib.md:%d: the runner %s of %s does not call lawledger.Run, so nothing holds that it runs the law", r.Line, r.Runner, key)
 		case r.State != "tested":
@@ -320,9 +319,17 @@ func TestStdLawLedger(t *testing.T) {
 	}
 }
 
+// runnerPackages are the directories, from the module root, whose tests
+// may run std laws. repoTests reads only their test files (a glob each,
+// one level, so the closure sweep can declare the read), not the whole
+// tree: a runner in another package is "no func Test… of the runner
+// packages" until its directory is added here and to the sweep's grants
+// (internal/closure declared; batch-10 gate 1).
+var runnerPackages = []string{"internal/sketch/lower", "internal/sketch/std", "runtime/v1"}
+
 // repoTests are the names of the top-level func Test… declarations of the
-// repository's _test.go files, testdata left out, each with whether its
-// body calls lawledger.Run.
+// _test.go files of runnerPackages, each with whether its body calls
+// lawledger.Run.
 func repoTests(t *testing.T) map[string]bool {
 	t.Helper()
 	root, err := filepath.Abs("../../..")
@@ -334,32 +341,25 @@ func repoTests(t *testing.T) map[string]bool {
 	}
 	out := map[string]bool{}
 	fset := token.NewFileSet()
-	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	for _, dir := range runnerPackages {
+		paths, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go"))
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		if d.IsDir() {
-			if n := d.Name(); p != root && (n == "testdata" || strings.HasPrefix(n, ".") || n == "node_modules") {
-				return filepath.SkipDir
+		if len(paths) == 0 {
+			t.Fatalf("the runner package %s has no test file", dir)
+		}
+		for _, p := range paths {
+			f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatal(err)
 			}
-			return nil
-		}
-		if !strings.HasSuffix(p, "_test.go") {
-			return nil
-		}
-		f, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return err
-		}
-		for _, decl := range f.Decls {
-			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
-				out[fn.Name.Name] = out[fn.Name.Name] || callsLedgerRun(fn)
+			for _, decl := range f.Decls {
+				if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
+					out[fn.Name.Name] = out[fn.Name.Name] || callsLedgerRun(fn)
+				}
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	if _, ok := out["TestStdLawLedger"]; !ok {
 		t.Fatal("the scan missed this test; it reads no test file")
