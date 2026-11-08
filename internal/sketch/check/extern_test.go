@@ -391,6 +391,22 @@ func main() {
 	use(Mine)
 }
 `,
+	// std exec (S3c): open, as no std extern's result names it (stdlib.md,
+	// exec): a test provides it, as exec.Script does.
+	"exec.Runner": `import exec
+
+type Mine {}
+
+func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
+	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+}
+
+func use(r exec.Runner) { _ = r.Run(exec.New("true", []string{})) catch { case exec.NotFound, exec.Denied, exec.Failed: exec.Result{Status: 0, Stdout: "", Stderr: ""} } }
+
+func main() {
+	use(Mine)
+}
+`,
 	// The prelude's Ambient (host-authority H1): its one operation is
 	// unexported, so no program type implements it (sealedBy), though no
 	// std extern names it (unexportedStd).
@@ -424,6 +440,7 @@ var openStd = map[string]bool{
 	"os.Process":        true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
+	"exec.Runner":       true,
 }
 
 // stdOperationTypes lists, as path.Name, every exported operation type
