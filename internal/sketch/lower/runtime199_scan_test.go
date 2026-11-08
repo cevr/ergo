@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/ast"
+	"go/build"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -65,6 +66,14 @@ func typedPackage(t *testing.T, dir string) *typedSource {
 	for _, e := range entries {
 		name := e.Name()
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		// Only the files of this host's build: runtime/v1 has one file per
+		// platform for some bodies (exec_exit_linux.go, exec_exit_kqueue.go).
+		if ok, err := build.Default.MatchFile(dir, name); err != nil || !ok {
+			if err != nil {
+				t.Fatal(err)
+			}
 			continue
 		}
 		f, err := parser.ParseFile(src.fset, dir+"/"+name, nil, 0)
