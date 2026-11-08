@@ -109,9 +109,13 @@ var PureImportsExcept = map[string][]string{
 // reads the local zone for a zone abbreviation, so a pure body parses with
 // ParseInLocation and UTC. They stay out of PureImports, which is also the
 // list a user extern may bind (check, G9): a user extern binds a whole
-// package, so no member could be refused there.
+// package, so no member could be refused there. encoding/csv reads and
+// writes the io.Reader and io.Writer it is given; a pure body can give it
+// only a strings.Reader or a strings.Builder, since its file imports
+// neither io nor os (std-csv U4), so it has no member to refuse.
 var PureImportHostMembers = map[string][]string{
-	"time": {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"},
+	"encoding/csv": nil,
+	"time":         {"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"},
 }
 
 // TypeParam is one Go type parameter of a body: its name and its
@@ -185,6 +189,7 @@ var stdRecords = map[string]string{
 	"queue.Closed":         "Closed",
 	"strconv.Malformed":    "Malformed",
 	"strconv.OutOfRange":   "OutOfRange",
+	"csv.ParseError":       "CSVParseError",
 	"time.ParseError":      "ParseError",
 	"time.Reading":         "Reading",
 	"utf8.Decoded":         "Decoded",

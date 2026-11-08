@@ -148,6 +148,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TimeParse":   {},
 	"TimeSub":     {},
 	"TimeSubMono": {},
+	// std-csv: pure bodies over encoding/csv on a string.
+	"CSVReadAll": {},
+	"CSVPrefix":  {},
+	"CSVFormat":  {},
 	// std-duration: pure bodies of duration text and arithmetic.
 	"TimeParseDuration": {},
 	"TimeDurationText":  {},

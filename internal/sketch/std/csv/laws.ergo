@@ -1,0 +1,126 @@
+// The rules of the format as laws over ReadAll, Format and Rows. The
+// ledger in docs/spec/stdlib.md names the test that runs each law.
+
+import strings
+
+// spice is s with a b z A Z turned into , " LF CR and CR LF, the bytes the
+// format gives a meaning, so a generated text holds them.
+func spice(s string) string {
+	let crlf = strings.ReplaceAll(s, "Z", "\r\n")
+	let cr = strings.ReplaceAll(crlf, "A", "\r")
+	let lf = strings.ReplaceAll(cr, "z", "\n")
+	let quote = strings.ReplaceAll(lf, "b", "\"")
+	strings.ReplaceAll(quote, "a", ",")
+}
+
+// lf is s with no CR before a LF: the reader reads a CR LF that ends a
+// line as LF, once, so "\r\r\n" reads as "\r\n" and only a field with no
+// CR LF reads back as written.
+func lf(s string) string {
+	let mut out = s
+	for strings.Contains(out, "\r\n") {
+		out = strings.ReplaceAll(out, "\r\n", "\n")
+	}
+	out
+}
+
+// sample is rows as ReadAll can give them: spiced fields with no CR LF
+// (lf), no row of no field, and every row as wide as the first (the reader
+// holds the first row's width).
+func sample(rows [][]string) [][]string {
+	let mut out = [][]string{}
+	let mut width = 0
+	for fields in rows {
+		if len(fields) == 0 {
+			continue
+		}
+		if width == 0 {
+			width = len(fields)
+		}
+		let mut row = []string{}
+		for i in 0..width {
+			let f = if i < len(fields) { fields[i] } else { "" }
+			row = row.Append(lf(spice(f)))
+		}
+		out = out.Append(row)
+	}
+	out
+}
+
+// RoundTrip: rows that ReadAll can give format to a text that reads back
+// to the same rows.
+law RoundTrip(rows [][]string) {
+	let kept = sample(rows)
+	let back = ReadAll(Format(kept)) catch {
+	case ParseError:
+		return false
+	}
+	same(back, kept)
+}
+
+// LinesCount: Format writes one line per row, and one more for each line
+// feed in a field.
+law LinesCount(rows [][]string) {
+	let kept = sample(rows)
+	let mut lines = len(kept)
+	for fields in kept {
+		for f in fields {
+			lines = lines + strings.Count(f, "\n")
+		}
+	}
+	strings.Count(Format(kept), "\n") == lines
+}
+
+// FormatIsStable: formatting what ReadAll read from Format's text gives
+// the text again.
+law FormatIsStable(rows [][]string) {
+	let text = Format(sample(rows))
+	let back = ReadAll(text) catch {
+	case ParseError:
+		return false
+	}
+	Format(back) == text
+}
+
+// RowsKeepTheRecordsBefore: rows that read, then a bare quote in a field
+// that is not quoted, are the rows as Parsed, then one Malformed.
+law RowsKeepTheRecordsBefore(rows [][]string) {
+	let kept = sample(rows)
+	let mut parsed = [][]string{}
+	let mut ends = 0
+	for r in Rows(Format(kept) + "x\"y\n") {
+		match r {
+		case Parsed as p:
+			parsed = parsed.Append(p.Fields)
+		case Malformed:
+			ends = ends + 1
+		}
+	}
+	ends == 1 && same(parsed, kept)
+}
+
+// RowsFollowReadAll: Rows gives ReadAll's rows when it reads the text, and
+// otherwise ends in one Malformed with ReadAll's error.
+law RowsFollowReadAll(text string) {
+	let t = spice(text)
+	let mut parsed = [][]string{}
+	let mut ends = 0
+	let mut last = ParseError{Line: 0, Column: 0, Reason: "", Message: ""}
+	for r in Rows(t) {
+		match r {
+		case Parsed as p:
+			if ends > 0 {
+				return false
+			}
+			parsed = parsed.Append(p.Fields)
+		case Malformed as m:
+			ends = ends + 1
+			last = m.Error
+		}
+	}
+	let all = ReadAll(t) catch {
+	case ParseError as e:
+		return ends == 1 && last == e
+	}
+	ends == 0 && same(parsed, all)
+}
