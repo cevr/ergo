@@ -368,16 +368,15 @@ test SlicesAscendLeavesItsArgument(xs []int) {
 
 test SlicesItemsIsACopy(xs []int) {
 	let a = slices.Ascend(xs)
-	let before = a.Items()
 	let mut changed = a.Items()
 	for i in 0..len(changed) {
 		changed[i] = len(changed) - i
 	}
-	assert slices.Equal(a.Items(), before)
+	assert slices.Equal(a.Items(), slices.Sort(xs))
 	let mut first = a.Items()
 	if len(first) > 0 {
 		first[0] = first[len(first) - 1] + 1
-		assert slices.Equal(a.Items(), before)
+		assert slices.Equal(a.Items(), slices.Sort(xs)) && isSorted(a.Items())
 	}
 }
 
@@ -545,7 +544,7 @@ var stdSlicesLawStatements = map[string]string{
 	"slices AscendLeavesItsArgument":   `AscendLeavesItsArgument(xs []int) { let before = Transform(xs, func(x int) int { x }) let a = Ascend(xs) len(Items(a)) == len(xs) && Equal(xs, before) }`,
 	"slices AscendOrders":              `AscendOrders(xs []int) { isSorted(Items(Ascend(xs))) }`,
 	"slices AscendPermutes":            `AscendPermutes(xs []int) { let items = Items(Ascend(xs)) let mut same = len(items) == len(xs) for x in xs { same = same && count(items, x) == count(xs, x) } same }`,
-	"slices ItemsIsACopy":              `ItemsIsACopy(xs []int) { let a = Ascend(xs) let before = Items(a) let mut changed = Items(a) for i in 0..len(changed) { changed[i] = len(changed) - i } Equal(Items(a), before) }`,
+	"slices ItemsIsACopy":              `ItemsIsACopy(xs []int) { let a = Ascend(xs) let mut changed = Items(a) for i in 0..len(changed) { changed[i] = len(changed) - i } Equal(Items(a), Sort(xs)) }`,
 	"slices BinarySearchFindsTheFirst": `BinarySearchFindsTheFirst(xs []int, x int) { let a = Ascend(xs) let s = Items(a) match BinarySearch(a, x) { case Some[int] as found: s[found.Value] == x && (found.Value == 0 || s[found.Value-1] < x) case None: !Contains(s, x) } }`,
 	"slices CollectInvertsValues":      `CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }`,
 	"slices ContainsIffIndex":          `ContainsIffIndex(xs []int, x int) { let i = Index(xs, x) Contains(xs, x) == (i >= 0) && (i < 0 || xs[i] == x) }`,

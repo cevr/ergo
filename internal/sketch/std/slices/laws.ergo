@@ -115,15 +115,14 @@ law AscendLeavesItsArgument(xs []int) {
 }
 
 // ItemsIsACopy: a change to the slice Items returns does not change the
-// Ascending, so it stays sorted.
+// Ascending, so it stays sorted: its items are still Sort(xs).
 law ItemsIsACopy(xs []int) {
 	let a = Ascend(xs)
-	let before = Items(a)
 	let mut changed = Items(a)
 	for i in 0..len(changed) {
 		changed[i] = len(changed) - i
 	}
-	Equal(Items(a), before)
+	Equal(Items(a), Sort(xs))
 }
 
 // BinarySearchFindsTheFirst: in an Ascending, BinarySearch finds the first
