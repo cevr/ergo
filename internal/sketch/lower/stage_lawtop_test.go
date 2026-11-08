@@ -13,8 +13,9 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// law-top (spec A5): a top-level law is checked and in neither build, as a
-// member law is (types.md, Laws 11). The law corpus is the checker's: the
+// law-top (spec A5): a top-level law is checked and not in the run build, as
+// a member law is (types.md, Laws 11); the test build runs both (#162
+// law-run-1). The law corpus is the checker's: the
 // clean programs of sketchtest.LawTopCases (A2) and the clean top-level
 // programs of sketchtest.GenLaws (A3). TestBuildsOmitLaws and
 // TestLawFactsStayOut (stage_e3b_test.go) cover testdata/e3b and both
@@ -47,9 +48,10 @@ func lawTopCorpus(t *testing.T) []struct{ name, src string } {
 }
 
 // TestTopLevelLawsLeaveNoGo: spec A5 and Design B2. For every program of
-// the law corpus, the run build and the test build are byte for byte the
-// builds of the program with every law removed (buildsOmitLaws, no
-// exception), and no //line directive maps into a law.
+// the law corpus, the run build is byte for byte the run build of the
+// program with every law removed (buildsOmitLaws, no exception), no //line
+// directive maps into a law, and the test build, which lowers each law,
+// lowers.
 func TestTopLevelLawsLeaveNoGo(t *testing.T) {
 	corpus := lawTopCorpus(t)
 	a2, a3 := 0, 0
@@ -79,9 +81,10 @@ func TestTopLevelLawsLeaveNoGo(t *testing.T) {
 	}
 }
 
-// TestTopLevelLawNamesAbsent: spec A5, the static leg. In both builds of
+// TestTopLevelLawNamesAbsent: spec A5, the static leg. In the run build of
 // every clean A2 program, no identifier of a law appears: each law name
 // that the source spells only as a law's name is grepped for in the Go.
+// The test build runs the laws (#162 law-run-1), so it names them.
 func TestTopLevelLawNamesAbsent(t *testing.T) {
 	want := regexp.MustCompile(`// want S\d{3}`)
 	checked := 0
@@ -95,7 +98,6 @@ func TestTopLevelLawNamesAbsent(t *testing.T) {
 		}
 		name := "lawnames_" + strings.NewReplacer(" ", "_", "-", "_", ",", "", "'", "").Replace(tc.Name)
 		run := mustLower(t, name, src)
-		test := lowerTestBuild(t, name+"_test", src)
 		decls := map[string]int{}
 		for _, l := range run.pkg.Laws {
 			decls[l.Name]++
@@ -108,24 +110,22 @@ func TestTopLevelLawNamesAbsent(t *testing.T) {
 				continue
 			}
 			checked++
-			for _, b := range []*lowered{run, test} {
-				// Inside an identifier too: a Go name such as ergoLawX
-				// made from the law's name.
-				if strings.Contains(b.mainGo(), law) {
-					t.Errorf("%s: the Go of %s names the law %s", tc.Name, b.name, law)
-				}
+			// Inside an identifier too: a Go name such as ergoLawX made
+			// from the law's name.
+			if strings.Contains(run.mainGo(), law) {
+				t.Errorf("%s: the Go of %s names the law %s", tc.Name, run.name, law)
 			}
 		}
 	}
 	if checked < 10 {
 		t.Fatalf("%d law names grepped for; want 10 or more", checked)
 	}
-	t.Logf("%d law names grepped for in both builds", checked)
+	t.Logf("%d law names grepped for in the run build", checked)
 }
 
 // TestErgoRunTopLevelLaw: spec A5. A program with top-level laws, tests and
 // main runs under ergo run with the output of the same program without its
-// laws, and its test build runs its tests and prints no law line.
+// laws, and its test build runs its tests, then each law.
 func TestErgoRunTopLevelLaw(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "e3b", "top_laws.ergo"))
 	if err != nil {
@@ -168,17 +168,17 @@ func TestErgoRunTopLevelLaw(t *testing.T) {
 	if outs["lawtop_run"] != outs["lawtop_blank_run"] || outs["lawtop_run"] != "42\n" {
 		t.Errorf("ergo run printed %q; without its laws %q; want \"42\\n\" both", outs["lawtop_run"], outs["lawtop_blank_run"])
 	}
-	if outs["lawtop_test"] != outs["lawtop_blank_test"] {
-		t.Errorf("the test build printed %q; without its laws %q", outs["lawtop_test"], outs["lawtop_blank_test"])
+	// The test build runs the tests as the build without laws does, then
+	// each law in source order (#162 law-run-1).
+	want := "ok Doubles\nok DoubleEven (100 cases)\n"
+	if outs["lawtop_blank_test"] != want+"PASS (2 tests)\n" {
+		t.Errorf("the test build without laws printed %q", outs["lawtop_blank_test"])
 	}
-	for _, line := range lines(outs["lawtop_test"]) {
-		for _, n := range names {
-			if strings.Contains(line, n) {
-				t.Errorf("the test build printed a law line: %q", line)
-			}
-		}
+	for _, n := range names {
+		want += "ok law " + n + " (100 cases)\n"
 	}
-	if !strings.Contains(outs["lawtop_test"], "PASS (2 tests)") {
-		t.Errorf("the test build printed %q, want its two tests to pass", outs["lawtop_test"])
+	want += fmt.Sprintf("PASS (%d tests)\n", 2+len(names))
+	if outs["lawtop_test"] != want {
+		t.Errorf("the test build printed %q, want %q", outs["lawtop_test"], want)
 	}
 }

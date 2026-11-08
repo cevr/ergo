@@ -1,5 +1,6 @@
 // The rules of the shell as laws over its machine.
 
+import machines
 import strings
 import todoshell/todo
 
@@ -25,6 +26,8 @@ func Word(d Decision[Mode, todo.List]) string {
 		"enter"
 	case Stay[Mode]:
 		"stay"
+	case Emit[Mode, todo.List]:
+		"emit"
 	case Ignore:
 		"ignore"
 	case Reject:
@@ -50,6 +53,8 @@ law QuitIsDone(texts []string) {
 		false
 	case Stay[Mode]:
 		false
+	case Emit[Mode, todo.List]:
+		false
 	case Ignore:
 		false
 	case Reject:
@@ -70,6 +75,8 @@ law EndIsDone(texts []string, title string) {
 			return false
 		case Stay[Mode]:
 			return false
+		case Emit[Mode, todo.List]:
+			return false
 		case Ignore:
 			return false
 		case Reject:
@@ -83,8 +90,8 @@ law EndIsDone(texts []string, title string) {
 // answer but yes gives the list back.
 law ClearAsksFirst(texts []string, answer string) {
 	let l = todo.Of(texts)
-	let asked = Next(Listing{L: l}, Tried(Listing{L: l}, Typed{Line: "clear"}))
-	let after = ListOf(Next(asked, Tried(asked, Typed{Line: answer})))
+	let asked = machines.Next[Mode, todo.List](Listing{L: l}, Tried(Listing{L: l}, Typed{Line: "clear"}))
+	let after = ListOf(machines.Next(asked, Tried(asked, Typed{Line: answer})))
 	match ParseAnswer(answer) {
 	case Yes:
 		after.Count() == 0
@@ -98,7 +105,7 @@ law ClearAsksFirst(texts []string, answer string) {
 law NoteLinesKeepTheList(texts []string, title string, line string) {
 	let l = todo.Of(texts)
 	let composing = Composing{L: l, Title: title, Lines: []string{}}
-	let next = Next(composing, Tried(composing, Typed{Line: line}))
+	let next = machines.Next[Mode, todo.List](composing, Tried(composing, Typed{Line: line}))
 	if strings.TrimSpace(line) == "." {
 		return ListOf(next).Count() == l.Count()+1 && Prompt(next) == "todo> "
 	}

@@ -229,6 +229,7 @@ const (
 	assignOperations              // 3: into an operation type the value implements
 	assignUnion                   // 4: a variant or a row value into its union
 	assignSignature               // 5: a function value into a function type with wider rows
+	assignMachine                 // 6: a machine declaration's value into the prelude Machine
 )
 
 // assignment is the result of assignability: the clause that admitted the
@@ -263,7 +264,11 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //  4. a variant or a row value into a union: ConvVariant or ConvRow;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
-//     Go shape, spec D5).
+//     Go shape, spec D5);
+//  6. a machine declaration's value into the prelude Machine instance of
+//     its state, signal and step: ConvMachine (README Gap 46). It is tried
+//     after clause 2, since neither side is an operation type, a union or
+//     a function type.
 //
 // Prior art: go/types operand.assignableTo has clauses 1 to 3 in this
 // order; cmd/compile typecheck.assignOp returns the lowering op (OCONVNOP,
@@ -279,6 +284,34 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	}
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
+	}
+	if view, step := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
+		// A machine declaration's value is a Machine of its state, signal
+		// and step (README Gap 46), or an InputMachine when its initial is
+		// a function of an input (V4): ConvMachine.
+		input := !isPreludeMachine(view)
+		if input != !isPreludeMachine(t) {
+			if input {
+				return assignment{}, fmt.Sprintf("its initial is a function of an input, so it is an InputMachine[%s, …]; machines.Start(value, input) gives a Machine", view.TArgs[0])
+			}
+			return assignment{}, "its initial is a value, so it is a Machine, not an InputMachine"
+		}
+		if !c.identical(view, t) {
+			k := len(view.TArgs) - 3
+			o, f, r := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg)
+			if input {
+				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s and capability row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row))
+			}
+			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s and capability row %s", step.Name, o, rowText(f.Row), rowText(r.Row))
+		}
+		table := map[string]*Func{"Step": step}
+		if input {
+			table["Start"] = machineStart(v.(*Named).Obj.Pkg, v.(*Named).Obj.Decl.Spec.(*syntax.MachineType))
+		}
+		if after := c.machineAfter(v); after != nil {
+			table["After"] = after // else every state has no timer
+		}
+		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
 	}
 	if it := asInterface(t); it != nil {
 		if _, isTuple := under(v).(*Tuple); isTuple {

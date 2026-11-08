@@ -38,6 +38,10 @@ type frame struct {
 	// operands and at the end of each loop iteration. Entry placement is a separate checker
 	// fact read by entryPoll. A pure frame has no point.
 	polls bool
+	// law marks a law's own frame in the test build (tests.go, lawDecl):
+	// its Go result is bool, and a returned value of a defined type over
+	// bool converts to it.
+	law bool
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -542,6 +546,11 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		return
 	}
 	val := fc.moved(fc.assigned(x))
+	if f.law {
+		// A law's result is any type over bool (types.md, Laws 8); its Go
+		// function returns bool.
+		val = "bool(" + val + ")"
+	}
 	if f.fallible {
 		fc.sourceReturn(val, "nil")
 	} else {

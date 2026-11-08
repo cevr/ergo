@@ -1,4 +1,4 @@
-// The game's tests: four examples and two properties over generated moves.
+// The game's tests: four examples. ergo test runs the laws of laws.ergo (#162).
 
 func replayOf(s string) Game fails BadMove {
 	let ms = try ParseMoves(s)
@@ -33,17 +33,4 @@ test TypoIsRejected {
 		-b.At
 	}
 	assert at == -3
-}
-
-test FinishedIgnoresEveryMove(m Move) {
-	let w = WalkOf(Start())
-	assert ignored(Step(Won{W: w}, m)) && ignored(Step(Drowned{W: w}, m))
-}
-
-test TideFollowsEveryTurn(moves []Move) {
-	let mut g = Start()
-	for m in moves {
-		g = Apply(g, Step(g, m))
-	}
-	assert WalkOf(g).Tide == WalkOf(g).Turn/6
 }

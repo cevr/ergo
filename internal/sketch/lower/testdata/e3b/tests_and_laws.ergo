@@ -1,5 +1,6 @@
 // Stage E3b sweep (196l), program 11: tests and laws in one program. The
-// test build runs the tests and no law; the run build runs main only.
+// test build runs the tests, then each law against Plain; the run build
+// runs main only.
 type Codec {
 	Encode(v int) string,
 
@@ -32,5 +33,7 @@ func main() needs Console {
 // run> 11
 // test> ok Encodes
 // test> ok Stable (100 cases)
-// test> PASS (2 tests)
+// test> ok law Codec.Stable for Plain (100 cases)
+// test> ok law Codec.Width for Plain (100 cases)
+// test> PASS (4 tests)
 // test exit 0

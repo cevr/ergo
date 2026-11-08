@@ -50,7 +50,10 @@ func Status(g Game) string {
 	}
 }
 
-// ShellLeft reports a shell still to collect on a cell.
+// ShellLeft reports a shell still to collect on a cell. A cell that Left
+// does not hold has none: the laws run over every Walk, not only the walks
+// Start reaches (#162 law-run-1).
 func ShellLeft(w Walk, p Pos) bool {
-	return w.Left[p.Y*len(ground[0])+p.X] == 's'
+	let k = p.Y*len(ground[0]) + p.X
+	return k >= 0 && k < len(w.Left) && w.Left[k] == 's'
 }

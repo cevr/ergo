@@ -193,14 +193,30 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			ice(x, "an operation call with no receiver or operation")
 		}
 		return fc.opCallExpr(x, c, args)
-	case check.CallProviderOp:
-		sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
-		if !ok || c.Op == nil {
-			ice(x, "a capability call that is not Cap.op(…)")
-		}
-		cap, ok := fc.typeOf(sel.X).(*check.Named)
-		if !ok {
-			ice(sel.X, "a capability with no named type")
+	case check.CallProviderOp, check.CallLawOp:
+		var cap *check.Named
+		if c.Kind == check.CallLawOp {
+			// A bare operation call in a member law calls the provider
+			// under test, which the law's run binds to its own operation
+			// type's capability (tests.go, Laws).
+			if fc.l.tests == nil || fc.l.tests.law == nil || fc.l.tests.law.Owner == nil || c.Op == nil {
+				ice(x, "an operation call of a law outside the law's test-build body")
+			}
+			own, ok := fc.l.tests.law.Owner.Type.(*check.Named)
+			if !ok {
+				ice(x, "a law whose operation type is not named")
+			}
+			cap = own
+		} else {
+			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
+			if !ok || c.Op == nil {
+				ice(x, "a capability call that is not Cap.op(…)")
+			}
+			named, ok := fc.typeOf(sel.X).(*check.Named)
+			if !ok {
+				ice(sel.X, "a capability with no named type")
+			}
+			cap = named
 		}
 		// The interruption point (runtime.md, I1): before the operands, so
 		// no poll separates an operand's delivered value (a Pop's, a Wait's,
@@ -1416,6 +1432,10 @@ func (fc *funcCtx) callee(x *syntax.CallExpr, c *check.Call) string {
 	case check.CallProviderOp:
 		if sel, ok := unparen(x.Fun).(*syntax.SelectorExpr); ok {
 			return typeName(fc.typeOf(sel.X)) + "." + c.Op.Name
+		}
+	case check.CallLawOp:
+		if fc.l.tests != nil && fc.l.tests.law != nil && fc.l.tests.law.Owner != nil {
+			return fc.l.tests.law.Owner.Name + "." + c.Op.Name
 		}
 	case check.CallFuncValue:
 		switch f := unparen(x.Fun).(type) {

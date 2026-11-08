@@ -2,8 +2,9 @@ package check
 
 import "ergo.local/prototype/internal/sketch/syntax"
 
-// Laws (196l; spec D-E4; law-top). A law is checked and never run: running
-// laws is #162. Its placement sets what it is quantified over: a top-level
+// Laws (196l; spec D-E4; law-top; #162 law-run-1). A law is checked here
+// and run by ergo test (rules 7 to 9). Its placement sets what it is
+// quantified over: a top-level
 // law over its parameters; a member of an operation type over its
 // parameters and every provider of its type. Both placements take one
 // checker path (checkLaw); they differ only in the operation scope of rule
@@ -22,8 +23,11 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     operation scope, so their bodies report their own errors (D3).
 //  2. A law's body is a failure target: an escaping failure refutes the
 //     law, so its failure row is inferred and unbounded (Law.Fails). Its
-//     service row, after its own with blocks, is empty: a charging call
-//     that no with of the law discharges is S102 ("it needs no service").
+//     service row, after its own with blocks, is empty for a top-level law
+//     and holds only its own operation type for a member law of a
+//     non-generic type (Law.capability): a run binds that capability to
+//     the provider under test, so a helper that needs it runs. Any other
+//     charging call that no with of the law discharges is S102.
 //  3. Its scope is its parameters, then, for a member law, the operations
 //     of its type, then the package. An operation therefore wins over a
 //     package function of its name, and no binder of a member law may take
@@ -42,10 +46,23 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     body is in its own (funcCtx.typeParams). A top-level law has no type
 //     parameters (the parser refuses them). A parameter written as a function type
 //     without `escaping` is non-escaping, as a function's is (writtenParamType).
-//     They need not be generatable: that is a property test's rule, and
-//     #162 decides how laws are run.
+//     They need not be generatable: a law whose parameter has no generator
+//     is checked and not run (rule 8).
+//  7. Running (planLaws): ergo test runs a top-level law over generated
+//     values of its parameters, and a member law of a non-generic
+//     operation type against each provider of it: each named type of the
+//     package, in source order, that implements the type (Law.Providers),
+//     with a generated value of the provider and of each parameter per
+//     case. The closed world of the package lists the providers.
+//  8. A law that cannot run says why (Law.Unrun): a parameter with no
+//     generator, a generic operation type, or no provider. A provider
+//     whose values have no generator says why (LawProvider.Unrun). The
+//     test build reports each as skipped, never as passed.
+//  9. A false tail or an escaping failure refutes the law for that
+//     provider and case.
 //
-// Its facts are owned by OwnerLaw (owners.go), so neither build reads them.
+// Its facts are owned by OwnerLaw (owners.go): the run build never reads
+// them, and the test build reads them to run the law.
 //
 // Prior art (doc.go; types.md, Laws 12): Elixir StreamData's `check all`
 // and QuickCheck state properties as code, run by a test runner. MoonBit,
@@ -116,6 +133,72 @@ func (l *Law) typeParams() []*TypeParam {
 	return nil
 }
 
+// capability is the operation type a member law's row holds (rule 2): its
+// owner, when the owner is an operation type with no type parameters (a
+// capability takes no type arguments). nil for a top-level law and for a
+// law of a generic type.
+func (l *Law) capability() *Named {
+	if l.Owner == nil {
+		return nil
+	}
+	n, ok := l.Owner.Type.(*Named)
+	if !ok || len(n.TParams) > 0 {
+		return nil
+	}
+	if _, isOps := n.Underlying().(*Interface); !isOps {
+		return nil
+	}
+	return n
+}
+
+// planLaws decides how ergo test runs each law (Running, rules 7 to 9):
+// its providers and, when it does not run, why. A duplicate law is
+// refused (S108), so its plan is never read.
+func (c *checker) planLaws() {
+	for _, law := range c.pkg.Laws {
+		for _, v := range law.Params {
+			if isInvalid(v.Type) {
+				law.Unrun = "a parameter has an invalid type"
+				break
+			}
+			if why := c.ungeneratable(v.Type); why != "" {
+				law.Unrun = "its parameter " + v.Name + " has no generator: " + why
+				break
+			}
+		}
+		if law.Owner == nil || law.Unrun != "" {
+			continue
+		}
+		own := law.capability()
+		if own == nil {
+			law.Unrun = "its operation type " + law.Owner.Name + " is generic, and a run has no type arguments for it"
+			continue
+		}
+		for _, tn := range c.pkg.Types {
+			p, ok := tn.Type.(*Named)
+			if !ok || p == own || len(p.TParams) > 0 {
+				continue
+			}
+			switch p.Underlying().(type) {
+			case *Interface, *MachineType:
+				continue
+			}
+			a, _ := c.assignability(p, own)
+			if !a.ok() || a.conv.Kind != ConvOperations {
+				continue
+			}
+			lp := LawProvider{Type: p, Conv: a.conv}
+			if why := c.ungeneratable(p); why != "" {
+				lp.Unrun = "its values have no generator: " + why
+			}
+			law.Providers = append(law.Providers, lp)
+		}
+		if len(law.Providers) == 0 {
+			law.Unrun = "no type of the package implements " + law.Owner.Name
+		}
+	}
+}
+
 // checkLaws checks each law body after every function body converged: no
 // body refers to a law, so a law is a leaf of the body graph.
 func (c *checker) checkLaws() {
@@ -134,7 +217,14 @@ func (c *checker) checkLaw(law *Law) {
 	defer c.monoOwner(tparams)()
 	name := "law " + law.Name
 	// results gives a bare `return` its message; lawResult admits a value.
-	tg := &target{name: name, errors: newRow(), declUses: newRow(), results: []Type{Typ[Bool]}, resultKnown: true, isFunc: true, law: true}
+	// A member law's service row holds its own operation type, which the
+	// run binds to the provider under test (rule 2), so a helper that
+	// needs it runs inside the law.
+	uses := newRow()
+	if own := law.capability(); own != nil {
+		uses = uses.with(c.types, own)
+	}
+	tg := &target{name: name, errors: newRow(), declUses: uses, results: []Type{Typ[Bool]}, resultKnown: true, isFunc: true, law: true}
 	// A member law's operation scope sits between the law's frame and the
 	// package; a top-level law's frame encloses the package directly (rule
 	// 3). This is the only step the two placements do not share.

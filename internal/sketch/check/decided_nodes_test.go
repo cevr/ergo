@@ -757,6 +757,35 @@ type Breaker machine[State, Signal] {
 }
 func main() {}
 `, nil},
+	{"machine", "a machine type with an after entry", `
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Emit{Open, "tripped"}
+	case Open:
+		return Done{"open"}
+	}
+}
+func timer(s State) Option[Timeout[Signal]] {
+	match s {
+	case Closed:
+		return None
+	case Open:
+		return Some{Timeout{5s, Trip}}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+	after:   timer,
+}
+func main() {}
+`, nil},
 }
 
 // TestDecidedNodes: the checker reads the trees the decided parser builds

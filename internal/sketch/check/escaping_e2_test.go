@@ -301,6 +301,7 @@ var escUnreachable = map[string]string{
 	// are read at the package level, where no local is in scope.
 	"MachineType.Initial": "a machine's initial value is a package-level expression",
 	"MachineType.Step":    "a machine's step function is a package-level expression",
+	"MachineType.After":   "a machine's after function is a package-level expression",
 	"MachineEntry.Value":  "a machine entry is a package-level expression",
 	// Binding positions declare names (Info.Defs); none is a use.
 	"VarSpec.Pattern":  "a let's pattern binds names",

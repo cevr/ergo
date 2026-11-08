@@ -517,6 +517,10 @@ const (
 	ConvOperations
 	// ConvRow puts an error row's value into a union.
 	ConvRow
+	// ConvMachine puts a machine declaration's value into the prelude's
+	// Machine[S, E, O, F, R] (README Gap 46): Table["Step"] is the
+	// machine's step function.
+	ConvMachine
 )
 
 // Conversion is an implicit conversion at an assignment site: From's value
@@ -731,11 +735,29 @@ type Law struct {
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
 	Params []*Var
-	// Fails is the inferred failure row of its body: a non-empty row
-	// refutes the law when #162 runs it.
+	// Fails is the inferred failure row of its body: a failure that
+	// escapes it refutes the law when ergo test runs it.
 	Fails *Row
+	// Providers are the providers ergo test runs a member law against
+	// (laws.go, Running): each named type of the package that implements
+	// the law's operation type, in source order, with the conversion that
+	// puts its value into the operation type. A top-level law has none.
+	Providers []LawProvider
+	// Unrun is why ergo test does not run the law, "" when it does: a
+	// parameter with no generator, a generic operation type, an operation
+	// type no type of the package implements.
+	Unrun string
 
 	file *fileInfo // the declaring file, selected while the law is checked
+}
+
+// LawProvider is a provider a member law runs against (Law.Providers).
+// Unrun is why it does not, "" when it does: its values have no
+// generator.
+type LawProvider struct {
+	Type  *Named
+	Conv  Conversion
+	Unrun string
 }
 
 // A law is an Object, so Defs records its declaring name.

@@ -36,8 +36,9 @@ var implementedFamilies = []string{
 	// A test and its asserts lower in the test build (LowerTests, swept by
 	// stage_e3a_test.go); the run build this test lowers skips them whole.
 	"TestDecl", "AssertStmt",
-	// A law is checked, not run (#162): neither build lowers it, so a
-	// source that holds one lowers whole without it (stage E3b-2).
+	// A law lowers in the test build, which runs it (#162 law-run-1,
+	// law_run_test.go); the run build this test lowers skips it whole
+	// (stage E3b-2).
 	"LawDecl", "call:LawOp",
 	// A machine declaration lowers to a plan value (lower-v1 stage 4,
 	// machine.go; TestMachinePlanValues).

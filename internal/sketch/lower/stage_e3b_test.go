@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,14 +13,15 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Stage E3b (196l; ledger row C20; spec D-E4): a law is checked and never
-// run, so neither build lowers it. Its facts are OwnerLaw's
-// (check/owners.go), and no build view sees that owner (lower/owners.go).
-// Each program of testdata/e3b declares at least one law and states the
-// stdout of ergo run (`// run> `); a program with tests states its test
-// binary's stdout and exit (`// test> `, `// test exit N`) as testdata/e3
-// does. TestLawSweep runs them; TestBuildsOmitLaws proves both builds of
-// each are the builds of the same source with its laws blanked out.
+// Stage E3b (196l; ledger row C20; spec D-E4), with #162 law-run-1: the run
+// build never lowers a law, and the test build runs each. A law's facts are
+// OwnerLaw's (check/owners.go); the run build's view does not see that
+// owner and the test build's does (lower/owners.go). Each program of
+// testdata/e3b declares at least one law and states the stdout of ergo run
+// (`// run> `); a program with tests states its test binary's stdout and
+// exit (`// test> `, `// test exit N`) as testdata/e3 does. TestLawSweep
+// runs them; TestBuildsOmitLaws proves the run build of each is the run
+// build of the same source with its laws blanked out.
 
 // e3bProgram is one program of testdata/e3b and its expected outputs.
 type e3bProgram struct {
@@ -69,7 +71,7 @@ func e3bPrograms(t *testing.T) []e3bProgram {
 // TestLawSweep builds the run build of every program of testdata/e3b and
 // runs it: each prints exactly its run lines, so a law changes nothing
 // ergo run does. A program with tests also runs its test build, which runs
-// its tests and no law.
+// its tests, then its laws.
 func TestLawSweep(t *testing.T) {
 	progs := e3bPrograms(t)
 	var builds []*lowered
@@ -114,12 +116,12 @@ func TestLawSweep(t *testing.T) {
 // erasure property covers it too.
 const lawFixture = "../check/testdata/fixtures/spec/types-laws.ergo"
 
-// TestBuildsOmitLaws proves D-E4's "checked, not run" on the emitted Go of
-// every sweep program and of the laws fixture, for the run build (Lower)
-// and the test build (LowerTests): no //line directive maps into a law,
-// and each build is byte-identical to the same build of the source with
-// its laws blanked out (blankLaws), with no exception (law-top: a type of
-// laws and no operations is S108, so no build meets one).
+// TestBuildsOmitLaws proves that the run build (Lower) of every sweep
+// program and of the laws fixture omits its laws: no //line directive maps
+// into a law, and the build is byte-identical to the run build of the
+// source with its laws blanked out (blankLaws), with no exception (law-top:
+// a type of laws and no operations is S108, so no build meets one). The
+// test build lowers the laws (#162 law-run-1), so it must only lower.
 func TestBuildsOmitLaws(t *testing.T) {
 	type source struct{ name, src string }
 	var srcs []source
@@ -188,7 +190,7 @@ var lawFacts = []lawFact{
 	// A library only a law uses; the erasure property blanks the import
 	// with the law.
 	{name: "library-import", canary: "WithCapacity", imports: "import slices\n\n",
-		law: "law L(n int) {\n\t\tlet xs = slices.WithCapacity[int](n)\n\t\tlen(xs) == 0\n\t}"},
+		law: "law L(s string) {\n\t\tlet xs = slices.WithCapacity[int](len(s))\n\t\tlen(xs) == 0\n\t}"},
 	// A tuple type only a law uses, holding a record whose default holds a
 	// Map: a build that walks the tuple reserves the default's name.
 	{name: "tuple", canary: "ergoDefaultReg12",
@@ -218,7 +220,9 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 	if top {
 		parts = append(parts, f.law+"\n", b.main)
 	} else {
-		parts = append(parts, "type LawHost {\n\tHostPing() int,\n\n\t"+f.law+",\n}\n", b.main)
+		// LawHostMem is the provider the test build runs the member law
+		// against (#162 law-run-1).
+		parts = append(parts, "type LawHost {\n\tHostPing() int,\n\n\t"+f.law+",\n}\n", "type LawHostMem {}\n\nfunc HostPing(_ LawHostMem) int {\n\t0\n}\n", b.main)
 	}
 	for _, d := range parts {
 		if d != "" {
@@ -233,13 +237,15 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 // introduces one emission fact × both placements of the law (a member and,
 // since law-top, a top-level law), both builds are the builds of the same
 // source with the law (and an import only the law uses) blanked out
-// (buildsOmitLaws), neither build gives a type only the law makes an error
-// type an Error method or a text helper, the canary local keeps its Go
-// name, and the run binary prints the base's output.
+// (buildsOmitLaws), the run build gives a type only the law makes an error
+// type no Error method and no text helper, the canary local keeps its Go
+// name there, and the run binary prints the base's output. The test build
+// reads the law's facts and runs it (#162 law-run-1): every law here holds,
+// so its binary reports the law's run ok and exits 0.
 func TestLawFactsStayOut(t *testing.T) {
 	type pair struct {
-		name string
-		base ownerBase
+		name, okLine string
+		base         ownerBase
 	}
 	var pairs []pair
 	var builds []*lowered
@@ -255,16 +261,21 @@ func TestLawFactsStayOut(t *testing.T) {
 				t.Run(label, func(t *testing.T) {
 					src := lawProgram(b, f, top)
 					run, test := buildsOmitLaws(t, name, src)
-					for _, build := range []struct{ name, code string }{{"run", run.mainGo()}, {"test", test.mainGo()}} {
-						if f.errType != "" {
-							lawErrorShape(t, name, build.name, f.errType, build.code)
-						}
-						if f.canary != "" && !regexp.MustCompile(`(?m)^\tvar `+f.canary+` `).MatchString(build.code) {
-							t.Errorf("%s: the %s build renamed the canary local %s: a build read the law's fact", name, build.name, f.canary)
-						}
+					if f.errType != "" {
+						lawErrorShape(t, name, "run", f.errType, run.mainGo())
 					}
-					pairs = append(pairs, pair{name, b})
-					builds = append(builds, run)
+					if f.canary != "" && !regexp.MustCompile(`(?m)^\tvar `+f.canary+` `).MatchString(run.mainGo()) {
+						t.Errorf("%s: the run build renamed the canary local %s: it read the law's fact", name, f.canary)
+					}
+					okLine := "ok law LawHost.L for LawHostMem (100 cases)"
+					switch {
+					case top && strings.HasPrefix(f.law, "law L()"):
+						okLine = "ok law L" // no parameters: one case
+					case top:
+						okLine = "ok law L (100 cases)"
+					}
+					pairs = append(pairs, pair{name, okLine, b})
+					builds = append(builds, run, test)
 				})
 			}
 		}
@@ -281,6 +292,10 @@ func TestLawFactsStayOut(t *testing.T) {
 		if code != 0 || strings.TrimSuffix(stdout, "\n") != p.base.out {
 			t.Errorf("%s: ergo run: exit %d, stdout %q, stderr %q; want %q", p.name, code, stdout, firstLines(stderr, 8), p.base.out)
 		}
+		stdout, stderr, code = runExe(t, exes[p.name+"_test"])
+		if code != 0 || !slices.Contains(lines(stdout), p.okLine) {
+			t.Errorf("%s: test binary: exit %d, stdout %q, stderr %q; want exit 0 and the line %q", p.name, code, stdout, firstLines(stderr, 8), p.okLine)
+		}
 	}
 }
 
@@ -296,8 +311,10 @@ func lawErrorShape(t *testing.T, name, build, typ, code string) {
 	}
 }
 
-// buildsOmitLaws checks both builds of src, which must declare a law, and
-// returns them.
+// buildsOmitLaws checks the run build of src, which must declare a law,
+// against the run build of src without its laws, and returns it with the
+// test build of src, which lowers the laws (#162 law-run-1: the test build
+// runs them, so it is no longer the build of the blanked source).
 func buildsOmitLaws(t *testing.T, name, src string) (run, test *lowered) {
 	t.Helper()
 	run = mustLower(t, name, src)
@@ -313,7 +330,6 @@ func buildsOmitLaws(t *testing.T, name, src string) (run, test *lowered) {
 		blankBuild func() string
 	}{
 		{"run", run.mainGo(), func() string { return mustLower(t, name+"_blank", blanked).mainGo() }},
-		{"test", test.mainGo(), func() string { return lowerTestBuild(t, name+"_blank_test", blanked).mainGo() }},
 	} {
 		for _, m := range directiveRe.FindAllStringSubmatch(b.code, -1) {
 			line, _ := strconv.Atoi(m[1])

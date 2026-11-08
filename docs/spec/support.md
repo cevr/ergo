@@ -4,9 +4,9 @@
 
 This page lists what `ergo build`, `ergo run` and `ergo test` do with each construct that the checker accepts. A **family** is a kind of construct: a syntax node, a call kind, a pattern kind, an implicit conversion or a basic type. The page is generated from the lowering's inventory, and a test fails when the two differ.
 
-- **Checked; runs**: the lowering emits Go for it. `TestAcceptedNodesLower` lowers, vets, builds and runs a witness of each such family. A test and its asserts are in the test build of `ergo test` only.
+- **Checked; runs**: the lowering emits Go for it. `TestAcceptedNodesLower` lowers, vets, builds and runs a witness of each such family. A test, its asserts and a law are in the test build of `ergo test` only.
 - **Checked; build refused (S109)**: the build stops at the construct with S109, and the message names the open owner. `TestRefusedFamiliesHaveWitnesses` keeps a checked program that reaches each refusal.
-- **Checked; not in any build**: the checker checks it, and every build leaves it out. A law is checked and not run.
+- **Checked; not in any build**: the checker checks it, and every build leaves it out.
 
 A construct that the checker refuses never reaches the build. Its diagnostic is in [diagnostics.md](diagnostics.md). The status of each construct of the language, the designed ones included, is in the [specification's status table](README.md#status-per-construct).
 
@@ -49,7 +49,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `InterfaceType` | the `InterfaceType` syntax node | Checked; runs |  |
 | `InterpolatedString` | the `InterpolatedString` syntax node | Checked; runs |  |
 | `KeyValueExpr` | the `KeyValueExpr` syntax node | Checked; runs |  |
-| `LawDecl` | the `LawDecl` syntax node | Checked; not in any build | [#162](https://github.com/cevr/ergo/issues/162) |
+| `LawDecl` | the `LawDecl` syntax node | Checked; runs |  |
 | `MachineEntry` | the `MachineEntry` syntax node | Checked; runs |  |
 | `MachineType` | the `MachineType` syntax node | Checked; runs |  |
 | `MapType` | the `MapType` syntax node | Checked; runs |  |
@@ -91,7 +91,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `call:Conversion` | a call of kind `Conversion` | Checked; runs |  |
 | `call:Func` | a call of kind `Func` | Checked; runs |  |
 | `call:FuncValue` | a call of kind `FuncValue` | Checked; runs |  |
-| `call:LawOp` | a call of kind `LawOp` | Checked; not in any build | [#162](https://github.com/cevr/ergo/issues/162) |
+| `call:LawOp` | a call of kind `LawOp` | Checked; runs |  |
 | `call:Len` | a call of kind `Len` | Checked; runs |  |
 | `call:Op` | a call of kind `Op` | Checked; runs |  |
 | `call:ProviderOp` | a call of kind `ProviderOp` | Checked; runs |  |
@@ -115,6 +115,6 @@ A refusal names one of these owners.
 - [#197](https://github.com/cevr/ergo/issues/197): further resource ownership.
 - [#199](https://github.com/cevr/ergo/issues/199): the runtime.
 - [#57](https://github.com/cevr/ergo/issues/57): the actor library and its machine runner.
-- [#162](https://github.com/cevr/ergo/issues/162): running laws.
+- [#162](https://github.com/cevr/ergo/issues/162): running the laws that do not run yet: a generic operation type's, and an imported operation type's against this package's providers.
 - [#49](https://github.com/cevr/ergo/issues/49): derived text forms.
 - [#196](https://github.com/cevr/ergo/issues/196): the syntax that the checker admits and no rule defines yet.
