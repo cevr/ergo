@@ -4,10 +4,9 @@
 import machines
 import strings
 
-// told is what the board tells over the signals from p, read from the
-// outbox after each step, and the outcome of machines.From over the same
-// signals. machines.From keeps only the last state, so without Emit (q28)
-// the outputs of the earlier steps are read one step at a time.
+// told is what the board tells over the signals from p: each output an
+// Emit or the Done gives, and "ignore" or "reject" for a signal that
+// changes nothing.
 func told(p Pad, signals []Signal) []string {
 	let mut at = p
 	let mut out = []string{}
@@ -18,10 +17,10 @@ func told(p Pad, signals []Signal) []string {
 		case Done[Output] as done:
 			out = out.Append(said(done.Output))
 			return out
+		case Emit[Pad, Output] as e:
+			out = out.Append(said(e.Output))
 		case Enter[Pad]:
-			out = outbox(out, at)
 		case Stay[Pad]:
-			out = outbox(out, at)
 		case Ignore:
 			out = out.Append("ignore")
 		case Reject:
@@ -31,18 +30,6 @@ func told(p Pad, signals []Signal) []string {
 	out
 }
 
-// outbox is out and then the output that p holds, if any. Only a state
-// that Enter or Stay committed holds a new output: Ignore and Reject keep
-// the earlier state, whose Out is the earlier step's.
-func outbox(out []string, p Pad) []string {
-	match BoardOf(p).Out {
-	case Some[Output] as o:
-		out.Append(said(o.Value))
-	case None:
-		out
-	}
-}
-
 func said(o Output) string {
 	match o {
 	case Published as p:
@@ -50,7 +37,7 @@ func said(o Output) string {
 	case Submitted as s:
 		"submit " + s.ID + "=" + s.Text
 	case Closed as c:
-		"closed " + Texts(Board{Fields: c.Fields, Focus: "", Mode: Lower, Out: None})
+		"closed " + Texts(Board{Fields: c.Fields, Focus: "", Mode: Lower})
 	}
 }
 
@@ -69,14 +56,20 @@ test CodeFormRun {
 	}
 	let start = try Open(form)
 	assert strings.Join(told(start, keys), ",") == "code=4,reject,code=42,code=429,ignore,code=42,submit code=42,reject,closed code=42"
-	// The machine takes no input yet (V4): a run of a form starts From the
-	// board that Open makes. A refusal is a failure of Step, which ends a
-	// run, so this run leaves out the two refused signals.
+	// The board of a form starts from Open, which may fail, and a machine's
+	// start function has no failure row (V4), so a run of a form starts
+	// From the board that Open makes. A refusal is a failure of Step,
+	// which ends a run, so this run leaves out the two refused signals.
+	// machines.From keeps every Emit's output, in order.
 	let accepted = []Signal{keys[0], keys[2], keys[3], keys[4], keys[5], keys[6], keys[8]}
 	match try machines.From(Keypad{}, start, accepted) {
 	case machines.Finished[Pad, Output] as f:
-		assert said(f.Output) == "closed code=42"
-	case machines.Running[Pad]:
+		let mut emitted = []string{}
+		for o in f.Emitted {
+			emitted = emitted.Append(said(o))
+		}
+		assert strings.Join(emitted, ",") == "code=4,code=42,code=429,code=42,submit code=42" && said(f.Output) == "closed code=42"
+	case machines.Running[Pad, Output]:
 		assert false
 	}
 }

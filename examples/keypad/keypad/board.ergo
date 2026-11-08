@@ -16,10 +16,11 @@ type Signal = Pressed{Key Key, At duration} | Focus{ID string} | Add{Spec Spec} 
 type Output = Published{ID string, Text string} | Submitted{ID string, Text string} | Closed{Fields []Field}
 
 // Pad is the board's state: one variant, since every state of a keypad
-// holds the same fields (M20: no record state yet). Out is the output of
-// the step that made this state: Ergo's Decision has no Emit yet (q28),
-// so the run loop reads it after each step.
-type Pad = Board{Fields []Field, Focus string, Mode Mode, Out Option[Output]}
+// holds the same fields (M20: no record state yet). A step that tells
+// something returns Emit{Next, Output}: it moves to Next and gives the
+// output (MQ1: Emit opens a new entry; the board has no timers, so the
+// entry changes nothing here).
+type Pad = Board{Fields []Field, Focus string, Mode Mode}
 
 // The refusals of a signal. Each leaves the board as it is.
 
@@ -65,11 +66,11 @@ func Login() []Spec {
 func Start() Pad {
 	Open(Login()) catch {
 	case NoFields:
-		Board{Fields: []Field{}, Focus: "", Mode: Lower, Out: None}
+		Board{Fields: []Field{}, Focus: "", Mode: Lower}
 	case Duplicate:
-		Board{Fields: []Field{}, Focus: "", Mode: Lower, Out: None}
+		Board{Fields: []Field{}, Focus: "", Mode: Lower}
 	case BadSpec:
-		Board{Fields: []Field{}, Focus: "", Mode: Lower, Out: None}
+		Board{Fields: []Field{}, Focus: "", Mode: Lower}
 	}
 }
 
@@ -80,7 +81,7 @@ func Open(specs []Spec) Pad fails NoFields | Duplicate | BadSpec {
 	if len(specs) == 0 {
 		return NoFields
 	}
-	let mut b = Board{Fields: []Field{}, Focus: specs[0].ID, Mode: Lower, Out: None}
+	let mut b = Board{Fields: []Field{}, Focus: specs[0].ID, Mode: Lower}
 	for s in specs {
 		try checkSpec(b, s)
 		b = Board{..b, Fields: b.Fields.Append(Field{Spec: s, Chars: []string{}})}
@@ -178,13 +179,13 @@ func CanPress(b Board, k Key) bool {
 	}
 }
 
-// Step is the board's transition. Typing and Backspace stay in the field
-// and publish its text; Shift steps the shift mode; Return submits the
+// Step is the board's transition. Typing and Backspace Emit the field's
+// new text; Shift steps the shift mode; Return Emits the submit of the
 // field when it is long enough; Focus enters another field; Add and
 // Remove change the form; Close is Done with every field. A greyed key is
 // Ignore. A refused signal fails, and the board stays as it is.
 func Step(p Pad, s Signal) Decision[Pad, Output] fails NoSuchField | LastField | Duplicate | BadSpec | TooShort {
-	let b = Board{..BoardOf(p), Out: None}
+	let b = BoardOf(p)
 	match s {
 	case Pressed as k:
 		try press(b, k.Key, k.At)
@@ -232,20 +233,20 @@ func press(b Board, k Key, at duration) Decision[Pad, Output] fails TooShort {
 		}
 		let typed = Field{..f, Chars: appended(f.Chars, Cap(b.Mode, c.Cap))}
 		let mode = machines.Next(b.Mode, ShiftStep(b.Mode, Typed))
-		Stay[Pad]{Next: Board{..b, Fields: replaced(b.Fields, typed), Mode: mode, Out: Some[Output]{Value: Published{ID: f.Spec.ID, Text: Text(typed)}}}}
+		Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, typed), Mode: mode}, Output: Published{ID: f.Spec.ID, Text: Text(typed)}}
 	case Backspace:
 		if len(f.Chars) == 0 {
 			return Ignore
 		}
 		let erased = Field{..f, Chars: without(f.Chars, len(f.Chars)-1)}
-		Stay[Pad]{Next: Board{..b, Fields: replaced(b.Fields, erased), Out: Some[Output]{Value: Published{ID: f.Spec.ID, Text: Text(erased)}}}}
+		Emit[Pad, Output]{Next: Board{..b, Fields: replaced(b.Fields, erased)}, Output: Published{ID: f.Spec.ID, Text: Text(erased)}}
 	case Shift:
 		Stay[Pad]{Next: Board{..b, Mode: machines.Next(b.Mode, ShiftStep(b.Mode, ShiftTap{At: at}))}}
 	case Return:
 		if len(f.Chars) < f.Spec.Min {
 			return TooShort{ID: f.Spec.ID, Need: f.Spec.Min, Has: len(f.Chars)}
 		}
-		Stay[Pad]{Next: Board{..b, Out: Some[Output]{Value: Submitted{ID: f.Spec.ID, Text: Text(f)}}}}
+		Emit[Pad, Output]{Next: b, Output: Submitted{ID: f.Spec.ID, Text: Text(f)}}
 	}
 }
 

@@ -29,6 +29,8 @@ func Word(d Decision[Pad, Output]) string {
 		"enter"
 	case Stay[Pad]:
 		"stay"
+	case Emit[Pad, Output]:
+		"emit"
 	case Ignore:
 		"ignore"
 	case Reject:
@@ -139,7 +141,7 @@ law SecondShiftLocksWithinTheWindow(gap int) {
 	}
 	let locked = g >= 0s && g <= CapsWindow
 	match o {
-	case machines.Running[Mode] as r:
+	case machines.Running[Mode, Mode] as r:
 		match r.State {
 		case Caps:
 			locked
@@ -223,9 +225,9 @@ law ReturnNeedsMin(focus int, keys []Key) {
 	case BadSpec:
 		return false
 	}
-	match BoardOf(machines.Next[Pad, Output](b, d)).Out {
-	case Some[Output] as o:
-		match o.Value {
+	match d {
+	case Emit[Pad, Output] as e:
+		match e.Output {
 		case Submitted as s:
 			len(f.Chars) >= f.Spec.Min && s.ID == f.Spec.ID && s.Text == Text(f)
 		case Published:
@@ -233,7 +235,15 @@ law ReturnNeedsMin(focus int, keys []Key) {
 		case Closed:
 			false
 		}
-	case None:
+	case Enter[Pad]:
+		false
+	case Stay[Pad]:
+		false
+	case Ignore:
+		false
+	case Reject:
+		false
+	case Done[Output]:
 		false
 	}
 }

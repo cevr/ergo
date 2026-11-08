@@ -62,6 +62,7 @@ func Run() int needs Console | io.Stdin | keypad.Forms {
 			return 0
 		case Enter[keypad.Pad]:
 		case Stay[keypad.Pad]:
+		case Emit[keypad.Pad, keypad.Output]:
 		case Ignore:
 		case Reject:
 		}
@@ -115,12 +116,9 @@ func turn(p keypad.Pad, s keypad.Signal) Decision[keypad.Pad, keypad.Output] nee
 	case Enter[keypad.Pad]:
 		Console.Println("focus \(next.Focus)")
 	case Stay[keypad.Pad]:
-		match next.Out {
-		case Some[keypad.Output] as o:
-			tell(o.Value)
-		case None:
-			Console.Println("\(Signal(s)): \(Fields(after))")
-		}
+		Console.Println("\(Signal(s)): \(Fields(after))")
+	case Emit[keypad.Pad, keypad.Output] as e:
+		tell(e.Output)
 	}
 	d
 }
