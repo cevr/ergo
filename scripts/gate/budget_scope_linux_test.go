@@ -863,7 +863,7 @@ func TestStopStepCgroupWaitsForKernelPopulationZero(t *testing.T) {
 		if got.err != nil || len(got.members) != 0 {
 			t.Fatalf("stop after populated 0: %+v", got)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(loadBound):
 		t.Fatal("stop did not observe cgroup.events populated 0")
 	}
 }

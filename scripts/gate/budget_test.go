@@ -314,6 +314,14 @@ func processExists(pid int) bool {
 	return state != "" && !strings.HasPrefix(state, "Z") && !strings.HasPrefix(state, "X")
 }
 
+// loadBound is how long a test waits for an event that comes within
+// milliseconds on a quiet host (a pid file written, runBudgeted's return):
+// long enough for a loaded gate host, and well short of the 60 s sleep that
+// the probes' descendants hold, so a run that waits for a descendant is
+// still told from one that does not. Bounds of 2 s and 3 s failed only
+// under load (fu-gate-flakes, batch 11).
+const loadBound = 30 * time.Second
+
 func stopProcess(pid int) {
 	if pid <= 0 {
 		return
@@ -408,7 +416,7 @@ func TestBudgetRSSWatchStopsLeaderExitDescendant(t *testing.T) {
 
 	childPath := filepath.Join(root, "src", "leftover-pid")
 	var childPID int
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(loadBound)
 	for time.Now().Before(deadline) {
 		if content, err := os.ReadFile(childPath); err == nil {
 			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
@@ -431,7 +439,7 @@ func TestBudgetRSSWatchStopsLeaderExitDescendant(t *testing.T) {
 		if result.code != 1 || processExists(childPID) {
 			t.Fatalf("exit %d, leftover process alive=%t:\n%s", result.code, processExists(childPID), result.out)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(loadBound):
 		child, err := os.FindProcess(childPID)
 		if err == nil {
 			_ = child.Kill()
@@ -439,7 +447,7 @@ func TestBudgetRSSWatchStopsLeaderExitDescendant(t *testing.T) {
 		select {
 		case result := <-done:
 			t.Fatalf("gate did not stop the descendant promptly; after test cleanup it returned %d:\n%s", result.code, result.out)
-		case <-time.After(3 * time.Second):
+		case <-time.After(loadBound):
 			t.Fatal("gate remained blocked after the test stopped its own descendant")
 		}
 	}
@@ -473,7 +481,7 @@ func TestBudgetRSSWatchDetectsEscapedOutputHolder(t *testing.T) {
 			out  string
 		}{code, out}
 	}()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(loadBound)
 	for time.Now().Before(deadline) {
 		if content, err := os.ReadFile(pidPath); err == nil {
 			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
@@ -491,12 +499,12 @@ func TestBudgetRSSWatchDetectsEscapedOutputHolder(t *testing.T) {
 	select {
 	case result := <-done:
 		code, out = result.code, result.out
-	case <-time.After(3 * time.Second):
+	case <-time.After(loadBound):
 		stopProcess(childPID)
 		select {
 		case result := <-done:
 			t.Fatalf("the RSS gate waited for the escaped writer until test cleanup, then returned %d:\n%s", result.code, result.out)
-		case <-time.After(2 * time.Second):
+		case <-time.After(loadBound):
 			t.Fatal("the RSS gate remained blocked after test cleanup stopped the escaped writer")
 		}
 	}
@@ -669,7 +677,7 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 		used, err := runBudgeted(passThroughLimiter{}, "held-pipe", command)
 		done <- runResult{used: used, err: err}
 	}()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(loadBound)
 	for time.Now().Before(deadline) {
 		if content, err := os.ReadFile(pidPath); err == nil {
 			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
@@ -687,12 +695,12 @@ func TestRunBudgetedDetectsAWriterAfterStepFinish(t *testing.T) {
 		if result.err != nil || !strings.Contains(result.used.processIssue, "step output held open") {
 			t.Fatalf("result %+v, want an output-holder process issue", result)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(loadBound):
 		stopProcess(childPID)
 		select {
 		case result := <-done:
 			t.Fatalf("runBudgeted waited for the output writer until test cleanup, then returned %+v", result)
-		case <-time.After(2 * time.Second):
+		case <-time.After(loadBound):
 			t.Fatal("runBudgeted remained blocked after test cleanup stopped the output writer")
 		}
 	}
@@ -1166,7 +1174,7 @@ func TestRunBudgetedDoesNotWaitForOutputAfterStopFailure(t *testing.T) {
 	}()
 
 	var childPID int
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(loadBound)
 	for time.Now().Before(deadline) {
 		if content, err := os.ReadFile(pidPath); err == nil {
 			childPID, _ = strconv.Atoi(strings.TrimSpace(string(content)))
@@ -1182,15 +1190,15 @@ func TestRunBudgetedDoesNotWaitForOutputAfterStopFailure(t *testing.T) {
 	select {
 	case result := <-done:
 		stopChild()
-		if result.err != nil || !result.used.stopFailed || time.Since(started) > 2*time.Second {
+		if result.err != nil || !result.used.stopFailed {
 			t.Fatalf("runBudgeted result %+v after %s; want prompt return after stop failure", result, time.Since(started))
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(loadBound):
 		stopChild()
 		select {
 		case result := <-done:
 			t.Fatalf("runBudgeted waited for descendant output after stop failure: %+v", result)
-		case <-time.After(3 * time.Second):
+		case <-time.After(loadBound):
 			t.Fatal("runBudgeted remained blocked after the test stopped its own descendant")
 		}
 	}

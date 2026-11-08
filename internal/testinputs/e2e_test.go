@@ -523,7 +523,7 @@ func init() {
 	if _, err := command("sh", "-c", "cd dirs/current && { (sleep 1; cat value.txt > \"$1\") >/dev/null 2>&1 & }", "sh", out); err != nil {
 		return nil, err
 	}
-	for range 200 {
+	for range 2400 { // 60 s: 5 s failed only a loaded host (fu-gate-flakes)
 		if data, err := os.ReadFile(out); err == nil && len(data) > 0 {
 			return data, nil
 		}

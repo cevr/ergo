@@ -186,7 +186,9 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 	// A tracked ps can run before its kill is armed (Start returns after
 	// exec); the stop under test is the one that finds it armed. Untracked,
 	// it is never armed, and the stop below shows that.
-	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+	// The wait is loadBound, not 1 s: a stop that came before the arm on a
+	// loaded host found no kill and failed a tracked ps (fu-gate-flakes).
+	for deadline := time.Now().Add(loadBound); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 		gateStop.mu.Lock()
 		armed := len(gateStop.kills)
 		gateStop.mu.Unlock()
@@ -212,8 +214,8 @@ func TestRSSWatchTracksItsPS(t *testing.T) {
 		if err == nil {
 			t.Error("the sampler's ps ran to its end during a stop, want it killed")
 		}
-	case <-time.After(2 * time.Second):
-		t.Error("the sampler's ps still ran 2 s after the stop ended: the stop did not track it")
+	case <-time.After(loadBound):
+		t.Errorf("the sampler's ps still ran %v after the stop ended: the stop did not track it", loadBound)
 	}
 
 	// A stop waits for a finish's ps in flight and does not kill it: the

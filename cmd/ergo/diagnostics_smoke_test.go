@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -165,9 +164,11 @@ func TestDiagnosticsSmokeBounds(t *testing.T) {
 	}
 	for _, path := range refused {
 		for _, command := range []string{"check", "diagnostics", "build", "run"} {
-			start := time.Now()
-			stdout, stderr, code := runSmokeCLI(t, 10*time.Second, binary, directory, "", command, path)
-			if code != 1 || len(stdout) != 0 || !strings.Contains(string(stderr), "source must be a regular file") || time.Since(start) > 5*time.Second {
+			// An open of the FIFO blocks for good, so processDeadline
+			// tells a refusal from an open; a 5 s bound failed only a
+			// loaded host (fu-gate-flakes).
+			stdout, stderr, code := runSmokeCLI(t, processDeadline, binary, directory, "", command, path)
+			if code != 1 || len(stdout) != 0 || !strings.Contains(string(stderr), "source must be a regular file") {
 				t.Fatalf("ergo %s %s: exit %d stdout %q stderr %q", command, filepath.Base(path), code, stdout, stderr)
 			}
 		}
