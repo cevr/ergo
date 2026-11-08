@@ -333,9 +333,10 @@ func TestExecStopModel(t *testing.T) {
 	t.Logf("cases by state: %v", seen)
 }
 
-// TestExecEffectCases holds the Effect cases that std exec ports, each in
-// a subtest named after its id in conformance/effect-cases.json.
-func TestExecEffectCases(t *testing.T) {
+// TestExecStopEndsAPipeline is the body's side of the Effect case
+// effect.child-process.kills-pipeline, whose source-level evidence is the
+// subtest of that name in lower TestExecRuns.
+func TestExecStopEndsAPipeline(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh")
 	}
@@ -345,7 +346,7 @@ func TestExecEffectCases(t *testing.T) {
 	// Effect: NodeChildProcessSpawner.test.ts "kills every process in a
 	// pipeline". The program runs a pipeline of two stages, each with a
 	// process of its own; a stop of the caller ends every one of them.
-	t.Run("effect.child-process.kills-pipeline", func(t *testing.T) {
+	t.Run("a stop ends every stage", func(t *testing.T) {
 		pidfile := filepath.Join(t.TempDir(), "pids")
 		script := fmt.Sprintf(`(sleep 20 & echo $! >> %[1]s; wait) | (sleep 20 & echo $! >> %[1]s; wait) &
 while [ "$(wc -l < %[1]s)" -lt 2 ]; do sleep 0.01; done
