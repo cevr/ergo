@@ -595,10 +595,12 @@ func init() {
 	},
 	{
 		// connect looks the socket's path up: a file added there changes
-		// the call's outcome.
+		// the call's outcome. The path is relative to the probe's directory:
+		// sun_path holds 108 bytes, and an absolute path under a long
+		// temporary directory (the closure sweep's) fails with EINVAL.
 		name:    "o1 unix socket path added",
 		imports: []string{"net"},
-		run: `conn, err := net.Dial("unix", filepath.Join(root(), "run", "agent.sock"))
+		run: `conn, err := net.Dial("unix", filepath.Join("..", "run", "agent.sock"))
 	if err != nil {
 		return []byte(err.Error()), nil
 	}
@@ -935,6 +937,25 @@ func (f *fixture) git(t *testing.T, args ...string) {
 	}
 }
 
+// sunPath is the size of sun_path in Linux's sockaddr_un, with its NUL.
+const sunPath = 108
+
+// longRoot returns dir, or a new directory below it whose path is longer
+// than sunPath, so no socket below it has an absolute address that fits.
+// Each fixture root is long on every host, so a case that names a socket
+// by its absolute path fails on every host, not only under a long TMPDIR
+// (batch 9: the closure sweep's TMPDIR made o1 fail with EINVAL).
+func longRoot(t *testing.T, dir string) string {
+	t.Helper()
+	if n := sunPath - len(dir); n > 0 {
+		dir = filepath.Join(dir, strings.Repeat("p", n))
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
 func newFixture(t *testing.T, c e2eCase) *fixture {
 	t.Helper()
 	now := time.Now()
@@ -942,6 +963,7 @@ func newFixture(t *testing.T, c e2eCase) *fixture {
 	if resolved, err := filepath.EvalSymlinks(f.root); err == nil {
 		f.root = resolved
 	}
+	f.root = longRoot(t, f.root)
 	f.put(t, "go.mod", "module fixture\n\ngo 1.24\n", f.base)
 	sources, err := filepath.Glob("*.go")
 	if err != nil {
