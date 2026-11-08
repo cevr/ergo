@@ -1,0 +1,469 @@
+// Package fstest is the file system of tests (docs/spec/stdlib.md, fs 17
+// to 19), after Go's testing/fstest. Memory is a provider of fs.Files and
+// fs.Writes in memory: a test binds `context { fs.Files: m, fs.Writes: m }`
+// with `let m = fstest.NewMemory()` and reads and writes no disk. Memory is
+// in its own package, not in fs, so fs's direct calls such as
+// `fs.ReadFile(h, p)` of a Host keep one function each. For a path of names
+// joined by "/", each operation gives the result and the failure that
+// fs.Host gives on Linux in a fresh directory under umask 022; lower
+// TestFSMemoryAgreesWithHost holds that on generated sequences of every
+// operation.
+//
+// The tree holds directories and files. "." and "/" are its two roots,
+// directories that are always there. A path is cleaned (filepath.Clean)
+// before it is looked up, so "./a" names "a", and ".." is resolved by its
+// text, not by a walk. The empty path names nothing. A failure names the
+// path as it was given. Memory differs from Host in these ways only:
+//   - it has no symbolic links;
+//   - it keeps each mode and never checks one, so it never fails Denied
+//     (a test of a refused write wraps Memory in its own provider);
+//   - a new file has mode fs.Shared() (0o644) and a new directory
+//     fs.SharedDir() (0o755), as the host gives under umask 022;
+//   - the Size of a directory is 0;
+//   - a path with a doubled separator or a final "/" is cleaned, where
+//     Go's os.MkdirAll gives "file exists" for some of them.
+//
+// The tree is in a sync.Ref, so every copy of a Memory (the one a context
+// binds, the one the test keeps) is the same tree, and tasks may use one
+// Memory at once: each operation is atomic.
+
+import filepath
+import fs
+import slices
+import strings
+import sync
+
+// Memory is an fs.Files and fs.Writes provider over a tree in memory. Its field is
+// unexported, so NewMemory is its one constructor.
+type Memory { tree sync.Ref[Map[string, entry]] }
+
+// entry is one file or directory of a Memory: Text is a file's text and
+// Perm its permission bits, as fs.Perm gives them.
+type entry { Dir bool, Text string, Perm int }
+
+// place is where a cleaned path is in a tree: below a missing directory,
+// below a file, free in a directory that is there, or taken by an entry.
+type place = NoParent{} | UnderFile{} | Free{} | Taken{At entry}
+
+// outcome is the result of a change of a tree: changed, or a failure that
+// raise makes NotFound or Failed.
+type outcome = Changed{} | Missing{Path string} | Broken{Path string, Reason string}
+
+// NewMemory is an empty Memory: its two roots and nothing in them.
+func NewMemory() Memory {
+	let mut t = Map[string, entry]{}
+	t["."] = entry{Dir: true, Text: "", Perm: fs.Perm(fs.SharedDir())}
+	t["/"] = entry{Dir: true, Text: "", Perm: fs.Perm(fs.SharedDir())}
+	Memory{tree: sync.NewRef[Map[string, entry]](t)}
+}
+
+// ReadFile is the text of the file at path.
+func ReadFile(m Memory, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match look(m, path) {
+	case NoParent, Free:
+		return fs.NotFound{Path: path}
+	case UnderFile:
+		return fs.Failed{Path: path, Reason: "not a directory"}
+	case Taken as p:
+		if p.At.Dir {
+			return fs.Failed{Path: path, Reason: "is a directory"}
+		}
+		p.At.Text
+	}
+}
+
+// ReadDir is the names of the entries of the directory at path, sorted by
+// name.
+func ReadDir(m Memory, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
+	let names = sync.Modify(m.tree, func(t Map[string, entry]) (Option[[]string], Map[string, entry]) {
+		match find(t, path) {
+		case Taken as p:
+			if p.At.Dir {
+				return (Some[[]string]{Value: children(t, filepath.Clean(path))}, t)
+			}
+			(None, t)
+		case NoParent, UnderFile, Free:
+			(None, t)
+		}
+	})
+	match names {
+	case Some[[]string] as n:
+		return n.Value
+	case None:
+	}
+	match look(m, path) {
+	case NoParent, Free:
+		fs.NotFound{Path: path}
+	case UnderFile, Taken:
+		fs.Failed{Path: path, Reason: "not a directory"}
+	}
+}
+
+// Stat describes the file at path: its last element, its size (0 for a
+// directory), whether it is a directory, and its permission bits.
+func Stat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	match look(m, path) {
+	case NoParent, Free:
+		return fs.NotFound{Path: path}
+	case UnderFile:
+		return fs.Failed{Path: path, Reason: "not a directory"}
+	case Taken as p:
+		let size = if p.At.Dir { 0 } else { len(p.At.Text) }
+		fs.Info{Name: filepath.Base(filepath.Clean(path)), Size: size, Dir: p.At.Dir, Perm: p.At.Perm}
+	}
+}
+
+// WriteFile makes the file at path hold text. A new file has mode
+// fs.Shared(); a file that was there keeps its mode.
+func WriteFile(m Memory, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
+	try raise(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) { write(t, path, text, -1, false) }))
+}
+
+// WriteFileMode is WriteFile, but the file at path gets exactly mode.
+func WriteFileMode(m Memory, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
+	let perm = fs.Perm(mode)
+	try raise(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) { write(t, path, text, perm, false) }))
+}
+
+// AppendFile adds text at the end of the file at path, and makes the file,
+// with mode fs.Shared(), when there is none.
+func AppendFile(m Memory, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
+	try raise(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) { write(t, path, text, -1, true) }))
+}
+
+// MkdirAll makes the directory path and each missing parent, with mode
+// fs.SharedDir(). A directory that is there already is no failure.
+func MkdirAll(m Memory, path string) fails fs.Denied | fs.Failed {
+	let perm = fs.Perm(fs.SharedDir())
+	try raiseFailed(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) { mkdirAll(t, path, perm) }))
+}
+
+// MkdirAllMode is MkdirAll, but each directory it makes gets exactly mode.
+// A directory that is there keeps its mode.
+func MkdirAllMode(m Memory, path string, mode fs.Mode) fails fs.Denied | fs.Failed {
+	let perm = fs.Perm(mode)
+	try raiseFailed(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) { mkdirAll(t, path, perm) }))
+}
+
+// Chmod gives the file or directory at path exactly mode.
+func Chmod(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
+	let perm = fs.Perm(mode)
+	try raise(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) {
+		match find(t, path) {
+		case NoParent, Free:
+			(Missing{Path: path}, t)
+		case UnderFile:
+			(Broken{Path: path, Reason: "not a directory"}, t)
+		case Taken as p:
+			let mut u = t
+			u[filepath.Clean(path)] = entry{Dir: p.At.Dir, Text: p.At.Text, Perm: perm}
+			(Changed, u)
+		}
+	}))
+}
+
+// Remove removes the file, or the empty directory, at path.
+func Remove(m Memory, path string) fails fs.NotFound | fs.Denied | fs.Failed {
+	try raise(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) {
+		let c = filepath.Clean(path)
+		match find(t, path) {
+		case NoParent, Free:
+			(Missing{Path: path}, t)
+		case UnderFile:
+			(Broken{Path: path, Reason: "not a directory"}, t)
+		case Taken as p:
+			if isRoot(c) {
+				return (Broken{Path: path, Reason: "invalid argument"}, t)
+			}
+			if p.At.Dir && len(children(t, c)) > 0 {
+				return (Broken{Path: path, Reason: "directory not empty"}, t)
+			}
+			(Changed, t.Delete(c))
+		}
+	}))
+}
+
+// Rename moves the file or directory at from to to, and replaces a file at
+// to. A directory moves with everything in it. As on the host: an existing
+// directory at to is Failed "file exists"; a directory onto a file is
+// Failed "not a directory"; a directory into itself is Failed "invalid
+// argument"; a missing name is NotFound of from, or of to when from is
+// there; any other failure names from.
+func Rename(m Memory, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {
+	try raise(change(m, func(t Map[string, entry]) (outcome, Map[string, entry]) { rename(t, from, to) }))
+}
+
+// CopiesShare: a copy of a Memory is the same tree, so a write
+// through the copy is read through the original.
+law CopiesShare(path string, text string) {
+	let m = NewMemory()
+	let copy = m
+	copy.MkdirAll(filepath.Dir(path)) catch {
+	case fs.Denied, fs.Failed:
+		return true
+	}
+	copy.WriteFile(path, text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return true
+	}
+	try m.ReadFile(path) == text
+}
+
+// AppendConcatenates: after WriteFile(path, a) and AppendFile(path,
+// b) succeed, ReadFile(path) is a + b (fs.Writes, AppendConcatenates).
+law AppendConcatenates(path string, a string, b string) {
+	let m = NewMemory()
+	m.MkdirAll(filepath.Dir(path)) catch {
+	case fs.Denied, fs.Failed:
+		return true
+	}
+	m.WriteFile(path, a) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return true
+	}
+	try m.AppendFile(path, b)
+	try m.ReadFile(path) == a+b
+}
+
+// ModeIsKept: after WriteFileMode(path, text, fs.Private()) succeeds,
+// a later WriteFile and AppendFile keep the mode (fs.Writes, ModeIsKept).
+law ModeIsKept(path string, text string, more string) {
+	let m = NewMemory()
+	m.MkdirAll(filepath.Dir(path)) catch {
+	case fs.Denied, fs.Failed:
+		return true
+	}
+	m.WriteFileMode(path, text, fs.Private()) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return true
+	}
+	try m.WriteFile(path, more)
+	try m.AppendFile(path, more)
+	let info = try m.Stat(path)
+	info.Perm == fs.Perm(fs.Private())
+}
+
+// look is the place of path in m's tree.
+func look(m Memory, path string) place {
+	sync.Modify(m.tree, func(t Map[string, entry]) (place, Map[string, entry]) { (find(t, path), t) })
+}
+
+// change runs f on m's tree, atomically, keeps the tree it returns and
+// gives its outcome.
+func change(m Memory, f func(t Map[string, entry]) (outcome, Map[string, entry])) outcome {
+	sync.Modify(m.tree, f)
+}
+
+// raise fails with the failure o names, if any.
+func raise(o outcome) fails fs.NotFound | fs.Failed {
+	match o {
+	case Changed:
+	case Missing as x:
+		return fs.NotFound{Path: x.Path}
+	case Broken as b:
+		return fs.Failed{Path: b.Path, Reason: b.Reason}
+	}
+}
+
+// raiseFailed is raise for MkdirAll, whose row has no NotFound: mkdirAll
+// gives no Missing.
+func raiseFailed(o outcome) fails fs.Failed {
+	match o {
+	case Changed:
+	case Missing as x:
+		return fs.Failed{Path: x.Path, Reason: "no such file or directory"}
+	case Broken as b:
+		return fs.Failed{Path: b.Path, Reason: b.Reason}
+	}
+}
+
+// isRoot reports whether the cleaned path c is one of the two roots.
+func isRoot(c string) bool { c == "." || c == "/" }
+
+// ancestors are the directories above the cleaned path c, the top first,
+// with no root: "a/b/c" has "a" and "a/b".
+func ancestors(c string) []string {
+	let mut up = []string{}
+	let mut d = filepath.Dir(c)
+	for !isRoot(d) {
+		up = up.Append(d)
+		d = filepath.Dir(d)
+	}
+	slices.Reverse(up)
+}
+
+// find is the place of path in t. The empty path is below nothing.
+func find(t Map[string, entry], path string) place {
+	if path == "" {
+		return NoParent
+	}
+	let c = filepath.Clean(path)
+	match t.Get(c) {
+	case Some[entry] as e:
+		return Taken{At: e.Value}
+	case None:
+	}
+	for a in ancestors(c) {
+		match t.Get(a) {
+		case Some[entry] as e:
+			if !e.Value.Dir {
+				return UnderFile
+			}
+		case None:
+			return NoParent
+		}
+	}
+	Free
+}
+
+// children are the names of the entries of the directory c in t, sorted.
+func children(t Map[string, entry], c string) []string {
+	let mut names = []string{}
+	for k, _ in t {
+		if k != c && filepath.Dir(k) == c {
+			names = names.Append(filepath.Base(k))
+		}
+	}
+	slices.Sort(names)
+}
+
+// write gives the file at path text, or adds text at its end when add is
+// true. perm is the mode the file gets, or -1 to keep the mode of the file
+// that is there (fs.Shared() for a new file).
+func write(t Map[string, entry], path string, text string, perm int, add bool) (outcome, Map[string, entry]) {
+	let c = filepath.Clean(path)
+	match find(t, path) {
+	case NoParent:
+		(Missing{Path: path}, t)
+	case UnderFile:
+		(Broken{Path: path, Reason: "not a directory"}, t)
+	case Free:
+		let mut u = t
+		u[c] = entry{Dir: false, Text: text, Perm: if perm < 0 { fs.Perm(fs.Shared()) } else { perm }}
+		(Changed, u)
+	case Taken as p:
+		if p.At.Dir {
+			return (Broken{Path: path, Reason: "is a directory"}, t)
+		}
+		let mut u = t
+		let body = if add { p.At.Text + text } else { text }
+		u[c] = entry{Dir: false, Text: body, Perm: if perm < 0 { p.At.Perm } else { perm }}
+		(Changed, u)
+	}
+}
+
+// mkdirAll makes the directory path and each missing parent with perm.
+func mkdirAll(t Map[string, entry], path string, perm int) (outcome, Map[string, entry]) {
+	if path == "" {
+		return (Missing{Path: path}, t)
+	}
+	let c = filepath.Clean(path)
+	match find(t, path) {
+	case UnderFile:
+		(Broken{Path: path, Reason: "not a directory"}, t)
+	case Taken as p:
+		if p.At.Dir {
+			return (Changed, t)
+		}
+		(Broken{Path: path, Reason: "not a directory"}, t)
+	case NoParent, Free:
+		let mut u = t
+		for a in ancestors(c) {
+			match u.Get(a) {
+			case Some[entry]:
+			case None:
+				u[a] = entry{Dir: true, Text: "", Perm: perm}
+			}
+		}
+		u[c] = entry{Dir: true, Text: "", Perm: perm}
+		(Changed, u)
+	}
+}
+
+// rename moves from to to in t, with the host's failures (Rename).
+func rename(t Map[string, entry], from string, to string) (outcome, Map[string, entry]) {
+	let f = filepath.Clean(from)
+	let g = filepath.Clean(to)
+	let source = find(t, from)
+	let target = find(t, to)
+	// Go's os.Rename refuses a directory at to before it renames, with the
+	// failure of from first.
+	match target {
+	case Taken as d:
+		if d.At.Dir {
+			match source {
+			case NoParent, Free:
+				return (Missing{Path: from}, t)
+			case UnderFile:
+				return (Broken{Path: from, Reason: "not a directory"}, t)
+			case Taken:
+				if f == g && from != to {
+					return (Changed, t)
+				}
+				return (Broken{Path: from, Reason: "file exists"}, t)
+			}
+		}
+	case NoParent, UnderFile, Free:
+	}
+	// Then the host: the directories of from, then those of to, then from
+	// itself.
+	match source {
+	case NoParent:
+		return (Missing{Path: from}, t)
+	case UnderFile:
+		return (Broken{Path: from, Reason: "not a directory"}, t)
+	case Free, Taken:
+	}
+	match target {
+	case NoParent:
+		match source {
+		case Taken:
+			return (Missing{Path: to}, t)
+		case NoParent, UnderFile, Free:
+			return (Missing{Path: from}, t)
+		}
+	case UnderFile:
+		return (Broken{Path: from, Reason: "not a directory"}, t)
+	case Free, Taken:
+	}
+	match source {
+	case Taken as s:
+		if isRoot(f) || isRoot(g) {
+			return (Broken{Path: from, Reason: "device or resource busy"}, t)
+		}
+		if s.At.Dir && strings.HasPrefix(g, f+"/") {
+			return (Broken{Path: from, Reason: "invalid argument"}, t)
+		}
+		if f == g {
+			return (Changed, t)
+		}
+		match target {
+		case Taken:
+			if s.At.Dir {
+				return (Broken{Path: from, Reason: "not a directory"}, t)
+			}
+		case NoParent, UnderFile, Free:
+		}
+		(Changed, move(t, f, g))
+	case NoParent, UnderFile, Free:
+		(Missing{Path: from}, t)
+	}
+}
+
+// move renames the entry f of t, and every entry under it, to g.
+func move(t Map[string, entry], f string, g string) Map[string, entry] {
+	let mut u = t
+	let mut moved = Map[string, entry]{}
+	for k, e in t {
+		if k == f || strings.HasPrefix(k, f+"/") {
+			moved[g+strings.Slice(k, len(f), len(k))] = e
+		}
+	}
+	for k, _ in moved {
+		u = u.Delete(f + strings.Slice(k, len(g), len(k)))
+	}
+	for k, e in moved {
+		u[k] = e
+	}
+	u
+}
