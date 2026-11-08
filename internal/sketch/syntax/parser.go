@@ -713,7 +713,8 @@ func (m *members) lawsOrOps() Node {
 	return m.laws[0]
 }
 
-// parseMachineType parses `machine[S, E] { initial: x, step: f }`.
+// parseMachineType parses `machine[S, E] { initial: x, step: f }`, with an
+// optional `after: g` entry.
 func (p *parser) parseMachineType() *MachineType {
 	t := &MachineType{Machine: p.want(MACHINE)}
 	t.Lbrack = p.want(LBRACK)
@@ -726,20 +727,23 @@ func (p *parser) parseMachineType() *MachineType {
 	p.exprLev = 0
 	for p.tok.tok != RBRACE {
 		e := &MachineEntry{Doc: p.leadComment(), NamePos: p.tok.pos}
-		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" {
-			p.errorf("expected initial or step, found %s", p.found())
+		if p.tok.tok != IDENT || p.tok.lit != "initial" && p.tok.lit != "step" && p.tok.lit != "after" {
+			p.errorf("expected initial, step or after, found %s", p.found())
 		}
 		e.Name = p.tok.lit
-		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil {
+		if e.Name == "initial" && t.Initial != nil || e.Name == "step" && t.Step != nil || e.Name == "after" && t.After != nil {
 			p.errorf("%s is set twice", e.Name)
 		}
 		p.next()
 		e.Colon = p.want(COLON)
 		e.Value = p.parseExpr()
-		if e.Name == "initial" {
+		switch e.Name {
+		case "initial":
 			t.Initial = e.Value
-		} else {
+		case "step":
 			t.Step = e.Value
+		default:
+			t.After = e.Value
 		}
 		t.Entries = append(t.Entries, e)
 		if !p.got(COMMA) {

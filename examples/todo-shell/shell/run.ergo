@@ -17,6 +17,7 @@ func Run() todo.List needs Console | io.Stdin | io.Stdout {
 			return done.Output
 		case Enter[Mode]:
 		case Stay[Mode]:
+		case Emit[Mode, todo.List]:
 		case Ignore:
 		case Reject:
 		}

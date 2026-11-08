@@ -115,20 +115,46 @@ type Seq[T] func(yield func(v T) bool)
 // Machines and actors).
 type Enter[S] { Next S }
 type Stay[S] { Next S }
+type Emit[S, O] { Next S, Output O }
 type Ignore {}
 type Reject {}
 type Done[O] { Output O }
-type Decision[S, O] = Enter[S] | Stay[S] | Ignore | Reject | Done[O]
 
-// Machine is a machine as a value: its initial state and its step, with
-// the step's output O, error row F and capability row R (README Gap 46).
-// A value of a machine declaration `type X machine[S, E]` converts to
-// Machine[S, E, O, F, R], with O, F and R read from its step's signature,
-// so a function over any machine names them (std machines.Run). A Machine
-// is also an ordinary record: a test may build one from parts.
+// Enter moves to Next and opens a new entry; Stay moves to Next and keeps
+// the entry; Emit moves to Next, opens a new entry, as Enter does, and
+// gives Output while the machine keeps running; Ignore and Reject keep the
+// state; Done ends the machine with Output.
+type Decision[S, O] = Enter[S] | Stay[S] | Emit[S, O] | Ignore | Reject | Done[O]
+
+// Timeout is a state's timer: when an entry of the state lasts In, the
+// runner gives the machine Signal. The runner owns the timer: it starts
+// when the entry opens, a Stay keeps it, and it never fires after its
+// entry ended (docs/spec/runtime.md, Machines and actors 9).
+type Timeout[E] { In duration, Signal E }
+
+// Machine is a machine as a value: its initial state, its step, with the
+// step's output O, error row F and capability row R, and the timer of each
+// state (README Gap 46). A value of a machine declaration `type X
+// machine[S, E]` converts to Machine[S, E, O, F, R], with O, F and R read
+// from its step's signature and After from its `after` entry (None for
+// every state when it has none), so a function over any machine names
+// them (std machines.Run). A Machine is also an ordinary record: a test
+// may build one from parts.
 type Machine[S, E, O, F, R] {
 	Initial S,
 	Step func(s S, e E) Decision[S, O] fails F needs R,
+	After func(s S) Option[Timeout[E]],
+}
+
+// InputMachine is a machine whose initial state is a function of an input
+// I (V4; owner decision O3b): a machine declaration whose initial names a
+// function `func(i I) S` converts to it, as one with an initial value
+// converts to Machine. std machines.Start gives the Machine that starts
+// from Start(input).
+type InputMachine[I, S, E, O, F, R] {
+	Start func(input I) S,
+	Step func(s S, e E) Decision[S, O] fails F needs R,
+	After func(s S) Option[Timeout[E]],
 }
 
 // Task is a started task: task.Go() { … } yields one

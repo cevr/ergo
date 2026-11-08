@@ -1,13 +1,18 @@
 package lower
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/internal/lawledger"
 )
@@ -41,45 +46,173 @@ func (s runState) text() string { return fmt.Sprintf("S%d %d", s.v, s.n) }
 type runSignal struct{ v, x int }
 
 // foldRun is the reference: the fold of table from s over signals, in the
-// text the program prints, with the first signal's index first.
-func foldRun(table [][]runCell, s runState, signals []runSignal, first int) (string, runState, bool) {
+// text the program prints, with the first signal's index first and the
+// outputs before emitted earlier; it returns the outputs after the fold.
+func foldRun(table [][]runCell, s runState, signals []runSignal, first int, before []int) (string, runState, bool, []int) {
+	out := slices.Clone(before)
 	for i, e := range signals {
 		c := table[s.v][e.v]
 		switch c.kind {
 		case "enter", "stay":
 			s = runState{c.target, s.n + e.x + c.delta}
+		case "emit":
+			out = append(out, s.n+e.x)
+			s = runState{c.target, s.n + e.x + c.delta}
 		case "ignore":
 		case "reject":
-			return "rejected " + strconv.Itoa(i+first), s, false
+			return "rejected " + strconv.Itoa(i+first), s, false, out
 		case "done":
-			return fmt.Sprintf("finished %s %d", s.text(), s.n+e.x), s, false
+			return fmt.Sprintf("finished %s %d %s", s.text(), s.n+e.x, intsText(out)), s, false, out
 		case "fail":
-			return "boom", s, false
+			return "boom", s, false, out
 		}
 	}
-	return "running " + s.text(), s, true
+	return "running " + s.text() + " " + intsText(out), s, true, out
+}
+
+// intsText is the text the programs' ints prints for xs.
+func intsText(xs []int) string {
+	parts := make([]string, len(xs))
+	for i, x := range xs {
+		parts[i] = strconv.Itoa(x)
+	}
+	return "[" + strings.Join(parts, " ") + "]"
+}
+
+// runTimer is a state variant's timer in a generated machine: none, or a
+// signal variant sig with v x, In base + (n mod 3) nanoseconds after the
+// entry opens, so the duration is computed from the state.
+type runTimer struct {
+	has          bool
+	base, sig, x int
+}
+
+// timedSignal is a signal of a timed trace at the time at (nanoseconds).
+type timedSignal struct {
+	at int
+	e  runSignal
+}
+
+// foldTimed is the reference of machines.RunTimed: a discrete-event model
+// with one timer slot. The slot is armed when an entry opens (the first
+// state, an Enter or an Emit) and emptied when it fires or when the next
+// entry opens; Stay, Ignore and a timer's Reject leave it. A timer fires
+// before a signal later than its deadline, after one at the same time,
+// and by end after the last signal. seen records the cases the run
+// reached, for the generator's coverage check.
+func foldTimed(table [][]runCell, timers []runTimer, s runState, trace []timedSignal, end int, seen map[string]bool) string {
+	var out []int
+	now, deadline, armed := 0, 0, false
+	var due runSignal
+	// opener is what opened the entry: "first", "enter", "emit", and a
+	// " late" suffix when a signal earlier than the clock opened it.
+	opener := "first"
+	// stale are the deadlines of timers whose entries ended unfired.
+	var stale []int
+	open := func(by string) {
+		if armed {
+			seen["entry ended before its timer"] = true
+			stale = append(stale, deadline)
+		}
+		armed, opener = false, by
+		if tm := timers[s.v]; tm.has {
+			armed, deadline, due = true, now+tm.base+((s.n%3)+3)%3, runSignal{tm.sig, tm.x}
+		}
+	}
+	open("first")
+	stayed := false
+	for i := 0; ; {
+		var e runSignal
+		timer, late := false, false
+		switch {
+		case armed && (i < len(trace) && deadline < trace[i].at || i >= len(trace) && deadline <= end):
+			if i < len(trace) && deadline == trace[i].at-1 {
+				seen["timer just before a signal"] = true
+			}
+			now = max(now, deadline)
+			e, timer, armed = due, true, false
+			seen["timer fired"] = true
+			seen["timer fired in an entry opened by "+opener] = true
+			if stayed {
+				seen["timer fired after a stay"] = true
+			}
+		case i < len(trace):
+			if armed && deadline == trace[i].at {
+				seen["signal at its timer's deadline"] = true
+			}
+			late = trace[i].at < now
+			now = max(now, trace[i].at)
+			e = trace[i].e
+			i++
+		default:
+			return "running " + s.text() + " " + intsText(out)
+		}
+		for len(stale) > 0 && slices.Min(stale) <= now {
+			seen["a stale timer came due"] = true
+			stale = slices.DeleteFunc(stale, func(d int) bool { return d <= now })
+		}
+		c := table[s.v][e.v]
+		switch c.kind {
+		case "enter", "emit":
+			if c.kind == "emit" {
+				out = append(out, s.n+e.x)
+			}
+			s = runState{c.target, s.n + e.x + c.delta}
+			stayed = false
+			by := c.kind
+			if late {
+				by += " late"
+			}
+			open(by)
+		case "stay":
+			s = runState{c.target, s.n + e.x + c.delta}
+			stayed = stayed || armed
+		case "ignore":
+		case "reject":
+			if !timer {
+				return "rejected " + strconv.Itoa(i-1)
+			}
+			seen["timer rejected"] = true
+		case "done":
+			return fmt.Sprintf("finished %s %d %s", s.text(), s.n+e.x, intsText(out))
+		case "fail":
+			return "boom"
+		}
+	}
 }
 
 // genRunProgram is one machine with 1-3 state variants and 1-3 signal
-// variants, each with an int field, and a step table over every decision,
-// a typed failure included; its step needs a capability, Probe, in half the programs.
-// main prints the initial state and, for each generated signal list, the
-// run over the list and, when the run over the list's first half is
-// Running, the run from its state over the second half.
-func genRunProgram(r *rand.Rand, k int) runProgram {
+// variants, each with an int field, a step table over every decision, a
+// typed failure included, and a timer on some state variants (its
+// after entry, in half the programs); its step needs a capability, Probe,
+// in half the programs. main prints the initial state and, for each
+// generated signal list, the run over the list, the run over its first
+// half and then, when that is Running, from its state over the second
+// half, and the timed run of the list at generated times.
+func genRunProgram(r *rand.Rand, k int, seen map[string]bool) runProgram {
 	ns, ne := r.Intn(3)+1, r.Intn(3)+1
-	kinds := []string{"enter", "stay", "ignore", "reject", "done", "fail"}
 	table := make([][]runCell, ns)
 	for i := range table {
 		table[i] = make([]runCell, ne)
 		for j := range table[i] {
-			// Rejects and failures end a run: they are drawn less often, so
-			// runs get long.
-			kind := kinds[r.Intn(3)]
-			if r.Intn(4) == 0 {
-				kind = kinds[3+r.Intn(3)]
+			// Rejects, Dones and failures end a run: they are drawn less
+			// often, so runs get long.
+			kind := []string{"enter", "stay", "emit", "ignore"}[r.Intn(4)]
+			if r.Intn(5) == 0 {
+				kind = []string{"reject", "done", "fail"}[r.Intn(3)]
 			}
 			table[i][j] = runCell{kind: kind, target: r.Intn(ns), delta: r.Intn(7) - 3}
+		}
+	}
+	timed := r.Intn(2) == 0
+	timers := make([]runTimer, ns)
+	for i := range timers {
+		if timed && r.Intn(3) > 0 {
+			timers[i] = runTimer{has: true, base: r.Intn(4) + 1, sig: r.Intn(ne), x: r.Intn(7) - 3}
+			if r.Intn(4) == 0 {
+				// A timer's signal that the state rejects: no one asked.
+				table[i][timers[i].sig].kind = "reject"
+			}
 		}
 	}
 	needs := r.Intn(2) == 0
@@ -121,6 +254,8 @@ func genRunProgram(r *rand.Rand, k int) runProgram {
 				fmt.Fprintf(&b, "Enter[St]{Next: S%d{n: a.n + x.v + %d}}", c.target, c.delta)
 			case "stay":
 				fmt.Fprintf(&b, "Stay[St]{Next: S%d{n: a.n + x.v + %d}}", c.target, c.delta)
+			case "emit":
+				fmt.Fprintf(&b, "Emit[St, int]{Next: S%d{n: a.n + x.v + %d}, Output: a.n + x.v}", c.target, c.delta)
 			case "ignore":
 				b.WriteString("Ignore")
 			case "reject":
@@ -135,81 +270,172 @@ func genRunProgram(r *rand.Rand, k int) runProgram {
 		b.WriteString("\t\t}\n")
 	}
 	b.WriteString("\t}\n}\n\n")
+	after := ""
+	if timed {
+		after = "\tafter:   timer,\n"
+		b.WriteString("func timer(s St) Option[Timeout[Sig]] {\n\tmatch s {\n")
+		for i, tm := range timers {
+			if !tm.has {
+				fmt.Fprintf(&b, "\tcase S%d:\n\t\tNone\n", i)
+				continue
+			}
+			fmt.Fprintf(&b, "\tcase S%d as a:\n\t\tSome[Timeout[Sig]]{Value: Timeout[Sig]{In: duration(int64(%d + ((a.n %% 3) + 3) %% 3)), Signal: E%d{v: %d}}}\n", i, tm.base, tm.sig, tm.x)
+		}
+		b.WriteString("\t}\n}\n\n")
+	}
+	// The initial state is a value, or (V4) the function start of an input
+	// of one int or of two: init.n is then the start's offset.
 	init := runState{r.Intn(ns), r.Intn(9) - 4}
-	fmt.Fprintf(&b, "type M machine[St, Sig] {\n\tinitial: S%d{n: %d},\n\tstep:    step,\n}\n\n", init.v, init.n)
+	inputs := r.Intn(3)
+	seen[fmt.Sprintf("a machine with %d inputs", inputs)] = true
+	initial := fmt.Sprintf("S%d{n: %d}", init.v, init.n)
+	machineType := "Machine[St, Sig, int, Boom" + strings.ReplaceAll(helperRow, " needs ", ", ") + "]"
+	switch inputs {
+	case 1:
+		fmt.Fprintf(&b, "func start(x int) St { S%d{n: x + %d} }\n\n", init.v, init.n)
+		initial = "start"
+	case 2:
+		fmt.Fprintf(&b, "func start(x int, y int) St { S%d{n: x - y + %d} }\n\n", init.v, init.n)
+		initial = "start"
+	}
+	fmt.Fprintf(&b, "type M machine[St, Sig] {\n\tinitial: %s,\n\tstep:    step,\n%s}\n\n", initial, after)
 	b.WriteString("func show(s St) string {\n\tmatch s {\n")
 	for i := range ns {
 		fmt.Fprintf(&b, "\tcase S%d as a:\n\t\t\"S%d \\(a.n)\"\n", i, i)
 	}
 	b.WriteString("\t}\n}\n\n")
-	b.WriteString(strings.ReplaceAll(`func told(o machines.Outcome[St, int]) string {
+	b.WriteString(strings.ReplaceAll(strings.ReplaceAll(`func ints(xs []int) string {
+	let mut t = "["
+	for i, x in xs {
+		if i > 0 {
+			t = t + " "
+		}
+		t = t + "\(x)"
+	}
+	t + "]"
+}
+
+func cat(a []int, b []int) []int {
+	let mut all = a
+	for x in b {
+		all = all.Append(x)
+	}
+	all
+}
+
+func told(o machines.Outcome[St, int], before []int) string {
 	match o {
 	case machines.Finished[St, int] as f:
-		"finished \(show(f.State)) \(f.Output)"
-	case machines.Running[St] as r:
-		"running \(show(r.State))"
+		"finished \(show(f.State)) \(f.Output) \(ints(cat(before, f.Emitted)))"
+	case machines.Running[St, int] as r:
+		"running \(show(r.State)) \(ints(cat(before, r.Emitted)))"
 	}
 }
 
-func run(signals []Sig) string NEEDS {
-	let o = machines.Run(M{}, signals) catch {
+func run(m MT, signals []Sig) string NEEDS {
+	let o = machines.Run(m, signals) catch {
 	case machines.Rejected as r:
 		return "rejected \(r.At)"
 	case Boom:
 		return "boom"
 	}
-	told(o)
+	told(o, []int{})
 }
 
-func from(s St, signals []Sig, first int) string NEEDS {
-	let o = machines.From(M{}, s, signals) catch {
+func from(m MT, s St, signals []Sig, first int, before []int) string NEEDS {
+	let o = machines.From(m, s, signals) catch {
 	case machines.Rejected as r:
 		return "rejected \(r.At + first)"
 	case Boom:
 		return "boom"
 	}
-	told(o)
+	told(o, before)
 }
 
-func split(a []Sig, b []Sig) string NEEDS {
-	let o = machines.Run(M{}, a) catch {
+func split(m MT, a []Sig, b []Sig) string NEEDS {
+	let o = machines.Run(m, a) catch {
 	case machines.Rejected:
 		return "-"
 	case Boom:
 		return "-"
 	}
 	match o {
-	case machines.Running[St] as r:
-		from(r.State, b, len(a))
+	case machines.Running[St, int] as r:
+		from(m, r.State, b, len(a), r.Emitted)
 	case machines.Finished[St, int]:
 		"-"
 	}
 }
 
-`, " NEEDS", helperRow))
-	b.WriteString("func main() needs Console {\n\tConsole.Println(show(machines.Initial(M{})))\n")
+func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
+	let o = machines.RunTimed(m, trace, duration(int64(end))) catch {
+	case machines.Rejected as r:
+		return "rejected \(r.At)"
+	case Boom:
+		return "boom"
+	}
+	told(o, []int{})
+}
+
+`, " NEEDS", helperRow), " MT", " "+machineType))
+	// machineOf is the machine value a run of an input starts from, and
+	// startOf the reference's first state for it (V4).
+	machineOf := func(x, y int) (string, runState) {
+		switch inputs {
+		case 1:
+			return fmt.Sprintf("machines.Start(im, %d)", x), runState{init.v, x + init.n}
+		case 2:
+			return fmt.Sprintf("machines.Start(im, (%d, %d))", x, y), runState{init.v, x - y + init.n}
+		}
+		return "M{}", init
+	}
+	m0, s0 := machineOf(r.Intn(9)-4, r.Intn(9)-4)
+	fmt.Fprintf(&b, "func main() needs Console {\n")
+	if inputs > 0 {
+		// One InputMachine value starts every run, each from its own input.
+		input := map[int]string{1: "int", 2: "(int, int)"}[inputs]
+		fmt.Fprintf(&b, "\tlet im InputMachine[%s, St, Sig, int, Boom%s] = M{}\n", input, strings.ReplaceAll(helperRow, " needs ", ", "))
+	}
+	fmt.Fprintf(&b, "\tConsole.Println(show(machines.Initial(%s)))\n", m0)
 	if needs {
 		b.WriteString("\twith context { Probe: Quiet } {\n")
 	}
-	want := []string{init.text()}
+	want := []string{s0.text()}
 	for l := range 4 {
+		mv, init := machineOf(r.Intn(9)-4, r.Intn(9)-4)
 		n := r.Intn(9)
 		signals := make([]runSignal, n)
-		var lit []string
+		trace := make([]timedSignal, n)
+		var lit, tlit []string
+		at := 0
 		for i := range signals {
 			signals[i] = runSignal{r.Intn(ne), r.Intn(7) - 3}
+			// Times mostly rise; one in six is a tie and one in six goes
+			// back, which the run's clock never does.
+			switch r.Intn(6) {
+			case 0:
+				at -= r.Intn(4) + 1
+			case 1:
+			default:
+				at += r.Intn(5) + 1
+			}
+			trace[i] = timedSignal{at, signals[i]}
 			lit = append(lit, fmt.Sprintf("E%d{v: %d}", signals[i].v, signals[i].x))
+			tlit = append(tlit, fmt.Sprintf("machines.Timed[Sig]{At: duration(int64(%d)), Signal: E%d{v: %d}}", at, signals[i].v, signals[i].x))
 		}
+		end := at + r.Intn(8)
 		h := n / 2
-		fmt.Fprintf(&b, "\tlet xs%d = []Sig{%s}\n\tConsole.Println(run(xs%d))\n\tConsole.Println(split(xs%d[0:%d], xs%d[%d:%d]))\n", l, strings.Join(lit, ", "), l, l, h, l, h, n)
-		whole, _, _ := foldRun(table, init, signals, 0)
+		fmt.Fprintf(&b, "\tlet m%d = %s\n\tlet xs%d = []Sig{%s}\n\tConsole.Println(run(m%d, xs%d))\n\tConsole.Println(split(m%d, xs%d[0:%d], xs%d[%d:%d]))\n", l, mv, l, strings.Join(lit, ", "), l, l, l, l, h, l, h, n)
+		fmt.Fprintf(&b, "\tConsole.Println(timed(m%d, []machines.Timed[Sig]{%s}, %d))\n", l, strings.Join(tlit, ", "), end)
+		whole, _, _, _ := foldRun(table, init, signals, 0, nil)
 		want = append(want, whole)
-		if _, at, running := foldRun(table, init, signals[:h], 0); running {
-			rest, _, _ := foldRun(table, at, signals[h:], h)
+		if _, at, running, out := foldRun(table, init, signals[:h], 0, nil); running {
+			rest, _, _, _ := foldRun(table, at, signals[h:], h, out)
 			want = append(want, rest)
 		} else {
 			want = append(want, "-")
 		}
+		want = append(want, foldTimed(table, timers, init, trace, end, seen))
 	}
 	if needs {
 		b.WriteString("\t}\n")
@@ -219,17 +445,22 @@ func split(a []Sig, b []Sig) string NEEDS {
 }
 
 // TestMachineRunAgreesWithFold is the acceptance property: over generated
-// step tables and signal lists, machines.Run, machines.From and
-// machines.Initial print what the reference fold computes; the split law
-// (Run over a ++ b is From over b after a) holds on every list. A failure
+// step tables, timers and signal lists, machines.Run, machines.From and
+// machines.Initial print what the reference fold computes, Emit outputs
+// in order; the split law (Run over a ++ b is From over b after a) holds
+// on every list; and machines.RunTimed over the list at generated times
+// prints what the discrete-event model foldTimed computes (V5: a timer
+// never fires after its entry ended, Stay keeps it, Enter and Emit
+// restart it, a signal at a timer's deadline goes first). A failure
 // prints the program. ERGO_MACHINERUN_SEED replays another seed.
 //
 // It builds and runs the programs because the behaviour under test is the
-// lowered Go: the ConvMachine value (plan Initial and the step's function
-// value) and std machines' Ergo body run only there, and the repository
-// has no reference interpreter of Ergo. The std laws of machines (over a
-// Machine record) miss what it catches: Ignore treated as Reject, the
-// rejected index, Done's state, and inference through a machine value.
+// lowered Go: the ConvMachine value (plan Initial, the step's and the
+// after's function values) and std machines' Ergo body run only there,
+// and the repository has no reference interpreter of Ergo. The std laws
+// of machines (over a Machine record with no timer) miss what it catches:
+// Ignore treated as Reject, the rejected index, Done's state, inference
+// through a machine value, and every timer rule.
 func TestMachineRunAgreesWithFold(t *testing.T) {
 	seed := int64(20)
 	if s := os.Getenv("ERGO_MACHINERUN_SEED"); s != "" {
@@ -242,31 +473,97 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	r := rand.New(rand.NewSource(seed))
 	var progs []runProgram
 	var builds []*lowered
-	kinds := map[string]bool{}
-	for k := 0; k < 16; k++ {
-		p := genRunProgram(r, k)
+	kinds, seen := map[string]bool{}, map[string]bool{}
+	// The generated runs must reach every way a run ends, an Emit's
+	// output, and every timer case of the model: programs are generated
+	// until they do, 16 at least and 128 at most.
+	ends := []string{"running", "finished", "rejected", "boom", "-", "emitted"}
+	cases := []string{"timer fired after a stay", "a stale timer came due", "signal at its timer's deadline", "timer just before a signal", "timer rejected",
+		"timer fired in an entry opened by first", "timer fired in an entry opened by enter", "timer fired in an entry opened by emit", "a timer of an entry a late signal opened fired",
+		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs"}
+	missing := func() string {
+		seen["a timer of an entry a late signal opened fired"] = seen["timer fired in an entry opened by enter late"] || seen["timer fired in an entry opened by emit late"]
+		for _, k := range ends {
+			if !kinds[k] {
+				return "no generated run ends " + strconv.Quote(k)
+			}
+		}
+		for _, c := range cases {
+			if !seen[c] {
+				return "no generated timed run reaches " + strconv.Quote(c)
+			}
+		}
+		return ""
+	}
+	for k := 0; k < 16 || missing() != "" && k < 128; k++ {
+		p := genRunProgram(r, k, seen)
 		progs = append(progs, p)
 		builds = append(builds, mustLower(t, p.name, p.src))
 		for _, w := range p.want {
 			kinds[strings.SplitN(w, " ", 2)[0]] = true
+			if strings.Contains(w, "[") && !strings.Contains(w, "[]") {
+				kinds["emitted"] = true
+			}
 		}
 	}
-	// The generated runs reach every way a run ends.
-	for _, k := range []string{"running", "finished", "rejected", "boom", "-"} {
-		if !kinds[k] {
-			t.Fatalf("seed %d: no generated run ends %q", seed, k)
-		}
+	if m := missing(); m != "" {
+		t.Fatalf("seed %d, %d programs: %s", seed, len(progs), m)
 	}
+	t.Logf("seed %d: %d programs", seed, len(progs))
 	exes := buildAll(t, builds, true)
 	if exes == nil {
 		return
 	}
 	for _, p := range progs {
-		stdout, stderr, code := runExe(t, exes[p.name])
+		stdout, stderr, code, ended := runBounded(t, exes[p.name])
+		if !ended {
+			t.Fatalf("seed %d, %s: still running after %s, stopped: a run that never ends (a timer cascade?)\nsource:\n%s", seed, p.name, programBound, p.src)
+		}
 		if got := lines(stdout); code != 0 || !slices.Equal(got, p.want) {
 			t.Errorf("seed %d, %s: exit %d\nstdout:\n%s\nwant:\n%s\nstderr:\n%s\nsource:\n%s", seed, p.name, code, stdout, strings.Join(p.want, "\n"), firstLines(stderr, 8), p.src)
 		}
 	}
+}
+
+// programBound is how long runBounded lets a generated program run. Each
+// one ends in milliseconds; the bound is a guard, not a timing claim.
+const programBound = 30 * time.Second
+
+// runBounded runs a generated program in a process group of its own and
+// stops the group after programBound, reporting whether the program ended
+// by itself. A wrong runner (a mutant whose timer never moves the clock)
+// loops forever and may grow without limit: on 2026-11-08 one such
+// program, orphaned when go test's timeout ended the test, took 46.7 GB.
+func runBounded(t *testing.T, exe string) (stdout, stderr string, code int, ended bool) {
+	t.Helper()
+	probeRan(exe)
+	cmd := exec.Command(exe)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	stopGroup := func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	t.Cleanup(stopGroup) // a Fatal elsewhere never leaves the group behind
+	var err error
+	select {
+	case err = <-done:
+		ended = true
+	case <-time.After(programBound):
+		stopGroup()
+		<-done
+		return out.String(), errOut.String(), -1, false
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		code = exit.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return out.String(), errOut.String(), code, ended
 }
 
 // TestMachineValueConverts: a machine declaration's value is assignable to
@@ -352,12 +649,80 @@ func main() {
 	}
 }
 
+// TestMachineAfterRefusals: a machine's after names a package function
+// from its state to Option[Timeout[E]] with no rows, since the runner
+// calls it after a commit. Diagnostic rows: they alone catch a checker
+// that admits an after of another type or with a row, which no program
+// that builds can show.
+func TestMachineAfterRefusals(t *testing.T) {
+	head := `type St = A
+type A {}
+type Sig = Go
+type Go {}
+
+func step(s St, e Sig) Decision[St, int] { Ignore }
+
+`
+	machine := "type M machine[St, Sig] {\n\tinitial: A,\n\tstep:    step,\n\tafter:   timer,\n}\n\nfunc main() {}\n"
+	for _, c := range []struct{ name, timer, want string }{
+		{"signal", "func timer(e Sig) Option[Timeout[Sig]] { None }\n\n",
+			"S108 the after timer of machine M must have the type func(main.St) Option[Timeout[main.Sig]], with no error or capability row: the runner calls it after a commit (runtime.md, Machines and actors 9)"},
+		{"row", "func timer(s St) Option[Timeout[Sig]] {\n\tConsole.Println(\"x\")\n\tNone\n}\n\n",
+			"S108 cannot use func(main.St) Option[Timeout[main.Sig]] needs Console as func(main.St) Option[Timeout[main.Sig]] in machine M's after: its capability row {Console} is wider than {}"},
+		{"unknown", "", "S104 unknown function timer"},
+	} {
+		var got []string
+		for _, d := range lowerSource("machineafter", head+c.timer+machine, true).diags {
+			got = append(got, d.String())
+		}
+		if len(got) != 1 || !strings.Contains(got[0], c.want) {
+			t.Errorf("%s: diagnostics %q, want one with %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestMachineStartRefusals: a machine's initial may name a start function
+// of its input (V4): one with no parameters or another result, or with a
+// row, is refused, and an InputMachine is not a Machine. Diagnostic rows:
+// they alone catch a checker that admits such a start, which no program
+// that builds can show.
+func TestMachineStartRefusals(t *testing.T) {
+	head := `type St = A{n int}
+type Sig = Go
+type Go {}
+
+func step(s St, e Sig) Decision[St, int] { Ignore }
+
+type M machine[St, Sig] {
+	initial: start,
+	step:    step,
+}
+
+`
+	for _, c := range []struct{ name, rest, want string }{
+		{"none", "func start() St { A{n: 1} }\n\nfunc main() {}\n",
+			"S108 the start start of machine M must have the type func(…) main.St: its parameters are the machine's input, and it has no type parameters and no error or capability row (runtime.md, Machines and actors 10)"},
+		{"row", "func start(n int) St {\n\tConsole.Println(\"x\")\n\tA{n: n}\n}\n\nfunc main() {}\n",
+			"S108 cannot use func(int) main.St needs Console as func(int) main.St in machine M's start: its capability row {Console} is wider than {}"},
+		{"machine", "func start(n int) St { A{n: n} }\n\nfunc main() {\n\tlet _ Machine[St, Sig, int] = M{}\n}\n",
+			"its initial is a function of an input, so it is an InputMachine[int, …]; machines.Start(value, input) gives a Machine"},
+	} {
+		var got []string
+		for _, d := range lowerSource("machinestart", head+c.rest, true).diags {
+			got = append(got, d.String())
+		}
+		if len(got) != 1 || !strings.Contains(got[0], c.want) {
+			t.Errorf("%s: diagnostics %q, want one with %q", c.name, got, c.want)
+		}
+	}
+}
+
 // machinesLawsProbe restates the laws of std machines as tests of the same
 // name (the Std laws ledger, docs/spec/stdlib.md).
 const machinesLawsProbe = `import machines
 
 func tallyStep(s int, e int) Decision[int, int] {
-	match ((e % 5) + 5) % 5 {
+	match ((e % 6) + 6) % 6 {
 	case 0:
 		Enter[int]{Next: s + e}
 	case 1:
@@ -366,24 +731,51 @@ func tallyStep(s int, e int) Decision[int, int] {
 		Ignore
 	case 3:
 		Reject
+	case 4:
+		Emit[int, int]{Next: s - 1, Output: s}
 	case _:
 		Done[int]{Output: s}
 	}
 }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep} }
+func untimed(s int) Option[Timeout[int]] { None }
 
-func told(s int, signals []int, first int) string {
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed} }
+
+func ints(xs []int) string {
+	let mut t = "["
+	for i, x in xs {
+		if i > 0 {
+			t = t + " "
+		}
+		t = t + "\(x)"
+	}
+	t + "]"
+}
+
+func cat(a []int, b []int) []int {
+	let mut all = a
+	for x in b {
+		all = all.Append(x)
+	}
+	all
+}
+
+func told(o machines.Outcome[int, int], before []int) string {
+	match o {
+	case machines.Finished[int, int] as f:
+		"finished \(f.State) \(f.Output) \(ints(cat(before, f.Emitted)))"
+	case machines.Running[int, int] as r:
+		"running \(r.State) \(ints(cat(before, r.Emitted)))"
+	}
+}
+
+func from(s int, signals []int, first int, before []int) string {
 	let o = machines.From(tally(), s, signals) catch {
 	case machines.Rejected as r:
 		return "rejected \(r.At + first)"
 	}
-	match o {
-	case machines.Finished[int, int] as f:
-		"finished \(f.State) \(f.Output)"
-	case machines.Running[int] as r:
-		"running \(r.State)"
-	}
+	told(o, before)
 }
 
 func RunSplits(a []int, b []int) bool {
@@ -396,8 +788,8 @@ func RunSplits(a []int, b []int) bool {
 		return true
 	}
 	match first {
-	case machines.Running[int] as r:
-		told(0, whole, 0) == told(r.State, b, len(a))
+	case machines.Running[int, int] as r:
+		from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted)
 	case machines.Finished[int, int]:
 		true
 	}
@@ -405,19 +797,39 @@ func RunSplits(a []int, b []int) bool {
 
 func NextTakesItsState(s int, n int) bool {
 	machines.Next[int, int](s, Enter[int]{Next: n}) == n && machines.Next[int, int](s, Stay[int]{Next: n}) == n &&
-		machines.Next[int, int](s, Ignore) == s && machines.Next[int, int](s, Reject) == s && machines.Next[int, int](s, Done[int]{Output: n}) == s
+		machines.Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && machines.Next[int, int](s, Ignore) == s &&
+		machines.Next[int, int](s, Reject) == s && machines.Next[int, int](s, Done[int]{Output: n}) == s
+}
+
+func UntimedRunsAsRun(signals []int, gaps []int) bool {
+	let mut trace = []machines.Timed[int]{}
+	let mut at = 0s
+	for i, e in signals {
+		if i < len(gaps) {
+			at = at + duration(int64(gaps[i] % 1000))
+		}
+		trace = trace.Append(machines.Timed[int]{At: at, Signal: e})
+	}
+	let timed = machines.RunTimed(tally(), trace, at) catch {
+	case machines.Rejected as r:
+		return from(0, signals, 0, []int{}) == "rejected \(r.At)"
+	}
+	from(0, signals, 0, []int{}) == told(timed, []int{})
 }
 
 test MachinesRunSplits(a []int, b []int) { assert RunSplits(a, b) }
 
 test MachinesNextTakesItsState(s int, n int) { assert NextTakesItsState(s, n) }
+
+test MachinesUntimedRunsAsRun(signals []int, gaps []int) { assert UntimedRunsAsRun(signals, gaps) }
 `
 
 // machinesLawStatements is the statement of each machines law, as the
 // ledger writes it.
 var machinesLawStatements = map[string]string{
-	"machines RunSplits":         `RunSplits(a []int, b []int) { let mut whole = a for e in b { whole = whole.Append(e) } let first = Run(tally(), a) catch { case Rejected: return true } match first { case Running[int] as r: told(0, whole, 0) == told(r.State, b, len(a)) case Finished[int, int]: true } }`,
-	"machines NextTakesItsState": `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s }`,
+	"machines RunSplits":         `RunSplits(a []int, b []int) { let mut whole = a for e in b { whole = whole.Append(e) } let first = Run(tally(), a) catch { case Rejected: return true } match first { case Running[int, int] as r: from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted) case Finished[int, int]: true } }`,
+	"machines NextTakesItsState": `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s }`,
+	"machines UntimedRunsAsRun":  `UntimedRunsAsRun(signals []int, gaps []int) { let mut trace = []Timed[int]{} let mut at = 0s for i, e in signals { if i < len(gaps) { at = at + duration(int64(gaps[i] % 1000)) } trace = trace.Append(Timed[int]{At: at, Signal: e}) } let timed = RunTimed(tally(), trace, at) catch { case Rejected as r: return from(0, signals, 0, []int{}) == "rejected \(r.At)" } from(0, signals, 0, []int{}) == told(timed, []int{}) }`,
 }
 
 // TestStdMachinesLawsRun runs the probe's tests with --seed 1; lawledger.Run
