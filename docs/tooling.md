@@ -74,6 +74,33 @@ The formatter does not refuse invalid UTF-8. It formats such a source and writes
 
 The gate needs Go and Git. It needs no Node, Bun, TypeScript or Effect installation: since 2026-10-26 Go is the only target.
 
+## Test memory
+
+A test or a runner that starts a program gives the program a memory limit of its own, and makes it the first process that the kernel's out-of-memory killer stops. `GOMEMLIMIT` does not do this: it is a soft goal of one Go runtime, and it does not bound a child process.
+
+**The incident (measured, kernel OOM report of 2026-11-08 21:10Z).** The 64 GB workbox ran out of memory. One generated program, `machinerun_05`, which a lowering test started, had 46.7 GB resident. Its `oom_score_adj` was -900, so the kernel stopped most other processes first. The test ran outside the gate's scope, with `nice go test` and `GOMEMLIMIT=6GiB`.
+
+**Where -900 came from (measured).** No code of this repository writes `oom_score_adj`. The SSH service of the workbox, `bite-workbox-sshd.service`, has `OOMScoreAdjust=-900`. sshd gives that score to every session, and a child process inherits the score of its parent. So every process that an SSH session starts has -900: the agent, its shell, `go test`, the test binary and the program the test starts. In the kernel report, 97 processes had -900, among them `opencode`, `codex`, `herdr`, `zsh`, `go`, `lower.test` and `machinerun_05`. After the restart, the sshd session processes and the `herdr remote-client-bridge` processes they start still have -900; the agent sessions that the user's service manager starts have 200. A process without privilege can raise its score, and can lower it again only to the lowest value that a privileged process set for it (here -900).
+
+**What the tools do now.**
+
+- `internal/testinputs.Main`, which every test package's `TestMain` calls, sets the test process's `oom_score_adj` to 1000. Every process the test starts (`go build`, a generated program, `sh`) inherits 1000 from its first instruction.
+- `internal/proclimit.Start` starts a program, sets its `oom_score_adj` to 1000, and sets its `RLIMIT_DATA` to the limit with `prlimit`. `RLIMIT_DATA` counts every private writable mapping, where the Go runtime puts its heap and goroutine stacks; Go's address-space reservations (`PROT_NONE`) do not count. A Go program over the limit stops with `fatal error: runtime: out of memory`, and the caller reports `program <path> exceeded its memory limit of <size> (set ERGO_PROGRAM_MEMORY to change it, 0 for none)`. A process the program starts inherits the limit.
+- The limit is `ERGO_PROGRAM_MEMORY`: a number of bytes, or a size with `KiB`, `MiB` or `GiB`; `0` or `off` means no limit. The default is 2 GiB.
+- These callers use it: the test kit of `internal/sketch/lower` (`runProgram`, which every helper that runs a built program calls; its `TestMain` also sets the variable, so a program that a test runs through `ergo run` has the limit); `ergo test`, for the test binary it runs; `scripts/examples`, for each built program a case runs (and the score for every command it starts); `ergo run`, only when `ERGO_PROGRAM_MEMORY` is set. `ergo run` keeps the terminal as the program's stderr, so it does not add the named line; the Go runtime's message shows.
+- The gate's steps already run in cgroups with `memory.max` (Merge gate, Memory budget). The closure sweep runs test binaries, whose programs go through the same helpers.
+
+**Limits of the mechanism.**
+
+- `proclimit.Start` sets the limit right after the program's `exec`, so the first instructions of the program run without it (inferred: the Go runtime maps a few MiB before `main`). The test process's score is inherited from the start, so the score has no such gap for tests.
+- A program built with `-race` maps large shadow memory that `RLIMIT_DATA` counts; such a program needs `ERGO_PROGRAM_MEMORY=0` or a larger limit (inferred, not measured).
+- A sandbox with a read-only `/proc` (the closure sweep) keeps the score as it was; the limit still holds.
+- Darwin has no `oom_score_adj` and no `prlimit` for another process, and its kernel does not enforce `RLIMIT_DATA` or `RLIMIT_AS` on `mmap`, which the Go heap uses. There a program is bounded only by the scope its caller runs in. On a Mac, run a long test inside a bounded process.
+
+**Run ad hoc checks in a bounded scope.** A test, build, mutant or probe that is not a gate step runs in a scope of its own: `systemd-run --user --scope -q -p MemoryMax=8G -p MemorySwapMax=0 -- nice -n 19 <command>`. The scope bounds every process in it, whatever its score.
+
+**Guards.** `internal/sketch/lower` `TestRunProgramBoundsAGrowingProgram` builds a generated program that reserves 1 GiB and runs it under a 256 MiB limit: it must stop with the named error. `internal/proclimit` `TestStartedProgramsDieFirst` checks that the test process has score 1000, lowers it to 999, and checks that a started program has 1000.
+
 ## Merge gate
 
 `scripts/gate.sh` builds `scripts/gate`, a small Go runner that owns the check graph ([design and measurements](research/gate-throughput.md)), and executes it in place of the script. Every check is a step with declared dependencies. Independent steps run concurrently. Each step's output is printed whole, in declaration order. A failing step fails the gate and blocks only the steps that depend on it. A plain `./scripts/gate.sh` runs the fast tier (below). `--full` runs the full tier, `--no-cache` runs the full tier without whole-gate records or step receipts (Go's test cache still applies to the hermetic step, below), `--merge` runs the merge tier (below), `--list` prints every step of the run's tier and its command, and `-record-durations [package ...]` re-measures the tests of the named Go packages, or of every test package when it names none (with `-fast`, the CPU of their fast-tier steps into `scripts/gate/fast-cpu.json`).
