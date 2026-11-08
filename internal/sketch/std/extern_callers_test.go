@@ -331,6 +331,18 @@ func Peek(path string) string fails Gone { try peek(path) }
 }
 `, nil},
 		// An extern is no value (S108), so the value is of a helper.
+		{"control: a closure whose written row lists Ambient", `func Peek(path string) func() string fails Gone needs Ambient {
+	func() string fails Gone needs Ambient { try hostRead(path) }
+}
+`, nil},
+		{"a closure whose inferred row holds Ambient", `func peek(path string) string fails Gone {
+	let g = func() string fails Gone {
+		touch(NewHost())
+		try hostRead(path)
+	}
+	try g()
+}
+`, reaches("peek")},
 		{"a function value", `func Peek(path string) string fails Gone {
 	let f = peek
 	try f(path)
@@ -392,7 +404,7 @@ func checkFixture(t *testing.T, name string, f *syntax.File, src string) *check.
 }
 
 // A chain link is how f_i reaches f_(i+1) (or the extern, at the end).
-var chainLinks = []string{"direct", "closure", "closure-held", "value"}
+var chainLinks = []string{"direct", "closure", "closure-held", "closure-ambient", "value"}
 
 // A chain authority is what f_i holds: nothing, a written Ambient, a
 // parameter of the provider, or an inferred Ambient (which is nothing).
@@ -439,7 +451,7 @@ func chainPackage(seed uint64) (string, []string, map[string]int) {
 		f := &fs[i]
 		makesHost := f.auth != "held" && (f.link == "closure-held" || i+1 < d && fs[i+1].auth == "held")
 		calleeNeeds := i+1 < d && (fs[i+1].auth == "written" || fs[i+1].auth == "inferred" || fs[i+1].needs)
-		f.needs = f.auth != "written" && (makesHost || calleeNeeds || f.auth == "inferred")
+		f.needs = f.auth != "written" && (makesHost || calleeNeeds || f.auth == "inferred" || f.link == "closure-ambient")
 		if f.needs {
 			if f.auth == "none" {
 				f.auth = "inferred"
@@ -458,7 +470,7 @@ func chainPackage(seed uint64) (string, []string, map[string]int) {
 	reachesAt := make([]bool, d)
 	for i := d - 1; i >= 0; i-- {
 		f := fs[i]
-		reachesAt[i] = f.auth != "written" && f.auth != "held" && f.link != "closure-held" && reached
+		reachesAt[i] = f.auth != "written" && f.auth != "held" && f.link != "closure-held" && f.link != "closure-ambient" && reached
 		reached = reachesAt[i]
 	}
 	for i := range fs {
@@ -507,6 +519,8 @@ extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) 
 			body = "\tlet g = func() string fails Gone { try " + call(host) + " }\n\ttry g()\n"
 		case "closure-held":
 			body = "\tlet g = func(k Host) string fails Gone { try " + call("k") + " }\n\ttry g(" + host + ")\n"
+		case "closure-ambient":
+			body = "\tlet g = func() string fails Gone needs Ambient { try " + call(host) + " }\n\ttry g()\n"
 		case "value":
 			body = "\tlet g = " + callee + "\n\ttry g(" + strings.ReplaceAll(args, "H", host) + ")\n"
 		}
