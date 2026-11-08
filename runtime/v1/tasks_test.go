@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"context"
 	"fmt"
 	"math/rand/v2"
 	"runtime"
@@ -228,6 +229,124 @@ func TestTasksLaws(t *testing.T) {
 			}
 		}},
 	})
+}
+
+// TestTransformCallerStopped: the childWait laws of tasks.Transform
+// (lower runtime199 childWaitLaws), limit 2. The first call stops the
+// caller and returns.
+//
+// An interruptible caller starts no call after the stop, stops and drains
+// the running ones, and raises the interruption: the other calls wait
+// until they are stopped. The caller may see the first call's end before
+// the stop (a select of two ready channels picks either), so the case runs
+// 20 times to reach both orders.
+//
+// A masked caller runs Transform to its end, the stop pending, so every
+// call returns and every result is there. The second call waits until the
+// third has started, so the caller waits for an end with none queued after
+// the stop has come: a masked wait must not end on it.
+func TestTransformCallerStopped(t *testing.T) {
+	for run := range 21 {
+		masked := run == 20
+		root := rt.Root("main")
+		var mu sync.Mutex
+		started, running := 0, 0
+		third := make(chan struct{})
+		var out []int
+		var outErr error
+		var err error
+		within(t, fmt.Sprintf("Transform under a stopped caller (masked %v)", masked), func() {
+			err = runOn(root, func(root *rt.Task) error {
+				if masked {
+					m := root.Mask()
+					defer m.Unmask()
+				}
+				out, outErr = TasksTransform(Site("test"), root, []int{0, 1, 2, 3, 4}, 2, func(ct *rt.Task, i int) (int, error) {
+					mu.Lock()
+					started++
+					running++
+					mu.Unlock()
+					defer func() {
+						mu.Lock()
+						running--
+						mu.Unlock()
+					}()
+					switch {
+					case i == 0:
+						root.Interrupt()
+					case !masked:
+						sleepUntilStopped(ct)
+					case i == 1:
+						<-third
+					case i == 2:
+						close(third)
+					}
+					return i * 10, nil
+				})
+				return nil
+			})
+		})
+		switch {
+		case running != 0:
+			t.Errorf("masked %v: %d calls still running after Transform", masked, running)
+		case !masked && (err != rt.Interrupted || started != 2):
+			t.Errorf("unmasked: exit %v after %d calls started; want the interruption after 2", err, started)
+		case masked && (outErr != nil || fmt.Sprint(out) != "[0 10 20 30 40]"):
+			t.Errorf("masked: Transform = %v, %v; want every result", out, outErr)
+		}
+	}
+}
+
+// BenchmarkTasksTransform runs TasksTransform over 64 ints with limit 8
+// and a trivial f; BenchmarkTasksTransformHandGo is its control, the
+// errgroup shape written by hand.
+func BenchmarkTasksTransform(b *testing.B) {
+	xs := make([]int, 64)
+	root := rt.Root("bench")
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := TasksTransform(Site("bench"), root, xs, 8, func(_ *rt.Task, x int) (int, error) { return x + 1, nil }); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkTasksTransformHandGo: a semaphore channel of 8, a WaitGroup, a
+// context.WithCancel that the first error cancels, results by index (the
+// shape of errgroup.Group with SetLimit).
+func BenchmarkTasksTransformHandGo(b *testing.B) {
+	xs := make([]int, 64)
+	b.ReportAllocs()
+	for b.Loop() {
+		ctx, cancel := context.WithCancel(context.Background())
+		out := make([]int, len(xs))
+		sem := make(chan struct{}, 8)
+		var wg sync.WaitGroup
+		var once sync.Once
+		var first error
+		for i, x := range xs {
+			sem <- struct{}{}
+			if ctx.Err() != nil {
+				<-sem
+				break
+			}
+			wg.Add(1)
+			go func() {
+				defer func() { <-sem; wg.Done() }()
+				v, err := x+1, error(nil)
+				if err != nil {
+					once.Do(func() { first = err; cancel() })
+					return
+				}
+				out[i] = v
+			}()
+		}
+		wg.Wait()
+		cancel()
+		if first != nil {
+			b.Fatal(first)
+		}
+	}
 }
 
 // TestTransformLimitDefect: a limit below 1 is a defect of the caller, not

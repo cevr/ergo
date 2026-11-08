@@ -72,6 +72,9 @@ func MapSpan[A, B any](t *Task, span string, xs []A, limit int, f func(*Task, A)
 	stop := t.Done()
 	next, running := 0, 0
 	for ended := 0; ended < len(xs); ended++ {
+		if t.Stopped() {
+			return out, nil // no call starts after a stop of t
+		}
 		for running < limit && next < len(xs) {
 			i := next
 			next++

@@ -67,8 +67,11 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // the caller is the interruption, both children drained),
 // TestAfterMaskedCaller (a masked caller runs After to its end, the stop
 // pending), TestAfterBodyFirst and TestAfterDeadlineFromScheduler (no
-// child outlives the call).
-var childWaitLaws = map[string]bool{"After": true}
+// child outlives the call); and runtime/v1/tasks_test.go for
+// TasksTransform: TestTransformCallerStopped (a stop of the caller is the
+// interruption, the calls drained; a masked caller runs to its end) and
+// TestTransformModel (no call outlives the map).
+var childWaitLaws = map[string]bool{"After": true, "TasksTransform": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

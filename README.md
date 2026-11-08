@@ -125,7 +125,7 @@ Every task belongs to a scope. The scope waits for its tasks, stops them on a ti
 ```go
 func Prices(ids []string) []Price fails NotFound | timeout.Expired needs Catalog | Scheduler {
 	return timeout.After(2s) {
-		tasks.Map(ids, 8, func(id string) Price fails NotFound needs Catalog {
+		tasks.Transform(ids, 8, func(id string) Price fails NotFound needs Catalog {
 			return Catalog.Price(id)
 		})
 	}

@@ -13,7 +13,7 @@ The standard library is the "Effect for Go" track, [#206](https://github.com/cev
 
 | Family | Ticket | Effect counterpart | Construct or package | Tier |
 | --- | --- | --- | --- | --- |
-| Tasks and supervision | [#207](https://github.com/cevr/ergo/issues/207) | Fiber, `Effect.all`/`forEach` concurrency, `race`/`raceAll`, FiberSet, FiberMap, FiberHandle, Supervisor | `task.Go`, `Task`, `tasks.Map`, `tasks.Set`, `tasks.Race` | kernel + library |
+| Tasks and supervision | [#207](https://github.com/cevr/ergo/issues/207) | Fiber, `Effect.all`/`forEach` concurrency, `race`/`raceAll`, FiberSet, FiberMap, FiberHandle, Supervisor | `task.Go`, `Task`, `tasks.Transform`, `tasks.Set`, `tasks.Race` | kernel + library |
 | Scope and resources | [#65](https://github.com/cevr/ergo/issues/65) | Scope, acquireRelease, ensuring, onExit, addFinalizer, Layer.scoped, forkScoped | automatic release ([resources.md](resources.md)); `build.Scope` for dynamic registration (README Gap 13) | kernel |
 | Schedule, retry and timeout | [#179](https://github.com/cevr/ergo/issues/179) | Schedule, retry, repeat, timeout, Clock.sleep, Duration | `schedule`, `retry.On`, `timeout.After(d) { }`, duration literals | library |
 | Channels, queues and streams | [#64](https://github.com/cevr/ergo/issues/64) | Queue, PubSub, Mailbox, Stream, Sink, Channel | `queue.Queue`, `for … in`, iterators that are resources | kernel + library |
@@ -400,6 +400,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `strings` | `String.ts` | W2, W3, W10 | data-first functions called by the dot form; `Cut` gives `Option[Halves]` ([strings and strconv](#strings-and-strconv)) | `runtime/v1.BenchmarkText`: `ReplaceAll` −9 %, `LastIndex` +42 % (run dir `wf10/batch-10/s1/s1c/bench-summary.txt`); `internal/sketch/lower.BenchmarkTextErgoBodies`: `Cut` 44 ns and 1 allocation against Go 10 ns, which union-repr R3b closes (run dir `wf10/batch-10/s1/s1c/r2/bench-bodies.txt`) |
 | `sync` | `Ref.ts`, `SynchronizedRef.ts` | W1, W2, W3, W14 | the operation type `Ref` with laws, whose `Update` takes a function with an empty row; a `Ref` is a synchronised handle that tasks share ([Sync and STM](#sync-and-stm) 1; [runtime.md, Tasks](runtime.md#tasks)) | `runtime/v1.BenchmarkRef` against a Go value guarded by a `sync.Mutex` and against an `atomic.Pointer`; pending in `wf10/batch-12/sync-ref/bench-pending.md` |
 | `task` | `Fiber.ts`, `Effect.ts` | W1, W14, W15 | `task.Go` and `Task[T, E]` with the error row; a sequential loop is a `for` ([runtime.md, Tasks](runtime.md#tasks)) | `runtime/rt.BenchmarkSpawnWait`: 0.85 µs against a goroutine, a `context.WithCancel` and a `sync.WaitGroup` 0.77 µs (`runtime/rt.BenchmarkSpawnWaitBaseline`; 16 threads, run dir `wf10/rt-198/round-7-receipts/bench.txt`) |
+| `tasks` | `Effect.ts` (`forEach` with `{ concurrency }`) | W1, W14, W15 | `tasks.Transform(xs, limit, f)`, whose rows are `f`'s, beside a plain `for` for sequential work ([Tasks](#tasks)) | pending: `runtime/v1.BenchmarkTasksTransform` against `errgroup.Group` with `SetLimit` (`wf10/batch-12/C/bench-pending.md`) |
 | `testing` | `testing/TestClock.ts`, `testing/TestServices.ts` | W4, W14, W18 | the provider `VirtualClock` of `time.Clock` and `Scheduler`, bound in an ordinary `context`, whose time moves on idle with no `adjust` ([Testing](#testing)) | none: a test provider; a wait outside an auto clock's domain costs one nil check of the task's member pointer (`runtime/rt` idle.go) |
 | `time` | `Clock.ts`, `DateTime.ts`, `testing/TestClock.ts` | W4, W6, W18 | the operation type `Clock` with `NowNeverFalls`, the test provider `Manual`, the union `Layout` ([time](#time)) | `runtime/v1.BenchmarkTimeNow`: 67 ns against Go 62 ns; `runtime/v1.BenchmarkTimeSince`: 73 ns against 41 ns, count 1 (run dir `wf10/batch-10/s2/s2b/bench-quick.txt`); quiet rerun pending in `wf10/batch-10/s2/bench-pending.md` |
 | `timeout` | `Effect.ts` | W5, W20 | `timeout.After(d) { … }`, whose row adds `Expired` ([runtime.md, Timeouts](runtime.md#timeouts)) | none: `v1.After` starts one child task for the deadline; S4b arms one `time.Timer` and adds the benchmark |
@@ -420,7 +421,21 @@ The table has one row per std package, the prelude included. The Effect module i
 
 ## Tasks
 
-[#207](https://github.com/cevr/ergo/issues/207). `tasks.Map(xs, limit, f)` keeps input order and runs at most `limit` calls at once; `limit >= 1` is a precondition. It waits for whichever task ends first, so a failure stops the rest promptly. It collects into `[]Option[B]` slots. `tasks.Race` is n-ary. `tasks.Set` is G4 ([runtime.md](runtime.md#g4-tasksset)). The race and fail-fast laws pass as tests. *Prior art:* Go `errgroup` with `SetLimit`; Effect `Effect.forEach` with `concurrency`; Elixir `Task.async_stream` keeps order with `ordered: true`.
+[#207](https://github.com/cevr/ergo/issues/207). `tasks.Race` is n-ary (designed). `tasks.Set` is G4 ([runtime.md](runtime.md#g4-tasksset)).
+
+| Declaration | Meaning | Go body |
+| --- | --- | --- |
+| `func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R` | `f` of each element, each call on a task of its own, at most `limit` at once, the results in the order of `xs` (batch 12, C2; built). | `TasksTransform(span Site, t *rt.Task, xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error)` (task.go), over `rt.MapSpan` (rt tasks.go) |
+| `law TransformEqualsLoop(xs []int, k int)`, `law TransformKeepsOrder(xs []int, k int)`, `law LimitHolds(xs []int, k int)` | The laws ([Std laws](#std-laws)). | `TestTasksLaws` (runtime/v1) |
+
+1. **Name.** The function is the concurrent form of `slices.Transform` and has its name: `Map` is the prelude's type, which no package redeclares ([#196](https://github.com/cevr/ergo/issues/196); S108).
+2. **Limit.** At most `limit` calls of `f` run at once: a call starts only while fewer run, and when one ends the next element starts. A `limit` below 1 is a defect of the caller, and no call starts.
+3. **Order.** The result holds `f(xs[i])` at index `i`, whatever order the calls end in.
+4. **Fail fast.** `Transform` waits for whichever call ends first. The first failure it sees ends it: no call starts after it, every call still running is stopped, and all are waited for before `Transform` fails with that failure. A defect in a call, or in the stop of another, is raised in the caller, as `Task.Wait` raises it.
+5. **Structured.** Every task `Transform` starts has ended when it returns, on every path. A stop of the calling task stops every call, and `Transform` raises the interruption. The calls share `f`'s providers, which the caller's row binds.
+6. **Virtual time.** The caller's wait is one the VirtualClock sees ([Testing](#testing) 2), so a `Transform` over sleeping calls runs in virtual time.
+
+`TestTransformModel` (runtime/v1) runs 300 generated cases on a VirtualClock against a discrete-event model: the results or the failure, the elements started, the most calls at once and the instant `Transform` returns. *Prior art:* Go's `errgroup.Group` with `SetLimit` (the first error cancels the group's context; `Wait` waits for all); Effect's `Effect.forEach(xs, f, { concurrency })`, fail-fast with interruption of the rest; Elixir's `Task.async_stream` with `max_concurrency` and `ordered: true`; Gleam and ReScript have no bounded parallel map in their std (Gleam's OTP `task` awaits one by one). *Effect workarounds replaced:* the `{ concurrency }` options object of one combinator for sequential and concurrent loops (W15) becomes a plain `for` and `Transform`; `Effect.gen` and `yield*` around `f` (W1) become the plain call.
 
 ## Sync and STM
 
