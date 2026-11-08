@@ -13,6 +13,3 @@ internal/sketch/check/domain_test.go	TestTotalityBudget	the timing branch runs o
 
 # load can turn these; each is a named follow-up of fu-gate-flakes (audit.md)
 internal/sketch/check/review_test.go	TestTotalityCost	follow-up FU-wallclock-totality-cost: bound solver steps, not 500 ms of wall time
-runtime/ergo/http_transport_test.go	TestHTTPTransportRejectsMalformedAndStalledBodiesWithoutHandling	follow-up FU-wallclock-http-stall: bound by the read timeout's event, not 2 s
-scripts/examples/cap_test.go	TestOutputCapStopsTheGroupAtOnce	follow-up FU-wallclock-examples-cap: 5 s against a 20 s -timeout; widen to 15 s
-scripts/examples/cap_test.go	TestAStreamHolderOutsideTheGroupDoesNotHoldTheRunner	follow-up FU-wallclock-examples-cap: 3 s against a 4 s holder; a longer holder ended by the test
