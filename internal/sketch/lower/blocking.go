@@ -128,6 +128,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"SlicesContains":       {},
 	"SlicesIndex":          {},
 	"SlicesReverse":        {},
+	"SlicesClone":          {},
 	"SlicesMax":            {},
 	"SlicesMin":            {},
 	"SlicesBinarySearch":   {},

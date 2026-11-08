@@ -85,10 +85,9 @@ type Ascending[T ordered] { xs []T }
 func Ascend[T ordered](xs []T) Ascending[T] { Ascending[T]{xs: Sort(xs)} }
 
 // Items is the elements of a in ascending order, in a new slice: a change
-// to it does not change a, so a stays sorted. It is Sort's copy: a is
-// sorted already, and Go's sort finds that in one pass. Sort is a pure
+// to it does not change a, so a stays sorted. Go's slices.Clone, a pure
 // body, so Items reaches no host and Ascending is no host provider.
-func Items[T ordered](a Ascending[T]) []T { Sort(a.xs) }
+func Items[T ordered](a Ascending[T]) []T { clone(a.xs) }
 
 // BinarySearch is Some of the index of x in Items(a), or None when a has
 // no x. Of several x, the first. It takes an Ascending, not a []T, so an
@@ -170,3 +169,4 @@ extern go ergo.local/prototype/runtime/v1.SlicesMax func largest[T ordered](xs [
 extern go ergo.local/prototype/runtime/v1.SlicesMin func smallest[T ordered](xs []T) T
 extern go ergo.local/prototype/runtime/v1.SlicesBinarySearch func search[T ordered](xs []T, x T) int
 extern go ergo.local/prototype/runtime/v1.SlicesSortOwned func sortOwned[T ordered](xs []T) []T
+extern go ergo.local/prototype/runtime/v1.SlicesClone func clone[T](xs []T) []T

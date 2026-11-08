@@ -115,7 +115,11 @@ func TestStdSlicesLaws(t *testing.T) {
 		stable := SlicesSortStableFunc(xs, func(a, b int) int { return cmp.Compare(a/4, b/4) })
 		reversed := SlicesReverse(xs)
 		owned := SlicesSortOwned(slices.Clone(xs))
-		for _, out := range [][]int{sorted, byDesc, stable, reversed} {
+		cloned := SlicesClone(xs)
+		if !slices.Equal(cloned, xs) {
+			t.Fatalf("case %d: Clone(%v) = %v", i, xs, cloned)
+		}
+		for _, out := range [][]int{sorted, byDesc, stable, reversed, cloned} {
 			if len(out) > 0 {
 				out[0]++
 			}

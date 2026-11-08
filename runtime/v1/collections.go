@@ -82,6 +82,13 @@ func SlicesReverse[T any](xs []T) []T {
 	return out
 }
 
+// SlicesClone is slices.Clone(xs): a copy of xs in a new array, so a write
+// to it does not reach xs. slices.Items returns it, so a caller cannot
+// unsort an Ascending (SS5).
+//
+//ergo:pure
+func SlicesClone[T any](xs []T) []T { return slices.Clone(xs) }
+
 // SlicesMax is slices.Max(xs). An empty xs is a defect, Go's panic; the
 // Ergo body of slices.Max calls it only on a non-empty slice.
 //
