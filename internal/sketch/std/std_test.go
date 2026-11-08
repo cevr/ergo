@@ -526,8 +526,11 @@ var unguardedHosts = map[string]string{
 // body is not a pure runtime/v1 body, or its body names such a function
 // of its package (at any depth).
 // Every host provider has construction authority, so no other package
-// builds one, and each exported function of its package whose result is
-// T lists Ambient in its written row. Whether another package builds T
+// builds one, and each exported function of its package that hands out T,
+// or a record T needs (check.Authorities), at any depth of its result
+// (check.Exposes), lists Ambient in its written row or takes a value that
+// needs authority; no exported let holds one (fu-ambient-ctor;
+// TestStdHostHandOuts). Whether another package builds T
 // is one checker fact, check.Buildable (fu-constructible): a basic type,
 // a slice and a Map always (a literal, an empty literal or the zero value
 // holds no element that needs authority); a union when some variant is
@@ -664,6 +667,17 @@ type Cap { root string }
 
 func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
 `, nil},
+		// fu-ambient-ctor: the same Host, but its package hands out a Cap
+		// with no row, so another package builds
+		// fixture.Host{C: fixture.NewCap()}.
+		{"record with an exported field of a record whose constructor has no row", `type Host { C Cap }
+
+type Cap { root string }
+
+func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
+
+func NewCap() Cap { Cap{root: "/"} }
+`, []string{"fixture.NewCap hands out fixture.Cap, which fixture.Host needs, and does not list Ambient in its written row or take a value that needs authority"}},
 		// fu-hostguard2: an operation type is judged by check.Buildable
 		// too. A sealed one is built only through its package's
 		// implementers, so a sealed Host whose implementer has authority
@@ -730,6 +744,165 @@ func NewHost() Host { Host{} }
 			t.Errorf("%s: the violations are %q, want %q", row.kind, got, row.want)
 		}
 	}
+}
+
+// handShape is a result type built from a base by a word of constructors
+// (TestStdHostHandOuts), with whether a value of it hands out Cap.
+type handShape struct {
+	name, decls string
+	typ         string
+	exposes     bool
+	fn          bool // a function type: no record field holds it
+}
+
+// handShapes are the words of at most depth constructors over Cap (the
+// record that fixture.Host needs), Other (a record with authority that
+// Host does not need) and int. The model: a value hands out Cap when the
+// base is Cap and no constructor is P (a record whose field holding it is
+// unexported, so another package cannot read it).
+func handShapes(depth int) []handShape {
+	var out []handShape
+	var grow func(s handShape, n int)
+	grow = func(s handShape, n int) {
+		out = append(out, s)
+		if n == depth {
+			return
+		}
+		w := fmt.Sprintf("W%d", n)
+		x := s.typ
+		words := []handShape{
+			{name: "S" + s.name, decls: s.decls, typ: "[]" + x, exposes: s.exposes},
+			{name: "M" + s.name, decls: s.decls, typ: "Map[string, " + x + "]", exposes: s.exposes},
+			{name: "F" + s.name, decls: s.decls, typ: "func() " + x, exposes: s.exposes, fn: true},
+			{name: "T" + s.name, decls: s.decls + "type " + w + " (" + x + ", int)\n", typ: w, exposes: s.exposes},
+		}
+		if !s.fn {
+			words = append(words,
+				handShape{name: "H" + s.name, decls: s.decls + "type " + w + " { X " + x + " }\n", typ: w, exposes: s.exposes},
+				handShape{name: "P" + s.name, decls: s.decls + "type " + w + " { x " + x + ", N int }\n", typ: w},
+				handShape{name: "U" + s.name, decls: s.decls + "type " + w + " = " + w + "A | " + w + "B\ntype " + w + "A { X " + x + " }\ntype " + w + "B {}\n", typ: w, exposes: s.exposes},
+				handShape{name: "O" + s.name, decls: s.decls, typ: "Option[" + x + "]", exposes: s.exposes},
+			)
+		}
+		for _, word := range words {
+			grow(word, n+1)
+		}
+	}
+	for _, b := range []handShape{{name: "Cap", typ: "Cap", exposes: true}, {name: "Other", typ: "Other"}, {name: "int", typ: "int"}} {
+		grow(b, 0)
+	}
+	return out
+}
+
+// handModes are the ways package fixture hands out a value of R: an
+// exported function with no row, with Ambient, with a parameter that needs
+// authority (a Host), with an open parameter, a function that passes R to
+// its caller's function, and an exported let. Every body calls itself, so
+// no value is built: only the signature is judged.
+var handModes = []struct {
+	name    string
+	src     func(r string) string
+	guarded bool   // a caller needs authority: no violation
+	what    string // the violation's subject
+}{
+	{"plain", func(r string) string { return "func Give() " + r + " { Give() }\n" }, false, "fixture.Give hands out"},
+	{"ambient", func(r string) string { return "func Give() " + r + " needs Ambient { Give() }\n" }, true, "fixture.Give hands out"},
+	{"authority-param", func(r string) string { return "func Give(h Host) " + r + " { Give(h) }\n" }, true, ""},
+	{"open-param", func(r string) string { return "func Give(n int) " + r + " { Give(n) }\n" }, false, "fixture.Give hands out"},
+	{"callback", func(r string) string { return "func Give(f func(v " + r + ")) {}\n" }, false, "fixture.Give hands out"},
+	{"let", func(r string) string { return "let Given " + r + " = given()\n\nfunc given() " + r + " { given() }\n" }, false, "fixture.Given is an exported let that holds"},
+}
+
+// endsInFuncType reports whether the type text ends in a function type
+// at its top level, as `[]func() Cap` and `func() Map[string, Cap]` do and
+// `Map[string, func() Cap]` does not: a row written after it is that
+// function type's.
+func endsInFuncType(typ string) bool {
+	i := strings.LastIndex(typ, "func() ")
+	if i < 0 {
+		return false
+	}
+	rest := typ[i:]
+	return strings.Count(rest, "[") == strings.Count(rest, "]") && strings.Count(rest, "(") == strings.Count(rest, ")")
+}
+
+// TestStdHostHandOuts is fu-ambient-ctor's guard: a host provider that
+// holds Cap by value, `type Host { C Cap }` with `type Cap { root string }`,
+// is built by any package that gets a Cap. So the guard asks every exported
+// function and let of the provider's package that hands out a Cap, at any
+// depth of its result, to need authority. Before, it asked only the
+// functions whose result is Host itself, so `func NewCap() Cap` with no row
+// passed. For each generated result shape and each mode, the violations
+// are the model's.
+func TestStdHostHandOuts(t *testing.T) {
+	outside, ds := check.CheckSource("let x = 1\n")
+	if len(ds) != 0 {
+		t.Fatalf("outside: %v", ds)
+	}
+	const base = `type Host { C Cap }
+
+type Cap { root string }
+
+type Other { x int }
+
+type Gone { Path string }
+
+func NewHost() Host needs Ambient { Host{C: Cap{root: "/"}} }
+
+func Read(_ Host) string fails Gone { try read() }
+
+func read() string fails Gone { try hostRead("x") }
+
+extern go ergo.local/prototype/runtime/v1.FSReadFile func hostRead(path string) string fails Gone
+`
+	shapes := handShapes(2)
+	// Per base: itself, 8 words, and their children: 8 each, 4 under F.
+	if want := 3 * (1 + 8 + 7*8 + 4); len(shapes) != want {
+		t.Fatalf("generated %d shapes, want %d", len(shapes), want)
+	}
+	flagged := 0
+	for _, s := range shapes {
+		for _, m := range handModes {
+			src := base + s.decls + m.src(s.typ)
+			f, err := syntax.Parse(src)
+			if err != nil {
+				t.Fatalf("%s/%s: %v\n%s", s.name, m.name, err, src)
+			}
+			fake, ds := check.Check("fixture", []*syntax.File{f}, nil)
+			for _, d := range ds {
+				if !strings.Contains(d.Message, "only std binds the Ergo runtime") {
+					t.Fatalf("%s/%s: %v\n%s", s.name, m.name, ds, src)
+				}
+			}
+			var host *check.TypeName
+			for _, tn := range hostProviderTypes(fake) {
+				if tn.Name == "Host" {
+					host = tn
+				}
+			}
+			if host == nil {
+				t.Fatalf("%s/%s: no host provider Host", s.name, m.name)
+			}
+			// In `func Give() []func() Cap needs Ambient` the row is the
+			// result's function type's, not Give's, so Give has no row:
+			// reported (conservative: a call of the value needs Ambient).
+			guarded := m.guarded && !(m.name == "ambient" && endsInFuncType(s.typ))
+			var want []string
+			if s.exposes && !guarded {
+				want = []string{m.what + " fixture.Cap, which fixture.Host needs,"}
+				flagged++
+			}
+			got := hostAuthorityViolations(fake, host, outside)
+			ok := len(got) == len(want)
+			for i := range got {
+				ok = ok && strings.HasPrefix(got[i], want[i])
+			}
+			if !ok {
+				t.Errorf("%s/%s: the violations are %q, want one starting %q\n%s", s.name, m.name, got, want, s.decls+m.src(s.typ))
+			}
+		}
+	}
+	t.Logf("%d shapes x %d modes, %d violations", len(shapes), len(handModes), flagged)
 }
 
 // TestProgramPackagesHaveNoHostProvider is the host guard over program
@@ -888,18 +1061,81 @@ func hostAuthorityViolations(pkg *check.Package, tn *check.TypeName, outside *ch
 			out = append(out, "another package builds it: it needs an unexported field")
 		}
 	}
+	// Who hands out what tn needs (fu-ambient-ctor)? The records another
+	// package needs to build tn are check.Authorities; an exported
+	// function that hands out a value of one (check.Exposes of its
+	// results, and of what it passes to a function parameter) lists Ambient
+	// or takes a value that needs authority itself, and no exported let
+	// holds one.
+	need := check.Authorities(tn.Type, outside)
+	needed := func(ts []check.Type) []*check.TypeName {
+		var hit []*check.TypeName
+		for _, t := range ts {
+			// tn itself, whatever its kind (an authority record or not).
+			if n, ok := t.(*check.Named); ok && n.Obj == tn && !slices.Contains(hit, tn) {
+				hit = append(hit, tn)
+			}
+			for _, e := range check.Exposes(t, outside) {
+				if slices.Contains(need, e) && !slices.Contains(hit, e) {
+					hit = append(hit, e)
+				}
+			}
+		}
+		return hit
+	}
+	what := func(e *check.TypeName) string {
+		return e.Pkg.Name + "." + e.Name + ", which " + pkg.Name + "." + tn.Name + " needs,"
+	}
 	for _, f := range pkg.Funcs {
-		if !isExportedName(f.Name) || f.Sig == nil || len(f.Sig.Results) != 1 {
+		if !isExportedName(f.Name) || f.Sig == nil || writesAmbient(f) || takesAuthority(f, outside) {
 			continue
 		}
-		if r, ok := f.Sig.Results[0].(*check.Named); !ok || r.Obj != tn {
-			continue
+		for _, e := range needed(handsOut(f.Sig)) {
+			if e == tn {
+				out = append(out, pkg.Name+"."+f.Name+" returns it and does not list Ambient in its written row")
+			} else {
+				out = append(out, pkg.Name+"."+f.Name+" hands out "+what(e)+" and does not list Ambient in its written row or take a value that needs authority")
+			}
 		}
-		if !writesAmbient(f) {
-			out = append(out, pkg.Name+"."+f.Name+" returns it and does not list Ambient in its written row")
+	}
+	for _, o := range pkg.Exported() {
+		if v, ok := o.(*check.Var); ok {
+			for _, e := range needed([]check.Type{v.Type}) {
+				out = append(out, pkg.Name+"."+v.Name+" is an exported let that holds "+what(e)+" and a let has no row")
+			}
 		}
 	}
 	return out
+}
+
+// handsOut are the types of the values a call of a function of sig gives
+// its caller: its results, and the parameters of each function-typed
+// parameter, which the function passes to the caller's function.
+func handsOut(sig *check.Signature) []check.Type {
+	out := slices.Clone(sig.Results)
+	for _, p := range sig.Params {
+		t := p.Type
+		if n, ok := t.(*check.Named); ok {
+			t = n.Underlying()
+		}
+		if fs, ok := t.(*check.Signature); ok {
+			for _, q := range fs.Params {
+				out = append(out, q.Type)
+			}
+		}
+	}
+	return out
+}
+
+// takesAuthority reports whether a caller of f needs authority already: a
+// parameter of a type that outside cannot build.
+func takesAuthority(f *check.Func, outside *check.Package) bool {
+	for _, p := range f.Sig.Params {
+		if !check.Buildable(p.Type, outside) {
+			return true
+		}
+	}
+	return false
 }
 
 // writesAmbient reports whether f's written row names the prelude's

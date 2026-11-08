@@ -236,6 +236,122 @@ func Buildable(t Type, from *Package) bool {
 	return val[0]
 }
 
+// Authorities are the records with authority in from on Buildable's graph
+// of t (fu-ambient-ctor): the records a value of t holds through fields of
+// records without authority, tuple elements, union variants, borrows and a
+// sealed operation type's implementers, where the walk stops. A slice, a
+// Map, a function type and an open operation type are built empty or by
+// from, so their parts are not on the graph. Another package builds t
+// exactly when it holds a value of each record on some path, so a value of
+// one of them, handed out with no authority, can make t buildable.
+func Authorities(t Type, from *Package) []*TypeName {
+	var out []*TypeName
+	seen := map[Type]bool{}
+	var walk func(Type)
+	walk = func(t Type) {
+		if seen[t] {
+			return
+		}
+		seen[t] = true
+		switch u := under(t).(type) {
+		case *Struct:
+			if hasAuthority(u, from) {
+				out = appendAuthority(out, u.obj)
+				return
+			}
+			for _, f := range u.Fields {
+				walk(f.Type)
+			}
+		case *Tuple:
+			for _, e := range u.Types {
+				walk(e)
+			}
+		case *Union:
+			for _, v := range u.Variants {
+				walk(v)
+			}
+		case *Pointer:
+			walk(u.Elem)
+		case *Interface:
+			if owner := sealedOwner(u, from); owner != nil {
+				for _, c := range implementers(u, owner) {
+					walk(c)
+				}
+			}
+		}
+	}
+	walk(t)
+	return out
+}
+
+// Exposes are the records with authority in from whose values package from
+// gets out of a value of t (fu-ambient-ctor): t itself, a field it may
+// read (every field of a record without authority, the exported fields of
+// one with authority), a tuple element, a slice or Map element or key, a
+// union variant, a borrow's element, the result of a function value or of
+// an operation of an operation-type value, at any depth.
+func Exposes(t Type, from *Package) []*TypeName {
+	var out []*TypeName
+	seen := map[Type]bool{}
+	var walk func(Type)
+	walk = func(t Type) {
+		if t == nil || seen[t] {
+			return
+		}
+		seen[t] = true
+		switch u := under(t).(type) {
+		case *Struct:
+			auth := hasAuthority(u, from)
+			if auth {
+				out = appendAuthority(out, u.obj)
+			}
+			for _, f := range u.Fields {
+				if !auth || isExported(f.Name) {
+					walk(f.Type)
+				}
+			}
+		case *Tuple:
+			for _, e := range u.Types {
+				walk(e)
+			}
+		case *Union:
+			for _, v := range u.Variants {
+				walk(v)
+			}
+		case *Pointer:
+			walk(u.Elem)
+		case *Slice:
+			walk(u.Elem)
+		case *Map:
+			walk(u.Key)
+			walk(u.Elem)
+		case *Signature:
+			for _, r := range u.Results {
+				walk(r)
+			}
+		case *Interface:
+			for _, m := range u.Methods {
+				if m.Sig != nil {
+					for _, r := range m.Sig.Results {
+						walk(r)
+					}
+				}
+			}
+		}
+	}
+	walk(t)
+	return out
+}
+
+func appendAuthority(out []*TypeName, obj *TypeName) []*TypeName {
+	for _, o := range out {
+		if o == obj {
+			return out
+		}
+	}
+	return append(out, obj)
+}
+
 // sealedOwner is the package whose types alone implement it, seen from
 // from: the package of an unexported operation of it declared in another
 // package (sealedBy), or nil when from may implement it.
