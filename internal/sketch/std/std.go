@@ -31,6 +31,7 @@ import (
 //go:embed filepath/*.ergo
 //go:embed exec/*.ergo
 //go:embed testing/*.ergo
+//go:embed tasks/*.ergo
 var sources embed.FS
 
 // PreludePath is the package path of the prelude. No import names it: its

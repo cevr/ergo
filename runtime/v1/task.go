@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -509,6 +510,32 @@ func After[A any](span Site, t *rt.Task, s Sleeper, d time.Duration, body func(*
 			f = Expired{}
 		}
 		return zero, f
+	}
+	raise(err)
+	panic("unreachable")
+}
+
+// TasksTransform is tasks.Transform(xs, limit, f) (docs/spec/stdlib.md, Tasks): f on
+// each element, each call on a child task of t, at most limit at once, the
+// results in the order of xs. span and t are the hidden site and task
+// arguments; f receives the child's task. rt.MapSpan waits for whichever
+// child ends first: the first failure stops and drains the rest and is the
+// result. A defect, in f or in a drain, is raised in the caller, as
+// Task.Wait raises it; so is an interruption of t. A limit below 1 is a
+// defect of the caller. Prior art: errgroup.Group with SetLimit; Effect's
+// Effect.forEach with { concurrency }.
+func TasksTransform[A, B any](span Site, t *rt.Task, xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error) {
+	if limit < 1 {
+		panic(fmt.Sprintf("tasks.Transform: limit %d is less than 1", limit))
+	}
+	out, err := rt.MapSpan(t, string(span), xs, limit, func(ct *rt.Task, a A) (B, error) {
+		return guarded(ct, func(ct *rt.Task) (B, error) { return f(ct, a) })
+	})
+	if err == nil {
+		return out, nil
+	}
+	if f, ok := rt.Failure(err); ok {
+		return nil, f
 	}
 	raise(err)
 	panic("unreachable")

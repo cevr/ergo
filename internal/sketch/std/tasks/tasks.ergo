@@ -1,0 +1,82 @@
+// Package tasks runs a function over many values at once (docs/spec/
+// stdlib.md, Tasks; #207). Transform is the first: Effect's Effect.forEach
+// with { concurrency }, Go's errgroup.Group with SetLimit. Its name is
+// slices.Transform's, the concurrent form of it: Map is the prelude's type,
+// which no package redeclares (#196). Race and Set are #207's and
+// runtime.md G4's.
+
+import sync
+import testing
+import time
+
+// Transform is f of each element of xs, in the order of xs, with each
+// call on a task of its own and at most limit calls running at once. It
+// waits for whichever call ends first: when one fails, no call starts
+// after it, the calls still running are stopped and waited for, and
+// Transform fails with that failure. Every task it starts has ended when
+// it returns. A stop of the calling task stops every call. A limit below 1
+// is a defect. The calls share f's providers, which the caller's row
+// binds.
+extern go ergo.local/prototype/runtime/v1.TasksTransform func Transform[A, B, E, R](xs []A, limit int, f func(x A) B fails E needs R) []B fails E needs R
+
+// limitOf is a limit from 1 to 4, drawn from k.
+func limitOf(k int) int { 1 + (k%4+4)%4 }
+
+// TransformEqualsLoop: with no failure, Transform gives what a loop over xs gives.
+law TransformEqualsLoop(xs []int, k int) {
+	let got = Transform(xs, limitOf(k), func(x int) int { x*3 - 1 })
+	let mut ok = len(got) == len(xs)
+	for i in 0..len(xs) {
+		ok = ok && got[i] == xs[i]*3-1
+	}
+	ok
+}
+
+// TransformKeepsOrder: the results are in the order of xs, not the order the
+// calls end. Each call sleeps longer the earlier its element, on a
+// VirtualClock, so the calls end last to first.
+law TransformKeepsOrder(xs []int, k int) {
+	let c = testing.NewVirtualClock(0)
+	with context { Scheduler: c, time.Clock: c } {
+		let n = len(xs)
+		let mut idx = []int{}
+		for i in 0..n {
+			idx = idx.Append(i)
+		}
+		let got = Transform(idx, limitOf(k), func(i int) int needs Scheduler {
+			Scheduler.Sleep(duration(int64(n - i)))
+			xs[i]
+		})
+		let mut ok = len(got) == n
+		for i in 0..n {
+			ok = ok && got[i] == xs[i]
+		}
+		ok
+	}
+}
+
+// LimitHolds: at most limit calls run at once, and limit of them do when
+// xs has that many. Each call counts itself in while it sleeps on a
+// VirtualClock, so every call started before the clock moves overlaps.
+law LimitHolds(xs []int, k int) {
+	let limit = limitOf(k)
+	let c = testing.NewVirtualClock(0)
+	let running = sync.NewRef[int](0)
+	let most = sync.NewRef[int](0)
+	with context { Scheduler: c, time.Clock: c } {
+		let got = Transform(xs, limit, func(x int) int needs Scheduler {
+			let now = sync.Modify(running, func(v int) (int, int) { (v + 1, v + 1) })
+			most.Update(func(m int) int {
+				if now > m {
+					return now
+				}
+				m
+			})
+			Scheduler.Sleep(1s)
+			running.Update(func(v int) int { v - 1 })
+			x
+		})
+		let want = if len(xs) < limit { len(xs) } else { limit }
+		len(got) == len(xs) && most.Get() == want && running.Get() == 0
+	}
+}
