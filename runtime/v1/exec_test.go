@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,9 @@ import (
 // call: the program itself is reaped (its pid names no process: Run waited
 // for it, so no zombie of it is left either), and no process of its group
 // is left (each pid in its file names no process, not even a zombie: Run
-// waited until the host reaped them). The test sends no signal: it reads /proc, and
+// waited until the host reaped them). Each started program's group gets one
+// kill, while the program is not yet reaped (execKillHook). The test sends
+// no signal: it reads /proc, and
 // only for pids its own programs wrote.
 
 // execOutcome is the model's end state of one case.
@@ -244,11 +247,32 @@ func TestExecStopModel(t *testing.T) {
 		t.Skip("no /proc")
 	}
 	dir := t.TempDir()
+	// The kill comes before the reap: at each kill the program (the
+	// group's leader) still has its /proc entry in its own group, a
+	// process or a zombie, so the group's id is still the body's.
+	var mu sync.Mutex
+	var kills []string
+	execKillHook = func(group int) {
+		mu.Lock()
+		defer mu.Unlock()
+		if procExists(group, group) {
+			kills = append(kills, "held")
+		} else {
+			kills = append(kills, "reaped: "+procLine(group))
+		}
+	}
+	t.Cleanup(func() { execKillHook = nil })
 	r := rand.New(rand.NewPCG(7, 11))
 	seen := map[string]int{}
 	for i := range 120 {
 		c := genExecCase(r, dir, i)
+		mu.Lock()
+		kills = nil
+		mu.Unlock()
 		res, err, interrupted, took := runExecCase(t, c)
+		mu.Lock()
+		caseKills := kills
+		mu.Unlock()
 		state := c.stop
 		if c.want.killed {
 			state += "/killed"
@@ -291,8 +315,11 @@ func TestExecStopModel(t *testing.T) {
 		if procExists(pids[0], pids[0]) {
 			t.Errorf("%s\nRun returned and the program %d is not reaped", where, pids[0])
 		}
+		if len(caseKills) != 1 || caseKills[0] != "held" {
+			t.Errorf("%s\nkills of group %d: %q; want one, while the unreaped program held the group", where, pids[0], caseKills)
+		}
 		for _, pid := range pids[1:] {
-			// Run waited until the group was empty (execEndGroup), so the
+			// Run waited until the group was empty (execAwaitGroupEnd), so the
 			// check reads /proc once, at once, and a zombie fails it too.
 			if procExists(pid, pids[0]) {
 				t.Errorf("%s\nRun returned and the grandchild %d of group %d is left: %q", where, pid, pids[0], procLine(pid))
@@ -305,6 +332,57 @@ func TestExecStopModel(t *testing.T) {
 		}
 	}
 	t.Logf("cases by state: %v", seen)
+}
+
+// TestExecStopEndsAPipeline is the body's side of the Effect case
+// effect.child-process.kills-pipeline, whose source-level evidence is the
+// subtest of that name in lower TestExecRuns.
+func TestExecStopEndsAPipeline(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("no /proc")
+	}
+	// Effect: NodeChildProcessSpawner.test.ts "kills every process in a
+	// pipeline". The program runs a pipeline of two stages, each with a
+	// process of its own; a stop of the caller ends every one of them.
+	t.Run("a stop ends every stage", func(t *testing.T) {
+		pidfile := filepath.Join(t.TempDir(), "pids")
+		script := fmt.Sprintf(`(sleep 20 & echo $! >> %[1]s; wait) | (sleep 20 & echo $! >> %[1]s; wait) &
+while [ "$(wc -l < %[1]s)" -lt 2 ]; do sleep 0.01; done
+echo $$ >> %[1]s
+wait
+`, pidfile)
+		task := rt.Root("exec test")
+		done := make(chan bool, 1)
+		go func() {
+			defer func() { done <- recover() == rt.Interrupted }()
+			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "")
+		}()
+		var pids []int
+		for deadline := time.Now().Add(5 * time.Second); len(pids) < 3 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			pids = readPids(t, pidfile)
+		}
+		task.Interrupt()
+		select {
+		case interrupted := <-done:
+			if !interrupted {
+				t.Fatal("the stop did not end the call with rt.Interrupted")
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatal("Run did not return in 15s after the stop")
+		}
+		if len(pids) != 3 {
+			t.Fatalf("pids %v; want the two stages' and the program's", pids)
+		}
+		group := pids[2]
+		for _, pid := range pids {
+			if procExists(pid, group) {
+				t.Errorf("Run returned and process %d of the pipeline is left: %q", pid, procLine(pid))
+			}
+		}
+	})
 }
 
 // TestExecFailures maps each way a program fails to start to its failure,

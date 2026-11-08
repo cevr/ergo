@@ -329,6 +329,22 @@
       "behavior": "Joining the parts tmp and file.txt gives the path tmp/file.txt.",
       "limits": "Ergo's filepath.Join is Go's path/filepath.Join over one slice of parts (Ergo has no variadic parameters), and it is a pure function, not an operation of a Path service, so no layer is bound. The separator is / (Linux and darwin are the targets; std-align S3a). TestFilepathRuns's subtest of this case checks the upstream input; the laws of filepath run in runtime/v1 TestFilepathLaws.",
       "evidence": [{"file": "internal/sketch/lower/std_filepath_test.go", "test": "TestFilepathRuns", "targets": ["go"]}]
+    },
+    {
+      "id": "effect.child-process.kills-pipeline",
+      "status": "pending",
+      "upstream": {"file": "packages/platform/node-shared/test/NodeChildProcessSpawner.test.ts", "line": 75, "label": "kills every process in a pipeline"},
+      "behavior": "A stop of the caller of std exec Run ends every process of the program's pipeline, not only the program itself, before the call returns.",
+      "limits": "Pending until this branch has the evidence rule (a subtest named after the case id); the subtest exists: internal/sketch/lower/std_exec_test.go TestExecRuns/effect.child-process.kills-pipeline (an Ergo program stops a task whose exec runs the pipeline). Ergo kills the program's process group; Effect spawns each pipeline stage and kills them by its handle. A process that leaves the group (setsid) is not killed, by design.",
+      "evidence": []
+    },
+    {
+      "id": "effect.queue.poll-option",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Queue.test.ts", "line": 525, "label": "poll returns Option for non-blocking take"},
+      "behavior": "std queue Poll takes the front value without waiting: None on an empty queue, Some of the front value otherwise.",
+      "limits": "Pending until this branch has the evidence rule (a subtest named after the case id); the subtest exists: internal/sketch/lower/std_queue_poll_test.go TestQueuePollRuns/effect.queue.poll-option (an Ergo program polls an empty queue, pushes, and polls the front). Ergo's Poll also takes the value of a Push that waits on a capacity-0 queue, and gives None on a closed, empty queue: None does not tell an open queue from a closed one.",
+      "evidence": []
     }
   ]
 }

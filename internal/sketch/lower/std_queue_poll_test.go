@@ -57,13 +57,21 @@ func main() fails queue.Closed needs Console {
 `
 
 // TestQueuePollRuns: Poll lowers to the Go method's comma-ok call, adapted
-// in place to Some or None, and the program prints each case.
+// in place to Some or None, and the program prints each case. The run is
+// the subtest of the Effect case it ports, Queue.test.ts "poll returns
+// Option for non-blocking take": the program's first lines poll an empty
+// queue (None), offer, and poll the front (Some).
 func TestQueuePollRuns(t *testing.T) {
-	progs := runBehaviors(t, []behavior{{
-		name:   "queuepoll",
-		src:    queuePollProgram,
-		stdout: "none\nlen 2\nsome 1\nlen 1\nsome 2\nnone\nlen 0\nnone\nsome 7\nnone\n",
-	}})
+	var progs map[string]*lowered
+	if !t.Run("effect.queue.poll-option", func(t *testing.T) {
+		progs = runBehaviors(t, []behavior{{
+			name:   "queuepoll",
+			src:    queuePollProgram,
+			stdout: "none\nlen 2\nsome 1\nlen 1\nsome 2\nnone\nlen 0\nnone\nsome 7\nnone\n",
+		}})
+	}) || progs == nil {
+		t.FailNow()
+	}
 	got := progs["queuepoll"].mainGo()
 	if !regexp.MustCompile(`if (v\w*), (ok\w*) := \(?\w+\)?\.Poll\(\); ok\w* \{\n.*return Some\[int\]\{Value: v\w*\}\n.*\}\n.*return None\{\}\n`).MatchString(got) {
 		t.Errorf("no comma-ok call of the Go Poll in the emitted Go:\n%s", got)

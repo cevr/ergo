@@ -31,9 +31,14 @@ import (
 //     of the group, and the caller's exit actions run after the child is
 //     gone. Inside a masked region the task's Done is nil, so the wait is
 //     uninterruptible (I2) and the program runs to its end.
-//   - When the program exits, Run kills what is left of its group. In
-//     either case Run then waits until the host has ended and reaped each
-//     process of the group (execEndGroup, at most execReapWait), so a call
+//   - When the program exits, Run kills what is left of its group.
+//   - Each kill comes before the reap: Run waits for the program's end
+//     without reaping it (execExit, waitid WNOWAIT on Linux, a kqueue
+//     NOTE_EXIT on Darwin), kills the group while the unreaped program
+//     still holds the group's id, and reaps it after. So the body signals
+//     only a group it started and still holds (worker protocol Signals).
+//   - In either case Run then waits until the host has ended and reaped
+//     each process of the group (execAwaitGroupEnd, at most execReapWait), so a call
 //     leaves no process of the group, not even a zombie. When a process
 //     left in the group holds stdout or stderr open, Run reads the output
 //     for at most execWaitDelay after the exit, then closes it and returns
@@ -116,57 +121,134 @@ func ExecRun(t *rt.Task, name string, args []string, env map[string]string, dir 
 		// once: os/exec then needs no pipe and no copying goroutine.
 		cmd.Stdin = strings.NewReader(stdin)
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	cmd.WaitDelay = execWaitDelay
-	if err := cmd.Start(); err != nil {
+	// Run owns the output pipes, and not os/exec, so that it can read the
+	// output to its end while the program is still unreaped (below).
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		return ExecResult{}, execErr(name, err)
+	}
+	defer outR.Close()
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		outW.Close()
+		return ExecResult{}, execErr(name, err)
+	}
+	defer errR.Close()
+	exit, err := execWatchExit()
+	if err != nil {
+		outW.Close()
+		errW.Close()
+		return ExecResult{}, execErr(name, err)
+	}
+	defer exit.close()
+	cmd.Stdout, cmd.Stderr = outW, errW
+	cmd.WaitDelay = execWaitDelay // bounds the copy of stdin to a process that holds it open and does not read
+	err = cmd.Start()
+	outW.Close() // the program holds its own copies
+	errW.Close()
+	if err != nil {
 		return ExecResult{}, execErr(name, err)
 	}
 	group := cmd.Process.Pid // the group's id: Setpgid made the program its leader
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	var err error
+	var stdout, stderr bytes.Buffer
+	read := make(chan struct{}, 2)
+	go func() { _, _ = stdout.ReadFrom(outR); read <- struct{}{} }()
+	go func() { _, _ = stderr.ReadFrom(errR); read <- struct{}{} }()
+	exited := make(chan struct{})
+	go func() { exit.await(group); close(exited) }()
+	// Nothing reaps the program before cmd.Wait below. Until then it is a
+	// process or a zombie that holds its pid and so the group's id: no
+	// other group can have that id. So each kill below reaches only the
+	// group the body started (worker protocol Signals).
+	stopped, reads := false, 0
 	select {
-	case err = <-done:
+	case <-exited:
+		// The program ended. Read the output until a process left in the
+		// group closes it, for at most execWaitDelay, or until a stop.
+		wait := time.NewTimer(execWaitDelay)
+	output:
+		for reads < 2 {
+			select {
+			case <-read:
+				reads++
+			case <-wait.C:
+				break output
+			case <-t.Done():
+				stopped = true
+				break output
+			}
+		}
+		wait.Stop()
+		execKillGroup(group)
 	case <-t.Done():
-		// Each process of the group is one the body started; the group
-		// exists while one of them is unreaped.
-		_ = syscall.Kill(-group, syscall.SIGKILL)
-		<-done
-		execEndGroup(group)
+		stopped = true
+		execKillGroup(group)
+		<-exited
+		// The kill ended each holder of the output in the group; one that
+		// left the group may hold it for at most execWaitDelay.
+		wait := time.NewTimer(execWaitDelay)
+	held:
+		for reads < 2 {
+			select {
+			case <-read:
+				reads++
+			case <-wait.C:
+				break held
+			}
+		}
+		wait.Stop()
+	}
+	if reads < 2 {
+		// A process outside the group, or one the kill has not ended yet,
+		// holds the output: close it, as os/exec's WaitDelay does, and keep
+		// what was read.
+		outR.Close()
+		errR.Close()
+		for ; reads < 2; reads++ {
+			<-read
+		}
+	}
+	_ = cmd.Wait() // the reap; the status is in cmd.ProcessState, and an ExitError carries nothing more
+	execAwaitGroupEnd(group)
+	if stopped {
 		panic(rt.Interrupted)
 	}
-	_ = err // the status is in cmd.ProcessState; ErrWaitDelay and *ExitError carry nothing more
-	// The program exited and is reaped. A process it left in its group
-	// still holds the group's id, so the group can be no other's while one
-	// is left; when none is left, the kill finds no group (ESRCH), unless,
-	// in the instant since the reap, the kernel gave the program's pid to
-	// a new process that made itself a group leader (guess: unreachable in
-	// practice, since pids are reused only after the counter wraps).
-	execEndGroup(group)
 	return ExecResult{Status: execStatus(cmd.ProcessState), Stdout: stdout.String(), Stderr: stderr.String()}, nil
+}
+
+// execKillHook, when set, runs just before Run kills the group, with the
+// group's id. Only a test sets it: TestExecStopModel checks that the
+// program is still unreaped at that point.
+var execKillHook func(group int)
+
+// execKillGroup sends SIGKILL to each process of the group. The caller has
+// not reaped the group's leader, so the group is the one the body started.
+func execKillGroup(group int) {
+	if execKillHook != nil {
+		execKillHook(group)
+	}
+	_ = syscall.Kill(-group, syscall.SIGKILL)
 }
 
 // execReapWait bounds how long Run waits, after it kills the group, for the
 // host to end and reap the processes that were left in it.
 const execReapWait = 500 * time.Millisecond
 
-// execEndGroup kills each process left in the group and waits until the
-// group is empty. SIGKILL only marks a process: the kernel ends it later,
-// and its new parent (the host's reaper, as the program that started it
-// is reaped) then reaps it. A process exists, and keeps the group's id,
-// until it is reaped, so kill(-group, 0) fails with ESRCH exactly when no
-// process of the group is left, zombies included (measured on Linux: a
-// SIGKILLed grandchild was still in the run state 22µs after a kill that
-// did not wait). The wait is bounded by execReapWait for a host whose
-// reaper is slow or a process the kernel cannot end at once (one in an
-// uninterruptible wait); each such process has SIGKILL pending and runs
-// no code of its own again. When the group is already empty, the first
-// kill fails with ESRCH and the call does not wait.
-func execEndGroup(group int) {
-	if syscall.Kill(-group, syscall.SIGKILL) != nil {
-		return // ESRCH: no process of the group is left
-	}
+// execAwaitGroupEnd waits, after the kill and the reap of the program,
+// until no process of the group is left. SIGKILL only marks a process: the
+// kernel ends it later, and its new parent (the host's reaper, as the
+// program that started it has ended) then reaps it. A process exists, and
+// keeps the group's id, until it is reaped, so kill(-group, 0) fails with
+// ESRCH exactly when no process of the group is left, zombies included
+// (measured on Linux: a SIGKILLed grandchild was still in the run state
+// 22µs after a kill that did not wait). Signal 0 sends no signal (POSIX:
+// it only checks that the group exists), so this probe reaches no process,
+// also when the group is gone. The wait is bounded by execReapWait for a
+// host whose reaper is slow or a process the kernel cannot end at once
+// (one in an uninterruptible wait); each such process has SIGKILL pending
+// and runs no code of its own again. When the group is already empty, the
+// first probe fails with ESRCH and the call does not wait.
+func execAwaitGroupEnd(group int) {
 	deadline := time.Now().Add(execReapWait)
 	for pause := 20 * time.Microsecond; syscall.Kill(-group, 0) == nil && time.Now().Before(deadline); pause = min(2*pause, 2*time.Millisecond) {
 		time.Sleep(pause)
