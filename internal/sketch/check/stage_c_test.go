@@ -150,7 +150,9 @@ func F(c bool) { if c { 1 } else { N() } }`, "S110:7"},
 	if c { 1 }
 }`, "S107:8"},
 		{"mismatch-no-cascade", `func F(c bool) string { let v = if c { 1 } else { "x" }; v }`, "S108:6"},
-		{"no-union-join", `func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }`, "S108:6"},
+		// K3: variants of one union join to it; another type does not.
+		{"union-join", `func F(c bool) { let s = if c { A } else { B{N: 1} }; _ = s }`, ""},
+		{"no-join-outside-union", `func F(c bool) { let s = if c { A } else { E{Code: 1} }; _ = s }`, "S108:6"},
 		{"arm-ends-in-let", `func F(u U) int {
 	match u {
 	case A:

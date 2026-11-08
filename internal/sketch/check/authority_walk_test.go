@@ -102,6 +102,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"reassigned":  {why: "a use mark"},
 		"undiagnosed": {why: "a diagnostic mark"},
 		"refused":     {why: "a diagnostic mark"},
+		"byValue":     {why: "the syntax of a let mut value, for a message"},
 	},
 	"TypeParam": {
 		"Constraint": {sel: "Constraint"},
