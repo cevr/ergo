@@ -12,3 +12,8 @@ law RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }
 // RuneCountOfConcat: joining two texts never adds runes; it may join a
 // split sequence into one.
 law RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }
+
+// RuneCountAddsRune: a valid rune added at the end is one more rune; it
+// does not join a sequence before it, because its first byte is not a
+// continuation byte.
+law RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }

@@ -169,7 +169,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `strings` | `EqualFoldIsSymmetric` | `EqualFoldIsSymmetric(s string, t string) { EqualFold(s, s) && EqualFold(s, t) == EqualFold(t, s) }` | `TestStdTextLaws` | tested |
 | `strings` | `FieldsHaveNoSpace` | `FieldsHaveNoSpace(s string) { for f in Fields(s) { let again = Fields(f) if len(again) != 1 \|\| Join(again, "") != f { return false } } true }` | `TestStdTextLaws` | tested |
 | `strings` | `HasPrefixOfConcat` | `HasPrefixOfConcat(p string, s string) { HasPrefix(p+s, p) && HasSuffix(p+s, s) }` | `TestStdTextLaws` | tested |
-| `strings` | `IndexFinds` | `IndexFinds(s string, sub string) { let i = Index(s, sub) let j = LastIndex(s, sub) if i < 0 { return j < 0 && !Contains(s, sub) } Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j }` | `TestStdTextLaws` | tested |
+| `strings` | `IndexFinds` | `IndexFinds(s string, sub string) { let i = Index(s, sub) let j = LastIndex(s, sub) if i < 0 { return j < 0 && !Contains(s, sub) } if sub == "" { return i == 0 && j == len(s) } Slice(s, i, i+len(sub)) == sub && Slice(s, j, j+len(sub)) == sub && i <= j && LastIndex(Slice(s, 0, i+len(sub)-1), sub) < 0 && Index(Slice(s, j+1, len(s)), sub) < 0 }` | `TestStdTextLaws` | tested |
 | `strings` | `JoinInvertsSplit` | `JoinInvertsSplit(s string, sep string) { if sep == "" { return true } Join(Split(s, sep), sep) == s }` | `TestStdTextLaws` | tested |
 | `strings` | `LinesRebuild` | `LinesRebuild(s string) { let mut joined = "" for line in Lines(s) { joined = joined + line } joined == s }` | `TestStdTextRuns2` | tested |
 | `strings` | `RepeatLength` | `RepeatLength(s string, n int) { if n < 0 \|\| n > 64 { return true } len(Repeat(s, n)) == n*len(s) }` | `TestStdTextLaws` | tested |
@@ -182,6 +182,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `timeout` | `QuickBodyWins` | `QuickBodyWins(n int) { with context { Scheduler: LiveScheduler } { try After(1h) { n } == n } }` | `TestStdLawsRun` | tested |
 | `trace` | `InnerSpanShadows` | `InnerSpanShadows(outer string, inner string) { with Span(outer) { with Span(inner) { Current() == Some[string]{Value: inner} } } }` | `TestStdLawsRun` | tested |
 | `trace` | `SpanEndRestores` | `SpanEndRestores(name string) { let before = Current() with Span(name) { Current() } Current() == before }` | `TestStdLawsRun` | tested |
+| `utf8` | `RuneCountAddsRune` | `RuneCountAddsRune(s string) { RuneCount(s+"é") == RuneCount(s)+1 }` | `TestStdTextLaws` | tested |
 | `utf8` | `RuneCountAtMostLen` | `RuneCountAtMostLen(s string) { RuneCount(s) <= len(s) && RuneCount(s) >= 0 }` | `TestStdTextLaws` | tested |
 | `utf8` | `RuneCountOfConcat` | `RuneCountOfConcat(a string, b string) { RuneCount(a+b) <= RuneCount(a)+RuneCount(b) }` | `TestStdTextLaws` | tested |
 
