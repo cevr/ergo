@@ -25,14 +25,18 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 			`expected a pattern, found "needs": needs is a keyword`},
 		{"with-no-result", "type Oops {}\nfunc work(n int) fails Oops needs Console {\n\tif n < 0 {\n\t\treturn Oops\n\t}\n\tConsole.Println(\"w\")\n}\nfunc main() needs Console {\n\tlet _ = with context { } { work(1) } catch {\n\tcase Oops:\n\t\treturn\n\t}\n}\n",
 			"work returns nothing, and the block's value is used: use the block as a statement, without let _ ="},
-		{"extern-value", "import strings\nfunc apply(f func(s string) string, s string) string { f(s) }\nfunc up() string { apply(strings.ToUpper, \"a\") }\n",
-			"strings.ToUpper is an extern and is not a value; pass func(s string) string { strings.ToUpper(s) }"},
+		// Since G1 a user extern and a std extern with no hidden argument
+		// are values; the two extern rows check a std fixture whose externs
+		// bind runtime/v1.Sleep, which takes the caller's task, so they stay
+		// call-only (K4 x G1, batch 12).
+		{"extern-value", stdNap + "func apply(f func(d duration), d duration) { f(d) }\nfunc use() { apply(Nap, 1s) }\n",
+			"Nap is an extern and is not a value; pass func(d duration) { Nap(d) }"},
 		{"dot-op-type", "type Engine { Compile(p string) bool, law L(p string) { Compile(p) == Compile(p) } }\nfunc Holds(e Engine, p string) bool { e.Compile(p) }\nfunc All(e Engine) bool { e.Holds(\"a\") }\n",
 			"Engine has no field or method Holds; Engine is an operation type, so a dot call on its value reaches only its operations, and Holds is a function on it: call Holds(e, …)"},
 		{"dot-instance", "type Box[T] { v T }\nfunc Twice(b *Box[int]) { b.v = b.v * 2 }\nfunc main() needs Console {\n\tlet mut b = Box[int]{v: 1}\n\tb.Twice()\n\tConsole.Println(\"\\(b.v)\")\n}\n",
 			"Twice takes *Box[int], one instance, and a dot call reaches a function on a generic type only when its first parameter takes the function's own type parameters: write func Twice[T](b *Box[T]), or call Twice(&b)"},
-		{"extern-value-with-a-row", "import strconv\nfunc apply(f func(s string) int fails strconv.Malformed | strconv.OutOfRange, s string) int fails strconv.Malformed | strconv.OutOfRange { try f(s) }\nfunc n() int fails strconv.Malformed | strconv.OutOfRange { try apply(strconv.Atoi, \"1\") }\n",
-			"strconv.Atoi is an extern and is not a value; pass func(s string) int fails strconv.Malformed | strconv.OutOfRange { strconv.Atoi(s) }"},
+		{"extern-value-with-a-row", stdNap + "func apply(f func(d duration) fails Late | Lost, d duration) fails Late | Lost { try f(d) }\nfunc use() fails Late | Lost { try apply(NapOr, 1s) }\n",
+			"NapOr is an extern and is not a value; pass func(d duration) fails Late | Lost { NapOr(d) }"},
 		{"duplicate-function", "type Engine {}\ntype Program { n int }\nfunc Compile(s string) Program { Program{n: 1} }\nfunc Compile(_ Engine, s string) Program { Program{n: 2} }\n",
 			"Compile is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package (types.md, Methods 3)"},
 		{"law-hides-type", "type Item { N int }\ntype Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }\n",
@@ -52,7 +56,16 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 		{"own-type-bare", "type Broken { Reason string }\nfunc get() string fails Broken { Broken{Reason: \"x\"} }\nfunc Use() string { get() }\n",
 			"{Broken} escapes function Use"},
 	} {
-		_, d := check.CheckSource(tc.src)
+		var d []check.Diagnostic
+		if strings.HasPrefix(tc.src, stdNap) {
+			f, err := syntax.Parse(tc.src)
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			_, d = check.StdFixture("napfixture", []*syntax.File{f})
+		} else {
+			_, d = check.CheckSource(tc.src)
+		}
 		found := false
 		for _, x := range d {
 			found = found || strings.Contains(x.Message, tc.want)
@@ -62,6 +75,10 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 		}
 	}
 }
+
+// stdNap declares, in a std fixture package, two externs of a runtime/v1
+// body with a hidden argument (the caller's task): call-only by G1's rule.
+const stdNap = "type Late {}\ntype Lost {}\nextern go ergo.local/prototype/runtime/v1.Sleep func Nap(d duration)\nextern go ergo.local/prototype/runtime/v1.Sleep func NapOr(d duration) fails Late | Lost\n"
 
 // TestOneDiagnosticEach is the cascade half: synthesis repros g1 (a catch
 // over a failing argument), cron's words[0..n] and f-5's dot call on an
