@@ -329,6 +329,19 @@ Status: **declared** in the embedded prelude (`internal/sketch/std/prelude.ergo`
 - `Decision[S, O]` with `Enter`, `Stay`, `Ignore`, `Reject` and `Done` ([runtime.md](runtime.md#machines-and-actors)).
 - The capabilities `Scheduler`, `Random` and `Console` (`Clock` is `time.Clock`).
 
+## Unreachable
+
+Status: **implemented**: checked and lowered (owner q29, 2026-11-08; synthesis M22). `Unreachable(reason string)` is a prelude function. It states that a path cannot run, such as the `None` arm of a lookup whose key is always present. Before it, such a path had to invent a value or declare a failure that cannot happen.
+
+1. **Bottom type.** The call has the bottom type: it checks in every position that expects a value, and it has the type that position expects. These positions expect a value: a `let` with a written type, an argument, a `return`, a record field, an operand, and a branch of a value `if`, `match` or `catch` after an earlier branch fixed the type. As a statement it has no value, like any call whose value is dropped.
+2. **Leaves the branch.** As the last statement of a body or a branch, it yields no value and joins any type, as `return` does ([Totality](rows.md#totality) 3). So `let x = if c { 1 } else { Unreachable("why") }` has type `int`, and `func f() T { Unreachable("why") }` needs no value after it.
+3. **Needs a type.** In a position that expects no type, `let x = Unreachable("why")`, the call has no type to take. This is S108, which asks for the type: `let x T = Unreachable("why")`. The bottom type has no name in source.
+4. **A defect, never a failure.** When it runs, it raises a defect that holds the reason and the call's position ([runtime.md](runtime.md#exit-causes) 3). Its row is empty, so it adds nothing to a function's error row, and a `catch` on it is S108, as on any expression that cannot fail ([rows.md](rows.md#catch) 1). Every `catch` passes it on, `case _` included (Catch 6). `ergo run` reports `panic: unreachable at main.ergo:12:3: why` and exits 2.
+5. **The name.** `Unreachable` is a prelude name (D-D3): a declaration or a local of that name is S108, with the message "(the prelude function Unreachable)".
+6. **Lowering.** As a statement or a last statement, the call is `panic(ergo.UnreachableAt(reason, "file:line:col"))`, the Go statement a hand-written program writes, and a terminating statement for Go. In a value position, it is `ergo.Never[T](reason, "file:line:col")`, which panics the same way. The call adds no frame, and its Go body `v1.Unreachable` is not called. Tests: `TestUnreachableChecksInEachPosition`, `TestUnreachableRefusals`, `TestErgoRunUnreachable` and `TestUnreachableLowersToPanic`.
+
+*Prior art:* Rust's `unreachable!()` and `panic!()` have type `!`, which coerces to any type. Go's `panic` is a statement that ends a path, and has no value. Gleam's `panic` and `todo` are expressions of any type. ReScript's `assert(false)` and Elixir's `raise` are expressions that leave. Effect's `Effect.die` and `Effect.dieMessage` put a defect in the cause, never in the error channel. Kotlin's `Nothing` and Scala's `Nothing` are named bottom types; Ergo does not name its bottom type in source (rule 3).
+
 ## Laws
 
 Status: **implemented: checked, not run** ([#162](https://github.com/cevr/ergo/issues/162) runs laws). The checker checks every law (check-v1 stage E3b, 196l; [#125](https://github.com/cevr/ergo/issues/125), [#170](https://github.com/cevr/ergo/issues/170)).

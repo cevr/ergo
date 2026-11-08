@@ -31,7 +31,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Captured provider** (designed): A provider that holds the capabilities its constructor used. Its methods use them without a `needs` clause of their own.
 
-**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console` and `Ambient`.
+**Prelude**: The names in scope in every package without an import: `Option`, `Task`, `Decision`, `Clock`, `Scheduler`, `Random`, `Console`, `Ambient` and the function `Unreachable`.
 
 **Ambient** (checked; host-authority H1): The prelude capability that is the authority to choose the host. Only the entry gives it to a `main` that lists it. Its one operation is unexported, so no program type implements it and no context binds it. A host package's `NewHost` has it in its row, and so has code that makes a host provider. Pony's `AmbientAuth` and Austral's `RootCapability` are the prior art. See [stdlib](docs/spec/stdlib.md#host-packages).
 
@@ -147,7 +147,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Exit cause**: How a task ended when it did not succeed: one or more typed failures, defects and interruptions, all kept.
 
-**Defect**: A failure outside every row, such as a Go panic in Ergo code or a crash in `Close`. It re-raises in the parent at the join.
+**Defect**: A failure outside every row, such as a Go panic in Ergo code or a crash in `Close`. It re-raises in the parent at the join. Source raises one with the prelude function `Unreachable(reason)`, whose call has the bottom type: it takes the type its position expects (owner q29; [types](docs/spec/types.md#unreachable)).
 
 **Span** (designed): A named trace region, scoped by `with(trace.Span(…))`, keyed to a checked definition identity.
 
