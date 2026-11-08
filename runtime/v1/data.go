@@ -3,8 +3,11 @@ package v1
 // The bodies of slices.WithCapacity and of the prelude's slice and Map
 // functions (docs/spec/stdlib.md, Slices and Maps); the rest of std slices
 // is in collections.go. A slice is a Go slice
-// and a Map a Go map; aliasing follows Go in v1 (check-v1 Q2; #222 and
-// #197 own the change). The prelude's Get returns Option[V], a type the
+// and a Map a Go map, but Ergo's slices and Maps are values (owner q26,
+// 2026-11-08; types.md, Bindings): the lowering hands these bodies a
+// source they may write, the place of `p = p.Append(x)` or
+// `p = p.Delete(k)` or a dead local, and otherwise a clipped slice or a
+// copy of the Map (lower, values.go rule V3). The prelude's Get returns Option[V], a type the
 // lowering emits in each program, so the lowering writes its body in the
 // program, with the read this file's Get is.
 //
@@ -13,8 +16,9 @@ package v1
 // built-in alone, so a call of one is transparent in a footprint, and a
 // function that only loops, does arithmetic and calls them takes no
 // environment and polls no task. Their writes are those Go's append and
-// delete make to the slice's array and to the Map, which aliasing in v1
-// already allows in a pure frame (an index write does the same).
+// delete make to the slice's array and to the Map, and the lowering gives
+// them only a source no other binding sees, so equal arguments give equal
+// results.
 
 // WithCapacity is slices.WithCapacity[T](n): an empty slice with room for
 // n elements. It fabricates no element (parse-v1 ruling 7 withdrew
@@ -22,7 +26,8 @@ package v1
 func WithCapacity[T any](n int) []T { return make([]T, 0, n) }
 
 // Append is the prelude's xs.Append(x): xs with x added at the end. Like
-// Go's append, the result may share xs's array.
+// Go's append, the result may share xs's array; the lowering passes a
+// clipped xs where xs is still seen elsewhere.
 //
 //ergo:pure
 func Append[T any](xs []T, x T) []T { return append(xs, x) }
@@ -40,7 +45,8 @@ func Get[K comparable, V any](m map[K]V, k K) (V, bool) {
 }
 
 // Delete is the prelude's m.Delete(k): m without the key k. It changes m
-// itself, as Go's delete does, and returns it.
+// itself, as Go's delete does, and returns it; the lowering passes a copy
+// of m where m is still seen elsewhere.
 //
 //ergo:pure
 func Delete[K comparable, V any](m map[K]V, k K) map[K]V {

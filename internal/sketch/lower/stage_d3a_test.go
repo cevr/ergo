@@ -10,9 +10,10 @@ import "testing"
 
 // TestErgoRunPreludeDotCalls: Append adds at the end, from a literal, a
 // chain and a generic element type; Get returns Some with the value or
-// None for a missing key, over a generic Map too; Delete removes the key,
-// changes the Map itself and returns it; a program's own func Get on a
-// local type keeps its name (decision 9).
+// None for a missing key, over a generic Map too; Delete returns the Map
+// without the key (that the argument is unchanged is TestValueRuleAgrees'
+// and probe P7delete's); a program's
+// own func Get on a local type keeps its name (decision 9).
 func TestErgoRunPreludeDotCalls(t *testing.T) {
 	wantRun(t, `type Store { N int }
 
@@ -64,15 +65,11 @@ func main() needs Console {
 	}
 	report("get-miss", miss == -1)
 	report("get-generic", lookup(m, "b", 0) == 2 && lookup(m, "q", 7) == 7)
-	let alias = m
 	m = m.Delete("a")
 	report("delete", len(m) == 1 && lookup(m, "a", 0) == 0)
-	report("delete-shares", len(alias) == 1)
-	_ = m.Delete("b")
-	report("delete-discarded", len(m) == 0)
 	report("own-get", Store{N: 1}.Get("ab") == 3)
 }
-`, "append\nappend-chain\nappend-generic\nget-hit\nget-miss\nget-generic\ndelete\ndelete-shares\ndelete-discarded\nown-get\n")
+`, "append\nappend-chain\nappend-generic\nget-hit\nget-miss\nget-generic\ndelete\nown-get\n")
 }
 
 // TestErgoRunGenericDotCall: p.Swap() and p.Map2(f) call generic functions

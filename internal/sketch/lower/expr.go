@@ -224,6 +224,10 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 // parenthesized (header.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
 	o := fc.exprOf(x)
+	if fc.l.vals != nil && fc.l.vals.clone[x] {
+		// The value rule's copy (values.go).
+		o.val = fc.cloneValue(fc.typeOf(x), o.val, x)
+	}
 	o.val = fc.guardHeader(o.val)
 	return o
 }
@@ -887,6 +891,13 @@ func (fc *funcCtx) funcLit(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Nod
 	if len(sig.Results) > 1 {
 		unreachable(n, ruleOneResult, "a function literal with %d results", len(sig.Results))
 	}
+	// An escaping literal takes its copies of captured values first
+	// (values.go, snapshot).
+	return fc.snapshot(n, func() string { return fc.funcLitClosure(ft, list, n, sig) })
+}
+
+// funcLitClosure is funcLit's Go function literal.
+func (fc *funcCtx) funcLitClosure(ft *syntax.FuncType, list []syntax.Stmt, n syntax.Node, sig *check.Signature) string {
 	inner := fc.innerFuncCtx()
 	return fc.envClosure(callerEnv, "env", n, func(env string) (parts []string, results, body string) {
 		inner.env = env

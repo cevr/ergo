@@ -1005,6 +1005,7 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) {
 		directive = l.directive(f.Decl)
 	}
 	fc.depth = 1
+	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.closeBody(f, site, func() {
 		if needsFrame {
 			fc.site = site
@@ -1160,6 +1161,7 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 		return
 	}
 	fc.entryPoll(l.info, spec)
+	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	if _, constant := l.info.Values[x]; constant && fc.out.Len() == 0 {
 		l.user.WriteString(l.directive(id))
@@ -1202,6 +1204,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 		at = spec.Names[0]
 	}
 	val := ""
+	l.analyzeValues(x, l.info)
 	if spec.Pattern != nil {
 		val = fc.assigned(x)
 	} else {

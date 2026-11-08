@@ -60,6 +60,10 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
 	l.pkgName(pkgKey{"import", "time"}, "time")
 	l.pkgName(pkgKey{"import", "strconv"}, "strconv") // interpolation (interp.go)
+	if valueRule() {
+		l.pkgName(pkgKey{"import", "maps"}, "maps")     // copies (values.go)
+		l.pkgName(pkgKey{"import", "slices"}, "slices") // copies and clipped appends (values.go)
+	}
 	l.pkgName(pkgKey{"import", taskImport}, "rt")
 	l.pkgName(pkgKey{"env", nil}, "Env")
 	l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
@@ -168,6 +172,9 @@ func (l *lowerer) nameAll() {
 	})
 	l.reserveEquals(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
 		generated = append(generated, entry{key, "equal " + key.obj.(string), equalBase(t)})
+	})
+	l.reserveClones(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, t check.Type) {
+		generated = append(generated, entry{key, "clone " + key.obj.(string), cloneBase(t)})
 	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)

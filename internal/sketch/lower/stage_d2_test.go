@@ -424,8 +424,9 @@ func main() needs Console {
 // TestErgoRunMapWriteTargets: a Map write fixes its Map, left to right,
 // before a key whose evaluation writes statements (spec D4): when the key
 // reassigns the Map variable, the write still reaches the Map the variable
-// held, which a copy shares. A Map in a record field and in a slice element
-// is a write target too.
+// held, not the new one. held is a copy taken before the write (value-rule:
+// a Map is a value), so it keeps its one entry. A Map in a record field and
+// in a slice element is a write target too.
 func TestErgoRunMapWriteTargets(t *testing.T) {
 	wantRun(t, `type Failed { Code int }
 type R { M Map[string, int] }
@@ -446,7 +447,7 @@ func main() needs Console {
 		m = Map[string, int]{}
 		"z"
 	}] = 1
-	if len(held) == 2 && len(m) == 0 {
+	if len(held) == 1 && len(m) == 0 {
 		Console.Println("map fixed first")
 	}
 	let mut r = R{}

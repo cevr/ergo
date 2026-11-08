@@ -31,17 +31,17 @@ var i1FrameKinds = []i1FrameKind{
 	{name: "decl", goClass: "decl", params: true, sites: map[string]int{"emitFuncBody": 1}, program: func(ps, row, _ string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\n" + body + "}\n"
 	}},
-	{name: "literal", goClass: "lit", params: true, sites: map[string]int{"funcLit": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "literal", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\nlet local = func() int" + row + " {\n" + body + "}\n" + attempt + "local()\n}\n"
 	}, wrap: func(d int, body string) string {
 		return "let local" + i1Depth(d) + " = func() int {\n" + body + "}\nlocal" + i1Depth(d) + "()\n"
 	}},
-	{name: "task", goClass: "lit", params: true, sites: map[string]int{"funcLit": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "task", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func subject(" + ps + ") int" + row + " {\nlet t = task.Go() {\n" + body + "}\n" + attempt + "t.Wait()\n}\n"
 	}, wrap: func(d int, body string) string {
 		return "let t" + i1Depth(d) + " = task.Go() {\n" + body + "}\nt" + i1Depth(d) + ".Wait()\n"
 	}},
-	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLit": 1}, program: func(ps, row, attempt string, body string) string {
+	{name: "trailing", goClass: "lit", params: true, sites: map[string]int{"funcLitClosure": 1}, program: func(ps, row, attempt string, body string) string {
 		return "func run(f func() int" + row + ") int" + row + " { " + attempt + "f() }\nfunc subject(" + ps + ") int" + row + " {\n" + attempt + "run() {\n" + body + "}\n}\n"
 	}, wrap: func(_ int, body string) string { return "run() {\n" + body + "}\n" }},
 	{name: "provider", goClass: "decl", sites: map[string]int{"emitFuncBody": 1}, program: func(_, _, _ string, body string) string {
