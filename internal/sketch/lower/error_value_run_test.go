@@ -86,6 +86,14 @@ func TestErrorValueOtherType(t *testing.T) {
 	wantRun(t, `type Missing { Key string }
 type Other { Why string }
 
+// Need names Missing in a row, so Missing is an error type.
+func Need(k string) int fails Missing {
+	if k == "" {
+		return Missing{Key: k}
+	}
+	1
+}
+
 func Lookup(k string) Missing fails Other {
 	if k == "" {
 		return Other{Why: "empty"}
@@ -105,8 +113,13 @@ func main() needs Console {
 		Missing{Key: "none"}
 	}
 	Console.Println(n.Key)
+	let v = Need("") catch {
+	case Missing:
+		0
+	}
+	Console.Println("\(v)")
 }
-`, "failed empty\nnone\nk\n")
+`, "failed empty\nnone\nk\n0\n")
 }
 
 // The rule table's axes.
