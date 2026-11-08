@@ -34,7 +34,8 @@ import (
 // selection): edits, deletes and permission changes in each part of a
 // closure (a dependency's directory, a directory on the way to one, a file
 // embedded from a subdirectory, the package's testdata, the module lookups,
-// a file grant, a listing that gains a name, a glob, a subtree, a program
+// a file grant, a listing that gains a name, a glob, a subtree, a members
+// grant (its direct entries in, a deeper one out), a program
 // grant with its own closure); symbolic links created and retargeted to
 // covered, uncovered and missing places; HEAD alone, the index alone and
 // both, for a package that reads .git and for one that does not; the
@@ -94,7 +95,8 @@ const seedOffsetVariable = "ERGO_PKGKEY_SEED_OFFSET"
 //     file, a listing and the program p, whose closure imports q;
 //   - b is a leaf;
 //   - c walks the examples and globs the spec;
-//   - g reads .git, so HEAD and the index are its inputs;
+//   - g reads .git, so HEAD and the index are its inputs, and the members
+//     of docs/tree (t1.txt, not sub/t2.txt);
 //   - n is a directory that holds nothing, so its table entry can move
 //     ("move package") with no change of what it reads.
 func modelPackages() []*Closure {
@@ -104,7 +106,7 @@ func modelPackages() []*Closure {
 			Programs: map[string]*Closure{"p": {Dir: "p", Deps: []string{"q"}}}},
 		{Dir: "b"},
 		{Dir: "c", Declared: []Allowance{{"examples", GrantSubtree}, {"docs/spec/*.md", GrantFiles}}},
-		{Dir: "g", Declared: []Allowance{{".git", GrantSubtree}}},
+		{Dir: "g", Declared: []Allowance{{".git", GrantMembers}, {"docs/tree", GrantMembers}}},
 		{Dir: "n"},
 	}
 }
@@ -937,6 +939,10 @@ func refCovers(c *Closure, p string) bool {
 			if a.Path == "." || p == a.Path || strings.HasPrefix(p, a.Path+"/") {
 				return true
 			}
+		case GrantMembers:
+			if p == a.Path || path.Dir(p) == a.Path {
+				return true
+			}
 		case GrantProgram:
 			if refCompiled(c.Programs[a.Path], p) {
 				return true
@@ -966,7 +972,7 @@ func refCompiled(c *Closure, p string) bool {
 // inputs.
 func refReadsGit(c *Closure) bool {
 	for _, a := range c.Declared {
-		if a.Grant == GrantSubtree && (a.Path == "." || a.Path == ".git") || a.Grant == GrantFile && a.Path == ".git" {
+		if a.Grant == GrantSubtree && (a.Path == "." || a.Path == ".git") || (a.Grant == GrantFile || a.Grant == GrantMembers) && a.Path == ".git" {
 			return true
 		}
 	}

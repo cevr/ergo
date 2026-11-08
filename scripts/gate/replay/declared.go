@@ -162,7 +162,7 @@ func allowanceOf(expr ast.Expr) (Allowance, error) {
 		return Allowance{}, fmt.Errorf("%s: the grant is not a name", p)
 	}
 	switch Grant(grant.Name) {
-	case GrantFile, GrantListing, GrantFiles, GrantSubtree, GrantProgram:
+	case GrantFile, GrantListing, GrantFiles, GrantSubtree, GrantMembers, GrantProgram:
 		return Allowance{Path: p, Grant: Grant(grant.Name)}, nil
 	}
 	return Allowance{}, fmt.Errorf("%s: unknown grant %s", p, grant.Name)

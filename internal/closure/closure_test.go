@@ -55,6 +55,12 @@ const (
 	// with any access; "." is the whole tree. Only a measured recursive
 	// walk earns it.
 	subtree
+	// members covers this path and each path directly in it, with any
+	// access, and nothing deeper. It is one entry, so it is used when any
+	// of them is read, and no member must be: a path that is a file in one
+	// checkout layout and a directory read one level deep in another (.git
+	// in a worktree and in a clone) gets one verdict in both.
+	members
 	// program names the directory of a package of the module whose
 	// executable the tests build: it covers what the go command reads to
 	// build it, the directories of `go list -deps` for it.
@@ -71,6 +77,8 @@ func (g grant) String() string {
 		return "files"
 	case subtree:
 		return "subtree"
+	case members:
+		return "members"
 	case program:
 		return "program"
 	}
@@ -177,14 +185,12 @@ var declared = map[string][]allowance{
 		// merge tier's export, scripts/gate exportCommit) .git is that
 		// directory, and git reads HEAD, config, commondir and the index in
 		// it and stats objects and refs: one level below .git, measured in
-		// the merge tier's detached export (no deeper read was measured in
-		// any layout; b9-fix-gate round-3 findings). The grants have no
-		// kind for a directory with its direct entries, and .git with
-		// .git/* fails the unused-entry rule in a worktree, so a subtree is
-		// the narrowest grant that gives both layouts one verdict
-		// (TestGitMetadataVerdictIsTheLayoutsOwn; follow-up: an entries
-		// grant, round-3 findings O2).
-		{".git", subtree, "the mapping asks git whether evidence is tracked (git ls-files reads .git, a file in a worktree and the repository's metadata directory in a clone)"},
+		// the merge tier's detached export and in a clone on a branch (no
+		// deeper read was measured in any layout; b9-fix-gate round-3
+		// findings). So .git is declared with its members: one entry that
+		// the worktree's read of the file uses as the clone's reads do
+		// (TestGitMetadataVerdictIsTheLayoutsOwn).
+		{".git", members, "the mapping asks git whether evidence is tracked (git ls-files reads .git, a file in a worktree and the repository's metadata directory in a clone, one level deep)"},
 		{"internal/sketch/lower/*_test.go", files, "the mapping parses each evidence test file to find the subtest of its case (fu-conf-pending); every evidence file is a test of the lowering today"},
 	},
 	"scripts/examples": {
@@ -386,6 +392,8 @@ func covers(a allowance, e entry) bool {
 		return (e.op == opOpen || e.op == opStat || e.op == opLink) && match()
 	case subtree:
 		return a.path == "." || p == a.path || strings.HasPrefix(p, a.path+"/")
+	case members:
+		return p == a.path || path.Dir(p) == a.path
 	}
 	return false
 }

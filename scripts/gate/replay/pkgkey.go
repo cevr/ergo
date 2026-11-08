@@ -40,6 +40,9 @@ const (
 	// GrantSubtree covers the directory and every path below it; "." is
 	// the whole checkout, .git included.
 	GrantSubtree Grant = "subtree"
+	// GrantMembers covers the path and each path directly in it, and
+	// nothing deeper.
+	GrantMembers Grant = "members"
 	// GrantProgram covers what the go command reads to build the module
 	// package at the path: its Closure in Programs.
 	GrantProgram Grant = "program"
@@ -145,6 +148,8 @@ func (a Allowance) covers(p string, programs map[string]*Closure) bool {
 		return match(a.Path, p)
 	case GrantSubtree:
 		return a.Path == "." || p == a.Path || strings.HasPrefix(p, a.Path+"/")
+	case GrantMembers:
+		return p == a.Path || path.Dir(p) == a.Path && p != "."
 	case GrantProgram:
 		if program, ok := programs[a.Path]; ok {
 			return program.compiled(p)

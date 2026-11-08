@@ -15,7 +15,8 @@ import (
 //   - listing: a lookup or a listing of exactly the directory;
 //   - files D/*.ergo: an open, a lookup or a link one level below D whose
 //     name ends in .ergo, and never a listing;
-//   - subtree: the directory and everything below it.
+//   - subtree: the directory and everything below it;
+//   - members: the path and any access one level below it, nothing deeper.
 //
 // A declaration made of a listing and a flat pattern (the corpus shape)
 // covers the union and marks the first entry that covers each access.
@@ -33,6 +34,8 @@ func TestGrantsCoverOnlyTheirAccesses(t *testing.T) {
 			return under(e.path, dir) && depthOf(e.path) == depthOf(dir)+1 && strings.HasSuffix(e.path, ".ergo") && e.op != opList
 		case subtree:
 			return e.path == a.path || under(e.path, a.path)
+		case members:
+			return e.path == a.path || under(e.path, a.path) && depthOf(e.path) == depthOf(a.path)+1
 		}
 		t.Fatalf("no oracle for %v", a.grant)
 		return false
@@ -53,6 +56,8 @@ func TestGrantsCoverOnlyTheirAccesses(t *testing.T) {
 			{{dir, listing, "a listing"}},
 			{{dir + "/*.ergo", files, "a flat pattern"}},
 			{{dir, subtree, "a subtree"}},
+			{{dir, members, "a path and its members"}},
+			{{dir, members, "the members"}, {dir + "/*.ergo", files, "and a flat pattern"}},
 			{{dir, listing, "the corpus listing"}, {dir + "/*.ergo", files, "the corpus files"}},
 		}
 		for _, decl := range declarations {
