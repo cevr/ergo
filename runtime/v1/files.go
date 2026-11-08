@@ -162,6 +162,7 @@ var stdRecords = map[string]string{
 	"exec.NotFound":        "ExecNotFound",
 	"exec.Result":          "ExecResult",
 	"filepath.NotRelative": "NotRelative",
+	"filepath.Parts":       "Parts",
 	"fs.Denied":            "Denied",
 	"fs.Failed":            "Failed",
 	"fs.Info":              "Info",

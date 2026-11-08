@@ -45,22 +45,19 @@ func FilepathClean(path string) string { return filepath.Clean(path) }
 //ergo:pure
 func FilepathIsAbs(path string) bool { return filepath.IsAbs(path) }
 
-// FilepathSplitDir is the dir result of filepath.Split: path up to and
-// including its last separator.
-//
-//ergo:pure
-func FilepathSplitDir(path string) string {
-	dir, _ := filepath.Split(path)
-	return dir
-}
+// Parts is filepath.Parts, the result of Split: path up to and including
+// its last separator, and path after it. It is a record of a v1 package,
+// so the lowering binds filepath.Parts to this Go type (docs/spec/
+// stdlib.md, Types 4).
+type Parts struct{ Dir, File string }
 
-// FilepathSplitFile is the file result of filepath.Split: path after its
-// last separator.
+// FilepathSplit is filepath.Split, its two results as one Parts: one scan
+// of path, as the Go control makes.
 //
 //ergo:pure
-func FilepathSplitFile(path string) string {
-	_, file := filepath.Split(path)
-	return file
+func FilepathSplit(path string) Parts {
+	dir, file := filepath.Split(path)
+	return Parts{Dir: dir, File: file}
 }
 
 // NotRelative is filepath.NotRelative, the typed failure of Rel: target
