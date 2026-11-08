@@ -300,6 +300,21 @@ func main() {
 	use(Mine)
 }
 `,
+	// std sync (sync-ref): NewRef's extern returns the Ref.
+	"sync.Ref": `import sync
+
+type Mine {}
+
+func Get(_ Mine) int { 0 }
+func Set(_ Mine, v int) {}
+func Update(_ Mine, f func(v int) int) {}
+
+func use(r sync.Ref[int]) { _ = r.Get() }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std time (S2b): NewManual's extern returns the Timeline.
 	"time.Timeline": `import time
 
