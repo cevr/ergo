@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 // stallingListener wraps accepted connections so the first Write returns to
@@ -75,7 +77,7 @@ func TestAdmissionIsHeldUntilTheResponseIsHandedToTheOperatingSystem(t *testing.
 		if status != 200 {
 			t.Fatalf("first response: %d", status)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		close(listener.resume)
 		t.Fatal("client did not receive the first response")
 	}
@@ -84,14 +86,11 @@ func TestAdmissionIsHeldUntilTheResponseIsHandedToTheOperatingSystem(t *testing.
 	if during == nil || during.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("a request inside the hand-off window: %v", during)
 	}
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		after, _ := exchange(t, address, raw)
-		if after != nil && after.StatusCode == http.StatusOK {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("slot was not released after the write returned: %v", after)
-		}
+	var after *http.Response
+	if !testwait.Until(t, func() bool {
+		after, _ = exchange(t, address, raw)
+		return after != nil && after.StatusCode == http.StatusOK
+	}) {
+		t.Fatalf("slot was not released after the write returned: %v", after)
 	}
 }

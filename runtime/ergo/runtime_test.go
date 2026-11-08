@@ -7,7 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 func wait[T any](t *testing.T, ch <-chan T) T {
@@ -15,7 +16,7 @@ func wait[T any](t *testing.T, ch <-chan T) T {
 	select {
 	case value := <-ch:
 		return value
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("managed shutdown did not finish")
 		var zero T
 		return zero

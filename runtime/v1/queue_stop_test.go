@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -27,13 +28,9 @@ func interruptedBy(op func()) (interrupted bool) {
 // fails a leak.
 func noGoroutinesAbove(t *testing.T, base int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for runtime.NumGoroutine() > base {
-		if time.Now().After(deadline) {
-			buf := make([]byte, 1<<16)
-			t.Fatalf("%d goroutines; want at most %d:\n%s", runtime.NumGoroutine(), base, buf[:runtime.Stack(buf, true)])
-		}
-		time.Sleep(time.Millisecond)
+	if !testwait.Until(t, func() bool { return runtime.NumGoroutine() <= base }) {
+		buf := make([]byte, 1<<16)
+		t.Fatalf("%d goroutines; want at most %d:\n%s", runtime.NumGoroutine(), base, buf[:runtime.Stack(buf, true)])
 	}
 }
 
@@ -177,8 +174,8 @@ func waitBool(t *testing.T, done <-chan bool) bool {
 	select {
 	case v := <-done:
 		return v
-	case <-time.After(10 * time.Second):
-		t.Fatal("the operation did not end after 10s: the stop did not wake it")
+	case <-testwait.After(t):
+		t.Fatal("the operation did not end by the test's deadline: the stop did not wake it")
 		return false
 	}
 }
@@ -234,8 +231,8 @@ func TestPollerEnds(t *testing.T) {
 		if err != (flushFailed{}) {
 			t.Fatalf("Run ended with %#v; want FlushFailed", err)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not end after 10s: the producer waiting in Push never saw the stop")
+	case <-testwait.After(t):
+		t.Fatal("Run did not end by the test's deadline: the producer waiting in Push never saw the stop")
 	}
 	q.mu.Lock()
 	closedNow, waiting := q.closed, q.parked

@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 func unitPlan[S any](nodes []Node[S], init func(Unit) S) Plan[Unit, S, *S] {
@@ -503,18 +505,14 @@ func TestLayerSchedulerMasksProducerContinuationsAndDrainsOrderedClose(t *testin
 
 func awaitRegisteredWaiters(t *testing.T, signal *managedSignal, count int) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for {
+	registered := 0
+	if !testwait.Until(t, func() bool {
 		signal.mu.Lock()
-		registered := len(signal.waiters)
+		registered = len(signal.waiters)
 		signal.mu.Unlock()
-		if registered == count {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("registered waiters=%d, want %d", registered, count)
-		}
-		time.Sleep(time.Millisecond)
+		return registered == count
+	}) {
+		t.Fatalf("registered waiters=%d, want %d", registered, count)
 	}
 }
 

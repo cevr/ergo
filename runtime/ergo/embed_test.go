@@ -17,7 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
+
+	"ergo.local/prototype/internal/testwait"
 )
 
 func TestRuntimeCatalogCoversEmbeddedAndFilesystemSources(t *testing.T) {
@@ -294,7 +295,7 @@ func compileSelectedRuntime(t *testing.T, sources map[string][]byte) ([]byte, er
 	if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module ergo.local/runtime-probe\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	command := exec.CommandContext(ctx, "go", "test", "-run", "^$", "./runtime")
 	command.Dir = directory

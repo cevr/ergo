@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/testport"
+	"ergo.local/prototype/internal/testwait"
 )
 
 var testLimits = HTTPLimits{MaxBodyBytes: 4, ReadHeaderTimeout: time.Second, ReadBodyTimeout: 200 * time.Millisecond, IdleTimeout: time.Second, MaxActive: 4}
@@ -69,11 +70,19 @@ func exchange(t *testing.T, address, raw string) (*http.Response, []byte) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetDeadline(testEnd(t))
 	if _, err := io.WriteString(conn, raw); err != nil {
 		t.Fatal(err)
 	}
 	return readResponse(t, bufio.NewReader(conn))
+}
+
+// testEnd is a connection deadline at the test's own (testwait.End); the
+// zero time, no deadline, when the test has none.
+func testEnd(t *testing.T) time.Time {
+	t.Helper()
+	end, _ := testwait.End(t)
+	return end
 }
 
 func readResponse(t *testing.T, reader *bufio.Reader) (*http.Response, []byte) {
@@ -161,13 +170,20 @@ func TestHTTPTransportRejectsMalformedAndStalledBodiesWithoutHandling(t *testing
 	server := startTransport(t, testLimits, func(*FiberContext, HTTPRequest) Exit[HTTPResponse] { return respond(200, "", "") })
 	response, body := exchange(t, server.address, "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n12\r\n0\r\n\r\n")
 	requireStatusOnly(t, response, body, 400)
-	started := time.Now()
-	response, _ = exchange(t, server.address, "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n1")
-	if response != nil {
-		t.Fatalf("stalled body produced a response: %v", response)
+	// The server's body read timeout closes the connection: the read ends
+	// at the server's close, an event, and not at this side's deadline
+	// (fu-time-limits; it was a 2 s wall-clock bound).
+	conn, err := net.Dial("tcp", server.address)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > 2*time.Second {
-		t.Fatalf("body read timeout did not close the connection: %s", elapsed)
+	defer conn.Close()
+	_ = conn.SetDeadline(testEnd(t))
+	if _, err := io.WriteString(conn, "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\n1"); err != nil {
+		t.Fatal(err)
+	}
+	if rest, err := io.ReadAll(conn); len(rest) != 0 || err != nil {
+		t.Fatalf("stalled body: read %q, %v; want the server to close the connection with no response", rest, err)
 	}
 	if calls := server.calls.Load(); calls != 0 {
 		t.Fatalf("rejected bodies reached the handler %d times", calls)
@@ -189,7 +205,7 @@ func TestHTTPTransportAnswersAPipelinedMalformedBodyAfterTheEarlierResponse(t *t
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetDeadline(testEnd(t))
 	if _, err := io.WriteString(conn, "GET /slow HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +291,7 @@ func TestHTTPTransportPublishesOnlyAfterRequestCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	_ = conn.SetDeadline(testEnd(t))
 	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -330,20 +346,18 @@ func TestHTTPTransportRejectsAdmissionBeyondActiveBound(t *testing.T) {
 	// Reading the response does not join ServeHTTP: it releases admission
 	// in a defer after writing the body. Wait for an admitted request, with
 	// only empty 503 responses eligible for retry (#232).
-	deadline := time.Now().Add(3 * time.Second)
-	for {
+	if !testwait.Until(t, func() bool {
 		response, body := exchange(t, server.address, "GET /after HTTP/1.1\r\nHost: x\r\n\r\n")
 		if response != nil && response.StatusCode == http.StatusServiceUnavailable {
 			requireStatusOnly(t, response, body, http.StatusServiceUnavailable)
-			if time.Now().Before(deadline) {
-				continue
-			}
-			t.Fatal("admission was not released before the deadline")
+			return false
 		}
 		if response == nil || response.StatusCode != http.StatusOK || string(body) != "/after" {
 			t.Fatalf("request after admission release: %v %q", response, body)
 		}
-		break
+		return true
+	}) {
+		t.Fatal("admission was not released before the test's deadline")
 	}
 	if calls := server.calls.Load(); calls != 2 {
 		t.Fatalf("expected only the held and admitted requests to reach the handler: %d calls", calls)
@@ -504,7 +518,7 @@ func TestHTTPTransportShutdownAbortsAStalledResponseAfterCleanup(t *testing.T) {
 		if !exit.Interrupted {
 			t.Fatalf("shutdown did not preserve cancellation: %+v", exit)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("shutdown waited on a client that stopped reading")
 	}
 	requireReleased(t, address, reserved)
@@ -563,7 +577,7 @@ func TestHTTPTransportShutdownGraceStartsAfterTheLastScopeCloses(t *testing.T) {
 	// Twice the grace elapses while the other request's cleanup is gated.
 	time.Sleep(2 * limits.IdleTimeout)
 	close(gate)
-	_ = stalled.SetReadDeadline(time.Now().Add(limits.IdleTimeout))
+	_ = stalled.SetReadDeadline(testEnd(t))
 	response, err := http.ReadResponse(bufio.NewReader(stalled), nil)
 	if err != nil {
 		t.Fatalf("stalled response was aborted before the last scope closed: %v", err)
@@ -579,7 +593,7 @@ func TestHTTPTransportShutdownGraceStartsAfterTheLastScopeCloses(t *testing.T) {
 		if !exit.Interrupted {
 			t.Fatalf("shutdown did not preserve cancellation: %+v", exit)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("shutdown did not complete after the drain")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -47,7 +48,7 @@ func within(t *testing.T, what string, f func()) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-testwait.After(t):
 		t.Fatalf("%s did not end: After waits for its body and ignores the Scheduler's deadline", what)
 	}
 }
