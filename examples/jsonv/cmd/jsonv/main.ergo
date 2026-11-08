@@ -1,0 +1,73 @@
+// jsonv prints a JSON document indented or compact, checks it against a
+// small JSON Schema, or infers a schema from it. Package json is the
+// codec, package schema the schema language, package app the commands;
+// package files reads documents from the host. This binary is the only
+// place that chooses the providers: the host's file system, standard
+// input, standard output and arguments.
+
+import fs
+import io
+import jsonv/app
+import jsonv/files
+import jsonv/json
+import jsonv/memory
+import os
+
+func main() fails os.Exit needs Ambient {
+	let host = io.NewHost()
+	with context { os.Process: os.NewHost(), io.Stdout: host, app.Documents: files.New(fs.NewHost(), host) } {
+		try app.Run(os.Process.Args())
+	}
+}
+
+// The tests run app.Run over a memory.Shelf and an io.Recorder, with no
+// host.
+
+let shelf = memory.Shelf{Docs: []memory.Doc{
+	memory.Doc{Name: "s.json", Text: "{\"type\": \"array\", \"items\": {\"type\": \"integer\", \"minimum\": 1}}"},
+	memory.Doc{Name: "-", Text: "[3, 0, 2.5]"},
+	memory.Doc{Name: "d.json", Text: " [1,{\"a\":[]}] "},
+}}
+
+// ran is the output of Run on args, with a failure printed as
+// "exit CODE: MESSAGE".
+func ran(args []string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, app.Documents: shelf } {
+		app.Run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+test FormatsAndMinifies {
+	assert ran([]string{"fmt", "d.json"}) == "[\n  1,\n  {\n    \"a\": []\n  }\n]\n"
+	assert ran([]string{"min", "d.json"}) == "[1,{\"a\":[]}]\n"
+	assert ran([]string{"fmt", "-indent=0", "d.json"}) == "[\n1,\n{\n\"a\": []\n}\n]\n"
+}
+
+test ChecksStandardInput {
+	assert ran([]string{"check", "s.json"}) == "exit 1: jsonv: <stdin>: $[1]: 0 is less than the minimum 1\njsonv: <stdin>: $[2]: want an integer, got 2.5\n"
+	assert ran([]string{"check", "s.json", "d.json"}) == "exit 1: jsonv: d.json: $[1]: want an integer, got an object\n"
+}
+
+test FailuresExit {
+	assert ran([]string{"min", "x.json"}) == "exit 1: jsonv: x.json: no such document\n"
+	assert ran([]string{"check", "d.json", "s.json"}) == "exit 1: jsonv: d.json: not a schema: $: want an object or true, got an array\n"
+	assert ran([]string{"check"}) == "exit 2: missing required flag or argument: schema\n"+app.Usage+"\n"
+}
+
+// InferredSchemaAccepts: jsonv check accepts a document against the
+// schema jsonv infer prints for it.
+test InferredSchemaAccepts(v json.Value) {
+	let doc = json.Compact(json.Lawful(v))
+	let inferred = with context { app.Documents: memory.Shelf{Docs: []memory.Doc{memory.Doc{Name: "-", Text: doc}}} } {
+		try app.Answer(app.Infer{Doc: "-"})
+	}
+	let docs = memory.Shelf{Docs: []memory.Doc{memory.Doc{Name: "s", Text: inferred}, memory.Doc{Name: "d", Text: doc}}}
+	with context { app.Documents: docs } {
+		assert (try app.Answer(app.Validate{Schema: "s", Doc: "d"})) == "d: ok\n"
+	}
+}

@@ -1,0 +1,86 @@
+import flag
+import io
+import jsonv/json
+import jsonv/schema
+import os
+import strings
+
+// Malformed is a document that is not JSON: its name, the position of
+// the failure, and its text.
+type Malformed { Name string, Line int, Col int, Reason string }
+
+// SchemaBroken is a schema document that is JSON and not a schema.
+type SchemaBroken { Name string, Path string, Reason string }
+
+// Broken is a document that does not keep its schema.
+type Broken { Name string, Violations []schema.Violation }
+
+// Load is the document name as a JSON value.
+func Load(name string) json.Value fails NoDocument | Unreadable | Malformed needs Documents {
+	let text = try Documents.Read(name)
+	json.Parse(text) catch {
+	case err:
+		let p = json.Locate(text, json.Offset(err))
+		return Malformed{Name: name, Line: p.Line, Col: p.Col, Reason: json.Describe(err)}
+	}
+}
+
+// Answer is the text that the command c prints, with a final line feed.
+func Answer(c Cmd) string fails NoDocument | Unreadable | Malformed | SchemaBroken | Broken needs Documents {
+	match c {
+	case Format as f:
+		json.Indent(try Load(f.Doc), f.Indent) + "\n"
+	case Minify as m:
+		json.Compact(try Load(m.Doc)) + "\n"
+	case Validate as v:
+		let s = schema.FromJSON(try Load(v.Schema)) catch {
+		case schema.BadSchema as b:
+			return SchemaBroken{Name: v.Schema, Path: b.Path, Reason: b.Reason}
+		}
+		let doc = try Load(v.Doc)
+		schema.Check(s, doc) catch {
+		case schema.Invalid as i:
+			return Broken{Name: v.Doc, Violations: i.Violations}
+		}
+		"\(nameOf(v.Doc)): ok\n"
+	case Infer as i:
+		json.Indent(schema.ToJSON(schema.Infer(try Load(i.Doc))), "  ") + "\n"
+	}
+}
+
+// nameOf is how a message names the document name.
+func nameOf(name string) string { if name == "-" { "<stdin>" } else { name } }
+
+// Run is jsonv on args. A usage error ends with status 2 and the usage on
+// standard error, help prints on standard output, and each failure of a
+// document ends with status 1 and one line per problem on standard error,
+// each named by its document. The catch names every failure, with no
+// case _.
+func Run(args []string) fails os.Exit needs io.Stdout | Documents {
+	let c = Parse(args) catch {
+	case BadIndent as b:
+		return os.Exit{Code: 2, Message: "jsonv: -indent \(b.N): want 0 to 8 spaces\n" + Usage}
+	case err:
+		try flag.Exit(err, Usage)
+		return
+	}
+	let text = Answer(c) catch {
+	case NoDocument as n:
+		return failed("\(nameOf(n.Name)): no such document")
+	case Unreadable as u:
+		return failed("\(nameOf(u.Name)): \(u.Reason)")
+	case Malformed as m:
+		return failed("\(nameOf(m.Name)):\(m.Line):\(m.Col): \(m.Reason)")
+	case SchemaBroken as s:
+		return failed("\(nameOf(s.Name)): not a schema: \(s.Path): \(s.Reason)")
+	case Broken as b:
+		let mut lines = []string{}
+		for x in b.Violations {
+			lines = lines.Append("jsonv: \(nameOf(b.Name)): \(schema.Describe(x))")
+		}
+		return os.Exit{Code: 1, Message: strings.Join(lines, "\n")}
+	}
+	io.Stdout.Print(text)
+}
+
+func failed(message string) fails os.Exit { os.Exit{Code: 1, Message: "jsonv: " + message} }

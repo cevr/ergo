@@ -1,0 +1,47 @@
+// Package files is the host's provider of app.Documents: a name is a
+// path, read through the fs.Files it holds, and "-" is standard input,
+// read through the io.Stdin it holds.
+
+import fs
+import io
+import jsonv/app
+
+// Disk reads documents from a file system and standard input. It keeps
+// what it read of standard input, so a second read of "-" gives the same
+// text (the law app.Documents.ReadIsRepeatable). Its fields are
+// unexported, so only New builds one.
+type Disk { files fs.Files, stdin io.Stdin, kept Map[string, string] }
+
+// New is a Disk over files and stdin.
+func New(files fs.Files, stdin io.Stdin) Disk {
+	Disk{files: files, stdin: stdin, kept: Map[string, string]{}}
+}
+
+// Read is the document name: the file at that path, or standard input
+// for "-".
+func Read(d Disk, name string) string fails app.NoDocument | app.Unreadable {
+	if name == "-" {
+		match d.kept.Get(name) {
+		case Some[string] as t:
+			return t.Value
+		case None:
+		}
+		let text = d.stdin.ReadAll() catch {
+		case io.ReadFailed as r:
+			return app.Unreadable{Name: name, Reason: r.Reason}
+		}
+		// The Map is shared by every copy of d: it is the provider's
+		// state, the one mutable cell Ergo has (gap G-ex-b-3).
+		let mut kept = d.kept
+		kept[name] = text
+		return text
+	}
+	d.files.ReadFile(name) catch {
+	case fs.NotFound:
+		return app.NoDocument{Name: name}
+	case fs.Denied:
+		return app.Unreadable{Name: name, Reason: "permission denied"}
+	case fs.Failed as f:
+		return app.Unreadable{Name: name, Reason: f.Reason}
+	}
+}

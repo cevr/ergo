@@ -1,0 +1,74 @@
+// Disk's tests, over a file system and a standard input held in memory.
+// They restate app.Documents.ReadIsRepeatable for Disk (#162 runs member
+// laws against every provider; until then this does).
+
+import fs
+import io
+import jsonv/app
+
+// tree is an fs.Files of paths to texts; "locked" is denied.
+type tree { texts Map[string, string] }
+
+func ReadFile(t tree, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	if path == "locked" {
+		return fs.Denied{Path: path}
+	}
+	match t.texts.Get(path) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		fs.NotFound{Path: path}
+	}
+}
+
+func ReadDir(_ tree, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(_ tree, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+// drained is a standard input that gives its text to the first ReadAll
+// and nothing after, as the host's does.
+type drained { text string, reads Map[int, int] }
+
+func ReadAll(d drained) string fails io.ReadFailed {
+	let n = match d.reads.Get(0) {
+	case Some[int] as r:
+		r.Value
+	case None:
+		0
+	}
+	let mut reads = d.reads
+	reads[0] = n + 1
+	if n == 0 { d.text } else { "" }
+}
+
+func Lines(d drained) Seq[string] { (io.Input{Text: d.text}).Lines() }
+
+func disk(text string) Disk {
+	let mut texts = Map[string, string]{}
+	texts["a.json"] = "[1]"
+	New(tree{texts: texts}, drained{text: text, reads: Map[int, int]{}})
+}
+
+// outcome is the text of Read(name), or the failure's name.
+func outcome(d Disk, name string) string {
+	d.Read(name) catch {
+	case app.NoDocument as n:
+		"no document " + n.Name
+	case app.Unreadable as u:
+		"unreadable " + u.Name + ": " + u.Reason
+	}
+}
+
+test ReadsFilesAndStdin {
+	let d = disk("{}")
+	assert outcome(d, "a.json") == "[1]" && outcome(d, "-") == "{}"
+	assert outcome(d, "b.json") == "no document b.json"
+	assert outcome(d, "locked") == "unreadable locked: permission denied"
+}
+
+test ReadIsRepeatableHolds(text string, name string) {
+	let d = disk(text)
+	for n in []string{"-", "a.json", name} {
+		assert outcome(d, n) == outcome(d, n)
+	}
+}

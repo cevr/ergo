@@ -1,0 +1,50 @@
+// The rules of the schema language as laws.
+
+import jsonv/json
+import strings
+
+// AnythingAcceptsAll: Anything has no violation.
+law AnythingAcceptsAll(v json.Value) { len(Validate(Anything, v)) == 0 }
+
+// InferredAccepts: the schema inferred from a value accepts that value.
+law InferredAccepts(v json.Value) {
+	let w = json.Lawful(v)
+	len(Validate(Infer(w), w)) == 0
+}
+
+// JoinAcceptsBoth: the join of two inferred schemas accepts both values.
+law JoinAcceptsBoth(a json.Value, b json.Value) {
+	let x = json.Lawful(a)
+	let y = json.Lawful(b)
+	let s = Join(Infer(x), Infer(y))
+	len(Validate(s, x)) == 0 && len(Validate(s, y)) == 0
+}
+
+// SchemaRoundTrips: an inferred schema, written as JSON and read back, is
+// the same schema.
+law SchemaRoundTrips(v json.Value) {
+	let s = Infer(json.Lawful(v))
+	Equal(try FromJSON(ToJSON(s)), s)
+}
+
+// OtherKindsAreRejected: the schema inferred from a value rejects a value
+// of another kind, at the root.
+law OtherKindsAreRejected(a json.Value, b json.Value) {
+	let x = json.Lawful(a)
+	let y = json.Lawful(b)
+	if json.Kind(x) == json.Kind(y) {
+		return true
+	}
+	let found = Validate(Infer(x), y)
+	len(found) == 1 && PathOf(found[0]) == "$"
+}
+
+// PathsAreRooted: every violation names a path from $.
+law PathsAreRooted(a json.Value, b json.Value) {
+	for x in Validate(Infer(json.Lawful(a)), json.Lawful(b)) {
+		if !strings.HasPrefix(PathOf(x), "$") {
+			return false
+		}
+	}
+	true
+}

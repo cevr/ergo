@@ -1,0 +1,8 @@
+{
+  "name": "",
+  "age": 36.5,
+  "role": "root",
+  "tags": [1, "x", null],
+  "home": {"zip": 12345},
+  "a b": true
+}

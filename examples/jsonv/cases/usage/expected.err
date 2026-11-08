@@ -1,0 +1,2 @@
+missing command; commands: fmt, min, check, infer
+usage: jsonv fmt [-indent n | -tab] [file] | jsonv min [file] | jsonv check schema [file] | jsonv infer [file]

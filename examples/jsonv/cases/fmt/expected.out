@@ -1,0 +1,26 @@
+{
+  "name": "Ada Lovelace",
+  "age": 36,
+  "role": "admin",
+  "tags": [
+    "math",
+    "engines"
+  ],
+  "home": {
+    "city": "London",
+    "zip": "W1"
+  },
+  "notes": "first \"programmer\"\nborn 1815\t(Dec)",
+  "scores": [
+    1,
+    2.50,
+    -0.0,
+    1E9,
+    100000000000000000001
+  ],
+  "empty": {},
+  "none": [],
+  "ok": true,
+  "gone": null,
+  "unicode": "é😀é😀"
+}

@@ -1,0 +1,169 @@
+// The codec's tests: examples, and the laws restated as property tests
+// over generated values. The compiler checks laws and does not run them
+// yet (#162); until it does, these tests run them.
+
+import strings
+
+// failure is the text and position of the failure of Parse(text), or
+// "ok".
+func failure(text string) string {
+	let _ = Parse(text) catch {
+	case err:
+		let p = Locate(text, Offset(err))
+		return "\(p.Line):\(p.Col): \(Describe(err))"
+	}
+	"ok"
+}
+
+test ParsesEveryKind {
+	let v = try Parse(" {\"a\": [1, -2.5e+3, true, false, null], \"b\": \"x\\ty\", \"c\": {}} ")
+	assert Compact(v) == "{\"a\":[1,-2.5e+3,true,false,null],\"b\":\"x\\ty\",\"c\":{}}"
+	match v {
+	case Object as o:
+		assert Kind(o.Members[0].V) == "array" && Kind(o.Members[2].V) == "object"
+	case _:
+		assert false
+	}
+}
+
+test NumbersKeepTheirText {
+	let v = try Parse("[2.50, 100000000000000000001, 0, -0.0, 1E9]")
+	assert Compact(v) == "[2.50,100000000000000000001,0,-0.0,1E9]"
+}
+
+test IndentIsJqLayout {
+	let v = try Parse("[1,[2,{\"a\":[]}],{}]")
+	assert Indent(v, "  ") == "[\n  1,\n  [\n    2,\n    {\n      \"a\": []\n    }\n  ],\n  {}\n]"
+}
+
+test EscapesDecode {
+	let v = try Parse("\"\\u00e9\\ud83d\\ude00\\/\\\\\\\"\\b\\f\\n\\r\\t\"")
+	match v {
+	case Text as t:
+		assert t.V == "é😀/\\\"\b\f\n\r\t"
+	case _:
+		assert false
+	}
+}
+
+test QuoteEscapesAsJq {
+	assert Quoted("a\"b\\c\nd\u0001\u007fé") == "\"a\\\"b\\\\c\\nd\\u0001\\u007fé\""
+}
+
+test LastKeyWins {
+	let v = try Parse("{\"a\": 1, \"a\": 2}")
+	match v {
+	case Object as o:
+		match o.Get("a") {
+		case Some[Value] as found:
+			assert Compact(found.Value) == "2"
+		case None:
+			assert false
+		}
+	case _:
+		assert false
+	}
+}
+
+test FailuresNameTheirPlace {
+	assert failure("[1,]") == "1:4: unexpected \"]\", want a value"
+	assert failure("{\"a\" 1}") == "1:6: unexpected \"1\", want a colon"
+	assert failure("[1 2]") == "1:4: unexpected \"2\", want a comma or ]"
+	assert failure("01") == "1:1: bad number \"01\""
+	assert failure("1.") == "1:1: bad number \"1.\""
+	assert failure("-") == "1:1: bad number \"-\""
+	assert failure("\"abc") == "1:5: unexpected end of input, want a closing quote"
+	assert failure("\"a\\x\"") == "1:3: bad escape \"\\\\x\" in a string"
+	assert failure("\"\\ud800\"") == "1:2: bad escape \"\\\\ud800\" in a string"
+	assert failure("\"\\u12g4\"") == "1:2: bad escape \"\\\\u12g4\" in a string"
+	assert failure("\"a\tb\"") == "1:3: a control character in a string; write it as an escape"
+	assert failure("\"\xff\"") == "1:2: invalid UTF-8 in a string"
+	assert failure("[1]\n x") == "2:2: unexpected \"x\", want the end of the text"
+	assert failure("") == "1:1: unexpected end of input, want a value"
+	assert failure("tru") == "1:1: unexpected \"t\", want a value"
+}
+
+test DepthIsLimited {
+	let deep = strings.Repeat("[", MaxDepth) + strings.Repeat("]", MaxDepth)
+	let _ = try Parse(deep)
+	assert failure("["+deep+"]") == "1:\(MaxDepth + 1): arrays and objects nest deeper than \(MaxDepth)"
+}
+
+// spice is v with the letters a, b, z, _ and - of every string and key
+// made a quote, a backslash, a control byte, DEL and a byte of invalid
+// UTF-8. The generator draws strings from a fixed alphabet with none of
+// these (gap G-ex-d-4), and they are the bytes the printer escapes.
+func spice(v Value) Value {
+	match v {
+	case Text as t:
+		Text{V: spiced(t.V)}
+	case Array as a:
+		let mut items = []Value{}
+		for item in a.Items {
+			items = items.Append(spice(item))
+		}
+		Array{Items: items}
+	case Object as o:
+		let mut members = []Member{}
+		for m in o.Members {
+			members = members.Append(Member{Key: spiced(m.Key), V: spice(m.V)})
+		}
+		Object{Members: members}
+	case _:
+		v
+	}
+}
+
+func spiced(s string) string {
+	let quoted = strings.ReplaceAll(strings.ReplaceAll(s, "a", "\""), "b", "\\")
+	strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(quoted, "z", "\u0001"), "_", "\u007f"), "-", "\xff")
+}
+
+test SpiceReachesEveryEscape {
+	assert Quoted(spiced("abz_-")) == "\"\\\"\\\\\\u0001\\u007f\ufffd\""
+}
+
+test CompactRoundTripsHolds(v Value) {
+	let w = Lawful(spice(v))
+	assert Equal(try Parse(Compact(w)), w)
+}
+
+test IndentRoundTripsHolds(v Value, tabs bool) {
+	let w = Lawful(spice(v))
+	let indent = if tabs { "\t" } else { "  " }
+	assert Equal(try Parse(Indent(w, indent)), w)
+}
+
+test IndentIsIdempotentHolds(v Value) {
+	let once = Indent(Lawful(spice(v)), "  ")
+	assert Indent(try Parse(once), "  ") == once
+}
+
+test CompactIgnoresLayoutHolds(v Value) {
+	let w = Lawful(spice(v))
+	assert Compact(try Parse(Indent(w, "  "))) == Compact(w)
+}
+
+test FailuresPointIntoTheTextHolds(text string) {
+	let _ = Parse(text) catch {
+	case err:
+		let at = Offset(err)
+		assert at >= 0 && at <= len(text)
+		return
+	}
+}
+
+// Prefixes of a valid text: every proper prefix of a compact array or
+// object fails, and never past its end.
+test PrefixesFail(v Value) {
+	let text = Compact(Array{Items: []Value{Lawful(spice(v))}})
+	for n in 0..len(text) {
+		let prefix = strings.Slice(text, 0, n)
+		let _ = Parse(prefix) catch {
+		case err:
+			assert Offset(err) <= n
+			continue
+		}
+		assert false
+	}
+}
