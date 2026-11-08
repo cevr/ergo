@@ -59,6 +59,38 @@
       "evidence": []
     },
     {
+      "id": "effect.array.sort",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 533, "label": "sort"},
+      "behavior": "Sorting by the natural order of numbers gives a new sorted array; an empty array gives an empty one.",
+      "limits": "Ergo's slices.Sort (std-align S2a) is Go's slices.Sort over a copy: it returns a new slice, and the input keeps its order, as Effect's sort does. Ergo has no Set, so the upstream Set inputs have no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the array inputs. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.array.map",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 834, "label": "map"},
+      "behavior": "Mapping a function over an array gives the array of its results, in order.",
+      "limits": "Ergo's name is slices.Transform (std-align S2a; Map is the prelude's map type), and its callback takes the element only, so Effect's second case, whose callback takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.array.filter",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 886, "label": "filter"},
+      "behavior": "Filtering keeps the elements the predicate accepts, in order: odd numbers of [1, 2, 3], and the present options of a list of options.",
+      "limits": "Ergo's slices.Filter (std-align S2a) takes a predicate of the element only, so Effect's last case, whose predicate takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the other three cases. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
+      "id": "effect.array.reduce",
+      "status": "pending",
+      "upstream": {"file": "packages/effect/test/Array.test.ts", "line": 924, "label": "reduce"},
+      "behavior": "Reducing from an initial value applies the function left to right: the strings a, b and c reduce to abc.",
+      "limits": "Ergo's name is slices.Fold (std-align S2a), and its function takes the accumulator and the element only, so Effect's second case, whose function takes the index, has no port. TestStdSlicesEffectCases's subtest of this case (internal/sketch/lower/std_slices_test.go) checks the first case. The row is pending only until its branch has the subtest evidence rule of scripts/conformance (fu-conf-pending); then it is covered by that subtest.",
+      "evidence": []
+    },
+    {
       "id": "effect.semaphore.cancelled-permit",
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Semaphore.test.ts", "line": 308, "label": "withPermits interruption does not leak permits"},
