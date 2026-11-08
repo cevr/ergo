@@ -1,13 +1,11 @@
 package lower
 
 import (
-	"context"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -483,11 +481,7 @@ func maskNative(t *testing.T, p maskProgram, o *lowered) {
 	}
 	native := strings.NewReplacer("PATHS", paths.String(), "TWINS", twins.String(), "FRAMES", frames).Replace(maskNativeTest)
 	write("mask_test.go", []byte(native))
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout=50s", "-v", ".")
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
+	output, err := nativeGoTest(t, dir, nil, "-test.v")
 	if err != nil {
 		t.Fatalf("native %s: %v\n%s\nGo:\n%s", p.name, err, output, o.mainGo())
 	}
@@ -590,12 +584,9 @@ func observe(t *testing.T, worker *rt.Task, p plan, call func() error) (*trace, 
   func() { defer func() { r.p = recover() }(); r.err = call() }()
   done <- r
  }()
- var r result
- select {
- case r = <-done:
- case <-time.After(10 * time.Second):
-  t.Fatal("the call never finished")
- }
+ // The call's end is an event: a call that never ends hangs here until
+ // this binary's -test.timeout, whose panic names the case (fu-time-limits).
+ r := <-done
  close(quit); <-pumped
  ergo.MaskHook, ergo.SleptHook = nil, nil
  if clock.Pending() != 0 { t.Fatalf("%d retained timers", clock.Pending()) }

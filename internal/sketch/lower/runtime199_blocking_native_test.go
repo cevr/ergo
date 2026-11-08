@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	v1 "ergo.local/prototype/runtime/v1"
 )
 
@@ -220,7 +221,7 @@ func blockingNative(t *testing.T, name, route string) {
 	write("ergo/runtime/v1/blocking_probe.go", []byte(blockingProbe))
 	native := strings.NewReplacer("PRIMITIVE", fmt.Sprintf("%q", name), "SUBJECT_ARG", arg).Replace(blockingNativeTest)
 	write("blocking_test.go", []byte(native))
-	output, err := nativeGoTest(t, dir)
+	output, err := nativeGoTest(t, dir, nil, "-test.v")
 	if err != nil {
 		t.Fatalf("native %s: %v\n%s\nErgo:\n%s\nGo:\n%s", name, err, output, src, o.mainGo())
 	}
@@ -310,7 +311,7 @@ func deliveredNative(t *testing.T, src string) {
 	}
 	write("ergo/runtime/v1/delivered_probe.go", []byte("package v1\nimport \"ergo.local/prototype/runtime/rt\"\nvar DeliveredHook func(*rt.Task)\n"))
 	write("delivered_test.go", []byte(deliveredNativeTest))
-	output, err := nativeGoTest(t, dir)
+	output, err := nativeGoTest(t, dir, nil, "-test.v")
 	if err != nil {
 		t.Fatalf("native delivered witness: %v\n%s\nErgo:\n%s\nGo:\n%s", err, output, src, stripDirectives(o.mainGo()))
 	}
@@ -331,32 +332,100 @@ func TestNativeHarnessesHaveNoWallBound(t *testing.T) {
 	}
 }
 
-// nativeGoTest runs go test -v on the native module in dir. Its only time
-// bound is this test binary's own deadline: the native binary's -timeout
-// ends a minute before it, so a native hang panics there, naming the
-// subtest and every goroutine's stack, and the command's context ends
-// 30 s before it, after the native binary had its chance to report.
+// nativeGoTest compiles the native module in dir (go test -c) and runs its
+// test binary in dir with env (nil: this process's) and the test flags
+// args (-test.v, -test.run=…). Its only time bound is this test binary's
+// own deadline, and the run's share of it is taken after the compile: the
+// native binary's -test.timeout is half the time left when it starts, so
+// a native hang panics there, naming the stuck subtest (nested ones too)
+// and every goroutine's stack, and the command's context ends at
+// testwait.End, after the native binary had its chance to report.
 //
 // A fixed wall-clock bound (40 s for compile and run, 30 s for the run)
 // failed a correct program when the host descheduled the run: the gate
 // runs niced under the host's load, and the go command compiles the
-// copied runtime into the sweep's fresh cache (fu-lower-flake).
-func nativeGoTest(t *testing.T, dir string) ([]byte, error) {
+// copied runtime into the sweep's fresh cache (fu-lower-flake). A bound
+// taken before the compile let a slow compile eat the native binary's
+// share, so the context killed it before its own report (fu-lower-flake
+// verify, follow-up; fu-time-limits).
+func nativeGoTest(t testwait.T, dir string, env []string, args ...string) ([]byte, error) {
 	t.Helper()
-	ctx, timeout := context.Background(), "0"
-	if end, ok := t.Deadline(); ok {
-		left := (time.Until(end) - time.Minute).Truncate(time.Second)
-		if left < time.Second { // -timeout=0s would be no bound at all
-			t.Fatalf("less than a minute of this test binary's deadline is left for a native go test")
-		}
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, end.Add(-30*time.Second))
-		defer cancel()
-		timeout = left.String()
+	return nativeBuildRun(t, dir, env, func() ([]byte, string, error) { return nativeBuild(t, dir, env) }, args...)
+}
+
+// nativeBuild compiles the test binary of the module in dir.
+func nativeBuild(t testwait.T, dir string, env []string) ([]byte, string, error) {
+	t.Helper()
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	bin := filepath.Join(dir, "native.test")
+	cmd := exec.CommandContext(ctx, "go", "test", "-c", "-o", bin, ".")
+	cmd.Dir, cmd.Env = dir, env
+	output, err := cmd.CombinedOutput()
+	return output, bin, err
+}
+
+// nativeBuildRun builds with build, then runs the binary with the bounds
+// it takes from t's deadline after the build.
+func nativeBuildRun(t testwait.T, dir string, env []string, build func() ([]byte, string, error), args ...string) ([]byte, error) {
+	t.Helper()
+	output, bin, err := build()
+	if err != nil {
+		return output, fmt.Errorf("go test -c: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "-timeout="+timeout, "-v", ".")
-	cmd.Dir = dir
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	timeout := "0" // no deadline: the test was asked for no bound
+	if end, ok := testwait.End(t); ok {
+		timeout = max(time.Until(end)/2, time.Second).String() // -test.timeout=0 would be no bound at all
+	}
+	cmd := exec.CommandContext(ctx, bin, append([]string{"-test.count=1", "-test.timeout=" + timeout}, args...)...)
+	cmd.Dir, cmd.Env = dir, env
 	return cmd.CombinedOutput()
+}
+
+// shareDeadline is a test deadline at a share of the real one, for a test
+// of how a bound of nativeGoTest ends.
+type shareDeadline time.Time
+
+func (shareDeadline) Helper()                       {}
+func (d shareDeadline) Deadline() (time.Time, bool) { return time.Time(d), true }
+
+// TestNativeHangNamesTheStuckSubtest: a native hang is reported by the
+// native binary's own timeout panic, which names the stuck nested subtest,
+// even when the compile took more than half of the time that was left. A
+// bound taken before the compile is killed by the context first, and the
+// failure names only this test (mutant: one go test command with the
+// bounds taken before it). The slow compile is stood for by a build that
+// ends at 6/10 of a deadline that is a thirtieth of this test's time left.
+// No in-process check sees go test's timeout report, so this runs a
+// binary.
+func TestNativeHangNamesTheStuckSubtest(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for name, text := range map[string]string{
+		"go.mod":       "module hang\n\ngo " + goVersion + "\n",
+		"hang_test.go": "package hang\nimport \"testing\"\nfunc TestHang(t *testing.T) {\n\tt.Run(\"inner\", func(t *testing.T) {\n\t\tt.Run(\"stuck\", func(t *testing.T) { <-make(chan int) })\n\t})\n}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	window := testwait.Left(t) / 30
+	if window == 0 {
+		t.Skip("no test deadline (-timeout=0): the native hang would never be reported")
+	}
+	start := time.Now()
+	fake := shareDeadline(start.Add(window))
+	env := append(os.Environ(), "GOWORK=off", "GOPROXY=off", "GOFLAGS=")
+	output, err := nativeBuildRun(fake, dir, env, func() ([]byte, string, error) {
+		output, bin, err := nativeBuild(t, dir, env)
+		<-time.After(time.Until(start.Add(window * 6 / 10)))
+		return output, bin, err
+	}, "-test.v")
+	if err == nil || !strings.Contains(string(output), "panic: test timed out") || !strings.Contains(string(output), "TestHang/inner/stuck") {
+		t.Fatalf("the native hang was not reported by its own timeout naming TestHang/inner/stuck: %v\n%s", err, output)
+	}
 }
 
 const deliveredNativeTest = `package main
