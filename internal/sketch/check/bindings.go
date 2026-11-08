@@ -181,6 +181,29 @@ func scopeLookupPast(s *Scope, name string) (Object, *Scope) {
 	return nil, nil
 }
 
+// scopeLookupType is scopeLookupPast for a type position: it also sees
+// through a local value binder to the type of its name in an outer scope
+// (types.md, Scope 1; L5). A name only a local binds resolves to that
+// local, so the position reports it as no type.
+func scopeLookupType(s *Scope, name string) (Object, *Scope) {
+	var local Object
+	var localAt *Scope
+	for sc := s; sc != nil; sc = sc.parent {
+		o, ok := sc.names[name]
+		if !ok || isRefusedBinder(o) {
+			continue
+		}
+		if v, isVar := o.(*Var); isVar && !v.pkg {
+			if local == nil {
+				local, localAt = o, sc
+			}
+			continue
+		}
+		return o, sc
+	}
+	return local, localAt
+}
+
 // lookupPast is lookup outside a value position: it sees through refused
 // binders (P2).
 func (c *checker) lookupPast(name string) Object { return c.lookupWith(name, scopeLookupPast) }

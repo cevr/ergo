@@ -615,9 +615,10 @@ func (w *refWalker) walkObject(name string) Object {
 }
 
 // patternTests is typing's rule for a bare name in a pattern
-// (patternNameTests) over the walk's scopes.
+// (patternNameTests) over the walk's scopes. The walk reads bodies, so a
+// let or a for is local.
 func (w *refWalker) patternTests(name string, letFor bool) bool {
-	return patternNameTests(w.walkObject(name), w.c.isPreludeName(name), letFor)
+	return patternNameTests(w.walkObject(name), w.c.isPreludeName(name), letFor, true)
 }
 
 // namePattern is typing's single-name rule of a let or a for
@@ -957,9 +958,18 @@ func (w *refWalker) lookupLocalPast(name string) *localBinding {
 	return nil
 }
 
-// typeLocal reports a local that a type position sees: any but a refused
-// binder (P2).
-func (w *refWalker) typeLocal(name string) bool { return w.lookupLocalPast(name) != nil }
+// typeLocal reports a local that a type position sees: a row binding that
+// is not a refused binder (P2). A local value is invisible there, as in
+// typing's scopeLookupType: it hides a package type only in value and
+// pattern positions (types.md, Scope 1; L5).
+func (w *refWalker) typeLocal(name string) bool {
+	for i := len(w.scopes) - 1; i >= 0; i-- {
+		if b, ok := w.scopes[i][name]; ok && !b.refused && b.row {
+			return true
+		}
+	}
+	return false
+}
 
 // typ visits a type expression: no identifier in it is a value.
 func (w *refWalker) typ(n syntax.Node) {

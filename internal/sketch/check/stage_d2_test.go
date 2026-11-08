@@ -125,8 +125,10 @@ func TestForSingleNameBinders(t *testing.T) {
 		})
 	}
 	runD1(t, []d1Case{
-		// A type name is a type test, irrefutable over its own type.
-		{"type-test", decls + "func f(ts []T) int {\n\tlet mut n = 0\n\tfor T in ts {\n\t\tn += 1\n\t}\n\tn\n}\n", nil},
+		// A package type's name binds, as in Go (types.md, Scope 1; L5):
+		// the loop variable is read, and an unread one is S110.
+		{"type-name", decls + "func f(ts []T) int {\n\tlet mut n = 0\n\tfor T in ts {\n\t\tlet _ = T\n\t\tn += 1\n\t}\n\tn\n}\n", nil},
+		{"type-name-unread", decls + "func f(ts []T) int {\n\tlet mut n = 0\n\tfor T in ts {\n\t\tn += 1\n\t}\n\tn\n}\n", []string{"S110:6"}},
 		// A package function's name binds (D-D2's package-name exception).
 		{"function-name", decls + "func f(xs []int) int {\n\tlet mut n = 0\n\tfor h in xs {\n\t\tn += h\n\t}\n\tn\n}\n", nil},
 	})

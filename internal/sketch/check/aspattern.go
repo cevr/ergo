@@ -48,7 +48,16 @@ func (c *checker) declareAs(name *syntax.Ident, t Type, placeholder bool) (asBin
 // catchAll reports whether a catch arm's lone name binds the whole failure
 // (`case err:`, rows.md Catch 7).
 func (c *checker) catchAll(id *syntax.Ident) bool {
-	return catchAllObject(c.lookupType(id.Name, c.localTypeCtx()))
+	// A type parameter first, as in lookupType; then the name as a pattern
+	// sees it, so a local hides a package type here (types.md, Scope 1).
+	if tp := c.lookupType(id.Name, c.localTypeCtx()); tp != nil {
+		if tn, ok := tp.(*TypeName); ok {
+			if _, isParam := tn.Type.(*TypeParam); isParam {
+				return catchAllObject(tp)
+			}
+		}
+	}
+	return catchAllObject(c.lookupPast(id.Name))
 }
 
 // catchAllObject is catchAll's rule, shared with the reference walk
@@ -61,7 +70,7 @@ func (c *checker) catchAll(id *syntax.Ident) bool {
 // package function, an imported package or a package value Totality 1's
 // (refusedRest); each still binds.
 func catchAllObject(o Object) bool {
-	return !patternNameTests(o, false, false)
+	return !patternNameTests(o, false, false, false)
 }
 
 // refusedRest reports Totality 1's S108 at a catch arm's rest name that

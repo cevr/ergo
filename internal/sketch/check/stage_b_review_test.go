@@ -37,14 +37,17 @@ func TestRefusedPatternNameBinds(t *testing.T) {
 }
 
 // A let follows the binder rule (D-D2): package functions and values may
-// be reused. Known types still test, and prelude names stay protected.
+// be reused, and so may package types (types.md, Scope 1; L5); prelude
+// names stay protected.
 func TestSingleNameLetPattern(t *testing.T) {
 	for _, tc := range []struct{ name, src, code string }{
 		{"constant", `func F() { let true = false; _ = true }`, check.CodeType},
 		{"variant", `type State = Pending{} | Finished{}
-func F(s State) { let Pending = s }`, check.CodeNotTotal},
+func F(s State) { let Pending = s; _ = Pending }`, ""},
 		{"own-record", `type R { N int }
-func F(r R) { let R = r }`, ""},
+func F(r R) { let R = r; _ = R }`, ""},
+		{"type-name-unread", `type R { N int }
+func F(r R) { let R = r }`, check.CodeUnused},
 		{"function", `func helper() int { return 1 }
 func F() { let helper = 1; _ = helper }`, ""},
 		{"package-value", `let shared = 1
@@ -78,10 +81,13 @@ func F() int { let _ as R = 1; return R }`, ""},
 	}
 }
 
-func TestRefusedLetTypeNameBinds(t *testing.T) {
+// TestLetTypeNameBinds: a local let named like a package type binds, as in
+// Go, so its reads are the local (types.md, Scope 1; L5). It was a refused
+// type test before.
+func TestLetTypeNameBinds(t *testing.T) {
 	_, d := check.CheckSource("type Finished { N int }\nfunc F() int { let Finished = 3; return Finished + 1 }\n")
-	if len(d) != 1 || d[0].Code != check.CodeType || !strings.Contains(d[0].Message, "does not match") {
-		t.Fatalf("want only the refused type-test diagnostic, got %s", describe(d))
+	if len(d) != 0 {
+		t.Fatalf("want clean, got %s", describe(d))
 	}
 }
 
@@ -93,8 +99,6 @@ func F(s State) State { match s { case State as same: return same } }`,
 func F(s State[int]) State[int] { match s { case State[int] as same: return same } }`,
 		`type State[T] = Pending{Value T} | Finished{}
 func F(s State[int]) State[int] { match s { case State as same: return same } }`,
-		`type State = Pending{} | Finished{}
-func F(s State) { let State = s }`,
 	} {
 		if _, d := check.CheckSource(src + "\n"); len(d) > 0 {
 			t.Fatalf("want own-type pattern to cover the union, got %s\n%s", describe(d), src)

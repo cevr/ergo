@@ -254,7 +254,7 @@ func (c *checker) unusedValue(at syntax.Expr, op operand) {
 // prelude name is a binder that D-D3 refuses, binding with the value's
 // type (declareLocal); any other name binds (patternNameTests).
 func (c *checker) namePattern(id *syntax.Ident) bool {
-	return c.patternTests(id.Name, true)
+	return c.patternTests(id.Name, true, true)
 }
 
 // varDecl checks a local var declaration. A var of a type with no zero

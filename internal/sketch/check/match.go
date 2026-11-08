@@ -96,6 +96,10 @@ type patResolver struct {
 	// letFor: a let or for pattern, where a bare prelude name is a binder
 	// D-D3 refuses, never a type test or a constant.
 	letFor bool
+	// local: a let or for pattern in a body, where a bare name of a
+	// package type binds (types.md, Scope 1; L5), never a package-level
+	// let's, whose names the package scope declares beside the type.
+	local bool
 	// own holds the binding names of a package-level let's pattern, which
 	// the package scope already declares: they bind, not refer.
 	own map[*syntax.Ident]bool
@@ -246,7 +250,7 @@ func (r *patResolver) bindNames(e syntax.Expr) {
 	if e == nil {
 		return
 	}
-	tests := func(name string) bool { return r.c.patternTests(name, r.letFor) }
+	tests := func(name string) bool { return r.c.patternTests(name, r.letFor, r.local) }
 	for _, id := range patternNames(e, tests) {
 		r.bind(id, invalid, &Pattern{Kind: PatBind}, false)
 	}
@@ -317,7 +321,7 @@ func (r *patResolver) pattern0(e syntax.Expr, t Type, col int) resolved {
 		}
 		o := c.lookupPast(x.Name) // as patternTests: past a refused binder (P2)
 		prelude := c.isPreludeName(x.Name)
-		if patternNameTests(o, prelude, r.letFor) {
+		if patternNameTests(o, prelude, r.letFor, r.local) {
 			if _, isConst := o.(*Const); isConst {
 				return r.constant(x, t, col)
 			}

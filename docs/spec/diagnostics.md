@@ -193,7 +193,7 @@ The checker refuses a construct that another ticket owns, and names it, instead 
 
 ### S110: unused
 
-- A local is declared and never read (`unused-local`; `probes/same-local-as-cap.ergo`).
+- A local is declared and never read (`unused-local`).
 - An `as` binding is read in no case (`unused-type-switch-binding`).
 - An expression statement is not a call, `try`, `catch` or `with` (`unused-expression`, `probes/unused-expression.ergo`).
 - An import is not used (Go's rule).

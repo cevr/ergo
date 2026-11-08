@@ -340,7 +340,7 @@ func (c *checker) collect() {
 	// binds, read with every type declared (a type name in it tests the
 	// type, D-B3 rule 1, by the let rule: a prelude name binds, refused by
 	// D-D3, P5); checkPkgVar types them all from the one value.
-	letTests := func(name string) bool { return c.patternTests(name, true) }
+	letTests := func(name string) bool { return c.patternTests(name, true, false) }
 	for _, p := range patterns {
 		c.cur = p.file
 		group := &pkgPattern{spec: p.spec}
@@ -1070,8 +1070,10 @@ func (c *checker) lookupType(name string, ctx *typeCtx) Object {
 		scope = ctx.scope
 	}
 	// A type position sees through a refused binder: it was refused as a
-	// value binding, so the name keeps its meaning here (P2).
-	if o, at := scopeLookupPast(scope, name); o != nil {
+	// value binding, so the name keeps its meaning here (P2). It sees
+	// through a local too, which hides a package type only in value and
+	// pattern positions (types.md, Scope 1; L5): `let point point = …`.
+	if o, at := scopeLookupType(scope, name); o != nil {
 		// A refused import of a prelude name still binds (D-D3; lookup).
 		if imp := c.shadowImport(name, at, c.cur); imp != nil {
 			return imp

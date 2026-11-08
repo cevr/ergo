@@ -22,11 +22,11 @@ probes/predeclared-error.ergo S108
 probes/predeclared-local.ergo S108
 probes/predeclared-panic.ergo clean
 probes/prelude-locals.ergo S108
-probes/same-local-as-cap.ergo S108
+probes/same-local-as-cap.ergo clean
 probes/sleep-timeout.ergo clean
 probes/timeout-capability.ergo clean
 probes/timeout-statement-last.ergo clean
-probes/user-type-shadow.ergo S108
+probes/user-type-shadow.ergo S109
 probes/unused-expression.ergo S108
 probes/context-method-cycle.ergo S108
 probes/context-predeclared-name.ergo S108

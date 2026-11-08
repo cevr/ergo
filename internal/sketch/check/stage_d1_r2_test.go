@@ -49,10 +49,11 @@ func TestPreludeTypeAndConstantNamesAreBinders(t *testing.T) {
 			d1Case{"for-" + n, fmt.Sprintf("func f(xs []int) int {\n\tlet mut s = 0\n\tfor %s in xs {\n\t\ts += %s\n\t}\n\ts\n}\n", n, n), []string{"S108:3"}},
 		)
 	}
-	// A type or constant of the package stays a type test or a constant
-	// pattern (stage C answers, m3).
+	// A type of the package is a name a local may take (types.md, Scope 1;
+	// L5, replacing stage C answers m3): the let binds R, which the body
+	// reads; R in a type position is still the type.
 	cases = append(cases,
-		d1Case{"package-type-test", "type R { N int }\nfunc f(r R) int {\n\tlet R = r\n\t1\n}\n", nil},
+		d1Case{"package-type-name", "type R { N int }\nfunc f(r R) int {\n\tlet R = r\n\tlet s R = R\n\ts.N\n}\n", nil},
 	)
 	runD1Prelude(t, cases)
 }
