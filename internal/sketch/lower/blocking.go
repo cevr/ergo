@@ -181,6 +181,13 @@ var runtimeBindings = map[string]runtimeBinding{
 	"FSStat":      {},
 	"FSWriteFile": {},
 	"FSMkdirAll":  {},
+	// fs writes with a mode, appends, renames and removes (std-fs-safe).
+	"FSWriteFileMode": {},
+	"FSMkdirAllMode":  {},
+	"FSAppendFile":    {},
+	"FSChmod":         {},
+	"FSRename":        {},
+	"FSRemove":        {},
 	// std io (S1b; stdlib.md, io): bodies that write or read a standard
 	// stream of the host process. A read of standard input is an
 	// uninterruptible host wait, as a read of a file is; none releases.

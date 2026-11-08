@@ -428,6 +428,12 @@ type Mine {}
 
 func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
 func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
+func WriteFileMode(_ Mine, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAllMode(_ Mine, path string, mode fs.Mode) fails fs.Denied | fs.Failed {}
+func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
 
 func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
 

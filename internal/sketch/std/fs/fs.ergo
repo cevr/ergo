@@ -25,6 +25,57 @@ type Failed { Path string, Reason string }
 // and whether it is a directory.
 type Info { Name string, Size int, Dir bool }
 
+// Access is what one class of users may do with a file: the three
+// permission bits of that class (read 4, write 2, execute 1). The variants
+// are the useful ones; a write without a read is not one of them. On a
+// directory, execute is the right to pass through it.
+type Access = NoAccess{} | Execute{} | ReadOnly{} | ReadExecute{} | ReadWrite{} | ReadWriteExecute{}
+
+// Mode is the permission of a file for its owner, its group and every
+// other user. It is a record, not an octal number, so a mode reads as what
+// it allows: Private() is Mode{Owner: ReadWrite, Group: NoAccess, Other:
+// NoAccess}, which Go writes 0o600. Perm is its bits.
+type Mode { Owner Access, Group Access, Other Access }
+
+// Private is the mode of a file only its owner reads and writes, 0o600:
+// Go's convention for a secret, such as a key file.
+func Private() Mode { Mode{Owner: ReadWrite, Group: NoAccess, Other: NoAccess} }
+
+// PrivateDir is the mode of a directory only its owner reads, writes and
+// passes through, 0o700: Go's convention for a directory of secrets.
+func PrivateDir() Mode { Mode{Owner: ReadWriteExecute, Group: NoAccess, Other: NoAccess} }
+
+// Shared is the mode of a file its owner writes and every user reads,
+// 0o644.
+func Shared() Mode { Mode{Owner: ReadWrite, Group: ReadOnly, Other: ReadOnly} }
+
+// SharedDir is the mode of a directory its owner writes and every user
+// reads and passes through, 0o755.
+func SharedDir() Mode { Mode{Owner: ReadWriteExecute, Group: ReadExecute, Other: ReadExecute} }
+
+// Bits is the three permission bits of a: read 4, write 2, execute 1.
+func Bits(a Access) int {
+	match a {
+	case NoAccess:
+		0
+	case Execute:
+		1
+	case ReadOnly:
+		4
+	case ReadExecute:
+		5
+	case ReadWrite:
+		6
+	case ReadWriteExecute:
+		7
+	}
+}
+
+// Perm is the Unix permission bits of m, as Go's fs.FileMode.Perm gives
+// them: the owner's bits times 64, the group's times 8, then the others'.
+// Private is 384 (0o600).
+func Perm(m Mode) int { Bits(m.Owner)*64 + Bits(m.Group)*8 + Bits(m.Other) }
+
 // Files reads the file system. A path is the host's: relative paths are
 // relative to the working directory.
 type Files {
@@ -41,10 +92,14 @@ type Files {
 }
 
 // Writes changes the file system. A path is the host's, as for Files. A
-// provider of Files and Writes over one store also keeps this contract,
+// provider of Files and Writes over one store also keeps these contracts,
 // which no single law can state yet (a member law sees only the
-// operations of its own type): after WriteFile(path, text) succeeds, and
-// with no other writer, ReadFile(path) is text.
+// operations of its own type), with no other writer:
+//   - after WriteFile(path, text) succeeds, ReadFile(path) is text;
+//   - AppendConcatenates: after WriteFile(path, a) and AppendFile(path,
+//     b) succeed, ReadFile(path) is a + b;
+//   - ModeIsKept: after WriteFileMode(path, text, m) succeeds, the file
+//     has mode m, and a later WriteFile or AppendFile keeps it.
 type Writes {
 	// WriteFile makes the file at path hold text: it writes a new file in
 	// the directory of path and renames it over path, so a reader sees the
@@ -56,6 +111,25 @@ type Writes {
 	// MkdirAll makes the directory path and each missing parent, with mode
 	// 0777 less the umask. A directory that is there already is no failure.
 	MkdirAll(path string) fails Denied | Failed,
+	// WriteFileMode is WriteFile, but the file at path gets exactly mode,
+	// whatever the umask, and a file that was there gets mode too. The new
+	// file is made with mode before any byte is written, so no reader
+	// wider than mode can open it.
+	WriteFileMode(path string, text string, mode Mode) fails NotFound | Denied | Failed,
+	// MkdirAllMode is MkdirAll, but each directory it makes gets exactly
+	// mode, whatever the umask. A directory that is there keeps its mode.
+	MkdirAllMode(path string, mode Mode) fails Denied | Failed,
+	// AppendFile adds text at the end of the file at path in one write,
+	// and makes the file, with mode 0666 less the umask, when there is
+	// none. A file that was there keeps its mode.
+	AppendFile(path string, text string) fails NotFound | Denied | Failed,
+	// Chmod gives the file at path exactly mode. A symbolic link is
+	// followed.
+	Chmod(path string, mode Mode) fails NotFound | Denied | Failed,
+	// Rename moves the file at from to to, and replaces a file at to.
+	Rename(from string, to string) fails NotFound | Denied | Failed,
+	// Remove removes the file, or the empty directory, at path.
+	Remove(path string) fails NotFound | Denied | Failed,
 
 	// MkdirAllIsIdempotent: when MkdirAll(path) succeeds, a second
 	// MkdirAll(path) succeeds too.
@@ -66,6 +140,51 @@ type Writes {
 		}
 		try MkdirAll(path)
 		true
+	},
+
+	// RemoveThenNotFound: when Remove(path) succeeds, the file is gone,
+	// so a second Remove(path) fails NotFound.
+	law RemoveThenNotFound(path string) {
+		Remove(path) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		Remove(path) catch {
+		case NotFound:
+			return true
+		case Denied, Failed:
+			return false
+		}
+		false
+	},
+
+	// RenameMoves: when a file is at from and none is at to, and
+	// Rename(from, to) succeeds, nothing is left at from, so a second
+	// Rename(from, to) fails NotFound.
+	law RenameMoves(from string, to string, text string) {
+		if from == to {
+			return true
+		}
+		WriteFile(from, text) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		Remove(to) catch {
+		case NotFound:
+		case Denied, Failed:
+			return true
+		}
+		Rename(from, to) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		Rename(from, to) catch {
+		case NotFound:
+			return true
+		case Denied, Failed:
+			return false
+		}
+		false
 	},
 }
 
@@ -107,8 +226,46 @@ func MkdirAll(_ Host, path string) fails Denied | Failed {
 	try hostMkdirAll(path)
 }
 
+// WriteFileMode makes the file at path hold text with exactly mode, by a
+// new file made with mode in its directory and renamed over it.
+func WriteFileMode(_ Host, path string, text string, mode Mode) fails NotFound | Denied | Failed {
+	try hostWriteFileMode(path, text, Perm(mode))
+}
+
+// MkdirAllMode makes the directory path and each missing parent, each
+// with exactly mode.
+func MkdirAllMode(_ Host, path string, mode Mode) fails Denied | Failed {
+	try hostMkdirAllMode(path, Perm(mode))
+}
+
+// AppendFile adds text at the end of the file at path in one write.
+func AppendFile(_ Host, path string, text string) fails NotFound | Denied | Failed {
+	try hostAppendFile(path, text)
+}
+
+// Chmod gives the file at path exactly mode.
+func Chmod(_ Host, path string, mode Mode) fails NotFound | Denied | Failed {
+	try hostChmod(path, Perm(mode))
+}
+
+// Rename moves the file at from to to.
+func Rename(_ Host, from string, to string) fails NotFound | Denied | Failed {
+	try hostRename(from, to)
+}
+
+// Remove removes the file, or the empty directory, at path.
+func Remove(_ Host, path string) fails NotFound | Denied | Failed {
+	try hostRemove(path)
+}
+
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSWriteFile func hostWriteFile(path string, text string) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMkdirAll func hostMkdirAll(path string) fails Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSWriteFileMode func hostWriteFileMode(path string, text string, perm int) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSMkdirAllMode func hostMkdirAllMode(path string, perm int) fails Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSAppendFile func hostAppendFile(path string, text string) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSChmod func hostChmod(path string, perm int) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSRename func hostRename(from string, to string) fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSRemove func hostRemove(path string) fails NotFound | Denied | Failed
