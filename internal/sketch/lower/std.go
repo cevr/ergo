@@ -20,6 +20,12 @@ import (
 // queue.Closed is Closed, so a lowered catch matches the runtime's failure
 // and a returned Task can Move.
 
+// stdRecord is the lowering's lookup in the binding table of std records:
+// v1.StdRecord. It is a variable only so that a test can bind fixture
+// records through rows whose Go names differ from the records' names
+// (TestStdRecordsBindTheRowsGoName); nothing else assigns it.
+var stdRecord = v1.StdRecord
+
 // runtimeType is the runtime/v1 Go type, without type arguments, that the
 // std type n lowers to, or "" when n is lowered as a declaration of the
 // program (the types of the program's own packages, the prelude's other
@@ -42,7 +48,7 @@ func (l *lowerer) runtimeType(n *check.Named, site syntax.Node) string {
 	}
 	switch spec := obj.Decl.Spec.(type) {
 	case *syntax.StructType:
-		goName, ok := v1.StdRecord(obj.Pkg.Path, obj.Name)
+		goName, ok := stdRecord(obj.Pkg.Path, obj.Name)
 		if !ok {
 			return ""
 		}
