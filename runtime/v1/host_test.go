@@ -112,7 +112,7 @@ func TestFSBodies(t *testing.T) {
 	if names, err := FSReadDir(at("sub/n00")); names != nil || err != (Failed{Path: at("sub/n00"), Reason: "not a directory"}) {
 		t.Errorf("FSReadDir(sub/n00) = %q, %#v", names, err)
 	}
-	if info, err := FSStat(at("a.md")); info != (Info{Name: "a.md", Size: 6, Dir: false}) || err != nil {
+	if info, err := FSStat(at("a.md")); info != (Info{Name: "a.md", Size: 6, Dir: false, Perm: int(permOf(t, at("a.md")))}) || err != nil {
 		t.Errorf("FSStat(a.md) = %#v, %v", info, err)
 	}
 	if info, err := FSStat(at("sub")); info.Name != "sub" || !info.Dir || err != nil {
@@ -126,7 +126,7 @@ func TestFSBodies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if info, err := FSStat(at("link-a")); info != (Info{Name: "link-a", Size: 6, Dir: false}) || err != nil {
+	if info, err := FSStat(at("link-a")); info != (Info{Name: "link-a", Size: 6, Dir: false, Perm: int(permOf(t, at("a.md")))}) || err != nil {
 		t.Errorf("FSStat(link-a) = %#v, %v; want the target's size 6", info, err)
 	}
 	if info, err := FSStat(at("link-sub")); info.Name != "link-sub" || !info.Dir || err != nil {

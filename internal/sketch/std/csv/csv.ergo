@@ -1,0 +1,82 @@
+// Package csv reads and writes comma-separated values as Go's
+// encoding/csv does (docs/spec/stdlib.md, csv; std-csv U4): RFC 4180
+// quotes, a quote written twice inside a quoted field, CR LF read as LF,
+// LazyQuotes off, and every record holding as many fields as the first.
+// Its bodies are encoding/csv over the text, so they read no host state.
+// Rules that differ from Go, each for a guarantee:
+//   - ReadAll fails ParseError, a record in the row, not an error value;
+//   - Rows is a Seq of the union Row, so a stream of records ends in a
+//     Malformed row a match must cover, where Go's Read returns an error
+//     beside the record;
+//   - Format writes a row of one empty field as "", where Go writes an
+//     empty line that a reader skips, so every row with a field reads back.
+
+import slices
+
+// ParseError is the failure of ReadAll, Go's *csv.ParseError: Line and
+// Column (bytes, from 1) are where the text breaks the format, Reason is
+// Go's reason ("wrong number of fields", "bare \" in non-quoted field")
+// and Message Go's whole text of the error.
+type ParseError { Line int, Column int, Reason string, Message string }
+
+// Parsed is one record of a text: its fields.
+type Parsed { Fields []string }
+
+// Malformed is the end of a text that breaks the format: the error Go's
+// reader stops at.
+type Malformed { Error ParseError }
+
+// Row is one step of Rows: a record, or the error that ends the text.
+type Row = Parsed | Malformed
+
+// ReadAll is every record of text, as Go's
+// csv.NewReader(strings.NewReader(text)).ReadAll(), or its first error.
+// A text with no record is no rows.
+extern go ergo.local/prototype/runtime/v1.CSVReadAll func ReadAll(text string) [][]string fails ParseError
+
+// Format is rows as text, as Go's csv.Writer writes them: fields joined by
+// commas, each row ended by a line feed, and a field quoted, its quotes
+// written twice, when it holds a comma, a quote, a CR or a LF, or starts
+// with a space. A row of one empty field is "" (Go writes an empty line);
+// a row of no field is an empty line, which ReadAll skips.
+extern go ergo.local/prototype/runtime/v1.CSVFormat func Format(rows [][]string) string
+
+// Rows is the records of text, each a Parsed, then a Malformed with the
+// error when the text breaks the format: the rows ReadAll gives, or the
+// records before ReadAll's error and the error. A Seq cannot fail, so the
+// error is a row. A text that breaks the format is read twice.
+func Rows(text string) Seq[Row] {
+	Seq[Row](func(yield func(r Row) bool) {
+		let all = ReadAll(text) catch {
+		case ParseError as e:
+			for fields in prefix(text) {
+				if !yield(Parsed{Fields: fields}) {
+					return
+				}
+			}
+			yield(Malformed{Error: e})
+			return
+		}
+		for fields in all {
+			if !yield(Parsed{Fields: fields}) {
+				return
+			}
+		}
+	})
+}
+
+// prefix is the records of text before Go's reader meets its first error.
+extern go ergo.local/prototype/runtime/v1.CSVPrefix func prefix(text string) [][]string
+
+// same reports whether a and b hold the same fields in the same rows.
+func same(a [][]string, b [][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if !slices.Equal(a[i], b[i]) {
+			return false
+		}
+	}
+	true
+}

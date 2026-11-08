@@ -1,28 +1,17 @@
+import filepath
 import fs
+import fstest
 
-// File is one file of a Disk: its path and its text.
+// File is one file of a test disk: its path and its text.
 type File { Path string, Text string }
 
-// Disk is an fs.Files provider of fixed files and no directories, so a
+// Disk is a std fstest.Memory that holds files, each in its directory, so a
 // test reads files with no host file system.
-type Disk { Files []File }
-
-// ReadFile is the text of the first file at path. No file at path fails
-// fs.NotFound.
-func ReadFile(d Disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	for f in d.Files {
-		if f.Path == path {
-			return f.Text
-		}
+func Disk(files []File) fstest.Memory fails fs.NotFound | fs.Denied | fs.Failed {
+	let m = fstest.NewMemory()
+	for f in files {
+		try m.MkdirAll(filepath.Dir(f.Path))
+		try m.WriteFile(f.Path, f.Text)
 	}
-	fs.NotFound{Path: path}
-}
-
-// ReadDir fails fs.NotFound: a Disk has no directories.
-func ReadDir(d Disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
-
-// Stat describes the file at path.
-func Stat(d Disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	let text = try d.ReadFile(path)
-	fs.Info{Name: path, Size: len(text), Dir: false}
+	m
 }

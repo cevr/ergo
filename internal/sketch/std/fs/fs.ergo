@@ -6,7 +6,7 @@
 // prelude's Ambient, which only the entry provides. So code that makes a
 // Host shows Ambient in its row: main lists it and binds
 // `context { fs.Files: fs.NewHost() }`. A test cannot get Ambient and
-// binds its own provider instead, such as a map of paths to text. The
+// binds Memory instead (memory.ergo), a tree of files in memory. The
 // externs are unexported, so a program reads or writes the disk only
 // through a Host it was given or made under Ambient. No handle is exposed,
 // so no file stays open after a call returns.
@@ -22,8 +22,11 @@ type Denied { Path string }
 type Failed { Path string, Reason string }
 
 // Info describes the file at a path: its last element, its size in bytes,
-// and whether it is a directory.
-type Info { Name string, Size int, Dir bool }
+// whether it is a directory, and its permission bits as Perm gives them
+// (Go's fs.FileMode.Perm), so `info.Perm == fs.Perm(fs.Private())` tests
+// a mode. Perm is bits, not a Mode, because Mode has no value for some
+// bits, such as a write without a read.
+type Info { Name string, Size int, Dir bool, Perm int }
 
 // Access is what one class of users may do with a file: the three
 // permission bits of that class (read 4, write 2, execute 1). The variants

@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -426,9 +427,10 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 // their host provider, through the Go bodies that the provider's Ergo
 // functions call (os.Host's Getenv is hostHasEnv then hostGetenv; fs.Host
 // calls FSReadFile, FSMkdirAll, FSWriteFile, FSRemove and FSRename), over
-// seeded cases. It is the ledger's runner for os.Process.GetenvIsStable,
-// fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
-// fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves.
+// seeded cases. It is the ledger's runner for os.Process.GetenvIsStable;
+// it runs fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
+// fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves on the host's
+// edge cases as plain subtests.
 func TestStdHostLawsHold(t *testing.T) {
 	r := rand.New(rand.NewPCG(1, 2))
 	dir := t.TempDir()
@@ -457,7 +459,7 @@ func TestStdHostLawsHold(t *testing.T) {
 	for range 50 {
 		paths = append(paths, randomText(r))
 	}
-	lawledger.Run(t, map[string]lawledger.Law{
+	laws := map[string]lawledger.Law{
 		// Set keys, empty values and unset keys alike.
 		"os Process.GetenvIsStable": {Statement: `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }`, Check: func(t *testing.T) {
 			for _, key := range keys {
@@ -553,7 +555,18 @@ func TestStdHostLawsHold(t *testing.T) {
 				t.Errorf("only %d of 300 cases reached the second Rename", moved)
 			}
 		}},
-	})
+	}
+	// The ledger runner of fs's laws is lower TestFSMemoryAgreesWithHost,
+	// which runs each against Host and Memory alike. The checks here stay:
+	// they reach what Memory has not (symbolic links, a file no one may
+	// read, paths with "..").
+	for _, key := range slices.Sorted(maps.Keys(laws)) {
+		if strings.HasPrefix(key, "fs ") {
+			t.Run("host."+strings.ReplaceAll(key, " ", "."), laws[key].Check)
+			delete(laws, key)
+		}
+	}
+	lawledger.Run(t, laws)
 }
 
 // sameFailure reports whether two results of a body fail alike: both
