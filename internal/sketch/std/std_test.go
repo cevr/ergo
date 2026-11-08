@@ -298,6 +298,16 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
 				continue
 			}
+			if _, row := v1.StdRecord(path, tn.Name); !row && hasUnexportedField(st) {
+				// A record with construction authority and no row of the
+				// binding table (slices.Ascending, SS5) is the program's
+				// declaration (lower runtimeType): only its package builds
+				// it, so it is never an error value of the runtime.
+				if _, err := v1.StructFields(tn.Name); err == nil {
+					t.Errorf("%s.%s has no row in the binding table, and v1 declares a struct of its name", path, tn.Name)
+				}
+				continue
+			}
 			seen++
 			var want []string
 			for _, f := range st.Fields {
@@ -517,6 +527,17 @@ func operations(t check.Type) (*check.Interface, bool) {
 // isExportedName reports a name that starts with an upper-case letter.
 func isExportedName(name string) bool {
 	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
+}
+
+// hasUnexportedField reports a record with a field that only its package
+// names, so only its package builds it (construction authority).
+func hasUnexportedField(st *check.Struct) bool {
+	for _, f := range st.Fields {
+		if !isExportedName(f.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func baseName(goType string) string {
