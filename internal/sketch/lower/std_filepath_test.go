@@ -8,7 +8,7 @@ import (
 )
 
 // TestFilepathFootprintsPure: every filepath body is marked pure, so a
-// function that calls each export, Split's Ergo body and Rel's failure
+// function that calls each export, Split's record result and Rel's failure
 // included, has an empty footprint, as one that calls nothing has
 // (stdlib.md, Pure bodies 4).
 func TestFilepathFootprintsPure(t *testing.T) {
@@ -44,7 +44,7 @@ func all(p string, q string) string fails filepath.NotRelative {
 }
 
 // TestFilepathRuns: each function of std filepath (stdlib.md, filepath)
-// calls its runtime/v1 body, or its Ergo body for Split, and prints one
+// calls its runtime/v1 body (Split's returns v1.Parts) and prints one
 // line. Rel fails filepath.NotRelative: a catch arm takes it with both
 // paths, and main's uncaught NotRelative is written with its text and
 // status 1. A package-level let may call it.

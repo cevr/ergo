@@ -3,6 +3,7 @@ package v1
 import (
 	"errors"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,14 +43,14 @@ const lawCases = 10_000
 // law. It is the ledger's runner for every filepath law.
 func TestFilepathLaws(t *testing.T) {
 	r := rand.New(rand.NewPCG(3, 1))
-	split := func(p string) (string, string) { return FilepathSplitDir(p), FilepathSplitFile(p) }
+	split := func(p string) (string, string) { s := FilepathSplit(p); return s.Dir, s.File }
 	trailing := func(p string) bool { _, f := split(p); return p != "" && f == "" }
 	laws := map[string]func(p, q string) bool{
 		"CleanIsIdempotent": func(p, _ string) bool { return FilepathClean(FilepathClean(p)) == FilepathClean(p) },
 		"CleanKeepsRoot":    func(p, _ string) bool { return FilepathIsAbs(FilepathClean(p)) == FilepathIsAbs(p) },
 		"SplitRebuilds": func(p, _ string) bool {
 			d, f := split(p)
-			return d+f == p && FilepathSplitFile(f) == f
+			return d+f == p && FilepathSplit(f).File == f
 		},
 		"JoinOfDirAndBase": func(p, _ string) bool {
 			if trailing(p) {
@@ -59,10 +60,13 @@ func TestFilepathLaws(t *testing.T) {
 		},
 		"BaseHasNoSeparator": func(p, _ string) bool {
 			b := FilepathBase(p)
-			return b == "/" || FilepathSplitDir(b) == ""
+			return b == "/" || FilepathSplit(b).Dir == ""
+		},
+		"ExtIsSuffixOfBase": func(p, _ string) bool {
+			return StringsHasSuffix(FilepathBase(p), FilepathExt(p))
 		},
 		"ExtIsTheExtOfBase": func(p, _ string) bool {
-			if FilepathSplitFile(p) == "" {
+			if FilepathSplit(p).File == "" {
 				return true
 			}
 			return FilepathExt(FilepathBase(p)) == FilepathExt(p)
@@ -110,7 +114,7 @@ func TestFilepathMatchesGo(t *testing.T) {
 		if FilepathJoin(parts) != filepath.Join(parts...) || FilepathBase(p) != filepath.Base(p) ||
 			FilepathDir(p) != filepath.Dir(p) || FilepathExt(p) != filepath.Ext(p) ||
 			FilepathClean(p) != filepath.Clean(p) || FilepathIsAbs(p) != filepath.IsAbs(p) ||
-			FilepathSplitDir(p) != d || FilepathSplitFile(p) != f {
+			FilepathSplit(p) != (Parts{Dir: d, File: f}) {
 			t.Fatalf("a body differs from path/filepath at %q, %q", p, parts)
 		}
 		want, wantErr := filepath.Rel(p, q)
@@ -164,7 +168,7 @@ func Base2(p string) string { return Base(p) }
 			t.Errorf("%s: error %v, want one containing %q", name, err, msg)
 		}
 	}
-	for _, name := range []string{"FilepathJoin", "FilepathBase", "FilepathDir", "FilepathExt", "FilepathClean", "FilepathIsAbs", "FilepathSplitDir", "FilepathSplitFile", "FilepathRel"} {
+	for _, name := range []string{"FilepathJoin", "FilepathBase", "FilepathDir", "FilepathExt", "FilepathClean", "FilepathIsAbs", "FilepathSplit", "FilepathRel"} {
 		if b, err := BodyOf(name); err != nil || !b.Pure {
 			t.Errorf("BodyOf(%s) = %+v, %v; want Pure", name, b, err)
 		}
@@ -221,4 +225,87 @@ func BenchmarkFilepathRel(b *testing.B) {
 			sinkString, _ = filepath.Rel("/usr/local/lib", "/usr/share/doc/x")
 		}
 	})
+}
+
+var sinkBool bool
+
+// benchString is a body of one path argument against its Go control.
+func benchString(b *testing.B, body, control func(string) string) {
+	b.Run("ergo", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := range b.N {
+			sinkString = body(benchPaths[i%len(benchPaths)])
+		}
+	})
+	b.Run("go", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := range b.N {
+			sinkString = control(benchPaths[i%len(benchPaths)])
+		}
+	})
+}
+
+func BenchmarkFilepathBase(b *testing.B) { benchString(b, FilepathBase, filepath.Base) }
+
+func BenchmarkFilepathDir(b *testing.B) { benchString(b, FilepathDir, filepath.Dir) }
+
+func BenchmarkFilepathExt(b *testing.B) { benchString(b, FilepathExt, filepath.Ext) }
+
+func BenchmarkFilepathIsAbs(b *testing.B) {
+	b.Run("ergo", func(b *testing.B) {
+		for i := range b.N {
+			sinkBool = FilepathIsAbs(benchPaths[i%len(benchPaths)])
+		}
+	})
+	b.Run("go", func(b *testing.B) {
+		for i := range b.N {
+			sinkBool = filepath.IsAbs(benchPaths[i%len(benchPaths)])
+		}
+	})
+}
+
+// BenchmarkFilepathSplit: the body returns both parts from one scan, as the
+// control does (round 1 bound Split to two bodies, one scan each: +47%).
+func BenchmarkFilepathSplit(b *testing.B) {
+	b.Run("ergo", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := range b.N {
+			p := FilepathSplit(benchPaths[i%len(benchPaths)])
+			sinkString = p.Dir + p.File[:0]
+		}
+	})
+	b.Run("go", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := range b.N {
+			d, f := filepath.Split(benchPaths[i%len(benchPaths)])
+			sinkString = d + f[:0]
+		}
+	})
+}
+
+// TestFilepathBodiesHaveBenchmarks: every Filepath body of path.go has a
+// benchmark pair against its Go function in this file (std-align S3a: one
+// per function).
+func TestFilepathBodiesHaveBenchmarks(t *testing.T) {
+	decls, err := sourceDecls()
+	if err != nil {
+		t.Fatal(err)
+	}
+	test, err := os.ReadFile("path_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for name, d := range decls {
+		if d.fn == nil || d.fn.Recv != nil || !strings.HasPrefix(name, "Filepath") {
+			continue
+		}
+		n++
+		if !strings.Contains(string(test), "\nfunc Benchmark"+name+"(b *testing.B)") {
+			t.Errorf("the body %s has no Benchmark%s against its Go function", name, name)
+		}
+	}
+	if n != 8 {
+		t.Errorf("%d Filepath bodies; want the eight of std filepath", n)
+	}
 }

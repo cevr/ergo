@@ -102,15 +102,14 @@ var runtimeBindings = map[string]runtimeBinding{
 	"StrconvQuote":      {},
 	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
 	// neither wait nor release.
-	"FilepathJoin":      {},
-	"FilepathBase":      {},
-	"FilepathDir":       {},
-	"FilepathExt":       {},
-	"FilepathClean":     {},
-	"FilepathIsAbs":     {},
-	"FilepathSplitDir":  {},
-	"FilepathSplitFile": {},
-	"FilepathRel":       {},
+	"FilepathJoin":  {},
+	"FilepathBase":  {},
+	"FilepathDir":   {},
+	"FilepathExt":   {},
+	"FilepathClean": {},
+	"FilepathIsAbs": {},
+	"FilepathSplit": {},
+	"FilepathRel":   {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},

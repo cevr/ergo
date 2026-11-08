@@ -112,7 +112,7 @@ Std `strings` and `strconv` work on text (wave std-1, unit G5a). They are pure f
 
 ## filepath
 
-Std `filepath` works on file paths by their text alone (std-align S3a). It follows Go's `path/filepath` for its names, arguments and results, and Effect's `Path` service (`join`, `basename`, `dirname`, `extname`, `normalize`, `relative`, `isAbsolute`) for what it covers. It has no operation type and no capability: no function reads the file system or the working directory. Each export is an `extern go` of a pure `runtime/v1` body in `path.go` that calls the Go function of the same name, with one `runtimeBindings` row each that neither waits nor releases; `Split` is Ergo over two of them.
+Std `filepath` works on file paths by their text alone (std-align S3a). It follows Go's `path/filepath` for its names, arguments and results, and Effect's `Path` service (`join`, `basename`, `dirname`, `extname`, `normalize`, `relative`, `isAbsolute`) for what it covers. It has no operation type and no capability: no function reads the file system or the working directory. Each export is an `extern go` of a pure `runtime/v1` body in `path.go` that calls the Go function of the same name, with one `runtimeBindings` row each that neither waits nor releases. `Split`'s body returns `v1.Parts`, so it scans the path once, as Go's `filepath.Split` does. The laws bind `strings.HasSuffix`'s pure body as a private extern, because a std package imports no other std package.
 
 | Declaration | Meaning |
 | --- | --- |
@@ -125,7 +125,7 @@ Std `filepath` works on file paths by their text alone (std-align S3a). It follo
 1. The separator is `/`. Go's targets for Ergo are Linux and darwin, where no path has a volume name; Windows is not a target.
 2. Every body is pure ([Pure bodies](#pure-bodies)), so a call of one is transparent in a footprint, and a function that only calls `filepath` has an empty footprint. `Abs`, `EvalSymlinks`, `Glob`, `Walk` and `WalkDir` are not in this package: they read the host. `v1.PureImportsExcept` lists them, and `BodyOf` refuses a pure body that names one.
 3. `NotRelative` is the `runtime/v1` struct `v1.NotRelative` ([Types](#v1-packages-task-scope-queue-and-slice) 4). Its text is `filepath.NotRelative{Base:… Target:…}`, the generated text of a record.
-4. The laws (Std laws below) are the algebra: `Clean` is idempotent and keeps the root, `Split` rebuilds its path, `Dir` and `Base` join back, `Base` has no separator, `Ext` is the extension of `Base`, and `Join` of `base` and `Rel(base, target)` is `target`. `TestFilepathLaws` runs each over 10,000 generated paths of the segments `""`, `.`, `..`, names with and without dots, runs of separators, a multi-byte rune and an invalid byte; `TestFilepathMatchesGo` holds each body to `path/filepath` on the same paths; `TestFilepathRuns` (lower) runs each function.
+4. The laws (Std laws below) are the algebra: `Clean` is idempotent and keeps the root, `Split` rebuilds its path, `Dir` and `Base` join back, `Base` has no separator, `Ext` ends `Base` and is the extension of `Base`, and `Join` of `base` and `Rel(base, target)` is `target`. `TestFilepathLaws` runs each over 10,000 generated paths of the segments `""`, `.`, `..`, names with and without dots, runs of separators, a multi-byte rune and an invalid byte; `TestFilepathMatchesGo` holds each body to `path/filepath` on the same paths; `TestFilepathRuns` (lower) runs each function.
 
 *Prior art:* Gleam's `filepath` package and Elixir's `Path` module are lexical and read no host state, except Elixir's `Path.expand/1`, which reads the working directory, as Go's `Abs` does; Effect's `Path` is a service, so a test can replace it, which a lexical function never needs. Ergo keeps Go's names and binds Go's functions directly, as Gleam's externals bind Erlang's `filename`.
 
@@ -164,10 +164,11 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `filepath` | `BaseHasNoSeparator` | `BaseHasNoSeparator(path string) { Base(path) == "/" \|\| Split(Base(path)).Dir == "" }` | `TestFilepathLaws` | tested |
 | `filepath` | `CleanIsIdempotent` | `CleanIsIdempotent(path string) { Clean(Clean(path)) == Clean(path) }` | `TestFilepathLaws` | tested |
 | `filepath` | `CleanKeepsRoot` | `CleanKeepsRoot(path string) { IsAbs(Clean(path)) == IsAbs(path) }` | `TestFilepathLaws` | tested |
+| `filepath` | `ExtIsSuffixOfBase` | `ExtIsSuffixOfBase(path string) { hasSuffix(Base(path), Ext(path)) }` | `TestFilepathLaws` | tested |
 | `filepath` | `ExtIsTheExtOfBase` | `ExtIsTheExtOfBase(path string) { if Split(path).File == "" { return true } Ext(Base(path)) == Ext(path) }` | `TestFilepathLaws` | tested |
 | `filepath` | `JoinOfDirAndBase` | `JoinOfDirAndBase(path string) { if path != "" && Split(path).File == "" { return true } Clean(Join([]string{Dir(path), Base(path)})) == Clean(path) }` | `TestFilepathLaws` | tested |
 | `filepath` | `RelThenJoin` | `RelThenJoin(base string, target string) { let r = Rel(base, target) catch { case NotRelative: return true } Clean(Join([]string{base, r})) == Clean(target) }` | `TestFilepathLaws` | tested |
-| `filepath` | `SplitRebuilds` | `SplitRebuilds(path string) { let p = Split(path) p.Dir+p.File == path && splitFile(p.File) == p.File }` | `TestFilepathLaws` | tested |
+| `filepath` | `SplitRebuilds` | `SplitRebuilds(path string) { let p = Split(path) p.Dir+p.File == path && Split(p.File).File == p.File }` | `TestFilepathLaws` | tested |
 | `fs` | `Files.ReadIsRepeatable` | `ReadIsRepeatable(path string) { let first = try ReadFile(path) try ReadFile(path) == first }` | `TestStdHostLawsHold` | tested |
 | `fs` | `Writes.MkdirAllIsIdempotent` | `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }` | `TestStdHostLawsHold` | tested |
 | `log` | `AnnotationEndRestores` | `AnnotationEndRestores(key string, text string) { let before = Annotation(key) with Annotate(key, text) { Annotation(key) } Annotation(key) == before }` | `TestStdLawsRun` | tested |

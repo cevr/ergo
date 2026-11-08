@@ -158,6 +158,7 @@ type goDecls map[string]goDecl
 // with no row is a declaration of the program, as strings.Halves is.
 var stdRecords = map[string]string{
 	"filepath.NotRelative": "NotRelative",
+	"filepath.Parts":       "Parts",
 	"fs.Denied":            "Denied",
 	"fs.Failed":            "Failed",
 	"fs.Info":              "Info",
