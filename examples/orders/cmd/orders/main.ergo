@@ -3,7 +3,7 @@
 // standard output, as a program under inetd does. Ergo has no listener
 // yet (gap G-ex-c-7), so a socket reaches it through a tool such as
 // `socat TCP-LISTEN:8080,reuseaddr,fork EXEC:./orders`. Package api is
-// the HTTP layer as plain functions, package http1 the wire format, and
+// the HTTP layer as plain functions, package http1 the HTTP/1.1 text format, and
 // package orders the domain. This binary is the only place that chooses
 // the providers: the memory Ledger and the host's standard streams.
 

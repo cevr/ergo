@@ -1,4 +1,4 @@
-// The rules of the wire format as laws over ReadRequest and Serve.
+// The rules of the HTTP/1.1 text format as laws over ReadRequest and Serve.
 
 import io
 import orders/api

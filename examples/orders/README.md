@@ -25,7 +25,7 @@ The program is a module of packages (`ergo.mod`: `module orders`), in the Go lay
 | `memory/` | `Ledger`, the in-memory `orders.Book`. |
 | `jsontext/` | A JSON value (`Value`, a union), `Parse` with the byte offset of each failure, `Encode`, `Quote`, `Equal`, and four laws. |
 | `api/` | The HTTP layer as plain functions over records: `message.ergo` (`Request`, `Response`, `Header`, `Problem`, `Reason`), `route.ergo` (`Route`, `RouteOf`), `codec.ergo` (`DraftOf`, `OrderJSON`, the failure `BadBody`), `handle.ergo` (`Handle`), `laws.ergo`. |
-| `http1/` | The wire: `wire.ergo` (`ReadRequest`, `WriteRequest`, `WriteResponse`, the failure `Garbled`), `serve.ergo` (`Serve`, one connection), `laws.ergo`. |
+| `http1/` | The HTTP/1.1 text: `format.ergo` (`ReadRequest`, `WriteRequest`, `WriteResponse`, the failure `Garbled`), `serve.ergo` (`Serve`, one connection), `laws.ergo`. |
 | `cmd/orders/` | The binary: it binds the memory `Ledger` and the host's streams, and is the only place that chooses them. |
 
 ## What it shows
@@ -35,7 +35,7 @@ The program is a module of packages (`ergo.mod`: `module orders`), in the Go lay
 - **Routes as a union.** `RouteOf` is a `Route = List | Show | Create | Act | Wrong | Nowhere`, and `Handle` matches every variant. `UnknownPathIs404` and `WrongMethodNamesTheRight` (each method `Allow` names reaches the path) are its laws.
 - **A pure handler.** `api.Handle(Request) Response needs orders.Book` has no I/O: the tests drive whole conversations with no socket, and a listener, when std has one, binds it unchanged.
 - **A store contract with laws, checked on its provider.** `Book` states `FindAfterAdd`, `AddTwiceIsTaken`, `ReplaceKeepsTheCount` and `AllInAddOrder`; `memory`'s tests run them through `orders/checks.ergo`. The API laws take a `Book` as a law parameter and bind it in a context.
-- **Wire laws.** `RequestRoundTrip` (a request written is read back as it was), `PipelinedRequestsAreAnsweredInOrder` and `ContentLengthIsTheBody`.
+- **Format laws.** `RequestRoundTrip` (a request written is read back as it was), `PipelinedRequestsAreAnsweredInOrder` and `ContentLengthIsTheBody`.
 
 Each law is also a property test (laws are checked, not run yet: #162), and each has a mutant that the test kills (`ex-c/orders/mutants.ts` in the run dir, 20 of 20).
 

@@ -1,4 +1,4 @@
-// The wire format's tests over a memory.Ledger and an io.Recorder, and
+// The HTTP/1.1 text format's tests over a memory.Ledger and an io.Recorder, and
 // the laws restated as property tests (#162).
 
 import io

@@ -5,7 +5,7 @@ import orders/orders
 // orders.Invalid.
 type BadBody { Field string, Reason string }
 
-// OrderJSON is the wire form of o.
+// OrderJSON is the JSON form of o.
 func OrderJSON(o orders.Order) jsontext.Value {
 	let mut lines = []jsontext.Value{}
 	for l in o.Lines {
@@ -93,7 +93,7 @@ func integer(v jsontext.Value, at string) int fails BadBody {
 	}
 }
 
-// DraftJSON is the wire form of d, which DraftOf reads back: a client's
+// DraftJSON is the JSON form of d, which DraftOf reads back: a client's
 // body, for tests.
 func DraftJSON(d orders.Draft) jsontext.Value {
 	let mut lines = []jsontext.Value{}

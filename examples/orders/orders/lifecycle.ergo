@@ -38,7 +38,7 @@ type Lifecycle machine[Status, Event] {
 	step:    Step,
 }
 
-// Name is the wire name of s.
+// Name is the external name of s.
 func Name(s Status) string {
 	match s {
 	case Placed:
@@ -52,7 +52,7 @@ func Name(s Status) string {
 	}
 }
 
-// EventName is the wire name of e, the last element of its path.
+// EventName is the external name of e, the last element of its path.
 func EventName(e Event) string {
 	match e {
 	case Pay:
@@ -64,7 +64,7 @@ func EventName(e Event) string {
 	}
 }
 
-// EventNamed is the event of a wire name.
+// EventNamed is the event of an external name.
 func EventNamed(name string) Option[Event] {
 	match name {
 	case "pay":
