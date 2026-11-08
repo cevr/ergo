@@ -202,3 +202,66 @@ law FoldSumMatchesLoop(xs []int) {
 	}
 	Fold(xs, 0, func(acc int, x int) int { acc + x }) == sum
 }
+
+// CloneCopies: Clone is equal to xs, and a write to a clone leaves xs as
+// it was.
+law CloneCopies(xs []int) {
+	let c = Clone(xs)
+	let mut d = Clone(xs)
+	for i in 0..len(d) {
+		d[i] = d[i] + 1
+	}
+	Equal(c, xs) && (len(xs) == 0 || !Equal(d, xs))
+}
+
+// ConcatJoins: Concat(a, b) is the elements of a, then those of b.
+law ConcatJoins(a []int, b []int) {
+	let c = Concat(a, b)
+	len(c) == len(a)+len(b) && Equal(Slice(c, 0, len(a)), a) && Equal(Slice(c, len(a), len(c)), b)
+}
+
+// ConcatIsIsolated: an Append to a slice with room after its elements does
+// not change a Concat made from it.
+law ConcatIsIsolated(a []int, b []int, x int) {
+	let mut roomy = WithCapacity[int](len(a) + len(b) + 1)
+	for v in a {
+		roomy = roomy.Append(v)
+	}
+	let c = Concat(roomy, b)
+	let before = Clone(c)
+	let grown = roomy.Append(x)
+	Equal(c, before) && len(grown) == len(a)+1 && Equal(Slice(c, len(a), len(c)), b)
+}
+
+// RepeatRepeats: Repeat(xs, n) is xs n times over.
+law RepeatRepeats(xs []int, n int) {
+	let k = (n%8 + 8) % 8
+	let r = Repeat(xs, k)
+	let mut ok = len(r) == len(xs)*k
+	for i, v in r {
+		ok = ok && v == xs[i%len(xs)]
+	}
+	ok
+}
+
+// SliceHasNoRoom: an Append to Slice(xs, 0, j) never writes xs.
+law SliceHasNoRoom(xs []int, i int, x int) {
+	if len(xs) == 0 {
+		return true
+	}
+	let j = (i%len(xs) + len(xs)) % len(xs)
+	let before = Clone(xs)
+	let grown = Slice(xs, 0, j).Append(x)
+	Equal(xs, before) && Equal(Slice(grown, 0, j), Slice(xs, 0, j)) && grown[j] == x
+}
+
+// LenAndAtReadItems: Len and At read an Ascending as Items does.
+law LenAndAtReadItems(xs []int) {
+	let a = Ascend(xs)
+	let items = Items(a)
+	let mut ok = Len(a) == len(items)
+	for i, v in items {
+		ok = ok && At(a, i) == v
+	}
+	ok
+}

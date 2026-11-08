@@ -1,8 +1,36 @@
 // Package maps reads Maps (docs/spec/stdlib.md, Slices and Maps;
 // std-align S2a). It follows Go's maps package: Keys and Values are Seqs,
 // in an unspecified order, as a for over a Map is (types.md, Loops and len
-// 1). slices.Sorted(maps.Keys(m)) gives the keys in a fixed order. It is
-// Ergo source only, with no runtime/v1 body.
+// 1). slices.Sorted(maps.Keys(m)) gives the keys in a fixed order. Clone
+// binds a runtime/v1 body; the rest is Ergo source.
+
+// Clone is a new Map with the keys and values of m: Go's maps.Clone. A
+// write to the clone never reaches m.
+extern go ergo.local/prototype/runtime/v1.MapsClone func Clone[K comparable, V](m Map[K, V]) Map[K, V]
+
+// GetOr is the value of k in m, or def when m has no key k: Effect's
+// HashMap.get then Option.getOrElse, and Go's comma-ok read with a
+// default.
+func GetOr[K comparable, V](m Map[K, V], k K, def V) V {
+	match m.Get(k) {
+	case Some[V] as v:
+		v.Value
+	case None:
+		def
+	}
+}
+
+// Update sets the value of k in m to f of its value now: Some of it, or
+// None when m has no key k (Effect's HashMap.modifyAt, an upsert). It
+// changes m itself, as the prelude's Delete does, and returns it: write
+// m = maps.Update(m, k, f). f runs once; its failure ends Update with it
+// and leaves m as it was.
+func Update[K comparable, V, E, R](m Map[K, V], k K, f func(old Option[V]) V fails E needs R) Map[K, V] fails E needs R {
+	let v = try f(m.Get(k))
+	let mut out = m
+	out[k] = v
+	out
+}
 
 // Keys is the keys of m, each once, in an unspecified order.
 func Keys[K comparable, V](m Map[K, V]) Seq[K] {
@@ -76,6 +104,44 @@ law KeysStops(m Map[string, int]) {
 		}
 	}
 	true
+}
+
+// CloneIsIndependent: Clone has the keys and values of m, and a write to
+// the clone leaves m as it was.
+law CloneIsIndependent(m Map[string, int], k string) {
+	let size = len(m)
+	let had = m.Get(k)
+	let mut c = Clone(m)
+	let mut same = len(c) == size
+	for key, v in m {
+		same = same && c.Get(key) == Some[int]{Value: v}
+	}
+	c[k] = 7
+	same && len(m) == size && m.Get(k) == had
+}
+
+// UpdateSeesTheOldValue: Update gives f the value of k now, None for a
+// missing key, and k then holds f's result.
+law UpdateSeesTheOldValue(m Map[string, int], k string, v int) {
+	let before = m.Get(k)
+	let mut seen Option[int] = Some[int]{Value: v + 1}
+	let out = Update(Clone(m), k, func(old Option[int]) int {
+		seen = old
+		v
+	})
+	let grew = if before == None { 1 } else { 0 }
+	seen == before && out.Get(k) == Some[int]{Value: v} && len(out) == len(m)+grew
+}
+
+// GetOrDefaults: GetOr is the value of k when m has one, and def
+// otherwise.
+law GetOrDefaults(m Map[string, int], k string, def int) {
+	match m.Get(k) {
+	case Some[int] as v:
+		GetOr(m, k, def) == v.Value
+	case None:
+		GetOr(m, k, def) == def
+	}
 }
 
 // ValuesStops: Values is a Seq that stops, as Keys is.
