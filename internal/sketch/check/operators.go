@@ -510,7 +510,7 @@ func (c *checker) conversion(x *syntax.CallExpr, t Type) operand {
 func convertedLiteralOverflow(x syntax.Expr, t Type) string {
 	lit, sign, ok := signedLit(x)
 	tb, isBasic := under0(t).(*Basic)
-	if !ok || lit.Kind != syntax.INT || !isBasic || !isNumeric(tb) || len(lit.Value) > 1 && lit.Value[0] == '0' {
+	if !ok || lit.Kind != syntax.INT || !isBasic || !isNumeric(tb) || legacyOctal(lit.Value) {
 		return ""
 	}
 	v := constant.MakeFromLiteral(lit.Value, token.INT, 0)

@@ -108,8 +108,8 @@ func (c *checker) basicLit(x *syntax.BasicLit, hint Type) operand {
 	}
 	switch x.Kind {
 	case syntax.INT:
-		if len(x.Value) > 1 && x.Value[0] == '0' {
-			c.errorf(x, CodeType, "the integer literal %s has a leading zero; Go would read it as octal (grammar.md, Literals 1)", x.Value)
+		if legacyOctal(x.Value) {
+			c.errorf(x, CodeType, "the integer literal %s has a leading zero; Go would read it as octal, so write 0o%s for octal (grammar.md, Literals 1)", x.Value, strings.TrimLeft(x.Value, "0_"))
 			return bad(x)
 		}
 		v := constant.MakeFromLiteral(x.Value, token.INT, 0)
@@ -120,11 +120,11 @@ func (c *checker) basicLit(x *syntax.BasicLit, hint Type) operand {
 		return operand{mode: modeConst, typ: t, val: v}
 	case syntax.DURATION:
 		i := 0
-		for i < len(x.Value) && x.Value[i] >= '0' && x.Value[i] <= '9' {
+		for i < len(x.Value) && (x.Value[i] >= '0' && x.Value[i] <= '9' || x.Value[i] == '_') {
 			i++
 		}
 		digits, unit := x.Value[:i], x.Value[i:]
-		if len(digits) > 1 && digits[0] == '0' {
+		if legacyOctal(digits) {
 			c.errorf(x, CodeType, "the duration literal %s has a leading zero", x.Value)
 			return bad(x)
 		}
@@ -167,6 +167,20 @@ func (c *checker) basicLit(x *syntax.BasicLit, hint Type) operand {
 	}
 	c.errorf(x, CodeType, "unexpected literal")
 	return bad(x)
+}
+
+// legacyOctal reports whether the decimal digits lit start with a zero and
+// have more than one digit (07, 0_7), which Go reads as octal (grammar.md,
+// Literals 1). A literal with a base prefix (0x, 0o, 0b) is not one.
+func legacyOctal(lit string) bool {
+	if len(lit) < 2 || lit[0] != '0' {
+		return false
+	}
+	switch lit[1] {
+	case 'x', 'X', 'o', 'O', 'b', 'B':
+		return false
+	}
+	return true
 }
 
 // isLiteral reports whether x is a literal expression, whose type comes

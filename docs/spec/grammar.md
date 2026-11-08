@@ -72,10 +72,15 @@ No name may use them. Generated Go reserves them, and the parser must recognise 
 ## Literals
 
 ```ebnf
-int_lit       = "0" | ( "1" … "9" ) { decimal_digit } .
+int_lit       = decimal_lit | binary_lit | octal_lit | hex_lit .
+decimal_lit   = "0" | ( "1" … "9" ) [ [ "_" ] decimals ] .
+binary_lit    = "0" ( "b" | "B" ) [ "_" ] binary_digit { [ "_" ] binary_digit } .
+octal_lit     = "0" ( "o" | "O" ) [ "_" ] octal_digit { [ "_" ] octal_digit } .
+hex_lit       = "0" ( "x" | "X" ) [ "_" ] hex_digit { [ "_" ] hex_digit } .
+decimals      = decimal_digit { [ "_" ] decimal_digit } .
 float_lit     = decimals "." [ decimals ] [ exponent ] | decimals exponent | "." decimals [ exponent ] .
 exponent      = ( "e" | "E" ) [ "+" | "-" ] decimals .
-duration_lit  = int_lit duration_unit .
+duration_lit  = decimal_lit duration_unit .
 duration_unit = "ns" | "us" | "ms" | "s" | "m" | "h" .
 rune_lit      = "'" ( unicode_value | byte_value ) "'" .
 string_lit    = interpreted_string | raw_string .
@@ -85,7 +90,7 @@ import_path   = path_element { ( "/" | "." ) path_element } .
 path_element  = letter { letter | digit | "-" } .
 ```
 
-1. **Integers.** An integer literal is decimal. A leading zero on a literal longer than one digit is an error (S108), because Go would read it as octal. The value must fit `int64` (S108). Hexadecimal, octal, binary and digit separators stay S001 with a message that names them ([#81](https://github.com/cevr/ergo/issues/81)).
+1. **Integers.** An integer literal is decimal, binary (`0b1010`), octal (`0o600`) or hexadecimal (`0x80`, `0xFF`), as in Go; the prefix and the hexadecimal digits may be either case. A `_` may stand between two digits and after a base prefix (`1_000_000`, `0xFF_FF`, `0x_1F`), and in a float or duration literal between two decimal digits (`1_000.5`, `1_500ms`); it does not change the value. A misplaced `_`, a digit outside the base, a prefix with no digits, a hexadecimal float (`0x1p4`) and a duration with a base prefix are S001. A decimal literal with a leading zero and more than one digit (`07`, `0_7`) is an error (S108), because Go would read it as octal: write `0o7`. A literal of any base is typed by its context like any integer literal (196u) and its value must fit the type it takes (S108): `let m uint8 = 0xFF` holds 255 and `let m uint8 = 0x100` is S108. `ergo fmt` keeps the spelling (base, case and separators); the lowering writes the value. *Prior art:* Go 1.13 number literals, which Ergo copies; Gleam (`0x`, `0o`, `0b`, `_`), Rust and Swift have the same forms.
 2. **Floats.** Go's decimal float forms are literals: `2.5`, `1.`, `.5`, `1e9`, `2.5e-3`. Imaginary literals (`2i`) are S001. `1..n` is the integer `1`, the range operator and `n`, never the float `1.` followed by `.n`. A literal takes the type its context expects (196u): there are no untyped constants.
 3. **Durations.** An integer immediately followed by a unit is a `duration` literal: `500ms`, `2s`, `5m`. Its value in nanoseconds must fit `int64` (S108). Any other letter suffix is an error (S001).
 4. **Strings.** An interpreted string `"…"` uses Go's escapes and is decoded with Go's rules; an invalid escape is an error (S108). A raw string is enclosed in back quotes and never interpolates. A newline inside an interpreted string, or a missing closing quote, is S001. The value of a string is the bytes its spelling decodes to.
