@@ -333,6 +333,56 @@ func TestExecStopModel(t *testing.T) {
 	t.Logf("cases by state: %v", seen)
 }
 
+// TestExecEffectCases holds the Effect cases that std exec ports, each in
+// a subtest named after its id in conformance/effect-cases.json.
+func TestExecEffectCases(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("no /proc")
+	}
+	// Effect: NodeChildProcessSpawner.test.ts "kills every process in a
+	// pipeline". The program runs a pipeline of two stages, each with a
+	// process of its own; a stop of the caller ends every one of them.
+	t.Run("effect.child-process.kills-pipeline", func(t *testing.T) {
+		pidfile := filepath.Join(t.TempDir(), "pids")
+		script := fmt.Sprintf(`(sleep 20 & echo $! >> %[1]s; wait) | (sleep 20 & echo $! >> %[1]s; wait) &
+while [ "$(wc -l < %[1]s)" -lt 2 ]; do sleep 0.01; done
+echo $$ >> %[1]s
+wait
+`, pidfile)
+		task := rt.Root("exec test")
+		done := make(chan bool, 1)
+		go func() {
+			defer func() { done <- recover() == rt.Interrupted }()
+			_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "")
+		}()
+		var pids []int
+		for deadline := time.Now().Add(5 * time.Second); len(pids) < 3 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			pids = readPids(t, pidfile)
+		}
+		task.Interrupt()
+		select {
+		case interrupted := <-done:
+			if !interrupted {
+				t.Fatal("the stop did not end the call with rt.Interrupted")
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatal("Run did not return in 15s after the stop")
+		}
+		if len(pids) != 3 {
+			t.Fatalf("pids %v; want the two stages' and the program's", pids)
+		}
+		group := pids[2]
+		for _, pid := range pids {
+			if procExists(pid, group) {
+				t.Errorf("Run returned and process %d of the pipeline is left: %q", pid, procLine(pid))
+			}
+		}
+	})
+}
+
 // TestExecFailures maps each way a program fails to start to its failure,
 // and holds the rest of the call's contract: the environment over the
 // host's, the directory, the standard input and a status that is not 0.

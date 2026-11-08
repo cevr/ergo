@@ -185,6 +185,14 @@
       "behavior": "Separate provisions are separate builds with independent acquisition tables: a node is acquired again by each build, a failed build retains its one outcome and is retried only by a new explicit build, and a caller-owned borrowed resource stays open across both.",
       "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Upstream shares one MemoMap across builds so the second build reuses the first build's layer. Ergo has no shared or global memo map; explicit cross-build leases remain libraries with their own owning scope.",
       "evidence": []
+    },
+    {
+      "id": "effect.child-process.kills-pipeline",
+      "status": "pending",
+      "upstream": {"file": "packages/platform/node-shared/test/NodeChildProcessSpawner.test.ts", "line": 75, "label": "kills every process in a pipeline"},
+      "behavior": "A stop of the caller of std exec Run ends every process of the program's pipeline, not only the program itself, before the call returns.",
+      "limits": "Pending until this branch has the evidence rule (a subtest named after the case id); the subtest exists: runtime/v1 TestExecEffectCases/effect.child-process.kills-pipeline. Ergo kills the program's process group; Effect spawns each pipeline stage and kills them by its handle. A process that leaves the group (setsid) is not killed, by design.",
+      "evidence": []
     }
   ]
 }
