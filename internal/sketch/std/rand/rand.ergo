@@ -1,0 +1,63 @@
+// Package rand is random numbers and the functions that draw on them
+// (docs/spec/stdlib.md, rand; std-align S2c). It follows Go's math/rand/v2
+// for names and meaning (Uint64, IntN, Float64, Shuffle, Perm, PCG) and
+// Effect's Random for the capability and the seeded provider
+// (Random.make(seed)). Rules that differ from Go, each for a guarantee:
+//   - Random is a capability in the prelude: code that draws shows Random
+//     in its row, and a test binds Seeded(seed) in its place, so a run
+//     replays;
+//   - Shuffle returns a new slice and leaves its argument, as slices.Sort
+//     does;
+//   - Choice of an empty slice is None, not a defect.
+// Shuffle and Perm draw as Go's do, call for call: Shuffle under
+// Seeded(seed) is Go's r.Shuffle over the same PCG.
+
+// Shuffle is a copy of xs in a random order: Go's Fisher-Yates shuffle,
+// from the last element down, each swapped with one at IntN(i+1).
+func Shuffle[T](xs []T) []T needs Random {
+	let mut out = withCapacity[T](len(xs))
+	for x in xs {
+		out = out.Append(x)
+	}
+	shuffleOwned(out)
+}
+
+// Perm is a random permutation of 0..n-1, as Go's r.Perm(n): the
+// identity, shuffled. A negative n is a defect, as in Go.
+func Perm(n int) []int needs Random {
+	let mut p = withCapacity[int](n)
+	for i in 0..n {
+		p = p.Append(i)
+	}
+	shuffleOwned(p)
+}
+
+// Choice is one element of xs, each with the same chance, or None when xs
+// is empty (Effect Random.choice).
+func Choice[T](xs []T) Option[T] needs Random {
+	if len(xs) == 0 {
+		None
+	} else {
+		Some[T]{Value: xs[Random.IntN(len(xs))]}
+	}
+}
+
+// shuffleOwned shuffles owned in place and returns it. Its caller made
+// owned and shares it with no one, so the swaps change no other value.
+func shuffleOwned[T](owned []T) []T needs Random {
+	let mut out = owned
+	let mut i = len(out) - 1
+	for i > 0 {
+		let j = Random.IntN(i + 1)
+		let v = out[i]
+		out[i] = out[j]
+		out[j] = v
+		i = i - 1
+	}
+	out
+}
+
+// withCapacity is runtime/v1's WithCapacity, as slices.WithCapacity binds
+// it: a std package does not import another yet (a std-to-std import
+// deadlocks the checker).
+extern go ergo.local/prototype/runtime/v1.WithCapacity func withCapacity[T](n int) []T

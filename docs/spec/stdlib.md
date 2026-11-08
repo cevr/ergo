@@ -156,6 +156,25 @@ Std `time` (std-align S2b) follows Go's `time` package for names and meaning, an
 
 *Prior art:* Go's `time` (monotonic readings in `time.Time`, `testing/synctest`'s fake clock); Effect's `Clock` service and `TestClock.adjust`; Gleam's `gleam/time` keeps instants as seconds and nanoseconds in UTC and formats RFC 3339 only; Elixir's `DateTime` is UTC-first and its `System.monotonic_time` is separate from wall time; ReScript binds JavaScript's `Date`.
 
+## rand
+
+Std `rand` (std-align S2c) follows Go's `math/rand/v2` for names and meaning, and Effect's `Random` for the capability and the seeded provider. The capability is the prelude's `Random`. `TestRandRuns` (lower) runs each function; the laws are in the prelude, `rand/source.ergo` and `rand/laws.ergo`, with their rows in [Std laws](#std-laws).
+
+| Name | Signature | Go body |
+| --- | --- | --- |
+| `Random` (prelude) | `Random { Uint64() uint64, IntN(n int) int, Float64() float64 }` with the laws `IntNInRange` and `Float64InUnit` | none |
+| `PCG`, `Seeded` | the seeded provider: `Seeded(seed uint64) PCG`; `Uint64(p PCG) uint64`, `IntN(p PCG, n int) int`, `Float64(p PCG) float64` | `Stream` (rand.go): Go's `*rand.Rand` over `rand.NewPCG(seed, RandSeedHi)`, behind a lock |
+| `Host` | the host's provider: `NewHost() Host needs Ambient`; `Uint64`, `IntN`, `Float64` | `RandHostUint64`, `RandHostIntN`, `RandHostFloat64`: Go's global functions (ChaCha8) |
+| `Shuffle`, `Perm`, `Choice` | `Shuffle[T](xs []T) []T needs Random`; `Perm(n int) []int needs Random`; `Choice[T](xs []T) Option[T] needs Random` | Ergo over `Random.IntN` |
+
+1. **Random changed.** The prelude's `Random { Int63() int64 }` becomes Go `math/rand/v2`'s three draws. No program called `Int63` (measured: no `.ergo` file outside the prelude). An `IntN(n)` with `n` of zero or less is a defect, as Go's `IntN` panics.
+2. **Seeded replays.** `Seeded(seed)` draws Go's stream of `rand.New(rand.NewPCG(seed, v1.RandSeedHi))`, call for call. It needs no `Ambient`, because it reads no host state: a test or a replay binds it, `context { Random: rand.Seeded(7) }`. `TestSeededRandModel` (runtime/v1) checks it against Go's generator over 1,000 seeds.
+3. **One stream per provider.** The state is a runtime/v1 `Stream` that the `PCG` record points to, so every copy of a `PCG` shares one stream: `let b = a` draws on from where `a` is, and does not replay it. Two `Seeded` of one seed replay one stream (`SeedReplays`). The lock keeps the stream whole when tasks draw from one provider at once.
+4. **Shuffle and Perm draw as Go's do.** `Shuffle` is Go's Fisher-Yates loop, from the last element down to the second, each swapped with the element at `IntN(i+1)`, so under `Seeded(seed)` it gives Go's `r.Shuffle` order. `Perm(n)` shuffles the identity, as Go's `r.Perm` does. `Shuffle` returns a new slice and leaves its argument, as `slices.Sort` does. `Choice` of an empty slice is `None`.
+5. **Laws and runners.** `TestRandLaws` (runtime/v1) runs `IntNInRange` for each `n` in 1..1,000 and 1,000 seeded larger `n`, and `Float64InUnit`, on `Stream` and on the host. `TestStdRandLawsRun` (lower) restates `SeedReplays`, `PermPermutes` and `ShufflePermutes` as Ergo property tests.
+
+*Prior art:* Go's `math/rand/v2` (`PCG`, `ChaCha8`, `IntN` that panics on a non-positive `n`, `Shuffle` and `Perm`); Effect's `Random` service with `Random.make(seed)`, `nextIntBetween`, `shuffle` and `choice`; Gleam's `gleam/int.random` and `list.shuffle` read the host's generator with no seed; Elixir's `:rand` keeps a seeded state per process (`:rand.seed/2`) and `Enum.shuffle` draws from it; ReScript binds JavaScript's `Math.random`, which has no seed.
+
 ## Pure bodies
 
 A std extern whose `runtime/v1` Go body is marked pure is transparent in footprints (wave std-1, unit G5b; [rows.md, Footprints](rows.md#footprints)). A call of it adds no capability, no task start and no opacity, so a function that calls `strings.TrimSpace` has the footprint of one that calls nothing: empty, with no entry poll. Every other extern call stays opaque.
@@ -198,12 +217,17 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 | `maps` | `KeysVisitEachKeyOnce` | `KeysVisitEachKeyOnce(m Map[string, int]) { let mut seen = Map[string, bool]{} for k in Keys(m) { if seen.Get(k) != None \|\| m.Get(k) == None { return false } seen[k] = true } len(seen) == len(m) }` | `TestStdSlicesLawsRun` | tested |
 | `maps` | `ValuesMatchKeys` | `ValuesMatchKeys(m Map[string, int]) { let mut total = 0 for k in Keys(m) { match m.Get(k) { case Some[int] as v: total = total + v.Value case None: return false } } let mut sum = 0 let mut n = 0 for v in Values(m) { sum = sum + v n = n + 1 } n == len(m) && sum == total }` | `TestStdSlicesLawsRun` | tested |
 | `os` | `Process.GetenvIsStable` | `GetenvIsStable(key string) { Getenv(key) == Getenv(key) }` | `TestStdHostLawsHold` | tested |
-| `prelude` | `Random.Int63NeverNegative` | `Int63NeverNegative() { Int63() >= 0 }` | #162 | checked |
+| `prelude` | `Random.Float64InUnit` | `Float64InUnit() { let f = Float64() f >= 0.0 && f < 1.0 }` | `TestRandLaws` | tested |
+| `prelude` | `Random.IntNInRange` | `IntNInRange(n int) { if n <= 0 { return true } let x = IntN(n) x >= 0 && x < n }` | `TestRandLaws` | tested |
 | `prelude` | `Task.StopIsIdempotent` | `StopIsIdempotent() { Stop() Stop() true }` | `TestStdLawsRun` | tested |
 | `queue` | `CloseKeepsValues` | `CloseKeepsValues(v int) { let q = New[int](1) try q.Push(v) q.Close() try q.Pop() == v }` | `TestStdLawsRun` | tested |
 | `queue` | `FirstInFirstOut` | `FirstInFirstOut(a int, b int) { let q = New[int](2) try q.Push(a) try q.Push(b) let first = try q.Pop() let second = try q.Pop() first == a && second == b }` | `TestStdLawsRun` | tested |
 | `queue` | `Queue.CloseIsIdempotent` | `CloseIsIdempotent() { Close() Close() true }` | `TestStdLawsRun` | tested |
 | `queue` | `Queue.PushAfterCloseFails` | `PushAfterCloseFails(v T) { Close() Push(v) catch { case Closed: return true } false }` | `TestStdLawsRun` | tested |
+| `rand` | `PermPermutes` | `PermPermutes(seed uint64, n int) { let size = within(n, 0, 200) let p = with context { Random: Seeded(seed) } { Perm(size) } isPermutation(p, size) }` | `TestStdRandLawsRun` | tested |
+| `rand` | `SeedReplays` | `SeedReplays(seed uint64, n int) { let a = Seeded(seed) let b = Seeded(seed) let k = within(n, 1, 1000000) a.Uint64() == b.Uint64() && a.IntN(k) == b.IntN(k) && a.Float64() == b.Float64() }` | `TestStdRandLawsRun` | tested |
+| `rand` | `ShufflePermutes` | `ShufflePermutes(seed uint64, xs []int) { let mut kept = []int{} for x in xs { kept = kept.Append(x) } let before = tally(xs) let s = with context { Random: Seeded(seed) } { Shuffle(xs) } let after = tally(s) let mut same = len(s) == len(xs) && len(after) == len(before) for i, x in xs { same = same && after.Get(x) == before.Get(x) && kept[i] == x } same }` | `TestStdRandLawsRun` | tested |
+| `rand` | `Stream.IntNInRange` | `IntNInRange(n int) { if n <= 0 { return true } let x = IntN(n) x >= 0 && x < n }` | `TestRandLaws` | tested |
 | `scope` | `ActionsRunLastFirst` | `ActionsRunLastFirst() { let mut order = "" let f = func() { OnExit() { order = order + "a" } OnExit() { order = order + "b" } } f() order == "ba" }` | `TestStdLawsRun` | tested |
 | `slices` | `BinarySearchFindsTheFirst` | `BinarySearchFindsTheFirst(xs []int, x int) { let s = Sort(xs) match BinarySearch(s, x) { case Some[int] as found: s[found.Value] == x && (found.Value == 0 \|\| s[found.Value-1] < x) case None: !Contains(s, x) } }` | `TestStdSlicesLawsRun` | tested |
 | `slices` | `CollectInvertsValues` | `CollectInvertsValues(xs []int) { Equal(Collect(Values(xs)), xs) }` | `TestStdSlicesLawsRun` | tested |
@@ -235,7 +259,7 @@ The exempt types and their reasons are in their doc comments: `Console` and `Amb
 
 ## Packages by origin
 
-- **Same as Go:** `strings`, `slices`, `maps`, `cmp`, `math`, `time`, `os`, `fs`, `net`, `sql`.
+- **Same as Go:** `strings`, `slices`, `maps`, `cmp`, `math`, `time`, `rand`, `os`, `fs`, `net`, `sql`.
 - **Same name, extended:**
   - `http`: client, handlers, routes, server limits;
   - `json`: `Codec`, `Decode`, `Encode`, `ParseX`/`Wire`;

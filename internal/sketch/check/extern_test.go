@@ -308,6 +308,21 @@ func main() {
 	use(Mine)
 }
 `,
+	// std rand (S2c): Seeded's extern returns the Stream.
+	"rand.Stream": `import rand
+
+type Mine {}
+
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
+
+func use(s rand.Stream) { _ = s.Uint64() }
+
+func main() {
+	use(Mine)
+}
+`,
 	"prelude.Task": `type Fault {}
 type Mine {}
 
@@ -355,9 +370,11 @@ func main() {
 `,
 	"prelude.Random": `type Mine {}
 
-func Int63(_ Mine) int64 { 0 }
+func Uint64(_ Mine) uint64 { 0 }
+func IntN(_ Mine, n int) int { 0 }
+func Float64(_ Mine) float64 { 0.5 }
 
-func use(r Random) { _ = r.Int63() }
+func use(r Random) { _ = r.IntN(1) }
 
 func main() {
 	use(Mine)

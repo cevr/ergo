@@ -131,6 +131,16 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Timeline.Wait":     {wait: callerWait},
 	"Timeline.Advance":  {},
 	"Timeline.Sleepers": {},
+	// std rand (std-align S2c; stdlib.md, rand): each draw takes the
+	// source's lock for one step of the PCG, or reads Go's global
+	// generator, and none waits on a task.
+	"NewStream":       {},
+	"Stream.Uint64":   {},
+	"Stream.IntN":     {},
+	"Stream.Float64":  {},
+	"RandHostUint64":  {},
+	"RandHostIntN":    {},
+	"RandHostFloat64": {},
 	// std os (G2; stdlib.md, host packages): bodies that read the host
 	// process and neither wait nor release.
 	"OSArgs":   {},

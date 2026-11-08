@@ -36,13 +36,30 @@ type LiveScheduler {}
 // Sleep suspends the calling task for d on the host's clock.
 extern go ergo.local/prototype/runtime/rt.Sleep func Sleep(s LiveScheduler, d duration)
 
-// Random draws random numbers.
+// Random draws random numbers, with the names and meaning of Go's
+// math/rand/v2 (Effect Random). Uint64 is 64 random bits; IntN(n) is in
+// 0..n-1, and an n of zero or less is a defect, as Go's IntN panics;
+// Float64 is in [0, 1). std rand provides it: rand.Seeded(seed) for tests
+// and replays, rand.NewHost() for the host (std-align S2c).
 type Random {
-	Int63() int64,
+	Uint64() uint64,
+	IntN(n int) int,
+	Float64() float64,
 
-	// Int63NeverNegative: each draw is in 0..2^63-1, as Go's
-	// math/rand Int63 is.
-	law Int63NeverNegative() { Int63() >= 0 },
+	// IntNInRange: a draw of IntN(n) is in 0..n-1, for each n above zero.
+	law IntNInRange(n int) {
+		if n <= 0 {
+			return true
+		}
+		let x = IntN(n)
+		x >= 0 && x < n
+	},
+
+	// Float64InUnit: a draw of Float64 is in [0, 1).
+	law Float64InUnit() {
+		let f = Float64()
+		f >= 0.0 && f < 1.0
+	},
 }
 
 // Option is a value that may be absent (#99).
