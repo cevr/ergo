@@ -1,0 +1,34 @@
+import slices
+
+// Which is the tasks a listing shows by state.
+type Which = OpenOnly{} | ClosedOnly{} | Every{}
+
+// Shows reports whether a listing of which and at least min shows t.
+func Shows(t Item, which Which, min Priority) bool {
+	let state = match which {
+	case OpenOnly:
+		IsOpen(t)
+	case ClosedOnly:
+		!IsOpen(t)
+	case Every:
+		true
+	}
+	state && Rank(t.Priority) >= Rank(min)
+}
+
+// View is the tasks that a listing of which and at least min shows, the
+// most urgent first, and in the order they were created within one
+// priority.
+func View(tasks []Item, which Which, min Priority) []Item {
+	let shown = slices.Filter(tasks, func(t Item) bool { Shows(t, which, min) })
+	slices.SortStableFunc(shown, Before)
+}
+
+// Before compares a and b as a listing orders them: a negative number when
+// a comes first.
+func Before(a Item, b Item) int {
+	if Rank(a.Priority) != Rank(b.Priority) {
+		return Rank(b.Priority) - Rank(a.Priority)
+	}
+	a.ID - b.ID
+}

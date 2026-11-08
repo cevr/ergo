@@ -1,0 +1,80 @@
+// tui is a list picker in plain ANSI, as fzf is: the arguments are the
+// items (none picks from a list of languages), the keys come from
+// standard input, and the picked item is printed. Arrows (or j and k)
+// move, / filters as you type, Enter picks, q, Esc or Ctrl-C cancel.
+// Ergo has no raw mode and no read of a given length yet (G-ex-c-15,
+// G-ex-c-8), so the keys are read to the end of input and then played:
+// `printf '/el\r\x1b[B\r' | tui`. Package keys reads the key bytes,
+// picker is the machine, screen draws it; this binary chooses the host's
+// streams and is the only place that touches them.
+
+import flag
+import io
+import os
+import tui/keys
+import tui/picker
+import tui/screen
+
+let framesFlag = flag.Bool("frames", false, "draw each frame even when standard output is not a terminal")
+let itemArgs = flag.Remaining("item", "the items to pick from; none picks from a list of languages")
+let set = flag.Set{Name: "tui", Usage: "", Flags: []flag.Flag{framesFlag}, Args: []flag.ArgSpec{itemArgs}}
+
+// run is tui on args. A pick prints the item; a cancel exits 1; keys that
+// end before a pick exit 2. fzf exits 130 on Ctrl-C, but os.Exit takes
+// 1..125 only, which the checker does not see (G-ex-c-17).
+func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
+	let v = flag.Parse(set, args) catch {
+	case err:
+		try flag.Exit(err, "usage: tui [-frames] [ITEM...] < keys")
+		return
+	}
+	let items = if len(flag.Rest(v)) == 0 { picker.Languages } else { flag.Rest(v) }
+	let text = io.Stdin.ReadAll() catch {
+	case io.ReadFailed as f:
+		return os.Exit{Code: 1, Message: "tui: cannot read the keys: " + f.Reason}
+	}
+	let o = picker.Run(picker.Start(items), keys.Decode(text))
+	if framesFlag.Get(v) || io.Stdout.IsTerminal() {
+		for m in o.Frames {
+			io.Stdout.Print(screen.Frame(m))
+		}
+	}
+	match o.Choice {
+	case Some[picker.Choice] as c:
+		match c.Value {
+		case picker.Picked as p:
+			io.Stdout.Println(p.Item)
+		case picker.Cancelled:
+			return os.Exit{Code: 1, Message: "tui: cancelled"}
+		}
+	case None:
+		return os.Exit{Code: 2, Message: "tui: the keys ended before a pick"}
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// ran is the output of run on args with keys on standard input, and
+// "exit CODE: MESSAGE" when it fails.
+func ran(args []string, keys string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: keys} } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Print("exit \(e.Code): " + e.Message + "\n")
+		}
+	}
+	out.Text()
+}
+
+test AScriptedSession {
+	assert ran([]string{}, "/el\r\x1b[B\r") == "Elm\n"
+	assert ran([]string{"a", "b", "c"}, "jj\x1b[A\r") == "b\n"
+	assert ran([]string{"a"}, "q") == "exit 1: tui: cancelled\n"
+	assert ran([]string{"a"}, "\x1b[B") == "exit 2: tui: the keys ended before a pick\n"
+	assert ran([]string{"-frames", "a", "b"}, "j\r") == "\x1b[H\x1b[2J/ filter  up/down move  enter pick  q quit\r\n\x1b[7m> a\x1b[0m\r\n  b\r\n\x1b[H\x1b[2J/ filter  up/down move  enter pick  q quit\r\n  a\r\n\x1b[7m> b\x1b[0m\r\nb\n"
+}

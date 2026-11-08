@@ -1,0 +1,104 @@
+// The rules of the command line as laws.
+
+import flag
+import slices
+import strconv
+import strings
+import tasks/tasks
+
+// CompletionsMatchTheParser: Specs names each command of Commands, in
+// order, with the flags its usage lists, no more and no fewer.
+law CompletionsMatchTheParser() { CompletionsMatchTheParserHolds() }
+
+// ArgsRoundTrip: the command line Args writes parses back to the command.
+law ArgsRoundTrip(c Cmd) {
+	let s = Sane(c)
+	try Parse(Args(s)) == s
+}
+
+// QuoteIsOneJSONString: a quoted title holds no control byte and no
+// unescaped quote, so it is one JSON string on one line.
+law QuoteIsOneJSONString(s string) { QuoteIsOneJSONStringHolds(s) }
+
+// CompletionsMatchTheParserHolds checks CompletionsMatchTheParser.
+func CompletionsMatchTheParserHolds() bool {
+	if len(Specs) != len(Commands) {
+		return false
+	}
+	for i, c in Commands {
+		let s = Specs[i]
+		if s.Name != c.Name || s.Usage != c.Usage || !slices.Equal(slices.Sort(s.Flags), FlagsOf(c.Set)) {
+			return false
+		}
+	}
+	true
+}
+
+// FlagsOf is the names of the flags of set, sorted, as its usage lists
+// them: each line "  -name …".
+func FlagsOf(set flag.Set) []string {
+	let mut out = []string{}
+	for line in strings.Split(flag.Usage(set), "\n") {
+		if strings.HasPrefix(line, "  -") {
+			out = out.Append(strings.Fields(strings.TrimPrefix(line, "  -"))[0])
+		}
+	}
+	slices.Sort(out)
+}
+
+// QuoteIsOneJSONStringHolds checks QuoteIsOneJSONString.
+func QuoteIsOneJSONStringHolds(s string) bool {
+	let q = Quote(s)
+	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+		return false
+	}
+	let mut escaped = false
+	for i in 1..len(q)-1 {
+		let c = q[i]
+		if c < 32 || (c == '"' && !escaped) {
+			return false
+		}
+		escaped = !escaped && c == '\\'
+	}
+	!escaped
+}
+
+// Args is a command line that parses to c.
+func Args(c Cmd) []string {
+	match c {
+	case List as l:
+		let state = match l.Which {
+		case tasks.OpenOnly:
+			"open"
+		case tasks.ClosedOnly:
+			"closed"
+		case tasks.Every:
+			"all"
+		}
+		[]string{"list", "--state=" + state, "--min=" + tasks.PriorityName(l.Min), "--json=\(l.JSON)"}
+	case Create as n:
+		[]string{"create", "--priority", tasks.PriorityName(n.Priority), "--json=\(n.JSON)", "--", n.Title}
+	case Close as d:
+		[]string{"close", "--yes=\(d.Yes)", "--json=\(d.JSON)", "--", strconv.Itoa(d.ID)}
+	case Completion as m:
+		match m.Shell {
+		case Bash:
+			[]string{"completion", "bash"}
+		case Zsh:
+			[]string{"completion", "zsh"}
+		case Fish:
+			[]string{"completion", "fish"}
+		}
+	}
+}
+
+// Sane is c as a command line can carry it: a title of words with single
+// spaces, and not empty.
+func Sane(c Cmd) Cmd {
+	match c {
+	case Create as n:
+		Create{..n, Title: strings.Join(strings.Fields("t "+n.Title), " ")}
+	case List, Close, Completion:
+		c
+	}
+}

@@ -1,0 +1,98 @@
+// Package cli is the command line of tasks-cli: its commands and flags, the
+// text and JSON it prints, the confirm prompt and the shell completions.
+
+import flag
+import strconv
+import strings
+import tasks/tasks
+
+// Shell is a shell that completions are written for.
+type Shell = Bash{} | Zsh{} | Fish{}
+
+// Cmd is one command line of tasks.
+type Cmd = List{Which tasks.Which, Min tasks.Priority, JSON bool} | Create{Title string, Priority tasks.Priority, JSON bool} | Close{ID int, Yes bool, JSON bool} | Completion{Shell Shell}
+
+let jsonFlag = flag.Bool("json", false, "print JSON")
+let stateFlag = flag.Choice("state", "open", []string{"open", "closed", "all"}, "which tasks to list")
+let minFlag = flag.Choice("min", "low", []string{"low", "medium", "high", "urgent"}, "the least priority to list")
+let priorityFlag = flag.Choice("priority", "medium", []string{"low", "medium", "high", "urgent"}, "the priority of the task")
+let yesFlag = flag.Bool("yes", false, "close without asking")
+let titleArgs = flag.Remaining("title", "the title of the task, its words joined by spaces")
+let idArg = flag.Arg("id", "the number of the task")
+let shellArg = flag.Arg("shell", "bash, zsh or fish")
+
+// Commands are the commands of tasks-cli, each parsed into a Cmd.
+let Commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{Name: "list", Usage: "list tasks, the most urgent first", Set: flag.Set{Name: "tasks-cli list", Usage: "", Flags: []flag.Flag{stateFlag, minFlag, jsonFlag}, Args: []flag.ArgSpec{}}, Build: buildList},
+	flag.Command[Cmd]{Name: "create", Usage: "create a task", Set: flag.Set{Name: "tasks-cli create", Usage: "", Flags: []flag.Flag{priorityFlag, jsonFlag}, Args: []flag.ArgSpec{titleArgs}}, Build: buildCreate},
+	flag.Command[Cmd]{Name: "close", Usage: "close a task, after asking", Set: flag.Set{Name: "tasks-cli close", Usage: "", Flags: []flag.Flag{yesFlag, jsonFlag}, Args: []flag.ArgSpec{idArg}}, Build: buildClose},
+	flag.Command[Cmd]{Name: "completion", Usage: "print the completion script of a shell", Set: flag.Set{Name: "tasks-cli completion", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{shellArg}}, Build: buildCompletion},
+}
+
+// Parse reads args as a command line of tasks.
+func Parse(args []string) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	try flag.ParseCommand("tasks-cli", "tasks keeps a list of tasks in a file", Commands, args)
+}
+
+func buildList(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	// A Choice reads a string, so each match needs a case _ (G-ex-c-6).
+	let which tasks.Which = match stateFlag.Get(v) {
+	case "closed":
+		tasks.ClosedOnly
+	case "all":
+		tasks.Every
+	case _:
+		tasks.OpenOnly
+	}
+	List{Which: which, Min: priority(minFlag.Get(v)), JSON: jsonFlag.Get(v)}
+}
+
+func buildCreate(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	let title = strings.TrimSpace(strings.Join(flag.Rest(v), " "))
+	if title == "" {
+		return flag.Missing{Name: "title"}
+	}
+	Create{Title: title, Priority: priority(priorityFlag.Get(v)), JSON: jsonFlag.Get(v)}
+}
+
+func buildClose(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	let text = text(idArg, v)
+	let id = strconv.Atoi(text) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return flag.Invalid{Name: "id", Text: text, Reason: "not a task number"}
+	}
+	Close{ID: id, Yes: yesFlag.Get(v), JSON: jsonFlag.Get(v)}
+}
+
+func buildCompletion(v flag.Values) Cmd fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra | flag.UnknownCommand {
+	match text(shellArg, v) {
+	case "bash":
+		Completion{Shell: Bash}
+	case "zsh":
+		Completion{Shell: Zsh}
+	case "fish":
+		Completion{Shell: Fish}
+	case _ as other:
+		flag.Invalid{Name: "shell", Text: other, Reason: "not bash, zsh or fish"}
+	}
+}
+
+// priority is the priority of a name the parser has checked.
+func priority(name string) tasks.Priority {
+	match tasks.PriorityNamed(name) {
+	case Some[tasks.Priority] as p:
+		p.Value
+	case None:
+		tasks.Medium
+	}
+}
+
+// text is the value of a required positional argument.
+func text(a flag.ArgSpec, v flag.Values) string {
+	match a.Get(v) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+}

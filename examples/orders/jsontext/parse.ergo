@@ -1,0 +1,195 @@
+import strconv
+import strings
+
+// Parse is the one JSON value of text, with white space around it. Text
+// after the value fails Malformed.
+func Parse(text string) Value fails Malformed {
+	let v, end = try value(text, skip(text, 0))
+	let at = skip(text, end)
+	if at != len(text) {
+		return Malformed{At: at, Reason: "text after the value"}
+	}
+	v
+}
+
+// skip is the offset of the first byte at or after at that is not JSON
+// white space.
+func skip(text string, at int) int {
+	let mut i = at
+	for _ in at..len(text) {
+		let c = text[i]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return i
+		}
+		i = i + 1
+	}
+	i
+}
+
+// value is the value that starts at at, and the offset after it.
+func value(text string, at int) (Value, int) fails Malformed {
+	if at >= len(text) {
+		return Malformed{At: at, Reason: "a value is missing"}
+	}
+	let c = text[at]
+	if c == '{' {
+		return try object(text, at)
+	}
+	if c == '[' {
+		return try array(text, at)
+	}
+	if c == '"' {
+		let s, end = try str(text, at)
+		return (Str{V: s}, end)
+	}
+	if c == '-' || (c >= '0' && c <= '9') {
+		return try numeral(text, at)
+	}
+	for word in []string{"null", "true", "false"} {
+		if strings.HasPrefix(strings.Slice(text, at, len(text)), word) {
+			let v Value = match word {
+			case "null":
+				Null
+			case "true":
+				Bool{V: true}
+			case _:
+				Bool{V: false}
+			}
+			return (v, at + len(word))
+		}
+	}
+	Malformed{At: at, Reason: "not a value"}
+}
+
+// object is the object that starts at the '{' at at.
+func object(text string, at int) (Value, int) fails Malformed {
+	let mut fields = []Field{}
+	let mut i = skip(text, at+1)
+	if i < len(text) && text[i] == '}' {
+		return (Obj{Fields: fields}, i + 1)
+	}
+	for _ in i..len(text)+1 {
+		if i >= len(text) || text[i] != '"' {
+			return Malformed{At: i, Reason: "a member name is missing"}
+		}
+		let name, afterName = try str(text, i)
+		i = skip(text, afterName)
+		if i >= len(text) || text[i] != ':' {
+			return Malformed{At: i, Reason: "':' is missing"}
+		}
+		let v, afterValue = try value(text, skip(text, i+1))
+		fields = fields.Append(Field{Name: name, Value: v})
+		i = skip(text, afterValue)
+		if i < len(text) && text[i] == ',' {
+			i = skip(text, i+1)
+			continue
+		}
+		if i < len(text) && text[i] == '}' {
+			return (Obj{Fields: fields}, i + 1)
+		}
+		return Malformed{At: i, Reason: "',' or '}' is missing"}
+	}
+	Malformed{At: len(text), Reason: "the object does not end"}
+}
+
+// array is the array that starts at the '[' at at.
+func array(text string, at int) (Value, int) fails Malformed {
+	let mut items = []Value{}
+	let mut i = skip(text, at+1)
+	if i < len(text) && text[i] == ']' {
+		return (Arr{Items: items}, i + 1)
+	}
+	for _ in i..len(text)+1 {
+		let v, after = try value(text, i)
+		items = items.Append(v)
+		i = skip(text, after)
+		if i < len(text) && text[i] == ',' {
+			i = skip(text, i+1)
+			continue
+		}
+		if i < len(text) && text[i] == ']' {
+			return (Arr{Items: items}, i + 1)
+		}
+		return Malformed{At: i, Reason: "',' or ']' is missing"}
+	}
+	Malformed{At: len(text), Reason: "the array does not end"}
+}
+
+// str is the text of the string that starts at the '"' at at. JSON's
+// escapes are Go's except "\/", which Go's Unquote does not read, so
+// that one is rewritten before strconv.Unquote reads the rest.
+func str(text string, at int) (string, int) fails Malformed {
+	let mut i = at + 1
+	let mut escaped = false
+	for _ in i..len(text) {
+		let c = text[i]
+		if c < ' ' {
+			return Malformed{At: i, Reason: "a control byte in a string"}
+		}
+		if c == '\\' {
+			escaped = true
+			i = i + 2
+			continue
+		}
+		if c == '"' {
+			let raw = strings.Slice(text, at, i+1)
+			let quoted = if escaped { strings.ReplaceAll(raw, "\\/", "/") } else { raw }
+			let s = strconv.Unquote(quoted) catch {
+			case strconv.Malformed:
+				return Malformed{At: at, Reason: "a bad escape in a string"}
+			}
+			return (s, i + 1)
+		}
+		i = i + 1
+	}
+	Malformed{At: at, Reason: "the string does not end"}
+}
+
+// numeral is the number that starts at at: JSON's grammar, an optional
+// '-', an integer part with no leading zero, an optional fraction and an
+// optional exponent.
+func numeral(text string, at int) (Value, int) fails Malformed {
+	let mut i = at
+	if text[i] == '-' {
+		i = i + 1
+	}
+	let digitsAt = i
+	i = digits(text, i)
+	if i == digitsAt {
+		return Malformed{At: i, Reason: "a digit is missing"}
+	}
+	if text[digitsAt] == '0' && i-digitsAt > 1 {
+		return Malformed{At: digitsAt, Reason: "a leading zero"}
+	}
+	if i < len(text) && text[i] == '.' {
+		let fraction = i + 1
+		i = digits(text, fraction)
+		if i == fraction {
+			return Malformed{At: i, Reason: "a digit is missing"}
+		}
+	}
+	if i < len(text) && (text[i] == 'e' || text[i] == 'E') {
+		i = i + 1
+		if i < len(text) && (text[i] == '+' || text[i] == '-') {
+			i = i + 1
+		}
+		let exponent = i
+		i = digits(text, exponent)
+		if i == exponent {
+			return Malformed{At: i, Reason: "a digit is missing"}
+		}
+	}
+	(Number{Text: strings.Slice(text, at, i)}, i)
+}
+
+// digits is the offset after the run of ASCII digits at at.
+func digits(text string, at int) int {
+	let mut i = at
+	for _ in at..len(text) {
+		if text[i] < '0' || text[i] > '9' {
+			return i
+		}
+		i = i + 1
+	}
+	i
+}

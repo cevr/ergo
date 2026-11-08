@@ -1,0 +1,87 @@
+// NotFound is an ID that the book holds no order of.
+type NotFound { ID string }
+
+// Taken is an ID that the book holds an order of already.
+type Taken { ID string }
+
+// Book is the contract of a store of orders. Package memory keeps them in
+// a map; a test or a server binds it in a context.
+type Book {
+	// Add keeps o under its ID.
+	Add(o Order) fails Taken,
+	// Replace keeps o in place of the order of its ID.
+	Replace(o Order) fails NotFound,
+	// Find is the order of id.
+	Find(id string) Order fails NotFound,
+	// All is every order, in the order they were added.
+	All() []Order,
+	// Count is how many orders the book holds.
+	Count() int,
+
+	// FindAfterAdd: an added order is found by its ID.
+	law FindAfterAdd(o Order) {
+		try Add(o)
+		Same(try Find(o.ID), o)
+	},
+
+	// AddTwiceIsTaken: a second order of one ID fails Taken and keeps the
+	// first.
+	law AddTwiceIsTaken(o Order, other Order) {
+		try Add(o)
+		let second = Order{..other, ID: o.ID}
+		Add(second) catch {
+		case Taken as t:
+			return t.ID == o.ID && Same(try Find(o.ID), o)
+		}
+		false
+	},
+
+	// ReplaceKeepsTheCount: a replace changes the order and not how many
+	// there are, and an unknown ID fails NotFound.
+	law ReplaceKeepsTheCount(o Order, status Status) {
+		Replace(o) catch {
+		case NotFound:
+			try Add(o)
+			let before = Count()
+			let changed = Order{..o, Status: status}
+			try Replace(changed)
+			return Count() == before && Same(try Find(o.ID), changed)
+		}
+		false
+	},
+
+	// AllInAddOrder: All lists the orders in the order they were added,
+	// and Count is its length.
+	law AllInAddOrder(orders []Order) {
+		let mut ids = []string{}
+		for i, o in orders {
+			let id = "ord-\(i + 1)"
+			try Add(Order{..o, ID: id})
+			ids = ids.Append(id)
+		}
+		let all = All()
+		if len(all) != len(ids) || Count() != len(ids) {
+			return false
+		}
+		for i, o in all {
+			if o.ID != ids[i] {
+				return false
+			}
+		}
+		true
+	},
+}
+
+// Same reports whether a and b are the same order: an Order holds a
+// slice, so == does not compare it.
+func Same(a Order, b Order) bool {
+	if a.ID != b.ID || a.Customer != b.Customer || a.Total != b.Total || Name(a.Status) != Name(b.Status) || len(a.Lines) != len(b.Lines) {
+		return false
+	}
+	for i, l in a.Lines {
+		if l != b.Lines[i] {
+			return false
+		}
+	}
+	true
+}

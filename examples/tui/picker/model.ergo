@@ -1,0 +1,145 @@
+// Package picker is the domain of the list picker: its modes, the machine
+// that moves it by keys, and the laws of each move. It knows nothing of
+// ANSI or the terminal.
+
+import strings
+import tui/keys
+
+// View is what both modes show: the items, the filter, and the cursor,
+// an index into the visible items.
+type View { Items []string, Filter string, Cursor int }
+
+// Mode is the picker's state: in Browsing the keys move and pick, in
+// Filtering they edit the filter. A machine's state is a union, and a
+// machine has no context apart from it, so each mode carries the View
+// (gap G-ex-c-16).
+type Mode = Browsing{View View} | Filtering{View View}
+
+// Choice is how the picker ends: an item picked, or no item.
+type Choice = Picked{Item string} | Cancelled{}
+
+// Languages are the items when none are given: languages that compile to
+// another language.
+let Languages = []string{"Gleam", "ReScript", "Elixir", "Elm", "PureScript", "Fable", "Kotlin/JS", "Scala.js", "ClojureScript", "Haxe", "Nim", "Ergo"}
+
+// Start is the picker of items, browsing, with no filter.
+func Start(items []string) Mode { Browsing{View: View{Items: items, Filter: "", Cursor: 0}} }
+
+// ViewOf is the View of m, in either mode.
+func ViewOf(m Mode) View {
+	match m {
+	case Browsing as b:
+		b.View
+	case Filtering as f:
+		f.View
+	}
+}
+
+// Visible is the items whose text holds the filter, in any case, in order.
+func Visible(v View) []string {
+	let want = strings.ToLower(v.Filter)
+	let mut out = []string{}
+	for item in v.Items {
+		if strings.Contains(strings.ToLower(item), want) {
+			out = out.Append(item)
+		}
+	}
+	out
+}
+
+// Step is the move of m by k: Stay when the mode stays and its View
+// changes, Enter when the mode changes, Ignore when nothing changes,
+// Reject for a key that cannot act (Return on an empty list), and Done
+// when the picker ends. The match names every key in every mode.
+func Step(m Mode, k keys.Key) Decision[Mode, Choice] {
+	match (m, k) {
+	case (Browsing as b, keys.Up):
+		browse(b.View, -1)
+	case (Browsing as b, keys.Down):
+		browse(b.View, 1)
+	case (Filtering as f, keys.Up):
+		filter(f.View, -1)
+	case (Filtering as f, keys.Down):
+		filter(f.View, 1)
+	case (Browsing as b, keys.Return):
+		let shown = Visible(b.View)
+		if len(shown) == 0 {
+			return Reject
+		}
+		Done[Choice]{Output: Picked{Item: shown[b.View.Cursor]}}
+	case (Filtering as f, keys.Return):
+		Enter[Mode]{Next: Browsing{View: f.View}}
+	case (Browsing, keys.Escape), (Browsing, keys.Interrupt), (Filtering, keys.Interrupt):
+		Done[Choice]{Output: Cancelled}
+	case (Filtering as f, keys.Escape):
+		Enter[Mode]{Next: Browsing{View: View{..f.View, Filter: "", Cursor: 0}}}
+	case (Browsing as b, keys.Char as c):
+		match c.Text {
+		case "/":
+			Enter[Mode]{Next: Filtering{View: b.View}}
+		case "q":
+			Done[Choice]{Output: Cancelled}
+		case "k":
+			browse(b.View, -1)
+		case "j":
+			browse(b.View, 1)
+		case _:
+			Ignore
+		}
+	case (Filtering as f, keys.Char as c):
+		Stay[Mode]{Next: Filtering{View: View{..f.View, Filter: f.View.Filter + c.Text, Cursor: 0}}}
+	case (Browsing, keys.Backspace):
+		Ignore
+	case (Filtering as f, keys.Backspace):
+		if f.View.Filter == "" {
+			return Ignore
+		}
+		Stay[Mode]{Next: Filtering{View: View{..f.View, Filter: dropLast(f.View.Filter), Cursor: 0}}}
+	}
+}
+
+// Picker is the list picker as a machine: it starts on Languages and
+// moves by Step, one key at a time, until a pick or a cancel is Done.
+type Picker machine[Mode, keys.Key] {
+	initial: Start(Languages),
+	step:    Step,
+}
+
+// browse is Browsing with the cursor moved by, or Ignore.
+func browse(v View, by int) Decision[Mode, Choice] {
+	match moved(v, by) {
+	case Some[View] as to:
+		Stay[Mode]{Next: Browsing{View: to.Value}}
+	case None:
+		Ignore
+	}
+}
+
+// filter is Filtering with the cursor moved by, or Ignore.
+func filter(v View, by int) Decision[Mode, Choice] {
+	match moved(v, by) {
+	case Some[View] as to:
+		Stay[Mode]{Next: Filtering{View: to.Value}}
+	case None:
+		Ignore
+	}
+}
+
+// moved is v with the cursor by from where it is, when the visible items
+// reach there.
+func moved(v View, by int) Option[View] {
+	let to = v.Cursor + by
+	if to < 0 || to >= len(Visible(v)) {
+		return None
+	}
+	Some[View]{Value: View{..v, Cursor: to}}
+}
+
+// dropLast is text without its last UTF-8 character.
+func dropLast(text string) string {
+	let mut end = len(text) - 1
+	for end > 0 && text[end] >= 128 && text[end] < 192 {
+		end = end - 1
+	}
+	strings.Slice(text, 0, end)
+}

@@ -1,0 +1,66 @@
+import flag
+import io
+import os
+import tasks/tasks
+
+// usage is the help that follows a usage error.
+let usage = "usage: tasks-cli list|create|close|completion [flags] [args]; tasks-cli -h for help"
+
+// Run is tasks-cli on args, over the Board in the context. A usage error ends
+// it with status 2 (help with 0), as Go's flag does. A failure of the
+// Board ends it with status 1 and "tasks-cli: …" on standard error; the catch
+// names each failure, so a new one stops the build until Run tells it.
+func Run(args []string) fails os.Exit needs tasks.Board | io.Stdout | io.Stdin {
+	let c = Parse(args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	exec(c) catch {
+	case tasks.NotFound as n:
+		return os.Exit{Code: 1, Message: "tasks-cli: no task \(n.ID)"}
+	case tasks.AlreadyClosed as a:
+		return os.Exit{Code: 1, Message: "tasks-cli: task \(a.ID) is closed already"}
+	case tasks.Broken as b:
+		return os.Exit{Code: 1, Message: "tasks-cli: " + b.Reason}
+	case Declined as d:
+		return os.Exit{Code: 1, Message: "tasks-cli: task \(d.ID) is still open"}
+	}
+}
+
+// Declined is a close that its prompt was answered no.
+type Declined { ID int }
+
+// exec does what c asks of the Board.
+func exec(c Cmd) fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken | Declined needs tasks.Board | io.Stdout | io.Stdin {
+	match c {
+	case List as l:
+		let shown = tasks.View(try tasks.Board.All(), l.Which, l.Min)
+		io.Stdout.Print(if l.JSON { JSONList(shown) + "\n" } else { Lines(shown) })
+	case Create as n:
+		let t = try tasks.Board.Create(n.Title, n.Priority)
+		io.Stdout.Println(if n.JSON { JSON(t) } else { "created " + Line(t) })
+	case Close as d:
+		if !d.Yes {
+			let t = try find(d.ID)
+			if !Confirm("close #\(t.ID) " + t.Title + "?") {
+				return Declined{ID: d.ID}
+			}
+		}
+		let t = try tasks.Board.Close(d.ID)
+		io.Stdout.Println(if d.JSON { JSON(t) } else { "closed " + Line(t) })
+	case Completion as m:
+		io.Stdout.Print(Script(m.Shell))
+	}
+}
+
+// find is the item id of the Board: the Board has no lookup of one item,
+// so a close reads the list.
+func find(id int) tasks.Item fails tasks.NotFound | tasks.Broken needs tasks.Board {
+	for t in try tasks.Board.All() {
+		if t.ID == id {
+			return t
+		}
+	}
+	tasks.NotFound{ID: id}
+}

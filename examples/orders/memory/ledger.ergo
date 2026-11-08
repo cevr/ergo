@@ -1,0 +1,68 @@
+// Package memory holds Ledger, the in-memory orders.Book. The server
+// keeps its orders for one run: Ergo has no listener yet, so a run is one
+// connection (cmd/orders).
+
+import orders/orders
+
+// Ledger is an orders.Book in memory: the orders by ID, and the IDs in
+// the order they were added. Its maps are shared by every copy, so a
+// Ledger bound in a context keeps its orders from one request to the
+// next. New makes one.
+type Ledger { byID Map[string, orders.Order], order Map[int, string] }
+
+// New is an empty Ledger.
+func New() Ledger {
+	let byID Map[string, orders.Order]
+	let order Map[int, string]
+	Ledger{byID: byID, order: order}
+}
+
+// Add keeps o under its ID.
+func Add(l Ledger, o orders.Order) fails orders.Taken {
+	match l.byID.Get(o.ID) {
+	case Some[orders.Order]:
+		return orders.Taken{ID: o.ID}
+	case None:
+	}
+	let mut byID = l.byID
+	let mut order = l.order
+	order[len(order)] = o.ID
+	byID[o.ID] = o
+}
+
+// Replace keeps o in place of the order of its ID.
+func Replace(l Ledger, o orders.Order) fails orders.NotFound {
+	let _ = try l.Find(o.ID)
+	let mut byID = l.byID
+	byID[o.ID] = o
+}
+
+// Find is the order of id.
+func Find(l Ledger, id string) orders.Order fails orders.NotFound {
+	match l.byID.Get(id) {
+	case Some[orders.Order] as o:
+		o.Value
+	case None:
+		orders.NotFound{ID: id}
+	}
+}
+
+// All is every order, in the order they were added.
+func All(l Ledger) []orders.Order {
+	let mut out = []orders.Order{}
+	for i in 0..len(l.order) {
+		match l.order.Get(i) {
+		case Some[string] as id:
+			match l.byID.Get(id.Value) {
+			case Some[orders.Order] as o:
+				out = out.Append(o.Value)
+			case None:
+			}
+		case None:
+		}
+	}
+	out
+}
+
+// Count is how many orders the Ledger holds.
+func Count(l Ledger) int { len(l.byID) }

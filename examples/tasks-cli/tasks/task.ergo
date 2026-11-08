@@ -1,0 +1,81 @@
+// Package tasks is the domain of the tasks CLI: a task, its priority and
+// its state, Board, the contract of the store of tasks, with its laws,
+// and the views a listing shows. It knows nothing of flags, files or
+// JSON.
+
+// Priority is how soon a task matters, from Low to Urgent.
+type Priority = Low{} | Medium{} | High{} | Urgent{}
+
+// State is whether a task is still to do.
+type State = Open{} | Closed{}
+
+// Item is one task of a Board. ID is its number, from 1, in the order the
+// tasks were created.
+type Item { ID int, Title string, Priority Priority, State State }
+
+// Rank orders the priorities: a higher rank is more urgent.
+func Rank(p Priority) int {
+	match p {
+	case Low:
+		0
+	case Medium:
+		1
+	case High:
+		2
+	case Urgent:
+		3
+	}
+}
+
+// PriorityName is the name of p on the command line and in JSON.
+func PriorityName(p Priority) string {
+	match p {
+	case Low:
+		"low"
+	case Medium:
+		"medium"
+	case High:
+		"high"
+	case Urgent:
+		"urgent"
+	}
+}
+
+// PriorityNamed is the priority of a name, or None.
+func PriorityNamed(name string) Option[Priority] {
+	match name {
+	case "low":
+		Some[Priority]{Value: Low}
+	case "medium":
+		Some[Priority]{Value: Medium}
+	case "high":
+		Some[Priority]{Value: High}
+	case "urgent":
+		Some[Priority]{Value: Urgent}
+	case _:
+		None
+	}
+}
+
+// Priorities is every priority, least urgent first.
+let Priorities = []Priority{Low, Medium, High, Urgent}
+
+// StateName is the name of s.
+func StateName(s State) string {
+	match s {
+	case Open:
+		"open"
+	case Closed:
+		"closed"
+	}
+}
+
+// IsOpen reports whether t is still to do.
+func IsOpen(t Item) bool {
+	match t.State {
+	case Open:
+		true
+	case Closed:
+		false
+	}
+}

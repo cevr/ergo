@@ -1,0 +1,2 @@
+unknown command "archive"; commands: list, create, close, completion
+usage: tasks-cli list|create|close|completion [flags] [args]; tasks-cli -h for help

@@ -1,0 +1,8 @@
+put city Knowlton
+put city Montreal
+put country Canada
+del country
+get city
+dump
+compact
+keys

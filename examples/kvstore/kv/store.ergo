@@ -1,0 +1,135 @@
+// Package kv is the domain of a key-value store: the contract every store
+// keeps, the commands a session reads, and the session that runs them. It
+// states its contract as the operation type Store with laws; package
+// memory keeps the entries in a map, and package file keeps them in a log
+// file. Both providers keep the same laws, and the tests of each run the
+// same checks (checks.ergo) against it.
+
+// Missing is a key that the store holds no value for.
+type Missing { Key string }
+
+// Broken is a store that cannot read or write its entries. Reason is the
+// store's text for it, such as the host's reason for a failed write.
+type Broken { Reason string }
+
+// Store is the contract of a key-value store. A key and a value are any
+// text. Keys is every key that holds a value, sorted. Compact rewrites the
+// store's own form of its entries and keeps every entry.
+type Store {
+	Get(key string) string fails Missing | Broken,
+	Put(key string, value string) fails Broken,
+	Delete(key string) fails Missing | Broken,
+	Keys() []string fails Broken,
+	Compact() fails Broken,
+
+	// GetAfterPut: a value put under a key is the value that key gets.
+	law GetAfterPut(key string, value string) {
+		try Put(key, value)
+		try Get(key) == value
+	},
+
+	// PutOverwrites: the last put of a key wins.
+	law PutOverwrites(key string, first string, second string) {
+		try Put(key, first)
+		try Put(key, second)
+		try Get(key) == second
+	},
+
+	// DeleteRemoves: after a delete of a key, a get of it fails Missing,
+	// with the key, and a second delete fails Missing too.
+	law DeleteRemoves(key string, value string) {
+		try Put(key, value)
+		try Delete(key)
+		let _ = try Get(key) catch {
+		case Missing as m:
+			if m.Key != key {
+				return false
+			}
+			try Delete(key) catch {
+			case Missing:
+				return true
+			}
+			return false
+		}
+		false
+	},
+
+	// PutKeepsOthers: a put of one key changes no other key.
+	law PutKeepsOthers(key string, other string, a string, b string) {
+		if key == other {
+			return true
+		}
+		try Put(other, a)
+		try Put(key, b)
+		try Get(other) == a
+	},
+
+	// KeysAreSortedAndDistinct: Keys lists each key that holds a value
+	// once, in ascending order.
+	law KeysAreSortedAndDistinct(keys []string) {
+		for k in keys {
+			try Put(k, "v")
+		}
+		let got = try Keys()
+		for k in keys {
+			if !Has(got, k) {
+				return false
+			}
+		}
+		Sorted(got)
+	},
+
+	// CompactKeepsContents: after puts, overwrites and deletes, a
+	// compaction changes no key and no value.
+	law CompactKeepsContents(puts []string, drops []int) {
+		for k in puts {
+			try Put(k, "first")
+			try Put(k, "last "+k)
+		}
+		for d in drops {
+			try Delete(Pick(puts, d)) catch {
+			case Missing:
+			}
+		}
+		let before = try Keys()
+		let mut want = []string{}
+		for k in before {
+			want = want.Append(try Get(k))
+		}
+		try Compact()
+		let after = try Keys()
+		if !Same(before, after) {
+			return false
+		}
+		for i, k in after {
+			if try Get(k) != want[i] {
+				return false
+			}
+		}
+		true
+	},
+}
+
+// Sorted reports whether keys is in strictly ascending order: sorted, and
+// no key twice.
+func Sorted(keys []string) bool {
+	for i in 1..len(keys) {
+		if keys[i-1] >= keys[i] {
+			return false
+		}
+	}
+	true
+}
+
+// Same reports whether a and b hold the same texts in order.
+func Same(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x != b[i] {
+			return false
+		}
+	}
+	true
+}

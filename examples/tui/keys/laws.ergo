@@ -1,0 +1,46 @@
+// The rules of the key bytes as laws over Decode and Encode.
+
+import slices
+import strings
+
+// RoundTrip: the bytes of keys decode to the keys.
+law RoundTrip(keys []Key) {
+	let sane = Sane(keys)
+	slices.Equal(Decode(Script(sane)), sane)
+}
+
+// DecodeTakesEveryText: Decode reads any bytes, and no Char it gives is
+// empty or a control byte.
+law DecodeTakesEveryText(text string) { DecodeTakesEveryTextHolds(text) }
+
+// DecodeTakesEveryTextHolds checks DecodeTakesEveryText.
+func DecodeTakesEveryTextHolds(text string) bool {
+	for k in Decode(text) {
+		match k {
+		case Char as c:
+			if c.Text == "" || c.Text[0] < 32 || c.Text[0] == 127 {
+				return false
+			}
+		case Up, Down, Return, Backspace, Escape, Interrupt:
+		}
+	}
+	true
+}
+
+// Sane is keys as a terminal can send them apart: each Char one letter,
+// digit or space. A Char "[" after an Escape would read as an escape
+// sequence, as it does on a real terminal, which tells them apart by time.
+func Sane(keys []Key) []Key {
+	let letters = "abcdefghijklmnopqrstuvwxyz0123456789 "
+	let mut out = []Key{}
+	for k in keys {
+		match k {
+		case Char as c:
+			let n = if len(c.Text) == 0 { 0 } else { int(c.Text[0]) % len(letters) }
+			out = out.Append(Char{Text: strings.Slice(letters, n, n+1)})
+		case Up, Down, Return, Backspace, Escape, Interrupt:
+			out = out.Append(k)
+		}
+	}
+	out
+}

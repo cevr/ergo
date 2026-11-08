@@ -1,0 +1,38 @@
+// Package screen draws the picker as ANSI text: a frame clears the screen,
+// writes a header, and writes each visible item, the one under the cursor
+// in reverse video. Lines end with CR LF, as a terminal in raw mode needs.
+
+import tui/picker
+
+let clear = "\x1b[H\x1b[2J"
+let reverse = "\x1b[7m"
+let plain = "\x1b[0m"
+
+// Frame is the screen of m.
+func Frame(m picker.Mode) string {
+	let v = picker.ViewOf(m)
+	let mut out = clear + Header(m) + "\r\n"
+	let shown = picker.Visible(v)
+	if len(shown) == 0 {
+		return out + "  (no match)\r\n"
+	}
+	for i, item in shown {
+		out = out + (if i == v.Cursor { Marked(item) } else { "  " + item }) + "\r\n"
+	}
+	out
+}
+
+// Header is the first line of m's screen: the filter being typed, or the
+// keys and the filter that holds.
+func Header(m picker.Mode) string {
+	match m {
+	case picker.Filtering as f:
+		"filter: " + f.View.Filter + "_"
+	case picker.Browsing as b:
+		let help = "/ filter  up/down move  enter pick  q quit"
+		if b.View.Filter == "" { help } else { help + "  [" + b.View.Filter + "]" }
+	}
+}
+
+// Marked is the line of the item under the cursor.
+func Marked(item string) string { reverse + "> " + item + plain }

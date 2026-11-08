@@ -1,0 +1,47 @@
+// Table keeps the kv.Store laws: each test runs one of kv's checks on a
+// new Table, over generated keys and values.
+
+import kvstore/kv
+
+test TableGetAfterPut(key string, value string) {
+	with context { kv.Store: New() } {
+		assert try kv.GetAfterPutHolds(key, value)
+	}
+}
+
+test TablePutOverwrites(key string, first string, second string) {
+	with context { kv.Store: New() } {
+		assert try kv.PutOverwritesHolds(key, first, second)
+	}
+}
+
+test TableDeleteRemoves(key string, value string) {
+	with context { kv.Store: New() } {
+		assert try kv.DeleteRemovesHolds(key, value)
+	}
+}
+
+test TablePutKeepsOthers(key string, other string, a string, b string) {
+	with context { kv.Store: New() } {
+		assert try kv.PutKeepsOthersHolds(key, other, a, b)
+	}
+}
+
+test TableKeysAreSortedAndDistinct(keys []string) {
+	with context { kv.Store: New() } {
+		assert try kv.KeysAreSortedAndDistinctHolds(keys)
+	}
+}
+
+test TableCompactKeepsContents(puts []string, drops []int) {
+	with context { kv.Store: New() } {
+		assert try kv.CompactKeepsContentsHolds(puts, drops)
+	}
+}
+
+test ACopySharesTheEntries {
+	let t = New()
+	let copy = t
+	try copy.Put("a", "1")
+	assert try t.Get("a") == "1"
+}

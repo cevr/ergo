@@ -1,0 +1,82 @@
+// Package file holds Log, a kv.Store that keeps its entries in one log
+// file: each put and each delete is a line at the end of the log, and a
+// read replays the log. Compact rewrites the log as one put per key. The
+// log reaches the disk only through the fs.Files and fs.Writes values it
+// holds, so a test runs it over a memory.Disk.
+
+import maps
+import slices
+import strconv
+import strings
+
+// Record is one line of the log.
+type Record = Set{Key string, Value string} | Unset{Key string}
+
+// Corrupt is a line of the log that is not a record. Line counts from 1.
+type Corrupt { Line int, Text string }
+
+// Encode is the line of r, without its line feed. Each text is quoted by
+// strconv.Quote, which writes a tab, a line feed and every other control
+// byte as an escape, so a line holds no raw tab and no line feed, and a
+// tab between the fields splits them.
+func Encode(r Record) string {
+	match r {
+	case Set as s:
+		"put\t" + strconv.Quote(s.Key) + "\t" + strconv.Quote(s.Value)
+	case Unset as u:
+		"del\t" + strconv.Quote(u.Key)
+	}
+}
+
+// Decode is the record of line, the line number at of the log.
+func Decode(at int, line string) Record fails Corrupt {
+	let fields = strings.Split(line, "\t")
+	let bad = Corrupt{Line: at, Text: line}
+	match (fields[0], len(fields)) {
+	case ("put", 3):
+		Set{Key: try unquote(fields[1], bad), Value: try unquote(fields[2], bad)}
+	case ("del", 2):
+		Unset{Key: try unquote(fields[1], bad)}
+	case (_, _):
+		bad
+	}
+}
+
+// unquote is the text of a quoted field, or bad.
+func unquote(field string, bad Corrupt) string fails Corrupt {
+	strconv.Unquote(field) catch {
+	case strconv.Malformed:
+		return bad
+	}
+}
+
+// Replay is the entries the log text leaves: each record in order, a put
+// setting its key and a delete removing it. The text is lines, each ended
+// by a line feed.
+func Replay(text string) Map[string, string] fails Corrupt {
+	let mut entries Map[string, string]
+	let mut at = 0
+	for line in strings.Lines(text) {
+		at = at + 1
+		match try Decode(at, strings.TrimSuffix(line, "\n")) {
+		case Set as s:
+			entries[s.Key] = s.Value
+		case Unset as u:
+			let _ = entries.Delete(u.Key)
+		}
+	}
+	entries
+}
+
+// Compacted is the log of entries: one put per key, in key order.
+func Compacted(entries Map[string, string]) string {
+	let mut out = ""
+	for k in slices.Sorted(maps.Keys(entries)) {
+		match entries.Get(k) {
+		case Some[string] as v:
+			out = out + Encode(Set{Key: k, Value: v.Value}) + "\n"
+		case None:
+		}
+	}
+	out
+}

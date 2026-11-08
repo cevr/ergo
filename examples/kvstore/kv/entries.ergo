@@ -1,0 +1,29 @@
+import slices
+
+// Entry is one key and its value.
+type Entry { Key string, Value string }
+
+// Snapshot is every entry of the Store, in key order. A key that Keys
+// lists and Get does not find is a broken store.
+func Snapshot() []Entry fails Broken needs Store {
+	let mut out = []Entry{}
+	for k in try Store.Keys() {
+		let v = try Store.Get(k) catch {
+		case Missing as m:
+			return Broken{Reason: "the key " + m.Key + " is listed and has no value"}
+		}
+		out = out.Append(Entry{Key: k, Value: v})
+	}
+	out
+}
+
+// Lookup is the value of key in the Store, or None when it holds none.
+func Lookup(key string) Option[string] fails Broken needs Store {
+	Some[string]{Value: try Store.Get(key) catch {
+	case Missing:
+		return None
+	}}
+}
+
+// Equal reports whether a and b hold the same entries in order.
+func Equal(a []Entry, b []Entry) bool { slices.Equal(a, b) }

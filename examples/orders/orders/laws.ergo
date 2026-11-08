@@ -1,0 +1,83 @@
+// The rules of orders as laws over the lifecycle and the draft.
+
+// FinalTakesNoEvent: a shipped or a cancelled order rejects every event.
+law FinalTakesNoEvent(s Status, e Event) {
+	if !Final(s) {
+		return true
+	}
+	match Step(s, e) {
+	case Reject:
+		true
+	case Enter[Status], Stay[Status], Ignore, Done[Status]:
+		false
+	}
+}
+
+// NoWayBack: no event leads from a later status to an earlier one: the
+// lifecycle only moves forward (Placed, Paid, then Shipped or Cancelled).
+law NoWayBack(s Status, e Event) {
+	match Step(s, e) {
+	case Enter[Status] as n:
+		Rank(n.Next) > Rank(s)
+	case Stay[Status] as n:
+		Rank(n.Next) == Rank(s)
+	case Ignore, Reject:
+		true
+	case Done[Status] as d:
+		Rank(d.Output) >= Rank(s)
+	}
+}
+
+// PayIsIdempotent: paying twice is paying once.
+law PayIsIdempotent(s Status) {
+	let once = after(s, Pay)
+	Name(after(once, Pay)) == Name(once)
+}
+
+// ShippedWasPaid: only a paid order is shipped.
+law ShippedWasPaid(s Status) {
+	match Step(s, Ship) {
+	case Enter[Status]:
+		Name(s) == "paid"
+	case Stay[Status], Ignore, Reject, Done[Status]:
+		true
+	}
+}
+
+// TotalIsTheSumOfLines: a total is additive over the lines.
+law TotalIsTheSumOfLines(a []Line, b []Line) {
+	let mut both = []Line{}
+	for l in a {
+		both = both.Append(l)
+	}
+	for l in b {
+		both = both.Append(l)
+	}
+	Total(both) == Total(a)+Total(b)
+}
+
+// Rank is how far along s is.
+func Rank(s Status) int {
+	match s {
+	case Placed:
+		0
+	case Paid:
+		1
+	case Shipped, Cancelled:
+		2
+	}
+}
+
+// after is s after e: the next status, or s when e changes nothing.
+func after(s Status, e Event) Status {
+	match Step(s, e) {
+	case Enter[Status] as n:
+		n.Next
+	case Stay[Status] as n:
+		n.Next
+	case Ignore, Reject:
+		s
+	case Done[Status] as d:
+		d.Output
+	}
+}

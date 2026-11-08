@@ -1,0 +1,57 @@
+import orders/orders
+import strings
+
+// Route is what a method and a path ask for. Wrong is a known path with
+// a method it does not take; Allow lists the methods it takes.
+type Route = List{} | Show{ID string} | Create{} | Act{ID string, Event orders.Event} | Wrong{Allow string} | Nowhere{}
+
+// RouteOf is the route of method and path:
+//
+//	GET  /orders              List
+//	POST /orders              Create
+//	GET  /orders/{id}         Show
+//	POST /orders/{id}/{event} Act, event one of pay, ship, cancel
+//
+// A trailing slash is not the same path, as in Go's ServeMux.
+func RouteOf(method string, path string) Route {
+	let parts = strings.Split(path, "/")
+	if len(parts) < 2 || parts[0] != "" || parts[1] != "orders" {
+		return Nowhere
+	}
+	match len(parts) {
+	case 2:
+		match method {
+		case "GET":
+			List
+		case "POST":
+			Create
+		case _:
+			Wrong{Allow: "GET, POST"}
+		}
+	case 3:
+		if parts[2] == "" {
+			return Nowhere
+		}
+		if method == "GET" {
+			Show{ID: parts[2]}
+		} else {
+			Wrong{Allow: "GET"}
+		}
+	case 4:
+		match orders.EventNamed(parts[3]) {
+		case Some[orders.Event] as e:
+			if parts[2] == "" {
+				return Nowhere
+			}
+			if method == "POST" {
+				Act{ID: parts[2], Event: e.Value}
+			} else {
+				Wrong{Allow: "POST"}
+			}
+		case None:
+			Nowhere
+		}
+	case _:
+		Nowhere
+	}
+}

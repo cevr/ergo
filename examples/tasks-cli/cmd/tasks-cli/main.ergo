@@ -1,0 +1,51 @@
+// tasks-cli is a small linear-style task CLI: `tasks-cli list`, `tasks-cli create`,
+// `tasks-cli close` and `tasks-cli completion`, with --json output and a confirm
+// prompt before a close. Package tasks is the domain, file the Board in a
+// text file, cli the command line. This binary is the only place that
+// chooses the providers: the file Board at $TASKS_FILE (default
+// tasks.txt) on the host's file system, and the host's streams.
+
+import fs
+import io
+import os
+import tasks/cli
+import tasks/file
+import tasks/memory
+import tasks/tasks
+
+// path is the file of the tasks: $TASKS_FILE, or tasks.txt in the working
+// directory.
+func path() string needs os.Process {
+	match os.Process.Getenv("TASKS_FILE") {
+	case Some[string] as p:
+		p.Value
+	case None:
+		"tasks.txt"
+	}
+}
+
+// run is tasks-cli on args over the file at path, on files and writes.
+func run(path string, args []string, files fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
+	with context { tasks.Board: file.Open(path, files, writes) } {
+		try cli.Run(args)
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let host = fs.NewHost()
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewHost() } {
+		try run(path(), os.Process.Args(), host, host)
+	}
+}
+
+test TheFileKeepsTasksBetweenRuns {
+	let disk = memory.NewDisk()
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, io.Stdin: io.Input{Text: ""} } {
+		try run("t.txt", []string{"create", "one"}, disk, disk)
+		try run("t.txt", []string{"close", "--yes", "1"}, disk, disk)
+		try run("t.txt", []string{"list", "--state", "all"}, disk, disk)
+	}
+	assert out.Text() == "created #1   medium  open    one\nclosed #1   medium  closed  one\n#1   medium  closed  one\n"
+	assert try disk.ReadFile("t.txt") == "1\tclosed\tmedium\t\"one\"\n"
+}

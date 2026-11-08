@@ -1,0 +1,103 @@
+// The checks of Store's laws, one function per law, over the Store in the
+// caller's context. The compiler checks laws and does not run them yet
+// (#162), and a member law cannot call a function that needs its own type
+// (it needs no service; types.md, Laws 7). So each law is written twice:
+// as the law in Store, and here as a function a provider's test calls in a
+// context that binds its provider. Package memory and package file run the
+// same checks, so the two stores keep one contract.
+
+// GetAfterPutHolds checks the law GetAfterPut.
+func GetAfterPutHolds(key string, value string) bool fails Broken needs Store {
+	try Store.Put(key, value)
+	try Lookup(key) == Some[string]{Value: value}
+}
+
+// PutOverwritesHolds checks the law PutOverwrites.
+func PutOverwritesHolds(key string, first string, second string) bool fails Broken needs Store {
+	try Store.Put(key, first)
+	try Store.Put(key, second)
+	try Lookup(key) == Some[string]{Value: second}
+}
+
+// DeleteRemovesHolds checks the law DeleteRemoves.
+func DeleteRemovesHolds(key string, value string) bool fails Broken needs Store {
+	try Store.Put(key, value)
+	try Store.Delete(key) catch {
+	case Missing:
+		return false
+	}
+	let _ = try Store.Get(key) catch {
+	case Missing as m:
+		if m.Key != key {
+			return false
+		}
+		try Store.Delete(key) catch {
+		case Missing:
+			return true
+		}
+		return false
+	}
+	false
+}
+
+// PutKeepsOthersHolds checks the law PutKeepsOthers.
+func PutKeepsOthersHolds(key string, other string, a string, b string) bool fails Broken needs Store {
+	if key == other {
+		return true
+	}
+	try Store.Put(other, a)
+	try Store.Put(key, b)
+	try Lookup(other) == Some[string]{Value: a}
+}
+
+// KeysAreSortedAndDistinctHolds checks the law KeysAreSortedAndDistinct.
+func KeysAreSortedAndDistinctHolds(keys []string) bool fails Broken needs Store {
+	for k in keys {
+		try Store.Put(k, "v")
+	}
+	let got = try Store.Keys()
+	for k in keys {
+		if !Has(got, k) {
+			return false
+		}
+	}
+	Sorted(got)
+}
+
+// CompactKeepsContentsHolds checks the law CompactKeepsContents.
+func CompactKeepsContentsHolds(puts []string, drops []int) bool fails Broken needs Store {
+	for k in puts {
+		try Store.Put(k, "first")
+		try Store.Put(k, "last "+k)
+	}
+	for d in drops {
+		try Store.Delete(Pick(puts, d)) catch {
+		case Missing:
+		}
+	}
+	let before = try Snapshot()
+	try Store.Compact()
+	let after = try Snapshot()
+	Equal(before, after)
+}
+
+// Pick is the key of keys that the number n names, for any n, so a
+// generated number names a put key in every case; with no keys, it is a
+// key that was never put.
+func Pick(keys []string, n int) string {
+	if len(keys) == 0 {
+		return "never put"
+	}
+	let m = if n < 0 { -(n + 1) } else { n }
+	keys[m%len(keys)]
+}
+
+// Has reports whether keys holds key.
+func Has(keys []string, key string) bool {
+	for k in keys {
+		if k == key {
+			return true
+		}
+	}
+	false
+}

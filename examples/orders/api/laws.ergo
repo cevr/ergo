@@ -1,0 +1,106 @@
+// The rules of the HTTP layer as laws over Handle and RouteOf. Handle
+// needs an orders.Book, so its laws take the Book as a value, a parameter
+// of the law, and bind it in a context they build. A law runner cannot
+// generate a Book (#162), so each such law calls a function of its name
+// and "Holds", which the tests call with a memory.Ledger.
+
+import orders/jsontext
+import orders/orders
+import strings
+
+// Statuses is every status Handle gives.
+let Statuses = []int{200, 201, 400, 404, 405, 409, 415, 422}
+
+// EveryRequestHasAStatus: for any Book, whatever the method, path and
+// body, Handle answers with one of Statuses and a JSON body: no request
+// reaches a status the API does not document, and none makes it fail.
+law EveryRequestHasAStatus(book orders.Book, method string, path string, body string) {
+	EveryRequestHasAStatusHolds(book, method, path, body)
+}
+
+// CreateThenShow: for any Book, a valid draft posted is 201 with a
+// Location, and a GET of the Location is 200 with the same body; an
+// invalid one is 422.
+law CreateThenShow(book orders.Book, d orders.Draft) { CreateThenShowHolds(book, d) }
+
+// EveryRequestHasAStatusHolds checks EveryRequestHasAStatus.
+func EveryRequestHasAStatusHolds(book orders.Book, method string, path string, body string) bool {
+	let r = with context { orders.Book: book } { Handle(Request{Method: method, Path: path, Headers: []Header{}, Body: body}) }
+	let _ = jsontext.Parse(r.Body) catch {
+	case jsontext.Malformed:
+		return false
+	}
+	known(r.Status)
+}
+
+// CreateThenShowHolds checks CreateThenShow.
+func CreateThenShowHolds(book orders.Book, d orders.Draft) bool {
+	with context { orders.Book: book } { createThenShow(d) }
+}
+
+// createThenShow is CreateThenShowHolds on the Book in the context: a
+// return cannot leave a with block, so the body is a function.
+func createThenShow(d orders.Draft) bool needs orders.Book {
+	let created = Handle(Request{Method: "POST", Path: "/orders", Headers: []Header{}, Body: jsontext.Encode(DraftJSON(d))})
+	orders.Validate(d) catch {
+	case orders.Invalid:
+		return created.Status == 422
+	}
+	match HeaderOf(created.Headers, "Location") {
+	case Some[string] as at:
+		let shown = Handle(Request{Method: "GET", Path: at.Value, Headers: []Header{}, Body: ""})
+		created.Status == 201 && shown.Status == 200 && shown.Body == created.Body
+	case None:
+		false
+	}
+}
+
+// UnknownPathIs404: a path outside /orders is 404, whatever the method.
+law UnknownPathIs404(method string, path string) {
+	if strings.HasPrefix(path, "/orders") {
+		return true
+	}
+	match RouteOf(method, path) {
+	case Nowhere:
+		true
+	case List, Show, Create, Act, Wrong:
+		false
+	}
+}
+
+// WrongMethodNamesTheRight: a known path with another method is Wrong,
+// and each method it allows reaches that path.
+law WrongMethodNamesTheRight(id string, method string) { WrongMethodNamesTheRightHolds(id, method) }
+
+// WrongMethodNamesTheRightHolds checks WrongMethodNamesTheRight.
+func WrongMethodNamesTheRightHolds(id string, method string) bool {
+	if id == "" || strings.Contains(id, "/") {
+		return true
+	}
+	for path in []string{"/orders", "/orders/" + id, "/orders/" + id + "/pay"} {
+		match RouteOf(method, path) {
+		case Wrong as w:
+			for m in strings.Split(w.Allow, ", ") {
+				match RouteOf(m, path) {
+				case Wrong, Nowhere:
+					return false
+				case List, Show, Create, Act:
+				}
+			}
+		case Nowhere:
+			return false
+		case List, Show, Create, Act:
+		}
+	}
+	true
+}
+
+// known reports whether status is one of Statuses.
+func known(status int) bool {
+	for s in Statuses {
+		if s == status {
+			return true
+		}
+	}
+	false
+}

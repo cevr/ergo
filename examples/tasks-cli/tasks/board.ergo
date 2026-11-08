@@ -1,0 +1,86 @@
+// NotFound is an ID of no task.
+type NotFound { ID int }
+
+// AlreadyClosed is a close of a task that is closed already.
+type AlreadyClosed { ID int }
+
+// Broken is a store that cannot be read or written: a file that cannot be
+// read, or a line of it that is not a task.
+type Broken { Reason string }
+
+// Board is the contract of a store of tasks. Package memory keeps them in
+// a map, package file in a text file; the binary binds one in a context.
+type Board {
+	// Create adds an open task of title and p, with the next ID, and is
+	// the task.
+	Create(title string, p Priority) Item fails Broken,
+	// Close closes the open task id, and is the task after it.
+	Close(id int) Item fails NotFound | AlreadyClosed | Broken,
+	// All is every task, in the order they were created.
+	All() []Item fails Broken,
+
+	// CreateNumbersInOrder: each created task is open, takes the next ID
+	// and is listed last, as it was created.
+	law CreateNumbersInOrder(titles []string, p Priority) {
+		let before = len(try All())
+		for i, title in titles {
+			let t = try Create(title, p)
+			if t != (Item{ID: before + i + 1, Title: title, Priority: p, State: Open}) {
+				return false
+			}
+		}
+		let all = try All()
+		len(all) == before+len(titles) && (len(titles) == 0 || all[len(all)-1].Title == titles[len(titles)-1])
+	},
+
+	// CloseClosesOnlyIt: a close changes the state of its task and nothing
+	// else of the board.
+	law CloseClosesOnlyIt(title string, others []string) {
+		let t = try Create(title, Low)
+		for o in others {
+			let _ = try Create(o, High)
+		}
+		let before = try All()
+		let closed = try Close(t.ID)
+		let after = try All()
+		if closed != (Item{..t, State: Closed}) || len(after) != len(before) {
+			return false
+		}
+		for i, a in after {
+			let want = if a.ID == t.ID { closed } else { before[i] }
+			if a != want {
+				return false
+			}
+		}
+		true
+	},
+
+	// CloseIsOnce: a second close of a task fails AlreadyClosed.
+	law CloseIsOnce(title string) {
+		let t = try Create(title, Medium)
+		let _ = try Close(t.ID)
+		Close(t.ID) catch {
+		case AlreadyClosed as a:
+			return a.ID == t.ID
+		case NotFound as n:
+			return n
+		case Broken as b:
+			return b
+		}
+		false
+	},
+
+	// CloseOfNoTaskIsNotFound: an ID past the last task fails NotFound.
+	law CloseOfNoTaskIsNotFound(n int) {
+		let id = len(try All()) + 1 + (if n < 0 { -(n + 1) } else { n })%100
+		Close(id) catch {
+		case NotFound as f:
+			return f.ID == id
+		case AlreadyClosed as c:
+			return c
+		case Broken as b:
+			return b
+		}
+		false
+	},
+}

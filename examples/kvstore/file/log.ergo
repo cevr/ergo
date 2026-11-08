@@ -1,0 +1,96 @@
+import filepath
+import fs
+import kvstore/kv
+import slices
+import maps
+
+// Log is a kv.Store in the file Name in the directory Dir. It holds the
+// file system it reads and writes as values, given by Open's caller: a
+// provider's operation cannot need a capability that kv.Store's
+// operations do not write (rows.md, Context 2), so Log reads the disk
+// through the values it holds, as a Go type holds an fs.FS.
+type Log { path string, files fs.Files, writes fs.Writes }
+
+// Name is the name of the log file in its directory.
+let Name = "kv.log"
+
+// Open is the Log in dir: it makes dir and its parents if they are
+// missing. The log file is made by the first put.
+func Open(dir string, files fs.Files, writes fs.Writes) Log fails kv.Broken {
+	writes.MkdirAll(dir) catch {
+	case fs.Denied as d:
+		return kv.Broken{Reason: "permission denied: " + d.Path}
+	case fs.Failed as f:
+		return kv.Broken{Reason: f.Path + ": " + f.Reason}
+	}
+	Log{path: filepath.Join([]string{dir, Name}), files: files, writes: writes}
+}
+
+// Path is the log file of l.
+func Path(l Log) string { l.path }
+
+// text is the whole log; a log that does not exist yet is empty.
+func text(l Log) string fails kv.Broken {
+	l.files.ReadFile(l.path) catch {
+	case fs.NotFound:
+		return ""
+	case fs.Denied as d:
+		return kv.Broken{Reason: "permission denied: " + d.Path}
+	case fs.Failed as f:
+		return kv.Broken{Reason: f.Path + ": " + f.Reason}
+	}
+}
+
+// write makes the log hold text. fs.Writes' WriteFile writes a new file
+// beside the log and renames it over the log, so a crash leaves the old
+// log or the new one, never a part: the log needs no recovery.
+func write(l Log, text string) fails kv.Broken {
+	l.writes.WriteFile(l.path, text) catch {
+	case fs.NotFound as n:
+		return kv.Broken{Reason: "no directory for " + n.Path}
+	case fs.Denied as d:
+		return kv.Broken{Reason: "permission denied: " + d.Path}
+	case fs.Failed as f:
+		return kv.Broken{Reason: f.Path + ": " + f.Reason}
+	}
+}
+
+// entries is the entries the log leaves.
+func entries(l Log) Map[string, string] fails kv.Broken {
+	Replay(try l.text()) catch {
+	case Corrupt as c:
+		return kv.Broken{Reason: "\(l.path):\(c.Line): not a record: \(c.Text)"}
+	}
+}
+
+// add writes r at the end of the log. fs.Writes has no append, so the
+// log is read and written whole.
+func add(l Log, r Record) fails kv.Broken {
+	try l.write(try l.text() + Encode(r) + "\n")
+}
+
+// Get is the value of key: the last put of it, when no delete follows.
+func Get(l Log, key string) string fails kv.Missing | kv.Broken {
+	match (try l.entries()).Get(key) {
+	case Some[string] as v:
+		v.Value
+	case None:
+		kv.Missing{Key: key}
+	}
+}
+
+// Put adds a put of key and value to the log.
+func Put(l Log, key string, value string) fails kv.Broken { try l.add(Set{Key: key, Value: value}) }
+
+// Delete adds a delete of key to the log, when key holds a value.
+func Delete(l Log, key string) fails kv.Missing | kv.Broken {
+	let _ = try l.Get(key)
+	try l.add(Unset{Key: key})
+}
+
+// Keys is every key that holds a value, sorted.
+func Keys(l Log) []string fails kv.Broken { slices.Sorted(maps.Keys(try l.entries())) }
+
+// Compact rewrites the log as one put per key, in key order: the
+// overwritten puts and the deletes go.
+func Compact(l Log) fails kv.Broken { try l.write(Compacted(try l.entries())) }

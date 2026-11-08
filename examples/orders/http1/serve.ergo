@@ -1,0 +1,64 @@
+import io
+import orders/api
+import orders/orders
+import strings
+
+// Serve answers each request of text in order on standard output, from
+// the Book in the context, as one HTTP/1.1 connection: requests may be
+// pipelined, and a request that asks to close, a garbled request or the
+// end of text ends the connection. It is the number of requests served.
+func Serve(text string) int needs orders.Book | io.Stdout {
+	let mut at = 0
+	let mut served = 0
+	for _ in 0..len(text)+1 {
+		at = blankLines(text, at)
+		if at >= len(text) {
+			break
+		}
+		let r, next = ReadRequest(text, at) catch {
+		case Garbled as g:
+			let p = api.Problem(400, "garbled request at byte \(g.At): \(g.Reason)", "")
+			io.Stdout.Print(WriteResponse(Closing(p)))
+			return served
+		}
+		served = served + 1
+		let response = api.Handle(r)
+		if WantsClose(r) {
+			io.Stdout.Print(WriteResponse(Closing(response)))
+			return served
+		}
+		io.Stdout.Print(WriteResponse(response))
+		at = next
+	}
+	served
+}
+
+// WantsClose reports whether r asks the server to close after it: a
+// Connection: close header.
+func WantsClose(r api.Request) bool {
+	match api.HeaderOf(r.Headers, "Connection") {
+	case Some[string] as c:
+		strings.EqualFold(strings.TrimSpace(c.Value), "close")
+	case None:
+		false
+	}
+}
+
+// Closing is r with a Connection: close header.
+func Closing(r api.Response) api.Response {
+	api.Response{..r, Headers: r.Headers.Append(api.Header{Name: "Connection", Value: "close"})}
+}
+
+// blankLines is the offset after the CRLF or LF lines at at: a client may
+// send a line end after a body (RFC 9112, 2.2).
+func blankLines(text string, at int) int {
+	let mut i = at
+	for _ in at..len(text) {
+		if text[i] == '\r' || text[i] == '\n' {
+			i = i + 1
+		} else {
+			return i
+		}
+	}
+	i
+}

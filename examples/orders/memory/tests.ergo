@@ -1,0 +1,73 @@
+// Ledger keeps the orders.Book laws (each test runs one of orders' checks
+// on a new Ledger), and the domain's Place and Apply run over it.
+
+import orders/orders
+
+test LedgerFindAfterAdd(o orders.Order) {
+	with context { orders.Book: New() } {
+		assert try orders.FindAfterAddHolds(o)
+	}
+}
+
+test LedgerAddTwiceIsTaken(o orders.Order, other orders.Order) {
+	with context { orders.Book: New() } {
+		assert try orders.AddTwiceIsTakenHolds(o, other)
+	}
+}
+
+test LedgerReplaceKeepsTheCount(o orders.Order, status orders.Status) {
+	with context { orders.Book: New() } {
+		assert try orders.ReplaceKeepsTheCountHolds(o, status)
+	}
+}
+
+test LedgerAllInAddOrder(list []orders.Order) {
+	with context { orders.Book: New() } {
+		assert try orders.AllInAddOrderHolds(list)
+	}
+}
+
+let tea = orders.Line{SKU: "tea", Quantity: 2, Cents: 450}
+let cup = orders.Line{SKU: "cup", Quantity: 1, Cents: 1200}
+
+test PlaceNumbersAndTotals {
+	with context { orders.Book: New() } {
+		let first = try orders.Place(orders.Draft{Customer: "ada", Lines: []orders.Line{tea, cup}})
+		let second = try orders.Place(orders.Draft{Customer: "grace", Lines: []orders.Line{cup}})
+		assert first.ID == "ord-1" && first.Total == 2100 && orders.Name(first.Status) == "placed"
+		assert second.ID == "ord-2" && orders.Book.Count() == 2
+	}
+}
+
+test AnInvalidDraftAddsNothing {
+	with context { orders.Book: New() } {
+		orders.Place(orders.Draft{Customer: "", Lines: []orders.Line{tea}}) catch {
+		case orders.Invalid:
+		}
+		assert orders.Book.Count() == 0
+	}
+}
+
+// moved is the status of the order after Apply, or the failure's text.
+func moved(id string, e orders.Event) string needs orders.Book {
+	let o = orders.Apply(id, e) catch {
+	case orders.NotFound as n:
+		return "no order " + n.ID
+	case orders.Conflict as c:
+		return "conflict: \(c.ID) is \(c.Status), cannot \(c.Event)"
+	}
+	orders.Name(o.Status)
+}
+
+test ApplyFollowsTheLifecycle {
+	with context { orders.Book: New() } {
+		let o = try orders.Place(orders.Draft{Customer: "ada", Lines: []orders.Line{tea}})
+		assert moved(o.ID, orders.Ship) == "conflict: ord-1 is placed, cannot ship"
+		assert moved(o.ID, orders.Pay) == "paid"
+		assert moved(o.ID, orders.Pay) == "paid"
+		assert moved(o.ID, orders.Ship) == "shipped"
+		assert moved(o.ID, orders.Cancel) == "conflict: ord-1 is shipped, cannot cancel"
+		assert moved("ord-9", orders.Pay) == "no order ord-9"
+		assert orders.Name((try orders.Book.Find(o.ID)).Status) == "shipped"
+	}
+}

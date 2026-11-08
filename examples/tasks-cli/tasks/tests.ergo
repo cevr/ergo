@@ -1,0 +1,33 @@
+import slices
+
+// The listing laws restated as property tests (#162), and the names.
+
+let a = Item{ID: 1, Title: "write the spec", Priority: Medium, State: Open}
+let b = Item{ID: 2, Title: "fix the build", Priority: Urgent, State: Open}
+let c = Item{ID: 3, Title: "old idea", Priority: Low, State: Closed}
+let d = Item{ID: 4, Title: "ship it", Priority: Urgent, State: Open}
+
+test AListingOfEachKind {
+	assert slices.Equal(View([]Item{a, b, c, d}, OpenOnly, Low), []Item{b, d, a})
+	assert slices.Equal(View([]Item{a, b, c, d}, ClosedOnly, Low), []Item{c})
+	assert slices.Equal(View([]Item{a, b, c, d}, Every, High), []Item{b, d})
+	assert slices.Equal(View([]Item{}, Every, Low), []Item{})
+}
+
+test PriorityNamesRoundTrip(p Priority) {
+	assert PriorityNamed(PriorityName(p)) == Some[Priority]{Value: p}
+	assert PriorityNamed("soon") == None
+}
+
+test ViewShowsWhatMatchesHolds(tasks []Item, which Which, min Priority) {
+	assert ViewShowsWhatMatchesHolds(tasks, which, min)
+}
+
+test ViewIsOrderedHolds(tasks []Item, which Which, min Priority) {
+	let shown = View(Numbered(tasks), which, min)
+	for i, t in shown {
+		if i > 0 {
+			assert Before(shown[i-1], t) < 0
+		}
+	}
+}

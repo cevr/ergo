@@ -1,0 +1,96 @@
+// The picker's laws restated as property tests (#162), and scripted
+// sessions: each script is the keys a person types.
+
+import strings
+import tui/keys
+
+let langs = []string{"Gleam", "ReScript", "Elixir", "Elm"}
+
+// picked is the choice of a run of the script over langs, as text.
+func picked(script []keys.Key) string {
+	match Run(Start(langs), script).Choice {
+	case Some[Choice] as c:
+		match c.Value {
+		case Picked as p:
+			"picked " + p.Item
+		case Cancelled:
+			"cancelled"
+		}
+	case None:
+		"no choice"
+	}
+}
+
+// join is a and then b: Ergo has no variadic Append (no `a.Append(b...)`).
+func join(a []keys.Key, b []keys.Key) []keys.Key {
+	let mut out = a
+	for k in b {
+		out = out.Append(k)
+	}
+	out
+}
+
+test ArrowsMoveAndReturnPicks {
+	assert picked([]keys.Key{keys.Down, keys.Down, keys.Return}) == "picked Elixir"
+	assert picked([]keys.Key{keys.Up, keys.Return}) == "picked Gleam"
+	assert picked([]keys.Key{keys.Down, keys.Down, keys.Down, keys.Down, keys.Down, keys.Return}) == "picked Elm"
+	assert picked([]keys.Key{keys.Char{Text: "j"}, keys.Char{Text: "k"}, keys.Char{Text: "j"}, keys.Return}) == "picked ReScript"
+}
+
+test FilterAsYouType {
+	let ks = join([]keys.Key{keys.Char{Text: "/"}}, keys.Typed("el"))
+	let o = Run(Start(langs), ks)
+	assert strings.Join(Visible(ViewOf(Last(o))), ",") == "Elixir,Elm"
+	assert picked(join(ks, []keys.Key{keys.Down, keys.Return, keys.Return})) == "picked Elm"
+	assert picked(join(ks, []keys.Key{keys.Char{Text: "i"}, keys.Return, keys.Return})) == "picked Elixir"
+	assert picked(join(ks, []keys.Key{keys.Escape, keys.Return})) == "picked Gleam"
+}
+
+test EndingsAndRejects {
+	assert picked([]keys.Key{keys.Char{Text: "q"}}) == "cancelled"
+	assert picked([]keys.Key{keys.Escape}) == "cancelled"
+	assert picked([]keys.Key{keys.Down}) == "no choice"
+	let none = []keys.Key{keys.Char{Text: "/"}, keys.Char{Text: "z"}, keys.Return, keys.Return}
+	let o = Run(Start(langs), none)
+	assert o.Rejected == 1 && o.Choice == None
+	assert len(o.Frames) == 4
+}
+
+test CursorStaysOnTheListHolds(items []string, ks []keys.Key) {
+	assert CursorStaysOnTheListHolds(items, ks)
+	assert CursorStaysOnTheListHolds(langs, ks)
+	// Generated keys seldom filter, so a script moves down and narrows the
+	// list under the cursor first.
+	let narrow = []keys.Key{keys.Down, keys.Down, keys.Down, keys.Char{Text: "/"}, keys.Char{Text: "m"}}
+	assert CursorStaysOnTheListHolds(langs, join(narrow, ks))
+}
+
+test VisibleIsTheMatchesHolds(items []string, filter string, n int) {
+	assert VisibleIsTheMatchesHolds(items, filter)
+	if len(items) > 0 {
+		// A filter cut from an item, in upper case, so the property reaches
+		// a list that is not empty.
+		let item = items[(if n < 0 { -(n + 1) } else { n })%len(items)]
+		assert VisibleIsTheMatchesHolds(items, strings.ToUpper(strings.Slice(item, 0, len(item)/2)))
+	}
+}
+
+test TypeThenDeleteIsNoChangeHolds(items []string, filter string, c string) {
+	assert TypeThenDeleteIsNoChangeHolds(items, filter, c)
+}
+
+test APickIsVisibleHolds(items []string, ks []keys.Key) {
+	assert APickIsVisibleHolds(items, ks)
+	assert APickIsVisibleHolds(langs, ks)
+}
+
+test InterruptCancelsHolds(v View) {
+	for m in []Mode{Browsing{View: v}, Filtering{View: v}} {
+		match Step(m, keys.Interrupt) {
+		case Done[Choice] as d:
+			assert d.Output == Cancelled
+		case Enter[Mode], Stay[Mode], Ignore, Reject:
+			assert false
+		}
+	}
+}

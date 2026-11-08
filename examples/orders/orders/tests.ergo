@@ -1,0 +1,91 @@
+// The domain's pure tests: the rules of a draft and the lifecycle, and the
+// laws restated as property tests (#162). Place and Apply need a Book;
+// their tests are in package memory, which provides one.
+
+import slices
+
+test ValidateNamesTheField {
+	let ok = Line{SKU: "tea", Quantity: 2, Cents: 450}
+	assert invalid(Draft{Customer: "", Lines: []Line{ok}}) == "customer is empty"
+	assert invalid(Draft{Customer: "ada", Lines: []Line{}}) == "lines an order has at least one line"
+	assert invalid(Draft{Customer: "ada", Lines: []Line{ok, Line{..ok, SKU: ""}}}) == "lines[1].sku is empty"
+	assert invalid(Draft{Customer: "ada", Lines: []Line{Line{..ok, Quantity: 0}}}) == "lines[0].quantity is not from 1 to 1000"
+	assert invalid(Draft{Customer: "ada", Lines: []Line{Line{..ok, Quantity: 1001}}}) == "lines[0].quantity is not from 1 to 1000"
+	assert invalid(Draft{Customer: "ada", Lines: []Line{Line{..ok, Cents: -1}}}) == "lines[0].cents is negative"
+	assert invalid(Draft{Customer: "ada", Lines: []Line{ok}}) == "valid"
+}
+
+// invalid is the field and reason of Validate(d), or "valid".
+func invalid(d Draft) string {
+	Validate(d) catch {
+	case Invalid as i:
+		return i.Field + " " + i.Reason
+	}
+	"valid"
+}
+
+test TheLifecycleTable {
+	let mut rows = []string{}
+	for s in []Status{Placed, Paid, Shipped, Cancelled} {
+		for e in []Event{Pay, Ship, Cancel} {
+			rows = rows.Append(Name(s) + "+" + EventName(e) + "=" + Name(after(s, e)))
+		}
+	}
+	assert slices.Equal(rows, []string{
+		"placed+pay=paid", "placed+ship=placed", "placed+cancel=cancelled",
+		"paid+pay=paid", "paid+ship=shipped", "paid+cancel=cancelled",
+		"shipped+pay=shipped", "shipped+ship=shipped", "shipped+cancel=shipped",
+		"cancelled+pay=cancelled", "cancelled+ship=cancelled", "cancelled+cancel=cancelled",
+	})
+}
+
+test EventNamesRoundTrip(e Event) {
+	match EventNamed(EventName(e)) {
+	case Some[Event] as back:
+		assert EventName(back.Value) == EventName(e)
+	case None:
+		assert false
+	}
+}
+
+test FinalTakesNoEventHolds(s Status, e Event) {
+	if Final(s) {
+		assert Step(s, e) == Reject
+	}
+}
+
+test NoWayBackHolds(s Status, e Event) {
+	match Step(s, e) {
+	case Enter[Status] as n:
+		assert Rank(n.Next) > Rank(s)
+	case Stay[Status] as n:
+		assert Rank(n.Next) == Rank(s)
+	case Ignore, Reject:
+	case Done[Status] as d:
+		assert Rank(d.Output) >= Rank(s)
+	}
+}
+
+test PayIsIdempotentHolds(s Status) {
+	let once = after(s, Pay)
+	assert Name(after(once, Pay)) == Name(once)
+}
+
+test ShippedWasPaidHolds(s Status) {
+	match Step(s, Ship) {
+	case Enter[Status]:
+		assert Name(s) == "paid"
+	case Stay[Status], Ignore, Reject, Done[Status]:
+	}
+}
+
+test TotalIsTheSumOfLinesHolds(a []Line, b []Line) {
+	let mut both = []Line{}
+	for l in a {
+		both = both.Append(l)
+	}
+	for l in b {
+		both = both.Append(l)
+	}
+	assert Total(both) == Total(a)+Total(b)
+}

@@ -1,0 +1,112 @@
+// Package jsontext reads and writes JSON text as a Value, a union of the
+// six JSON kinds. Ergo's std has no json package yet (#49), so the orders
+// server carries its own: a parser that fails Malformed with the byte
+// offset, and an encoder that writes one canonical form.
+
+import strconv
+import strings
+
+// Field is one member of an object, in the order of the text.
+type Field { Name string, Value Value }
+
+// Value is a JSON value. A Number keeps its text, so no precision is lost
+// before a reader converts it.
+type Value = Null{} | Bool{V bool} | Number{Text string} | Str{V string} | Arr{Items []Value} | Obj{Fields []Field}
+
+// Malformed is a text that is not JSON. At is the byte offset of the
+// first byte that does not fit.
+type Malformed { At int, Reason string }
+
+// Encode is the canonical text of v: no white space, members in their
+// order, strings quoted with escapes.
+func Encode(v Value) string {
+	match v {
+	case Null:
+		"null"
+	case Bool as b:
+		if b.V { "true" } else { "false" }
+	case Number as n:
+		n.Text
+	case Str as s:
+		Quote(s.V)
+	case Arr as a:
+		let mut parts = []string{}
+		for x in a.Items {
+			parts = parts.Append(Encode(x))
+		}
+		"[" + strings.Join(parts, ",") + "]"
+	case Obj as o:
+		let mut parts = []string{}
+		for f in o.Fields {
+			parts = parts.Append(Quote(f.Name) + ":" + Encode(f.Value))
+		}
+		"{" + strings.Join(parts, ",") + "}"
+	}
+}
+
+// Quote is s as a JSON string. Ergo has no conversion from a byte or a
+// rune to a string, so it starts from strconv.Quote, Go's quoting, and
+// rewrites the escapes JSON spells another way: \x.., \a, \v and \U, and
+// the escapes of characters that JSON writes as they are.
+func Quote(s string) string {
+	let q = strconv.Quote(s)
+	let mut out = ""
+	let mut i = 0
+	for _ in 0..len(q) {
+		if i >= len(q) {
+			break
+		}
+		let c = q[i]
+		if c != '\\' {
+			let start = i
+			let next = strings.Index(strings.Slice(q, i, len(q)), "\\")
+			i = if next < 0 { len(q) } else { i + next }
+			out = out + strings.Slice(q, start, i)
+			continue
+		}
+		let e = q[i+1]
+		if e == 'x' {
+			out = out + "\\u00" + strings.Slice(q, i+2, i+4)
+			i = i + 4
+		} else if e == 'a' {
+			out = out + "\\u0007"
+			i = i + 2
+		} else if e == 'v' {
+			out = out + "\\u000b"
+			i = i + 2
+		} else if e == 'U' {
+			out = out + surrogates(strings.Slice(q, i+2, i+10))
+			i = i + 10
+		} else {
+			out = out + strings.Slice(q, i, i+2)
+			i = i + 2
+			if e == 'u' {
+				out = out + strings.Slice(q, i, i+4)
+				i = i + 4
+			}
+		}
+	}
+	out
+}
+
+// surrogates is the JSON escape of the code point whose eight hex digits
+// are hex: a UTF-16 surrogate pair.
+func surrogates(hex string) string {
+	let n = strconv.ParseInt(hex, 16, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return "\\ufffd"
+	}
+	let v = n - 65536 // 0x10000: Ergo v0 has no hex literals (#81)
+	"\\u" + hex4(55296+(v>>10)) + "\\u" + hex4(56320+(v&1023))
+}
+
+// hex4 is n in four lower-case hex digits.
+func hex4(n int64) string {
+	let digits = "0123456789abcdef"
+	let mut out = ""
+	for shift in []int64{12, 8, 4, 0} {
+		let d = (n >> shift) & 15
+		out = out + strings.Slice(digits, int(d), int(d)+1)
+	}
+	out
+}

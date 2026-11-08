@@ -1,0 +1,100 @@
+// Handle's tests run over a memory.Ledger, with no socket. The laws are
+// restated as property tests (#162).
+
+import orders/memory
+import orders/orders
+import strings
+
+let json = []Header{Header{Name: "Content-Type", Value: "application/json; charset=utf-8"}}
+
+// call is Handle of method, path and body, with a JSON content type.
+func call(method string, path string, body string) Response needs orders.Book {
+	Handle(Request{Method: method, Path: path, Headers: json, Body: body})
+}
+
+// line is the status and body of r, one line.
+func line(r Response) string { "\(r.Status) \(r.Body)" }
+
+test AConversation {
+	with context { orders.Book: memory.New() } {
+		assert line(call("GET", "/orders", "")) == "200 []"
+		let created = call("POST", "/orders", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":2,\"cents\":450}]}")
+		assert line(created) == "201 {\"id\":\"ord-1\",\"customer\":\"ada\",\"status\":\"placed\",\"total\":900,\"lines\":[{\"sku\":\"tea\",\"quantity\":2,\"cents\":450}]}"
+		assert HeaderOf(created.Headers, "location") == Some[string]{Value: "/orders/ord-1"}
+		assert call("GET", "/orders/ord-1", "").Body == created.Body
+		assert line(call("POST", "/orders/ord-1/pay", "")) == "200 {\"id\":\"ord-1\",\"customer\":\"ada\",\"status\":\"paid\",\"total\":900,\"lines\":[{\"sku\":\"tea\",\"quantity\":2,\"cents\":450}]}"
+		assert strings.HasPrefix(call("GET", "/orders", "").Body, "[{\"id\":\"ord-1\"")
+	}
+}
+
+test EachFailureHasItsStatus {
+	with context { orders.Book: memory.New() } {
+		assert line(call("POST", "/orders", "{\"customer\":")) == "400 {\"error\":\"the body is not JSON: a value is missing at byte 12\"}"
+		assert line(call("POST", "/orders", "[]")) == "422 {\"error\":\"is not an object\",\"field\":\"body\"}"
+		assert line(call("POST", "/orders", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":1.5,\"cents\":1}]}")) == "422 {\"error\":\"is not an integer\",\"field\":\"lines[0].quantity\"}"
+		assert line(call("POST", "/orders", "{\"customer\":\"ada\",\"lines\":[]}")) == "422 {\"error\":\"an order has at least one line\",\"field\":\"lines\"}"
+		assert line(call("GET", "/orders/ord-7", "")) == "404 {\"error\":\"no order ord-7\"}"
+		assert line(call("GET", "/users", "")) == "404 {\"error\":\"no route GET /users\"}"
+		let wrong = call("DELETE", "/orders", "")
+		assert line(wrong) == "405 {\"error\":\"DELETE is not allowed here\"}"
+		assert HeaderOf(wrong.Headers, "Allow") == Some[string]{Value: "GET, POST"}
+		let text = Handle(Request{Method: "POST", Path: "/orders", Headers: []Header{Header{Name: "content-type", Value: "text/plain"}}, Body: "{}"})
+		assert line(text) == "415 {\"error\":\"the body is text/plain, not application/json\"}"
+		let _ = call("POST", "/orders", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":1,\"cents\":1}]}")
+		assert line(call("POST", "/orders/ord-1/ship", "")) == "409 {\"error\":\"order ord-1 is placed and cannot ship\"}"
+	}
+}
+
+test RoutesOfEachPath {
+	assert RouteOf("GET", "/orders") == List
+	assert RouteOf("POST", "/orders") == Create
+	assert RouteOf("GET", "/orders/a") == Show{ID: "a"}
+	assert RouteOf("POST", "/orders/a/cancel") == Act{ID: "a", Event: orders.Cancel}
+	assert RouteOf("GET", "/orders/a/cancel") == Wrong{Allow: "POST"}
+	assert RouteOf("POST", "/orders/a/refund") == Nowhere
+	assert RouteOf("GET", "/orders/") == Nowhere
+	assert RouteOf("GET", "orders") == Nowhere
+}
+
+// pick is the element of xs that n names, for any n.
+func pick(xs []string, n int) string { xs[(if n < 0 { -(n + 1) } else { n })%len(xs)] }
+
+let methods = []string{"GET", "POST", "PUT", "DELETE"}
+let paths = []string{"/orders", "/orders/ord-1", "/orders/ord-1/pay", "/orders/ord-1/ship", "/orders/ord-2/cancel", "/orders/x/y", "/", "/orders/"}
+let bodies = []string{"", "{}", "[]", "{\"customer\":\"ada\",\"lines\":[{\"sku\":\"tea\",\"quantity\":1,\"cents\":5}]}", "{\"customer\":1}", "{"}
+
+test EveryRequestHasAStatusHolds(m int, p int, b int, body string) {
+	let book = memory.New()
+	// Place one order first, so the paths of ord-1 reach an order.
+	let _ = with context { orders.Book: book } { call("POST", "/orders", pick(bodies, 3)) }
+	assert EveryRequestHasAStatusHolds(book, pick(methods, m), pick(paths, p), pick(bodies, b))
+	assert EveryRequestHasAStatusHolds(book, pick(methods, m), pick(paths, p), body)
+}
+
+test CreateThenShowHolds(d orders.Draft) {
+	assert CreateThenShowHolds(memory.New(), d)
+}
+
+// A generated draft is mostly invalid (an empty customer, a quantity out
+// of range), so this property makes it valid first, to reach the 201.
+test CreateThenShowHoldsForValidDrafts(d orders.Draft, n int) {
+	let mut lines = []orders.Line{orders.Line{SKU: "sku", Quantity: 1, Cents: 0}}
+	for l in d.Lines {
+		lines = lines.Append(orders.Line{SKU: "s" + l.SKU, Quantity: 1 + (if l.Quantity < 0 { -(l.Quantity + 1) } else { l.Quantity })%1000, Cents: if l.Cents < 0 { -(l.Cents + 1) } else { l.Cents }})
+	}
+	let valid = orders.Draft{Customer: "c" + d.Customer, Lines: lines}
+	let book = memory.New()
+	assert CreateThenShowHolds(book, valid)
+	assert with context { orders.Book: book } { orders.Book.Count() } == 1
+}
+
+test UnknownPathIs404Holds(method string, path string) {
+	if !strings.HasPrefix(path, "/orders") {
+		assert RouteOf(method, path) == Nowhere
+	}
+}
+
+test WrongMethodNamesTheRightHolds(id string, m int) {
+	assert WrongMethodNamesTheRightHolds(id, pick(methods, m))
+	assert WrongMethodNamesTheRightHolds("ord-1", pick(methods, m))
+}

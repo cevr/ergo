@@ -1,0 +1,7 @@
+keys
+get name
+get lang
+get note
+put lang Go
+compact
+dump

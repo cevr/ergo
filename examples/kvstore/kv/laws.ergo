@@ -1,0 +1,27 @@
+// The rules of a session line as laws over Parse.
+
+import strings
+
+// PutReadsTheRest: put, a key of one word and a value with no space at
+// either end is a Put of that key and that value, spaces inside the
+// value included.
+law PutReadsTheRest(key string, value string) {
+	if !isWord(key) || strings.TrimSpace(value) != value {
+		return true
+	}
+	try Parse("put "+key+" "+value) == Put{Key: key, Value: value}
+}
+
+// KeyCommandsTakeOneWord: get and del take exactly one word.
+law KeyCommandsTakeOneWord(key string) {
+	if !isWord(key) {
+		return true
+	}
+	(try Parse("get "+key)) == Get{Key: key} && (try Parse(" del  "+key)) == Delete{Key: key}
+}
+
+// isWord reports whether text is one word: not empty, and no white space.
+func isWord(text string) bool {
+	let words = strings.Fields(text)
+	len(words) == 1 && words[0] == text
+}
