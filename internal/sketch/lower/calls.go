@@ -155,6 +155,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
 		vals := fc.callArgsAddr(list, x, addr)
+		vals = fc.valueSource(x, c, vals)
 		var head string
 		var rest []string
 		if fd.method != nil {
@@ -789,6 +790,7 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 		params += ", " + outer + " *" + l.env() + ", " + ws + " *" + l.rt() + ".Scope"
 	}
 	fc.entryPoll(l.info, w.Decl)
+	l.analyzeValues(w.Decl, l.info)
 	fc.buildProviders(with, fc.env, outer, ws)
 	decl := "func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n"
 	if std {

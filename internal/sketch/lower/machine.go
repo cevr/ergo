@@ -167,6 +167,7 @@ func (l *lowerer) machineInit(td *typeDecl, initial string) {
 	fc.owner = "machine " + td.tn.Name
 	fc.frame = newFrame(td.machine.state, false, false)
 	l.recordDecl(fc.owner, x)
+	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)
 	l.addInit(x, x, fc.out.String(), []string{initial + " = " + val})
 	l.machineInits = append(l.machineInits, x)

@@ -206,6 +206,7 @@ func (l *lowerer) testDecl(d *syntax.TestDecl) {
 		fc.openFrame(frameErr)
 	}
 	fc.entryPoll(l.info, d)
+	l.analyzeValues(d, l.info)
 	fc.body(d.Body.List)
 	l.user.WriteString(fc.out.String())
 	l.user.WriteString("}\n\n")
