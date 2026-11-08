@@ -79,10 +79,28 @@ func (fc *funcCtx) patternMatch(s syntax.Stmt, subjects []syntax.Expr, clauses [
 			vals[i] = t
 		}
 	}
-	if tree := fc.matchTree(s, vals, types, clauses); tree != nil {
-		return fc.emitMatchTree(s, tree, clauses, d)
+	arms := fc.matchArms(clauses, d)
+	if tree := fc.matchTree(s, vals, types, arms); tree != nil {
+		return fc.emitMatchTree(s, tree, arms, treeExit{needed: d.needsDefault, write: func() { fc.noCase(s) }})
 	}
 	return fc.flatPatternMatch(s, vals, types, clauses, d)
+}
+
+// matchArms is a match's clauses as the tree's arms, each body yielding to
+// d.
+func (fc *funcCtx) matchArms(clauses []*syntax.CaseClause, d dest) []treeArm {
+	arms := make([]treeArm, len(clauses))
+	for k, cl := range clauses {
+		for _, item := range cl.List {
+			p := fc.l.info.Patterns[item]
+			if p == nil {
+				ice(item, "a case with no Patterns entry")
+			}
+			arms[k].alts = append(arms[k].alts, p)
+		}
+		arms[k].body = func() bool { return fc.yieldList(cl.Body, d) }
+	}
+	return arms
 }
 
 // flatPatternMatch lowers a match to one expressionless Go switch, an arm

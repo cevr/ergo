@@ -22,6 +22,13 @@ import (
 // has no effect and cannot panic, so the changed test order is not
 // observable.
 //
+// A catch with record patterns, `case err:` or `case _` (M1b) lowers
+// through the same tree, inside its `if err != nil` frame: one column, the
+// caught Go error of the row type, and one row per alternative of its arms
+// (treeArm). A default branch that no row reaches passes the same error
+// value on: it leaves the frame under try and re-panics in a total catch
+// (rows.md, Catch 5 and 6), as the flat catch does (treeExit).
+//
 // The column to test is one the first row tests (Maranget's necessary
 // columns): the one that the most rows test, then the one with the fewest
 // distinct constructors, then the leftmost. This is the checker's
@@ -103,6 +110,26 @@ type mleaf struct {
 	binds []patBind
 }
 
+// treeArm is an arm of a match or of a catch (M1b) as the tree sees it:
+// its patterns, one per alternative (none for a clause that matches every
+// value), and the writer of its body, which reports whether the body's Go
+// form terminates. A match arm is a syntax.CaseClause and a catch arm a
+// syntax.CatchArm; each caller makes its arms (matchArms, patternCatch).
+type treeArm struct {
+	alts []*check.Pattern
+	body func() bool
+}
+
+// treeExit is what a default branch that no row reaches does: needed
+// reports, from whether every arm body terminates, whether the branch is
+// written; write writes its statements after its `default:` line. A match
+// panics with noCase where Go needs a default; a catch always passes the
+// error on (rows.md, Catch 5 and 6).
+type treeExit struct {
+	needed func(allTerm bool) bool
+	write  func()
+}
+
 // matchTreeTest is the test hook of lowerer.matchTest: flat forces the
 // flat lowering; splits counts, per headKind, the columns that the trees of
 // the program split on (a switch for headCtor and headConst, a field
@@ -159,10 +186,10 @@ type treeBuilder struct {
 
 func (b *treeBuilder) bail() { panic(treeBail{}) }
 
-// matchTree builds the tree of a match on the subject values vals of the
-// checked types types, or returns nil when the match takes the flat
-// lowering.
-func (fc *funcCtx) matchTree(s syntax.Stmt, vals []string, types []check.Type, clauses []*syntax.CaseClause) (tree *mnode) {
+// matchTree builds the tree of a match (or a catch, on its one error
+// value) on the subject values vals of the checked types types, or returns
+// nil when it takes the flat lowering.
+func (fc *funcCtx) matchTree(s syntax.Node, vals []string, types []check.Type, arms []treeArm) (tree *mnode) {
 	if t := fc.l.matchTest; matchLowering == "flat" || t != nil && t.flat {
 		return nil
 	}
@@ -173,17 +200,13 @@ func (fc *funcCtx) matchTree(s syntax.Stmt, vals []string, types []check.Type, c
 	}
 	var rows []mrow
 	size := 0
-	for arm, cl := range clauses {
-		if len(cl.List) == 0 {
+	for arm, a := range arms {
+		if len(a.alts) == 0 {
 			rows = append(rows, mrow{arm: arm, cells: b.wilds(len(cols))})
 			size++
 			continue
 		}
-		for _, item := range cl.List {
-			p := fc.l.info.Patterns[item]
-			if p == nil {
-				ice(item, "a case with no Patterns entry")
-			}
+		for _, p := range a.alts {
 			size += patternSize(p)
 			switch {
 			case len(cols) == 1:
@@ -206,7 +229,7 @@ func (fc *funcCtx) matchTree(s syntax.Stmt, vals []string, types []check.Type, c
 		}
 	}()
 	tree = b.compile(cols, rows)
-	reached := make([]bool, len(clauses))
+	reached := make([]bool, len(arms))
 	tree.walk(func(n *mnode) {
 		if n.leaf != nil {
 			reached[n.leaf.arm] = true
@@ -586,11 +609,10 @@ func (b *treeBuilder) specialize(cols []mcol, rows []mrow, i int) *mnode {
 
 // treeEmit writes one tree.
 type treeEmit struct {
-	fc      *funcCtx
-	s       syntax.Stmt
-	clauses []*syntax.CaseClause
-	d       dest
-	label   map[int]string // the label of each shared arm
+	fc    *funcCtx
+	s     syntax.Node
+	arms  []treeArm
+	label map[int]string // the label of each shared arm
 	// inlineTerm: every arm body written at a leaf terminates; allTerm:
 	// every arm body does.
 	inlineTerm, allTerm bool
@@ -603,12 +625,13 @@ type treeEmit struct {
 // the tree. NUL never occurs in emitted Go: string literals are quoted.
 func treeMark(k int) string { return "\x00match " + strconv.Itoa(k) + "\x00" }
 
-// emitMatchTree writes the tree of a match whose arms yield to d and
-// reports whether its Go form is a terminating statement.
-func (fc *funcCtx) emitMatchTree(s syntax.Stmt, tree *mnode, clauses []*syntax.CaseClause, d dest) bool {
-	e := &treeEmit{fc: fc, s: s, clauses: clauses, d: d, label: map[int]string{}, inlineTerm: true, allTerm: true}
-	leaves := make([]int, len(clauses))
-	firstLeaf := make([]*mleaf, len(clauses))
+// emitMatchTree writes the tree of a match or a catch, its default
+// branches that no row reaches as exit says, and reports whether its Go
+// form is a terminating statement.
+func (fc *funcCtx) emitMatchTree(s syntax.Node, tree *mnode, arms []treeArm, exit treeExit) bool {
+	e := &treeEmit{fc: fc, s: s, arms: arms, label: map[int]string{}, inlineTerm: true, allTerm: true}
+	leaves := make([]int, len(arms))
+	firstLeaf := make([]*mleaf, len(arms))
 	tree.walk(func(n *mnode) {
 		if n.leaf != nil {
 			if leaves[n.leaf.arm] == 0 {
@@ -648,7 +671,7 @@ func (fc *funcCtx) emitMatchTree(s syntax.Stmt, tree *mnode, clauses []*syntax.C
 			fc.line(e.label[arm] + ":")
 			fc.line("{")
 			fc.depth++
-			t := fc.yieldList(clauses[arm].Body, d)
+			t := arms[arm].body()
 			fc.depth--
 			fc.line("}")
 			e.allTerm = e.allTerm && t
@@ -658,7 +681,7 @@ func (fc *funcCtx) emitMatchTree(s syntax.Stmt, tree *mnode, clauses []*syntax.C
 			}
 		}
 	}
-	panics := d.needsDefault(e.allTerm)
+	panics := exit.needed(e.allTerm)
 	treeTerm := e.inlineTerm && (len(e.fails) == 0 || panics)
 	text := fc.out.String()
 	fc.out = saved
@@ -667,7 +690,7 @@ func (fc *funcCtx) emitMatchTree(s syntax.Stmt, tree *mnode, clauses []*syntax.C
 		if panics {
 			fc.out, fc.depth = &strings.Builder{}, at
 			fc.line("default:")
-			fc.noCase(s)
+			exit.write()
 			repl = fc.out.String()
 			fc.out = saved
 		}
@@ -746,7 +769,7 @@ func (e *treeEmit) leaf(lf *mleaf) {
 			fc.line("_ = " + name)
 		}
 	}
-	t := fc.yieldList(e.clauses[lf.arm].Body, e.d)
+	t := e.arms[lf.arm].body()
 	e.inlineTerm = e.inlineTerm && t
 	e.allTerm = e.allTerm && t
 }
