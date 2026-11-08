@@ -154,6 +154,16 @@ func Constructible(t Type, from *Package) bool {
 // authority record is not Constructible but is Buildable. The host guard
 // (stdlib.md, Host packages) reads Buildable.
 func Buildable(t Type, from *Package) bool {
+	return BuildableGiven(t, from, nil)
+}
+
+// BuildableGiven is Buildable when package from also holds a value of each
+// record in given, which it got from an exported function of the record's
+// package (fu-ambient-ctor r2): a record with authority in from counts as
+// built when it is in given. With given empty it is Buildable. The host
+// guard calls it with the records a package hands out without authority,
+// so a parameter of such a record is no authority.
+func BuildableGiven(t Type, from *Package, given map[*TypeName]bool) bool {
 	// The nodes reachable from t, each once, and their children.
 	idx := map[Type]int{}
 	var nodes []Type
@@ -208,7 +218,7 @@ func Buildable(t Type, from *Package) bool {
 			switch u := under(n).(type) {
 			case *Struct:
 				if hasAuthority(u, from) {
-					v = false
+					v = given[u.obj]
 					break
 				}
 				for _, j := range kids[i] {
