@@ -1,0 +1,54 @@
+import fs
+import slices
+import strings
+
+// Disk is an fs.Files and fs.Writes over a Map from a path to its text:
+// a file system for tests that never touches the host. A directory is a
+// path some file is under; MkdirAll makes nothing, as every directory is
+// there. Copies of a Disk share its files.
+type Disk { files Map[string, string] }
+
+// NewDisk is a Disk with the files given.
+func NewDisk(files Map[string, string]) Disk { Disk{files: files} }
+
+// ReadFile is the text of the file at path.
+func ReadFile(d Disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match d.files.Get(path) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		fs.NotFound{Path: path}
+	}
+}
+
+// ReadDir is the names of the files directly under path, sorted.
+func ReadDir(d Disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut names = []string{}
+	for p, _ in d.files {
+		let rest = strings.TrimPrefix(p, path+"/")
+		if rest != p && !strings.Contains(rest, "/") {
+			names = names.Append(rest)
+		}
+	}
+	slices.Sort(names)
+}
+
+// Stat is what Disk knows of the file at path.
+func Stat(d Disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	let text = try ReadFile(d, path)
+	let parts = strings.Split(path, "/")
+	fs.Info{Name: parts[len(parts)-1], Size: len(text), Dir: false}
+}
+
+// WriteFile makes the file at path hold text.
+func WriteFile(d Disk, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut files = d.files
+	files[path] = text
+}
+
+// MkdirAll makes nothing: a Disk has every directory.
+func MkdirAll(_ Disk, path string) fails fs.Denied | fs.Failed {
+	if path == "" {
+		return fs.Failed{Path: path, Reason: "no path"}
+	}
+}

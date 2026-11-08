@@ -1,0 +1,59 @@
+// Store is the contract of a place that keeps a ledger: in memory, in a
+// file, or in a database. Each operation is one step of a Book, kept; a
+// store that cannot read or keep its ledger fails Unavailable. Post is
+// named for the bookkeeper's verb: an operation named Transfer would hide
+// the type Transfer inside the laws (gaps G-ex-b-13).
+type Store {
+	Open(id string, floor int64) fails AccountExists | BadFloor | Unavailable,
+	Post(t Transfer) Receipt fails KeyReused | BadAmount | SameAccount | UnknownAccount | InsufficientFunds | Unavailable,
+	Balance(id string) int64 fails UnknownAccount | Unavailable,
+	Accounts() []string fails Unavailable,
+
+	// TotalIsKept: a posted transfer does not change the sum of all the
+	// balances. Money only moves. The sum is written out twice: a law
+	// cannot call a function that needs Store (gaps G-ex-b-13).
+	law TotalIsKept(t Transfer) {
+		let mut before = int64(0)
+		for id in try Accounts() {
+			let b = try Balance(id)
+			before = before + b
+		}
+		let _ = Post(t) catch {
+		case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds, Unavailable:
+			return true
+		}
+		let mut after = int64(0)
+		for id in try Accounts() {
+			let b = try Balance(id)
+			after = after + b
+		}
+		after == before
+	},
+
+	// PostIsIdempotent: a transfer posted again with its key gives the
+	// same receipt and moves no more money.
+	law PostIsIdempotent(t Transfer) {
+		let first = Post(t) catch {
+		case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds, Unavailable:
+			return true
+		}
+		let from = try Balance(t.From)
+		let again = try Post(t)
+		let after = try Balance(t.From)
+		again == first && after == from
+	},
+
+	// FloorHolds: no transfer takes an account below its floor, so an
+	// account opened with floor zero never goes below zero.
+	law FloorHolds(id string, t Transfer) {
+		Open(id, 0) catch {
+		case AccountExists, BadFloor, Unavailable:
+			return true
+		}
+		let _ = Post(Transfer{..t, From: id}) catch {
+		case KeyReused, BadAmount, SameAccount, UnknownAccount, InsufficientFunds, Unavailable:
+			return try Balance(id) == 0
+		}
+		try Balance(id) >= 0
+	},
+}

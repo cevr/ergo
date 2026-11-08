@@ -1,0 +1,2 @@
+open alice
+deposit d1 alice 12.345

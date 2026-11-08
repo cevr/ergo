@@ -1,0 +1,91 @@
+// Store keeps the ledger.Store laws, restated as property tests (#162)
+// over a store that has had a day of transfers; Disk keeps fs's.
+
+import fs
+import ledger/ledger
+
+// day is a Store with the accounts of ledger.Bank and the transfers of
+// ledger.Day(ns) posted, the refused ones left out.
+func day(ns []int) ledger.Store {
+	let s ledger.Store = New()
+	for id in []string{"alice", "bob", "carol"} {
+		s.Open(id, if id == "bob" { -500 } else { 0 }) catch {
+		case ledger.AccountExists, ledger.BadFloor, ledger.Unavailable:
+		}
+	}
+	for t in ledger.Day(ns) {
+		let _ = s.Post(t) catch {
+		case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds, ledger.Unavailable:
+			continue
+		}
+	}
+	s
+}
+
+// total is the sum of the balances of s.
+func total(s ledger.Store) int64 fails ledger.UnknownAccount | ledger.Unavailable {
+	let mut sum = int64(0)
+	for id in try s.Accounts() {
+		let b = try s.Balance(id)
+		sum = sum + b
+	}
+	sum
+}
+
+test CopiesShareTheBook {
+	let s = New()
+	let copy = s
+	try s.Open("alice", 0)
+	let _ = try copy.Post(ledger.Transfer{Key: "d", From: ledger.World, To: "alice", Amount: 5})
+	assert try s.Balance("alice") == 5
+}
+
+test TotalIsKeptHolds(ns []int, m int) {
+	let s = day(ns)
+	let t = ledger.Day([]int{m})[0]
+	let before = try total(s)
+	let _ = s.Post(t) catch {
+	case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds, ledger.Unavailable:
+		assert try total(s) == before
+		return
+	}
+	assert try total(s) == before
+}
+
+test PostIsIdempotentHolds(ns []int, m int) {
+	let s = day(ns)
+	let t = ledger.Day([]int{m})[0]
+	let first = s.Post(t) catch {
+	case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds, ledger.Unavailable:
+		return
+	}
+	let from = try s.Balance(t.From)
+	assert try s.Post(t) == first
+	assert try s.Balance(t.From) == from
+}
+
+test FloorHoldsHolds(ns []int, m int) {
+	let s = day(ns)
+	let t = ledger.Day([]int{m})[0]
+	s.Open("erin", 0) catch {
+	case ledger.AccountExists, ledger.BadFloor, ledger.Unavailable:
+		assert false
+		return
+	}
+	let _ = s.Post(ledger.Transfer{..t, From: "erin"}) catch {
+	case ledger.KeyReused, ledger.BadAmount, ledger.SameAccount, ledger.UnknownAccount, ledger.InsufficientFunds, ledger.Unavailable:
+		assert try s.Balance("erin") == 0
+		return
+	}
+	assert try s.Balance("erin") >= 0
+}
+
+test DiskReadsWhatItWrote(path string, text string) {
+	let d = NewDisk(Map[string, string]{})
+	let w fs.Writes = d
+	let r fs.Files = d
+	try w.WriteFile(path, text)
+	assert try r.ReadFile(path) == text
+	let again = try r.ReadFile(path)
+	assert try r.ReadFile(path) == again
+}
