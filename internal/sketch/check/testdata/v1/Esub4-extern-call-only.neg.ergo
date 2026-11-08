@@ -1,16 +1,17 @@
-// Stage E4 (spec add-on to D-E5): any use of an extern function other than
-// a direct call is S108, "an extern function is called directly; wrap it
-// in a literal: func() { f() }".
-extern go strings.ToUpper func Upper(s string) string
+// Stage E4 (spec add-on to D-E5), as G1 (batch 12) narrows it: an extern
+// whose call needs a type argument or a hidden argument is call-only, and
+// any other use of it is S108, "an extern function is called directly;
+// wrap it in a literal: func() { f() }". A user extern, and a std extern
+// whose body takes no hidden argument, are function values (the .pos rule).
+import queue
 
-func apply(f func(string) string, s string) string {
-	f(s)
+func keep() func(int) queue.Queue[int] {
+	queue.New[int] // want S108
 }
 
-func shout(s string) string {
-	apply(Upper, s) // want S108
-}
-
-func keep() func(string) string {
-	Upper // want S108
+func main() {
+	let mk = queue.New // want S108
+	_ = mk
+	let q = keep()(1)
+	q.Close()
 }

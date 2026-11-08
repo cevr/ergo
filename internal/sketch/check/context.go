@@ -514,9 +514,9 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 	}
 	entry.Caps, entry.Conversions = caps, nil
 	if f := c.constructorFunc(e.Value); f != nil {
-		if isExtern(f) {
-			// A constructor entry is a function value; an extern is
-			// call-only (P3), before and after #37.
+		if isExtern(f) && !externValue(f) {
+			// A constructor entry is a function value; a call-only extern
+			// (P3; externValue) is refused as such, before and after #37.
 			c.errorf(e.Value, CodeType, "%s", externCallOnlyText)
 		} else {
 			c.errorf(e.Value, CodeOutside, "a constructor entry is #37's (context constructors); write a provider value, not a function")

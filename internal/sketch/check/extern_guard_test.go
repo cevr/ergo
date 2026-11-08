@@ -18,8 +18,9 @@ import (
 const (
 	// The extern there is a direct call: no diagnostic.
 	guardCallee = "callee"
-	// The extern there is a value: exactly one S108 with the P3 message, on
-	// the reference's line.
+	// The extern there is a value: since G1 it gets the diagnostics an
+	// ordinary function of its signature gets there (externGuardControl),
+	// and never the P3 message.
 	guardValue = "value"
 	// A type position: exactly one diagnostic, and not the P3 message.
 	guardType = "type"
@@ -37,6 +38,10 @@ const (
 // externGuardDecl declares the extern every row refers to, after the row's
 // program, unless the row declares an extern itself.
 const externGuardDecl = "extern go strings.ToUpper func Upper(s string) string\n"
+
+// externGuardControl is the control of a value row: an ordinary function
+// with the extern's name and signature, on one line as the extern is.
+const externGuardControl = "func Upper(s string) string { s }\n"
 
 // externPlaceRow is one Expr field of the syntax package: its class and a
 // program with the extern's name in that field, marked by @ before it.
@@ -367,8 +372,13 @@ func TestExternPlacementGuard(t *testing.T) {
 					t.Errorf("a direct call: want no diagnostic\n%s\n\t%s", src, describe(diags))
 				}
 			case guardValue:
-				if len(diags) != 1 || diags[0].Code != "S108" || diags[0].Message != p3Text || diags[0].Line != line {
-					t.Errorf("want exactly one P3 S108 at line %d\n%s\n\t%s", line, src, describe(diags))
+				// Since G1 a user extern is a function value: in every
+				// value field it is checked as an ordinary function of its
+				// signature is, the control, and never gets P3.
+				ctl := strings.Replace(src, externGuardDecl, externGuardControl, 1)
+				_, ctlDiags := check.CheckSource(ctl)
+				if p3 != 0 || codesAndLines(diags, 0) != codesAndLines(ctlDiags, 0) {
+					t.Errorf("an extern value at line %d is not checked as its control\n%s\n\t%s\ncontrol:\n\t%s", line, src, describe(diags), describe(ctlDiags))
 				}
 			case guardType:
 				if len(diags) != 1 || p3 != 0 {

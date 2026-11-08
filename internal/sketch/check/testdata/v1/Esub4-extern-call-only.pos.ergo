@@ -1,5 +1,9 @@
 // Stage E4 (spec add-on to D-E5): an extern function is called directly;
-// a function literal that calls it is an ordinary function value.
+// a function literal that calls it is an ordinary function value. Since G1
+// (batch 12) a user extern, and a std extern whose body takes no hidden
+// argument, are function values too.
+import strings
+
 extern go strings.ToUpper func Upper(s string) string
 
 func apply(f func(string) string, s string) string {
@@ -8,4 +12,8 @@ func apply(f func(string) string, s string) string {
 
 func shout(s string) string {
 	apply(func(x string) string { Upper(x) }, Upper(s))
+}
+
+func both(s string) string {
+	apply(Upper, apply(strings.TrimSpace, s))
 }
