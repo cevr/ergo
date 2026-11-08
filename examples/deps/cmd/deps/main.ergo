@@ -1,0 +1,278 @@
+// deps resolves a project's dependencies from a manifest: it chooses the
+// newest version of each package that keeps every constraint on it, and
+// prints the packages in the order to build them (deps resolve), the
+// chain that pulls one in (deps why), or the edges (deps graph). Package
+// semver is versions and constraints, graph the order and its cycles,
+// resolve the resolver and its Index contract, manifest the file format,
+// memory the Index of a manifest. This binary is the only place that
+// chooses the providers: the host's file system, standard output and
+// arguments, and the registry it reads.
+
+import deps/manifest
+import deps/memory
+import deps/resolve
+import deps/semver
+import flag
+import fs
+import io
+import os
+import strings
+
+// Cmd is a command line of deps.
+type Cmd = Resolve{File string} | Why{File string, Name string} | Graph{File string}
+
+let fileFlag = flag.String("f", "deps.txt", "read the manifest from `file`")
+
+let nameArg = flag.Arg("package", "the package to explain")
+
+let commands = []flag.Command[Cmd]{
+	flag.Command[Cmd]{
+		Name:  "resolve",
+		Usage: "print each package and its version, in the order to build them",
+		Set:   flag.Set{Name: "deps resolve", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{}},
+		Build: func(v flag.Values) Cmd { Resolve{File: fileFlag.Get(v)} },
+	},
+	flag.Command[Cmd]{
+		Name:  "why",
+		Usage: "print the shortest chain of needs from the project to a package",
+		Set:   flag.Set{Name: "deps why", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{nameArg}},
+		Build: buildWhy,
+	},
+	flag.Command[Cmd]{
+		Name:  "graph",
+		Usage: "print each need between the chosen packages",
+		Set:   flag.Set{Name: "deps graph", Usage: "", Flags: []flag.Flag{fileFlag}, Args: []flag.ArgSpec{}},
+		Build: func(v flag.Values) Cmd { Graph{File: fileFlag.Get(v)} },
+	},
+}
+
+func buildWhy(v flag.Values) Cmd {
+	let name = match nameArg.Get(v) {
+	case Some[string] as n:
+		n.Value
+	case None:
+		""
+	}
+	Why{File: fileFlag.Get(v), Name: name}
+}
+
+let usage = "usage: deps resolve [-f file] | deps why [-f file] package | deps graph [-f file]"
+
+// NotReached is a package that why was asked about and the plan does not
+// hold.
+type NotReached { Name string }
+
+// pinText is "name version".
+func pinText(p resolve.Pin) string { p.Name + " " + semver.Format(p.V) }
+
+// answer is the output of c over the manifest m.
+func answer(c Cmd, m manifest.Manifest) string fails resolve.NoVersion | resolve.Circular | resolve.NoPlan | resolve.TooHard | resolve.UnknownPackage | resolve.UnknownVersion | NotReached needs resolve.Index {
+	let p = try resolve.Resolve(m.Root)
+	match c {
+	case Resolve:
+		let mut lines = []string{}
+		for pin in p.Pins {
+			lines = lines.Append(pinText(pin))
+		}
+		strings.Join(lines, "\n")
+	case Why as w:
+		match resolve.Why(p, m.Root, w.Name) {
+		case Some[[]resolve.Pin] as chain:
+			let mut parts = []string{m.Project}
+			for pin in chain.Value {
+				parts = parts.Append(pinText(pin))
+			}
+			strings.Join(parts, " -> ")
+		case None:
+			NotReached{Name: w.Name}
+		}
+	case Graph:
+		let mut versions = Map[string, string]{}
+		for pin in p.Pins {
+			versions[pin.Name] = semver.Format(pin.V)
+		}
+		let mut lines = []string{}
+		for pin in p.Pins {
+			for to in p.Needs.Needs(pin.Name) {
+				let v = match versions.Get(to) {
+				case Some[string] as t:
+					t.Value
+				case None:
+					"?"
+				}
+				lines = lines.Append(pinText(pin) + " -> " + to + " " + v)
+			}
+		}
+		strings.Join(lines, "\n")
+	}
+}
+
+// file is the manifest at path.
+func file(path string) manifest.Manifest fails os.Exit needs fs.Files {
+	let text = fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "deps: " + path + ": no such file"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "deps: " + path + ": permission denied"}
+	case fs.Failed as f:
+		return os.Exit{Code: 1, Message: "deps: " + path + ": " + f.Reason}
+	}
+	manifest.Read(text) catch {
+	case manifest.BadLine as b:
+		return os.Exit{Code: 1, Message: "deps: \(path):\(b.No): \(b.Reason)"}
+	}
+}
+
+func exit(message string) fails os.Exit { os.Exit{Code: 1, Message: "deps: " + message} }
+
+// fileOf is the manifest path of c.
+func fileOf(c Cmd) string {
+	match c {
+	case Resolve as r:
+		r.File
+	case Why as w:
+		w.File
+	case Graph as g:
+		g.File
+	}
+}
+
+// run is deps on args. Each failure of the resolver ends with status 1
+// and its message on standard error; the catch names every failure, with
+// no case _.
+func run(args []string) fails os.Exit needs io.Stdout | fs.Files {
+	let c = flag.ParseCommand("deps", "", commands, args) catch {
+	case err:
+		try flag.Exit(err, usage)
+		return
+	}
+	let m = try file(fileOf(c))
+	with context { resolve.Index: memory.Of(m.Releases) } {
+		try report(c, m)
+	}
+}
+
+// report prints the answer to c, or ends with the failure's message. It is
+// apart from run because a return cannot leave run's with block (gap
+// G-ex-d-10).
+func report(c Cmd, m manifest.Manifest) fails os.Exit needs io.Stdout | resolve.Index {
+	let text = answer(c, m) catch {
+	case resolve.NoVersion as n:
+		return exit(noVersion(n))
+	case resolve.Circular as cy:
+		let mut parts = []string{}
+		for pin in cy.Path {
+			parts = parts.Append(pinText(pin))
+		}
+		return exit("circular needs: " + strings.Join(parts, " -> "))
+	case resolve.NoPlan:
+		return exit("no choice of versions keeps every want")
+	case resolve.TooHard as t:
+		return exit("gave up after \(t.Steps) choices")
+	case resolve.UnknownPackage as u:
+		return exit("no release of " + u.Name)
+	case resolve.UnknownVersion as u:
+		return exit("no release " + u.Name + " " + semver.Format(u.V))
+	case NotReached as n:
+		return exit(m.Project + " does not need " + n.Name)
+	}
+	if text != "" {
+		io.Stdout.Println(text)
+	}
+}
+
+// noVersion names the package, each want on it and who wrote it, and the
+// versions there are.
+func noVersion(n resolve.NoVersion) string needs resolve.Index {
+	let mut lines = []string{"no version of " + n.Name + " keeps every want:"}
+	for w in n.Wants {
+		let by = if w.By == "" { "the project" } else { w.By }
+		lines = lines.Append("  " + w.Want.Text + " (from " + by + ")")
+	}
+	let vs = resolve.Index.Versions(n.Name) catch {
+	case resolve.UnknownPackage:
+		[]semver.Version{}
+	}
+	let mut texts = []string{}
+	for v in vs {
+		texts = texts.Append(semver.Format(v))
+	}
+	lines = lines.Append("  versions: " + strings.Join(texts, " "))
+	strings.Join(lines, "\n")
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// The tests run run over a file system held in a Map and an io.Recorder,
+// with no host.
+
+// disk is an fs.Files of paths to texts.
+type disk { texts Map[string, string] }
+
+func ReadFile(d disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	match d.texts.Get(path) {
+	case Some[string] as t:
+		t.Value
+	case None:
+		fs.NotFound{Path: path}
+	}
+}
+
+func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func ran(files Map[string, string], args []string) string {
+	let out = io.NewRecorder()
+	with context { io.Stdout: out, fs.Files: disk{texts: files} } {
+		run(args) catch {
+		case os.Exit as e:
+			out.Println("exit \(e.Code): \(e.Message)")
+		}
+	}
+	out.Text()
+}
+
+func one(text string) Map[string, string] {
+	let mut m = Map[string, string]{}
+	m["deps.txt"] = text
+	m
+}
+
+let shop = "project shop\n  needs web ^1\n  needs log ^1.2\npackage web 1.0.0\n  needs log ^1.4\npackage web 1.1.0\n  needs log ^2\npackage log 1.2.0\npackage log 1.4.1\npackage log 2.0.0\n"
+
+test ResolvesWhyAndGraph {
+	assert ran(one(shop), []string{"resolve"}) == "log 1.4.1\nweb 1.0.0\n"
+	assert ran(one(shop), []string{"why", "log"}) == "shop -> log 1.4.1\n"
+	assert ran(one(shop), []string{"graph"}) == "web 1.0.0 -> log 1.4.1\n"
+}
+
+test FailuresExit {
+	assert ran(one(shop), []string{"why", "db"}) == "exit 1: deps: shop does not need db\n"
+	assert ran(one("project a\n  needs b\n"), []string{"resolve"}) == "exit 1: deps: no release of b\n"
+	assert ran(one("project a\n  needs b\npackage b 1\n  needs b 1\n"), []string{"resolve"}) == "exit 1: deps: circular needs: b 1.0.0 -> b 1.0.0\n"
+	assert ran(one("project a\n  needs b ^2\npackage b 1\n"), []string{"resolve"}) == "exit 1: deps: no version of b keeps every want:\n  ^2 (from the project)\n  versions: 1.0.0\n"
+	assert ran(Map[string, string]{}, []string{"resolve", "-f", "x.txt"}) == "exit 1: deps: x.txt: no such file\n"
+	assert ran(one("projekt a\n"), []string{"graph"}) == "exit 1: deps: deps.txt:1: unknown line; want project, package or an indented needs\n"
+}
+
+// EveryPlanResolvesAgain: a resolved plan, written as a manifest whose
+// project needs exactly the chosen versions, resolves to the same plan.
+test EveryPlanResolvesAgain(entries []resolve.Entry, root []resolve.Need) {
+	let m = manifest.Generated(entries, root)
+	let first = ran(one(manifest.Format(m)), []string{"resolve"})
+	if strings.HasPrefix(first, "exit") || first == "" {
+		return
+	}
+	let mut exact = []resolve.Requirement{}
+	for line in strings.Split(strings.TrimSuffix(first, "\n"), "\n") {
+		let words = strings.Fields(line)
+		exact = exact.Append(resolve.Requirement{Name: words[0], Want: try semver.ParseConstraint("=" + words[1])})
+	}
+	let again = ran(one(manifest.Format(manifest.Manifest{..m, Root: exact})), []string{"resolve"})
+	assert again == first
+}

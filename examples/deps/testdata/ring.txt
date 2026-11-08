@@ -1,0 +1,9 @@
+project shop
+  needs app
+
+package app 1.0.0
+  needs auth ^1
+package auth 1.1.0
+  needs session ^1
+package session 1.0.4
+  needs auth ^1.1

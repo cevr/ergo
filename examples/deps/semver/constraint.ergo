@@ -1,0 +1,124 @@
+import strings
+
+// Bound is one condition on a version.
+type Bound = Exact{V Version} | AtLeast{V Version} | Above{V Version} | AtMost{V Version} | Below{V Version} | Caret{V Version} | Tilde{V Version} | AnyVersion{}
+
+// Constraint is bounds that must all hold, and the text they were read
+// from.
+type Constraint { Bounds []Bound, Text string }
+
+// BadConstraint is a text that is not a constraint; Reason says which
+// part.
+type BadConstraint { Text string, Reason string }
+
+// ParseConstraint reads bounds separated by spaces: =V, >=V, >V, <=V, <V,
+// ^V, ~V, a bare V (=V) or *. An empty text is *.
+func ParseConstraint(text string) Constraint fails BadConstraint {
+	let words = strings.Fields(text)
+	if len(words) == 0 {
+		return Constraint{Bounds: []Bound{AnyVersion}, Text: "*"}
+	}
+	let mut bounds = []Bound{}
+	for w in words {
+		bounds = bounds.Append(try bound(text, w))
+	}
+	Constraint{Bounds: bounds, Text: strings.Join(words, " ")}
+}
+
+// Any is the constraint every version keeps.
+func Any() Constraint { Constraint{Bounds: []Bound{AnyVersion}, Text: "*"} }
+
+// operators are the prefixes of a bound, longest first, so >= is not read
+// as >.
+let operators = []string{">=", "<=", ">", "<", "=", "^", "~"}
+
+func bound(text string, w string) Bound fails BadConstraint {
+	if w == "*" {
+		return AnyVersion
+	}
+	let mut op = ""
+	for o in operators {
+		if op == "" && strings.HasPrefix(w, o) {
+			op = o
+		}
+	}
+	let rest = strings.TrimPrefix(w, op)
+	let v = ParseVersion(rest) catch {
+	case BadVersion:
+		return BadConstraint{Text: text, Reason: "\(w) names no version"}
+	}
+	match op {
+	case ">=":
+		AtLeast{V: v}
+	case "<=":
+		AtMost{V: v}
+	case ">":
+		Above{V: v}
+	case "<":
+		Below{V: v}
+	case "^":
+		Caret{V: v}
+	case "~":
+		Tilde{V: v}
+	case _:
+		Exact{V: v}
+	}
+}
+
+// Satisfies reports whether v keeps every bound of c.
+func Satisfies(c Constraint, v Version) bool {
+	for b in c.Bounds {
+		if !Holds(b, v) {
+			return false
+		}
+	}
+	true
+}
+
+// Holds reports whether v keeps b. ^V allows the versions from V up to the
+// next change of its first part that is not zero (^1.2.3 is <2.0.0,
+// ^0.2.3 is <0.3.0, ^0.0.3 is only 0.0.3), as Cargo and npm read it; ~V
+// allows the versions from V up to the next minor.
+func Holds(b Bound, v Version) bool {
+	match b {
+	case Exact as e:
+		Compare(v, e.V) == 0
+	case AtLeast as e:
+		Compare(v, e.V) >= 0
+	case Above as e:
+		Compare(v, e.V) > 0
+	case AtMost as e:
+		Compare(v, e.V) <= 0
+	case Below as e:
+		Compare(v, e.V) < 0
+	case Caret as e:
+		Compare(v, e.V) >= 0 && Compare(v, CaretLimit(e.V)) < 0
+	case Tilde as e:
+		Compare(v, e.V) >= 0 && Compare(v, Version{Major: e.V.Major, Minor: e.V.Minor + 1, Patch: 0}) < 0
+	case AnyVersion:
+		true
+	}
+}
+
+// CaretLimit is the first version that ^v does not allow.
+func CaretLimit(v Version) Version {
+	if v.Major > 0 {
+		return Version{Major: v.Major + 1, Minor: 0, Patch: 0}
+	}
+	if v.Minor > 0 {
+		return Version{Major: 0, Minor: v.Minor + 1, Patch: 0}
+	}
+	Version{Major: 0, Minor: 0, Patch: v.Patch + 1}
+}
+
+// And is the constraint that holds where a and b both hold.
+func And(a Constraint, b Constraint) Constraint {
+	let mut bounds = []Bound{}
+	for x in a.Bounds {
+		bounds = bounds.Append(x)
+	}
+	for y in b.Bounds {
+		bounds = bounds.Append(y)
+	}
+	Constraint{Bounds: bounds, Text: a.Text + " " + b.Text}
+}

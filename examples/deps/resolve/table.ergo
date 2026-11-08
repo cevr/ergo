@@ -1,0 +1,128 @@
+// Table and the generated registries that the laws and tests of resolve
+// run over.
+
+import deps/semver
+import slices
+
+// Table is an Index over a list of releases, in memory. Of two releases
+// of one version, the first counts. Package memory's Registry is the
+// program's provider; Table lets this package state laws with no import
+// of memory, which imports resolve.
+type Table { Releases []Release }
+
+// Versions is every version of name, newest first, each once.
+func Versions(t Table, name string) []semver.Version fails UnknownPackage {
+	let mut vs = []semver.Version{}
+	for r in t.Releases {
+		if r.Name == name && !hasVersion(vs, r.V) {
+			vs = vs.Append(r.V)
+		}
+	}
+	if len(vs) == 0 {
+		return UnknownPackage{Name: name}
+	}
+	slices.SortFunc(vs, func(a semver.Version, b semver.Version) int { semver.Compare(b, a) })
+}
+
+func hasVersion(vs []semver.Version, v semver.Version) bool {
+	for w in vs {
+		if w == v {
+			return true
+		}
+	}
+	false
+}
+
+// Distinct is t with only the first release of each version: the
+// releases that count.
+func Distinct(t Table) Table {
+	let mut rs = []Release{}
+	for r in t.Releases {
+		if slices.IndexFunc(rs, func(x Release) bool { x.Name == r.Name && x.V == r.V }) < 0 {
+			rs = rs.Append(r)
+		}
+	}
+	Table{Releases: rs}
+}
+
+// Needs is what the first release name v needs.
+func Needs(t Table, name string, v semver.Version) []Requirement fails UnknownPackage | UnknownVersion {
+	let _ = try t.Versions(name)
+	for r in t.Releases {
+		if r.Name == name && r.V == v {
+			return r.Needs
+		}
+	}
+	UnknownVersion{Name: name, V: v}
+}
+
+// Entry is a generated release: package number, version and needs.
+type Entry { Pkg int, V semver.Version, Needs []Need }
+
+// Need is a generated requirement: a package number and a caret or an
+// at-most bound.
+type Need { Pkg int, From semver.Version, Caret bool }
+
+// NameOf is the package name of a generated number: one of three, so that
+// generated releases meet.
+func NameOf(n int) string {
+	let m = n % 3
+	"p\(if m < 0 { -m } else { m })"
+}
+
+// Few is v with each part 0 to 2, so that generated constraints meet.
+func Few(v semver.Version) semver.Version {
+	semver.Version{Major: small(v.Major), Minor: small(v.Minor), Patch: small(v.Patch)}
+}
+
+func small(n int) int {
+	let m = n % 3
+	if m < 0 { -m } else { m }
+}
+
+// RequirementOf is the requirement a generated need stands for.
+func RequirementOf(n Need) Requirement {
+	let v = Few(n.From)
+	// A caret need is the one that can fail (0.0.0 keeps every at-most
+	// need); half of the needs are carets, so that some registries fail.
+	let caret = n.Caret
+	let text = (if caret { "^" } else { "<=" }) + semver.Format(v)
+	let b semver.Bound = if caret { semver.Caret{V: v} } else { semver.AtMost{V: v} }
+	Requirement{Name: NameOf(n.Pkg), Want: semver.Constraint{Bounds: []semver.Bound{b}, Text: text}}
+}
+
+// TableOf is the registry of generated entries, after a release 0.0.0
+// with no needs of each of the three names. So every name is known and
+// every at-most need can be kept, while a caret need, or the needs of a
+// newer release, may fail: generated registries reach plans, NoVersion
+// and cycles.
+func TableOf(entries []Entry) Table {
+	let mut rs = []Release{}
+	for n in 0..3 {
+		rs = rs.Append(Release{Name: NameOf(n), V: semver.Version{Major: 0, Minor: 0, Patch: 0}, Needs: []Requirement{}})
+	}
+	for e in entries {
+		let mut wanted = []Requirement{}
+		for n in e.Needs {
+			wanted = wanted.Append(RequirementOf(n))
+		}
+		rs = rs.Append(Release{Name: NameOf(e.Pkg), V: Few(e.V), Needs: wanted})
+	}
+	Table{Releases: rs}
+}
+
+// RootOf is the project's requirements: a want of any version of each of
+// the three names, then the generated needs. So the search pins every
+// name, in name order, and a release pinned later can want an older
+// version of one pinned before it: generated registries reach the step
+// back that the laws of soundness and determinism are about.
+func RootOf(ns []Need) []Requirement {
+	let mut out = []Requirement{}
+	for n in 0..3 {
+		out = out.Append(Requirement{Name: NameOf(n), Want: semver.Any()})
+	}
+	for n in ns {
+		out = out.Append(RequirementOf(n))
+	}
+	out
+}

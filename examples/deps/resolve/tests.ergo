@@ -1,0 +1,143 @@
+// The resolver's tests: a small registry by hand, and the laws restated
+// as property tests over generated registries (#162 runs laws; until
+// then these do).
+
+import deps/semver
+import slices
+import strings
+
+func v(text string) semver.Version {
+	semver.ParseVersion(text) catch {
+	case semver.BadVersion:
+		semver.Version{Major: 0, Minor: 0, Patch: 0}
+	}
+}
+
+func req(name string, want string) Requirement {
+	let c = semver.ParseConstraint(want) catch {
+	case semver.BadConstraint:
+		semver.Any()
+	}
+	Requirement{Name: name, Want: c}
+}
+
+func rel(name string, version string, reqs []Requirement) Release {
+	Release{Name: name, V: v(version), Needs: reqs}
+}
+
+let registry = Table{Releases: []Release{
+	rel("web", "2.1.0", []Requirement{req("log", "^1.0")}),
+	rel("web", "2.3.1", []Requirement{req("log", "^1.4"), req("http", "~0.4")}),
+	rel("web", "3.0.0", []Requirement{req("log", "^2")}),
+	rel("log", "1.2.0", []Requirement{}),
+	rel("log", "1.5.3", []Requirement{}),
+	rel("log", "2.0.0", []Requirement{}),
+	rel("http", "0.4.2", []Requirement{req("log", ">=1.1")}),
+	rel("http", "0.5.0", []Requirement{}),
+}}
+
+func resolved(root []Requirement) string {
+	with context { Index: registry } {
+		Outcome(root)
+	}
+}
+
+test PicksTheNewestThatFits {
+	assert resolved([]Requirement{req("web", "^2.1")}) == "log 1.5.3;http 0.4.2;web 2.3.1;"
+	assert resolved([]Requirement{req("web", "*")}) == "log 2.0.0;web 3.0.0;"
+}
+
+test AWantOfTheProjectHoldsBack {
+	// The search pins log to 1.2.0, the newest below 1.3; web 2.3.1 then
+	// wants log ^1.4, so it steps back and takes web 2.1.0. With web ^2.3
+	// there is nothing to step back to, and log is to blame.
+	assert resolved([]Requirement{req("web", "^2.1"), req("log", "<1.3")}) == "log 1.2.0;web 2.1.0;"
+	assert resolved([]Requirement{req("web", "^2.3"), req("log", "<1.3")}) == "no version of log"
+	assert resolved([]Requirement{req("web", "2.1"), req("log", "<1.3")}) == "log 1.2.0;web 2.1.0;"
+}
+
+test UnknownsFail {
+	assert resolved([]Requirement{req("nope", "*")}) == "unknown nope"
+}
+
+test CircularNamesTheRing {
+	let ring = Table{Releases: []Release{
+		rel("a", "1.0.0", []Requirement{req("b", "^1")}),
+		rel("b", "1.0.0", []Requirement{req("c", "^1")}),
+		rel("c", "1.0.0", []Requirement{req("a", "^1")}),
+	}}
+	let text = with context { Index: ring } {
+		ringOf([]Requirement{req("a", "*")})
+	}
+	assert text == "a 1.0.0 -> b 1.0.0 -> c 1.0.0 -> a 1.0.0"
+}
+
+// ringOf is the ring that the resolution of root fails Circular with, or
+// "".
+func ringOf(root []Requirement) string needs Index {
+	let _ = Resolve(root) catch {
+	case Circular as c:
+		let mut names = []string{}
+		for p in c.Path {
+			names = names.Append(p.Name + " " + semver.Format(p.V))
+		}
+		return strings.Join(names, " -> ")
+	case _:
+		return ""
+	}
+	""
+}
+
+test WhyIsTheShortestChain {
+	let root = []Requirement{req("web", "^2.1")}
+	with context { Index: registry } {
+		let p = try Resolve(root)
+		match Why(p, root, "log") {
+		case Some[[]Pin] as chain:
+			assert len(chain.Value) == 2 && chain.Value[0].Name == "web" && chain.Value[1].Name == "log"
+		case None:
+			assert false
+		}
+	}
+}
+
+test ResolutionIsSoundHolds(entries []Entry, root []Need) {
+	let t = TableOf(entries)
+	let r = RootOf(root)
+	with context { Index: t } {
+		assert SoundOrFailed(t, r)
+	}
+}
+
+test ResolutionIsDeterministicHolds(entries []Entry, root []Need) {
+	let r = RootOf(root)
+	let a = with context { Index: TableOf(entries) } {
+		Outcome(r)
+	}
+	let b = with context { Index: Table{Releases: slices.Reverse(Distinct(TableOf(entries)).Releases)} } {
+		Outcome(r)
+	}
+	assert a == b
+}
+
+test NoVersionIsHonestHolds(entries []Entry, root []Need) {
+	let t = TableOf(entries)
+	with context { Index: t } {
+		assert Honest(t, RootOf(root))
+	}
+}
+
+test TableKeepsTheIndexLaws(entries []Entry, n int) {
+	let t = TableOf(entries)
+	let name = NameOf(n)
+	let vs = t.Versions(name) catch {
+	case UnknownPackage:
+		return
+	}
+	for i in 1..len(vs) {
+		assert semver.Compare(vs[i-1], vs[i]) > 0
+	}
+	for x in vs {
+		let _ = try t.Needs(name, x)
+	}
+}

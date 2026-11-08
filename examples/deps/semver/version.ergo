@@ -1,0 +1,59 @@
+// Package semver is semantic versions without pre-releases and build
+// metadata (MAJOR.MINOR.PATCH), and the constraints a manifest writes on
+// them: =, >=, >, <=, <, ^ (same major), ~ (same minor) and *, joined by
+// spaces, all of which must hold. It is pure.
+
+import strconv
+import strings
+
+// Version is MAJOR.MINOR.PATCH.
+type Version { Major int, Minor int, Patch int }
+
+// BadVersion is a text that is not a version.
+type BadVersion { Text string }
+
+// ParseVersion reads MAJOR[.MINOR[.PATCH]]; a missing part is 0. Each part
+// is a decimal number with no sign and no leading zero.
+func ParseVersion(text string) Version fails BadVersion {
+	let parts = strings.Split(text, ".")
+	if len(parts) > 3 {
+		return BadVersion{Text: text}
+	}
+	let mut n = []int{0, 0, 0}
+	for i, p in parts {
+		n[i] = try part(text, p)
+	}
+	Version{Major: n[0], Minor: n[1], Patch: n[2]}
+}
+
+func part(text string, p string) int fails BadVersion {
+	if p == "" || (len(p) > 1 && p[0] == '0') {
+		return BadVersion{Text: text}
+	}
+	for i in 0..len(p) {
+		if p[i] < '0' || p[i] > '9' {
+			return BadVersion{Text: text}
+		}
+	}
+	strconv.Atoi(p) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return BadVersion{Text: text}
+	}
+}
+
+// Format is v as MAJOR.MINOR.PATCH.
+func Format(v Version) string { "\(v.Major).\(v.Minor).\(v.Patch)" }
+
+// Compare is -1, 0 or 1 as a is older than, the same as, or newer than b.
+func Compare(a Version, b Version) int {
+	if a.Major != b.Major {
+		return if a.Major < b.Major { -1 } else { 1 }
+	}
+	if a.Minor != b.Minor {
+		return if a.Minor < b.Minor { -1 } else { 1 }
+	}
+	if a.Patch != b.Patch {
+		return if a.Patch < b.Patch { -1 } else { 1 }
+	}
+	0
+}

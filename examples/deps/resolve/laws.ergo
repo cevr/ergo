@@ -1,0 +1,143 @@
+// The rules of resolution as laws over generated registries.
+
+import deps/semver
+import slices
+
+// pinned is the version pinned for name in p.
+func pinOf(p Plan, name string) Option[semver.Version] {
+	for pin in p.Pins {
+		if pin.Name == name {
+			return Some[semver.Version]{Value: pin.V}
+		}
+	}
+	None
+}
+
+// Keeps reports whether p pins r's package to a version that keeps r.
+func Keeps(p Plan, r Requirement) bool {
+	match pinOf(p, r.Name) {
+	case Some[semver.Version] as v:
+		semver.Satisfies(r.Want, v.Value)
+	case None:
+		false
+	}
+}
+
+// Sound reports whether p keeps every requirement of root and of each
+// pinned release in t, and pins each package after the packages its
+// release needs.
+func Sound(t Table, root []Requirement, p Plan) bool {
+	for r in root {
+		if !Keeps(p, r) {
+			return false
+		}
+	}
+	for i, pin in p.Pins {
+		let wanted = t.Needs(pin.Name, pin.V) catch {
+		case UnknownPackage, UnknownVersion:
+			return false
+		}
+		for r in wanted {
+			if !Keeps(p, r) {
+				return false
+			}
+			let at = slices.IndexFunc(p.Pins, func(q Pin) bool { q.Name == r.Name })
+			if at > i {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// Text is p as one line, "name version" by pin, in order.
+func Text(p Plan) string {
+	let mut out = ""
+	for pin in p.Pins {
+		out = out + pin.Name + " " + semver.Format(pin.V) + ";"
+	}
+	out
+}
+
+// ResolutionIsSound: a resolution keeps every want of the project and of
+// each pinned release, and orders each package after what it needs.
+law ResolutionIsSound(entries []Entry, root []Need) {
+	let t = TableOf(entries)
+	let r = RootOf(root)
+	with context { Index: t } {
+		SoundOrFailed(t, r)
+	}
+}
+
+// SoundOrFailed reports whether the resolution of root under t is sound,
+// or fails. A with block yields its last expression and cannot return,
+// so the early returns live here.
+func SoundOrFailed(t Table, root []Requirement) bool needs Index {
+	let p = Resolve(root) catch {
+	case _:
+		return true
+	}
+	Sound(t, root, p)
+}
+
+// ResolutionIsDeterministic: the registry's order does not change the
+// resolution, nor whether it fails.
+law ResolutionIsDeterministic(entries []Entry, root []Need) {
+	let r = RootOf(root)
+	let a = with context { Index: TableOf(entries) } {
+		Outcome(r)
+	}
+	let b = with context { Index: Table{Releases: slices.Reverse(Distinct(TableOf(entries)).Releases)} } {
+		Outcome(r)
+	}
+	a == b
+}
+
+// Outcome is the resolution of root as text, or the name of its failure.
+func Outcome(root []Requirement) string needs Index {
+	let p = Resolve(root) catch {
+	case NoVersion as n:
+		return "no version of " + n.Name
+	case Circular as c:
+		return "circular at " + c.Path[0].Name
+	case NoPlan:
+		return "no plan"
+	case TooHard:
+		return "too hard"
+	case UnknownPackage as u:
+		return "unknown " + u.Name
+	case UnknownVersion as u:
+		return "unknown " + u.Name + " " + semver.Format(u.V)
+	}
+	Text(p)
+}
+
+// NoVersionIsHonest: when no version of a package keeps its wants, no
+// version of it in the registry keeps them all.
+law NoVersionIsHonest(entries []Entry, root []Need) {
+	let t = TableOf(entries)
+	with context { Index: t } {
+		Honest(t, RootOf(root))
+	}
+}
+
+// Honest reports whether a NoVersion of the resolution of root under t
+// names a package none of whose versions keeps its wants.
+func Honest(t Table, root []Requirement) bool needs Index {
+	let _ = Resolve(root) catch {
+	case NoVersion as n:
+		let vs = t.Versions(n.Name) catch {
+		case UnknownPackage:
+			return false
+		}
+		for v in vs {
+			if keepsAll(n.Wants, v) {
+				return false
+			}
+		}
+		return true
+	case _:
+		return true
+	}
+	true
+}

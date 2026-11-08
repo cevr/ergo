@@ -1,0 +1,65 @@
+// Package memory holds the program's provider of resolve.Index: the
+// releases of a manifest, indexed by name once.
+
+import deps/resolve
+import deps/semver
+import slices
+
+// Registry is a resolve.Index over releases held in memory, each name's
+// releases sorted newest first when it is built. Its field is unexported,
+// so only Of builds one.
+type Registry { byName Map[string, []resolve.Release] }
+
+// Of is the registry of releases. Of two releases of one version, the
+// first counts.
+func Of(releases []resolve.Release) Registry {
+	let mut byName = Map[string, []resolve.Release]{}
+	for r in releases {
+		let have = match byName.Get(r.Name) {
+		case Some[[]resolve.Release] as rs:
+			rs.Value
+		case None:
+			[]resolve.Release{}
+		}
+		if slices.IndexFunc(have, func(x resolve.Release) bool { x.V == r.V }) < 0 {
+			let mut grown = []resolve.Release{}
+			for x in have {
+				grown = grown.Append(x)
+			}
+			byName[r.Name] = grown.Append(r)
+		}
+	}
+	let mut sorted = Map[string, []resolve.Release]{}
+	for name, rs in byName {
+		sorted[name] = slices.SortFunc(rs, func(a resolve.Release, b resolve.Release) int { semver.Compare(b.V, a.V) })
+	}
+	Registry{byName: sorted}
+}
+
+func releases(r Registry, name string) []resolve.Release fails resolve.UnknownPackage {
+	match r.byName.Get(name) {
+	case Some[[]resolve.Release] as rs:
+		rs.Value
+	case None:
+		resolve.UnknownPackage{Name: name}
+	}
+}
+
+// Versions is every version of name, newest first.
+func Versions(r Registry, name string) []semver.Version fails resolve.UnknownPackage {
+	let mut out = []semver.Version{}
+	for x in try r.releases(name) {
+		out = out.Append(x.V)
+	}
+	out
+}
+
+// Needs is what the release name v needs.
+func Needs(r Registry, name string, v semver.Version) []resolve.Requirement fails resolve.UnknownPackage | resolve.UnknownVersion {
+	for x in try r.releases(name) {
+		if x.V == v {
+			return x.Needs
+		}
+	}
+	resolve.UnknownVersion{Name: name, V: v}
+}

@@ -1,0 +1,2 @@
+missing command; commands: resolve, why, graph
+usage: deps resolve [-f file] | deps why [-f file] package | deps graph [-f file]

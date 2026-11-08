@@ -1,0 +1,84 @@
+// The rules of the manifest's text as laws.
+
+import deps/resolve
+import deps/semver
+import strings
+
+// Format is m as manifest text that Read reads back: the project and its
+// needs, then each release and its needs, a blank line between blocks.
+func Format(m Manifest) string {
+	let mut lines = []string{"project " + m.Project}
+	for r in m.Root {
+		lines = lines.Append(needLine(r))
+	}
+	for rel in m.Releases {
+		lines = lines.Append("")
+		lines = lines.Append("package " + rel.Name + " " + semver.Format(rel.V))
+		for r in rel.Needs {
+			lines = lines.Append(needLine(r))
+		}
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+func needLine(r resolve.Requirement) string { "  needs " + r.Name + " " + r.Want.Text }
+
+// Generated is the manifest of a generated registry: project app, the
+// root's needs, and each release once.
+func Generated(entries []resolve.Entry, root []resolve.Need) Manifest {
+	let mut rs = []resolve.Release{}
+	for r in resolve.TableOf(entries).Releases {
+		let mut seen = false
+		for x in rs {
+			if x.Name == r.Name && x.V == r.V {
+				seen = true
+			}
+		}
+		if !seen {
+			rs = rs.Append(r)
+		}
+	}
+	Manifest{Project: "app", Root: resolve.RootOf(root), Releases: rs}
+}
+
+// ReadInvertsFormat: reading a formatted manifest gives the manifest back.
+law ReadInvertsFormat(entries []resolve.Entry, root []resolve.Need) {
+	let m = Generated(entries, root)
+	Same(try Read(Format(m)), m)
+}
+
+// Same reports whether a and b name one project and list the same needs
+// and releases, in one order. A Manifest holds slices, so it has no ==
+// (G-ex-d-5); a constraint is the same when its text is.
+func Same(a Manifest, b Manifest) bool {
+	if a.Project != b.Project || len(a.Releases) != len(b.Releases) || !sameNeeds(a.Root, b.Root) {
+		return false
+	}
+	for i, r in a.Releases {
+		let s = b.Releases[i]
+		if r.Name != s.Name || r.V != s.V || !sameNeeds(r.Needs, s.Needs) {
+			return false
+		}
+	}
+	true
+}
+
+func sameNeeds(a []resolve.Requirement, b []resolve.Requirement) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, r in a {
+		if r.Name != b[i].Name || r.Want.Text != b[i].Want.Text {
+			return false
+		}
+	}
+	true
+}
+
+// NoiseChangesNothing: blank lines, comments and trailing comments do not
+// change what a manifest says.
+law NoiseChangesNothing(entries []resolve.Entry, root []resolve.Need) {
+	let text = Format(Generated(entries, root))
+	let noisy = "# deps manifest\n\n" + strings.ReplaceAll(text, "\n", "  # note\n\n")
+	Format(try Read(noisy)) == text
+}

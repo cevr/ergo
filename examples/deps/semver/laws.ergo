@@ -1,0 +1,58 @@
+// The rules of versions and constraints as laws.
+
+// Small is v with each part made 0 to 9, so that generated versions meet.
+func Small(v Version) Version { Version{Major: digit(v.Major), Minor: digit(v.Minor), Patch: digit(v.Patch)} }
+
+func digit(n int) int {
+	let m = n % 10
+	if m < 0 { -m } else { m }
+}
+
+// FormatRoundTrips: a formatted version parses back to itself.
+law FormatRoundTrips(v Version) {
+	let w = Small(v)
+	Compare(try ParseVersion(Format(w)), w) == 0
+}
+
+// CompareIsAntisymmetric: a is older than b exactly when b is newer than
+// a.
+law CompareIsAntisymmetric(a Version, b Version) { Compare(Small(a), Small(b)) == -Compare(Small(b), Small(a)) }
+
+// CompareIsTransitive: older than is transitive.
+law CompareIsTransitive(a Version, b Version, c Version) {
+	let x = Small(a)
+	let y = Small(b)
+	let z = Small(c)
+	if Compare(x, y) <= 0 && Compare(y, z) <= 0 {
+		return Compare(x, z) <= 0
+	}
+	true
+}
+
+// CaretKeepsTheLeadingPart: a version that ^v allows has v's first part
+// that is not zero, and is not older than v.
+law CaretKeepsTheLeadingPart(v Version, w Version) {
+	let x = Small(v)
+	let y = Small(w)
+	if !Holds(Caret{V: x}, y) {
+		return true
+	}
+	let same = if x.Major > 0 { y.Major == x.Major } else if x.Minor > 0 { y.Major == 0 && y.Minor == x.Minor } else { Compare(x, y) == 0 }
+	same && Compare(y, x) >= 0
+}
+
+// AndIsBoth: And(a, b) holds exactly where a and b both hold.
+law AndIsBoth(a Version, b Version, v Version) {
+	let x = Constraint{Bounds: []Bound{Caret{V: Small(a)}}, Text: "^" + Format(Small(a))}
+	let y = Constraint{Bounds: []Bound{Below{V: Small(b)}}, Text: "<" + Format(Small(b))}
+	let w = Small(v)
+	Satisfies(And(x, y), w) == (Satisfies(x, w) && Satisfies(y, w))
+}
+
+// TextRoundTrips: a constraint read from its own text holds for the same
+// versions.
+law TextRoundTrips(a Version, b Version, v Version) {
+	let c = try ParseConstraint(">=" + Format(Small(a)) + " ~" + Format(Small(b)))
+	let again = try ParseConstraint(c.Text)
+	Satisfies(again, Small(v)) == Satisfies(c, Small(v))
+}

@@ -1,0 +1,33 @@
+# The shop's dependencies, and the registry it may choose from.
+project shop
+  needs web ^2.1
+  needs log >=1.2 <2
+  needs db ~0.4
+
+package web 2.1.0
+  needs log ^1.0
+package web 2.3.1
+  needs log ^1.4
+  needs http ~0.4
+package web 3.0.0       # needs log 2, which the shop does not allow
+  needs log ^2
+
+package http 0.4.2
+  needs log >=1.1
+package http 0.5.0
+
+package db 0.4.0
+  needs pool ^1.0
+package db 0.4.7
+  needs pool ^1.2
+  needs log ^1.5
+package db 0.5.1
+
+package pool 1.0.0
+package pool 1.2.9
+package pool 1.3.0
+  needs log ^1.6
+
+package log 1.2.0
+package log 1.5.3
+package log 2.0.0

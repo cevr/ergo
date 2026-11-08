@@ -1,0 +1,55 @@
+// Package resolve chooses a version of every package a project needs,
+// and the order to build them in. It declares Index, the contract of a
+// registry of releases; package memory provides one from a manifest. The
+// resolver is pure but for its Index.
+
+import deps/semver
+
+// Requirement is a package name and the constraint on its version.
+type Requirement { Name string, Want semver.Constraint }
+
+// Release is one version of a package and what it needs.
+type Release { Name string, V semver.Version, Needs []Requirement }
+
+// UnknownPackage is a name the registry has no release of.
+type UnknownPackage { Name string }
+
+// UnknownVersion is a version of a package that the registry does not
+// have.
+type UnknownVersion { Name string, V semver.Version }
+
+// Index is a registry of releases.
+type Index {
+	// Versions is every version of the package name, newest first.
+	Versions(name string) []semver.Version fails UnknownPackage,
+	// Needs is what the release name v needs.
+	Needs(name string, v semver.Version) []Requirement fails UnknownPackage | UnknownVersion,
+
+	// VersionsAreNewestFirst: the versions of a package are newest first,
+	// each once.
+	law VersionsAreNewestFirst(name string) {
+		let vs = Versions(name) catch {
+		case UnknownPackage:
+			return true
+		}
+		for i in 1..len(vs) {
+			if semver.Compare(vs[i-1], vs[i]) <= 0 {
+				return false
+			}
+		}
+		true
+	},
+
+	// EveryVersionHasNeeds: each version Versions lists is a release that
+	// Needs knows.
+	law EveryVersionHasNeeds(name string) {
+		let vs = Versions(name) catch {
+		case UnknownPackage:
+			return true
+		}
+		for v in vs {
+			let _ = try Needs(name, v)
+		}
+		true
+	},
+}

@@ -1,0 +1,5 @@
+project shop
+  needs web ^2.1
+
+package web 2.1
+  needs log >=1.x
