@@ -34,12 +34,12 @@ const noOptionalLocks = "--no-optional-locks"
 // the first element of the []string the arguments are built from. A helper
 // that takes git's arguments as one plain variable is a known gap.
 func TestGitCallsTakeNoOptionalLocks(t *testing.T) {
-	root, err := exec.Command("git", noOptionalLocks, "rev-parse", "--show-toplevel").Output()
+	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("git rev-parse: %v", err)
 	}
 	repo := strings.TrimSpace(string(root))
-	ls := exec.Command("git", noOptionalLocks, "ls-files", "-z", "--", "*.go")
+	ls := exec.Command("git", "--no-optional-locks", "ls-files", "-z", "--", "*.go")
 	ls.Dir = repo
 	list, err := ls.Output()
 	if err != nil {
