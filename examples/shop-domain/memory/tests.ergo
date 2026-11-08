@@ -1,0 +1,98 @@
+// The laws of order.Orders, restated as property tests of Log over drawn
+// scripts (#162): each command of a script is sent in turn, and each law
+// is checked after it.
+
+import shop/order
+
+// sent is the events and the rejection's name of c, sent to the store.
+func sent(c order.Command) ([]order.Event, string) needs order.Orders {
+	let events = order.Orders.Send(c) catch {
+	case order.UnknownOrder:
+		return ([]order.Event{}, "UnknownOrder")
+	case order.AlreadyPlaced:
+		return ([]order.Event{}, "AlreadyPlaced")
+	case order.InvalidLine:
+		return ([]order.Event{}, "InvalidLine")
+	case order.WrongAmount:
+		return ([]order.Event{}, "WrongAmount")
+	case order.NotAllowed:
+		return ([]order.Event{}, "NotAllowed")
+	}
+	(events, "")
+}
+
+// same reports whether two logs hold equal events in the same order. A
+// slice has no == (G-ex-d-5).
+func same(a []order.Event, b []order.Event) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+test RejectedCommandEmitsNothingHolds(seed int) {
+	with context { order.Orders: New() } {
+		for c in order.Script(seed, 40) {
+			let before = order.Orders.History(order.OrderOf(c))
+			let _, rejected = sent(c)
+			if rejected != "" {
+				assert same(order.Orders.History(order.OrderOf(c)), before)
+			}
+		}
+	}
+}
+
+test AcceptedCommandIsRecordedHolds(seed int) {
+	with context { order.Orders: New() } {
+		for c in order.Script(seed, 40) {
+			let before = order.Orders.History(order.OrderOf(c))
+			let events, rejected = sent(c)
+			if rejected == "" {
+				let mut want = before
+				for e in events {
+					want = want.Append(e)
+				}
+				assert same(order.Orders.History(order.OrderOf(c)), want)
+			}
+		}
+	}
+}
+
+test ReplayRebuildsStateHolds(seed int) {
+	with context { order.Orders: New() } {
+		for c in order.Script(seed, 40) {
+			let _, _ = sent(c)
+			let id = order.OrderOf(c)
+			assert order.Replay(order.Orders.History(id)) == order.Orders.Current(id)
+		}
+	}
+}
+
+// The store records what the reference records: Simulate's log of each
+// order is the store's history of it.
+test TheStoreAgreesWithTheReference(seed int) {
+	let script = order.Script(seed, 40)
+	let log = order.Simulate(script)
+	with context { order.Orders: New() } {
+		for c in script {
+			let _, _ = sent(c)
+		}
+		assert same(order.Orders.History("a"), order.Of(log, "a"))
+		assert same(order.Orders.History("b"), order.Of(log, "b"))
+	}
+}
+
+test ARejectionLeavesTheStoreAsItWas {
+	with context { order.Orders: New() } {
+		let _, first = sent(order.Place{Order: "a", Customer: "ana", Lines: []order.Line{order.Line{Sku: "tea", Qty: 2, Price: 150}}})
+		let _, wrong = sent(order.Pay{Order: "a", Amount: 1})
+		assert first == "" && wrong == "WrongAmount"
+		assert len(order.Orders.History("a")) == 2
+		assert order.Orders.Current("a") == order.Open{S: order.Summary{Customer: "ana", Total: 300, Items: 2}}
+	}
+}

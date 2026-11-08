@@ -1,0 +1,79 @@
+// The desk runs the shop: it sends each command to the orders, starts a
+// saga for each placed order, feeds every event and every minute to the
+// running sagas, and sends the commands the sagas end with.
+
+import shop/order
+
+// Desk is the running sagas and the minute it is.
+type Desk { Running []Running, Now int }
+
+// Outcome is what came of one command: the events it recorded, or the
+// rejection that refused it, as text.
+type Outcome = Recorded{C order.Command, Events []order.Event} | Refused{C order.Command, Why string}
+
+// Open is a desk at minute 0 with no saga running.
+func Open() Desk { Desk{Running: []Running{}, Now: 0} }
+
+// Submit is the desk after command c, and the outcome of c and of each
+// command a saga sent because of it, in the order they ran.
+func Submit(d Desk, c order.Command) (Desk, []Outcome) needs order.Orders {
+	drain(d, []order.Command{c})
+}
+
+// Advance is the desk after the clock moves on by minutes, and the
+// outcomes of the commands the sagas sent at the new minute.
+func Advance(d Desk, minutes int) (Desk, []Outcome) needs order.Orders {
+	let now = d.Now + minutes
+	let still, sends = Feed(d.Running, Tick{Now: now})
+	drain(Desk{Running: still, Now: now}, sends)
+}
+
+// drain sends the queued commands in turn, and queues what the sagas
+// send in reply.
+func drain(d Desk, queued []order.Command) (Desk, []Outcome) needs order.Orders {
+	let mut desk = d
+	let mut queue = queued
+	let mut outcomes = []Outcome{}
+	let mut i = 0
+	for i < len(queue) {
+		let c = queue[i]
+		i = i + 1
+		let outcome = send(c)
+		outcomes = outcomes.Append(outcome)
+		match outcome {
+		case Recorded as r:
+			for e in r.Events {
+				let mut running = desk.Running
+				match Starts(e, desk.Now) {
+				case Some[Running] as s:
+					running = running.Append(s.Value)
+				case None:
+				}
+				let still, sends = Feed(running, Saw{E: e})
+				desk = Desk{..desk, Running: still}
+				for s in sends {
+					queue = queue.Append(s)
+				}
+			}
+		case Refused:
+		}
+	}
+	(desk, outcomes)
+}
+
+// send is the outcome of sending c to the orders.
+func send(c order.Command) Outcome needs order.Orders {
+	let events = order.Orders.Send(c) catch {
+	case order.UnknownOrder:
+		return Refused{C: c, Why: "no such order"}
+	case order.AlreadyPlaced:
+		return Refused{C: c, Why: "already placed"}
+	case order.InvalidLine as l:
+		return Refused{C: c, Why: "bad line " + l.Sku + ": " + l.Reason}
+	case order.WrongAmount as w:
+		return Refused{C: c, Why: "due \(w.Due), paid \(w.Got)"}
+	case order.NotAllowed as n:
+		return Refused{C: c, Why: "cannot " + n.Action + " an order that is " + n.Status}
+	}
+	Recorded{C: c, Events: events}
+}

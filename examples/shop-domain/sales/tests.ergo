@@ -1,0 +1,24 @@
+import shop/order
+
+test TheViewCountsAnOrdersLife {
+	let log = []order.Event{
+		order.Placed{Order: "a", Customer: "ana"},
+		order.ItemAdded{Order: "a", Sku: "tea", Qty: 2, Price: 150},
+		order.PaymentTaken{Order: "a", Amount: 300},
+		order.Placed{Order: "b", Customer: "bo"},
+		order.ItemAdded{Order: "b", Sku: "mug", Qty: 1, Price: 905},
+		order.PaymentTaken{Order: "b", Amount: 905},
+		order.Cancelled{Order: "b", Reason: "late", Refund: 905},
+		order.Shipped{Order: "a"},
+	}
+	assert Text(Of(log)) == "placed 2, paid 2, shipped 1, cancelled 1, units 3, revenue 3.00"
+	assert Agrees(log)
+}
+
+test MoneyHasTwoDecimals {
+	assert Money(0) == "0.00" && Money(5) == "0.05" && Money(1250) == "12.50" && Money(-905) == "-9.05"
+}
+
+test RevenueIsWhatOrdersHoldHolds(seed int) {
+	assert Agrees(order.Simulate(order.Script(seed, 40)))
+}

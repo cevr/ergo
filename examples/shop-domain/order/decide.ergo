@@ -1,0 +1,88 @@
+// Decide, Evolve and Replay: the aggregate's three rules. Decide refuses
+// what cannot happen, so Evolve is total and never fails.
+
+// Decide is the events command c records against an order in state s, or
+// the rejection that refuses it. The match over (state, command) is
+// exhaustive: a new command or state that no case covers does not check.
+func Decide(s State, c Command) []Event fails UnknownOrder | AlreadyPlaced | InvalidLine | WrongAmount | NotAllowed {
+	match (s, c) {
+	case (Absent, Place as p):
+		try placed(p)
+	case (_, Place as p):
+		AlreadyPlaced{Order: p.Order}
+	case (Absent, _):
+		UnknownOrder{Order: OrderOf(c)}
+	case (Open as o, Pay as p):
+		if p.Amount != o.S.Total {
+			return WrongAmount{Order: p.Order, Due: o.S.Total, Got: p.Amount}
+		}
+		[]Event{PaymentTaken{Order: p.Order, Amount: p.Amount}}
+	case (Open, Cancel as x):
+		[]Event{Cancelled{Order: x.Order, Reason: x.Reason, Refund: 0}}
+	case (Paid, Ship as sh):
+		[]Event{Shipped{Order: sh.Order}}
+	case (Paid as p, Cancel as x):
+		[]Event{Cancelled{Order: x.Order, Reason: x.Reason, Refund: p.S.Total}}
+	case (_, Pay as p):
+		NotAllowed{Order: p.Order, Action: "pay", Status: StatusOf(s)}
+	case (_, Ship as sh):
+		NotAllowed{Order: sh.Order, Action: "ship", Status: StatusOf(s)}
+	case (_, Cancel as x):
+		NotAllowed{Order: x.Order, Action: "cancel", Status: StatusOf(s)}
+	}
+}
+
+// placed is the events of placing p: Placed, then one ItemAdded per line.
+// An order needs a line; a line needs a product, a quantity of 1 to 99
+// and a positive price.
+func placed(p Place) []Event fails InvalidLine {
+	if len(p.Lines) == 0 {
+		return InvalidLine{Order: p.Order, Sku: "", Reason: "an order needs a line"}
+	}
+	let mut events = []Event{Placed{Order: p.Order, Customer: p.Customer}}
+	for l in p.Lines {
+		if l.Sku == "" {
+			return InvalidLine{Order: p.Order, Sku: l.Sku, Reason: "no product"}
+		}
+		if l.Qty < 1 || l.Qty > 99 {
+			return InvalidLine{Order: p.Order, Sku: l.Sku, Reason: "quantity \(l.Qty) is not in 1-99"}
+		}
+		if l.Price <= 0 {
+			return InvalidLine{Order: p.Order, Sku: l.Sku, Reason: "price \(l.Price) is not positive"}
+		}
+		events = events.Append(ItemAdded{Order: p.Order, Sku: l.Sku, Qty: l.Qty, Price: l.Price})
+	}
+	events
+}
+
+// Evolve is the state after event e. It is total: an event the state
+// cannot follow leaves the state as it is, because Decide never records
+// one.
+func Evolve(s State, e Event) State {
+	match (s, e) {
+	case (Absent, Placed as p):
+		Open{S: Summary{Customer: p.Customer, Total: 0, Items: 0}}
+	case (Open as o, ItemAdded as i):
+		Open{S: Summary{..o.S, Total: o.S.Total + int64(i.Qty)*i.Price, Items: o.S.Items + i.Qty}}
+	case (Open as o, PaymentTaken):
+		Paid{S: o.S}
+	case (Open as o, Cancelled as x):
+		Void{S: o.S, Reason: x.Reason}
+	case (Paid as p, Shipped):
+		Sent{S: p.S}
+	case (Paid as p, Cancelled as x):
+		Void{S: p.S, Reason: x.Reason}
+	case (_, _):
+		s
+	}
+}
+
+// Replay is the state of an order with the history events, folded from
+// Absent.
+func Replay(events []Event) State {
+	let mut s State = Absent
+	for e in events {
+		s = Evolve(s, e)
+	}
+	s
+}

@@ -1,0 +1,106 @@
+// The aggregate's stories: each command from each state, each rejection
+// with its fields, and the laws restated as property tests. The compiler
+// checks laws and does not run them yet (#162); until it does, these
+// tests run them.
+
+let tea = Line{Sku: "tea", Qty: 2, Price: 150}
+let mug = Line{Sku: "mug", Qty: 1, Price: 900}
+
+// decided is the events of c after the history, as text, or the
+// rejection's name and fields.
+func decided(history []Event, c Command) string {
+	let events = Decide(Replay(history), c) catch {
+	case UnknownOrder as u:
+		return "UnknownOrder " + u.Order
+	case AlreadyPlaced as a:
+		return "AlreadyPlaced " + a.Order
+	case InvalidLine as l:
+		return "InvalidLine " + l.Sku + ": " + l.Reason
+	case WrongAmount as w:
+		return "WrongAmount due \(w.Due) got \(w.Got)"
+	case NotAllowed as n:
+		return "NotAllowed " + n.Action + " " + n.Status
+	}
+	"\(len(events)) events"
+}
+
+let placedA = []Event{Placed{Order: "a", Customer: "ana"}, ItemAdded{Order: "a", Sku: "tea", Qty: 2, Price: 150}, ItemAdded{Order: "a", Sku: "mug", Qty: 1, Price: 900}}
+
+test PlacingRecordsALineEach {
+	let events = try Decide(Absent, Place{Order: "a", Customer: "ana", Lines: []Line{tea, mug}})
+	assert len(events) == 3
+	assert Replay(events) == Open{S: Summary{Customer: "ana", Total: 1200, Items: 3}}
+}
+
+test AnOrderLivesFromPlacedToShipped {
+	let paid = placedA.Append(PaymentTaken{Order: "a", Amount: 1200})
+	assert Replay(paid) == Paid{S: Summary{Customer: "ana", Total: 1200, Items: 3}}
+	assert decided(paid, Ship{Order: "a"}) == "1 events"
+	assert Replay(paid.Append(Shipped{Order: "a"})) == Sent{S: Summary{Customer: "ana", Total: 1200, Items: 3}}
+}
+
+test RejectionsNameTheRule {
+	assert decided([]Event{}, Pay{Order: "a", Amount: 1}) == "UnknownOrder a"
+	assert decided(placedA, Place{Order: "a", Customer: "ana", Lines: []Line{tea}}) == "AlreadyPlaced a"
+	assert decided([]Event{}, Place{Order: "a", Customer: "ana", Lines: []Line{}}) == "InvalidLine : an order needs a line"
+	assert decided([]Event{}, Place{Order: "a", Customer: "ana", Lines: []Line{Line{Sku: "tea", Qty: 100, Price: 1}}}) == "InvalidLine tea: quantity 100 is not in 1-99"
+	assert decided([]Event{}, Place{Order: "a", Customer: "ana", Lines: []Line{Line{Sku: "tea", Qty: 1, Price: 0}}}) == "InvalidLine tea: price 0 is not positive"
+	assert decided(placedA, Pay{Order: "a", Amount: 1000}) == "WrongAmount due 1200 got 1000"
+	assert decided(placedA, Ship{Order: "a"}) == "NotAllowed ship open"
+	let sent = placedA.Append(PaymentTaken{Order: "a", Amount: 1200}).Append(Shipped{Order: "a"})
+	assert decided(sent, Cancel{Order: "a", Reason: "late"}) == "NotAllowed cancel shipped"
+	assert decided(sent, Pay{Order: "a", Amount: 1200}) == "NotAllowed pay shipped"
+}
+
+test CancellingAPaidOrderRefundsIt {
+	let paid = placedA.Append(PaymentTaken{Order: "a", Amount: 1200})
+	let events = try Decide(Replay(paid), Cancel{Order: "a", Reason: "late"})
+	// A slice has no == (G-ex-d-5), so the test compares its one element.
+	assert len(events) == 1 && events[0] == Cancelled{Order: "a", Reason: "late", Refund: 1200}
+	assert Replay(paid.Append(events[0])) == Void{S: Summary{Customer: "ana", Total: 1200, Items: 3}, Reason: "late"}
+}
+
+// An event the state cannot follow leaves it as it is.
+test EvolveIsTotal {
+	assert Evolve(Absent, Shipped{Order: "a"}) == Absent
+	assert Replay(placedA.Append(Shipped{Order: "a"})) == Replay(placedA)
+}
+
+// The drawn scripts reach every state and every rejection.
+test ScriptsReachEveryRule {
+	let mut paid = 0
+	let mut shipped = 0
+	let mut refunded = 0
+	let mut rejected = 0
+	for seed in 0..50 {
+		let script = Script(seed, 40)
+		let log = Simulate(script)
+		for e in log {
+			match e {
+			case PaymentTaken:
+				paid = paid + 1
+			case Shipped:
+				shipped = shipped + 1
+			case Cancelled as x:
+				if x.Refund > 0 {
+					refunded = refunded + 1
+				}
+			case Placed, ItemAdded:
+			}
+		}
+		for c in script {
+			if decided([]Event{}, c) != "1 events" {
+				rejected = rejected + 1
+			}
+		}
+	}
+	assert paid > 20 && shipped > 10 && refunded > 3 && rejected > 100
+}
+
+test PaymentIsTheTotalHolds(seed int) {
+	assert PaymentsAreTotals(Simulate(Script(seed, 40)))
+}
+
+test RefundIsThePaymentHolds(seed int) {
+	assert RefundsArePayments(Simulate(Script(seed, 40)))
+}

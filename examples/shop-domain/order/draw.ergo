@@ -1,0 +1,89 @@
+// Script draws the commands the laws run: a seeded Random, two orders, and
+// a command for one of them at each step. A generated slice holds at most
+// three elements (G-ex-d-9), too few for an order's life, so the laws
+// draw their own.
+
+import rand
+
+// Script is n commands for the orders "a" and "b", drawn from a Random
+// seeded with seed. Most are accepted: a payment is for the order's total
+// one time in two, and one line in ten is invalid.
+func Script(seed int, n int) []Command {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let mut a State = Absent
+		let mut b State = Absent
+		let mut script = []Command{}
+		for _ in 0..n {
+			let id = if Random.IntN(2) == 0 { "a" } else { "b" }
+			let s = if id == "a" { a } else { b }
+			let c = drawCommand(id, s)
+			script = script.Append(c)
+			let events = Decide(s, c) catch {
+			case UnknownOrder, AlreadyPlaced, InvalidLine, WrongAmount, NotAllowed:
+				[]Event{}
+			}
+			let mut next = s
+			for e in events {
+				next = Evolve(next, e)
+			}
+			if id == "a" {
+				a = next
+			} else {
+				b = next
+			}
+		}
+		script
+	}
+}
+
+// drawCommand is a command for the order id in state s.
+func drawCommand(id string, s State) Command needs Random {
+	match Random.IntN(7) {
+	case 0:
+		Place{Order: id, Customer: "c-" + id, Lines: drawLines()}
+	case 1:
+		Place{Order: id, Customer: "c-" + id, Lines: drawLines()}
+	case 2:
+		Pay{Order: id, Amount: dueOf(s)}
+	case 3:
+		Pay{Order: id, Amount: dueOf(s) + int64(Random.IntN(3)) - 1}
+	case 4:
+		Ship{Order: id}
+	case 5:
+		Ship{Order: id}
+	case _:
+		Cancel{Order: id, Reason: "changed mind"}
+	}
+}
+
+// dueOf is what an order in state s is due: its total, or 0 when it has
+// none.
+func dueOf(s State) int64 {
+	match s {
+	case Open as o:
+		o.S.Total
+	case Paid as p:
+		p.S.Total
+	case Sent as x:
+		x.S.Total
+	case Void as v:
+		v.S.Total
+	case Absent:
+		0
+	}
+}
+
+let skus = []string{"tea", "mug", "pot", "cup", "lid", "jar", "box"}
+
+// drawLines is 0 to 3 lines; a line has no product, a quantity of 0 or a
+// price of 0 one time in ten each.
+func drawLines() []Line needs Random {
+	let mut lines = []Line{}
+	for _ in 0..Random.IntN(4) {
+		let sku = if Random.IntN(10) == 0 { "" } else { skus[Random.IntN(len(skus))] }
+		let qty = if Random.IntN(10) == 0 { 0 } else { 1 + Random.IntN(3) }
+		let price = if Random.IntN(10) == 0 { int64(0) } else { int64(50 * (1 + Random.IntN(4))) }
+		lines = lines.Append(Line{Sku: sku, Qty: qty, Price: price})
+	}
+	lines
+}
