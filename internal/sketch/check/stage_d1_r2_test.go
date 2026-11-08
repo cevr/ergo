@@ -38,7 +38,7 @@ func TestPreludeTypeAndConstantNamesAreBinders(t *testing.T) {
 		"uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64",
 		"byte", "rune", "duration", "comparable", "ordered", "number", "Map",
 		"true", "false", "len",
-		"Option", "Some", "None", "Console", "Clock", "Random", "Task",
+		"Option", "Some", "None", "Console", "Scheduler", "Random", "Task",
 	}
 	var cases []d1Case
 	for _, n := range names {

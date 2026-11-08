@@ -107,7 +107,7 @@ func manualModelRun(t *testing.T, seed uint64) {
 				}
 			} else {
 				asleep = append(asleep, s)
-				line.v.AwaitTimers(len(asleep))
+				waitFor(t, "the sleeper to park", func() bool { return line.Sleepers() == len(asleep) })
 			}
 			check("sleep")
 		case op < 8: // Advance(d)
@@ -123,7 +123,7 @@ func manualModelRun(t *testing.T, seed uint64) {
 				t.Fatalf("seed %d: a stopped sleeper woke", seed)
 			}
 			asleep = append(asleep[:i], asleep[i+1:]...)
-			line.v.AwaitTimers(len(asleep))
+			waitFor(t, "the stopped sleeper's timer to go", func() bool { return line.Sleepers() == len(asleep) })
 			check("stop")
 		default: // Now
 			check("now")

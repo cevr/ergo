@@ -54,7 +54,7 @@ func TestHostAuthorityRuns(t *testing.T) {
 	}
 	for _, c := range []struct{ name, head, row, cap string }{
 		{"process", "import os\n\n", "Console | os.Process", "os.Process"},
-		{"clock", "", "Console | Clock", "Clock"},
+		{"clock", "import time\n\n", "Console | time.Clock", "time.Clock"},
 	} {
 		// A refusal of the entry is an S109 (Refused).
 		o := lowerSource("hostEntry_"+c.name, c.head+"func main() needs "+c.row+" {\n\tConsole.Println(\"x\")\n}\n", true)

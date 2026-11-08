@@ -9,8 +9,9 @@ import (
 // TestTimeRuns (std-align S2b): std time lowers and runs. time.Since on a
 // Manual clock prints 1.5s; Format and Parse in UTC with named and Custom
 // layouts; a ParseError in a catch; a task asleep on the Manual wakes when
-// Advance reaches its deadline and not before; a host clock's two reads
-// never fall.
+// Advance reaches its deadline and not before; the monotonic reading
+// decides Before, After and Sub when wall and monotonic disagree; Unix and
+// Add carry nanoseconds into seconds; a host clock's two reads never fall.
 func TestTimeRuns(t *testing.T) {
 	runBehaviors(t, []behavior{{name: "time", src: stdTimeProgram, stdout: stdTimeOutput}})
 }
@@ -74,6 +75,17 @@ func main() fails time.ParseError needs Console | Ambient {
 	Console.Println(sleeper.Wait())
 	Console.Println(clock.Now().Format(time.RFC3339Nano) + " \(clock.Sleepers())")
 
+	// Two clocks whose wall and monotonic readings disagree: Before, After
+	// and Sub use the monotonic readings, as Go's do; times with no
+	// monotonic reading compare by the wall.
+	let late = time.NewManual(100)
+	let early = time.NewManual(0)
+	early.Advance(5s)
+	let x = late.Now()
+	let y = early.Now()
+	Console.Println("\(x.Before(y)) \(x.After(y)) \(y.Sub(x)) \(x.Equal(y)) \(time.Unix(100, 0).Before(time.Unix(5, 0)))")
+	Console.Println("\(t.Add(999999999ns).Nanosecond()) \(t.Add(-6ns).Nanosecond()) \(time.Unix(0, 3000000001).Nanosecond()) \(time.Unix(0, -1).UnixSeconds())")
+
 	let h = time.NewHost()
 	let a = h.Now()
 	let b = h.Now()
@@ -92,6 +104,8 @@ const stdTimeOutput = "1.5s\n" +
 	"1\n" +
 	"2s\n" +
 	"1970-01-01T00:01:42Z 0\n" +
+	"true false 5s false false\n" +
+	"4 999999999 1 -1\n" +
 	"true true\n"
 
 // stdTimeLawsProbe restates the time laws whose runner is
