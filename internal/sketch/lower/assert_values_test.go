@@ -125,7 +125,7 @@ func TestAssertLiteralsReadBack(t *testing.T) {
 	if exes == nil {
 		return
 	}
-	line := regexp.MustCompile(`^FAIL Show(\w+) \(case 1 of 100, seed \d+: x = (.*)\): assert failed at main\.ergo:\d+:\d+: x != x: left (.*), right (.*)$`)
+	line := regexp.MustCompile(`^FAIL Show(\w+) \(case 1 of 100, seed \d+, size 0: x = (.*)\): assert failed at main\.ergo:\d+:\d+: x != x: left (.*), right (.*)$`)
 	type shown struct{ kind, typ, lit string }
 	var seen []shown
 	for seed := 1; seed <= 5; seed++ {

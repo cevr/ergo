@@ -87,7 +87,7 @@ var testHelpers = []struct{ key, base string }{
 	{"fmt", "fmt"}, {"os", "os"}, {"sort", "sort"}, {"strconv", "strconv"}, {"strings", "strings"},
 	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"AssertDiff", "ergoAssertDiff"},
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
-	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"},
+	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"}, {"Runes", "ergoRunes"}, {"Edges", "ergoEdges"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
@@ -425,11 +425,15 @@ func (l *lowerer) testRunner() string {
 		b.WriteString("\t\t" + r + " := " + l.helper("NewRand") + "(" + seed + ", " + strconv.Quote(t.Name) + ")\n")
 		b.WriteString("\t\t" + ok + " := true\n")
 		b.WriteString("\t\tfor " + i + " := 1; " + ok + " && " + i + " <= " + strconv.Itoa(testCases) + "; " + i + "++ {\n")
+		// The case's size grows with its number (QuickCheck's sized):
+		// case i draws collections of up to i/4 elements at the top.
+		b.WriteString("\t\t\t" + r + ".size = " + i + " / 4\n")
 		args := []string{env}
 		conv := l.helper("strconv")
-		// The case's report: its number, the seed and each argument as an
-		// Ergo literal of its type (literal.go), written only when it fails.
-		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)"}
+		// The case's report: its number, the seed, the size and each
+		// argument as an Ergo literal of its type (literal.go), written
+		// only when it fails.
+		shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 		for k, v := range t.Params {
 			base := v.Name
 			if base == "_" {
@@ -462,7 +466,7 @@ func (l *lowerer) testRunner() string {
 // it uses is a reserved helper or one of the two runtime imports ($Runtime,
 // $Task); its locals name nothing else.
 func (l *lowerer) harness() string {
-	names := map[string]string{"Runtime": l.rt(), "Task": l.taskPkg()}
+	names := map[string]string{"Runtime": l.rt(), "Task": l.taskPkg(), "Depth": strconv.Itoa(testDepth)}
 	for _, h := range testHelpers {
 		names[h.key] = l.helper(h.key)
 	}
@@ -610,8 +614,13 @@ func $Where(args func() string) string {
 }
 
 // $Rand draws a property's arguments: splitmix64, so a seed replays every
-// case.
-type $Rand struct{ s uint64 }
+// case. size is the case's size, set by the runner before each case: case
+// i of 100 has size i/4, so collections grow with the run (QuickCheck's
+// sized).
+type $Rand struct {
+	s    uint64
+	size int
+}
 
 // $NewRand is the generator of the test name under seed: each property
 // draws its own stream, so adding a test changes no other test's cases.
@@ -635,11 +644,23 @@ func (r *$Rand) intn(n int) int { return int(r.next() % uint64(n)) }
 
 func (r *$Rand) bool() bool { return r.next()&1 == 0 }
 
-// i64 is a small value half the time, so a property meets zero, one and
-// both signs, and any 64 bits otherwise; a narrower type wraps it.
+// $Edges are the integers where code breaks: zero, one and minus one, and
+// the bounds of each Go integer width. A narrower type wraps an int64, so
+// each width meets its own bounds (127 and -128 for int8, 255 and 256 for
+// uint8, …).
+var $Edges = []int64{0, 1, -1, 127, -128, 128, -129, 255, 256, 32767, -32768, 65535, 65536, 2147483647, -2147483648, 4294967295, 4294967296, 9223372036854775807, -9223372036854775808}
+
+// i64 is biased to small values and edges: 40% in -10..10, 15% an edge
+// ($Edges), 15% in -999999..999999 and 30% any 64 bits; a narrower type
+// wraps it.
 func (r *$Rand) i64() int64 {
-	if r.bool() {
+	switch k := r.intn(20); {
+	case k < 8:
 		return int64(r.intn(21)) - 10
+	case k < 11:
+		return $Edges[r.intn(len($Edges))]
+	case k < 14:
+		return int64(r.intn(1999999)) - 999999
 	}
 	return int64(r.next())
 }
@@ -654,19 +675,63 @@ func (r *$Rand) f64() float64 {
 
 var $Runes = []rune("abz AZ09_-é世\n")
 
+// str is a string biased to short ones: half the time 0..5 units, else
+// 0..size. Each unit is drawn from a class a codec treats apart, so every
+// class appears in a run: half the time a rune of $Runes, else a quote, a
+// backslash, a control byte (0x00..0x1F), DEL, a byte that is not UTF-8
+// (a lone continuation byte 0x80..0xBF, or 0xFE or 0xFF), an astral rune
+// (U+10000..U+10FFFF), another BMP rune (no surrogate) or printable ASCII.
 func (r *$Rand) str() string {
-	b := make([]rune, r.intn(6))
-	for i := range b {
-		b[i] = $Runes[r.intn(len($Runes))]
+	n := r.intn(6)
+	if r.bool() {
+		n = r.intn(r.size + 1)
+	}
+	b := make([]byte, 0, n*4)
+	for i := 0; i < n; i++ {
+		switch r.intn(16) {
+		case 8:
+			b = append(b, '"')
+		case 9:
+			b = append(b, '\\')
+		case 10:
+			b = append(b, byte(r.intn(0x20)))
+		case 11:
+			b = append(b, 0x7f)
+		case 12:
+			if k := r.intn(0x42); k < 0x40 {
+				b = append(b, byte(0x80+k))
+			} else {
+				b = append(b, byte(0xFE+k-0x40))
+			}
+		case 13:
+			b = append(b, string(rune(0x10000+r.intn(0x100000)))...)
+		case 14:
+			b = append(b, string(rune(0x80+r.intn(0xD800-0x80)))...)
+		case 15:
+			b = append(b, byte(0x20+r.intn(0x5F)))
+		default:
+			b = append(b, string($Runes[r.intn(len($Runes))])...)
+		}
 	}
 	return string(b)
+}
+
+// limit is the largest collection length at depth d: the case's size at
+// the top ($Depth), halved at each level below it, so nested collections
+// stay small.
+func (r *$Rand) limit(d int) int {
+	n := r.size
+	for k := d; k < $Depth && n > 0; k++ {
+		n /= 2
+	}
+	return n
 }
 
 func $GenSlice[T any](r *$Rand, d int, elem func(*$Rand, int) T) []T {
 	if d <= 0 {
 		return []T{}
 	}
-	xs := make([]T, r.intn(4))
+	xs := make([]T, r.intn(r.limit(d)+1))
 	for i := range xs {
 		xs[i] = elem(r, d-1)
 	}
@@ -678,7 +743,7 @@ func $GenMap[K comparable, V any](r *$Rand, d int, key func(*$Rand, int) K, val 
 	if d <= 0 {
 		return m
 	}
-	for n := r.intn(4); n > 0; n-- {
+	for n := r.intn(r.limit(d) + 1); n > 0; n-- {
 		m[key(r, d-1)] = val(r, d-1)
 	}
 	return m

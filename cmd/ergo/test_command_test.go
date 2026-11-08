@@ -83,7 +83,7 @@ func TestTestCommand(t *testing.T) {
 	replay := write("replay.ergo", "test Residue(value int) { assert value % 7 != 3 }\n")
 	seeded, _, code := run("test", replay, "--seed", "7")
 	again, _, code2 := run("test", replay, "--seed=7")
-	if code != 1 || code2 != 1 || !regexp.MustCompile(`(?m)^FAIL Residue \(case \d+ of 100, seed 7: value = -?\d+\)`).MatchString(seeded) || seeded != again {
+	if code != 1 || code2 != 1 || !regexp.MustCompile(`(?m)^FAIL Residue \(case \d+ of 100, seed 7, size \d+: value = -?\d+\)`).MatchString(seeded) || seeded != again {
 		t.Fatalf("--seed 7: exit %d %q; --seed=7: exit %d %q", code, seeded, code2, again)
 	}
 	// Usage errors: exit 2, nothing on stdout, nothing run.
