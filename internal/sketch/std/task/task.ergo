@@ -3,6 +3,7 @@
 // runtime/v1's Go; its hidden arguments, the caller's frame scope and the
 // call's site, are docs/spec/stdlib.md's Hidden arguments.
 
+import queue
 import time
 
 // Go starts body as a child task of the calling task and returns at once:
@@ -35,4 +36,29 @@ law StopIsIdempotent() {
 	t.Stop()
 	t.Stop()
 	true
+}
+
+// SleepAdvancesNow: a task that sleeps d on a time.Manual wakes only after
+// the clock has moved by d, so the time it reads after the sleep is d or
+// more after the time it read before. The law advances the clock once the
+// task sleeps; the queue woke tells it when the task got past the sleep
+// with no Advance, so a sleep that returns at once makes the law false.
+// The law is in task, not time: task imports time, so time cannot import
+// task (TestStdImportsAreAcyclic).
+law SleepAdvancesNow(n int64) {
+	let m = time.NewManual(0)
+	let d = duration(1 + (n%1099511627775+1099511627775)%1099511627775)
+	let woke = queue.New[duration](1)
+	let t = with context { Scheduler: m, time.Clock: m } {
+		Go() {
+			let before = time.Clock.Now()
+			Scheduler.Sleep(d)
+			try woke.Push(time.Clock.Now().Sub(before))
+		}
+	}
+	for m.Sleepers() == 0 && woke.Len() == 0 {
+	}
+	m.Advance(d)
+	try t.Wait()
+	try woke.Pop() >= d
 }

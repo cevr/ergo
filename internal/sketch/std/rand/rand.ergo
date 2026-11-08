@@ -12,10 +12,12 @@
 // Shuffle and Perm draw as Go's do, call for call: Shuffle under
 // Seeded(seed) is Go's r.Shuffle over the same PCG.
 
+import slices
+
 // Shuffle is a copy of xs in a random order: Go's Fisher-Yates shuffle,
 // from the last element down, each swapped with one at IntN(i+1).
 func Shuffle[T](xs []T) []T needs Random {
-	let mut out = withCapacity[T](len(xs))
+	let mut out = slices.WithCapacity[T](len(xs))
 	for x in xs {
 		out = out.Append(x)
 	}
@@ -25,7 +27,7 @@ func Shuffle[T](xs []T) []T needs Random {
 // Perm is a random permutation of 0..n-1, as Go's r.Perm(n): the
 // identity, shuffled. A negative n is a defect, as in Go.
 func Perm(n int) []int needs Random {
-	let mut p = withCapacity[int](n)
+	let mut p = slices.WithCapacity[int](n)
 	for i in 0..n {
 		p = p.Append(i)
 	}
@@ -56,8 +58,3 @@ func shuffleOwned[T](owned []T) []T needs Random {
 	}
 	out
 }
-
-// withCapacity is runtime/v1's WithCapacity, as slices.WithCapacity binds
-// it: a std package does not import another yet (a std-to-std import
-// deadlocks the checker).
-extern go ergo.local/prototype/runtime/v1.WithCapacity func withCapacity[T](n int) []T

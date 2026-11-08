@@ -10,6 +10,9 @@
 // for each command. The extern is unexported, so a program starts a
 // process only through a Host it was given or made under Ambient.
 
+import slices
+import strings
+
 // NotFound is the failure of a program Name that is not on the PATH, or of
 // a path Name with no file at it.
 type NotFound { Name string }
@@ -69,11 +72,12 @@ func WithStdin(c Command, text string) Command { Command{..c, Stdin: text} }
 // program holds a NUL byte (the host refuses one), so two commands have one
 // Key exactly when their names and arguments are equal.
 func Key(c Command) string {
-	let mut key = c.Name
+	let mut parts = slices.WithCapacity[string](len(c.Args) + 1)
+	parts = parts.Append(c.Name)
 	for a in c.Args {
-		key = key + "\x00" + a
+		parts = parts.Append(a)
 	}
-	key
+	strings.Join(parts, "\x00")
 }
 
 // WithEnvOverrides: a second entry of one key wins.
@@ -126,16 +130,24 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 }
 
 // ScriptReplaysRecorded: a Script gives back the Result recorded for a
-// command, whatever its status.
+// command, whatever its status, and two commands whose arguments differ
+// never share a record: the arguments arg, arg and the one argument
+// arg + "," + arg each get their own.
 law ScriptReplaysRecorded(name string, arg string, status int, out string) {
-	let c = New(name, []string{arg})
+	let c = New(name, []string{arg, arg})
+	let joined = New(name, []string{arg + "," + arg})
 	let mut results = Map[string, Result]{}
 	results[Key(c)] = Result{Status: status, Stdout: out, Stderr: ""}
+	results[Key(joined)] = Result{Status: status + 1, Stdout: out, Stderr: ""}
 	let r = Script{Results: results}.Run(c) catch {
 	case NotFound, Denied, Failed:
 		return false
 	}
-	r.Status == status && r.Stdout == out && r.Stderr == ""
+	let s = Script{Results: results}.Run(joined) catch {
+	case NotFound, Denied, Failed:
+		return false
+	}
+	r.Status == status && r.Stdout == out && r.Stderr == "" && s.Status == status+1
 }
 
 // Host is the host's Runner. Its field gives this package the construction
