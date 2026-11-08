@@ -71,14 +71,17 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // TestActorModelAgreesWithTimedFold that Stop drains it.
 var childWaitLaws = map[string]bool{"After": true, "MachineStart": true}
 
-// actorWaitLaws are the callerWait bindings of std actor (MU3): each waits
-// on the actor's own runner (for room in its inbox, an answer, a state or
-// a change), which the native barrier cannot hold without a machine.
-// runtime/v1/actor_test.go TestActorWaitsAreInterruptible states their
-// laws: a stop of the waiting task ends each wait with an interruption, a
-// masked waiter waits to the end, and a stopped Send's signal never
-// enters the inbox.
-var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true}
+// actorWaitLaws are the waiting bindings of std actor (MU3): each waits on
+// the actor's own runner (for room in its inbox, an answer, a state, a
+// change, or the runner's end), which the native barrier cannot hold
+// without a machine. runtime/v1/actor_test.go states their laws:
+// TestActorWaitsAreInterruptible, that a stop of the waiting task ends a
+// Send, Ask, State or Changes wait with an interruption and that a stopped
+// Send's signal never enters the inbox (a masked waiter waits to the end,
+// since rt's Done is nil under a mask); TestActorModelAgreesWithTimedFold
+// and TestActorSendersKeepTheirOrder, that Stop (drainWait) returns only
+// after the runner and its timer ended and every queued Ask was answered.
+var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true, "Actor.Stop": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

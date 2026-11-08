@@ -189,8 +189,22 @@ func useSource(c stdMatchFunc, method bool) string {
 	b.WriteString("(" + strings.Join(params, ", ") + ")")
 	// The rest of the signature as the checker spells it: results, fails
 	// and needs.
+	// The parameter list ends at the ")" that closes its "(": a parameter
+	// of function type has parentheses of its own (actor.StartMachine's
+	// sink func(O) needs R).
 	text := sig.String()
-	b.WriteString(text[strings.Index(text, ")")+1:])
+	end, depth := 0, 0
+	for i, r := range text {
+		if r == '(' {
+			depth++
+		} else if r == ')' {
+			if depth--; depth == 0 {
+				end = i
+				break
+			}
+		}
+	}
+	b.WriteString(text[end+1:])
 	call := c.pkg.Name + "." + c.fn.Name + "(" + strings.Join(args, ", ") + ")"
 	if len(args) > 0 && method {
 		call = args[0] + "." + c.fn.Name + "(" + strings.Join(args[1:], ", ") + ")"
