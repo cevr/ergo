@@ -1,0 +1,147 @@
+// The provider laws of a machine actor (decisions 2026-11-03 (b)): its
+// steps apply in send order, a Reject keeps the state, and Done is final.
+// They run over tally, a Machine built from parts that reaches every
+// Decision, on a time.Manual that no one advances (a law cannot hold
+// Ambient, so it binds no host Scheduler; tally has no timer).
+
+import machines
+import time
+
+// tallyStep reaches each Decision by the signal mod 6.
+func tallyStep(s int, e int) Decision[int, int] {
+	match ((e % 6) + 6) % 6 {
+	case 0:
+		Enter[int]{Next: s + e}
+	case 1:
+		Stay[int]{Next: s + 1}
+	case 2:
+		Ignore
+	case 3:
+		Reject
+	case 4:
+		Emit[int, int]{Next: s - 1, Output: s}
+	case _:
+		Done[int]{Output: s}
+	}
+}
+
+func untimed(s int) Option[Timeout[int]] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed} }
+
+// folded is the state of tally after signals, as the pure step gives it,
+// up to the first Done, and whether a Done came.
+func folded(signals []int) (int, bool) {
+	let mut s = 0
+	for e in signals {
+		let d = tallyStep(s, e)
+		match d {
+		case Done[int]:
+			return (s, true)
+		case _:
+			s = machines.Next(s, d)
+		}
+	}
+	(s, false)
+}
+
+// sent is a tally actor that was sent signals; a Send after a Done fails
+// Stopped, which it ignores.
+func sent(signals []int) Actor[int, int, Decision[int, int]] needs Scheduler {
+	let a = StartMachine(tally(), 1, func(o int) {})
+	for e in signals {
+		a.Send(e) catch {
+		case Stopped:
+		}
+	}
+	a
+}
+
+// inOrder: the State after signals is the pure fold's, and a Send fails
+// Stopped only after a Done.
+func inOrder(signals []int) bool needs Scheduler {
+	let a = StartMachine(tally(), 1, func(o int) {})
+	let mut refused = false
+	for e in signals {
+		a.Send(e) catch {
+		case Stopped:
+			refused = true
+		}
+	}
+	let s = a.State()
+	a.Stop()
+	let (want, done) = folded(signals)
+	s == want && (done || !refused)
+}
+
+// rejectKeeps: an Ask of a rejected signal answers Reject and keeps the
+// state.
+func rejectKeeps(signals []int, n int) bool needs Scheduler {
+	let a = sent(signals)
+	let before = a.State()
+	let (_, done) = folded(signals)
+	let d = a.Ask(6*(n%1000) + 3) catch {
+	case Stopped:
+		a.Stop()
+		return done
+	}
+	let after = a.State()
+	a.Stop()
+	match d {
+	case Reject:
+		after == before && !done
+	case _:
+		false
+	}
+}
+
+// doneFinal: after an Ask answered Done, Send fails Stopped and State is
+// the state the Done saw.
+func doneFinal(signals []int, e int) bool needs Scheduler {
+	let a = sent(signals)
+	let before = a.State()
+	let d = a.Ask(5) catch {
+	case Stopped:
+		a.Stop()
+		return true
+	}
+	let mut final = false
+	match d {
+	case Done[int] as dn:
+		final = dn.Output == before
+	case _:
+	}
+	a.Send(e) catch {
+	case Stopped:
+		final = final && a.State() == before
+		a.Stop()
+		return final
+	}
+	a.Stop()
+	false
+}
+
+// SendsStepInOrder: the actor steps a sender's signals in the order it
+// sent them: its State after them is the pure fold's, and a Send fails
+// Stopped only once a Done was stepped.
+law SendsStepInOrder(signals []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		inOrder(signals)
+	}
+}
+
+// RejectKeepsState: an Ask that the step rejects answers Reject and keeps
+// the state.
+law RejectKeepsState(signals []int, n int) {
+	with context { Scheduler: time.NewManual(0) } {
+		rejectKeeps(signals, n)
+	}
+}
+
+// DoneIsFinal: after an Ask answered Done, the actor steps nothing: Send
+// fails Stopped, and State stays the state the Done saw.
+law DoneIsFinal(signals []int, e int) {
+	with context { Scheduler: time.NewManual(0) } {
+		doneFinal(signals, e)
+	}
+}

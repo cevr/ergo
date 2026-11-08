@@ -1,0 +1,147 @@
+// Package actor runs a machine live, as an actor: one task of its own that
+// steps the machine over the signals of an inbox, one at a time
+// (docs/spec/runtime.md, Machines and actors 6, 7 and 11; #57, #101). The
+// pure fold of the same machine is std machines; machines.RunTimed is the
+// reference this runner keeps (rule 10 of the runner contract). The Go body
+// is runtime/v1's MachineStart and the methods of its Actor; the caller's
+// task and Scheduler are hidden arguments (docs/spec/stdlib.md, Hidden
+// arguments).
+//
+// Effect: effect-machine's Machine.spawn and its actor ref (send, call,
+// waitFor, subscribe, stop); Erlang gen_statem run by its process. Go
+// control: a goroutine with a channel and a switch on the state.
+
+import machines
+
+// Stopped is the failure of Send and Ask on an actor that has ended (Done,
+// a failure after a Send or a timer, a defect, Stop) or whose Stop was
+// requested, and the answer of an Ask that was queued or in a step when
+// the actor ended. An ended actor is a normal end of the protocol, not a
+// stop of the caller.
+type Stopped {}
+
+// Actor is a running machine with state S, signal E, step decision D and
+// step error row F (StartMachine gives D = Decision[S, O]). Its values are
+// copies of one handle: any task may Send, Ask, read State and Stop.
+type Actor[S, E, D, F] {
+	// Send admits e into the inbox, waiting while it is full, and returns
+	// once e is queued, before it is stepped. A sender's signals are
+	// stepped in the order it sent them. It fails Stopped when the actor
+	// has ended or its Stop was requested.
+	Send(e E) fails Stopped,
+	// Ask admits e and waits until the actor has stepped it, committed and
+	// answered: the step's decision (a Reject included), or the step's
+	// failure, after which the actor goes on. It fails Stopped when the
+	// actor ended before e was stepped.
+	Ask(e E) D fails Stopped | F,
+	// State is the state after every signal admitted before it; on an
+	// ended actor, its last state. It never fails.
+	State() S,
+	// Stop closes admission, stops the actor and waits until it has ended,
+	// its timer stopped and its queued Asks answered Stopped. It fails with
+	// the step failure that ended the actor after a Send or a timer, if
+	// one did. A second Stop does the same at once.
+	Stop() fails F,
+	// Dropped is how many timer signals of ended entries the actor dropped
+	// instead of stepping them (runner rule 6).
+	Dropped() int,
+	// Changes is the actor's state when the loop begins, then each state
+	// it commits (Enter, Stay, Emit), in order; it ends after the actor
+	// ends. A break ends it. A loop that does not read keeps the states.
+	Changes() Seq[S],
+
+	// StopIsFinal: after Stop, no signal is admitted: Send fails Stopped.
+	law StopIsFinal(e E) {
+		Stop() catch {
+		case _:
+		}
+		Send(e) catch {
+		case Stopped:
+			return true
+		}
+		false
+	},
+	// ChangesStops: Changes is a Seq that stops (stdlib.md, Std laws 5).
+	// On a stopped actor it gives one value, its last state, so a yield
+	// that returns false at its k-th call (k of 1 or more) is called once.
+	law ChangesStops(k int) {
+		if k < 1 {
+			return true
+		}
+		Stop() catch {
+		case _:
+		}
+		let mut calls = 0
+		let s = Changes()
+		s(func(v S) bool {
+			calls = calls + 1
+			calls < k
+		})
+		calls == 1
+	},
+}
+
+// start is the Go body: the machine's first state and its step, the step
+// of a timer signal (fire), the delay of each state's timer (negative for
+// none), the decision's kind (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4,
+// Done 5), the state after a decision, the output of a decision, and the
+// inbox's capacity.
+extern go ergo.local/prototype/runtime/v1.MachineStart func start[S, E, D, F, R](initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+
+// StartMachine runs m as an actor with an inbox of capacity signals (0
+// makes each Send wait for the actor to take it; a negative capacity is a
+// defect) and returns at once. The actor steps one signal at a time, on
+// its own task, which a stop of the calling task stops: Enter, Stay and
+// Emit commit their Next; each entry (the first state, an Enter, an Emit)
+// arms m.After's timer on the caller's Scheduler, stopped and drained
+// before the next entry arms its own; a timer of an ended entry is
+// dropped. sink gets each Emit's output and Done's output, in order, on
+// the actor's task; Done then ends the actor. A machine with an input
+// starts as machines.Start(m, input).
+func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
+	start(m.Initial, m.Step, func(at S, s S) Decision[S, O] fails F needs R {
+		match m.After(at) {
+		case Some[Timeout[E]] as t:
+			try m.Step(s, t.Value.Signal)
+		case None:
+			Ignore
+		}
+	}, func(s S) duration {
+		match m.After(s) {
+		case Some[Timeout[E]] as t:
+			if t.Value.In < 0s {
+				0s
+			} else {
+				t.Value.In
+			}
+		case None:
+			-1ns
+		}
+	}, func(d Decision[S, O]) int {
+		match d {
+		case Enter[S]:
+			0
+		case Stay[S]:
+			1
+		case Emit[S, O]:
+			2
+		case Ignore:
+			3
+		case Reject:
+			4
+		case Done[O]:
+			5
+		}
+	}, func(s S, d Decision[S, O]) S { machines.Next(s, d) }, func(d Decision[S, O]) needs R {
+		match d {
+		case Emit[S, O] as em:
+			sink(em.Output)
+		case Done[O] as dn:
+			sink(dn.Output)
+		case Enter[S]:
+		case Stay[S]:
+		case Ignore:
+		case Reject:
+		}
+	}, capacity)
+}

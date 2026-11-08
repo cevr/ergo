@@ -39,7 +39,7 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 				t.Errorf("%s joins children and names no runtime/v1 law test", name)
 			}
 		default:
-			if hostWaitLaws[name] {
+			if hostWaitLaws[name] || actorWaitLaws[name] {
 				// A host wait parks on a host process, not on a runtime
 				// primitive the native barrier can hold; its stop, mask and
 				// reap laws are its runtime/v1 model test.
@@ -65,7 +65,20 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 // TestAfterMaskedCaller (a masked caller runs After to its end, the stop
 // pending), TestAfterBodyFirst and TestAfterDeadlineFromScheduler (no
 // child outlives the call).
-var childWaitLaws = map[string]bool{"After": true}
+// MachineStart (std actor, MU3) starts the actor's task as a child of the
+// caller and joins nothing: runtime/v1/actor_test.go TestActorStopCascades
+// states that a stop of the caller stops the actor, and
+// TestActorModelAgreesWithTimedFold that Stop drains it.
+var childWaitLaws = map[string]bool{"After": true, "MachineStart": true}
+
+// actorWaitLaws are the callerWait bindings of std actor (MU3): each waits
+// on the actor's own runner (for room in its inbox, an answer, a state or
+// a change), which the native barrier cannot hold without a machine.
+// runtime/v1/actor_test.go TestActorWaitsAreInterruptible states their
+// laws: a stop of the waiting task ends each wait with an interruption, a
+// masked waiter waits to the end, and a stopped Send's signal never
+// enters the inbox.
+var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Actor.State": true, "Actor.Changes": true}
 
 // hostWaitLaws are the callerWait bindings that wait for a host process
 // (std-align S3c): runtime/v1/exec_test.go TestExecStopModel states their

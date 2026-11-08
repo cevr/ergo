@@ -649,9 +649,10 @@ func (fc *funcCtx) bindFunc(fv string) string {
 // panic, which unwinds through the Go body as through any call. fv is
 // bound once, here, as adaptFunc binds it.
 func (fc *funcCtx) adaptPlainFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
+	if len(shape.Hidden) != 0 {
+		return fc.adaptTaskFunc(fv, shape, sig, site)
+	}
 	switch {
-	case len(shape.Hidden) != 0:
-		ice(site, "a std function parameter with parameters takes the hidden argument %s", shape.Hidden[0])
 	case len(shape.Params) != len(sig.Params):
 		ice(site, "a std function parameter has %d Go parameters for %d Ergo parameters", len(shape.Params), len(sig.Params))
 	case len(shape.Results) != 1 || shape.Results[0] == "error" || len(sig.Results) != 1:
@@ -670,6 +671,56 @@ func (fc *funcCtx) adaptPlainFunc(fv string, shape *v1.Body, sig *check.Signatur
 		ind := strings.Repeat("\t", fc.depth+1)
 		r := fc.scope.alloc("r")
 		return params, " " + fc.goType(sig.Results[0]), ind + r + ", _ := " + fv + "(" + strings.Join(args, ", ") + ")\n" + ind + "return " + r + "\n"
+	})
+}
+
+// adaptTaskFunc adapts fv, an Ergo function value of the uniform shape, to
+// shape, a Go function parameter of a std body that takes the hidden task
+// that runs it and then parameters of its own, such as the step
+// func(*rt.Task, S, E) (D, error) of actor.StartMachine (MU3). fv may have
+// rows: it runs on a copy of the caller's environment, captured here, that
+// holds the given task (Rule 1: the providers are captured, the task is the
+// runner's), as a task.Go block does. The Go results are fv's value, when
+// the Ergo function has one, then error, when the Ergo function type has an
+// error row; a Go function with no error drops fv's error, which a checked
+// value with no error row never returns. fv is bound once, here.
+func (fc *funcCtx) adaptTaskFunc(fv string, shape *v1.Body, sig *check.Signature, site syntax.Node) string {
+	fallible := len(shape.Results) > 0 && shape.Results[len(shape.Results)-1] == "error"
+	values := len(shape.Results)
+	if fallible {
+		values--
+	}
+	switch {
+	case len(shape.Hidden) != 1 || shape.Hidden[0] != v1.CallerTask:
+		ice(site, "the hidden arguments %v of a std function parameter with parameters", shape.Hidden)
+	case len(shape.Params) != len(sig.Params):
+		ice(site, "a std function parameter has %d Go parameters for %d Ergo parameters", len(shape.Params), len(sig.Params))
+	case len(sig.Results) > 1 || values != len(sig.Results):
+		ice(site, "a std function parameter returns %v for %d Ergo results", shape.Results, len(sig.Results))
+	}
+	fv = fc.bindFunc(fv)
+	return fc.envClosure(childEnv, "e", site, func(env string) (params []string, results, body string) {
+		args := []string{env}
+		for _, p := range sig.Params {
+			name := fc.scope.alloc("p")
+			params = append(params, name+" "+fc.goType(p.Type))
+			args = append(args, name)
+		}
+		ind := strings.Repeat("\t", fc.depth+1)
+		call := fv + "(" + strings.Join(args, ", ") + ")"
+		switch {
+		case values == 1 && fallible:
+			results, body = " ("+fc.goType(sig.Results[0])+", error)", ind+"return "+call+"\n"
+		case values == 1:
+			r := fc.scope.alloc("r")
+			results, body = " "+fc.goType(sig.Results[0]), ind+r+", _ := "+call+"\n"+ind+"return "+r+"\n"
+		case fallible:
+			err := fc.scope.alloc("err")
+			results, body = " error", ind+"_, "+err+" := "+call+"\n"+ind+"return "+err+"\n"
+		default:
+			body = ind + "_, _ = " + call + "\n"
+		}
+		return params, results, body
 	})
 }
 

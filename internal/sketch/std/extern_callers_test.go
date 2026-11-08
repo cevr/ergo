@@ -22,6 +22,7 @@ import (
 // that no host provider's function reaches, so a host body cannot hide
 // here.
 var notHostExterns = map[string]string{
+	"actor.start":           "starts the program's machine on a task of the program, its timers on the bound Scheduler",
 	"prelude.Append":        "appends to a slice of the program",
 	"prelude.Get":           "reads a Map of the program",
 	"prelude.Delete":        "changes a Map of the program",

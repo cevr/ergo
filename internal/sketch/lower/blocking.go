@@ -189,6 +189,19 @@ var runtimeBindings = map[string]runtimeBinding{
 	"IOIsTerminal": {},
 	"IOReadAll":    {},
 	"IOLines":      {},
+	// std actor (MU3; runtime.md, Machines and actors 11): MachineStart
+	// starts the actor's task as a child of the caller's task (a stop of
+	// the caller cascades into it) and waits for nothing but the child's
+	// start. Send, Ask, State and a Changes loop wait on the caller's task
+	// (for room, an answer or a state); Stop drains the runner
+	// uninterruptibly; Dropped reads a counter.
+	"MachineStart":  {wait: childWait},
+	"Actor.Send":    {wait: callerWait},
+	"Actor.Ask":     {wait: callerWait},
+	"Actor.State":   {wait: callerWait},
+	"Actor.Changes": {wait: callerWait},
+	"Actor.Stop":    {wait: drainWait},
+	"Actor.Dropped": {},
 	// std exec (std-align S3c; stdlib.md, exec): Run waits for the program
 	// on the caller's task. Its cancel hook is the stop of that task: the
 	// body kills the program's process group and waits for the reap
