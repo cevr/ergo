@@ -832,28 +832,28 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 }
 
 // arm writes a catch arm's statements; its last expression is the catch's
-// value when the catch has one.
-func (fc *funcCtx) arm(a *syntax.CatchArm, result string) {
+// value when the catch has one. It reports whether the arm's Go form
+// terminates (the match tree, M1b, reads it).
+func (fc *funcCtx) arm(a *syntax.CatchArm, result string) bool {
 	list := a.Body
 	if len(list) == 0 {
-		return
+		return false
 	}
 	if result != "" {
-		fc.yieldList(list, dest{kind: destAssign, name: result})
-		return
+		return fc.yieldList(list, dest{kind: destAssign, name: result})
 	}
 	last, isExpr := list[len(list)-1].(*syntax.ExprStmt)
 	if !isExpr {
-		fc.stmts(list)
-		return
+		return fc.stmts(list)
 	}
 	fc.stmts(list[:len(list)-1])
 	fc.at(last)
 	if result == "" {
 		fc.discard(last.X)
-		return
+		return false
 	}
 	fc.line(result + " = " + fc.assigned(last.X))
+	return false
 }
 
 // funcLit lowers a function literal or a trailing block to a Go closure of
@@ -973,15 +973,61 @@ func (fc *funcCtx) simpleCatch(x *syntax.CatchExpr) bool {
 }
 
 // patternCatch lowers a catch with record patterns, `case err:` or `case _`
-// (D-C3) to an expressionless Go switch over the error, as patternMatch does
-// for a match: the subject is the row value of the caught row, a Go error. A
-// `case err:` arm binds that error (its row value); what no arm handles
-// leaves the frame under try, and is a re-panicked defect otherwise
-// (rows.md, Catch 6).
+// (D-C3) as patternMatch lowers a match: the subject is the row value of the
+// caught row, a Go error, and the arms are its rows. A decision tree
+// (matchtree.go, M1b) tests the error's type once, with a type switch, and
+// then its fields; past the tree's bound it is one expressionless Go switch
+// (flatPatternCatch). A `case err:` arm binds that error (its row value);
+// what no arm handles leaves the frame under try, and is a re-panicked
+// defect otherwise (rows.md, Catch 6): the same error value either way.
 func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, result string, partial bool) {
 	row := &check.Union{Variants: m.Subjects}
 	fc.line("if " + o.err + " != nil {")
 	fc.depth++
+	rest := func() {
+		if partial {
+			fc.fail(o.err)
+		} else {
+			fc.line("panic(" + o.err + ")")
+		}
+	}
+	arms := make([]treeArm, len(x.Arms))
+	for k, a := range x.Arms {
+		for _, te := range a.Types {
+			p := fc.l.info.Patterns[te]
+			if p == nil {
+				ice(te, "a catch arm with no Patterns entry")
+			}
+			arms[k].alts = append(arms[k].alts, p)
+		}
+		arms[k].body = func() bool { return fc.arm(a, result) }
+	}
+	if tree := fc.matchTree(x, []string{o.err}, []check.Type{row}, arms); tree != nil {
+		exit := treeExit{
+			needed: func(bool) bool { return true },
+			write: func() {
+				fc.depth++
+				rest()
+				fc.depth--
+			},
+		}
+		fc.emitMatchTree(x, tree, arms, exit)
+	} else {
+		fc.flatPatternCatch(x, o.err, row, result, rest)
+	}
+	fc.depth--
+	if result != "" && o.val != "" {
+		fc.line("} else {")
+		fc.line("\t" + result + " = " + o.val)
+	}
+	fc.line("}")
+}
+
+// flatPatternCatch lowers a catch's arms to one expressionless Go switch
+// over the error err of the row type row, each arm's condition its
+// patterns' tests; rest writes what no arm handles. It is the reference of
+// the catch's tree (M1b).
+func (fc *funcCtx) flatPatternCatch(x *syntax.CatchExpr, err string, row check.Type, result string, rest func()) {
 	fc.line("switch {")
 	fc.enterSwitch()
 	hasDefault := false
@@ -996,7 +1042,7 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 			}
 			var tests []string
 			var b []patBind
-			fc.pattern(p, o.err, row, te, &tests, &b)
+			fc.pattern(p, err, row, te, &tests, &b)
 			cond := strings.Join(tests, " && ")
 			if cond == "" {
 				always, cond = true, "true"
@@ -1025,19 +1071,9 @@ func (fc *funcCtx) patternCatch(x *syntax.CatchExpr, m *check.Match, o operand, 
 	if !hasDefault {
 		fc.line("default:")
 		fc.depth++
-		if partial {
-			fc.fail(o.err)
-		} else {
-			fc.line("panic(" + o.err + ")")
-		}
+		rest()
 		fc.depth--
 	}
 	fc.leaveSwitch()
-	fc.line("}")
-	fc.depth--
-	if result != "" && o.val != "" {
-		fc.line("} else {")
-		fc.line("\t" + result + " = " + o.val)
-	}
 	fc.line("}")
 }
