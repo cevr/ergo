@@ -50,10 +50,10 @@ func main() needs Console {
 // row value have no equality.
 func TestStructuralEqualityRefusals(t *testing.T) {
 	for name, tc := range map[string]struct{ src, want string }{
-		"map-key":    {eqDecls + "func f(m Map[Value, int]) int { len(m) }\n", "map key type main.Value is not comparable"},
-		"constraint": {eqDecls + "func eq[T comparable](a T, b T) bool { a == b }\nfunc f(a Value) bool { eq(a, a) }\n", "main.Value is not comparable"},
+		"map-key":    {eqDecls + "func f(m Map[Value, int]) int { len(m) }\n", "map key type Value is not comparable"},
+		"constraint": {eqDecls + "func eq[T comparable](a T, b T) bool { a == b }\nfunc f(a Value) bool { eq(a, a) }\n", "Value is not comparable"},
 		"function":   {"func f(g escaping func() int) bool { g == g }\n", "func() int values cannot be compared with =="},
-		"row-value":  {"type E { N []int }\ntype F {}\nfunc g() int fails E | F { 1 }\nfunc f() int { g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }\n", "(main.E | main.F, int) values cannot be compared with =="},
+		"row-value":  {"type E { N []int }\ntype F {}\nfunc g() int fails E | F { 1 }\nfunc f() int { g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }\n", "(E | F, int) values cannot be compared with =="},
 	} {
 		t.Run(name, func(t *testing.T) {
 			o := lowerSource("refuse"+name, tc.src+"\nfunc main() {}\n", true)
