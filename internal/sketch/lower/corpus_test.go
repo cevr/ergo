@@ -167,6 +167,18 @@ func TestCorpusCompilesWithGc(t *testing.T) {
 		}
 	}
 	t.Logf("compiled %d corpus and %d accepted-node programs with gc", corpus, len(programs)-corpus)
+	if len(rejected) > 0 {
+		return
+	}
+	// go vet runs here once, on the whole corpus, in place of a vet per
+	// test (test-speed plan T2: buildAll links without vet).
+	m := newGoModuleDir(t)
+	for _, p := range programs {
+		m.program(p, p.mainGo())
+	}
+	if out, ok := m.goCommand(vetArgs...); !ok {
+		m.report("vet", out)
+	}
 }
 
 // runCorpus lowers the candidates of one part and builds its clean
