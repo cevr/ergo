@@ -196,6 +196,10 @@ var runtimeBindings = map[string]runtimeBinding{
 	"Ref.Set":    {},
 	"Ref.Update": {},
 	"RefModify":  {},
+	// An owned Update or Modify (V6, refown.go): the same step, with the
+	// copy of a shared value under the same lock.
+	"RefUpdateOwned": {},
+	"RefModifyOwned": {},
 	// std filepath (std-align S3a; stdlib.md, filepath): pure bodies that
 	// neither wait nor release.
 	"FilepathJoin":  {},

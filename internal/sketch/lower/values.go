@@ -105,7 +105,8 @@ type valueFacts struct {
 	fresh    map[*check.Func]int8         // 1 deciding, 2 fresh, 3 not fresh
 	consumed map[syntax.Expr]bool         // arguments an owned parameter takes in place (V5)
 	owned    map[*syntax.FuncDecl][]ownedParam
-	ownCall  map[*syntax.CallExpr]bool // calls that pass owned arguments unshared (V5)
+	ownCall  map[*syntax.CallExpr]bool     // calls that pass owned arguments unshared (V5)
+	refSites map[*syntax.CallExpr]*refSite // Update and Modify calls whose literal owns the held value (V6)
 }
 
 // ownedParam is an owned parameter (V5): its index, counting a dot call's
@@ -126,6 +127,7 @@ func (l *lowerer) valueFacts() *valueFacts {
 			consumed: map[syntax.Expr]bool{},
 			owned:    map[*syntax.FuncDecl][]ownedParam{},
 			ownCall:  map[*syntax.CallExpr]bool{},
+			refSites: map[*syntax.CallExpr]*refSite{},
 		}
 	}
 	return l.vals
@@ -188,6 +190,7 @@ type vvar struct {
 	local  bool // declared in this body (not a parameter, package let or capture)
 	mut    bool // a let mut
 	ptr    bool // a borrow, *T
+	handed bool // the parameter of an owned Ref site's literal (V6): unshared, as a let mut is
 	init   syntax.Expr
 	frame  *vframe
 	loops  []syntax.Node
@@ -228,22 +231,24 @@ type owning struct {
 }
 
 type valueWalk struct {
-	l       *lowerer
-	info    *check.Info
-	vf      *valueFacts
-	root    *vframe
-	vars    map[*check.Var]*vvar
-	order   []*vvar
-	count   int
-	pre     map[syntax.Node]int
-	post    map[syntax.Node]int
-	parent  map[syntax.Node]syntax.Node
-	frameOf map[syntax.Node]*vframe
-	frames  []*vframe
-	owns    []owning
-	calls   []*syntax.CallExpr // prelude Append and Delete calls
-	ergo    []*syntax.CallExpr // calls of functions with an Ergo body (V5)
-	args    []syntax.Expr      // arguments of owned parameters (V5)
+	l        *lowerer
+	info     *check.Info
+	vf       *valueFacts
+	root     *vframe
+	vars     map[*check.Var]*vvar
+	order    []*vvar
+	count    int
+	pre      map[syntax.Node]int
+	post     map[syntax.Node]int
+	parent   map[syntax.Node]syntax.Node
+	frameOf  map[syntax.Node]*vframe
+	frames   []*vframe
+	owns     []owning
+	calls    []*syntax.CallExpr       // prelude Append and Delete calls
+	ergo     []*syntax.CallExpr       // calls of functions with an Ergo body (V5)
+	args     []syntax.Expr            // arguments of owned parameters (V5)
+	sites    []*refSite               // owned Ref sites (V6, refown.go)
+	handOver map[*syntax.FuncLit]bool // their literals
 }
 
 // children are n's direct children, in Inspect's order.
@@ -316,7 +321,10 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 				}
 			}
 		}
+	case *syntax.FuncLit:
+		w.handParams(n, frame)
 	case *syntax.CallExpr:
+		w.refCall(n)
 		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeDelete(c.Func)) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
@@ -701,6 +709,8 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
+	// Owned Ref sites (V6), once every copy is decided.
+	w.decideSites()
 }
 
 // valueOwned reports whether owned parameters (V5) lower this build: the
@@ -1105,6 +1115,12 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 		if f := w.frameOfTail(p.X); f != nil && f == o.frame {
 			o.kind = occReturn
 		}
+	case *syntax.TupleExpr, *syntax.CompositeLit, *syntax.KeyValueExpr:
+		// A part of the value its frame returns leaves with the frame, as
+		// the value itself does (V6: write's (Changed, u)).
+		if w.returnNode(o, o.path) != nil {
+			o.kind = occReturn
+		}
 	case *syntax.CallExpr:
 		c := w.info.Calls[p]
 		if c == nil {
@@ -1122,6 +1138,11 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 				o.kind = occRead
 			}
 		case c.Kind == check.CallFunc && c.Func != nil && basicResult(w.typeOf(p)) && w.l.isPure(c.Func):
+			o.kind = occRead
+		case c.Kind == check.CallFunc && c.Func != nil && (w.l.isPure(c.Func) || pureStdBody(c.Func)) && (valueMutant == "share-blind" || !w.l.mayShare(w.typeOf(p), t)):
+			// A pure call keeps nothing of its argument past its result,
+			// and a result that reaches no Map or slice type the argument
+			// reaches shares none of it (V6: find(t, path) is a place).
 			o.kind = occRead
 		}
 	}
@@ -1435,7 +1456,12 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 	if use == nil || use.frame != vv.frame {
 		return false
 	}
-	returning := w.isReturn(use)
+	// A use that is the value, or a part of the value, its frame returns
+	// ends the frame: a use after it never runs, nor does one in another
+	// return of the frame, which ends it too. A use in the same returned
+	// value counts (the two parts would share).
+	ret := w.returnNode(use, use.id)
+	returning := ret != nil
 	if !returning {
 		for _, l := range use.loops {
 			if !containsNode(vv.loops, l) {
@@ -1450,7 +1476,22 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 		if o.frame != vv.frame {
 			return false
 		}
-		if !returning && o.pre > use.pre {
+		// An earlier use in a returned value that does not hold use ends
+		// the frame when it runs, so use does not run after it.
+		if other := w.returnNode(o, o.id); other != nil && o.pre < use.pre {
+			if !(w.pre[other] <= use.pre && use.pre < w.post[other]) || valueMutant == "return-blind" {
+				continue
+			}
+		}
+		if returning {
+			inRet := w.pre[ret] <= o.pre && o.pre < w.post[ret]
+			if !inRet && o.pre > use.pre || valueMutant == "return-blind" && inRet {
+				continue
+			}
+			if inRet && o.pre > use.pre {
+				return false
+			}
+		} else if o.pre > use.pre {
 			return false
 		}
 		if o.kind == occEscape || o.kind == occReturn {
@@ -1459,7 +1500,7 @@ func (w *valueWalk) freshIdent(vv *vvar, id *syntax.Ident, _ bool) bool {
 			}
 		}
 	}
-	if vv.mut {
+	if vv.mut || vv.handed {
 		return true
 	}
 	return vv.init != nil && w.fresh(vv.init)

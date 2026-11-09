@@ -249,6 +249,14 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 	if len(body.Params) != len(args) {
 		ice(x, "the std function %s has %d Go parameters for %d arguments", f.Name, len(body.Params), len(args))
 	}
+	if s := fc.refSiteOf(x); s != nil && name == "RefModify" && len(args) == 2 {
+		// sync.Modify with a literal that owns the held value (refown.go).
+		owned, err := v1.BodyOf("RefModifyOwned")
+		if err != nil {
+			ice(x, "RefModifyOwned: %v", err)
+		}
+		return fc.ownedRefCall(x, c, s, "RefModifyOwned", args[0], args[1], fc.stdTypeArgs(owned, f.Sig, c.TypeArgs, x), true)
+	}
 	vals := fc.callArgs(args, x)
 	for i, p := range body.Params {
 		if p.Func != nil {
@@ -285,6 +293,10 @@ func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
 // (CallOp): the receiver and the arguments are evaluated here, in order,
 // and the call is made on the current environment (opCall).
 func (fc *funcCtx) opCallExpr(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) (string, bool, bool) {
+	if s := fc.refSiteOf(x); s != nil && len(args) == 1 {
+		// Ref.Update with a literal that owns the held value (refown.go).
+		return fc.ownedRefCall(x, c, s, "RefUpdateOwned", c.Recv, args[0], "["+fc.goType(s.elem)+"]", false)
+	}
 	t := fc.typeOf(c.Recv)
 	vals := fc.callArgs(append([]syntax.Expr{c.Recv}, args...), x)
 	if n, ok := t.(*check.Named); ok && fc.l.runtimeType(n, x) != "" {
