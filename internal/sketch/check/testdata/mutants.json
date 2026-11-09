@@ -235,8 +235,9 @@
       "from": "\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}",
       "to": "\t\t\t\t}\n\t\t\t\t_ = 0\n\t\t\t}",
       "rule": "withOwnership: (no doc comment)",
-      "killers": [],
-      "gap": "plan 2.3: 3 check and 6 lower tests cover it; none asserts that no second diagnostic follows the refusal at the provider"
+      "killers": [
+        "check:TestCloseRefusals"
+      ]
     },
     {
       "name": "own-check-16-true-false-bindings.go:152",

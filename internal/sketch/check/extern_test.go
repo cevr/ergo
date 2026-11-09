@@ -882,6 +882,19 @@ func main() {
 	with W { A.Use() }
 }
 `,
+		// The refusal ends the provider's judgment: no release charge
+		// follows it, though the Close needs what main lacks (ledger
+		// mutant own-check-15: the continue after the refusal dropped).
+		"generic-witnessed-no-charge": `type A { Use() }
+type Named { Name() string }
+type N {}
+func Name(_ N) string { "n" }
+type G[T] { Value T }
+func Use[T Named](_ G[T]) {}
+func Close[T Named](_ G[T]) needs Console { Console.Println("closed") }
+let W = context { A: G[N]{Value: N} } // want S109
+func main() { with W { A.Use() } }
+`,
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
