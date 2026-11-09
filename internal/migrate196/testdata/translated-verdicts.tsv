@@ -18,11 +18,11 @@ proto/probes/duplicate-parameter.sketch	S108
 proto/probes/duplicate-wire.sketch	S108
 proto/probes/duration-overflow.sketch	S108 S114
 proto/probes/duration-try.sketch	S108 S114
-proto/probes/duration-type-name.sketch	S104 S108
+proto/probes/duration-type-name.sketch	S104
 proto/probes/empty-block.sketch	S108
 proto/probes/empty-wire.sketch	OK
 proto/probes/error-alias-shadow.sketch	OK
-proto/probes/error-as-value.sketch	S105 S108 S108 S109
+proto/probes/error-as-value.sketch	S108 S108 S109
 proto/probes/error-method.sketch	S108 S108
 proto/probes/error-receiver-shadow.sketch	OK
 proto/probes/escaped-bom.sketch	OK
@@ -69,7 +69,7 @@ proto/probes/provider-scheduler.sketch	S106 S108
 proto/probes/receiver-parameter.sketch	S108 S108
 proto/probes/recursive-product.sketch	S108 S109
 proto/probes/recursive-sum-ok.sketch	S108 S109
-proto/probes/same-local-as-cap.sketch	S108
+proto/probes/same-local-as-cap.sketch	OK
 proto/probes/shadow-unused.sketch	S108
 proto/probes/shadowed-call.sketch	S108 S108
 proto/probes/sleep-timeout.sketch	S114
@@ -86,7 +86,7 @@ proto/probes/union-field-zero.sketch	S108 S108
 proto/probes/union-return.sketch	S108 S108 S109
 proto/probes/unused-expression.sketch	S108 S110
 proto/probes/unused-wire-provider.sketch	S108
-proto/probes/user-type-shadow.sketch	S108
+proto/probes/user-type-shadow.sketch	S109
 proto/probes/void-argument.sketch	S108
 proto/probes/void-catch-value.sketch	S108 S110
 proto/probes/void-fallible-return-value.sketch	S108
@@ -99,8 +99,8 @@ proto/probes/wire-predeclared-name.sketch	S108
 proto/probes/wire-sibling.sketch	S102
 proto/probes/with-local-capture.sketch	OK
 proto/probes/with-name.sketch	S108
-proto/probes/with-nonlocal-return.sketch	S108 S108 S108
-proto/probes/with-return.sketch	S108 S108
+proto/probes/with-nonlocal-return.sketch	S108 S108
+proto/probes/with-return.sketch	S108
 proto/reject/catch-not-total.sketch	S103 S108 S108
 proto/reject/missing-capability.sketch	S102
 proto/reject/sleep-not-duration.sketch	S108
@@ -108,20 +108,20 @@ proto/reject/undeclared-error.sketch	S101
 proto/reject/unknown-name.sketch	S104
 proto/reject/unprovided.sketch	S102 S108
 repo/docs_research_ef-migrate_checkout.sketch	S108 S114
-repo/docs_research_ef-migrate_data.sketch	S108
+repo/docs_research_ef-migrate_data.sketch	OK
 repo/docs_research_ef-migrate_lifecycle.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S107 S114
-repo/docs_research_ef-migrate_machine-breaker.sketch	S104 S108 S108 S108 S108 S108 S108 S108
+repo/docs_research_ef-migrate_machine-breaker.sketch	S103 S104 S108 S108 S108 S108 S108 S108 S108
 repo/docs_research_ef-migrate_main.sketch	S108 S108 S108
 repo/examples_editions_sketch_main.sketch	S108
 v0/sketch-eval-8/five/checkout.go.sketch	S108 S114
-v0/sketch-eval-8/five/codec-transforms.go.sketch	S104 S104 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S113
+v0/sketch-eval-8/five/codec-transforms.go.sketch	S104 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S108 S110 S113
 v0/sketch-eval-8/five/concurrency.go.sketch	S104 S104 S104 S104 S108
 v0/sketch-eval-8/five/layers.go.sketch	S108 S108 S109 S111 S113
-v0/sketch-eval-8/five/machine-breaker.go.sketch	S104 S108 S108 S108 S108 S108 S108 S108 S108 S113
+v0/sketch-eval-8/five/machine-breaker.go.sketch	S103 S104 S108 S108 S108 S108 S108 S108 S108 S108 S113
 v0/sketch-eval-8/five/recipes-retry.go.sketch	S104 S108 S108 S108 S108 S108
 v0/sketch-eval-8/loops/fetchall.go.sketch	S104 S104 S104 S104 S104 S104 S108 S108 S108
-v0/sketch-eval-8/loops/poller_test.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S108
+v0/sketch-eval-8/loops/poller_test.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S108 S108 S114
 v0/sketch-eval-9/gointerop.go.sketch	S104 S109 S109 S109
-v0/sketch-eval-9/http-endpoints.go.sketch	S104 S104 S104 S104 S108 S108 S108
-v0/sketch-eval-9/loops/poller_test.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S108
-v0/sketch-eval-9/stm-batching.go.sketch	S104 S104 S104 S104 S108
+v0/sketch-eval-9/http-endpoints.go.sketch	S104 S104 S104 S108 S108 S108 S110
+v0/sketch-eval-9/loops/poller_test.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S104 S108 S108 S114
+v0/sketch-eval-9/stm-batching.go.sketch	S104 S104 S104 S104 S104 S104 S104 S104 S104 S108
