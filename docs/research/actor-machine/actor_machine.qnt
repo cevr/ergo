@@ -57,6 +57,21 @@
 //  10 failOnInterrupt:  an interrupted work pushes its failure
 //  11 workBeforeCommit: the work starts with the epoch before the commit
 //  12 publishFirst:     observers see the new entry before its work starts
+//  13 notifyTwice:      an observer reads a state and keeps it, so it gets it twice
+//  14 skipBeforeStop:   an observer's loop ends at the end with states unread
+//  15 staleSnapshot:    a new observer's first state is one from before its start
+//  16 drainDrops:       Drain drops the last queued signal
+//
+// MU12 adds observers and the drain. Each observer of OBS may begin a
+// Changes loop at any point (a WaitFor, a SendAndWait, a Select are such
+// loops): it gets the state shown now, then each state published after
+// it, from a buffer of its own, and its loop ends once the actor ended
+// and it read the buffer. Every written state is published: a Stay's at
+// its commit, an entry's once its children run, and one whose entry a
+// stop overtook at the halt. Drain closes admission; the runner steps
+// what is queued and ends when nothing is queued and no entry is open. A
+// Stop may overtake a drain. Laws: changesInOrderOnce,
+// waitForMatchesReplay, nothingAfterEnd, drainStepsQueued (below).
 module actor_machine {
   const MUTANT: int
   const SENDERS: Set[int]
@@ -97,8 +112,30 @@ module actor_machine {
   var answers: int -> int
   var lastStepped: int -> int
   var bad: Set[str]
+  // MU12: ob is the observers. state counts the commits (Enter, Stay,
+  // Emit; state i is the i-th written state); shown is the last state
+  // published (the actor's State and the snapshot a new Changes gets).
+  // For each observer o of OBS: subAt is the state it was given at its
+  // subscription (-1: not subscribed), bufs the states published to it
+  // that it has not read, got the states it read, done that its loop
+  // ended (the actor ended and it read every state).
+  type Obs = { state: int, shown: int, subAt: int -> int, bufs: int -> List[int],
+    got: int -> List[int], done: int -> bool }
+  var ob: Obs
+  // MU12: dr is the drain and the end. req: Drain was called (admission
+  // closed, queued signals are still stepped). admitted and stepped are
+  // the ids of the signals admitted and stepped; endBy is how the actor
+  // ended: "", "done", "defect", "stop" or "drain".
+  var dr: { req: bool, admitted: Set[int], stepped: Set[int], endBy: str }
 
+  pure val OBS = Set(0, 1)
   pure val none = { kind: "none", sender: -1, seq: -1, epoch: -1 }
+
+  // publish shows state s to every subscribed observer whose loop has not
+  // ended: one copy each, in commit order.
+  def publish(o: Obs, s: int): Obs =
+    { ...o, shown: s, bufs: OBS.mapBy(i =>
+      if (o.subAt.get(i) >= 0 and not(o.done.get(i))) o.bufs.get(i).append(s) else o.bufs.get(i)) }
 
   // The first entry may have a timer and a work; observers then see it.
   action init = all {
@@ -126,6 +163,9 @@ module actor_machine {
     answers' = IDS.mapBy(_ => 0),
     lastStepped' = SENDERS.mapBy(_ => -1),
     bad' = Set(),
+    ob' = { state: 0, shown: 0, subAt: OBS.mapBy(_ => -1), bufs: OBS.mapBy(_ => []),
+      got: OBS.mapBy(_ => []), done: OBS.mapBy(_ => false) },
+    dr' = { req: false, admitted: Set(), stepped: Set(), endBy: "" },
   }
 
   def id(e: Env): int = e.sender * MSGS + e.seq
@@ -148,16 +188,18 @@ module actor_machine {
       inbox' = inbox.append(e),
       asked' = if (k == "ask") asked.union(Set(id(e))) else asked,
       answers' = answers,
+      dr' = { ...dr, admitted: dr.admitted.union(Set(id(e))) },
     } else all {
       inbox' = inbox,
       asked' = if (k == "ask") asked.union(Set(id(e))) else asked,
       answers' = answer(answers, e, 1),
+      dr' = dr,
     },
     nextSeq' = nextSeq.setBy(i, x => x + 1),
     open' = open, stopReq' = stopReq, runner' = runner, cur' = cur, inFlight' = inFlight,
     epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch, work' = work, workEpoch' = workEpoch,
     pending' = pending, seen' = seen, arms' = arms, starts' = starts,
-    lastStepped' = lastStepped, bad' = bad,
+    lastStepped' = lastStepped, bad' = bad, ob' = ob,
   }
 
   // The timer child wakes and pushes its tick, with its entry's epoch. A
@@ -172,7 +214,7 @@ module actor_machine {
     nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner, cur' = cur,
     inFlight' = inFlight, epoch' = epoch, timerEpoch' = timerEpoch, work' = work,
     workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
-    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad, ob' = ob, dr' = dr,
   }
 
   // A stopped timer child ends without pushing.
@@ -182,7 +224,7 @@ module actor_machine {
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
     cur' = cur, inFlight' = inFlight, epoch' = epoch, timerEpoch' = timerEpoch, work' = work,
     workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
-    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad, ob' = ob, dr' = dr,
   }
 
   // A running work pushes a result with its entry's epoch: a one-shot
@@ -200,7 +242,7 @@ module actor_machine {
     nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner, cur' = cur,
     inFlight' = inFlight, epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch,
     workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
-    asked' = asked, answers' = answers, lastStepped' = lastStepped,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped, ob' = ob, dr' = dr,
   }
 
   // A work ends: a running listener returns with nothing to send, or an
@@ -211,7 +253,7 @@ module actor_machine {
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
     cur' = cur, inFlight' = inFlight, epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch,
     workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
-    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad, ob' = ob, dr' = dr,
   }
 
   // The runner takes the front envelope (mutant 7: any one; mutant 6: also
@@ -230,12 +272,13 @@ module actor_machine {
       inbox' = inbox.slice(0, k).concat(inbox.slice(k + 1, inbox.length())),
       bad' = if (signal and e.seq < lastStepped.get(e.sender)) bad.union(Set("order")) else bad,
       lastStepped' = if (signal) lastStepped.set(e.sender, e.seq) else lastStepped,
+      dr' = if (signal) { ...dr, stepped: dr.stepped.union(Set(id(e))) } else dr,
     },
     runner' = "busy",
     inFlight' = inFlight + 1,
     nextSeq' = nextSeq, open' = open, stopReq' = stopReq, epoch' = epoch, timer' = timer,
     timerEpoch' = timerEpoch, work' = work, workEpoch' = workEpoch, pending' = pending,
-    seen' = seen, arms' = arms, starts' = starts, asked' = asked, answers' = answers,
+    seen' = seen, arms' = arms, starts' = starts, asked' = asked, answers' = answers, ob' = ob,
   }
 
   // A tick or a result of an ended entry is dropped (mutant 1 steps a
@@ -251,7 +294,7 @@ module actor_machine {
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, epoch' = epoch,
     timer' = timer, timerEpoch' = timerEpoch, work' = work, workEpoch' = workEpoch,
     pending' = pending, seen' = seen, arms' = arms, starts' = starts, asked' = asked,
-    answers' = answers, lastStepped' = lastStepped, bad' = bad,
+    answers' = answers, lastStepped' = lastStepped, bad' = bad, ob' = ob, dr' = dr,
   }
 
   // A defect of the work ends the actor, whatever its epoch, as Done does:
@@ -273,7 +316,7 @@ module actor_machine {
     inFlight' = inFlight - 1,
     nextSeq' = nextSeq, stopReq' = stopReq, epoch' = epoch, timerEpoch' = timerEpoch,
     workEpoch' = workEpoch, seen' = seen, arms' = arms, starts' = starts,
-    asked' = asked, lastStepped' = lastStepped,
+    asked' = asked, lastStepped' = lastStepped, ob' = ob, dr' = { ...dr, endBy: "defect" },
   }
 
   // The step of cur commits a decision d. Enter and Emit end the entry:
@@ -321,6 +364,12 @@ module actor_machine {
         seen' = if (reenter and MUTANT == 12) epoch + 1 else seen,
         bad' = if (d == "done") badNow.union(Set("doneSeen")) else badNow,
       },
+      // Enter, Stay and Emit write the next state. Stay shows it at
+      // once; an entry shows it once its children run (arm).
+      ob' = if (d == "stay") publish({ ...ob, state: ob.state + 1 }, ob.state + 1)
+        else if (reenter) { ...ob, state: ob.state + 1 }
+        else ob,
+      dr' = if (d == "done" and MUTANT != 4) { ...dr, endBy: "done" } else dr,
     },
     cur' = none,
     inFlight' = inFlight - 1,
@@ -354,7 +403,9 @@ module actor_machine {
     seen' = epoch,
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
     cur' = cur, inFlight' = inFlight, epoch' = epoch, asked' = asked, answers' = answers,
-    lastStepped' = lastStepped,
+    lastStepped' = lastStepped, dr' = dr,
+    // The entry's state is shown once its children run (MU12: publish).
+    ob' = if (ob.shown != ob.state) publish(ob, ob.state) else ob,
   }
 
   // Stop from outside: admission closes at once.
@@ -365,7 +416,7 @@ module actor_machine {
     inbox' = inbox, nextSeq' = nextSeq, runner' = runner, cur' = cur, inFlight' = inFlight,
     epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch, work' = work,
     workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
-    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad, ob' = ob, dr' = dr,
   }
 
   // The interrupted runner ends: an Ask in its step and every queued Ask
@@ -385,13 +436,95 @@ module actor_machine {
     nextSeq' = nextSeq, open' = open, stopReq' = stopReq, epoch' = epoch, timerEpoch' = timerEpoch,
     workEpoch' = workEpoch, seen' = seen, arms' = arms, starts' = starts, asked' = asked,
     lastStepped' = lastStepped, bad' = bad,
+    // A state written before the stop is shown, also when its entry's
+    // children had not started (MU12).
+    ob' = if (ob.shown != ob.state) publish(ob, ob.state) else ob,
+    dr' = { ...dr, endBy: "stop" },
   }
 
-  action stutter = all {
-    inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
+  // The variables an observer or a drain request leaves alone.
+  action keepRunner = all {
+    inbox' = inbox, nextSeq' = nextSeq, stopReq' = stopReq, runner' = runner,
     cur' = cur, inFlight' = inFlight, epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch,
     work' = work, workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms,
     starts' = starts, asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+  }
+
+  // MU12: observer o begins a Changes loop (a WaitFor, a SendAndWait, a
+  // Select), at any point, also after the end: its first state is the one
+  // shown now (mutant 15: the one before it, a state from before the
+  // wait's start).
+  action subscribe(o: int): bool = all {
+    ob.subAt.get(o) < 0,
+    val first = if (MUTANT == 15 and ob.shown > 0) ob.shown - 1 else ob.shown
+    ob' = { ...ob, subAt: ob.subAt.set(o, ob.shown), bufs: ob.bufs.set(o, [first]) },
+    open' = open, dr' = dr,
+    keepRunner,
+  }
+
+  // Observer o reads its next state (mutant 13: it is read and kept, so
+  // the observer gets it twice).
+  action observe(o: int): bool = all {
+    ob.subAt.get(o) >= 0,
+    not(ob.done.get(o)),
+    ob.bufs.get(o).length() > 0,
+    val b = ob.bufs.get(o)
+    ob' = { ...ob, got: ob.got.setBy(o, g => g.append(b.head())),
+      bufs: ob.bufs.set(o, if (MUTANT == 13) b else b.tail()) },
+    open' = open, dr' = dr,
+    keepRunner,
+  }
+
+  // Observer o's loop ends once the actor ended and it read every state
+  // shown to it (mutant 14: it ends at the end, with states unread, so a
+  // state written just before a stop is skipped).
+  action observerEnds(o: int): bool = all {
+    ob.subAt.get(o) >= 0,
+    not(ob.done.get(o)),
+    runner == "ended",
+    MUTANT == 14 or ob.bufs.get(o).length() == 0,
+    ob' = { ...ob, done: ob.done.set(o, true) },
+    open' = open, dr' = dr,
+    keepRunner,
+  }
+
+  // MU12: Drain closes admission; the runner goes on stepping what is
+  // queued (mutant 16: the last queued signal is dropped at the request).
+  action requestDrain = all {
+    not(dr.req),
+    not(stopReq),
+    dr' = { ...dr, req: true },
+    open' = false,
+    inbox' = if (MUTANT == 16 and inbox.length() > 0) inbox.slice(0, inbox.length() - 1) else inbox,
+    nextSeq' = nextSeq, stopReq' = stopReq, runner' = runner,
+    cur' = cur, inFlight' = inFlight, epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch,
+    work' = work, workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms,
+    starts' = starts, asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+    ob' = ob,
+  }
+
+  // A drained runner ends when nothing is queued and no step or entry is
+  // open: the timer child is stopped and the work interrupted, as at
+  // every end.
+  action drainEnds = all {
+    dr.req,
+    not(stopReq),
+    runner == "idle",
+    not(pending),
+    inbox.length() == 0,
+    runner' = "ended",
+    timer' = if (timer == "sleeping") "stopping" else timer,
+    work' = if (work == "running") "stopping" else work,
+    dr' = { ...dr, endBy: "drain" },
+    inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, cur' = cur,
+    inFlight' = inFlight, epoch' = epoch, timerEpoch' = timerEpoch, workEpoch' = workEpoch,
+    pending' = pending, seen' = seen, arms' = arms, starts' = starts, asked' = asked,
+    answers' = answers, lastStepped' = lastStepped, bad' = bad, ob' = ob,
+  }
+
+  action stutter = all {
+    open' = open, ob' = ob, dr' = dr,
+    keepRunner,
   }
 
   action step = any {
@@ -414,6 +547,10 @@ module actor_machine {
     arm(has, hasWork),
     requestStop,
     halt,
+    nondet o = OBS.oneOf()
+    any { subscribe(o), observe(o), observerEnds(o) },
+    requestDrain,
+    drainEnds,
     stutter,
   }
 
@@ -435,7 +572,28 @@ module actor_machine {
   val safe = runToCompletion and noStaleStep and exitBeforeEntry and oneTimerPerEntry and
     oneLiveWorkPerEntry and timerOnlyInItsEntry and workOnlyInItsEntry and
     nothingAfterInterrupt and observersAfterWork and noStepAfterEnd and perSenderOrder and
-    askAnsweredOnce
+    askAnsweredOnce and changesInOrderOnce and waitForMatchesReplay and nothingAfterEnd and
+    drainStepsQueued
+
+  // MU12 laws over the observers and the drain.
+  // ChangesInOrderOnce: each observer reads consecutive written states,
+  // each once, in commit order, whatever the number of observers.
+  val changesInOrderOnce = OBS.forall(o =>
+    ob.got.get(o).indices().forall(i => ob.got.get(o)[i] == ob.subAt.get(o) + i))
+  // WaitForMatchesReplay: an observer's first state is the one shown at
+  // its start, so with changesInOrderOnce its states are a replay of the
+  // written states from its start (never one from before it).
+  val waitForMatchesReplay = OBS.forall(o =>
+    ob.got.get(o).length() == 0 or ob.got.get(o)[0] == ob.subAt.get(o))
+  // NothingAfterEnd: an observer's loop ends after the actor ended, having
+  // read the last written state (a state written just before a stop
+  // counts), and no state is written after it.
+  val nothingAfterEnd = OBS.forall(o =>
+    not(ob.done.get(o)) or
+      (runner == "ended" and ob.got.get(o).length() > 0 and ob.got.get(o)[ob.got.get(o).length() - 1] == ob.state))
+  // DrainStepsQueued: an actor that a drain ended stepped every signal it
+  // admitted.
+  val drainStepsQueued = dr.endBy != "drain" or dr.admitted.subseteq(dr.stepped)
 
   // Witnesses: the design must reach each of these, so `safe` is not
   // vacuous. Each `no…` value is the negation; a run must violate it.
@@ -446,6 +604,14 @@ module actor_machine {
   val noEndAfterAsks = not(runner == "ended" and sendersDone and asked.size() >= 2)
   val noFullInbox = inbox.length() < CAP
   val noTwoSendersQueued = not(inbox.length() == CAP and inbox[0].sender != inbox[1].sender and inbox[0].sender >= 0 and inbox[1].sender >= 0)
+  // MU12 witnesses: an observer reads three states to the end; a wait
+  // starts after two commits; a stop ends the actor while an observer has
+  // states unread; a drain ends the actor after two admitted signals.
+  val noLongObserver = not(OBS.exists(o => ob.done.get(o) and ob.got.get(o).length() >= 3))
+  val noLateWait = not(OBS.exists(o => ob.subAt.get(o) >= 2))
+  val noStopOvertakes = not(runner == "ended" and dr.endBy == "stop" and
+    OBS.exists(o => not(ob.done.get(o)) and ob.bufs.get(o).length() > 0 and ob.subAt.get(o) >= 0))
+  val noDrainEnd = not(dr.endBy == "drain" and dr.admitted.size() >= 2)
 }
 
 module design2 { import actor_machine(MUTANT = 0, SENDERS = Set(0, 1)).* }
@@ -462,3 +628,7 @@ module workEarly { import actor_machine(MUTANT = 9, SENDERS = Set(0, 1)).* }
 module failOnInterrupt { import actor_machine(MUTANT = 10, SENDERS = Set(0, 1)).* }
 module workBeforeCommit { import actor_machine(MUTANT = 11, SENDERS = Set(0, 1)).* }
 module publishFirst { import actor_machine(MUTANT = 12, SENDERS = Set(0, 1)).* }
+module notifyTwice { import actor_machine(MUTANT = 13, SENDERS = Set(0, 1)).* }
+module skipBeforeStop { import actor_machine(MUTANT = 14, SENDERS = Set(0, 1)).* }
+module staleSnapshot { import actor_machine(MUTANT = 15, SENDERS = Set(0, 1)).* }
+module drainDrops { import actor_machine(MUTANT = 16, SENDERS = Set(0, 1)).* }

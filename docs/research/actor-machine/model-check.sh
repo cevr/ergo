@@ -17,7 +17,8 @@ run() {
 }
 run design2 safe ok 50000
 run design3 safe ok 50000
-for w in noStaleTick noStaleResult noInterruptedWork noDefectEnd noEndAfterAsks noFullInbox noTwoSendersQueued; do
+for w in noStaleTick noStaleResult noInterruptedWork noDefectEnd noEndAfterAsks noFullInbox noTwoSendersQueued \
+  noLongObserver noLateWait noStopOvertakes noDrainEnd; do
   run design2 "$w" violation 50000
 done
 run noEpoch noStaleStep violation 50000
@@ -32,5 +33,9 @@ run workEarly exitBeforeEntry violation 50000
 run failOnInterrupt nothingAfterInterrupt violation 50000
 run workBeforeCommit workOnlyInItsEntry violation 50000
 run publishFirst observersAfterWork violation 50000
+run notifyTwice changesInOrderOnce violation 50000
+run skipBeforeStop nothingAfterEnd violation 50000
+run staleSnapshot waitForMatchesReplay violation 50000
+run drainDrops drainStepsQueued violation 50000
 echo "MODEL_STATUS=$status"
 exit $status
