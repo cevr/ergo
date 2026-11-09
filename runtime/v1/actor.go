@@ -135,6 +135,16 @@ import (
 //     new epoch, and Restarts counts it. A Done, a Stop, a Drain and a
 //     typed failure end the actor for good; the defect that finds the
 //     budget spent is the actor's exit.
+//  17. Outputs (fua-a): an Emit's and a Done's output goes to the sink
+//     first, once the step decided it (after a durable save): before the
+//     decision is Latest, the old entry's exit (rule 5), the new entry's
+//     open (rule 7, so a timer that is not positive raises after the
+//     output), the state's publish, the Ask's answer and the actor's
+//     end. A signal the old entry's children, timer or work send while
+//     the sink runs is stale (rule 6). An observer that sees a state has
+//     every output of the commits up to it. A child's sink is its
+//     toParent (rule 13), so a child's output is in its parent's inbox
+//     before the child's state is shown.
 type Actor[S, E, D any] struct {
 	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
@@ -668,14 +678,19 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		}
 		return s, false, nil
 	}
+	// The output goes first (rule 17): the sink has it before the runner
+	// acts on the decision, so before any observer can see the decision
+	// or the state it made (Latest, Changes, State, the answer, the exit).
+	if k == decideEmit || k == decideDone {
+		a.out(at, d)
+	}
 	a.mu.Lock()
 	a.latest, a.hasLatest = d, true
 	if k == decideDone {
 		a.final, a.finished = d, true
 	}
 	a.mu.Unlock()
-	switch k {
-	case decideEnter, decideEmit:
+	if k == decideEnter || k == decideEmit {
 		if err := a.stopKids(); err != nil {
 			raise(err)
 		}
@@ -684,11 +699,6 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		s = a.next(s, d)
 		a.epoch++
 		a.open(at, s)
-		if k == decideEmit {
-			a.out(at, d)
-		}
-	case decideDone:
-		a.out(at, d)
 	}
 	a.cur = nil
 	if env.kind == askSignal {

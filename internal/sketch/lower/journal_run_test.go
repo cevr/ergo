@@ -259,11 +259,10 @@ func relayStep(s int, e int) Decision[int, int] {
 }
 
 func dropped(j journal.Journal[int, int]) bool needs Scheduler {
-	let start = queue.New[int](1)
 	let gate = queue.New[int](1)
 	let sent = queue.New[int](1)
 	let relayWork = func(s int) Option[func(send func(e int))] {
-		if s != 1 {
+		if s != 0 {
 			return None
 		}
 		Some[func(send func(e int))]{Value: func(send func(e int)) {
@@ -278,10 +277,6 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 		}}
 	}
 	let a = journal.Start(Machine[int, int, int]{Initial: 0, Step: relayStep, After: untimed, Work: relayWork}, j, 0, 4, func(o int) {
-		start.Pop() catch {
-		case queue.Closed:
-			return
-		}
 		gate.Push(1) catch {
 		case queue.Closed:
 		}
@@ -298,10 +293,6 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	}
 	a.Send(11) catch {
 	case actor.Stopped:
-		return false
-	}
-	start.Push(1) catch {
-	case queue.Closed:
 		return false
 	}
 	a.Ask(13) catch {

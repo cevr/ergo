@@ -159,9 +159,9 @@ law RecoveryIsTheFold(ops []int, every int) {
 	}
 }
 
-// relay is the machine of DroppedIsNotJournaled: 0 Go Emits into 1, whose
-// work sends Ping (12) once gate opens; 11 Leave Enters 2; Ping Stays with
-// 100 more; 13 is ignored.
+// relay is the machine of DroppedIsNotJournaled: state 0's work sends
+// Ping (12) once gate opens; 10 Go Emits into 1; 11 Leave Enters 2; Ping
+// Stays with 100 more; 13 is ignored.
 func relayStep(s int, e int) Decision[int, int] {
 	match (s, e) {
 	case (0, 10):
@@ -175,17 +175,17 @@ func relayStep(s int, e int) Decision[int, int] {
 	}
 }
 
-// dropped runs relay so that a Ping of entry 1 is queued behind Leave and
-// so dropped: the sink of Go's Emit holds the runner until the work has
-// sent Ping, and Leave was queued before. It holds that the actor dropped
-// one signal, that the journal kept Go and Leave only, and that a
-// recovery reaches the actor's state.
+// dropped runs relay so that a Ping of entry 0 is sent after Go ended
+// that entry, and so dropped: the sink of Go's Emit runs before the runner
+// acts on the decision (runner rule 17), and it holds the runner until
+// entry 0's work has sent Ping. It holds that the actor dropped one
+// signal, that the journal kept Go and Leave only, and that a recovery
+// reaches the actor's state.
 func dropped(j journal.Journal[int, int]) bool needs Scheduler {
-	let start = queue.New[int](1)
 	let gate = queue.New[int](1)
 	let sent = queue.New[int](1)
 	let relay = Machine[int, int, int]{Initial: 0, Step: relayStep, After: func(s int) Option[Timeout[int]] { None }, Work: func(s int) Option[func(send func(e int))] {
-		if s != 1 {
+		if s != 0 {
 			return None
 		}
 		Some[func(send func(e int))]{Value: func(send func(e int)) {
@@ -200,10 +200,6 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 		}}
 	}}
 	let a = journal.Start(relay, j, 0, 4, func(o int) {
-		start.Pop() catch {
-		case queue.Closed:
-			return
-		}
 		gate.Push(1) catch {
 		case queue.Closed:
 		}
@@ -220,10 +216,6 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	}
 	a.Send(11) catch {
 	case actor.Stopped:
-		return false
-	}
-	start.Push(1) catch {
-	case queue.Closed:
 		return false
 	}
 	a.Ask(13) catch {

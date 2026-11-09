@@ -106,8 +106,19 @@ func (r releaser) Sleep(t *rt.Task, d time.Duration) {
 	}
 }
 
+// tout is an output the sink got, with the state an observer that began
+// a Changes loop at that moment saw first (rule 17: the state before the
+// commit that gave the output).
+type tout struct {
+	out   int
+	shown tstate
+}
+
 // start runs m as an actor whose outputs go to outs.
-func (m tmachine) start(t *rt.Task, sl Sleeper, capacity int, gateOpen chan struct{}, entered chan struct{}, mu *sync.Mutex, outs *[]int) *Actor[tstate, tsig, tdec] {
+func (m tmachine) start(t *rt.Task, sl Sleeper, capacity int, gateOpen chan struct{}, entered chan struct{}, mu *sync.Mutex, outs *[]tout) *Actor[tstate, tsig, tdec] {
+	// self is set before the first signal is sent, so before the first
+	// output.
+	var self *Actor[tstate, tsig, tdec]
 	step := func(_ *rt.Task, s tstate, e tsig) (tdec, error) {
 		if e.v == gate {
 			entered <- struct{}{}
@@ -126,13 +137,19 @@ func (m tmachine) start(t *rt.Task, sl Sleeper, capacity int, gateOpen chan stru
 		}
 		return s
 	}
-	out := func(_ *rt.Task, d tdec) {
+	out := func(at *rt.Task, d tdec) {
+		var shown tstate
+		for s := range self.Changes(at) {
+			shown = s
+			break
+		}
 		mu.Lock()
-		*outs = append(*outs, d.out)
+		*outs = append(*outs, tout{d.out, shown})
 		mu.Unlock()
 	}
-	return MachineStart(Site("actor test"), t, sl, m.init, step, fire, m.in,
+	self = MachineStart(Site("actor test"), t, sl, m.init, step, fire, m.in,
 		noWork[tstate], hasNoWork, runNoWork[tsig], func(d tdec) int { return d.kind }, next, out, capacity)
+	return self
 }
 
 // noWork, hasNoWork and runNoWork are the work of a machine whose states
@@ -149,7 +166,7 @@ func runNoWork[E any](*rt.Task, struct{}, func(E)) {}
 type ref struct {
 	m        tmachine
 	s        tstate
-	outs     []int
+	outs     []tout
 	now      int
 	armed    bool
 	deadline int
@@ -197,9 +214,14 @@ func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
 	armed := false
 	switch d.kind {
 	case decideEnter, decideEmit:
-		// The runner commits, then arms: a defect of the arm ends the
-		// actor before the Emit's output and the answer, so the asker
-		// gets Stopped.
+		// The runner gives the Emit's output first, while the state before
+		// is the one shown (rule 17), then commits and arms: a defect of
+		// the arm ends the actor after the output and before the answer,
+		// so the asker gets Stopped.
+		if d.kind == decideEmit {
+			r.outs = append(r.outs, tout{d.out, r.s})
+			r.seen["an emit"] = true
+		}
 		r.s = d.next
 		armed = r.open()
 		if r.defect {
@@ -207,10 +229,6 @@ func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
 				return d, false, ActorStopped{}
 			}
 			return d, false, nil
-		}
-		if d.kind == decideEmit {
-			r.outs = append(r.outs, d.out)
-			r.seen["an emit"] = true
 		}
 	case decideStay:
 		r.s = d.next
@@ -222,7 +240,7 @@ func (r *ref) step(e tsig, timer, asked bool) (tdec, bool, error) {
 			r.seen["an asked reject"] = true
 		}
 	case decideDone:
-		r.outs = append(r.outs, d.out)
+		r.outs = append(r.outs, tout{d.out, r.s})
 		r.ended = true
 		r.seen["done"] = true
 	}
@@ -248,7 +266,7 @@ type driver struct {
 	gateOpen chan struct{}
 	entered  chan struct{}
 	mu       sync.Mutex
-	outs     []int
+	outs     []tout
 	fail     string
 }
 

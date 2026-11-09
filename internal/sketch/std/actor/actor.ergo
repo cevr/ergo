@@ -115,7 +115,8 @@ extern go ergo.local/prototype/runtime/v1.ActorNoTimer func noTimer() duration
 // dropped. A timer whose In is not positive is a defect that ends the
 // actor, as in machines.RunTimed: it would fire at its entry's instant,
 // and a state whose timer re-enters it would never let time pass. sink gets each Emit's output and Done's output, in order, on
-// the actor's task; Done then ends the actor. A machine with an input
+// the actor's task, before any observer sees the decision or its state
+// (runtime.md, Machines and actors 11.15); Done then ends the actor. A machine with an input
 // starts as machines.Start(m, input).
 func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink func(o O) needs R) Actor[S, E, Decision[S, O], F] needs R | Scheduler {
 	let first = m.Initial
