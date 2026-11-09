@@ -112,8 +112,7 @@ func civilCases(r *rand.Rand, n int) (cases, want []string) {
 // Ergo has no reference interpreter yet (test-speed T8).
 func TestTimeCivilMatchesGo(t *testing.T) {
 	needsBuild(t)
-	p := mustLower(t, "timeCivil", timeCivilProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	exes := tableExes(t, "timeCivil")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

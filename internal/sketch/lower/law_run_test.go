@@ -56,7 +56,7 @@ func main() needs Console {
 // the only place a law runs.
 func TestLawRunB13(t *testing.T) {
 	needsBuild(t)
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_b13", lawRunB13)}, true)
+	exes := tableExes(t, "lawrun_b13")
 	if exes == nil {
 		return
 	}

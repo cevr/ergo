@@ -165,7 +165,7 @@ test RecorderTasks(n int) {
 // interpreter yet (test-speed T8).
 func TestIORecorderBehavesAsBefore(t *testing.T) {
 	needsBuild(t)
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "recorder", recorderProbe)}, true)
+	exes := tableExes(t, "recorder")
 	if exes == nil {
 		return
 	}

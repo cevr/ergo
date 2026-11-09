@@ -246,8 +246,7 @@ func TestFSWritesRuns(t *testing.T) {
 	}
 	newMode := pi.Mode().Perm()
 
-	p := mustLower(t, "fsWrites", fsWritesProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	exes := tableExes(t, "fsWrites")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

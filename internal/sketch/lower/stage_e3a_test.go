@@ -3,6 +3,7 @@ package lower
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,23 +66,32 @@ func e3Programs(t *testing.T) []e3Program {
 // lowerTestBuild checks src and lowers its test build.
 func lowerTestBuild(t *testing.T, name, src string) *lowered {
 	t.Helper()
+	out, err := lowerTestBuildErr(name, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// lowerTestBuildErr is lowerTestBuild that returns its failure.
+func lowerTestBuildErr(name, src string) (*lowered, error) {
 	out := &lowered{name: name, src: src}
 	file, err := syntax.Parse(src)
 	if err != nil {
-		t.Fatalf("%s: %v", name, err)
+		return nil, fmt.Errorf("%s: %v", name, err)
 	}
 	out.file = file
 	out.pkg, out.diags = check.Check("main", []*syntax.File{file}, nil)
 	if len(out.diags) > 0 {
-		t.Fatalf("%s: %v", name, out.diags)
+		return nil, fmt.Errorf("%s: %v", name, out.diags)
 	}
 	u := Unit{Package: out.pkg, Files: []*syntax.File{file}, Sources: []Source{{Path: testSourcePath, Text: src}}}
 	files, err := LowerTests(u)
 	if err != nil {
-		t.Fatalf("%s: the test build: %v\n%s", name, err, src)
+		return nil, fmt.Errorf("%s: the test build: %v\n%s", name, err, src)
 	}
 	out.files = files
-	return out
+	return out, nil
 }
 
 // runExeArgs runs a built program with args and returns its stdout, stderr

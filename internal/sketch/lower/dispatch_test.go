@@ -331,7 +331,7 @@ var dispatchCheck = os.Getenv("ERGO_TEST_DISPATCH_CHECK")
 var dispatchTwins sync.Map
 
 // buildTwins is buildAll under dispatchCheck.
-func buildTwins(t *testing.T, programs []*lowered) map[string]string {
+func buildTwins(t testing.TB, programs []*lowered) map[string]string {
 	t.Helper()
 	exes := buildDispatch(t, programs)
 	separate := buildSeparate(t, programs)
@@ -407,7 +407,7 @@ func appendCheck(line string) {
 }
 
 // symlinkProgram makes bin/NAME start the dispatcher under NAME.
-func symlinkProgram(t *testing.T, dispatcher, exe string) {
+func symlinkProgram(t testing.TB, dispatcher, exe string) {
 	t.Helper()
 	if err := os.Symlink(dispatcher, exe); err != nil {
 		t.Fatal(err)

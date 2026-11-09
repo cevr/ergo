@@ -540,8 +540,7 @@ var fsLawStatements = map[string]string{
 // Ergo has no reference interpreter yet (test-speed T8).
 func TestFSMemoryAgreesWithHost(t *testing.T) {
 	needsBuild(t)
-	p := mustLower(t, "fsMemory", fsMemoryProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	exes := tableExes(t, "fsMemory")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

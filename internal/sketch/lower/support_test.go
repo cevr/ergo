@@ -122,6 +122,13 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 		return nil
 	}
 	fastTierGuard(t, "buildAll links Go programs")
+	return linkPrograms(t, programs)
+}
+
+// linkPrograms is buildAll's link: the dispatcher, or the path the test
+// variables select. The program tables (table_test.go) link through it too.
+func linkPrograms(t testing.TB, programs []*lowered) map[string]string {
+	t.Helper()
 	if len(programs) == 0 {
 		return nil
 	}
@@ -141,12 +148,12 @@ func buildAll(t *testing.T, programs []*lowered, link bool) map[string]string {
 // goModuleDir is a temporary module that holds the runtime and the given
 // files, with the go command that builds in it.
 type goModuleDir struct {
-	t     *testing.T
+	t     testing.TB
 	root  string
 	byPkg map[string]*lowered
 }
 
-func newGoModuleDir(t *testing.T) *goModuleDir {
+func newGoModuleDir(t testing.TB) *goModuleDir {
 	t.Helper()
 	m := &goModuleDir{t: t, root: t.TempDir(), byPkg: map[string]*lowered{}}
 	m.write("go.mod", []byte(goMod))
@@ -223,7 +230,7 @@ var vetArgs = []string{"vet", "-trimpath", "-unreachable=false", "./p/..."}
 // and returns, for each program, bin/NAME: a symbolic link that starts the
 // dispatcher as that program. It does not vet: TestCorpusCompilesWithGc
 // vets the corpus once.
-func buildDispatch(t *testing.T, programs []*lowered) map[string]string {
+func buildDispatch(t testing.TB, programs []*lowered) map[string]string {
 	t.Helper()
 	m := newGoModuleDir(t)
 	names := make([]string, 0, len(programs))
@@ -258,7 +265,7 @@ func buildDispatch(t *testing.T, programs []*lowered) map[string]string {
 
 // buildSeparate is the reference path (ERGO_TEST_SEPARATE_BINARIES=1): go
 // vet, then one binary per program.
-func buildSeparate(t *testing.T, programs []*lowered) map[string]string {
+func buildSeparate(t testing.TB, programs []*lowered) map[string]string {
 	t.Helper()
 	m := newGoModuleDir(t)
 	for _, p := range programs {

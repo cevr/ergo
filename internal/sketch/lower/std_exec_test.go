@@ -182,7 +182,7 @@ var execLawStatements = map[string]string{
 // the only place a law runs.
 func TestExecLaws(t *testing.T) {
 	needsBuild(t)
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "execlaws", execLawsProbe)}, true)
+	exes := tableExes(t, "execlaws")
 	if exes == nil {
 		return
 	}

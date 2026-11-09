@@ -92,7 +92,7 @@ func TestInputLinesMatchesModel(t *testing.T) {
 		seed = v
 	}
 	cases := inputLinesCases(seed, 2000)
-	exes := buildAll(t, []*lowered{mustLower(t, "inputlines", inputLinesProgram)}, true)
+	exes := tableExes(t, "inputlines")
 	if exes == nil {
 		return
 	}

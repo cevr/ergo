@@ -94,7 +94,7 @@ test SmallStrings(s string) {
 // T8).
 func TestGeneratorsReachEveryClass(t *testing.T) {
 	needsBuild(t)
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "generators", generatorProbes)}, true)
+	exes := tableExes(t, "generators")
 	if exes == nil {
 		return
 	}

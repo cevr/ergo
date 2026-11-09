@@ -48,8 +48,7 @@ func TestHostAuthorityRuns(t *testing.T) {
 	if err := os.WriteFile(path, []byte("alpha"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p := mustLower(t, "hostAuthority", hostAuthorityProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	exes := tableExes(t, "hostAuthority")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

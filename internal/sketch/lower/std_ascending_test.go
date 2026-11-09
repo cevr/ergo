@@ -163,7 +163,7 @@ func TestStdAscendingMatchesGo(t *testing.T) {
 		seed = v
 	}
 	cases := ascendingCases(seed, 10000)
-	exes := buildAll(t, []*lowered{mustLower(t, "ascending", ascendingProgram)}, true)
+	exes := tableExes(t, "ascending")
 	if exes == nil {
 		return
 	}

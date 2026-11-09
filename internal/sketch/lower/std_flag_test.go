@@ -638,7 +638,7 @@ var flagLawStatements = map[string]string{
 // the only place a law runs.
 func TestFlagLaws(t *testing.T) {
 	needsBuild(t)
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "flaglaws", flagLawTests)}, true)
+	exes := tableExes(t, "flaglaws")
 	if exes == nil {
 		return
 	}

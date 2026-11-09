@@ -279,22 +279,18 @@ func lawsPassed(t *testing.T, statements map[string]string, testName func(key st
 	return laws
 }
 
-// lawProbe builds the law probe as the test build name, runs its tests
-// with --seed 1, and returns its laws for the runner's lawledger.Run: the
-// probe's test of each ledger key is named by stdLawsTestName, and
-// statements is each law's restatement by key (fu-ledger-runner; the
-// runners of S2 and S3 moved onto it at the batch-10 merge). It returns
-// nil when the probe did not build.
+// lawProbe runs the tests of the law probe name, a test build its caller
+// declares in a program table (testBuildProgram(name, probe)), with --seed
+// 1, and returns its laws for the runner's lawledger.Run: the probe's test
+// of each ledger key is named by stdLawsTestName, and statements is each
+// law's restatement by key (fu-ledger-runner; the runners of S2 and S3
+// moved onto it at the batch-10 merge).
 //
 // It builds Go because the laws run in the built test binary (ergo test),
 // the only place a law runs.
 func lawProbe(t *testing.T, name, probe string, statements map[string]string) map[string]lawledger.Law {
 	t.Helper()
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, name, probe)}, true)
-	if exes == nil {
-		return nil
-	}
-	stdout, stderr, code := runExeArgs(t, exes[name], "--seed", "1")
+	stdout, stderr, code := runExeArgs(t, tableExe(t, name), "--seed", "1")
 	if code != 0 {
 		t.Errorf("the law tests of %s failed: exit %d\n%s\n%s", name, code, stdout, firstLines(stderr, 20))
 	}
@@ -312,11 +308,7 @@ func lawProbe(t *testing.T, name, probe string, statements map[string]string) ma
 // the only place a law runs.
 func TestStdLawsRun(t *testing.T) {
 	needsBuild(t)
-	exes := buildAll(t, []*lowered{lowerTestBuild(t, "stdlaws", stdLawsProbe)}, true)
-	if exes == nil {
-		return
-	}
-	stdout, stderr, code := runExeArgs(t, exes["stdlaws"], "--seed", "1")
+	stdout, stderr, code := runExeArgs(t, tableExe(t, "stdlaws"), "--seed", "1")
 	if code != 0 {
 		t.Errorf("the std law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}

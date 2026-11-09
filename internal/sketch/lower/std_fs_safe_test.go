@@ -85,8 +85,7 @@ func main() needs Console | Ambient {
 func TestFSSafeRuns(t *testing.T) {
 	needsBuild(t)
 	dir := t.TempDir()
-	p := mustLower(t, "fsSafe", fsSafeProgram)
-	exes := buildAll(t, []*lowered{p}, true)
+	exes := tableExes(t, "fsSafe")
 	if exes == nil {
 		t.Fatal("the lowered program does not build")
 	}

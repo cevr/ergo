@@ -57,6 +57,7 @@ func TestMain(m *testing.M) {
 		os.Setenv(proclimit.Variable, strconv.FormatUint(proclimit.DefaultLimit, 10))
 	}
 	code := testinputs.Main(m)
+	removeProgramTables()
 	if testCLI.dir != "" {
 		_ = os.RemoveAll(testCLI.dir)
 	}

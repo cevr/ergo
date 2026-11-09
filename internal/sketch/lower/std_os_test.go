@@ -118,10 +118,7 @@ func main() needs Console | Ambient {
 // interpreter yet (test-speed T8).
 func TestOSProcessRuns(t *testing.T) {
 	needsBuild(t)
-	host := mustLower(t, "osHost", osProgram)
-	fake := mustLower(t, "osFake", fakeProgram)
-	param := mustLower(t, "osParam", paramProgram)
-	exes := buildAll(t, []*lowered{host, fake, param}, true)
+	exes := tableExes(t, "osHost", "osFake", "osParam")
 	if exes == nil {
 		return
 	}
