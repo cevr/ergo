@@ -24,5 +24,7 @@ var (
 	_ = declarePrograms("TestFSMemoryAgreesWithHost", entryProgram("fsMemory", fsMemoryProgram))
 	_ = declarePrograms("TestTimeCivilMatchesGo", entryProgram("timeCivil", timeCivilProgram))
 	_ = declarePrograms("TestHostAuthorityRuns", entryProgram("hostAuthority", hostAuthorityProgram))
+	_ = declarePrograms("TestStdActorLawsRun", testBuildProgram("stdactor", actorLawsProbe))
+	_ = declarePrograms("TestStdScheduleLawsRun", testBuildProgram("stdschedule", stdScheduleLawsProbe))
 	_ = declarePrograms("TestOSProcessRuns", entryProgram("osHost", osProgram), entryProgram("osFake", fakeProgram), entryProgram("osParam", paramProgram))
 )
