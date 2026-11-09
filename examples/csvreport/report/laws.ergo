@@ -3,12 +3,12 @@
 import csv
 import strings
 
-// Priced is sales as a file can hold them: every price not negative, and
-// no CR LF in a region or product (the reader reads a CR LF as LF).
-func Priced(sales []Sale) []Sale {
-	let mut out = []Sale{}
-	for s in sales {
-		out = out.Append(Sale{Region: lf(s.Region), Product: lf(s.Product), Units: s.Units, Cents: if s.Cents < 0 { -(s.Cents % 1000000) } else { s.Cents % 1000000 }})
+// Metered is readings as a file can hold them: every kW not negative, and
+// no CR LF in a site or device (the reader reads a CR LF as LF).
+func Metered(readings []Reading) []Reading {
+	let mut out = []Reading{}
+	for s in readings {
+		out = out.Append(Reading{Site: lf(s.Site), Device: lf(s.Device), Hours: s.Hours, Kw: if s.Kw < 0 { -(s.Kw % 1000000) } else { s.Kw % 1000000 }})
 	}
 	out
 }
@@ -22,45 +22,45 @@ func lf(s string) string {
 	out
 }
 
-// TotalIsFold: the total counts every sale once, and its revenue is the
-// sum of units times price, as a loop computes it.
-law TotalIsFold(sales []Sale) {
-	let t = Total(sales)
-	let mut units = 0
-	let mut revenue = int64(0)
-	for s in sales {
-		units += s.Units
-		revenue += int64(s.Units) * s.Cents
+// TotalIsFold: the total counts every reading once, and its energy is the
+// sum of hours times kW, as a loop computes it.
+law TotalIsFold(readings []Reading) {
+	let t = Total(readings)
+	let mut hours = 0
+	let mut energy = int64(0)
+	for s in readings {
+		hours += s.Hours
+		energy += int64(s.Hours) * s.Kw
 	}
-	t.Sales == len(sales) && t.Units == units && t.Revenue == revenue
+	t.Readings == len(readings) && t.Hours == hours && t.Energy == energy
 }
 
 // GroupsSumToTotal: the groups, under either key, add up to the total,
 // and each key has one group.
-law GroupsSumToTotal(sales []Sale, byProduct bool) {
-	let groups = Group(sales, if byProduct { ByProduct } else { ByRegion })
-	let t = Total(sales)
+law GroupsSumToTotal(readings []Reading, byDevice bool) {
+	let groups = Group(readings, if byDevice { ByDevice } else { BySite })
+	let t = Total(readings)
 	let mut n = 0
-	let mut units = 0
-	let mut revenue = int64(0)
+	let mut hours = 0
+	let mut energy = int64(0)
 	for i, g in groups {
-		n += g.Sales
-		units += g.Units
-		revenue += g.Revenue
+		n += g.Readings
+		hours += g.Hours
+		energy += g.Energy
 		if i > 0 && groups[i-1].Key >= g.Key {
 			return false
 		}
 	}
-	n == t.Sales && units == t.Units && revenue == t.Revenue
+	n == t.Readings && hours == t.Hours && energy == t.Energy
 }
 
-// FilterKeepsOnly: a filter keeps exactly the sales its Keep keeps, in
+// FilterKeepsOnly: a filter keeps exactly the readings its Keep keeps, in
 // order.
-law FilterKeepsOnly(sales []Sale, units int) {
-	let k = AtLeast{Units: units}
-	let kept = Filter(sales, k)
+law FilterKeepsOnly(readings []Reading, hours int) {
+	let k = AtLeast{Hours: hours}
+	let kept = Filter(readings, k)
 	let mut j = 0
-	for s in sales {
+	for s in readings {
 		if Kept(k, s) {
 			if j >= len(kept) || kept[j] != s {
 				return false
@@ -71,15 +71,15 @@ law FilterKeepsOnly(sales []Sale, units int) {
 	j == len(kept)
 }
 
-// LoadReadsRows: sales written as CSV load back as the same sales.
-law LoadReadsRows(sales []Sale) {
-	let ps = Priced(sales)
+// LoadReadsRows: readings written as CSV load back as the same readings.
+law LoadReadsRows(readings []Reading) {
+	let ps = Metered(readings)
 	try Load(csv.Format(Rows(ps))) == ps
 }
 
-// MoneyRoundTrip: an amount of cents that is not negative reads back
+// FixedRoundTrip: an amount of hundredths that is not negative reads back
 // from its text.
-law MoneyRoundTrip(cents int64) {
-	let c = if cents < 0 { -(cents % 1000000000) } else { cents % 1000000000 }
-	try ParseCents(Money(c)) == c
+law FixedRoundTrip(hundredths int64) {
+	let c = if hundredths < 0 { -(hundredths % 1000000000) } else { hundredths % 1000000000 }
+	try ParseHundredths(Hundredths(c)) == c
 }

@@ -1,4 +1,4 @@
-// Package memory holds sales files in memory: Shelf provides
+// Package memory holds meter files in memory: Shelf provides
 // report.Source.
 
 import csvreport/report

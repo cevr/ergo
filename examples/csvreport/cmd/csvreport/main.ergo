@@ -1,6 +1,6 @@
-// csvreport prints a report of a sales CSV file: the sales grouped by
-// region or product, with their count, units and revenue, then the total.
-// The file's header names region, product, units and price, in any order.
+// csvreport prints a report of a meter CSV file: the readings grouped by
+// site or device, with their count, hours and energy, then the total.
+// The file's header names site, device, hours and kw, in any order.
 // Package report is the domain; package files reads the file into a
 // memory.Shelf. This binary is the only place that chooses the providers:
 // the host's file system, arguments and standard output.
@@ -14,14 +14,14 @@ import fstest
 import io
 import os
 
-let byFlag = flag.Choice("by", "region", []string{"region", "product"}, "group the sales by `key`")
-let regionFlag = flag.String("region", "", "count only the sales of `name`")
-let minFlag = flag.Int("min", 0, "count only the sales of at least `units` units; 0 counts every sale")
-let fileArg = flag.Arg("file", "the sales CSV file")
+let byFlag = flag.Choice("by", "site", []string{"site", "device"}, "group the readings by `key`")
+let siteFlag = flag.String("site", "", "count only the readings of `name`")
+let minFlag = flag.Int("min", 0, "count only the readings of at least `hours` hours; 0 counts every reading")
+let fileArg = flag.Arg("file", "the meter CSV file")
 
-let set = flag.Set{Name: "csvreport", Usage: "", Flags: []flag.Flag{byFlag, regionFlag, minFlag}, Args: []flag.ArgSpec{fileArg}}
+let set = flag.Set{Name: "csvreport", Usage: "", Flags: []flag.Flag{byFlag, siteFlag, minFlag}, Args: []flag.ArgSpec{fileArg}}
 
-let usage = "usage: csvreport [-by region|product] [-region name] [-min units] file"
+let usage = "usage: csvreport [-by site|device] [-site name] [-min hours] file"
 
 // Query is what a command line asks: a file, the filters, and the key.
 type Query { File string, Keeps []report.Keep, Key report.Key }
@@ -30,12 +30,12 @@ type Query { File string, Keeps []report.Keep, Key report.Key }
 func parse(args []string) Query fails flag.Help | flag.Unknown | flag.NeedsValue | flag.Invalid | flag.Missing | flag.Extra {
 	let v = try flag.Parse(set, args)
 	let mut keeps = []report.Keep{}
-	let region = byFlag.Get(v)
-	if regionFlag.Get(v) != "" {
-		keeps = keeps.Append(report.InRegion{Name: regionFlag.Get(v)})
+	let by = byFlag.Get(v)
+	if siteFlag.Get(v) != "" {
+		keeps = keeps.Append(report.AtSite{Name: siteFlag.Get(v)})
 	}
 	if minFlag.Get(v) != 0 {
-		keeps = keeps.Append(report.AtLeast{Units: minFlag.Get(v)})
+		keeps = keeps.Append(report.AtLeast{Hours: minFlag.Get(v)})
 	}
 	let file = match fileArg.Get(v) {
 	case Some[string] as f:
@@ -43,7 +43,7 @@ func parse(args []string) Query fails flag.Help | flag.Unknown | flag.NeedsValue
 	case None:
 		""
 	}
-	let key = if region == "product" { report.ByProduct } else { report.ByRegion }
+	let key = if by == "device" { report.ByDevice } else { report.BySite }
 	Query{File: file, Keeps: keeps, Key: key}
 }
 
@@ -89,11 +89,11 @@ func main() fails os.Exit needs Ambient {
 // "exit CODE: MESSAGE".
 func ran(args []string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	let disk = fstest.NewMemory()
-	try disk.WriteFile("sales.csv", "region,product,units,price\nnorth,tea,3,2.50\nsouth,tea,1,2.50\nnorth,cake,2,4.00\n")
-	try disk.WriteFile("bad.csv", "region,product,units,price\nnorth,tea,three,2.50\n")
-	try disk.WriteFile("quote.csv", "region,product,units,price\nnorth,te\"a,1,2\n")
-	try disk.WriteFile("short.csv", "region,product,units,price\nnorth,tea\n")
-	try disk.WriteFile("cols.csv", "region,item,units,price\n")
+	try disk.WriteFile("meters.csv", "site,device,hours,kw\nnorth,hub,3,2.50\nsouth,hub,1,2.50\nnorth,fan,2,4.00\n")
+	try disk.WriteFile("bad.csv", "site,device,hours,kw\nnorth,hub,three,2.50\n")
+	try disk.WriteFile("quote.csv", "site,device,hours,kw\nnorth,te\"a,1,2\n")
+	try disk.WriteFile("short.csv", "site,device,hours,kw\nnorth,hub\n")
+	try disk.WriteFile("cols.csv", "site,item,hours,kw\n")
 	let out = io.NewRecorder()
 	with context { io.Stdout: out, fs.Files: disk } {
 		run(args) catch {
@@ -105,23 +105,23 @@ func ran(args []string) string fails fs.NotFound | fs.Denied | fs.Failed {
 }
 
 test GroupsByRegion {
-	assert try ran([]string{"sales.csv"}) == "region   sales    units       revenue\nnorth        2        5         15.50\nsouth        1        1          2.50\ntotal        3        6         18.00\n"
+	assert try ran([]string{"meters.csv"}) == "site   readings    hours        energy\nnorth         2        5         15.50\nsouth         1        1          2.50\ntotal         3        6         18.00\n"
 }
 
 test FiltersAndGroupsByProduct {
-	assert try ran([]string{"-by", "product", "-region", "north", "-min", "3", "sales.csv"}) == "product   sales    units       revenue\ntea           1        3          7.50\ntotal         1        3          7.50\n"
+	assert try ran([]string{"-by", "device", "-site", "north", "-min", "3", "meters.csv"}) == "device  readings    hours        energy\nhub            1        3          7.50\ntotal          1        3          7.50\n"
 }
 
 test FailuresExitOne {
 	assert try ran([]string{"nosuch.csv"}) == "exit 1: csvreport: no file nosuch.csv\n"
-	assert try ran([]string{"bad.csv"}) == "exit 1: csvreport: bad.csv:2:11: units three is not a number\n"
+	assert try ran([]string{"bad.csv"}) == "exit 1: csvreport: bad.csv:2:11: hours three is not a number\n"
 	assert try ran([]string{"quote.csv"}) == "exit 1: csvreport: quote.csv:2:9: bare \" in non-quoted-field\n"
 	assert try ran([]string{"short.csv"}) == "exit 1: csvreport: short.csv:2:1: wrong number of fields\n"
-	assert try ran([]string{"cols.csv"}) == "exit 1: csvreport: cols.csv: the header has no product column\n"
+	assert try ran([]string{"cols.csv"}) == "exit 1: csvreport: cols.csv: the header has no device column\n"
 }
 
 test UsageErrorsExitTwo {
 	assert try ran([]string{}) == "exit 2: missing required flag or argument: file\n"+usage+"\n"
-	assert try ran([]string{"-by", "colour", "sales.csv"}) == "exit 2: invalid value \"colour\" for flag -by: not one of region, product\n"+usage+"\n"
-	assert try ran([]string{"-min", "many", "sales.csv"}) == "exit 2: invalid value \"many\" for flag -min: parse error\n"+usage+"\n"
+	assert try ran([]string{"-by", "colour", "meters.csv"}) == "exit 2: invalid value \"colour\" for flag -by: not one of site, device\n"+usage+"\n"
+	assert try ran([]string{"-min", "many", "meters.csv"}) == "exit 2: invalid value \"many\" for flag -min: parse error\n"+usage+"\n"
 }

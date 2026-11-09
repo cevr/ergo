@@ -1,9 +1,0 @@
-Date,Region,Product,Units,Price,Note
-2026-11-01,north,tea,3,2.50,
-2026-11-01,south,tea,1,2.5,"late, paid"
-2026-11-02,north,cake,2,4,
-2026-11-02,east,"tea, green",5,3.10,"said ""twice"""
-2026-11-03,south,cake,1,4.00,"two
-lines"
-2026-11-03,east,tea,10,2.40,bulk
-2026-11-04,north,"tea, green",1,3.10,
