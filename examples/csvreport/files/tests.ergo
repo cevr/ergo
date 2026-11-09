@@ -1,25 +1,22 @@
-// Load's tests run over fs.Files providers of the test, with no host file
-// system.
+// Load's tests run over an fstest.Memory, with no host file system.
 
 import csvreport/memory
 import csvreport/report
 import fs
+import fstest
 
-// locked is an fs.Files where "locked.csv" is denied and "dir" is a
-// directory; any other path is a memory.Disk's.
-type locked { disk memory.Disk }
+// locked is an fs.Files where "locked.csv" is denied; any other path is
+// its Memory's. A Memory never fails Denied, so this wrapper stays.
+type locked { disk fstest.Memory }
 
 func ReadFile(l locked, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	if path == "locked.csv" {
 		return fs.Denied{Path: path}
 	}
-	if path == "dir" {
-		return fs.Failed{Path: path, Reason: "is a directory"}
-	}
 	try l.disk.ReadFile(path)
 }
 
-func ReadDir(l locked, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+func ReadDir(l locked, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try l.disk.ReadDir(path) }
 
 func Stat(l locked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try l.disk.Stat(path) }
 
@@ -36,8 +33,10 @@ func outcome(s memory.Shelf, name string) string {
 }
 
 test LoadKeepsWhatItCanRead {
-	let host = locked{disk: memory.Disk{Files: []memory.File{memory.File{Path: "a.csv", Text: "x\n"}}}}
-	with context { fs.Files: host } {
+	let disk = fstest.NewMemory()
+	try disk.WriteFile("a.csv", "x\n")
+	try disk.MkdirAll("dir")
+	with context { fs.Files: locked{disk: disk} } {
 		let s = Load([]string{"a.csv", "locked.csv", "gone.csv", "dir"})
 		assert outcome(s, "a.csv") == "text: x\n"
 		assert outcome(s, "locked.csv") == "unreadable: permission denied"

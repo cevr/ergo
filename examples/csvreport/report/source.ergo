@@ -1,6 +1,6 @@
 // The source of a sales file, and the report over it.
 
-import csvreport/csv
+import csv
 
 // Missing is a name that the source has no file for.
 type Missing { Name string }
@@ -33,7 +33,7 @@ type Source {
 
 // Report is the table of the sales in the file name that every one of
 // keeps keeps, grouped under k.
-func Report(name string, keeps []Keep, k Key) []string fails Missing | Unreadable | csv.BadCSV | MissingColumn | ShortRow | BadNumber needs Source {
+func Report(name string, keeps []Keep, k Key) []string fails Missing | Unreadable | csv.ParseError | MissingColumn | BadNumber needs Source {
 	let text = try Source.Read(name)
 	let mut sales = try Load(text)
 	for keep in keeps {
