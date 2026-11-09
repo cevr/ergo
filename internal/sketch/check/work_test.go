@@ -158,8 +158,8 @@ func TestWorkLiteralRule(t *testing.T) {
 // is an ordinary record literal, not the work rule's form.
 func TestWorkIsNotAPreludeName(t *testing.T) {
 	for name, src := range map[string]string{
-		"func": "func Work(x int) int { x }\n\nfunc main() { let _ = Work(1) }\n",
-		"type": "type Work { Run int }\n\nfunc main() { let _ = Work{Run: 1} }\n",
+		"func":                 "func Work(x int) int { x }\n\nfunc main() { let _ = Work(1) }\n",
+		"type":                 "type Work { Run int }\n\nfunc main() { let _ = Work{Run: 1} }\n",
 		"beside machines.Work": "import machines\n\ntype Work { Run int }\n\ntype Sig = A | B\ntype A {}\ntype B {}\n\nfunc w() machines.Work[Sig] { machines.Work{Run: func() A { A }} }\n\nfunc main() { let _ = Work{Run: 1}\n\tlet _ = w() }\n",
 	} {
 		if _, diags := check.CheckSource(src); len(diags) != 0 {
