@@ -772,7 +772,7 @@ func main() needs Ambient {
 | `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` and `Stdin` provider. |
 | `type Errors { live hostOnly }`; `func NewErrors() Errors needs Ambient` | The host's `Stderr` provider. |
 | `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `Eprint`, `Eprintln`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written to both, in order. |
-| `type Input { Text string }`; `ReadAll`, `Lines` | A `Stdin` provider for tests. |
+| `type Input { Text string }`; `func NewInput(text string) Input`; `ReadAll`, `Lines` | A `Stdin` provider for tests. `NewInput` is `Stdin`'s builder: a generated record that holds a `Stdin` reads an `Input` ([runtime.md](runtime.md), Tests 6, Capabilities). |
 | `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)` | The laws of the recording providers ([Std laws](#std-laws)). |
 
 1. `Print` and `Eprint` write their text as it is; `Println` and `Eprintln` write the line and a line feed in one write. Each write is one unbuffered `WriteString`, as `Console.Println` is, so writes of `Console` and of `io.Stdout` appear in program order.

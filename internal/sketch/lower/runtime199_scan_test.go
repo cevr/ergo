@@ -199,7 +199,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"funcCtx.witnessMethod":  "an Env value of the caller's task for a witness adapter",
 		"typeCtx.funcType":       "a function type, which has no body",
 		"lowerer.machinePlan":    "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
-		"lowerer.genFunc":        "a generator's assertion of the runner's Env that a constructor runs in (fu6a)",
+		"lowerer.genFunc":        "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {

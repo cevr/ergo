@@ -24,10 +24,10 @@ import (
 // lawRunB13 is the b13 repro of the examples wave with a provider: the law
 // calls a helper that needs its own operation type. The law relates two
 // reads, not a write and a read: under the value rule (owner q26) a
-// provider's write to its own Map is not seen by the next call, and a
-// provider whose state is a sync.Ref has no generator, so a write law has
+// provider's write to its own Map is not seen by the next call, and at b13
+// a provider whose state is a sync.Ref had no generator, so a write law had
 // no generated provider to run against (batch-12 integration, V1 x value
-// rule).
+// rule; fu7a builds a sync.Ref with sync.NewRef).
 const lawRunB13 = `type Store {
 	Count() int,
 	Doubled() int,
@@ -115,7 +115,7 @@ func Add(l Lossy, n int) { l.total.Set(n) }
 
 func Total(l Lossy) int { l.total.Get() }
 
-type Plain { total sync.Ref[int] }
+type Plain { total sync.Ref[int], hook func(int) int }
 
 func Add(p Plain, n int) { p.total.Set(p.total.Get() + n) }
 
@@ -146,7 +146,7 @@ func TestLawRunState(t *testing.T) {
 		!strings.HasSuffix(got[2], "law refuted at main.ergo:6:2: the law is false") {
 		t.Errorf("line 3 is %q", got[2])
 	}
-	if want := "skip law Counter.AddAdds for Plain: its values have no generator: sync.Ref[int] is a standard library type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
+	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"; got[0] != want {
 		t.Errorf("line 1 is %q, want %q", got[0], want)
 	}
 	if got[3] != "FAIL (1 of 2 tests, 1 skipped)" {
@@ -195,7 +195,7 @@ func Put(z Zero, k int, v int) {}
 
 func Get(z Zero, k int) int { z.n }
 
-type Plain { v sync.Ref[int] }
+type Plain { v sync.Ref[int], hook func(int) int }
 
 func Put(p Plain, k int, v int) { p.v.Set(v) }
 
@@ -241,7 +241,7 @@ func TestLawRunOtherPackage(t *testing.T) {
 	if code != 1 || len(got) != 7 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
-	const plain = ": its values have no generator: sync.Ref[int] is a standard library type; a func NewPlain() Plain with no rows would build one for each case"
+	const plain = ": its values have no generator: func(int) int is a function type; a func NewPlain() Plain with no rows would build one for each case"
 	want := []struct{ line, prefix, suffix string }{
 		{line: "skip law kv.Store.GetAfterPut for Plain" + plain},
 		{line: "ok law kv.Store.GetAfterPut for Last (100 cases)"},
@@ -386,6 +386,118 @@ func main() {}
 	}
 	if code != 0 || !slices.Equal(lines(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
+	}
+}
+
+// lawRunCapabilities has providers that hold capabilities and no
+// constructor (fu7a, check/builders.go). Book holds an fs.Files and an
+// fs.Writes: AddReads holds only when both are one fresh disk per case.
+// Echo writes an io.Stdout and counts in a sync.Ref. Lossy forgets, so its
+// run fails with its seed. Stuck holds a queue.Queue, which has no
+// builder, so its run is a skip line with the reason.
+const lawRunCapabilities = `import fs
+import fstest
+import io
+import queue
+import sync
+
+type Notes {
+	Add(line string),
+	All() string,
+	law AddReads(line string) {
+		Add(line)
+		All() == line + "\n"
+	},
+}
+
+type Book { files fs.Files, writes fs.Writes }
+
+func Add(b Book, line string) {
+	b.writes.AppendFile("notes", line + "\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+}
+
+func All(b Book) string {
+	b.files.ReadFile("notes") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+}
+
+type Lossy { files fs.Files, writes fs.Writes }
+
+func Add(l Lossy, line string) {}
+
+func All(l Lossy) string { "" }
+
+type Stuck { q queue.Queue[int] }
+
+func Add(s Stuck, line string) {}
+
+func All(s Stuck) string { "" }
+
+type Loud {
+	Shout(s string) int,
+	law CountsUp(s string) {
+		let a = Shout(s)
+		Shout(s) == a + 1
+	},
+}
+
+type Echo { out io.Stdout, n sync.Ref[int] }
+
+func Shout(e Echo, s string) int {
+	e.out.Println("echo:" + s)
+	e.n.Update(func(v int) int { v + 1 })
+	e.n.Get()
+}
+
+// The builder of fs.Files is in fstest, so the package sees fstest.
+test BookStartsEmpty {
+	let m = fstest.NewMemory()
+	assert (Book{files: m, writes: m}).All() == ""
+}
+
+func main() {}
+`
+
+// TestLawRunCapabilities: a provider that holds capabilities runs its laws
+// with no constructor, each case on its own world: a fresh fstest.Memory
+// that the provider's fs.Files and fs.Writes share, an io.Recorder for its
+// io.Stdout (nothing reaches the binary's output) and a new sync.Ref. A
+// false law fails with its seed and the provider's build. It builds the
+// test binary because the law runner is that binary; no interpreter runs
+// a law. Mutants it kills: one world for every case (Book fails at its
+// second case), a builder per field (Book's reads miss its writes), a host
+// provider as a builder (fs.NewHost and fstest.NewMemory are two builders,
+// so Book skips; or "echo:" reaches stdout), and a capability with no
+// builder that runs instead of its skip line.
+func TestLawRunCapabilities(t *testing.T) {
+	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_caps", lawRunCapabilities)}, true)
+	if exes == nil {
+		return
+	}
+	stdout, stderr, code := runExeArgs(t, exes["lawrun_caps"], "--seed", "7")
+	got := lines(stdout)
+	want := []struct{ line, prefix, suffix string }{
+		{line: "ok BookStartsEmpty"},
+		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; a func NewStuck() Stuck with no rows would build one for each case"},
+		{line: "ok law Notes.AddReads for Book (100 cases)"},
+		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:10:2: the law is false"},
+		{line: "ok law Loud.CountsUp for Echo (100 cases)"},
+		{line: "FAIL (1 of 4 tests, 1 skipped)"},
+	}
+	if code != 1 || len(got) != len(want) {
+		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
+	}
+	for i, w := range want {
+		switch {
+		case w.line != "" && got[i] != w.line:
+			t.Errorf("line %d is %q, want %q", i+1, got[i], w.line)
+		case w.line == "" && (!strings.HasPrefix(got[i], w.prefix) || !strings.HasSuffix(got[i], w.suffix)):
+			t.Errorf("line %d is %q, want %q … %q", i+1, got[i], w.prefix, w.suffix)
+		}
 	}
 }
 

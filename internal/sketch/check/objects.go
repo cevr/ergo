@@ -36,6 +36,10 @@ type TypeName struct {
 	// plans it, 1 while it is planned and 2 once planned.
 	ctor      *Func
 	ctorState uint8
+	// newOp and provides are an operation type's builders that its own
+	// package declares (builders.go rules 1 and 2), planned with ctor.
+	newOp    *Builder
+	provides []*Builder
 }
 
 // Constructor is the function a generator builds the type's values with

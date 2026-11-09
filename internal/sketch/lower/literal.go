@@ -133,7 +133,7 @@ func (l *lowerer) litTypes(t check.Type, seen map[string]bool, visit func(check.
 		seen[k] = true
 	}
 	visit(t)
-	if n, ok := t.(*check.Named); ok && litByConstructor(n) {
+	if n, ok := t.(*check.Named); ok && (litByConstructor(n) || isOps(n)) {
 		return
 	}
 	switch u := t.(type) {
@@ -230,6 +230,11 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 		}
 		body.WriteString("\treturn \"(\" + " + strings.Join(parts, " + \", \" + ") + " + \")\"\n")
 	case *check.Named:
+		if isOps(u) {
+			// A capability: the call of its builder (check/builders.go).
+			body.WriteString("\treturn " + q(l.builtText(u, l.opBuilder(u, site))) + "\n")
+			break
+		}
 		if litByConstructor(u) {
 			// Its fields are not all text a reader could read, or its
 			// constructor takes nothing: the call that built it.

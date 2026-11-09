@@ -118,6 +118,10 @@ type Package struct {
 	// providerFresh is the freshness fact the context ownership pass computed
 	// during Check, kept so its tests read the fact that decided.
 	providerFresh providerFreshness
+	// testBuilds are, in a test package (fstest), the builders it declares
+	// for each operation type of the package it tests (builders.go rule
+	// 2). Only the package's own check writes it.
+	testBuilds map[*TypeName][]*Builder
 }
 
 // Std reports a std package: the prelude or a package of the embedded
