@@ -354,3 +354,22 @@ func TestChildInheritsContextValues(t *testing.T) {
 	}
 	_ = endScope(&s)
 }
+
+// TestDoneIsOneChannel: every Done of a task is the one channel its stop
+// closes: the first call, which makes it under the lock, and the later
+// ones, which read it without the lock (MU18), before and after the stop.
+func TestDoneIsOneChannel(t *testing.T) {
+	task := Root("done")
+	first, second := task.Done(), task.Done()
+	if first == nil || second != first {
+		t.Fatalf("Done gave %v, then %v: want one channel", first, second)
+	}
+	task.Interrupt()
+	for i, ch := range []<-chan struct{}{first, second, task.Done()} {
+		select {
+		case <-ch:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("Done call %d: its channel did not close at the stop", i+1)
+		}
+	}
+}

@@ -720,12 +720,26 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 				}
 			}
 			w.Interrupt()
-			if !<-done {
-				t.Fatalf("capacity %d, %s: the stopped wait returned instead of raising the interruption", capacity, wt.name)
+			select {
+			case raised := <-done:
+				if !raised {
+					t.Fatalf("capacity %d, %s: the stopped wait returned instead of raising the interruption", capacity, wt.name)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("capacity %d, %s: the stopped wait did not end in 10s", capacity, wt.name)
 			}
 		}
 		close(hold)
-		got := a.State(root)
+		// The read is bounded: a runner that answers into a reused reply
+		// channel blocks on it, and the test says so instead of hanging.
+		answered := make(chan []int, 1)
+		go func() { answered <- a.State(root) }()
+		var got []int
+		select {
+		case got = <-answered:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("capacity %d: State after the stopped waits got no answer in 10s", capacity)
+		}
 		if capacity == 0 && len(got) != 0 {
 			t.Fatalf("a stopped Send's or Ask's signal was stepped: %v", got)
 		}
@@ -750,7 +764,11 @@ func TestActorStopCascades(t *testing.T) {
 	starter := rt.Root("starter")
 	a := signalLog(starter, 1, nil, nil)
 	starter.Interrupt()
-	<-a.done
+	select {
+	case <-a.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the actor did not end in 10s after its starter's stop")
+	}
 	if err := a.Send(rt.Root("late"), 1); !errors.Is(err, ActorStopped{}) {
 		t.Fatalf("send after the starter's stop: %v", err)
 	}

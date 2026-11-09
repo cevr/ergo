@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -30,10 +31,13 @@ type box interface {
 	Close()
 	Len() int
 	waiters() int
-	line() int // the Pushes waiting for room
+	line() int     // the Pushes waiting for room
+	bind(*rt.Task) // t becomes the taker, as the runner is (bindTaker)
 }
 
 type queueBox struct{ *Queue[int] }
+
+func (q queueBox) bind(*rt.Task) {}
 
 func (q queueBox) pop(t *rt.Task) (int, error) { return q.Pop(t) }
 func (q queueBox) waiters() int {
@@ -48,6 +52,8 @@ func (q queueBox) line() int {
 }
 
 type mailBox struct{ *mailbox[int] }
+
+func (m mailBox) bind(t *rt.Task) { m.bindTaker(t) }
 
 func (m mailBox) pop(t *rt.Task) (int, error) {
 	var v int
@@ -94,14 +100,31 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 	}
 	var waiting []*waiter // in the order they began
 	finished := make(chan string, 64)
+	// recv and settle wait at most patience: the reference's line proves
+	// each wait ends at once, so a box that never ends one (a lost wake, a
+	// stop it ignores) says so and diverges instead of hanging.
+	const patience = 10 * time.Second
+	recv := func(c <-chan string) string {
+		select {
+		case s := <-c:
+			return s
+		case <-time.After(patience):
+			return "no end after " + patience.String()
+		}
+	}
 	settle := func(n int) {
+		deadline := time.Now().Add(patience)
 		for b.waiters() != n {
+			if time.Now().After(deadline) {
+				say("%d parked, want %d", b.waiters(), n)
+				return
+			}
 			runtime.Gosched()
 		}
 	}
 	// finish waits for one waiting Push to return, whichever it is, and
 	// says which and how.
-	finish := func(what string) { say("%s: %s", what, <-finished) }
+	finish := func(what string) { say("%s: %s", what, recv(finished)) }
 	interrupted := func(f func()) (raised bool) {
 		defer func() {
 			if x := recover(); x != nil {
@@ -113,6 +136,42 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 		}()
 		f()
 		return false
+	}
+	// newTaker is the task of a take that waits: half the time the box's
+	// bound taker, which waits on the box's wake token as the runner does,
+	// else a task that waits on its own stop.
+	newTaker := func() *rt.Task {
+		t := rt.Root("taker")
+		if r.Intn(2) == 0 {
+			b.bind(t)
+		}
+		return t
+	}
+	// noWait runs an operation that the reference never parks on (one
+	// after a Close). If the box parks it instead, it is stopped and its
+	// line says so, so a broken box diverges where it would hang.
+	noWait := func(op func(t *rt.Task) string) string {
+		t := rt.Root("after close")
+		got := make(chan string, 1)
+		go func() {
+			var s string
+			if interrupted(func() { s = op(t) }) {
+				s = "parked, then stopped"
+			}
+			got <- s
+		}()
+		for {
+			select {
+			case s := <-got:
+				return s
+			default:
+			}
+			if b.waiters() > 0 {
+				t.Interrupt()
+				return "parked: " + <-got
+			}
+			runtime.Gosched()
+		}
 	}
 	for range 40 {
 		switch k := r.Intn(8); {
@@ -162,23 +221,24 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 		case k == 4 && !closed && len(queued) == 0 && len(pending) == 0:
 			// A take that waits, then a Push that it takes.
 			got := make(chan string, 1)
+			taker := newTaker()
 			go func() {
-				v, err := b.pop(rt.Root("taker"))
+				v, err := b.pop(taker)
 				got <- fmt.Sprintf("%d %v", v, err)
 			}()
 			settle(1)
 			next++
 			say("push %d to a waiting take: %v", next, b.Push(rt.Root("p"), next))
-			say("the waiting take: %s", <-got)
+			say("the waiting take: %s", recv(got))
 			settle(0)
 		case k == 5 && !closed && len(queued) == 0 && len(pending) == 0:
 			// A take that waits, stopped.
-			taker := rt.Root("taker")
-			got := make(chan bool, 1)
-			go func() { got <- interrupted(func() { _, _ = b.pop(taker) }) }()
+			taker := newTaker()
+			got := make(chan string, 1)
+			go func() { got <- fmt.Sprint(interrupted(func() { _, _ = b.pop(taker) })) }()
 			settle(1)
 			taker.Interrupt()
-			say("stopped take raised: %v", <-got)
+			say("stopped take raised: %s", recv(got))
 			settle(0)
 		case k == 6 && r.Intn(4) == 0:
 			b.Close()
@@ -187,7 +247,7 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 			// Each waiting Push returns Closed, in any order.
 			var ends []string
 			for range waiting {
-				ends = append(ends, <-finished)
+				ends = append(ends, recv(finished))
 			}
 			slices.Sort(ends)
 			say("rejected: %v", ends)
@@ -195,14 +255,19 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 			settle(0)
 		case k == 7 && closed:
 			next++
-			say("push %d after close: %v", next, b.Push(rt.Root("p"), next))
+			v := next
+			say("push %d after close: %s", v, noWait(func(t *rt.Task) string { return fmt.Sprint(b.Push(t, v)) }))
 			if len(queued) > 0 {
-				v, err := b.pop(rt.Root("taker"))
-				say("pop after close: %d %v", v, err)
+				say("pop after close: %s", noWait(func(t *rt.Task) string {
+					v, err := b.pop(t)
+					return fmt.Sprintf("%d %v", v, err)
+				}))
 				queued = queued[1:]
 			} else {
-				_, err := b.pop(rt.Root("taker"))
-				say("pop of closed and empty: %v", err)
+				say("pop of closed and empty: %s", noWait(func(t *rt.Task) string {
+					_, err := b.pop(t)
+					return fmt.Sprint(err)
+				}))
 			}
 		}
 		say("len %d line %d", b.Len(), b.line())
@@ -210,7 +275,7 @@ func mailboxTrace(seed int64, capacity int, b box, want []string) (log []string)
 	b.Close()
 	var ends []string
 	for range waiting {
-		ends = append(ends, <-finished)
+		ends = append(ends, recv(finished))
 	}
 	slices.Sort(ends)
 	say("rejected at the end: %v", ends)
