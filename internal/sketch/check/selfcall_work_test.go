@@ -60,7 +60,7 @@ func GrowthBounded(t testing.TB, what string, sizes []int, per []float64) {
 	t.Helper()
 	first, last := per[0], per[len(per)-1]
 	if first > 0 && last > GrowthRatio*first {
-		t.Errorf("%s: %.2f per unit at n = %d and %.2f at n = %d, want at most %.1f times: the work grows faster than the source",
+		t.Errorf("%s: %.3g per unit at n = %d and %.3g at n = %d, want at most %.1f times: the work grows faster than the source",
 			what, first, sizes[0], last, sizes[len(sizes)-1], GrowthRatio)
 	}
 }

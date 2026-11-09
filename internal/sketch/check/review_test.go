@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
@@ -505,21 +504,27 @@ func oddCycleSwitch(n int) string {
 	return check.Decided(b.String())
 }
 
-// TestTotalityCost: the odd-cycle family stays clean and cheap (M8, D16).
-// The bound is generous for a loaded gate machine; before the repair the
-// 21-subject case took about 4.9 s.
+// TestTotalityCost: the odd-cycle family stays clean and cheap (M8, D16):
+// its solver steps stay within totalityCostPerCell per written cell, a
+// counted bound (test-speed plan T4; it was 500 ms of wall time). Before
+// the repair the 21-subject case took about 4.9 s.
 func TestTotalityCost(t *testing.T) {
+	// 77 per cell measured at 41 subjects; the solver's budget is 512.
+	const totalityCostPerCell = 128
 	for _, n := range []int{11, 15, 19, 21, 41} {
 		src := oddCycleSwitch(n)
-		start := time.Now()
-		ts, us, diags := check.SolverSteps(src)
-		elapsed := time.Since(start)
-		t.Logf("subjects=%d bytes=%d elapsed=%s total=%v useful=%v budgets=%v", n, len(src), elapsed, ts, us, check.TotalityBudgets(src))
+		costs, diags := check.SolverCosts(src)
 		if len(diags) != 0 {
 			t.Fatalf("n=%d: %s", n, describe(diags))
 		}
-		if elapsed > 500*time.Millisecond {
-			t.Fatalf("n=%d: %s, want under 500ms", n, elapsed)
+		if len(costs) != 1 {
+			t.Fatalf("n=%d: want one proof, got %v", n, costs)
+		}
+		c := costs[0]
+		work := c.TotalSteps + c.UsefulSteps
+		t.Logf("subjects=%d bytes=%d written=%d steps=%d/%d (%.1f per cell)", n, len(src), c.Written, c.TotalSteps, c.UsefulSteps, float64(work)/float64(c.Written))
+		if work > totalityCostPerCell*c.Written {
+			t.Fatalf("n=%d: %d solver steps for %d written cells, want at most %d per cell", n, work, c.Written, totalityCostPerCell)
 		}
 	}
 	// An even cycle is two-colourable with unequal neighbours: not total, and

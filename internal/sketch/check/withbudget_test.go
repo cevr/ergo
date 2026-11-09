@@ -41,7 +41,11 @@ func withRefusals(diags []Diagnostic) int {
 // once, at an operand of their with, within the budget: the meter never
 // passes its limit, and a second check gives the same diagnostic.
 func TestWithBudgetRefuses(t *testing.T) {
-	for _, shape := range []string{"pairs", "fan"} {
+	for _, sc := range []struct {
+		shape string
+		n     int
+	}{{"pairs", 300}, {"fan", 700}} {
+		shape, n := sc.shape, sc.n
 		diags, c := checkWithBudget(t, withShape(shape, 12), nil)
 		if len(diags) > 0 {
 			t.Errorf("%s n=12: %v", shape, diags[0])
@@ -49,25 +53,25 @@ func TestWithBudgetRefuses(t *testing.T) {
 		if c.withs.used == 0 {
 			t.Errorf("%s n=12: no push work charged", shape)
 		}
-		src := withShape(shape, 1500)
+		src := withShape(shape, n)
 		diags, c = checkWithBudget(t, src, nil)
 		if len(diags) != 1 || withRefusals(diags) != 1 {
-			t.Fatalf("%s n=1500: %d diagnostics %v, want one with-budget S102", shape, len(diags), diags)
+			t.Fatalf("%s n=%d: %d diagnostics %v, want one with-budget S102", shape, n, len(diags), diags)
 		}
 		if c.withs.used > c.withs.limit {
-			t.Errorf("%s n=1500: %d push steps charged, over the limit %d", shape, c.withs.used, c.withs.limit)
+			t.Errorf("%s n=%d: %d push steps charged, over the limit %d", shape, n, c.withs.used, c.withs.limit)
 		}
 		if want := withBudgetPerByte*len(src) + withBudgetFloor; c.withs.limit != want {
 			t.Errorf("%s: limit %d, want %d", shape, c.withs.limit, want)
 		}
 		if _, ok := enclosingWith(c, c.withRefused.at); !ok || diags[0].Offset != int(c.withRefused.at.Pos()) {
-			t.Errorf("%s n=1500: the S102 at %d:%d is not at an operand of a with", shape, diags[0].Line, diags[0].Column)
+			t.Errorf("%s n=%d: the S102 at %d:%d is not at an operand of a with", shape, n, diags[0].Line, diags[0].Column)
 		}
 		again, _ := checkWithBudget(t, src, nil)
 		if !slices.Equal(again, diags) {
-			t.Errorf("%s n=1500: a second check gives %v, the first %v", shape, again, diags)
+			t.Errorf("%s n=%d: a second check gives %v, the first %v", shape, n, again, diags)
 		}
-		t.Logf("%s n=1500: refused at %d:%d after %d of %d steps", shape, diags[0].Line, diags[0].Column, c.withs.used, c.withs.limit)
+		t.Logf("%s n=%d: refused at %d:%d after %d of %d steps", shape, n, diags[0].Line, diags[0].Column, c.withs.used, c.withs.limit)
 	}
 }
 
@@ -196,10 +200,8 @@ func TestWithBudgetHeadroom(t *testing.T) {
 	}
 	t.Logf("%d sources, %d with push work; the largest share is %.3f%% (%s)", len(files), pushed, 100*worst, worstFile)
 	for _, shape := range []string{"wowned", "nested", "several", "stack", "local many", "local chain", "alternating", "local alternating"} {
-		n := 4000
-		if shape == "nested" {
-			n = 200
-		}
+		sizes := GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, withShape(shape, n)) })
+		n := sizes[len(sizes)-1]
 		diags, c := checkWithBudget(t, withShape(shape, n), nil)
 		if len(diags) > 0 {
 			t.Errorf("%s n=%d: %v", shape, n, diags[0])

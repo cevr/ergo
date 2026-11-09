@@ -3,11 +3,11 @@ package check
 import (
 	"fmt"
 	"iter"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -127,48 +127,37 @@ func contextFamily(shape string, n int) string {
 // and the verdict is the exact one (acceptance) or the one budget S111
 // (D16 as amended in rounds 18 and 20). The disjoint ladder's answer is
 // quadratic, so it is refused at every size here; the other shapes are
-// accepted.
+// accepted, and their charged share of the budget at the largest size is
+// at most GrowthRatio times that at the smallest. Each shape runs at three
+// sizes up to GrowthMaxNodes source nodes (test-speed plan T4).
 //
-// Each shape and size is one case of a split (gate-fast T1): part k checks
-// cases k and k+14, as a top-level test of its own, so the six 8000-node
-// chains and the 2048 ladder fall in seven different parts. Under -short a
-// part keeps its first case.
+// Each shape is one case of a split (gate-fast T1): part k checks case k,
+// as a top-level test of its own. Under -short a part keeps its first
+// case.
 var contextBudget = NewSplit(Split[contextBudgetCase]{
-	Name: "TestContextBudget", Parts: 14, Short: 2,
+	Name: "TestContextBudget", Parts: 9, Short: 2,
 	Cases: SeqOf(contextBudgetCases),
 	Key: func(c contextBudgetCase) string {
-		// The sources are slow to write at n = 8000, and the coverage test
-		// reads each key twice (the domain, then the parts), so keep them.
-		if k, ok := contextBudgetKeys.Load(c); ok {
-			return k.(string)
-		}
-		k := fmt.Sprintf("%s n=%d refused=%v\n%s", c.shape, c.n, c.refused, contextFamily(c.shape, c.n))
-		contextBudgetKeys.Store(c, k)
-		return k
+		return fmt.Sprintf("%s refused=%v\n%s", c.shape, c.refused, contextFamily(c.shape, 3))
 	},
 	Run: runContextBudget,
 })
 
-func TestContextBudgetPart0(t *testing.T)  { contextBudget.Part(t, 0) }
-func TestContextBudgetPart1(t *testing.T)  { contextBudget.Part(t, 1) }
-func TestContextBudgetPart2(t *testing.T)  { contextBudget.Part(t, 2) }
-func TestContextBudgetPart3(t *testing.T)  { contextBudget.Part(t, 3) }
-func TestContextBudgetPart4(t *testing.T)  { contextBudget.Part(t, 4) }
-func TestContextBudgetPart5(t *testing.T)  { contextBudget.Part(t, 5) }
-func TestContextBudgetPart6(t *testing.T)  { contextBudget.Part(t, 6) }
-func TestContextBudgetPart7(t *testing.T)  { contextBudget.Part(t, 7) }
-func TestContextBudgetPart8(t *testing.T)  { contextBudget.Part(t, 8) }
-func TestContextBudgetPart9(t *testing.T)  { contextBudget.Part(t, 9) }
-func TestContextBudgetPart10(t *testing.T) { contextBudget.Part(t, 10) }
-func TestContextBudgetPart11(t *testing.T) { contextBudget.Part(t, 11) }
-func TestContextBudgetPart12(t *testing.T) { contextBudget.Part(t, 12) }
-func TestContextBudgetPart13(t *testing.T) { contextBudget.Part(t, 13) }
+func TestContextBudgetPart0(t *testing.T) { contextBudget.Part(t, 0) }
+func TestContextBudgetPart1(t *testing.T) { contextBudget.Part(t, 1) }
+func TestContextBudgetPart2(t *testing.T) { contextBudget.Part(t, 2) }
+func TestContextBudgetPart3(t *testing.T) { contextBudget.Part(t, 3) }
+func TestContextBudgetPart4(t *testing.T) { contextBudget.Part(t, 4) }
+func TestContextBudgetPart5(t *testing.T) { contextBudget.Part(t, 5) }
+func TestContextBudgetPart6(t *testing.T) { contextBudget.Part(t, 6) }
+func TestContextBudgetPart7(t *testing.T) { contextBudget.Part(t, 7) }
+func TestContextBudgetPart8(t *testing.T) { contextBudget.Part(t, 8) }
 
-var contextBudgetKeys sync.Map
-
+// contextBudgetCase is one shape of TestContextBudget; sizes nil runs it
+// at GrowthSizes.
 type contextBudgetCase struct {
 	shape   string
-	n       int
+	sizes   []int
 	refused bool
 }
 
@@ -179,19 +168,20 @@ func contextBudgetCases() []contextBudgetCase {
 		sizes   []int
 		refused bool
 	}{
-		{"entry chain", []int{1000, 4000, 8000}, false},
-		{"wide fan-in", []int{1000, 4000, 8000}, false},
-		{"large-base chain", []int{1000, 4000, 8000}, false},
-		{"replace diamond", []int{1000, 4000, 8000}, false},
-		{"empty independent", []int{1000, 4000, 8000}, false},
-		{"inline fan-in", []int{1000, 4000, 8000}, false},
-		{"multi-key", []int{1000, 8000}, false},
-		{"inline embeddings", []int{1, 1000, 8000}, false},
-		{"disjoint", []int{128, 256, 512, 2048}, true},
+		{"entry chain", nil, false},
+		{"wide fan-in", nil, false},
+		{"large-base chain", nil, false},
+		{"replace diamond", nil, false},
+		{"empty independent", nil, false},
+		{"inline fan-in", nil, false},
+		{"multi-key", nil, false},
+		{"inline embeddings", nil, false},
+		// The ladder's quadratic answer passes the linear budget only above
+		// about 60 rungs, so it runs at one size over GrowthMaxNodes: the
+		// verdict under test is the refusal.
+		{"disjoint", []int{128}, true},
 	} {
-		for _, n := range family.sizes {
-			out = append(out, contextBudgetCase{family.shape, n, family.refused})
-		}
+		out = append(out, contextBudgetCase{family.shape, family.sizes, family.refused})
 	}
 	return out
 }
@@ -199,21 +189,35 @@ func contextBudgetCases() []contextBudgetCase {
 func runContextBudget(t *testing.T, cases iter.Seq[contextBudgetCase]) {
 	oc := countOps(t)
 	for family := range cases {
-		n := family.n
-		src := contextFamily(family.shape, n)
-		diags, c := checkLimited(t, src, nil)
-		m := c.contexts
-		if m == nil {
-			t.Fatalf("%s n=%d: no context meter", family.shape, n)
+		sizes := family.sizes
+		if sizes == nil {
+			sizes = GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, contextFamily(family.shape, n)) })
 		}
-		oc.bounded(t, fmt.Sprintf("%s n=%d", family.shape, n), src, c)
-		switch {
-		case len(diags) == 0 && !family.refused:
-		case len(diags) == 1 && diags[0].Code == CodeDuplicateCap && diags[0].Message == contextBudgetMessage && family.refused:
-		default:
-			t.Errorf("%s n=%d: want %s, got %v", family.shape, n, map[bool]string{false: "acceptance", true: "the budget S111"}[family.refused], diags)
+		var share []float64
+		for _, n := range sizes {
+			src := contextFamily(family.shape, n)
+			diags, c := checkLimited(t, src, nil)
+			m := c.contexts
+			if m == nil {
+				t.Fatalf("%s n=%d: no context meter", family.shape, n)
+			}
+			oc.bounded(t, fmt.Sprintf("%s n=%d", family.shape, n), src, c)
+			switch {
+			case len(diags) == 0 && !family.refused:
+			case len(diags) == 1 && diags[0].Code == CodeDuplicateCap && diags[0].Message == contextBudgetMessage && family.refused:
+			default:
+				t.Errorf("%s n=%d: want %s, got %v", family.shape, n, map[bool]string{false: "acceptance", true: "the budget S111"}[family.refused], diags)
+			}
+			t.Logf("%s n=%d: %d of %d steps charged (%.1f%%), %d repeatable and %d single-pass operations, %d diagnostics", family.shape, n, m.used, m.limit, 100*float64(m.used)/float64(m.limit), oc.repeat[m], oc.single[m], len(diags))
+			// The limit is contextBudgetPerUnit per unit of context, so the
+			// charged share is the work per unit; the summaries are treaps,
+			// whose logarithmic factor grows at these small sizes as much as
+			// the size does, so the share is also per log2 of the size.
+			share = append(share, float64(m.used)/float64(m.limit)/math.Log2(float64(n)))
 		}
-		t.Logf("%s n=%d: %d of %d steps charged (%.1f%%), %d repeatable and %d single-pass operations, %d diagnostics", family.shape, n, m.used, m.limit, 100*float64(m.used)/float64(m.limit), oc.repeat[m], oc.single[m], len(diags))
+		if !family.refused {
+			GrowthBounded(t, family.shape+" charged context steps per unit and log2 n", sizes, share)
+		}
 	}
 }
 
@@ -299,7 +303,7 @@ func TestContextBudgetHeadroom(t *testing.T) {
 	// embedding the one before, and one local named by many withs each
 	// charge under 25% of their budget, and check clean.
 	for _, shape := range []string{"local chain", "local many"} {
-		for _, n := range []int{1000, 8000} {
+		for _, n := range GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, withShape(shape, n)) }) {
 			diags, c := checkLimited(t, withShape(shape, n), nil)
 			if len(diags) > 0 {
 				t.Errorf("%s n=%d: %v", shape, n, diags[0])

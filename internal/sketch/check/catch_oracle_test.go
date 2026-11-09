@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
@@ -163,19 +162,17 @@ func (p catchProgram) want() string {
 	return strings.Join(want, " ")
 }
 
+// runCatchOracle checks each program against the oracle. It has no time
+// bound (test-speed plan T4: it was 60 s of wall time): the domain is
+// finite, and each check's proof work is counted against the solver's
+// budget, past which the checker refuses (S103), so a slow proof shows as
+// a wrong verdict, not as a wait.
 func runCatchOracle(t *testing.T, programs iter.Seq[catchProgram]) {
-	const bound = 60 * time.Second
-	start := time.Now()
-	n := 0
 	for p := range programs {
-		if time.Since(start) > bound {
-			t.Fatalf("over the time bound %v after %d programs", bound, n)
-		}
 		src := p.source()
 		got, d := codeLines(src)
 		if want := p.want(); got != want {
 			t.Errorf("%s\nwant [%s], got [%s] %v", src, want, got, d)
 		}
-		n++
 	}
 }
