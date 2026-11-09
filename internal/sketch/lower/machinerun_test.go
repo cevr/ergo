@@ -382,6 +382,15 @@ func lowerMachineMode(t *testing.T, name, src, ref, match string) *lowered {
 	return mustLower(t, name, src)
 }
 
+// interfaceUnions lowers every union of the test as a sealed interface
+// (unionLowering "interface"), for a test whose hand Go builds or switches
+// on a signal as an interface value.
+func interfaceUnions(t *testing.T) {
+	saved := unionLowering
+	unionLowering = "interface"
+	t.Cleanup(func() { unionLowering = saved })
+}
+
 // flatRunCase is one generated program, lowered three ways.
 type flatRunCase struct {
 	seed           uint64
