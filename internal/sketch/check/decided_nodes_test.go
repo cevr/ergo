@@ -576,6 +576,13 @@ func f() int {
 }
 func main() {}
 `, nil},
+	{"function literal", "a trailing function literal (L-tb)", `
+func apply(n int, h func(int) int) int { h(n) }
+func f() int {
+	apply(2) func(x int) int { return x + 1 }
+}
+func main() {}
+`, nil},
 	{"untyped parameter", "an untyped function literal parameter with no expected type is S108 (D-E1)", `
 func f() { _ = func(x) {} }
 func main() {}
