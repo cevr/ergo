@@ -3,15 +3,12 @@
 package producer
 
 import (
+	"encoding/hex"
 	"io"
 	"os"
 	"syscall"
 	"unsafe"
 )
-
-// imageKey: the Darwin image is verified code in memory, not an open file,
-// so it has no memo key and is hashed every time.
-func imageKey(io.Reader) (string, bool) { return "", false }
 
 // csOpsCDHash asks csops(2) for the cdhash of a process's main executable,
 // as xnu's cs_blobs.h numbers it.
@@ -30,6 +27,10 @@ const csOpsCDHash = 5
 // verified are the bytes hashed. A Go binary for
 // darwin/arm64 is always signed (the linker signs it ad hoc); an unsigned
 // image has no kernel record, and its identity stays process-scoped.
+//
+// The file is read and verified on the first Read, not here, so an image
+// memo hit (imageKey) costs one open and one fstat; a failed verification
+// is that Read's error, with the same reason it had here.
 //
 // The design relies on xnu answering CS_OPS_CDHASH from the code signature
 // blob attached to the process's text vnode, which the kernel keeps while
@@ -54,13 +55,59 @@ func openImage() (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	image, err := io.ReadAll(io.LimitReader(file, maxImageBytes+1))
+	return &executableImage{file: file, cdhash: cdhash}, nil
+}
+
+// executableImage is the file at the executable's path and the kernel's cdhash
+// of the executing image; it reads as the authenticated code.
+type executableImage struct {
+	file   *os.File
+	cdhash [cdhashSize]byte
+	code   io.ReadCloser
+	err    error
+}
+
+func (s *executableImage) Read(p []byte) (int, error) {
+	if s.code == nil && s.err == nil {
+		s.code, s.err = s.verify()
+	}
+	if s.err != nil {
+		return 0, s.err
+	}
+	return s.code.Read(p)
+}
+
+func (s *executableImage) verify() (io.ReadCloser, error) {
+	image, err := io.ReadAll(io.LimitReader(s.file, maxImageBytes+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(image) > maxImageBytes {
 		return nil, errImageTooLarge
 	}
-	return authenticatedCode(image, cdhash[:])
+	return authenticatedCode(image, s.cdhash[:])
+}
+
+func (s *executableImage) Close() error { return s.file.Close() }
+
+// imageKey is the image memo's key of a signed image: the kernel's cdhash of
+// the executing image, then the kernel's stat of the opened file, with the
+// fields Linux keys (statKey). The cdhash binds the digest: the code
+// digested is the code whose SHA-256 page hashes the CodeDirectory with that
+// cdhash lists (verifyCodeSignature rejects weaker ones), so a process
+// executing other code has another cdhash and is hashed again, even if the
+// file at its path was verified by an earlier process. The stat binds the
+// file as on Linux: Darwin lets a running image be written, but any write
+// sets the change time, which no caller can set back, and a replaced file
+// is another inode.
+func imageKey(image io.Reader) (string, bool) {
+	signed, ok := image.(*executableImage)
+	if !ok {
+		return "", false
+	}
+	var st syscall.Stat_t
+	if syscall.Fstat(int(signed.file.Fd()), &st) != nil {
+		return "", false
+	}
+	return hex.EncodeToString(signed.cdhash[:]) + ":" + statKey(uint64(uint32(st.Dev)), st.Ino, st.Size, st.Mtimespec.Sec, st.Mtimespec.Nsec, st.Ctimespec.Sec, st.Ctimespec.Nsec), true
 }

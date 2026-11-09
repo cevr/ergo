@@ -3,7 +3,6 @@
 package producer
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"syscall"
@@ -26,5 +25,5 @@ func imageKey(image io.Reader) (string, bool) {
 	if syscall.Fstat(int(file.Fd()), &st) != nil {
 		return "", false
 	}
-	return fmt.Sprintf("%d:%d:%d:%d.%09d:%d.%09d", st.Dev, st.Ino, st.Size, st.Mtim.Sec, st.Mtim.Nsec, st.Ctim.Sec, st.Ctim.Nsec), true
+	return statKey(uint64(st.Dev), uint64(st.Ino), int64(st.Size), int64(st.Mtim.Sec), int64(st.Mtim.Nsec), int64(st.Ctim.Sec), int64(st.Ctim.Nsec)), true
 }

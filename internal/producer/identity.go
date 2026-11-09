@@ -83,22 +83,7 @@ func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildIn
 		identity.Declaration = declaration(build, ok)
 		image, err := open()
 		if err != nil {
-			switch err {
-			case errUnsupported:
-				identity.Reason = "executing image identity is unsupported on this platform"
-			case errUnverified:
-				identity.Reason = "executing image does not match the kernel's code signature record"
-			case errNoSignatureRecord:
-				identity.Reason = "executing image has no kernel code signature record"
-			case errUniversal:
-				identity.Reason = "executing image is a universal file, whose other slices the kernel check does not cover"
-			case errWeakDirectory:
-				identity.Reason = "executing image's code directory does not use full SHA-256 page hashes"
-			case errImageTooLarge:
-				identity.Reason = "executing image cannot be read within its byte limit"
-			default:
-				identity.Reason = "executing image cannot be opened"
-			}
+			identity.Reason = imageReason(err, "executing image cannot be opened")
 			return fallback()
 		}
 		defer image.Close()
@@ -118,7 +103,7 @@ func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildIn
 			hash := sha256.New()
 			count, err := io.Copy(hash, io.LimitReader(image, maxImageBytes+1))
 			if err != nil || count > maxImageBytes {
-				identity.Reason = "executing image cannot be read within its byte limit"
+				identity.Reason = imageReason(err, "executing image cannot be read within its byte limit")
 				return fallback()
 			}
 			digest = "sha256:" + hex.EncodeToString(hash.Sum(nil))
@@ -131,6 +116,27 @@ func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildIn
 		identity.Qualifier = identity.Digest
 		return identity
 	})
+}
+
+// imageReason says why an image is unavailable, whether opening it or
+// reading it failed (Darwin verifies on the first read); an error the
+// producer does not name gives otherwise, never its own text.
+func imageReason(err error, otherwise string) string {
+	switch err {
+	case errUnsupported:
+		return "executing image identity is unsupported on this platform"
+	case errUnverified:
+		return "executing image does not match the kernel's code signature record"
+	case errNoSignatureRecord:
+		return "executing image has no kernel code signature record"
+	case errUniversal:
+		return "executing image is a universal file, whose other slices the kernel check does not cover"
+	case errWeakDirectory:
+		return "executing image's code directory does not use full SHA-256 page hashes"
+	case errImageTooLarge:
+		return "executing image cannot be read within its byte limit"
+	}
+	return otherwise
 }
 
 func declaration(info *debug.BuildInfo, ok bool) Declaration {

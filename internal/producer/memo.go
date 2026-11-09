@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,11 +19,13 @@ import (
 //
 // An entry maps a file key to the digest of the file's bytes. The key is
 // what the kernel reports for the opened image (imageKey: device, inode,
-// size, modification and change times), never an installation pathname.
-// A file cannot be written while it executes (ETXTBSY), and any write to it
-// sets its change time, which no caller can set back; a replaced file is
-// another inode. So a key names one content for as long as an entry can
-// see it, and a changed compiler gets a new key and is hashed again.
+// size, modification and change times; on Darwin first the kernel's cdhash
+// of the executing image), never an installation pathname. Linux refuses
+// to write a file while it executes (ETXTBSY), and on both systems any
+// write to it sets its change time, which no caller can set back; a
+// replaced file is another inode. So a key names one content for as long
+// as an entry can see it, and a changed compiler gets a new key and is
+// hashed again.
 //
 // The memo lives in the cache root whose modules the identity keys: whoever
 // can write an entry can already write a published module. A malformed or
@@ -120,6 +123,13 @@ func (m *imageMemo) record(key, digest string) {
 	if werr != nil || cerr != nil || os.Rename(tmp.Name(), m.path) != nil {
 		os.Remove(tmp.Name())
 	}
+}
+
+// statKey is the stat part of an image memo key, one form on every system:
+// device, inode, size, then modification and change times to the
+// nanosecond.
+func statKey(dev, ino uint64, size, mtimeSec, mtimeNsec, ctimeSec, ctimeNsec int64) string {
+	return fmt.Sprintf("%d:%d:%d:%d.%09d:%d.%09d", dev, ino, size, mtimeSec, mtimeNsec, ctimeSec, ctimeNsec)
 }
 
 func validDigest(digest string) bool {
