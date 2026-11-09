@@ -1,4 +1,4 @@
-project shop
+project site
   needs web ^2.3
   needs log <1.3
 

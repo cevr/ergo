@@ -1,5 +1,5 @@
-# The shop's dependencies, and the registry it may choose from.
-project shop
+# The site's dependencies, and the registry it may choose from.
+project site
   needs web ^2.1
   needs log >=1.2 <2
   needs db ~0.4
@@ -9,7 +9,7 @@ package web 2.1.0
 package web 2.3.1
   needs log ^1.4
   needs http ~0.4
-package web 3.0.0       # needs log 2, which the shop does not allow
+package web 3.0.0       # needs log 2, which the site does not allow
   needs log ^2
 
 package http 0.4.2
