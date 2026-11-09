@@ -82,38 +82,27 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	if md.start == nil {
 		starts = "[]" + state + "{" + td.name + "{}.Initial()}"
 	} else {
+		// The inputs are listed by the rule of every law's run (Listed
+		// laws): each value of each input, every combination once.
 		sfd := l.useFunc(md.start, site)
-		combos := []string{""}
-		listed := true
+		var types []check.Type
 		for _, p := range md.start.Sig.Params {
-			vs, ok := l.enumValues(p.Type, site, map[*check.Named]bool{})
-			if !ok || len(combos)*len(vs) > enumCap {
-				listed = false
-				break
-			}
-			var next []string
-			for _, c := range combos {
-				for _, v := range vs {
-					if c != "" {
-						next = append(next, c+", "+v)
-					} else {
-						next = append(next, v)
+			types = append(types, p.Type)
+		}
+		if lists, _, listed := l.enumRun(types, site); listed {
+			combos := [][]string{nil}
+			for _, vs := range lists {
+				var next [][]string
+				for _, c := range combos {
+					for _, v := range vs {
+						next = append(next, append(c[:len(c):len(c)], v))
 					}
 				}
+				combos = next
 			}
-			combos = next
-		}
-		lead := strings.Join(sfd.envLead(env), "")
-		call := func(args string) string {
-			if lead != "" && args != "" {
-				return sfd.name + "(" + lead + ", " + args + ")"
-			}
-			return sfd.name + "(" + lead + args + ")"
-		}
-		if listed {
 			calls := make([]string, len(combos))
 			for i, c := range combos {
-				calls[i] = call(c)
+				calls[i] = sfd.callText(sfd.envLead(env), c)
 			}
 			starts = "[]" + state + "{" + strings.Join(calls, ", ") + "}"
 		} else {
@@ -121,7 +110,7 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 			for _, p := range md.start.Sig.Params {
 				gens = append(gens, l.genExpr(p.Type, r, d, inner, site))
 			}
-			start = "func(" + r + " " + rand + ", " + d + " int) " + state + " { return " + call(strings.Join(gens, ", ")) + " }"
+			start = "func(" + r + " " + rand + ", " + d + " int) " + state + " { return " + sfd.callText(sfd.envLead(env), gens) + " }"
 		}
 	}
 	signals := "nil"
@@ -133,7 +122,7 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	// The step as an edge: the next state, and false when the step ends
 	// the run (Done).
 	fd := l.useFunc(md.step, site)
-	call := fd.name + "(" + strings.Join(append(fd.envLead(env), s, e), ", ") + ")"
+	call := fd.callText(fd.envLead(env), []string{s, e})
 	var step strings.Builder
 	step.WriteString("func(" + s + " " + state + ", " + e + " " + signal + ") (" + state + ", bool) {\n")
 	dv := inner.alloc("dv")
@@ -191,6 +180,16 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	b.WriteString("\t\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", func() string { return " + where + " }, func() error { " + how + " = " + l.helper("Explore") + "(" + g + ", " + strconv.Quote(law.Decl.Reach.Kind()) + ", " + seed + ", " + strconv.Quote(label) + ", " + at + ", &" + where + "); return nil }) {\n")
 	b.WriteString("\t\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label+" (") + " + " + how + " + \")\")\n")
 	b.WriteString("\t\t} else {\n\t\t\t" + failed + "++\n\t\t}\n\t}\n")
+}
+
+// callText is a call of fd with the leading arguments lead (its
+// environment) and the arguments args: a function that the lowering made a
+// method of its first parameter's type is called on that argument.
+func (fd *funcDecl) callText(lead, args []string) string {
+	if fd.method != nil && len(args) > 0 {
+		return "(" + args[0] + ")." + fd.name + "(" + strings.Join(append(lead[:len(lead):len(lead)], args[1:]...), ", ") + ")"
+	}
+	return fd.name + "(" + strings.Join(append(lead[:len(lead):len(lead)], args...), ", ") + ")"
 }
 
 func quoteAll(xs []string) string {
