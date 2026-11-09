@@ -61,7 +61,7 @@ func depth(n AlNode) int {
 
 // aliasTargets are the existing types an alias names, with the uses each
 // kind admits.
-var aliasTargets = []string{"int", "string", "bool", "R", "U", "V1", "S", "Option[int]", "Option[R]", "Node"}
+var aliasTargets = []string{"int", "string", "bool", "R", "U", "V1", "V2", "S", "Option[int]", "Option[R]", "Node"}
 
 // aliasProgram is a seeded program of aliases over aliasTargets, some of
 // them aliases of aliases declared before or after them, with values of
@@ -101,6 +101,8 @@ func aliasProgram(r *rand.Rand) (string, map[string]string, bool) {
 		switch t {
 		case "int":
 			fmt.Fprintf(&b, "\nfunc add%d(x %s, y int) %s { x + y }\n", i, a, a)
+			// A conversion to the alias is a conversion to its target.
+			fmt.Fprintf(&b, "\nfunc conv%d(f float64) int { %s(f) }\n", i, a)
 		case "R", "V1":
 			fmt.Fprintf(&b, "\nfunc mk%d(n int) %s { %s{N: n} }\n", i, t, a)
 			fmt.Fprintf(&b, "\nfunc get%d(x %s) int { x.N }\n", i, a)
@@ -120,6 +122,10 @@ func aliasProgram(r *rand.Rand) (string, map[string]string, bool) {
 			if j := slices.Index(base, "V1"); j >= 0 {
 				fmt.Fprintf(&b, "\nfunc v%d(x U) int {\n\tmatch x {\n\tcase Al%d as v:\n\t\tget%d(v)\n\tcase V2:\n\t\t0\n\t}\n}\n", i, j, j)
 			}
+		case "V2":
+			// A record with no fields is a value by its bare name, and so
+			// is its alias.
+			fmt.Fprintf(&b, "\nfunc z%d() U { %s }\n", i, a)
 		case "S":
 			fmt.Fprintf(&b, "\nfunc call%d(s %s) int { s.Get() }\n", i, a)
 		case "Option[int]", "Option[R]":
