@@ -52,12 +52,16 @@ func main() needs Console {
 `
 
 // flatBenchGo is the Go benchmark file beside the emitted program: the
-// run of mode, and in the flat build the hand Go controls. HandSig is
-// what a Go programmer writes over the same []Sig: a struct state and a
-// type switch, with the step inlined; HandByte the same loop over byte
-// signals, which the Ergo program does not hold.
+// run of mode, and the hand Go controls. HandSig, in the build whose
+// signals are interfaces, is what a Go programmer writes over that []Sig: a
+// struct state and a type switch, with the step inlined; HandByte, in the
+// flat build, the same loop over byte signals.
 func flatBenchGo(mode string) func(string) string {
 	return func(string) string {
+		sig := "Increment{}"
+		if mode == "Flat" {
+			sig = "Sig{}.of0(Increment{})" // a flat union (flatunion.go)
+		}
 		src := `package main
 
 import "testing"
@@ -67,7 +71,7 @@ const simN = 100000
 func sigs() []Sig {
 	xs := make([]Sig, simN)
 	for i := range xs {
-		xs[i] = Increment{}
+		xs[i] = ` + sig + `
 	}
 	return xs
 }
@@ -86,10 +90,9 @@ func BenchmarkMODERun(b *testing.B) {
 	}
 }
 `
-		if mode == "Flat" {
+		src += "\ntype handState struct{ n int }\n"
+		if mode == "SigIface" {
 			src += `
-type handState struct{ n int }
-
 func BenchmarkHandSig(b *testing.B) {
 	xs := sigs()
 	b.ReportAllocs()
@@ -108,7 +111,10 @@ func BenchmarkHandSig(b *testing.B) {
 		}
 	}
 }
-
+`
+		}
+		if mode == "Flat" {
+			src += `
 func BenchmarkHandByte(b *testing.B) {
 	xs := make([]byte, simN)
 	b.ReportAllocs()
@@ -134,18 +140,24 @@ func BenchmarkHandByte(b *testing.B) {
 }
 
 // BenchmarkMachineFlatRun measures a run of 100,000 signals (ns/op is per
-// run): the flat run (FlatRun), std's loop (InterfaceRun, the reference
-// lowering), and the hand Go controls. Per transition is ns/op / 100,000.
-// The window command interleaves them (MU8 bench-pending.md).
+// run): the flat run over flat signals (FlatRun), the flat run over
+// interface signals (SigIfaceRun, MU8's lowering), std's loop
+// (InterfaceRun, the reference lowering), and the hand Go controls.
+// Per transition is ns/op / 100,000. The window command interleaves them
+// (MU8b bench-pending.md).
 func BenchmarkMachineFlatRun(b *testing.B) {
-	for _, mode := range []string{"Flat", "Interface"} {
-		saved := machineLowering
-		machineLowering = map[string]string{"Flat": "", "Interface": "interface"}[mode]
+	for _, mode := range []string{"Flat", "SigIface", "Interface"} {
+		savedRun, savedUnion := machineLowering, unionLowering
+		machineLowering = map[string]string{"Flat": "", "SigIface": "", "Interface": "interface"}[mode]
+		unionLowering = map[string]string{"Flat": "", "SigIface": "interface", "Interface": "interface"}[mode]
 		benches := []string{mode + "Run"}
-		if mode == "Flat" {
-			benches = append(benches, "HandSig", "HandByte")
+		switch mode {
+		case "Flat":
+			benches = append(benches, "HandByte")
+		case "SigIface":
+			benches = append(benches, "HandSig")
 		}
 		emittedBench(b, "flatbench"+strings.ToLower(mode), flatBenchSource, flatBenchGo(mode), benches...)
-		machineLowering = saved
+		machineLowering, unionLowering = savedRun, savedUnion
 	}
 }
