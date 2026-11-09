@@ -34,6 +34,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 5. [runtime.md](runtime.md): tasks, interruption (I1, I2), observability (G1 to G4), timeouts, machines and actors.
 6. [stdlib.md](stdlib.md): the standard-library outline ([#206](https://github.com/cevr/ergo/issues/206)).
 7. [diagnostics.md](diagnostics.md): every diagnostic code, its rule, its section and a fixture.
+8. [interop.md](interop.md): Go imports, generated bindings and Level 2 adapters ([#202](https://github.com/cevr/ergo/issues/202)).
 
 ## Status per construct
 
