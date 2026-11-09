@@ -31,6 +31,19 @@ type CheckedFile struct {
 	Syntax *syntax.File
 }
 
+// Root is the program's root package, from a folder or from one source
+// text (whose file has no Rel); its Package is nil when it did not check.
+func (a Analysis) Root() CheckedPackage {
+	if ps := a.Packages(); len(ps) > 0 {
+		return ps[len(ps)-1]
+	}
+	c := CheckedPackage{Path: "main", Files: []CheckedFile{{Syntax: a.file}}}
+	if len(a.Diagnostics) == 0 {
+		c.Package = a.pkg
+	}
+	return c
+}
+
 // Packages are the packages of a program read from a folder (CheckDir) in
 // import dependency order, the root package last; nil for one source text
 // (Check).

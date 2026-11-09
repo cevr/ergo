@@ -65,6 +65,10 @@ func (l Line) appendJSON(b []byte) []byte {
 		}
 		b = append(b, ']')
 	}
+	if l.Machine != "" {
+		b = append(b, `,"machine":`...)
+		b = appendString(b, l.Machine)
+	}
 	return append(b, "}\n"...)
 }
 

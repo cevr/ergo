@@ -1,12 +1,15 @@
 package lower
 
 import (
+	"fmt"
 	"go/scanner"
 	"go/token"
+	"sort"
 	"strconv"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/machinegraph"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -116,6 +119,10 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		} else {
 			b.WriteString(l.directiveAt(td.tn.Decl.Name, td.tn.Decl.Pos()))
 		}
+		if l.isSourced(td.tn.Pkg) {
+			// Generated code: no directive maps it to the source.
+			l.gen.WriteString(l.machineGraph(td, tc, state, signal))
+		}
 		scope := newNamer(l.names)
 		s, e := scope.alloc("s"), scope.alloc("e")
 		if machinePure(m.step, fd, site) {
@@ -135,6 +142,59 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 	if m.start == nil {
 		l.machineInit(td, initial)
 	}
+}
+
+// machineGraph is the init function that registers the machine td's graph
+// with the runtime (v1.RegisterMachine; MU15): its step's arms, each with
+// its .ergo position and the Go variants of the states and signals it
+// takes, and the signal variant of each state's timer. A traced actor of
+// the machine names the arm of each decision from it (runtime.md, Machines
+// and actors 15). state and signal are the machine's Go types.
+func (l *lowerer) machineGraph(td *typeDecl, tc *typeCtx, state, signal string) string {
+	spec, ok := td.tn.Decl.Spec.(*syntax.MachineType)
+	if !ok {
+		return ""
+	}
+	g := machinegraph.Of(td.tn.Pkg, td.tn, spec, func(n syntax.Node, pos syntax.Pos) machinegraph.Site {
+		_, path, line, _ := l.at(n, pos)
+		return machinegraph.Site{File: path, Line: line}
+	})
+	if g == nil {
+		return ""
+	}
+	rt := l.rt()
+	goOf := map[string]string{}
+	for _, v := range append(append([]machinegraph.Variant{}, g.States...), g.Signals...) {
+		goOf[v.Name] = rt + ".VariantOf[" + tc.goType(v.Type) + "]()"
+	}
+	list := func(vs []string) string {
+		if vs == nil {
+			return "nil"
+		}
+		out := make([]string, len(vs))
+		for i, v := range vs {
+			out[i] = goOf[v]
+		}
+		return "[]string{" + strings.Join(out, ", ") + "}"
+	}
+	var b strings.Builder
+	b.WriteString("func init() {\n\t" + rt + ".RegisterMachine[" + state + ", " + signal + "](" + rt + ".MachineGraph{\n\t\tArms: []" + rt + ".MachineArm{\n")
+	for _, a := range g.Arms {
+		fmt.Fprintf(&b, "\t\t\t{Site: %s, States: %s, Signals: %s, Partial: %t},\n", strconv.Quote(a.Site.String()), list(a.States), list(a.Signals), a.Partial)
+	}
+	b.WriteString("\t\t},\n\t\tTimers: map[string]string{\n")
+	keys := make([]string, 0, len(g.Timers))
+	for k := range g.Timers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if sig := g.Timers[k].Signal; sig != machinegraph.Any {
+			b.WriteString("\t\t\t" + goOf[k] + ": " + goOf[sig] + ",\n")
+		}
+	}
+	b.WriteString("\t\t},\n\t})\n}\n\n")
+	return b.String()
 }
 
 // machinePure reports a step whose plan takes no environment: no error

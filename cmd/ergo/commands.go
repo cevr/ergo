@@ -62,7 +62,7 @@ var commands = []cliCommand{
 	{name: "query", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "type", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "graph", fate: removed, reason: toolingReason, ticket: ticketTooling},
-	{name: "inspect", fate: removed, reason: toolingReason, ticket: ticketTooling},
+	{name: "inspect", usage: "inspect machine FILE|DIR [--json]", help: inspectMachineHelp, run: inspectCommand},
 	{name: "explain", fate: removed, reason: toolingReason, ticket: ticketTooling},
 	{name: "lsp", fate: dark, ticket: ticketTooling},
 	{name: "mcp", fate: dark, ticket: ticketTooling},
