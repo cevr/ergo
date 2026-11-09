@@ -153,7 +153,7 @@ let same = Order{"42", 1999}
 
 ## Unions
 
-Status: **implemented**: checked by `internal/sketch/check` (check-v1 stage B) and lowered (check-v1 stage C): a union is a sealed Go interface that its variants implement, and a `match` on it runs (`TestErgoRunUnionOfOneGenericRecord`; [rows.md](rows.md#totality)). A record of another package as a variant is S108, a permanent rule (rule 1; 196b Q8; `TestUnionVariantFromAnotherPackage`).
+Status: **implemented**: checked by `internal/sketch/check` (check-v1 stage B) and lowered (check-v1 stage C): a union is a sealed Go interface that its variants implement (a small signal union of a machine is a tag and slots instead: [runtime.md](runtime.md#machines-and-actors) 8, Flat signals), and a `match` on it runs (`TestErgoRunUnionOfOneGenericRecord`; [rows.md](rows.md#totality)). A record of another package as a variant is S108, a permanent rule (rule 1; 196b Q8; `TestUnionVariantFromAnotherPackage`).
 
 ```go
 type Payment = Pending | Authorized | Declined{ Reason string }
