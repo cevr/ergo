@@ -30,23 +30,205 @@ import (
 // already elides). Update's entry poll is dropped: it has no loop, and the
 // caller's own polls stay.
 //
-// The reference lowering calls Update's body (UpdateOwned): updateLowering
-// "call", set by a test or by a whole build with
-// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.updateLowering=call.
-// TestValueRuleAgrees runs its programs, which call Update with a named
-// callback, under both.
+// The callback's comma-ok variant (fs7, batch 12). When f's body is one
+// match on its Option parameter, the parameter is used nowhere else, and
+// every arm takes a shape getMatch lowers (getmatch.go), the call is
+// written with no Option at all:
+//
+//	v, ok := m[k]
+//	m[k] = fOk(v, ok)
+//
+// fOk is f's body lowered once more with the parameter replaced by the
+// value and the flag of the Map read, as getMatch writes a match on
+// m.Get(k): `if ok { Some's arm } else { None's arm }`. That is hand Go's
+// v, ok := m[k]; m[k] = f(v, ok), with no interface and no type switch.
+// The arms are the same statements in the same order; only the Option
+// that carried v and ok is gone. f itself is kept for its other uses.
+//
+// The reference lowerings: updateLowering "option" writes the call at its
+// site with the Option (the form above, vr-elide-2), and "call" calls
+// Update's body (UpdateOwned). Each is set by a test or by a whole build
+// with -ldflags=-X=ergo.local/prototype/internal/sketch/lower.updateLowering=….
+// TestValueRuleAgrees runs its programs, which call Update with a
+// callback that has the variant and with one that has not, under all
+// three.
 //
 // Prior art: Go's own maps package has no Update, and a hand writer
 // writes the comma-ok read; Rust's HashMap::entry(k).and_modify(f)
-// .or_insert(v) is monomorphized over f, so f inlines; Gleam's dict.upsert
-// and Elixir's Map.update take a closure through the BEAM's indirect call,
-// with no unboxing; GHC's Data.Map.alter specializes on a known function
-// by inlining.
+// .or_insert(v) is monomorphized over f, so f inlines and its Option is a
+// niche; Gleam's dict.upsert and Elixir's Map.update take a closure
+// through the BEAM's indirect call, with no unboxing; GHC's Data.Map.alter
+// specializes on a known function by inlining, and its worker/wrapper
+// split unboxes a Maybe argument into a constructor test, as fOk does;
+// ReScript compiles option to undefined or the value (an unboxed option).
 var updateLowering string
 
 // The mutants of the rewrite are valueMutant's (values.go), for
-// TestValueRuleMutants only: "update-none" (the Option is always None)
-// and "update-no-write" (the call's value is the Map without the write).
+// TestValueRuleMutants only: "update-none" (the Option is always None),
+// "update-no-write" (the call's value is the Map without the write),
+// "update-ok-none" (the variant is always called with ok false) and
+// "update-ok-swap" (the variant takes each variant's arm for the other);
+// "update-ok-any" (okShape admits a body that is not one match on its
+// parameter, which then does not build) and "update-ok-never" (no
+// callback has the variant, which every run passes) are run by the
+// request's mutant script against TestValueRuleAgrees and
+// TestValueRuleElides, since TestValueRuleMutants counts only a changed
+// output.
+
+// okSubject is the Option parameter of a callback's comma-ok variant and
+// the Go names of the value and the flag that stand for it.
+type okSubject struct {
+	v       *check.Var
+	val, ok string
+}
+
+// isOkSubject reports whether the match s is on fc's comma-ok parameter.
+func (fc *funcCtx) isOkSubject(s *syntax.TypeSwitchStmt) bool {
+	id, ok := unparen(s.Subjects[0].X).(*syntax.Ident)
+	return ok && fc.okSubject != nil && fc.l.info.Uses[id] == fc.okSubject.v
+}
+
+// okShape is g's Option parameter when g has the comma-ok variant above:
+// a package function with one parameter, an Option, and one result, no
+// type parameter, an empty error row, no Task result and no witness,
+// whose body is one match on the parameter, used nowhere else, that
+// getMatch lowers. Else nil.
+func (l *lowerer) okShape(g *check.Func) *check.Var {
+	if updateLowering != "" || getLowering == "switch" || !valueOwned() || valueMutant == "update-ok-never" {
+		return nil
+	}
+	if g == nil || g.Decl == nil || g.Decl.Body == nil || g.Decl.Extern != nil || g.Pkg == nil || g.Pkg.Info == nil || g.Sig == nil {
+		return nil
+	}
+	if len(g.Sig.TParams) > 0 || len(g.Sig.Params) != 1 || len(g.Sig.Results) != 1 || len(rowElems(g.Sig.Errors)) > 0 || g.Pkg.Info.TaskResults[g] || len(witnessParams(g.Sig)) > 0 {
+		return nil
+	}
+	if !isPreludeType(g.Sig.Params[0].Type, "Option") || g.Decl.Type == nil || g.Decl.Type.Params == nil {
+		return nil
+	}
+	var param *check.Var
+	for _, field := range g.Decl.Type.Params.List {
+		for _, id := range field.Names {
+			param, _ = g.Pkg.Info.Defs[id].(*check.Var)
+		}
+	}
+	if param == nil {
+		return nil
+	}
+	if valueMutant == "update-ok-any" {
+		return param
+	}
+	list := g.Decl.Body.List
+	if len(list) != 1 {
+		return nil
+	}
+	s, ok := list[0].(*syntax.TypeSwitchStmt)
+	if !ok || len(s.Subjects) != 1 {
+		return nil
+	}
+	if id, ok := unparen(s.Subjects[0].X).(*syntax.Ident); !ok || g.Pkg.Info.Uses[id] != param {
+		return nil
+	}
+	uses := 0
+	syntax.Inspect(g.Decl.Body, func(n syntax.Node) bool {
+		if id, ok := n.(*syntax.Ident); ok && g.Pkg.Info.Uses[id] == param {
+			uses++
+		}
+		return true
+	})
+	if uses != 1 {
+		return nil
+	}
+	if _, _, ok := getArmsOf(g.Pkg.Info, s.Clauses); !ok {
+		return nil
+	}
+	return param
+}
+
+// okKey is the package-scope key of g's comma-ok variant.
+func okKey(g *check.Func) pkgKey { return pkgKey{"okvariant", g} }
+
+// reserveOk gives, in the naming pass, the name of the comma-ok variant of
+// each function of pkgs that has one.
+func (l *lowerer) reserveOk(pkgs []*check.Package) {
+	for _, p := range pkgs {
+		for _, f := range l.canon.funcs(p) {
+			if l.okShape(f) != nil {
+				l.pkgName(okKey(f), f.Name+"Ok")
+			}
+		}
+	}
+}
+
+// okVariant is the Go name of g's comma-ok variant, queued for emission
+// once, or "" when g has none.
+func (l *lowerer) okVariant(g *check.Func, gd *funcDecl) string {
+	if gd.ok != "" {
+		return gd.ok
+	}
+	if l.okShape(g) == nil {
+		return ""
+	}
+	gd.ok = l.pkgName(okKey(g), g.Name+"Ok")
+	l.pending = append(l.pending, func() { l.emitOkVariant(gd) })
+	return gd.ok
+}
+
+// emitOkVariant writes the comma-ok variant of the callback fd: f's body
+// with its Option parameter replaced by a value and a flag, in the part
+// of main.go f's own body stands in.
+func (l *lowerer) emitOkVariant(fd *funcDecl) {
+	f := fd.fn
+	param := l.okShape(f)
+	site := syntax.Node(f.Decl.Name)
+	if param == nil {
+		ice(site, "the comma-ok variant of %s, which has none", f.Name)
+	}
+	b := &l.user
+	directives := l.isSourced(f.Pkg)
+	defer l.leave(l.enter(f.Decl.Name, f.Pkg))
+	if !directives {
+		b = &l.gen
+		if f.Pkg.Info != l.info {
+			saved := l.info
+			l.info = f.Pkg.Info
+			defer func() { l.info = saved }()
+		}
+	}
+	if l.bodyNeedsFrame(f.Decl.Body.List) {
+		ice(site, "the comma-ok variant of %s, whose body opens a frame scope", f.Name)
+	}
+	scope := newNamer(l.names)
+	fc := newFuncCtx(l, scope, directives)
+	fc.owner = f.Name
+	if directives {
+		l.recordDecl(fc.owner, f.Decl)
+	}
+	var parts []string
+	if !fd.pure {
+		fc.env = scope.alloc("env")
+		parts = append(parts, fc.env+" *"+l.env())
+	}
+	opt, _ := param.Type.(*check.Named)
+	if opt == nil || len(opt.TArgs) != 1 {
+		ice(site, "the Option parameter of %s has no value type", f.Name)
+	}
+	fc.okSubject = &okSubject{v: param, val: scope.alloc(param.Name), ok: scope.alloc("ok")}
+	parts = append(parts, fc.okSubject.val+" "+fc.goType(opt.TArgs[0]), fc.okSubject.ok+" bool")
+	fc.frame = newFrame(f.Sig.Results[0], false, framePolls(f.Pkg.Info, f.Decl))
+	results := fc.resultList(fc.frame.result, false)
+	directive := ""
+	if directives {
+		directive = l.directive(f.Decl)
+	}
+	fc.depth = 1
+	l.analyzeValues(f.Decl, f.Pkg.Info)
+	fc.closeBody(f, site, func() {
+		fc.entryPoll(f.Pkg.Info, f.Decl)
+		fc.body(f.Decl.Body.List)
+	})
+	b.WriteString(directive + "func " + fd.ok + "(" + strings.Join(parts, ", ") + ")" + results + " {\n" + fc.out.String() + "}\n\n")
+}
 
 // mapsUpdate reports std maps.Update.
 func mapsUpdate(f *check.Func) bool {
@@ -117,6 +299,26 @@ func (fc *funcCtx) updateFused(x *syntax.CallExpr, c *check.Call) (string, bool)
 	vals := fc.callArgs(list[:2], x)
 	m, k := fc.temp("m"), fc.temp("k")
 	fc.line(m + ", " + k + " := " + vals[0] + ", " + vals[1])
+	if name := fc.l.okVariant(g, gd); name != "" {
+		// The callback's comma-ok variant: no Option.
+		v, ok := fc.temp("v"), fc.temp("ok")
+		fc.line(v + ", " + ok + " := " + m + "[" + k + "]")
+		if valueMutant == "update-ok-none" {
+			fc.line("_ = " + ok)
+			ok = "false"
+		}
+		args := []string{v, ok}
+		if !gd.pure {
+			args = append([]string{fc.envExpr(x)}, args...)
+		}
+		call := name + "(" + strings.Join(args, ", ") + ")"
+		if valueMutant == "update-no-write" {
+			fc.line("_ = " + call)
+			return m, true
+		}
+		fc.line(m + "[" + k + "] = " + call)
+		return m, true
+	}
 	o, v, ok := fc.temp("o"), fc.temp("v"), fc.temp("ok")
 	fc.line("var " + o + " " + fc.goType(opt))
 	if valueMutant == "update-none" {

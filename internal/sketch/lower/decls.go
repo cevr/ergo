@@ -79,6 +79,9 @@ type funcDecl struct {
 	// machine plan's Step reads to decide whether it takes one (machine.go).
 	lowered  bool
 	readsEnv bool
+	// ok is the Go name of the comma-ok variant of a maps.Update callback
+	// once it is queued (update.go, okVariant).
+	ok string
 }
 
 // declareNames gives every package-level declaration of the user package its
