@@ -108,7 +108,6 @@ var declared = map[string][]allowance{
 		glob("examples/*/*/*.ergo", "round19 checks every example program"),
 		glob("docs/research/ef-migrate/*.ergo", "round19 checks the migrated examples"),
 		[]allowance{{"docs/spec/diagnostics.md", file, "TestRegistry: the spec's code rows and the code table agree"}},
-		glob("internal/sketch/lower/*.go", "TestTupleAssertionsUnwrap (C45) parses the lowering's sources for type assertions to *Tuple"),
 	),
 	"internal/sketch/lower": declare(
 		[]allowance{
