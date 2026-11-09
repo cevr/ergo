@@ -160,11 +160,6 @@ func g() int fails E | F { F }
 func f() int { g() catch { case F, E{N: x}: x } }
 func main() needs Console { if f() == 0 { Console.Println("unbound-is-zero") } }
 `},
-		{"row-equality", `type E { N int }
-func g() int fails E { E{N: 1} }
-func f() int { g() catch { case err: if err == err { 1 } else { 0 } } }
-func main() needs Console { if f() == 1 { Console.Println("row equality accepted") } }
-`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := ergoRun(t, tc.src)

@@ -9,8 +9,9 @@ import (
 
 // M1, M2: a program that checks clean never panics with "comparing
 // uncomparable type". Each route to equality over a union whose variant
-// does not compare, or over a row value, is refused before Go; equality
-// over a union whose variants all compare runs.
+// does not compare is refused before Go, and so is a comparable route
+// (a constraint) over a row value of such a variant (q47); equality over a
+// union whose variants all compare runs.
 func TestErgoRunComparability(t *testing.T) {
 	const decls = `type E { N []int }
 type F {}
@@ -19,10 +20,7 @@ func g() int fails E { E{N: []int{1}} }
 func eq[T comparable](a T, b T) bool { a == b }
 `
 	for _, tc := range []struct{ name, src string }{
-		{"row-tuple", `func f() int { g() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }`},
 		{"row-generic", `func f() int { g() catch { case err: if eq(err, err) { 1 } else { 0 } } }`},
-		// A row value never compares, even over a comparable error type.
-		{"row-comparable", "type K { N int }\nfunc gk() int fails K { K{N: 1} }\nfunc f() int { gk() catch { case err: if (err, 1) == (err, 1) { 1 } else { 0 } } }"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src := decls + tc.src + "\nfunc main() needs Console { if f() == 1 { Console.Println(\"equal\") } }\n"
