@@ -73,6 +73,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 	"Union": {
 		"Variants": {sel: "Variants"},
 		"Bad":      {why: "a refused variant, reported"},
+		"Row":      {why: "a row value's row holds the same types as Variants, which the walk reads"},
 	},
 	"MachineType": {
 		"State":  {sel: "State"},

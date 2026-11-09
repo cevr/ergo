@@ -107,7 +107,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Irrefutable pattern** (checked): A pattern that matches every value of its type, such as a name, a tuple of names or a record pattern of the value's own type. `let` and `for` take only irrefutable patterns; a partial one belongs in a `match`.
 
-**Row value** (checked): The value `case err:` binds in a `catch` arm: the failures the earlier arms leave, typed as the anonymous union of their error types. It can be returned (a failure of those types), matched, caught or assigned to a declared union that lists each of them; it has no other operation.
+**Row value** (checked): The value `case err:` binds in a `catch` arm: the failures the earlier arms leave, typed as the anonymous union of their error types. It is also the type an error row parameter names in a type position, and a row written as a type argument (q47). It can be returned (a failure of those types), matched, caught, compared when every member is equatable, held in a field, or assigned to a declared union that lists each of them; it has no other operation ([rows.md](docs/spec/rows.md#error-rows) Error rows 8).
 
 **Block**: A braced statement list. As the body of `with`, `timeout.After` or a trailing block, it yields its last expression, and `return`, `break` and `continue` are errors inside it.
 

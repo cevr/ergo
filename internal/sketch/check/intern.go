@@ -84,9 +84,10 @@ type nodeKey struct {
 
 // The constructors beyond the variant index's (variantindex.go).
 const (
-	vParam byte = iota + 100
-	vFresh      // a type identical only to itself: a union, a machine
-	vVar        // a row variable (class F)
+	vParam    byte = iota + 100
+	vFresh         // a type identical only to itself: a union, a machine
+	vVar           // a row variable (class F)
+	vRowValue      // a row value: its row's set (q47)
 )
 
 // maxSize saturates node counts: a type that shares subterms can have a
@@ -325,6 +326,10 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		}
 		cmp := int64(t.Set)
 		return vIface, nil, cmp, strings.Join(names, ","), kids
+	}
+	if u, ok := t.(*Union); ok && u.Row != nil {
+		// A row value is its row: two with one set are identical (q47).
+		return vRowValue, nil, 0, "", []Type{&RowArg{Row: u.Row}}
 	}
 	// A union, a machine, no value.
 	return vFresh, t, 0, "", nil

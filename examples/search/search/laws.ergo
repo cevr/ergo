@@ -1,6 +1,6 @@
-// The step's own rules, as laws over Step (machine laws are top-level
-// laws: MU6 is not on this base). The live laws are in memory, where the
-// catalogue is.
+// The step's own rules, as top-level laws over Step. MU6 machine laws
+// landed beside this program; moving these into Finder is a follow-up.
+// The live laws are in memory, where the catalogue is.
 
 // CartHoldsRoom: a chosen hit goes into the cart and is told, unless the
 // cart holds Room items; then the screen shows the problem.

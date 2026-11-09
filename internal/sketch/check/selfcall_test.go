@@ -473,12 +473,16 @@ func Run[R](j Job[R]) needs R {}
 		{"pointer first parameter", `type Job[E] {}
 func Run[E](j *Job[E]) fails E {}
 `, nil},
-		{"conflict reported once", `type Job[E] { v E }
+		// q47: an error row in a field names its value type.
+		{"field of an error row", `type Job[E] { v E }
 func Run[E](j Job[E]) fails E {}
+`, nil},
+		{"conflict reported once", `type Job[R] { v R }
+func Run[R](j Job[R]) needs R {}
 `, []selfWant{{"S108", "used both as a type and as a row", 1}}},
 		{"not the first parameter", `type Job[E] {}
 func Run[E](n int, j Job[E]) fails E {}
-`, []selfWant{{"S108", "E is used as a type and as an error row", 2}}},
+`, nil},
 	})
 }
 

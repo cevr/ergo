@@ -268,10 +268,15 @@ func TestLawFactsStayOut(t *testing.T) {
 					if f.canary != "" && !regexp.MustCompile(`(?m)^\tvar `+f.canary+` `).MatchString(run.mainGo()) {
 						t.Errorf("%s: the run build renamed the canary local %s: it read the law's fact", name, f.canary)
 					}
+					// LawHostMem has one value, so a law with no parameters
+					// has one case and is proved (Laws 10); a parameter of
+					// an unbounded type makes 100 generated cases.
 					okLine := "ok law LawHost.L for LawHostMem (100 cases)"
 					switch {
-					case top && strings.HasPrefix(f.law, "law L()"):
-						okLine = "ok law L" // no parameters: one case
+					case strings.HasPrefix(f.law, "law L()") && top:
+						okLine = "ok law L (proved: 1 case)"
+					case strings.HasPrefix(f.law, "law L()"):
+						okLine = "ok law LawHost.L for LawHostMem (proved: 1 case)"
 					case top:
 						okLine = "ok law L (100 cases)"
 					}

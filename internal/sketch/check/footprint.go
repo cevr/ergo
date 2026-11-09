@@ -132,6 +132,9 @@ func (c *checker) footprints() {
 	}
 	// So is a law body; its footprint is OwnerLaw's, which no build reads.
 	for _, l := range c.pkg.Laws {
+		if l.Decl.Body == nil {
+			continue // a machine's reachability law has no body (MU6)
+		}
 		bodies = append(bodies, body{fp.node(l.Decl), l.Decl.Body})
 	}
 	for key := range info.Literals {

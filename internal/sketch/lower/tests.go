@@ -24,9 +24,11 @@ import (
 //     and replaces the entry: Go's main reads --seed N (1 by default) and
 //     runs every test in source order inside the program's root task
 //     (v1.Main), after the package initializer.
-//  3. An example test runs once; a property runs 100 cases, each with
-//     arguments a generator derived from its parameter types draws
-//     (testGen). A case fails when an assert in it fails, wherever the
+//  3. An example test runs once. A property whose parameters can all be
+//     listed runs once for each combination of values and is reported
+//     proved, by the rule of laws (listedTest, lawcases.go); any other
+//     property runs 100 cases, each with arguments a generator derived
+//     from its parameter types draws (testGen). A case fails when an assert in it fails, wherever the
 //     assert is (a with body, a function literal, a task it starts), or
 //     when a typed failure escapes the body. A failure prints
 //     `FAIL Name (case K of 100, seed S: x = …): …` and the run goes on; a
@@ -99,6 +101,8 @@ var testHelpers = []struct{ key, base string }{
 	{"LitFloat", "ergoLitFloat"}, {"LitComplex", "ergoLitComplex"},
 	{"LitDuration", "ergoLitDuration"}, {"LitEntries", "ergoLitEntries"},
 	{"Seed", "ergoSeed"}, {"Tests", "ergoTests"},
+	{"Graph", "ergoGraph"}, {"Node", "ergoNode"}, {"ReachCap", "ergoReachCap"}, {"Explore", "ergoExplore"},
+	{"ExploreAll", "ergoExploreAll"}, {"ExploreRuns", "ergoExploreRuns"}, {"Trace", "ergoTrace"}, {"Refute", "ergoRefute"},
 }
 
 // helper is the Go name of the harness entity key.
@@ -165,6 +169,12 @@ func (l *lowerer) genRoots(f func(check.Type)) {
 		for i, v := range law.Params {
 			if !lawSlotParam(law, i) {
 				f(v.Type)
+			}
+		}
+		if law.Decl.Reach != nil {
+			// A machine's reachability law (MU6) generates its signals.
+			for _, t := range l.reachTypes(law) {
+				f(t)
 			}
 		}
 		for _, b := range r.Bindings {
@@ -254,8 +264,11 @@ func bindingUnrun(b []check.LawProvider) string {
 // is of another package than the one under test.
 func (l *lowerer) lawTitle(law *check.Law) string {
 	title := law.Name
-	if law.Owner != nil {
+	switch {
+	case law.Owner != nil:
 		title = law.Owner.Name + "." + law.Name
+	case law.Machine != nil:
+		title = law.Machine.Name + "." + law.Name
 	}
 	if law.Pkg != nil && law.Pkg != l.pkg {
 		title = law.Pkg.Name + "." + title
@@ -294,8 +307,11 @@ func (l *lowerer) bindingLabel(law *check.Law, b []check.LawProvider) string {
 
 func (l *lowerer) lawFunc(law *check.Law) string {
 	base := "ergoLaw" + law.Name
-	if law.Owner != nil {
+	switch {
+	case law.Owner != nil:
 		base = "ergoLaw" + law.Owner.Name + law.Name
+	case law.Machine != nil:
+		base = "ergoLaw" + law.Machine.Name + law.Name
 	}
 	return l.pkgName(pkgKey{"law", law}, base)
 }
@@ -534,6 +550,14 @@ func (l *lowerer) printable(t check.Type, seen map[*check.Named]bool) bool {
 			}
 		}
 		return true
+	case *check.Union:
+		// A row value prints as its member (q47).
+		for _, v := range u.Variants {
+			if !l.printable(v, seen) {
+				return false
+			}
+		}
+		return len(u.Variants) > 0
 	case *check.Named:
 		if seen[u] {
 			return true
@@ -594,7 +618,7 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")
 	b.WriteString("\t})\n}\n\n")
 	for _, r := range l.runLaws() {
-		if lawLowered(r) {
+		if lawLowered(r) && r.Law.Decl.Reach == nil {
 			l.lawDecl(r.Law)
 		}
 	}
@@ -648,6 +672,12 @@ func (l *lowerer) testRunner() string {
 			b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + name + ", nil, func() error { return " + l.testFunc(t) + "(" + env + ") }) {\n")
 			b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+t.Name) + ")\n")
 			b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
+			continue
+		}
+		// A property follows the rule of laws (Listed laws): when its
+		// parameters can all be listed, it takes each value once and is
+		// proved; else it draws testCases generated cases.
+		if l.listedTest(&b, t, scope, env, failed) {
 			continue
 		}
 		inner := newNamer(scope)
@@ -709,10 +739,12 @@ func lawSlotParam(law *check.Law, i int) bool {
 
 // lawRuns writes the runs of one law into the runner b (Laws): a skip line
 // when it does not run; a note when it is of the package under test and
-// none of its bindings runs here (its providers' packages run it); else one
-// run of testCases cases per binding of its slots, a law with no slots
-// having one. Each run draws from its own stream, named by the law and the
-// binding, so adding a law or a provider changes no other run's cases. A
+// none of its bindings runs here (its providers' packages run it); a
+// reachability run for a machine's reachability law (MU6); else one run per
+// binding of its slots, a law with no slots having one. A run whose values
+// can all be listed takes every value (listedRuns); another run takes
+// testCases generated cases. Each run draws from its own stream, named by
+// the law and the binding, so adding a law or a provider changes no other run's cases. A
 // case builds each bound provider, binds the owner's, converted to the
 // law's operation type, in a copy of the runner's environment, passes each
 // parameter's, draws the other parameters, and calls the law's function: a
@@ -724,6 +756,9 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 	title := l.lawTitle(law)
 	if law.Unrun != "" {
 		b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip law "+title+": "+law.Unrun) + ")\n")
+		return
+	}
+	if l.machineLawRuns(b, law, scope, env, seed, failed) {
 		return
 	}
 	if len(lr.Bindings) == 0 {
@@ -748,18 +783,12 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		targets = append(targets, target{label: label, b: bd})
 	}
 	at := strconv.Quote(l.siteText(law.Decl))
-	if len(law.Slots) == 0 && len(law.Params) == 0 {
-		// A top-level law with no parameters draws nothing: it runs once,
-		// as an example test does.
-		label := "law " + title
-		e, held, err := scope.alloc("e"), scope.alloc("held"), scope.alloc("err")
-		body := e + " := *" + env + "; " + held + ", " + err + " := " + l.lawFunc(law) + "(&" + e + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
-		b.WriteString("\tif " + run + "(" + taskOf(env) + ", " + strconv.Quote(label) + ", " + at + ", nil, func() error { " + body + " }) {\n")
-		b.WriteString("\t\t" + fmtPkg + ".Println(" + strconv.Quote("ok "+label) + ")\n")
-		b.WriteString("\t} else {\n\t\t" + failed + "++\n\t}\n")
-		return
-	}
 	for _, tg := range targets {
+		// One rule for every law (Listed laws): a run whose values can
+		// all be listed takes each once and is proved; else it draws.
+		if l.listedRuns(b, law, tg.label, tg.b, scope, env, failed) {
+			continue
+		}
 		inner := newNamer(scope)
 		r, ok, i := inner.alloc("r"), inner.alloc("ok"), inner.alloc("i")
 		name := strconv.Quote(tg.label) + ", " + at
@@ -861,7 +890,7 @@ func (l *lowerer) harness() string {
 	for _, k := range keys {
 		pairs = append(pairs, "$"+k, names[k])
 	}
-	return strings.NewReplacer(pairs...).Replace(harnessGo)
+	return strings.NewReplacer(pairs...).Replace(harnessGo + harnessReachGo)
 }
 
 const harnessGo = `// $Assertion is a failed assert, the panic that ends its case (196l).
@@ -1257,6 +1286,10 @@ func (l *lowerer) genNamed(t check.Type, seen map[check.Type]bool, visit func(*c
 		for _, e := range u.Types {
 			l.genNamed(e, seen, visit)
 		}
+	case *check.Union:
+		for _, v := range u.Variants {
+			l.genNamed(v, seen, visit)
+		}
 	case *check.Named:
 		if seen[u] {
 			return
@@ -1345,9 +1378,54 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 		return tc.goType(u) + "{" + strings.Join(parts, ", ") + "}"
 	case *check.Named:
 		return l.genFunc(u, site) + "(" + r + ", " + d + ")"
+	case *check.Union:
+		// A row value (q47): a member, drawn as a union's variant is, in a
+		// function literal called at once.
+		inner := newNamer(scope)
+		ir, id := inner.alloc("r"), inner.alloc("d")
+		var body strings.Builder
+		l.genPick(&body, u, u.Variants, ir, id, inner, site)
+		return "func(" + ir + " *" + l.helper("Rand") + ", " + id + " int) error {\n" + body.String() + "}(" + r + ", " + d + ")"
 	}
 	ice(site, "a property parameter of type %s, which has no generator; the checker admits only generatable types", t)
 	return ""
+}
+
+// genPick writes the body that draws one of variants, the variants of the
+// union t or the members of the row value t: at d <= 0 one of least rank,
+// else any, each equally likely.
+func (l *lowerer) genPick(body *strings.Builder, t check.Type, variants []check.Type, r, d string, scope *namer, site syntax.Node) {
+	ranks := check.NewValueRanks()
+	least := -1
+	var small []check.Type
+	for _, v := range variants {
+		switch k := ranks.Rank(v); {
+		case k < 0:
+		case least < 0 || k < least:
+			least, small = k, []check.Type{v}
+		case k == least:
+			small = append(small, v)
+		}
+	}
+	if len(small) == 0 {
+		ice(site, "the union %s has no finite value; the checker admits only generatable types", t)
+	}
+	pick := func(vs []check.Type, depth string) {
+		if len(vs) == 1 {
+			body.WriteString("\t\treturn " + l.genExpr(vs[0], r, depth, scope, site) + "\n")
+			return
+		}
+		body.WriteString("\t\tswitch " + r + ".intn(" + strconv.Itoa(len(vs)) + ") {\n")
+		for i, v := range vs[:len(vs)-1] {
+			body.WriteString("\t\tcase " + strconv.Itoa(i) + ":\n\t\t\treturn " + l.genExpr(v, r, depth, scope, site) + "\n")
+		}
+		body.WriteString("\t\t}\n\t\treturn " + l.genExpr(vs[len(vs)-1], r, depth, scope, site) + "\n")
+	}
+	body.WriteString("\tif " + d + " <= 0 {\n")
+	pick(small, d+"-1")
+	body.WriteString("\t}\n\t{\n")
+	pick(variants, d+"-1")
+	body.WriteString("\t}\n")
 }
 
 // genFunc is the generator function of the named type n, emitted once.
@@ -1408,40 +1486,10 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 		}
 		body.WriteString("\treturn " + goType + "{" + strings.Join(parts, ", ") + "}\n")
 	case *check.Union:
-		ranks := check.NewValueRanks()
-		least := -1
-		var small []check.Type
-		for _, v := range under.Variants {
-			switch k := ranks.Rank(v); {
-			case k < 0:
-			case least < 0 || k < least:
-				least, small = k, []check.Type{v}
-			case k == least:
-				small = append(small, v)
-			}
-		}
-		if len(small) == 0 {
-			ice(site, "the union %s has no finite value; the checker admits only generatable types", n)
-		}
 		if fu := l.flatUnionOf(n); fu != nil {
 			flatBail(site, fu) // a property's argument keeps its interface (flatunion.go)
 		}
-		pick := func(vs []check.Type, depth string) {
-			if len(vs) == 1 {
-				body.WriteString("\t\treturn " + l.genExpr(vs[0], r, depth, scope, site) + "\n")
-				return
-			}
-			body.WriteString("\t\tswitch " + r + ".intn(" + strconv.Itoa(len(vs)) + ") {\n")
-			for i, v := range vs[:len(vs)-1] {
-				body.WriteString("\t\tcase " + strconv.Itoa(i) + ":\n\t\t\treturn " + l.genExpr(v, r, depth, scope, site) + "\n")
-			}
-			body.WriteString("\t\t}\n\t\treturn " + l.genExpr(vs[len(vs)-1], r, depth, scope, site) + "\n")
-		}
-		body.WriteString("\tif " + d + " <= 0 {\n")
-		pick(small, d+"-1")
-		body.WriteString("\t}\n\t{\n")
-		pick(under.Variants, d+"-1")
-		body.WriteString("\t}\n")
+		l.genPick(&body, n, under.Variants, r, d, scope, site)
 	default:
 		body.WriteString("\treturn " + goType + "(" + l.genExpr(under, r, d, scope, site) + ")\n")
 	}

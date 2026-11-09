@@ -2,6 +2,8 @@
 // and stepped by the board's step: the region pattern (M56), until Ergo
 // has regions.
 
+import machines
+
 // Mode is the case of the next letter. ShiftOnce makes one letter upper
 // case; Caps makes every letter upper case until Shift.
 type Mode = Lower{} | ShiftOnce{At duration} | Caps{}
@@ -49,6 +51,37 @@ func ShiftStep(m Mode, t Tap) Decision[Mode, Mode] {
 type Shifter machine[Mode, Tap] {
 	initial: Lower,
 	step:    ShiftStep,
+
+	// LocksCaps: some run of taps locks Caps.
+	law LocksCaps reaches Caps,
+
+	// LocksInTwo: Caps is two Shifts away from Lower, through ShiftOnce.
+	law LocksInTwo path [Lower, ShiftOnce, Caps],
+
+	// SecondShiftLocksWithinTheWindow: a second Shift locks Caps exactly
+	// when it comes 0 to CapsWindow after the first; any other gap goes
+	// back to Lower.
+	law SecondShiftLocksWithinTheWindow(gap int) {
+		let g = ms(gap % 3000)
+		let o = machines.Run(Shifter{}, []Tap{ShiftTap{At: 0s}, ShiftTap{At: g}}) catch {
+		case machines.Rejected:
+			return false
+		}
+		let locked = g >= 0s && g <= CapsWindow
+		match o {
+		case machines.Running[Mode, Mode] as r:
+			match r.State {
+			case Caps:
+				locked
+			case Lower:
+				!locked
+			case ShiftOnce:
+				false
+			}
+		case machines.Finished[Mode, Mode]:
+			false
+		}
+	},
 }
 
 // Upper reports whether m types the next letter in upper case.

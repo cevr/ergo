@@ -104,6 +104,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"MachineType.Step":   {guardType, machineGuard("initial: Idle,\n\tstep: @w,")},
 	"MachineType.After":  {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tafter: @w,")},
 	"MachineType.Work":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\twork: @w,")},
+	"LawReach.Targets":   {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L reaches @w,")},
 
 	// Names that are not a use of the context: a binder, a member, text. A
 	// catch arm's name that names no type binds the failure.

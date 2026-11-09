@@ -176,6 +176,12 @@ type Union struct {
 	// Bad: a variant failed to resolve (reported), so a case that names no
 	// listed variant may name the lost one: no case diagnostic follows (D3).
 	Bad bool
+	// Row is set for a row value, the value type of an error row: the type
+	// of a `case err:` binding and of an error row parameter in a type
+	// position (rows.md, Catch 7; types.md, Generics 1; q47). Variants are
+	// its elements. Its identity is the row's set, and it lowers to a Go
+	// error. A declared union's underlying type has no Row.
+	Row *Row
 }
 
 // MachineType is a `machine[S, E]` declaration's type.
@@ -236,6 +242,20 @@ func (k Kind) String() string {
 		return "a capability row"
 	}
 	return "a type"
+}
+
+// joinKinds is the kind of a parameter seen in positions of kinds a and b
+// (types.md, Generics 1; q47). An error row parameter may also stand in a
+// type position, where it names the row's value type, so a type and an
+// error row join to the error row. Any other two kinds conflict.
+func joinKinds(a, b Kind) (Kind, bool) {
+	switch {
+	case a == b:
+		return a, true
+	case a == KindType && b == KindErrors, a == KindErrors && b == KindType:
+		return KindErrors, true
+	}
+	return a, false
 }
 
 // TypeParam is a type or row parameter.

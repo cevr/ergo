@@ -74,18 +74,69 @@ func (*TestDecl) declNode()  {}
 
 // LawDecl is `law Name(params) { body }`: a top-level declaration in
 // File.Decls, or a member of an operation type in InterfaceType.Laws
-// (law-top). A top-level law has no type parameters.
+// (law-top). A top-level law has no type parameters. A member of a machine
+// type (MachineType.Laws, MU6) is one of these too, or a reachability law:
+// `law Name reaches V`, `law Name never reaches V` or `law Name path [V1,
+// V2]`, with Reach set and no parameters and no body.
 type LawDecl struct {
 	Doc    *CommentGroup
 	Law    Pos
 	Name   *Ident
 	Params *FieldList
-	Body   *BlockStmt
+	Body   *BlockStmt // nil for a reachability law
+	Reach  *LawReach  // nil unless a reachability law
 }
 
 func (d *LawDecl) Pos() Pos { return d.Law }
-func (d *LawDecl) End() Pos { return d.Body.End() }
-func (*LawDecl) declNode()  {}
+func (d *LawDecl) End() Pos {
+	if d.Reach != nil {
+		return d.Reach.End()
+	}
+	return d.Body.End()
+}
+func (*LawDecl) declNode() {}
+
+// LawReach is the graph form of a machine law (MU6). Never is the position
+// of `never` in `never reaches V`, else NoPos; Word is the position of
+// `reaches` or `path`; Targets are the variants of the machine's state the
+// law names: one for reaches, one or more for a path, in order.
+type LawReach struct {
+	Never   Pos
+	Word    Pos
+	Path    bool
+	Lbrack  Pos // a path's [, else NoPos
+	Targets []*Ident
+	Rbrack  Pos // a path's ], else NoPos
+}
+
+func (r *LawReach) Pos() Pos {
+	if r.Never != NoPos {
+		return r.Never
+	}
+	return r.Word
+}
+
+func (r *LawReach) End() Pos {
+	if r.Path {
+		return r.Rbrack + 1
+	}
+	if len(r.Targets) == 0 {
+		return r.Word + 1
+	}
+	return r.Targets[len(r.Targets)-1].End()
+}
+
+// ReachKind names the form of a reachability law: "reaches", "never" or
+// "path".
+func (r *LawReach) Kind() string {
+	switch {
+	case r.Path:
+		return "path"
+	case r.Never != NoPos:
+		return "never"
+	}
+	return "reaches"
+}
 
 // AssertStmt is `assert e`.
 type AssertStmt struct {

@@ -713,5 +713,5 @@ func preludeType(name string) *Named {
 // can be returned (a failure of those types), matched, caught or assigned
 // to a declared union that lists each of them (ConvRow); nothing else.
 func (c *checker) rowValue(rest *Row) Type {
-	return &Union{Variants: rest.Elems()}
+	return &Union{Variants: rest.Elems(), Row: rest}
 }

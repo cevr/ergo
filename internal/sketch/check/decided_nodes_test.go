@@ -263,7 +263,7 @@ func pass[A, E, R](f func() A fails E needs R) A fails E needs R { return try f(
 func main() {}
 `, nil},
 	{"type parameters", "a bracket parameter of two kinds", `
-func k[E](a E) fails E { return }
+func k[E](a E) needs E { return }
 func main() {}
 `, []string{"S108:2"}},
 	{"ordered constraint", "ordered is checked (stage E1): > is defined on T", `
@@ -766,6 +766,31 @@ type Breaker machine[State, Signal] {
 	initial: Closed,
 	// step decides each signal.
 	step:    step,
+}
+func main() {}
+`, nil},
+	{"machine", "a machine type with laws (MU6)", `
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+
+	law Opens reaches Open,
+	law Stays never reaches Open,
+	law Trips path [Closed, Open],
+	law Steps(s State, e Signal) { true },
 }
 func main() {}
 `, nil},

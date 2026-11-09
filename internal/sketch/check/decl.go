@@ -286,6 +286,14 @@ func (c *checker) collect() {
 						c.collectLaws(it, tn, fi)
 					}
 				}
+				if mt, ok := d.Spec.(*syntax.MachineType); ok {
+					for _, l := range mt.Laws {
+						c.ownBody(l, OwnerLaw)
+					}
+					if declared {
+						c.collectMachineLaws(mt, tn, fi)
+					}
+				}
 			case *syntax.FuncDecl:
 				fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi}
 				c.funcs = append(c.funcs, fn)
@@ -1175,6 +1183,12 @@ func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 	if tp, ok := t.(*TypeParam); ok && tp.conflict {
 		return invalid
 	}
+	if tp, ok := t.(*TypeParam); ok && tp.Kind == KindErrors {
+		// An error row parameter in a type position names the row's value
+		// type, the type of a `case err:` binding (types.md, Generics 1;
+		// rows.md, Catch 7; q47).
+		return c.rowValue(c.types.row(tp))
+	}
 	if tp, ok := t.(*TypeParam); ok && tp.Kind != KindType {
 		c.errorf(x, CodeType, "%s is %s parameter, not a type", tp.Name, tp.Kind)
 		return invalid
@@ -1517,6 +1531,16 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 			targs[i] = ra
 			continue
 		}
+		if b, ok := unparen(a).(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
+			// A row written for a type parameter is the row's value type,
+			// as an error row parameter there is (Generics 1; q47).
+			ra := c.rowArg(a, KindErrors, ctx)
+			if ra == nil {
+				return invalid
+			}
+			targs[i] = c.rowValue(ra.Row)
+			continue
+		}
 		t := c.typExpr(a, ctx)
 		if isInvalid(t) {
 			return invalid
@@ -1615,7 +1639,7 @@ func (c *checker) rowExpr(xs []syntax.Expr, kind Kind, ctx *typeCtx) *Row {
 // argument makes it.
 func (c *checker) rowArg(x syntax.Expr, kind Kind, ctx *typeCtx) *RowArg {
 	row := newRow()
-	for _, e := range rowArgElems(x) {
+	for _, e := range orLeaves(x) {
 		t := c.rowElem(e, kind, ctx)
 		if t == nil {
 			return nil
@@ -1670,16 +1694,6 @@ func (c *checker) namedRow(x syntax.Expr, t Type) (vs []Type, isRow bool) {
 		}
 	}
 	return u.Variants, true
-}
-
-// rowArgElems is the elements of a written row argument, left to right:
-// the operands of its | (a BinaryExpr with Op OR, in a type and in an
-// expression's index alike), or x alone.
-func rowArgElems(x syntax.Expr) []syntax.Expr {
-	if b, ok := x.(*syntax.BinaryExpr); ok && b.Op == syntax.OR {
-		return append(rowArgElems(b.X), b.Y)
-	}
-	return []syntax.Expr{x}
 }
 
 func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
@@ -2085,10 +2099,14 @@ func (c *checker) kindBracketParams(ft *syntax.FuncType, ctx *typeCtx, unconstra
 			return
 		}
 		if prev, ok := seen[tp]; ok {
-			if prev != k {
+			j, ok := joinKinds(prev, k)
+			if !ok {
 				tp.conflict = true
 				c.errorf(id, CodeType, "%s is used as %s and as %s; a parameter has one kind (types.md, Generics 1)", id.Name, prev, k)
+				return
 			}
+			seen[tp] = j
+			tp.Kind = j
 			return
 		}
 		seen[tp] = k

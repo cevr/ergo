@@ -13,8 +13,8 @@ import (
 // test catches: the parser reads only the first element of a type
 // argument (row-in-type), the checker keeps only the first element of a
 // row argument (row-keeps-every-element), the checker refuses the
-// expression index's row (row-in-index), the row's message where a type
-// is expected (row-for-a-type), and the parenthesised row's message, as
+// expression index's row (row-in-index), a capability row where a type
+// is expected, which has no value type (row-for-a-type; owner q47), and the parenthesised row's message, as
 // needs (A | B) has one (row-in-parentheses).
 func TestRowArgFixtures(t *testing.T) {
 	const prelude = `type A { Ping() int }
@@ -37,8 +37,8 @@ func call(j Job[A | B]) int needs A { j.Run() } // want S102
 func call(j Job[A | B]) int needs A | B { run[A | B](j) }
 `, ""},
 		{"row-for-a-type", prelude + `
-func f(o Option[A | B]) {} // want S108
-`, "a row A | B is the argument of a row parameter; here a type is expected"},
+func f(o Option[A | B]) {} // want S104
+`, "A is not an error type"},
 		{"row-in-parentheses", prelude + `
 func f(j Job[(A | B)]) {} // want S001
 `, "a row takes no parentheses"},

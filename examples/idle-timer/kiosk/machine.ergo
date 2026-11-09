@@ -241,14 +241,6 @@ func admin(a Admin, s Signal) Decision[Kiosk, Event] {
 	}
 }
 
-// Idler is the kiosk as a machine: its input is a Policy; it starts
-// Suspended, moves by Step, and its states' timers are Timer.
-type Idler machine[Kiosk, Signal] {
-	initial: Begin,
-	step:    Step,
-	after:   Timer,
-}
-
 // Name is the word of a state, for the screen and the laws.
 func Name(k Kiosk) string {
 	match k {

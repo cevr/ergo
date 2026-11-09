@@ -236,6 +236,11 @@ func (c *checker) solveDeclKinds() {
 		ks := make([]Kind, len(names))
 		for i, name := range names {
 			s := seen[find(kindVar{tn, i})]
+			if len(s) == 2 && s[KindType] && s[KindErrors] {
+				// An error row in a type position names its value type
+				// (joinKinds; q47).
+				s = map[Kind]bool{KindErrors: true}
+			}
 			switch {
 			case len(s) > 1:
 				if c.kinds.conflicts[tn] == nil {

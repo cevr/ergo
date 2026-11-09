@@ -1,4 +1,4 @@
 
-func pass[E](e E) fails E { return e } // want S108
+func pass[E](e E) needs E { } // want S108
 
 func main() {}

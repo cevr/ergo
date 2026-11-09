@@ -773,7 +773,7 @@ type C[E] { a []A[E], run func() fails E }`},
 	{"recursive-capability-row", "", `type Svc { Ping() }
 type Job[R] { next []Job[R], run func() needs R }
 func Run(j Job[Svc]) {}`},
-	{"recursive-conflict", "S108", `type L[E] { next []L[E], run func() fails E, v E }`},
+	{"recursive-conflict", "S108", `type L[E] { next []L[E], v E, run func() needs E }`},
 	{"function-of-recursive", "", `type List[T, E] { Tail []List[T, E], Run func() fails E }
 func Head[T, E](l List[T, E]) fails E { return l.Run() }`},
 	{"dependent-constraint-literal", "", `type I[T] { M(T) }

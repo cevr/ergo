@@ -1,7 +1,6 @@
-// The rules of the picker as laws over its machine. Machines carry no
-// laws yet (M55), so they stand at top level. The laws draw question
-// sets from integers (setOf), so that answers meet tags and questions
-// repeat, and walks through the machine from integers (walk).
+// The rules of the picker as laws of its machine, Picker (MU6). The laws
+// draw question sets from integers (setOf), so that answers meet tags and
+// questions repeat, and walks through the machine from integers (walk).
 
 import machines
 import strings
@@ -93,141 +92,156 @@ func walk(set Set, steps []int) Quiz {
 	q
 }
 
-// SettleIsStable: Settle stops at a state that the eventless step would
-// not leave. It asks the first question from Next on that narrows what
-// is left, after skipping only ones that do not; it shows the results
-// only when at most one item is left or no later question narrows. So a
-// state that a signal sees is never one to skip.
-law SettleIsStable(items []int, questions []int, next int, steps []int) {
-	let set = setOf(items, questions)
-	let from = pick(next, len(questions)+1)
-	let answers = AnswersOf(walk(set, steps))
-	let left = Left(set, answers)
-	match Settle(Calculating{Set: set, Next: from, Answers: answers}) {
-	case Asking as a:
-		if a.Question < from || !Narrows(set.Questions[a.Question], left) || len(left) < 2 {
-			return false
-		}
-		for k in from..a.Question {
-			if Narrows(set.Questions[k], left) {
+// Picker is the guided picker as a machine: its input is a question set,
+// it starts at Begin(set) and moves by Step until a Pick. Its laws follow
+// (MU6). The reachability law runs over generated sets and signals, and
+// the others draw question sets and walks from integers: a question set
+// holds strings and integers, which cannot be listed, so ergo test samples
+// every law of Picker and proves none (types.md Laws 10).
+type Picker machine[Quiz, Signal] {
+	initial: Begin,
+	step:    Step,
+
+	// Settles: no signal leaves the picker in Calculating, the eventless
+	// state, from any start: Begin and Step settle it.
+	law Settles never reaches Calculating,
+
+	// SettleIsStable: Settle stops at a state that the eventless step would
+	// not leave. It asks the first question from Next on that narrows what
+	// is left, after skipping only ones that do not; it shows the results
+	// only when at most one item is left or no later question narrows. So a
+	// state that a signal sees is never one to skip.
+	law SettleIsStable(items []int, questions []int, next int, steps []int) {
+		let set = setOf(items, questions)
+		let from = pick(next, len(questions)+1)
+		let answers = AnswersOf(walk(set, steps))
+		let left = Left(set, answers)
+		match Settle(Calculating{Set: set, Next: from, Answers: answers}) {
+		case Asking as a:
+			if a.Question < from || !Narrows(set.Questions[a.Question], left) || len(left) < 2 {
 				return false
 			}
-		}
-		true
-	case Showing:
-		if len(left) < 2 {
-			return true
-		}
-		for k in from..len(questions) {
-			if Narrows(set.Questions[k], left) {
-				return false
-			}
-		}
-		true
-	}
-}
-
-// BackUndoes: an answer, then Back, gives the state before the answer.
-law BackUndoes(items []int, questions []int, steps []int, c int) {
-	let set = setOf(items, questions)
-	let q = walk(set, steps)
-	let d = Tried(q, Choose{Choice: pick(c, 4) + 1})
-	match d {
-	case Enter[Quiz] as e:
-		Key(machines.Next(e.Next, Tried(e.Next, Back))) == Key(q)
-	case Stay[Quiz]:
-		false
-	case Emit[Quiz, Picked]:
-		false
-	case Ignore:
-		false
-	case Reject:
-		true
-	case Done[Picked]:
-		false
-	}
-}
-
-// ResultsMatchAnswers: the items left are exactly the items of the set
-// that every answer keeps.
-law ResultsMatchAnswers(items []int, questions []int, steps []int) {
-	let set = setOf(items, questions)
-	let q = walk(set, steps)
-	let left = LeftOf(q)
-	let mut fit = 0
-	for it in set.Items {
-		let mut all = true
-		for a in AnswersOf(q) {
-			let c = set.Questions[a.Question].Choices[a.Choice]
-			if !Keeps(c, it) {
-				all = false
-			}
-		}
-		if all {
-			fit = fit + 1
-			let mut found = false
-			for l in left {
-				if l.Name == it.Name {
-					found = true
+			for k in from..a.Question {
+				if Narrows(set.Questions[k], left) {
+					return false
 				}
 			}
-			if !found {
-				return false
+			true
+		case Showing:
+			if len(left) < 2 {
+				return true
 			}
+			for k in from..len(questions) {
+				if Narrows(set.Questions[k], left) {
+					return false
+				}
+			}
+			true
 		}
-	}
-	fit == len(left)
-}
+	},
 
-// NoDeadEnd: a quiz over a catalogue with items always has an item left,
-// and every choice that Choose takes leaves at least one.
-law NoDeadEnd(items []int, questions []int, steps []int) {
-	if len(items) == 0 {
-		return true
-	}
-	let set = setOf(items, questions)
-	let q = walk(set, steps)
-	if len(LeftOf(q)) == 0 {
-		return false
-	}
-	for c in 1..5 {
-		match Tried(q, Choose{Choice: c}) {
+	// BackUndoes: an answer, then Back, gives the state before the answer.
+	law BackUndoes(items []int, questions []int, steps []int, c int) {
+		let set = setOf(items, questions)
+		let q = walk(set, steps)
+		let d = Tried(q, Choose{Choice: pick(c, 4) + 1})
+		match d {
 		case Enter[Quiz] as e:
-			if len(LeftOf(e.Next)) == 0 {
-				return false
-			}
+			Key(machines.Next(e.Next, Tried(e.Next, Back))) == Key(q)
 		case Stay[Quiz]:
-			return false
+			false
 		case Emit[Quiz, Picked]:
-			return false
+			false
 		case Ignore:
-			return false
+			false
 		case Reject:
+			true
 		case Done[Picked]:
+			false
+		}
+	},
+
+	// ResultsMatchAnswers: the items left are exactly the items of the set
+	// that every answer keeps.
+	law ResultsMatchAnswers(items []int, questions []int, steps []int) {
+		let set = setOf(items, questions)
+		let q = walk(set, steps)
+		let left = LeftOf(q)
+		let mut fit = 0
+		for it in set.Items {
+			let mut all = true
+			for a in AnswersOf(q) {
+				let c = set.Questions[a.Question].Choices[a.Choice]
+				if !Keeps(c, it) {
+					all = false
+				}
+			}
+			if all {
+				fit = fit + 1
+				let mut found = false
+				for l in left {
+					if l.Name == it.Name {
+						found = true
+					}
+				}
+				if !found {
+					return false
+				}
+			}
+		}
+		fit == len(left)
+	},
+
+	// NoDeadEnd: a quiz over a catalogue with items always has an item left,
+	// and every choice that Choose takes leaves at least one.
+	law NoDeadEnd(items []int, questions []int, steps []int) {
+		if len(items) == 0 {
+			return true
+		}
+		let set = setOf(items, questions)
+		let q = walk(set, steps)
+		if len(LeftOf(q)) == 0 {
 			return false
 		}
-	}
-	true
-}
-
-// PickedIsShown: a Pick ends the quiz with the item the results show at
-// that number, and the labels of the answers given.
-law PickedIsShown(items []int, questions []int, steps []int, i int) {
-	let set = setOf(items, questions)
-	let q = walk(set, steps)
-	let n = pick(i, 3) + 1
-	match Tried(q, Pick{Item: n}) {
-	case Done[Picked] as d:
-		d.Output.Name == LeftOf(q)[n-1].Name && strings.Join(d.Output.Answers, ",") == strings.Join(Labels(set, AnswersOf(q)), ",") && len(d.Output.Answers) == len(AnswersOf(q))
-	case Enter[Quiz]:
-		false
-	case Stay[Quiz]:
-		false
-	case Emit[Quiz, Picked]:
-		false
-	case Ignore:
-		false
-	case Reject:
+		for c in 1..5 {
+			match Tried(q, Choose{Choice: c}) {
+			case Enter[Quiz] as e:
+				if len(LeftOf(e.Next)) == 0 {
+					return false
+				}
+			case Stay[Quiz]:
+				return false
+			case Emit[Quiz, Picked]:
+				return false
+			case Ignore:
+				return false
+			case Reject:
+			case Done[Picked]:
+				return false
+			}
+		}
 		true
-	}
+	},
+
+	// PickedIsShown: a Pick ends the quiz with the item the results show at
+	// that number, and the labels of the answers given.
+	law PickedIsShown(items []int, questions []int, steps []int, i int) {
+		let set = setOf(items, questions)
+		let q = walk(set, steps)
+		let n = pick(i, 3) + 1
+		match Tried(q, Pick{Item: n}) {
+		case Done[Picked] as d:
+			d.Output.Name == LeftOf(q)[n-1].Name && strings.Join(d.Output.Answers, ",") == strings.Join(Labels(set, AnswersOf(q)), ",") && len(d.Output.Answers) == len(AnswersOf(q))
+		case Enter[Quiz]:
+			false
+		case Stay[Quiz]:
+			false
+		case Emit[Quiz, Picked]:
+			false
+		case Ignore:
+			false
+		case Reject:
+			true
+		}
+	},
 }

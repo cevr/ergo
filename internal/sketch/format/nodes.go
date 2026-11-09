@@ -425,14 +425,7 @@ func (p *printer) operationType(t *syntax.InterfaceType) {
 			continue
 		}
 		l := t.Laws[j]
-		list = append(list, member{l, func(bool) {
-			p.token(l.Law, "law")
-			p.space()
-			p.ident(l.Name)
-			p.fieldList(l.Params, "(", ")")
-			p.space()
-			p.lawBody(l.Body)
-		}})
+		list = append(list, member{l, func(bool) { p.memberLaw(l) }})
 		j++
 	}
 	p.members(t.Lbrace, t.Rbrace, list, false)
@@ -526,7 +519,46 @@ func (p *printer) machineType(t *syntax.MachineType) {
 			p.expr(e.Value)
 		}})
 	}
+	for _, l := range t.Laws {
+		list = append(list, member{l, func(bool) { p.memberLaw(l) }})
+	}
 	p.members(t.Lbrace, t.Rbrace, list, false)
+}
+
+// memberLaw prints a law of an operation type or a machine: `law Name(params)
+// { body }`, or a machine's reachability law (MU6).
+func (p *printer) memberLaw(l *syntax.LawDecl) {
+	p.token(l.Law, "law")
+	p.space()
+	p.ident(l.Name)
+	if r := l.Reach; r != nil {
+		p.space()
+		if r.Never != syntax.NoPos {
+			p.token(r.Never, "never")
+			p.space()
+		}
+		if !r.Path {
+			p.token(r.Word, "reaches")
+			p.space()
+			p.ident(r.Targets[0])
+			return
+		}
+		p.token(r.Word, "path")
+		p.space()
+		p.token(r.Lbrack, "[")
+		for i, id := range r.Targets {
+			if i > 0 {
+				p.synth(",")
+				p.space()
+			}
+			p.ident(id)
+		}
+		p.token(r.Rbrack, "]")
+		return
+	}
+	p.fieldList(l.Params, "(", ")")
+	p.space()
+	p.lawBody(l.Body)
 }
 
 // context prints `context [provides …] [needs …] { entries }`.

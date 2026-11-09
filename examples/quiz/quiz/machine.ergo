@@ -168,13 +168,6 @@ func Labels(set Set, answers []Answer) []string {
 	out
 }
 
-// Picker is the guided picker as a machine: its input is a question set,
-// it starts at Begin(set) and moves by Step until a Pick.
-type Picker machine[Quiz, Signal] {
-	initial: Begin,
-	step:    Step,
-}
-
 // without is xs without the element at i, in a new slice.
 func without[T](xs []T, i int) []T {
 	let mut out = []T{}

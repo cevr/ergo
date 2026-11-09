@@ -63,13 +63,21 @@ func (fc *funcCtx) workLit(x *syntax.CompositeLit, lit *check.WorkLit, t check.T
 		}
 		// A typed failure becomes a signal.
 		b.WriteString(ind + "if " + err + " != nil {\n")
-		if onFailure != "" {
+		switch {
+		case onFailure != "":
 			failure := err
 			if fc.goType(lit.Failure) != "error" {
 				failure = err + ".(" + fc.goType(lit.Failure) + ")"
 			}
 			b.WriteString(in + e + ", _ := " + onFailure + "(" + env + ", " + failure + ")\n")
-		} else {
+			b.WriteString(in + "return " + send + "(" + env + ", " + e + ")\n")
+		case lit.Failures.Empty():
+			// No typed failure: a non-nil err is a defect or an interrupt,
+			// which the work passes on. A one-variant signal is its variant
+			// (F11), not an interface, so err.(Signal) would not compile
+			// (batch-13 integration, corpus c988).
+			b.WriteString(in + "return struct{}{}, " + err + "\n")
+		default:
 			if fu := fc.l.flatUnionOf(lit.Signal); fu != nil {
 				// The failure is a variant of the signal, an error value: a
 				// flat signal union holds no error value, so the signal
@@ -77,8 +85,9 @@ func (fc *funcCtx) workLit(x *syntax.CompositeLit, lit *check.WorkLit, t check.T
 				flatBail(x, fu)
 			}
 			b.WriteString(in + e + " := " + err + ".(" + signal + ")\n")
+			b.WriteString(in + "return " + send + "(" + env + ", " + e + ")\n")
 		}
-		b.WriteString(in + "return " + send + "(" + env + ", " + e + ")\n" + ind + "}\n")
+		b.WriteString(ind + "}\n")
 		if lit.Run != nil {
 			if onSuccess != "" {
 				b.WriteString(ind + e + ", _ := " + onSuccess + "(" + env + ", " + res + ")\n")

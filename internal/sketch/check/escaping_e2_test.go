@@ -317,6 +317,7 @@ var escUnreachable = map[string]string{
 	"ImportSpec.Name":  "an import's name",
 	"TestDecl.Name":    "a test's name",
 	"LawDecl.Name":     "a law's name",
+	"LawReach.Targets": "a reachability law's targets are type names",
 	"VariantSpec.Name": "a variant's name",
 	"SelectorExpr.Sel": "a selector names a field, an operation or a package member, never a local",
 	"SliceExpr.Max":    "a three-index slice does not parse (S001)",
