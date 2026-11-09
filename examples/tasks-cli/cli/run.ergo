@@ -1,7 +1,7 @@
 import flag
 import io
 import os
-import tasks/tasks
+import taskscli/tasks
 
 // usage is the help that follows a usage error.
 let usage = "usage: tasks-cli list|create|close|completion [flags] [args]; tasks-cli -h for help"
@@ -56,7 +56,7 @@ func exec(c Cmd) fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken | Dec
 
 // find is the item id of the Board: the Board has no lookup of one item,
 // so a close reads the list.
-func find(id int) tasks.Item fails tasks.NotFound | tasks.Broken needs tasks.Board {
+func find(id int) tasks.Task fails tasks.NotFound | tasks.Broken needs tasks.Board {
 	for t in try tasks.Board.All() {
 		if t.ID == id {
 			return t

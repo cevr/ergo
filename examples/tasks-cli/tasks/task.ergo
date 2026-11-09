@@ -9,9 +9,9 @@ type Priority = Low{} | Medium{} | High{} | Urgent{}
 // State is whether a task is still to do.
 type State = Open{} | Closed{}
 
-// Item is one task of a Board. ID is its number, from 1, in the order the
+// Task is one task of a Board. ID is its number, from 1, in the order the
 // tasks were created.
-type Item { ID int, Title string, Priority Priority, State State }
+type Task { ID int, Title string, Priority Priority, State State }
 
 // Rank orders the priorities: a higher rank is more urgent.
 func Rank(p Priority) int {
@@ -71,7 +71,7 @@ func StateName(s State) string {
 }
 
 // IsOpen reports whether t is still to do.
-func IsOpen(t Item) bool {
+func IsOpen(t Task) bool {
 	match t.State {
 	case Open:
 		true

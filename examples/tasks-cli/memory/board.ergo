@@ -1,49 +1,56 @@
-// Package memory holds Board, the in-memory tasks.Board, and Disk, an
-// in-memory file system for the file Board's tests.
+// Package memory holds Board, the in-memory tasks.Board.
 
-import tasks/tasks
+import sync
+import taskscli/tasks
 
-// Board is a tasks.Board in memory: the items by ID. Its map is shared by
-// every copy, so a Board bound in a context keeps its items from one call
-// to the next. NewBoard makes one.
-type Board { items Map[int, tasks.Item] }
+// Board is a tasks.Board in memory: the items by ID. They are in a
+// sync.Ref, so every copy of a Board is the same board: a Board bound in a
+// context keeps its items from one call to the next. NewBoard makes one.
+type Board { items sync.Ref[Map[int, tasks.Task]] }
 
 // NewBoard is an empty Board.
-func NewBoard() Board {
-	let items Map[int, tasks.Item]
-	Board{items: items}
-}
+func NewBoard() Board { Board{items: sync.NewRef[Map[int, tasks.Task]](Map[int, tasks.Task]{})} }
 
 // Create adds an open item of title and p, with the next ID.
-func Create(b Board, title string, p tasks.Priority) tasks.Item fails tasks.Broken {
-	let t = tasks.Item{ID: len(b.items) + 1, Title: title, Priority: p, State: tasks.Open}
-	let mut items = b.items
-	items[t.ID] = t
-	t
+func Create(b Board, title string, p tasks.Priority) tasks.Task fails tasks.Broken {
+	sync.Modify(b.items, func(items Map[int, tasks.Task]) (tasks.Task, Map[int, tasks.Task]) {
+		let t = tasks.Task{ID: len(items) + 1, Title: title, Priority: p, State: tasks.Open}
+		let mut next = items
+		next[t.ID] = t
+		(t, next)
+	})
 }
 
 // Close closes the open item id.
-func Close(b Board, id int) tasks.Item fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken {
-	match b.items.Get(id) {
-	case Some[tasks.Item] as found:
-		if !tasks.IsOpen(found.Value) {
+func Close(b Board, id int) tasks.Task fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken {
+	let found = sync.Modify(b.items, func(items Map[int, tasks.Task]) (Option[tasks.Task], Map[int, tasks.Task]) {
+		match items.Get(id) {
+		case Some[tasks.Task] as t:
+			let mut next = items
+			next[id] = tasks.Task{..t.Value, State: tasks.Closed}
+			(t, next)
+		case None:
+			(None, items)
+		}
+	})
+	match found {
+	case Some[tasks.Task] as t:
+		if !tasks.IsOpen(t.Value) {
 			return tasks.AlreadyClosed{ID: id}
 		}
-		let closed = tasks.Item{..found.Value, State: tasks.Closed}
-		let mut items = b.items
-		items[id] = closed
-		closed
+		tasks.Task{..t.Value, State: tasks.Closed}
 	case None:
 		tasks.NotFound{ID: id}
 	}
 }
 
 // All is every item, by ID.
-func All(b Board) []tasks.Item fails tasks.Broken {
-	let mut out = []tasks.Item{}
-	for id in 1..len(b.items)+1 {
-		match b.items.Get(id) {
-		case Some[tasks.Item] as t:
+func All(b Board) []tasks.Task fails tasks.Broken {
+	let items = b.items.Get()
+	let mut out = []tasks.Task{}
+	for id in 1..len(items)+1 {
+		match items.Get(id) {
+		case Some[tasks.Task] as t:
 			out = out.Append(t.Value)
 		case None:
 		}

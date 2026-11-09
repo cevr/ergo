@@ -1,14 +1,14 @@
 // The checks of Board's laws, one function per law, over the Board in the
-// caller's context. Laws are checked and not run yet (#162), and a member
-// law cannot call a function that needs its own type (gap G-ex-c-5), so a
-// provider's tests call these.
+// caller's context. A member law runs only for providers in its type's own
+// package (G-exup-1), and a member law cannot call a function that needs
+// its own type (gap G-ex-c-5), so a provider's tests call these.
 
 // CreateNumbersInOrderHolds checks the law CreateNumbersInOrder.
 func CreateNumbersInOrderHolds(titles []string, p Priority) bool fails Broken needs Board {
 	let before = len(try Board.All())
 	for i, title in titles {
 		let t = try Board.Create(title, p)
-		if t != (Item{ID: before + i + 1, Title: title, Priority: p, State: Open}) {
+		if t != (Task{ID: before + i + 1, Title: title, Priority: p, State: Open}) {
 			return false
 		}
 	}
@@ -25,7 +25,7 @@ func CloseClosesOnlyItHolds(title string, others []string) bool fails NotFound |
 	let before = try Board.All()
 	let closed = try Board.Close(t.ID)
 	let after = try Board.All()
-	if closed != (Item{..t, State: Closed}) || len(after) != len(before) {
+	if closed != (Task{..t, State: Closed}) || len(after) != len(before) {
 		return false
 	}
 	for i, a in after {

@@ -1,48 +1,39 @@
-// Board's tests run over a memory.Disk: the tasks.Board laws, the line
-// laws restated (#162), the file's own form, and a corrupt line.
+// Board's tests run over an fstest.Memory: the tasks.Board laws (restated:
+// they run only for providers in tasks, G-exup-1), the file's own form,
+// and a corrupt line.
 
-import strings
-import tasks/memory
-import tasks/tasks
+import fstest
+import taskscli/tasks
 
 // fresh is a Board in the file "tasks.txt" of disk.
-func fresh(disk memory.Disk) Board { Open("tasks.txt", disk, disk) }
+func fresh(disk fstest.Memory) Board { Open("tasks.txt", disk, disk) }
 
 test FileCreateNumbersInOrder(titles []string, p tasks.Priority) {
-	with context { tasks.Board: fresh(memory.NewDisk()) } {
+	with context { tasks.Board: fresh(fstest.NewMemory()) } {
 		assert try tasks.CreateNumbersInOrderHolds(titles, p)
 	}
 }
 
 test FileCloseClosesOnlyIt(title string, others []string) {
-	with context { tasks.Board: fresh(memory.NewDisk()) } {
+	with context { tasks.Board: fresh(fstest.NewMemory()) } {
 		assert try tasks.CloseClosesOnlyItHolds(title, others)
 	}
 }
 
 test FileCloseIsOnce(title string) {
-	with context { tasks.Board: fresh(memory.NewDisk()) } {
+	with context { tasks.Board: fresh(fstest.NewMemory()) } {
 		assert try tasks.CloseIsOnceHolds(title)
 	}
 }
 
 test FileCloseOfNoTaskIsNotFound(n int) {
-	with context { tasks.Board: fresh(memory.NewDisk()) } {
+	with context { tasks.Board: fresh(fstest.NewMemory()) } {
 		assert try tasks.CloseOfNoTaskIsNotFoundHolds(n)
 	}
 }
 
-test RoundTripHolds(t tasks.Item) {
-	let item = Positive(t)
-	assert try Decode(Encode(item), item.ID) == item
-}
-
-test OneLineHolds(t tasks.Item) {
-	assert !strings.Contains(Encode(t), "\n")
-}
-
 test TheFileForm {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	let b = fresh(disk)
 	let _ = try b.Create("write the spec", tasks.High)
 	let _ = try b.Create("tab\there", tasks.Low)
@@ -51,7 +42,7 @@ test TheFileForm {
 }
 
 test ACorruptLineIsBroken {
-	let disk = memory.NewDisk()
+	let disk = fstest.NewMemory()
 	try disk.WriteFile("tasks.txt", "1\topen\tlow\t\"a\"\n3\topen\tlow\t\"b\"\n")
 	fresh(disk).All() catch {
 	case tasks.Broken as b:
@@ -62,5 +53,5 @@ test ACorruptLineIsBroken {
 }
 
 test AMissingFileIsEmpty {
-	assert len(try fresh(memory.NewDisk()).All()) == 0
+	assert len(try fresh(fstest.NewMemory()).All()) == 0
 }

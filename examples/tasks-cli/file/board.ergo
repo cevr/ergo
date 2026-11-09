@@ -1,5 +1,5 @@
 import fs
-import tasks/tasks
+import taskscli/tasks
 
 // Board is a tasks.Board in the file at its path. It holds the file
 // system it reads and writes as values, given by Open's caller: a
@@ -13,10 +13,10 @@ func Open(path string, files fs.Files, writes fs.Writes) Board { Board{path: pat
 
 // items is every item of the file; a file that does not exist yet has
 // none.
-func items(b Board) []tasks.Item fails tasks.Broken {
+func items(b Board) []tasks.Task fails tasks.Broken {
 	let text = b.files.ReadFile(b.path) catch {
 	case fs.NotFound:
-		return []tasks.Item{}
+		return []tasks.Task{}
 	case fs.Denied as d:
 		return tasks.Broken{Reason: "permission denied: " + d.Path}
 	case fs.Failed as f:
@@ -30,7 +30,7 @@ func items(b Board) []tasks.Item fails tasks.Broken {
 
 // save makes the file hold items. fs.Writes' WriteFile writes a new file
 // and renames it over the old one, so a crash leaves one or the other.
-func save(b Board, items []tasks.Item) fails tasks.Broken {
+func save(b Board, items []tasks.Task) fails tasks.Broken {
 	b.writes.WriteFile(b.path, EncodeAll(items)) catch {
 	case fs.NotFound as n:
 		return tasks.Broken{Reason: "no directory for " + n.Path}
@@ -42,15 +42,15 @@ func save(b Board, items []tasks.Item) fails tasks.Broken {
 }
 
 // Create adds an open item of title and p, with the next ID.
-func Create(b Board, title string, p tasks.Priority) tasks.Item fails tasks.Broken {
+func Create(b Board, title string, p tasks.Priority) tasks.Task fails tasks.Broken {
 	let all = try b.items()
-	let t = tasks.Item{ID: len(all) + 1, Title: title, Priority: p, State: tasks.Open}
+	let t = tasks.Task{ID: len(all) + 1, Title: title, Priority: p, State: tasks.Open}
 	try b.save(all.Append(t))
 	t
 }
 
 // Close closes the open item id.
-func Close(b Board, id int) tasks.Item fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken {
+func Close(b Board, id int) tasks.Task fails tasks.NotFound | tasks.AlreadyClosed | tasks.Broken {
 	let mut all = try b.items()
 	if id < 1 || id > len(all) {
 		return tasks.NotFound{ID: id}
@@ -59,11 +59,11 @@ func Close(b Board, id int) tasks.Item fails tasks.NotFound | tasks.AlreadyClose
 	if !tasks.IsOpen(t) {
 		return tasks.AlreadyClosed{ID: id}
 	}
-	let closed = tasks.Item{..t, State: tasks.Closed}
+	let closed = tasks.Task{..t, State: tasks.Closed}
 	all[id-1] = closed
 	try b.save(all)
 	closed
 }
 
 // All is every item, in the order of the file.
-func All(b Board) []tasks.Item fails tasks.Broken { try b.items() }
+func All(b Board) []tasks.Task fails tasks.Broken { try b.items() }

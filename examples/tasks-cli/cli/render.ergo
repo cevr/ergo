@@ -1,14 +1,16 @@
+import strconv
 import strings
-import tasks/tasks
+import taskscli/tasks
+import utf8
 
 // Line is the text line of t: its number, priority, state and title in
 // columns.
-func Line(t tasks.Item) string {
+func Line(t tasks.Task) string {
 	pad("#\(t.ID)", 5) + pad(tasks.PriorityName(t.Priority), 8) + pad(tasks.StateName(t.State), 8) + t.Title
 }
 
 // Lines is the text of a listing: a line per item, or "no tasks".
-func Lines(items []tasks.Item) string {
+func Lines(items []tasks.Task) string {
 	if len(items) == 0 {
 		return "no tasks\n"
 	}
@@ -20,12 +22,12 @@ func Lines(items []tasks.Item) string {
 }
 
 // JSON is the JSON object of t, on one line.
-func JSON(t tasks.Item) string {
+func JSON(t tasks.Task) string {
 	"{\"id\":\(t.ID),\"title\":" + Quote(t.Title) + ",\"priority\":\"" + tasks.PriorityName(t.Priority) + "\",\"state\":\"" + tasks.StateName(t.State) + "\"}"
 }
 
 // JSONList is the JSON array of items, on one line.
-func JSONList(items []tasks.Item) string {
+func JSONList(items []tasks.Task) string {
 	let mut parts = []string{}
 	for t in items {
 		parts = parts.Append(JSON(t))
@@ -33,31 +35,24 @@ func JSONList(items []tasks.Item) string {
 	"[" + strings.Join(parts, ",") + "]"
 }
 
-// Quote is s as a JSON string. Ergo has no std json (G-ex-c-7) and no
-// byte to string (G-ex-c-9), so each byte that JSON escapes is written by
-// hand and every other byte is copied as a slice of s.
+// Quote is s as a JSON string: a quote, a backslash and each control
+// character escaped, every other character written as it is. Ergo has no
+// std json (G-ex-c-7).
 func Quote(s string) string {
-	let hex = "0123456789abcdef"
 	let mut out = "\""
-	for i in 0..len(s) {
-		let c = s[i]
-		if c == '"' {
-			out = out + "\\\""
-		} else if c == '\\' {
-			out = out + "\\\\"
-		} else if c < 32 {
-			out = out + "\\u00" + strings.Slice(hex, int(c)/16, int(c)/16+1) + strings.Slice(hex, int(c)%16, int(c)%16+1)
-		} else {
-			out = out + strings.Slice(s, i, i+1)
+	for r in s {
+		let text = match r {
+		case '"':
+			"\\\""
+		case '\\':
+			"\\\\"
+		case _:
+			if r < 32 { "\\u" + strings.PadLeft(strconv.FormatInt(int64(r), 16), 4, '0') } else { utf8.RuneText(r) }
 		}
+		out = out + text
 	}
 	out + "\""
 }
 
 // pad is text with spaces after it to width, and one space at least.
-func pad(text string, width int) string {
-	if len(text) >= width {
-		return text + " "
-	}
-	text + strings.Repeat(" ", width-len(text))
-}
+func pad(text string, width int) string { strings.PadRight(text, width-1, ' ') + " " }
