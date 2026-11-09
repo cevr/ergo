@@ -138,7 +138,13 @@ func (l *lowerer) nameTests() {
 			reserveGen(v.Type)
 		}
 		for _, p := range l.canon.lawProviders(law) {
-			if p.Unrun == "" {
+			switch {
+			case p.Unrun != "":
+			case p.Ctor != nil:
+				for _, v := range p.Ctor.Sig.Params {
+					reserveGen(v.Type)
+				}
+			default:
 				reserveGen(p.Type)
 			}
 		}
@@ -511,19 +517,28 @@ func (l *lowerer) testRunner() string {
 	b.WriteString("// " + l.helper("Tests") + " runs every test in source order (196l).\n")
 	b.WriteString(l.testRunnerHead(env, seed))
 	tests := l.runTests()
-	runs := 0
+	runs, skips := 0, 0
 	for _, law := range l.runLaws() {
 		switch {
 		case law.Unrun != "":
+			skips++
 		case law.Owner == nil:
 			runs++
 		default:
 			for _, p := range law.Providers {
 				if p.Unrun == "" {
 					runs++
+				} else {
+					skips++
 				}
 			}
 		}
+	}
+	// A skip is never silent (fs4): each prints its skip line, and the
+	// summary counts them.
+	skipped := ""
+	if skips > 0 {
+		skipped = ", " + strconv.Itoa(skips) + " skipped"
 	}
 	b.WriteString("\t" + failed + ", " + total + " := 0, " + strconv.Itoa(len(tests)+runs) + "\n")
 	for _, t := range tests {
@@ -574,9 +589,9 @@ func (l *lowerer) testRunner() string {
 		l.lawRuns(&b, law, scope, env, seed, failed)
 	}
 	b.WriteString("\tif " + failed + " > 0 {\n")
-	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests)\\n\", " + failed + ", " + total + ")\n")
+	b.WriteString("\t\t" + fmtPkg + ".Printf(\"FAIL (%d of %d tests" + skipped + ")\\n\", " + failed + ", " + total + ")\n")
 	b.WriteString("\t\treturn " + fmtPkg + ".Errorf(\"%d of %d tests failed\", " + failed + ", " + total + ")\n\t}\n")
-	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests)\\n\", " + total + ")\n")
+	b.WriteString("\t" + fmtPkg + ".Printf(\"PASS (%d tests" + skipped + ")\\n\", " + total + ")\n")
 	b.WriteString("\treturn nil\n}\n\n")
 	return b.String()
 }
@@ -641,11 +656,30 @@ func (l *lowerer) lawRuns(b *strings.Builder, law *check.Law, scope *namer, env,
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
 		if tg.p != nil {
 			pv := inner.alloc("provider")
-			b.WriteString("\t\t\t" + pv + " := " + l.genExpr(tg.p.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
-			shown = append(shown, strconv.Quote(sep+"provider = "), l.litExpr(tg.p.Type, pv, law.Decl))
-			sep = ", "
 			fc := newFuncCtx(l, inner, false)
 			fc.site = law.Decl
+			if ctor := tg.p.Ctor; ctor != nil {
+				// The provider has no generator: its constructor builds
+				// it for the case, from generated arguments (fs4).
+				cargs := []string{env}
+				shownArgs := []string{}
+				for _, v := range ctor.Sig.Params {
+					a := inner.alloc(v.Name)
+					b.WriteString("\t\t\t" + a + " := " + l.genExpr(v.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+					cargs = append(cargs, a)
+					shownArgs = append(shownArgs, l.litExpr(v.Type, a, law.Decl))
+				}
+				b.WriteString("\t\t\t" + pv + ", _ := " + fc.funcValue(ctor, ctor.Sig, law.Decl, nil) + "(" + strings.Join(cargs, ", ") + ")\n")
+				call := strconv.Quote(sep + "provider = " + ctor.Name + "(")
+				if len(shownArgs) > 0 {
+					call += " + " + strings.Join(shownArgs, ` + ", " + `)
+				}
+				shown = append(shown, call, strconv.Quote(")"))
+			} else {
+				b.WriteString("\t\t\t" + pv + " := " + l.genExpr(tg.p.Type, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+				shown = append(shown, strconv.Quote(sep+"provider = "), l.litExpr(tg.p.Type, pv, law.Decl))
+			}
+			sep = ", "
 			own := law.Owner.Type.(*check.Named)
 			bind = append(bind, e+"."+l.envField(own.Obj)+" = "+fc.convert(tg.p.Conv, pv, law.Decl))
 		}

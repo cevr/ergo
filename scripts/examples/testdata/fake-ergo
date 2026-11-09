@@ -11,6 +11,7 @@
 #   test FILE            prints the reply of a compiler without ergo test on
 #                        TESTPENDING, fails on TESTFAIL; on TESTTICK starts a
 #                        ticker into ticks-test beside itself, then fails; on
+#                        TESTSKIP prints one law's skip line and passes; on
 #                        a line "# TESTSIZE OUT ERR" writes OUT bytes to
 #                        stdout and ERR bytes to stderr and passes; passes
 #                        otherwise.
@@ -35,6 +36,7 @@ test)
   if grep -q TESTPENDING "$2"; then echo "ergo test: not available yet; lowering adds it (#196)" >&2; exit 1; fi
   if grep -q TESTFAIL "$2"; then echo "FAIL Fixture: assert failed at main.ergo:1:1: false"; echo "FAIL (1 of 1 tests)"; exit 1; fi
   if grep -q TESTTICK "$2"; then tick "$tools/ticks-test"; echo "FAIL Fixture"; exit 1; fi
+  if grep -q TESTSKIP "$2"; then echo "skip law Store.Keeps for Box: its values have no generator: why"; echo "PASS (0 tests, 1 skipped)"; exit 0; fi
   if grep -q '^# TESTSIZE ' "$2"; then
     set -- $(sed -n 's/^# TESTSIZE //p' "$2")
     # No head -c 0: darwin's head refuses a zero count with a line on stderr.

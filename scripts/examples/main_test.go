@@ -702,6 +702,31 @@ func TestTestLeg(t *testing.T) {
 	}
 }
 
+// A skip line that the program's expected-skips file does not list fails
+// the test leg (fs4); a listed one passes, and the cases still run.
+func TestTestLegFailsAnUnexpectedSkip(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	hi := map[string]map[string]string{"basic": {"expected.out": "hi\n"}}
+	src := "#!/bin/sh\necho hi\nexit 0\n# TESTSKIP\ntest Fixture {\n}\n"
+	line := "skip law Store.Keeps for Box: its values have no generator: why"
+	f.program("skipping", src, "default\n", hi, nil)
+	f.program("listed", src, "default\n", hi, map[string]string{"expected-skips": "# Box holds a function\n" + line + "\n"})
+	code, out := f.run()
+	if code != 1 {
+		t.Fatalf("an unexpected skip: want exit 1, got %d\n%s", code, out)
+	}
+	for _, want := range []string{"FAIL skipping: test: 1 unexpected skips", "    " + line + "\n", "ok listed: test ("} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q\n%s", want, out)
+		}
+	}
+	oks, _ := verdicts(out)
+	if !oks["skipping/basic"] || !oks["listed/basic"] {
+		t.Errorf("a skip must not stop the cases\n%s", out)
+	}
+}
+
 // An ergo test that cannot start fails the test leg and the run, as any
 // other failure of the leg does; the cases still run (apps-1 G1 r2 m2).
 func TestTestLegThatCannotStartFails(t *testing.T) {

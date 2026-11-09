@@ -79,7 +79,7 @@ FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider =
 skip law Box.Keeps: its parameter v has no generator: T is not a generatable type
 ```
 
-A law that cannot run prints a `skip` line with the reason and is not counted. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test. `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
+A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it. In `examples/`, a skip line that the program's `expected-skips` file does not list fails the gate. A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test. `ergo run` and `ergo build` contain no Go from a law. The [support table](spec/support.md) lists what each build lowers.
 
 ## Example programs
 
