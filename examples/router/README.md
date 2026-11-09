@@ -94,6 +94,6 @@ No em-parity §3 scenario is this program's own: an `Ask`, a work start, a save 
 ## Limits found
 
 - **MB F8** (above): the dispatcher is a second actor.
-- **MB2-G5** `machines.From` needs the machine's capability row though it runs no work, so `Recover` needs `route.Registry`.
+- **MB2-G5** (fixed by fu-mb fumb-e) `machines.From` needed the machine's whole capability row though it runs no work, so `Recover` needed `route.Registry`. A machine's work row is now apart from its step row, and a fold needs the step's row only.
 - **MB2-G6** A wait for a child's output (it reaches the parent as a signal, later) cannot be bounded: a law that waits for it hangs when the output is lost, and fails as a deadlock, not as an assertion.
 - **No type aliases of a foreign type.** `actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]]` is written out at each use.

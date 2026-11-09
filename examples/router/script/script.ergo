@@ -97,10 +97,10 @@ func count(n int, word string) int fails BadLine {
 
 // Recover is the router's state from the journal j: its snapshot, or the
 // router's initial state, with the signals after it replayed by the pure
-// step (machines.From). A signal that does not commit is a journal of
-// another router. (From needs the machine's row, Registry, though it runs
-// no work: finding G5.)
-func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails journal.Failed needs route.Registry {
+// step (machines.From), which needs the step's row only, none here
+// (fumb-e; it was the work's Registry too, finding G5). A signal that does
+// not commit is a journal of another router.
+func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails journal.Failed {
 	let log = try j.Load()
 	let from = match log.Snapshot {
 	case Some[route.Router] as s:
@@ -126,7 +126,7 @@ func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails j
 // recovers then, never in the crashed one's memory. sink gets the
 // questions.
 func Open(j journal.Journal[route.Router, route.Signal], sink func(o route.Output)) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
-	try actor.SuperviseDurable(route.Routing{}, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed needs route.Registry {
+	try actor.SuperviseDurable(route.Routing{}, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed {
 		Some[route.Router]{Value: try Recover(j)}
 	}, func(prev route.Router, next route.Router, sig route.Signal) fails journal.Failed {
 		try j.Append(sig)
