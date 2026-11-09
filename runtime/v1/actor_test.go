@@ -705,11 +705,17 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 			for inboxParked(a) != 0 {
 				runtime.Gosched() // the last stopped wait has left the line
 			}
-			parkedBefore := 0
+			parkedBefore, queuedBefore := 0, a.inbox.Len()
 			go func() { done <- interruptedBy(func() { wt.op(w) }) }()
 			if capacity == 0 && wt.name != "Changes" {
 				// The operation is proven waiting for room before the stop.
 				for inboxParked(a) == parkedBefore {
+					runtime.Gosched()
+				}
+			}
+			if capacity == 4 && (wt.name == "Ask" || wt.name == "State") {
+				// Admitted: it waits for its answer.
+				for a.inbox.Len() == queuedBefore {
 					runtime.Gosched()
 				}
 			}
@@ -722,6 +728,12 @@ func TestActorWaitsAreInterruptible(t *testing.T) {
 		got := a.State(root)
 		if capacity == 0 && len(got) != 0 {
 			t.Fatalf("a stopped Send's or Ask's signal was stepped: %v", got)
+		}
+		// With room, the stopped Ask's signal was queued, so it is stepped;
+		// its answer goes to a channel nobody reads, and this State gets
+		// its own (MU18: a stopped Ask's reply channel is never reused).
+		if capacity == 4 && !slices.Equal(got, []int{6}) {
+			t.Fatalf("capacity 4: State after the stopped waits gave %v, want [6]", got)
 		}
 		_ = a.Stop()
 	}

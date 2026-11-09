@@ -554,3 +554,53 @@ func TestActorChildrenAgreeWithTree(t *testing.T) {
 	}
 	t.Logf("seed %d: %d cases", seed, n)
 }
+
+// TestActorStepChildIsADefect: a step's MachineChild finds no entry and is
+// the defect ActorChildDefect, also in an actor that is a child of a work
+// (whose runner's task lies below the work's task), and the defect ends
+// the parent. The checker refuses such a call in Ergo (mu5b); this is the
+// runner's own guard. Mutant: the runner of an actor below a work does not
+// bind nil, so its step finds the work's entry and starts a child.
+func TestActorStepChildIsADefect(t *testing.T) {
+	root := rt.Root("step child")
+	sl := releaser{make(chan sleep)}
+	noTimer := func(int) time.Duration { return ActorNoTimer() }
+	kind := func(d int) int { return d }
+	next := func(s, _ int) int { return s }
+	var child *Actor[int, int, int]
+	childStep := func(t *rt.Task, s, e int) (int, error) {
+		_ = MachineChild(Site("a step's child"), t, sl, 0,
+			func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil, noTimer,
+			noWork[int], hasNoWork, runNoWork[int], kind, next, func(*rt.Task, int, func(int)) {}, 1)
+		return decideStay, nil
+	}
+	started := make(chan struct{})
+	parent := MachineStart(Site("parent"), root, sl, 0,
+		func(*rt.Task, int, int) (int, error) { return decideIgnore, nil }, nil, noTimer,
+		func(s int) bool { return s == 0 }, func(w bool) bool { return w },
+		func(wt *rt.Task, _ bool, _ func(int)) {
+			child = MachineChild(Site("child"), wt, sl, 0, childStep, nil, noTimer,
+				noWork[int], hasNoWork, runNoWork[int], kind, next, func(*rt.Task, int, func(int)) {}, 1)
+			close(started)
+			<-wt.Done()
+			panic(rt.Interrupted)
+		},
+		kind, next, func(*rt.Task, int) {}, 1)
+	<-started
+	if _, err := child.Ask(root, 1); !errors.As(err, new(ActorStopped)) {
+		t.Fatalf("the child's step started a child: Ask gave %v, want Stopped", err)
+	}
+	<-parent.done
+	var raised any
+	func() {
+		defer func() { raised = recover() }()
+		_ = parent.Stop()
+	}()
+	var text strings.Builder
+	if x, ok := raised.(*exit); ok {
+		report(&text, x.err)
+	}
+	if !strings.Contains(text.String(), "no machine entry owns this call") {
+		t.Fatalf("the parent's Stop raised %v, want the child's ActorChildDefect", raised)
+	}
+}
