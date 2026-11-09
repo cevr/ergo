@@ -4,14 +4,18 @@
 // so machines.Run(Shell{}, signals) takes any machine: the step's output O, error
 // row F and capability row R come from its step. The fold is ordinary
 // Ergo code: a loop that calls the step once per signal. RunTimed is the
-// fold over signals at times on a virtual clock, with the states' timers
-// (the machine's after entry); it is the reference of the live runner, the
-// actor library (#57).
+// fold over signals at times, with the states' timers (the machine's after
+// entry), on the program's one clock: it reads time.Clock and waits on
+// Scheduler, as every task sleep and the live runner, the actor library
+// (#57), do. A test binds testing.VirtualClock (or time.Manual) for both,
+// and the machine's timers and the test's sleeps move together.
 //
 // Effect: @effect/experimental Machine; XState's pure transition and
 // interpret, and its after transitions; Erlang gen_statem and its
 // state_timeout. Go control: a for over the signals that calls the step
 // function.
+
+import time
 
 // Finished is a run that the step ended with Done: the state the step saw
 // last, Done's output, and the outputs of the run's Emits before it, in
@@ -38,7 +42,7 @@ type Outcome[S, O] = Finished[S, O] | Running[S, O]
 type Rejected { At int }
 
 // Timed is a signal from outside the machine at the time At of a timed run
-// (RunTimed): At counts from the run's start on its virtual clock.
+// (RunTimed): At is the time since the run's start, by time.Clock.
 type Timed[E] {
 	At duration,
 	Signal E,
@@ -152,20 +156,37 @@ func without[E](timers []armed[E], k int) []armed[E] {
 	rest
 }
 
-// RunTimed steps m from its initial state over trace on a virtual clock
-// that starts at 0 and ends at end, as the live runner does (runtime.md,
-// Machines and actors 9). Each signal of trace comes at its At (never
-// before the clock's time: the clock does not go back). Each entry has
-// the timer m.After of its state, armed when the entry opens (the first
-// state at 0, an Enter or an Emit at the time of its signal): it gives its
-// Signal In after that. A Stay keeps the entry and its timer; an entry
-// that ends takes its timer with it: a timer of an ended entry is dropped,
-// never stepped. A timer fires before a signal that comes later than it
-// and after one that comes at the same time; after the last signal, every
-// timer due by end fires. A Reject of a timer's signal keeps the state,
-// as Ignore: no one asked. The run ends as Run's does, with Rejected's At
-// the index of the rejected signal in trace.
-func RunTimed[S, E, O, F, R](m Machine[S, E, O, F, R], trace []Timed[E], end duration) Outcome[S, O] fails Rejected | F needs R {
+// until waits on Scheduler until the time since start, by time.Clock, is
+// at least at, and gives that time: a time at or before now returns it at
+// once, since the clock does not go back.
+func until(start time.Time, at duration) duration needs time.Clock | Scheduler {
+	let passed = time.Clock.Now().Sub(start)
+	if at <= passed {
+		return passed
+	}
+	Scheduler.Sleep(at - passed)
+	time.Clock.Now().Sub(start)
+}
+
+// RunTimed steps m from its initial state over trace on the clock in the
+// context, from the time it is called (0) until end, as the live runner
+// does (runtime.md, Machines and actors 9). Each signal of trace
+// comes at its At: the run waits on Scheduler until time.Clock reads it,
+// and takes the time it reads as the signal's (never before the last:
+// the clock does not go back). Each entry has the timer m.After of its
+// state, armed when the entry opens (the first state at 0, an Enter or an
+// Emit at the time of its signal): it gives its Signal In after that. A
+// Stay keeps the entry and its timer; an entry that ends takes its timer
+// with it: a timer of an ended entry is dropped, never stepped. A timer
+// fires before a signal that comes later than it and after one that comes
+// at the same time; after the last signal, every timer due by end fires,
+// and a run with no Done waits until end. A Reject of a timer's signal
+// keeps the state, as Ignore: no one asked. The run ends as Run's does,
+// with Rejected's At the index of the rejected signal in trace. Under
+// testing.VirtualClock or time.Manual the run takes no wall time, and a
+// task that sleeps beside it wakes in step with its timers.
+func RunTimed[S, E, O, F, R](m Machine[S, E, O, F, R], trace []Timed[E], end duration) Outcome[S, O] fails Rejected | F needs time.Clock | Scheduler | R {
+	let start = time.Clock.Now()
 	let mut at = m.Initial
 	let mut out = []O{}
 	let mut now = 0s
@@ -197,9 +218,7 @@ func RunTimed[S, E, O, F, R](m Machine[S, E, O, F, R], trace []Timed[E], end dur
 		} else {
 			i = i + 1
 		}
-		if ev.At > now {
-			now = ev.At
-		}
+		now = until(start, ev.At)
 		let d = try m.Step(at, ev.Signal)
 		match d {
 		case Done[O] as done:
@@ -222,5 +241,6 @@ func RunTimed[S, E, O, F, R](m Machine[S, E, O, F, R], trace []Timed[E], end dur
 		case Ignore:
 		}
 	}
+	let _ = until(start, end)
 	Running[S, O]{State: at, Emitted: out}
 }

@@ -99,9 +99,11 @@ type timedSignal struct {
 // state, an Enter or an Emit) and emptied when it fires or when the next
 // entry opens; Stay, Ignore and a timer's Reject leave it. A timer fires
 // before a signal later than its deadline, after one at the same time,
-// and by end after the last signal. seen records the cases the run
-// reached, for the generator's coverage check.
-func foldTimed(table [][]runCell, timers []runTimer, s runState, trace []timedSignal, end int, seen map[string]bool) string {
+// and by end after the last signal. It also gives the run's last instant:
+// the time of the step that ended it, or end (or a later signal's time)
+// for a run with no Done, which waits until end. seen records the cases
+// the run reached, for the generator's coverage check.
+func foldTimed(table [][]runCell, timers []runTimer, s runState, trace []timedSignal, end int, seen map[string]bool) (string, int) {
 	var out []int
 	now, deadline, armed := 0, 0, false
 	var due runSignal
@@ -146,7 +148,7 @@ func foldTimed(table [][]runCell, timers []runTimer, s runState, trace []timedSi
 			e = trace[i].e
 			i++
 		default:
-			return "running " + s.text() + " " + intsText(out)
+			return "running " + s.text() + " " + intsText(out), max(now, end)
 		}
 		for len(stale) > 0 && slices.Min(stale) <= now {
 			seen["a stale timer came due"] = true
@@ -171,13 +173,13 @@ func foldTimed(table [][]runCell, timers []runTimer, s runState, trace []timedSi
 		case "ignore":
 		case "reject":
 			if !timer {
-				return "rejected " + strconv.Itoa(i-1)
+				return "rejected " + strconv.Itoa(i-1), now
 			}
 			seen["timer rejected"] = true
 		case "done":
-			return fmt.Sprintf("finished %s %d %s", s.text(), s.n+e.x, intsText(out))
+			return fmt.Sprintf("finished %s %d %s", s.text(), s.n+e.x, intsText(out)), now
 		case "fail":
-			return "boom"
+			return "boom", now
 		}
 	}
 }
@@ -218,7 +220,7 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) machineProgram {
 	}
 	needs := r.Intn(2) == 0
 	var b strings.Builder
-	b.WriteString("import machines\n\n")
+	b.WriteString("import machines\nimport task\nimport testing\nimport time\n\n")
 	var sv, ev []string
 	for i := range ns {
 		sv = append(sv, fmt.Sprintf("S%d", i))
@@ -305,7 +307,7 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) machineProgram {
 		fmt.Fprintf(&b, "\tcase S%d as a:\n\t\t\"S%d \\(a.n)\"\n", i, i)
 	}
 	b.WriteString("\t}\n}\n\n")
-	b.WriteString(strings.ReplaceAll(strings.ReplaceAll(`func ints(xs []int) string {
+	b.WriteString(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(`func ints(xs []int) string {
 	let mut t = "["
 	for i, x in xs {
 		if i > 0 {
@@ -368,7 +370,7 @@ func split(m MT, a []Sig, b []Sig) string NEEDS {
 	}
 }
 
-func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
+func timedRun(m MT, trace []machines.Timed[Sig], end int) string CLOCKED {
 	let o = machines.RunTimed(m, trace, duration(int64(end))) catch {
 	case machines.Rejected as r:
 		return "rejected \(r.At)"
@@ -378,7 +380,28 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 	told(o, []int{})
 }
 
-`, " NEEDS", helperRow), " MT", " "+machineType))
+func sleeper(start time.Time, trace []machines.Timed[Sig]) []int needs time.Clock | Scheduler {
+	let mut woke = []int{}
+	for x in trace {
+		let passed = time.Clock.Now().Sub(start)
+		if x.At > passed {
+			Scheduler.Sleep(x.At - passed)
+		}
+		woke = woke.Append(int(int64(time.Clock.Now().Sub(start))))
+	}
+	woke
+}
+
+func timed(m MT, trace []machines.Timed[Sig], end int) string CLOCKED {
+	let start = time.Clock.Now()
+	let side = task.Go() { sleeper(start, trace) }
+	let got = timedRun(m, trace, end)
+	let ran = time.Clock.Now().Sub(start)
+	let woke = side.Wait()
+	"\(got) @\(int64(ran)) \(ints(woke))"
+}
+
+`, " NEEDS", helperRow), " CLOCKED", " needs time.Clock | Scheduler"+strings.ReplaceAll(helperRow, " needs ", " | ")), " MT", " "+machineType))
 	// machineOf is the machine value a run of an input starts from, and
 	// startOf the reference's first state for it (V4).
 	machineOf := func(x, y int) (string, runState) {
@@ -398,9 +421,13 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 		fmt.Fprintf(&b, "\tlet im InputMachine[%s, St, Sig, int, Boom%s] = M{}\n", input, strings.ReplaceAll(helperRow, " needs ", ", "))
 	}
 	fmt.Fprintf(&b, "\tConsole.Println(show(machines.Initial(%s)))\n", m0)
+	// Every timed run is on one VirtualClock, which a task sleeps on beside
+	// it (runtime.md, Machines and actors 9.6, one clock).
+	providers := "Scheduler: c, time.Clock: c"
 	if needs {
-		b.WriteString("\twith context { Probe: Quiet } {\n")
+		providers = "Probe: Quiet, " + providers
 	}
+	fmt.Fprintf(&b, "\tlet c = testing.NewVirtualClock(0)\n\twith context { %s } {\n", providers)
 	want := []string{s0.text()}
 	for l := range 4 {
 		mv, init := machineOf(r.Intn(9)-4, r.Intn(9)-4)
@@ -436,12 +463,18 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 		} else {
 			want = append(want, "-")
 		}
-		want = append(want, foldTimed(table, timers, init, trace, end, seen))
+		told, last := foldTimed(table, timers, init, trace, end, seen)
+		// The task beside the run wakes at each time of the trace, or at
+		// once when the clock is past it.
+		var woke []int
+		clock := 0
+		for _, x := range trace {
+			clock = max(clock, x.at)
+			woke = append(woke, clock)
+		}
+		want = append(want, fmt.Sprintf("%s @%d %s", told, last, intsText(woke)))
 	}
-	if needs {
-		b.WriteString("\t}\n")
-	}
-	b.WriteString("}\n")
+	b.WriteString("\t}\n}\n")
 	return machineProgram{name: fmt.Sprintf("machinerun_%02d", k), src: b.String(), want: want}
 }
 
@@ -452,8 +485,14 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 // on every list; and machines.RunTimed over the list at generated times
 // prints what the discrete-event model foldTimed computes (V5: a timer
 // never fires after its entry ended, Stay keeps it, Enter and Emit
-// restart it, a signal at a timer's deadline goes first). A failure
-// prints the program. ERGO_MACHINERUN_SEED replays another seed.
+// restart it, a signal at a timer's deadline goes first). Each timed run
+// is on one testing.VirtualClock with a task beside it that sleeps until
+// each time of the trace on the same clock (runtime.md, Machines and
+// actors 9.6, one clock): the clock's reading when the run returns is the
+// model's last instant, and the task wakes at the trace's times, so the
+// machine's timers and the task's sleeps move one clock. A RunTimed that
+// keeps time of its own reads 0 there. A failure prints the program.
+// ERGO_MACHINERUN_SEED replays another seed.
 //
 // It builds and runs the programs because the behaviour under test is the
 // lowered Go: the ConvMachine value (plan Initial, the step's and the
@@ -501,6 +540,7 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 		progs = append(progs, p)
 		builds = append(builds, mustLower(t, p.name, p.src))
 		for _, w := range p.want {
+			w, _, _ = strings.Cut(w, " @") // a timed run's outcome, before its times
 			kinds[strings.SplitN(w, " ", 2)[0]] = true
 			if strings.Contains(w, "[") && !strings.Contains(w, "[]") {
 				kinds["emitted"] = true
@@ -732,6 +772,8 @@ type M machine[St, Sig] {
 // machinesLawsProbe restates the laws of std machines as tests of the same
 // name (the Std laws ledger, docs/spec/stdlib.md).
 const machinesLawsProbe = `import machines
+import testing
+import time
 
 func tallyStep(s int, e int) Decision[int, int] {
 	match ((e % 6) + 6) % 6 {
@@ -822,11 +864,17 @@ func UntimedRunsAsRun(signals []int, gaps []int) bool {
 		}
 		trace = trace.Append(machines.Timed[int]{At: at, Signal: e})
 	}
-	let timed = machines.RunTimed(tally(), trace, at) catch {
+	let c = testing.NewVirtualClock(0)
+	let timed = with context { Scheduler: c, time.Clock: c } { timedTally(trace, at) }
+	from(0, signals, 0, []int{}) == timed
+}
+
+func timedTally(trace []machines.Timed[int], end duration) string needs time.Clock | Scheduler {
+	let o = machines.RunTimed(tally(), trace, end) catch {
 	case machines.Rejected as r:
-		return from(0, signals, 0, []int{}) == "rejected \(r.At)"
+		return "rejected \(r.At)"
 	}
-	from(0, signals, 0, []int{}) == told(timed, []int{})
+	told(o, []int{})
 }
 
 test MachinesRunSplits(a []int, b []int) { assert RunSplits(a, b) }
@@ -841,7 +889,7 @@ test MachinesUntimedRunsAsRun(signals []int, gaps []int) { assert UntimedRunsAsR
 var machinesLawStatements = map[string]string{
 	"machines RunSplits":         `RunSplits(a []int, b []int) { let mut whole = a for e in b { whole = whole.Append(e) } let first = Run(tally(), a) catch { case Rejected: return true } match first { case Running[int, int] as r: from(0, whole, 0, []int{}) == from(r.State, b, len(a), r.Emitted) case Finished[int, int]: true } }`,
 	"machines NextTakesItsState": `NextTakesItsState(s int, n int) { Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n && Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s && Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s }`,
-	"machines UntimedRunsAsRun":  `UntimedRunsAsRun(signals []int, gaps []int) { let mut trace = []Timed[int]{} let mut at = 0s for i, e in signals { if i < len(gaps) { at = at + duration(int64(gaps[i] % 1000)) } trace = trace.Append(Timed[int]{At: at, Signal: e}) } let timed = RunTimed(tally(), trace, at) catch { case Rejected as r: return from(0, signals, 0, []int{}) == "rejected \(r.At)" } from(0, signals, 0, []int{}) == told(timed, []int{}) }`,
+	"machines UntimedRunsAsRun":  `UntimedRunsAsRun(signals []int, gaps []int) { let mut trace = []Timed[int]{} let mut at = 0s for i, e in signals { if i < len(gaps) { at = at + duration(int64(gaps[i] % 1000)) } trace = trace.Append(Timed[int]{At: at, Signal: e}) } let c = testing.NewVirtualClock(0) let timed = with context { Scheduler: c, time.Clock: c } { timedTally(trace, at) } from(0, signals, 0, []int{}) == timed }`,
 }
 
 // TestStdMachinesLawsRun runs the probe's tests with --seed 1; lawledger.Run
