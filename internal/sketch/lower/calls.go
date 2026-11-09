@@ -178,7 +178,13 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// Info names every type argument of a generic call: written,
 			// inferred, bound by a dot call's receiver (D-D8) or by an
 			// instance in parentheses, (Fn[int])(1) (D-E1, Info.Instances).
-			head, rest = fd.name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
+			name := fd.name
+			if fc.l.vals != nil && fc.l.vals.ownCall[x] {
+				// The body that takes its owned arguments as they are
+				// passed: this call passes them unshared (values.go, V5).
+				name = fc.l.pkgName(ownedKey(c.Func), c.Func.Name+"Owned")
+			}
+			head, rest = name+fc.typeArgs(c.Func.Sig, c.TypeArgs, x), vals
 		}
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.

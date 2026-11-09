@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,32 @@ import (
 // The value rule's elisions, its -race guard, its mutants and its
 // benchmark (values.go).
 
-const valueElideSource = `type Box { M Map[int, int], S []int }
+const valueElideSource = `import maps
+
+type Box { M Map[int, int], S []int }
+
+func bump(old Option[int]) int {
+	match old {
+	case Some[int] as v:
+		v.Value + 1
+	case None:
+		1
+	}
+}
+
+func put(m Map[int, int], k int) Map[int, int] {
+	let mut c = m
+	c[k] = k
+	c
+}
+
+func count(n int) Map[int, int] {
+	let mut m = Map[int, int]{}
+	for i in 0..n {
+		m = maps.Update(m, i % 7, bump)
+	}
+	m
+}
 
 func build(n int) Map[int, int] {
 	let mut m = Map[int, int]{}
@@ -45,6 +71,7 @@ func boxed(n int) Box {
 	b.S[0] = 7
 	b.M[0] = 7
 	b.S = b.S.Append(n)
+	b.M = put(b.M, n)
 	b
 }
 
@@ -66,31 +93,45 @@ func kept(xs []int) int {
 func main() needs Console {
 	let mut m = build(3)
 	m[9] = 9
-	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4}))")
+	Console.Println("\(len(m)) \(len(drop(3))) \(len(boxed(2).S)) \(moved(2)[0]) \(kept([]int{4, 4})) \(len(count(9)))")
 }
 `
 
 // TestValueRuleElides: a fresh value enters a root with no copy (a
 // literal, a call whose result is fresh, a local dead after the bind) and
 // writes in place (m[k] = v, out = out.Append(x), m = m.Delete(k), a
-// field's Append); a parameter bound to a let mut and a read kept while
-// the root is written later are copied. It reads the emitted Go only: the
-// copies' meaning is TestValueRuleAgrees'; this guards the mutant that
-// copies everywhere, which every run-based check passes (the zero-allocation
-// claim of BenchmarkValueRule rests on it).
+// field's Append); a read kept while the root is written later is copied.
+// An owned parameter (V5) copies nothing on a rebinding: m =
+// maps.Update(m, k, f) in a loop and b.M = put(b.M, n) call the owned
+// bodies with no copy, as hand Go writes m[k] = f(m[k]) (integration r1
+// F2), and the parameter's copy moves to the wrapper, which only an
+// indirect call reaches. It reads the emitted Go only: the copies' meaning
+// is TestValueRuleAgrees', which passes with every copy in place, so only
+// the Go text tells this rule from the one that copies everywhere and from
+// the copying lowering "copy" (the mutant "never elide"); the
+// zero-allocation claims of BenchmarkValueRule rest on it.
 func TestValueRuleElides(t *testing.T) {
 	p := lowerValueMode(t, "velide", valueElideSource, true)
 	code := p.mainGo()
-	for _, fn := range []string{"build", "collect", "drop", "boxed", "moved"} {
+	for _, fn := range []string{"build", "collect", "drop", "boxed", "moved", "count", "putOwned"} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") || strings.Contains(body, "Clip(") {
 			t.Errorf("%s copies a fresh value:\n%s", fn, body)
 		}
 	}
-	if body := goFunc(t, code, "kept"); strings.Count(body, "slices.Clone(") != 2 {
-		t.Errorf("kept should copy its parameter and the kept read, twice:\n%s", body)
+	if body := goFunc(t, code, "keptOwned"); strings.Count(body, "slices.Clone(") != 1 {
+		t.Errorf("kept should copy the kept read once:\n%s", body)
 	}
 	if body := goFunc(t, code, "main_1"); strings.Contains(body, "Clone") {
 		t.Errorf("main copies build's fresh result:\n%s", body)
+	}
+	update := regexp.MustCompile(`(?s)\nfunc UpdateOwned\[.*?\n}\n`).FindString(code)
+	if update == "" || strings.Contains(update, "Clone") || !strings.Contains(goFunc(t, code, "count"), "UpdateOwned[") {
+		t.Errorf("m = maps.Update(m, k, f) copies the Map:\n%s\n%s", update, goFunc(t, code, "count"))
+	}
+	// The copying lowering keeps a copy on the same rebinding.
+	ref := lowerValueMode(t, "velidecopy", valueElideSource, true, "copy").mainGo()
+	if body := goFunc(t, ref, "count"); !strings.Contains(body, "Clone") || strings.Contains(ref, "Owned") {
+		t.Errorf("the copying lowering elides the copy of m = maps.Update(m, k, f):\n%s", body)
 	}
 }
 
@@ -148,13 +189,15 @@ var valueMutants = flag.Bool("value.mutants", false, "run TestValueRuleMutants")
 // TestValueRuleMutants switches off each rule of the analysis in turn
 // (valueMutant) and requires the probes or the property's shared programs
 // to print something else: each rule has a guard that fails without it.
-// It builds six sets of programs, so it runs only with -value.mutants:
+// The never-elide mutant is the copying lowering "copy", which every
+// run-based check passes; TestValueRuleElides guards it.
+// It builds nine sets of programs, so it runs only with -value.mutants:
 // go test -run '^TestValueRuleMutants$' ./internal/sketch/lower -args -value.mutants
 func TestValueRuleMutants(t *testing.T) {
 	if !*valueMutants {
 		t.Skip("run with -value.mutants")
 	}
-	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place"} {
+	for _, m := range []string{"never-copy", "shallow", "elide-live", "elide-escape", "elide-closure", "in-place", "consume-live", "consume-captured", "own-live"} {
 		t.Run(m, func(t *testing.T) {
 			saved := valueMutant
 			valueMutant = m
@@ -193,10 +236,31 @@ func TestValueRuleMutants(t *testing.T) {
 // BenchmarkValueRule measures the value rule against hand Go: a loop that
 // builds a Map (the copy is elided, so no allocation beyond Go's), a loop
 // that appends (in place), and a real shared write, a parameter written
-// through a let mut copy (one maps.Clone, as hand Go writes it).
+// through a let mut copy (one maps.Clone, as hand Go writes it), and
+// m = maps.Update(m, k, f) over 1e5 new keys against hand Go's
+// m[k] = f(m[k]) (owned parameters, V5: no copy, so allocs/op match).
 // go test -run '^$' -bench '^BenchmarkValueRule$' -benchmem ./internal/sketch/lower
 func BenchmarkValueRule(b *testing.B) {
-	const src = `func Build(n int) int {
+	const src = `import maps
+
+func inc(old Option[int]) int {
+	match old {
+	case Some[int] as v:
+		v.Value + 1
+	case None:
+		1
+	}
+}
+
+func Upsert(n int) int {
+	let mut m = Map[int, int]{}
+	for i in 0..n {
+		m = maps.Update(m, i, inc)
+	}
+	len(m)
+}
+
+func Build(n int) int {
 	let mut m = Map[int, int]{}
 	for i in 0..n {
 		m[i] = i
@@ -219,7 +283,7 @@ func Bump(m Map[int, int], k int) int {
 }
 
 func main() needs Console {
-	Console.Println("\(Build(3)) \(Collect(3)) \(Bump(Map[int, int]{}, 1))")
+	Console.Println("\(Build(3)) \(Collect(3)) \(Bump(Map[int, int]{}, 1)) \(Upsert(3))")
 }
 `
 	emittedBench(b, "valuebench", src, func(mainGo string) string {
@@ -285,6 +349,25 @@ func BenchmarkBumpGo(b *testing.B) {
 		sink = len(c)
 	}
 }
+
+func BenchmarkUpsertErgo(b *testing.B) {
+	for range b.N {
+		sink = ` + emittedCall(mainGo, "Upsert", "100000") + `
+	}
+}
+
+//go:noinline
+func incGo(v int) int { return v + 1 }
+
+func BenchmarkUpsertGo(b *testing.B) {
+	for range b.N {
+		m := map[int]int{}
+		for i := range 100000 {
+			m[i] = incGo(m[i])
+		}
+		sink = len(m)
+	}
+}
 `
-	}, "BuildErgo", "BuildGo", "CollectErgo", "CollectGo", "BumpErgo", "BumpGo")
+	}, "BuildErgo", "BuildGo", "CollectErgo", "CollectGo", "BumpErgo", "BumpGo", "UpsertErgo", "UpsertGo")
 }

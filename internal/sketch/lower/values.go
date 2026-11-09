@@ -46,7 +46,13 @@ import (
 //     (an escaping frame, types.md Function values 2) takes a copy of each
 //     captured `let mut` whose value holds a Map or slice, when it does not
 //     write it and a write can follow its creation (runtime.md, Tasks 6:
-//     values copy into a task).
+//     values copy into a task);
+//   - owned parameters (V5, ownedParams): a parameter that a function
+//     takes into a let mut once and never reads after is copied by the
+//     caller that shares it, not by the callee, and a rebinding p = f(…,
+//     p, …) whose old value nothing else reads hands it over with no copy
+//     (consumable): m = maps.Update(m, k, f) writes m in place, as hand Go
+//     writes m[k] = f(m[k]).
 //
 // Only a slice, a Map, and a record or tuple that holds one can be written
 // through a place, so only they are copied; a union, an Option and a
@@ -59,21 +65,31 @@ import (
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.valueLowering=alias.
 // TestValueRuleAgrees proves the two equal on programs with no shared
 // write and the rule equal to a value-semantics interpreter on programs
-// with one.
+// with one. valueLowering "copy" (-X=…valueLowering=copy) is the rule
+// without owned parameters (V5): each callee copies its parameter at the
+// bind, as before; TestValueRuleAgrees holds it and the rule to the
+// interpreter on the same programs.
 //
 // Prior art: Swift's Array and Dictionary are values copied on write by a
-// uniqueness test of their reference count; Hylo's mutable value
-// semantics; Gleam, Elixir and ReScript maps and lists are immutable, so no
-// write is shared; Rust refuses the shared write in its borrow checker.
-// Ergo has no reference count, so it copies on a static fact, as Swift's
-// optimizer removes the copies it proves unneeded.
+// uniqueness test of their reference count, and its `consuming` parameters
+// and `consume` operator hand a value over with no copy; Hylo's mutable
+// value semantics and `sink` parameters; Gleam, Elixir and ReScript maps
+// and lists are immutable, so no write is shared (Erlang's maps update a
+// copy, and BEAM reuses a binary appended to in place when the old one is
+// dead); Rust moves a value into a parameter and refuses the shared write
+// in its borrow checker. Ergo has no reference count, so it copies on a
+// static fact, as Swift's optimizer removes the copies it proves unneeded,
+// and hands a dead binding over as a Rust move or a Swift consume does.
 var valueLowering string
 
 // valueMutant switches off one rule of the analysis, for the mutant runs
 // of TestValueRuleMutants only: "never-copy", "shallow", "elide-live" (a
 // live local moves), "elide-escape" (a kept read of a root written later
 // shares), "elide-closure" (an escaping frame shares its captures) and
-// "in-place" (Append and Delete always write their source).
+// "in-place" (Append and Delete always write their source), and for owned
+// parameters (V5) "consume-live" (an argument that stays live is passed
+// uncopied), "consume-captured" (a rebinding hands over a binding another
+// frame reads) and "own-live" (a parameter read after its bind is owned).
 // Empty in every build.
 var valueMutant string
 
@@ -82,21 +98,34 @@ func valueRule() bool { return valueLowering != "alias" }
 
 // valueFacts are the decisions of the analysis, keyed by syntax node.
 type valueFacts struct {
-	clone   map[syntax.Expr]bool         // values copied where they are lowered
-	inPlace map[*syntax.CallExpr]bool    // Append and Delete calls that write their source
-	snap    map[syntax.Node][]*check.Var // escaping frames and the captures they copy
-	roots   map[syntax.Node]*valueWalk   // analyzed bodies
-	fresh   map[*check.Func]int8         // 1 deciding, 2 fresh, 3 not fresh
+	clone    map[syntax.Expr]bool         // values copied where they are lowered
+	inPlace  map[*syntax.CallExpr]bool    // Append and Delete calls that write their source
+	snap     map[syntax.Node][]*check.Var // escaping frames and the captures they copy
+	roots    map[syntax.Node]*valueWalk   // analyzed bodies
+	fresh    map[*check.Func]int8         // 1 deciding, 2 fresh, 3 not fresh
+	consumed map[syntax.Expr]bool         // arguments an owned parameter takes in place (V5)
+	owned    map[*syntax.FuncDecl][]ownedParam
+	ownCall  map[*syntax.CallExpr]bool // calls that pass owned arguments unshared (V5)
+}
+
+// ownedParam is an owned parameter (V5): its index, counting a dot call's
+// receiver first, and the value of the bind that takes it in the body.
+type ownedParam struct {
+	index int
+	bind  syntax.Expr
 }
 
 func (l *lowerer) valueFacts() *valueFacts {
 	if l.vals == nil {
 		l.vals = &valueFacts{
-			clone:   map[syntax.Expr]bool{},
-			inPlace: map[*syntax.CallExpr]bool{},
-			snap:    map[syntax.Node][]*check.Var{},
-			roots:   map[syntax.Node]*valueWalk{},
-			fresh:   map[*check.Func]int8{},
+			clone:    map[syntax.Expr]bool{},
+			inPlace:  map[*syntax.CallExpr]bool{},
+			snap:     map[syntax.Node][]*check.Var{},
+			roots:    map[syntax.Node]*valueWalk{},
+			fresh:    map[*check.Func]int8{},
+			consumed: map[syntax.Expr]bool{},
+			owned:    map[*syntax.FuncDecl][]ownedParam{},
+			ownCall:  map[*syntax.CallExpr]bool{},
 		}
 	}
 	return l.vals
@@ -213,6 +242,8 @@ type valueWalk struct {
 	frames  []*vframe
 	owns    []owning
 	calls   []*syntax.CallExpr // prelude Append and Delete calls
+	ergo    []*syntax.CallExpr // calls of functions with an Ergo body (V5)
+	args    []syntax.Expr      // arguments of owned parameters (V5)
 }
 
 // children are n's direct children, in Inspect's order.
@@ -288,6 +319,8 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 	case *syntax.CallExpr:
 		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeDelete(c.Func)) {
 			w.calls = append(w.calls, n)
+		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
+			w.ergo = append(w.ergo, n)
 		}
 	}
 	if f := w.frameOf[n]; f != nil {
@@ -566,6 +599,23 @@ func (w *valueWalk) decide() {
 			vf.inPlace[call] = true
 		}
 	}
+	// Owned parameters (V5): each argument of one, and the arguments a
+	// rebinding hands over in place.
+	for _, call := range w.ergo {
+		c := w.info.Calls[call]
+		owned := w.l.ownedParams(c.Func)
+		if len(owned) > 0 {
+			vf.ownCall[call] = true
+		}
+		for _, p := range owned {
+			if arg := argOf(call, c, p.index); arg != nil {
+				w.args = append(w.args, arg)
+				if w.consumable(call, arg) {
+					vf.consumed[arg] = true
+				}
+			}
+		}
+	}
 	for _, vv := range w.order {
 		for _, o := range vv.occs {
 			w.classify(vv, o)
@@ -611,10 +661,19 @@ func (w *valueWalk) decide() {
 			}
 		}
 	}
-	// Owning (V1).
+	// Owning (V1). A bind that takes an owned parameter of this function
+	// copies nothing: its callers pass the value unshared (V5).
 	if valueMutant != "never-copy" {
+		takes := map[syntax.Expr]bool{}
+		if d, ok := w.root.node.(*syntax.FuncDecl); ok {
+			if f, ok := w.info.Defs[d.Name].(*check.Func); ok {
+				for _, p := range w.l.ownedParams(f) {
+					takes[p.bind] = true
+				}
+			}
+		}
 		for _, o := range w.owns {
-			if !o.root.root() {
+			if !o.root.root() || takes[o.value] {
 				continue
 			}
 			if call, ok := unparen(o.value).(*syntax.CallExpr); ok && vf.inPlace[call] {
@@ -634,7 +693,275 @@ func (w *valueWalk) decide() {
 			}
 			w.freshen(o.value)
 		}
+		// An argument of an owned parameter enters the callee's root: it
+		// is copied unless fresh, or handed over by a rebinding (V5).
+		for _, arg := range w.args {
+			if !vf.consumed[arg] && valueMutant != "consume-live" {
+				w.freshen(arg)
+			}
+		}
 	}
+}
+
+// valueOwned reports whether owned parameters (V5) lower this build: the
+// value rule does, and the copying lowering "copy" is not selected.
+func valueOwned() bool { return valueRule() && valueLowering != "copy" }
+
+// argOf is the operand of call c for parameter i, counting a dot call's
+// receiver first, or nil (a trailing block).
+func argOf(call *syntax.CallExpr, c *check.Call, i int) syntax.Expr {
+	if c.Recv != nil {
+		if i == 0 {
+			return c.Recv
+		}
+		i--
+	}
+	if i < len(call.Args) {
+		return call.Args[i]
+	}
+	return nil
+}
+
+// consumable reports a rebinding p = f(…, p, …) (or p = try f(…)) of one
+// place p, rooted at a let mut local of this body that no other frame
+// reads or writes, with no other use of the local in the statement: the
+// old value of p is dead once the call starts, so the owned parameter
+// takes it with no copy, as hand Go writes m[k] = v for
+// m = maps.Update(m, k, f).
+func (w *valueWalk) consumable(call *syntax.CallExpr, arg syntax.Expr) bool {
+	parent, child := w.unparenParent(call)
+	if t, ok := parent.(*syntax.TryExpr); ok && t.X == child {
+		parent, child = w.unparenParent(t)
+	}
+	s, ok := parent.(*syntax.AssignStmt)
+	if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || s.Rhs[0] != child {
+		return false
+	}
+	lid, aid := pathRoot(s.Lhs[0]), pathRoot(arg)
+	if lid == nil || aid == nil || !samePlace(s.Lhs[0], arg) {
+		return false
+	}
+	v, ok := w.info.Uses[aid].(*check.Var)
+	if !ok || w.info.Uses[lid] != check.Object(v) {
+		return false
+	}
+	vv := w.varOf(v)
+	if !vv.local || !vv.mut || vv.ptr {
+		return false
+	}
+	for _, o := range vv.occs {
+		if o.frame != vv.frame {
+			if valueMutant == "consume-captured" {
+				continue
+			}
+			return false
+		}
+		if o.id != lid && o.id != aid && o.pre > w.pre[s] && o.pre < w.post[s] {
+			return false
+		}
+	}
+	return true
+}
+
+// ownedParams are the owned parameters of f (V5), in order: a parameter
+// whose value holds a slice or Map and that f's body takes into a let mut
+// local once, at a bind in the body's own frame and outside any loop, and
+// otherwise only reads, before the bind, in uses that keep nothing. After
+// the bind no failure can leave f: no call that can fail at its site, and
+// no returned value of an error type, so a caller never sees a value f
+// wrote and then failed on. f lowers as a Go function, not a method.
+//
+// Such an f lowers twice (emitFuncBody): its body, under the name
+// ownedName, whose bind copies nothing, and a wrapper under f's own name
+// that copies each owned argument and calls it. A call this analysis
+// decided (ownedCall) calls the body and passes each owned argument
+// unshared: a copy unless it is fresh, a dead local, or the old value a
+// rebinding hands over (consumable). Every other route to f (a function
+// value, an operations conversion, a witness, a context protocol) reaches
+// the wrapper, which copies as before. The copy moves from the callee to
+// the caller that shares, and a rebinding needs none.
+func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
+	if !valueOwned() || fn == nil || fn.Decl == nil {
+		return nil
+	}
+	d := fn.Decl
+	vf := l.valueFacts()
+	if p, ok := vf.owned[d]; ok {
+		return p
+	}
+	vf.owned[d] = nil
+	if d.Body == nil || d.Extern != nil || fn.Pkg == nil || fn.Pkg.Info == nil || d.Type == nil || d.Type.Params == nil {
+		return nil
+	}
+	info := fn.Pkg.Info
+	f, ok := info.Defs[d.Name].(*check.Func)
+	if !ok || f.Sig == nil {
+		return nil
+	}
+	saved := l.info
+	l.info = info
+	defer func() { l.info = saved }()
+	w := &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, pre: map[syntax.Node]int{}, post: map[syntax.Node]int{}, parent: map[syntax.Node]syntax.Node{}, frameOf: map[syntax.Node]*vframe{}}
+	w.root = &vframe{node: d, tails: map[syntax.Expr]bool{}}
+	tailsOf(d.Body.List, w.root.tails)
+	w.walk(d, nil)
+	var out []ownedParam
+	i := 0
+	for _, field := range d.Type.Params.List {
+		names := field.Names
+		if len(names) == 0 {
+			names = []*syntax.Ident{nil}
+		}
+		for _, id := range names {
+			if id != nil {
+				if v, ok := info.Defs[id].(*check.Var); ok && w.vars[v] != nil && l.holdsValue(v.Type) {
+					if bind := w.ownedBind(f, w.vars[v]); bind != nil {
+						out = append(out, ownedParam{index: i, bind: bind})
+					}
+				}
+			}
+			i++
+		}
+	}
+	if len(out) > 0 && l.funcDecl(fn).method != nil {
+		out = nil
+	}
+	vf.owned[d] = out
+	return out
+}
+
+// ownedBind is the value of the one bind that takes the parameter vv of f
+// (ownedParams), or nil.
+func (w *valueWalk) ownedBind(f *check.Func, vv *vvar) syntax.Expr {
+	if vv.ptr || vv.local {
+		return nil
+	}
+	var bind *vocc
+	var value syntax.Expr
+	for _, o := range w.owns {
+		id, ok := unparen(o.value).(*syntax.Ident)
+		if !ok || w.info.Uses[id] != check.Object(vv.v) {
+			continue
+		}
+		if bind != nil || !o.root.local || !o.root.mut || o.root.ptr {
+			return nil
+		}
+		for _, oc := range vv.occs {
+			if oc.id == id {
+				bind = oc
+			}
+		}
+		value = o.value
+	}
+	if bind == nil || bind.frame != w.root || len(bind.loops) > 0 {
+		return nil
+	}
+	for _, o := range vv.occs {
+		if o == bind {
+			continue
+		}
+		if o.frame != w.root || o.pre > bind.pre && valueMutant != "own-live" {
+			return nil
+		}
+		w.classify(vv, o)
+		if o.kind != occRead {
+			return nil
+		}
+	}
+	if len(rowElems(f.Sig.Errors)) > 0 && w.failsAfter(f, bind.pre) {
+		return nil
+	}
+	return value
+}
+
+// failsAfter reports whether f's body can fail after the point at: a call
+// that can fail at its site, or a returned value whose type is not f's
+// result (an error value converts to the row).
+func (w *valueWalk) failsAfter(f *check.Func, at int) bool {
+	fails := false
+	result := check.Type(nil)
+	if len(f.Sig.Results) == 1 {
+		result = f.Sig.Results[0]
+	}
+	returned := func(x syntax.Expr) {
+		if w.pre[x] <= at {
+			return
+		}
+		switch t := w.typeOf(x); t.(type) {
+		case *check.Named, *check.TypeParam:
+			// An error type is named, or a type parameter of the row.
+			if t != result {
+				fails = true
+			}
+		}
+	}
+	for x := range w.root.tails {
+		returned(x)
+	}
+	syntax.Inspect(w.root.node, func(n syntax.Node) bool {
+		switch n := n.(type) {
+		case *syntax.CallExpr:
+			if c := w.info.Calls[n]; c != nil && w.pre[n] > at && failsHere(c) {
+				fails = true
+			}
+		case *syntax.ReturnStmt:
+			if w.frameOfReturn(n) == w.root {
+				for _, x := range n.Results {
+					returned(x)
+				}
+			}
+		}
+		return true
+	})
+	return fails
+}
+
+// ownedKey is the package-scope key of the body of f, which has owned
+// parameters (ownedParams); f's own key names its wrapper.
+func ownedKey(f *check.Func) pkgKey { return pkgKey{"owned", f} }
+
+// reserveOwned gives, in the naming pass, the name of the body of each
+// function of pkgs that has owned parameters.
+func (l *lowerer) reserveOwned(pkgs []*check.Package) {
+	if !valueOwned() {
+		return
+	}
+	for _, p := range pkgs {
+		for _, f := range l.canon.funcs(p) {
+			if len(l.ownedParams(f)) > 0 {
+				l.pkgName(ownedKey(f), f.Name+"Owned")
+			}
+		}
+	}
+}
+
+// ownedWrapper is the Go declaration of f's wrapper (ownedParams): head is
+// f's Go head up to its parameters' opening parenthesis, params its
+// parameter list, results its result list, typeArgs the names of its type
+// parameters, and args its Go operands in order (the environment, the
+// destination and the witnesses first, then one per parameter; the wrapper
+// copies each owned one). It calls body, the owned body.
+func (fc *funcCtx) ownedWrapper(f *check.Func, head, params, results, body string, typeArgs []string, args []string, site syntax.Node) string {
+	owned := map[int]bool{}
+	for _, p := range fc.l.ownedParams(f) {
+		owned[p.index] = true
+	}
+	lead := len(args) - len(f.Sig.Params)
+	var ops []string
+	for i, a := range args {
+		if j := i - lead; j >= 0 && owned[j] {
+			a = fc.cloneValue(f.Sig.Params[j].Type, a, site)
+		}
+		ops = append(ops, a)
+	}
+	if len(typeArgs) > 0 {
+		body += "[" + strings.Join(typeArgs, ", ") + "]"
+	}
+	call := body + "(" + strings.Join(ops, ", ") + ")"
+	if strings.TrimSpace(results) != "" {
+		call = "return " + call
+	}
+	return head + params + results + " {\n\t" + call + "\n}\n\n"
 }
 
 // samePlace reports whether a and b are one place: a variable and its
@@ -744,6 +1071,10 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			}
 		}
 		if c != nil && w.vf.inPlace[p] && w.recvOf(p) == child {
+			o.kind = occPart
+			return
+		}
+		if x, ok := child.(syntax.Expr); ok && w.vf.consumed[x] {
 			o.kind = occPart
 			return
 		}
