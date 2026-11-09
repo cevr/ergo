@@ -518,7 +518,7 @@ func (p *parser) parseTypeParams() *FieldList {
 	// "Ergo has no any" (types.md, Generics 2).
 	for i, f := range l.List[:max(len(l.List)-1, 0)] {
 		if isAny(f.Type) && l.List[i+1].Type != nil && !isAny(l.List[i+1].Type) {
-			f.Any, f.Type = f.Type.(*Ident), nil
+			f.Any, f.Type = f.Type.Pos(), nil
 		}
 	}
 	if p.tok.tok != RBRACK {

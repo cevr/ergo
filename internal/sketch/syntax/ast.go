@@ -290,14 +290,15 @@ func (e *ContextEntry) End() Pos {
 // interface method. Names is empty for a type-only parameter. Type is nil
 // for type parameters written without a constraint (`type Attempt[T]`), and
 // for a group of them that `any` ends before a constrained group (`[E any,
-// K comparable]`), whose `any` is Any (grammar.md, Declarations). For a
-// method of a capability interface, Names holds the method name and Type is
-// its *FuncType.
+// K comparable]`), whose `any` is at Any (grammar.md, Declarations). Any is 0
+// when there is none: an `any` never starts a file. For a method of a
+// capability interface, Names holds the method name and Type is its
+// *FuncType.
 type Field struct {
 	Doc   *CommentGroup
 	Names []*Ident
 	Type  Expr
-	Any   *Ident
+	Any   Pos
 }
 
 func (f *Field) Pos() Pos {
@@ -307,8 +308,8 @@ func (f *Field) Pos() Pos {
 	return f.Type.Pos()
 }
 func (f *Field) End() Pos {
-	if f.Any != nil {
-		return f.Any.End()
+	if f.Any > 0 {
+		return f.Any + Pos(len("any"))
 	}
 	if f.Type == nil {
 		return f.Names[len(f.Names)-1].End()
