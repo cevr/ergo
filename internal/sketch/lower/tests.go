@@ -480,6 +480,7 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	b.WriteString("\t" + rt + ".Main(func(" + task + " *" + l.taskPkg() + ".Task) error {\n")
 	b.WriteString("\t\t" + env + " := &" + l.env() + "{" + envTask + ": " + task + "}\n")
 	if l.hasInits() {
+		l.entryInits = true
 		b.WriteString("\t\t" + l.pkgName(pkgKey{"init", nil}, "ergoInit") + "(" + env + ")\n")
 	}
 	b.WriteString("\t\treturn " + l.helper("Tests") + "(" + env + ", " + seed + ")\n")

@@ -43,13 +43,24 @@ func main() needs Console { Console.Println("\(First([]string{}, "root")) \(lib.
 }
 
 // All 64 forward-edge DAGs on four ranks, with path order opposite rank.
-// Each emitted initializer appears once, in the Go-spec scheduler's order.
+// Each package holds a machine with a value initial, and a let unless the
+// mask leaves it out (mask%5 names one package, and 4 leaves out every
+// let). The root's main names the machines in path order, the order Go's
+// initialization does not follow, and names no let when there is none; the
+// root has a machine of its own at an even mask, which the lowering meets
+// first.
+// Each emitted initializer appears once, in the Go-spec scheduler's order:
+// the lets first, then the machines', each package's in that order, the
+// root's last, and
+// the entry calls ergoInit before main's first statement (F13: a library's
+// machine was lowered after the entry, which then did not call ergoInit).
 func TestVerifyR1InitDAGs(t *testing.T) {
 	for mask := 0; mask < 64; mask++ {
 		imp := pkgImporter{}
 		var units []Unit
 		deps := [4][]int{}
 		edge := 0
+		reads := []string{}
 		for i := 0; i < 4; i++ {
 			path := fmt.Sprintf("p%d", 3-i)
 			imports, expr := "", "1"
@@ -57,18 +68,38 @@ func TestVerifyR1InitDAGs(t *testing.T) {
 				if mask&(1<<edge) != 0 {
 					deps[i] = append(deps[i], j)
 					imports += fmt.Sprintf("import p%d\n", 3-j)
-					expr += fmt.Sprintf(" + p%d.V%d", 3-j, j)
+					expr += fmt.Sprintf(" + p%d.Read()", 3-j)
 				}
 				edge++
 			}
-			src := imports + fmt.Sprintf("func start() int { %s }\nlet V%d = start()\n", expr, i)
+			src := imports + fmt.Sprintf("func start() int { %s }\n", expr)
+			if mask%5 == 4 || mask%5 == i {
+				src += "func Read() int { start() }\n"
+			} else {
+				src += fmt.Sprintf("let V%d = start()\nfunc Read() int { V%d }\n", i, i)
+				reads = append(reads, fmt.Sprintf("%s.V%d", path, i))
+			}
+			src += fmt.Sprintf("type S = A{N int}\ntype Sig = Go{}\nfunc open() S { A{N: Read()} }\nfunc step(s S, e Sig) Decision[S, int] { Enter[S]{Next: s} }\ntype M%d machine[S, Sig] { initial: open(), step: step }\n", i)
 			u := checkPackage(t, path, []pkgSource{{"/dag/" + path + ".ergo", src}}, imp)
 			imp[path] = u.Package
 			units = append(units, u)
 		}
-		root := checkPackage(t, "main", []pkgSource{{"/dag/main.ergo", "import p0\nimport p1\nimport p2\nimport p3\nfunc main() needs Console { Console.Println(\"\\(p0.V3 + p1.V2 + p2.V1 + p3.V0)\") }\n"}}, imp)
+		sum := "0"
+		if len(reads) > 0 {
+			sum = strings.Join(reads, " + ")
+		}
+		main := "import p0\nimport p1\nimport p2\nimport p3\nfunc main() needs Console {\n\tlet _ = p0.M3{}\n\tlet _ = p1.M2{}\n\tlet _ = p2.M1{}\n\tlet _ = p3.M0{}\n\tConsole.Println(\"\\(" + sum + ")\")\n}\n"
+		if mask%2 == 0 {
+			main += "type R = Root{N int}\nfunc stepR(s R, e p0.Sig) Decision[R, int] { Enter[R]{Next: s} }\ntype MR machine[R, p0.Sig] { initial: Root{N: p3.Read()}, step: stepR }\n"
+		}
+		root := checkPackage(t, "main", []pkgSource{{"/dag/main.ergo", main}}, imp)
 		root.Imports = units
 		code := mustLowerUnit(t, "dag", root, false).mainGo()
+		entry := code[strings.Index(code, "func main() {"):]
+		if call := strings.Index(entry, "ergoInit("); call < 0 || call > strings.Index(entry, "\n}\n") {
+			t.Fatalf("mask %d: the entry does not call ergoInit:\n%s", mask, code)
+		}
+		var order []int
 		done := [4]bool{}
 		last := -1
 		for step := 0; step < 4; step++ {
@@ -88,13 +119,27 @@ func TestVerifyR1InitDAGs(t *testing.T) {
 					break
 				}
 			}
-			token := fmt.Sprintf("V%d = ", next)
+			done[next] = true
+			order = append(order, next)
+		}
+		var tokens []string
+		for _, i := range order {
+			if mask%5 != 4 && mask%5 != i {
+				tokens = append(tokens, fmt.Sprintf("V%d = ", i))
+			}
+		}
+		for _, i := range order {
+			tokens = append(tokens, fmt.Sprintf("ergoInitialM%d = ", i))
+		}
+		if mask%2 == 0 {
+			tokens = append(tokens, "ergoInitialMR = ")
+		}
+		for step, token := range tokens {
 			pos := strings.Index(code, token)
 			if pos < last || pos < 0 || strings.Count(code, token) != 1 {
-				t.Fatalf("mask %d step %d: %s at %d after %d; count %d", mask, step, token, pos, last, strings.Count(code, token))
+				t.Fatalf("mask %d step %d: %q at %d after %d; count %d\n%s", mask, step, token, pos, last, strings.Count(code, token), code)
 			}
 			last = pos
-			done[next] = true
 		}
 	}
 }

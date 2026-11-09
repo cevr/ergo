@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -1099,8 +1100,9 @@ func (l *lowerer) initOrder() []*check.Initializer {
 // initOrder (Go's initialization order: a package after the packages it
 // imports; in a package, a let after every let it refers to, directly or
 // through functions, else in declaration order), then each machine's
-// initial value in the order it was lowered (machine.go), or "" when there
-// is none. The entry calls it first inside v1.Main.
+// initial value, package by package in the same order, each package's in
+// declaration order (machine.go), or "" when there is none. The entry calls
+// it first inside v1.Main.
 func (l *lowerer) initFunc() string {
 	if !l.hasInits() {
 		return ""
@@ -1111,8 +1113,27 @@ func (l *lowerer) initFunc() string {
 	for _, in := range l.initOrder() {
 		b.WriteString(l.inits[in.Value])
 	}
-	for _, x := range l.machineInits {
-		b.WriteString(l.inits[x])
+	// A library's machine can be lowered first where the root uses it, so
+	// the lowering order is not the initialization order.
+	rank := map[*check.Package]int{}
+	for i, p := range append(l.sourcedLibs(), l.pkg) {
+		rank[p] = i
+	}
+	machines := slices.Clone(l.machineInits)
+	slices.SortStableFunc(machines, func(a, b machineInitial) int {
+		if rank[a.pkg] != rank[b.pkg] {
+			return rank[a.pkg] - rank[b.pkg]
+		}
+		if l.sourceLess(a.x, b.x) {
+			return -1
+		}
+		if l.sourceLess(b.x, a.x) {
+			return 1
+		}
+		return 0
+	})
+	for _, m := range machines {
+		b.WriteString(l.inits[m.x])
 	}
 	b.WriteString("}\n\n")
 	return b.String()

@@ -22,8 +22,10 @@ import (
 // stored like any record value. Initial returns the value the initializer
 // computed once. The initial value is checked as a package let is (in a
 // closed context: no failure, no capability), and it runs in the program's
-// initializer inside the root task, after every package let, in
-// declaration order: no let can read a machine's initial value, so this is
+// initializer inside the root task, after every package let, package by
+// package in initialization order and each package's in declaration order
+// (a library's machines are lowered with its lets, program in module.go):
+// no let can read a machine's initial value, so this is
 // an initialization order, and a defect in it is reported at start, as a
 // let's is, even when nothing uses the machine.
 //
@@ -288,5 +290,11 @@ func (l *lowerer) machineInit(td *typeDecl, initial string) {
 	l.recordDecl(fc.owner, x)
 	val := fc.assigned(x)
 	l.addInit(x, x, fc.out.String(), []string{initial + " = " + val})
-	l.machineInits = append(l.machineInits, x)
+	l.machineInits = append(l.machineInits, machineInitial{pkg: td.tn.Pkg, x: x})
+}
+
+// machineInitial is a machine's initial value and the package it is declared in.
+type machineInitial struct {
+	pkg *check.Package
+	x   syntax.Expr
 }
