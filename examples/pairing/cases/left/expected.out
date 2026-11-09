@@ -1,0 +1,11 @@
+screen: choose: serial or tag
+> type 1
+(ignored)
+screen: choose: serial or tag
+> serial
+screen: serial: __________
+> type 12
+screen: serial: 12________
+> wait
+screen: serial: 12________
+left at: serial: 12________

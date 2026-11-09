@@ -74,4 +74,4 @@ No em-parity §3 scenario is this program's own; its costs are a child start per
 
 - **F10** (fixed, fu-mb2) A machine's state had to be a union, so the record state needed a one-variant union and an unwrapping step. A record is now a union of one variant wherever a machine asks for a union.
 - **F11** (fixed, fu-mb2) The address type `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` was written nine times: Ergo had no type alias. A union whose only variant is an existing type is now that type, so `type EditActor = actor.Actor[…]` names it once.
-- **F4**, **F7** as in sign-in.
+- **F4**, **F7** as in pairing.

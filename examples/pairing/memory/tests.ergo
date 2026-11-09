@@ -1,0 +1,19 @@
+// Devices keeps the laws of pair.Devices. ergo test does not run a law
+// of an imported operation type against this package's providers yet
+// (types.md Laws rule 10; finding F4), so these properties call the
+// laws' checks with Devices bound.
+
+import pairing/pair
+
+test DevicesCheckIsStable(serial string, code string) {
+	with context { pair.Devices: Devices } {
+		assert pair.CheckText(serial, code) == pair.CheckText(serial, code)
+		assert pair.CheckText(serial, CodeFor(serial)) != "wrong" || len(serial) < 4
+	}
+}
+
+test DevicesTagIsStable(tag string) {
+	with context { pair.Devices: Devices } {
+		assert pair.TagText(tag) == pair.TagText(tag)
+	}
+}

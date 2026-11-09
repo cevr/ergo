@@ -1,0 +1,6 @@
+screen: choose: tap a tag
+> serial
+(refused)
+screen: choose: tap a tag
+> tap T-100
+paired with printer (t100)

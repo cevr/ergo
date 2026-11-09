@@ -1,0 +1,242 @@
+// Package pair is a device pairing screen: a serial number and a one-time
+// code, or a device tag tap. The flow is a machine whose states own
+// their work (sending and checking a code) and their timer (an error
+// screen returns to the start after 30 s).
+
+import machines
+import pairing/pad
+
+// Methods are the ways in that the screen offers: the machine's input.
+type Methods { Serial bool, Tag bool }
+
+// Proof is what a verify checks.
+type Proof = ByCode{Serial string, Code string, Tries int} | ByTag{Tag string}
+
+// Flow is the screen's state. The pads are the digit-entry sub-machine,
+// held as data.
+type Flow =
+	| Options{On Methods}
+	| EnteringSerial{On Methods, Pad pad.Pad}
+	| SendingCode{On Methods, Serial string}
+	| EnteringCode{On Methods, Serial string, Pad pad.Pad, Tries int}
+	| Verifying{On Methods, Via Proof}
+	| Failed{On Methods, Why string}
+
+// Signal is what the flow takes: keys and taps from the operator, results
+// of the states' work, and the error screen's timer.
+type Signal =
+	| UseSerial{}
+	| Press{Key pad.Key}
+	| Submit{}
+	| Tapped{Tag string}
+	| CodeSent{}
+	| SendFailed{Why string}
+	| Accepted{Who Device}
+	| WrongCode
+	| UnknownTag
+	| Back{}
+	| Cancel{}
+
+// Result is how a pairing ends.
+type Result = Paired{Who Device} | Locked{Serial string} | Cancelled{}
+
+// SerialDigits is the length of a serial number; CodeDigits of a code;
+// MaxTries the wrong codes that lock the serial.
+func SerialDigits() int { 10 }
+
+func CodeDigits() int { 4 }
+
+func MaxTries() int { 3 }
+
+// Pair is the flow as a machine.
+type Pair machine[Flow, Signal] { initial: Start, step: Step, after: timer, work: work }
+
+// Start is the first state for the methods on.
+func Start(on Methods) Flow { Settle(Options{On: on}) }
+
+// Settle is the eventless step (M48 pattern): a state that has nothing to
+// choose becomes the state it would choose. Options with the serial as the
+// only method is the serial pad at once.
+func Settle(s Flow) Flow {
+	match s {
+	case Options as o:
+		if o.On.Serial && !o.On.Tag {
+			EnteringSerial{On: o.On, Pad: pad.Empty(SerialDigits())}
+		} else {
+			s
+		}
+	case EnteringSerial:
+		s
+	case SendingCode:
+		s
+	case EnteringCode:
+		s
+	case Verifying:
+		s
+	case Failed:
+		s
+	}
+}
+
+// Waits reports whether the state waits for the operator: no work runs in
+// it, so a driver that waits for it sees the work's answer.
+func Waits(s Flow) bool {
+	match s {
+	case Options:
+		true
+	case EnteringSerial:
+		true
+	case SendingCode:
+		false
+	case EnteringCode:
+		true
+	case Verifying:
+		false
+	case Failed:
+		true
+	}
+}
+
+// into enters next, settled.
+func into(next Flow) Decision[Flow, Result] { Enter[Flow]{Next: Settle(next)} }
+
+// tap is a tag tap in a state that waits for the operator: it skips the
+// serial and verifies the tag, when the screen takes tags.
+func tap(on Methods, tag string) Decision[Flow, Result] {
+	if on.Tag {
+		into(Verifying{On: on, Via: ByTag{Tag: tag}})
+	} else {
+		Reject
+	}
+}
+
+// wrong is a wrong code: the code pad again, or Locked at the last try.
+func wrong(v Verifying) Decision[Flow, Result] {
+	match v.Via {
+	case ByCode as b:
+		if b.Tries+1 >= MaxTries() {
+			Done[Result]{Output: Locked{Serial: b.Serial}}
+		} else {
+			into(EnteringCode{On: v.On, Serial: b.Serial, Pad: pad.Empty(CodeDigits()), Tries: b.Tries + 1})
+		}
+	case ByTag:
+		Ignore
+	}
+}
+
+// Step is the flow's step. Cancel ends it from every state; each state
+// then lists what it takes, and ignores the rest.
+func Step(s Flow, e Signal) Decision[Flow, Result] {
+	match (s, e) {
+	case (_, Cancel):
+		Done[Result]{Output: Cancelled}
+	case (Options as o, UseSerial):
+		if o.On.Serial {
+			into(EnteringSerial{On: o.On, Pad: pad.Empty(SerialDigits())})
+		} else {
+			Reject
+		}
+	case (Options as o, Tapped as c):
+		tap(o.On, c.Tag)
+	case (Options, _):
+		Ignore
+	case (EnteringSerial as p, Press as k):
+		Stay[Flow]{Next: EnteringSerial{..p, Pad: pad.Press(p.Pad, k.Key)}}
+	case (EnteringSerial as p, Submit):
+		if pad.Full(p.Pad) {
+			into(SendingCode{On: p.On, Serial: p.Pad.Text})
+		} else {
+			Reject
+		}
+	case (EnteringSerial as p, Tapped as c):
+		tap(p.On, c.Tag)
+	case (EnteringSerial, _):
+		Ignore
+	case (SendingCode as w, CodeSent):
+		into(EnteringCode{On: w.On, Serial: w.Serial, Pad: pad.Empty(CodeDigits()), Tries: 0})
+	case (SendingCode as w, SendFailed as f):
+		into(Failed{On: w.On, Why: f.Why})
+	case (SendingCode, _):
+		Ignore
+	case (EnteringCode as c, Press as k):
+		Stay[Flow]{Next: EnteringCode{..c, Pad: pad.Press(c.Pad, k.Key)}}
+	case (EnteringCode as c, Submit):
+		if pad.Full(c.Pad) {
+			into(Verifying{On: c.On, Via: ByCode{Serial: c.Serial, Code: c.Pad.Text, Tries: c.Tries}})
+		} else {
+			Reject
+		}
+	case (EnteringCode as c, Tapped as sc):
+		tap(c.On, sc.Tag)
+	case (EnteringCode, _):
+		Ignore
+	case (Verifying, Accepted as a):
+		Done[Result]{Output: Paired{Who: a.Who}}
+	case (Verifying as v, WrongCode):
+		wrong(v)
+	case (Verifying as v, UnknownTag):
+		into(Failed{On: v.On, Why: "unknown tag"})
+	case (Verifying, _):
+		Ignore
+	case (Failed as f, Back):
+		into(Options{On: f.On})
+	case (Failed as f, Tapped as c):
+		tap(f.On, c.Tag)
+	case (Failed, _):
+		Ignore
+	}
+}
+
+// timer is each state's timer: an error screen returns to the start after
+// 30 s. The runner owns it: a re-entry restarts it, and it never fires
+// after its entry ended.
+func timer(s Flow) Option[Timeout[Signal]] {
+	match s {
+	case Failed:
+		Some{Timeout[Signal]{In: 30s, Signal: Back}}
+	case Options:
+		None
+	case EnteringSerial:
+		None
+	case SendingCode:
+		None
+	case EnteringCode:
+		None
+	case Verifying:
+		None
+	}
+}
+
+// work is each state's work against Devices. The runner starts it after the
+// state's entry commits and interrupts it when the entry ends, so a Cancel
+// during a verify drops its answer. WrongCode and UnknownTag are signals
+// and need no map; DeviceUnreachable is mapped to SendFailed.
+func work(s Flow) Option[machines.Work[Signal, Devices]] {
+	match s {
+	case SendingCode as w:
+		Some{machines.Work{Run: func() Signal fails DeviceUnreachable needs Devices {
+			try Devices.Send(w.Serial)
+			CodeSent
+		}, OnFailure: func(f) {
+			match f {
+			case DeviceUnreachable as u:
+				SendFailed{Why: "cannot send a code to \(u.Serial)"}
+			}
+		}}}
+	case Verifying as v:
+		match v.Via {
+		case ByCode as b:
+			Some{machines.Work{Run: func() Device fails WrongCode needs Devices { try Devices.Check(b.Serial, b.Code) }, OnSuccess: func(m Device) Signal { Accepted{Who: m} }}}
+		case ByTag as c:
+			Some{machines.Work{Run: func() Device fails UnknownTag needs Devices { try Devices.Tag(c.Tag) }, OnSuccess: func(m Device) Signal { Accepted{Who: m} }}}
+		}
+	case Options:
+		None
+	case EnteringSerial:
+		None
+	case EnteringCode:
+		None
+	case Failed:
+		None
+	}
+}

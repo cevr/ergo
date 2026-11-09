@@ -1,5 +1,5 @@
 // Targets keeps the laws of shards.Targets. ergo test does not run a law
-// of an imported operation type against this package's providers (sign-in
+// of an imported operation type against this package's providers (pairing
 // finding F4), so these properties restate them with Targets.
 
 import shards/shards

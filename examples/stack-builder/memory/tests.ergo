@@ -1,5 +1,5 @@
 // Cluster keeps the law of stack.Cluster. ergo test does not run a law of
-// an imported operation type against this package's providers (sign-in
+// an imported operation type against this package's providers (pairing
 // finding F4), so this property restates it with Cluster.
 
 import stackbuilder/stack

@@ -71,7 +71,7 @@ The same write in effect-machine would use `.spawn(State.Writing, ({ self }) => 
 Where Ergo could not improve:
 
 - **The driver cannot reach a child.** The console talks to the parent machine only; children are owned by their entry (MQ10: no ambient registry). A screen that shows a write's progress would need the child's address handed out as a signal (the `ActorHost` pattern), which this program does not need.
-- Written type arguments and `Ignore` arms, as in sign-in.
+- Written type arguments and `Ignore` arms, as in pairing.
 
 ## Benchmark
 
@@ -80,5 +80,5 @@ em-parity §3 lists "child fan-out" as pending for MU5. This program's split wri
 ## Limits found
 
 - **F13** A machine whose `initial:` is a value (`initial: Open()`) starts with no state when another package starts it: the value is set by the package's initializer, which an importing program never runs, so the first `match` on the state is a defect. Measured. `Open` takes the starting parts instead.
-- **F4** (sign-in) The `Targets` laws are not run against `memory.Targets`; `memory/tests.ergo` restates them.
-- **F7** (sign-in) The examples runner does not run the laws of `shards/` (a package with laws and no `test`).
+- **F4** (pairing) The `Targets` laws are not run against `memory.Targets`; `memory/tests.ergo` restates them.
+- **F7** (pairing) The examples runner does not run the laws of `shards/` (a package with laws and no `test`).
