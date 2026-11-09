@@ -76,6 +76,25 @@ import (
 //     signal, then ends. The exit is one value, written once by finish:
 //     Stop, Drain and every ActorExitKind caller read it. latest is the
 //     decision of the last stepped signal, final the Done that ended it.
+//  13. Children (MU5): actor.Child, called in an entry's work, starts a
+//     machine actor that the entry owns (MachineChild). The work's task
+//     binds the entry (ownerKey), so the call finds it through its hidden
+//     task; a runner binds no entry, so a step's Child is a defect. The
+//     entry keeps its children in a list, in start order, by identity
+//     (two children of one machine are two children). A child's Emit and
+//     Done outputs reach the parent as signals tagged with the entry's
+//     epoch (childSignal), so one of an ended entry is dropped as a stale
+//     work signal is (rule 6). When the entry ends, and when the actor
+//     ends, the runner stops its children one at a time, last started
+//     first, each one stopping its own children first, before it stops
+//     the timer and the work and before the next entry opens: a child
+//     lives inside its parent's entry. A child's typed failure ends only
+//     the child; its defect ends the parent, as a work's defect does
+//     (pushed as a workDefect, or, when that cannot be pushed, raised by
+//     the stop). The children's tasks are children of the work's task,
+//     shielded from its interruption, so only their owner stops them, in
+//     order; a work that started children waits for their stop before it
+//     ends, so no task ends before its children.
 type Actor[S, E, D any] struct {
 	inbox   *Queue[envelope[S, E, D]]
 	task    *rt.Task
@@ -111,6 +130,22 @@ type Actor[S, E, D any] struct {
 	final     D
 	finished  bool
 
+	// Children (rule 13), guarded by kidsMu: the open entry's children in
+	// start order, the epoch of the entry that takes them, whether it
+	// still does, and a channel closed once they are stopped. kidsMu is
+	// held while a child starts, so the stop of an entry's children waits
+	// for a start in progress and then sees it.
+	kidsMu    sync.Mutex
+	kids      []*kid
+	kidsEpoch uint64
+	kidsOpen  bool
+	kidsDone  chan struct{}
+	// report pushes a child's defect into its parent's inbox (nil for an
+	// actor that is no child); reported is set when it did, so the
+	// parent's stop does not raise it again.
+	report   func(*rt.Task, error) bool
+	reported atomic.Bool
+
 	// The runner's own fields: only its goroutine reads or writes them.
 	cur     *envelope[S, E, D] // the envelope in a step, nil between steps
 	timer   *rt.Handle[struct{}]
@@ -134,8 +169,9 @@ const (
 	askSignal
 	stateRead
 	timerSignal
-	workSignal // a signal a work sent, tagged with its entry's epoch
-	workDefect // a work's defect: never dropped
+	workSignal  // a signal a work sent, tagged with its entry's epoch
+	workDefect  // a work's or a child's defect: never dropped
+	childSignal // a child's output, tagged with its owner entry's epoch
 )
 
 type envelope[S, E, D any] struct {
@@ -177,6 +213,60 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
+	return machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+		out, capacity, nil)
+}
+
+// MachineChild is actor.Child's body (rule 13): MachineStart for a child
+// of the entry whose work calls it, found through t's binding. out gets
+// each decision and the entry's deliver, which pushes a child output as
+// the entry's signal. The child's task is a child of t, shielded from t's
+// interruption: its owner entry stops it. A call outside a work is a
+// defect (ActorChildDefect); a call that races its entry's exit starts
+// nothing and raises rt.Interrupted, as the work is being interrupted.
+func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, initial S,
+	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
+	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
+	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	out func(*rt.Task, D, func(P)), capacity int) *Actor[S, E, D] {
+	owner, ok := t.Value(ownerKey{}).(childOwner[P])
+	if !ok {
+		panic(&ActorChildDefect{Site: string(span)})
+	}
+	var c *Actor[S, E, D]
+	adopted := owner.adopt(func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error {
+		c = machineStart(span, t, sl, initial, step, fire, delay, workOf, hasWork, work, kind, next,
+			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report)
+		return c.halt
+	})
+	if !adopted {
+		panic(rt.Interrupted)
+	}
+	return c
+}
+
+// ActorChildDefect is the defect of an actor.Child called where no entry
+// owns it: outside a machine's work (in a step, or on a task the program
+// started elsewhere), or with a map whose result is not the entry's
+// signal type, which only a send of another machine passed to Child can
+// give.
+type ActorChildDefect struct {
+	Site string
+}
+
+// String is the defect's text.
+func (d *ActorChildDefect) String() string {
+	return "actor.Child at " + d.Site + ": no machine entry owns this call; call Child in a machine's work, with that work's send"
+}
+
+// machineStart starts an actor; report is the parent entry's for a child
+// (rule 13), whose task then starts shielded from t's interruption, and
+// nil otherwise.
+func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
+	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
+	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
+	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
+	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool) *Actor[S, E, D] {
 	if capacity < 0 {
 		panic(fmt.Sprintf("actor.StartMachine: negative capacity %d", capacity))
 	}
@@ -184,6 +274,7 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		inbox: New[envelope[S, E, D]](capacity), sleeper: sl, span: string(span),
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
 		done: make(chan struct{}), state: initial, subs: map[*changes[S]]struct{}{},
+		report: report,
 	}
 	a.work = func(s S) (func(*rt.Task, func(E)), bool) {
 		w := workOf(s)
@@ -196,6 +287,12 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 	ready := make(chan struct{})
 	var once sync.Once
 	started := func() { once.Do(func() { close(ready) }) }
+	var shield rt.Mask
+	if report != nil {
+		// A child: started in a protecting region of t, so t's interruption
+		// does not reach it and its owner stops it, in order (rule 13).
+		shield = t.Mask()
+	}
 	rt.Go(&holder, a.span, func(at *rt.Task) (struct{}, error) {
 		a.task = at
 		_, err := guarded(at, func(at *rt.Task) (struct{}, error) { return a.loop(at, started) })
@@ -203,6 +300,9 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 		a.finish(err)
 		return struct{}{}, nil
 	})
+	if report != nil {
+		shield.Unmask()
+	}
 	<-ready
 	return a
 }
@@ -211,6 +311,10 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 // that the first entry's children run.
 func (a *Actor[S, E, D]) loop(at *rt.Task, started func()) (struct{}, error) {
 	s := a.state
+	// The runner's own task owns no entry: a Child in a step finds none
+	// (rule 13), also when the actor is a child started in a work.
+	at.WithValue(ownerKey{}, nil)
+	a.openKids()
 	a.arm(at, s)
 	a.startWork(at, s)
 	started()
@@ -246,7 +350,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 			return s, false, nil
 		}
 		d, err = a.fire(at, env.at, s)
-	case workSignal:
+	case workSignal, childSignal:
 		if env.epoch != a.epoch {
 			a.dropped.Add(1)
 			return s, false, nil
@@ -274,6 +378,9 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 	a.mu.Unlock()
 	switch k {
 	case decideEnter, decideEmit:
+		if err := a.stopKids(); err != nil {
+			raise(err)
+		}
 		a.stopTimer()
 		a.stopWork()
 		s = a.next(s, d)
@@ -307,6 +414,7 @@ func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
 			a.publish(s)
 		}
 	}()
+	a.openKids()
 	a.arm(at, s)
 	a.startWork(at, s)
 	opened = true
@@ -326,8 +434,18 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 		return
 	}
 	epoch := a.epoch
+	owner := &entryRef[S, E, D]{a: a, epoch: epoch, done: a.kidsDone}
 	holder := rt.NewScope(at)
+	// Shielded from the runner's interruption (a Stop): the runner's end
+	// stops the entry's children first and then the work (rule 13).
+	shield := at.Mask()
+	defer shield.Unmask()
 	a.working = rt.Go(&holder, a.span+" (work)", func(wt *rt.Task) (struct{}, error) {
+		// The entry the work's Child calls find (rule 13). The task ends
+		// with the work, so the binding needs no End.
+		wt.WithValue(ownerKey{}, owner)
+		// A work that started children ends after their stop (rule 13).
+		defer owner.waitKids()
 		send := func(e E) {
 			// Closed: the actor ended; the work has no one to tell.
 			_ = a.inbox.Push(wt, envelope[S, E, D]{kind: workSignal, sig: e, epoch: epoch})
@@ -347,6 +465,119 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) {
 		}
 		return struct{}{}, err
 	})
+}
+
+// ownerKey is the key of the task value that binds a work's task to the
+// entry that owns its children (rule 13).
+type ownerKey struct{}
+
+// childOwner is an entry that takes children whose outputs are signals
+// P: entryRef[S, P, D] is one.
+type childOwner[P any] interface {
+	// adopt runs start, which starts a child with the entry's report and
+	// deliver and gives its halt, and keeps the child in the entry's
+	// list; false, with nothing started, when the entry no longer takes
+	// children (its exit began).
+	adopt(start func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func() error) bool
+}
+
+// entryRef is one entry of an actor, as its work's Child calls see it.
+type entryRef[S, E, D any] struct {
+	a       *Actor[S, E, D]
+	epoch   uint64
+	done    chan struct{} // the entry's kidsDone
+	adopted atomic.Bool
+}
+
+// kid is a child an entry keeps: halt stops it and waits for its end, and
+// gives the defects it has not reported to the parent yet.
+type kid struct {
+	halt func() error
+}
+
+func (r *entryRef[S, E, D]) adopt(start func(func(*rt.Task, error) bool, func(*rt.Task, E)) func() error) bool {
+	a := r.a
+	a.kidsMu.Lock()
+	defer a.kidsMu.Unlock()
+	if !a.kidsOpen || a.kidsEpoch != r.epoch {
+		return false
+	}
+	halt := start(r.report, r.deliver)
+	a.kids = append(a.kids, &kid{halt: halt})
+	r.adopted.Store(true)
+	return true
+}
+
+// deliver pushes the child output p as a signal of the entry, on the
+// child's task t (the child's runner): it waits for room as a Send does,
+// and the child's stop interrupts the wait.
+func (r *entryRef[S, E, D]) deliver(t *rt.Task, p E) {
+	// Closed: the parent ended; the child has no one to tell.
+	_ = r.a.inbox.Push(t, envelope[S, E, D]{kind: childSignal, sig: p, epoch: r.epoch})
+}
+
+// report pushes a child's defect into the parent's inbox on the child's
+// task t; false when it could not (the parent's admission closed, or the
+// child is being stopped), and then the stop raises it.
+func (r *entryRef[S, E, D]) report(t *rt.Task, err error) bool {
+	_, pushed := guarded(t, func(t *rt.Task) (struct{}, error) {
+		return struct{}{}, r.a.inbox.Push(t, envelope[S, E, D]{kind: workDefect, err: err})
+	})
+	return pushed == nil
+}
+
+// waitKids waits, uninterruptibly, until the entry's children are stopped,
+// when the entry has any. The runner stops them before it stops the work,
+// so the wait ends.
+func (r *entryRef[S, E, D]) waitKids() {
+	if r.adopted.Load() {
+		<-r.done
+	}
+}
+
+// openKids makes the entry of a.epoch the one that takes children.
+func (a *Actor[S, E, D]) openKids() {
+	a.kidsMu.Lock()
+	a.kids, a.kidsEpoch, a.kidsOpen = nil, a.epoch, true
+	a.kidsDone = make(chan struct{})
+	a.kidsMu.Unlock()
+}
+
+// stopKids ends the open entry's children (rule 13): it closes the entry
+// to new children, waiting for a start in progress, then stops each child
+// and waits for its end, last started first. It gives the defects of the
+// children that they did not report.
+func (a *Actor[S, E, D]) stopKids() error {
+	a.kidsMu.Lock()
+	ks, done := a.kids, a.kidsDone
+	a.kids, a.kidsOpen, a.kidsDone = nil, false, nil
+	a.kidsMu.Unlock()
+	var exit error
+	for i := len(ks) - 1; i >= 0; i-- {
+		if err := ks[i].halt(); err != nil {
+			exit = join(exit, err)
+		}
+	}
+	if done != nil {
+		close(done)
+	}
+	return exit
+}
+
+// halt stops a child for its owner: Stop's interruption and wait, with
+// none of Stop's results: a typed failure ends only the child, and a
+// defect the child reported is not given again.
+func (a *Actor[S, E, D]) halt() error {
+	a.task.Interrupt()
+	a.inbox.Close()
+	<-a.done
+	if a.reported.Load() {
+		return nil
+	}
+	a.mu.Lock()
+	exit := a.exit
+	a.mu.Unlock()
+	return defectsOnly(exit)
 }
 
 // stopWork interrupts the current entry's work and waits for its end
@@ -462,6 +693,10 @@ func (a *Actor[S, E, D]) release(env *envelope[S, E, D]) {
 // defect joins the exit), and the Changes subscribers end. It waits for nothing a stop can interrupt.
 func (a *Actor[S, E, D]) finish(exit error) {
 	a.inbox.Close()
+	// The children first, last started first (rule 13).
+	if err := a.stopKids(); err != nil {
+		exit = join(exit, err)
+	}
 	for _, h := range []*rt.Handle[struct{}]{a.timer, a.working} {
 		if h == nil {
 			continue
@@ -495,6 +730,13 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		c.signal()
 	}
 	a.mu.Unlock()
+	// A child's defect ends its parent (rule 13): pushed now, or raised by
+	// the parent's stop of the child when it cannot be pushed.
+	if a.report != nil {
+		if d := defectsOnly(exit); d != nil && a.report(a.task, d) {
+			a.reported.Store(true)
+		}
+	}
 	close(a.done)
 }
 
