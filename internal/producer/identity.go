@@ -38,7 +38,7 @@ type Declaration struct {
 // openImage, one per platform, returns the executing image's bytes: through
 // /proc/self/exe on Linux, verified against the kernel's code signature record
 // on Darwin, and nowhere else.
-var current = acquireOnce(openImage, debug.ReadBuildInfo, processNonce)
+var current = acquireOnce(openImage, debug.ReadBuildInfo, processNonce, rememberedMemo)
 
 func processNonce() (string, error) {
 	var bytes [32]byte
@@ -68,7 +68,9 @@ var (
 // streamed work, not the semantic projection's metadata budget.
 const maxImageBytes = 256 << 20
 
-func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildInfo, bool), nonce func() (string, error)) func() Identity {
+// memo, when it gives a memo, recalls the image's digest by its key
+// (memo.go) instead of hashing it, and records a digest it computes.
+func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildInfo, bool), nonce func() (string, error), memo func() *imageMemo) func() Identity {
 	return sync.OnceValue(func() Identity {
 		identity := Identity{Strength: "unavailable", ReuseScope: "none"}
 		fallback := func() Identity {
@@ -100,14 +102,32 @@ func acquireOnce(open func() (io.ReadCloser, error), info func() (*debug.BuildIn
 			return fallback()
 		}
 		defer image.Close()
-		hash := sha256.New()
-		count, err := io.Copy(hash, io.LimitReader(image, maxImageBytes+1))
-		if err != nil || count > maxImageBytes {
-			identity.Reason = "executing image cannot be read within its byte limit"
-			return fallback()
+		var m *imageMemo
+		if memo != nil {
+			m = memo()
+		}
+		key, keyed := "", false
+		if m != nil {
+			key, keyed = imageKey(image)
+		}
+		digest, recalled := "", false
+		if keyed {
+			digest, recalled = m.recall(key)
+		}
+		if !recalled {
+			hash := sha256.New()
+			count, err := io.Copy(hash, io.LimitReader(image, maxImageBytes+1))
+			if err != nil || count > maxImageBytes {
+				identity.Reason = "executing image cannot be read within its byte limit"
+				return fallback()
+			}
+			digest = "sha256:" + hex.EncodeToString(hash.Sum(nil))
+			if keyed {
+				m.record(key, digest)
+			}
 		}
 		identity.Strength, identity.ReuseScope = "executing-artifact", "artifact"
-		identity.Digest = "sha256:" + hex.EncodeToString(hash.Sum(nil))
+		identity.Digest = digest
 		identity.Qualifier = identity.Digest
 		return identity
 	})

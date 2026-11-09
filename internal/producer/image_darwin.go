@@ -9,6 +9,10 @@ import (
 	"unsafe"
 )
 
+// imageKey: the Darwin image is verified code in memory, not an open file,
+// so it has no memo key and is hashed every time.
+func imageKey(io.Reader) (string, bool) { return "", false }
+
 // csOpsCDHash asks csops(2) for the cdhash of a process's main executable,
 // as xnu's cs_blobs.h numbers it.
 const csOpsCDHash = 5
