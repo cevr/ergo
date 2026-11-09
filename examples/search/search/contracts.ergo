@@ -46,8 +46,7 @@ func Probe(all []Item, n int, k int) string {
 func pick(n int, count int) int { ((n % count) + count) % count }
 
 // FindIsSubset is the law FindIsSubset of the Catalog in the context, as
-// a function: ergo test does not run a law of an operation type against a
-// provider of another package (G-ma-2), so memory's tests call this.
+// a function, which memory's tests also call.
 func FindIsSubset(n int, k int) bool needs Catalog {
 	let all = Catalog.All()
 	let query = Probe(all, n, k)
@@ -99,7 +98,7 @@ type Cart {
 }
 
 // AddAddsOne is the law AddAddsOne of the Cart in the context, as a
-// function (G-ma-2).
+// function.
 func AddAddsOne(have []Item, item Item) bool needs Cart {
 	let after = Cart.Add(have, item) catch {
 	case CartFull:

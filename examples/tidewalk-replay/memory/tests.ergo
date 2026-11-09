@@ -1,6 +1,5 @@
-// Fixed keeps the walk.Library law. ergo test skips a member law for a
-// provider in another package (G-exup-1, G-ma-2), so this test runs the
-// law's predicate against the one provider.
+// ergo test runs the walk.Library law here, against Fixed; this test
+// checks its predicate again on the one provider's value.
 
 import tidewalk/walk
 

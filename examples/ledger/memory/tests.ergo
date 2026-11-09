@@ -1,6 +1,6 @@
-// Store keeps the ledger.Store laws over a store that has had a day of
-// transfers: the laws run only for providers in ledger's own package
-// (G-exup-1), so the tests restate them.
+// ergo test runs the ledger.Store laws here, against Store (NewStore).
+// These tests check them again over a store that has had a day of
+// transfers, which a new store has not.
 
 import ledger/ledger
 

@@ -1,6 +1,6 @@
 // Board's tests run over an fstest.Memory: the tasks.Board laws (restated:
-// they run only for providers in tasks, G-exup-1), the file's own form,
-// and a corrupt line.
+// ergo test skips them for this Board, which holds an fs.Files;
+// expected-skips), the file's own form, and a corrupt line.
 
 import fstest
 import taskscli/tasks

@@ -1,8 +1,7 @@
 // SHA-256 against the FIPS 180-4 test vectors and coreutils at the block
-// edges, and the checksum.Hasher laws restated over the provider (they run
-// only for providers in checksum, G-exup-1).
+// edges. ergo test runs the checksum.Hasher laws against Hasher in
+// cmd/gointerop, the least package that sees both.
 
-import gointerop/checksum
 import strings
 
 test KnownVectors {
@@ -19,23 +18,4 @@ test BlockEdges {
 	assert Sum(Hasher, strings.Repeat("a", 56)) == "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a"
 	assert Sum(Hasher, strings.Repeat("a", 63)) == "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34"
 	assert Sum(Hasher, strings.Repeat("a", 64)) == "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb"
-}
-
-test DeterministicHolds(text string) {
-	with context { checksum.Hasher: Hasher } {
-		assert checksum.Hasher.Sum(text) == checksum.Hasher.Sum(text)
-	}
-}
-
-test FixedWidthHolds(text string) {
-	with context { checksum.Hasher: Hasher } {
-		let s = checksum.Hasher.Sum(text)
-		assert len(s) == len(checksum.Hasher.Sum("")) && checksum.IsHex(s)
-	}
-}
-
-test DistinguishesHolds(text string) {
-	with context { checksum.Hasher: Hasher } {
-		assert checksum.Hasher.Sum(text) != checksum.Hasher.Sum(text+"x")
-	}
 }

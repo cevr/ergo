@@ -1,0 +1,11 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# file.Log holds an fs.Files and an fs.Writes; no constructor without
+# parameters of an operation type can build one (a constructor's parameter of
+# an operation type is not bound to a provider yet). file/tests.ergo runs
+# kv/checks.ergo on a Log over an fstest.Memory.
+skip law kv.Store.GetAfterPut for Log: its values have no generator: fs.Files is a standard library type; a func NewLog() Log with no rows would build one for each case
+skip law kv.Store.PutOverwrites for Log: its values have no generator: fs.Files is a standard library type; a func NewLog() Log with no rows would build one for each case
+skip law kv.Store.DeleteRemoves for Log: its values have no generator: fs.Files is a standard library type; a func NewLog() Log with no rows would build one for each case
+skip law kv.Store.PutKeepsOthers for Log: its values have no generator: fs.Files is a standard library type; a func NewLog() Log with no rows would build one for each case
+skip law kv.Store.KeysAreSortedAndDistinct for Log: its values have no generator: fs.Files is a standard library type; a func NewLog() Log with no rows would build one for each case
+skip law kv.Store.CompactKeepsContents for Log: its values have no generator: fs.Files is a standard library type; a func NewLog() Log with no rows would build one for each case

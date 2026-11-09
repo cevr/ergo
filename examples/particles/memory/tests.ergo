@@ -14,7 +14,7 @@ test TapeKeepsFramesInOrder {
 }
 
 // The law holds for a Tape in any state: k frames shown first. ergo test
-// runs sim.Screen's law only for providers in package sim (G-exup-1).
+// runs sim.Screen's law here against a new Tape (NewTape) only.
 test ShowCountsOneHolds(n int, phase string, k int) {
 	let s sim.Screen = NewTape()
 	for i in 0..(if k < 0 { -(k % 5) } else { k % 5 }) {

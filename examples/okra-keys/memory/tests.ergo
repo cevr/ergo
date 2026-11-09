@@ -1,5 +1,6 @@
-// Vault's tests: it keeps keys.Store's law, restated here because a member
-// law runs only for providers in its type's own package (G-exup-1).
+// Vault's tests: it keeps keys.Store's law, restated here because ergo
+// test skips it for Vault (NewVault takes a keys.Keys, which package
+// memory cannot generate; expected-skips).
 
 import okrakeys/keys
 

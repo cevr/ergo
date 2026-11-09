@@ -1,0 +1,7 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# tape and blind are sim's test screens over a sync.Ref, with no constructor;
+# term.Screen holds an io.Stdout. memory.Tape (NewTape) runs the law; the
+# screens' tests restate it for a screen in any state.
+skip law Screen.ShowCountsOne for blind: its values have no generator: sync.Ref[int] is a standard library type; a func Newblind() blind with no rows would build one for each case
+skip law Screen.ShowCountsOne for tape: its values have no generator: sync.Ref[[]Frame] is a standard library type; a func Newtape() tape with no rows would build one for each case
+skip law sim.Screen.ShowCountsOne for Screen: its values have no generator: io.Stdout is a standard library type; a func NewScreen() Screen with no rows would build one for each case

@@ -46,4 +46,4 @@ Gaps that other lanes found, met here too:
 - No actor runner and no supervision (#57, #101): the room's task is a loop over `Decide` and `Evolve`. `Room`'s `Step` now emits its events (G-ex-a-9 closed), but a machine has no clock, so it stamps a say at time zero and the server, which stamps each say with its clock, does not use it.
 - A machine's state is a union (G-ex-c-16): `State` has two variants where `Shutdown` would do as a flag.
 - `+SECONDS` is `time.Times(1s, n)` (G-ex-b-4 closed).
-- The `Conn` law runs only for providers in `server` (G-exup-1), so `memory`'s tests restate it; `with` is a keyword, so a helper cannot be named `with`.
+- `ergo test` skips the `Conn` law for `memory.Conn` (it holds a queue, and `New` takes a size; `expected-skips`), so `memory`'s tests restate it; `with` is a keyword, so a helper cannot be named `with`.

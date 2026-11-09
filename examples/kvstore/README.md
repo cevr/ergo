@@ -49,7 +49,7 @@ Each limit is recorded with a repro in the lane's gap file (`gaps-ex-c.md`, run 
 
 Closed in batch 12: G-ex-c-4 (`fs.Writes` now appends, renames and removes: a put is one append and `Open` removes stale temp files), G-ex-c-3 (`broken` returns an `os.Exit`), G-ex-c-2 (`sameMaps` gone: maps compare with `==`).
 
-- **G-ex-c-5 / G-exup-1: Store's laws do not run for its providers.** `ergo test` runs a member law only for providers in its type's own package, and `Table` and `Log` are in `memory` and `file` (`ergo test examples/kvstore/kv` prints `skip law Store.…: no type of the package implements Store`), and a member law cannot call a function that needs its own type. So each law is written twice: in `kv.Store` and as a `…Holds` function in `kv/checks.ergo`, which each provider's tests call.
+- **G-ex-c-5: a member law cannot share its check.** `ergo test` runs `Store`'s laws in `memory` against `memory.Table` and the `fs.Writes` laws against `memory.Full` (`NewFull`; G-exup-1 closed in batch 13), but skips `Store`'s laws for `file.Log`, which holds an `fs.Files` and has no constructor without rows (`expected-skips`). A member law cannot call a function that needs its own type, so each law is also a `…Holds` function in `kv/checks.ergo`, which each provider's tests call.
 - **G-ex-c-6: `flag.Choice` reads a string.** The match on the store needs `case _` for `file`.
 - **G-ex-c-1: diagnostics name a type of a package folder as `main.T`.**
 - Syntax friction, no gap: `try` stands only at the start of an expression, so `a && try f()` is written `a && (try f())`, and a `catch` ends its expression, so `try f() catch { … } == v` is written through a helper (`kv.Lookup`).

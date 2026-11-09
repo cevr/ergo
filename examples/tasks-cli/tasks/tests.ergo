@@ -1,7 +1,7 @@
 import slices
 
 // A listing of each kind and the names. The listing laws run under ergo
-// test; the Board laws are skipped (G-exup-1), memory's tests check them.
+// test; the Board laws run in package memory against memory.Board.
 
 let a = Task{ID: 1, Title: "write the spec", Priority: Medium, State: Open}
 let b = Task{ID: 2, Title: "fix the build", Priority: Urgent, State: Open}

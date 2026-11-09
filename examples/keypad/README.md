@@ -46,8 +46,8 @@ The program is a module of packages (`ergo.mod`: `module keypad`), in the Go lay
 - **No regions (M56).** The shift mode is a machine held in a field and stepped by hand.
 - **Machine laws stand at top level (M55).**
 - **`==` on a state that holds slices (M29).** The laws compare texts through `Texts`, not states.
-- **The examples runner runs a package's laws only when the package declares a `test` (G-ma-1).** So `keypad/` keeps one test, `CodeFormRun`.
-- **A law of an imported operation type does not run against another package's provider (G-ma-2).** `ergo test keypad/keypad` prints `skip law Forms.EveryFormOpens: no type of the package implements Forms`, so `memory/tests.ergo` calls the laws' functions with `Fixed` bound.
+- **G-ma-1** (closed in batch 13): the examples runner tests every package folder of a program of packages, whether or not it declares a `test`.
+- **G-ma-2** (closed in batch 13): `ergo test keypad/memory` runs the `Forms` laws against `Fixed`; `memory/tests.ergo` also calls the laws' functions with `Fixed` bound.
 - **Inference.** `machines.Next[Pad, Output](b, d)` needs its type arguments when `b` is a `Board`, the variant, and the state type is `Pad` (lane V follow-up, K3 union join).
 
 ## Run it

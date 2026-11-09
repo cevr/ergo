@@ -1,7 +1,8 @@
 // The journal's tests: its lines, a corrupt file, a disk that fails, and
-// the ledger.Store laws restated as property tests (they run only for
-// providers in ledger's own package, G-exup-1). The journal runs on an
-// fstest.Memory, never on the host.
+// the ledger.Store laws restated as property tests (ergo test skips them
+// for Journal, which holds an fs.Files and has no constructor without
+// rows; expected-skips). The journal runs on an fstest.Memory, never on
+// the host.
 
 import fs
 import fstest

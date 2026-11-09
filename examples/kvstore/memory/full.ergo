@@ -12,6 +12,10 @@ type Full { disk fstest.Memory }
 // FullOf is the Full disk over m: m's reads, and no room to write.
 func FullOf(m fstest.Memory) Full { Full{disk: m} }
 
+// NewFull is a Full disk over a new, empty memory. ergo test builds each
+// provider of the fs.Writes laws with it: a full disk keeps them.
+func NewFull() Full { FullOf(fstest.NewMemory()) }
+
 // WriteFile fails: the disk is full.
 func WriteFile(_ Full, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { noSpace(path) }
 

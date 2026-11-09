@@ -1,6 +1,5 @@
-// Fixed keeps the kiosk.Policies laws. ergo test does not run the laws of
-// an operation type of another package against this package's providers
-// yet (G-ma-2), so these two tests call the laws' functions.
+// ergo test runs the kiosk.Policies laws here, against Fixed; these two
+// tests call the laws' functions again on the program's own table.
 
 import idletimer/kiosk
 

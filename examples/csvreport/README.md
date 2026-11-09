@@ -37,7 +37,7 @@ go run ./scripts/examples csvreport
 ## Limits found
 
 - **G-exup-6**: std `csv` gives no line of a record (Go's `Reader.FieldPos`), so a `BadNumber` names its record's row (the header is row 1), not its line: a quoted field may span lines.
-- **G-exup-1**: `Source.ReadIsRepeatable` is skipped for `memory.Shelf` (a provider in another package), so `memory/tests.ergo` restates it.
+- **G-exup-1** (closed in batch 13): `Source.ReadIsRepeatable` runs in `memory` against `memory.Shelf`. The test disk `locked` of `files` has no generator and no constructor, so it is skipped (`expected-skips`).
 - A test-only `locked` provider in `files/tests.ergo` wraps an `fstest.Memory`, which never fails Denied.
 - A provider cannot need a capability its contract does not write (rows.md, Context 2), so `files.Load` reads every named file up front, as okra-how does.
 

@@ -1,7 +1,6 @@
-// Shelf and Basket keep the search.Catalog and search.Cart laws. ergo test
-// does not run the laws of an operation type of another package against
-// this package's providers yet (G-ma-2), so these tests call the laws'
-// functions. SearchRun is the example's own run.
+// ergo test runs the search.Catalog and search.Cart laws here, against
+// Shelf and Basket; these tests call the laws' functions again on the
+// program's own values. SearchRun is the example's own run.
 
 import machines
 import search/search

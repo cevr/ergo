@@ -32,7 +32,7 @@ A program of packages (196b; the Go layout of `AGENTS.md`) holds `ergo.mod` in p
 - top-level `.ergo` files, if any: the module root's package.
 - `README.md`, `tags`, `cases/`, and optionally `origin` with `record.sh`, `expected-skips` and `testdata/`, as above.
 
-`ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for each package folder that declares a test, printing `ok <program>: test <folder>`.
+`ergo fmt --check` checks every `.ergo` file of its packages, and the test leg runs `ergo test <package folder>` for every package folder, printing `ok <program>: test <folder>`. A package's test build runs the laws of every operation type it sees against every provider it sees, wherever each is declared, in the least package that sees them all (law-xpkg): the laws `kv.Store` declares run in package `memory` against `memory.Table`, and the std `fs.Writes` laws run there against `memory.Full`. A provider is built by its `New<P>` constructor when its package declares one, else generated.
 
 A domain package states each contract it needs as an operation type with laws (`AGENTS.md`). So in a program of packages, an operation type declared outside `cmd/` with no member law is a layout error: `examples/<name>: <file>:<line>: operation type T has no law; …`. The runner reads each package folder with the checker for this check, as `ergo check DIR` does, and takes the operation types and their member laws from the checked package; a package the checker refuses is a layout error that names the diagnostic. `go run ./scripts/examples -lawless` reports every operation type with no law under `examples/`, in any program or folder, runs nothing, and exits 0.
 

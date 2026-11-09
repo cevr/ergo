@@ -49,5 +49,5 @@ Closed in batch 12: G-ex-d-15 (`Save` writes the key file with `WriteFileMode(â€
 
 - **G-ex-d-6** No std json: `keyfile` is a hand codec for one shape.
 - **G-ex-d-4** Generated strings hold no quote, backslash or control byte, so the codec's laws `Spice` them.
-- **G-exup-1** `Store`'s law `LoadSeesSave` runs only for providers in `keys` (`skip law Store.LoadSeesSave: no type of the package implements Store`), so `memory`'s and `files`' tests restate it.
+- **G-exup-1** (closed in batch 13): `ergo test` runs `Store.LoadSeesSave` where its providers are, but skips it for `memory.Vault` (`NewVault` takes a `keys.Keys`, which `memory` cannot generate) and for `files.Home` (it holds an `fs.Files`), both in `expected-skips`, so `memory`'s and `files`' tests restate it.
 - Known from other lanes: `try` stands only at the start of an expression, so `a + try f()` needs a `let`.

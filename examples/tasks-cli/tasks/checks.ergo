@@ -1,7 +1,8 @@
 // The checks of Board's laws, one function per law, over the Board in the
-// caller's context. A member law runs only for providers in its type's own
-// package (G-exup-1), and a member law cannot call a function that needs
-// its own type (gap G-ex-c-5), so a provider's tests call these.
+// caller's context. ergo test runs Board's laws against memory.Board, but
+// skips them for file.Board (it holds an fs.Files and has no constructor
+// without rows; expected-skips), and a member law cannot call a function
+// that needs its own type (gap G-ex-c-5), so file's tests call these.
 
 // CreateNumbersInOrderHolds checks the law CreateNumbersInOrder.
 func CreateNumbersInOrderHolds(titles []string, p Priority) bool fails Broken needs Board {
