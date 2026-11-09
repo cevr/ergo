@@ -12,7 +12,7 @@ import (
 	"ergo.local/prototype/runtime/rt"
 )
 
-// The hosts property (mu-host; rule 16; the model
+// The hosts property (mu-host; rule 15; the model
 // docs/research/actor-machine/host.qnt): a seeded script of steps drives a
 // root actor whose steps make hosts with NewHost, and a reference, the
 // model's rules over the same script, says what each host must be after

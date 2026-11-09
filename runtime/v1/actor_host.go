@@ -6,7 +6,7 @@ import (
 	"ergo.local/prototype/runtime/rt"
 )
 
-// Hosts (rule 16 of the runner contract in actor.go; std actor.Host, the
+// Hosts (rule 15 of the runner contract in actor.go; std actor.Host, the
 // model docs/research/actor-machine/host.qnt). A host is an empty slot for
 // a child that a step makes and puts in the state it enters. The runner
 // binds it to that entry; the entry's work fills it with actor.ChildIn;
@@ -153,7 +153,7 @@ func (d *ActorHostDefect) String() string {
 		"a step makes a host with actor.NewHost and puts it in the state it enters, and that entry's work fills it once"
 }
 
-// takeHost keeps h for the entry the running step decides (rule 16).
+// takeHost keeps h for the entry the running step decides (rule 15).
 func (a *Actor[S, E, D]) takeHost(t *rt.Task, h hostCell) bool {
 	if t != a.task || a.cur == nil {
 		return false

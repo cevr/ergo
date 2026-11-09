@@ -109,6 +109,16 @@ import (
 //     runs after the actor's end, and the actor's stop interrupts a
 //     source that waits. A source that ends ends only its feed; a defect
 //     of a source ends the actor, as a work's defect does (rule 10).
+//  15. Hosts (mu-host; actor_host.go, the model host.qnt): NewHost in a
+//     step (on the runner's task) keeps the host for the entry the step's
+//     decision opens (Enter, Emit) or keeps (Stay); any other decision, a
+//     failure or a defect closes it, and a host made anywhere else is
+//     closed when made. MachineChild with a host fills it only when it is
+//     open and the actor's (so of the open entry), under kidsMu with the
+//     adoption. stopKids closes the entry's hosts under kidsMu before it
+//     stops the children. An entry with hosts and a work is published once
+//     the work filled them, reached its first wait (rt.WhenWaiting) or
+//     ended.
 type Actor[S, E, D any] struct {
 	inbox   mailbox[envelope[S, E, D]] // in the Actor: no allocation of its own
 	task    *rt.Task
@@ -160,7 +170,7 @@ type Actor[S, E, D any] struct {
 	kidsEpoch uint64
 	kidsOpen  bool
 	kidsDone  chan struct{}
-	// The open entry's hosts (rule 16), guarded by kidsMu: the hosts, how
+	// The open entry's hosts (rule 15), guarded by kidsMu: the hosts, how
 	// many are not filled yet, and the release of the runner's wait to
 	// publish the entry (nil when it does not wait).
 	hosts     []hostCell
@@ -187,7 +197,7 @@ type Actor[S, E, D any] struct {
 	timer   *rt.Handle[struct{}]
 	working *rt.Handle[struct{}] // the entry's work, nil when it has none
 	feeds   []*feed              // the started sources that may still run (rule 14)
-	// newHosts are the hosts the running step made (rule 16); hostSlot
+	// newHosts are the hosts the running step made (rule 15); hostSlot
 	// binds the actor to its runner's task, so NewHost finds it.
 	newHosts []hostCell
 	hostSlot rt.Slot
@@ -268,7 +278,7 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, initial S,
 // defect (ActorChildDefect); a call that races its entry's exit starts
 // nothing and raises rt.Interrupted, as the work is being interrupted.
 //
-// host is actor.ChildIn's host (rule 16), nil for actor.Child: the child
+// host is actor.ChildIn's host (rule 15), nil for actor.Child: the child
 // starts only when host is an empty host of the calling work's entry, and
 // fills it; any other host is a defect (ActorHostDefect), with nothing
 // started.
@@ -378,7 +388,7 @@ func (a *Actor[S, E, D]) runner(at *rt.Task) (struct{}, error) {
 		owners.Store(at, nil)
 		a.bound = true
 	}
-	// The binding NewHost reads (rule 16): its storage is in the Actor, so
+	// The binding NewHost reads (rule 15): its storage is in the Actor, so
 	// it allocates nothing, and it lives as long as the runner's task.
 	at.Bind(&a.hostSlot, hostKey{}, hostRunner(a))
 	return a.loop(at)
@@ -475,7 +485,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		return s, true, err
 	}
 	k := a.kind(d)
-	// The step's hosts (rule 16): an Enter's and an Emit's are bound in
+	// The step's hosts (rule 15): an Enter's and an Emit's are bound in
 	// open, a Stay's to the current entry; any other decision enters no
 	// state, so they close.
 	if len(a.newHosts) > 0 {
@@ -544,7 +554,7 @@ func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
 	a.bindNewHosts()
 	a.arm(at, s)
 	if settled := a.startWork(at, s); settled != nil {
-		// The entry has hosts and a work (rule 16): it is published once
+		// The entry has hosts and a work (rule 15): it is published once
 		// the work filled them, reached its first wait, or ended.
 		<-settled
 	}
@@ -560,7 +570,7 @@ func (a *Actor[S, E, D]) open(at *rt.Task, s S) {
 // stopped), the defect is the work's exit, which stopWork or finish
 // raises.
 //
-// When the entry has hosts that are not filled (rule 16), it returns a
+// When the entry has hosts that are not filled (rule 15), it returns a
 // channel that is closed once the work filled them, reached its first
 // wait (rt.WhenWaiting), or ended, and nil otherwise.
 func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) <-chan struct{} {
@@ -593,7 +603,7 @@ func (a *Actor[S, E, D]) startWork(at *rt.Task, s S) <-chan struct{} {
 		defer owner.waitKids()
 		if settle != nil {
 			// The runner publishes the entry at the work's first wait, or
-			// at its end, whichever comes first (rule 16); this defer runs
+			// at its end, whichever comes first (rule 15); this defer runs
 			// before waitKids waits.
 			cancel := rt.WhenWaiting(wt, settle)
 			defer func() {
@@ -648,7 +658,7 @@ type childOwner[P any] interface {
 	// adopt runs start, which starts a child with the entry's report and
 	// deliver and gives its halt, and keeps the child in the entry's
 	// list; false, with nothing started, when the entry no longer takes
-	// children (its exit began). With a host h (rule 16), it starts the
+	// children (its exit began). With a host h (rule 15), it starts the
 	// child only when h is an empty host of this entry, and then fills it
 	// (fill) under the same lock, so the entry's end, which closes its
 	// hosts, comes before the check or after the fill; hostOK is false,
@@ -733,7 +743,7 @@ func (a *Actor[S, E, D]) stopKids() error {
 	a.kidsMu.Lock()
 	ks, done := a.kids, a.kidsDone
 	a.kids, a.kidsOpen, a.kidsDone = nil, false, nil
-	// The entry ends: its hosts close first (rule 16), so a Get fails
+	// The entry ends: its hosts close first (rule 15), so a Get fails
 	// Stopped from here on and no fill comes after.
 	a.closeHostsLocked()
 	a.kidsMu.Unlock()
@@ -1002,7 +1012,7 @@ func ActorLiveState[S, E, D any](t *rt.Task, a *Actor[S, E, D]) (S, error) {
 // defect joins the exit), and the Changes subscribers end. It waits for nothing a stop can interrupt.
 func (a *Actor[S, E, D]) finish(exit error) {
 	a.inbox.Close()
-	// The hosts a step that raised made (rule 16).
+	// The hosts a step that raised made (rule 15).
 	a.closeNewHosts()
 	// The children first, last started first (rule 13).
 	if err := a.stopKids(); err != nil {

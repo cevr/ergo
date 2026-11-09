@@ -381,6 +381,8 @@ These terms describe the retired `.ef` language, with its `effect fn`, `run`, `r
 
 **Entry epoch** (specified): An identity distinguishing a state entry from prior entries so obsolete work cannot update a later entry.
 
+**Actor host** (checked; mu-host): An `actor.Host[A]`, an empty slot for one child that a step puts in the state it enters. The entry that state opens owns it, its work fills it once with `actor.ChildIn`, and it closes when the entry ends, so a reader's `Get` gives a child of that entry or fails `Stopped`. Not a host provider (see **Ambient**): it reaches no host state. See [runtime](docs/spec/runtime.md#machines-and-actors) 16.
+
 **Transition decision** (implemented syntax): The value a machine step produces for one admitted event: `enter`, `stay`, `ignore`, `reject` or `done`. Its type is the predeclared `decision<S, O>`. Counterpart: decision.
 
 **Region** (proposed): A payload field of one state variant, bound by the machine declaration to a separately declared child machine whose state it holds. Several regions on a variant are orthogonal; one region is a nested (hierarchical) child.
