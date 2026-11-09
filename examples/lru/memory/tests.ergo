@@ -1,6 +1,6 @@
-// Table keeps the catalog.Catalog laws; the tests restate them over its
-// provider (they run only for providers in catalog, G-exup-1), and show
-// what a Memo in front of it saves.
+// ergo test runs the catalog.Catalog laws against Table, built by
+// NewTable from generated prices; these tests check its price list and
+// show what a Memo in front of it saves.
 
 import lru/catalog
 import lru/memo
@@ -10,38 +10,6 @@ func list() Table {
 	Parse("apple 120\npear 95\n\nfig 7\n") catch {
 	case BadRow:
 		NewTable(Map[string, int]{})
-	}
-}
-
-// skuOf is one of the listed SKUs or an unlisted one, from any n.
-func skuOf(n int, text string) string {
-	let skus = []string{"apple", "pear", "fig", text}
-	skus[(if n < 0 { -(n + 1) } else { n })%len(skus)]
-}
-
-test StableHolds(n int, text string) {
-	let sku = skuOf(n, text)
-	with context { catalog.Catalog: list() } {
-		let first = catalog.Catalog.Price(sku) catch {
-		case catalog.Unknown:
-			-1
-		}
-		let second = catalog.Catalog.Price(sku) catch {
-		case catalog.Unknown:
-			-1
-		}
-		assert first == second
-	}
-}
-
-test NotNegativeHolds(n int, text string) {
-	let sku = skuOf(n, text)
-	with context { catalog.Catalog: list() } {
-		let p = catalog.Catalog.Price(sku) catch {
-		case catalog.Unknown:
-			0
-		}
-		assert p >= 0
 	}
 }
 

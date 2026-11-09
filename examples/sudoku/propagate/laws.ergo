@@ -7,7 +7,7 @@ import sudoku/naive
 // whether it has a solution. (Their first solutions differ when it has
 // several: they search in different orders.)
 law AgreesWithNaive(seed int, blanks int, broken bool) {
-	let n = if blanks < 0 { -(blanks + 1) % 60 } else { blanks % 60 }
+	let n = board.BlanksOf(blanks)
 	let p = if broken { board.Broken(seed, n+1) } else { board.Puzzle(seed, n) }
 	board.Solvable(Solver, p) == board.Solvable(naive.Solver, p)
 }

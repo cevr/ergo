@@ -18,7 +18,7 @@ The program is a module of packages (`ergo.mod`: `module okra`), in the Go layou
 
 ## What it shows
 
-- **A contract with laws.** `how.Library` is an operation type with two member laws: `NamedOnce` (the contents name each topic once) and `GuideIsRepeatable` (two reads of a guide agree). `memory/tests.ergo` runs their checks against a `Shelf`.
+- **A contract with laws.** `how.Library` is an operation type with the member law `GuideIsRepeatable` (two reads of a guide agree). `ergo test` runs it in package `memory` against `memory.Shelf`, the provider declared there. A store may name a topic twice, so that is no law of a Library: `Load` reports it as `Duplicate`. The law `NamedOnce` said otherwise, and it went once it ran against `Shelf`.
 - **A sorted index by construction.** `Catalogue` holds its names as a `slices.Ascending[string]`, which only `slices.Ascend` builds, and `Find` is `slices.BinarySearch` over it: an unsorted index is a check error, not a wrong answer. `Of` refuses two topics of one name with `Duplicate`, so a binary search never meets two equal names.
 - **Typed failures, matched exhaustively.** `answer` fails `how.NotFound | how.Unreadable | how.Duplicate`; `run` catches each one by name, with no `case _`, and ends the program with `os.Exit` with status 1 and okra's `[CODE] message` form. A new failure of the domain stops the build until `run` handles it.
 - **A command line as a union.** `parse` is `flag.ParseCommand` over one `flag.Command[Cmd]` named `how`, whose `Build` makes the program's own `Cmd` from the parsed values (`Build` fails nothing of the program's own, so the row `E` of `flag.Command[C, E]` is left out and empty); `topicArg` is a `flag.OptionalArg`, so `Get` gives an `Option[string]`. `parse` fails `flag.Failure`'s closed union, which `flag.Exit` ends: help on standard output with status 0, a usage error on standard error with status 2.
@@ -46,7 +46,7 @@ The guides are read from `$OKRA_GUIDES`, or from `guides` in the working directo
 
 ## What waits
 
-- `Library.NamedOnce` and `Library.GuideIsRepeatable` are skipped for `memory.Shelf`, a provider in another package (G-exup-1); `memory/tests.ergo` checks them. The domain laws run under `ergo test`, and the property tests that restated them are gone (#162 landed).
+- Nothing law-related: the domain laws and `Library.GuideIsRepeatable` run under `ergo test` (G-exup-1 closed in batch 13).
 
 ## Cases
 

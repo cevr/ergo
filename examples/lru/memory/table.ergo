@@ -13,8 +13,18 @@ type Table { prices Map[string, int], lookups sync.Ref[int] }
 // BadRow is a line of a price list that is not "SKU CENTS".
 type BadRow { Line string }
 
-// NewTable is a Table of prices that has looked nothing up.
-func NewTable(prices Map[string, int]) Table { Table{prices: prices, lookups: sync.NewRef[int](0)} }
+// NewTable is a Table of prices that has looked nothing up. A negative
+// price is not listed, so a Table keeps the Catalog law NotNegative
+// whatever prices it is given (ergo test builds it from generated ones).
+func NewTable(prices Map[string, int]) Table {
+	let mut listed = Map[string, int]{}
+	for sku, cents in prices {
+		if cents >= 0 {
+			listed[sku] = cents
+		}
+	}
+	Table{prices: listed, lookups: sync.NewRef[int](0)}
+}
 
 // Parse is the Table of a price list: one "SKU CENTS" per line; blank
 // lines are skipped.

@@ -86,6 +86,20 @@ func Puzzle(seed int, blanks int) Grid {
 	p
 }
 
+// Solvable reports whether s solves puzzle.
+func Solvable(s Solver, puzzle Grid) bool {
+	let _ = s.Solve(puzzle) catch {
+	case Unsolvable:
+		return false
+	}
+	true
+}
+
+// BlanksOf is a number of blanks from any n: 0 to 59, few enough that
+// plain backtracking solves the puzzle at once. The Solver laws draw
+// their puzzles with it.
+func BlanksOf(n int) int { if n < 0 { -(n + 1) % 60 } else { n % 60 } }
+
 // Broken is Puzzle(seed, blanks) with one empty cell given the digit of
 // a peer, so a unit holds a digit twice. blanks is 1 to 80.
 func Broken(seed int, blanks int) Grid {

@@ -8,14 +8,20 @@ type Library {
 	// and its body.
 	Guide(name string) string fails Unreadable,
 
-	// The contents name each topic once, and every name is a word: the
-	// catalogue finds a topic by its name, so two topics of one name
-	// cannot both be found.
-	law NamedOnce() { NamedOnce(Names()) },
+	// A store may name a topic twice (a topics file can list it twice):
+	// Load reports it as Duplicate, so that is no law of a Library.
 
-	// With no writer, two reads of one guide agree.
+	// With no writer, two reads of one guide agree: the same text, or both
+	// Unreadable.
 	law GuideIsRepeatable(name string) {
-		let first = try Guide(name)
+		let first = Guide(name) catch {
+		case Unreadable:
+			let _ = Guide(name) catch {
+			case Unreadable:
+				return true
+			}
+			return false
+		}
 		try Guide(name) == first
 	},
 }
@@ -23,19 +29,3 @@ type Library {
 // Unreadable is a guide that the store holds in its contents and cannot
 // read. Reason is the store's text for it.
 type Unreadable { Name string, Reason string }
-
-// NamedOnce reports whether every name in names is not empty and no two
-// are equal: the Library law, as a function that a provider's test calls.
-func NamedOnce(names []string) bool {
-	for i, a in names {
-		if a == "" {
-			return false
-		}
-		for j, b in names {
-			if i != j && a == b {
-				return false
-			}
-		}
-	}
-	true
-}

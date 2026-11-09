@@ -92,8 +92,13 @@ type Solver {
 	// solver's search, or Unsolvable.
 	Solve(puzzle Grid) Grid fails Unsolvable,
 
+	// The laws draw each puzzle from a seed (Puzzle, Broken): a generated
+	// Grid holds any number of cells, which no puzzle a program reads
+	// does (Parse takes 81).
+
 	// SolutionSolves: a solution keeps the rules and the givens.
-	law SolutionSolves(puzzle Grid) {
+	law SolutionSolves(seed int, n int) {
+		let puzzle = Puzzle(seed, BlanksOf(n))
 		let s = Solve(puzzle) catch {
 		case Unsolvable:
 			return true
@@ -102,7 +107,8 @@ type Solver {
 	},
 
 	// Deterministic: a puzzle solved twice gives one solution.
-	law Deterministic(puzzle Grid) {
+	law Deterministic(seed int, n int) {
+		let puzzle = Puzzle(seed, BlanksOf(n))
 		let a = Solve(puzzle) catch {
 		case Unsolvable:
 			return true
@@ -115,8 +121,8 @@ type Solver {
 	},
 
 	// SolvedIsFixed: a solved grid is its own solution.
-	law SolvedIsFixed(puzzle Grid) {
-		let s = Solve(puzzle) catch {
+	law SolvedIsFixed(seed int, n int) {
+		let s = Solve(Puzzle(seed, BlanksOf(n))) catch {
 		case Unsolvable:
 			return true
 		}
@@ -125,7 +131,8 @@ type Solver {
 
 	// InconsistentIsUnsolvable: a puzzle with a digit twice in a unit has
 	// no solution.
-	law InconsistentIsUnsolvable(puzzle Grid) {
+	law InconsistentIsUnsolvable(seed int, n int) {
+		let puzzle = Broken(seed, BlanksOf(n)+1)
 		if Consistent(puzzle) {
 			return true
 		}
