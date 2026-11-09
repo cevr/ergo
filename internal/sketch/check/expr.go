@@ -1078,6 +1078,12 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 		}
 	}
 	base := c.expr(x.X, nil)
+	if _, ix := unparen(x.X).(*syntax.IndexExpr); ix && base.mode == modeType && isCapability(base.typ) {
+		// The receiver Store[Job] of Store[Job].Put(j) is a capability
+		// name, as Store is (types.md, Capabilities 7); elsewhere the
+		// instance stays a type (a conversion, a literal).
+		base = operand{mode: modeCap, typ: base.typ, cap: base.typ, obj: base.typ.(*Named).Obj, expr: base.expr}
+	}
 	if c.selfRes != nil && base.mode != modeInvalid {
 		// Typing reached the call: it resolves to a 196m function
 		// (selfCall) or to another member, which takes no edge.

@@ -1362,9 +1362,16 @@ const envTask = "task"
 // a capability or program operation, a poll, a frame scope).
 func taskOf(env string) string { return env + "." + envTask }
 
-// envField is the environment's field for a capability.
-func (l *lowerer) envField(cap *check.TypeName) string {
-	if f, ok := l.envFields[cap]; ok {
+// envCap is one capability field of the environment: its name and its Go
+// type.
+type envCap struct{ field, goType string }
+
+// envField is the environment's field for a capability: one per type, so
+// each instance of a generic capability has its own (Store[Job] and
+// Store[Note]; types.md, Capabilities 7), keyed by typeKey.
+func (l *lowerer) envField(cap *check.Named) string {
+	key := l.typeKey(cap)
+	if f, ok := l.envFields[key]; ok {
 		return f
 	}
 	l.env()
@@ -1372,13 +1379,14 @@ func (l *lowerer) envField(cap *check.TypeName) string {
 	for _, f := range l.envFields {
 		taken[f] = true
 	}
-	name := memberName(cap.Name)
+	base := memberName(cap.Obj.Name)
+	name := base
 	for i := 1; taken[name]; i++ {
-		name = fmt.Sprintf("%s_%d", memberName(cap.Name), i)
+		name = fmt.Sprintf("%s_%d", base, i)
 	}
-	l.envFields[cap] = name
-	l.envOrder = append(l.envOrder, cap)
-	l.useType(l.typeDecl(cap, cap.Decl.Name))
+	l.envFields[key] = name
+	tc := &typeCtx{l: l, site: cap.Obj.Decl.Name}
+	l.envOrder = append(l.envOrder, envCap{field: name, goType: tc.goType(cap)})
 	return name
 }
 
@@ -1390,7 +1398,7 @@ func (l *lowerer) envType(b *strings.Builder) {
 	b.WriteString("type " + l.envName + " struct {\n")
 	b.WriteString("\t" + envTask + " *" + l.taskPkg() + ".Task\n")
 	for _, cap := range l.envOrder {
-		b.WriteString("\t" + l.envFields[cap] + " " + l.types[cap].name + "\n")
+		b.WriteString("\t" + cap.field + " " + cap.goType + "\n")
 	}
 	b.WriteString("}\n\n")
 }

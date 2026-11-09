@@ -861,7 +861,18 @@ func isCapability(t Type) bool {
 		return true
 	}
 	if len(n.origin().TParams) > 0 {
-		return false
+		// A generic operation type is a capability once its type
+		// arguments are written and concrete (types.md, Capabilities 7):
+		// Store[Job], never Store or Store[T].
+		steps := 0
+		if n.Orig == nil {
+			return false
+		}
+		for _, a := range n.TArgs {
+			if hasParam(a, &steps) {
+				return false
+			}
+		}
 	}
 	i, ok := n.underlying().(*Interface)
 	return ok && len(i.Methods) > 0

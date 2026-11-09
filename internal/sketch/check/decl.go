@@ -1590,6 +1590,16 @@ func (c *checker) rowElem(x syntax.Expr, kind Kind, ctx *typeCtx) Type {
 		// may be resolved first from a test.
 		c.addErrorType(t.(*Named), c.pkg.OwnerOf(x), x)
 	case KindUses:
+		if n, ok := t.(*Named); ok && len(n.origin().TParams) > 0 && !isCapability(t) {
+			if _, ops := n.Underlying().(*Interface); ops {
+				if n.Orig == nil {
+					c.errorf(x, CodeType, "generic capability %s needs type arguments: write %s[…]", n, n)
+				} else {
+					c.errorf(x, CodeType, "a capability's type arguments are concrete types, and %s names a type parameter", n)
+				}
+				return nil
+			}
+		}
 		if !isCapability(t) {
 			c.errorf(x, CodeUnknown, "%s is not a capability: a capability is a named interface with methods (rows.md, Capability rows 3)", t)
 			return nil

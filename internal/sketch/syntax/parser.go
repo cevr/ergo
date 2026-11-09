@@ -1330,10 +1330,10 @@ func (p *parser) parseTypeName(what string) Expr {
 }
 
 // parseCapabilityName parses the TypeName of a needs, provides or context
-// key position: `name`, `pkg.name` or `go.name`, with no type arguments
-// (the decided `TypeName = identifier [ "." identifier ]`). Brackets after
-// it are S001 at the `[`, so a comma run of names ended by `:` is always
-// one context entry's key list (Parser rule 9).
+// key position: `name`, `pkg.name` or `go.name`, with optional type
+// arguments (`Store[Order]`; Parser rule 12). A comma inside the brackets
+// lists type arguments, so a comma run of names ended by `:` is still one
+// context entry's key list (Parser rule 9; keysContinue skips brackets).
 func (p *parser) parseCapabilityName(what string) Expr {
 	p.enter()
 	defer p.leave()
@@ -1342,7 +1342,7 @@ func (p *parser) parseCapabilityName(what string) Expr {
 	}
 	x := p.parseQualifiedName()
 	if p.tok.tok == LBRACK {
-		p.errorAt(p.tok.pos, 1, "a capability name takes no type arguments")
+		x = p.parseTypeArgs(x)
 	}
 	return x
 }
@@ -1445,6 +1445,24 @@ func (p *parser) keysContinue() bool {
 		i++
 		if p.peek(i).tok == PERIOD {
 			i += 2
+		}
+		if p.peek(i).tok == LBRACK {
+			// Type arguments of the key (rule 12): skip the balanced
+			// brackets, whose commas list arguments, not keys.
+			for depth := 0; ; i++ {
+				switch p.peek(i).tok {
+				case LBRACK:
+					depth++
+				case RBRACK:
+					depth--
+				case EOF:
+					return false
+				}
+				if depth == 0 {
+					i++
+					break
+				}
+			}
 		}
 		if p.peek(i).tok == COLON {
 			return true

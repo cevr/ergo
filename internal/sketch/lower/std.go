@@ -578,11 +578,11 @@ func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Cal
 // schedulerCap is the prelude's Scheduler in the needs row of the std
 // function the call c calls: the capability whose provider a body's hidden
 // scheduler argument is.
-func schedulerCap(c *check.Call, site syntax.Node) *check.TypeName {
+func schedulerCap(c *check.Call, site syntax.Node) *check.Named {
 	if c != nil && c.Func != nil {
 		for _, e := range rowElems(c.Func.Sig.Uses) {
 			if isPreludeType(e, "Scheduler") {
-				return e.(*check.Named).Obj
+				return e.(*check.Named)
 			}
 		}
 	}

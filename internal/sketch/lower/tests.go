@@ -793,7 +793,7 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		bound := map[int]check.LawProvider{}
 		for k, s := range law.Slots {
 			if s.Param < 0 {
-				bind = append(bind, e+"."+l.envField(s.Type.Obj)+" = "+provide(tg.b[k], "provider", "provider"))
+				bind = append(bind, e+"."+l.envField(s.Type)+" = "+provide(tg.b[k], "provider", "provider"))
 				continue
 			}
 			bound[s.Param] = tg.b[k]

@@ -251,7 +251,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			lead = append(lead, dest)
 		}
 		vals = append(lead, vals...)
-		return env + "." + fc.l.envField(cap.Obj) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
+		return env + "." + fc.l.envField(cap) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
 		// underlying signature.
@@ -1119,7 +1119,7 @@ func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
 		if i < len(e.Conversions) {
 			conv = e.Conversions[i]
 		}
-		fc.line(target + "." + fc.l.envField(cap.Obj) + " = " + fc.convert(conv, val, e.Provider))
+		fc.line(target + "." + fc.l.envField(cap) + " = " + fc.convert(conv, val, e.Provider))
 	}
 	return val
 }

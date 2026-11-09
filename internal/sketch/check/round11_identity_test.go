@@ -390,6 +390,10 @@ func TestTypeStringOnlyPrints(t *testing.T) {
 	allowed := map[string]bool{
 		"typeString": true, // its own recursion
 		"Row.list":   true, // the print order of a row's elements
+		// A capSet is keyed by qualified names by design (capset.go,
+		// round 19 M2), and a generic capability's instance by its
+		// concrete arguments' qualified names (L4).
+		"keyOf": true,
 	}
 	files, _ := filepath.Glob("*.go")
 	fset := token.NewFileSet()
