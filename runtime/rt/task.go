@@ -22,6 +22,9 @@ type Task struct {
 	// into it. The cascade reads only this field, never the owner's mask. It
 	// sits beside stopped so that the two share one word.
 	shielded bool
+	// waker marks a task with an OnInterrupt wake in wakers, guarded by mu;
+	// it fills the same word, so the task keeps its size.
+	waker bool
 	// regions is the stack of open mask regions (regions.go). Only the owner
 	// goroutine reads or writes it, so masking costs no atomic operation.
 	regions regionStack
@@ -150,6 +153,11 @@ func (t *Task) Interrupt() {
 		if t.stop != nil {
 			close(t.stop)
 		}
+		if t.waker {
+			if wake, ok := wakers.Load(t); ok {
+				wake.(func())()
+			}
+		}
 		// Locks are taken ancestor first; detach takes only the parent's
 		// lock, so the walk cannot deadlock with a finishing child.
 		for c := t.first; c != nil; c = c.next {
@@ -181,6 +189,39 @@ func (t *Task) Check() {
 	}
 }
 
+// OnInterrupt sets wake, which the stop request of t calls once, so a wait
+// on a channel of the caller's own can wake on a stop without a select on
+// Done (MU18: an actor's runner waits on its inbox's wake channel). wake
+// runs on the goroutine that requests the stop, under t's lock, so it must
+// not wait or take a lock that a stop can hold; a send of a token to a
+// buffered channel without waiting is the intended body. When the stop was
+// requested already, wake runs now. Each task has at most one wake: a
+// second call replaces the first, and OnInterrupt(nil) removes it, which
+// the waiter does before its task ends. The waiter checks Stopped after
+// each wake-up, since wake says only that it should look. Call it from the
+// task's own goroutine. The wakes live in a map beside the tree (wakers),
+// so a task without one pays nothing and keeps its size. Prior art: Go's
+// context.AfterFunc.
+func (t *Task) OnInterrupt(wake func()) {
+	t.mu.Lock()
+	if wake == nil {
+		wakers.Delete(t)
+		t.waker = false
+		t.mu.Unlock()
+		return
+	}
+	wakers.Store(t, wake)
+	t.waker = true
+	stopped := t.stopped.Load()
+	t.mu.Unlock()
+	if stopped {
+		wake()
+	}
+}
+
+// wakers holds the OnInterrupt wakes: *Task -> func().
+var wakers sync.Map
+
 // Done returns a channel that is closed when a stop is requested, for a
 // blocking wait that must also wake on a stop (I1, rule 5). Inside a masked
 // region it returns nil, so the wait is uninterruptible (I2). Call it from the
@@ -188,6 +229,12 @@ func (t *Task) Check() {
 func (t *Task) Done() <-chan struct{} {
 	if t.regions.top != interruptible {
 		return nil
+	}
+	// Only this goroutine writes t.stop (below), so it reads it without
+	// the lock once it is made; Interrupt only reads it, under the lock
+	// (MU18: an actor's runner and askers wait on it at every park).
+	if ch := t.stop; ch != nil {
+		return ch
 	}
 	t.mu.Lock()
 	if t.stop == nil {
