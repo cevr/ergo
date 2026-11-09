@@ -395,7 +395,7 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						// it (IG5 keeps the native error).
 						goName := fc.l.hostPkg(pn.Pkg.Path, x) + "." + o.Name
 						if n, ok := o.Type.(*check.Named); ok && check.IsGoError(n) {
-							return fc.l.rt() + ".GoError{Text: " + goName + ".Error()}"
+							return fc.l.rt() + ".GoErrorOf(" + goName + ").(" + fc.l.rt() + ".GoError)"
 						}
 						// Typed as the binding says: Go's untyped constant
 						// would take its default type (math.MaxInt64 as int).

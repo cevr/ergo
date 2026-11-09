@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
+	"math"
 	"math/rand/v2"
 	"net/url"
 	"path/filepath"
@@ -39,6 +41,7 @@ import go bytes
 import go io
 import go text/tabwriter
 import go path/filepath
+import go math
 
 func urlParts(raw string) string fails go.Error needs go.Foreign {
 	let u = try url.Parse(raw)
@@ -154,6 +157,9 @@ func TestImportGoRuns(t *testing.T) {
 			}
 		}
 	}
+	// Go constants (typed as the binding says) and an error variable.
+	src.WriteString("\tConsole.Println(\"\\(math.MaxInt8 + 1)|\\(io.EOF.Text)|\\(strconv.IntSize)\")\n")
+	want = append(want, fmt.Sprintf("%d|%s|%d", math.MaxInt8+1, io.EOF.Error(), strconv.IntSize))
 	src.WriteString("}\n")
 	prog := mustLower(t, "import_go_runs", src.String())
 	// A call into the reviewed pure tier is transparent (owner q35): the
