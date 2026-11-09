@@ -124,7 +124,7 @@ var lawNoBinder = map[string]string{
 	"AssignStmt.Lhs": "an assignment writes a let mut already bound; Ergo has no :=",
 	"ArrayType.Elt":  lawType, "CompositeLit.Type": lawType, "ErrorRow.Types": lawType, "Field.Type": lawType,
 	"InterfaceType.Union": lawType, "MapType.Key": lawType, "MapType.Value": lawType, "NeedsClause.Names": lawType,
-	"ProvidesClause.Names": lawType, "MachineType.Signal": lawType, "MachineType.State": lawType,
+	"ProvidesClause.Names": lawType, "MachineType.Signal": lawType, "MachineType.State": lawType, "LawReach.Targets": lawType,
 	"TypeDecl.Spec": lawType, "VarSpec.Type": lawType, "ContextEntry.Key": lawType, "ContextEntry.Keys": lawType,
 	"ContextDecl.Name": lawPackage, "FuncDecl.Name": lawPackage, "ImportSpec.Name": lawPackage,
 	"TypeDecl.Name": lawPackage, "TestDecl.Name": lawPackage, "VariantSpec.Name": lawPackage,

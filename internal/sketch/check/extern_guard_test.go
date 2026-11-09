@@ -107,6 +107,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"InterfaceType.Union":  {guardType, "type A {}\ntype U = A | @Upper\n"},
 	"MachineType.State":    {guardType, "type E = Ping\ntype Ping {}\ntype M machine[@Upper, E] { initial: 1, step: step }\nfunc step(s int, e E) Decision[int, int] { return Ignore }\n"},
 	"MachineType.Signal":   {guardType, "type S = Idle\ntype Idle {}\ntype M machine[S, @Upper] { initial: Idle, step: step }\nfunc step(s S, e int) Decision[S, int] { return Ignore }\n"},
+	"LawReach.Targets":     {guardType, machineGuard("initial: Idle,\n\tstep: step,\n\tlaw L reaches @Upper,")},
 	"MapType.Key":          {guardType, "func f(m Map[@Upper, int]) {}\n"},
 	"MapType.Value":        {guardType, "func f(m Map[int, @Upper]) {}\n"},
 	"NeedsClause.Names":    {guardType, "func f() needs @Upper {}\n"},

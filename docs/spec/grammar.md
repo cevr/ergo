@@ -120,10 +120,9 @@ FieldDecl      = identifier { "," identifier } Type .
 LawDecl        = "law" identifier Params Block .
 UnionType      = [ "|" ] Variant { "|" Variant } .
 Variant        = TypeName [ TypeArgs ] [ Members ] .
-MachineType    = "machine" TypeArgs "{" MachineEntry { "," MachineEntry } { "," MachineLaw } [ "," ] "}" .
-MachineEntry   = identifier ":" Expression .
-MachineLaw     = LawDecl | "law" identifier ReachLaw .
-ReachLaw       = [ "never" ] "reaches" identifier | "path" "[" identifier { "," identifier } [ "," ] "]" .
+MachineType    = "machine" TypeArgs "{" MachineEntry { "," MachineEntry } [ "," ] "}" .
+MachineEntry   = identifier ":" Expression | LawDecl
+               | "law" identifier ( [ "never" ] "reaches" identifier | "path" "[" identifier { "," identifier } [ "," ] "]" ) .
 Type           = TypeName [ TypeArgs ] | SliceType | FuncType | PointerType | "(" Type { "," Type } ")" .
 TypeName       = identifier [ "." identifier ] .
 TypeArgs       = "[" Type { "," Type } "]" .

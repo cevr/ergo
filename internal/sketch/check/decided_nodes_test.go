@@ -757,6 +757,31 @@ type Breaker machine[State, Signal] {
 }
 func main() {}
 `, nil},
+	{"machine", "a machine type with laws (MU6)", `
+type Closed {}
+type Open {}
+type State = Closed | Open
+type Trip {}
+type Signal = Trip
+func step(s State, sig Signal) Decision[State, string] {
+	match s {
+	case Closed:
+		return Enter{Open}
+	case Open:
+		return Done{"open"}
+	}
+}
+type Breaker machine[State, Signal] {
+	initial: Closed,
+	step:    step,
+
+	law Opens reaches Open,
+	law Stays never reaches Open,
+	law Trips path [Closed, Open],
+	law Steps(s State, e Signal) { true },
+}
+func main() {}
+`, nil},
 	{"machine", "a machine type with an after entry", `
 type Closed {}
 type Open {}

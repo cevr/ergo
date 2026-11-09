@@ -164,7 +164,7 @@ var nodeTable = map[string]nodeEntry{
 	// record in the package scope (196 fifth round).
 	"TupleExpr":   {"tuple value", ""},
 	"VariantSpec": {"variant in place", ""},
-	"LawDecl":     {"law", ""}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""},
+	"LawDecl":     {"law", ""}, "LawReach": {"machine", ""}, "TestDecl": {"test", ""}, "AssertStmt": {"assert", ""},
 	// The forms that left the language (#196) left the syntax package in
 	// lower-v1 stage 5 (D10), so no type names notBuiltFamily today.
 }
