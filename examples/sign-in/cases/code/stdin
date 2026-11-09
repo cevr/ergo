@@ -7,6 +7,7 @@ submit
 type 7654
 submit
 phone
+scan C-100
 type 5654
 submit
 erase
