@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -93,108 +92,6 @@ func TestNoCheckerPackageTable(t *testing.T) {
 	}
 	if scanned == 0 {
 		t.Fatal("no checker source scanned")
-	}
-}
-
-// externAllowPaths are the Go import paths of the property: each package
-// of the allowlist, host packages, pure packages outside the list, and the
-// near misses of an allowlisted path (a subpackage, a longer name, a
-// prefix, a vendored or module copy, a case or separator variant).
-func externAllowPaths() []string {
-	paths := append([]string(nil), allowlist...)
-	paths = append(paths, "os", "os/exec", "io", "io/fs", "fmt", "time", "net/http",
-		"math/rand", "math/rand/v2", "crypto/rand", "runtime", "syscall", "log",
-		"sync", "sync/atomic", "path/filepath", "embed", "plugin", "reflect",
-		"math/cmplx", "unicode", "cmp", "text/template",
-		"bufio", "errors", "maps", "bytes", "context")
-	for _, p := range allowlist {
-		paths = append(paths, p+"/x", p+"x", "x"+p, p[:len(p)-1], "vendor/"+p,
-			"internal/"+p, "std/"+p, "./"+p, p+"/", "/"+p, strings.ToUpper(p),
-			"golang.org/x/"+p, "example.com/"+p)
-	}
-	paths = append(paths, "unicode/utf16", "unicode/utf8/x", "utf8", "unicode\\utf8", "")
-	return paths
-}
-
-// TestExternAllowlist is G9's property: a user extern whose Go package is
-// in the pure allowlist checks clean; any other package is exactly one
-// S109 at the declaration. Among those, a module path (a dot in its first
-// element) keeps its #202 text and every other path gets the host text,
-// which names the target and the import go route (IG2).
-func TestExternAllowlist(t *testing.T) {
-	for _, path := range externAllowPaths() {
-		target := "F"
-		if path != "" {
-			target = path + ".F"
-		}
-		src := "extern go " + target + " func f(s string) string\nfunc Use() { _ = f(\"x\") }\n"
-		t.Run(fmt.Sprintf("%q", path), func(t *testing.T) {
-			if check.PureGoPackage(path) != slices.Contains(allowlist, path) {
-				t.Fatalf("PureGoPackage(%q) = %v", path, check.PureGoPackage(path))
-			}
-			_, diags := check.CheckSource(src)
-			if slices.Contains(allowlist, path) {
-				if len(diags) != 0 {
-					t.Fatalf("want clean, got\n\t%s", describe(diags))
-				}
-				return
-			}
-			if malformed(path) {
-				// The parser refuses the target before the checker sees it.
-				if len(diags) != 1 || diags[0].Code != "S001" {
-					t.Fatalf("want one S001 for a malformed target, got\n\t%s", describe(diags))
-				}
-				return
-			}
-			if len(diags) != 1 || diags[0].Code != "S109" || diags[0].Line != 1 {
-				t.Fatalf("want one S109 on line 1, got\n\t%s", describe(diags))
-			}
-			msg := diags[0].Message
-			first, _, _ := strings.Cut(path, "/")
-			if strings.Contains(first, ".") {
-				if !strings.Contains(msg, "#202") || strings.Contains(msg, "may reach the host") {
-					t.Fatalf("a module path keeps its #202 text: %s", msg)
-				}
-				return
-			}
-			want := "extern go " + target + " is not on the reviewed pure list, so it may reach the host; call it through import go " + path + ", "
-			if !strings.HasPrefix(msg, want) {
-				t.Fatalf("want the host text %q…, got %s", want, msg)
-			}
-		})
-	}
-}
-
-// TestExternAllowlistExcept (std-align S3a): path/filepath is allowed, but
-// its members that reach the host are refused as a host package is; a
-// lexical member checks clean.
-func TestExternAllowlistExcept(t *testing.T) {
-	for _, name := range []string{"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"} {
-		target := "path/filepath." + name
-		_, diags := check.CheckSource("extern go " + target + " func f(s string) string\nfunc Use() { _ = f(\"x\") }\n")
-		if len(diags) != 1 || diags[0].Code != "S109" || !strings.HasPrefix(diags[0].Message, "extern go "+target+" is not on the reviewed pure list, so it may reach the host") {
-			t.Errorf("%s: want one S109 with the host text, got\n\t%s", target, describe(diags))
-		}
-	}
-	if _, diags := check.CheckSource("extern go path/filepath.Clean func f(s string) string\nfunc Use() { _ = f(\"x\") }\n"); len(diags) != 0 {
-		t.Errorf("path/filepath.Clean: want clean, got\n\t%s", describe(diags))
-	}
-}
-
-// malformed reports a path the parser refuses as an extern target (an
-// empty path, an empty or relative element, a backslash).
-func malformed(path string) bool {
-	return path == "" || strings.HasPrefix(path, "/") || strings.HasPrefix(path, ".") ||
-		strings.HasSuffix(path, "/") || strings.Contains(path, "\\")
-}
-
-// TestExternAllowlistHostText pins F7's message for os (std-1 plan, G9;
-// IG2: the route is import go).
-func TestExternAllowlistHostText(t *testing.T) {
-	_, diags := check.CheckSource("extern go os.Getenv func Getenv(k string) string\n")
-	const want = "extern go os.Getenv is not on the reviewed pure list, so it may reach the host; call it through import go os, which charges go.Foreign"
-	if len(diags) != 1 || diags[0].Code != "S109" || !strings.HasPrefix(diags[0].Message, want) {
-		t.Fatalf("want one S109 starting %q, got\n\t%s", want, describe(diags))
 	}
 }
 

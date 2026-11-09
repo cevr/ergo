@@ -52,6 +52,9 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 	if goImportCall(c, fc.typeOf) {
 		return fc.goCall(x, c) // gocall.go
 	}
+	if goExternCall(c) {
+		return fc.goExtern(x, c) // gocall.go, Level 2 adapters
+	}
 	text, result, fallible := fc.callText(x, c)
 	defer fc.identify(x, c)()
 	if hostCalled(c) {
@@ -116,10 +119,16 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 // call that cannot fail at this site drops its error, which is nil.
 func (fc *funcCtx) callStmt(x *syntax.CallExpr) string {
 	c := fc.l.info.Calls[x]
-	if goImportCall(c, fc.typeOf) {
-		// A Go call writes its own statements (goCall); a discarded
-		// value is used once so Go accepts it.
-		if op := fc.goCall(x, c); op.err != "" {
+	if goImportCall(c, fc.typeOf) || goExternCall(c) {
+		// A Go call writes its own statements (goCall, goExtern); a
+		// discarded value is used once so Go accepts it.
+		op := operand{}
+		if goExternCall(c) {
+			op = fc.goExtern(x, c)
+		} else {
+			op = fc.goCall(x, c)
+		}
+		if op.err != "" {
 			ice(x, "an untried fallible call in a statement")
 		} else if op.val != "" {
 			return "_ = " + op.val

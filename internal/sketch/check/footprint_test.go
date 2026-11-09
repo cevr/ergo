@@ -140,15 +140,15 @@ let started = pureCall()
 	}
 	want := map[string]string{
 		"func Tick":            "pure",
-		"func loud":            "opaque",
+		"func loud":            "pure", // a pure-tier user extern is transparent (IG4, q35)
 		"context Local":        "pure",
-		"context Loud":         "opaque",
+		"context Loud":         "pure",
 		"func pure":            "pure",
 		"func pureCall":        "pure",
 		"func capCall":         "Probe",
 		"func trans":           "Probe",
 		"func ownWith":         "Probe",
-		"func loudWith":        "Probe opaque",
+		"func loudWith":        "Probe",
 		"func even":            "pure",
 		"func odd":             "pure",
 		"func ping":            "Probe",
@@ -160,7 +160,7 @@ let started = pureCall()
 		"literal in immediate": "Probe",
 		"func starts":          "opaque tasks",
 		"block in starts":      "pure",
-		"func host":            "opaque",
+		"func host":            "pure",
 		"func seqLoop":         "opaque",
 		"func rangeLoop":       "pure",
 		"let seed":             "pure",

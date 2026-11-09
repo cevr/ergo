@@ -2,11 +2,7 @@ package lower
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -112,63 +108,42 @@ func main() needs Console {
 	Console.Println("\(Repeat(first(), second()))")
 }
 `, "first\nsecond\nxx\nfirst\nsecond\nfirst\nsecond\nfirst\nsecond\nxx\nfirst\nsecond\nxx\n"},
-	// A declaration with no result over a Go function that has one: the
-	// call runs as a statement and Go drops the result. The no-result
-	// shape is reachable in the pure allowlist (G9 round 2 M2);
-	// TestErgoRunE4DiscardVariadic proves the call is made.
-	{"no_result", `extern go strings.ToUpper func Discard(s string)
-extern go strings.Repeat func Check(s string, n int)
-func main() needs Console {
-	Discard("x")
-	Check("x", 2)
-	Console.Println("discarded")
+	// The targets G9 refused (off the reviewed pure list) run since IG4
+	// with needs go.Foreign: a target with no result (runtime.GC), a
+	// duration parameter (time.Sleep), packages that share a last path
+	// element or whose name is not it (math/rand/v2, crypto/rand,
+	// text/template, html/template) and a generic target (cmp.Compare).
+	{"host_targets", `extern go runtime.GC func GC() needs go.Foreign
+extern go time.Sleep func Pause(d duration) needs go.Foreign
+extern go math/rand/v2.IntN func IntN(n int) int needs go.Foreign
+extern go crypto/rand.Text func Text() string needs go.Foreign
+extern go text/template.HTMLEscapeString func TextEscape(s string) string needs go.Foreign
+extern go html/template.HTMLEscapeString func HTMLEscape(s string) string needs go.Foreign
+extern go cmp.Compare func Compare(a int, b int) int needs go.Foreign
+func main() needs Console | go.Foreign {
+	GC()
+	Pause(1ms)
+	Console.Println("\(IntN(1)) \(len(Text())) \(TextEscape("<a>")) \(HTMLEscape("<b>")) \(Compare(1, 2))")
 }
-`, "discarded\n"},
-	// A Go target whose parameter is variadic ...string accepts the call
-	// with a fixed Ergo arity (strings.NewReplacer, its *Replacer result
-	// discarded); Go checks the call against the Ergo signature.
-	{"variadic", `extern go strings.NewReplacer func Pairs(a string, b string, c string, d string)
-func main() needs Console {
-	Pairs("a", "b", "c", "d")
-	Console.Println("paired")
-}
-`, "paired\n"},
+`, "0 26 &lt;a&gt; &lt;b&gt; -1\n"},
 }
 
-// e4HostTargets are the stage E4 programs whose targets are outside the
-// pure allowlist (G9, std-1), kept as negatives: a target with no result
-// (runtime.GC), a duration parameter (time.Sleep), packages that share a
-// last path element or whose name is not it (math/rand/v2, crypto/rand,
-// text/template, html/template), a variadic target (fmt.Sprint), a generic
-// target (cmp.Compare), a named type as target (time.Duration) and a host
-// call that must run once (fmt.Print). Each lowered and ran before G9.
-// Now each is one S109 per extern at the checker, so the lowering never
-// sees it. The no-result and variadic shapes still run through allowlisted
-// targets (e4Externs, TestErgoRunE4DiscardVariadic). The generic,
-// named-type, duration, package-name and host-call-once shapes have no
-// allowlisted target of basic types; they return as run rows with #202.
+// e4HostTargets are user externs the checker still refuses, so the
+// lowering never sees them: a declaration the binding refuses (fmt.Sprint
+// and fmt.Print take ...any), a type as target (time.Duration), and a
+// foreign target without needs go.Foreign (IG4).
 var e4HostTargets = []struct {
 	name, src string
 	externs   int
 }{
-	{"no_result", "extern go runtime.GC func GC()\nfunc main() { GC() }\n", 1},
-	{"duration", "extern go time.Sleep func Pause(d duration)\nfunc main() { Pause(1ms) }\n", 1},
-	{"aliases", `extern go math/rand/v2.IntN func IntN(n int) int
-extern go crypto/rand.Text func Text() string
-extern go text/template.HTMLEscapeString func TextEscape(s string) string
-extern go html/template.HTMLEscapeString func HTMLEscape(s string) string
-func main() needs Console {
-	Console.Println("\(IntN(1)) \(len(Text())) \(TextEscape("<a>")) \(HTMLEscape("<b>"))")
-}
-`, 4},
-	{"variadic", "extern go fmt.Sprint func Show(n int) string\nfunc main() needs Console { Console.Println(Show(7)) }\n", 1},
-	{"generic_target", "extern go cmp.Compare func Compare(a int, b int) int\nfunc main() needs Console { Console.Println(\"\\(Compare(1, 2))\") }\n", 1},
-	{"type_target", "extern go time.Duration func Truncate(x float64) duration\nfunc main() { let _ = Truncate(1.9) }\n", 1},
-	{"host_once", "extern go fmt.Print func Print(s string)\nfunc main() { Print(\"once\") }\n", 1},
+	{"no_needs", "extern go runtime.GC func GC()\nfunc main() { GC() }\n", 1},
+	{"variadic_any", "extern go fmt.Sprint func Show(n int) string needs go.Foreign\nfunc main() needs Console | go.Foreign { Console.Println(Show(7)) }\n", 1},
+	{"type_target", "extern go time.Duration func Truncate(x float64) duration needs go.Foreign\nfunc main() needs go.Foreign { let _ = Truncate(1.9) }\n", 1},
+	{"host_once", "extern go fmt.Print func Print(s string) needs go.Foreign\nfunc main() needs go.Foreign { Print(\"once\") }\n", 1},
 }
 
 // TestE4HostTargetsRefused: each program of e4HostTargets stops at the
-// checker with one S109 per extern, naming the host (G9), and lowers no
+// checker with one diagnostic per extern at its declaration, and lowers no
 // Go.
 func TestE4HostTargetsRefused(t *testing.T) {
 	for _, r := range e4HostTargets {
@@ -178,9 +153,8 @@ func TestE4HostTargetsRefused(t *testing.T) {
 				t.Fatalf("want %d diagnostics and no Go, got %v and %d files", r.externs, o.diags, len(o.files))
 			}
 			for _, d := range o.diags {
-				// IG2: one text for every package off the reviewed list.
-				if d.Code != "S109" || !strings.Contains(d.Message, "may reach the host") {
-					t.Errorf("want an S109 naming the host, got %s", d)
+				if (d.Code != "S108" && d.Code != "S109") || !strings.Contains(d.Message, "extern go ") {
+					t.Errorf("want an S108 or S109 naming the extern, got %s", d)
 				}
 			}
 		})
@@ -231,191 +205,6 @@ func main() needs Console { Console.Println(hostlib.Shout("lib") + hostlib.Up(""
 `, cxImporter{"example.test/hostlib": lib})
 }
 
-// A user extern whose Ergo signature does not match its Go target fails
-// ergo run with go build's error at the line of the Ergo call (the call's
-// //line directive), never a panic. A literal argument lowers typed (196u),
-// so a target of another type never accepts it as an untyped constant, and
-// a result is bound at its Ergo type, so a target's float64 never reaches
-// an interpolation that would print it as the Ergo int (Risk 4).
-func TestErgoRunE4Mismatch(t *testing.T) {
-	cases := []struct{ name, src, want string }{
-		{"argument", `extern go strings.ToUpper func Upper(n int) int
-func main() needs Console {
-	let x = 1
-	Console.Println("\(Upper(x))") // call
-}
-`, ""},
-		{"literal-argument", `extern go math.Sqrt func Root(x int) float64
-func main() needs Console {
-	Console.Println("\(Root(4))") // call
-}
-`, ""},
-		{"result", `extern go math.Sqrt func Whole(x float64) int
-func main() needs Console {
-	let n int = Whole(4.0) // call
-	Console.Println("\(n)")
-}
-`, ""},
-		// Interpolation takes any basic type, so only the result binding
-		// stops 1.4142135623730951 printing as an Ergo int.
-		{"result-interpolated", `extern go math.Sqrt func Whole(x float64) int
-func main() needs Console {
-	Console.Println("\(Whole(2.0))") // call
-}
-`, ""},
-		// Round 1 M1: a discarded result is bound at its Ergo type too.
-		{"statement", `extern go math.Sqrt func Whole(x float64) int
-func main() needs Console {
-	Whole(2.0) // call
-	Console.Println("accepted-mismatch")
-}
-`, ""},
-		// Round 1 M2's type target (time.Duration) is outside the pure
-		// allowlist since G9, and no allowlisted package declares a named
-		// basic type: it is e4HostTargets' type_target.
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			line := 0
-			for i, l := range strings.Split(c.src, "\n") {
-				if strings.HasSuffix(l, "// call") {
-					line = i + 1
-				}
-			}
-			out, err := ergoRun(t, c.src)
-			t.Logf("ergo run output:\n%s", out)
-			if err == nil {
-				t.Fatalf("ergo run succeeded")
-			}
-			want := c.want
-			if want == "" {
-				want = "cannot use "
-			}
-			if !regexp.MustCompile(fmt.Sprintf(`(?m)main\.ergo:%d:\d+: %s`, line, want)).MatchString(out) {
-				t.Errorf("the go build error does not name main.ergo:%d with %q", line, want)
-			}
-			if strings.Contains(out, "panic") || strings.Contains(out, "internal compiler error") {
-				t.Errorf("a panic or an internal error")
-			}
-		})
-	}
-}
-
-// TestErgoRunE4ResultUse (round 1 M1) is a property over every basic type
-// the checker admits as a user extern's result (check.Typ, Bool to
-// Duration: externBasic) crossed with every use of the call: a value, a
-// statement, a blank binding, an interpolation, and a function literal's
-// tail and statement. The Go target returns another type. Oracle: go build
-// fails, and every error names the call's line (4). The result is never
-// dropped unchecked. An interpolated complex value is E6a's refusal
-// (interp.go), so that cell may be refused instead.
-func TestErgoRunE4ResultUse(t *testing.T) {
-	uses := []struct{ name, line string }{
-		{"value", "consume(Wrong({arg}))"},
-		{"statement", "Wrong({arg})"},
-		{"blank", "let _ = Wrong({arg})"},
-		{"interpolation", `Console.Println("\(Wrong({arg}))")`},
-		{"closure_value", "let f = func() {type} { Wrong({arg}) }; consume(f())"},
-		{"closure_statement", "let g = func() { Wrong({arg}) }; g()"},
-	}
-	var builds []*lowered
-	for _, k := range check.Typ[check.Bool:] {
-		// A Go result of another type: string, or float64 for string.
-		target, param, arg := "strings.ToUpper", "string", `"x"`
-		if k.Kind == check.String {
-			target, param, arg = "math.Sqrt", "float64", "2.0"
-		}
-		for _, u := range uses {
-			body := strings.NewReplacer("{arg}", arg, "{type}", k.Name).Replace(u.line)
-			src := fmt.Sprintf("extern go %s func Wrong(x %s) %s\nfunc consume(v %s) {}\nfunc main() needs Console {\n\t%s\n\tConsole.Println(\"end\")\n}\n", target, param, k.Name, k.Name, body)
-			o := lowerSource("e4_use_"+k.Name+"_"+u.name, src, true)
-			switch {
-			case o.err != nil || len(o.diags) > 0 || o.panicked != nil:
-				t.Errorf("%s: error %v, diagnostics %v, panic %v\n%s", o.name, o.err, o.diags, o.panicked, src)
-			case len(o.refused) > 0:
-				if u.name != "interpolation" || (k.Kind != check.Complex64 && k.Kind != check.Complex128) || !strings.Contains(o.refused[0].Message, "interpolated value") {
-					t.Errorf("%s: refused %+v\n%s", o.name, o.refused, src)
-				}
-			default:
-				builds = append(builds, o)
-			}
-		}
-	}
-	errs := e4BuildErrors(t, builds)
-	for _, o := range builds {
-		if !e4FailsAt(errs[o.name], 4) {
-			t.Errorf("%s: go build does not fail at the call's line 4 only:\n%s\nsource:\n%s\nGo:\n%s", o.name, errs[o.name], o.src, o.mainGo())
-		}
-	}
-}
-
-// e4BuildErrors writes each program as package p/NAME of one module and
-// runs go build (no vet, no link) on them all. It returns the go build
-// output of each package that fails, by name.
-func e4BuildErrors(t *testing.T, programs []*lowered) map[string]string {
-	t.Helper()
-	root := t.TempDir()
-	write := func(rel string, data []byte) {
-		p := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("go.mod", []byte(goMod))
-	for _, f := range Runtime() {
-		write(f.Path, f.Data)
-	}
-	for _, p := range programs {
-		write("p/"+p.name+"/main.go", []byte(p.mainGo()))
-	}
-	cmd := exec.Command("go", "build", "./p/...")
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOPROXY=off")
-	out, _ := cmd.CombinedOutput()
-	sections := map[string]string{}
-	cur := ""
-	for _, l := range strings.Split(string(out), "\n") {
-		if name, ok := strings.CutPrefix(l, "# "+programModule+"/p/"); ok {
-			cur = name
-			continue
-		}
-		if l != "" {
-			sections[cur] += l + "\n"
-		}
-	}
-	if s := sections[""]; s != "" {
-		t.Fatalf("go build output outside a program package:\n%s", firstLines(s, 30))
-	}
-	return sections
-}
-
-// e4FailsAt reports whether out, one package's go build output, has an
-// error at main.ergo:line, and no error at another line of main.ergo or at
-// a line of the generated main.go. Go's "declared and not used" of a
-// variable whose only use is the failed call is that error's consequence.
-func e4FailsAt(out string, line int) bool {
-	at := regexp.MustCompile(`main\.ergo:(\d+):\d+: `)
-	found := false
-	for _, l := range strings.Split(out, "\n") {
-		if strings.Contains(l, "main.go:") {
-			return false
-		}
-		if strings.Contains(l, ": declared and not used: ") {
-			continue
-		}
-		if m := at.FindStringSubmatch(l); m != nil {
-			if m[1] != strconv.Itoa(line) {
-				return false
-			}
-			found = true
-		}
-	}
-	return found
-}
-
 // e4CallChecks counts the calls of the Go target in goSrc, a lowered
 // program, that follow their call check: a //line directive, then `if
 // false {`, `defer CALL` and `}`, then the call's statement with the same
@@ -454,101 +243,6 @@ func TestErgoRunE4HostPanic(t *testing.T) {
 		out, err := ergoRun(t, src)
 		if err == nil || !strings.Contains(out, "panic: strings: negative Repeat count") || !regexp.MustCompile(`(?m)^\tmain at \S*main\.ergo:3$`).MatchString(out) || strings.Contains(out, "returned") {
 			t.Errorf("%s: err %v; want a defect at main.ergo:3:\n%s", use, err, out)
-		}
-	}
-}
-
-// TestErgoRunE4DiscardVariadic (G9 round 2 M2) is a property over the two
-// lowering shapes of a user extern that the pure allowlist still reaches
-// and whose call is seen only by its effect on the run: a declaration with
-// no result over a Go function that returns one, and a variadic Go target.
-// Each program crosses:
-//   - the target: strings.NewReplacer (variadic ...string) at arity 0 to
-//     5, and strings.Repeat (string, int) with a count of 2 or -1;
-//   - each argument as a literal or a nonconstant (a let), all literal,
-//     all nonconstant and alternating;
-//   - the use: a statement in main, or a statement in a function literal
-//     that main calls.
-//
-// Oracle, from Go's own rules: NewReplacer panics "odd argument count" at
-// an odd arity and runs at an even one; Repeat panics "negative Repeat
-// count" at -1 and runs at 2. A panic is a defect: exit 2, the panic
-// text, the Ergo call's line in the trace, and no later output. A run
-// prints "end" and exits 0. So a lowering that drops a no-result call, or
-// a variadic call, runs where Go would panic, and fails here.
-func TestErgoRunE4DiscardVariadic(t *testing.T) {
-	type want struct {
-		panic string // "" when the call runs
-		line  int
-	}
-	var builds []*lowered
-	wants := map[string]want{}
-	add := func(name, decl string, args []string, defect string) {
-		for _, mix := range []string{"literal", "nonconstant", "alternating"} {
-			var lets, actual []string
-			for i, a := range args {
-				if mix == "nonconstant" || mix == "alternating" && i%2 == 1 {
-					v := fmt.Sprintf("v%d", i)
-					lets = append(lets, "\tlet "+v+" = "+a+"\n")
-					a = v
-				}
-				actual = append(actual, a)
-			}
-			call := "F(" + strings.Join(actual, ", ") + ")"
-			for _, use := range []string{"statement", "closure"} {
-				body := strings.Join(lets, "")
-				line := 3 + len(lets)
-				if use == "statement" {
-					body += "\t" + call + "\n"
-				} else {
-					body += "\tlet g = func() {\n\t\t" + call + "\n\t}\n\tg()\n"
-					line++
-				}
-				src := decl + "\nfunc main() needs Console {\n" + body + "\tConsole.Println(\"end\")\n}\n"
-				o := mustLower(t, "e4_discard_"+name+"_"+mix+"_"+use, src)
-				builds = append(builds, o)
-				wants[o.name] = want{defect, line}
-				if checked, bad := e4CallChecks(o.mainGo(), decl[len("extern go "):strings.Index(decl, " func")]); checked < 1 || len(bad) > 0 {
-					t.Errorf("%s: %d checked calls; unchecked: %q\n%s", o.name, checked, bad, o.mainGo())
-				}
-			}
-		}
-	}
-	for arity := 0; arity <= 5; arity++ {
-		var params, args []string
-		for i := 0; i < arity; i++ {
-			params = append(params, fmt.Sprintf("p%d string", i))
-			args = append(args, fmt.Sprintf("%q", fmt.Sprintf("s%d", i)))
-		}
-		defect := ""
-		if arity%2 == 1 {
-			defect = "panic: strings.NewReplacer: odd argument count"
-		}
-		add(fmt.Sprintf("replacer%d", arity), "extern go strings.NewReplacer func F("+strings.Join(params, ", ")+")", args, defect)
-	}
-	for _, n := range []string{"2", "-1"} {
-		defect := ""
-		if n == "-1" {
-			defect = "panic: strings: negative Repeat count"
-		}
-		add("repeat_"+strings.Replace(n, "-", "neg", 1), "extern go strings.Repeat func F(s string, n int)", []string{`"x"`, n}, defect)
-	}
-	exes := buildAll(t, builds, true)
-	if exes == nil {
-		return
-	}
-	for _, o := range builds {
-		w := wants[o.name]
-		stdout, stderr, code := runExe(t, exes[o.name])
-		if w.panic == "" {
-			if code != 0 || stdout != "end\n" {
-				t.Errorf("%s: exit %d, stdout %q, stderr %q; want a run that prints end\n%s", o.name, code, stdout, firstLines(stderr, 8), o.src)
-			}
-			continue
-		}
-		at := regexp.MustCompile(fmt.Sprintf(`(?m)main\.ergo:%d$`, w.line))
-		if code != 2 || stdout != "" || !strings.Contains(stderr, w.panic) || !at.MatchString(stderr) {
-			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit 2 with %q at main.ergo:%d\n%s", o.name, code, stdout, firstLines(stderr, 8), w.panic, w.line, o.src)
 		}
 	}
 }
@@ -607,11 +301,7 @@ func TestErgoRunE4TargetCategories(t *testing.T) {
 		check.Float64:    {"math.Abs func Fn(x float64) float64", `"\(Fn({arg}))"`, "1.5"},
 		check.Complex128: {"strconv.FormatComplex func Fn(x complex128, f uint8, prec int, size int) string", "Fn({arg}, 103, -1, 128)", "(1+0i)"},
 	}
-	// Not a function: a constant.
-	others := []struct{ name, target, result string }{
-		{"constant", "math.MaxInt8", ""}, // the result is the parameter's type
-	}
-	var runs, fails []*lowered
+	var runs []*lowered
 	want := map[string]string{}
 	for _, k := range check.Typ[check.Bool:] {
 		lit, _ := e4Value(t, k)
@@ -628,26 +318,6 @@ func TestErgoRunE4TargetCategories(t *testing.T) {
 			if checked, bad := e4CallChecks(o.mainGo(), target); checked < 2 || len(bad) > 0 {
 				t.Errorf("%s: %d calls of %s follow their check; calls with no check under their //line directive: %q\n%s", o.name, checked, target, bad, o.mainGo())
 			}
-		}
-		// The constant.
-		for _, c := range others {
-			result := c.result
-			if result == "" {
-				result = k.Name
-			}
-			for _, arg := range []struct{ name, line4, expr string }{
-				{"literal", "// a literal argument", lit},
-				{"nonconstant", "let a " + k.Name + " = " + lit, "a"},
-			} {
-				src := fmt.Sprintf("extern go %s func Conv(x %s) %s\nfunc consume(v %s) {}\nfunc main() {\n\t%s\n\tconsume(Conv(%s))\n}\n", c.target, k.Name, result, result, arg.line4, arg.expr)
-				fails = append(fails, mustLower(t, "e4_target_"+k.Name+"_"+c.name+"_"+arg.name, src))
-			}
-		}
-	}
-	errs := e4BuildErrors(t, fails)
-	for _, o := range fails {
-		if !e4FailsAt(errs[o.name], 5) {
-			t.Errorf("%s: go build does not fail at the call's line 5 only:\n%s\nsource:\n%s\nGo:\n%s", o.name, errs[o.name], o.src, o.mainGo())
 		}
 	}
 	exes := buildAll(t, runs, true)
@@ -793,12 +463,12 @@ func main() { with W { A.Use() } }
 		{"close-extern", "release.go extern Close", "S109", "#202", `type A { Use() }
 type P {}
 func Use(_ P) {}
-extern go strings.Close func Close(p P)
+extern go example.com/x.Close func Close(p P)
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `},
 		{"context-extern", "context.go extern protocol function", "S109", "#202", `type tag { text string }
-extern go strings.Key func contextKey(t tag) string
+extern go example.com/x.Key func contextKey(t tag) string
 func contextText(t tag) string { t.text }
 func main() needs Console { with (tag{text: "x"}) { Console.Println("in") } }
 `},

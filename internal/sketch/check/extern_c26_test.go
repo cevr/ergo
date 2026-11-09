@@ -1,103 +1,11 @@
 package check_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
 )
-
-// externDomainDecls declares the types the C26 enumeration writes in an
-// extern's signature. Each is exported, so none is unused.
-const externDomainDecls = `type Rec { X int }
-type Length int
-type A {}
-type B {}
-type U = A | B
-type Op { M() }
-type E {}
-type R { N() }
-`
-
-// TestExternSignatureDomain is A5.1 of check-v1 stage E4 (C26): a user
-// extern's signature takes and returns predeclared basic types only, and
-// (G1) takes row-free callbacks over them, with no type parameter and no
-// rows. Oracle: clean iff every part is in the
-// domain, and then a call is clean too; otherwise exactly one S109 naming
-// #202 at the declaration.
-func TestExternSignatureDomain(t *testing.T) {
-	basic := []string{"bool", "string", "int", "int8", "int16", "int32", "int64",
-		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
-		"float32", "float64", "complex64", "complex128", "duration"}
-	other := []string{"Length", "[]int", "Map[string, int]", "Rec", "U", "Op", "Option[int]",
-		// G1: a callback outside the domain: a non-basic part, two
-		// results, a nested callback, a row.
-		"func([]int) int", "func(int) Rec", "func(int) (int, int)", "func(func(int) int) int",
-		"func(int) int fails E", "func(int) int needs R"}
-	// G1: a callback over basic types with no rows is in the domain as a
-	// parameter (externCallback), not as a result.
-	callbacks := []string{"func(int) int", "func(r rune) bool", "func(string)", "func()"}
-	type part struct {
-		ty       string
-		in       bool
-		result   bool // only in the result position (a tuple)
-		param    bool // only in the parameter position (a borrow, types.md Borrows 1)
-		callback bool // in the domain in the parameter position only
-	}
-	var parts []part
-	for _, ty := range basic {
-		parts = append(parts, part{ty: ty, in: true})
-	}
-	for _, ty := range other {
-		parts = append(parts, part{ty: ty})
-	}
-	for _, ty := range callbacks {
-		parts = append(parts, part{ty: ty, callback: true})
-	}
-	parts = append(parts, part{ty: "(int, int)", result: true}, part{ty: "*Rec", param: true})
-	line := strings.Count(externDomainDecls, "\n") + 1
-	for _, p := range parts {
-		for _, atResult := range []bool{false, true} {
-			if p.result && !atResult || p.param && atResult {
-				continue
-			}
-			for _, row := range []string{"", " fails E", " needs R"} {
-				for _, generic := range []bool{false, true} {
-					tparams, sig, use := "", "(p "+p.ty+")", "func Use(p "+p.ty+") { f(p) }\n"
-					if generic {
-						tparams = "[T]"
-					}
-					if atResult {
-						sig, use = "() "+p.ty, "func Use() { _ = f() }\n"
-						if p.result {
-							use = "func Use() { let a, b = f(); _ = a; _ = b }\n"
-						}
-					}
-					decl := fmt.Sprintf("extern go strings.F func f%s%s%s\n", tparams, sig, row)
-					clean := (p.in || p.callback && !atResult) && row == "" && !generic
-					src := externDomainDecls + decl
-					if clean {
-						src += use
-					}
-					name := strings.TrimSpace(decl)
-					t.Run(name, func(t *testing.T) {
-						_, diags := check.CheckSource(src)
-						if clean {
-							if len(diags) != 0 {
-								t.Fatalf("want clean, got\n\t%s", describe(diags))
-							}
-							return
-						}
-						if len(diags) != 1 || diags[0].Code != "S109" || diags[0].Line != line || !strings.Contains(diags[0].Message, "#202") {
-							t.Fatalf("want one S109 naming #202 at line %d, got\n\t%s", line, describe(diags))
-						}
-					})
-				}
-			}
-		}
-	}
-}
 
 // TestExternRuntimeTargetFormerM4 holds the three programs lowering's M4
 // refused (lower/regressions_test.go, the extern-* rows): a user extern of
@@ -191,29 +99,28 @@ func TestExternUnsafeTarget(t *testing.T) {
 	}
 }
 
-// TestExternTargetDomain is A5.2 of check-v1 stage E4 (C26): a user
-// extern binds a function of Go's standard library (a path whose first
-// element has no dot); a dotted path is #202's, and only std binds the
-// Ergo runtime.
+// TestExternTargetDomain is A5.2 of check-v1 stage E4 (C26), as IG4 leaves
+// it: a user extern names a function of a binding. A dotted path is #202's
+// until module bindings (IG7), only std binds the Ergo runtime, and a path
+// or a name no binding has is S104; a declaration the binding refuses is
+// S109 with its reason, and a type is no function target. TestLevel2AdapterRelation
+// holds the signature of an admitted target.
 func TestExternTargetDomain(t *testing.T) {
-	for _, tc := range []struct{ path, code, text string }{
-		{"strings", "", ""},
-		{"unicode/utf8", "", ""},
-		// std-text-runes: math/bits joined the pure allowlist.
-		{"math/bits", "", ""},
-		// G9: a standard-library package outside the pure allowlist.
-		{"math/cmplx", "S109", "extern go math/cmplx.F is not on the reviewed pure list, so it may reach the host"},
-		{"unicode", "", ""},
-		{"unicode/utf16", "", ""},
-		{"os", "S109", "extern go os.F is not on the reviewed pure list, so it may reach the host; call it through import go os"},
-		{"example.com/x", "S109", "#202"},
-		{"ergo.local/prototype/runtime/rt", "S108", "only std binds the Ergo runtime"},
-		{"ergo.local/prototype/runtime/v1", "S108", "only std binds the Ergo runtime"},
-		{"unsafe", "S108", "Ergo has no unsafe; unsafe stays at the FFI edge"},
+	for _, tc := range []struct{ decl, code, text string }{
+		{"extern go strings.Count func f(s string, sub string) int", "", ""},
+		{"extern go os.Getpid func f() int needs go.Foreign", "", ""},
+		{"extern go example.com/x.F func f(n int) int", "S109", "#202"},
+		{"extern go ergo.local/prototype/runtime/rt.F func f(n int) int", "S108", "only std binds the Ergo runtime"},
+		{"extern go ergo.local/prototype/runtime/v1.F func f(n int) int", "S108", "only std binds the Ergo runtime"},
+		{"extern go unsafe.F func f(n int) int", "S108", "Ergo has no unsafe; unsafe stays at the FFI edge"},
+		{"extern go strings/x.F func f(n int) int", "S104", `no binding for Go package "strings/x"`},
+		{"extern go strings.F func f(n int) int", "S104", "Go package strings has no exported function F"},
+		{"extern go fmt.Sprint func f(n int) string needs go.Foreign", "S109", "extern go fmt.Sprint is not imported from Go: parameter 1: Ergo has no any"},
+		{"extern go time.Duration func f(x float64) duration needs go.Foreign", "S109", "time.Duration is Ergo's duration"},
+		{"extern go strings.Builder func f() int", "S108", "names a Go type, constant or variable"},
 	} {
-		t.Run(tc.path, func(t *testing.T) {
-			src := "extern go " + tc.path + ".F func f(n int) int\nfunc Use(n int) int { f(n) }\n"
-			_, diags := check.CheckSource(src)
+		t.Run(tc.decl, func(t *testing.T) {
+			_, diags := check.CheckSource(tc.decl + "\n")
 			if tc.code == "" {
 				if len(diags) != 0 {
 					t.Fatalf("want clean, got\n\t%s", describe(diags))

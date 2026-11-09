@@ -238,6 +238,128 @@ func (fc *funcCtx) goResult(x syntax.Node, t check.Type, r, e, name string) stri
 	return r
 }
 
+// goExternCall reports a call of a user extern that the checker admitted
+// as a Level 2 adapter outside the C26 domain (check.GoExtern): it lowers
+// by the boundary rules of import go (goExtern), not by hostCall.
+func goExternCall(c *check.Call) bool {
+	if c == nil || !hostCalled(c) {
+		return false
+	}
+	ge := check.GoExternOf(c.Func)
+	return ge != nil && !ge.Basic
+}
+
+// goExtern lowers the call x of a user extern that adapts its Go target's
+// Level 1 signature (docs/spec/interop.md, Level 2 adapters): the direct Go
+// call as goCall writes it (the copy rule on Map and slice arguments, the
+// variadic spread, Go's results bound), then the adapter:
+//
+//   - AdaptSame: goCall's results;
+//   - AdaptNonNil: a nil result is a defect naming the target and the Ergo
+//     call (v1.GoNilDefect), the check hand Go writes;
+//   - AdaptOption: Go's (v, ok) is Some(v) when ok, else None;
+//   - AdaptPartial: Go's values are kept, and its error is the last result,
+//     None when nil, else Some(go.Error).
+func (fc *funcCtx) goExtern(x *syntax.CallExpr, c *check.Call) operand {
+	f, ge := c.Func, check.GoExternOf(c.Func)
+	if len(x.Args) != len(f.Sig.Params) || x.Trailing != nil {
+		ice(x, "a call of the user extern %s outside its checked domain", f.Name)
+	}
+	vals := fc.callArgs(x.Args, x)
+	for i, p := range f.Sig.Params {
+		if cb, ok := p.Type.(*check.Signature); ok {
+			vals[i] = fc.spill(fc.hostCallback(fc.bindFunc(vals[i]), cb, x))
+		}
+	}
+	if ge.Variadic && len(vals) > 0 {
+		vals[len(vals)-1] += "..."
+	}
+	text := fc.hostTarget(x, f) + "(" + strings.Join(vals, ", ") + ")"
+	defer fc.identify(x, c)()
+	path, goName := f.Decl.Extern.Split()
+	name := path + "." + goName
+	written := f.Sig.Results
+	if len(written) == 1 {
+		if t, ok := written[0].(*check.Tuple); ok {
+			written = t.Types
+		}
+	}
+	goTypes, goFails := written, f.Sig.Fallible
+	switch ge.Adapter {
+	case check.AdaptOption:
+		goTypes = []check.Type{optionElem(written[0]), check.Typ[check.Bool]}
+	case check.AdaptPartial:
+		goTypes, goFails = written[:len(written)-1], true
+	}
+	names := make([]string, len(goTypes))
+	for i := range names {
+		names[i] = fc.temp("r")
+	}
+	lhs, e := names, ""
+	if goFails {
+		e = fc.temp("err")
+		lhs = append(append([]string{}, names...), e)
+	}
+	if len(lhs) == 0 {
+		fc.line(text)
+		return operand{}
+	}
+	fc.line(strings.Join(lhs, ", ") + " := " + text)
+	if e != "" {
+		fc.line(e + " = " + fc.l.rt() + ".GoErrorOf(" + e + ")")
+	}
+	switch ge.Adapter {
+	case check.AdaptNonNil:
+		cond := names[0] + " == nil"
+		if e != "" {
+			cond = e + " == nil && " + cond
+		}
+		fc.line("if " + cond + " {")
+		fc.line("\tpanic(&" + fc.l.rt() + ".GoNilDefect{Func: " + strconv.Quote(name) + ", At: " + strconv.Quote(fc.l.siteText(x)) + "})")
+		fc.line("}")
+		return operand{val: names[0], err: e}
+	case check.AdaptOption:
+		return operand{val: fc.someWhen(x, written[0], names[1], fc.goResult(x, goTypes[0], names[0], e, name)), err: e}
+	}
+	vs := make([]string, len(goTypes))
+	for i, t := range goTypes {
+		vs[i] = fc.goResult(x, t, names[i], e, name)
+	}
+	if ge.Adapter == check.AdaptPartial {
+		last := written[len(written)-1]
+		vs = append(vs, fc.someWhen(x, last, e+" != nil", e+".("+fc.goType(optionElem(last))+")"))
+		e = ""
+	}
+	switch len(vs) {
+	case 0:
+		return operand{err: e}
+	case 1:
+		return operand{val: vs[0], err: e}
+	}
+	parts := make([]string, len(vs))
+	for i, s := range vs {
+		parts[i] = tupleField(i) + ": " + s
+	}
+	return operand{val: fc.goType(f.Sig.Results[0]) + "{" + strings.Join(parts, ", ") + "}", err: e}
+}
+
+// someWhen is a new variable of the Option type t: Some(v) when cond holds,
+// else None.
+func (fc *funcCtx) someWhen(x syntax.Node, t check.Type, cond, v string) string {
+	some, none := optionVariants(t, x)
+	o := fc.temp("o")
+	fc.line("var " + o + " " + fc.goType(t) + " = " + fc.goType(none) + "{}")
+	fc.line("if " + cond + " {")
+	fc.line("\t" + o + " = " + fc.goType(some) + "{" + memberName("Value") + ": " + v + "}")
+	fc.line("}")
+	return o
+}
+
+// optionElem is T for Option[T].
+func optionElem(t check.Type) check.Type {
+	return t.(*check.Named).TArgs[0]
+}
+
 func isOptionType(t check.Type) bool {
 	n, ok := t.(*check.Named)
 	if !ok {

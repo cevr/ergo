@@ -460,24 +460,6 @@ func (h *hostPkg) refusal(name string) string {
 	return h.refused[name]
 }
 
-// stdGoReturnsError reports whether the function name of Go's standard
-// library package path returns an error last: its embedded binding's row
-// is fails go.Error (a user extern's G4 rule reads it; IG2 deleted the
-// hand table v1.PureErrorFuncs).
-func stdGoReturnsError(path, name string) bool {
-	src, ok := gostd.Binding(path)
-	if !ok {
-		return false
-	}
-	prefix := "extern go " + path + "." + name + " func "
-	for _, line := range strings.Split(src, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return strings.Contains(line, " fails go.Error")
-		}
-	}
-	return false
-}
-
 // isHostNamed reports a type of a Go package.
 func isHostNamed(t Type) bool {
 	n, ok := t.(*Named)
