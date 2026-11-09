@@ -83,10 +83,12 @@ type Actor[S, E, D, F] {
 
 // start is the Go body: the machine's first state and its step, the step
 // of a timer signal (fire), the delay of each state's timer (noTimer() for
-// none; one that is not positive is a defect), the decision's kind (Enter 0, Stay 1, Emit 2, Ignore 3, Reject 4,
-// Done 5), the state after a decision, the output of a decision, and the
-// inbox's capacity.
-extern go ergo.local/prototype/runtime/v1.MachineStart func start[S, E, D, F, R](initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
+// none; one that is not positive is a defect), each state's work (workOf
+// gives it, hasWork says whether it is one, and work runs it with the
+// entry's send), the decision's kind (Enter 0, Stay 1, Emit 2, Ignore 3,
+// Reject 4, Done 5), the state after a decision, the output of a
+// decision, and the inbox's capacity.
+extern go ergo.local/prototype/runtime/v1.MachineStart func start[S, E, D, W, F, R](initial S, step func(s S, e E) D fails F needs R, fire func(at S, s S) D fails F needs R, delay func(s S) duration, workOf func(s S) W, hasWork func(w W) bool, work func(w W, send func(e E)) needs R, kind func(d D) int, next func(s S, d D) S, out func(d D) needs R, capacity int) Actor[S, E, D, F] needs R | Scheduler
 
 // noTimer is the delay start reads as "no timer" for a state whose After
 // is None.
@@ -118,6 +120,19 @@ func StartMachine[S, E, O, F, R](m Machine[S, E, O, F, R], capacity int, sink fu
 			t.Value.In
 		case None:
 			noTimer()
+		}
+	}, m.Work, func(w Option[Work[E, R]]) bool {
+		match w {
+		case Some[Work[E, R]]:
+			true
+		case None:
+			false
+		}
+	}, func(w Option[Work[E, R]], send func(e E)) needs R {
+		match w {
+		case Some[Work[E, R]] as wk:
+			wk.Value.Start(send)
+		case None:
 		}
 	}, func(d Decision[S, O]) int {
 		match d {

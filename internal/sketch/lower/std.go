@@ -701,8 +701,30 @@ func (fc *funcCtx) adaptTaskFunc(fv string, shape *v1.Body, sig *check.Signature
 	fv = fc.bindFunc(fv)
 	return fc.envClosure(childEnv, "e", site, func(env string) (params []string, results, body string) {
 		args := []string{env}
-		for _, p := range sig.Params {
+		for i, p := range sig.Params {
 			name := fc.scope.alloc("p")
+			if ps, ok := p.Type.(*check.Signature); ok && shape.Params[i].Func != nil {
+				// A function the Go body gives the callback, such as the
+				// send of actor.StartMachine's work (MU4): a plain Go
+				// function, wrapped here in the uniform shape.
+				goParams, goArgs, wrapParams := []string{}, []string{}, []string{}
+				for _, q := range ps.Params {
+					a := fc.scope.alloc("a")
+					goParams = append(goParams, fc.goType(q.Type))
+					wrapParams = append(wrapParams, a+" "+fc.goType(q.Type))
+					goArgs = append(goArgs, a)
+				}
+				if len(ps.Results) != 0 || len(rowElems(ps.Errors)) != 0 || len(rowElems(ps.Uses)) != 0 {
+					ice(site, "a std callback's function parameter with a result or a row")
+				}
+				params = append(params, name+" func("+strings.Join(goParams, ", ")+")")
+				ind := strings.Repeat("\t", fc.depth+2)
+				wrapped := fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {
+					return wrapParams, " (struct{}, error)", ind + name + "(" + strings.Join(goArgs, ", ") + ")\n" + ind + "return struct{}{}, nil\n"
+				})
+				args = append(args, wrapped)
+				continue
+			}
 			params = append(params, name+" "+fc.goType(p.Type))
 			args = append(args, name)
 		}

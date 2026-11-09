@@ -159,18 +159,34 @@ func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string 
 	if after := conv.Table["After"]; after != nil {
 		return fc.funcValue(after, after.Sig, site, nil)
 	}
+	return fc.machineNone(conv, "After", site)
+}
+
+// machineWork is the Work of a machine value's Machine (ConvMachine, MU4):
+// the value of the machine's work function, or, when it has none, a
+// function that gives every state None (no work).
+func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
+	if work := conv.Table["Work"]; work != nil {
+		return fc.funcValue(work, work.Sig, site, nil)
+	}
+	return fc.machineNone(conv, "Work", site)
+}
+
+// machineNone is a function of the Machine field name, of the type
+// func(S) Option[…], that gives every state None.
+func (fc *funcCtx) machineNone(conv check.Conversion, name string, site syntax.Node) string {
 	var sig *check.Signature
 	if n, ok := conv.To.(*check.Named); ok {
 		if st, ok := n.Underlying().(*check.Struct); ok {
 			for _, f := range st.Fields {
-				if f.Name == "After" {
+				if f.Name == name {
 					sig, _ = f.Type.(*check.Signature)
 				}
 			}
 		}
 	}
 	if sig == nil || len(sig.Params) != 1 || len(sig.Results) != 1 {
-		ice(site, "the prelude Machine has no After func(S) Option[Timeout[E]]")
+		ice(site, "the prelude Machine has no %s func(S) Option[…]", name)
 	}
 	_, none := optionVariants(sig.Results[0], site)
 	return fc.envClosure(callerEnv, "_", site, func(string) ([]string, string, string) {

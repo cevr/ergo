@@ -68,7 +68,7 @@ func Next[S, O](s S, d Decision[S, O]) S {
 // (runtime.md, Machines and actors 10). Run(Start(m, input), signals) runs
 // a machine with an input.
 func Start[I, S, E, O, F, R](m InputMachine[I, S, E, O, F, R], input I) Machine[S, E, O, F, R] {
-	Machine[S, E, O, F, R]{Initial: m.Start(input), Step: m.Step, After: m.After}
+	Machine[S, E, O, F, R]{Initial: m.Start(input), Step: m.Step, After: m.After, Work: m.Work}
 }
 
 // Initial is m's initial state.

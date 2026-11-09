@@ -229,7 +229,7 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 			// plan value is not read; it has zero size and no effect.
 			first = "Start: " + fc.machineStart(start, site)
 		}
-		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + "}"
+		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""
@@ -263,6 +263,9 @@ func (fc *funcCtx) expr(x syntax.Expr) operand {
 	case *syntax.StarExpr:
 		return operand{val: fc.atSite(x, x.Pos(), "(*"+fc.value(x.X)+")")}
 	case *syntax.CompositeLit:
+		if lit := fc.l.info.Works[x]; lit != nil {
+			return operand{val: fc.workLit(x, lit, fc.typeOf(x))}
+		}
 		return operand{val: fc.composite(x, fc.typeOf(x))}
 	case *syntax.IndexExpr:
 		return operand{val: fc.atSite(x, x.Pos(), fc.index(x))}

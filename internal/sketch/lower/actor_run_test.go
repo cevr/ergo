@@ -32,7 +32,9 @@ func tallyStep(s int, e int) Decision[int, int] {
 
 func untimed(s int) Option[Timeout[int]] { None }
 
-func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed} }
+func unworked(s int) Option[Work[int]] { None }
+
+func tally() Machine[int, int, int] { Machine[int, int, int]{Initial: 0, Step: tallyStep, After: untimed, Work: unworked} }
 
 func folded(signals []int) (int, bool) {
 	let mut s = 0

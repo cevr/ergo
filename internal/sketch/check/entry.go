@@ -444,6 +444,9 @@ func (c *checker) checkMachine(tn *TypeName) {
 	if spec.After != nil {
 		c.checkMachineAfter(tn, spec.After, state, signal)
 	}
+	if spec.Work != nil {
+		c.checkMachineWork(tn, spec.Work, state, signal)
+	}
 }
 
 // machineStart is the function a machine declaration's initial names, when
@@ -650,6 +653,10 @@ func (c *checker) machineValue(t Type) (*Named, *Func) {
 	}
 	if uses == nil {
 		uses = newRow()
+	}
+	if _, wr := c.machineWork(t); wr != nil {
+		// The work's capability row is charged to the machine (MU4).
+		uses = uses.union(c.types, wr)
 	}
 	if start := machineStart(n.Obj.Pkg, spec); start != nil {
 		// A machine with an input is an InputMachine (V4); a start of the
