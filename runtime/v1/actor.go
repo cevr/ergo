@@ -57,10 +57,7 @@ type Actor[S, E, D any] struct {
 	next  func(S, D) S
 	out   func(*rt.Task, D)
 
-	// stopping is set by Stop before it closes the inbox: an envelope the
-	// runner takes after it is answered ActorStopped, never stepped.
-	stopping atomic.Bool
-	dropped  atomic.Int64
+	dropped atomic.Int64
 	// handled counts the envelopes the runner took and handled, so a test
 	// on a virtual clock can wait until the runner is idle.
 	handled atomic.Int64
@@ -158,11 +155,7 @@ func (a *Actor[S, E, D]) loop(at *rt.Task) (struct{}, error) {
 	for {
 		env, err := a.inbox.Pop(at)
 		if err != nil {
-			return struct{}{}, nil // closed and empty: Stop
-		}
-		if a.stopping.Load() {
-			a.release(&env)
-			return struct{}{}, nil
+			return struct{}{}, nil // closed and empty
 		}
 		a.cur = &env
 		var end bool
@@ -385,17 +378,18 @@ func (a *Actor[S, E, D]) waitDone(t *rt.Task) {
 	}
 }
 
-// Stop is a.Stop(): it closes admission, interrupts the runner and waits,
+// Stop is a.Stop(): it interrupts the runner, closes admission and waits,
 // uninterruptibly, until it has ended, its timer drained and its queued
 // Asks answered ActorStopped (rule 8). It returns the typed failure that
 // ended the actor, if one did, and raises its defects. A Stop of an ended
 // actor returns the same at once; every Stop is idempotent.
 func (a *Actor[S, E, D]) Stop() error {
-	a.stopping.Store(true)
+	// The interruption comes first: once it is set, the runner's next Pop
+	// raises at its check, so no envelope is taken after the request, also
+	// one queued before it. A Send admitted between the two is queued
+	// before the close and released (dropped) by finish.
+	a.task.Interrupt()
 	a.inbox.Close()
-	if a.task != nil {
-		a.task.Interrupt()
-	}
 	<-a.done
 	a.mu.Lock()
 	exit := a.exit
