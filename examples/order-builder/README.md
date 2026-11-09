@@ -20,7 +20,7 @@ Tag: `default`. It is an original program, a neutral re-creation of a common ord
 ## What it shows
 
 - **Recursive children (MU5).** `Editor`'s work starts an `Editor`: one machine is a child of the hub and of itself. Each child belongs to the entry that started it, so when a hub or an editor leaves `Editing` or `Nested`, its editor and that editor's nested editors stop first, innermost first.
-- **A child's address kept in the parent's state.** The work tells its own machine the child's address (`send(Opened{Sub: actor.Child(…)})`); the state keeps it as `Option[actor.Actor[…]]`, and the screen reads it to reach the innermost editor. No registry, no names: an address is a value (MQ10).
+- **A child's address kept in the parent's state.** The work tells its own machine the child's address (`send(Opened{Sub: actor.Child(…)})`); the state keeps it as `Option[EditActor]`, where `type EditActor = actor.Actor[…]` is an alias (a union whose only variant is an existing type is that type), and the screen reads it to reach the innermost editor. No registry, no names: an address is a value (MQ10).
 - **Typed output routed by the parent.** An editor ends with `Added{L} | WentBack`; `toHub` and `toPart` map it to the parent's signal. A `Back` in any editor leaves the basket as it was.
 - **History as data.** `Editing.From` is `FromMenu{Page} | FromSearch{Query, Page}`, so the hub returns to the page or the search after an editor, and a search's `close` returns to its page.
 - **An eventless step.** A combo with a slot left starts in `Picking` (`settle`).
@@ -64,7 +64,6 @@ effect-machine would host the editor with `.spawn(State.Editing, ({ self }) => s
 
 Where Ergo could not improve:
 
-- **The address type is long.** `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` is written in four places; there is no type alias (`type X = …` is a union).
 - **The screen waits by hand for each address.** A child's address reaches its parent as a signal after the entry opens, so the screen waits for each editor to settle (`hubSettled`, `editSettled`) before it asks the innermost one. A lazily acquired child (effect-machine `ActorHost.acquire`, em-parity M63) would wait for the screen.
 
 ## Benchmark
@@ -74,4 +73,5 @@ No em-parity §3 scenario is this program's own; its costs are a child start per
 ## Limits found
 
 - **F10** (fixed, fu-mb2) A machine's state had to be a union, so the record state needed a one-variant union and an unwrapping step. A record is now a union of one variant wherever a machine asks for a union.
+- **F11** (fixed, fu-mb2) The address type `actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]` was written nine times: Ergo had no type alias. A union whose only variant is an existing type is now that type, so `type EditActor = actor.Actor[…]` names it once.
 - **F4**, **F7** as in sign-in.

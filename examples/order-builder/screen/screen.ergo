@@ -181,7 +181,7 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 		}
 		// The open editors, outermost first, each settled: its nested
 		// editor, if it has one, has started and told its address.
-		let mut chain = []actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]{}
+		let mut chain = []order.EditActor{}
 		let h = actor.WaitFor(hub, hubSettled) catch {
 		case actor.Stopped:
 			order.Start(menu)
@@ -195,7 +195,7 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 		let mut going = true
 		for going {
 			match next {
-			case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
+			case Some[order.EditActor] as a:
 				chain = chain.Append(a.Value)
 				let st = actor.WaitFor(a.Value, editSettled) catch {
 				case actor.Stopped:
@@ -278,7 +278,7 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 }
 
 // view prints the hub and its open editors once they are settled.
-func view(hub actor.Actor[order.Hub, order.HubSignal, Decision[order.Hub, order.Order]]) needs Console {
+func view(hub order.HubActor) needs Console {
 	let h = actor.WaitFor(hub, hubSettled) catch {
 	case actor.Stopped:
 		return
@@ -294,7 +294,7 @@ func view(hub actor.Actor[order.Hub, order.HubSignal, Decision[order.Hub, order.
 	let mut going = true
 	for going {
 		match next {
-		case Some[actor.Actor[order.Edit, order.EditSignal, Decision[order.Edit, order.EditOut]]] as a:
+		case Some[order.EditActor] as a:
 			let st = actor.WaitFor(a.Value, editSettled) catch {
 			case actor.Stopped:
 				return

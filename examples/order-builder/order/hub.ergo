@@ -13,7 +13,7 @@ type From = FromMenu{Page int} | FromSearch{Query string, Page int}
 type Screen =
 	| Browsing{Page int}
 	| Searching{Query string, Page int}
-	| Editing{Item Item, From From, Editor Option[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
+	| Editing{Item Item, From From, Editor Option[EditActor]}
 
 // Hub is the hub's state: the menu, the basket and the screen (a record
 // with a union field: the screen is a region of the state). A machine
@@ -28,7 +28,7 @@ type HubSignal =
 	| Type{Text string}
 	| Close{}
 	| Checkout{}
-	| EditorOpened{A actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]}
+	| EditorOpened{A EditActor}
 	| LineAdded{L Line}
 	| EditorBack{}
 
@@ -36,6 +36,9 @@ type HubSignal =
 type Order { Lines []Line, Total int }
 
 type Builder machine[Hub, HubSignal] { initial: Start, step: Step, work: hubWork }
+
+// HubActor is the hub's address (an alias, as EditActor is).
+type HubActor = actor.Actor[Hub, HubSignal, Decision[Hub, Order]]
 
 func Start(m Menu) Hub { Hub{Menu: m, Basket: []Line{}, Screen: Browsing{Page: 0}} }
 

@@ -22,7 +22,7 @@ type Line { Item string, Price int, Qty int, Parts []Line }
 type Edit =
 	| Choosing{Item Item, Qty int, Parts []Line}
 	| Picking{Item Item, Qty int, Parts []Line}
-	| Nested{Item Item, Qty int, Parts []Line, Choice Item, Sub Option[actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]]}
+	| Nested{Item Item, Qty int, Parts []Line, Choice Item, Sub Option[EditActor]}
 
 type EditSignal =
 	| More{}
@@ -30,12 +30,17 @@ type EditSignal =
 	| Choose{Index int}
 	| Add{}
 	| Back{}
-	| Opened{Sub actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]}
+	| Opened{Sub EditActor}
 	| PartAdded{L Line}
 	| PartBack{}
 
 // EditOut is how an editor ends: the line it built, or back with nothing.
 type EditOut = Added{L Line} | WentBack{}
+
+// EditActor is an editor's address. A union whose only variant is an
+// existing type is that type, an alias: the address is actor.Child's result
+// itself, with no wrapper to build or unwrap.
+type EditActor = actor.Actor[Edit, EditSignal, Decision[Edit, EditOut]]
 
 type Editor machine[Edit, EditSignal] { initial: editing, step: editStep, work: editWork }
 

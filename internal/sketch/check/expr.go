@@ -504,10 +504,10 @@ func (c *checker) ident(x *syntax.Ident) operand {
 		if o == universeOnce.errorName {
 			return operand{mode: modeType, typ: invalid, obj: o}
 		}
-		if isCapability(o.Type) {
-			return operand{mode: modeCap, typ: o.Type, cap: o.Type, obj: o}
+		if isCapability(t) {
+			return operand{mode: modeCap, typ: t, cap: t, obj: o}
 		}
-		return operand{mode: modeType, typ: o.Type, obj: o}
+		return operand{mode: modeType, typ: t, obj: o}
 	case *capBinding:
 		if isInvalid(c.resolvedType(o.tn.Type)) {
 			return bad(x)
@@ -1288,13 +1288,14 @@ func (c *checker) qualified(x *syntax.SelectorExpr, pn *PkgName) operand {
 	}
 	switch o := o.(type) {
 	case *TypeName:
-		if isInvalid(c.resolvedType(o.Type)) {
+		t := c.resolvedType(o.Type) // an alias's target (types.md, Unions 7)
+		if isInvalid(t) {
 			return bad(x)
 		}
-		if isCapability(o.Type) {
-			return operand{mode: modeCap, typ: o.Type, cap: o.Type, obj: o}
+		if isCapability(t) {
+			return operand{mode: modeCap, typ: t, cap: t, obj: o}
 		}
-		return operand{mode: modeType, typ: o.Type, obj: o}
+		return operand{mode: modeType, typ: t, obj: o}
 	case *Func:
 		if o.overloaded {
 			c.errorf(x, CodeType, "%s", overloadedText(o.Name))

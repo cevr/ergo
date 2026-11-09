@@ -36,6 +36,10 @@ const (
 	// kindMachine is `type X machine[S, E] { … }` (spec D5): a plan value
 	// (machine.go).
 	kindMachine
+	// kindAlias is `type A = B` with B an existing type (types.md, Unions
+	// 7): Go's `type A = B`. No checked type holds A, so only the
+	// declaration names it.
+	kindAlias
 )
 
 // typeDecl is a lowered type declaration.
@@ -272,6 +276,10 @@ func (l *lowerer) typeDecl(tn *check.TypeName, site syntax.Node) *typeDecl {
 		}
 	}
 	info := tn.Pkg.Info
+	if alias := named.Alias(); alias != nil {
+		td.kind, td.defined = kindAlias, alias
+		return td
+	}
 	switch spec := tn.Decl.Spec.(type) {
 	case *syntax.StructType:
 		td.kind = kindRecord
@@ -546,6 +554,8 @@ func (l *lowerer) emitType(td *typeDecl) {
 		}
 	case kindMachine:
 		l.machinePlan(b, td)
+	case kindAlias:
+		b.WriteString("type " + td.name + " = " + tc.goType(td.defined) + "\n\n")
 	}
 }
 

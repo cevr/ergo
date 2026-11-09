@@ -87,6 +87,7 @@ type checker struct {
 	diags    []Diagnostic
 	seen     map[string]bool
 	silent   int
+	shallow  int       // an alias's target is read with the Named types it names, bodies unread (aliasOf)
 	tests    testState // tests and assert (tests.go)
 	// refusedBinders holds the binders the reporting pass has already
 	// refused by name (a pattern name that names a package object, a

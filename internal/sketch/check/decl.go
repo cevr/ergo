@@ -705,9 +705,9 @@ func (c *checker) resolveNamed(n *Named) {
 		return
 	}
 	n.state = 1
-	saved := c.cur
-	c.cur = n.Obj.file
-	defer func() { c.cur = saved }()
+	saved, shallow := c.cur, c.shallow
+	c.cur, c.shallow = n.Obj.file, 0
+	defer func() { c.cur, c.shallow = saved, shallow }()
 	d := n.Obj.Decl
 	ctx := &typeCtx{params: map[string]*TypeParam{}, decl: true}
 	if d.TypeParams != nil {
@@ -744,7 +744,17 @@ func (c *checker) resolveNamed(n *Named) {
 		s.obj = n.Obj
 		n.under = s
 	case *syntax.InterfaceType:
-		if len(spec.Union) > 0 {
+		if x := aliasTarget(d); x != nil {
+			// A union whose only variant is an existing type is that type
+			// (types.md, Unions 7; F11): every use resolves to the target.
+			n.under = invalid
+			if len(n.TParams) > 0 {
+				c.errorf(d.TypeParams, CodeType, "%s is an alias of its one variant, an existing type, and an alias takes no type parameters yet; write the type where it is used (types.md, Unions 7)", n.Obj.Name)
+				n.alias = invalid
+				break
+			}
+			n.alias = c.typExpr(x, ctx)
+		} else if len(spec.Union) > 0 {
 			n.under = c.unionType(n, spec, ctx)
 		} else {
 			it := c.interfaceType(spec, ctx)
@@ -1186,6 +1196,13 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 		// defined base can temporarily have no body; the unified cycle
 		// pass needs this edge, rather than an invalid placeholder.
 		if n, ok := o.Type.(*Named); ok && ctx != nil && ctx.decl {
+			if aliasTarget(n.Obj.Decl) != nil {
+				c.resolveNamed(n)
+				return c.aliasOf(n, x)
+			}
+			if c.shallow > 0 {
+				return n // an alias's shallow reading (aliasOf)
+			}
 			c.resolveNamed(n)
 			if !containsInvalid(n) || pendingDefinition(n) {
 				return n
@@ -1209,11 +1226,78 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 func (c *checker) resolvedType(t Type) Type {
 	if n, ok := t.(*Named); ok {
 		c.resolveNamed(n)
+		if n.Orig == nil && aliasTarget(n.Obj.Decl) != nil {
+			t = c.aliasOf(n, nil)
+		}
 	}
 	if containsInvalid(t) {
 		return invalid
 	}
 	return t
+}
+
+// aliasTarget returns the one variant of `type A = B` when B is an
+// existing type: such a union is that type, an alias (types.md, Unions 7;
+// F11). A variant declared in place, `type A = B{…}`, makes a new type, and
+// so does a union of two or more variants. It is nil for every other
+// declaration.
+func aliasTarget(d *syntax.TypeDecl) syntax.Expr {
+	if d == nil {
+		return nil
+	}
+	it, ok := d.Spec.(*syntax.InterfaceType)
+	if !ok || len(it.Union) != 1 || len(it.Methods) > 0 || len(it.Laws) > 0 {
+		return nil
+	}
+	if _, inline := it.Union[0].(*syntax.VariantSpec); inline {
+		return nil
+	}
+	return it.Union[0]
+}
+
+// aliasOf is the type an alias names. An alias reached again while its
+// target resolves, from a declaration body the target mentions (`type A =
+// actor.Actor[S, E, O]` with `type E = … | Opened{Sub A}`), takes its target
+// from a shallow reading of the target expression: the declarations it names
+// are their Named types, bodies unread, the edge a declaration body keeps
+// for the cycle pass (typeName). It reports nothing; the alias's own
+// resolution reads the target again and reports. An alias reached during
+// its own shallow reading names itself: S108 at the name that closes the
+// cycle.
+func (c *checker) aliasOf(n *Named, at syntax.Node) Type {
+	if n.state == 1 {
+		if n.alias != nil {
+			return n.alias
+		}
+		if at == nil {
+			return invalid
+		}
+		if n.aliasShallow {
+			silent := c.silent
+			c.silent = 0
+			c.errorf(at, CodeType, "the alias %s names itself (types.md, Unions 7)", n.Obj.Name)
+			c.silent = silent
+			return invalid
+		}
+		n.aliasShallow = true
+		saved := c.cur
+		c.cur = n.Obj.file
+		c.silent++
+		c.shallow++
+		t := c.typExpr(aliasTarget(n.Obj.Decl), &typeCtx{params: map[string]*TypeParam{}, decl: true})
+		c.shallow--
+		c.silent--
+		c.cur = saved
+		n.aliasShallow = false
+		if !isInvalid(t) {
+			n.alias = t
+		}
+		return t
+	}
+	if n.alias == nil {
+		return invalid
+	}
+	return n.alias
 }
 
 func (c *checker) qualifiedType(x *syntax.SelectorExpr) Type {
@@ -1939,6 +2023,15 @@ func (c *checker) selfOwner(f *Func) (*Named, []syntax.Expr, bool) {
 		return nil, nil, false
 	}
 	n, _ := tn.Type.(*Named)
+	if n != nil && aliasTarget(n.Obj.Decl) != nil {
+		// An alias is its type (types.md, Unions 7): f is a function of
+		// the target when the target is a plain declared type, and an
+		// ordinary function when it is an instance or not a declared type.
+		n, _ = c.aliasOf(n, nil).(*Named)
+		if n == nil || n.Orig != nil {
+			return nil, nil, false
+		}
+	}
 	if n == nil || n.Obj.Pkg != c.pkg || n.method(f.Name) != nil {
 		return nil, nil, false
 	}

@@ -596,10 +596,8 @@ func runBounded(t *testing.T, exe string) (stdout, stderr string, code int, ende
 // instance; a mismatch names the machine's own Machine. A diagnostic row:
 // it alone catches a conversion that admits any Machine instance.
 func TestMachineValueConverts(t *testing.T) {
-	src := `type St = A
-type A {}
-type Sig = Go
-type Go {}
+	src := `type St = A{}
+type Sig = Go{}
 type Boom {}
 
 func step(s St, e Sig) Decision[St, int] fails Boom { Ignore }
@@ -680,10 +678,8 @@ func main() {
 // that admits an after of another type or with a row, which no program
 // that builds can show.
 func TestMachineAfterRefusals(t *testing.T) {
-	head := `type St = A
-type A {}
-type Sig = Go
-type Go {}
+	head := `type St = A{}
+type Sig = Go{}
 
 func step(s St, e Sig) Decision[St, int] { Ignore }
 

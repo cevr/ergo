@@ -63,6 +63,17 @@ type Named struct {
 	state   int // 0 unresolved, 1 resolving, 2 resolved
 	foreign bool
 	ctx     *checker // the checker that created an instance; it substitutes the body lazily
+	// alias is the type that `type A = B` names when B is an existing type
+	// (types.md, Unions 7): every use of A resolves to it, so no type
+	// holds this Named (resolvedType, aliasOf).
+	alias        Type
+	aliasShallow bool // the alias's target is being read shallowly (aliasOf)
+}
+
+// Alias returns the type a declaration `type A = B` names when its one
+// variant is an existing type, and nil for every other declaration.
+func (n *Named) Alias() Type {
+	return n.origin().alias
 }
 
 // Struct is a struct type.
