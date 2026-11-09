@@ -114,7 +114,7 @@ func goModWords(line string) ([]string, error) {
 	var words []string
 	for {
 		line = strings.TrimLeft(line, " \t\r")
-		if line == "" || strings.HasPrefix(line, "//") {
+		if line == "" {
 			return words, nil
 		}
 		if line[0] == '"' || line[0] == '`' {
@@ -130,7 +130,9 @@ func goModWords(line string) ([]string, error) {
 		if end < 0 {
 			end = len(line)
 		}
-		if c := strings.Index(line[:end], "//"); c >= 0 {
+		if c := strings.Index(line[:end], "//"); c == 0 {
+			return words, nil // a comment ends the line
+		} else if c > 0 {
 			end = c
 		}
 		words, line = append(words, line[:end]), line[end:]

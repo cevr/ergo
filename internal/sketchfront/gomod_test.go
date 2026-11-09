@@ -52,7 +52,9 @@ func TestGoModMatchesGo(t *testing.T) {
 		}
 		var ref struct {
 			Require []struct{ Path, Version string }
-			Replace []struct{ Old, New struct{ Path, Version string } }
+			Replace []struct {
+				Old, New struct{ Path, Version string }
+			}
 		}
 		if err := json.Unmarshal(out, &ref); err != nil {
 			t.Fatal(err)
@@ -136,7 +138,7 @@ func genGoMod(r *rand.Rand) (string, []string) {
 		version := fmt.Sprintf("v1.%d.0", r.IntN(3))
 		mods = append(mods, mod)
 		requires = append(requires, word(mod)+" "+version+comment())
-		switch r.IntN(5) {
+		switch r.IntN(6) {
 		case 1:
 			replaces = append(replaces, word(mod)+" => "+word(fmt.Sprintf("../m%d", i)))
 		case 2:
@@ -144,8 +146,11 @@ func genGoMod(r *rand.Rand) (string, []string) {
 		case 3:
 			replaces = append(replaces, mod+" => example.org/fork"+strconv.Itoa(i)+" v0.9.0")
 		case 4:
-			// one for another version, and one for every version
-			replaces = append(replaces, mod+" v1.9.9 => ../never", mod+" => ../every"+strconv.Itoa(i))
+			// one for every version, then one for another version
+			replaces = append(replaces, mod+" => ../every"+strconv.Itoa(i), mod+" v1.9.9 => ../never")
+		case 5:
+			// one for this exact version, then one for every version
+			replaces = append(replaces, mod+" "+version+" => ../exact"+strconv.Itoa(i), mod+" => ../every"+strconv.Itoa(i)+"//no space")
 		}
 	}
 	write := func(verb string, lines []string) {
