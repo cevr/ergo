@@ -1,0 +1,70 @@
+// The rules of deploys as laws over the lifecycle and the draft.
+
+import machines
+import slices
+
+// FinalTakesNoEvent: a live or a cancelled deploy rejects every event.
+law FinalTakesNoEvent(s Status, e Event) {
+	if !Final(s) {
+		return true
+	}
+	match Step(s, e) {
+	case Reject:
+		true
+	case Enter[Status], Stay[Status], Emit[Status, Status], Ignore, Done[Status]:
+		false
+	}
+}
+
+// NoWayBack: no event leads from a later status to an earlier one: the
+// lifecycle only moves forward (Pending, Approved, then Live or Cancelled).
+law NoWayBack(s Status, e Event) {
+	match Step(s, e) {
+	case Enter[Status] as n:
+		Rank(n.Next) > Rank(s)
+	case Emit[Status, Status] as n:
+		Rank(n.Next) > Rank(s)
+	case Stay[Status] as n:
+		Rank(n.Next) == Rank(s)
+	case Ignore, Reject:
+		true
+	case Done[Status] as d:
+		Rank(d.Output) >= Rank(s)
+	}
+}
+
+// ApproveIsIdempotent: approving twice is approving once.
+law ApproveIsIdempotent(s Status) {
+	let once = after(s, Approve)
+	Name(after(once, Approve)) == Name(once)
+}
+
+// LiveWasApproved: only an approved deploy is live.
+law LiveWasApproved(s Status) {
+	match Step(s, Release) {
+	case Enter[Status], Emit[Status, Status]:
+		Name(s) == "approved"
+	case Stay[Status], Ignore, Reject, Done[Status]:
+		true
+	}
+}
+
+// TotalIsTheSumOfUnits: a total is additive over the units.
+law TotalIsTheSumOfUnits(a []Unit, b []Unit) {
+	Total(slices.Concat(a, b)) == Total(a)+Total(b)
+}
+
+// Rank is how far along s is.
+func Rank(s Status) int {
+	match s {
+	case Pending:
+		0
+	case Approved:
+		1
+	case Live, Cancelled:
+		2
+	}
+}
+
+// after is s after e: the next status, or s when e changes nothing.
+func after(s Status, e Event) Status { machines.Next(s, Step(s, e)) }

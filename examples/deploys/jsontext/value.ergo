@@ -1,0 +1,80 @@
+// Package jsontext reads and writes JSON text as a Value, a union of the
+// six JSON kinds. Ergo's std has no json package yet (#49), so the deploys
+// server carries its own: a parser that fails Malformed with the byte
+// offset, and an encoder that writes one canonical form.
+
+import strconv
+import strings
+import utf8
+
+// Field is one member of an object, in the order of the text.
+type Field { Name string, Value Value }
+
+// Value is a JSON value. A Number keeps its text, so no precision is lost
+// before a reader converts it.
+type Value = Null{} | Bool{V bool} | Number{Text string} | Str{V string} | Arr{Items []Value} | Obj{Fields []Field}
+
+// Malformed is a text that is not JSON. At is the byte offset of the
+// first byte that does not fit.
+type Malformed { At int, Reason string }
+
+// Encode is the canonical text of v: no white space, members in their
+// order, strings quoted with escapes.
+func Encode(v Value) string {
+	match v {
+	case Null:
+		"null"
+	case Bool as b:
+		if b.V { "true" } else { "false" }
+	case Number as n:
+		n.Text
+	case Str as s:
+		Quote(s.V)
+	case Arr as a:
+		let mut parts = []string{}
+		for x in a.Items {
+			parts = parts.Append(Encode(x))
+		}
+		"[" + strings.Join(parts, ",") + "]"
+	case Obj as o:
+		let mut parts = []string{}
+		for f in o.Fields {
+			parts = parts.Append(Quote(f.Name) + ":" + Encode(f.Value))
+		}
+		"{" + strings.Join(parts, ",") + "}"
+	}
+}
+
+// Quote is s as a JSON string: a quote, a backslash and the control
+// characters escaped, every other character written as it is. A byte
+// that is not UTF-8 is written as U+FFFD, as Go's encoding/json does.
+func Quote(s string) string {
+	let mut out = "\""
+	for r in s {
+		out = out + quoted(r)
+	}
+	out + "\""
+}
+
+// quoted is the JSON text of the character r inside a string.
+func quoted(r rune) string {
+	if r == '"' {
+		return "\\\""
+	}
+	if r == '\\' {
+		return "\\\\"
+	}
+	if r == '\n' {
+		return "\\n"
+	}
+	if r == '\r' {
+		return "\\r"
+	}
+	if r == '\t' {
+		return "\\t"
+	}
+	if r < 0x20 || r == 0x7f {
+		return "\\u" + strings.PadLeft(strconv.FormatInt(int64(r), 16), 4, '0')
+	}
+	utf8.RuneText(r)
+}

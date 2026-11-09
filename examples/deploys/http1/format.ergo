@@ -1,0 +1,97 @@
+// Package http1 reads api.Request records from HTTP/1.1 text and writes
+// api.Response records as HTTP/1.1 text. Ergo's std has no net and no
+// http package, and a user extern cannot reach net/http (gap G-ex-c-7),
+// so the server is a filter over standard input and output, as a
+// program under inetd or `socat TCP-LISTEN:8080,fork EXEC:deploys` is.
+
+import deploys/api
+import strconv
+import strings
+
+// Garbled is a text that is not an HTTP/1.1 request. At is its byte
+// offset.
+type Garbled { At int, Reason string }
+
+// ReadRequest is the request that starts at at in text, and the offset
+// after it. A line ends with CRLF or LF. The body is Content-Length
+// bytes; with no Content-Length the request has no body. A request
+// whose body runs past the end of text fails Garbled.
+func ReadRequest(text string, at int) (api.Request, int) fails Garbled {
+	let first, afterFirst = try line(text, at)
+	let words = strings.Split(first, " ")
+	if len(words) != 3 || words[0] == "" || !strings.HasPrefix(words[1], "/") {
+		return Garbled{At: at, Reason: "not a request line"}
+	}
+	if words[2] != "HTTP/1.1" && words[2] != "HTTP/1.0" {
+		return Garbled{At: at, Reason: "not HTTP/1.x: " + words[2]}
+	}
+	let mut headers = []api.Header{}
+	let mut i = afterFirst
+	for _ in i..len(text)+1 {
+		let h, next = try line(text, i)
+		i = next
+		if h == "" {
+			break
+		}
+		match strings.Cut(h, ":") {
+		case Some[strings.Halves] as kv:
+			headers = headers.Append(api.Header{Name: kv.Value.Before, Value: strings.TrimSpace(kv.Value.After)})
+		case None:
+			return Garbled{At: i, Reason: "a header with no ':'"}
+		}
+	}
+	let length = match api.HeaderOf(headers, "Content-Length") {
+	case Some[string] as n:
+		strconv.Atoi(n.Value) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return Garbled{At: i, Reason: "Content-Length is not a number"}
+		}
+	case None:
+		0
+	}
+	if length < 0 || i+length > len(text) {
+		return Garbled{At: i, Reason: "the body is shorter than its Content-Length"}
+	}
+	let path = match strings.Cut(words[1], "?") {
+	case Some[strings.Halves] as q:
+		q.Value.Before
+	case None:
+		words[1]
+	}
+	(api.Request{Method: words[0], Path: path, Headers: headers, Body: strings.Slice(text, i, i+length)}, i + length)
+}
+
+// line is the line at at without its CRLF or LF, and the offset after
+// it. A line with no end fails Garbled: the text stopped inside a head.
+func line(text string, at int) (string, int) fails Garbled {
+	let rest = strings.Slice(text, at, len(text))
+	let end = strings.Index(rest, "\n")
+	if end < 0 {
+		return Garbled{At: at, Reason: "the head does not end"}
+	}
+	(strings.TrimSuffix(strings.Slice(rest, 0, end), "\r"), at + end + 1)
+}
+
+// WriteResponse is r as HTTP/1.1 text: the status line, the headers in
+// order, Content-Length, a blank line and the body. Each line ends with
+// CRLF.
+func WriteResponse(r api.Response) string {
+	let mut out = "HTTP/1.1 \(r.Status) " + api.Reason(r.Status) + "\r\n"
+	for h in r.Headers {
+		out = out + h.Name + ": " + h.Value + "\r\n"
+	}
+	out + "Content-Length: \(len(r.Body))\r\n\r\n" + r.Body
+}
+
+// WriteRequest is r as HTTP/1.1 text, as a client sends it, with a
+// Content-Length when it has a body. ReadRequest reads it back.
+func WriteRequest(r api.Request) string {
+	let mut out = r.Method + " " + r.Path + " HTTP/1.1\r\n"
+	for h in r.Headers {
+		out = out + h.Name + ": " + h.Value + "\r\n"
+	}
+	if r.Body != "" {
+		out = out + "Content-Length: \(len(r.Body))\r\n"
+	}
+	out + "\r\n" + r.Body
+}

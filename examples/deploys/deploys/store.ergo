@@ -1,0 +1,87 @@
+// NotFound is an ID that the store holds no deploy of.
+type NotFound { ID string }
+
+// Taken is an ID that the store holds a deploy of already.
+type Taken { ID string }
+
+// Store is the contract of a store of deploys. Package memory keeps them in
+// a map; a test or a server binds it in a context.
+type Store {
+	// Add keeps o under its ID.
+	Add(o Deploy) fails Taken,
+	// Replace keeps o in place of the deploy of its ID.
+	Replace(o Deploy) fails NotFound,
+	// Find is the deploy of id.
+	Find(id string) Deploy fails NotFound,
+	// All is every deploy, in the order they were added.
+	All() []Deploy,
+	// Count is how many deploys the store holds.
+	Count() int,
+
+	// FindAfterAdd: an added deploy is found by its ID.
+	law FindAfterAdd(o Deploy) {
+		try Add(o)
+		Same(try Find(o.ID), o)
+	},
+
+	// AddTwiceIsTaken: a second deploy of one ID fails Taken and keeps the
+	// first.
+	law AddTwiceIsTaken(o Deploy, other Deploy) {
+		try Add(o)
+		let second = Deploy{..other, ID: o.ID}
+		Add(second) catch {
+		case Taken as t:
+			return t.ID == o.ID && Same(try Find(o.ID), o)
+		}
+		false
+	},
+
+	// ReplaceKeepsTheCount: a replace changes the deploy and not how many
+	// there are, and an unknown ID fails NotFound.
+	law ReplaceKeepsTheCount(o Deploy, status Status) {
+		Replace(o) catch {
+		case NotFound:
+			try Add(o)
+			let before = Count()
+			let changed = Deploy{..o, Status: status}
+			try Replace(changed)
+			return Count() == before && Same(try Find(o.ID), changed)
+		}
+		false
+	},
+
+	// AllInAddOrder: All lists the deploys in the order they were added,
+	// and Count is its length.
+	law AllInAddOrder(deploys []Deploy) {
+		let mut ids = []string{}
+		for i, o in deploys {
+			let id = "dep-\(i + 1)"
+			try Add(Deploy{..o, ID: id})
+			ids = ids.Append(id)
+		}
+		let all = All()
+		if len(all) != len(ids) || Count() != len(ids) {
+			return false
+		}
+		for i, o in all {
+			if o.ID != ids[i] {
+				return false
+			}
+		}
+		true
+	},
+}
+
+// Same reports whether a and b are the same deploy: a Deploy holds a
+// slice, so == does not compare it.
+func Same(a Deploy, b Deploy) bool {
+	if a.ID != b.ID || a.Service != b.Service || a.Total != b.Total || Name(a.Status) != Name(b.Status) || len(a.Units) != len(b.Units) {
+		return false
+	}
+	for i, l in a.Units {
+		if l != b.Units[i] {
+			return false
+		}
+	}
+	true
+}

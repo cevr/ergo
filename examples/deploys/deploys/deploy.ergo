@@ -1,0 +1,105 @@
+// Package deploys is the domain of the deploys server: a draft that a
+// client sends, the deploy it becomes, the lifecycle of a deploy as a
+// machine, and Store, the contract of the store of deploys, with its laws.
+// It knows nothing of HTTP or JSON: package api maps its failures to
+// status codes.
+
+import machines
+
+// Unit is one image of a deploy: the Image, how many replicas, and the
+// memory of one replica in MiB.
+type Unit { Image string, Replicas int, Mem int }
+
+// Draft is what a client sends to create a deploy.
+type Draft { Service string, Units []Unit }
+
+// Deploy is a created deploy. Total is the sum of each unit's replicas
+// times its memory, in MiB.
+type Deploy { ID string, Service string, Units []Unit, Total int, Status Status }
+
+// Invalid is a draft that breaks a rule. Field names the part of the
+// draft, such as "units[1].replicas".
+type Invalid { Field string, Reason string }
+
+// MaxReplicas is the most replicas of one unit.
+let MaxReplicas = 1000
+
+// MaxMem is the most memory of one replica, in MiB. With
+// MaxReplicas and MaxUnits it keeps a total far from the bounds of an
+// int.
+let MaxMem = 100_000_000
+
+// MaxUnits is the most units of a deploy.
+let MaxUnits = 1_000
+
+// Validate fails Invalid at the first rule d breaks: a client is named,
+// a deploy has at least one unit, a unit has an image, replicas from 1
+// to MaxReplicas and memory from 0 to MaxMem, and there are at most
+// MaxUnits units.
+func Validate(d Draft) fails Invalid {
+	if d.Service == "" {
+		return Invalid{Field: "service", Reason: "is empty"}
+	}
+	if len(d.Units) == 0 {
+		return Invalid{Field: "units", Reason: "a deploy has at least one unit"}
+	}
+	if len(d.Units) > MaxUnits {
+		return Invalid{Field: "units", Reason: "a deploy has at most \(MaxUnits) units"}
+	}
+	for i, l in d.Units {
+		let at = "units[\(i)]"
+		if l.Image == "" {
+			return Invalid{Field: at + ".image", Reason: "is empty"}
+		}
+		if l.Replicas < 1 || l.Replicas > MaxReplicas {
+			return Invalid{Field: at + ".replicas", Reason: "is not from 1 to \(MaxReplicas)"}
+		}
+		if l.Mem < 0 {
+			return Invalid{Field: at + ".mem", Reason: "is negative"}
+		}
+		if l.Mem > MaxMem {
+			return Invalid{Field: at + ".mem", Reason: "is more than \(MaxMem)"}
+		}
+	}
+}
+
+// Total is the sum of each unit's replicas times its memory.
+func Total(units []Unit) int {
+	let mut sum = 0
+	for l in units {
+		sum = sum + l.Replicas*l.Mem
+	}
+	sum
+}
+
+// Create adds the deploy d describes to the Store, with the next ID, and
+// is the deploy. An invalid draft adds nothing.
+func Create(d Draft) Deploy fails Invalid needs Store {
+	try Validate(d)
+	let o = Deploy{ID: "dep-\(Store.Count() + 1)", Service: d.Service, Units: d.Units, Total: Total(d.Units), Status: Pending}
+	Store.Add(o) catch {
+	case Taken as t:
+		// Count only grows and IDs follow it, so an ID is never taken
+		// twice: a store that says so breaks its laws.
+		return Invalid{Field: "id", Reason: "the store already holds \(t.ID)"}
+	}
+	o
+}
+
+// Apply moves the deploy id by the event e, as its lifecycle allows, and
+// is the deploy after it. An event the lifecycle refuses fails Conflict
+// and changes nothing; one it ignores changes nothing too.
+func Apply(id string, e Event) Deploy fails NotFound | Conflict needs Store {
+	let o = try Store.Find(id)
+	let d = Step(o.Status, e)
+	match d {
+	case Ignore:
+		return o
+	case Reject:
+		return Conflict{ID: id, Status: Name(o.Status), Event: EventName(e)}
+	case Enter[Status], Stay[Status], Emit[Status, Status], Done[Status]:
+	}
+	let changed = Deploy{..o, Status: machines.Next(o.Status, d)}
+	try Store.Replace(changed)
+	changed
+}

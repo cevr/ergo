@@ -1,0 +1,53 @@
+// The HTTP/1.1 text format's tests over a memory.Table and an
+// io.Recorder. ergo test runs the laws here, the one that takes an
+// deploys.Store with a memory.Table.
+
+import io
+import deploys/api
+import deploys/memory
+import deploys/deploys
+import strings
+
+// served is the text Serve writes for text, over a new Table.
+func served(text string) string {
+	let out = io.NewRecorder()
+	let _ = with context { deploys.Store: memory.NewTable(), io.Stdout: out } { Serve(text) }
+	out.Text()
+}
+
+test ReadRequestReadsAPost {
+	let text = "POST /deploys?x=1 HTTP/1.1\r\nHost: example\r\nContent-Length: 2\r\n\r\n{}GET / HTTP/1.1\r\n\r\n"
+	let r, end = try ReadRequest(text, 0)
+	assert r.Method == "POST" && r.Path == "/deploys" && r.Body == "{}"
+	assert api.HeaderOf(r.Headers, "host") == Some[string]{Value: "example"}
+	assert strings.Slice(text, end, len(text)) == "GET / HTTP/1.1\r\n\r\n"
+}
+
+// garbled is the reason ReadRequest fails with on text, or "read".
+func garbled(text string) string {
+	let _, _ = ReadRequest(text, 0) catch {
+	case Garbled as g:
+		return "\(g.At): \(g.Reason)"
+	}
+	"read"
+}
+
+test ReadRequestRefusesGarbage {
+	assert garbled("hello\r\n\r\n") == "0: not a request line"
+	assert garbled("GET / HTTP/2\r\n\r\n") == "0: not HTTP/1.x: HTTP/2"
+	assert garbled("GET / HTTP/1.1\r\nHost") == "16: the head does not end"
+	assert garbled("GET / HTTP/1.1\r\nbad\r\n\r\n") == "21: a header with no ':'"
+	assert garbled("POST / HTTP/1.1\r\nContent-Length: 9\r\n\r\n{}") == "38: the body is shorter than its Content-Length"
+	assert garbled("GET / HTTP/1.1\nHost: lf\n\n") == "read"
+}
+
+test AConnectionOfThreeRequests {
+	let body = "{\"service\":\"web\",\"units\":[{\"image\":\"app\",\"replicas\":1,\"mem\":450}]}"
+	let text = "POST /deploys HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: \(len(body))\r\n\r\n" + body + "\r\nGET /deploys/dep-1 HTTP/1.1\r\n\r\nGET /deploys/dep-2 HTTP/1.1\r\nConnection: close\r\n\r\nGET /deploys HTTP/1.1\r\n\r\n"
+	let want = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nLocation: /deploys/dep-1\r\nContent-Length: 110\r\n\r\n{\"id\":\"dep-1\",\"service\":\"web\",\"status\":\"pending\",\"total\":450,\"units\":[{\"image\":\"app\",\"replicas\":1,\"mem\":450}]}" + "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 110\r\n\r\n{\"id\":\"dep-1\",\"service\":\"web\",\"status\":\"pending\",\"total\":450,\"units\":[{\"image\":\"app\",\"replicas\":1,\"mem\":450}]}" + "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 27\r\n\r\n{\"error\":\"no deploy dep-2\"}"
+	assert served(text) == want
+}
+
+test AGarbledRequestEndsTheConnection {
+	assert served("GET /deploys HTTP/1.1\r\n\r\nBREW /pot HTCPCP/1.0\r\n\r\nGET /deploys HTTP/1.1\r\n\r\n") == "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n[]HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: 64\r\n\r\n{\"error\":\"garbled request at byte 25: not HTTP/1.x: HTCPCP/1.0\"}"
+}
