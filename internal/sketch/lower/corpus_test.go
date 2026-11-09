@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"iter"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -125,6 +126,31 @@ func TestCheckCorpusBuildsDomain(t *testing.T) {
 // corpusGcEnvironment).
 const corpusGcVariable = "ERGO_TEST_CORPUS_GC"
 
+// corpusGcProbeVariable stops TestCorpusCompilesWithGc where its work
+// starts, for TestCorpusGcRunsWhenSelected.
+const corpusGcProbeVariable = "ERGO_TEST_CORPUS_GC_PROBE"
+
+// TestCorpusGcRunsWhenSelected: TestCorpusCompilesWithGc reaches its work
+// when corpusGcVariable is 1, and skips when it is unset (test-speed S2b
+// gap: a selection that always skipped would pass every tier, and gc would
+// never see the corpus). It runs this test binary, which is built already,
+// with the probe variable, so no Go is built; the child runs without
+// -short, as the full tier does.
+func TestCorpusGcRunsWhenSelected(t *testing.T) {
+	for _, c := range []struct{ value, want string }{
+		{"1", "--- PASS: TestCorpusCompilesWithGc"},
+		{"", "--- SKIP: TestCorpusCompilesWithGc"},
+	} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestCorpusCompilesWithGc$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), corpusGcVariable+"="+c.value, corpusGcProbeVariable+"=1")
+		out, err := cmd.CombinedOutput()
+		reached := strings.Contains(string(out), "corpus gc: selected")
+		if err != nil || !strings.Contains(string(out), c.want) || reached != (c.value == "1") {
+			t.Errorf("%s=%q: err %v, want %q and the work reached only when selected:\n%s", corpusGcVariable, c.value, err, c.want, firstLines(string(out), 20))
+		}
+	}
+}
+
 // TestCorpusCompilesWithGc is gc's side of typecheckGo (test-speed plan
 // T1): the parts of TestCheckCorpusBuilds and TestAcceptedNodesLower check
 // their compile-only programs with go/types in process; this test compiles
@@ -144,6 +170,10 @@ func TestCorpusCompilesWithGc(t *testing.T) {
 	needsBuild(t)
 	if os.Getenv(corpusGcVariable) != "1" {
 		t.Skip("gc and vet of the corpus run in the gate's full tier: " + corpusGcVariable + "=1")
+	}
+	if os.Getenv(corpusGcProbeVariable) == "1" {
+		t.Log("corpus gc: selected")
+		return
 	}
 	sources, err := corpusDomain()
 	if err != nil {
