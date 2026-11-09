@@ -1,7 +1,4 @@
-// The tree's tests, and its laws restated as property tests over
-// generated strings (#162 runs laws).
-
-import strings
+// The tree's tests. Its laws run under ergo test.
 
 test RenderEscapesByType {
 	let n = El("p", []Node{Text{S: "a < b & \"c\""}, El("em", []Node{Text{S: "it's"}})})
@@ -23,30 +20,4 @@ test HrefKeepsOnlySafeSchemes {
 	assert HrefOf(Href("JavaScript:alert(1)")) == "#"
 	assert HrefOf(Href("data:text/html,x")) == "#"
 	assert HrefOf(Href("a/b:c")) == "a/b:c"
-}
-
-test EscapeRoundTripHolds(s string) {
-	assert Unescape(Escape(s)) == s
-	assert Unescape(Escape("&amp;"+s)) == "&amp;"+s
-}
-
-test EscapeHasNoMarkupHolds(s string) {
-	let e = Escape(s + "<>\"'")
-	assert !strings.Contains(e, "<") && !strings.Contains(e, ">") && !strings.Contains(e, "\"") && !strings.Contains(e, "'")
-}
-
-test TextSurvivesRenderingHolds(words []string) {
-	let mut kids = []Node{}
-	for w in words {
-		kids = kids.Append(El("em", []Node{Text{S: w + "<b>&"}}))
-	}
-	let n = El("p", kids)
-	assert Unescape(stripTags(Render(n))) == TextOf(n)
-}
-
-test HrefIsSafeHolds(raw string, scheme int) {
-	let schemes = []string{"javascript:", "JAVASCRIPT:", "data:", "http:", "vbscript:", "", "a/", " javascript:"}
-	let pick = if scheme < 0 { -(scheme + 1) } else { scheme }
-	assert SafeScheme(HrefOf(Href(schemes[pick%len(schemes)] + raw)))
-	assert SafeScheme(HrefOf(Href(raw)))
 }

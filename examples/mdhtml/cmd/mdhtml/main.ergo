@@ -7,6 +7,7 @@
 
 import flag
 import fs
+import fstest
 import io
 import mdhtml/html
 import mdhtml/markdown
@@ -73,27 +74,16 @@ func main() fails os.Exit needs Ambient {
 	}
 }
 
-// The tests run run over scripted input, a Recorder and a Disk of one
-// file, with no host.
-
-// disk is a Files provider of one file, notes.md.
-type disk {}
-
-func ReadFile(_ disk, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
-	if path != "notes.md" {
-		return fs.NotFound{Path: path}
-	}
-	"# Notes\n\n- *a*\n"
-}
-
-func ReadDir(_ disk, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{"notes.md"} }
-
-func Stat(_ disk, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	fs.Info{Name: path, Size: 0, Dir: false}
-}
+// The tests run run over scripted input, a Recorder and an fstest.Memory
+// of one file, with no host.
 
 func ran(args []string, input string) string {
 	let out = io.NewRecorder()
+	let disk = fstest.NewMemory()
+	disk.WriteFile("notes.md", "# Notes\n\n- *a*\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		Unreachable("a new Memory has the folder .")
+	}
 	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, fs.Files: disk } {
 		run(args) catch {
 		case os.Exit as e:
