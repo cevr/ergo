@@ -65,8 +65,17 @@ func show(s Phase) string {
 	}
 }
 
+// run reads the initial state's work from the Machine value first: when
+// the conversion dropped it, the actor would wait on Changes forever, so
+// the program says so and ends instead.
 func run(q string) string needs Scheduler | Catalog {
-	let a = actor.StartMachine(machines.Start(Finder{}, q), 1, func(o string) {})
+	let m = machines.Start(Finder{}, q)
+	match m.Work(m.Initial) {
+	case None:
+		return "no work"
+	case Some:
+	}
+	let a = actor.StartMachine(m, 1, func(o string) {})
 	let mut last = ""
 	for st in a.Changes() {
 		last = show(st)
