@@ -11,4 +11,4 @@ extern go crypto/fips140.Enforced func Enforced() bool needs go.Foreign
 extern go crypto/fips140.Version func Version() string needs go.Foreign
 
 // ergo:go func WithoutEnforcement(f func())
-extern go crypto/fips140.WithoutEnforcement func WithoutEnforcement(f func()) needs go.Foreign
+extern go crypto/fips140.WithoutEnforcement func WithoutEnforcement(f escaping func()) needs go.Foreign

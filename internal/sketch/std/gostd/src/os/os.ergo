@@ -78,7 +78,7 @@ extern go os.Executable func Executable() string fails go.Error needs go.Foreign
 extern go os.Exit func Exit(code int) needs go.Foreign
 
 // ergo:go func Expand(s string, mapping func(string) string) string
-extern go os.Expand func Expand(s string, mapping func(string) string) string needs go.Foreign
+extern go os.Expand func Expand[CR](s string, mapping func(string) string needs CR) string needs CR | go.Foreign
 
 // ergo:go func ExpandEnv(s string) string
 extern go os.ExpandEnv func ExpandEnv(s string) string needs go.Foreign

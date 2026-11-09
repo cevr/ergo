@@ -4,7 +4,7 @@
 import go net/http
 
 // ergo:go func Do(f func(KeyValue))
-extern go expvar.Do func Do(f func(KeyValue)) needs go.Foreign
+extern go expvar.Do func Do[CR](f func(KeyValue) needs CR) needs CR | go.Foreign
 
 // ergo:go type Float struct
 extern go expvar.Float type Float {}
@@ -64,7 +64,7 @@ extern go expvar.Map.AddFloat func (v *Map) AddFloat(key string, delta float64) 
 extern go expvar.Map.Delete func (v *Map) Delete(key string) needs go.Foreign
 
 // ergo:go func (*Map).Do(f func(KeyValue))
-extern go expvar.Map.Do func (v *Map) Do(f func(KeyValue)) needs go.Foreign
+extern go expvar.Map.Do func (v *Map) Do(f escaping func(KeyValue)) needs go.Foreign
 
 // ergo:go func (*Map).Get(key string) Var
 extern go expvar.Map.Get func (v *Map) Get(key string) Var needs go.Foreign

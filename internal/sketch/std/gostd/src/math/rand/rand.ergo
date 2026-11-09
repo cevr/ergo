@@ -101,7 +101,7 @@ extern go math/rand.Read func Read(p []byte) int fails go.Error needs go.Foreign
 extern go math/rand.Seed func Seed(seed int64) needs go.Foreign
 
 // ergo:go func Shuffle(n int, swap func(i int, j int))
-extern go math/rand.Shuffle func Shuffle(n int, swap func(int, int)) needs go.Foreign
+extern go math/rand.Shuffle func Shuffle[CR](n int, swap func(int, int) needs CR) needs CR | go.Foreign
 
 // ergo:go type Source interface
 extern go math/rand.Source type Source {

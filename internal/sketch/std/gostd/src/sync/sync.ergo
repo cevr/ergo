@@ -82,7 +82,7 @@ extern go sync.Once.Do func (o *Once) Do(f func()) needs go.Foreign
 // ergo:refused OnceValue: result 1: a Go function as a result, a field or an element
 
 // ergo:go func OnceValues[T1, T2 any](f func() (T1, T2)) func() (T1, T2)
-// ergo:refused OnceValues: result 1: a Go function as a result, a field or an element
+// ergo:refused OnceValues: parameter 1: a callback with more than one result
 
 // ergo:go type Pool struct
 extern go sync.Pool type Pool {}
@@ -130,7 +130,7 @@ extern go sync.WaitGroup.Add func (wg *WaitGroup) Add(delta int) needs go.Foreig
 extern go sync.WaitGroup.Done func (wg *WaitGroup) Done() needs go.Foreign
 
 // ergo:go func (*WaitGroup).Go(f func())
-extern go sync.WaitGroup.Go func (wg *WaitGroup) Go(f func()) needs go.Foreign
+extern go sync.WaitGroup.Go func (wg *WaitGroup) Go(f escaping func()) needs go.Foreign
 
 // ergo:go func (*WaitGroup).Wait()
 extern go sync.WaitGroup.Wait func (wg *WaitGroup) Wait() needs go.Foreign

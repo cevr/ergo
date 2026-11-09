@@ -62,4 +62,4 @@ extern go runtime/trace.Task type Task {}
 extern go runtime/trace.Task.End func (t *Task) End() needs go.Foreign
 
 // ergo:go func WithRegion(ctx context.Context, regionType string, fn func())
-extern go runtime/trace.WithRegion func WithRegion(ctx gocontext.Context, regionType string, fn func()) needs go.Foreign
+extern go runtime/trace.WithRegion func WithRegion(ctx gocontext.Context, regionType string, fn escaping func()) needs go.Foreign

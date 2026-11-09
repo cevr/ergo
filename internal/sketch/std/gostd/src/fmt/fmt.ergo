@@ -61,7 +61,7 @@ extern go fmt.ScanState type ScanState {
 	Read(buf []byte) int fails go.Error needs go.Foreign,
 	ReadRune() (rune, int) fails go.Error needs go.Foreign,
 	SkipSpace() needs go.Foreign,
-	Token(skipSpace bool, f func(rune) bool) []byte fails go.Error needs go.Foreign,
+	Token(skipSpace bool, f escaping func(rune) bool) []byte fails go.Error needs go.Foreign,
 	UnreadRune() fails go.Error needs go.Foreign,
 	Width() (int, bool) needs go.Foreign,
 }

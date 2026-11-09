@@ -73,7 +73,7 @@ extern go net/http.ClientConn.Reserve func (cc *ClientConn) Reserve() fails go.E
 extern go net/http.ClientConn.RoundTrip func (cc *ClientConn) RoundTrip(req *Request) go.Ref[Response] fails go.Error needs go.Foreign
 
 // ergo:go func (*ClientConn).SetStateHook(f func(*ClientConn))
-extern go net/http.ClientConn.SetStateHook func (cc *ClientConn) SetStateHook(f func(*ClientConn)) needs go.Foreign
+extern go net/http.ClientConn.SetStateHook func (cc *ClientConn) SetStateHook(f escaping func(*ClientConn)) needs go.Foreign
 
 // ergo:go type CloseNotifier interface
 // ergo:refused CloseNotifier: no method of the interface maps
@@ -278,7 +278,7 @@ extern go net/http.HTTP2Config type HTTP2Config {
 extern go net/http.Handle func Handle(pattern string, handler Handler) needs go.Foreign
 
 // ergo:go func HandleFunc(pattern string, handler func(ResponseWriter, *Request))
-extern go net/http.HandleFunc func HandleFunc(pattern string, handler func(ResponseWriter, *Request)) needs go.Foreign
+extern go net/http.HandleFunc func HandleFunc(pattern string, handler escaping func(ResponseWriter, *Request)) needs go.Foreign
 
 // ergo:go type Handler interface
 extern go net/http.Handler type Handler {
@@ -675,7 +675,7 @@ extern go net/http.ServeMux type ServeMux {}
 extern go net/http.ServeMux.Handle func (mux *ServeMux) Handle(pattern string, handler Handler) needs go.Foreign
 
 // ergo:go func (*ServeMux).HandleFunc(pattern string, handler func(ResponseWriter, *Request))
-extern go net/http.ServeMux.HandleFunc func (mux *ServeMux) HandleFunc(pattern string, handler func(ResponseWriter, *Request)) needs go.Foreign
+extern go net/http.ServeMux.HandleFunc func (mux *ServeMux) HandleFunc(pattern string, handler escaping func(ResponseWriter, *Request)) needs go.Foreign
 
 // ergo:go func (*ServeMux).Handler(r *Request) (h Handler, pattern string)
 extern go net/http.ServeMux.Handler func (mux *ServeMux) Handler(r *Request) (Handler, string) needs go.Foreign
@@ -726,7 +726,7 @@ extern go net/http.Server.ListenAndServe func (s *Server) ListenAndServe() fails
 extern go net/http.Server.ListenAndServeTLS func (s *Server) ListenAndServeTLS(certFile string, keyFile string) fails go.Error needs go.Foreign
 
 // ergo:go func (*Server).RegisterOnShutdown(f func())
-extern go net/http.Server.RegisterOnShutdown func (s *Server) RegisterOnShutdown(f func()) needs go.Foreign
+extern go net/http.Server.RegisterOnShutdown func (s *Server) RegisterOnShutdown(f escaping func()) needs go.Foreign
 
 // ergo:go func (*Server).Serve(l net.Listener) error
 extern go net/http.Server.Serve func (s *Server) Serve(l net.Listener) fails go.Error needs go.Foreign

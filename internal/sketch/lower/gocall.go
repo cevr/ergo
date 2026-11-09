@@ -163,6 +163,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 		head, vals = vals[0]+head, vals[1:]
 	}
 	fc.goErrorArgs(sig, vals)
+	tunnels := fc.goCallbacks(sig, x.Args, vals, x)
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}
@@ -191,7 +192,10 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 		return operand{}
 	}
 	fc.line(strings.Join(lhs, ", ") + " := " + text)
-	if e != "" {
+	switch {
+	case e != "" && tunnels:
+		fc.goUntunnel(x, e)
+	case e != "":
 		fc.goErrorOf(x, e)
 	}
 	vs := make([]string, len(goResults))

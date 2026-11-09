@@ -5,10 +5,10 @@ import go gocontext context
 import go io
 
 // ergo:go func Do(ctx context.Context, labels LabelSet, f func(context.Context))
-extern go runtime/pprof.Do func Do(ctx gocontext.Context, labels LabelSet, f func(gocontext.Context)) needs go.Foreign
+extern go runtime/pprof.Do func Do(ctx gocontext.Context, labels LabelSet, f escaping func(gocontext.Context)) needs go.Foreign
 
 // ergo:go func ForLabels(ctx context.Context, f func(key string, value string) bool)
-extern go runtime/pprof.ForLabels func ForLabels(ctx gocontext.Context, f func(string, string) bool) needs go.Foreign
+extern go runtime/pprof.ForLabels func ForLabels(ctx gocontext.Context, f escaping func(string, string) bool) needs go.Foreign
 
 // ergo:go func Label(ctx context.Context, key string) (string, bool)
 extern go runtime/pprof.Label func Label(ctx gocontext.Context, key string) (string, bool) needs go.Foreign
