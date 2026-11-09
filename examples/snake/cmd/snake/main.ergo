@@ -9,9 +9,11 @@
 import flag
 import snake/game
 import io
+import machines
 import os
 import rand
 import snake/play
+import time
 
 let seedFlag = flag.Int("seed", 1, "the seed of the food")
 let liveFlag = flag.Bool("live", false, "tick on the clock and read keys as they come")
@@ -34,9 +36,9 @@ func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | Scheduler {
 	}
 	with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
 		let last = if liveFlag.Get(v) {
-			play.Live(w, h, duration(int64(tickFlag.Get(v))*1000000))
+			play.Live(w, h, time.Times(1ms, tickFlag.Get(v)))
 		} else {
-			play.Script(game.Title{Width: w, Height: h})
+			play.Script(machines.Initial(machines.Start(game.Snake{}, game.Board{Width: w, Height: h})))
 		}
 		io.Stdout.Println("final score \(game.ScoreOf(last))")
 	}

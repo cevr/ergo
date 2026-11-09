@@ -1,9 +1,10 @@
 // The rules of snake as laws over its machine. Each law plays a game of
 // 300 signals drawn from a seeded Random on a board of 5 by 4 cells, small
 // enough that games end by Wall, by Bitten and by Filled. A generated
-// slice holds at most three elements (G-ex-d-9), so the signals come from
-// the seed, not from the generator.
+// slice is short (G-ex-d-9), so the signals come from the seed, not from
+// the generator.
 
+import machines
 import rand
 import strings
 
@@ -79,29 +80,22 @@ law OverIsFinal(seed int, score int) {
 	let w = World{Width: 5, Height: 4, Body: []Point{Point{X: 0, Y: 0}}, Heading: Left, Moved: Left, Food: Point{X: 4, Y: 3}, Score: score}
 	let over = Over{W: w, Why: Wall}
 	with context { Random: rand.Seeded(uint64(seed)) } {
-		AnswersOnlyQuit(over, score)
-	}
-}
-
-// AnswersOnlyQuit reports whether m ignores every signal but Quit, and
-// Quit is Done with score. It is a function of its own because a return
-// cannot leave a with block (G-ex-d-10).
-func AnswersOnlyQuit(m Mode, score int) bool needs Random {
-	for s in []Signal{Begin, Tick, Turn{To: Up}, Pause} {
-		if Word(Step(m, s)) != "ignore" {
-			return false
+		for s in []Signal{Begin, Tick, Turn{To: Up}, Pause} {
+			if Word(Step(over, s)) != "ignore" {
+				return false
+			}
 		}
-	}
-	match Step(m, Quit) {
-	case Done[int] as d:
-		d.Output == score
-	case Enter[Mode], Stay[Mode], Ignore, Reject:
-		false
+		match Step(over, Quit) {
+		case Done[int] as d:
+			d.Output == score
+		case Enter[Mode], Stay[Mode], Emit[Mode, int], Ignore, Reject:
+			false
+		}
 	}
 }
 
 // SeedReplays: one seed plays one game: the same modes, signal by signal.
-law SeedReplays(seed int) { Keys(Replay(seed)) == Keys(Replay(seed)) }
+law SeedReplays(seed int) { Replay(seed) == Replay(seed) }
 
 // Replay is the modes of a game of 300 signals drawn from Random seeded
 // with seed, on a board of 5 by 4 cells: the mode after each signal.
@@ -117,7 +111,7 @@ func Replay(seed int) []Mode {
 func Signals(n int) []Signal needs Random {
 	let mut out = []Signal{}
 	for _ in 0..n {
-		let s Signal = match Random.IntN(10) {
+		let s = match Random.IntN(10) {
 		case 4:
 			Turn{To: Up}
 		case 5:
@@ -143,7 +137,7 @@ func Play(m Mode, signals []Signal) []Mode needs Random {
 	let mut out = []Mode{}
 	let mut at = m
 	for s in signals {
-		at = Next(at, Step(at, s))
+		at = machines.Next(at, Step(at, s))
 		out = out.Append(at)
 	}
 	out
@@ -170,6 +164,8 @@ func Word(d Decision[Mode, int]) string {
 		"enter"
 	case Stay[Mode]:
 		"stay"
+	case Emit[Mode, int]:
+		"emit"
 	case Ignore:
 		"ignore"
 	case Reject:
@@ -179,17 +175,7 @@ func Word(d Decision[Mode, int]) string {
 	}
 }
 
-// Keys is a text of each mode that differs where two modes differ: a
-// mode holds slices, so it has no == (G-ex-d-5).
-func Keys(modes []Mode) string {
-	let mut out = []string{}
-	for m in modes {
-		out = out.Append(Key(m))
-	}
-	strings.Join(out, ";")
-}
-
-// Key is the text of one mode.
+// Key is the text of one mode, short enough to read in a test.
 func Key(m Mode) string {
 	match m {
 	case Title as t:

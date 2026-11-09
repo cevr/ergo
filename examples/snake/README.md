@@ -17,11 +17,11 @@ The program is a module of packages (`ergo.mod`: `module snake`), in the Go layo
 
 ## What it shows
 
-- **A machine.** `type Snake machine[Mode, Signal]` with `Mode = Title | Playing | Paused | Over` and `Signal = Begin | Tick | Turn | Pause | Quit`. `Step` is one `match` over the pair `(mode, signal)`: quit is `Done` with the score from every mode, a turn back the way the snake last moved is `Reject`, a turn the way it heads is `Ignore`, and a game that is over ignores everything but quit. A missing pair does not compile.
+- **A machine.** `type Snake machine[Mode, Signal]` with `Mode = Title | Playing | Paused | Over` and `Signal = Begin | Tick | Turn | Pause | Quit`. `Step` is one `match` over the pair `(mode, signal)`: quit is `Done` with the score from every mode, a turn back the way the snake last moved is `Reject`, a turn the way it heads is `Ignore`, and a game that is over ignores everything but quit. A missing pair does not compile. The machine's input is the `Board`: the binary starts it with `machines.Start(game.Snake{}, board)`, and the drivers move with `machines.Next`.
 - **The two-turn bug, ruled out by the state.** A `World` keeps `Heading` (where the next tick goes) apart from `Moved` (where the last tick went), and a turn is checked against `Moved`. So `w` then `a` between two ticks of a snake moving right is rejected, and the law `NeverIntoTheNeck` holds; checking against `Heading`, as many first versions do, is the mutant that breaks it.
 - **Seeded effects.** `PlaceFood` draws a free cell with `Random.IntN`; the binary binds `rand.Seeded(seed)`. The law `SeedReplays` plays a game twice from one seed and compares every mode.
-- **Laws over long games.** `StaysOnTheBoard`, `FoodIsNeverOnTheSnake`, `GrowsOnlyByEating`, `NeverIntoTheNeck`, `OverIsFinal` and `SeedReplays` each play a game of 300 signals drawn from a seed on a 5 by 4 board.
-- **Tasks and a queue.** `Live` starts a reader task with `task.Go`, which pushes the keys of each line into a `queue.Queue[game.Signal]`; each tick drains it with `Poll` and steps the machine. The tests bind a `Scheduler` whose `Sleep` returns at once.
+- **Laws over long games.** `StaysOnTheBoard`, `FoodIsNeverOnTheSnake`, `GrowsOnlyByEating`, `NeverIntoTheNeck`, `OverIsFinal` and `SeedReplays` each play a game of 300 signals drawn from a seed on a 5 by 4 board; `ergo test` runs them, and a mutant of the program breaks each (`snake-mutants.json` of the run, 6 of 6 killed).
+- **Tasks and a queue.** `Live` starts a reader task with `task.Go`, which pushes the keys of each line into a `queue.Queue[game.Signal]`; each tick drains it with `Poll` and steps the machine. The tests bind `testing.NewVirtualClock(0)` as the `Scheduler`: it moves on at once when every task waits.
 
 ## Run it
 
@@ -42,12 +42,7 @@ go run ./scripts/examples snake
 
 - **A task that reads standard input cannot be stopped** (G-ex-g-3). When the game ends, `Live` stops its reader task, and the stop waits until the next line or the end of the input. A real terminal game ends only after one more Enter.
 - **No raw terminal: no key read, no raw mode** (G-ex-c-15, also hit by snake). `-live` reads keys a line at a time, so a turn takes effect after Enter; the game is playable only as a line-at-a-time game.
-- **No duration from an integer number of milliseconds** (G-ex-b-4, also hit by snake). `-tick` becomes `duration(int64(ms) * 1000000)`: `duration(ms)` of an `int` is refused (S108, a conversion is between duration and int64).
-- **A machine has no runner and no accessor for its initial state** (G-ex-d-11, also hit by snake). `type Snake machine[…]` is declared, but no code can read its `initial`; `Script` and `Live` start from `game.Title{…}` and call `Step` themselves.
 - **A machine's initial state cannot use a capability** (G-ex-c-16, also hit by snake). The first food needs `Random`, so the machine starts at a `Title` mode and `Begin` places the food.
-- **The branches of a `match` take the type of the first** (G-ex-c-10, G-ex-b-16, also hit by snake). `Signals` writes `let s Signal = match …`.
-- **`return` cannot leave a `with` block** (G-ex-d-10, also hit by snake). `OverIsFinal` calls `AnswersOnlyQuit` to return early.
-- **A generated slice holds at most three elements** (G-ex-d-9, also hit by snake). Each law draws its 300 signals from a seeded `Random`.
-- **A record that holds a slice has no `==`** (G-ex-d-5, also hit by snake). `SeedReplays` compares the text `Key` of each mode.
-- **No subslice** (G-ex-f-1, also hit by snake). `Bites` indexes from 1.
-- **A virtual clock that advances by itself is not built** (G-ex-b-5, also hit by snake). The `Live` test binds its own `Scheduler` whose `Sleep` returns at once.
+- **A generated slice is short** (G-ex-d-9, still open after T4). Each law draws its 300 signals from a seeded `Random`.
+
+Closed in batch 12: G-ex-b-4 (S4: `-tick` is `time.Times(1ms, ms)`), G-ex-d-11 (V2 and V4: the machine's input is the board, `machines.Start`, `machines.Initial`, `machines.Next`; the hand `Next` is gone), G-ex-c-10 and G-ex-b-16 (K3: `let s = match …`), G-ex-d-10 (L3: `OverIsFinal` returns from its `with` block; `AnswersOnlyQuit` is gone), G-ex-d-5 (W3: `SeedReplays` compares the modes with `==`, `Same` of two directions is `==`), G-ex-f-1 (S2: `Bites` is `slices.Contains(slices.Slice(body, 1, …), head)`), G-ex-b-5 (C1: `testing.VirtualClock`), the byte loop of `Keys` (L4: `for c in line`), and the property tests that restated the laws (V1).
