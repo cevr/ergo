@@ -951,13 +951,22 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 	for _, a := range arms {
 		all = append(all, a.types...)
 	}
-	tags, flat := fc.flatTags(subject, all)
-	tagOf := func(goType string) int { return tags[slices.Index(all, goType)] }
+	// A match on a flat union switches on its tag too (flatunion.go): the
+	// subject is read once, into a local the cases read again.
+	subjectType := fc.typeOf(s.Subjects[0].X)
+	if fc.l.flatUnionOf(subjectType) != nil && !fc.flatSubj[subject] {
+		t := fc.temp("s")
+		fc.line(t + " := " + subject)
+		subject = t
+	}
+	ts := fc.tagSwitchOf(subject, subjectType, all, s)
+	flat := ts != nil
+	tagOf := func(goType string) int { return ts.tags[slices.Index(all, goType)] }
 	head := "switch " + subject + ".(type) {"
 	narrowed := ""
 	switch {
 	case flat:
-		head, bind = fc.flatSwitch(), false
+		head, bind = ts.head, false
 	case bind:
 		narrowed = fc.temp("v")
 		head = "switch " + narrowed + " := " + subject + ".(type) {"
@@ -985,7 +994,7 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 			name := fc.declare(a.as)
 			val := narrowed
 			if flat {
-				val = fc.flatVariant(tagOf(a.types[0]))
+				val = ts.variant(tagOf(a.types[0]))
 			}
 			fc.line(name + " := " + val)
 			if !fc.l.reads[a.as] {
@@ -1101,6 +1110,9 @@ func (fc *funcCtx) isInterface(t check.Type) bool {
 	td := fc.l.typeDecl(n.Obj, fc.site)
 	if td.kind == kindDefined {
 		return fc.isInterface(td.defined)
+	}
+	if td.kind == kindUnion && fc.l.flatUnionOf(n) != nil {
+		return false // a struct of a tag and slots (flatunion.go)
 	}
 	return td.kind == kindUnion || td.kind == kindOps
 }

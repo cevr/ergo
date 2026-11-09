@@ -542,6 +542,13 @@ func (l *lowerer) emitType(td *typeDecl) {
 		}
 		b.WriteString("}\n\n")
 	case kindUnion:
+		if fu := l.flatUnionOf(td.named); fu != nil {
+			for _, v := range td.variants {
+				l.emitType(l.useType(l.typeDecl(v, site)))
+			}
+			l.flatDecl(b, td, fu, tc)
+			break
+		}
 		l.unionMarker(td)
 		b.WriteString("type " + td.name + tparams + " interface{ " + td.marker + "() }\n\n")
 		// Two instances of one generic record, V[A] | V[B], share the

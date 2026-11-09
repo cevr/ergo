@@ -61,10 +61,16 @@ var machineLowering string
 // into the first variant), "decide" (a returned Emit is a Stay), "union"
 // (a decision returned as the union is an Ignore), "loop" (the run
 // reports a Reject at the index after it), "tagswitch" (a match on the
-// flat state switches on a wrong tag) and "carry-union" (the loop also
-// carries the state as the union, which allocates per signal). Empty in
-// every build.
+// flat state switches on a wrong tag), "carry-union" (the loop also
+// carries the state as the union, which allocates per signal) and "chunk"
+// (a pure step's run skips the last signal of each chunk). Empty in every
+// build.
 var machineMutant string
+
+// flatRunChunk is how many signals a run of a pure step takes between two
+// checks for a stop. A test sets it small, so its short signal lists cross
+// chunk boundaries.
+var flatRunChunk = 256
 
 // flatRunOn reports whether this build lowers runs flat.
 func flatRunOn() bool { return machineLowering != "interface" }
@@ -357,7 +363,24 @@ func (p *flatRun) runText(tc *typeCtx, outcome, finished, running, rejected chec
 	if machineMutant == "carry-union" {
 		b.WriteString("\tvar ·keep· " + S + "\n")
 	}
-	b.WriteString("\tfor ·i·, ·e· := range ·signals· {\n")
+	// A pure step reaches no effect, so the run checks for a stop once per
+	// chunk of flatRunChunk signals: a stop is still seen, within that many
+	// steps, and the inner loop is a range over a slice with no load of the
+	// task (MU8b; measured in MU8b's profile.md). A step that takes the
+	// environment checks after each signal, as std's loop does.
+	chunked := p.fd.pure
+	if chunked {
+		n := strconv.Itoa(flatRunChunk)
+		b.WriteString("\tfor ·start· := 0; ·start· < len(·signals·); ·start· += " + n + " {\n")
+		b.WriteString("\t·end· := ·start· + " + n + "\n\tif ·end· > len(·signals·) {\n\t\t·end· = len(·signals·)\n\t}\n")
+		if machineMutant == "chunk" {
+			b.WriteString("\t·end·--\n") // the last signal of each chunk is skipped
+		}
+		b.WriteString("\tfor ·j·, ·e· := range ·signals·[·start·:·end·] {\n")
+		b.WriteString("\t\t·i· := ·start· + ·j·\n\t\t_ = ·i·\n")
+	} else {
+		b.WriteString("\tfor ·i·, ·e· := range ·signals· {\n")
+	}
 	b.WriteString("\t\t·k·, ·next·, ·o· := " + step + "·at·, ·e·)\n")
 	b.WriteString("\t\tswitch ·k· {\n")
 	b.WriteString("\t\tcase 0, 1:\n\t\t\t·at· = ·next·\n")
@@ -367,6 +390,9 @@ func (p *flatRun) runText(tc *typeCtx, outcome, finished, running, rejected chec
 	b.WriteString("\t\t}\n")
 	if machineMutant == "carry-union" {
 		b.WriteString("\t\t·keep· = ·at·.state()\n")
+	}
+	if chunked {
+		b.WriteString("\t}\n")
 	}
 	b.WriteString("\t" + poll)
 	b.WriteString("\t}\n")
