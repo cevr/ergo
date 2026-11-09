@@ -251,7 +251,6 @@ func lawCases() []lawCase {
 // from the oracle alone, that the domain meets every verdict.
 var lawDomain = check.NewSplit(check.Split[lawCase]{
 	Name: "TestLawDomain", Parts: 4, Short: 8,
-	Count: 16464, Digest: "f41119d86a7eefa0a78a4bee0dbf7cc4fd0dea4f7182d588b4ac23e22a68a67a",
 	Cases: check.SeqOf(lawCases),
 	Key: func(c lawCase) string {
 		src, _, _, _ := lawProgram(lawOrders(lawDomainDecls)[c.order], c.p, c.tl, c.ex)

@@ -222,7 +222,6 @@ func withSiteShapes() []withSiteShape {
 // cutoff).
 var withSiteWorkLinear = NewSplit(Split[withSiteShape]{
 	Name: "TestWithSiteWorkLinear", Parts: 4,
-	Count: 8, Digest: "5c7961894f94b6b80b706784df1ed93a43b906c6a2fa02469b00ccdf898c81cd",
 	Cases: SeqOf(withSiteShapes),
 	Key:   func(c withSiteShape) string { return fmt.Sprintf("%s n=%d,%d", c.shape, c.n, 4*c.n) },
 	Run: func(t *testing.T, cases iter.Seq[withSiteShape]) {

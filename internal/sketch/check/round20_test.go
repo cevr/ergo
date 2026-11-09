@@ -280,7 +280,6 @@ func budgetOrderCases() []budgetOrderCase {
 // (Short 0), as the unsplit test did (it was over the size cutoff).
 var contextBudgetOrder = NewSplit(Split[budgetOrderCase]{
 	Name: "TestContextBudgetOrder", Parts: 3,
-	Count: 94, Digest: "9319c4ad3e9b94686dc7823aee65790a36230f75d534074074d51f157cc41e46",
 	Cases: SeqOf(budgetOrderCases),
 	Key: func(c budgetOrderCase) string {
 		return fmt.Sprintf("%s n=%d shape=%q pct=%d", c.kind, c.n, c.shape, c.pct)

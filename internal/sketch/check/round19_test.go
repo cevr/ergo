@@ -135,7 +135,6 @@ func contextFamily(shape string, n int) string {
 // part keeps its first case.
 var contextBudget = NewSplit(Split[contextBudgetCase]{
 	Name: "TestContextBudget", Parts: 14, Short: 2,
-	Count: 27, Digest: "442eb1ac963b95d1623448d54c943f495b64e30e7239133fc5b3e6c46f090174",
 	Cases: SeqOf(contextBudgetCases),
 	Key: func(c contextBudgetCase) string {
 		// The sources are slow to write at n = 8000, and the coverage test

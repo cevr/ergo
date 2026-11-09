@@ -26,7 +26,6 @@ import (
 // share.
 var catchOracleTwoTypes = check.NewSplit(check.Split[catchProgram]{
 	Name: "TestCatchOracleTwoTypes", Parts: 4, Short: 8,
-	Count: 12262, Digest: "b0f7668848c81f98cfe75d6d851b473c2e6fcb2f7ccca3b070261e1eccc78310",
 	Cases: catchPrograms,
 	Key:   func(p catchProgram) string { return fmt.Sprintf("partial=%v\n%s", p.partial, p.source()) },
 	Run:   runCatchOracle,

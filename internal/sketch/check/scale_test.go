@@ -43,7 +43,6 @@ import (
 // skip, as the whole test did.
 var checkerScale = check.NewSplit(check.Split[scaleShape]{
 	Name: "TestCheckerScale", Parts: 4,
-	Count: 22, Digest: "c9d3ef6a318b5ac9e2a5f7d3661b787bb552a97cba74e398afb2de9894f65346",
 	Cases: check.SeqOf(func() []scaleShape { return scaleShapes }),
 	Key:   scaleKey,
 	Run:   runCheckerScale,

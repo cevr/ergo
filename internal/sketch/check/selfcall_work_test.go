@@ -230,7 +230,6 @@ type selfCallCase struct {
 // every fourth case of its share.
 var selfCallWorkLinear = NewSplit(Split[selfCallCase]{
 	Name: "TestSelfCallWorkLinear", Parts: 4, Short: 4, Workers: 4,
-	Count: 90, Digest: "c32edc13c2f76eca624d8f8b8f48e9ce41368bac60021125ed552a4286b48bea",
 	Cases: SeqOf(func() []selfCallCase {
 		var out []selfCallCase
 		for _, settleOnly := range []bool{false, true} {

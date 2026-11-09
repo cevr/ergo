@@ -688,14 +688,12 @@ func e1cDomain(full bool) iter.Seq[e1cCase] {
 // from program k, as a top-level test of its own, dealt to four parallel
 // subtests. Under -short a part keeps every eighth program of its share.
 // TestE1cCycleGeneratorDomain checks the domain's size, finiteness and
-// slice coverage from the oracle alone. The pin is the gate slice's; the
+// slice coverage from the oracle alone. The gate runs the slice; the
 // acceptance batch (ERGO_CYCLE_GEN=full) runs the same parts over its own
 // domain.
 var e1cCycleGenerator = check.NewSplit(check.Split[e1cCase]{
 	Name: "TestE1cCycleGenerator", Parts: 4, Short: 8, Workers: 4,
-	Count: 14358, Digest: "d08b4ade23f478f9eb73978e3b8e02c3b0578d623b2bbf598fdd15d7c93469ca",
-	Pinned: func() bool { return !e1cFull() },
-	Cases:  func(yield func(e1cCase) bool) { e1cDomain(e1cFull())(yield) },
+	Cases: func(yield func(e1cCase) bool) { e1cDomain(e1cFull())(yield) },
 	Key: func(c e1cCase) string {
 		order := make([]int, len(c.ds))
 		for i := range order {

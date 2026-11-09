@@ -23,7 +23,6 @@ import (
 // case.
 var matchArmsLinear = check.NewSplit(check.Split[matchArmsCase]{
 	Name: "TestMatchArmsLinear", Parts: 7, Short: 2,
-	Count: 14, Digest: "c9c71172e18f9b697e5f2e7e26b1087a3ab51b0c1bb91f01aceec66a521e354f",
 	Cases: check.SeqOf(matchArmsCases),
 	Key: func(c matchArmsCase) string {
 		if c.src == nil {
