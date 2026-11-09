@@ -545,6 +545,13 @@ func (l *lowerer) emitType(td *typeDecl) {
 		}
 		b.WriteString("}\n\n")
 	case kindUnion:
+		if fu := l.flatUnionOf(td.named); fu != nil {
+			for _, v := range td.variants {
+				l.emitType(l.useType(l.typeDecl(v, site)))
+			}
+			l.flatDecl(b, td, fu, tc)
+			break
+		}
 		l.unionMarker(td)
 		b.WriteString("type " + td.name + tparams + " interface{ " + td.marker + "() }\n\n")
 		// Two instances of one generic record, V[A] | V[B], share the
@@ -857,7 +864,12 @@ func (l *lowerer) emitFunc(fd *funcDecl) {
 // emitFuncBody writes fd's Go declaration, or, when variant is set, its
 // comma-ok variant fd.ok: the same body with its Option parameter taken as
 // a value and a flag (update.go, okShape).
-func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
+func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) { l.emitBody(fd, variant, nil) }
+
+// emitBody writes what emitFuncBody writes, or, with flat, the flat step of
+// a machine's flat run (machinerun.go): fd's body under flat's step name,
+// its state parameter flat and its decision returned as a value.
+func (l *lowerer) emitBody(fd *funcDecl, variant bool, flat *flatRun) {
 	l.bodies++
 	f := fd.fn
 	b := &l.user
@@ -941,6 +953,13 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 	if variant {
 		bodyName = fd.ok
 	}
+	flatParam := ""
+	if flat != nil {
+		if variant || owned || fd.method != nil || fd.extern != "" || fd.fallible || len(params) != 2 {
+			ice(site, "the flat step of %s is not a plain function of a state and a signal", f.Name)
+		}
+		bodyName = flat.stepName
+	}
 	if fd.method != nil {
 		tps := map[*check.TypeParam]string{}
 		var args []string
@@ -1019,6 +1038,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 			continue
 		}
 		paramNames[i] = name(i)
+		if flat != nil && i == 0 {
+			// The state arrives flat; flatEntry puts it into paramNames[0].
+			flatParam = scope.alloc("flat")
+			parts = append(parts, flatParam+" "+flat.flat)
+			continue
+		}
 		parts = append(parts, paramNames[i]+" "+fc.goType(p.Type))
 		args = append(args, paramNames[i])
 	}
@@ -1052,6 +1077,12 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 	case needsFrame && fd.fallible:
 		frameErr = scope.alloc("err")
 		results = fc.namedResults(fc.frame.result, frameErr)
+	case flat != nil:
+		if needsFrame {
+			ice(site, "the flat step of %s opens a frame scope", f.Name)
+		}
+		results = " (uint8, " + flat.flat + ", " + fc.goType(flat.out) + ")"
+		fc.frame.flat = flat
 	default:
 		results = fc.resultList(fc.frame.result, fd.fallible)
 	}
@@ -1066,6 +1097,10 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 		directive = l.directive(f.Decl)
 	}
 	fc.depth = 1
+	entry := ""
+	if flat != nil {
+		entry = fc.flatEntry(flat, flatParam, paramNames[0])
+	}
 	l.analyzeValues(f.Decl, f.Pkg.Info)
 	fc.closeBody(f, site, func() {
 		if needsFrame {
@@ -1075,6 +1110,14 @@ func (l *lowerer) emitFuncBody(fd *funcDecl, variant bool) {
 		fc.entryPoll(f.Pkg.Info, f.Decl)
 		fc.body(f.Decl.Body.List)
 	})
+	if flat != nil {
+		body := fc.out.String()
+		if namesIdent(body, paramNames[0]) {
+			body = entry + body
+		}
+		b.WriteString(directive + head.String() + " {\n" + body + "}\n\n")
+		return
+	}
 	if !variant {
 		fd.lowered, fd.readsEnv = true, fc.env != "" && namesIdent(fc.out.String(), fc.env)
 	}

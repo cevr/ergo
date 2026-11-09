@@ -1422,6 +1422,9 @@ func (l *lowerer) genFunc(n *check.Named, site syntax.Node) string {
 		if len(small) == 0 {
 			ice(site, "the union %s has no finite value; the checker admits only generatable types", n)
 		}
+		if fu := l.flatUnionOf(n); fu != nil {
+			flatBail(site, fu) // a property's argument keeps its interface (flatunion.go)
+		}
 		pick := func(vs []check.Type, depth string) {
 			if len(vs) == 1 {
 				body.WriteString("\t\treturn " + l.genExpr(vs[0], r, depth, scope, site) + "\n")

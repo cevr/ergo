@@ -92,8 +92,9 @@ type mnode struct {
 	fail bool
 
 	typeSwitch bool
-	operand    string // the column's value
-	bound      string // a type switch's narrowed variable
+	operand    string     // the column's value
+	t          check.Type // the column's type
+	bound      string     // a type switch's narrowed variable
 	cases      []mcase
 	def        *mnode
 }
@@ -305,7 +306,9 @@ func (b *treeBuilder) head(p *check.Pattern, c mcol) mhead {
 		p = p.Elems[0]
 	}
 	h.p = p
-	iface := fc.isInterface(c.t)
+	// A flat union's column splits by variant as an interface's does
+	// (flatunion.go); the switch reads its tag (node).
+	iface := fc.isSum(c.t)
 	switch p.Kind {
 	case check.PatWildcard:
 		h.kind = headWild
@@ -316,7 +319,7 @@ func (b *treeBuilder) head(p *check.Pattern, c mcol) mhead {
 			if p.Kind == check.PatRecord {
 				h.kind = headSplit
 			}
-		case fc.isInterface(p.Type):
+		case fc.isSum(p.Type):
 			b.bail() // a test of an interface type can overlap a variant
 		default:
 			h.kind, h.key = headCtor, fc.goType(p.Type)
@@ -336,7 +339,7 @@ func (b *treeBuilder) head(p *check.Pattern, c mcol) mhead {
 	}
 	if h.kind != headCtor {
 		for _, v := range h.as {
-			if iface && !fc.isInterface(v.Type) && fc.goType(v.Type) != fc.goType(c.t) {
+			if iface && fc.goType(v.Type) != fc.goType(c.t) && (!fc.isInterface(v.Type) || !fc.isInterface(c.t)) {
 				b.bail()
 			}
 		}
@@ -552,7 +555,7 @@ func (b *treeBuilder) specialize(cols []mcol, rows []mrow, i int) *mnode {
 			}
 		}
 	}
-	n := &mnode{operand: c.val, typeSwitch: kind == headCtor}
+	n := &mnode{operand: c.val, t: c.t, typeSwitch: kind == headCtor}
 	if n.typeSwitch {
 		n.bound = fc.temp("n")
 		b.count("ctor")
@@ -586,7 +589,7 @@ func (b *treeBuilder) specialize(cols []mcol, rows []mrow, i int) *mnode {
 					switch {
 					case fc.goType(v.Type) == key:
 						binds = append(binds, patBind{v, n.bound})
-					case fc.isInterface(v.Type) || fc.goType(v.Type) == fc.goType(c.t):
+					case fc.isInterface(v.Type) && fc.isInterface(c.t) || fc.goType(v.Type) == fc.goType(c.t):
 						binds = append(binds, patBind{v, c.val})
 					default:
 						b.bail()
@@ -723,13 +726,38 @@ func (e *treeEmit) node(n *mnode) {
 	case n.fail:
 		ice(e.s, "a match tree fails outside a default branch")
 	}
+	// In a machine's flat step, a type switch on the flat state switches on
+	// its tag (machinerun.go, flatTags): each case binds the variant's
+	// field.
+	// A flat union's switch reads its tag too (flatunion.go).
+	var ts *tagSwitch
 	if n.typeSwitch {
+		labels := make([]string, len(n.cases))
+		for k, c := range n.cases {
+			labels[k] = c.label
+		}
+		ts = fc.tagSwitchOf(n.operand, n.t, labels, e.s)
+	}
+	flat := ts != nil
+	switch {
+	case flat:
+		fc.line(ts.head)
+	case n.typeSwitch:
 		fc.line("switch " + n.bound + " := " + n.operand + ".(type) {")
-	} else {
+	default:
 		fc.line("switch " + n.operand + " {")
 	}
 	fc.enterSwitch()
 	for k, c := range n.cases {
+		if flat {
+			fc.line("case " + strconv.Itoa(ts.tags[k]) + ":")
+			fc.depth++
+			fc.line(n.bound + " := " + ts.variant(ts.tags[k]))
+			fc.line("_ = " + n.bound)
+			e.node(c.child)
+			fc.depth--
+			continue
+		}
 		fc.line("case " + c.label + ":")
 		fc.depth++
 		if k == 0 && n.typeSwitch {

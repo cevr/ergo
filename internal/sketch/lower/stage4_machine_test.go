@@ -238,6 +238,7 @@ const greeterSource = "type Greeter {\n\tGreet(name string) string,\n}\n\ntype P
 // and user functions named Initial and Step, which do not collide with the
 // plan's methods.
 func TestMachinePlanValues(t *testing.T) {
+	interfaceUnions(t) // the Go test beside the program builds signals as interface values
 	rng := rand.New(rand.NewSource(57))
 	var machines []planMachine
 	var src strings.Builder
@@ -326,6 +327,7 @@ func goTestEmitted(t *testing.T, prog *lowered, text string, env ...string) {
 // reflection with the environment when Step takes one, so a plan that
 // takes none and passes nil fails here at run time, not at compile time.
 func TestMachinePlanStepReadsItsEnvironment(t *testing.T) {
+	interfaceUnions(t) // the Go test beside the program passes Go{} as a Tick
 	src := greeterSource + "type Light = Red{} | Green{}\n\ntype Tick = Go{}\n\n" +
 		"func next(l Light, t Tick) Decision[Light, string] {\n\tlet n = with context { Greeter: Plain } { 1 }\n\tmatch l {\n\tcase Red:\n\t\tEnter[Light]{Next: Green}\n\tcase Green:\n\t\tDone[string]{Output: \"n=\\(n)\"}\n\t}\n}\n\n" +
 		"type Signal machine[Light, Tick] {\n\tinitial: Red,\n\tstep:    next,\n}\n\n" +

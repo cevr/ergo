@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/constant"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -42,6 +43,10 @@ type frame struct {
 	// its Go result is bool, and a returned value of a defined type over
 	// bool converts to it.
 	law bool
+	// flat marks the flat step of a machine's flat run (machinerun.go): a
+	// returned decision is given as a value, its kind, the next state flat
+	// and the output.
+	flat *flatRun
 }
 
 // newFrame is the only frame constructor. Every frame-opening path uses it,
@@ -129,6 +134,11 @@ type funcCtx struct {
 	// header counts the statement headers being lowered (header.go): inside
 	// one, a composite literal of the TypeName form is parenthesized.
 	header int
+	// flatParam is the flat state parameter of a machine's flat step, and
+	// flatSubj the Go locals that hold that state put back into its union
+	// (machinerun.go): a type switch on one switches on the tag.
+	flatParam string
+	flatSubj  map[string]bool
 }
 
 func newFuncCtx(l *lowerer, scope *namer, directives bool) *funcCtx {
@@ -517,6 +527,16 @@ func (fc *funcCtx) retExpr(x syntax.Expr) {
 		} else {
 			fc.sourceReturn()
 		}
+		return
+	}
+	if f.flat != nil && fc.acquiring == nil {
+		// The flat step (machinerun.go): a decision literal's fields as
+		// they are, else the decision's own Go value, never put into the
+		// Decision union, given to its method.
+		if fc.flatReturn(x) {
+			return
+		}
+		fc.line("return " + f.flat.decideOf(fc.typeOf(x)) + "(" + fc.value(x) + ")")
 		return
 	}
 	val := fc.moved(fc.assigned(x))
@@ -926,9 +946,29 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 		}
 		arms = append(arms, a)
 	}
+	// In a machine's flat step, a match on the flat state switches on its
+	// tag (machinerun.go, flatTags).
+	var all []string
+	for _, a := range arms {
+		all = append(all, a.types...)
+	}
+	// A match on a flat union switches on its tag too (flatunion.go): the
+	// subject is read once, into a local the cases read again.
+	subjectType := fc.typeOf(s.Subjects[0].X)
+	if fc.l.flatUnionOf(subjectType) != nil && !fc.flatSubj[subject] {
+		t := fc.temp("s")
+		fc.line(t + " := " + subject)
+		subject = t
+	}
+	ts := fc.tagSwitchOf(subject, subjectType, all, s)
+	flat := ts != nil
+	tagOf := func(goType string) int { return ts.tags[slices.Index(all, goType)] }
 	head := "switch " + subject + ".(type) {"
 	narrowed := ""
-	if bind {
+	switch {
+	case flat:
+		head, bind = ts.head, false
+	case bind:
 		narrowed = fc.temp("v")
 		head = "switch " + narrowed + " := " + subject + ".(type) {"
 	}
@@ -938,15 +978,26 @@ func (fc *funcCtx) typeMatch(s *syntax.TypeSwitchStmt, d dest) bool {
 	terminates, hasDefault := true, false
 	for _, a := range arms {
 		hasDefault = hasDefault || a.def
-		if a.def {
+		switch {
+		case a.def:
 			fc.line("default:")
-		} else {
+		case flat:
+			var labels []string
+			for _, t := range a.types {
+				labels = append(labels, strconv.Itoa(tagOf(t)))
+			}
+			fc.line("case " + strings.Join(labels, ", ") + ":")
+		default:
 			fc.line("case " + strings.Join(a.types, ", ") + ":")
 		}
 		fc.depth++
 		if a.as != nil {
 			name := fc.declare(a.as)
-			fc.line(name + " := " + narrowed)
+			val := narrowed
+			if flat {
+				val = ts.variant(tagOf(a.types[0]))
+			}
+			fc.line(name + " := " + val)
 			if !fc.l.reads[a.as] {
 				fc.line("_ = " + name)
 			}
@@ -1060,6 +1111,9 @@ func (fc *funcCtx) isInterface(t check.Type) bool {
 	td := fc.l.typeDecl(n.Obj, fc.site)
 	if td.kind == kindDefined {
 		return fc.isInterface(td.defined)
+	}
+	if td.kind == kindUnion && fc.l.flatUnionOf(n) != nil {
+		return false // a struct of a tag and slots (flatunion.go)
 	}
 	return td.kind == kindUnion || td.kind == kindOps
 }

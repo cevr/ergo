@@ -273,6 +273,9 @@ func (l *lowerer) litFunc(t check.Type, site syntax.Node) string {
 			body.WriteString("\treturn " + q(l.ergoType(t)) + " + " + strings.Join(parts, " + ") + " + \"}\"\n")
 		case *check.Union:
 			x := scope.alloc("x")
+			if fu := l.flatUnionOf(t); fu != nil {
+				flatBail(site, fu) // a property's argument keeps its interface (flatunion.go)
+			}
 			body.WriteString("\tswitch " + x + " := " + v + ".(type) {\n")
 			for _, vt := range under.Variants {
 				body.WriteString("\tcase " + tc.goType(vt) + ":\n\t\treturn " + l.litExpr(vt, x, site) + "\n")

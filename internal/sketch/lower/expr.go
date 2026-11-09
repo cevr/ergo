@@ -207,8 +207,13 @@ func (fc *funcCtx) elemAt(x syntax.Expr, i int, val string) string {
 
 func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) string {
 	switch conv.Kind {
-	case 0, check.ConvVariant:
+	case 0:
 		return val
+	case check.ConvVariant:
+		// A flat union's variant goes in through its of method
+		// (flatunion.go).
+		v, _ := fc.flatVariantValue(conv.From, conv.To, val, site)
+		return v
 	case check.ConvOperations:
 		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
 			// A Go value to a Go interface: Go's own implicit conversion.
@@ -514,6 +519,16 @@ func (fc *funcCtx) binary(x *syntax.BinaryExpr) string {
 func (fc *funcCtx) binaryOf(x *syntax.BinaryExpr, parts []string) string {
 	if (x.Op == syntax.EQL || x.Op == syntax.NEQ) && needsEqual(fc.equalType(x)) {
 		return fc.equalOp(x, parts) // structural equality (equal.go)
+	}
+	if x.Op == syntax.EQL || x.Op == syntax.NEQ {
+		// A variant compared with a flat union goes into it first
+		// (flatunion.go), as Go converts it to an interface.
+		lt, rt := fc.typeOf(x.X), fc.typeOf(x.Y)
+		if v, ok := fc.flatVariantValue(rt, lt, parts[1], x); ok {
+			parts = []string{parts[0], v}
+		} else if v, ok := fc.flatVariantValue(lt, rt, parts[0], x); ok {
+			parts = []string{v, parts[1]}
+		}
 	}
 	return "(" + parts[0] + " " + x.Op.String() + " " + parts[1] + ")"
 }

@@ -91,6 +91,9 @@ type refusal struct {
 	// a leave has located it (sources.go).
 	src     int
 	located bool
+	// flat is a flat union that met a form it does not lower (flatBail):
+	// the program is lowered again with it an interface (flatunion.go).
+	flat *check.TypeName
 }
 
 // Lower lowers the checked unit to the generated files of a Go module,
@@ -221,6 +224,15 @@ type lowerer struct {
 	// machineInits are the initial values of the package's machines, in
 	// declaration order, which initFunc runs after every let (machine.go).
 	machineInits []syntax.Expr
+	// flatRuns are the flat runs of the machines, by machine, made at
+	// their first run (machinerun.go); nil for one whose step takes none.
+	flatRuns map[*check.TypeName]*flatRun
+	// flatSet are the program's flat unions (flatunion.go), decided at the
+	// first question; flatOff the unions an earlier lowering of the
+	// program bailed on, and flatBails those this lowering bails on.
+	flatSet   map[*check.TypeName]*flatUnion
+	flatOff   map[*check.TypeName]bool
+	flatBails []*check.TypeName
 	// instances are the concrete instances of each generic type that the
 	// program's types name (text.go, instancesOf), computed once.
 	instances map[*check.TypeName][]check.Type
@@ -264,12 +276,16 @@ func newLowerer(u Unit) *lowerer { return newBuildLowerer(u, nil) }
 // newBuildLowerer is the lowerer of u for the run build (tests nil) or the
 // test build, which decides the facts it reads (owners.go).
 func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
-	c := canonicalize(u)
+	return lowererOf(canonicalize(u), u.Package, tests)
+}
+
+// lowererOf is the lowerer of the canonical unit c of the package pkg.
+func lowererOf(c *canonical, pkg *check.Package, tests *testLowering) *lowerer {
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
-		pkg:       u.Package,
-		info:      u.Package.Info,
+		pkg:       pkg,
+		info:      pkg.Info,
 		file:      c.srcs[0].file,
 		src:       c.srcs[0].path,
 		srcs:      c.srcs,
@@ -346,6 +362,9 @@ func (l *lowerer) guard(f func()) {
 			if !ok {
 				panic(r)
 			}
+			if ref.flat != nil {
+				l.flatBails = append(l.flatBails, ref.flat)
+			}
 			// The refusal's node locates its file; else the file current
 			// where it was raised (leave), else the current one.
 			src := l.cur
@@ -396,6 +415,9 @@ func (l *lowerer) program() ([]byte, error) {
 		next := l.pending[0]
 		l.pending = l.pending[1:]
 		l.guard(next)
+	}
+	if len(l.flatBails) > 0 {
+		return l.lowerAgain()
 	}
 	if len(l.refusals) > 0 {
 		return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
