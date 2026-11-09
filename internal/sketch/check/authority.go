@@ -12,6 +12,8 @@ import (
 // the prelude and std included. A value of Ambient (a parameter, say)
 // cannot become a provider either: the mint rule's "a call is no build"
 // holds only while Ambient has one source.
+const foreignEntryText = "no context binds go.Foreign: its one provider is the program entry, for a main that lists it (rows.md, Entry 4)"
+
 const ambientEntryText = "no context binds Ambient: its one provider is the program entry, for a main that lists it (stdlib.md, Host packages 3)"
 
 // isAmbient reports whether t is the prelude's Ambient.

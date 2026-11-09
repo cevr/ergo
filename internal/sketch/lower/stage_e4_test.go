@@ -178,10 +178,9 @@ func TestE4HostTargetsRefused(t *testing.T) {
 				t.Fatalf("want %d diagnostics and no Go, got %v and %d files", r.externs, o.diags, len(o.files))
 			}
 			for _, d := range o.diags {
-				// G2: cmp reads only its arguments, so its S109 says it is
-				// not listed yet rather than that it reaches the host.
-				if d.Code != "S109" || !strings.Contains(d.Message, "reaches the host") && !strings.Contains(d.Message, "is not on the pure allowlist") {
-					t.Errorf("want an S109 naming the host or the allowlist, got %s", d)
+				// IG2: one text for every package off the reviewed list.
+				if d.Code != "S109" || !strings.Contains(d.Message, "may reach the host") {
+					t.Errorf("want an S109 naming the host, got %s", d)
 				}
 			}
 		})

@@ -120,8 +120,7 @@ func externAllowPaths() []string {
 // in the pure allowlist checks clean; any other package is exactly one
 // S109 at the declaration. Among those, a module path (a dot in its first
 // element) keeps its #202 text and every other path gets the host text,
-// which names the target and the std route, except a pure package not
-// listed yet (pureUnlisted, G2), which gets the unlisted text.
+// which names the target and the import go route (IG2).
 func TestExternAllowlist(t *testing.T) {
 	for _, path := range externAllowPaths() {
 		target := "F"
@@ -153,20 +152,13 @@ func TestExternAllowlist(t *testing.T) {
 			msg := diags[0].Message
 			first, _, _ := strings.Cut(path, "/")
 			if strings.Contains(first, ".") {
-				if !strings.Contains(msg, "#202") || strings.Contains(msg, "reaches the host") {
+				if !strings.Contains(msg, "#202") || strings.Contains(msg, "may reach the host") {
 					t.Fatalf("a module path keeps its #202 text: %s", msg)
 				}
 				return
 			}
-			if slices.Contains(pureUnlisted, path) {
-				want := "extern go " + target + ": " + path + " is not on the pure allowlist ("
-				if !strings.HasPrefix(msg, want) || strings.Contains(msg, "reaches the host") {
-					t.Fatalf("want the unlisted text %q…, got %s", want, msg)
-				}
-				return
-			}
-			want := "extern go " + target + " reaches the host; wait for "
-			if !strings.HasPrefix(msg, want) || !strings.Contains(msg, " or #202 ") {
+			want := "extern go " + target + " is not on the reviewed pure list, so it may reach the host; call it through import go " + path + ", "
+			if !strings.HasPrefix(msg, want) {
 				t.Fatalf("want the host text %q…, got %s", want, msg)
 			}
 		})
@@ -180,7 +172,7 @@ func TestExternAllowlistExcept(t *testing.T) {
 	for _, name := range []string{"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"} {
 		target := "path/filepath." + name
 		_, diags := check.CheckSource("extern go " + target + " func f(s string) string\nfunc Use() { _ = f(\"x\") }\n")
-		if len(diags) != 1 || diags[0].Code != "S109" || !strings.HasPrefix(diags[0].Message, "extern go "+target+" reaches the host") {
+		if len(diags) != 1 || diags[0].Code != "S109" || !strings.HasPrefix(diags[0].Message, "extern go "+target+" is not on the reviewed pure list, so it may reach the host") {
 			t.Errorf("%s: want one S109 with the host text, got\n\t%s", target, describe(diags))
 		}
 	}
@@ -197,11 +189,10 @@ func malformed(path string) bool {
 }
 
 // TestExternAllowlistHostText pins F7's message for os (std-1 plan, G9;
-// round 2: std os.Process is G2's and not on main yet, so the text waits
-// for it).
+// IG2: the route is import go).
 func TestExternAllowlistHostText(t *testing.T) {
 	_, diags := check.CheckSource("extern go os.Getenv func Getenv(k string) string\n")
-	const want = "extern go os.Getenv reaches the host; wait for std os.Process or #202"
+	const want = "extern go os.Getenv is not on the reviewed pure list, so it may reach the host; call it through import go os, which charges go.Foreign"
 	if len(diags) != 1 || diags[0].Code != "S109" || !strings.HasPrefix(diags[0].Message, want) {
 		t.Fatalf("want one S109 starting %q, got\n\t%s", want, describe(diags))
 	}

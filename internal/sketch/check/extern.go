@@ -185,9 +185,11 @@ func (c *checker) checkExternParams() {
 // reach the host. A missing function there is go build's error (D-E5).
 // The Ergo runtime and Go's unsafe are S108 whatever the signature. A path
 // whose first element has a dot is a module outside Go's standard library
-// (Go's own rule for module paths) and keeps its #202 text; a pure package
-// not listed yet (v1.PureUnlisted, G2) is S109 with unlistedText; any other
-// path outside the allowlist may reach the host and is S109 (hostText).
+// (Go's own rule for module paths) and keeps its #202 text; any other path
+// outside the allowlist, and a member of v1.PureImportsExcept, may reach
+// the host and is S109 (hostText), which names import go, the route that
+// charges go.Foreign (IG2). The reviewed list is the one fact: no table
+// says a package is pure but not listed (IG2 deleted v1.PureUnlisted).
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
 	if path == runtimeModule || strings.HasPrefix(path, runtimeModule+"/") {
@@ -199,9 +201,6 @@ func externTargetRefusal(f *Func) (string, string) {
 	first, _, _ := strings.Cut(path, "/")
 	if strings.Contains(first, ".") {
 		return fmt.Sprintf("the Go package %s of the extern %s is #202's (Go imports); it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
-	}
-	if slices.Contains(v1.PureUnlisted, path) {
-		return unlistedText(path, f.Decl.Extern.Target.Value), CodeOutside
 	}
 	if !PureGoPackage(path) {
 		return hostText(path, f.Decl.Extern.Target.Value), CodeOutside
@@ -245,24 +244,11 @@ func PureGoPackage(path string) bool {
 	return slices.Contains(v1.PureImports, path)
 }
 
-// hostText is the S109 of a user extern whose Go package is outside the
-// pure allowlist (G9). It names the std route for the package when std
-// will have one: os.Process is G2's (wave std-1), not yet on main, so the
-// text says to wait for it.
+// hostText is the S109 of a user extern whose Go target is outside the
+// pure allowlist (G9): an unreviewed function may reach the host, so it is
+// called through import go, which charges go.Foreign (IG2).
 func hostText(path, target string) string {
-	route := "a std capability"
-	if path == "os" {
-		route = "std os.Process"
-	}
-	return fmt.Sprintf("extern go %s reaches the host; wait for %s or #202 (a user extern binds only the pure Go packages %s)", target, route, strings.Join(PureGoPackages(), ", "))
-}
-
-// unlistedText is the S109 of a user extern whose Go package reads only its
-// arguments but is not in the pure allowlist yet (G2, v1.PureUnlisted). It
-// says "not listed", not "reaches the host": the package is pure, and the
-// list grows by review.
-func unlistedText(path, target string) string {
-	return fmt.Sprintf("extern go %s: %s is not on the pure allowlist (%s) yet; a user extern binds only those (#202)", target, path, strings.Join(PureGoPackages(), ", "))
+	return fmt.Sprintf("extern go %s is not on the reviewed pure list, so it may reach the host; call it through import go %s, which charges go.Foreign (a user extern binds only the pure Go packages %s)", target, path, strings.Join(PureGoPackages(), ", "))
 }
 
 // externOutsideDomain names the first part of f's signature outside the
@@ -318,16 +304,23 @@ func IsGoError(n *Named) bool {
 	return n != nil && n.Obj != nil && n.Obj.Pkg == universeOnce.goPkg && n.Obj.Name == "Error"
 }
 
+// IsGoForeign reports the predeclared go.Foreign, the authority to run
+// unreviewed Go (import go), which only the entry provides.
+func IsGoForeign(n *Named) bool {
+	return n != nil && n.Obj != nil && n.Obj.Pkg == universeOnce.goPkg && n.Obj.Name == "Foreign"
+}
+
 // externErrorRefusal is the refusal of a user extern whose fails row does
 // not match its Go target (G4), or "": a target whose last result is error
-// (v1.PureErrorFuncs) must declare fails go.Error, and a target with no
-// error result must not. The checker does not read Go's sources (D-E5):
-// the table is runtime/v1's, held to Go's own declarations by
-// TestPureErrorFuncs. A name the table lacks returns no error; a name Go
+// must declare fails go.Error, and a target with no error result must not.
+// The checker does not read Go's sources (D-E5): it reads the target's
+// embedded binding, whose row is fails go.Error exactly when Go's last
+// result is error (IG1; TestGoStdBindingsMatchToolchain holds the bindings
+// to the toolchain). A name the binding lacks returns no error; a name Go
 // lacks is go build's error.
 func externErrorRefusal(f *Func) string {
 	path, name := f.Decl.Extern.Split()
-	returnsError := slices.Contains(v1.PureErrorFuncs[path], name)
+	returnsError := stdGoReturnsError(path, name)
 	switch {
 	case returnsError && !f.Sig.Fallible:
 		return fmt.Sprintf("extern go %s returns an error; declare it in the row: fails go.Error", f.Decl.Extern.Target.Value)

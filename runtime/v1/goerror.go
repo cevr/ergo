@@ -20,3 +20,20 @@ func GoErrorOf(err error) error {
 	}
 	return GoError{Text: err.Error()}
 }
+
+// GoNilDefect is the defect of a call of import go whose Go function
+// returned a nil pointer with a nil error where its binding promises a
+// value: `(*S, error)` lowers to `go.Ref[S] fails go.Error`, and Go's
+// convention that a nil error comes with a value is checked at the call,
+// not assumed (docs/spec/interop.md, Lowering). At is the Ergo call's
+// position, file:line:column.
+type GoNilDefect struct {
+	Func string
+	At   string
+}
+
+// String is the defect's text, which the entry's report writes after
+// "panic: ".
+func (d *GoNilDefect) String() string {
+	return "Go returned nil without an error at " + d.At + ": " + d.Func
+}

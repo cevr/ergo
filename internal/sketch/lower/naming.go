@@ -297,7 +297,18 @@ func (l *lowerer) libraryPackages() []*check.Package {
 	var out []*check.Package
 	var add func(p *check.Package)
 	add = func(p *check.Package) {
-		if p == nil || seen[p] || p.Info == nil {
+		if p == nil || seen[p] {
+			return
+		}
+		if p.Host() {
+			// A Go package (import go) has no Ergo source to lower: its
+			// declarations are Go's, named through its Go import
+			// (hostImportNames).
+			seen[p] = true
+			l.goPkgs = append(l.goPkgs, p)
+			return
+		}
+		if p.Info == nil {
 			return
 		}
 		seen[p] = true
@@ -322,6 +333,12 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		for x, t := range info.Types {
 			if n, ok := t.(*check.Named); ok && l.readsFact(p, x) {
 				add(n.Obj.Pkg)
+				// A Go type inside another (go.Ref[url.URL],
+				// Option[go.Ref[bufio.Reader]]) is Go's, named through
+				// its package's import.
+				for _, h := range hostPkgsIn(n, nil) {
+					add(h)
+				}
 			}
 		}
 		// A dot call reaches a function no name uses: the prelude's

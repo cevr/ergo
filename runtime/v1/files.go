@@ -101,37 +101,6 @@ var PureImportsExcept = map[string][]string{
 	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"},
 }
 
-// PureUnlisted are Go standard-library packages, outside PureImports, whose
-// functions of basic types read only their arguments: no host state, no
-// package state a caller can see, no unknown code (lane G, G2). Nothing
-// trusts this list. It only words the checker's refusal of a user extern of
-// one: "not on the pure allowlist yet", not "reaches the host" (check,
-// externTargetRefusal). A package joins PureImports by a reviewed move out
-// of this list; any package in neither list may reach the host. Left out on
-// review: net/url (reads GODEBUG), net/netip (a global intern table),
-// hash/maphash (a random seed), container/heap and crypto/hmac (they call
-// a caller's code), errors (calls an argument's methods) and encoding/json
-// (reflection and a caller's marshal methods).
-var PureUnlisted = []string{
-	"bytes", "cmp", "container/list", "container/ring",
-	"crypto/md5", "crypto/sha1", "crypto/sha512", "crypto/subtle",
-	"encoding/ascii85", "encoding/base32",
-	"hash/adler32", "hash/crc64", "hash/fnv",
-	"html", "maps", "math/big", "math/cmplx", "path", "regexp", "regexp/syntax",
-}
-
-// PureErrorFuncs names, for each package of PureImports with any, its
-// exported functions whose last result is Go's error (lane G, G4). A user
-// extern of one must declare fails go.Error, and a user extern of any other
-// function must not (check, externErrorRefusal). The checker does not read
-// Go's sources; TestPureErrorFuncs holds this table to the Go toolchain's
-// own declarations, so a package that joins PureImports joins here too.
-var PureErrorFuncs = map[string][]string{
-	"encoding/hex":  {"AppendDecode", "Decode", "DecodeString"},
-	"path/filepath": {"Abs", "EvalSymlinks", "Glob", "Localize", "Match", "Rel", "Walk", "WalkDir"},
-	"strconv":       {"Atoi", "ParseBool", "ParseComplex", "ParseFloat", "ParseInt", "ParseUint", "QuotedPrefix", "Unquote", "UnquoteChar"},
-}
-
 // PureImportHostMembers are the Go packages, beyond PureImports, that the
 // file of a marked body may import, each with its members that read host
 // state: the marked body may not name one, as a package member or as a

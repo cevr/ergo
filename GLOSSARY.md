@@ -165,7 +165,7 @@ A status in parentheses applies to the term's support: *checked* (the 2026 check
 
 **Codec** (designed): The pair a type's wire form is found by: `ParseX` decodes and `x.Wire()` encodes. A derived codec's rows are the union of its fields' rows. In the earlier language (implemented for structural JSON), a codec is a checked witness relating a wire type and a domain type through separately contracted decoding and encoding operations.
 
-**Go import** (designed): `import go "path"`, which imports a Go package. Every call charges the predeclared `go.Foreign` capability.
+**Go import** (checked): `import go path`, which imports a Go package through its binding (an Ergo file of `extern go` declarations that `ergo bind go` generates; Go's standard library is embedded). The name it binds is the Go package name (`import go math/rand/v2` binds `rand`). A call into a package of the reviewed pure list charges nothing; any other Go call charges the predeclared `go.Foreign` capability, which only the entry provides. A Go pointer that is stored or returned is a `go.Ref[T]`; Ergo's `*T` stays a borrow.
 
 ## Constructs, contracts and laws
 

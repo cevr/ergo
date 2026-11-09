@@ -1,6 +1,11 @@
 package check_test
 
 import (
+	"go/ast"
+	"go/build"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,20 +16,22 @@ import (
 
 // TestExternErrorRow is G4's checker property (gx-extern-error-row;
 // decision O14): a user extern declares fails go.Error exactly when its Go
-// target's last result is error. For every function of v1.PureErrorFuncs
-// (the members that reach the host aside: they are refused first) and a
-// set of functions of the allowlist that return no error, with and without
-// the row: a match is clean, and a call of a fallible one checks under
-// try; a mismatch is exactly one S108 at the declaration, with the text
-// pinned once here.
+// target's last result is error. For every function of the allowlist
+// whose last result is error, read from the toolchain's own Go sources
+// (the oracle; the checker reads the embedded bindings, IG2), the members
+// that reach the host aside (they are refused first), and a set of
+// functions of the allowlist that return no error, with and without the
+// row: a match is clean, and a call of a fallible one checks under try; a
+// mismatch is exactly one S108 at the declaration, with the text pinned
+// once here.
 func TestExternErrorRow(t *testing.T) {
 	type target struct {
 		path, name string
 		errs       bool
 	}
 	var targets []target
-	for path, names := range v1.PureErrorFuncs {
-		for _, name := range names {
+	for _, path := range v1.PureImports {
+		for _, name := range goErrorFuncs(t, path) {
 			if !slices.Contains(v1.PureImportsExcept[path], name) {
 				targets = append(targets, target{path, name, true})
 			}
@@ -64,4 +71,35 @@ func TestExternErrorRow(t *testing.T) {
 			})
 		}
 	}
+}
+
+// goErrorFuncs reads the exported top-level functions of the Go package
+// path whose last result is error from the toolchain's sources for this
+// GOOS and GOARCH: the oracle of TestExternErrorRow, independent of the
+// bindings the checker reads.
+func goErrorFuncs(t *testing.T, path string) []string {
+	t.Helper()
+	p, err := build.Default.Import(path, "", 0)
+	if err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	var out []string
+	fset := token.NewFileSet()
+	for _, name := range p.GoFiles {
+		f, err := parser.ParseFile(fset, filepath.Join(p.Dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv != nil || !fd.Name.IsExported() || fd.Type.Results == nil {
+				continue
+			}
+			list := fd.Type.Results.List
+			if id, ok := list[len(list)-1].Type.(*ast.Ident); ok && id.Name == "error" {
+				out = append(out, fd.Name.Name)
+			}
+		}
+	}
+	return out
 }

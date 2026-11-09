@@ -282,6 +282,11 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if v == NoValue {
 		return assignment{}, "it has no value"
 	}
+	if _, borrow := v.(*Pointer); borrow && refElem(t) != nil {
+		// A borrow lives no longer than its call (types.md, Borrows); a
+		// go.Ref is a Go pointer a Go function returned (q38).
+		return assignment{}, "a borrow is not kept as a go.Ref"
+	}
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
 	}
@@ -641,6 +646,14 @@ func dropSelf(sig *Signature) *Signature {
 	return &out
 }
 
+// fnPkg is fn's package, or nil for no function.
+func fnPkg(fn *Func) *Package {
+	if fn == nil {
+		return nil
+	}
+	return fn.Pkg
+}
+
 // implements checks method-row compatibility: for every method of it, v has
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
@@ -653,10 +666,18 @@ func (c *checker) implements(v Type, it *Interface) string {
 	if p, ok := v.(*Pointer); ok {
 		v, ptr = p.Elem, true
 	}
+	// go.Ref[T] is Go's *T: a Go value implements a Go interface by Go's
+	// method sets (docs/spec/interop.md, Checking).
+	if e := refElem(v); e != nil {
+		v, ptr = e, true
+	}
 	for _, m := range it.Methods {
 		got, fn := c.methodOf(v, m.Name)
 		if got == nil {
 			return fmt.Sprintf("%s has no method %s", v, m.Name)
+		}
+		if h := hostOf(fnPkg(fn)); h != nil && h.recvPtr[fn] && !ptr {
+			return fmt.Sprintf("the Go method %s.%s has a pointer receiver; pass a go.Ref[%s]", v, m.Name, v)
 		}
 		if fn != nil && fn.Ptr && !ptr {
 			return fmt.Sprintf("%s.%s has a *T receiver", v, m.Name)

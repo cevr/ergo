@@ -77,6 +77,11 @@ func TestProducerSmoke(t *testing.T) {
 		if identity["digest"] != firstDigest || identity["strength"] != "executing-artifact" {
 			t.Fatalf("check of compiler A: %v", identity)
 		}
+		// The compiler records its digest in its cache root's image memo,
+		// so the next command recalls it; the replacement below must not.
+		if memo := producerSmokeRead(t, filepath.Join(os.Getenv("XDG_CACHE_HOME"), "ergo", "producer-images")); !strings.Contains(memo, " "+firstDigest+"\n") {
+			t.Fatalf("image memo does not record compiler A: %q", memo)
+		}
 		// Every envelope of one artifact carries the same identity.
 		findings := smokeJSON(t, []byte(producerSmokeRun(t, directory, installed, "diagnostics", file, "--json")))
 		if !reflect.DeepEqual(producerSnapshot(t, findings), identity) || !reflect.DeepEqual(findings["snapshot"], before["snapshot"]) {

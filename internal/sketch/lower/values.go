@@ -261,6 +261,7 @@ type valueWalk struct {
 	calls    []*syntax.CallExpr       // prelude Append and Delete calls
 	ergo     []*syntax.CallExpr       // calls of functions with an Ergo body (V5)
 	args     []syntax.Expr            // arguments of owned parameters (V5)
+	goArgs   []syntax.Expr            // operands of Go calls of import go that hold a Map or slice (gocall.go)
 	sites    []*refSite               // owned Ref sites (V6, refown.go)
 	handOver map[*syntax.FuncLit]bool // their literals
 }
@@ -343,6 +344,16 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
+		} else if c != nil && goImportCall(c, w.typeOf) {
+			list := n.Args
+			if c.Recv != nil {
+				list = append([]syntax.Expr{c.Recv}, list...)
+			}
+			for _, a := range list {
+				if goShared(w.typeOf(a)) {
+					w.goArgs = append(w.goArgs, a)
+				}
+			}
 		}
 	}
 	if f := w.frameOf[n]; f != nil {
@@ -721,6 +732,16 @@ func (w *valueWalk) decide() {
 			if !vf.consumed[arg] && valueMutant != "consume-live" {
 				w.freshen(arg)
 			}
+		}
+	}
+	// An operand of a Go call (import go) that holds a Map or slice goes
+	// where Go may write or keep it: copied unless fresh or a local dead
+	// after the call, and always under the reference lowering (gocall.go).
+	for _, a := range w.goArgs {
+		if hostCopyAlways {
+			vf.clone[a] = true
+		} else {
+			w.freshen(a)
 		}
 	}
 	// Owned Ref sites (V6), once every copy is decided.
@@ -1529,6 +1550,11 @@ func (l *lowerer) freshResult(f *check.Func) bool {
 	case 1, 3:
 		return false
 	case 2:
+		return true
+	}
+	if f != nil && f.Pkg.Host() {
+		// A Go call's Map or slice result is new (freshGoResults) or
+		// copied at the call (goResult).
 		return true
 	}
 	if f == nil || f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil {

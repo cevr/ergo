@@ -79,16 +79,16 @@ func N[Q](_ S[Q], x R[Q]) {}`, false},
 			var ds []string
 			domain := 0
 			for _, d := range diags {
-				if tc.bodiless && d.Code == CodeOutside && strings.Contains(d.Message, "#202") {
-					// The C26 domain refusal of the extern's generic
-					// signature (a rule-3 case): not a cycle diagnostic.
+				if tc.bodiless && d.Code == CodeOutside && strings.Contains(d.Message, "extern go fixture.M") {
+					// The extern's one S109 (its target is not on the
+					// reviewed pure list; IG2): not a cycle diagnostic.
 					domain++
 					continue
 				}
 				ds = append(ds, d.String())
 			}
 			if tc.bodiless && domain != 1 {
-				t.Fatalf("want exactly one S109 (#202) for the extern beside the cycle, got %d; other diagnostics: %q", domain, ds)
+				t.Fatalf("want exactly one S109 for the extern beside the cycle, got %d; other diagnostics: %q", domain, ds)
 			}
 			if got := mentions(ds, "instantiation cycle"); got != tc.cycle {
 				t.Fatalf("ergo reports an instantiation cycle = %v, want %v; diagnostics: %q", got, tc.cycle, ds)

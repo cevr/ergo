@@ -210,6 +210,10 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 	case 0, check.ConvVariant:
 		return val
 	case check.ConvOperations:
+		if n, ok := conv.To.(*check.Named); ok && n.Obj.Pkg.Host() {
+			// A Go value to a Go interface: Go's own implicit conversion.
+			return val
+		}
 		return fc.operations(conv, val, site)
 	case check.ConvRow:
 		// The row value holds one of the union's error variants, which
@@ -385,6 +389,18 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 						return fc.funcValue(o, fc.typeOf(x), x, nil)
 					}
 				case *check.Var:
+					if o.Name == x.Sel.Name && pn.Pkg.Host() {
+						// A Go constant or error variable of import go
+						// is Go's own; an error is go.Error as G4 builds
+						// it (IG5 keeps the native error).
+						goName := fc.l.hostPkg(pn.Pkg.Path, x) + "." + o.Name
+						if n, ok := o.Type.(*check.Named); ok && check.IsGoError(n) {
+							return fc.l.rt() + ".GoErrorOf(" + goName + ").(" + fc.l.rt() + ".GoError)"
+						}
+						// Typed as the binding says: Go's untyped constant
+						// would take its default type (math.MaxInt64 as int).
+						return fc.goType(o.Type) + "(" + goName + ")"
+					}
 					if o.Name == x.Sel.Name {
 						// An imported package's let, lowered with the
 						// program (sources.go).
@@ -402,6 +418,11 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 		return fc.methodValue(x, op)
 	}
 	recv := fc.value(x.X)
+	if hostRecv(fc.typeOf(x.X)) {
+		// A field of a Go struct is Go's field, read as a result is
+		// (gocall.go): a nil pointer is None, a Map or slice is copied.
+		return fc.goResult(x, fc.typeOf(x), fc.spill(recv+"."+x.Sel.Name), "", "")
+	}
 	return recv + "." + fc.fieldName(x)
 }
 

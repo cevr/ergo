@@ -34,6 +34,7 @@ func (p *printer) decl(d syntax.Decl) {
 	case *syntax.VarDecl:
 		p.letDecl(d)
 	case *syntax.TypeDecl:
+		p.externSpec(d.Extern)
 		p.token(d.Type, "type")
 		p.space()
 		p.ident(d.Name)
@@ -50,16 +51,13 @@ func (p *printer) decl(d syntax.Decl) {
 		}
 		p.expr(d.Spec)
 	case *syntax.FuncDecl:
-		if x := d.Extern; x != nil {
-			p.token(x.Extern, "extern")
-			p.space()
-			p.token(x.Go, "go")
-			p.space()
-			p.basicLit(x.Target)
-			p.space()
-		}
+		p.externSpec(d.Extern)
 		p.token(d.Func, "func")
 		p.space()
+		if d.Recv != nil {
+			p.fieldList(d.Recv, "(", ")")
+			p.space()
+		}
 		p.ident(d.Name)
 		if d.TypeParams != nil {
 			p.fieldList(d.TypeParams, "[", "]")
@@ -127,8 +125,23 @@ func (p *printer) importDecl(d *syntax.ImportDecl) {
 	p.basicLit(s.Path)
 }
 
-// letDecl prints `let [mut] patterns [Type] [= value]`.
+// externSpec prints `extern go target `, the head of an extern
+// declaration, when x is set.
+func (p *printer) externSpec(x *syntax.ExternSpec) {
+	if x == nil {
+		return
+	}
+	p.token(x.Extern, "extern")
+	p.space()
+	p.token(x.Go, "go")
+	p.space()
+	p.basicLit(x.Target)
+	p.space()
+}
+
+// letDecl prints `[extern go target] let [mut] patterns [Type] [= value]`.
 func (p *printer) letDecl(d *syntax.VarDecl) {
+	p.externSpec(d.Extern)
 	p.token(d.Var, "let")
 	p.space()
 	if d.Mut.IsValid() {

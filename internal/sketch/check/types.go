@@ -713,6 +713,15 @@ func under(t Type) Type {
 
 func (n *Named) underlying() Type {
 	if n.under == nil {
+		if n.Orig == nil && n.Obj != nil && n.Obj.Pkg.Host() && n.state == 0 {
+			// A host type resolves when it is first read (lazy per
+			// declaration; gobinding.go).
+			n.Obj.Pkg.host.c.resolveNamed(n)
+			if n.under != nil {
+				return n.under
+			}
+			return invalid
+		}
 		if n.Orig != nil {
 			n.under = n.Orig.instanceUnder(n)
 		} else {
@@ -864,6 +873,11 @@ func isCapability(t Type) bool {
 	}
 	if n.foreign {
 		return true
+	}
+	if n.Obj != nil && n.Obj.Pkg.Host() {
+		// A Go interface (io.Reader) is a host type: a value, not an
+		// authority (docs/spec/interop.md).
+		return false
 	}
 	if len(n.origin().TParams) > 0 {
 		return false

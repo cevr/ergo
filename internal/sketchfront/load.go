@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -38,6 +39,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/std"
+	"ergo.local/prototype/internal/sketch/std/gostd"
 	"ergo.local/prototype/internal/sketch/syntax"
 	sourcefile "ergo.local/prototype/internal/source"
 )
@@ -119,6 +121,37 @@ type loader struct {
 	order   []*loadedPackage
 	diags   []report.Diagnostic
 	texts   map[string]string
+	gobind  *check.GoBindings
+}
+
+// GoBindings makes the loader a check.GoImporter: the program's packages
+// share one set of Go packages, so a host type has one identity.
+func (l *loader) GoBindings() *check.GoBindings {
+	if l.gobind == nil {
+		l.gobind = check.NewGoBindings(l.goBinding)
+	}
+	return l.gobind
+}
+
+// goBinding is the binding of the Go package path: Go's standard library's
+// (embedded; a std path always names std), else the module's own,
+// committed at ergo.bind/<path>/<last element>.ergo under the module root
+// (owner q37; docs/spec/interop.md). A binding read is an input of the
+// analysis, so it is part of Text.
+func (l *loader) goBinding(path string) (string, bool) {
+	if src, ok := gostd.Binding(path); ok {
+		return src, true
+	}
+	if l.module == "" || check.GoImportPathError(path) != "" || strings.Contains(path, "..") {
+		return "", false
+	}
+	rel := pathpkg.Join("ergo.bind", path, pathpkg.Base(path)+".ergo")
+	data, err := l.fsys.ReadFile(filepath.Join(l.root, filepath.FromSlash(rel)))
+	if err != nil {
+		return "", false
+	}
+	l.texts[rel] = string(data)
+	return string(data), true
 }
 
 const (

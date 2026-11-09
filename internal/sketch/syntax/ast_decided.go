@@ -18,6 +18,30 @@ func (s *ExternSpec) End() Pos { return s.Target.End() }
 // `example.com/json.Valid` is ("example.com/json", "Valid").
 func (s *ExternSpec) Split() (path, name string) { return splitTarget(s.Target.Value) }
 
+// SplitMethod returns the Go import path, the type and the method name of
+// a method target: `net/url.URL.Hostname` is ("net/url", "URL",
+// "Hostname").
+func (s *ExternSpec) SplitMethod() (path, typ, name string) {
+	rest, name := splitTarget(s.Target.Value)
+	path, typ = splitTarget(rest)
+	return path, typ, name
+}
+
+// IsBindingDecl reports whether d is a declaration only a Go binding has
+// (docs/spec/interop.md): an extern host type, an extern let, or an extern
+// method with a receiver.
+func IsBindingDecl(d Decl) bool {
+	switch d := d.(type) {
+	case *TypeDecl:
+		return d.Extern != nil
+	case *VarDecl:
+		return d.Extern != nil
+	case *FuncDecl:
+		return d.Recv != nil
+	}
+	return false
+}
+
 func splitTarget(target string) (path, name string) {
 	slash := -1
 	for i := len(target) - 1; i >= 0; i-- {

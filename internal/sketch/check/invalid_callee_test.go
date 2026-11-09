@@ -157,7 +157,7 @@ var cannotCarry = map[string]string{
 // listed in cannotCarry with its reason, or the test fails. Each route is
 // called with a trailing block and with a function literal that call b,
 // and with a block that names b as a value; b and a are one recursive
-// group, F returns b(). The one diagnostic is the S109 at the import (plus
+// group, F returns b(). The one diagnostic is the S104 at the import (no binding; plus
 // the routing form's own S109 where it is staged): b is no class G value
 // use of the group, and F does not "return no value". RefWalkProblems
 // checks both directions: every callback typing leaves unchecked is dropped
@@ -199,14 +199,14 @@ func TestInvalidCalleeDomain(t *testing.T) {
 					var got []string
 					refused := false
 					for _, d := range diags {
-						if d.Code == "S109" && d.Line == 1 && d.Column == 8 {
+						if d.Code == "S104" && d.Line == 1 && d.Column == 11 {
 							refused = true
 							continue
 						}
 						got = append(got, d.Code)
 					}
 					if !refused || strings.Join(got, " ") != r.staged {
-						t.Errorf("want the S109 at 1:8 and %q; got %v\n%s", r.staged, diags, src)
+						t.Errorf("want the S104 at 1:11 and %q; got %v\n%s", r.staged, diags, src)
 					}
 					if p := check.RefWalkProblems(src); len(p) > 0 {
 						t.Errorf("references: %s\n%s", strings.Join(p, "; "), src)

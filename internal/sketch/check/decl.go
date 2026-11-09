@@ -100,6 +100,8 @@ func (c *checker) run(files []*syntax.File) *Package {
 		// After every body: the first with operand past the with budget,
 		// silent checks included (withbudget.go).
 		c.reportWithBudget,
+		// Last: every lazy read of a binding is done (gobinding.go).
+		c.checkGoImports,
 	} {
 		c.cur = nil
 		pass()
@@ -243,6 +245,13 @@ func (c *checker) collect() {
 		c.cur = fi
 		f := fi.syntax
 		for _, d := range f.Decls {
+			if syntax.IsBindingDecl(d) {
+				// A host type, const or method comes only from a binding
+				// that ergo bind go writes (docs/spec/interop.md); the
+				// checker reads bindings with #202's import checking.
+				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) is #202's (Go imports); ergo bind go writes it, and it is not checked yet")
+				continue
+			}
 			switch d := d.(type) {
 			case *syntax.ImportDecl:
 				if len(d.Specs) != 1 {
@@ -476,10 +485,19 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 		}
 		path = p
 	}
+	if spec.Kind == syntax.ImportGo {
+		// Go's rule for an import path, before any name is read from it
+		// (#202 comment, small-fix #231).
+		if why := GoImportPathError(path); why != "" {
+			c.errorf(spec.Path, CodeType, "malformed Go import path %q: %s", path, why)
+			c.bindBrokenImport(fi, spec, path)
+			return
+		}
+	}
 	// A keyword cannot be the name an import binds, so a path whose last
 	// element is one needs an alias (grammar.md, Declarations rule 1; 196w).
 	// The message recognises Go's `import "context"` habit (#220).
-	if def := lastElement(path); spec.Name == nil && syntax.IsKeyword(def) {
+	if def := importDefault(spec, path); spec.Name == nil && syntax.IsKeyword(def) {
 		fix := "import " + def + "pkg " + path
 		if spec.Kind == syntax.ImportGo {
 			fix = "import go go" + def + " " + path
@@ -490,7 +508,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	// The same rule holds for a last element that is not a name, such as
 	// the folder okra-repo (196b Q3): the import needs an alias.
-	if def := lastElement(path); spec.Name == nil && !syntax.IsKeyword(def) && !importName(def) {
+	if def := importDefault(spec, path); spec.Name == nil && !syntax.IsKeyword(def) && !importName(def) {
 		c.errorf(spec.Path, CodeType, "%s is not a name; import the package under a name: import %s %s", def, strings.ReplaceAll(def, "-", ""), path)
 		c.bindBrokenImport(fi, spec, path)
 		return
@@ -498,8 +516,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	switch spec.Kind {
 	case syntax.ImportPlain, syntax.ImportNamed:
 	case syntax.ImportGo:
-		c.errorf(spec, CodeOutside, "import go %q is #202's (Go imports); it is not checked yet", path)
-		c.bindBrokenImport(fi, spec, path)
+		c.importGo(fi, spec, path)
 		return
 	default:
 		c.undecided(spec.Path, "this import form")
@@ -605,7 +622,7 @@ func (c *checker) checkImportAliases() {
 			continue
 		}
 		c.cur = a.file
-		def := lastElement(a.path)
+		def := importDefault(a.spec, a.path)
 		// A keyword, or an element that is not a name (196b Q3), is never
 		// a bound name, so its alias is needed.
 		clash := syntax.IsKeyword(def) || !importName(def)
@@ -636,6 +653,16 @@ func (c *checker) checkImportAliases() {
 // of it binds by default.
 func lastElement(path string) string {
 	return path[strings.LastIndex(path, "/")+1:]
+}
+
+// importDefault is the name an import binds with no alias: the last
+// element, or for import go the Go package name (math/rand/v2 is rand;
+// GoPackageName).
+func importDefault(spec *syntax.ImportSpec, path string) string {
+	if spec.Kind == syntax.ImportGo {
+		return GoPackageName(path)
+	}
+	return lastElement(path)
 }
 
 // importName reports whether an import path element can be the name a
@@ -766,6 +793,11 @@ func (c *checker) checkUnusedImports() {
 // colouring: a declaration reached again while it resolves is a cycle.
 func (c *checker) resolveNamed(n *Named) {
 	if n.state != 0 || n.Obj.Decl == nil {
+		return
+	}
+	if h := hostOf(n.Obj.Pkg); h != nil && h.c != c {
+		// A host type resolves in its binding (gobinding.go).
+		h.c.resolveNamed(n)
 		return
 	}
 	n.state = 1
@@ -922,7 +954,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx) *Inter
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
 		sig := c.signature(ft, mctx)
-		if ft.Needs != nil {
+		if ft.Needs != nil && c.pkg.host == nil {
+			// A Go interface's method runs Go code: its binding charges
+			// go.Foreign at the call (docs/spec/interop.md).
 			c.errorf(ft.Needs, CodeType, "an interface method writes no capability row: a provider's requirements are captured when it is built (types.md, Capabilities 4; README Gap 17)")
 			sig.Uses = newRow()
 		}
@@ -1323,9 +1357,9 @@ func (c *checker) qualifiedType(x *syntax.SelectorExpr) Type {
 	if pn.broken {
 		return invalid
 	}
-	m, ok := pn.Pkg.Scope.names[x.Sel.Name]
+	m, ok := pn.Pkg.member(x.Sel.Name)
 	if !ok || !isExported(x.Sel.Name) {
-		c.errorf(x.Sel, CodeUnknown, "%s.%s is not an exported declaration of package %s", id.Name, x.Sel.Name, pn.Pkg.Path)
+		c.unknownMember(x, pn)
 		return invalid
 	}
 	tn, ok := m.(*TypeName)
@@ -1821,6 +1855,10 @@ func (c *checker) funcSig(f *Func) *Signature {
 			f.Sig = &Signature{Errors: newRow(), Uses: newRow()}
 		}
 		return f.Sig
+	}
+	if h := hostOf(f.Pkg); h != nil && h.c != c {
+		// A host function or method resolves in its binding (gobinding.go).
+		return h.c.funcSig(f)
 	}
 	f.state = 1
 	saved := c.cur
