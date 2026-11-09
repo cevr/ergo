@@ -355,6 +355,16 @@ func (c *checker) checkRecursiveStructs() {
 	}
 }
 
+// unionLike reports a type that a machine takes as its state or signal: a
+// named union, or a named record, which is a union of one variant (fu-mb2
+// F10). match already reads a record subject as one constructor, so a
+// match on a record state is exhaustive with one arm. As asUnion does for
+// a union, it reads a defined type by its underlying type.
+func unionLike(t Type) bool {
+	_, named := t.(*Named)
+	return asUnion(t) != nil || named && asStruct(t) != nil
+}
+
 // checkMachine checks `type X machine[S, E] { initial v; step f }`: v is a
 // value of S, checked in a closed context like a package var; f names a
 // package function from S and E to Decision[S, O] with any rows
@@ -375,11 +385,11 @@ func (c *checker) checkMachine(tn *TypeName) {
 	}{{state, spec.State, "state"}, {signal, spec.Signal, "signal"}} {
 		// A refused type (one a cycle captured before its declaration was
 		// refused, too) adds nothing here (D3; rows.md, Totality 6, P4).
-		if !containsInvalid(part.t) && asUnion(part.t) == nil {
-			c.errorf(part.x, CodeType, "a machine's %s type must be a union, not %s", part.w, part.t)
+		if !containsInvalid(part.t) && !unionLike(part.t) {
+			c.errorf(part.x, CodeType, "a machine's %s type must be a union or a record, not %s", part.w, part.t)
 		}
 	}
-	valid := !isInvalid(state) && !isInvalid(signal) && asUnion(state) != nil && asUnion(signal) != nil
+	valid := !isInvalid(state) && !isInvalid(signal) && unionLike(state) && unionLike(signal)
 	if spec.Initial == nil || spec.Step == nil {
 		c.errorf(tn.Decl.Name, CodeType, "machine %s declares both initial and step (runtime.md, Machines and actors 1)", tn.Name)
 	}

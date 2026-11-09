@@ -99,16 +99,13 @@ func basket(lines []order.Line) string { "basket: \(len(lines)) lines, \(Money(o
 
 // HubText is the hub's screen.
 func HubText(h order.Hub) string {
-	match h {
-	case order.Shop as s:
-		match s.Screen {
-		case order.Browsing as b:
-			"page \(b.Page + 1)/\(len(s.Menu.Pages)): \(names(s.Menu.Pages[b.Page])) | \(basket(s.Basket))"
-		case order.Searching as q:
-			"search \"\(q.Query)\": \(names(order.Find(s.Menu, q.Query))) | \(basket(s.Basket))"
-		case order.Editing as e:
-			"editing \(e.Item.Name) | \(basket(s.Basket))"
-		}
+	match h.Screen {
+	case order.Browsing as b:
+		"page \(b.Page + 1)/\(len(h.Menu.Pages)): \(names(h.Menu.Pages[b.Page])) | \(basket(h.Basket))"
+	case order.Searching as q:
+		"search \"\(q.Query)\": \(names(order.Find(h.Menu, q.Query))) | \(basket(h.Basket))"
+	case order.Editing as e:
+		"editing \(e.Item.Name) | \(basket(h.Basket))"
 	}
 }
 
@@ -126,7 +123,7 @@ func EditText(e order.Edit) string {
 }
 
 func hubSettled(h order.Hub) bool {
-	match order.ScreenOf(h) {
+	match h.Screen {
 	case order.Editing as e:
 		match e.Editor {
 		case Some:
@@ -154,7 +151,7 @@ func editSettled(e order.Edit) bool {
 }
 
 func editing(h order.Hub) bool {
-	match order.ScreenOf(h) {
+	match h.Screen {
 	case order.Editing:
 		true
 	case _:
@@ -189,7 +186,7 @@ func Run(menu order.Menu) needs Console | io.Stdin | Scheduler | order.Kitchen {
 		case actor.Stopped:
 			order.Start(menu)
 		}
-		let mut next = match order.ScreenOf(h) {
+		let mut next = match h.Screen {
 		case order.Editing as e:
 			e.Editor
 		case _:
@@ -287,7 +284,7 @@ func view(hub actor.Actor[order.Hub, order.HubSignal, Decision[order.Hub, order.
 		return
 	}
 	Console.Println(HubText(h))
-	let mut next = match order.ScreenOf(h) {
+	let mut next = match h.Screen {
 	case order.Editing as e:
 		e.Editor
 	case _:

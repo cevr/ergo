@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -227,7 +228,22 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) runProgram {
 		ev = append(ev, fmt.Sprintf("E%d", j))
 		fmt.Fprintf(&b, "type E%d { v int }\n", j)
 	}
-	fmt.Fprintf(&b, "type St = %s\ntype Sig = %s\ntype Boom {}\n\n", strings.Join(sv, " | "), strings.Join(ev, " | "))
+	// A machine whose state (or signal) has one variant takes the record
+	// itself in some programs, not a union of it (fu-mb2 F10): St (or Sig)
+	// is then renamed to the record everywhere, and every match on it has
+	// the one arm.
+	stateRecord, signalRecord := ns == 1 && k%2 == 0, ne == 1 && k%3 == 0
+	if stateRecord {
+		seen["a machine with a record state"] = true
+	} else {
+		fmt.Fprintf(&b, "type St = %s\n", strings.Join(sv, " | "))
+	}
+	if signalRecord {
+		seen["a machine with a record signal"] = true
+	} else {
+		fmt.Fprintf(&b, "type Sig = %s\n", strings.Join(ev, " | "))
+	}
+	b.WriteString("type Boom {}\n\n")
 	row, helperRow := " fails Boom", ""
 	if needs {
 		row += " needs Probe"
@@ -441,7 +457,14 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 		b.WriteString("\t}\n")
 	}
 	b.WriteString("}\n")
-	return runProgram{name: fmt.Sprintf("machinerun_%02d", k), src: b.String(), want: want}
+	src := b.String()
+	if stateRecord {
+		src = regexp.MustCompile(`\bSt\b`).ReplaceAllString(src, "S0")
+	}
+	if signalRecord {
+		src = regexp.MustCompile(`\bSig\b`).ReplaceAllString(src, "E0")
+	}
+	return runProgram{name: fmt.Sprintf("machinerun_%02d", k), src: src, want: want}
 }
 
 // TestMachineRunAgreesWithFold is the acceptance property: over generated
@@ -451,7 +474,9 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string NEEDS {
 // on every list; and machines.RunTimed over the list at generated times
 // prints what the discrete-event model foldTimed computes (V5: a timer
 // never fires after its entry ended, Stay keeps it, Enter and Emit
-// restart it, a signal at a timer's deadline goes first). A failure
+// restart it, a signal at a timer's deadline goes first). Some machines
+// take a record as their state or signal, a union of one variant (fu-mb2
+// F10), whose step lowers to a Go method of the record. A failure
 // prints the program. ERGO_MACHINERUN_SEED replays another seed.
 //
 // It builds and runs the programs because the behaviour under test is the
@@ -480,7 +505,7 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	ends := []string{"running", "finished", "rejected", "boom", "-", "emitted"}
 	cases := []string{"timer fired after a stay", "a stale timer came due", "signal at its timer's deadline", "timer just before a signal", "timer rejected",
 		"timer fired in an entry opened by first", "timer fired in an entry opened by enter", "timer fired in an entry opened by emit", "a timer of an entry a late signal opened fired",
-		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs"}
+		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs", "a machine with a record state", "a machine with a record signal"}
 	missing := func() string {
 		seen["a timer of an entry a late signal opened fired"] = seen["timer fired in an entry opened by enter late"] || seen["timer fired in an entry opened by emit late"]
 		for _, k := range ends {

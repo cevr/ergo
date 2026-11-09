@@ -119,11 +119,18 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		}
 		scope := newNamer(l.names)
 		s, e := scope.alloc("s"), scope.alloc("e")
+		// A step over a record state lowers to a Go method of the record
+		// (methodReceiver), so the state is its receiver (fu-mb2 F10).
+		call := func(lead []string) string {
+			if fd.method != nil {
+				return "(" + s + ")." + fd.name + "(" + strings.Join(append(lead, e), ", ") + ")"
+			}
+			return fd.name + "(" + strings.Join(append(lead, s, e), ", ") + ")"
+		}
 		if machinePure(m.step, fd, site) {
 			// A pure step function takes no environment (pure.go); another
 			// step that reads none is passed nil.
-			args := strings.Join(append(fd.envLead("nil"), s, e), ", ")
-			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + fd.name + "(" + args + ")\n}\n\n")
+			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + call(fd.envLead("nil")) + "\n}\n\n")
 			return
 		}
 		env := scope.alloc("env")
@@ -131,7 +138,7 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		if fd.fallible {
 			results = "(" + result + ", error)"
 		}
-		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + fd.name + "(" + env + ", " + s + ", " + e + ")\n}\n\n")
+		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call([]string{env}) + "\n}\n\n")
 	})
 	if m.start == nil {
 		l.machineInit(td, initial)

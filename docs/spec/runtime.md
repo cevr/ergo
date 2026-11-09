@@ -296,7 +296,7 @@ type Breaker machine[State, Signal] {
 }
 ```
 
-1. **Machine.** `type X machine[S, E] { initial v; step f }` declares a state machine. `S` and `E` are unions. `initial` is a value of `S`, or names a start function of an input (item 10); `step` names a function from `S` and `E` to `Decision[S, O]`, with any error and `needs` rows.
+1. **Machine.** `type X machine[S, E] { initial v; step f }` declares a state machine. `S` and `E` are unions or records: a record is a union of one variant, as it is for `match`, which reads a record subject as one constructor, so one arm covers it (fu-mb2 F10). `initial` is a value of `S`, or names a start function of an input (item 10); `step` names a function from `S` and `E` to `Decision[S, O]`, with any error and `needs` rows.
 2. **Decision.** A step returns `Enter{next}` (re-enter, even with the same variant), `Stay{next}` (keep the entry), `Emit{next, output}` (move to `next` and open a new entry, as `Enter` does, and give `output` while the machine keeps running; V5, decision MQ1: "moves and emits"), `Ignore{}`, `Reject{}` (observable, state unchanged) or `Done{output}` (terminal). An entry is the stretch of a run from the commit that opens it (the first state, an `Enter`, an `Emit`) to the next such commit or the end; `Stay`, `Ignore` and `Reject` keep it. *Prior art:* gen_statem returns actions beside the next state (`{next_state, S, Data, Actions}`); Elm's `update` returns `(Model, Cmd)`; XState's `emit` action.
 3. **Totality.** The step's switch is total over `S × E` (README Gap 12).
 4. **Inspection.** `ergo inspect` draws the machine's graph from the step's cases. A helper the step calls is static in the graph only when its footprint is empty, not its row ([rows.md](rows.md#footprints)).
