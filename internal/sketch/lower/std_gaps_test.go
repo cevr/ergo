@@ -41,6 +41,17 @@ let GapCtx = context { GapReader: gapBox{n: 8} }
 // and runs it, and returns its stdout.
 func runGapProgram(t *testing.T, name, src string, imp pkgImporter) string {
 	t.Helper()
+	stdout, stderr, exit := runExe(t, buildGapProgram(t, name, src, imp))
+	if exit != 0 {
+		t.Fatalf("%s: exit %d, stderr %s", name, exit, firstLines(stderr, 12))
+	}
+	return stdout
+}
+
+// buildGapProgram checks src against the std fixtures, lowers, vets and
+// builds it, and returns the executable's path.
+func buildGapProgram(t *testing.T, name, src string, imp pkgImporter) string {
+	t.Helper()
 	file, err := syntax.Parse(src)
 	if err != nil {
 		t.Fatal(err)
@@ -59,11 +70,7 @@ func runGapProgram(t *testing.T, name, src string, imp pkgImporter) string {
 	if exes == nil {
 		t.FailNow()
 	}
-	stdout, stderr, exit := runExe(t, exes[name])
-	if exit != 0 {
-		t.Fatalf("%s: exit %d, stderr %s", name, exit, firstLines(stderr, 12))
-	}
-	return stdout
+	return exes[name]
 }
 
 // TestStdGapParseGuard: buildAll's parse guard (unparsedGo) names a
@@ -121,5 +128,70 @@ func main() needs Console {
 `
 	if got, want := runGapProgram(t, "gapctx", src, imp), "context: 8\n"; got != want {
 		t.Errorf("stdout %q, want %q", got, want)
+	}
+}
+
+// preludeStd is a std fixture that calls each function of the prelude:
+// Unreachable as a statement and as a value, and Append, Get, Delete,
+// NewLiveScheduler and Sleep (Append, Get, Delete and Sleep only by the
+// dot form).
+const preludeStd = `func Pick(n int) int {
+	if n > 1 {
+		Unreachable("statement")
+	}
+	let x int = if n == 1 { Unreachable("value") } else { n + 1 }
+	x
+}
+
+func Grow(xs []int, m Map[string, int]) int {
+	let ys = xs.Append(3)
+	let gone = m.Delete("a")
+	let got = match m.Get("a") {
+	case Some[int] as v:
+		v.Value
+	case None:
+		0
+	}
+	let left = match gone.Get("a") {
+	case Some[int] as v:
+		v.Value
+	case None:
+		100
+	}
+	len(ys) + got + left
+}
+
+func Nap() needs Ambient {
+	NewLiveScheduler().Sleep(1ns)
+}
+`
+
+// TestStdGapPrelude (G3, fs5 batch 12): a std body that calls the
+// prelude's functions lowers. Unreachable wrote its site through the
+// program-only location (at), so a call in std code was an internal
+// compiler error; its defect now names the std file. The defect is a Go
+// panic of the lowered body, so only a run shows its text.
+func TestStdGapPrelude(t *testing.T) {
+	f, err := syntax.Parse(preludeStd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "prelude_calls.ergo"
+	pkg, ds := check.StdFixture("preludestd", []*syntax.File{f})
+	if len(ds) != 0 {
+		t.Fatalf("std fixture: %v", ds)
+	}
+	const src = `import preludestd
+
+func main() needs Console | Ambient {
+	preludestd.Nap()
+	Console.Println("grow: \(preludestd.Grow([]int{1}, Map[string, int]{"a": 5})) pick: \(preludestd.Pick(0))")
+	Console.Println("pick: \(preludestd.Pick(2))")
+}
+`
+	stdout, stderr, exit := runExe(t, buildGapProgram(t, "gapprelude", src, pkgImporter{"preludestd": pkg}))
+	wantErr := "panic: unreachable at std/preludestd/prelude_calls.ergo:3:3: statement\n"
+	if wantOut := "grow: 107 pick: 1\n"; exit != 2 || stdout != wantOut || !strings.HasPrefix(stderr, wantErr) {
+		t.Errorf("exit %d, stdout %q, stderr:\n%s\nwant exit 2, stdout %q, stderr starting %q", exit, stdout, firstLines(stderr, 6), wantOut, wantErr)
 	}
 }

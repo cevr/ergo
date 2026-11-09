@@ -64,6 +64,19 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	if getLowering == "switch" || len(s.Subjects) != 1 {
 		return false, false
 	}
+	if o := fc.okSubject; o != nil && fc.isOkSubject(s) {
+		// The match of a callback's comma-ok variant (update.go): its
+		// subject is the Option parameter, which the variant takes as
+		// the value and ok of its Map read.
+		some, none, ok := fc.getArms(s.Clauses)
+		if !ok {
+			ice(s, "the comma-ok variant of a callback whose match getMatch does not lower")
+		}
+		if valueMutant == "update-ok-swap" {
+			some, none = none, some
+		}
+		return true, fc.getArmsLower(some, none, o.val, o.ok, d)
+	}
 	call, ok := unparen(s.Subjects[0].X).(*syntax.CallExpr)
 	if !ok || call.Trailing != nil {
 		return false, false
@@ -89,6 +102,13 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 	if some.as == nil && some.value == nil {
 		fc.line("_ = " + v)
 	}
+	return true, fc.getArmsLower(some, none, v, okName, d)
+}
+
+// getArmsLower writes the arms of a match that getMatch lowers, on the Go
+// value v and the comma-ok flag okName, and reports whether they
+// terminate.
+func (fc *funcCtx) getArmsLower(some, none getArm, v, okName string, d dest) bool {
 	arm := func(a getArm) bool {
 		fc.depth++
 		defer func() { fc.depth-- }()
@@ -119,20 +139,25 @@ func (fc *funcCtx) getMatch(s *syntax.TypeSwitchStmt, d dest) (done, terminates 
 		fc.line("{")
 		t := arm(some)
 		fc.line("}")
-		return true, t
+		return t
 	}
 	fc.line("if " + okName + " {")
 	ts := arm(some)
 	fc.line("} else {")
 	tn := arm(none)
 	fc.line("}")
-	return true, ts && tn
+	return ts && tn
 }
 
 // getArms is the arm that takes Some and the arm that takes None, the
 // first clause in order whose pattern covers each, when every pattern of
 // the match takes a shape getMatch lowers.
 func (fc *funcCtx) getArms(clauses []*syntax.CaseClause) (some, none getArm, ok bool) {
+	return getArmsOf(fc.l.info, clauses)
+}
+
+// getArmsOf is getArms with the facts of info, the package of the match.
+func getArmsOf(info *check.Info, clauses []*syntax.CaseClause) (some, none getArm, ok bool) {
 	for _, cl := range clauses {
 		if len(cl.List) == 0 {
 			takeArm(&some, getArm{clause: cl})
@@ -140,7 +165,7 @@ func (fc *funcCtx) getArms(clauses []*syntax.CaseClause) (some, none getArm, ok 
 			continue
 		}
 		for _, item := range cl.List {
-			p := fc.l.info.Patterns[item]
+			p := info.Patterns[item]
 			if p == nil {
 				ice(item, "a case with no Patterns entry")
 			}
