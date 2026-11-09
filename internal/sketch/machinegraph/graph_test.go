@@ -64,7 +64,12 @@ func gen(r *rand.Rand) *gmachine {
 	// helpers: one per kind, read through (empty footprint).
 	helperLine := line
 	w("func rejected() Decision[State, int] {\n\tReject\n}\n")
-	w("func step(s State, e Signal) Decision[State, int] {\n\tmatch (s, e) {\n")
+	nested := r.Intn(3) == 0
+	if nested {
+		w("func step(s State, e Signal) Decision[State, int] {\n\tmatch s {\n")
+	} else {
+		w("func step(s State, e Signal) Decision[State, int] {\n\tmatch (s, e) {\n")
+	}
 	covered := map[[2]int]bool{}
 	takes := func(a garm) [][2]int {
 		var out [][2]int
@@ -114,7 +119,37 @@ func gen(r *rand.Rand) *gmachine {
 		}
 		return name(i)
 	}
+	if nested {
+		// A match on the state whose arms match the signal: each inner
+		// arm is an arm of the graph, with its outer arm's state.
+		for i := range m.ns {
+			w("\tcase %s:\n\t\tmatch e {\n", sv(i))
+			seen := map[int]bool{}
+			for range r.Intn(m.ne + 1) {
+				j := r.Intn(m.ne)
+				if seen[j] {
+					continue
+				}
+				seen[j] = true
+				a := garm{state: i, sig: j, line: line}
+				w("\t\tcase %s:\n", ev(j))
+				a.edges = value("\t\t\t")
+				m.arms = append(m.arms, a)
+			}
+			if len(seen) < m.ne {
+				a := garm{state: i, sig: -1, line: line}
+				w("\t\tcase _:\n")
+				a.edges = value("\t\t\t")
+				m.arms = append(m.arms, a)
+			}
+			w("\t\t}\n")
+		}
+		w("\t}\n}\n")
+	}
 	for range r.Intn(m.ns*m.ne+2) + 1 {
+		if nested {
+			break
+		}
 		a := garm{state: r.Intn(m.ns+1) - 1, sig: r.Intn(m.ne+1) - 1}
 		fresh := false
 		for _, p := range takes(a) {
@@ -141,13 +176,15 @@ func gen(r *rand.Rand) *gmachine {
 		}
 		m.arms = append(m.arms, a)
 	}
-	if len(covered) < m.ns*m.ne {
-		a := garm{state: -1, sig: -1, line: line}
-		w("\tcase (_, _):\n")
-		a.edges = value("\t\t")
-		m.arms = append(m.arms, a)
+	if !nested {
+		if len(covered) < m.ns*m.ne {
+			a := garm{state: -1, sig: -1, line: line}
+			w("\tcase (_, _):\n")
+			a.edges = value("\t\t")
+			m.arms = append(m.arms, a)
+		}
+		w("\t}\n}\n")
 	}
-	w("\t}\n}\n")
 	w("func after(s State) Option[Timeout[Signal]] {\n\tmatch s {\n")
 	for i := range m.ns {
 		w("\tcase %s:\n", sv(i))
@@ -284,13 +321,14 @@ func TestGraphMatchesTheModel(t *testing.T) {
 		}) {
 			t.Fatalf("seed %d, case %d: reachable\n got %v\nwant %v\nsource:\n%s", seed, n, got, want, m.src)
 		}
+		seen["nested match"] = seen["nested match"] || strings.Contains(m.src, "match e {")
 		for _, a := range g.Arms {
 			for _, e := range a.Edges {
 				seen[e.Decision+" "+fmt.Sprint(e.To == Any)] = true
 			}
 		}
 	}
-	for _, k := range []string{"Enter false", "Stay false", "Stay true", "Emit false", "Ignore false", "Reject false", "Done false"} {
+	for _, k := range []string{"Enter false", "Stay false", "Stay true", "Emit false", "Ignore false", "Reject false", "Done false", "nested match"} {
 		if !seen[k] {
 			t.Errorf("seed %d: no case reached %q", seed, k)
 		}
