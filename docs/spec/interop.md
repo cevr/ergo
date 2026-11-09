@@ -2,7 +2,7 @@
 
 This file is the v1 specification of Go imports ([#202](https://github.com/cevr/ergo/issues/202)). It replaces the retired [docs/interop.md](../interop.md), which stays as design reference. The plan with its owner answers (q32 to q38, 2026-11-08) is the wf10 import-go plan; the rules below are its §1 and §2. Terms (Go import, Host package, Ambient) are in the [glossary](../../GLOSSARY.md).
 
-Status per section: **Binding files** and **Type mapping** are implemented by `ergo bind go` (`internal/gobind`, IG1), and the bindings of Go's standard library are embedded (`internal/sketch/std/gostd`). **Checking** is implemented (IG2): the checker reads the bindings, and a binding declaration in user source stays S109 (only a binding declares one). **Lowering** is implemented (IG3): Level 1 calls are direct Go calls. The Level 2 adapters are IG4.
+Status per section: **Binding files** and **Type mapping** are implemented by `ergo bind go` (`internal/gobind`, IG1), and the bindings of Go's standard library are embedded (`internal/sketch/std/gostd`). **Checking** is implemented (IG2): the checker reads the bindings, and a binding declaration in user source stays S109 (only a binding declares one). **Lowering** is implemented (IG3): Level 1 calls are direct Go calls. **Level 2 adapters** are implemented (IG4): a user extern names a binding's function and is checked against it.
 
 ## Two levels, one mechanism
 
@@ -93,7 +93,7 @@ Each call's row comes from the reviewed tables of `runtime/v1`, never from the G
 
 ## Lowering
 
-1. **Direct calls.** A call of a Go function, a method (of a Go struct through a value, a `go.Ref` or a borrow, or of a Go interface) and a field read lower to Go's own: `url.Parse(raw)`, `u.Hostname()`, `u.Path`, with Go's import in the emitted file (named apart when its name clashes). No environment, no wrapper and no poll: a Go call is not an interruption point ([runtime.md](runtime.md)). `go.Ref[T]` is Go's `*T`; a Go value passed where a Go interface is expected is Go's implicit conversion. `go.Foreign` has no operation, so the environment holds nothing for it. A call into the reviewed pure tier that takes no function is transparent in footprints (owner q35, reversing [stdlib.md](stdlib.md) Pure bodies 3 for `import go`): a function that makes only such calls takes no environment and polls nothing, as hand Go; a user extern stays opaque.
+1. **Direct calls.** A call of a Go function, a method (of a Go struct through a value, a `go.Ref` or a borrow, or of a Go interface) and a field read lower to Go's own: `url.Parse(raw)`, `u.Hostname()`, `u.Path`, with Go's import in the emitted file (named apart when its name clashes). No environment, no wrapper and no poll: a Go call is not an interruption point ([runtime.md](runtime.md)). `go.Ref[T]` is Go's `*T`; a Go value passed where a Go interface is expected is Go's implicit conversion. `go.Foreign` has no operation, so the environment holds nothing for it. A call into the reviewed pure tier that takes no function is transparent in footprints (owner q35, reversing [stdlib.md](stdlib.md) Pure bodies 3 for `import go`): a function that makes only such calls takes no environment and polls nothing, as hand Go; so is a user extern admitted against its binding with no needs row (Level 2 adapters, IG4).
 2. **Values in.** An argument (or a receiver) that is a Map or a slice, or a Go type over one, goes where Go may write or keep it: it is copied unless it is fresh (a literal, a call's result) or a local dead after the call, the value rule of [types.md](types.md) (q26). `sort.Ints(xs)` on a live `xs` sorts a copy; on a dead one it sorts in place, as hand Go does. The copy-always lowering is kept as the reference (`lower.SetHostCopyAlwaysForTest`), and a seeded property holds the two equal to the value model (`TestHostCopyElisionAgrees`).
 3. **Values out.** A Map or slice result is copied unless the reviewed table `freshGoResults` (`lower/gocall.go`) lists the function as returning new memory (`strings.Split`, `regexp.Regexp.FindAllString`); a result such as `regexp.Regexp.SubexpNames`, which shares Go's state, is copied, so a write to it never reaches Go. Several Go results are a tuple; a last `error` is `fails go.Error` (`v1.GoErrorOf`, as G4 lowers an extern).
 4. **Nil.** A nil pointer or interface whose Ergo type is `Option[T]` is `None`, else `Some`. A `go.Ref[S]` result that is nil with a nil error is a defect at the call, `Go returned nil without an error at <file:line:col>: <function>` (`v1.GoNilDefect`): Go's convention that a nil error comes with a value is checked, not assumed.
@@ -102,3 +102,21 @@ Each call's row comes from the reviewed tables of `runtime/v1`, never from the G
 7. **Not yet.** A Go function used as a value, and a callback parameter of import go, are IG6; an `import go` of a module's own Go package is IG7 (the lowering imports Go's standard library only).
 
 *Prior art:* Gleam's `@external` and ReScript's `@module` externals are direct calls with no adapter, as here when no Map or slice crosses shared; Kotlin/Native's cinterop and Swift's Clang importer map a nullable pointer to an optional the same way; Swift copies an `Array` passed to C only when its buffer is shared, as the value rule copies a live operand.
+
+## Level 2 adapters
+
+A user `extern go P.F func name(sig)` names a function of P's binding, and its written signature must be one adapter of the Level 1 signature the binding gives (IG4). The checker reads the binding and runs no Go tool, so an adapter is checked, not trusted ([grammar.md](grammar.md#declarations), Declarations 2):
+
+| written | Level 1 (Go) | lowering |
+| --- | --- | --- |
+| the Level 1 signature, any names | any | as an `import go` call |
+| `T` | `Option[T]`: a pointer or interface result that may be nil, with no error | a nil result is the defect `v1.GoNilDefect` naming the target and the Ergo call |
+| `Option[T]` | `(T, bool)` | `Some(v)` when Go's bool is true, else `None` |
+| `(R…, Option[go.Error])`, no `fails` row | `R… fails go.Error` (`(R…, error)`) | Go's values are kept beside the error; the error is `Some(go.Error)` when non-nil; refused when an `R` is a `go.Ref` |
+
+1. **Parameters** are Level 1's, of identical types. A generic target binds its type parameters from the written parameters, as Go infers them, and each must satisfy its constraint; a written type parameter is refused.
+2. **Rows.** `needs go.Foreign` exactly when the binding has it (the foreign tier); none on the reviewed pure tier. A target that returns an error writes `fails go.Error` or the Partial adapter. Adapters do not compose.
+3. **Trust** facts no adapter can check (purity, a synchronous callback, a read-only slice argument, a fresh result) come only from reviewed tables in `runtime/v1` (owner q36); user source states none.
+4. **Lowering.** An extern whose adapter is the Level 1 signature over predeclared basic types and G1's callbacks lowers as before, a direct call that go build also checks, and may be a function value. Any other is call-only and lowers by the rules of Lowering above (the copy rule, the spread, Go's results bound), then the adapter's check. On the reviewed pure tier, with no callback, the extern is transparent in footprints as an `import go` call is (owner q35, Q3).
+
+*Prior art:* Swift's API notes change an imported C signature (nullability, the `NSError **` convention, names) without touching the header, and the compiler applies them at the call; Kotlin's platform types are the opposite choice, an unchecked `T!`. Gleam and ReScript externals trust their written types; Borgo maps `(T, bool)` to `Option<T>` for every function, which loses `strings.CutPrefix`'s `after` when not found, so Ergo makes it an opt-in adapter.
