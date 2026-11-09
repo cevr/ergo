@@ -44,29 +44,22 @@ extern go ergo.local/prototype/runtime/v1.CSVFormat func Format(rows [][]string)
 // Rows is the records of text, each a Parsed, then a Malformed with the
 // error when the text breaks the format: the rows ReadAll gives, or the
 // records before ReadAll's error and the error. A Seq cannot fail, so the
-// error is a row. A text that breaks the format is read twice.
+// error is a row. Rows reads the text lazily, in one pass, as Go's
+// Reader.Read loop does: each record is read when the loop asks for it,
+// and a stop reads no further record (fs3).
 func Rows(text string) Seq[Row] {
 	Seq[Row](func(yield func(r Row) bool) {
-		let all = ReadAll(text) catch {
-		case ParseError as e:
-			for fields in prefix(text) {
-				if !yield(Parsed{Fields: fields}) {
-					return
-				}
-			}
+		let e = scan(text, func(fields []string) bool { yield(Parsed{Fields: fields}) })
+		if e.Reason != "" {
 			yield(Malformed{Error: e})
-			return
-		}
-		for fields in all {
-			if !yield(Parsed{Fields: fields}) {
-				return
-			}
 		}
 	})
 }
 
-// prefix is the records of text before Go's reader meets its first error.
-extern go ergo.local/prototype/runtime/v1.CSVPrefix func prefix(text string) [][]string
+// scan calls each with every record of text, in order, until each returns
+// false or the text ends, and gives the error Go's reader stopped at, or a
+// ParseError with no Reason when there was none or each stopped.
+extern go ergo.local/prototype/runtime/v1.CSVScan func scan(text string, each func(fields []string) bool) ParseError
 
 // same reports whether a and b hold the same fields in the same rows.
 func same(a [][]string, b [][]string) bool {

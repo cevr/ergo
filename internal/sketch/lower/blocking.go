@@ -150,7 +150,7 @@ var runtimeBindings = map[string]runtimeBinding{
 	"TimeSubMono": {},
 	// std-csv: pure bodies over encoding/csv on a string.
 	"CSVReadAll": {},
-	"CSVPrefix":  {},
+	"CSVScan":    {},
 	"CSVFormat":  {},
 	// std machines (fs2): the defect of a timer that is not positive.
 	"MachineTimerNotPositiveAt": {},

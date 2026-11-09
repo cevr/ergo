@@ -22,6 +22,7 @@ import (
 // that no host provider's function reaches, so a host body cannot hide
 // here.
 var notHostExterns = map[string]string{
+	"csv.scan":              "reads a string with Go's csv reader and calls the program's function per record",
 	"log.contextBound":      "reads the running task's context",
 	"log.contextValue":      "reads the running task's context",
 	"trace.contextBound":    "reads the running task's context",
