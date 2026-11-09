@@ -1,42 +1,62 @@
-// MU3 machine-actor: the live runner of a machine (std actor.StartMachine,
-// runtime/v1 actor.go), as a Quint model. Senders admit signals into one
-// inbox of capacity CAP: a Send, or an Ask that waits for its answer. The
-// runner takes the front envelope and steps it to completion before it
-// takes the next (run to completion). Each entry of the machine (the first
-// state, an Enter, an Emit) may arm one timer: a child that sleeps and
-// then pushes a timer envelope tagged with its entry's epoch into the same
-// inbox. When an entry ends, the runner stops the timer child and waits
-// until it has ended before the next entry arms its own (exit before
-// entry); a timer envelope of an ended entry that is already in the inbox
-// is dropped, never stepped (no stale signal). Done ends the actor: the
-// inbox closes, queued Asks are answered Stopped, and nothing is stepped
-// after it. Stop (from outside) closes admission, interrupts the runner
-// (an Ask in flight is answered Stopped) and drains the inbox the same way.
-// The step's decision is a free choice in every step, so every decision
-// sequence is explored.
+// MU3 machine-actor and MU4 machine-work: the live runner of a machine
+// (std actor.StartMachine, runtime/v1 actor.go), as a Quint model. Senders
+// admit signals into one inbox of capacity CAP: a Send, or an Ask that
+// waits for its answer. The runner takes the front envelope and steps it
+// to completion before it takes the next (run to completion). Each entry
+// of the machine (the first state, an Enter, an Emit) may arm one timer: a
+// child that sleeps and then pushes a timer envelope tagged with its
+// entry's epoch into the same inbox. When an entry ends, the runner stops
+// the timer child and waits until it has ended before the next entry arms
+// its own (exit before entry); a timer envelope of an ended entry that is
+// already in the inbox is dropped, never stepped (no stale signal). Done
+// ends the actor: the inbox closes, queued Asks are answered Stopped, and
+// nothing is stepped after it. Stop (from outside) closes admission,
+// interrupts the runner (an Ask in flight is answered Stopped) and drains
+// the inbox the same way. The step's decision is a free choice in every
+// step, so every decision sequence is explored.
+//
+// MU4 adds the entry's work: a second child of the entry, started after
+// the commit (the new epoch) and before observers see the new state. A
+// running work pushes result envelopes ("result": a success or a typed
+// failure through its map, one or more for a listener) tagged with its
+// entry's epoch, or one "defect" envelope, which ends the actor whatever
+// its epoch. When the entry ends, the runner interrupts the work and waits
+// for its end before the next entry starts its own; an interrupted work
+// pushes nothing. A result of an ended entry in the inbox is dropped.
 //
 // Invariants (`safe`):
 //   - runToCompletion: at most one envelope is in a step;
-//   - noStaleStep: no timer envelope of an ended entry is stepped;
-//   - exitBeforeEntry: no timer is armed while the previous entry's timer
-//     child is still alive;
+//   - noStaleStep: no timer or result envelope of an ended entry is
+//     stepped;
+//   - exitBeforeEntry: no timer is armed and no work starts while the
+//     previous entry's timer or work child is still alive;
 //   - oneTimerPerEntry: each entry arms at most one timer (Stay keeps it);
-//   - timerOnlyInItsEntry: a sleeping timer that is not being stopped
-//     belongs to the current entry;
-//   - noStepAfterEnd: nothing is stepped after Done or Stop;
+//   - oneLiveWorkPerEntry: each entry starts at most one work;
+//   - timerOnlyInItsEntry, workOnlyInItsEntry: a sleeping timer or a
+//     running work that is not being stopped belongs to the current entry
+//     (work starts after the commit);
+//   - nothingAfterInterrupt: an interrupted work pushes no envelope;
+//   - observersAfterWork: observers never see an entry whose work has not
+//     started yet;
+//   - noStepAfterEnd: nothing is stepped after Done, a defect or Stop;
 //   - perSenderOrder: each sender's signals are stepped in the order it
 //     admitted them;
 //   - askAnsweredOnce: no Ask gets two answers, and when the actor has
 //     ended and every sender is done, every Ask got exactly one.
 //
 // MUTANT selects a broken variant; each must break `safe`:
-//   1 noEpoch:      the runner steps a timer envelope without its epoch check
-//   2 armEarly:     the next entry arms before the old timer child ended
-//   3 stayRestarts: Stay restarts the timer, as an Enter does
-//   4 noClose:      Done does not close the inbox; the runner goes on
-//   5 answerTwice:  an Ask is answered twice
-//   6 twoAtOnce:    the runner takes a second envelope while one is in a step
-//   7 anyOrder:     the runner takes any envelope, not the front one
+//   1 noEpoch:          the runner steps a timer envelope without its epoch check
+//   2 armEarly:         the next entry arms before the old timer child ended
+//   3 stayRestarts:     Stay restarts the timer, as an Enter does
+//   4 noClose:          Done does not close the inbox; the runner goes on
+//   5 answerTwice:      an Ask is answered twice
+//   6 twoAtOnce:        the runner takes a second envelope while one is in a step
+//   7 anyOrder:         the runner takes any envelope, not the front one
+//   8 noWorkEpoch:      the runner steps a result envelope of an ended entry
+//   9 workEarly:        the next entry's work starts before the old work ended
+//  10 failOnInterrupt:  an interrupted work pushes its failure
+//  11 workBeforeCommit: the work starts with the epoch before the commit
+//  12 publishFirst:     observers see the new entry before its work starts
 module actor_machine {
   const MUTANT: int
   const SENDERS: Set[int]
@@ -45,7 +65,8 @@ module actor_machine {
   pure val CAP = 2
   pure val IDS = SENDERS.map(i => i * MSGS).union(SENDERS.map(i => i * MSGS + 1))
 
-  // kind is "send", "ask" or "tick" (a timer); a tick has sender -1.
+  // kind is "send", "ask", "tick" (a timer), "result" or "defect" (a
+  // work's); a tick, a result and a defect have sender -1.
   type Env = { kind: str, sender: int, seq: int, epoch: int }
 
   var inbox: List[Env]
@@ -61,10 +82,17 @@ module actor_machine {
   // "stopping" (the runner asked it to stop and waits for its end).
   var timer: str
   var timerEpoch: int
-  // pending: an entry opened and its timer is not armed yet; it waits for
-  // the old child to end.
+  // work is the work child of the entry workEpoch: "none", "running", or
+  // "stopping" (interrupted; the runner waits for its end).
+  var work: str
+  var workEpoch: int
+  // pending: an entry opened and its timer and work are not started yet;
+  // they wait for the old children to end.
   var pending: bool
+  // seen is the epoch of the last entry observers were shown.
+  var seen: int
   var arms: int -> int
+  var starts: int -> int
   var asked: Set[int]
   var answers: int -> int
   var lastStepped: int -> int
@@ -72,8 +100,16 @@ module actor_machine {
 
   pure val none = { kind: "none", sender: -1, seq: -1, epoch: -1 }
 
-  // The first entry may have a timer.
-  action init = nondet t = Set("none", "sleeping").oneOf() all {
+  // The first entry may have a timer and a work; observers then see it.
+  action init = all {
+    nondet t = Set("none", "sleeping").oneOf()
+    nondet w = Set("none", "running").oneOf()
+    all {
+      timer' = t,
+      work' = w,
+      arms' = if (t == "sleeping") Map(0 -> 1) else Map(),
+      starts' = if (w == "running") Map(0 -> 1) else Map(),
+    },
     inbox' = [],
     nextSeq' = SENDERS.mapBy(_ => 0),
     open' = true,
@@ -82,10 +118,10 @@ module actor_machine {
     cur' = none,
     inFlight' = 0,
     epoch' = 0,
-    timer' = t,
     timerEpoch' = 0,
+    workEpoch' = 0,
     pending' = false,
-    arms' = if (t == "sleeping") Map(0 -> 1) else Map(),
+    seen' = 0,
     asked' = Set(),
     answers' = IDS.mapBy(_ => 0),
     lastStepped' = SENDERS.mapBy(_ => -1),
@@ -119,7 +155,8 @@ module actor_machine {
     },
     nextSeq' = nextSeq.setBy(i, x => x + 1),
     open' = open, stopReq' = stopReq, runner' = runner, cur' = cur, inFlight' = inFlight,
-    epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch, pending' = pending, arms' = arms,
+    epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch, work' = work, workEpoch' = workEpoch,
+    pending' = pending, seen' = seen, arms' = arms, starts' = starts,
     lastStepped' = lastStepped, bad' = bad,
   }
 
@@ -133,7 +170,8 @@ module actor_machine {
     inbox' = inbox.append({ kind: "tick", sender: -1, seq: 0, epoch: timerEpoch }),
     timer' = "none",
     nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner, cur' = cur,
-    inFlight' = inFlight, epoch' = epoch, timerEpoch' = timerEpoch, pending' = pending, arms' = arms,
+    inFlight' = inFlight, epoch' = epoch, timerEpoch' = timerEpoch, work' = work,
+    workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
     asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
   }
 
@@ -142,8 +180,38 @@ module actor_machine {
     timer == "stopping",
     timer' = "none",
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
-    cur' = cur, inFlight' = inFlight, epoch' = epoch, timerEpoch' = timerEpoch, pending' = pending,
-    arms' = arms, asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+    cur' = cur, inFlight' = inFlight, epoch' = epoch, timerEpoch' = timerEpoch, work' = work,
+    workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
+  }
+
+  // A running work pushes a result with its entry's epoch: a one-shot
+  // work's success or mapped failure, then it ends (last), or one signal
+  // of a listener, which goes on. Or it pushes a defect and ends. An
+  // interrupted work pushes nothing: its push raises at its check (mutant
+  // 10: it pushes its failure). A push needs room, as a Send does.
+  action workPush(k: str, last: bool): bool = all {
+    work == "running" or (MUTANT == 10 and work == "stopping"),
+    open,
+    inbox.length() < CAP,
+    inbox' = inbox.append({ kind: k, sender: -1, seq: 0, epoch: workEpoch }),
+    work' = if (last or k == "defect") "none" else work,
+    bad' = if (work == "stopping") bad.union(Set("afterInterrupt")) else bad,
+    nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner, cur' = cur,
+    inFlight' = inFlight, epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch,
+    workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped,
+  }
+
+  // A work ends: a running listener returns with nothing to send, or an
+  // interrupted work ends without pushing.
+  action workEnds = all {
+    work == "running" or work == "stopping",
+    work' = "none",
+    inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
+    cur' = cur, inFlight' = inFlight, epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch,
+    workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
+    asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
   }
 
   // The runner takes the front envelope (mutant 7: any one; mutant 6: also
@@ -156,40 +224,71 @@ module actor_machine {
     nondet j = inbox.indices().oneOf()
     val k = if (MUTANT == 7) j else 0
     val e = inbox[k]
+    val signal = e.kind == "send" or e.kind == "ask"
     all {
       cur' = e,
       inbox' = inbox.slice(0, k).concat(inbox.slice(k + 1, inbox.length())),
-      bad' = if (e.kind != "tick" and e.seq < lastStepped.get(e.sender)) bad.union(Set("order")) else bad,
-      lastStepped' = if (e.kind != "tick") lastStepped.set(e.sender, e.seq) else lastStepped,
+      bad' = if (signal and e.seq < lastStepped.get(e.sender)) bad.union(Set("order")) else bad,
+      lastStepped' = if (signal) lastStepped.set(e.sender, e.seq) else lastStepped,
     },
     runner' = "busy",
     inFlight' = inFlight + 1,
     nextSeq' = nextSeq, open' = open, stopReq' = stopReq, epoch' = epoch, timer' = timer,
-    timerEpoch' = timerEpoch, pending' = pending, arms' = arms, asked' = asked, answers' = answers,
+    timerEpoch' = timerEpoch, work' = work, workEpoch' = workEpoch, pending' = pending,
+    seen' = seen, arms' = arms, starts' = starts, asked' = asked, answers' = answers,
   }
 
-  // A tick of an ended entry is dropped (mutant 1 steps it instead).
-  def stale = cur.kind == "tick" and cur.epoch != epoch and MUTANT != 1
+  // A tick or a result of an ended entry is dropped (mutant 1 steps a
+  // stale tick, mutant 8 a stale result). A defect is never dropped.
+  def tagged = cur.kind == "tick" or cur.kind == "result"
+  def stale = (cur.kind == "tick" and cur.epoch != epoch and MUTANT != 1) or
+    (cur.kind == "result" and cur.epoch != epoch and MUTANT != 8)
 
   action drop = all {
     runner == "busy",
     stale,
     runner' = "idle", inFlight' = inFlight - 1, cur' = none,
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, epoch' = epoch,
-    timer' = timer, timerEpoch' = timerEpoch, pending' = pending, arms' = arms, asked' = asked,
+    timer' = timer, timerEpoch' = timerEpoch, work' = work, workEpoch' = workEpoch,
+    pending' = pending, seen' = seen, arms' = arms, starts' = starts, asked' = asked,
     answers' = answers, lastStepped' = lastStepped, bad' = bad,
   }
 
+  // A defect of the work ends the actor, whatever its epoch, as Done does:
+  // admission closes, queued Asks are answered, and both children are
+  // stopped.
+  action defectEnds = all {
+    runner == "busy",
+    cur.kind == "defect",
+    not(stopReq),
+    runner' = "ended",
+    open' = false,
+    inbox' = [],
+    answers' = drainAnswers(answers, inbox),
+    timer' = if (timer == "sleeping") "stopping" else timer,
+    work' = if (work == "running") "stopping" else work,
+    pending' = false,
+    bad' = if (bad.contains("doneSeen")) bad.union(Set("afterEnd")) else bad,
+    cur' = none,
+    inFlight' = inFlight - 1,
+    nextSeq' = nextSeq, stopReq' = stopReq, epoch' = epoch, timerEpoch' = timerEpoch,
+    workEpoch' = workEpoch, seen' = seen, arms' = arms, starts' = starts,
+    asked' = asked, lastStepped' = lastStepped,
+  }
+
   // The step of cur commits a decision d. Enter and Emit end the entry:
-  // its timer child is asked to stop, and the new entry's timer waits for
-  // its end (arm). Stay keeps the entry and its timer (mutant 3 restarts
-  // it). Done ends the actor (mutant 4: the actor goes on).
+  // its timer child is asked to stop, its work is interrupted, and the new
+  // entry's children wait for their end (arm). Stay keeps the entry, its
+  // timer and its work (mutant 3 restarts the timer). Done ends the actor
+  // (mutant 4: the actor goes on). Mutant 12 shows observers the new entry
+  // at the commit, before its work starts.
   action stepIt(d: str): bool = all {
     runner == "busy",
     not(stale),
     not(stopReq),
+    cur.kind != "defect",
     val badNow = bad
-      .union(if (cur.kind == "tick" and cur.epoch != epoch) Set("stale") else Set())
+      .union(if (tagged and cur.epoch != epoch) Set("stale") else Set())
       .union(if (bad.contains("doneSeen")) Set("afterEnd") else Set())
     val reenter = d == "enter" or d == "emit"
     // Mutant 3: a Stay stops the entry's timer and arms a new one for the
@@ -203,8 +302,10 @@ module actor_machine {
         inbox' = [],
         answers' = drainAnswers(answer(answers, cur, n), inbox),
         timer' = if (timer == "sleeping") "stopping" else timer,
+        work' = if (work == "running") "stopping" else work,
         epoch' = epoch,
         pending' = false,
+        seen' = seen,
         bad' = badNow,
       } else all {
         runner' = "idle",
@@ -214,30 +315,43 @@ module actor_machine {
         inbox' = inbox,
         answers' = answer(answers, cur, n),
         timer' = if (restart and timer == "sleeping") "stopping" else timer,
+        work' = if (reenter and work == "running") "stopping" else work,
         epoch' = if (reenter) epoch + 1 else epoch,
         pending' = (restart or pending),
+        seen' = if (reenter and MUTANT == 12) epoch + 1 else seen,
         bad' = if (d == "done") badNow.union(Set("doneSeen")) else badNow,
       },
     },
     cur' = none,
     inFlight' = inFlight - 1,
-    nextSeq' = nextSeq, stopReq' = stopReq, timerEpoch' = timerEpoch, arms' = arms,
-    asked' = asked, lastStepped' = lastStepped,
+    nextSeq' = nextSeq, stopReq' = stopReq, timerEpoch' = timerEpoch, workEpoch' = workEpoch,
+    arms' = arms, starts' = starts, asked' = asked, lastStepped' = lastStepped,
   }
 
-  // The new entry arms its timer, or has none, once the old child ended
-  // (mutant 2: at once).
-  action arm(has: bool): bool = all {
+  // The new entry arms its timer and starts its work, or has none, once
+  // the old children ended (mutant 2: the timer at once; mutant 9: the
+  // work at once), and then observers see it. Mutant 11 starts the work
+  // with the epoch before the commit.
+  action arm(has: bool, hasWork: bool): bool = all {
     pending,
     runner != "ended",
     MUTANT == 2 or timer == "none",
-    bad' = if (timer != "none") bad.union(Set("armEarly")) else bad,
+    MUTANT == 9 or work == "none",
+    bad' = bad
+      .union(if (timer != "none") Set("armEarly") else Set())
+      .union(if (hasWork and work != "none") Set("workEarly") else Set()),
     timer' = if (has) "sleeping" else timer,
     timerEpoch' = if (has) epoch else timerEpoch,
     arms' = if (not(has)) arms
       else if (arms.keys().contains(epoch)) arms.setBy(epoch, x => x + 1)
       else arms.put(epoch, 1),
+    work' = if (hasWork) "running" else work,
+    workEpoch' = if (not(hasWork)) workEpoch else if (MUTANT == 11) epoch - 1 else epoch,
+    starts' = if (not(hasWork)) starts
+      else if (starts.keys().contains(epoch)) starts.setBy(epoch, x => x + 1)
+      else starts.put(epoch, 1),
     pending' = false,
+    seen' = epoch,
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
     cur' = cur, inFlight' = inFlight, epoch' = epoch, asked' = asked, answers' = answers,
     lastStepped' = lastStepped,
@@ -249,12 +363,14 @@ module actor_machine {
     stopReq' = true,
     open' = false,
     inbox' = inbox, nextSeq' = nextSeq, runner' = runner, cur' = cur, inFlight' = inFlight,
-    epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch, pending' = pending, arms' = arms,
+    epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch, work' = work,
+    workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms, starts' = starts,
     asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
   }
 
   // The interrupted runner ends: an Ask in its step and every queued Ask
-  // are answered Stopped; the timer child is asked to stop.
+  // are answered Stopped; the timer child is asked to stop and the work
+  // is interrupted.
   action halt = all {
     stopReq,
     runner != "ended",
@@ -264,16 +380,18 @@ module actor_machine {
     inFlight' = 0,
     cur' = none,
     timer' = if (timer == "sleeping") "stopping" else timer,
+    work' = if (work == "running") "stopping" else work,
     pending' = false,
     nextSeq' = nextSeq, open' = open, stopReq' = stopReq, epoch' = epoch, timerEpoch' = timerEpoch,
-    arms' = arms, asked' = asked, lastStepped' = lastStepped, bad' = bad,
+    workEpoch' = workEpoch, seen' = seen, arms' = arms, starts' = starts, asked' = asked,
+    lastStepped' = lastStepped, bad' = bad,
   }
 
   action stutter = all {
     inbox' = inbox, nextSeq' = nextSeq, open' = open, stopReq' = stopReq, runner' = runner,
     cur' = cur, inFlight' = inFlight, epoch' = epoch, timer' = timer, timerEpoch' = timerEpoch,
-    pending' = pending, arms' = arms, asked' = asked, answers' = answers,
-    lastStepped' = lastStepped, bad' = bad,
+    work' = work, workEpoch' = workEpoch, pending' = pending, seen' = seen, arms' = arms,
+    starts' = starts, asked' = asked, answers' = answers, lastStepped' = lastStepped, bad' = bad,
   }
 
   action step = any {
@@ -282,12 +400,18 @@ module actor_machine {
     admit(i, k),
     fire,
     timerEnds,
+    nondet k = Set("result", "defect").oneOf()
+    nondet last = Set(true, false).oneOf()
+    workPush(k, last),
+    workEnds,
     take,
     drop,
+    defectEnds,
     nondet d = Set("enter", "stay", "emit", "ignore", "reject", "done").oneOf()
     stepIt(d),
     nondet has = Set(true, false).oneOf()
-    arm(has),
+    nondet hasWork = Set(true, false).oneOf()
+    arm(has, hasWork),
     requestStop,
     halt,
     stutter,
@@ -297,19 +421,28 @@ module actor_machine {
 
   val runToCompletion = inFlight <= 1
   val noStaleStep = not(bad.contains("stale"))
-  val exitBeforeEntry = not(bad.contains("armEarly"))
+  val exitBeforeEntry = not(bad.contains("armEarly")) and not(bad.contains("workEarly"))
   val oneTimerPerEntry = arms.keys().forall(e => arms.get(e) <= 1)
+  val oneLiveWorkPerEntry = starts.keys().forall(e => starts.get(e) <= 1)
   val timerOnlyInItsEntry = timer != "sleeping" or timerEpoch == epoch or pending
+  val workOnlyInItsEntry = work != "running" or workEpoch == epoch or pending
+  val nothingAfterInterrupt = not(bad.contains("afterInterrupt"))
+  val observersAfterWork = not(pending and seen == epoch)
   val noStepAfterEnd = not(bad.contains("afterEnd"))
   val perSenderOrder = not(bad.contains("order"))
   val askAnsweredOnce = IDS.forall(x => answers.get(x) <= 1) and
     (not(runner == "ended" and sendersDone) or asked.forall(x => answers.get(x) == 1))
   val safe = runToCompletion and noStaleStep and exitBeforeEntry and oneTimerPerEntry and
-    timerOnlyInItsEntry and noStepAfterEnd and perSenderOrder and askAnsweredOnce
+    oneLiveWorkPerEntry and timerOnlyInItsEntry and workOnlyInItsEntry and
+    nothingAfterInterrupt and observersAfterWork and noStepAfterEnd and perSenderOrder and
+    askAnsweredOnce
 
   // Witnesses: the design must reach each of these, so `safe` is not
   // vacuous. Each `no…` value is the negation; a run must violate it.
   val noStaleTick = not(runner == "busy" and cur.kind == "tick" and cur.epoch != epoch)
+  val noStaleResult = not(runner == "busy" and cur.kind == "result" and cur.epoch != epoch)
+  val noInterruptedWork = work != "stopping"
+  val noDefectEnd = not(runner == "busy" and cur.kind == "defect")
   val noEndAfterAsks = not(runner == "ended" and sendersDone and asked.size() >= 2)
   val noFullInbox = inbox.length() < CAP
   val noTwoSendersQueued = not(inbox.length() == CAP and inbox[0].sender != inbox[1].sender and inbox[0].sender >= 0 and inbox[1].sender >= 0)
@@ -324,3 +457,8 @@ module noClose { import actor_machine(MUTANT = 4, SENDERS = Set(0, 1)).* }
 module answerTwice { import actor_machine(MUTANT = 5, SENDERS = Set(0, 1)).* }
 module twoAtOnce { import actor_machine(MUTANT = 6, SENDERS = Set(0, 1)).* }
 module anyOrder { import actor_machine(MUTANT = 7, SENDERS = Set(0, 1)).* }
+module noWorkEpoch { import actor_machine(MUTANT = 8, SENDERS = Set(0, 1)).* }
+module workEarly { import actor_machine(MUTANT = 9, SENDERS = Set(0, 1)).* }
+module failOnInterrupt { import actor_machine(MUTANT = 10, SENDERS = Set(0, 1)).* }
+module workBeforeCommit { import actor_machine(MUTANT = 11, SENDERS = Set(0, 1)).* }
+module publishFirst { import actor_machine(MUTANT = 12, SENDERS = Set(0, 1)).* }
