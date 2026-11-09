@@ -26,7 +26,7 @@ law DecodeInvertsEncode(names []string, secrets []string) {
 	let k = Spiced(names, secrets)
 	match Decode(Encode(k)) {
 	case Some[keys.Keys] as back:
-		keys.Same(back.Value, k)
+		back.Value == k
 	case None:
 		false
 	}
@@ -55,7 +55,7 @@ law LastValueFirstPlace(name string, other string, a string, b string) {
 	match Decode(text) {
 	case Some[keys.Keys] as k:
 		let want = keys.Empty().Set(Spice(name), Spice(b)).Set(Spice(other), "o")
-		keys.Same(k.Value, want)
+		k.Value == want
 	case None:
 		false
 	}

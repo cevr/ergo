@@ -1,33 +1,23 @@
 // Package memory is an in-memory provider of keys.Store, for tests.
 
 import okrakeys/keys
+import sync
 
-// Vault keeps the keys in memory. The Map is shared by every copy of a
-// Vault: it is the provider's state, the one mutable cell Ergo has
-// (G-ex-b-3). Its field is unexported, so only New builds one.
-type Vault { cell Map[int, keys.Keys] }
+// Vault keeps the keys in memory. They are in a sync.Ref, so every copy of
+// a Vault is the same store: a Vault bound in a context keeps its keys
+// from one call to the next. Its field is unexported, so only NewVault
+// builds one.
+type Vault { cell sync.Ref[keys.Keys] }
 
-// New is a vault that holds k.
-func New(k keys.Keys) Vault {
-	let mut cell = Map[int, keys.Keys]{}
-	cell[0] = k
-	Vault{cell: cell}
-}
+// NewVault is a vault that holds k.
+func NewVault(k keys.Keys) Vault { Vault{cell: sync.NewRef[keys.Keys](k)} }
 
 // Load is the keys held.
-func Load(v Vault) keys.Keys fails keys.StoreFailed {
-	match v.cell.Get(0) {
-	case Some[keys.Keys] as k:
-		k.Value
-	case None:
-		keys.Empty()
-	}
-}
+func Load(v Vault) keys.Keys fails keys.StoreFailed { v.cell.Get() }
 
 // Save holds k, and is the path the host's store would write with HOME
 // set to ".".
 func Save(v Vault, k keys.Keys) string fails keys.StoreFailed {
-	let mut cell = v.cell
-	cell[0] = k
+	v.cell.Set(k)
 	".okra/keys.json"
 }

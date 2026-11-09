@@ -26,22 +26,8 @@ type Store {
 		case StoreFailed:
 			return false
 		}
-		Same(back, k)
+		back == k
 	},
-}
-
-// Same reports whether a and b hold the same keys in the same order. Keys
-// holds a slice, so it has no == (G-ex-d-5).
-func Same(a Keys, b Keys) bool {
-	if len(a.entries) != len(b.entries) {
-		return false
-	}
-	for i, e in a.entries {
-		if e != b.entries[i] {
-			return false
-		}
-	}
-	true
 }
 
 // Mask is a preview of secret that reveals nothing: its first five and
