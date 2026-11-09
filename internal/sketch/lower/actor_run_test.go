@@ -176,7 +176,7 @@ test ActorRejectKeepsState(signals []int, n int) { assert RejectKeepsState(signa
 
 test ActorDoneIsFinal(signals []int, e int) { assert DoneIsFinal(signals, e) }
 
-func exitParts(x actor.Exit[int, int]) (int, int, int) {
+func exitParts[F](x actor.Exit[int, int, F]) (int, int, int) {
 	match x {
 	case actor.Finished[int, int] as f:
 		(0, f.State, f.Output)
@@ -184,6 +184,52 @@ func exitParts(x actor.Exit[int, int]) (int, int, int) {
 		(1, h.State, 0)
 	case actor.Defected:
 		(2, 0, 0)
+	case actor.Failed[F]:
+		(3, 0, 0)
+	}
+}
+
+type Boom { At int }
+
+func boomStep(s int, e int) Decision[int, int] fails Boom {
+	if e < 0 {
+		return Boom{At: s}
+	}
+	Enter[int]{Next: s + 1}
+}
+
+func boom() Machine[int, int, int, Boom] { Machine[int, int, int, Boom]{Initial: 0, Step: boomStep, After: untimed, Work: unworked} }
+
+func failedExit(n int) bool needs Scheduler {
+	let k = ((n % 4) + 4) % 4
+	let a = actor.StartMachine(boom(), 1, func(o int) {})
+	for _ in 0..k {
+		a.Send(1) catch {
+		case actor.Stopped:
+		}
+	}
+	a.Send(-1) catch {
+	case actor.Stopped:
+	}
+	failedAt(k, actor.ExitOf(a)) && failedAt(k, actor.ExitOf(a))
+}
+
+// failedAt is whether x is Failed with the state k.
+func failedAt(k int, x actor.Exit[int, int, Boom | Boom]) bool {
+	match x {
+	case actor.Failed as f:
+		match f.Error {
+		case Boom as b:
+			b.At == k
+		}
+	case _:
+		false
+	}
+}
+
+func FailedIsExit(n int) bool {
+	with context { Scheduler: time.NewManual(0) } {
+		failedExit(n)
 	}
 }
 
@@ -266,6 +312,8 @@ test ActorSelectByStops(xs []int) {
 }
 
 test ActorExitIsShared(signals []int) { assert ExitIsShared(signals) }
+
+test ActorFailedIsExit(n int) { assert FailedIsExit(n) }
 
 test ActorSelectOncePerChange(xs []int) { assert SelectOncePerChange(xs) }
 
@@ -416,6 +464,7 @@ var actorLawStatements = map[string]string{
 	"actor FeedStepsInOrder":    `FeedStepsInOrder(xs []int) { with context { Scheduler: time.NewManual(0) } { fed(xs) } }`,
 	"actor DoneIsFinal":         `DoneIsFinal(signals []int, e int) { with context { Scheduler: time.NewManual(0) } { doneFinal(signals, e) } }`,
 	"actor ExitIsShared":        `ExitIsShared(signals []int) { with context { Scheduler: time.NewManual(0) } { drainedExit(signals) } }`,
+	"actor FailedIsExit":        `FailedIsExit(n int) { with context { Scheduler: time.NewManual(0) } { failedExit(n) } }`,
 	"actor SelectStops":         `SelectStops(xs []int) { selectStops(Select(source(xs), func(x int) int { x % 3 })) }`,
 	"actor SelectByStops":       `SelectByStops(xs []int) { selectStops(SelectBy(source(xs), func(x int) int { x % 3 }, func(a int, b int) bool { a == b })) }`,
 	"actor SelectOncePerChange": `SelectOncePerChange(xs []int) { let mut want = []int{} for x in xs { if len(want) == 0 || want[len(want)-1] != x % 3 { want = want.Append(x % 3) } } let mut got = []int{} for v in Select(Seq[int](func(yield func(v int) bool) { for x in xs { if !yield(x) { return } } }), func(x int) int { x % 3 }) { got = got.Append(v) } let mut same = len(got) == len(want) for i in 0..len(got) { same = same && got[i] == want[i] } same }`,

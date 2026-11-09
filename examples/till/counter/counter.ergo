@@ -125,8 +125,11 @@ func Told(r till.Result) string {
 }
 
 // Ending is the line for the till's exit.
-func Ending(e actor.Exit[till.Sale, till.Result]) string {
+// Its Failed arm stays for a till whose step fails: this one never does.
+func Ending[F](e actor.Exit[till.Sale, till.Result, F]) string {
 	match e {
+	case actor.Failed[F]:
+		"failed"
 	case actor.Finished[till.Sale, till.Result] as f:
 		Told(f.Output)
 	case actor.Halted[till.Sale] as h:

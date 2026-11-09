@@ -272,8 +272,11 @@ func Run(clock time.Manual) needs Console | io.Stdin | Scheduler | signin.Codes 
 }
 
 // Ending is the line for the actor's exit.
-func Ending(e actor.Exit[signin.Flow, signin.Result]) string {
+// Its Failed arm stays for a flow whose step fails: this one never does.
+func Ending[F](e actor.Exit[signin.Flow, signin.Result, F]) string {
 	match e {
+	case actor.Failed[F]:
+		"failed"
 	case actor.Finished[signin.Flow, signin.Result] as f:
 		Told(f.Output)
 	case actor.Halted[signin.Flow] as h:

@@ -206,9 +206,9 @@ law CanIsTheStep(signals []int, e int) {
 	}
 }
 
-// exitParts is an exit as its variant (0 Finished, 1 Halted, 2 Defected),
-// its state and its output.
-func exitParts(x Exit[int, int]) (int, int, int) {
+// exitParts is an exit as its variant (0 Finished, 1 Halted, 2 Defected,
+// 3 Failed), its state and its output.
+func exitParts[F](x Exit[int, int, F]) (int, int, int) {
 	match x {
 	case Finished[int, int] as f:
 		(0, f.State, f.Output)
@@ -216,6 +216,8 @@ func exitParts(x Exit[int, int]) (int, int, int) {
 		(1, h.State, 0)
 	case Defected:
 		(2, 0, 0)
+	case Failed[F]:
+		(3, 0, 0)
 	}
 }
 
@@ -233,6 +235,58 @@ func drainedExit(signals []int) bool needs Scheduler {
 		kind = 0
 	}
 	k1 == k2 && s1 == s2 && o1 == o2 && k1 == kind && s1 == want && (!done || o1 == want)
+}
+
+// Boom is the typed failure of boomStep: the state at the first negative
+// signal.
+type Boom { At int }
+
+func boomStep(s int, e int) Decision[int, int] fails Boom {
+	if e < 0 {
+		return Boom{At: s}
+	}
+	Enter[int]{Next: s + 1}
+}
+
+func boom() Machine[int, int, int, Boom] { Machine[int, int, int, Boom]{Initial: 0, Step: boomStep, After: untimed, Work: unworked} }
+
+// failedExit sends n mod 4 signals and then one that fails: the failure
+// ends the actor, and each ExitOf gives it as Failed, with the state the
+// step failed in.
+func failedExit(n int) bool needs Scheduler {
+	let k = ((n % 4) + 4) % 4
+	let a = StartMachine(boom(), 1, func(o int) {})
+	for _ in 0..k {
+		a.Send(1) catch {
+		case Stopped:
+		}
+	}
+	a.Send(-1) catch {
+	case Stopped:
+	}
+	failedAt(k, ExitOf(a)) && failedAt(k, ExitOf(a))
+}
+
+// failedAt is whether x is Failed with the state k.
+func failedAt(k int, x Exit[int, int, Boom | Boom]) bool {
+	match x {
+	case Failed as f:
+		match f.Error {
+		case Boom as b:
+			b.At == k
+		}
+	case _:
+		false
+	}
+}
+
+// FailedIsExit: a step's typed failure after a Send ends the actor, and
+// its exit is Failed with that failure (owner q47), one value for every
+// caller.
+law FailedIsExit(n int) {
+	with context { Scheduler: time.NewManual(0) } {
+		failedExit(n)
+	}
 }
 
 // ExitIsShared: Drain steps every queued signal, and the exit is one

@@ -91,16 +91,24 @@ func Play(gets []Get, clock time.Manual) []string needs fetch.Source | Scheduler
 			clock.Advance(v.Wait)
 			now = now + v.Wait
 		}
-		match actor.ExitOf(a) {
-		case actor.Finished[fetch.File, fetch.End] as f:
-			lines = lines.Append("  @\(ms(now)) \(fetch.EndText(f.Output))")
-		case actor.Halted[fetch.File]:
-			lines = lines.Append("  @\(ms(now)) stopped")
-		case actor.Defected:
-			lines = lines.Append("  @\(ms(now)) defected")
-		}
+		lines = lines.Append("  @\(ms(now)) \(ending(actor.ExitOf(a)))")
 	}
 	lines
+}
+
+// ending is the word of a file's exit. Its Failed arm stays for a
+// download whose step fails: this one never does.
+func ending[F](e actor.Exit[fetch.File, fetch.End, F]) string {
+	match e {
+	case actor.Finished[fetch.File, fetch.End] as f:
+		fetch.EndText(f.Output)
+	case actor.Halted[fetch.File]:
+		"stopped"
+	case actor.Failed[F]:
+		"failed"
+	case actor.Defected:
+		"defected"
+	}
 }
 
 func ms(d duration) int64 { int64(d) / 1000000 }

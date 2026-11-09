@@ -492,17 +492,22 @@ type Halted[S] {
 // work). The defect itself is Stop's to raise.
 type Defected {}
 
-// Exit is how an actor ended, when no typed failure ended it: ExitOf
-// fails with that failure instead (a failure is a row, never a field).
-type Exit[S, O] = Finished[S, O] | Halted[S] | Defected
+// Failed is an actor that its step's typed failure ended, after a Send or
+// a timer: the failure, a value of the row F (owner q47; an Ask's failure
+// goes to the asker and ends nothing).
+type Failed[F] {
+	Error F,
+}
 
-// ExitOf waits until a has ended and is how it ended; it fails with the
-// step's typed failure that ended it after a Send or a timer (an Ask's
-// failure goes to the asker and ends nothing). The exit is one value:
-// every caller, at any time, gets the same, and Stop and Drain return the
-// same failure or raise the defect that Defected reports. A stop of the
-// waiting task ends the wait.
-func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O] fails F {
+// Exit is how an actor ended, as Effect's Exit is: done, stopped, failed
+// with a typed failure, or a defect.
+type Exit[S, O, F] = Finished[S, O] | Halted[S] | Failed[F] | Defected
+
+// ExitOf waits until a has ended and is how it ended. The exit is one
+// value: every caller, at any time, gets the same, and Stop and Drain
+// return the failure that Failed holds or raise the defect that Defected
+// reports. A stop of the waiting task ends the wait.
+func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
 	let k = exitKind(a)
 	if k == 0 {
 		match final(a) {
@@ -512,7 +517,10 @@ func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O] fails F {
 		}
 	}
 	if k == 2 {
-		try failure(a)
+		failure(a) catch {
+		case err:
+			return Failed[F]{Error: err}
+		}
 	}
 	if k == 3 {
 		return Defected
